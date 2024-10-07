@@ -26,7 +26,7 @@ import (
 
 	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	workloadapis "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
@@ -176,7 +176,7 @@ out:
 
 func (r *QoSRegionDedicatedNumaExclusive) getControlKnobs() types.ControlKnob {
 	reclaimedCPUSize := 0
-	if reclaimedInfo, ok := r.metaReader.GetPoolInfo(state.PoolNameReclaim); ok {
+	if reclaimedInfo, ok := r.metaReader.GetPoolInfo(commonstate.PoolNameReclaim); ok {
 		for _, numaID := range r.bindingNumas.ToSliceInt() {
 			reclaimedCPUSize += reclaimedInfo.TopologyAwareAssignments[numaID].Size()
 		}

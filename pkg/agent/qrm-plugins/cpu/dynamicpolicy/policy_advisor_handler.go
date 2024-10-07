@@ -32,6 +32,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
@@ -141,7 +142,7 @@ func (p *DynamicPolicy) GetCheckpoint(_ context.Context,
 			}
 
 			ownerPoolName := allocationInfo.GetOwnerPoolName()
-			if ownerPoolName == state.EmptyOwnerPoolName {
+			if ownerPoolName == commonstate.EmptyOwnerPoolName {
 				general.Warningf("pod: %s/%s container: %s get empty owner pool name",
 					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
 				if allocationInfo.CheckSideCar() {
@@ -157,7 +158,7 @@ func (p *DynamicPolicy) GetCheckpoint(_ context.Context,
 
 			// not set topology-aware assignments for shared_cores and reclaimed_cores,
 			// since their topology-aware assignments are same to the pools they are in.
-			if (!state.CheckShared(allocationInfo) && !state.CheckReclaimed(allocationInfo)) || containerEntries.IsPoolEntry() {
+			if (!allocationInfo.CheckShared() && !allocationInfo.CheckReclaimed()) || containerEntries.IsPoolEntry() {
 				chkEntries[uid].Entries[entryName].TopologyAwareAssignments = machine.ParseCPUAssignmentFormat(allocationInfo.TopologyAwareAssignments)
 				chkEntries[uid].Entries[entryName].OriginalTopologyAwareAssignments = machine.ParseCPUAssignmentFormat(allocationInfo.OriginalTopologyAwareAssignments)
 			}
@@ -318,12 +319,12 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 	// and calculate availableCPUs after deducting static pools
 	blockCPUSet := advisorapi.NewBlockCPUSet()
 	for _, poolName := range state.StaticPools.List() {
-		allocationInfo := p.state.GetAllocationInfo(poolName, state.FakedContainerName)
+		allocationInfo := p.state.GetAllocationInfo(poolName, commonstate.FakedContainerName)
 		if allocationInfo == nil {
 			continue
 		}
 
-		blocks, ok := resp.GeEntryNUMABlocks(poolName, state.FakedContainerName, state.FakedNUMAID)
+		blocks, ok := resp.GeEntryNUMABlocks(poolName, commonstate.FakedContainerName, commonstate.FakedNUMAID)
 		if !ok || len(blocks) != 1 {
 			return nil, fmt.Errorf("blocks of pool: %s is invalid", poolName)
 		}
@@ -336,7 +337,7 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 	// walk through all blocks with specified NUMA ids
 	// for each block, add them into blockCPUSet (if not exist) and renew availableCPUs
 	for numaID, blocks := range numaToBlocks {
-		if numaID == state.FakedNUMAID {
+		if numaID == commonstate.FakedNUMAID {
 			continue
 		}
 
@@ -374,7 +375,7 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 
 	// walk through all blocks without specified NUMA id
 	// for each block, add them into blockCPUSet (if not exist) and renew availableCPUs
-	for _, block := range numaToBlocks[state.FakedNUMAID] {
+	for _, block := range numaToBlocks[commonstate.FakedNUMAID] {
 		if block == nil {
 			general.Warningf("got nil block")
 			continue
@@ -430,7 +431,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 			if calculationInfo == nil {
 				general.Warningf("got nil calculationInfo entry: %s, subEntry: %s", entryName, subEntryName)
 				continue
-			} else if !(subEntryName == state.FakedContainerName || calculationInfo.OwnerPoolName == state.PoolNameDedicated) {
+			} else if !(subEntryName == commonstate.FakedContainerName || calculationInfo.OwnerPoolName == commonstate.PoolNameDedicated) {
 				continue
 			}
 
@@ -452,7 +453,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 			if allocationInfo == nil {
 				// currently, cpu advisor can only create new pools,
 				// all container entries or entries with owner pool name dedicated can't be created by cpu advisor
-				if calculationInfo.OwnerPoolName == state.PoolNameDedicated || subEntryName != state.FakedContainerName {
+				if calculationInfo.OwnerPoolName == commonstate.PoolNameDedicated || subEntryName != commonstate.FakedContainerName {
 					return fmt.Errorf("no-pool entry isn't found in plugin cache, entry: %s, subEntry: %s", entryName, subEntryName)
 				} else if entryName != calculationInfo.OwnerPoolName {
 					return fmt.Errorf("pool entryName: %s and OwnerPoolName: %s mismatch", entryName, calculationInfo.OwnerPoolName)
@@ -460,8 +461,10 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 
 				general.Infof("create new pool: %s cpuset result %s", entryName, entryCPUSet.String())
 				allocationInfo = &state.AllocationInfo{
-					PodUid:                           entryName,
-					OwnerPoolName:                    entryName,
+					AllocationMeta: &commonstate.AllocationMeta{
+						PodUid:        entryName,
+						OwnerPoolName: entryName,
+					},
 					AllocationResult:                 entryCPUSet.Clone(),
 					OriginalAllocationResult:         entryCPUSet.Clone(),
 					TopologyAwareAssignments:         topologyAwareAssignments,
@@ -487,7 +490,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 			pooledUnionDedicatedCPUSet = pooledUnionDedicatedCPUSet.Union(allocationInfo.AllocationResult)
 
 			// ramp-up finishes immediately for dedicated
-			if allocationInfo.OwnerPoolName == state.PoolNameDedicated {
+			if allocationInfo.OwnerPoolName == commonstate.PoolNameDedicated {
 				dedicatedCPUSet = dedicatedCPUSet.Union(allocationInfo.AllocationResult)
 				general.Infof("try to apply dedicated_cores: %s/%s %s: %s",
 					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, allocationInfo.AllocationResult.String())
@@ -499,7 +502,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 			} else {
 				_ = p.emitter.StoreInt64(util.MetricNamePoolSize, int64(allocationInfo.AllocationResult.Size()),
 					metrics.MetricTypeNameRaw, metrics.MetricTag{Key: "poolName", Val: allocationInfo.OwnerPoolName},
-					metrics.MetricTag{Key: "pool_type", Val: state.GetPoolType(allocationInfo.OwnerPoolName)})
+					metrics.MetricTag{Key: "pool_type", Val: commonstate.GetPoolType(allocationInfo.OwnerPoolName)})
 				general.Infof("try to apply pool %s: %s", allocationInfo.OwnerPoolName, allocationInfo.AllocationResult.String())
 			}
 		}
@@ -507,7 +510,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 
 	// if there is no block for state.PoolNameReclaim pool,
 	// we must make it existing here even if cause overlap
-	if newEntries.CheckPoolEmpty(state.PoolNameReclaim) {
+	if newEntries.CheckPoolEmpty(commonstate.PoolNameReclaim) {
 		reclaimPoolCPUSet := p.machineInfo.CPUDetails.CPUs().Difference(p.reservedCPUs).Difference(pooledUnionDedicatedCPUSet)
 		if reclaimPoolCPUSet.IsEmpty() {
 			allAvailableCPUs := p.machineInfo.CPUDetails.CPUs().Difference(p.reservedCPUs)
@@ -524,22 +527,24 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 		topologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, reclaimPoolCPUSet)
 		if err != nil {
 			return fmt.Errorf("unable to calculate topologyAwareAssignments for pool: %s, "+
-				"result cpuset: %s, error: %v", state.PoolNameReclaim, reclaimPoolCPUSet.String(), err)
+				"result cpuset: %s, error: %v", commonstate.PoolNameReclaim, reclaimPoolCPUSet.String(), err)
 		}
 
-		if newEntries[state.PoolNameReclaim] == nil {
-			newEntries[state.PoolNameReclaim] = make(state.ContainerEntries)
+		if newEntries[commonstate.PoolNameReclaim] == nil {
+			newEntries[commonstate.PoolNameReclaim] = make(state.ContainerEntries)
 		}
-		newEntries[state.PoolNameReclaim][state.FakedContainerName] = &state.AllocationInfo{
-			PodUid:                           state.PoolNameReclaim,
-			OwnerPoolName:                    state.PoolNameReclaim,
+		newEntries[commonstate.PoolNameReclaim][commonstate.FakedContainerName] = &state.AllocationInfo{
+			AllocationMeta: &commonstate.AllocationMeta{
+				PodUid:        commonstate.PoolNameReclaim,
+				OwnerPoolName: commonstate.PoolNameReclaim,
+			},
 			AllocationResult:                 reclaimPoolCPUSet.Clone(),
 			OriginalAllocationResult:         reclaimPoolCPUSet.Clone(),
 			TopologyAwareAssignments:         topologyAwareAssignments,
 			OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(topologyAwareAssignments),
 		}
 	} else {
-		general.Infof("detected reclaimPoolCPUSet: %s", newEntries[state.PoolNameReclaim][state.FakedContainerName].AllocationResult.String())
+		general.Infof("detected reclaimPoolCPUSet: %s", newEntries[commonstate.PoolNameReclaim][commonstate.FakedContainerName].AllocationResult.String())
 	}
 
 	// calculate rampUpCPUs
@@ -625,12 +630,12 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 						continue containerLoop
 					}
 
-					newEntries[podUID][containerName].OwnerPoolName = state.EmptyOwnerPoolName
+					newEntries[podUID][containerName].OwnerPoolName = commonstate.EmptyOwnerPoolName
 					newEntries[podUID][containerName].AllocationResult = rampUpCPUs.Clone()
 					newEntries[podUID][containerName].OriginalAllocationResult = rampUpCPUs.Clone()
 					newEntries[podUID][containerName].TopologyAwareAssignments = machine.DeepcopyCPUAssignment(rampUpCPUsTopologyAwareAssignments)
 					newEntries[podUID][containerName].OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(rampUpCPUsTopologyAwareAssignments)
-				} else if newEntries[ownerPoolName][state.FakedContainerName] == nil {
+				} else if newEntries[ownerPoolName][commonstate.FakedContainerName] == nil {
 					errMsg := fmt.Sprintf("cpu advisor doesn't return entry for pool: %s and it's referred by pod: %s/%s, container: %s, qosLevel: %s",
 						ownerPoolName, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, allocationInfo.QoSLevel)
 
@@ -643,12 +648,12 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 						metrics.MetricTag{Key: "poolName", Val: ownerPoolName})
 					return fmt.Errorf(errMsg)
 				} else {
-					poolEntry := newEntries[ownerPoolName][state.FakedContainerName]
+					poolEntry := newEntries[ownerPoolName][commonstate.FakedContainerName]
 
 					general.Infof("put pod: %s/%s container: %s to pool: %s, set its allocation result from %s to %s",
 						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, ownerPoolName, allocationInfo.AllocationResult.String(), poolEntry.AllocationResult.String())
 
-					if state.CheckSharedNUMABinding(allocationInfo) {
+					if allocationInfo.CheckSharedNUMABinding() {
 						poolEntry.QoSLevel = apiconsts.PodAnnotationQoSLevelSharedCores
 						// set SharedNUMABinding declarations to pool entry containing SharedNUMABinding containers,
 						// in order to differentiate them from normal share pools during GetFilteredPoolsCPUSetMap.

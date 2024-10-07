@@ -75,7 +75,7 @@ func (p *DynamicPolicy) checkCPUSet(_ *coreconfig.Configuration,
 		for containerName, allocationInfo := range containerEntries {
 			if allocationInfo == nil || !allocationInfo.CheckMainContainer() {
 				continue
-			} else if state.CheckShared(allocationInfo) && p.getContainerRequestedCores(allocationInfo) == 0 {
+			} else if allocationInfo.CheckShared() && p.getContainerRequestedCores(allocationInfo) == 0 {
 				general.Warningf("skip cpuset checking for pod: %s/%s container: %s with zero cpu request",
 					allocationInfo.PodNamespace, allocationInfo.PodName, containerName)
 				continue
@@ -115,7 +115,7 @@ func (p *DynamicPolicy) checkCPUSet(_ *coreconfig.Configuration,
 				allocationInfo.AllocationResult.String(), actualCPUSets[podUID][containerName].String())
 
 			// only do comparison for dedicated_cores with numa_biding to avoid effect of adjustment for shared_cores
-			if !state.CheckDedicated(allocationInfo) {
+			if !allocationInfo.CheckDedicated() {
 				continue
 			}
 

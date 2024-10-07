@@ -24,7 +24,7 @@ import (
 	"k8s.io/klog/v2"
 
 	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
@@ -104,7 +104,7 @@ func (ha *HeadroomAssemblerCommon) GetHeadroom() (resource.Quantity, error) {
 	}
 
 	// add non binding reclaim pool size
-	reclaimPoolInfo, reclaimPoolExist := ha.metaReader.GetPoolInfo(state.PoolNameReclaim)
+	reclaimPoolInfo, reclaimPoolExist := ha.metaReader.GetPoolInfo(commonstate.PoolNameReclaim)
 	if reclaimPoolExist && reclaimPoolInfo != nil {
 		reclaimPoolNUMAs := machine.GetCPUAssignmentNUMAs(reclaimPoolInfo.TopologyAwareAssignments)
 

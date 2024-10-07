@@ -29,6 +29,7 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	nativepolicyutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/nativepolicy/util"
@@ -458,9 +459,9 @@ func (p *NativePolicy) GetResourcesAllocation(_ context.Context,
 
 			resultCPUSet := machine.NewCPUSet()
 			switch allocationInfo.OwnerPoolName {
-			case state.PoolNameDedicated:
+			case commonstate.PoolNameDedicated:
 				resultCPUSet = allocationInfo.AllocationResult
-			case state.PoolNameShare:
+			case commonstate.PoolNameShare:
 				resultCPUSet = defaultCPUSet
 
 				if !allocationInfo.AllocationResult.Equals(defaultCPUSet) {
@@ -530,7 +531,7 @@ func (p *NativePolicy) GetTopologyAwareResources(_ context.Context,
 		},
 	}
 
-	if allocationInfo.OwnerPoolName == state.PoolNameDedicated {
+	if allocationInfo.OwnerPoolName == commonstate.PoolNameDedicated {
 		resp.ContainerTopologyAwareResources.AllocatedResources[string(v1.ResourceCPU)] = &pluginapi.TopologyAwareResource{
 			IsNodeResource:                    false,
 			IsScalarResource:                  true,

@@ -33,7 +33,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/resource/cpu"
@@ -170,9 +170,9 @@ func TestLoadIsolator(t *testing.T) {
 	// construct containers
 	containers := []*types.ContainerInfo{
 		makeContainerInfo("uid1", "default", "pod1", "c1-1",
-			consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil, map[int]machine.CPUSet{}, 0, 4),
+			consts.PodAnnotationQoSLevelSharedCores, commonstate.PoolNameShare, nil, map[int]machine.CPUSet{}, 0, 4),
 		makeContainerInfo("uid1", "default", "pod1", "c1-2",
-			consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil, map[int]machine.CPUSet{}, 4, 0),
+			consts.PodAnnotationQoSLevelSharedCores, commonstate.PoolNameShare, nil, map[int]machine.CPUSet{}, 4, 0),
 
 		makeContainerInfo("uid2", "default", "pod2", "c2-1",
 			consts.PodAnnotationQoSLevelSharedCores, "batch", nil, map[int]machine.CPUSet{}, 0, 4),
@@ -190,16 +190,16 @@ func TestLoadIsolator(t *testing.T) {
 			consts.PodAnnotationQoSLevelDedicatedCores, "", nil, map[int]machine.CPUSet{}, 4, 4),
 
 		makeContainerInfo("uid5", "default", "pod5", "c5-1",
-			consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil, map[int]machine.CPUSet{}, 0, 4),
+			consts.PodAnnotationQoSLevelSharedCores, commonstate.PoolNameShare, nil, map[int]machine.CPUSet{}, 0, 4),
 		makeContainerInfo("uid5", "default", "pod5", "c5-2",
-			consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil, map[int]machine.CPUSet{}, 0, 4),
+			consts.PodAnnotationQoSLevelSharedCores, commonstate.PoolNameShare, nil, map[int]machine.CPUSet{}, 0, 4),
 
 		makeContainerInfo("uid6", "default", "pod6", "c6-1",
-			consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil, map[int]machine.CPUSet{}, 0, 4),
+			consts.PodAnnotationQoSLevelSharedCores, commonstate.PoolNameShare, nil, map[int]machine.CPUSet{}, 0, 4),
 		makeContainerInfo("uid6", "default", "pod6", "c6-2",
-			consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil, map[int]machine.CPUSet{}, 0, 4),
+			consts.PodAnnotationQoSLevelSharedCores, commonstate.PoolNameShare, nil, map[int]machine.CPUSet{}, 0, 4),
 		makeContainerInfo("uid6", "default", "pod6", "c6-3",
-			consts.PodAnnotationQoSLevelSharedCores, state.PoolNameShare, nil, map[int]machine.CPUSet{}, 4, 0),
+			consts.PodAnnotationQoSLevelSharedCores, commonstate.PoolNameShare, nil, map[int]machine.CPUSet{}, 4, 0),
 
 		makeContainerInfo("uid7", "default", "pod7", "c7-1",
 			consts.PodAnnotationQoSLevelSharedCores, "batch", nil, map[int]machine.CPUSet{}, 0, 4),
@@ -214,10 +214,10 @@ func TestLoadIsolator(t *testing.T) {
 
 	// construct pools
 	pools := map[string]*types.PoolInfo{
-		state.PoolNameReserve: {},
-		state.PoolNameShare:   {},
-		"batch":               {},
-		"flink":               {},
+		commonstate.PoolNameReserve: {},
+		commonstate.PoolNameShare:   {},
+		"batch":                     {},
+		"flink":                     {},
 	}
 	for poolName, poolInfo := range pools {
 		err := metaCache.SetPoolInfo(poolName, poolInfo)
@@ -273,7 +273,7 @@ func TestLoadIsolator(t *testing.T) {
 				IsolatedMaxPoolResourceRatios: map[string]float32{},
 				IsolatedMaxPodRatio:           1,
 				IsolationDisabled:             false,
-				IsolationDisabledPools:        sets.NewString(state.PoolNameShare),
+				IsolationDisabledPools:        sets.NewString(commonstate.PoolNameShare),
 			},
 			expects: []string{"uid2"},
 		},
