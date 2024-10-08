@@ -1386,7 +1386,7 @@ func (m *InferenceRequest) Unmarshal(dAtA []byte) error {
 					if err != nil {
 						return err
 					}
-					if skippy < 0 {
+					if (skippy < 0) || (iNdEx+skippy) < 0 {
 						return ErrInvalidLengthInferenceSvc
 					}
 					if (iNdEx + skippy) > postIndex {
@@ -1403,10 +1403,7 @@ func (m *InferenceRequest) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthInferenceSvc
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthInferenceSvc
 			}
 			if (iNdEx + skippy) > l {
@@ -1568,7 +1565,7 @@ func (m *ContainerRequestEntries) Unmarshal(dAtA []byte) error {
 					if err != nil {
 						return err
 					}
-					if skippy < 0 {
+					if (skippy < 0) || (iNdEx+skippy) < 0 {
 						return ErrInvalidLengthInferenceSvc
 					}
 					if (iNdEx + skippy) > postIndex {
@@ -1585,10 +1582,7 @@ func (m *ContainerRequestEntries) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthInferenceSvc
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthInferenceSvc
 			}
 			if (iNdEx + skippy) > l {
@@ -1670,10 +1664,7 @@ func (m *FeatureValues) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthInferenceSvc
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthInferenceSvc
 			}
 			if (iNdEx + skippy) > l {
@@ -1835,7 +1826,7 @@ func (m *InferenceResponse) Unmarshal(dAtA []byte) error {
 					if err != nil {
 						return err
 					}
-					if skippy < 0 {
+					if (skippy < 0) || (iNdEx+skippy) < 0 {
 						return ErrInvalidLengthInferenceSvc
 					}
 					if (iNdEx + skippy) > postIndex {
@@ -1852,10 +1843,7 @@ func (m *InferenceResponse) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthInferenceSvc
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthInferenceSvc
 			}
 			if (iNdEx + skippy) > l {
@@ -2017,7 +2005,7 @@ func (m *ContainerResponseEntries) Unmarshal(dAtA []byte) error {
 					if err != nil {
 						return err
 					}
-					if skippy < 0 {
+					if (skippy < 0) || (iNdEx+skippy) < 0 {
 						return ErrInvalidLengthInferenceSvc
 					}
 					if (iNdEx + skippy) > postIndex {
@@ -2034,10 +2022,7 @@ func (m *ContainerResponseEntries) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthInferenceSvc
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthInferenceSvc
 			}
 			if (iNdEx + skippy) > l {
@@ -2121,10 +2106,7 @@ func (m *InferenceResults) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthInferenceSvc
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthInferenceSvc
 			}
 			if (iNdEx + skippy) > l {
@@ -2267,10 +2249,7 @@ func (m *InferenceResult) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthInferenceSvc
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthInferenceSvc
 			}
 			if (iNdEx + skippy) > l {
