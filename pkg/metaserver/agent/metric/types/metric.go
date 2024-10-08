@@ -76,6 +76,9 @@ type MetricsReader interface {
 	GetContainerMetric(podUID, containerName, metricName string) (metric.MetricData, error)
 	// GetContainerNumaMetric get metric of container per numa.
 	GetContainerNumaMetric(podUID, containerName, numaNode, metricName string) (metric.MetricData, error)
+	// GetContainerNumaMetrics get metrics of container for all numas
+	GetContainerNumaMetrics(podUID, containerName, metricName string) (map[string]metric.MetricData, error)
+
 	// GetPodVolumeMetric get metric of pod volume.
 	GetPodVolumeMetric(podUID, volumeName, metricName string) (metric.MetricData, error)
 
