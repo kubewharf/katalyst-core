@@ -5374,7 +5374,7 @@ func TestSNBAdmitWithSidecarReallocate(t *testing.T) {
 	t.Parallel()
 	as := require.New(t)
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint-TestSNBAdmit")
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestSNBAdmitWithSidecarReallocate")
 	as.Nil(err)
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
@@ -5492,4 +5492,89 @@ func TestSNBAdmitWithSidecarReallocate(t *testing.T) {
 	as.Nil(err)
 	sidecarAllocation = dynamicPolicy.state.GetAllocationInfo(podUID, sidecarName)
 	as.NotNil(sidecarAllocation)
+}
+
+func TestSNBCpuRequestWithFloat(t *testing.T) {
+	t.Parallel()
+	as := require.New(t)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestSNBCpuRequestWithFloat")
+	as.Nil(err)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(12, 1, 1)
+	as.Nil(err)
+
+	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
+	as.Nil(err)
+
+	dynamicPolicy.podAnnotationKeptKeys = []string{
+		consts.PodAnnotationMemoryEnhancementNumaBinding,
+		consts.PodAnnotationInplaceUpdateResizingKey,
+		consts.PodAnnotationAggregatedRequestsKey,
+	}
+
+	testName := "test"
+	podUID := string(uuid.NewUUID())
+
+	req := &pluginapi.ResourceRequest{
+		PodUid:         podUID,
+		PodNamespace:   testName,
+		PodName:        testName,
+		ContainerName:  "test1",
+		ContainerType:  pluginapi.ContainerType_MAIN,
+		ContainerIndex: 0,
+		ResourceName:   string(v1.ResourceCPU),
+		ResourceRequests: map[string]float64{
+			string(v1.ResourceCPU): 9.5,
+		},
+		Labels: map[string]string{
+			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+		},
+		Annotations: map[string]string{
+			consts.PodAnnotationQoSLevelKey:           consts.PodAnnotationQoSLevelSharedCores,
+			consts.PodAnnotationMemoryEnhancementKey:  `{"numa_binding": "true", "numa_exclusive": "false"}`,
+			consts.PodAnnotationAggregatedRequestsKey: `{"cpu": 9.5}`,
+		},
+	}
+
+	res, err := dynamicPolicy.GetTopologyHints(context.Background(), req)
+	as.Nil(err)
+	hints := res.ResourceHints[string(v1.ResourceCPU)].Hints
+	as.NotZero(len(hints))
+	req.Hint = hints[0]
+
+	_, err = dynamicPolicy.Allocate(context.Background(), req)
+	as.Nil(err)
+
+	// admit another pod with 0.5c
+	req2 := &pluginapi.ResourceRequest{
+		PodUid:         podUID,
+		PodNamespace:   testName,
+		PodName:        testName,
+		ContainerName:  "test2",
+		ContainerType:  pluginapi.ContainerType_MAIN,
+		ContainerIndex: 0,
+		ResourceName:   string(v1.ResourceCPU),
+		ResourceRequests: map[string]float64{
+			string(v1.ResourceCPU): 0.5,
+		},
+		Labels: map[string]string{
+			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+		},
+		Annotations: map[string]string{
+			consts.PodAnnotationQoSLevelKey:           consts.PodAnnotationQoSLevelSharedCores,
+			consts.PodAnnotationMemoryEnhancementKey:  `{"numa_binding": "true", "numa_exclusive": "false"}`,
+			consts.PodAnnotationAggregatedRequestsKey: `{"cpu": 0.5}`,
+		},
+	}
+
+	res2, err := dynamicPolicy.GetTopologyHints(context.Background(), req2)
+	as.Nil(err)
+	hints2 := res2.ResourceHints[string(v1.ResourceCPU)].Hints
+	as.NotZero(len(hints2))
+	req2.Hint = hints2[0]
+
+	_, err = dynamicPolicy.Allocate(context.Background(), req2)
+	as.Nil(err)
 }

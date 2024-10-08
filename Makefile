@@ -122,7 +122,7 @@ vet: ## Run go vet against code.
 
 .PHONY: test
 test: ## Run go test against code.
-	go test -v -coverprofile=coverage.txt -parallel=16 -p=16 -covermode=atomic -race -coverpkg=./... \
+	go test -v -json -coverprofile=coverage.txt -parallel=16 -p=16 -covermode=atomic -race -coverpkg=./... \
 		`go list ./pkg/... | grep -E -v "pkg/scheduler|pkg/controller/resource-recommend|pkg/util/resource-recommend"`
 
 .PHONY: license
