@@ -28,6 +28,7 @@ var _ checkpointmanager.Checkpoint = &CPUPluginCheckpoint{}
 type CPUPluginCheckpoint struct {
 	PolicyName                            string            `json:"policyName"`
 	MachineState                          NUMANodeMap       `json:"machineState"`
+	NUMAHeadroom                          map[int]float64   `json:"numa_headroom"`
 	PodEntries                            PodEntries        `json:"pod_entries"`
 	AllowSharedCoresOverlapReclaimedCores bool              `json:"allow_shared_cores_overlap_reclaimed_cores"`
 	Checksum                              checksum.Checksum `json:"checksum"`
@@ -37,6 +38,7 @@ func NewCPUPluginCheckpoint() *CPUPluginCheckpoint {
 	return &CPUPluginCheckpoint{
 		PodEntries:   make(PodEntries),
 		MachineState: make(NUMANodeMap),
+		NUMAHeadroom: make(map[int]float64),
 	}
 }
 
