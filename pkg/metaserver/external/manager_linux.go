@@ -27,6 +27,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/external/cgroupid"
+	"github.com/kubewharf/katalyst-core/pkg/util/external/mbm"
 	"github.com/kubewharf/katalyst-core/pkg/util/external/network"
 	"github.com/kubewharf/katalyst-core/pkg/util/external/rdt"
 )
@@ -43,6 +44,7 @@ type externalManagerImpl struct {
 
 	network.NetworkManager
 	rdt.RDTManager
+	mbm.MBAdjuster
 }
 
 // InitExternalManager initializes an externalManagerImpl
@@ -53,6 +55,7 @@ func InitExternalManager(podFetcher pod.PodFetcher) ExternalManager {
 			CgroupIDManager: cgroupid.NewCgroupIDManager(podFetcher),
 			NetworkManager:  network.NewNetworkManager(),
 			RDTManager:      rdt.NewDefaultManager(),
+			MBAdjuster:      mbm.NewMBAdjuster(),
 		}
 	})
 

@@ -36,6 +36,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
+      - name: Install libpci
+        run: sudo apt install -y libpci-dev
       - name: Verify govet
         run: |
           make vet && git add pkg cmd &&
@@ -50,6 +52,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
+      - name: Install libpci
+        run: sudo apt update -y && sudo apt install -y libpci-dev
       - uses: golangci/golangci-lint-action@v3
         with:
           args: --verbose --out-${NO_FUTURE}format colored-line-number --config .golangci.yml
@@ -64,6 +68,8 @@ jobs:
       - uses: actions/setup-go@v3
         with:
           go-version-file: go.mod
+      - name: Install libpci
+        run: sudo apt install -y libpci-dev
       - name: Build
         run: make all-binaries
 
@@ -76,6 +82,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
+      - name: Install libpci
+        run: sudo apt update -y && sudo apt install -y libpci-dev
       - name: Check parallel
         run: |
           echo "refer to https://github.com/kunwardeep/paralleltest for detailed info" &&
@@ -90,6 +98,8 @@ jobs:
       - uses: actions/setup-go@v3
         with:
           go-version-file: go.mod
+      - name: Install libpci
+        run: sudo apt update -y && sudo apt install -y libpci-dev
       - name: Coverage
         run: sudo make test
       - name: Check the number of changed lines

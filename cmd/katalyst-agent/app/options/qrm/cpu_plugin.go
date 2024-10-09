@@ -17,6 +17,8 @@ limitations under the License.
 package qrm
 
 import (
+	"time"
+
 	cliflag "k8s.io/component-base/cli/flag"
 
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
@@ -41,6 +43,9 @@ type CPUDynamicPolicyOptions struct {
 	EnableCPUIdle                 bool
 	CPUNUMAHintPreferPolicy       string
 	CPUNUMAHintPreferLowThreshold float64
+	EnableMBM                     bool
+	MBMControlInterval            time.Duration
+	MBMBandwidthThreshold         int
 }
 
 type CPUNativePolicyOptions struct {
@@ -65,6 +70,9 @@ func NewCPUOptions() *CPUOptions {
 				state.PoolNameFallback,
 				state.PoolNameReserve,
 			},
+			EnableMBM:             false,
+			MBMControlInterval:    cpuconsts.MBMControlInterval,
+			MBMBandwidthThreshold: cpuconsts.MBMBandwidthThreshold,
 		},
 		CPUNativePolicyOptions: CPUNativePolicyOptions{
 			EnableFullPhysicalCPUsOnly: false,
@@ -97,6 +105,12 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"it decides hint preference calculation strategy")
 	fs.Float64Var(&o.CPUNUMAHintPreferLowThreshold, "cpu-numa-hint-prefer-low-threshold", o.CPUNUMAHintPreferLowThreshold,
 		"it indicates threshold to apply CPUNUMAHintPreferPolicy dynamically, and it's working when CPUNUMAHintPreferPolicy is set to dynamic_packing")
+	fs.BoolVar(&o.EnableMBM, "enable-mbm", o.EnableMBM,
+		"if set true, we will enable MBM(memory bandwidth management) for cpu cores sharing numa memory bus")
+	fs.DurationVar(&o.MBMControlInterval, "mbm-control-interval", o.MBMControlInterval,
+		"mbm control interval; default 1s")
+	fs.IntVar(&o.MBMBandwidthThreshold, "mbm-latency-threshold", o.MBMBandwidthThreshold,
+		"mem bandwidth threshold in MB per second; default 14000 MBps")
 	fs.StringVar(&o.CPUAllocationOption, "cpu-allocation-option",
 		o.CPUAllocationOption, "The allocation option of cpu (packed/distributed). The default value is packed."+
 			"in cases where more than one NUMA node is required to satisfy the allocation.")
@@ -118,5 +132,8 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 	conf.CPUAllocationOption = o.CPUAllocationOption
 	conf.CPUNUMAHintPreferPolicy = o.CPUNUMAHintPreferPolicy
 	conf.CPUNUMAHintPreferLowThreshold = o.CPUNUMAHintPreferLowThreshold
+	conf.EnableMBM = o.EnableMBM
+	conf.MBMControlInterval = o.MBMControlInterval
+	conf.MBMBandwidthThreshold = o.MBMBandwidthThreshold
 	return nil
 }
