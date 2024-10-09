@@ -736,13 +736,22 @@ func (p *DynamicPolicy) handleAdvisorMemoryOffloading(_ *config.Configuration,
 		}
 	}
 
+	cpuSetStats, err := cgroupmgr.GetCPUSetWithAbsolutePath(absCGPath)
+	if err != nil {
+		return fmt.Errorf("GetCPUSetWithAbsolutePath failed with error: %v", err)
+	}
+	mems, err := machine.Parse(cpuSetStats.Mems)
+	if err != nil {
+		return fmt.Errorf("parse cpuSetStats failed with error: %v", err)
+	}
+
 	// start a asynchronous work to execute memory offloading
 	err = p.defaultAsyncLimitedWorkers.AddWork(
 		&asyncworker.Work{
 			Name:        memoryOffloadingWorkName,
 			UID:         uuid.NewUUID(),
 			Fn:          cgroupmgr.MemoryOffloadingWithAbsolutePath,
-			Params:      []interface{}{absCGPath, memoryOffloadingSizeInBytesInt64},
+			Params:      []interface{}{absCGPath, memoryOffloadingSizeInBytesInt64, mems},
 			DeliveredAt: time.Now(),
 		}, asyncworker.DuplicateWorkPolicyOverride)
 	if err != nil {
