@@ -25,7 +25,7 @@ import (
 
 	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -62,7 +62,7 @@ func NewQoSRegionShare(ci *types.ContainerInfo, conf *config.Configuration, extr
 	//	When receive a new pod with new share pool from QRM, advisor should create a new share region with OwnerPoolName (OriginOwnerPoolName == OwnerPoolName).
 	// Case 2. create a share pool with OriginOwnerPoolName:
 	//	When put isolation pods back to share pool, advisor should create a new share region with OriginOwnerPoolName (OriginOwnerPoolName != OwnerPoolName).
-	isNumaBinding := numaID != state.FakedNUMAID
+	isNumaBinding := numaID != commonstate.FakedNUMAID
 	r := &QoSRegionShare{
 		QoSRegionBase: NewQoSRegionBase(regionName, ci.OriginOwnerPoolName, configapi.QoSRegionTypeShare, conf, extraConf, isNumaBinding, metaReader, metaServer, emitter),
 	}

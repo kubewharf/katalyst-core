@@ -39,8 +39,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
-	qrmstate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	memadvisorplugin "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/memory/plugin"
@@ -61,10 +60,10 @@ import (
 )
 
 var qosLevel2PoolName = map[string]string{
-	consts.PodAnnotationQoSLevelSharedCores:    qrmstate.PoolNameShare,
-	consts.PodAnnotationQoSLevelReclaimedCores: qrmstate.PoolNameReclaim,
-	consts.PodAnnotationQoSLevelSystemCores:    qrmstate.PoolNameReserve,
-	consts.PodAnnotationQoSLevelDedicatedCores: qrmstate.PoolNameDedicated,
+	consts.PodAnnotationQoSLevelSharedCores:    commonstate.PoolNameShare,
+	consts.PodAnnotationQoSLevelReclaimedCores: commonstate.PoolNameReclaim,
+	consts.PodAnnotationQoSLevelSystemCores:    commonstate.PoolNameReserve,
+	consts.PodAnnotationQoSLevelDedicatedCores: commonstate.PoolNameDedicated,
 }
 
 func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel string, annotations map[string]string,
@@ -454,8 +453,8 @@ func TestUpdate(t *testing.T) {
 		{
 			name: "reserve pool only",
 			pools: map[string]*types.PoolInfo{
-				state.PoolNameReserve: {
-					PoolName: state.PoolNameReserve,
+				commonstate.PoolNameReserve: {
+					PoolName: commonstate.PoolNameReserve,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("0"),
 						1: machine.MustParse("24"),
@@ -475,8 +474,8 @@ func TestUpdate(t *testing.T) {
 		{
 			name: "normal case",
 			pools: map[string]*types.PoolInfo{
-				state.PoolNameReserve: {
-					PoolName: state.PoolNameReserve,
+				commonstate.PoolNameReserve: {
+					PoolName: commonstate.PoolNameReserve,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("0"),
 						1: machine.MustParse("24"),
@@ -486,8 +485,8 @@ func TestUpdate(t *testing.T) {
 						1: machine.MustParse("24"),
 					},
 				},
-				state.PoolNameShare: {
-					PoolName: state.PoolNameShare,
+				commonstate.PoolNameShare: {
+					PoolName: commonstate.PoolNameShare,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("1"),
 						1: machine.MustParse("25"),
@@ -523,8 +522,8 @@ func TestUpdate(t *testing.T) {
 		{
 			name: "reclaimed disable case",
 			pools: map[string]*types.PoolInfo{
-				state.PoolNameReserve: {
-					PoolName: state.PoolNameReserve,
+				commonstate.PoolNameReserve: {
+					PoolName: commonstate.PoolNameReserve,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("0"),
 						1: machine.MustParse("24"),
@@ -534,8 +533,8 @@ func TestUpdate(t *testing.T) {
 						1: machine.MustParse("24"),
 					},
 				},
-				state.PoolNameShare: {
-					PoolName: state.PoolNameShare,
+				commonstate.PoolNameShare: {
+					PoolName: commonstate.PoolNameShare,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("1"),
 						1: machine.MustParse("25"),
@@ -571,8 +570,8 @@ func TestUpdate(t *testing.T) {
 		{
 			name: "node pressure drop cache",
 			pools: map[string]*types.PoolInfo{
-				state.PoolNameReserve: {
-					PoolName: state.PoolNameReserve,
+				commonstate.PoolNameReserve: {
+					PoolName: commonstate.PoolNameReserve,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("0"),
 						1: machine.MustParse("24"),
@@ -643,8 +642,8 @@ func TestUpdate(t *testing.T) {
 		{
 			name: "numa0 pressure drop cache",
 			pools: map[string]*types.PoolInfo{
-				state.PoolNameReserve: {
-					PoolName: state.PoolNameReserve,
+				commonstate.PoolNameReserve: {
+					PoolName: commonstate.PoolNameReserve,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("0"),
 						1: machine.MustParse("24"),
@@ -739,8 +738,8 @@ func TestUpdate(t *testing.T) {
 		{
 			name: "set reclaimed group memory limit(succeeded)",
 			pools: map[string]*types.PoolInfo{
-				state.PoolNameReserve: {
-					PoolName: state.PoolNameReserve,
+				commonstate.PoolNameReserve: {
+					PoolName: commonstate.PoolNameReserve,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("0"),
 						1: machine.MustParse("24"),
@@ -771,8 +770,8 @@ func TestUpdate(t *testing.T) {
 		{
 			name: "set reclaimed group memory limit(failed)",
 			pools: map[string]*types.PoolInfo{
-				state.PoolNameReserve: {
-					PoolName: state.PoolNameReserve,
+				commonstate.PoolNameReserve: {
+					PoolName: commonstate.PoolNameReserve,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("0"),
 						1: machine.MustParse("24"),
@@ -796,8 +795,8 @@ func TestUpdate(t *testing.T) {
 		{
 			name: "memory offloading",
 			pools: map[string]*types.PoolInfo{
-				state.PoolNameReserve: {
-					PoolName: state.PoolNameReserve,
+				commonstate.PoolNameReserve: {
+					PoolName: commonstate.PoolNameReserve,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("0"),
 						1: machine.MustParse("24"),
@@ -1275,8 +1274,8 @@ func TestUpdate(t *testing.T) {
 		{
 			name: "bind memset",
 			pools: map[string]*types.PoolInfo{
-				state.PoolNameReserve: {
-					PoolName: state.PoolNameReserve,
+				commonstate.PoolNameReserve: {
+					PoolName: commonstate.PoolNameReserve,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("0"),
 						1: machine.MustParse("24"),
@@ -1339,8 +1338,8 @@ func TestUpdate(t *testing.T) {
 		{
 			name: "bind memset(numa1 pressure)",
 			pools: map[string]*types.PoolInfo{
-				state.PoolNameReserve: {
-					PoolName: state.PoolNameReserve,
+				commonstate.PoolNameReserve: {
+					PoolName: commonstate.PoolNameReserve,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("0"),
 						1: machine.MustParse("24"),
@@ -1444,8 +1443,8 @@ func TestUpdate(t *testing.T) {
 		{
 			name: "bind memset(numa1-3 pressure)",
 			pools: map[string]*types.PoolInfo{
-				state.PoolNameReserve: {
-					PoolName: state.PoolNameReserve,
+				commonstate.PoolNameReserve: {
+					PoolName: commonstate.PoolNameReserve,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("0"),
 						1: machine.MustParse("24"),
@@ -1549,8 +1548,8 @@ func TestUpdate(t *testing.T) {
 		{
 			name: "numa memory balance(grace balance)",
 			pools: map[string]*types.PoolInfo{
-				state.PoolNameReserve: {
-					PoolName: state.PoolNameReserve,
+				commonstate.PoolNameReserve: {
+					PoolName: commonstate.PoolNameReserve,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("0"),
 						1: machine.MustParse("0"),
@@ -1564,8 +1563,8 @@ func TestUpdate(t *testing.T) {
 						3: machine.MustParse("0"),
 					},
 				},
-				state.PoolNameShare: {
-					PoolName: state.PoolNameShare,
+				commonstate.PoolNameShare: {
+					PoolName: commonstate.PoolNameShare,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("1"),
 						1: machine.MustParse("24"),
@@ -1575,8 +1574,8 @@ func TestUpdate(t *testing.T) {
 						1: machine.MustParse("24"),
 					},
 				},
-				state.PoolNameReclaim: {
-					PoolName: state.PoolNameReclaim,
+				commonstate.PoolNameReclaim: {
+					PoolName: commonstate.PoolNameReclaim,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("2"),
 						1: machine.MustParse("25"),
@@ -1708,8 +1707,8 @@ func TestUpdate(t *testing.T) {
 		{
 			name: "numa memory balance(force balance,evict)",
 			pools: map[string]*types.PoolInfo{
-				state.PoolNameReserve: {
-					PoolName: state.PoolNameReserve,
+				commonstate.PoolNameReserve: {
+					PoolName: commonstate.PoolNameReserve,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("0"),
 						1: machine.MustParse("0"),
@@ -1723,8 +1722,8 @@ func TestUpdate(t *testing.T) {
 						3: machine.MustParse("0"),
 					},
 				},
-				state.PoolNameShare: {
-					PoolName: state.PoolNameShare,
+				commonstate.PoolNameShare: {
+					PoolName: commonstate.PoolNameShare,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("1"),
 						1: machine.MustParse("24"),
@@ -1734,8 +1733,8 @@ func TestUpdate(t *testing.T) {
 						1: machine.MustParse("24"),
 					},
 				},
-				state.PoolNameReclaim: {
-					PoolName: state.PoolNameReclaim,
+				commonstate.PoolNameReclaim: {
+					PoolName: commonstate.PoolNameReclaim,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("2"),
 						1: machine.MustParse("25"),
@@ -1861,8 +1860,8 @@ func TestUpdate(t *testing.T) {
 		{
 			name: "numa memory balance(force balance,no reclaimed pod)",
 			pools: map[string]*types.PoolInfo{
-				state.PoolNameReserve: {
-					PoolName: state.PoolNameReserve,
+				commonstate.PoolNameReserve: {
+					PoolName: commonstate.PoolNameReserve,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("0"),
 						1: machine.MustParse("0"),
@@ -1876,8 +1875,8 @@ func TestUpdate(t *testing.T) {
 						3: machine.MustParse("0"),
 					},
 				},
-				state.PoolNameShare: {
-					PoolName: state.PoolNameShare,
+				commonstate.PoolNameShare: {
+					PoolName: commonstate.PoolNameShare,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("1"),
 						1: machine.MustParse("24"),
@@ -1993,8 +1992,8 @@ func TestUpdate(t *testing.T) {
 		{
 			name: "numa memory balance(grace balance,latency gap)",
 			pools: map[string]*types.PoolInfo{
-				state.PoolNameReserve: {
-					PoolName: state.PoolNameReserve,
+				commonstate.PoolNameReserve: {
+					PoolName: commonstate.PoolNameReserve,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("0"),
 						1: machine.MustParse("0"),
@@ -2008,8 +2007,8 @@ func TestUpdate(t *testing.T) {
 						3: machine.MustParse("0"),
 					},
 				},
-				state.PoolNameShare: {
-					PoolName: state.PoolNameShare,
+				commonstate.PoolNameShare: {
+					PoolName: commonstate.PoolNameShare,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("1"),
 						1: machine.MustParse("24"),
@@ -2019,8 +2018,8 @@ func TestUpdate(t *testing.T) {
 						1: machine.MustParse("24"),
 					},
 				},
-				state.PoolNameReclaim: {
-					PoolName: state.PoolNameReclaim,
+				commonstate.PoolNameReclaim: {
+					PoolName: commonstate.PoolNameReclaim,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("2"),
 						1: machine.MustParse("25"),
@@ -2152,8 +2151,8 @@ func TestUpdate(t *testing.T) {
 		{
 			name: "numa memory balance(force balance,bandwidth level medium)",
 			pools: map[string]*types.PoolInfo{
-				state.PoolNameReserve: {
-					PoolName: state.PoolNameReserve,
+				commonstate.PoolNameReserve: {
+					PoolName: commonstate.PoolNameReserve,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("0"),
 						1: machine.MustParse("0"),
@@ -2167,8 +2166,8 @@ func TestUpdate(t *testing.T) {
 						3: machine.MustParse("0"),
 					},
 				},
-				state.PoolNameShare: {
-					PoolName: state.PoolNameShare,
+				commonstate.PoolNameShare: {
+					PoolName: commonstate.PoolNameShare,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("1"),
 						1: machine.MustParse("24"),
@@ -2286,8 +2285,8 @@ func TestUpdate(t *testing.T) {
 		{
 			name: "numa memory balance(force balance,bandwidth level low)",
 			pools: map[string]*types.PoolInfo{
-				state.PoolNameReserve: {
-					PoolName: state.PoolNameReserve,
+				commonstate.PoolNameReserve: {
+					PoolName: commonstate.PoolNameReserve,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("0"),
 						1: machine.MustParse("0"),
@@ -2301,8 +2300,8 @@ func TestUpdate(t *testing.T) {
 						3: machine.MustParse("0"),
 					},
 				},
-				state.PoolNameShare: {
-					PoolName: state.PoolNameShare,
+				commonstate.PoolNameShare: {
+					PoolName: commonstate.PoolNameShare,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("1"),
 						1: machine.MustParse("24"),

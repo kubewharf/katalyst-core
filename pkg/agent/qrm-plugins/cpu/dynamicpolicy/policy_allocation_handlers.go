@@ -29,6 +29,7 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
@@ -70,7 +71,8 @@ func (p *DynamicPolicy) sharedCoresWithoutNUMABindingAllocationHandler(_ context
 
 	machineState := p.state.GetMachineState()
 	pooledCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs,
-		state.CheckDedicated, state.CheckSharedOrDedicatedNUMABinding)
+		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicated),
+		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedOrDedicatedNUMABinding))
 
 	if pooledCPUs.IsEmpty() {
 		general.Errorf("pod: %s/%s, container: %s get empty pooledCPUs", req.PodNamespace, req.PodName, req.ContainerName)
@@ -101,30 +103,20 @@ func (p *DynamicPolicy) sharedCoresWithoutNUMABindingAllocationHandler(_ context
 		shouldRampUp := p.shouldSharedCoresRampUp(req.PodUid)
 
 		allocationInfo = &state.AllocationInfo{
-			PodUid:                           req.PodUid,
-			PodNamespace:                     req.PodNamespace,
-			PodName:                          req.PodName,
-			ContainerName:                    req.ContainerName,
-			ContainerType:                    req.ContainerType.String(),
-			ContainerIndex:                   req.ContainerIndex,
+			AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(req,
+				commonstate.EmptyOwnerPoolName, apiconsts.PodAnnotationQoSLevelSharedCores),
 			RampUp:                           shouldRampUp,
-			OwnerPoolName:                    state.EmptyOwnerPoolName,
-			PodRole:                          req.PodRole,
-			PodType:                          req.PodType,
 			AllocationResult:                 pooledCPUs,
 			OriginalAllocationResult:         pooledCPUs.Clone(),
 			TopologyAwareAssignments:         pooledCPUsTopologyAwareAssignments,
 			OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(pooledCPUsTopologyAwareAssignments),
 			InitTimestamp:                    time.Now().Format(util.QRMTimeFormat),
-			Labels:                           general.DeepCopyMap(req.Labels),
-			Annotations:                      general.DeepCopyMap(req.Annotations),
-			QoSLevel:                         apiconsts.PodAnnotationQoSLevelSharedCores,
 			RequestQuantity:                  reqFloat64,
 		}
 
 		if !shouldRampUp {
 			targetPoolName := allocationInfo.GetSpecifiedPoolName()
-			poolAllocationInfo := p.state.GetAllocationInfo(targetPoolName, state.FakedContainerName)
+			poolAllocationInfo := p.state.GetAllocationInfo(targetPoolName, commonstate.FakedContainerName)
 
 			if poolAllocationInfo == nil {
 				general.Infof("pod: %s/%s, container: %s is active, but its specified pool entry doesn't exist, try to ramp up it",
@@ -228,17 +220,17 @@ func (p *DynamicPolicy) reclaimedCoresAllocationHandler(_ context.Context,
 		return nil, fmt.Errorf("updateAllocationInfoByReq failed with error: %v", err)
 	}
 
-	reclaimedAllocationInfo := p.state.GetAllocationInfo(state.PoolNameReclaim, state.FakedContainerName)
+	reclaimedAllocationInfo := p.state.GetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName)
 	if reclaimedAllocationInfo == nil {
 		general.Errorf("allocation for pod: %s/%s, container: %s is failed, because pool: %s is not ready",
-			req.PodNamespace, req.PodName, req.ContainerName, state.PoolNameReclaim)
+			req.PodNamespace, req.PodName, req.ContainerName, commonstate.PoolNameReclaim)
 
-		return nil, fmt.Errorf("pool: %s is not ready", state.PoolNameReclaim)
+		return nil, fmt.Errorf("pool: %s is not ready", commonstate.PoolNameReclaim)
 	} else if reclaimedAllocationInfo.AllocationResult.Size() == 0 {
 		general.Errorf("allocation for pod: %s/%s, container: %s is failed, because pool: %s is empty",
-			req.PodNamespace, req.PodName, req.ContainerName, state.PoolNameReclaim)
+			req.PodNamespace, req.PodName, req.ContainerName, commonstate.PoolNameReclaim)
 
-		return nil, fmt.Errorf("pool: %s is not empty", state.PoolNameReclaim)
+		return nil, fmt.Errorf("pool: %s is not empty", commonstate.PoolNameReclaim)
 	}
 
 	if allocationInfo != nil {
@@ -249,24 +241,13 @@ func (p *DynamicPolicy) reclaimedCoresAllocationHandler(_ context.Context,
 			req.PodNamespace, req.PodName, req.ContainerName, reclaimedAllocationInfo.AllocationResult.String())
 
 		allocationInfo = &state.AllocationInfo{
-			PodUid:          req.PodUid,
-			PodNamespace:    req.PodNamespace,
-			PodName:         req.PodName,
-			ContainerName:   req.ContainerName,
-			ContainerType:   req.ContainerType.String(),
-			ContainerIndex:  req.ContainerIndex,
-			OwnerPoolName:   state.PoolNameReclaim,
-			PodRole:         req.PodRole,
-			PodType:         req.PodType,
+			AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(req,
+				commonstate.PoolNameReclaim, apiconsts.PodAnnotationQoSLevelReclaimedCores),
 			InitTimestamp:   time.Now().Format(util.QRMTimeFormat),
-			Labels:          general.DeepCopyMap(req.Labels),
-			Annotations:     general.DeepCopyMap(req.Annotations),
-			QoSLevel:        apiconsts.PodAnnotationQoSLevelReclaimedCores,
 			RequestQuantity: reqFloat64,
 		}
 	}
 
-	allocationInfo.OwnerPoolName = state.PoolNameReclaim
 	allocationInfo.AllocationResult = reclaimedAllocationInfo.AllocationResult.Clone()
 	allocationInfo.OriginalAllocationResult = reclaimedAllocationInfo.OriginalAllocationResult.Clone()
 	allocationInfo.TopologyAwareAssignments = machine.DeepcopyCPUAssignment(reclaimedAllocationInfo.TopologyAwareAssignments)
@@ -382,24 +363,14 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 	}
 
 	allocationInfo := &state.AllocationInfo{
-		PodUid:                           req.PodUid,
-		PodNamespace:                     req.PodNamespace,
-		PodName:                          req.PodName,
-		ContainerName:                    req.ContainerName,
-		ContainerType:                    req.ContainerType.String(),
-		ContainerIndex:                   req.ContainerIndex,
+		AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(req,
+			commonstate.PoolNameDedicated, apiconsts.PodAnnotationQoSLevelDedicatedCores),
 		RampUp:                           true,
-		PodRole:                          req.PodRole,
-		PodType:                          req.PodType,
-		OwnerPoolName:                    state.PoolNameDedicated,
 		AllocationResult:                 result.Clone(),
 		OriginalAllocationResult:         result.Clone(),
 		TopologyAwareAssignments:         topologyAwareAssignments,
 		OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(topologyAwareAssignments),
 		InitTimestamp:                    time.Now().Format(util.QRMTimeFormat),
-		QoSLevel:                         apiconsts.PodAnnotationQoSLevelDedicatedCores,
-		Labels:                           general.DeepCopyMap(req.Labels),
-		Annotations:                      general.DeepCopyMap(req.Annotations),
 		RequestQuantity:                  reqFloat64,
 	}
 
@@ -459,18 +430,9 @@ func (p *DynamicPolicy) allocationSidecarHandler(_ context.Context,
 
 	// the sidecar container also support inplace update resize, update the allocation and machine state here
 	allocationInfo := &state.AllocationInfo{
-		PodUid:          req.PodUid,
-		PodNamespace:    req.PodNamespace,
-		PodName:         req.PodName,
-		ContainerName:   req.ContainerName,
-		ContainerType:   req.ContainerType.String(),
-		ContainerIndex:  req.ContainerIndex,
-		PodRole:         req.PodRole,
-		PodType:         req.PodType,
+		AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(req,
+			commonstate.EmptyOwnerPoolName, qosLevel),
 		InitTimestamp:   time.Now().Format(util.QRMTimeFormat),
-		QoSLevel:        qosLevel,
-		Labels:          general.DeepCopyMap(req.Labels),
-		Annotations:     general.DeepCopyMap(req.Annotations),
 		RequestQuantity: reqFloat64,
 	}
 	p.applySidecarAllocationInfoFromMainContainer(allocationInfo, mainContainerAllocationInfo)
@@ -615,23 +577,15 @@ func (p *DynamicPolicy) allocateSharedNumaBindingCPUs(req *pluginapi.ResourceReq
 	targetNUMANode := hint.Nodes[0]
 
 	allocationInfo := &state.AllocationInfo{
-		PodUid:         req.PodUid,
-		PodNamespace:   req.PodNamespace,
-		PodName:        req.PodName,
-		ContainerName:  req.ContainerName,
-		ContainerType:  req.ContainerType.String(),
-		ContainerIndex: req.ContainerIndex,
-		PodRole:        req.PodRole,
-		PodType:        req.PodType,
-		OwnerPoolName:  state.EmptyOwnerPoolName, // it will be put to correct pool in doAndCheckPutAllocationInfo
-		InitTimestamp:  time.Now().Format(util.QRMTimeFormat),
-		QoSLevel:       apiconsts.PodAnnotationQoSLevelSharedCores,
-		Labels:         general.DeepCopyMap(req.Labels),
-		Annotations: general.MergeMap(req.Annotations, map[string]string{
-			cpuconsts.CPUStateAnnotationKeyNUMAHint: fmt.Sprintf("%d", targetNUMANode),
-		}),
+		AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(req,
+			// it will be put to correct pool in doAndCheckPutAllocationInfo
+			commonstate.EmptyOwnerPoolName, apiconsts.PodAnnotationQoSLevelSharedCores),
+		InitTimestamp:   time.Now().Format(util.QRMTimeFormat),
 		RequestQuantity: reqFloat64,
 	}
+	allocationInfo.Annotations = general.MergeMap(allocationInfo.Annotations, map[string]string{
+		cpuconsts.CPUStateAnnotationKeyNUMAHint: fmt.Sprintf("%d", targetNUMANode),
+	})
 
 	if util.PodInplaceUpdateResizing(req) {
 		originAllocationInfo := p.state.GetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName)
@@ -684,7 +638,7 @@ func (p *DynamicPolicy) putAllocationsAndAdjustAllocationEntriesResizeAware(orig
 	for _, allocationInfo := range allocationInfos {
 		if allocationInfo == nil {
 			return fmt.Errorf("found nil allocationInfo in input parameter")
-		} else if !state.CheckShared(allocationInfo) {
+		} else if !allocationInfo.CheckShared() {
 			return fmt.Errorf("put container with invalid qos level: %s into pool", allocationInfo.QoSLevel)
 		} else if entries[allocationInfo.PodUid][allocationInfo.ContainerName] == nil {
 			return fmt.Errorf("entry %s/%s, %s isn't found in state",
@@ -692,7 +646,7 @@ func (p *DynamicPolicy) putAllocationsAndAdjustAllocationEntriesResizeAware(orig
 		}
 
 		poolName := allocationInfo.GetSpecifiedPoolName()
-		if poolName == state.EmptyOwnerPoolName {
+		if poolName == commonstate.EmptyOwnerPoolName {
 			return fmt.Errorf("allocationInfo points to empty poolName")
 		}
 	}
@@ -765,7 +719,7 @@ func (p *DynamicPolicy) putAllocationsAndAdjustAllocationEntriesResizeAware(orig
 
 func (p *DynamicPolicy) calcPoolResizeRequest(originAllocation, allocation *state.AllocationInfo, podEntries state.PodEntries) (string, int, float64, error) {
 	poolName := allocation.GetPoolName()
-	targetNumaID := state.FakedNUMAID
+	targetNumaID := commonstate.FakedNUMAID
 
 	originPodAggregatedRequest, ok := originAllocation.GetPodAggregatedRequest()
 	if !ok {
@@ -814,7 +768,7 @@ func (p *DynamicPolicy) calcPoolResizeRequest(originAllocation, allocation *stat
 	}
 
 	// only support normal share and snb inplace update resize now
-	if state.CheckSharedNUMABinding(allocation) {
+	if allocation.CheckSharedNUMABinding() {
 		// check snb numa migrate for inplace update resize
 		originTargetNumaID, err := state.GetSharedNUMABindingTargetNuma(originAllocation)
 		if err != nil {
@@ -842,7 +796,7 @@ func (p *DynamicPolicy) calcPoolResizeRequest(originAllocation, allocation *stat
 		}
 	}
 
-	if poolName == state.EmptyOwnerPoolName {
+	if poolName == commonstate.EmptyOwnerPoolName {
 		return "", 0, 0, fmt.Errorf("get poolName failed for %s/%s/%s",
 			allocation.PodNamespace, allocation.PodName, allocation.ContainerName)
 	}
@@ -891,7 +845,8 @@ func (p *DynamicPolicy) adjustAllocationEntries() error {
 func (p *DynamicPolicy) adjustPoolsAndIsolatedEntries(poolsQuantityMap map[string]map[int]int,
 	isolatedQuantityMap map[string]map[string]int, entries state.PodEntries, machineState state.NUMANodeMap,
 ) error {
-	availableCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, nil, state.CheckDedicatedNUMABinding)
+	availableCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, nil,
+		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicatedNUMABinding))
 
 	reclaimOverlapShareRatio, err := p.getReclaimOverlapShareRatio(entries)
 	if err != nil {
@@ -930,12 +885,12 @@ func (p *DynamicPolicy) reclaimOverlapNUMABinding(poolsCPUSet map[string]machine
 		return nil
 	}
 
-	if entries.CheckPoolEmpty(state.PoolNameReclaim) {
+	if entries.CheckPoolEmpty(commonstate.PoolNameReclaim) {
 		return fmt.Errorf("reclaim pool misses in current entries")
 	}
 
-	curReclaimCPUSet := entries[state.PoolNameReclaim][state.FakedContainerName].AllocationResult.Clone()
-	nonOverlapReclaimCPUSet := poolsCPUSet[state.PoolNameReclaim].Clone()
+	curReclaimCPUSet := entries[commonstate.PoolNameReclaim][commonstate.FakedContainerName].AllocationResult.Clone()
+	nonOverlapReclaimCPUSet := poolsCPUSet[commonstate.PoolNameReclaim].Clone()
 	general.Infof("curReclaimCPUSet: %s", curReclaimCPUSet.String())
 
 	for _, containerEntries := range entries {
@@ -944,7 +899,7 @@ func (p *DynamicPolicy) reclaimOverlapNUMABinding(poolsCPUSet map[string]machine
 		}
 
 		for _, allocationInfo := range containerEntries {
-			if !(allocationInfo != nil && state.CheckDedicatedNUMABinding(allocationInfo) && allocationInfo.CheckMainContainer()) {
+			if !(allocationInfo != nil && allocationInfo.CheckDedicatedNUMABinding() && allocationInfo.CheckMainContainer()) {
 				continue
 			} else if allocationInfo.RampUp {
 				general.Infof("dedicated numa_binding pod: %s/%s container: %s is in ramp up, not to overlap reclaim pool with it",
@@ -952,15 +907,15 @@ func (p *DynamicPolicy) reclaimOverlapNUMABinding(poolsCPUSet map[string]machine
 				continue
 			}
 
-			poolsCPUSet[state.PoolNameReclaim] = poolsCPUSet[state.PoolNameReclaim].Union(curReclaimCPUSet.Intersection(allocationInfo.AllocationResult))
+			poolsCPUSet[commonstate.PoolNameReclaim] = poolsCPUSet[commonstate.PoolNameReclaim].Union(curReclaimCPUSet.Intersection(allocationInfo.AllocationResult))
 		}
 	}
 
-	if poolsCPUSet[state.PoolNameReclaim].IsEmpty() {
+	if poolsCPUSet[commonstate.PoolNameReclaim].IsEmpty() {
 		return fmt.Errorf("reclaim pool is empty after overlapping with dedicated_cores numa_binding containers")
 	}
 
-	general.Infof("nonOverlapReclaimCPUSet: %s, finalReclaimCPUSet: %s", nonOverlapReclaimCPUSet.String(), poolsCPUSet[state.PoolNameReclaim].String())
+	general.Infof("nonOverlapReclaimCPUSet: %s, finalReclaimCPUSet: %s", nonOverlapReclaimCPUSet.String(), poolsCPUSet[commonstate.PoolNameReclaim].String())
 	return nil
 }
 
@@ -982,7 +937,7 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 			if allocationInfo == nil {
 				general.Errorf("isolated pod: %s, container: %s without entry in current checkpoint", podUID, containerName)
 				continue
-			} else if !state.CheckDedicated(allocationInfo) || state.CheckNUMABinding(allocationInfo) {
+			} else if !allocationInfo.CheckDedicated() || allocationInfo.CheckNUMABinding() {
 				general.Errorf("isolated pod: %s, container: %s isn't dedicated_cores without NUMA binding", podUID, containerName)
 				continue
 			}
@@ -1010,7 +965,7 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 			}
 
 			newPodEntries[podUID][containerName] = allocationInfo.Clone()
-			newPodEntries[podUID][containerName].OwnerPoolName = state.PoolNameDedicated
+			newPodEntries[podUID][containerName].OwnerPoolName = commonstate.PoolNameDedicated
 			newPodEntries[podUID][containerName].AllocationResult = isolatedCPUs.Clone()
 			newPodEntries[podUID][containerName].OriginalAllocationResult = isolatedCPUs.Clone()
 			newPodEntries[podUID][containerName].TopologyAwareAssignments = topologyAwareAssignments
@@ -1021,8 +976,8 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 	}
 
 	// 2. construct entries for all pools
-	if poolsCPUSet[state.PoolNameReclaim].IsEmpty() {
-		return fmt.Errorf("entry: %s is empty", state.PoolNameReclaim)
+	if poolsCPUSet[commonstate.PoolNameReclaim].IsEmpty() {
+		return fmt.Errorf("entry: %s is empty", commonstate.PoolNameReclaim)
 	}
 
 	for poolName, cset := range poolsCPUSet {
@@ -1034,7 +989,7 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 				poolName, cset.String(), err)
 		}
 
-		allocationInfo := curEntries[poolName][state.FakedContainerName]
+		allocationInfo := curEntries[poolName][commonstate.FakedContainerName]
 		if allocationInfo != nil {
 			general.Infof("pool: %s allocation result transform from %s(size: %d) to %s(size: %d)",
 				poolName, allocationInfo.AllocationResult.String(), allocationInfo.AllocationResult.Size(),
@@ -1044,9 +999,8 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 		if newPodEntries[poolName] == nil {
 			newPodEntries[poolName] = make(state.ContainerEntries)
 		}
-		newPodEntries[poolName][state.FakedContainerName] = &state.AllocationInfo{
-			PodUid:                           poolName,
-			OwnerPoolName:                    poolName,
+		newPodEntries[poolName][commonstate.FakedContainerName] = &state.AllocationInfo{
+			AllocationMeta:                   commonstate.GenerateGenericPoolAllocationMeta(poolName),
 			AllocationResult:                 cset.Clone(),
 			OriginalAllocationResult:         cset.Clone(),
 			TopologyAwareAssignments:         topologyAwareAssignments,
@@ -1055,13 +1009,14 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 
 		_ = p.emitter.StoreInt64(util.MetricNamePoolSize, int64(cset.Size()), metrics.MetricTypeNameRaw,
 			metrics.MetricTag{Key: "poolName", Val: poolName},
-			metrics.MetricTag{Key: "pool_type", Val: state.GetPoolType(poolName)})
+			metrics.MetricTag{Key: "pool_type", Val: commonstate.GetPoolType(poolName)})
 	}
 
 	sharedBindingNUMACPUs := p.machineInfo.CPUDetails.CPUsInNUMANodes(sharedBindingNUMAs.UnsortedList()...)
 	// rampUpCPUs include reclaim pool in NUMAs without NUMA_binding cpus
 	rampUpCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs,
-		nil, state.CheckDedicatedNUMABinding).
+		nil,
+		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicatedNUMABinding)).
 		Difference(unionDedicatedIsolatedCPUSet).
 		Difference(sharedBindingNUMACPUs)
 
@@ -1102,7 +1057,7 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 				newPodEntries[podUID][containerName].OwnerPoolName = allocationInfo.GetPoolName()
 
 				// for numa_binding containers, we just clone checkpoint already exist
-				if state.CheckDedicatedNUMABinding(allocationInfo) {
+				if allocationInfo.CheckDedicatedNUMABinding() {
 					continue containerLoop
 				}
 
@@ -1111,7 +1066,7 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 					"we put it into fallback pool: %s temporary",
 					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, rampUpCPUs.String())
 
-				newPodEntries[podUID][containerName].OwnerPoolName = state.PoolNameFallback
+				newPodEntries[podUID][containerName].OwnerPoolName = commonstate.PoolNameFallback
 				newPodEntries[podUID][containerName].AllocationResult = rampUpCPUs.Clone()
 				newPodEntries[podUID][containerName].OriginalAllocationResult = rampUpCPUs.Clone()
 				newPodEntries[podUID][containerName].TopologyAwareAssignments = machine.DeepcopyCPUAssignment(rampUpCPUsTopologyAwareAssignments)
@@ -1133,10 +1088,10 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 
 			case apiconsts.PodAnnotationQoSLevelSharedCores, apiconsts.PodAnnotationQoSLevelReclaimedCores:
 				var ownerPoolName string
-				if state.CheckSharedNUMABinding(allocationInfo) {
+				if allocationInfo.CheckSharedNUMABinding() {
 					ownerPoolName = allocationInfo.GetOwnerPoolName()
 
-					if ownerPoolName == state.EmptyOwnerPoolName {
+					if ownerPoolName == commonstate.EmptyOwnerPoolName {
 						var err error
 						// why do we integrate GetOwnerPoolName + GetSpecifiedNUMABindingPoolName into GetPoolName for SharedNUMABinding containers?
 						// it's because we reply on GetSpecifiedPoolName (in GetPoolName) when calling CheckNUMABindingSharedCoresAntiAffinity,
@@ -1158,12 +1113,12 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName,
 						allocationInfo.AllocationResult.String(), rampUpCPUs.String())
 
-					newPodEntries[podUID][containerName].OwnerPoolName = state.EmptyOwnerPoolName
+					newPodEntries[podUID][containerName].OwnerPoolName = commonstate.EmptyOwnerPoolName
 					newPodEntries[podUID][containerName].AllocationResult = rampUpCPUs.Clone()
 					newPodEntries[podUID][containerName].OriginalAllocationResult = rampUpCPUs.Clone()
 					newPodEntries[podUID][containerName].TopologyAwareAssignments = machine.DeepcopyCPUAssignment(rampUpCPUsTopologyAwareAssignments)
 					newPodEntries[podUID][containerName].OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(rampUpCPUsTopologyAwareAssignments)
-				} else if newPodEntries[ownerPoolName][state.FakedContainerName] == nil {
+				} else if newPodEntries[ownerPoolName][commonstate.FakedContainerName] == nil {
 					general.Warningf("pod: %s/%s container: %s get owner pool: %s allocationInfo failed. reuse its allocation result: %s",
 						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName,
 						ownerPoolName, allocationInfo.AllocationResult.String())
@@ -1173,12 +1128,12 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 						metrics.MetricTag{Key: "containerName", Val: allocationInfo.ContainerName},
 						metrics.MetricTag{Key: "poolName", Val: ownerPoolName})
 				} else {
-					poolEntry := newPodEntries[ownerPoolName][state.FakedContainerName]
+					poolEntry := newPodEntries[ownerPoolName][commonstate.FakedContainerName]
 					general.Infof("put pod: %s/%s container: %s to pool: %s, set its allocation result from %s to %s",
 						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName,
 						ownerPoolName, allocationInfo.AllocationResult.String(), poolEntry.AllocationResult.String())
 
-					if state.CheckSharedNUMABinding(allocationInfo) {
+					if allocationInfo.CheckSharedNUMABinding() {
 						poolEntry.QoSLevel = apiconsts.PodAnnotationQoSLevelSharedCores
 						// set SharedNUMABinding declarations to pool entry containing SharedNUMABinding containers,
 						// in order to differentiate them from normal share pools during GetFilteredPoolsCPUSetMap.
@@ -1221,7 +1176,7 @@ func (p *DynamicPolicy) generateNUMABindingPoolsCPUSetInPlace(poolsCPUSet map[st
 
 	for poolName, numaToQuantity := range poolsQuantityMap {
 		for numaID, quantity := range numaToQuantity {
-			if numaID == state.FakedNUMAID {
+			if numaID == commonstate.FakedNUMAID {
 				// only deal with numa_binding pools
 				continue
 			}
@@ -1289,7 +1244,7 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(poolsQuantityMap map[string]ma
 				if quantity == 0 {
 					poolsToSkip = append(poolsToSkip, poolName)
 				} else {
-					if numaID != state.FakedNUMAID {
+					if numaID != commonstate.FakedNUMAID {
 						poolsBindingNUMAs.Insert(numaID)
 					} else {
 						nonBindingPoolsQuantityMap[poolName] = quantity
@@ -1404,24 +1359,24 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(poolsQuantityMap map[string]ma
 	availableCPUs = availableCPUs.Union(nonBindingAvailableCPUs)
 
 	// deal with reserve pool
-	if poolsCPUSet[state.PoolNameReserve].IsEmpty() {
-		poolsCPUSet[state.PoolNameReserve] = p.reservedCPUs.Clone()
-		general.Infof("set pool %s:%s", state.PoolNameReserve, poolsCPUSet[state.PoolNameReserve].String())
+	if poolsCPUSet[commonstate.PoolNameReserve].IsEmpty() {
+		poolsCPUSet[commonstate.PoolNameReserve] = p.reservedCPUs.Clone()
+		general.Infof("set pool %s:%s", commonstate.PoolNameReserve, poolsCPUSet[commonstate.PoolNameReserve].String())
 	} else {
-		err = fmt.Errorf("static pool %s result: %s is generated dynamically", state.PoolNameReserve, poolsCPUSet[state.PoolNameReserve].String())
+		err = fmt.Errorf("static pool %s result: %s is generated dynamically", commonstate.PoolNameReserve, poolsCPUSet[commonstate.PoolNameReserve].String())
 		return
 	}
 
 	// deal with reclaim pool
-	poolsCPUSet[state.PoolNameReclaim] = poolsCPUSet[state.PoolNameReclaim].Union(availableCPUs)
+	poolsCPUSet[commonstate.PoolNameReclaim] = poolsCPUSet[commonstate.PoolNameReclaim].Union(availableCPUs)
 
 	if !p.state.GetAllowSharedCoresOverlapReclaimedCores() {
 		enableReclaim := p.dynamicConfig.GetDynamicConfiguration().EnableReclaim
-		if !enableReclaim && poolsCPUSet[state.PoolNameReclaim].Size() > reservedReclaimedCPUsSize {
-			poolsCPUSet[state.PoolNameReclaim] = p.apportionReclaimedPool(
-				poolsCPUSet, poolsCPUSet[state.PoolNameReclaim].Clone(), nonBindingPoolsQuantityMap)
+		if !enableReclaim && poolsCPUSet[commonstate.PoolNameReclaim].Size() > reservedReclaimedCPUsSize {
+			poolsCPUSet[commonstate.PoolNameReclaim] = p.apportionReclaimedPool(
+				poolsCPUSet, poolsCPUSet[commonstate.PoolNameReclaim].Clone(), nonBindingPoolsQuantityMap)
 			general.Infof("apportionReclaimedPool finished, current %s pool: %s",
-				state.PoolNameReclaim, poolsCPUSet[state.PoolNameReclaim].String())
+				commonstate.PoolNameReclaim, poolsCPUSet[commonstate.PoolNameReclaim].String())
 		}
 	} else {
 		// p.state.GetAllowSharedCoresOverlapReclaimedCores() == true
@@ -1436,18 +1391,18 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(poolsQuantityMap map[string]ma
 				overlapCPUs, _, tErr := calculator.TakeByNUMABalanceReversely(p.machineInfo, cset, req)
 				if tErr != nil {
 					err = fmt.Errorf("take overlapCPUs from: %s to %s by ratio: %.4f failed with err: %v",
-						poolName, state.PoolNameReclaim, ratio, tErr)
+						poolName, commonstate.PoolNameReclaim, ratio, tErr)
 					return
 				}
 
 				general.Infof("merge overlapCPUs: %s from pool: %s to %s by ratio: %.4f",
-					overlapCPUs.String(), poolName, state.PoolNameReclaim, ratio)
-				poolsCPUSet[state.PoolNameReclaim] = poolsCPUSet[state.PoolNameReclaim].Union(overlapCPUs)
+					overlapCPUs.String(), poolName, commonstate.PoolNameReclaim, ratio)
+				poolsCPUSet[commonstate.PoolNameReclaim] = poolsCPUSet[commonstate.PoolNameReclaim].Union(overlapCPUs)
 			}
 		}
 	}
 
-	if poolsCPUSet[state.PoolNameReclaim].IsEmpty() {
+	if poolsCPUSet[commonstate.PoolNameReclaim].IsEmpty() {
 		// for reclaimed pool, we must make them exist when the node isn't in hybrid mode even if cause overlap
 		allAvailableCPUs := p.machineInfo.CPUDetails.CPUs().Difference(p.reservedCPUs)
 		reclaimedCPUSet, _, tErr := calculator.TakeByNUMABalance(p.machineInfo, allAvailableCPUs, reservedReclaimedCPUsSize)
@@ -1457,7 +1412,7 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(poolsQuantityMap map[string]ma
 		}
 
 		general.Infof("fallback takeByNUMABalance in generatePoolsAndIsolation for reclaimedCPUSet: %s", reclaimedCPUSet.String())
-		poolsCPUSet[state.PoolNameReclaim] = reclaimedCPUSet
+		poolsCPUSet[commonstate.PoolNameReclaim] = reclaimedCPUSet
 	}
 
 	return
@@ -1726,13 +1681,13 @@ func (p *DynamicPolicy) getReclaimOverlapShareRatio(entries state.PodEntries) (m
 		return nil, nil
 	}
 
-	if entries.CheckPoolEmpty(state.PoolNameReclaim) {
+	if entries.CheckPoolEmpty(commonstate.PoolNameReclaim) {
 		return nil, fmt.Errorf("reclaim pool misses in current entries")
 	}
 
 	reclaimOverlapShareRatio := make(map[string]float64)
 
-	curReclaimCPUSet := entries[state.PoolNameReclaim][state.FakedContainerName].AllocationResult
+	curReclaimCPUSet := entries[commonstate.PoolNameReclaim][commonstate.FakedContainerName].AllocationResult
 
 	for poolName, subEntries := range entries {
 		if !subEntries.IsPoolEntry() {
@@ -1741,7 +1696,7 @@ func (p *DynamicPolicy) getReclaimOverlapShareRatio(entries state.PodEntries) (m
 
 		allocationInfo := subEntries.GetPoolEntry()
 
-		if allocationInfo != nil && state.GetPoolType(poolName) == state.PoolNameShare {
+		if allocationInfo != nil && commonstate.GetPoolType(poolName) == commonstate.PoolNameShare {
 			if allocationInfo.AllocationResult.IsEmpty() {
 				continue
 			}
@@ -1773,19 +1728,9 @@ func (p *DynamicPolicy) systemCoresAllocationHandler(ctx context.Context, req *p
 	}
 
 	allocationInfo := &state.AllocationInfo{
-		PodUid:         req.PodUid,
-		PodNamespace:   req.PodNamespace,
-		PodName:        req.PodName,
-		ContainerName:  req.ContainerName,
-		ContainerType:  req.ContainerType.String(),
-		ContainerIndex: req.ContainerIndex,
-		OwnerPoolName:  state.EmptyOwnerPoolName,
-		PodRole:        req.PodRole,
-		PodType:        req.PodType,
-		InitTimestamp:  time.Now().Format(util.QRMTimeFormat),
-		Labels:         general.DeepCopyMap(req.Labels),
-		Annotations:    general.DeepCopyMap(req.Annotations),
-		QoSLevel:       apiconsts.PodAnnotationQoSLevelSystemCores,
+		AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(req,
+			commonstate.EmptyOwnerPoolName, apiconsts.PodAnnotationQoSLevelSystemCores),
+		InitTimestamp: time.Now().Format(util.QRMTimeFormat),
 	}
 
 	poolCPUSet, topologyAwareAssignments, err := p.getSystemPoolCPUSetAndNumaAwareAssignments(p.state.GetPodEntries(), allocationInfo)
@@ -1845,7 +1790,7 @@ func (p *DynamicPolicy) getSystemPoolCPUSetAndNumaAwareAssignments(podEntries st
 
 	poolCPUSet := machine.NewCPUSet()
 	specifiedPoolName := allocationInfo.GetSpecifiedPoolName()
-	if specifiedPoolName != state.EmptyOwnerPoolName {
+	if specifiedPoolName != commonstate.EmptyOwnerPoolName {
 		for pool, entries := range podEntries {
 			if !entries.IsPoolEntry() {
 				continue
@@ -1862,7 +1807,7 @@ func (p *DynamicPolicy) getSystemPoolCPUSetAndNumaAwareAssignments(podEntries st
 	// if pool set is empty, try to get default cpuset
 	if poolCPUSet.IsEmpty() {
 		// if the pod is numa binding, get the default cpuset from machine state
-		if state.CheckNUMABinding(allocationInfo) {
+		if allocationInfo.CheckNUMABinding() {
 			poolCPUSet = p.state.GetMachineState().GetAvailableCPUSet(p.reservedCPUs)
 		}
 

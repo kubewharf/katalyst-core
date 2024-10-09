@@ -2033,7 +2033,7 @@ func (m *ContainerMetadata) Unmarshal(dAtA []byte) error {
 					if err != nil {
 						return err
 					}
-					if skippy < 0 {
+					if (skippy < 0) || (iNdEx+skippy) < 0 {
 						return ErrInvalidLengthAdvisorSvc
 					}
 					if (iNdEx + skippy) > postIndex {
@@ -2160,7 +2160,7 @@ func (m *ContainerMetadata) Unmarshal(dAtA []byte) error {
 					if err != nil {
 						return err
 					}
-					if skippy < 0 {
+					if (skippy < 0) || (iNdEx+skippy) < 0 {
 						return ErrInvalidLengthAdvisorSvc
 					}
 					if (iNdEx + skippy) > postIndex {
@@ -2228,10 +2228,7 @@ func (m *ContainerMetadata) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthAdvisorSvc
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthAdvisorSvc
 			}
 			if (iNdEx + skippy) > l {
@@ -2281,10 +2278,7 @@ func (m *AddContainerResponse) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthAdvisorSvc
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthAdvisorSvc
 			}
 			if (iNdEx + skippy) > l {
@@ -2334,10 +2328,7 @@ func (m *Empty) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthAdvisorSvc
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthAdvisorSvc
 			}
 			if (iNdEx + skippy) > l {
@@ -2419,10 +2410,7 @@ func (m *RemovePodRequest) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthAdvisorSvc
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthAdvisorSvc
 			}
 			if (iNdEx + skippy) > l {
@@ -2472,10 +2460,7 @@ func (m *RemovePodResponse) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthAdvisorSvc
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthAdvisorSvc
 			}
 			if (iNdEx + skippy) > l {
@@ -2637,7 +2622,7 @@ func (m *ListAndWatchResponse) Unmarshal(dAtA []byte) error {
 					if err != nil {
 						return err
 					}
-					if skippy < 0 {
+					if (skippy < 0) || (iNdEx+skippy) < 0 {
 						return ErrInvalidLengthAdvisorSvc
 					}
 					if (iNdEx + skippy) > postIndex {
@@ -2688,10 +2673,7 @@ func (m *ListAndWatchResponse) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthAdvisorSvc
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthAdvisorSvc
 			}
 			if (iNdEx + skippy) > l {
@@ -2853,7 +2835,7 @@ func (m *CalculationEntries) Unmarshal(dAtA []byte) error {
 					if err != nil {
 						return err
 					}
-					if skippy < 0 {
+					if (skippy < 0) || (iNdEx+skippy) < 0 {
 						return ErrInvalidLengthAdvisorSvc
 					}
 					if (iNdEx + skippy) > postIndex {
@@ -2870,10 +2852,7 @@ func (m *CalculationEntries) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthAdvisorSvc
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthAdvisorSvc
 			}
 			if (iNdEx + skippy) > l {
@@ -2991,10 +2970,7 @@ func (m *CalculationInfo) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthAdvisorSvc
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthAdvisorSvc
 			}
 			if (iNdEx + skippy) > l {
@@ -3154,7 +3130,7 @@ func (m *CalculationResult) Unmarshal(dAtA []byte) error {
 					if err != nil {
 						return err
 					}
-					if skippy < 0 {
+					if (skippy < 0) || (iNdEx+skippy) < 0 {
 						return ErrInvalidLengthAdvisorSvc
 					}
 					if (iNdEx + skippy) > postIndex {
@@ -3171,10 +3147,7 @@ func (m *CalculationResult) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthAdvisorSvc
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthAdvisorSvc
 			}
 			if (iNdEx + skippy) > l {
@@ -3258,10 +3231,7 @@ func (m *ListContainersResponse) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthAdvisorSvc
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthAdvisorSvc
 			}
 			if (iNdEx + skippy) > l {

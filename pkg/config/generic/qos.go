@@ -25,7 +25,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
@@ -319,21 +318,6 @@ func (c *QoSConfiguration) checkQosMatched(annotations map[string]string, qosVal
 	}
 
 	return true, false, nil
-}
-
-func (c *QoSConfiguration) GetSpecifiedPoolNameForPod(pod *v1.Pod) (string, error) {
-	return c.GetSpecifiedPoolName(pod, map[string]string{})
-}
-
-// GetSpecifiedPoolName returns the specified cpuset pool name for given enhancements and annotations;
-func (c *QoSConfiguration) GetSpecifiedPoolName(pod *v1.Pod, expandedAnnotations map[string]string) (string, error) {
-	qosLevel, err := c.GetQoSLevel(pod, expandedAnnotations)
-	if err != nil {
-		return "", fmt.Errorf("GetQoSLevel failed with error: %v", err)
-	}
-
-	enhancementKVs := c.GetQoSEnhancementKVs(pod, expandedAnnotations, apiconsts.PodAnnotationCPUEnhancementKey)
-	return state.GetSpecifiedPoolName(qosLevel, enhancementKVs[apiconsts.PodAnnotationCPUEnhancementCPUSet]), nil
 }
 
 // GetQoSEnhancementKVs parses enhancements from annotations by given key,

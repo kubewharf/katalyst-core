@@ -32,7 +32,7 @@ import (
 
 	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/assembler/headroomassembler"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/assembler/provisionassembler"
@@ -253,7 +253,7 @@ func (cra *cpuResourceAdvisor) updateWithIsolationGuardian(tryIsolation bool) er
 	}
 
 	// sanity check: if reserve pool exists
-	reservePoolInfo, ok := cra.metaCache.GetPoolInfo(state.PoolNameReserve)
+	reservePoolInfo, ok := cra.metaCache.GetPoolInfo(commonstate.PoolNameReserve)
 	if !ok || reservePoolInfo == nil {
 		klog.Errorf("[qosaware-cpu] skip update: reserve pool does not exist")
 		return nil
@@ -404,7 +404,7 @@ func (cra *cpuResourceAdvisor) assignContainersToRegions() error {
 		cra.setContainerRegions(ci, regions)
 
 		// update pool info
-		if ci.OwnerPoolName == state.PoolNameDedicated {
+		if ci.OwnerPoolName == commonstate.PoolNameDedicated {
 			// dedicated pool should not exist in metaCache.poolEntries
 			return true
 		} else if ci.Isolated || cra.conf.IsolationForceEnablePools.Has(ci.OriginOwnerPoolName) {
@@ -444,7 +444,7 @@ func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]regio
 }
 
 func (cra *cpuResourceAdvisor) assignShareContainerToRegions(ci *types.ContainerInfo) ([]region.QoSRegion, error) {
-	numaID := state.FakedNUMAID
+	numaID := commonstate.FakedNUMAID
 	if cra.conf.GenericSysAdvisorConfiguration.EnableShareCoresNumaBinding && ci.IsNumaBinding() {
 		if ci.OwnerPoolName == "" {
 			return nil, fmt.Errorf("empty owner pool name, %v/%v", ci.PodUID, ci.ContainerName)
@@ -625,7 +625,7 @@ func (cra *cpuResourceAdvisor) emitMetrics(calculationResult types.InternalCPUCa
 			_ = cra.emitter.StoreInt64(metricCPUAdvisorPoolSize, int64(size), metrics.MetricTypeNameRaw,
 				metrics.MetricTag{Key: "name", Val: poolName},
 				metrics.MetricTag{Key: "numa_id", Val: strconv.Itoa(numaID)},
-				metrics.MetricTag{Key: "pool_type", Val: state.GetPoolType(poolName)})
+				metrics.MetricTag{Key: "pool_type", Val: commonstate.GetPoolType(poolName)})
 		}
 	}
 }
