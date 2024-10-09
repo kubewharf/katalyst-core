@@ -461,7 +461,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 
 				general.Infof("create new pool: %s cpuset result %s", entryName, entryCPUSet.String())
 				allocationInfo = &state.AllocationInfo{
-					AllocationMeta: &commonstate.AllocationMeta{
+					AllocationMeta: commonstate.AllocationMeta{
 						PodUid:        entryName,
 						OwnerPoolName: entryName,
 					},
@@ -534,7 +534,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 			newEntries[commonstate.PoolNameReclaim] = make(state.ContainerEntries)
 		}
 		newEntries[commonstate.PoolNameReclaim][commonstate.FakedContainerName] = &state.AllocationInfo{
-			AllocationMeta: &commonstate.AllocationMeta{
+			AllocationMeta: commonstate.AllocationMeta{
 				PodUid:        commonstate.PoolNameReclaim,
 				OwnerPoolName: commonstate.PoolNameReclaim,
 			},

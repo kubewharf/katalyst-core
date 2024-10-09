@@ -99,7 +99,7 @@ func TestCPUPressureSuppression_GetEvictPods(t *testing.T) {
 			podEntries: qrmstate.PodEntries{
 				pod1UID: qrmstate.ContainerEntries{
 					pod1Name: &qrmstate.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod1UID,
 							PodNamespace:   pod1Name,
 							PodName:        pod1Name,
@@ -175,7 +175,7 @@ func TestCPUPressureSuppression_GetEvictPods(t *testing.T) {
 			podEntries: qrmstate.PodEntries{
 				pod1UID: qrmstate.ContainerEntries{
 					pod1Name: &qrmstate.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod1UID,
 							PodNamespace:   pod1Name,
 							PodName:        pod1Name,
@@ -212,7 +212,7 @@ func TestCPUPressureSuppression_GetEvictPods(t *testing.T) {
 				},
 				pod2UID: qrmstate.ContainerEntries{
 					pod1Name: &qrmstate.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod2UID,
 							PodNamespace:   pod2Name,
 							PodName:        pod2Name,

@@ -183,7 +183,7 @@ func TestCheckMemorySet(t *testing.T) {
 		v1.ResourceMemory: state.PodEntries{
 			"podUID": state.ContainerEntries{
 				"testName": &state.AllocationInfo{
-					AllocationMeta: &commonstate.AllocationMeta{
+					AllocationMeta: commonstate.AllocationMeta{
 						PodUid:         "podUID",
 						PodNamespace:   "testName",
 						PodName:        "testName",
@@ -263,7 +263,7 @@ func TestSetMemoryMigrate(t *testing.T) {
 		v1.ResourceMemory: state.PodEntries{
 			"podUID": state.ContainerEntries{
 				"testName": &state.AllocationInfo{
-					AllocationMeta: &commonstate.AllocationMeta{
+					AllocationMeta: commonstate.AllocationMeta{
 						PodUid:         "podUID",
 						PodNamespace:   "testName",
 						PodName:        "testName",
@@ -288,7 +288,7 @@ func TestSetMemoryMigrate(t *testing.T) {
 			},
 			"podUID-1": state.ContainerEntries{
 				"testName-1": &state.AllocationInfo{
-					AllocationMeta: &commonstate.AllocationMeta{
+					AllocationMeta: commonstate.AllocationMeta{
 						PodUid:         "podUID-1",
 						PodNamespace:   "testName-1",
 						PodName:        "testName-1",
@@ -1979,7 +1979,7 @@ func TestGenerateResourcesMachineStateFromPodEntries(t *testing.T) {
 	podEntries := state.PodEntries{
 		podUID: state.ContainerEntries{
 			testName: &state.AllocationInfo{
-				AllocationMeta: &commonstate.AllocationMeta{
+				AllocationMeta: commonstate.AllocationMeta{
 					PodUid:         podUID,
 					PodNamespace:   testName,
 					PodName:        testName,
@@ -2047,7 +2047,7 @@ func TestHandleAdvisorResp(t *testing.T) {
 				v1.ResourceMemory: state.PodEntries{
 					pod1UID: state.ContainerEntries{
 						testName: &state.AllocationInfo{
-							AllocationMeta: &commonstate.AllocationMeta{
+							AllocationMeta: commonstate.AllocationMeta{
 								PodUid:         pod1UID,
 								PodNamespace:   testName,
 								PodName:        testName,
@@ -2073,7 +2073,7 @@ func TestHandleAdvisorResp(t *testing.T) {
 					},
 					pod2UID: state.ContainerEntries{
 						testName: &state.AllocationInfo{
-							AllocationMeta: &commonstate.AllocationMeta{
+							AllocationMeta: commonstate.AllocationMeta{
 								PodUid:         pod2UID,
 								PodNamespace:   testName,
 								PodName:        testName,
@@ -2093,7 +2093,7 @@ func TestHandleAdvisorResp(t *testing.T) {
 					},
 					pod3UID: state.ContainerEntries{
 						testName: &state.AllocationInfo{
-							AllocationMeta: &commonstate.AllocationMeta{
+							AllocationMeta: commonstate.AllocationMeta{
 								PodUid:         pod3UID,
 								PodNamespace:   testName,
 								PodName:        testName,
@@ -2166,7 +2166,7 @@ func TestHandleAdvisorResp(t *testing.T) {
 				v1.ResourceMemory: state.PodEntries{
 					pod1UID: state.ContainerEntries{
 						testName: &state.AllocationInfo{
-							AllocationMeta: &commonstate.AllocationMeta{
+							AllocationMeta: commonstate.AllocationMeta{
 								PodUid:         pod1UID,
 								PodNamespace:   testName,
 								PodName:        testName,
@@ -2198,7 +2198,7 @@ func TestHandleAdvisorResp(t *testing.T) {
 					},
 					pod2UID: state.ContainerEntries{
 						testName: &state.AllocationInfo{
-							AllocationMeta: &commonstate.AllocationMeta{
+							AllocationMeta: commonstate.AllocationMeta{
 								PodUid:         pod2UID,
 								PodNamespace:   testName,
 								PodName:        testName,
@@ -2219,7 +2219,7 @@ func TestHandleAdvisorResp(t *testing.T) {
 					},
 					pod3UID: state.ContainerEntries{
 						testName: &state.AllocationInfo{
-							AllocationMeta: &commonstate.AllocationMeta{
+							AllocationMeta: commonstate.AllocationMeta{
 								PodUid:         pod3UID,
 								PodNamespace:   testName,
 								PodName:        testName,
@@ -2251,7 +2251,7 @@ func TestHandleAdvisorResp(t *testing.T) {
 						PodEntries: state.PodEntries{
 							pod1UID: state.ContainerEntries{
 								testName: &state.AllocationInfo{
-									AllocationMeta: &commonstate.AllocationMeta{
+									AllocationMeta: commonstate.AllocationMeta{
 										PodUid:         pod1UID,
 										PodNamespace:   testName,
 										PodName:        testName,
@@ -2292,7 +2292,7 @@ func TestHandleAdvisorResp(t *testing.T) {
 						PodEntries: state.PodEntries{
 							pod2UID: state.ContainerEntries{
 								testName: &state.AllocationInfo{
-									AllocationMeta: &commonstate.AllocationMeta{
+									AllocationMeta: commonstate.AllocationMeta{
 										PodUid:         pod2UID,
 										PodNamespace:   testName,
 										PodName:        testName,
@@ -2322,7 +2322,7 @@ func TestHandleAdvisorResp(t *testing.T) {
 						PodEntries: state.PodEntries{
 							pod2UID: state.ContainerEntries{
 								testName: &state.AllocationInfo{
-									AllocationMeta: &commonstate.AllocationMeta{
+									AllocationMeta: commonstate.AllocationMeta{
 										PodUid:         pod2UID,
 										PodNamespace:   testName,
 										PodName:        testName,
@@ -2343,7 +2343,7 @@ func TestHandleAdvisorResp(t *testing.T) {
 							},
 							pod3UID: state.ContainerEntries{
 								testName: &state.AllocationInfo{
-									AllocationMeta: &commonstate.AllocationMeta{
+									AllocationMeta: commonstate.AllocationMeta{
 										PodUid:         pod3UID,
 										PodNamespace:   testName,
 										PodName:        testName,
@@ -2373,7 +2373,7 @@ func TestHandleAdvisorResp(t *testing.T) {
 						PodEntries: state.PodEntries{
 							pod2UID: state.ContainerEntries{
 								testName: &state.AllocationInfo{
-									AllocationMeta: &commonstate.AllocationMeta{
+									AllocationMeta: commonstate.AllocationMeta{
 										PodUid:         pod2UID,
 										PodNamespace:   testName,
 										PodName:        testName,
@@ -2394,7 +2394,7 @@ func TestHandleAdvisorResp(t *testing.T) {
 							},
 							pod3UID: state.ContainerEntries{
 								testName: &state.AllocationInfo{
-									AllocationMeta: &commonstate.AllocationMeta{
+									AllocationMeta: commonstate.AllocationMeta{
 										PodUid:         pod3UID,
 										PodNamespace:   testName,
 										PodName:        testName,
@@ -2523,7 +2523,7 @@ func TestSetExtraControlKnobByConfigForAllocationInfo(t *testing.T) {
 				},
 			},
 			inputAllocationInfo: &state.AllocationInfo{
-				AllocationMeta: &commonstate.AllocationMeta{
+				AllocationMeta: commonstate.AllocationMeta{
 					PodUid:         pod1UID,
 					PodNamespace:   testName,
 					PodName:        testName,
@@ -2566,7 +2566,7 @@ func TestSetExtraControlKnobByConfigForAllocationInfo(t *testing.T) {
 				},
 			},
 			outputAllocationInfo: &state.AllocationInfo{
-				AllocationMeta: &commonstate.AllocationMeta{
+				AllocationMeta: commonstate.AllocationMeta{
 					PodUid:         pod1UID,
 					PodNamespace:   testName,
 					PodName:        testName,
@@ -2604,7 +2604,7 @@ func TestSetExtraControlKnobByConfigForAllocationInfo(t *testing.T) {
 				},
 			},
 			inputAllocationInfo: &state.AllocationInfo{
-				AllocationMeta: &commonstate.AllocationMeta{
+				AllocationMeta: commonstate.AllocationMeta{
 					PodUid:         pod1UID,
 					PodNamespace:   testName,
 					PodName:        testName,
@@ -2641,7 +2641,7 @@ func TestSetExtraControlKnobByConfigForAllocationInfo(t *testing.T) {
 				},
 			},
 			outputAllocationInfo: &state.AllocationInfo{
-				AllocationMeta: &commonstate.AllocationMeta{
+				AllocationMeta: commonstate.AllocationMeta{
 					PodUid:         pod1UID,
 					PodNamespace:   testName,
 					PodName:        testName,
@@ -2675,7 +2675,7 @@ func TestSetExtraControlKnobByConfigForAllocationInfo(t *testing.T) {
 			description: "set allocationInfo default control knob value by qos level",
 			pod:         &v1.Pod{},
 			inputAllocationInfo: &state.AllocationInfo{
-				AllocationMeta: &commonstate.AllocationMeta{
+				AllocationMeta: commonstate.AllocationMeta{
 					PodUid:         pod1UID,
 					PodNamespace:   testName,
 					PodName:        testName,
@@ -2712,7 +2712,7 @@ func TestSetExtraControlKnobByConfigForAllocationInfo(t *testing.T) {
 				},
 			},
 			outputAllocationInfo: &state.AllocationInfo{
-				AllocationMeta: &commonstate.AllocationMeta{
+				AllocationMeta: commonstate.AllocationMeta{
 					PodUid:         pod1UID,
 					PodNamespace:   testName,
 					PodName:        testName,
@@ -2808,7 +2808,7 @@ func TestSetExtraControlKnobByConfigs(t *testing.T) {
 	podEntries := state.PodEntries{
 		pod1UID: state.ContainerEntries{
 			testName: &state.AllocationInfo{
-				AllocationMeta: &commonstate.AllocationMeta{
+				AllocationMeta: commonstate.AllocationMeta{
 					PodUid:         pod1UID,
 					PodNamespace:   testName,
 					PodName:        testName,
@@ -2854,7 +2854,7 @@ func TestSetExtraControlKnobByConfigs(t *testing.T) {
 	dynamicPolicy.setExtraControlKnobByConfigs(nil, nil, nil, nil, nil)
 
 	expectedAllocationInfo := &state.AllocationInfo{
-		AllocationMeta: &commonstate.AllocationMeta{
+		AllocationMeta: commonstate.AllocationMeta{
 			PodUid:         pod1UID,
 			PodNamespace:   testName,
 			PodName:        testName,
@@ -2987,7 +2987,7 @@ func TestRemoveContainer(t *testing.T) {
 		v1.ResourceMemory: state.PodEntries{
 			podUID: state.ContainerEntries{
 				containerName: &state.AllocationInfo{
-					AllocationMeta: &commonstate.AllocationMeta{
+					AllocationMeta: commonstate.AllocationMeta{
 						PodUid:         "podUID",
 						PodNamespace:   "testName",
 						PodName:        "testName",
@@ -3077,7 +3077,7 @@ func TestDynamicPolicy_ListContainers(t *testing.T) {
 	as.Nil(err)
 
 	allocationInfo := &state.AllocationInfo{
-		AllocationMeta: &commonstate.AllocationMeta{
+		AllocationMeta: commonstate.AllocationMeta{
 			PodUid:         "podUID",
 			PodNamespace:   "testName",
 			PodName:        "testName",
@@ -3184,7 +3184,7 @@ func TestDynamicPolicy_hasLastLevelEnhancementKey(t *testing.T) {
 		v1.ResourceMemory: state.PodEntries{
 			"podUID": state.ContainerEntries{
 				"testName": &state.AllocationInfo{
-					AllocationMeta: &commonstate.AllocationMeta{
+					AllocationMeta: commonstate.AllocationMeta{
 						PodUid:         "podUID",
 						PodNamespace:   "testName",
 						PodName:        "testName",
@@ -3210,7 +3210,7 @@ func TestDynamicPolicy_hasLastLevelEnhancementKey(t *testing.T) {
 			},
 			"podUID-1": state.ContainerEntries{
 				"testName-1": &state.AllocationInfo{
-					AllocationMeta: &commonstate.AllocationMeta{
+					AllocationMeta: commonstate.AllocationMeta{
 						PodUid:         "podUID-1",
 						PodNamespace:   "testName-1",
 						PodName:        "testName-1",
@@ -3706,7 +3706,7 @@ func TestDynamicPolicy_adjustAllocationEntries(t *testing.T) {
 		v1.ResourceMemory: state.PodEntries{
 			"test-pod-2-uid": state.ContainerEntries{
 				"test-container-2": &state.AllocationInfo{
-					AllocationMeta: &commonstate.AllocationMeta{
+					AllocationMeta: commonstate.AllocationMeta{
 						PodUid:         "test-pod-2-uid",
 						PodNamespace:   "test",
 						PodName:        "test-pod-2",
@@ -3732,7 +3732,7 @@ func TestDynamicPolicy_adjustAllocationEntries(t *testing.T) {
 			},
 			"test-pod-1-uid": state.ContainerEntries{
 				"test-container-1": &state.AllocationInfo{
-					AllocationMeta: &commonstate.AllocationMeta{
+					AllocationMeta: commonstate.AllocationMeta{
 						PodUid:         "test-pod-1-uid",
 						PodNamespace:   "test",
 						PodName:        "test-pod-1",
@@ -4092,7 +4092,7 @@ func Test_getContainerRequestedMemoryBytes(t *testing.T) {
 
 	// check normal share cores
 	pod1Allocation := &state.AllocationInfo{
-		AllocationMeta: &commonstate.AllocationMeta{
+		AllocationMeta: commonstate.AllocationMeta{
 			PodUid:        "test-pod-1-uid",
 			PodName:       "test-pod-1",
 			ContainerName: "test-container-1",
@@ -4148,7 +4148,7 @@ func Test_getContainerRequestedMemoryBytes(t *testing.T) {
 
 	// check normal snb
 	pod2Allocation := &state.AllocationInfo{
-		AllocationMeta: &commonstate.AllocationMeta{
+		AllocationMeta: commonstate.AllocationMeta{
 			PodUid:        "test-pod-2-uid",
 			PodName:       "test-pod-2",
 			ContainerName: "test-container-2",
@@ -4241,7 +4241,7 @@ func Test_getContainerRequestedMemoryBytes(t *testing.T) {
 	})
 
 	pod3Container3Allocation := &state.AllocationInfo{
-		AllocationMeta: &commonstate.AllocationMeta{
+		AllocationMeta: commonstate.AllocationMeta{
 			PodUid:        "test-pod-3-uid",
 			PodName:       "test-pod-3",
 			ContainerName: "test-container-3",
@@ -4255,7 +4255,7 @@ func Test_getContainerRequestedMemoryBytes(t *testing.T) {
 	}
 	as.Equal(true, pod3Container3Allocation.CheckMainContainer())
 	pod3Container4Allocation := &state.AllocationInfo{
-		AllocationMeta: &commonstate.AllocationMeta{
+		AllocationMeta: commonstate.AllocationMeta{
 			PodUid:        "test-pod-3-uid",
 			PodName:       "test-pod-3",
 			ContainerName: "test-container-4",
@@ -4446,7 +4446,7 @@ func Test_adjustAllocationEntries(t *testing.T) {
 	metaServer.PodFetcher = podFetcher
 
 	pod1Allocation := &state.AllocationInfo{
-		AllocationMeta: &commonstate.AllocationMeta{
+		AllocationMeta: commonstate.AllocationMeta{
 			PodUid:        "test-pod-1-uid",
 			PodName:       "test-pod-1",
 			ContainerName: "test-container-1",
@@ -4458,7 +4458,7 @@ func Test_adjustAllocationEntries(t *testing.T) {
 	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-1-uid", "test-container-1", pod1Allocation)
 
 	pod2Allocation := &state.AllocationInfo{
-		AllocationMeta: &commonstate.AllocationMeta{
+		AllocationMeta: commonstate.AllocationMeta{
 			PodUid:        "test-pod-2-uid",
 			PodName:       "test-pod-2",
 			ContainerName: "test-container-2",
@@ -4477,7 +4477,7 @@ func Test_adjustAllocationEntries(t *testing.T) {
 	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-2-uid", "test-container-2", pod2Allocation)
 
 	pod3Container3Allocation := &state.AllocationInfo{
-		AllocationMeta: &commonstate.AllocationMeta{
+		AllocationMeta: commonstate.AllocationMeta{
 			PodUid:        "test-pod-3-uid",
 			PodName:       "test-pod-3",
 			ContainerName: "test-container-3",
@@ -4498,7 +4498,7 @@ func Test_adjustAllocationEntries(t *testing.T) {
 	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-3-uid", "test-container-3", pod3Container3Allocation)
 
 	pod3Container4Allocation := &state.AllocationInfo{
-		AllocationMeta: &commonstate.AllocationMeta{
+		AllocationMeta: commonstate.AllocationMeta{
 			PodUid:        "test-pod-3-uid",
 			PodName:       "test-pod-3",
 			ContainerName: "test-container-4",
@@ -4516,7 +4516,7 @@ func Test_adjustAllocationEntries(t *testing.T) {
 	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-3-uid", "test-container-4", pod3Container4Allocation)
 
 	pod4Container1Allocation := &state.AllocationInfo{
-		AllocationMeta: &commonstate.AllocationMeta{
+		AllocationMeta: commonstate.AllocationMeta{
 			PodUid:        "test-pod-4-uid",
 			PodName:       "test-pod-4",
 			ContainerName: "test-container-1",

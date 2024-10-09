@@ -38,7 +38,7 @@ import (
 // 3. not use omitempty in map property and must make new map to do initialization
 
 type AllocationInfo struct {
-	*commonstate.AllocationMeta `json:",inline"`
+	commonstate.AllocationMeta `json:",inline"`
 
 	RampUp bool `json:"ramp_up,omitempty"`
 
@@ -77,7 +77,7 @@ func (ai *AllocationInfo) Clone() *AllocationInfo {
 	}
 
 	clone := &AllocationInfo{
-		AllocationMeta:           ai.AllocationMeta.Clone(),
+		AllocationMeta:           *ai.AllocationMeta.Clone(),
 		RampUp:                   ai.RampUp,
 		AllocationResult:         ai.AllocationResult.Clone(),
 		OriginalAllocationResult: ai.OriginalAllocationResult.Clone(),
@@ -139,7 +139,7 @@ func (ai *AllocationInfo) GetAllocationResultNUMASet() machine.CPUSet {
 }
 
 func (ai *AllocationInfo) GetPodAggregatedRequest() (float64, bool) {
-	if ai == nil || ai.AllocationMeta == nil ||
+	if ai == nil ||
 		ai.Annotations == nil {
 		return 0, false
 	}

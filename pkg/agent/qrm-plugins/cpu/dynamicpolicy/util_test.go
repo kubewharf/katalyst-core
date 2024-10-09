@@ -52,7 +52,7 @@ func Test_updateAllocationInfoByReq(t *testing.T) {
 					Annotations: map[string]string{apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores},
 				},
 				allocationInfo: &state.AllocationInfo{
-					AllocationMeta: &commonstate.AllocationMeta{
+					AllocationMeta: commonstate.AllocationMeta{
 						QoSLevel: apiconsts.PodAnnotationQoSLevelReclaimedCores,
 					},
 				},

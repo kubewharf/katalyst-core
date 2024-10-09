@@ -57,7 +57,7 @@ func assertStateEqual(t *testing.T, restoredState, expectedState State) {
 }
 
 // generateSharedNumaBindingPoolAllocationMeta generates a generic allocation metadata for a pool.
-func generateSharedNumaBindingPoolAllocationMeta(poolName string) *commonstate.AllocationMeta {
+func generateSharedNumaBindingPoolAllocationMeta(poolName string) commonstate.AllocationMeta {
 	meta := commonstate.GenerateGenericPoolAllocationMeta(poolName)
 	if meta.Annotations == nil {
 		meta.Annotations = make(map[string]string)
@@ -533,14 +533,14 @@ func TestNewCheckpointState(t *testing.T) {
 			}
 		}
 	},
-	"checksum": 2150195202
+	"checksum": 4030123680
 }`,
 			"",
 			&cpuPluginState{
 				podEntries: PodEntries{
 					"373d08e4-7a6b-4293-aaaf-b135ff8123bf": ContainerEntries{
 						testName: &AllocationInfo{
-							AllocationMeta: &commonstate.AllocationMeta{
+							AllocationMeta: commonstate.AllocationMeta{
 								PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
 								PodNamespace:   testName,
 								PodName:        testName,
@@ -574,7 +574,7 @@ func TestNewCheckpointState(t *testing.T) {
 					},
 					"ec6e2f30-c78a-4bc4-9576-c916db5281a3": ContainerEntries{
 						testName: &AllocationInfo{
-							AllocationMeta: &commonstate.AllocationMeta{
+							AllocationMeta: commonstate.AllocationMeta{
 								PodUid:         "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
 								PodNamespace:   testName,
 								PodName:        testName,
@@ -608,7 +608,7 @@ func TestNewCheckpointState(t *testing.T) {
 					},
 					"2432d068-c5a0-46ba-a7bd-b69d9bd16961": ContainerEntries{
 						testName: &AllocationInfo{
-							AllocationMeta: &commonstate.AllocationMeta{
+							AllocationMeta: commonstate.AllocationMeta{
 								PodUid:         "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
 								PodNamespace:   testName,
 								PodName:        testName,
@@ -686,7 +686,7 @@ func TestNewCheckpointState(t *testing.T) {
 						PodEntries: PodEntries{
 							"373d08e4-7a6b-4293-aaaf-b135ff8123bf": ContainerEntries{
 								testName: &AllocationInfo{
-									AllocationMeta: &commonstate.AllocationMeta{
+									AllocationMeta: commonstate.AllocationMeta{
 										PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
 										PodNamespace:   testName,
 										PodName:        testName,
@@ -716,7 +716,7 @@ func TestNewCheckpointState(t *testing.T) {
 							},
 							"ec6e2f30-c78a-4bc4-9576-c916db5281a3": ContainerEntries{
 								testName: &AllocationInfo{
-									AllocationMeta: &commonstate.AllocationMeta{
+									AllocationMeta: commonstate.AllocationMeta{
 										PodUid:         "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
 										PodNamespace:   testName,
 										PodName:        testName,
@@ -746,7 +746,7 @@ func TestNewCheckpointState(t *testing.T) {
 							},
 							"2432d068-c5a0-46ba-a7bd-b69d9bd16961": ContainerEntries{
 								testName: &AllocationInfo{
-									AllocationMeta: &commonstate.AllocationMeta{
+									AllocationMeta: commonstate.AllocationMeta{
 										PodUid:         "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
 										PodNamespace:   testName,
 										PodName:        testName,
@@ -782,7 +782,7 @@ func TestNewCheckpointState(t *testing.T) {
 						PodEntries: PodEntries{
 							"373d08e4-7a6b-4293-aaaf-b135ff8123bf": ContainerEntries{
 								testName: &AllocationInfo{
-									AllocationMeta: &commonstate.AllocationMeta{
+									AllocationMeta: commonstate.AllocationMeta{
 										PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
 										PodNamespace:   testName,
 										PodName:        testName,
@@ -812,7 +812,7 @@ func TestNewCheckpointState(t *testing.T) {
 							},
 							"ec6e2f30-c78a-4bc4-9576-c916db5281a3": ContainerEntries{
 								testName: &AllocationInfo{
-									AllocationMeta: &commonstate.AllocationMeta{
+									AllocationMeta: commonstate.AllocationMeta{
 										PodUid:         "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
 										PodNamespace:   testName,
 										PodName:        testName,
@@ -842,7 +842,7 @@ func TestNewCheckpointState(t *testing.T) {
 							},
 							"2432d068-c5a0-46ba-a7bd-b69d9bd16961": ContainerEntries{
 								testName: &AllocationInfo{
-									AllocationMeta: &commonstate.AllocationMeta{
+									AllocationMeta: commonstate.AllocationMeta{
 										PodUid:         "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
 										PodNamespace:   testName,
 										PodName:        testName,
@@ -878,7 +878,7 @@ func TestNewCheckpointState(t *testing.T) {
 						PodEntries: PodEntries{
 							"373d08e4-7a6b-4293-aaaf-b135ff8123bf": ContainerEntries{
 								testName: &AllocationInfo{
-									AllocationMeta: &commonstate.AllocationMeta{
+									AllocationMeta: commonstate.AllocationMeta{
 										PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
 										PodNamespace:   testName,
 										PodName:        testName,
@@ -908,7 +908,7 @@ func TestNewCheckpointState(t *testing.T) {
 							},
 							"ec6e2f30-c78a-4bc4-9576-c916db5281a3": ContainerEntries{
 								testName: &AllocationInfo{
-									AllocationMeta: &commonstate.AllocationMeta{
+									AllocationMeta: commonstate.AllocationMeta{
 										PodUid:         "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
 										PodNamespace:   testName,
 										PodName:        testName,
@@ -938,7 +938,7 @@ func TestNewCheckpointState(t *testing.T) {
 							},
 							"2432d068-c5a0-46ba-a7bd-b69d9bd16961": ContainerEntries{
 								testName: &AllocationInfo{
-									AllocationMeta: &commonstate.AllocationMeta{
+									AllocationMeta: commonstate.AllocationMeta{
 										PodUid:         "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
 										PodNamespace:   testName,
 										PodName:        testName,
@@ -974,7 +974,7 @@ func TestNewCheckpointState(t *testing.T) {
 						PodEntries: PodEntries{
 							"2432d068-c5a0-46ba-a7bd-b69d9bd16961": ContainerEntries{
 								testName: &AllocationInfo{
-									AllocationMeta: &commonstate.AllocationMeta{
+									AllocationMeta: commonstate.AllocationMeta{
 										PodUid:         "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
 										PodNamespace:   testName,
 										PodName:        testName,
@@ -1524,7 +1524,7 @@ func TestClearState(t *testing.T) {
 			podEntries: PodEntries{
 				"373d08e4-7a6b-4293-aaaf-b135ff8123bf": ContainerEntries{
 					testName: &AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -1558,7 +1558,7 @@ func TestClearState(t *testing.T) {
 				},
 				"ec6e2f30-c78a-4bc4-9576-c916db5281a3": ContainerEntries{
 					testName: &AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -1592,7 +1592,7 @@ func TestClearState(t *testing.T) {
 				},
 				"2432d068-c5a0-46ba-a7bd-b69d9bd16961": ContainerEntries{
 					testName: &AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -1670,7 +1670,7 @@ func TestClearState(t *testing.T) {
 					PodEntries: PodEntries{
 						"373d08e4-7a6b-4293-aaaf-b135ff8123bf": ContainerEntries{
 							testName: &AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -1700,7 +1700,7 @@ func TestClearState(t *testing.T) {
 						},
 						"ec6e2f30-c78a-4bc4-9576-c916db5281a3": ContainerEntries{
 							testName: &AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -1730,7 +1730,7 @@ func TestClearState(t *testing.T) {
 						},
 						"2432d068-c5a0-46ba-a7bd-b69d9bd16961": ContainerEntries{
 							testName: &AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -1766,7 +1766,7 @@ func TestClearState(t *testing.T) {
 					PodEntries: PodEntries{
 						"373d08e4-7a6b-4293-aaaf-b135ff8123bf": ContainerEntries{
 							testName: &AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -1796,7 +1796,7 @@ func TestClearState(t *testing.T) {
 						},
 						"ec6e2f30-c78a-4bc4-9576-c916db5281a3": ContainerEntries{
 							testName: &AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -1827,7 +1827,7 @@ func TestClearState(t *testing.T) {
 						},
 						"2432d068-c5a0-46ba-a7bd-b69d9bd16961": ContainerEntries{
 							testName: &AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -1863,7 +1863,7 @@ func TestClearState(t *testing.T) {
 					PodEntries: PodEntries{
 						"373d08e4-7a6b-4293-aaaf-b135ff8123bf": ContainerEntries{
 							testName: &AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -1893,7 +1893,7 @@ func TestClearState(t *testing.T) {
 						},
 						"ec6e2f30-c78a-4bc4-9576-c916db5281a3": ContainerEntries{
 							testName: &AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -1923,7 +1923,7 @@ func TestClearState(t *testing.T) {
 						},
 						"2432d068-c5a0-46ba-a7bd-b69d9bd16961": ContainerEntries{
 							testName: &AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -1959,7 +1959,7 @@ func TestClearState(t *testing.T) {
 					PodEntries: PodEntries{
 						"2432d068-c5a0-46ba-a7bd-b69d9bd16961": ContainerEntries{
 							testName: &AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -2042,7 +2042,7 @@ func TestCheckpointStateHelpers(t *testing.T) {
 			podEntries: PodEntries{
 				"373d08e4-7a6b-4293-aaaf-b135ff8123bf": ContainerEntries{
 					testName: &AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -2076,7 +2076,7 @@ func TestCheckpointStateHelpers(t *testing.T) {
 				},
 				"ec6e2f30-c78a-4bc4-9576-c916db5281a3": ContainerEntries{
 					testName: &AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -2110,7 +2110,7 @@ func TestCheckpointStateHelpers(t *testing.T) {
 				},
 				"2432d068-c5a0-46ba-a7bd-b69d9bd16961": ContainerEntries{
 					testName: &AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -2188,7 +2188,7 @@ func TestCheckpointStateHelpers(t *testing.T) {
 					PodEntries: PodEntries{
 						"373d08e4-7a6b-4293-aaaf-b135ff8123bf": ContainerEntries{
 							testName: &AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -2218,7 +2218,7 @@ func TestCheckpointStateHelpers(t *testing.T) {
 						},
 						"ec6e2f30-c78a-4bc4-9576-c916db5281a3": ContainerEntries{
 							testName: &AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -2248,7 +2248,7 @@ func TestCheckpointStateHelpers(t *testing.T) {
 						},
 						"2432d068-c5a0-46ba-a7bd-b69d9bd16961": ContainerEntries{
 							testName: &AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -2284,7 +2284,7 @@ func TestCheckpointStateHelpers(t *testing.T) {
 					PodEntries: PodEntries{
 						"373d08e4-7a6b-4293-aaaf-b135ff8123bf": ContainerEntries{
 							testName: &AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -2314,7 +2314,7 @@ func TestCheckpointStateHelpers(t *testing.T) {
 						},
 						"ec6e2f30-c78a-4bc4-9576-c916db5281a3": ContainerEntries{
 							testName: &AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -2344,7 +2344,7 @@ func TestCheckpointStateHelpers(t *testing.T) {
 						},
 						"2432d068-c5a0-46ba-a7bd-b69d9bd16961": ContainerEntries{
 							testName: &AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -2380,7 +2380,7 @@ func TestCheckpointStateHelpers(t *testing.T) {
 					PodEntries: PodEntries{
 						"373d08e4-7a6b-4293-aaaf-b135ff8123bf": ContainerEntries{
 							testName: &AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -2410,7 +2410,7 @@ func TestCheckpointStateHelpers(t *testing.T) {
 						},
 						"ec6e2f30-c78a-4bc4-9576-c916db5281a3": ContainerEntries{
 							testName: &AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -2440,7 +2440,7 @@ func TestCheckpointStateHelpers(t *testing.T) {
 						},
 						"2432d068-c5a0-46ba-a7bd-b69d9bd16961": ContainerEntries{
 							testName: &AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -2476,7 +2476,7 @@ func TestCheckpointStateHelpers(t *testing.T) {
 					PodEntries: PodEntries{
 						"2432d068-c5a0-46ba-a7bd-b69d9bd16961": ContainerEntries{
 							testName: &AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -2795,7 +2795,7 @@ func TestAllocationInfo_GetSpecifiedNUMABindingPoolName(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ai := &AllocationInfo{
-				AllocationMeta: &commonstate.AllocationMeta{
+				AllocationMeta: commonstate.AllocationMeta{
 					PodUid:         tt.fields.PodUid,
 					PodNamespace:   tt.fields.PodNamespace,
 					PodName:        tt.fields.PodName,
@@ -2847,7 +2847,7 @@ func TestPodEntries_GetFilteredPoolsCPUSetMap(t *testing.T) {
 			pe: PodEntries{
 				"373d08e4-7a6b-4293-aaaf-b135ff8123bf": ContainerEntries{
 					testName: &AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -2881,7 +2881,7 @@ func TestPodEntries_GetFilteredPoolsCPUSetMap(t *testing.T) {
 				},
 				"ec6e2f30-c78a-4bc4-9576-c916db5281a3": ContainerEntries{
 					testName: &AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -2915,7 +2915,7 @@ func TestPodEntries_GetFilteredPoolsCPUSetMap(t *testing.T) {
 				},
 				"2432d068-c5a0-46ba-a7bd-b69d9bd16961": ContainerEntries{
 					testName: &AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -3000,7 +3000,7 @@ func TestPodEntries_GetFilteredPoolsCPUSetMap(t *testing.T) {
 				},
 				"373d08e4-7a6b-4293-aaaf-b135ff812aaa": ContainerEntries{
 					testName: &AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff812aaa",
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -3064,7 +3064,7 @@ func TestGetAggregatedRequest(t *testing.T) {
 	t.Parallel()
 
 	allocation := &AllocationInfo{
-		AllocationMeta: &commonstate.AllocationMeta{},
+		AllocationMeta: commonstate.AllocationMeta{},
 	}
 	_, ok := allocation.GetPodAggregatedRequest()
 	require.Equal(t, false, ok)
@@ -3108,7 +3108,7 @@ func TestGetAvailableCPUQuantity(t *testing.T) {
 		PodEntries: PodEntries{
 			"373d08e4-7a6b-4293-aaaf-b135ff8123bf": ContainerEntries{
 				testName: &AllocationInfo{
-					AllocationMeta: &commonstate.AllocationMeta{
+					AllocationMeta: commonstate.AllocationMeta{
 						PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
 						PodNamespace:   testName,
 						PodName:        testName,
@@ -3138,7 +3138,7 @@ func TestGetAvailableCPUQuantity(t *testing.T) {
 					RequestQuantity: 2,
 				},
 				sidecarName: &AllocationInfo{
-					AllocationMeta: &commonstate.AllocationMeta{
+					AllocationMeta: commonstate.AllocationMeta{
 						PodUid:         "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
 						PodNamespace:   testName,
 						PodName:        testName,
@@ -3169,7 +3169,7 @@ func TestGetAvailableCPUQuantity(t *testing.T) {
 			},
 			"ec6e2f30-c78a-4bc4-9576-c916db5281a3": ContainerEntries{
 				testName: &AllocationInfo{
-					AllocationMeta: &commonstate.AllocationMeta{
+					AllocationMeta: commonstate.AllocationMeta{
 						PodUid:         "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
 						PodNamespace:   testName,
 						PodName:        testName,
@@ -3198,7 +3198,7 @@ func TestGetAvailableCPUQuantity(t *testing.T) {
 					RequestQuantity: 2,
 				},
 				sidecarName: &AllocationInfo{
-					AllocationMeta: &commonstate.AllocationMeta{
+					AllocationMeta: commonstate.AllocationMeta{
 						PodUid:         "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
 						PodNamespace:   testName,
 						PodName:        testName,

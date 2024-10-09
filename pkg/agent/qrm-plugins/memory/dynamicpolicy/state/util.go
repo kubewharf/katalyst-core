@@ -37,7 +37,7 @@ import (
 // - qosLevel: The QoS (Quality of Service) level for the container.
 // Returns:
 // - A pointer to a commonstate.AllocationMeta struct generated based on the memory-specific logic.
-func GenerateMemoryContainerAllocationMeta(req *pluginapi.ResourceRequest, qosLevel string) *commonstate.AllocationMeta {
+func GenerateMemoryContainerAllocationMeta(req *pluginapi.ResourceRequest, qosLevel string) commonstate.AllocationMeta {
 	return commonstate.GenerateGenericContainerAllocationMeta(req,
 		// Determine the pool name based on QoS level and a CPU enhancement annotation from the request.
 		commonstate.GetSpecifiedPoolName(qosLevel, req.Annotations[consts.PodAnnotationCPUEnhancementCPUSet]),

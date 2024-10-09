@@ -149,7 +149,7 @@ func TestRegenerateHints(t *testing.T) {
 			name: "test RegenerateHints",
 			args: args{
 				allocationInfo: &state.AllocationInfo{
-					AllocationMeta: &commonstate.AllocationMeta{
+					AllocationMeta: commonstate.AllocationMeta{
 						PodUid:         "test",
 						PodNamespace:   "test",
 						PodName:        "test",
@@ -239,7 +239,7 @@ func TestPackAllocationResponse(t *testing.T) {
 			name: "test PackAllocationResponse",
 			args: args{
 				allocationInfo: &state.AllocationInfo{
-					AllocationMeta: &commonstate.AllocationMeta{
+					AllocationMeta: commonstate.AllocationMeta{
 						PodUid:         "test",
 						PodNamespace:   "test",
 						PodName:        "test",

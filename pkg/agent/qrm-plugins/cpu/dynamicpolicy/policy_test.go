@@ -67,7 +67,7 @@ type cpuTestCase struct {
 	fakeNUMANum int
 }
 
-func generateSharedNumaBindingPoolAllocationMeta(poolName string) *commonstate.AllocationMeta {
+func generateSharedNumaBindingPoolAllocationMeta(poolName string) commonstate.AllocationMeta {
 	meta := commonstate.GenerateGenericPoolAllocationMeta(poolName)
 	if meta.Annotations == nil {
 		meta.Annotations = make(map[string]string)
@@ -1501,7 +1501,7 @@ func TestGetTopologyHints(t *testing.T) {
 			podEntries: state.PodEntries{
 				"373d08e4-7a6b-4293-aaaf-b135ff812kkk": state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff812kkk",
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -1533,7 +1533,7 @@ func TestGetTopologyHints(t *testing.T) {
 				},
 				"373d08e4-7a6b-4293-aaaf-b135ff8123bf": state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -1566,7 +1566,7 @@ func TestGetTopologyHints(t *testing.T) {
 				},
 				"ec6e2f30-c78a-4bc4-9576-c916db5281a3": state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -1598,7 +1598,7 @@ func TestGetTopologyHints(t *testing.T) {
 				},
 				"2432d068-c5a0-46ba-a7bd-b69d9bd16961": state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -1681,7 +1681,7 @@ func TestGetTopologyHints(t *testing.T) {
 				},
 				"373d08e4-7a6b-4293-aaaf-b135ff812aaa": state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff812aaa",
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -1771,7 +1771,7 @@ func TestGetTopologyHints(t *testing.T) {
 			podEntries: state.PodEntries{
 				"373d08e4-7a6b-4293-aaaf-b135ff812kkk": state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff812kkk",
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -1802,7 +1802,7 @@ func TestGetTopologyHints(t *testing.T) {
 				},
 				"373d08e4-7a6b-4293-aaaf-b135ff8123bf": state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -1834,7 +1834,7 @@ func TestGetTopologyHints(t *testing.T) {
 				},
 				"ec6e2f30-c78a-4bc4-9576-c916db5281a3": state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -1866,7 +1866,7 @@ func TestGetTopologyHints(t *testing.T) {
 				},
 				"2432d068-c5a0-46ba-a7bd-b69d9bd16961": state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -1949,7 +1949,7 @@ func TestGetTopologyHints(t *testing.T) {
 				},
 				"373d08e4-7a6b-4293-aaaf-b135ff812aaa": state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff812aaa",
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -2039,7 +2039,7 @@ func TestGetTopologyHints(t *testing.T) {
 			podEntries: state.PodEntries{
 				"373d08e4-7a6b-4293-aaaf-b135ff812kkk": state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff812kkk",
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -2070,7 +2070,7 @@ func TestGetTopologyHints(t *testing.T) {
 				},
 				"373d08e4-7a6b-4293-aaaf-b135ff8123bf": state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -2103,7 +2103,7 @@ func TestGetTopologyHints(t *testing.T) {
 				},
 				"ec6e2f30-c78a-4bc4-9576-c916db5281a3": state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -2135,7 +2135,7 @@ func TestGetTopologyHints(t *testing.T) {
 				},
 				"2432d068-c5a0-46ba-a7bd-b69d9bd16961": state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -2218,7 +2218,7 @@ func TestGetTopologyHints(t *testing.T) {
 				},
 				"373d08e4-7a6b-4293-aaaf-b135ff812aaa": state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff812aaa",
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -2308,7 +2308,7 @@ func TestGetTopologyHints(t *testing.T) {
 			podEntries: state.PodEntries{
 				"373d08e4-7a6b-4293-aaaf-b135ff812kkk": state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff812kkk",
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -2339,7 +2339,7 @@ func TestGetTopologyHints(t *testing.T) {
 				},
 				"2432d068-c5a0-46ba-a7bd-b69d9bd16961": state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -2433,7 +2433,7 @@ func TestGetTopologyHints(t *testing.T) {
 				},
 				"373d08e4-7a6b-4293-aaaf-b135ff812aaa": state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff812aaa",
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -2464,7 +2464,7 @@ func TestGetTopologyHints(t *testing.T) {
 				},
 				"373d08e4-7a6b-4293-aaaf-b135ff812iii": state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff812iii",
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -2495,7 +2495,7 @@ func TestGetTopologyHints(t *testing.T) {
 				},
 				"373d08e4-7a6b-4293-aaaf-b135ff812ooo": state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff812ooo",
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -3137,7 +3137,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 			podEntries: state.PodEntries{
 				pod1UID: state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod1UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -3173,7 +3173,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 				},
 				pod2UID: state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod2UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -3209,7 +3209,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 				},
 				pod3UID: state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod3UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -3283,7 +3283,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 			expectedPodEntries: state.PodEntries{
 				pod1UID: state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod1UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -3317,7 +3317,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 				},
 				pod2UID: state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod2UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -3351,7 +3351,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 				},
 				pod3UID: state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod3UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -3444,7 +3444,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 					PodEntries: state.PodEntries{
 						pod1UID: state.ContainerEntries{
 							testName: &state.AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         pod1UID,
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -3474,7 +3474,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 						},
 						pod2UID: state.ContainerEntries{
 							testName: &state.AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         pod2UID,
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -3504,7 +3504,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 						},
 						pod3UID: state.ContainerEntries{
 							testName: &state.AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         pod3UID,
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -3540,7 +3540,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 					PodEntries: state.PodEntries{
 						pod1UID: state.ContainerEntries{
 							testName: &state.AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         pod1UID,
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -3570,7 +3570,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 						},
 						pod2UID: state.ContainerEntries{
 							testName: &state.AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         pod2UID,
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -3600,7 +3600,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 						},
 						pod3UID: state.ContainerEntries{
 							testName: &state.AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         pod3UID,
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -3636,7 +3636,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 					PodEntries: state.PodEntries{
 						pod1UID: state.ContainerEntries{
 							testName: &state.AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         pod1UID,
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -3666,7 +3666,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 						},
 						pod2UID: state.ContainerEntries{
 							testName: &state.AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         pod2UID,
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -3696,7 +3696,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 						},
 						pod3UID: state.ContainerEntries{
 							testName: &state.AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         pod3UID,
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -3732,7 +3732,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 					PodEntries: state.PodEntries{
 						pod3UID: state.ContainerEntries{
 							testName: &state.AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         pod3UID,
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -3770,7 +3770,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 			podEntries: state.PodEntries{
 				pod1UID: state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod1UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -3802,7 +3802,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 				},
 				pod2UID: state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod2UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -3834,7 +3834,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 				},
 				pod3UID: state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod3UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -3866,7 +3866,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 				},
 				pod4UID: state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod4UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -4005,7 +4005,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 			expectedPodEntries: state.PodEntries{
 				pod1UID: state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod1UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -4037,7 +4037,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 				},
 				pod2UID: state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod2UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -4069,7 +4069,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 				},
 				pod3UID: state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod3UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -4103,7 +4103,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 				},
 				pod4UID: state.ContainerEntries{
 					testName: &state.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod4UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -4189,7 +4189,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 					PodEntries: state.PodEntries{
 						pod3UID: state.ContainerEntries{
 							testName: &state.AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         pod3UID,
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -4219,7 +4219,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 						},
 						pod4UID: state.ContainerEntries{
 							testName: &state.AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         pod4UID,
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -4256,7 +4256,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 					PodEntries: state.PodEntries{
 						pod3UID: state.ContainerEntries{
 							testName: &state.AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         pod3UID,
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -4286,7 +4286,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 						},
 						pod4UID: state.ContainerEntries{
 							testName: &state.AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         pod4UID,
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -4323,7 +4323,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 					PodEntries: state.PodEntries{
 						pod1UID: state.ContainerEntries{
 							testName: &state.AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         pod1UID,
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -4353,7 +4353,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 						},
 						pod2UID: state.ContainerEntries{
 							testName: &state.AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         pod2UID,
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -4383,7 +4383,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 						},
 						//pod3UID: state.ContainerEntries{
 						//	testName: &state.AllocationInfo{
-						//		AllocationMeta: &commonstate.AllocationMeta{
+						//		AllocationMeta: commonstate.AllocationMeta{
 						//			PodUid:                   pod3UID,
 						//			PodNamespace:             testName,
 						//			PodName:                  testName,
@@ -4419,7 +4419,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 					PodEntries: state.PodEntries{
 						pod1UID: state.ContainerEntries{
 							testName: &state.AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         pod1UID,
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -4449,7 +4449,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 						},
 						pod2UID: state.ContainerEntries{
 							testName: &state.AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         pod2UID,
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -4479,7 +4479,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 						},
 						pod3UID: state.ContainerEntries{
 							testName: &state.AllocationInfo{
-								AllocationMeta: &commonstate.AllocationMeta{
+								AllocationMeta: commonstate.AllocationMeta{
 									PodUid:         pod3UID,
 									PodNamespace:   testName,
 									PodName:        testName,
@@ -4749,7 +4749,7 @@ func TestRemoveContainer(t *testing.T) {
 	podEntries := state.PodEntries{
 		podUID: state.ContainerEntries{
 			containerName: &state.AllocationInfo{
-				AllocationMeta: &commonstate.AllocationMeta{
+				AllocationMeta: commonstate.AllocationMeta{
 					PodUid:         podUID,
 					PodNamespace:   testName,
 					PodName:        testName,
@@ -4837,7 +4837,7 @@ func TestShoudSharedCoresRampUp(t *testing.T) {
 	existPodUID := uuid.NewUUID()
 	existName := "exist"
 	dynamicPolicy.state.SetAllocationInfo(string(existPodUID), existName, &state.AllocationInfo{
-		AllocationMeta: &commonstate.AllocationMeta{
+		AllocationMeta: commonstate.AllocationMeta{
 			PodUid:         string(existPodUID),
 			PodNamespace:   existName,
 			PodName:        existName,
@@ -5118,7 +5118,7 @@ func Test_getNUMAAllocatedMemBW(t *testing.T) {
 	podEntries := state.PodEntries{
 		"373d08e4-7a6b-4293-aaaf-b135ff812kkk": state.ContainerEntries{
 			testName: &state.AllocationInfo{
-				AllocationMeta: &commonstate.AllocationMeta{
+				AllocationMeta: commonstate.AllocationMeta{
 					PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff812kkk",
 					PodNamespace:   testName,
 					PodName:        testName,
@@ -5149,7 +5149,7 @@ func Test_getNUMAAllocatedMemBW(t *testing.T) {
 		},
 		"373d08e4-7a6b-4293-aaaf-b135ff8123bf": state.ContainerEntries{
 			testName: &state.AllocationInfo{
-				AllocationMeta: &commonstate.AllocationMeta{
+				AllocationMeta: commonstate.AllocationMeta{
 					PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
 					PodNamespace:   testName,
 					PodName:        testName,
@@ -5181,7 +5181,7 @@ func Test_getNUMAAllocatedMemBW(t *testing.T) {
 		},
 		"ec6e2f30-c78a-4bc4-9576-c916db5281a3": state.ContainerEntries{
 			testName: &state.AllocationInfo{
-				AllocationMeta: &commonstate.AllocationMeta{
+				AllocationMeta: commonstate.AllocationMeta{
 					PodUid:         "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
 					PodNamespace:   testName,
 					PodName:        testName,
@@ -5213,7 +5213,7 @@ func Test_getNUMAAllocatedMemBW(t *testing.T) {
 		},
 		"2432d068-c5a0-46ba-a7bd-b69d9bd16961": state.ContainerEntries{
 			testName: &state.AllocationInfo{
-				AllocationMeta: &commonstate.AllocationMeta{
+				AllocationMeta: commonstate.AllocationMeta{
 					PodUid:         "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
 					PodNamespace:   testName,
 					PodName:        testName,
@@ -5296,7 +5296,7 @@ func Test_getNUMAAllocatedMemBW(t *testing.T) {
 		},
 		"373d08e4-7a6b-4293-aaaf-b135ff812aaa": state.ContainerEntries{
 			testName: &state.AllocationInfo{
-				AllocationMeta: &commonstate.AllocationMeta{
+				AllocationMeta: commonstate.AllocationMeta{
 					PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff812aaa",
 					PodNamespace:   testName,
 					PodName:        testName,
