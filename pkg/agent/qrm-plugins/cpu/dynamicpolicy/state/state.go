@@ -533,6 +533,7 @@ func (nm NUMANodeMap) String() string {
 // reader is used to get information from local states
 type reader interface {
 	GetMachineState() NUMANodeMap
+	GetNUMAHeadroom() map[int]float64
 	GetPodEntries() PodEntries
 	GetAllocationInfo(podUID string, containerName string) *AllocationInfo
 	GetAllowSharedCoresOverlapReclaimedCores() bool
@@ -542,6 +543,7 @@ type reader interface {
 // and it also provides functionality to maintain the local files
 type writer interface {
 	SetMachineState(numaNodeMap NUMANodeMap)
+	SetNUMAHeadroom(map[int]float64)
 	SetPodEntries(podEntries PodEntries)
 	SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo)
 	SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores bool)
