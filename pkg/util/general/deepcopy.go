@@ -28,18 +28,6 @@ func DeepCopyMap(origin map[string]string) map[string]string {
 	return res
 }
 
-func DeepCopyFload64Map(origin map[string]float64) map[string]float64 {
-	if origin == nil {
-		return nil
-	}
-
-	res := make(map[string]float64, len(origin))
-	for key, val := range origin {
-		res[key] = val
-	}
-	return res
-}
-
 func DeepCopyIntMap(origin map[string]int) map[string]int {
 	if origin == nil {
 		return nil
@@ -58,6 +46,18 @@ func DeepCopyIntToIntMap(origin map[int]int) map[int]int {
 	}
 
 	res := make(map[int]int, len(origin))
+	for key, val := range origin {
+		res[key] = val
+	}
+	return res
+}
+
+func DeepCopyIntToFloat64Map(origin map[int]float64) map[int]float64 {
+	if origin == nil {
+		return nil
+	}
+
+	res := make(map[int]float64, len(origin))
 	for key, val := range origin {
 		res[key] = val
 	}
