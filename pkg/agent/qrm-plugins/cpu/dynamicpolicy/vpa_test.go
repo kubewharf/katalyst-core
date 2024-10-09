@@ -29,7 +29,7 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -672,7 +672,7 @@ func TestNormalShareVPA(t *testing.T) {
 	resp1, err := dynamicPolicy.GetResourcesAllocation(context.Background(), &pluginapi.GetResourcesAllocationRequest{})
 	as.Nil(err)
 
-	reclaim := dynamicPolicy.state.GetAllocationInfo(state.PoolNameReclaim, state.FakedContainerName)
+	reclaim := dynamicPolicy.state.GetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName)
 	as.NotNil(reclaim)
 
 	as.NotNil(resp1.PodResources[req.PodUid])
@@ -741,7 +741,7 @@ func TestNormalShareVPA(t *testing.T) {
 	resp1, err = dynamicPolicy.GetResourcesAllocation(context.Background(), &pluginapi.GetResourcesAllocationRequest{})
 	as.Nil(err)
 
-	reclaim = dynamicPolicy.state.GetAllocationInfo(state.PoolNameReclaim, state.FakedContainerName)
+	reclaim = dynamicPolicy.state.GetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName)
 	as.NotNil(reclaim)
 
 	as.NotNil(resp1.PodResources[req.PodUid])
@@ -828,7 +828,7 @@ func TestNormalShareVPAWithSidecar(t *testing.T) {
 	as.NotNil(allocationRes.PodResources[podUID].ContainerResources[sidecarContainerName])
 	as.NotNil(allocationRes.PodResources[podUID].ContainerResources[sidecarContainerName].ResourceAllocation[string(v1.ResourceCPU)])
 	// reserve pool size: 2, reclaimed pool size: 4, share pool size: 42
-	reclaim := dynamicPolicy.state.GetAllocationInfo(state.PoolNameReclaim, state.FakedContainerName)
+	reclaim := dynamicPolicy.state.GetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName)
 	as.NotNil(reclaim)
 	as.Equal(&pluginapi.ResourceAllocationInfo{
 		OciPropertyName:   util.OCIPropertyNameCPUSetCPUs,
@@ -877,7 +877,7 @@ func TestNormalShareVPAWithSidecar(t *testing.T) {
 	as.NotNil(allocationRes.PodResources[mainReq.PodUid].ContainerResources[mainContainerName])
 	as.NotNil(allocationRes.PodResources[mainReq.PodUid].ContainerResources[mainContainerName].ResourceAllocation[string(v1.ResourceCPU)])
 	// reserve pool size: 2, reclaimed pool size: 4, share pool size: 42
-	reclaim = dynamicPolicy.state.GetAllocationInfo(state.PoolNameReclaim, state.FakedContainerName)
+	reclaim = dynamicPolicy.state.GetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName)
 	as.NotNil(reclaim)
 	as.Equal(&pluginapi.ResourceAllocationInfo{
 		OciPropertyName:   util.OCIPropertyNameCPUSetCPUs,
@@ -935,7 +935,7 @@ func TestNormalShareVPAWithSidecar(t *testing.T) {
 	as.NotNil(resizeMainContainerAllocations.PodResources[podUID].ContainerResources[mainContainerName])
 	as.NotNil(resizeMainContainerAllocations.PodResources[podUID].ContainerResources[mainContainerName].ResourceAllocation[string(v1.ResourceCPU)])
 	// reserve pool size: 2, reclaimed pool size: 4, share pool size: 42
-	reclaim = dynamicPolicy.state.GetAllocationInfo(state.PoolNameReclaim, state.FakedContainerName)
+	reclaim = dynamicPolicy.state.GetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName)
 	as.NotNil(reclaim)
 	as.Equal(&pluginapi.ResourceAllocationInfo{
 		OciPropertyName:   util.OCIPropertyNameCPUSetCPUs,
@@ -1012,7 +1012,7 @@ func TestNormalShareVPAWithSidecar(t *testing.T) {
 	as.NotNil(resizeSidecarContainerAllocations.PodResources[podUID].ContainerResources[mainContainerName])
 	as.NotNil(resizeSidecarContainerAllocations.PodResources[podUID].ContainerResources[mainContainerName].ResourceAllocation[string(v1.ResourceCPU)])
 	// reserve pool size: 2, reclaimed pool size: 4, share pool size: 42
-	reclaim = dynamicPolicy.state.GetAllocationInfo(state.PoolNameReclaim, state.FakedContainerName)
+	reclaim = dynamicPolicy.state.GetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName)
 	as.NotNil(reclaim)
 	as.Equal(&pluginapi.ResourceAllocationInfo{
 		OciPropertyName:   util.OCIPropertyNameCPUSetCPUs,

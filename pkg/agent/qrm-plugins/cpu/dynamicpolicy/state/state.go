@@ -24,11 +24,9 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
-	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
-	"github.com/kubewharf/katalyst-api/pkg/consts"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
-	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -40,16 +38,10 @@ import (
 // 3. not use omitempty in map property and must make new map to do initialization
 
 type AllocationInfo struct {
-	PodUid                   string         `json:"pod_uid,omitempty"`
-	PodNamespace             string         `json:"pod_namespace,omitempty"`
-	PodName                  string         `json:"pod_name,omitempty"`
-	ContainerName            string         `json:"container_name,omitempty"`
-	ContainerType            string         `json:"container_type,omitempty"`
-	ContainerIndex           uint64         `json:"container_index,omitempty"`
-	RampUp                   bool           `json:"ramp_up,omitempty"`
-	OwnerPoolName            string         `json:"owner_pool_name,omitempty"`
-	PodRole                  string         `json:"pod_role,omitempty"`
-	PodType                  string         `json:"pod_type,omitempty"`
+	commonstate.AllocationMeta `json:",inline"`
+
+	RampUp bool `json:"ramp_up,omitempty"`
+
 	AllocationResult         machine.CPUSet `json:"allocation_result,omitempty"`
 	OriginalAllocationResult machine.CPUSet `json:"original_allocation_result,omitempty"`
 
@@ -60,10 +52,7 @@ type AllocationInfo struct {
 	// for ramp up calculation. notice we don't use time.Time type here to avid checksum corruption.
 	InitTimestamp string `json:"init_timestamp"`
 
-	Labels          map[string]string `json:"labels"`
-	Annotations     map[string]string `json:"annotations"`
-	QoSLevel        string            `json:"qosLevel"`
-	RequestQuantity float64           `json:"request_quantity,omitempty"`
+	RequestQuantity float64 `json:"request_quantity,omitempty"`
 }
 
 type (
@@ -88,22 +77,11 @@ func (ai *AllocationInfo) Clone() *AllocationInfo {
 	}
 
 	clone := &AllocationInfo{
-		PodUid:                   ai.PodUid,
-		PodNamespace:             ai.PodNamespace,
-		PodName:                  ai.PodName,
-		ContainerName:            ai.ContainerName,
-		ContainerType:            ai.ContainerType,
-		ContainerIndex:           ai.ContainerIndex,
+		AllocationMeta:           *ai.AllocationMeta.Clone(),
 		RampUp:                   ai.RampUp,
-		OwnerPoolName:            ai.OwnerPoolName,
-		PodRole:                  ai.PodRole,
-		PodType:                  ai.PodType,
 		AllocationResult:         ai.AllocationResult.Clone(),
 		OriginalAllocationResult: ai.OriginalAllocationResult.Clone(),
 		InitTimestamp:            ai.InitTimestamp,
-		QoSLevel:                 ai.QoSLevel,
-		Labels:                   general.DeepCopyMap(ai.Labels),
-		Annotations:              general.DeepCopyMap(ai.Annotations),
 		RequestQuantity:          ai.RequestQuantity,
 	}
 
@@ -139,90 +117,6 @@ func (ai *AllocationInfo) String() string {
 	return string(contentBytes)
 }
 
-// GetPoolName parses the owner pool name for AllocationInfo
-// if owner exists, just return; otherwise, parse from qos-level
-func (ai *AllocationInfo) GetPoolName() string {
-	if ai == nil {
-		return EmptyOwnerPoolName
-	}
-
-	if ownerPoolName := ai.GetOwnerPoolName(); ownerPoolName != EmptyOwnerPoolName {
-		return ownerPoolName
-	}
-	return ai.GetSpecifiedPoolName()
-}
-
-// GetOwnerPoolName parses the owner pool name for AllocationInfo
-func (ai *AllocationInfo) GetOwnerPoolName() string {
-	if ai == nil {
-		return EmptyOwnerPoolName
-	}
-	return ai.OwnerPoolName
-}
-
-// GetSpecifiedPoolName parses the owner pool name for AllocationInfo from qos-level
-func (ai *AllocationInfo) GetSpecifiedPoolName() string {
-	if ai == nil {
-		return EmptyOwnerPoolName
-	}
-
-	return GetSpecifiedPoolName(ai.QoSLevel, ai.Annotations[consts.PodAnnotationCPUEnhancementCPUSet])
-}
-
-// GetSpecifiedNUMABindingPoolName get numa_binding pool name
-// for numa_binding shared_cores according to enhancements and NUMA hint
-func (ai *AllocationInfo) GetSpecifiedNUMABindingPoolName() (string, error) {
-	if !CheckSharedNUMABinding(ai) {
-		return EmptyOwnerPoolName, fmt.Errorf("GetSpecifiedNUMABindingPoolName only for numa_binding shared_cores")
-	}
-
-	numaSet, pErr := machine.Parse(ai.Annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint])
-	if pErr != nil {
-		return EmptyOwnerPoolName, fmt.Errorf("parse numaHintStr: %s failed with error: %v",
-			ai.Annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint], pErr)
-	} else if numaSet.Size() != 1 {
-		return EmptyOwnerPoolName, fmt.Errorf("parse numaHintStr: %s with invalid size", numaSet.String())
-	}
-
-	specifiedPoolName := ai.GetSpecifiedPoolName()
-
-	if specifiedPoolName == EmptyOwnerPoolName {
-		return EmptyOwnerPoolName, fmt.Errorf("empty specifiedPoolName")
-	}
-
-	return GetNUMAPoolName(specifiedPoolName, numaSet.ToSliceNoSortUInt64()[0]), nil
-}
-
-func (ai *AllocationInfo) GetSpecifiedSystemPoolName() (string, error) {
-	if !CheckSystem(ai) {
-		return EmptyOwnerPoolName, fmt.Errorf("GetSpecifiedSystemPoolName only for system_cores")
-	}
-
-	specifiedPoolName := ai.GetSpecifiedPoolName()
-	if specifiedPoolName == EmptyOwnerPoolName {
-		return PoolNamePrefixSystem, nil
-	}
-
-	return fmt.Sprintf("%s%s%s", PoolNamePrefixSystem, "-", specifiedPoolName), nil
-}
-
-func CheckSystem(ai *AllocationInfo) bool {
-	if ai == nil {
-		return false
-	}
-
-	return ai.QoSLevel == consts.PodAnnotationQoSLevelSystemCores
-}
-
-// CheckMainContainer returns true if the AllocationInfo is for main container
-func (ai *AllocationInfo) CheckMainContainer() bool {
-	if ai == nil {
-		return false
-	}
-
-	return ai.ContainerType == pluginapi.ContainerType_MAIN.String()
-}
-
 // GetAllocationResultNUMASet returns numaSet parsed from TopologyAwareAssignments
 func (ai *AllocationInfo) GetAllocationResultNUMASet() machine.CPUSet {
 	if ai == nil {
@@ -244,17 +138,9 @@ func (ai *AllocationInfo) GetAllocationResultNUMASet() machine.CPUSet {
 	return numaSet
 }
 
-// CheckSideCar returns true if the AllocationInfo is for side-car container
-func (ai *AllocationInfo) CheckSideCar() bool {
-	if ai == nil {
-		return false
-	}
-
-	return ai.ContainerType == pluginapi.ContainerType_SIDECAR.String()
-}
-
 func (ai *AllocationInfo) GetPodAggregatedRequest() (float64, bool) {
-	if ai.Annotations == nil {
+	if ai == nil ||
+		ai.Annotations == nil {
 		return 0, false
 	}
 	value, ok := ai.Annotations[apiconsts.PodAnnotationAggregatedRequestsKey]
@@ -270,120 +156,17 @@ func (ai *AllocationInfo) GetPodAggregatedRequest() (float64, bool) {
 	return float64(resourceList.Cpu().MilliValue()) / 1000, true
 }
 
-// CheckDedicated returns true if the AllocationInfo is for pod with dedicated-qos
-func CheckDedicated(ai *AllocationInfo) bool {
-	if ai == nil {
-		return false
-	}
-
-	return ai.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores
-}
-
-// CheckShared returns true if the AllocationInfo is for pod with shared-qos
-func CheckShared(ai *AllocationInfo) bool {
-	if ai == nil {
-		return false
-	}
-
-	return ai.QoSLevel == consts.PodAnnotationQoSLevelSharedCores
-}
-
-// CheckReclaimed returns true if the AllocationInfo is for pod with reclaimed-qos
-func CheckReclaimed(ai *AllocationInfo) bool {
-	if ai == nil {
-		return false
-	}
-
-	return ai.QoSLevel == consts.PodAnnotationQoSLevelReclaimedCores
-}
-
-// CheckNUMABinding returns true if the AllocationInfo is for pod with numa-binding enhancement
-func CheckNUMABinding(ai *AllocationInfo) bool {
-	if ai == nil {
-		return false
-	}
-
-	return ai.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable
-}
-
-// CheckDedicatedNUMABinding returns true if the AllocationInfo is for pod with
-// dedicated-qos and numa-binding enhancement
-func CheckDedicatedNUMABinding(ai *AllocationInfo) bool {
-	if ai == nil {
-		return false
-	}
-
-	return CheckDedicated(ai) && CheckNUMABinding(ai)
-}
-
-// CheckSharedNUMABinding returns true if the AllocationInfo is for pod with
-// shared-qos and numa-binding enhancement
-func CheckSharedNUMABinding(ai *AllocationInfo) bool {
-	if ai == nil {
-		return false
-	}
-
-	return CheckShared(ai) && CheckNUMABinding(ai)
-}
-
-// CheckSharedOrDedicatedNUMABinding returns true if the AllocationInfo is for pod with
-// shared-qos or dedicated-qos and numa-binding enhancement
-func CheckSharedOrDedicatedNUMABinding(ai *AllocationInfo) bool {
-	if ai == nil {
-		return false
-	}
-
-	return CheckSharedNUMABinding(ai) || CheckDedicatedNUMABinding(ai)
-}
-
-// CheckDedicatedPool returns true if the AllocationInfo is for a container in the dedicated pool
-func CheckDedicatedPool(ai *AllocationInfo) bool {
-	if ai == nil {
-		return false
-	}
-
-	return ai.OwnerPoolName == PoolNameDedicated
-}
-
-// CheckNUMABindingSharedCoresAntiAffinity returns true
-// if the AllocationInfo isn't compatible for the annotations of a numa binding shared cores candidate
-func CheckNUMABindingSharedCoresAntiAffinity(ai *AllocationInfo, annotations map[string]string) bool {
-	if ai == nil {
-		return false
-	} else if len(annotations) == 0 {
-		return false
-	}
-
-	if CheckDedicatedNUMABinding(ai) {
-		return true
-	}
-
-	if CheckSharedNUMABinding(ai) {
-		// considering isolation, use specified pool instead of actual pool name here
-		candidateSpecifiedPoolName := GetSpecifiedPoolName(apiconsts.PodAnnotationQoSLevelSharedCores,
-			annotations[apiconsts.PodAnnotationCPUEnhancementCPUSet])
-		aiSpecifiedPoolName := ai.GetSpecifiedPoolName()
-
-		// shared_cores with numa binding doesn't support two share type pools with same specified name existing at same NUMA
-		if candidateSpecifiedPoolName != aiSpecifiedPoolName {
-			return true
-		}
-	}
-
-	return false
-}
-
 // IsPoolEntry returns true if this entry is for a pool;
 // otherwise, this entry is for a container entity.
 func (ce ContainerEntries) IsPoolEntry() bool {
-	return len(ce) == 1 && ce[FakedContainerName] != nil
+	return len(ce) == 1 && ce[commonstate.FakedContainerName] != nil
 }
 
 func (ce ContainerEntries) GetPoolEntry() *AllocationInfo {
 	if !ce.IsPoolEntry() {
 		return nil
 	}
-	return ce[FakedContainerName]
+	return ce[commonstate.FakedContainerName]
 }
 
 // GetMainContainerEntry returns the main container entry in pod container entries
@@ -439,8 +222,8 @@ func (pe PodEntries) String() string {
 
 // CheckPoolEmpty returns true if the given pool doesn't exist
 func (pe PodEntries) CheckPoolEmpty(poolName string) bool {
-	return pe[poolName][FakedContainerName] == nil ||
-		pe[poolName][FakedContainerName].AllocationResult.IsEmpty()
+	return pe[poolName][commonstate.FakedContainerName] == nil ||
+		pe[poolName][commonstate.FakedContainerName].AllocationResult.IsEmpty()
 }
 
 // GetCPUSetForPool returns cpuset that belongs to the given pool
@@ -452,7 +235,7 @@ func (pe PodEntries) GetCPUSetForPool(poolName string) (machine.CPUSet, error) {
 	if !pe[poolName].IsPoolEntry() {
 		return machine.NewCPUSet(), fmt.Errorf("pool not found")
 	}
-	return pe[poolName][FakedContainerName].AllocationResult.Clone(), nil
+	return pe[poolName][commonstate.FakedContainerName].AllocationResult.Clone(), nil
 }
 
 // GetFilteredPoolsCPUSet returns a mapping of pools for all of them (except for those skipped ones)
@@ -486,7 +269,7 @@ func (pe PodEntries) GetFilteredPoolsCPUSetMap(ignorePools sets.String) (map[str
 			// pool entry containing SharedNUMABinding containers also has SharedNUMABinding declarations,
 			// it's also applicable to isolation pools for SharedNUMABinding containers.
 			// it helps us to differentiate them from normal share pools when getting targetNUMAID for the pool.
-			if CheckSharedNUMABinding(allocationInfo) {
+			if allocationInfo.CheckSharedNUMABinding() {
 				// pool for numa_binding shared_cores containers
 
 				numaSet := allocationInfo.GetAllocationResultNUMASet()
@@ -511,7 +294,7 @@ func (pe PodEntries) GetFilteredPoolsCPUSetMap(ignorePools sets.String) (map[str
 			} else {
 				// pool for shared_cores without numa_binding containers
 				ret[poolName] = make(map[int]machine.CPUSet)
-				ret[poolName][FakedNUMAID] = cset
+				ret[poolName][commonstate.FakedNUMAID] = cset
 			}
 		}
 	}
@@ -577,7 +360,7 @@ func (ns *NUMANodeState) GetAvailableCPUQuantity(reservedCPUs machine.CPUSet) in
 
 		// if there is pod aggregated resource key in main container annotations, use pod aggregated resource instead.
 		mainContainerEntry := containerEntries.GetMainContainerEntry()
-		if mainContainerEntry == nil || !CheckSharedNUMABinding(mainContainerEntry) {
+		if mainContainerEntry == nil || !mainContainerEntry.CheckSharedNUMABinding() {
 			continue
 		}
 
@@ -589,8 +372,7 @@ func (ns *NUMANodeState) GetAvailableCPUQuantity(reservedCPUs machine.CPUSet) in
 
 		// calc pod aggregated resource request by container entries.
 		for _, allocationInfo := range containerEntries {
-			if allocationInfo == nil ||
-				!CheckSharedNUMABinding(allocationInfo) {
+			if allocationInfo == nil || !allocationInfo.CheckSharedNUMABinding() {
 				continue
 			}
 
@@ -635,7 +417,7 @@ func (ns *NUMANodeState) ExistMatchedAllocationInfo(f func(ai *AllocationInfo) b
 	return false
 }
 
-// ExistMatchedAllocationInfo returns true if the stated predicate (with annotations of candidate)
+// ExistMatchedAllocationInfoWithAnnotations returns true if the stated predicate (with annotations of candidate)
 // holds true for some pods of this numa else it returns false.
 func (ns *NUMANodeState) ExistMatchedAllocationInfoWithAnnotations(
 	f func(ai *AllocationInfo, annotations map[string]string) bool,

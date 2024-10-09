@@ -272,7 +272,7 @@ func (p *DynamicPolicy) checkMemorySet(_ *coreconfig.Configuration,
 		for containerName, allocationInfo := range containerEntries {
 			if allocationInfo == nil || !allocationInfo.CheckMainContainer() {
 				continue
-			} else if allocationInfo.QoSLevel == consts.PodAnnotationQoSLevelSharedCores &&
+			} else if allocationInfo.CheckShared() &&
 				p.getContainerRequestedMemoryBytes(allocationInfo) == 0 {
 				general.Warningf("skip memset checking for pod: %s/%s container: %s with zero memory request",
 					allocationInfo.PodNamespace, allocationInfo.PodName, containerName)
@@ -315,7 +315,7 @@ func (p *DynamicPolicy) checkMemorySet(_ *coreconfig.Configuration,
 				allocationInfo.NumaAllocationResult.String(), actualMemorySets[podUID][containerName].String())
 
 			// only do comparison for dedicated_cores with numa_binding to avoid effect of adjustment for shared_cores
-			if !allocationInfo.CheckNumaBinding() {
+			if !allocationInfo.CheckNUMABinding() {
 				continue
 			}
 
@@ -341,7 +341,7 @@ func (p *DynamicPolicy) checkMemorySet(_ *coreconfig.Configuration,
 
 			switch allocationInfo.QoSLevel {
 			case consts.PodAnnotationQoSLevelDedicatedCores:
-				if allocationInfo.CheckNumaBinding() {
+				if allocationInfo.CheckNUMABinding() {
 					if !memorySetOverlap && cset.Intersection(unionNUMABindingActualMemorySet).Size() != 0 {
 						memorySetOverlap = true
 						general.Errorf("pod: %s/%s, container: %s memset: %s overlaps with others",

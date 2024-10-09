@@ -24,7 +24,7 @@ import (
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
@@ -143,7 +143,7 @@ func (cp *cacheReaper) Reconcile(status *types.MemoryPressureStatus) error {
 
 	containers := make([]*types.ContainerInfo, 0)
 	cp.metaReader.RangeContainer(func(podUID string, containerName string, containerInfo *types.ContainerInfo) bool {
-		if cp.reclaimedContainersFilter(containerInfo, state.FakedNUMAID, minCacheUtilizationThreshold) {
+		if cp.reclaimedContainersFilter(containerInfo, commonstate.FakedNUMAID, minCacheUtilizationThreshold) {
 			containers = append(containers, containerInfo)
 		}
 		return true
