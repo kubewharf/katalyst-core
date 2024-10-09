@@ -62,8 +62,8 @@ func CheckNUMABindingSharedCoresAntiAffinity(meta *AllocationMeta, annotations m
 // - qosLevel: The QoS (Quality of Service) level for the container.
 // Returns:
 // - A pointer to an AllocationMeta struct filled with relevant data from the request and other inputs.
-func GenerateGenericContainerAllocationMeta(req *pluginapi.ResourceRequest, ownerPoolName, qosLevel string) *AllocationMeta {
-	return &AllocationMeta{
+func GenerateGenericContainerAllocationMeta(req *pluginapi.ResourceRequest, ownerPoolName, qosLevel string) AllocationMeta {
+	return AllocationMeta{
 		PodUid:         req.PodUid,
 		PodNamespace:   req.PodNamespace,
 		PodName:        req.PodName,
@@ -85,8 +85,8 @@ func GenerateGenericContainerAllocationMeta(req *pluginapi.ResourceRequest, owne
 // - poolName: The name of the pool for which the metadata is generated.
 // Returns:
 // - A pointer to an AllocationMeta struct with the pool name set for both PodUid and OwnerPoolName.
-func GenerateGenericPoolAllocationMeta(poolName string) *AllocationMeta {
-	return &AllocationMeta{
+func GenerateGenericPoolAllocationMeta(poolName string) AllocationMeta {
+	return AllocationMeta{
 		PodUid:        poolName, // The unique identifier for the pool (reusing poolName).
 		OwnerPoolName: poolName, // The name of the pool itself.
 	}

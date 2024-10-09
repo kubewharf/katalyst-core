@@ -32,7 +32,7 @@ import (
 )
 
 type AllocationInfo struct {
-	*commonstate.AllocationMeta `json:",inline"`
+	commonstate.AllocationMeta `json:",inline"`
 
 	AggregatedQuantity   uint64         `json:"aggregated_quantity"`
 	NumaAllocationResult machine.CPUSet `json:"numa_allocation_result,omitempty"`
@@ -84,7 +84,7 @@ func (ai *AllocationInfo) Clone() *AllocationInfo {
 	}
 
 	clone := &AllocationInfo{
-		AllocationMeta:       ai.AllocationMeta.Clone(),
+		AllocationMeta:       *ai.AllocationMeta.Clone(),
 		AggregatedQuantity:   ai.AggregatedQuantity,
 		NumaAllocationResult: ai.NumaAllocationResult.Clone(),
 	}

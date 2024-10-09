@@ -50,10 +50,10 @@ var (
 // to an AllocationInfo by extracting its AllocationMeta.
 func WrapAllocationMetaFilter(metaFilter func(meta *commonstate.AllocationMeta) bool) func(info *AllocationInfo) bool {
 	return func(info *AllocationInfo) bool {
-		if info == nil || info.AllocationMeta == nil {
+		if info == nil {
 			return false // Handle nil cases safely.
 		}
-		return metaFilter(info.AllocationMeta)
+		return metaFilter(&info.AllocationMeta)
 	}
 }
 
@@ -64,10 +64,10 @@ func WrapAllocationMetaFilterWithAnnotations(
 	metaFilter func(meta *commonstate.AllocationMeta, annotations map[string]string) bool,
 ) func(info *AllocationInfo, annotations map[string]string) bool {
 	return func(info *AllocationInfo, annotations map[string]string) bool {
-		if info == nil || info.AllocationMeta == nil {
+		if info == nil {
 			return false // Handle nil cases safely.
 		}
-		return metaFilter(info.AllocationMeta, annotations)
+		return metaFilter(&info.AllocationMeta, annotations)
 	}
 }
 

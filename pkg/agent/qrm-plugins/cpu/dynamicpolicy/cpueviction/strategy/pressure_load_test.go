@@ -167,7 +167,7 @@ func TestThresholdMet(t *testing.T) {
 			podEntries: qrmstate.PodEntries{
 				pod1UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod1UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -240,7 +240,7 @@ func TestThresholdMet(t *testing.T) {
 			podEntries: qrmstate.PodEntries{
 				pod1UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod1UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -313,7 +313,7 @@ func TestThresholdMet(t *testing.T) {
 			podEntries: qrmstate.PodEntries{
 				pod1UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod1UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -456,7 +456,7 @@ func TestGetTopEvictionPods(t *testing.T) {
 			podEntries: qrmstate.PodEntries{
 				pod1UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod1UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -522,7 +522,7 @@ func TestGetTopEvictionPods(t *testing.T) {
 			podEntries: qrmstate.PodEntries{
 				pod1UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod1UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -591,7 +591,7 @@ func TestGetTopEvictionPods(t *testing.T) {
 			podEntries: qrmstate.PodEntries{
 				pod1UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod1UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -627,7 +627,7 @@ func TestGetTopEvictionPods(t *testing.T) {
 				},
 				pod2UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod2UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -663,7 +663,7 @@ func TestGetTopEvictionPods(t *testing.T) {
 				},
 				pod3UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod3UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -850,7 +850,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 			podEntries: qrmstate.PodEntries{
 				pod1UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod1UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -886,7 +886,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 				},
 				pod2UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod2UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -922,7 +922,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 				},
 				pod3UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod3UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -1020,7 +1020,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 			podEntries: qrmstate.PodEntries{
 				pod1UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod1UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -1056,7 +1056,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 				},
 				pod2UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod2UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -1092,7 +1092,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 				},
 				pod3UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod3UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -1124,7 +1124,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 				},
 				pod4UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod4UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -1218,7 +1218,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 			podEntries: qrmstate.PodEntries{
 				pod1UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod1UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -1254,7 +1254,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 				},
 				pod2UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod2UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -1290,7 +1290,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 				},
 				pod3UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod3UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -1322,7 +1322,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 				},
 				pod4UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod4UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -1416,7 +1416,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 			podEntries: qrmstate.PodEntries{
 				pod1UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod1UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -1452,7 +1452,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 				},
 				pod2UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod2UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -1488,7 +1488,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 				},
 				pod3UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod3UID,
 							PodNamespace:   testName,
 							PodName:        testName,
@@ -1520,7 +1520,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 				},
 				pod4UID: qrmstate.ContainerEntries{
 					testName: &qrmstate.AllocationInfo{
-						AllocationMeta: &commonstate.AllocationMeta{
+						AllocationMeta: commonstate.AllocationMeta{
 							PodUid:         pod4UID,
 							PodNamespace:   testName,
 							PodName:        testName,
