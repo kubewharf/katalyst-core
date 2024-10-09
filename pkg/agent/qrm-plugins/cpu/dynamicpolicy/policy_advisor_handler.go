@@ -18,6 +18,7 @@ package dynamicpolicy
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -281,6 +282,11 @@ func (p *DynamicPolicy) allocateByCPUAdvisor(resp *advisorapi.ListAndWatchRespon
 	applyErr := p.applyBlocks(blockToCPUSet, resp)
 	if applyErr != nil {
 		return fmt.Errorf("applyBlocks failed with error: %v", applyErr)
+	}
+
+	applyErr = p.applyNUMAHeadroom(resp)
+	if applyErr != nil {
+		return fmt.Errorf("applyNUMAHeadroom failed with error: %v", applyErr)
 	}
 
 	curAllowSharedCoresOverlapReclaimedCores := p.state.GetAllowSharedCoresOverlapReclaimedCores()
@@ -683,6 +689,40 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 	}
 	p.state.SetPodEntries(newEntries)
 	p.state.SetMachineState(newMachineState)
+
+	return nil
+}
+
+func (p *DynamicPolicy) applyNUMAHeadroom(resp *advisorapi.ListAndWatchResponse) error {
+	if resp == nil {
+		return fmt.Errorf("applyNUMAHeadroom got nil resp")
+	}
+
+	for _, calculationInfo := range resp.ExtraEntries {
+		if calculationInfo == nil {
+			general.Warningf("resp.ExtraEntries has nil calculationInfo")
+			continue
+		} else if calculationInfo.CalculationResult == nil {
+			general.Warningf("resp.ExtraEntries has nil CalculationResult")
+			continue
+		}
+
+		cpuNUMAHeadroomValue, ok := calculationInfo.CalculationResult.Values[string(advisorapi.ControlKnobKeyCPUNUMAHeadroom)]
+		if !ok {
+			general.Warningf("resp.ExtraEntry has no cpu_numa_headroom value")
+			continue
+		}
+
+		cpuNUMAHeadroom := &advisorapi.CPUNUMAHeadroom{}
+		err := json.Unmarshal([]byte(cpuNUMAHeadroomValue), cpuNUMAHeadroom)
+		if err != nil {
+			return fmt.Errorf("unmarshal %s: %s failed with error: %v",
+				advisorapi.ControlKnobKeyCPUNUMAHeadroom, cpuNUMAHeadroomValue, err)
+		}
+
+		p.state.SetNUMAHeadroom(*cpuNUMAHeadroom)
+		general.Infof("cpuNUMAHeadroom: %v", cpuNUMAHeadroom)
+	}
 
 	return nil
 }
