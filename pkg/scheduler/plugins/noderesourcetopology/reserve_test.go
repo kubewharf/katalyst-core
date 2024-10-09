@@ -35,9 +35,9 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/scheduler/util"
 )
 
-func makeTestReserveNode() (*v1alpha1.CustomNodeResource, string) {
+func makeTestReserveNode(name string) (*v1alpha1.CustomNodeResource, string) {
 	return &v1alpha1.CustomNodeResource{
-		ObjectMeta: metav1.ObjectMeta{Name: "node-2numa-8c16g"},
+		ObjectMeta: metav1.ObjectMeta{Name: name},
 		Status: v1alpha1.CustomNodeResourceStatus{
 			TopologyPolicy: v1alpha1.TopologyPolicySingleNUMANodeContainerLevel,
 			TopologyZone: []*v1alpha1.TopologyZone{
@@ -81,15 +81,17 @@ func makeTestReserveNode() (*v1alpha1.CustomNodeResource, string) {
 				},
 			},
 		},
-	}, "node-2numa-8c16g"
+	}, name
 }
 
 func TestReserve(t *testing.T) {
+	t.Parallel()
 	type testCase struct {
 		name            string
 		policy          v1alpha1.TopologyPolicy
 		alignedResource []string
-		pod             *v1.Pod
+		reservePod      *v1.Pod
+		schedulePod     *v1.Pod
 	}
 
 	testCases := []testCase{
@@ -97,7 +99,14 @@ func TestReserve(t *testing.T) {
 			name:            "dedicated + exclusive + single numa",
 			policy:          v1alpha1.TopologyPolicySingleNUMANodeContainerLevel,
 			alignedResource: []string{"cpu", "memory"},
-			pod: makePodByResourceList(&v1.ResourceList{
+			reservePod: makePodByResourceList(&v1.ResourceList{
+				v1.ResourceCPU:    resource.MustParse("2"),
+				v1.ResourceMemory: resource.MustParse("4Gi"),
+			}, map[string]string{
+				consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+				consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding":"true","numa_exclusive":"true"}`,
+			}),
+			schedulePod: makePodByResourceList(&v1.ResourceList{
 				v1.ResourceCPU:    resource.MustParse("2"),
 				v1.ResourceMemory: resource.MustParse("4Gi"),
 			}, map[string]string{
@@ -105,39 +114,76 @@ func TestReserve(t *testing.T) {
 				consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding":"true","numa_exclusive":"true"}`,
 			}),
 		},
+		{
+			name:   "reserve dedicated + schedule shared",
+			policy: v1alpha1.TopologyPolicySingleNUMANodeContainerLevel,
+			reservePod: makePodByResourceList(&v1.ResourceList{
+				v1.ResourceCPU:    resource.MustParse("2"),
+				v1.ResourceMemory: resource.MustParse("4Gi"),
+			}, map[string]string{
+				consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+				consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding":"true","numa_exclusive":"true"}`,
+			}),
+			schedulePod: makePodByResourceList(&v1.ResourceList{
+				v1.ResourceCPU:    resource.MustParse("1"),
+				v1.ResourceMemory: resource.MustParse("2Gi"),
+			}, map[string]string{
+				consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+			}),
+		},
+		{
+			name:   "too much shared requests",
+			policy: v1alpha1.TopologyPolicySingleNUMANodeContainerLevel,
+			reservePod: makePodByResourceList(&v1.ResourceList{
+				v1.ResourceCPU:    resource.MustParse("6"),
+				v1.ResourceMemory: resource.MustParse("8Gi"),
+			}, map[string]string{
+				consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+			}),
+			schedulePod: makePodByResourceList(&v1.ResourceList{
+				v1.ResourceCPU:    resource.MustParse("4"),
+				v1.ResourceMemory: resource.MustParse("8Gi"),
+			}, map[string]string{
+				consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+			}),
+		},
 	}
 
 	c := cache.GetCache()
 	util.SetQoSConfig(generic.NewQoSConfiguration())
 	for _, tc := range testCases {
-		cnr, nodeName := makeTestReserveNode()
-		c.AddOrUpdateCNR(cnr)
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cnr, nodeName := makeTestReserveNode(tc.name)
+			c.AddOrUpdateCNR(cnr)
 
-		f, err := runtime.NewFramework(nil, nil,
-			runtime.WithSnapshotSharedLister(newTestSharedLister(nil, nil)))
-		assert.NoError(t, err)
-		tm, err := MakeTestTm(MakeTestArgs(config.MostAllocated, tc.alignedResource, "dynamic"), f)
-		assert.NoError(t, err)
+			f, err := runtime.NewFramework(nil, nil,
+				runtime.WithSnapshotSharedLister(newTestSharedLister(nil, nil)))
+			assert.NoError(t, err)
+			tm, err := MakeTestTm(MakeTestArgs(config.MostAllocated, tc.alignedResource, "dynamic"), f)
+			assert.NoError(t, err)
 
-		n := &v1.Node{}
-		n.SetName(nodeName)
-		nodeInfo := framework.NewNodeInfo()
-		nodeInfo.SetNode(n)
+			n := &v1.Node{}
+			n.SetName(nodeName)
+			nodeInfo := framework.NewNodeInfo()
+			nodeInfo.SetNode(n)
 
-		// pod can be allocated on node
-		status := tm.(*TopologyMatch).Filter(context.TODO(), nil, tc.pod, nodeInfo)
-		assert.Nil(t, status)
+			// pod can be allocated on node
+			status := tm.(*TopologyMatch).Filter(context.TODO(), nil, tc.schedulePod, nodeInfo)
+			assert.Nil(t, status)
 
-		tm.(*TopologyMatch).Reserve(context.TODO(), nil, tc.pod, nodeName)
+			tm.(*TopologyMatch).Reserve(context.TODO(), nil, tc.reservePod, nodeName)
 
-		// pod can not be allocated after reserve
-		status = tm.(*TopologyMatch).Filter(context.TODO(), nil, tc.pod, nodeInfo)
-		assert.Equal(t, 2, int(status.Code()))
+			// pod can not be allocated after reserve
+			status = tm.(*TopologyMatch).Filter(context.TODO(), nil, tc.schedulePod, nodeInfo)
+			assert.Equal(t, 2, int(status.Code()))
 
-		tm.(*TopologyMatch).Unreserve(context.TODO(), nil, tc.pod, nodeName)
+			tm.(*TopologyMatch).Unreserve(context.TODO(), nil, tc.reservePod, nodeName)
 
-		// pod can be allocatd again
-		status = tm.(*TopologyMatch).Filter(context.TODO(), nil, tc.pod, nodeInfo)
-		assert.Nil(t, status)
+			// pod can be allocatd again
+			status = tm.(*TopologyMatch).Filter(context.TODO(), nil, tc.schedulePod, nodeInfo)
+			assert.Nil(t, status)
+		})
 	}
 }

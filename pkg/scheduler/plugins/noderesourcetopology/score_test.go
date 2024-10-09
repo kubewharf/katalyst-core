@@ -39,7 +39,7 @@ import (
 func makeTestScoreNodes(policy v1alpha1.TopologyPolicy) ([]*v1alpha1.CustomNodeResource, []string, []*v1.Pod) {
 	cnrs := []*v1alpha1.CustomNodeResource{
 		{
-			ObjectMeta: metav1.ObjectMeta{Name: "node-2numa-8c16g"},
+			ObjectMeta: metav1.ObjectMeta{Name: "score-node-2numa-8c16g"},
 			Status: v1alpha1.CustomNodeResourceStatus{
 				TopologyPolicy: policy,
 				TopologyZone: []*v1alpha1.TopologyZone{
@@ -85,7 +85,7 @@ func makeTestScoreNodes(policy v1alpha1.TopologyPolicy) ([]*v1alpha1.CustomNodeR
 			},
 		},
 		{
-			ObjectMeta: metav1.ObjectMeta{Name: "node-2numa-4c8g"},
+			ObjectMeta: metav1.ObjectMeta{Name: "score-node-2numa-4c8g"},
 			Status: v1alpha1.CustomNodeResourceStatus{
 				TopologyPolicy: policy,
 				TopologyZone: []*v1alpha1.TopologyZone{
@@ -131,7 +131,7 @@ func makeTestScoreNodes(policy v1alpha1.TopologyPolicy) ([]*v1alpha1.CustomNodeR
 			},
 		},
 		{
-			ObjectMeta: metav1.ObjectMeta{Name: "node-2numa-8c16g-with-allocation"},
+			ObjectMeta: metav1.ObjectMeta{Name: "score-node-2numa-8c16g-with-allocation"},
 			Status: v1alpha1.CustomNodeResourceStatus{
 				TopologyPolicy: policy,
 				TopologyZone: []*v1alpha1.TopologyZone{
@@ -195,7 +195,7 @@ func makeTestScoreNodes(policy v1alpha1.TopologyPolicy) ([]*v1alpha1.CustomNodeR
 			},
 		},
 		{
-			ObjectMeta: metav1.ObjectMeta{Name: "node-4numa-8c16g"},
+			ObjectMeta: metav1.ObjectMeta{Name: "score-node-4numa-8c16g"},
 			Status: v1alpha1.CustomNodeResourceStatus{
 				TopologyPolicy: policy,
 				TopologyZone: []*v1alpha1.TopologyZone{
@@ -282,7 +282,7 @@ func makeTestScoreNodes(policy v1alpha1.TopologyPolicy) ([]*v1alpha1.CustomNodeR
 				},
 			},
 			Spec: v1.PodSpec{
-				NodeName: "node-2numa-8c16g-with-allocation",
+				NodeName: "score-node-2numa-8c16g-with-allocation",
 			},
 		},
 		{
@@ -294,14 +294,15 @@ func makeTestScoreNodes(policy v1alpha1.TopologyPolicy) ([]*v1alpha1.CustomNodeR
 				},
 			},
 			Spec: v1.PodSpec{
-				NodeName: "node-2numa-8c16g-with-allocation",
+				NodeName: "score-node-2numa-8c16g-with-allocation",
 			},
 		},
 	}
-	return cnrs, []string{"node-2numa-8c16g", "node-2numa-4c8g", "node-2numa-8c16g-with-allocation", "node-4numa-8c16g"}, pods
+	return cnrs, []string{"score-node-2numa-8c16g", "score-node-2numa-4c8g", "score-node-2numa-8c16g-with-allocation", "score-node-4numa-8c16g"}, pods
 }
 
 func TestScore(t *testing.T) {
+	t.Parallel()
 	type testCase struct {
 		name            string
 		policy          v1alpha1.TopologyPolicy
@@ -553,7 +554,7 @@ func TestScore(t *testing.T) {
 			nodeToScore[node] = score
 		}
 		for wantN, wantS := range tc.wantRes {
-			assert.Equal(t, wantS, nodeToScore[wantN])
+			assert.Equal(t, wantS, nodeToScore["score-"+wantN])
 		}
 
 		// clean cache
@@ -588,7 +589,7 @@ func TestScore(t *testing.T) {
 			nodeToScore[node] = score
 		}
 		for wantN, wantS := range tc.wantRes {
-			assert.Equal(t, wantS, nodeToScore[wantN])
+			assert.Equal(t, wantS, nodeToScore["score-"+wantN])
 		}
 
 		// clean cache

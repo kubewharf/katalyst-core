@@ -91,6 +91,14 @@ func (tm *TopologyMatch) filterHanlder(pod *v1.Pod, nodeResourceTopology *cache.
 	}
 
 	if tm.resourcePolicy == consts.ResourcePluginPolicyNameDynamic {
+		// shared_cores
+		// check nonDedicated NUMA resource satisfied for shared requests.
+		if util.IsSharedPod(pod) {
+			return func(pod *v1.Pod, zones []*v1alpha1.TopologyZone, info *framework.NodeInfo) *framework.Status {
+				return tm.sharedCoresHandler(pod, zones, info)
+			}
+		}
+
 		// dedicated_cores + numa_binding
 		// single-numa-node and numeric container level supported
 		if util.IsDedicatedPod(pod) && util.IsNumaBinding(pod) && !util.IsExclusive(pod) {
@@ -156,7 +164,65 @@ func singleNUMAContainerLevelHandler(pod *v1.Pod, zones []*v1alpha1.TopologyZone
 		subtractFromNUMA(NUMANodes, numaID, container)
 	}
 
+	if policy == consts.ResourcePluginPolicyNameDynamic {
+		// check if nonDedicated NUMA resource satisfied for shared pods.
+		err := resourcesAvailableForSharedPods(NUMANodes, nil, nodeInfo)
+		if err != nil {
+			return framework.NewStatus(framework.Unschedulable, err.Error())
+		}
+	}
+
 	return nil
+}
+
+func resourcesAvailableForSharedPods(numaNodes NUMANodeList, sharedPod *v1.Pod, nodeInfo *framework.NodeInfo) error {
+	// get allocated shared requests including reserved shared pods.
+	nodeCache, err := cache.GetCache().GetNodeInfo(nodeInfo.Node().Name)
+	if err != nil {
+		klog.Errorf("getNodeInfo %v from cache fail: %v", nodeInfo.Node().Name, err)
+		return err
+	}
+	sharedResourcesRequested := nodeCache.GetSharedResourcesRequested()
+	if sharedPod != nil {
+		// if sharedPod is not nil, add pod requests to allocated requests.
+		podRequest := util.GetPodEffectiveRequest(sharedPod)
+		sharedResourcesRequested.Add(podRequest)
+	}
+
+	// get available resource for shared pods from dedicated NUMA allocated data.
+	availableResources := getAvailableResourceForSharedPods(numaNodes)
+	klog.V(6).Infof("node %v sharedResourcesRequested cpu: %v, sharedResourceRequested memory: %v, availableResources cpu: %v, availableResources memory: %v",
+		nodeInfo.Node().Name, sharedResourcesRequested.MilliCPU, sharedResourcesRequested.Memory, availableResources.MilliCPU, availableResources.Memory)
+
+	// check resource satisfied, only CPU and memory now.
+	if availableResources.MilliCPU < sharedResourcesRequested.MilliCPU {
+		err = fmt.Errorf("node %v shared milliCPU insufficient, availableResources milliCPU: %v, sharedResourcesRequested milliCPU: %v",
+			nodeInfo.Node().Name, availableResources.MilliCPU, sharedResourcesRequested.MilliCPU)
+		klog.V(5).Infof(err.Error())
+		return err
+	}
+	if availableResources.Memory < sharedResourcesRequested.Memory {
+		err = fmt.Errorf("node %v shared memory insufficient, availableResources memory: %v, sharedResourcesRequested memory: %v",
+			nodeInfo.Node().Name, availableResources.Memory, sharedResourcesRequested.Memory)
+		klog.V(5).Infof(err.Error())
+		return err
+	}
+
+	return nil
+}
+
+func getAvailableResourceForSharedPods(numaNodes NUMANodeList) *framework.Resource {
+	resource := &framework.Resource{}
+
+	for _, numaNode := range numaNodes {
+		if numaNode.Allocated {
+			continue
+		}
+
+		resource.Add(numaNode.Allocatable)
+	}
+
+	return resource
 }
 
 func resourcesAvailableInAnyNUMANodes(numaNodes NUMANodeList, resources v1.ResourceList, alignedResource sets.String, nodeInfo *framework.NodeInfo) (int, bool) {
@@ -249,6 +315,7 @@ func subtractFromNUMA(nodes NUMANodeList, numaID int, container v1.Container) {
 			}
 			nRes[resName] = nodeResQuan
 		}
+		nodes[i].Allocated = true
 	}
 }
 
@@ -298,6 +365,7 @@ func subtractFromNUMAs(
 				}
 			}
 			numaNode.Available[v1.ResourceName(resourceName)] = resourceQuantity
+			numaNode.Allocated = true
 			nodeMap[numaID] = numaNode
 		}
 	}

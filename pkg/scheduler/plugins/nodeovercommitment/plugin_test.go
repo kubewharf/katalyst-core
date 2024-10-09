@@ -23,6 +23,7 @@ import (
 )
 
 func TestNew(t *testing.T) {
+	t.Parallel()
 	n, err := New(nil, nil)
 	assert.NoError(t, err)
 

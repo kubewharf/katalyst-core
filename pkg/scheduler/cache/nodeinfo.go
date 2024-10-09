@@ -22,9 +22,11 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
+	"k8s.io/kubernetes/pkg/scheduler/framework"
 
 	apis "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/scheduler/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
@@ -32,6 +34,9 @@ import (
 type PodInfo struct {
 	QoSResourcesRequested        *native.QoSResource
 	QoSResourcesNonZeroRequested *native.QoSResource
+
+	ResourcesRequested        *framework.Resource
+	ResourcesNonZeroRequested *framework.Resource
 }
 
 // NodeInfo is node level aggregated information.
@@ -51,8 +56,15 @@ type NodeInfo struct {
 	// as int64, to avoid conversions and accessing map.
 	QoSResourcesAllocatable *native.QoSResource
 
+	// Total requested shared resources of this node, includes assumed pods.
+	// available resource on nonDedicated numa should be checked when scheduling
+	// shared pods and dedicated pods.
+	SharedResourcesRequested        *framework.Resource
+	SharedResourcesNonZeroRequested *framework.Resource
+
 	// record PodInfo here since we may have the functionality to
 	// change pod resources.
+	// reclaimed and shared pods are recorded.
 	Pods map[string]*PodInfo
 
 	// node TopologyPolicy and TopologyZones from CNR status.
@@ -68,12 +80,14 @@ type NodeInfo struct {
 // the returned object.
 func NewNodeInfo() *NodeInfo {
 	ni := &NodeInfo{
-		QoSResourcesRequested:        &native.QoSResource{},
-		QoSResourcesNonZeroRequested: &native.QoSResource{},
-		QoSResourcesAllocatable:      &native.QoSResource{},
-		Pods:                         make(map[string]*PodInfo),
-		ResourceTopology:             new(ResourceTopology),
-		AssumedPodResources:          native.PodResource{},
+		QoSResourcesRequested:           &native.QoSResource{},
+		QoSResourcesNonZeroRequested:    &native.QoSResource{},
+		QoSResourcesAllocatable:         &native.QoSResource{},
+		SharedResourcesRequested:        &framework.Resource{},
+		SharedResourcesNonZeroRequested: &framework.Resource{},
+		Pods:                            make(map[string]*PodInfo),
+		ResourceTopology:                new(ResourceTopology),
+		AssumedPodResources:             native.PodResource{},
 	}
 	return ni
 }
@@ -137,7 +151,49 @@ func (n *NodeInfo) updateTopology(cnr *apis.CustomNodeResource) {
 
 // AddPod adds pod information to this NodeInfo.
 func (n *NodeInfo) AddPod(key string, pod *v1.Pod) {
-	// always try to clean previous pod, and then insert
+	qosLevel, err := util.GetQosLevelForPod(pod)
+	if err != nil {
+		klog.Errorf("AddPod %v fail: %v", key, err)
+		return
+	}
+
+	switch qosLevel {
+	case consts.PodAnnotationQoSLevelReclaimedCores:
+		n.addReclaimedPod(key, pod)
+	case consts.PodAnnotationQoSLevelSharedCores:
+		n.addSharedPod(key, pod)
+	default:
+		// only add reclaimed and shared pods when they are watched.
+		// dedicated caches will be updated when CNR updated.
+		return
+	}
+}
+
+// RemovePod subtracts pod information from this NodeInfo.
+func (n *NodeInfo) RemovePod(key string, _ *v1.Pod) {
+	n.Mutex.Lock()
+	defer n.Mutex.Unlock()
+
+	podInfo, ok := n.Pods[key]
+	if !ok {
+		return
+	}
+	n.QoSResourcesRequested.ReclaimedMilliCPU -= podInfo.QoSResourcesRequested.ReclaimedMilliCPU
+	n.QoSResourcesRequested.ReclaimedMemory -= podInfo.QoSResourcesRequested.ReclaimedMemory
+
+	n.QoSResourcesNonZeroRequested.ReclaimedMilliCPU -= podInfo.QoSResourcesNonZeroRequested.ReclaimedMilliCPU
+	n.QoSResourcesNonZeroRequested.ReclaimedMemory -= podInfo.QoSResourcesNonZeroRequested.ReclaimedMemory
+
+	n.SharedResourcesRequested.MilliCPU -= podInfo.ResourcesRequested.MilliCPU
+	n.SharedResourcesRequested.Memory -= podInfo.ResourcesRequested.Memory
+
+	n.SharedResourcesNonZeroRequested.MilliCPU -= podInfo.ResourcesNonZeroRequested.MilliCPU
+	n.SharedResourcesNonZeroRequested.Memory -= podInfo.ResourcesNonZeroRequested.Memory
+
+	delete(n.Pods, key)
+}
+
+func (n *NodeInfo) addReclaimedPod(key string, pod *v1.Pod) {
 	n.RemovePod(key, pod)
 
 	res, non0CPU, non0Mem := native.CalculateQoSResource(pod)
@@ -151,6 +207,8 @@ func (n *NodeInfo) AddPod(key string, pod *v1.Pod) {
 			ReclaimedMilliCPU: non0CPU,
 			ReclaimedMemory:   non0Mem,
 		},
+		ResourcesRequested:        &framework.Resource{},
+		ResourcesNonZeroRequested: &framework.Resource{},
 	}
 
 	n.QoSResourcesRequested.ReclaimedMilliCPU += res.ReclaimedMilliCPU
@@ -160,22 +218,34 @@ func (n *NodeInfo) AddPod(key string, pod *v1.Pod) {
 	n.QoSResourcesNonZeroRequested.ReclaimedMemory += non0Mem
 }
 
-// RemovePod subtracts pod information from this NodeInfo.
-func (n *NodeInfo) RemovePod(key string, pod *v1.Pod) {
-	n.Mutex.Lock()
-	defer n.Mutex.Unlock()
-
-	podInfo, ok := n.Pods[key]
-	if !ok {
+func (n *NodeInfo) addSharedPod(key string, pod *v1.Pod) {
+	// skip daemon pod
+	if native.CheckDaemonPod(pod) {
 		return
 	}
 
-	n.QoSResourcesRequested.ReclaimedMilliCPU -= podInfo.QoSResourcesRequested.ReclaimedMilliCPU
-	n.QoSResourcesRequested.ReclaimedMemory -= podInfo.QoSResourcesRequested.ReclaimedMemory
+	n.RemovePod(key, pod)
 
-	n.QoSResourcesNonZeroRequested.ReclaimedMilliCPU -= podInfo.QoSResourcesNonZeroRequested.ReclaimedMilliCPU
-	n.QoSResourcesNonZeroRequested.ReclaimedMemory -= podInfo.QoSResourcesNonZeroRequested.ReclaimedMemory
-	delete(n.Pods, key)
+	res, non0CPU, non0Mem := util.CalculateEffectiveResource(pod)
+
+	n.Mutex.Lock()
+	defer n.Mutex.Unlock()
+
+	n.Pods[key] = &PodInfo{
+		QoSResourcesRequested:        &native.QoSResource{},
+		QoSResourcesNonZeroRequested: &native.QoSResource{},
+		ResourcesRequested:           &res,
+		ResourcesNonZeroRequested: &framework.Resource{
+			MilliCPU: non0CPU,
+			Memory:   non0Mem,
+		},
+	}
+
+	n.SharedResourcesRequested.MilliCPU += res.MilliCPU
+	n.SharedResourcesRequested.Memory += res.Memory
+
+	n.SharedResourcesNonZeroRequested.MilliCPU += non0CPU
+	n.SharedResourcesNonZeroRequested.Memory += non0Mem
 }
 
 func (n *NodeInfo) AddAssumedPod(pod *v1.Pod) {
@@ -200,4 +270,11 @@ func (n *NodeInfo) GetResourceTopologyCopy(filterFn podFilter) *ResourceTopology
 	}
 
 	return n.ResourceTopology.WithPodReousrce(n.AssumedPodResources, filterFn)
+}
+
+func (n *NodeInfo) GetSharedResourcesRequested() *framework.Resource {
+	n.Mutex.RLock()
+	defer n.Mutex.RUnlock()
+
+	return n.SharedResourcesRequested.Clone()
 }
