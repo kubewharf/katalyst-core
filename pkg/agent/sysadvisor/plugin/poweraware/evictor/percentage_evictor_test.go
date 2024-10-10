@@ -28,7 +28,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 )
 
-func Test_loadEvictor_isBE(t *testing.T) {
+func Test_loadEvictor_isEvictablePod(t *testing.T) {
 	t.Parallel()
 	qosConfig := generic.NewQoSConfiguration()
 
@@ -116,8 +116,8 @@ func Test_loadEvictor_isBE(t *testing.T) {
 			l := loadEvictor{
 				qosConfig: qosConfig,
 			}
-			if got := l.isBE(tt.args.pod); got != tt.want {
-				t.Errorf("isBE() = %v, want %v", got, tt.want)
+			if got := l.isEvictablePod(tt.args.pod); got != tt.want {
+				t.Errorf("isEvictablePod() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -128,11 +128,12 @@ type mockPodFetcher struct {
 }
 
 func (m mockPodFetcher) GetPodList(ctx context.Context, podFilter func(*v1.Pod) bool) ([]*v1.Pod, error) {
+	// this mock fetcher disregards pod filter; make sure to have pod of proper qos level
 	return []*v1.Pod{
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Annotations: map[string]string{
-					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
 				},
 			},
 		},
@@ -153,5 +154,52 @@ func Test_loadEvictor_Evict(t *testing.T) {
 
 	if podEvictor.called != 1 {
 		t.Errorf("expected to call 1 times, got %d", podEvictor.called)
+	}
+}
+
+func Test_getN(t *testing.T) {
+	t.Parallel()
+	type args struct {
+		pods []*v1.Pod
+		n    int
+	}
+	tests := []struct {
+		name    string
+		args    args
+		wantLen int
+	}{
+		{
+			name: "happy path of shorter slice",
+			args: args{
+				pods: []*v1.Pod{
+					{ObjectMeta: metav1.ObjectMeta{Name: "pod0"}},
+					{ObjectMeta: metav1.ObjectMeta{Name: "pod1"}},
+					{ObjectMeta: metav1.ObjectMeta{Name: "pod2"}},
+				},
+				n: 2,
+			},
+			wantLen: 2,
+		},
+		{
+			name: "happy path of bigger number",
+			args: args{
+				pods: []*v1.Pod{
+					{ObjectMeta: metav1.ObjectMeta{Name: "pod0"}},
+					{ObjectMeta: metav1.ObjectMeta{Name: "pod1"}},
+					{ObjectMeta: metav1.ObjectMeta{Name: "pod2"}},
+				},
+				n: 5,
+			},
+			wantLen: 3,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := getN(tt.args.pods, tt.args.n); tt.wantLen != len(got) {
+				t.Errorf("unexpected length of slice: expected %d, got %d", tt.wantLen, len(got))
+			}
+		})
 	}
 }

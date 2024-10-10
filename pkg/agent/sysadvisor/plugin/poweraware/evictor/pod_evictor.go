@@ -24,8 +24,10 @@ import (
 
 // PodEvictor is the adapter interface for underlying eviction mechanism
 type PodEvictor interface {
-	Reset(ctx context.Context)
-	Evict(ctx context.Context, pod *v1.Pod) error
+	Init() error
+	Start() error
+	Stop() error
+	Evict(ctx context.Context, pods []*v1.Pod) error
 }
 
 // noopPodEvictor does not really evict any pod other than counting the invocations;
@@ -34,10 +36,18 @@ type noopPodEvictor struct {
 	called int
 }
 
-func (d *noopPodEvictor) Reset(ctx context.Context) {}
+func (d *noopPodEvictor) Stop() error {
+	return nil
+}
 
-func (d *noopPodEvictor) Evict(ctx context.Context, pod *v1.Pod) error {
-	d.called += 1
+func (d *noopPodEvictor) Start() error {
+	return nil
+}
+
+func (d *noopPodEvictor) Init() error { return nil }
+
+func (d *noopPodEvictor) Evict(ctx context.Context, pods []*v1.Pod) error {
+	d.called += len(pods)
 	return nil
 }
 

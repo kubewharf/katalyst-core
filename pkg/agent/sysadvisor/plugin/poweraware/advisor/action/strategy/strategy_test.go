@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/controller/action"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/advisor/action"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/spec"
 )
 
@@ -79,7 +79,7 @@ func Test_linearDecay_calcExcessiveInPercent(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			d := linearDecay{b: math.E / 2}
+			d := exponentialDecay{b: math.E / 2}
 			if got := d.calcExcessiveInPercent(tt.args.target, tt.args.curr, tt.args.ttl); got != tt.want {
 				t.Errorf("calcExcessiveInPercent() = %v, want %v", got, tt.want)
 			}
@@ -90,7 +90,7 @@ func Test_linearDecay_calcExcessiveInPercent(t *testing.T) {
 func Test_ruleBasedPowerStrategy_RecommendAction(t *testing.T) {
 	t.Parallel()
 	type fields struct {
-		coefficient linearDecay
+		coefficient exponentialDecay
 	}
 	type args struct {
 		actualWatt  int
@@ -108,7 +108,7 @@ func Test_ruleBasedPowerStrategy_RecommendAction(t *testing.T) {
 		{
 			name: "approaching deadline leads to freq capping",
 			fields: fields{
-				coefficient: linearDecay{},
+				coefficient: exponentialDecay{},
 			},
 			args: args{
 				actualWatt:  99,
@@ -124,7 +124,7 @@ func Test_ruleBasedPowerStrategy_RecommendAction(t *testing.T) {
 		},
 		{
 			name:   "having a lot of time usually leads to evict a very little portion",
-			fields: fields{coefficient: linearDecay{b: math.E / 2}},
+			fields: fields{coefficient: exponentialDecay{b: math.E / 2}},
 			args: args{
 				actualWatt:  99,
 				desiredWatt: 88,
@@ -139,7 +139,7 @@ func Test_ruleBasedPowerStrategy_RecommendAction(t *testing.T) {
 		},
 		{
 			name:   "actual not more than desired, so no op",
-			fields: fields{coefficient: linearDecay{}},
+			fields: fields{coefficient: exponentialDecay{}},
 			args: args{
 				actualWatt:  88,
 				desiredWatt: 88,
@@ -148,13 +148,13 @@ func Test_ruleBasedPowerStrategy_RecommendAction(t *testing.T) {
 				ttl:         time.Second * 60,
 			},
 			want: action.PowerAction{
-				Op:  spec.InternalOpPause,
+				Op:  spec.InternalOpNoop,
 				Arg: 0,
 			},
 		},
 		{
 			name:   "stale request, no op too",
-			fields: fields{coefficient: linearDecay{}},
+			fields: fields{coefficient: exponentialDecay{}},
 			args: args{
 				actualWatt:  100,
 				desiredWatt: 88,
@@ -163,7 +163,7 @@ func Test_ruleBasedPowerStrategy_RecommendAction(t *testing.T) {
 				ttl:         -time.Minute * 5,
 			},
 			want: action.PowerAction{
-				Op:  spec.InternalOpPause,
+				Op:  spec.InternalOpNoop,
 				Arg: 0,
 			},
 		},

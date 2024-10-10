@@ -14,18 +14,17 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controller
+package advisor
 
 import (
 	"context"
 	"time"
 
+	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/capper"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/controller/action"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/controller/action/strategy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/evictor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/reader"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/spec"
@@ -42,13 +41,20 @@ const (
 
 	metricPowerAwareCurrentPowerInWatt = "power_current_watt"
 	metricPowerAwareDesiredPowerInWatt = "power_desired_watt"
+	metricPowerAwareActionPlan         = "power_action_plan"
+	metricTagNameActionPlanOp          = "op"
+	metricTagNameActionPlanMode        = "mode"
 )
 
-type PowerAwareController interface {
+// PowerAwareAdvisor is the interface that runs the whole power advisory process
+type PowerAwareAdvisor interface {
+	// Run depicts the whole process taking in power related inputs, generating action plans, and delegating the executions
 	Run(ctx context.Context)
+	// Init initializes components
+	Init() error
 }
 
-type powerAwareController struct {
+type powerAwareAdvisor struct {
 	emitter     metrics.MetricEmitter
 	specFetcher spec.SpecFetcher
 	powerReader reader.PowerReader
@@ -61,39 +67,61 @@ type powerAwareController struct {
 	inFreqCap bool
 }
 
-func (p *powerAwareController) Run(ctx context.Context) {
+func (p *powerAwareAdvisor) Init() error {
 	if p.powerReader == nil {
-		general.Errorf("pap: no power reader is provided; contrroller stopped")
-		return
+		return errors.New("no power reader is provided")
 	}
 	if err := p.powerReader.Init(); err != nil {
-		klog.Errorf("pap: failed to initialize power reader: %v; controller stopped", err)
-		return
+		return errors.Wrap(err, "failed to initialize power reader")
 	}
 
 	if p.podEvictor == nil {
-		klog.Errorf("pap: no pod eviction server is provided; controller stopped")
-		return
+		return errors.New("no pod eviction server is provided")
 	}
-	p.podEvictor.Reset(ctx)
+	if err := p.podEvictor.Init(); err != nil {
+		return errors.Wrap(err, "failed to initialize evict service")
+	}
 
 	if p.powerCapper == nil {
-		klog.Errorf("pap: no power capping server is provided; controller stopped")
-		return
+		return errors.New("no power capping server is provided")
 	}
 	if err := p.powerCapper.Init(); err != nil {
-		klog.Errorf("pap: failed to initialize power capping: %v; controller roller stopped", err)
+		return errors.Wrap(err, "failed to initialize power capping server")
+	}
+
+	return nil
+}
+
+func (p *powerAwareAdvisor) Run(ctx context.Context) {
+	general.Infof("pap: advisor Run started")
+	if err := p.podEvictor.Start(); err != nil {
+		general.Errorf("pap: failed to start pod evict service: %v", err)
 		return
 	}
+	if err := p.powerCapper.Start(); err != nil {
+		general.Errorf("pap: failed to start power capping service: %v", err)
+		return
+	}
+
+	defer p.cleanup()
+	defer p.powerCapper.Reset()
 
 	wait.Until(func() { p.run(ctx) }, intervalSpecFetch, ctx.Done())
 
-	general.Infof("pap: controller Run exit")
-	p.powerReader.Cleanup()
-	p.powerCapper.Reset()
+	general.Infof("pap: advisor Run exited")
 }
 
-func (p *powerAwareController) run(ctx context.Context) {
+func (p *powerAwareAdvisor) cleanup() {
+	p.powerReader.Cleanup()
+	if err := p.podEvictor.Stop(); err != nil {
+		general.Errorf("pap: failed to stop power pod evictor: %v", err)
+	}
+	if err := p.powerCapper.Stop(); err != nil {
+		general.Errorf("pap: failed to stop power capper: %v", err)
+	}
+}
+
+func (p *powerAwareAdvisor) run(ctx context.Context) {
 	powerSpec, err := p.specFetcher.GetPowerSpec(ctx)
 	if err != nil {
 		klog.Errorf("pap: getting power spec failed: %#v", err)
@@ -111,7 +139,7 @@ func (p *powerAwareController) run(ctx context.Context) {
 		return
 	}
 
-	if spec.InternalOpPause == powerSpec.InternalOp {
+	if spec.InternalOpNoop == powerSpec.InternalOp {
 		return
 	}
 
@@ -141,7 +169,8 @@ func (p *powerAwareController) run(ctx context.Context) {
 	}
 }
 
-func NewController(dryRun bool,
+func NewAdvisor(dryRun bool,
+	annotationKeyPrefix string,
 	podEvictor evictor.PodEvictor,
 	emitter metrics.MetricEmitter,
 	nodeFetcher node.NodeFetcher,
@@ -149,20 +178,14 @@ func NewController(dryRun bool,
 	podFetcher pod.PodFetcher,
 	reader reader.PowerReader,
 	capper capper.PowerCapper,
-) PowerAwareController {
-	return &powerAwareController{
+) PowerAwareAdvisor {
+	return &powerAwareAdvisor{
 		emitter:     emitter,
-		specFetcher: spec.NewFetcher(nodeFetcher),
+		specFetcher: spec.NewFetcher(nodeFetcher, annotationKeyPrefix),
 		powerReader: reader,
 		podEvictor:  podEvictor,
 		powerCapper: capper,
-		reconciler: &powerReconciler{
-			dryRun:      dryRun,
-			priorAction: action.PowerAction{},
-			evictor:     evictor.NewPowerLoadEvict(qosConfig, podFetcher, podEvictor),
-			capper:      capper,
-			strategy:    strategy.NewRuleBasedPowerStrategy(),
-		},
-		inFreqCap: false,
+		reconciler:  newReconciler(dryRun, emitter, evictor.NewPowerLoadEvict(qosConfig, podFetcher, podEvictor), capper),
+		inFreqCap:   false,
 	}
 }

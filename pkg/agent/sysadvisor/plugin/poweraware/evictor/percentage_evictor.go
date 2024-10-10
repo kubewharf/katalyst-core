@@ -21,14 +21,13 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 
-	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
-// LoadEvictor is the interface used in advisor policy
-type LoadEvictor interface {
+// PercentageEvictor is the interface used in advisor policy
+type PercentageEvictor interface {
 	Evict(ctx context.Context, targetPercent int)
 }
 
@@ -38,14 +37,16 @@ type loadEvictor struct {
 	podEvictor PodEvictor
 }
 
-func (l loadEvictor) isBE(pod *v1.Pod) bool {
-	qosLevel, err := l.qosConfig.GetQoSLevelForPod(pod)
-	if err != nil {
-		// unknown, not BE anyway
-		return false
-	}
+func (l loadEvictor) isEvictablePod(pod *v1.Pod) bool {
+	isReclaimedQoS, err := l.qosConfig.CheckReclaimedQoSForPod(pod)
+	return err == nil && isReclaimedQoS
+}
 
-	return qosLevel == apiconsts.PodAnnotationQoSLevelReclaimedCores
+func getN(pods []*v1.Pod, n int) []*v1.Pod {
+	if n >= len(pods) {
+		return pods
+	}
+	return pods[:n]
 }
 
 func (l loadEvictor) Evict(ctx context.Context, targetPercent int) {
@@ -60,32 +61,27 @@ func (l loadEvictor) Evict(ctx context.Context, targetPercent int) {
 		return
 	}
 
-	bePods, err := l.podFetcher.GetPodList(ctx, l.isBE)
+	evictablePods, err := l.podFetcher.GetPodList(ctx, l.isEvictablePod)
 	if err != nil {
 		general.Errorf("pap: evict: failed to get BE pods: %v", err)
 		return
 	}
 
 	general.InfofV(6, "pap: evict: %d pods, %d BE; going to evict BE up to %d%%%% pods = %d",
-		len(pods), len(bePods), targetPercent, countToEvict)
-
-	// discard pending requests not handled yet; we will provide a new sleet of evict requests anyway
-	l.podEvictor.Reset(ctx)
+		len(pods), len(evictablePods), targetPercent, countToEvict)
 
 	// todo: replace this FIFO evict policy with one having sort of randomization
-	for i, p := range bePods {
-		// not care much for returned error as power alert eviction is the best effort by design
-		if i >= countToEvict {
-			break
-		}
-		_ = l.podEvictor.Evict(ctx, p)
+	// todo: explore more efficient ways that takes into account cpu utilization etc
+	if err := l.podEvictor.Evict(ctx, getN(evictablePods, countToEvict)); err != nil {
+		// power alert eviction is the best effort by design; ok to log the error here
+		general.Warningf("pap: failed to request eviction of pods: %v", err)
 	}
 }
 
 func NewPowerLoadEvict(qosConfig *generic.QoSConfiguration,
 	podFetcher pod.PodFetcher,
 	podEvictor PodEvictor,
-) LoadEvictor {
+) PercentageEvictor {
 	return &loadEvictor{
 		qosConfig:  qosConfig,
 		podFetcher: podFetcher,

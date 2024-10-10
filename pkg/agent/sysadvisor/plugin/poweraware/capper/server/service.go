@@ -21,35 +21,61 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"path"
 	"sync"
 
 	"github.com/pkg/errors"
 	"google.golang.org/grpc"
 	"k8s.io/klog/v2"
 
-	"github.com/kubewharf/katalyst-api/pkg/plugins/registration"
-
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/capper"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 const (
 	// ServiceNamePowerCap also is the unix socket name of the server is listening on
 	ServiceNamePowerCap = "node_power_cap"
 
-	metricPowerCappingTargetName  = "power-capping-target"
-	metricPowerCappingResetName   = "power-capping-reset"
-	metricPowerCappingNoActorName = "power-capping-no-actor"
+	metricPowerCappingTargetName           = "power_capping_target"
+	metricPowerCappingResetName            = "power_capping_reset"
+	metricPowerCappingNoActorName          = "power_capping_no_actor"
+	metricPowerCappingLWSendResponseFailed = "power_capping_lw_send_response_failed"
 )
 
 type powerCapService struct {
 	sync.Mutex
+	started        bool
 	capInstruction *capper.CapInstruction
 	notify         *fanoutNotifier
 	emitter        metrics.MetricEmitter
+	grpcServer     *grpcServer
+}
+
+func (p *powerCapService) Stop() error {
+	p.Lock()
+	defer p.Unlock()
+	if !p.started {
+		return nil
+	}
+
+	p.started = false
+	p.grpcServer.server.Stop()
+	return nil
+}
+
+func (p *powerCapService) Start() error {
+	p.Lock()
+	defer p.Unlock()
+
+	if p.started {
+		return nil
+	}
+
+	p.started = true
+	p.grpcServer.Run()
+	return nil
 }
 
 func (p *powerCapService) Init() error {
@@ -68,9 +94,24 @@ func (p *powerCapService) RemovePod(ctx context.Context, request *advisorsvc.Rem
 	return nil, errors.New("not implemented")
 }
 
+func (p *powerCapService) deliverPendingReset(ch chan<- struct{}) {
+	p.Lock()
+	defer p.Unlock()
+
+	if p.capInstruction != nil && p.capInstruction.OpCode == capper.OpReset {
+		ch <- struct{}{}
+	}
+}
+
 func (p *powerCapService) ListAndWatch(empty *advisorsvc.Empty, server advisorsvc.AdvisorService_ListAndWatchServer) error {
-	ctx := server.Context()
-	ch := p.notify.Register(ctx)
+	ctx := wrapFanoutContext(server.Context())
+	ch, err := p.notify.Register(ctx)
+	if err != nil {
+		return errors.Wrap(err, "listAndWatch error")
+	}
+
+	// Reset action is critical; ensure it shall be delivered if it was the last one
+	p.deliverPendingReset(ch)
 
 stream:
 	for {
@@ -86,25 +127,30 @@ stream:
 			resp := capInst.ToListAndWatchResponse()
 			err := server.Send(resp)
 			if err != nil {
+				general.Errorf("pap: [power capping] send response failed: %v", err)
+				_ = p.emitter.StoreInt64(metricPowerCappingLWSendResponseFailed, 1, metrics.MetricTypeNameCount)
 				break stream
 			}
 		}
 	}
 
-	p.notify.Unregister(ctx)
-	return nil
+	return p.notify.Unregister(ctx)
 }
 
 func (p *powerCapService) Reset() {
 	p.emitRawMetric(metricPowerCappingResetName, 1)
 	if p.notify.IsEmpty() {
-		// todo: log unavailability of down stream component
 		klog.Warningf("pap: no power capping plugin connected; Reset op is lost")
 		p.emitRawMetric(metricPowerCappingNoActorName, 1)
 	}
 
 	p.Lock()
 	defer p.Unlock()
+
+	if !p.started {
+		general.Warningf("pap: power capping service is unavailable")
+		return
+	}
 
 	p.capInstruction = capper.PowerCapReset
 	p.notify.Notify()
@@ -115,11 +161,7 @@ func (p *powerCapService) emitRawMetric(name string, value int) {
 		return
 	}
 
-	_ = p.emitter.StoreInt64(name,
-		int64(value),
-		metrics.MetricTypeNameRaw,
-		metrics.ConvertMapToTags(map[string]string{"pluginName": ServiceNamePowerCap, "pluginType": registration.QoSResourcePlugin})...,
-	)
+	_ = p.emitter.StoreInt64(name, int64(value), metrics.MetricTypeNameRaw)
 }
 
 func (p *powerCapService) Cap(ctx context.Context, targetWatts, currWatt int) {
@@ -138,6 +180,11 @@ func (p *powerCapService) Cap(ctx context.Context, targetWatts, currWatt int) {
 	p.Lock()
 	defer p.Unlock()
 
+	if !p.started {
+		general.Warningf("pap: power capping service is unavailable")
+		return
+	}
+
 	p.capInstruction = capInst
 	p.notify.Notify()
 }
@@ -148,13 +195,11 @@ func newPowerCapService() *powerCapService {
 	}
 }
 
-func newPowerCapServiceSuite(conf *config.Configuration, emitter metrics.MetricEmitter) (capper.PowerCapper, *grpcServer, error) {
+func newPowerCapServiceSuite(conf *config.Configuration, emitter metrics.MetricEmitter) (*powerCapService, *grpcServer, error) {
 	powerCapSvc := newPowerCapService()
 	powerCapSvc.emitter = emitter
 
-	pluginRootFolder := conf.PluginRegistrationDir
-	socketPath := path.Join(pluginRootFolder, fmt.Sprintf("%s.sock", powerCapSvc.Name()))
-
+	socketPath := conf.PowerCappingAdvisorSocketAbsPath
 	if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
 		return nil, nil, errors.Wrap(err, "failed to clean up the residue file")
 	}
@@ -176,6 +221,6 @@ func NewPowerCapPlugin(conf *config.Configuration, emitter metrics.MetricEmitter
 		return nil, errors.Wrap(err, "failed to create power capping server")
 	}
 
-	grpcServer.Run()
+	powerCapAdvisor.grpcServer = grpcServer
 	return powerCapAdvisor, nil
 }

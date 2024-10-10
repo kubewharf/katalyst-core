@@ -75,7 +75,8 @@ func TestGetPowerSpec(t *testing.T) {
 	timeInRFC3339 := "2024-06-01T19:15:58Z"
 
 	type args struct {
-		node *v1.Node
+		node       *v1.Node
+		annoPrefix string
 	}
 	tests := []struct {
 		name    string
@@ -89,13 +90,14 @@ func TestGetPowerSpec(t *testing.T) {
 				node: &v1.Node{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							"tce.kubernetes.io/power-alert":       "s0",
-							"tce.kubernetes.io/power-budget":      "128",
-							"tce.kubernetes.io/power-internal-op": "0",
-							"tce.kubernetes.io/power-alert-time":  timeInRFC3339,
+							"foo/power-alert":       "s0",
+							"foo/power-budget":      "128",
+							"foo/power-internal-op": "0",
+							"foo/power-alert-time":  timeInRFC3339,
 						},
 					},
 				},
+				annoPrefix: "foo",
 			},
 			want: &PowerSpec{
 				Alert:      PowerAlertS0,
@@ -127,12 +129,13 @@ func TestGetPowerSpec(t *testing.T) {
 				node: &v1.Node{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							"tce.kubernetes.io/power-alert":      "s0",
-							"tce.kubernetes.io/power-budget":     "128.51",
-							"tce.kubernetes.io/power-alert-time": timeInRFC3339,
+							"foo/power-alert":      "s0",
+							"foo/power-budget":     "128.51",
+							"foo/power-alert-time": timeInRFC3339,
 						},
 					},
 				},
+				annoPrefix: "foo",
 			},
 			want: &PowerSpec{
 				Alert:     PowerAlertS0,
@@ -147,12 +150,13 @@ func TestGetPowerSpec(t *testing.T) {
 				node: &v1.Node{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							"tce.kubernetes.io/power-alert":       "f2",
-							"tce.kubernetes.io/power-internal-op": "0",
-							"tce.kubernetes.io/power-alert-time":  timeInRFC3339,
+							"foo/power-alert":       "f2",
+							"foo/power-internal-op": "0",
+							"foo/power-alert-time":  timeInRFC3339,
 						},
 					},
 				},
+				annoPrefix: "foo",
 			},
 			want:    nil,
 			wantErr: assert.Error,
@@ -163,12 +167,13 @@ func TestGetPowerSpec(t *testing.T) {
 				node: &v1.Node{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							"tce.kubernetes.io/power-alert":      "P2",
-							"tce.kubernetes.io/power-budget":     "128",
-							"tce.kubernetes.io/power-alert-time": timeInRFC3339,
+							"foo/power-alert":      "P2",
+							"foo/power-budget":     "128",
+							"foo/power-alert-time": timeInRFC3339,
 						},
 					},
 				},
+				annoPrefix: "foo",
 			},
 			want: &PowerSpec{
 				Alert:      PowerAlertP2,
@@ -184,13 +189,14 @@ func TestGetPowerSpec(t *testing.T) {
 				node: &v1.Node{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							"tce.kubernetes.io/power-alert":       "s0",
-							"tce.kubernetes.io/power-budget":      "128",
-							"tce.kubernetes.io/power-internal-op": "non-int",
-							"tce.kubernetes.io/power-alert-time":  timeInRFC3339,
+							"foo/power-alert":       "s0",
+							"foo/power-budget":      "128",
+							"foo/power-internal-op": "non-int",
+							"foo/power-alert-time":  timeInRFC3339,
 						},
 					},
 				},
+				annoPrefix: "foo",
 			},
 			want:    nil,
 			wantErr: assert.Error,
@@ -201,13 +207,14 @@ func TestGetPowerSpec(t *testing.T) {
 				node: &v1.Node{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							"tce.kubernetes.io/power-alert":       "s0",
-							"tce.kubernetes.io/power-budget":      "128",
-							"tce.kubernetes.io/power-internal-op": "0",
-							"tce.kubernetes.io/power-alert-time":  "2024-06-01 15:17:30",
+							"foo/power-alert":       "s0",
+							"foo/power-budget":      "128",
+							"foo/power-internal-op": "0",
+							"foo/power-alert-time":  "2024-06-01 15:17:30",
 						},
 					},
 				},
+				annoPrefix: "foo",
 			},
 			want:    nil,
 			wantErr: assert.Error,
@@ -217,11 +224,11 @@ func TestGetPowerSpec(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := GetPowerSpec(tt.args.node)
-			if !tt.wantErr(t, err, fmt.Sprintf("GetPowerSpec(%v)", tt.args.node)) {
+			got, err := getPowerSpec(tt.args.annoPrefix, tt.args.node)
+			if !tt.wantErr(t, err, fmt.Sprintf("getPowerSpec(%v)", tt.args.node)) {
 				return
 			}
-			assert.Equalf(t, tt.want, got, "GetPowerSpec(%v)", tt.args.node)
+			assert.Equalf(t, tt.want, got, "getPowerSpec(%v)", tt.args.node)
 		})
 	}
 }

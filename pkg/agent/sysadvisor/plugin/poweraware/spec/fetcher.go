@@ -27,7 +27,8 @@ type SpecFetcher interface {
 }
 
 type specFetcherByNodeAnnotation struct {
-	nodeFetcher node.NodeFetcher
+	nodeFetcher         node.NodeFetcher
+	annotationKeyPrefix string
 }
 
 func (s specFetcherByNodeAnnotation) GetPowerSpec(ctx context.Context) (*PowerSpec, error) {
@@ -36,9 +37,12 @@ func (s specFetcherByNodeAnnotation) GetPowerSpec(ctx context.Context) (*PowerSp
 		return nil, err
 	}
 
-	return GetPowerSpec(nodeObj)
+	return getPowerSpec(s.annotationKeyPrefix, nodeObj)
 }
 
-func NewFetcher(nodeFetcher node.NodeFetcher) SpecFetcher {
-	return specFetcherByNodeAnnotation{nodeFetcher: nodeFetcher}
+func NewFetcher(nodeFetcher node.NodeFetcher, annotationKeyPrefix string) SpecFetcher {
+	return specFetcherByNodeAnnotation{
+		nodeFetcher:         nodeFetcher,
+		annotationKeyPrefix: annotationKeyPrefix,
+	}
 }

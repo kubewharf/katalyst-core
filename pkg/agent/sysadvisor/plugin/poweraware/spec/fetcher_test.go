@@ -36,10 +36,10 @@ func (m mockNodeFetcher) GetNode(ctx context.Context) (*v1.Node, error) {
 	return &v1.Node{
 		ObjectMeta: metav1.ObjectMeta{
 			Annotations: map[string]string{
-				"tce.kubernetes.io/power-alert":       "s0",
-				"tce.kubernetes.io/power-budget":      "128",
-				"tce.kubernetes.io/power-internal-op": "8",
-				"tce.kubernetes.io/power-alert-time":  "2024-06-01T19:15:58Z",
+				"foo/power-alert":       "s0",
+				"foo/power-budget":      "128",
+				"foo/power-internal-op": "8",
+				"foo/power-alert-time":  "2024-06-01T19:15:58Z",
 			},
 		},
 	}, nil
@@ -73,7 +73,7 @@ func Test_specFetcherByNodeAnnotation_GetPowerSpec(t *testing.T) {
 			want: &PowerSpec{
 				Alert:      PowerAlertS0,
 				Budget:     128,
-				InternalOp: InternalOpPause,
+				InternalOp: InternalOpNoop,
 				AlertTime:  time.Date(2024, time.June, 1, 19, 15, 58, 0, time.UTC),
 			},
 			wantErr: false,
@@ -84,15 +84,16 @@ func Test_specFetcherByNodeAnnotation_GetPowerSpec(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			s := specFetcherByNodeAnnotation{
-				nodeFetcher: tt.fields.nodeFetcher,
+				nodeFetcher:         tt.fields.nodeFetcher,
+				annotationKeyPrefix: "foo",
 			}
 			got, err := s.GetPowerSpec(tt.args.ctx)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("GetPowerSpec() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("getPowerSpec() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("GetPowerSpec() got = %v, want %v", got, tt.want)
+				t.Errorf("getPowerSpec() got = %v, want %v", got, tt.want)
 			}
 		})
 	}

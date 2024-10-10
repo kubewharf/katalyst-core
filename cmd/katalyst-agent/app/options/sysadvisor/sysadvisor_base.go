@@ -130,7 +130,7 @@ func (o *SysAdvisorPluginsOptions) ApplyTo(c *sysadvisor.SysAdvisorPluginsConfig
 	errList = append(errList, o.MetricEmitterPluginOptions.ApplyTo(c.MetricEmitterPluginConfiguration))
 	errList = append(errList, o.InferencePluginOptions.ApplyTo(c.InferencePluginConfiguration))
 	errList = append(errList, o.OvercommitAwarePluginOptions.ApplyTo(c.OvercommitAwarePluginConfiguration))
-	errList = append(errList, o.PowerAwarePluginOptions.ApplyTo(c.PowerAwarePluginOptions))
+	errList = append(errList, o.PowerAwarePluginOptions.ApplyTo(c.PowerAwarePluginConfiguration))
 	return errors.NewAggregate(errList)
 }
 

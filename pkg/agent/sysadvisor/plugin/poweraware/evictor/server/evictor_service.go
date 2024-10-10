@@ -40,27 +40,50 @@ const (
 	evictReason                         = "host under power pressure"
 )
 
+var errPowerPressureEvictionPluginUnavailable = errors.New("power pressure eviction plugin is unavailable")
+
 type powerPressureEvictServer struct {
-	mutex  sync.Mutex
-	evicts map[types.UID]*v1.Pod
+	mutex   sync.RWMutex
+	started bool
+	evicts  map[types.UID]*v1.Pod
+	service *skeleton.PluginRegistrationWrapper
 }
 
-// Reset method clears all pending eviction requests not fetched by remote client
-func (p *powerPressureEvictServer) Reset(ctx context.Context) {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
+func (p *powerPressureEvictServer) Init() error {
+	return nil
+}
+
+// reset method clears all pending eviction requests not fetched by remote client
+func (p *powerPressureEvictServer) reset(ctx context.Context) {
 	p.evicts = make(map[types.UID]*v1.Pod)
 }
 
-// Evict method puts request to evict a pod in the pool; it will be sent out to plugin client via the eviction protocol
+// Evict method puts request to evict pods in the pool; it will be sent out to plugin client via the eviction protocol
 // the real eviction will be done by the (remote) eviction manager where the plugin client is registered with
-func (p *powerPressureEvictServer) Evict(ctx context.Context, pod *v1.Pod) error {
+func (p *powerPressureEvictServer) Evict(ctx context.Context, pods []*v1.Pod) error {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	if !p.started {
+		return errPowerPressureEvictionPluginUnavailable
+	}
+
+	// discard pending requests not handled yet; we will provide a new sleet of evict requests anyway
+	p.reset(ctx)
+
+	for _, pod := range pods {
+		if err := p.evictPod(ctx, pod); err != nil {
+			return errors.Wrap(err, "failed to put evict pods to the service pool")
+		}
+	}
+
+	return nil
+}
+
+func (p *powerPressureEvictServer) evictPod(ctx context.Context, pod *v1.Pod) error {
 	if pod == nil {
 		return errors.New("unexpected nil pod")
 	}
-
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
 
 	p.evicts[pod.GetUID()] = pod
 	return nil
@@ -71,11 +94,32 @@ func (p *powerPressureEvictServer) Name() string {
 }
 
 func (p *powerPressureEvictServer) Start() error {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	if p.started {
+		general.InfofV(6, "pap: power pressure eviction server already started")
+		return nil
+	}
+
+	if err := p.service.Start(); err != nil {
+		return errors.Wrap(err, "failed to start power pressure eviction plugin server")
+	}
+	p.started = true
 	return nil
 }
 
 func (p *powerPressureEvictServer) Stop() error {
-	return nil
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	if !p.started {
+		general.InfofV(6, "pap: power pressure eviction server already stopped")
+		return nil
+	}
+
+	p.started = false
+	return p.service.Stop()
 }
 
 func (p *powerPressureEvictServer) GetToken(ctx context.Context, empty *pluginapi.Empty) (*pluginapi.GetTokenResponse, error) {
@@ -83,50 +127,17 @@ func (p *powerPressureEvictServer) GetToken(ctx context.Context, empty *pluginap
 }
 
 func (p *powerPressureEvictServer) ThresholdMet(ctx context.Context, empty *pluginapi.Empty) (*pluginapi.ThresholdMetResponse, error) {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
-
-	if len(p.evicts) == 0 {
-		return &pluginapi.ThresholdMetResponse{
-			MetType: pluginapi.ThresholdMetType_NOT_MET,
-		}, nil
-	}
-
-	return &pluginapi.ThresholdMetResponse{
-		ThresholdValue: float64(len(p.evicts)),
-		MetType:        pluginapi.ThresholdMetType_HARD_MET,
-	}, nil
+	return &pluginapi.ThresholdMetResponse{}, nil
 }
 
 func (p *powerPressureEvictServer) GetTopEvictionPods(ctx context.Context, request *pluginapi.GetTopEvictionPodsRequest) (*pluginapi.GetTopEvictionPodsResponse, error) {
-	evictReq := &pluginapi.GetEvictPodsRequest{
-		ActivePods: request.ActivePods,
-	}
-
-	evictResp, err := p.GetEvictPods(ctx, evictReq)
-	if err != nil {
-		return nil, err
-	}
-
-	retSize := int(request.TopN)
-	if retSize > len(evictResp.EvictPods) {
-		retSize = len(evictResp.EvictPods)
-	}
-
-	resp := &pluginapi.GetTopEvictionPodsResponse{
-		TargetPods: make([]*v1.Pod, retSize),
-	}
-	for i, evict := range evictResp.EvictPods {
-		if i >= retSize {
-			break
-		}
-		resp.TargetPods[i] = evict.Pod
-	}
-
-	return resp, err
+	return &pluginapi.GetTopEvictionPodsResponse{}, nil
 }
 
 // GetEvictPods is called from a remote evict plugin client to get evict candidates
+// In the current eviction manager framework, plugins are expected to implement either GetEvictPods or GetTopEvictionPods + ThresholdMet;
+// the former allows the plugin to explicitly specify force and soft eviction candidates, which suits this plugin's use case.
+// Adequate to implement only GetEvictPods and simply let GetTopEvictionPods and ThresholdMet return default responses.
 func (p *powerPressureEvictServer) GetEvictPods(ctx context.Context, request *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
 	general.InfofV(6, "pap: evict: GetEvictPods request with %d active pods", len(request.GetActivePods()))
 	activePods := map[types.UID]struct{}{}
@@ -136,8 +147,8 @@ func (p *powerPressureEvictServer) GetEvictPods(ctx context.Context, request *pl
 		}
 	}
 
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
 
 	evictPods := make([]*pluginapi.EvictPod, 0)
 
@@ -163,7 +174,7 @@ func newPowerPressureEvictServer() *powerPressureEvictServer {
 	}
 }
 
-func newPowerPressureEvictService(conf *config.Configuration, emitter metrics.MetricEmitter) (evictor.PodEvictor, *skeleton.PluginRegistrationWrapper, error) {
+func NewPowerPressureEvictionPlugin(conf *config.Configuration, emitter metrics.MetricEmitter) (evictor.PodEvictor, error) {
 	plugin := newPowerPressureEvictServer()
 	regWrapper, err := skeleton.NewRegistrationPluginWrapper(plugin,
 		[]string{conf.PluginRegistrationDir}, // unix socket dirs
@@ -174,25 +185,9 @@ func newPowerPressureEvictService(conf *config.Configuration, emitter metrics.Me
 			})...)
 		})
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "failed to register pap power pressure eviction service")
+		return nil, errors.Wrap(err, "failed to register pap power pressure eviction plugin")
 	}
 
-	return plugin, regWrapper, nil
-}
-
-func NewPowerPressureEvictionPlugin(conf *config.Configuration, emitter metrics.MetricEmitter) (podEvictor evictor.PodEvictor, err error) {
-	return startPowerPressurePodEvictorService(conf, emitter)
-}
-
-func startPowerPressurePodEvictorService(conf *config.Configuration, emitter metrics.MetricEmitter) (evictor.PodEvictor, error) {
-	podEvictor, service, err := newPowerPressureEvictService(conf, emitter)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to create power pressure eviction plugin server")
-	}
-
-	if err := service.Start(); err != nil {
-		return nil, errors.Wrap(err, "failed to start power pressure eviction plugin server")
-	}
-
-	return podEvictor, nil
+	plugin.service = regWrapper
+	return plugin, nil
 }

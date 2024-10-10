@@ -20,17 +20,34 @@ import (
 	"context"
 	"sync"
 
+	"github.com/pkg/errors"
+	"k8s.io/apimachinery/pkg/util/uuid"
+
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
+type contextKey struct{}
+
+var fanoutKey = contextKey{}
+
+func wrapFanoutContext(ctx context.Context) context.Context {
+	id := uuid.NewUUID()
+	return context.WithValue(ctx, fanoutKey, string(id))
+}
+
+type receptacle struct {
+	ctx context.Context
+	ch  chan struct{}
+}
+
 type fanoutNotifier struct {
 	sync.RWMutex
-	receptacles map[context.Context]chan struct{}
+	receptacles map[string]*receptacle
 }
 
 func newNotifier() *fanoutNotifier {
 	return &fanoutNotifier{
-		receptacles: make(map[context.Context]chan struct{}),
+		receptacles: make(map[string]*receptacle),
 	}
 }
 
@@ -38,18 +55,19 @@ func (n *fanoutNotifier) Notify() {
 	n.RLock()
 	defer n.RUnlock()
 
-	for c, v := range n.receptacles {
-		clientErr := c.Err()
+	for _, recep := range n.receptacles {
+		clientErr := recep.ctx.Err()
 		if clientErr != nil {
 			general.Warningf("pap: power capping server: client communication failed: %v", clientErr)
-			break
+			continue
 		}
 
-		if len(v) >= 1 {
+		select {
+		case recep.ch <- struct{}{}:
+			continue
+		default:
 			general.Warningf("pap: power capping server: client not fetching req timely")
-			break
 		}
-		v <- struct{}{}
 	}
 }
 
@@ -60,24 +78,50 @@ func (n *fanoutNotifier) IsEmpty() bool {
 	return len(n.receptacles) == 0
 }
 
-func (n *fanoutNotifier) Register(ctx context.Context) <-chan struct{} {
+func getFanoutKey(ctx context.Context) (string, error) {
+	key, ok := ctx.Value(fanoutKey).(string)
+	if !ok {
+		return "", errors.New("context has no custom fanout key value")
+	}
+
+	return key, nil
+}
+
+func (n *fanoutNotifier) Register(ctx context.Context) (chan struct{}, error) {
 	n.Lock()
 	defer n.Unlock()
 
-	if ch, ok := n.receptacles[ctx]; ok {
+	key, err := getFanoutKey(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to register")
+	}
+
+	if recep, ok := n.receptacles[key]; ok {
 		general.Warningf("pap: power capping server: signal slot already registered")
-		return ch
+		return recep.ch, nil
 	}
 
 	// chan of size 1 to decouple producer and consumer
 	ctxChan := make(chan struct{}, 1)
-	n.receptacles[ctx] = ctxChan
-	return ctxChan
+	n.receptacles[key] = &receptacle{
+		ctx: ctx,
+		ch:  ctxChan,
+	}
+	return ctxChan, nil
 }
 
-func (n *fanoutNotifier) Unregister(ctx context.Context) {
+func (n *fanoutNotifier) Unregister(ctx context.Context) error {
 	n.Lock()
 	defer n.Unlock()
 
-	delete(n.receptacles, ctx)
+	key, err := getFanoutKey(ctx)
+	if err != nil {
+		return errors.Wrap(err, "failed to register")
+	}
+
+	if recep, ok := n.receptacles[key]; ok {
+		close(recep.ch)
+	}
+	delete(n.receptacles, key)
+	return nil
 }

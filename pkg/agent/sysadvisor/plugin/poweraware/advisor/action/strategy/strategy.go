@@ -20,7 +20,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/controller/action"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/advisor/action"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/spec"
 )
 
@@ -37,7 +37,7 @@ type PowerActionStrategy interface {
 }
 
 type ruleBasedPowerStrategy struct {
-	coefficient linearDecay
+	coefficient exponentialDecay
 }
 
 func (p ruleBasedPowerStrategy) RecommendAction(actualWatt int,
@@ -47,12 +47,12 @@ func (p ruleBasedPowerStrategy) RecommendAction(actualWatt int,
 	ttl time.Duration,
 ) action.PowerAction {
 	if actualWatt <= desiredWatt {
-		return action.PowerAction{Op: spec.InternalOpPause, Arg: 0}
+		return action.PowerAction{Op: spec.InternalOpNoop, Arg: 0}
 	}
 
 	// stale request; ignore and return no-op; hopefully next time it will rectify
-	if ttl <= -time.Minute*5 || spec.InternalOpPause == internalOp {
-		return action.PowerAction{Op: spec.InternalOpPause, Arg: 0}
+	if ttl <= -time.Minute*5 || spec.InternalOpNoop == internalOp {
+		return action.PowerAction{Op: spec.InternalOpNoop, Arg: 0}
 	}
 
 	if ttl <= time.Minute*2 {
@@ -74,7 +74,7 @@ func (p ruleBasedPowerStrategy) RecommendAction(actualWatt int,
 		}
 	}
 
-	return action.PowerAction{Op: spec.InternalOpPause, Arg: 0}
+	return action.PowerAction{Op: spec.InternalOpNoop, Arg: 0}
 }
 
 func (p ruleBasedPowerStrategy) autoAction(actualWatt, desiredWatt int, ttl time.Duration) spec.InternalOp {
@@ -90,14 +90,14 @@ func (p ruleBasedPowerStrategy) autoAction(actualWatt, desiredWatt int, ttl time
 	}
 
 	// todo: consider throttle(suppression) action, after load throttle is enabled
-	return spec.InternalOpPause
+	return spec.InternalOpNoop
 }
 
-type linearDecay struct {
+type exponentialDecay struct {
 	b float64
 }
 
-func (d linearDecay) calcExcessiveInPercent(target, curr int, ttl time.Duration) int {
+func (d exponentialDecay) calcExcessiveInPercent(target, curr int, ttl time.Duration) int {
 	// exponential decaying formula: a*b^(-t)
 	a := 100 - target*100/curr
 	decay := math.Pow(d.b, float64(-int(ttl.Minutes())/10))
@@ -107,5 +107,5 @@ func (d linearDecay) calcExcessiveInPercent(target, curr int, ttl time.Duration)
 var _ PowerActionStrategy = &ruleBasedPowerStrategy{}
 
 func NewRuleBasedPowerStrategy() PowerActionStrategy {
-	return ruleBasedPowerStrategy{coefficient: linearDecay{b: defaultDecayB}}
+	return ruleBasedPowerStrategy{coefficient: exponentialDecay{b: defaultDecayB}}
 }

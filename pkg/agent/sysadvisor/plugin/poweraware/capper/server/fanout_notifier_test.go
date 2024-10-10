@@ -29,11 +29,11 @@ func Test_fanoutNotifier_IsEmpty(t *testing.T) {
 	notifier := newNotifier()
 	assert.Truef(t, notifier.IsEmpty(), "initial notifier is empty")
 
-	ctx := context.TODO()
-	_ = notifier.Register(ctx)
+	ctx := wrapFanoutContext(context.TODO())
+	_, _ = notifier.Register(ctx)
 	assert.Falsef(t, notifier.IsEmpty(), "has 1 registered, expecting not empty")
 
-	notifier.Unregister(ctx)
+	_ = notifier.Unregister(ctx)
 	assert.Truef(t, notifier.IsEmpty(), "sub unregistered, expecting empty again")
 }
 
@@ -41,9 +41,9 @@ func Test_fanoutNotifier_Register_Notify(t *testing.T) {
 	t.Parallel()
 
 	notifier := newNotifier()
-	ctx := context.TODO()
+	ctx := wrapFanoutContext(context.TODO())
 
-	ch := notifier.Register(ctx)
+	ch, _ := notifier.Register(ctx)
 	assert.Equal(t, 0, len(ch), "expecting empty buffer chan")
 
 	notifier.Notify()

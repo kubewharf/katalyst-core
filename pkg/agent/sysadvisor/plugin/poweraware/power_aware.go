@@ -20,12 +20,13 @@ import (
 	"context"
 
 	"github.com/pkg/errors"
+	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/advisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/capper"
 	capserver "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/capper/server"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/controller"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/evictor"
 	evictserver "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/evictor/server"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/reader"
@@ -37,13 +38,10 @@ import (
 
 const metricName = "poweraware-advisor-plugin"
 
-var PluginDisabledError = errors.New("plugin disabled")
-
 type powerAwarePlugin struct {
-	name       string
-	disabled   bool
-	dryRun     bool
-	controller controller.PowerAwareController
+	name    string
+	dryRun  bool
+	advisor advisor.PowerAwareAdvisor
 }
 
 func (p powerAwarePlugin) Name() string {
@@ -51,17 +49,19 @@ func (p powerAwarePlugin) Name() string {
 }
 
 func (p powerAwarePlugin) Init() error {
-	if p.disabled {
-		general.Infof("pap is disabled")
-		return PluginDisabledError
-	}
 	general.Infof("pap initialized")
+
+	if err := p.advisor.Init(); err != nil {
+		klog.Errorf("pap: failed to initialize power advisor: %v", err)
+		return errors.Wrap(err, "failed to initialize power advisor")
+	}
+
 	return nil
 }
 
 func (p powerAwarePlugin) Run(ctx context.Context) {
 	general.Infof("pap running")
-	p.controller.Run(ctx)
+	p.advisor.Run(ctx)
 	general.Infof("pap ran and finished")
 }
 
@@ -75,34 +75,31 @@ func NewPowerAwarePlugin(
 ) (plugin.SysAdvisorPlugin, error) {
 	emitter := emitterPool.GetDefaultMetricsEmitter().WithTags(metricName)
 
-	// avoid returning error as that would exit whole application
-	// failure of its components should limit affect inside this plugin only
-	// whole service shall be downgraded, but running nonetheless
 	var err error
 	var podEvictor evictor.PodEvictor
-	if conf.Disabled || conf.DisablePowerPressureEvict {
+	if conf.DisablePowerPressureEvict {
 		podEvictor = evictor.NewNoopPodEvictor()
 	} else {
 		if podEvictor, err = evictserver.NewPowerPressureEvictionPlugin(conf, emitter); err != nil {
-			general.Errorf("pap: failed to create power aware plugin: %v", err)
+			return nil, errors.Wrap(err, "pap: failed to create power aware plugin")
 		}
 	}
 
 	var powerCapper capper.PowerCapper
-	if conf.Disabled || conf.DisablePowerCapping {
+	if conf.DisablePowerCapping {
 		powerCapper = capper.NewNoopCapper()
 	} else {
 		if powerCapper, err = capserver.NewPowerCapPlugin(conf, emitter); err != nil {
-			general.Errorf("pap: failed to create power aware plugin: %v", err)
+			return nil, errors.Wrap(err, "pap: failed to create power aware plugin")
 		}
 	}
 
 	// todo: use the power usage data from malachite
 	// we may temporarily have a local reader on top of ipmi (in dev branch), before malachite is ready
-	// todo: consider plugin fashion for reader to hook in
-	var powerReader reader.PowerReader
+	powerReader := reader.NewDummyPowerReader()
 
-	powerController := controller.NewController(conf.PowerAwarePluginOptions.DryRun,
+	powerAdvisor := advisor.NewAdvisor(conf.PowerAwarePluginConfiguration.DryRun,
+		conf.PowerAwarePluginConfiguration.AnnotationKeyPrefix,
 		podEvictor,
 		emitter,
 		metaServer.NodeFetcher,
@@ -112,14 +109,13 @@ func NewPowerAwarePlugin(
 		powerCapper,
 	)
 
-	return newPluginWithController(pluginName, conf, powerController)
+	return newPluginWithAdvisor(pluginName, conf, powerAdvisor)
 }
 
-func newPluginWithController(pluginName string, conf *config.Configuration, controller controller.PowerAwareController) (plugin.SysAdvisorPlugin, error) {
+func newPluginWithAdvisor(pluginName string, conf *config.Configuration, advisor advisor.PowerAwareAdvisor) (plugin.SysAdvisorPlugin, error) {
 	return &powerAwarePlugin{
-		name:       pluginName,
-		disabled:   conf.PowerAwarePluginOptions.Disabled,
-		dryRun:     conf.PowerAwarePluginOptions.DryRun,
-		controller: controller,
+		name:    pluginName,
+		dryRun:  conf.PowerAwarePluginConfiguration.DryRun,
+		advisor: advisor,
 	}, nil
 }

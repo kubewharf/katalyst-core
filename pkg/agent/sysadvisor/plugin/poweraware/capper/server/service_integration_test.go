@@ -78,6 +78,7 @@ func Test_powerCapAdvisorPluginServer_Cap_Client_Recv(t *testing.T) {
 	svc := newPowerCapService()
 	baseServer := grpc.NewServer()
 	advisorsvc.RegisterAdvisorServiceServer(baseServer, svc)
+	svc.started = true
 	go func() {
 		if err := baseServer.Serve(lis); err != nil {
 			fmt.Printf("error serving server: %v/n", err)
@@ -93,7 +94,11 @@ func Test_powerCapAdvisorPluginServer_Cap_Client_Recv(t *testing.T) {
 	time.Sleep(time.Second * 1)
 	// test server to send out capping requests
 	svc.Cap(context.TODO(), 80, 100)
+	time.Sleep(time.Second * 1)
+	// svc.Cap(context.TODO(), 80, 98)
+	svc.Reset() // this reset will be delivered to the future-client even though it is not yet connected
 	// expecting client-1 receive such capping req
+	time.Sleep(time.Second * 1)
 
 	// start 2nd test client at background
 	go func() {

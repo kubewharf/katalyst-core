@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controller
+package advisor
 
 import (
 	"context"
@@ -62,26 +62,37 @@ type dummyPowerReconciler struct {
 
 type dummyPodEvictor struct {
 	evictor.PodEvictor
-	resetCalled bool
+	calledReset bool
+	calledInit  bool
 }
 
 func (d *dummyPodEvictor) Reset(ctx context.Context) {
-	d.resetCalled = true
+	d.calledReset = true
+}
+
+func (d *dummyPodEvictor) Init() error {
+	d.calledInit = true
+	return nil
 }
 
 type dummyPowerCapper struct {
 	capper.PowerCapper
 	resetCalled bool
 	initCalled  bool
+	capCalled   bool
 }
 
-func (ca *dummyPowerCapper) Reset() {
-	ca.resetCalled = true
+func (d *dummyPowerCapper) Reset() {
+	d.resetCalled = true
 }
 
-func (dsr *dummyPowerCapper) Init() error {
-	dsr.initCalled = true
+func (d *dummyPowerCapper) Init() error {
+	d.initCalled = true
 	return nil
+}
+
+func (d *dummyPowerCapper) Cap(ctx context.Context, targetWatts, currWatt int) {
+	d.capCalled = true
 }
 
 func (re *dummyPowerReconciler) Reconcile(ctx context.Context, desired *spec.PowerSpec, actual int) (bool, error) {
@@ -109,23 +120,23 @@ func (d *dummySpecFetcher) GetPowerSpec(ctx context.Context) (*spec.PowerSpec, e
 	case "run_return_on_Pause_op":
 		return &spec.PowerSpec{
 			Alert:      spec.PowerAlertS0,
-			InternalOp: spec.InternalOpPause,
+			InternalOp: spec.InternalOpNoop,
 		}, nil
 	default:
 		return nil, errors.New("unknown test")
 	}
 }
 
-func Test_powerAwareController_run_normal(t *testing.T) {
+func Test_powerAwareAdvisor_run_normal(t *testing.T) {
 	t.Parallel()
-	// make sure controller run gets power spec, gets actual power status, and takes action in order
+	// make sure advisor run gets power spec, gets actual power status, and takes action in order
 
 	dummyEmitter := metricspool.DummyMetricsEmitterPool{}.GetDefaultMetricsEmitter().WithTags("advisor-poweraware")
 	depSpecFetcher := dummySpecFetcher{}
 	depPowerReader := &dummyPowerReader{}
 	depPowerCapper := &dummyPowerReconciler{}
 
-	controller := powerAwareController{
+	advisor := powerAwareAdvisor{
 		emitter:     dummyEmitter,
 		specFetcher: &depSpecFetcher,
 		powerReader: depPowerReader,
@@ -134,7 +145,7 @@ func Test_powerAwareController_run_normal(t *testing.T) {
 
 	ctx := context.TODO()
 	ctx = context.WithValue(ctx, ctxKeyTest, "run_normal")
-	controller.run(ctx)
+	advisor.run(ctx)
 
 	if !depSpecFetcher.called {
 		t.Errorf("expected spec fetcher been calledGet, got %v", depSpecFetcher.called)
@@ -149,21 +160,21 @@ func Test_powerAwareController_run_normal(t *testing.T) {
 	}
 }
 
-func Test_powerAwareController_run_abort_on_spec_fetcher_error(t *testing.T) {
+func Test_powerAwareAdvisor_run_abort_on_spec_fetcher_error(t *testing.T) {
 	t.Parallel()
-	// make sure controller run gets power spec, aborts on error
+	// make sure advisor run gets power spec, aborts on error
 
 	depSpecFetcher := dummySpecFetcher{}
 	depPowerReader := &dummyPowerReader{}
 
-	controller := powerAwareController{
+	advisor := powerAwareAdvisor{
 		specFetcher: &depSpecFetcher,
 		powerReader: depPowerReader,
 	}
 
 	ctx := context.TODO()
 	ctx = context.WithValue(ctx, ctxKeyTest, "run_abort_on_spec_fetcher_error")
-	controller.run(ctx)
+	advisor.run(ctx)
 
 	if !depSpecFetcher.called {
 		t.Errorf("expected spec fetcher been calledGet, got %v", depSpecFetcher.called)
@@ -174,13 +185,13 @@ func Test_powerAwareController_run_abort_on_spec_fetcher_error(t *testing.T) {
 	}
 }
 
-func Test_powerAwareController_run_return_on_None_alert(t *testing.T) {
+func Test_powerAwareAdvisor_run_return_on_None_alert(t *testing.T) {
 	t.Parallel()
 	depSpecFetcher := dummySpecFetcher{}
 	depPowerReader := &dummyPowerReader{}
 	depInitResetter := &dummyPowerCapper{}
 
-	controller := powerAwareController{
+	advisor := powerAwareAdvisor{
 		specFetcher: &depSpecFetcher,
 		powerReader: depPowerReader,
 		powerCapper: depInitResetter,
@@ -188,7 +199,7 @@ func Test_powerAwareController_run_return_on_None_alert(t *testing.T) {
 
 	ctx := context.TODO()
 	ctx = context.WithValue(ctx, ctxKeyTest, "run_return_on_None_alert")
-	controller.run(ctx)
+	advisor.run(ctx)
 
 	if !depSpecFetcher.called {
 		t.Errorf("expected spec fetcher been calledGet, got %v", depSpecFetcher.called)
@@ -203,13 +214,13 @@ func Test_powerAwareController_run_return_on_None_alert(t *testing.T) {
 	}
 }
 
-func Test_powerAwareController_run_return_on_Pause_op(t *testing.T) {
+func Test_powerAwareAdvisor_run_return_on_Pause_op(t *testing.T) {
 	t.Parallel()
 	depSpecFetcher := dummySpecFetcher{}
 	depPowerReader := &dummyPowerReader{}
 	depInitResetter := &dummyPowerCapper{}
 
-	controller := powerAwareController{
+	advisor := powerAwareAdvisor{
 		specFetcher: &depSpecFetcher,
 		powerReader: depPowerReader,
 		powerCapper: depInitResetter,
@@ -217,7 +228,7 @@ func Test_powerAwareController_run_return_on_Pause_op(t *testing.T) {
 
 	ctx := context.TODO()
 	ctx = context.WithValue(ctx, ctxKeyTest, "run_return_on_Pause_op")
-	controller.run(ctx)
+	advisor.run(ctx)
 
 	if !depSpecFetcher.called {
 		t.Errorf("expected spec fetcher been calledGet, got %v", depSpecFetcher.called)
@@ -232,63 +243,26 @@ func Test_powerAwareController_run_return_on_Pause_op(t *testing.T) {
 	}
 }
 
-type dummyErrorPowerReader struct {
-	reader.PowerReader
-	calledCleanup bool
-}
-
-func (dsr *dummyErrorPowerReader) Init() error {
-	return errors.New("test dummy error")
-}
-
-func Test_powerAwareController_Run_does_Init_Cleanup(t *testing.T) {
+func Test_powerAwareAdvisor_Run_does_Init_Cleanup(t *testing.T) {
 	t.Parallel()
 
-	depSpecFetcher := &dummySpecFetcher{}
 	depPowerReader := &dummyPowerReader{}
 	depPodEvictor := &dummyPodEvictor{}
-	depInitResetter := &dummyPowerCapper{}
 
-	controller := powerAwareController{
-		specFetcher: depSpecFetcher,
+	advisor := powerAwareAdvisor{
 		powerReader: depPowerReader,
-		powerCapper: depInitResetter,
 		podEvictor:  depPodEvictor,
 	}
 
-	ctx := context.Background()
-	ctx, cancel := context.WithCancel(ctx)
+	err := advisor.Init()
 
-	// call cancel before Run to ensure the loop body is bypassed in test
-	cancel()
-	controller.Run(ctx)
-
+	if err == nil || err.Error() != "no power capping server is provided" {
+		t.Errorf("expected error 'no power capping server is provided', got %v", err)
+	}
 	if !depPowerReader.calledInit {
 		t.Errorf("expected power reader init called called; got %v", depPowerReader.calledInit)
 	}
-	if !depInitResetter.initCalled {
-		t.Errorf("expected power capper init called; got %v", depInitResetter.initCalled)
-	}
-	if !depPowerReader.calledCleanup {
-		t.Errorf("expected power reader cleanup called; got %v", depPowerReader.calledCleanup)
-	}
-	if !depInitResetter.resetCalled {
-		t.Errorf("expected reset called; got %v", depInitResetter.resetCalled)
-	}
-}
-
-func Test_powerAwareController_Run_Exit_on_Init_error(t *testing.T) {
-	t.Parallel()
-
-	depPowerReader := &dummyErrorPowerReader{}
-
-	controller := powerAwareController{
-		powerReader: depPowerReader,
-	}
-
-	controller.Run(context.TODO())
-
-	if depPowerReader.calledCleanup {
-		t.Errorf("expected power reader cleanup not called; got %v", depPowerReader.calledCleanup)
+	if !depPodEvictor.calledInit {
+		t.Errorf("expected power evict init called called; got %v", depPodEvictor.calledInit)
 	}
 }

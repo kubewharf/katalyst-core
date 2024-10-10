@@ -18,10 +18,30 @@ package reader
 
 import (
 	"context"
+	"errors"
 )
+
+var errNotRealReader = errors.New("not a real power reader")
 
 type PowerReader interface {
 	Init() error
 	Get(ctx context.Context) (int, error)
 	Cleanup()
+}
+
+// dummyPowerReader is the placeholder in case no real power reader is yet provided
+type dummyPowerReader struct{}
+
+func (d dummyPowerReader) Init() error {
+	return nil
+}
+
+func (d dummyPowerReader) Get(ctx context.Context) (int, error) {
+	return 0, errNotRealReader
+}
+
+func (d dummyPowerReader) Cleanup() {}
+
+func NewDummyPowerReader() PowerReader {
+	return &dummyPowerReader{}
 }

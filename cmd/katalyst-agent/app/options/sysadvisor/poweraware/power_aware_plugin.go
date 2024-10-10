@@ -23,25 +23,29 @@ import (
 )
 
 type PowerAwarePluginOptions struct {
-	disabled                  bool
-	dryRun                    bool
-	disablePowerCapping       bool
-	disablePowerPressureEvict bool
+	DryRun                           bool
+	DisablePowerCapping              bool
+	DisablePowerPressureEvict        bool
+	PowerCappingAdvisorSocketAbsPath string
+	AnnotationKeyPrefix              string
 }
 
 func (p *PowerAwarePluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs := fss.FlagSet("power-aware-plugin")
-	fs.BoolVar(&p.disabled, "power-aware-disabled", p.disabled, "flag for disabling power aware advisor")
-	fs.BoolVar(&p.dryRun, "power-aware-dryrun", p.dryRun, "flag for dry run power aware advisor")
-	fs.BoolVar(&p.disablePowerPressureEvict, "power-pressure-evict-disabled", p.disablePowerPressureEvict, "flag for power aware plugin disabling power pressure eviction")
-	fs.BoolVar(&p.disablePowerCapping, "power-capping-disabled", p.disablePowerCapping, "flag for power aware plugin disabling power capping")
+	fs.BoolVar(&p.DryRun, "power-aware-dryrun", p.DryRun, "flag for dry run power aware advisor")
+	fs.BoolVar(&p.DisablePowerPressureEvict, "power-pressure-evict-Disabled", p.DisablePowerPressureEvict, "flag for power aware plugin disabling power pressure eviction")
+	fs.BoolVar(&p.DisablePowerCapping, "power-capping-Disabled", p.DisablePowerCapping, "flag for power aware plugin disabling power capping")
+	fs.StringVar(&p.PowerCappingAdvisorSocketAbsPath, "power-capping-advisor-sock-abs-path", p.PowerCappingAdvisorSocketAbsPath, "absolute path of socket file for power capping advisor served in sys-advisor")
+	fs.StringVar(&p.AnnotationKeyPrefix, "power-aware-annotation-key-prefix", p.AnnotationKeyPrefix, "prefix of node annotation keys used by power aware plugin")
 }
 
-func (p *PowerAwarePluginOptions) ApplyTo(o *poweraware.PowerAwarePluginOptions) error {
-	o.DryRun = p.dryRun
-	o.Disabled = p.disabled
-	o.DisablePowerPressureEvict = p.disablePowerPressureEvict
-	o.DisablePowerCapping = p.disablePowerCapping
+func (p *PowerAwarePluginOptions) ApplyTo(o *poweraware.PowerAwarePluginConfiguration) error {
+	o.DryRun = p.DryRun
+	o.DisablePowerPressureEvict = p.DisablePowerPressureEvict
+	o.DisablePowerCapping = p.DisablePowerCapping
+	o.PowerCappingAdvisorSocketAbsPath = p.PowerCappingAdvisorSocketAbsPath
+	o.AnnotationKeyPrefix = p.AnnotationKeyPrefix
+
 	return nil
 }
 
