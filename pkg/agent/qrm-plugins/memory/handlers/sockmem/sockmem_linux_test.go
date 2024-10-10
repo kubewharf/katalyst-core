@@ -308,3 +308,26 @@ func TestSetCg1TCPMem(t *testing.T) {
 		t.Error("Expected an error, but got none")
 	}
 }
+
+func TestSetHostTCPMem_NilSockMemConfig(t *testing.T) {
+	t.Parallel()
+	memTotal := uint64(1024) // Sample memory total
+
+	// Call setHostTCPMem with a nil sockMemConfig
+	err := setHostTCPMem(nil, memTotal, nil)
+
+	// Assert that the error is as expected
+	assert.Error(t, err)
+	assert.Equal(t, "sockMemConfig is nil", err.Error())
+}
+
+func TestUpdateHostTCPMem_NilSockMemConfig(t *testing.T) {
+	t.Parallel()
+	tcpMem := []uint64{50, 50, 50}
+	memTotal := uint64(1024) // Sample memory total
+	tcpMemRatio := uint64(50)
+	err := updateTCPMemLimit(tcpMem, memTotal, tcpMemRatio, "/fake/path/tcp_mem")
+
+	// Assert that the error is as expected
+	assert.Error(t, err)
+}

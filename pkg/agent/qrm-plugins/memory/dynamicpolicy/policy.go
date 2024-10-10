@@ -396,7 +396,7 @@ func (p *DynamicPolicy) Start() (err error) {
 		general.Infof("setSockMem enabled")
 		err := periodicalhandler.RegisterPeriodicalHandlerWithHealthz(memconsts.SetSockMem,
 			general.HealthzCheckStateNotReady, qrm.QRMMemoryPluginPeriodicalHandlerGroupName,
-			sockmem.SetSockMemLimit, 60*time.Second, healthCheckTolerationTimes)
+			sockmem.SetSockMemLimit, 90*time.Second, healthCheckTolerationTimes)
 		if err != nil {
 			general.Infof("setSockMem failed, err=%v", err)
 		}
