@@ -160,6 +160,8 @@ type DynamicPolicy struct {
 
 	enableEvictingLogCache  bool
 	logCacheEvictionManager logcache.Manager
+
+	enableNonBindingShareCoresMemoryResourceCheck bool
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -224,6 +226,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		enableOOMPriority:          conf.EnableOOMPriority,
 		oomPriorityMapPinnedPath:   conf.OOMPriorityPinnedMapAbsPath,
 		enableEvictingLogCache:     conf.EnableEvictingLogCache,
+		enableNonBindingShareCoresMemoryResourceCheck: conf.EnableNonBindingShareCoresMemoryResourceCheck,
 	}
 
 	policyImplement.allocationHandlers = map[string]util.AllocationHandler{
@@ -1052,7 +1055,7 @@ func (p *DynamicPolicy) getContainerRequestedMemoryBytes(allocationInfo *state.A
 				}
 			}
 		} else {
-			// normal share cores pod
+			// non-binding share cores pod
 			requestBytes, err := p.getContainerSpecMemoryRequestBytes(allocationInfo.PodUid, allocationInfo.ContainerName)
 			if err != nil {
 				general.Errorf("[other] get container failed with error: %v, return the origin value", err)
@@ -1121,7 +1124,7 @@ func (p *DynamicPolicy) hasLastLevelEnhancementKey(lastLevelEnhancementKey strin
 	return false
 }
 
-func (p *DynamicPolicy) checkNormalShareCoresResource(req *pluginapi.ResourceRequest) (bool, error) {
+func (p *DynamicPolicy) checkNonBindingShareCoresMemoryResource(req *pluginapi.ResourceRequest) (bool, error) {
 	reqInt, _, err := util.GetPodAggregatedRequestResource(req)
 	if err != nil {
 		return false, fmt.Errorf("GetQuantityFromResourceReq failed with error: %v", err)
@@ -1150,14 +1153,14 @@ func (p *DynamicPolicy) checkNormalShareCoresResource(req *pluginapi.ResourceReq
 		numaAllocatableWithoutNUMABindingPods += resourceState[numaID].Allocatable
 	}
 
-	general.Infof("[checkNormalShareCoresResource] node memory allocated: %d, allocatable: %d", shareCoresAllocated, numaAllocatableWithoutNUMABindingPods)
+	general.Infof("[checkNonBindingShareCoresMemoryResource] node memory allocated: %d, allocatable: %d", shareCoresAllocated, numaAllocatableWithoutNUMABindingPods)
 	if shareCoresAllocated > numaAllocatableWithoutNUMABindingPods {
-		general.Warningf("[checkNormalShareCoresResource] no enough memory resource for normal share cores pod: %s/%s, container: %s (allocated: %d, allocatable: %d)",
+		general.Warningf("[checkNonBindingShareCoresMemoryResource] no enough memory resource for non-binding share cores pod: %s/%s, container: %s (allocated: %d, allocatable: %d)",
 			req.PodNamespace, req.PodName, req.ContainerName, shareCoresAllocated, numaAllocatableWithoutNUMABindingPods)
 		return false, nil
 	}
 
-	general.InfoS("checkNormalShareCoresResource memory successfully",
+	general.InfoS("checkNonBindingShareCoresMemoryResource memory successfully",
 		"podNamespace", req.PodNamespace,
 		"podName", req.PodName,
 		"containerName", req.ContainerName,

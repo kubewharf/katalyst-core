@@ -267,7 +267,7 @@ func (pe PodEntries) GetFilteredPoolsCPUSetMap(ignorePools sets.String) (map[str
 
 			// pool entry containing SharedNUMABinding containers also has SharedNUMABinding declarations,
 			// it's also applicable to isolation pools for SharedNUMABinding containers.
-			// it helps us to differentiate them from normal share pools when getting targetNUMAID for the pool.
+			// it helps us to differentiate them from non-binding share cores pools when getting targetNUMAID for the pool.
 			if allocationInfo.CheckSharedNUMABinding() {
 				// pool for numa_binding shared_cores containers
 

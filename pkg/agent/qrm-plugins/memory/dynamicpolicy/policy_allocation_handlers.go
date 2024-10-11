@@ -629,10 +629,10 @@ func (p *DynamicPolicy) adjustAllocationEntriesForSharedCores(numaSetChangedCont
 			}
 
 			if !allocationInfo.CheckNUMABinding() {
-				// update container to target numa set for normal share cores
+				// update container to target numa set for non-binding share cores
 				p.updateNUMASetChangedContainers(numaSetChangedContainers, allocationInfo, numaWithoutNUMABindingPods)
 
-				// update AggregatedQuantity for normal share cores
+				// update AggregatedQuantity for non-binding share cores
 				allocationInfo.AggregatedQuantity = p.getContainerRequestedMemoryBytes(allocationInfo)
 			} else {
 				// memory of sidecar in snb pod is belonged to main container so we don't need to adjust it
@@ -679,7 +679,7 @@ func (p *DynamicPolicy) adjustAllocationEntriesForDedicatedCores(numaSetChangedC
 
 			if !allocationInfo.CheckNUMABinding() {
 				// not to adjust NUMA binding containers
-				// update container to target numa set for normal share cores
+				// update container to target numa set for non-binding share cores
 				p.updateNUMASetChangedContainers(numaSetChangedContainers, allocationInfo, numaWithoutNUMABindingPods)
 			}
 		}

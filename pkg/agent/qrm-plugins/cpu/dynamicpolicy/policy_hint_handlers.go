@@ -60,9 +60,9 @@ func (p *DynamicPolicy) sharedCoresHintHandler(ctx context.Context,
 		return p.sharedCoresWithNUMABindingHintHandler(ctx, req)
 	}
 
-	// TODO: support sidecar follow main container for normal share cores in future
+	// TODO: support sidecar follow main container for non-binding share cores in future
 	if req.ContainerType == pluginapi.ContainerType_MAIN {
-		ok, err := p.checkNormalShareCoresCpuResource(req)
+		ok, err := p.checkNonBindingShareCoresCpuResource(req)
 		if err != nil {
 			general.Errorf("failed to check share cores cpu resource for pod: %s/%s, container: %s",
 				req.PodNamespace, req.PodName, req.ContainerName)
@@ -775,11 +775,11 @@ func (p *DynamicPolicy) filterNUMANodesByNonBindingSharedRequestedQuantity(nonBi
 			allocatableCPUQuantity := machineState[nodeID].GetFilteredDefaultCPUSet(nil, nil).Difference(p.reservedCPUs).Size()
 
 			// take this non-binding NUMA for candicate shared_cores with numa_binding,
-			// won't cause normal shared_cores in short supply
+			// won't cause non-binding shared_cores in short supply
 			if nonBindingNUMAsCPUQuantity-allocatableCPUQuantity >= nonBindingSharedRequestedQuantity {
 				filteredNUMANodes = append(filteredNUMANodes, nodeID)
 			} else {
-				general.Infof("filter out NUMA: %d since taking it will cause normal shared_cores in short supply;"+
+				general.Infof("filter out NUMA: %d since taking it will cause non-binding shared_cores in short supply;"+
 					" nonBindingNUMAsCPUQuantity: %d, targetNUMAAllocatableCPUQuantity: %d, nonBindingSharedRequestedQuantity: %d",
 					nodeID, nonBindingNUMAsCPUQuantity, allocatableCPUQuantity, nonBindingSharedRequestedQuantity)
 			}
@@ -817,7 +817,7 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(request float64,
 	}
 
 	// if a numa_binding shared_cores has request larger than 1 NUMA,
-	// its performance may degrade to be like normal shared_cores
+	// its performance may degrade to be like non-binding shared_cores
 	if minNUMAsCountNeeded > 1 {
 		return nil, fmt.Errorf("numa_binding shared_cores container has request larger than 1 NUMA")
 	}

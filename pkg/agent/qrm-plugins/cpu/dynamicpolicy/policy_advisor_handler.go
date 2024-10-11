@@ -656,7 +656,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 					if allocationInfo.CheckSharedNUMABinding() {
 						poolEntry.QoSLevel = apiconsts.PodAnnotationQoSLevelSharedCores
 						// set SharedNUMABinding declarations to pool entry containing SharedNUMABinding containers,
-						// in order to differentiate them from normal share pools during GetFilteredPoolsCPUSetMap.
+						// in order to differentiate them from non-binding share cores pools during GetFilteredPoolsCPUSetMap.
 						poolEntry.Annotations = general.MergeMap(poolEntry.Annotations, map[string]string{
 							apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 						})

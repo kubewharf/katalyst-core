@@ -767,7 +767,7 @@ func (p *DynamicPolicy) calcPoolResizeRequest(originAllocation, allocation *stat
 			allocation.PodNamespace, allocation.PodName, allocation.ContainerName, originPodAggregatedRequest, podAggregatedRequest)
 	}
 
-	// only support normal share and snb inplace update resize now
+	// only support share cores inplace update resize now (include non-binding share cores and share cores with NUMA binding)
 	if allocation.CheckSharedNUMABinding() {
 		// check snb numa migrate for inplace update resize
 		originTargetNumaID, err := state.GetSharedNUMABindingTargetNuma(originAllocation)
@@ -1136,7 +1136,7 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 					if allocationInfo.CheckSharedNUMABinding() {
 						poolEntry.QoSLevel = apiconsts.PodAnnotationQoSLevelSharedCores
 						// set SharedNUMABinding declarations to pool entry containing SharedNUMABinding containers,
-						// in order to differentiate them from normal share pools during GetFilteredPoolsCPUSetMap.
+						// in order to differentiate them from non-binding share cores pools during GetFilteredPoolsCPUSetMap.
 						poolEntry.Annotations = general.MergeMap(poolEntry.Annotations, map[string]string{
 							apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 						})

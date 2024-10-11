@@ -37,6 +37,8 @@ type MemoryQRMPluginConfig struct {
 	EnableOOMPriority bool
 	// OOMPriorityPinnedMapAbsPath: the absolute path of oom priority pinned bpf map
 	OOMPriorityPinnedMapAbsPath string
+	// EnableNonBindingShareCoresMemoryResourceCheck: enable the topology check for non-binding share cores pods
+	EnableNonBindingShareCoresMemoryResourceCheck bool
 
 	// SockMemQRMPluginConfig: the configuration for sockmem limitation in cgroup and host level
 	SockMemQRMPluginConfig
