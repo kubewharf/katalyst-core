@@ -25,6 +25,7 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -148,14 +149,24 @@ func TestRegenerateHints(t *testing.T) {
 			name: "test RegenerateHints",
 			args: args{
 				allocationInfo: &state.AllocationInfo{
-					PodUid:                   "test",
-					PodNamespace:             "test",
-					PodName:                  "test",
-					ContainerName:            "test",
-					ContainerType:            pluginapi.ContainerType_MAIN.String(),
-					ContainerIndex:           0,
+					AllocationMeta: commonstate.AllocationMeta{
+						PodUid:         "test",
+						PodNamespace:   "test",
+						PodName:        "test",
+						ContainerName:  "test",
+						ContainerType:  pluginapi.ContainerType_MAIN.String(),
+						ContainerIndex: 0,
+						OwnerPoolName:  commonstate.PoolNameDedicated,
+						Labels: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+						},
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
+							consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						},
+						QoSLevel: consts.PodAnnotationQoSLevelDedicatedCores,
+					},
 					RampUp:                   false,
-					OwnerPoolName:            state.PoolNameDedicated,
 					AllocationResult:         machine.NewCPUSet(1, 3, 8, 9, 10, 11),
 					OriginalAllocationResult: machine.NewCPUSet(1, 3, 8, 9, 10, 11),
 					TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -166,14 +177,6 @@ func TestRegenerateHints(t *testing.T) {
 						0: machine.NewCPUSet(1, 8, 9),
 						1: machine.NewCPUSet(3, 10, 11),
 					},
-					Labels: map[string]string{
-						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
-					},
-					Annotations: map[string]string{
-						consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
-						consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
-					},
-					QoSLevel:        consts.PodAnnotationQoSLevelDedicatedCores,
 					RequestQuantity: 2,
 				},
 				reqInt: 2,
@@ -236,14 +239,24 @@ func TestPackAllocationResponse(t *testing.T) {
 			name: "test PackAllocationResponse",
 			args: args{
 				allocationInfo: &state.AllocationInfo{
-					PodUid:                   "test",
-					PodNamespace:             "test",
-					PodName:                  "test",
-					ContainerName:            "test",
-					ContainerType:            pluginapi.ContainerType_MAIN.String(),
-					ContainerIndex:           0,
+					AllocationMeta: commonstate.AllocationMeta{
+						PodUid:         "test",
+						PodNamespace:   "test",
+						PodName:        "test",
+						ContainerName:  "test",
+						ContainerType:  pluginapi.ContainerType_MAIN.String(),
+						ContainerIndex: 0,
+						OwnerPoolName:  commonstate.PoolNameDedicated,
+						Labels: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+						},
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
+							consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						},
+						QoSLevel: consts.PodAnnotationQoSLevelDedicatedCores,
+					},
 					RampUp:                   false,
-					OwnerPoolName:            state.PoolNameDedicated,
 					AllocationResult:         machine.NewCPUSet(1, 3, 8, 9, 10, 11),
 					OriginalAllocationResult: machine.NewCPUSet(1, 3, 8, 9, 10, 11),
 					TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -254,14 +267,6 @@ func TestPackAllocationResponse(t *testing.T) {
 						0: machine.NewCPUSet(1, 8, 9),
 						1: machine.NewCPUSet(3, 10, 11),
 					},
-					Labels: map[string]string{
-						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
-					},
-					Annotations: map[string]string{
-						consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
-						consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
-					},
-					QoSLevel:        consts.PodAnnotationQoSLevelDedicatedCores,
 					RequestQuantity: 2,
 				},
 				resourceName:     string(v1.ResourceCPU),

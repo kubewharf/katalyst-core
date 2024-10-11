@@ -20,7 +20,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/util"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/resource/memory/plugins"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
@@ -80,7 +80,7 @@ func NewNumaBalancerOptions() *NumaBalancerOptions {
 
 		BalancedReclaimedPodsSingleRoundTotalRSSThreshold: 3 * 1024 * 1024 * 1024,
 
-		SupportedPools: []string{state.PoolNameShare},
+		SupportedPools: []string{commonstate.PoolNameShare},
 	}
 }
 

@@ -25,7 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -82,7 +82,7 @@ func NewLoadIsolator(conf *config.Configuration, _ interface{}, emitter metrics.
 		metaReader: metaCache,
 		metaServer: metaServer,
 
-		configTranslator: general.NewCommonSuffixTranslator(state.NUMAPoolInfix),
+		configTranslator: general.NewCommonSuffixTranslator(commonstate.NUMAPoolInfix),
 	}
 }
 

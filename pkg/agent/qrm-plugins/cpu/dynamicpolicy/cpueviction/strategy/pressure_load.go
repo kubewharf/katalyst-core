@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -103,7 +104,7 @@ func NewCPUPressureLoadEviction(emitter metrics.MetricEmitter, metaServer *metas
 		dynamicConf:      conf.DynamicAgentConfiguration,
 		skipPools:        sets.NewString(conf.LoadPressureEvictionSkipPools...),
 		syncPeriod:       conf.LoadEvictionSyncPeriod,
-		configTranslator: general.NewCommonSuffixTranslator(state.NUMAPoolInfix),
+		configTranslator: general.NewCommonSuffixTranslator(commonstate.NUMAPoolInfix),
 	}
 
 	systemReservedCores, reserveErr := cpuutil.GetCoresReservedForSystem(conf, metaServer, metaServer.KatalystMachineInfo, metaServer.CPUDetails.CPUs().Clone())
@@ -152,11 +153,11 @@ func (p *CPUPressureLoadEviction) ThresholdMet(_ context.Context,
 
 	var softThresholdMetPoolName string
 	for poolName, entries := range p.metricsHistory[consts.MetricLoad1MinContainer] {
-		if !entries.IsPoolEntry() || p.skipPools.Has(p.configTranslator.Translate(poolName)) || state.IsIsolationPool(poolName) {
+		if !entries.IsPoolEntry() || p.skipPools.Has(p.configTranslator.Translate(poolName)) || commonstate.IsIsolationPool(poolName) {
 			continue
 		}
 
-		metricRing := entries[state.FakedContainerName]
+		metricRing := entries[commonstate.FakedContainerName]
 		if metricRing == nil {
 			general.Warningf("pool: %s hasn't metric: %s metricsRing", poolName, consts.MetricLoad1MinContainer)
 			continue
@@ -204,7 +205,7 @@ func (p *CPUPressureLoadEviction) ThresholdMet(_ context.Context,
 	}
 
 	p.clearEvictionPoolName()
-	if softThresholdMetPoolName != state.EmptyOwnerPoolName {
+	if softThresholdMetPoolName != commonstate.EmptyOwnerPoolName {
 		_ = p.emitter.StoreFloat64(metricsNameThresholdMet, 1, metrics.MetricTypeNameCount,
 			metrics.ConvertMapToTags(map[string]string{
 				metricsTagKeyPoolName:         softThresholdMetPoolName,
@@ -337,10 +338,10 @@ func (p *CPUPressureLoadEviction) collectMetrics(_ context.Context) {
 		for containerName, containerEntry := range entry {
 			if containerEntry == nil || containerEntry.IsPool {
 				continue
-			} else if containerEntry.OwnerPool == state.EmptyOwnerPoolName ||
+			} else if containerEntry.OwnerPool == commonstate.EmptyOwnerPoolName ||
 				p.skipPools.Has(p.configTranslator.Translate(containerEntry.OwnerPool)) ||
 				// skip pod with system pool
-				state.IsSystemPool(containerEntry.OwnerPool) {
+				commonstate.IsSystemPool(containerEntry.OwnerPool) {
 				general.Infof("skip collecting metric for pod: %s, container: %s with owner pool name: %s",
 					podUID, containerName, containerEntry.OwnerPool)
 				continue
@@ -408,7 +409,7 @@ func (p *CPUPressureLoadEviction) checkSharedPressureByPoolSize(pod2Pool PodPool
 		}
 
 		for _, containerEntry := range entry {
-			if !containerEntry.IsPool || p.skipPools.Has(p.configTranslator.Translate(poolName)) || entry[state.FakedContainerName] == nil {
+			if !containerEntry.IsPool || p.skipPools.Has(p.configTranslator.Translate(poolName)) || entry[commonstate.FakedContainerName] == nil {
 				continue
 			}
 			poolSizeSum += containerEntry.PoolSize
@@ -425,7 +426,8 @@ func (p *CPUPressureLoadEviction) checkSharedPressureByPoolSize(pod2Pool PodPool
 // accumulateSharedPoolsLimit calculates the cpu core limit used by shared core pool,
 // and it equals: machine-core - cores-for-dedicated-pods - reserved-cores-reclaim-pods - reserved-cores-system-pods.
 func (p *CPUPressureLoadEviction) accumulateSharedPoolsLimit() int {
-	availableCPUSet := p.state.GetMachineState().GetFilteredAvailableCPUSet(p.systemReservedCPUs, nil, state.CheckSharedOrDedicatedNUMABinding)
+	availableCPUSet := p.state.GetMachineState().GetFilteredAvailableCPUSet(p.systemReservedCPUs, nil,
+		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedOrDedicatedNUMABinding))
 
 	coreNumReservedForReclaim := p.dynamicConf.GetDynamicConfiguration().MinReclaimedResourceForAllocate[v1.ResourceCPU]
 	if coreNumReservedForReclaim.Value() > int64(p.metaServer.NumCPUs) {
@@ -434,7 +436,7 @@ func (p *CPUPressureLoadEviction) accumulateSharedPoolsLimit() int {
 	reservedForReclaim := machine.GetCoreNumReservedForReclaim(int(coreNumReservedForReclaim.Value()), p.metaServer.NumNUMANodes)
 
 	reservedForReclaimInSharedNuma := 0
-	sharedCoresNUMAs := p.state.GetMachineState().GetFilteredNUMASet(state.CheckSharedOrDedicatedNUMABinding)
+	sharedCoresNUMAs := p.state.GetMachineState().GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedOrDedicatedNUMABinding))
 	for _, numaID := range sharedCoresNUMAs.ToSliceInt() {
 		reservedForReclaimInSharedNuma += reservedForReclaim[numaID]
 	}
@@ -487,7 +489,7 @@ func (p *CPUPressureLoadEviction) collectPoolLoad(dynamicConfig *dynamic.Configu
 		})...)
 
 	p.logPoolSnapShot(snapshot, poolName, true)
-	p.pushMetric(dynamicConfig, metricName, poolName, state.FakedContainerName, snapshot)
+	p.pushMetric(dynamicConfig, metricName, poolName, commonstate.FakedContainerName, snapshot)
 }
 
 // collectPoolMetricDefault is a common collect in pool level,
@@ -504,7 +506,7 @@ func (p *CPUPressureLoadEviction) collectPoolMetricDefault(dynamicConfig *dynami
 	}
 
 	p.logPoolSnapShot(snapshot, poolName, false)
-	p.pushMetric(dynamicConfig, metricName, poolName, state.FakedContainerName, snapshot)
+	p.pushMetric(dynamicConfig, metricName, poolName, commonstate.FakedContainerName, snapshot)
 }
 
 // pushMetric stores and push-in metric for the given pod
@@ -563,10 +565,10 @@ func (p *CPUPressureLoadEviction) logPoolSnapShot(snapshot *MetricSnapshot, pool
 
 // clearEvictionPoolName resets pool in local memory
 func (p *CPUPressureLoadEviction) clearEvictionPoolName() {
-	if p.evictionPoolName != state.FakedContainerName {
+	if p.evictionPoolName != commonstate.FakedContainerName {
 		general.Infof("clear eviction pool name: %s", p.evictionPoolName)
 	}
-	p.evictionPoolName = state.FakedContainerName
+	p.evictionPoolName = commonstate.FakedContainerName
 }
 
 // setEvictionPoolName sets pool in local memory
@@ -578,7 +580,7 @@ func (p *CPUPressureLoadEviction) setEvictionPoolName(evictionPoolName string) {
 // getEvictionPoolName returns the previously-set pool
 func (p *CPUPressureLoadEviction) getEvictionPoolName() (exists bool, evictionPoolName string) {
 	evictionPoolName = p.evictionPoolName
-	if evictionPoolName == state.FakedContainerName {
+	if evictionPoolName == commonstate.FakedContainerName {
 		exists = false
 		return
 	}

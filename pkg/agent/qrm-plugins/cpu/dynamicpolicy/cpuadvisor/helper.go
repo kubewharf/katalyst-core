@@ -23,7 +23,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/sets"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -39,7 +39,7 @@ func (ci *CalculationInfo) IsSharedNUMABindingPool() bool {
 		return false
 	}
 
-	return len(ci.CalculationResultsByNumas) == 1 && ci.CalculationResultsByNumas[state.FakedNUMAID] == nil
+	return len(ci.CalculationResultsByNumas) == 1 && ci.CalculationResultsByNumas[commonstate.FakedNUMAID] == nil
 }
 
 func (ce *CalculationEntries) IsPoolEntry() bool {
@@ -47,7 +47,7 @@ func (ce *CalculationEntries) IsPoolEntry() bool {
 		return false
 	}
 
-	return len(ce.Entries) == 1 && ce.Entries[state.FakedContainerName] != nil
+	return len(ce.Entries) == 1 && ce.Entries[commonstate.FakedContainerName] != nil
 }
 
 func (ce *CalculationEntries) IsSharedNUMABindingPoolEntry() bool {
@@ -55,8 +55,8 @@ func (ce *CalculationEntries) IsSharedNUMABindingPoolEntry() bool {
 		return false
 	}
 
-	return len(ce.Entries[state.FakedContainerName].CalculationResultsByNumas) == 1 &&
-		ce.Entries[state.FakedContainerName].CalculationResultsByNumas[state.FakedNUMAID] == nil
+	return len(ce.Entries[commonstate.FakedContainerName].CalculationResultsByNumas) == 1 &&
+		ce.Entries[commonstate.FakedContainerName].CalculationResultsByNumas[commonstate.FakedNUMAID] == nil
 }
 
 func (lwr *ListAndWatchResponse) GetSharedBindingNUMAs() (sets.Int, error) {
@@ -193,11 +193,11 @@ func getBlocksLessFunc(blocksEntryNames map[string][][]string, blocks []*Block) 
 				entryName, subEntryName := namesTuple[0], namesTuple[1]
 
 				if isPod {
-					if subEntryName != state.FakedContainerName {
+					if subEntryName != commonstate.FakedContainerName {
 						names = append(names, entryName)
 					}
 				} else {
-					if subEntryName == state.FakedContainerName {
+					if subEntryName == commonstate.FakedContainerName {
 						names = append(names, entryName)
 					}
 				}
@@ -217,7 +217,7 @@ func getBlocksLessFunc(blocksEntryNames map[string][][]string, blocks []*Block) 
 			return false
 		} else {
 			if len(podNames1) > 0 {
-				return strings.Join(podNames1, state.NameSeparator) < strings.Join(podNames2, state.NameSeparator)
+				return strings.Join(podNames1, commonstate.NameSeparator) < strings.Join(podNames2, commonstate.NameSeparator)
 			}
 
 			if len(poolNames1) > len(poolNames2) {
@@ -225,7 +225,7 @@ func getBlocksLessFunc(blocksEntryNames map[string][][]string, blocks []*Block) 
 			} else if len(poolNames1) < len(poolNames2) {
 				return false
 			} else {
-				return strings.Join(poolNames1, state.NameSeparator) < strings.Join(poolNames2, state.NameSeparator)
+				return strings.Join(poolNames1, commonstate.NameSeparator) < strings.Join(poolNames2, commonstate.NameSeparator)
 			}
 		}
 	}
@@ -375,7 +375,7 @@ func IsBlockOfRelcaim(blockEntryNames [][]string) bool {
 	for _, namesTuple := range blockEntryNames {
 		entryName, subEntryName := namesTuple[0], namesTuple[1]
 
-		if entryName == state.PoolNameReclaim && subEntryName == state.FakedContainerName {
+		if entryName == commonstate.PoolNameReclaim && subEntryName == commonstate.FakedContainerName {
 			return true
 		}
 	}

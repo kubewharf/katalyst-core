@@ -25,7 +25,6 @@ import (
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
-	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -33,15 +32,8 @@ import (
 )
 
 type AllocationInfo struct {
-	PodUid               string         `json:"pod_uid,omitempty"`
-	PodNamespace         string         `json:"pod_namespace,omitempty"`
-	PodName              string         `json:"pod_name,omitempty"`
-	ContainerName        string         `json:"container_name,omitempty"`
-	ContainerType        string         `json:"container_type,omitempty"`
-	ContainerIndex       uint64         `json:"container_index,omitempty"`
-	RampUp               bool           `json:"ramp_up,omitempty"`
-	PodRole              string         `json:"pod_role,omitempty"`
-	PodType              string         `json:"pod_type,omitempty"`
+	commonstate.AllocationMeta `json:",inline"`
+
 	AggregatedQuantity   uint64         `json:"aggregated_quantity"`
 	NumaAllocationResult machine.CPUSet `json:"numa_allocation_result,omitempty"`
 
@@ -50,9 +42,6 @@ type AllocationInfo struct {
 
 	// keyed by control knob names referred in memoryadvisor package
 	ExtraControlKnobInfo map[string]commonstate.ControlKnobInfo `json:"extra_control_knob_info"`
-	Labels               map[string]string                      `json:"labels"`
-	Annotations          map[string]string                      `json:"annotations"`
-	QoSLevel             string                                 `json:"qosLevel"`
 }
 
 type (
@@ -95,20 +84,9 @@ func (ai *AllocationInfo) Clone() *AllocationInfo {
 	}
 
 	clone := &AllocationInfo{
-		PodUid:               ai.PodUid,
-		PodNamespace:         ai.PodNamespace,
-		PodName:              ai.PodName,
-		ContainerName:        ai.ContainerName,
-		ContainerType:        ai.ContainerType,
-		ContainerIndex:       ai.ContainerIndex,
-		RampUp:               ai.RampUp,
-		PodRole:              ai.PodRole,
-		PodType:              ai.PodType,
+		AllocationMeta:       *ai.AllocationMeta.Clone(),
 		AggregatedQuantity:   ai.AggregatedQuantity,
 		NumaAllocationResult: ai.NumaAllocationResult.Clone(),
-		QoSLevel:             ai.QoSLevel,
-		Labels:               general.DeepCopyMap(ai.Labels),
-		Annotations:          general.DeepCopyMap(ai.Annotations),
 	}
 
 	if ai.TopologyAwareAllocations != nil {
@@ -128,39 +106,6 @@ func (ai *AllocationInfo) Clone() *AllocationInfo {
 	}
 
 	return clone
-}
-
-// CheckNumaBinding returns true if the AllocationInfo is for pod with numa-binding enhancement
-func (ai *AllocationInfo) CheckNumaBinding() bool {
-	return ai.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] ==
-		consts.PodAnnotationMemoryEnhancementNumaBindingEnable
-}
-
-// CheckNumaExclusive returns true if the AllocationInfo is for pod with numa-exclusive enhancement
-func (ai *AllocationInfo) CheckNumaExclusive() bool {
-	return ai.Annotations[consts.PodAnnotationMemoryEnhancementNumaExclusive] ==
-		consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable
-}
-
-// CheckSharedOrDedicatedNUMABinding returns true if the AllocationInfo is for pod with
-// shared-qos or dedicated-qos and numa-binding enhancement
-func (ai *AllocationInfo) CheckSharedOrDedicatedNUMABinding() bool {
-	if ai == nil {
-		return false
-	}
-
-	return (ai.QoSLevel == consts.PodAnnotationQoSLevelSharedCores && ai.CheckNumaBinding()) ||
-		(ai.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores && ai.CheckNumaBinding())
-}
-
-// CheckMainContainer returns true if the AllocationInfo is for main container
-func (ai *AllocationInfo) CheckMainContainer() bool {
-	return ai.ContainerType == pluginapi.ContainerType_MAIN.String()
-}
-
-// CheckSideCar returns true if the AllocationInfo is for side-car container
-func (ai *AllocationInfo) CheckSideCar() bool {
-	return ai.ContainerType == pluginapi.ContainerType_SIDECAR.String()
 }
 
 // GetResourceAllocation transforms resource allocation information into *pluginapi.ResourceAllocation
@@ -309,8 +254,8 @@ func (ns *NUMANodeState) HasDedicatedNUMABindingAndNUMAExclusivePods() bool {
 
 	for _, containerEntries := range ns.PodEntries {
 		for _, allocationInfo := range containerEntries {
-			if allocationInfo != nil && allocationInfo.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores &&
-				allocationInfo.CheckNumaBinding() && allocationInfo.CheckNumaExclusive() {
+			if allocationInfo != nil && allocationInfo.CheckDedicatedNUMABinding() &&
+				allocationInfo.CheckNumaExclusive() {
 				return true
 			}
 		}

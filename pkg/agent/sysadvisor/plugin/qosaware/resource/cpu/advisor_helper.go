@@ -25,7 +25,7 @@ import (
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/assembler/headroomassembler"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/assembler/provisionassembler"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
@@ -151,7 +151,7 @@ func (cra *cpuResourceAdvisor) initializeHeadroomAssembler() error {
 // available = total - reserved pool - reserved for reclaim
 func (cra *cpuResourceAdvisor) updateNumasAvailableResource() {
 	cra.numaAvailable = make(map[int]int)
-	reservePoolInfo, _ := cra.metaCache.GetPoolInfo(state.PoolNameReserve)
+	reservePoolInfo, _ := cra.metaCache.GetPoolInfo(commonstate.PoolNameReserve)
 	cpusPerNuma := cra.metaServer.CPUsPerNuma()
 
 	coreNumReservedForReclaim := cra.conf.GetDynamicConfiguration().MinReclaimedResourceForAllocate[v1.ResourceCPU]

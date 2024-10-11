@@ -34,6 +34,7 @@ import (
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	evictionpluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	qrmstate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
@@ -98,14 +99,24 @@ func TestCPUPressureSuppression_GetEvictPods(t *testing.T) {
 			podEntries: qrmstate.PodEntries{
 				pod1UID: qrmstate.ContainerEntries{
 					pod1Name: &qrmstate.AllocationInfo{
-						PodUid:                   pod1UID,
-						PodNamespace:             pod1Name,
-						PodName:                  pod1Name,
-						ContainerName:            pod1Name,
-						ContainerType:            pluginapi.ContainerType_MAIN.String(),
-						ContainerIndex:           0,
+						AllocationMeta: commonstate.AllocationMeta{
+							PodUid:         pod1UID,
+							PodNamespace:   pod1Name,
+							PodName:        pod1Name,
+							ContainerName:  pod1Name,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  commonstate.PoolNameReclaim,
+							Labels: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+							},
+							Annotations: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey:       apiconsts.PodAnnotationQoSLevelReclaimedCores,
+								apiconsts.PodAnnotationCPUEnhancementKey: `{"suppression_tolerance_rate": "1.2"}`,
+							},
+							QoSLevel: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+						},
 						RampUp:                   false,
-						OwnerPoolName:            qrmstate.PoolNameReclaim,
 						AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
 						OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -120,21 +131,12 @@ func TestCPUPressureSuppression_GetEvictPods(t *testing.T) {
 							2: machine.NewCPUSet(4, 5, 11, 12),
 							3: machine.NewCPUSet(6, 14),
 						},
-						Labels: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
-						},
-						Annotations: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey:       apiconsts.PodAnnotationQoSLevelReclaimedCores,
-							apiconsts.PodAnnotationCPUEnhancementKey: `{"suppression_tolerance_rate": "1.2"}`,
-						},
-						QoSLevel:        apiconsts.PodAnnotationQoSLevelReclaimedCores,
 						RequestQuantity: 2,
 					},
 				},
-				qrmstate.PoolNameReclaim: qrmstate.ContainerEntries{
+				commonstate.PoolNameReclaim: qrmstate.ContainerEntries{
 					"": &qrmstate.AllocationInfo{
-						PodUid:                   qrmstate.PoolNameReclaim,
-						OwnerPoolName:            qrmstate.PoolNameReclaim,
+						AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
 						AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
 						OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -173,14 +175,24 @@ func TestCPUPressureSuppression_GetEvictPods(t *testing.T) {
 			podEntries: qrmstate.PodEntries{
 				pod1UID: qrmstate.ContainerEntries{
 					pod1Name: &qrmstate.AllocationInfo{
-						PodUid:                   pod1UID,
-						PodNamespace:             pod1Name,
-						PodName:                  pod1Name,
-						ContainerName:            pod1Name,
-						ContainerType:            pluginapi.ContainerType_MAIN.String(),
-						ContainerIndex:           0,
+						AllocationMeta: commonstate.AllocationMeta{
+							PodUid:         pod1UID,
+							PodNamespace:   pod1Name,
+							PodName:        pod1Name,
+							ContainerName:  pod1Name,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  commonstate.PoolNameReclaim,
+							Labels: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+							},
+							Annotations: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey:       apiconsts.PodAnnotationQoSLevelReclaimedCores,
+								apiconsts.PodAnnotationCPUEnhancementKey: `{"suppression_tolerance_rate": "1.2"}`,
+							},
+							QoSLevel: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+						},
 						RampUp:                   false,
-						OwnerPoolName:            qrmstate.PoolNameReclaim,
 						AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
 						OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -195,27 +207,29 @@ func TestCPUPressureSuppression_GetEvictPods(t *testing.T) {
 							2: machine.NewCPUSet(4, 5, 11, 12),
 							3: machine.NewCPUSet(6, 14),
 						},
-						Labels: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
-						},
-						Annotations: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey:       apiconsts.PodAnnotationQoSLevelReclaimedCores,
-							apiconsts.PodAnnotationCPUEnhancementKey: `{"suppression_tolerance_rate": "1.2"}`,
-						},
-						QoSLevel:        apiconsts.PodAnnotationQoSLevelReclaimedCores,
 						RequestQuantity: 15,
 					},
 				},
 				pod2UID: qrmstate.ContainerEntries{
 					pod1Name: &qrmstate.AllocationInfo{
-						PodUid:                   pod2UID,
-						PodNamespace:             pod2Name,
-						PodName:                  pod2Name,
-						ContainerName:            pod2Name,
-						ContainerType:            pluginapi.ContainerType_MAIN.String(),
-						ContainerIndex:           0,
+						AllocationMeta: commonstate.AllocationMeta{
+							PodUid:         pod2UID,
+							PodNamespace:   pod2Name,
+							PodName:        pod2Name,
+							ContainerName:  pod2Name,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  commonstate.PoolNameReclaim,
+							Labels: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+							},
+							Annotations: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey:       apiconsts.PodAnnotationQoSLevelReclaimedCores,
+								apiconsts.PodAnnotationCPUEnhancementKey: `{"suppression_tolerance_rate": "1.2"}`,
+							},
+							QoSLevel: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+						},
 						RampUp:                   false,
-						OwnerPoolName:            qrmstate.PoolNameReclaim,
 						AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
 						OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{
@@ -230,21 +244,12 @@ func TestCPUPressureSuppression_GetEvictPods(t *testing.T) {
 							2: machine.NewCPUSet(4, 5, 11, 12),
 							3: machine.NewCPUSet(6, 14),
 						},
-						Labels: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
-						},
-						Annotations: map[string]string{
-							apiconsts.PodAnnotationQoSLevelKey:       apiconsts.PodAnnotationQoSLevelReclaimedCores,
-							apiconsts.PodAnnotationCPUEnhancementKey: `{"suppression_tolerance_rate": "1.2"}`,
-						},
-						QoSLevel:        apiconsts.PodAnnotationQoSLevelReclaimedCores,
 						RequestQuantity: 4,
 					},
 				},
-				qrmstate.PoolNameReclaim: qrmstate.ContainerEntries{
+				commonstate.PoolNameReclaim: qrmstate.ContainerEntries{
 					"": &qrmstate.AllocationInfo{
-						PodUid:                   qrmstate.PoolNameReclaim,
-						OwnerPoolName:            qrmstate.PoolNameReclaim,
+						AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
 						AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
 						OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
 						TopologyAwareAssignments: map[int]machine.CPUSet{

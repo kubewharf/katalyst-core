@@ -22,9 +22,27 @@ import (
 	info "github.com/google/cadvisor/info/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
+	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
+
+// GenerateMemoryContainerAllocationMeta generates allocation metadata specifically for a memory resource request.
+// This function is a wrapper around GenerateGenericContainerAllocationMeta, but it automatically computes the owner pool
+// name using a QoS level and a specific annotation from the request.
+// Parameters:
+// - req: The resource request for memory, containing information about the pod and container.
+// - qosLevel: The QoS (Quality of Service) level for the container.
+// Returns:
+// - A pointer to a commonstate.AllocationMeta struct generated based on the memory-specific logic.
+func GenerateMemoryContainerAllocationMeta(req *pluginapi.ResourceRequest, qosLevel string) commonstate.AllocationMeta {
+	return commonstate.GenerateGenericContainerAllocationMeta(req,
+		// Determine the pool name based on QoS level and a CPU enhancement annotation from the request.
+		commonstate.GetSpecifiedPoolName(qosLevel, req.Annotations[consts.PodAnnotationCPUEnhancementCPUSet]),
+		qosLevel)
+}
 
 // GenerateMachineState returns NUMANodeResourcesMap based on
 // machine info and reserved resources

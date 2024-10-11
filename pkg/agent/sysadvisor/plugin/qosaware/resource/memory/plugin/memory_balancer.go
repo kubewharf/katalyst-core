@@ -33,7 +33,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/plugins/registration"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
@@ -381,7 +381,7 @@ func (m *memoryBalancer) getBalanceInfo() (balanceInfo *BalanceInfo, err error) 
 }
 
 func (m *memoryBalancer) getEvictPods(sourceNuma *NumaLatencyInfo) ([]EvictPod, error) {
-	reclaimedPods, err := m.getPodsInPool(state.PoolNameReclaim)
+	reclaimedPods, err := m.getPodsInPool(commonstate.PoolNameReclaim)
 	if err != nil {
 		return nil, err
 	}
@@ -410,7 +410,7 @@ func (m *memoryBalancer) getDestNumaList(orderedDestNumaList []NumaInfo, sourceN
 
 func (m *memoryBalancer) getCandidatePods(poolName string) (reclaimedPods, poolPods []*v1.Pod, err error) {
 	var getPodErr error
-	reclaimedPods, getPodErr = m.getPodsInPool(state.PoolNameReclaim)
+	reclaimedPods, getPodErr = m.getPodsInPool(commonstate.PoolNameReclaim)
 	if getPodErr != nil {
 		err = getPodErr
 		return
@@ -605,7 +605,7 @@ func (m *memoryBalancer) getBalancePodsForPool(poolName string, srcNuma *NumaLat
 func (m *memoryBalancer) getBalancePods(supportPools []string, srcNuma *NumaLatencyInfo, destNumas []NumaInfo) ([]BalancePod, float64, error) {
 	var totalRSS float64 = 0
 	poolPodSortList := make([]PodSort, 0)
-	reclaimedPodSortList, err := m.getBalancePodsForPool(state.PoolNameReclaim, srcNuma, destNumas, m.conf.BalancedReclaimedPodSourceNumaRSSMin, m.conf.BalancedReclaimedPodSourceNumaRSSMax)
+	reclaimedPodSortList, err := m.getBalancePodsForPool(commonstate.PoolNameReclaim, srcNuma, destNumas, m.conf.BalancedReclaimedPodSourceNumaRSSMin, m.conf.BalancedReclaimedPodSourceNumaRSSMax)
 	if err != nil {
 		return nil, totalRSS, err
 	}

@@ -27,6 +27,7 @@ import (
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/nativepolicy/calculator"
 	nativepolicyutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/nativepolicy/util"
@@ -115,21 +116,13 @@ func (p *NativePolicy) dedicatedCoresAllocationHandler(_ context.Context,
 	}
 
 	allocationInfo := &state.AllocationInfo{
-		PodUid:                           req.PodUid,
-		PodNamespace:                     req.PodNamespace,
-		PodName:                          req.PodName,
-		ContainerName:                    req.ContainerName,
-		ContainerType:                    req.ContainerType.String(),
-		ContainerIndex:                   req.ContainerIndex,
-		PodType:                          req.PodType,
-		OwnerPoolName:                    state.PoolNameDedicated,
+		// native policy not support qos level now
+		AllocationMeta:                   commonstate.GenerateGenericContainerAllocationMeta(req, commonstate.PoolNameDedicated, ""),
 		AllocationResult:                 result.Clone(),
 		OriginalAllocationResult:         result.Clone(),
 		TopologyAwareAssignments:         topologyAwareAssignments,
 		OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(topologyAwareAssignments),
 		InitTimestamp:                    time.Now().Format(util.QRMTimeFormat),
-		Labels:                           general.DeepCopyMap(req.Labels),
-		Annotations:                      general.DeepCopyMap(req.Annotations),
 		RequestQuantity:                  reqFloat64,
 	}
 
@@ -191,21 +184,12 @@ func (p *NativePolicy) sharedPoolAllocationHandler(ctx context.Context,
 	}
 
 	allocationInfo := &state.AllocationInfo{
-		PodUid:                           req.PodUid,
-		PodNamespace:                     req.PodNamespace,
-		PodName:                          req.PodName,
-		ContainerName:                    req.ContainerName,
-		ContainerType:                    req.ContainerType.String(),
-		ContainerIndex:                   req.ContainerIndex,
-		PodType:                          req.PodType,
-		OwnerPoolName:                    state.PoolNameShare,
+		AllocationMeta:                   commonstate.GenerateGenericContainerAllocationMeta(req, commonstate.PoolNameShare, ""),
 		AllocationResult:                 defaultCPUSet.Clone(),
 		OriginalAllocationResult:         defaultCPUSet.Clone(),
 		TopologyAwareAssignments:         topologyAwareAssignments,
 		OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(topologyAwareAssignments),
 		InitTimestamp:                    time.Now().Format(util.QRMTimeFormat),
-		Labels:                           general.DeepCopyMap(req.Labels),
-		Annotations:                      general.DeepCopyMap(req.Annotations),
 		RequestQuantity:                  reqFloat64,
 	}
 

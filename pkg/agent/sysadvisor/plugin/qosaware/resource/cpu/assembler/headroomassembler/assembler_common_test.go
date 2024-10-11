@@ -33,7 +33,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
@@ -149,8 +149,8 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 3, Time: &now})
 				},
 				setMetaCache: func(cache *metacache.MetaCacheImp) {
-					err := cache.SetPoolInfo(state.PoolNameReclaim, &types.PoolInfo{
-						PoolName: state.PoolNameReclaim,
+					err := cache.SetPoolInfo(commonstate.PoolNameReclaim, &types.PoolInfo{
+						PoolName: commonstate.PoolNameReclaim,
 						TopologyAwareAssignments: map[int]machine.CPUSet{
 							0: machine.MustParse("0-9"),
 						},
@@ -203,8 +203,8 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 					store.SetContainerMetric("pod1", "container1", metric_consts.MetricCPUUsageContainer, metric_util.MetricData{Value: 4})
 				},
 				setMetaCache: func(cache *metacache.MetaCacheImp) {
-					err := cache.SetPoolInfo(state.PoolNameReclaim, &types.PoolInfo{
-						PoolName: state.PoolNameReclaim,
+					err := cache.SetPoolInfo(commonstate.PoolNameReclaim, &types.PoolInfo{
+						PoolName: commonstate.PoolNameReclaim,
 						TopologyAwareAssignments: map[int]machine.CPUSet{
 							0: machine.MustParse("0-9"),
 						},
@@ -260,8 +260,8 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 3, Time: &now})
 				},
 				setMetaCache: func(cache *metacache.MetaCacheImp) {
-					err := cache.SetPoolInfo(state.PoolNameReclaim, &types.PoolInfo{
-						PoolName: state.PoolNameReclaim,
+					err := cache.SetPoolInfo(commonstate.PoolNameReclaim, &types.PoolInfo{
+						PoolName: commonstate.PoolNameReclaim,
 						TopologyAwareAssignments: map[int]machine.CPUSet{
 							0: machine.MustParse("0-9"),
 						},
@@ -308,8 +308,8 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 0, Time: &now})
 				},
 				setMetaCache: func(cache *metacache.MetaCacheImp) {
-					err := cache.SetPoolInfo(state.PoolNameReclaim, &types.PoolInfo{
-						PoolName: state.PoolNameReclaim,
+					err := cache.SetPoolInfo(commonstate.PoolNameReclaim, &types.PoolInfo{
+						PoolName: commonstate.PoolNameReclaim,
 						TopologyAwareAssignments: map[int]machine.CPUSet{
 							0: machine.MustParse("0-9"),
 						},
@@ -356,8 +356,8 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 9, Time: &now})
 				},
 				setMetaCache: func(cache *metacache.MetaCacheImp) {
-					err := cache.SetPoolInfo(state.PoolNameReclaim, &types.PoolInfo{
-						PoolName: state.PoolNameReclaim,
+					err := cache.SetPoolInfo(commonstate.PoolNameReclaim, &types.PoolInfo{
+						PoolName: commonstate.PoolNameReclaim,
 						TopologyAwareAssignments: map[int]machine.CPUSet{
 							0: machine.MustParse("0-9"),
 						},
@@ -406,8 +406,8 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 28.8, Time: &now})
 				},
 				setMetaCache: func(cache *metacache.MetaCacheImp) {
-					err := cache.SetPoolInfo(state.PoolNameReclaim, &types.PoolInfo{
-						PoolName: state.PoolNameReclaim,
+					err := cache.SetPoolInfo(commonstate.PoolNameReclaim, &types.PoolInfo{
+						PoolName: commonstate.PoolNameReclaim,
 						TopologyAwareAssignments: map[int]machine.CPUSet{
 							0: machine.MustParse("0-85"),
 						},
@@ -460,8 +460,8 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 28.8, Time: &now})
 				},
 				setMetaCache: func(cache *metacache.MetaCacheImp) {
-					err := cache.SetPoolInfo(state.PoolNameReclaim, &types.PoolInfo{
-						PoolName: state.PoolNameReclaim,
+					err := cache.SetPoolInfo(commonstate.PoolNameReclaim, &types.PoolInfo{
+						PoolName: commonstate.PoolNameReclaim,
 						TopologyAwareAssignments: map[int]machine.CPUSet{
 							0: machine.MustParse("0-85"),
 						},

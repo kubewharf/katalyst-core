@@ -22,6 +22,7 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 )
 
@@ -51,7 +52,9 @@ func Test_updateAllocationInfoByReq(t *testing.T) {
 					Annotations: map[string]string{apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores},
 				},
 				allocationInfo: &state.AllocationInfo{
-					QoSLevel: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+					AllocationMeta: commonstate.AllocationMeta{
+						QoSLevel: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+					},
 				},
 			},
 			wantErr: false,
