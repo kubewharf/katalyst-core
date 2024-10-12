@@ -19,6 +19,7 @@ package state
 import (
 	"fmt"
 	"io/ioutil"
+	"math"
 	"os"
 	"reflect"
 	"strings"
@@ -3229,5 +3230,6 @@ func TestGetAvailableCPUQuantity(t *testing.T) {
 			},
 		},
 	}
-	require.Equal(t, 15, nodeState.GetAvailableCPUQuantity(machine.NewCPUSet()))
+	cpuQuantity := int(math.Ceil(nodeState.GetAvailableCPUQuantity(machine.NewCPUSet())))
+	require.Equal(t, 15, cpuQuantity)
 }

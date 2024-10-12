@@ -161,3 +161,8 @@ func AdvisorDegradation(advisorHealth, enableReclaim bool) bool {
 
 	return advisorDegradation
 }
+
+func CPUIsSufficient(request, available float64) bool {
+	// the minimal CPU core is 0.001 (1core = 1000m)
+	return request < available+0.0001
+}

@@ -195,7 +195,7 @@ func PackResourceHintsResponse(req *pluginapi.ResourceRequest, resourceName stri
 // GetNUMANodesCountToFitCPUReq is used to calculate the amount of numa nodes
 // we need if we try to allocate cpu cores among them, assuming that all numa nodes
 // contain the same cpu capacity
-func GetNUMANodesCountToFitCPUReq(cpuReq int, cpuTopology *machine.CPUTopology) (int, int, error) {
+func GetNUMANodesCountToFitCPUReq(cpuReq float64, cpuTopology *machine.CPUTopology) (int, int, error) {
 	if cpuTopology == nil {
 		return 0, 0, fmt.Errorf("GetNumaNodesToFitCPUReq got nil cpuTopology")
 	}
@@ -210,14 +210,14 @@ func GetNUMANodesCountToFitCPUReq(cpuReq int, cpuTopology *machine.CPUTopology) 
 	}
 
 	cpusPerNUMA := cpuTopology.NumCPUs / numaCount
-	numaCountNeeded := int(math.Ceil(float64(cpuReq) / float64(cpusPerNUMA)))
+	numaCountNeeded := int(math.Ceil(cpuReq / float64(cpusPerNUMA)))
 	if numaCountNeeded == 0 {
 		return 0, 0, fmt.Errorf("zero numaCountNeeded")
 	} else if numaCountNeeded > numaCount {
-		return 0, 0, fmt.Errorf("invalid cpu req: %d in topology with NUMAs count: %d and CPUs count: %d", cpuReq, numaCount, cpuTopology.NumCPUs)
+		return 0, 0, fmt.Errorf("invalid cpu req: %.3f in topology with NUMAs count: %d and CPUs count: %d", cpuReq, numaCount, cpuTopology.NumCPUs)
 	}
 
-	cpusCountNeededPerNUMA := int(math.Ceil(float64(cpuReq) / float64(numaCountNeeded)))
+	cpusCountNeededPerNUMA := int(math.Ceil(cpuReq / float64(numaCountNeeded)))
 	return numaCountNeeded, cpusCountNeededPerNUMA, nil
 }
 

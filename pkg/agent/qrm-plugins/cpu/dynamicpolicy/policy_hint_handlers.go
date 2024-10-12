@@ -60,9 +60,9 @@ func (p *DynamicPolicy) sharedCoresHintHandler(ctx context.Context,
 		return p.sharedCoresWithNUMABindingHintHandler(ctx, req)
 	}
 
-	// TODO: support sidecar follow main container for normal share cores in future
+	// TODO: support sidecar follow main container for non-binding share cores in future
 	if req.ContainerType == pluginapi.ContainerType_MAIN {
-		ok, err := p.checkNormalShareCoresCpuResource(req)
+		ok, err := p.checkNonBindingShareCoresCpuResource(req)
 		if err != nil {
 			general.Errorf("failed to check share cores cpu resource for pod: %s/%s, container: %s",
 				req.PodNamespace, req.PodName, req.ContainerName)
@@ -134,7 +134,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Conte
 			})
 	}
 
-	reqInt, _, err := util.GetQuantityFromResourceReq(req)
+	reqInt, request, err := util.GetQuantityFromResourceReq(req)
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
@@ -181,7 +181,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Conte
 	if hints == nil {
 		var calculateErr error
 		// calculate hint for container without allocated cpus
-		hints, calculateErr = p.calculateHints(reqInt, machineState, req)
+		hints, calculateErr = p.calculateHints(request, machineState, req)
 		if calculateErr != nil {
 			return nil, fmt.Errorf("calculateHints failed with error: %v", calculateErr)
 		}
@@ -199,7 +199,7 @@ func (p *DynamicPolicy) dedicatedCoresWithoutNUMABindingHintHandler(_ context.Co
 
 // calculateHints is a helper function to calculate the topology hints
 // with the given container requests.
-func (p *DynamicPolicy) calculateHints(reqInt int,
+func (p *DynamicPolicy) calculateHints(request float64,
 	machineState state.NUMANodeMap,
 	req *pluginapi.ResourceRequest,
 ) (map[string]*pluginapi.ListOfTopologyHints, error) {
@@ -213,7 +213,7 @@ func (p *DynamicPolicy) calculateHints(reqInt int,
 	}
 	sort.Ints(numaNodes)
 
-	minNUMAsCountNeeded, _, err := util.GetNUMANodesCountToFitCPUReq(reqInt, p.machineInfo.CPUTopology)
+	minNUMAsCountNeeded, _, err := util.GetNUMANodesCountToFitCPUReq(request, p.machineInfo.CPUTopology)
 	if err != nil {
 		return nil, fmt.Errorf("GetNUMANodesCountToFitCPUReq failed with error: %v", err)
 	}
@@ -250,8 +250,8 @@ func (p *DynamicPolicy) calculateHints(reqInt int,
 		}
 	}
 
-	general.Infof("calculate hints with req: %d, numaToAvailableCPUCount: %+v",
-		reqInt, numaToAvailableCPUCount)
+	general.Infof("calculate hints with req: %.3f, numaToAvailableCPUCount: %+v",
+		request, numaToAvailableCPUCount)
 
 	numaBound := len(numaNodes)
 	if numaBound > machine.LargeNUMAsPoint {
@@ -279,7 +279,7 @@ func (p *DynamicPolicy) calculateHints(reqInt int,
 			allAvailableCPUsCountInMask += numaToAvailableCPUCount[nodeID]
 		}
 
-		if allAvailableCPUsCountInMask < reqInt {
+		if !cpuutil.CPUIsSufficient(request, float64(allAvailableCPUsCountInMask)) {
 			return
 		}
 
@@ -323,7 +323,7 @@ func (p *DynamicPolicy) calculateHints(reqInt int,
 			_ = p.emitter.StoreInt64(util.MetricNameGetNUMAAllocatedMemBWFailed, 1, metrics.MetricTypeNameRaw)
 		} else {
 			p.updatePreferredCPUHintsByMemBW(preferredHintIndexes, availableNumaHints,
-				reqInt, numaAllocatedMemBW, req, numaExclusive)
+				request, numaAllocatedMemBW, req, numaExclusive)
 		}
 	}
 
@@ -405,7 +405,7 @@ func getNUMAAllocatedMemBW(machineState state.NUMANodeMap, metaServer *metaserve
 	return numaAllocatedMemBW, nil
 }
 
-func (p *DynamicPolicy) updatePreferredCPUHintsByMemBW(preferredHintIndexes []int, cpuHints []*pluginapi.TopologyHint, reqInt int,
+func (p *DynamicPolicy) updatePreferredCPUHintsByMemBW(preferredHintIndexes []int, cpuHints []*pluginapi.TopologyHint, request float64,
 	numaAllocatedMemBW map[int]int, req *pluginapi.ResourceRequest, numaExclusive bool,
 ) {
 	if len(preferredHintIndexes) == 0 {
@@ -423,7 +423,7 @@ func (p *DynamicPolicy) updatePreferredCPUHintsByMemBW(preferredHintIndexes []in
 			Name:        req.PodName,
 			Labels:      req.Labels,
 			Annotations: req.Annotations,
-		}, reqInt)
+		}, int(math.Ceil(request)))
 	if err != nil {
 		general.Errorf("GetContainerMemoryBandwidthRequest failed with error: %v", err)
 		return
@@ -593,7 +593,7 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 	}
 
 	// calc the hints with the pod aggregated request
-	reqInt, _, err := util.GetPodAggregatedRequestResource(req)
+	reqInt, request, err := util.GetPodAggregatedRequestResource(req)
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
@@ -636,9 +636,9 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 		nodeID := numaset.ToSliceInt()[0]
 		availableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(p.reservedCPUs)
 
-		general.Infof("pod: %s/%s, container: %s request cpu inplace update resize on numa %d (available: %d, request: %d)",
-			req.PodNamespace, req.PodName, req.ContainerName, nodeID, availableCPUQuantity, reqInt)
-		if reqInt > availableCPUQuantity { // no left resource to scale out
+		general.Infof("pod: %s/%s, container: %s request cpu inplace update resize on numa %d (available: %.3f, request: %.3f)",
+			req.PodNamespace, req.PodName, req.ContainerName, nodeID, availableCPUQuantity, request)
+		if !cpuutil.CPUIsSufficient(request, availableCPUQuantity) { // no left resource to scale out
 			general.Infof("pod: %s/%s, container: %s request cpu inplace update resize, but no enough resource for it in current NUMA, checking migratable",
 				req.PodNamespace, req.PodName, req.ContainerName)
 			// TODO move this var to config
@@ -647,7 +647,7 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 				general.Infof("pod: %s/%s, container: %s request inplace update resize and no enough resource in current NUMA, try to migrate it to new NUMA",
 					req.PodNamespace, req.PodName, req.ContainerName)
 				var calculateErr error
-				hints, calculateErr = p.calculateHintsForNUMABindingSharedCores(reqInt, podEntries, machineState, req)
+				hints, calculateErr = p.calculateHintsForNUMABindingSharedCores(request, podEntries, machineState, req)
 				if calculateErr != nil {
 					general.Errorf("pod: %s/%s, container: %s request inplace update resize and no enough resource in current NUMA, failed to migrate it to new NUMA",
 						req.PodNamespace, req.PodName, req.ContainerName)
@@ -664,7 +664,7 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 		}
 	} else if hints == nil {
 		var calculateErr error
-		hints, calculateErr = p.calculateHintsForNUMABindingSharedCores(reqInt, podEntries, machineState, req)
+		hints, calculateErr = p.calculateHintsForNUMABindingSharedCores(request, podEntries, machineState, req)
 		if calculateErr != nil {
 			return nil, fmt.Errorf("calculateHintsForNUMABindingSharedCores failed with error: %v", calculateErr)
 		}
@@ -689,16 +689,15 @@ func (p *DynamicPolicy) clearContainerAndRegenerateMachineState(podEntries state
 }
 
 func (p *DynamicPolicy) populateHintsByPreferPolicy(numaNodes []int, preferPolicy string,
-	hints map[string]*pluginapi.ListOfTopologyHints, machineState state.NUMANodeMap, reqInt int,
+	hints map[string]*pluginapi.ListOfTopologyHints, machineState state.NUMANodeMap, request float64,
 ) {
-	preferIndexes, maxLeft, minLeft := []int{}, -1, math.MaxInt
+	preferIndexes, maxLeft, minLeft := []int{}, float64(-1), math.MaxFloat64
 
 	for _, nodeID := range numaNodes {
 		availableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(p.reservedCPUs)
-
-		if availableCPUQuantity < reqInt {
-			general.Warningf("numa_binding shared_cores container skip NUMA: %d available: %d",
-				nodeID, availableCPUQuantity)
+		if !cpuutil.CPUIsSufficient(request, availableCPUQuantity) {
+			general.Warningf("numa_binding shared_cores container skip NUMA: %d available: %.3f request: %.3f",
+				nodeID, availableCPUQuantity, request)
 			continue
 		}
 
@@ -706,9 +705,9 @@ func (p *DynamicPolicy) populateHintsByPreferPolicy(numaNodes []int, preferPolic
 			Nodes: []uint64{uint64(nodeID)},
 		})
 
-		curLeft := availableCPUQuantity - reqInt
+		curLeft := availableCPUQuantity - request
 
-		general.Infof("NUMA: %d, left cpu quantity: %d", nodeID, curLeft)
+		general.Infof("NUMA: %d, left cpu quantity: %.3f", nodeID, curLeft)
 
 		if preferPolicy == cpuconsts.CPUNUMAHintPreferPolicyPacking {
 			if curLeft < minLeft {
@@ -734,7 +733,7 @@ func (p *DynamicPolicy) populateHintsByPreferPolicy(numaNodes []int, preferPolic
 	}
 }
 
-func (p *DynamicPolicy) filterNUMANodesByHintPreferLowThreshold(reqInt int,
+func (p *DynamicPolicy) filterNUMANodesByHintPreferLowThreshold(request float64,
 	machineState state.NUMANodeMap, numaNodes []int,
 ) ([]int, []int) {
 	filteredNUMANodes := make([]int, 0, len(numaNodes))
@@ -749,9 +748,9 @@ func (p *DynamicPolicy) filterNUMANodesByHintPreferLowThreshold(reqInt int,
 			continue
 		}
 
-		availableRatio := float64(availableCPUQuantity) / float64(allocatableCPUQuantity)
+		availableRatio := availableCPUQuantity / float64(allocatableCPUQuantity)
 
-		general.Infof("NUMA: %d, availableCPUQuantity: %d, allocatableCPUQuantity: %d, availableRatio: %.2f, cpuNUMAHintPreferLowThreshold:%.2f",
+		general.Infof("NUMA: %d, availableCPUQuantity: %.3f, allocatableCPUQuantity: %d, availableRatio: %.3f, cpuNUMAHintPreferLowThreshold:%.3f",
 			nodeID, availableCPUQuantity, allocatableCPUQuantity, availableRatio, p.cpuNUMAHintPreferLowThreshold)
 
 		if availableRatio >= p.cpuNUMAHintPreferLowThreshold {
@@ -776,11 +775,11 @@ func (p *DynamicPolicy) filterNUMANodesByNonBindingSharedRequestedQuantity(nonBi
 			allocatableCPUQuantity := machineState[nodeID].GetFilteredDefaultCPUSet(nil, nil).Difference(p.reservedCPUs).Size()
 
 			// take this non-binding NUMA for candicate shared_cores with numa_binding,
-			// won't cause normal shared_cores in short supply
+			// won't cause non-binding shared_cores in short supply
 			if nonBindingNUMAsCPUQuantity-allocatableCPUQuantity >= nonBindingSharedRequestedQuantity {
 				filteredNUMANodes = append(filteredNUMANodes, nodeID)
 			} else {
-				general.Infof("filter out NUMA: %d since taking it will cause normal shared_cores in short supply;"+
+				general.Infof("filter out NUMA: %d since taking it will cause non-binding shared_cores in short supply;"+
 					" nonBindingNUMAsCPUQuantity: %d, targetNUMAAllocatableCPUQuantity: %d, nonBindingSharedRequestedQuantity: %d",
 					nodeID, nonBindingNUMAsCPUQuantity, allocatableCPUQuantity, nonBindingSharedRequestedQuantity)
 			}
@@ -792,7 +791,7 @@ func (p *DynamicPolicy) filterNUMANodesByNonBindingSharedRequestedQuantity(nonBi
 	return filteredNUMANodes
 }
 
-func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(reqInt int, podEntries state.PodEntries,
+func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(request float64, podEntries state.PodEntries,
 	machineState state.NUMANodeMap,
 	req *pluginapi.ResourceRequest,
 ) (map[string]*pluginapi.ListOfTopologyHints, error) {
@@ -812,34 +811,34 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(reqInt int, podE
 		},
 	}
 
-	minNUMAsCountNeeded, _, err := util.GetNUMANodesCountToFitCPUReq(reqInt, p.machineInfo.CPUTopology)
+	minNUMAsCountNeeded, _, err := util.GetNUMANodesCountToFitCPUReq(request, p.machineInfo.CPUTopology)
 	if err != nil {
 		return nil, fmt.Errorf("GetNUMANodesCountToFitCPUReq failed with error: %v", err)
 	}
 
 	// if a numa_binding shared_cores has request larger than 1 NUMA,
-	// its performance may degrade to be like normal shared_cores
+	// its performance may degrade to be like non-binding shared_cores
 	if minNUMAsCountNeeded > 1 {
 		return nil, fmt.Errorf("numa_binding shared_cores container has request larger than 1 NUMA")
 	}
 	switch p.cpuNUMAHintPreferPolicy {
 	case cpuconsts.CPUNUMAHintPreferPolicyPacking, cpuconsts.CPUNUMAHintPreferPolicySpreading:
 		general.Infof("apply %s policy on NUMAs: %+v", p.cpuNUMAHintPreferPolicy, numaNodes)
-		p.populateHintsByPreferPolicy(numaNodes, p.cpuNUMAHintPreferPolicy, hints, machineState, reqInt)
+		p.populateHintsByPreferPolicy(numaNodes, p.cpuNUMAHintPreferPolicy, hints, machineState, request)
 	case cpuconsts.CPUNUMAHintPreferPolicyDynamicPacking:
-		filteredNUMANodes, filteredOutNUMANodes := p.filterNUMANodesByHintPreferLowThreshold(reqInt, machineState, numaNodes)
+		filteredNUMANodes, filteredOutNUMANodes := p.filterNUMANodesByHintPreferLowThreshold(request, machineState, numaNodes)
 
 		if len(filteredNUMANodes) > 0 {
 			general.Infof("dynamically apply packing policy on NUMAs: %+v", filteredNUMANodes)
-			p.populateHintsByPreferPolicy(filteredNUMANodes, cpuconsts.CPUNUMAHintPreferPolicyPacking, hints, machineState, reqInt)
+			p.populateHintsByPreferPolicy(filteredNUMANodes, cpuconsts.CPUNUMAHintPreferPolicyPacking, hints, machineState, request)
 			p.populateNotPreferredHintsByAvailableNUMANodes(filteredOutNUMANodes, hints)
 		} else {
 			general.Infof("empty filteredNUMANodes, dynamically apply spreading policy on NUMAs: %+v", numaNodes)
-			p.populateHintsByPreferPolicy(numaNodes, cpuconsts.CPUNUMAHintPreferPolicySpreading, hints, machineState, reqInt)
+			p.populateHintsByPreferPolicy(numaNodes, cpuconsts.CPUNUMAHintPreferPolicySpreading, hints, machineState, request)
 		}
 	default:
 		general.Infof("unknown policy: %s, apply default spreading policy on NUMAs: %+v", p.cpuNUMAHintPreferPolicy, numaNodes)
-		p.populateHintsByPreferPolicy(numaNodes, cpuconsts.CPUNUMAHintPreferPolicySpreading, hints, machineState, reqInt)
+		p.populateHintsByPreferPolicy(numaNodes, cpuconsts.CPUNUMAHintPreferPolicySpreading, hints, machineState, request)
 	}
 
 	// NOTE: because grpc is inability to distinguish between an empty array and nil,

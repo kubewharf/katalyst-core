@@ -620,11 +620,11 @@ func TestSNBVPAWithSidecar(t *testing.T) {
 	as.Nil(err)
 }
 
-func TestNormalShareVPA(t *testing.T) {
+func TestNonBindingShareCoresVPA(t *testing.T) {
 	t.Parallel()
 	as := require.New(t)
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint-TestNormalShareVPA")
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestNonBindingShareCoresVPA")
 	as.Nil(err)
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
@@ -639,7 +639,7 @@ func TestNormalShareVPA(t *testing.T) {
 
 	testName := "test"
 
-	// test for normal share
+	// test for non-binding share cores
 	req := &pluginapi.ResourceRequest{
 		PodUid:         string(uuid.NewUUID()),
 		PodNamespace:   testName,
@@ -659,7 +659,7 @@ func TestNormalShareVPA(t *testing.T) {
 		},
 	}
 
-	// no topology hints for normal share
+	// no topology hints for non-binding share cores
 	res, err := dynamicPolicy.GetTopologyHints(context.Background(), req)
 	as.Nil(err)
 	as.Nil(res.ResourceHints[string(v1.ResourceCPU)])
@@ -732,7 +732,7 @@ func TestNormalShareVPA(t *testing.T) {
 
 	resizeResp1, err := dynamicPolicy.GetTopologyHints(context.Background(), resizeReq1)
 	as.Nil(err)
-	// no hints for normal share
+	// no hints for non-binding share cores
 	as.Nil(resizeResp1.ResourceHints[string(v1.ResourceCPU)])
 
 	_, err = dynamicPolicy.Allocate(context.Background(), resizeReq1)
@@ -761,11 +761,11 @@ func TestNormalShareVPA(t *testing.T) {
 	as.Equal(float64(3), allocation.RequestQuantity)
 }
 
-func TestNormalShareVPAWithSidecar(t *testing.T) {
+func TestNonBindingShareCoresVPAWithSidecar(t *testing.T) {
 	t.Parallel()
 	as := require.New(t)
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint-TestNormalShareVPAWithSidecar")
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestNonBindingShareCoresVPAWithSidecar")
 	as.Nil(err)
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 

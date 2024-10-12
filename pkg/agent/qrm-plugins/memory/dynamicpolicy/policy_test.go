@@ -136,6 +136,7 @@ func getTestDynamicPolicyWithInitialization(topology *machine.CPUTopology, machi
 		migratingMemory:  make(map[string]map[string]bool),
 		stopCh:           make(chan struct{}),
 		podDebugAnnoKeys: []string{podDebugAnnoKey},
+		enableNonBindingShareCoresMemoryResourceCheck: true,
 	}
 
 	policyImplement.allocationHandlers = map[string]util.AllocationHandler{
@@ -4090,7 +4091,7 @@ func Test_getContainerRequestedMemoryBytes(t *testing.T) {
 
 	memorySize1G := resource.MustParse("1Gi")
 
-	// check normal share cores
+	// check non-binding share cores
 	pod1Allocation := &state.AllocationInfo{
 		AllocationMeta: commonstate.AllocationMeta{
 			PodUid:        "test-pod-1-uid",
@@ -4137,16 +4138,16 @@ func Test_getContainerRequestedMemoryBytes(t *testing.T) {
 	}
 	metaServer.PodFetcher = podFetcher
 
-	// case 2. check normal share cores scale out success
+	// case 2. check non-binding share cores scale out success
 	as.Equal(uint64(memorySize1G.Value()), dynamicPolicy.getContainerRequestedMemoryBytes(pod1Allocation))
 
-	// case 3. check normal share cores scale in
+	// case 3. check non-binding share cores scale in
 	memorySize2G := resource.MustParse("2Gi")
 	pod1Allocation.AggregatedQuantity = uint64(memorySize2G.Value())
 	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-1-uid", "test-pod-1", pod1Allocation)
 	as.Equal(uint64(memorySize1G.Value()), dynamicPolicy.getContainerRequestedMemoryBytes(pod1Allocation))
 
-	// check normal snb
+	// check snb
 	pod2Allocation := &state.AllocationInfo{
 		AllocationMeta: commonstate.AllocationMeta{
 			PodUid:        "test-pod-2-uid",

@@ -617,12 +617,12 @@ func TestSNBMemoryVPAWithSidecar(t *testing.T) {
 	as.Nil(err)
 }
 
-func TestNormalShareMemoryVPA(t *testing.T) {
+func TestNonBindingShareCoresMemoryVPA(t *testing.T) {
 	t.Parallel()
 
 	as := require.New(t)
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint-TestNormalShareMemoryVPA")
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestNonBindingShareCoresMemoryVPA")
 	as.Nil(err)
 	defer os.RemoveAll(tmpDir)
 
@@ -662,7 +662,7 @@ func TestNormalShareMemoryVPA(t *testing.T) {
 		},
 	}
 
-	// no hints for normal share cores container
+	// no hints for non-binding share cores container
 	res, err := dynamicPolicy.GetTopologyHints(context.Background(), req)
 	as.Nil(err)
 	as.NotNil(res)
@@ -700,7 +700,7 @@ func TestNormalShareMemoryVPA(t *testing.T) {
 		},
 	}
 
-	// no hints for normal share cores container
+	// no hints for non-binding share cores container
 	resizeRes, err := dynamicPolicy.GetTopologyHints(context.Background(), resizeReq)
 	as.Nil(err)
 	as.NotNil(resizeRes)
@@ -719,19 +719,19 @@ func TestNormalShareMemoryVPA(t *testing.T) {
 	as.Equal(float64(4294967296), allocation.PodResources[resizeReq.PodUid].ContainerResources[resizeReq.ContainerName].ResourceAllocation[string(v1.ResourceMemory)].AllocatedQuantity)
 
 	// resie exceeded
-	// no hints for normal share cores container
+	// no hints for non-binding share cores container
 	resizeReq.Annotations[consts.PodAnnotationAggregatedRequestsKey] = `{"memory": 35433480192}`
 	resizeReq.ResourceRequests[string(v1.ResourceMemory)] = 33 * 1024 * 1024 * 1024
 	_, err = dynamicPolicy.GetTopologyHints(context.Background(), resizeReq)
 	as.NotNil(err)
 }
 
-func TestNormalShareMemoryVPAWithSidecar(t *testing.T) {
+func TestNonBindingShareCoresMemoryVPAWithSidecar(t *testing.T) {
 	t.Parallel()
 
 	as := require.New(t)
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint-TestNormalShareMemoryVPAWithSidecar")
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestNonBindingShareCoresMemoryVPAWithSidecar")
 	as.Nil(err)
 	defer os.RemoveAll(tmpDir)
 
@@ -772,7 +772,7 @@ func TestNormalShareMemoryVPAWithSidecar(t *testing.T) {
 		},
 	}
 
-	// no hints for normal share cores container
+	// no hints for non-binding share cores container
 	res, err := dynamicPolicy.GetTopologyHints(context.Background(), req)
 	as.Nil(err)
 	as.NotNil(res)
@@ -810,7 +810,7 @@ func TestNormalShareMemoryVPAWithSidecar(t *testing.T) {
 		},
 	}
 
-	// no hints for normal share cores container
+	// no hints for non-binding share cores container
 	res, err = dynamicPolicy.GetTopologyHints(context.Background(), sidecarReq)
 	as.Nil(err)
 	as.NotNil(res)
@@ -848,7 +848,7 @@ func TestNormalShareMemoryVPAWithSidecar(t *testing.T) {
 		},
 	}
 
-	// no hints for normal share cores container
+	// no hints for non-binding share cores container
 	res, err = dynamicPolicy.GetTopologyHints(context.Background(), resizeMainReq)
 	as.Nil(err)
 	as.NotNil(res)
@@ -886,7 +886,7 @@ func TestNormalShareMemoryVPAWithSidecar(t *testing.T) {
 		},
 	}
 
-	// no hints for normal share cores container
+	// no hints for non-binding share cores container
 	res, err = dynamicPolicy.GetTopologyHints(context.Background(), sidecarResizeReq)
 	as.Nil(err)
 	as.NotNil(res)

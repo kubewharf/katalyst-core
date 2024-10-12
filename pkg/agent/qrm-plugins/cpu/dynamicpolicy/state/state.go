@@ -19,7 +19,6 @@ package state
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -268,7 +267,7 @@ func (pe PodEntries) GetFilteredPoolsCPUSetMap(ignorePools sets.String) (map[str
 
 			// pool entry containing SharedNUMABinding containers also has SharedNUMABinding declarations,
 			// it's also applicable to isolation pools for SharedNUMABinding containers.
-			// it helps us to differentiate them from normal share pools when getting targetNUMAID for the pool.
+			// it helps us to differentiate them from non-binding share cores pools when getting targetNUMAID for the pool.
 			if allocationInfo.CheckSharedNUMABinding() {
 				// pool for numa_binding shared_cores containers
 
@@ -345,7 +344,7 @@ func (ns *NUMANodeState) GetAvailableCPUSet(reservedCPUs machine.CPUSet) machine
 // It's used when allocating CPUs for shared_cores with numa_binding containers,
 // since pool size may be adjusted, and DefaultCPUSet & AllocatedCPUSet are calculated by pool size,
 // we should use allocationInfo.RequestQuantity to calculate available cpu quantity for candidate shared_cores with numa_binding container.
-func (ns *NUMANodeState) GetAvailableCPUQuantity(reservedCPUs machine.CPUSet) int {
+func (ns *NUMANodeState) GetAvailableCPUQuantity(reservedCPUs machine.CPUSet) float64 {
 	if ns == nil {
 		return 0
 	}
@@ -380,8 +379,7 @@ func (ns *NUMANodeState) GetAvailableCPUQuantity(reservedCPUs machine.CPUSet) in
 		}
 	}
 
-	allocatedQuantity := int(math.Ceil(preciseAllocatedQuantity))
-	return general.Max(allocatableQuantity-allocatedQuantity, 0)
+	return general.MaxFloat64(float64(allocatableQuantity)-preciseAllocatedQuantity, 0)
 }
 
 // GetFilteredDefaultCPUSet returns default cpuset in this numa, along with the filter functions

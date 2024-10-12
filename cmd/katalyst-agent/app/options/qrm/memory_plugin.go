@@ -25,14 +25,15 @@ import (
 )
 
 type MemoryOptions struct {
-	PolicyName                  string
-	ReservedMemoryGB            uint64
-	SkipMemoryStateCorruption   bool
-	EnableSettingMemoryMigrate  bool
-	EnableMemoryAdvisor         bool
-	ExtraControlKnobConfigFile  string
-	EnableOOMPriority           bool
-	OOMPriorityPinnedMapAbsPath string
+	PolicyName                                    string
+	ReservedMemoryGB                              uint64
+	SkipMemoryStateCorruption                     bool
+	EnableSettingMemoryMigrate                    bool
+	EnableMemoryAdvisor                           bool
+	ExtraControlKnobConfigFile                    string
+	EnableOOMPriority                             bool
+	OOMPriorityPinnedMapAbsPath                   string
+	EnableNonBindingShareCoresMemoryResourceCheck bool
 
 	SockMemOptions
 	LogCacheOptions
@@ -71,6 +72,7 @@ func NewMemoryOptions() *MemoryOptions {
 		EnableSettingMemoryMigrate: false,
 		EnableMemoryAdvisor:        false,
 		EnableOOMPriority:          false,
+		EnableNonBindingShareCoresMemoryResourceCheck: true,
 		SockMemOptions: SockMemOptions{
 			EnableSettingSockMem: false,
 			SetGlobalTCPMemRatio: 20,  // default: 20% * {host total memory}
@@ -105,6 +107,8 @@ func (o *MemoryOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.ExtraControlKnobConfigFile, "the absolute path of extra control knob config file")
 	fs.BoolVar(&o.EnableOOMPriority, "enable-oom-priority",
 		o.EnableOOMPriority, "if set true, we will enable oom priority enhancement")
+	fs.BoolVar(&o.EnableNonBindingShareCoresMemoryResourceCheck, "enable-non-binding-share-cores-memory-resource-check",
+		o.EnableNonBindingShareCoresMemoryResourceCheck, "enable the topology check for non-binding shares cores pods")
 	fs.StringVar(&o.OOMPriorityPinnedMapAbsPath, "oom-priority-pinned-bpf-map-path",
 		o.OOMPriorityPinnedMapAbsPath, "the absolute path of oom priority pinned bpf map")
 	fs.BoolVar(&o.EnableSettingSockMem, "enable-setting-sockmem",
@@ -137,6 +141,7 @@ func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
 	conf.EnableMemoryAdvisor = o.EnableMemoryAdvisor
 	conf.ExtraControlKnobConfigFile = o.ExtraControlKnobConfigFile
 	conf.EnableOOMPriority = o.EnableOOMPriority
+	conf.EnableNonBindingShareCoresMemoryResourceCheck = o.EnableNonBindingShareCoresMemoryResourceCheck
 	conf.OOMPriorityPinnedMapAbsPath = o.OOMPriorityPinnedMapAbsPath
 	conf.EnableSettingSockMem = o.EnableSettingSockMem
 	conf.SetGlobalTCPMemRatio = o.SetGlobalTCPMemRatio
