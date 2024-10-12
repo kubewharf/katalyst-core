@@ -28,6 +28,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -45,17 +46,19 @@ const (
 
 type memoryServer struct {
 	*baseServer
-	memoryPluginClient advisorsvc.QRMServiceClient
-	listAndWatchCalled bool
+	memoryPluginClient      advisorsvc.QRMServiceClient
+	listAndWatchCalled      bool
+	headroomResourceManager reporter.HeadroomResourceManager
 }
 
 func NewMemoryServer(recvCh chan types.InternalMemoryCalculationResult, sendCh chan types.TriggerInfo, conf *config.Configuration,
-	metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
+	headroomResourceManager reporter.HeadroomResourceManager, metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) (*memoryServer, error) {
 	ms := &memoryServer{}
 	ms.baseServer = newBaseServer(memoryServerName, conf, recvCh, sendCh, metaCache, metaServer, emitter, ms)
 	ms.advisorSocketPath = conf.MemoryAdvisorSocketAbsPath
 	ms.pluginSocketPath = conf.MemoryPluginSocketAbsPath
+	ms.headroomResourceManager = headroomResourceManager
 	ms.resourceRequestName = "MemoryRequest"
 	return ms, nil
 }

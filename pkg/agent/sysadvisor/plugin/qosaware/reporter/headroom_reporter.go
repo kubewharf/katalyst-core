@@ -49,23 +49,33 @@ const (
 	headroomReporterPluginName = "headroom-reporter-plugin"
 )
 
-type headroomReporterImpl struct {
+type HeadroomResourceManager interface {
+	manager.ResourceManager
+	manager.NumaResourceManager
+}
+
+type HeadroomResourceGetter interface {
+	GetHeadroomResource(name v1.ResourceName) HeadroomResourceManager
+}
+
+type HeadroomReporter struct {
 	skeleton.GenericPlugin
+	HeadroomResourceGetter
 }
 
 // NewHeadroomReporter returns a wrapper of headroom reporter plugins as headroom reporter
 func NewHeadroomReporter(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
 	conf *config.Configuration, headroomAdvisor hmadvisor.ResourceAdvisor,
-) (Reporter, error) {
-	plugin, err := newHeadroomReporterPlugin(emitter, metaServer, conf, headroomAdvisor)
+) (*HeadroomReporter, error) {
+	plugin, getter, err := newHeadroomReporterPlugin(emitter, metaServer, conf, headroomAdvisor)
 	if err != nil {
 		return nil, fmt.Errorf("[headroom-reporter] create headroom reporter failed: %s", err)
 	}
 
-	return &headroomReporterImpl{plugin}, nil
+	return &HeadroomReporter{GenericPlugin: plugin, HeadroomResourceGetter: getter}, nil
 }
 
-func (r *headroomReporterImpl) Run(ctx context.Context) {
+func (r *HeadroomReporter) Run(ctx context.Context) {
 	if err := r.Start(); err != nil {
 		klog.Fatalf("[headroom-reporter] start %v failed: %v", r.Name(), err)
 	}
@@ -93,7 +103,7 @@ type headroomReporterPlugin struct {
 
 func newHeadroomReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
 	conf *config.Configuration, headroomAdvisor hmadvisor.ResourceAdvisor,
-) (skeleton.GenericPlugin, error) {
+) (skeleton.GenericPlugin, HeadroomResourceGetter, error) {
 	var (
 		err     error
 		errList []error
@@ -108,19 +118,28 @@ func newHeadroomReporterPlugin(emitter metrics.MetricEmitter, metaServer *metase
 		}
 	}
 	if len(errList) > 0 {
-		return nil, errors.NewAggregate(errList)
+		return nil, nil, errors.NewAggregate(errList)
 	}
 
 	reporter := &headroomReporterPlugin{
 		headroomManagers: headroomManagers,
 	}
-	return skeleton.NewRegistrationPluginWrapper(reporter, []string{conf.PluginRegistrationDir},
+	pluginWrapper, err := skeleton.NewRegistrationPluginWrapper(reporter, []string{conf.PluginRegistrationDir},
 		func(key string, value int64) {
 			_ = emitter.StoreInt64(key, value, metrics.MetricTypeNameCount, metrics.ConvertMapToTags(map[string]string{
 				"pluginName": headroomReporterPluginName,
 				"pluginType": registration.ReporterPlugin,
 			})...)
 		})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return pluginWrapper, reporter, nil
+}
+
+func (r *headroomReporterPlugin) GetHeadroomResource(name v1.ResourceName) HeadroomResourceManager {
+	return r.headroomManagers[name]
 }
 
 func (r *headroomReporterPlugin) Name() string {
