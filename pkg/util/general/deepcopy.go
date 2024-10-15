@@ -63,3 +63,15 @@ func DeepCopyIntToFloat64Map(origin map[int]float64) map[int]float64 {
 	}
 	return res
 }
+
+func DeepCopyIntToInt64Map(origin map[int]int64) map[int]int64 {
+	if origin == nil {
+		return nil
+	}
+
+	res := make(map[int]int64, len(origin))
+	for key, val := range origin {
+		res[key] = val
+	}
+	return res
+}

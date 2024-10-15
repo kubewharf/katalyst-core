@@ -29,4 +29,4 @@ const (
 	ControlKnobKeyMemoryNUMAHeadroom MemoryControlKnobName = "memory_numa_headroom"
 )
 
-type MemoryNUMAHeadroom map[int]float64
+type MemoryNUMAHeadroom map[int]int64

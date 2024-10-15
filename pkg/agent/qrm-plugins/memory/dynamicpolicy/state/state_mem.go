@@ -39,7 +39,7 @@ type memoryPluginState struct {
 	reservedMemory map[v1.ResourceName]map[int]uint64
 
 	machineState       NUMANodeResourcesMap
-	numaHeadroom       map[int]float64
+	numaHeadroom       map[int]int64
 	podResourceEntries PodResourceEntries
 }
 
@@ -61,7 +61,7 @@ func NewMemoryPluginState(topology *machine.CPUTopology, machineInfo *info.Machi
 	return &memoryPluginState{
 		podResourceEntries: make(PodResourceEntries),
 		machineState:       defaultMachineState,
-		numaHeadroom:       make(map[int]float64),
+		numaHeadroom:       make(map[int]int64),
 		socketTopology:     socketTopology,
 		machineInfo:        machineInfo.Clone(),
 		reservedMemory:     reservedMemory,
@@ -91,11 +91,11 @@ func (s *memoryPluginState) GetMachineState() NUMANodeResourcesMap {
 	return s.machineState.Clone()
 }
 
-func (s *memoryPluginState) GetNUMAHeadroom() map[int]float64 {
+func (s *memoryPluginState) GetNUMAHeadroom() map[int]int64 {
 	s.RLock()
 	defer s.RUnlock()
 
-	return general.DeepCopyIntToFloat64Map(s.numaHeadroom)
+	return general.DeepCopyIntToInt64Map(s.numaHeadroom)
 }
 
 func (s *memoryPluginState) GetMachineInfo() *info.MachineInfo {
@@ -131,11 +131,11 @@ func (s *memoryPluginState) SetMachineState(numaNodeResourcesMap NUMANodeResourc
 		"numaNodeResourcesMap", numaNodeResourcesMap.String())
 }
 
-func (s *memoryPluginState) SetNUMAHeadroom(numaHeadroom map[int]float64) {
+func (s *memoryPluginState) SetNUMAHeadroom(numaHeadroom map[int]int64) {
 	s.Lock()
 	defer s.Unlock()
 
-	s.numaHeadroom = general.DeepCopyIntToFloat64Map(numaHeadroom)
+	s.numaHeadroom = general.DeepCopyIntToInt64Map(numaHeadroom)
 	klog.InfoS("[cpu_plugin] Updated memory plugin numa headroom", "numaHeadroom", numaHeadroom)
 }
 
