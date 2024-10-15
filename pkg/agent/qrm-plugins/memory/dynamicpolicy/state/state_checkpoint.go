@@ -170,7 +170,7 @@ func (sc *stateCheckpoint) GetMachineState() NUMANodeResourcesMap {
 	return sc.cache.GetMachineState()
 }
 
-func (sc *stateCheckpoint) GetNUMAHeadroom() map[int]float64 {
+func (sc *stateCheckpoint) GetNUMAHeadroom() map[int]int64 {
 	sc.RLock()
 	defer sc.RUnlock()
 
@@ -202,7 +202,7 @@ func (sc *stateCheckpoint) SetMachineState(numaNodeResourcesMap NUMANodeResource
 	}
 }
 
-func (sc *stateCheckpoint) SetNUMAHeadroom(numaHeadroom map[int]float64) {
+func (sc *stateCheckpoint) SetNUMAHeadroom(numaHeadroom map[int]int64) {
 	sc.Lock()
 	defer sc.Unlock()
 

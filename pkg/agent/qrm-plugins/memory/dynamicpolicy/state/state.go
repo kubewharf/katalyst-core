@@ -356,7 +356,7 @@ func (nrm NUMANodeResourcesMap) Clone() NUMANodeResourcesMap {
 // reader is used to get information from local states
 type reader interface {
 	GetMachineState() NUMANodeResourcesMap
-	GetNUMAHeadroom() map[int]float64
+	GetNUMAHeadroom() map[int]int64
 	GetPodResourceEntries() PodResourceEntries
 	GetAllocationInfo(resourceName v1.ResourceName, podUID, containerName string) *AllocationInfo
 }
@@ -365,7 +365,7 @@ type reader interface {
 // and it also provides functionality to maintain the local files
 type writer interface {
 	SetMachineState(numaNodeResourcesMap NUMANodeResourcesMap)
-	SetNUMAHeadroom(map[int]float64)
+	SetNUMAHeadroom(map[int]int64)
 	SetPodResourceEntries(podResourceEntries PodResourceEntries)
 	SetAllocationInfo(resourceName v1.ResourceName, podUID, containerName string, allocationInfo *AllocationInfo)
 
