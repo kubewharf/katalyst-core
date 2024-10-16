@@ -208,6 +208,15 @@ func (p *DynamicPolicy) numaBindingAllocationHandler(ctx context.Context,
 		NumaAllocationResult:     result.Clone(),
 		TopologyAwareAllocations: topologyAwareAllocations,
 	}
+
+	if !qosutil.AnnotationsIndicateNUMAExclusive(req.Annotations) {
+		if len(req.Hint.Nodes) != 1 {
+			return nil, fmt.Errorf("numa binding without numa exclusive allocation result numa node size is %d, "+
+				"not equal to 1", result.Size())
+		}
+		allocationInfo.SetSpecifiedNUMABindingNUMAID(result.ToSliceNoSortUInt64()[0])
+	}
+
 	p.state.SetAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName, allocationInfo)
 
 	podResourceEntries = p.state.GetPodResourceEntries()

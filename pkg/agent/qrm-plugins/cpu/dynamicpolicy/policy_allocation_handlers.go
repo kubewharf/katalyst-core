@@ -414,6 +414,14 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 		RequestQuantity:                  reqFloat64,
 	}
 
+	if !qosutil.AnnotationsIndicateNUMAExclusive(req.Annotations) {
+		if len(req.Hint.Nodes) != 1 {
+			return nil, fmt.Errorf("numa binding without numa exclusive allocation result numa node size is %d, "+
+				"not equal to 1", result.Size())
+		}
+		allocationInfo.SetSpecifiedNUMABindingNUMAID(result.ToSliceNoSortUInt64()[0])
+	}
+
 	// update pod entries directly.
 	// if one of subsequent steps is failed, we will delete current allocationInfo from podEntries in defer function of allocation function.
 	p.state.SetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, allocationInfo)
