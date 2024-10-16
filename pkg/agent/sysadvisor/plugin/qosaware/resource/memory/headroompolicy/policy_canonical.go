@@ -30,6 +30,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -40,8 +41,9 @@ type PolicyCanonical struct {
 	*PolicyBase
 
 	// memoryHeadroom is valid to be used iff updateStatus successes
-	memoryHeadroom float64
-	updateStatus   types.PolicyUpdateStatus
+	memoryHeadroom     float64
+	numaMemoryHeadroom map[int]resource.Quantity
+	updateStatus       types.PolicyUpdateStatus
 
 	conf *config.Configuration
 }
@@ -50,9 +52,10 @@ func NewPolicyCanonical(conf *config.Configuration, _ interface{}, metaReader me
 	metaServer *metaserver.MetaServer, _ metrics.MetricEmitter,
 ) HeadroomPolicy {
 	p := PolicyCanonical{
-		PolicyBase:   NewPolicyBase(metaReader, metaServer),
-		updateStatus: types.PolicyUpdateFailed,
-		conf:         conf,
+		PolicyBase:         NewPolicyBase(metaReader, metaServer),
+		numaMemoryHeadroom: make(map[int]resource.Quantity),
+		updateStatus:       types.PolicyUpdateFailed,
+		conf:               conf,
 	}
 
 	return &p
@@ -159,6 +162,52 @@ func (p *PolicyCanonical) Update() (err error) {
 	p.memoryHeadroom = math.Max(memoryHeadroomWithoutBuffer+utilBasedBuffer, 0)
 	p.memoryHeadroom = math.Min(p.memoryHeadroom, maxAllocatableMemory)
 
+	availNUMAs, reclaimedCoresContainers, err := helper.GetAvailableNUMAsAndReclaimedCores(p.conf, p.metaReader, p.metaServer)
+	if err != nil {
+		return err
+	}
+
+	numaReclaimableMemory := make(map[int]float64)
+	numaReclaimableMemorySum := 0.0
+	for _, numaID := range availNUMAs.ToSliceInt() {
+		data, err := p.metaServer.GetNumaMetric(numaID, consts.MetricMemFreeNuma)
+		if err != nil {
+			general.Errorf("Can not get numa memory free, numaID: %v", numaID)
+			return err
+		}
+		free := data.Value
+
+		data, err = p.metaServer.GetNumaMetric(numaID, consts.MetricMemInactiveFileNuma)
+		if err != nil {
+			return err
+		}
+		inactiveFile := data.Value
+
+		numaReclaimable := free + inactiveFile*dynamicConfig.CacheBasedRatio
+		numaReclaimableMemory[numaID] = numaReclaimable
+		numaReclaimableMemorySum += numaReclaimable
+	}
+
+	for _, container := range reclaimedCoresContainers {
+		for numaID := range container.TopologyAwareAssignments {
+			data, err := p.metaServer.GetContainerNumaMetric(container.PodUID, container.ContainerName, numaID, consts.MetricsMemTotalPerNumaContainer)
+			if err != nil {
+				general.ErrorS(err, "Can not get container numa memory total", "numaID", numaID, "uid", container.PodUID, "name", container.ContainerName)
+				return err
+			}
+			numaReclaimableMemory[numaID] += data.Value
+			numaReclaimableMemorySum += data.Value
+		}
+	}
+
+	ratio := p.memoryHeadroom / numaReclaimableMemorySum
+	numaHeadroom := make(map[int]resource.Quantity)
+	for numaID := range numaReclaimableMemory {
+		numaHeadroom[numaID] = *resource.NewQuantity(int64(numaReclaimableMemory[numaID]*ratio), resource.BinarySI)
+		general.InfoS("memory headroom per NUMA", "NUMA-ID", numaID, "headroom", int64(numaReclaimableMemory[numaID]*ratio))
+	}
+	p.numaMemoryHeadroom = numaHeadroom
+
 	general.InfoS("memory details",
 		"without buffer memory headroom", general.FormatMemoryQuantity(memoryHeadroomWithoutBuffer),
 		"final memory headroom", general.FormatMemoryQuantity(p.memoryHeadroom),
@@ -169,10 +218,10 @@ func (p *PolicyCanonical) Update() (err error) {
 	return nil
 }
 
-func (p *PolicyCanonical) GetHeadroom() (resource.Quantity, error) {
+func (p *PolicyCanonical) GetHeadroom() (resource.Quantity, map[int]resource.Quantity, error) {
 	if p.updateStatus != types.PolicyUpdateSucceeded {
-		return resource.Quantity{}, fmt.Errorf("last update failed")
+		return resource.Quantity{}, nil, fmt.Errorf("last update failed")
 	}
 
-	return *resource.NewQuantity(int64(p.memoryHeadroom), resource.BinarySI), nil
+	return *resource.NewQuantity(int64(p.memoryHeadroom), resource.BinarySI), p.numaMemoryHeadroom, nil
 }

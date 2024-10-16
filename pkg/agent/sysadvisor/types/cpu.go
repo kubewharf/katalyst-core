@@ -161,11 +161,17 @@ type RegionInfo struct {
 	HeadroomPolicyInUse       CPUHeadroomPolicyName `json:"headroom_policy_in_use"`
 }
 
+type ExtraCPUAdvices struct {
+	CgroupPath string
+	Values     map[string]string
+}
+
 // InternalCPUCalculationResult conveys minimal information to cpu server for composing
 // calculation result
 type InternalCPUCalculationResult struct {
 	PoolEntries                           map[string]map[int]int            // map[poolName][numaId]cpuSize
 	PoolOverlapInfo                       map[string]map[int]map[string]int // map[poolName][numaId][targetOverlapPoolName]int
+	ExtraEntries                          []ExtraCPUAdvices
 	TimeStamp                             time.Time
 	AllowSharedCoresOverlapReclaimedCores bool
 }
