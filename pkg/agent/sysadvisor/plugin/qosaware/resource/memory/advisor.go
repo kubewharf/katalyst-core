@@ -148,22 +148,22 @@ func (ra *memoryResourceAdvisor) GetChannels() (interface{}, interface{}) {
 	return ra.recvCh, ra.sendChan
 }
 
-func (ra *memoryResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
+func (ra *memoryResourceAdvisor) GetHeadroom() (resource.Quantity, map[int]resource.Quantity, error) {
 	ra.mutex.RLock()
 	defer ra.mutex.RUnlock()
 
 	for _, headroomPolicy := range ra.headroomPolices {
-		headroom, err := headroomPolicy.GetHeadroom()
+		headroom, numaHeadroom, err := headroomPolicy.GetHeadroom()
 		if err != nil {
 			klog.ErrorS(err, "get headroom failed", "headroomPolicy", headroomPolicy.Name())
 			_ = ra.emitter.StoreInt64(metricNameMemoryGetHeadroomFailed, 1, metrics.MetricTypeNameRaw,
 				metrics.MetricTag{Key: metricTagKeyPolicyName, Val: string(headroomPolicy.Name())})
 			continue
 		}
-		return headroom, nil
+		return headroom, numaHeadroom, nil
 	}
 
-	return resource.Quantity{}, fmt.Errorf("failed to get valid headroom")
+	return resource.Quantity{}, nil, fmt.Errorf("failed to get valid headroom")
 }
 
 func (ra *memoryResourceAdvisor) sendAdvices() error {
@@ -174,6 +174,46 @@ func (ra *memoryResourceAdvisor) sendAdvices() error {
 		result.ContainerEntries = append(result.ContainerEntries, advices.ContainerEntries...)
 		result.ExtraEntries = append(result.ExtraEntries, advices.ExtraEntries...)
 	}
+
+	/*
+		var numaHeadroom map[int]resource.Quantity
+		var err error
+		for _, headroomPolicy := range ra.headroomPolices {
+			_, numaHeadroom, err = headroomPolicy.GetHeadroom()
+			if err != nil {
+				klog.ErrorS(err, "get headroom failed", "headroomPolicy", headroomPolicy.Name())
+				_ = ra.emitter.StoreInt64(metricNameMemoryGetHeadroomFailed, 1, metrics.MetricTypeNameRaw,
+					metrics.MetricTag{Key: metricTagKeyPolicyName, Val: string(headroomPolicy.Name())})
+				continue
+			}
+
+			break
+		}
+
+		if numaHeadroom == nil {
+			klog.Errorf("can NOT get numa headroom")
+			return fmt.Errorf("can NOT get numa headroom")
+		}
+
+		headroom := make(map[int]float64)
+		for numaID, res := range numaHeadroom {
+			headroom[numaID] = float64(res.Value())
+		}
+
+		data, err := json.Marshal(headroom)
+		if err != nil {
+			klog.Errorf("marshal numa headroom failed: %s", err)
+			return fmt.Errorf("marshal numa headroom failed: %s", err)
+
+		}
+		extra := types.ExtraMemoryAdvices{
+			CgroupPath: ra.conf.ReclaimRelativeRootCgroupPath,
+			Values: map[string]string{
+				string(memoryadvisor.ControlKnobKeyMemoryNUMAHeadroom): string(data),
+			},
+		}
+		result.ExtraEntries = append(result.ExtraEntries, extra)
+	*/
 
 	select {
 	case ra.sendChan <- result:

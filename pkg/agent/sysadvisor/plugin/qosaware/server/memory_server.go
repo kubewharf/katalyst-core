@@ -18,6 +18,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -27,7 +28,9 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -45,17 +48,19 @@ const (
 
 type memoryServer struct {
 	*baseServer
-	memoryPluginClient advisorsvc.QRMServiceClient
-	listAndWatchCalled bool
+	memoryPluginClient      advisorsvc.QRMServiceClient
+	listAndWatchCalled      bool
+	headroomResourceManager reporter.HeadroomResourceManager
 }
 
 func NewMemoryServer(recvCh chan types.InternalMemoryCalculationResult, sendCh chan types.TriggerInfo, conf *config.Configuration,
-	metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
+	headroomResourceManager reporter.HeadroomResourceManager, metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) (*memoryServer, error) {
 	ms := &memoryServer{}
 	ms.baseServer = newBaseServer(memoryServerName, conf, recvCh, sendCh, metaCache, metaServer, emitter, ms)
 	ms.advisorSocketPath = conf.MemoryAdvisorSocketAbsPath
 	ms.pluginSocketPath = conf.MemoryPluginSocketAbsPath
+	ms.headroomResourceManager = headroomResourceManager
 	ms.resourceRequestName = "MemoryRequest"
 	return ms, nil
 }
@@ -196,13 +201,42 @@ func (ms *memoryServer) ListAndWatch(_ *advisorsvc.Empty, server advisorsvc.Advi
 }
 
 func (ms *memoryServer) assembleResponse(result *types.InternalMemoryCalculationResult) *advisorsvc.ListAndWatchResponse {
+	if result == nil {
+		return nil
+	}
+
+	// assmble per-numa headroom
+	numaAllocatable, err := ms.headroomResourceManager.GetNumaAllocatable()
+	if err != nil {
+		general.ErrorS(err, "get numa allocatable failed")
+		return nil
+	}
+
+	numaHeadroom := make(map[int]float64)
+	for numaID, res := range numaAllocatable {
+		numaHeadroom[numaID] = float64(res.Value())
+	}
+	data, err := json.Marshal(numaHeadroom)
+	if err != nil {
+		general.ErrorS(err, "marshal numa headroom failed")
+		return nil
+	}
+
+	calculationResult := &advisorsvc.CalculationResult{
+		Values: map[string]string{
+			string(memoryadvisor.ControlKnobKeyMemoryNUMAHeadroom): string(data),
+		},
+	}
+	extraNumaHeadRoom := &advisorsvc.CalculationInfo{
+		CgroupPath:        "",
+		CalculationResult: calculationResult,
+	}
+
 	resp := advisorsvc.ListAndWatchResponse{
 		PodEntries:   make(map[string]*advisorsvc.CalculationEntries),
 		ExtraEntries: make([]*advisorsvc.CalculationInfo, 0),
 	}
-	if result == nil {
-		return nil
-	}
+
 	for _, advice := range result.ContainerEntries {
 		podEntry, ok := resp.PodEntries[advice.PodUID]
 		if !ok {
@@ -247,5 +281,6 @@ func (ms *memoryServer) assembleResponse(result *types.InternalMemoryCalculation
 		}
 	}
 
+	resp.ExtraEntries = append(resp.ExtraEntries, extraNumaHeadRoom)
 	return &resp
 }

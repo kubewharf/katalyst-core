@@ -18,6 +18,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -32,6 +33,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -48,17 +50,19 @@ const (
 
 type cpuServer struct {
 	*baseServer
-	getCheckpointCalled bool
-	cpuPluginClient     cpuadvisor.CPUPluginClient
+	getCheckpointCalled     bool
+	cpuPluginClient         cpuadvisor.CPUPluginClient
+	headroomResourceManager reporter.HeadroomResourceManager
 }
 
 func NewCPUServer(recvCh chan types.InternalCPUCalculationResult, sendCh chan types.TriggerInfo, conf *config.Configuration,
-	metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
+	headroomResourceManager reporter.HeadroomResourceManager, metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) (*cpuServer, error) {
 	cs := &cpuServer{}
 	cs.baseServer = newBaseServer(cpuServerName, conf, recvCh, sendCh, metaCache, metaServer, emitter, cs)
 	cs.advisorSocketPath = conf.CPUAdvisorSocketAbsPath
 	cs.pluginSocketPath = conf.CPUPluginSocketAbsPath
+	cs.headroomResourceManager = headroomResourceManager
 	cs.resourceRequestName = "CPURequest"
 	return cs, nil
 }
@@ -122,26 +126,12 @@ func (cs *cpuServer) ListAndWatch(_ *advisorsvc.Empty, server cpuadvisor.CPUAdvi
 			}
 
 			klog.Infof("[qosaware-server-cpu] get advisor update: %+v", advisorResp)
-
-			calculationEntriesMap := make(map[string]*cpuadvisor.CalculationEntries)
-			blockID2Blocks := NewBlockSet()
-
-			cs.assemblePoolEntries(&advisorResp, calculationEntriesMap, blockID2Blocks)
-
-			// Assemble pod entries
-			f := func(podUID string, containerName string, ci *types.ContainerInfo) bool {
-				if err := cs.assemblePodEntries(calculationEntriesMap, blockID2Blocks, podUID, ci); err != nil {
-					klog.Errorf("[qosaware-server-cpu] assemblePodEntries for pod %s/%s uid %s err: %v", ci.PodNamespace, ci.PodName, ci.PodUID, err)
-				}
-				return true
+			resp, err := cs.assembleResponse(&advisorResp)
+			if err != nil {
+				general.Errorf("assembleResponse failed: %s", err)
+				continue
 			}
-			cs.metaCache.RangeContainer(f)
 
-			// Send result
-			resp := &cpuadvisor.ListAndWatchResponse{
-				Entries:                               calculationEntriesMap,
-				AllowSharedCoresOverlapReclaimedCores: advisorResp.AllowSharedCoresOverlapReclaimedCores,
-			}
 			if err := server.Send(resp); err != nil {
 				klog.Errorf("[qosaware-server-cpu] send response failed: %v", err)
 				_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWSendResponseFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
@@ -153,6 +143,79 @@ func (cs *cpuServer) ListAndWatch(_ *advisorsvc.Empty, server cpuadvisor.CPUAdvi
 			_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWSendResponseSucceeded), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 		}
 	}
+}
+
+func (cs *cpuServer) assembleResponse(result *types.InternalCPUCalculationResult) (*cpuadvisor.ListAndWatchResponse, error) {
+	calculationEntriesMap := make(map[string]*cpuadvisor.CalculationEntries)
+	blockID2Blocks := NewBlockSet()
+	cs.assemblePoolEntries(result, calculationEntriesMap, blockID2Blocks)
+
+	// assmble per-numa headroom
+	numaAllocatable, err := cs.headroomResourceManager.GetNumaAllocatable()
+	if err != nil {
+		return nil, fmt.Errorf("get numa allocatable failed: %v", err)
+	}
+
+	numaHeadroom := make(map[int]float64)
+	for numaID, res := range numaAllocatable {
+		numaHeadroom[numaID] = float64(res.Value())
+	}
+	data, err := json.Marshal(numaHeadroom)
+	if err != nil {
+		return nil, fmt.Errorf("marshal numa headroom failed: %v", err)
+	}
+
+	calculationResult := &advisorsvc.CalculationResult{
+		Values: map[string]string{
+			string(cpuadvisor.ControlKnobKeyCPUNUMAHeadroom): string(data),
+		},
+	}
+	extraNumaHeadRoom := &advisorsvc.CalculationInfo{
+		CgroupPath:        "",
+		CalculationResult: calculationResult,
+	}
+
+	// Assemble pod entries
+	f := func(podUID string, containerName string, ci *types.ContainerInfo) bool {
+		if err := cs.assemblePodEntries(calculationEntriesMap, blockID2Blocks, podUID, ci); err != nil {
+			klog.Errorf("[qosaware-server-cpu] assemblePodEntries for pod %s/%s uid %s err: %v", ci.PodNamespace, ci.PodName, ci.PodUID, err)
+		}
+		return true
+	}
+	cs.metaCache.RangeContainer(f)
+
+	// Send result
+	resp := &cpuadvisor.ListAndWatchResponse{
+		Entries:                               calculationEntriesMap,
+		ExtraEntries:                          make([]*advisorsvc.CalculationInfo, 0),
+		AllowSharedCoresOverlapReclaimedCores: result.AllowSharedCoresOverlapReclaimedCores,
+	}
+
+	for _, retEntry := range result.ExtraEntries {
+		found := false
+		for _, respEntry := range resp.ExtraEntries {
+			if retEntry.CgroupPath == respEntry.CgroupPath {
+				found = true
+				for k, v := range retEntry.Values {
+					respEntry.CalculationResult.Values[k] = v
+				}
+				break
+			}
+		}
+		if !found {
+			calculationInfo := &advisorsvc.CalculationInfo{
+				CgroupPath: retEntry.CgroupPath,
+				CalculationResult: &advisorsvc.CalculationResult{
+					Values: general.DeepCopyMap(retEntry.Values),
+				},
+			}
+			resp.ExtraEntries = append(resp.ExtraEntries, calculationInfo)
+		}
+	}
+
+	resp.ExtraEntries = append(resp.ExtraEntries, extraNumaHeadRoom)
+
+	return resp, nil
 }
 
 func (cs *cpuServer) getCheckpoint() {
