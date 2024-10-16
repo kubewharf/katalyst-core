@@ -158,7 +158,7 @@ func (cra *cpuResourceAdvisor) Run(ctx context.Context) {
 	<-ctx.Done()
 }
 
-func (cra *cpuResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
+func (cra *cpuResourceAdvisor) GetHeadroom() (resource.Quantity, map[int]resource.Quantity, error) {
 	klog.Infof("[qosaware-cpu] receive get headroom request")
 
 	cra.mutex.RLock()
@@ -166,22 +166,22 @@ func (cra *cpuResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
 
 	if !cra.advisorUpdated {
 		klog.Infof("[qosaware-cpu] skip getting headroom: advisor not updated")
-		return resource.Quantity{}, fmt.Errorf("advisor not updated")
+		return resource.Quantity{}, nil, fmt.Errorf("advisor not updated")
 	}
 
 	if cra.headroomAssembler == nil {
 		klog.Errorf("[qosaware-cpu] get headroom failed: no legal assembler")
-		return resource.Quantity{}, fmt.Errorf("no legal assembler")
+		return resource.Quantity{}, nil, fmt.Errorf("no legal assembler")
 	}
 
-	headroom, err := cra.headroomAssembler.GetHeadroom()
+	headroom, numaHeadroom, err := cra.headroomAssembler.GetHeadroom()
 	if err != nil {
 		klog.Errorf("[qosaware-cpu] get headroom failed: %v", err)
 	} else {
 		klog.Infof("[qosaware-cpu] get headroom: %v", headroom)
 	}
 
-	return headroom, err
+	return headroom, numaHeadroom, err
 }
 
 func (cra *cpuResourceAdvisor) UpdateAndGetAdvice() (interface{}, error) {
@@ -560,6 +560,29 @@ func (cra *cpuResourceAdvisor) assembleProvision() (types.InternalCPUCalculation
 	}
 
 	calculationResult, err := cra.provisionAssembler.AssembleProvision()
+
+	/*
+		_, headroom, err := cra.headroomAssembler.GetHeadroom()
+		if err != nil {
+			return types.InternalCPUCalculationResult{}, fmt.Errorf("get numa headroom failed: %v", err)
+		}
+
+		numaHeadroom := make(map[int]float64)
+		for numaID, res := range headroom {
+			numaHeadroom[numaID] = float64(res.Value())
+		}
+		data, err := json.Marshal(numaHeadroom)
+		if err != nil {
+			return types.InternalCPUCalculationResult{}, fmt.Errorf("marshal numa headroom failed: %v", err)
+		}
+		extra := types.ExtraCPUAdvices{
+			CgroupPath: cra.conf.ReclaimRelativeRootCgroupPath,
+			Values: map[string]string{
+				string(cpuadvisor.ControlKnobKeyCPUNUMAHeadroom): string(data),
+			},
+		}
+		calculationResult.ExtraEntries = append(calculationResult.ExtraEntries, extra)
+	*/
 
 	return calculationResult, err
 }

@@ -43,7 +43,7 @@ type HeadroomPolicy interface {
 	Update() error
 
 	// GetHeadroom returns the latest headroom estimation
-	GetHeadroom() (resource.Quantity, error)
+	GetHeadroom() (resource.Quantity, map[int]resource.Quantity, error)
 }
 
 type InitFunc func(conf *config.Configuration, extraConfig interface{}, metaReader metacache.MetaReader,

@@ -18,6 +18,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"sync/atomic"
@@ -27,7 +28,9 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -44,11 +47,13 @@ const (
 
 type memoryServer struct {
 	*baseServer
-	hasListAndWatchLoop atomic.Value
+	hasListAndWatchLoop     atomic.Value
+	headroomResourceManager reporter.HeadroomResourceManager
 }
 
 func NewMemoryServer(
 	conf *config.Configuration,
+	headroomResourceManager reporter.HeadroomResourceManager,
 	metaCache metacache.MetaCache,
 	metaServer *metaserver.MetaServer,
 	advisor subResourceAdvisor,
@@ -59,6 +64,7 @@ func NewMemoryServer(
 	ms.hasListAndWatchLoop.Store(false)
 	ms.advisorSocketPath = conf.MemoryAdvisorSocketAbsPath
 	ms.pluginSocketPath = conf.MemoryPluginSocketAbsPath
+	ms.headroomResourceManager = headroomResourceManager
 	ms.resourceRequestName = "MemoryRequest"
 	return ms, nil
 }
@@ -184,10 +190,42 @@ func (ms *memoryServer) getAndPushAdvice(server advisorsvc.AdvisorService_ListAn
 }
 
 func (ms *memoryServer) assembleResponse(result *types.InternalMemoryCalculationResult) *advisorsvc.ListAndWatchResponse {
+	if result == nil {
+		return nil
+	}
+
+	// assmble per-numa headroom
+	numaAllocatable, err := ms.headroomResourceManager.GetNumaAllocatable()
+	if err != nil {
+		general.ErrorS(err, "get numa allocatable failed")
+		return nil
+	}
+
+	numaHeadroom := make(map[int]float64)
+	for numaID, res := range numaAllocatable {
+		numaHeadroom[numaID] = float64(res.Value())
+	}
+	data, err := json.Marshal(numaHeadroom)
+	if err != nil {
+		general.ErrorS(err, "marshal numa headroom failed")
+		return nil
+	}
+
+	calculationResult := &advisorsvc.CalculationResult{
+		Values: map[string]string{
+			string(memoryadvisor.ControlKnobKeyMemoryNUMAHeadroom): string(data),
+		},
+	}
+	extraNumaHeadRoom := &advisorsvc.CalculationInfo{
+		CgroupPath:        "",
+		CalculationResult: calculationResult,
+	}
+
 	resp := advisorsvc.ListAndWatchResponse{
 		PodEntries:   make(map[string]*advisorsvc.CalculationEntries),
 		ExtraEntries: make([]*advisorsvc.CalculationInfo, 0),
 	}
+
 	for _, advice := range result.ContainerEntries {
 		podEntry, ok := resp.PodEntries[advice.PodUID]
 		if !ok {
@@ -232,5 +270,6 @@ func (ms *memoryServer) assembleResponse(result *types.InternalMemoryCalculation
 		}
 	}
 
+	resp.ExtraEntries = append(resp.ExtraEntries, extraNumaHeadRoom)
 	return &resp
 }

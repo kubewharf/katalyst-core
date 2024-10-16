@@ -35,6 +35,7 @@ import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -92,7 +93,7 @@ func newTestMemoryServer(t *testing.T, advisor subResourceAdvisor, podList []*v1
 		},
 	}
 
-	memoryServer, err := NewMemoryServer(conf, metaCache, metaServer, advisor, metrics.DummyMetrics{})
+	memoryServer, err := NewMemoryServer(conf, &reporter.DummyHeadroomResourceManager{}, metaCache, metaServer, advisor, metrics.DummyMetrics{})
 	require.NoError(t, err)
 	require.NotNil(t, memoryServer)
 
@@ -294,6 +295,11 @@ func TestMemoryServerListAndWatch(t *testing.T) {
 						CgroupPath: "/kubepods/besteffort",
 						CalculationResult: &advisorsvc.CalculationResult{
 							Values: map[string]string{"k1": "v1"},
+						},
+					},
+					{
+						CalculationResult: &advisorsvc.CalculationResult{
+							Values: map[string]string{"memory_numa_headroom": "{}"},
 						},
 					},
 				},

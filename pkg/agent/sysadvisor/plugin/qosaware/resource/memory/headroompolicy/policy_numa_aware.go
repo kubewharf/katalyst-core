@@ -38,8 +38,9 @@ type PolicyNUMAAware struct {
 	*PolicyBase
 
 	// memoryHeadroom is valid to be used iff updateStatus successes
-	memoryHeadroom float64
-	updateStatus   types.PolicyUpdateStatus
+	memoryHeadroom     float64
+	numaMemoryHeadroom map[int]resource.Quantity
+	updateStatus       types.PolicyUpdateStatus
 
 	conf *config.Configuration
 }
@@ -48,9 +49,10 @@ func NewPolicyNUMAAware(conf *config.Configuration, _ interface{}, metaReader me
 	metaServer *metaserver.MetaServer, _ metrics.MetricEmitter,
 ) HeadroomPolicy {
 	p := PolicyNUMAAware{
-		PolicyBase:   NewPolicyBase(metaReader, metaServer),
-		updateStatus: types.PolicyUpdateFailed,
-		conf:         conf,
+		PolicyBase:         NewPolicyBase(metaReader, metaServer),
+		numaMemoryHeadroom: make(map[int]resource.Quantity),
+		updateStatus:       types.PolicyUpdateFailed,
+		conf:               conf,
 	}
 
 	return &p
@@ -74,10 +76,11 @@ func (p *PolicyNUMAAware) Update() (err error) {
 	}()
 
 	var (
-		reclaimableMemory   float64 = 0
-		availNUMATotal      float64 = 0
-		reservedForAllocate float64 = 0
-		data                metric.MetricData
+		reclaimableMemory     float64 = 0
+		numaReclaimableMemory map[int]float64
+		availNUMATotal        float64 = 0
+		reservedForAllocate   float64 = 0
+		data                  metric.MetricData
 	)
 	dynamicConfig := p.conf.GetDynamicConfiguration()
 
@@ -86,6 +89,7 @@ func (p *PolicyNUMAAware) Update() (err error) {
 		return err
 	}
 
+	numaReclaimableMemory = make(map[int]float64)
 	for _, numaID := range availNUMAs.ToSliceInt() {
 		data, err = p.metaServer.GetNumaMetric(numaID, consts.MetricMemFreeNuma)
 		if err != nil {
@@ -118,10 +122,17 @@ func (p *PolicyNUMAAware) Update() (err error) {
 		)
 
 		reclaimableMemory += numaReclaimable
+		numaReclaimableMemory[numaID] = numaReclaimable
 	}
 
 	for _, container := range reclaimedCoresContainers {
 		reclaimableMemory += container.MemoryRequest
+		if container.MemoryRequest > 0 && len(container.TopologyAwareAssignments) > 0 {
+			reclaimableMemoryPerNuma := container.MemoryRequest / float64(len(container.TopologyAwareAssignments))
+			for numaID := range container.TopologyAwareAssignments {
+				numaReclaimableMemory[numaID] += reclaimableMemoryPerNuma
+			}
+		}
 	}
 
 	watermarkScaleFactor, err := p.metaServer.GetNodeMetric(consts.MetricMemScaleFactorSystem)
@@ -133,20 +144,34 @@ func (p *PolicyNUMAAware) Update() (err error) {
 	// reserve memory for watermark_scale_factor to make kswapd less happened
 	systemWatermarkReserved := availNUMATotal * watermarkScaleFactor.Value / 10000
 
+	p.memoryHeadroom = math.Max(reclaimableMemory-systemWatermarkReserved-reservedForAllocate, 0)
+	reduceRatio := 0.0
+	if reclaimableMemory > 0 {
+		reduceRatio = p.memoryHeadroom / reclaimableMemory
+	}
+	numaHeadroom := 0.0
+	for numaID := range numaReclaimableMemory {
+		numaReclaimableMemory[numaID] *= reduceRatio
+		numaHeadroom += numaReclaimableMemory[numaID]
+		p.numaMemoryHeadroom[numaID] = *resource.NewQuantity(int64(numaReclaimableMemory[numaID]), resource.BinarySI)
+		general.InfoS("memory reclaimable per NUMA", "NUMA-ID", numaID, "headroom", numaReclaimableMemory[numaID])
+	}
+
 	general.InfoS("total memory reclaimable",
 		"reclaimableMemory", general.FormatMemoryQuantity(reclaimableMemory),
 		"ResourceUpperBound", general.FormatMemoryQuantity(p.essentials.ResourceUpperBound),
 		"systemWatermarkReserved", general.FormatMemoryQuantity(systemWatermarkReserved),
-		"reservedForAllocate", general.FormatMemoryQuantity(reservedForAllocate))
-	p.memoryHeadroom = math.Max(reclaimableMemory-systemWatermarkReserved-reservedForAllocate, 0)
-
+		"reservedForAllocate", general.FormatMemoryQuantity(reservedForAllocate),
+		"headroom", p.memoryHeadroom,
+		"numaHeadroom", numaHeadroom,
+	)
 	return nil
 }
 
-func (p *PolicyNUMAAware) GetHeadroom() (resource.Quantity, error) {
+func (p *PolicyNUMAAware) GetHeadroom() (resource.Quantity, map[int]resource.Quantity, error) {
 	if p.updateStatus != types.PolicyUpdateSucceeded {
-		return resource.Quantity{}, fmt.Errorf("last update failed")
+		return resource.Quantity{}, nil, fmt.Errorf("last update failed")
 	}
 
-	return *resource.NewQuantity(int64(p.memoryHeadroom), resource.BinarySI), nil
+	return *resource.NewQuantity(int64(p.memoryHeadroom), resource.BinarySI), p.numaMemoryHeadroom, nil
 }
