@@ -23,6 +23,7 @@ import (
 	"sync"
 
 	v1 "k8s.io/api/core/v1"
+	apiresource "k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/klog/v2"
 
@@ -49,23 +50,51 @@ const (
 	headroomReporterPluginName = "headroom-reporter-plugin"
 )
 
-type headroomReporterImpl struct {
+type HeadroomResourceManager interface {
+	manager.ResourceManager
+	manager.NumaResourceManager
+}
+
+type HeadroomResourceGetter interface {
+	GetHeadroomResource(name v1.ResourceName) (HeadroomResourceManager, error)
+}
+
+type HeadroomReporter struct {
 	skeleton.GenericPlugin
+	HeadroomResourceGetter
+}
+
+type DummyHeadroomResourceManager struct{}
+
+func (mgr *DummyHeadroomResourceManager) GetAllocatable() (apiresource.Quantity, error) {
+	return apiresource.Quantity{}, nil
+}
+
+func (mgr *DummyHeadroomResourceManager) GetCapacity() (apiresource.Quantity, error) {
+	return apiresource.Quantity{}, nil
+}
+
+func (mgr *DummyHeadroomResourceManager) GetNumaAllocatable() (map[int]apiresource.Quantity, error) {
+	return nil, nil
+}
+
+func (mgr *DummyHeadroomResourceManager) GetNumaCapacity() (map[int]apiresource.Quantity, error) {
+	return nil, nil
 }
 
 // NewHeadroomReporter returns a wrapper of headroom reporter plugins as headroom reporter
 func NewHeadroomReporter(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
 	conf *config.Configuration, headroomAdvisor hmadvisor.ResourceAdvisor,
-) (Reporter, error) {
-	plugin, err := newHeadroomReporterPlugin(emitter, metaServer, conf, headroomAdvisor)
+) (*HeadroomReporter, error) {
+	plugin, getter, err := newHeadroomReporterPlugin(emitter, metaServer, conf, headroomAdvisor)
 	if err != nil {
 		return nil, fmt.Errorf("[headroom-reporter] create headroom reporter failed: %s", err)
 	}
 
-	return &headroomReporterImpl{plugin}, nil
+	return &HeadroomReporter{GenericPlugin: plugin, HeadroomResourceGetter: getter}, nil
 }
 
-func (r *headroomReporterImpl) Run(ctx context.Context) {
+func (r *HeadroomReporter) Run(ctx context.Context) {
 	if err := r.Start(); err != nil {
 		klog.Fatalf("[headroom-reporter] start %v failed: %v", r.Name(), err)
 	}
@@ -78,13 +107,16 @@ func (r *headroomReporterImpl) Run(ctx context.Context) {
 }
 
 type reclaimedResource struct {
-	allocatable v1.ResourceList
-	capacity    v1.ResourceList
+	allocatable     v1.ResourceList
+	capacity        v1.ResourceList
+	numaAllocatable map[int]v1.ResourceList
+	numaCapacity    map[int]v1.ResourceList
 }
 
 type headroomReporterPlugin struct {
 	sync.Mutex
-	headroomManagers map[v1.ResourceName]manager.HeadroomManager
+	headroomManagers      map[v1.ResourceName]manager.HeadroomManager
+	numaSocketZoneNodeMap map[util.ZoneNode]util.ZoneNode
 
 	ctx     context.Context
 	cancel  context.CancelFunc
@@ -93,7 +125,7 @@ type headroomReporterPlugin struct {
 
 func newHeadroomReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
 	conf *config.Configuration, headroomAdvisor hmadvisor.ResourceAdvisor,
-) (skeleton.GenericPlugin, error) {
+) (skeleton.GenericPlugin, HeadroomResourceGetter, error) {
 	var (
 		err     error
 		errList []error
@@ -107,20 +139,40 @@ func newHeadroomReporterPlugin(emitter metrics.MetricEmitter, metaServer *metase
 			errList = append(errList, err)
 		}
 	}
+
+	// init numa topo info by metaServer
+	if metaServer == nil || metaServer.MachineInfo == nil {
+		errList = append(errList, fmt.Errorf("get metaserver machine info is nil"))
+	}
+
 	if len(errList) > 0 {
-		return nil, errors.NewAggregate(errList)
+		return nil, nil, errors.NewAggregate(errList)
 	}
 
 	reporter := &headroomReporterPlugin{
-		headroomManagers: headroomManagers,
+		headroomManagers:      headroomManagers,
+		numaSocketZoneNodeMap: util.GenerateNumaSocketZone(metaServer.MachineInfo.Topology),
 	}
-	return skeleton.NewRegistrationPluginWrapper(reporter, []string{conf.PluginRegistrationDir},
+	pluginWrapper, err := skeleton.NewRegistrationPluginWrapper(reporter, []string{conf.PluginRegistrationDir},
 		func(key string, value int64) {
 			_ = emitter.StoreInt64(key, value, metrics.MetricTypeNameCount, metrics.ConvertMapToTags(map[string]string{
 				"pluginName": headroomReporterPluginName,
 				"pluginType": registration.ReporterPlugin,
 			})...)
 		})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return pluginWrapper, reporter, nil
+}
+
+func (r *headroomReporterPlugin) GetHeadroomResource(name v1.ResourceName) (HeadroomResourceManager, error) {
+	if mgr, ok := r.headroomManagers[name]; ok {
+		return mgr, nil
+	}
+
+	return nil, fmt.Errorf("not found headroom manager for resource %s", name)
 }
 
 func (r *headroomReporterPlugin) Name() string {
@@ -171,7 +223,7 @@ func (r *headroomReporterPlugin) GetReportContent(_ context.Context, _ *v1alpha1
 		return nil, err
 	}
 
-	reportToCNR, err := getReportReclaimedResourceForCNR(res)
+	reportToCNR, err := r.getReportReclaimedResourceForCNR(res)
 	if err != nil {
 		return nil, err
 	}
@@ -202,6 +254,8 @@ func (r *headroomReporterPlugin) getReclaimedResource() (*reclaimedResource, err
 
 	allocatable := make(v1.ResourceList)
 	capacity := make(v1.ResourceList)
+	numaAllocatable := make(map[int]v1.ResourceList)
+	numaCapacity := make(map[int]v1.ResourceList)
 	for resourceName, rm := range r.headroomManagers {
 		allocatable[resourceName], err = rm.GetAllocatable()
 		if err != nil {
@@ -212,6 +266,37 @@ func (r *headroomReporterPlugin) getReclaimedResource() (*reclaimedResource, err
 		if err != nil {
 			errList = append(errList, err, fmt.Errorf("get reclaimed %s capacity failed: %s", resourceName, err))
 		}
+
+		// get allocatable per numa
+		allocatableMap, err := rm.GetNumaAllocatable()
+		if err != nil {
+			errList = append(errList, fmt.Errorf("get reclaimed %s numa allocatable failed: %s", resourceName, err))
+		} else {
+			for numaID, quantity := range allocatableMap {
+				perNumaAllocatable, ok := numaAllocatable[numaID]
+				if !ok {
+					perNumaAllocatable = make(v1.ResourceList)
+					numaAllocatable[numaID] = perNumaAllocatable
+				}
+				perNumaAllocatable[resourceName] = quantity
+			}
+		}
+
+		// get capacity per numa
+		capacityMap, err := rm.GetNumaCapacity()
+		if err != nil {
+			errList = append(errList, fmt.Errorf("get reclaimed %s numa capacity failed: %s", resourceName, err))
+		} else {
+			for numaID, quantity := range capacityMap {
+				perNumaCapacity, ok := numaCapacity[numaID]
+				if !ok {
+					perNumaCapacity = make(v1.ResourceList)
+					numaCapacity[numaID] = perNumaCapacity
+				}
+				perNumaCapacity[resourceName] = quantity
+			}
+		}
+
 	}
 
 	if len(errList) > 0 {
@@ -219,22 +304,24 @@ func (r *headroomReporterPlugin) getReclaimedResource() (*reclaimedResource, err
 	}
 
 	return &reclaimedResource{
-		allocatable: allocatable,
-		capacity:    capacity,
+		allocatable:     allocatable,
+		capacity:        capacity,
+		numaAllocatable: numaAllocatable,
+		numaCapacity:    numaCapacity,
 	}, err
 }
 
-func getReportReclaimedResourceForCNR(reclaimedResource *reclaimedResource) (*v1alpha1.ReportContent, error) {
+func (r *headroomReporterPlugin) getReportReclaimedResourceForCNR(reclaimedResource *reclaimedResource) (*v1alpha1.ReportContent, error) {
 	if reclaimedResource == nil {
 		return nil, nil
 	}
 
-	resources := nodeapis.Resources{
-		Allocatable: &reclaimedResource.allocatable,
-		Capacity:    &reclaimedResource.capacity,
+	resourceField, err := r.getReportReclaimedResource(reclaimedResource)
+	if err != nil {
+		return nil, err
 	}
 
-	resourcesValue, err := json.Marshal(&resources)
+	topologyZoneField, err := r.getReportNUMAReclaimedResource(reclaimedResource)
 	if err != nil {
 		return nil, err
 	}
@@ -242,11 +329,59 @@ func getReportReclaimedResourceForCNR(reclaimedResource *reclaimedResource) (*v1
 	return &v1alpha1.ReportContent{
 		GroupVersionKind: &util.CNRGroupVersionKind,
 		Field: []*v1alpha1.ReportField{
-			{
-				FieldType: v1alpha1.FieldType_Status,
-				FieldName: util.CNRFieldNameResources,
-				Value:     resourcesValue,
-			},
+			resourceField, topologyZoneField,
 		},
+	}, nil
+}
+
+func (r *headroomReporterPlugin) getReportReclaimedResource(reclaimedResource *reclaimedResource) (*v1alpha1.ReportField, error) {
+	resources := nodeapis.Resources{
+		Allocatable: &reclaimedResource.allocatable,
+		Capacity:    &reclaimedResource.capacity,
+	}
+
+	resourcesValue, err := json.Marshal(&resources)
+	if err != nil {
+		return nil, fmt.Errorf("marshal resource failed: %s", err)
+	}
+
+	return &v1alpha1.ReportField{
+		FieldType: v1alpha1.FieldType_Status,
+		FieldName: util.CNRFieldNameResources,
+		Value:     resourcesValue,
+	}, nil
+}
+
+func (r *headroomReporterPlugin) getReportNUMAReclaimedResource(reclaimedResource *reclaimedResource) (*v1alpha1.ReportField, error) {
+	topologyZoneGenerator, err := util.NewNumaSocketTopologyZoneGenerator(r.numaSocketZoneNodeMap)
+	if err != nil {
+		return nil, fmt.Errorf("create topology zone generator failed: %s", err)
+	}
+
+	zoneResources := make(map[util.ZoneNode]nodeapis.Resources)
+	for numaID := range reclaimedResource.numaAllocatable {
+		allocatable := reclaimedResource.numaAllocatable[numaID]
+		capacity, ok := reclaimedResource.numaCapacity[numaID]
+		if !ok {
+			return nil, fmt.Errorf("miss capacity with numaID: %d", numaID)
+		}
+
+		numaZoneNode := util.GenerateNumaZoneNode(numaID)
+		zoneResources[numaZoneNode] = nodeapis.Resources{
+			Allocatable: &allocatable,
+			Capacity:    &capacity,
+		}
+	}
+
+	topologyZone := topologyZoneGenerator.GenerateTopologyZoneStatus(nil, zoneResources, nil, nil)
+	value, err := json.Marshal(&topologyZone)
+	if err != nil {
+		return nil, fmt.Errorf("marshal topology zone failed: %s", err)
+	}
+
+	return &v1alpha1.ReportField{
+		FieldType: v1alpha1.FieldType_Status,
+		FieldName: util.CNRFieldNameTopologyZone,
+		Value:     value,
 	}, nil
 }

@@ -34,7 +34,7 @@ import (
 // Advisor data elements are shared ONLY by assemblers as pointer to avoid rebuild in advisor,
 // and NOT supposed to be used by other components.
 type HeadroomAssembler interface {
-	GetHeadroom() (resource.Quantity, error)
+	GetHeadroom() (resource.Quantity, map[int]resource.Quantity, error)
 }
 
 type InitFunc func(conf *config.Configuration, extraConf interface{}, regionMap *map[string]region.QoSRegion,

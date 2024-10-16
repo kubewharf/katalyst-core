@@ -42,7 +42,7 @@ type ResourceAdvisor interface {
 	GetSubAdvisor(resourceName types.QoSResourceName) (SubResourceAdvisor, error)
 
 	// GetHeadroom returns the corresponding headroom quantity according to resource name
-	GetHeadroom(resourceName v1.ResourceName) (resource.Quantity, error)
+	GetHeadroom(resourceName v1.ResourceName) (resource.Quantity, map[int]resource.Quantity, error)
 }
 
 // SubResourceAdvisor updates resource provision of a certain dimension based on the latest
@@ -57,7 +57,7 @@ type SubResourceAdvisor interface {
 	GetChannels() (interface{}, interface{})
 
 	// GetHeadroom returns the latest resource headroom quantity for resource reporter
-	GetHeadroom() (resource.Quantity, error)
+	GetHeadroom() (resource.Quantity, map[int]resource.Quantity, error)
 }
 
 type resourceAdvisorWrapper struct {
@@ -112,21 +112,21 @@ func (ra *resourceAdvisorWrapper) GetSubAdvisor(resourceName types.QoSResourceNa
 	return nil, fmt.Errorf("no sub resource advisor for %v", resourceName)
 }
 
-func (ra *resourceAdvisorWrapper) GetHeadroom(resourceName v1.ResourceName) (resource.Quantity, error) {
+func (ra *resourceAdvisorWrapper) GetHeadroom(resourceName v1.ResourceName) (resource.Quantity, map[int]resource.Quantity, error) {
 	switch resourceName {
 	case v1.ResourceCPU:
 		return ra.getSubAdvisorHeadroom(types.QoSResourceCPU)
 	case v1.ResourceMemory:
 		return ra.getSubAdvisorHeadroom(types.QoSResourceMemory)
 	default:
-		return resource.Quantity{}, fmt.Errorf("illegal resource %v", resourceName)
+		return resource.Quantity{}, nil, fmt.Errorf("illegal resource %v", resourceName)
 	}
 }
 
-func (ra *resourceAdvisorWrapper) getSubAdvisorHeadroom(resourceName types.QoSResourceName) (resource.Quantity, error) {
+func (ra *resourceAdvisorWrapper) getSubAdvisorHeadroom(resourceName types.QoSResourceName) (resource.Quantity, map[int]resource.Quantity, error) {
 	subAdvisor, ok := ra.subAdvisorsToRun[resourceName]
 	if !ok {
-		return resource.Quantity{}, fmt.Errorf("no sub resource advisor for %v", resourceName)
+		return resource.Quantity{}, nil, fmt.Errorf("no sub resource advisor for %v", resourceName)
 	}
 	return subAdvisor.GetHeadroom()
 }
