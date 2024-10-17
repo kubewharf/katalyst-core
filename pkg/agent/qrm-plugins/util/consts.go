@@ -63,6 +63,12 @@ const (
 	OCIPropertyNameMemoryLimitInBytes = "MemoryLimitInBytes"
 )
 
+const (
+	//[TODO]: move them to apiserver
+	PodAnnotationQRMDeclarationKey  = "katalyst.kubewharf.io/qrm-declaration"
+	PodAnnotationQRMDeclarationTrue = "true"
+)
+
 const QRMTimeFormat = "2006-01-02 15:04:05.999999999 -0700 MST"
 
 const QRMPluginPolicyTagName = "policy"
