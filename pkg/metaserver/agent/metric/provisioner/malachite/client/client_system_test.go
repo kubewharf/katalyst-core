@@ -88,7 +88,7 @@ func TestGetSystemComputeStats(t *testing.T) {
 	server := getSystemTestServer(data)
 	defer server.Close()
 
-	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{})
+	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{}, 9002)
 	malachiteClient.SetURL(map[string]string{
 		SystemComputeResource: server.URL,
 	})
@@ -109,7 +109,7 @@ func TestGetSystemMemoryStats(t *testing.T) {
 	server := getSystemTestServer(data)
 	defer server.Close()
 
-	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{})
+	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{}, 9002)
 	malachiteClient.SetURL(map[string]string{
 		SystemMemoryResource: server.URL,
 	})
@@ -130,7 +130,7 @@ func TestGetSystemIOStats(t *testing.T) {
 	server := getSystemTestServer(data)
 	defer server.Close()
 
-	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{})
+	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{}, 9002)
 	malachiteClient.SetURL(map[string]string{
 		SystemIOResource: server.URL,
 	})
@@ -151,7 +151,7 @@ func TestGetSystemNetStats(t *testing.T) {
 	server := getSystemTestServer(data)
 	defer server.Close()
 
-	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{})
+	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{}, 9002)
 	malachiteClient.SetURL(map[string]string{
 		SystemNetResource: server.URL,
 	})
@@ -171,7 +171,7 @@ func TestGetSystemNonExistStats(t *testing.T) {
 	server := getSystemTestServer([]byte{})
 	defer server.Close()
 
-	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{})
+	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{}, 9002)
 	_, err := malachiteClient.getSystemStats(100)
 	assert.ErrorContains(t, err, "unknown")
 }
