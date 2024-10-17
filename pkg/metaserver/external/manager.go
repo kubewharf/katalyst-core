@@ -20,6 +20,7 @@ import (
 	"context"
 
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/external/cgroupid"
+	"github.com/kubewharf/katalyst-core/pkg/util/external/mbm"
 	"github.com/kubewharf/katalyst-core/pkg/util/external/network"
 	"github.com/kubewharf/katalyst-core/pkg/util/external/rdt"
 )
@@ -29,6 +30,7 @@ type ExternalManager interface {
 	cgroupid.CgroupIDManager
 	network.NetworkManager
 	rdt.RDTManager
+	mbm.MBAdjuster
 
 	Run(ctx context.Context)
 }
@@ -37,6 +39,7 @@ type DummyExternalManager struct {
 	cgroupid.CgroupIDManager
 	network.NetworkManager
 	rdt.RDTManager
+	mbm.MBAdjuster
 }
 
 func (d *DummyExternalManager) Run(_ context.Context) {}

@@ -16,6 +16,8 @@ limitations under the License.
 
 package qrm
 
+import "time"
+
 type CPUQRMPluginConfig struct {
 	// PolicyName is used to switch between several strategies
 	PolicyName string
@@ -45,6 +47,12 @@ type CPUDynamicPolicyConfig struct {
 	// CPUNUMAHintPreferPolicy indicates threshold to apply CPUNUMAHintPreferPolicy dynamically,
 	// and it's working when CPUNUMAHintPreferPolicy is set to dynamic_packing
 	CPUNUMAHintPreferLowThreshold float64
+	// EnableMBM indicates whether enabling MBM (numa-related memory bandwidth management)
+	EnableMBM bool
+	// MBMBandwidthThreshold is the saturation threshold of memory access latency in nanoseconds
+	MBMBandwidthThreshold int
+	// MBMControlInterval is the interval between memory bandwidth metrics scans
+	MBMControlInterval time.Duration
 }
 
 type CPUNativePolicyConfig struct {

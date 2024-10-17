@@ -94,6 +94,10 @@ func (f *FakeMetricsFetcher) GetNodeMetric(metricName string) (metric.MetricData
 	return f.checkMetricDataExpire(f.metricStore.GetNodeMetric(metricName))
 }
 
+func (f *FakeMetricsFetcher) GetPackageMetric(packageID int, metricName string) (metric.MetricData, error) {
+	return f.checkMetricDataExpire(f.metricStore.GetPacketMetric(packageID, metricName))
+}
+
 func (f *FakeMetricsFetcher) GetNumaMetric(numaID int, metricName string) (metric.MetricData, error) {
 	return f.checkMetricDataExpire(f.metricStore.GetNumaMetric(numaID, metricName))
 }
