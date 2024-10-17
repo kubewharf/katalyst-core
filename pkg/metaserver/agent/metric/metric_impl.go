@@ -97,85 +97,21 @@ func (m *MetricsNotifierManagerImpl) notifySystem() {
 	m.RLock()
 	defer m.RUnlock()
 
-	for _, reg := range m.registeredNotifier[types.MetricsScopeNode] {
-		v, err := m.metricStore.GetNodeMetric(reg.Req.MetricName)
-		if err != nil {
-			continue
-		} else if v.Time == nil {
-			v.Time = &now
-		}
+	m.processRegisteredNotifier(types.MetricsScopeNode, now, func(reg *types.NotifiedData) (utilmetric.MetricData, error) {
+		return m.metricStore.GetNodeMetric(reg.Req.MetricName)
+	})
 
-		if reg.LastNotify.Equal(*v.Time) {
-			continue
-		} else {
-			reg.LastNotify = *v.Time
-		}
+	m.processRegisteredNotifier(types.MetricsScopeDevice, now, func(reg *types.NotifiedData) (utilmetric.MetricData, error) {
+		return m.metricStore.GetDeviceMetric(reg.Req.DeviceID, reg.Req.MetricName)
+	})
 
-		reg.Response <- types.NotifiedResponse{
-			Req:        reg.Req,
-			MetricData: v,
-		}
-	}
+	m.processRegisteredNotifier(types.MetricsScopeNuma, now, func(reg *types.NotifiedData) (utilmetric.MetricData, error) {
+		return m.metricStore.GetNumaMetric(reg.Req.NumaID, reg.Req.MetricName)
+	})
 
-	for _, reg := range m.registeredNotifier[types.MetricsScopeDevice] {
-		v, err := m.metricStore.GetDeviceMetric(reg.Req.DeviceID, reg.Req.MetricName)
-		if err != nil {
-			continue
-		} else if v.Time == nil {
-			v.Time = &now
-		}
-
-		if reg.LastNotify.Equal(*v.Time) {
-			continue
-		} else {
-			reg.LastNotify = *v.Time
-		}
-
-		reg.Response <- types.NotifiedResponse{
-			Req:        reg.Req,
-			MetricData: v,
-		}
-	}
-
-	for n, reg := range m.registeredNotifier[types.MetricsScopeNuma] {
-		v, err := m.metricStore.GetNumaMetric(reg.Req.NumaID, reg.Req.MetricName)
-		if err != nil {
-			continue
-		} else if v.Time == nil {
-			v.Time = &now
-		}
-
-		if m.registeredNotifier[types.MetricsScopeNuma][n].LastNotify.Equal(*v.Time) {
-			continue
-		} else {
-			reg.LastNotify = *v.Time
-		}
-
-		reg.Response <- types.NotifiedResponse{
-			Req:        reg.Req,
-			MetricData: v,
-		}
-	}
-
-	for n, reg := range m.registeredNotifier[types.MetricsScopeCPU] {
-		v, err := m.metricStore.GetCPUMetric(reg.Req.CoreID, reg.Req.MetricName)
-		if err != nil {
-			continue
-		} else if v.Time == nil {
-			v.Time = &now
-		}
-
-		if reg.LastNotify.Equal(*v.Time) {
-			continue
-		} else {
-			m.registeredNotifier[types.MetricsScopeCPU][n].LastNotify = *v.Time
-		}
-
-		reg.Response <- types.NotifiedResponse{
-			Req:        reg.Req,
-			MetricData: v,
-		}
-	}
+	m.processRegisteredNotifier(types.MetricsScopeCPU, now, func(reg *types.NotifiedData) (utilmetric.MetricData, error) {
+		return m.metricStore.GetCPUMetric(reg.Req.CoreID, reg.Req.MetricName)
+	})
 }
 
 // notifySystem notifies pod-related data
@@ -184,32 +120,18 @@ func (m *MetricsNotifierManagerImpl) notifyPods() {
 	m.RLock()
 	defer m.RUnlock()
 
-	for _, reg := range m.registeredNotifier[types.MetricsScopeContainer] {
-		v, err := m.metricStore.GetContainerMetric(reg.Req.PodUID, reg.Req.ContainerName, reg.Req.MetricName)
-		if err != nil {
-			continue
-		} else if v.Time == nil {
-			v.Time = &now
-		}
+	m.processRegisteredNotifier(types.MetricsScopeContainer, now, func(reg *types.NotifiedData) (utilmetric.MetricData, error) {
+		return m.metricStore.GetContainerMetric(reg.Req.PodUID, reg.Req.ContainerName, reg.Req.MetricName)
+	})
 
-		if reg.LastNotify.Equal(*v.Time) {
-			continue
-		} else {
-			reg.LastNotify = *v.Time
-		}
+	m.processRegisteredNotifier(types.MetricsScopeContainerNUMA, now, func(reg *types.NotifiedData) (utilmetric.MetricData, error) {
+		return m.metricStore.GetContainerNumaMetric(reg.Req.PodUID, reg.Req.ContainerName, fmt.Sprintf("%v", reg.Req.NumaNode), reg.Req.MetricName)
+	})
+}
 
-		reg.Response <- types.NotifiedResponse{
-			Req:        reg.Req,
-			MetricData: v,
-		}
-	}
-
-	for _, reg := range m.registeredNotifier[types.MetricsScopeContainerNUMA] {
-		if reg.Req.NumaNode == "" {
-			continue
-		}
-
-		v, err := m.metricStore.GetContainerNumaMetric(reg.Req.PodUID, reg.Req.ContainerName, fmt.Sprintf("%v", reg.Req.NumaNode), reg.Req.MetricName)
+func (m *MetricsNotifierManagerImpl) processRegisteredNotifier(scope types.MetricsScope, now time.Time, getMetricFunc func(reg *types.NotifiedData) (utilmetric.MetricData, error)) {
+	for _, reg := range m.registeredNotifier[scope] {
+		v, err := getMetricFunc(reg)
 		if err != nil {
 			continue
 		} else if v.Time == nil {
