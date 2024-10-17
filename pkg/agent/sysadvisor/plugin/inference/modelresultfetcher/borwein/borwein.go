@@ -22,18 +22,20 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/grpc"
+	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	//nolint
 	"github.com/golang/protobuf/proto"
 
-	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/modelresultfetcher"
 	borweinconsts "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/consts"
 	borweininfsvc "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/inferencesvc"
 	borweintypes "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/types"
+	borweinutils "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/utils"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
@@ -60,14 +62,16 @@ type BorweinModelResultFetcher struct {
 	name      string
 	qosConfig *generic.QoSConfiguration
 
-	nodeFeatureNames              []string // handled by GetNodeFeature
-	containerFeatureNames         []string // handled by GetContainerFeature
-	inferenceServiceSocketAbsPath string
+	nodeFeatureNames                   []string // handled by GetNodeFeature
+	containerFeatureNames              []string // handled by GetContainerFeature
+	inferenceServiceSocketAbsPath      string
+	modelNameToInferenceSvcSockAbsPath map[string]string // map modelName to inference server sock path
 
 	emitter metrics.MetricEmitter
 
-	infSvcClient borweininfsvc.InferenceServiceClient
-	clientLock   sync.RWMutex
+	infSvcClient                  borweininfsvc.InferenceServiceClient
+	modelNameToInferenceSvcClient map[string]borweininfsvc.InferenceServiceClient // map modelName to its inference client
+	clientLock                    sync.RWMutex
 }
 
 const (
@@ -133,7 +137,7 @@ func (bmrf *BorweinModelResultFetcher) FetchModelResult(ctx context.Context, met
 	metaWriter metacache.MetaWriter, metaServer *metaserver.MetaServer,
 ) error {
 	bmrf.clientLock.RLock()
-	if bmrf.infSvcClient == nil {
+	if bmrf.infSvcClient == nil && len(bmrf.modelNameToInferenceSvcClient) == 0 {
 		bmrf.clientLock.RUnlock()
 		return fmt.Errorf("infSvcClient isn't initialized")
 	}
@@ -152,9 +156,9 @@ func (bmrf *BorweinModelResultFetcher) FetchModelResult(ctx context.Context, met
 			return
 		}
 
-		if containerInfo.QoSLevel == apiconsts.PodAnnotationQoSLevelSharedCores || containerInfo.IsDedicatedNumaExclusive() {
-			requestContainers = append(requestContainers, containerInfo.Clone())
-		}
+		// try to inference for main containers of all QoS levels,
+		// and filter results when parsing resp
+		requestContainers = append(requestContainers, containerInfo.Clone())
 
 		return
 	})
@@ -171,27 +175,56 @@ func (bmrf *BorweinModelResultFetcher) FetchModelResult(ctx context.Context, met
 	}
 
 	bmrf.clientLock.RLock()
-	resp, err := bmrf.infSvcClient.Inference(ctx, req)
+	var infSvcClients map[string]borweininfsvc.InferenceServiceClient
+	if len(bmrf.modelNameToInferenceSvcClient) > 0 {
+		infSvcClients = bmrf.modelNameToInferenceSvcClient
+	} else {
+		infSvcClients = map[string]borweininfsvc.InferenceServiceClient{
+			borweinconsts.ModelNameBorwein: bmrf.infSvcClient,
+		}
+	}
 	bmrf.clientLock.RUnlock()
 
-	if err != nil {
-		_ = bmrf.emitter.StoreInt64(metricInferenceFailed, 1, metrics.MetricTypeNameRaw)
-		return fmt.Errorf("Inference failed with error: %v", err)
+	errCh := make(chan error, len(infSvcClients))
+	for modelName, client := range infSvcClients {
+		go func(modelName string, client borweininfsvc.InferenceServiceClient, errCh chan error) {
+			if client == nil {
+				errCh <- fmt.Errorf("nil client for model: %s", modelName)
+				return
+			}
+
+			resp, err := client.Inference(ctx, req)
+			if err != nil {
+				_ = bmrf.emitter.StoreInt64(metricInferenceFailed, 1, metrics.MetricTypeNameRaw)
+				errCh <- fmt.Errorf("Inference by model: %s failed with error: %v", modelName, err)
+				return
+			}
+
+			borweinInferenceResults, err := bmrf.parseInferenceRespForPods(requestContainers, resp)
+			if err != nil {
+				_ = bmrf.emitter.StoreInt64(metricParseInferenceResponseFailed, 1, metrics.MetricTypeNameRaw)
+				errCh <- fmt.Errorf("parseInferenceRespForPods from model: %s failed with error: %v", modelName, err)
+				return
+			}
+
+			err = metaWriter.SetInferenceResult(borweinutils.GetInferenceResultKey(modelName), borweinInferenceResults)
+			if err != nil {
+				_ = bmrf.emitter.StoreInt64(metricSetInferenceResultFailed, 1, metrics.MetricTypeNameRaw)
+				errCh <- fmt.Errorf("SetInferenceResult from model: %s failed with error: %v", modelName, err)
+				return
+			}
+
+			errCh <- nil
+			return
+		}(modelName, client, errCh)
 	}
 
-	borweinInferenceResults, err := bmrf.parseInferenceRespForPods(requestContainers, resp)
-	if err != nil {
-		_ = bmrf.emitter.StoreInt64(metricParseInferenceResponseFailed, 1, metrics.MetricTypeNameRaw)
-		return fmt.Errorf("parseInferenceRespForPods failed with error: %v", err)
+	errList := make([]error, 0, len(infSvcClients))
+	for i := 0; i < len(infSvcClients); i++ {
+		errList = append(errList, <-errCh)
 	}
 
-	err = metaWriter.SetInferenceResult(borweinconsts.ModelNameBorwein, borweinInferenceResults)
-	if err != nil {
-		_ = bmrf.emitter.StoreInt64(metricSetInferenceResultFailed, 1, metrics.MetricTypeNameRaw)
-		return fmt.Errorf("SetInferenceResult failed with error: %v", err)
-	}
-
-	return nil
+	return errors.NewAggregate(errList)
 }
 
 func (bmrf *BorweinModelResultFetcher) parseInferenceRespForPods(requestContainers []*types.ContainerInfo,
@@ -216,19 +249,31 @@ func (bmrf *BorweinModelResultFetcher) parseInferenceRespForPods(requestContaine
 				return nil, fmt.Errorf("invalid result for pod: %s, container: %s", podUID, containerName)
 			}
 
-			inferenceResults := make([]*borweininfsvc.InferenceResult, len(cResults.InferenceResults))
+			inferenceResults := make([]*borweininfsvc.InferenceResult, 0, len(cResults.InferenceResults))
+			foundResult := false
 			for idx, result := range cResults.InferenceResults {
 				if result == nil {
 					continue
 				}
 
-				inferenceResults[idx] = proto.Clone(result).(*borweininfsvc.InferenceResult)
+				foundResult = true
+
+				if result.ResultFlag == borweininfsvc.ResultFlag_ResultFlagSkip {
+					general.Infof("skip %d result for pod: %s, container: %s", idx, podUID, containerName)
+					continue
+				}
+
+				inferenceResults = append(inferenceResults, proto.Clone(result).(*borweininfsvc.InferenceResult))
 			}
 
-			results.SetInferenceResults(podUID, containerName, inferenceResults...)
-		}
+			if foundResult {
+				respContainersCnt++
+			}
 
-		respContainersCnt += len(results.Results[podUID])
+			if len(inferenceResults) > 0 {
+				results.SetInferenceResults(podUID, containerName, inferenceResults...)
+			}
+		}
 	}
 
 	overloadCnt := 0.0
@@ -333,8 +378,44 @@ func (bmrf *BorweinModelResultFetcher) initInferenceSvcClientConn() (bool, error
 	// todo: emit metrics when initializing client connection failed
 
 	// never success
-	if bmrf.inferenceServiceSocketAbsPath == "" {
-		return false, fmt.Errorf("empty inferenceServiceSocketAbsPath")
+	if bmrf.inferenceServiceSocketAbsPath == "" && len(bmrf.modelNameToInferenceSvcSockAbsPath) == 0 {
+		return false, fmt.Errorf("empty inference service socks information")
+	}
+
+	if len(bmrf.modelNameToInferenceSvcSockAbsPath) > 0 {
+		modelNameToConn := make(map[string]*grpc.ClientConn, len(bmrf.modelNameToInferenceSvcSockAbsPath))
+
+		allSuccess := true
+		for modelName, sockAbsPath := range bmrf.modelNameToInferenceSvcSockAbsPath {
+			infSvcConn, err := process.Dial(sockAbsPath, 5*time.Second)
+			if err != nil {
+				general.Errorf("get inference svc connection with socket: %s for model: %s failed with error",
+					sockAbsPath, modelName)
+				allSuccess = false
+				break
+			}
+
+			modelNameToConn[modelName] = infSvcConn
+		}
+
+		if !allSuccess {
+			for modelName, conn := range modelNameToConn {
+				err := conn.Close()
+				if err != nil {
+					general.Errorf("close connection for model: %s failed with error: %v",
+						modelName, err)
+				}
+			}
+		} else {
+			bmrf.clientLock.Lock()
+			bmrf.modelNameToInferenceSvcClient = make(map[string]borweininfsvc.InferenceServiceClient, len(modelNameToConn))
+			for modelName, conn := range modelNameToConn {
+				bmrf.modelNameToInferenceSvcClient[modelName] = borweininfsvc.NewInferenceServiceClient(conn)
+			}
+			bmrf.clientLock.Unlock()
+		}
+
+		return allSuccess, nil
 	}
 
 	infSvcConn, err := process.Dial(bmrf.inferenceServiceSocketAbsPath, 5*time.Second)
@@ -366,12 +447,13 @@ func NewBorweinModelResultFetcher(fetcherName string, conf *config.Configuration
 	emitter := emitterPool.GetDefaultMetricsEmitter().WithTags(BorweinModelResultFetcherName)
 
 	bmrf := &BorweinModelResultFetcher{
-		name:                          fetcherName,
-		emitter:                       emitter,
-		qosConfig:                     conf.QoSConfiguration,
-		nodeFeatureNames:              conf.BorweinConfiguration.NodeFeatureNames,
-		containerFeatureNames:         conf.BorweinConfiguration.ContainerFeatureNames,
-		inferenceServiceSocketAbsPath: conf.BorweinConfiguration.InferenceServiceSocketAbsPath,
+		name:                               fetcherName,
+		emitter:                            emitter,
+		qosConfig:                          conf.QoSConfiguration,
+		nodeFeatureNames:                   conf.BorweinConfiguration.NodeFeatureNames,
+		containerFeatureNames:              conf.BorweinConfiguration.ContainerFeatureNames,
+		inferenceServiceSocketAbsPath:      conf.BorweinConfiguration.InferenceServiceSocketAbsPath,
+		modelNameToInferenceSvcSockAbsPath: conf.BorweinConfiguration.ModelNameToInferenceSvcSockAbsPath,
 	}
 
 	// fetcher initializing doesn't block sys-adviosr main process

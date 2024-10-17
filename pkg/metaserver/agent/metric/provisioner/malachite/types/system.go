@@ -88,10 +88,16 @@ type MalachiteSystemComputeResponse struct {
 }
 
 type SystemComputeData struct {
-	Load       Load  `json:"load"`
-	CPU        []CPU `json:"cpu"`
-	GlobalCPU  CPU   `json:"global_cpu"`
-	UpdateTime int64 `json:"update_time"`
+	Load         Load         `json:"load"`
+	CPU          []CPU        `json:"cpu"`
+	GlobalCPU    CPU          `json:"global_cpu"`
+	ProcessStats ProcessStats `json:"process_stats"`
+	UpdateTime   int64        `json:"update_time"`
+}
+
+type ProcessStats struct {
+	ProcessRunning uint64 `json:"procs_running"`
+	ProcessBlocked uint64 `json:"procs_blocked"`
 }
 
 type Load struct {
@@ -103,6 +109,7 @@ type Load struct {
 type CPU struct {
 	Name           string   `json:"name"`
 	CPUUsage       float64  `json:"cpu_usage"`
+	CPUSysUsage    float64  `json:"cpu_sys_usage"`
 	CPUIowaitRatio float64  `json:"cpu_iowait_ratio"`
 	CPUSchedWait   float64  `json:"cpu_sched_wait"`
 	CpiData        *CpiData `json:"cpi_data"`
@@ -141,8 +148,16 @@ type System struct {
 	MemSwapTotal           uint64  `json:"mem_swap_total"`
 	MemSwapFree            uint64  `json:"mem_swap_free"`
 	MemUtil                float64 `json:"mem_util"`
+	MemActiveAnon          uint64  `json:"mem_active_anon"`
+	MemInactiveAnon        uint64  `json:"mem_inactive_anon"`
+	MemActiveFile          uint64  `json:"mem_active_file"`
+	MemInactiveFile        uint64  `json:"mem_inactive_file"`
 	VMWatermarkScaleFactor uint64  `json:"vm_watermark_scale_factor"`
 	VmstatPgstealKswapd    uint64  `json:"vmstat_pgsteal_kswapd"`
+	MemSockTcp             uint64  `json:"mem_sock_tcp"`
+	MemSockUdp             uint64  `json:"mem_sock_udp"`
+	MemSockTcpLimit        uint64  `json:"mem_sock_tcp_limit"`
+	MemSockUdpLimit        uint64  `json:"mem_sock_udp_limit"`
 }
 
 type CPUList struct {

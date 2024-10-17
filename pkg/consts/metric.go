@@ -30,20 +30,30 @@ const (
 
 // System compute metrics
 const (
+	MetricCPUUsageRatioSystem = "cpu.usage.ratio.system"
+
 	MetricLoad1MinSystem  = "cpu.load.1min.system"
 	MetricLoad5MinSystem  = "cpu.load.5min.system"
 	MetricLoad15MinSystem = "cpu.load.15min.system"
+
+	MetricProcsRunningSystem = "procs.running.system"
+
+	MetricCPIAvgSystem = "cpi.avg.system"
 )
 
 // System memory metrics
 const (
-	MetricMemTotalSystem     = "mem.total.system"
-	MetricMemUsedSystem      = "mem.used.system"
-	MetricMemFreeSystem      = "mem.free.system"
-	MetricMemShmemSystem     = "mem.shmem.system"
-	MetricMemBufferSystem    = "mem.buffer.system"
-	MetricMemPageCacheSystem = "mem.pagecache.system"
-	MetricMemAvailableSystem = "mem.available.system"
+	MetricMemTotalSystem        = "mem.total.system"
+	MetricMemUsedSystem         = "mem.used.system"
+	MetricMemFreeSystem         = "mem.free.system"
+	MetricMemShmemSystem        = "mem.shmem.system"
+	MetricMemBufferSystem       = "mem.buffer.system"
+	MetricMemPageCacheSystem    = "mem.pagecache.system"
+	MetricMemAvailableSystem    = "mem.available.system"
+	MetricMemActiveAnonSystem   = "mem.active.anon.system"
+	MetricMemInactiveAnonSystem = "mem.inactive.anon.system"
+	MetricMemActiveFileSystem   = "mem.active.file.system"
+	MetricMemInactiveFileSystem = "mem.inactive.file.system"
 
 	MetricMemDirtySystem            = "mem.dirty.system"
 	MetricMemWritebackSystem        = "mem.writeback.system"
@@ -57,6 +67,11 @@ const (
 	MetricMemScaleFactorSystem = "mem.scale.factor.system"
 
 	MetricMemUpdateTimeSystem = "mem.updatetime.system"
+
+	MetricMemSockTCPSystem      = "mem.sock.tcp.system"
+	MetricMemSockTCPLimitSystem = "mem.sock.tcp_limit.system"
+	MetricMemSockUDPSystem      = "mem.sock.udp.system"
+	MetricMemSockUDPLimitSystem = "mem.sock.udp_limit.system"
 )
 
 // System blkio metrics
@@ -149,17 +164,19 @@ const (
 
 // System cpu compute metrics
 const (
-	MetricCPUSchedwait   = "cpu.schedwait.cpu"
-	MetricCPUUsageRatio  = "cpu.usage.ratio.cpu"
-	MetricCPUIOWaitRatio = "cpu.iowait.ratio.cpu"
+	MetricCPUSchedwait     = "cpu.schedwait.cpu"
+	MetricCPUUsageRatio    = "cpu.usage.ratio.cpu"
+	MetricCPUSysUsageRatio = "cpu.sys.usage.ratio.cpu"
+	MetricCPUIOWaitRatio   = "cpu.iowait.ratio.cpu"
 )
 
 // container cpu metrics
 const (
-	MetricCPULimitContainer     = "cpu.limit.container"
-	MetricCPUUsageContainer     = "cpu.usage.container"
-	MetricCPUUsageUserContainer = "cpu.usage.user.container"
-	MetricCPUUsageSysContainer  = "cpu.usage.sys.container"
+	MetricCPULimitContainer      = "cpu.limit.container"
+	MetricCPUUsageContainer      = "cpu.usage.container"
+	MetricCPUUsageUserContainer  = "cpu.usage.user.container"
+	MetricCPUUsageSysContainer   = "cpu.usage.sys.container"
+	MetricCPUUsageRatioContainer = "cpu.usage.ratio.container"
 
 	MetricCPUShareContainer         = "cpu.share.container"
 	MetricCPUQuotaContainer         = "cpu.quota.container"

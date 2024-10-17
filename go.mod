@@ -18,7 +18,7 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/h2non/gock v1.2.0
 	github.com/klauspost/cpuid/v2 v2.2.6
-	github.com/kubewharf/katalyst-api v0.5.1-0.20240911051124-d5c09c115a19
+	github.com/kubewharf/katalyst-api v0.5.1-0.20240929080014-ae613a8935d8
 	github.com/montanaflynn/stats v0.7.1
 	github.com/opencontainers/runc v1.1.6
 	github.com/opencontainers/selinux v1.10.0
