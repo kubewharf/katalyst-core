@@ -14,32 +14,28 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package external
+package component
 
 import (
 	"context"
 
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/external/cgroupid"
-	"github.com/kubewharf/katalyst-core/pkg/util/external/network"
+	"k8s.io/klog/v2"
+
 	"github.com/kubewharf/katalyst-core/pkg/util/external/rapl"
-	"github.com/kubewharf/katalyst-core/pkg/util/external/rdt"
 )
 
-// ExternalManager contains a set of managers that execute configurations beyond the OCI spec.
-type ExternalManager interface {
-	cgroupid.CgroupIDManager
-	network.NetworkManager
-	rdt.RDTManager
-	rapl.RAPLLimiter
-
-	Run(ctx context.Context)
+type PowerCapper interface {
+	Cap(ctx context.Context, targetWatts, currWatt int)
 }
 
-type DummyExternalManager struct {
-	cgroupid.CgroupIDManager
-	network.NetworkManager
-	rdt.RDTManager
-	rapl.RAPLLimiter
+type raplCapper struct {
+	raplLimiter rapl.RAPLLimiter
 }
 
-func (d *DummyExternalManager) Run(_ context.Context) {}
+func (r raplCapper) Cap(_ context.Context, targetWatts, currWatt int) {
+	if err := r.raplLimiter.SetLimitOnBasis(targetWatts, currWatt); err != nil {
+		klog.Errorf("pap: failed to power cap, current watt %d, target watt %d", currWatt, targetWatts)
+	}
+}
+
+var _ PowerCapper = &raplCapper{}
