@@ -239,6 +239,17 @@ func (p *DynamicPolicy) numaBindingAllocationHandler(ctx context.Context,
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("packAllocationResponse failed with error: %v", err)
 	}
+
+	// for now, we only support update the numa allocation result for numa binding and non-exclusive pod
+	if !qosutil.AnnotationsIndicateNUMAExclusive(req.Annotations) {
+		err = p.updateSpecifiedNUMAAllocation(ctx, allocationInfo)
+		if err != nil {
+			general.Errorf("pod: %s/%s, container: %s updateSpecifiedNUMAAllocation failed with error: %v",
+				req.PodNamespace, req.PodName, req.ContainerName, err)
+			return nil, fmt.Errorf("updateSpecifiedNUMAAllocation failed with error: %v", err)
+		}
+	}
+
 	return resp, nil
 }
 
@@ -946,4 +957,9 @@ func (p *DynamicPolicy) getDefaultSystemCoresNUMAs(machineState state.NUMANodeMa
 		return p.topology.CPUDetails.NUMANodes()
 	}
 	return numaNodesWithoutNUMABindingAndNUMAExclusivePods
+}
+
+// updateSpecifiedNUMAAllocation update NUMA allocation by allocation reactor.
+func (p *DynamicPolicy) updateSpecifiedNUMAAllocation(ctx context.Context, allocation *state.AllocationInfo) error {
+	return p.numaAllocationReactor.UpdateAllocation(ctx, allocation)
 }
