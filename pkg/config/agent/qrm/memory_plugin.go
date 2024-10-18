@@ -39,7 +39,8 @@ type MemoryQRMPluginConfig struct {
 	OOMPriorityPinnedMapAbsPath string
 	// EnableNonBindingShareCoresMemoryResourceCheck: enable the topology check for non-binding share cores pods
 	EnableNonBindingShareCoresMemoryResourceCheck bool
-
+	// EnableNUMAAllocationReactor: enable the numa allocation reactor for actual numa binding pods
+	EnableNUMAAllocationReactor bool
 	// SockMemQRMPluginConfig: the configuration for sockmem limitation in cgroup and host level
 	SockMemQRMPluginConfig
 	// LogCacheQRMPluginConfig: the configuration for logcache evicting
