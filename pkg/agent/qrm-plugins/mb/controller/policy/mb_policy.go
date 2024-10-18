@@ -17,14 +17,18 @@ limitations under the License.
 package policy
 
 import (
+	"time"
+
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 type DomainMBPolicy interface {
-	GetPlan(domain *mbdomain.MBDomain, currQoSMB map[task.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc
+	GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoSMB map[task.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc
 }
 
 type domainMBPolicy struct {
@@ -32,12 +36,47 @@ type domainMBPolicy struct {
 	constraintMBPolicy DomainMBPolicy
 }
 
-func (d domainMBPolicy) GetPlan(domain *mbdomain.MBDomain, currQoSMB map[task.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
-	if len(domain.GetPreemptingNodes()) != 0 {
-		return d.preemptMBPolicy.GetPlan(domain, currQoSMB)
+func calcResvForIncubation(incubates mbdomain.IncubatedCCDs, currQoSMB map[task.QoSGroup]*monitor.MBQoSGroup) int {
+	var reserveToIncubate int
+
+	for qos, qosmb := range currQoSMB {
+		if qos != task.QoSGroupDedicated {
+			continue
+		}
+
+		for ccd, mb := range qosmb.CCDMB {
+			if _, ok := incubates[ccd]; !ok {
+				// assuming it is active incubated
+				continue
+			}
+			if mb.ReadsMB+mb.WritesMB >= config.ReservedPerCCD {
+				continue
+			}
+			reserveToIncubate += config.ReservedPerCCD - (mb.ReadsMB + mb.WritesMB)
+		}
 	}
 
-	return d.constraintMBPolicy.GetPlan(domain, currQoSMB)
+	return reserveToIncubate
+}
+
+func (d domainMBPolicy) GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoSMB map[task.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
+	// some newly started pods may still be in so-called incubation period;
+	// special care need to take to ensure they have no less than the reserved mb
+	// by subtracting the mb for incubation
+	domain.CleanseIncubates()
+	mbForIncubation := calcResvForIncubation(domain.CloneIncubates(), currQoSMB)
+	general.InfofV(6, "mbm: domain %v reserve mb for incubation %d", domain.ID, mbForIncubation)
+
+	availableMB := totalMB - mbForIncubation
+	if availableMB < 0 {
+		availableMB = 0
+	}
+
+	if len(domain.GetPreemptingNodes()) != 0 {
+		return d.preemptMBPolicy.GetPlan(availableMB, domain, currQoSMB)
+	}
+
+	return d.constraintMBPolicy.GetPlan(availableMB, domain, currQoSMB)
 }
 
 func newDomainMBPolicy(preemptMBPolicy, softLimitMBPolicy DomainMBPolicy) (DomainMBPolicy, error) {
@@ -47,6 +86,6 @@ func newDomainMBPolicy(preemptMBPolicy, softLimitMBPolicy DomainMBPolicy) (Domai
 	}, nil
 }
 
-func NewDefaultDomainMBPolicy() (DomainMBPolicy, error) {
+func NewDefaultDomainMBPolicy(incubationInterval time.Duration) (DomainMBPolicy, error) {
 	return newDomainMBPolicy(NewDefaultPreemptDomainMBPolicy(), NewDefaultConstraintDomainMBPolicy())
 }

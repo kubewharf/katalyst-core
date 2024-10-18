@@ -17,6 +17,8 @@ limitations under the License.
 package mb
 
 import (
+	"time"
+
 	"github.com/pkg/errors"
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
@@ -32,7 +34,8 @@ import (
 )
 
 type plugin struct {
-	dieTopology *machine.DieTopology
+	dieTopology        *machine.DieTopology
+	incubationInterval time.Duration
 
 	mbController *controller.Controller
 }
@@ -43,14 +46,18 @@ func (c *plugin) Name() string {
 
 func (c *plugin) Start() error {
 	general.InfofV(6, "mbm: plugin component starting ....")
+	general.InfofV(6, "mbm: mb incubation interval %v", c.incubationInterval)
 	general.InfofV(6, "mbm: numa-CCD-cpu topology: \n%s", c.dieTopology)
 
+	// todo: NOT to return error (to crash explicitly); consider downgrade service
 	if !c.dieTopology.FakeNUMAEnabled {
 		return errors.New("mbm: not virtual numa; no need to dynamically manage the memory bandwidth")
 	}
 
+	domainManager := mbdomain.NewMBDomainManager(c.dieTopology, c.incubationInterval)
+
 	var err error
-	podMBMonitor, err := monitor.NewDefaultMBMonitor(c.dieTopology.DiesInNuma, c.dieTopology.CPUsInDie)
+	podMBMonitor, err := monitor.NewDefaultMBMonitor(c.dieTopology.DiesInNuma, c.dieTopology.CPUsInDie, domainManager)
 	if err != nil {
 		return errors.Wrap(err, "mbm: failed to create default mb monitor")
 	}
@@ -60,8 +67,7 @@ func (c *plugin) Start() error {
 		return errors.Wrap(err, "mbm: failed to create mb plan allocator")
 	}
 
-	domainManager := mbdomain.NewMBDomainManager(c.dieTopology)
-	domainPolicy, err := policy.NewDefaultDomainMBPolicy()
+	domainPolicy, err := policy.NewDefaultDomainMBPolicy(c.incubationInterval)
 	if err != nil {
 		return errors.Wrap(err, "mbm: failed to create domain manager")
 	}
@@ -107,7 +113,8 @@ func NewComponent(agentCtx *agent.GenericContext, conf *config.Configuration,
 	_ interface{}, agentName string,
 ) (bool, agent.Component, error) {
 	mbController := &plugin{
-		dieTopology: agentCtx.DieTopology,
+		dieTopology:        agentCtx.DieTopology,
+		incubationInterval: conf.IncubationInterval,
 	}
 
 	return true, &agent.PluginWrapper{GenericPlugin: mbController}, nil

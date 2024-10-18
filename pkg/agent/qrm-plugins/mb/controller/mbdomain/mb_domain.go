@@ -18,14 +18,11 @@ package mbdomain
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"k8s.io/apimachinery/pkg/util/sets"
-
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 type MBDomain struct {
@@ -38,6 +35,9 @@ type MBDomain struct {
 	rwLock sync.RWMutex
 	// numa nodes that will be assigned to dedicated pods that still are in Admit state
 	PreemptyNodes sets.Int
+	ccdIncubated  IncubatedCCDs
+
+	incubationInterval time.Duration
 }
 
 func (m *MBDomain) String() string {
@@ -55,6 +55,17 @@ func (m *MBDomain) String() string {
 	}
 
 	return sb.String()
+}
+
+func (m *MBDomain) startIncubation(ccds sets.Int) {
+	m.rwLock.Lock()
+	defer m.rwLock.Unlock()
+
+	for _, ccd := range m.CCDs {
+		if ccds.Has(ccd) {
+			m.ccdIncubated[ccd] = time.Now().Add(m.incubationInterval)
+		}
+	}
 }
 
 func (m *MBDomain) PreemptNodes(nodes []int) {
@@ -79,42 +90,25 @@ func (m *MBDomain) GetPreemptingNodes() []int {
 	return m.PreemptyNodes.List()
 }
 
-type MBDomainManager struct {
-	Domains map[int]*MBDomain
+func (m *MBDomain) CleanseIncubates() {
+	m.rwLock.Lock()
+	m.rwLock.Unlock()
+
+	for ccd, v := range m.ccdIncubated {
+		if !isIncubated(v) {
+			delete(m.ccdIncubated, ccd)
+		}
+	}
 }
 
-func NewMBDomainManager(dieTopology *machine.DieTopology) *MBDomainManager {
-	manager := &MBDomainManager{
-		Domains: make(map[int]*MBDomain),
+func (m *MBDomain) CloneIncubates() IncubatedCCDs {
+	m.rwLock.RLock()
+	m.rwLock.RUnlock()
+
+	clone := make(IncubatedCCDs)
+	for ccd, v := range m.ccdIncubated {
+		clone[ccd] = v
 	}
 
-	for packageID := 0; packageID < dieTopology.Packages; packageID++ {
-		mbDomain := &MBDomain{
-			ID:            packageID,
-			NumaNodes:     dieTopology.NUMAsInPackage[packageID],
-			CCDNode:       make(map[int]int),
-			NodeCCDs:      make(map[int][]int),
-			PreemptyNodes: make(sets.Int),
-		}
-
-		for node, ccds := range dieTopology.DiesInNuma {
-			for ccd, _ := range ccds {
-				mbDomain.CCDNode[ccd] = node
-				mbDomain.NodeCCDs[node] = append(mbDomain.NodeCCDs[node], ccd)
-				mbDomain.CCDs = append(mbDomain.CCDs, ccd)
-			}
-			sort.Slice(mbDomain.NodeCCDs[node], func(i, j int) bool {
-				return mbDomain.NodeCCDs[node][i] < mbDomain.NodeCCDs[node][j]
-			})
-		}
-
-		sort.Slice(mbDomain.CCDs, func(i, j int) bool {
-			return mbDomain.CCDs[i] < mbDomain.CCDs[j]
-		})
-
-		manager.Domains[packageID] = mbDomain
-		general.InfofV(6, "mbm: %s", mbDomain.String())
-	}
-
-	return manager
+	return clone
 }

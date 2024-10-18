@@ -17,9 +17,12 @@ limitations under the License.
 package resctrl
 
 import (
-	resctrlconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/consts"
-	"github.com/spf13/afero"
 	"path"
+
+	"github.com/spf13/afero"
+
+	resctrlconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/consts"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 type SchemataUpdater interface {
@@ -32,6 +35,7 @@ type ccdMBSetter struct {
 
 func updateSchemata(fs afero.Fs, ctrlGroup string, instruction string) error {
 	schemataPath := path.Join(ctrlGroup, resctrlconsts.SchemataFile)
+	general.InfofV(6, "mbm: writing to schemata %s with content %q", schemataPath, instruction)
 	return afero.WriteFile(fs, schemataPath, []byte(instruction), resctrlconsts.FilePerm)
 }
 
@@ -40,5 +44,7 @@ func (c ccdMBSetter) UpdateSchemata(ctrlGroup string, instruction string) error 
 }
 
 func NewSchemataUpdater() (SchemataUpdater, error) {
-	return &ccdMBSetter{}, nil
+	return &ccdMBSetter{
+		fs: afero.NewOsFs(),
+	}, nil
 }

@@ -39,6 +39,8 @@ func toSchmataInst(ccdMB map[int]int) string {
 		v := (mb + mbUnitAMD - 1) / mbUnitAMD
 		sb.WriteString(fmt.Sprintf("%d=%d;", ccd, v))
 	}
+	// LF is critical for schemata update
+	sb.WriteString("\n")
 	return sb.String()
 }
 

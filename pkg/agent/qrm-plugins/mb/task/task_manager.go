@@ -25,6 +25,7 @@ import (
 	"github.com/spf13/afero"
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
 	resctrlconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/consts"
 	resctrlfile "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/file"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/state"
@@ -40,7 +41,7 @@ type Manager interface {
 	RefreshTasks() error
 }
 
-func New(nodeCCDs map[int]sets.Int, cpusInCCD map[int][]int, cleaner state.MBRawDataCleaner) (Manager, error) {
+func New(nodeCCDs map[int]sets.Int, cpusInCCD map[int][]int, cleaner state.MBRawDataCleaner, domainManager *mbdomain.MBDomainManager) (Manager, error) {
 	cpuCCD := make(map[int]int)
 	for ccd, cpus := range cpusInCCD {
 		for _, cpu := range cpus {
@@ -54,6 +55,7 @@ func New(nodeCCDs map[int]sets.Int, cpusInCCD map[int][]int, cleaner state.MBRaw
 		cpuCCD:          cpuCCD,
 		tasks:           make(map[string]*Task),
 		taskQoS:         make(map[string]QoSGroup),
+		domainManager:   domainManager,
 		fs:              afero.NewOsFs(),
 	}, nil
 }
@@ -66,6 +68,8 @@ type manager struct {
 	rwLock  sync.RWMutex
 	tasks   map[string]*Task
 	taskQoS map[string]QoSGroup
+
+	domainManager *mbdomain.MBDomainManager
 
 	fs afero.Fs
 }
@@ -94,10 +98,17 @@ func (m *manager) RefreshTasks() error {
 		if err != nil {
 			return errors.Wrap(err, "failed to parse mon group")
 		}
-		_, err = m.NewTask(podUID, qos)
+		task, err := m.NewTask(podUID, qos)
 		if err != nil {
 			// ok to ignore error; hopefully next iteration will rectify itself
 			general.Errorf("mbm: failed to create task for pod %s of qos level %s: %v", podUID, qos, err)
+			continue
+		}
+
+		// new dedicated QoS task shall be in incubation
+		if qos == QoSGroupDedicated {
+			general.InfofV(6, "mbm: task %s qos %v just created", podUID, qos)
+			m.domainManager.StartIncubation(task.CCDs)
 		}
 	}
 

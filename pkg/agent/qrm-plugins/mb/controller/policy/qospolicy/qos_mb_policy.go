@@ -29,6 +29,7 @@ type QoSMBPolicy interface {
 
 // BuildFullyChainedQoSPolicy builds up the full chain of {dedicated, shared_50, system} -> {shared_30}
 func BuildFullyChainedQoSPolicy() QoSMBPolicy {
+	// todo: utilize incubation benefit
 	return NewChainedQoSMBPolicy(
 		map[task.QoSGroup]struct{}{
 			"dedicated": {},

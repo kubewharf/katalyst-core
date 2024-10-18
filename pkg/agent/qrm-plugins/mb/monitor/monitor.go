@@ -23,6 +23,7 @@ import (
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
@@ -42,13 +43,13 @@ func newMBMonitor(taskManager task.Manager, rmbReader task.TaskMBReader, wmbRead
 	}, nil
 }
 
-func NewDefaultMBMonitor(numaDies map[int]sets.Int, dieCPUs map[int][]int) (MBMonitor, error) {
+func NewDefaultMBMonitor(numaDies map[int]sets.Int, dieCPUs map[int][]int, domainManager *mbdomain.MBDomainManager) (MBMonitor, error) {
 	dataKeeper, err := state.NewMBRawDataKeeper()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create raw data state keeper")
 	}
 
-	taskManager, err := task.New(numaDies, dieCPUs, dataKeeper)
+	taskManager, err := task.New(numaDies, dieCPUs, dataKeeper, domainManager)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create task manager")
 	}

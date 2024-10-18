@@ -14,13 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package config
+package qrm
 
-const (
-	DomainTotalMB   = 120_000             //120 GBps in one mb sharing domain
-	ReservedPerNuma = 35_000              // 35 GBps reserved per node for dedicated pod
-	ReservedPerCCD  = ReservedPerNuma / 2 // hardcoded divisor 2 may not be applicable all the places
+import "time"
 
-	CCDMBMin = 8_000  // per CCD 10 GB
-	CCDMBMax = 25_000 // per CCD 10 GB
-)
+type MBQRMPluginConfig struct {
+	IncubationInterval time.Duration
+}
+
+func NewMBQRMPluginConfig() *MBQRMPluginConfig {
+	return &MBQRMPluginConfig{}
+}

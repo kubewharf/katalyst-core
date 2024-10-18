@@ -18,6 +18,7 @@ package mbdomain
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -64,8 +65,10 @@ func TestNewMBDomainManager(t *testing.T) {
 							2: {4, 5},
 							3: {6, 7},
 						},
-						CCDs:          []int{0, 1, 2, 3, 4, 5, 6, 7},
-						PreemptyNodes: make(sets.Int),
+						CCDs:               []int{0, 1, 2, 3, 4, 5, 6, 7},
+						PreemptyNodes:      make(sets.Int),
+						ccdIncubated:       IncubatedCCDs{},
+						incubationInterval: time.Second * 1,
 					},
 				},
 			},
@@ -75,7 +78,7 @@ func TestNewMBDomainManager(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := NewMBDomainManager(tt.args.dieTopology)
+			got := NewMBDomainManager(tt.args.dieTopology, time.Second*1)
 			assert.Equal(t, tt.want, got)
 		})
 	}

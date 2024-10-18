@@ -14,13 +14,18 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package config
+package mbdomain
 
-const (
-	DomainTotalMB   = 120_000             //120 GBps in one mb sharing domain
-	ReservedPerNuma = 35_000              // 35 GBps reserved per node for dedicated pod
-	ReservedPerCCD  = ReservedPerNuma / 2 // hardcoded divisor 2 may not be applicable all the places
+import "time"
 
-	CCDMBMin = 8_000  // per CCD 10 GB
-	CCDMBMax = 25_000 // per CCD 10 GB
-)
+// IncubatedCCDs keeps the ccds in incubation state with their graduation time
+// only applicable to dedicated SOCKET pod's CCDs
+type IncubatedCCDs map[int]time.Time
+
+func isIncubated(graduateTime time.Time) bool {
+	return isIncubatedBy(graduateTime, time.Now())
+}
+
+func isIncubatedBy(graduateTime time.Time, by time.Time) bool {
+	return graduateTime.After(by)
+}
