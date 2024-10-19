@@ -26,7 +26,7 @@ import (
 
 func GetContainerMetric(metricsFetcher types.MetricsFetcher, emitter metrics.MetricEmitter, podUID, containerName, metricName string, numaID int) (float64, error) {
 	if numaID >= 0 {
-		data, err := metricsFetcher.GetContainerNumaMetric(podUID, containerName, strconv.Itoa(numaID), metricName)
+		data, err := metricsFetcher.GetContainerNumaMetric(podUID, containerName, numaID, metricName)
 		if err != nil {
 			general.Errorf(errMsgGetContainerNumaMetrics, metricName, podUID, containerName, numaID, err)
 			return 0, err

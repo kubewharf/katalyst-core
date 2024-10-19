@@ -110,8 +110,19 @@ func (f *FakeMetricsFetcher) GetContainerMetric(podUID, containerName, metricNam
 	return f.checkMetricDataExpire(f.metricStore.GetContainerMetric(podUID, containerName, metricName))
 }
 
-func (f *FakeMetricsFetcher) GetContainerNumaMetric(podUID, containerName, numaNode, metricName string) (metric.MetricData, error) {
-	return f.checkMetricDataExpire(f.metricStore.GetContainerNumaMetric(podUID, containerName, numaNode, metricName))
+func (f *FakeMetricsFetcher) GetContainerNumaMetric(podUID, containerName string, numaID int, metricName string) (metric.MetricData, error) {
+	return f.checkMetricDataExpire(f.metricStore.GetContainerNumaMetric(podUID, containerName, numaID, metricName))
+}
+
+func (f *FakeMetricsFetcher) GetContainerNumaMetrics(podUID, containerName, metricName string) (map[int]metric.MetricData, error) {
+	numaMetrics, err := f.metricStore.GetContainerNumaMetrics(podUID, containerName, metricName)
+	for _, metric := range numaMetrics {
+		_, err := f.checkMetricDataExpire(metric, err)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return numaMetrics, err
 }
 
 func (f *FakeMetricsFetcher) GetPodVolumeMetric(podUID, volumeName, metricName string) (metric.MetricData, error) {
@@ -138,12 +149,12 @@ func (f *FakeMetricsFetcher) SetContainerMetric(podUID, containerName, metricNam
 	f.metricStore.SetContainerMetric(podUID, containerName, metricName, data)
 }
 
-func (f *FakeMetricsFetcher) SetContainerNumaMetric(podUID, containerName, numaNode, metricName string, data metric.MetricData) {
-	f.metricStore.SetContainerNumaMetric(podUID, containerName, numaNode, metricName, data)
+func (f *FakeMetricsFetcher) SetContainerNumaMetric(podUID, containerName string, numaID int, metricName string, data metric.MetricData) {
+	f.metricStore.SetContainerNumaMetric(podUID, containerName, numaID, metricName, data)
 }
 
-func (f *FakeMetricsFetcher) AggregatePodNumaMetric(podList []*v1.Pod, numaNode, metricName string, agg metric.Aggregator, filter metric.ContainerMetricFilter) metric.MetricData {
-	return f.metricStore.AggregatePodNumaMetric(podList, numaNode, metricName, agg, filter)
+func (f *FakeMetricsFetcher) AggregatePodNumaMetric(podList []*v1.Pod, numaID int, metricName string, agg metric.Aggregator, filter metric.ContainerMetricFilter) metric.MetricData {
+	return f.metricStore.AggregatePodNumaMetric(podList, numaID, metricName, agg, filter)
 }
 
 func (f *FakeMetricsFetcher) AggregatePodMetric(podList []*v1.Pod, metricName string, agg metric.Aggregator, filter metric.ContainerMetricFilter) metric.MetricData {

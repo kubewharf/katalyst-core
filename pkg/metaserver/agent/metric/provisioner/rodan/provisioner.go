@@ -18,7 +18,6 @@ package rodan
 
 import (
 	"context"
-	"strconv"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -465,7 +464,7 @@ func (i *RodanMetricsProvisioner) processContainerNumaData(podUID, containerName
 
 			switch cell.Key {
 			case "filepage":
-				i.metricStore.SetContainerNumaMetric(podUID, containerName, strconv.Itoa(numaNode), metricName,
+				i.metricStore.SetContainerNumaMetric(podUID, containerName, numaNode, metricName,
 					utilmetric.MetricData{Value: float64(int(cell.Val) << pageShift), Time: &updateTime})
 			default:
 

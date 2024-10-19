@@ -43,6 +43,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
@@ -138,11 +139,16 @@ func TestNodeMetricUpdate(t *testing.T) {
 					for numaId := 0; numaId < 2; numaId++ {
 						f.SetNumaMetric(numaId, consts.MetricMemUsedNuma, utilmetric.MetricData{Value: 50 << 30})
 						f.SetNumaMetric(numaId, consts.MetricMemFilepageNuma, utilmetric.MetricData{Value: 10 << 30})
+						f.SetNumaMetric(numaId, consts.MetricCPUUsageNuma, utilmetric.MetricData{Value: 2})
 					}
 
 					f.SetContainerMetric("uid1", "container1", consts.MetricCPUUsageContainer, utilmetric.MetricData{Value: 1})
 					f.SetContainerMetric("uid1", "container1", consts.MetricMemUsageContainer, utilmetric.MetricData{Value: 20 << 30})
 					f.SetContainerMetric("uid1", "container1", consts.MetricMemCacheContainer, utilmetric.MetricData{Value: 10 << 30})
+					for numaId := 0; numaId < 2; numaId++ {
+						f.SetContainerNumaMetric("uid1", "container1", numaId, consts.MetricsCPUUsageNUMAContainer, utilmetric.MetricData{Value: 1})
+						f.SetContainerNumaMetric("uid1", "container1", numaId, consts.MetricsMemAnonPerNumaContainer, utilmetric.MetricData{Value: 1 << 30})
+					}
 
 					f.SetContainerMetric("uid2", "container2", consts.MetricCPUUsageContainer, utilmetric.MetricData{Value: 1})
 					f.SetContainerMetric("uid2", "container2", consts.MetricMemUsageContainer, utilmetric.MetricData{Value: 20 << 30})
@@ -151,6 +157,10 @@ func TestNodeMetricUpdate(t *testing.T) {
 					f.SetContainerMetric("uid3", "container3", consts.MetricCPUUsageContainer, utilmetric.MetricData{Value: 1})
 					f.SetContainerMetric("uid3", "container3", consts.MetricMemUsageContainer, utilmetric.MetricData{Value: 20 << 30})
 					f.SetContainerMetric("uid3", "container3", consts.MetricMemCacheContainer, utilmetric.MetricData{Value: 10 << 30})
+
+					f.SetContainerMetric("uid4", "container4", consts.MetricCPUUsageContainer, utilmetric.MetricData{Value: 1})
+					f.SetContainerMetric("uid4", "container4", consts.MetricMemUsageContainer, utilmetric.MetricData{Value: 20 << 30})
+					f.SetContainerMetric("uid4", "container4", consts.MetricMemCacheContainer, utilmetric.MetricData{Value: 10 << 30})
 				},
 				pods: []*corev1.Pod{
 					{
@@ -228,6 +238,31 @@ func TestNodeMetricUpdate(t *testing.T) {
 							},
 						},
 					},
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:        "pod4",
+							Namespace:   "default",
+							UID:         "uid4",
+							Annotations: map[string]string{apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores},
+						},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name: "container4",
+									Resources: corev1.ResourceRequirements{
+										Limits: map[corev1.ResourceName]resource.Quantity{
+											corev1.ResourceCPU:    resource.MustParse("4"),
+											corev1.ResourceMemory: resource.MustParse("40Gi"),
+										},
+										Requests: map[corev1.ResourceName]resource.Quantity{
+											corev1.ResourceCPU:    resource.MustParse("2"),
+											corev1.ResourceMemory: resource.MustParse("20Gi"),
+										},
+									},
+								},
+							},
+						},
+					},
 				},
 				containers: []types2.ContainerInfo{
 					{
@@ -254,6 +289,16 @@ func TestNodeMetricUpdate(t *testing.T) {
 						ContainerType:  pluginapi.ContainerType_MAIN,
 						ContainerIndex: 0,
 					},
+					{
+						PodUID:                   "uid4",
+						PodNamespace:             "default",
+						PodName:                  "pod4",
+						ContainerName:            "container4",
+						ContainerType:            pluginapi.ContainerType_MAIN,
+						ContainerIndex:           0,
+						TopologyAwareAssignments: map[int]machine.CPUSet{0: machine.NewCPUSet(0), 1: machine.NewCPUSet(2)},
+						RampUp:                   true,
+					},
 				},
 			},
 			wantErr: false,
@@ -266,12 +311,14 @@ func TestNodeMetricUpdate(t *testing.T) {
 								NUMAId: 0,
 								Usage: &nodeapis.ResourceMetric{
 									Memory: mustParse("40Gi"),
+									CPU:    mustParse("2"),
 								},
 							},
 							{
 								NUMAId: 1,
 								Usage: &nodeapis.ResourceMetric{
 									Memory: mustParse("40Gi"),
+									CPU:    mustParse("2"),
 								},
 							},
 						},
@@ -296,13 +343,28 @@ func TestNodeMetricUpdate(t *testing.T) {
 					{
 						QoSLevel: apiconsts.PodAnnotationQoSLevelSharedCores,
 						ResourceUsage: nodeapis.ResourceUsage{
-							NUMAUsage: nil,
+							NUMAUsage: []nodeapis.NUMAMetricInfo{
+								{
+									NUMAId: 0,
+									Usage: &nodeapis.ResourceMetric{
+										CPU:    mustParse("2"),
+										Memory: mustParse("11Gi"),
+									},
+								},
+								{
+									NUMAId: 1,
+									Usage: &nodeapis.ResourceMetric{
+										CPU:    mustParse("2"),
+										Memory: mustParse("11Gi"),
+									},
+								},
+							},
 							GenericUsage: &nodeapis.ResourceMetric{
-								CPU:    mustParse("1"),
-								Memory: mustParse("10Gi"),
+								CPU:    mustParse("3"),
+								Memory: mustParse("30Gi"),
 							},
 						},
-						PodList: []string{"default/pod1"},
+						PodList: []string{"default/pod1", "default/pod4"},
 					},
 					{
 						QoSLevel: apiconsts.PodAnnotationQoSLevelReclaimedCores,

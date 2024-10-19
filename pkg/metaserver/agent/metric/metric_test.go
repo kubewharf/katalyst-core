@@ -84,7 +84,7 @@ func Test_notifySystem(t *testing.T) {
 	m.metricStore.SetCPUMetric(2, "test-cpu-metric", metric.MetricData{Value: 78, Time: &now})
 	m.metricStore.SetDeviceMetric("test-device", "test-device-metric", metric.MetricData{Value: 91, Time: &now})
 	m.metricStore.SetContainerMetric("test-pod", "test-container", "test-container-metric", metric.MetricData{Value: 91, Time: &now})
-	m.metricStore.SetContainerNumaMetric("test-pod", "test-container", "3", "test-container-numa-metric", metric.MetricData{Value: 75, Time: &now})
+	m.metricStore.SetContainerNumaMetric("test-pod", "test-container", 3, "test-container-numa-metric", metric.MetricData{Value: 75, Time: &now})
 
 	// force trigger multiple notifications in a row,
 	// and expect only one response for a single data
@@ -122,7 +122,7 @@ func Test_notifySystem(t *testing.T) {
 
 	cur := time.Now()
 	m.metricStore.SetNodeMetric("test-node-metric", metric.MetricData{Value: 12, Time: &cur})
-	m.metricStore.SetContainerNumaMetric("test-pod", "test-container", "3", "test-container-numa-metric", metric.MetricData{Value: 22, Time: &cur})
+	m.metricStore.SetContainerNumaMetric("test-pod", "test-container", 3, "test-container-numa-metric", metric.MetricData{Value: 22, Time: &cur})
 
 	// force trigger multiple notifications again,
 	// and expect to get awareness only for changed-metrics
@@ -196,19 +196,19 @@ func TestStore_Aggregate(t *testing.T) {
 	avg := f.AggregatePodMetric([]*v1.Pod{pod1, pod2, pod3}, "test-pod-metric", metric.AggregatorAvg, metric.DefaultContainerMetricFilter)
 	assert.Equal(t, float64(1.5), avg.Value)
 
-	f.metricStore.SetContainerNumaMetric("pod1", "container1", "0", "test-pod-numa-metric", metric.MetricData{Value: 1, Time: &now})
-	f.metricStore.SetContainerNumaMetric("pod1", "container2", "0", "test-pod-numa-metric", metric.MetricData{Value: 1, Time: &now})
-	f.metricStore.SetContainerNumaMetric("pod1", "container2", "1", "test-pod-numa-metric", metric.MetricData{Value: 1, Time: &now})
-	f.metricStore.SetContainerNumaMetric("pod2", "container3", "0", "test-pod-numa-metric", metric.MetricData{Value: 1, Time: &now})
-	f.metricStore.SetContainerNumaMetric("pod2", "container3", "1", "test-pod-numa-metric", metric.MetricData{Value: 1, Time: &now})
-	f.metricStore.SetContainerNumaMetric("pod2", "container3", "1", "test-pod-numa-metric", metric.MetricData{Value: 1, Time: &now})
-	sum = f.AggregatePodNumaMetric([]*v1.Pod{pod1, pod2, pod3}, "0", "test-pod-numa-metric", metric.AggregatorSum, metric.DefaultContainerMetricFilter)
+	f.metricStore.SetContainerNumaMetric("pod1", "container1", 0, "test-pod-numa-metric", metric.MetricData{Value: 1, Time: &now})
+	f.metricStore.SetContainerNumaMetric("pod1", "container2", 0, "test-pod-numa-metric", metric.MetricData{Value: 1, Time: &now})
+	f.metricStore.SetContainerNumaMetric("pod1", "container2", 1, "test-pod-numa-metric", metric.MetricData{Value: 1, Time: &now})
+	f.metricStore.SetContainerNumaMetric("pod2", "container3", 0, "test-pod-numa-metric", metric.MetricData{Value: 1, Time: &now})
+	f.metricStore.SetContainerNumaMetric("pod2", "container3", 1, "test-pod-numa-metric", metric.MetricData{Value: 1, Time: &now})
+	f.metricStore.SetContainerNumaMetric("pod2", "container3", 1, "test-pod-numa-metric", metric.MetricData{Value: 1, Time: &now})
+	sum = f.AggregatePodNumaMetric([]*v1.Pod{pod1, pod2, pod3}, 0, "test-pod-numa-metric", metric.AggregatorSum, metric.DefaultContainerMetricFilter)
 	assert.Equal(t, float64(3), sum.Value)
-	avg = f.AggregatePodNumaMetric([]*v1.Pod{pod1, pod2, pod3}, "0", "test-pod-numa-metric", metric.AggregatorAvg, metric.DefaultContainerMetricFilter)
+	avg = f.AggregatePodNumaMetric([]*v1.Pod{pod1, pod2, pod3}, 0, "test-pod-numa-metric", metric.AggregatorAvg, metric.DefaultContainerMetricFilter)
 	assert.Equal(t, float64(1.5), avg.Value)
-	sum = f.AggregatePodNumaMetric([]*v1.Pod{pod1, pod2, pod3}, "1", "test-pod-numa-metric", metric.AggregatorSum, metric.DefaultContainerMetricFilter)
+	sum = f.AggregatePodNumaMetric([]*v1.Pod{pod1, pod2, pod3}, 1, "test-pod-numa-metric", metric.AggregatorSum, metric.DefaultContainerMetricFilter)
 	assert.Equal(t, float64(2), sum.Value)
-	avg = f.AggregatePodNumaMetric([]*v1.Pod{pod1, pod2, pod3}, "1", "test-pod-numa-metric", metric.AggregatorAvg, metric.DefaultContainerMetricFilter)
+	avg = f.AggregatePodNumaMetric([]*v1.Pod{pod1, pod2, pod3}, 1, "test-pod-numa-metric", metric.AggregatorAvg, metric.DefaultContainerMetricFilter)
 	assert.Equal(t, float64(1), avg.Value)
 
 	f.metricStore.SetCPUMetric(1, "test-cpu-metric", metric.MetricData{Value: 1, Time: &now})

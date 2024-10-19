@@ -142,7 +142,7 @@ func TestSample(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 0.0, data.Value)
 
-	data, err = f.metricStore.GetContainerNumaMetric("2126079c-8e0a-4cfe-9a0b-583199c14027", "testContainer", "0", consts.MetricsMemFilePerNumaContainer)
+	data, err = f.metricStore.GetContainerNumaMetric("2126079c-8e0a-4cfe-9a0b-583199c14027", "testContainer", 0, consts.MetricsMemFilePerNumaContainer)
 	require.NoError(t, err)
 	require.Equal(t, float64(3352<<12), data.Value)
 }
