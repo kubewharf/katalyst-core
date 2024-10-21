@@ -138,6 +138,7 @@ func getTestDynamicPolicyWithInitialization(topology *machine.CPUTopology, machi
 		stopCh:           make(chan struct{}),
 		podDebugAnnoKeys: []string{podDebugAnnoKey},
 		enableNonBindingShareCoresMemoryResourceCheck: true,
+		numaBindResultResourceAllocationAnnotationKey: coreconsts.QRMResourceAnnotationKeyNUMABindResult,
 	}
 
 	policyImplement.allocationHandlers = map[string]util.AllocationHandler{
@@ -933,7 +934,10 @@ func TestAllocate(t *testing.T) {
 							IsNodeResource:    false,
 							IsScalarResource:  true,
 							AllocatedQuantity: 2147483648,
-							AllocationResult:  machine.NewCPUSet(0).String(),
+							Annotations: map[string]string{
+								coreconsts.QRMResourceAnnotationKeyNUMABindResult: "0",
+							},
+							AllocationResult: machine.NewCPUSet(0).String(),
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
