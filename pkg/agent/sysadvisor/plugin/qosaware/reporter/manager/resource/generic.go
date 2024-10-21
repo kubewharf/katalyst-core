@@ -114,10 +114,22 @@ func (m *GenericHeadroomManager) GetAllocatable() (resource.Quantity, error) {
 	return m.getLastReportResult()
 }
 
+func (m *GenericHeadroomManager) GetNumaAllocatable() (map[int]resource.Quantity, error) {
+	m.RLock()
+	defer m.RUnlock()
+	return m.getLastReportNUMAResult()
+}
+
 func (m *GenericHeadroomManager) GetCapacity() (resource.Quantity, error) {
 	m.RLock()
 	defer m.RUnlock()
 	return m.getLastReportResult()
+}
+
+func (m *GenericHeadroomManager) GetNumaCapacity() (map[int]resource.Quantity, error) {
+	m.RLock()
+	defer m.RUnlock()
+	return m.getLastReportNUMAResult()
 }
 
 func (m *GenericHeadroomManager) Run(ctx context.Context) {
