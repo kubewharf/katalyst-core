@@ -608,6 +608,7 @@ func (tmo *transparentMemoryOffloading) GetAdvices() types.InternalMemoryCalcula
 		if tmoEngine.GetConf().EnableSwap {
 			enableSwap = consts.ControlKnobON
 		}
+
 		entry := types.ContainerMemoryAdvices{
 			PodUID:        tmoEngine.GetContainerInfo().PodUID,
 			ContainerName: tmoEngine.GetContainerInfo().ContainerName,
