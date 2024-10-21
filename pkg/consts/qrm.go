@@ -22,3 +22,8 @@ const (
 
 	MainContainerNameAnnotationKey = "kubernetes.io/main-container-name"
 )
+
+const (
+	// QRMResourceAnnotationKeyNUMABindResult is the annotation key for the numa binding result
+	QRMResourceAnnotationKeyNUMABindResult = "qrm.katalyst.kubewharf.io/numa_bind_result"
+)

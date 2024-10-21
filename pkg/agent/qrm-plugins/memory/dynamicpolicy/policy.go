@@ -149,8 +149,9 @@ type DynamicPolicy struct {
 
 	enableNonBindingShareCoresMemoryResourceCheck bool
 
-	enableNUMAAllocationReactor bool
-	numaAllocationReactor       reactor.AllocationReactor
+	enableNUMAAllocationReactor                   bool
+	numaAllocationReactor                         reactor.AllocationReactor
+	numaBindResultResourceAllocationAnnotationKey string
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -217,6 +218,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		enableEvictingLogCache:     conf.EnableEvictingLogCache,
 		enableNonBindingShareCoresMemoryResourceCheck: conf.EnableNonBindingShareCoresMemoryResourceCheck,
 		enableNUMAAllocationReactor:                   conf.EnableNUMAAllocationReactor,
+		numaBindResultResourceAllocationAnnotationKey: conf.NUMABindResultResourceAllocationAnnotationKey,
 	}
 
 	policyImplement.allocationHandlers = map[string]util.AllocationHandler{
