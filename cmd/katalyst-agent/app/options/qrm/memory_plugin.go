@@ -22,6 +22,7 @@ import (
 	cliflag "k8s.io/component-base/cli/flag"
 
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
 
 type MemoryOptions struct {
@@ -35,6 +36,7 @@ type MemoryOptions struct {
 	OOMPriorityPinnedMapAbsPath                   string
 	EnableNonBindingShareCoresMemoryResourceCheck bool
 	EnableNUMAAllocationReactor                   bool
+	NUMABindResultResourceAllocationAnnotationKey string
 
 	SockMemOptions
 	LogCacheOptions
@@ -126,6 +128,8 @@ func (o *MemoryOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.EnableNonBindingShareCoresMemoryResourceCheck, "enable the topology check for non-binding shares cores pods")
 	fs.BoolVar(&o.EnableNUMAAllocationReactor, "enable-numa-allocation-reactor",
 		o.EnableNUMAAllocationReactor, "enable numa allocation reactor for numa binding pods to patch pod numa binding result annotation")
+	fs.StringVar(&o.NUMABindResultResourceAllocationAnnotationKey, "numa-bind-result-resource-allocation-annotation-key",
+		o.NUMABindResultResourceAllocationAnnotationKey, "the key of numa bind result resource allocation annotation")
 	fs.StringVar(&o.OOMPriorityPinnedMapAbsPath, "oom-priority-pinned-bpf-map-path",
 		o.OOMPriorityPinnedMapAbsPath, "the absolute path of oom priority pinned bpf map")
 	fs.BoolVar(&o.EnableSettingSockMem, "enable-setting-sockmem",
@@ -164,6 +168,7 @@ func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
 	conf.EnableOOMPriority = o.EnableOOMPriority
 	conf.EnableNonBindingShareCoresMemoryResourceCheck = o.EnableNonBindingShareCoresMemoryResourceCheck
 	conf.EnableNUMAAllocationReactor = o.EnableNUMAAllocationReactor
+	conf.NUMABindResultResourceAllocationAnnotationKey = o.NUMABindResultResourceAllocationAnnotationKey
 	conf.OOMPriorityPinnedMapAbsPath = o.OOMPriorityPinnedMapAbsPath
 	conf.EnableSettingSockMem = o.EnableSettingSockMem
 	conf.SetGlobalTCPMemRatio = o.SetGlobalTCPMemRatio
