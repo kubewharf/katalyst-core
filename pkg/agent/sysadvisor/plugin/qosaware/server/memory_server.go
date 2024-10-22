@@ -212,9 +212,9 @@ func (ms *memoryServer) assembleResponse(result *types.InternalMemoryCalculation
 		return nil
 	}
 
-	numaHeadroom := make(map[int]float64)
+	numaHeadroom := make(memoryadvisor.MemoryNUMAHeadroom)
 	for numaID, res := range numaAllocatable {
-		numaHeadroom[numaID] = float64(res.Value())
+		numaHeadroom[numaID] = res.Value()
 	}
 	data, err := json.Marshal(numaHeadroom)
 	if err != nil {
