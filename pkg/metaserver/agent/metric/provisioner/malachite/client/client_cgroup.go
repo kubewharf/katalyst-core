@@ -104,7 +104,7 @@ func (c *MalachiteClient) getCgroupStats(cgroupPath string) ([]byte, error) {
 
 	defer func() { _ = rsp.Body.Close() }()
 	if rsp.StatusCode != 200 {
-		return nil, fmt.Errorf("invalid http response status code %d, url: %s", rsp.StatusCode, req.URL)
+		return nil, fmt.Errorf("invalid http response status code %d, url: %v", rsp.StatusCode, req.URL)
 	}
 
 	return ioutil.ReadAll(rsp.Body)
