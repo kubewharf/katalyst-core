@@ -28,6 +28,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
@@ -39,7 +40,8 @@ func init() {
 }
 
 type ProvisionerInitFunc func(baseConf *global.BaseConfiguration, metricConf *metaserver.MetricConfiguration,
-	emitter metrics.MetricEmitter, fetcher pod.PodFetcher, metricStore *utilmetric.MetricStore) types.MetricsProvisioner
+	emitter metrics.MetricEmitter, fetcher pod.PodFetcher, metricStore *utilmetric.MetricStore,
+	machineInfo *machine.KatalystMachineInfo) types.MetricsProvisioner
 
 // provisioners stores the initializing function for each-provisioner
 var provisioners sync.Map
