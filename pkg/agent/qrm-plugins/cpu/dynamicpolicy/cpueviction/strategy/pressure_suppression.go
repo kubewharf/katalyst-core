@@ -34,6 +34,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/qos"
@@ -42,9 +43,10 @@ import (
 const EvictionNameSuppression = "cpu-pressure-suppression-plugin"
 
 type CPUPressureSuppression struct {
-	conf       *config.Configuration
-	state      state.ReadonlyState
-	metaServer *metaserver.MetaServer
+	conf                                         *config.Configuration
+	state                                        state.ReadonlyState
+	metaServer                                   *metaserver.MetaServer
+	nonNUMABindingReclaimRelativeRootCgroupPaths map[int]string
 
 	lastToleranceTime sync.Map
 }
@@ -56,6 +58,8 @@ func NewCPUPressureSuppressionEviction(_ metrics.MetricEmitter, metaServer *meta
 		conf:       conf,
 		state:      state,
 		metaServer: metaServer,
+		nonNUMABindingReclaimRelativeRootCgroupPaths: common.GetNUMABindingReclaimRelativeRootCgroupPaths(conf.ReclaimRelativeRootCgroupPath,
+			metaServer.CPUDetails.NUMANodes().ToSliceNoSortInt()),
 	}, nil
 }
 
@@ -94,9 +98,23 @@ func (p *CPUPressureSuppression) GetEvictPods(_ context.Context, request *plugin
 		return &pluginapi.GetEvictPodsResponse{}, nil
 	}
 
+	// get reclaim metrics
 	reclaimMetrics, err := helper.GetReclaimMetrics(poolCPUSet, p.conf.ReclaimRelativeRootCgroupPath, p.metaServer.MetricsFetcher)
 	if err != nil {
 		return nil, fmt.Errorf("get reclaim metrics failed: %s", err)
+	}
+
+	// get numa binding reclaim metrics
+	numaBindingReclaimMetrics := make(map[int]*helper.ReclaimMetrics, len(p.nonNUMABindingReclaimRelativeRootCgroupPaths))
+	for numaNode, reclaimRelativeRootCgroupPath := range p.nonNUMABindingReclaimRelativeRootCgroupPaths {
+		if !general.IsPathExists(reclaimRelativeRootCgroupPath) {
+			continue
+		}
+
+		numaBindingReclaimMetrics[numaNode], err = helper.GetReclaimMetrics(poolCPUSet, reclaimRelativeRootCgroupPath, p.metaServer.MetricsFetcher)
+		if err != nil {
+			return nil, fmt.Errorf("get reclaim metrics failed: %s", err)
+		}
 	}
 
 	filteredPods := native.FilterPods(request.ActivePods, p.conf.CheckReclaimedQoSForPod)
@@ -125,8 +143,24 @@ func (p *CPUPressureSuppression) GetEvictPods(_ context.Context, request *plugin
 	var evictPods []*v1alpha1.EvictPod
 	for _, pod := range filteredPods {
 		key := native.GenerateUniqObjectNameKey(pod)
+		actualReclaimMetrics := reclaimMetrics
+		if qos.IsPodNumaBinding(p.conf.QoSConfiguration, pod) {
+			result, err := qos.GetActualNUMABindingResult(pod)
+			if err != nil {
+				return nil, err
+			}
+
+			// if pod is actually numa binding, use numa binding reclaim metrics
+			// otherwise use default reclaim metrics
+			if result != -1 && numaBindingReclaimMetrics[result] != nil {
+				actualReclaimMetrics = numaBindingReclaimMetrics[result]
+			} else {
+				actualReclaimMetrics = reclaimMetrics
+			}
+		}
+
 		poolSuppressionRate := 0.0
-		if reclaimMetrics.ReclaimedCoresSupply == 0 {
+		if actualReclaimMetrics.ReclaimedCoresSupply == 0 {
 			poolSuppressionRate = math.MaxFloat64
 		} else {
 			poolSuppressionRate = float64(totalCPURequest.Value()) / reclaimMetrics.ReclaimedCoresSupply
