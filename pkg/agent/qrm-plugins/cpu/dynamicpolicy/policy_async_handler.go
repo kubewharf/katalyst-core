@@ -295,4 +295,16 @@ func (p *DynamicPolicy) syncCPUIdle(_ *coreconfig.Configuration,
 		general.Errorf("ApplyCPUWithRelativePath in %s with enableCPUIdle: %v in failed with error: %v",
 			p.reclaimRelativeRootCgroupPath, p.enableCPUIdle, err)
 	}
+
+	// sync numa binding reclaim cgroup
+	for _, cgroupPath := range p.numaBindingReclaimRelativeRootCgroupPaths {
+		if !general.IsPathExists(cgroupPath) {
+			continue
+		}
+		err = cgroupcmutils.ApplyCPUWithRelativePath(cgroupPath, &cgroupcm.CPUData{CpuIdlePtr: &p.enableCPUIdle})
+		if err != nil {
+			general.Errorf("ApplyCPUWithRelativePath in %s with enableCPUIdle: %v in failed with error: %v",
+				cgroupPath, p.enableCPUIdle, err)
+		}
+	}
 }

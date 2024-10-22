@@ -32,6 +32,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
@@ -55,6 +56,7 @@ func NewRodanMetricsProvisioner(
 	emitter metrics.MetricEmitter,
 	fetcher pod.PodFetcher,
 	metricStore *utilmetric.MetricStore,
+	_ *machine.KatalystMachineInfo,
 ) metrictypes.MetricsProvisioner {
 	return &RodanMetricsProvisioner{
 		metricStore: metricStore,

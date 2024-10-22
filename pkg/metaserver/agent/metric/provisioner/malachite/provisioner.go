@@ -36,6 +36,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
@@ -55,13 +56,14 @@ const (
 
 // NewMalachiteMetricsProvisioner returns the default implementation of MetricsFetcher.
 func NewMalachiteMetricsProvisioner(baseConf *global.BaseConfiguration, _ *metaserver.MetricConfiguration,
-	emitter metrics.MetricEmitter, fetcher pod.PodFetcher, metricStore *utilmetric.MetricStore,
+	emitter metrics.MetricEmitter, fetcher pod.PodFetcher, metricStore *utilmetric.MetricStore, machineInfo *machine.KatalystMachineInfo,
 ) types.MetricsProvisioner {
 	return &MalachiteMetricsProvisioner{
 		malachiteClient: client.NewMalachiteClient(fetcher),
 		metricStore:     metricStore,
 		emitter:         emitter,
 		baseConf:        baseConf,
+		machineInfo:     machineInfo,
 	}
 }
 
@@ -70,6 +72,7 @@ type MalachiteMetricsProvisioner struct {
 	malachiteClient *client.MalachiteClient
 	baseConf        *global.BaseConfiguration
 	emitter         metrics.MetricEmitter
+	machineInfo     *machine.KatalystMachineInfo
 	startOnce       sync.Once
 	cpuToNumaMap    map[int]int
 }
@@ -168,6 +171,12 @@ func (m *MalachiteMetricsProvisioner) updateSystemStats() error {
 
 func (m *MalachiteMetricsProvisioner) getCgroupPaths() []string {
 	cgroupPaths := []string{m.baseConf.ReclaimRelativeRootCgroupPath, common.CgroupFsRootPathBurstable, common.CgroupFsRootPathBestEffort}
+	// add numa binding cgroup paths
+	for _, path := range common.GetNUMABindingReclaimRelativeRootCgroupPaths(m.baseConf.ReclaimRelativeRootCgroupPath,
+		m.machineInfo.CPUDetails.NUMANodes().ToSliceNoSortInt()) {
+		cgroupPaths = append(cgroupPaths, path)
+	}
+
 	for _, path := range m.baseConf.OptionalRelativeCgroupPaths {
 		absPath := common.GetAbsCgroupPath(common.DefaultSelectedSubsys, path)
 		if !general.IsPathExists(absPath) {
@@ -176,6 +185,7 @@ func (m *MalachiteMetricsProvisioner) getCgroupPaths() []string {
 		}
 		cgroupPaths = append(cgroupPaths, path)
 	}
+
 	for _, path := range m.baseConf.GeneralRelativeCgroupPaths {
 		cgroupPaths = append(cgroupPaths, path)
 	}
