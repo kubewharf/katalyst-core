@@ -31,10 +31,13 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/eviction"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
@@ -42,9 +45,10 @@ import (
 const EvictionNameSuppression = "cpu-pressure-suppression-plugin"
 
 type CPUPressureSuppression struct {
-	conf       *config.Configuration
-	state      state.ReadonlyState
-	metaServer *metaserver.MetaServer
+	conf                                         *config.Configuration
+	state                                        state.ReadonlyState
+	metaServer                                   *metaserver.MetaServer
+	nonNUMABindingReclaimRelativeRootCgroupPaths map[int]string
 
 	lastToleranceTime sync.Map
 }
@@ -56,6 +60,8 @@ func NewCPUPressureSuppressionEviction(_ metrics.MetricEmitter, metaServer *meta
 		conf:       conf,
 		state:      state,
 		metaServer: metaServer,
+		nonNUMABindingReclaimRelativeRootCgroupPaths: common.GetNUMABindingReclaimRelativeRootCgroupPaths(conf.ReclaimRelativeRootCgroupPath,
+			metaServer.CPUDetails.NUMANodes().ToSliceNoSortInt()),
 	}, nil
 }
 
@@ -94,11 +100,6 @@ func (p *CPUPressureSuppression) GetEvictPods(_ context.Context, request *plugin
 		return &pluginapi.GetEvictPodsResponse{}, nil
 	}
 
-	reclaimMetrics, err := helper.GetReclaimMetrics(poolCPUSet, p.conf.ReclaimRelativeRootCgroupPath, p.metaServer.MetricsFetcher)
-	if err != nil {
-		return nil, fmt.Errorf("get reclaim metrics failed: %s", err)
-	}
-
 	filteredPods := native.FilterPods(request.ActivePods, p.conf.CheckReclaimedQoSForPod)
 	if len(filteredPods) == 0 {
 		return &pluginapi.GetEvictPodsResponse{}, nil
@@ -111,17 +112,119 @@ func (p *CPUPressureSuppression) GetEvictPods(_ context.Context, request *plugin
 		native.PodUniqKeyCmpFunc,
 	).Sort(native.NewPodSourceImpList(filteredPods))
 
-	// sum all pod cpu request
+	now := time.Now()
+	evictPods := make([]*v1alpha1.EvictPod, 0)
+	nonActualNUMABindingPods, err := p.evictNonActualNUMABindingPods(now, filteredPods, poolCPUSet, dynamicConfig.CPUPressureEvictionConfiguration)
+	if err != nil {
+		return nil, err
+	}
+	evictPods = append(evictPods, nonActualNUMABindingPods...)
+
+	actualNUMABindingPods, err := p.evictActualNUMABindingPods(now, filteredPods, poolCPUSet, dynamicConfig.CPUPressureEvictionConfiguration)
+	if err != nil {
+		return nil, err
+	}
+	evictPods = append(evictPods, actualNUMABindingPods...)
+
+	// clear inactive filtered pod from lastToleranceTime
+	filteredPodsMap := native.GetPodNamespaceNameKeyMap(filteredPods)
+	p.lastToleranceTime.Range(func(key, _ interface{}) bool {
+		if _, ok := filteredPodsMap[key.(string)]; !ok {
+			p.lastToleranceTime.Delete(key)
+		}
+		return true
+	})
+
+	return &pluginapi.GetEvictPodsResponse{EvictPods: evictPods}, nil
+}
+
+func (p *CPUPressureSuppression) evictNonActualNUMABindingPods(now time.Time, filteredPods []*v1.Pod, poolCPUSet machine.CPUSet,
+	evictionConfiguration *eviction.CPUPressureEvictionConfiguration,
+) ([]*v1alpha1.EvictPod, error) {
+	nonActualNUMABindingCPUSet := machine.NewCPUSet()
+	nonActualNUMABindingNUMAs := p.state.GetMachineState().GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMABinding))
+	for _, numaID := range nonActualNUMABindingNUMAs.ToSliceNoSortInt() {
+		nonActualNUMABindingCPUSet = nonActualNUMABindingCPUSet.Union(poolCPUSet.Intersection(p.metaServer.CPUDetails.CPUsInNUMANodes(numaID)))
+	}
+
+	// get reclaim metrics
+	reclaimMetrics, err := helper.GetReclaimMetrics(nonActualNUMABindingCPUSet, p.conf.ReclaimRelativeRootCgroupPath, p.metaServer.MetricsFetcher)
+	if err != nil {
+		return nil, fmt.Errorf("get reclaim metrics failed: %s", err)
+	}
+
+	filterPods := native.FilterPods(filteredPods, func(pod *v1.Pod) (bool, error) {
+		if qos.IsPodNumaBinding(p.conf.QoSConfiguration, pod) {
+			result, err := qos.GetActualNUMABindingResult(pod)
+			if err != nil {
+				return false, err
+			}
+
+			return result == -1, nil
+		}
+		return true, nil
+	})
+
+	general.InfoS("filterPods", "cpuSet",
+		nonActualNUMABindingCPUSet.String(), "podCount", len(filterPods))
+	return p.evictPodsByReclaimMetrics(now, filterPods, reclaimMetrics, evictionConfiguration)
+}
+
+func (p *CPUPressureSuppression) evictActualNUMABindingPods(now time.Time, filteredPods []*v1.Pod, poolCPUSet machine.CPUSet,
+	evictionConfiguration *eviction.CPUPressureEvictionConfiguration,
+) ([]*v1alpha1.EvictPod, error) {
+	var evictPods []*v1alpha1.EvictPod
+	for numaID, reclaimRelativeRootCgroupPath := range p.nonNUMABindingReclaimRelativeRootCgroupPaths {
+		if !general.IsPathExists(common.GetAbsCgroupPath(common.DefaultSelectedSubsys, reclaimRelativeRootCgroupPath)) {
+			continue
+		}
+
+		actualNUMABindingCPUSet := poolCPUSet.Intersection(p.metaServer.CPUDetails.CPUsInNUMANodes(numaID))
+
+		// get reclaim metrics
+		reclaimMetrics, err := helper.GetReclaimMetrics(actualNUMABindingCPUSet,
+			reclaimRelativeRootCgroupPath, p.metaServer.MetricsFetcher)
+		if err != nil {
+			return nil, fmt.Errorf("get reclaim metrics failed: %s", err)
+		}
+
+		filterPods := native.FilterPods(filteredPods, func(pod *v1.Pod) (bool, error) {
+			if qos.IsPodNumaBinding(p.conf.QoSConfiguration, pod) {
+				result, err := qos.GetActualNUMABindingResult(pod)
+				if err != nil {
+					return false, err
+				}
+
+				return result == numaID, nil
+			}
+			return false, nil
+		})
+
+		general.InfoS("filterPods", "numaID", numaID, "cpuSet",
+			actualNUMABindingCPUSet.String(), "podCount", len(filterPods))
+		pods, err := p.evictPodsByReclaimMetrics(now, filterPods, reclaimMetrics, evictionConfiguration)
+		if err != nil {
+			return nil, err
+		}
+
+		evictPods = append(evictPods, pods...)
+	}
+
+	return evictPods, nil
+}
+
+func (p *CPUPressureSuppression) evictPodsByReclaimMetrics(now time.Time, filteredPods []*v1.Pod,
+	reclaimMetrics *helper.ReclaimMetrics, evictionConfiguration *eviction.CPUPressureEvictionConfiguration,
+) ([]*v1alpha1.EvictPod, error) {
 	totalCPURequest := resource.Quantity{}
 	for _, pod := range filteredPods {
 		totalCPURequest.Add(native.CPUQuantityGetter()(native.SumUpPodRequestResources(pod)))
 	}
 
 	general.InfoS("info", "reclaim cpu request", totalCPURequest.String(),
-		"reclaim pool size", poolSize, "reclaimedCoresSupply", reclaimMetrics.ReclaimedCoresSupply,
+		"reclaim pool size", reclaimMetrics.Size, "reclaimedCoresSupply", reclaimMetrics.ReclaimedCoresSupply,
 		"reclaimPoolUsage", reclaimMetrics.PoolCPUUsage, "reclaimedCoresUsage", reclaimMetrics.CgroupCPUUsage)
 
-	now := time.Now()
 	var evictPods []*v1alpha1.EvictPod
 	for _, pod := range filteredPods {
 		key := native.GenerateUniqObjectNameKey(pod)
@@ -132,7 +235,7 @@ func (p *CPUPressureSuppression) GetEvictPods(_ context.Context, request *plugin
 			poolSuppressionRate = float64(totalCPURequest.Value()) / reclaimMetrics.ReclaimedCoresSupply
 		}
 
-		if podToleranceRate := p.getPodToleranceRate(pod, dynamicConfig.MaxSuppressionToleranceRate); podToleranceRate < poolSuppressionRate {
+		if podToleranceRate := p.getPodToleranceRate(pod, evictionConfiguration.MaxSuppressionToleranceRate); podToleranceRate < poolSuppressionRate {
 			last, _ := p.lastToleranceTime.LoadOrStore(key, now)
 			lastDuration := now.Sub(last.(time.Time))
 			general.Infof("current pool suppression rate %.2f, "+
@@ -140,7 +243,7 @@ func (p *CPUPressureSuppression) GetEvictPods(_ context.Context, request *plugin
 				podToleranceRate, key, now.Sub(last.(time.Time)))
 
 			// a pod will only be evicted if its cpu suppression lasts longer than minToleranceDuration
-			if lastDuration > dynamicConfig.MinSuppressionToleranceDuration {
+			if lastDuration > evictionConfiguration.MinSuppressionToleranceDuration {
 				evictPods = append(evictPods, &v1alpha1.EvictPod{
 					Pod: pod,
 					Reason: fmt.Sprintf("current pool suppression rate %.2f is over than the "+
@@ -153,16 +256,7 @@ func (p *CPUPressureSuppression) GetEvictPods(_ context.Context, request *plugin
 		}
 	}
 
-	// clear inactive filtered pod from lastToleranceTime
-	filteredPodsMap := native.GetPodNamespaceNameKeyMap(filteredPods)
-	p.lastToleranceTime.Range(func(key, _ interface{}) bool {
-		if _, ok := filteredPodsMap[key.(string)]; !ok {
-			p.lastToleranceTime.Delete(key)
-		}
-		return true
-	})
-
-	return &pluginapi.GetEvictPodsResponse{EvictPods: evictPods}, nil
+	return evictPods, nil
 }
 
 // getPodToleranceRate returns pod suppression tolerance rate,
