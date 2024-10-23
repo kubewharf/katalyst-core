@@ -151,18 +151,20 @@ func (cs *cpuServer) assembleResponse(result *types.InternalCPUCalculationResult
 	cs.assemblePoolEntries(result, calculationEntriesMap, blockID2Blocks)
 
 	// assmble per-numa headroom
+	var data []byte
 	numaAllocatable, err := cs.headroomResourceManager.GetNumaAllocatable()
 	if err != nil {
-		return nil, fmt.Errorf("get numa allocatable failed: %v", err)
-	}
-
-	numaHeadroom := make(map[int]float64)
-	for numaID, res := range numaAllocatable {
-		numaHeadroom[numaID] = float64(res.Value())
-	}
-	data, err := json.Marshal(numaHeadroom)
-	if err != nil {
-		return nil, fmt.Errorf("marshal numa headroom failed: %v", err)
+		// ignore get allocatable failed
+		klog.Errorf("get numa allocatable failed: %v", err)
+	} else {
+		numaHeadroom := make(map[int]float64)
+		for numaID, res := range numaAllocatable {
+			numaHeadroom[numaID] = float64(res.Value()) / 1000.0
+		}
+		data, err = json.Marshal(numaHeadroom)
+		if err != nil {
+			klog.Errorf("get numa allocatable failed: %v", err)
+		}
 	}
 
 	calculationResult := &advisorsvc.CalculationResult{

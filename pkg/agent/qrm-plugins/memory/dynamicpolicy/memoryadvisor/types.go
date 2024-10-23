@@ -28,3 +28,5 @@ const (
 	ControlKnowKeyMemoryOffloading   MemoryControlKnobName = "memory_offloading"
 	ControlKnobKeyMemoryNUMAHeadroom MemoryControlKnobName = "memory_numa_headroom"
 )
+
+type MemoryNUMAHeadroom map[int]int64

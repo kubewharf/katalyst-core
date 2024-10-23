@@ -206,20 +206,20 @@ func (ms *memoryServer) assembleResponse(result *types.InternalMemoryCalculation
 	}
 
 	// assmble per-numa headroom
+	var data []byte
 	numaAllocatable, err := ms.headroomResourceManager.GetNumaAllocatable()
 	if err != nil {
+		// ignore get allocatable failed
 		general.ErrorS(err, "get numa allocatable failed")
-		return nil
-	}
-
-	numaHeadroom := make(map[int]float64)
-	for numaID, res := range numaAllocatable {
-		numaHeadroom[numaID] = float64(res.Value())
-	}
-	data, err := json.Marshal(numaHeadroom)
-	if err != nil {
-		general.ErrorS(err, "marshal numa headroom failed")
-		return nil
+	} else {
+		numaHeadroom := make(memoryadvisor.MemoryNUMAHeadroom)
+		for numaID, res := range numaAllocatable {
+			numaHeadroom[numaID] = res.Value()
+		}
+		data, err = json.Marshal(numaHeadroom)
+		if err != nil {
+			general.ErrorS(err, "marshal numa headroom failed")
+		}
 	}
 
 	calculationResult := &advisorsvc.CalculationResult{

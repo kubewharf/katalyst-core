@@ -29,6 +29,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
@@ -37,14 +38,19 @@ func Test_noneExistMetricsProvisioner(t *testing.T) {
 
 	store := utilmetric.NewMetricStore()
 
-	var err error
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	assert.Nil(t, err)
+
 	implement := NewMalachiteMetricsProvisioner(&global.BaseConfiguration{
 		ReclaimRelativeRootCgroupPath: "test",
 		MalachiteConfiguration: &global.MalachiteConfiguration{
 			GeneralRelativeCgroupPaths:  []string{"d1", "d2"},
 			OptionalRelativeCgroupPaths: []string{"d3", "d4"},
 		},
-	}, &metaserver.MetricConfiguration{}, metrics.DummyMetrics{}, &pod.PodFetcherStub{}, store)
+	}, &metaserver.MetricConfiguration{}, metrics.DummyMetrics{}, &pod.PodFetcherStub{}, store,
+		&machine.KatalystMachineInfo{
+			CPUTopology: cpuTopology,
+		})
 
 	fakeSystemCompute := &malachitetypes.SystemComputeData{
 		CPU: []malachitetypes.CPU{
@@ -195,5 +201,8 @@ func Test_noneExistMetricsProvisioner(t *testing.T) {
 	defer monkey.UnpatchAll()
 
 	paths := implement.(*MalachiteMetricsProvisioner).getCgroupPaths()
-	assert.ElementsMatch(t, paths, []string{"d1", "d2", "d3", "/kubepods/burstable", "/kubepods/besteffort", "test"})
+	assert.ElementsMatch(t, paths, []string{
+		"d1", "d2", "d3", "/kubepods/burstable", "/kubepods/besteffort",
+		"test", "test-0", "test-1", "test-2", "test-3",
+	})
 }
