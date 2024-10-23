@@ -199,6 +199,11 @@ func (m *MalachiteMetricsProvisioner) updateCgroupData() error {
 	cgroupPaths := m.getCgroupPaths()
 	errList := make([]error, 0)
 	for _, path := range cgroupPaths {
+		if !general.IsPathExists(path) {
+			general.Warningf("cgroup path %v not existed, ignore it", path)
+			continue
+		}
+
 		stats, err := m.malachiteClient.GetCgroupStats(path)
 		if err != nil {
 			errList = append(errList, err)
