@@ -17,6 +17,8 @@ limitations under the License.
 package controller
 
 import (
+	"time"
+
 	"github.com/kubewharf/katalyst-core/pkg/util/datasource/prometheus"
 )
 
@@ -34,6 +36,10 @@ type ResourceRecommenderConfig struct {
 	// LogVerbosityLevel to specify log verbosity level. (The default level is 4)
 	// Set it to something larger than 4 if more detailed logs are needed.
 	LogVerbosityLevel string
+
+	// number of workers to sync
+	RecSyncWorkers int
+	RecSyncPeriod  time.Duration
 }
 
 func NewResourceRecommenderConfig() *ResourceRecommenderConfig {
