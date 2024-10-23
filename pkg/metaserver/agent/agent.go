@@ -96,7 +96,11 @@ func NewMetaAgent(conf *config.Configuration, clientSet *client.GenericClientSet
 	}
 
 	if conf.EnableMetricsFetcher {
-		metaAgent.MetricsFetcher = metric.NewMetricsFetcher(conf.BaseConfiguration, conf.MetaServerConfiguration.MetricConfiguration, emitter, metaAgent)
+		metaAgent.MetricsFetcher = metric.NewMetricsFetcher(conf.BaseConfiguration,
+			conf.MetaServerConfiguration.MetricConfiguration,
+			emitter,
+			metaAgent,
+			machineInfo)
 	} else {
 		metaAgent.MetricsFetcher = metric.NewFakeMetricsFetcher(emitter)
 	}

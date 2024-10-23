@@ -48,7 +48,7 @@ func (p *NativePolicy) dedicatedCoresHintHandler(ctx context.Context,
 
 	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
 	if allocationInfo != nil {
-		hints = cpuutil.RegenerateHints(allocationInfo, reqInt)
+		hints = cpuutil.RegenerateHints(allocationInfo, false)
 
 		// regenerateHints failed. need to clear container record and re-calculate.
 		if hints == nil {

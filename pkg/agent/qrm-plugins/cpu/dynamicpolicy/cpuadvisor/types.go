@@ -14,16 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package consts
+package cpuadvisor
+
+type CPUControlKnobName string
 
 const (
-	// KubeletQoSResourceManagerCheckpoint is the name of the checkpoint file for kubelet QoS resource manager
-	KubeletQoSResourceManagerCheckpoint = "kubelet_qrm_checkpoint"
-
-	MainContainerNameAnnotationKey = "kubernetes.io/main-container-name"
+	ControlKnobKeyCPUNUMAHeadroom CPUControlKnobName = "cpu_numa_headroom"
 )
 
-const (
-	// QRMResourceAnnotationKeyNUMABindResult is the annotation key for the numa binding result
-	QRMResourceAnnotationKeyNUMABindResult = "qrm.katalyst.kubewharf.io/numa_bind_result"
-)
+type CPUNUMAHeadroom map[int]float64
