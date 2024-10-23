@@ -471,7 +471,7 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingReclaimedCores(reqInt int64,
 	nonActualBindingNUMAsMemoryQuantity := machineState.GetNonActualNUMABindingAvailableHeadroom(numaHeadroomState)
 
 	// Determine the set of NUMA nodes currently hosting non-RNB pods
-	nonActualBindingNUMAs := machineState.GetNUMANodesWithoutReclaimedNonActualNUMABindingPods()
+	nonActualBindingNUMAs := machineState.GetNUMANodesWithoutReclaimedActualNUMABindingPods()
 
 	// Calculate the total requested resources for non-RNB reclaimed pods
 	nonBindingReclaimedRequestedQuantity := state.GetRequestedQuantityFromPodEntries(podEntries,
