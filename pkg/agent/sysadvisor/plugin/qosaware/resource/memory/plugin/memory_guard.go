@@ -179,7 +179,7 @@ func (mg *memoryGuard) updateNonActualNUMABindingReclaimMemoryLimit(watermarkSca
 func (mg *memoryGuard) updateActualNUMABindingReclaimMemoryLimit(watermarkScaleFactor float64) error {
 	numaBindingReclaimMemoryLimitMap := make(map[int]int64, len(mg.metaServer.Topology))
 	for _, numaID := range mg.metaServer.CPUDetails.NUMANodes().ToSliceNoSortInt() {
-		if !general.IsPathExists(mg.numaBindingRelativeRootCgroupPaths[numaID]) {
+		if !general.IsPathExists(common.GetAbsCgroupPath(common.DefaultSelectedSubsys, mg.numaBindingRelativeRootCgroupPaths[numaID])) {
 			continue
 		}
 

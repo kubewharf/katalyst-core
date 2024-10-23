@@ -107,7 +107,7 @@ func (p *CPUPressureSuppression) GetEvictPods(_ context.Context, request *plugin
 	// get numa binding reclaim metrics
 	numaBindingReclaimMetrics := make(map[int]*helper.ReclaimMetrics, len(p.nonNUMABindingReclaimRelativeRootCgroupPaths))
 	for numaNode, reclaimRelativeRootCgroupPath := range p.nonNUMABindingReclaimRelativeRootCgroupPaths {
-		if !general.IsPathExists(reclaimRelativeRootCgroupPath) {
+		if !general.IsPathExists(common.GetAbsCgroupPath(common.DefaultSelectedSubsys, reclaimRelativeRootCgroupPath)) {
 			continue
 		}
 
