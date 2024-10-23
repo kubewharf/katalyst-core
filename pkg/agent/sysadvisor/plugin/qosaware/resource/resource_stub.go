@@ -47,14 +47,14 @@ func (r *ResourceAdvisorStub) GetSubAdvisor(resourceName types.QoSResourceName) 
 	return nil, nil
 }
 
-func (r *ResourceAdvisorStub) GetHeadroom(resourceName v1.ResourceName) (resource.Quantity, error) {
+func (r *ResourceAdvisorStub) GetHeadroom(resourceName v1.ResourceName) (resource.Quantity, map[int]resource.Quantity, error) {
 	r.Lock()
 	defer r.Unlock()
 
 	if quantity, ok := r.resources[resourceName]; ok {
-		return quantity, nil
+		return quantity, nil, nil
 	}
-	return resource.Quantity{}, fmt.Errorf("not exist")
+	return resource.Quantity{}, nil, fmt.Errorf("not exist")
 }
 
 func (r *ResourceAdvisorStub) SetHeadroom(resourceName v1.ResourceName, quantity resource.Quantity) {
@@ -87,8 +87,8 @@ func (s *SubResourceAdvisorStub) GetChannels() (interface{}, interface{}) {
 	return nil, nil
 }
 
-func (s *SubResourceAdvisorStub) GetHeadroom() (resource.Quantity, error) {
-	return s.quantity, nil
+func (s *SubResourceAdvisorStub) GetHeadroom() (resource.Quantity, map[int]resource.Quantity, error) {
+	return s.quantity, nil, nil
 }
 
 func (s *SubResourceAdvisorStub) SetHeadroom(quantity resource.Quantity) {

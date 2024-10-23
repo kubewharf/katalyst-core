@@ -24,12 +24,13 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
 // NewCGroupMetricsProvisioner returns the default implementation of CGroup.
 func NewCGroupMetricsProvisioner(baseConf *global.BaseConfiguration, _ *metaserver.MetricConfiguration,
-	emitter metrics.MetricEmitter, _ pod.PodFetcher, metricStore *utilmetric.MetricStore,
+	emitter metrics.MetricEmitter, _ pod.PodFetcher, metricStore *utilmetric.MetricStore, _ *machine.KatalystMachineInfo,
 ) types.MetricsProvisioner {
 	return &CGroupMetricsProvisioner{
 		metricStore: metricStore,
