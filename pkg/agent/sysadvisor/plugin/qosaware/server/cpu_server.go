@@ -150,16 +150,19 @@ func (cs *cpuServer) assembleResponse(result *types.InternalCPUCalculationResult
 	blockID2Blocks := NewBlockSet()
 	cs.assemblePoolEntries(result, calculationEntriesMap, blockID2Blocks)
 
-	// assmble per-numa headroom
+	// assemble per-numa headroom
 	numaAllocatable, err := cs.headroomResourceManager.GetNumaAllocatable()
 	if err != nil {
 		return nil, fmt.Errorf("get numa allocatable failed: %v", err)
 	}
 
+	// transform numa allocatable to numa headroom for cpu plugin by dividing 1000
+	// because we store cpu numa headroom in milli-value in cnr
 	numaHeadroom := make(map[int]float64)
 	for numaID, res := range numaAllocatable {
-		numaHeadroom[numaID] = float64(res.Value())
+		numaHeadroom[numaID] = float64(res.Value()) / 1000.
 	}
+
 	data, err := json.Marshal(numaHeadroom)
 	if err != nil {
 		return nil, fmt.Errorf("marshal numa headroom failed: %v", err)
