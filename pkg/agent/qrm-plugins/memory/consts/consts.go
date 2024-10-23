@@ -34,4 +34,5 @@ const (
 	CommunicateWithAdvisor        = MemoryPluginDynamicPolicyName + "_communicate_with_advisor"
 	DropCache                     = MemoryPluginDynamicPolicyName + "_drop_cache"
 	EvictLogCache                 = MemoryPluginDynamicPolicyName + "_evict_log_cache"
+	SetMemCompact                 = MemoryPluginDynamicPolicyName + "_mem_compact"
 )

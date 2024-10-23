@@ -37,6 +37,7 @@ type MemoryOptions struct {
 
 	SockMemOptions
 	LogCacheOptions
+	FragMemOptions
 }
 
 type SockMemOptions struct {
@@ -64,6 +65,13 @@ type LogCacheOptions struct {
 	FileFilters []string
 }
 
+type FragMemOptions struct {
+	EnableSettingFragMem bool
+	// SetMemFragScoreAsync sets the threashold of frag score for async memory compaction.
+	// The async compaction behavior will be triggered while exceeding this score.
+	SetMemFragScoreAsync int
+}
+
 func NewMemoryOptions() *MemoryOptions {
 	return &MemoryOptions{
 		PolicyName:                 "dynamic",
@@ -86,6 +94,10 @@ func NewMemoryOptions() *MemoryOptions {
 			MaxInterval:            time.Second * 60 * 60 * 2,
 			PathList:               []string{},
 			FileFilters:            []string{".*\\.log.*"},
+		},
+		FragMemOptions: FragMemOptions{
+			EnableSettingFragMem: false,
+			SetMemFragScoreAsync: 80,
 		},
 	}
 }
@@ -131,6 +143,10 @@ func (o *MemoryOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"the absolute path list where files will be checked to evict page cache")
 	fs.StringSliceVar(&o.FileFilters, "qrm-memory-logcache-file-filters",
 		o.FileFilters, "string list to filter log files, default to *log*")
+	fs.BoolVar(&o.EnableSettingFragMem, "enable-setting-mem-compaction",
+		o.EnableSettingFragMem, "if set true, we will enable memory compaction related features")
+	fs.IntVar(&o.SetMemFragScoreAsync, "qrm-memory-frag-score-async",
+		o.SetMemFragScoreAsync, "set the threshold of frag score for async memory compaction")
 }
 
 func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
@@ -153,5 +169,7 @@ func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
 	conf.MaxInterval = o.MaxInterval
 	conf.PathList = o.PathList
 	conf.FileFilters = o.FileFilters
+	conf.EnableSettingFragMem = o.EnableSettingFragMem
+	conf.SetMemFragScoreAsync = o.SetMemFragScoreAsync
 	return nil
 }
