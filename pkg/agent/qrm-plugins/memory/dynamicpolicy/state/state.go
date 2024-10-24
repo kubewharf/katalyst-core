@@ -40,7 +40,7 @@ type AllocationInfo struct {
 	// keyed by numa node id, value is assignment for the pod in corresponding NUMA node
 	TopologyAwareAllocations map[int]uint64 `json:"topology_aware_allocations"`
 
-	// keyed by control knob names referred in memoryadvisor package
+	// keyed by control knob names referred in memory advisor package
 	ExtraControlKnobInfo map[string]commonstate.ControlKnobInfo `json:"extra_control_knob_info"`
 }
 
@@ -263,6 +263,63 @@ func (ns *NUMANodeState) HasDedicatedNUMABindingAndNUMAExclusivePods() bool {
 	return false
 }
 
+// HasReclaimedActualNUMABindingPods returns true if any AllocationInfo in this NUMANodeState is for reclaimed actual numa-binding
+func (ns *NUMANodeState) HasReclaimedActualNUMABindingPods() bool {
+	if ns == nil {
+		return false
+	}
+
+	for _, containerEntries := range ns.PodEntries {
+		for _, allocationInfo := range containerEntries {
+			if allocationInfo != nil && allocationInfo.CheckReclaimedActualNUMABinding() {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// HasReclaimedNonActualNUMABindingPods returns true if any AllocationInfo in this NUMANodeState is for reclaimed non-actual numa-binding
+func (ns *NUMANodeState) HasReclaimedNonActualNUMABindingPods() bool {
+	if ns == nil {
+		return false
+	}
+
+	for _, containerEntries := range ns.PodEntries {
+		for _, allocationInfo := range containerEntries {
+			if allocationInfo != nil && allocationInfo.CheckReclaimedNonActualNUMABinding() {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (ns *NUMANodeState) GetNonActualNUMABindingAvailableHeadroom(numaHeadroom int64) int64 {
+	res := numaHeadroom
+	for _, containerEntries := range ns.PodEntries {
+		for _, allocationInfo := range containerEntries {
+			if allocationInfo.CheckReclaimedActualNUMABinding() {
+				return 0
+			}
+		}
+	}
+	return res
+}
+
+// ExistMatchedAllocationInfo returns true if the stated predicate holds true for some pods of this numa else it returns false.
+func (ns *NUMANodeState) ExistMatchedAllocationInfo(f func(ai *AllocationInfo) bool) bool {
+	for _, containerEntries := range ns.PodEntries {
+		for _, allocationInfo := range containerEntries {
+			if f(allocationInfo) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 // SetAllocationInfo adds a new AllocationInfo (for pod/container pairs) into the given NUMANodeState
 func (ns *NUMANodeState) SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo) {
 	if ns == nil {
@@ -332,6 +389,38 @@ func (nm NUMANodeMap) GetNUMANodesWithoutDedicatedNUMABindingAndNUMAExclusivePod
 	return res
 }
 
+// GetNUMANodesWithoutReclaimedActualNUMABindingPods returns a set of numa nodes; for
+// those numa nodes, they all don't contain reclaimed actual numa binding pods
+func (nm NUMANodeMap) GetNUMANodesWithoutReclaimedActualNUMABindingPods() machine.CPUSet {
+	res := machine.NewCPUSet()
+	for numaId, numaNodeState := range nm {
+		if numaNodeState != nil && !numaNodeState.HasReclaimedActualNUMABindingPods() {
+			res = res.Union(machine.NewCPUSet(numaId))
+		}
+	}
+	return res
+}
+
+// GetNUMANodesWithoutReclaimedNonActualNUMABindingPods returns a set of numa nodes; for
+// those numa nodes, they all don't contain reclaimed non-actual numa binding pods
+func (nm NUMANodeMap) GetNUMANodesWithoutReclaimedNonActualNUMABindingPods() machine.CPUSet {
+	res := machine.NewCPUSet()
+	for numaId, numaNodeState := range nm {
+		if numaNodeState != nil && !numaNodeState.HasReclaimedNonActualNUMABindingPods() {
+			res = res.Union(machine.NewCPUSet(numaId))
+		}
+	}
+	return res
+}
+
+func (nm NUMANodeMap) GetNonActualNUMABindingAvailableHeadroom(numaHeadroom map[int]int64) int64 {
+	res := int64(0)
+	for id, numaNodeState := range nm {
+		res += numaNodeState.GetNonActualNUMABindingAvailableHeadroom(numaHeadroom[id])
+	}
+	return res
+}
+
 func (nrm NUMANodeResourcesMap) String() string {
 	if nrm == nil {
 		return ""
@@ -356,6 +445,7 @@ func (nrm NUMANodeResourcesMap) Clone() NUMANodeResourcesMap {
 // reader is used to get information from local states
 type reader interface {
 	GetMachineState() NUMANodeResourcesMap
+	GetNUMAHeadroom() map[int]int64
 	GetPodResourceEntries() PodResourceEntries
 	GetAllocationInfo(resourceName v1.ResourceName, podUID, containerName string) *AllocationInfo
 }
@@ -364,6 +454,7 @@ type reader interface {
 // and it also provides functionality to maintain the local files
 type writer interface {
 	SetMachineState(numaNodeResourcesMap NUMANodeResourcesMap)
+	SetNUMAHeadroom(map[int]int64)
 	SetPodResourceEntries(podResourceEntries PodResourceEntries)
 	SetAllocationInfo(resourceName v1.ResourceName, podUID, containerName string, allocationInfo *AllocationInfo)
 

@@ -40,6 +40,7 @@ import (
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/metaserver/kcc"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 func generateTestConfiguration(t *testing.T) *config.Configuration {
@@ -58,7 +59,7 @@ func generateTestMetaServer(clientSet *client.GenericClientSet, conf *config.Con
 			CNRFetcher: cnr.NewCachedCNRFetcher(conf.BaseConfiguration, conf.CNRConfiguration,
 				clientSet.InternalClient.NodeV1alpha1().CustomNodeResources()),
 			MetricsFetcher: metric.NewMetricsFetcher(conf.BaseConfiguration, conf.MetricConfiguration,
-				metrics.DummyMetrics{}, &pod.PodFetcherStub{}),
+				metrics.DummyMetrics{}, &pod.PodFetcherStub{}, &machine.KatalystMachineInfo{}),
 			AgentConf: conf.MetaServerConfiguration.AgentConfiguration,
 		},
 		ConfigurationManager:    &dynamicconfig.DummyConfigurationManager{},

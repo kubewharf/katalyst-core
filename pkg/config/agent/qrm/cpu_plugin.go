@@ -42,9 +42,14 @@ type CPUDynamicPolicyConfig struct {
 	EnableCPUIdle bool
 	// CPUNUMAHintPreferPolicy decides hint preference calculation strategy
 	CPUNUMAHintPreferPolicy string
-	// CPUNUMAHintPreferPolicy indicates threshold to apply CPUNUMAHintPreferPolicy dynamically,
+	// CPUNUMAHintPreferLowThreshold indicates threshold to apply CPUNUMAHintPreferPolicy dynamically,
 	// and it's working when CPUNUMAHintPreferPolicy is set to dynamic_packing
 	CPUNUMAHintPreferLowThreshold float64
+	// CPUNUMAReclaimedHintPreferPolicy decides hint preference calculation strategy for reclaimed cpu
+	CPUNUMAReclaimedHintPreferPolicy string
+	// CPUNUMAReclaimedHintPreferLowThreshold indicates threshold to apply CPUNUMAReclaimedHintPreferPolicy dynamically,
+	// and it's working when CPUNUMAReclaimedHintPreferPolicy is set to dynamic_packing
+	CPUNUMAReclaimedHintPreferLowThreshold float64
 }
 
 type CPUNativePolicyConfig struct {

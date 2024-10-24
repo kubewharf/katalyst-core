@@ -138,7 +138,7 @@ func TestRegenerateHints(t *testing.T) {
 
 	type args struct {
 		allocationInfo *state.AllocationInfo
-		reqInt         int
+		regenerate     bool
 	}
 	tests := []struct {
 		name string
@@ -179,7 +179,7 @@ func TestRegenerateHints(t *testing.T) {
 					},
 					RequestQuantity: 2,
 				},
-				reqInt: 2,
+				regenerate: false,
 			},
 			want: map[string]*pluginapi.ListOfTopologyHints{
 				string(v1.ResourceCPU): {
@@ -197,7 +197,7 @@ func TestRegenerateHints(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := RegenerateHints(tt.args.allocationInfo, tt.args.reqInt); !reflect.DeepEqual(got, tt.want) {
+			if got := RegenerateHints(tt.args.allocationInfo, tt.args.regenerate); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("RegenerateHints() = %v, want %v", got, tt.want)
 			}
 		})
