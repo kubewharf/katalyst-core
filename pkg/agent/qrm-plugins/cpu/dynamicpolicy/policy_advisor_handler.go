@@ -18,6 +18,7 @@ package dynamicpolicy
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -281,6 +282,11 @@ func (p *DynamicPolicy) allocateByCPUAdvisor(resp *advisorapi.ListAndWatchRespon
 	applyErr := p.applyBlocks(blockToCPUSet, resp)
 	if applyErr != nil {
 		return fmt.Errorf("applyBlocks failed with error: %v", applyErr)
+	}
+
+	applyErr = p.applyNUMAHeadroom(resp)
+	if applyErr != nil {
+		return fmt.Errorf("applyNUMAHeadroom failed with error: %v", applyErr)
 	}
 
 	curAllowSharedCoresOverlapReclaimedCores := p.state.GetAllowSharedCoresOverlapReclaimedCores()
@@ -559,6 +565,9 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 		Difference(dedicatedCPUSet).
 		Difference(sharedBindingNUMACPUs)
 
+	// calculate NUMAs without actual numa_binding reclaimed pods
+	nonReclaimActualBindingNUMAs := p.state.GetMachineState().GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMABinding))
+
 	rampUpCPUsTopologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, rampUpCPUs)
 	if err != nil {
 		return fmt.Errorf("unable to calculate topologyAwareAssignments for rampUpCPUs, result cpuset: %s, error: %v",
@@ -608,18 +617,8 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 				newEntries[podUID][containerName].OriginalAllocationResult = poolCPUSet.Clone()
 				newEntries[podUID][containerName].TopologyAwareAssignments = topologyAwareAssignments
 				newEntries[podUID][containerName].OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(topologyAwareAssignments)
-			case consts.PodAnnotationQoSLevelSharedCores, consts.PodAnnotationQoSLevelReclaimedCores:
-				ownerPoolName := allocationInfo.GetOwnerPoolName()
-				if calculationInfo, ok := resp.GetCalculationInfo(podUID, containerName); ok {
-					general.Infof("cpu advisor put pod: %s/%s, container: %s from %s to %s",
-						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, ownerPoolName, calculationInfo.OwnerPoolName)
-
-					ownerPoolName = calculationInfo.OwnerPoolName
-				} else {
-					general.Warningf("cpu advisor doesn't return entry for pod: %s/%s, container: %s, qosLevel: %s",
-						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, allocationInfo.QoSLevel)
-				}
-
+			case consts.PodAnnotationQoSLevelSharedCores:
+				ownerPoolName := p.getOwnerPoolNameFromAdvisor(allocationInfo, resp)
 				if allocationInfo.RampUp {
 					general.Infof("pod: %s/%s container: %s is in ramp up, set its allocation result from %s to rampUpCPUs :%s",
 						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, allocationInfo.AllocationResult.String(), rampUpCPUs.String())
@@ -635,23 +634,11 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 					newEntries[podUID][containerName].OriginalAllocationResult = rampUpCPUs.Clone()
 					newEntries[podUID][containerName].TopologyAwareAssignments = machine.DeepcopyCPUAssignment(rampUpCPUsTopologyAwareAssignments)
 					newEntries[podUID][containerName].OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(rampUpCPUsTopologyAwareAssignments)
-				} else if newEntries[ownerPoolName][commonstate.FakedContainerName] == nil {
-					errMsg := fmt.Sprintf("cpu advisor doesn't return entry for pool: %s and it's referred by pod: %s/%s, container: %s, qosLevel: %s",
-						ownerPoolName, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, allocationInfo.QoSLevel)
-
-					general.Errorf(errMsg)
-
-					_ = p.emitter.StoreInt64(util.MetricNameOrphanContainer, 1, metrics.MetricTypeNameCount,
-						metrics.MetricTag{Key: "podNamespace", Val: allocationInfo.PodNamespace},
-						metrics.MetricTag{Key: "podName", Val: allocationInfo.PodName},
-						metrics.MetricTag{Key: "containerName", Val: allocationInfo.ContainerName},
-						metrics.MetricTag{Key: "poolName", Val: ownerPoolName})
-					return fmt.Errorf(errMsg)
 				} else {
-					poolEntry := newEntries[ownerPoolName][commonstate.FakedContainerName]
-
-					general.Infof("put pod: %s/%s container: %s to pool: %s, set its allocation result from %s to %s",
-						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, ownerPoolName, allocationInfo.AllocationResult.String(), poolEntry.AllocationResult.String())
+					poolEntry, err := p.getAllocationPoolEntry(allocationInfo, ownerPoolName, newEntries)
+					if err != nil {
+						return err
+					}
 
 					if allocationInfo.CheckSharedNUMABinding() {
 						poolEntry.QoSLevel = apiconsts.PodAnnotationQoSLevelSharedCores
@@ -662,11 +649,25 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 						})
 					}
 
+					general.Infof("put pod: %s/%s container: %s to pool: %s, set its allocation result from %s to %s",
+						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, ownerPoolName, allocationInfo.AllocationResult.String(), poolEntry.AllocationResult.String())
+
 					newEntries[podUID][containerName].OwnerPoolName = ownerPoolName
 					newEntries[podUID][containerName].AllocationResult = poolEntry.AllocationResult.Clone()
 					newEntries[podUID][containerName].OriginalAllocationResult = poolEntry.OriginalAllocationResult.Clone()
 					newEntries[podUID][containerName].TopologyAwareAssignments = machine.DeepcopyCPUAssignment(poolEntry.TopologyAwareAssignments)
 					newEntries[podUID][containerName].OriginalTopologyAwareAssignments = machine.DeepcopyCPUAssignment(poolEntry.TopologyAwareAssignments)
+				}
+			case consts.PodAnnotationQoSLevelReclaimedCores:
+				ownerPoolName := p.getOwnerPoolNameFromAdvisor(allocationInfo, resp)
+				poolEntry, err := p.getAllocationPoolEntry(allocationInfo, ownerPoolName, newEntries)
+				if err != nil {
+					return err
+				}
+
+				err = p.updateReclaimAllocationResultByPoolEntry(newEntries[podUID][containerName], poolEntry, nonReclaimActualBindingNUMAs)
+				if err != nil {
+					return err
 				}
 			default:
 				return fmt.Errorf("invalid qosLevel: %s for pod: %s/%s container: %s",
@@ -683,6 +684,54 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 	}
 	p.state.SetPodEntries(newEntries)
 	p.state.SetMachineState(newMachineState)
+
+	return nil
+}
+
+func (p *DynamicPolicy) getOwnerPoolNameFromAdvisor(allocationInfo *state.AllocationInfo, resp *advisorapi.ListAndWatchResponse) string {
+	ownerPoolName := allocationInfo.GetOwnerPoolName()
+	if calculationInfo, ok := resp.GetCalculationInfo(allocationInfo.PodUid, allocationInfo.ContainerName); ok {
+		general.Infof("cpu advisor put pod: %s/%s, container: %s from %s to %s",
+			allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, ownerPoolName, calculationInfo.OwnerPoolName)
+
+		ownerPoolName = calculationInfo.OwnerPoolName
+	} else {
+		general.Warningf("cpu advisor doesn't return entry for pod: %s/%s, container: %s, qosLevel: %s",
+			allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, allocationInfo.QoSLevel)
+	}
+	return ownerPoolName
+}
+
+func (p *DynamicPolicy) applyNUMAHeadroom(resp *advisorapi.ListAndWatchResponse) error {
+	if resp == nil {
+		return fmt.Errorf("applyNUMAHeadroom got nil resp")
+	}
+
+	for _, calculationInfo := range resp.ExtraEntries {
+		if calculationInfo == nil {
+			general.Warningf("resp.ExtraEntries has nil calculationInfo")
+			continue
+		} else if calculationInfo.CalculationResult == nil {
+			general.Warningf("resp.ExtraEntries has nil CalculationResult")
+			continue
+		}
+
+		cpuNUMAHeadroomValue, ok := calculationInfo.CalculationResult.Values[string(advisorapi.ControlKnobKeyCPUNUMAHeadroom)]
+		if !ok {
+			general.Warningf("resp.ExtraEntry has no cpu_numa_headroom value")
+			continue
+		}
+
+		cpuNUMAHeadroom := &advisorapi.CPUNUMAHeadroom{}
+		err := json.Unmarshal([]byte(cpuNUMAHeadroomValue), cpuNUMAHeadroom)
+		if err != nil {
+			return fmt.Errorf("unmarshal %s: %s failed with error: %v",
+				advisorapi.ControlKnobKeyCPUNUMAHeadroom, cpuNUMAHeadroomValue, err)
+		}
+
+		p.state.SetNUMAHeadroom(*cpuNUMAHeadroom)
+		general.Infof("cpuNUMAHeadroom: %v", cpuNUMAHeadroom)
+	}
 
 	return nil
 }

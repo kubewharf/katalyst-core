@@ -51,6 +51,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
@@ -117,22 +118,23 @@ type DynamicPolicy struct {
 
 	// those are parsed from configurations
 	// todo if we want to use dynamic configuration, we'd better not use self-defined conf
-	enableCPUAdvisor              bool
-	reservedCPUs                  machine.CPUSet
-	cpuAdvisorSocketAbsPath       string
-	cpuPluginSocketAbsPath        string
-	extraStateFileAbsPath         string
-	enableCPUIdle                 bool
-	enableSyncingCPUIdle          bool
-	reclaimRelativeRootCgroupPath string
-	qosConfig                     *generic.QoSConfiguration
-	dynamicConfig                 *dynamicconfig.DynamicAgentConfiguration
-	podDebugAnnoKeys              []string
-	podAnnotationKeptKeys         []string
-	podLabelKeptKeys              []string
-	transitionPeriod              time.Duration
-	cpuNUMAHintPreferPolicy       string
-	cpuNUMAHintPreferLowThreshold float64
+	enableCPUAdvisor                          bool
+	reservedCPUs                              machine.CPUSet
+	cpuAdvisorSocketAbsPath                   string
+	cpuPluginSocketAbsPath                    string
+	extraStateFileAbsPath                     string
+	enableCPUIdle                             bool
+	enableSyncingCPUIdle                      bool
+	reclaimRelativeRootCgroupPath             string
+	numaBindingReclaimRelativeRootCgroupPaths map[int]string
+	qosConfig                                 *generic.QoSConfiguration
+	dynamicConfig                             *dynamicconfig.DynamicAgentConfiguration
+	podDebugAnnoKeys                          []string
+	podAnnotationKeptKeys                     []string
+	podLabelKeptKeys                          []string
+	transitionPeriod                          time.Duration
+	cpuNUMAHintPreferPolicy                   string
+	cpuNUMAHintPreferLowThreshold             float64
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -202,10 +204,12 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		enableSyncingCPUIdle:          conf.CPUQRMPluginConfig.EnableSyncingCPUIdle,
 		enableCPUIdle:                 conf.CPUQRMPluginConfig.EnableCPUIdle,
 		reclaimRelativeRootCgroupPath: conf.ReclaimRelativeRootCgroupPath,
-		podDebugAnnoKeys:              conf.PodDebugAnnoKeys,
-		podAnnotationKeptKeys:         conf.PodAnnotationKeptKeys,
-		podLabelKeptKeys:              conf.PodLabelKeptKeys,
-		transitionPeriod:              30 * time.Second,
+		numaBindingReclaimRelativeRootCgroupPaths: common.GetNUMABindingReclaimRelativeRootCgroupPaths(conf.ReclaimRelativeRootCgroupPath,
+			agentCtx.CPUDetails.NUMANodes().ToSliceNoSortInt()),
+		podDebugAnnoKeys:      conf.PodDebugAnnoKeys,
+		podAnnotationKeptKeys: conf.PodAnnotationKeptKeys,
+		podLabelKeptKeys:      conf.PodLabelKeptKeys,
+		transitionPeriod:      30 * time.Second,
 	}
 
 	// register allocation behaviors for pods with different QoS level

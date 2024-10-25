@@ -62,14 +62,11 @@ type GenericHeadroomManager struct {
 	sync.RWMutex
 	lastReportResult *resource.Quantity
 	// the latest transformed reporter result per numa
-	lastNUMAReportResult map[int]resource.Quantity
+	lastNumaReportResult map[int]resource.Quantity
 
-	headroomAdvisor         hmadvisor.ResourceAdvisor
-	emitter                 metrics.MetricEmitter
-	useMilliValue           bool
-	slidingWindowOptions    GenericSlidingWindowOptions
-	reportSlidingWindow     general.SmoothWindow
-	reportNUMASlidingWindow map[int]general.SmoothWindow
+	headroomAdvisor     hmadvisor.ResourceAdvisor
+	emitter             metrics.MetricEmitter
+	reportSlidingWindow general.SmoothWindow
 
 	reportResultTransformer func(quantity resource.Quantity) resource.Quantity
 	resourceName            v1.ResourceName
@@ -96,12 +93,10 @@ func NewGenericHeadroomManager(name v1.ResourceName, useMilliValue, reportMilliV
 
 	return &GenericHeadroomManager{
 		resourceName:            name,
-		lastNUMAReportResult:    make(map[int]resource.Quantity),
+		lastNumaReportResult:    make(map[int]resource.Quantity),
 		reportResultTransformer: reportResultTransformer,
 		syncPeriod:              syncPeriod,
 		headroomAdvisor:         headroomAdvisor,
-		useMilliValue:           useMilliValue,
-		slidingWindowOptions:    slidingWindowOptions,
 		reportSlidingWindow: general.NewCappedSmoothWindow(
 			slidingWindowOptions.MinStep,
 			slidingWindowOptions.MaxStep,
@@ -111,9 +106,8 @@ func NewGenericHeadroomManager(name v1.ResourceName, useMilliValue, reportMilliV
 				AggregateArgs: slidingWindowOptions.AggregateArgs,
 			}),
 		),
-		reportNUMASlidingWindow: make(map[int]general.SmoothWindow),
-		emitter:                 emitter,
-		getReclaimOptions:       getReclaimOptions,
+		emitter:           emitter,
+		getReclaimOptions: getReclaimOptions,
 	}
 }
 
@@ -132,25 +126,18 @@ func (m *GenericHeadroomManager) GetCapacity() (resource.Quantity, error) {
 func (m *GenericHeadroomManager) GetNumaAllocatable() (map[int]resource.Quantity, error) {
 	m.RLock()
 	defer m.RUnlock()
-	return m.getLastNUMAReportResult()
+	return m.lastNumaReportResult, nil
 }
 
 func (m *GenericHeadroomManager) GetNumaCapacity() (map[int]resource.Quantity, error) {
 	m.RLock()
 	defer m.RUnlock()
-	return m.getLastNUMAReportResult()
+	return m.lastNumaReportResult, nil
 }
 
 func (m *GenericHeadroomManager) Run(ctx context.Context) {
 	go wait.UntilWithContext(ctx, m.sync, m.syncPeriod)
 	<-ctx.Done()
-}
-
-func (m *GenericHeadroomManager) getLastNUMAReportResult() (map[int]resource.Quantity, error) {
-	if m.lastNUMAReportResult == nil {
-		return nil, fmt.Errorf("resource %s last numa report value not found", m.resourceName)
-	}
-	return m.lastNUMAReportResult, nil
 }
 
 func (m *GenericHeadroomManager) getLastReportResult() (resource.Quantity, error) {
@@ -166,20 +153,6 @@ func (m *GenericHeadroomManager) setLastReportResult(q resource.Quantity) {
 	}
 	q.DeepCopyInto(m.lastReportResult)
 	m.emitResourceToMetric(metricsNameHeadroomReportResult, m.reportResultTransformer(*m.lastReportResult))
-}
-
-func (m *GenericHeadroomManager) newSlidingWindow() general.SmoothWindow {
-	slidingWindowSize := int(m.slidingWindowOptions.SlidingWindowTime / m.syncPeriod)
-	slidingWindowTTL := m.slidingWindowOptions.SlidingWindowTime * 2
-	return general.NewCappedSmoothWindow(
-		m.slidingWindowOptions.MinStep,
-		m.slidingWindowOptions.MaxStep,
-		general.NewAggregatorSmoothWindow(general.SmoothWindowOpts{
-			WindowSize: slidingWindowSize,
-			TTL:        slidingWindowTTL, UsedMillValue: m.useMilliValue, AggregateFunc: m.slidingWindowOptions.AggregateFunc,
-			AggregateArgs: m.slidingWindowOptions.AggregateArgs,
-		}),
-	)
 }
 
 func (m *GenericHeadroomManager) sync(_ context.Context) {
@@ -198,44 +171,11 @@ func (m *GenericHeadroomManager) sync(_ context.Context) {
 		return
 	}
 
+	originValue := originResultFromAdvisor.Value()
+
 	reportResult := m.reportSlidingWindow.GetWindowedResources(originResultFromAdvisor)
 	if reportResult == nil {
 		klog.Infof("skip update reclaimed resource %s without enough valid sample", m.resourceName)
-		return
-	}
-
-	reportNUMAResult := make(map[int]*resource.Quantity)
-	numaResultReady := true
-	numaSum := 0.0
-	reservedResourceForReportPerNUMA := *resource.NewQuantity(int64(float64(reclaimOptions.ReservedResourceForReport.Value())/float64(len(numaResult))), resource.DecimalSI)
-	min := float64(reclaimOptions.MinReclaimedResourceForReport.Value()) / float64(len(numaResult))
-	if reclaimOptions.MinReclaimedResourceForReport.Value() != 0 && min == 0 {
-		min = 1
-	}
-	minReclaimedResourceForReportPerNUMA := *resource.NewQuantity(int64(min), resource.DecimalSI)
-	for numaID, ret := range numaResult {
-		numaWindow, ok := m.reportNUMASlidingWindow[numaID]
-		if !ok {
-			numaWindow = m.newSlidingWindow()
-			m.reportNUMASlidingWindow[numaID] = numaWindow
-		}
-
-		reportResult := numaWindow.GetWindowedResources(ret)
-		if reportResult == nil {
-			klog.Infof("numa %d result if not ready", numaID)
-			numaResultReady = false
-			continue
-		}
-
-		reportResult.Sub(reservedResourceForReportPerNUMA)
-		if reportResult.Cmp(minReclaimedResourceForReportPerNUMA) < 0 {
-			reportResult = &minReclaimedResourceForReportPerNUMA
-		}
-		reportNUMAResult[numaID] = reportResult
-		numaSum += float64(reportResult.Value())
-	}
-
-	if !numaResultReady {
 		return
 	}
 
@@ -249,13 +189,12 @@ func (m *GenericHeadroomManager) sync(_ context.Context) {
 		reportResult.String(), reclaimOptions.ReservedResourceForReport.String())
 
 	m.setLastReportResult(*reportResult)
-
 	// set latest numa report result
-	diffRatio := float64(reportResult.Value()) / numaSum
-	for numaID, res := range reportNUMAResult {
+	diffRatio := float64(reportResult.Value()) / float64(originValue)
+	for numaID, res := range numaResult {
 		res.Set(int64(float64(res.Value()) * diffRatio))
-		result := m.reportResultTransformer(*res)
-		m.lastNUMAReportResult[numaID] = result
+		result := m.reportResultTransformer(res)
+		m.lastNumaReportResult[numaID] = result
 		klog.Infof("%s headroom manager for NUMA: %d, headroom: %d", m.resourceName, numaID, result.Value())
 	}
 }

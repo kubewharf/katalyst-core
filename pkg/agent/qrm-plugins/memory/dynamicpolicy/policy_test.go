@@ -53,6 +53,7 @@ import (
 	memconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/oom"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/reactor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -137,6 +138,7 @@ func getTestDynamicPolicyWithInitialization(topology *machine.CPUTopology, machi
 		stopCh:           make(chan struct{}),
 		podDebugAnnoKeys: []string{podDebugAnnoKey},
 		enableNonBindingShareCoresMemoryResourceCheck: true,
+		numaBindResultResourceAllocationAnnotationKey: coreconsts.QRMResourceAnnotationKeyNUMABindResult,
 	}
 
 	policyImplement.allocationHandlers = map[string]util.AllocationHandler{
@@ -159,6 +161,8 @@ func getTestDynamicPolicyWithInitialization(topology *machine.CPUTopology, machi
 	policyImplement.asyncLimitedWorkersMap = map[string]*asyncworker.AsyncLimitedWorkers{
 		memoryPluginAsyncWorkTopicMovePage: asyncworker.NewAsyncLimitedWorkers(memoryPluginAsyncWorkTopicMovePage, movePagesWorkLimit, policyImplement.emitter),
 	}
+
+	policyImplement.numaAllocationReactor = reactor.DummyAllocationReactor{}
 
 	return policyImplement, nil
 }
@@ -418,13 +422,13 @@ func TestAllocate(t *testing.T) {
 	testName := "test"
 
 	testCases := []struct {
-		description              string
+		name                     string
 		req                      *pluginapi.ResourceRequest
 		expectedResp             *pluginapi.ResourceAllocationResponse
 		enhancementDefaultValues map[string]string
 	}{
 		{
-			description: "req for init container",
+			name: "req for init container",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -454,7 +458,7 @@ func TestAllocate(t *testing.T) {
 			},
 		},
 		{
-			description: "req for container of debug pod",
+			name: "req for container of debug pod",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -494,7 +498,7 @@ func TestAllocate(t *testing.T) {
 			},
 		},
 		{
-			description: "req for shared_cores main container",
+			name: "req for shared_cores main container",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -537,7 +541,7 @@ func TestAllocate(t *testing.T) {
 			},
 		},
 		{
-			description: "req for reclaimed_cores main container",
+			name: "req for reclaimed_cores main container",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -569,7 +573,7 @@ func TestAllocate(t *testing.T) {
 							OciPropertyName:   util.OCIPropertyNameCPUSetMems,
 							IsNodeResource:    false,
 							IsScalarResource:  true,
-							AllocatedQuantity: 0,
+							AllocatedQuantity: 1073741824,
 							AllocationResult:  machine.NewCPUSet(0, 1, 2, 3).String(),
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{nil},
@@ -586,7 +590,7 @@ func TestAllocate(t *testing.T) {
 			},
 		},
 		{
-			description: "req for dedicated_cores with numa_binding & numa_exclusive main container",
+			name: "req for dedicated_cores with numa_binding & numa_exclusive main container",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -647,7 +651,7 @@ func TestAllocate(t *testing.T) {
 			},
 		},
 		{
-			description: "req for dedicated_cores with numa_binding & not numa_exclusive main container",
+			name: "req for dedicated_cores with numa_binding & not numa_exclusive main container",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -708,7 +712,7 @@ func TestAllocate(t *testing.T) {
 			},
 		},
 		{
-			description: "req for dedicated_cores with numa_binding & default numa_exclusive true main container",
+			name: "req for dedicated_cores with numa_binding & default numa_exclusive true main container",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -772,7 +776,7 @@ func TestAllocate(t *testing.T) {
 			},
 		},
 		{
-			description: "req for dedicated_cores with numa_binding & without default numa_exclusive main container",
+			name: "req for dedicated_cores with numa_binding & without default numa_exclusive main container",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -832,7 +836,7 @@ func TestAllocate(t *testing.T) {
 			},
 		},
 		{
-			description: "req for shared_cores with numa_binding main container",
+			name: "req for shared_cores with numa_binding main container",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -891,29 +895,150 @@ func TestAllocate(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "req for reclaim_cores with actual numa_binding main container",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceMemory),
+				Hint: &pluginapi.TopologyHint{
+					Nodes:     []uint64{0},
+					Preferred: true,
+				},
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceMemory): 2147483648,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelReclaimedCores,
+					consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true"}`,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+				},
+			},
+			expectedResp: &pluginapi.ResourceAllocationResponse{
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceMemory),
+				AllocationResult: &pluginapi.ResourceAllocation{
+					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+						string(v1.ResourceMemory): {
+							OciPropertyName:   util.OCIPropertyNameCPUSetMems,
+							IsNodeResource:    false,
+							IsScalarResource:  true,
+							AllocatedQuantity: 2147483648,
+							Annotations: map[string]string{
+								coreconsts.QRMResourceAnnotationKeyNUMABindResult: "0",
+							},
+							AllocationResult: machine.NewCPUSet(0).String(),
+							ResourceHints: &pluginapi.ListOfTopologyHints{
+								Hints: []*pluginapi.TopologyHint{
+									{
+										Nodes:     []uint64{0},
+										Preferred: true,
+									},
+								},
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelReclaimedCores,
+					consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+				},
+			},
+		},
+		{
+			name: "req for reclaim_cores with non-actual numa_binding main container",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceMemory),
+				Hint:           nil,
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceMemory): 2147483648,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+				},
+			},
+			expectedResp: &pluginapi.ResourceAllocationResponse{
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceMemory),
+				AllocationResult: &pluginapi.ResourceAllocation{
+					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+						string(v1.ResourceMemory): {
+							OciPropertyName:   util.OCIPropertyNameCPUSetMems,
+							IsNodeResource:    false,
+							IsScalarResource:  true,
+							AllocatedQuantity: 2147483648,
+							AllocationResult:  machine.NewCPUSet(0, 1, 2, 3).String(),
+							ResourceHints: &pluginapi.ListOfTopologyHints{
+								Hints: []*pluginapi.TopologyHint{
+									nil,
+								},
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+				},
+			},
+		},
 	}
 
 	for _, tc := range testCases {
-		tmpDir, err := ioutil.TempDir("", "checkpoint-TestAllocate")
-		as.Nil(err)
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
-		as.Nil(err)
+			as := require.New(t)
+			tmpDir, err := ioutil.TempDir("", "checkpoint-TestAllocate")
+			as.Nil(err)
 
-		if tc.enhancementDefaultValues != nil {
-			dynamicPolicy.qosConfig.QoSEnhancementDefaultValues = tc.enhancementDefaultValues
-		}
+			dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
+			as.Nil(err)
 
-		dynamicPolicy.enableMemoryAdvisor = true
-		dynamicPolicy.advisorClient = advisorsvc.NewStubAdvisorServiceClient()
+			if tc.enhancementDefaultValues != nil {
+				dynamicPolicy.qosConfig.QoSEnhancementDefaultValues = tc.enhancementDefaultValues
+			}
 
-		resp, err := dynamicPolicy.Allocate(context.Background(), tc.req)
-		as.Nil(err)
+			dynamicPolicy.enableMemoryAdvisor = true
+			dynamicPolicy.advisorClient = advisorsvc.NewStubAdvisorServiceClient()
 
-		tc.expectedResp.PodUid = tc.req.PodUid
-		as.Equalf(tc.expectedResp, resp, "failed in test case: %s", tc.description)
+			resp, err := dynamicPolicy.Allocate(context.Background(), tc.req)
+			as.Nil(err)
 
-		os.RemoveAll(tmpDir)
+			tc.expectedResp.PodUid = tc.req.PodUid
+			as.Equalf(tc.expectedResp, resp, "failed in test case: %s", tc.name)
+
+			os.RemoveAll(tmpDir)
+		})
 	}
 }
 
@@ -996,13 +1121,14 @@ func TestGetTopologyHints(t *testing.T) {
 	testName := "test"
 
 	testCases := []struct {
-		description              string
+		name                     string
 		req                      *pluginapi.ResourceRequest
 		expectedResp             *pluginapi.ResourceHintsResponse
 		enhancementDefaultValues map[string]string
+		numaHeadroom             map[int]int64
 	}{
 		{
-			description: "req for container of debug pod",
+			name: "req for container of debug pod",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -1037,7 +1163,7 @@ func TestGetTopologyHints(t *testing.T) {
 			},
 		},
 		{
-			description: "req for shared_cores main container",
+			name: "req for shared_cores main container",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -1069,7 +1195,7 @@ func TestGetTopologyHints(t *testing.T) {
 			},
 		},
 		{
-			description: "req for reclaimed_cores main container",
+			name: "req for reclaimed_cores main container",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -1107,7 +1233,7 @@ func TestGetTopologyHints(t *testing.T) {
 			},
 		},
 		{
-			description: "req for system_cores main container",
+			name: "req for system_cores main container",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -1145,7 +1271,7 @@ func TestGetTopologyHints(t *testing.T) {
 			},
 		},
 		{
-			description: "req for dedicated_cores with numa_binding & numa_exclusive main container",
+			name: "req for dedicated_cores with numa_binding & numa_exclusive main container",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -1217,7 +1343,7 @@ func TestGetTopologyHints(t *testing.T) {
 			},
 		},
 		{
-			description: "req for dedicated_cores with numa_binding & not numa_exclusive main container",
+			name: "req for dedicated_cores with numa_binding & not numa_exclusive main container",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -1277,7 +1403,7 @@ func TestGetTopologyHints(t *testing.T) {
 			},
 		},
 		{
-			description: "req for dedicated_cores with numa_binding & default numa_exclusive true main container",
+			name: "req for dedicated_cores with numa_binding & default numa_exclusive true main container",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -1352,7 +1478,7 @@ func TestGetTopologyHints(t *testing.T) {
 			},
 		},
 		{
-			description: "req for dedicated_cores with numa_binding & without numa_exclusive main container",
+			name: "req for dedicated_cores with numa_binding & without numa_exclusive main container",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -1411,7 +1537,7 @@ func TestGetTopologyHints(t *testing.T) {
 			},
 		},
 		{
-			description: "req for shared_cores with numa_binding main container",
+			name: "req for shared_cores with numa_binding main container",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -1469,26 +1595,104 @@ func TestGetTopologyHints(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "req for reclaimed with actual numa_binding main container",
+			numaHeadroom: map[int]int64{
+				0: 1073741824 * 1,
+				1: 1073741824 * 2,
+				2: 1073741824 * 3,
+				3: 1073741824 * 4,
+			},
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceMemory),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceMemory): 1073741824,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelReclaimedCores,
+					consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true"}`,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+				},
+			},
+			expectedResp: &pluginapi.ResourceHintsResponse{
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceMemory),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(v1.ResourceMemory): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{3},
+								Preferred: true,
+							},
+							{
+								Nodes:     []uint64{2},
+								Preferred: true,
+							},
+							{
+								Nodes:     []uint64{1},
+								Preferred: true,
+							},
+							{
+								Nodes:     []uint64{0},
+								Preferred: true,
+							},
+							{
+								Nodes:     []uint64{0, 1, 2, 3},
+								Preferred: true,
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelReclaimedCores,
+					consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+				},
+			},
+		},
 	}
 
 	for _, tc := range testCases {
-		tmpDir, err := ioutil.TempDir("", "checkpoint-TestGetTopologyHints")
-		as.Nil(err)
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			as := require.New(t)
+			tmpDir, err := ioutil.TempDir("", "checkpoint-TestGetTopologyHints")
+			as.Nil(err)
 
-		dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
-		as.Nil(err)
+			dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
+			as.Nil(err)
 
-		if tc.enhancementDefaultValues != nil {
-			dynamicPolicy.qosConfig.QoSEnhancementDefaultValues = tc.enhancementDefaultValues
-		}
+			if tc.enhancementDefaultValues != nil {
+				dynamicPolicy.qosConfig.QoSEnhancementDefaultValues = tc.enhancementDefaultValues
+			}
 
-		resp, err := dynamicPolicy.GetTopologyHints(context.Background(), tc.req)
-		as.Nil(err)
+			if tc.numaHeadroom != nil {
+				dynamicPolicy.state.SetNUMAHeadroom(tc.numaHeadroom)
+			}
 
-		tc.expectedResp.PodUid = tc.req.PodUid
-		as.Equalf(tc.expectedResp, resp, "failed in test case: %s", tc.description)
+			resp, err := dynamicPolicy.GetTopologyHints(context.Background(), tc.req)
+			as.Nil(err)
 
-		os.RemoveAll(tmpDir)
+			tc.expectedResp.PodUid = tc.req.PodUid
+			as.Equalf(tc.expectedResp, resp, "failed in test case: %s", tc.name)
+
+			os.RemoveAll(tmpDir)
+		})
 	}
 }
 
@@ -1638,8 +1842,8 @@ func TestGetTopologyAwareResources(t *testing.T) {
 						string(v1.ResourceMemory): {
 							IsNodeResource:                    false,
 							IsScalarResource:                  true,
-							AggregatedQuantity:                0,
-							OriginalAggregatedQuantity:        0,
+							AggregatedQuantity:                1073741824,
+							OriginalAggregatedQuantity:        1073741824,
 							TopologyAwareQuantityList:         nil,
 							OriginalTopologyAwareQuantityList: nil,
 						},
@@ -1817,7 +2021,7 @@ func TestGetResourcesAllocation(t *testing.T) {
 		OciPropertyName:   util.OCIPropertyNameCPUSetMems,
 		IsNodeResource:    false,
 		IsScalarResource:  true,
-		AllocatedQuantity: 0,
+		AllocatedQuantity: 1073741824,
 		AllocationResult:  machine.NewCPUSet(0, 1, 2, 3).String(),
 	}, resp2.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceMemory)])
 
@@ -2040,6 +2244,7 @@ func TestHandleAdvisorResp(t *testing.T) {
 		podResourceEntries         state.PodResourceEntries
 		expectedPodResourceEntries state.PodResourceEntries
 		expectedMachineState       state.NUMANodeResourcesMap
+		expectedNUMAHeadroom       map[int]int64
 		lwResp                     *advisorsvc.ListAndWatchResponse
 	}{
 		{
@@ -2437,6 +2642,25 @@ func TestHandleAdvisorResp(t *testing.T) {
 			expectedPodResourceEntries: nil,
 			expectedMachineState:       nil,
 		},
+		{
+			description:        "apply numa headroom",
+			podResourceEntries: nil,
+			lwResp: &advisorsvc.ListAndWatchResponse{
+				ExtraEntries: []*advisorsvc.CalculationInfo{
+					{
+						CalculationResult: &advisorsvc.CalculationResult{
+							Values: map[string]string{
+								string(memoryadvisor.ControlKnobKeyMemoryNUMAHeadroom): "{\"0\":1024, \"1\":2048}",
+							},
+						},
+					},
+				},
+			},
+			expectedNUMAHeadroom: map[int]int64{
+				0: 1024,
+				1: 2048,
+			},
+		},
 	}
 
 	for _, tc := range testCases {
@@ -2473,6 +2697,8 @@ func TestHandleAdvisorResp(t *testing.T) {
 			memoryadvisor.ControlKnobHandlerWithChecker(dynamicPolicy.handleAdvisorDropCache))
 		memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnowKeyMemoryOffloading,
 			memoryadvisor.ControlKnobHandlerWithChecker(dynamicPolicy.handleAdvisorMemoryOffloading))
+		memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyMemoryNUMAHeadroom,
+			memoryadvisor.ControlKnobHandlerWithChecker(dynamicPolicy.handleAdvisorMemoryNUMAHeadroom))
 
 		machineState, err := state.GenerateMachineStateFromPodEntries(machineInfo, tc.podResourceEntries, resourcesReservedMemory)
 		as.Nil(err)
@@ -2493,6 +2719,11 @@ func TestHandleAdvisorResp(t *testing.T) {
 		if tc.expectedMachineState != nil {
 			as.Equalf(tc.expectedMachineState, dynamicPolicy.state.GetMachineState(),
 				"MachineState mismatches with expected one, failed in test case: %s", tc.description)
+		}
+
+		if tc.expectedNUMAHeadroom != nil {
+			as.Equalf(tc.expectedNUMAHeadroom, dynamicPolicy.state.GetNUMAHeadroom(),
+				"NUMAHeadroom mismatches with expected one, failed in test case: %s", tc.description)
 		}
 
 		os.RemoveAll(tmpDir)

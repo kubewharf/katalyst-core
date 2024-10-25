@@ -346,6 +346,39 @@ func (p *DynamicPolicy) handleAdvisorDropCache(
 	return nil
 }
 
+func (p *DynamicPolicy) handleAdvisorMemoryNUMAHeadroom(
+	_ *config.Configuration,
+	_ interface{},
+	_ *dynamicconfig.DynamicAgentConfiguration,
+	emitter metrics.MetricEmitter,
+	_ *metaserver.MetaServer,
+	entryName, subEntryName string,
+	calculationInfo *advisorsvc.CalculationInfo, _ state.PodResourceEntries,
+) error {
+	memoryNUMAHeadroomValue, ok := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnobKeyMemoryNUMAHeadroom)]
+	if !ok {
+		general.Warningf("resp.ExtraEntry has no cpu_numa_headroom value")
+		return nil
+	}
+
+	memoryNUMAHeadroom := &memoryadvisor.MemoryNUMAHeadroom{}
+	err := json.Unmarshal([]byte(memoryNUMAHeadroomValue), memoryNUMAHeadroom)
+	if err != nil {
+		return fmt.Errorf("unmarshal %s: %s failed with error: %v",
+			memoryadvisor.ControlKnobKeyMemoryNUMAHeadroom, memoryNUMAHeadroomValue, err)
+	}
+
+	p.state.SetNUMAHeadroom(*memoryNUMAHeadroom)
+	general.Infof("memoryNUMAHeadroom: %v", memoryNUMAHeadroom)
+
+	_ = emitter.StoreInt64(util.MetricNameMemoryHandlerAdvisorMemoryNUMAHeadroom, 1,
+		metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
+			"entryName":    entryName,
+			"subEntryName": subEntryName,
+		})...)
+	return nil
+}
+
 // pushMemoryAdvisor pushes state info to memory-advisor
 func (p *DynamicPolicy) pushMemoryAdvisor() error {
 	podEntries := p.state.GetPodResourceEntries()[v1.ResourceMemory]

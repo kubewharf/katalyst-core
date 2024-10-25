@@ -14,10 +14,20 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package cpuadvisor
+package reactor
 
-type CPUControlKnobName string
+import (
+	"context"
 
-const (
-	ControlKnobKeyCPUNUMAHeadroom CPUControlKnobName = "cpu_numa_headroom"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 )
+
+type AllocationReactor interface {
+	UpdateAllocation(ctx context.Context, allocation *state.AllocationInfo) error
+}
+
+type DummyAllocationReactor struct{}
+
+func (d DummyAllocationReactor) UpdateAllocation(_ context.Context, _ *state.AllocationInfo) error {
+	return nil
+}

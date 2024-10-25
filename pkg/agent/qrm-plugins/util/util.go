@@ -356,3 +356,19 @@ func GetPodAggregatedRequestResource(req *pluginapi.ResourceRequest) (int, float
 		return 0, 0, fmt.Errorf("not support resource name: %s", req.ResourceName)
 	}
 }
+
+// PopulatePreferHintsByNUMANodes populates prefer hints for given numa nodes
+func PopulatePreferHintsByNUMANodes(
+	hints *pluginapi.ListOfTopologyHints,
+	numaNodes []int,
+) {
+	nodes := make([]uint64, 0, len(numaNodes))
+	for _, nodeID := range numaNodes {
+		nodes = append(nodes, uint64(nodeID))
+	}
+
+	hints.Hints = append(hints.Hints, &pluginapi.TopologyHint{
+		Nodes:     nodes,
+		Preferred: true,
+	})
+}
