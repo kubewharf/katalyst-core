@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/wait"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/allocator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
@@ -44,6 +43,17 @@ type Controller struct {
 
 	domainManager *mbdomain.MBDomainManager
 	policy        policy.DomainMBPolicy
+
+	chAdmit      chan struct{}
+	currQoSCCDMB map[task.QoSGroup]*monitor.MBQoSGroup
+}
+
+// ReqToAdjustMB requests controller to start a round of mb adjustment
+func (c *Controller) ReqToAdjustMB() {
+	select {
+	case c.chAdmit <- struct{}{}:
+	default:
+	}
 }
 
 func (c *Controller) Run() {
@@ -51,8 +61,23 @@ func (c *Controller) Run() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	c.cancel = cancel
-	wait.UntilWithContext(ctx, c.run, intervalMBController)
+	//wait.UntilWithContext(ctx, c.run, intervalMBController)
+	ticker := time.NewTicker(intervalMBController)
 
+loop:
+	for {
+		select {
+		case <-ctx.Done():
+			break loop
+		case <-ticker.C:
+			c.run(ctx)
+		case <-c.chAdmit:
+			general.InfofV(6, "mbm: process admit request")
+			c.process(ctx)
+		}
+	}
+
+	ticker.Stop()
 	general.Infof("mbm: main control loop Run exited")
 }
 
@@ -61,12 +86,16 @@ func (c *Controller) run(ctx context.Context) {
 	if err != nil {
 		general.Errorf("mbm: failed to get MB usages: %v", err)
 	}
+	c.currQoSCCDMB = qosCCDMB
 
 	general.InfofV(6, "mbm: mb usage summary: %v", monitor.DisplayMBSummary(qosCCDMB))
+	c.process(ctx)
+}
 
+func (c *Controller) process(ctx context.Context) {
 	for i, domain := range c.domainManager.Domains {
 		// we only care about qosCCDMB manageable by the domain
-		applicableQoSCCDMB := getApplicableQoSCCDMB(domain, qosCCDMB)
+		applicableQoSCCDMB := getApplicableQoSCCDMB(domain, c.currQoSCCDMB)
 		general.InfofV(6, "mbm: domain %d mb stat: %#v", i, applicableQoSCCDMB)
 
 		mbAlloc := c.policy.GetPlan(config.DomainTotalMB, domain, applicableQoSCCDMB)
@@ -93,6 +122,7 @@ func New(podMBMonitor monitor.MBMonitor, mbPlanAllocator allocator.PlanAllocator
 		mbPlanAllocator: mbPlanAllocator,
 		domainManager:   domainManager,
 		policy:          policy,
+		chAdmit:         make(chan struct{}, 1),
 	}, nil
 }
 

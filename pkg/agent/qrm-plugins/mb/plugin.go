@@ -21,43 +21,51 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
+
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/allocator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/podadmit"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 type plugin struct {
+	qosConfig          *generic.QoSConfiguration
+	qrmPluginSocketDir string
+
 	dieTopology        *machine.DieTopology
 	incubationInterval time.Duration
 
-	mbController *controller.Controller
+	mbController    *controller.Controller
+	podAdmitService skeleton.GenericPlugin
 }
 
-func (c *plugin) Name() string {
-	return "mb_plugin"
+func (p *plugin) Name() string {
+	return "qrm_mb_plugin"
 }
 
-func (c *plugin) Start() error {
+func (p *plugin) Start() error {
 	general.InfofV(6, "mbm: plugin component starting ....")
-	general.InfofV(6, "mbm: mb incubation interval %v", c.incubationInterval)
-	general.InfofV(6, "mbm: numa-CCD-cpu topology: \n%s", c.dieTopology)
+	general.InfofV(6, "mbm: mb incubation interval %v", p.incubationInterval)
+	general.InfofV(6, "mbm: numa-CCD-cpu topology: \n%s", p.dieTopology)
 
 	// todo: NOT to return error (to crash explicitly); consider downgrade service
-	if !c.dieTopology.FakeNUMAEnabled {
+	if !p.dieTopology.FakeNUMAEnabled {
 		return errors.New("mbm: not virtual numa; no need to dynamically manage the memory bandwidth")
 	}
 
-	domainManager := mbdomain.NewMBDomainManager(c.dieTopology, c.incubationInterval)
+	domainManager := mbdomain.NewMBDomainManager(p.dieTopology, p.incubationInterval)
 
 	var err error
-	podMBMonitor, err := monitor.NewDefaultMBMonitor(c.dieTopology.DiesInNuma, c.dieTopology.CPUsInDie, domainManager)
+	podMBMonitor, err := monitor.NewDefaultMBMonitor(p.dieTopology.DiesInNuma, p.dieTopology.CPUsInDie, domainManager)
 	if err != nil {
 		return errors.Wrap(err, "mbm: failed to create default mb monitor")
 	}
@@ -67,14 +75,22 @@ func (c *plugin) Start() error {
 		return errors.Wrap(err, "mbm: failed to create mb plan allocator")
 	}
 
-	domainPolicy, err := policy.NewDefaultDomainMBPolicy(c.incubationInterval)
+	domainPolicy, err := policy.NewDefaultDomainMBPolicy(p.incubationInterval)
 	if err != nil {
 		return errors.Wrap(err, "mbm: failed to create domain manager")
 	}
 
-	c.mbController, err = controller.New(podMBMonitor, mbPlanAllocator, domainManager, domainPolicy)
+	p.mbController, err = controller.New(podMBMonitor, mbPlanAllocator, domainManager, domainPolicy)
 	if err != nil {
 		return errors.Wrap(err, "mbm: failed to create mb controller")
+	}
+
+	p.podAdmitService, err = podadmit.NewPodAdmitService(p.qosConfig, domainManager, p.qrmPluginSocketDir)
+	if err != nil {
+		return errors.Wrap(err, "mbm: failed to create pod admit service")
+	}
+	if err := p.podAdmitService.Start(); err != nil {
+		return errors.Wrap(err, "mbm: failed to start pod admit service")
 	}
 
 	go func() {
@@ -85,7 +101,7 @@ func (c *plugin) Start() error {
 			}
 		}()
 
-		c.mbController.Run()
+		p.mbController.Run()
 	}()
 
 	return nil
@@ -105,17 +121,22 @@ func createMBPlanAllocator() (allocator.PlanAllocator, error) {
 	return allocator.NewPlanAllocator(ctrlGroupMBSetter)
 }
 
-func (c *plugin) Stop() error {
-	return c.mbController.Stop()
+func (p *plugin) Stop() error {
+	if p.podAdmitService != nil {
+		_ = p.podAdmitService.Stop()
+	}
+	return p.mbController.Stop()
 }
 
 func NewComponent(agentCtx *agent.GenericContext, conf *config.Configuration,
 	_ interface{}, agentName string,
 ) (bool, agent.Component, error) {
-	mbController := &plugin{
+	plugin := &plugin{
+		qosConfig:          conf.QoSConfiguration,
+		qrmPluginSocketDir: conf.QRMPluginSocketDirs[0], // 1 socket file suffices
 		dieTopology:        agentCtx.DieTopology,
 		incubationInterval: conf.IncubationInterval,
 	}
 
-	return true, &agent.PluginWrapper{GenericPlugin: mbController}, nil
+	return true, &agent.PluginWrapper{GenericPlugin: plugin}, nil
 }

@@ -33,10 +33,11 @@ type MBDomain struct {
 	CCDs      []int
 
 	rwLock sync.RWMutex
+
 	// numa nodes that will be assigned to dedicated pods that still are in Admit state
 	PreemptyNodes sets.Int
-	ccdIncubated  IncubatedCCDs
 
+	ccdIncubated       IncubatedCCDs
 	incubationInterval time.Duration
 }
 
@@ -64,7 +65,14 @@ func (m *MBDomain) startIncubation(ccds sets.Int) {
 	for _, ccd := range m.CCDs {
 		if ccds.Has(ccd) {
 			m.ccdIncubated[ccd] = time.Now().Add(m.incubationInterval)
+			m.undoPreemptNodeByCCD(ccd)
 		}
+	}
+}
+
+func (m *MBDomain) undoPreemptNodeByCCD(ccd int) {
+	if node, ok := m.CCDNode[ccd]; ok {
+		m.PreemptyNodes.Delete(node)
 	}
 }
 
@@ -72,10 +80,14 @@ func (m *MBDomain) PreemptNodes(nodes []int) {
 	m.rwLock.Lock()
 	defer m.rwLock.Unlock()
 
-	m.PreemptyNodes.Insert(nodes...)
+	for _, node := range nodes {
+		if _, ok := m.NodeCCDs[node]; ok {
+			m.PreemptyNodes.Insert(node)
+		}
+	}
 }
 
-func (m *MBDomain) UnpreemptNodes(nodes []int) {
+func (m *MBDomain) UndoPreemptNodes(nodes []int) {
 	m.rwLock.Lock()
 	defer m.rwLock.Unlock()
 

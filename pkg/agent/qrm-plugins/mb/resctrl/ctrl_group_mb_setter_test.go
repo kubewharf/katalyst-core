@@ -35,7 +35,7 @@ func Test_ctrlGroupMBSetter_Set(t *testing.T) {
 	t.Parallel()
 
 	ccdMBSetter := new(mockCCDMBSetter)
-	ccdMBSetter.On("UpdateSchemata", "foo", "MB:2=200;").Return(nil)
+	ccdMBSetter.On("UpdateSchemata", "foo", "MB:2=200;\n").Return(nil)
 
 	type fields struct {
 		ccdMBSetter SchemataUpdater

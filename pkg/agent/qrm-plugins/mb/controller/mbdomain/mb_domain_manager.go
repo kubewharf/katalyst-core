@@ -38,6 +38,13 @@ func (m MBDomainManager) StartIncubation(ccds []int) {
 	}
 }
 
+func (m MBDomainManager) PreemptNodes(nodes []int) {
+	general.InfofV(6, "mbm: reserving numa node %v", nodes)
+	for _, domain := range m.Domains {
+		domain.PreemptNodes(nodes)
+	}
+}
+
 func NewMBDomainManager(dieTopology *machine.DieTopology, incubationInterval time.Duration) *MBDomainManager {
 	manager := &MBDomainManager{
 		Domains: make(map[int]*MBDomain),
