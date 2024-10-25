@@ -599,32 +599,7 @@ func (cra *cpuResourceAdvisor) assembleProvision() (types.InternalCPUCalculation
 		return types.InternalCPUCalculationResult{}, fmt.Errorf("no legal provision assembler")
 	}
 
-	calculationResult, err := cra.provisionAssembler.AssembleProvision()
-
-	/*
-		_, headroom, err := cra.headroomAssembler.GetHeadroom()
-		if err != nil {
-			return types.InternalCPUCalculationResult{}, fmt.Errorf("get numa headroom failed: %v", err)
-		}
-
-		numaHeadroom := make(map[int]float64)
-		for numaID, res := range headroom {
-			numaHeadroom[numaID] = float64(res.Value())
-		}
-		data, err := json.Marshal(numaHeadroom)
-		if err != nil {
-			return types.InternalCPUCalculationResult{}, fmt.Errorf("marshal numa headroom failed: %v", err)
-		}
-		extra := types.ExtraCPUAdvices{
-			CgroupPath: cra.conf.ReclaimRelativeRootCgroupPath,
-			Values: map[string]string{
-				string(cpuadvisor.ControlKnobKeyCPUNUMAHeadroom): string(data),
-			},
-		}
-		calculationResult.ExtraEntries = append(calculationResult.ExtraEntries, extra)
-	*/
-
-	return calculationResult, err
+	return cra.provisionAssembler.AssembleProvision()
 }
 
 func (cra *cpuResourceAdvisor) emitMetrics(calculationResult types.InternalCPUCalculationResult) {

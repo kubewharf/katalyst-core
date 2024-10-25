@@ -175,46 +175,6 @@ func (ra *memoryResourceAdvisor) sendAdvices() error {
 		result.ExtraEntries = append(result.ExtraEntries, advices.ExtraEntries...)
 	}
 
-	/*
-		var numaHeadroom map[int]resource.Quantity
-		var err error
-		for _, headroomPolicy := range ra.headroomPolices {
-			_, numaHeadroom, err = headroomPolicy.GetHeadroom()
-			if err != nil {
-				klog.ErrorS(err, "get headroom failed", "headroomPolicy", headroomPolicy.Name())
-				_ = ra.emitter.StoreInt64(metricNameMemoryGetHeadroomFailed, 1, metrics.MetricTypeNameRaw,
-					metrics.MetricTag{Key: metricTagKeyPolicyName, Val: string(headroomPolicy.Name())})
-				continue
-			}
-
-			break
-		}
-
-		if numaHeadroom == nil {
-			klog.Errorf("can NOT get numa headroom")
-			return fmt.Errorf("can NOT get numa headroom")
-		}
-
-		headroom := make(map[int]float64)
-		for numaID, res := range numaHeadroom {
-			headroom[numaID] = float64(res.Value())
-		}
-
-		data, err := json.Marshal(headroom)
-		if err != nil {
-			klog.Errorf("marshal numa headroom failed: %s", err)
-			return fmt.Errorf("marshal numa headroom failed: %s", err)
-
-		}
-		extra := types.ExtraMemoryAdvices{
-			CgroupPath: ra.conf.ReclaimRelativeRootCgroupPath,
-			Values: map[string]string{
-				string(memoryadvisor.ControlKnobKeyMemoryNUMAHeadroom): string(data),
-			},
-		}
-		result.ExtraEntries = append(result.ExtraEntries, extra)
-	*/
-
 	select {
 	case ra.sendChan <- result:
 		general.Infof("notify memory server: %+v", result)
