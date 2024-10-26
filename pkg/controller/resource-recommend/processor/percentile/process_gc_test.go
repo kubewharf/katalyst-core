@@ -23,21 +23,20 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
-	"github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/scheme"
+	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/controller/resource-recommend/processor/percentile/task"
 	datasourcetypes "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/types/datasource"
 	processortypes "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/types/processor"
 )
 
 func TestProcessor_garbageCollect(t *testing.T) {
-	s := scheme.Scheme
-	s.AddKnownTypes(v1alpha1.SchemeGroupVersion, &v1alpha1.ResourceRecommend{})
-	client := fake.NewClientBuilder().WithScheme(scheme.Scheme).Build()
+	controlCtx, err := katalystbase.GenerateFakeGenericContext()
+	if err != nil {
+		t.Fatal(err)
+	}
 	processor := Processor{
-		Client:                      client,
+		Lister:                      controlCtx.InternalInformerFactory.Recommendation().V1alpha1().ResourceRecommends().Lister(),
 		AggregateTasks:              &sync.Map{},
 		ResourceRecommendTaskIDsMap: make(map[types.NamespacedName]*map[datasourcetypes.Metric]processortypes.TaskID),
 	}

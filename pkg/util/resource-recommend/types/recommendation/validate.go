@@ -19,6 +19,8 @@ package recommendation
 import (
 	"context"
 
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/restmapper"
 	"k8s.io/klog/v2"
 	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -64,16 +66,17 @@ func ValidateAndExtractAlgorithmPolicy(algorithmPolicyReq v1alpha1.AlgorithmPoli
 	return algorithmPolicy, nil
 }
 
-func ValidateAndExtractContainers(ctx context.Context, client k8sclient.Client, namespace string,
+func ValidateAndExtractContainers(ctx context.Context, client dynamic.Interface, namespace string,
 	targetRef v1alpha1.CrossVersionObjectReference,
-	containerPolicies []v1alpha1.ContainerResourcePolicy) (
+	containerPolicies []v1alpha1.ContainerResourcePolicy,
+	mapper *restmapper.DeferredDiscoveryRESTMapper) (
 	[]Container, *errortypes.CustomError,
 ) {
 	if len(containerPolicies) == 0 {
 		return nil, errortypes.ContainerPoliciesNotFoundError()
 	}
 
-	resource, err := resourceutils.ConvertAndGetResource(ctx, client, namespace, targetRef)
+	resource, err := resourceutils.ConvertAndGetResource(ctx, client, namespace, targetRef, mapper)
 	if err != nil {
 		klog.ErrorS(err, "ConvertAndGetResource err")
 		if k8sclient.IgnoreNotFound(err) == nil {

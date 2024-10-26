@@ -23,7 +23,8 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
 )
 
 func TestCleanOOMRecord(t *testing.T) {
@@ -166,7 +167,7 @@ func TestCleanOOMRecord(t *testing.T) {
 }
 
 func TestListOOMRecordsFromConfigmap(t *testing.T) {
-	dummyClient := fake.NewClientBuilder().WithObjects(&v1.ConfigMap{}).Build()
+	dummyClient := k8sfake.NewSimpleClientset().CoreV1()
 	dummyPodOOMRecorder := PodOOMRecorder{
 		Client: dummyClient,
 	}
@@ -181,8 +182,11 @@ func TestListOOMRecordsFromConfigmap(t *testing.T) {
 	}
 	oomConfigMap.SetName(ConfigMapOOMRecordName)
 	oomConfigMap.SetNamespace(ConfigMapOOMRecordNameSpace)
-	dummyPodOOMRecorder.Client.Create(context.TODO(), oomConfigMap)
-	oomRecords, err := dummyPodOOMRecorder.ListOOMRecordsFromConfigmap()
+	_, err := dummyPodOOMRecorder.Client.ConfigMaps(ConfigMapOOMRecordNameSpace).Create(context.TODO(), oomConfigMap, metav1.CreateOptions{})
+	if err != nil {
+		t.Errorf("Failed to create oom record: %v", err)
+	}
+	oomRecords, err = dummyPodOOMRecorder.ListOOMRecordsFromConfigmap()
 	if err != nil || len(oomRecords) != 2 {
 		t.Errorf("Expected oomRecords length is 2 and err is nil, but actual oomRecords length is %v and err is %v", len(oomRecords), err)
 	}
@@ -190,7 +194,7 @@ func TestListOOMRecordsFromConfigmap(t *testing.T) {
 
 func TestUpdateOOMRecordCache(t *testing.T) {
 	now := time.Now()
-	dummyClient := fake.NewClientBuilder().WithObjects(&v1.ConfigMap{}).Build()
+	dummyClient := k8sfake.NewSimpleClientset().CoreV1()
 	podOOMRecorderList := []PodOOMRecorder{
 		{
 			Client: dummyClient,
@@ -270,7 +274,7 @@ func TestUpdateOOMRecordCache(t *testing.T) {
 }
 
 func TestUpdateOOMRecordConfigMap(t *testing.T) {
-	dummyClient := fake.NewClientBuilder().WithObjects(&v1.ConfigMap{}).Build()
+	dummyClient := k8sfake.NewSimpleClientset().CoreV1()
 	oomConfigMap := &v1.ConfigMap{
 		Data: map[string]string{
 			ConfigMapDataOOMRecord: `[]`,
@@ -290,8 +294,12 @@ func TestUpdateOOMRecordConfigMap(t *testing.T) {
 			},
 		},
 	}
-	err := dummyPodOOMRecorder.updateOOMRecordConfigMap()
+	_, err := dummyClient.ConfigMaps(ConfigMapOOMRecordNameSpace).Create(context.TODO(), oomConfigMap, metav1.CreateOptions{})
 	if err != nil {
+		t.Fatalf("Failed to create oom record: %v", err)
+	}
+
+	if err := dummyPodOOMRecorder.updateOOMRecordConfigMap(); err != nil {
 		t.Errorf("Expected the configMap was successfully created,but actually an error:%v occurred.", err)
 	}
 	oomRecordList, _ := dummyPodOOMRecorder.ListOOMRecordsFromConfigmap()
@@ -301,9 +309,13 @@ func TestUpdateOOMRecordConfigMap(t *testing.T) {
 				dummyPodOOMRecorder.cache[index], oomRecordList[index])
 		}
 	}
+	if err := dummyPodOOMRecorder.Client.ConfigMaps(ConfigMapOOMRecordNameSpace).Delete(context.TODO(), oomConfigMap.GetName(), metav1.DeleteOptions{}); err != nil {
+		t.Errorf("Delete ConfigMaps meet error: %v", err)
+	}
 
-	dummyPodOOMRecorder.Client.DeleteAllOf(context.TODO(), oomConfigMap)
-	dummyPodOOMRecorder.Client.Create(context.TODO(), oomConfigMap)
+	if _, err := dummyPodOOMRecorder.Client.ConfigMaps(ConfigMapOOMRecordNameSpace).Create(context.TODO(), oomConfigMap, metav1.CreateOptions{}); err != nil {
+		t.Errorf("Create ConfigMaps meet error: %v", err)
+	}
 	err = dummyPodOOMRecorder.updateOOMRecordConfigMap()
 	if err != nil {
 		t.Errorf("Expected the configMap was successfully updated,but actually an error:%v occurred.", err)

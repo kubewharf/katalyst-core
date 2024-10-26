@@ -18,32 +18,43 @@ package resource
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/pkg/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	k8stypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/restmapper"
 	"k8s.io/klog/v2"
-	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
 )
 
-func ConvertAndGetResource(ctx context.Context, client k8sclient.Client, namespace string, targetRef v1alpha1.CrossVersionObjectReference) (*unstructured.Unstructured, error) {
-	klog.V(5).Infof("Get resource in", "targetRef", targetRef, "namespace", namespace)
-	obj := &unstructured.Unstructured{}
-	obj.SetAPIVersion(targetRef.APIVersion)
-	obj.SetKind(targetRef.Kind)
-	if err := client.Get(ctx, k8stypes.NamespacedName{Namespace: namespace, Name: targetRef.Name}, obj); err != nil {
+func ConvertAndGetResource(ctx context.Context, client dynamic.Interface,
+	namespace string, targetRef v1alpha1.CrossVersionObjectReference,
+	mapper *restmapper.DeferredDiscoveryRESTMapper,
+) (*unstructured.Unstructured, error) {
+	klog.V(5).Infof("get resource in targetRef: %v, namespace: %v", targetRef, namespace)
+	gvk := schema.FromAPIVersionAndKind(targetRef.APIVersion, targetRef.Kind)
+	mapping, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+	if err != nil {
 		return nil, err
 	}
-	return obj, nil
+
+	resource, err := client.Resource(schema.GroupVersionResource{
+		Group:    gvk.Group,
+		Version:  gvk.Version,
+		Resource: mapping.Resource.Resource,
+	}).Namespace(namespace).Get(ctx, targetRef.Name, metav1.GetOptions{ResourceVersion: "0"})
+	if err != nil {
+		return nil, err
+	}
+	return resource, nil
 }
 
-func GetAllClaimedContainers(controller *unstructured.Unstructured) ([]string, error) {
-	klog.V(5).InfoS("Get all controller claimed containers", "controller", controller)
-	templateSpec, found, err := unstructured.NestedMap(controller.Object, "spec", "template", "spec")
+func GetAllClaimedContainers(resource *unstructured.Unstructured) ([]string, error) {
+	klog.V(5).InfoS("Get all controller claimed containers", "resource", resource)
+	templateSpec, found, err := unstructured.NestedMap(resource.Object, "spec", "template", "spec")
 	if err != nil {
 		return nil, errors.Wrapf(err, "unstructured.NestedMap err")
 	}
@@ -73,37 +84,4 @@ func GetAllClaimedContainers(controller *unstructured.Unstructured) ([]string, e
 		containerNames = append(containerNames, name)
 	}
 	return containerNames, nil
-}
-
-type patchRecord struct {
-	Op    string      `json:"op,inline"`
-	Path  string      `json:"path,inline"`
-	Value interface{} `json:"value"`
-}
-
-func PatchUpdateResourceRecommend(client k8sclient.Client, namespaceName k8stypes.NamespacedName,
-	resourceRecommend *v1alpha1.ResourceRecommend,
-) error {
-	obj := &v1alpha1.ResourceRecommend{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      namespaceName.Name,
-			Namespace: namespaceName.Namespace,
-		},
-	}
-	patches := []patchRecord{{
-		Op:    "replace",
-		Path:  "/status",
-		Value: resourceRecommend.Status,
-	}}
-
-	patch, err := json.Marshal(patches)
-	if err != nil {
-		return errors.Wrapf(err, "failed to Marshal resourceRecommend: %+v", resourceRecommend)
-	}
-	patchDate := k8sclient.RawPatch(k8stypes.JSONPatchType, patch)
-	err = client.Status().Patch(context.TODO(), obj, patchDate)
-	if err != nil {
-		return errors.Wrapf(err, "failed to patch resource")
-	}
-	return nil
 }

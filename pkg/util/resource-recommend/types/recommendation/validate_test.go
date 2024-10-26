@@ -23,8 +23,10 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"k8s.io/client-go/dynamic"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
+	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
 	resourceutils "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/resource"
@@ -114,7 +116,8 @@ func TestValidateAndExtractAlgorithmPolicy(t *testing.T) {
 func TestValidateAndExtractContainers(t *testing.T) {
 	type args struct {
 		ctx               context.Context
-		client            client.Client
+		dynamicClient     dynamic.Interface
+		coreClient        corev1.CoreV1Interface
 		namespace         string
 		targetRef         v1alpha1.CrossVersionObjectReference
 		containerPolicies []v1alpha1.ContainerResourcePolicy
@@ -142,13 +145,14 @@ func TestValidateAndExtractContainers(t *testing.T) {
 		{
 			name: errortypes.WorkloadNotFoundMessage,
 			args: args{
-				ctx:       context.TODO(),
-				client:    fake.NewClientBuilder().Build(),
-				namespace: "mockNamespace",
+				ctx:           context.TODO(),
+				dynamicClient: dynamicfake.NewSimpleDynamicClient(runtime.NewScheme()),
+				coreClient:    k8sfake.NewSimpleClientset().CoreV1(),
+				namespace:     "mockNamespace",
 				targetRef: v1alpha1.CrossVersionObjectReference{
-					Kind:       "kind",
+					Kind:       "Kind",
 					Name:       "Name",
-					APIVersion: "version",
+					APIVersion: "apps/v1",
 				},
 				containerPolicies: []v1alpha1.ContainerResourcePolicy{
 					{
@@ -162,9 +166,10 @@ func TestValidateAndExtractContainers(t *testing.T) {
 		{
 			name: errortypes.WorkloadMatchedErrorMessage,
 			args: args{
-				ctx:       context.TODO(),
-				client:    fake.NewClientBuilder().Build(),
-				namespace: "mockNamespace",
+				ctx:           context.TODO(),
+				dynamicClient: dynamicfake.NewSimpleDynamicClient(runtime.NewScheme()),
+				coreClient:    k8sfake.NewSimpleClientset().CoreV1(),
+				namespace:     "mockNamespace",
 				targetRef: v1alpha1.CrossVersionObjectReference{
 					Kind:       "",
 					Name:       "",
@@ -187,9 +192,10 @@ func TestValidateAndExtractContainers(t *testing.T) {
 		{
 			name: "all right",
 			args: args{
-				ctx:       context.TODO(),
-				client:    fake.NewClientBuilder().Build(),
-				namespace: "mockNamespace",
+				ctx:           context.TODO(),
+				dynamicClient: dynamicfake.NewSimpleDynamicClient(runtime.NewScheme()),
+				coreClient:    k8sfake.NewSimpleClientset().CoreV1(),
+				namespace:     "mockNamespace",
 				targetRef: v1alpha1.CrossVersionObjectReference{
 					Name:       "mockName5",
 					Kind:       "Deployment",
@@ -264,9 +270,10 @@ func TestValidateAndExtractContainers(t *testing.T) {
 		{
 			name: "controlled resources is empty",
 			args: args{
-				ctx:       context.TODO(),
-				client:    fake.NewClientBuilder().Build(),
-				namespace: "mockNamespace",
+				ctx:           context.TODO(),
+				dynamicClient: dynamicfake.NewSimpleDynamicClient(runtime.NewScheme()),
+				coreClient:    k8sfake.NewSimpleClientset().CoreV1(),
+				namespace:     "mockNamespace",
 				targetRef: v1alpha1.CrossVersionObjectReference{
 					Name:       "mockName5",
 					Kind:       "Deployment",
@@ -309,9 +316,10 @@ func TestValidateAndExtractContainers(t *testing.T) {
 		{
 			name: errortypes.ContainersMatchedErrorMessage,
 			args: args{
-				ctx:       context.TODO(),
-				client:    fake.NewClientBuilder().Build(),
-				namespace: "mockNamespace",
+				ctx:           context.TODO(),
+				dynamicClient: dynamicfake.NewSimpleDynamicClient(runtime.NewScheme()),
+				coreClient:    k8sfake.NewSimpleClientset().CoreV1(),
+				namespace:     "mockNamespace",
 				targetRef: v1alpha1.CrossVersionObjectReference{
 					Name:       "mockName5",
 					Kind:       "Deployment",
@@ -358,9 +366,10 @@ func TestValidateAndExtractContainers(t *testing.T) {
 		{
 			name: "validate containers err",
 			args: args{
-				ctx:       context.TODO(),
-				client:    fake.NewClientBuilder().Build(),
-				namespace: "mockNamespace",
+				ctx:           context.TODO(),
+				dynamicClient: dynamicfake.NewSimpleDynamicClient(runtime.NewScheme()),
+				coreClient:    k8sfake.NewSimpleClientset().CoreV1(),
+				namespace:     "mockNamespace",
 				targetRef: v1alpha1.CrossVersionObjectReference{
 					Name:       "mockName5",
 					Kind:       "Deployment",
@@ -420,9 +429,14 @@ func TestValidateAndExtractContainers(t *testing.T) {
 			matchLabels := map[string]interface{}{
 				tt.env.matchLabelKey: tt.env.matchLabelValue,
 			}
-			resourceutils.CreateMockUnstructured(matchLabels, tt.env.unstructuredTemplateSpec, tt.env.unstructuredName, tt.env.namespace, tt.env.apiVersion, tt.env.kind, tt.args.client)
-			resourceutils.CreateMockPod(tt.env.podLabels, tt.env.podAnnotations, tt.env.podName, tt.env.namespace, tt.env.podNodeName, nil, tt.args.client)
-			got, gotErr := ValidateAndExtractContainers(tt.args.ctx, tt.args.client, tt.args.namespace, tt.args.targetRef, tt.args.containerPolicies)
+			if err := resourceutils.CreateMockUnstructured(matchLabels, tt.env.unstructuredTemplateSpec, tt.env.unstructuredName, tt.env.namespace, tt.env.apiVersion, tt.env.kind, tt.args.dynamicClient); err != nil {
+				t.Errorf("CreateMockUnstructured() gotErr = %v", err)
+			}
+			if err := resourceutils.CreateMockPod(tt.env.podLabels, tt.env.podAnnotations, tt.env.podName, tt.env.namespace, tt.env.podNodeName, nil, tt.args.coreClient); err != nil {
+				t.Errorf("CreateMockPod() gotErr = %v", err)
+			}
+
+			got, gotErr := ValidateAndExtractContainers(tt.args.ctx, tt.args.dynamicClient, tt.args.namespace, tt.args.targetRef, tt.args.containerPolicies, resourceutils.CreateMockRESTMapper())
 			SortContainersByContainerName(got)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("ValidateAndExtractContainers() got = %v, want %v", got, tt.want)

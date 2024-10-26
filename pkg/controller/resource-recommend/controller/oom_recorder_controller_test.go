@@ -17,64 +17,58 @@ limitations under the License.
 package controller
 
 import (
-	"reflect"
+	"context"
 	"testing"
+	"time"
 
-	v1 "k8s.io/api/core/v1"
+	"github.com/stretchr/testify/assert"
+	"k8s.io/client-go/tools/cache"
+	cliflag "k8s.io/component-base/cli/flag"
+
+	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-controller/app/options"
+	"github.com/kubewharf/katalyst-core/pkg/config/controller"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 )
 
-func TestGetContainer(t *testing.T) {
-	type args struct {
-		pod           *v1.Pod
-		containerName string
-	}
+func TestOOMRecorderController_Run(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
-		args args
-		want *v1.Container
 	}{
 		{
-			name: "notFount",
-			args: args{
-				pod: &v1.Pod{
-					Spec: v1.PodSpec{
-						Containers: []v1.Container{
-							{
-								Name: "c1",
-							},
-						},
-					},
-				},
-				containerName: "cx",
-			},
-			want: nil,
-		},
-		{
-			name: "Got",
-			args: args{
-				pod: &v1.Pod{
-					Spec: v1.PodSpec{
-						Containers: []v1.Container{
-							{
-								Name:  "c1",
-								Image: "image1",
-							},
-						},
-					},
-				},
-				containerName: "c1",
-			},
-			want: &v1.Container{
-				Name:  "c1",
-				Image: "image1",
-			},
+			name: "correct start",
 		},
 	}
+
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			if got := GetContainer(tt.args.pod, tt.args.containerName); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("GetContainer() = %v, want %v", got, tt.want)
+			t.Parallel()
+
+			ctx := context.TODO()
+			genericConf := &generic.GenericConfiguration{}
+			controllerConf := &controller.GenericControllerConfiguration{
+				DynamicGVResources: []string{"deployment.v1.apps"},
 			}
+
+			fss := &cliflag.NamedFlagSets{}
+			resourceRecommenderOptions := options.NewResourceRecommenderOptions()
+			resourceRecommenderOptions.AddFlags(fss)
+			resourceRecommenderConf := controller.NewResourceRecommenderConfig()
+			_ = resourceRecommenderOptions.ApplyTo(resourceRecommenderConf)
+
+			controlCtx, err := katalystbase.GenerateFakeGenericContext(nil)
+			assert.NoError(t, err)
+
+			oc, err := NewPodOOMRecorderController(ctx, controlCtx, genericConf, controllerConf, resourceRecommenderConf)
+			assert.NoError(t, err)
+
+			controlCtx.StartInformer(ctx)
+			go oc.Run()
+			synced := cache.WaitForCacheSync(ctx.Done(), oc.syncedFunc...)
+			assert.True(t, synced)
+			time.Sleep(10 * time.Millisecond)
 		})
 	}
 }
