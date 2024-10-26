@@ -21,7 +21,6 @@ import (
 	cliflag "k8s.io/component-base/cli/flag"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
-	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 )
 
 const (
@@ -163,6 +162,8 @@ func (o *BaseOptions) ApplyTo(c *global.BaseConfiguration) error {
 	c.ReclaimRelativeRootCgroupPath = o.ReclaimRelativeRootCgroupPath
 	c.GeneralRelativeCgroupPaths = o.GeneralRelativeCgroupPaths
 	c.OptionalRelativeCgroupPaths = o.OptionalRelativeCgroupPaths
+	c.CgroupType = o.CgroupType
+	c.AdditionalK8sCgroupPaths = o.AdditionalCgroupPaths
 
 	c.NetMultipleNS = o.MachineNetMultipleNS
 	c.NetNSDirAbsPath = o.MachineNetNSDirAbsPath
@@ -179,7 +180,5 @@ func (o *BaseOptions) ApplyTo(c *global.BaseConfiguration) error {
 	c.APIAuthTokenFile = o.APIAuthTokenFile
 
 	c.RuntimeEndpoint = o.RuntimeEndpoint
-
-	common.InitKubernetesCGroupPath(common.CgroupType(o.CgroupType), o.AdditionalCgroupPaths)
 	return nil
 }

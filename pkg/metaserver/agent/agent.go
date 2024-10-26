@@ -39,6 +39,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/node"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -73,12 +74,17 @@ type MetaAgent struct {
 
 // NewMetaAgent returns the instance of MetaAgent.
 func NewMetaAgent(conf *config.Configuration, clientSet *client.GenericClientSet, emitter metrics.MetricEmitter) (*MetaAgent, error) {
-	podFetcher, err := pod.NewPodFetcher(conf.BaseConfiguration, conf.MetaServerConfiguration.PodConfiguration, emitter)
+	machineInfo, err := machine.GetKatalystMachineInfo(conf.BaseConfiguration.MachineInfoConfiguration)
 	if err != nil {
 		return nil, err
 	}
 
-	machineInfo, err := machine.GetKatalystMachineInfo(conf.BaseConfiguration.MachineInfoConfiguration)
+	// init cgroup paths
+	common.InitKubernetesCGroupPath(common.CgroupType(conf.CgroupType), getAllAdditionalK8sCgroupPaths(conf, machineInfo))
+
+	// init pod fetcher
+	podFetcher, err := pod.NewPodFetcher(conf.BaseConfiguration, conf.MetaServerConfiguration.PodConfiguration,
+		emitter, common.GetKubernetesCgroupRootPathWithSubSys(common.DefaultSelectedSubsys))
 	if err != nil {
 		return nil, err
 	}
@@ -193,4 +199,23 @@ func (a *MetaAgent) setComponentImplementation(setter func()) {
 	}
 
 	setter()
+}
+
+func getAllAdditionalK8sCgroupPaths(conf *config.Configuration, machineInfo *machine.KatalystMachineInfo) []string {
+	// add additional cgroup paths by custom configuration
+	additionalK8sCgroupPaths := make([]string, 0, len(conf.AdditionalK8sCgroupPaths))
+	for _, cgroupPath := range conf.AdditionalK8sCgroupPaths {
+		additionalK8sCgroupPaths = append(additionalK8sCgroupPaths, cgroupPath)
+	}
+
+	// add reclaim cgroup path
+	additionalK8sCgroupPaths = append(additionalK8sCgroupPaths, conf.ReclaimRelativeRootCgroupPath)
+
+	// if we have multiple numa nodes, we should add numa-binding reclaim cgroup path
+	nonNUMABindingReclaimRelativeRootCgroupPaths := common.GetNUMABindingReclaimRelativeRootCgroupPaths(conf.ReclaimRelativeRootCgroupPath,
+		machineInfo.CPUDetails.NUMANodes().ToSliceNoSortInt())
+	for _, cgroupPath := range nonNUMABindingReclaimRelativeRootCgroupPaths {
+		additionalK8sCgroupPaths = append(additionalK8sCgroupPaths, cgroupPath)
+	}
+	return additionalK8sCgroupPaths
 }
