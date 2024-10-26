@@ -31,7 +31,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
-	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
@@ -84,7 +83,7 @@ type podFetcherImpl struct {
 }
 
 func NewPodFetcher(baseConf *global.BaseConfiguration, podConf *metaserver.PodConfiguration,
-	emitter metrics.MetricEmitter,
+	emitter metrics.MetricEmitter, cgroupRootPaths []string,
 ) (PodFetcher, error) {
 	runtimePodFetcher, err := NewRuntimePodFetcher(baseConf)
 	if err != nil {
@@ -98,7 +97,7 @@ func NewPodFetcher(baseConf *global.BaseConfiguration, podConf *metaserver.PodCo
 		emitter:           emitter,
 		baseConf:          baseConf,
 		podConf:           podConf,
-		cgroupRootPaths:   common.GetKubernetesCgroupRootPathWithSubSys(common.DefaultSelectedSubsys),
+		cgroupRootPaths:   cgroupRootPaths,
 	}, nil
 }
 
