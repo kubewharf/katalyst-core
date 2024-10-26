@@ -81,6 +81,7 @@ func GetAbsCgroupPath(subsys, suffix string) string {
 
 // GetKubernetesCgroupRootPathWithSubSys returns all Cgroup paths to run container for
 // kubernetes, and the returned values are merged with subsys.
+// note: this function is not thread-safe, and it should be called after InitKubernetesCGroupPath.
 func GetKubernetesCgroupRootPathWithSubSys(subsys string) []string {
 	k8sCgroupPathLock.RLock()
 	defer k8sCgroupPathLock.RUnlock()
