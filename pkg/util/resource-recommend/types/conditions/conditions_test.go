@@ -21,7 +21,8 @@ import (
 	"testing"
 	"time"
 
-	"bou.ke/monkey"
+	"github.com/bytedance/mockey"
+	"github.com/smartystreets/goconvey/convey"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -173,16 +174,12 @@ func TestResourceRecommendConditionsMap_Set(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			defer monkey.UnpatchAll()
-
-			monkey.Patch(time.Now, func() time.Time { return tt.args.fakeTime })
+		mockey.PatchConvey(tt.name, t, func() {
+			defer mockey.UnPatchAll()
+			mockey.Mock(time.Now).Return(tt.args.fakeTime).Build()
 
 			tt.conditionsMap.Set(tt.args.condition)
-
-			if !reflect.DeepEqual(tt.conditionsMap, tt.want) {
-				t.Errorf("conditionsMap set failed, got: %v, want: %v", tt.conditionsMap, tt.want)
-			}
+			convey.So(tt.conditionsMap, convey.ShouldResemble, tt.want)
 		})
 	}
 }

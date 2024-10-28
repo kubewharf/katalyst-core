@@ -25,6 +25,11 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/datasource/prometheus"
 )
 
+const (
+	defaultRecSyncWorkers                = 1
+	defaultResourceRecommendReSyncPeriod = 24 * time.Hour
+)
+
 type ResourceRecommenderOptions struct {
 	OOMRecordMaxNumber int `desc:"max number for oom record"`
 
@@ -39,6 +44,9 @@ type ResourceRecommenderOptions struct {
 	// LogVerbosityLevel to specify log verbosity level. (The default level is 4)
 	// Set it to something larger than 4 if more detailed logs are needed.
 	LogVerbosityLevel string
+
+	RecSyncWorkers int
+	RecSyncPeriod  time.Duration
 }
 
 // NewResourceRecommenderOptions creates a new Options with a default config.
@@ -79,6 +87,8 @@ func (o *ResourceRecommenderOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringVar(&o.DataSourcePromConfig.BaseFilter, "resourcerecommend-prometheus-promql-base-filter", "", ""+
 		"Get basic filters in promql for historical usage data. This filter is added to all promql statements. "+
 		"Supports filters format of promql, e.g: group=\\\"Katalyst\\\",cluster=\\\"cfeaf782fasdfe\\\"")
+	fs.IntVar(&o.RecSyncWorkers, "res-sync-workers", defaultRecSyncWorkers, "num of goroutine to sync recs")
+	fs.DurationVar(&o.RecSyncPeriod, "resource-recommend-resync-period", defaultResourceRecommendReSyncPeriod, "period for recommend controller to sync resource recommend")
 }
 
 func (o *ResourceRecommenderOptions) ApplyTo(c *controller.ResourceRecommenderConfig) error {
@@ -88,6 +98,8 @@ func (o *ResourceRecommenderOptions) ApplyTo(c *controller.ResourceRecommenderCo
 	c.DataSource = o.DataSource
 	c.DataSourcePromConfig = o.DataSourcePromConfig
 	c.LogVerbosityLevel = o.LogVerbosityLevel
+	c.RecSyncWorkers = o.RecSyncWorkers
+	c.RecSyncPeriod = o.RecSyncPeriod
 	return nil
 }
 

@@ -22,13 +22,15 @@ import (
 	"testing"
 	"time"
 
-	"bou.ke/monkey"
+	"github.com/bytedance/mockey"
+	"github.com/smartystreets/goconvey/convey"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	k8sclient "sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"k8s.io/apimachinery/pkg/runtime"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/recommendation/v1alpha1"
+	resourceutils "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/resource"
 	conditionstypes "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/types/conditions"
 	errortypes "github.com/kubewharf/katalyst-core/pkg/util/resource-recommend/types/error"
 )
@@ -125,12 +127,10 @@ func TestRecommendation_AsStatus(t *testing.T) {
 			},
 		},
 	}
+
+	mockey.Mock(time.Now).Return(fakeTime1).Build()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			defer monkey.UnpatchAll()
-
-			monkey.Patch(time.Now, func() time.Time { return fakeTime1 })
-
 			if got := tt.recommendation.AsStatus(); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("AsStatus() = %v, want %v", got, tt.want)
 			}
@@ -216,40 +216,24 @@ func TestRecommendation_SetConfig(t *testing.T) {
 			wantErr: nil,
 		},
 	}
+	defer mockey.UnPatchAll()
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			defer monkey.UnpatchAll()
-
-			monkey.Patch(ValidateAndExtractTargetRef, func(targetRefReq v1alpha1.CrossVersionObjectReference) (
-				v1alpha1.CrossVersionObjectReference, *errortypes.CustomError,
-			) {
-				return tt.args.targetRef, tt.args.customErr1
-			})
-			monkey.Patch(ValidateAndExtractAlgorithmPolicy, func(algorithmPolicyReq v1alpha1.AlgorithmPolicy) (
-				v1alpha1.AlgorithmPolicy, *errortypes.CustomError,
-			) {
-				return tt.args.algorithmPolicy, tt.args.customErr2
-			})
-			monkey.Patch(ValidateAndExtractContainers, func(ctx context.Context, client k8sclient.Client, namespace string,
-				targetRef v1alpha1.CrossVersionObjectReference,
-				containerPolicies []v1alpha1.ContainerResourcePolicy,
-			) ([]Container, *errortypes.CustomError) {
-				return tt.args.containers, tt.args.customErr3
-			})
+		mockey.PatchConvey(tt.name, t, func() {
+			mockey.Mock(ValidateAndExtractTargetRef).Return(tt.args.targetRef, tt.args.customErr1).Build()
+			mockey.Mock(ValidateAndExtractAlgorithmPolicy).Return(tt.args.algorithmPolicy, tt.args.customErr2).Build()
+			mockey.Mock(ValidateAndExtractContainers).Return(tt.args.containers, tt.args.customErr3).Build()
 
 			r := NewRecommendation(&v1alpha1.ResourceRecommend{})
-			if gotErr := r.SetConfig(context.Background(), fake.NewClientBuilder().Build(), &v1alpha1.ResourceRecommend{}); !reflect.DeepEqual(gotErr, tt.wantErr) {
-				t.Errorf("SetConfig() = %v, want %v", gotErr, tt.wantErr)
-			}
+			dynamicClient := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
+			gotErr := r.SetConfig(context.Background(), dynamicClient, &v1alpha1.ResourceRecommend{}, resourceutils.CreateMockRESTMapper())
+			convey.So(gotErr, convey.ShouldResemble, tt.wantErr)
 			if tt.wantErr == nil {
 				config := Config{
 					TargetRef:       tt.args.targetRef,
 					AlgorithmPolicy: tt.args.algorithmPolicy,
 					Containers:      tt.args.containers,
 				}
-				if !reflect.DeepEqual(config, r.Config) {
-					t.Errorf("SetConfig() failed, want config: %v, got: %v", config, r.Config)
-				}
+				convey.So(r.Config, convey.ShouldResemble, config)
 			}
 		})
 	}
