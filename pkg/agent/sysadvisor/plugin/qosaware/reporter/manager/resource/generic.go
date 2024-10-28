@@ -28,6 +28,7 @@ import (
 	"k8s.io/klog/v2"
 
 	hmadvisor "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -192,7 +193,24 @@ func (m *GenericHeadroomManager) sync(_ context.Context) {
 		return
 	}
 
-	originResultFromAdvisor, numaResult, err := m.headroomAdvisor.GetHeadroom(m.resourceName)
+	var resourceName types.QoSResourceName
+	switch m.resourceName {
+	case v1.ResourceCPU:
+		resourceName = types.QoSResourceCPU
+	case v1.ResourceMemory:
+		resourceName = types.QoSResourceMemory
+	default:
+		klog.Errorf("resource %v NOT support to get headroom", m.resourceName)
+		return
+	}
+
+	subAdvisor, err := m.headroomAdvisor.GetSubAdvisor(resourceName)
+	if err != nil {
+		klog.Errorf("get SubAdvisor with resource %v failed: %v", resourceName, err)
+		return
+	}
+
+	originResultFromAdvisor, numaResult, err := subAdvisor.GetHeadroom()
 	if err != nil {
 		klog.Errorf("get origin result %s from headroomAdvisor failed: %v", m.resourceName, err)
 		return
