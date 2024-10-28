@@ -200,12 +200,8 @@ func (ms *memoryServer) ListAndWatch(_ *advisorsvc.Empty, server advisorsvc.Advi
 	}
 }
 
-func (ms *memoryServer) assembleResponse(result *types.InternalMemoryCalculationResult) *advisorsvc.ListAndWatchResponse {
-	if result == nil {
-		return nil
-	}
-
-	// assmble per-numa headroom
+// assmble per-numa headroom
+func (ms *memoryServer) assembleHeadroom() *advisorsvc.CalculationInfo {
 	numaAllocatable, err := ms.headroomResourceManager.GetNumaAllocatable()
 	if err != nil {
 		general.ErrorS(err, "get numa allocatable failed")
@@ -227,9 +223,16 @@ func (ms *memoryServer) assembleResponse(result *types.InternalMemoryCalculation
 			string(memoryadvisor.ControlKnobKeyMemoryNUMAHeadroom): string(data),
 		},
 	}
-	extraNumaHeadRoom := &advisorsvc.CalculationInfo{
+
+	return &advisorsvc.CalculationInfo{
 		CgroupPath:        "",
 		CalculationResult: calculationResult,
+	}
+}
+
+func (ms *memoryServer) assembleResponse(result *types.InternalMemoryCalculationResult) *advisorsvc.ListAndWatchResponse {
+	if result == nil {
+		return nil
 	}
 
 	resp := advisorsvc.ListAndWatchResponse{
@@ -281,6 +284,10 @@ func (ms *memoryServer) assembleResponse(result *types.InternalMemoryCalculation
 		}
 	}
 
-	resp.ExtraEntries = append(resp.ExtraEntries, extraNumaHeadRoom)
+	extraNumaHeadRoom := ms.assembleHeadroom()
+	if extraNumaHeadRoom != nil {
+		resp.ExtraEntries = append(resp.ExtraEntries, extraNumaHeadRoom)
+	}
+
 	return &resp
 }
