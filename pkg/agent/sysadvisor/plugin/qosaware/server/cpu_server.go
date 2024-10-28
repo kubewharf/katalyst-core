@@ -271,6 +271,7 @@ func (cs *cpuServer) assembleResponse(advisorResp *types.InternalCPUCalculationR
 
 // assmble per-numa headroom
 func (cs *cpuServer) assembleHeadroom() *advisorsvc.CalculationInfo {
+	numaAllocatable, err := cs.headroomResourceManager.GetNumaAllocatable()
 	if err != nil {
 		klog.Errorf("get numa allocatable failed: %v", err)
 		return nil

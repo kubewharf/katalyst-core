@@ -189,26 +189,22 @@ func (ms *memoryServer) getAndPushAdvice(server advisorsvc.AdvisorService_ListAn
 	return nil
 }
 
-func (ms *memoryServer) assembleResponse(result *types.InternalMemoryCalculationResult) *advisorsvc.ListAndWatchResponse {
-	if result == nil {
+// assmble per-numa headroom
+func (ms *memoryServer) assembleHeadroom() *advisorsvc.CalculationInfo {
+	numaAllocatable, err := ms.headroomResourceManager.GetNumaAllocatable()
+	if err != nil {
+		general.ErrorS(err, "get numa allocatable failed")
 		return nil
 	}
 
-	// assmble per-numa headroom
-	var data []byte
-	numaAllocatable, err := ms.headroomResourceManager.GetNumaAllocatable()
+	numaHeadroom := make(memoryadvisor.MemoryNUMAHeadroom)
+	for numaID, res := range numaAllocatable {
+		numaHeadroom[numaID] = res.Value()
+	}
+	data, err := json.Marshal(numaHeadroom)
 	if err != nil {
-		// ignore get allocatable failed
-		general.ErrorS(err, "get numa allocatable failed")
-	} else {
-		numaHeadroom := make(memoryadvisor.MemoryNUMAHeadroom)
-		for numaID, res := range numaAllocatable {
-			numaHeadroom[numaID] = res.Value()
-		}
-		data, err = json.Marshal(numaHeadroom)
-		if err != nil {
-			general.ErrorS(err, "marshal numa headroom failed")
-		}
+		general.ErrorS(err, "marshal numa headroom failed")
+		return nil
 	}
 
 	calculationResult := &advisorsvc.CalculationResult{
@@ -216,9 +212,16 @@ func (ms *memoryServer) assembleResponse(result *types.InternalMemoryCalculation
 			string(memoryadvisor.ControlKnobKeyMemoryNUMAHeadroom): string(data),
 		},
 	}
-	extraNumaHeadRoom := &advisorsvc.CalculationInfo{
+
+	return &advisorsvc.CalculationInfo{
 		CgroupPath:        "",
 		CalculationResult: calculationResult,
+	}
+}
+
+func (ms *memoryServer) assembleResponse(result *types.InternalMemoryCalculationResult) *advisorsvc.ListAndWatchResponse {
+	if result == nil {
+		return nil
 	}
 
 	resp := advisorsvc.ListAndWatchResponse{
@@ -270,6 +273,10 @@ func (ms *memoryServer) assembleResponse(result *types.InternalMemoryCalculation
 		}
 	}
 
-	resp.ExtraEntries = append(resp.ExtraEntries, extraNumaHeadRoom)
+	extraNumaHeadRoom := ms.assembleHeadroom()
+	if extraNumaHeadRoom != nil {
+		resp.ExtraEntries = append(resp.ExtraEntries, extraNumaHeadRoom)
+	}
+
 	return &resp
 }
