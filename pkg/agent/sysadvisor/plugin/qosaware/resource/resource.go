@@ -40,9 +40,6 @@ type ResourceAdvisor interface {
 
 	// GetSubAdvisor returns the corresponding sub advisor according to resource name
 	GetSubAdvisor(resourceName types.QoSResourceName) (SubResourceAdvisor, error)
-
-	// GetHeadroom returns the corresponding headroom quantity according to resource name
-	GetHeadroom(resourceName v1.ResourceName) (resource.Quantity, map[int]resource.Quantity, error)
 }
 
 // SubResourceAdvisor updates resource provision of a certain dimension based on the latest
