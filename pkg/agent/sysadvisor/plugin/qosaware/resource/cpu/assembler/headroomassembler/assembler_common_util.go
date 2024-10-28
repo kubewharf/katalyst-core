@@ -22,6 +22,7 @@ import (
 	"math"
 	"strconv"
 
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/klog/v2"
 
@@ -30,6 +31,11 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	metaserverHelper "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
+)
+
+const (
+	FakedNUMAID = "-1"
 )
 
 func (ha *HeadroomAssemblerCommon) getUtilBasedHeadroom(options helper.UtilBasedCapacityOptions,
@@ -94,30 +100,37 @@ func (ha *HeadroomAssemblerCommon) getReclaimNUMABindingTopo(reclaimPool *types.
 		numaMap[numaID] = false
 	}
 
-	f := func(podUID string, containerName string, ci *types.ContainerInfo) bool {
-		if ci == nil {
-			return true
+	pods, e := ha.metaServer.GetPodList(context.TODO(), func(pod *v1.Pod) bool {
+		if !native.PodIsActive(pod) {
+			return false
 		}
 
-		if ci.QoSLevel != consts.PodAnnotationQoSLevelReclaimedCores {
-			return true
+		if ok, err := ha.conf.CheckReclaimedQoSForPod(pod); err != nil {
+			klog.Errorf("filter pod %v err: %v", pod.Name, err)
+			return false
+		} else {
+			return ok
 		}
+	})
+	if e != nil {
+		err = fmt.Errorf("get pod list failed: %v", e)
+		return
+	}
 
-		numaRet, ok := ci.Annotations[consts.PodAnnotationNUMABindResultKey]
-		if !ok || numaRet == "-1" {
-			return true
+	for _, pod := range pods {
+		numaRet, ok := pod.Annotations[consts.PodAnnotationNUMABindResultKey]
+		if !ok || numaRet == FakedNUMAID {
+			continue
 		}
 
 		numaID, err := strconv.Atoi(numaRet)
 		if err != nil {
-			klog.Errorf("invalid numa binding result: %s, %v\n", numaRet, err)
-			return true
+			klog.Errorf("invalid numa binding result: %s, %s, %v\n", pod.Name, numaRet, err)
+			continue
 		}
 
 		numaMap[numaID] = true
-		return true
 	}
-	ha.metaReader.RangeContainer(f)
 
 	for numaID, bound := range numaMap {
 		if bound {
