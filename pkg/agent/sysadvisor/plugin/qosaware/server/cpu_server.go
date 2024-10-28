@@ -145,26 +145,22 @@ func (cs *cpuServer) ListAndWatch(_ *advisorsvc.Empty, server cpuadvisor.CPUAdvi
 	}
 }
 
-func (cs *cpuServer) assembleResponse(result *types.InternalCPUCalculationResult) (*cpuadvisor.ListAndWatchResponse, error) {
-	calculationEntriesMap := make(map[string]*cpuadvisor.CalculationEntries)
-	blockID2Blocks := NewBlockSet()
-	cs.assemblePoolEntries(result, calculationEntriesMap, blockID2Blocks)
-
-	// assmble per-numa headroom
-	var data []byte
+// assmble per-numa headroom
+func (cs *cpuServer) assembleHeadroom() *advisorsvc.CalculationInfo {
 	numaAllocatable, err := cs.headroomResourceManager.GetNumaAllocatable()
 	if err != nil {
-		// ignore get allocatable failed
 		klog.Errorf("get numa allocatable failed: %v", err)
-	} else {
-		numaHeadroom := make(map[int]float64)
-		for numaID, res := range numaAllocatable {
-			numaHeadroom[numaID] = float64(res.Value()) / 1000.0
-		}
-		data, err = json.Marshal(numaHeadroom)
-		if err != nil {
-			klog.Errorf("get numa allocatable failed: %v", err)
-		}
+		return nil
+	}
+
+	numaHeadroom := make(map[int]float64)
+	for numaID, res := range numaAllocatable {
+		numaHeadroom[numaID] = float64(res.Value()) / 1000.0
+	}
+	data, err := json.Marshal(numaHeadroom)
+	if err != nil {
+		klog.Errorf("marshal headroom failed: %v", err)
+		return nil
 	}
 
 	calculationResult := &advisorsvc.CalculationResult{
@@ -172,10 +168,17 @@ func (cs *cpuServer) assembleResponse(result *types.InternalCPUCalculationResult
 			string(cpuadvisor.ControlKnobKeyCPUNUMAHeadroom): string(data),
 		},
 	}
-	extraNumaHeadRoom := &advisorsvc.CalculationInfo{
+
+	return &advisorsvc.CalculationInfo{
 		CgroupPath:        "",
 		CalculationResult: calculationResult,
 	}
+}
+
+func (cs *cpuServer) assembleResponse(result *types.InternalCPUCalculationResult) (*cpuadvisor.ListAndWatchResponse, error) {
+	calculationEntriesMap := make(map[string]*cpuadvisor.CalculationEntries)
+	blockID2Blocks := NewBlockSet()
+	cs.assemblePoolEntries(result, calculationEntriesMap, blockID2Blocks)
 
 	// Assemble pod entries
 	f := func(podUID string, containerName string, ci *types.ContainerInfo) bool {
@@ -215,7 +218,10 @@ func (cs *cpuServer) assembleResponse(result *types.InternalCPUCalculationResult
 		}
 	}
 
-	resp.ExtraEntries = append(resp.ExtraEntries, extraNumaHeadRoom)
+	extraNumaHeadRoom := cs.assembleHeadroom()
+	if extraNumaHeadRoom != nil {
+		resp.ExtraEntries = append(resp.ExtraEntries, extraNumaHeadRoom)
+	}
 
 	return resp, nil
 }
