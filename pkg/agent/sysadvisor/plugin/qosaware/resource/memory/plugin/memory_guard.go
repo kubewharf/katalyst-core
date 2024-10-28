@@ -145,7 +145,12 @@ func (mg *memoryGuard) updateNonActualNUMABindingReclaimMemoryLimit(watermarkSca
 		return err
 	}
 
-	for _, numaID := range availNUMAs.ToSliceInt() {
+	actualNUMABindingNUMAs, err := helper.GetActualNUMABindingNUMAsForReclaimedCores(mg.conf, mg.metaServer)
+	if err != nil {
+		return err
+	}
+
+	for _, numaID := range availNUMAs.Difference(actualNUMABindingNUMAs).ToSliceInt() {
 		reclaimedCoresUsed, err := mg.metaServer.GetCgroupNumaMetric(mg.reclaimRelativeRootCgroupPath, numaID, consts.MetricsMemTotalPerNumaCgroup)
 		if err != nil {
 			return err
