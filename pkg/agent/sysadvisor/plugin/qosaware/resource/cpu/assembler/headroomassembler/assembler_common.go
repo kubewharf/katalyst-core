@@ -196,6 +196,7 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 	if err != nil {
 		return resource.Quantity{}, nil, err
 	}
+	general.Infof("RNB NUMA topo: %v, %v", bindingNUMAs, nonBindingNumas)
 
 	numaHeadroom := make(map[int]resource.Quantity, ha.metaServer.NumNUMANodes)
 	totalHeadroom := resource.Quantity{}
