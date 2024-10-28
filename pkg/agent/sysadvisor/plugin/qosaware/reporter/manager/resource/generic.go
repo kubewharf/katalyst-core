@@ -210,6 +210,12 @@ func (m *GenericHeadroomManager) sync(_ context.Context) {
 		return
 	}
 
+	originResultFromAdvisor, numaResult, err := subAdvisor.GetHeadroom()
+	if err != nil {
+		klog.Errorf("get origin result %s from headroomAdvisor failed: %v", m.resourceName, err)
+		return
+	}
+
 	reportResult := m.reportSlidingWindow.GetWindowedResources(originResultFromAdvisor)
 	if reportResult == nil {
 		klog.Infof("skip update reclaimed resource %s without enough valid sample", m.resourceName)
