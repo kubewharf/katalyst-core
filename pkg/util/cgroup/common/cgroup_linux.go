@@ -80,16 +80,19 @@ func GetCgroupParamInt(cgroupPath, cgroupFile string) (int64, error) {
 	return res, nil
 }
 
-// ParseCgroupNumaValue parse cgroup numa stat files like memory.numa_stat, the format is like "anon N0=1686843392 N1=1069957120 N2=316747776 N3=163962880"
-func ParseCgroupNumaValue(cgroupPath, cgroupFile string) (map[string]map[int]uint64, error) {
-	fileName := filepath.Join(cgroupPath, cgroupFile)
-	content, err := ioutil.ReadFile(fileName)
-	if err != nil {
-		return nil, err
-	}
+/*
+ParseCgroupNumaValue parse cgroup numa stat files like `memory.numa_stat`.
 
+cgroup v1 format:
+<counter>=<total pages> N0=<node 0 pages> N1=<node 1 pages> ...
+hierarchical_<counter>=<total pages> N0=<node 0 pages> N1=<node 1 pages> ...
+
+cgroup v2 format:
+<counter> N0=<bytes in node 0> N1=<bytes in node 1> ...
+*/
+func ParseCgroupNumaValue(content string) (map[string]map[int]uint64, error) {
 	result := make(map[string]map[int]uint64)
-	lines := strings.Split(string(content), "\n")
+	lines := strings.Split(content, "\n")
 	for _, line := range lines {
 		cols := strings.Fields(line)
 		if len(cols) <= 1 {
@@ -97,6 +100,10 @@ func ParseCgroupNumaValue(cgroupPath, cgroupFile string) (map[string]map[int]uin
 		}
 
 		key := cols[0]
+		if index := strings.Index(key, "="); index != -1 {
+			// For v1 format, remove the suffix after "="
+			key = key[:index]
+		}
 		numaInfo := make(map[int]uint64)
 		for _, pair := range cols[1:] {
 			parts := strings.Split(pair, "=")
