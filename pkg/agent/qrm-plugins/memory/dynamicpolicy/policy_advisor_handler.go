@@ -570,10 +570,10 @@ func (p *DynamicPolicy) handleNumaMemoryBalance(_ *config.Configuration,
 }
 
 type containerMigrateStat struct {
-	containerID string
-	cgroupPath  string
-	rssBefore   uint64
-	rssAfter    uint64
+	ContainerID string
+	CgroupPath  string
+	RssBefore   uint64
+	RssAfter    uint64
 }
 
 func (p *DynamicPolicy) doNumaMemoryBalance(ctx context.Context, advice types.NumaMemoryBalanceAdvice) error {
@@ -618,8 +618,8 @@ func (p *DynamicPolicy) doNumaMemoryBalance(ctx context.Context, advice types.Nu
 
 		key := keyFunc(containerInfo.PodUID, containerInfo.ContainerName)
 		containerStats[key] = &containerMigrateStat{
-			containerID: containerID,
-			cgroupPath:  memoryAbsCGPath,
+			ContainerID: containerID,
+			CgroupPath:  memoryAbsCGPath,
 		}
 	}
 
@@ -633,16 +633,16 @@ func (p *DynamicPolicy) doNumaMemoryBalance(ctx context.Context, advice types.Nu
 			}
 
 			stats := containerStats[containerKey]
-			rssBefore, err := getAnonOnNumaFunc(stats.cgroupPath, advice.SourceNuma)
+			rssBefore, err := getAnonOnNumaFunc(stats.CgroupPath, advice.SourceNuma)
 			if err != nil {
 				general.Errorf("getAnonOnNumaFunc failed for container[%v/%v] numa [%v],err: %v",
 					containerInfo.PodUID, containerInfo.ContainerName, advice.SourceNuma, err)
 			}
-			stats.rssBefore = rssBefore
+			stats.RssBefore = rssBefore
 
 			containerNumaSet := machine.NewCPUSet(containerInfo.DestNumaList...)
 			if containerNumaSet.Contains(destNuma) {
-				err = MigratePagesForContainer(ctx, containerInfo.PodUID, stats.containerID, p.topology.NumNUMANodes,
+				err = MigratePagesForContainer(ctx, containerInfo.PodUID, stats.ContainerID, p.topology.NumNUMANodes,
 					machine.NewCPUSet(advice.SourceNuma), machine.NewCPUSet(destNuma))
 				if err != nil {
 					general.Errorf("MigratePagesForContainer failed for container[%v/%v] source_numa [%v],dest_numa [%v],err: %v",
@@ -652,12 +652,12 @@ func (p *DynamicPolicy) doNumaMemoryBalance(ctx context.Context, advice types.Nu
 				general.Infof("skip migrate container %v/%v memory from %v to %v", containerInfo.PodUID, containerInfo.ContainerName, advice.SourceNuma, advice.DestNumaList)
 			}
 
-			rssAfter, err := getAnonOnNumaFunc(stats.cgroupPath, advice.SourceNuma)
+			rssAfter, err := getAnonOnNumaFunc(stats.CgroupPath, advice.SourceNuma)
 			if err != nil {
 				general.Errorf("getAnonOnNumaFunc failed for container[%v/%v] numa [%v],err: %v",
 					containerInfo.PodUID, containerInfo.ContainerName, advice.SourceNuma, err)
 			}
-			stats.rssAfter = rssAfter
+			stats.RssAfter = rssAfter
 
 			if rssAfter > rssBefore {
 				general.Infof("rssAfter: %d greater than rssBefore: %d", rssAfter, rssBefore)
@@ -673,8 +673,8 @@ func (p *DynamicPolicy) doNumaMemoryBalance(ctx context.Context, advice types.Nu
 		containerStatJson, _ := json.Marshal(containerStats)
 		general.Infof("containerStats: %+v", string(containerStatJson))
 		for _, stat := range containerStats {
-			totalRSSAfter += stat.rssAfter
-			totalRSSBefore += stat.rssBefore
+			totalRSSAfter += stat.RssAfter
+			totalRSSBefore += stat.RssBefore
 		}
 		general.Infof("numa memory balance migration succeed, advice total rss: %v, threshold: %v, sourceNuma:%v, targetNuma:%v, total rss before:%v, total rss after: %v",
 			advice.TotalRSS, advice.Threshold, advice.SourceNuma, destNuma, totalRSSBefore, totalRSSAfter)
