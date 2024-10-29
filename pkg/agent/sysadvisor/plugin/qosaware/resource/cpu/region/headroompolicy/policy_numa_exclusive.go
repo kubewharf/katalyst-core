@@ -31,6 +31,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -79,6 +80,7 @@ func (p *PolicyNUMAExclusive) Update() error {
 	}
 	enableReclaim, err := helper.PodEnableReclaim(context.Background(), p.metaServer, podUID, p.EnableReclaim)
 	if err != nil {
+		general.Errorf("check pod reclaim status failed: %v, %v", podUID, err)
 		return err
 	}
 	if !enableReclaim {
@@ -89,6 +91,7 @@ func (p *PolicyNUMAExclusive) Update() error {
 	for _, ci := range containers {
 		containerEstimation, err := helper.EstimateContainerCPUUsage(ci, p.metaReader, enableReclaim)
 		if err != nil {
+			general.Errorf("EstimateContainerCPUUsage failed: %v, %v", ci.PodName, err)
 			return err
 		}
 
@@ -117,6 +120,7 @@ func (p *PolicyNUMAExclusive) Update() error {
 	originHeadroom := math.Max(p.ResourceUpperBound-cpuEstimation+p.ReservedForReclaim, 0)
 	score, err := helper.PodPerformanceScore(context.Background(), p.metaServer, podUID)
 	if err != nil {
+		general.Errorf("get pps failed: %v, %v", podUID, err)
 		return err
 	}
 	p.headroom = originHeadroom * (score - spd.MinPerformanceScore) / (spd.MaxPerformanceScore - spd.MinPerformanceScore)
