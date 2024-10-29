@@ -103,11 +103,13 @@ func (ha *HeadroomAssemblerCommon) GetHeadroom() (resource.Quantity, map[int]res
 
 			// divide headroom evenly to each numa
 			bindingNUMAs := r.GetBindingNumas()
+			perNumaHeadroom := 0.0
 			if regionInfo.Headroom > 0 && bindingNUMAs.Size() > 0 {
-				perNumaHeadroom := regionInfo.Headroom / float64(bindingNUMAs.Size())
-				for _, numaID := range bindingNUMAs.ToSliceInt() {
-					headroomNuma[numaID] += perNumaHeadroom
-				}
+				perNumaHeadroom = regionInfo.Headroom / float64(bindingNUMAs.Size())
+			}
+			// set headroom even it is zero
+			for _, numaID := range bindingNUMAs.ToSliceInt() {
+				headroomNuma[numaID] += perNumaHeadroom
 			}
 
 			klog.InfoS("dedicated_cores NUMA headroom", "headroom", regionInfo.Headroom, "NUMAs", r.GetBindingNumas().String())
