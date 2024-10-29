@@ -103,11 +103,13 @@ func (ha *HeadroomAssemblerCommon) GetHeadroom() (resource.Quantity, map[int]res
 
 			// divide headroom evenly to each numa
 			bindingNUMAs := r.GetBindingNumas()
+			perNumaHeadroom := 0.0
 			if regionInfo.Headroom > 0 && bindingNUMAs.Size() > 0 {
-				perNumaHeadroom := regionInfo.Headroom / float64(bindingNUMAs.Size())
-				for _, numaID := range bindingNUMAs.ToSliceInt() {
-					headroomNuma[numaID] += perNumaHeadroom
-				}
+				perNumaHeadroom = regionInfo.Headroom / float64(bindingNUMAs.Size())
+			}
+			// set headroom even it is zero
+			for _, numaID := range bindingNUMAs.ToSliceInt() {
+				headroomNuma[numaID] += perNumaHeadroom
 			}
 
 			klog.InfoS("dedicated_cores NUMA headroom", "headroom", regionInfo.Headroom, "NUMAs", r.GetBindingNumas().String())
@@ -172,6 +174,14 @@ func (ha *HeadroomAssemblerCommon) GetHeadroom() (resource.Quantity, map[int]res
 		headroomNumaRet := make(map[int]resource.Quantity)
 		for numaID, headroom := range headroomNuma {
 			headroomNumaRet[numaID] = *resource.NewMilliQuantity(int64(headroom*1000), resource.DecimalSI)
+		}
+
+		allNUMAs := ha.metaServer.CPUDetails.NUMANodes()
+		for _, numaID := range allNUMAs.ToSliceInt() {
+			if _, ok := headroomNumaRet[numaID]; !ok {
+				general.InfoS("set non-reclaim NUMA cpu headroom as empty", "NUMA-ID", numaID)
+				headroomNumaRet[numaID] = *resource.NewQuantity(0, resource.BinarySI)
+			}
 		}
 		return *resource.NewQuantity(int64(headroomTotal), resource.DecimalSI), headroomNumaRet, nil
 	}
@@ -264,6 +274,14 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 	general.InfoS("[qosaware-cpu] headroom by utilization", "total", totalHeadroom.Value())
 	for numaID, headroom := range numaHeadroom {
 		general.InfoS("[qosaware-cpu] NUMA headroom by utilization", "NUMA-ID", numaID, "headroom", headroom.Value())
+	}
+
+	allNUMAs := ha.metaServer.CPUDetails.NUMANodes()
+	for _, numaID := range allNUMAs.ToSliceInt() {
+		if _, ok := numaHeadroom[numaID]; !ok {
+			general.InfoS("set non-reclaim NUMA cpu headroom as empty", "NUMA-ID", numaID)
+			numaHeadroom[numaID] = *resource.NewQuantity(0, resource.BinarySI)
+		}
 	}
 	return totalHeadroom, numaHeadroom, nil
 }
