@@ -75,6 +75,7 @@ func (ha *HeadroomAssemblerCommon) GetHeadroom() (resource.Quantity, map[int]res
 
 	// return zero when reclaim is disabled
 	if !dynamicConfig.EnableReclaim {
+		general.Infof("reclaim is NOT enabled")
 		return *resource.NewQuantity(0, resource.DecimalSI), nil, nil
 	}
 
@@ -91,7 +92,7 @@ func (ha *HeadroomAssemblerCommon) GetHeadroom() (resource.Quantity, map[int]res
 		if r.Type() == configapi.QoSRegionTypeDedicatedNumaExclusive {
 			regionInfo, ok := ha.metaReader.GetRegionInfo(r.Name())
 			if !ok || regionInfo == nil || regionInfo.Headroom < 0 {
-				return resource.Quantity{}, nil, fmt.Errorf("failed to get headroom for %v", r.Name())
+				return resource.Quantity{}, nil, fmt.Errorf("failed to get headroom for %v, %#v", r.Name(), regionInfo)
 			}
 			if regionInfo.RegionStatus.BoundType == types.BoundUpper && r.EnableReclaim() {
 				general.Infof("region %v is in status of upper bound", regionInfo.RegionName)
@@ -194,6 +195,7 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 
 	bindingNUMAs, nonBindingNumas, err := ha.getReclaimNUMABindingTopo(reclaimPoolInfo)
 	if err != nil {
+		general.Errorf("getReclaimNUMABindingTop failed: %v", err)
 		return resource.Quantity{}, nil, err
 	}
 	general.Infof("RNB NUMA topo: %v, %v", bindingNUMAs, nonBindingNumas)
