@@ -217,10 +217,6 @@ func (m *GenericHeadroomManager) sync(_ context.Context) {
 	}
 
 	reportResult := m.reportSlidingWindow.GetWindowedResources(originResultFromAdvisor)
-	if reportResult == nil {
-		klog.Infof("skip update reclaimed resource %s without enough valid sample", m.resourceName)
-		return
-	}
 
 	reportNUMAResult := make(map[int]*resource.Quantity)
 	numaResultReady := true
@@ -238,22 +234,23 @@ func (m *GenericHeadroomManager) sync(_ context.Context) {
 			m.reportNUMASlidingWindow[numaID] = numaWindow
 		}
 
-		reportResult := numaWindow.GetWindowedResources(ret)
-		if reportResult == nil {
+		reportNUMAResult := numaWindow.GetWindowedResources(ret)
+		if reportNUMAResult == nil {
 			klog.Infof("numa %d result if not ready", numaID)
 			numaResultReady = false
 			continue
 		}
 
-		reportResult.Sub(reservedResourceForReportPerNUMA)
-		if reportResult.Cmp(minReclaimedResourceForReportPerNUMA) < 0 {
-			reportResult = &minReclaimedResourceForReportPerNUMA
+		reportNUMAResult.Sub(reservedResourceForReportPerNUMA)
+		if reportNUMAResult.Cmp(minReclaimedResourceForReportPerNUMA) < 0 {
+			reportNUMAResult = &minReclaimedResourceForReportPerNUMA
 		}
-		reportNUMAResult[numaID] = reportResult
-		numaSum += float64(reportResult.Value())
+		reportNUMAResult[numaID] = reportNUMAResult
+		numaSum += float64(reportNUMAResult.Value())
 	}
 
-	if !numaResultReady {
+	if reportResult == nil || !numaResultReady {
+		klog.Infof("skip update reclaimed resource %s without enough valid sample: %v", m.resourceName, numaResultReady)
 		return
 	}
 
