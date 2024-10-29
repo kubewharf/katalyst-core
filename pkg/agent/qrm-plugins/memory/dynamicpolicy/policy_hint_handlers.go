@@ -496,13 +496,15 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingReclaimedCores(reqInt int64,
 	if maxMemoryLeft >= 0 {
 		p.populateBestEffortHintsByAvailableNUMANodes(hints, candidateNUMANodes, candidateLeft,
 			0)
-	} else if nonBindingReclaimedLeft < 0 {
+	} else if nonBindingReclaimedLeft <= 0 {
 		p.populateBestEffortHintsByAvailableNUMANodes(hints, candidateNUMANodes, candidateLeft,
 			nonBindingReclaimedLeft)
 	}
 
 	// Finally, add non-RNB NUMA nodes as preferred hints, but these will only be selected if no RNB NUMA nodes meet the requirements
-	util.PopulatePreferHintsByNUMANodes(hints, nonActualBindingNUMAs.ToSliceInt())
+	if nonActualBindingNUMAs.Size() > 0 {
+		util.PopulatePreferHintsByNUMANodes(hints, nonActualBindingNUMAs.ToSliceInt())
+	}
 
 	return map[string]*pluginapi.ListOfTopologyHints{
 		string(v1.ResourceMemory): hints,
