@@ -86,6 +86,7 @@ func (p *PolicyNUMAAware) Update() (err error) {
 
 	availNUMAs, reclaimedCoresContainers, err := helper.GetAvailableNUMAsAndReclaimedCores(p.conf, p.metaReader, p.metaServer)
 	if err != nil {
+		general.Errorf("GetAvailableNUMAsAndReclaimedCores failed: %v", err)
 		return err
 	}
 
@@ -93,20 +94,21 @@ func (p *PolicyNUMAAware) Update() (err error) {
 	for _, numaID := range availNUMAs.ToSliceInt() {
 		data, err = p.metaServer.GetNumaMetric(numaID, consts.MetricMemFreeNuma)
 		if err != nil {
-			general.Errorf("Can not get numa memory free, numaID: %v", numaID)
+			general.Errorf("Can not get numa memory free, numaID: %v, %v", numaID, err)
 			return err
 		}
 		free := data.Value
 
 		data, err = p.metaServer.GetNumaMetric(numaID, consts.MetricMemInactiveFileNuma)
 		if err != nil {
+			general.Errorf("Can not get numa memory inactiveFile, numaID: %v, %v", numaID, err)
 			return err
 		}
 		inactiveFile := data.Value
 
 		data, err = p.metaServer.GetNumaMetric(numaID, consts.MetricMemTotalNuma)
 		if err != nil {
-			general.ErrorS(err, "Can not get numa memory total", "numaID", numaID)
+			general.Errorf("Can not get numa memory total, numaID: %v, %v", numaID, err)
 			return err
 		}
 		total := data.Value
@@ -137,7 +139,7 @@ func (p *PolicyNUMAAware) Update() (err error) {
 
 	watermarkScaleFactor, err := p.metaServer.GetNodeMetric(consts.MetricMemScaleFactorSystem)
 	if err != nil {
-		general.InfoS("Can not get system watermark scale factor")
+		general.Infof("Can not get system watermark scale factor: %v", err)
 		return err
 	}
 
