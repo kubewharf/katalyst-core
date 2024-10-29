@@ -234,19 +234,19 @@ func (m *GenericHeadroomManager) sync(_ context.Context) {
 			m.reportNUMASlidingWindow[numaID] = numaWindow
 		}
 
-		reportNUMAResult := numaWindow.GetWindowedResources(ret)
-		if reportNUMAResult == nil {
+		result := numaWindow.GetWindowedResources(ret)
+		if result == nil {
 			klog.Infof("numa %d result if not ready", numaID)
 			numaResultReady = false
 			continue
 		}
 
-		reportNUMAResult.Sub(reservedResourceForReportPerNUMA)
-		if reportNUMAResult.Cmp(minReclaimedResourceForReportPerNUMA) < 0 {
-			reportNUMAResult = &minReclaimedResourceForReportPerNUMA
+		result.Sub(reservedResourceForReportPerNUMA)
+		if result.Cmp(minReclaimedResourceForReportPerNUMA) < 0 {
+			result = &minReclaimedResourceForReportPerNUMA
 		}
-		reportNUMAResult[numaID] = reportNUMAResult
-		numaSum += float64(reportNUMAResult.Value())
+		reportNUMAResult[numaID] = result
+		numaSum += float64(result.Value())
 	}
 
 	if reportResult == nil || !numaResultReady {
