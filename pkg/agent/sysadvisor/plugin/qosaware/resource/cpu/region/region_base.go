@@ -384,7 +384,7 @@ func (r *QoSRegionBase) TryUpdateHeadroom() {
 
 		// run an episode of policy and calculator update
 		if err := internal.policy.Update(); err != nil {
-			klog.Errorf("[qosaware-cpu] update policy %v failed: %v", internal.name, err)
+			klog.Errorf("[qosaware-cpu] region %s update policy %v failed: %v", r.name, internal.name, err)
 			continue
 		}
 		internal.updateStatus = types.PolicyUpdateSucceeded
