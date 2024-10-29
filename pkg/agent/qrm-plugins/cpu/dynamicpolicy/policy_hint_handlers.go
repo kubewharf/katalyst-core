@@ -385,6 +385,9 @@ func (p *DynamicPolicy) reclaimedCoresWithNUMABindingHintHandler(_ context.Conte
 		}
 	}
 
+	general.Infof("memory hints for pod:%s/%s, container: %s success, hints: %v",
+		req.PodNamespace, req.PodName, req.ContainerName, hints)
+
 	return util.PackResourceHintsResponse(req, string(v1.ResourceCPU), hints)
 }
 
@@ -392,25 +395,21 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingReclaimedCores(reqFloat floa
 	machineState state.NUMANodeMap,
 	numaHeadroomState map[int]float64,
 ) (map[string]*pluginapi.ListOfTopologyHints, error) {
-	// Calculate the available CPU headroom for non-RNB (Reclaimed Non-Binding) NUMA nodes
-	nonBindingNUMAsCPUQuantity := machineState.GetFilteredAvailableHeadroom(numaHeadroomState, nil,
-		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMABinding))
-
 	// Determine the set of NUMA nodes currently hosting non-RNB pods
-	nonBindingNUMAs := machineState.GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMABinding))
+	nonActualBindingNUMAs := machineState.GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMABinding))
 
 	// Calculate the total requested resources for non-RNB reclaimed pods
-	nonBindingReclaimedRequestedQuantity := state.GetRequestedQuantityFromPodEntries(podEntries,
+	nonActualBindingReclaimedRequestedQuantity := state.GetRequestedQuantityFromPodEntries(podEntries,
 		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedNonActualNUMABinding),
 		p.getContainerRequestedCores)
 
 	// Compute the total available headroom for non-RNB NUMA nodes
-	nonBindingReclaimedNUMAHeadroom := state.GetReclaimedNUMAHeadroom(numaHeadroomState, nonBindingNUMAs)
+	nonActualBindingReclaimedNUMAHeadroom := state.GetReclaimedNUMAHeadroom(numaHeadroomState, nonActualBindingNUMAs)
 
 	// Identify candidate NUMA nodes for RNB (Reclaimed NUMA Binding) cores
 	// This includes both RNB NUMA nodes and NUMA nodes that can shrink from the non-RNB set
-	candidateNUMANodes := p.filterNUMANodesByNonBindingReclaimedRequestedQuantity(nonBindingReclaimedRequestedQuantity,
-		nonBindingNUMAsCPUQuantity, nonBindingNUMAs, numaHeadroomState)
+	candidateNUMANodes := p.filterNUMANodesByNonBindingReclaimedRequestedQuantity(nonActualBindingReclaimedRequestedQuantity,
+		nonActualBindingReclaimedNUMAHeadroom, nonActualBindingNUMAs, numaHeadroomState)
 
 	// Sort them based on the other qos numa binding pods and their headroom
 	p.sortCandidateNUMANodesForReclaimed(candidateNUMANodes, machineState, numaHeadroomState)
@@ -419,7 +418,7 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingReclaimedCores(reqFloat floa
 
 	hints := &pluginapi.ListOfTopologyHints{}
 
-	nonBindingReclaimedLeft := nonBindingReclaimedNUMAHeadroom - nonBindingReclaimedRequestedQuantity - reqFloat
+	nonBindingReclaimedLeft := nonActualBindingReclaimedNUMAHeadroom - nonActualBindingReclaimedRequestedQuantity - reqFloat
 	if maxCPULeft >= 0 {
 		p.populateBestEffortHintsByAvailableNUMANodes(hints, candidateNUMANodes, candidateLeft,
 			0)
@@ -428,9 +427,19 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingReclaimedCores(reqFloat floa
 			nonBindingReclaimedLeft)
 	}
 
+	general.InfoS("calculate numa hints for reclaimed cores success",
+		"nonActualBindingNUMAs", nonActualBindingNUMAs.String(),
+		"nonActualBindingReclaimedRequestedQuantity", nonActualBindingReclaimedRequestedQuantity,
+		"nonActualBindingReclaimedNUMAHeadroom", nonActualBindingReclaimedNUMAHeadroom,
+		"numaHeadroomState", numaHeadroomState,
+		"candidateNUMANodes", candidateNUMANodes,
+		"nonBindingReclaimedLeft", nonBindingReclaimedLeft,
+		"candidateLeft", candidateLeft,
+		"maxCPULeft", maxCPULeft)
+
 	// Finally, add non-RNB NUMA nodes as preferred hints, but these will only be selected if no RNB NUMA nodes meet the requirements
-	if nonBindingNUMAs.Size() > 0 {
-		util.PopulatePreferHintsByNUMANodes(hints, nonBindingNUMAs.ToSliceInt())
+	if nonActualBindingNUMAs.Size() > 0 {
+		util.PopulatePreferHintsByNUMANodes(hints, nonActualBindingNUMAs.ToSliceInt())
 	}
 
 	return map[string]*pluginapi.ListOfTopologyHints{

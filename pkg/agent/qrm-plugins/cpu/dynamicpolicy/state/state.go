@@ -439,20 +439,6 @@ func (ns *NUMANodeState) GetFilteredDefaultCPUSet(excludeEntry, excludeWholeNUMA
 	return res
 }
 
-func (ns *NUMANodeState) GetFilteredAvailableHeadroom(numaHeadroom float64, excludeEntry, excludeWholeNUMA func(ai *AllocationInfo) bool) float64 {
-	res := numaHeadroom
-	for _, containerEntries := range ns.PodEntries {
-		for _, allocationInfo := range containerEntries {
-			if excludeWholeNUMA != nil && excludeWholeNUMA(allocationInfo) {
-				return 0
-			} else if excludeEntry != nil && excludeEntry(allocationInfo) {
-				res -= allocationInfo.RequestQuantity
-			}
-		}
-	}
-	return res
-}
-
 // ExistMatchedAllocationInfo returns true if the stated predicate holds true for some pods of this numa else it returns false.
 func (ns *NUMANodeState) ExistMatchedAllocationInfo(f func(ai *AllocationInfo) bool) bool {
 	for _, containerEntries := range ns.PodEntries {
@@ -536,14 +522,6 @@ func (nm NUMANodeMap) GetFilteredNUMASet(excludeNUMAPredicate func(ai *Allocatio
 			continue
 		}
 		res.Add(numaID)
-	}
-	return res
-}
-
-func (nm NUMANodeMap) GetFilteredAvailableHeadroom(numaHeadroom map[int]float64, excludeEntry, excludeWholeNUMA func(ai *AllocationInfo) bool) float64 {
-	res := float64(0)
-	for id, numaNodeState := range nm {
-		res += numaNodeState.GetFilteredAvailableHeadroom(numaHeadroom[id], excludeEntry, excludeWholeNUMA)
 	}
 	return res
 }

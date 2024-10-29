@@ -467,23 +467,20 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingReclaimedCores(reqInt int64,
 		return nil, fmt.Errorf("calculateHints with empty machineState")
 	}
 
-	// Calculate the available CPU headroom for non-RNB (Reclaimed Non-Binding) NUMA nodes
-	nonActualBindingNUMAsMemoryQuantity := machineState.GetNonActualNUMABindingAvailableHeadroom(numaHeadroomState)
-
 	// Determine the set of NUMA nodes currently hosting non-RNB pods
 	nonActualBindingNUMAs := machineState.GetNUMANodesWithoutReclaimedActualNUMABindingPods()
 
 	// Calculate the total requested resources for non-RNB reclaimed pods
-	nonBindingReclaimedRequestedQuantity := state.GetRequestedQuantityFromPodEntries(podEntries,
+	nonActualBindingReclaimedRequestedQuantity := state.GetRequestedQuantityFromPodEntries(podEntries,
 		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedNonActualNUMABinding))
 
 	// Compute the total available headroom for non-RNB NUMA nodes
-	nonBindingReclaimedNUMAHeadroom := state.GetReclaimedNUMAHeadroom(numaHeadroomState, nonActualBindingNUMAs)
+	nonActualBindingReclaimedNUMAHeadroom := state.GetReclaimedNUMAHeadroom(numaHeadroomState, nonActualBindingNUMAs)
 
 	// Identify candidate NUMA nodes for RNB (Reclaimed NUMA Binding) cores
 	// This includes both RNB NUMA nodes and NUMA nodes that can shrink from the non-RNB set
-	candidateNUMANodes := p.filterNUMANodesByNonBindingReclaimedRequestedQuantity(nonBindingReclaimedRequestedQuantity,
-		nonActualBindingNUMAsMemoryQuantity, nonActualBindingNUMAs, numaHeadroomState)
+	candidateNUMANodes := p.filterNUMANodesByNonBindingReclaimedRequestedQuantity(nonActualBindingReclaimedRequestedQuantity,
+		nonActualBindingReclaimedNUMAHeadroom, nonActualBindingNUMAs, numaHeadroomState)
 
 	// Sort candidate NUMA nodes based on the other qos numa binding pods and their headroom
 	p.sortCandidateNUMANodesForReclaimed(candidateNUMANodes, machineState, numaHeadroomState)
@@ -492,7 +489,7 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingReclaimedCores(reqInt int64,
 
 	hints := &pluginapi.ListOfTopologyHints{}
 
-	nonBindingReclaimedLeft := nonBindingReclaimedNUMAHeadroom - nonBindingReclaimedRequestedQuantity - reqInt
+	nonBindingReclaimedLeft := nonActualBindingReclaimedNUMAHeadroom - nonActualBindingReclaimedRequestedQuantity - reqInt
 	if maxMemoryLeft >= 0 {
 		p.populateBestEffortHintsByAvailableNUMANodes(hints, candidateNUMANodes, candidateLeft,
 			0)
@@ -500,6 +497,16 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingReclaimedCores(reqInt int64,
 		p.populateBestEffortHintsByAvailableNUMANodes(hints, candidateNUMANodes, candidateLeft,
 			nonBindingReclaimedLeft)
 	}
+
+	general.InfoS("calculate numa hints for reclaimed cores success",
+		"nonActualNUMABindingNUMAs", nonActualBindingNUMAs.String(),
+		"nonActualBindingReclaimedRequestedQuantity", nonActualBindingReclaimedRequestedQuantity,
+		"nonActualNUMABindingReclaimedNUMAHeadroom", nonActualBindingReclaimedNUMAHeadroom,
+		"numaHeadroomState", numaHeadroomState,
+		"candidateNUMANodes", candidateNUMANodes,
+		"nonBindingReclaimedLeft", nonBindingReclaimedLeft,
+		"candidateLeft", candidateLeft,
+		"maxMemoryLeft", maxMemoryLeft)
 
 	// Finally, add non-RNB NUMA nodes as preferred hints, but these will only be selected if no RNB NUMA nodes meet the requirements
 	if nonActualBindingNUMAs.Size() > 0 {

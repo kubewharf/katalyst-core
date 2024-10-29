@@ -212,9 +212,9 @@ func (p *DynamicPolicy) numaBindingAllocationHandler(ctx context.Context,
 	if !qosutil.AnnotationsIndicateNUMAExclusive(req.Annotations) {
 		if len(req.Hint.Nodes) != 1 {
 			return nil, fmt.Errorf("numa binding without numa exclusive allocation result numa node size is %d, "+
-				"not equal to 1", result.Size())
+				"not equal to 1", len(req.Hint.Nodes))
 		}
-		allocationInfo.SetSpecifiedNUMABindingNUMAID(result.ToSliceNoSortUInt64()[0])
+		allocationInfo.SetSpecifiedNUMABindingNUMAID(req.Hint.Nodes[0])
 	}
 
 	p.state.SetAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName, allocationInfo)
