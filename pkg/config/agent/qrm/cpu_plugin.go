@@ -53,6 +53,10 @@ type CPUNativePolicyConfig struct {
 	EnableFullPhysicalCPUsOnly bool
 	// CPUAllocationOption is the allocation option of cpu (packed/distributed).
 	CPUAllocationOption string
+	// EnableSyncingCPUBurst indicates whether to enable synchronization of CPU burst configuration.
+	EnableSyncingCPUBurst bool
+	// NativePolicyEnableCoreBinding indicates whether to enable core binding in native policy.
+	NativePolicyEnableCoreBinding bool
 }
 
 func NewCPUQRMPluginConfig() *CPUQRMPluginConfig {

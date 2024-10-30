@@ -25,20 +25,25 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	nativepolicyutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/nativepolicy/util"
+	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	utilkubeconfig "github.com/kubewharf/katalyst-core/pkg/util/kubelet/config"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -93,6 +98,7 @@ type NativePolicy struct {
 	reservedCPUs           machine.CPUSet
 	cpuPluginSocketAbsPath string
 	extraStateFileAbsPath  string
+	qosConfig              *generic.QoSConfiguration
 	dynamicConfig          *dynamicconfig.DynamicAgentConfiguration
 	podDebugAnnoKeys       []string
 
@@ -102,6 +108,12 @@ type NativePolicy struct {
 
 	// cpuAllocationOption is is the allocation option of cpu (packed/distributed).
 	cpuAllocationOption string
+
+	// enableSyncingCPUBurst indicates whether to enable synchronization of CPU burst configuration.
+	enableSyncingCPUBurst bool
+
+	// enableCoreBinding indicates whether to enable core binding.
+	enableCoreBinding bool
 }
 
 func NewNativePolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -133,12 +145,15 @@ func NewNativePolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 		residualHitMap:             make(map[string]int64),
 		cpusToReuse:                make(map[string]machine.CPUSet),
 		state:                      stateImpl,
+		qosConfig:                  conf.QoSConfiguration,
 		dynamicConfig:              conf.DynamicAgentConfiguration,
 		cpuPluginSocketAbsPath:     conf.CPUPluginSocketAbsPath,
 		extraStateFileAbsPath:      conf.ExtraStateFileAbsPath,
 		podDebugAnnoKeys:           conf.PodDebugAnnoKeys,
 		enableFullPhysicalCPUsOnly: conf.EnableFullPhysicalCPUsOnly,
 		cpuAllocationOption:        conf.CPUAllocationOption,
+		enableSyncingCPUBurst:      conf.EnableSyncingCPUBurst,
+		enableCoreBinding:          conf.NativePolicyEnableCoreBinding,
 	}
 
 	if err := policyImplement.setReservedCPUs(agentCtx.CPUDetails.CPUs().Clone()); err != nil {
@@ -187,6 +202,12 @@ func (p *NativePolicy) Start() (err error) {
 		_ = p.emitter.StoreInt64(util.MetricNameHeartBeat, 1, metrics.MetricTypeNameRaw)
 	}, time.Second*30, p.stopCh)
 	go wait.Until(p.clearResidualState, stateCheckPeriod, p.stopCh)
+
+	// start cpu-idle syncing if needed
+	if p.enableSyncingCPUBurst {
+		general.Infof("syncCPUBurst enabled")
+		go wait.Until(p.syncCPUBurst, 5*time.Second, p.stopCh)
+	}
 
 	return nil
 }
@@ -722,4 +743,69 @@ func (p *NativePolicy) setReservedCPUs(allCPUs machine.CPUSet) error {
 	p.reservedCPUs = reserved
 
 	return nil
+}
+
+func (p *NativePolicy) syncCPUBurst() {
+	if p.metaServer == nil {
+		general.Errorf("nil metaServer")
+		return
+	}
+
+	podList, err := p.metaServer.GetPodList(context.Background(), native.PodIsActive)
+	if err != nil {
+		general.Errorf("get pod list failed, err: %v", err)
+		return
+	}
+
+	for _, pod := range podList {
+		if pod == nil {
+			general.Errorf("get nil pod from metaServer")
+			continue
+		}
+
+		podUID := string(pod.GetUID())
+
+		cpuBurstPolicy := cpuutil.GetCPUBurstPolicy(pod, p.qosConfig, p.dynamicConfig)
+		if cpuBurstPolicy == consts.PodAnnotationCPUEnhancementCPUBurstPolicyNone {
+			continue
+		}
+
+		cpuBurstPercent, err := cpuutil.GetCPUBurstPercent(pod, p.qosConfig, p.dynamicConfig)
+		if err != nil {
+			general.Errorf("get cpu burst percent failed, pod: %s, err: %v", podUID, err)
+		}
+
+		for _, container := range pod.Spec.Containers {
+			containerName := container.Name
+			containerID, err := p.metaServer.GetContainerID(podUID, containerName)
+			if err != nil {
+				general.Errorf("get container id failed, pod: %s, container: %s(%s), err: %v",
+					podUID, containerName, containerID, err)
+				continue
+			}
+
+			if exist, err := common.IsContainerCgroupExist(podUID, containerID); err != nil {
+				general.Errorf("check if container cgroup exists failed, pod: %s, container: %s(%s), err: %v",
+					podUID, containerName, containerID, err)
+				continue
+			} else if !exist {
+				klog.V(2).Infof("container cgroup does not exist, pod: %s, container: %s(%s)", podUID, containerName,
+					containerID)
+				continue
+			}
+
+			containerCPUBurstVal := cpuutil.CalcCPUBurstVal(&container, cpuBurstPercent)
+			if containerCPUBurstVal <= 0 {
+				klog.V(2).Infof("container cpu is unlimited, pod: %s, container: %s(%s)", podUID, containerName,
+					containerID)
+				continue
+			}
+
+			cpuData := &common.CPUData{
+				CpuBurst: containerCPUBurstVal,
+			}
+
+			go cpuutil.ApplyCPUBurstConfigForContainer(string(pod.UID), containerName, containerID, cpuData)
+		}
+	}
 }

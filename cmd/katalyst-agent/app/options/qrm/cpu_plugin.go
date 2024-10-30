@@ -44,8 +44,10 @@ type CPUDynamicPolicyOptions struct {
 }
 
 type CPUNativePolicyOptions struct {
-	EnableFullPhysicalCPUsOnly bool
-	CPUAllocationOption        string
+	EnableFullPhysicalCPUsOnly    bool
+	CPUAllocationOption           string
+	EnableSyncingCPUBurst         bool
+	NativePolicyEnableCoreBinding bool
 }
 
 func NewCPUOptions() *CPUOptions {
@@ -67,8 +69,10 @@ func NewCPUOptions() *CPUOptions {
 			},
 		},
 		CPUNativePolicyOptions: CPUNativePolicyOptions{
-			EnableFullPhysicalCPUsOnly: false,
-			CPUAllocationOption:        "packed",
+			EnableFullPhysicalCPUsOnly:    false,
+			CPUAllocationOption:           "packed",
+			EnableSyncingCPUBurst:         false,
+			NativePolicyEnableCoreBinding: true,
 		},
 	}
 }
@@ -103,6 +107,10 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.BoolVar(&o.EnableFullPhysicalCPUsOnly, "enable-full-physical-cpus-only",
 		o.EnableFullPhysicalCPUsOnly, "if set true, we will enable extra allocation restrictions to "+
 			"avoid different containers to possibly end up on the same core.")
+	fs.BoolVar(&o.EnableSyncingCPUBurst, "enable-syncing-cpu-burst",
+		o.EnableSyncingCPUBurst, "if set true, we will sync cpu-burst related cgroup files")
+	fs.BoolVar(&o.NativePolicyEnableCoreBinding, "native-policy-enable-core-binding",
+		o.NativePolicyEnableCoreBinding, "if set true, we will enable core binding in native policy")
 }
 
 func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
@@ -118,5 +126,7 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 	conf.CPUAllocationOption = o.CPUAllocationOption
 	conf.CPUNUMAHintPreferPolicy = o.CPUNUMAHintPreferPolicy
 	conf.CPUNUMAHintPreferLowThreshold = o.CPUNUMAHintPreferLowThreshold
+	conf.EnableSyncingCPUBurst = o.EnableSyncingCPUBurst
+	conf.NativePolicyEnableCoreBinding = o.NativePolicyEnableCoreBinding
 	return nil
 }

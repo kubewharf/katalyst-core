@@ -22,15 +22,26 @@ import (
 	"math"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	cgroupcmutils "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	utilkubeconfig "github.com/kubewharf/katalyst-core/pkg/util/kubelet/config"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
+	"github.com/kubewharf/katalyst-core/pkg/util/qos"
+)
+
+const (
+	defaultCFSPeriod int64 = 100000
 )
 
 func GetCoresReservedForSystem(conf *config.Configuration, metaServer *metaserver.MetaServer, machineInfo *machine.KatalystMachineInfo, allCPUs machine.CPUSet) (machine.CPUSet, error) {
@@ -165,4 +176,52 @@ func AdvisorDegradation(advisorHealth, enableReclaim bool) bool {
 func CPUIsSufficient(request, available float64) bool {
 	// the minimal CPU core is 0.001 (1core = 1000m)
 	return request < available+0.0001
+}
+
+// GetCPUBurstPolicy returns the specified cpu burst policy
+func GetCPUBurstPolicy(pod *v1.Pod, qosConfig *generic.QoSConfiguration, conf *dynamic.DynamicAgentConfiguration) string {
+	ok, policy := qos.GetPodCPUBurstPolicy(qosConfig, pod)
+	if ok {
+		return policy
+	}
+
+	return conf.GetDynamicConfiguration().CPUBurstPolicy
+}
+
+// GetCPUBurstPercent returns the upper limit of the allowed burst percent
+func GetCPUBurstPercent(pod *v1.Pod, qosConfig *generic.QoSConfiguration, conf *dynamic.DynamicAgentConfiguration) (int64, error) {
+	ok, percent, err := qos.GetPodCPUBurstPercent(qosConfig, pod)
+	if err != nil {
+		return 0, err
+	}
+	if ok {
+		return percent, nil
+	}
+
+	return conf.GetDynamicConfiguration().CPUBurstPercent, nil
+}
+
+// CalcCPUBurstVal caculates the cpu burst value in cgroup file
+func CalcCPUBurstVal(container *v1.Container, cpuBurstPercent int64) int64 {
+	containerCPUMilliLimit := native.GetContainerMilliCPULimit(container)
+	if containerCPUMilliLimit <= 0 {
+		return 0
+	}
+
+	cpuBurstInCores := (float64(containerCPUMilliLimit) / 1000) * (float64(cpuBurstPercent) / 100)
+	cpuBurstVal := int64(cpuBurstInCores * float64(defaultCFSPeriod))
+
+	return cpuBurstVal
+}
+
+// ApplyCPUBurstConfigForContainer applies the cpu burst config to cgroup file for a container
+func ApplyCPUBurstConfigForContainer(podUID, containerName, containerID string, cpuData *common.CPUData) {
+	if err := cgroupcmutils.ApplyCPUForContainer(podUID, containerID, cpuData); err != nil {
+		general.Errorf("apply cpu burst failed, pod: %s, container: %s(%s), cpuData: %+v, err: %v",
+			podUID, containerName, containerID, *cpuData, err)
+		return
+	}
+
+	klog.V(2).Infof("apply cpu burst for container successfully, pod: %s, container: %s(%s), cpuData: %+v",
+		podUID, containerName, containerID, *cpuData)
 }
