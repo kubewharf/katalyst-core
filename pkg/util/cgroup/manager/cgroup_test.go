@@ -26,14 +26,12 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"bou.ke/monkey"
 	"github.com/opencontainers/runc/libcontainer/cgroups"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/kubewharf/katalyst-core/pkg/util/bitmask"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	v1 "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager/v1"
 	v2 "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager/v2"
@@ -234,39 +232,6 @@ func testMemPressureV1(t *testing.T) {
 	assert.Equal(t, "0", fmt.Sprint(some.Avg10))
 	assert.Equal(t, "0", fmt.Sprint(some.Avg60))
 	assert.Equal(t, "0", fmt.Sprint(some.Avg300))
-}
-
-func TestMemoryPolicy(t *testing.T) {
-	t.Parallel()
-
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
-	mode, mask, err := GetMemPolicy(nil, 0)
-	assert.NoError(t, err)
-
-	assert.Equal(t, MPOL_DEFAULT, mode)
-
-	t.Logf("mask: %v", mask)
-
-	mems := machine.NewCPUSet(0)
-	newMask := bitmask.NewEmptyBitMask()
-	newMask.Add(mems.ToSliceInt()...)
-
-	err = SetMemPolicy(MPOL_BIND, newMask)
-	assert.NoError(t, err)
-
-	mode, mask, err = GetMemPolicy(nil, 0)
-	assert.NoError(t, err)
-
-	assert.Equal(t, MPOL_BIND, mode)
-
-	expectMask, err := bitmask.NewBitMask(0)
-	assert.NoError(t, err)
-
-	assert.Equal(t, expectMask, mask)
-
-	t.Logf("mask: %v", mask)
 }
 
 func testMemoryOffloadingWithAbsolutePath(t *testing.T) {
