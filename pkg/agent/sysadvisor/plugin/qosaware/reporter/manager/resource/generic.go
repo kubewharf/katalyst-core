@@ -148,7 +148,7 @@ func (m *GenericHeadroomManager) Run(ctx context.Context) {
 }
 
 func (m *GenericHeadroomManager) getLastNUMAReportResult() (map[int]resource.Quantity, error) {
-	if m.lastNUMAReportResult == nil {
+	if len(m.lastNUMAReportResult) == 0 {
 		return nil, fmt.Errorf("resource %s last numa report value not found", m.resourceName)
 	}
 	return m.lastNUMAReportResult, nil
