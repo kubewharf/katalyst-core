@@ -49,7 +49,6 @@ func NewGenericSysAdvisorOptions() *GenericSysAdvisorOptions {
 			types.AdvisorPluginNameMetaCache,
 			types.AdvisorPluginNameMetricEmitter,
 			types.AdvisorPluginNameInference,
-			types.AdvisorPluginNamePowerAware,
 		},
 		StateFileDirectory:          "/var/lib/katalyst/sys_advisor/",
 		ClearStateFileDirectory:     false,
