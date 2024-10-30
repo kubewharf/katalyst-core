@@ -16,15 +16,50 @@ limitations under the License.
 
 package l3pmc
 
-import "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/writemb"
+import (
+	"fmt"
+	"time"
 
-type writeMBReader struct{}
+	"github.com/pkg/errors"
 
-func (w writeMBReader) GetMB(ccd int) (int, error) {
-	//TODO implement me
-	panic("implement me by calling amd-utils lib")
+	// todo: this is internal repo - move code into out-of-tree qrm plugin of the internal adapter
+	amdutilpkg "code.byted.org/tce/amd-utils/pkg"
+	"code.byted.org/tce/amd-utils/pkg/msr"
+
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/writemb"
+)
+
+type writeMBReader struct {
+	ccdMonitors map[int]msr.Monitor
 }
 
-func NewWriteMBReader() (writemb.WriteMBReader, error) {
-	return &writeMBReader{}, nil
+func (w writeMBReader) GetMB(ccd int) (int, error) {
+	val, err := w.ccdMonitors[ccd].Get()
+	return int(val), err
+}
+
+func NewWriteMBReader(ccdCPUs map[int][]int) (writemb.WriteMBReader, error) {
+	op, _ := amdutilpkg.NewOperation()
+	ccdMonitors := make(map[int]msr.Monitor)
+	for ccd, cpus := range ccdCPUs {
+		if len(cpus) == 0 {
+			return nil, fmt.Errorf("invalid ccd-cpu topology, ccd %d has no cpu", ccd)
+		}
+
+		// each ccd suffices to pick 1 cpu as readings from all its cpus are identical
+		cpu := cpus[0]
+		// we choose to use L3PMCCRX_5 here as L3PMCCRX_0 to L3PMCCRX_3 are reserved by others
+		monitor, err := msr.NewL3PMCVictimMonitor(&op, uint32(cpu), amdutilpkg.L3PMCCTL_5, amdutilpkg.L3PMCCTR_5, time.Second*1)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to create monitor of l3pmc victim")
+		}
+		// todo: put start in Start method enforcing Start/Stop semantic
+		if err := monitor.Start(); err != nil {
+			return nil, errors.Wrap(err, "failed to start monitor of l3pmc victim")
+		}
+		ccdMonitors[ccd] = monitor
+	}
+	return &writeMBReader{
+		ccdMonitors: ccdMonitors,
+	}, nil
 }

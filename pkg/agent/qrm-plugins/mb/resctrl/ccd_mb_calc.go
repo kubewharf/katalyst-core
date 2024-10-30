@@ -72,6 +72,6 @@ func calcAverageInMBps(currV int64, nowTime time.Time, lastV int64, lastTime tim
 	}
 
 	elapsed := nowTime.Sub(lastTime)
-	mbInMB := (currV - lastV) / elapsed.Microseconds()
+	mbInMB := (currV - lastV) / elapsed.Microseconds() * 1_000_000 / (1024 * 1024)
 	return int(mbInMB)
 }

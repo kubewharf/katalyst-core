@@ -59,7 +59,7 @@ func NewDefaultMBMonitor(numaDies map[int]sets.Int, dieCPUs map[int][]int, domai
 		return nil, errors.Wrap(err, "failed to create task mb reader")
 	}
 
-	wmbReader, err := l3pmc.NewWriteMBReader()
+	wmbReader, err := l3pmc.NewWriteMBReader(dieCPUs)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create writes mb reader")
 	}

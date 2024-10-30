@@ -59,7 +59,7 @@ func Test_getMB(t *testing.T) {
 				ts:         time.Date(2024, 9, 18, 19, 57, 46, 0, time.UTC),
 				dataKeeper: dateKeeper,
 			},
-			want: 1000,
+			want: 953,
 		},
 	}
 	for _, tt := range tests {
