@@ -159,6 +159,14 @@ func (p *PolicyNUMAAware) Update() (err error) {
 		general.InfoS("memory reclaimable per NUMA", "NUMA-ID", numaID, "headroom", numaReclaimableMemory[numaID])
 	}
 
+	allNUMAs := p.metaServer.CPUDetails.NUMANodes()
+	for _, numaID := range allNUMAs.ToSliceInt() {
+		if _, ok := p.numaMemoryHeadroom[numaID]; !ok {
+			general.InfoS("set non-reclaim NUMA memory reclaimable as empty", "NUMA-ID", numaID)
+			p.numaMemoryHeadroom[numaID] = *resource.NewQuantity(0, resource.BinarySI)
+		}
+	}
+
 	general.InfoS("total memory reclaimable",
 		"reclaimableMemory", general.FormatMemoryQuantity(reclaimableMemory),
 		"ResourceUpperBound", general.FormatMemoryQuantity(p.essentials.ResourceUpperBound),
