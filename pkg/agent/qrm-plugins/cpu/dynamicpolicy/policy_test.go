@@ -54,6 +54,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupcm "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupcmutils "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -119,14 +120,15 @@ func getTestDynamicPolicyWithoutInitialization(topology *machine.CPUTopology, st
 	dynamicConfig := dynamic.NewDynamicAgentConfiguration()
 
 	policyImplement := &DynamicPolicy{
-		machineInfo:      machineInfo,
-		qosConfig:        qosConfig,
-		dynamicConfig:    dynamicConfig,
-		state:            stateImpl,
-		advisorValidator: validator.NewCPUAdvisorValidator(stateImpl, machineInfo),
-		reservedCPUs:     reservedCPUs,
-		emitter:          metrics.DummyMetrics{},
-		podDebugAnnoKeys: []string{podDebugAnnoKey},
+		machineInfo:               machineInfo,
+		qosConfig:                 qosConfig,
+		dynamicConfig:             dynamicConfig,
+		state:                     stateImpl,
+		advisorValidator:          validator.NewCPUAdvisorValidator(stateImpl, machineInfo),
+		reservedReclaimedCPUsSize: general.Max(reservedReclaimedCPUsSize, topology.NumNUMANodes),
+		reservedCPUs:              reservedCPUs,
+		emitter:                   metrics.DummyMetrics{},
+		podDebugAnnoKeys:          []string{podDebugAnnoKey},
 	}
 
 	// register allocation behaviors for pods with different QoS level
@@ -273,7 +275,7 @@ func TestAllocate(t *testing.T) {
 	testName := "test"
 
 	testCases := []struct {
-		description                           string
+		name                                  string
 		req                                   *pluginapi.ResourceRequest
 		expectedResp                          *pluginapi.ResourceAllocationResponse
 		enableReclaim                         bool
@@ -283,7 +285,7 @@ func TestAllocate(t *testing.T) {
 		allowSharedCoresOverlapReclaimedCores bool
 	}{
 		{
-			description: "req for init container",
+			name: "req for init container",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -314,7 +316,7 @@ func TestAllocate(t *testing.T) {
 			cpuTopology: cpuTopology,
 		},
 		{
-			description: "req for container of debug pod",
+			name: "req for container of debug pod",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -355,7 +357,7 @@ func TestAllocate(t *testing.T) {
 			cpuTopology: cpuTopology,
 		},
 		{
-			description: "req for shared_cores main container",
+			name: "req for shared_cores main container",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -399,7 +401,7 @@ func TestAllocate(t *testing.T) {
 			cpuTopology: cpuTopology,
 		},
 		{
-			description: "req for reclaimed_cores main container",
+			name: "req for reclaimed_cores main container",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -432,7 +434,7 @@ func TestAllocate(t *testing.T) {
 							IsNodeResource:    false,
 							IsScalarResource:  true,
 							AllocatedQuantity: 4,
-							AllocationResult:  machine.NewCPUSet(1, 3, 9, 11).String(),
+							AllocationResult:  machine.NewCPUSet(1, 3, 4, 6).String(),
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{nil},
 							},
@@ -449,7 +451,7 @@ func TestAllocate(t *testing.T) {
 			cpuTopology: cpuTopology,
 		},
 		{
-			description: "req for dedicated_cores with numa_binding & numa_exclusive main container",
+			name: "req for dedicated_cores with numa_binding & numa_exclusive main container",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -511,7 +513,7 @@ func TestAllocate(t *testing.T) {
 			cpuTopology: cpuTopology,
 		},
 		{
-			description: "req for dedicated_cores with numa_binding & not numa_exclusive main container",
+			name: "req for dedicated_cores with numa_binding & not numa_exclusive main container",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -573,7 +575,7 @@ func TestAllocate(t *testing.T) {
 			cpuTopology: cpuTopology,
 		},
 		{
-			description: "req for dedicated_cores with numa_binding & default numa_exclusive true main container",
+			name: "req for dedicated_cores with numa_binding & default numa_exclusive true main container",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -638,7 +640,7 @@ func TestAllocate(t *testing.T) {
 			},
 		},
 		{
-			description: "req for dedicated_cores with numa_binding without default numa_exclusive main container",
+			name: "req for dedicated_cores with numa_binding without default numa_exclusive main container",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -699,7 +701,7 @@ func TestAllocate(t *testing.T) {
 			cpuTopology: cpuTopology,
 		},
 		{
-			description: "req for shared_cores numa_binding main container with enableReclaim false",
+			name: "req for shared_cores numa_binding main container with enableReclaim false",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -760,7 +762,7 @@ func TestAllocate(t *testing.T) {
 			cpuTopology: cpuTopology,
 		},
 		{
-			description:   "req for shared_cores numa_binding main container with enableReclaim true",
+			name:          "req for shared_cores numa_binding main container with enableReclaim true",
 			enableReclaim: true,
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
@@ -822,8 +824,8 @@ func TestAllocate(t *testing.T) {
 			cpuTopology: cpuTopology,
 		},
 		{
-			description: "req for shared_cores numa_binding main container with invalid hint",
-			wantError:   true,
+			name:      "req for shared_cores numa_binding main container with invalid hint",
+			wantError: true,
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -851,7 +853,7 @@ func TestAllocate(t *testing.T) {
 			cpuTopology:  cpuTopology,
 		},
 		{
-			description: "req for shared_cores with numa_binding with allowSharedCoresOverlapReclaimedCores set to true",
+			name: "req for shared_cores with numa_binding with allowSharedCoresOverlapReclaimedCores set to true",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -912,7 +914,7 @@ func TestAllocate(t *testing.T) {
 			cpuTopology: cpuTopology,
 		},
 		{
-			description: "req for system_cores with specified cpuset pool",
+			name: "req for system_cores with specified cpuset pool",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -964,7 +966,7 @@ func TestAllocate(t *testing.T) {
 			cpuTopology: cpuTopology,
 		},
 		{
-			description: "req for system_cores without specified cpuset pool",
+			name: "req for system_cores without specified cpuset pool",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,
@@ -1014,7 +1016,7 @@ func TestAllocate(t *testing.T) {
 			cpuTopology: cpuTopology,
 		},
 		{
-			description:   "req for reclaim actual numa_binding main container with enableReclaim true",
+			name:          "req for reclaim actual numa_binding main container with enableReclaim true",
 			enableReclaim: true,
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
@@ -1052,8 +1054,8 @@ func TestAllocate(t *testing.T) {
 							OciPropertyName:   util.OCIPropertyNameCPUSetCPUs,
 							IsNodeResource:    false,
 							IsScalarResource:  true,
-							AllocatedQuantity: 2,
-							AllocationResult:  machine.NewCPUSet(1, 9).String(),
+							AllocatedQuantity: 1,
+							AllocationResult:  machine.NewCPUSet(1).String(),
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -1076,7 +1078,7 @@ func TestAllocate(t *testing.T) {
 			cpuTopology: cpuTopology,
 		},
 		{
-			description:   "req for reclaim non-actual numa_binding main container with enableReclaim true",
+			name:          "req for reclaim non-actual numa_binding main container with enableReclaim true",
 			enableReclaim: true,
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
@@ -1115,7 +1117,7 @@ func TestAllocate(t *testing.T) {
 							IsNodeResource:    false,
 							IsScalarResource:  true,
 							AllocatedQuantity: 4,
-							AllocationResult:  machine.NewCPUSet(1, 3, 9, 11).String(),
+							AllocationResult:  machine.NewCPUSet(1, 3, 4, 6).String(),
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -1140,40 +1142,46 @@ func TestAllocate(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tmpDir, err := ioutil.TempDir("", "checkpoint-TestAllocate")
-		as.Nil(err)
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			as := require.New(t)
 
-		dynamicPolicy, err := getTestDynamicPolicyWithInitialization(tc.cpuTopology, tmpDir)
-		as.Nil(err)
+			tmpDir, err := ioutil.TempDir("", "checkpoint-TestAllocate")
+			as.Nil(err)
 
-		if tc.enhancementDefaultValues != nil {
-			dynamicPolicy.qosConfig.QoSEnhancementDefaultValues = tc.enhancementDefaultValues
-		}
+			dynamicPolicy, err := getTestDynamicPolicyWithInitialization(tc.cpuTopology, tmpDir)
+			as.Nil(err)
 
-		if tc.enableReclaim {
-			dynamicPolicy.dynamicConfig.GetDynamicConfiguration().EnableReclaim = true
-		}
+			if tc.enhancementDefaultValues != nil {
+				dynamicPolicy.qosConfig.QoSEnhancementDefaultValues = tc.enhancementDefaultValues
+			}
 
-		if tc.allowSharedCoresOverlapReclaimedCores {
-			dynamicPolicy.state.SetAllowSharedCoresOverlapReclaimedCores(true)
-		}
+			if tc.enableReclaim {
+				dynamicPolicy.dynamicConfig.GetDynamicConfiguration().EnableReclaim = true
+			}
 
-		resp, err := dynamicPolicy.Allocate(context.Background(), tc.req)
-		if tc.wantError {
-			as.NotNil(err)
-			continue
-		}
+			if tc.allowSharedCoresOverlapReclaimedCores {
+				dynamicPolicy.state.SetAllowSharedCoresOverlapReclaimedCores(true)
+			}
 
-		as.Nilf(err, "failed in test case: %s", tc.description)
-		tc.expectedResp.PodUid = tc.req.PodUid
-		as.Equalf(tc.expectedResp, resp, "failed in test case: %s", tc.description)
+			resp, err := dynamicPolicy.Allocate(context.Background(), tc.req)
+			if tc.wantError {
+				as.NotNil(err)
+				return
+			}
 
-		if tc.allowSharedCoresOverlapReclaimedCores {
-			err := dynamicPolicy.adjustAllocationEntries()
-			as.NotNil(err)
-		}
+			as.Nilf(err, "failed in test case: %s", tc.name)
+			tc.expectedResp.PodUid = tc.req.PodUid
+			as.Equalf(tc.expectedResp, resp, "failed in test case: %s", tc.name)
 
-		_ = os.RemoveAll(tmpDir)
+			if tc.allowSharedCoresOverlapReclaimedCores {
+				err := dynamicPolicy.adjustAllocationEntries()
+				as.NotNil(err)
+			}
+
+			_ = os.RemoveAll(tmpDir)
+		})
 	}
 }
 
@@ -3721,12 +3729,16 @@ func TestGetTopologyAwareResources(t *testing.T) {
 							AggregatedQuantity:         4,
 							OriginalAggregatedQuantity: 4,
 							TopologyAwareQuantityList: []*pluginapi.TopologyAwareQuantity{
-								{ResourceValue: 2, Node: 0},
-								{ResourceValue: 2, Node: 1},
+								{ResourceValue: 1, Node: 0},
+								{ResourceValue: 1, Node: 1},
+								{ResourceValue: 1, Node: 2},
+								{ResourceValue: 1, Node: 3},
 							},
 							OriginalTopologyAwareQuantityList: []*pluginapi.TopologyAwareQuantity{
-								{ResourceValue: 2, Node: 0},
-								{ResourceValue: 2, Node: 1},
+								{ResourceValue: 1, Node: 0},
+								{ResourceValue: 1, Node: 1},
+								{ResourceValue: 1, Node: 2},
+								{ResourceValue: 1, Node: 3},
 							},
 						},
 					},
@@ -3787,15 +3799,15 @@ func TestGetTopologyAwareResources(t *testing.T) {
 					AggregatedQuantity:         10,
 					OriginalAggregatedQuantity: 10,
 					TopologyAwareQuantityList: []*pluginapi.TopologyAwareQuantity{
-						{ResourceValue: 2, Node: 0},
-						{ResourceValue: 2, Node: 1},
-						{ResourceValue: 4, Node: 2},
+						{ResourceValue: 3, Node: 0},
+						{ResourceValue: 3, Node: 1},
+						{ResourceValue: 2, Node: 2},
 						{ResourceValue: 2, Node: 3},
 					},
 					OriginalTopologyAwareQuantityList: []*pluginapi.TopologyAwareQuantity{
-						{ResourceValue: 2, Node: 0},
-						{ResourceValue: 2, Node: 1},
-						{ResourceValue: 4, Node: 2},
+						{ResourceValue: 3, Node: 0},
+						{ResourceValue: 3, Node: 1},
+						{ResourceValue: 2, Node: 2},
 						{ResourceValue: 2, Node: 3},
 					},
 				},
@@ -3887,7 +3899,7 @@ func TestGetResourcesAllocation(t *testing.T) {
 		IsNodeResource:    false,
 		IsScalarResource:  true,
 		AllocatedQuantity: 10,
-		AllocationResult:  machine.NewCPUSet(1, 3, 4, 5, 6, 9, 11, 12, 13, 14).String(),
+		AllocationResult:  machine.NewCPUSet(1, 3, 4, 5, 6, 7, 8, 9, 10, 11).String(),
 	}, resp2.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceCPU)])
 
 	// test for reclaimed_cores
@@ -3924,7 +3936,7 @@ func TestGetResourcesAllocation(t *testing.T) {
 		IsNodeResource:    false,
 		IsScalarResource:  true,
 		AllocatedQuantity: 4,
-		AllocationResult:  machine.NewCPUSet(7, 8, 10, 15).String(),
+		AllocationResult:  machine.NewCPUSet(12, 13, 14, 15).String(),
 	}, resp2.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceCPU)])
 
 	req = &pluginapi.ResourceRequest{
@@ -4014,7 +4026,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 	fmt.Println("4", pod4UID)
 
 	testCases := []struct {
-		description          string
+		name                 string
 		podEntries           state.PodEntries
 		expectedPodEntries   state.PodEntries
 		expectedMachineState state.NUMANodeMap
@@ -4023,7 +4035,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 		cpuTopology          *machine.CPUTopology
 	}{
 		{
-			description: "two shared_cores containers and one reclaimed_cores container",
+			name: "two shared_cores containers and one reclaimed_cores container",
 			podEntries: state.PodEntries{
 				pod1UID: state.ContainerEntries{
 					testName: &state.AllocationInfo{
@@ -4122,11 +4134,13 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 							0: machine.NewCPUSet(8),
 							1: machine.NewCPUSet(10),
 							3: machine.NewCPUSet(7, 15),
+							4: machine.NewCPUSet(6),
 						},
 						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
 							0: machine.NewCPUSet(8),
 							1: machine.NewCPUSet(10),
 							3: machine.NewCPUSet(7, 15),
+							4: machine.NewCPUSet(6),
 						},
 						RequestQuantity: 2,
 					},
@@ -4669,7 +4683,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 			cpuTopology: cpuTopology,
 		},
 		{
-			description: "two shared_cores containers and one reclaimed_cores container and one dedicated_cores",
+			name: "two shared_cores containers and one reclaimed_cores container and one dedicated_cores",
 			podEntries: state.PodEntries{
 				pod1UID: state.ContainerEntries{
 					testName: &state.AllocationInfo{
@@ -5417,38 +5431,43 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 		},
 	}
 
-	for i, tc := range testCases {
-		tmpDir, err := ioutil.TempDir("", fmt.Sprintf("checkpoint-TestAllocateByQoSAwareServerListAndWatchResp-%v", i))
-		as.Nil(err)
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			as := require.New(t)
+			tmpDir, err := ioutil.TempDir("", "checkpoint-TestAllocateByQoSAwareServerListAndWatchResp")
+			as.Nil(err)
 
-		dynamicPolicy, err := getTestDynamicPolicyWithInitialization(tc.cpuTopology, tmpDir)
-		as.Nil(err)
+			dynamicPolicy, err := getTestDynamicPolicyWithInitialization(tc.cpuTopology, tmpDir)
+			as.Nil(err)
 
-		dynamicPolicy.dynamicConfig.GetDynamicConfiguration().EnableReclaim = true
+			dynamicPolicy.dynamicConfig.GetDynamicConfiguration().EnableReclaim = true
 
-		machineState, err := generateMachineStateFromPodEntries(tc.cpuTopology, tc.podEntries)
-		as.Nil(err)
+			machineState, err := generateMachineStateFromPodEntries(tc.cpuTopology, tc.podEntries)
+			as.Nil(err)
 
-		dynamicPolicy.state.SetPodEntries(tc.podEntries)
-		dynamicPolicy.state.SetMachineState(machineState)
-		dynamicPolicy.initReservePool()
+			dynamicPolicy.state.SetPodEntries(tc.podEntries)
+			dynamicPolicy.state.SetMachineState(machineState)
+			dynamicPolicy.initReservePool()
 
-		err = dynamicPolicy.allocateByCPUAdvisor(tc.lwResp)
-		as.Nilf(err, "dynamicPolicy.allocateByCPUAdvisorServerListAndWatchResp got err: %v, case: %s", err, tc.description)
+			err = dynamicPolicy.allocateByCPUAdvisor(tc.lwResp)
+			as.Nilf(err, "dynamicPolicy.allocateByCPUAdvisorServerListAndWatchResp got err: %v, case: %s", err, tc.name)
 
-		getPodEntries := dynamicPolicy.state.GetPodEntries()
-		match, err := entriesMatch(tc.expectedPodEntries, getPodEntries)
-		as.Nilf(err, "failed in test case: %s", tc.description)
-		as.Equalf(true, match, "failed in test case: %s", tc.description)
+			getPodEntries := dynamicPolicy.state.GetPodEntries()
+			match, err := entriesMatch(tc.expectedPodEntries, getPodEntries)
+			as.Nilf(err, "failed in test case: %s", tc.name)
+			as.Equalf(true, match, "failed in test case: %s", tc.name)
 
-		match, err = machineStateMatch(tc.expectedMachineState, dynamicPolicy.state.GetMachineState())
-		as.Nilf(err, "failed in test case: %s", tc.description)
-		as.Equalf(true, match, "failed in test case: %s", tc.description)
+			match, err = machineStateMatch(tc.expectedMachineState, dynamicPolicy.state.GetMachineState())
+			as.Nilf(err, "failed in test case: %s", tc.name)
+			as.Equalf(true, match, "failed in test case: %s", tc.name)
 
-		as.Equalf(tc.expectedNUMAHeadroom, dynamicPolicy.state.GetNUMAHeadroom(),
-			"failed in test case: %s", tc.description)
+			as.Equalf(tc.expectedNUMAHeadroom, dynamicPolicy.state.GetNUMAHeadroom(),
+				"failed in test case: %s", tc.name)
 
-		os.RemoveAll(tmpDir)
+			os.RemoveAll(tmpDir)
+		})
 	}
 }
 
