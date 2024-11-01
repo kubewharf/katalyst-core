@@ -431,6 +431,9 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 	dedicatedCPUSet := machine.NewCPUSet()
 	pooledUnionDedicatedCPUSet := machine.NewCPUSet()
 
+	// calculate NUMAs without actual numa_binding reclaimed pods
+	nonReclaimActualBindingNUMAs := p.state.GetMachineState().GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMABinding))
+
 	// deal with blocks of dedicated_cores and pools
 	for entryName, entry := range resp.Entries {
 		for subEntryName, calculationInfo := range entry.Entries {
@@ -514,43 +517,11 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 		}
 	}
 
-	// if there is no block for state.PoolNameReclaim pool,
-	// we must make it existing here even if cause overlap
-	if newEntries.CheckPoolEmpty(commonstate.PoolNameReclaim) {
-		reclaimPoolCPUSet := p.machineInfo.CPUDetails.CPUs().Difference(p.reservedCPUs).Difference(pooledUnionDedicatedCPUSet)
-		if reclaimPoolCPUSet.IsEmpty() {
-			allAvailableCPUs := p.machineInfo.CPUDetails.CPUs().Difference(p.reservedCPUs)
-
-			var tErr error
-			reclaimPoolCPUSet, _, tErr = calculator.TakeByNUMABalance(p.machineInfo, allAvailableCPUs, reservedReclaimedCPUsSize)
-			if tErr != nil {
-				return fmt.Errorf("fallback takeByNUMABalance faild in applyBlocks for reclaimPoolCPUSet with error: %v", tErr)
-			}
-			general.Infof("fallback takeByNUMABalance for reclaimPoolCPUSet: %s", reclaimPoolCPUSet.String())
-		}
-
-		general.Infof("set reclaimPoolCPUSet: %s", reclaimPoolCPUSet.String())
-		topologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, reclaimPoolCPUSet)
-		if err != nil {
-			return fmt.Errorf("unable to calculate topologyAwareAssignments for pool: %s, "+
-				"result cpuset: %s, error: %v", commonstate.PoolNameReclaim, reclaimPoolCPUSet.String(), err)
-		}
-
-		if newEntries[commonstate.PoolNameReclaim] == nil {
-			newEntries[commonstate.PoolNameReclaim] = make(state.ContainerEntries)
-		}
-		newEntries[commonstate.PoolNameReclaim][commonstate.FakedContainerName] = &state.AllocationInfo{
-			AllocationMeta: commonstate.AllocationMeta{
-				PodUid:        commonstate.PoolNameReclaim,
-				OwnerPoolName: commonstate.PoolNameReclaim,
-			},
-			AllocationResult:                 reclaimPoolCPUSet.Clone(),
-			OriginalAllocationResult:         reclaimPoolCPUSet.Clone(),
-			TopologyAwareAssignments:         topologyAwareAssignments,
-			OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(topologyAwareAssignments),
-		}
-	} else {
-		general.Infof("detected reclaimPoolCPUSet: %s", newEntries[commonstate.PoolNameReclaim][commonstate.FakedContainerName].AllocationResult.String())
+	// revise reclaim pool size to avoid reclaimed_cores and numa_binding dedicated_cores containers
+	// in NUMAs without cpuset actual binding
+	err := p.reviseReclaimPool(newEntries, nonReclaimActualBindingNUMAs, pooledUnionDedicatedCPUSet)
+	if err != nil {
+		return err
 	}
 
 	// calculate rampUpCPUs
@@ -564,9 +535,6 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 		Difference(p.reservedCPUs).
 		Difference(dedicatedCPUSet).
 		Difference(sharedBindingNUMACPUs)
-
-	// calculate NUMAs without actual numa_binding reclaimed pods
-	nonReclaimActualBindingNUMAs := p.state.GetMachineState().GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMABinding))
 
 	rampUpCPUsTopologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, rampUpCPUs)
 	if err != nil {
@@ -733,5 +701,82 @@ func (p *DynamicPolicy) applyNUMAHeadroom(resp *advisorapi.ListAndWatchResponse)
 		general.Infof("cpuNUMAHeadroom: %v", cpuNUMAHeadroom)
 	}
 
+	return nil
+}
+
+func (p *DynamicPolicy) reviseReclaimPool(newEntries state.PodEntries, nonReclaimActualBindingNUMAs, pooledUnionDedicatedCPUSet machine.CPUSet) error {
+	// if there is no block for state.PoolNameReclaim pool,
+	// we must make it existing here even if cause overlap
+	if newEntries.CheckPoolEmpty(commonstate.PoolNameReclaim) {
+		reclaimPoolCPUSet := p.machineInfo.CPUDetails.CPUs().Difference(p.reservedCPUs).Difference(pooledUnionDedicatedCPUSet)
+		if reclaimPoolCPUSet.IsEmpty() {
+			reclaimPoolCPUSet = p.reservedReclaimedCPUSet.Clone()
+			general.Infof("fallback takeByNUMABalance for reclaimPoolCPUSet: %s", reclaimPoolCPUSet.String())
+		}
+
+		topologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, reclaimPoolCPUSet)
+		if err != nil {
+			return fmt.Errorf("unable to calculate topologyAwareAssignments for pool: %s, "+
+				"result cpuset: %s, error: %v", commonstate.PoolNameReclaim, reclaimPoolCPUSet.String(), err)
+		}
+
+		if newEntries[commonstate.PoolNameReclaim] == nil {
+			newEntries[commonstate.PoolNameReclaim] = make(state.ContainerEntries)
+		}
+		newEntries[commonstate.PoolNameReclaim][commonstate.FakedContainerName] = &state.AllocationInfo{
+			AllocationMeta: commonstate.AllocationMeta{
+				PodUid:        commonstate.PoolNameReclaim,
+				OwnerPoolName: commonstate.PoolNameReclaim,
+			},
+			AllocationResult:                 reclaimPoolCPUSet.Clone(),
+			OriginalAllocationResult:         reclaimPoolCPUSet.Clone(),
+			TopologyAwareAssignments:         topologyAwareAssignments,
+			OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(topologyAwareAssignments),
+		}
+
+		general.Infof("set reclaim allocationResult: %s, reclaim topologyAwareAssignments: %v",
+			newEntries[commonstate.PoolNameReclaim][commonstate.FakedContainerName].AllocationResult.String(),
+			newEntries[commonstate.PoolNameReclaim][commonstate.FakedContainerName].TopologyAwareAssignments)
+	} else {
+		general.Infof("detected reclaim allocationResult: %s, reclaim topologyAwareAssignments: %v",
+			newEntries[commonstate.PoolNameReclaim][commonstate.FakedContainerName].AllocationResult.String(),
+			newEntries[commonstate.PoolNameReclaim][commonstate.FakedContainerName].TopologyAwareAssignments)
+	}
+
+	reclaimPool := newEntries[commonstate.PoolNameReclaim][commonstate.FakedContainerName]
+
+	// revise reclaim pool for RNB NUMAs
+	for _, numaID := range p.machineInfo.CPUDetails.NUMANodes().ToSliceInt() {
+		if nonReclaimActualBindingNUMAs.Contains(numaID) {
+			continue
+		}
+
+		if reclaimPool.TopologyAwareAssignments[numaID].IsEmpty() {
+			reclaimPool.AllocationResult = reclaimPool.AllocationResult.Union(p.reservedReclaimedTopologyAwareAssignments[numaID])
+			reclaimPool.OriginalAllocationResult = reclaimPool.OriginalAllocationResult.Union(p.reservedReclaimedTopologyAwareAssignments[numaID])
+			reclaimPool.TopologyAwareAssignments[numaID] = p.reservedReclaimedTopologyAwareAssignments[numaID].Clone()
+			reclaimPool.OriginalTopologyAwareAssignments[numaID] = p.reservedReclaimedTopologyAwareAssignments[numaID].Clone()
+		}
+	}
+
+	// revise reclaim pool for non-RNB NUMAs
+	nonReclaimActualBindingNUMAsAllocation := machine.NewCPUSet()
+	for _, numaID := range p.machineInfo.CPUDetails.NUMANodes().ToSliceInt() {
+		if nonReclaimActualBindingNUMAs.Contains(numaID) {
+			nonReclaimActualBindingNUMAsAllocation = nonReclaimActualBindingNUMAsAllocation.Union(reclaimPool.TopologyAwareAssignments[numaID])
+		}
+	}
+
+	if nonReclaimActualBindingNUMAsAllocation.IsEmpty() {
+		for _, numaID := range nonReclaimActualBindingNUMAsAllocation.ToSliceInt() {
+			reclaimPool.AllocationResult = reclaimPool.AllocationResult.Union(p.reservedReclaimedTopologyAwareAssignments[numaID])
+			reclaimPool.OriginalAllocationResult = reclaimPool.OriginalAllocationResult.Union(p.reservedReclaimedTopologyAwareAssignments[numaID])
+			reclaimPool.TopologyAwareAssignments[numaID] = p.reservedReclaimedTopologyAwareAssignments[numaID].Clone()
+			reclaimPool.OriginalTopologyAwareAssignments[numaID] = p.reservedReclaimedTopologyAwareAssignments[numaID].Clone()
+		}
+	}
+
+	general.Infof("revised reclaim allocationResult: %s, reclaim topologyAwareAssignments: %v",
+		reclaimPool.AllocationResult.String(), reclaimPool.TopologyAwareAssignments)
 	return nil
 }
