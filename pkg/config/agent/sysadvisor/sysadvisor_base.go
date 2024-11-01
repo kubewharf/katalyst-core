@@ -57,6 +57,6 @@ func NewSysAdvisorPluginsConfiguration() *SysAdvisorPluginsConfiguration {
 		MetricEmitterPluginConfiguration:   metricemitter.NewMetricEmitterPluginConfiguration(),
 		InferencePluginConfiguration:       inference.NewInferencePluginConfiguration(),
 		OvercommitAwarePluginConfiguration: overcommit.NewOvercommitAwarePluginConfiguration(),
-		PowerAwarePluginConfiguration:      poweraware.NewPowerAwarePluginOptions(),
+		PowerAwarePluginConfiguration:      poweraware.NewPowerAwarePluginConfiguration(),
 	}
 }

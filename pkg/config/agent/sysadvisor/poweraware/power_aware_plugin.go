@@ -24,7 +24,7 @@ type PowerAwarePluginConfiguration struct {
 	AnnotationKeyPrefix              string
 }
 
-// NewPowerAwarePluginOptions creates an Options with default configs
-func NewPowerAwarePluginOptions() *PowerAwarePluginConfiguration {
+// NewPowerAwarePluginConfiguration creates a default config
+func NewPowerAwarePluginConfiguration() *PowerAwarePluginConfiguration {
 	return &PowerAwarePluginConfiguration{}
 }
