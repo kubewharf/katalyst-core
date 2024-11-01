@@ -41,7 +41,7 @@ func TestGetCoreNumReservedForReclaim(t *testing.T) {
 			name:             "reserve 2",
 			numReservedCores: 2,
 			numNumaNodes:     4,
-			want:             map[int]int{0: 1, 1: 0, 2: 1, 3: 0},
+			want:             map[int]int{0: 1, 1: 1, 2: 1, 3: 1},
 		},
 		{
 			name:             "reserve 3",
@@ -53,13 +53,19 @@ func TestGetCoreNumReservedForReclaim(t *testing.T) {
 			name:             "reserve 0",
 			numReservedCores: 0,
 			numNumaNodes:     4,
-			want:             map[int]int{0: 1, 1: 0, 2: 0, 3: 0},
+			want:             map[int]int{0: 1, 1: 1, 2: 1, 3: 1},
 		},
 		{
 			name:             "reserve 1",
 			numReservedCores: 1,
 			numNumaNodes:     4,
-			want:             map[int]int{0: 1, 1: 0, 2: 0, 3: 0},
+			want:             map[int]int{0: 1, 1: 1, 2: 1, 3: 1},
+		},
+		{
+			name:             "reserve 8",
+			numReservedCores: 8,
+			numNumaNodes:     4,
+			want:             map[int]int{0: 2, 1: 2, 2: 2, 3: 2},
 		},
 	}
 
