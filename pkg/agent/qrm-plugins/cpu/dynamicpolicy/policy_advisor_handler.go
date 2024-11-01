@@ -522,7 +522,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 			allAvailableCPUs := p.machineInfo.CPUDetails.CPUs().Difference(p.reservedCPUs)
 
 			var tErr error
-			reclaimPoolCPUSet, _, tErr = calculator.TakeByNUMABalance(p.machineInfo, allAvailableCPUs, reservedReclaimedCPUsSize)
+			reclaimPoolCPUSet, _, tErr = calculator.TakeHTByNUMABalance(p.machineInfo, allAvailableCPUs, p.reservedReclaimedCPUsSize)
 			if tErr != nil {
 				return fmt.Errorf("fallback takeByNUMABalance faild in applyBlocks for reclaimPoolCPUSet with error: %v", tErr)
 			}

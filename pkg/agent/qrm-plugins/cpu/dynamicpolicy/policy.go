@@ -118,6 +118,8 @@ type DynamicPolicy struct {
 	transitionPeriod                          time.Duration
 	cpuNUMAHintPreferPolicy                   string
 	cpuNUMAHintPreferLowThreshold             float64
+
+	reservedReclaimedCPUsSize int
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -188,10 +190,11 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		reclaimRelativeRootCgroupPath: conf.ReclaimRelativeRootCgroupPath,
 		numaBindingReclaimRelativeRootCgroupPaths: common.GetNUMABindingReclaimRelativeRootCgroupPaths(conf.ReclaimRelativeRootCgroupPath,
 			agentCtx.CPUDetails.NUMANodes().ToSliceNoSortInt()),
-		podDebugAnnoKeys:      conf.PodDebugAnnoKeys,
-		podAnnotationKeptKeys: conf.PodAnnotationKeptKeys,
-		podLabelKeptKeys:      conf.PodLabelKeptKeys,
-		transitionPeriod:      30 * time.Second,
+		podDebugAnnoKeys:          conf.PodDebugAnnoKeys,
+		podAnnotationKeptKeys:     conf.PodAnnotationKeptKeys,
+		podLabelKeptKeys:          conf.PodLabelKeptKeys,
+		transitionPeriod:          30 * time.Second,
+		reservedReclaimedCPUsSize: general.Max(reservedReclaimedCPUsSize, agentCtx.KatalystMachineInfo.NumNUMANodes),
 	}
 
 	// register allocation behaviors for pods with different QoS level
@@ -1060,13 +1063,13 @@ func (p *DynamicPolicy) initReclaimPool() error {
 			state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicatedNUMABinding)).Difference(noneResidentCPUs)
 
 		var initReclaimedCPUSetSize int
-		if availableCPUs.Size() >= reservedReclaimedCPUsSize {
-			initReclaimedCPUSetSize = reservedReclaimedCPUsSize
+		if availableCPUs.Size() >= p.reservedReclaimedCPUsSize {
+			initReclaimedCPUSetSize = p.reservedReclaimedCPUsSize
 		} else {
 			initReclaimedCPUSetSize = availableCPUs.Size()
 		}
 
-		reclaimedCPUSet, _, err := calculator.TakeByNUMABalance(p.machineInfo, availableCPUs, initReclaimedCPUSetSize)
+		reclaimedCPUSet, _, err := calculator.TakeHTByNUMABalance(p.machineInfo, availableCPUs, initReclaimedCPUSetSize)
 		if err != nil {
 			return fmt.Errorf("takeByNUMABalance faild in initReclaimPool for %s and %s with error: %v",
 				commonstate.PoolNameShare, commonstate.PoolNameReclaim, err)
@@ -1076,7 +1079,7 @@ func (p *DynamicPolicy) initReclaimPool() error {
 		// todo: noneResidentCPUs is the same as reservedCPUs, why should we do this?
 		allAvailableCPUs := p.machineInfo.CPUDetails.CPUs().Difference(p.reservedCPUs)
 		if reclaimedCPUSet.IsEmpty() {
-			reclaimedCPUSet, _, err = calculator.TakeByNUMABalance(p.machineInfo, allAvailableCPUs, reservedReclaimedCPUsSize)
+			reclaimedCPUSet, _, err = calculator.TakeHTByNUMABalance(p.machineInfo, allAvailableCPUs, p.reservedReclaimedCPUsSize)
 			if err != nil {
 				return fmt.Errorf("fallback takeByNUMABalance faild in initReclaimPool for %s with error: %v",
 					commonstate.PoolNameReclaim, err)

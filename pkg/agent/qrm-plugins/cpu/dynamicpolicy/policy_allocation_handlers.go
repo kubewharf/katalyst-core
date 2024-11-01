@@ -1428,7 +1428,7 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(poolsQuantityMap map[string]ma
 
 	if !p.state.GetAllowSharedCoresOverlapReclaimedCores() {
 		enableReclaim := p.dynamicConfig.GetDynamicConfiguration().EnableReclaim
-		if !enableReclaim && poolsCPUSet[commonstate.PoolNameReclaim].Size() > reservedReclaimedCPUsSize {
+		if !enableReclaim && poolsCPUSet[commonstate.PoolNameReclaim].Size() > p.reservedReclaimedCPUsSize {
 			poolsCPUSet[commonstate.PoolNameReclaim] = p.apportionReclaimedPool(
 				poolsCPUSet, poolsCPUSet[commonstate.PoolNameReclaim].Clone(), nonBindingPoolsQuantityMap)
 			general.Infof("apportionReclaimedPool finished, current %s pool: %s",
@@ -1461,9 +1461,9 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(poolsQuantityMap map[string]ma
 	if poolsCPUSet[commonstate.PoolNameReclaim].IsEmpty() {
 		// for reclaimed pool, we must make them exist when the node isn't in hybrid mode even if cause overlap
 		allAvailableCPUs := p.machineInfo.CPUDetails.CPUs().Difference(p.reservedCPUs)
-		reclaimedCPUSet, _, tErr := calculator.TakeByNUMABalance(p.machineInfo, allAvailableCPUs, reservedReclaimedCPUsSize)
+		reclaimedCPUSet, _, tErr := calculator.TakeHTByNUMABalance(p.machineInfo, allAvailableCPUs, p.reservedReclaimedCPUsSize)
 		if tErr != nil {
-			err = fmt.Errorf("fallback takeByNUMABalance faild in generatePoolsAndIsolation for reclaimedCPUSet with error: %v", tErr)
+			err = fmt.Errorf("fallback TakeHTByNUMABalance faild in generatePoolsAndIsolation for reclaimedCPUSet with error: %v", tErr)
 			return
 		}
 
@@ -1570,7 +1570,7 @@ func (p *DynamicPolicy) apportionReclaimedPool(poolsCPUSet map[string]machine.CP
 		totalSize += poolCPUs.Size()
 	}
 
-	availableSize := reclaimedCPUs.Size() - reservedReclaimedCPUsSize
+	availableSize := reclaimedCPUs.Size() - p.reservedReclaimedCPUsSize
 	if availableSize <= 0 || totalSize == 0 {
 		return reclaimedCPUs
 	}
@@ -1587,7 +1587,7 @@ func (p *DynamicPolicy) apportionReclaimedPool(poolsCPUSet map[string]machine.CP
 
 		var err error
 		var cpuset machine.CPUSet
-		cpuset, reclaimedCPUs, err = calculator.TakeByNUMABalance(p.machineInfo, reclaimedCPUs, proportionalSize)
+		cpuset, reclaimedCPUs, err = calculator.TakeHTByNUMABalance(p.machineInfo, reclaimedCPUs, proportionalSize)
 		if err != nil {
 			general.Errorf("take %d cpus from reclaimedCPUs: %s, size: %d failed with error: %v",
 				proportionalSize, reclaimedCPUs.String(), reclaimedCPUs.Size(), err)
@@ -1597,7 +1597,7 @@ func (p *DynamicPolicy) apportionReclaimedPool(poolsCPUSet map[string]machine.CP
 		poolsCPUSet[poolName] = poolCPUs.Union(cpuset)
 		general.Infof("take %s to %s; prev: %s, current: %s", cpuset.String(), poolName, poolCPUs.String(), poolsCPUSet[poolName].String())
 
-		if reclaimedCPUs.Size() <= reservedReclaimedCPUsSize {
+		if reclaimedCPUs.Size() <= p.reservedReclaimedCPUsSize {
 			break
 		}
 	}
