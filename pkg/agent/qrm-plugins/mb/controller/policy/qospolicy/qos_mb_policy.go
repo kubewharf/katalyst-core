@@ -27,13 +27,13 @@ type QoSMBPolicy interface {
 	GetPlan(totalMB int, mbQoSGroups map[task.QoSGroup]*monitor.MBQoSGroup, isTopMost bool) *plan.MBAlloc
 }
 
-// BuildFullyChainedQoSPolicy builds up the full chain of {dedicated, shared_50, system} -> {shared_30}
+// BuildFullyChainedQoSPolicy builds up the full chain of {dedicated, shared-50, system} -> {shared-30}
 func BuildFullyChainedQoSPolicy() QoSMBPolicy {
 	// todo: utilize incubation benefit
 	return NewChainedQoSMBPolicy(
 		map[task.QoSGroup]struct{}{
 			"dedicated": {},
-			"shared_50": {},
+			"shared-50": {},
 			"system":    {},
 		},
 		NewTerminalQoSPolicy(),
@@ -42,20 +42,20 @@ func BuildFullyChainedQoSPolicy() QoSMBPolicy {
 }
 
 func BuildHiPrioDetectedQoSMBPolicy() QoSMBPolicy {
-	//--[if any dedicated|shared_50 pod exist]:    {dedicated, shared_50, system} -> {shared_30}
-	//        \ or ---------------------------:    {system, shared_30}
+	//--[if any dedicated|shared-50 pod exist]:    {dedicated, shared-50, system} -> {shared-30}
+	//        \ or ---------------------------:    {system, shared-30}
 
-	// to build up {dedicated, shared_50, system} -> {shared_30}
+	// to build up {dedicated, shared-50, system} -> {shared-30}
 	policyEither := BuildFullyChainedQoSPolicy()
 
-	// to build up {system, shared_30}
+	// to build up {system, shared-30}
 	policyOr := NewTerminalQoSPolicy()
 
 	// todo: check by pods instead of mb traffic
 	// isTopMost arg is ignored as always true being the root branching in POC scenario
 	anyDedicatedShared50PodExist := func(mbQoSGroups map[task.QoSGroup]*monitor.MBQoSGroup, _ bool) bool {
 		mbTraffic := 0
-		if shared50, ok := mbQoSGroups["shared_50"]; ok {
+		if shared50, ok := mbQoSGroups["shared-50"]; ok {
 			mbTraffic += monitor.SumCCDMB(shared50.CCDMB)
 		}
 		if dedicated, ok := mbQoSGroups["dedicated"]; ok {

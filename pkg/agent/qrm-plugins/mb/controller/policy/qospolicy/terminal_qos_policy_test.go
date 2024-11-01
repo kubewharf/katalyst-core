@@ -44,13 +44,13 @@ func Test_getTopMostPlan(t *testing.T) {
 				totalMB: 1_000,
 				mbQoSGroups: map[task.QoSGroup]*monitor.MBQoSGroup{
 					"dedicated": {CCDs: sets.Int{4: sets.Empty{}, 5: sets.Empty{}}},
-					"shared_50": {CCDs: sets.Int{0: sets.Empty{}, 1: sets.Empty{}}},
+					"shared-50": {CCDs: sets.Int{0: sets.Empty{}, 1: sets.Empty{}}},
 					"system":    {CCDs: sets.Int{1: sets.Empty{}}},
 				},
 			},
 			want: &plan.MBAlloc{Plan: map[task.QoSGroup]map[int]int{
 				"dedicated": {4: 25_000, 5: 25_000},
-				"shared_50": {0: 25_000, 1: 25_000},
+				"shared-50": {0: 25_000, 1: 25_000},
 				"system":    {1: 25_000},
 			}},
 		},
@@ -80,14 +80,14 @@ func Test_getProportionalPlan(t *testing.T) {
 			args: args{
 				total: 21_000,
 				mbQoSGroups: map[task.QoSGroup]*monitor.MBQoSGroup{
-					"shared_30": {CCDMB: map[int]*monitor.MBData{
+					"shared-30": {CCDMB: map[int]*monitor.MBData{
 						6: {ReadsMB: 20_000},
 						7: {ReadsMB: 10_000},
 					}},
 				},
 			},
 			want: &plan.MBAlloc{Plan: map[task.QoSGroup]map[int]int{
-				"shared_30": {
+				"shared-30": {
 					6: 14_000,
 					7: 8_000,
 				},

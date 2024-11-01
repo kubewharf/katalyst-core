@@ -39,6 +39,9 @@ type Manager interface {
 	FindTask(id string) (*Task, error)
 	DeleteTask(task *Task)
 	RefreshTasks() error
+
+	// GetNumaNodesInUse returns numa nodes that are associated with running tasks
+	GetNumaNodesInUse() sets.Int
 }
 
 func New(nodeCCDs map[int]sets.Int, cpusInCCD map[int][]int, cleaner state.MBRawDataCleaner, domainManager *mbdomain.MBDomainManager) (Manager, error) {
@@ -72,6 +75,20 @@ type manager struct {
 	domainManager *mbdomain.MBDomainManager
 
 	fs afero.Fs
+}
+
+func (m *manager) GetNumaNodesInUse() sets.Int {
+	m.rwLock.RLock()
+	defer m.rwLock.RUnlock()
+
+	inUses := make(sets.Int)
+	for _, task := range m.tasks {
+		for _, node := range task.NumaNodes {
+			inUses.Insert(node)
+		}
+	}
+
+	return inUses
 }
 
 func (m *manager) RefreshTasks() error {

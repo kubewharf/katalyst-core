@@ -75,6 +75,13 @@ type MetaAgent struct {
 
 // NewMetaAgent returns the instance of MetaAgent.
 func NewMetaAgent(conf *config.Configuration, clientSet *client.GenericClientSet, emitter metrics.MetricEmitter) (*MetaAgent, error) {
+	// init pod fetcher
+	podFetcher, err := pod.NewPodFetcher(conf.BaseConfiguration, conf.MetaServerConfiguration.PodConfiguration,
+		emitter, common.GetKubernetesCgroupRootPathWithSubSys(common.DefaultSelectedSubsys))
+	if err != nil {
+		return nil, err
+	}
+
 	general.InfofV(6, "mbm: NewMetaAgent getting machine info")
 	machineInfo, err := machine.GetKatalystMachineInfo(conf.BaseConfiguration.MachineInfoConfiguration)
 	if err != nil {
@@ -83,10 +90,6 @@ func NewMetaAgent(conf *config.Configuration, clientSet *client.GenericClientSet
 
 	// init cgroup paths
 	common.InitKubernetesCGroupPath(common.CgroupType(conf.CgroupType), getAllAdditionalK8sCgroupPaths(conf, machineInfo))
-
-	// init pod fetcher
-	podFetcher, err := pod.NewPodFetcher(conf.BaseConfiguration, conf.MetaServerConfiguration.PodConfiguration,
-		emitter, common.GetKubernetesCgroupRootPathWithSubSys(common.DefaultSelectedSubsys))
 
 	metaAgent := &MetaAgent{
 		start:               false,

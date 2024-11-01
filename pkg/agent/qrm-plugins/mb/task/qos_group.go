@@ -32,6 +32,8 @@ const (
 	QoSGroupShared    QoSGroup = resctrlconsts.GroupSharedCore
 	QoSGroupSystem    QoSGroup = resctrlconsts.GroupSystem
 	QoSGroupReclaimed QoSGroup = resctrlconsts.GroupReclaimed
+
+	qosSharedPrefix = "shared-"
 )
 
 var qosLevelToQoSGroup = map[consts.QoSLevel]QoSGroup{
@@ -96,15 +98,15 @@ func (q QoS) ToCtrlGroup() (QoSGroup, error) {
 		return "", fmt.Errorf("unrecognized qos level %s", q.Level)
 	}
 
-	return QoSGroup(fmt.Sprintf("shared_%02d", q.SubLevel)), nil
+	return QoSGroup(fmt.Sprintf("shared-%02d", q.SubLevel)), nil
 }
 
 func parseSharedSubGroup(ctrlGroup string) (int, error) {
-	if !strings.HasPrefix(string(ctrlGroup), "shared_") {
+	if !strings.HasPrefix(string(ctrlGroup), qosSharedPrefix) {
 		return -1, fmt.Errorf("unrecognied qos ctrl group %q", ctrlGroup)
 	}
 
-	digits := strings.TrimPrefix(string(ctrlGroup), "shared_")
+	digits := strings.TrimPrefix(string(ctrlGroup), qosSharedPrefix)
 	value, err := strconv.Atoi(digits)
 	if err != nil {
 		return -1, errors.Wrap(err, "failed to parse shared sub ctrl group")

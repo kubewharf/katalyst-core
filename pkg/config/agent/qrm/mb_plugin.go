@@ -19,7 +19,8 @@ package qrm
 import "time"
 
 type MBQRMPluginConfig struct {
-	IncubationInterval time.Duration
+	IncubationInterval         time.Duration
+	CPUSetPoolToSharedSubgroup map[string]string
 }
 
 func NewMBQRMPluginConfig() *MBQRMPluginConfig {

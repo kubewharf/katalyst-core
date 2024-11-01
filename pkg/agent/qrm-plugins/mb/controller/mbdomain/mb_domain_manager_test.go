@@ -83,3 +83,72 @@ func TestNewMBDomainManager(t *testing.T) {
 		})
 	}
 }
+
+func TestMBDomainManager_PreemptNodes(t *testing.T) {
+	t.Parallel()
+	type fields struct {
+		Domains map[int]*MBDomain
+	}
+	type args struct {
+		nodes []int
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		args   args
+		want   bool
+	}{
+		{
+			name: "happy path of change",
+			fields: fields{
+				Domains: map[int]*MBDomain{
+					0: {
+						ID: 0,
+						NodeCCDs: map[int][]int{
+							0: {0, 1},
+							1: {2, 3},
+							2: {4, 5},
+							3: {6, 7},
+						},
+						PreemptyNodes: sets.Int{},
+					},
+				},
+			},
+			args: args{
+				nodes: []int{2},
+			},
+			want: true,
+		},
+		{
+			name: "happy path of no change",
+			fields: fields{
+				Domains: map[int]*MBDomain{
+					0: {
+						ID: 0,
+						NodeCCDs: map[int][]int{
+							0: {0, 1},
+							1: {2, 3},
+							2: {4, 5},
+							3: {6, 7},
+						},
+						PreemptyNodes: sets.Int{2: sets.Empty{}},
+					},
+				},
+			},
+			args: args{
+				nodes: []int{2},
+			},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			m := MBDomainManager{
+				Domains: tt.fields.Domains,
+			}
+			assert.Equalf(t, tt.want, m.PreemptNodes(tt.args.nodes), "PreemptNodes(%v)", tt.args.nodes)
+		})
+	}
+}

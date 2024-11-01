@@ -26,21 +26,31 @@ import (
 const defaultIncubationInterval = time.Second * 30
 
 type MBOptions struct {
-	IncubationInterval time.Duration
+	IncubationInterval         time.Duration
+	CPUSetPoolToSharedSubgroup map[string]string
 }
 
 func NewMBOptions() *MBOptions {
-	return &MBOptions{IncubationInterval: defaultIncubationInterval}
+	return &MBOptions{
+		IncubationInterval: defaultIncubationInterval,
+		CPUSetPoolToSharedSubgroup: map[string]string{
+			"batch": "shared-30",
+			"flink": "shared-30",
+			"share": "shared-50",
+		},
+	}
 }
 
 func (m *MBOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs := fss.FlagSet("mb_resource_plugin")
 	fs.DurationVar(&m.IncubationInterval, "mb-incubation-interval", m.IncubationInterval,
 		"time to protect socket pod before it is fully exercise memory bandwidth")
+	fs.StringToStringVar(&m.CPUSetPoolToSharedSubgroup, "cpuset-pool-to-shared-subgroup", m.CPUSetPoolToSharedSubgroup,
+		"mapping from cpuset pool name to shared_xx")
 }
 
 func (m *MBOptions) ApplyTo(conf *qrmconfig.MBQRMPluginConfig) error {
 	conf.IncubationInterval = m.IncubationInterval
-
+	conf.CPUSetPoolToSharedSubgroup = m.CPUSetPoolToSharedSubgroup
 	return nil
 }

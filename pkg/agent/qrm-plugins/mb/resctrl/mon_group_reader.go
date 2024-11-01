@@ -17,9 +17,7 @@ limitations under the License.
 package resctrl
 
 import (
-	"fmt"
-
-	"github.com/pkg/errors"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 type MonGroupReader interface {
@@ -35,7 +33,8 @@ func (m monGroupReader) ReadMB(monGroup string, dies []int) (map[int]int, error)
 	for _, ccd := range dies {
 		mb, err := m.ccdReader.ReadMB(monGroup, ccd)
 		if err != nil {
-			return nil, errors.Wrap(err, fmt.Sprintf("failed to get mb for mon group %s, ccd %d", monGroup, ccd))
+			general.InfofV(6, "mbm: failed to get mb for mon group %s, ccd %d", monGroup, ccd)
+			continue
 		}
 		result[ccd] = mb
 	}

@@ -76,15 +76,22 @@ func (m *MBDomain) undoPreemptNodeByCCD(ccd int) {
 	}
 }
 
-func (m *MBDomain) PreemptNodes(nodes []int) {
+func (m *MBDomain) PreemptNodes(nodes []int) bool {
+	hasChange := false
+
 	m.rwLock.Lock()
 	defer m.rwLock.Unlock()
 
 	for _, node := range nodes {
 		if _, ok := m.NodeCCDs[node]; ok {
-			m.PreemptyNodes.Insert(node)
+			if !m.PreemptyNodes.Has(node) {
+				m.PreemptyNodes.Insert(node)
+				hasChange = true
+			}
 		}
 	}
+
+	return hasChange
 }
 
 func (m *MBDomain) UndoPreemptNodes(nodes []int) {

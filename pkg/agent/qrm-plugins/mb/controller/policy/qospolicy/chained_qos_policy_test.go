@@ -43,19 +43,19 @@ func Test_priorityChainedMBPolicy_GetPlan(t *testing.T) {
 	currPolicy := new(mockQoSPolicy)
 	currPolicy.On("GetPlan", 120_000, map[task.QoSGroup]*monitor.MBQoSGroup{
 		"dedicated": {CCDMB: map[int]*monitor.MBData{2: {ReadsMB: 15_000}, 3: {ReadsMB: 15_000}, 4: {ReadsMB: 20_000}, 5: {ReadsMB: 20_000}}},
-		"shared_50": {CCDMB: map[int]*monitor.MBData{0: {ReadsMB: 7_000}, 1: {ReadsMB: 10_000}, 7: {ReadsMB: 5_000}}},
+		"shared-50": {CCDMB: map[int]*monitor.MBData{0: {ReadsMB: 7_000}, 1: {ReadsMB: 10_000}, 7: {ReadsMB: 5_000}}},
 		"system":    {CCDMB: map[int]*monitor.MBData{0: {ReadsMB: 3_000}, 7: {ReadsMB: 5_000}}},
 	}, true).Return(&plan.MBAlloc{Plan: map[task.QoSGroup]map[int]int{
 		"dedicated": {2: 25_000, 3: 25_000, 4: 25_000, 5: 25_000},
-		"shared_50": {0: 25_000, 1: 25_000, 7: 25_000},
+		"shared-50": {0: 25_000, 1: 25_000, 7: 25_000},
 		"system":    {0: 25_000, 7: 25000},
 	}})
 
 	nextPolicy := new(mockQoSPolicy)
 	nextPolicy.On("GetPlan", 20_000, map[task.QoSGroup]*monitor.MBQoSGroup{
-		"shared_30": {CCDMB: map[int]*monitor.MBData{6: {ReadsMB: 7_000}}},
+		"shared-30": {CCDMB: map[int]*monitor.MBData{6: {ReadsMB: 7_000}}},
 	}, false).Return(&plan.MBAlloc{Plan: map[task.QoSGroup]map[int]int{
-		"shared_30": {6: 20_000},
+		"shared-30": {6: 20_000},
 	}})
 
 	type fields struct {
@@ -79,7 +79,7 @@ func Test_priorityChainedMBPolicy_GetPlan(t *testing.T) {
 			fields: fields{
 				topTiers: map[task.QoSGroup]struct{}{
 					"dedicated": {},
-					"shared_50": {},
+					"shared-50": {},
 					"system":    {},
 				},
 				tier: currPolicy,
@@ -89,8 +89,8 @@ func Test_priorityChainedMBPolicy_GetPlan(t *testing.T) {
 				totalMB: 120_000,
 				groups: map[task.QoSGroup]*monitor.MBQoSGroup{
 					"dedicated": {CCDMB: map[int]*monitor.MBData{2: {ReadsMB: 15_000}, 3: {ReadsMB: 15_000}, 4: {ReadsMB: 20_000}, 5: {ReadsMB: 20_000}}},
-					"shared_50": {CCDMB: map[int]*monitor.MBData{0: {ReadsMB: 7_000}, 1: {ReadsMB: 10_000}, 7: {ReadsMB: 5_000}}},
-					"shared_30": {CCDMB: map[int]*monitor.MBData{6: {ReadsMB: 7_000}}},
+					"shared-50": {CCDMB: map[int]*monitor.MBData{0: {ReadsMB: 7_000}, 1: {ReadsMB: 10_000}, 7: {ReadsMB: 5_000}}},
+					"shared-30": {CCDMB: map[int]*monitor.MBData{6: {ReadsMB: 7_000}}},
 					"system":    {CCDMB: map[int]*monitor.MBData{0: {ReadsMB: 3_000}, 7: {ReadsMB: 5_000}}},
 				},
 				isTopTier: true,
@@ -98,8 +98,8 @@ func Test_priorityChainedMBPolicy_GetPlan(t *testing.T) {
 			want: &plan.MBAlloc{
 				Plan: map[task.QoSGroup]map[int]int{
 					"dedicated": {2: 25_000, 3: 25_000, 4: 25_000, 5: 25_000},
-					"shared_50": {0: 25_000, 1: 25_000, 7: 25_000},
-					"shared_30": {6: 20_000},
+					"shared-50": {0: 25_000, 1: 25_000, 7: 25_000},
+					"shared-30": {6: 20_000},
 					"system":    {0: 25_000, 7: 25_000},
 				},
 			},

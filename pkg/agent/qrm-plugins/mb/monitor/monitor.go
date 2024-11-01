@@ -21,7 +21,6 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl"
@@ -43,17 +42,7 @@ func newMBMonitor(taskManager task.Manager, rmbReader task.TaskMBReader, wmbRead
 	}, nil
 }
 
-func NewDefaultMBMonitor(numaDies map[int]sets.Int, dieCPUs map[int][]int, domainManager *mbdomain.MBDomainManager) (MBMonitor, error) {
-	dataKeeper, err := state.NewMBRawDataKeeper()
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to create raw data state keeper")
-	}
-
-	taskManager, err := task.New(numaDies, dieCPUs, dataKeeper, domainManager)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to create task manager")
-	}
-
+func NewDefaultMBMonitor(dieCPUs map[int][]int, dataKeeper state.MBRawDataKeeper, taskManager task.Manager, domainManager *mbdomain.MBDomainManager) (MBMonitor, error) {
 	taskMBReader, err := task.CreateTaskMBReader(dataKeeper)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create task mb reader")
@@ -161,7 +150,7 @@ func (m mbMonitor) getWritesMBs(ccdQoSGroup map[int][]task.QoSGroup) (map[task.Q
 			return nil, err
 		}
 		// theoretically there may have more than one qos ctrl group binding to a specific ccd
-		// for now it is fine to duplicate mb usages among them (as in POC shared_30 groups are exclusive)
+		// for now it is fine to duplicate mb usages among them (as in POC shared-30 groups are exclusive)
 		// todo: figure out proper distributions of mb among qos ctrl groups binding to given ccd
 		for _, qos := range groups {
 			if _, ok := result[qos]; !ok {

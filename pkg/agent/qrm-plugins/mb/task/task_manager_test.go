@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
 	resctrlconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/state"
 )
@@ -251,6 +252,50 @@ func Test_manager_DeleteTask(t *testing.T) {
 			m.DeleteTask(tt.args.task)
 			assert.Empty(t, m.tasks)
 			assert.Empty(t, m.taskQoS)
+		})
+	}
+}
+
+func Test_manager_GetNumaNodesInUse(t *testing.T) {
+	t.Parallel()
+	type fields struct {
+		rawStateCleaner state.MBRawDataCleaner
+		nodeCCDs        map[int]sets.Int
+		cpuCCD          map[int]int
+		tasks           map[string]*Task
+		taskQoS         map[string]QoSGroup
+		domainManager   *mbdomain.MBDomainManager
+		fs              afero.Fs
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		want   sets.Int
+	}{
+		{
+			name: "happy path",
+			fields: fields{
+				tasks: map[string]*Task{
+					"pod-0": {NumaNodes: []int{1}},
+				},
+			},
+			want: sets.Int{1: sets.Empty{}},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			m := &manager{
+				rawStateCleaner: tt.fields.rawStateCleaner,
+				nodeCCDs:        tt.fields.nodeCCDs,
+				cpuCCD:          tt.fields.cpuCCD,
+				tasks:           tt.fields.tasks,
+				taskQoS:         tt.fields.taskQoS,
+				domainManager:   tt.fields.domainManager,
+				fs:              tt.fields.fs,
+			}
+			assert.Equalf(t, tt.want, m.GetNumaNodesInUse(), "GetNumaNodesInUse()")
 		})
 	}
 }

@@ -42,7 +42,7 @@ func TestBuildHiPrioDetectedQoSMBPolicy(t *testing.T) {
 		want map[task.QoSGroup]map[int]int
 	}{
 		{
-			name: "no high priority groups, no limit on shared_30",
+			name: "no high priority groups, no limit on shared-30",
 			args: args{
 				totalMB: 120_000,
 				mbQoSGroups: map[task.QoSGroup]*monitor.MBQoSGroup{
@@ -50,7 +50,7 @@ func TestBuildHiPrioDetectedQoSMBPolicy(t *testing.T) {
 						CCDs:  sets.Int{1: sets.Empty{}},
 						CCDMB: map[int]*monitor.MBData{1: {ReadsMB: 100}},
 					},
-					"shared_30": {
+					"shared-30": {
 						CCDs:  sets.Int{2: sets.Empty{}, 3: sets.Empty{}},
 						CCDMB: map[int]*monitor.MBData{2: {ReadsMB: 100}, 3: {ReadsMB: 100}},
 					},
@@ -59,15 +59,15 @@ func TestBuildHiPrioDetectedQoSMBPolicy(t *testing.T) {
 			},
 			want: map[task.QoSGroup]map[int]int{
 				"system":    {1: 25_000},
-				"shared_30": {2: 25_000, 3: 25_000},
+				"shared-30": {2: 25_000, 3: 25_000},
 			},
 		},
 		{
-			name: "yes shared_50 - shared_30 being limited",
+			name: "yes shared-50 - shared-30 being limited",
 			args: args{
 				totalMB: 120_000,
 				mbQoSGroups: map[task.QoSGroup]*monitor.MBQoSGroup{
-					"shared_50": {
+					"shared-50": {
 						CCDs:  sets.Int{1: sets.Empty{}, 4: sets.Empty{}, 5: sets.Empty{}, 6: sets.Empty{}},
 						CCDMB: map[int]*monitor.MBData{1: {ReadsMB: 20_000}, 4: {ReadsMB: 20_000}, 5: {ReadsMB: 20_000}, 6: {ReadsMB: 20_000}},
 					},
@@ -75,7 +75,7 @@ func TestBuildHiPrioDetectedQoSMBPolicy(t *testing.T) {
 						CCDs:  sets.Int{1: sets.Empty{}},
 						CCDMB: map[int]*monitor.MBData{1: {ReadsMB: 20_000}},
 					},
-					"shared_30": {
+					"shared-30": {
 						CCDs:  sets.Int{2: sets.Empty{}, 3: sets.Empty{}},
 						CCDMB: map[int]*monitor.MBData{2: {ReadsMB: 100}, 3: {ReadsMB: 100}},
 					},
@@ -83,9 +83,9 @@ func TestBuildHiPrioDetectedQoSMBPolicy(t *testing.T) {
 				isTopMost: true,
 			},
 			want: map[task.QoSGroup]map[int]int{
-				"shared_50": {1: 25_000, 4: 25_000, 5: 25_000, 6: 25_000},
+				"shared-50": {1: 25_000, 4: 25_000, 5: 25_000, 6: 25_000},
 				"system":    {1: 25_000},
-				"shared_30": {2: 10_000, 3: 10_000},
+				"shared-30": {2: 10_000, 3: 10_000},
 			},
 		},
 	}
