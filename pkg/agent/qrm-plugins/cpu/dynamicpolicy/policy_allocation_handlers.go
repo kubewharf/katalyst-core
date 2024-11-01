@@ -897,6 +897,8 @@ func (p *DynamicPolicy) adjustPoolsAndIsolatedEntries(poolsQuantityMap map[strin
 		return fmt.Errorf("reclaimOverlapShareRatio failed with error: %v", err)
 	}
 
+	general.Infof("poolsQuantityMap: %#v, availableCPUs: %v, reclaimOverlapShareRatio: %#v", poolsQuantityMap, availableCPUs, reclaimOverlapShareRatio)
+
 	poolsCPUSet, isolatedCPUSet, err := p.generatePoolsAndIsolation(poolsQuantityMap, isolatedQuantityMap, availableCPUs, reclaimOverlapShareRatio)
 	if err != nil {
 		return fmt.Errorf("generatePoolsAndIsolation failed with error: %v", err)
@@ -1421,6 +1423,8 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(poolsQuantityMap map[string]ma
 
 	// deal with reclaim pool
 	poolsCPUSet[commonstate.PoolNameReclaim] = poolsCPUSet[commonstate.PoolNameReclaim].Union(availableCPUs)
+
+	general.Infof("poolsCPUSet: %+v", poolsCPUSet)
 
 	if !p.state.GetAllowSharedCoresOverlapReclaimedCores() {
 		enableReclaim := p.dynamicConfig.GetDynamicConfiguration().EnableReclaim
