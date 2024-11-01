@@ -35,6 +35,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
+	"github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
 const (
@@ -63,17 +64,39 @@ func (mb *memsetBinder) reclaimedContainersFilter(ci *types.ContainerInfo) bool 
 	return ci != nil && ci.QoSLevel == apiconsts.PodAnnotationQoSLevelReclaimedCores
 }
 
+func (mb *memsetBinder) nonActualNUMABindingFilter(ci *types.ContainerInfo) bool {
+	pod, err := mb.metaServer.GetPod(context.Background(), ci.PodUID)
+	if err != nil {
+		return false
+	}
+
+	if !native.PodIsActive(pod) {
+		return false
+	}
+
+	bindingResult, err := qos.GetActualNUMABindingResult(pod)
+	if err != nil {
+		return false
+	}
+
+	return bindingResult == -1
+}
+
 func (mb *memsetBinder) Reconcile(status *types.MemoryPressureStatus) error {
 	var errList []error
 
-	allNUMAs := mb.metaServer.CPUDetails.NUMANodes()
+	actualNUMABindingNUMAs, err := helper.GetActualNUMABindingNUMAsForReclaimedCores(mb.conf, mb.metaServer)
+	if err != nil {
+		return err
+	}
 
+	allNUMAs := mb.metaServer.CPUDetails.NUMANodes().Difference(actualNUMABindingNUMAs)
 	availNUMAs := allNUMAs
 
 	containerMemset := make(map[consts.PodContainerName]machine.CPUSet)
 	containers := make([]*types.ContainerInfo, 0)
 	mb.metaReader.RangeContainer(func(podUID string, containerName string, containerInfo *types.ContainerInfo) bool {
-		if mb.reclaimedContainersFilter(containerInfo) {
+		if mb.reclaimedContainersFilter(containerInfo) && mb.nonActualNUMABindingFilter(containerInfo) {
 			containers = append(containers, containerInfo)
 			return true
 		}
@@ -96,7 +119,7 @@ func (mb *memsetBinder) Reconcile(status *types.MemoryPressureStatus) error {
 		return true
 	})
 
-	err := errors.NewAggregate(errList)
+	err = errors.NewAggregate(errList)
 	if err != nil {
 		return err
 	}
