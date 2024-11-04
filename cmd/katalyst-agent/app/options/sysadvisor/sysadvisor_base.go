@@ -26,6 +26,7 @@ import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor/metacache"
 	metricemitter "github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor/metric-emitter"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor/overcommit"
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor/poweraware"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/sysadvisor/qosaware"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor"
@@ -95,6 +96,7 @@ type SysAdvisorPluginsOptions struct {
 	*metricemitter.MetricEmitterPluginOptions
 	*inference.InferencePluginOptions
 	*overcommit.OvercommitAwarePluginOptions
+	*poweraware.PowerAwarePluginOptions
 }
 
 // NewSysAdvisorPluginsOptions creates a new Options with a default config.
@@ -105,6 +107,7 @@ func NewSysAdvisorPluginsOptions() *SysAdvisorPluginsOptions {
 		MetricEmitterPluginOptions:   metricemitter.NewMetricEmitterPluginOptions(),
 		InferencePluginOptions:       inference.NewInferencePluginOptions(),
 		OvercommitAwarePluginOptions: overcommit.NewOvercommitAwarePluginOptions(),
+		PowerAwarePluginOptions:      poweraware.NewPowerAwarePluginOptions(),
 	}
 }
 
@@ -115,6 +118,7 @@ func (o *SysAdvisorPluginsOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	o.MetricEmitterPluginOptions.AddFlags(fss)
 	o.InferencePluginOptions.AddFlags(fss)
 	o.OvercommitAwarePluginOptions.AddFlags(fss)
+	o.PowerAwarePluginOptions.AddFlags(fss)
 }
 
 // ApplyTo fills up config with options
@@ -125,6 +129,7 @@ func (o *SysAdvisorPluginsOptions) ApplyTo(c *sysadvisor.SysAdvisorPluginsConfig
 	errList = append(errList, o.MetricEmitterPluginOptions.ApplyTo(c.MetricEmitterPluginConfiguration))
 	errList = append(errList, o.InferencePluginOptions.ApplyTo(c.InferencePluginConfiguration))
 	errList = append(errList, o.OvercommitAwarePluginOptions.ApplyTo(c.OvercommitAwarePluginConfiguration))
+	errList = append(errList, o.PowerAwarePluginOptions.ApplyTo(c.PowerAwarePluginConfiguration))
 	return errors.NewAggregate(errList)
 }
 
