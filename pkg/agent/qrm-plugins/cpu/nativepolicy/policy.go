@@ -234,11 +234,15 @@ func (p *NativePolicy) GetResourcePluginOptions(context.Context,
 	*pluginapi.Empty,
 ) (*pluginapi.ResourcePluginOptions, error) {
 	general.Infof("called")
-	return &pluginapi.ResourcePluginOptions{
-		PreStartRequired:      false,
-		WithTopologyAlignment: true,
-		NeedReconcile:         true,
-	}, nil
+	if p.enableCoreBinding {
+		return &pluginapi.ResourcePluginOptions{
+			PreStartRequired:      false,
+			WithTopologyAlignment: true,
+			NeedReconcile:         true,
+		}, nil
+	}
+
+	return &pluginapi.ResourcePluginOptions{}, nil
 }
 
 // GetTopologyHints returns hints of corresponding resources
@@ -432,7 +436,7 @@ func (p *NativePolicy) Allocate(ctx context.Context,
 		}, nil
 	}
 
-	if req.NativeQosClass != string(v1.PodQOSGuaranteed) || !isInteger {
+	if !p.enableCoreBinding || req.NativeQosClass != string(v1.PodQOSGuaranteed) || !isInteger {
 		return p.sharedPoolAllocationHandler(ctx, req)
 	}
 	return p.dedicatedCoresAllocationHandler(ctx, req)
