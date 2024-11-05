@@ -80,7 +80,7 @@ func (p *DynamicPolicy) reclaimedCoresAllocationHandler(ctx context.Context,
 		return nil, fmt.Errorf("not support inplace update resize for reclaiemd cores")
 	}
 
-	return p.reclaimedCoresNUMABindingAllocationHandler(ctx, req)
+	return p.reclaimedCoresBestEffortNUMABindingAllocationHandler(ctx, req)
 }
 
 func (p *DynamicPolicy) dedicatedCoresAllocationHandler(ctx context.Context,
@@ -253,7 +253,7 @@ func (p *DynamicPolicy) numaBindingAllocationHandler(ctx context.Context,
 	return resp, nil
 }
 
-func (p *DynamicPolicy) reclaimedCoresNUMABindingAllocationHandler(ctx context.Context,
+func (p *DynamicPolicy) reclaimedCoresBestEffortNUMABindingAllocationHandler(ctx context.Context,
 	req *pluginapi.ResourceRequest,
 ) (*pluginapi.ResourceAllocationResponse, error) {
 	if req.ContainerType == pluginapi.ContainerType_SIDECAR {
@@ -261,7 +261,7 @@ func (p *DynamicPolicy) reclaimedCoresNUMABindingAllocationHandler(ctx context.C
 		return p.numaBindingAllocationSidecarHandler(ctx, req, apiconsts.PodAnnotationQoSLevelReclaimedCores)
 	}
 
-	// use the pod aggregated request to instead of main container.
+	// use the pod aggregated request to instead of the main container.
 	podAggregatedRequest, _, err := util.GetPodAggregatedRequestResource(req)
 	if err != nil {
 		return nil, fmt.Errorf("GetPodAggregatedRequestResource failed with error: %v", err)
@@ -356,11 +356,14 @@ func (p *DynamicPolicy) reclaimedCoresNUMABindingAllocationHandler(ctx context.C
 		return nil, fmt.Errorf("packAllocationResponse failed with error: %v", err)
 	}
 
-	err = p.updateSpecifiedNUMAAllocation(ctx, allocationInfo)
-	if err != nil {
-		general.Errorf("pod: %s/%s, container: %s updateSpecifiedNUMAAllocation failed with error: %v",
-			req.PodNamespace, req.PodName, req.ContainerName, err)
-		return nil, fmt.Errorf("updateSpecifiedNUMAAllocation failed with error: %v", err)
+	// we only support updating the NUMA allocation results for pods with explicit NUMA binding annotation
+	if qosutil.AnnotationsIndicateNUMABinding(req.Annotations) {
+		err = p.updateSpecifiedNUMAAllocation(ctx, allocationInfo)
+		if err != nil {
+			general.Errorf("pod: %s/%s, container: %s updateSpecifiedNUMAAllocation failed with error: %v",
+				req.PodNamespace, req.PodName, req.ContainerName, err)
+			return nil, fmt.Errorf("updateSpecifiedNUMAAllocation failed with error: %v", err)
+		}
 	}
 
 	general.InfoS("allocate memory successfully",
