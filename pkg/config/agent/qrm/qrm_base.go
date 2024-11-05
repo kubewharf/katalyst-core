@@ -28,6 +28,10 @@ type GenericQRMPluginConfiguration struct {
 	PodAnnotationKeptKeys []string
 	// PodLabelKeptKeys indicates pod label keys will be kept in qrm state
 	PodLabelKeptKeys []string
+	// EnableReclaimNUMABinding indicates whether to enable NUMA Binding for reclaim pods
+	// if this flag is set to true, reclaim pod will be allocated on a specific NUMA node
+	// best-effort, otherwise, reclaim pod will be allocated on multi NUMA nodes
+	EnableReclaimNUMABinding bool
 }
 
 type QRMPluginsConfiguration struct {

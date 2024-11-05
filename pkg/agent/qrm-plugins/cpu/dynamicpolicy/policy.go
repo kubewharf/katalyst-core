@@ -106,6 +106,7 @@ type DynamicPolicy struct {
 	cpuAdvisorSocketAbsPath                   string
 	cpuPluginSocketAbsPath                    string
 	extraStateFileAbsPath                     string
+	enableReclaimNUMABinding                  bool
 	enableCPUIdle                             bool
 	enableSyncingCPUIdle                      bool
 	reclaimRelativeRootCgroupPath             string
@@ -182,6 +183,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		dynamicConfig:                 conf.DynamicAgentConfiguration,
 		cpuAdvisorSocketAbsPath:       conf.CPUAdvisorSocketAbsPath,
 		cpuPluginSocketAbsPath:        conf.CPUPluginSocketAbsPath,
+		enableReclaimNUMABinding:      conf.EnableReclaimNUMABinding,
 		enableCPUAdvisor:              conf.CPUQRMPluginConfig.EnableCPUAdvisor,
 		cpuNUMAHintPreferPolicy:       conf.CPUQRMPluginConfig.CPUNUMAHintPreferPolicy,
 		cpuNUMAHintPreferLowThreshold: conf.CPUQRMPluginConfig.CPUNUMAHintPreferLowThreshold,
