@@ -99,7 +99,8 @@ func (p *DynamicPolicy) reclaimedCoresHintHandler(ctx context.Context,
 		return nil, fmt.Errorf("not support inplace update resize for reclaimed cores")
 	}
 
-	if qosutil.AnnotationsIndicateNUMABinding(req.Annotations) {
+	if qosutil.AnnotationsIndicateNUMABinding(req.Annotations) &&
+		p.enableReclaimNUMABinding {
 		return p.reclaimedCoresWithNUMABindingHintHandler(ctx, req)
 	}
 

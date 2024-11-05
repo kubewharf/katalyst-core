@@ -130,13 +130,14 @@ func getTestDynamicPolicyWithInitialization(topology *machine.CPUTopology, machi
 	}
 
 	policyImplement := &DynamicPolicy{
-		topology:         topology,
-		qosConfig:        qosConfig,
-		state:            stateImpl,
-		emitter:          metrics.DummyMetrics{},
-		migratingMemory:  make(map[string]map[string]bool),
-		stopCh:           make(chan struct{}),
-		podDebugAnnoKeys: []string{podDebugAnnoKey},
+		topology:                 topology,
+		qosConfig:                qosConfig,
+		state:                    stateImpl,
+		emitter:                  metrics.DummyMetrics{},
+		migratingMemory:          make(map[string]map[string]bool),
+		stopCh:                   make(chan struct{}),
+		podDebugAnnoKeys:         []string{podDebugAnnoKey},
+		enableReclaimNUMABinding: true,
 		enableNonBindingShareCoresMemoryResourceCheck: true,
 		numaBindResultResourceAllocationAnnotationKey: coreconsts.QRMResourceAnnotationKeyNUMABindResult,
 	}

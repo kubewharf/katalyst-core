@@ -30,6 +30,7 @@ type GenericQRMPluginOptions struct {
 	UseKubeletReservedConfig bool
 	PodAnnotationKeptKeys    []string
 	PodLabelKeptKeys         []string
+	EnableReclaimNUMABinding bool
 }
 
 func NewGenericQRMPluginOptions() *GenericQRMPluginOptions {
@@ -57,6 +58,8 @@ func (o *GenericQRMPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.PodAnnotationKeptKeys, "pod annotation keys will be kept in qrm state")
 	fs.StringSliceVar(&o.PodLabelKeptKeys, "pod-label-kept-keys",
 		o.PodLabelKeptKeys, "pod label keys will be kept in qrm state")
+	fs.BoolVar(&o.EnableReclaimNUMABinding, "enable-reclaim-numa-binding",
+		o.EnableReclaimNUMABinding, "if set true, reclaim pod will be allocated on a specific NUMA node best-effort, otherwise, reclaim pod will be allocated on multi NUMA nodes")
 }
 
 func (o *GenericQRMPluginOptions) ApplyTo(conf *qrmconfig.GenericQRMPluginConfiguration) error {
@@ -67,6 +70,7 @@ func (o *GenericQRMPluginOptions) ApplyTo(conf *qrmconfig.GenericQRMPluginConfig
 	conf.UseKubeletReservedConfig = o.UseKubeletReservedConfig
 	conf.PodAnnotationKeptKeys = append(conf.PodAnnotationKeptKeys, o.PodAnnotationKeptKeys...)
 	conf.PodLabelKeptKeys = append(conf.PodLabelKeptKeys, o.PodLabelKeptKeys...)
+	conf.EnableReclaimNUMABinding = o.EnableReclaimNUMABinding
 	return nil
 }
 

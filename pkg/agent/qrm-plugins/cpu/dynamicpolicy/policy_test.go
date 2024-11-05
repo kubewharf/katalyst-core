@@ -127,6 +127,7 @@ func getTestDynamicPolicyWithoutInitialization(topology *machine.CPUTopology, st
 		advisorValidator:          validator.NewCPUAdvisorValidator(stateImpl, machineInfo),
 		reservedReclaimedCPUsSize: general.Max(reservedReclaimedCPUsSize, topology.NumNUMANodes),
 		reservedCPUs:              reservedCPUs,
+		enableReclaimNUMABinding:  true,
 		emitter:                   metrics.DummyMetrics{},
 		podDebugAnnoKeys:          []string{podDebugAnnoKey},
 	}
