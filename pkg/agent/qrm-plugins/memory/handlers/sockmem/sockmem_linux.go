@@ -21,6 +21,7 @@ package sockmem
 
 import (
 	"context"
+	"fmt"
 
 	"golang.org/x/sys/unix"
 	"k8s.io/apimachinery/pkg/util/errors"
@@ -44,26 +45,49 @@ type SockMemConfig struct {
 	cgroupTCPMemRatio float64
 }
 
+func updateTCPMemLimit(tcpMem []uint64, memTotal, tcpMemRatio uint64, tcpMemFile string) error {
+	pageSize := uint64(unix.Getpagesize())
+	newUpperLimit := (memTotal / pageSize / 100) * tcpMemRatio
+
+	// Step1: Check if the new limit is different from the current value
+	if newUpperLimit != tcpMem[0] {
+		general.Infof("Updating host tcp_mem, ratio=%v, newLimit=%d, oldLimit=%d", tcpMemRatio, newUpperLimit, tcpMem[0])
+
+		// Set new memory limits
+		for i := range tcpMem {
+			tcpMem[i] = newUpperLimit
+		}
+
+		// Step2: Write the new values to the file
+		if err := setHostTCPMemFile(tcpMemFile, tcpMem); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func setHostTCPMem(emitter metrics.MetricEmitter, memTotal uint64, sockMemConfig *SockMemConfig) error {
+	// Validate inputs
+	if sockMemConfig == nil {
+		return fmt.Errorf("sockMemConfig is nil")
+	}
+
 	tcpMemRatio := sockMemConfig.globalTCPMemRatio
 	tcpMem, err := getHostTCPMemFile(hostTCPMemFile)
 	if err != nil {
-		general.Errorf("Error: %v", err)
 		return err
 	}
 
-	pageSize := uint64(unix.Getpagesize())
-	newUpperLimit := memTotal / pageSize / 100 * uint64(tcpMemRatio)
-	if (newUpperLimit != tcpMem[2]) && (newUpperLimit > tcpMem[1]) {
-		general.Infof("write to host tcp_mem, ratio=%v, newLimit=%d, oldLimit=%d", tcpMemRatio, newUpperLimit, tcpMem[2])
-		tcpMem[2] = newUpperLimit
-
-		if err := setHostTCPMemFile(hostTCPMemFile, tcpMem); err != nil {
-			return err
-		}
-		_ = emitter.StoreInt64(metricNameTCPMemoryHost, int64(newUpperLimit), metrics.MetricTypeNameRaw)
+	if len(tcpMem) != 3 {
+		return fmt.Errorf("tcpMem array must have exactly three elements, got %d", len(tcpMem))
 	}
 
+	err = updateTCPMemLimit(tcpMem, memTotal, uint64(tcpMemRatio), hostTCPMemFile)
+	if err != nil {
+		return err
+	}
+	_ = emitter.StoreInt64(metricNameTCPMemoryHost, int64(tcpMemRatio), metrics.MetricTypeNameRaw)
 	return nil
 }
 
