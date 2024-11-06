@@ -155,7 +155,7 @@ func GetSharedQuantityMapFromPodEntries(podEntries PodEntries, ignoreAllocationI
 	return poolsQuantityMap, nil
 }
 
-// GetNonBindingSharedRequestedQuantityFromPodEntries returns total quanity shared_cores without numa_binding requested
+// GetNonBindingSharedRequestedQuantityFromPodEntries returns total quantity shared_cores without numa_binding requested
 func GetNonBindingSharedRequestedQuantityFromPodEntries(podEntries PodEntries, newNonBindingSharedRequestedQuantity map[string]float64, getContainerRequestedCores GetContainerRequestedCoresFunc) int {
 	var reqFloat64 float64 = 0
 
@@ -185,6 +185,39 @@ func GetNonBindingSharedRequestedQuantityFromPodEntries(podEntries PodEntries, n
 	}
 
 	return CPUPreciseCeil(reqFloat64)
+}
+
+// GetRequestedQuantityFromPodEntries returns total quantity of reclaim without numa_binding requested
+func GetRequestedQuantityFromPodEntries(podEntries PodEntries, allocationFilter func(info *AllocationInfo) bool,
+	getContainerRequestedCores GetContainerRequestedCoresFunc,
+) float64 {
+	var reqFloat64 float64 = 0
+
+	for _, entries := range podEntries {
+		if entries.IsPoolEntry() {
+			continue
+		}
+
+		for _, allocationInfo := range entries {
+			if allocationInfo == nil || !allocationFilter(allocationInfo) {
+				continue
+			}
+
+			reqFloat64 += getContainerRequestedCores(allocationInfo)
+		}
+	}
+
+	return reqFloat64
+}
+
+func GetReclaimedNUMAHeadroom(numaHeadroom map[int]float64, numaSet machine.CPUSet) float64 {
+	res := float64(0)
+
+	for _, numaID := range numaSet.ToSliceNoSortInt() {
+		res += numaHeadroom[numaID]
+	}
+
+	return res
 }
 
 // GenerateMachineStateFromPodEntries for dynamic policy

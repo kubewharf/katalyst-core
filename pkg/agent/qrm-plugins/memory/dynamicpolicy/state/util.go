@@ -64,6 +64,29 @@ func GenerateMachineState(machineInfo *info.MachineInfo, reserved map[v1.Resourc
 	return defaultResourcesMachineState, nil
 }
 
+// WrapAllocationMetaFilter takes a filter function that operates on
+// AllocationMeta and returns a wrapper function that applies the same filter
+// to an AllocationInfo by extracting its AllocationMeta.
+func WrapAllocationMetaFilter(metaFilter func(meta *commonstate.AllocationMeta) bool) func(info *AllocationInfo) bool {
+	return func(info *AllocationInfo) bool {
+		if info == nil {
+			return false // Handle nil cases safely.
+		}
+		return metaFilter(&info.AllocationMeta)
+	}
+}
+
+// GetReclaimedNUMAHeadroom returns the total reclaimed headroom for the given NUMA set.
+func GetReclaimedNUMAHeadroom(numaHeadroom map[int]int64, numaSet machine.CPUSet) int64 {
+	res := int64(0)
+
+	for _, numaID := range numaSet.ToSliceNoSortInt() {
+		res += numaHeadroom[numaID]
+	}
+
+	return res
+}
+
 // GenerateResourceState returns NUMANodeMap for given resource based on
 // machine info and reserved resources
 func GenerateResourceState(machineInfo *info.MachineInfo, reserved map[v1.ResourceName]map[int]uint64, resourceName v1.ResourceName) (NUMANodeMap, error) {
@@ -183,4 +206,21 @@ func GenerateMemoryStateFromPodEntries(machineInfo *info.MachineInfo,
 	}
 
 	return machineState, nil
+}
+
+// GetRequestedQuantityFromPodEntries returns total quantity of reclaim without numa_binding requested
+func GetRequestedQuantityFromPodEntries(podEntries PodEntries, allocationFilter func(info *AllocationInfo) bool) int64 {
+	var req int64 = 0
+
+	for _, entries := range podEntries {
+		for _, allocationInfo := range entries {
+			if allocationInfo == nil || !allocationFilter(allocationInfo) {
+				continue
+			}
+
+			req += int64(allocationInfo.AggregatedQuantity)
+		}
+	}
+
+	return req
 }

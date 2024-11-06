@@ -40,6 +40,7 @@ import (
 	memconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/oom"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/reactor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/handlers/fragmem"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/handlers/logcache"
@@ -164,6 +165,10 @@ type DynamicPolicy struct {
 	logCacheEvictionManager logcache.Manager
 
 	enableNonBindingShareCoresMemoryResourceCheck bool
+
+	enableNUMAAllocationReactor                   bool
+	numaAllocationReactor                         reactor.AllocationReactor
+	numaBindResultResourceAllocationAnnotationKey string
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -230,6 +235,8 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		oomPriorityMapPinnedPath:   conf.OOMPriorityPinnedMapAbsPath,
 		enableEvictingLogCache:     conf.EnableEvictingLogCache,
 		enableNonBindingShareCoresMemoryResourceCheck: conf.EnableNonBindingShareCoresMemoryResourceCheck,
+		enableNUMAAllocationReactor:                   conf.EnableNUMAAllocationReactor,
+		numaBindResultResourceAllocationAnnotationKey: conf.NUMABindResultResourceAllocationAnnotationKey,
 	}
 
 	policyImplement.allocationHandlers = map[string]util.AllocationHandler{
@@ -275,10 +282,21 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleNumaMemoryBalance))
 	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnowKeyMemoryOffloading,
 		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorMemoryOffloading))
+	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyMemoryNUMAHeadroom,
+		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorMemoryNUMAHeadroom))
 
 	if policyImplement.enableEvictingLogCache {
 		policyImplement.logCacheEvictionManager = logcache.NewManager(conf, agentCtx.MetaServer)
 	}
+
+	policyImplement.numaAllocationReactor = reactor.DummyAllocationReactor{}
+	if policyImplement.enableNUMAAllocationReactor {
+		policyImplement.numaAllocationReactor = reactor.NewNUMAAllocationReactor(
+			agentCtx.MetaServer.PodFetcher,
+			agentCtx.Client.KubeClient,
+		)
+	}
+
 	return true, &agent.PluginWrapper{GenericPlugin: pluginWrapper}, nil
 }
 
