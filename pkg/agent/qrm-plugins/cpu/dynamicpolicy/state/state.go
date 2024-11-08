@@ -19,6 +19,7 @@ package state
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -562,3 +563,29 @@ type ReadonlyState interface {
 }
 
 type GenerateMachineStateFromPodEntriesFunc func(topology *machine.CPUTopology, podEntries PodEntries) (NUMANodeMap, error)
+
+var (
+	readonlyStateLock sync.RWMutex
+	readonlyState     ReadonlyState
+)
+
+// GetReadonlyState returns state.ReadonlyState to provides a way
+// to obtain the running states of the plugin
+func GetReadonlyState() (ReadonlyState, error) {
+	readonlyStateLock.RLock()
+	defer readonlyStateLock.RUnlock()
+
+	if readonlyState == nil {
+		return nil, fmt.Errorf("readonlyState isn't set")
+	}
+	return readonlyState, nil
+}
+
+// SetReadonlyState sets state.ReadonlyState to be used by the plugin
+// this function should only be called once during initialization
+func SetReadonlyState(state ReadonlyState) {
+	readonlyStateLock.Lock()
+	defer readonlyStateLock.Unlock()
+
+	readonlyState = state
+}
