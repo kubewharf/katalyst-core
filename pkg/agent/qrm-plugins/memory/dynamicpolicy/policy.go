@@ -90,23 +90,6 @@ const (
 	movePagesWorkLimit    = 2
 )
 
-var (
-	readonlyStateLock sync.RWMutex
-	readonlyState     state.ReadonlyState
-)
-
-// GetReadonlyState returns state.ReadonlyState to provides a way
-// to obtain the running states of the plugin
-func GetReadonlyState() (state.ReadonlyState, error) {
-	readonlyStateLock.RLock()
-	defer readonlyStateLock.RUnlock()
-
-	if readonlyState == nil {
-		return nil, fmt.Errorf("readonlyState isn't setted")
-	}
-	return readonlyState, nil
-}
-
 type DynamicPolicy struct {
 	sync.RWMutex
 
@@ -193,9 +176,8 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		general.Infof("empty ExtraControlKnobConfigFile, initialize empty extraControlKnobConfigs")
 	}
 
-	readonlyStateLock.Lock()
-	readonlyState = stateImpl
-	readonlyStateLock.Unlock()
+	state.SetReadonlyState(stateImpl)
+	state.SetReadWriteState(stateImpl)
 
 	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(agentName, metrics.MetricTag{
 		Key: util.QRMPluginPolicyTagName,

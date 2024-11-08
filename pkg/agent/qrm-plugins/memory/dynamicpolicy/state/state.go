@@ -19,6 +19,7 @@ package state
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	info "github.com/google/cadvisor/info/v1"
 	v1 "k8s.io/api/core/v1"
@@ -383,4 +384,54 @@ type ReadonlyState interface {
 type State interface {
 	writer
 	ReadonlyState
+}
+
+var (
+	readonlyStateLock sync.RWMutex
+	readonlyState     ReadonlyState
+)
+
+// GetReadonlyState retrieves the readonlyState in a thread-safe manner.
+// Returns an error if readonlyState is not set.
+func GetReadonlyState() (ReadonlyState, error) {
+	readonlyStateLock.RLock()
+	defer readonlyStateLock.RUnlock()
+
+	if readonlyState == nil {
+		return nil, fmt.Errorf("readonlyState isn't setted")
+	}
+	return readonlyState, nil
+}
+
+// SetReadonlyState updates the readonlyState in a thread-safe manner.
+func SetReadonlyState(state ReadonlyState) {
+	readonlyStateLock.Lock()
+	defer readonlyStateLock.Unlock()
+
+	readonlyState = state
+}
+
+var (
+	readWriteStateLock sync.RWMutex
+	readWriteState     State
+)
+
+// GetReadWriteState retrieves the readWriteState in a thread-safe manner.
+// Returns an error if readWriteState is not set.
+func GetReadWriteState() (State, error) {
+	readWriteStateLock.RLock()
+	defer readWriteStateLock.RUnlock()
+
+	if readWriteState == nil {
+		return nil, fmt.Errorf("readWriteState isn't set")
+	}
+	return readWriteState, nil
+}
+
+// SetReadWriteState updates the readWriteState in a thread-safe manner.
+func SetReadWriteState(state State) {
+	readWriteStateLock.Lock()
+	defer readWriteStateLock.Unlock()
+
+	readWriteState = state
 }

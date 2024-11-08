@@ -1953,16 +1953,6 @@ func TestGetResourcesAllocation(t *testing.T) {
 	}, resp5.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceMemory)])
 }
 
-func TestGetReadonlyState(t *testing.T) {
-	t.Parallel()
-
-	as := require.New(t)
-	readonlyState, err := GetReadonlyState()
-	if readonlyState == nil {
-		as.NotNil(err)
-	}
-}
-
 func TestGenerateResourcesMachineStateFromPodEntries(t *testing.T) {
 	t.Parallel()
 
