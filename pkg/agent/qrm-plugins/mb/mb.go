@@ -58,10 +58,9 @@ func NewComponent(agentCtx *agent.GenericContext, conf *config.Configuration,
 	_ interface{}, agentName string,
 ) (bool, agent.Component, error) {
 	plugin := &plugin{
-		qosConfig:              conf.QoSConfiguration,
-		pluginRegistrationDirs: conf.QRMPluginSocketDirs,
-		dieTopology:            agentCtx.DieTopology,
-		incubationInterval:     conf.IncubationInterval,
+		qosConfig:          conf.QoSConfiguration,
+		dieTopology:        agentCtx.DieTopology,
+		incubationInterval: conf.IncubationInterval,
 	}
 
 	domainManager := mbdomain.NewMBDomainManager(plugin.dieTopology, plugin.incubationInterval)
@@ -73,7 +72,7 @@ func NewComponent(agentCtx *agent.GenericContext, conf *config.Configuration,
 		return false, nil, errors.Wrap(err, "failed to create raw data state keeper")
 	}
 
-	taskManager, err := task.New(plugin.dieTopology.DiesInNuma, plugin.dieTopology.CPUsInDie, dataKeeper, domainManager)
+	taskManager, err := task.NewManager(plugin.dieTopology.DiesInNuma, plugin.dieTopology.CPUsInDie, dataKeeper, domainManager)
 	if err != nil {
 		return false, nil, errors.Wrap(err, "failed to create task manager")
 	}
@@ -88,7 +87,7 @@ func NewComponent(agentCtx *agent.GenericContext, conf *config.Configuration,
 		return false, nil, errors.Wrap(err, "mbm: failed to create mb plan allocator")
 	}
 
-	domainPolicy, err := policy.NewDefaultDomainMBPolicy(plugin.incubationInterval)
+	domainPolicy, err := policy.NewDefaultDomainMBPolicy()
 	if err != nil {
 		return false, nil, errors.Wrap(err, "mbm: failed to create domain manager")
 	}

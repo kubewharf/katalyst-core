@@ -17,8 +17,6 @@ limitations under the License.
 package policy
 
 import (
-	"time"
-
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
@@ -86,6 +84,6 @@ func newDomainMBPolicy(preemptMBPolicy, softLimitMBPolicy DomainMBPolicy) (Domai
 	}, nil
 }
 
-func NewDefaultDomainMBPolicy(incubationInterval time.Duration) (DomainMBPolicy, error) {
+func NewDefaultDomainMBPolicy() (DomainMBPolicy, error) {
 	return newDomainMBPolicy(NewDefaultPreemptDomainMBPolicy(), NewDefaultConstraintDomainMBPolicy())
 }

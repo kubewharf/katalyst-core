@@ -27,9 +27,8 @@ type QoSMBPolicy interface {
 	GetPlan(totalMB int, mbQoSGroups map[task.QoSGroup]*monitor.MBQoSGroup, isTopMost bool) *plan.MBAlloc
 }
 
-// BuildFullyChainedQoSPolicy builds up the full chain of {dedicated, shared-50, system} -> {shared-30}
+// BuildFullyChainedQoSPolicy builds up the full chain of {dedicated, shared-50, system} -> {shared-30, reclaimed}
 func BuildFullyChainedQoSPolicy() QoSMBPolicy {
-	// todo: utilize incubation benefit
 	return NewChainedQoSMBPolicy(
 		map[task.QoSGroup]struct{}{
 			"dedicated": {},

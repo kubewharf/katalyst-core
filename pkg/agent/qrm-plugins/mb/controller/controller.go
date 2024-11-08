@@ -61,14 +61,15 @@ func (c *Controller) Run() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	c.cancel = cancel
-	//wait.UntilWithContext(ctx, c.run, intervalMBController)
-	ticker := time.NewTicker(intervalMBController)
 
-loop:
+	ticker := time.NewTicker(intervalMBController)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
-			break loop
+			general.Infof("mbm: main control loop Run exited")
+			return
 		case <-ticker.C:
 			c.run(ctx)
 		case <-c.chAdmit:
@@ -76,9 +77,6 @@ loop:
 			c.process(ctx)
 		}
 	}
-
-	ticker.Stop()
-	general.Infof("mbm: main control loop Run exited")
 }
 
 func (c *Controller) run(ctx context.Context) {

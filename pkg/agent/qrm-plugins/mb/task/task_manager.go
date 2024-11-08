@@ -44,7 +44,7 @@ type Manager interface {
 	GetNumaNodesInUse() sets.Int
 }
 
-func New(nodeCCDs map[int]sets.Int, cpusInCCD map[int][]int, cleaner state.MBRawDataCleaner, domainManager *mbdomain.MBDomainManager) (Manager, error) {
+func NewManager(nodeCCDs map[int]sets.Int, cpusInCCD map[int][]int, cleaner state.MBRawDataCleaner, domainManager *mbdomain.MBDomainManager) (Manager, error) {
 	cpuCCD := make(map[int]int)
 	for ccd, cpus := range cpusInCCD {
 		for _, cpu := range cpus {

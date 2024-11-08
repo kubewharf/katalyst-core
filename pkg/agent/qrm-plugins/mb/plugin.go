@@ -12,13 +12,10 @@ import (
 )
 
 type plugin struct {
-	qosConfig              *generic.QoSConfiguration
-	pluginRegistrationDirs []string
-
+	qosConfig          *generic.QoSConfiguration
 	dieTopology        *machine.DieTopology
 	incubationInterval time.Duration
-
-	mbController *controller.Controller
+	mbController       *controller.Controller
 }
 
 func (p *plugin) Name() string {
