@@ -822,6 +822,10 @@ func (p *DynamicPolicy) GetResourcePluginOptions(context.Context,
 func (p *DynamicPolicy) Allocate(ctx context.Context,
 	req *pluginapi.ResourceRequest,
 ) (resp *pluginapi.ResourceAllocationResponse, respErr error) {
+	general.InfofV(6, "mbm: resource allocate at entrance - pod %s/%s,  anno %v", req.PodNamespace, req.PodName, req.Annotations)
+	// req.annotations might be changed during allocate method; clone a copy to ensure intact at post-process
+	reqAnnotations := general.DeepCopyMap(req.Annotations)
+
 	resp, err := p.allocate(ctx, req)
 	if err != nil {
 		return resp, err
@@ -831,12 +835,12 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 	// assuming no error safely
 	qosLevel, _ := util.GetKatalystQoSLevelFromResourceReq(p.qosConfig, req, p.podAnnotationKeptKeys, p.podLabelKeptKeys)
 	general.InfofV(6, "mbm: resource allocate - pod %s/%s,  qos %v, anno %v", req.PodNamespace, req.PodName, qosLevel, req.Annotations)
-	if mb.PodSubgrouper.IsSocketPod(qosLevel, req.Annotations) {
+	if mb.PodSubgrouper.IsSocketPod(qosLevel, reqAnnotations) {
 		general.InfofV(6, "mbm: resource allocate - identified socket pod %s/%s", req.PodNamespace, req.PodName)
 		if err := mb.NodePreempter.PreemptNodes(req); err != nil {
 			general.Errorf("mbm: failed to preempt numa nodes for Socket pod %s/%s", req.PodNamespace, req.PodName)
 		}
-	} else if mb.PodSubgrouper.IsShared30(qosLevel, req.Annotations) {
+	} else if mb.PodSubgrouper.IsShared30(qosLevel, reqAnnotations) {
 		general.InfofV(6, "mbm: resource allocate - pod admitting %s/%s, shared-30", req.PodNamespace, req.PodName)
 		allocInfo := resp.AllocationResult.ResourceAllocation[string(v1.ResourceMemory)]
 		if allocInfo != nil {
