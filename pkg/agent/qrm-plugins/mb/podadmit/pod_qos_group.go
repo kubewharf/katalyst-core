@@ -5,7 +5,9 @@ import (
 	"fmt"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
+
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
+	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
 const socketPodInstanceModelKey = "instance-model"
@@ -16,12 +18,11 @@ type PodGrouper struct {
 	defaultSharedSubgroup string
 }
 
-func (p *PodGrouper) IsSocketPod(qosLevel string, annotations map[string]string) bool {
-	if v, ok := annotations[socketPodInstanceModelKey]; ok {
-		return qosLevel == apiconsts.PodAnnotationQoSLevelDedicatedCores && len(v) > 0
+func IsDecdicatedCoresNumaExclusive(qosLevel string, annotations map[string]string) bool {
+	if apiconsts.PodAnnotationQoSLevelDedicatedCores != qosLevel {
+		return false
 	}
-
-	return false
+	return qosutil.AnnotationsIndicateNUMAExclusive(annotations)
 }
 
 func (p *PodGrouper) IsShared30(qosLevel string, annotations map[string]string) bool {
@@ -53,7 +54,7 @@ func identifyCPUSetPool(annoInReq map[string]string) string {
 
 // GetQoSGroup returns qos group based on inputs of qos level and relevant annotation, e.g.
 // input "dedicated_cores", ...                   => "dedicated"
-// input "shared_cores", {"cpuset_pool": "batch"} => "shared-30" // should there be batch->shared-30 cpuset pool mapping
+// input "shared_cores", {"cpuset_pool": "batch"} => "shared-30" // should there be a valid cpuset pool mapping
 func (p *PodGrouper) GetQoSGroup(qosLevel string, annotations map[string]string) (string, error) {
 	switch qosLevel {
 	case apiconsts.PodAnnotationQoSLevelDedicatedCores:

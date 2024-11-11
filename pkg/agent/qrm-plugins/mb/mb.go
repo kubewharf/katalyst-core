@@ -33,13 +33,10 @@ import (
 )
 
 // todo: replace global vars with a better mechanism to facilitate dynamic memory policy
-// below global vars are used by dynamic memory policy to
+// below global var is used by dynamic memory policy to
 // 1. preempting numa nodes on pod admission;
 // 2. advising shared_xx for pod in request
-var (
-	PodSubgrouper *podadmit.PodGrouper
-	NodePreempter *podadmit.NodePreempter
-)
+var PodAdmitter *podadmit.PodAdmitter
 
 func createMBPlanAllocator() (allocator.PlanAllocator, error) {
 	schemataUpdater, err := resctrl.NewSchemataUpdater()
@@ -101,9 +98,9 @@ func NewComponent(agentCtx *agent.GenericContext, conf *config.Configuration,
 	if !ok {
 		defaultSubgroup = "shared-50"
 	}
-	PodSubgrouper = podadmit.NewPodGrouper(conf.CPUSetPoolToSharedSubgroup, defaultSubgroup)
-
-	NodePreempter = podadmit.NewNodePreempter(domainManager, plugin.mbController, taskManager)
+	podSubgrouper := podadmit.NewPodGrouper(conf.CPUSetPoolToSharedSubgroup, defaultSubgroup)
+	nodePreempter := podadmit.NewNodePreempter(domainManager, plugin.mbController, taskManager)
+	PodAdmitter = podadmit.NewPodAdmitter(nodePreempter, podSubgrouper)
 
 	return true, &agent.PluginWrapper{GenericPlugin: plugin}, nil
 }

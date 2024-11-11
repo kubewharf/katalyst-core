@@ -834,23 +834,7 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 	// post-process handling to augment with MB related features (socket pod preemption on admission etc)
 	// assuming no error safely
 	qosLevel, _ := util.GetKatalystQoSLevelFromResourceReq(p.qosConfig, req, p.podAnnotationKeptKeys, p.podLabelKeptKeys)
-	general.InfofV(6, "mbm: resource allocate - pod %s/%s,  qos %v, anno %v", req.PodNamespace, req.PodName, qosLevel, req.Annotations)
-	if mb.PodSubgrouper.IsSocketPod(qosLevel, reqAnnotations) {
-		general.InfofV(6, "mbm: resource allocate - identified socket pod %s/%s", req.PodNamespace, req.PodName)
-		if err := mb.NodePreempter.PreemptNodes(req); err != nil {
-			general.Errorf("mbm: failed to preempt numa nodes for Socket pod %s/%s", req.PodNamespace, req.PodName)
-		}
-	} else if mb.PodSubgrouper.IsShared30(qosLevel, reqAnnotations) {
-		general.InfofV(6, "mbm: resource allocate - pod admitting %s/%s, shared-30", req.PodNamespace, req.PodName)
-		allocInfo := resp.AllocationResult.ResourceAllocation[string(v1.ResourceMemory)]
-		if allocInfo != nil {
-			if allocInfo.Annotations == nil {
-				allocInfo.Annotations = make(map[string]string)
-			}
-			allocInfo.Annotations["rdt.resources.beta.kubernetes.io/pod"] = "shared-30"
-		}
-	}
-
+	resp = mb.PodAdmitter.PostProcessAllocate(req, resp, qosLevel, reqAnnotations)
 	return resp, err
 }
 
