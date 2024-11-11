@@ -10,8 +10,8 @@ import (
 func TestPodGrouper_GetQoSGroup(t *testing.T) {
 	t.Parallel()
 	type fields struct {
-		poolToSharedSubgroup  map[string]string
-		defaultSharedSubgroup string
+		poolToSharedSubgroup  map[string]int
+		defaultSharedSubgroup int
 	}
 	type args struct {
 		qosLevel    string
@@ -27,8 +27,8 @@ func TestPodGrouper_GetQoSGroup(t *testing.T) {
 		{
 			name: "shared_cores batch is shared-30",
 			fields: fields{
-				poolToSharedSubgroup: map[string]string{
-					"batch": "shared-30",
+				poolToSharedSubgroup: map[string]int{
+					"batch": 30,
 				},
 			},
 			args: args{
@@ -43,10 +43,10 @@ func TestPodGrouper_GetQoSGroup(t *testing.T) {
 		{
 			name: "shared_cores default is shared-50",
 			fields: fields{
-				poolToSharedSubgroup: map[string]string{
-					"batch": "shared-30",
+				poolToSharedSubgroup: map[string]int{
+					"batch": 30,
 				},
-				defaultSharedSubgroup: "shared-50",
+				defaultSharedSubgroup: 50,
 			},
 			args: args{
 				qosLevel: "shared_cores",

@@ -20,7 +20,7 @@ import "time"
 
 type MBQRMPluginConfig struct {
 	IncubationInterval         time.Duration
-	CPUSetPoolToSharedSubgroup map[string]string
+	CPUSetPoolToSharedSubgroup map[string]int
 }
 
 func NewMBQRMPluginConfig() *MBQRMPluginConfig {

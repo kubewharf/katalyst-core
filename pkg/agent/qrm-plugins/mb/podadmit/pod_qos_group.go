@@ -10,12 +10,23 @@ import (
 	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
-const socketPodInstanceModelKey = "instance-model"
+const templateSharedSubgroup = "shared-%d"
 
 // PodGrouper determines QoS related properties of the pod in admitting request
 type PodGrouper struct {
-	poolToSharedSubgroup  map[string]string
-	defaultSharedSubgroup string
+	poolToSharedSubgroup  map[string]int
+	defaultSharedSubgroup int
+}
+
+func getSharedSubgroup(val int) string {
+	return fmt.Sprintf(templateSharedSubgroup, val)
+}
+
+func (p *PodGrouper) getSharedSubgroupByPool(pool string) string {
+	if v, ok := p.poolToSharedSubgroup[pool]; ok {
+		return getSharedSubgroup(v)
+	}
+	return getSharedSubgroup(p.defaultSharedSubgroup)
 }
 
 func IsDecdicatedCoresNumaExclusive(qosLevel string, annotations map[string]string) bool {
@@ -70,14 +81,10 @@ func (p *PodGrouper) GetQoSGroup(qosLevel string, annotations map[string]string)
 	}
 
 	pool := identifyCPUSetPool(annotations)
-	if v, ok := p.poolToSharedSubgroup[pool]; ok {
-		return v, nil
-	}
-
-	return p.defaultSharedSubgroup, nil
+	return p.getSharedSubgroupByPool(pool), nil
 }
 
-func NewPodGrouper(poolToSharedSubgroup map[string]string, defaultSharedSubgroup string) *PodGrouper {
+func NewPodGrouper(poolToSharedSubgroup map[string]int, defaultSharedSubgroup int) *PodGrouper {
 	return &PodGrouper{
 		poolToSharedSubgroup:  poolToSharedSubgroup,
 		defaultSharedSubgroup: defaultSharedSubgroup,

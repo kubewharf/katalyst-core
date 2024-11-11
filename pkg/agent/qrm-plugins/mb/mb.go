@@ -32,6 +32,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config"
 )
 
+const defaultSharedSubgroup = 50
+
 // todo: replace global vars with a better mechanism to facilitate dynamic memory policy
 // below global var is used by dynamic memory policy to
 // 1. preempting numa nodes on pod admission;
@@ -96,7 +98,7 @@ func NewComponent(agentCtx *agent.GenericContext, conf *config.Configuration,
 
 	defaultSubgroup, ok := conf.CPUSetPoolToSharedSubgroup["share"]
 	if !ok {
-		defaultSubgroup = "shared-50"
+		defaultSubgroup = defaultSharedSubgroup
 	}
 	podSubgrouper := podadmit.NewPodGrouper(conf.CPUSetPoolToSharedSubgroup, defaultSubgroup)
 	nodePreempter := podadmit.NewNodePreempter(domainManager, plugin.mbController, taskManager)
