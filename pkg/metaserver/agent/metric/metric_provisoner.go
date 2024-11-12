@@ -33,6 +33,7 @@ import (
 
 func init() {
 	RegisterProvisioners(metaserver.MetricProvisionerMalachite, malachite.NewMalachiteMetricsProvisioner)
+	RegisterProvisioners(metaserver.MetricProvisionerMalachiteRealtime, malachite.NewMalachiteRealtimeMetricsProvisioner)
 	RegisterProvisioners(metaserver.MetricProvisionerKubelet, kubelet.NewKubeletSummaryProvisioner)
 	RegisterProvisioners(metaserver.MetricProvisionerCgroup, cgroup.NewCGroupMetricsProvisioner)
 	RegisterProvisioners(metaserver.MetricProvisionerRodan, rodan.NewRodanMetricsProvisioner)
