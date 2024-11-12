@@ -27,6 +27,11 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/consts"
 )
 
+var (
+	onceMBRawDataKeeperInit sync.Once
+	rawMBDataKeeper         MBRawDataKeeper
+)
+
 type MBRawDataCleaner interface {
 	Cleanup(monGroup string)
 }
@@ -88,6 +93,15 @@ func (m *mbRawDataKeeper) Get(ccdMonTarget string) (*RawData, error) {
 }
 
 func NewMBRawDataKeeper() (MBRawDataKeeper, error) {
+	var err error
+	onceMBRawDataKeeperInit.Do(func() {
+		rawMBDataKeeper, err = newMBRawDataKeeper()
+	})
+
+	return rawMBDataKeeper, err
+}
+
+func newMBRawDataKeeper() (MBRawDataKeeper, error) {
 	return &mbRawDataKeeper{
 		data: make(map[string]*RawData),
 	}, nil

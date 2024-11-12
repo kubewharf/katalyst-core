@@ -26,12 +26,14 @@ import (
 
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
 )
 
@@ -63,6 +65,11 @@ func Run(conf *config.Configuration, clientSet *client.GenericClientSet, generic
 	for _, genericOption := range genericOptions {
 		genericOption(genericCtx)
 	}
+
+	// todo: figure out a more elegant approach than setting global vars
+	// below vars to be exposed for resctrl mb provisioner to create mb monitor
+	machine.HostDieTopology = genericCtx.DieTopology
+	monitor.IncubationInterval = conf.IncubationInterval
 
 	lock := acquireLock(genericCtx, conf)
 	defer func() {

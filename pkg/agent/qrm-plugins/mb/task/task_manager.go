@@ -33,6 +33,11 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
+var (
+	onceTaskManagerInit sync.Once
+	taskManager         Manager
+)
+
 type Manager interface {
 	GetTasks() []*Task
 	NewTask(podID string, qos QoSGroup) (*Task, error)
@@ -45,6 +50,16 @@ type Manager interface {
 }
 
 func NewManager(nodeCCDs map[int]sets.Int, cpusInCCD map[int][]int, cleaner state.MBRawDataCleaner, domainManager *mbdomain.MBDomainManager) (Manager, error) {
+	var err error
+	onceTaskManagerInit.Do(func() {
+		taskManager, err = newManager(nodeCCDs, cpusInCCD, cleaner, domainManager)
+
+	})
+
+	return taskManager, err
+}
+
+func newManager(nodeCCDs map[int]sets.Int, cpusInCCD map[int][]int, cleaner state.MBRawDataCleaner, domainManager *mbdomain.MBDomainManager) (Manager, error) {
 	cpuCCD := make(map[int]int)
 	for ccd, cpus := range cpusInCCD {
 		for _, cpu := range cpus {

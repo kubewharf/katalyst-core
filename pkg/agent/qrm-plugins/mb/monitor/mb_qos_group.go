@@ -23,6 +23,7 @@ import (
 )
 
 type MBData struct {
+	TotalMB  int
 	ReadsMB  int
 	WritesMB int
 }

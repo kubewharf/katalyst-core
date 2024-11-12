@@ -23,7 +23,7 @@ import (
 func SumCCDMB(ccdMB map[int]*MBData) int {
 	sum := 0
 	for _, mb := range ccdMB {
-		sum += mb.ReadsMB + mb.WritesMB
+		sum += mb.TotalMB
 	}
 	return sum
 }

@@ -28,6 +28,7 @@ const (
 	MetricProvisionerCgroup            = "cgroup"
 	MetricProvisionerKubelet           = "kubelet"
 	MetricProvisionerRodan             = "rodan"
+	MetricProvisionerResctrl   = "resctrl"
 )
 
 type MetricConfiguration struct {

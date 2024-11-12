@@ -64,7 +64,7 @@ func getProportionalPlan(ratio float64, mbQoSGroups map[task.QoSGroup]*monitor.M
 	for qos, group := range mbQoSGroups {
 		mbPlan.Plan[qos] = make(map[int]int)
 		for ccd, mb := range group.CCDMB {
-			newMB := int(ratio * float64(mb.ReadsMB+mb.WritesMB))
+			newMB := int(ratio * float64(mb.TotalMB))
 			if newMB > config.CCDMBMax {
 				newMB = config.CCDMBMax
 			}

@@ -68,10 +68,10 @@ func TestSum(t *testing.T) {
 			name: "happy path",
 			args: args{
 				qosCCDMB: map[task.QoSGroup]map[int]*MBData{
-					"dedicated": {2: {ReadsMB: 100}, 3: {ReadsMB: 100}},
-					"shared":    {0: {ReadsMB: 3}, 1: {ReadsMB: 3}, 4: {ReadsMB: 3}, 5: {ReadsMB: 3}},
-					"relaimed":  {0: {ReadsMB: 1}, 1: {ReadsMB: 1}},
-					"system":    {4: {ReadsMB: 2}, 5: {ReadsMB: 2}},
+					"dedicated": {2: {TotalMB: 100}, 3: {TotalMB: 100}},
+					"shared":    {0: {TotalMB: 3}, 1: {TotalMB: 3}, 4: {TotalMB: 3}, 5: {TotalMB: 3}},
+					"reclaimed": {0: {TotalMB: 1}, 1: {TotalMB: 1}},
+					"system":    {4: {TotalMB: 2}, 5: {TotalMB: 2}},
 				},
 			},
 			want: 218,

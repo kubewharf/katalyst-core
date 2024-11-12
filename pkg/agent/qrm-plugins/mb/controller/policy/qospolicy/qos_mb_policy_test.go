@@ -48,11 +48,11 @@ func TestBuildHiPrioDetectedQoSMBPolicy(t *testing.T) {
 				mbQoSGroups: map[task.QoSGroup]*monitor.MBQoSGroup{
 					"system": {
 						CCDs:  sets.Int{1: sets.Empty{}},
-						CCDMB: map[int]*monitor.MBData{1: {ReadsMB: 100}},
+						CCDMB: map[int]*monitor.MBData{1: {TotalMB: 100}},
 					},
 					"shared-30": {
 						CCDs:  sets.Int{2: sets.Empty{}, 3: sets.Empty{}},
-						CCDMB: map[int]*monitor.MBData{2: {ReadsMB: 100}, 3: {ReadsMB: 100}},
+						CCDMB: map[int]*monitor.MBData{2: {TotalMB: 100}, 3: {TotalMB: 100}},
 					},
 				},
 				isTopMost: true,
@@ -69,15 +69,15 @@ func TestBuildHiPrioDetectedQoSMBPolicy(t *testing.T) {
 				mbQoSGroups: map[task.QoSGroup]*monitor.MBQoSGroup{
 					"shared-50": {
 						CCDs:  sets.Int{1: sets.Empty{}, 4: sets.Empty{}, 5: sets.Empty{}, 6: sets.Empty{}},
-						CCDMB: map[int]*monitor.MBData{1: {ReadsMB: 20_000}, 4: {ReadsMB: 20_000}, 5: {ReadsMB: 20_000}, 6: {ReadsMB: 20_000}},
+						CCDMB: map[int]*monitor.MBData{1: {TotalMB: 20_000}, 4: {TotalMB: 20_000}, 5: {TotalMB: 20_000}, 6: {TotalMB: 20_000}},
 					},
 					"system": {
 						CCDs:  sets.Int{1: sets.Empty{}},
-						CCDMB: map[int]*monitor.MBData{1: {ReadsMB: 20_000}},
+						CCDMB: map[int]*monitor.MBData{1: {TotalMB: 20_000}},
 					},
 					"shared-30": {
 						CCDs:  sets.Int{2: sets.Empty{}, 3: sets.Empty{}},
-						CCDMB: map[int]*monitor.MBData{2: {ReadsMB: 100}, 3: {ReadsMB: 100}},
+						CCDMB: map[int]*monitor.MBData{2: {TotalMB: 100}, 3: {TotalMB: 100}},
 					},
 				},
 				isTopMost: true,

@@ -18,12 +18,18 @@ package mbdomain
 
 import (
 	"sort"
+	"sync"
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+)
+
+var (
+	onceDomainManagerInit sync.Once
+	domainManager         *MBDomainManager
 )
 
 type MBDomainManager struct {
@@ -50,6 +56,13 @@ func (m MBDomainManager) PreemptNodes(nodes []int) bool {
 }
 
 func NewMBDomainManager(dieTopology *machine.DieTopology, incubationInterval time.Duration) *MBDomainManager {
+	onceDomainManagerInit.Do(func() {
+		domainManager = newMBDomainManager(dieTopology, incubationInterval)
+	})
+	return domainManager
+}
+
+func newMBDomainManager(dieTopology *machine.DieTopology, incubationInterval time.Duration) *MBDomainManager {
 	manager := &MBDomainManager{
 		Domains: make(map[int]*MBDomain),
 	}
