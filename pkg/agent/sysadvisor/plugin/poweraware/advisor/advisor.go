@@ -36,8 +36,9 @@ import (
 )
 
 const (
-	// 8 seconds between actions since RAPL/HSMP capping needs 4-6 seconds to stabilize itself
-	intervalSpecFetch = time.Second * 8
+	// 9 seconds between actions since RAPL/HSMP capping needs 4-6 seconds to stabilize itself
+	// and malachite realtime metric server imposes delay of up to 2 seconds
+	intervalSpecFetch = time.Second * 9
 
 	metricPowerAwareCurrentPowerInWatt = "power_current_watt"
 	metricPowerAwareDesiredPowerInWatt = "power_desired_watt"
