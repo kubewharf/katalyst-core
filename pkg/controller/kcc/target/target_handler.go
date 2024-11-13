@@ -324,9 +324,4 @@ func (k *KatalystCustomConfigTargetHandler) shutDown() {
 	for _, accessor := range k.targetAccessorMap {
 		accessor.Stop()
 	}
-
-	// clear all maps
-	k.targetAccessorMap = make(map[metav1.GroupVersionResource]KatalystCustomConfigTargetAccessor)
-	k.gvrKatalystCustomConfigMap = make(map[metav1.GroupVersionResource]sets.String)
-	k.katalystCustomConfigGVRMap = make(map[string]metav1.GroupVersionResource)
 }
