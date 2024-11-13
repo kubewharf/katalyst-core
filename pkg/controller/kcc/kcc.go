@@ -401,7 +401,7 @@ func (k *KatalystCustomConfigController) handleKCCTargetFinalizer(gvr metav1.Gro
 		k.katalystCustomConfigSyncQueue.Add(key)
 	}
 
-	err := kccutil.RemoveKCCTargetFinalizer(k.ctx, k.unstructuredControl, consts.KatalystCustomConfigTargetFinalizerKCC, gvr, target)
+	err := kccutil.RemoveKCCTargetFinalizers(k.ctx, k.unstructuredControl, gvr, target, consts.KatalystCustomConfigTargetFinalizerKCC)
 	if err != nil {
 		return err
 	}

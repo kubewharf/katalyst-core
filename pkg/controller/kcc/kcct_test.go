@@ -31,7 +31,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
@@ -46,7 +45,7 @@ import (
 func toTestUnstructured(obj interface{}) *unstructured.Unstructured {
 	ret, err := native.ToUnstructured(obj)
 	if err != nil {
-		klog.Error(err)
+		panic(err)
 	}
 	return ret
 }
@@ -326,6 +325,7 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 				conf.KCCConfig,
 				genericContext.Client,
 				genericContext.InternalInformerFactory.Config().V1alpha1().KatalystCustomConfigs(),
+				genericContext.InternalInformerFactory.Config().V1alpha1().CustomNodeConfigs(),
 				metrics.DummyMetrics{},
 				targetHandler,
 			)
@@ -427,7 +427,7 @@ func Test_validateLabelSelectorWithOthers(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, _, _, err := validateLabelSelectorOverlapped(tt.args.priorityAllowedKeyListMap, tt.args.targetResource, tt.args.otherResources)
+			got, _, err := validateLabelSelectorOverlapped(tt.args.priorityAllowedKeyListMap, tt.args.targetResource, tt.args.otherResources)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("validateLabelSelectorOverlapped() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -498,7 +498,7 @@ func Test_validateTargetResourceNodeNamesWithOthers(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, _, _, err := validateTargetResourceNodeNamesOverlapped(tt.args.targetResource, tt.args.otherResources)
+			got, _, err := validateTargetResourceNodeNamesOverlapped(tt.args.targetResource, tt.args.otherResources)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("validateTargetResourceNodeNamesOverlapped() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -550,7 +550,7 @@ func Test_validateTargetResourceGlobalWithOthers(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, _, _, err := validateTargetResourceGlobalOverlapped(tt.args.targetResource, tt.args.otherResources)
+			got, _, err := validateTargetResourceGlobalOverlapped(tt.args.targetResource, tt.args.otherResources)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("validateTargetResourceGlobalOverlapped() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -562,12 +562,29 @@ func Test_validateTargetResourceGlobalWithOthers(t *testing.T) {
 	}
 }
 
-func Test_updateTargetResourceStatus(t *testing.T) {
+func targetResourcesEqual(t1, t2 util.KCCTargetResource) bool {
+	status1 := t1.GetGenericStatus()
+	status2 := t2.GetGenericStatus()
+	if len(status1.Conditions) != len(status2.Conditions) {
+		return false
+	}
+
+	status1.Conditions[0].LastTransitionTime = metav1.Time{}
+	status2.Conditions[0].LastTransitionTime = metav1.Time{}
+	t1.SetGenericStatus(status1)
+	t2.SetGenericStatus(status2)
+	if !apiequality.Semantic.DeepEqual(t1, t2) {
+		return false
+	}
+
+	return true
+}
+
+func Test_updateInvalidTargetResourceStatus(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
 		targetResource util.KCCTargetResource
-		isValid        bool
 		msg            string
 		reason         string
 	}
@@ -575,7 +592,6 @@ func Test_updateTargetResourceStatus(t *testing.T) {
 		name         string
 		args         args
 		wantResource util.KCCTargetResource
-		equalFunc    func(util.KCCTargetResource, util.KCCTargetResource) bool
 	}{
 		{
 			name: "test-1",
@@ -590,9 +606,8 @@ func Test_updateTargetResourceStatus(t *testing.T) {
 						},
 					},
 				})),
-				isValid: false,
-				msg:     "ssasfr",
-				reason:  "dasf",
+				msg:    "ssasfr",
+				reason: "dasf",
 			},
 			wantResource: util.ToKCCTargetResource(toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
 				ObjectMeta: metav1.ObjectMeta{
@@ -614,23 +629,6 @@ func Test_updateTargetResourceStatus(t *testing.T) {
 					},
 				},
 			})),
-			equalFunc: func(t1 util.KCCTargetResource, t2 util.KCCTargetResource) bool {
-				status1 := t1.GetGenericStatus()
-				status2 := t2.GetGenericStatus()
-				if len(status1.Conditions) != len(status2.Conditions) {
-					return false
-				}
-
-				status1.Conditions[0].LastTransitionTime = metav1.Time{}
-				status2.Conditions[0].LastTransitionTime = metav1.Time{}
-				t1.SetGenericStatus(status1)
-				t2.SetGenericStatus(status2)
-				if !apiequality.Semantic.DeepEqual(t1, t2) {
-					return false
-				}
-
-				return true
-			},
 		},
 	}
 	for _, tt := range tests {
@@ -638,8 +636,85 @@ func Test_updateTargetResourceStatus(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if updateTargetResourceStatus(tt.args.targetResource, tt.args.isValid, tt.args.msg, tt.args.reason); !tt.equalFunc(tt.args.targetResource, tt.wantResource) {
-				t.Errorf("updateTargetResourceStatus() = %v, want %v", tt.args.targetResource.GetGenericStatus(), tt.wantResource.GetGenericStatus())
+			if updateInvalidTargetResourceStatus(tt.args.targetResource, tt.args.msg, tt.args.reason); !targetResourcesEqual(tt.args.targetResource, tt.wantResource) {
+				t.Errorf("updateInvalidTargetResourceStatus() = %v, want %v", tt.args.targetResource.GetGenericStatus(), tt.wantResource.GetGenericStatus())
+			}
+		})
+	}
+}
+
+func Test_updateValidTargetResourceStatus(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		targetResource                                             util.KCCTargetResource
+		targetNodes, canaryNodes, updatedTargetNodes, updatedNodes int32
+		currentHash                                                string
+	}
+	tests := []struct {
+		name         string
+		args         args
+		wantResource util.KCCTargetResource
+	}{
+		{
+			name: "test-1",
+			args: args{
+				targetResource: util.ToKCCTargetResource(toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "config-1",
+					},
+					Spec: v1alpha1.AdminQoSConfigurationSpec{
+						GenericConfigSpec: v1alpha1.GenericConfigSpec{
+							NodeLabelSelector: "aa=bb",
+						},
+					},
+				})),
+				targetNodes:        10000,
+				canaryNodes:        8000,
+				updatedTargetNodes: 5000,
+				updatedNodes:       6000,
+				currentHash:        "hash-1",
+			},
+			wantResource: util.ToKCCTargetResource(toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "config-1",
+				},
+				Spec: v1alpha1.AdminQoSConfigurationSpec{
+					GenericConfigSpec: v1alpha1.GenericConfigSpec{
+						NodeLabelSelector: "aa=bb",
+					},
+				},
+				Status: v1alpha1.GenericConfigStatus{
+					TargetNodes:        10000,
+					CanaryNodes:        8000,
+					UpdatedTargetNodes: 5000,
+					UpdatedNodes:       6000,
+					CurrentHash:        "hash-1",
+					Conditions: []v1alpha1.GenericConfigCondition{
+						{
+							Type:   v1alpha1.ConfigConditionTypeValid,
+							Status: v1.ConditionTrue,
+							Reason: kccConditionTypeValidReasonNormal,
+						},
+					},
+				},
+			})),
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if updateValidTargetResourceStatus(
+				tt.args.targetResource,
+				tt.args.targetNodes,
+				tt.args.canaryNodes,
+				tt.args.updatedTargetNodes,
+				tt.args.updatedNodes,
+				tt.args.currentHash,
+			); !targetResourcesEqual(tt.args.targetResource, tt.wantResource) {
+				t.Errorf("updateValidTargetResourceStatus() = %v, want %v", tt.args.targetResource.GetGenericStatus(), tt.wantResource.GetGenericStatus())
 			}
 		})
 	}
