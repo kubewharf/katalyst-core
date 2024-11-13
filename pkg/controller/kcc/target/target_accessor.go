@@ -92,14 +92,14 @@ type RealKatalystCustomConfigTargetAccessor struct {
 	targetLister   cache.GenericLister
 	targetInformer cache.SharedIndexInformer
 
-	// targetHandlerFuncWithSyncQueueMap is used to store the handler and syncing
-	// queue for each kcc-target
+	// targetHandlerFuncWithSyncQueueMap stores the handler and syncing	queue of each
+	// controller interested in kcc-target events
 	targetHandlerFuncWithSyncQueueMap map[string]targetHandlerFuncWithSyncQueue
 }
 
 // NewRealKatalystCustomConfigTargetAccessor returns a new KatalystCustomConfigTargetAccessor
-// which is used to handle creation/update/delete event of target unstructured obj, and it can
-// trigger obj re-sync by calling Enqueue function of the returned accessor.
+// that dispatches event handlers for creation/update/delete events of target unstructured KCCT objects.
+// Manual re-sync can be triggered by calling Enqueue on the returned accessor.
 func NewRealKatalystCustomConfigTargetAccessor(
 	gvr metav1.GroupVersionResource,
 	client dynamic.Interface,

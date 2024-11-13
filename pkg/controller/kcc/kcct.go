@@ -338,7 +338,7 @@ func (k *KatalystCustomConfigTargetController) syncKCCTs(gvr metav1.GroupVersion
 		return utilerrors.NewAggregate(errors)
 	}
 
-	// Check if the correponding KCC is valid
+	// Check if the corresponding KCC is valid
 	kccKeys := k.targetHandler.GetKCCKeyListByGVR(gvr)
 	if len(kccKeys) != 1 {
 		message := fmt.Sprintf("more or less than one kcc %v match same gvr %s", kccKeys, gvr.String())
