@@ -736,13 +736,9 @@ func (p *DynamicPolicy) handleAdvisorMemoryOffloading(_ *config.Configuration,
 		}
 	}
 
-	cpuSetStats, err := cgroupmgr.GetCPUSetWithAbsolutePath(absCGPath)
+	_, mems, err := cgroupmgr.GetEffectiveCPUSetWithAbsolutePath(absCGPath)
 	if err != nil {
-		return fmt.Errorf("GetCPUSetWithAbsolutePath failed with error: %v", err)
-	}
-	mems, err := machine.Parse(cpuSetStats.Mems)
-	if err != nil {
-		return fmt.Errorf("parse cpuSetStats failed with error: %v", err)
+		return fmt.Errorf("GetEffectiveCPUSetWithAbsolutePath failed with error: %v", err)
 	}
 
 	// start a asynchronous work to execute memory offloading
