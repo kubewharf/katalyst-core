@@ -90,8 +90,15 @@ jobs:
       - uses: actions/setup-go@v3
         with:
           go-version-file: go.mod
-      - name: Coverage
-        run: sudo make test
+      - name: Run unit tests
+        run: |
+          go install github.com/jstemmer/go-junit-report/v2@latest &&
+          sudo make test 2>&1 | go-junit-report -parser gojson --set-exit-code -iocopy -out report.xml
+      - name: Test summary
+        uses: test-summary/action@v2
+        with:
+          paths: report.xml
+        if: always()
       - name: Check the number of changed lines
         run: |
           LINES_ADDED=$(git diff --numstat ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} pkg/ | awk '{ add += $1 } END { printf add }')
