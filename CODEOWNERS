@@ -15,11 +15,11 @@
 /cmd/katalyst-scheduler/ @caohe @WangZzzhe
 /cmd/katalyst-webhook/ @caohe @luomingmeng
 
-/cmd/katalyst-agent/app/agent/qrm/ @nightmeng @luomingmeng
+/cmd/katalyst-agent/app/agent/qrm/ @luomingmeng 
 /cmd/katalyst-agent/app/options/eviction @gary-lgy @luomingmeng
-/cmd/katalyst-agent/app/options/qrm @nightmeng @luomingmeng
+/cmd/katalyst-agent/app/options/qrm @luomingmeng
 /cmd/katalyst-agent/app/options/reporter @luomingmeng
-/cmd/katalyst-agent/app/options/sysadvisor @nightmeng
+/cmd/katalyst-agent/app/options/sysadvisor  @gary-lgy
 
 ### owners for configurations
 /pkg/config/controller/ @luomingmeng @caohe
@@ -27,15 +27,15 @@
 /pkg/config/webhook/ @caohe @luomingmeng
 
 /pkg/config/agent/orm/ @caohe @WangZzzhe
-/pkg/config/agent/qrm/ @luomingmeng @nightmeng
+/pkg/config/agent/qrm/ @luomingmeng 
 /pkg/config/agent/eviction/ @gary-lgy @luomingmeng
 /pkg/config/agent/reporter/ @luomingmeng
-/pkg/config/agent/sysadvisor/ @nightmeng
+/pkg/config/agent/sysadvisor/  @gary-lgy
 
 ### owners for controllers
 /pkg/controller/kcc/ @luomingmeng
 /pkg/controller/lifecycle/ @luomingmeng 
-/pkg/controller/monitor/ @luomingmeng @nightmeng
+/pkg/controller/monitor/ @luomingmeng  @gary-lgy
 /pkg/controller/overcommit/ @caohe @WangZzzhe
 /pkg/controller/tide/ @caohe @WangZzzhe
 /pkg/controller/spd/ @luomingmeng
@@ -48,7 +48,7 @@
 /pkg/metaserver/external/ @luomingmeng @caohe
 /pkg/metaserver/agent/cnc/ @luomingmeng
 /pkg/metaserver/agent/cnr/ @luomingmeng
-/pkg/metaserver/agent/metric/ @nightmeng
+/pkg/metaserver/agent/metric/ @gary-lgy
 /pkg/metaserver/agent/kubeletconfig/ @caohe 
 /pkg/metaserver/agent/node/  @luomingmeng
 /pkg/metaserver/agent/pod/  @luomingmeng
@@ -56,21 +56,21 @@
 ### owners for agent
 /pkg/agent/orm/ @caohe @WangZzzhe
 /pkg/agent/evictionmanager/ @luomingmeng
-/pkg/agent/qrm-plugins/ @luomingmeng @nightmeng
+/pkg/agent/qrm-plugins/ @luomingmeng 
 /pkg/agent/resourcemanager/ @luomingmeng
-/pkg/agent/sysadvisor/ @nightmeng
-/pkg/agent/sysadvisor/plugin/inference @nightmeng
+/pkg/agent/sysadvisor/ @gary-lgy
+/pkg/agent/sysadvisor/plugin/inference @gary-lgy
 /pkg/agent/sysadvisor/plugin/metric-emitter @gary-lgy @luomingmeng
-/pkg/agent/utilcomponent/ @luomingmeng @nightmeng
+/pkg/agent/utilcomponent/ @luomingmeng  @gary-lgy
 
 ### owners for util
 /pkg/util/  @luomingmeng
-/pkg/util/asyncworker/ @nightmeng
-/pkg/util/cgroup/ @nightmeng
+/pkg/util/asyncworker/ @gary-lgy
+/pkg/util/cgroup/ @gary-lgy
 /pkg/util/credential/ @gary-lgy @luomingmeng
 /pkg/util/eviction/ @gary-lgy @luomingmeng
-/pkg/util/external/ @nightmeng
-/pkg/util/metric/ @nightmeng
+/pkg/util/external/ @gary-lgy
+/pkg/util/metric/  @gary-lgy
 /pkg/util/service-discovery/ @luomingmeng
 
 ### owners for scheduler
