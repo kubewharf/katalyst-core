@@ -23,12 +23,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/klog/v2"
 
-	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	metricHelper "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
@@ -47,9 +45,6 @@ type HeadroomAssemblerCommon struct {
 	metaReader metacache.MetaReader
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
-
-	backoffRetries int
-	backoffStep    int
 }
 
 func NewHeadroomAssemblerCommon(conf *config.Configuration, _ interface{}, regionMap *map[string]region.QoSRegion,
@@ -63,10 +58,9 @@ func NewHeadroomAssemblerCommon(conf *config.Configuration, _ interface{}, regio
 		numaAvailable:      numaAvailable,
 		nonBindingNumas:    nonBindingNumas,
 
-		metaReader:  metaReader,
-		metaServer:  metaServer,
-		emitter:     emitter,
-		backoffStep: 2,
+		metaReader: metaReader,
+		metaServer: metaServer,
+		emitter:    emitter,
 	}
 }
 
@@ -83,55 +77,19 @@ func (ha *HeadroomAssemblerCommon) GetHeadroom() (resource.Quantity, map[int]res
 	headroomTotal := 0.0
 	headroomNuma := make(map[int]float64)
 	emptyNUMAs := ha.metaServer.CPUDetails.NUMANodes()
-	exclusiveNUMAs := machine.NewCPUSet()
 
-	hasUpperBound := false
+	reclaimPoolInfo, reclaimPoolExist := ha.metaReader.GetPoolInfo(commonstate.PoolNameReclaim)
 
 	// sum up dedicated region headroom
 	for _, r := range *ha.regionMap {
-		if r.Type() == configapi.QoSRegionTypeDedicatedNumaExclusive {
-			regionInfo, ok := ha.metaReader.GetRegionInfo(r.Name())
-			if !ok || regionInfo == nil || regionInfo.Headroom < 0 {
-				return resource.Quantity{}, nil, fmt.Errorf("failed to get headroom for %v, %#v", r.Name(), regionInfo)
+		if r.EnableReclaim() && reclaimPoolExist && reclaimPoolInfo != nil {
+			for _, numaID := range r.GetBindingNumas().ToSliceInt() {
+				headroomNuma[numaID] = float64(reclaimPoolInfo.TopologyAwareAssignments[numaID].Size())
+				general.InfoS("region headroom", "region", r.Name(), "numaID", numaID, "headroom", headroomNuma[numaID])
 			}
-			if regionInfo.RegionStatus.BoundType == types.BoundUpper && r.EnableReclaim() {
-				general.Infof("region %v is in status of upper bound", regionInfo.RegionName)
-				hasUpperBound = true
-			}
-			headroomTotal += regionInfo.Headroom
-			exclusiveNUMAs = exclusiveNUMAs.Union(r.GetBindingNumas())
-
-			// divide headroom evenly to each numa
-			bindingNUMAs := r.GetBindingNumas()
-			perNumaHeadroom := 0.0
-			if regionInfo.Headroom > 0 && bindingNUMAs.Size() > 0 {
-				perNumaHeadroom = regionInfo.Headroom / float64(bindingNUMAs.Size())
-			}
-			// set headroom even it is zero
-			for _, numaID := range bindingNUMAs.ToSliceInt() {
-				headroomNuma[numaID] += perNumaHeadroom
-			}
-
-			klog.InfoS("dedicated_cores NUMA headroom", "headroom", regionInfo.Headroom, "NUMAs", r.GetBindingNumas().String())
 		}
+
 		emptyNUMAs = emptyNUMAs.Difference(r.GetBindingNumas())
-	}
-
-	// add non binding reclaim pool size
-	reclaimPoolInfo, reclaimPoolExist := ha.metaReader.GetPoolInfo(commonstate.PoolNameReclaim)
-	if reclaimPoolExist && reclaimPoolInfo != nil {
-		reclaimPoolNUMAs := machine.GetCPUAssignmentNUMAs(reclaimPoolInfo.TopologyAwareAssignments)
-
-		sharedCoresHeadroom := 0.0
-		for _, numaID := range reclaimPoolNUMAs.Difference(exclusiveNUMAs).Difference(emptyNUMAs).ToSliceInt() {
-			headroom := float64(reclaimPoolInfo.TopologyAwareAssignments[numaID].Size())
-			sharedCoresHeadroom += headroom
-			headroomNuma[numaID] += headroom
-
-			klog.InfoS("shared_cores headroom", "headroom", headroom, "numaID", numaID)
-		}
-
-		headroomTotal += sharedCoresHeadroom
 	}
 
 	// add empty numa headroom
@@ -140,34 +98,17 @@ func (ha *HeadroomAssemblerCommon) GetHeadroom() (resource.Quantity, map[int]res
 		reservedForAllocate := float64(reserved.Value()*int64(emptyNUMAs.Size())) / float64(ha.metaServer.NumNUMANodes)
 		reservedForReclaim, _ := (*ha.reservedForReclaim)[numaID]
 		headroom := float64(available) - reservedForAllocate + float64(reservedForReclaim)
-		headroomTotal += headroom
-		headroomNuma[numaID] += headroom
+		headroomNuma[numaID] = headroom
 
 		klog.InfoS("empty NUMA headroom", "headroom", headroom)
 	}
 
-	if hasUpperBound {
-		ha.backoffRetries++
-		headroomTotalOrig := headroomTotal
-		headroomTotal = general.MaxFloat64(0, headroomTotal-float64(ha.backoffRetries*ha.backoffStep))
-		if headroomTotal == 0 {
-			headroomNuma = nil
-		} else {
-			// reduce numa headroom by percent
-			reduceRatio := headroomTotal / headroomTotalOrig
-			for numaID := range headroomNuma {
-				headroomNuma[numaID] *= reduceRatio
-			}
-		}
-	} else {
-		ha.backoffRetries = 0
-	}
-
-	general.InfoS("[qosaware-cpu] headroom assembled", "headroomTotal", headroomTotal, "backoffRetries",
-		ha.backoffRetries, "util based enabled", dynamicConfig.CPUUtilBasedConfiguration.Enable)
 	for numaID, headroom := range headroomNuma {
 		general.InfoS("[qosaware-cpu] NUMA headroom assembled", "NUMA-ID", numaID, "headroom", headroom)
+		headroomTotal += headroom
 	}
+	general.InfoS("[qosaware-cpu] headroom assembled", "headroomTotal", headroomTotal,
+		"util based enabled", dynamicConfig.CPUUtilBasedConfiguration.Enable)
 
 	// if util based cpu headroom disable or reclaim pool not existed, just return total reclaim pool size as headroom
 	if !dynamicConfig.CPUUtilBasedConfiguration.Enable || !reclaimPoolExist || reclaimPoolInfo == nil {
