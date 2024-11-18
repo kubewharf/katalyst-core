@@ -845,7 +845,7 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(request float64,
 	//       we return an error instead of an empty array.
 	//       we should resolve this issue if we need manage multi resource in one plugin.
 	if len(hints[string(v1.ResourceCPU)].Hints) == 0 {
-		general.Warningf("calculateHints got no available memory hints for snb pod: %s/%s, container: %s",
+		general.Warningf("calculateHints got no available cpu hints for snb pod: %s/%s, container: %s",
 			req.PodNamespace, req.PodName, req.ContainerName)
 		return nil, errNoAvailableCPUHints
 	}
