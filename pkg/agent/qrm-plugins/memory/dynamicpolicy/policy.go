@@ -832,9 +832,11 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 	}
 
 	// post-process handling to augment with MB related features (socket pod preemption on admission etc)
-	// assuming no error safely
-	qosLevel, _ := util.GetKatalystQoSLevelFromResourceReq(p.qosConfig, req, p.podAnnotationKeptKeys, p.podLabelKeptKeys)
-	resp = mb.PodAdmitter.PostProcessAllocate(req, resp, qosLevel, reqAnnotations)
+	if mb.PodAdmitter != nil {
+		// assuming no error safely as allocate has already checked out
+		qosLevel, _ := util.GetKatalystQoSLevelFromResourceReq(p.qosConfig, req, p.podAnnotationKeptKeys, p.podLabelKeptKeys)
+		resp = mb.PodAdmitter.PostProcessAllocate(req, resp, qosLevel, reqAnnotations)
+	}
 	return resp, err
 }
 
