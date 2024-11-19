@@ -33,7 +33,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
 )
 
@@ -57,6 +56,11 @@ func Run(conf *config.Configuration, clientSet *client.GenericClientSet, generic
 		return err
 	}
 
+	// todo: figure out a more elegant approach than setting global vars
+	//       one approach is to refactor to change incubation interval to setter
+	// below var to be exposed for resctrl mb provisioner to create mb monitor
+	monitor.IncubationInterval = conf.IncubationInterval
+
 	genericCtx, err := agent.NewGenericContext(baseCtx, conf)
 	if err != nil {
 		return err
@@ -65,11 +69,6 @@ func Run(conf *config.Configuration, clientSet *client.GenericClientSet, generic
 	for _, genericOption := range genericOptions {
 		genericOption(genericCtx)
 	}
-
-	// todo: figure out a more elegant approach than setting global vars
-	// below vars to be exposed for resctrl mb provisioner to create mb monitor
-	machine.HostDieTopology = genericCtx.DieTopology
-	monitor.IncubationInterval = conf.IncubationInterval
 
 	lock := acquireLock(genericCtx, conf)
 	defer func() {

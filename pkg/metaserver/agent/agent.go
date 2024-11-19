@@ -103,6 +103,10 @@ func NewMetaAgent(conf *config.Configuration, clientSet *client.GenericClientSet
 		KubeletConfigFetcher: kubeletconfig.NewKubeletConfigFetcher(conf.BaseConfiguration, emitter),
 	}
 
+	// todo: figure out a more elegant approach than setting global vars
+	// below var to be exposed for resctrl mb provisioner to create mb monitor
+	machine.HostDieTopology = machineInfo.DieTopology
+
 	if conf.EnableMetricsFetcher {
 		metaAgent.MetricsFetcher = metric.NewMetricsFetcher(conf.BaseConfiguration,
 			conf.MetaServerConfiguration.MetricConfiguration,

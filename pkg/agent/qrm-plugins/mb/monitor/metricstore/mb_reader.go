@@ -48,7 +48,7 @@ func toMBQoSGroup(ccdMetricData map[int]metric.MetricData) *monitor.MBQoSGroup {
 
 	result := monitor.MBQoSGroup{
 		CCDs:  CCDs,
-		CCDMB: nil,
+		CCDMB: CCDMBs,
 	}
 
 	return &result
@@ -60,7 +60,7 @@ func (m *mbReader) GetMBQoSGroups() (map[task.QoSGroup]*monitor.MBQoSGroup, erro
 	var qosCCDMB map[string]map[int]metric.MetricData
 	qosCCDMB, ok := mbBlob.(map[string]map[int]metric.MetricData)
 	if !ok {
-		return nil, fmt.Errorf("unexpected metric blob by key %s", consts.MetricTotalMemBandwidthQoSGroup)
+		return nil, fmt.Errorf("unexpected metric blob by key %s: %T", consts.MetricTotalMemBandwidthQoSGroup, qosCCDMB)
 	}
 
 	result := make(map[task.QoSGroup]*monitor.MBQoSGroup)
