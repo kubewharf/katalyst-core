@@ -282,10 +282,15 @@ func (m *manager) GetMemory(absCgroupPath string) (*common.MemoryStats, error) {
 }
 
 func (m *manager) GetNumaMemory(absCgroupPath string) (map[int]*common.MemoryNumaMetrics, error) {
-	numaStat, err := common.ParseCgroupNumaValue(absCgroupPath, "memory.numa_stat")
-	general.Infof("get cgroup %+v numa stat %+v", absCgroupPath, numaStat)
+	const fileName = "memory.numa_stat"
+	content, err := libcgroups.ReadFile(absCgroupPath, fileName)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read %s: %w", fileName, err)
+	}
+
+	numaStat, err := common.ParseCgroupNumaValue(content)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse numa stat: %w", err)
 	}
 
 	result := make(map[int]*common.MemoryNumaMetrics)
