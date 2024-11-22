@@ -4614,15 +4614,6 @@ func entriesMatch(entries1, entries2 state.PodEntries) (bool, error) {
 	return true, nil
 }
 
-func TestGetReadonlyState(t *testing.T) {
-	t.Parallel()
-
-	as := require.New(t)
-	readonlyState, err := GetReadonlyState()
-	as.NotNil(err)
-	as.Nil(readonlyState)
-}
-
 func TestClearResidualState(t *testing.T) {
 	t.Parallel()
 

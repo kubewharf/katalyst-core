@@ -390,15 +390,6 @@ func TestAllocateForPod(t *testing.T) {
 	_ = os.RemoveAll(tmpDir)
 }
 
-func TestGetReadonlyState(t *testing.T) {
-	t.Parallel()
-
-	as := require.New(t)
-	readonlyState, err := GetReadonlyState()
-	as.NotNil(err)
-	as.Nil(readonlyState)
-}
-
 func TestClearResidualState(t *testing.T) {
 	t.Parallel()
 

@@ -44,6 +44,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/validator"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/numabinding"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
@@ -70,23 +71,6 @@ const (
 
 	healthCheckTolerationTimes = 3
 )
-
-var (
-	readonlyStateLock sync.RWMutex
-	readonlyState     state.ReadonlyState
-)
-
-// GetReadonlyState returns state.ReadonlyState to provides a way
-// to obtain the running states of the plugin
-func GetReadonlyState() (state.ReadonlyState, error) {
-	readonlyStateLock.RLock()
-	defer readonlyStateLock.RUnlock()
-
-	if readonlyState == nil {
-		return nil, fmt.Errorf("readonlyState isn't set")
-	}
-	return readonlyState, nil
-}
 
 // DynamicPolicy is the policy that's used by default;
 // it will consider the dynamic running information to calculate
@@ -133,6 +117,8 @@ type DynamicPolicy struct {
 	transitionPeriod              time.Duration
 	cpuNUMAHintPreferPolicy       string
 	cpuNUMAHintPreferLowThreshold float64
+
+	sharedNUNMABindingManager numabinding.Manager
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -150,9 +136,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		return false, agent.ComponentStub{}, fmt.Errorf("NewCheckpointState failed with error: %v", stateErr)
 	}
 
-	readonlyStateLock.Lock()
-	readonlyState = stateImpl
-	readonlyStateLock.Unlock()
+	state.SetReadonlyState(stateImpl)
 
 	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(agentName, metrics.MetricTag{
 		Key: util.QRMPluginPolicyTagName,
@@ -234,6 +218,11 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 
 	if err := policyImplement.initReclaimPool(); err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("dynamic policy initReclaimPool failed with error: %v", err)
+	}
+
+	policyImplement.sharedNUNMABindingManager, err = numabinding.NewSharedNUMABindingManager(conf, wrappedEmitter, agentCtx.MetaServer, NewCPUAllocationUpdater(stateImpl))
+	if err != nil {
+		return false, agent.ComponentStub{}, err
 	}
 
 	err = agentCtx.MetaServer.ConfigurationManager.AddConfigWatcher(crd.AdminQoSConfigurationGVR)
@@ -347,6 +336,7 @@ func (p *DynamicPolicy) Start() (err error) {
 		return
 	}
 	go p.advisorMonitor.Run(p.stopCh)
+	go p.sharedNUNMABindingManager.Run(p.stopCh)
 
 	go wait.BackoffUntil(func() { p.serveForAdvisor(p.stopCh) }, wait.NewExponentialBackoffManager(
 		800*time.Millisecond, 30*time.Second, 2*time.Minute, 2.0, 0, &clock.RealClock{}), true, p.stopCh)
@@ -695,6 +685,11 @@ func (p *DynamicPolicy) GetTopologyHints(ctx context.Context,
 	if p.hintHandlers[qosLevel] == nil {
 		return nil, fmt.Errorf("katalyst QoS level: %s is not supported yet", qosLevel)
 	}
+
+	if p.sharedNUNMABindingManager.IsProcessing() {
+		return nil, fmt.Errorf("numa binding manager is processing")
+	}
+
 	return p.hintHandlers[qosLevel](ctx, req)
 }
 
