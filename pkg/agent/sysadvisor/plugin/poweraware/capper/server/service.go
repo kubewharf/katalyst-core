@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -202,6 +203,10 @@ func newPowerCapServiceSuite(conf *config.Configuration, emitter metrics.MetricE
 	socketPath := conf.PowerCappingAdvisorSocketAbsPath
 	if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
 		return nil, nil, errors.Wrap(err, "failed to clean up the residue file")
+	}
+
+	if err := os.MkdirAll(filepath.Dir(socketPath), 0o755); err != nil {
+		return nil, nil, errors.Wrap(err, "failed to create folders to unix sock file")
 	}
 
 	sock, err := net.Listen("unix", socketPath)

@@ -110,16 +110,9 @@ func (p *powerPressureEvictServer) Start() error {
 }
 
 func (p *powerPressureEvictServer) Stop() error {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
-
-	if !p.started {
-		general.InfofV(6, "pap: power pressure eviction server already stopped")
-		return nil
-	}
-
-	p.started = false
-	return p.service.Stop()
+	// since there is no resource other than the underlying PluginRegistrationWrapper-guarded grpc service,
+	// which will be cleanup by PluginRegistrationWrapper itself, it has nothing to clean up here
+	return nil
 }
 
 func (p *powerPressureEvictServer) GetToken(ctx context.Context, empty *pluginapi.Empty) (*pluginapi.GetTokenResponse, error) {

@@ -181,6 +181,8 @@ func Test_powerPressureEvictPluginServer_GetEvictPods(t *testing.T) {
 			p := &powerPressureEvictServer{
 				evicts: tt.fields.evicts,
 			}
+			defer p.Stop()
+
 			got, err := p.GetEvictPods(tt.args.ctx, tt.args.request)
 			if !tt.wantErr(t, err, fmt.Sprintf("GetTopEvictionPods(%v, %v)", tt.args.ctx, tt.args.request)) {
 				return
