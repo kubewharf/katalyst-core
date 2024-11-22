@@ -36,7 +36,7 @@ const (
 	metricNameCalculateTimeCost = "calculate_time_cost"
 )
 
-func CheckAllNUMABindingResult(emitter metrics.MetricEmitter, calculator string, success bool, result allocation.PodAllocations) bool {
+func checkAllNUMABindingResult(emitter metrics.MetricEmitter, calculator string, success bool, result allocation.PodAllocations) bool {
 	unSuccessPods := make(map[string]types.NamespacedName)
 	for podUID, alloc := range result {
 		if alloc.BindingNUMA == -1 {
@@ -63,12 +63,12 @@ func CheckAllNUMABindingResult(emitter metrics.MetricEmitter, calculator string,
 	return true
 }
 
-type withExecutionTimeLogging struct {
+type withCheckAndExecutionTimeLogging struct {
 	emitter metrics.MetricEmitter
 	NUMABindingCalculator
 }
 
-func (w *withExecutionTimeLogging) CalculateNUMABindingResult(current allocation.PodAllocations,
+func (w *withCheckAndExecutionTimeLogging) CalculateNUMABindingResult(current allocation.PodAllocations,
 	numaAllocatable state.NUMAResource,
 ) (allocation.PodAllocations, bool, error) {
 	begin := time.Now()
@@ -86,11 +86,11 @@ func (w *withExecutionTimeLogging) CalculateNUMABindingResult(current allocation
 
 	general.InfoS("calculate numa result", "calculator", w.Name(), "result", result, "success", success)
 
-	return result, success, nil
+	return result, checkAllNUMABindingResult(w.emitter, w.Name(), success, result), nil
 }
 
-func WithExecutionTimeLogging(calculator NUMABindingCalculator, emitter metrics.MetricEmitter) NUMABindingCalculator {
-	return &withExecutionTimeLogging{
+func WithCheckAndExecutionTimeLogging(calculator NUMABindingCalculator, emitter metrics.MetricEmitter) NUMABindingCalculator {
+	return &withCheckAndExecutionTimeLogging{
 		emitter:               emitter,
 		NUMABindingCalculator: calculator,
 	}

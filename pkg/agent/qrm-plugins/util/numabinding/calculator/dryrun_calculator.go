@@ -19,11 +19,9 @@ package calculator
 import (
 	"context"
 
-	"github.com/kubewharf/katalyst-core/pkg/metrics"
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
-
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/allocation"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/state"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
 const (
@@ -38,7 +36,7 @@ type dryRunCalculator struct {
 func NewDryRunCalculator(emitter metrics.MetricEmitter, calculators ...NUMABindingCalculator) NUMABindingCalculator {
 	withLoggingCalculators := make([]NUMABindingCalculator, 0, len(calculators))
 	for _, calculator := range calculators {
-		withLoggingCalculators = append(withLoggingCalculators, WithExecutionTimeLogging(calculator, emitter))
+		withLoggingCalculators = append(withLoggingCalculators, WithCheckAndExecutionTimeLogging(calculator, emitter))
 	}
 	return &dryRunCalculator{
 		calculators: withLoggingCalculators,
@@ -54,9 +52,7 @@ func (d *dryRunCalculator) Run(ctx context.Context) {
 
 func (d *dryRunCalculator) CalculateNUMABindingResult(current allocation.PodAllocations, numaAllocatable state.NUMAResource) (allocation.PodAllocations, bool, error) {
 	for _, calc := range d.calculators {
-		result, success, err := calc.CalculateNUMABindingResult(current, numaAllocatable)
-		general.Infof("dry run calculator %s result: %v, success: %v, err: %v", calc.Name(), result, success, err)
-		CheckAllNUMABindingResult(d.emitter, calc.Name(), success, result)
+		_, _, _ = calc.CalculateNUMABindingResult(current, numaAllocatable)
 	}
 	return current, true, nil
 }

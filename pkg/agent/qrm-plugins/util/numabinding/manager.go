@@ -86,7 +86,7 @@ func NewSharedNUMABindingManager(
 		metaServer:            metaServer,
 		reservedCPUs:          reservedCPUs,
 		allocationUpdater:     updater,
-		numaBindingCalculator: calculator.WithExecutionTimeLogging(numaBindingCalculator, emitter),
+		numaBindingCalculator: calculator.WithCheckAndExecutionTimeLogging(numaBindingCalculator, emitter),
 	}, nil
 }
 
@@ -130,7 +130,7 @@ func (m *managerImpl) sync(ctx context.Context) {
 		return
 	}
 
-	if !calculator.CheckAllNUMABindingResult(m.emitter, m.numaBindingCalculator.Name(), success, result) {
+	if !success {
 		return
 	}
 
