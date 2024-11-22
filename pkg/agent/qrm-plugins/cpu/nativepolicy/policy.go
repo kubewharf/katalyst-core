@@ -234,15 +234,11 @@ func (p *NativePolicy) GetResourcePluginOptions(context.Context,
 	*pluginapi.Empty,
 ) (*pluginapi.ResourcePluginOptions, error) {
 	general.Infof("called")
-	if p.enableCoreBinding {
-		return &pluginapi.ResourcePluginOptions{
-			PreStartRequired:      false,
-			WithTopologyAlignment: true,
-			NeedReconcile:         true,
-		}, nil
-	}
-
-	return &pluginapi.ResourcePluginOptions{}, nil
+	return &pluginapi.ResourcePluginOptions{
+		PreStartRequired:      false,
+		WithTopologyAlignment: true,
+		NeedReconcile:         true,
+	}, nil
 }
 
 // GetTopologyHints returns hints of corresponding resources
@@ -278,7 +274,7 @@ func (p *NativePolicy) GetTopologyHints(ctx context.Context,
 		"isDebugPod", isDebugPod,
 		"isInteger", isInteger)
 
-	if req.ContainerType == pluginapi.ContainerType_INIT || isDebugPod {
+	if !p.enableCoreBinding || req.ContainerType == pluginapi.ContainerType_INIT || isDebugPod {
 		general.Infof("there is no NUMA preference, return nil hint")
 		return util.PackResourceHintsResponse(req, string(v1.ResourceCPU),
 			map[string]*pluginapi.ListOfTopologyHints{
