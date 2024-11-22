@@ -17,11 +17,11 @@ limitations under the License.
 package calculator
 
 import (
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"reflect"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/allocation"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/state"
@@ -36,11 +36,9 @@ func newBitMask(bits ...int) bitmask.BitMask {
 func Test_getNUMABindingResults(t *testing.T) {
 	t.Parallel()
 	type args struct {
-		allocation       *allocation.Allocation
-		numaNodes        []int
-		numaAllocatable  state.NUMAResource
-		maxNUMANum       int
-		numaBindingNUMAs sets.Int
+		allocation      *allocation.Allocation
+		numaNodes       []int
+		numaAllocatable state.NUMAResource
 	}
 	tests := []struct {
 		name    string
@@ -80,11 +78,9 @@ func Test_getNUMABindingResults(t *testing.T) {
 						Memory: 10000,
 					},
 				},
-				maxNUMANum: 1,
 				numaNodes: []int{
 					0, 1, 2, 3,
 				},
-				numaBindingNUMAs: sets.NewInt(),
 			},
 			want: []numaBindingResult{
 				{
@@ -106,7 +102,7 @@ func Test_getNUMABindingResults(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := getNUMABindingResults(tt.args.allocation, tt.args.numaNodes, tt.args.numaAllocatable, tt.args.maxNUMANum, tt.args.numaBindingNUMAs)
+			got, err := getNUMABindingResults(tt.args.allocation, tt.args.numaNodes, tt.args.numaAllocatable)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("getNUMABindingResults() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -229,7 +225,7 @@ func Test_backTrackingCalculator_asyncCalculateNUMABindingResult(t *testing.T) {
 						CPUMilli: 2000,
 						Memory:   1000,
 					},
-					BindingNUMA: 1,
+					BindingNUMA: 0,
 				},
 				"pod3": &allocation.Allocation{
 					NamespacedName: types.NamespacedName{
@@ -251,7 +247,7 @@ func Test_backTrackingCalculator_asyncCalculateNUMABindingResult(t *testing.T) {
 						CPUMilli: 4000,
 						Memory:   1000,
 					},
-					BindingNUMA: 0,
+					BindingNUMA: 2,
 				},
 			},
 			want1: true,
@@ -262,8 +258,8 @@ func Test_backTrackingCalculator_asyncCalculateNUMABindingResult(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			b := &backTrackingCalculator{
-				maxNUMANum: tt.fields.maxNUMANum,
-				numaNodes:  tt.fields.numaNodes,
+				emitter:   metrics.DummyMetrics{},
+				numaNodes: tt.fields.numaNodes,
 			}
 			got, got1, err := b.asyncCalculateNUMABindingResult(tt.args.current, tt.args.numaAllocatable)
 			if (err != nil) != tt.wantErr {
