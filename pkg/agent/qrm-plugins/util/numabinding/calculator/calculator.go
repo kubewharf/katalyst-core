@@ -50,6 +50,7 @@ func GetOrInitNUMABindingCalculator(
 		calculators := make([]NUMABindingCalculator, 0)
 		calculators = append(calculators, NewGreedyCalculator())
 		calculators = append(calculators, NewBackTrackingCalculator(conf, emitter, metaServer, reservedCPUs))
+		calculators = append(calculators, NewRandomCalculator(10000))
 		numaBindingCalculator = NewDryRunCalculator(emitter, calculators...)
 		numaBindingCalculator.Run(context.Background())
 	})
