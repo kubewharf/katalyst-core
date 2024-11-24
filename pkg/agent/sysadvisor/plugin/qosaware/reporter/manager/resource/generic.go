@@ -29,6 +29,7 @@ import (
 
 	hmadvisor "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -65,6 +66,7 @@ type GenericHeadroomManager struct {
 	// the latest transformed reporter result per numa
 	lastNUMAReportResult map[int]resource.Quantity
 
+	metaServer              *metaserver.MetaServer
 	headroomAdvisor         hmadvisor.ResourceAdvisor
 	emitter                 metrics.MetricEmitter
 	useMilliValue           bool
@@ -82,6 +84,7 @@ func NewGenericHeadroomManager(name v1.ResourceName, useMilliValue, reportMilliV
 	syncPeriod time.Duration, headroomAdvisor hmadvisor.ResourceAdvisor,
 	emitter metrics.MetricEmitter, slidingWindowOptions GenericSlidingWindowOptions,
 	getReclaimOptions GetGenericReclaimOptionsFunc,
+	metaServer *metaserver.MetaServer,
 ) *GenericHeadroomManager {
 	// Sliding window size and ttl are calculated by SlidingWindowTime and syncPeriod,
 	// the valid lifetime of all samples is twice the duration of the sliding window.
@@ -115,6 +118,7 @@ func NewGenericHeadroomManager(name v1.ResourceName, useMilliValue, reportMilliV
 		reportNUMASlidingWindow: make(map[int]general.SmoothWindow),
 		emitter:                 emitter,
 		getReclaimOptions:       getReclaimOptions,
+		metaServer:              metaServer,
 	}
 }
 
@@ -190,6 +194,10 @@ func (m *GenericHeadroomManager) sync(_ context.Context) {
 	reclaimOptions := m.getReclaimOptions()
 	if !reclaimOptions.EnableReclaim {
 		m.setLastReportResult(resource.Quantity{})
+
+		for _, numaID := range m.metaServer.CPUDetails.NUMANodes().ToSliceInt() {
+			m.lastNUMAReportResult[numaID] = resource.Quantity{}
+		}
 		return
 	}
 
