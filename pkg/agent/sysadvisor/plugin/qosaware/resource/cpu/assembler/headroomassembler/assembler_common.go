@@ -82,6 +82,7 @@ func (ha *HeadroomAssemblerCommon) GetHeadroom() (resource.Quantity, map[int]res
 
 	// sum up dedicated region headroom
 	for _, r := range *ha.regionMap {
+		general.Infof("region is enable: %v", r.EnableReclaim())
 		if r.EnableReclaim() && reclaimPoolExist && reclaimPoolInfo != nil {
 			for numaID := range r.GetBindingNumas().ToSliceInt() {
 				headroomNuma[numaID] = float64(reclaimPoolInfo.TopologyAwareAssignments[numaID].Size())

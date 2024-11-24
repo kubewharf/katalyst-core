@@ -472,7 +472,8 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 					err := cache.SetPoolInfo(commonstate.PoolNameReclaim, &types.PoolInfo{
 						PoolName: commonstate.PoolNameReclaim,
 						TopologyAwareAssignments: map[int]machine.CPUSet{
-							0: machine.MustParse("0-85"),
+							0: machine.MustParse("0-0"),
+							1: machine.MustParse("49-50"),
 						},
 					})
 					require.NoError(t, err)
@@ -510,6 +511,9 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 			for name, regionInfo := range tt.fields.entries {
 				r := region.NewQoSRegionBase(name, regionInfo.OwnerPoolName, regionInfo.RegionType, conf, nil, false, metaCache, metaServer, metrics.DummyMetrics{})
 				r.SetBindingNumas(regionInfo.BindingNumas)
+				r.SetEssentials(types.ResourceEssentials{
+					EnableReclaim: tt.fields.reclaimedResourceConfiguration.EnableReclaim,
+				})
 				tt.fields.regions = map[string]region.QoSRegion{
 					name: r,
 				}
