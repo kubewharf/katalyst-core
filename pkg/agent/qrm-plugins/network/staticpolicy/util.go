@@ -346,7 +346,7 @@ func applyImplicitReq(req *pluginapi.ResourceRequest, allocationInfo *state.Allo
 }
 
 func isImplicitReq(annotations map[string]string) bool {
-	return annotations[qrmutil.PodAnnotationQRMDeclarationKey] == qrmutil.PodAnnotationQRMDeclarationTrue
+	return annotations[qrmutil.PodAnnotationQuantityFromQRMDeclarationKey] == qrmutil.PodAnnotationQuantityFromQRMDeclarationTrue
 }
 
 func getGroupName(nicName, groupSuffix string) string {
