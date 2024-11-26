@@ -52,9 +52,9 @@ func GetQuantityFromResourceReq(req *pluginapi.ResourceRequest) (int, float64, e
 		case string(v1.ResourceMemory), string(apiconsts.ReclaimedResourceMemory):
 			return general.Max(int(math.Ceil(req.ResourceRequests[key])), 0), req.ResourceRequests[key], nil
 		case string(apiconsts.ResourceNetBandwidth):
-			if req.Annotations[PodAnnotationQRMDeclarationKey] == PodAnnotationQRMDeclarationTrue {
+			if req.Annotations[PodAnnotationQuantityFromQRMDeclarationKey] == PodAnnotationQuantityFromQRMDeclarationTrue {
 				general.Infof("detect %s: %s, return %s: 0 instead of %s: %.2f",
-					PodAnnotationQRMDeclarationKey, PodAnnotationQRMDeclarationTrue, key, key, req.ResourceRequests[key])
+					PodAnnotationQuantityFromQRMDeclarationKey, PodAnnotationQuantityFromQRMDeclarationTrue, key, key, req.ResourceRequests[key])
 				return 0, 0, nil
 			}
 			return general.Max(int(math.Ceil(req.ResourceRequests[key])), 0), req.ResourceRequests[key], nil
