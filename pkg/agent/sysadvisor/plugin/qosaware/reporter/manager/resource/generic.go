@@ -276,7 +276,9 @@ func (m *GenericHeadroomManager) sync(_ context.Context) {
 	// set latest numa report result
 	diffRatio := float64(reportResult.Value()) / numaSum
 	for numaID, res := range reportNUMAResult {
-		res.Set(int64(float64(res.Value()) * diffRatio))
+		if res.Value() != 0 {
+			res.Set(int64(float64(res.Value()) * diffRatio))
+		}
 		result := m.reportResultTransformer(*res)
 		m.lastNUMAReportResult[numaID] = result
 		klog.Infof("%s headroom manager for NUMA: %d, headroom: %d", m.resourceName, numaID, result.Value())
