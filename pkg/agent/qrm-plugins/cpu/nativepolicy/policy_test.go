@@ -83,6 +83,8 @@ func TestRemovePod(t *testing.T) {
 	nativePolicy, err := getTestNativePolicy(cpuTopology, tmpDir)
 	as.Nil(err)
 
+	nativePolicy.enableCoreBinding = true
+
 	testName := "test"
 
 	// test for gt
@@ -322,6 +324,8 @@ func TestGetTopologyHints(t *testing.T) {
 		nativePolicy, err := getTestNativePolicy(tc.cpuTopology, tmpDir)
 		as.Nil(err)
 
+		nativePolicy.enableCoreBinding = true
+
 		resp, err := nativePolicy.GetTopologyHints(context.Background(), tc.req)
 		as.Nil(err)
 
@@ -344,6 +348,8 @@ func TestGetPodTopologyHints(t *testing.T) {
 
 	nativePolicy, err := getTestNativePolicy(cpuTopology, tmpDir)
 	as.Nil(err)
+
+	nativePolicy.enableCoreBinding = true
 
 	testName := "testPod"
 	req := &pluginapi.PodResourceRequest{
@@ -373,6 +379,8 @@ func TestAllocateForPod(t *testing.T) {
 
 	nativePolicy, err := getTestNativePolicy(cpuTopology, tmpDir)
 	as.Nil(err)
+
+	nativePolicy.enableCoreBinding = true
 
 	testName := "testPod"
 	req := &pluginapi.PodResourceRequest{
