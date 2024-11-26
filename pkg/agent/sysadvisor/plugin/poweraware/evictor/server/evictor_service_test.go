@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"sort"
 	"testing"
 
@@ -34,13 +35,15 @@ import (
 	evictionv1apha1 "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/evictor"
+	"github.com/kubewharf/katalyst-core/pkg/config"
+	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 )
 
 func setupGrpcServer(ctx context.Context) (evictor.PodEvictor, evictionv1apha1.EvictionPluginClient, func()) {
 	buffer := 101024 * 1024
 	lis := bufconn.Listen(buffer)
 
-	server := &powerPressureEvictServer{}
+	server := &powerPressureEvictPlugin{}
 	baseServer := grpc.NewServer()
 	evictionv1apha1.RegisterEvictionPluginServer(baseServer, server)
 	server.started = true
@@ -178,11 +181,9 @@ func Test_powerPressureEvictPluginServer_GetEvictPods(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			p := &powerPressureEvictServer{
+			p := &powerPressureEvictPlugin{
 				evicts: tt.fields.evicts,
 			}
-			defer p.Stop()
-
 			got, err := p.GetEvictPods(tt.args.ctx, tt.args.request)
 			if !tt.wantErr(t, err, fmt.Sprintf("GetTopEvictionPods(%v, %v)", tt.args.ctx, tt.args.request)) {
 				return
@@ -195,4 +196,24 @@ func Test_powerPressureEvictPluginServer_GetEvictPods(t *testing.T) {
 			assert.Equalf(t, tt.want.EvictPods, got.EvictPods, "GetTopEvictionPods(%v, %v)", tt.args.ctx, tt.args.request)
 		})
 	}
+}
+
+func Test_powerPressureEvictServer_Start_Stop(t *testing.T) {
+	t.Parallel()
+	tmpDir, err := os.MkdirTemp("", "*")
+	assert.NoError(t, err)
+
+	dummyConf := config.NewConfiguration()
+	dummyConf.PluginRegistrationDir = tmpDir
+	dummyEmitter := metricspool.DummyMetricsEmitterPool.GetDefaultMetricsEmitter(metricspool.DummyMetricsEmitterPool{})
+	plugin, err := NewPowerPressureEvictionServer(dummyConf, dummyEmitter)
+	assert.NoError(t, err)
+
+	err = plugin.Start()
+	assert.NoError(t, err)
+
+	err = plugin.Stop()
+	assert.NoError(t, err)
+
+	_ = os.RemoveAll(tmpDir)
 }

@@ -55,14 +55,6 @@ func (p ruleBasedPowerStrategy) RecommendAction(actualWatt int,
 		return action.PowerAction{Op: spec.InternalOpNoop, Arg: 0}
 	}
 
-	if ttl <= time.Minute*2 {
-		// whatever valid alert, power capping should do in short of 2 minutes
-		// this the default behavior unless instructed explicitly by internal op
-		if spec.InternalOpAuto == internalOp {
-			return action.PowerAction{Op: spec.InternalOpFreqCap, Arg: desiredWatt}
-		}
-	}
-
 	op := internalOp
 	if spec.InternalOpAuto == op {
 		op = p.autoAction(actualWatt, desiredWatt, ttl)
