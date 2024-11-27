@@ -116,6 +116,10 @@ func (p *powerPressureEvictPlugin) Name() string {
 }
 
 func (p *powerPressureEvictPlugin) Start() error {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	p.started = true
 	return nil
 }
 
