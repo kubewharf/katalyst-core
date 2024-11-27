@@ -44,6 +44,23 @@ func getResctrlSubMonGroups(fs afero.Fs, ctrlGroup string) ([]string, error) {
 }
 
 func GetResctrlMonGroups(fs afero.Fs) ([]string, error) {
+	ctlGroups, err := GetResctrlCtrlGroups(fs)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]string, 0)
+	for _, qosLevel := range ctlGroups {
+		monGroupPaths, err := getResctrlSubMonGroups(fs, qosLevel)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, monGroupPaths...)
+	}
+	return result, nil
+}
+
+func GetResctrlCtrlGroups(fs afero.Fs) ([]string, error) {
 	result := make([]string, 0)
 	fis, err := afero.ReadDir(fs, resctrlconsts.FsRoot)
 	if err != nil {
@@ -54,15 +71,11 @@ func GetResctrlMonGroups(fs afero.Fs) ([]string, error) {
 		if !fi.IsDir() {
 			continue
 		}
-		if !resctrlconsts.IsTopCtrlGroup(fi.Name()) {
+		baseName := fi.Name()
+		if !resctrlconsts.IsTopCtrlGroup(baseName) {
 			continue
 		}
-		qosLevel := fi.Name()
-		monGroupPaths, err := getResctrlSubMonGroups(fs, qosLevel)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, monGroupPaths...)
+		result = append(result, baseName)
 	}
 	return result, nil
 }

@@ -23,9 +23,11 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/spf13/afero"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/readmb"
+	resctrlfile "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/file"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/writemb"
@@ -47,33 +49,38 @@ type MBMonitor interface {
 	GetMBQoSGroups() (map[task.QoSGroup]*MBQoSGroup, error)
 }
 
-func newMBMonitor(taskManager task.Manager, rmbReader task.TaskMBReader, wmbReader writemb.WriteMBReader) (MBMonitor, error) {
+func newMBMonitor(rmbReader readmb.ReadMBReader, wmbReader writemb.WriteMBReader, fs afero.Fs) (MBMonitor, error) {
 	return &mbMonitor{
-		taskManager: taskManager,
-		rmbReader:   rmbReader,
-		wmbReader:   wmbReader,
+		grmbReader: rmbReader,
+		wmbReader:  wmbReader,
+		fs:         fs,
 	}, nil
 }
 
 func NewDefaultMBMonitor(dieCPUs map[int][]int, dataKeeper state.MBRawDataKeeper, taskManager task.Manager, domainManager *mbdomain.MBDomainManager) (MBMonitor, error) {
 	var err error
 	onceDefaultMBMonitorInit.Do(func() {
-		defaultMBMonitor, err = newDefaultMBMonitor(dieCPUs, dataKeeper, taskManager, domainManager)
+		defaultMBMonitor, err = newDefaultMBMonitor(dieCPUs, dataKeeper, domainManager)
 	})
 	return defaultMBMonitor, err
 }
 
-func newDefaultMBMonitor(dieCPUs map[int][]int, dataKeeper state.MBRawDataKeeper, taskManager task.Manager, domainManager *mbdomain.MBDomainManager) (MBMonitor, error) {
-	taskMBReader, err := task.CreateTaskMBReader(dataKeeper)
+func newDefaultMBMonitor(dieCPUs map[int][]int, dataKeeper state.MBRawDataKeeper, domainManager *mbdomain.MBDomainManager) (MBMonitor, error) {
+	ccds := make([]int, 0, len(dieCPUs))
+	for die := range dieCPUs {
+		ccds = append(ccds, die)
+	}
+
+	rmbMBReader, err := readmb.CreateQoSGroupMBReader(ccds, dataKeeper)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to create task mb reader")
+		return nil, errors.Wrap(err, "failed to create read mb reader")
 	}
 
 	wmbReader, err := l3pmc.NewWriteMBReader(dieCPUs)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create writes mb reader")
 	}
-	podMBMonitor, err := newMBMonitor(taskManager, taskMBReader, wmbReader)
+	podMBMonitor, err := newMBMonitor(rmbMBReader, wmbReader, afero.NewOsFs())
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create pod mb monitor")
 	}
@@ -82,17 +89,15 @@ func newDefaultMBMonitor(dieCPUs map[int][]int, dataKeeper state.MBRawDataKeeper
 }
 
 type mbMonitor struct {
-	taskManager task.Manager
-	rmbReader   task.TaskMBReader
-	wmbReader   writemb.WriteMBReader
+	wmbReader  writemb.WriteMBReader
+	grmbReader readmb.ReadMBReader
+
+	// facility for unit test
+	fs afero.Fs
 }
 
 func (m mbMonitor) GetMBQoSGroups() (map[task.QoSGroup]*MBQoSGroup, error) {
-	if err := m.refreshTasks(); err != nil {
-		return nil, errors.Wrap(err, "failed to refresh task")
-	}
-
-	rQoSCCDMB, err := m.getReadsMBs()
+	rQoSCCDMB, err := m.getTopLevelReadsMBs()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get reads mb")
 	}
@@ -144,31 +149,23 @@ func getCCDQoSGroups(qosMBs map[task.QoSGroup]map[int]int) map[int][]task.QoSGro
 	return result
 }
 
-func (m mbMonitor) getReadsMBs() (map[task.QoSGroup]map[int]int, error) {
+// getTopLevelReadsMBs gets MB based on top level mon data
+func (m *mbMonitor) getTopLevelReadsMBs() (map[task.QoSGroup]map[int]int, error) {
 	result := make(map[task.QoSGroup]map[int]int)
 
-	// todo: read in parallel to speed up
-	for _, pod := range m.taskManager.GetTasks() {
-		ccdMB, err := m.rmbReader.GetMB(pod)
-		if err != nil {
-			if errors.Is(err, resctrl.ErrUninitialized) {
-				continue
-			}
-			return nil, errors.Wrap(err, fmt.Sprintf("failed to get mb of pod %s", pod.PodUID))
-		}
+	qosLevels, err := resctrlfile.GetResctrlCtrlGroups(m.fs)
+	if err != nil {
+		return nil, err
+	}
 
-		if _, ok := result[pod.QoSGroup]; !ok {
-			result[pod.QoSGroup] = make(map[int]int)
-		}
-		for ccd, mb := range ccdMB {
-			result[pod.QoSGroup][ccd] += mb
-		}
+	for _, qosLevel := range qosLevels {
+		result[task.QoSGroup(qosLevel)], err = m.grmbReader.GetMB(qosLevel)
 	}
 
 	return result, nil
 }
 
-func (m mbMonitor) getWritesMBs(ccdQoSGroup map[int][]task.QoSGroup) (map[task.QoSGroup]map[int]int, error) {
+func (m *mbMonitor) getWritesMBs(ccdQoSGroup map[int][]task.QoSGroup) (map[task.QoSGroup]map[int]int, error) {
 	result := make(map[task.QoSGroup]map[int]int)
 	for ccd, groups := range ccdQoSGroup {
 		mb, err := m.wmbReader.GetMB(ccd)
@@ -187,10 +184,6 @@ func (m mbMonitor) getWritesMBs(ccdQoSGroup map[int][]task.QoSGroup) (map[task.Q
 	}
 
 	return result, nil
-}
-
-func (m mbMonitor) refreshTasks() error {
-	return m.taskManager.RefreshTasks()
 }
 
 func DisplayMBSummary(qosCCDMB map[task.QoSGroup]*MBQoSGroup) string {

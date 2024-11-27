@@ -65,3 +65,40 @@ func Test_getResctrlMonGroups(t *testing.T) {
 		})
 	}
 }
+
+func TestGetResctrlCtrlGroups(t *testing.T) {
+	t.Parallel()
+
+	fsTest := afero.NewMemMapFs()
+	_ = fsTest.MkdirAll("/sys/fs/resctrl/system", 0o755)
+
+	type args struct {
+		fs afero.Fs
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    []string
+		wantErr assert.ErrorAssertionFunc
+	}{
+		{
+			name: "happy path",
+			args: args{
+				fs: fsTest,
+			},
+			want:    []string{"system"},
+			wantErr: assert.NoError,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := GetResctrlCtrlGroups(tt.args.fs)
+			if !tt.wantErr(t, err, fmt.Sprintf("GetResctrlCtrlGroups(%v)", tt.args.fs)) {
+				return
+			}
+			assert.Equalf(t, tt.want, got, "GetResctrlCtrlGroups(%v)", tt.args.fs)
+		})
+	}
+}
