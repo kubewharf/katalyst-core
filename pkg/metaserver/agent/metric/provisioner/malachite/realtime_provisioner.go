@@ -80,7 +80,7 @@ func (m *MalachiteRealtimeMetricsProvisioner) Run(ctx context.Context) {
 func (m *MalachiteRealtimeMetricsProvisioner) checkMalachiteHealthy() bool {
 	_, err := m.malachiteClient.GetPowerData()
 	if err != nil {
-		klog.Errorf("[malachite] malachite realtime is unhealthy: %v", err)
+		klog.Errorf("[malachite_realtime] malachite realtime is unhealthy: %v", err)
 		_ = m.emitter.StoreInt64(metricsNamMalachiteRealtimeUnHealthy, 1, metrics.MetricTypeNameRaw)
 		return false
 	}
@@ -89,7 +89,7 @@ func (m *MalachiteRealtimeMetricsProvisioner) checkMalachiteHealthy() bool {
 }
 
 func (m *MalachiteRealtimeMetricsProvisioner) sample(ctx context.Context) {
-	klog.V(4).Infof("[malachite] heartbeat")
+	klog.V(4).Infof("[malachite_realtime] heartbeat")
 
 	if !m.checkMalachiteHealthy() {
 		_ = general.UpdateHealthzState(malachiteRealtimeProvisionerHealthCheckName, general.HealthzCheckStateNotReady, "malachite realtime is not healthy")
