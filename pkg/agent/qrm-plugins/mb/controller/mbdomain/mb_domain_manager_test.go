@@ -52,6 +52,12 @@ func TestNewMBDomainManager(t *testing.T) {
 				},
 			},
 			want: &MBDomainManager{
+				nodeCCDs: map[int]sets.Int{
+					0: {0: sets.Empty{}, 1: sets.Empty{}},
+					1: {2: sets.Empty{}, 3: sets.Empty{}},
+					2: {4: sets.Empty{}, 5: sets.Empty{}},
+					3: {6: sets.Empty{}, 7: sets.Empty{}},
+				},
 				Domains: map[int]*MBDomain{
 					0: {
 						ID:        0,

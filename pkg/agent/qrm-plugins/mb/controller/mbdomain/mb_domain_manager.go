@@ -33,9 +33,14 @@ var (
 )
 
 type MBDomainManager struct {
-	Domains map[int]*MBDomain
+	Domains  map[int]*MBDomain
+	nodeCCDs map[int]sets.Int
 }
 
+// StartIncubation marks the specified CCDs the beginning of incubation time.
+// Since it is currently applicable only to Socket pods, the CCDs is of dedicated QoS group.
+// Incubation is the grace period for a new pod to maintain its mb privilege.
+// It suffices to approximate the pod admission with pod start in POC phase.
 func (m MBDomainManager) StartIncubation(ccds []int) {
 	general.InfofV(6, "mbm: need to incubate CCD %v from %v", ccds, time.Now())
 	dict := sets.NewInt(ccds...)
@@ -52,6 +57,15 @@ func (m MBDomainManager) PreemptNodes(nodes []int) bool {
 		hasChange = hasChange || domain.PreemptNodes(nodes)
 	}
 
+	if hasChange {
+		// though technically incubation starts from pod being alive, it is practically same effect as pod admission
+		ccds := make([]int, 0)
+		for _, node := range nodes {
+			ccds = append(ccds, m.nodeCCDs[node].List()...)
+		}
+		m.StartIncubation(ccds)
+	}
+
 	return hasChange
 }
 
@@ -64,7 +78,8 @@ func NewMBDomainManager(dieTopology *machine.DieTopology, incubationInterval tim
 
 func newMBDomainManager(dieTopology *machine.DieTopology, incubationInterval time.Duration) *MBDomainManager {
 	manager := &MBDomainManager{
-		Domains: make(map[int]*MBDomain),
+		Domains:  make(map[int]*MBDomain),
+		nodeCCDs: dieTopology.DiesInNuma,
 	}
 
 	for packageID := 0; packageID < dieTopology.Packages; packageID++ {
