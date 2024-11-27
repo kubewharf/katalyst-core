@@ -194,6 +194,7 @@ func NewPowerPressureEvictionServer(conf *config.Configuration, emitter metrics.
 	}
 
 	server := &powerPressureEvictServer{
+		plugin:  plugin,
 		service: regWrapper,
 	}
 	return server, nil
