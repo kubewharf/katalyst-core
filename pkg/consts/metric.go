@@ -131,6 +131,11 @@ const (
 	MetricsNodeFsInodesUsed = "used.inodes.fs.node"
 )
 
+// System Power metrics
+const (
+	MetricTotalPowerUsedWatts = "total.power.used.watts"
+)
+
 // Image filesystem metrics
 const (
 	MetricsImageFsAvailable  = "available.rootfs.system"

@@ -33,6 +33,8 @@ const (
 	SystemNetResource     = "system/network"
 	SystemMemoryResource  = "system/memory"
 	SystemComputeResource = "system/compute"
+
+	RealtimePowerResource = "realtime/power"
 )
 
 type SystemResourceKind int
@@ -61,6 +63,7 @@ func NewMalachiteClient(fetcher pod.PodFetcher) *MalachiteClient {
 		SystemNetResource,
 		SystemComputeResource,
 		SystemMemoryResource,
+		RealtimePowerResource,
 	} {
 		urls[path] = fmt.Sprintf("http://localhost:%d/api/v1/%s", malachiteServicePort, path)
 	}

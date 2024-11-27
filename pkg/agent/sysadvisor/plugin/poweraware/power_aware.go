@@ -94,9 +94,7 @@ func NewPowerAwarePlugin(
 		}
 	}
 
-	// todo: use the power usage data from malachite
-	// we may temporarily have a local reader on top of ipmi (in dev branch), before malachite is ready
-	powerReader := reader.NewDummyPowerReader()
+	powerReader := reader.NewMetricStorePowerReader(metaServer)
 
 	powerAdvisor := advisor.NewAdvisor(conf.PowerAwarePluginConfiguration.DryRun,
 		conf.PowerAwarePluginConfiguration.AnnotationKeyPrefix,
