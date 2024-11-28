@@ -58,10 +58,6 @@ const (
 
 	// MovePagesAcceptableTimeCost is acceptable time cost of each move pages is 20ms
 	MovePagesAcceptableTimeCost = 20
-	MBytes                      = 1024 * 1024
-
-	// MinRSSSkipMigrate is min rss size to skip migrate the process numa pages.
-	MinRSSSkipMigrate = 10 * MBytes
 
 	SystemNodeDir = "/sys/devices/system/node/"
 	ProcDir       = "/proc"
@@ -250,11 +246,6 @@ func MovePagesForProcess(ctx context.Context, procDir string, pid int, srcNumas 
 	pidSmapsInfo, err := getProcessPageStats(procDir, pid)
 	if err != nil {
 		return err
-	}
-
-	// skip process whose rss is below threshold.
-	if pidSmapsInfo.totalRss < MinRSSSkipMigrate {
-		return nil
 	}
 
 	srcNumasBitSet, err := bitmask.NewBitMask(srcNumas...)
