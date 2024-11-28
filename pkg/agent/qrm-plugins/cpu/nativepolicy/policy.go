@@ -55,23 +55,6 @@ const (
 	maxResidualTime  = 5 * time.Minute
 )
 
-var (
-	readonlyStateLock sync.RWMutex
-	readonlyState     state.ReadonlyState
-)
-
-// GetReadonlyState returns state.ReadonlyState to provides a way
-// to obtain the running states of the plugin
-func GetReadonlyState() (state.ReadonlyState, error) {
-	readonlyStateLock.RLock()
-	defer readonlyStateLock.RUnlock()
-
-	if readonlyState == nil {
-		return nil, fmt.Errorf("readonlyState isn't setted")
-	}
-	return readonlyState, nil
-}
-
 // NativePolicy is a policy compatible with Kubernetes native semantics and is used in topology-aware scheduling scenarios.
 type NativePolicy struct {
 	sync.RWMutex
@@ -115,9 +98,8 @@ func NewNativePolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 		return false, agent.ComponentStub{}, fmt.Errorf("NewCheckpointState failed with error: %v", stateErr)
 	}
 
-	readonlyStateLock.Lock()
-	readonlyState = stateImpl
-	readonlyStateLock.Unlock()
+	state.SetReadonlyState(stateImpl)
+	state.SetReadWriteState(stateImpl)
 
 	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(agentName, metrics.MetricTag{
 		Key: util.QRMPluginPolicyTagName,

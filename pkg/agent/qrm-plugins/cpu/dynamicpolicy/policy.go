@@ -71,23 +71,6 @@ const (
 	healthCheckTolerationTimes = 3
 )
 
-var (
-	readonlyStateLock sync.RWMutex
-	readonlyState     state.ReadonlyState
-)
-
-// GetReadonlyState returns state.ReadonlyState to provides a way
-// to obtain the running states of the plugin
-func GetReadonlyState() (state.ReadonlyState, error) {
-	readonlyStateLock.RLock()
-	defer readonlyStateLock.RUnlock()
-
-	if readonlyState == nil {
-		return nil, fmt.Errorf("readonlyState isn't set")
-	}
-	return readonlyState, nil
-}
-
 // DynamicPolicy is the policy that's used by default;
 // it will consider the dynamic running information to calculate
 // and adjust resource requirements and configurations
@@ -150,9 +133,8 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		return false, agent.ComponentStub{}, fmt.Errorf("NewCheckpointState failed with error: %v", stateErr)
 	}
 
-	readonlyStateLock.Lock()
-	readonlyState = stateImpl
-	readonlyStateLock.Unlock()
+	state.SetReadonlyState(stateImpl)
+	state.SetReadWriteState(stateImpl)
 
 	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(agentName, metrics.MetricTag{
 		Key: util.QRMPluginPolicyTagName,

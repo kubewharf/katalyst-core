@@ -3233,3 +3233,22 @@ func TestGetAvailableCPUQuantity(t *testing.T) {
 	cpuQuantity := int(math.Ceil(nodeState.GetAvailableCPUQuantity(machine.NewCPUSet())))
 	require.Equal(t, 15, cpuQuantity)
 }
+
+func TestGetReadonlyState(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+	state, err := GetReadonlyState()
+	as.NotNil(err)
+	as.Nil(state)
+}
+
+func TestGetWriteOnlyState(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+	state, err := GetReadWriteState()
+	if state == nil {
+		as.NotNil(err)
+	}
+}
