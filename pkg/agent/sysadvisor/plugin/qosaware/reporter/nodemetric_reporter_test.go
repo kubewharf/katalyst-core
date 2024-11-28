@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -431,6 +432,13 @@ func TestNodeMetricUpdate(t *testing.T) {
 				err = json.Unmarshal(resp.Content[0].Field[0].Value, &nodeMetricStatus)
 				require.NoError(t, err)
 				tt.wantNodeMetricStatus.UpdateTime = *nodeMetricStatus.UpdateTime.DeepCopy()
+				// to sort numa usage slice  to avoid flaky equality check
+				for _, groupMetric := range nodeMetricStatus.GroupMetric {
+					slice := groupMetric.ResourceUsage.NUMAUsage
+					sort.Slice(slice, func(i, j int) bool {
+						return slice[i].NUMAId < slice[j].NUMAId
+					})
+				}
 				require.Equal(t, *tt.wantNodeMetricStatus, nodeMetricStatus)
 			}
 
