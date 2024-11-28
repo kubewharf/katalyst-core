@@ -21,10 +21,14 @@ import (
 	"fmt"
 	"io/fs"
 	"math"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -513,4 +517,51 @@ func MemoryOffloadingWithAbsolutePath(ctx context.Context, absCgroupPath string,
 	general.Infof("[MemoryOffloadingWithAbsolutePath] it takes %v to do \"%s\" on cgroup: %s", delta, cmd, absCgroupPath)
 
 	return err
+}
+
+func IsCgroupPath(path string) bool {
+	var fstat syscall.Statfs_t
+	err := syscall.Statfs(path, &fstat)
+	if err != nil {
+		general.ErrorS(err, "failed to Statfs", "path", path)
+		return false
+	}
+	return fstat.Type == unix.CGROUP2_SUPER_MAGIC || fstat.Type == unix.CGROUP_SUPER_MAGIC
+}
+
+func GetEffectiveCPUSetWithAbsolutePath(absCgroupPath string) (machine.CPUSet, machine.CPUSet, error) {
+	if !IsCgroupPath(absCgroupPath) {
+		return machine.CPUSet{}, machine.CPUSet{}, fmt.Errorf("path %s is not a cgroup", absCgroupPath)
+	}
+
+	cpusetStat, err := GetCPUSetWithAbsolutePath(absCgroupPath)
+	if err != nil {
+		// if controller is disabled, we should walk the parent's dir.
+		if os.IsNotExist(err) {
+			return GetEffectiveCPUSetWithAbsolutePath(filepath.Dir(absCgroupPath))
+		}
+		return machine.CPUSet{}, machine.CPUSet{}, err
+	}
+	// if the cpus or mems is empty, they will inherit the parent's mask.
+	cpus, err := machine.Parse(cpusetStat.EffectiveCPUs)
+	if err != nil {
+		return machine.CPUSet{}, machine.CPUSet{}, err
+	}
+	if cpus.IsEmpty() {
+		cpus, _, err = GetEffectiveCPUSetWithAbsolutePath(filepath.Dir(absCgroupPath))
+		if err != nil {
+			return machine.CPUSet{}, machine.CPUSet{}, err
+		}
+	}
+	mems, err := machine.Parse(cpusetStat.EffectiveMems)
+	if err != nil {
+		return machine.CPUSet{}, machine.CPUSet{}, err
+	}
+	if mems.IsEmpty() {
+		_, mems, err = GetEffectiveCPUSetWithAbsolutePath(filepath.Dir(absCgroupPath))
+		if err != nil {
+			return machine.CPUSet{}, machine.CPUSet{}, err
+		}
+	}
+	return cpus, mems, nil
 }

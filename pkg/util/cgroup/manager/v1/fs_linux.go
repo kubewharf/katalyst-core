@@ -314,12 +314,20 @@ func (m *manager) GetCPUSet(absCgroupPath string) (*common.CPUSetStats, error) {
 	var err error
 	cpusetStats.CPUs, err = fscommon.GetCgroupParamString(absCgroupPath, "cpuset.cpus")
 	if err != nil {
-		return nil, fmt.Errorf("read cpuset.cpus failed with error: %v", err)
+		return nil, err
+	}
+	cpusetStats.EffectiveCPUs, err = fscommon.GetCgroupParamString(absCgroupPath, "cpuset.effective_cpus")
+	if err != nil {
+		return nil, err
 	}
 
 	cpusetStats.Mems, err = fscommon.GetCgroupParamString(absCgroupPath, "cpuset.mems")
 	if err != nil {
-		return nil, fmt.Errorf("read cpuset.mems failed with error: %v", err)
+		return nil, err
+	}
+	cpusetStats.EffectiveMems, err = fscommon.GetCgroupParamString(absCgroupPath, "cpuset.effective_mems")
+	if err != nil {
+		return nil, err
 	}
 
 	return cpusetStats, nil

@@ -540,7 +540,11 @@ func (p *nodeMetricsReporterPlugin) getGroupUsage(pods []*v1.Pod, qosLevel strin
 		resourceMetric.CPU = aggCPU
 	}
 
-	for numaID, resourceUsages := range numaUsages {
+	for numaID := 0; numaID < p.metaServer.NumNUMANodes; numaID++ {
+		resourceUsages, ok := numaUsages[numaID]
+		if !ok {
+			continue
+		}
 		resourceNUMAMetric := nodeapis.ResourceMetric{}
 
 		cpuUsage := resourceUsages[v1.ResourceCPU]

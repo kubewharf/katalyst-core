@@ -184,8 +184,10 @@ type CPUStats struct {
 
 // CPUSetStats get cgroup cpuset data
 type CPUSetStats struct {
-	CPUs string
-	Mems string
+	CPUs          string
+	EffectiveCPUs string
+	Mems          string
+	EffectiveMems string
 }
 
 // MemoryMetrics get memory cgroup metrics
