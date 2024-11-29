@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	info "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -114,6 +115,7 @@ func generateTestMetaServer(clientSet *client.GenericClientSet, conf *config.Con
 			MetricsFetcher: metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}),
 			KatalystMachineInfo: &machine.KatalystMachineInfo{
 				CPUTopology: cpuTopology,
+				MachineInfo: &info.MachineInfo{},
 			},
 		},
 		ConfigurationManager: &dynamicconfig.DummyConfigurationManager{},
@@ -187,7 +189,7 @@ func TestReclaimedResourcedReporterWithManager(t *testing.T) {
 	metaServer := generateTestMetaServer(clientSet, conf)
 
 	advisorStub := hmadvisor.NewResourceAdvisorStub()
-	genericPlugin, err := newHeadroomReporterPlugin(metrics.DummyMetrics{}, metaServer, conf, advisorStub)
+	genericPlugin, _, err := newHeadroomReporterPlugin(metrics.DummyMetrics{}, metaServer, conf, advisorStub)
 	require.NoError(t, err)
 	require.NotNil(t, genericPlugin)
 	_ = genericPlugin.Start()
