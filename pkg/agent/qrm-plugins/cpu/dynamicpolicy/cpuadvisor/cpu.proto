@@ -34,6 +34,7 @@ option go_package = "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cp
 message ListAndWatchResponse {
     map<string,CalculationEntries> entries = 1; // keyed by pool name or podUID
     bool allow_shared_cores_overlap_reclaimed_cores= 2; // if set to true, cpuset of shared_cores may overlap with reclaimed_cores
+    repeated advisorsvc.CalculationInfo extra_entries = 3; // for non-container level adjustment (eg. /kubepods/besteffort)
 }
 
 message CalculationEntries {

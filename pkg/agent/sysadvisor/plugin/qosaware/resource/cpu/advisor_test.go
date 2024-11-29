@@ -1242,7 +1242,7 @@ func TestAdvisorUpdate(t *testing.T) {
 
 			// check headroom
 			if !reflect.DeepEqual(tt.wantHeadroom, resource.Quantity{}) {
-				headroom, err := advisor.GetHeadroom()
+				headroom, _, err := advisor.GetHeadroom()
 				if tt.wantHeadroomErr {
 					assert.Error(t, err)
 				} else {
