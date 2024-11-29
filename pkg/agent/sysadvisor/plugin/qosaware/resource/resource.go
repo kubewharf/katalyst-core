@@ -42,7 +42,7 @@ type ResourceAdvisor interface {
 	GetSubAdvisor(resourceName types.QoSResourceName) (SubResourceAdvisor, error)
 
 	// GetHeadroom returns the corresponding headroom quantity according to resource name
-	GetHeadroom(resourceName v1.ResourceName) (resource.Quantity, error)
+	GetHeadroom(resourceName v1.ResourceName) (resource.Quantity, map[int]resource.Quantity, error)
 }
 
 // SubResourceAdvisor updates resource provision of a certain dimension based on the latest
@@ -57,7 +57,7 @@ type SubResourceAdvisor interface {
 	GetChannels() (interface{}, interface{})
 
 	// GetHeadroom returns the latest resource headroom quantity for resource reporter
-	GetHeadroom() (resource.Quantity, error)
+	GetHeadroom() (resource.Quantity, map[int]resource.Quantity, error)
 }
 
 type resourceAdvisorWrapper struct {

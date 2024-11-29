@@ -19,6 +19,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter"
 	"sync"
 	"time"
 
@@ -56,7 +57,7 @@ type qrmServerWrapper struct {
 
 // NewQRMServer returns a qrm server wrapper, which instantiates
 // all required qrm plugin servers according to config
-func NewQRMServer(advisorWrapper resource.ResourceAdvisor, conf *config.Configuration,
+func NewQRMServer(advisorWrapper resource.ResourceAdvisor, headroomResourceGetter reporter.HeadroomResourceGetter, conf *config.Configuration,
 	metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) (QRMServer, error) {
 	qrmServer := qrmServerWrapper{
@@ -65,7 +66,8 @@ func NewQRMServer(advisorWrapper resource.ResourceAdvisor, conf *config.Configur
 
 	for _, resourceNameStr := range conf.QRMServers {
 		resourceName := v1.ResourceName(resourceNameStr)
-		server, err := newSubQRMServer(resourceName, advisorWrapper, conf, metaCache, metaServer, emitter)
+		headroomResourceManager := headroomResourceGetter.GetHeadroomResource(resourceName)
+		server, err := newSubQRMServer(resourceName, advisorWrapper, headroomResourceManager, conf, metaCache, metaServer, emitter)
 		if err != nil {
 			return nil, fmt.Errorf("new qrm plugin server for %v failed: %v", resourceName, err)
 		} else {
@@ -104,7 +106,7 @@ func (qs *qrmServerWrapper) Run(ctx context.Context) {
 	}
 }
 
-func newSubQRMServer(resourceName v1.ResourceName, advisorWrapper resource.ResourceAdvisor,
+func newSubQRMServer(resourceName v1.ResourceName, advisorWrapper resource.ResourceAdvisor, headroomResourceManager reporter.HeadroomResourceManager,
 	conf *config.Configuration, metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) (subQRMServer, error) {
 	switch resourceName {
@@ -116,7 +118,7 @@ func newSubQRMServer(resourceName v1.ResourceName, advisorWrapper resource.Resou
 		advisorRecvChInterface, advisorSendChInterface := subAdvisor.GetChannels()
 		advisorRecvCh := advisorRecvChInterface.(chan types.TriggerInfo)
 		advisorSendCh := advisorSendChInterface.(chan types.InternalCPUCalculationResult)
-		return NewCPUServer(advisorSendCh, advisorRecvCh, conf, metaCache, metaServer, emitter)
+		return NewCPUServer(advisorSendCh, advisorRecvCh, conf, headroomResourceManager, metaCache, metaServer, emitter)
 	case v1.ResourceMemory:
 		subAdvisor, err := advisorWrapper.GetSubAdvisor(types.QoSResourceMemory)
 		if err != nil {
@@ -125,7 +127,7 @@ func newSubQRMServer(resourceName v1.ResourceName, advisorWrapper resource.Resou
 		advisorRecvChInterface, advisorSendChInterface := subAdvisor.GetChannels()
 		advisorRecvCh := advisorRecvChInterface.(chan types.TriggerInfo)
 		advisorSendCh := advisorSendChInterface.(chan types.InternalMemoryCalculationResult)
-		return NewMemoryServer(advisorSendCh, advisorRecvCh, conf, metaCache, metaServer, emitter)
+		return NewMemoryServer(advisorSendCh, advisorRecvCh, conf, headroomResourceManager, metaCache, metaServer, emitter)
 	default:
 		return nil, fmt.Errorf("illegal resource %v", resourceName)
 	}
