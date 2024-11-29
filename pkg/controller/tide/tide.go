@@ -338,11 +338,12 @@ func (t *Tide) Reconcile(ctx context.Context, tideNodePool *apis.TideNodePool) e
 	// Add finalizer first
 	if !controllerutil.ContainsFinalizer(tideNodePool, NodePoolFinalizer) && tideNodePool.DeletionTimestamp.IsZero() {
 		controllerutil.AddFinalizer(tideNodePool, NodePoolFinalizer)
-		tideNodePool, err := t.client.InternalClient.TideV1alpha1().TideNodePools().Update(ctx, tideNodePool, metav1.UpdateOptions{})
+		newTideNodePool, err := t.client.InternalClient.TideV1alpha1().TideNodePools().Update(ctx, tideNodePool, metav1.UpdateOptions{})
 		if err != nil {
 			klog.ErrorS(err, "fail to add finalizer", "rule", tideNodePool.Name)
 			return err
 		}
+		tideNodePool = newTideNodePool
 	}
 	// process deletion
 	if !tideNodePool.DeletionTimestamp.IsZero() {
