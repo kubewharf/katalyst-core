@@ -66,7 +66,7 @@ func regulateOverlapReclaimPoolSize(sharePoolSizes map[string]int, overlapReclai
 // regulatePoolSizes modifies pool size map to legal values, taking total available
 // resource and config such as enable reclaim into account. should be compatible with
 // any case and not return error. return true if reach resource upper bound.
-func regulatePoolSizes(expandableRequirements, unexpandableRequirements map[string]int, available int, enableReclaim bool, allowSharedCoresOverlapReclaimedCores bool) (map[string]int, bool) {
+func regulatePoolSizes(expandableRequirements, unexpandableRequirements map[string]int, available int, allowExpand bool) (map[string]int, bool) {
 	expandableRequirementsSum := general.SumUpMapValues(expandableRequirements)
 	unexpandableRequirementsSum := general.SumUpMapValues(unexpandableRequirements)
 
@@ -81,7 +81,7 @@ func regulatePoolSizes(expandableRequirements, unexpandableRequirements map[stri
 			}
 		}
 		return poolSizes, true
-	} else if !enableReclaim || allowSharedCoresOverlapReclaimedCores {
+	} else if allowExpand {
 		expandableRequirementsSum = available - unexpandableRequirementsSum
 	}
 

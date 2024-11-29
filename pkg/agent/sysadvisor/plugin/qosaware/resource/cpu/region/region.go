@@ -44,6 +44,9 @@ type QoSRegion interface {
 	// GetPods return the latest pod set of this region
 	GetPods() types.PodSet
 
+	// GetPodsRequest returns the total CPU requests of this region
+	GetPodsRequest() float64
+
 	// SetBindingNumas overwrites numa ids assigned to this region
 	SetBindingNumas(machine.CPUSet)
 	// SetEssentials updates essential region values for policy update

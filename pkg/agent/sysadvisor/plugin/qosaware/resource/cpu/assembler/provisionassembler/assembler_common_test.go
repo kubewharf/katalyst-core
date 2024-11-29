@@ -94,6 +94,10 @@ func (fake *FakeRegion) GetPods() types.PodSet {
 	return fake.podSets
 }
 
+func (fake *FakeRegion) GetPodsRequest() float64 {
+	return 0
+}
+
 func (fake *FakeRegion) SetBindingNumas(bindingNumas machine.CPUSet) {
 	fake.bindingNumas = bindingNumas
 }
@@ -962,10 +966,10 @@ func TestAssembleProvision(t *testing.T) {
 			},
 			expectPoolEntries: map[string]map[int]int{
 				"share-a": {
-					-1: 21,
+					-1: 24,
 				},
 				"share-b": {
-					-1: 27,
+					-1: 24,
 				},
 				"reserve": {
 					-1: 0,
@@ -975,7 +979,7 @@ func TestAssembleProvision(t *testing.T) {
 				},
 			},
 			expectPoolOverlapInfo: map[string]map[int]map[string]int{
-				"reclaim": {-1: map[string]int{"share-a": 14, "share-b": 20}},
+				"reclaim": {-1: map[string]int{"share-a": 18, "share-b": 16}},
 			},
 		},
 	}
