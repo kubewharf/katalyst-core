@@ -368,3 +368,12 @@ func AggregateMaxQuantities(quantities []resource.Quantity) *resource.Quantity {
 	}
 	return res
 }
+
+// GetContainerMilliCPULimit returns the cpu limit of a container in milli-core
+func GetContainerMilliCPULimit(container *v1.Container) int64 {
+	if cpuLimit, ok := container.Resources.Limits[v1.ResourceCPU]; ok {
+		return cpuLimit.MilliValue()
+	}
+
+	return -1
+}

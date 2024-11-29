@@ -66,6 +66,28 @@ func ApplyCPUWithRelativePath(relCgroupPath string, data *common.CPUData) error 
 	return GetManager().ApplyCPU(absCgroupPath, data)
 }
 
+func ApplCPUWithAbsolutePath(absCgroupPath string, data *common.CPUData) error {
+	if data == nil {
+		return fmt.Errorf("ApplCPUWithAbsolutePath with nil cgroup data")
+	}
+
+	return GetManager().ApplyCPU(absCgroupPath, data)
+}
+
+// ApplyCPUForContainer applies the cpu config for a container.
+func ApplyCPUForContainer(podUID, containerId string, data *common.CPUData) error {
+	if data == nil {
+		return fmt.Errorf("ApplyCPU with nil cgroup data")
+	}
+
+	cpuAbsCGPath, err := common.GetContainerAbsCgroupPath(common.CgroupSubsysCPU, podUID, containerId)
+	if err != nil {
+		return fmt.Errorf("GetContainerAbsCgroupPath failed with error: %v", err)
+	}
+
+	return ApplCPUWithAbsolutePath(cpuAbsCGPath, data)
+}
+
 func ApplyCPUSetWithRelativePath(relCgroupPath string, data *common.CPUSetData) error {
 	if data == nil {
 		return fmt.Errorf("ApplyCPUSetForContainer with nil cgroup data")

@@ -142,6 +142,16 @@ func (m *manager) ApplyCPU(absCgroupPath string, data *common.CPUData) error {
 		}
 	}
 
+	if data.CpuBurst != 0 {
+		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "cpu.max.burst",
+			strconv.FormatInt(data.CpuBurst, 10)); err != nil {
+			lastErrors = append(lastErrors, err)
+		} else if applied {
+			klog.Infof("[CgroupV2] apply cpu.max.burst successfully, cgroupPath: %s, data: %v, old data: %v\n",
+				absCgroupPath, data.CpuBurst, oldData)
+		}
+	}
+
 	if len(lastErrors) == 0 {
 		return nil
 	}

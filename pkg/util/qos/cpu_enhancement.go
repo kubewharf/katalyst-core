@@ -48,3 +48,26 @@ func GetPodCPUSuppressionToleranceRate(qosConf *generic.QoSConfiguration, pod *v
 
 	return math.MaxFloat64, nil
 }
+
+// GetPodCPUBurstPolicy parses whether to enable the cpu burst feature for the given pod.
+func GetPodCPUBurstPolicy(qosConf *generic.QoSConfiguration, pod *v1.Pod) (bool, string) {
+	cpuEnhancement := qosConf.GetQoSEnhancementKVs(pod, map[string]string{}, consts.PodAnnotationCPUEnhancementKey)
+	cpuBurstPolicy, ok := cpuEnhancement[consts.PodAnnotationCPUEnhancementCPUBurstPolicy]
+	if !ok {
+		return false, consts.PodAnnotationCPUEnhancementCPUBurstPolicyNone
+	}
+
+	return true, cpuBurstPolicy
+}
+
+// GetPodCPUBurstPercent parses the upper limit of the allowed burst percent for the given pod.
+func GetPodCPUBurstPercent(qosConf *generic.QoSConfiguration, pod *v1.Pod) (bool, int64, error) {
+	cpuEnhancement := qosConf.GetQoSEnhancementKVs(pod, map[string]string{}, consts.PodAnnotationCPUEnhancementKey)
+	cpuBurstPercentStr, ok := cpuEnhancement[consts.PodAnnotationCPUEnhancementCPUBurstPercent]
+	if !ok {
+		return false, 0, nil
+	}
+
+	cpuBurstPercent, err := strconv.ParseInt(cpuBurstPercentStr, 10, 64)
+	return true, cpuBurstPercent, err
+}
