@@ -25,10 +25,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"syscall"
 	"time"
-
-	"golang.org/x/sys/unix"
 
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -517,16 +514,6 @@ func MemoryOffloadingWithAbsolutePath(ctx context.Context, absCgroupPath string,
 	general.Infof("[MemoryOffloadingWithAbsolutePath] it takes %v to do \"%s\" on cgroup: %s", delta, cmd, absCgroupPath)
 
 	return err
-}
-
-func IsCgroupPath(path string) bool {
-	var fstat syscall.Statfs_t
-	err := syscall.Statfs(path, &fstat)
-	if err != nil {
-		general.ErrorS(err, "failed to Statfs", "path", path)
-		return false
-	}
-	return fstat.Type == unix.CGROUP2_SUPER_MAGIC || fstat.Type == unix.CGROUP_SUPER_MAGIC
 }
 
 func GetEffectiveCPUSetWithAbsolutePath(absCgroupPath string) (machine.CPUSet, machine.CPUSet, error) {
