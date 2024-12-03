@@ -114,12 +114,29 @@ func Test_ruleBasedPowerStrategy_RecommendAction(t *testing.T) {
 				actualWatt:  99,
 				desiredWatt: 88,
 				alert:       spec.PowerAlertP1,
-				internalOp:  spec.InternalOpThrottle,
+				internalOp:  spec.InternalOpAuto,
 				ttl:         time.Second * 30,
 			},
 			want: action.PowerAction{
 				Op:  spec.InternalOpFreqCap,
 				Arg: 88,
+			},
+		},
+		{
+			name: "approaching deadline no freq capping is indicated otherwise only",
+			fields: fields{
+				coefficient: exponentialDecay{},
+			},
+			args: args{
+				actualWatt:  99,
+				desiredWatt: 88,
+				alert:       spec.PowerAlertP1,
+				internalOp:  spec.InternalOpEvict,
+				ttl:         time.Second * 30,
+			},
+			want: action.PowerAction{
+				Op:  spec.InternalOpEvict,
+				Arg: 12,
 			},
 		},
 		{

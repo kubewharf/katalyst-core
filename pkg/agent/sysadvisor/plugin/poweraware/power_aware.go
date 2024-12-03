@@ -80,7 +80,7 @@ func NewPowerAwarePlugin(
 	if conf.DisablePowerPressureEvict {
 		podEvictor = evictor.NewNoopPodEvictor()
 	} else {
-		if podEvictor, err = evictserver.NewPowerPressureEvictionPlugin(conf, emitter); err != nil {
+		if podEvictor, err = evictserver.NewPowerPressureEvictionServer(conf, emitter); err != nil {
 			return nil, errors.Wrap(err, "pap: failed to create power aware plugin")
 		}
 	}
