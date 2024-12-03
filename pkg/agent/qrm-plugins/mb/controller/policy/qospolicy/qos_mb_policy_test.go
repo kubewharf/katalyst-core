@@ -23,7 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
 
 func TestBuildHiPrioDetectedQoSMBPolicy(t *testing.T) {
@@ -32,20 +32,20 @@ func TestBuildHiPrioDetectedQoSMBPolicy(t *testing.T) {
 
 	type args struct {
 		totalMB     int
-		mbQoSGroups map[task.QoSGroup]*monitor.MBQoSGroup
+		mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup
 		isTopMost   bool
 	}
 
 	tests := []struct {
 		name string
 		args args
-		want map[task.QoSGroup]map[int]int
+		want map[qosgroup.QoSGroup]map[int]int
 	}{
 		{
 			name: "no high priority groups, no limit on shared-30",
 			args: args{
 				totalMB: 120_000,
-				mbQoSGroups: map[task.QoSGroup]*monitor.MBQoSGroup{
+				mbQoSGroups: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
 					"system": {
 						CCDs:  sets.Int{1: sets.Empty{}},
 						CCDMB: map[int]*monitor.MBData{1: {TotalMB: 100}},
@@ -57,7 +57,7 @@ func TestBuildHiPrioDetectedQoSMBPolicy(t *testing.T) {
 				},
 				isTopMost: true,
 			},
-			want: map[task.QoSGroup]map[int]int{
+			want: map[qosgroup.QoSGroup]map[int]int{
 				"system":    {1: 25_000},
 				"shared-30": {2: 25_000, 3: 25_000},
 			},
@@ -66,7 +66,7 @@ func TestBuildHiPrioDetectedQoSMBPolicy(t *testing.T) {
 			name: "yes shared-50 - shared-30 being limited",
 			args: args{
 				totalMB: 120_000,
-				mbQoSGroups: map[task.QoSGroup]*monitor.MBQoSGroup{
+				mbQoSGroups: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
 					"shared-50": {
 						CCDs:  sets.Int{1: sets.Empty{}, 4: sets.Empty{}, 5: sets.Empty{}, 6: sets.Empty{}},
 						CCDMB: map[int]*monitor.MBData{1: {TotalMB: 20_000}, 4: {TotalMB: 20_000}, 5: {TotalMB: 20_000}, 6: {TotalMB: 20_000}},
@@ -82,7 +82,7 @@ func TestBuildHiPrioDetectedQoSMBPolicy(t *testing.T) {
 				},
 				isTopMost: true,
 			},
-			want: map[task.QoSGroup]map[int]int{
+			want: map[qosgroup.QoSGroup]map[int]int{
 				"shared-50": {1: 25_000, 4: 25_000, 5: 25_000, 6: 25_000},
 				"system":    {1: 25_000},
 				"shared-30": {2: 10_000, 3: 10_000},

@@ -14,10 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package task
+package qosgroup
 
 import (
 	"fmt"
+	"path"
 	"strconv"
 	"strings"
 
@@ -113,6 +114,10 @@ func parseSharedSubGroup(ctrlGroup string) (int, error) {
 	}
 
 	return value, nil
+}
+
+func GetResctrlCtrlGroupFolder(qos QoSGroup) (string, error) {
+	return path.Join(resctrlconsts.FsRoot, string(qos)), nil
 }
 
 func NewQoS(ctrlGroup QoSGroup) (*QoS, error) {

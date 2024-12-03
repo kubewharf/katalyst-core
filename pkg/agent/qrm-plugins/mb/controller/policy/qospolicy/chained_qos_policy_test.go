@@ -24,7 +24,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
 
 type mockQoSPolicy struct {
@@ -32,7 +32,7 @@ type mockQoSPolicy struct {
 	QoSMBPolicy
 }
 
-func (m *mockQoSPolicy) GetPlan(upperBoundMB int, groups map[task.QoSGroup]*monitor.MBQoSGroup, isTopTier bool) *plan.MBAlloc {
+func (m *mockQoSPolicy) GetPlan(upperBoundMB int, groups map[qosgroup.QoSGroup]*monitor.MBQoSGroup, isTopTier bool) *plan.MBAlloc {
 	args := m.Called(upperBoundMB, groups, isTopTier)
 	return args.Get(0).(*plan.MBAlloc)
 }
@@ -41,31 +41,31 @@ func Test_priorityChainedMBPolicy_GetPlan(t *testing.T) {
 	t.Parallel()
 
 	currPolicy := new(mockQoSPolicy)
-	currPolicy.On("GetPlan", 120_000, map[task.QoSGroup]*monitor.MBQoSGroup{
+	currPolicy.On("GetPlan", 120_000, map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
 		"dedicated": {CCDMB: map[int]*monitor.MBData{2: {TotalMB: 15_000}, 3: {TotalMB: 15_000}, 4: {TotalMB: 20_000}, 5: {TotalMB: 20_000}}},
 		"shared-50": {CCDMB: map[int]*monitor.MBData{0: {TotalMB: 7_000}, 1: {TotalMB: 10_000}, 7: {TotalMB: 5_000}}},
 		"system":    {CCDMB: map[int]*monitor.MBData{0: {TotalMB: 3_000}, 7: {TotalMB: 5_000}}},
-	}, true).Return(&plan.MBAlloc{Plan: map[task.QoSGroup]map[int]int{
+	}, true).Return(&plan.MBAlloc{Plan: map[qosgroup.QoSGroup]map[int]int{
 		"dedicated": {2: 25_000, 3: 25_000, 4: 25_000, 5: 25_000},
 		"shared-50": {0: 25_000, 1: 25_000, 7: 25_000},
 		"system":    {0: 25_000, 7: 25000},
 	}})
 
 	nextPolicy := new(mockQoSPolicy)
-	nextPolicy.On("GetPlan", 20_000, map[task.QoSGroup]*monitor.MBQoSGroup{
+	nextPolicy.On("GetPlan", 20_000, map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
 		"shared-30": {CCDMB: map[int]*monitor.MBData{6: {TotalMB: 7_000}}},
-	}, false).Return(&plan.MBAlloc{Plan: map[task.QoSGroup]map[int]int{
+	}, false).Return(&plan.MBAlloc{Plan: map[qosgroup.QoSGroup]map[int]int{
 		"shared-30": {6: 20_000},
 	}})
 
 	type fields struct {
-		topTiers map[task.QoSGroup]struct{}
+		topTiers map[qosgroup.QoSGroup]struct{}
 		tier     QoSMBPolicy
 		next     QoSMBPolicy
 	}
 	type args struct {
 		totalMB   int
-		groups    map[task.QoSGroup]*monitor.MBQoSGroup
+		groups    map[qosgroup.QoSGroup]*monitor.MBQoSGroup
 		isTopTier bool
 	}
 	tests := []struct {
@@ -77,7 +77,7 @@ func Test_priorityChainedMBPolicy_GetPlan(t *testing.T) {
 		{
 			name: "happy path",
 			fields: fields{
-				topTiers: map[task.QoSGroup]struct{}{
+				topTiers: map[qosgroup.QoSGroup]struct{}{
 					"dedicated": {},
 					"shared-50": {},
 					"system":    {},
@@ -87,7 +87,7 @@ func Test_priorityChainedMBPolicy_GetPlan(t *testing.T) {
 			},
 			args: args{
 				totalMB: 120_000,
-				groups: map[task.QoSGroup]*monitor.MBQoSGroup{
+				groups: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
 					"dedicated": {CCDMB: map[int]*monitor.MBData{2: {TotalMB: 15_000}, 3: {TotalMB: 15_000}, 4: {TotalMB: 20_000}, 5: {TotalMB: 20_000}}},
 					"shared-50": {CCDMB: map[int]*monitor.MBData{0: {TotalMB: 7_000}, 1: {TotalMB: 10_000}, 7: {TotalMB: 5_000}}},
 					"shared-30": {CCDMB: map[int]*monitor.MBData{6: {TotalMB: 7_000}}},
@@ -96,7 +96,7 @@ func Test_priorityChainedMBPolicy_GetPlan(t *testing.T) {
 				isTopTier: true,
 			},
 			want: &plan.MBAlloc{
-				Plan: map[task.QoSGroup]map[int]int{
+				Plan: map[qosgroup.QoSGroup]map[int]int{
 					"dedicated": {2: 25_000, 3: 25_000, 4: 25_000, 5: 25_000},
 					"shared-50": {0: 25_000, 1: 25_000, 7: 25_000},
 					"shared-30": {6: 20_000},

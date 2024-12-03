@@ -20,7 +20,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
 
 func TestWeightedSplit(t *testing.T) {
@@ -57,7 +57,7 @@ func TestWeightedSplit(t *testing.T) {
 func TestSum(t *testing.T) {
 	t.Parallel()
 	type args struct {
-		qosCCDMB map[task.QoSGroup]map[int]*MBData
+		qosCCDMB map[qosgroup.QoSGroup]map[int]*MBData
 	}
 	tests := []struct {
 		name string
@@ -67,7 +67,7 @@ func TestSum(t *testing.T) {
 		{
 			name: "happy path",
 			args: args{
-				qosCCDMB: map[task.QoSGroup]map[int]*MBData{
+				qosCCDMB: map[qosgroup.QoSGroup]map[int]*MBData{
 					"dedicated": {2: {TotalMB: 100}, 3: {TotalMB: 100}},
 					"shared":    {0: {TotalMB: 3}, 1: {TotalMB: 3}, 4: {TotalMB: 3}, 5: {TotalMB: 3}},
 					"reclaimed": {0: {TotalMB: 1}, 1: {TotalMB: 1}},

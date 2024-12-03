@@ -20,8 +20,8 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
 )
 
 type PlanAllocator interface {
@@ -34,7 +34,7 @@ type planAllocator struct {
 
 func (p planAllocator) Allocate(alloc *plan.MBAlloc) error {
 	for qosLevel, ccdMB := range alloc.Plan {
-		qosCtrlGroup, err := task.GetResctrlCtrlGroupFolder(qosLevel)
+		qosCtrlGroup, err := qosgroup.GetResctrlCtrlGroupFolder(qosLevel)
 		if err != nil {
 			return errors.Wrap(err, "unknown qos level")
 		}

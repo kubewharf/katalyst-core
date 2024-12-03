@@ -21,12 +21,12 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 type DomainMBPolicy interface {
-	GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoSMB map[task.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc
+	GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoSMB map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc
 }
 
 type domainMBPolicy struct {
@@ -34,11 +34,11 @@ type domainMBPolicy struct {
 	constraintMBPolicy DomainMBPolicy
 }
 
-func calcResvForIncubation(incubates mbdomain.IncubatedCCDs, currQoSMB map[task.QoSGroup]*monitor.MBQoSGroup) int {
+func calcResvForIncubation(incubates mbdomain.IncubatedCCDs, currQoSMB map[qosgroup.QoSGroup]*monitor.MBQoSGroup) int {
 	var reserveToIncubate int
 
 	for qos, qosmb := range currQoSMB {
-		if qos != task.QoSGroupDedicated {
+		if qos != qosgroup.QoSGroupDedicated {
 			continue
 		}
 
@@ -57,7 +57,7 @@ func calcResvForIncubation(incubates mbdomain.IncubatedCCDs, currQoSMB map[task.
 	return reserveToIncubate
 }
 
-func (d domainMBPolicy) GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoSMB map[task.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
+func (d domainMBPolicy) GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoSMB map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
 	// some newly started pods may still be in so-called incubation period;
 	// special care need to take to ensure they have no less than the reserved mb
 	// by subtracting the mb for incubation

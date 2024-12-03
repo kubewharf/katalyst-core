@@ -17,7 +17,7 @@ limitations under the License.
 package monitor
 
 import (
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
 
 func SumCCDMB(ccdMB map[int]*MBData) int {
@@ -28,7 +28,7 @@ func SumCCDMB(ccdMB map[int]*MBData) int {
 	return sum
 }
 
-func Sum(qosCCDMB map[task.QoSGroup]map[int]*MBData) int {
+func Sum(qosCCDMB map[qosgroup.QoSGroup]map[int]*MBData) int {
 	sum := 0
 
 	for _, ccdMB := range qosCCDMB {

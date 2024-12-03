@@ -24,14 +24,14 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
 
 func Test_getTopMostPlan(t *testing.T) {
 	t.Parallel()
 	type args struct {
 		totalMB     int
-		mbQoSGroups map[task.QoSGroup]*monitor.MBQoSGroup
+		mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup
 	}
 	tests := []struct {
 		name string
@@ -42,13 +42,13 @@ func Test_getTopMostPlan(t *testing.T) {
 			name: "happy path",
 			args: args{
 				totalMB: 1_000,
-				mbQoSGroups: map[task.QoSGroup]*monitor.MBQoSGroup{
+				mbQoSGroups: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
 					"dedicated": {CCDs: sets.Int{4: sets.Empty{}, 5: sets.Empty{}}},
 					"shared-50": {CCDs: sets.Int{0: sets.Empty{}, 1: sets.Empty{}}},
 					"system":    {CCDs: sets.Int{1: sets.Empty{}}},
 				},
 			},
-			want: &plan.MBAlloc{Plan: map[task.QoSGroup]map[int]int{
+			want: &plan.MBAlloc{Plan: map[qosgroup.QoSGroup]map[int]int{
 				"dedicated": {4: 25_000, 5: 25_000},
 				"shared-50": {0: 25_000, 1: 25_000},
 				"system":    {1: 25_000},
@@ -68,7 +68,7 @@ func Test_getProportionalPlan(t *testing.T) {
 	t.Parallel()
 	type args struct {
 		total       int
-		mbQoSGroups map[task.QoSGroup]*monitor.MBQoSGroup
+		mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup
 	}
 	tests := []struct {
 		name string
@@ -79,14 +79,14 @@ func Test_getProportionalPlan(t *testing.T) {
 			name: "happy path",
 			args: args{
 				total: 21_000,
-				mbQoSGroups: map[task.QoSGroup]*monitor.MBQoSGroup{
+				mbQoSGroups: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
 					"shared-30": {CCDMB: map[int]*monitor.MBData{
 						6: {TotalMB: 20_000},
 						7: {TotalMB: 10_000},
 					}},
 				},
 			},
-			want: &plan.MBAlloc{Plan: map[task.QoSGroup]map[int]int{
+			want: &plan.MBAlloc{Plan: map[qosgroup.QoSGroup]map[int]int{
 				"shared-30": {
 					6: 14_000,
 					7: 8_000,

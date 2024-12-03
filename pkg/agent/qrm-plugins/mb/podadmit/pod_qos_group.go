@@ -22,7 +22,7 @@ import (
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
@@ -85,11 +85,11 @@ func identifyCPUSetPool(annoInReq map[string]string) string {
 func (p *PodGrouper) GetQoSGroup(qosLevel string, annotations map[string]string) (string, error) {
 	switch qosLevel {
 	case apiconsts.PodAnnotationQoSLevelDedicatedCores:
-		return string(task.QoSGroupDedicated), nil
+		return string(qosgroup.QoSGroupDedicated), nil
 	case apiconsts.PodAnnotationQoSLevelSystemCores:
-		return string(task.QoSGroupSystem), nil
+		return string(qosgroup.QoSGroupSystem), nil
 	case apiconsts.PodAnnotationQoSLevelReclaimedCores:
-		return string(task.QoSGroupReclaimed), nil
+		return string(qosgroup.QoSGroupReclaimed), nil
 	}
 
 	if qosLevel != apiconsts.PodAnnotationQoSLevelSharedCores {

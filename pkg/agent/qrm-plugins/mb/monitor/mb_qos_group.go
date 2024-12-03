@@ -19,7 +19,7 @@ package monitor
 import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
 
 type MBData struct {
@@ -52,7 +52,7 @@ func newMBQoSGroup(ccdMB map[int]*MBData) *MBQoSGroup {
 	return result
 }
 
-func SumMB(groups map[task.QoSGroup]*MBQoSGroup) int {
+func SumMB(groups map[qosgroup.QoSGroup]*MBQoSGroup) int {
 	sum := 0
 
 	for _, group := range groups {

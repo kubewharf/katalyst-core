@@ -22,7 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
@@ -54,7 +54,7 @@ func toMBQoSGroup(ccdMetricData map[int]metric.MetricData) *monitor.MBQoSGroup {
 	return &result
 }
 
-func (m *mbReader) GetMBQoSGroups() (map[task.QoSGroup]*monitor.MBQoSGroup, error) {
+func (m *mbReader) GetMBQoSGroups() (map[qosgroup.QoSGroup]*monitor.MBQoSGroup, error) {
 	mbBlob := m.metricsFetcher.GetByStringIndex(consts.MetricTotalMemBandwidthQoSGroup)
 
 	var qosCCDMB map[string]map[int]metric.MetricData
@@ -63,9 +63,9 @@ func (m *mbReader) GetMBQoSGroups() (map[task.QoSGroup]*monitor.MBQoSGroup, erro
 		return nil, fmt.Errorf("unexpected metric blob by key %s: %T", consts.MetricTotalMemBandwidthQoSGroup, qosCCDMB)
 	}
 
-	result := make(map[task.QoSGroup]*monitor.MBQoSGroup)
+	result := make(map[qosgroup.QoSGroup]*monitor.MBQoSGroup)
 	for qos, data := range qosCCDMB {
-		result[task.QoSGroup(qos)] = toMBQoSGroup(data)
+		result[qosgroup.QoSGroup(qos)] = toMBQoSGroup(data)
 	}
 	return result, nil
 }

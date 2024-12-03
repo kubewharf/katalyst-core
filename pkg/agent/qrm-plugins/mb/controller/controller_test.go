@@ -24,19 +24,19 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
 
 func Test_getApplicableQoSCCDMB(t *testing.T) {
 	t.Parallel()
 	type args struct {
 		domain   *mbdomain.MBDomain
-		qosccdmb map[task.QoSGroup]*monitor.MBQoSGroup
+		qosccdmb map[qosgroup.QoSGroup]*monitor.MBQoSGroup
 	}
 	tests := []struct {
 		name string
 		args args
-		want map[task.QoSGroup]*monitor.MBQoSGroup
+		want map[qosgroup.QoSGroup]*monitor.MBQoSGroup
 	}{
 		{
 			name: "happy path of all applicable",
@@ -45,8 +45,8 @@ func Test_getApplicableQoSCCDMB(t *testing.T) {
 					ID:      3,
 					CCDNode: map[int]int{16: 4, 17: 4, 22: 5, 23: 5},
 				},
-				qosccdmb: map[task.QoSGroup]*monitor.MBQoSGroup{
-					task.QoSGroupSystem: {
+				qosccdmb: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+					qosgroup.QoSGroupSystem: {
 						CCDs: sets.Int{17: sets.Empty{}},
 						CCDMB: map[int]*monitor.MBData{
 							17: {
@@ -57,8 +57,8 @@ func Test_getApplicableQoSCCDMB(t *testing.T) {
 					},
 				},
 			},
-			want: map[task.QoSGroup]*monitor.MBQoSGroup{
-				task.QoSGroupSystem: {
+			want: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+				qosgroup.QoSGroupSystem: {
 					CCDs: sets.Int{17: sets.Empty{}},
 					CCDMB: map[int]*monitor.MBData{
 						17: {
@@ -76,8 +76,8 @@ func Test_getApplicableQoSCCDMB(t *testing.T) {
 					ID:      3,
 					CCDNode: map[int]int{16: 4, 17: 4, 22: 5, 23: 5},
 				},
-				qosccdmb: map[task.QoSGroup]*monitor.MBQoSGroup{
-					task.QoSGroupSystem: {
+				qosccdmb: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+					qosgroup.QoSGroupSystem: {
 						CCDs: sets.Int{99: sets.Empty{}},
 						CCDMB: map[int]*monitor.MBData{
 							17: {
@@ -88,7 +88,7 @@ func Test_getApplicableQoSCCDMB(t *testing.T) {
 					},
 				},
 			},
-			want: map[task.QoSGroup]*monitor.MBQoSGroup{},
+			want: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{},
 		},
 		{
 			name: "mixed CCDs leading to partial applicable",
@@ -97,8 +97,8 @@ func Test_getApplicableQoSCCDMB(t *testing.T) {
 					ID:      3,
 					CCDNode: map[int]int{16: 4, 17: 4, 22: 5, 23: 5},
 				},
-				qosccdmb: map[task.QoSGroup]*monitor.MBQoSGroup{
-					task.QoSGroupSystem: {
+				qosccdmb: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+					qosgroup.QoSGroupSystem: {
 						CCDs: sets.Int{17: sets.Empty{}, 99: sets.Empty{}},
 						CCDMB: map[int]*monitor.MBData{
 							17: {
@@ -113,8 +113,8 @@ func Test_getApplicableQoSCCDMB(t *testing.T) {
 					},
 				},
 			},
-			want: map[task.QoSGroup]*monitor.MBQoSGroup{
-				task.QoSGroupSystem: {
+			want: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+				qosgroup.QoSGroupSystem: {
 					CCDs: sets.Int{17: sets.Empty{}},
 					CCDMB: map[int]*monitor.MBData{
 						17: {

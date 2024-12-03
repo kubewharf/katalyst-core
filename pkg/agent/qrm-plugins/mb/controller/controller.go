@@ -27,7 +27,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
@@ -45,7 +45,7 @@ type Controller struct {
 	policy        policy.DomainMBPolicy
 
 	chAdmit      chan struct{}
-	currQoSCCDMB map[task.QoSGroup]*monitor.MBQoSGroup
+	currQoSCCDMB map[qosgroup.QoSGroup]*monitor.MBQoSGroup
 }
 
 // ReqToAdjustMB requests controller to start a round of mb adjustment
@@ -124,8 +124,8 @@ func New(podMBMonitor monitor.MBMonitor, mbPlanAllocator allocator.PlanAllocator
 	}, nil
 }
 
-func getApplicableQoSCCDMB(domain *mbdomain.MBDomain, qosccdmb map[task.QoSGroup]*monitor.MBQoSGroup) map[task.QoSGroup]*monitor.MBQoSGroup {
-	result := make(map[task.QoSGroup]*monitor.MBQoSGroup)
+func getApplicableQoSCCDMB(domain *mbdomain.MBDomain, qosccdmb map[qosgroup.QoSGroup]*monitor.MBQoSGroup) map[qosgroup.QoSGroup]*monitor.MBQoSGroup {
+	result := make(map[qosgroup.QoSGroup]*monitor.MBQoSGroup)
 
 	for qos, mbQosGroup := range qosccdmb {
 		for ccd, _ := range mbQosGroup.CCDs {

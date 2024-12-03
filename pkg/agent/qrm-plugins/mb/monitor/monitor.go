@@ -26,10 +26,10 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/readmb"
 	resctrlfile "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/file"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/state"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/writemb"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/writemb/l3pmc"
 )
@@ -46,7 +46,7 @@ var (
 )
 
 type MBMonitor interface {
-	GetMBQoSGroups() (map[task.QoSGroup]*MBQoSGroup, error)
+	GetMBQoSGroups() (map[qosgroup.QoSGroup]*MBQoSGroup, error)
 }
 
 func newMBMonitor(rmbReader readmb.ReadMBReader, wmbReader writemb.WriteMBReader, fs afero.Fs) (MBMonitor, error) {
@@ -96,7 +96,7 @@ type mbMonitor struct {
 	fs afero.Fs
 }
 
-func (m mbMonitor) GetMBQoSGroups() (map[task.QoSGroup]*MBQoSGroup, error) {
+func (m mbMonitor) GetMBQoSGroups() (map[qosgroup.QoSGroup]*MBQoSGroup, error) {
 	rQoSCCDMB, err := m.getTopLevelReadsMBs()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get reads mb")
@@ -108,7 +108,7 @@ func (m mbMonitor) GetMBQoSGroups() (map[task.QoSGroup]*MBQoSGroup, error) {
 	}
 
 	groupCCDMBs := getGroupCCDMBs(rQoSCCDMB, wQoSCCDMB)
-	groups := make(map[task.QoSGroup]*MBQoSGroup)
+	groups := make(map[qosgroup.QoSGroup]*MBQoSGroup)
 	for qos, ccdMB := range groupCCDMBs {
 		groups[qos] = newMBQoSGroup(ccdMB)
 	}
@@ -116,8 +116,8 @@ func (m mbMonitor) GetMBQoSGroups() (map[task.QoSGroup]*MBQoSGroup, error) {
 	return groups, nil
 }
 
-func getGroupCCDMBs(rGroupCCDMB, wGroupCCDMB map[task.QoSGroup]map[int]int) map[task.QoSGroup]map[int]*MBData {
-	groupCCDMBs := make(map[task.QoSGroup]map[int]*MBData)
+func getGroupCCDMBs(rGroupCCDMB, wGroupCCDMB map[qosgroup.QoSGroup]map[int]int) map[qosgroup.QoSGroup]map[int]*MBData {
+	groupCCDMBs := make(map[qosgroup.QoSGroup]map[int]*MBData)
 	for qos, ccdMB := range rGroupCCDMB {
 		groupCCDMBs[qos] = make(map[int]*MBData)
 		for ccd, mb := range ccdMB {
@@ -139,8 +139,8 @@ func getGroupCCDMBs(rGroupCCDMB, wGroupCCDMB map[task.QoSGroup]map[int]int) map[
 	return groupCCDMBs
 }
 
-func getCCDQoSGroups(qosMBs map[task.QoSGroup]map[int]int) map[int][]task.QoSGroup {
-	result := make(map[int][]task.QoSGroup)
+func getCCDQoSGroups(qosMBs map[qosgroup.QoSGroup]map[int]int) map[int][]qosgroup.QoSGroup {
+	result := make(map[int][]qosgroup.QoSGroup)
 	for qos, ccdmb := range qosMBs {
 		for ccd, _ := range ccdmb {
 			result[ccd] = append(result[ccd], qos)
@@ -150,8 +150,8 @@ func getCCDQoSGroups(qosMBs map[task.QoSGroup]map[int]int) map[int][]task.QoSGro
 }
 
 // getTopLevelReadsMBs gets MB based on top level mon data
-func (m *mbMonitor) getTopLevelReadsMBs() (map[task.QoSGroup]map[int]int, error) {
-	result := make(map[task.QoSGroup]map[int]int)
+func (m *mbMonitor) getTopLevelReadsMBs() (map[qosgroup.QoSGroup]map[int]int, error) {
+	result := make(map[qosgroup.QoSGroup]map[int]int)
 
 	qosLevels, err := resctrlfile.GetResctrlCtrlGroups(m.fs)
 	if err != nil {
@@ -159,14 +159,14 @@ func (m *mbMonitor) getTopLevelReadsMBs() (map[task.QoSGroup]map[int]int, error)
 	}
 
 	for _, qosLevel := range qosLevels {
-		result[task.QoSGroup(qosLevel)], err = m.grmbReader.GetMB(qosLevel)
+		result[qosgroup.QoSGroup(qosLevel)], err = m.grmbReader.GetMB(qosLevel)
 	}
 
 	return result, nil
 }
 
-func (m *mbMonitor) getWritesMBs(ccdQoSGroup map[int][]task.QoSGroup) (map[task.QoSGroup]map[int]int, error) {
-	result := make(map[task.QoSGroup]map[int]int)
+func (m *mbMonitor) getWritesMBs(ccdQoSGroup map[int][]qosgroup.QoSGroup) (map[qosgroup.QoSGroup]map[int]int, error) {
+	result := make(map[qosgroup.QoSGroup]map[int]int)
 	for ccd, groups := range ccdQoSGroup {
 		mb, err := m.wmbReader.GetMB(ccd)
 		if err != nil {
@@ -186,7 +186,7 @@ func (m *mbMonitor) getWritesMBs(ccdQoSGroup map[int][]task.QoSGroup) (map[task.
 	return result, nil
 }
 
-func DisplayMBSummary(qosCCDMB map[task.QoSGroup]*MBQoSGroup) string {
+func DisplayMBSummary(qosCCDMB map[qosgroup.QoSGroup]*MBQoSGroup) string {
 	var sb strings.Builder
 	sb.WriteString("----- mb summary -----\n")
 	for qos, ccdmb := range qosCCDMB {

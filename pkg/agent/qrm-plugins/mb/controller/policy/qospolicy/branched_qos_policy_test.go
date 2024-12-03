@@ -24,7 +24,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
 
 func Test_valveQoSMBPolicy_GetPlan(t *testing.T) {
@@ -32,24 +32,24 @@ func Test_valveQoSMBPolicy_GetPlan(t *testing.T) {
 
 	upperPolicy := new(mockQoSPolicy)
 	upperPolicy.On("GetPlan", mock.Anything, mock.Anything, mock.Anything).
-		Return(&plan.MBAlloc{Plan: map[task.QoSGroup]map[int]int{
+		Return(&plan.MBAlloc{Plan: map[qosgroup.QoSGroup]map[int]int{
 			"upper": {},
 		}})
 
 	lowerPolicy := new(mockQoSPolicy)
 	lowerPolicy.On("GetPlan", mock.Anything, mock.Anything, mock.Anything).
-		Return(&plan.MBAlloc{Plan: map[task.QoSGroup]map[int]int{
+		Return(&plan.MBAlloc{Plan: map[qosgroup.QoSGroup]map[int]int{
 			"lower": {},
 		}})
 
 	type fields struct {
 		either QoSMBPolicy
 		or     QoSMBPolicy
-		filter func(mbQoSGroups map[task.QoSGroup]*monitor.MBQoSGroup, isTopMost bool) bool
+		filter func(mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup, isTopMost bool) bool
 	}
 	type args struct {
 		totalMB     int
-		mbQoSGroups map[task.QoSGroup]*monitor.MBQoSGroup
+		mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup
 		isTopMost   bool
 	}
 	tests := []struct {
@@ -63,12 +63,12 @@ func Test_valveQoSMBPolicy_GetPlan(t *testing.T) {
 			fields: fields{
 				either: upperPolicy,
 				or:     lowerPolicy,
-				filter: func(_ map[task.QoSGroup]*monitor.MBQoSGroup, _ bool) bool {
+				filter: func(_ map[qosgroup.QoSGroup]*monitor.MBQoSGroup, _ bool) bool {
 					return true
 				},
 			},
 			args: args{},
-			want: &plan.MBAlloc{Plan: map[task.QoSGroup]map[int]int{
+			want: &plan.MBAlloc{Plan: map[qosgroup.QoSGroup]map[int]int{
 				"upper": {},
 			}},
 		},
@@ -77,12 +77,12 @@ func Test_valveQoSMBPolicy_GetPlan(t *testing.T) {
 			fields: fields{
 				either: upperPolicy,
 				or:     lowerPolicy,
-				filter: func(_ map[task.QoSGroup]*monitor.MBQoSGroup, _ bool) bool {
+				filter: func(_ map[qosgroup.QoSGroup]*monitor.MBQoSGroup, _ bool) bool {
 					return false
 				},
 			},
 			args: args{},
-			want: &plan.MBAlloc{Plan: map[task.QoSGroup]map[int]int{
+			want: &plan.MBAlloc{Plan: map[qosgroup.QoSGroup]map[int]int{
 				"lower": {},
 			}},
 		},

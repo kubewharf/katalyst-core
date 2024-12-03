@@ -24,8 +24,8 @@ import (
 	"github.com/stretchr/testify/mock"
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/readmb"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/writemb"
 )
 
@@ -68,7 +68,7 @@ func Test_mbMonitor_GetMBQoSGroups(t1 *testing.T) {
 	tests := []struct {
 		name    string
 		fields  fields
-		want    map[task.QoSGroup]*MBQoSGroup
+		want    map[qosgroup.QoSGroup]*MBQoSGroup
 		wantErr bool
 	}{
 		{
@@ -78,7 +78,7 @@ func Test_mbMonitor_GetMBQoSGroups(t1 *testing.T) {
 				wmbReader: wmbReader,
 				fs:        stubFs,
 			},
-			want: map[task.QoSGroup]*MBQoSGroup{
+			want: map[qosgroup.QoSGroup]*MBQoSGroup{
 				"shared-50": {
 					CCDs: sets.Int{2: sets.Empty{}, 3: sets.Empty{}},
 					CCDMB: map[int]*MBData{

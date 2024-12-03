@@ -20,12 +20,12 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
 
 type terminalQoSPolicy struct{}
 
-func (t terminalQoSPolicy) GetPlan(totalMB int, mbQoSGroups map[task.QoSGroup]*monitor.MBQoSGroup, isTopMost bool) *plan.MBAlloc {
+func (t terminalQoSPolicy) GetPlan(totalMB int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup, isTopMost bool) *plan.MBAlloc {
 	if isTopMost {
 		return getTopMostPlan(totalMB, mbQoSGroups)
 	}
@@ -33,12 +33,12 @@ func (t terminalQoSPolicy) GetPlan(totalMB int, mbQoSGroups map[task.QoSGroup]*m
 	return getLeafPlan(totalMB, mbQoSGroups)
 }
 
-func getTopMostPlan(totalMB int, mbQoSGroups map[task.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
+func getTopMostPlan(totalMB int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
 	return getFixedPlan(config.CCDMBMax, mbQoSGroups)
 }
 
-func getFixedPlan(fixed int, mbQoSGroups map[task.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
-	mbPlan := &plan.MBAlloc{Plan: make(map[task.QoSGroup]map[int]int)}
+func getFixedPlan(fixed int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
+	mbPlan := &plan.MBAlloc{Plan: make(map[qosgroup.QoSGroup]map[int]int)}
 	for qos, group := range mbQoSGroups {
 		mbPlan.Plan[qos] = make(map[int]int)
 		for ccd, _ := range group.CCDs {
@@ -48,7 +48,7 @@ func getFixedPlan(fixed int, mbQoSGroups map[task.QoSGroup]*monitor.MBQoSGroup) 
 	return mbPlan
 }
 
-func getLeafPlan(totalMB int, mbQoSGroups map[task.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
+func getLeafPlan(totalMB int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
 	// distribute total among all proportionally
 	totalUsage := monitor.SumMB(mbQoSGroups)
 	if totalUsage == 0 {
@@ -59,8 +59,8 @@ func getLeafPlan(totalMB int, mbQoSGroups map[task.QoSGroup]*monitor.MBQoSGroup)
 	return getProportionalPlan(ratio, mbQoSGroups)
 }
 
-func getProportionalPlan(ratio float64, mbQoSGroups map[task.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
-	mbPlan := &plan.MBAlloc{Plan: make(map[task.QoSGroup]map[int]int)}
+func getProportionalPlan(ratio float64, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
+	mbPlan := &plan.MBAlloc{Plan: make(map[qosgroup.QoSGroup]map[int]int)}
 	for qos, group := range mbQoSGroups {
 		mbPlan.Plan[qos] = make(map[int]int)
 		for ccd, mb := range group.CCDMB {

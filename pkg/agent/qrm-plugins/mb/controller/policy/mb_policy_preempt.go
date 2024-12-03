@@ -22,7 +22,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/qospolicy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
@@ -44,13 +44,13 @@ func getReservationPlan(domain *mbdomain.MBDomain, preemptingNodes []int) *plan.
 	}
 
 	return &plan.MBAlloc{
-		Plan: map[task.QoSGroup]map[int]int{
-			task.QoSGroupDedicated: ccdMB,
+		Plan: map[qosgroup.QoSGroup]map[int]int{
+			qosgroup.QoSGroupDedicated: ccdMB,
 		},
 	}
 }
 
-func (p preemptDomainMBPolicy) GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoSMB map[task.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
+func (p preemptDomainMBPolicy) GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoSMB map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
 	preemptingNodes := domain.GetPreemptingNodes()
 	mbToReserve := config.ReservedPerNuma * len(preemptingNodes)
 	reservationPlan := getReservationPlan(domain, preemptingNodes)

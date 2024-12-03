@@ -22,8 +22,8 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/state"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
@@ -88,7 +88,7 @@ func (r *resctrlMetricsProvisioner) sample(ctx context.Context) {
 	// todo: save read/write MB metrics
 }
 
-func (r *resctrlMetricsProvisioner) processTotalMB(qosCCDMB map[task.QoSGroup]*monitor.MBQoSGroup) {
+func (r *resctrlMetricsProvisioner) processTotalMB(qosCCDMB map[qosgroup.QoSGroup]*monitor.MBQoSGroup) {
 	if qosCCDMB == nil {
 		return
 	}

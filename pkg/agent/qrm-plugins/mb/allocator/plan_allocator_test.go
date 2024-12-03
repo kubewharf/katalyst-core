@@ -22,8 +22,8 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
 )
 
 type mockCtrlGroupMBSetter struct {
@@ -60,7 +60,7 @@ func Test_planAllocator_Allocate(t *testing.T) {
 			},
 			args: args{
 				alloc: &plan.MBAlloc{
-					Plan: map[task.QoSGroup]map[int]int{task.QoSGroupDedicated: {2: 25_000, 3: 12_000}},
+					Plan: map[qosgroup.QoSGroup]map[int]int{qosgroup.QoSGroupDedicated: {2: 25_000, 3: 12_000}},
 				},
 			},
 			wantErr: false,

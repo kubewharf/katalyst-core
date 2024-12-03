@@ -19,9 +19,9 @@ package readmb
 import (
 	"github.com/pkg/errors"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/state"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
 )
 
 type ReadMBReader interface {
@@ -34,7 +34,7 @@ type QoSGroupMBReader struct {
 }
 
 func (q *QoSGroupMBReader) GetMB(qosGroup string) (map[int]int, error) {
-	ctrlGroupPath, err := task.GetResctrlCtrlGroupFolder(task.QoSGroup(qosGroup))
+	ctrlGroupPath, err := qosgroup.GetResctrlCtrlGroupFolder(qosgroup.QoSGroup(qosGroup))
 	if err != nil {
 		return nil, err
 	}
