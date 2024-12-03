@@ -16,11 +16,6 @@ limitations under the License.
 
 package consts
 
-// KatalystCustomConfigAnnotationKeyConfigHash defines const variables for kcc annotations about config hash.
-const (
-	KatalystCustomConfigAnnotationKeyConfigHash = "kcc.katalyst.kubewharf.io/config.hash"
-)
-
 // KatalystCustomConfigFinalizerKCC defines const variables for kcc finalizer
 const (
 	KatalystCustomConfigFinalizerKCC = "kcc.katalyst.kubewharf.io/kcc-controller"
@@ -40,6 +35,11 @@ const (
 	KCCTargetConfFieldEphemeralSelector        = "ephemeralSelector"
 	KCCTargetConfFieldNameRevisionHistoryLimit = "revisionHistoryLimit"
 	KCCTargetConfFieldNameConfig               = "config"
+	KCCTargetConfFieldNamePaused               = "paused"
+
+	KCCTargetConfFieldNameUpdateStrategy = "updateStrategy"
+	KCCTargetConfFieldNameRollingUpdate  = "rollingUpdate"
+	KCCTargetConfFieldNameCanary         = "canary"
 
 	KCCTargetConfFieldNameNodeNames    = "nodeNames"
 	KCCTargetConfFieldNameLastDuration = "lastDuration"

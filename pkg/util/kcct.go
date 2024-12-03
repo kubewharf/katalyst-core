@@ -18,11 +18,13 @@ package util
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
@@ -45,23 +47,6 @@ func ToKCCTargetResource(obj *unstructured.Unstructured) KCCTargetResource {
 	}
 }
 
-func (g KCCTargetResource) GetHash() string {
-	annotations := g.GetAnnotations()
-	if hash, ok := annotations[consts.KatalystCustomConfigAnnotationKeyConfigHash]; ok {
-		return hash
-	}
-	return ""
-}
-
-func (g KCCTargetResource) SetHash(hash string) {
-	annotations := g.GetAnnotations()
-	if annotations == nil {
-		annotations = map[string]string{}
-	}
-	annotations[consts.KatalystCustomConfigAnnotationKeyConfigHash] = hash
-	g.SetAnnotations(annotations)
-}
-
 func (g KCCTargetResource) GetLabelSelector() string {
 	labelSelector, _, _ := unstructured.NestedString(g.Object, consts.ObjectFieldNameSpec, consts.KCCTargetConfFieldNameLabelSelector)
 	return labelSelector
@@ -75,6 +60,20 @@ func (g KCCTargetResource) GetPriority() int32 {
 func (g KCCTargetResource) GetNodeNames() []string {
 	nodeNames, _, _ := unstructured.NestedStringSlice(g.Object, consts.ObjectFieldNameSpec, consts.KCCTargetConfFieldEphemeralSelector, consts.KCCTargetConfFieldNameNodeNames)
 	return nodeNames
+}
+
+func (g KCCTargetResource) GetCanary() *intstr.IntOrString {
+	canary, exists, _ := unstructured.NestedFieldCopy(g.Object, consts.ObjectFieldNameSpec, consts.KCCTargetConfFieldNameUpdateStrategy, consts.KCCTargetConfFieldNameRollingUpdate, consts.KCCTargetConfFieldNameCanary)
+	if !exists {
+		return nil
+	}
+	ret := intstr.Parse(fmt.Sprint(canary))
+	return &ret
+}
+
+func (g KCCTargetResource) GetPaused() bool {
+	canary, _, _ := unstructured.NestedBool(g.Object, consts.ObjectFieldNameSpec, consts.KCCTargetConfFieldNamePaused)
+	return canary
 }
 
 func (g KCCTargetResource) GetLastDuration() *time.Duration {

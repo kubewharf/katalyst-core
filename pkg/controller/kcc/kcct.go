@@ -19,8 +19,11 @@ package kcc
 import (
 	"context"
 	"fmt"
+	"sort"
+	"sync"
 	"time"
 
+	"golang.org/x/time/rate"
 	v1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -28,10 +31,13 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -47,6 +53,7 @@ import (
 	kccutil "github.com/kubewharf/katalyst-core/pkg/controller/kcc/util"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
@@ -55,10 +62,26 @@ const (
 )
 
 const (
-	kccTargetConditionReasonNormal                    = "Normal"
-	kccTargetConditionReasonHashFailed                = "HashFailed"
-	kccTargetConditionReasonMatchMoreOrLessThanOneKCC = "MatchMoreOrLessThanOneKCC"
-	kccTargetConditionReasonValidateFailed            = "ValidateFailed"
+	kcctWorkerCount = 1
+	cncWorkerCount  = 16
+)
+
+const (
+	defaultCNCEnqueueDelay  = 20 * time.Second
+	defaultKCCTEnqueueDelay = 10 * time.Second
+)
+
+const (
+	defaultCNCUpdateQPS   = 10
+	defaultCNCUpdateBurst = 100
+)
+
+const (
+	kccTargetConditionReasonNormal                      = "Normal"
+	kccTargetConditionReasonHashFailed                  = "HashFailed"
+	kccTargetConditionReasonMatchMoreOrLessThanOneKCC   = "MatchMoreOrLessThanOneKCC"
+	kccTargetConditionReasonValidateFailed              = "ValidateFailed"
+	kccTargetConditionReasonCalculateCanaryCutoffFailed = "CalculateCanaryCutoffFailed"
 )
 
 type KatalystCustomConfigTargetController struct {
@@ -69,17 +92,28 @@ type KatalystCustomConfigTargetController struct {
 	client              *kcclient.GenericClientSet
 	kccControl          control.KCCControl
 	unstructuredControl control.UnstructuredControl
+	cncControl          control.CNCControl
 
-	// katalystCustomConfigLister can list/get KatalystCustomConfig from the shared informer's store
+	// listers from the shared informer's stores
 	katalystCustomConfigLister v1alpha1.KatalystCustomConfigLister
+	customNodeConfigLister     v1alpha1.CustomNodeConfigLister
 
 	syncedFunc []cache.InformerSynced
+
+	queue workqueue.RateLimitingInterface
+
+	rateLimiters sync.Map
 
 	// targetHandler store gvr kcc and gvr
 	targetHandler *kcctarget.KatalystCustomConfigTargetHandler
 
 	// metricsEmitter for emit metrics
 	metricsEmitter metrics.MetricEmitter
+
+	cncEnqueueDelay  time.Duration
+	kcctEnqueueDelay time.Duration
+	cncUpdateQPS     int
+	cncUpdateBurst   int
 }
 
 func NewKatalystCustomConfigTargetController(
@@ -89,6 +123,7 @@ func NewKatalystCustomConfigTargetController(
 	kccConfig *controller.KCCConfig,
 	client *kcclient.GenericClientSet,
 	katalystCustomConfigInformer configinformers.KatalystCustomConfigInformer,
+	customNodeConfigInformer configinformers.CustomNodeConfigInformer,
 	metricsEmitter metrics.MetricEmitter,
 	targetHandler *kcctarget.KatalystCustomConfigTargetHandler,
 ) (*KatalystCustomConfigTargetController, error) {
@@ -98,11 +133,19 @@ func NewKatalystCustomConfigTargetController(
 		dryRun:                     genericConf.DryRun,
 		kccConfig:                  kccConfig,
 		katalystCustomConfigLister: katalystCustomConfigInformer.Lister(),
+		customNodeConfigLister:     customNodeConfigInformer.Lister(),
 		targetHandler:              targetHandler,
 		syncedFunc: []cache.InformerSynced{
 			katalystCustomConfigInformer.Informer().HasSynced,
+			customNodeConfigInformer.Informer().HasSynced,
 			targetHandler.HasSynced,
 		},
+		queue:            workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), kccTargetControllerName),
+		rateLimiters:     sync.Map{},
+		cncEnqueueDelay:  defaultCNCEnqueueDelay,
+		kcctEnqueueDelay: defaultKCCTEnqueueDelay,
+		cncUpdateQPS:     defaultCNCUpdateQPS,
+		cncUpdateBurst:   defaultCNCUpdateBurst,
 	}
 
 	if metricsEmitter == nil {
@@ -113,19 +156,28 @@ func NewKatalystCustomConfigTargetController(
 
 	k.kccControl = control.DummyKCCControl{}
 	k.unstructuredControl = control.DummyUnstructuredControl{}
+	k.cncControl = control.DummyCNCControl{}
 	if !k.dryRun {
 		k.kccControl = control.NewRealKCCControl(client.InternalClient)
 		k.unstructuredControl = control.NewRealUnstructuredControl(client.DynamicClient)
+		k.cncControl = control.NewRealCNCControl(client.InternalClient)
 	}
 
+	customNodeConfigInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    k.handleCNCAdd,
+		UpdateFunc: k.handleCNCUpdate,
+		DeleteFunc: k.handleCNCDelete,
+	})
+
 	// register kcc-target informer handler
-	targetHandler.RegisterTargetHandler(kccTargetControllerName, k.katalystCustomConfigTargetHandler)
+	targetHandler.RegisterTargetHandler(kccTargetControllerName, k.handleTargetEvent)
 	return k, nil
 }
 
 // Run don't need to trigger reconcile logic.
 func (k *KatalystCustomConfigTargetController) Run() {
 	defer utilruntime.HandleCrash()
+	defer k.queue.ShutDown()
 
 	defer klog.Infof("shutting down %s controller", kccTargetControllerName)
 
@@ -134,216 +186,529 @@ func (k *KatalystCustomConfigTargetController) Run() {
 		return
 	}
 	klog.Infof("caches are synced for %s controller", kccTargetControllerName)
+	klog.Infof("start %d workers for %s controller", kcctWorkerCount, kccTargetControllerName)
 
-	go wait.Until(k.clearExpiredKCCTarget, 30*time.Second, k.ctx.Done())
+	for i := 0; i < kcctWorkerCount; i++ {
+		go wait.Until(k.worker, time.Second, k.ctx.Done())
+	}
+	go wait.Until(k.clearUnusedConfig, 5*time.Minute, k.ctx.Done())
 
 	<-k.ctx.Done()
 }
 
-// katalystCustomConfigTargetHandler process object of kcc target type from targetAccessor, and
-// KatalystCustomConfigTargetAccessor will call this handler when some update event on target is added.
-func (k *KatalystCustomConfigTargetController) katalystCustomConfigTargetHandler(gvr metav1.GroupVersionResource, target *unstructured.Unstructured) error {
-	for _, syncFunc := range k.syncedFunc {
-		if !syncFunc() {
-			return fmt.Errorf("[kcct] informer has not synced")
-		}
-	}
-
-	klog.V(4).Infof("gvr: %s, target: %s updated", gvr.String(), native.GenerateUniqObjectNameKey(target))
-
-	if target.GetDeletionTimestamp() != nil {
-		err := k.handleKCCTargetFinalizer(gvr, target)
-		if err != nil {
-			return err
-		}
-		return nil
-	}
-
-	target, err := kccutil.EnsureKCCTargetFinalizer(k.ctx, k.unstructuredControl,
-		consts.KatalystCustomConfigTargetFinalizerKCCT, gvr, target)
-	if err != nil {
-		return err
-	}
-
-	// add kcc target config process logic:
-	//	1. clear expired valid target config
-	//	2. generate hash of current target config and update it to annotation
-	//	3. todo: control revision history if needed
-	//	4. update target config annotation and status if needed
-
-	targetResource := util.ToKCCTargetResource(target)
-	if isExpired := targetResource.CheckExpired(time.Now()); isExpired {
-		// delete expired kcc target
-		err := k.unstructuredControl.DeleteUnstructured(k.ctx, gvr, target, metav1.DeleteOptions{})
-		if err != nil {
-			return err
-		}
-		return nil
-	}
-
-	var (
-		isValid               bool
-		message, hash, reason string
-		overlapTargets        []util.KCCTargetResource
-	)
-
-	reason = kccTargetConditionReasonNormal
-	kccKeys := k.targetHandler.GetKCCKeyListByGVR(gvr)
-	if len(kccKeys) != 1 {
-		isValid = false
-		reason = kccTargetConditionReasonMatchMoreOrLessThanOneKCC
-		message = fmt.Sprintf("more or less than one kcc %v match same gvr %s", kccKeys, gvr.String())
-	} else {
-		key := kccKeys[0]
-		namespace, name, err := cache.SplitMetaNamespaceKey(key)
-		if err != nil {
-			klog.Errorf("failed to split namespace and name from key %s", key)
-			return err
-		}
-
-		kcc, err := k.katalystCustomConfigLister.KatalystCustomConfigs(namespace).Get(name)
-		if apierrors.IsNotFound(err) {
-			klog.Warningf("kcc %s is not found", key)
-			return nil
-		} else if err != nil {
-			klog.Errorf("kcc %s get error: %v", key, err)
-			return err
-		}
-
-		isValid, message, overlapTargets, err = k.validateTargetResourceGenericSpec(kcc, targetResource)
-		if err != nil {
-			return err
-		}
-
-		if !isValid {
-			reason = kccTargetConditionReasonValidateFailed
-		}
-	}
-
-	if isValid {
-		// update target resource hash only when config is valid
-		hash, err = targetResource.GenerateConfigHash()
-		if err != nil {
-			// if generate config hash failed set target resource invalid
-			isValid = false
-			message = fmt.Sprintf("generate config hash failed: %s", err)
-			reason = kccTargetConditionReasonHashFailed
-		}
-
-		// set kcc target hash
-		if targetResource.GetHash() != hash {
-			targetResource.SetHash(hash)
-			target, err = k.unstructuredControl.UpdateUnstructured(k.ctx, gvr, target, metav1.UpdateOptions{})
-			if err != nil {
-				return err
-			}
-
-			targetResource = util.ToKCCTargetResource(target)
-		}
-	}
-
-	// update kcc target status
-	oldKCCTargetResource := targetResource.DeepCopy()
-	updateTargetResourceStatus(targetResource, isValid, message, reason)
-	if !apiequality.Semantic.DeepEqual(oldKCCTargetResource, targetResource) {
-		klog.V(4).Infof("gvr: %s, target: %s need update status", gvr.String(), native.GenerateUniqObjectNameKey(target))
-		_, err = k.unstructuredControl.UpdateUnstructuredStatus(k.ctx, gvr, target, metav1.UpdateOptions{})
-		if err != nil {
-			return err
-		}
-
-		if len(overlapTargets) > 0 {
-			// if kcc target status changed, it needs trigger overlap kcc targets to reconcile
-			err := k.enqueueTargets(gvr, overlapTargets)
-			if err != nil {
-				return err
-			}
-		} else if !oldKCCTargetResource.CheckValid() && targetResource.CheckValid() {
-			// if old kcc is overlap and change to valid now, it needs trigger all other invalid kcc targets to reconcile
-			targets, err := k.listAllKCCTargetResource(gvr)
-			if err != nil {
-				return err
-			}
-
-			var invalidTargets []util.KCCTargetResource
-			for _, target := range targets {
-				if targetResource.GetName() == target.GetName() && targetResource.GetNamespace() == target.GetNamespace() {
-					continue
-				}
-
-				if !target.CheckValid() {
-					invalidTargets = append(invalidTargets, target)
-				}
-			}
-
-			err = k.enqueueTargets(gvr, invalidTargets)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
+func (k *KatalystCustomConfigTargetController) handleCNCAdd(obj interface{}) {
+	k.handleCNCStatusUpdate()
 }
 
-func (k *KatalystCustomConfigTargetController) clearExpiredKCCTarget() {
-	k.targetHandler.RangeGVRTargetAccessor(func(gvr metav1.GroupVersionResource, accessor kcctarget.KatalystCustomConfigTargetAccessor) bool {
-		configTargets, err := accessor.List(labels.Everything())
-		if err != nil {
-			return false
-		}
+func (k *KatalystCustomConfigTargetController) handleCNCUpdate(old, new interface{}) {
+	oldCNC, ok := old.(*configapis.CustomNodeConfig)
+	if !ok {
+		general.Errorf("received invalid old CNC type: %T", old)
+		return
+	}
+	newCNC, ok := new.(*configapis.CustomNodeConfig)
+	if !ok {
+		general.Errorf("received invalid new CNC type: %T", new)
+		return
+	}
 
-		for _, target := range configTargets {
-			// expired target config will be re-enqueue periodically to make sure it is cleared
-			if util.ToKCCTargetResource(target).CheckExpired(time.Now()) {
-				accessor.Enqueue(kccTargetControllerName, target)
-			}
-		}
+	if !apiequality.Semantic.DeepEqual(oldCNC, newCNC) {
+		k.handleCNCStatusUpdate()
+	}
+}
+
+func (k *KatalystCustomConfigTargetController) handleCNCDelete(obj interface{}) {
+	k.handleCNCStatusUpdate()
+}
+
+// Enqueue all kcc target gvr to correct any accidentally changed CNC status and update the KCCT status.
+func (k *KatalystCustomConfigTargetController) handleCNCStatusUpdate() {
+	// enqueue all kcct gvr
+	k.targetHandler.RangeGVRTargetAccessor(func(gvr metav1.GroupVersionResource, accessor kcctarget.KatalystCustomConfigTargetAccessor) bool {
+		// enqueue gvr with delay to frequent reconciles caused by many CNC events
+		k.queue.AddAfter(gvr, k.cncEnqueueDelay)
 		return true
 	})
 }
 
-func (k *KatalystCustomConfigTargetController) enqueueTargets(gvr metav1.GroupVersionResource, targets []util.KCCTargetResource) error {
+func (k *KatalystCustomConfigTargetController) handleTargetEvent(gvr metav1.GroupVersionResource, _ *unstructured.Unstructured) error {
+	k.queue.AddAfter(gvr, k.kcctEnqueueDelay)
+	return nil
+}
+
+func (k *KatalystCustomConfigTargetController) worker() {
+	for k.processNextWorkItem() {
+	}
+}
+
+func (k *KatalystCustomConfigTargetController) processNextWorkItem() bool {
+	key, quit := k.queue.Get()
+	if quit {
+		return false
+	}
+	defer k.queue.Done(key)
+
+	gvr, ok := key.(metav1.GroupVersionResource)
+	if !ok {
+		k.queue.Forget(key)
+		general.Errorf("received invalid key type: %T", key)
+		return true
+	}
+
+	err := k.syncKCCTs(gvr)
+	if err == nil {
+		k.queue.Forget(key)
+		return true
+	}
+
+	general.Errorf("sync kcct gvr %s failed with %v", gvr, err)
+	k.queue.AddRateLimited(key)
+
+	return true
+}
+
+/*
+syncKCCTs is the main reconciliation logic for Katalyst Custom Config Target Controller.
+It roughly performs the following steps:
+
+1. handle terminating kcc target(s)
+
+2. clear expired kcc target(s)
+
+3. check the validity of each kcc target
+
+4. calculate the scope of each kcc target
+
+5. update the CNCs in each kcc target's scope
+
+6. update the status of each kcc target
+*/
+func (k *KatalystCustomConfigTargetController) syncKCCTs(gvr metav1.GroupVersionResource) error {
+	reconcileStartTime := time.Now()
+	general.InfofV(4, "reconcile KCCT GVR %s", gvr.String())
+	defer func() {
+		general.InfofV(4, "reconcile KCCT GVR %s finished in %v", gvr.String(), time.Since(reconcileStartTime))
+	}()
+
+	// Since each KCC target can affect the validity and scope of other KCC targets,
+	// we reconcile all KCC targets of the same GVR at once.
 	accessor, ok := k.targetHandler.GetTargetAccessorByGVR(gvr)
 	if !ok {
 		return fmt.Errorf("target accessor %s not found", gvr)
 	}
+	list, err := accessor.List(labels.Everything())
+	if err != nil {
+		return fmt.Errorf("list kcc targets failed: %w", err)
+	}
 
-	for _, t := range targets {
-		if t.GetDeletionTimestamp() != nil {
+	var errors []error
+
+	targetResources := make([]util.KCCTargetResource, 0, len(list))
+	for _, obj := range list {
+		if obj.GetDeletionTimestamp() != nil {
+			// handle kcc target finalizer
+			if err := k.handleKCCTargetFinalizers(gvr, obj); err != nil {
+				errors = append(errors, fmt.Errorf("handle kcc target finalizer failed: %w", err))
+			}
 			continue
 		}
 
-		accessor.Enqueue(kccTargetControllerName, t.Unstructured)
+		targetResource := util.ToKCCTargetResource(obj.DeepCopy())
+		if validityPeriod := targetResource.GetLastDuration(); validityPeriod != nil {
+			expiry := targetResource.GetCreationTimestamp().Add(*validityPeriod)
+			untilExpiry := time.Until(expiry)
+			if untilExpiry <= 0 {
+				// delete expired kcc target
+				general.Infof("delete expired kcc target %s %s", gvr.String(), native.GenerateUniqObjectNameKey(targetResource))
+				err := k.unstructuredControl.DeleteUnstructured(k.ctx, gvr, obj, metav1.DeleteOptions{})
+				if err != nil && !apierrors.IsNotFound(err) {
+					errors = append(errors, fmt.Errorf("delete expired kcc target failed: %w", err))
+				}
+				continue
+			} else {
+				// enqueue the yet-to-expire kcc target for cleanup at its expiry
+				k.queue.AddAfter(gvr, untilExpiry)
+			}
+		}
+
+		targetResources = append(targetResources, targetResource)
 	}
 
-	return nil
-}
+	if len(targetResources) == 0 {
+		return utilerrors.NewAggregate(errors)
+	}
 
-// handleKCCTargetFinalizer enqueue all kcc target to reconcile when a target was deleted
-func (k *KatalystCustomConfigTargetController) handleKCCTargetFinalizer(gvr metav1.GroupVersionResource, target *unstructured.Unstructured) error {
-	if !controllerutil.ContainsFinalizer(target, consts.KatalystCustomConfigTargetFinalizerKCCT) {
+	// Check if the corresponding KCC is valid
+	kccKeys := k.targetHandler.GetKCCKeyListByGVR(gvr)
+	if len(kccKeys) != 1 {
+		message := fmt.Sprintf("more or less than one kcc %v match same gvr %s", kccKeys, gvr.String())
+		for _, targetResource := range targetResources {
+			newTargetResource := targetResource.DeepCopy()
+			updateInvalidTargetResourceStatus(newTargetResource, message, kccTargetConditionReasonMatchMoreOrLessThanOneKCC)
+			if !apiequality.Semantic.DeepEqual(newTargetResource, targetResource) {
+				general.Infof("gvr: %s, target: %s need update status due to more or less than one kcc keys %v", gvr.String(), native.GenerateUniqObjectNameKey(targetResource), kccKeys)
+				_, err = k.unstructuredControl.UpdateUnstructuredStatus(k.ctx, gvr, newTargetResource.Unstructured, metav1.UpdateOptions{})
+				if err != nil {
+					errors = append(errors, fmt.Errorf("update kcc target status failed: %w", err))
+				}
+			}
+		}
+
+		return utilerrors.NewAggregate(errors)
+	}
+
+	// Check if each KCCT is valid and update its validity status
+	kccKey := kccKeys[0]
+	namespace, name, err := cache.SplitMetaNamespaceKey(kccKey)
+	if err != nil {
+		return utilerrors.NewAggregate(append(errors, fmt.Errorf("failed to split namespace and name from kcc key %s: %w", kccKey, err)))
+	}
+
+	kcc, err := k.katalystCustomConfigLister.KatalystCustomConfigs(namespace).Get(name)
+	if apierrors.IsNotFound(err) {
+		return utilerrors.NewAggregate(append(errors, fmt.Errorf("kcc %s is not found", kccKey)))
+	} else if err != nil {
+		return utilerrors.NewAggregate(append(errors, fmt.Errorf("get kcc %s failed: %w", kccKey, err)))
+	}
+
+	invalidKCCTs := []string{}
+	for _, targetResource := range targetResources {
+		isValid, message, err := k.validateTargetResourceGenericSpec(kcc, targetResource, targetResources)
+		if err != nil {
+			errors = append(errors, fmt.Errorf("validate kcc target resource failed: %w", err))
+			invalidKCCTs = append(invalidKCCTs, native.GenerateUniqObjectNameKey(targetResource))
+		}
+
+		if isValid {
+			continue
+		}
+
+		invalidKCCTs = append(invalidKCCTs, native.GenerateUniqObjectNameKey(targetResource))
+		newTargetResource := targetResource.DeepCopy()
+		updateInvalidTargetResourceStatus(newTargetResource, message, kccTargetConditionReasonValidateFailed)
+		if !apiequality.Semantic.DeepEqual(newTargetResource, targetResource) {
+			general.Infof("gvr: %s, target: %s need update status due to failed validation: %s", gvr.String(), native.GenerateUniqObjectNameKey(targetResource), message)
+			_, err := k.unstructuredControl.UpdateUnstructuredStatus(k.ctx, gvr, newTargetResource.Unstructured, metav1.UpdateOptions{})
+			if err != nil {
+				errors = append(errors, fmt.Errorf("update kcc target %s %s status failed: %w", gvr.String(), native.GenerateUniqObjectNameKey(targetResource), err))
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return utilerrors.NewAggregate(errors)
+	}
+
+	// The scope of each KCC target depends on other KCC targets.
+	// If any KCC target is invalid, we need to wait until it is corrected to be able to compute the scope of each KCC target.
+	if len(invalidKCCTs) > 0 {
+		general.Infof("skip manage CNCs for KCCT GVR %s due to presence of invalid KCCTs %v", gvr.String(), invalidKCCTs)
 		return nil
 	}
 
-	klog.Infof("handling gvr: %s kcc target %s finalizer", gvr.String(), native.GenerateUniqObjectNameKey(target))
-	targets, err := k.listAllKCCTargetResource(gvr)
+	return k.manageCNCs(gvr, targetResources)
+}
+
+func (k *KatalystCustomConfigTargetController) manageCNCs(
+	gvr metav1.GroupVersionResource,
+	targetResources []util.KCCTargetResource,
+) error {
+	allCNCs, err := k.customNodeConfigLister.List(labels.Everything())
+	if err != nil {
+		return fmt.Errorf("list CNCs failed: %w", err)
+	}
+	// sort the cncs by name for deterministic order
+	sort.Slice(allCNCs, func(i, j int) bool {
+		return allCNCs[i].GetName() < allCNCs[j].GetName()
+	})
+
+	// any errors encountered from this point onwards should not result in immediate return
+	var errors []error
+
+	// group the CNCs by KCCT
+	targetCNCIndexes, errs := k.groupCNCsByKCCT(allCNCs, targetResources)
+	if len(errs) > 0 {
+		errors = append(errors, errs...)
+	}
+
+	// calculate the hash and canary cutoff point for each KCCT
+	targetResources, hashes, errs := k.generateConfigHashesAndMaybeUpdateStatus(gvr, targetResources)
+	if len(errs) > 0 {
+		errors = append(errors, errs...)
+	}
+	targetResources, canaryCutoffPoints, errs := k.computeCanaryCutoffPointsAndMaybeUpdateStatus(gvr, targetResources, targetCNCIndexes)
+	if len(errs) > 0 {
+		errors = append(errors, errs...)
+	}
+
+	rateLimited, errs := k.updateCNCs(gvr, targetResources, hashes, canaryCutoffPoints, targetCNCIndexes, allCNCs)
+	if len(errs) > 0 {
+		errors = append(errors, errs...)
+	}
+	// If cnc updates are rate limited, requeue the GVR for later reconciliation
+	if rateLimited {
+		k.queue.AddAfter(gvr, time.Duration(k.cncUpdateBurst/k.cncUpdateQPS/2)*time.Second)
+	}
+
+	errs = k.updateTargetStatuses(gvr, targetResources, hashes, canaryCutoffPoints, targetCNCIndexes, allCNCs)
+	if len(errs) > 0 {
+		errors = append(errors, errs...)
+	}
+
+	return utilerrors.NewAggregate(errors)
+}
+
+func (k *KatalystCustomConfigTargetController) groupCNCsByKCCT(
+	allCNCs []*configapis.CustomNodeConfig,
+	targetResources []util.KCCTargetResource,
+) (map[string][]int, []error) {
+	var errors []error
+	targetCNCIndexes := make(map[string][]int)
+
+	for i, cnc := range allCNCs {
+		if cnc.GetDeletionTimestamp() != nil {
+			continue
+		}
+
+		matchedTarget, err := kccutil.FindMatchedKCCTargetConfigForNode(cnc, targetResources)
+		if err != nil {
+			errors = append(errors, fmt.Errorf("find matched target for CNC %s failed: %w", cnc.GetName(), err))
+			continue
+		}
+
+		kcctName := native.GenerateUniqObjectNameKey(matchedTarget)
+		targetCNCIndexes[kcctName] = append(targetCNCIndexes[kcctName], i)
+	}
+
+	return targetCNCIndexes, errors
+}
+
+func (k *KatalystCustomConfigTargetController) generateConfigHashesAndMaybeUpdateStatus(
+	gvr metav1.GroupVersionResource,
+	targetResources []util.KCCTargetResource,
+) ([]util.KCCTargetResource, map[string]string, []error) {
+	validTargetResources := make([]util.KCCTargetResource, 0, len(targetResources))
+	hashes := make(map[string]string, len(targetResources))
+	var errors []error
+
+	for _, targetResource := range targetResources {
+		kcctName := native.GenerateUniqObjectNameKey(targetResource)
+
+		// generate the hash for the target resource. If the hash generation fails, update the status of the KCCT and skip reconciling its target CNCs
+		hash, err := targetResource.GenerateConfigHash()
+		if err != nil {
+			message := fmt.Sprintf("failed to generate hash: %v", err)
+			newTargetResource := targetResource.DeepCopy()
+			updateInvalidTargetResourceStatus(newTargetResource, message, kccTargetConditionReasonHashFailed)
+			if !apiequality.Semantic.DeepEqual(newTargetResource, targetResource) {
+				general.Infof("gvr: %s, target: %s need update status due to hash generation: %v", gvr.String(), kcctName, err)
+				_, err := k.unstructuredControl.UpdateUnstructuredStatus(k.ctx, gvr, newTargetResource.Unstructured, metav1.UpdateOptions{})
+				if err != nil {
+					errors = append(errors, fmt.Errorf("update kcc target %s %s status failed: %w", gvr.String(), kcctName, err))
+				}
+			}
+			continue
+		}
+
+		hashes[kcctName] = hash
+		validTargetResources = append(validTargetResources, targetResource)
+	}
+
+	return validTargetResources, hashes, errors
+}
+
+func (k *KatalystCustomConfigTargetController) computeCanaryCutoffPointsAndMaybeUpdateStatus(
+	gvr metav1.GroupVersionResource,
+	targetResources []util.KCCTargetResource,
+	targetCNCIndexes map[string][]int,
+) ([]util.KCCTargetResource, map[string]int, []error) {
+	validTargetResources := make([]util.KCCTargetResource, 0, len(targetResources))
+	canaryCutoffPoints := make(map[string]int, len(targetResources))
+	var errors []error
+
+	for _, targetResource := range targetResources {
+		kcctName := native.GenerateUniqObjectNameKey(targetResource)
+
+		// calculate the canary cutoff point for the KCCT. If the calculation fails, update the status of the KCCT and skip reconciling its target CNCs
+		numTargetCNCs := len(targetCNCIndexes[kcctName])
+		canaryConfig := targetResource.GetCanary()
+		// if canaryConfig is nil, all nodes are canary nodes
+		if canaryConfig == nil {
+			canaryCutoffPoints[kcctName] = numTargetCNCs
+		} else {
+			// if canaryConfig is not nil, we need to calculate the cutoff point
+			cutoffPoint, err := intstr.GetScaledValueFromIntOrPercent(canaryConfig, numTargetCNCs, false)
+			if err != nil {
+				newTargetResource := targetResource.DeepCopy()
+				updateInvalidTargetResourceStatus(newTargetResource, fmt.Sprintf("failed to get canary cutoff point: %s", err), kccTargetConditionReasonCalculateCanaryCutoffFailed)
+				if !apiequality.Semantic.DeepEqual(newTargetResource, targetResource) {
+					general.Infof("gvr: %s, target: %s need update status due to canary cutoff calculation: %v", gvr.String(), kcctName, err)
+					_, err := k.unstructuredControl.UpdateUnstructuredStatus(k.ctx, gvr, newTargetResource.Unstructured, metav1.UpdateOptions{})
+					if err != nil {
+						errors = append(errors, fmt.Errorf("update kcc target %s %s status failed: %w", gvr.String(), kcctName, err))
+					}
+				}
+				continue
+			}
+
+			if cutoffPoint < 0 {
+				cutoffPoint = 0
+			} else if cutoffPoint > numTargetCNCs {
+				cutoffPoint = numTargetCNCs
+			}
+
+			canaryCutoffPoints[kcctName] = cutoffPoint
+		}
+
+		general.Infof("kcct %s %s targetCNCs=%d canaryCutoff=%d", gvr.String(), kcctName, numTargetCNCs, canaryCutoffPoints[kcctName])
+		validTargetResources = append(validTargetResources, targetResource)
+	}
+
+	return validTargetResources, canaryCutoffPoints, errors
+}
+
+func (k *KatalystCustomConfigTargetController) updateCNCs(
+	gvr metav1.GroupVersionResource,
+	targetResources []util.KCCTargetResource,
+	hashes map[string]string,
+	canaryCutoffPoints map[string]int,
+	targetCNCIndexes map[string][]int,
+	allCNCs []*configapis.CustomNodeConfig,
+) (bool, []error) {
+	var errors []error
+
+	rateLimiterRaw, _ := k.rateLimiters.LoadOrStore(gvr, rate.NewLimiter(rate.Limit(k.cncUpdateQPS), k.cncUpdateBurst))
+	rateLimiter := rateLimiterRaw.(*rate.Limiter)
+	rateLimited := false
+
+	// find the CNCs that need to be updated
+	type updateTask struct {
+		targetResource util.KCCTargetResource
+		cncIndex       int
+	}
+	updateTasks := []updateTask{}
+
+kcctLoop:
+	for _, targetResource := range targetResources {
+		if targetResource.GetPaused() {
+			continue
+		}
+
+		kcctName := native.GenerateUniqObjectNameKey(targetResource)
+		cutoffPoint := canaryCutoffPoints[kcctName]
+		for _, cncIndex := range targetCNCIndexes[kcctName][:cutoffPoint] {
+			if !kccutil.IsCNCUpdated(allCNCs[cncIndex], gvr, targetResource, hashes[kcctName]) {
+				if !rateLimiter.Allow() {
+					rateLimited = true
+					break kcctLoop
+				}
+
+				updateTasks = append(updateTasks, updateTask{
+					targetResource: targetResource,
+					cncIndex:       cncIndex,
+				})
+			}
+		}
+	}
+
+	general.Infof("updating %d CNCs for GVR %s", len(updateTasks), gvr.String())
+
+	// update the CNCs
+	mu := sync.Mutex{}
+	failedCount := 0
+	workqueue.ParallelizeUntil(k.ctx, cncWorkerCount, len(updateTasks), func(i int) {
+		task := updateTasks[i]
+		oldCNC := allCNCs[task.cncIndex]
+		newCNC := oldCNC.DeepCopy()
+		kcctName := native.GenerateUniqObjectNameKey(task.targetResource)
+		kccutil.ApplyKCCTargetConfigToCNC(newCNC, gvr, task.targetResource, hashes[kcctName])
+		newCNC, err := k.cncControl.PatchCNCStatus(k.ctx, oldCNC.GetName(), oldCNC, newCNC)
+
+		if err != nil {
+			mu.Lock()
+			defer mu.Unlock()
+			errors = append(errors, fmt.Errorf("update CNC %s status failed: %w", oldCNC.GetName(), err))
+			failedCount++
+		} else {
+			// also update the CNC in the cache for kcct status calculation
+			allCNCs[task.cncIndex] = newCNC
+		}
+	})
+
+	general.Infof("updated %d CNCs for GVR %s, %d failed", len(updateTasks)-failedCount, gvr.String(), failedCount)
+	return rateLimited, errors
+}
+
+func (k *KatalystCustomConfigTargetController) updateTargetStatuses(
+	gvr metav1.GroupVersionResource,
+	targetResources []util.KCCTargetResource,
+	hashes map[string]string,
+	canaryCutoffPoints map[string]int,
+	targetCNCIndexes map[string][]int,
+	allCNCs []*configapis.CustomNodeConfig,
+) []error {
+	var errors []error
+
+	for _, targetResource := range targetResources {
+		kcctName := native.GenerateUniqObjectNameKey(targetResource)
+		cutoffPoint := canaryCutoffPoints[kcctName]
+		targets := targetCNCIndexes[kcctName]
+		targetIndexSet := sets.NewInt(targets...)
+
+		var (
+			targetNodes        = int32(len(targets))
+			canaryNodes        = int32(cutoffPoint)
+			updatedTargetNodes int32
+			updatedNodes       int32
+			hash               = hashes[kcctName]
+		)
+		for i, cnc := range allCNCs {
+			if kccutil.IsCNCUpdated(cnc, gvr, targetResource, hashes[kcctName]) {
+				updatedNodes++
+				if targetIndexSet.Has(i) {
+					updatedTargetNodes++
+				}
+			}
+		}
+
+		newTargetResource := targetResource.DeepCopy()
+		updateValidTargetResourceStatus(newTargetResource, targetNodes, canaryNodes, updatedTargetNodes, updatedNodes, hash)
+		if !apiequality.Semantic.DeepEqual(newTargetResource, targetResource) {
+			general.Infof(
+				"kcct %s %s update status targetNodes=%d canaryNodes=%d updatedTargetNodes=%d updatedNodes=%d hash=%s",
+				gvr.String(), kcctName, targetNodes, canaryNodes, updatedTargetNodes, updatedNodes, hash)
+			_, err := k.unstructuredControl.UpdateUnstructuredStatus(k.ctx, gvr, newTargetResource.Unstructured, metav1.UpdateOptions{})
+			if err != nil {
+				errors = append(errors, fmt.Errorf("update kcc target %s %s status failed: %w", gvr.String(), kcctName, err))
+			}
+		}
+	}
+
+	return errors
+}
+
+// NOTE: we no longer require these finalizers and will not add them to new KCCTs,
+// but we keep the finalizer removal code for backward compatibility.
+func (k *KatalystCustomConfigTargetController) handleKCCTargetFinalizers(
+	gvr metav1.GroupVersionResource,
+	target *unstructured.Unstructured,
+) error {
+	if !controllerutil.ContainsFinalizer(target, consts.KatalystCustomConfigTargetFinalizerKCCT) &&
+		!controllerutil.ContainsFinalizer(target, consts.KatalystCustomConfigTargetFinalizerCNC) {
+		return nil
+	}
+
+	general.Infof("removing gvr %s kcc target %s finalizer", gvr.String(), native.GenerateUniqObjectNameKey(target))
+	err := kccutil.RemoveKCCTargetFinalizers(
+		k.ctx, k.unstructuredControl, gvr, target,
+		consts.KatalystCustomConfigTargetFinalizerKCCT,
+		consts.KatalystCustomConfigTargetFinalizerCNC,
+	)
 	if err != nil {
 		return err
 	}
 
-	// if kcc target deleted, it needs trigger other target to reconcile
-	err = k.enqueueTargets(gvr, targets)
-	if err != nil {
-		return err
-	}
-
-	err = kccutil.RemoveKCCTargetFinalizer(k.ctx, k.unstructuredControl, consts.KatalystCustomConfigTargetFinalizerKCCT, gvr, target)
-	if err != nil {
-		return err
-	}
-
-	klog.Infof("success remove gvr: %s kcc target %s finalizer", gvr.String(), native.GenerateUniqObjectNameKey(target))
+	general.Infof("successfully removed gvr %s kcc target %s finalizer", gvr.String(), native.GenerateUniqObjectNameKey(target))
 	return nil
 }
 
@@ -355,39 +720,42 @@ func (k *KatalystCustomConfigTargetController) handleKCCTargetFinalizer(gvr meta
 // 5. nodeNames config must set lastDuration to make sure it will be auto cleared
 // 6. nodeNames config cannot overlap with other nodeNames config
 // 7. it is not allowed two global config (without either labelSelector or nodeNames) overlap
-func (k *KatalystCustomConfigTargetController) validateTargetResourceGenericSpec(kcc *configapis.KatalystCustomConfig, targetResource util.KCCTargetResource) (bool, string, []util.KCCTargetResource, error) {
+func (k *KatalystCustomConfigTargetController) validateTargetResourceGenericSpec(
+	kcc *configapis.KatalystCustomConfig,
+	targetResource util.KCCTargetResource,
+	allTargetResoures []util.KCCTargetResource,
+) (bool, string, error) {
 	labelSelector := targetResource.GetLabelSelector()
 	nodeNames := targetResource.GetNodeNames()
 	if len(labelSelector) != 0 && len(nodeNames) != 0 {
-		return false, "both labelSelector and nodeNames has been set", nil, nil
+		return false, "both labelSelector and nodeNames has been set", nil
 	} else if len(labelSelector) != 0 {
-		return k.validateTargetResourceLabelSelector(kcc, targetResource)
+		return k.validateTargetResourceLabelSelector(kcc, targetResource, allTargetResoures)
 	} else if len(nodeNames) != 0 {
-		return k.validateTargetResourceNodeNames(kcc, targetResource)
+		return k.validateTargetResourceNodeNames(kcc, targetResource, allTargetResoures)
 	} else {
-		return k.validateTargetResourceGlobal(kcc, targetResource)
+		return k.validateTargetResourceGlobal(kcc, targetResource, allTargetResoures)
 	}
 }
 
-func (k *KatalystCustomConfigTargetController) validateTargetResourceLabelSelector(kcc *configapis.KatalystCustomConfig, targetResource util.KCCTargetResource) (bool, string, []util.KCCTargetResource, error) {
+func (k *KatalystCustomConfigTargetController) validateTargetResourceLabelSelector(
+	kcc *configapis.KatalystCustomConfig,
+	targetResource util.KCCTargetResource,
+	allTargetResources []util.KCCTargetResource,
+) (bool, string, error) {
 	priorityAllowedKeyListMap := getPriorityAllowedKeyListMap(kcc)
 	if len(priorityAllowedKeyListMap) == 0 {
-		return false, fmt.Sprintf("kcc %s no support label selector", native.GenerateUniqObjectNameKey(kcc)), nil, nil
+		return false, fmt.Sprintf("kcc %s no support label selector", native.GenerateUniqObjectNameKey(kcc)), nil
 	}
 
 	valid, msg, err := validateLabelSelectorMatchWithKCCDefinition(priorityAllowedKeyListMap, targetResource)
 	if err != nil {
-		return false, "", nil, nil
+		return false, "", nil
 	} else if !valid {
-		return false, msg, nil, nil
+		return false, msg, nil
 	}
 
-	kccTargetResources, err := k.listAllKCCTargetResource(kcc.Spec.TargetType)
-	if err != nil {
-		return false, "", nil, err
-	}
-
-	return validateLabelSelectorOverlapped(priorityAllowedKeyListMap, targetResource, kccTargetResources)
+	return validateLabelSelectorOverlapped(priorityAllowedKeyListMap, targetResource, allTargetResources)
 }
 
 func getPriorityAllowedKeyListMap(kcc *configapis.KatalystCustomConfig) map[int32]sets.String {
@@ -439,20 +807,19 @@ func validateLabelSelectorMatchWithKCCDefinition(priorityAllowedKeyListMap map[i
 // validateLabelSelectorOverlapped make sures that labelSelector config cannot overlap with other labelSelector config
 func validateLabelSelectorOverlapped(priorityAllowedKeyListMap map[int32]sets.String, targetResource util.KCCTargetResource,
 	otherResources []util.KCCTargetResource,
-) (bool, string, []util.KCCTargetResource, error) {
+) (bool, string, error) {
 	labelSelector := targetResource.GetLabelSelector()
 	selector, err := labels.Parse(labelSelector)
 	if err != nil {
-		return false, fmt.Sprintf("labelSelector parse failed: %s", err), nil, nil
+		return false, fmt.Sprintf("labelSelector parse failed: %s", err), nil
 	}
 
 	priority := targetResource.GetPriority()
 	allowedKeyList, ok := priorityAllowedKeyListMap[priority]
 	if !ok {
-		return false, fmt.Sprintf("priority %d not supported", priority), nil, nil
+		return false, fmt.Sprintf("priority %d not supported", priority), nil
 	}
 
-	var overlapTargets []util.KCCTargetResource
 	overlapResources := sets.String{}
 	for _, res := range otherResources {
 		if (res.GetNamespace() == targetResource.GetNamespace() && res.GetName() == targetResource.GetName()) ||
@@ -472,36 +839,33 @@ func validateLabelSelectorOverlapped(priorityAllowedKeyListMap map[int32]sets.St
 
 		overlap := checkLabelSelectorOverlap(selector, otherSelector, allowedKeyList.List())
 		if overlap {
-			overlapTargets = append(overlapTargets, res)
 			overlapResources.Insert(native.GenerateUniqObjectNameKey(res))
 		}
 	}
 
 	if len(overlapResources) > 0 {
-		return false, fmt.Sprintf("labelSelector overlay with others: %v", overlapResources.List()), overlapTargets, nil
+		return false, fmt.Sprintf("labelSelector overlay with others: %v", overlapResources.List()), nil
 	}
 
-	return true, "", nil, nil
+	return true, "", nil
 }
 
-func (k *KatalystCustomConfigTargetController) validateTargetResourceNodeNames(kcc *configapis.KatalystCustomConfig, targetResource util.KCCTargetResource) (bool, string, []util.KCCTargetResource, error) {
+func (k *KatalystCustomConfigTargetController) validateTargetResourceNodeNames(
+	kcc *configapis.KatalystCustomConfig,
+	targetResource util.KCCTargetResource,
+	allTargetResources []util.KCCTargetResource,
+) (bool, string, error) {
 	if targetResource.GetLastDuration() == nil {
-		return false, "nodeNames has been set but lastDuration no set", nil, nil
+		return false, "nodeNames has been set but lastDuration no set", nil
 	}
 
-	kccTargetResources, err := k.listAllKCCTargetResource(kcc.Spec.TargetType)
-	if err != nil {
-		return false, "", nil, err
-	}
-
-	return validateTargetResourceNodeNamesOverlapped(targetResource, kccTargetResources)
+	return validateTargetResourceNodeNamesOverlapped(targetResource, allTargetResources)
 }
 
 // validateLabelSelectorOverlapped make sures that nodeNames config cannot overlap with other labelSelector config
-func validateTargetResourceNodeNamesOverlapped(targetResource util.KCCTargetResource, otherResources []util.KCCTargetResource) (bool, string, []util.KCCTargetResource, error) {
+func validateTargetResourceNodeNamesOverlapped(targetResource util.KCCTargetResource, otherResources []util.KCCTargetResource) (bool, string, error) {
 	nodeNames := sets.NewString(targetResource.GetNodeNames()...)
 
-	var overlapTargets []util.KCCTargetResource
 	overlapResources := sets.String{}
 	for _, res := range otherResources {
 		if (res.GetNamespace() == targetResource.GetNamespace() && res.GetName() == targetResource.GetName()) ||
@@ -512,33 +876,30 @@ func validateTargetResourceNodeNamesOverlapped(targetResource util.KCCTargetReso
 		otherNodeNames := sets.NewString(res.GetNodeNames()...)
 		if nodeNames.Intersection(otherNodeNames).Len() > 0 {
 			overlapResources.Insert(native.GenerateUniqObjectNameKey(res))
-			overlapTargets = append(overlapTargets, res)
 		}
 	}
 
 	if len(overlapResources) > 0 {
-		return false, fmt.Sprintf("nodeNames overlay with others: %v", overlapResources.List()), overlapTargets, nil
+		return false, fmt.Sprintf("nodeNames overlay with others: %v", overlapResources.List()), nil
 	}
 
-	return true, "", nil, nil
+	return true, "", nil
 }
 
-func (k *KatalystCustomConfigTargetController) validateTargetResourceGlobal(kcc *configapis.KatalystCustomConfig, targetResource util.KCCTargetResource) (bool, string, []util.KCCTargetResource, error) {
+func (k *KatalystCustomConfigTargetController) validateTargetResourceGlobal(
+	kcc *configapis.KatalystCustomConfig,
+	targetResource util.KCCTargetResource,
+	allTargetResources []util.KCCTargetResource,
+) (bool, string, error) {
 	if targetResource.GetLastDuration() != nil {
-		return false, "lastDuration has been set for global config", nil, nil
+		return false, "lastDuration has been set for global config", nil
 	}
 
-	kccTargetResources, err := k.listAllKCCTargetResource(kcc.Spec.TargetType)
-	if err != nil {
-		return false, "", nil, err
-	}
-
-	return validateTargetResourceGlobalOverlapped(targetResource, kccTargetResources)
+	return validateTargetResourceGlobalOverlapped(targetResource, allTargetResources)
 }
 
 // validateLabelSelectorOverlapped make sures that only one global configurations is created.
-func validateTargetResourceGlobalOverlapped(targetResource util.KCCTargetResource, otherResources []util.KCCTargetResource) (bool, string, []util.KCCTargetResource, error) {
-	var overlapTargets []util.KCCTargetResource
+func validateTargetResourceGlobalOverlapped(targetResource util.KCCTargetResource, otherResources []util.KCCTargetResource) (bool, string, error) {
 	overlapTargetNames := sets.String{}
 	for _, res := range otherResources {
 		if (res.GetNamespace() == targetResource.GetNamespace() && res.GetName() == targetResource.GetName()) ||
@@ -547,47 +908,37 @@ func validateTargetResourceGlobalOverlapped(targetResource util.KCCTargetResourc
 		}
 
 		overlapTargetNames.Insert(native.GenerateUniqObjectNameKey(res))
-		overlapTargets = append(overlapTargets, res)
 	}
 
 	if len(overlapTargetNames) > 0 {
 		return false, fmt.Sprintf("global config %s overlay with others: %v",
-			native.GenerateUniqObjectNameKey(targetResource), overlapTargetNames.List()), overlapTargets, nil
+			native.GenerateUniqObjectNameKey(targetResource), overlapTargetNames.List()), nil
 	}
 
-	return true, "", nil, nil
+	return true, "", nil
 }
 
-func (k *KatalystCustomConfigTargetController) listAllKCCTargetResource(gvr metav1.GroupVersionResource) ([]util.KCCTargetResource, error) {
-	accessor, ok := k.targetHandler.GetTargetAccessorByGVR(gvr)
-	if !ok {
-		return nil, fmt.Errorf("target accessor %s not found", gvr)
-	}
-
-	list, err := accessor.List(labels.Everything())
-	if err != nil {
-		return nil, err
-	}
-
-	resources := make([]util.KCCTargetResource, 0, len(list))
-	for _, obj := range list {
-		if obj.GetDeletionTimestamp() != nil {
-			continue
-		}
-		resources = append(resources, util.ToKCCTargetResource(obj))
-	}
-
-	return resources, nil
-}
-
-func updateTargetResourceStatus(targetResource util.KCCTargetResource, isValid bool, msg, reason string) {
+func updateInvalidTargetResourceStatus(targetResource util.KCCTargetResource, msg, reason string) {
 	status := targetResource.GetGenericStatus()
 	status.ObservedGeneration = targetResource.GetGeneration()
-	if !isValid {
-		kccutil.UpdateKCCTGenericConditions(&status, configapis.ConfigConditionTypeValid, v1.ConditionFalse, reason, msg)
-	} else {
-		kccutil.UpdateKCCTGenericConditions(&status, configapis.ConfigConditionTypeValid, v1.ConditionTrue, reason, "")
-	}
+	kccutil.UpdateKCCTGenericConditions(&status, configapis.ConfigConditionTypeValid, v1.ConditionFalse, reason, msg)
+
+	targetResource.SetGenericStatus(status)
+}
+
+func updateValidTargetResourceStatus(
+	targetResource util.KCCTargetResource,
+	targetNodes, canaryNodes, updatedTargetNodes, updatedNodes int32,
+	currentHash string,
+) {
+	status := targetResource.GetGenericStatus()
+	status.TargetNodes = targetNodes
+	status.CanaryNodes = canaryNodes
+	status.UpdatedTargetNodes = updatedTargetNodes
+	status.UpdatedNodes = updatedNodes
+	status.CurrentHash = currentHash
+	status.ObservedGeneration = targetResource.GetGeneration()
+	kccutil.UpdateKCCTGenericConditions(&status, configapis.ConfigConditionTypeValid, v1.ConditionTrue, kccTargetConditionReasonNormal, "")
 
 	targetResource.SetGenericStatus(status)
 }
@@ -636,4 +987,47 @@ func getMatchValueSet(selector labels.Selector, key string) (sets.String, sets.S
 		}
 	}
 	return equalValueSet, inEqualValueSet, nil
+}
+
+func (k *KatalystCustomConfigTargetController) clearUnusedConfig() {
+	general.InfofV(4, "clearUnusedConfig start")
+	defer general.InfofV(4, "clearUnusedConfig end")
+
+	cncList, err := k.customNodeConfigLister.List(labels.Everything())
+	if err != nil {
+		general.Errorf("list all custom node config failed: %v", err)
+		return
+	}
+
+	// save all gvr to map
+	configGVRSet := make(map[metav1.GroupVersionResource]struct{})
+	k.targetHandler.RangeGVRTargetAccessor(func(gvr metav1.GroupVersionResource, _ kcctarget.KatalystCustomConfigTargetAccessor) bool {
+		configGVRSet[gvr] = struct{}{}
+		return true
+	})
+
+	needToDeleteFunc := func(config configapis.TargetConfig) bool {
+		if _, ok := configGVRSet[config.ConfigType]; !ok {
+			return true
+		}
+		return false
+	}
+
+	clearCNCConfigs := func(i int) {
+		oldCNC := cncList[i]
+		newCNC := oldCNC.DeepCopy()
+		newCNC.Status.KatalystCustomConfigList = util.RemoveUnusedTargetConfig(newCNC.Status.KatalystCustomConfigList, needToDeleteFunc)
+
+		if apiequality.Semantic.DeepEqual(oldCNC, newCNC) {
+			return
+		}
+		general.Infof("clearUnusedConfig patch cnc %s", oldCNC.GetName())
+		_, err := k.cncControl.PatchCNCStatus(k.ctx, oldCNC.GetName(), oldCNC, newCNC)
+		if err != nil {
+			general.Errorf("clearUnusedConfig patch cnc %s failed: %v", oldCNC.GetName(), err)
+		}
+	}
+
+	// parallelize to clear cnc configs
+	workqueue.ParallelizeUntil(k.ctx, cncWorkerCount, len(cncList), clearCNCConfigs)
 }

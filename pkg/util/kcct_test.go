@@ -24,11 +24,11 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
-	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
@@ -61,7 +61,7 @@ func generateTestMetaV1Time(t string) metav1.Time {
 func toTestUnstructured(obj interface{}) *unstructured.Unstructured {
 	ret, err := native.ToUnstructured(obj)
 	if err != nil {
-		klog.Error(err)
+		panic(err)
 	}
 	return ret
 }
@@ -111,8 +111,11 @@ func Test_kccTargetResource_GetCollisionCount(t *testing.T) {
 	}
 }
 
-func Test_kccTargetResource_GetHash(t *testing.T) {
+func Test_kccTargetResource_GetCanary(t *testing.T) {
 	t.Parallel()
+
+	numberCanary := intstr.FromInt(10)
+	percentageCanary := intstr.FromString("10%")
 
 	type fields struct {
 		Unstructured *unstructured.Unstructured
@@ -120,29 +123,79 @@ func Test_kccTargetResource_GetHash(t *testing.T) {
 	tests := []struct {
 		name   string
 		fields fields
-		want   string
+		want   *intstr.IntOrString
 	}{
 		{
-			name: "test-1",
+			name: "no updateStrategy",
 			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.EvictionConfig{}),
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{}),
 			},
-			want: "",
+			want: nil,
 		},
 		{
-			name: "test-2",
+			name: "no rollingUpdate",
 			fields: fields{
 				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							consts.KatalystCustomConfigAnnotationKeyConfigHash: "hash-1",
+					Spec: v1alpha1.AdminQoSConfigurationSpec{
+						GenericConfigSpec: v1alpha1.GenericConfigSpec{
+							UpdateStrategy: v1alpha1.ConfigUpdateStrategy{},
 						},
 					},
 				}),
 			},
-			want: "hash-1",
+			want: nil,
+		},
+		{
+			name: "no canary",
+			fields: fields{
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
+					Spec: v1alpha1.AdminQoSConfigurationSpec{
+						GenericConfigSpec: v1alpha1.GenericConfigSpec{
+							UpdateStrategy: v1alpha1.ConfigUpdateStrategy{
+								RollingUpdate: &v1alpha1.RollingUpdateConfig{},
+							},
+						},
+					},
+				}),
+			},
+			want: nil,
+		},
+		{
+			name: "with number canary",
+			fields: fields{
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
+					Spec: v1alpha1.AdminQoSConfigurationSpec{
+						GenericConfigSpec: v1alpha1.GenericConfigSpec{
+							UpdateStrategy: v1alpha1.ConfigUpdateStrategy{
+								RollingUpdate: &v1alpha1.RollingUpdateConfig{
+									Canary: &numberCanary,
+								},
+							},
+						},
+					},
+				}),
+			},
+			want: &numberCanary,
+		},
+		{
+			name: "with percentage canary",
+			fields: fields{
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
+					Spec: v1alpha1.AdminQoSConfigurationSpec{
+						GenericConfigSpec: v1alpha1.GenericConfigSpec{
+							UpdateStrategy: v1alpha1.ConfigUpdateStrategy{
+								RollingUpdate: &v1alpha1.RollingUpdateConfig{
+									Canary: &percentageCanary,
+								},
+							},
+						},
+					},
+				}),
+			},
+			want: &percentageCanary,
 		},
 	}
+
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
@@ -151,8 +204,69 @@ func Test_kccTargetResource_GetHash(t *testing.T) {
 			g := &KCCTargetResource{
 				Unstructured: tt.fields.Unstructured,
 			}
-			if got := g.GetHash(); got != tt.want {
-				t.Errorf("GetHash() = %v, want %v", got, tt.want)
+			if got := g.GetCanary(); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("GetCanary() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_kccTargetResource_GetPaused(t *testing.T) {
+	t.Parallel()
+
+	type fields struct {
+		Unstructured *unstructured.Unstructured
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		want   bool
+	}{
+		{
+			name: "unspecified",
+			fields: fields{
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{}),
+			},
+			want: false,
+		},
+		{
+			name: "not paused",
+			fields: fields{
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
+					Spec: v1alpha1.AdminQoSConfigurationSpec{
+						GenericConfigSpec: v1alpha1.GenericConfigSpec{
+							Paused: false,
+						},
+					},
+				}),
+			},
+			want: false,
+		},
+		{
+			name: "paused",
+			fields: fields{
+				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
+					Spec: v1alpha1.AdminQoSConfigurationSpec{
+						GenericConfigSpec: v1alpha1.GenericConfigSpec{
+							Paused: true,
+						},
+					},
+				}),
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			g := &KCCTargetResource{
+				Unstructured: tt.fields.Unstructured,
+			}
+			if got := g.GetPaused(); got != tt.want {
+				t.Errorf("GetPaused() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -476,75 +590,6 @@ func Test_kccTargetResource_SetCollisionCount(t *testing.T) {
 			g.SetCollisionCount(tt.args.count)
 			if !reflect.DeepEqual(tt.fields.Unstructured, tt.want) {
 				t.Errorf("SetCollisionCount() = %v, want %v", tt.fields.Unstructured, tt.want)
-			}
-		})
-	}
-}
-
-func Test_kccTargetResource_SetHash(t *testing.T) {
-	t.Parallel()
-
-	type fields struct {
-		Unstructured *unstructured.Unstructured
-	}
-	type args struct {
-		hash string
-	}
-	tests := []struct {
-		name   string
-		fields fields
-		args   args
-		want   *unstructured.Unstructured
-	}{
-		{
-			name: "test-1",
-			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{}),
-			},
-			args: args{
-				"hash-1",
-			},
-			want: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						consts.KatalystCustomConfigAnnotationKeyConfigHash: "hash-1",
-					},
-				},
-			}),
-		},
-		{
-			name: "test-2",
-			fields: fields{
-				Unstructured: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							consts.KatalystCustomConfigAnnotationKeyConfigHash: "hash-1",
-						},
-					},
-				}),
-			},
-			args: args{
-				"hash-2",
-			},
-			want: toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						consts.KatalystCustomConfigAnnotationKeyConfigHash: "hash-2",
-					},
-				},
-			}),
-		},
-	}
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			g := &KCCTargetResource{
-				Unstructured: tt.fields.Unstructured,
-			}
-			g.SetHash(tt.args.hash)
-			if !reflect.DeepEqual(tt.fields.Unstructured, tt.want) {
-				t.Errorf("SetHash() = %v, want %v", tt.fields.Unstructured, tt.want)
 			}
 		})
 	}

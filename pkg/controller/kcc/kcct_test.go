@@ -17,28 +17,17 @@ limitations under the License.
 package kcc
 
 import (
-	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/tools/cache"
-	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
-	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
-	"github.com/kubewharf/katalyst-core/pkg/config"
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
-	kcctarget "github.com/kubewharf/katalyst-core/pkg/controller/kcc/target"
-	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
@@ -46,7 +35,7 @@ import (
 func toTestUnstructured(obj interface{}) *unstructured.Unstructured {
 	ret, err := native.ToUnstructured(obj)
 	if err != nil {
-		klog.Error(err)
+		panic(err)
 	}
 	return ret
 }
@@ -86,273 +75,6 @@ func generateTestNodeNamesTargetResource(name string, nodeNames []string) util.K
 			},
 		},
 	}))
-}
-
-func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
-	t.Parallel()
-
-	type args struct {
-		kccList              []runtime.Object
-		kccListChanged       []runtime.Object
-		kccTargetList        []runtime.Object
-		kccTargetListChanged []runtime.Object
-		kccConfig            *config.Configuration
-	}
-	tests := []struct {
-		name string
-		args args
-	}{
-		{
-			name: "kcc and kcc target are all valid",
-			args: args{
-				kccList: []runtime.Object{
-					&v1alpha1.KatalystCustomConfig{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "test-kcc",
-							Namespace: "default",
-						},
-						Spec: v1alpha1.KatalystCustomConfigSpec{
-							TargetType: crd.AdminQoSConfigurationGVR,
-							NodeLabelSelectorAllowedKeyList: []v1alpha1.PriorityNodeLabelSelectorAllowedKeyList{
-								{
-									Priority: 0,
-									KeyList:  []string{"aa"},
-								},
-							},
-						},
-					},
-				},
-				kccTargetList: []runtime.Object{
-					&v1alpha1.AdminQoSConfiguration{
-						TypeMeta: metav1.TypeMeta{
-							Kind:       crd.ResourceKindAdminQoSConfiguration,
-							APIVersion: v1alpha1.SchemeGroupVersion.String(),
-						},
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "default",
-							Namespace: "default",
-						},
-						Spec: v1alpha1.AdminQoSConfigurationSpec{
-							Config: v1alpha1.AdminQoSConfig{
-								EvictionConfig: &v1alpha1.EvictionConfig{
-									ReclaimedResourcesEvictionConfig: &v1alpha1.ReclaimedResourcesEvictionConfig{
-										EvictionThreshold: map[v1.ResourceName]float64{
-											v1.ResourceCPU: 5.0,
-										},
-									},
-								},
-							},
-						},
-					},
-					&v1alpha1.AdminQoSConfiguration{
-						TypeMeta: metav1.TypeMeta{
-							Kind:       crd.ResourceKindAdminQoSConfiguration,
-							APIVersion: v1alpha1.SchemeGroupVersion.String(),
-						},
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "aa=bb",
-							Namespace: "default",
-						},
-						Spec: v1alpha1.AdminQoSConfigurationSpec{
-							GenericConfigSpec: v1alpha1.GenericConfigSpec{
-								NodeLabelSelector: "aa=bb",
-							},
-							Config: v1alpha1.AdminQoSConfig{
-								EvictionConfig: &v1alpha1.EvictionConfig{
-									ReclaimedResourcesEvictionConfig: &v1alpha1.ReclaimedResourcesEvictionConfig{
-										EvictionThreshold: map[v1.ResourceName]float64{
-											v1.ResourceCPU: 5.0,
-										},
-									},
-								},
-							},
-						},
-					},
-					&v1alpha1.AdminQoSConfiguration{
-						TypeMeta: metav1.TypeMeta{
-							Kind:       crd.ResourceKindAdminQoSConfiguration,
-							APIVersion: v1alpha1.SchemeGroupVersion.String(),
-						},
-						ObjectMeta: metav1.ObjectMeta{
-							Name:              "node-1",
-							Namespace:         "default",
-							CreationTimestamp: metav1.Now(),
-						},
-						Spec: v1alpha1.AdminQoSConfigurationSpec{
-							GenericConfigSpec: v1alpha1.GenericConfigSpec{
-								EphemeralSelector: v1alpha1.EphemeralSelector{
-									NodeNames: []string{
-										"node-1",
-									},
-									LastDuration: &metav1.Duration{
-										Duration: 10 * time.Second,
-									},
-								},
-							},
-							Config: v1alpha1.AdminQoSConfig{
-								EvictionConfig: &v1alpha1.EvictionConfig{
-									ReclaimedResourcesEvictionConfig: &v1alpha1.ReclaimedResourcesEvictionConfig{
-										EvictionThreshold: map[v1.ResourceName]float64{
-											v1.ResourceCPU: 5.0,
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-		{
-			name: "kcc target from valid to invalid",
-			args: args{
-				kccList: []runtime.Object{
-					&v1alpha1.KatalystCustomConfig{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "test-kcc",
-							Namespace: "default",
-						},
-						Spec: v1alpha1.KatalystCustomConfigSpec{
-							TargetType: crd.AdminQoSConfigurationGVR,
-							NodeLabelSelectorAllowedKeyList: []v1alpha1.PriorityNodeLabelSelectorAllowedKeyList{
-								{
-									Priority: 0,
-									KeyList:  []string{"aa"},
-								},
-							},
-						},
-					},
-				},
-				kccTargetList: []runtime.Object{
-					&v1alpha1.AdminQoSConfiguration{
-						TypeMeta: metav1.TypeMeta{
-							Kind:       crd.ResourceKindAdminQoSConfiguration,
-							APIVersion: v1alpha1.SchemeGroupVersion.String(),
-						},
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "config-1",
-							Namespace: "default",
-						},
-						Spec: v1alpha1.AdminQoSConfigurationSpec{
-							GenericConfigSpec: v1alpha1.GenericConfigSpec{
-								NodeLabelSelector: "aa=bb",
-							},
-							Config: v1alpha1.AdminQoSConfig{
-								EvictionConfig: &v1alpha1.EvictionConfig{
-									ReclaimedResourcesEvictionConfig: &v1alpha1.ReclaimedResourcesEvictionConfig{
-										EvictionThreshold: map[v1.ResourceName]float64{
-											v1.ResourceCPU: 5.0,
-										},
-									},
-								},
-							},
-						},
-					},
-					&v1alpha1.AdminQoSConfiguration{
-						TypeMeta: metav1.TypeMeta{
-							Kind:       crd.ResourceKindAdminQoSConfiguration,
-							APIVersion: v1alpha1.SchemeGroupVersion.String(),
-						},
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "config-2",
-							Namespace: "default",
-						},
-						Spec: v1alpha1.AdminQoSConfigurationSpec{
-							GenericConfigSpec: v1alpha1.GenericConfigSpec{
-								NodeLabelSelector: "aa=bb",
-							},
-							Config: v1alpha1.AdminQoSConfig{
-								EvictionConfig: &v1alpha1.EvictionConfig{
-									ReclaimedResourcesEvictionConfig: &v1alpha1.ReclaimedResourcesEvictionConfig{
-										EvictionThreshold: map[v1.ResourceName]float64{
-											v1.ResourceCPU: 5.0,
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-				kccTargetListChanged: []runtime.Object{
-					&v1alpha1.AdminQoSConfiguration{
-						TypeMeta: metav1.TypeMeta{
-							Kind:       crd.ResourceKindAdminQoSConfiguration,
-							APIVersion: v1alpha1.SchemeGroupVersion.String(),
-						},
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "config-2",
-							Namespace: "default",
-						},
-						Spec: v1alpha1.AdminQoSConfigurationSpec{
-							GenericConfigSpec: v1alpha1.GenericConfigSpec{
-								NodeLabelSelector: "aa=cc",
-							},
-							Config: v1alpha1.AdminQoSConfig{
-								EvictionConfig: &v1alpha1.EvictionConfig{
-									ReclaimedResourcesEvictionConfig: &v1alpha1.ReclaimedResourcesEvictionConfig{
-										EvictionThreshold: map[v1.ResourceName]float64{
-											v1.ResourceCPU: 5.0,
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			genericContext, err := katalyst_base.GenerateFakeGenericContext(nil, tt.args.kccList, tt.args.kccTargetList)
-			assert.NoError(t, err)
-			conf := generateTestConfiguration(t)
-
-			ctx := context.Background()
-			targetHandler := kcctarget.NewKatalystCustomConfigTargetHandler(
-				ctx,
-				genericContext.Client,
-				conf.ControllersConfiguration.KCCConfig,
-				genericContext.InternalInformerFactory.Config().V1alpha1().KatalystCustomConfigs(),
-			)
-
-			targetController, err := NewKatalystCustomConfigTargetController(
-				ctx,
-				conf.GenericConfiguration,
-				conf.GenericControllerConfiguration,
-				conf.KCCConfig,
-				genericContext.Client,
-				genericContext.InternalInformerFactory.Config().V1alpha1().KatalystCustomConfigs(),
-				metrics.DummyMetrics{},
-				targetHandler,
-			)
-			assert.NoError(t, err)
-
-			genericContext.StartInformer(ctx)
-			go targetHandler.Run()
-			go targetController.Run()
-
-			cache.WaitForCacheSync(targetController.ctx.Done(), targetController.syncedFunc...)
-			time.Sleep(1 * time.Second)
-
-			for _, kcc := range tt.args.kccListChanged {
-				_, err := genericContext.Client.InternalClient.ConfigV1alpha1().CustomNodeConfigs().Update(ctx, kcc.(*v1alpha1.CustomNodeConfig), metav1.UpdateOptions{})
-				assert.NoError(t, err)
-			}
-			time.Sleep(1 * time.Second)
-
-			for _, kccTarget := range tt.args.kccTargetListChanged {
-				gvr, _ := meta.UnsafeGuessKindToResource(kccTarget.GetObjectKind().GroupVersionKind())
-				obj := toTestUnstructured(kccTarget)
-				_, err := genericContext.Client.DynamicClient.Resource(gvr).Namespace(obj.GetNamespace()).Update(ctx, obj, metav1.UpdateOptions{})
-				assert.NoError(t, err)
-			}
-			time.Sleep(1 * time.Second)
-		})
-	}
 }
 
 func Test_validateLabelSelectorWithOthers(t *testing.T) {
@@ -427,7 +149,7 @@ func Test_validateLabelSelectorWithOthers(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, _, _, err := validateLabelSelectorOverlapped(tt.args.priorityAllowedKeyListMap, tt.args.targetResource, tt.args.otherResources)
+			got, _, err := validateLabelSelectorOverlapped(tt.args.priorityAllowedKeyListMap, tt.args.targetResource, tt.args.otherResources)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("validateLabelSelectorOverlapped() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -498,7 +220,7 @@ func Test_validateTargetResourceNodeNamesWithOthers(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, _, _, err := validateTargetResourceNodeNamesOverlapped(tt.args.targetResource, tt.args.otherResources)
+			got, _, err := validateTargetResourceNodeNamesOverlapped(tt.args.targetResource, tt.args.otherResources)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("validateTargetResourceNodeNamesOverlapped() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -550,7 +272,7 @@ func Test_validateTargetResourceGlobalWithOthers(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, _, _, err := validateTargetResourceGlobalOverlapped(tt.args.targetResource, tt.args.otherResources)
+			got, _, err := validateTargetResourceGlobalOverlapped(tt.args.targetResource, tt.args.otherResources)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("validateTargetResourceGlobalOverlapped() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -562,12 +284,29 @@ func Test_validateTargetResourceGlobalWithOthers(t *testing.T) {
 	}
 }
 
-func Test_updateTargetResourceStatus(t *testing.T) {
+func targetResourcesEqual(t1, t2 util.KCCTargetResource) bool {
+	status1 := t1.GetGenericStatus()
+	status2 := t2.GetGenericStatus()
+	if len(status1.Conditions) != len(status2.Conditions) {
+		return false
+	}
+
+	status1.Conditions[0].LastTransitionTime = metav1.Time{}
+	status2.Conditions[0].LastTransitionTime = metav1.Time{}
+	t1.SetGenericStatus(status1)
+	t2.SetGenericStatus(status2)
+	if !apiequality.Semantic.DeepEqual(t1, t2) {
+		return false
+	}
+
+	return true
+}
+
+func Test_updateInvalidTargetResourceStatus(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
 		targetResource util.KCCTargetResource
-		isValid        bool
 		msg            string
 		reason         string
 	}
@@ -575,7 +314,6 @@ func Test_updateTargetResourceStatus(t *testing.T) {
 		name         string
 		args         args
 		wantResource util.KCCTargetResource
-		equalFunc    func(util.KCCTargetResource, util.KCCTargetResource) bool
 	}{
 		{
 			name: "test-1",
@@ -590,9 +328,8 @@ func Test_updateTargetResourceStatus(t *testing.T) {
 						},
 					},
 				})),
-				isValid: false,
-				msg:     "ssasfr",
-				reason:  "dasf",
+				msg:    "ssasfr",
+				reason: "dasf",
 			},
 			wantResource: util.ToKCCTargetResource(toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
 				ObjectMeta: metav1.ObjectMeta{
@@ -614,23 +351,6 @@ func Test_updateTargetResourceStatus(t *testing.T) {
 					},
 				},
 			})),
-			equalFunc: func(t1 util.KCCTargetResource, t2 util.KCCTargetResource) bool {
-				status1 := t1.GetGenericStatus()
-				status2 := t2.GetGenericStatus()
-				if len(status1.Conditions) != len(status2.Conditions) {
-					return false
-				}
-
-				status1.Conditions[0].LastTransitionTime = metav1.Time{}
-				status2.Conditions[0].LastTransitionTime = metav1.Time{}
-				t1.SetGenericStatus(status1)
-				t2.SetGenericStatus(status2)
-				if !apiequality.Semantic.DeepEqual(t1, t2) {
-					return false
-				}
-
-				return true
-			},
 		},
 	}
 	for _, tt := range tests {
@@ -638,8 +358,85 @@ func Test_updateTargetResourceStatus(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if updateTargetResourceStatus(tt.args.targetResource, tt.args.isValid, tt.args.msg, tt.args.reason); !tt.equalFunc(tt.args.targetResource, tt.wantResource) {
-				t.Errorf("updateTargetResourceStatus() = %v, want %v", tt.args.targetResource.GetGenericStatus(), tt.wantResource.GetGenericStatus())
+			if updateInvalidTargetResourceStatus(tt.args.targetResource, tt.args.msg, tt.args.reason); !targetResourcesEqual(tt.args.targetResource, tt.wantResource) {
+				t.Errorf("updateInvalidTargetResourceStatus() = %v, want %v", tt.args.targetResource.GetGenericStatus(), tt.wantResource.GetGenericStatus())
+			}
+		})
+	}
+}
+
+func Test_updateValidTargetResourceStatus(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		targetResource                                             util.KCCTargetResource
+		targetNodes, canaryNodes, updatedTargetNodes, updatedNodes int32
+		currentHash                                                string
+	}
+	tests := []struct {
+		name         string
+		args         args
+		wantResource util.KCCTargetResource
+	}{
+		{
+			name: "test-1",
+			args: args{
+				targetResource: util.ToKCCTargetResource(toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "config-1",
+					},
+					Spec: v1alpha1.AdminQoSConfigurationSpec{
+						GenericConfigSpec: v1alpha1.GenericConfigSpec{
+							NodeLabelSelector: "aa=bb",
+						},
+					},
+				})),
+				targetNodes:        10000,
+				canaryNodes:        8000,
+				updatedTargetNodes: 5000,
+				updatedNodes:       6000,
+				currentHash:        "hash-1",
+			},
+			wantResource: util.ToKCCTargetResource(toTestUnstructured(&v1alpha1.AdminQoSConfiguration{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "config-1",
+				},
+				Spec: v1alpha1.AdminQoSConfigurationSpec{
+					GenericConfigSpec: v1alpha1.GenericConfigSpec{
+						NodeLabelSelector: "aa=bb",
+					},
+				},
+				Status: v1alpha1.GenericConfigStatus{
+					TargetNodes:        10000,
+					CanaryNodes:        8000,
+					UpdatedTargetNodes: 5000,
+					UpdatedNodes:       6000,
+					CurrentHash:        "hash-1",
+					Conditions: []v1alpha1.GenericConfigCondition{
+						{
+							Type:   v1alpha1.ConfigConditionTypeValid,
+							Status: v1.ConditionTrue,
+							Reason: kccConditionTypeValidReasonNormal,
+						},
+					},
+				},
+			})),
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if updateValidTargetResourceStatus(
+				tt.args.targetResource,
+				tt.args.targetNodes,
+				tt.args.canaryNodes,
+				tt.args.updatedTargetNodes,
+				tt.args.updatedNodes,
+				tt.args.currentHash,
+			); !targetResourcesEqual(tt.args.targetResource, tt.wantResource) {
+				t.Errorf("updateValidTargetResourceStatus() = %v, want %v", tt.args.targetResource.GetGenericStatus(), tt.wantResource.GetGenericStatus())
 			}
 		})
 	}

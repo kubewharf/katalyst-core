@@ -45,15 +45,15 @@ type KatalystCustomConfigTargetHandler struct {
 
 	syncedFunc []cache.InformerSynced
 
-	// map gvr to kcc key set; actually, it's invalid to hold more than one kcc for
-	// one individual gvr, and should be alerted
+	// map from gvr to referencing KCCs keys. Actually, it's invalid for multiple KCCs to reference
+	// the same gvr, and this map is mainly used to detect this anomaly
 	gvrKatalystCustomConfigMap map[metav1.GroupVersionResource]sets.String
-	// katalystCustomConfigGVRMap map kcc key to gvr; since the gvc in kcc may be unexpected changed
-	// by cases, store in cache to make sure we can still find ite original mapping
+	// map from kcc key to gvr. Since the gvr in kcc may be unexpectedly changed,
+	// we store the mapping in cache to make sure we can still find the original mapping
 	katalystCustomConfigGVRMap map[string]metav1.GroupVersionResource
-	// map gvr to kcc target accessor
+	// map from gvr to kcc target accessor
 	targetAccessorMap map[metav1.GroupVersionResource]KatalystCustomConfigTargetAccessor
-	// targetHandlerFuncMap stores those handler functions for all controllers
+	// targetHandlerFuncMap stores the handler functions for all controllers
 	// that are interested in kcc-target changes
 	targetHandlerFuncMap map[string]KatalystCustomConfigTargetHandlerFunc
 }
@@ -286,7 +286,7 @@ func (k *KatalystCustomConfigTargetHandler) addGVRAndKCCKeyWithoutLock(gvr metav
 			accessor.Start()
 			k.targetAccessorMap[gvr] = accessor
 		} else {
-			klog.Fatalf("gvr of targetAccessorMap %s not exist", gvr.String())
+			klog.Fatalf("targetAccessor exists for unseen gvr %s", gvr.String())
 		}
 		k.gvrKatalystCustomConfigMap[gvr] = sets.NewString()
 	}
@@ -324,9 +324,4 @@ func (k *KatalystCustomConfigTargetHandler) shutDown() {
 	for _, accessor := range k.targetAccessorMap {
 		accessor.Stop()
 	}
-
-	// clear all maps
-	k.targetAccessorMap = make(map[metav1.GroupVersionResource]KatalystCustomConfigTargetAccessor)
-	k.gvrKatalystCustomConfigMap = make(map[metav1.GroupVersionResource]sets.String)
-	k.katalystCustomConfigGVRMap = make(map[string]metav1.GroupVersionResource)
 }

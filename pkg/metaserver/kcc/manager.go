@@ -154,7 +154,7 @@ func (c *DynamicConfigManager) AddConfigWatcher(gvrs ...metav1.GroupVersionResou
 
 	for _, gvr := range gvrs {
 		if oldGVR, ok := c.resourceGVRMap[gvr.Resource]; ok && gvr != oldGVR {
-			return fmt.Errorf("resource %s already reggistered by gvrs %s which is different with %s",
+			return fmt.Errorf("resource %s already registered by gvr %s which is different with %s",
 				gvr.Resource, oldGVR.String(), gvr.String())
 		}
 

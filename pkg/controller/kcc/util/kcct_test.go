@@ -24,16 +24,17 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/klog/v2"
 
 	apisv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
+	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 func toTestUnstructured(obj interface{}) *unstructured.Unstructured {
 	ret, err := native.ToUnstructured(obj)
 	if err != nil {
-		klog.Error(err)
+		panic(err)
 	}
 	return ret
 }
@@ -47,10 +48,17 @@ func generateTestCNC(name string, labels map[string]string) *apisv1alpha1.Custom
 	}
 }
 
-func generateTestTargetResource(name, labelSelector string, nodeNames []string) *unstructured.Unstructured {
-	return toTestUnstructured(&apisv1alpha1.AdminQoSConfiguration{
+func generateTestTargetResource(
+	namespace string,
+	name string,
+	labelSelector string,
+	nodeNames []string,
+	lastDuration *metav1.Duration,
+) *unstructured.Unstructured {
+	obj := &apisv1alpha1.AdminQoSConfiguration{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
+			Namespace: namespace,
+			Name:      name,
 		},
 		Spec: apisv1alpha1.AdminQoSConfigurationSpec{
 			GenericConfigSpec: apisv1alpha1.GenericConfigSpec{
@@ -61,26 +69,131 @@ func generateTestTargetResource(name, labelSelector string, nodeNames []string) 
 			},
 		},
 		Status: apisv1alpha1.GenericConfigStatus{},
-	})
+	}
+	if lastDuration != nil {
+		obj.Spec.EphemeralSelector.LastDuration = lastDuration
+	}
+	return toTestUnstructured(obj)
 }
 
-func generateTestTargetResourceWithTimeout(name, labelSelector string, nodeNames []string) *unstructured.Unstructured {
-	return toTestUnstructured(&apisv1alpha1.AdminQoSConfiguration{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:              name,
-			CreationTimestamp: metav1.NewTime(time.Now().Add(-1 * time.Minute * 10)),
-		},
-		Spec: apisv1alpha1.AdminQoSConfigurationSpec{
-			GenericConfigSpec: apisv1alpha1.GenericConfigSpec{
-				NodeLabelSelector: labelSelector,
-				EphemeralSelector: apisv1alpha1.EphemeralSelector{
-					NodeNames:    nodeNames,
-					LastDuration: &metav1.Duration{Duration: time.Minute},
+func toTargetResources(configs ...*unstructured.Unstructured) []util.KCCTargetResource {
+	ret := make([]util.KCCTargetResource, 0, len(configs))
+	for _, config := range configs {
+		ret = append(ret, util.KCCTargetResource{
+			Unstructured: config,
+		})
+	}
+	return ret
+}
+
+func TestIsCNCUpdated(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		cnc            *apisv1alpha1.CustomNodeConfig
+		gvr            metav1.GroupVersionResource
+		targetResource *unstructured.Unstructured
+		hash           string
+	}
+	tests := []struct {
+		name string
+		args args
+		want bool
+	}{
+		{
+			name: "same target present and updated",
+			args: args{
+				cnc: &apisv1alpha1.CustomNodeConfig{
+					Status: apisv1alpha1.CustomNodeConfigStatus{
+						KatalystCustomConfigList: []apisv1alpha1.TargetConfig{
+							{
+								ConfigType:      crd.AdminQoSConfigurationGVR,
+								ConfigNamespace: "default",
+								ConfigName:      "config-1",
+								Hash:            "sameHash",
+							},
+						},
+					},
 				},
+				gvr:            crd.AdminQoSConfigurationGVR,
+				targetResource: generateTestTargetResource("default", "config-1", "", nil, nil),
+				hash:           "sameHash",
 			},
+			want: true,
 		},
-		Status: apisv1alpha1.GenericConfigStatus{},
-	})
+		{
+			name: "same target present but outdated",
+			args: args{
+				cnc: &apisv1alpha1.CustomNodeConfig{
+					Status: apisv1alpha1.CustomNodeConfigStatus{
+						KatalystCustomConfigList: []apisv1alpha1.TargetConfig{
+							{
+								ConfigType:      crd.AdminQoSConfigurationGVR,
+								ConfigNamespace: "default",
+								ConfigName:      "config-1",
+								Hash:            "oldHash",
+							},
+						},
+					},
+				},
+				gvr:            crd.AdminQoSConfigurationGVR,
+				targetResource: generateTestTargetResource("default", "config-1", "", nil, nil),
+				hash:           "newHash",
+			},
+			want: false,
+		},
+		{
+			name: "different config present",
+			args: args{
+				cnc: &apisv1alpha1.CustomNodeConfig{
+					Status: apisv1alpha1.CustomNodeConfigStatus{
+						KatalystCustomConfigList: []apisv1alpha1.TargetConfig{
+							{
+								ConfigType:      crd.AdminQoSConfigurationGVR,
+								ConfigNamespace: "default",
+								ConfigName:      "config-2",
+								Hash:            "sameHash",
+							},
+						},
+					},
+				},
+				gvr:            crd.AdminQoSConfigurationGVR,
+				targetResource: generateTestTargetResource("default", "config-1", "", nil, nil),
+				hash:           "sameHash",
+			},
+			want: false,
+		},
+		{
+			name: "config gvr not found",
+			args: args{
+				cnc: &apisv1alpha1.CustomNodeConfig{
+					Status: apisv1alpha1.CustomNodeConfigStatus{
+						KatalystCustomConfigList: []apisv1alpha1.TargetConfig{
+							{
+								ConfigType:      crd.AdminQoSConfigurationGVR,
+								ConfigNamespace: "default",
+								ConfigName:      "config-1",
+								Hash:            "someHash",
+							},
+						},
+					},
+				},
+				gvr:            crd.AuthConfigurationGVR,
+				targetResource: generateTestTargetResource("default", "testName", "", nil, nil),
+				hash:           "newHash",
+			},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := IsCNCUpdated(tt.args.cnc, tt.args.gvr, util.ToKCCTargetResource(tt.args.targetResource), tt.args.hash); got != tt.want {
+				t.Errorf("IsCNCUpdated() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }
 
 func Test_findMatchedTargetConfig(t *testing.T) {
@@ -88,12 +201,12 @@ func Test_findMatchedTargetConfig(t *testing.T) {
 
 	type args struct {
 		cnc        *apisv1alpha1.CustomNodeConfig
-		configList []*unstructured.Unstructured
+		configList []util.KCCTargetResource
 	}
 	tests := []struct {
 		name    string
 		args    args
-		want    []*unstructured.Unstructured
+		want    []util.KCCTargetResource
 		wantErr bool
 	}{
 		{
@@ -102,14 +215,14 @@ func Test_findMatchedTargetConfig(t *testing.T) {
 				cnc: generateTestCNC("node-1", map[string]string{
 					"aa": "default",
 				}),
-				configList: []*unstructured.Unstructured{
-					generateTestTargetResource("config-1", "", []string{"node-1"}),
-					generateTestTargetResource("config-2", "", []string{"node-2"}),
-				},
+				configList: toTargetResources(
+					generateTestTargetResource("default", "config-1", "", []string{"node-1"}, nil),
+					generateTestTargetResource("default", "config-2", "", []string{"node-2"}, nil),
+				),
 			},
-			want: []*unstructured.Unstructured{
-				generateTestTargetResource("config-1", "", []string{"node-1"}),
-			},
+			want: toTargetResources(
+				generateTestTargetResource("default", "config-1", "", []string{"node-1"}, nil),
+			),
 		},
 		{
 			name: "nodeNames overlap",
@@ -117,15 +230,15 @@ func Test_findMatchedTargetConfig(t *testing.T) {
 				cnc: generateTestCNC("node-1", map[string]string{
 					"aa": "default",
 				}),
-				configList: []*unstructured.Unstructured{
-					generateTestTargetResource("config-1", "", []string{"node-1"}),
-					generateTestTargetResource("config-2", "", []string{"node-1"}),
-				},
+				configList: toTargetResources(
+					generateTestTargetResource("default", "config-1", "", []string{"node-1"}, nil),
+					generateTestTargetResource("default", "config-2", "", []string{"node-1"}, nil),
+				),
 			},
-			want: []*unstructured.Unstructured{
-				generateTestTargetResource("config-1", "", []string{"node-1"}),
-				generateTestTargetResource("config-2", "", []string{"node-1"}),
-			},
+			want: toTargetResources(
+				generateTestTargetResource("default", "config-1", "", []string{"node-1"}, nil),
+				generateTestTargetResource("default", "config-2", "", []string{"node-1"}, nil),
+			),
 		},
 		{
 			name: "target config invalid",
@@ -133,29 +246,29 @@ func Test_findMatchedTargetConfig(t *testing.T) {
 				cnc: generateTestCNC("node-1", map[string]string{
 					"aa": "default",
 				}),
-				configList: []*unstructured.Unstructured{
-					generateTestTargetResourceWithTimeout("config-1", "aa=default", []string{"node-1"}),
-					generateTestTargetResourceWithTimeout("config-2", "", nil),
-				},
+				configList: toTargetResources(
+					generateTestTargetResource("default", "config-1", "aa=default", []string{"node-1"}, &metav1.Duration{Duration: time.Minute}),
+					generateTestTargetResource("default", "config-2", "", nil, &metav1.Duration{Duration: time.Minute}),
+				),
 			},
-			want: []*unstructured.Unstructured{
-				generateTestTargetResourceWithTimeout("config-1", "aa=default", []string{"node-1"}),
-			},
+			want: toTargetResources(
+				generateTestTargetResource("default", "config-1", "aa=default", []string{"node-1"}, &metav1.Duration{Duration: time.Minute}),
+			),
 		},
 		{
-			name: "nodeNames prior than labelSelector",
+			name: "nodeNames matched before labelSelector",
 			args: args{
 				cnc: generateTestCNC("node-1", map[string]string{
 					"aa": "default",
 				}),
-				configList: []*unstructured.Unstructured{
-					generateTestTargetResource("config-1", "aa=default", nil),
-					generateTestTargetResource("config-2", "", []string{"node-1"}),
-				},
+				configList: toTargetResources(
+					generateTestTargetResource("default", "config-1", "aa=default", nil, nil),
+					generateTestTargetResource("default", "config-2", "", []string{"node-1"}, nil),
+				),
 			},
-			want: []*unstructured.Unstructured{
-				generateTestTargetResource("config-2", "", []string{"node-1"}),
-			},
+			want: toTargetResources(
+				generateTestTargetResource("default", "config-2", "", []string{"node-1"}, nil),
+			),
 		},
 		{
 			name: "labelSelector overlap",
@@ -163,16 +276,16 @@ func Test_findMatchedTargetConfig(t *testing.T) {
 				cnc: generateTestCNC("node-1", map[string]string{
 					"aa": "default",
 				}),
-				configList: []*unstructured.Unstructured{
-					generateTestTargetResource("config-1", "aa=default", nil),
-					generateTestTargetResource("config-2", "", nil),
-					generateTestTargetResource("config-3", "aa in (default,non-standard)", nil),
-				},
+				configList: toTargetResources(
+					generateTestTargetResource("default", "config-1", "aa=default", nil, nil),
+					generateTestTargetResource("default", "config-2", "", nil, nil),
+					generateTestTargetResource("default", "config-3", "aa in (default,non-standard)", nil, nil),
+				),
 			},
-			want: []*unstructured.Unstructured{
-				generateTestTargetResource("config-1", "aa=default", nil),
-				generateTestTargetResource("config-3", "aa in (default,non-standard)", nil),
-			},
+			want: toTargetResources(
+				generateTestTargetResource("default", "config-1", "aa=default", nil, nil),
+				generateTestTargetResource("default", "config-3", "aa in (default,non-standard)", nil, nil),
+			),
 		},
 		{
 			name: "labelSelector overlap but nodeName valid",
@@ -180,15 +293,15 @@ func Test_findMatchedTargetConfig(t *testing.T) {
 				cnc: generateTestCNC("node-1", map[string]string{
 					"aa": "default",
 				}),
-				configList: []*unstructured.Unstructured{
-					generateTestTargetResource("config-1", "aa=default", nil),
-					generateTestTargetResource("config-2", "", []string{"node-1"}),
-					generateTestTargetResource("config-3", "aa in (default,non-standard)", nil),
-				},
+				configList: toTargetResources(
+					generateTestTargetResource("default", "config-1", "aa=default", nil, nil),
+					generateTestTargetResource("default", "config-2", "", []string{"node-1"}, nil),
+					generateTestTargetResource("default", "config-3", "aa in (default,non-standard)", nil, nil),
+				),
 			},
-			want: []*unstructured.Unstructured{
-				generateTestTargetResource("config-2", "", []string{"node-1"}),
-			},
+			want: toTargetResources(
+				generateTestTargetResource("default", "config-2", "", []string{"node-1"}, nil),
+			),
 		},
 	}
 	for _, tt := range tests {
@@ -196,7 +309,7 @@ func Test_findMatchedTargetConfig(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := findMatchedKCCTargetConfigForNode(tt.args.cnc, tt.args.configList)
+			got, err := findMatchedKCCTargetListForNode(tt.args.cnc, tt.args.configList)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("findMatchedKCCTargetConfigForNode() error = %v, wantErr %v", err, tt.wantErr)
 				return

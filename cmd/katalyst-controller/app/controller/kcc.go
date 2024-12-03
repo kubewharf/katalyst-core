@@ -64,6 +64,7 @@ func StartKCCController(ctx context.Context, controlCtx *katalystbase.GenericCon
 		conf.ControllersConfiguration.KCCConfig,
 		controlCtx.Client,
 		controlCtx.InternalInformerFactory.Config().V1alpha1().KatalystCustomConfigs(),
+		controlCtx.InternalInformerFactory.Config().V1alpha1().CustomNodeConfigs(),
 		controlCtx.EmitterPool.GetDefaultMetricsEmitter(),
 		targetHandler,
 	)
@@ -72,24 +73,8 @@ func StartKCCController(ctx context.Context, controlCtx *katalystbase.GenericCon
 		return false, err
 	}
 
-	cncController, err := kcc.NewCustomNodeConfigController(
-		ctx,
-		conf.GenericConfiguration,
-		conf.GenericControllerConfiguration,
-		conf.ControllersConfiguration.KCCConfig,
-		controlCtx.Client,
-		controlCtx.InternalInformerFactory.Config().V1alpha1().CustomNodeConfigs(),
-		controlCtx.EmitterPool.GetDefaultMetricsEmitter(),
-		targetHandler,
-	)
-	if err != nil {
-		klog.Errorf("failed to new cnc controller")
-		return false, err
-	}
-
 	go targetHandler.Run()
 	go kccController.Run()
 	go kccTargetController.Run()
-	go cncController.Run()
 	return true, nil
 }
