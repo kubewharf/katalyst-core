@@ -383,7 +383,7 @@ func (p *DynamicPolicy) pushMemoryAdvisor() error {
 	return nil
 }
 
-func handleAdvisorCPUSetMems(
+func (p *DynamicPolicy) handleAdvisorCPUSetMems(
 	_ *config.Configuration,
 	_ interface{},
 	_ *dynamicconfig.DynamicAgentConfiguration,
@@ -411,8 +411,12 @@ func handleAdvisorCPUSetMems(
 			apiconsts.PodAnnotationQoSLevelReclaimedCores)
 	}
 
-	allocationInfo.NumaAllocationResult = cpusetMems
-	allocationInfo.TopologyAwareAllocations = nil
+	numaSetChangedContainers := make(map[string]map[string]*state.AllocationInfo)
+	p.updateNUMASetChangedContainers(numaSetChangedContainers, allocationInfo, cpusetMems)
+	err = p.migratePagesForNUMASetChangedContainers(numaSetChangedContainers)
+	if err != nil {
+		return fmt.Errorf("migratePagesForNUMASetChangedContainers failed with error: %v", err)
+	}
 
 	_ = emitter.StoreInt64(util.MetricNameMemoryHandleAdvisorCPUSetMems, 1,
 		metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
