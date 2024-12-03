@@ -27,8 +27,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/metricstore"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/podadmit"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/state"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 )
 
@@ -66,16 +64,6 @@ func NewComponent(agentCtx *agent.GenericContext, conf *config.Configuration,
 
 	var err error
 
-	dataKeeper, err := state.NewMBRawDataKeeper()
-	if err != nil {
-		return false, nil, errors.Wrap(err, "failed to create raw data state keeper")
-	}
-
-	taskManager, err := task.NewManager(plugin.dieTopology.DiesInNuma, plugin.dieTopology.CPUsInDie, dataKeeper, domainManager)
-	if err != nil {
-		return false, nil, errors.Wrap(err, "failed to create task manager")
-	}
-
 	mbMonitor := metricstore.NewMBReader(agentCtx.MetricsFetcher)
 
 	//podMBMonitor, err := monitor.NewDefaultMBMonitor(plugin.dieTopology.CPUsInDie, dataKeeper, taskManager, domainManager)
@@ -103,7 +91,7 @@ func NewComponent(agentCtx *agent.GenericContext, conf *config.Configuration,
 		defaultSubgroup = defaultSharedSubgroup
 	}
 	podSubgrouper := podadmit.NewPodGrouper(conf.CPUSetPoolToSharedSubgroup, defaultSubgroup)
-	nodePreempter := podadmit.NewNodePreempter(domainManager, plugin.mbController, taskManager)
+	nodePreempter := podadmit.NewNodePreempter(domainManager, plugin.mbController)
 	PodAdmitter = podadmit.NewPodAdmitter(nodePreempter, podSubgrouper)
 
 	return true, &agent.PluginWrapper{GenericPlugin: plugin}, nil

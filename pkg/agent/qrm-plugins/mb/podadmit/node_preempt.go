@@ -23,7 +23,6 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
@@ -31,17 +30,12 @@ import (
 type NodePreempter struct {
 	domainManager *mbdomain.MBDomainManager
 	mbController  *controller.Controller
-	taskManager   task.Manager
 }
 
 func (n *NodePreempter) getNotInUseNodes(nodes []uint64) []int {
+	// todo: check numa nodes' in-use state; only preempt those not-in-use yet
 	var notInUses []int
-	inUses := n.taskManager.GetNumaNodesInUse()
 	for _, node := range nodes {
-		if inUses.Has(int(node)) {
-			continue
-		}
-
 		notInUses = append(notInUses, int(node))
 	}
 
@@ -57,7 +51,6 @@ func (n *NodePreempter) PreemptNodes(req *pluginapi.ResourceRequest) error {
 		}
 	}
 
-	// check numa nodes' in-use state; only preempt those not-in-use yet
 	nodesToPreempt := n.getNotInUseNodes(req.Hint.Nodes)
 	if len(nodesToPreempt) > 0 {
 		if n.domainManager.PreemptNodes(nodesToPreempt) {
@@ -69,10 +62,9 @@ func (n *NodePreempter) PreemptNodes(req *pluginapi.ResourceRequest) error {
 	return nil
 }
 
-func NewNodePreempter(domainManager *mbdomain.MBDomainManager, mbController *controller.Controller, taskManager task.Manager) *NodePreempter {
+func NewNodePreempter(domainManager *mbdomain.MBDomainManager, mbController *controller.Controller) *NodePreempter {
 	return &NodePreempter{
 		domainManager: domainManager,
 		mbController:  mbController,
-		taskManager:   taskManager,
 	}
 }

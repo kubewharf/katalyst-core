@@ -52,12 +52,8 @@ func NewResctrlMetricsProvisioner(baseConf *global.BaseConfiguration, _ *metaser
 	dieTopology := machine.HostDieTopology
 	incubationInterval := monitor.IncubationInterval
 	domainManager := mbdomain.NewMBDomainManager(dieTopology, incubationInterval)
-	taskManager, err := task.NewManager(dieTopology.DiesInNuma, dieTopology.CPUsInDie, dataKeeper, domainManager)
-	if err != nil {
-		general.Errorf("mbm: failed to create task manager: %v", err)
-	}
 
-	podMBMonitor, err := monitor.NewDefaultMBMonitor(dieTopology.CPUsInDie, dataKeeper, taskManager, domainManager)
+	podMBMonitor, err := monitor.NewDefaultMBMonitor(dieTopology.CPUsInDie, dataKeeper, domainManager)
 	if err != nil {
 		general.Errorf("mbm: failed to create default mb monitor: %v", err)
 	}

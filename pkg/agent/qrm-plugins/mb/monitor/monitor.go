@@ -57,7 +57,7 @@ func newMBMonitor(rmbReader readmb.ReadMBReader, wmbReader writemb.WriteMBReader
 	}, nil
 }
 
-func NewDefaultMBMonitor(dieCPUs map[int][]int, dataKeeper state.MBRawDataKeeper, taskManager task.Manager, domainManager *mbdomain.MBDomainManager) (MBMonitor, error) {
+func NewDefaultMBMonitor(dieCPUs map[int][]int, dataKeeper state.MBRawDataKeeper, domainManager *mbdomain.MBDomainManager) (MBMonitor, error) {
 	var err error
 	onceDefaultMBMonitorInit.Do(func() {
 		defaultMBMonitor, err = newDefaultMBMonitor(dieCPUs, dataKeeper, domainManager)
