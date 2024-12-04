@@ -58,6 +58,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	configagent "github.com/kubewharf/katalyst-core/pkg/config/agent"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
@@ -131,6 +132,7 @@ func getTestDynamicPolicyWithInitialization(topology *machine.CPUTopology, machi
 
 	policyImplement := &DynamicPolicy{
 		topology:                 topology,
+		dynamicConf:              dynamic.NewDynamicAgentConfiguration(),
 		qosConfig:                qosConfig,
 		state:                    stateImpl,
 		emitter:                  metrics.DummyMetrics{},
@@ -1649,10 +1651,6 @@ func TestGetTopologyHints(t *testing.T) {
 								Nodes:     []uint64{0},
 								Preferred: true,
 							},
-							{
-								Nodes:     []uint64{0, 1, 2, 3},
-								Preferred: true,
-							},
 						},
 					},
 				},
@@ -2431,7 +2429,7 @@ func TestHandleAdvisorResp(t *testing.T) {
 									consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
 								},
 							},
-							NumaAllocationResult: machine.NewCPUSet(2, 3),
+							NumaAllocationResult: machine.NewCPUSet(0, 1, 2, 3),
 							ExtraControlKnobInfo: make(map[string]commonstate.ControlKnobInfo),
 						},
 					},
@@ -2478,6 +2476,27 @@ func TestHandleAdvisorResp(t *testing.T) {
 									},
 								},
 							},
+							pod3UID: state.ContainerEntries{
+								testName: &state.AllocationInfo{
+									AllocationMeta: commonstate.AllocationMeta{
+										PodUid:         pod3UID,
+										PodNamespace:   testName,
+										PodName:        testName,
+										ContainerName:  testName,
+										ContainerType:  pluginapi.ContainerType_MAIN.String(),
+										ContainerIndex: 0,
+										QoSLevel:       consts.PodAnnotationQoSLevelReclaimedCores,
+										Annotations: map[string]string{
+											consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+										},
+										Labels: map[string]string{
+											consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+										},
+									},
+									NumaAllocationResult: machine.NewCPUSet(0),
+									ExtraControlKnobInfo: make(map[string]commonstate.ControlKnobInfo),
+								},
+							},
 						},
 					},
 					1: &state.NUMANodeState{
@@ -2502,6 +2521,27 @@ func TestHandleAdvisorResp(t *testing.T) {
 										},
 										Labels: map[string]string{
 											consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+										},
+									},
+									NumaAllocationResult: machine.NewCPUSet(1),
+									ExtraControlKnobInfo: make(map[string]commonstate.ControlKnobInfo),
+								},
+							},
+							pod3UID: state.ContainerEntries{
+								testName: &state.AllocationInfo{
+									AllocationMeta: commonstate.AllocationMeta{
+										PodUid:         pod3UID,
+										PodNamespace:   testName,
+										PodName:        testName,
+										ContainerName:  testName,
+										ContainerType:  pluginapi.ContainerType_MAIN.String(),
+										ContainerIndex: 0,
+										QoSLevel:       consts.PodAnnotationQoSLevelReclaimedCores,
+										Annotations: map[string]string{
+											consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+										},
+										Labels: map[string]string{
+											consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
 										},
 									},
 									NumaAllocationResult: machine.NewCPUSet(1),

@@ -444,12 +444,19 @@ func (p *DynamicPolicy) handleAdvisorCPUSetMems(
 			apiconsts.PodAnnotationQoSLevelReclaimedCores)
 	}
 
-	numaSetChangedContainers := make(map[string]map[string]*state.AllocationInfo)
-	p.updateNUMASetChangedContainers(numaSetChangedContainers, allocationInfo, cpusetMems)
-	err = p.migratePagesForNUMASetChangedContainers(numaSetChangedContainers)
-	if err != nil {
-		return fmt.Errorf("migratePagesForNUMASetChangedContainers failed with error: %v", err)
-	}
+	// todo: CPUSetMems handler will be refactored or removed in the future because now it is conflict with
+	// 	reclaimed_cores with numa_binding pod admission
+	general.Infof("dry-run set cpuset.mems for container: %s/%s from %s to: %s",
+		allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.NumaAllocationResult.String(), cpusetMems.String())
+	// allocationInfo.NumaAllocationResult = cpusetMems
+	// allocationInfo.TopologyAwareAllocations = nil
+
+	//numaSetChangedContainers := make(map[string]map[string]*state.AllocationInfo)
+	//p.updateNUMASetChangedContainers(numaSetChangedContainers, allocationInfo, cpusetMems)
+	//err = p.migratePagesForNUMASetChangedContainers(numaSetChangedContainers)
+	//if err != nil {
+	//	return fmt.Errorf("migratePagesForNUMASetChangedContainers failed with error: %v", err)
+	//}
 
 	_ = emitter.StoreInt64(util.MetricNameMemoryHandleAdvisorCPUSetMems, 1,
 		metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
