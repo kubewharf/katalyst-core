@@ -871,9 +871,15 @@ func (p *DynamicPolicy) adjustAllocationEntriesForReclaimedCores(numaSetChangedC
 				continue
 			}
 
-			if !allocationInfo.CheckActualNUMABinding() {
+			if !allocationInfo.CheckActualNUMABinding() &&
+				!allocationInfo.NumaAllocationResult.IsSubsetOf(nonReclaimActualBindingNUMAs) {
 				// update container to target numa set for non-actual numa binding reclaim cores
-				p.updateNUMASetChangedContainers(numaSetChangedContainers, allocationInfo, nonReclaimActualBindingNUMAs)
+				updatedTargetNumaSet := nonReclaimActualBindingNUMAs.Intersection(allocationInfo.NumaAllocationResult)
+				if !updatedTargetNumaSet.IsEmpty() {
+					p.updateNUMASetChangedContainers(numaSetChangedContainers, allocationInfo, updatedTargetNumaSet)
+				} else {
+					p.updateNUMASetChangedContainers(numaSetChangedContainers, allocationInfo, nonReclaimActualBindingNUMAs)
+				}
 			}
 		}
 	}
