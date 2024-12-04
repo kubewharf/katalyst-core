@@ -50,6 +50,10 @@ type subQRMServer interface {
 	RegisterAdvisorServer()
 }
 
+type subResourceAdvisor interface {
+	UpdateAndGetAdvice() (interface{}, error)
+}
+
 type qrmServerWrapper struct {
 	serversToRun map[v1.ResourceName]subQRMServer
 }
@@ -113,19 +117,13 @@ func newSubQRMServer(resourceName v1.ResourceName, advisorWrapper resource.Resou
 		if err != nil {
 			return nil, err
 		}
-		advisorRecvChInterface, advisorSendChInterface := subAdvisor.GetChannels()
-		advisorRecvCh := advisorRecvChInterface.(chan types.TriggerInfo)
-		advisorSendCh := advisorSendChInterface.(chan types.InternalCPUCalculationResult)
-		return NewCPUServer(advisorSendCh, advisorRecvCh, conf, metaCache, metaServer, emitter)
+		return NewCPUServer(conf, metaCache, metaServer, subAdvisor, emitter)
 	case v1.ResourceMemory:
 		subAdvisor, err := advisorWrapper.GetSubAdvisor(types.QoSResourceMemory)
 		if err != nil {
 			return nil, err
 		}
-		advisorRecvChInterface, advisorSendChInterface := subAdvisor.GetChannels()
-		advisorRecvCh := advisorRecvChInterface.(chan types.TriggerInfo)
-		advisorSendCh := advisorSendChInterface.(chan types.InternalMemoryCalculationResult)
-		return NewMemoryServer(advisorSendCh, advisorRecvCh, conf, metaCache, metaServer, emitter)
+		return NewMemoryServer(conf, metaCache, metaServer, subAdvisor, emitter)
 	default:
 		return nil, fmt.Errorf("illegal resource %v", resourceName)
 	}

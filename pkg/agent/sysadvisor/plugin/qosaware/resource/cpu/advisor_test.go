@@ -163,6 +163,7 @@ func TestAdvisorUpdate(t *testing.T) {
 		headroomPolicies              map[configapi.QoSRegionType][]types.CPUHeadroomPolicyName
 		podProfiles                   map[k8stypes.UID]spd.DummyPodServiceProfile
 		wantInternalCalculationResult types.InternalCPUCalculationResult
+		wantErr                       bool
 		wantHeadroom                  resource.Quantity
 		wantHeadroomErr               bool
 		containerMetrics              []containerMetricItem
@@ -172,6 +173,7 @@ func TestAdvisorUpdate(t *testing.T) {
 			name:                          "missing_reserve_pool",
 			pools:                         map[string]*types.PoolInfo{},
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{},
+			wantErr:                       true,
 			wantHeadroom:                  resource.Quantity{},
 		},
 		{
@@ -1172,7 +1174,6 @@ func TestAdvisorUpdate(t *testing.T) {
 			}
 
 			advisor, metaCache := newTestCPUResourceAdvisor(t, tt.pods, conf, mf, tt.podProfiles)
-			advisor.startTime = time.Now().Add(-types.StartUpPeriod)
 			advisor.conf.GetDynamicConfiguration().EnableReclaim = tt.nodeEnableReclaim
 
 			if len(tt.containerMetrics) > 0 {
@@ -1185,10 +1186,6 @@ func TestAdvisorUpdate(t *testing.T) {
 			for _, metric := range tt.numaMetricItems {
 				mf.SetNumaMetric(metric.numaID, metric.name, utilmetric.MetricData{Value: metric.value, Time: &now})
 			}
-
-			recvChInterface, sendChInterface := advisor.GetChannels()
-			recvCh := recvChInterface.(chan types.TriggerInfo)
-			sendCh := sendChInterface.(chan types.InternalCPUCalculationResult)
 
 			for poolName, poolInfo := range tt.pools {
 				_ = metaCache.SetPoolInfo(poolName, poolInfo)
@@ -1207,36 +1204,35 @@ func TestAdvisorUpdate(t *testing.T) {
 
 			// if preUpdate is enabled, trigger an empty update firstly
 			if tt.preUpdate {
-				recvCh <- types.TriggerInfo{TimeStamp: time.Now()}
-				timeoutTick := time.NewTimer(time.Second * 5)
-				select {
-				case <-timeoutTick.C:
-					t.Errorf("timeout get response")
-				case _ = <-sendCh:
+				_, err := advisor.UpdateAndGetAdvice()
+				if tt.wantErr {
+					assert.Error(t, err)
+				} else {
+					require.NoError(t, err)
 				}
 			}
 
 			// trigger advisor update
-			recvCh <- types.TriggerInfo{TimeStamp: time.Now()}
+			advisorRespRaw, err := advisor.UpdateAndGetAdvice()
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			advisorResp := advisorRespRaw.(*types.InternalCPUCalculationResult)
 
 			// check provision
 			if !reflect.DeepEqual(tt.wantInternalCalculationResult, types.InternalCPUCalculationResult{}) {
-				timeoutTick := time.NewTimer(time.Second * 5)
-				select {
-				case <-timeoutTick.C:
-					t.Errorf("timeout get response")
-				case advisorResp := <-sendCh:
-					resp := make(map[string]map[int]int)
-					for pool := range advisorResp.PoolEntries {
-						if strings.HasPrefix(pool, "isolation") && len(pool) > 15 {
-							resp[pool[:14]] = advisorResp.PoolEntries[pool]
-						} else {
-							resp[pool] = advisorResp.PoolEntries[pool]
-						}
+				resp := make(map[string]map[int]int)
+				for pool := range advisorResp.PoolEntries {
+					if strings.HasPrefix(pool, "isolation") && len(pool) > 15 {
+						resp[pool[:14]] = advisorResp.PoolEntries[pool]
+					} else {
+						resp[pool] = advisorResp.PoolEntries[pool]
 					}
-					if !reflect.DeepEqual(tt.wantInternalCalculationResult.PoolEntries, resp) {
-						t.Errorf("cpu provision\nexpected: %+v,\nactual: %+v", tt.wantInternalCalculationResult, advisorResp)
-					}
+				}
+				if !reflect.DeepEqual(tt.wantInternalCalculationResult.PoolEntries, resp) {
+					t.Errorf("cpu provision\nexpected: %+v,\nactual: %+v", tt.wantInternalCalculationResult, advisorResp)
 				}
 			}
 

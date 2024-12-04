@@ -17,14 +17,12 @@ limitations under the License.
 package memory
 
 import (
-	"context"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"reflect"
 	"strconv"
 	"testing"
-	"time"
 
 	info "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/assert"
@@ -431,7 +429,6 @@ func TestUpdate(t *testing.T) {
 		pods                 []*v1.Pod
 		wantHeadroom         resource.Quantity
 		reclaimedEnable      bool
-		needRecvAdvices      bool
 		plugins              []types.MemoryAdvisorPluginName
 		nodeMetrics          []nodeMetric
 		numaMetrics          []numaMetric
@@ -440,14 +437,15 @@ func TestUpdate(t *testing.T) {
 		cgroupMetrics        []cgroupMetric
 		cgroupNUMAMetrics    []cgroupNUMAMetric
 		metricsFetcherSynced *bool
-		wantAdviceResult     types.InternalMemoryCalculationResult
+		wantAdviceResult     *types.InternalMemoryCalculationResult
+		wantErr              bool
 	}{
 		{
 			name:                 "metaCache not synced",
 			pools:                map[string]*types.PoolInfo{},
 			reclaimedEnable:      true,
 			wantHeadroom:         resource.Quantity{},
-			needRecvAdvices:      false,
+			wantErr:              true,
 			metricsFetcherSynced: pointer.Bool(false),
 		},
 		{
@@ -465,11 +463,12 @@ func TestUpdate(t *testing.T) {
 					},
 				},
 			},
-			reclaimedEnable: true,
-			needRecvAdvices: true,
-			wantHeadroom:    *resource.NewQuantity(996<<30, resource.DecimalSI),
-			nodeMetrics:     defaultNodeMetrics,
-			numaMetrics:     defaultNumaMetrics,
+			reclaimedEnable:  true,
+			wantErr:          false,
+			wantHeadroom:     *resource.NewQuantity(996<<30, resource.DecimalSI),
+			nodeMetrics:      defaultNodeMetrics,
+			numaMetrics:      defaultNumaMetrics,
+			wantAdviceResult: &types.InternalMemoryCalculationResult{},
 		},
 		{
 			name: "normal case",
@@ -498,7 +497,7 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			reclaimedEnable: true,
-			needRecvAdvices: true,
+			wantErr:         false,
 			containers: []*types.ContainerInfo{
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelSharedCores, nil,
 					map[int]machine.CPUSet{
@@ -515,9 +514,10 @@ func TestUpdate(t *testing.T) {
 					},
 				},
 			},
-			wantHeadroom: *resource.NewQuantity(988<<30, resource.DecimalSI),
-			nodeMetrics:  defaultNodeMetrics,
-			numaMetrics:  defaultNumaMetrics,
+			wantHeadroom:     *resource.NewQuantity(988<<30, resource.DecimalSI),
+			nodeMetrics:      defaultNodeMetrics,
+			numaMetrics:      defaultNumaMetrics,
+			wantAdviceResult: &types.InternalMemoryCalculationResult{},
 		},
 		{
 			name: "reclaimed disable case",
@@ -546,7 +546,7 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			reclaimedEnable: false,
-			needRecvAdvices: true,
+			wantErr:         false,
 			containers: []*types.ContainerInfo{
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelSharedCores, nil,
 					map[int]machine.CPUSet{
@@ -563,9 +563,10 @@ func TestUpdate(t *testing.T) {
 					},
 				},
 			},
-			wantHeadroom: *resource.NewQuantity(796<<30, resource.DecimalSI),
-			nodeMetrics:  defaultNodeMetrics,
-			numaMetrics:  defaultNumaMetrics,
+			wantHeadroom:     *resource.NewQuantity(796<<30, resource.DecimalSI),
+			nodeMetrics:      defaultNodeMetrics,
+			numaMetrics:      defaultNumaMetrics,
+			wantAdviceResult: &types.InternalMemoryCalculationResult{},
 		},
 		{
 			name: "node pressure drop cache",
@@ -583,7 +584,7 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			reclaimedEnable: false,
-			needRecvAdvices: true,
+			wantErr:         false,
 			containers: []*types.ContainerInfo{
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelReclaimedCores, nil,
 					map[int]machine.CPUSet{
@@ -624,7 +625,7 @@ func TestUpdate(t *testing.T) {
 					containerName: "c3",
 				},
 			},
-			wantAdviceResult: types.InternalMemoryCalculationResult{
+			wantAdviceResult: &types.InternalMemoryCalculationResult{
 				ContainerEntries: []types.ContainerMemoryAdvices{
 					{
 						PodUID:        "uid1",
@@ -655,7 +656,7 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			reclaimedEnable: false,
-			needRecvAdvices: true,
+			wantErr:         false,
 			containers: []*types.ContainerInfo{
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelReclaimedCores, nil,
 					map[int]machine.CPUSet{
@@ -720,7 +721,7 @@ func TestUpdate(t *testing.T) {
 					numaID:        1,
 				},
 			},
-			wantAdviceResult: types.InternalMemoryCalculationResult{
+			wantAdviceResult: &types.InternalMemoryCalculationResult{
 				ContainerEntries: []types.ContainerMemoryAdvices{
 					{
 						PodUID:        "uid3",
@@ -751,14 +752,14 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			reclaimedEnable:   true,
-			needRecvAdvices:   true,
+			wantErr:           false,
 			wantHeadroom:      *resource.NewQuantity(996<<30, resource.DecimalSI),
 			nodeMetrics:       defaultNodeMetrics,
 			numaMetrics:       defaultNumaMetrics,
 			cgroupMetrics:     cgroupMetrics,
 			cgroupNUMAMetrics: cgroupNUMAMetrics,
 			plugins:           []types.MemoryAdvisorPluginName{memadvisorplugin.MemoryGuard},
-			wantAdviceResult: types.InternalMemoryCalculationResult{
+			wantAdviceResult: &types.InternalMemoryCalculationResult{
 				ExtraEntries: []types.ExtraMemoryAdvices{
 					{
 						CgroupPath: "/kubepods/besteffort",
@@ -782,15 +783,13 @@ func TestUpdate(t *testing.T) {
 					},
 				},
 			},
-			reclaimedEnable: true,
-			needRecvAdvices: true,
-			wantHeadroom:    *resource.NewQuantity(996<<30, resource.DecimalSI),
-			nodeMetrics:     defaultNodeMetrics,
-			numaMetrics:     defaultNumaMetrics,
-			plugins:         []types.MemoryAdvisorPluginName{memadvisorplugin.MemoryGuard},
-			wantAdviceResult: types.InternalMemoryCalculationResult{
-				ExtraEntries: []types.ExtraMemoryAdvices{},
-			},
+			reclaimedEnable:  true,
+			wantErr:          true,
+			wantHeadroom:     *resource.NewQuantity(996<<30, resource.DecimalSI),
+			nodeMetrics:      defaultNodeMetrics,
+			numaMetrics:      defaultNumaMetrics,
+			plugins:          []types.MemoryAdvisorPluginName{memadvisorplugin.MemoryGuard},
+			wantAdviceResult: &types.InternalMemoryCalculationResult{},
 		},
 		{
 			name: "memory offloading",
@@ -808,7 +807,7 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			reclaimedEnable: true,
-			needRecvAdvices: true,
+			wantErr:         false,
 			containers: []*types.ContainerInfo{
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelReclaimedCores, nil,
 					map[int]machine.CPUSet{
@@ -1233,7 +1232,7 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			plugins: []types.MemoryAdvisorPluginName{memadvisorplugin.TransparentMemoryOffloading},
-			wantAdviceResult: types.InternalMemoryCalculationResult{
+			wantAdviceResult: &types.InternalMemoryCalculationResult{
 				ExtraEntries: []types.ExtraMemoryAdvices{
 					{
 						CgroupPath: "/hdfs",
@@ -1287,7 +1286,7 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			reclaimedEnable: false,
-			needRecvAdvices: true,
+			wantErr:         false,
 			containers: []*types.ContainerInfo{
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelReclaimedCores, nil,
 					map[int]machine.CPUSet{
@@ -1315,7 +1314,7 @@ func TestUpdate(t *testing.T) {
 			nodeMetrics:  defaultNodeMetrics,
 			numaMetrics:  defaultNumaMetrics,
 			wantHeadroom: *resource.NewQuantity(871<<30, resource.DecimalSI),
-			wantAdviceResult: types.InternalMemoryCalculationResult{
+			wantAdviceResult: &types.InternalMemoryCalculationResult{
 				ContainerEntries: []types.ContainerMemoryAdvices{
 					{
 						PodUID:        "uid1",
@@ -1351,7 +1350,7 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			reclaimedEnable: false,
-			needRecvAdvices: true,
+			wantErr:         false,
 			containers: []*types.ContainerInfo{
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelReclaimedCores, nil,
 					map[int]machine.CPUSet{
@@ -1420,7 +1419,7 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			wantHeadroom: *resource.NewQuantity(871<<30, resource.DecimalSI),
-			wantAdviceResult: types.InternalMemoryCalculationResult{
+			wantAdviceResult: &types.InternalMemoryCalculationResult{
 				ContainerEntries: []types.ContainerMemoryAdvices{
 					{
 						PodUID:        "uid1",
@@ -1456,7 +1455,7 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			reclaimedEnable: false,
-			needRecvAdvices: true,
+			wantErr:         false,
 			containers: []*types.ContainerInfo{
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelReclaimedCores, nil,
 					map[int]machine.CPUSet{
@@ -1525,7 +1524,7 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			wantHeadroom: *resource.NewQuantity(871<<30, resource.DecimalSI),
-			wantAdviceResult: types.InternalMemoryCalculationResult{
+			wantAdviceResult: &types.InternalMemoryCalculationResult{
 				ContainerEntries: []types.ContainerMemoryAdvices{
 					{
 						PodUID:        "uid1",
@@ -1591,7 +1590,7 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			reclaimedEnable: true,
-			needRecvAdvices: true,
+			wantErr:         false,
 			containers: []*types.ContainerInfo{
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelSharedCores, nil,
 					map[int]machine.CPUSet{
@@ -1694,7 +1693,7 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			wantHeadroom: *resource.NewQuantity(980<<30, resource.DecimalSI),
-			wantAdviceResult: types.InternalMemoryCalculationResult{
+			wantAdviceResult: &types.InternalMemoryCalculationResult{
 				ExtraEntries: []types.ExtraMemoryAdvices{
 					{
 						Values: map[string]string{
@@ -1750,7 +1749,7 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			reclaimedEnable: true,
-			needRecvAdvices: true,
+			wantErr:         false,
 			containers: []*types.ContainerInfo{
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelSharedCores, nil,
 					map[int]machine.CPUSet{
@@ -1853,7 +1852,7 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			wantHeadroom: *resource.NewQuantity(980<<30, resource.DecimalSI),
-			wantAdviceResult: types.InternalMemoryCalculationResult{
+			wantAdviceResult: &types.InternalMemoryCalculationResult{
 				ContainerEntries: []types.ContainerMemoryAdvices{},
 			},
 		},
@@ -1890,7 +1889,7 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			reclaimedEnable: true,
-			needRecvAdvices: true,
+			wantErr:         false,
 			containers: []*types.ContainerInfo{
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelSharedCores, nil,
 					map[int]machine.CPUSet{
@@ -1979,7 +1978,7 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			wantHeadroom: *resource.NewQuantity(980<<30, resource.DecimalSI),
-			wantAdviceResult: types.InternalMemoryCalculationResult{
+			wantAdviceResult: &types.InternalMemoryCalculationResult{
 				ExtraEntries: []types.ExtraMemoryAdvices{
 					{
 						Values: map[string]string{
@@ -2035,7 +2034,7 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			reclaimedEnable: true,
-			needRecvAdvices: true,
+			wantErr:         false,
 			containers: []*types.ContainerInfo{
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelSharedCores, nil,
 					map[int]machine.CPUSet{
@@ -2138,7 +2137,7 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			wantHeadroom: *resource.NewQuantity(980<<30, resource.DecimalSI),
-			wantAdviceResult: types.InternalMemoryCalculationResult{
+			wantAdviceResult: &types.InternalMemoryCalculationResult{
 				ExtraEntries: []types.ExtraMemoryAdvices{
 					{
 						Values: map[string]string{
@@ -2181,7 +2180,7 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			reclaimedEnable: true,
-			needRecvAdvices: true,
+			wantErr:         false,
 			containers: []*types.ContainerInfo{
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelSharedCores, nil,
 					map[int]machine.CPUSet{
@@ -2272,7 +2271,7 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			wantHeadroom: *resource.NewQuantity(980<<30, resource.DecimalSI),
-			wantAdviceResult: types.InternalMemoryCalculationResult{
+			wantAdviceResult: &types.InternalMemoryCalculationResult{
 				ExtraEntries: []types.ExtraMemoryAdvices{
 					{
 						Values: map[string]string{
@@ -2315,7 +2314,7 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			reclaimedEnable: true,
-			needRecvAdvices: true,
+			wantErr:         false,
 			containers: []*types.ContainerInfo{
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelSharedCores, nil,
 					map[int]machine.CPUSet{
@@ -2404,7 +2403,7 @@ func TestUpdate(t *testing.T) {
 				},
 			},
 			wantHeadroom: *resource.NewQuantity(980<<30, resource.DecimalSI),
-			wantAdviceResult: types.InternalMemoryCalculationResult{
+			wantAdviceResult: &types.InternalMemoryCalculationResult{
 				ExtraEntries: []types.ExtraMemoryAdvices{
 					{
 						Values: map[string]string{
@@ -2469,9 +2468,6 @@ func TestUpdate(t *testing.T) {
 			transparentMemoryOffloadingConfiguration.CgroupConfigs["/sys/fs/cgroup/hdfs"].EnableSwap = false
 
 			advisor.conf.GetDynamicConfiguration().TransparentMemoryOffloadingConfiguration = transparentMemoryOffloadingConfiguration
-			_, advisorRecvChInterface := advisor.GetChannels()
-
-			recvCh := advisorRecvChInterface.(chan types.InternalMemoryCalculationResult)
 
 			for poolName, poolInfo := range tt.pools {
 				err := metaCache.SetPoolInfo(poolName, poolInfo)
@@ -2482,24 +2478,20 @@ func TestUpdate(t *testing.T) {
 				assert.NoError(t, err)
 			}
 
-			go func() {
-				c, _ := advisor.GetChannels()
-				ch := c.(chan types.TriggerInfo)
-				ch <- types.TriggerInfo{TimeStamp: time.Now()}
-			}()
-
-			ctx, cancel := context.WithCancel(context.Background())
-			advisor.Run(ctx)
-
-			time.Sleep(100 * time.Millisecond) // Wait some time because no signal will be sent to channel
-			if tt.needRecvAdvices {
-				result := <-recvCh
-
+			result, err := advisor.update()
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+			if tt.wantAdviceResult == nil {
+				assert.Nil(t, result)
+			} else {
 				assert.ElementsMatch(t, tt.wantAdviceResult.ExtraEntries, result.ExtraEntries)
 				assert.ElementsMatch(t, tt.wantAdviceResult.ContainerEntries, result.ContainerEntries)
 			}
-			headroom, err := advisor.GetHeadroom()
 
+			headroom, err := advisor.GetHeadroom()
 			if reflect.DeepEqual(tt.wantHeadroom, resource.Quantity{}) {
 				assert.Error(t, err)
 			} else {
@@ -2508,8 +2500,6 @@ func TestUpdate(t *testing.T) {
 					t.Errorf("headroom\nexpected: %+v\nactual: %+v", tt.wantHeadroom, headroom)
 				}
 			}
-
-			cancel()
 		})
 	}
 }
