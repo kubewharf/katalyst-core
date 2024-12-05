@@ -29,6 +29,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -64,22 +65,18 @@ func (mb *memsetBinder) reclaimedContainersFilter(ci *types.ContainerInfo) bool 
 	return ci != nil && ci.QoSLevel == apiconsts.PodAnnotationQoSLevelReclaimedCores
 }
 
-func (mb *memsetBinder) nonActualNUMABindingFilter(ci *types.ContainerInfo) bool {
+func (mb *memsetBinder) nonActualNUMABindingFilter(qosConf *generic.QoSConfiguration, ci *types.ContainerInfo) (bool, error) {
 	pod, err := mb.metaServer.GetPod(context.Background(), ci.PodUID)
 	if err != nil {
-		return false
+		return false, err
 	}
 
-	if !native.PodIsActive(pod) {
-		return false
-	}
-
-	bindingResult, err := qos.GetActualNUMABindingResult(pod)
+	bindingResult, err := qos.GetActualNUMABindingResult(qosConf, pod)
 	if err != nil {
-		return false
+		return false, err
 	}
 
-	return bindingResult == -1
+	return bindingResult == -1, nil
 }
 
 func (mb *memsetBinder) Reconcile(status *types.MemoryPressureStatus) error {
@@ -96,8 +93,17 @@ func (mb *memsetBinder) Reconcile(status *types.MemoryPressureStatus) error {
 	containerMemset := make(map[consts.PodContainerName]machine.CPUSet)
 	containers := make([]*types.ContainerInfo, 0)
 	mb.metaReader.RangeContainer(func(podUID string, containerName string, containerInfo *types.ContainerInfo) bool {
-		if mb.reclaimedContainersFilter(containerInfo) && mb.nonActualNUMABindingFilter(containerInfo) {
-			containers = append(containers, containerInfo)
+		if mb.reclaimedContainersFilter(containerInfo) {
+			nonActualNUMABinding, err := mb.nonActualNUMABindingFilter(mb.conf.QoSConfiguration, containerInfo)
+			if err != nil {
+				general.Errorf("get non-actual-numa-binding for pod: %s/%s, container: %s failed with error: %v",
+					containerInfo.PodNamespace, containerInfo.PodName, containerName, err)
+				return true
+			}
+
+			if nonActualNUMABinding {
+				containers = append(containers, containerInfo)
+			}
 			return true
 		}
 
