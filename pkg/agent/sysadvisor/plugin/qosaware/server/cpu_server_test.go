@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"reflect"
 	"sort"
 	"strings"
@@ -49,7 +50,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 func generateTestConfiguration(t *testing.T) *config.Configuration {
@@ -71,11 +71,8 @@ func generateTestConfiguration(t *testing.T) *config.Configuration {
 	return conf
 }
 
-func newTestCPUServer(t *testing.T, podList []*v1.Pod) *cpuServer {
-	recvCh := make(chan types.InternalCPUCalculationResult)
-	sendCh := make(chan types.TriggerInfo)
+func newTestCPUServer(t *testing.T, advisor subResourceAdvisor, podList []*v1.Pod) *cpuServer {
 	conf := generateTestConfiguration(t)
-
 	metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
 	metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metricsFetcher)
 	require.NoError(t, err)
@@ -89,38 +86,10 @@ func newTestCPUServer(t *testing.T, podList []*v1.Pod) *cpuServer {
 		},
 	}
 
-	cpuServer, err := NewCPUServer(recvCh, sendCh, conf, metaCache, metaServer, metrics.DummyMetrics{})
+	cpuServer, err := NewCPUServer(conf, metaCache, metaServer, advisor, metrics.DummyMetrics{})
+	cpuServer.startTime = time.Now().Add(-types.StartUpPeriod)
 	require.NoError(t, err)
 	require.NotNil(t, cpuServer)
-
-	cpuServer.getCheckpointCalled = true
-
-	return cpuServer
-}
-
-func newTestCPUServerWithChanBuffer(t *testing.T, podList []*v1.Pod) *cpuServer {
-	recvCh := make(chan types.InternalCPUCalculationResult, 1)
-	sendCh := make(chan types.TriggerInfo, 1)
-	conf := generateTestConfiguration(t)
-
-	metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
-	metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metricsFetcher)
-	require.NoError(t, err)
-	require.NotNil(t, metaCache)
-
-	metaServer := &metaserver.MetaServer{
-		MetaAgent: &agent.MetaAgent{
-			PodFetcher: &pod.PodFetcherStub{
-				PodList: podList,
-			},
-		},
-	}
-
-	cpuServer, err := NewCPUServer(recvCh, sendCh, conf, metaCache, metaServer, metrics.DummyMetrics{})
-	require.NoError(t, err)
-	require.NotNil(t, cpuServer)
-
-	cpuServer.getCheckpointCalled = true
 
 	return cpuServer
 }
@@ -128,7 +97,7 @@ func newTestCPUServerWithChanBuffer(t *testing.T, podList []*v1.Pod) *cpuServer 
 func TestCPUServerStartAndStop(t *testing.T) {
 	t.Parallel()
 
-	cs := newTestCPUServer(t, []*v1.Pod{})
+	cs := newTestCPUServer(t, nil, []*v1.Pod{})
 
 	err := cs.Start()
 	assert.NoError(t, err)
@@ -188,7 +157,7 @@ func TestCPUServerAddContainer(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			cs := newTestCPUServer(t, []*v1.Pod{})
+			cs := newTestCPUServer(t, nil, []*v1.Pod{})
 			got, err := cs.AddContainer(context.Background(), tt.request)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("AddContainer() error = %v, wantErr %v", err, tt.wantErr)
@@ -230,7 +199,7 @@ func TestCPUServerRemovePod(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			cs := newTestCPUServer(t, []*v1.Pod{})
+			cs := newTestCPUServer(t, nil, []*v1.Pod{})
 			got, err := cs.RemovePod(context.Background(), tt.request)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("RemovePod() error = %v, wantErr %v", err, tt.wantErr)
@@ -241,6 +210,24 @@ func TestCPUServerRemovePod(t *testing.T) {
 			}
 		})
 	}
+}
+
+type mockQRMCPUPluginServer struct {
+	checkpoint *cpuadvisor.GetCheckpointResponse
+	err        error
+}
+
+func (m *mockQRMCPUPluginServer) GetCheckpoint(ctx context.Context, request *cpuadvisor.GetCheckpointRequest) (*cpuadvisor.GetCheckpointResponse, error) {
+	return m.checkpoint, m.err
+}
+
+type mockCPUResourceAdvisor struct {
+	provision *types.InternalCPUCalculationResult
+	err       error
+}
+
+func (m *mockCPUResourceAdvisor) UpdateAndGetAdvice() (interface{}, error) {
+	return m.provision, m.err
 }
 
 type mockCPUServerService_ListAndWatchServer struct {
@@ -1459,8 +1446,48 @@ func TestCPUServerListAndWatch(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			cs := newTestCPUServer(t, []*v1.Pod{})
-			s := &mockCPUServerService_ListAndWatchServer{ResultsChan: make(chan *cpuadvisor.ListAndWatchResponse)}
+			advisor := &mockCPUResourceAdvisor{
+				provision: &tt.provision,
+				err:       nil,
+			}
+			cs := newTestCPUServer(t, advisor, []*v1.Pod{})
+
+			// populate checkpoint
+			checkpoint := &cpuadvisor.GetCheckpointResponse{
+				Entries: make(map[string]*cpuadvisor.AllocationEntries),
+			}
+			checkpoint.Entries[commonstate.PoolNameReserve] = &cpuadvisor.AllocationEntries{
+				Entries: map[string]*cpuadvisor.AllocationInfo{
+					commonstate.FakedContainerName: {
+						OwnerPoolName: commonstate.PoolNameReserve,
+					},
+				},
+			}
+			for _, info := range tt.infos {
+				if _, ok := checkpoint.Entries[info.request.PodUid]; !ok {
+					checkpoint.Entries[info.request.PodUid] = &cpuadvisor.AllocationEntries{
+						Entries: make(map[string]*cpuadvisor.AllocationInfo),
+					}
+				}
+				checkpoint.Entries[info.request.PodUid].Entries[info.request.ContainerName] = info.allocationInfo
+			}
+
+			// start mock qrm server
+			qrmServer := &mockQRMCPUPluginServer{
+				checkpoint: checkpoint,
+				err:        nil,
+			}
+			server := grpc.NewServer()
+			cpuadvisor.RegisterCPUPluginServer(server, qrmServer)
+
+			sock, err := net.Listen("unix", cs.pluginSocketPath)
+			require.NoError(t, err)
+			defer sock.Close()
+			go func() {
+				server.Serve(sock)
+			}()
+
+			// populate MetaCache
 			for _, info := range tt.infos {
 				assert.NoError(t, cs.addContainer(info.request))
 				assert.NoError(t, cs.updateContainerInfo(info.request.PodUid, info.request.ContainerName, info.podInfo, info.allocationInfo))
@@ -1472,23 +1499,23 @@ func TestCPUServerListAndWatch(t *testing.T) {
 				}
 				assert.NoError(t, cs.metaCache.SetContainerInfo(info.request.PodUid, info.request.ContainerName, nodeInfo))
 			}
+
+			s := &mockCPUServerService_ListAndWatchServer{ResultsChan: make(chan *cpuadvisor.ListAndWatchResponse)}
 			stop := make(chan struct{})
 			go func() {
 				if err := cs.ListAndWatch(&advisorsvc.Empty{}, s); (err != nil) != tt.wantErr {
 					t.Errorf("ListAndWatch() error = %v, wantErr %v", err, tt.wantErr)
 				}
-				stop <- struct{}{}
+				close(stop)
 			}()
-			recvCh := cs.recvCh.(chan types.InternalCPUCalculationResult)
-			recvCh <- tt.provision
+
 			res := <-s.ResultsChan
 			close(cs.stopCh)
 			<-stop
-			copyres, err := DeepCopyResponse(res)
+
+			res, err = DeepCopyResponse(res)
 			assert.NoError(t, err)
-			if !reflect.DeepEqual(copyres, tt.wantRes) {
-				t.Errorf("ListAndWatch()\ngot = %+v, \nwant= %+v", general.ToString(copyres), general.ToString(tt.wantRes))
-			}
+			assert.Equal(t, tt.wantRes, res)
 		})
 	}
 }
@@ -1660,7 +1687,7 @@ func TestConcurrencyGetCheckpointAndAddContainer(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal([]byte(checkPointData), &resp.Entries), "failed to parse checkpoint data")
 
-	cpuServer := newTestCPUServer(t, []*v1.Pod{})
+	cpuServer := newTestCPUServer(t, nil, []*v1.Pod{})
 	cpuServer.syncCheckpoint(context.Background(), resp, safeTime)
 
 	containerMetaData := &advisorsvc.ContainerMetadata{
@@ -1734,166 +1761,4 @@ func TestConcurrencyGetCheckpointAndAddContainer(t *testing.T) {
 
 	time.Sleep(10 * time.Second)
 	cancel()
-}
-
-func TestCPUServerDropOldAdvice(t *testing.T) {
-	t.Parallel()
-
-	cpuServer := newTestCPUServerWithChanBuffer(t, []*v1.Pod{})
-	s := &mockCPUServerService_ListAndWatchServer{ResultsChan: make(chan *cpuadvisor.ListAndWatchResponse)}
-	stop := make(chan struct{})
-	recvCh := cpuServer.recvCh.(chan types.InternalCPUCalculationResult)
-	recvCh <- types.InternalCPUCalculationResult{}
-	go func() {
-		err := cpuServer.ListAndWatch(&advisorsvc.Empty{}, s)
-		assert.NoError(t, err, "failed to LW cpu server")
-		stop <- struct{}{}
-	}()
-	provision := types.InternalCPUCalculationResult{
-		TimeStamp: time.Now(),
-		PoolEntries: map[string]map[int]int{
-			commonstate.PoolNameReclaim: {
-				0: 4,
-				1: 8,
-			},
-		},
-	}
-	infos := []*ContainerInfo{
-		{
-			request: &advisorsvc.ContainerMetadata{
-				PodUid:        "pod1",
-				ContainerName: "c1",
-				Annotations: map[string]string{
-					consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
-				},
-				QosLevel: consts.PodAnnotationQoSLevelDedicatedCores,
-			},
-			podInfo: &v1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Namespace: "default",
-					Name:      "pod1",
-					UID:       "pod1",
-					Annotations: map[string]string{
-						consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
-						consts.PodAnnotationMemoryEnhancementKey: "{\"numa_exclusive\":true}",
-					},
-				},
-				Spec: v1.PodSpec{
-					Containers: []v1.Container{
-						{
-							Name: "c1",
-						},
-					},
-				},
-			},
-			allocationInfo: &cpuadvisor.AllocationInfo{
-				OwnerPoolName: commonstate.PoolNameDedicated,
-				TopologyAwareAssignments: map[uint64]string{
-					0: "0-3",
-					1: "24-47",
-				},
-			},
-		},
-	}
-	for _, info := range infos {
-		assert.NoError(t, cpuServer.addContainer(info.request))
-		assert.NoError(t, cpuServer.updateContainerInfo(info.request.PodUid, info.request.ContainerName, info.podInfo, info.allocationInfo))
-
-		nodeInfo, _ := cpuServer.metaCache.GetContainerInfo(info.request.PodUid, info.request.ContainerName)
-		nodeInfo.Isolated = info.isolated
-		if info.regions.Len() > 0 {
-			nodeInfo.RegionNames = info.regions
-		}
-		assert.NoError(t, cpuServer.metaCache.SetContainerInfo(info.request.PodUid, info.request.ContainerName, nodeInfo))
-	}
-
-	recvCh <- provision
-	res := <-s.ResultsChan
-	close(cpuServer.stopCh)
-	<-stop
-	copyres, err := DeepCopyResponse(res)
-	assert.NoError(t, err)
-	wantRes := &cpuadvisor.ListAndWatchResponse{
-		Entries: map[string]*cpuadvisor.CalculationEntries{
-			commonstate.PoolNameReclaim: {
-				Entries: map[string]*cpuadvisor.CalculationInfo{
-					"": {
-						OwnerPoolName: commonstate.PoolNameReclaim,
-						CalculationResultsByNumas: map[int64]*cpuadvisor.NumaCalculationResult{
-							0: {
-								Blocks: []*cpuadvisor.Block{
-									{
-										Result: 4,
-										OverlapTargets: []*cpuadvisor.OverlapTarget{
-											{
-												OverlapTargetPodUid:        "pod1",
-												OverlapTargetContainerName: "c1",
-												OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
-											},
-										},
-									},
-								},
-							},
-							1: {
-								Blocks: []*cpuadvisor.Block{
-									{
-										Result: 8,
-										OverlapTargets: []*cpuadvisor.OverlapTarget{
-											{
-												OverlapTargetPodUid:        "pod1",
-												OverlapTargetContainerName: "c1",
-												OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-			"pod1": {
-				Entries: map[string]*cpuadvisor.CalculationInfo{
-					"c1": {
-						OwnerPoolName: commonstate.PoolNameDedicated,
-						CalculationResultsByNumas: map[int64]*cpuadvisor.NumaCalculationResult{
-							0: {
-								Blocks: []*cpuadvisor.Block{
-									{
-										Result: 4,
-										OverlapTargets: []*cpuadvisor.OverlapTarget{
-											{
-												OverlapTargetPoolName: commonstate.PoolNameReclaim,
-												OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
-											},
-										},
-									},
-								},
-							},
-							1: {
-								Blocks: []*cpuadvisor.Block{
-									{
-										Result:         16,
-										OverlapTargets: nil,
-									},
-									{
-										Result: 8,
-										OverlapTargets: []*cpuadvisor.OverlapTarget{
-											{
-												OverlapTargetPoolName: commonstate.PoolNameReclaim,
-												OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-	if !reflect.DeepEqual(copyres, wantRes) {
-		t.Errorf("ListAndWatch()\ngot = %+v, \nwant= %+v", general.ToString(copyres), general.ToString(wantRes))
-	}
 }

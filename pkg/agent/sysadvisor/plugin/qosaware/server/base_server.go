@@ -51,6 +51,7 @@ const (
 	metricServerLWCalled                        = "lw_called"
 	metricServerLWGetCheckpointFailed           = "lw_get_checkpoint_failed"
 	metricServerLWGetCheckpointSucceeded        = "lw_get_checkpoint_succeeded"
+	metricServerAdvisorUpdateFailed             = "advisor_update_failed"
 	metricServerLWSendResponseFailed            = "lw_send_response_failed"
 	metricServerLWSendResponseSucceeded         = "lw_send_response_succeeded"
 	metricServerCheckpointUpdateContainerFailed = "checkpoint_update_container_failed"
@@ -65,9 +66,6 @@ type baseServer struct {
 	period            time.Duration
 	advisorSocketPath string
 	pluginSocketPath  string
-	recvCh            interface{}
-	sendCh            chan types.TriggerInfo
-	lwCalledChan      chan struct{}
 	stopCh            chan struct{}
 	// resourceRequestName and resourceLimitName are field names of types.ContainerInfo
 	resourceRequestName string
@@ -79,25 +77,27 @@ type baseServer struct {
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
 
-	grpcServer     *grpc.Server
-	resourceServer subQRMServer
+	grpcServer      *grpc.Server
+	resourceServer  subQRMServer
+	resourceAdvisor subResourceAdvisor
 }
 
-func newBaseServer(name string, conf *config.Configuration, recvCh interface{}, sendCh chan types.TriggerInfo,
-	metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter, resourceServer subQRMServer,
+func newBaseServer(
+	name string, conf *config.Configuration,
+	metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
+	resourceAdvisor subResourceAdvisor,
+	resourceServer subQRMServer,
 ) *baseServer {
 	return &baseServer{
-		name:           name,
-		period:         conf.QoSAwarePluginConfiguration.SyncPeriod,
-		qosConf:        conf.QoSConfiguration,
-		recvCh:         recvCh,
-		sendCh:         sendCh,
-		lwCalledChan:   make(chan struct{}),
-		stopCh:         make(chan struct{}),
-		metaCache:      metaCache,
-		metaServer:     metaServer,
-		emitter:        emitter,
-		resourceServer: resourceServer,
+		name:            name,
+		period:          conf.QoSAwarePluginConfiguration.SyncPeriod,
+		qosConf:         conf.QoSConfiguration,
+		stopCh:          make(chan struct{}),
+		metaCache:       metaCache,
+		metaServer:      metaServer,
+		emitter:         emitter,
+		resourceAdvisor: resourceAdvisor,
+		resourceServer:  resourceServer,
 	}
 }
 

@@ -19,12 +19,13 @@ package server
 import (
 	"context"
 	"fmt"
+	"io"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -43,24 +44,41 @@ import (
 const (
 	cpuServerName string = "cpu-server"
 
-	cpuServerHealthCheckName = "cpu-server-lw"
+	cpuServerLWHealthCheckName = "cpu-server-lw"
 )
 
 type cpuServer struct {
 	*baseServer
-	getCheckpointCalled bool
-	cpuPluginClient     cpuadvisor.CPUPluginClient
+	startTime           time.Time
+	hasListAndWatchLoop atomic.Value
 }
 
-func NewCPUServer(recvCh chan types.InternalCPUCalculationResult, sendCh chan types.TriggerInfo, conf *config.Configuration,
-	metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
+func NewCPUServer(
+	conf *config.Configuration,
+	metaCache metacache.MetaCache,
+	metaServer *metaserver.MetaServer,
+	advisor subResourceAdvisor,
+	emitter metrics.MetricEmitter,
 ) (*cpuServer, error) {
 	cs := &cpuServer{}
-	cs.baseServer = newBaseServer(cpuServerName, conf, recvCh, sendCh, metaCache, metaServer, emitter, cs)
+	cs.baseServer = newBaseServer(cpuServerName, conf, metaCache, metaServer, emitter, advisor, cs)
+	cs.hasListAndWatchLoop.Store(false)
+	cs.startTime = time.Now()
 	cs.advisorSocketPath = conf.CPUAdvisorSocketAbsPath
 	cs.pluginSocketPath = conf.CPUPluginSocketAbsPath
 	cs.resourceRequestName = "CPURequest"
 	return cs, nil
+}
+
+func (cs *cpuServer) createQRMClient() (cpuadvisor.CPUPluginClient, io.Closer, error) {
+	if !general.IsPathExists(cs.pluginSocketPath) {
+		return nil, nil, fmt.Errorf("memory plugin socket path %s does not exist", cs.pluginSocketPath)
+	}
+	conn, err := cs.dial(cs.pluginSocketPath, cs.period)
+	if err != nil {
+		return nil, nil, fmt.Errorf("dial memory plugin socket failed: %w", err)
+	}
+	return cpuadvisor.NewCPUPluginClient(conn), conn, nil
 }
 
 func (cs *cpuServer) RegisterAdvisorServer() {
@@ -74,35 +92,32 @@ func (cs *cpuServer) RegisterAdvisorServer() {
 
 func (cs *cpuServer) ListAndWatch(_ *advisorsvc.Empty, server cpuadvisor.CPUAdvisor_ListAndWatchServer) error {
 	_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWCalled), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
-	general.RegisterTemporaryHeartbeatCheck(cpuServerHealthCheckName, healthCheckTolerationDuration, general.HealthzCheckStateNotReady, healthCheckTolerationDuration)
-	defer general.UnregisterTemporaryHeartbeatCheck(cpuServerHealthCheckName)
 
-	if !cs.getCheckpointCalled {
-		if err := cs.startToGetCheckpointFromCPUPlugin(); err != nil {
-			klog.Errorf("start to get checkpoint from cpu plugin failed: %v", err)
-			return err
-		}
-		close(cs.lwCalledChan)
-		cs.getCheckpointCalled = true
+	if cs.hasListAndWatchLoop.Swap(true).(bool) {
+		klog.Warningf("[qosaware-server-cpu] another ListAndWatch loop is running")
+		return fmt.Errorf("another ListAndWatch loop is running")
 	}
+	defer cs.hasListAndWatchLoop.Store(false)
 
-	recvCh, ok := cs.recvCh.(chan types.InternalCPUCalculationResult)
-	if !ok {
-		return fmt.Errorf("recvCh convert failed")
+	cpuPluginClient, conn, err := cs.createQRMClient()
+	if err != nil {
+		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWGetCheckpointFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
+		klog.Errorf("[qosaware-server-cpu] create cpu plugin client failed: %v", err)
+		return fmt.Errorf("create cpu plugin client failed: %w", err)
 	}
-
-	maxDropLength := len(recvCh)
-	klog.Infof("[qosaware-server-cpu] drop all old cpu advices in channel (max: %d)", maxDropLength)
-	for i := 0; i < maxDropLength; i++ {
-		select {
-		case <-recvCh:
-		default:
-			klog.Infof("[qosaware-server-cpu] all old cpu advices in channel is dropped (count: %d)", i)
-			break
-		}
-	}
+	defer conn.Close()
 
 	klog.Infof("[qosaware-server-cpu] start to push cpu advices")
+	general.RegisterTemporaryHeartbeatCheck(cpuServerLWHealthCheckName, healthCheckTolerationDuration, general.HealthzCheckStateNotReady, healthCheckTolerationDuration)
+	defer general.UnregisterTemporaryHeartbeatCheck(cpuServerLWHealthCheckName)
+
+	timer := time.NewTimer(cs.period)
+	defer func() {
+		if !timer.Stop() {
+			<-timer.C
+		}
+	}()
+
 	for {
 		select {
 		case <-server.Context().Done():
@@ -111,76 +126,111 @@ func (cs *cpuServer) ListAndWatch(_ *advisorsvc.Empty, server cpuadvisor.CPUAdvi
 		case <-cs.stopCh:
 			klog.Infof("[qosaware-server-cpu] lw stopped because cpu server stopped")
 			return nil
-		case advisorResp, more := <-recvCh:
-			if !more {
-				klog.Infof("[qosaware-server-cpu] recv channel is closed")
-				return nil
+		case <-timer.C:
+			klog.Infof("[qosaware-server-cpu] trigger advisor update")
+			if err := cs.getAndPushAdvice(cpuPluginClient, server); err != nil {
+				klog.Errorf("[qosaware-server-cpu] get and push advice failed: %v", err)
+				_ = general.UpdateHealthzStateByError(cpuServerLWHealthCheckName, err)
+			} else {
+				_ = general.UpdateHealthzStateByError(cpuServerLWHealthCheckName, nil)
 			}
-			if advisorResp.TimeStamp.Add(cs.period * 2).Before(time.Now()) {
-				general.Warningf("advisorResp is expired")
-				continue
-			}
-
-			klog.Infof("[qosaware-server-cpu] get advisor update: %+v", advisorResp)
-
-			calculationEntriesMap := make(map[string]*cpuadvisor.CalculationEntries)
-			blockID2Blocks := NewBlockSet()
-
-			cs.assemblePoolEntries(&advisorResp, calculationEntriesMap, blockID2Blocks)
-
-			// Assemble pod entries
-			f := func(podUID string, containerName string, ci *types.ContainerInfo) bool {
-				if err := cs.assemblePodEntries(calculationEntriesMap, blockID2Blocks, podUID, ci); err != nil {
-					klog.Errorf("[qosaware-server-cpu] assemblePodEntries for pod %s/%s uid %s err: %v", ci.PodNamespace, ci.PodName, ci.PodUID, err)
-				}
-				return true
-			}
-			cs.metaCache.RangeContainer(f)
-
-			// Send result
-			resp := &cpuadvisor.ListAndWatchResponse{
-				Entries:                               calculationEntriesMap,
-				AllowSharedCoresOverlapReclaimedCores: advisorResp.AllowSharedCoresOverlapReclaimedCores,
-			}
-			if err := server.Send(resp); err != nil {
-				klog.Errorf("[qosaware-server-cpu] send response failed: %v", err)
-				_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWSendResponseFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
-				_ = general.UpdateHealthzStateByError(cpuServerHealthCheckName, err)
-				return err
-			}
-			klog.Infof("[qosaware-server-cpu] send listWatch resp: %v", general.ToString(resp))
-			_ = general.UpdateHealthzStateByError(cpuServerHealthCheckName, nil)
-			_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWSendResponseSucceeded), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
+			timer.Reset(cs.period)
 		}
 	}
 }
 
-func (cs *cpuServer) getCheckpoint() {
+func (cs *cpuServer) getAndSyncCheckpoint(ctx context.Context, client cpuadvisor.CPUPluginClient) error {
 	safeTime := time.Now().UnixNano()
 
-	ctx := context.Background()
 	// get checkpoint
-	resp, err := cs.cpuPluginClient.GetCheckpoint(ctx, &cpuadvisor.GetCheckpointRequest{})
+	getCheckpointResp, err := client.GetCheckpoint(ctx, &cpuadvisor.GetCheckpointRequest{})
 	if err != nil {
-		klog.Errorf("[qosaware-server-cpu] get checkpoint failed: %v", err)
 		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWGetCheckpointFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
-		return
-	} else if resp == nil {
-		klog.Errorf("[qosaware-server-cpu] get nil checkpoint")
+		return fmt.Errorf("get checkpoint failed: %w", err)
+	} else if getCheckpointResp == nil {
 		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWGetCheckpointFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
-		return
+		return fmt.Errorf("got nil checkpoint")
 	}
-	klog.Infof("[qosaware-server-cpu] get checkpoint: %v", general.ToString(resp.Entries))
+	klog.Infof("[qosaware-server-cpu] got checkpoint: %v", general.ToString(getCheckpointResp.Entries))
 	_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWGetCheckpointSucceeded), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 
-	cs.syncCheckpoint(ctx, resp, safeTime)
+	cs.syncCheckpoint(ctx, getCheckpointResp, safeTime)
+	return nil
+}
 
-	// trigger advisor update
-	select {
-	case cs.sendCh <- types.TriggerInfo{TimeStamp: time.Now()}:
-		klog.Infof("[qosaware-server-cpu] trigger advisor update")
-	default:
-		klog.Infof("[qosaware-server-cpu] channel is full")
+func (cs *cpuServer) shouldTriggerAdvisorUpdate() bool {
+	// TODO: do we still need this check?
+	// skip pushing advice during startup
+	if time.Now().Before(cs.startTime.Add(types.StartUpPeriod)) {
+		klog.Infof("[qosaware-cpu] skip pushing advice: starting up")
+		return false
+	}
+
+	// sanity check: if reserve pool exists
+	reservePoolInfo, ok := cs.metaCache.GetPoolInfo(commonstate.PoolNameReserve)
+	if !ok || reservePoolInfo == nil {
+		klog.Errorf("[qosaware-cpu] skip pushing advice: reserve pool does not exist")
+		return false
+	}
+
+	return true
+}
+
+// getAndPushAdvice implements the legacy asynchronous bidirectional communication model between
+// qrm plugins and sys-advisor. This is kept for backward compatibility.
+// TODO: remove this function after all qrm plugins are migrated to the new synchronous model
+func (cs *cpuServer) getAndPushAdvice(client cpuadvisor.CPUPluginClient, server cpuadvisor.CPUAdvisor_ListAndWatchServer) error {
+	if err := cs.getAndSyncCheckpoint(server.Context(), client); err != nil {
+		return err
+	}
+
+	if !cs.shouldTriggerAdvisorUpdate() {
+		return nil
+	}
+
+	// trigger advisor update and get latest advice
+	advisorRespRaw, err := cs.resourceAdvisor.UpdateAndGetAdvice()
+	if err != nil {
+		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerAdvisorUpdateFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
+		return fmt.Errorf("get advice failed: %w", err)
+	}
+	advisorResp, ok := advisorRespRaw.(*types.InternalCPUCalculationResult)
+	if !ok {
+		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerAdvisorUpdateFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
+		return fmt.Errorf("get advice failed: invalid type: %T", advisorRespRaw)
+	}
+
+	klog.Infof("[qosaware-server-cpu] get advisor update: %+v", general.ToString(advisorResp))
+
+	lwResp := cs.assembleResponse(advisorResp)
+	if err := server.Send(lwResp); err != nil {
+		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWSendResponseFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
+		return fmt.Errorf("send listWatch response failed: %w", err)
+	}
+	klog.Infof("[qosaware-server-cpu] sent listWatch resp: %v", general.ToString(lwResp))
+	_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWSendResponseSucceeded), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
+	return nil
+}
+
+func (cs *cpuServer) assembleResponse(advisorResp *types.InternalCPUCalculationResult) *cpuadvisor.ListAndWatchResponse {
+	calculationEntriesMap := make(map[string]*cpuadvisor.CalculationEntries)
+	blockID2Blocks := NewBlockSet()
+
+	cs.assemblePoolEntries(advisorResp, calculationEntriesMap, blockID2Blocks)
+
+	// Assemble pod entries
+	f := func(podUID string, containerName string, ci *types.ContainerInfo) bool {
+		if err := cs.assemblePodEntries(calculationEntriesMap, blockID2Blocks, podUID, ci); err != nil {
+			klog.Errorf("[qosaware-server-cpu] assemblePodEntries for pod %s/%s uid %s err: %v", ci.PodNamespace, ci.PodName, ci.PodUID, err)
+		}
+		return true
+	}
+	cs.metaCache.RangeContainer(f)
+
+	// Send result
+	return &cpuadvisor.ListAndWatchResponse{
+		Entries:                               calculationEntriesMap,
+		AllowSharedCoresOverlapReclaimedCores: advisorResp.AllowSharedCoresOverlapReclaimedCores,
 	}
 }
 
@@ -242,25 +292,6 @@ func (cs *cpuServer) syncCheckpoint(ctx context.Context, resp *cpuadvisor.GetChe
 	_ = cs.metaCache.GCPoolEntries(livingPoolNameSet)
 }
 
-func (cs *cpuServer) startToGetCheckpointFromCPUPlugin() error {
-	if !general.IsPathExists(cs.pluginSocketPath) {
-		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWGetCheckpointFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
-		return fmt.Errorf("cpu plugin socket %v doesn't exist", cs.pluginSocketPath)
-	}
-
-	conn, err := cs.dial(cs.pluginSocketPath, cs.period)
-	if err != nil {
-		klog.Errorf("dial cpu plugin socket %v failed: %v", cs.pluginSocketPath, err)
-		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWGetCheckpointFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
-		return err
-	}
-
-	cs.cpuPluginClient = cpuadvisor.NewCPUPluginClient(conn)
-	go wait.Until(cs.getCheckpoint, cs.period, cs.stopCh)
-
-	return nil
-}
-
 func (cs *cpuServer) updatePoolInfo(poolName string, info *cpuadvisor.AllocationInfo) error {
 	pi, ok := cs.metaCache.GetPoolInfo(poolName)
 	if !ok {
@@ -295,6 +326,7 @@ func (cs *cpuServer) updateContainerInfo(podUID string, containerName string, po
 		ci.QoSLevel = qosLevel
 	}
 
+	// TODO: can we do without sysadvisor persisted states?
 	if ci.OriginOwnerPoolName == "" {
 		ci.OriginOwnerPoolName = ci.OwnerPoolName
 	}

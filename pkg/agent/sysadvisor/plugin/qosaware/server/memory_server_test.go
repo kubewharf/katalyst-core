@@ -76,9 +76,7 @@ func generateTestMemoryAdvisorConfiguration(t *testing.T) *config.Configuration 
 	return conf
 }
 
-func newTestMemoryServer(t *testing.T, podList []*v1.Pod) *memoryServer {
-	recvCh := make(chan types.InternalMemoryCalculationResult)
-	sendCh := make(chan types.TriggerInfo)
+func newTestMemoryServer(t *testing.T, advisor subResourceAdvisor, podList []*v1.Pod) *memoryServer {
 	conf := generateTestMemoryAdvisorConfiguration(t)
 
 	metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
@@ -94,54 +92,25 @@ func newTestMemoryServer(t *testing.T, podList []*v1.Pod) *memoryServer {
 		},
 	}
 
-	memoryServer, err := NewMemoryServer(recvCh, sendCh, conf, metaCache, metaServer, metrics.DummyMetrics{})
+	memoryServer, err := NewMemoryServer(conf, metaCache, metaServer, advisor, metrics.DummyMetrics{})
 	require.NoError(t, err)
 	require.NotNil(t, memoryServer)
-
-	memoryServer.listAndWatchCalled = true
 
 	return memoryServer
 }
 
-func newTestMemoryServerWithChannelBuffer(t *testing.T, podList []*v1.Pod) *memoryServer {
-	recvCh := make(chan types.InternalMemoryCalculationResult, 1)
-	sendCh := make(chan types.TriggerInfo, 1)
-	conf := generateTestMemoryAdvisorConfiguration(t)
-
-	metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
-	metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metricsFetcher)
-	require.NoError(t, err)
-	require.NotNil(t, metaCache)
-
-	metaServer := &metaserver.MetaServer{
-		MetaAgent: &agent.MetaAgent{
-			PodFetcher: &pod.PodFetcherStub{
-				PodList: podList,
-			},
-		},
-	}
-
-	memoryServer, err := NewMemoryServer(recvCh, sendCh, conf, metaCache, metaServer, metrics.DummyMetrics{})
-	require.NoError(t, err)
-	require.NotNil(t, memoryServer)
-
-	memoryServer.listAndWatchCalled = true
-
-	return memoryServer
-}
-
-type MockQRMServiceServer struct {
+type mockQRMMemoryPluginServer struct {
 	containers []*advisorsvc.ContainerMetadata
 	listErr    error
 }
 
-func (ss *MockQRMServiceServer) ListContainers(context.Context, *advisorsvc.Empty) (*advisorsvc.ListContainersResponse, error) {
+func (c *mockQRMMemoryPluginServer) ListContainers(ctx context.Context, req *advisorsvc.Empty) (*advisorsvc.ListContainersResponse, error) {
 	return &advisorsvc.ListContainersResponse{
-		Containers: ss.containers,
-	}, ss.listErr
+		Containers: c.containers,
+	}, c.listErr
 }
 
-func TestListContainers(t *testing.T) {
+func TestPopulateMetaCache(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -180,22 +149,24 @@ func TestListContainers(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			serv := grpc.NewServer()
+			ms := newTestMemoryServer(t, nil, []*v1.Pod{})
 
-			mockQRMServiceServer := &MockQRMServiceServer{containers: tt.containers, listErr: tt.listErr}
-			advisorsvc.RegisterQRMServiceServer(serv, mockQRMServiceServer)
+			qrmServer := &mockQRMMemoryPluginServer{containers: tt.containers, listErr: tt.listErr}
+			server := grpc.NewServer()
+			advisorsvc.RegisterQRMServiceServer(server, qrmServer)
 
-			ms := newTestMemoryServer(t, []*v1.Pod{})
+			sock, err := net.Listen("unix", ms.pluginSocketPath)
+			require.NoError(t, err)
+			defer sock.Close()
+			go func() {
+				server.Serve(sock)
+			}()
 
-			lis, err := net.Listen("unix", ms.pluginSocketPath)
+			client, conn, err := ms.createQRMClient()
+			require.NoError(t, err)
+			defer conn.Close()
+			err = ms.populateMetaCache(client)
 			assert.NoError(t, err)
-			defer lis.Close()
-			go serv.Serve(lis)
-
-			err = ms.Start()
-			assert.NoError(t, err)
-
-			<-ms.sendCh
 
 			for _, ci := range tt.wantContainers {
 				c, ok := ms.metaCache.GetContainerInfo(ci.PodUID, ci.ContainerName)
@@ -209,7 +180,7 @@ func TestListContainers(t *testing.T) {
 func TestMemoryServerStartAndStop(t *testing.T) {
 	t.Parallel()
 
-	cs := newTestMemoryServer(t, []*v1.Pod{})
+	cs := newTestMemoryServer(t, nil, []*v1.Pod{})
 
 	err := cs.Start()
 	assert.NoError(t, err)
@@ -223,20 +194,25 @@ func TestMemoryServerStartAndStop(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+type MockMemoryAdvisor struct {
+	advice *types.InternalMemoryCalculationResult
+	err    error
+}
+
+func (a *MockMemoryAdvisor) UpdateAndGetAdvice() (interface{}, error) {
+	return a.advice, a.err
+}
+
 func TestMemoryServerListAndWatch(t *testing.T) {
 	t.Parallel()
 
-	type ContainerInfo struct {
-		request *advisorsvc.ContainerMetadata
-	}
-
 	tests := []struct {
-		name      string
-		empty     *advisorsvc.Empty
-		provision types.InternalMemoryCalculationResult
-		infos     []*ContainerInfo
-		wantErr   bool
-		wantRes   *advisorsvc.ListAndWatchResponse
+		name       string
+		empty      *advisorsvc.Empty
+		provision  types.InternalMemoryCalculationResult
+		containers []*advisorsvc.ContainerMetadata
+		wantErr    bool
+		wantRes    *advisorsvc.ListAndWatchResponse
 	}{
 		{
 			name:  "normal",
@@ -329,128 +305,35 @@ func TestMemoryServerListAndWatch(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			cs := newTestMemoryServer(t, []*v1.Pod{})
+			advisor := &MockMemoryAdvisor{advice: &tt.provision}
+			ms := newTestMemoryServer(t, advisor, []*v1.Pod{})
+
+			qrmServer := &mockQRMMemoryPluginServer{containers: tt.containers}
+			server := grpc.NewServer()
+			advisorsvc.RegisterQRMServiceServer(server, qrmServer)
+
+			sock, err := net.Listen("unix", ms.pluginSocketPath)
+			require.NoError(t, err)
+			defer sock.Close()
+			go func() {
+				server.Serve(sock)
+			}()
+
 			s := &mockMemoryServerService_ListAndWatchServer{ResultsChan: make(chan *advisorsvc.ListAndWatchResponse)}
-			for _, info := range tt.infos {
-				assert.NoError(t, cs.addContainer(info.request))
-			}
+
 			stop := make(chan struct{})
 			go func() {
-				if err := cs.ListAndWatch(tt.empty, s); (err != nil) != tt.wantErr {
+				if err := ms.ListAndWatch(tt.empty, s); (err != nil) != tt.wantErr {
 					t.Errorf("ListAndWatch() error = %v, wantErr %v", err, tt.wantErr)
 				}
 				stop <- struct{}{}
 			}()
-			recvCh := cs.recvCh.(chan types.InternalMemoryCalculationResult)
-			recvCh <- tt.provision
 			res := <-s.ResultsChan
-			close(cs.stopCh)
+			close(ms.stopCh)
 			<-stop
 			if !reflect.DeepEqual(res, tt.wantRes) {
 				t.Errorf("ListAndWatch()\ngot = %+v, \nwant= %+v", res, tt.wantRes)
 			}
 		})
-	}
-}
-
-func TestMemoryServerDropOldAdvice(t *testing.T) {
-	t.Parallel()
-
-	cs := newTestMemoryServerWithChannelBuffer(t, []*v1.Pod{})
-	s := &mockMemoryServerService_ListAndWatchServer{ResultsChan: make(chan *advisorsvc.ListAndWatchResponse)}
-	recvCh := cs.recvCh.(chan types.InternalMemoryCalculationResult)
-	recvCh <- types.InternalMemoryCalculationResult{}
-
-	stop := make(chan struct{})
-	go func() {
-		err := cs.ListAndWatch(&advisorsvc.Empty{}, s)
-		assert.NoError(t, err, "failed to lw memory server")
-		stop <- struct{}{}
-	}()
-	recvCh <- types.InternalMemoryCalculationResult{
-		TimeStamp: time.Now(),
-		ContainerEntries: []types.ContainerMemoryAdvices{
-			{
-				PodUID:        "pod1",
-				ContainerName: "c1",
-				Values:        map[string]string{"k1": "v1"},
-			},
-			{
-				PodUID:        "pod1",
-				ContainerName: "c1",
-				Values:        map[string]string{"k2": "v2"},
-			},
-			{
-				PodUID:        "pod2",
-				ContainerName: "c1",
-				Values:        map[string]string{"k1": "v1"},
-			},
-			{
-				PodUID:        "pod2",
-				ContainerName: "c2",
-				Values:        map[string]string{"k2": "v2"},
-			},
-		},
-		ExtraEntries: []types.ExtraMemoryAdvices{
-			{
-				CgroupPath: "/kubepods/burstable",
-				Values:     map[string]string{"k1": "v1"},
-			},
-			{
-				CgroupPath: "/kubepods/burstable",
-				Values:     map[string]string{"k2": "v2"},
-			},
-			{
-				CgroupPath: "/kubepods/besteffort",
-				Values:     map[string]string{"k1": "v1"},
-			},
-		},
-	}
-	res := <-s.ResultsChan
-	close(cs.stopCh)
-	<-stop
-	wantRes := &advisorsvc.ListAndWatchResponse{
-		PodEntries: map[string]*advisorsvc.CalculationEntries{
-			"pod1": {
-				ContainerEntries: map[string]*advisorsvc.CalculationInfo{
-					"c1": {
-						CalculationResult: &advisorsvc.CalculationResult{
-							Values: map[string]string{"k1": "v1", "k2": "v2"},
-						},
-					},
-				},
-			},
-			"pod2": {
-				ContainerEntries: map[string]*advisorsvc.CalculationInfo{
-					"c1": {
-						CalculationResult: &advisorsvc.CalculationResult{
-							Values: map[string]string{"k1": "v1"},
-						},
-					},
-					"c2": {
-						CalculationResult: &advisorsvc.CalculationResult{
-							Values: map[string]string{"k2": "v2"},
-						},
-					},
-				},
-			},
-		},
-		ExtraEntries: []*advisorsvc.CalculationInfo{
-			{
-				CgroupPath: "/kubepods/burstable",
-				CalculationResult: &advisorsvc.CalculationResult{
-					Values: map[string]string{"k1": "v1", "k2": "v2"},
-				},
-			},
-			{
-				CgroupPath: "/kubepods/besteffort",
-				CalculationResult: &advisorsvc.CalculationResult{
-					Values: map[string]string{"k1": "v1"},
-				},
-			},
-		},
-	}
-	if !reflect.DeepEqual(res, wantRes) {
-		t.Errorf("ListAndWatch()\ngot = %+v, \nwant= %+v", res, wantRes)
 	}
 }

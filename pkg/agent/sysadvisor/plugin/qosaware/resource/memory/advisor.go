@@ -26,7 +26,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/errors"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
@@ -70,14 +69,13 @@ const (
 	// multiply the scale by the criticalWaterMark to get the safe watermark
 	criticalWaterMarkScaleFactor = 2
 
-	memoryHealthCheckName         = "memory_advisor_update"
+	memoryAdvisorHealthCheckName  = "memory_advisor_update"
 	healthCheckTolerationDuration = 15 * time.Second
 )
 
 // memoryResourceAdvisor updates memory headroom for reclaimed resource
 type memoryResourceAdvisor struct {
 	conf            *config.Configuration
-	startTime       time.Time
 	headroomPolices []headroompolicy.HeadroomPolicy
 	plugins         []memadvisorplugin.MemoryAdvisorPlugin
 	mutex           sync.RWMutex
@@ -85,9 +83,6 @@ type memoryResourceAdvisor struct {
 	metaReader metacache.MetaReader
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
-
-	recvCh   chan types.TriggerInfo
-	sendChan chan types.InternalMemoryCalculationResult
 }
 
 // NewMemoryResourceAdvisor returns a memoryResourceAdvisor instance
@@ -95,16 +90,12 @@ func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{},
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) *memoryResourceAdvisor {
 	ra := &memoryResourceAdvisor{
-		startTime: time.Now(),
-
 		headroomPolices: make([]headroompolicy.HeadroomPolicy, 0),
 
 		conf:       conf,
 		metaReader: metaCache,
 		metaServer: metaServer,
 		emitter:    emitter,
-		recvCh:     make(chan types.TriggerInfo, 1),
-		sendChan:   make(chan types.InternalMemoryCalculationResult, 1),
 	}
 
 	headroomPolicyInitializers := headroompolicy.GetRegisteredInitializers()
@@ -127,7 +118,7 @@ func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{},
 			klog.Errorf("failed to find registered initializer %v", memadvisorPluginName)
 			continue
 		}
-		general.InfoS("add new memory advisor policy", "policyName", memadvisorPluginName)
+		general.InfoS("add new memory advisor plugin", "pluginName", memadvisorPluginName)
 		ra.plugins = append(ra.plugins, initFunc(conf, extraConf, metaCache, metaServer, emitter))
 	}
 
@@ -135,17 +126,8 @@ func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{},
 }
 
 func (ra *memoryResourceAdvisor) Run(ctx context.Context) {
-	period := ra.conf.SysAdvisorPluginsConfiguration.QoSAwarePluginConfiguration.SyncPeriod
-	general.InfoS("wait to list containers")
-	<-ra.recvCh
-	general.RegisterHeartbeatCheck(memoryHealthCheckName, healthCheckTolerationDuration, general.HealthzCheckStateNotReady, healthCheckTolerationDuration)
-	general.InfoS("list containers successfully")
-
-	go wait.Until(ra.doUpdate, period, ctx.Done())
-}
-
-func (ra *memoryResourceAdvisor) GetChannels() (interface{}, interface{}) {
-	return ra.recvCh, ra.sendChan
+	general.RegisterReportCheck(memoryAdvisorHealthCheckName, healthCheckTolerationDuration)
+	<-ctx.Done()
 }
 
 func (ra *memoryResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
@@ -166,48 +148,31 @@ func (ra *memoryResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
 	return resource.Quantity{}, fmt.Errorf("failed to get valid headroom")
 }
 
-func (ra *memoryResourceAdvisor) sendAdvices() error {
-	// send to server
-	result := types.InternalMemoryCalculationResult{TimeStamp: time.Now()}
-	for _, plugin := range ra.plugins {
-		advices := plugin.GetAdvices()
-		result.ContainerEntries = append(result.ContainerEntries, advices.ContainerEntries...)
-		result.ExtraEntries = append(result.ExtraEntries, advices.ExtraEntries...)
-	}
-
-	select {
-	case ra.sendChan <- result:
-		general.Infof("notify memory server: %+v", result)
-		return nil
-	default:
-		klog.Warningf("[qosaware-memory] channel is full, drop the new advice")
-		return nil
+func (ra *memoryResourceAdvisor) UpdateAndGetAdvice() (interface{}, error) {
+	result, err := ra.update()
+	_ = general.UpdateHealthzStateByError(memoryAdvisorHealthCheckName, err)
+	if result != nil {
+		return result, nil
+	} else {
+		return nil, err
 	}
 }
 
-func (ra *memoryResourceAdvisor) doUpdate() {
-	err := ra.update()
-	defer func() {
-		_ = general.UpdateHealthzStateByError(memoryHealthCheckName, err)
-	}()
-
-	if err != nil {
-		general.Warningf("failed to update memory advice: %q", err)
-	}
-}
-
-func (ra *memoryResourceAdvisor) update() error {
+// update updates memory headroom and plugin advices.
+// If the returned result is not nil, it is valid even if an error is returned.
+func (ra *memoryResourceAdvisor) update() (*types.InternalMemoryCalculationResult, error) {
 	ra.mutex.Lock()
 	defer ra.mutex.Unlock()
 
 	if !ra.metaReader.HasSynced() {
 		general.InfoS("metaReader has not synced, skip updating")
-		return fmt.Errorf("meta reader has not synced")
+		return nil, fmt.Errorf("meta reader has not synced")
 	}
 
 	reservedForAllocate := ra.conf.GetDynamicConfiguration().
 		ReservedResourceForAllocate[v1.ResourceMemory]
 
+	var nonFatalErrors []error
 	for _, headroomPolicy := range ra.headroomPolices {
 		// capacity and reserved can both be adjusted dynamically during running process
 		headroomPolicy.SetEssentials(types.ResourceEssentials{
@@ -217,19 +182,20 @@ func (ra *memoryResourceAdvisor) update() error {
 		})
 
 		if err := headroomPolicy.Update(); err != nil {
-			general.ErrorS(err, "[qosaware-memory] update headroom policy failed", "headroomPolicy", headroomPolicy.Name())
+			general.ErrorS(err, "update headroom policy failed", "headroomPolicy", headroomPolicy.Name())
+			nonFatalErrors = append(nonFatalErrors, fmt.Errorf("update headroom policy failed for %s: %v", headroomPolicy.Name(), err))
 		}
 	}
 
 	nodeCondition, err := ra.detectNodePressureCondition()
 	if err != nil {
 		general.Errorf("detect node memory pressure err %v", err)
-		return fmt.Errorf("failed to detect node memory pressure: %q", err)
+		return nil, fmt.Errorf("failed to detect node memory pressure: %q", err)
 	}
 	NUMAConditions, err := ra.detectNUMAPressureConditions()
 	if err != nil {
 		general.Errorf("detect NUMA pressures err %v", err)
-		return fmt.Errorf("failed to delete NUMA pressure: %q", err)
+		return nil, fmt.Errorf("failed to detete NUMA pressure: %q", err)
 	}
 
 	memoryPressureStatus := types.MemoryPressureStatus{
@@ -237,15 +203,20 @@ func (ra *memoryResourceAdvisor) update() error {
 		NUMAConditions: NUMAConditions,
 	}
 
-	var errs []error
+	result := types.InternalMemoryCalculationResult{TimeStamp: time.Now()}
 	for _, plugin := range ra.plugins {
-		rErr := plugin.Reconcile(&memoryPressureStatus)
-		errs = append(errs, rErr)
+		if err := plugin.Reconcile(&memoryPressureStatus); err != nil {
+			general.Errorf("plugin %T reconcile failed: %v", plugin, err)
+			nonFatalErrors = append(nonFatalErrors, fmt.Errorf("plugin %T reconcile failed: %v", plugin, err))
+			continue
+		}
+
+		advices := plugin.GetAdvices()
+		result.ContainerEntries = append(result.ContainerEntries, advices.ContainerEntries...)
+		result.ExtraEntries = append(result.ExtraEntries, advices.ExtraEntries...)
 	}
 
-	adviceErr := ra.sendAdvices()
-	errs = append(errs, adviceErr)
-	return errors.NewAggregate(errs)
+	return &result, errors.NewAggregate(nonFatalErrors)
 }
 
 func (ra *memoryResourceAdvisor) detectNUMAPressureConditions() (map[int]*types.MemoryPressureCondition, error) {

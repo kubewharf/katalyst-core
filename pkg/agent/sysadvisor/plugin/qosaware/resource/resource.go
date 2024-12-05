@@ -47,14 +47,12 @@ type ResourceAdvisor interface {
 
 // SubResourceAdvisor updates resource provision of a certain dimension based on the latest
 // system and workload snapshot(s), and returns provision advice or resource headroom quantity.
-// It should push updated results to the corresponding qrm server.
 type SubResourceAdvisor interface {
 	// Run starts resource provision update based on the latest system and workload snapshot(s)
 	Run(ctx context.Context)
 
-	// GetChannels returns two channels. The first one receives update trigger from qrm server.
-	// The other one sends the latest internal calculation result to qrm server.
-	GetChannels() (interface{}, interface{})
+	// UpdateAndGetAdvice triggers resource provision update and returns the latest advice
+	UpdateAndGetAdvice() (interface{}, error)
 
 	// GetHeadroom returns the latest resource headroom quantity for resource reporter
 	GetHeadroom() (resource.Quantity, error)

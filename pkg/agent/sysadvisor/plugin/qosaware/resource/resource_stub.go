@@ -83,7 +83,7 @@ func (s *SubResourceAdvisorStub) Name() string {
 func (s *SubResourceAdvisorStub) Run(ctx context.Context) {
 }
 
-func (s *SubResourceAdvisorStub) GetChannels() (interface{}, interface{}) {
+func (s *SubResourceAdvisorStub) UpdateAndGetAdvice() (interface{}, error) {
 	return nil, nil
 }
 
