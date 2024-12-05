@@ -22,6 +22,7 @@ import (
 	"math"
 	"sync"
 
+	workloadv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"go.uber.org/atomic"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/klog/v2"
@@ -690,22 +691,33 @@ func (r *QoSRegionBase) getIndicators() (types.Indicator, error) {
 			return nil, err
 		}
 
-		minTarget := defaultTarget
+		target := defaultTarget
 		if len(r.podSet) > 0 {
-			minTarget = math.MaxFloat64
+			minTarget := math.MaxFloat64
+			sumTarget := 0.0
 			for podUID := range r.podSet {
 				indicatorTarget, err := r.getPodIndicatorTarget(ctx, podUID, string(indicatorName), defaultTarget)
-				if err != nil {
-					return nil, err
+				if err != nil || indicatorTarget == nil {
+					indicatorTarget = &defaultTarget
+					general.Warningf("use default indicator target[%v],because of failed to get indicator %s of poduid[%s] err: %v",
+						defaultTarget, indicatorName, podUID, err)
 				}
-
-				minTarget = math.Min(minTarget, *indicatorTarget)
+				sumTarget = sumTarget + *indicatorTarget
+				minTarget = math.Min(target, *indicatorTarget)
+			}
+			avgTarget := sumTarget / float64(len(r.podSet))
+			switch indicatorName {
+			case workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio:
+				// get avg target for cpu_usage_ratio
+				target = avgTarget
+			default:
+				// get min target by default
+				target = minTarget
 			}
 		}
-
 		indicatorValue := types.IndicatorValue{
 			Current: current,
-			Target:  minTarget,
+			Target:  target,
 		}
 
 		if indicatorValue.Target <= 0 || indicatorValue.Current <= 0 {
@@ -740,10 +752,20 @@ func (r *QoSRegionBase) getPodIndicatorTarget(ctx context.Context, podUID string
 	} else if err != nil {
 		return &indicatorTarget, nil
 	}
-
-	target, ok := servicePerformanceTarget[indicatorName]
+	cpuCodeNameInterface := r.metaServer.GetByStringIndex(pkgconsts.MetricCPUCodeName)
+	cpuCodeName, ok := cpuCodeNameInterface.(string)
+	targetKey := indicatorName
+	if ok && len(cpuCodeName) != 0 {
+		targetKey = fmt.Sprintf("%v-%v", indicatorName, cpuCodeName)
+	}
+	// get the indicator target by name and cpu codename first
+	// if not found, get the indicator target by indicator name
+	target, ok := servicePerformanceTarget[targetKey]
 	if !ok {
-		return &indicatorTarget, nil
+		target, ok = servicePerformanceTarget[indicatorName]
+		if !ok {
+			return &indicatorTarget, nil
+		}
 	}
 
 	// get the indicator target in the following order:

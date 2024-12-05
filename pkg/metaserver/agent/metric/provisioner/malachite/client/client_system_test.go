@@ -38,6 +38,7 @@ var (
 					Name: "CPU1111",
 				},
 			},
+			CPUCodeName: "AMD_K19Zen3",
 		},
 	}
 
@@ -95,6 +96,25 @@ func TestGetSystemComputeStats(t *testing.T) {
 	_, err := malachiteClient.GetSystemComputeStats()
 	assert.NoError(t, err)
 
+	malachiteClient.SetURL(map[string]string{
+		SystemComputeResource: "none",
+	})
+	_, err = malachiteClient.GetSystemComputeStats()
+	assert.NotNil(t, err)
+}
+
+func TestGetSystemCPUCodeName(t *testing.T) {
+	t.Parallel()
+	data, _ := json.Marshal(fakeSystemCompute)
+	server := getSystemTestServer(data)
+	defer server.Close()
+	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{})
+	malachiteClient.SetURL(map[string]string{
+		SystemComputeResource: server.URL,
+	})
+	stats, err := malachiteClient.GetSystemComputeStats()
+	assert.NoError(t, err)
+	assert.Equal(t, "AMD_K19Zen3", stats.CPUCodeName)
 	malachiteClient.SetURL(map[string]string{
 		SystemComputeResource: "none",
 	})

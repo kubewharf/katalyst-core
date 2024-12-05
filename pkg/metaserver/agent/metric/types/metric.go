@@ -64,6 +64,8 @@ type NotifiedResponse struct {
 }
 
 type MetricsReader interface {
+	// GetByStringIndex get metrics by specified key that is hard to categorize as node/numa/pod/container
+	GetByStringIndex(metricName string) interface{}
 	// GetNodeMetric get metric of node.
 	GetNodeMetric(metricName string) (metric.MetricData, error)
 	// GetNumaMetric get metric of numa.
