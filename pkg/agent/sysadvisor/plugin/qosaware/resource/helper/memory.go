@@ -88,7 +88,7 @@ func GetActualNUMABindingNUMAsForReclaimedCores(conf *config.Configuration, meta
 	// filter pods with numa binding result
 	actualNUMABindingNUMAs := machine.NewCPUSet()
 	for _, pod := range podList {
-		bindingResult, err := qos.GetActualNUMABindingResult(pod)
+		bindingResult, err := qos.GetActualNUMABindingResult(conf.QoSConfiguration, pod)
 		if err != nil {
 			return machine.CPUSet{}, err
 		}
