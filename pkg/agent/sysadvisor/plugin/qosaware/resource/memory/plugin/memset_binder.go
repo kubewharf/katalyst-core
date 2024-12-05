@@ -94,14 +94,14 @@ func (mb *memsetBinder) Reconcile(status *types.MemoryPressureStatus) error {
 	containers := make([]*types.ContainerInfo, 0)
 	mb.metaReader.RangeContainer(func(podUID string, containerName string, containerInfo *types.ContainerInfo) bool {
 		if mb.reclaimedContainersFilter(containerInfo) {
-			numaBinding, err := mb.nonActualNUMABindingFilter(mb.conf.QoSConfiguration, containerInfo)
+			numaNonBinding, err := mb.nonActualNUMABindingFilter(mb.conf.QoSConfiguration, containerInfo)
 			if err != nil {
 				general.Errorf("get non-actual-numa-binding for pod: %s/%s, container: %s failed with error: %v",
 					containerInfo.PodNamespace, containerInfo.PodName, containerName, err)
 				return true
 			}
 
-			if !numaBinding {
+			if numaNonBinding {
 				containers = append(containers, containerInfo)
 			}
 			return true
