@@ -31,6 +31,7 @@ type CPUOptions struct {
 
 	CPUDynamicPolicyOptions
 	CPUNativePolicyOptions
+	CPUWeightOptions
 }
 
 type CPUDynamicPolicyOptions struct {
@@ -46,6 +47,11 @@ type CPUDynamicPolicyOptions struct {
 type CPUNativePolicyOptions struct {
 	EnableFullPhysicalCPUsOnly bool
 	CPUAllocationOption        string
+}
+
+type CPUWeightOptions struct {
+	EnableSettingCPUWeight bool
+	CPUWeightConfigFile    string
 }
 
 func NewCPUOptions() *CPUOptions {
@@ -69,6 +75,10 @@ func NewCPUOptions() *CPUOptions {
 		CPUNativePolicyOptions: CPUNativePolicyOptions{
 			EnableFullPhysicalCPUsOnly: false,
 			CPUAllocationOption:        "packed",
+		},
+		CPUWeightOptions: CPUWeightOptions{
+			EnableSettingCPUWeight: false,
+			CPUWeightConfigFile:    "",
 		},
 	}
 }
@@ -103,6 +113,10 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.BoolVar(&o.EnableFullPhysicalCPUsOnly, "enable-full-physical-cpus-only",
 		o.EnableFullPhysicalCPUsOnly, "if set true, we will enable extra allocation restrictions to "+
 			"avoid different containers to possibly end up on the same core.")
+	fs.BoolVar(&o.EnableSettingCPUWeight, "enable-setting-cpu-weight",
+		o.EnableSettingCPUWeight, "if set true, we will enable cpu weight related features")
+	fs.StringVar(&o.CPUWeightConfigFile, "qrm-cpu-weight-config-file",
+		o.CPUWeightConfigFile, "cpu weight config file")
 }
 
 func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
@@ -118,5 +132,7 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 	conf.CPUAllocationOption = o.CPUAllocationOption
 	conf.CPUNUMAHintPreferPolicy = o.CPUNUMAHintPreferPolicy
 	conf.CPUNUMAHintPreferLowThreshold = o.CPUNUMAHintPreferLowThreshold
+	conf.EnableSettingCPUWeight = o.EnableSettingCPUWeight
+	conf.CPUWeightConfigFile = o.CPUWeightConfigFile
 	return nil
 }
