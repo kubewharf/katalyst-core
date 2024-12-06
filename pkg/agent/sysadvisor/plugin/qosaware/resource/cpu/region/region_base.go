@@ -305,6 +305,10 @@ func (r *QoSRegionBase) GetPodsRequest() float64 {
 	r.Lock()
 	defer r.Unlock()
 
+	return r.getPodsRequest()
+}
+
+func (r *QoSRegionBase) getPodsRequest() float64 {
 	requests := .0
 	for podUID := range r.podSet {
 		if pod, err := r.metaServer.GetPod(context.TODO(), podUID); err == nil {
