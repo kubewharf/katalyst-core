@@ -23,6 +23,7 @@ import (
 	"sync"
 
 	"go.uber.org/atomic"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/klog/v2"
 
@@ -40,6 +41,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 const (
@@ -297,6 +299,24 @@ func (r *QoSRegionBase) GetPods() types.PodSet {
 	defer r.Unlock()
 
 	return r.podSet.Clone()
+}
+
+func (r *QoSRegionBase) GetPodsRequest() float64 {
+	r.Lock()
+	defer r.Unlock()
+
+	requests := .0
+	for podUID := range r.podSet {
+		if pod, err := r.metaServer.GetPod(context.TODO(), podUID); err == nil {
+			reqs := native.SumUpPodRequestResources(pod)
+			cpuReq, ok := reqs[v1.ResourceCPU]
+			if ok {
+				requests += float64(cpuReq.MilliValue()) / 1000
+			}
+		}
+	}
+
+	return requests
 }
 
 func (r *QoSRegionBase) SetBindingNumas(numas machine.CPUSet) {
