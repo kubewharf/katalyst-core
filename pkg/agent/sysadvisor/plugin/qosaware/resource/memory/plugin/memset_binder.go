@@ -146,6 +146,11 @@ func (mb *memsetBinder) Reconcile(status *types.MemoryPressureStatus) error {
 		}
 	}
 
+	if availNUMAs.IsEmpty() {
+		general.Errorf("all NUMAs are on memory pressure, can't bind reclaimed_cores containers")
+		return nil
+	}
+
 	for _, ci := range containers {
 		containerMemset[native.GeneratePodContainerName(ci.PodUID, ci.ContainerName)] = availNUMAs
 	}
