@@ -116,6 +116,11 @@ func (m mbMonitor) GetMBQoSGroups() (map[qosgroup.QoSGroup]*MBQoSGroup, error) {
 	return groups, nil
 }
 
+func isRWRatioValid(r, w int) bool {
+	// in general r/w ratio is at lease 1.0
+	return r >= w
+}
+
 func getGroupCCDMBs(rGroupCCDMB, wGroupCCDMB map[qosgroup.QoSGroup]map[int]int) map[qosgroup.QoSGroup]map[int]*MBData {
 	groupCCDMBs := make(map[qosgroup.QoSGroup]map[int]*MBData)
 	for qos, ccdMB := range rGroupCCDMB {
@@ -125,14 +130,17 @@ func getGroupCCDMBs(rGroupCCDMB, wGroupCCDMB map[qosgroup.QoSGroup]map[int]int) 
 		}
 	}
 	for qos, ccdMB := range wGroupCCDMB {
-		for ccd, mb := range ccdMB {
+		for ccd, wmb := range ccdMB {
 			if _, ok := groupCCDMBs[qos]; !ok {
 				groupCCDMBs[qos] = make(map[int]*MBData)
 			}
 			if _, ok := groupCCDMBs[qos][ccd]; !ok {
 				groupCCDMBs[qos][ccd] = &MBData{}
 			}
-			groupCCDMBs[qos][ccd].WritesMB = mb
+			if !isRWRatioValid(groupCCDMBs[qos][ccd].ReadsMB, wmb) {
+				continue
+			}
+			groupCCDMBs[qos][ccd].WritesMB = wmb
 		}
 	}
 

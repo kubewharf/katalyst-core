@@ -17,6 +17,7 @@ limitations under the License.
 package monitor
 
 import (
+	"github.com/stretchr/testify/assert"
 	"reflect"
 	"testing"
 
@@ -107,6 +108,68 @@ func Test_mbMonitor_GetMBQoSGroups(t1 *testing.T) {
 			if !reflect.DeepEqual(got, tt.want) {
 				t1.Errorf("GetMBQoSGroups() got = %v, want %v", got, tt.want)
 			}
+		})
+	}
+}
+
+func Test_getGroupCCDMBs(t *testing.T) {
+	t.Parallel()
+	type args struct {
+		rGroupCCDMB map[qosgroup.QoSGroup]map[int]int
+		wGroupCCDMB map[qosgroup.QoSGroup]map[int]int
+	}
+	tests := []struct {
+		name string
+		args args
+		want map[qosgroup.QoSGroup]map[int]*MBData
+	}{
+		{
+			name: "happy path 1 gos group",
+			args: args{
+				rGroupCCDMB: map[qosgroup.QoSGroup]map[int]int{
+					qosgroup.QoSGroupDedicated: {2: 200, 3: 300},
+				},
+				wGroupCCDMB: map[qosgroup.QoSGroup]map[int]int{
+					qosgroup.QoSGroupDedicated: {2: 20, 3: 30},
+				},
+			},
+			want: map[qosgroup.QoSGroup]map[int]*MBData{
+				qosgroup.QoSGroupDedicated: {
+					2: {TotalMB: 0, ReadsMB: 200, WritesMB: 20},
+					3: {TotalMB: 0, ReadsMB: 300, WritesMB: 30},
+				},
+			},
+		},
+		{
+			name: "drop out ccd wmb if r/w ratio unreasonable",
+			args: args{
+				rGroupCCDMB: map[qosgroup.QoSGroup]map[int]int{
+					qosgroup.QoSGroupDedicated: {2: 0, 3: 300},
+					qosgroup.QoSGroupSystem:    {2: 200, 3: 1},
+				},
+				wGroupCCDMB: map[qosgroup.QoSGroup]map[int]int{
+					qosgroup.QoSGroupDedicated: {2: 20, 3: 30},
+					qosgroup.QoSGroupSystem:    {2: 20, 3: 30},
+				},
+			},
+			want: map[qosgroup.QoSGroup]map[int]*MBData{
+				qosgroup.QoSGroupDedicated: {
+					2: {TotalMB: 0, ReadsMB: 0, WritesMB: 0},
+					3: {TotalMB: 0, ReadsMB: 300, WritesMB: 30},
+				},
+				qosgroup.QoSGroupSystem: {
+					2: {TotalMB: 0, ReadsMB: 200, WritesMB: 20},
+					3: {TotalMB: 0, ReadsMB: 1, WritesMB: 0},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := getGroupCCDMBs(tt.args.rGroupCCDMB, tt.args.wGroupCCDMB)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }

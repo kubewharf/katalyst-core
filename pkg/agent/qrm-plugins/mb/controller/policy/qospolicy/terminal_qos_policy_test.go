@@ -49,9 +49,9 @@ func Test_getTopMostPlan(t *testing.T) {
 				},
 			},
 			want: &plan.MBAlloc{Plan: map[qosgroup.QoSGroup]map[int]int{
-				"dedicated": {4: 25_000, 5: 25_000},
-				"shared-50": {0: 25_000, 1: 25_000},
-				"system":    {1: 25_000},
+				"dedicated": {4: 30_000, 5: 30_000},
+				"shared-50": {0: 30_000, 1: 30_000},
+				"system":    {1: 30_000},
 			}},
 		},
 	}
