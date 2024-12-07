@@ -51,6 +51,7 @@ func (n *NodePreempter) PreemptNodes(req *pluginapi.ResourceRequest) error {
 		}
 	}
 
+	general.InfofV(6, "mbm: preempt nodes for pod %s/%s, hinted nodes %v", req.PodNamespace, req.PodName, req.Hint.Nodes)
 	nodesToPreempt := n.getNotInUseNodes(req.Hint.Nodes)
 	if len(nodesToPreempt) > 0 {
 		if n.domainManager.PreemptNodes(nodesToPreempt) {
