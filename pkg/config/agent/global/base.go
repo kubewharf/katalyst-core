@@ -80,6 +80,11 @@ type MalachiteConfiguration struct {
 	// If the former paths not existed, errors will occur, whereas the latter will not.
 	GeneralRelativeCgroupPaths  []string
 	OptionalRelativeCgroupPaths []string
+
+	// CgroupType indicates the type of cgroupfs, and AdditionalK8sCgroupPaths is used to
+	// specify additional k8s cgroup paths for katalyst-agent.
+	CgroupType               string
+	AdditionalK8sCgroupPaths []string
 }
 
 func NewBaseConfiguration() *BaseConfiguration {

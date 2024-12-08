@@ -92,6 +92,40 @@ func (am *AllocationMeta) GetSpecifiedPoolName() string {
 	return GetSpecifiedPoolName(am.QoSLevel, am.Annotations[consts.PodAnnotationCPUEnhancementCPUSet])
 }
 
+// GetSpecifiedNUMABindingNUMAID parses the numa id for AllocationInfo
+func (am *AllocationMeta) GetSpecifiedNUMABindingNUMAID() (int, error) {
+	if am == nil {
+		return FakedNUMAID, fmt.Errorf("empty am")
+	}
+
+	if _, ok := am.Annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint]; !ok {
+		return FakedNUMAID, nil
+	}
+
+	numaSet, pErr := machine.Parse(am.Annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint])
+	if pErr != nil {
+		return FakedNUMAID, fmt.Errorf("parse numaHintStr: %s failed with error: %v",
+			am.Annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint], pErr)
+	} else if numaSet.Size() != 1 {
+		return FakedNUMAID, fmt.Errorf("parse numaHintStr: %s with invalid size", numaSet.String())
+	}
+
+	return numaSet.ToSliceNoSortInt()[0], nil
+}
+
+// SetSpecifiedNUMABindingNUMAID set the numa id for AllocationInfo
+func (am *AllocationMeta) SetSpecifiedNUMABindingNUMAID(numaID uint64) {
+	if am == nil {
+		return
+	}
+
+	if am.Annotations == nil {
+		am.Annotations = make(map[string]string)
+	}
+
+	am.Annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint] = machine.NewCPUSet(int(numaID)).String()
+}
+
 // GetSpecifiedNUMABindingPoolName get numa_binding pool name
 // for numa_binding shared_cores according to enhancements and NUMA hint
 func (am *AllocationMeta) GetSpecifiedNUMABindingPoolName() (string, error) {
@@ -99,12 +133,13 @@ func (am *AllocationMeta) GetSpecifiedNUMABindingPoolName() (string, error) {
 		return EmptyOwnerPoolName, fmt.Errorf("GetSpecifiedNUMABindingPoolName only for numa_binding shared_cores")
 	}
 
-	numaSet, pErr := machine.Parse(am.Annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint])
-	if pErr != nil {
-		return EmptyOwnerPoolName, fmt.Errorf("parse numaHintStr: %s failed with error: %v",
-			am.Annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint], pErr)
-	} else if numaSet.Size() != 1 {
-		return EmptyOwnerPoolName, fmt.Errorf("parse numaHintStr: %s with invalid size", numaSet.String())
+	numaID, err := am.GetSpecifiedNUMABindingNUMAID()
+	if err != nil {
+		return EmptyOwnerPoolName, err
+	}
+
+	if numaID == FakedNUMAID {
+		return EmptyOwnerPoolName, fmt.Errorf("invalid numa id for numa_binding shared_cores")
 	}
 
 	specifiedPoolName := am.GetSpecifiedPoolName()
@@ -113,10 +148,10 @@ func (am *AllocationMeta) GetSpecifiedNUMABindingPoolName() (string, error) {
 		return EmptyOwnerPoolName, fmt.Errorf("empty specifiedPoolName")
 	}
 
-	return GetNUMAPoolName(specifiedPoolName, numaSet.ToSliceNoSortUInt64()[0]), nil
+	return GetNUMAPoolName(specifiedPoolName, numaID), nil
 }
 
-func GetNUMAPoolName(candidateSpecifiedPoolName string, targetNUMANode uint64) string {
+func GetNUMAPoolName(candidateSpecifiedPoolName string, targetNUMANode int) string {
 	return fmt.Sprintf("%s%s%d", candidateSpecifiedPoolName, NUMAPoolInfix, targetNUMANode)
 }
 
@@ -191,6 +226,14 @@ func (am *AllocationMeta) CheckNUMABinding() bool {
 		consts.PodAnnotationMemoryEnhancementNumaBindingEnable
 }
 
+// CheckActualNUMABinding returns true if the AllocationInfo is for pod actual numa-binding
+func (am *AllocationMeta) CheckActualNUMABinding() bool {
+	if am == nil {
+		return false
+	}
+	return am.Annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint] != ""
+}
+
 // CheckDedicatedNUMABinding returns true if the AllocationInfo is for pod with
 // dedicated-qos and numa-binding enhancement
 func (am *AllocationMeta) CheckDedicatedNUMABinding() bool {
@@ -206,11 +249,27 @@ func (am *AllocationMeta) CheckSharedNUMABinding() bool {
 // CheckSharedOrDedicatedNUMABinding returns true if the AllocationInfo is for pod with
 // shared-qos or dedicated-qos and numa-binding enhancement
 func (am *AllocationMeta) CheckSharedOrDedicatedNUMABinding() bool {
-	if am == nil {
-		return false
-	}
-
 	return am.CheckSharedNUMABinding() || am.CheckDedicatedNUMABinding()
+}
+
+// CheckReclaimedNUMABinding returns true if the AllocationInfo is for pod with
+// reclaimed-qos and numa-binding enhancement
+func (am *AllocationMeta) CheckReclaimedNUMABinding() bool {
+	return am.CheckReclaimed() && am.CheckNUMABinding()
+}
+
+// CheckReclaimedActualNUMABinding returns true if the AllocationInfo is for pod with
+// reclaimed-qos and numa-binding enhancement and numa hint is not empty, which means
+// the container is allocated on a specific NUMA node
+func (am *AllocationMeta) CheckReclaimedActualNUMABinding() bool {
+	return am.CheckReclaimedNUMABinding() && am.CheckActualNUMABinding()
+}
+
+// CheckReclaimedNonActualNUMABinding returns true if the AllocationInfo is for pod with
+// reclaimed-qos and without binding to a specific NUMA node actually, which means
+// the pod can be allocated on multi NUMA nodes
+func (am *AllocationMeta) CheckReclaimedNonActualNUMABinding() bool {
+	return am.CheckReclaimed() && !am.CheckActualNUMABinding()
 }
 
 // CheckNumaExclusive returns true if the AllocationInfo is for pod with numa-exclusive enhancement

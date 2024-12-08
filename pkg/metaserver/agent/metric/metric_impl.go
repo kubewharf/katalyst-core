@@ -275,7 +275,12 @@ type MetricsFetcherImpl struct {
 	intervals       map[string]time.Duration
 }
 
-func NewMetricsFetcher(baseConf *global.BaseConfiguration, metricConf *metaserver.MetricConfiguration, emitter metrics.MetricEmitter, podFetcher pod.PodFetcher) types.MetricsFetcher {
+func NewMetricsFetcher(baseConf *global.BaseConfiguration,
+	metricConf *metaserver.MetricConfiguration,
+	emitter metrics.MetricEmitter,
+	podFetcher pod.PodFetcher,
+	machineInfo *machine.KatalystMachineInfo,
+) types.MetricsFetcher {
 	metricStore := utilmetric.NewMetricStore()
 	metricsNotifierManager := NewMetricsNotifierManager(metricStore, emitter)
 	externalMetricManager := NewExternalMetricManager(metricStore, emitter)
@@ -289,7 +294,7 @@ func NewMetricsFetcher(baseConf *global.BaseConfiguration, metricConf *metaserve
 			if interval, exist := metricConf.ProvisionerIntervals[name]; exist {
 				intervals[name] = interval
 			}
-			provisioners[name] = f(baseConf, metricConf, emitter, podFetcher, metricStore)
+			provisioners[name] = f(baseConf, metricConf, emitter, podFetcher, metricStore, machineInfo)
 		}
 	}
 

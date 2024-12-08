@@ -534,7 +534,7 @@ func TestNewCheckpointState(t *testing.T) {
 			}
 		}
 	},
-	"checksum": 4030123680
+	"checksum": 2664240898
 }`,
 			"",
 			&cpuPluginState{
