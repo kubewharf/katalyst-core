@@ -1689,6 +1689,7 @@ func (p *DynamicPolicy) getReclaimOverlapShareRatio(entries state.PodEntries) (m
 
 	curReclaimCPUSet := entries[commonstate.PoolNameReclaim][commonstate.FakedContainerName].AllocationResult
 
+	// Iterate through all pools to calculate overlap ratios
 	for poolName, subEntries := range entries {
 		if !subEntries.IsPoolEntry() {
 			continue
@@ -1712,6 +1713,37 @@ func (p *DynamicPolicy) getReclaimOverlapShareRatio(entries state.PodEntries) (m
 		}
 	}
 
+	// If no overlap was found, calculate non-overlap ratios
+	if len(reclaimOverlapShareRatio) == 0 {
+		reclaimNonOverlapShareRatio := make(map[string]float64)
+
+		// Iterate over all sub-entries to compute non-overlap ratios
+		for _, subEntries := range entries {
+			if subEntries.IsPoolEntry() {
+				continue
+			}
+
+			for _, allocationInfo := range subEntries {
+				if allocationInfo == nil || allocationInfo.AllocationResult.IsEmpty() {
+					continue
+				}
+
+				// Only process shared pools
+				poolName := allocationInfo.GetPoolName()
+				if commonstate.GetPoolType(poolName) == commonstate.PoolNameShare {
+					requestQuantity := allocationInfo.RequestQuantity
+					if requestQuantity > 0 {
+						reclaimNonOverlapShareRatio[poolName] += requestQuantity / float64(allocationInfo.AllocationResult.Size())
+					}
+				}
+			}
+		}
+
+		// Convert non-overlap ratios to overlap ratios
+		for poolName, ratio := range reclaimNonOverlapShareRatio {
+			reclaimOverlapShareRatio[poolName] = 1.0 - ratio
+		}
+	}
 	return reclaimOverlapShareRatio, nil
 }
 
