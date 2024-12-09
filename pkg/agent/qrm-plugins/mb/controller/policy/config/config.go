@@ -21,6 +21,9 @@ const (
 	ReservedPerNuma = 35_000              // 35 GBps reserved per node for dedicated pod
 	ReservedPerCCD  = ReservedPerNuma / 2 // hardcoded divisor 2 may not be applicable all the places
 
-	CCDMBMin = 8_000  // per CCD 8 GB
-	CCDMBMax = 30_000 // per CCD 30 GB (hopefully effective 25GB)
+	CCDMBMin = 8_000 // per CCD 8 GB
+
+	// set max of CCD mb even higher, hopefully the initial spike efffect would be obliviated
+	// todo: to fix test cases (which expect original 30GB) after the 35 is finalized
+	CCDMBMax = 35_000 // per CCD 35 GB (hopefully effective 25GB)
 )
