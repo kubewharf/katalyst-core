@@ -204,19 +204,24 @@ func (r *QoSRegionShare) getControlKnobs() types.ControlKnob {
 			return regionInfo.ControlKnobMap
 		}
 	}
-	poolSize, ok := r.metaReader.GetPoolSize(r.ownerPoolName)
-	if !ok {
-		klog.Warningf("[qosaware-cpu] pool %v not exist", r.ownerPoolName)
-		return nil
+	var requirement int
+	if r.conf.GetDynamicConfiguration().AllowSharedCoresOverlapReclaimedCores {
+		requirement = int(math.Ceil(r.getPodsRequest()))
+	} else {
+		requirement, ok = r.metaReader.GetPoolSize(r.ownerPoolName)
+		if !ok {
+			klog.Warningf("[qosaware-cpu] pool %v not exist", r.ownerPoolName)
+			return nil
+		}
 	}
-	if poolSize <= 0 {
-		klog.Errorf("[qosaware-cpu] pool %v of non positive size", r.ownerPoolName)
+	if requirement <= 0 {
+		klog.Errorf("[qosaware-cpu] pool %v of non positive requirement", r.ownerPoolName)
 		return nil
 	}
 
 	return types.ControlKnob{
 		configapi.ControlKnobNonReclaimedCPURequirement: {
-			Value:  float64(poolSize),
+			Value:  float64(requirement),
 			Action: types.ControlKnobActionNone,
 		},
 	}
