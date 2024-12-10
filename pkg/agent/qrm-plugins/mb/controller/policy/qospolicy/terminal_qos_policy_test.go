@@ -102,3 +102,55 @@ func Test_getProportionalPlan(t *testing.T) {
 		})
 	}
 }
+
+func Test_getLeafPlan(t *testing.T) {
+	t.Parallel()
+	type args struct {
+		totalMB     int
+		mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup
+	}
+	tests := []struct {
+		name string
+		args args
+		want *plan.MBAlloc
+	}{
+		{
+			name: "happy path",
+			args: args{
+				totalMB: 15_000,
+				mbQoSGroups: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+					"shared-30": {
+						CCDMB: map[int]*monitor.MBData{6: {
+							TotalMB: 4_000,
+						}},
+					},
+				},
+			},
+			want: &plan.MBAlloc{
+				Plan: map[qosgroup.QoSGroup]map[int]int{"shared-30": map[int]int{6: 15_000}}},
+		},
+		{
+			name: "almost saturation path",
+			args: args{
+				totalMB: 15_000,
+				mbQoSGroups: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+					"shared-30": {
+						CCDs: sets.Int{6: sets.Empty{}},
+						CCDMB: map[int]*monitor.MBData{6: {
+							TotalMB: 7_000,
+						}},
+					},
+				},
+			},
+			want: &plan.MBAlloc{
+				Plan: map[qosgroup.QoSGroup]map[int]int{"shared-30": map[int]int{6: 8_000}}},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equalf(t, tt.want, getLeafPlan(tt.args.totalMB, tt.args.mbQoSGroups), "getLeafPlan(%v, %v)", tt.args.totalMB, tt.args.mbQoSGroups)
+		})
+	}
+}

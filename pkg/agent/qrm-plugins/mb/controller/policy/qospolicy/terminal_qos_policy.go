@@ -23,6 +23,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
 
+const saturationThreshold = 8_000
+
 type terminalQoSPolicy struct{}
 
 func (t terminalQoSPolicy) GetPlan(totalMB int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup, isTopMost bool) *plan.MBAlloc {
@@ -49,12 +51,15 @@ func getFixedPlan(fixed int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGro
 }
 
 func getLeafPlan(totalMB int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
-	// distribute total among all proportionally
+	// when there is little mb left after fulfilling this leaf tier (almost saturation),
+	// the leaf tier has to be suppressed hard to the mininum, in the fastest way to give away
+	// mb room to high prio tasks likely in need
 	totalUsage := monitor.SumMB(mbQoSGroups)
-	if totalUsage == 0 {
+	if totalMB-totalUsage <= saturationThreshold {
 		return getFixedPlan(config.CCDMBMin, mbQoSGroups)
 	}
 
+	// distribute total among all proportionally
 	ratio := float64(totalMB) / float64(totalUsage)
 	return getProportionalPlan(ratio, mbQoSGroups)
 }
