@@ -208,11 +208,11 @@ func TestSNBVPA(t *testing.T) {
 	}, resp1.PodResources[req.PodUid].ContainerResources[testName].ResourceAllocation[string(v1.ResourceCPU)])
 }
 
-func TestSNBVPAWithSidecar(t *testing.T) {
+func TestSNBInplaceUpdateResizeWithSidecar(t *testing.T) {
 	t.Parallel()
 	as := require.New(t)
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint-TestSNBVPAWithSidecar")
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestSNBInplaceUpdateResizeWithSidecar")
 	as.Nil(err)
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
@@ -620,11 +620,11 @@ func TestSNBVPAWithSidecar(t *testing.T) {
 	as.Nil(err)
 }
 
-func TestNonBindingShareCoresVPA(t *testing.T) {
+func TestNonBindingShareCoresInplaceUpdateResize(t *testing.T) {
 	t.Parallel()
 	as := require.New(t)
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint-TestNonBindingShareCoresVPA")
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestNonBindingShareCoresInplaceUpdateResize")
 	as.Nil(err)
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
@@ -761,11 +761,11 @@ func TestNonBindingShareCoresVPA(t *testing.T) {
 	as.Equal(float64(3), allocation.RequestQuantity)
 }
 
-func TestNonBindingShareCoresVPAWithSidecar(t *testing.T) {
+func TestNonBindingShareCoresInplaceUpdateResizeWithSidecar(t *testing.T) {
 	t.Parallel()
 	as := require.New(t)
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint-TestNonBindingShareCoresVPAWithSidecar")
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestNonBindingShareCoresInplaceUpdateResizeWithSidecar")
 	as.Nil(err)
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 

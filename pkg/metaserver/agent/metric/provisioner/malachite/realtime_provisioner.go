@@ -32,6 +32,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
@@ -42,8 +43,8 @@ const (
 	metricsNameMalachiteGetRealtimePowerFailed  = "malachite_get_realtime_power_failed"
 )
 
-func NewMalachiteRealtimeMetricsProvisioner(baseConf *global.BaseConfiguration, metricConf *metaserver.MetricConfiguration,
-	emitter metrics.MetricEmitter, fetcher pod.PodFetcher, metricStore *utilmetric.MetricStore,
+func NewMalachiteRealtimeMetricsProvisioner(baseConf *global.BaseConfiguration, _ *metaserver.MetricConfiguration,
+	emitter metrics.MetricEmitter, fetcher pod.PodFetcher, metricStore *utilmetric.MetricStore, _ *machine.KatalystMachineInfo,
 ) types.MetricsProvisioner {
 	inner := &MalachiteMetricsProvisioner{
 		malachiteClient: client.NewMalachiteClient(fetcher),

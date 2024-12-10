@@ -61,6 +61,8 @@ type GenericSlidingWindowOptions struct {
 type GenericHeadroomManager struct {
 	sync.RWMutex
 	lastReportResult *resource.Quantity
+	// the latest transformed reporter result per numa
+	lastNumaReportResult map[int]resource.Quantity
 
 	headroomAdvisor     hmadvisor.ResourceAdvisor
 	emitter             metrics.MetricEmitter
@@ -91,6 +93,7 @@ func NewGenericHeadroomManager(name v1.ResourceName, useMilliValue, reportMilliV
 
 	return &GenericHeadroomManager{
 		resourceName:            name,
+		lastNumaReportResult:    make(map[int]resource.Quantity),
 		reportResultTransformer: reportResultTransformer,
 		syncPeriod:              syncPeriod,
 		headroomAdvisor:         headroomAdvisor,
@@ -118,6 +121,18 @@ func (m *GenericHeadroomManager) GetCapacity() (resource.Quantity, error) {
 	m.RLock()
 	defer m.RUnlock()
 	return m.getLastReportResult()
+}
+
+func (m *GenericHeadroomManager) GetNumaAllocatable() (map[int]resource.Quantity, error) {
+	m.RLock()
+	defer m.RUnlock()
+	return m.lastNumaReportResult, nil
+}
+
+func (m *GenericHeadroomManager) GetNumaCapacity() (map[int]resource.Quantity, error) {
+	m.RLock()
+	defer m.RUnlock()
+	return m.lastNumaReportResult, nil
 }
 
 func (m *GenericHeadroomManager) Run(ctx context.Context) {
@@ -150,11 +165,13 @@ func (m *GenericHeadroomManager) sync(_ context.Context) {
 		return
 	}
 
-	originResultFromAdvisor, err := m.headroomAdvisor.GetHeadroom(m.resourceName)
+	originResultFromAdvisor, numaResult, err := m.headroomAdvisor.GetHeadroom(m.resourceName)
 	if err != nil {
 		klog.Errorf("get origin result %s from headroomAdvisor failed: %v", m.resourceName, err)
 		return
 	}
+
+	originValue := originResultFromAdvisor.Value()
 
 	reportResult := m.reportSlidingWindow.GetWindowedResources(originResultFromAdvisor)
 	if reportResult == nil {
@@ -172,6 +189,14 @@ func (m *GenericHeadroomManager) sync(_ context.Context) {
 		reportResult.String(), reclaimOptions.ReservedResourceForReport.String())
 
 	m.setLastReportResult(*reportResult)
+	// set latest numa report result
+	diffRatio := float64(reportResult.Value()) / float64(originValue)
+	for numaID, res := range numaResult {
+		res.Set(int64(float64(res.Value()) * diffRatio))
+		result := m.reportResultTransformer(res)
+		m.lastNumaReportResult[numaID] = result
+		klog.Infof("%s headroom manager for NUMA: %d, headroom: %d", m.resourceName, numaID, result.Value())
+	}
 }
 
 func (m *GenericHeadroomManager) emitResourceToMetric(metricsName string, value resource.Quantity) {

@@ -34,13 +34,15 @@ type CPUOptions struct {
 }
 
 type CPUDynamicPolicyOptions struct {
-	EnableCPUAdvisor              bool
-	EnableCPUPressureEviction     bool
-	LoadPressureEvictionSkipPools []string
-	EnableSyncingCPUIdle          bool
-	EnableCPUIdle                 bool
-	CPUNUMAHintPreferPolicy       string
-	CPUNUMAHintPreferLowThreshold float64
+	EnableCPUAdvisor                       bool
+	EnableCPUPressureEviction              bool
+	LoadPressureEvictionSkipPools          []string
+	EnableSyncingCPUIdle                   bool
+	EnableCPUIdle                          bool
+	CPUNUMAHintPreferPolicy                string
+	CPUNUMAHintPreferLowThreshold          float64
+	CPUNUMAReclaimedHintPreferPolicy       string
+	CPUNUMAReclaimedHintPreferLowThreshold float64
 }
 
 type CPUNativePolicyOptions struct {
@@ -54,11 +56,12 @@ func NewCPUOptions() *CPUOptions {
 		ReservedCPUCores:       0,
 		SkipCPUStateCorruption: false,
 		CPUDynamicPolicyOptions: CPUDynamicPolicyOptions{
-			EnableCPUAdvisor:          false,
-			EnableCPUPressureEviction: false,
-			EnableSyncingCPUIdle:      false,
-			EnableCPUIdle:             false,
-			CPUNUMAHintPreferPolicy:   cpuconsts.CPUNUMAHintPreferPolicySpreading,
+			EnableCPUAdvisor:                 false,
+			EnableCPUPressureEviction:        false,
+			EnableSyncingCPUIdle:             false,
+			EnableCPUIdle:                    false,
+			CPUNUMAHintPreferPolicy:          cpuconsts.CPUNUMAHintPreferPolicySpreading,
+			CPUNUMAReclaimedHintPreferPolicy: cpuconsts.CPUNUMAHintPreferPolicyNone,
 			LoadPressureEvictionSkipPools: []string{
 				commonstate.PoolNameReclaim,
 				commonstate.PoolNameDedicated,
@@ -97,6 +100,10 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"it decides hint preference calculation strategy")
 	fs.Float64Var(&o.CPUNUMAHintPreferLowThreshold, "cpu-numa-hint-prefer-low-threshold", o.CPUNUMAHintPreferLowThreshold,
 		"it indicates threshold to apply CPUNUMAHintPreferPolicy dynamically, and it's working when CPUNUMAHintPreferPolicy is set to dynamic_packing")
+	fs.StringVar(&o.CPUNUMAReclaimedHintPreferPolicy, "cpu-numa-reclaimed-hint-prefer-policy", o.CPUNUMAReclaimedHintPreferPolicy,
+		"it decides hint preference calculation strategy for reclaimed cpu")
+	fs.Float64Var(&o.CPUNUMAReclaimedHintPreferLowThreshold, "cpu-numa-reclaimed-hint-prefer-low-threshold", o.CPUNUMAReclaimedHintPreferLowThreshold,
+		"it indicates threshold to apply CPUNUMAReclaimedHintPreferPolicy dynamically, and it's working when CPUNUMAReclaimedHintPreferPolicy is set to dynamic_packing")
 	fs.StringVar(&o.CPUAllocationOption, "cpu-allocation-option",
 		o.CPUAllocationOption, "The allocation option of cpu (packed/distributed). The default value is packed."+
 			"in cases where more than one NUMA node is required to satisfy the allocation.")
@@ -118,5 +125,7 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 	conf.CPUAllocationOption = o.CPUAllocationOption
 	conf.CPUNUMAHintPreferPolicy = o.CPUNUMAHintPreferPolicy
 	conf.CPUNUMAHintPreferLowThreshold = o.CPUNUMAHintPreferLowThreshold
+	conf.CPUNUMAReclaimedHintPreferPolicy = o.CPUNUMAHintPreferPolicy
+	conf.CPUNUMAReclaimedHintPreferLowThreshold = o.CPUNUMAReclaimedHintPreferLowThreshold
 	return nil
 }

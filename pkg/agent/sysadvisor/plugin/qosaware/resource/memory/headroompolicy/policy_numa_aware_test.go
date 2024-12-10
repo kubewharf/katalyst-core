@@ -236,7 +236,7 @@ func TestPolicyNUMAAware(t *testing.T) {
 				t.Errorf("update() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			got, err := p.GetHeadroom()
+			got, _, err := p.GetHeadroom()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetHeadroom() error = %v, wantErr %v", err, tt.wantErr)
 				return
