@@ -2749,7 +2749,7 @@ func TestGetTopologyHints(t *testing.T) {
 			numaHeadroom: map[int]float64{
 				0: 2,
 				1: 1,
-				2: 2,
+				2: 2.5,
 				3: 3,
 			},
 			req: &pluginapi.ResourceRequest{
@@ -2986,10 +2986,6 @@ func TestGetTopologyHints(t *testing.T) {
 								Nodes:     []uint64{1},
 								Preferred: true,
 							},
-							{
-								Nodes:     []uint64{0, 1, 2, 3},
-								Preferred: true,
-							},
 						},
 					},
 				},
@@ -3008,7 +3004,7 @@ func TestGetTopologyHints(t *testing.T) {
 			numaHeadroom: map[int]float64{
 				0: 2,
 				1: 1,
-				2: 2,
+				2: 2.5,
 				3: 3,
 			},
 			req: &pluginapi.ResourceRequest{
@@ -3230,7 +3226,19 @@ func TestGetTopologyHints(t *testing.T) {
 					string(v1.ResourceCPU): {
 						Hints: []*pluginapi.TopologyHint{
 							{
-								Nodes:     []uint64{0, 1, 2, 3},
+								Nodes:     []uint64{3},
+								Preferred: true,
+							},
+							{
+								Nodes:     []uint64{2},
+								Preferred: true,
+							},
+							{
+								Nodes:     []uint64{0},
+								Preferred: true,
+							},
+							{
+								Nodes:     []uint64{1},
 								Preferred: true,
 							},
 						},
@@ -3251,7 +3259,7 @@ func TestGetTopologyHints(t *testing.T) {
 			numaHeadroom: map[int]float64{
 				0: 2,
 				1: 1,
-				2: 2,
+				2: 2.5,
 				3: 3,
 			},
 			req: &pluginapi.ResourceRequest{
@@ -3481,7 +3489,7 @@ func TestGetTopologyHints(t *testing.T) {
 								Preferred: true,
 							},
 							{
-								Nodes:     []uint64{1, 2, 3},
+								Nodes:     []uint64{0},
 								Preferred: true,
 							},
 						},
