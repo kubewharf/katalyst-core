@@ -19,7 +19,6 @@ package dynamicpolicy
 import (
 	"context"
 	"fmt"
-	"math"
 	"sort"
 
 	v1 "k8s.io/api/core/v1"
@@ -481,22 +480,16 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingReclaimedCores(reqInt int64,
 	// Identify candidate NUMA nodes for RNB (Reclaimed NUMA Binding) cores
 	// This includes both RNB NUMA nodes and NUMA nodes that can shrink from the non-RNB set
 	candidateNUMANodes := p.filterNUMANodesByNonBindingReclaimedRequestedQuantity(nonActualBindingReclaimedRequestedQuantity,
-		nonActualBindingReclaimedNUMAHeadroom, nonActualBindingNUMAs, numaHeadroomState)
+		nonActualBindingReclaimedNUMAHeadroom, nonActualBindingNUMAs, machineState, numaHeadroomState)
 
-	// Sort candidate NUMA nodes based on the other qos numa binding pods and their headroom
-	p.sortCandidateNUMANodesForReclaimed(candidateNUMANodes, machineState, numaHeadroomState)
-
-	candidateLeft, maxMemoryLeft := p.calculateNUMANodesLeft(candidateNUMANodes, machineState, numaHeadroomState, reqInt)
+	candidateLeft := p.calculateNUMANodesLeft(candidateNUMANodes, machineState, numaHeadroomState, reqInt)
 
 	hints := &pluginapi.ListOfTopologyHints{}
 
-	nonBindingReclaimedLeft := nonActualBindingReclaimedNUMAHeadroom - nonActualBindingReclaimedRequestedQuantity - reqInt
-	if maxMemoryLeft >= 0 {
-		p.populateBestEffortHintsByAvailableNUMANodes(hints, candidateNUMANodes, candidateLeft,
-			0)
-	} else if nonBindingReclaimedLeft <= 0 {
-		p.populateBestEffortHintsByAvailableNUMANodes(hints, candidateNUMANodes, candidateLeft,
-			nonBindingReclaimedLeft)
+	p.populateBestHintsByAvailableNUMANodes(hints, candidateLeft)
+
+	if len(hints.Hints) == 0 {
+		return nil, errNoAvailableMemoryHints
 	}
 
 	general.InfoS("calculate numa hints for reclaimed cores success",
@@ -505,14 +498,7 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingReclaimedCores(reqInt int64,
 		"nonActualNUMABindingReclaimedNUMAHeadroom", nonActualBindingReclaimedNUMAHeadroom,
 		"numaHeadroomState", numaHeadroomState,
 		"candidateNUMANodes", candidateNUMANodes,
-		"nonBindingReclaimedLeft", nonBindingReclaimedLeft,
-		"candidateLeft", candidateLeft,
-		"maxMemoryLeft", maxMemoryLeft)
-
-	// Finally, add non-RNB NUMA nodes as preferred hints, but these will only be selected if no RNB NUMA nodes meet the requirements
-	if nonActualBindingNUMAs.Size() > 0 {
-		util.PopulatePreferHintsByNUMANodes(hints, nonActualBindingNUMAs.ToSliceInt())
-	}
+		"candidateLeft", candidateLeft)
 
 	return map[string]*pluginapi.ListOfTopologyHints{
 		string(v1.ResourceMemory): hints,
@@ -522,26 +508,20 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingReclaimedCores(reqInt int64,
 func (p *DynamicPolicy) calculateNUMANodesLeft(numaNodes []int,
 	machineState state.NUMANodeMap,
 	numaHeadroomState map[int]int64, req int64,
-) (map[int]int64, int64) {
+) map[int]int64 {
 	numaNodesCPULeft := make(map[int]int64, len(numaNodes))
-	maxLeft := int64(math.MinInt64)
 	for _, nodeID := range numaNodes {
 		allocatedQuantity := state.GetRequestedQuantityFromPodEntries(machineState[nodeID].PodEntries,
 			state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMABinding))
 		availableCPUQuantity := numaHeadroomState[nodeID] - allocatedQuantity
 		numaNodesCPULeft[nodeID] = availableCPUQuantity - req
-		if availableCPUQuantity > maxLeft {
-			maxLeft = availableCPUQuantity
-		}
 	}
-	return numaNodesCPULeft, maxLeft
+	return numaNodesCPULeft
 }
 
-func (p *DynamicPolicy) populateBestEffortHintsByAvailableNUMANodes(
+func (p *DynamicPolicy) populateBestHintsByAvailableNUMANodes(
 	hints *pluginapi.ListOfTopologyHints,
-	numaNodes []int,
 	candidateLeft map[int]int64,
-	minLeft int64,
 ) {
 	type nodeHint struct {
 		nodeID  int
@@ -550,17 +530,9 @@ func (p *DynamicPolicy) populateBestEffortHintsByAvailableNUMANodes(
 
 	var nodeHints []nodeHint
 	// Collect nodes that meet the requirement
-	for _, nodeID := range numaNodes {
-		curLeft := candidateLeft[nodeID]
-
-		// Skip this NUMA node if it doesn't greater than non-binding reclaim NUMA headroom left
-		if curLeft < minLeft {
-			general.Warningf("Skipping NUMA: %d, insufficient left CPUs: %d", nodeID, curLeft)
-			continue
-		}
-
-		// Collect node and its available left cpu
-		nodeHints = append(nodeHints, nodeHint{nodeID: nodeID, curLeft: curLeft})
+	for nodeID := range candidateLeft {
+		// Collect node and its available left memory
+		nodeHints = append(nodeHints, nodeHint{nodeID: nodeID, curLeft: candidateLeft[nodeID]})
 	}
 
 	// Sort nodes by available resources (curLeft) in descending order
@@ -572,10 +544,17 @@ func (p *DynamicPolicy) populateBestEffortHintsByAvailableNUMANodes(
 	hintList := make([]*pluginapi.TopologyHint, 0, len(nodeHints))
 	// Add sorted hints to the hint list
 	for _, nh := range nodeHints {
-		hintList = append(hintList, &pluginapi.TopologyHint{
-			Nodes:     []uint64{uint64(nh.nodeID)},
-			Preferred: true,
-		})
+		if nh.curLeft < 0 {
+			hintList = append(hintList, &pluginapi.TopologyHint{
+				Nodes:     []uint64{uint64(nh.nodeID)},
+				Preferred: false,
+			})
+		} else {
+			hintList = append(hintList, &pluginapi.TopologyHint{
+				Nodes:     []uint64{uint64(nh.nodeID)},
+				Preferred: true,
+			})
+		}
 	}
 
 	// Update the hints map
@@ -626,6 +605,7 @@ func (p *DynamicPolicy) sortCandidateNUMANodesForReclaimed(candidates []int,
 func (p *DynamicPolicy) filterNUMANodesByNonBindingReclaimedRequestedQuantity(nonBindingReclaimedRequestedQuantity,
 	nonBindingNUMAsMemoryQuantity int64,
 	nonBindingNUMAs machine.CPUSet,
+	machineState state.NUMANodeMap,
 	numaHeadroomState map[int]int64,
 ) []int {
 	candidateNUMANodes := make([]int, 0, len(numaHeadroomState))
@@ -635,14 +615,19 @@ func (p *DynamicPolicy) filterNUMANodesByNonBindingReclaimedRequestedQuantity(no
 		}
 	}
 
+	// Sort candidate NUMA nodes based on the other qos numa binding pods and their headroom
+	p.sortCandidateNUMANodesForReclaimed(candidateNUMANodes, machineState, numaHeadroomState)
+
+	nonBindingNUMAs = nonBindingNUMAs.Clone()
 	filteredNUMANodes := make([]int, 0, len(candidateNUMANodes))
 	for _, nodeID := range candidateNUMANodes {
 		if nonBindingNUMAs.Contains(nodeID) {
 			allocatableMemoryQuantity := numaHeadroomState[nodeID]
 			// take this non-binding NUMA for candidate reclaimed_cores with numa_binding,
 			// won't cause non-actual numa binding reclaimed_cores in short supply
-			if nonBindingReclaimedRequestedQuantity <= nonBindingNUMAsMemoryQuantity-allocatableMemoryQuantity {
+			if nonBindingReclaimedRequestedQuantity <= nonBindingNUMAsMemoryQuantity-allocatableMemoryQuantity || nonBindingNUMAs.Size() > 1 {
 				filteredNUMANodes = append(filteredNUMANodes, nodeID)
+				nonBindingNUMAs = nonBindingNUMAs.Difference(machine.NewCPUSet(nodeID))
 			} else {
 				general.Infof("filter out NUMA: %d since taking it will cause normal reclaimed_cores in short supply;"+
 					" nonBindingNUMAsMemoryQuantity: %d, allocatableMemoryQuantity: %d, nonBindingReclaimedRequestedQuantity: %d",

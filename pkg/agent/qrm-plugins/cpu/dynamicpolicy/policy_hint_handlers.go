@@ -410,22 +410,16 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingReclaimedCores(reqFloat floa
 	// Identify candidate NUMA nodes for RNB (Reclaimed NUMA Binding) cores
 	// This includes both RNB NUMA nodes and NUMA nodes that can shrink from the non-RNB set
 	candidateNUMANodes := p.filterNUMANodesByNonBindingReclaimedRequestedQuantity(nonActualBindingReclaimedRequestedQuantity,
-		nonActualBindingReclaimedNUMAHeadroom, nonActualBindingNUMAs, numaHeadroomState)
+		nonActualBindingReclaimedNUMAHeadroom, nonActualBindingNUMAs, machineState, numaHeadroomState)
 
-	// Sort them based on the other qos numa binding pods and their headroom
-	p.sortCandidateNUMANodesForReclaimed(candidateNUMANodes, machineState, numaHeadroomState)
-
-	candidateLeft, maxCPULeft := p.calculateNUMANodesLeft(candidateNUMANodes, machineState, numaHeadroomState, reqFloat)
+	candidateLeft := p.calculateNUMANodesLeft(candidateNUMANodes, machineState, numaHeadroomState, reqFloat)
 
 	hints := &pluginapi.ListOfTopologyHints{}
 
-	nonBindingReclaimedLeft := nonActualBindingReclaimedNUMAHeadroom - nonActualBindingReclaimedRequestedQuantity - reqFloat
-	if maxCPULeft >= 0 {
-		p.populateBestEffortHintsByAvailableNUMANodes(hints, candidateNUMANodes, candidateLeft,
-			0)
-	} else if nonBindingReclaimedLeft <= 0 {
-		p.populateBestEffortHintsByAvailableNUMANodes(hints, candidateNUMANodes, candidateLeft,
-			nonBindingReclaimedLeft)
+	p.populateBestEffortHintsByAvailableNUMANodes(hints, candidateLeft)
+
+	if len(hints.Hints) == 0 {
+		return nil, errNoAvailableCPUHints
 	}
 
 	general.InfoS("calculate numa hints for reclaimed cores success",
@@ -434,14 +428,7 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingReclaimedCores(reqFloat floa
 		"nonActualBindingReclaimedNUMAHeadroom", nonActualBindingReclaimedNUMAHeadroom,
 		"numaHeadroomState", numaHeadroomState,
 		"candidateNUMANodes", candidateNUMANodes,
-		"nonBindingReclaimedLeft", nonBindingReclaimedLeft,
-		"candidateLeft", candidateLeft,
-		"maxCPULeft", maxCPULeft)
-
-	// Finally, add non-RNB NUMA nodes as preferred hints, but these will only be selected if no RNB NUMA nodes meet the requirements
-	if nonActualBindingNUMAs.Size() > 0 {
-		util.PopulatePreferHintsByNUMANodes(hints, nonActualBindingNUMAs.ToSliceInt())
-	}
+		"candidateLeft", candidateLeft)
 
 	return map[string]*pluginapi.ListOfTopologyHints{
 		string(v1.ResourceCPU): hints,
@@ -972,6 +959,7 @@ func (p *DynamicPolicy) populateHintsByAvailableNUMANodes(numaNodes []int,
 func (p *DynamicPolicy) filterNUMANodesByNonBindingReclaimedRequestedQuantity(nonBindingReclaimedRequestedQuantity,
 	nonBindingNUMAsCPUQuantity float64,
 	nonBindingNUMAs machine.CPUSet,
+	machineState state.NUMANodeMap,
 	numaHeadroomState map[int]float64,
 ) []int {
 	candidateNUMANodes := make([]int, 0, len(numaHeadroomState))
@@ -981,14 +969,19 @@ func (p *DynamicPolicy) filterNUMANodesByNonBindingReclaimedRequestedQuantity(no
 		}
 	}
 
+	// Sort candidate NUMA nodes based on the other qos numa binding pods and their headroom
+	p.sortCandidateNUMANodesForReclaimed(candidateNUMANodes, machineState, numaHeadroomState)
+
+	nonBindingNUMAs = nonBindingNUMAs.Clone()
 	filteredNUMANodes := make([]int, 0, len(candidateNUMANodes))
 	for _, nodeID := range candidateNUMANodes {
 		if nonBindingNUMAs.Contains(nodeID) {
 			allocatableCPUQuantity := numaHeadroomState[nodeID]
 			// take this non-binding NUMA for candidate reclaimed_cores with numa_binding,
 			// won't cause non-actual numa binding reclaimed_cores in short supply
-			if cpuutil.CPUIsSufficient(nonBindingReclaimedRequestedQuantity, nonBindingNUMAsCPUQuantity-allocatableCPUQuantity) {
+			if cpuutil.CPUIsSufficient(nonBindingReclaimedRequestedQuantity, nonBindingNUMAsCPUQuantity-allocatableCPUQuantity) || nonBindingNUMAs.Size() > 1 {
 				filteredNUMANodes = append(filteredNUMANodes, nodeID)
+				nonBindingNUMAs = nonBindingNUMAs.Difference(machine.NewCPUSet(nodeID))
 			} else {
 				general.Infof("filter out NUMA: %d since taking it will cause normal reclaimed_cores in short supply;"+
 					" nonBindingNUMAsCPUQuantity: %.3f, targetNUMAAllocatableCPUQuantity: %.3f, nonBindingReclaimedRequestedQuantity: %.3f",
@@ -1025,27 +1018,21 @@ func (p *DynamicPolicy) sortCandidateNUMANodesForReclaimed(numaNodes []int,
 func (p *DynamicPolicy) calculateNUMANodesLeft(numaNodes []int,
 	machineState state.NUMANodeMap,
 	numaHeadroomState map[int]float64, reqFloat float64,
-) (map[int]float64, float64) {
+) map[int]float64 {
 	numaNodesCPULeft := make(map[int]float64, len(numaNodes))
-	maxLeft := -math.MaxFloat64
 	for _, nodeID := range numaNodes {
 		allocatedQuantity := state.GetRequestedQuantityFromPodEntries(machineState[nodeID].PodEntries,
 			state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMABinding),
 			p.getContainerRequestedCores)
 		availableCPUQuantity := numaHeadroomState[nodeID] - allocatedQuantity
 		numaNodesCPULeft[nodeID] = availableCPUQuantity - reqFloat
-		if availableCPUQuantity > maxLeft {
-			maxLeft = availableCPUQuantity
-		}
 	}
-	return numaNodesCPULeft, maxLeft
+	return numaNodesCPULeft
 }
 
 func (p *DynamicPolicy) populateBestEffortHintsByAvailableNUMANodes(
 	hints *pluginapi.ListOfTopologyHints,
-	numaNodes []int,
 	candidateLeft map[int]float64,
-	minLeft float64,
 ) {
 	type nodeHint struct {
 		nodeID  int
@@ -1054,17 +1041,9 @@ func (p *DynamicPolicy) populateBestEffortHintsByAvailableNUMANodes(
 
 	var nodeHints []nodeHint
 	// Collect nodes that meet the requirement
-	for _, nodeID := range numaNodes {
-		curLeft := candidateLeft[nodeID]
-
-		// Skip this NUMA node if it doesn't greater than non-binding reclaim NUMA headroom left
-		if curLeft < minLeft {
-			general.Warningf("Skipping NUMA: %d, insufficient left CPUs: %.3f", nodeID, curLeft)
-			continue
-		}
-
+	for nodeID := range candidateLeft {
 		// Collect node and its available left CPU
-		nodeHints = append(nodeHints, nodeHint{nodeID: nodeID, curLeft: curLeft})
+		nodeHints = append(nodeHints, nodeHint{nodeID: nodeID, curLeft: candidateLeft[nodeID]})
 	}
 
 	// Sort nodes by available resources (curLeft) in descending order
