@@ -54,11 +54,11 @@ const (
 )
 
 // NewMalachiteMetricsProvisioner returns the default implementation of MetricsFetcher.
-func NewMalachiteMetricsProvisioner(baseConf *global.BaseConfiguration, _ *metaserver.MetricConfiguration,
+func NewMalachiteMetricsProvisioner(baseConf *global.BaseConfiguration, metricsConf *metaserver.MetricConfiguration,
 	emitter metrics.MetricEmitter, fetcher pod.PodFetcher, metricStore *utilmetric.MetricStore,
 ) types.MetricsProvisioner {
 	return &MalachiteMetricsProvisioner{
-		malachiteClient: client.NewMalachiteClient(fetcher),
+		malachiteClient: client.NewMalachiteClient(fetcher, metricsConf.MalachiteServerPort),
 		metricStore:     metricStore,
 		emitter:         emitter,
 		baseConf:        baseConf,
