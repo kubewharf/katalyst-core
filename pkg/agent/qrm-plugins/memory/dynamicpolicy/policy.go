@@ -96,6 +96,7 @@ type DynamicPolicy struct {
 
 	stopCh                  chan struct{}
 	started                 bool
+	dynamicConf             *dynamicconfig.DynamicAgentConfiguration
 	qosConfig               *generic.QoSConfiguration
 	extraControlKnobConfigs commonstate.ExtraControlKnobConfigs
 
@@ -192,6 +193,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 
 	policyImplement := &DynamicPolicy{
 		topology:                   agentCtx.CPUTopology,
+		dynamicConf:                conf.DynamicAgentConfiguration,
 		qosConfig:                  conf.QoSConfiguration,
 		emitter:                    wrappedEmitter,
 		metaServer:                 agentCtx.MetaServer,

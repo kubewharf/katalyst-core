@@ -444,10 +444,10 @@ func (p *DynamicPolicy) handleAdvisorCPUSetMems(
 			apiconsts.PodAnnotationQoSLevelReclaimedCores)
 	}
 
-	general.Infof("set cpuset.mems for container: %s/%s from %s to: %s",
+	general.Infof("dry-run set cpuset.mems for container: %s/%s from %s to: %s",
 		allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.NumaAllocationResult.String(), cpusetMems.String())
-	allocationInfo.NumaAllocationResult = cpusetMems
-	allocationInfo.TopologyAwareAllocations = nil
+	// allocationInfo.NumaAllocationResult = cpusetMems
+	// allocationInfo.TopologyAwareAllocations = nil
 
 	//numaSetChangedContainers := make(map[string]map[string]*state.AllocationInfo)
 	//p.updateNUMASetChangedContainers(numaSetChangedContainers, allocationInfo, cpusetMems)

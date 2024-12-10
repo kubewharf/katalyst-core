@@ -26,8 +26,10 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/util/asyncworker"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -858,6 +860,12 @@ func (p *DynamicPolicy) adjustAllocationEntriesForReclaimedCores(numaSetChangedC
 	podEntries state.PodEntries, machineState state.NUMANodeMap,
 ) {
 	nonReclaimActualBindingNUMAs := machineState.GetNUMANodesWithoutReclaimedActualNUMABindingPods()
+	reclaimDisableNUMASet := p.getReclaimDisableNUMASet(podEntries)
+	targetNumaSet := nonReclaimActualBindingNUMAs.Difference(reclaimDisableNUMASet)
+	if targetNumaSet.IsEmpty() {
+		general.Errorf("targetNumaSet is empty, nonReclaimActualBindingNUMAs: %s, reclaimDisableNUMASet: %s",
+			nonReclaimActualBindingNUMAs.String(), reclaimDisableNUMASet.String())
+	}
 
 	for podUID, containerEntries := range podEntries {
 		for containerName, allocationInfo := range containerEntries {
@@ -871,18 +879,49 @@ func (p *DynamicPolicy) adjustAllocationEntriesForReclaimedCores(numaSetChangedC
 				continue
 			}
 
-			if !allocationInfo.CheckActualNUMABinding() &&
-				!allocationInfo.NumaAllocationResult.IsSubsetOf(nonReclaimActualBindingNUMAs) {
-				// update container to target numa set for non-actual numa binding reclaim cores
-				updatedTargetNumaSet := nonReclaimActualBindingNUMAs.Intersection(allocationInfo.NumaAllocationResult)
-				if !updatedTargetNumaSet.IsEmpty() {
-					p.updateNUMASetChangedContainers(numaSetChangedContainers, allocationInfo, updatedTargetNumaSet)
-				} else {
-					p.updateNUMASetChangedContainers(numaSetChangedContainers, allocationInfo, nonReclaimActualBindingNUMAs)
-				}
+			if !allocationInfo.CheckActualNUMABinding() && !targetNumaSet.IsEmpty() {
+				// update container to target numa set for reclaimed_cores pod without NUMA binding
+				p.updateNUMASetChangedContainers(numaSetChangedContainers, allocationInfo, targetNumaSet)
 			}
 		}
 	}
+}
+
+// getReclaimDisableNUMASet returns the NUMA set disabled for reclaim_cores pod.
+func (p *DynamicPolicy) getReclaimDisableNUMASet(
+	podEntries state.PodEntries,
+) machine.CPUSet {
+	numaSet := machine.NewCPUSet()
+	nodeReclaim := p.dynamicConf.GetDynamicConfiguration().EnableReclaim
+	for podUID, containerEntries := range podEntries {
+		for containerName, allocationInfo := range containerEntries {
+			if allocationInfo == nil {
+				general.Errorf("pod: %s, container: %s has nil allocationInfo", podUID, containerName)
+				continue
+			} else if containerName == commonstate.FakedContainerName {
+				general.Errorf("pod: %s has empty containerName entry", podUID)
+				continue
+			}
+
+			// only for dedicated_cores pod with NUMA binding and NUMA exclusive pod
+			if !allocationInfo.CheckMainContainer() ||
+				!(allocationInfo.CheckDedicatedNUMABinding() && allocationInfo.CheckNumaExclusive()) {
+				continue
+			}
+
+			reclaimEnable, err := helper.PodEnableReclaim(context.Background(), p.metaServer, podUID, nodeReclaim)
+			if err != nil {
+				general.Errorf("pod: %s/%s, container: %s get reclaim enable failed: %v",
+					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, err)
+				continue
+			}
+
+			if !reclaimEnable {
+				numaSet = numaSet.Union(allocationInfo.NumaAllocationResult)
+			}
+		}
+	}
+	return numaSet
 }
 
 func (p *DynamicPolicy) updateNUMASetChangedContainers(numaSetChangedContainers map[string]map[string]*state.AllocationInfo,
