@@ -70,8 +70,9 @@ func GetServiceSystemIndicatorTarget(spd *workloadapis.ServiceProfileDescriptor)
 		}
 
 		targetIndicator, err := getIndicatorTarget(indicator.Indicators)
-		if err != nil {
+		if err != nil || targetIndicator == nil {
 			errList = append(errList, fmt.Errorf("get indicator %s failed: %v", indicator.Name, err))
+			continue
 		}
 
 		indicators[string(indicator.Name)] = *targetIndicator
