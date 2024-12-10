@@ -108,3 +108,12 @@ func TestStore_SetAndGetPodVolumeMetric(t *testing.T) {
 	_, err = store.GetPodVolumeMetric("podUID", "volumeName", consts.MetricsPodVolumeInodesUsed)
 	assert.Error(t, err)
 }
+
+func TestStore_SetAndGetByStringIndex(t *testing.T) {
+	t.Parallel()
+
+	store := NewMetricStore()
+	store.SetByStringIndex("podUID", "volumeName")
+	value := store.GetByStringIndex("podUID")
+	assert.Equal(t, "volumeName", value)
+}

@@ -89,6 +89,7 @@ type MalachiteSystemComputeResponse struct {
 
 type SystemComputeData struct {
 	Load         Load         `json:"load"`
+	CPUCodeName  string       `json:"cpu_codename"`
 	CPU          []CPU        `json:"cpu"`
 	GlobalCPU    CPU          `json:"global_cpu"`
 	ProcessStats ProcessStats `json:"process_stats"`

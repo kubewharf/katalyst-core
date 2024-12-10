@@ -90,6 +90,10 @@ func (f *FakeMetricsFetcher) RegisterExternalMetric(fu func(store *metric.Metric
 	f.registeredMetric = append(f.registeredMetric, fu)
 }
 
+func (f *FakeMetricsFetcher) GetByStringIndex(metricName string) interface{} {
+	return f.metricStore.GetByStringIndex(metricName)
+}
+
 func (f *FakeMetricsFetcher) GetNodeMetric(metricName string) (metric.MetricData, error) {
 	return f.checkMetricDataExpire(f.metricStore.GetNodeMetric(metricName))
 }
@@ -139,6 +143,10 @@ func (f *FakeMetricsFetcher) SetNumaMetric(numaID int, metricName string, data m
 
 func (f *FakeMetricsFetcher) SetCPUMetric(cpu int, metricName string, data metric.MetricData) {
 	f.metricStore.SetCPUMetric(cpu, metricName, data)
+}
+
+func (f *FakeMetricsFetcher) SetByStringIndex(metricName string, metricMap interface{}) {
+	f.metricStore.SetByStringIndex(metricName, metricMap)
 }
 
 func (f *FakeMetricsFetcher) SetDeviceMetric(deviceName string, metricName string, data metric.MetricData) {
