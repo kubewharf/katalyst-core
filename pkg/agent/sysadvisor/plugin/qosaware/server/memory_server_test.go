@@ -35,6 +35,7 @@ import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -94,7 +95,7 @@ func newTestMemoryServer(t *testing.T, podList []*v1.Pod) *memoryServer {
 		},
 	}
 
-	memoryServer, err := NewMemoryServer(recvCh, sendCh, conf, metaCache, metaServer, metrics.DummyMetrics{})
+	memoryServer, err := NewMemoryServer(recvCh, sendCh, conf, &reporter.DummyHeadroomResourceManager{}, metaCache, metaServer, metrics.DummyMetrics{})
 	require.NoError(t, err)
 	require.NotNil(t, memoryServer)
 
@@ -121,7 +122,7 @@ func newTestMemoryServerWithChannelBuffer(t *testing.T, podList []*v1.Pod) *memo
 		},
 	}
 
-	memoryServer, err := NewMemoryServer(recvCh, sendCh, conf, metaCache, metaServer, metrics.DummyMetrics{})
+	memoryServer, err := NewMemoryServer(recvCh, sendCh, conf, &reporter.DummyHeadroomResourceManager{}, metaCache, metaServer, metrics.DummyMetrics{})
 	require.NoError(t, err)
 	require.NotNil(t, memoryServer)
 
@@ -320,6 +321,11 @@ func TestMemoryServerListAndWatch(t *testing.T) {
 							Values: map[string]string{"k1": "v1"},
 						},
 					},
+					{
+						CalculationResult: &advisorsvc.CalculationResult{
+							Values: map[string]string{"memory_numa_headroom": "{}"},
+						},
+					},
 				},
 			},
 		},
@@ -446,6 +452,11 @@ func TestMemoryServerDropOldAdvice(t *testing.T) {
 				CgroupPath: "/kubepods/besteffort",
 				CalculationResult: &advisorsvc.CalculationResult{
 					Values: map[string]string{"k1": "v1"},
+				},
+			},
+			{
+				CalculationResult: &advisorsvc.CalculationResult{
+					Values: map[string]string{"memory_numa_headroom": "{}"},
 				},
 			},
 		},

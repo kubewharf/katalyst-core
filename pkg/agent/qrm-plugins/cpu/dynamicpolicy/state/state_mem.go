@@ -21,6 +21,7 @@ import (
 
 	"k8s.io/klog/v2"
 
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -34,6 +35,7 @@ type cpuPluginState struct {
 
 	podEntries                            PodEntries
 	machineState                          NUMANodeMap
+	numaHeadroom                          map[int]float64
 	allowSharedCoresOverlapReclaimedCores bool
 	socketTopology                        map[int]string
 }
@@ -73,6 +75,13 @@ func (s *cpuPluginState) GetMachineState() NUMANodeMap {
 	return s.machineState.Clone()
 }
 
+func (s *cpuPluginState) GetNUMAHeadroom() map[int]float64 {
+	s.RLock()
+	defer s.RUnlock()
+
+	return general.DeepCopyIntToFloat64Map(s.numaHeadroom)
+}
+
 func (s *cpuPluginState) GetAllocationInfo(podUID string, containerName string) *AllocationInfo {
 	s.RLock()
 	defer s.RUnlock()
@@ -96,6 +105,14 @@ func (s *cpuPluginState) SetMachineState(numaNodeMap NUMANodeMap) {
 
 	s.machineState = numaNodeMap.Clone()
 	klog.InfoS("[cpu_plugin] Updated cpu plugin machine state", "numaNodeMap", numaNodeMap.String())
+}
+
+func (s *cpuPluginState) SetNUMAHeadroom(numaHeadroom map[int]float64) {
+	s.Lock()
+	defer s.Unlock()
+
+	s.numaHeadroom = general.DeepCopyIntToFloat64Map(numaHeadroom)
+	klog.InfoS("[cpu_plugin] Updated cpu plugin numa headroom", "numaHeadroom", numaHeadroom)
 }
 
 func (s *cpuPluginState) SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo) {
