@@ -23,7 +23,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
+	"github.com/kubewharf/katalyst-core/pkg/util/process"
 )
+
+const configzApi = "http://localhost:%v/%v"
 
 // KubeletConfigFetcher is used to get the configuration of kubelet.
 type KubeletConfigFetcher interface {
@@ -45,20 +48,23 @@ type kubeletConfigFetcherImpl struct {
 	baseConf *global.BaseConfiguration
 }
 
-// GetKubeletConfig gets kubelet config from kubelet 10250/configz api
+// GetKubeletConfig gets kubelet config from kubelet 10250/configz api when KubeletSecurePortEnabled is true; otherwise 10255/configz
 func (k *kubeletConfigFetcherImpl) GetKubeletConfig(ctx context.Context) (*native.KubeletConfiguration, error) {
-	if !k.baseConf.KubeletSecurePortEnabled {
-		return nil, fmt.Errorf("it is not enabled to get contents from kubelet secure port")
-	}
-
 	type configzWrapper struct {
 		ComponentConfig native.KubeletConfiguration `json:"kubeletconfig"`
 	}
 	configz := configzWrapper{}
 
-	if err := native.GetAndUnmarshalForHttps(ctx, k.baseConf.KubeletSecurePort, k.baseConf.NodeAddress,
-		k.baseConf.KubeletConfigEndpoint, k.baseConf.APIAuthTokenFile, &configz); err != nil {
-		return nil, fmt.Errorf("failed to get kubelet config, error: %v", err)
+	if k.baseConf.KubeletSecurePortEnabled {
+		if err := native.GetAndUnmarshalForHttps(ctx, k.baseConf.KubeletSecurePort, k.baseConf.NodeAddress,
+			k.baseConf.KubeletConfigEndpoint, k.baseConf.APIAuthTokenFile, &configz); err != nil {
+			return nil, fmt.Errorf("failed to get kubelet config via secure port, error: %v", err)
+		}
+	} else {
+		url := fmt.Sprintf(configzApi, k.baseConf.KubeletReadOnlyPort, k.baseConf.KubeletConfigEndpoint)
+		if err := process.GetAndUnmarshal(url, &configz); err != nil {
+			return nil, fmt.Errorf("failed to get kubelet config via insecure port, error: %v", err)
+		}
 	}
 
 	return &configz.ComponentConfig, nil
