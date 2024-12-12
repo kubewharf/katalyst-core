@@ -20,12 +20,17 @@ import (
 	"fmt"
 	"path"
 	"path/filepath"
+	"strconv"
 	"sync"
 
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+)
+
+const (
+	numaBindingReclaimRelativeRootCgroupPathSeparator = "-"
 )
 
 // k8sCgroupPathList is used to record cgroup-path related configurations,
@@ -157,4 +162,13 @@ func IsContainerCgroupExist(podUID, containerID string) (bool, error) {
 	}
 
 	return general.IsPathExists(containerAbsCGPath), nil
+}
+
+// GetNUMABindingReclaimRelativeRootCgroupPaths returns relative cgroup paths for numa-binding reclaim
+func GetNUMABindingReclaimRelativeRootCgroupPaths(reclaimRelativeRootCgroupPath string, NUMANode []int) map[int]string {
+	paths := make(map[int]string, len(NUMANode))
+	for _, numaID := range NUMANode {
+		paths[numaID] = reclaimRelativeRootCgroupPath + numaBindingReclaimRelativeRootCgroupPathSeparator + strconv.Itoa(numaID)
+	}
+	return paths
 }
