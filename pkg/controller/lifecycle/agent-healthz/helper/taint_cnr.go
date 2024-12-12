@@ -30,6 +30,7 @@ import (
 
 	apis "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	listers "github.com/kubewharf/katalyst-api/pkg/client/listers/node/v1alpha1"
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/client/control"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
@@ -41,20 +42,23 @@ const (
 	metricsNameTaintedCNRCount   = "tainted_cnr_count"
 )
 
-const TaintNameNoScheduler = "TaintNameNoScheduler"
+const TaintNameReclaimedCoresNoSchedule = "TaintNameReclaimedCoresNoSchedule"
 
-var TaintNoScheduler = &apis.Taint{
-	Key:    corev1.TaintNodeUnschedulable,
-	Effect: apis.TaintEffectNoScheduleForReclaimedTasks,
+var TaintReclaimedCoresNoSchedule = apis.Taint{
+	QoSLevel: consts.QoSLevelReclaimedCores,
+	Taint: corev1.Taint{
+		Key:    corev1.TaintNodeUnschedulable,
+		Effect: corev1.TaintEffectNoSchedule,
+	},
 }
 
-var allTaints = []*apis.Taint{
-	TaintNoScheduler,
+var allTaints = []apis.Taint{
+	TaintReclaimedCoresNoSchedule,
 }
 
 // CNRTaintItem records the detailed item to perform cnr-taints
 type CNRTaintItem struct {
-	Taints map[string]*apis.Taint
+	Taints map[string]apis.Taint
 }
 
 type CNRTaintHelper struct {

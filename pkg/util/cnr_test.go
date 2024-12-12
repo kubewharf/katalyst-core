@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	nodeapis "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 )
 
 func TestAddOrUpdateCNRTaint(t *testing.T) {
@@ -32,7 +33,7 @@ func TestAddOrUpdateCNRTaint(t *testing.T) {
 
 	type args struct {
 		cnr   *nodeapis.CustomNodeResource
-		taint *nodeapis.Taint
+		taint nodeapis.Taint
 	}
 	tests := []struct {
 		name    string
@@ -45,19 +46,25 @@ func TestAddOrUpdateCNRTaint(t *testing.T) {
 			name: "add taint",
 			args: args{
 				cnr: &nodeapis.CustomNodeResource{},
-				taint: &nodeapis.Taint{
-					Key:    "test-key",
-					Value:  "test-value",
-					Effect: nodeapis.TaintEffectNoScheduleForReclaimedTasks,
+				taint: nodeapis.Taint{
+					QoSLevel: consts.QoSLevelReclaimedCores,
+					Taint: v1.Taint{
+						Key:    "test-key",
+						Value:  "test-value",
+						Effect: v1.TaintEffectNoSchedule,
+					},
 				},
 			},
 			want: &nodeapis.CustomNodeResource{
 				Spec: nodeapis.CustomNodeResourceSpec{
-					Taints: []*nodeapis.Taint{
+					Taints: []nodeapis.Taint{
 						{
-							Key:    "test-key",
-							Value:  "test-value",
-							Effect: nodeapis.TaintEffectNoScheduleForReclaimedTasks,
+							QoSLevel: consts.QoSLevelReclaimedCores,
+							Taint: v1.Taint{
+								Key:    "test-key",
+								Value:  "test-value",
+								Effect: v1.TaintEffectNoSchedule,
+							},
 						},
 					},
 				},
@@ -72,28 +79,37 @@ func TestAddOrUpdateCNRTaint(t *testing.T) {
 			args: args{
 				cnr: &nodeapis.CustomNodeResource{
 					Spec: nodeapis.CustomNodeResourceSpec{
-						Taints: []*nodeapis.Taint{
+						Taints: []nodeapis.Taint{
 							{
-								Key:    "test-key",
-								Value:  "test-value",
-								Effect: nodeapis.TaintEffectNoScheduleForReclaimedTasks,
+								QoSLevel: consts.QoSLevelReclaimedCores,
+								Taint: v1.Taint{
+									Key:    "test-key",
+									Value:  "test-value",
+									Effect: v1.TaintEffectNoSchedule,
+								},
 							},
 						},
 					},
 				},
-				taint: &nodeapis.Taint{
-					Key:    "test-key",
-					Value:  "test-value-1",
-					Effect: nodeapis.TaintEffectNoScheduleForReclaimedTasks,
+				taint: nodeapis.Taint{
+					QoSLevel: consts.QoSLevelReclaimedCores,
+					Taint: v1.Taint{
+						Key:    "test-key",
+						Value:  "test-value-1",
+						Effect: v1.TaintEffectNoSchedule,
+					},
 				},
 			},
 			want: &nodeapis.CustomNodeResource{
 				Spec: nodeapis.CustomNodeResourceSpec{
-					Taints: []*nodeapis.Taint{
+					Taints: []nodeapis.Taint{
 						{
-							Key:    "test-key",
-							Value:  "test-value-1",
-							Effect: nodeapis.TaintEffectNoScheduleForReclaimedTasks,
+							QoSLevel: consts.QoSLevelReclaimedCores,
+							Taint: v1.Taint{
+								Key:    "test-key",
+								Value:  "test-value-1",
+								Effect: v1.TaintEffectNoSchedule,
+							},
 						},
 					},
 				},
@@ -108,28 +124,37 @@ func TestAddOrUpdateCNRTaint(t *testing.T) {
 			args: args{
 				cnr: &nodeapis.CustomNodeResource{
 					Spec: nodeapis.CustomNodeResourceSpec{
-						Taints: []*nodeapis.Taint{
+						Taints: []nodeapis.Taint{
 							{
-								Key:    "test-key",
-								Value:  "test-value",
-								Effect: nodeapis.TaintEffectNoScheduleForReclaimedTasks,
+								QoSLevel: consts.QoSLevelReclaimedCores,
+								Taint: v1.Taint{
+									Key:    "test-key",
+									Value:  "test-value",
+									Effect: v1.TaintEffectNoSchedule,
+								},
 							},
 						},
 					},
 				},
-				taint: &nodeapis.Taint{
-					Key:    "test-key",
-					Value:  "test-value",
-					Effect: nodeapis.TaintEffectNoScheduleForReclaimedTasks,
+				taint: nodeapis.Taint{
+					QoSLevel: consts.QoSLevelReclaimedCores,
+					Taint: v1.Taint{
+						Key:    "test-key",
+						Value:  "test-value",
+						Effect: v1.TaintEffectNoSchedule,
+					},
 				},
 			},
 			want: &nodeapis.CustomNodeResource{
 				Spec: nodeapis.CustomNodeResourceSpec{
-					Taints: []*nodeapis.Taint{
+					Taints: []nodeapis.Taint{
 						{
-							Key:    "test-key",
-							Value:  "test-value",
-							Effect: nodeapis.TaintEffectNoScheduleForReclaimedTasks,
+							QoSLevel: consts.QoSLevelReclaimedCores,
+							Taint: v1.Taint{
+								Key:    "test-key",
+								Value:  "test-value",
+								Effect: v1.TaintEffectNoSchedule,
+							},
 						},
 					},
 				},
@@ -158,8 +183,8 @@ func TestCNRTaintExists(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
-		taints      []*nodeapis.Taint
-		taintToFind *nodeapis.Taint
+		taints      []nodeapis.Taint
+		taintToFind nodeapis.Taint
 	}
 	tests := []struct {
 		name string
@@ -169,17 +194,23 @@ func TestCNRTaintExists(t *testing.T) {
 		{
 			name: "taint exists",
 			args: args{
-				taints: []*nodeapis.Taint{
+				taints: []nodeapis.Taint{
 					{
-						Key:    "test-key",
-						Value:  "test-value",
-						Effect: nodeapis.TaintEffectNoScheduleForReclaimedTasks,
+						QoSLevel: consts.QoSLevelReclaimedCores,
+						Taint: v1.Taint{
+							Key:    "test-key",
+							Value:  "test-value",
+							Effect: v1.TaintEffectNoSchedule,
+						},
 					},
 				},
-				taintToFind: &nodeapis.Taint{
-					Key:    "test-key",
-					Value:  "test-value",
-					Effect: nodeapis.TaintEffectNoScheduleForReclaimedTasks,
+				taintToFind: nodeapis.Taint{
+					QoSLevel: consts.QoSLevelReclaimedCores,
+					Taint: v1.Taint{
+						Key:    "test-key",
+						Value:  "test-value",
+						Effect: v1.TaintEffectNoSchedule,
+					},
 				},
 			},
 			want: true,
@@ -187,17 +218,23 @@ func TestCNRTaintExists(t *testing.T) {
 		{
 			name: "taint no exists",
 			args: args{
-				taints: []*nodeapis.Taint{
+				taints: []nodeapis.Taint{
 					{
-						Key:    "test-key",
-						Value:  "test-value",
-						Effect: nodeapis.TaintEffectNoScheduleForReclaimedTasks,
+						QoSLevel: consts.QoSLevelReclaimedCores,
+						Taint: v1.Taint{
+							Key:    "test-key",
+							Value:  "test-value",
+							Effect: v1.TaintEffectNoSchedule,
+						},
 					},
 				},
-				taintToFind: &nodeapis.Taint{
-					Key:    "test-key-1",
-					Value:  "test-value-1",
-					Effect: nodeapis.TaintEffectNoScheduleForReclaimedTasks,
+				taintToFind: nodeapis.Taint{
+					QoSLevel: consts.QoSLevelReclaimedCores,
+					Taint: v1.Taint{
+						Key:    "test-key-1",
+						Value:  "test-value-1",
+						Effect: v1.TaintEffectNoSchedule,
+					},
 				},
 			},
 			want: false,
