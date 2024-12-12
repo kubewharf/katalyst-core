@@ -94,11 +94,11 @@ func CheckCNRConditionMatched(curCondition *nodev1alpha1.CNRCondition, status co
 
 // AddOrUpdateCNRTaint tries to add a taint to annotations list.
 // Returns a new copy of updated CNR and true if something was updated false otherwise.
-func AddOrUpdateCNRTaint(cnr *apis.CustomNodeResource, taint *apis.Taint) (*apis.CustomNodeResource, bool, error) {
+func AddOrUpdateCNRTaint(cnr *apis.CustomNodeResource, taint apis.Taint) (*apis.CustomNodeResource, bool, error) {
 	newCNR := cnr.DeepCopy()
 	cTaints := newCNR.Spec.Taints
 
-	var newTaints []*apis.Taint
+	var newTaints []apis.Taint
 	updated := false
 	for i := range cTaints {
 		if MatchCNRTaint(taint, cTaints[i]) {
@@ -123,7 +123,7 @@ func AddOrUpdateCNRTaint(cnr *apis.CustomNodeResource, taint *apis.Taint) (*apis
 
 // RemoveCNRTaint tries to remove a taint cnr taints.
 // Returns a new copy of updated CNR and true if something was updated false otherwise.
-func RemoveCNRTaint(cnr *apis.CustomNodeResource, taint *apis.Taint) (*apis.CustomNodeResource, bool, error) {
+func RemoveCNRTaint(cnr *apis.CustomNodeResource, taint apis.Taint) (*apis.CustomNodeResource, bool, error) {
 	newCNR := cnr.DeepCopy()
 	cTaints := newCNR.Spec.Taints
 	if len(cTaints) == 0 {
@@ -140,7 +140,7 @@ func RemoveCNRTaint(cnr *apis.CustomNodeResource, taint *apis.Taint) (*apis.Cust
 }
 
 // CNRTaintExists checks if the given taint exists in list of taints. Returns true if exists false otherwise.
-func CNRTaintExists(taints []*apis.Taint, taintToFind *apis.Taint) bool {
+func CNRTaintExists(taints []apis.Taint, taintToFind apis.Taint) bool {
 	for _, taint := range taints {
 		if MatchCNRTaint(taint, taintToFind) {
 			return true
@@ -150,8 +150,8 @@ func CNRTaintExists(taints []*apis.Taint, taintToFind *apis.Taint) bool {
 }
 
 // DeleteCNRTaint removes all the taints that have the same key and effect to given taintToDelete.
-func DeleteCNRTaint(taints []*apis.Taint, taintToDelete *apis.Taint) ([]*apis.Taint, bool) {
-	var newTaints []*apis.Taint
+func DeleteCNRTaint(taints []apis.Taint, taintToDelete apis.Taint) ([]apis.Taint, bool) {
+	var newTaints []apis.Taint
 	deleted := false
 	for i := range taints {
 		if MatchCNRTaint(taints[i], taintToDelete) {
@@ -165,7 +165,7 @@ func DeleteCNRTaint(taints []*apis.Taint, taintToDelete *apis.Taint) ([]*apis.Ta
 
 // MatchCNRTaint checks if the taint matches taintToMatch. Taints are unique by key:effect,
 // if the two taints have same key:effect, regard as they match.
-func MatchCNRTaint(taintToMatch, taint *apis.Taint) bool {
+func MatchCNRTaint(taintToMatch, taint apis.Taint) bool {
 	return taint.Key == taintToMatch.Key && taint.Effect == taintToMatch.Effect
 }
 

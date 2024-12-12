@@ -190,7 +190,7 @@ func (ec *HealthzController) syncAgentHealth() {
 			if item, ok := h.GetCNRTaintInfo(node.Name); ok && item != nil && item.Taints != nil {
 				if _, exist := taints[node.Name]; !exist {
 					taints[node.Name] = &helper.CNRTaintItem{
-						Taints: make(map[string]*apis.Taint),
+						Taints: make(map[string]apis.Taint),
 					}
 				}
 

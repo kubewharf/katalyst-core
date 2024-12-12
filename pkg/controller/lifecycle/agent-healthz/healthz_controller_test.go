@@ -104,7 +104,7 @@ func NewFakeHealthzController(t *testing.T) (*HealthzController, error) {
 			Name: "node1",
 		},
 		Spec: apis.CustomNodeResourceSpec{
-			Taints: []*apis.Taint{},
+			Taints: []apis.Taint{},
 		},
 		Status: apis.CustomNodeResourceStatus{},
 	}
