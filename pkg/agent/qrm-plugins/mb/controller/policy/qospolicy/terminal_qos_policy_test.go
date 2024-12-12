@@ -49,9 +49,9 @@ func Test_getTopMostPlan(t *testing.T) {
 				},
 			},
 			want: &plan.MBAlloc{Plan: map[qosgroup.QoSGroup]map[int]int{
-				"dedicated": {4: 30_000, 5: 30_000},
-				"shared-50": {0: 30_000, 1: 30_000},
-				"system":    {1: 30_000},
+				"dedicated": {4: 35_000, 5: 35_000},
+				"shared-50": {0: 35_000, 1: 35_000},
+				"system":    {1: 35_000},
 			}},
 		},
 	}
@@ -80,10 +80,13 @@ func Test_getProportionalPlan(t *testing.T) {
 			args: args{
 				total: 21_000,
 				mbQoSGroups: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
-					"shared-30": {CCDMB: map[int]*monitor.MBData{
-						6: {TotalMB: 20_000},
-						7: {TotalMB: 10_000},
-					}},
+					"shared-30": {
+						CCDs: sets.Int{6: sets.Empty{}, 7: sets.Empty{}},
+						CCDMB: map[int]*monitor.MBData{
+							6: {TotalMB: 2_000},
+							7: {TotalMB: 1_000},
+						},
+					},
 				},
 			},
 			want: &plan.MBAlloc{Plan: map[qosgroup.QoSGroup]map[int]int{
@@ -98,7 +101,8 @@ func Test_getProportionalPlan(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			assert.Equalf(t, tt.want, getLeafPlan(tt.args.total, tt.args.mbQoSGroups), "getProportionalPlan(%v, %v)", tt.args.total, tt.args.mbQoSGroups)
+			got := getLeafPlan(tt.args.total, tt.args.mbQoSGroups)
+			assert.Equalf(t, tt.want, got, "getProportionalPlan(%v, %v)", tt.args.total, tt.args.mbQoSGroups)
 		})
 	}
 }

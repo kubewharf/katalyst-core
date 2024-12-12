@@ -58,8 +58,8 @@ func TestBuildHiPrioDetectedQoSMBPolicy(t *testing.T) {
 				isTopMost: true,
 			},
 			want: map[qosgroup.QoSGroup]map[int]int{
-				"system":    {1: 30_000},
-				"shared-30": {2: 30_000, 3: 30_000},
+				"system":    {1: 35_000},
+				"shared-30": {2: 35_000, 3: 35_000},
 			},
 		},
 		{
@@ -83,8 +83,8 @@ func TestBuildHiPrioDetectedQoSMBPolicy(t *testing.T) {
 				isTopMost: true,
 			},
 			want: map[qosgroup.QoSGroup]map[int]int{
-				"shared-50": {1: 30_000, 4: 30_000, 5: 30_000, 6: 30_000},
-				"system":    {1: 30_000},
+				"shared-50": {1: 35_000, 4: 35_000, 5: 35_000, 6: 35_000},
+				"system":    {1: 35_000},
 				"shared-30": {2: 10_000, 3: 10_000},
 			},
 		},
