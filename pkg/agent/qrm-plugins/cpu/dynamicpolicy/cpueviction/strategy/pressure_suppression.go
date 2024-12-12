@@ -154,15 +154,12 @@ func (p *CPUPressureSuppression) evictNonActualNUMABindingPods(now time.Time, fi
 	}
 
 	filterPods := native.FilterPods(filteredPods, func(pod *v1.Pod) (bool, error) {
-		if qos.IsPodNumaBinding(p.conf.QoSConfiguration, pod) {
-			result, err := qos.GetActualNUMABindingResult(pod)
-			if err != nil {
-				return false, err
-			}
-
-			return result == -1, nil
+		result, err := qos.GetActualNUMABindingResult(p.conf.QoSConfiguration, pod)
+		if err != nil {
+			return false, err
 		}
-		return true, nil
+
+		return result == -1, nil
 	})
 
 	general.InfoS("filterPods", "cpuSet",
@@ -189,15 +186,12 @@ func (p *CPUPressureSuppression) evictActualNUMABindingPods(now time.Time, filte
 		}
 
 		filterPods := native.FilterPods(filteredPods, func(pod *v1.Pod) (bool, error) {
-			if qos.IsPodNumaBinding(p.conf.QoSConfiguration, pod) {
-				result, err := qos.GetActualNUMABindingResult(pod)
-				if err != nil {
-					return false, err
-				}
-
-				return result == numaID, nil
+			result, err := qos.GetActualNUMABindingResult(p.conf.QoSConfiguration, pod)
+			if err != nil {
+				return false, err
 			}
-			return false, nil
+
+			return result == numaID, nil
 		})
 
 		general.InfoS("filterPods", "numaID", numaID, "cpuSet",

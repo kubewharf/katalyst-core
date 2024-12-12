@@ -113,13 +113,15 @@ func GetOOMPriority(qosConf *generic.QoSConfiguration, pod *v1.Pod) (priority *i
 
 // GetActualNUMABindingResult parse the user specified numa binding result from pod annotation
 // if the annotation is not found, return -1
-func GetActualNUMABindingResult(pod *v1.Pod) (int, error) {
+func GetActualNUMABindingResult(qosConf *generic.QoSConfiguration, pod *v1.Pod) (int, error) {
 	if pod == nil {
 		return -1, fmt.Errorf("pod cannot be nil")
 	}
 
 	if result, ok := pod.Annotations[apiconsts.PodAnnotationNUMABindResultKey]; ok {
 		return strconv.Atoi(result)
+	} else if IsPodNumaBinding(qosConf, pod) {
+		return -1, fmt.Errorf("numa binding result not found")
 	}
 
 	return -1, nil
