@@ -28,6 +28,7 @@ const defaultIncubationInterval = time.Second * 30
 type MBOptions struct {
 	IncubationInterval         time.Duration
 	CPUSetPoolToSharedSubgroup map[string]int
+	MinMBPerCCD                int
 }
 
 func NewMBOptions() *MBOptions {
@@ -38,6 +39,7 @@ func NewMBOptions() *MBOptions {
 			"flink": 30,
 			"share": 50,
 		},
+		MinMBPerCCD: 4_000,
 	}
 }
 
@@ -47,10 +49,12 @@ func (m *MBOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"time to protect socket pod before it is fully exercise memory bandwidth")
 	fs.StringToIntVar(&m.CPUSetPoolToSharedSubgroup, "cpuset-pool-to-shared-subgroup", m.CPUSetPoolToSharedSubgroup,
 		"mapping from cpuset pool name to shared_xx")
+	fs.IntVar(&m.MinMBPerCCD, "min-mb-per-ccd", m.MinMBPerCCD, "lower bound of MB per ccd in MBps")
 }
 
 func (m *MBOptions) ApplyTo(conf *qrmconfig.MBQRMPluginConfig) error {
 	conf.IncubationInterval = m.IncubationInterval
 	conf.CPUSetPoolToSharedSubgroup = m.CPUSetPoolToSharedSubgroup
+	conf.MinMBPerCCD = m.MinMBPerCCD
 	return nil
 }

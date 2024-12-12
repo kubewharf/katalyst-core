@@ -76,7 +76,7 @@ func NewComponent(agentCtx *agent.GenericContext, conf *config.Configuration,
 		return false, nil, errors.Wrap(err, "mbm: failed to create mb plan allocator")
 	}
 
-	domainPolicy, err := policy.NewDefaultDomainMBPolicy()
+	domainPolicy, err := policy.NewDefaultDomainMBPolicy(conf.MinMBPerCCD)
 	if err != nil {
 		return false, nil, errors.Wrap(err, "mbm: failed to create domain manager")
 	}

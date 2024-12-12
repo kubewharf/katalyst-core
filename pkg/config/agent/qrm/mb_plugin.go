@@ -21,6 +21,7 @@ import "time"
 type MBQRMPluginConfig struct {
 	IncubationInterval         time.Duration
 	CPUSetPoolToSharedSubgroup map[string]int
+	MinMBPerCCD                int
 }
 
 func NewMBQRMPluginConfig() *MBQRMPluginConfig {

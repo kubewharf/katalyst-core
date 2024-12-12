@@ -28,27 +28,27 @@ type QoSMBPolicy interface {
 }
 
 // BuildFullyChainedQoSPolicy builds up the full chain of {dedicated, shared-50, system} -> {shared-30, reclaimed}
-func BuildFullyChainedQoSPolicy() QoSMBPolicy {
+func BuildFullyChainedQoSPolicy(ccdMBMin int) QoSMBPolicy {
 	return NewChainedQoSMBPolicy(
 		map[qosgroup.QoSGroup]struct{}{
 			"dedicated": {},
 			"shared-50": {},
 			"system":    {},
 		},
-		NewTerminalQoSPolicy(),
-		NewTerminalQoSPolicy(),
+		NewTerminalQoSPolicy(ccdMBMin),
+		NewTerminalQoSPolicy(ccdMBMin),
 	)
 }
 
-func BuildHiPrioDetectedQoSMBPolicy() QoSMBPolicy {
+func BuildHiPrioDetectedQoSMBPolicy(ccdMBMin int) QoSMBPolicy {
 	//--[if any dedicated|shared-50 pod exist]:    {dedicated, shared-50, system} -> {shared-30}
 	//        \ or ---------------------------:    {system, shared-30}
 
 	// to build up {dedicated, shared-50, system} -> {shared-30}
-	policyEither := BuildFullyChainedQoSPolicy()
+	policyEither := BuildFullyChainedQoSPolicy(ccdMBMin)
 
 	// to build up {system, shared-30}
-	policyOr := NewTerminalQoSPolicy()
+	policyOr := NewTerminalQoSPolicy(ccdMBMin)
 
 	// todo: check by pods instead of mb traffic
 	// isTopMost arg is ignored as always true being the root branching in POC scenario

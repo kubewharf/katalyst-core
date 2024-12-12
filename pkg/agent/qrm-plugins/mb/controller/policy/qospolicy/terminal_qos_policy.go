@@ -25,21 +25,23 @@ import (
 
 const saturationThreshold = 8_000
 
-type terminalQoSPolicy struct{}
+type terminalQoSPolicy struct {
+	ccdMBMin int
+}
 
 func (t terminalQoSPolicy) GetPlan(totalMB int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup, isTopMost bool) *plan.MBAlloc {
 	if isTopMost {
-		return getTopMostPlan(totalMB, mbQoSGroups)
+		return t.getTopMostPlan(totalMB, mbQoSGroups)
 	}
 
-	return getLeafPlan(totalMB, mbQoSGroups)
+	return t.getLeafPlan(totalMB, mbQoSGroups)
 }
 
-func getTopMostPlan(totalMB int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
-	return getFixedPlan(config.CCDMBMax, mbQoSGroups)
+func (t terminalQoSPolicy) getTopMostPlan(totalMB int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
+	return t.getFixedPlan(config.CCDMBMax, mbQoSGroups)
 }
 
-func getFixedPlan(fixed int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
+func (t terminalQoSPolicy) getFixedPlan(fixed int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
 	mbPlan := &plan.MBAlloc{Plan: make(map[qosgroup.QoSGroup]map[int]int)}
 	for qos, group := range mbQoSGroups {
 		mbPlan.Plan[qos] = make(map[int]int)
@@ -50,21 +52,21 @@ func getFixedPlan(fixed int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGro
 	return mbPlan
 }
 
-func getLeafPlan(totalMB int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
+func (t terminalQoSPolicy) getLeafPlan(totalMB int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
 	// when there is little mb left after fulfilling this leaf tier (almost saturation),
 	// the leaf tier has to be suppressed hard to the mininum, in the fastest way to give away
 	// mb room to high prio tasks likely in need
 	totalUsage := monitor.SumMB(mbQoSGroups)
 	if totalMB-totalUsage <= saturationThreshold {
-		return getFixedPlan(config.CCDMBMin, mbQoSGroups)
+		return t.getFixedPlan(t.ccdMBMin, mbQoSGroups)
 	}
 
 	// distribute total among all proportionally
 	ratio := float64(totalMB) / float64(totalUsage)
-	return getProportionalPlan(ratio, mbQoSGroups)
+	return t.getProportionalPlan(ratio, mbQoSGroups)
 }
 
-func getProportionalPlan(ratio float64, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
+func (t terminalQoSPolicy) getProportionalPlan(ratio float64, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
 	mbPlan := &plan.MBAlloc{Plan: make(map[qosgroup.QoSGroup]map[int]int)}
 	for qos, group := range mbQoSGroups {
 		mbPlan.Plan[qos] = make(map[int]int)
@@ -73,8 +75,8 @@ func getProportionalPlan(ratio float64, mbQoSGroups map[qosgroup.QoSGroup]*monit
 			if newMB > config.CCDMBMax {
 				newMB = config.CCDMBMax
 			}
-			if newMB < config.CCDMBMin {
-				newMB = config.CCDMBMin
+			if newMB < t.ccdMBMin {
+				newMB = t.ccdMBMin
 			}
 			mbPlan.Plan[qos][ccd] = newMB
 		}
@@ -82,6 +84,8 @@ func getProportionalPlan(ratio float64, mbQoSGroups map[qosgroup.QoSGroup]*monit
 	return mbPlan
 }
 
-func NewTerminalQoSPolicy() QoSMBPolicy {
-	return &terminalQoSPolicy{}
+func NewTerminalQoSPolicy(ccdMBMin int) QoSMBPolicy {
+	return &terminalQoSPolicy{
+		ccdMBMin: ccdMBMin,
+	}
 }

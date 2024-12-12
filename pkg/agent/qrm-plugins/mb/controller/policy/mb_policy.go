@@ -84,6 +84,6 @@ func newDomainMBPolicy(preemptMBPolicy, softLimitMBPolicy DomainMBPolicy) (Domai
 	}, nil
 }
 
-func NewDefaultDomainMBPolicy() (DomainMBPolicy, error) {
-	return newDomainMBPolicy(NewDefaultPreemptDomainMBPolicy(), NewDefaultConstraintDomainMBPolicy())
+func NewDefaultDomainMBPolicy(ccdMBMin int) (DomainMBPolicy, error) {
+	return newDomainMBPolicy(NewDefaultPreemptDomainMBPolicy(ccdMBMin), NewDefaultConstraintDomainMBPolicy(ccdMBMin))
 }

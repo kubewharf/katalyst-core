@@ -59,7 +59,10 @@ func Test_getTopMostPlan(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			assert.Equalf(t, tt.want, getTopMostPlan(tt.args.totalMB, tt.args.mbQoSGroups), "getTopMostPlan(%v, %v)", tt.args.totalMB, tt.args.mbQoSGroups)
+			p := terminalQoSPolicy{
+				ccdMBMin: 8_000,
+			}
+			assert.Equalf(t, tt.want, p.getTopMostPlan(tt.args.totalMB, tt.args.mbQoSGroups), "getTopMostPlan(%v, %v)", tt.args.totalMB, tt.args.mbQoSGroups)
 		})
 	}
 }
@@ -101,7 +104,10 @@ func Test_getProportionalPlan(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := getLeafPlan(tt.args.total, tt.args.mbQoSGroups)
+			p := terminalQoSPolicy{
+				ccdMBMin: 8_000,
+			}
+			got := p.getLeafPlan(tt.args.total, tt.args.mbQoSGroups)
 			assert.Equalf(t, tt.want, got, "getProportionalPlan(%v, %v)", tt.args.total, tt.args.mbQoSGroups)
 		})
 	}
@@ -154,7 +160,10 @@ func Test_getLeafPlan(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			assert.Equalf(t, tt.want, getLeafPlan(tt.args.totalMB, tt.args.mbQoSGroups), "getLeafPlan(%v, %v)", tt.args.totalMB, tt.args.mbQoSGroups)
+			p := terminalQoSPolicy{
+				ccdMBMin: 8_000,
+			}
+			assert.Equalf(t, tt.want, p.getLeafPlan(tt.args.totalMB, tt.args.mbQoSGroups), "getLeafPlan(%v, %v)", tt.args.totalMB, tt.args.mbQoSGroups)
 		})
 	}
 }

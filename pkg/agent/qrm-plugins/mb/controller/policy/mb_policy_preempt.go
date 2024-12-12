@@ -71,8 +71,8 @@ func newPreemptDomainMBPolicy(chainedPolicy qospolicy.QoSMBPolicy) DomainMBPolic
 	}
 }
 
-func NewDefaultPreemptDomainMBPolicy() DomainMBPolicy {
+func NewDefaultPreemptDomainMBPolicy(ccdMBMin int) DomainMBPolicy {
 	// since there is admitting socket pod, the qos policy is {dedicated, shared-50, system} -> {shared-30}
-	qosMBPolicy := qospolicy.BuildFullyChainedQoSPolicy()
+	qosMBPolicy := qospolicy.BuildFullyChainedQoSPolicy(ccdMBMin)
 	return newPreemptDomainMBPolicy(qosMBPolicy)
 }

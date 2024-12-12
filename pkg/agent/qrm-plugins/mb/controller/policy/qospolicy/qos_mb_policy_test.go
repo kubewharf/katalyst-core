@@ -28,7 +28,7 @@ import (
 
 func TestBuildHiPrioDetectedQoSMBPolicy(t *testing.T) {
 	t.Parallel()
-	smartPolicy := BuildHiPrioDetectedQoSMBPolicy()
+	smartPolicy := BuildHiPrioDetectedQoSMBPolicy(8_000)
 
 	type args struct {
 		totalMB     int

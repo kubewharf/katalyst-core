@@ -39,7 +39,7 @@ func newConstraintDomainMBPolicy(qosMBPolicy qospolicy.QoSMBPolicy) DomainMBPoli
 	}
 }
 
-func NewDefaultConstraintDomainMBPolicy() DomainMBPolicy {
-	qosMBPolicy := qospolicy.BuildHiPrioDetectedQoSMBPolicy()
+func NewDefaultConstraintDomainMBPolicy(ccdMBMin int) DomainMBPolicy {
+	qosMBPolicy := qospolicy.BuildHiPrioDetectedQoSMBPolicy(ccdMBMin)
 	return newConstraintDomainMBPolicy(qosMBPolicy)
 }
