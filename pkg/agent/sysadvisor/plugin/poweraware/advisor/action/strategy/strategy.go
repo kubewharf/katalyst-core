@@ -98,11 +98,17 @@ type exponentialDecay struct {
 func (d exponentialDecay) calcExcessiveInPercent(target, curr int, ttl time.Duration) int {
 	// exponential decaying formula: a*b^(-t)
 	a := 100 - target*100/curr
-	decay := math.Pow(d.b, float64(-int(ttl.Minutes())/10))
-	return int(float64(a) * decay)
+	t := int(ttl.Minutes())
+	if t < 0 {
+		t = 0
+	}
+	decay := math.Pow(d.b, float64(-t/10))
+	result := int(float64(a) * decay)
+	if result == 0 {
+		result = 1
+	}
+	return result
 }
-
-var _ PowerActionStrategy = &ruleBasedPowerStrategy{}
 
 func NewRuleBasedPowerStrategy() PowerActionStrategy {
 	return ruleBasedPowerStrategy{coefficient: exponentialDecay{b: defaultDecayB}}

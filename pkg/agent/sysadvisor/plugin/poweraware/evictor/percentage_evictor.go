@@ -60,13 +60,18 @@ func getN(pods []*v1.Pod, n int) []*v1.Pod {
 	return pods[:n]
 }
 
-func (l loadEvictor) Evict(ctx context.Context, targetPercent int) {
+func getNumToEvict(pods, targetPercent int) int {
+	// ceiling math guarantees pod to evict unless none needed
+	return (pods*targetPercent + 99) / 100
+}
+
+func (l *loadEvictor) Evict(ctx context.Context, targetPercent int) {
 	pods, err := l.podFetcher.GetPodList(ctx, nil)
 	if err != nil {
 		general.Errorf("pap: evict: failed to get pods: %v", err)
 		return
 	}
-	countToEvict := len(pods) * targetPercent / 100
+	countToEvict := getNumToEvict(len(pods), targetPercent)
 	if countToEvict == 0 {
 		general.InfofV(6, "pap: evict: skip 0 to evict")
 		return
