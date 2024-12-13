@@ -29,6 +29,7 @@ import (
 // PercentageEvictor is the interface used in advisor policy
 type PercentageEvictor interface {
 	Evict(ctx context.Context, targetPercent int)
+	HasEvictablePods() bool
 }
 
 type loadEvictor struct {
@@ -37,7 +38,17 @@ type loadEvictor struct {
 	podEvictor PodEvictor
 }
 
-func (l loadEvictor) isEvictablePod(pod *v1.Pod) bool {
+func (l *loadEvictor) HasEvictablePods() bool {
+	evictablePods, err := l.podFetcher.GetPodList(context.Background(), l.isEvictablePod)
+	if err != nil {
+		// error treated as no evictable pods found
+		return false
+	}
+
+	return len(evictablePods) > 0
+}
+
+func (l *loadEvictor) isEvictablePod(pod *v1.Pod) bool {
 	isReclaimedQoS, err := l.qosConfig.CheckReclaimedQoSForPod(pod)
 	return err == nil && isReclaimedQoS
 }

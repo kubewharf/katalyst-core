@@ -29,6 +29,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/reader"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/spec"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
+	metrictypes "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/node"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -136,6 +137,7 @@ func (p *powerAwareAdvisor) run(ctx context.Context) {
 		if p.inFreqCap {
 			p.inFreqCap = false
 			p.powerCapper.Reset()
+			p.reconciler.OnDVFSReset()
 		}
 		return
 	}
@@ -179,6 +181,7 @@ func NewAdvisor(dryRun bool,
 	podFetcher pod.PodFetcher,
 	reader reader.PowerReader,
 	capper capper.PowerCapper,
+	metricsReader metrictypes.MetricsReader,
 ) PowerAwareAdvisor {
 	return &powerAwareAdvisor{
 		emitter:     emitter,
@@ -186,7 +189,7 @@ func NewAdvisor(dryRun bool,
 		powerReader: reader,
 		podEvictor:  podEvictor,
 		powerCapper: capper,
-		reconciler:  newReconciler(dryRun, emitter, evictor.NewPowerLoadEvict(qosConfig, podFetcher, podEvictor), capper),
+		reconciler:  newReconciler(dryRun, metricsReader, emitter, evictor.NewPowerLoadEvict(qosConfig, podFetcher, podEvictor), capper),
 		inFreqCap:   false,
 	}
 }

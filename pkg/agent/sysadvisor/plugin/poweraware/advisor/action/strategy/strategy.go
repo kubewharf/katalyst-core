@@ -28,6 +28,7 @@ import (
 const defaultDecayB = math.E / 2
 
 type PowerActionStrategy interface {
+	OnDVFSReset()
 	RecommendAction(currentWatt int,
 		desiredWatt int,
 		alert spec.PowerAlert,
@@ -39,6 +40,8 @@ type PowerActionStrategy interface {
 type ruleBasedPowerStrategy struct {
 	coefficient exponentialDecay
 }
+
+func (p ruleBasedPowerStrategy) OnDVFSReset() {}
 
 func (p ruleBasedPowerStrategy) RecommendAction(actualWatt int,
 	desiredWatt int,

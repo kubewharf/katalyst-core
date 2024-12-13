@@ -63,7 +63,9 @@ func Test_powerAwarePlugin_Name(t *testing.T) {
 		nil,
 		stubMetaServer.PodFetcher,
 		nil,
-		nil)
+		nil,
+		nil,
+	)
 
 	p, err := newPluginWithAdvisor(expectedName,
 		&config.Configuration{
@@ -126,7 +128,8 @@ func Test_powerAwarePlugin_Init(t *testing.T) {
 				name:   tt.fields.name,
 				dryRun: tt.fields.dryRun,
 				advisor: advisor.NewAdvisor(false, "bar", evictor.NewNoopPodEvictor(), dummyEmitter,
-					tt.fields.nodeFetcher, nil, nil, reader.NewDummyPowerReader(), capper.NewNoopCapper(),
+					tt.fields.nodeFetcher, nil, nil, reader.NewDummyPowerReader(),
+					capper.NewNoopCapper(), nil,
 				),
 			}
 			if err := p.Init(); (err != nil) != tt.wantErr {
