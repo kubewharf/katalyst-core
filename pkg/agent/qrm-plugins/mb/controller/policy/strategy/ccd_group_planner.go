@@ -11,13 +11,17 @@ type CCDGroupPlanner struct {
 }
 
 func (c *CCDGroupPlanner) getProportionalPlan(ratio float64, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
+	return c.getProportionalPlanWithUpperLimit(ratio, mbQoSGroups, c.ccdMBMax)
+}
+
+func (c *CCDGroupPlanner) getProportionalPlanWithUpperLimit(ratio float64, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup, high int) *plan.MBAlloc {
 	mbPlan := &plan.MBAlloc{Plan: make(map[qosgroup.QoSGroup]map[int]int)}
 	for qos, group := range mbQoSGroups {
 		mbPlan.Plan[qos] = make(map[int]int)
 		for ccd, mb := range group.CCDMB {
 			newMB := int(ratio * float64(mb.TotalMB))
-			if newMB > c.ccdMBMax {
-				newMB = c.ccdMBMax
+			if newMB > high {
+				newMB = high
 			}
 			if newMB < c.ccdMBMin {
 				newMB = c.ccdMBMin

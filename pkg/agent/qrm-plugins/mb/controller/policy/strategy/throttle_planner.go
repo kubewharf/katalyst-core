@@ -12,12 +12,37 @@ type extremeThrottlePlanner struct {
 	ccdGroupPlanner *CCDGroupPlanner
 }
 
-func (t extremeThrottlePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
-	return t.ccdGroupPlanner.getFixedPlan(t.ccdGroupPlanner.ccdMBMin, mbQoSGroups)
+func (e extremeThrottlePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
+	return e.ccdGroupPlanner.getFixedPlan(e.ccdGroupPlanner.ccdMBMin, mbQoSGroups)
 }
 
 func NewExtremeThrottlePlanner(ccdPlanner *CCDGroupPlanner) LowPrioPlanner {
 	return &extremeThrottlePlanner{
+		ccdGroupPlanner: ccdPlanner,
+	}
+}
+
+// halfThrottlePlanner forces qos groups to yield half of mb in use
+type halfThrottlePlanner struct {
+	ccdGroupPlanner *CCDGroupPlanner
+}
+
+func (h halfThrottlePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
+	totalUsage := monitor.SumMB(mbQoSGroups)
+
+	allocatable := totalUsage / 2
+	// summarized low prio qos plans should  not exceeding the ease bar
+	if allocatable > capacity-easeThreshold {
+		allocatable = capacity - easeThreshold
+	}
+
+	// distribute total among all proportionally
+	ratio := float64(allocatable) / float64(totalUsage)
+	return h.ccdGroupPlanner.getProportionalPlanWithUpperLimit(ratio, mbQoSGroups, capacity-easeThreshold)
+}
+
+func NewHalfThrottlePlanner(ccdPlanner *CCDGroupPlanner) LowPrioPlanner {
+	return &halfThrottlePlanner{
 		ccdGroupPlanner: ccdPlanner,
 	}
 }
