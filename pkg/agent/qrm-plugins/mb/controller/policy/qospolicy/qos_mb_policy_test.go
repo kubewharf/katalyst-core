@@ -28,7 +28,7 @@ import (
 
 func TestBuildHiPrioDetectedQoSMBPolicy(t *testing.T) {
 	t.Parallel()
-	smartPolicy := BuildHiPrioDetectedQoSMBPolicy(8_000)
+	smartPolicy := BuildHiPrioDetectedQoSMBPolicy(4_000)
 
 	type args struct {
 		totalMB     int
@@ -69,7 +69,7 @@ func TestBuildHiPrioDetectedQoSMBPolicy(t *testing.T) {
 				mbQoSGroups: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
 					"shared-50": {
 						CCDs:  sets.Int{1: sets.Empty{}, 4: sets.Empty{}, 5: sets.Empty{}, 6: sets.Empty{}},
-						CCDMB: map[int]*monitor.MBData{1: {TotalMB: 20_000}, 4: {TotalMB: 20_000}, 5: {TotalMB: 20_000}, 6: {TotalMB: 20_000}},
+						CCDMB: map[int]*monitor.MBData{1: {TotalMB: 20_000}, 4: {TotalMB: 20_000}, 5: {TotalMB: 20_000}, 6: {TotalMB: 10_000}},
 					},
 					"system": {
 						CCDs:  sets.Int{1: sets.Empty{}},
@@ -85,7 +85,7 @@ func TestBuildHiPrioDetectedQoSMBPolicy(t *testing.T) {
 			want: map[qosgroup.QoSGroup]map[int]int{
 				"shared-50": {1: 35_000, 4: 35_000, 5: 35_000, 6: 35_000},
 				"system":    {1: 35_000},
-				"shared-30": {2: 10_000, 3: 10_000},
+				"shared-30": {2: 5_300, 3: 5_300},
 			},
 		},
 	}

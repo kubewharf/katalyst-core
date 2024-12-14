@@ -19,6 +19,7 @@ package qospolicy
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
@@ -26,7 +27,9 @@ import (
 const saturationThreshold = 8_000
 
 type terminalQoSPolicy struct {
-	ccdMBMin int
+	ccdMBMin        int
+	throttlePlanner strategy.LowPrioPlanner
+	easePlanner     strategy.LowPrioPlanner
 }
 
 func (t terminalQoSPolicy) GetPlan(totalMB int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup, isTopMost bool) *plan.MBAlloc {
@@ -52,18 +55,18 @@ func (t terminalQoSPolicy) getFixedPlan(fixed int, mbQoSGroups map[qosgroup.QoSG
 	return mbPlan
 }
 
+// getLeafPlan actually cope with the low-priority qos groups (needing throttle with mb usage) only
 func (t terminalQoSPolicy) getLeafPlan(totalMB int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
-	// when there is little mb left after fulfilling this leaf tier (almost saturation),
-	// the leaf tier has to be suppressed hard to the mininum, in the fastest way to give away
-	// mb room to high prio tasks likely in need
 	totalUsage := monitor.SumMB(mbQoSGroups)
-	if totalMB-totalUsage <= saturationThreshold {
-		return t.getFixedPlan(t.ccdMBMin, mbQoSGroups)
+	if strategy.IsResourceUnderPressure(totalMB, totalUsage) {
+		return t.throttlePlanner.GetPlan(totalMB, mbQoSGroups)
+	}
+	if strategy.IsResourceAtEase(totalMB, totalUsage) {
+		return t.easePlanner.GetPlan(totalMB, mbQoSGroups)
 	}
 
-	// distribute total among all proportionally
-	ratio := float64(totalMB) / float64(totalUsage)
-	return t.getProportionalPlan(ratio, mbQoSGroups)
+	// neither under pressure nor at ease, everything seems fine
+	return nil
 }
 
 func (t terminalQoSPolicy) getProportionalPlan(ratio float64, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
@@ -85,7 +88,11 @@ func (t terminalQoSPolicy) getProportionalPlan(ratio float64, mbQoSGroups map[qo
 }
 
 func NewTerminalQoSPolicy(ccdMBMin int) QoSMBPolicy {
+	ccdGroupPlanner := strategy.NewCCDGroupPlanner(ccdMBMin, config.CCDMBMax)
+	// combination of extreme throttling + step easing seems to make sense for scenarios of burst high qos loads
 	return &terminalQoSPolicy{
-		ccdMBMin: ccdMBMin,
+		ccdMBMin:        ccdMBMin,
+		throttlePlanner: strategy.NewExtremeThrottlePlanner(ccdGroupPlanner),
+		easePlanner:     strategy.NewStepEasePlanner(ccdGroupPlanner),
 	}
 }

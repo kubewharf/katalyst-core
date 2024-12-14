@@ -17,6 +17,8 @@ limitations under the License.
 package qospolicy
 
 import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
+	"github.com/stretchr/testify/mock"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -67,93 +69,96 @@ func Test_getTopMostPlan(t *testing.T) {
 	}
 }
 
-func Test_getProportionalPlan(t *testing.T) {
-	t.Parallel()
-	type args struct {
-		total       int
-		mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup
-	}
-	tests := []struct {
-		name string
-		args args
-		want *plan.MBAlloc
-	}{
-		{
-			name: "happy path",
-			args: args{
-				total: 21_000,
-				mbQoSGroups: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
-					"shared-30": {
-						CCDs: sets.Int{6: sets.Empty{}, 7: sets.Empty{}},
-						CCDMB: map[int]*monitor.MBData{
-							6: {TotalMB: 2_000},
-							7: {TotalMB: 1_000},
-						},
-					},
-				},
-			},
-			want: &plan.MBAlloc{Plan: map[qosgroup.QoSGroup]map[int]int{
-				"shared-30": {
-					6: 14_000,
-					7: 8_000,
-				},
-			}},
-		},
-	}
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			p := terminalQoSPolicy{
-				ccdMBMin: 8_000,
-			}
-			got := p.getLeafPlan(tt.args.total, tt.args.mbQoSGroups)
-			assert.Equalf(t, tt.want, got, "getProportionalPlan(%v, %v)", tt.args.total, tt.args.mbQoSGroups)
-		})
-	}
+type mockLeafPlanner struct {
+	mock.Mock
+}
+
+func (m *mockLeafPlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
+	args := m.Called(capacity, mbQoSGroups)
+	return args.Get(0).(*plan.MBAlloc)
 }
 
 func Test_getLeafPlan(t *testing.T) {
 	t.Parallel()
+
+	underUsed := map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+		"shared-30": {
+			CCDMB: map[int]*monitor.MBData{6: {
+				TotalMB: 4_000,
+			}},
+		},
+	}
+	mockEasePlanner := new(mockLeafPlanner)
+	mockEasePlanner.On("GetPlan", 15_000, underUsed).Return(&plan.MBAlloc{Plan: map[qosgroup.QoSGroup]map[int]int{"shared-30": {6: 6_000}}})
+
+	overUsed := map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+		"shared-30": {
+			CCDs: sets.Int{6: sets.Empty{}},
+			CCDMB: map[int]*monitor.MBData{6: {
+				TotalMB: 11_000,
+			}},
+		},
+	}
+	mockThrottlePlanner := new(mockLeafPlanner)
+	mockThrottlePlanner.On("GetPlan", 15_000, overUsed).Return(&plan.MBAlloc{Plan: map[qosgroup.QoSGroup]map[int]int{"shared-30": {6: 3_456}}})
+
+	type fields struct {
+		throttlePlanner, easePlanner strategy.LowPrioPlanner
+	}
 	type args struct {
 		totalMB     int
 		mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup
 	}
 	tests := []struct {
-		name string
-		args args
-		want *plan.MBAlloc
+		name   string
+		fields fields
+		args   args
+		want   *plan.MBAlloc
 	}{
 		{
-			name: "happy path",
+			name: "under pressure leads to easing",
+			fields: fields{
+				throttlePlanner: nil,
+				easePlanner:     mockEasePlanner,
+			},
 			args: args{
-				totalMB: 15_000,
-				mbQoSGroups: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
-					"shared-30": {
-						CCDMB: map[int]*monitor.MBData{6: {
-							TotalMB: 4_000,
-						}},
-					},
-				},
+				totalMB:     15_000,
+				mbQoSGroups: underUsed,
 			},
 			want: &plan.MBAlloc{
-				Plan: map[qosgroup.QoSGroup]map[int]int{"shared-30": map[int]int{6: 15_000}}},
+				Plan: map[qosgroup.QoSGroup]map[int]int{"shared-30": map[int]int{6: 6_000}}},
 		},
 		{
-			name: "almost saturation path",
+			name: "almost saturation path lead to throttling",
+			fields: fields{
+				throttlePlanner: mockThrottlePlanner,
+				easePlanner:     nil,
+			},
+			args: args{
+				totalMB:     15_000,
+				mbQoSGroups: overUsed,
+			},
+			want: &plan.MBAlloc{
+				Plan: map[qosgroup.QoSGroup]map[int]int{"shared-30": map[int]int{6: 3_456}}},
+		},
+		{
+			name: "in between neither throttle nor ease",
+			fields: fields{
+				throttlePlanner: nil,
+				easePlanner:     nil,
+			},
 			args: args{
 				totalMB: 15_000,
 				mbQoSGroups: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
 					"shared-30": {
 						CCDs: sets.Int{6: sets.Empty{}},
 						CCDMB: map[int]*monitor.MBData{6: {
-							TotalMB: 7_000,
+							TotalMB: 8_000,
 						}},
 					},
 				},
 			},
-			want: &plan.MBAlloc{
-				Plan: map[qosgroup.QoSGroup]map[int]int{"shared-30": map[int]int{6: 8_000}}},
+			want: nil,
 		},
 	}
 	for _, tt := range tests {
@@ -161,9 +166,18 @@ func Test_getLeafPlan(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			p := terminalQoSPolicy{
-				ccdMBMin: 8_000,
+				ccdMBMin:        8_000,
+				throttlePlanner: tt.fields.throttlePlanner,
+				easePlanner:     tt.fields.easePlanner,
 			}
 			assert.Equalf(t, tt.want, p.getLeafPlan(tt.args.totalMB, tt.args.mbQoSGroups), "getLeafPlan(%v, %v)", tt.args.totalMB, tt.args.mbQoSGroups)
+
+			if tt.fields.throttlePlanner != nil {
+				mock.AssertExpectationsForObjects(t, tt.fields.throttlePlanner)
+			}
+			if tt.fields.easePlanner != nil {
+				mock.AssertExpectationsForObjects(t, tt.fields.easePlanner)
+			}
 		})
 	}
 }
