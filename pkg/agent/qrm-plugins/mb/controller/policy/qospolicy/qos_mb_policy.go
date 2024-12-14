@@ -18,6 +18,7 @@ package qospolicy
 
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
@@ -28,27 +29,27 @@ type QoSMBPolicy interface {
 }
 
 // BuildFullyChainedQoSPolicy builds up the full chain of {dedicated, shared-50, system} -> {shared-30, reclaimed}
-func BuildFullyChainedQoSPolicy(ccdMBMin int) QoSMBPolicy {
+func BuildFullyChainedQoSPolicy(ccdMBMin int, throttleType, easeType strategy.LowPrioPlannerType) QoSMBPolicy {
 	return NewChainedQoSMBPolicy(
 		map[qosgroup.QoSGroup]struct{}{
 			"dedicated": {},
 			"shared-50": {},
 			"system":    {},
 		},
-		NewTerminalQoSPolicy(ccdMBMin),
-		NewTerminalQoSPolicy(ccdMBMin),
+		NewTerminalQoSPolicy(ccdMBMin, throttleType, easeType),
+		NewTerminalQoSPolicy(ccdMBMin, throttleType, easeType),
 	)
 }
 
-func BuildHiPrioDetectedQoSMBPolicy(ccdMBMin int) QoSMBPolicy {
+func BuildHiPrioDetectedQoSMBPolicy(ccdMBMin int, throttleType, easeType strategy.LowPrioPlannerType) QoSMBPolicy {
 	//--[if any dedicated|shared-50 pod exist]:    {dedicated, shared-50, system} -> {shared-30}
 	//        \ or ---------------------------:    {system, shared-30}
 
 	// to build up {dedicated, shared-50, system} -> {shared-30}
-	policyEither := BuildFullyChainedQoSPolicy(ccdMBMin)
+	policyEither := BuildFullyChainedQoSPolicy(ccdMBMin, throttleType, easeType)
 
 	// to build up {system, shared-30}
-	policyOr := NewTerminalQoSPolicy(ccdMBMin)
+	policyOr := NewTerminalQoSPolicy(ccdMBMin, throttleType, easeType)
 
 	// todo: check by pods instead of mb traffic
 	// isTopMost arg is ignored as always true being the root branching in POC scenario

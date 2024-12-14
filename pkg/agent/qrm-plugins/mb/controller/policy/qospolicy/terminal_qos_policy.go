@@ -87,12 +87,11 @@ func (t terminalQoSPolicy) getProportionalPlan(ratio float64, mbQoSGroups map[qo
 	return mbPlan
 }
 
-func NewTerminalQoSPolicy(ccdMBMin int) QoSMBPolicy {
+func NewTerminalQoSPolicy(ccdMBMin int, throttleType, easeType strategy.LowPrioPlannerType) QoSMBPolicy {
 	ccdGroupPlanner := strategy.NewCCDGroupPlanner(ccdMBMin, config.CCDMBMax)
-	// combination of extreme throttling + step easing seems to make sense for scenarios of burst high qos loads
 	return &terminalQoSPolicy{
 		ccdMBMin:        ccdMBMin,
-		throttlePlanner: strategy.NewExtremeThrottlePlanner(ccdGroupPlanner),
-		easePlanner:     strategy.NewStepEasePlanner(ccdGroupPlanner),
+		throttlePlanner: strategy.New(throttleType, ccdGroupPlanner),
+		easePlanner:     strategy.New(easeType, ccdGroupPlanner),
 	}
 }

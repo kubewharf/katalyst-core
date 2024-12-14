@@ -71,6 +71,7 @@ func Test_getTopMostPlan(t *testing.T) {
 
 type mockLeafPlanner struct {
 	mock.Mock
+	strategy.LowPrioPlanner
 }
 
 func (m *mockLeafPlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {

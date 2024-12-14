@@ -12,6 +12,10 @@ type extremeThrottlePlanner struct {
 	ccdGroupPlanner *CCDGroupPlanner
 }
 
+func (e extremeThrottlePlanner) Name() string {
+	return "extreme throttle planner"
+}
+
 func (e extremeThrottlePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
 	return e.ccdGroupPlanner.getFixedPlan(e.ccdGroupPlanner.ccdMBMin, mbQoSGroups)
 }
@@ -25,6 +29,10 @@ func NewExtremeThrottlePlanner(ccdPlanner *CCDGroupPlanner) LowPrioPlanner {
 // halfThrottlePlanner forces qos groups to yield half of mb in use
 type halfThrottlePlanner struct {
 	ccdGroupPlanner *CCDGroupPlanner
+}
+
+func (h halfThrottlePlanner) Name() string {
+	return "half throttle planner"
 }
 
 func (h halfThrottlePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {

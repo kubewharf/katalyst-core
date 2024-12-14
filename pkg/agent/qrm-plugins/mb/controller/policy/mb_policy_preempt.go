@@ -21,6 +21,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/qospolicy"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -73,6 +74,9 @@ func newPreemptDomainMBPolicy(chainedPolicy qospolicy.QoSMBPolicy) DomainMBPolic
 
 func NewDefaultPreemptDomainMBPolicy(ccdMBMin int) DomainMBPolicy {
 	// since there is admitting socket pod, the qos policy is {dedicated, shared-50, system} -> {shared-30}
-	qosMBPolicy := qospolicy.BuildFullyChainedQoSPolicy(ccdMBMin)
+
+	// combination of extreme throttling + half easing seems to make sense for scenarios of burst high qos loads; and
+	// other combinations may make more sense
+	qosMBPolicy := qospolicy.BuildFullyChainedQoSPolicy(ccdMBMin, strategy.ExtremeThrottle, strategy.HalfEase)
 	return newPreemptDomainMBPolicy(qosMBPolicy)
 }

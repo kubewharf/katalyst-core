@@ -10,6 +10,10 @@ type fullEasePlanner struct {
 	ccdGroupPlanner *CCDGroupPlanner
 }
 
+func (t fullEasePlanner) Name() string {
+	return "full ease planner"
+}
+
 func (t fullEasePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
 	allocatable := capacity - easeThreshold
 	if allocatable <= 0 {
@@ -22,7 +26,7 @@ func (t fullEasePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup
 	return t.ccdGroupPlanner.getProportionalPlan(ratio, mbQoSGroups)
 }
 
-func NewFullyEasePlanner(planner *CCDGroupPlanner) LowPrioPlanner {
+func NewFullEasePlanner(planner *CCDGroupPlanner) LowPrioPlanner {
 	return &fullEasePlanner{
 		ccdGroupPlanner: planner,
 	}
@@ -32,6 +36,10 @@ type halfEasePlanner struct {
 	innerPlanner fullEasePlanner
 }
 
+func (s halfEasePlanner) Name() string {
+	return "half ease planner"
+}
+
 func (s halfEasePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
 	totalUsage := monitor.SumMB(mbQoSGroups)
 	// step ease planner eases 1/2 newly allocatable only at ease step
@@ -39,7 +47,7 @@ func (s halfEasePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup
 	return s.innerPlanner.GetPlan(constraintCapacity, mbQoSGroups)
 }
 
-func NewStepEasePlanner(planner *CCDGroupPlanner) LowPrioPlanner {
+func NewHalfEasePlanner(planner *CCDGroupPlanner) LowPrioPlanner {
 	return &halfEasePlanner{
 		innerPlanner: fullEasePlanner{ccdGroupPlanner: planner},
 	}
