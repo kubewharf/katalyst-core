@@ -20,6 +20,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -84,6 +85,15 @@ func newDomainMBPolicy(preemptMBPolicy, softLimitMBPolicy DomainMBPolicy) (Domai
 	}, nil
 }
 
-func NewDefaultDomainMBPolicy(ccdMBMin int) (DomainMBPolicy, error) {
-	return newDomainMBPolicy(NewDefaultPreemptDomainMBPolicy(ccdMBMin), NewDefaultConstraintDomainMBPolicy(ccdMBMin))
+//func NewDefaultDomainMBPolicy(ccdMBMin int) (DomainMBPolicy, error) {
+//	// combination of extreme throttling + half easing seems to make sense for scenarios of burst high qos loads; and
+//	// other combinations may make more sense
+//	return NewDomainMBPolicy(ccdMBMin, strategy.ExtremeThrottle, strategy.HalfEase)
+//}
+
+func NewDomainMBPolicy(ccdMBMin int, throttleType, easeType strategy.LowPrioPlannerType) (DomainMBPolicy, error) {
+	return newDomainMBPolicy(
+		NewPreemptDomainMBPolicy(ccdMBMin, throttleType, easeType),
+		NewConstraintDomainMBPolicy(ccdMBMin, throttleType, easeType),
+	)
 }

@@ -17,10 +17,12 @@ limitations under the License.
 package qrm
 
 import (
-	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"time"
 
 	cliflag "k8s.io/component-base/cli/flag"
+
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
+	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 )
 
 const defaultIncubationInterval = time.Second * 30
@@ -29,6 +31,10 @@ type MBOptions struct {
 	IncubationInterval         time.Duration
 	CPUSetPoolToSharedSubgroup map[string]int
 	MinMBPerCCD                int
+
+	// type of leaf planners
+	LeafThrottleType string
+	LeafEaseType     string
 }
 
 func NewMBOptions() *MBOptions {
@@ -40,6 +46,9 @@ func NewMBOptions() *MBOptions {
 			"share": 50,
 		},
 		MinMBPerCCD: 4_000,
+
+		LeafThrottleType: string(strategy.ExtremeThrottle),
+		LeafEaseType:     string(strategy.HalfEase),
 	}
 }
 
@@ -50,11 +59,17 @@ func (m *MBOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringToIntVar(&m.CPUSetPoolToSharedSubgroup, "cpuset-pool-to-shared-subgroup", m.CPUSetPoolToSharedSubgroup,
 		"mapping from cpuset pool name to shared_xx")
 	fs.IntVar(&m.MinMBPerCCD, "min-mb-per-ccd", m.MinMBPerCCD, "lower bound of MB per ccd in MBps")
+	fs.StringVar(&m.LeafThrottleType, "mb-leaf-throttle-type", m.LeafThrottleType, "type of shared-30 throttle planner")
+	fs.StringVar(&m.LeafEaseType, "mb-leaf-ease-type", m.LeafEaseType, "type of shared-30 ease planner")
 }
 
 func (m *MBOptions) ApplyTo(conf *qrmconfig.MBQRMPluginConfig) error {
 	conf.IncubationInterval = m.IncubationInterval
 	conf.CPUSetPoolToSharedSubgroup = m.CPUSetPoolToSharedSubgroup
 	conf.MinMBPerCCD = m.MinMBPerCCD
+
+	// todo: to validate assignments
+	conf.LeafThrottleType = strategy.LowPrioPlannerType(m.LeafThrottleType)
+	conf.LeafEaseType = strategy.LowPrioPlannerType(m.LeafEaseType)
 	return nil
 }

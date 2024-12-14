@@ -72,11 +72,12 @@ func newPreemptDomainMBPolicy(chainedPolicy qospolicy.QoSMBPolicy) DomainMBPolic
 	}
 }
 
-func NewDefaultPreemptDomainMBPolicy(ccdMBMin int) DomainMBPolicy {
-	// since there is admitting socket pod, the qos policy is {dedicated, shared-50, system} -> {shared-30}
+//func NewDefaultPreemptDomainMBPolicy(ccdMBMin int) DomainMBPolicy {
+//	return NewPreemptDomainMBPolicy(ccdMBMin, strategy.ExtremeThrottle, strategy.HalfEase)
+//}
 
-	// combination of extreme throttling + half easing seems to make sense for scenarios of burst high qos loads; and
-	// other combinations may make more sense
-	qosMBPolicy := qospolicy.BuildFullyChainedQoSPolicy(ccdMBMin, strategy.ExtremeThrottle, strategy.HalfEase)
+func NewPreemptDomainMBPolicy(ccdMBMin int, throttleType, easeType strategy.LowPrioPlannerType) DomainMBPolicy {
+	// since there is admitting socket pod, the qos policy is {dedicated, shared-50, system} -> {shared-30}
+	qosMBPolicy := qospolicy.BuildFullyChainedQoSPolicy(ccdMBMin, throttleType, easeType)
 	return newPreemptDomainMBPolicy(qosMBPolicy)
 }

@@ -40,9 +40,13 @@ func newConstraintDomainMBPolicy(qosMBPolicy qospolicy.QoSMBPolicy) DomainMBPoli
 	}
 }
 
-func NewDefaultConstraintDomainMBPolicy(ccdMBMin int) DomainMBPolicy {
-	// combination of extreme throttling + half easing seems to make sense for scenarios of burst high qos loads; and
-	// other combinations may make more sense
-	qosMBPolicy := qospolicy.BuildHiPrioDetectedQoSMBPolicy(ccdMBMin, strategy.ExtremeThrottle, strategy.HalfEase)
+//func NewDefaultConstraintDomainMBPolicy(ccdMBMin int) DomainMBPolicy {
+//	// combination of extreme throttling + half easing seems to make sense for scenarios of burst high qos loads; and
+//	// other combinations may make more sense
+//	return NewConstraintDomainMBPolicy(ccdMBMin, strategy.ExtremeThrottle, strategy.HalfEase)
+//}
+
+func NewConstraintDomainMBPolicy(ccdMBMin int, throttleType, easeType strategy.LowPrioPlannerType) DomainMBPolicy {
+	qosMBPolicy := qospolicy.BuildHiPrioDetectedQoSMBPolicy(ccdMBMin, throttleType, easeType)
 	return newConstraintDomainMBPolicy(qosMBPolicy)
 }

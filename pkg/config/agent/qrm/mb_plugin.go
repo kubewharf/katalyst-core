@@ -16,12 +16,20 @@ limitations under the License.
 
 package qrm
 
-import "time"
+import (
+	"time"
+
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
+)
 
 type MBQRMPluginConfig struct {
 	IncubationInterval         time.Duration
 	CPUSetPoolToSharedSubgroup map[string]int
 	MinMBPerCCD                int
+
+	// type of leaf planners
+	LeafThrottleType strategy.LowPrioPlannerType
+	LeafEaseType     strategy.LowPrioPlannerType
 }
 
 func NewMBQRMPluginConfig() *MBQRMPluginConfig {

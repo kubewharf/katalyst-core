@@ -26,7 +26,7 @@ func (t fullEasePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup
 	return t.ccdGroupPlanner.getProportionalPlan(ratio, mbQoSGroups)
 }
 
-func NewFullEasePlanner(planner *CCDGroupPlanner) LowPrioPlanner {
+func newFullEasePlanner(planner *CCDGroupPlanner) LowPrioPlanner {
 	return &fullEasePlanner{
 		ccdGroupPlanner: planner,
 	}
@@ -47,7 +47,7 @@ func (s halfEasePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup
 	return s.innerPlanner.GetPlan(constraintCapacity, mbQoSGroups)
 }
 
-func NewHalfEasePlanner(planner *CCDGroupPlanner) LowPrioPlanner {
+func newHalfEasePlanner(planner *CCDGroupPlanner) LowPrioPlanner {
 	return &halfEasePlanner{
 		innerPlanner: fullEasePlanner{ccdGroupPlanner: planner},
 	}

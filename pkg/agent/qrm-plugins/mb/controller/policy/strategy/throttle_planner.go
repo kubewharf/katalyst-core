@@ -20,7 +20,7 @@ func (e extremeThrottlePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.Q
 	return e.ccdGroupPlanner.getFixedPlan(e.ccdGroupPlanner.ccdMBMin, mbQoSGroups)
 }
 
-func NewExtremeThrottlePlanner(ccdPlanner *CCDGroupPlanner) LowPrioPlanner {
+func newExtremeThrottlePlanner(ccdPlanner *CCDGroupPlanner) LowPrioPlanner {
 	return &extremeThrottlePlanner{
 		ccdGroupPlanner: ccdPlanner,
 	}
@@ -49,7 +49,7 @@ func (h halfThrottlePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSG
 	return h.ccdGroupPlanner.getProportionalPlanWithUpperLimit(ratio, mbQoSGroups, capacity-easeThreshold)
 }
 
-func NewHalfThrottlePlanner(ccdPlanner *CCDGroupPlanner) LowPrioPlanner {
+func newHalfThrottlePlanner(ccdPlanner *CCDGroupPlanner) LowPrioPlanner {
 	return &halfThrottlePlanner{
 		ccdGroupPlanner: ccdPlanner,
 	}

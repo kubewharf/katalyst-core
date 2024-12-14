@@ -23,13 +23,13 @@ const (
 func New(typ LowPrioPlannerType, ccdPlanner *CCDGroupPlanner) LowPrioPlanner {
 	switch typ {
 	case ExtremeThrottle:
-		return NewExtremeThrottlePlanner(ccdPlanner)
+		return newExtremeThrottlePlanner(ccdPlanner)
 	case HalfThrottle:
-		return NewHalfThrottlePlanner(ccdPlanner)
+		return newHalfThrottlePlanner(ccdPlanner)
 	case FullEase:
-		return NewFullEasePlanner(ccdPlanner)
+		return newFullEasePlanner(ccdPlanner)
 	case HalfEase:
-		return NewHalfEasePlanner(ccdPlanner)
+		return newHalfEasePlanner(ccdPlanner)
 	default:
 		panic("not implemented yet")
 	}
