@@ -22,6 +22,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 const saturationThreshold = 8_000
@@ -89,9 +90,14 @@ func (t terminalQoSPolicy) getProportionalPlan(ratio float64, mbQoSGroups map[qo
 
 func NewTerminalQoSPolicy(ccdMBMin int, throttleType, easeType strategy.LowPrioPlannerType) QoSMBPolicy {
 	ccdGroupPlanner := strategy.NewCCDGroupPlanner(ccdMBMin, config.CCDMBMax)
-	return &terminalQoSPolicy{
+	policy := terminalQoSPolicy{
 		ccdMBMin:        ccdMBMin,
 		throttlePlanner: strategy.New(throttleType, ccdGroupPlanner),
 		easePlanner:     strategy.New(easeType, ccdGroupPlanner),
 	}
+	general.Infof("pap: created terminal policy with throttle planner: %v, ease planner %v",
+		policy.throttlePlanner.Name(),
+		policy.easePlanner.Name())
+
+	return &policy
 }
