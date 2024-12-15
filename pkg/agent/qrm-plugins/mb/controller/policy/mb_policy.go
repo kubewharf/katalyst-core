@@ -92,6 +92,7 @@ func newDomainMBPolicy(preemptMBPolicy, softLimitMBPolicy DomainMBPolicy) (Domai
 //}
 
 func NewDomainMBPolicy(ccdMBMin int, throttleType, easeType strategy.LowPrioPlannerType) (DomainMBPolicy, error) {
+	general.Infof("pap: creating domain mb policy using ccdmbmin %d MB, throttling %v, easing %v", ccdMBMin, throttleType, easeType)
 	return newDomainMBPolicy(
 		NewPreemptDomainMBPolicy(ccdMBMin, throttleType, easeType),
 		NewConstraintDomainMBPolicy(ccdMBMin, throttleType, easeType),
