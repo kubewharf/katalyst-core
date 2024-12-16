@@ -153,7 +153,7 @@ func TestGetPodContainerStats(t *testing.T) {
 	}
 	fetcher := &pod.PodFetcherStub{PodList: pods}
 
-	malachiteClient := NewMalachiteClient(fetcher)
+	malachiteClient := NewMalachiteClient(fetcher, 9002)
 	malachiteClient.SetURL(map[string]string{
 		CgroupResource: server.URL,
 	})

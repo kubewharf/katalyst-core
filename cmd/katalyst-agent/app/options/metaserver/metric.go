@@ -26,7 +26,10 @@ import (
 
 const defaultMetricInsurancePeriod = 0 * time.Second
 
-const defaultRodanServerPort = 9102
+const (
+	defaultRodanServerPort     = 9102
+	defaultMalachiteServerPort = 9002
+)
 
 type MetricFetcherOptions struct {
 	MetricInsurancePeriod time.Duration
@@ -42,10 +45,12 @@ type MetricFetcherOptions struct {
 }
 
 type (
-	MalachiteOptions struct{}
-	CgroupOptions    struct{}
-	KubeletOptions   struct{}
-	RodanOptions     struct {
+	MalachiteOptions struct {
+		ServerPort int
+	}
+	CgroupOptions  struct{}
+	KubeletOptions struct{}
+	RodanOptions   struct {
 		ServerPort int
 	}
 )
@@ -58,9 +63,11 @@ func NewMetricFetcherOptions() *MetricFetcherOptions {
 		DefaultInterval:         time.Second * 5,
 		ProvisionerIntervalSecs: map[string]int{metaserver.MetricProvisionerMalachiteRealtime: 1},
 
-		MalachiteOptions: &MalachiteOptions{},
-		CgroupOptions:    &CgroupOptions{},
-		KubeletOptions:   &KubeletOptions{},
+		MalachiteOptions: &MalachiteOptions{
+			ServerPort: defaultMalachiteServerPort,
+		},
+		CgroupOptions:  &CgroupOptions{},
+		KubeletOptions: &KubeletOptions{},
 		RodanOptions: &RodanOptions{
 			ServerPort: defaultRodanServerPort,
 		},
@@ -83,6 +90,8 @@ func (o *MetricFetcherOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	fs.IntVar(&o.RodanOptions.ServerPort, "rodan-server-port", o.RodanOptions.ServerPort,
 		"The rodan metric provisioner server port")
+	fs.IntVar(&o.MalachiteOptions.ServerPort, "malachite-server-port", o.MalachiteOptions.ServerPort,
+		"The malachite metric provisioner server port")
 }
 
 // ApplyTo fills up config with options
@@ -97,6 +106,7 @@ func (o *MetricFetcherOptions) ApplyTo(c *metaserver.MetricConfiguration) error 
 	}
 
 	c.RodanServerPort = o.RodanOptions.ServerPort
+	c.MalachiteServerPort = o.MalachiteOptions.ServerPort
 
 	return nil
 }
