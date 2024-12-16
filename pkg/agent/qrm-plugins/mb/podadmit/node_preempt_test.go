@@ -107,7 +107,7 @@ func TestNodePreempter_getNotInUseNodes(t *testing.T) {
 				domainManager: tt.fields.domainManager,
 				mbController:  tt.fields.mbController,
 			}
-			notInUses, inUses := n.getNotInUseDedicatedNodes(tt.args.nodes)
+			notInUses, inUses := n.splitDedicatedNodesToNotInAndInUses(tt.args.nodes)
 			assert.Equalf(t, tt.want.notInUses, notInUses, "not in uses")
 			assert.Equalf(t, tt.want.inUses, inUses, "not in uses")
 		})

@@ -32,7 +32,7 @@ type NodePreempter struct {
 	mbController  *controller.Controller
 }
 
-func (n *NodePreempter) getNotInUseDedicatedNodes(nodes []uint64) (notInUses, inUses []int) {
+func (n *NodePreempter) splitDedicatedNodesToNotInAndInUses(nodes []uint64) (notInUses, inUses []int) {
 	nodesDedicated := n.mbController.GetDedicatedNodes()
 	for _, node := range nodes {
 		if _, ok := nodesDedicated[int(node)]; ok {
@@ -56,7 +56,7 @@ func (n *NodePreempter) PreemptNodes(req *pluginapi.ResourceRequest) error {
 	}
 
 	general.InfofV(6, "mbm: preempt nodes for pod %s/%s, hinted nodes %v", req.PodNamespace, req.PodName, req.Hint.Nodes)
-	nodesToPreempt, nodesToIncubateJustInCase := n.getNotInUseDedicatedNodes(req.Hint.Nodes)
+	nodesToPreempt, nodesToIncubateJustInCase := n.splitDedicatedNodesToNotInAndInUses(req.Hint.Nodes)
 	if len(nodesToPreempt) > 0 {
 		general.InfofV(6, "mbm: preempt nodes %v for pod %s/%s", nodesToPreempt, req.PodNamespace, req.PodName)
 		if n.domainManager.PreemptNodes(nodesToPreempt) {
