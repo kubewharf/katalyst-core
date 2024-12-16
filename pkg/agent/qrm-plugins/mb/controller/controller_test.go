@@ -136,3 +136,83 @@ func Test_getApplicableQoSCCDMB(t *testing.T) {
 		})
 	}
 }
+
+func TestController_getDedicatedNodes(t *testing.T) {
+	t.Parallel()
+	type fields struct {
+		domainManager *mbdomain.MBDomainManager
+		CurrQoSCCDMB  map[qosgroup.QoSGroup]*monitor.MBQoSGroup
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		want   sets.Int
+	}{
+		{
+			name: "happy path",
+			fields: fields{
+				domainManager: &mbdomain.MBDomainManager{
+					CCDNode: map[int]int{0: 0, 1: 0, 2: 1, 3: 1, 4: 2, 5: 2, 6: 3, 7: 3},
+				},
+				CurrQoSCCDMB: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+					qosgroup.QoSGroupDedicated: {
+						CCDMB: map[int]*monitor.MBData{
+							2: {
+								TotalMB: 1_234,
+							},
+							3: {
+								TotalMB: 1_333,
+							},
+						},
+					},
+				},
+			},
+			want: sets.Int{1: sets.Empty{}},
+		},
+		{
+			name: "happy path of 0 traffic",
+			fields: fields{
+				domainManager: &mbdomain.MBDomainManager{
+					CCDNode: map[int]int{0: 0, 1: 0, 2: 1, 3: 1, 4: 2, 5: 2, 6: 3, 7: 3},
+				},
+				CurrQoSCCDMB: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+					qosgroup.QoSGroupDedicated: {
+						CCDMB: map[int]*monitor.MBData{
+							6: {
+								TotalMB: 0,
+							},
+						},
+					},
+				},
+			},
+			want: sets.Int{3: sets.Empty{}},
+		},
+		{
+			name: "happy path of no dedicated qos",
+			fields: fields{
+				domainManager: &mbdomain.MBDomainManager{
+					CCDNode: map[int]int{0: 0, 1: 0, 2: 1, 3: 1, 4: 2, 5: 2, 6: 3, 7: 3},
+				},
+				CurrQoSCCDMB: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+					qosgroup.QoSGroupDedicated: {
+						CCDMB: map[int]*monitor.MBData{},
+					},
+				},
+			},
+			want: sets.Int{},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			c := &Controller{
+				DomainManager: tt.fields.domainManager,
+				CurrQoSCCDMB:  tt.fields.CurrQoSCCDMB,
+			}
+			if got := c.getDedicatedNodes(); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("getDedicatedNodes() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

@@ -17,6 +17,7 @@ limitations under the License.
 package mbdomain
 
 import (
+	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -35,6 +36,19 @@ var (
 type MBDomainManager struct {
 	Domains  map[int]*MBDomain
 	nodeCCDs map[int]sets.Int
+
+	// derived, reverse lookup table: from ccd to numa node
+	// exposure it for testability
+	// todo: hide it for proper encapsulation
+	CCDNode map[int]int
+}
+
+func (m MBDomainManager) GetNode(ccd int) (int, error) {
+	if node, ok := m.CCDNode[ccd]; ok {
+		return node, nil
+	}
+
+	return -1, fmt.Errorf("ccd %d not found in any numa node", ccd)
 }
 
 // StartIncubation marks the specified CCDs the beginning of incubation time.
@@ -69,6 +83,15 @@ func (m MBDomainManager) PreemptNodes(nodes []int) bool {
 	return hasChange
 }
 
+func (m MBDomainManager) IncubateNodes(nodes []int) {
+	general.InfofV(6, "mbm: already marked as dedicated; incubating numa node %v", nodes)
+	ccds := make([]int, 0)
+	for _, node := range nodes {
+		ccds = append(ccds, m.nodeCCDs[node].List()...)
+	}
+	m.StartIncubation(ccds)
+}
+
 func NewMBDomainManager(dieTopology *machine.DieTopology, incubationInterval time.Duration) *MBDomainManager {
 	onceDomainManagerInit.Do(func() {
 		domainManager = newMBDomainManager(dieTopology, incubationInterval)
@@ -76,10 +99,21 @@ func NewMBDomainManager(dieTopology *machine.DieTopology, incubationInterval tim
 	return domainManager
 }
 
+func genCCDNode(nodeCCDs map[int]sets.Int) map[int]int {
+	result := map[int]int{}
+	for node, ccds := range nodeCCDs {
+		for ccd := range ccds {
+			result[ccd] = node
+		}
+	}
+	return result
+}
+
 func newMBDomainManager(dieTopology *machine.DieTopology, incubationInterval time.Duration) *MBDomainManager {
 	manager := &MBDomainManager{
 		Domains:  make(map[int]*MBDomain),
 		nodeCCDs: dieTopology.DiesInNuma,
+		CCDNode:  genCCDNode(dieTopology.DiesInNuma),
 	}
 
 	for packageID := 0; packageID < dieTopology.Packages; packageID++ {

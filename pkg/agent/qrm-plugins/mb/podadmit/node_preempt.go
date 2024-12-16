@@ -32,14 +32,18 @@ type NodePreempter struct {
 	mbController  *controller.Controller
 }
 
-func (n *NodePreempter) getNotInUseNodes(nodes []uint64) []int {
-	// todo: check numa nodes' in-use state; only preempt those not-in-use yet
-	var notInUses []int
+func (n *NodePreempter) getNotInUseDedicatedNodes(nodes []uint64) (notInUses, inUses []int) {
+	nodesDedicated := n.mbController.GetDedicatedNodes()
 	for _, node := range nodes {
+		if _, ok := nodesDedicated[int(node)]; ok {
+			// already a dedicated numa node; should incubate in that case
+			inUses = append(inUses, int(node))
+			continue
+		}
 		notInUses = append(notInUses, int(node))
 	}
 
-	return notInUses
+	return notInUses, inUses
 }
 
 func (n *NodePreempter) PreemptNodes(req *pluginapi.ResourceRequest) error {
@@ -52,12 +56,19 @@ func (n *NodePreempter) PreemptNodes(req *pluginapi.ResourceRequest) error {
 	}
 
 	general.InfofV(6, "mbm: preempt nodes for pod %s/%s, hinted nodes %v", req.PodNamespace, req.PodName, req.Hint.Nodes)
-	nodesToPreempt := n.getNotInUseNodes(req.Hint.Nodes)
+	nodesToPreempt, nodesToIncubateJustInCase := n.getNotInUseDedicatedNodes(req.Hint.Nodes)
 	if len(nodesToPreempt) > 0 {
+		general.InfofV(6, "mbm: preempt nodes %v for pod %s/%s", nodesToPreempt, req.PodNamespace, req.PodName)
 		if n.domainManager.PreemptNodes(nodesToPreempt) {
 			// requests to adjust mb ASAP for new preemption if there are any changes
 			n.mbController.ReqToAdjustMB()
 		}
+	}
+
+	// if a node has traffic for some(e.g. previous state not cleaned up) reason, incubate just in case
+	if len(nodesToIncubateJustInCase) > 0 {
+		general.InfofV(6, "mbm: just in case - incubate nodes %v for pod %s/%s", nodesToIncubateJustInCase, req.PodNamespace, req.PodName)
+		n.domainManager.IncubateNodes(nodesToIncubateJustInCase)
 	}
 
 	return nil

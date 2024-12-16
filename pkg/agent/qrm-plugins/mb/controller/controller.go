@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -41,11 +42,50 @@ type Controller struct {
 	podMBMonitor    monitor.MBMonitor
 	mbPlanAllocator allocator.PlanAllocator
 
-	domainManager *mbdomain.MBDomainManager
-	policy        policy.DomainMBPolicy
+	// exposure it for testability
+	// todo: hide it
+	DomainManager *mbdomain.MBDomainManager
 
-	chAdmit      chan struct{}
-	currQoSCCDMB map[qosgroup.QoSGroup]*monitor.MBQoSGroup
+	policy policy.DomainMBPolicy
+
+	chAdmit chan struct{}
+
+	lock sync.RWMutex
+	// expose below field to make test easier
+	// todo: not to expose this field
+	CurrQoSCCDMB map[qosgroup.QoSGroup]*monitor.MBQoSGroup
+}
+
+func (c *Controller) updateQoSCCDMB(qosCCDMB map[qosgroup.QoSGroup]*monitor.MBQoSGroup) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	c.CurrQoSCCDMB = qosCCDMB
+}
+
+func (c *Controller) GetDedicatedNodes() sets.Int {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	return c.getDedicatedNodes()
+}
+
+// getDedicatedNodes identifies the nodes currently assigned to dedicated qos and having active traffic (including 0)
+func (c *Controller) getDedicatedNodes() sets.Int {
+	// identify the ccds having active traffic as dedicated groups
+	dedicatedCCDMB, ok := c.CurrQoSCCDMB[qosgroup.QoSGroupDedicated]
+	if !ok {
+		return nil
+	}
+
+	dedicatedNodes := make(sets.Int)
+	for ccd := range dedicatedCCDMB.CCDMB {
+		node, err := c.DomainManager.GetNode(ccd)
+		if err != nil {
+			panic(err)
+		}
+		dedicatedNodes.Insert(node)
+	}
+
+	return dedicatedNodes
 }
 
 // ReqToAdjustMB requests controller to start a round of mb adjustment
@@ -84,16 +124,17 @@ func (c *Controller) run(ctx context.Context) {
 	if err != nil {
 		general.Errorf("mbm: failed to get MB usages: %v", err)
 	}
-	c.currQoSCCDMB = qosCCDMB
+
+	c.updateQoSCCDMB(qosCCDMB)
 
 	general.InfofV(6, "mbm: mb usage summary: %v", monitor.DisplayMBSummary(qosCCDMB))
 	c.process(ctx)
 }
 
 func (c *Controller) process(ctx context.Context) {
-	for i, domain := range c.domainManager.Domains {
+	for i, domain := range c.DomainManager.Domains {
 		// we only care about qosCCDMB manageable by the domain
-		applicableQoSCCDMB := getApplicableQoSCCDMB(domain, c.currQoSCCDMB)
+		applicableQoSCCDMB := getApplicableQoSCCDMB(domain, c.CurrQoSCCDMB)
 		general.InfofV(6, "mbm: domain %d mb stat: %#v", i, applicableQoSCCDMB)
 
 		mbAlloc := c.policy.GetPlan(config.DomainTotalMB, domain, applicableQoSCCDMB)
@@ -118,7 +159,7 @@ func New(podMBMonitor monitor.MBMonitor, mbPlanAllocator allocator.PlanAllocator
 	return &Controller{
 		podMBMonitor:    podMBMonitor,
 		mbPlanAllocator: mbPlanAllocator,
-		domainManager:   domainManager,
+		DomainManager:   domainManager,
 		policy:          policy,
 		chAdmit:         make(chan struct{}, 1),
 	}, nil
