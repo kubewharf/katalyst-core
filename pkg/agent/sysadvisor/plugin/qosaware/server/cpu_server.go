@@ -32,6 +32,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -48,17 +49,19 @@ const (
 
 type cpuServer struct {
 	*baseServer
-	getCheckpointCalled bool
-	cpuPluginClient     cpuadvisor.CPUPluginClient
+	getCheckpointCalled     bool
+	cpuPluginClient         cpuadvisor.CPUPluginClient
+	headroomResourceManager reporter.HeadroomResourceManager
 }
 
 func NewCPUServer(recvCh chan types.InternalCPUCalculationResult, sendCh chan types.TriggerInfo, conf *config.Configuration,
-	metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
+	headroomResourceManager reporter.HeadroomResourceManager, metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) (*cpuServer, error) {
 	cs := &cpuServer{}
 	cs.baseServer = newBaseServer(cpuServerName, conf, recvCh, sendCh, metaCache, metaServer, emitter, cs)
 	cs.advisorSocketPath = conf.CPUAdvisorSocketAbsPath
 	cs.pluginSocketPath = conf.CPUPluginSocketAbsPath
+	cs.headroomResourceManager = headroomResourceManager
 	cs.resourceRequestName = "CPURequest"
 	return cs, nil
 }
