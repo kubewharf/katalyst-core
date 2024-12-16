@@ -103,7 +103,18 @@ func (mg *memoryGuard) Reconcile(status *types.MemoryPressureStatus) error {
 			return err
 		}
 
-		criticalWatermark := math.Max(float64(mg.minCriticalWatermark), numaTotal.Value*watermarkScaleFactor.Value/float64(10000))
+		swapTotal, err := mg.metaServer.GetNodeMetric(consts.MetricMemSwapTotalSystem)
+		if err != nil {
+			return err
+		}
+
+		systemReserved := numaTotal.Value * watermarkScaleFactor.Value / float64(10000)
+		// If swap is on, we need to double the system reserved memory to reduce the rate of triggering kswapd.
+		if swapTotal.Value > 0 {
+			systemReserved = 2 * numaTotal.Value * watermarkScaleFactor.Value / float64(10000)
+		}
+
+		criticalWatermark := math.Max(float64(mg.minCriticalWatermark), systemReserved)
 		reclaimMemoryLimit += reclaimedCoresUsed.Value +
 			math.Max(numaFree.Value-criticalWatermark, 0)
 
