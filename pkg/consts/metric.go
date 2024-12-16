@@ -176,6 +176,8 @@ const (
 	MetricCPUUsageRatio    = "cpu.usage.ratio.cpu"
 	MetricCPUSysUsageRatio = "cpu.sys.usage.ratio.cpu"
 	MetricCPUIOWaitRatio   = "cpu.iowait.ratio.cpu"
+	// MetricCPUCodeName is not normal metric, only used to store cpu code name into metric store
+	MetricCPUCodeName = "cpu.code.name"
 )
 
 // container cpu metrics

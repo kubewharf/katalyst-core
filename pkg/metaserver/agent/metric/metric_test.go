@@ -85,7 +85,9 @@ func Test_notifySystem(t *testing.T) {
 	m.metricStore.SetDeviceMetric("test-device", "test-device-metric", metric.MetricData{Value: 91, Time: &now})
 	m.metricStore.SetContainerMetric("test-pod", "test-container", "test-container-metric", metric.MetricData{Value: 91, Time: &now})
 	m.metricStore.SetContainerNumaMetric("test-pod", "test-container", 3, "test-container-numa-metric", metric.MetricData{Value: 75, Time: &now})
-
+	m.metricStore.SetByStringIndex("test-pod", "test-container")
+	value := m.metricStore.GetByStringIndex("test-pod")
+	assert.Equal(t, "test-container", value)
 	// force trigger multiple notifications in a row,
 	// and expect only one response for a single data
 	m.metricsNotifierManager.Notify()

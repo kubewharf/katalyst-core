@@ -540,7 +540,9 @@ func (m *MalachiteMetricsProvisioner) processSystemExtFragData(systemMemoryData 
 func (m *MalachiteMetricsProvisioner) processSystemCPUComputeData(systemComputeData *malachitetypes.SystemComputeData) {
 	// todo, currently we only get a unified data for the whole system compute data
 	updateTime := time.Unix(systemComputeData.UpdateTime, 0)
-
+	if len(systemComputeData.CPUCodeName) > 0 {
+		m.metricStore.SetByStringIndex(consts.MetricCPUCodeName, systemComputeData.CPUCodeName)
+	}
 	var cpiTotal, cpiCount float64
 	for _, cpu := range systemComputeData.CPU {
 		cpuID, err := strconv.Atoi(cpu.Name[3:])

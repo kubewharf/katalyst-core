@@ -305,6 +305,10 @@ func NewMetricsFetcher(baseConf *global.BaseConfiguration, metricConf *metaserve
 	}
 }
 
+func (f *MetricsFetcherImpl) GetByStringIndex(metricName string) interface{} {
+	return f.metricStore.GetByStringIndex(metricName)
+}
+
 func (f *MetricsFetcherImpl) GetNodeMetric(metricName string) (utilmetric.MetricData, error) {
 	return f.checkMetricDataExpire(f.metricStore.GetNodeMetric(metricName))
 }
