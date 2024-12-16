@@ -51,6 +51,7 @@ const (
 	metricServerLWCalled                        = "lw_called"
 	metricServerLWGetCheckpointFailed           = "lw_get_checkpoint_failed"
 	metricServerLWGetCheckpointSucceeded        = "lw_get_checkpoint_succeeded"
+	metricServerGetAdviceCalled                 = "get_advice_called"
 	metricServerAdvisorUpdateFailed             = "advisor_update_failed"
 	metricServerLWSendResponseFailed            = "lw_send_response_failed"
 	metricServerLWSendResponseSucceeded         = "lw_send_response_succeeded"
