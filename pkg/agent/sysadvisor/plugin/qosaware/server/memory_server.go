@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
@@ -113,6 +114,61 @@ func (ms *memoryServer) populateMetaCache(memoryPluginClient advisorsvc.QRMServi
 	return nil
 }
 
+func (ms *memoryServer) GetAdvice(ctx context.Context, request *advisorsvc.GetAdviceRequest) (*advisorsvc.GetAdviceResponse, error) {
+	_ = ms.emitter.StoreInt64(ms.genMetricsName(metricServerGetAdviceCalled), 1, metrics.MetricTypeNameCount)
+	general.Infof("get advice request: %v", general.ToString(request))
+
+	// TODO: figure out how to make GetAdvice exclusive with ListAndWatch/AddContainer/RemovePod
+	// TODO: healthz
+
+	if err := ms.updateMetaCacheInput(ctx, request); err != nil {
+		general.Errorf("update meta cache failed: %v", err)
+		return nil, fmt.Errorf("update meta cache failed: %w", err)
+	}
+
+	result, err := ms.updateAdvisor()
+	if err != nil {
+		general.Errorf("update advisor failed: %v", err)
+		return nil, fmt.Errorf("update advisor failed: %w", err)
+	}
+	resp := &advisorsvc.GetAdviceResponse{
+		PodEntries:   result.PodEntries,
+		ExtraEntries: result.ExtraEntries,
+	}
+	general.Infof("get advice response: %v", general.ToString(resp))
+	return resp, nil
+}
+
+func (ms *memoryServer) updateMetaCacheInput(ctx context.Context, request *advisorsvc.GetAdviceRequest) error {
+	// lock meta cache to prevent race with cpu server
+	ms.metaCache.Lock()
+	defer ms.metaCache.Unlock()
+
+	var errs []error
+	for podUID, podEntry := range request.Entries {
+		for containerName, containerEntry := range podEntry.Entries {
+			if err := ms.addContainer(containerEntry); err != nil {
+				errs = append(errs, fmt.Errorf("add container %s/%s failed: %w", podUID, containerName, err))
+			}
+		}
+	}
+
+	if err := ms.metaCache.RangeAndDeleteContainer(func(container *types.ContainerInfo) bool {
+		info, ok := request.Entries[container.PodUID]
+		if !ok {
+			return true
+		}
+		if _, ok = info.Entries[container.ContainerName]; !ok {
+			return true
+		}
+		return false
+	}, 0); err != nil {
+		errs = append(errs, fmt.Errorf("clean up containers failed: %w", err))
+	}
+
+	return errors.NewAggregate(errs)
+}
+
 func (ms *memoryServer) ListAndWatch(_ *advisorsvc.Empty, server advisorsvc.AdvisorService_ListAndWatchServer) error {
 	_ = ms.emitter.StoreInt64(ms.genMetricsName(metricServerLWCalled), int64(ms.period.Seconds()), metrics.MetricTypeNameCount)
 
@@ -162,20 +218,36 @@ func (ms *memoryServer) ListAndWatch(_ *advisorsvc.Empty, server advisorsvc.Advi
 	}
 }
 
-func (ms *memoryServer) getAndPushAdvice(server advisorsvc.AdvisorService_ListAndWatchServer) error {
+type memoryInternalResult struct {
+	PodEntries   map[string]*advisorsvc.CalculationEntries
+	ExtraEntries []*advisorsvc.CalculationInfo
+}
+
+func (ms *memoryServer) updateAdvisor() (*memoryInternalResult, error) {
 	advisorRespRaw, err := ms.resourceAdvisor.UpdateAndGetAdvice()
 	if err != nil {
-		_ = ms.emitter.StoreInt64(ms.genMetricsName(metricServerAdvisorUpdateFailed), int64(ms.period.Seconds()), metrics.MetricTypeNameCount)
-		return fmt.Errorf("get memory advice failed: %w", err)
+		return nil, fmt.Errorf("get memory advice failed: %w", err)
 	}
 	advisorResp, ok := advisorRespRaw.(*types.InternalMemoryCalculationResult)
 	if !ok {
-		_ = ms.emitter.StoreInt64(ms.genMetricsName(metricServerAdvisorUpdateFailed), int64(ms.period.Seconds()), metrics.MetricTypeNameCount)
-		return fmt.Errorf("get memory advice failed: invalid type %T", advisorRespRaw)
+		return nil, fmt.Errorf("get memory advice failed: invalid type %T", advisorRespRaw)
 	}
 	klog.Infof("[qosaware-server-memory] get memory advice: %v", general.ToString(advisorResp))
 
-	lwResp := ms.assembleResponse(advisorResp)
+	return ms.assembleResponse(advisorResp), nil
+}
+
+func (ms *memoryServer) getAndPushAdvice(server advisorsvc.AdvisorService_ListAndWatchServer) error {
+	result, err := ms.updateAdvisor()
+	if err != nil {
+		_ = ms.emitter.StoreInt64(ms.genMetricsName(metricServerAdvisorUpdateFailed), int64(ms.period.Seconds()), metrics.MetricTypeNameCount)
+		return fmt.Errorf("update advisor failed: %w", err)
+	}
+
+	lwResp := &advisorsvc.ListAndWatchResponse{
+		PodEntries:   result.PodEntries,
+		ExtraEntries: result.ExtraEntries,
+	}
 	if err := server.Send(lwResp); err != nil {
 		_ = ms.emitter.StoreInt64(ms.genMetricsName(metricServerLWSendResponseFailed), int64(ms.period.Seconds()), metrics.MetricTypeNameCount)
 		return fmt.Errorf("send listWatch response failed: %w", err)
@@ -215,12 +287,12 @@ func (ms *memoryServer) assembleHeadroom() *advisorsvc.CalculationInfo {
 	}
 }
 
-func (ms *memoryServer) assembleResponse(result *types.InternalMemoryCalculationResult) *advisorsvc.ListAndWatchResponse {
+func (ms *memoryServer) assembleResponse(result *types.InternalMemoryCalculationResult) *memoryInternalResult {
 	if result == nil {
 		return nil
 	}
 
-	resp := advisorsvc.ListAndWatchResponse{
+	resp := memoryInternalResult{
 		PodEntries:   make(map[string]*advisorsvc.CalculationEntries),
 		ExtraEntries: make([]*advisorsvc.CalculationInfo, 0),
 	}
