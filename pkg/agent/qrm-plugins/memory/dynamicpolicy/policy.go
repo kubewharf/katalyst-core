@@ -137,6 +137,7 @@ type DynamicPolicy struct {
 	enableSettingSockMem       bool
 	enableSettingFragMem       bool
 	enableMemoryAdvisor        bool
+	getAdviceInterval          time.Duration
 	memoryAdvisorSocketAbsPath string
 	memoryPluginSocketAbsPath  string
 
@@ -213,6 +214,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		enableSettingSockMem:       conf.EnableSettingSockMem,
 		enableSettingFragMem:       conf.EnableSettingFragMem,
 		enableMemoryAdvisor:        conf.EnableMemoryAdvisor,
+		getAdviceInterval:          conf.GetAdviceInterval,
 		memoryAdvisorSocketAbsPath: conf.MemoryAdvisorSocketAbsPath,
 		memoryPluginSocketAbsPath:  conf.MemoryPluginSocketAbsPath,
 		extraControlKnobConfigs:    extraControlKnobConfigs, // [TODO]: support modifying extraControlKnobConfigs by KCC
@@ -470,6 +472,18 @@ func (p *DynamicPolicy) Start() (err error) {
 			_ = conn.Close()
 		}
 		general.Infof("memory plugin checkpoint server serving confirmed")
+
+		p.getAdviceFromAdvisorLoop(p.stopCh)
+		select {
+		case <-p.stopCh:
+			// stopCh closed, no need to fall back to ListAndWatch.
+			return
+		default:
+		}
+
+		// TODO: do we need to stop AddContainer/RemovePod from being invoked?
+
+		general.Infof("advisor does not implement GetAdvice, fall back to ListAndWatch")
 
 		// keep compatible to old version sys advisor not supporting list containers from memory plugin
 		err = p.pushMemoryAdvisor()

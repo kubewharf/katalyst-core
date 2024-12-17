@@ -30,6 +30,7 @@ import (
 	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/uuid"
+	"k8s.io/apimachinery/pkg/util/wait"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	maputil "k8s.io/kubernetes/pkg/util/maps"
 
@@ -76,6 +77,105 @@ func (p *DynamicPolicy) initAdvisorClientConn() (err error) {
 	return nil
 }
 
+func (p *DynamicPolicy) createGetAdviceRequest() (*advisorsvc.GetAdviceRequest, error) {
+	resp := &advisorsvc.GetAdviceRequest{Entries: make(map[string]*advisorsvc.ContainerMetadataEntries)}
+	podEntries := p.state.GetPodResourceEntries()[v1.ResourceMemory]
+	for podUID, entries := range podEntries {
+		if _, ok := resp.Entries[podUID]; !ok {
+			resp.Entries[podUID] = &advisorsvc.ContainerMetadataEntries{}
+		}
+
+		for containerName, allocationInfo := range entries {
+			if allocationInfo == nil {
+				continue
+			}
+
+			containerType, found := pluginapi.ContainerType_value[allocationInfo.ContainerType]
+			if !found {
+				return nil, fmt.Errorf("container type %s not found", allocationInfo.ContainerType)
+			}
+
+			resp.Entries[podUID].Entries[containerName] = &advisorsvc.ContainerMetadata{
+				PodUid:          allocationInfo.PodUid,
+				PodNamespace:    allocationInfo.PodNamespace,
+				PodName:         allocationInfo.PodName,
+				ContainerName:   allocationInfo.ContainerName,
+				ContainerType:   pluginapi.ContainerType(containerType),
+				ContainerIndex:  allocationInfo.ContainerIndex,
+				Labels:          maputil.CopySS(allocationInfo.Labels),
+				Annotations:     maputil.CopySS(allocationInfo.Annotations),
+				QosLevel:        allocationInfo.QoSLevel,
+				RequestQuantity: allocationInfo.AggregatedQuantity,
+			}
+		}
+	}
+
+	return resp, nil
+}
+
+func (p *DynamicPolicy) getAdviceFromAdvisor(ctx context.Context) (isImplemented bool, err error) {
+	p.Lock()
+	defer p.Unlock()
+	general.Infof("called")
+
+	request, err := p.createGetAdviceRequest()
+	if err != nil {
+		return false, fmt.Errorf("create GetAdviceRequest failed with error: %w", err)
+	}
+	resp, err := p.advisorClient.GetAdvice(ctx, request)
+	if err != nil {
+		if general.IsUnimplementedError(err) {
+			return false, nil
+		}
+		return true, fmt.Errorf("GetAdvice failed with error: %w", err)
+	}
+
+	err = p.handleAdvisorResp(&advisorsvc.ListAndWatchResponse{
+		PodEntries:   resp.PodEntries,
+		ExtraEntries: resp.ExtraEntries,
+	})
+	if err != nil {
+		return true, fmt.Errorf("allocate by GetAdvice response failed with error: %w", err)
+	}
+
+	return true, nil
+}
+
+// getAdviceFromAdvisorLoop gets advice from memory-advisor periodically.
+// qrm-plugin works in client-mode, while cpu-advisor works in server-mode.
+// All information required by memory-advisor is included in the request, and the response is returned synchronously.
+// This new communication mode is meant to replace the legacy list-and-watch mode.
+// This function only returns if stopCh is closed, or if the advisor does not implement GetAdvice,
+// in which case we should fall back to the legacy list-and-watch mode.
+func (p *DynamicPolicy) getAdviceFromAdvisorLoop(stopCh <-chan struct{}) {
+	general.Infof("called")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		<-stopCh
+		general.Infof("received stop signal, stop calling GetAdvice on MemoryAdvisorServer")
+		cancel()
+	}()
+
+	_ = wait.PollImmediateUntilWithContext(ctx, p.getAdviceInterval, func(ctx context.Context) (bool, error) {
+		isImplemented, err := p.getAdviceFromAdvisor(ctx)
+		if err != nil {
+			_ = p.emitter.StoreInt64(util.MetricNameGetAdviceFailed, 1, metrics.MetricTypeNameRaw)
+			general.Errorf("get advice from advisor failed with error: %v", err)
+		} else if !isImplemented {
+			general.Infof("MemoryAdvisorServer does not implement GetAdvice")
+			return true, nil
+		}
+
+		_ = general.UpdateHealthzStateByError(memconsts.CommunicateWithAdvisor, err)
+
+		if p.advisorMonitor != nil && err == nil {
+			p.advisorMonitor.UpdateRefreshTime()
+		}
+		return false, nil
+	})
+}
+
 // lwMemoryAdvisorServer works as a client to connect with memory-advisor.
 // it will wait to receive allocations from memory-advisor, and perform allocate actions
 func (p *DynamicPolicy) lwMemoryAdvisorServer(stopCh <-chan struct{}) error {
@@ -101,7 +201,9 @@ func (p *DynamicPolicy) lwMemoryAdvisorServer(stopCh <-chan struct{}) error {
 				err, status.Code(err))
 		}
 
+		p.Lock()
 		err = p.handleAdvisorResp(resp)
+		p.Unlock()
 		if err != nil {
 			general.Errorf("handle ListAndWatch response of MemoryAdvisorServer failed with error: %v", err)
 		}
@@ -120,9 +222,7 @@ func (p *DynamicPolicy) handleAdvisorResp(advisorResp *advisorsvc.ListAndWatchRe
 
 	general.Infof("called")
 	_ = p.emitter.StoreInt64(util.MetricNameHandleAdvisorRespCalled, 1, metrics.MetricTypeNameRaw)
-	p.Lock()
 	defer func() {
-		p.Unlock()
 		if retErr != nil {
 			_ = p.emitter.StoreInt64(util.MetricNameHandleAdvisorRespFailed, 1, metrics.MetricTypeNameRaw)
 		}

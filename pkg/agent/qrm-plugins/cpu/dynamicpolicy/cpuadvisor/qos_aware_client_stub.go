@@ -47,3 +47,7 @@ func (c *cpuAdvisorClientStub) ListAndWatch(_ context.Context, _ *advisorsvc.Emp
 ) (CPUAdvisor_ListAndWatchClient, error) {
 	return nil, nil
 }
+
+func (c *cpuAdvisorClientStub) GetAdvice(ctx context.Context, in *GetAdviceRequest, opts ...grpc.CallOption) (*GetAdviceResponse, error) {
+	return nil, nil
+}
