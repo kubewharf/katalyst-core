@@ -95,7 +95,7 @@ func NewTerminalQoSPolicy(ccdMBMin int, throttleType, easeType strategy.LowPrioP
 		throttlePlanner: strategy.New(throttleType, ccdGroupPlanner),
 		easePlanner:     strategy.New(easeType, ccdGroupPlanner),
 	}
-	general.Infof("pap: created terminal policy with throttle planner: %v, ease planner %v",
+	general.Infof("mbm: created terminal policy with throttle planner: %v, ease planner %v",
 		policy.throttlePlanner.Name(),
 		policy.easePlanner.Name())
 
