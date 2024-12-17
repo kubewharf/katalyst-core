@@ -902,13 +902,19 @@ func Test_getZoneAllocationsByPodResources(t *testing.T) {
 				manager: spd.NewDummyServiceProfilingManager(
 					map[types.UID]spd.DummyPodServiceProfile{
 						"pod-1-uid": {
-							AggregatedMetric: resource.NewQuantity(10, resource.BinarySI),
+							AggregatedMetric: []resource.Quantity{
+								*resource.NewQuantity(10, resource.BinarySI),
+							},
 						},
 						"pod-2-uid": {
-							AggregatedMetric: resource.NewQuantity(10, resource.BinarySI),
+							AggregatedMetric: []resource.Quantity{
+								*resource.NewQuantity(10, resource.BinarySI),
+							},
 						},
 						"pod-3-uid": {
-							AggregatedMetric: resource.NewQuantity(10, resource.BinarySI),
+							AggregatedMetric: []resource.Quantity{
+								*resource.NewQuantity(10, resource.BinarySI),
+							},
 						},
 					},
 				),
@@ -1193,13 +1199,19 @@ func Test_getZoneAllocationsByPodResources(t *testing.T) {
 				manager: spd.NewDummyServiceProfilingManager(
 					map[types.UID]spd.DummyPodServiceProfile{
 						"pod-1-uid": {
-							AggregatedMetric: resource.NewQuantity(10, resource.BinarySI),
+							AggregatedMetric: []resource.Quantity{
+								*resource.NewQuantity(10, resource.BinarySI),
+							},
 						},
 						"pod-2-uid": {
-							AggregatedMetric: resource.NewQuantity(10, resource.BinarySI),
+							AggregatedMetric: []resource.Quantity{
+								*resource.NewQuantity(10, resource.BinarySI),
+							},
 						},
 						"pod-3-uid": {
-							AggregatedMetric: resource.NewQuantity(10, resource.BinarySI),
+							AggregatedMetric: []resource.Quantity{
+								*resource.NewQuantity(10, resource.BinarySI),
+							},
 						},
 					},
 				),

@@ -24,6 +24,7 @@ import (
 
 	workloadapi "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/util"
 )
 
 const (
@@ -33,11 +34,15 @@ const (
 // GetContainerMemoryBandwidthRequest gets the memory bandwidth request for pod with given cpu request
 func GetContainerMemoryBandwidthRequest(profilingManager ServiceProfilingManager, podMeta metav1.ObjectMeta, cpuRequest int) (int, error) {
 	mbwRequest := defaultMemoryBandwidthRequest
-	memoryBandwidth, err := profilingManager.ServiceAggregateMetrics(context.Background(), podMeta, consts.SPDAggMetricNameMemoryBandwidth,
-		false, workloadapi.Avg, workloadapi.Sum, workloadapi.Max)
+	memoryBandwidthMetrics, err := profilingManager.ServiceAggregateMetrics(context.Background(), podMeta, consts.SPDAggMetricNameMemoryBandwidth,
+		false, workloadapi.Avg, workloadapi.Sum)
 	if err != nil && !errors.IsNotFound(err) {
 		return 0, err
-	} else if err == nil && memoryBandwidth != nil {
+	} else if err == nil && memoryBandwidthMetrics != nil {
+		memoryBandwidth, err := util.AggregateMetrics(memoryBandwidthMetrics, workloadapi.Max)
+		if err != nil {
+			return 0, err
+		}
 		mbwRequest = int(memoryBandwidth.Value()) * cpuRequest
 	}
 
