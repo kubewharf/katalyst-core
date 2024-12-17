@@ -17,6 +17,7 @@ limitations under the License.
 package qos
 
 import (
+	"fmt"
 	"strconv"
 
 	v1 "k8s.io/api/core/v1"
@@ -108,4 +109,20 @@ func GetOOMPriority(qosConf *generic.QoSConfiguration, pod *v1.Pod) (priority *i
 
 	priority = &parsedOOMPriority
 	return
+}
+
+// GetActualNUMABindingResult parse the user specified numa binding result from pod annotation
+// if the annotation is not found, return -1
+func GetActualNUMABindingResult(qosConf *generic.QoSConfiguration, pod *v1.Pod) (int, error) {
+	if pod == nil {
+		return -1, fmt.Errorf("pod cannot be nil")
+	}
+
+	if result, ok := pod.Annotations[apiconsts.PodAnnotationNUMABindResultKey]; ok {
+		return strconv.Atoi(result)
+	} else if IsPodNumaBinding(qosConf, pod) {
+		return -1, fmt.Errorf("numa binding result not found")
+	}
+
+	return -1, nil
 }

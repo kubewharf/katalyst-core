@@ -14,16 +14,20 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package consts
+package reactor
 
-const (
-	// KubeletQoSResourceManagerCheckpoint is the name of the checkpoint file for kubelet QoS resource manager
-	KubeletQoSResourceManagerCheckpoint = "kubelet_qrm_checkpoint"
+import (
+	"context"
 
-	MainContainerNameAnnotationKey = "kubernetes.io/main-container-name"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 )
 
-const (
-	// QRMResourceAnnotationKeyNUMABindResult is the annotation key for the numa binding result
-	QRMResourceAnnotationKeyNUMABindResult = "qrm.katalyst.kubewharf.io/numa_bind_result"
-)
+type AllocationReactor interface {
+	UpdateAllocation(ctx context.Context, allocation *state.AllocationInfo) error
+}
+
+type DummyAllocationReactor struct{}
+
+func (d DummyAllocationReactor) UpdateAllocation(_ context.Context, _ *state.AllocationInfo) error {
+	return nil
+}

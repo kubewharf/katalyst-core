@@ -76,7 +76,7 @@ func GetCoresReservedForSystem(conf *config.Configuration, metaServer *metaserve
 // RegenerateHints regenerates hints for container that'd already been allocated cpu,
 // and regenerateHints will assemble hints based on already-existed AllocationInfo,
 // without any calculation logics at all
-func RegenerateHints(allocationInfo *state.AllocationInfo, reqInt int) map[string]*pluginapi.ListOfTopologyHints {
+func RegenerateHints(allocationInfo *state.AllocationInfo, regenerate bool) map[string]*pluginapi.ListOfTopologyHints {
 	if allocationInfo == nil {
 		general.Errorf("RegenerateHints got nil allocationInfo")
 		return nil
@@ -84,12 +84,12 @@ func RegenerateHints(allocationInfo *state.AllocationInfo, reqInt int) map[strin
 
 	hints := map[string]*pluginapi.ListOfTopologyHints{}
 
-	if allocationInfo.OriginalAllocationResult.Size() < reqInt {
-		general.ErrorS(nil, "cpus already allocated with smaller quantity than requested",
+	if regenerate {
+		general.ErrorS(nil, "need to regenerate hints",
+			"podNamespace", allocationInfo.PodNamespace,
+			"podName", allocationInfo.PodName,
 			"podUID", allocationInfo.PodUid,
-			"containerName", allocationInfo.ContainerName,
-			"requestedResource", reqInt,
-			"allocatedSize", allocationInfo.OriginalAllocationResult.Size())
+			"containerName", allocationInfo.ContainerName)
 
 		return nil
 	}

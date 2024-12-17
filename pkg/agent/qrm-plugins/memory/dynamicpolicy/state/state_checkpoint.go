@@ -138,6 +138,7 @@ func (sc *stateCheckpoint) storeState() error {
 	checkpoint := NewMemoryPluginCheckpoint()
 	checkpoint.PolicyName = sc.policyName
 	checkpoint.MachineState = sc.cache.GetMachineState()
+	checkpoint.NUMAHeadroom = sc.cache.GetNUMAHeadroom()
 	checkpoint.PodResourceEntries = sc.cache.GetPodResourceEntries()
 
 	err := sc.checkpointManager.CreateCheckpoint(sc.checkpointName, checkpoint)
@@ -169,6 +170,13 @@ func (sc *stateCheckpoint) GetMachineState() NUMANodeResourcesMap {
 	return sc.cache.GetMachineState()
 }
 
+func (sc *stateCheckpoint) GetNUMAHeadroom() map[int]int64 {
+	sc.RLock()
+	defer sc.RUnlock()
+
+	return sc.cache.GetNUMAHeadroom()
+}
+
 func (sc *stateCheckpoint) GetAllocationInfo(resourceName v1.ResourceName, podUID, containerName string) *AllocationInfo {
 	sc.RLock()
 	defer sc.RUnlock()
@@ -191,6 +199,17 @@ func (sc *stateCheckpoint) SetMachineState(numaNodeResourcesMap NUMANodeResource
 	err := sc.storeState()
 	if err != nil {
 		klog.ErrorS(err, "[memory_plugin] store machineState to checkpoint error")
+	}
+}
+
+func (sc *stateCheckpoint) SetNUMAHeadroom(numaHeadroom map[int]int64) {
+	sc.Lock()
+	defer sc.Unlock()
+
+	sc.cache.SetNUMAHeadroom(numaHeadroom)
+	err := sc.storeState()
+	if err != nil {
+		klog.ErrorS(err, "[memory_plugin] store numa headroom to checkpoint error")
 	}
 }
 

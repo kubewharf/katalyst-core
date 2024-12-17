@@ -304,7 +304,7 @@ func (pe PodEntries) GetFilteredPoolsCPUSetMap(ignorePools sets.String) (map[str
 
 // GetFilteredPodEntries filter out PodEntries according to the given filter logic
 func (pe PodEntries) GetFilteredPodEntries(filter func(ai *AllocationInfo) bool) PodEntries {
-	numaBindingEntries := make(PodEntries)
+	filteredEntries := make(PodEntries)
 	for podUID, containerEntries := range pe {
 		if containerEntries.IsPoolEntry() {
 			continue
@@ -312,14 +312,14 @@ func (pe PodEntries) GetFilteredPodEntries(filter func(ai *AllocationInfo) bool)
 
 		for containerName, allocationInfo := range containerEntries {
 			if allocationInfo != nil && filter(allocationInfo) {
-				if numaBindingEntries[podUID] == nil {
-					numaBindingEntries[podUID] = make(ContainerEntries)
+				if filteredEntries[podUID] == nil {
+					filteredEntries[podUID] = make(ContainerEntries)
 				}
-				numaBindingEntries[podUID][containerName] = allocationInfo.Clone()
+				filteredEntries[podUID][containerName] = allocationInfo.Clone()
 			}
 		}
 	}
-	return numaBindingEntries
+	return filteredEntries
 }
 
 func (ns *NUMANodeState) Clone() *NUMANodeState {
@@ -381,6 +381,42 @@ func (ns *NUMANodeState) GetAvailableCPUQuantity(reservedCPUs machine.CPUSet) fl
 	}
 
 	return general.MaxFloat64(float64(allocatableQuantity)-preciseAllocatedQuantity, 0)
+}
+
+func (ns *NUMANodeState) GetAvailableReclaimCPUQuantity(allocatableQuantity float64) float64 {
+	if ns == nil {
+		return 0
+	}
+
+	var allocatedQuantity float64 = 0
+	for _, containerEntries := range ns.PodEntries {
+		if containerEntries.IsPoolEntry() {
+			continue
+		}
+
+		// if there is pod aggregated resource key in main container annotations, use pod aggregated resource instead.
+		mainContainerEntry := containerEntries.GetMainContainerEntry()
+		if mainContainerEntry == nil || !mainContainerEntry.CheckReclaimedActualNUMABinding() {
+			continue
+		}
+
+		aggregatedPodResource, ok := mainContainerEntry.GetPodAggregatedRequest()
+		if ok {
+			allocatedQuantity += aggregatedPodResource
+			continue
+		}
+
+		// calc pod aggregated resource request by container entries.
+		for _, allocationInfo := range containerEntries {
+			if allocationInfo == nil || !allocationInfo.CheckReclaimedActualNUMABinding() {
+				continue
+			}
+
+			allocatedQuantity += allocationInfo.RequestQuantity
+		}
+	}
+
+	return general.MaxFloat64(allocatableQuantity-allocatedQuantity, 0)
 }
 
 // GetFilteredDefaultCPUSet returns default cpuset in this numa, along with the filter functions
@@ -534,6 +570,7 @@ func (nm NUMANodeMap) String() string {
 // reader is used to get information from local states
 type reader interface {
 	GetMachineState() NUMANodeMap
+	GetNUMAHeadroom() map[int]float64
 	GetPodEntries() PodEntries
 	GetAllocationInfo(podUID string, containerName string) *AllocationInfo
 	GetAllowSharedCoresOverlapReclaimedCores() bool
@@ -543,6 +580,7 @@ type reader interface {
 // and it also provides functionality to maintain the local files
 type writer interface {
 	SetMachineState(numaNodeMap NUMANodeMap)
+	SetNUMAHeadroom(map[int]float64)
 	SetPodEntries(podEntries PodEntries)
 	SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo)
 	SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores bool)

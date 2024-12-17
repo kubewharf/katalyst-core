@@ -76,14 +76,16 @@ func getCPUInstructionInfo(cpuInfo string) sets.String {
 
 // GetCoreNumReservedForReclaim generates per numa reserved for reclaim resource value map.
 // per numa reserved resource is taken in a fair way with even step, e.g.
-// 4 -> 1 1 1 1; 2 -> 1 0 1 0
+// 4 -> 1 1 1 1; 2 -> 1 1 1 1; 8 -> 2 2 2 2;
 func GetCoreNumReservedForReclaim(numReservedCores, numNumaNodes int) map[int]int {
-	if numReservedCores <= 0 {
-		numReservedCores = 1
-	}
 	if numNumaNodes <= 0 {
 		numNumaNodes = 1
 	}
+
+	if numReservedCores < numNumaNodes {
+		numReservedCores = numNumaNodes
+	}
+
 	reservedPerNuma := numReservedCores / numNumaNodes
 	step := numNumaNodes / numReservedCores
 

@@ -346,6 +346,39 @@ func (p *DynamicPolicy) handleAdvisorDropCache(
 	return nil
 }
 
+func (p *DynamicPolicy) handleAdvisorMemoryNUMAHeadroom(
+	_ *config.Configuration,
+	_ interface{},
+	_ *dynamicconfig.DynamicAgentConfiguration,
+	emitter metrics.MetricEmitter,
+	_ *metaserver.MetaServer,
+	entryName, subEntryName string,
+	calculationInfo *advisorsvc.CalculationInfo, _ state.PodResourceEntries,
+) error {
+	memoryNUMAHeadroomValue, ok := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnobKeyMemoryNUMAHeadroom)]
+	if !ok {
+		general.Warningf("resp.ExtraEntry has no cpu_numa_headroom value")
+		return nil
+	}
+
+	memoryNUMAHeadroom := &memoryadvisor.MemoryNUMAHeadroom{}
+	err := json.Unmarshal([]byte(memoryNUMAHeadroomValue), memoryNUMAHeadroom)
+	if err != nil {
+		return fmt.Errorf("unmarshal %s: %s failed with error: %v",
+			memoryadvisor.ControlKnobKeyMemoryNUMAHeadroom, memoryNUMAHeadroomValue, err)
+	}
+
+	p.state.SetNUMAHeadroom(*memoryNUMAHeadroom)
+	general.Infof("memoryNUMAHeadroom: %v", memoryNUMAHeadroom)
+
+	_ = emitter.StoreInt64(util.MetricNameMemoryHandlerAdvisorMemoryNUMAHeadroom, 1,
+		metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
+			"entryName":    entryName,
+			"subEntryName": subEntryName,
+		})...)
+	return nil
+}
+
 // pushMemoryAdvisor pushes state info to memory-advisor
 func (p *DynamicPolicy) pushMemoryAdvisor() error {
 	podEntries := p.state.GetPodResourceEntries()[v1.ResourceMemory]
@@ -411,12 +444,19 @@ func (p *DynamicPolicy) handleAdvisorCPUSetMems(
 			apiconsts.PodAnnotationQoSLevelReclaimedCores)
 	}
 
-	numaSetChangedContainers := make(map[string]map[string]*state.AllocationInfo)
-	p.updateNUMASetChangedContainers(numaSetChangedContainers, allocationInfo, cpusetMems)
-	err = p.migratePagesForNUMASetChangedContainers(numaSetChangedContainers)
-	if err != nil {
-		return fmt.Errorf("migratePagesForNUMASetChangedContainers failed with error: %v", err)
-	}
+	// todo: CPUSetMems handler will be refactored or removed in the future because now it is conflict with
+	// 	reclaimed_cores with numa_binding pod admission
+	general.Infof("dry-run set cpuset.mems for container: %s/%s from %s to: %s",
+		allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.NumaAllocationResult.String(), cpusetMems.String())
+	// allocationInfo.NumaAllocationResult = cpusetMems
+	// allocationInfo.TopologyAwareAllocations = nil
+
+	//numaSetChangedContainers := make(map[string]map[string]*state.AllocationInfo)
+	//p.updateNUMASetChangedContainers(numaSetChangedContainers, allocationInfo, cpusetMems)
+	//err = p.migratePagesForNUMASetChangedContainers(numaSetChangedContainers)
+	//if err != nil {
+	//	return fmt.Errorf("migratePagesForNUMASetChangedContainers failed with error: %v", err)
+	//}
 
 	_ = emitter.StoreInt64(util.MetricNameMemoryHandleAdvisorCPUSetMems, 1,
 		metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{

@@ -25,6 +25,7 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -97,6 +98,11 @@ func (p *DynamicPolicy) reclaimedCoresHintHandler(ctx context.Context,
 		return nil, fmt.Errorf("not support inplace update resize for reclaimed cores")
 	}
 
+	if qosutil.AnnotationsIndicateNUMABinding(req.Annotations) &&
+		p.enableReclaimNUMABinding {
+		return p.reclaimedCoresWithNUMABindingHintHandler(ctx, req)
+	}
+
 	return util.PackResourceHintsResponse(req, string(v1.ResourceMemory),
 		map[string]*pluginapi.ListOfTopologyHints{
 			string(v1.ResourceMemory): nil, // indicates that there is no numa preference
@@ -151,13 +157,13 @@ func (p *DynamicPolicy) numaBindingHintHandler(_ context.Context,
 				req.PodNamespace, req.PodName, req.ContainerName, allocationInfo.NumaAllocationResult.Size())
 			return nil, fmt.Errorf("invalid numa set size")
 		}
-		hints = regenerateHints(uint64(podAggregatedRequest), allocationInfo, util.PodInplaceUpdateResizing(req))
+		hints = regenerateHints(allocationInfo, util.PodInplaceUpdateResizing(req))
 
 		// clear the current container and regenerate machine state in follow cases:
 		// 1. regenerateHints failed.
 		// 2. the container is inplace update resizing.
 		// hints it as a new container
-		if hints == nil || util.PodInplaceUpdateResizing(req) {
+		if hints == nil {
 			var err error
 			resourcesMachineState, err = p.clearContainerAndRegenerateMachineState(req)
 			if err != nil {
@@ -166,27 +172,7 @@ func (p *DynamicPolicy) numaBindingHintHandler(_ context.Context,
 				return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 			}
 		}
-	} else if util.PodInplaceUpdateResizing(req) {
-		general.Errorf("pod: %s/%s, container: %s request to inplace update resize, but no origin allocation info",
-			req.PodNamespace, req.PodName, req.ContainerName)
-		return nil, fmt.Errorf("no origin allocation info")
-	}
 
-	// if hints exists in extra state-file, prefer to use them
-	if hints == nil {
-		availableNUMAs := resourcesMachineState[v1.ResourceMemory].GetNUMANodesWithoutSharedOrDedicatedNUMABindingPods()
-
-		var extraErr error
-		hints, extraErr = util.GetHintsFromExtraStateFile(req.PodName, string(v1.ResourceMemory),
-			p.extraStateFileAbsPath, availableNUMAs)
-		if extraErr != nil {
-			general.Infof("pod: %s/%s, container: %s GetHintsFromExtraStateFile failed with error: %v",
-				req.PodNamespace, req.PodName, req.ContainerName, extraErr)
-		}
-	}
-
-	// check or regenerate hints for inplace update mode
-	if util.PodInplaceUpdateResizing(req) {
 		if allocationInfo.NumaAllocationResult.Size() != 1 {
 			general.Errorf("pod: %s/%s, container: %s is snb, but its numa size is %d",
 				req.PodNamespace, req.PodName, req.ContainerName, allocationInfo.NumaAllocationResult.Size())
@@ -204,8 +190,8 @@ func (p *DynamicPolicy) numaBindingHintHandler(_ context.Context,
 
 		if uint64(podAggregatedRequest) > nodeMemoryState.Free { // no left resource to scale out
 			// TODO maybe support snb NUMA migrate inplace update resize later
-			isInplaceUpdateResizeNumaMigratable := false
-			if isInplaceUpdateResizeNumaMigratable {
+			isInplaceUpdateResizeNumaMigration := false
+			if isInplaceUpdateResizeNumaMigration {
 				general.Infof("pod: %s/%s, container: %s request to memory inplace update resize (%d->%d), but no enough memory"+
 					"to scale out in current numa (resize request extra: %d, free: %d), migrate numa",
 					req.PodNamespace, req.PodName, req.ContainerName, originPodAggregatedRequest, podAggregatedRequest, uint64(podAggregatedRequest)-originPodAggregatedRequest, nodeMemoryState.Free)
@@ -223,12 +209,90 @@ func (p *DynamicPolicy) numaBindingHintHandler(_ context.Context,
 					req.PodNamespace, req.PodName, req.ContainerName, originPodAggregatedRequest, podAggregatedRequest, uint64(podAggregatedRequest)-originPodAggregatedRequest, nodeMemoryState.Free)
 				return nil, fmt.Errorf("inplace update resize scale out failed with no enough resource")
 			}
+		} else {
+			general.Infof("pod: %s/%s, container: %s request inplace update resize, there is enough resource for it in current NUMA",
+				req.PodNamespace, req.PodName, req.ContainerName)
+			hints = regenerateHints(allocationInfo, false)
 		}
-	} else if hints == nil {
+	} else {
 		// otherwise, calculate hint for container without allocated memory
 		var calculateErr error
 		// calculate hint for container without allocated memory
 		hints, calculateErr = p.calculateHints(uint64(podAggregatedRequest), resourcesMachineState, req)
+		if calculateErr != nil {
+			general.Errorf("failed to calculate hints for pod: %s/%s, container: %s, error: %v",
+				req.PodNamespace, req.PodName, req.ContainerName, calculateErr)
+			return nil, fmt.Errorf("calculateHints failed with error: %v", calculateErr)
+		}
+	}
+
+	// if hints exists in extra state-file, prefer to use them
+	if hints == nil {
+		availableNUMAs := resourcesMachineState[v1.ResourceMemory].GetNUMANodesWithoutSharedOrDedicatedNUMABindingPods()
+
+		var extraErr error
+		hints, extraErr = util.GetHintsFromExtraStateFile(req.PodName, string(v1.ResourceMemory),
+			p.extraStateFileAbsPath, availableNUMAs)
+		if extraErr != nil {
+			general.Infof("pod: %s/%s, container: %s GetHintsFromExtraStateFile failed with error: %v",
+				req.PodNamespace, req.PodName, req.ContainerName, extraErr)
+		}
+	}
+
+	general.Infof("memory hints for pod:%s/%s, container: %s success, hints: %v",
+		req.PodNamespace, req.PodName, req.ContainerName, hints)
+
+	return util.PackResourceHintsResponse(req, string(v1.ResourceMemory), hints)
+}
+
+func (p *DynamicPolicy) reclaimedCoresWithNUMABindingHintHandler(_ context.Context,
+	req *pluginapi.ResourceRequest,
+) (*pluginapi.ResourceHintsResponse, error) {
+	// currently, we set cpuset of sidecar to the cpuset of its main container,
+	// so there is no numa preference here.
+	if req.ContainerType == pluginapi.ContainerType_SIDECAR {
+		return util.PackResourceHintsResponse(req, string(v1.ResourceMemory),
+			map[string]*pluginapi.ListOfTopologyHints{
+				string(v1.ResourceMemory): nil,
+			})
+	}
+
+	podAggregatedRequest, _, err := util.GetPodAggregatedRequestResource(req)
+	if err != nil {
+		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
+	}
+
+	resourcesMachineState := p.state.GetMachineState()
+	podEntries := p.state.GetPodResourceEntries()[v1.ResourceMemory]
+	numaHeadroomState := p.state.GetNUMAHeadroom()
+
+	var hints map[string]*pluginapi.ListOfTopologyHints
+
+	allocationInfo := p.state.GetAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName)
+	if allocationInfo != nil {
+		hints = regenerateHints(allocationInfo, false)
+
+		// clear the current container and regenerate machine state in follow cases:
+		// 1. regenerateHints failed.
+		// 2. the container is inplace update resizing.
+		// hints it as a new container
+		if hints == nil {
+			var err error
+			resourcesMachineState, err = p.clearContainerAndRegenerateMachineState(req)
+			if err != nil {
+				general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
+					req.PodNamespace, req.PodName, req.ContainerName, err)
+				return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
+			}
+		}
+	}
+
+	if hints == nil {
+		// otherwise, calculate hint for container without allocated memory
+		var calculateErr error
+		// calculate hint for container without allocated memory
+		hints, calculateErr = p.calculateHintsForNUMABindingReclaimedCores(int64(podAggregatedRequest),
+			resourcesMachineState, podEntries, numaHeadroomState)
 		if calculateErr != nil {
 			general.Errorf("failed to calculate hints for pod: %s/%s, container: %s, error: %v",
 				req.PodNamespace, req.PodName, req.ContainerName, calculateErr)
@@ -390,17 +454,205 @@ func (p *DynamicPolicy) calculateHints(reqInt uint64,
 	}, nil
 }
 
+// calculateHints is a helper function to calculate the topology hints
+// with the given container requests.
+func (p *DynamicPolicy) calculateHintsForNUMABindingReclaimedCores(reqInt int64,
+	resourcesMachineState state.NUMANodeResourcesMap,
+	podEntries state.PodEntries,
+	numaHeadroomState map[int]int64,
+) (map[string]*pluginapi.ListOfTopologyHints, error) {
+	machineState := resourcesMachineState[v1.ResourceMemory]
+
+	if len(machineState) == 0 {
+		return nil, fmt.Errorf("calculateHints with empty machineState")
+	}
+
+	// Determine the set of NUMA nodes currently hosting non-RNB pods
+	nonActualBindingNUMAs := machineState.GetNUMANodesWithoutReclaimedActualNUMABindingPods()
+
+	// Calculate the total requested resources for non-RNB reclaimed pods
+	nonActualBindingReclaimedRequestedQuantity := state.GetRequestedQuantityFromPodEntries(podEntries,
+		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedNonActualNUMABinding))
+
+	// Compute the total available headroom for non-RNB NUMA nodes
+	nonActualBindingReclaimedNUMAHeadroom := state.GetReclaimedNUMAHeadroom(numaHeadroomState, nonActualBindingNUMAs)
+
+	// Identify candidate NUMA nodes for RNB (Reclaimed NUMA Binding) cores
+	// This includes both RNB NUMA nodes and NUMA nodes that can shrink from the non-RNB set
+	candidateNUMANodes := p.filterNUMANodesByNonBindingReclaimedRequestedQuantity(nonActualBindingReclaimedRequestedQuantity,
+		nonActualBindingReclaimedNUMAHeadroom, nonActualBindingNUMAs, machineState, numaHeadroomState)
+
+	candidateLeft := p.calculateNUMANodesLeft(candidateNUMANodes, machineState, numaHeadroomState, reqInt)
+
+	hints := &pluginapi.ListOfTopologyHints{}
+
+	p.populateBestEffortHintsByAvailableNUMANodes(hints, candidateLeft)
+
+	// If no valid hints are generated and this is not a single-NUMA scenario, return an error
+	if len(hints.Hints) == 0 && !(p.metaServer.NumNUMANodes == 1 && nonActualBindingNUMAs.Size() > 0) {
+		return nil, errNoAvailableMemoryHints
+	}
+
+	general.InfoS("calculate numa hints for reclaimed cores success",
+		"nonActualNUMABindingNUMAs", nonActualBindingNUMAs.String(),
+		"nonActualBindingReclaimedRequestedQuantity", nonActualBindingReclaimedRequestedQuantity,
+		"nonActualNUMABindingReclaimedNUMAHeadroom", nonActualBindingReclaimedNUMAHeadroom,
+		"numaHeadroomState", numaHeadroomState,
+		"candidateNUMANodes", candidateNUMANodes,
+		"candidateLeft", candidateLeft)
+
+	return map[string]*pluginapi.ListOfTopologyHints{
+		string(v1.ResourceMemory): hints,
+	}, nil
+}
+
+func (p *DynamicPolicy) calculateNUMANodesLeft(numaNodes []int,
+	machineState state.NUMANodeMap,
+	numaHeadroomState map[int]int64, req int64,
+) map[int]int64 {
+	numaNodesCPULeft := make(map[int]int64, len(numaNodes))
+	for _, nodeID := range numaNodes {
+		allocatedQuantity := state.GetRequestedQuantityFromPodEntries(machineState[nodeID].PodEntries,
+			state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMABinding))
+		availableCPUQuantity := numaHeadroomState[nodeID] - allocatedQuantity
+		numaNodesCPULeft[nodeID] = availableCPUQuantity - req
+	}
+	return numaNodesCPULeft
+}
+
+func (p *DynamicPolicy) populateBestEffortHintsByAvailableNUMANodes(
+	hints *pluginapi.ListOfTopologyHints,
+	candidateLeft map[int]int64,
+) {
+	type nodeHint struct {
+		nodeID  int
+		curLeft int64
+	}
+
+	var nodeHints []nodeHint
+	// Collect nodes that meet the requirement
+	for nodeID := range candidateLeft {
+		// Collect node and its available left memory
+		nodeHints = append(nodeHints, nodeHint{nodeID: nodeID, curLeft: candidateLeft[nodeID]})
+	}
+
+	// Sort nodes by available resources (curLeft) in descending order
+	sort.Slice(nodeHints, func(i, j int) bool {
+		return nodeHints[i].curLeft > nodeHints[j].curLeft
+	})
+
+	// Pre-size hint list capacity to avoid frequent resizing
+	hintList := make([]*pluginapi.TopologyHint, 0, len(nodeHints))
+	// Add sorted hints to the hint list
+	for _, nh := range nodeHints {
+		if nh.curLeft < 0 {
+			hintList = append(hintList, &pluginapi.TopologyHint{
+				Nodes:     []uint64{uint64(nh.nodeID)},
+				Preferred: false,
+			})
+		} else {
+			hintList = append(hintList, &pluginapi.TopologyHint{
+				Nodes:     []uint64{uint64(nh.nodeID)},
+				Preferred: true,
+			})
+		}
+	}
+
+	// Update the hints map
+	hints.Hints = hintList
+}
+
+func (p *DynamicPolicy) populateReclaimedHints(numaNodes []int,
+	hints *pluginapi.ListOfTopologyHints, machineState state.NUMANodeMap,
+	numaHeadroomState map[int]int64, reqInt int64,
+) {
+	for _, nodeID := range numaNodes {
+		allocatedQuantity := state.GetRequestedQuantityFromPodEntries(machineState[nodeID].PodEntries,
+			state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMABinding))
+		availableMemoryQuantity := numaHeadroomState[nodeID] - allocatedQuantity
+		if reqInt > availableMemoryQuantity {
+			general.Warningf("numa_binding reclaimed_cores container skip NUMA: %d available: %d",
+				nodeID, availableMemoryQuantity)
+			continue
+		}
+
+		hints.Hints = append(hints.Hints, &pluginapi.TopologyHint{
+			Nodes:     []uint64{uint64(nodeID)},
+			Preferred: true,
+		})
+	}
+}
+
+// sortCandidateNUMANodesForReclaimed sorted slice of candidate NUMAs for reclaimed_cores.
+func (p *DynamicPolicy) sortCandidateNUMANodesForReclaimed(candidates []int,
+	machineState state.NUMANodeMap,
+	numaHeadroomState map[int]int64,
+) {
+	// sort candidate NUMAs by the following rules:
+	// 1. NUMAs with numa binding shared or dedicated pods binding to it will be placed ahead of NUMAs without numa binding shared or dedicated pods binding to it.
+	// 2. NUMAs with higher headroom will be placed ahead of NUMAs with lower headroom.
+	nonSharedOrDedicatedNUMABindingNUMAs := machineState.GetNUMANodesWithoutSharedOrDedicatedNUMABindingPods()
+	sort.SliceStable(candidates, func(i, j int) bool {
+		hasNUMABindingPodI := !nonSharedOrDedicatedNUMABindingNUMAs.Contains(candidates[i])
+		hasNUMABindingPodJ := !nonSharedOrDedicatedNUMABindingNUMAs.Contains(candidates[j])
+		if hasNUMABindingPodI != hasNUMABindingPodJ {
+			return hasNUMABindingPodI && !hasNUMABindingPodJ
+		} else {
+			return numaHeadroomState[candidates[i]] > numaHeadroomState[candidates[j]]
+		}
+	})
+}
+
+func (p *DynamicPolicy) filterNUMANodesByNonBindingReclaimedRequestedQuantity(nonBindingReclaimedRequestedQuantity,
+	nonBindingNUMAsMemoryQuantity int64,
+	nonBindingNUMAs machine.CPUSet,
+	machineState state.NUMANodeMap,
+	numaHeadroomState map[int]int64,
+) []int {
+	candidateNUMANodes := make([]int, 0, len(numaHeadroomState))
+	for nodeID, headroom := range numaHeadroomState {
+		if headroom > 0 {
+			candidateNUMANodes = append(candidateNUMANodes, nodeID)
+		}
+	}
+
+	// Sort candidate NUMA nodes based on the other qos numa binding pods and their headroom
+	p.sortCandidateNUMANodesForReclaimed(candidateNUMANodes, machineState, numaHeadroomState)
+
+	nonBindingNUMAs = nonBindingNUMAs.Clone()
+	filteredNUMANodes := make([]int, 0, len(candidateNUMANodes))
+	for _, nodeID := range candidateNUMANodes {
+		if nonBindingNUMAs.Contains(nodeID) {
+			allocatableMemoryQuantity := numaHeadroomState[nodeID]
+			// take this non-binding NUMA for candidate reclaimed_cores with numa_binding,
+			// won't cause non-actual numa binding reclaimed_cores in short supply
+			if nonBindingReclaimedRequestedQuantity <= nonBindingNUMAsMemoryQuantity-allocatableMemoryQuantity || nonBindingNUMAs.Size() > 1 {
+				filteredNUMANodes = append(filteredNUMANodes, nodeID)
+				nonBindingNUMAs = nonBindingNUMAs.Difference(machine.NewCPUSet(nodeID))
+			} else {
+				general.Infof("filter out NUMA: %d since taking it will cause normal reclaimed_cores in short supply;"+
+					" nonBindingNUMAsMemoryQuantity: %d, allocatableMemoryQuantity: %d, nonBindingReclaimedRequestedQuantity: %d",
+					nodeID, nonBindingNUMAsMemoryQuantity, allocatableMemoryQuantity, nonBindingReclaimedRequestedQuantity)
+			}
+		} else {
+			filteredNUMANodes = append(filteredNUMANodes, nodeID)
+		}
+	}
+
+	return filteredNUMANodes
+}
+
 // regenerateHints regenerates hints for container that'd already been allocated memory,
 // and regenerateHints will assemble hints based on already-existed AllocationInfo,
 // without any calculation logics at all
-func regenerateHints(reqInt uint64, allocationInfo *state.AllocationInfo, podInplaceUpdateResizing bool) map[string]*pluginapi.ListOfTopologyHints {
+func regenerateHints(allocationInfo *state.AllocationInfo, regenerate bool) map[string]*pluginapi.ListOfTopologyHints {
 	hints := map[string]*pluginapi.ListOfTopologyHints{}
 
-	allocatedInt := allocationInfo.AggregatedQuantity
-	if allocatedInt < reqInt && !podInplaceUpdateResizing {
-		general.ErrorS(nil, "memory's already allocated with smaller quantity than requested",
-			"podUID", allocationInfo.PodUid, "containerName", allocationInfo.ContainerName,
-			"requestedResource", reqInt, "allocatedSize", allocatedInt)
+	if regenerate {
+		general.ErrorS(nil, "need to regenerate hints",
+			"podNamespace", allocationInfo.PodNamespace,
+			"podName", allocationInfo.PodName,
+			"podUID", allocationInfo.PodUid, "containerName", allocationInfo.ContainerName)
 		return nil
 	}
 
