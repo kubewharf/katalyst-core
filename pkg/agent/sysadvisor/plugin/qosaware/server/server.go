@@ -66,6 +66,10 @@ type qrmServerWrapper struct {
 func NewQRMServer(advisorWrapper resource.ResourceAdvisor, headroomResourceGetter reporter.HeadroomResourceGetter, conf *config.Configuration,
 	metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) (QRMServer, error) {
+	if headroomResourceGetter == nil {
+		return nil, fmt.Errorf("invalid headroom resource getter")
+	}
+
 	qrmServer := qrmServerWrapper{
 		serversToRun: make(map[v1.ResourceName]subQRMServer),
 	}

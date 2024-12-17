@@ -19,6 +19,7 @@ package resource
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -35,7 +36,8 @@ import (
 )
 
 const (
-	metricsNameHeadroomReportResult = "headroom_report_result"
+	metricsNameHeadroomReportResult     = "headroom_report_result"
+	metricsNameHeadroomReportNUMAResult = "headroom_report_numa_result"
 )
 
 type GetGenericReclaimOptionsFunc func() GenericReclaimOptions
@@ -197,6 +199,7 @@ func (m *GenericHeadroomManager) sync(_ context.Context) {
 
 		for _, numaID := range m.metaServer.CPUDetails.NUMANodes().ToSliceInt() {
 			m.lastNUMAReportResult[numaID] = resource.Quantity{}
+			m.emitNUMAResourceToMetric(numaID, metricsNameHeadroomReportNUMAResult, resource.Quantity{})
 		}
 		return
 	}
@@ -281,6 +284,7 @@ func (m *GenericHeadroomManager) sync(_ context.Context) {
 		}
 		result := m.reportResultTransformer(*res)
 		m.lastNUMAReportResult[numaID] = result
+		m.emitNUMAResourceToMetric(numaID, metricsNameHeadroomReportNUMAResult, result)
 		klog.Infof("%s headroom manager for NUMA: %d, headroom: %d", m.resourceName, numaID, result.Value())
 	}
 }
@@ -288,4 +292,10 @@ func (m *GenericHeadroomManager) sync(_ context.Context) {
 func (m *GenericHeadroomManager) emitResourceToMetric(metricsName string, value resource.Quantity) {
 	_ = m.emitter.StoreInt64(metricsName, value.Value(), metrics.MetricTypeNameRaw,
 		metrics.MetricTag{Key: "resourceName", Val: string(m.resourceName)})
+}
+
+func (m *GenericHeadroomManager) emitNUMAResourceToMetric(numaID int, metricsName string, value resource.Quantity) {
+	_ = m.emitter.StoreInt64(metricsName, value.Value(), metrics.MetricTypeNameRaw,
+		metrics.MetricTag{Key: "resourceName", Val: string(m.resourceName)},
+		metrics.MetricTag{Key: "numa", Val: strconv.Itoa(numaID)})
 }

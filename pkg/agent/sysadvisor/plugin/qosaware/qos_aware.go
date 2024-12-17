@@ -18,7 +18,6 @@ package qosaware
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
@@ -71,7 +70,6 @@ func NewQoSAwarePlugin(pluginName string, conf *config.Configuration, extraConf 
 	}
 
 	var resourceGetter reporter.HeadroomResourceGetter
-	headroomReporterExists := false
 	reporters := make([]reporter.Reporter, 0)
 	for _, reporterName := range conf.Reporters {
 		switch reporterName {
@@ -82,7 +80,6 @@ func NewQoSAwarePlugin(pluginName string, conf *config.Configuration, extraConf 
 			}
 			reporters = append(reporters, headroomReporter)
 			resourceGetter = headroomReporter
-			headroomReporterExists = true
 		case types.NodeMetricReporter:
 			nodeMetricsReporter, err := reporter.NewNodeMetricsReporter(emitter, metaServer, metaCache, conf)
 			if err != nil {
@@ -90,10 +87,6 @@ func NewQoSAwarePlugin(pluginName string, conf *config.Configuration, extraConf 
 			}
 			reporters = append(reporters, nodeMetricsReporter)
 		}
-	}
-
-	if !headroomReporterExists {
-		return nil, fmt.Errorf("headroom reporter must be specified")
 	}
 
 	qrmServer, err := server.NewQRMServer(resourceAdvisor, resourceGetter, conf, metaCache, metaServer, emitter)
