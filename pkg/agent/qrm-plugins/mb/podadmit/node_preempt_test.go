@@ -3,12 +3,14 @@ package podadmit
 import (
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/task"
 )
 
 func TestNodePreempter_getNotInUseNodes(t *testing.T) {
@@ -65,6 +67,7 @@ func TestNodePreempter_getNotInUseNodes(t *testing.T) {
 				domainManager: testDomainManager,
 				mbController: &controller.Controller{
 					DomainManager: testDomainManager,
+					TaskManager:   task.New(afero.NewMemMapFs()),
 					CurrQoSCCDMB:  map[qosgroup.QoSGroup]*monitor.MBQoSGroup{},
 				},
 			},
@@ -81,6 +84,7 @@ func TestNodePreempter_getNotInUseNodes(t *testing.T) {
 				domainManager: testDomainManager,
 				mbController: &controller.Controller{
 					DomainManager: testDomainManager,
+					TaskManager:   task.New(afero.NewMemMapFs()),
 					CurrQoSCCDMB: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
 						qosgroup.QoSGroupDedicated: {
 							CCDMB: map[int]*monitor.MBData{3: {

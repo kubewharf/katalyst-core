@@ -43,7 +43,7 @@ const (
 type Controller struct {
 	cancel context.CancelFunc
 
-	taskManager *resctrltask.TaskManager
+	TaskManager *resctrltask.TaskManager
 	cgCPUSet    *cgcpuset.CPUSet
 
 	podMBMonitor    monitor.MBMonitor
@@ -69,7 +69,7 @@ func (c *Controller) updateQoSCCDMB(qosCCDMB map[qosgroup.QoSGroup]*monitor.MBQo
 }
 
 func (c *Controller) GetDedicatedNodes() sets.Int {
-	if tasks, err := c.taskManager.GetQoSGroupedTask(qosgroup.QoSGroupDedicated); err == nil && len(tasks) > 0 {
+	if tasks, err := c.TaskManager.GetQoSGroupedTask(qosgroup.QoSGroupDedicated); err == nil && len(tasks) > 0 {
 		infoGetter := task.NewInfoGetter(c.cgCPUSet, tasks)
 		dedicatedNodes := infoGetter.GetAssignedNumaNodes()
 		general.InfofV(6, "mbm: identify dedicated pods numa nodes by cgroup mechanism: %v", dedicatedNodes)
@@ -178,7 +178,7 @@ func New(podMBMonitor monitor.MBMonitor, mbPlanAllocator allocator.PlanAllocator
 		policy:          policy,
 		chAdmit:         make(chan struct{}, 1),
 		cgCPUSet:        cgcpuset.New(fs),
-		taskManager:     resctrltask.New(fs),
+		TaskManager:     resctrltask.New(fs),
 	}, nil
 }
 

@@ -96,9 +96,9 @@ func Test_mbMonitor_GetMBQoSGroups(t1 *testing.T) {
 		t1.Run(tt.name, func(t1 *testing.T) {
 			t1.Parallel()
 			t := mbMonitor{
-				grmbReader: tt.fields.rmbReader,
-				wmbReader:  tt.fields.wmbReader,
-				fs:         tt.fields.fs,
+				rmbReader: tt.fields.rmbReader,
+				wmbReader: tt.fields.wmbReader,
+				fs:        tt.fields.fs,
 			}
 			got, err := t.GetMBQoSGroups()
 			if (err != nil) != tt.wantErr {

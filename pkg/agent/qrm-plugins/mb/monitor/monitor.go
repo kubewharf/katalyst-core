@@ -51,9 +51,9 @@ type MBMonitor interface {
 
 func newMBMonitor(rmbReader readmb.ReadMBReader, wmbReader writemb.WriteMBReader, fs afero.Fs) (MBMonitor, error) {
 	return &mbMonitor{
-		grmbReader: rmbReader,
-		wmbReader:  wmbReader,
-		fs:         fs,
+		rmbReader: rmbReader,
+		wmbReader: wmbReader,
+		fs:        fs,
 	}, nil
 }
 
@@ -89,8 +89,8 @@ func newDefaultMBMonitor(dieCPUs map[int][]int, dataKeeper state.MBRawDataKeeper
 }
 
 type mbMonitor struct {
-	wmbReader  writemb.WriteMBReader
-	grmbReader readmb.ReadMBReader
+	wmbReader writemb.WriteMBReader
+	rmbReader readmb.ReadMBReader
 
 	// facility for unit test
 	fs afero.Fs
@@ -167,7 +167,7 @@ func (m *mbMonitor) getTopLevelReadsMBs() (map[qosgroup.QoSGroup]map[int]int, er
 	}
 
 	for _, qosLevel := range qosLevels {
-		result[qosgroup.QoSGroup(qosLevel)], err = m.grmbReader.GetMB(qosLevel)
+		result[qosgroup.QoSGroup(qosLevel)], err = m.rmbReader.GetMB(qosLevel)
 	}
 
 	return result, nil
