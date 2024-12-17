@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/spf13/afero"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/allocator"
@@ -29,6 +30,9 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
+	resctrltask "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/task"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task/cgcpuset"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
@@ -39,11 +43,13 @@ const (
 type Controller struct {
 	cancel context.CancelFunc
 
+	taskManager *resctrltask.TaskManager
+	cgCPUSet    *cgcpuset.CPUSet
+
 	podMBMonitor    monitor.MBMonitor
 	mbPlanAllocator allocator.PlanAllocator
 
 	// exposure it for testability
-	// todo: hide it
 	DomainManager *mbdomain.MBDomainManager
 
 	policy policy.DomainMBPolicy
@@ -63,6 +69,14 @@ func (c *Controller) updateQoSCCDMB(qosCCDMB map[qosgroup.QoSGroup]*monitor.MBQo
 }
 
 func (c *Controller) GetDedicatedNodes() sets.Int {
+	if tasks, err := c.taskManager.GetQoSGroupedTask(qosgroup.QoSGroupDedicated); err == nil && len(tasks) > 0 {
+		infoGetter := task.NewInfoGetter(c.cgCPUSet, tasks)
+		dedicatedNodes := infoGetter.GetAssignedNumaNodes()
+		general.InfofV(6, "mbm: identify dedicated pods numa nodes by cgroup mechanism: %v", dedicatedNodes)
+		return dedicatedNodes
+	}
+
+	// fall back to educated guess by looking at the slots of active mb metrics
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	return c.getDedicatedNodes()
@@ -156,12 +170,15 @@ func (c *Controller) Stop() error {
 }
 
 func New(podMBMonitor monitor.MBMonitor, mbPlanAllocator allocator.PlanAllocator, domainManager *mbdomain.MBDomainManager, policy policy.DomainMBPolicy) (*Controller, error) {
+	fs := afero.NewOsFs()
 	return &Controller{
 		podMBMonitor:    podMBMonitor,
 		mbPlanAllocator: mbPlanAllocator,
 		DomainManager:   domainManager,
 		policy:          policy,
 		chAdmit:         make(chan struct{}, 1),
+		cgCPUSet:        cgcpuset.New(fs),
+		taskManager:     resctrltask.New(fs),
 	}, nil
 }
 

@@ -17,14 +17,17 @@ limitations under the License.
 package file
 
 import (
+	"fmt"
 	"path"
+	"strings"
 
 	"github.com/spf13/afero"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 	resctrlconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/consts"
 )
 
-func getResctrlSubMonGroups(fs afero.Fs, ctrlGroup string) ([]string, error) {
+func GetResctrlSubMonGroups(fs afero.Fs, ctrlGroup string) ([]string, error) {
 	result := make([]string, 0)
 	dir := path.Join(resctrlconsts.FsRoot, ctrlGroup, resctrlconsts.SubGroupMonRoot)
 	fis, err := afero.ReadDir(fs, dir)
@@ -51,7 +54,7 @@ func GetResctrlMonGroups(fs afero.Fs) ([]string, error) {
 
 	result := make([]string, 0)
 	for _, qosLevel := range ctlGroups {
-		monGroupPaths, err := getResctrlSubMonGroups(fs, qosLevel)
+		monGroupPaths, err := GetResctrlSubMonGroups(fs, qosLevel)
 		if err != nil {
 			return nil, err
 		}
@@ -78,4 +81,18 @@ func GetResctrlCtrlGroups(fs afero.Fs) ([]string, error) {
 		result = append(result, baseName)
 	}
 	return result, nil
+}
+
+func ParseMonGroup(path string) (qosGroup qosgroup.QoSGroup, podUID string, err error) {
+	stem := strings.TrimPrefix(path, resctrlconsts.FsRoot)
+	stem = strings.Trim(stem, "/")
+	segs := strings.Split(stem, "/")
+	if len(segs) != 3 {
+		return "", "", fmt.Errorf("invalid mon group path: %s", path)
+	}
+
+	ctrlGroup, monGroup := segs[0], segs[2]
+	qosGroup = qosgroup.QoSGroup(ctrlGroup)
+	podUID = monGroup
+	return qosGroup, podUID, nil
 }

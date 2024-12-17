@@ -102,3 +102,46 @@ func TestGetResctrlCtrlGroups(t *testing.T) {
 		})
 	}
 }
+
+func Test_getResctrlSubMonGroups(t *testing.T) {
+	t.Parallel()
+
+	dummyFs := afero.NewMemMapFs()
+	_ = dummyFs.MkdirAll("/sys/fs/resctrl/dedicated/mon_groups/pod40a1ae88-c95b-47f6-9891-af0d90392a22", 0755)
+	_ = dummyFs.MkdirAll("/sys/fs/resctrl/dedicated/mon_groups/pod771ec071-2e45-4ad6-9fd2-095d0b93ffe9", 0755)
+
+	type args struct {
+		fs        afero.Fs
+		ctrlGroup string
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    []string
+		wantErr assert.ErrorAssertionFunc
+	}{
+		{
+			name: "happy path of 2 dedicated pods",
+			args: args{
+				fs:        dummyFs,
+				ctrlGroup: "dedicated",
+			},
+			want: []string{
+				"/sys/fs/resctrl/dedicated/mon_groups/pod40a1ae88-c95b-47f6-9891-af0d90392a22",
+				"/sys/fs/resctrl/dedicated/mon_groups/pod771ec071-2e45-4ad6-9fd2-095d0b93ffe9",
+			},
+			wantErr: assert.NoError,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := GetResctrlSubMonGroups(tt.args.fs, tt.args.ctrlGroup)
+			if !tt.wantErr(t, err, fmt.Sprintf("GetResctrlSubMonGroups(%v, %v)", tt.args.fs, tt.args.ctrlGroup)) {
+				return
+			}
+			assert.Equalf(t, tt.want, got, "GetResctrlSubMonGroups(%v, %v)", tt.args.fs, tt.args.ctrlGroup)
+		})
+	}
+}
