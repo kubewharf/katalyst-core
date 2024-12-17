@@ -472,8 +472,8 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 					err := cache.SetPoolInfo(commonstate.PoolNameReclaim, &types.PoolInfo{
 						PoolName: commonstate.PoolNameReclaim,
 						TopologyAwareAssignments: map[int]machine.CPUSet{
-							0: machine.MustParse("0-0"),
-							1: machine.MustParse("49-50"),
+							0: machine.MustParse("0-9"),
+							1: machine.MustParse("49-96"),
 						},
 					})
 					require.NoError(t, err)

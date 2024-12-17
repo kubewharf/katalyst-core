@@ -29,14 +29,19 @@ import (
 
 type ResourceAdvisorStub struct {
 	sync.Mutex
-	resources map[v1.ResourceName]resource.Quantity
+	resources  map[v1.ResourceName]resource.Quantity
+	subAdvisor map[types.QoSResourceName]*SubResourceAdvisorStub
 }
 
 var _ ResourceAdvisor = NewResourceAdvisorStub()
 
 func NewResourceAdvisorStub() *ResourceAdvisorStub {
+	sub := make(map[types.QoSResourceName]*SubResourceAdvisorStub)
+	sub[types.QoSResourceCPU] = NewSubResourceAdvisorStub()
+	sub[types.QoSResourceMemory] = NewSubResourceAdvisorStub()
 	return &ResourceAdvisorStub{
-		resources: make(map[v1.ResourceName]resource.Quantity),
+		resources:  make(map[v1.ResourceName]resource.Quantity),
+		subAdvisor: sub,
 	}
 }
 
@@ -44,7 +49,7 @@ func (r *ResourceAdvisorStub) Run(ctx context.Context) {
 }
 
 func (r *ResourceAdvisorStub) GetSubAdvisor(resourceName types.QoSResourceName) (SubResourceAdvisor, error) {
-	return nil, nil
+	return r.subAdvisor[resourceName], nil
 }
 
 func (r *ResourceAdvisorStub) GetHeadroom(resourceName v1.ResourceName) (resource.Quantity, map[int]resource.Quantity, error) {
@@ -61,10 +66,23 @@ func (r *ResourceAdvisorStub) SetHeadroom(resourceName v1.ResourceName, quantity
 	r.Lock()
 	defer r.Unlock()
 
-	r.resources[resourceName] = quantity
+	var resName types.QoSResourceName
+	switch resourceName {
+	case v1.ResourceCPU:
+		resName = types.QoSResourceCPU
+	case v1.ResourceMemory:
+		resName = types.QoSResourceMemory
+	default:
+		return
+	}
+
+	if sub, ok := r.subAdvisor[resName]; ok {
+		sub.SetHeadroom(quantity)
+	}
 }
 
 type SubResourceAdvisorStub struct {
+	sync.Mutex
 	quantity resource.Quantity
 }
 
@@ -88,9 +106,15 @@ func (s *SubResourceAdvisorStub) UpdateAndGetAdvice() (interface{}, error) {
 }
 
 func (s *SubResourceAdvisorStub) GetHeadroom() (resource.Quantity, map[int]resource.Quantity, error) {
+	s.Lock()
+	defer s.Unlock()
+
 	return s.quantity, nil, nil
 }
 
 func (s *SubResourceAdvisorStub) SetHeadroom(quantity resource.Quantity) {
+	s.Lock()
+	defer s.Unlock()
+
 	s.quantity = quantity
 }

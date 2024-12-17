@@ -429,8 +429,8 @@ func TestAdvisorUpdate(t *testing.T) {
 				commonstate.PoolNameReclaim: {
 					PoolName: commonstate.PoolNameReclaim,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
-						0: machine.MustParse("70-71"),
-						1: machine.MustParse("25-46"),
+						0: machine.MustParse("0-8"),
+						1: machine.MustParse("48-93"),
 					},
 				},
 			},
@@ -516,7 +516,7 @@ func TestAdvisorUpdate(t *testing.T) {
 					},
 				},
 			},
-			wantHeadroomErr: true,
+			wantHeadroomErr: false,
 			// dedicated_cores headroom(9) + empty numa headroom(45)
 			wantHeadroom: *resource.NewQuantity(54, resource.DecimalSI),
 		},
@@ -587,7 +587,7 @@ func TestAdvisorUpdate(t *testing.T) {
 				commonstate.PoolNameReclaim: {
 					PoolName: commonstate.PoolNameReclaim,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
-						0: machine.MustParse("70-71"),
+						0: machine.MustParse("70-73"),
 						1: machine.MustParse("25-47,72-95"),
 					},
 				},

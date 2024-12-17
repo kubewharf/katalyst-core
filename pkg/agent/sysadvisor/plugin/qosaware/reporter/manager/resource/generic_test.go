@@ -21,13 +21,35 @@ import (
 	"testing"
 	"time"
 
+	info "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	hmadvisor "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
+
+func generateTestMetaServer(t *testing.T) *metaserver.MetaServer {
+	cpuTopology, err := machine.GenerateDummyCPUTopology(96, 2, 2)
+	require.NoError(t, err)
+	return &metaserver.MetaServer{
+		MetaAgent: &agent.MetaAgent{
+			KatalystMachineInfo: &machine.KatalystMachineInfo{
+				MachineInfo: &info.MachineInfo{
+					NumCores:       96,
+					MemoryCapacity: 500 << 30,
+				},
+				CPUTopology: cpuTopology,
+			},
+		},
+		ServiceProfilingManager: &spd.DummyServiceProfilingManager{},
+	}
+}
 
 func TestNewGenericHeadroomManager(t *testing.T) {
 	t.Parallel()
@@ -41,7 +63,9 @@ func TestNewGenericHeadroomManager(t *testing.T) {
 		emitter               metrics.MetricEmitter
 		slidingWindowOptions  GenericSlidingWindowOptions
 		getReclaimOptionsFunc GetGenericReclaimOptionsFunc
+		metaServer            *metaserver.MetaServer
 	}
+
 	tests := []struct {
 		name string
 		args args
@@ -66,6 +90,7 @@ func TestNewGenericHeadroomManager(t *testing.T) {
 						MinReclaimedResourceForReport: resource.MustParse("4"),
 					}
 				},
+				metaServer: generateTestMetaServer(t),
 			},
 		},
 	}
@@ -75,7 +100,8 @@ func TestNewGenericHeadroomManager(t *testing.T) {
 			t.Parallel()
 			mgr := NewGenericHeadroomManager(tt.args.name, tt.args.useMilliValue, tt.args.reportMillValue,
 				tt.args.syncPeriod, tt.args.headroomAdvisor, tt.args.emitter,
-				tt.args.slidingWindowOptions, tt.args.getReclaimOptionsFunc)
+				tt.args.slidingWindowOptions, tt.args.getReclaimOptionsFunc,
+				tt.args.metaServer)
 			mgr.newSlidingWindow()
 		})
 	}
@@ -100,6 +126,7 @@ func TestGenericHeadroomManager_Allocatable(t *testing.T) {
 		func() GenericReclaimOptions {
 			return reclaimOptions
 		},
+		generateTestMetaServer(t),
 	)
 	go m.Run(context.Background())
 
