@@ -16,13 +16,11 @@ limitations under the License.
 
 package config
 
-import "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
-
 const (
-	// the effective bandwidth 120 GB, with the surplus of pressure-check sentinal (which mainly serves as conclision detection)
-	DomainTotalMB   = 120_000 + strategy.PressureThreshold //120 GBps in one mb sharing domain, effectively
-	ReservedPerNuma = 35_000                               // 35 GBps reserved per node for dedicated pod
-	ReservedPerCCD  = ReservedPerNuma / 2                  // hardcoded divisor 2 may not be applicable all the places
+	// the effective bandwidth 120 GB, with the surplus of part of pressure-check sentinal (which mainly serves as conclision detection)
+	DomainTotalMB   = 120_000 + 2_000     //116 GBps in one mb sharing domain, effectively
+	ReservedPerNuma = 35_000              // 35 GBps reserved per node for dedicated pod
+	ReservedPerCCD  = ReservedPerNuma / 2 // hardcoded divisor 2 may not be applicable all the places
 
 	// min value set via arg to provide flexibility for exploring
 	//CCDMBMin = 8_000 // per CCD 8 GB
