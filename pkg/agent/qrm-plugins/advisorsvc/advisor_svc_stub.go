@@ -36,6 +36,10 @@ func (c *stubAdvisorServiceClient) ListAndWatch(ctx context.Context, in *Empty, 
 	return nil, nil
 }
 
+func (c *stubAdvisorServiceClient) GetAdvice(ctx context.Context, in *GetAdviceRequest, opts ...grpc.CallOption) (*GetAdviceResponse, error) {
+	return nil, nil
+}
+
 func NewStubAdvisorServiceClient() AdvisorServiceClient {
 	return &stubAdvisorServiceClient{}
 }

@@ -16,6 +16,8 @@ limitations under the License.
 
 package qrm
 
+import "time"
+
 type CPUQRMPluginConfig struct {
 	// PolicyName is used to switch between several strategies
 	PolicyName string
@@ -31,6 +33,8 @@ type CPUQRMPluginConfig struct {
 type CPUDynamicPolicyConfig struct {
 	// EnableCPUAdvisor indicates whether to enable sys-advisor module to calculate cpu resources
 	EnableCPUAdvisor bool
+	// Interval at which we get advice from sys-advisor
+	GetAdviceInterval time.Duration
 	// EnableCPUPressureEviction indicates whether to enable cpu-pressure eviction, such as cpu load eviction or cpu
 	// suppress eviction
 	EnableCPUPressureEviction bool

@@ -31,6 +31,8 @@ type MemoryQRMPluginConfig struct {
 	EnableSettingMemoryMigrate bool
 	// EnableMemoryAdvisor indicates whether to enable sys-advisor module to calculate memory resources
 	EnableMemoryAdvisor bool
+	// GetAdviceInterval is the interval at which we get advice from sys-advisor
+	GetAdviceInterval time.Duration
 	// ExtraControlKnobConfigFile: the absolute path of extra control knob config file
 	ExtraControlKnobConfigFile string
 	// EnableOOMPriority: enable oom priority enhancement

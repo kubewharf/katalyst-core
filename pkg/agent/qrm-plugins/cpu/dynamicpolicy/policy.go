@@ -102,6 +102,7 @@ type DynamicPolicy struct {
 	// those are parsed from configurations
 	// todo if we want to use dynamic configuration, we'd better not use self-defined conf
 	enableCPUAdvisor                          bool
+	getAdviceInterval                         time.Duration
 	reservedCPUs                              machine.CPUSet
 	cpuAdvisorSocketAbsPath                   string
 	cpuPluginSocketAbsPath                    string
@@ -185,6 +186,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		cpuPluginSocketAbsPath:        conf.CPUPluginSocketAbsPath,
 		enableReclaimNUMABinding:      conf.EnableReclaimNUMABinding,
 		enableCPUAdvisor:              conf.CPUQRMPluginConfig.EnableCPUAdvisor,
+		getAdviceInterval:             conf.CPUQRMPluginConfig.GetAdviceInterval,
 		cpuNUMAHintPreferPolicy:       conf.CPUQRMPluginConfig.CPUNUMAHintPreferPolicy,
 		cpuNUMAHintPreferLowThreshold: conf.CPUQRMPluginConfig.CPUNUMAHintPreferLowThreshold,
 		reservedCPUs:                  reservedCPUs,
@@ -353,6 +355,18 @@ func (p *DynamicPolicy) Start() (err error) {
 			_ = conn.Close()
 		}
 		general.Infof("cpu plugin checkpoint server serving confirmed")
+
+		p.getAdviceFromAdvisorLoop(p.stopCh)
+		select {
+		case <-p.stopCh:
+			// stopCh closed, no need to fall back to ListAndWatch.
+			return
+		default:
+		}
+
+		// TODO: do we need to stop AddContainer/RemovePod from being invoked?
+
+		general.Infof("advisor does not implement GetAdvice, fall back to ListAndWatch")
 
 		err = p.pushCPUAdvisor()
 		if err != nil {
