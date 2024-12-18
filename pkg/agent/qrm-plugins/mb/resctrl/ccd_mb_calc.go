@@ -51,28 +51,33 @@ func NewCCDMBCalculator(rawDataKeeper state.MBRawDataKeeper) (CCDMBCalculator, e
 
 func calcMB(fs afero.Fs, monGroup string, ccd int, tsCurr time.Time, dataKeeper state.MBRawDataKeeper) rmbtype.MBStat {
 	ccdMon := fmt.Sprintf(consts.TmplCCDMonFolder, ccd)
-	monPath := path.Join(monGroup, consts.MonData, ccdMon, consts.MBRawFile)
+	monPathTotalMB := path.Join(monGroup, consts.MonData, ccdMon, consts.MBTotalRawFile)
+	monPathLocalMB := path.Join(monGroup, consts.MonData, ccdMon, consts.MBLocalRawFile)
+	totalCurr := file.ReadValueFromFile(fs, monPathTotalMB)
+	localCurr := file.ReadValueFromFile(fs, monPathLocalMB)
+	general.InfofV(6, "mbm: resctrl: read value from file %s: total %d, local %d", monPathTotalMB, totalCurr, localCurr)
 
-	valueCurr := file.ReadValueFromFile(fs, monPath)
-	general.InfofV(6, "mbm: resctrl: read value from file %s: %d", monPath, valueCurr)
-
-	mb := rmbtype.MBStat{Total: consts.UninitializedMB}
-	if prev, err := dataKeeper.Get(monPath); err == nil {
-		mb = calcAverageInMBps(valueCurr, tsCurr, prev.Value, prev.ReadTime)
+	mb := rmbtype.MBStat{Total: consts.UninitializedMB, Local: consts.UninitializedMB}
+	if prev, err := dataKeeper.Get(monPathTotalMB); err == nil {
+		mb.Total = calcAverageInMBps(totalCurr, tsCurr, prev.Value, prev.ReadTime)
+	}
+	if prev, err := dataKeeper.Get(monPathLocalMB); err == nil {
+		mb.Local = calcAverageInMBps(localCurr, tsCurr, prev.Value, prev.ReadTime)
 	}
 
 	// always refresh the last seen raw record needed for future calc
-	dataKeeper.Set(monPath, valueCurr, tsCurr)
+	dataKeeper.Set(monPathTotalMB, totalCurr, tsCurr)
+	dataKeeper.Set(monPathLocalMB, localCurr, tsCurr)
 
 	return mb
 }
 
-func calcAverageInMBps(currV int64, nowTime time.Time, lastV int64, lastTime time.Time) rmbtype.MBStat {
+func calcAverageInMBps(currV int64, nowTime time.Time, lastV int64, lastTime time.Time) int {
 	if currV == consts.UninitializedMB || lastV == consts.UninitializedMB || currV < lastV {
-		return rmbtype.MBStat{Total: consts.UninitializedMB}
+		return consts.UninitializedMB
 	}
 
 	elapsed := nowTime.Sub(lastTime)
 	mbInMB := (currV - lastV) / elapsed.Microseconds() * 1_000_000 / (1024 * 1024)
-	return rmbtype.MBStat{Total: int(mbInMB)}
+	return int(mbInMB)
 }

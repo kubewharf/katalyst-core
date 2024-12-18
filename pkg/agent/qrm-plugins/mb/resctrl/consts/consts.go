@@ -31,9 +31,10 @@ const (
 	FolderPerm = 0755
 	FilePerm   = 0644
 
-	TasksFile    = "tasks"
-	MBRawFile    = "mbm_total_bytes"
-	SchemataFile = "schemata"
+	TasksFile      = "tasks"
+	MBTotalRawFile = "mbm_total_bytes"
+	MBLocalRawFile = "mbm_local_bytes"
+	SchemataFile   = "schemata"
 
 	TmplTaskFolder   = "%s"
 	TmplCCDMonFolder = "mon_L3_%02d"

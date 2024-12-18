@@ -32,10 +32,15 @@ func Test_getMB(t *testing.T) {
 
 	fs := afero.NewMemMapFs()
 	_ = afero.WriteFile(fs, "/foo/mon_data/mon_L3_04/mbm_total_bytes", []byte("2000000000"), 0644)
+	_ = afero.WriteFile(fs, "/foo/mon_data/mon_L3_04/mbm_local_bytes", []byte("1000000000"), 0644)
 
 	dateKeeper, _ := state.NewMBRawDataKeeper()
 	dateKeeper.Set("/foo/mon_data/mon_L3_04/mbm_total_bytes",
 		1_000_000_000,
+		time.Date(2024, 9, 18, 19, 57, 45, 0, time.UTC),
+	)
+	dateKeeper.Set("/foo/mon_data/mon_L3_04/mbm_local_bytes",
+		500_000_000,
 		time.Date(2024, 9, 18, 19, 57, 45, 0, time.UTC),
 	)
 
@@ -60,7 +65,7 @@ func Test_getMB(t *testing.T) {
 				ts:         time.Date(2024, 9, 18, 19, 57, 46, 0, time.UTC),
 				dataKeeper: dateKeeper,
 			},
-			want: rmbtype.MBStat{Total: 953},
+			want: rmbtype.MBStat{Total: 953, Local: 476},
 		},
 	}
 	for _, tt := range tests {

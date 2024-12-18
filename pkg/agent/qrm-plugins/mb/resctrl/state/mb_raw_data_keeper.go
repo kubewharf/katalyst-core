@@ -60,7 +60,7 @@ func (m *mbRawDataKeeper) Cleanup(monGroup string) {
 	// todo: avoid hard code of 16 CCDs
 	for ccd := 0; ccd < 16; ccd++ {
 		ccdMon := fmt.Sprintf(consts.TmplCCDMonFolder, ccd)
-		monPath := path.Join(monGroup, consts.MonData, ccdMon, consts.MBRawFile)
+		monPath := path.Join(monGroup, consts.MonData, ccdMon, consts.MBTotalRawFile)
 		delete(m.data, monPath)
 	}
 }
