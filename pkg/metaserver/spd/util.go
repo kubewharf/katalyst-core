@@ -19,7 +19,9 @@ package spd
 import (
 	"context"
 
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	workloadapi "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
@@ -47,4 +49,19 @@ func GetContainerMemoryBandwidthRequest(profilingManager ServiceProfilingManager
 	}
 
 	return mbwRequest, nil
+}
+
+// GetContainerServiceProfileRequest gets the memory bandwidth request for pod with given cpu request
+func GetContainerServiceProfileRequest(profilingManager ServiceProfilingManager, podMeta metav1.ObjectMeta,
+	name v1.ResourceName,
+) ([]resource.Quantity, error) {
+	metrics, err := profilingManager.ServiceAggregateMetrics(context.Background(), podMeta, name,
+		false, workloadapi.Avg, workloadapi.Sum)
+	if err != nil && !errors.IsNotFound(err) {
+		return nil, err
+	} else if err == nil && metrics != nil {
+		return metrics, nil
+	}
+
+	return nil, nil
 }
