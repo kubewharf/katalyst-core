@@ -76,7 +76,8 @@ const (
 
 // resctrl memory bandwidth metrics
 const (
-	MetricTotalMemBandwidthQoSGroup = "mb.total.qosgroup"
+	MetricTotalMemBandwidthQoSGroup      = "mb.total.qosgroup"
+	MetricMemBandwidthLocalRatioQoSGroup = "mb.local.ratio.qosgroup"
 )
 
 // System blkio metrics

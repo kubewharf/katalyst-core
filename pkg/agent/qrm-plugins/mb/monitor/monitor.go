@@ -122,12 +122,16 @@ func isRWRatioValid(r, w int) bool {
 	return r >= w
 }
 
-func getGroupCCDMBs(rGroupCCDMB map[qosgroup.QoSGroup]map[int]rmbtype.MBStat, wGroupCCDMB map[qosgroup.QoSGroup]map[int]int) map[qosgroup.QoSGroup]map[int]*MBData {
+func getGroupCCDMBs(rGroupCCDMB map[qosgroup.QoSGroup]map[int]rmbtype.MBStat, wGroupCCDMB map[qosgroup.QoSGroup]map[int]int,
+) map[qosgroup.QoSGroup]map[int]*MBData {
 	groupCCDMBs := make(map[qosgroup.QoSGroup]map[int]*MBData)
 	for qos, ccdMB := range rGroupCCDMB {
 		groupCCDMBs[qos] = make(map[int]*MBData)
 		for ccd, mb := range ccdMB {
-			groupCCDMBs[qos][ccd] = &MBData{ReadsMB: mb.Total}
+			groupCCDMBs[qos][ccd] = &MBData{
+				ReadsMB:      mb.Total,
+				LocalReadsMB: mb.Local,
+			}
 		}
 	}
 	for qos, ccdMB := range wGroupCCDMB {
@@ -201,7 +205,7 @@ func DisplayMBSummary(qosCCDMB map[qosgroup.QoSGroup]*MBQoSGroup) string {
 	for qos, ccdmb := range qosCCDMB {
 		sb.WriteString(fmt.Sprintf("--QoS: %s\n", qos))
 		for ccd, mb := range ccdmb.CCDMB {
-			sb.WriteString(fmt.Sprintf("      ccd %d: r %d, w %d, total %d\n", ccd, mb.ReadsMB, mb.WritesMB, mb.TotalMB))
+			sb.WriteString(fmt.Sprintf("      ccd %d: r %d, w %d, total %d, r_local %d\n", ccd, mb.ReadsMB, mb.WritesMB, mb.TotalMB, mb.LocalReadsMB))
 		}
 	}
 	return sb.String()
