@@ -18,12 +18,12 @@ package types
 
 import (
 	"bytes"
-	"math/big"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/kubewharf/katalyst-api/pkg/metric"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 var validAggregatorSuffixList = []string{
@@ -58,7 +58,7 @@ func (a *AggregatedItem) DeepCopy() Item {
 }
 
 func (a *AggregatedItem) GetQuantity() resource.Quantity {
-	return resource.MustParse(big.NewFloat(a.Value).String())
+	return native.GetFloat64Quantity(a.Value)
 }
 
 func (a *AggregatedItem) GetCount() *int64 { return &a.Count }
