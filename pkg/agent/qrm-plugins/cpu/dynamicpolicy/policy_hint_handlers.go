@@ -965,6 +965,13 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(request float64,
 		return nil, errNoAvailableCPUHints
 	}
 
+	// optimize hints by shared_cores numa_binding hint optimizer
+	// TODO: refactor the HintOptimizer interface to support multiple plugins
+	err = p.sharedCoresNUMABindingHintOptimizer.OptimizeHints(req, hints.Hints, machineState)
+	if err != nil {
+		return nil, err
+	}
+
 	// populate hints by already existed numa binding result
 	err = p.populateHintsByAlreadyExistedNUMABindingResult(req, hints)
 	if err != nil {

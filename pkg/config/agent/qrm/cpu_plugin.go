@@ -16,7 +16,11 @@ limitations under the License.
 
 package qrm
 
-import "time"
+import (
+	"time"
+
+	v1 "k8s.io/api/core/v1"
+)
 
 type CPUQRMPluginConfig struct {
 	// PolicyName is used to switch between several strategies
@@ -55,6 +59,14 @@ type CPUDynamicPolicyConfig struct {
 	// It enables schedulers to specify NUMA binding results, and the plugin will make best efforts to follow these results.
 	// This key must be included in the pod-annotation-kept-keys configuration.
 	SharedCoresNUMABindingResultAnnotationKey string
+	// EnableSharedCoresNUMABindingHintOptimizer is set to enable shared cores numa binding hint optimizer
+	EnableSharedCoresNUMABindingHintOptimizer bool
+	// SharedCoresNUMABindingHintOptimizerConfig is used to control service profile hint optimizer
+	SharedCoresNUMABindingHintOptimizerConfig ServiceProfileHintOptimizerConfig
+}
+
+type ServiceProfileHintOptimizerConfig struct {
+	ResourceWeights map[v1.ResourceName]float64
 }
 
 type CPUNativePolicyConfig struct {
