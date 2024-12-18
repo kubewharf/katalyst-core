@@ -17,6 +17,7 @@ limitations under the License.
 package resctrl
 
 import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/readmb/rmbtype"
 	"reflect"
 	"testing"
 
@@ -27,9 +28,9 @@ type mockCCDReader struct {
 	mock.Mock
 }
 
-func (m *mockCCDReader) ReadMB(MonGroup string, ccd int) (int, error) {
+func (m *mockCCDReader) ReadMB(MonGroup string, ccd int) (rmbtype.MBStat, error) {
 	args := m.Called(MonGroup, ccd)
-	return args.Int(0), args.Error(1)
+	return rmbtype.MBStat{Total: args.Int(0)}, args.Error(1)
 }
 
 func Test_monGroupReader_ReadMB(t *testing.T) {
@@ -49,7 +50,7 @@ func Test_monGroupReader_ReadMB(t *testing.T) {
 		name    string
 		fields  fields
 		args    args
-		want    map[int]int
+		want    map[int]rmbtype.MBStat
 		wantErr bool
 	}{
 		{
@@ -61,7 +62,7 @@ func Test_monGroupReader_ReadMB(t *testing.T) {
 				monGroup: "/sys/fs/resctrl/dedicated/mon_groups/pod001",
 				dies:     []int{3},
 			},
-			want:    map[int]int{3: 111},
+			want:    map[int]rmbtype.MBStat{3: {Total: 111}},
 			wantErr: false,
 		},
 	}

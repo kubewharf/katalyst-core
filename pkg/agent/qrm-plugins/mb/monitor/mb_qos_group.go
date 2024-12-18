@@ -23,9 +23,10 @@ import (
 )
 
 type MBData struct {
-	TotalMB  int
-	ReadsMB  int
-	WritesMB int
+	TotalMB      int
+	ReadsMB      int
+	LocalReadsMB int
+	WritesMB     int
 }
 
 // MBQoSGroup keeps MB of qos control group at level of CCD

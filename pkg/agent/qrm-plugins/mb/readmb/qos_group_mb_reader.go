@@ -17,6 +17,7 @@ limitations under the License.
 package readmb
 
 import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/readmb/rmbtype"
 	"github.com/pkg/errors"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
@@ -25,7 +26,7 @@ import (
 )
 
 type ReadMBReader interface {
-	GetMB(qosGroup string) (map[int]int, error)
+	GetMB(qosGroup string) (map[int]rmbtype.MBStat, error)
 }
 
 type QoSGroupMBReader struct {
@@ -33,7 +34,7 @@ type QoSGroupMBReader struct {
 	monGroupReader resctrl.MonGroupReader
 }
 
-func (q *QoSGroupMBReader) GetMB(qosGroup string) (map[int]int, error) {
+func (q *QoSGroupMBReader) GetMB(qosGroup string) (map[int]rmbtype.MBStat, error) {
 	ctrlGroupPath, err := qosgroup.GetResctrlCtrlGroupFolder(qosgroup.QoSGroup(qosGroup))
 	if err != nil {
 		return nil, err

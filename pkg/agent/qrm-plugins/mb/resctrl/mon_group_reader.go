@@ -17,19 +17,20 @@ limitations under the License.
 package resctrl
 
 import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/readmb/rmbtype"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 type MonGroupReader interface {
-	ReadMB(monGroup string, dies []int) (map[int]int, error)
+	ReadMB(monGroup string, dies []int) (map[int]rmbtype.MBStat, error)
 }
 
 type monGroupReader struct {
 	ccdReader CCDMBReader
 }
 
-func (m monGroupReader) ReadMB(monGroup string, dies []int) (map[int]int, error) {
-	result := make(map[int]int)
+func (m monGroupReader) ReadMB(monGroup string, dies []int) (map[int]rmbtype.MBStat, error) {
+	result := make(map[int]rmbtype.MBStat)
 	for _, ccd := range dies {
 		mb, err := m.ccdReader.ReadMB(monGroup, ccd)
 		if err != nil {

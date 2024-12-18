@@ -17,6 +17,7 @@ limitations under the License.
 package resctrl
 
 import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/readmb/rmbtype"
 	"reflect"
 	"testing"
 	"time"
@@ -48,7 +49,7 @@ func Test_getMB(t *testing.T) {
 	tests := []struct {
 		name string
 		args args
-		want int
+		want rmbtype.MBStat
 	}{
 		{
 			name: "happy path",
@@ -59,7 +60,7 @@ func Test_getMB(t *testing.T) {
 				ts:         time.Date(2024, 9, 18, 19, 57, 46, 0, time.UTC),
 				dataKeeper: dateKeeper,
 			},
-			want: 953,
+			want: rmbtype.MBStat{Total: 953},
 		},
 	}
 	for _, tt := range tests {

@@ -1,6 +1,7 @@
 package readmb
 
 import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/readmb/rmbtype"
 	"reflect"
 	"testing"
 
@@ -13,9 +14,9 @@ type mockMonGrpReader struct {
 	mock.Mock
 }
 
-func (m *mockMonGrpReader) ReadMB(monGroup string, dies []int) (map[int]int, error) {
+func (m *mockMonGrpReader) ReadMB(monGroup string, dies []int) (map[int]rmbtype.MBStat, error) {
 	args := m.Called(monGroup, dies)
-	return args.Get(0).(map[int]int), args.Error(1)
+	return args.Get(0).(map[int]rmbtype.MBStat), args.Error(1)
 }
 
 func TestQoSGroupMBReader_GetMB(t *testing.T) {
@@ -23,7 +24,7 @@ func TestQoSGroupMBReader_GetMB(t *testing.T) {
 
 	mockMGReader := new(mockMonGrpReader)
 	mockMGReader.On("ReadMB", "/sys/fs/resctrl/system", []int{4, 5}).
-		Return(map[int]int{4: 111, 5: 222}, nil)
+		Return(map[int]rmbtype.MBStat{4: {Total: 111}, 5: {Total: 222}}, nil)
 
 	type fields struct {
 		ccds           []int
@@ -36,7 +37,7 @@ func TestQoSGroupMBReader_GetMB(t *testing.T) {
 		name    string
 		fields  fields
 		args    args
-		want    map[int]int
+		want    map[int]rmbtype.MBStat
 		wantErr bool
 	}{
 		{
@@ -48,7 +49,7 @@ func TestQoSGroupMBReader_GetMB(t *testing.T) {
 			args: args{
 				qosGroup: "system",
 			},
-			want:    map[int]int{4: 111, 5: 222},
+			want:    map[int]rmbtype.MBStat{4: {Total: 111}, 5: {Total: 222}},
 			wantErr: false,
 		},
 	}

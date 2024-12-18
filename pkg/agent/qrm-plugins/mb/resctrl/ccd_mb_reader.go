@@ -18,6 +18,7 @@ package resctrl
 
 import (
 	"errors"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/readmb/rmbtype"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/consts"
 )
@@ -25,7 +26,7 @@ import (
 var ErrUninitialized = errors.New("uninitialized mb value")
 
 type CCDMBReader interface {
-	ReadMB(MonGroup string, ccd int) (int, error)
+	ReadMB(MonGroup string, ccd int) (rmbtype.MBStat, error)
 }
 
 func NewCCDMBReader(ccdMBCalc CCDMBCalculator) (CCDMBReader, error) {
@@ -38,9 +39,9 @@ type ccdMBReader struct {
 	ccdMBCalc CCDMBCalculator
 }
 
-func (c ccdMBReader) ReadMB(MonGroup string, ccd int) (int, error) {
+func (c ccdMBReader) ReadMB(MonGroup string, ccd int) (rmbtype.MBStat, error) {
 	val := c.ccdMBCalc.CalcMB(MonGroup, ccd)
-	if val == consts.UninitializedMB {
+	if val.Total == consts.UninitializedMB {
 		return val, ErrUninitialized
 	}
 

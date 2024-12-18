@@ -18,6 +18,7 @@ package resctrl
 
 import (
 	"fmt"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/readmb/rmbtype"
 	"path"
 	"time"
 
@@ -30,7 +31,7 @@ import (
 )
 
 type CCDMBCalculator interface {
-	CalcMB(monGroup string, ccd int) int
+	CalcMB(monGroup string, ccd int) rmbtype.MBStat
 }
 
 type mbCalculator struct {
@@ -38,7 +39,7 @@ type mbCalculator struct {
 	rawDataKeeper state.MBRawDataKeeper
 }
 
-func (c *mbCalculator) CalcMB(monGroup string, ccd int) int {
+func (c *mbCalculator) CalcMB(monGroup string, ccd int) rmbtype.MBStat {
 	return calcMB(afero.NewOsFs(), monGroup, ccd, time.Now(), c.rawDataKeeper)
 }
 
@@ -48,14 +49,14 @@ func NewCCDMBCalculator(rawDataKeeper state.MBRawDataKeeper) (CCDMBCalculator, e
 	}, nil
 }
 
-func calcMB(fs afero.Fs, monGroup string, ccd int, tsCurr time.Time, dataKeeper state.MBRawDataKeeper) int {
+func calcMB(fs afero.Fs, monGroup string, ccd int, tsCurr time.Time, dataKeeper state.MBRawDataKeeper) rmbtype.MBStat {
 	ccdMon := fmt.Sprintf(consts.TmplCCDMonFolder, ccd)
 	monPath := path.Join(monGroup, consts.MonData, ccdMon, consts.MBRawFile)
 
 	valueCurr := file.ReadValueFromFile(fs, monPath)
 	general.InfofV(6, "mbm: resctrl: read value from file %s: %d", monPath, valueCurr)
 
-	mb := consts.UninitializedMB
+	mb := rmbtype.MBStat{Total: consts.UninitializedMB}
 	if prev, err := dataKeeper.Get(monPath); err == nil {
 		mb = calcAverageInMBps(valueCurr, tsCurr, prev.Value, prev.ReadTime)
 	}
@@ -66,12 +67,12 @@ func calcMB(fs afero.Fs, monGroup string, ccd int, tsCurr time.Time, dataKeeper 
 	return mb
 }
 
-func calcAverageInMBps(currV int64, nowTime time.Time, lastV int64, lastTime time.Time) int {
+func calcAverageInMBps(currV int64, nowTime time.Time, lastV int64, lastTime time.Time) rmbtype.MBStat {
 	if currV == consts.UninitializedMB || lastV == consts.UninitializedMB || currV < lastV {
-		return consts.UninitializedMB
+		return rmbtype.MBStat{Total: consts.UninitializedMB}
 	}
 
 	elapsed := nowTime.Sub(lastTime)
 	mbInMB := (currV - lastV) / elapsed.Microseconds() * 1_000_000 / (1024 * 1024)
-	return int(mbInMB)
+	return rmbtype.MBStat{Total: int(mbInMB)}
 }

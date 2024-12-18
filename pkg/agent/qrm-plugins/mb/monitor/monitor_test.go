@@ -17,6 +17,7 @@ limitations under the License.
 package monitor
 
 import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/readmb/rmbtype"
 	"github.com/stretchr/testify/assert"
 	"reflect"
 	"testing"
@@ -34,9 +35,9 @@ type mockReadMBReader struct {
 	mock.Mock
 }
 
-func (m *mockReadMBReader) GetMB(qosGroup string) (map[int]int, error) {
+func (m *mockReadMBReader) GetMB(qosGroup string) (map[int]rmbtype.MBStat, error) {
 	args := m.Called(qosGroup)
-	return args.Get(0).(map[int]int), args.Error(1)
+	return args.Get(0).(map[int]rmbtype.MBStat), args.Error(1)
 }
 
 type mockWriteMBReader struct {
@@ -52,7 +53,7 @@ func Test_mbMonitor_GetMBQoSGroups(t1 *testing.T) {
 	t1.Parallel()
 
 	rmbReader := new(mockReadMBReader)
-	rmbReader.On("GetMB", "shared-50").Return(map[int]int{2: 200, 3: 300}, nil)
+	rmbReader.On("GetMB", "shared-50").Return(map[int]rmbtype.MBStat{2: {Total: 200}, 3: {Total: 300}}, nil)
 
 	wmbReader := new(mockWriteMBReader)
 	wmbReader.On("GetMB", 2).Return(20, nil)
@@ -115,7 +116,7 @@ func Test_mbMonitor_GetMBQoSGroups(t1 *testing.T) {
 func Test_getGroupCCDMBs(t *testing.T) {
 	t.Parallel()
 	type args struct {
-		rGroupCCDMB map[qosgroup.QoSGroup]map[int]int
+		rGroupCCDMB map[qosgroup.QoSGroup]map[int]rmbtype.MBStat
 		wGroupCCDMB map[qosgroup.QoSGroup]map[int]int
 	}
 	tests := []struct {
@@ -126,8 +127,8 @@ func Test_getGroupCCDMBs(t *testing.T) {
 		{
 			name: "happy path 1 gos group",
 			args: args{
-				rGroupCCDMB: map[qosgroup.QoSGroup]map[int]int{
-					qosgroup.QoSGroupDedicated: {2: 200, 3: 300},
+				rGroupCCDMB: map[qosgroup.QoSGroup]map[int]rmbtype.MBStat{
+					qosgroup.QoSGroupDedicated: {2: {Total: 200}, 3: {Total: 300}},
 				},
 				wGroupCCDMB: map[qosgroup.QoSGroup]map[int]int{
 					qosgroup.QoSGroupDedicated: {2: 20, 3: 30},
@@ -143,9 +144,9 @@ func Test_getGroupCCDMBs(t *testing.T) {
 		{
 			name: "drop out ccd wmb if r/w ratio unreasonable",
 			args: args{
-				rGroupCCDMB: map[qosgroup.QoSGroup]map[int]int{
-					qosgroup.QoSGroupDedicated: {2: 0, 3: 300},
-					qosgroup.QoSGroupSystem:    {2: 200, 3: 1},
+				rGroupCCDMB: map[qosgroup.QoSGroup]map[int]rmbtype.MBStat{
+					qosgroup.QoSGroupDedicated: {2: {Total: 0}, 3: {Total: 300}},
+					qosgroup.QoSGroupSystem:    {2: {Total: 200}, 3: {Total: 1}},
 				},
 				wGroupCCDMB: map[qosgroup.QoSGroup]map[int]int{
 					qosgroup.QoSGroupDedicated: {2: 20, 3: 30},

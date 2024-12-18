@@ -18,6 +18,7 @@ package monitor
 
 import (
 	"fmt"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/readmb/rmbtype"
 	"strings"
 	"sync"
 	"time"
@@ -121,12 +122,12 @@ func isRWRatioValid(r, w int) bool {
 	return r >= w
 }
 
-func getGroupCCDMBs(rGroupCCDMB, wGroupCCDMB map[qosgroup.QoSGroup]map[int]int) map[qosgroup.QoSGroup]map[int]*MBData {
+func getGroupCCDMBs(rGroupCCDMB map[qosgroup.QoSGroup]map[int]rmbtype.MBStat, wGroupCCDMB map[qosgroup.QoSGroup]map[int]int) map[qosgroup.QoSGroup]map[int]*MBData {
 	groupCCDMBs := make(map[qosgroup.QoSGroup]map[int]*MBData)
 	for qos, ccdMB := range rGroupCCDMB {
 		groupCCDMBs[qos] = make(map[int]*MBData)
 		for ccd, mb := range ccdMB {
-			groupCCDMBs[qos][ccd] = &MBData{ReadsMB: mb}
+			groupCCDMBs[qos][ccd] = &MBData{ReadsMB: mb.Total}
 		}
 	}
 	for qos, ccdMB := range wGroupCCDMB {
@@ -147,7 +148,7 @@ func getGroupCCDMBs(rGroupCCDMB, wGroupCCDMB map[qosgroup.QoSGroup]map[int]int) 
 	return groupCCDMBs
 }
 
-func getCCDQoSGroups(qosMBs map[qosgroup.QoSGroup]map[int]int) map[int][]qosgroup.QoSGroup {
+func getCCDQoSGroups(qosMBs map[qosgroup.QoSGroup]map[int]rmbtype.MBStat) map[int][]qosgroup.QoSGroup {
 	result := make(map[int][]qosgroup.QoSGroup)
 	for qos, ccdmb := range qosMBs {
 		for ccd, _ := range ccdmb {
@@ -158,8 +159,8 @@ func getCCDQoSGroups(qosMBs map[qosgroup.QoSGroup]map[int]int) map[int][]qosgrou
 }
 
 // getTopLevelReadsMBs gets MB based on top level mon data
-func (m *mbMonitor) getTopLevelReadsMBs() (map[qosgroup.QoSGroup]map[int]int, error) {
-	result := make(map[qosgroup.QoSGroup]map[int]int)
+func (m *mbMonitor) getTopLevelReadsMBs() (map[qosgroup.QoSGroup]map[int]rmbtype.MBStat, error) {
+	result := make(map[qosgroup.QoSGroup]map[int]rmbtype.MBStat)
 
 	qosLevels, err := resctrlfile.GetResctrlCtrlGroups(m.fs)
 	if err != nil {
