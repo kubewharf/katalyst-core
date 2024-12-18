@@ -16,6 +16,7 @@ limitations under the License.
 
 package strategy
 
+// DVFS: Dynamic Voltage Frequency Scaling, is a technique servers use to manage the power consumption.
 // the limit of dvfs effect a voluntary dvfs plan is allowed
 const voluntaryDVFSEffectMaximum = 10
 
