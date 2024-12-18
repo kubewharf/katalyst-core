@@ -19,12 +19,14 @@ package qrm
 import (
 	"time"
 
+	v1 "k8s.io/api/core/v1"
 	cliflag "k8s.io/component-base/cli/flag"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 type CPUOptions struct {
@@ -37,20 +39,26 @@ type CPUOptions struct {
 }
 
 type CPUDynamicPolicyOptions struct {
-	EnableCPUAdvisor                          bool
-	AdvisorGetAdviceInterval                  time.Duration
-	EnableCPUPressureEviction                 bool
-	LoadPressureEvictionSkipPools             []string
-	EnableSyncingCPUIdle                      bool
-	EnableCPUIdle                             bool
-	CPUNUMAHintPreferPolicy                   string
-	CPUNUMAHintPreferLowThreshold             float64
-	SharedCoresNUMABindingResultAnnotationKey string
+	EnableCPUAdvisor                           bool
+	AdvisorGetAdviceInterval                   time.Duration
+	EnableCPUPressureEviction                  bool
+	LoadPressureEvictionSkipPools              []string
+	EnableSyncingCPUIdle                       bool
+	EnableCPUIdle                              bool
+	CPUNUMAHintPreferPolicy                    string
+	CPUNUMAHintPreferLowThreshold              float64
+	SharedCoresNUMABindingResultAnnotationKey  string
+	EnableSharedCoresNUMABindingHintOptimizer  bool
+	SharedCoresNUMABindingHintOptimizerOptions ServiceProfileHintOptimizerOptions
 }
 
 type CPUNativePolicyOptions struct {
 	EnableFullPhysicalCPUsOnly bool
 	CPUAllocationOption        string
+}
+
+type ServiceProfileHintOptimizerOptions struct {
+	ResourceWeights native.ResourceThreshold
 }
 
 func NewCPUOptions() *CPUOptions {
@@ -72,6 +80,13 @@ func NewCPUOptions() *CPUOptions {
 				commonstate.PoolNameReserve,
 			},
 			SharedCoresNUMABindingResultAnnotationKey: consts.PodAnnotationNUMABindResultKey,
+			EnableSharedCoresNUMABindingHintOptimizer: false,
+			SharedCoresNUMABindingHintOptimizerOptions: ServiceProfileHintOptimizerOptions{
+				ResourceWeights: native.ResourceThreshold{
+					v1.ResourceCPU:    1.,
+					v1.ResourceMemory: 1.,
+				},
+			},
 		},
 		CPUNativePolicyOptions: CPUNativePolicyOptions{
 			EnableFullPhysicalCPUsOnly: false,
@@ -115,6 +130,10 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringVar(&o.SharedCoresNUMABindingResultAnnotationKey, "shared-cores-numa-binding-result-annotation-key",
 		o.SharedCoresNUMABindingResultAnnotationKey, "the key of shared cores numa binding result annotation, "+
 			"default is katalyst.kubewharf.io/numa_bind_result")
+	fs.BoolVar(&o.EnableSharedCoresNUMABindingHintOptimizer, "enable-shared-cores-numa-binding-hint-optimizer",
+		o.EnableSharedCoresNUMABindingHintOptimizer, "if set true, we will enable shared cores numa binding hint optimizer")
+	fs.Var(&o.SharedCoresNUMABindingHintOptimizerOptions.ResourceWeights, "shared-cores-numa-binding-hint-optimizer-resource-weights",
+		"it indicates resource weights for shared cores numa binding hint optimizer")
 }
 
 func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
@@ -132,5 +151,7 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 	conf.CPUNUMAHintPreferPolicy = o.CPUNUMAHintPreferPolicy
 	conf.CPUNUMAHintPreferLowThreshold = o.CPUNUMAHintPreferLowThreshold
 	conf.SharedCoresNUMABindingResultAnnotationKey = o.SharedCoresNUMABindingResultAnnotationKey
+	conf.EnableSharedCoresNUMABindingHintOptimizer = o.EnableSharedCoresNUMABindingHintOptimizer
+	conf.SharedCoresNUMABindingHintOptimizerConfig.ResourceWeights = o.SharedCoresNUMABindingHintOptimizerOptions.ResourceWeights
 	return nil
 }
