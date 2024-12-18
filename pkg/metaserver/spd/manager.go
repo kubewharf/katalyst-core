@@ -208,10 +208,8 @@ func (m *serviceProfilingManager) ServiceExtendedIndicator(ctx context.Context, 
 
 func (m *serviceProfilingManager) ServiceBaseline(ctx context.Context, podMeta metav1.ObjectMeta) (bool, error) {
 	spd, err := m.fetcher.GetSPD(ctx, podMeta)
-	if err != nil && !errors.IsNotFound(err) {
+	if err != nil {
 		return false, err
-	} else if err != nil {
-		return false, nil
 	}
 
 	baselineSentinel, err := util.GetSPDBaselineSentinel(spd)

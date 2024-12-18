@@ -18,6 +18,7 @@ package native
 
 import (
 	"fmt"
+	"math/big"
 	"sort"
 	"strconv"
 	"strings"
@@ -331,6 +332,10 @@ func MultiplyQuantity(quantity resource.Quantity, y float64) resource.Quantity {
 	return *resource.NewQuantity(value, quantity.Format)
 }
 
+func GetFloat64Quantity(value float64) resource.Quantity {
+	return resource.MustParse(big.NewFloat(value).String())
+}
+
 // AggregateSumQuantities get the sum of quantities
 func AggregateSumQuantities(quantities []resource.Quantity) *resource.Quantity {
 	var res *resource.Quantity
@@ -365,6 +370,32 @@ func AggregateMaxQuantities(quantities []resource.Quantity) *resource.Quantity {
 			maxQuantity := quantity.DeepCopy()
 			res = &maxQuantity
 		}
+	}
+	return res
+}
+
+// AddQuantities adds quantitiesB into quantitiesA, and returns error if length of quantitiesA and quantitiesB are not equal.
+func AddQuantities(quantitiesA, quantitiesB []resource.Quantity) error {
+	if quantitiesB == nil {
+		return nil
+	}
+
+	if len(quantitiesA) != len(quantitiesB) {
+		return fmt.Errorf("length of quantitiesA and quantitiesB are not equal, %d vs %d",
+			len(quantitiesA), len(quantitiesB))
+	}
+
+	for i := range quantitiesB {
+		quantitiesA[i].Add(quantitiesB[i])
+	}
+	return nil
+}
+
+// DuplicateQuantities duplicates quantities to the given length.
+func DuplicateQuantities(quantity resource.Quantity, length int) []resource.Quantity {
+	res := make([]resource.Quantity, 0, length)
+	for i := 0; i < length; i++ {
+		res = append(res, quantity.DeepCopy())
 	}
 	return res
 }

@@ -49,6 +49,7 @@ import (
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/validator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
@@ -132,17 +133,18 @@ func getTestDynamicPolicyWithoutInitialization(topology *machine.CPUTopology, st
 	dynamicConfig := dynamic.NewDynamicAgentConfiguration()
 
 	policyImplement := &DynamicPolicy{
-		machineInfo:               machineInfo,
-		qosConfig:                 qosConfig,
-		dynamicConfig:             dynamicConfig,
-		state:                     stateImpl,
-		advisorValidator:          validator.NewCPUAdvisorValidator(stateImpl, machineInfo),
-		featureGateManager:        featuregatenegotiation.NewFeatureGateManager(config.NewConfiguration()),
-		reservedReclaimedCPUsSize: general.Max(reservedReclaimedCPUsSize, topology.NumNUMANodes),
-		reservedCPUs:              reservedCPUs,
-		enableReclaimNUMABinding:  true,
-		emitter:                   metrics.DummyMetrics{},
-		podDebugAnnoKeys:          []string{podDebugAnnoKey},
+		machineInfo:                         machineInfo,
+		qosConfig:                           qosConfig,
+		dynamicConfig:                       dynamicConfig,
+		state:                               stateImpl,
+		advisorValidator:                    validator.NewCPUAdvisorValidator(stateImpl, machineInfo),
+		featureGateManager:                  featuregatenegotiation.NewFeatureGateManager(config.NewConfiguration()),
+		reservedReclaimedCPUsSize:           general.Max(reservedReclaimedCPUsSize, topology.NumNUMANodes),
+		reservedCPUs:                        reservedCPUs,
+		enableReclaimNUMABinding:            true,
+		emitter:                             metrics.DummyMetrics{},
+		podDebugAnnoKeys:                    []string{podDebugAnnoKey},
+		sharedCoresNUMABindingHintOptimizer: &hintoptimizer.DummyHintOptimizer{},
 	}
 
 	// register allocation behaviors for pods with different QoS level
