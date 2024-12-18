@@ -28,10 +28,13 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -201,7 +204,13 @@ func (bs *baseServer) Stop() error {
 	return nil
 }
 
-func (bs *baseServer) RemovePod(_ context.Context, request *advisorsvc.RemovePodRequest) (*advisorsvc.RemovePodResponse, error) {
+func (bs *baseServer) RemovePod(ctx context.Context, request *advisorsvc.RemovePodRequest) (*advisorsvc.RemovePodResponse, error) {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if ok && sets.NewString(md[util.AdvisorRPCMetadataKeySupportsGetAdvice]...).Has(util.AdvisorRPCMetadataValueSupportsGetAdvice) {
+		general.Infof("ignoring RemovePod request from qrm-plugin with GetAdvice support")
+		return &advisorsvc.RemovePodResponse{}, nil
+	}
+
 	_ = bs.emitter.StoreInt64(bs.genMetricsName(metricServerRemovePodCalled), int64(bs.period.Seconds()), metrics.MetricTypeNameCount)
 
 	if request == nil {
@@ -221,7 +230,13 @@ func (bs *baseServer) RemovePod(_ context.Context, request *advisorsvc.RemovePod
 	return &advisorsvc.RemovePodResponse{}, err
 }
 
-func (bs *baseServer) AddContainer(_ context.Context, request *advisorsvc.ContainerMetadata) (*advisorsvc.AddContainerResponse, error) {
+func (bs *baseServer) AddContainer(ctx context.Context, request *advisorsvc.ContainerMetadata) (*advisorsvc.AddContainerResponse, error) {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if ok && sets.NewString(md[util.AdvisorRPCMetadataKeySupportsGetAdvice]...).Has(util.AdvisorRPCMetadataValueSupportsGetAdvice) {
+		general.Infof("ignoring AddContainer request from qrm-plugin with GetAdvice support")
+		return &advisorsvc.AddContainerResponse{}, nil
+	}
+
 	_ = bs.emitter.StoreInt64(bs.genMetricsName(metricServerAddContainerCalled), int64(bs.period.Seconds()), metrics.MetricTypeNameCount)
 
 	if request == nil {

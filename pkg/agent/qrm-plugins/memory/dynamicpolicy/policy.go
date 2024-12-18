@@ -481,8 +481,6 @@ func (p *DynamicPolicy) Start() (err error) {
 		default:
 		}
 
-		// TODO: do we need to stop AddContainer/RemovePod from being invoked?
-
 		general.Infof("advisor does not implement GetAdvice, fall back to ListAndWatch")
 
 		// keep compatible to old version sys advisor not supporting list containers from memory plugin
