@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/uuid"
@@ -66,7 +67,16 @@ const (
 
 // initAdvisorClientConn initializes memory-advisor related connections
 func (p *DynamicPolicy) initAdvisorClientConn() (err error) {
-	memoryAdvisorConn, err := process.Dial(p.memoryAdvisorSocketAbsPath, 5*time.Second)
+	memoryAdvisorConn, err := process.Dial(
+		p.memoryAdvisorSocketAbsPath,
+		5*time.Second,
+		grpc.WithUnaryInterceptor(func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+			// add metadata to outgoing context to indicate that qrm supports GetAdvice.
+			// advisor that also supports GetAdvice will ignore such AddContainer/RemovePod requests.
+			ctx = metadata.AppendToOutgoingContext(ctx, util.AdvisorRPCMetadataKeySupportsGetAdvice, util.AdvisorRPCMetadataValueSupportsGetAdvice)
+			return invoker(ctx, method, req, reply, cc, opts...)
+		}),
+	)
 	if err != nil {
 		err = fmt.Errorf("get memory advisor connection with socket: %s failed with error: %v", p.memoryAdvisorSocketAbsPath, err)
 		return

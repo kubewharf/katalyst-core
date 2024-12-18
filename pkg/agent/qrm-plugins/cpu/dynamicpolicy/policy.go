@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -363,8 +364,6 @@ func (p *DynamicPolicy) Start() (err error) {
 			return
 		default:
 		}
-
-		// TODO: do we need to stop AddContainer/RemovePod from being invoked?
 
 		general.Infof("advisor does not implement GetAdvice, fall back to ListAndWatch")
 
@@ -978,7 +977,16 @@ func (p *DynamicPolicy) removeContainer(podUID, containerName string) error {
 
 // initAdvisorClientConn initializes cpu-advisor related connections
 func (p *DynamicPolicy) initAdvisorClientConn() (err error) {
-	cpuAdvisorConn, err := process.Dial(p.cpuAdvisorSocketAbsPath, 5*time.Second)
+	cpuAdvisorConn, err := process.Dial(
+		p.cpuAdvisorSocketAbsPath,
+		5*time.Second,
+		grpc.WithUnaryInterceptor(func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+			// add metadata to outgoing context to indicate that qrm supports GetAdvice.
+			// advisor that also supports GetAdvice will ignore such AddContainer/RemovePod requests.
+			ctx = metadata.AppendToOutgoingContext(ctx, util.AdvisorRPCMetadataKeySupportsGetAdvice, util.AdvisorRPCMetadataValueSupportsGetAdvice)
+			return invoker(ctx, method, req, reply, cc, opts...)
+		}),
+	)
 	if err != nil {
 		err = fmt.Errorf("get cpu advisor connection with socket: %s failed with error: %v", p.cpuAdvisorSocketAbsPath, err)
 		return

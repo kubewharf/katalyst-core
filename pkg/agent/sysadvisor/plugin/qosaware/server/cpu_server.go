@@ -100,9 +100,6 @@ func (cs *cpuServer) GetAdvice(ctx context.Context, request *cpuadvisor.GetAdvic
 	_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerGetAdviceCalled), 1, metrics.MetricTypeNameCount)
 	general.Infof("get advice request: %v", general.ToString(request))
 
-	// TODO: figure out how to make GetAdvice exclusive with ListAndWatch/AddContainer/RemovePod
-	// TODO: healthz
-
 	if err := cs.updateMetaCacheInput(ctx, request); err != nil {
 		general.Errorf("update meta cache failed: %v", err)
 		return nil, fmt.Errorf("update meta cache failed: %w", err)
