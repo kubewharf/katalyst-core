@@ -19,6 +19,7 @@ package kubeletconfig
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -61,7 +62,7 @@ func (k *kubeletConfigFetcherImpl) GetKubeletConfig(ctx context.Context) (*nativ
 			return nil, fmt.Errorf("failed to get kubelet config via secure port, error: %v", err)
 		}
 	} else {
-		url := fmt.Sprintf(configzApi, k.baseConf.KubeletReadOnlyPort, k.baseConf.KubeletConfigEndpoint)
+		url := fmt.Sprintf(configzApi, k.baseConf.KubeletReadOnlyPort, strings.Trim(k.baseConf.KubeletConfigEndpoint, "/"))
 		if err := process.GetAndUnmarshal(url, &configz); err != nil {
 			return nil, fmt.Errorf("failed to get kubelet config via insecure port, error: %v", err)
 		}
