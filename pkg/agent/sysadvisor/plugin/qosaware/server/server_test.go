@@ -59,8 +59,8 @@ func (f *fakeMemoryFailedCount) Start() error {
 func TestServerStart(t *testing.T) {
 	t.Parallel()
 
-	cs := newTestCPUServer(t, []*v1.Pod{})
-	ms := newTestMemoryServer(t, []*v1.Pod{})
+	cs := newTestCPUServer(t, nil, []*v1.Pod{})
+	ms := newTestMemoryServer(t, nil, []*v1.Pod{})
 
 	server := &qrmServerWrapper{serversToRun: map[v1.ResourceName]subQRMServer{
 		v1.ResourceCPU:    cs,
@@ -85,8 +85,8 @@ func TestServerStart(t *testing.T) {
 func TestServerStartWithSomeFailed(t *testing.T) {
 	t.Parallel()
 
-	cs := newTestCPUServer(t, []*v1.Pod{})
-	ms := newTestMemoryServer(t, []*v1.Pod{})
+	cs := newTestCPUServer(t, nil, []*v1.Pod{})
+	ms := newTestMemoryServer(t, nil, []*v1.Pod{})
 
 	server := &qrmServerWrapper{serversToRun: map[v1.ResourceName]subQRMServer{
 		"a": &fakeServerStartFailed{name: "a"},
@@ -119,8 +119,8 @@ func TestServerStartWithSomeFailed(t *testing.T) {
 func TestServerStartRecovery(t *testing.T) {
 	t.Parallel()
 
-	cs := newTestCPUServer(t, []*v1.Pod{})
-	ms := newTestMemoryServer(t, []*v1.Pod{})
+	cs := newTestCPUServer(t, nil, []*v1.Pod{})
+	ms := newTestMemoryServer(t, nil, []*v1.Pod{})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

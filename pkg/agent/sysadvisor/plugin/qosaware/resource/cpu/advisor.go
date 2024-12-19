@@ -54,7 +54,6 @@ import (
 // metric names for cpu advisor
 const (
 	metricCPUAdvisorPoolSize           = "cpu_advisor_pool_size"
-	metricCPUAdvisorUpdateLag          = "cpu_advisor_update_lag"
 	metricCPUAdvisorUpdateDuration     = "cpu_advisor_update_duration"
 	metricRegionStatus                 = "region_status"
 	metricRegionIndicatorTargetPrefix  = "region_indicator_target_"
@@ -92,9 +91,6 @@ type cpuResourceAdvisor struct {
 	extraConf interface{}
 	period    time.Duration
 
-	recvCh         chan types.TriggerInfo
-	sendCh         chan types.InternalCPUCalculationResult
-	startTime      time.Time
 	advisorUpdated bool
 
 	regionMap          map[string]region.QoSRegion // map[regionName]region
@@ -115,7 +111,6 @@ type cpuResourceAdvisor struct {
 	metaCache  metacache.MetaCache
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
-	doOnce     sync.Once
 }
 
 // NewCPUResourceAdvisor returns a cpuResourceAdvisor instance
@@ -127,9 +122,6 @@ func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, me
 		extraConf: extraConf,
 		period:    conf.QoSAwarePluginConfiguration.SyncPeriod,
 
-		recvCh:         make(chan types.TriggerInfo, 1),
-		sendCh:         make(chan types.InternalCPUCalculationResult, 1),
-		startTime:      time.Now(),
 		advisorUpdated: false,
 
 		regionMap:          make(map[string]region.QoSRegion),
@@ -162,36 +154,8 @@ func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, me
 }
 
 func (cra *cpuResourceAdvisor) Run(ctx context.Context) {
-	for {
-		select {
-		case v := <-cra.recvCh:
-			cra.doOnce.Do(func() {
-				general.RegisterReportCheck(cpuAdvisorHealthCheckName, healthCheckTolerationDuration)
-			})
-
-			lag := time.Since(v.TimeStamp)
-			klog.Infof("[qosaware-cpu] receive update trigger, checkpoint at %v", v.TimeStamp)
-			cra.emitter.StoreFloat64(metricCPUAdvisorUpdateLag, float64(lag/time.Millisecond), metrics.MetricTypeNameRaw)
-
-			if lag.Seconds() > cra.period.Seconds() {
-				// do not update if checkpoint is outdated
-				klog.Errorf("[qosaware-cpu] skip update: checkpoint is outdated, lag %v", lag)
-				continue
-			}
-			err := cra.update()
-			_ = general.UpdateHealthzStateByError(cpuAdvisorHealthCheckName, err)
-			if err != nil {
-				klog.Errorf("[qosaware-cpu] failed to do update: %q", err)
-				continue
-			}
-		case <-ctx.Done():
-			return
-		}
-	}
-}
-
-func (cra *cpuResourceAdvisor) GetChannels() (interface{}, interface{}) {
-	return cra.recvCh, cra.sendCh
+	general.RegisterReportCheck(cpuAdvisorHealthCheckName, healthCheckTolerationDuration)
+	<-ctx.Done()
 }
 
 func (cra *cpuResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
@@ -220,25 +184,35 @@ func (cra *cpuResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
 	return headroom, err
 }
 
+func (cra *cpuResourceAdvisor) UpdateAndGetAdvice() (interface{}, error) {
+	result, err := cra.update()
+	_ = general.UpdateHealthzStateByError(cpuAdvisorHealthCheckName, err)
+	return result, err
+}
+
 // update works in a monolithic way to maintain lifecycle and triggers update actions for all regions;
 // todo: re-consider whether it's efficient or we should make start individual goroutine for each region
-func (cra *cpuResourceAdvisor) update() (err error) {
+func (cra *cpuResourceAdvisor) update() (*types.InternalCPUCalculationResult, error) {
 	cra.mutex.Lock()
 	defer cra.mutex.Unlock()
-	if err = cra.updateWithIsolationGuardian(true); err != nil {
+
+	result, err := cra.updateWithIsolationGuardian(true)
+	if err != nil {
 		if err == errIsolationSafetyCheckFailed {
 			klog.Warningf("[qosaware-cpu] failed to updateWithIsolationGuardian(true): %q", err)
 			return cra.updateWithIsolationGuardian(false)
 		}
-		return err
+		return nil, err
 	}
-	return nil
+	return result, nil
 }
 
-// updateWithIsolationGuardian returns true if the process works as expected,
-// otherwise, we should retry with the isolation disabled
+// If updateWithIsolationGuardian fails with isolation enabled, we should try again with isolation disabled.
 // todo: we should re-design the mechanism of isolation instead of disabling this functionality
-func (cra *cpuResourceAdvisor) updateWithIsolationGuardian(tryIsolation bool) error {
+func (cra *cpuResourceAdvisor) updateWithIsolationGuardian(tryIsolation bool) (
+	*types.InternalCPUCalculationResult,
+	error,
+) {
 	startTime := time.Now()
 	defer func(t time.Time) {
 		elapsed := time.Since(t)
@@ -246,17 +220,11 @@ func (cra *cpuResourceAdvisor) updateWithIsolationGuardian(tryIsolation bool) er
 		klog.Infof("[qosaware-cpu] update duration %v", elapsed)
 	}(startTime)
 
-	// skip updating during startup
-	if startTime.Before(cra.startTime.Add(types.StartUpPeriod)) {
-		klog.Infof("[qosaware-cpu] skip updating: starting up")
-		return nil
-	}
-
 	// sanity check: if reserve pool exists
 	reservePoolInfo, ok := cra.metaCache.GetPoolInfo(commonstate.PoolNameReserve)
 	if !ok || reservePoolInfo == nil {
 		klog.Errorf("[qosaware-cpu] skip update: reserve pool does not exist")
-		return nil
+		return nil, fmt.Errorf("reserve pool does not exist")
 	}
 
 	cra.updateNumasAvailableResource()
@@ -265,14 +233,14 @@ func (cra *cpuResourceAdvisor) updateWithIsolationGuardian(tryIsolation bool) er
 	// assign containers to regions
 	if err := cra.assignContainersToRegions(); err != nil {
 		klog.Errorf("[qosaware-cpu] assign containers to regions failed: %q", err)
-		return fmt.Errorf("failed to assign containers to regions: %q", err)
+		return nil, fmt.Errorf("failed to assign containers to regions: %q", err)
 	}
 
 	cra.gcRegionMap()
 	cra.updateAdvisorEssentials()
 	if tryIsolation && isolationExists && !cra.checkIsolationSafety() {
 		klog.Errorf("[qosaware-cpu] failed to check isolation")
-		return errIsolationSafetyCheckFailed
+		return nil, errIsolationSafetyCheckFailed
 	}
 
 	// run an episode of provision and headroom policy update for each region
@@ -300,20 +268,12 @@ func (cra *cpuResourceAdvisor) updateWithIsolationGuardian(tryIsolation bool) er
 	calculationResult, err := cra.assembleProvision()
 	if err != nil {
 		klog.Errorf("[qosaware-cpu] assemble provision failed: %q", err)
-		return fmt.Errorf("failed to assemble provisioner: %q", err)
+		return nil, fmt.Errorf("failed to assemble provisioner: %q", err)
 	}
 	cra.updateRegionStatus()
 	cra.emitMetrics(calculationResult)
 
-	// notify cpu server
-	select {
-	case cra.sendCh <- calculationResult:
-		klog.Infof("[qosaware-cpu] notify cpu server: %+v", calculationResult)
-		return nil
-	default:
-		klog.Warningf("[qosaware-cpu] channel is full, drop the new advice")
-		return nil
-	}
+	return &calculationResult, nil
 }
 
 // setIsolatedContainers get isolation status from isolator and update into containers
