@@ -199,21 +199,32 @@ func (m *mbMonitor) getWritesMBs(ccdQoSGroup map[int][]qosgroup.QoSGroup) (map[q
 	return result, nil
 }
 
+func distributeLocalRemote(r, w, readLocal int) (rLocal, rRemote, wLocal, wRemote int) {
+	rLocal = readLocal
+	rRemote = r - readLocal
+	if rRemote < 0 {
+		rRemote = 0
+	}
+
+	lRatio := 1.0
+	if r > 0 && rLocal <= r {
+		lRatio = float64(rLocal) / float64(r)
+	}
+
+	wLocal = int(float64(w) * lRatio)
+	wRemote = w - wLocal
+	return
+}
+
 func DisplayMBSummary(qosCCDMB map[qosgroup.QoSGroup]*MBQoSGroup) string {
 	var sb strings.Builder
 	sb.WriteString("----- mb summary -----\n")
 	for qos, ccdmb := range qosCCDMB {
 		sb.WriteString(fmt.Sprintf("--QoS: %s\n", qos))
 		for ccd, mb := range ccdmb.CCDMB {
-			rLocal := mb.LocalReadsMB
-			rRemote := mb.ReadsMB - rLocal
-			lRatio := 100
-			if mb.ReadsMB > 0 {
-				lRatio = rLocal * 100 / mb.ReadsMB
-			}
-			wLocal := mb.WritesMB * lRatio / 100
-			wRemote := mb.WritesMB - wLocal
-			sb.WriteString(fmt.Sprintf("      ccd %d: r %d, w %d, total %d, [ r: (local: %d, remote: %d), w: (local: %d, (remote: %d) ]\n",
+			rLocal, rRemote, wLocal, wRemote := distributeLocalRemote(mb.ReadsMB, mb.WritesMB, mb.LocalReadsMB)
+
+			sb.WriteString(fmt.Sprintf("      ccd %d: r %d, w %d, total %d, [ r: (local: %v, remote: %v), w: (local: %v, (remote: %v) ]\n",
 				ccd, mb.ReadsMB, mb.WritesMB, mb.TotalMB,
 				rLocal, rRemote, wLocal, wRemote))
 		}
