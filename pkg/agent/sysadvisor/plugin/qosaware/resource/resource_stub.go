@@ -66,17 +66,7 @@ func (r *ResourceAdvisorStub) SetHeadroom(resourceName v1.ResourceName, quantity
 	r.Lock()
 	defer r.Unlock()
 
-	var resName types.QoSResourceName
-	switch resourceName {
-	case v1.ResourceCPU:
-		resName = types.QoSResourceCPU
-	case v1.ResourceMemory:
-		resName = types.QoSResourceMemory
-	default:
-		return
-	}
-
-	if sub, ok := r.subAdvisor[resName]; ok {
+	if sub, ok := r.subAdvisor[types.QoSResourceName(resourceName)]; ok {
 		sub.SetHeadroom(quantity)
 	}
 }

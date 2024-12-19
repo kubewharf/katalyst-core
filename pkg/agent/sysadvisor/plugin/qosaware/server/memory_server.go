@@ -273,9 +273,9 @@ func (ms *memoryServer) assembleResponse(result *types.InternalMemoryCalculation
 		}
 	}
 
-	extraNumaHeadRoom := ms.assembleHeadroom()
-	if extraNumaHeadRoom != nil {
-		resp.ExtraEntries = append(resp.ExtraEntries, extraNumaHeadRoom)
+	extraNumaHeadroom := ms.assembleHeadroom()
+	if extraNumaHeadroom != nil {
+		resp.ExtraEntries = append(resp.ExtraEntries, extraNumaHeadroom)
 	}
 
 	return &resp

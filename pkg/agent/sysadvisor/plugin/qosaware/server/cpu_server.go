@@ -239,28 +239,6 @@ func (cs *cpuServer) assembleResponse(advisorResp *types.InternalCPUCalculationR
 		AllowSharedCoresOverlapReclaimedCores: advisorResp.AllowSharedCoresOverlapReclaimedCores,
 	}
 
-	for _, retEntry := range advisorResp.ExtraEntries {
-		found := false
-		for _, respEntry := range resp.ExtraEntries {
-			if retEntry.CgroupPath == respEntry.CgroupPath {
-				found = true
-				for k, v := range retEntry.Values {
-					respEntry.CalculationResult.Values[k] = v
-				}
-				break
-			}
-		}
-		if !found {
-			calculationInfo := &advisorsvc.CalculationInfo{
-				CgroupPath: retEntry.CgroupPath,
-				CalculationResult: &advisorsvc.CalculationResult{
-					Values: general.DeepCopyMap(retEntry.Values),
-				},
-			}
-			resp.ExtraEntries = append(resp.ExtraEntries, calculationInfo)
-		}
-	}
-
 	extraNumaHeadRoom := cs.assembleHeadroom()
 	if extraNumaHeadRoom != nil {
 		resp.ExtraEntries = append(resp.ExtraEntries, extraNumaHeadRoom)
@@ -269,7 +247,7 @@ func (cs *cpuServer) assembleResponse(advisorResp *types.InternalCPUCalculationR
 	return resp
 }
 
-// assmble per-numa headroom
+// assemble per-numa headroom
 func (cs *cpuServer) assembleHeadroom() *advisorsvc.CalculationInfo {
 	numaAllocatable, err := cs.headroomResourceManager.GetNumaAllocatable()
 	if err != nil {
@@ -277,7 +255,7 @@ func (cs *cpuServer) assembleHeadroom() *advisorsvc.CalculationInfo {
 		return nil
 	}
 
-	numaHeadroom := make(map[int]float64)
+	numaHeadroom := make(cpuadvisor.CPUNUMAHeadroom)
 	for numaID, res := range numaAllocatable {
 		numaHeadroom[numaID] = float64(res.Value()) / 1000.0
 	}
