@@ -32,7 +32,7 @@ type memoryHeadroomManagerImpl struct {
 	*GenericHeadroomManager
 }
 
-func NewMemoryHeadroomManager(emitter metrics.MetricEmitter, _ *metaserver.MetaServer,
+func NewMemoryHeadroomManager(emitter metrics.MetricEmitter, meteServer *metaserver.MetaServer,
 	conf *config.Configuration, headroomAdvisor hmadvisor.ResourceAdvisor,
 ) (manager.HeadroomManager, error) {
 	gm := NewGenericHeadroomManager(
@@ -44,6 +44,7 @@ func NewMemoryHeadroomManager(emitter metrics.MetricEmitter, _ *metaserver.MetaS
 		emitter,
 		generateMemoryWindowOptions(conf.HeadroomReporterConfiguration),
 		generateReclaimedMemoryOptionsFunc(conf.DynamicAgentConfiguration),
+		meteServer,
 	)
 
 	cm := &memoryHeadroomManagerImpl{

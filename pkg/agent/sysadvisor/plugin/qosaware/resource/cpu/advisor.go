@@ -158,7 +158,7 @@ func (cra *cpuResourceAdvisor) Run(ctx context.Context) {
 	<-ctx.Done()
 }
 
-func (cra *cpuResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
+func (cra *cpuResourceAdvisor) GetHeadroom() (resource.Quantity, map[int]resource.Quantity, error) {
 	klog.Infof("[qosaware-cpu] receive get headroom request")
 
 	cra.mutex.RLock()
@@ -166,22 +166,22 @@ func (cra *cpuResourceAdvisor) GetHeadroom() (resource.Quantity, error) {
 
 	if !cra.advisorUpdated {
 		klog.Infof("[qosaware-cpu] skip getting headroom: advisor not updated")
-		return resource.Quantity{}, fmt.Errorf("advisor not updated")
+		return resource.Quantity{}, nil, fmt.Errorf("advisor not updated")
 	}
 
 	if cra.headroomAssembler == nil {
 		klog.Errorf("[qosaware-cpu] get headroom failed: no legal assembler")
-		return resource.Quantity{}, fmt.Errorf("no legal assembler")
+		return resource.Quantity{}, nil, fmt.Errorf("no legal assembler")
 	}
 
-	headroom, err := cra.headroomAssembler.GetHeadroom()
+	headroom, numaHeadroom, err := cra.headroomAssembler.GetHeadroom()
 	if err != nil {
 		klog.Errorf("[qosaware-cpu] get headroom failed: %v", err)
 	} else {
 		klog.Infof("[qosaware-cpu] get headroom: %v", headroom)
 	}
 
-	return headroom, err
+	return headroom, numaHeadroom, err
 }
 
 func (cra *cpuResourceAdvisor) UpdateAndGetAdvice() (interface{}, error) {
@@ -559,9 +559,7 @@ func (cra *cpuResourceAdvisor) assembleProvision() (types.InternalCPUCalculation
 		return types.InternalCPUCalculationResult{}, fmt.Errorf("no legal provision assembler")
 	}
 
-	calculationResult, err := cra.provisionAssembler.AssembleProvision()
-
-	return calculationResult, err
+	return cra.provisionAssembler.AssembleProvision()
 }
 
 func (cra *cpuResourceAdvisor) emitMetrics(calculationResult types.InternalCPUCalculationResult) {

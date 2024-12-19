@@ -32,7 +32,7 @@ type cpuHeadroomManagerImpl struct {
 	*GenericHeadroomManager
 }
 
-func NewCPUHeadroomManager(emitter metrics.MetricEmitter, _ *metaserver.MetaServer,
+func NewCPUHeadroomManager(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
 	conf *config.Configuration, headroomAdvisor hmadvisor.ResourceAdvisor,
 ) (manager.HeadroomManager, error) {
 	gm := NewGenericHeadroomManager(
@@ -44,6 +44,7 @@ func NewCPUHeadroomManager(emitter metrics.MetricEmitter, _ *metaserver.MetaServ
 		emitter,
 		generateCPUWindowOptions(conf.HeadroomReporterConfiguration),
 		generateReclaimCPUOptionsFunc(conf.DynamicAgentConfiguration),
+		metaServer,
 	)
 
 	cm := &cpuHeadroomManagerImpl{
