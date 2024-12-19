@@ -204,20 +204,9 @@ func (m *GenericHeadroomManager) sync(_ context.Context) {
 		return
 	}
 
-	var resourceName types.QoSResourceName
-	switch m.resourceName {
-	case v1.ResourceCPU:
-		resourceName = types.QoSResourceCPU
-	case v1.ResourceMemory:
-		resourceName = types.QoSResourceMemory
-	default:
-		klog.Errorf("resource %v NOT support to get headroom", m.resourceName)
-		return
-	}
-
-	subAdvisor, err := m.headroomAdvisor.GetSubAdvisor(resourceName)
+	subAdvisor, err := m.headroomAdvisor.GetSubAdvisor(types.QoSResourceName(m.resourceName))
 	if err != nil {
-		klog.Errorf("get SubAdvisor with resource %v failed: %v", resourceName, err)
+		klog.Errorf("get SubAdvisor with resource %v failed: %v", m.resourceName, err)
 		return
 	}
 
@@ -232,12 +221,6 @@ func (m *GenericHeadroomManager) sync(_ context.Context) {
 	reportNUMAResult := make(map[int]*resource.Quantity)
 	numaResultReady := true
 	numaSum := 0.0
-	reservedResourceForReportPerNUMA := *resource.NewQuantity(int64(float64(reclaimOptions.ReservedResourceForReport.Value())/float64(len(numaResult))), resource.DecimalSI)
-	min := float64(reclaimOptions.MinReclaimedResourceForReport.Value()) / float64(len(numaResult))
-	if reclaimOptions.MinReclaimedResourceForReport.Value() != 0 && min == 0 {
-		min = 1
-	}
-	minReclaimedResourceForReportPerNUMA := *resource.NewQuantity(int64(min), resource.DecimalSI)
 	for numaID, ret := range numaResult {
 		numaWindow, ok := m.reportNUMASlidingWindow[numaID]
 		if !ok {
@@ -252,10 +235,6 @@ func (m *GenericHeadroomManager) sync(_ context.Context) {
 			continue
 		}
 
-		result.Sub(reservedResourceForReportPerNUMA)
-		if result.Cmp(minReclaimedResourceForReportPerNUMA) < 0 {
-			result = &minReclaimedResourceForReportPerNUMA
-		}
 		reportNUMAResult[numaID] = result
 		numaSum += float64(result.Value())
 	}
