@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"os"
 	"path"
 	"path/filepath"
@@ -34,7 +35,11 @@ import (
 	"github.com/cilium/ebpf/rlimit"
 	info "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -4828,4 +4833,149 @@ func Test_adjustAllocationEntries(t *testing.T) {
 	as.Equal(uint64(6442450944), machineStateNew[v1.ResourceMemory][0].Free)
 	as.Equal(uint64(5368709120), machineStateNew[v1.ResourceMemory][1].Free)
 	as.Equal(uint64(6979321856), machineStateNew[v1.ResourceMemory][2].Free)
+}
+
+type mockMemoryAdvisor struct {
+	mock.Mock
+	advisorsvc.AdvisorServiceServer
+}
+
+func (m *mockMemoryAdvisor) GetAdvice(ctx context.Context, in *advisorsvc.GetAdviceRequest) (*advisorsvc.GetAdviceResponse, error) {
+	args := m.Called(ctx, in)
+	return args.Get(0).(*advisorsvc.GetAdviceResponse), args.Error(1)
+}
+
+func (m *mockMemoryAdvisor) ListAndWatch(in *advisorsvc.Empty, srv advisorsvc.AdvisorService_ListAndWatchServer) error {
+	args := m.Called(in, srv)
+	return args.Error(0)
+}
+
+func enableAdvisorForTest(dynamicPolicy *DynamicPolicy, pluginSocketDir string) {
+	dynamicPolicy.enableMemoryAdvisor = true
+	dynamicPolicy.getAdviceInterval = 1 * time.Second
+
+	dynamicPolicy.memoryPluginSocketAbsPath = filepath.Join(pluginSocketDir, "memory-plugin.sock")
+	dynamicPolicy.memoryAdvisorSocketAbsPath = filepath.Join(pluginSocketDir, "memory-advisor.sock")
+}
+
+// TestSwitchToGetAdviceRPC tests the memory plugin can switch to GetAdvice RPC when memory-advisor implements it,
+// and switch back to ListAndWatch when memory-advisor doesn't implement GetAdvice.
+func TestSwitchBetweenAPIs(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		name string
+		fn   func(t *testing.T, memoryAdvisorServer *mockMemoryAdvisor, dynamicPolicy *DynamicPolicy)
+	}{
+		{
+			name: "switch from ListAndWatch to GetAdvice",
+			fn: func(t *testing.T, memoryAdvisorServer *mockMemoryAdvisor, dynamicPolicy *DynamicPolicy) {
+				// - start memory-advisor that doesn't implement GetAdvice
+				// - start memory plugin and verify that it uses ListAndWatch
+				// - 'upgrade' memory-advisor to implement GetAdvice
+				// - verify that memory plugin switches to GetAdvice
+				as := require.New(t)
+
+				lwEndedChan := make(chan time.Time)
+				unimplementedGetAdviceCall := memoryAdvisorServer.
+					On("GetAdvice", mock.Anything, mock.Anything).
+					Once().
+					Return((*advisorsvc.GetAdviceResponse)(nil), status.Error(codes.Unimplemented, "GetAdvice not implemented"))
+				memoryAdvisorServer.On("ListAndWatch", mock.Anything, mock.Anything).
+					Once().
+					WaitUntil(lwEndedChan).
+					Return(nil).
+					NotBefore(unimplementedGetAdviceCall)
+
+				err := dynamicPolicy.Start()
+				as.NoError(err)
+
+				// Wait for the plugin to call advisor
+				time.Sleep(3 * time.Second)
+				memoryAdvisorServer.AssertExpectations(t)
+
+				// ListAndWatch in progress, simulate an upgrade
+				unimplementedGetAdviceCall.Unset()
+
+				memoryAdvisorServer.
+					On("GetAdvice", mock.Anything, mock.Anything).
+					Return(&advisorsvc.GetAdviceResponse{}, nil)
+
+				// terminate the old ListAndWatch
+				lwEndedChan <- time.Now()
+
+				time.Sleep(30 * time.Second)
+				// ListAndWatch should only be called once throughout
+				memoryAdvisorServer.AssertExpectations(t)
+			},
+		},
+		{
+			name: "switch from GetAdvice to ListAndWatch",
+			fn: func(t *testing.T, memoryAdvisorServer *mockMemoryAdvisor, dynamicPolicy *DynamicPolicy) {
+				// - start memory-advisor that implements GetAdvice
+				// - start memory plugin and verify that it uses GetAdvice
+				// - 'downgrade' memory-advisor to a version that doesn't implement GetAdvice
+				// - verify that memory plugin switches to ListAndWatch
+				as := require.New(t)
+
+				implementedGetAdviceCall := memoryAdvisorServer.
+					On("GetAdvice", mock.Anything, mock.Anything).
+					Return(&advisorsvc.GetAdviceResponse{}, nil)
+
+				err := dynamicPolicy.Start()
+				as.NoError(err)
+
+				time.Sleep(30 * time.Second)
+				memoryAdvisorServer.AssertExpectations(t)
+
+				// simulate a downgrade
+				implementedGetAdviceCall.Unset()
+				unimplementedGetAdviceCall := memoryAdvisorServer.
+					On("GetAdvice", mock.Anything, mock.Anything).
+					Once().
+					Return((*advisorsvc.GetAdviceResponse)(nil), status.Error(codes.Unimplemented, "GetAdvice not implemented"))
+				memoryAdvisorServer.On("ListAndWatch", mock.Anything, mock.Anything).
+					After(3 * time.Hour).
+					NotBefore(unimplementedGetAdviceCall).
+					Once().
+					Return(nil)
+
+				time.Sleep(3 * time.Second)
+				memoryAdvisorServer.AssertExpectations(t)
+			},
+		},
+	} {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			as := require.New(t)
+			tmpDir, err := ioutil.TempDir("", "*")
+			as.NoError(err)
+			defer func() { _ = os.RemoveAll(tmpDir) }()
+
+			cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+			as.NoError(err)
+
+			machineInfo, err := machine.GenerateDummyMachineInfo(4, 32)
+			as.NoError(err)
+
+			checkpointDir := filepath.Join(tmpDir, "checkpoint")
+			dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, checkpointDir)
+			as.NoError(err)
+
+			enableAdvisorForTest(dynamicPolicy, tmpDir)
+
+			grpcServer := grpc.NewServer()
+			memoryAdvisorServer := &mockMemoryAdvisor{}
+			advisorsvc.RegisterAdvisorServiceServer(grpcServer, memoryAdvisorServer)
+			lis, err := net.Listen("unix", dynamicPolicy.memoryAdvisorSocketAbsPath)
+			as.NoError(err)
+			defer func() { _ = lis.Close() }()
+			go func() { _ = grpcServer.Serve(lis) }()
+			defer grpcServer.Stop()
+
+			testCase.fn(t, memoryAdvisorServer, dynamicPolicy)
+		})
+	}
 }

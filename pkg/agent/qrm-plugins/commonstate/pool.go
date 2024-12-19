@@ -17,9 +17,12 @@ limitations under the License.
 package commonstate
 
 import (
+	"fmt"
 	"strings"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
+	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 // notice that pool-name may not have direct mapping relations with qos-level, for instance
@@ -87,4 +90,47 @@ func GetSpecifiedPoolName(qosLevel, cpusetEnhancementValue string) string {
 	default:
 		return EmptyOwnerPoolName
 	}
+}
+
+// GetSpecifiedNUMABindingNUMAID parses the numa id for AllocationInfo
+func GetSpecifiedNUMABindingNUMAID(annotations map[string]string) (int, error) {
+	if _, ok := annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint]; !ok {
+		return FakedNUMAID, nil
+	}
+
+	numaSet, pErr := machine.Parse(annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint])
+	if pErr != nil {
+		return FakedNUMAID, fmt.Errorf("parse numaHintStr: %s failed with error: %v",
+			annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint], pErr)
+	} else if numaSet.Size() != 1 {
+		return FakedNUMAID, fmt.Errorf("parse numaHintStr: %s with invalid size", numaSet.String())
+	}
+
+	return numaSet.ToSliceNoSortInt()[0], nil
+}
+
+// GetSpecifiedNUMABindingPoolName get numa_binding pool name
+// for numa_binding shared_cores according to enhancements and NUMA hint
+func GetSpecifiedNUMABindingPoolName(qosLevel string, annotations map[string]string) (string, error) {
+	if qosLevel != apiconsts.PodAnnotationQoSLevelSharedCores ||
+		annotations[apiconsts.PodAnnotationMemoryEnhancementNumaBinding] != apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable {
+		return EmptyOwnerPoolName, fmt.Errorf("GetSpecifiedNUMABindingPoolName is only for numa_binding shared_cores")
+	}
+
+	numaID, err := GetSpecifiedNUMABindingNUMAID(annotations)
+	if err != nil {
+		return EmptyOwnerPoolName, err
+	}
+
+	if numaID == FakedNUMAID {
+		return EmptyOwnerPoolName, fmt.Errorf("invalid numa id for numa_binding shared_cores")
+	}
+
+	specifiedPoolName := GetSpecifiedPoolName(qosLevel, annotations[apiconsts.PodAnnotationCPUEnhancementCPUSet])
+
+	if specifiedPoolName == EmptyOwnerPoolName {
+		return EmptyOwnerPoolName, fmt.Errorf("empty specifiedPoolName")
+	}
+
+	return GetNUMAPoolName(specifiedPoolName, numaID), nil
 }

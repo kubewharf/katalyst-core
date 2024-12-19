@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -27,7 +28,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/uuid"
@@ -5610,7 +5615,7 @@ func TestCheckCPUSet(t *testing.T) {
 
 	as := require.New(t)
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint_TestCheckCPUSet")
+	tmpDir, err := ioutil.TempDir("", "cpu_qrm_plugin_TestCheckCPUSet")
 	as.Nil(err)
 	defer os.RemoveAll(tmpDir)
 
@@ -6503,4 +6508,146 @@ func TestSNBCpuRequestWithFloat(t *testing.T) {
 
 	_, err = dynamicPolicy.Allocate(context.Background(), req2)
 	as.Nil(err)
+}
+
+type mockCPUAdvisor struct {
+	mock.Mock
+	advisorapi.CPUAdvisorServer
+}
+
+func (m *mockCPUAdvisor) GetAdvice(ctx context.Context, in *advisorapi.GetAdviceRequest) (*advisorapi.GetAdviceResponse, error) {
+	args := m.Called(ctx, in)
+	return args.Get(0).(*advisorapi.GetAdviceResponse), args.Error(1)
+}
+
+func (m *mockCPUAdvisor) ListAndWatch(in *advisorsvc.Empty, srv advisorapi.CPUAdvisor_ListAndWatchServer) error {
+	args := m.Called(in, srv)
+	return args.Error(0)
+}
+
+func enableAdvisorForTest(dynamicPolicy *DynamicPolicy, pluginSocketDir string) {
+	dynamicPolicy.enableCPUAdvisor = true
+	dynamicPolicy.getAdviceInterval = 1 * time.Second
+
+	dynamicPolicy.cpuPluginSocketAbsPath = filepath.Join(pluginSocketDir, "cpu-plugin.sock")
+	dynamicPolicy.cpuAdvisorSocketAbsPath = filepath.Join(pluginSocketDir, "cpu-advisor.sock")
+}
+
+// TestSwitchToGetAdviceRPC tests the cpu plugin can switch to GetAdvice RPC when cpu-advisor implements it,
+// and switch back to ListAndWatch when cpu-advisor doesn't implement GetAdvice.
+func TestSwitchBetweenAPIs(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		name string
+		fn   func(t *testing.T, cpuAdvisorServer *mockCPUAdvisor, dynamicPolicy *DynamicPolicy)
+	}{
+		{
+			name: "switch from ListAndWatch to GetAdvice",
+			fn: func(t *testing.T, cpuAdvisorServer *mockCPUAdvisor, dynamicPolicy *DynamicPolicy) {
+				// - start cpu-advisor that doesn't implement GetAdvice
+				// - start cpu plugin and verify that it uses ListAndWatch
+				// - 'upgrade' cpu-advisor to implement GetAdvice
+				// - verify that cpu plugin switches to GetAdvice
+				as := require.New(t)
+
+				lwEndedChan := make(chan time.Time)
+				unimplementedGetAdviceCall := cpuAdvisorServer.
+					On("GetAdvice", mock.Anything, mock.Anything).
+					Once().
+					Return((*advisorapi.GetAdviceResponse)(nil), status.Error(codes.Unimplemented, "GetAdvice not implemented"))
+				cpuAdvisorServer.On("ListAndWatch", mock.Anything, mock.Anything).
+					Once().
+					WaitUntil(lwEndedChan).
+					Return(nil).
+					NotBefore(unimplementedGetAdviceCall)
+
+				err := dynamicPolicy.Start()
+				as.NoError(err)
+
+				// Wait for the plugin to call advisor
+				time.Sleep(3 * time.Second)
+				cpuAdvisorServer.AssertExpectations(t)
+
+				// ListAndWatch in progress, simulate an upgrade
+				unimplementedGetAdviceCall.Unset()
+
+				cpuAdvisorServer.
+					On("GetAdvice", mock.Anything, mock.Anything).
+					Return(&advisorapi.GetAdviceResponse{}, nil)
+
+				// terminate the old ListAndWatch
+				lwEndedChan <- time.Now()
+
+				time.Sleep(30 * time.Second)
+				// ListAndWatch should only be called once throughout
+				cpuAdvisorServer.AssertExpectations(t)
+			},
+		},
+		{
+			name: "switch from GetAdvice to ListAndWatch",
+			fn: func(t *testing.T, cpuAdvisorServer *mockCPUAdvisor, dynamicPolicy *DynamicPolicy) {
+				// - start cpu-advisor that implements GetAdvice
+				// - start cpu plugin and verify that it uses GetAdvice
+				// - 'downgrade' cpu-advisor to a version that doesn't implement GetAdvice
+				// - verify that cpu plugin switches to ListAndWatch
+				as := require.New(t)
+
+				implementedGetAdviceCall := cpuAdvisorServer.
+					On("GetAdvice", mock.Anything, mock.Anything).
+					Return(&advisorapi.GetAdviceResponse{}, nil)
+
+				err := dynamicPolicy.Start()
+				as.NoError(err)
+
+				time.Sleep(30 * time.Second)
+				cpuAdvisorServer.AssertExpectations(t)
+
+				// simulate a downgrade
+				implementedGetAdviceCall.Unset()
+				unimplementedGetAdviceCall := cpuAdvisorServer.
+					On("GetAdvice", mock.Anything, mock.Anything).
+					Once().
+					Return((*advisorapi.GetAdviceResponse)(nil), status.Error(codes.Unimplemented, "GetAdvice not implemented"))
+				cpuAdvisorServer.On("ListAndWatch", mock.Anything, mock.Anything).
+					After(3 * time.Hour).
+					NotBefore(unimplementedGetAdviceCall).
+					Once().
+					Return(nil)
+
+				time.Sleep(3 * time.Second)
+				cpuAdvisorServer.AssertExpectations(t)
+			},
+		},
+	} {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			as := require.New(t)
+			tmpDir, err := ioutil.TempDir("", "*")
+			as.NoError(err)
+			defer func() { _ = os.RemoveAll(tmpDir) }()
+
+			cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+			as.NoError(err)
+
+			checkpointDir := filepath.Join(tmpDir, "checkpoint")
+			dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, checkpointDir)
+			as.NoError(err)
+
+			enableAdvisorForTest(dynamicPolicy, tmpDir)
+
+			grpcServer := grpc.NewServer()
+			cpuAdvisorServer := &mockCPUAdvisor{}
+			advisorapi.RegisterCPUAdvisorServer(grpcServer, cpuAdvisorServer)
+			lis, err := net.Listen("unix", dynamicPolicy.cpuAdvisorSocketAbsPath)
+			as.NoError(err)
+			defer func() { _ = lis.Close() }()
+			go func() { _ = grpcServer.Serve(lis) }()
+			defer grpcServer.Stop()
+
+			testCase.fn(t, cpuAdvisorServer, dynamicPolicy)
+		})
+	}
 }
