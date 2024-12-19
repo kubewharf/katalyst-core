@@ -19,6 +19,7 @@ package spd
 import (
 	"context"
 
+	pkgerrors "github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -64,4 +65,14 @@ func GetContainerServiceProfileRequest(profilingManager ServiceProfilingManager,
 	}
 
 	return nil, nil
+}
+
+// IsSPDNameOrResourceNotFound returns true if the given error is caused by SPD name not found or SPD not found.
+func IsSPDNameOrResourceNotFound(err error) bool {
+	return errors.IsNotFound(err) || pkgerrors.Is(err, SPDNameNotFoundError)
+}
+
+// IsSPDNameNotFound returns true if the given error is caused by SPD name not found.
+func IsSPDNameNotFound(err error) bool {
+	return pkgerrors.Is(err, SPDNameNotFoundError)
 }

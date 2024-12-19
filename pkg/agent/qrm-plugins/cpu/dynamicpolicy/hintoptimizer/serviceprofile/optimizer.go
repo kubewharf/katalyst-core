@@ -23,7 +23,9 @@ import (
 	"sort"
 	"time"
 
+	pkgerrors "github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -152,6 +154,11 @@ func (p *serviceProfileHintOptimizer) optimizeHints(
 
 	numaScores, err := p.score(req, numaNodes, machineState)
 	if err != nil {
+		if spd.IsSPDNameNotFound(err) {
+			// SPD name isn't found, skip optimization.
+			general.Infof("%v, skip optimization", err)
+			return nil
+		}
 		return err
 	}
 
@@ -183,8 +190,7 @@ func (p *serviceProfileHintOptimizer) score(
 			continue
 		}
 
-		scores, err := p.getNUMANodeScores(req, numaNodes, machineState,
-			resourceName)
+		scores, err := p.getNUMANodeScores(req, numaNodes, machineState, resourceName)
 		if err != nil {
 			return nil, err
 		}
@@ -227,7 +233,7 @@ func (p *serviceProfileHintOptimizer) getNUMANodeScores(
 ) ([]NUMAScore, error) {
 	request, err := p.getContainerServiceProfileRequest(req, name)
 	if err != nil {
-		return nil, fmt.Errorf("get container service profile request: %v", err)
+		return nil, pkgerrors.Wrapf(err, "getting %s/%s service profile request", req.PodNamespace, req.PodName)
 	}
 
 	// Calculate scores for each NUMA node.
@@ -236,7 +242,7 @@ func (p *serviceProfileHintOptimizer) getNUMANodeScores(
 		// Get the current allocated pod service profile state for the NUMA node.
 		profileState, err := p.getNUMAAllocatedServiceProfileState(machineState, name, numaID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get NUMA allocated service profile state: %v", err)
+			return nil, err
 		}
 
 		err = native.AddQuantities(profileState, request)
@@ -292,7 +298,7 @@ func (p *serviceProfileHintOptimizer) getContainerServiceProfileRequest(
 		return nil, fmt.Errorf("request is nil")
 	}
 
-	// Retrieve the service profile request from the MetaServer.
+	// Fetch the service profile request from the MetaServer using the provided metadata.
 	request, err := spd.GetContainerServiceProfileRequest(p.profilingManager, metav1.ObjectMeta{
 		UID:         types.UID(req.PodUid),
 		Namespace:   req.PodNamespace,
@@ -300,9 +306,12 @@ func (p *serviceProfileHintOptimizer) getContainerServiceProfileRequest(
 		Labels:      req.Labels,
 		Annotations: req.Annotations,
 	}, name)
-	if err != nil {
+	if err != nil && !errors.IsNotFound(err) {
+		// Log non-"not found" errors. Errors like "SPD name not found" indicate the pod explicitly not require
+		// profiling for optimization. In such cases, return the error to skip hint optimization.
 		general.Warningf("GetContainerServiceProfileRequest for pod: %s/%s, container: %s failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
+		return nil, err
 	}
 
 	return p.getServiceProfileRequestWithDefault(req.PodUid, request, name)
@@ -316,6 +325,7 @@ func (p *serviceProfileHintOptimizer) getContainerServiceProfileState(
 		return nil, fmt.Errorf("allocationInfo is nil")
 	}
 
+	// Fetch the service profile state from the MetaServer using allocation metadata.
 	request, err := spd.GetContainerServiceProfileRequest(p.profilingManager, metav1.ObjectMeta{
 		UID:         types.UID(allocationInfo.PodUid),
 		Namespace:   allocationInfo.PodNamespace,
@@ -323,9 +333,12 @@ func (p *serviceProfileHintOptimizer) getContainerServiceProfileState(
 		Labels:      allocationInfo.Labels,
 		Annotations: allocationInfo.Annotations,
 	}, name)
-	if err != nil {
+	if err != nil && !spd.IsSPDNameOrResourceNotFound(err) {
+		// Log non-"spd name or resource not found" errors. Missing SPD name or resource is expected in some cases,
+		//such as existing allocations without a corresponding service profile.
 		general.Warningf("GetContainerServiceProfileRequest for pod: %s/%s, container: %s failed with error: %v",
 			allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, err)
+		return nil, err
 	}
 
 	return p.getServiceProfileRequestWithDefault(allocationInfo.PodUid, request, name)
@@ -363,7 +376,7 @@ func (p *serviceProfileHintOptimizer) getNUMAAllocatedServiceProfileState(
 
 			request, err := p.getContainerServiceProfileState(allocationInfo, name)
 			if err != nil {
-				return nil, err
+				return nil, pkgerrors.Wrapf(err, "getting %s/%s service profile state", allocationInfo.PodNamespace, allocationInfo.PodName)
 			}
 
 			err = native.AddQuantities(profileState, request)
