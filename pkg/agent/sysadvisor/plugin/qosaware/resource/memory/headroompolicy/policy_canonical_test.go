@@ -187,6 +187,11 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 					ReservedForAllocate: 4 << 30,
 				},
 				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+					store.SetNumaMetric(0, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 5 << 30, Time: &now})
+					store.SetNumaMetric(1, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 2 << 30, Time: &now})
+					store.SetNumaMetric(0, pkgconsts.MetricMemInactiveFileNuma, utilmetric.MetricData{Value: 2 << 30, Time: &now})
+					store.SetNumaMetric(1, pkgconsts.MetricMemInactiveFileNuma, utilmetric.MetricData{Value: 8 << 30, Time: &now})
+
 					store.SetContainerMetric("pod1", "container1", pkgconsts.MetricMemRssContainer, utilmetric.MetricData{Value: 10 << 30, Time: &now})
 					store.SetContainerMetric("pod1", "container1", pkgconsts.MetricMemCacheContainer, utilmetric.MetricData{Value: 10 << 30, Time: &now})
 
@@ -266,6 +271,11 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 					store.SetNodeMetric(pkgconsts.MetricMemScaleFactorSystem, utilmetric.MetricData{Value: 500, Time: &now})
 					store.SetNodeMetric(pkgconsts.MetricMemUsedSystem, utilmetric.MetricData{Value: 40 << 30, Time: &now})
 
+					store.SetNumaMetric(0, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 8 << 30, Time: &now})
+					store.SetNumaMetric(1, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 2 << 30, Time: &now})
+					store.SetNumaMetric(0, pkgconsts.MetricMemInactiveFileNuma, utilmetric.MetricData{Value: 2 << 30, Time: &now})
+					store.SetNumaMetric(1, pkgconsts.MetricMemInactiveFileNuma, utilmetric.MetricData{Value: 8 << 30, Time: &now})
+
 					store.SetContainerMetric("pod1", "container1", pkgconsts.MetricMemRssContainer, utilmetric.MetricData{Value: 10 << 30, Time: &now})
 					store.SetContainerMetric("pod1", "container1", pkgconsts.MetricMemCacheContainer, utilmetric.MetricData{Value: 10 << 30, Time: &now})
 
@@ -344,6 +354,11 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 					store.SetNodeMetric(pkgconsts.MetricMemFreeSystem, utilmetric.MetricData{Value: 30 << 30, Time: &now})
 					store.SetNodeMetric(pkgconsts.MetricMemScaleFactorSystem, utilmetric.MetricData{Value: 500, Time: &now})
 					store.SetNodeMetric(pkgconsts.MetricMemUsedSystem, utilmetric.MetricData{Value: 40 << 30, Time: &now})
+
+					store.SetNumaMetric(0, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 8 << 30, Time: &now})
+					store.SetNumaMetric(1, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 2 << 30, Time: &now})
+					store.SetNumaMetric(0, pkgconsts.MetricMemInactiveFileNuma, utilmetric.MetricData{Value: 2 << 30, Time: &now})
+					store.SetNumaMetric(1, pkgconsts.MetricMemInactiveFileNuma, utilmetric.MetricData{Value: 8 << 30, Time: &now})
 
 					store.SetContainerMetric("pod1", "container1", pkgconsts.MetricMemRssContainer, utilmetric.MetricData{Value: 10 << 30, Time: &now})
 					store.SetContainerMetric("pod1", "container1", pkgconsts.MetricMemCacheContainer, utilmetric.MetricData{Value: 10 << 30, Time: &now})
@@ -428,6 +443,11 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 					store.SetNodeMetric(pkgconsts.MetricMemScaleFactorSystem, utilmetric.MetricData{Value: 500, Time: &now})
 					store.SetNodeMetric(pkgconsts.MetricMemUsedSystem, utilmetric.MetricData{Value: 60 << 30, Time: &now})
 
+					store.SetNumaMetric(0, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 8 << 30, Time: &now})
+					store.SetNumaMetric(1, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 2 << 30, Time: &now})
+					store.SetNumaMetric(0, pkgconsts.MetricMemInactiveFileNuma, utilmetric.MetricData{Value: 2 << 30, Time: &now})
+					store.SetNumaMetric(1, pkgconsts.MetricMemInactiveFileNuma, utilmetric.MetricData{Value: 8 << 30, Time: &now})
+
 					store.SetContainerMetric("pod1", "container1", pkgconsts.MetricMemRssContainer, utilmetric.MetricData{Value: 15 << 30, Time: &now})
 					store.SetContainerMetric("pod1", "container1", pkgconsts.MetricMemCacheContainer, utilmetric.MetricData{Value: 15 << 30, Time: &now})
 
@@ -491,6 +511,11 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 					store.SetNodeMetric(pkgconsts.MetricMemScaleFactorSystem, utilmetric.MetricData{Value: 500, Time: &now})
 					store.SetNodeMetric(pkgconsts.MetricMemUsedSystem, utilmetric.MetricData{Value: 60 << 30, Time: &now})
 
+					store.SetNumaMetric(0, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 8 << 30, Time: &now})
+					store.SetNumaMetric(1, pkgconsts.MetricMemFreeNuma, utilmetric.MetricData{Value: 2 << 30, Time: &now})
+					store.SetNumaMetric(0, pkgconsts.MetricMemInactiveFileNuma, utilmetric.MetricData{Value: 2 << 30, Time: &now})
+					store.SetNumaMetric(1, pkgconsts.MetricMemInactiveFileNuma, utilmetric.MetricData{Value: 8 << 30, Time: &now})
+
 					store.SetContainerMetric("pod1", "container1", pkgconsts.MetricMemRssContainer, utilmetric.MetricData{Value: 15 << 30, Time: &now})
 					store.SetContainerMetric("pod1", "container1", pkgconsts.MetricMemCacheContainer, utilmetric.MetricData{Value: 15 << 30, Time: &now})
 				},
@@ -535,7 +560,7 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 
 			err = p.Update()
 			require.NoError(t, err)
-			got, err := p.GetHeadroom()
+			got, _, err := p.GetHeadroom()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("calculateUtilBasedBuffer() error = %v, wantErr %v", err, tt.wantErr)
 				return

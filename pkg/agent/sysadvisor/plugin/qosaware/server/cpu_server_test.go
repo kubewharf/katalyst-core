@@ -42,6 +42,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -86,7 +87,7 @@ func newTestCPUServer(t *testing.T, advisor subResourceAdvisor, podList []*v1.Po
 		},
 	}
 
-	cpuServer, err := NewCPUServer(conf, metaCache, metaServer, advisor, metrics.DummyMetrics{})
+	cpuServer, err := NewCPUServer(conf, &reporter.DummyHeadroomResourceManager{}, metaCache, metaServer, advisor, metrics.DummyMetrics{})
 	cpuServer.startTime = time.Now().Add(-types.StartUpPeriod)
 	require.NoError(t, err)
 	require.NotNil(t, cpuServer)
@@ -334,6 +335,13 @@ func TestCPUServerListAndWatch(t *testing.T) {
 			},
 			wantErr: false,
 			wantRes: &cpuadvisor.ListAndWatchResponse{
+				ExtraEntries: []*advisorsvc.CalculationInfo{
+					{
+						CalculationResult: &advisorsvc.CalculationResult{
+							Values: map[string]string{"cpu_numa_headroom": "{}"},
+						},
+					},
+				},
 				Entries: map[string]*cpuadvisor.CalculationEntries{
 					commonstate.PoolNameShare: {
 						Entries: map[string]*cpuadvisor.CalculationInfo{
@@ -444,6 +452,13 @@ func TestCPUServerListAndWatch(t *testing.T) {
 			},
 			wantErr: false,
 			wantRes: &cpuadvisor.ListAndWatchResponse{
+				ExtraEntries: []*advisorsvc.CalculationInfo{
+					{
+						CalculationResult: &advisorsvc.CalculationResult{
+							Values: map[string]string{"cpu_numa_headroom": "{}"},
+						},
+					},
+				},
 				Entries: map[string]*cpuadvisor.CalculationEntries{
 					commonstate.PoolNameReclaim: {
 						Entries: map[string]*cpuadvisor.CalculationInfo{
@@ -609,6 +624,13 @@ func TestCPUServerListAndWatch(t *testing.T) {
 			},
 			wantErr: false,
 			wantRes: &cpuadvisor.ListAndWatchResponse{
+				ExtraEntries: []*advisorsvc.CalculationInfo{
+					{
+						CalculationResult: &advisorsvc.CalculationResult{
+							Values: map[string]string{"cpu_numa_headroom": "{}"},
+						},
+					},
+				},
 				Entries: map[string]*cpuadvisor.CalculationEntries{
 					commonstate.PoolNameReclaim: {
 						Entries: map[string]*cpuadvisor.CalculationInfo{
@@ -886,6 +908,13 @@ func TestCPUServerListAndWatch(t *testing.T) {
 			},
 			wantErr: false,
 			wantRes: &cpuadvisor.ListAndWatchResponse{
+				ExtraEntries: []*advisorsvc.CalculationInfo{
+					{
+						CalculationResult: &advisorsvc.CalculationResult{
+							Values: map[string]string{"cpu_numa_headroom": "{}"},
+						},
+					},
+				},
 				Entries: map[string]*cpuadvisor.CalculationEntries{
 					commonstate.PoolNameReclaim: {
 						Entries: map[string]*cpuadvisor.CalculationInfo{
@@ -1172,6 +1201,13 @@ func TestCPUServerListAndWatch(t *testing.T) {
 			wantErr: false,
 			wantRes: &cpuadvisor.ListAndWatchResponse{
 				AllowSharedCoresOverlapReclaimedCores: true,
+				ExtraEntries: []*advisorsvc.CalculationInfo{
+					{
+						CalculationResult: &advisorsvc.CalculationResult{
+							Values: map[string]string{"cpu_numa_headroom": "{}"},
+						},
+					},
+				},
 				Entries: map[string]*cpuadvisor.CalculationEntries{
 					"share-1": {
 						Entries: map[string]*cpuadvisor.CalculationInfo{
@@ -1290,6 +1326,13 @@ func TestCPUServerListAndWatch(t *testing.T) {
 			wantErr: false,
 			wantRes: &cpuadvisor.ListAndWatchResponse{
 				AllowSharedCoresOverlapReclaimedCores: true,
+				ExtraEntries: []*advisorsvc.CalculationInfo{
+					{
+						CalculationResult: &advisorsvc.CalculationResult{
+							Values: map[string]string{"cpu_numa_headroom": "{}"},
+						},
+					},
+				},
 				Entries: map[string]*cpuadvisor.CalculationEntries{
 					"share-1": {
 						Entries: map[string]*cpuadvisor.CalculationInfo{
@@ -1404,6 +1447,13 @@ func TestCPUServerListAndWatch(t *testing.T) {
 			wantErr: false,
 			wantRes: &cpuadvisor.ListAndWatchResponse{
 				AllowSharedCoresOverlapReclaimedCores: true,
+				ExtraEntries: []*advisorsvc.CalculationInfo{
+					{
+						CalculationResult: &advisorsvc.CalculationResult{
+							Values: map[string]string{"cpu_numa_headroom": "{}"},
+						},
+					},
+				},
 				Entries: map[string]*cpuadvisor.CalculationEntries{
 					commonstate.PoolNameReclaim: {
 						Entries: map[string]*cpuadvisor.CalculationInfo{

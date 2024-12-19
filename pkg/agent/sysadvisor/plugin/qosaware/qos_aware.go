@@ -69,11 +69,7 @@ func NewQoSAwarePlugin(pluginName string, conf *config.Configuration, extraConf 
 		return nil, err
 	}
 
-	qrmServer, err := server.NewQRMServer(resourceAdvisor, conf, metaCache, metaServer, emitter)
-	if err != nil {
-		return nil, err
-	}
-
+	var resourceGetter reporter.HeadroomResourceGetter
 	reporters := make([]reporter.Reporter, 0)
 	for _, reporterName := range conf.Reporters {
 		switch reporterName {
@@ -83,6 +79,7 @@ func NewQoSAwarePlugin(pluginName string, conf *config.Configuration, extraConf 
 				return nil, err
 			}
 			reporters = append(reporters, headroomReporter)
+			resourceGetter = headroomReporter
 		case types.NodeMetricReporter:
 			nodeMetricsReporter, err := reporter.NewNodeMetricsReporter(emitter, metaServer, metaCache, conf)
 			if err != nil {
@@ -90,6 +87,11 @@ func NewQoSAwarePlugin(pluginName string, conf *config.Configuration, extraConf 
 			}
 			reporters = append(reporters, nodeMetricsReporter)
 		}
+	}
+
+	qrmServer, err := server.NewQRMServer(resourceAdvisor, resourceGetter, conf, metaCache, metaServer, emitter)
+	if err != nil {
+		return nil, err
 	}
 
 	// add AdminQos dynamic config watcher

@@ -79,6 +79,14 @@ func generateTestMetaServer(t *testing.T, cnr *v1alpha1.CustomNodeResource, podL
 			KatalystMachineInfo: &machine.KatalystMachineInfo{
 				MachineInfo: &info.MachineInfo{
 					NumCores: 96,
+					Topology: []info.Node{
+						{
+							Id: 0,
+						},
+						{
+							Id: 1,
+						},
+					},
 				},
 				CPUTopology: cpuTopology,
 			},
@@ -409,7 +417,8 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 					err := cache.SetPoolInfo(commonstate.PoolNameReclaim, &types.PoolInfo{
 						PoolName: commonstate.PoolNameReclaim,
 						TopologyAwareAssignments: map[int]machine.CPUSet{
-							0: machine.MustParse("0-85"),
+							0: machine.MustParse("0-43"),
+							1: machine.MustParse("49-85"),
 						},
 					})
 					require.NoError(t, err)
@@ -463,7 +472,8 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 					err := cache.SetPoolInfo(commonstate.PoolNameReclaim, &types.PoolInfo{
 						PoolName: commonstate.PoolNameReclaim,
 						TopologyAwareAssignments: map[int]machine.CPUSet{
-							0: machine.MustParse("0-85"),
+							0: machine.MustParse("0-9"),
+							1: machine.MustParse("49-96"),
 						},
 					})
 					require.NoError(t, err)
@@ -501,6 +511,9 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 			for name, regionInfo := range tt.fields.entries {
 				r := region.NewQoSRegionBase(name, regionInfo.OwnerPoolName, regionInfo.RegionType, conf, nil, false, metaCache, metaServer, metrics.DummyMetrics{})
 				r.SetBindingNumas(regionInfo.BindingNumas)
+				r.SetEssentials(types.ResourceEssentials{
+					EnableReclaim: tt.fields.reclaimedResourceConfiguration.EnableReclaim,
+				})
 				tt.fields.regions = map[string]region.QoSRegion{
 					name: r,
 				}
@@ -513,7 +526,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 			store := metricsFetcher.(*metric.FakeMetricsFetcher)
 			tt.fields.setFakeMetric(store)
 
-			got, err := ha.GetHeadroom()
+			got, _, err := ha.GetHeadroom()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetHeadroom() error = %v, wantErr %v", err, tt.wantErr)
 				return
