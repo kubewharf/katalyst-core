@@ -47,6 +47,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/qos"
+	qrmgeneral "github.com/kubewharf/katalyst-core/pkg/util/qrm"
 )
 
 const (
@@ -82,6 +83,7 @@ type StaticPolicy struct {
 	CgroupV2Env                                     bool
 	qosLevelToNetClassMap                           map[string]uint32
 	applyNetClassFunc                               func(podUID, containerID string, data *common.NetClsData) error
+	applyNetworkGroupsFunc                          func(map[string]*qrmgeneral.NetworkGroup) error
 	podLevelNetClassAnnoKey                         string
 	podLevelNetAttributesAnnoKeys                   []string
 	ipv4ResourceAllocationAnnotationKey             string
@@ -93,6 +95,8 @@ type StaticPolicy struct {
 
 	podAnnotationKeptKeys []string
 	podLabelKeptKeys      []string
+
+	lowPriorityGroups map[string]*qrmgeneral.NetworkGroup
 
 	// aliveCgroupID is used to record the alive cgroupIDs and their last alive time
 	aliveCgroupID map[uint64]time.Time
@@ -157,7 +161,14 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 		policyImplement.applyNetClassFunc = cgroupcmutils.ApplyNetClsForContainer
 	}
 
+	policyImplement.applyNetworkGroupsFunc = agentCtx.MetaServer.ExternalManager.ApplyNetworkGroups
+
 	policyImplement.ApplyConfig(conf.StaticAgentConfiguration)
+
+	err = policyImplement.generateAndApplyGroups()
+	if err != nil {
+		return false, agent.ComponentStub{}, fmt.Errorf("generateAndApplyGroups failed with error: %v", err)
+	}
 
 	pluginWrapper, err := skeleton.NewRegistrationPluginWrapper(policyImplement, conf.QRMPluginSocketDirs,
 		func(key string, value int64) {
@@ -514,6 +525,14 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 		return nil, err
 	}
 
+	netClassID, err := p.getNetClassID(podAnnotations, p.podLevelNetClassAnnoKey, qosLevel)
+	if err != nil {
+		err = fmt.Errorf("getNetClassID for pod: %s/%s, container: %s failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
+		general.Errorf("%s", err.Error())
+		return nil, err
+	}
+
 	reqInt, _, err := util.GetQuantityFromResourceReq(req)
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
@@ -525,7 +544,8 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 		"containerName", req.ContainerName,
 		"qosLevel", qosLevel,
 		"reqAnnotations", req.Annotations,
-		"netBandwidthReq(Mbps)", reqInt)
+		"netBandwidthReq(Mbps)", reqInt,
+		"netClassID", netClassID)
 
 	p.Lock()
 	defer func() {
@@ -570,7 +590,7 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 				"bandwidthReq(Mbps)", reqInt,
 				"currentResult(Mbps)", allocationInfo.Egress)
 
-			resourceAllocationAnnotations, err := p.getResourceAllocationAnnotations(podAnnotations, allocationInfo)
+			resourceAllocationAnnotations, err := p.getResourceAllocationAnnotations(podAnnotations, allocationInfo, netClassID)
 			if err != nil {
 				err = fmt.Errorf("getResourceAllocationAnnotations for pod: %s/%s, container: %s failed with error: %v",
 					req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -660,12 +680,23 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 		Egress:         uint32(reqInt),
 		Ingress:        uint32(reqInt),
 		IfName:         selectedNIC.Iface,
+		NSName:         selectedNIC.NSName,
 		NumaNodes:      siblingNUMAs,
 		Labels:         general.DeepCopyMap(req.Labels),
 		Annotations:    general.DeepCopyMap(req.Annotations),
+		QoSLevel:       qosLevel,
+		NetClassID:     fmt.Sprintf("%d", netClassID),
 	}
 
-	resourceAllocationAnnotations, err := p.getResourceAllocationAnnotations(podAnnotations, newAllocation)
+	err = applyImplicitReq(req, newAllocation)
+	if err != nil {
+		err = fmt.Errorf("p.applyImplicitReq for pod: %s/%s, container: %s failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
+		general.Errorf("%s", err.Error())
+		return nil, err
+	}
+
+	resourceAllocationAnnotations, err := p.getResourceAllocationAnnotations(podAnnotations, newAllocation, netClassID)
 	if err != nil {
 		err = fmt.Errorf("getResourceAllocationAnnotations for pod: %s/%s, container: %s failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -689,6 +720,12 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 
 	// update state cache
 	p.state.SetMachineState(machineState)
+
+	err = p.generateAndApplyGroups()
+
+	if err != nil {
+		general.Errorf("generateAndApplyGroups failed with error: %v", err)
+	}
 
 	return packAllocationResponse(req, newAllocation, respHint, resourceAllocationAnnotations)
 }
@@ -730,7 +767,13 @@ func (p *StaticPolicy) applyNetClass() {
 			continue
 		}
 
-		classID, err := p.getNetClassID(pod.GetAnnotations(), p.podLevelNetClassAnnoKey)
+		qosLevel, err := p.qosConfig.GetQoSLevel(nil, pod.Annotations)
+		if err != nil {
+			general.Errorf("get qos level for pod: %s/%s failed with err", pod.Namespace, pod.Name)
+			continue
+		}
+
+		classID, err := p.getNetClassID(pod.GetAnnotations(), p.podLevelNetClassAnnoKey, qosLevel)
 		if err != nil {
 			general.Errorf("get net class id failed, pod: %s, err: %s", native.GenerateUniqObjectNameKey(pod), err)
 			continue
@@ -944,12 +987,8 @@ func (p *StaticPolicy) selectNICsByReq(req *pluginapi.ResourceRequest) ([]machin
 	return candidateNICs, nil
 }
 
-func (p *StaticPolicy) getResourceAllocationAnnotations(podAnnotations map[string]string, allocation *state.AllocationInfo) (map[string]string, error) {
-	netClsID, err := p.getNetClassID(podAnnotations, p.podLevelNetClassAnnoKey)
-	if err != nil {
-		return nil, fmt.Errorf("getNetClassID failed with error: %v", err)
-	}
-
+func (p *StaticPolicy) getResourceAllocationAnnotations(podAnnotations map[string]string,
+	allocation *state.AllocationInfo, netClsID uint32) (map[string]string, error) {
 	selectedNIC := p.getNICByName(allocation.IfName)
 
 	resourceAllocationAnnotations := map[string]string{
@@ -957,8 +996,11 @@ func (p *StaticPolicy) getResourceAllocationAnnotations(podAnnotations map[strin
 		p.ipv6ResourceAllocationAnnotationKey:             strings.Join(selectedNIC.GetNICIPs(machine.IPVersionV6), IPsSeparator),
 		p.netInterfaceNameResourceAllocationAnnotationKey: selectedNIC.Iface,
 		p.netClassIDResourceAllocationAnnotationKey:       fmt.Sprintf("%d", netClsID),
+	}
+
+	if !isImplicitReq(podAnnotations) {
 		// TODO: support differentiated Egress/Ingress bandwidth later
-		p.netBandwidthResourceAllocationAnnotationKey: strconv.Itoa(int(allocation.Egress)),
+		resourceAllocationAnnotations[p.netBandwidthResourceAllocationAnnotationKey] = strconv.Itoa(int(allocation.Egress))
 	}
 
 	if len(selectedNIC.NSAbsolutePath) > 0 {
@@ -1002,10 +1044,12 @@ func (p *StaticPolicy) removePod(podUID string) error {
 	p.state.SetPodEntries(podEntries)
 	p.state.SetMachineState(machineState)
 
+	p.generateAndApplyGroups()
+
 	return nil
 }
 
-func (p *StaticPolicy) getNetClassID(podAnnotations map[string]string, podLevelNetClassAnnoKey string) (uint32, error) {
+func (p *StaticPolicy) getNetClassID(podAnnotations map[string]string, podLevelNetClassAnnoKey, qosLevel string) (uint32, error) {
 	isPodLevelNetClassExist, classID, err := qos.GetPodNetClassID(podAnnotations, podLevelNetClassAnnoKey)
 	if err != nil {
 		return 0, err
@@ -1014,10 +1058,6 @@ func (p *StaticPolicy) getNetClassID(podAnnotations map[string]string, podLevelN
 		return classID, nil
 	}
 
-	qosLevel, err := p.qosConfig.GetQoSLevel(nil, podAnnotations)
-	if err != nil {
-		return 0, err
-	}
 	return p.getNetClassIDByQoSLevel(qosLevel)
 }
 
@@ -1091,4 +1131,79 @@ func (p *StaticPolicy) clearResidualNetClass(activeNetClsData map[uint64]*common
 			delete(p.aliveCgroupID, cgID)
 		}
 	}
+}
+
+func (p *StaticPolicy) generateLowPriorityGroup() error {
+
+	lowPriorityGroups := make(map[string]*qrmgeneral.NetworkGroup)
+	machineState := p.state.GetMachineState()
+
+	for nicName, nicState := range machineState {
+		groupName := getGroupName(nicName, LowPriorityGroupNameSuffix)
+		// [TODO] since getNICByName has alreday been used,
+		// we also assume nic name is unique here.
+		// But if the assumption is broken, we should reconsider logic here.
+		lowPriorityGroups[groupName] = &qrmgeneral.NetworkGroup{
+			Egress: nicState.EgressState.Allocatable,
+		}
+
+		negtive := false
+		for podUID, containerEntries := range nicState.PodEntries {
+			for containerName, allocationInfo := range containerEntries {
+				if allocationInfo == nil {
+					general.Warningf("nil allocationInfo")
+					continue
+				}
+
+				if allocationInfo.QoSLevel == apiconsts.PodAnnotationQoSLevelReclaimedCores {
+					if allocationInfo.NetClassID != "" {
+						lowPriorityGroups[groupName].NetClassIDs = append(lowPriorityGroups[groupName].NetClassIDs, allocationInfo.NetClassID)
+					}
+				} else {
+					requestedEgress, err := allocationInfo.GetRequestedEgress()
+
+					if err != nil {
+						return fmt.Errorf("GetRequestedEgress for pod: %s, container: %s failed with error: %v", podUID, containerName, err)
+					}
+
+					if !negtive && lowPriorityGroups[groupName].Egress > requestedEgress {
+						lowPriorityGroups[groupName].Egress -= requestedEgress
+					} else {
+						negtive = true
+					}
+				}
+			}
+		}
+
+		// [TODO] make 0.05 as option
+		if negtive {
+			lowPriorityGroups[groupName].Egress = uint32(float64(nicState.EgressState.Allocatable) * 0.05)
+		} else {
+			lowPriorityGroups[groupName].Egress = general.MaxUInt32(uint32(float64(nicState.EgressState.Allocatable)*0.05), lowPriorityGroups[groupName].Egress)
+		}
+		selectedNIC := p.getNICByName(nicName)
+		lowPriorityGroups[groupName].MergedIPv4 = strings.Join(selectedNIC.GetNICIPs(machine.IPVersionV4), IPsSeparator)
+		lowPriorityGroups[groupName].MergedIPv6 = strings.Join(selectedNIC.GetNICIPs(machine.IPVersionV6), IPsSeparator)
+	}
+
+	general.Infof("old lowPriorityGroups: %+v, new lowPriorityGroups: %+v", p.lowPriorityGroups, lowPriorityGroups)
+
+	p.lowPriorityGroups = lowPriorityGroups
+	return nil
+}
+
+func (p *StaticPolicy) generateAndApplyGroups() error {
+	err := p.generateLowPriorityGroup()
+
+	if err != nil {
+		return fmt.Errorf("generateLowPriorityGroup failed with error: %v", err)
+	} else {
+		err = p.applyNetworkGroupsFunc(p.lowPriorityGroups)
+
+		if err != nil {
+			return fmt.Errorf("applyGroups failed with error: %v", err)
+		}
+	}
+
+	return nil
 }
