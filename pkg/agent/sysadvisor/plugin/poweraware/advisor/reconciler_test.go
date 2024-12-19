@@ -55,6 +55,10 @@ func (d *dummyPercentageEvictor) Evict(ctx context.Context, targetPercent int) {
 	d.called = true
 }
 
+func (d *dummyPercentageEvictor) HasEvictablePods() bool {
+	panic("not implemented")
+}
+
 func Test_powerReconciler_Engages_Capper_Evictor(t *testing.T) {
 	t.Parallel()
 

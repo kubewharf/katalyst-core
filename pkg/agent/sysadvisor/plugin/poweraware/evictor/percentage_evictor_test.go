@@ -203,3 +203,42 @@ func Test_getN(t *testing.T) {
 		})
 	}
 }
+
+func Test_getNumToEvict(t *testing.T) {
+	t.Parallel()
+	type args struct {
+		pods          int
+		targetPercent int
+	}
+	tests := []struct {
+		name string
+		args args
+		want int
+	}{
+		{
+			name: "ceiling of target percent times pods",
+			args: args{
+				pods:          1,
+				targetPercent: 2,
+			},
+			want: 1,
+		},
+		{
+			name: "happy path of total intger",
+			args: args{
+				pods:          8,
+				targetPercent: 25,
+			},
+			want: 2,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := getNumToEvict(tt.args.pods, tt.args.targetPercent); got != tt.want {
+				t.Errorf("getNumToEvict() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

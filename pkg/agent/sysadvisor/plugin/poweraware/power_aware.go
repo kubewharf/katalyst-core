@@ -105,6 +105,7 @@ func NewPowerAwarePlugin(
 		metaServer.PodFetcher,
 		powerReader,
 		powerCapper,
+		metaServer,
 	)
 
 	return newPluginWithAdvisor(pluginName, conf, powerAdvisor)

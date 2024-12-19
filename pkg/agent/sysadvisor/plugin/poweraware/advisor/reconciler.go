@@ -25,6 +25,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/capper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/evictor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/spec"
+	metrictypes "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -33,6 +34,7 @@ type PowerReconciler interface {
 	// Reconcile returns true if CPU frequency capping is involved
 	// this return is important as the cpu freq capping should be released when the alert is gone
 	Reconcile(ctx context.Context, desired *spec.PowerSpec, actual int) (bool, error)
+	OnDVFSReset()
 }
 
 type powerReconciler struct {
@@ -43,6 +45,10 @@ type powerReconciler struct {
 	capper   capper.PowerCapper
 	strategy strategy.PowerActionStrategy
 	emitter  metrics.MetricEmitter
+}
+
+func (p *powerReconciler) OnDVFSReset() {
+	p.strategy.OnDVFSReset()
 }
 
 func (p *powerReconciler) emitOpCode(action action.PowerAction, mode string) {
@@ -95,13 +101,13 @@ func (p *powerReconciler) Reconcile(ctx context.Context, desired *spec.PowerSpec
 	}
 }
 
-func newReconciler(dryRun bool, emitter metrics.MetricEmitter, evictor evictor.PercentageEvictor, capper capper.PowerCapper) PowerReconciler {
+func newReconciler(dryRun bool, metricsReader metrictypes.MetricsReader, emitter metrics.MetricEmitter, evictor evictor.PercentageEvictor, capper capper.PowerCapper) PowerReconciler {
 	return &powerReconciler{
 		dryRun:      dryRun,
 		priorAction: action.PowerAction{},
 		evictor:     evictor,
 		capper:      capper,
-		strategy:    strategy.NewRuleBasedPowerStrategy(),
+		strategy:    strategy.NewEvictFirstStrategy(evictor, metricsReader),
 		emitter:     emitter,
 	}
 }

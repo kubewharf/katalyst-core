@@ -76,6 +76,10 @@ func (p *powerCapService) Start() error {
 
 	p.started = true
 	p.grpcServer.Run()
+
+	// reset power capping to prevent accumulative effect
+	p.requestReset()
+
 	return nil
 }
 
@@ -153,6 +157,10 @@ func (p *powerCapService) Reset() {
 		return
 	}
 
+	p.requestReset()
+}
+
+func (p *powerCapService) requestReset() {
 	p.capInstruction = capper.PowerCapReset
 	p.notify.Notify()
 }

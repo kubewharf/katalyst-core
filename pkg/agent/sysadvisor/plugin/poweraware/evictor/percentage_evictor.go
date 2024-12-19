@@ -29,6 +29,7 @@ import (
 // PercentageEvictor is the interface used in advisor policy
 type PercentageEvictor interface {
 	Evict(ctx context.Context, targetPercent int)
+	HasEvictablePods() bool
 }
 
 type loadEvictor struct {
@@ -37,7 +38,17 @@ type loadEvictor struct {
 	podEvictor PodEvictor
 }
 
-func (l loadEvictor) isEvictablePod(pod *v1.Pod) bool {
+func (l *loadEvictor) HasEvictablePods() bool {
+	evictablePods, err := l.podFetcher.GetPodList(context.Background(), l.isEvictablePod)
+	if err != nil {
+		// error treated as no evictable pods found
+		return false
+	}
+
+	return len(evictablePods) > 0
+}
+
+func (l *loadEvictor) isEvictablePod(pod *v1.Pod) bool {
 	isReclaimedQoS, err := l.qosConfig.CheckReclaimedQoSForPod(pod)
 	return err == nil && isReclaimedQoS
 }
@@ -49,13 +60,18 @@ func getN(pods []*v1.Pod, n int) []*v1.Pod {
 	return pods[:n]
 }
 
-func (l loadEvictor) Evict(ctx context.Context, targetPercent int) {
+func getNumToEvict(pods, targetPercent int) int {
+	// ceiling math guarantees pod to evict unless none needed
+	return (pods*targetPercent + 99) / 100
+}
+
+func (l *loadEvictor) Evict(ctx context.Context, targetPercent int) {
 	pods, err := l.podFetcher.GetPodList(ctx, nil)
 	if err != nil {
 		general.Errorf("pap: evict: failed to get pods: %v", err)
 		return
 	}
-	countToEvict := len(pods) * targetPercent / 100
+	countToEvict := getNumToEvict(len(pods), targetPercent)
 	if countToEvict == 0 {
 		general.InfofV(6, "pap: evict: skip 0 to evict")
 		return
