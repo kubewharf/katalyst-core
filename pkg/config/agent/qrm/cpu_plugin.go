@@ -16,6 +16,8 @@ limitations under the License.
 
 package qrm
 
+import v1 "k8s.io/api/core/v1"
+
 type CPUQRMPluginConfig struct {
 	// PolicyName is used to switch between several strategies
 	PolicyName string
@@ -45,6 +47,14 @@ type CPUDynamicPolicyConfig struct {
 	// CPUNUMAHintPreferLowThreshold indicates threshold to apply CPUNUMAHintPreferPolicy dynamically,
 	// and it's working when CPUNUMAHintPreferPolicy is set to dynamic_packing
 	CPUNUMAHintPreferLowThreshold float64
+	// EnableSharedCoresNUMABindingHintOptimizer is set to enable shared cores numa binding hint optimizer
+	EnableSharedCoresNUMABindingHintOptimizer bool
+	// SharedCoresNUMABindingHintOptimizerConfig is used to control service profile hint optimizer
+	SharedCoresNUMABindingHintOptimizerConfig ServiceProfileHintOptimizerConfig
+}
+
+type ServiceProfileHintOptimizerConfig struct {
+	ResourceWeights map[v1.ResourceName]float64
 }
 
 type CPUNativePolicyConfig struct {
