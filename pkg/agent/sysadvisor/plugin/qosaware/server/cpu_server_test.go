@@ -31,6 +31,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/rand"
@@ -41,6 +42,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
@@ -117,6 +119,7 @@ func TestCPUServerAddContainer(t *testing.T) {
 
 	tests := []struct {
 		name              string
+		requestMetadata   metadata.MD
 		request           *advisorsvc.ContainerMetadata
 		want              *advisorsvc.AddContainerResponse
 		wantErr           bool
@@ -152,6 +155,27 @@ func TestCPUServerAddContainer(t *testing.T) {
 				RegionNames:    sets.NewString(),
 			},
 		},
+		{
+			name: "should ignore the request if it's sent by a plugin that supports GetAdvice",
+			requestMetadata: map[string][]string{
+				util.AdvisorRPCMetadataKeySupportsGetAdvice: {util.AdvisorRPCMetadataValueSupportsGetAdvice},
+			},
+			request: &advisorsvc.ContainerMetadata{
+				PodUid:          "testUID",
+				PodNamespace:    "testPodNamespace",
+				PodName:         "testPodName",
+				ContainerName:   "testContainerName",
+				ContainerType:   1,
+				ContainerIndex:  0,
+				Labels:          map[string]string{"key": "label"},
+				Annotations:     map[string]string{"key": "label"},
+				QosLevel:        consts.PodAnnotationQoSLevelSharedCores,
+				RequestQuantity: 1,
+			},
+			want:              &advisorsvc.AddContainerResponse{},
+			wantErr:           false,
+			wantContainerInfo: nil,
+		},
 	}
 	for _, tt := range tests {
 		tt := tt
@@ -159,7 +183,11 @@ func TestCPUServerAddContainer(t *testing.T) {
 			t.Parallel()
 
 			cs := newTestCPUServer(t, nil, []*v1.Pod{})
-			got, err := cs.AddContainer(context.Background(), tt.request)
+			ctx := context.Background()
+			if tt.requestMetadata != nil {
+				ctx = metadata.NewIncomingContext(ctx, tt.requestMetadata)
+			}
+			got, err := cs.AddContainer(ctx, tt.request)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("AddContainer() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -169,9 +197,12 @@ func TestCPUServerAddContainer(t *testing.T) {
 			}
 
 			containerInfo, ok := cs.metaCache.GetContainerInfo(tt.request.PodUid, tt.request.ContainerName)
-			assert.Equal(t, ok, true)
-			if !reflect.DeepEqual(containerInfo, tt.wantContainerInfo) {
-				t.Errorf("AddContainer() containerInfo got = %v, want %v", containerInfo, tt.wantContainerInfo)
+			if tt.wantContainerInfo == nil {
+				assert.False(t, ok)
+				assert.Nil(t, containerInfo)
+			} else {
+				assert.True(t, ok)
+				assert.Equal(t, tt.wantContainerInfo, containerInfo)
 			}
 		})
 	}
@@ -181,18 +212,33 @@ func TestCPUServerRemovePod(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		request *advisorsvc.RemovePodRequest
-		want    *advisorsvc.RemovePodResponse
-		wantErr bool
+		name            string
+		requestMetadata metadata.MD
+		request         *advisorsvc.RemovePodRequest
+		want            *advisorsvc.RemovePodResponse
+		wantErr         bool
+		wantRemoved     bool
 	}{
 		{
 			name: "test1",
 			request: &advisorsvc.RemovePodRequest{
 				PodUid: "testPodUID",
 			},
-			want:    &advisorsvc.RemovePodResponse{},
-			wantErr: false,
+			want:        &advisorsvc.RemovePodResponse{},
+			wantErr:     false,
+			wantRemoved: true,
+		},
+		{
+			name: "should ignore the request if it's sent by a plugin that supports GetAdvice",
+			requestMetadata: map[string][]string{
+				util.AdvisorRPCMetadataKeySupportsGetAdvice: {util.AdvisorRPCMetadataValueSupportsGetAdvice},
+			},
+			request: &advisorsvc.RemovePodRequest{
+				PodUid: "testPodUID",
+			},
+			want:        &advisorsvc.RemovePodResponse{},
+			wantErr:     false,
+			wantRemoved: false,
 		},
 	}
 	for _, tt := range tests {
@@ -201,7 +247,20 @@ func TestCPUServerRemovePod(t *testing.T) {
 			t.Parallel()
 
 			cs := newTestCPUServer(t, nil, []*v1.Pod{})
-			got, err := cs.RemovePod(context.Background(), tt.request)
+			err := cs.metaCache.AddContainer(
+				"testPodUID",
+				"testContainerName",
+				&types.ContainerInfo{
+					PodUID:        "testPodUID",
+					ContainerName: "testContainerName",
+				})
+			require.NoError(t, err)
+
+			ctx := context.Background()
+			if tt.requestMetadata != nil {
+				ctx = metadata.NewIncomingContext(ctx, tt.requestMetadata)
+			}
+			got, err := cs.RemovePod(ctx, tt.request)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("RemovePod() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -209,6 +268,9 @@ func TestCPUServerRemovePod(t *testing.T) {
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("RemovePod() got = %v, want %v", got, tt.want)
 			}
+
+			_, ok := cs.metaCache.GetContainerInfo("testPodUID", "testContainerName")
+			assert.Equal(t, !tt.wantRemoved, ok)
 		})
 	}
 }
