@@ -34,6 +34,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/sets"
 
@@ -41,6 +42,7 @@ import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
@@ -53,6 +55,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 func generateTestConfiguration(t *testing.T) *config.Configuration {
@@ -1951,4 +1954,258 @@ func TestConcurrencyGetCheckpointAndAddContainer(t *testing.T) {
 
 	time.Sleep(10 * time.Second)
 	cancel()
+}
+
+func TestCPUServerUpdateMetaCacheInput(t *testing.T) {
+	t.Parallel()
+
+	request := &cpuadvisor.GetAdviceRequest{
+		Entries: map[string]*cpuadvisor.FullAllocationInfoEntries{
+			"pod2": {
+				Entries: map[string]*cpuadvisor.FullAllocationInfo{
+					"c1": {
+						PodUid:        "pod2",
+						ContainerName: "c1",
+						Annotations: map[string]string{
+							consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+							cpuconsts.CPUStateAnnotationKeyNUMAHint:          "0",
+						},
+						QosLevel:        consts.PodAnnotationQoSLevelSharedCores,
+						RequestQuantity: 2,
+						RampUp:          false,
+						OwnerPoolName:   commonstate.PoolNameShare + commonstate.NUMAPoolInfix + "0",
+					},
+				},
+			},
+			"pod3": {
+				Entries: map[string]*cpuadvisor.FullAllocationInfo{
+					"c1": {
+						PodUid:        "pod2",
+						ContainerName: "c1",
+						Annotations: map[string]string{
+							consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+							cpuconsts.CPUStateAnnotationKeyNUMAHint:          "0",
+						},
+						QosLevel:        consts.PodAnnotationQoSLevelSharedCores,
+						RequestQuantity: 4,
+						RampUp:          false,
+						OwnerPoolName:   commonstate.PoolNameShare + commonstate.NUMAPoolInfix + "0",
+					},
+				},
+			},
+			commonstate.PoolNameReserve: {
+				Entries: map[string]*cpuadvisor.FullAllocationInfo{
+					"": {
+						PodUid:        commonstate.PoolNameReserve,
+						OwnerPoolName: commonstate.PoolNameReserve,
+						TopologyAwareAssignments: map[uint64]string{
+							0: "0",
+							1: "16",
+						},
+						OriginalTopologyAwareAssignments: map[uint64]string{
+							0: "0",
+							1: "16",
+						},
+					},
+				},
+			},
+			commonstate.PoolNameShare: {
+				Entries: map[string]*cpuadvisor.FullAllocationInfo{
+					"": {
+						PodUid:        commonstate.PoolNameShare,
+						OwnerPoolName: commonstate.PoolNameShare,
+						TopologyAwareAssignments: map[uint64]string{
+							1: "17-31",
+						},
+						OriginalTopologyAwareAssignments: map[uint64]string{
+							1: "17-31",
+						},
+					},
+				},
+			},
+			commonstate.PoolNameShare + commonstate.NUMAPoolInfix + "0": {
+				Entries: map[string]*cpuadvisor.FullAllocationInfo{
+					"": {
+						PodUid:        commonstate.PoolNameShare + commonstate.NUMAPoolInfix + "0",
+						OwnerPoolName: commonstate.PoolNameShare + commonstate.NUMAPoolInfix + "0",
+						TopologyAwareAssignments: map[uint64]string{
+							0: "1-15",
+						},
+						OriginalTopologyAwareAssignments: map[uint64]string{
+							0: "1-15",
+						},
+					},
+				},
+			},
+		},
+	}
+	pods := []*v1.Pod{}
+	for podUID, entries := range request.Entries {
+		if _, ok := entries.Entries[commonstate.FakedContainerName]; ok {
+			continue
+		}
+		pods = append(pods, &v1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				UID: k8stypes.UID(podUID),
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+				},
+			},
+		})
+	}
+
+	cs := newTestCPUServer(t, nil, pods)
+	existingContainerInfo := []*types.ContainerInfo{
+		{
+			PodUID:        "pod1",
+			ContainerName: "c1",
+			Annotations: map[string]string{
+				"a": "b",
+			},
+			QoSLevel:            consts.PodAnnotationQoSLevelSharedCores,
+			CPURequest:          1,
+			OriginOwnerPoolName: commonstate.PoolNameShare,
+			RampUp:              false,
+			OwnerPoolName:       commonstate.PoolNameShare,
+		},
+		{
+			PodUID:        "pod2",
+			ContainerName: "c1",
+			Annotations: map[string]string{
+				"a": "b",
+			},
+			QoSLevel:            consts.PodAnnotationQoSLevelSharedCores,
+			CPURequest:          2,
+			OriginOwnerPoolName: commonstate.PoolNameShare,
+			RampUp:              false,
+			OwnerPoolName:       commonstate.PoolNameShare,
+		},
+	}
+	for _, info := range existingContainerInfo {
+		err := cs.metaCache.SetContainerInfo(info.PodUID, info.ContainerName, info)
+		require.NoError(t, err)
+	}
+	existingPoolInfo := map[string]*types.PoolInfo{
+		commonstate.PoolNameShare: {
+			PoolName: commonstate.PoolNameShare,
+			TopologyAwareAssignments: map[int]machine.CPUSet{
+				0: machine.MustParse("0-13"),
+				1: machine.MustParse("16-31"),
+			},
+			OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+				0: machine.MustParse("0-13"),
+				1: machine.MustParse("16-31"),
+			},
+		},
+		commonstate.PoolNamePrefixIsolation + "-test-1": {
+			PoolName: commonstate.PoolNamePrefixIsolation + "-test-1",
+			TopologyAwareAssignments: map[int]machine.CPUSet{
+				0: machine.MustParse("14-15"),
+			},
+			OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+				0: machine.MustParse("14-15"),
+			},
+		},
+	}
+	for _, info := range existingPoolInfo {
+		err := cs.metaCache.SetPoolInfo(info.PoolName, info)
+		require.NoError(t, err)
+	}
+
+	err := cs.updateMetaCacheInput(context.Background(), request)
+	require.NoError(t, err)
+
+	expectedContainerInfo := []*types.ContainerInfo{
+		{
+			PodUID:        "pod2",
+			ContainerName: "c1",
+			Annotations: map[string]string{
+				consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+				cpuconsts.CPUStateAnnotationKeyNUMAHint:          "0",
+			},
+			QoSLevel:            consts.PodAnnotationQoSLevelSharedCores,
+			CPURequest:          2,
+			OriginOwnerPoolName: commonstate.PoolNameShare + commonstate.NUMAPoolInfix + "0",
+			RampUp:              false,
+			OwnerPoolName:       commonstate.PoolNameShare + commonstate.NUMAPoolInfix + "0",
+			TopologyAwareAssignments: map[int]machine.CPUSet{
+				0: machine.MustParse("1-15"),
+			},
+			OriginalTopologyAwareAssignments: map[int]machine.CPUSet{},
+			RegionNames:                      sets.String{},
+		},
+		{
+			PodUID:        "pod3",
+			ContainerName: "c1",
+			Annotations: map[string]string{
+				consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+				cpuconsts.CPUStateAnnotationKeyNUMAHint:          "0",
+			},
+			QoSLevel:            consts.PodAnnotationQoSLevelSharedCores,
+			CPURequest:          4,
+			OriginOwnerPoolName: commonstate.PoolNameShare + commonstate.NUMAPoolInfix + "0",
+			RampUp:              false,
+			OwnerPoolName:       commonstate.PoolNameShare + commonstate.NUMAPoolInfix + "0",
+			TopologyAwareAssignments: map[int]machine.CPUSet{
+				0: machine.MustParse("1-15"),
+			},
+			OriginalTopologyAwareAssignments: map[int]machine.CPUSet{},
+			RegionNames:                      sets.String{},
+		},
+	}
+
+	actualContainerInfo := []*types.ContainerInfo{}
+	cs.metaCache.RangeContainer(func(podUID, containerName string, containerInfo *types.ContainerInfo) bool {
+		actualContainerInfo = append(actualContainerInfo, containerInfo)
+		return true
+	})
+	sort.Slice(actualContainerInfo, func(i, j int) bool {
+		return actualContainerInfo[i].PodUID < actualContainerInfo[j].PodUID
+	})
+	sort.Slice(expectedContainerInfo, func(i, j int) bool {
+		return expectedContainerInfo[i].PodUID < expectedContainerInfo[j].PodUID
+	})
+	require.Equal(t, expectedContainerInfo, actualContainerInfo)
+
+	expectedPoolInfo := map[string]*types.PoolInfo{
+		commonstate.PoolNameReserve: {
+			PoolName: commonstate.PoolNameReserve,
+			TopologyAwareAssignments: map[int]machine.CPUSet{
+				0: machine.MustParse("0"),
+				1: machine.MustParse("16"),
+			},
+			OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+				0: machine.MustParse("0"),
+				1: machine.MustParse("16"),
+			},
+			RegionNames: sets.String{},
+		},
+		commonstate.PoolNameShare: {
+			PoolName: commonstate.PoolNameShare,
+			TopologyAwareAssignments: map[int]machine.CPUSet{
+				1: machine.MustParse("17-31"),
+			},
+			OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+				1: machine.MustParse("17-31"),
+			},
+			RegionNames: sets.String{},
+		},
+		commonstate.PoolNameShare + "-NUMA0": {
+			PoolName: commonstate.PoolNameShare + commonstate.NUMAPoolInfix + "0",
+			TopologyAwareAssignments: map[int]machine.CPUSet{
+				0: machine.MustParse("1-15"),
+			},
+			OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+				0: machine.MustParse("1-15"),
+			},
+			RegionNames: sets.String{},
+		},
+	}
+	poolNames := sets.StringKeySet(expectedPoolInfo).Union(sets.StringKeySet(existingPoolInfo)).List()
+	for _, poolName := range poolNames {
+		expectedPoolInfo, shouldExist := expectedPoolInfo[poolName]
+		actualPoolInfo, exists := cs.metaCache.GetPoolInfo(poolName)
+		require.Equal(t, shouldExist, exists)
+		require.Equal(t, expectedPoolInfo, actualPoolInfo)
+	}
 }
