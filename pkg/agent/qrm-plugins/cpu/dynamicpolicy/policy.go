@@ -367,15 +367,14 @@ func (p *DynamicPolicy) Start() (err error) {
 
 		general.Infof("advisor does not implement GetAdvice, fall back to ListAndWatch")
 
-		err = p.pushCPUAdvisor()
-		if err != nil {
+		if err := p.pushCPUAdvisor(); err != nil {
 			general.Errorf("sync existing containers to cpu advisor failed with error: %v", err)
 			return
 		}
 		general.Infof("sync existing containers to cpu advisor successfully")
 
 		// call lw of CPUAdvisorServer and do allocation
-		if err = p.lwCPUAdvisorServer(p.stopCh); err != nil {
+		if err := p.lwCPUAdvisorServer(p.stopCh); err != nil {
 			general.Errorf("lwCPUAdvisorServer failed with error: %v", err)
 		} else {
 			general.Infof("lwCPUAdvisorServer finished")

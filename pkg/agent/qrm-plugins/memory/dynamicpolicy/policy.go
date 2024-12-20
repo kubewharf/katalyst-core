@@ -484,8 +484,7 @@ func (p *DynamicPolicy) Start() (err error) {
 		general.Infof("advisor does not implement GetAdvice, fall back to ListAndWatch")
 
 		// keep compatible to old version sys advisor not supporting list containers from memory plugin
-		err = p.pushMemoryAdvisor()
-		if err != nil {
+		if err := p.pushMemoryAdvisor(); err != nil {
 			general.Errorf("sync existing containers to memory advisor failed with error: %v", err)
 			return
 		}
