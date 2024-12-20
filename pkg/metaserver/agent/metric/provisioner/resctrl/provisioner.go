@@ -84,12 +84,11 @@ func (r *resctrlMetricsProvisioner) sample(ctx context.Context) {
 	}
 
 	general.InfofV(6, "mbm: mb usage summary: %v", monitor.DisplayMBSummary(qosCCDMB))
-	r.processTotalMB(qosCCDMB)
-	r.processLocalRatio(qosCCDMB)
+	r.processMBSummary(qosCCDMB)
 	// todo: save read/write MB metrics
 }
 
-func (r *resctrlMetricsProvisioner) processTotalMB(qosCCDMB map[qosgroup.QoSGroup]*monitor.MBQoSGroup) {
+func (r *resctrlMetricsProvisioner) processMBSummary(qosCCDMB map[qosgroup.QoSGroup]*monitor.MBQoSGroup) {
 	if qosCCDMB == nil {
 		return
 	}
@@ -97,14 +96,20 @@ func (r *resctrlMetricsProvisioner) processTotalMB(qosCCDMB map[qosgroup.QoSGrou
 	updateTime := time.Now()
 
 	// 2-dimensional indices by qos group x ccd
-	newMetricBlob := make(map[string]map[int]utilmetric.MetricData)
+	//               value of composited: { total, localRatio }
+	newMetricBlob := make(map[string]map[int][]utilmetric.MetricData)
 	for qosGroup, data := range qosCCDMB {
-		newMetricBlob[string(qosGroup)] = make(map[int]utilmetric.MetricData)
-
+		newMetricBlob[string(qosGroup)] = make(map[int][]utilmetric.MetricData)
 		for ccd, mb := range data.CCDMB {
-			newMetricBlob[string(qosGroup)][ccd] = utilmetric.MetricData{
-				Value: float64(mb.ReadsMB + mb.WritesMB),
-				Time:  &updateTime,
+			newMetricBlob[string(qosGroup)][ccd] = []utilmetric.MetricData{
+				{
+					Value: float64(mb.ReadsMB + mb.WritesMB),
+					Time:  &updateTime,
+				},
+				{
+					Value: getLocalRatio(mb.LocalReadsMB, mb.ReadsMB),
+					Time:  &updateTime,
+				},
 			}
 		}
 	}
@@ -112,31 +117,9 @@ func (r *resctrlMetricsProvisioner) processTotalMB(qosCCDMB map[qosgroup.QoSGrou
 }
 
 func getLocalRatio(local, total int) float64 {
-	if total <= 0 {
-		return 0
+	ratio := 1.0
+	if total > 0 && local <= total {
+		ratio = float64(local) / float64(total)
 	}
-	return float64(local*100/total) / 100
-}
-
-// todo: refactor to increase code reuse
-func (r *resctrlMetricsProvisioner) processLocalRatio(qosCCDMB map[qosgroup.QoSGroup]*monitor.MBQoSGroup) {
-	if qosCCDMB == nil {
-		return
-	}
-
-	updateTime := time.Now()
-
-	// 2-dimensional indices by qos group x ccd
-	newMetricBlob := make(map[string]map[int]utilmetric.MetricData)
-	for qosGroup, data := range qosCCDMB {
-		newMetricBlob[string(qosGroup)] = make(map[int]utilmetric.MetricData)
-
-		for ccd, mb := range data.CCDMB {
-			newMetricBlob[string(qosGroup)][ccd] = utilmetric.MetricData{
-				Value: getLocalRatio(mb.LocalReadsMB, mb.ReadsMB),
-				Time:  &updateTime,
-			}
-		}
-	}
-	r.metricStore.SetByStringIndex(consts.MetricMemBandwidthLocalRatioQoSGroup, newMetricBlob)
+	return ratio
 }

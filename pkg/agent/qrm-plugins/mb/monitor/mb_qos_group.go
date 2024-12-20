@@ -24,6 +24,7 @@ import (
 
 type MBData struct {
 	TotalMB      int
+	LocalTotalMB int
 	ReadsMB      int
 	LocalReadsMB int
 	WritesMB     int

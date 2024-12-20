@@ -224,10 +224,13 @@ func DisplayMBSummary(qosCCDMB map[qosgroup.QoSGroup]*MBQoSGroup) string {
 		sb.WriteString(fmt.Sprintf("--QoS: %s\n", qos))
 		for ccd, mb := range ccdmb.CCDMB {
 			rLocal, rRemote, wLocal, wRemote := distributeLocalRemote(mb.ReadsMB, mb.WritesMB, mb.LocalReadsMB)
-
-			sb.WriteString(fmt.Sprintf("      ccd %d: r %d, w %d, total %d, [ r: (local: %v, remote: %v), w: (local: %v, (remote: %v) ]\n",
+			totalLocal := mb.LocalTotalMB
+			totalRemote := mb.TotalMB - totalLocal
+			sb.WriteString(fmt.Sprintf("      ccd %d: r %d, w %d, total %d, [ r: (local: %d, remote: %d), w: (local: %d, (remote: %d), sum:(local: %d, remote: %d) ]\n",
 				ccd, mb.ReadsMB, mb.WritesMB, mb.TotalMB,
-				rLocal, rRemote, wLocal, wRemote))
+				rLocal, rRemote, wLocal, wRemote,
+				totalLocal, totalRemote,
+			))
 		}
 	}
 	return sb.String()

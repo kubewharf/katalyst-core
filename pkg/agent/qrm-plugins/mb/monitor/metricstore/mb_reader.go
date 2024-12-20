@@ -18,6 +18,7 @@ package metricstore
 
 import (
 	"fmt"
+	"github.com/pkg/errors"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 
@@ -32,17 +33,19 @@ type mbReader struct {
 	metricsFetcher types.MetricsFetcher
 }
 
-func toMBQoSGroup(ccdMetricData map[int]metric.MetricData) *monitor.MBQoSGroup {
+func toMBQoSGroup(ccdMetricData map[int][]metric.MetricData) *monitor.MBQoSGroup {
 	if ccdMetricData == nil {
 		return nil
 	}
 
 	CCDs := make(sets.Int)
 	CCDMBs := make(map[int]*monitor.MBData)
-	for ccd, metric := range ccdMetricData {
+	for ccd, mbSummry := range ccdMetricData {
+		// mbSummry if slice of 2 elements: 0 - total mb; 1: local ratio
 		CCDs.Insert(ccd)
 		CCDMBs[ccd] = &monitor.MBData{
-			TotalMB: int(metric.Value),
+			TotalMB:      int(mbSummry[0].Value),
+			LocalTotalMB: int(mbSummry[0].Value * mbSummry[1].Value),
 		}
 	}
 
@@ -54,17 +57,27 @@ func toMBQoSGroup(ccdMetricData map[int]metric.MetricData) *monitor.MBQoSGroup {
 	return &result
 }
 
-func (m *mbReader) GetMBQoSGroups() (map[qosgroup.QoSGroup]*monitor.MBQoSGroup, error) {
-	mbBlob := m.metricsFetcher.GetByStringIndex(consts.MetricTotalMemBandwidthQoSGroup)
+func (m *mbReader) getMetricByQoSCCD(metricKey string) (map[string]map[int][]metric.MetricData, error) {
+	mbTotalBlob := m.metricsFetcher.GetByStringIndex(metricKey)
 
-	var qosCCDMB map[string]map[int]metric.MetricData
-	qosCCDMB, ok := mbBlob.(map[string]map[int]metric.MetricData)
+	var qosCCDMetrics map[string]map[int][]metric.MetricData
+	qosCCDMetrics, ok := mbTotalBlob.(map[string]map[int][]metric.MetricData)
 	if !ok {
-		return nil, fmt.Errorf("unexpected metric blob by key %s: %T", consts.MetricTotalMemBandwidthQoSGroup, qosCCDMB)
+		return nil, fmt.Errorf("unexpected metric blob by key %s: %T", metricKey, mbTotalBlob)
+	}
+
+	return qosCCDMetrics, nil
+}
+
+func (m *mbReader) GetMBQoSGroups() (map[qosgroup.QoSGroup]*monitor.MBQoSGroup, error) {
+	// retrieve mb total and mb local-remote ratio
+	qosCCDMBTotal, err := m.getMetricByQoSCCD(consts.MetricTotalMemBandwidthQoSGroup)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to retrieve mb summary from metric store")
 	}
 
 	result := make(map[qosgroup.QoSGroup]*monitor.MBQoSGroup)
-	for qos, data := range qosCCDMB {
+	for qos, data := range qosCCDMBTotal {
 		result[qosgroup.QoSGroup(qos)] = toMBQoSGroup(data)
 	}
 	return result, nil
