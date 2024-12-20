@@ -285,11 +285,15 @@ func (m *mockQRMCPUPluginServer) GetCheckpoint(ctx context.Context, request *cpu
 }
 
 type mockCPUResourceAdvisor struct {
+	onUpdate  func()
 	provision *types.InternalCPUCalculationResult
 	err       error
 }
 
 func (m *mockCPUResourceAdvisor) UpdateAndGetAdvice() (interface{}, error) {
+	if m.onUpdate != nil {
+		m.onUpdate()
+	}
 	return m.provision, m.err
 }
 
@@ -344,16 +348,17 @@ type ContainerInfo struct {
 	regions        sets.String
 }
 
-func TestCPUServerListAndWatch(t *testing.T) {
+func TestCPUServerUpdate(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	type testCase struct {
 		name      string
 		provision types.InternalCPUCalculationResult
 		infos     []*ContainerInfo
-		wantErr   bool
 		wantRes   *cpuadvisor.ListAndWatchResponse
-	}{
+	}
+
+	tests := []testCase{
 		{
 			name: "reclaim pool with shared pool",
 			provision: types.InternalCPUCalculationResult{
@@ -395,7 +400,6 @@ func TestCPUServerListAndWatch(t *testing.T) {
 					regions:  sets.NewString(commonstate.PoolNamePrefixIsolation + "-test-1"),
 				},
 			},
-			wantErr: false,
 			wantRes: &cpuadvisor.ListAndWatchResponse{
 				ExtraEntries: []*advisorsvc.CalculationInfo{
 					{
@@ -512,7 +516,6 @@ func TestCPUServerListAndWatch(t *testing.T) {
 					},
 				},
 			},
-			wantErr: false,
 			wantRes: &cpuadvisor.ListAndWatchResponse{
 				ExtraEntries: []*advisorsvc.CalculationInfo{
 					{
@@ -684,7 +687,6 @@ func TestCPUServerListAndWatch(t *testing.T) {
 					},
 				},
 			},
-			wantErr: false,
 			wantRes: &cpuadvisor.ListAndWatchResponse{
 				ExtraEntries: []*advisorsvc.CalculationInfo{
 					{
@@ -968,7 +970,6 @@ func TestCPUServerListAndWatch(t *testing.T) {
 					},
 				},
 			},
-			wantErr: false,
 			wantRes: &cpuadvisor.ListAndWatchResponse{
 				ExtraEntries: []*advisorsvc.CalculationInfo{
 					{
@@ -1260,7 +1261,6 @@ func TestCPUServerListAndWatch(t *testing.T) {
 					},
 				},
 			},
-			wantErr: false,
 			wantRes: &cpuadvisor.ListAndWatchResponse{
 				AllowSharedCoresOverlapReclaimedCores: true,
 				ExtraEntries: []*advisorsvc.CalculationInfo{
@@ -1385,7 +1385,6 @@ func TestCPUServerListAndWatch(t *testing.T) {
 					},
 				},
 			},
-			wantErr: false,
 			wantRes: &cpuadvisor.ListAndWatchResponse{
 				AllowSharedCoresOverlapReclaimedCores: true,
 				ExtraEntries: []*advisorsvc.CalculationInfo{
@@ -1506,7 +1505,6 @@ func TestCPUServerListAndWatch(t *testing.T) {
 					commonstate.PoolNamePrefixIsolation + "-test-1": {-1: 4},
 				},
 			},
-			wantErr: false,
 			wantRes: &cpuadvisor.ListAndWatchResponse{
 				AllowSharedCoresOverlapReclaimedCores: true,
 				ExtraEntries: []*advisorsvc.CalculationInfo{
@@ -1553,82 +1551,162 @@ func TestCPUServerListAndWatch(t *testing.T) {
 			},
 		},
 	}
+
+	testWithListAndWatch := func(
+		t *testing.T,
+		advisor *mockCPUResourceAdvisor,
+		cs *cpuServer,
+		tt testCase,
+	) {
+		// populate checkpoint
+		checkpoint := &cpuadvisor.GetCheckpointResponse{
+			Entries: make(map[string]*cpuadvisor.AllocationEntries),
+		}
+		checkpoint.Entries[commonstate.PoolNameReserve] = &cpuadvisor.AllocationEntries{
+			Entries: map[string]*cpuadvisor.AllocationInfo{
+				commonstate.FakedContainerName: {
+					OwnerPoolName: commonstate.PoolNameReserve,
+				},
+			},
+		}
+		for _, info := range tt.infos {
+			if _, ok := checkpoint.Entries[info.request.PodUid]; !ok {
+				checkpoint.Entries[info.request.PodUid] = &cpuadvisor.AllocationEntries{
+					Entries: make(map[string]*cpuadvisor.AllocationInfo),
+				}
+			}
+			checkpoint.Entries[info.request.PodUid].Entries[info.request.ContainerName] = info.allocationInfo
+		}
+
+		// start mock qrm server
+		qrmServer := &mockQRMCPUPluginServer{
+			checkpoint: checkpoint,
+			err:        nil,
+		}
+		server := grpc.NewServer()
+		cpuadvisor.RegisterCPUPluginServer(server, qrmServer)
+
+		sock, err := net.Listen("unix", cs.pluginSocketPath)
+		require.NoError(t, err)
+		defer sock.Close()
+		go func() {
+			server.Serve(sock)
+		}()
+
+		// populate MetaCache
+		for _, info := range tt.infos {
+			assert.NoError(t, cs.addContainer(info.request))
+			assert.NoError(t, cs.updateContainerInfo(info.request.PodUid, info.request.ContainerName, info.podInfo, info.allocationInfo))
+
+			nodeInfo, _ := cs.metaCache.GetContainerInfo(info.request.PodUid, info.request.ContainerName)
+			nodeInfo.Isolated = info.isolated
+			if info.regions.Len() > 0 {
+				nodeInfo.RegionNames = info.regions
+			}
+			assert.NoError(t, cs.metaCache.SetContainerInfo(info.request.PodUid, info.request.ContainerName, nodeInfo))
+		}
+
+		s := &mockCPUServerService_ListAndWatchServer{ResultsChan: make(chan *cpuadvisor.ListAndWatchResponse)}
+		stop := make(chan struct{})
+		go func() {
+			err := cs.ListAndWatch(&advisorsvc.Empty{}, s)
+			assert.NoError(t, err)
+			close(stop)
+		}()
+
+		res := <-s.ResultsChan
+		close(cs.stopCh)
+		<-stop
+
+		res, err = DeepCopyResponse(res)
+		assert.NoError(t, err)
+		assert.Equal(t, tt.wantRes, res)
+	}
+
+	testWithGetAdvice := func(
+		t *testing.T,
+		advisor *mockCPUResourceAdvisor,
+		cs *cpuServer,
+		tt testCase,
+	) {
+		// populate GetAdviceRequest
+		request := &cpuadvisor.GetAdviceRequest{
+			Entries: map[string]*cpuadvisor.FullAllocationInfoEntries{},
+		}
+		request.Entries[commonstate.PoolNameReserve] = &cpuadvisor.FullAllocationInfoEntries{
+			Entries: map[string]*cpuadvisor.FullAllocationInfo{
+				commonstate.FakedContainerName: {
+					OwnerPoolName: commonstate.PoolNameReserve,
+				},
+			},
+		}
+		for _, info := range tt.infos {
+			if _, ok := request.Entries[info.request.PodUid]; !ok {
+				request.Entries[info.request.PodUid] = &cpuadvisor.FullAllocationInfoEntries{
+					Entries: make(map[string]*cpuadvisor.FullAllocationInfo),
+				}
+			}
+			request.Entries[info.request.PodUid].Entries[info.request.ContainerName] = &cpuadvisor.FullAllocationInfo{
+				PodUid:                           info.request.PodUid,
+				PodNamespace:                     info.podInfo.Namespace,
+				PodName:                          info.podInfo.Name,
+				ContainerName:                    info.request.ContainerName,
+				Annotations:                      info.request.Annotations,
+				QosLevel:                         info.request.QosLevel,
+				RampUp:                           info.allocationInfo.RampUp,
+				OwnerPoolName:                    info.allocationInfo.OwnerPoolName,
+				TopologyAwareAssignments:         info.allocationInfo.TopologyAwareAssignments,
+				OriginalTopologyAwareAssignments: info.allocationInfo.OriginalTopologyAwareAssignments,
+			}
+		}
+		advisor.onUpdate = func() {
+			for _, info := range tt.infos {
+				ci, ok := cs.metaCache.GetContainerInfo(info.request.PodUid, info.request.ContainerName)
+				// container info should have been populated
+				assert.True(t, ok)
+				ci.Isolated = info.isolated
+				if info.regions.Len() > 0 {
+					ci.RegionNames = info.regions
+				}
+				assert.NoError(t, cs.metaCache.SetContainerInfo(info.request.PodUid, info.request.ContainerName, ci))
+			}
+		}
+
+		resp, err := cs.GetAdvice(context.Background(), request)
+		assert.NoError(t, err)
+		lwResp, err := DeepCopyResponse(&cpuadvisor.ListAndWatchResponse{
+			Entries:                               resp.Entries,
+			AllowSharedCoresOverlapReclaimedCores: resp.AllowSharedCoresOverlapReclaimedCores,
+			ExtraEntries:                          resp.ExtraEntries,
+		})
+		assert.NoError(t, err)
+		assert.Equal(t, tt.wantRes, lwResp)
+	}
+
 	for _, tt := range tests {
 		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+		// reuse the test cases and test both ListAndWatch and GetAdvice
+		for apiMode, testFunc := range map[string]func(*testing.T, *mockCPUResourceAdvisor, *cpuServer, testCase){
+			"ListAndWatch": testWithListAndWatch,
+			"GetAdvice":    testWithGetAdvice,
+		} {
+			testFunc := testFunc
+			t.Run(tt.name+"_"+apiMode, func(t *testing.T) {
+				t.Parallel()
 
-			advisor := &mockCPUResourceAdvisor{
-				provision: &tt.provision,
-				err:       nil,
-			}
-			cs := newTestCPUServer(t, advisor, []*v1.Pod{})
-
-			// populate checkpoint
-			checkpoint := &cpuadvisor.GetCheckpointResponse{
-				Entries: make(map[string]*cpuadvisor.AllocationEntries),
-			}
-			checkpoint.Entries[commonstate.PoolNameReserve] = &cpuadvisor.AllocationEntries{
-				Entries: map[string]*cpuadvisor.AllocationInfo{
-					commonstate.FakedContainerName: {
-						OwnerPoolName: commonstate.PoolNameReserve,
-					},
-				},
-			}
-			for _, info := range tt.infos {
-				if _, ok := checkpoint.Entries[info.request.PodUid]; !ok {
-					checkpoint.Entries[info.request.PodUid] = &cpuadvisor.AllocationEntries{
-						Entries: make(map[string]*cpuadvisor.AllocationInfo),
-					}
+				advisor := &mockCPUResourceAdvisor{
+					provision: &tt.provision,
+					err:       nil,
 				}
-				checkpoint.Entries[info.request.PodUid].Entries[info.request.ContainerName] = info.allocationInfo
-			}
-
-			// start mock qrm server
-			qrmServer := &mockQRMCPUPluginServer{
-				checkpoint: checkpoint,
-				err:        nil,
-			}
-			server := grpc.NewServer()
-			cpuadvisor.RegisterCPUPluginServer(server, qrmServer)
-
-			sock, err := net.Listen("unix", cs.pluginSocketPath)
-			require.NoError(t, err)
-			defer sock.Close()
-			go func() {
-				server.Serve(sock)
-			}()
-
-			// populate MetaCache
-			for _, info := range tt.infos {
-				assert.NoError(t, cs.addContainer(info.request))
-				assert.NoError(t, cs.updateContainerInfo(info.request.PodUid, info.request.ContainerName, info.podInfo, info.allocationInfo))
-
-				nodeInfo, _ := cs.metaCache.GetContainerInfo(info.request.PodUid, info.request.ContainerName)
-				nodeInfo.Isolated = info.isolated
-				if info.regions.Len() > 0 {
-					nodeInfo.RegionNames = info.regions
+				var pods []*v1.Pod
+				for _, info := range tt.infos {
+					pods = append(pods, info.podInfo)
 				}
-				assert.NoError(t, cs.metaCache.SetContainerInfo(info.request.PodUid, info.request.ContainerName, nodeInfo))
-			}
+				cs := newTestCPUServer(t, advisor, pods)
 
-			s := &mockCPUServerService_ListAndWatchServer{ResultsChan: make(chan *cpuadvisor.ListAndWatchResponse)}
-			stop := make(chan struct{})
-			go func() {
-				if err := cs.ListAndWatch(&advisorsvc.Empty{}, s); (err != nil) != tt.wantErr {
-					t.Errorf("ListAndWatch() error = %v, wantErr %v", err, tt.wantErr)
-				}
-				close(stop)
-			}()
-
-			res := <-s.ResultsChan
-			close(cs.stopCh)
-			<-stop
-
-			res, err = DeepCopyResponse(res)
-			assert.NoError(t, err)
-			assert.Equal(t, tt.wantRes, res)
-		})
+				testFunc(t, advisor, cs, tt)
+			})
+		}
 	}
 }
 
