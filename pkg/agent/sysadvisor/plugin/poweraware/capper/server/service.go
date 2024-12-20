@@ -99,6 +99,10 @@ func (p *powerCapService) RemovePod(ctx context.Context, request *advisorsvc.Rem
 	return nil, errors.New("not implemented")
 }
 
+func (p *powerCapService) GetAdvice(ctx context.Context, request *advisorsvc.GetAdviceRequest) (*advisorsvc.GetAdviceResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (p *powerCapService) deliverPendingReset(ch chan<- struct{}) {
 	p.Lock()
 	defer p.Unlock()

@@ -27,6 +27,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
+	"k8s.io/apimachinery/pkg/util/wait"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	maputil "k8s.io/kubernetes/pkg/util/maps"
 
@@ -215,6 +216,140 @@ func (p *DynamicPolicy) pushCPUAdvisor() error {
 	return nil
 }
 
+func (p *DynamicPolicy) createGetAdviceRequest() (*advisorapi.GetAdviceRequest, error) {
+	stateEntries := p.state.GetPodEntries()
+	chkEntries := make(map[string]*advisorapi.FullAllocationInfoEntries)
+	for uid, containerEntries := range stateEntries {
+		if chkEntries[uid] == nil {
+			chkEntries[uid] = &advisorapi.FullAllocationInfoEntries{}
+		}
+
+		for entryName, allocationInfo := range containerEntries {
+			if allocationInfo == nil {
+				continue
+			}
+
+			info := &advisorapi.FullAllocationInfo{
+				PodUid:          allocationInfo.PodUid,
+				PodNamespace:    allocationInfo.PodNamespace,
+				PodName:         allocationInfo.PodName,
+				ContainerName:   allocationInfo.ContainerName,
+				ContainerIndex:  allocationInfo.ContainerIndex,
+				Labels:          maputil.CopySS(allocationInfo.Labels),
+				Annotations:     maputil.CopySS(allocationInfo.Annotations),
+				QosLevel:        allocationInfo.QoSLevel,
+				RequestQuantity: uint64(allocationInfo.RequestQuantity),
+				RampUp:          allocationInfo.RampUp,
+				OwnerPoolName:   allocationInfo.OwnerPoolName,
+			}
+
+			// Only fill in the container type for non-pool entries.
+			if entryName != commonstate.FakedContainerName {
+				containerType, found := pluginapi.ContainerType_value[allocationInfo.ContainerType]
+				if !found {
+					return nil, fmt.Errorf("container type %q for container %s/%s not found", allocationInfo.ContainerType, uid, entryName)
+				}
+
+				info.ContainerType = pluginapi.ContainerType(containerType)
+			}
+
+			ownerPoolName := allocationInfo.GetOwnerPoolName()
+			if ownerPoolName == commonstate.EmptyOwnerPoolName {
+				general.Warningf("pod: %s/%s container: %s get empty owner pool name",
+					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
+				if allocationInfo.CheckSideCar() {
+					ownerPoolName = containerEntries.GetMainContainerPoolName()
+
+					general.Warningf("set pod: %s/%s sidecar container: %s owner pool name: %s same to its main container",
+						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName,
+						ownerPoolName)
+				}
+			}
+
+			info.OwnerPoolName = ownerPoolName
+
+			// not set topology-aware assignments for shared_cores and reclaimed_cores,
+			// since their topology-aware assignments are same to the pools they are in.
+			if (!allocationInfo.CheckShared() && !allocationInfo.CheckReclaimed()) || containerEntries.IsPoolEntry() {
+				info.TopologyAwareAssignments = machine.ParseCPUAssignmentFormat(allocationInfo.TopologyAwareAssignments)
+				info.OriginalTopologyAwareAssignments = machine.ParseCPUAssignmentFormat(allocationInfo.OriginalTopologyAwareAssignments)
+			}
+
+			if chkEntries[uid].Entries == nil {
+				chkEntries[uid].Entries = make(map[string]*advisorapi.FullAllocationInfo)
+			}
+			chkEntries[uid].Entries[entryName] = info
+		}
+	}
+
+	return &advisorapi.GetAdviceRequest{
+		Entries: chkEntries,
+	}, nil
+}
+
+func (p *DynamicPolicy) getAdviceFromAdvisor(ctx context.Context) (isImplemented bool, err error) {
+	p.Lock()
+	defer p.Unlock()
+	general.Infof("called")
+
+	request, err := p.createGetAdviceRequest()
+	if err != nil {
+		return false, fmt.Errorf("create GetAdviceRequest failed with error: %w", err)
+	}
+	resp, err := p.advisorClient.GetAdvice(ctx, request)
+	if err != nil {
+		if general.IsUnimplementedError(err) {
+			return false, nil
+		}
+		return true, fmt.Errorf("GetAdvice failed with error: %w", err)
+	}
+
+	err = p.allocateByCPUAdvisor(&advisorapi.ListAndWatchResponse{
+		Entries:                               resp.Entries,
+		AllowSharedCoresOverlapReclaimedCores: resp.AllowSharedCoresOverlapReclaimedCores,
+	})
+	if err != nil {
+		return true, fmt.Errorf("allocate by GetAdvice response failed with error: %w", err)
+	}
+
+	return true, nil
+}
+
+// getAdviceFromAdvisorLoop gets advice from cpu-advisor periodically.
+// qrm-plugin works in client-mode, while cpu-advisor works in server-mode.
+// All information required by cpu-advisor is included in the request, and the response is returned synchronously.
+// This new communication mode is meant to replace the legacy list-and-watch mode.
+// This function only returns if stopCh is closed, or if the advisor does not implement GetAdvice,
+// in which case we should fall back to the legacy list-and-watch mode.
+func (p *DynamicPolicy) getAdviceFromAdvisorLoop(stopCh <-chan struct{}) {
+	general.Infof("called")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		<-stopCh
+		general.Infof("received stop signal, stop calling GetAdvice on CPUAdvisorServer")
+		cancel()
+	}()
+
+	_ = wait.PollImmediateUntilWithContext(ctx, p.getAdviceInterval, func(ctx context.Context) (bool, error) {
+		isImplemented, err := p.getAdviceFromAdvisor(ctx)
+		if err != nil {
+			_ = p.emitter.StoreInt64(util.MetricNameGetAdviceFailed, 1, metrics.MetricTypeNameRaw)
+			general.Errorf("get advice from advisor failed with error: %v", err)
+		} else if !isImplemented {
+			general.Infof("CPUAdvisorServer does not implement GetAdvice")
+			return true, nil
+		}
+
+		_ = general.UpdateHealthzStateByError(cpuconsts.CommunicateWithAdvisor, err)
+
+		if p.advisorMonitor != nil && err == nil {
+			p.advisorMonitor.UpdateRefreshTime()
+		}
+		return false, nil
+	})
+}
+
 // lwCPUAdvisorServer works as a client to connect with cpu-advisor.
 // it will wait to receive allocations from cpu-advisor, and perform allocate actions
 func (p *DynamicPolicy) lwCPUAdvisorServer(stopCh <-chan struct{}) error {
@@ -240,7 +375,9 @@ func (p *DynamicPolicy) lwCPUAdvisorServer(stopCh <-chan struct{}) error {
 				err, status.Code(err))
 		}
 
+		p.Lock()
 		err = p.allocateByCPUAdvisor(resp)
+		p.Unlock()
 		if err != nil {
 			general.Errorf("allocate by ListAndWatch response of CPUAdvisorServer failed with error: %v", err)
 		}
@@ -261,9 +398,7 @@ func (p *DynamicPolicy) allocateByCPUAdvisor(resp *advisorapi.ListAndWatchRespon
 
 	general.Infof("allocateByCPUAdvisor is called")
 	_ = p.emitter.StoreInt64(util.MetricNameHandleAdvisorRespCalled, 1, metrics.MetricTypeNameRaw)
-	p.Lock()
 	defer func() {
-		p.Unlock()
 		if err != nil {
 			_ = p.emitter.StoreInt64(util.MetricNameHandleAdvisorRespFailed, 1, metrics.MetricTypeNameRaw)
 		}
