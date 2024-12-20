@@ -92,9 +92,9 @@ func (m MBDomainManager) IncubateNodes(nodes []int) {
 	m.StartIncubation(ccds)
 }
 
-func NewMBDomainManager(dieTopology *machine.DieTopology, incubationInterval time.Duration) *MBDomainManager {
+func NewMBDomainManager(dieTopology *machine.DieTopology, incubationInterval time.Duration, mbCapacity int) *MBDomainManager {
 	onceDomainManagerInit.Do(func() {
-		domainManager = newMBDomainManager(dieTopology, incubationInterval)
+		domainManager = newMBDomainManager(dieTopology, incubationInterval, mbCapacity)
 	})
 	return domainManager
 }
@@ -109,7 +109,7 @@ func genCCDNode(nodeCCDs map[int]sets.Int) map[int]int {
 	return result
 }
 
-func newMBDomainManager(dieTopology *machine.DieTopology, incubationInterval time.Duration) *MBDomainManager {
+func newMBDomainManager(dieTopology *machine.DieTopology, incubationInterval time.Duration, mbCapacity int) *MBDomainManager {
 	manager := &MBDomainManager{
 		Domains:  make(map[int]*MBDomain),
 		nodeCCDs: dieTopology.DiesInNuma,
@@ -125,6 +125,7 @@ func newMBDomainManager(dieTopology *machine.DieTopology, incubationInterval tim
 			PreemptyNodes:      make(sets.Int),
 			ccdIncubated:       make(IncubatedCCDs),
 			incubationInterval: incubationInterval,
+			MBQuota:            mbCapacity,
 		}
 
 		for _, node := range mbDomain.NumaNodes {

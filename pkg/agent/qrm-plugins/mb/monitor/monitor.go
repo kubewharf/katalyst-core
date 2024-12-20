@@ -39,6 +39,7 @@ var (
 	// todo: use a better mechanism to pass needed data than exposing global var
 	// global var used by resctrl mb provisioner for creation of domain manager
 	IncubationInterval time.Duration
+	DomainMBCapacity   int
 )
 
 var (

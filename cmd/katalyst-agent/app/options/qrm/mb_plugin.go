@@ -31,6 +31,7 @@ type MBOptions struct {
 	IncubationInterval         time.Duration
 	CPUSetPoolToSharedSubgroup map[string]int
 	MinMBPerCCD                int
+	DomainMBCapacity           int
 
 	// type of leaf planners
 	LeafThrottleType string
@@ -45,7 +46,8 @@ func NewMBOptions() *MBOptions {
 			"flink": 30,
 			"share": 50,
 		},
-		MinMBPerCCD: 4_000,
+		MinMBPerCCD:      4_000,
+		DomainMBCapacity: 122_000, // 122_000 MBps = 122 GBps
 
 		LeafThrottleType: string(strategy.ExtremeThrottle),
 		LeafEaseType:     string(strategy.HalfEase),
@@ -59,6 +61,7 @@ func (m *MBOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringToIntVar(&m.CPUSetPoolToSharedSubgroup, "cpuset-pool-to-shared-subgroup", m.CPUSetPoolToSharedSubgroup,
 		"mapping from cpuset pool name to shared_xx")
 	fs.IntVar(&m.MinMBPerCCD, "min-mb-per-ccd", m.MinMBPerCCD, "lower bound of MB per ccd in MBps")
+	fs.IntVar(&m.DomainMBCapacity, "domain-mb-capacity", m.DomainMBCapacity, "MB capacity per domain(socket) in MBps")
 	fs.StringVar(&m.LeafThrottleType, "mb-leaf-throttle-type", m.LeafThrottleType, "type of shared-30 throttle planner")
 	fs.StringVar(&m.LeafEaseType, "mb-leaf-ease-type", m.LeafEaseType, "type of shared-30 ease planner")
 }
@@ -67,6 +70,7 @@ func (m *MBOptions) ApplyTo(conf *qrmconfig.MBQRMPluginConfig) error {
 	conf.IncubationInterval = m.IncubationInterval
 	conf.CPUSetPoolToSharedSubgroup = m.CPUSetPoolToSharedSubgroup
 	conf.MinMBPerCCD = m.MinMBPerCCD
+	conf.DomainMBCapacity = m.DomainMBCapacity
 
 	// todo: to validate assignments
 	conf.LeafThrottleType = strategy.LowPrioPlannerType(m.LeafThrottleType)

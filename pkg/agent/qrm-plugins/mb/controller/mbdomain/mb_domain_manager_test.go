@@ -70,6 +70,7 @@ func TestNewMBDomainManager(t *testing.T) {
 						PreemptyNodes:      make(sets.Int),
 						ccdIncubated:       IncubatedCCDs{},
 						incubationInterval: time.Second * 1,
+						MBQuota:            120_000_000,
 					},
 				},
 				nodeCCDs: map[int]sets.Int{
@@ -95,7 +96,7 @@ func TestNewMBDomainManager(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := NewMBDomainManager(tt.args.dieTopology, time.Second*1)
+			got := NewMBDomainManager(tt.args.dieTopology, time.Second*1, 120_000_000)
 			assert.Equal(t, tt.want, got)
 		})
 	}

@@ -39,6 +39,11 @@ type MBDomain struct {
 
 	ccdIncubated       IncubatedCCDs
 	incubationInterval time.Duration
+
+	// MBQuota is the maximum MB capacity a domain has
+	// part of capacity is allocated as pressure detection sentinal, so the effective MB
+	// (capacity - sentinal) is actually used
+	MBQuota int
 }
 
 func (m *MBDomain) String() string {
@@ -48,6 +53,7 @@ func (m *MBDomain) String() string {
 	var sb strings.Builder
 	sb.WriteString("----- mb domain summary -----\n")
 	sb.WriteString(fmt.Sprintf("    id: %d\n", m.ID))
+	sb.WriteString(fmt.Sprintf("    mb capacity: %d\n", m.MBQuota))
 	for _, node := range m.NumaNodes {
 		sb.WriteString(fmt.Sprintf("    numa node: %d\n", node))
 		for _, ccd := range m.NodeCCDs[node] {

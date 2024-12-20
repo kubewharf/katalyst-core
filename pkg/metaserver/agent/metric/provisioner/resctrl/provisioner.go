@@ -51,7 +51,7 @@ func NewResctrlMetricsProvisioner(baseConf *global.BaseConfiguration, _ *metaser
 
 	dieTopology := machine.HostDieTopology
 	incubationInterval := monitor.IncubationInterval
-	domainManager := mbdomain.NewMBDomainManager(dieTopology, incubationInterval)
+	domainManager := mbdomain.NewMBDomainManager(dieTopology, incubationInterval, monitor.DomainMBCapacity)
 
 	podMBMonitor, err := monitor.NewDefaultMBMonitor(dieTopology.CPUsInDie, dataKeeper, domainManager)
 	if err != nil {

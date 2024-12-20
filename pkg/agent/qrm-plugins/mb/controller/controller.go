@@ -27,7 +27,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/allocator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 	resctrltask "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/task"
@@ -151,7 +150,7 @@ func (c *Controller) process(ctx context.Context) {
 		applicableQoSCCDMB := getApplicableQoSCCDMB(domain, c.CurrQoSCCDMB)
 		general.InfofV(6, "mbm: domain %d mb stat: %#v", i, applicableQoSCCDMB)
 
-		mbAlloc := c.policy.GetPlan(config.DomainTotalMB, domain, applicableQoSCCDMB)
+		mbAlloc := c.policy.GetPlan(domain.MBQuota, domain, applicableQoSCCDMB)
 		general.InfofV(6, "mbm: domain %d mb alloc plan: %v", i, mbAlloc)
 
 		if err := c.mbPlanAllocator.Allocate(mbAlloc); err != nil {

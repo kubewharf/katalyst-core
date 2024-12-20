@@ -60,6 +60,7 @@ func Run(conf *config.Configuration, clientSet *client.GenericClientSet, generic
 	//       one approach is to refactor to change incubation interval to setter
 	// below var to be exposed for resctrl mb provisioner to create mb monitor
 	monitor.IncubationInterval = conf.IncubationInterval
+	monitor.DomainMBCapacity = conf.DomainMBCapacity
 
 	genericCtx, err := agent.NewGenericContext(baseCtx, conf)
 	if err != nil {

@@ -26,6 +26,7 @@ type MBQRMPluginConfig struct {
 	IncubationInterval         time.Duration
 	CPUSetPoolToSharedSubgroup map[string]int
 	MinMBPerCCD                int
+	DomainMBCapacity           int
 
 	// type of leaf planners
 	LeafThrottleType strategy.LowPrioPlannerType

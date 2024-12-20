@@ -60,7 +60,7 @@ func NewComponent(agentCtx *agent.GenericContext, conf *config.Configuration,
 		incubationInterval: conf.IncubationInterval,
 	}
 
-	domainManager := mbdomain.NewMBDomainManager(plugin.dieTopology, plugin.incubationInterval)
+	domainManager := mbdomain.NewMBDomainManager(plugin.dieTopology, plugin.incubationInterval, conf.DomainMBCapacity)
 
 	var err error
 
