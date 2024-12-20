@@ -6564,6 +6564,7 @@ func TestSwitchBetweenAPIs(t *testing.T) {
 
 				err := dynamicPolicy.Start()
 				as.NoError(err)
+				defer dynamicPolicy.Stop()
 
 				// Wait for the plugin to call advisor
 				time.Sleep(3 * time.Second)
@@ -6572,14 +6573,25 @@ func TestSwitchBetweenAPIs(t *testing.T) {
 				// ListAndWatch in progress, simulate an upgrade
 				unimplementedGetAdviceCall.Unset()
 
+				getAdviceCalledChan := make(chan struct{})
 				cpuAdvisorServer.
 					On("GetAdvice", mock.Anything, mock.Anything).
+					Run(func(args mock.Arguments) {
+						getAdviceCalledChan <- struct{}{}
+					}).
 					Return(&advisorapi.GetAdviceResponse{}, nil)
 
 				// terminate the old ListAndWatch
 				lwEndedChan <- time.Now()
 
-				time.Sleep(30 * time.Second)
+				// plugin should switch to GetAdvice and call it periodically
+				for i := 0; i < 5; i++ {
+					select {
+					case <-getAdviceCalledChan:
+					case <-time.After(dynamicPolicy.getAdviceInterval * 2):
+						t.Fatalf("GetAdvice not called")
+					}
+				}
 				// ListAndWatch should only be called once throughout
 				cpuAdvisorServer.AssertExpectations(t)
 			},
@@ -6593,17 +6605,34 @@ func TestSwitchBetweenAPIs(t *testing.T) {
 				// - verify that cpu plugin switches to ListAndWatch
 				as := require.New(t)
 
+				getAdviceCalledChan := make(chan struct{})
 				implementedGetAdviceCall := cpuAdvisorServer.
 					On("GetAdvice", mock.Anything, mock.Anything).
+					Run(func(args mock.Arguments) {
+						select {
+						case getAdviceCalledChan <- struct{}{}:
+						default:
+						}
+					}).
 					Return(&advisorapi.GetAdviceResponse{}, nil)
 
 				err := dynamicPolicy.Start()
 				as.NoError(err)
+				defer dynamicPolicy.Stop()
 
-				time.Sleep(30 * time.Second)
+				// Ensure GetAdvice is called periodically
+				for i := 0; i < 5; i++ {
+					select {
+					case <-getAdviceCalledChan:
+					case <-time.After(dynamicPolicy.getAdviceInterval * 2):
+						t.Fatalf("GetAdvice not called")
+					}
+				}
 				cpuAdvisorServer.AssertExpectations(t)
 
 				// simulate a downgrade
+				// lock to ensure that policy doesn't call GetAdvice after we have removed the old expectation but haven't set the new one
+				dynamicPolicy.Lock()
 				implementedGetAdviceCall.Unset()
 				unimplementedGetAdviceCall := cpuAdvisorServer.
 					On("GetAdvice", mock.Anything, mock.Anything).
@@ -6614,6 +6643,7 @@ func TestSwitchBetweenAPIs(t *testing.T) {
 					NotBefore(unimplementedGetAdviceCall).
 					Once().
 					Return(nil)
+				dynamicPolicy.Unlock()
 
 				time.Sleep(3 * time.Second)
 				cpuAdvisorServer.AssertExpectations(t)
