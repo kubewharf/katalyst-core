@@ -17,8 +17,10 @@ limitations under the License.
 package config
 
 const (
+	// obsolete by arg domain-mb-capacity for flexibility knob of testing/comparison
 	// the effective bandwidth 120 GB, with the surplus of part of pressure-check sentinal (which mainly serves as conclision detection)
-	DomainTotalMB   = 120_000 + 2_000     //116 GBps in one mb sharing domain, effectively
+	// DomainTotalMB   = 120_000 + 2_000     //116 GBps in one mb sharing domain, effectively
+
 	ReservedPerNuma = 35_000              // 35 GBps reserved per node for dedicated pod
 	ReservedPerCCD  = ReservedPerNuma / 2 // hardcoded divisor 2 may not be applicable all the places
 
