@@ -29,12 +29,14 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
+	"github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
 const (
@@ -63,18 +65,45 @@ func (mb *memsetBinder) reclaimedContainersFilter(ci *types.ContainerInfo) bool 
 	return ci != nil && ci.QoSLevel == apiconsts.PodAnnotationQoSLevelReclaimedCores
 }
 
+func (mb *memsetBinder) nonActualNUMABindingFilter(qosConf *generic.QoSConfiguration, ci *types.ContainerInfo) (bool, error) {
+	pod, err := mb.metaServer.GetPod(context.Background(), ci.PodUID)
+	if err != nil {
+		return false, err
+	}
+
+	bindingResult, err := qos.GetActualNUMABindingResult(qosConf, pod)
+	if err != nil {
+		return false, err
+	}
+
+	return bindingResult == -1, nil
+}
+
 func (mb *memsetBinder) Reconcile(status *types.MemoryPressureStatus) error {
 	var errList []error
 
-	allNUMAs := mb.metaServer.CPUDetails.NUMANodes()
+	actualNUMABindingNUMAs, err := helper.GetActualNUMABindingNUMAsForReclaimedCores(mb.conf, mb.metaServer)
+	if err != nil {
+		return err
+	}
 
+	allNUMAs := mb.metaServer.CPUDetails.NUMANodes().Difference(actualNUMABindingNUMAs)
 	availNUMAs := allNUMAs
 
 	containerMemset := make(map[consts.PodContainerName]machine.CPUSet)
 	containers := make([]*types.ContainerInfo, 0)
 	mb.metaReader.RangeContainer(func(podUID string, containerName string, containerInfo *types.ContainerInfo) bool {
 		if mb.reclaimedContainersFilter(containerInfo) {
-			containers = append(containers, containerInfo)
+			nonActualNUMABinding, err := mb.nonActualNUMABindingFilter(mb.conf.QoSConfiguration, containerInfo)
+			if err != nil {
+				general.Errorf("get non-actual-numa-binding for pod: %s/%s, container: %s failed with error: %v",
+					containerInfo.PodNamespace, containerInfo.PodName, containerName, err)
+				return true
+			}
+
+			if nonActualNUMABinding {
+				containers = append(containers, containerInfo)
+			}
 			return true
 		}
 
@@ -96,7 +125,7 @@ func (mb *memsetBinder) Reconcile(status *types.MemoryPressureStatus) error {
 		return true
 	})
 
-	err := errors.NewAggregate(errList)
+	err = errors.NewAggregate(errList)
 	if err != nil {
 		return err
 	}
@@ -115,6 +144,11 @@ func (mb *memsetBinder) Reconcile(status *types.MemoryPressureStatus) error {
 		if !onPressureNUMAs.Equals(availNUMAs) {
 			availNUMAs = availNUMAs.Difference(onPressureNUMAs)
 		}
+	}
+
+	if availNUMAs.IsEmpty() {
+		general.Errorf("all NUMAs are on memory pressure, can't bind reclaimed_cores containers")
+		return nil
 	}
 
 	for _, ci := range containers {

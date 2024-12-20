@@ -33,12 +33,28 @@ var headroomManagerInitializers sync.Map
 
 // HeadroomManager is used to manage resource headroom reporting and overcommit.
 type HeadroomManager interface {
-	// GetAllocatable return the allocatable resource of this resource
-	GetAllocatable() (resource.Quantity, error)
-	// GetCapacity return the capacity of this resource
-	GetCapacity() (resource.Quantity, error)
-	// Run this resource manager
+	// global resource management
+	ResourceManager
+	// NUMA-specific resource management
+	NumaResourceManager
+	// Run starts the resource manager
 	Run(ctx context.Context)
+}
+
+// ResourceManager provides a general interface for managing resources
+type ResourceManager interface {
+	// GetAllocatable returns the total allocatable resource of this manager
+	GetAllocatable() (resource.Quantity, error)
+	// GetCapacity returns the total capacity resource of this manager
+	GetCapacity() (resource.Quantity, error)
+}
+
+// NumaResourceManager provides an interface for managing NUMA-specific resources
+type NumaResourceManager interface {
+	// GetNumaAllocatable returns the allocatable resource for each NUMA node
+	GetNumaAllocatable() (map[int]resource.Quantity, error)
+	// GetNumaCapacity returns the capacity resource for each NUMA node
+	GetNumaCapacity() (map[int]resource.Quantity, error)
 }
 
 // InitFunc is used to init headroom manager

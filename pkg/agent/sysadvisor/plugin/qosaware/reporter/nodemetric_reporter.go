@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -376,6 +377,7 @@ func (p *nodeMetricsReporterPlugin) getGroupMetricInfo() ([]nodeapis.GroupMetric
 			for _, pod := range effectivePods {
 				metricInfo.PodList = append(metricInfo.PodList, types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}.String())
 			}
+			sort.Strings(metricInfo.PodList)
 		}
 		groupMetrics = append(groupMetrics, metricInfo)
 	}
@@ -568,6 +570,10 @@ func (p *nodeMetricsReporterPlugin) getGroupUsage(pods []*v1.Pod, qosLevel strin
 			Usage:  &resourceNUMAMetric,
 		})
 	}
+
+	sort.Slice(resourceNUMAMetrics, func(i, j int) bool {
+		return resourceNUMAMetrics[i].NUMAId < resourceNUMAMetrics[j].NUMAId
+	})
 
 	err := errors.NewAggregate(errList)
 	if err != nil {

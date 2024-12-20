@@ -429,8 +429,8 @@ func TestAdvisorUpdate(t *testing.T) {
 				commonstate.PoolNameReclaim: {
 					PoolName: commonstate.PoolNameReclaim,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
-						0: machine.MustParse("70-71"),
-						1: machine.MustParse("25-46"),
+						0: machine.MustParse("0-8"),
+						1: machine.MustParse("48-93"),
 					},
 				},
 			},
@@ -458,7 +458,7 @@ func TestAdvisorUpdate(t *testing.T) {
 						-1: 2,
 					},
 					commonstate.PoolNameReclaim: {
-						0:  4,
+						0:  9,
 						-1: 47,
 					},
 				},
@@ -479,8 +479,8 @@ func TestAdvisorUpdate(t *testing.T) {
 				commonstate.PoolNameReclaim: {
 					PoolName: commonstate.PoolNameReclaim,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
-						0: machine.MustParse("70-71"),
-						1: machine.MustParse("25-46"),
+						0: machine.MustParse("70-78"),
+						1: machine.MustParse("2-46"),
 					},
 				},
 			},
@@ -511,12 +511,12 @@ func TestAdvisorUpdate(t *testing.T) {
 						-1: 2,
 					},
 					commonstate.PoolNameReclaim: {
-						0:  4,
+						0:  9,
 						-1: 47,
 					},
 				},
 			},
-			wantHeadroomErr: true,
+			wantHeadroomErr: false,
 			// dedicated_cores headroom(9) + empty numa headroom(45)
 			wantHeadroom: *resource.NewQuantity(54, resource.DecimalSI),
 		},
@@ -587,7 +587,7 @@ func TestAdvisorUpdate(t *testing.T) {
 				commonstate.PoolNameReclaim: {
 					PoolName: commonstate.PoolNameReclaim,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
-						0: machine.MustParse("70-71"),
+						0: machine.MustParse("70-73"),
 						1: machine.MustParse("25-47,72-95"),
 					},
 				},
@@ -621,7 +621,7 @@ func TestAdvisorUpdate(t *testing.T) {
 						-1: 2,
 					},
 					commonstate.PoolNameReclaim: {
-						0:  4,
+						0:  6,
 						-1: 47,
 					},
 				},
@@ -647,8 +647,8 @@ func TestAdvisorUpdate(t *testing.T) {
 				commonstate.PoolNameReclaim: {
 					PoolName: commonstate.PoolNameReclaim,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
-						0: machine.MustParse("70-71"),
-						1: machine.MustParse("31-47,72-95"),
+						0: machine.MustParse("19-23,66-71"),
+						1: machine.MustParse("31-47,72-93"),
 					},
 				},
 			},
@@ -656,7 +656,7 @@ func TestAdvisorUpdate(t *testing.T) {
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelDedicatedCores, commonstate.PoolNameDedicated,
 					map[string]string{consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable},
 					map[int]machine.CPUSet{
-						0: machine.MustParse("1-23,48-71"),
+						0: machine.MustParse("1-18,48-65"),
 					}, 36),
 				makeContainerInfo("uid2", "default", "pod2", "c2", consts.PodAnnotationQoSLevelSharedCores, commonstate.PoolNameShare, nil,
 					map[int]machine.CPUSet{
@@ -689,7 +689,7 @@ func TestAdvisorUpdate(t *testing.T) {
 						-1: 6,
 					},
 					commonstate.PoolNameReclaim: {
-						0:  4,
+						0:  9,
 						-1: 41,
 					},
 				},
@@ -1238,7 +1238,7 @@ func TestAdvisorUpdate(t *testing.T) {
 
 			// check headroom
 			if !reflect.DeepEqual(tt.wantHeadroom, resource.Quantity{}) {
-				headroom, err := advisor.GetHeadroom()
+				headroom, _, err := advisor.GetHeadroom()
 				if tt.wantHeadroomErr {
 					assert.Error(t, err)
 				} else {

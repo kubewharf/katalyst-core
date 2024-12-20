@@ -30,12 +30,10 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	"k8s.io/utils/pointer"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
-	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
@@ -112,11 +110,6 @@ func newTestMemoryAdvisor(t *testing.T, pods []*v1.Pod, checkpointDir, stateFile
 	require.NoError(t, err)
 	require.NotNil(t, metaCache)
 
-	genericCtx, err := katalyst_base.GenerateFakeGenericContext([]runtime.Object{})
-	require.NoError(t, err)
-	metaServer, err := metaserver.NewMetaServer(genericCtx.Client, metrics.DummyMetrics{}, conf)
-	require.NoError(t, err)
-
 	cpuTopology, err := machine.GenerateDummyCPUTopology(96, 2, 4)
 	require.NoError(t, err)
 	memoryTopology, err := machine.GenerateDummyMemoryTopology(4, 500<<30)
@@ -125,19 +118,21 @@ func newTestMemoryAdvisor(t *testing.T, pods []*v1.Pod, checkpointDir, stateFile
 	extraTopology, err := machine.GenerateDummyExtraTopology(4)
 	require.NoError(t, err)
 
-	metaServer.MetaAgent = &agent.MetaAgent{
-		KatalystMachineInfo: &machine.KatalystMachineInfo{
-			MachineInfo: &info.MachineInfo{
-				MemoryCapacity: 1000 << 30,
+	metaServer := &metaserver.MetaServer{
+		MetaAgent: &agent.MetaAgent{
+			KatalystMachineInfo: &machine.KatalystMachineInfo{
+				MachineInfo: &info.MachineInfo{
+					MemoryCapacity: 1000 << 30,
+				},
+				CPUTopology:       cpuTopology,
+				MemoryTopology:    memoryTopology,
+				ExtraTopologyInfo: extraTopology,
 			},
-			CPUTopology:       cpuTopology,
-			MemoryTopology:    memoryTopology,
-			ExtraTopologyInfo: extraTopology,
+			PodFetcher: &pod.PodFetcherStub{
+				PodList: pods,
+			},
+			MetricsFetcher: fetcher,
 		},
-		PodFetcher: &pod.PodFetcherStub{
-			PodList: pods,
-		},
-		MetricsFetcher: fetcher,
 	}
 
 	err = metaServer.SetServiceProfilingManager(&spd.DummyServiceProfilingManager{})
@@ -319,6 +314,26 @@ var defaultNumaMetrics = []numaMetric{
 		metricName:  coreconsts.MetricMemTotalNuma,
 		metricValue: metricutil.MetricData{Value: 120 << 30},
 	},
+	{
+		numaID:      0,
+		metricName:  coreconsts.MetricMemInactiveFileNuma,
+		metricValue: metricutil.MetricData{Value: 10 << 30},
+	},
+	{
+		numaID:      1,
+		metricName:  coreconsts.MetricMemInactiveFileNuma,
+		metricValue: metricutil.MetricData{Value: 10 << 30},
+	},
+	{
+		numaID:      2,
+		metricName:  coreconsts.MetricMemInactiveFileNuma,
+		metricValue: metricutil.MetricData{Value: 10 << 30},
+	},
+	{
+		numaID:      3,
+		metricName:  coreconsts.MetricMemInactiveFileNuma,
+		metricValue: metricutil.MetricData{Value: 10 << 30},
+	},
 }
 
 var dropCacheNodeMetrics = []nodeMetric{
@@ -376,6 +391,26 @@ var dropCacheNUMAMetrics = []numaMetric{
 		numaID:      3,
 		metricName:  coreconsts.MetricMemTotalNuma,
 		metricValue: metricutil.MetricData{Value: 120 << 30},
+	},
+	{
+		numaID:      0,
+		metricName:  coreconsts.MetricMemInactiveFileNuma,
+		metricValue: metricutil.MetricData{Value: 10 << 30},
+	},
+	{
+		numaID:      1,
+		metricName:  coreconsts.MetricMemInactiveFileNuma,
+		metricValue: metricutil.MetricData{Value: 10 << 30},
+	},
+	{
+		numaID:      2,
+		metricName:  coreconsts.MetricMemInactiveFileNuma,
+		metricValue: metricutil.MetricData{Value: 10 << 30},
+	},
+	{
+		numaID:      3,
+		metricName:  coreconsts.MetricMemInactiveFileNuma,
+		metricValue: metricutil.MetricData{Value: 10 << 30},
 	},
 }
 
@@ -625,6 +660,121 @@ func TestUpdate(t *testing.T) {
 					containerName: "c3",
 				},
 			},
+			containerNUMAMetrics: []containerNUMAMetric{
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numaID:        1,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numaID:        2,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numaID:        1,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numaID:        2,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numaID:        3,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numaID:        3,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        1,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        2,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        3,
+				},
+
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numaID:        1,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numaID:        2,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numaID:        3,
+				},
+			},
 			wantAdviceResult: &types.InternalMemoryCalculationResult{
 				ContainerEntries: []types.ContainerMemoryAdvices{
 					{
@@ -718,6 +868,62 @@ func TestUpdate(t *testing.T) {
 					metricValue:   metricutil.MetricData{Value: 2 << 30},
 					podUID:        "uid3",
 					containerName: "c3",
+					numaID:        1,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numaID:        1,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numaID:        1,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        1,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
 					numaID:        1,
 				},
 			},
@@ -1179,6 +1385,66 @@ func TestUpdate(t *testing.T) {
 					containerName: "c4",
 				},
 			},
+			containerNUMAMetrics: []containerNUMAMetric{
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numaID:        1,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numaID:        2,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numaID:        3,
+				},
+
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numaID:        1,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numaID:        2,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numaID:        3,
+				},
+			},
+
 			cgroupMetrics: []cgroupMetric{
 				{
 					metricName:  coreconsts.MetricMemPsiAvg60Cgroup,
@@ -1285,6 +1551,123 @@ func TestUpdate(t *testing.T) {
 					},
 				},
 			},
+			pods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod1",
+						Namespace: "default",
+						UID:       "uid1",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+						},
+						Labels: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+						},
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name: "c1",
+							},
+						},
+					},
+					Status: v1.PodStatus{
+						ContainerStatuses: []v1.ContainerStatus{
+							{
+								Name:        "c1",
+								ContainerID: "containerd://c1",
+							},
+						},
+						Phase: v1.PodRunning,
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod2",
+						Namespace: "default",
+						UID:       "uid2",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+						},
+						Labels: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+						},
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name: "c2",
+							},
+						},
+					},
+					Status: v1.PodStatus{
+						ContainerStatuses: []v1.ContainerStatus{
+							{
+								Name:        "c2",
+								ContainerID: "containerd://c2",
+							},
+						},
+						Phase: v1.PodRunning,
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod3",
+						Namespace: "default",
+						UID:       "uid3",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+						},
+						Labels: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+						},
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name: "c3",
+							},
+						},
+					},
+					Status: v1.PodStatus{
+						ContainerStatuses: []v1.ContainerStatus{
+							{
+								Name:        "c3",
+								ContainerID: "containerd://c3",
+							},
+						},
+						Phase: v1.PodRunning,
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod4",
+						Namespace: "default",
+						UID:       "uid4",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+						},
+						Labels: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+						},
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name: "c4",
+							},
+						},
+					},
+					Status: v1.PodStatus{
+						ContainerStatuses: []v1.ContainerStatus{
+							{
+								Name:        "c4",
+								ContainerID: "containerd://c4",
+							},
+						},
+					},
+				},
+			},
 			reclaimedEnable: false,
 			wantErr:         false,
 			containers: []*types.ContainerInfo{
@@ -1310,9 +1693,109 @@ func TestUpdate(t *testing.T) {
 						0: machine.MustParse("1"),
 					}, 200<<30),
 			},
-			plugins:      []types.MemoryAdvisorPluginName{memadvisorplugin.MemsetBinder},
-			nodeMetrics:  defaultNodeMetrics,
-			numaMetrics:  defaultNumaMetrics,
+			plugins:     []types.MemoryAdvisorPluginName{memadvisorplugin.MemsetBinder},
+			nodeMetrics: defaultNodeMetrics,
+			numaMetrics: defaultNumaMetrics,
+			containerNUMAMetrics: []containerNUMAMetric{
+				{
+					metricName:    coreconsts.MetricsMemFilePerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 10 << 20},
+					podUID:        "uid1",
+					containerName: "c1",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemFilePerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 9 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemFilePerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 2 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemFilePerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 10 << 20},
+					podUID:        "uid1",
+					containerName: "c1",
+					numaID:        1,
+				},
+				{
+					metricName:    coreconsts.MetricsMemFilePerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 9 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numaID:        1,
+				},
+				{
+					metricName:    coreconsts.MetricsMemFilePerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 2 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        1,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numaID:        1,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numaID:        1,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        1,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numaID:        1,
+				},
+			},
 			wantHeadroom: *resource.NewQuantity(871<<30, resource.DecimalSI),
 			wantAdviceResult: &types.InternalMemoryCalculationResult{
 				ContainerEntries: []types.ContainerMemoryAdvices{
@@ -1349,8 +1832,124 @@ func TestUpdate(t *testing.T) {
 					},
 				},
 			},
+			pods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod1",
+						Namespace: "default",
+						UID:       "uid1",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+						},
+						Labels: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+						},
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name: "c1",
+							},
+						},
+					},
+					Status: v1.PodStatus{
+						ContainerStatuses: []v1.ContainerStatus{
+							{
+								Name:        "c1",
+								ContainerID: "containerd://c1",
+							},
+						},
+						Phase: v1.PodRunning,
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod2",
+						Namespace: "default",
+						UID:       "uid2",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+						},
+						Labels: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+						},
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name: "c2",
+							},
+						},
+					},
+					Status: v1.PodStatus{
+						ContainerStatuses: []v1.ContainerStatus{
+							{
+								Name:        "c2",
+								ContainerID: "containerd://c2",
+							},
+						},
+						Phase: v1.PodRunning,
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod3",
+						Namespace: "default",
+						UID:       "uid3",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+						},
+						Labels: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+						},
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name: "c3",
+							},
+						},
+					},
+					Status: v1.PodStatus{
+						ContainerStatuses: []v1.ContainerStatus{
+							{
+								Name:        "c3",
+								ContainerID: "containerd://c3",
+							},
+						},
+						Phase: v1.PodRunning,
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod4",
+						Namespace: "default",
+						UID:       "uid4",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+						},
+						Labels: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+						},
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name: "c4",
+							},
+						},
+					},
+					Status: v1.PodStatus{
+						ContainerStatuses: []v1.ContainerStatus{
+							{
+								Name:        "c4",
+								ContainerID: "containerd://c4",
+							},
+						},
+					},
+				},
+			},
 			reclaimedEnable: false,
-			wantErr:         false,
 			containers: []*types.ContainerInfo{
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelReclaimedCores, nil,
 					map[int]machine.CPUSet{
@@ -1417,7 +2016,143 @@ func TestUpdate(t *testing.T) {
 					metricName:  coreconsts.MetricMemTotalNuma,
 					metricValue: metricutil.MetricData{Value: 120 << 30},
 				},
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemInactiveFileNuma,
+					metricValue: metricutil.MetricData{Value: 10 << 30},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemInactiveFileNuma,
+					metricValue: metricutil.MetricData{Value: 10 << 30},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemInactiveFileNuma,
+					metricValue: metricutil.MetricData{Value: 10 << 30},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemInactiveFileNuma,
+					metricValue: metricutil.MetricData{Value: 10 << 30},
+				},
 			},
+			containerNUMAMetrics: []containerNUMAMetric{
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numaID:        1,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numaID:        2,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numaID:        3,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numaID:        1,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numaID:        2,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numaID:        3,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        1,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        2,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        3,
+				},
+
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numaID:        1,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numaID:        2,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numaID:        3,
+				},
+			},
+
 			wantHeadroom: *resource.NewQuantity(871<<30, resource.DecimalSI),
 			wantAdviceResult: &types.InternalMemoryCalculationResult{
 				ContainerEntries: []types.ContainerMemoryAdvices{
@@ -1454,6 +2189,123 @@ func TestUpdate(t *testing.T) {
 					},
 				},
 			},
+			pods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod1",
+						Namespace: "default",
+						UID:       "uid1",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+						},
+						Labels: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+						},
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name: "c1",
+							},
+						},
+					},
+					Status: v1.PodStatus{
+						ContainerStatuses: []v1.ContainerStatus{
+							{
+								Name:        "c1",
+								ContainerID: "containerd://c1",
+							},
+						},
+						Phase: v1.PodRunning,
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod2",
+						Namespace: "default",
+						UID:       "uid2",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+						},
+						Labels: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+						},
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name: "c2",
+							},
+						},
+					},
+					Status: v1.PodStatus{
+						ContainerStatuses: []v1.ContainerStatus{
+							{
+								Name:        "c2",
+								ContainerID: "containerd://c2",
+							},
+						},
+						Phase: v1.PodRunning,
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod3",
+						Namespace: "default",
+						UID:       "uid3",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+						},
+						Labels: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+						},
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name: "c3",
+							},
+						},
+					},
+					Status: v1.PodStatus{
+						ContainerStatuses: []v1.ContainerStatus{
+							{
+								Name:        "c3",
+								ContainerID: "containerd://c3",
+							},
+						},
+						Phase: v1.PodRunning,
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod4",
+						Namespace: "default",
+						UID:       "uid4",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+						},
+						Labels: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+						},
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name: "c4",
+							},
+						},
+					},
+					Status: v1.PodStatus{
+						ContainerStatuses: []v1.ContainerStatus{
+							{
+								Name:        "c4",
+								ContainerID: "containerd://c4",
+							},
+						},
+					},
+				},
+			},
 			reclaimedEnable: false,
 			wantErr:         false,
 			containers: []*types.ContainerInfo{
@@ -1521,6 +2373,141 @@ func TestUpdate(t *testing.T) {
 					numaID:      3,
 					metricName:  coreconsts.MetricMemTotalNuma,
 					metricValue: metricutil.MetricData{Value: 120 << 30},
+				},
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemInactiveFileNuma,
+					metricValue: metricutil.MetricData{Value: 10 << 30},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemInactiveFileNuma,
+					metricValue: metricutil.MetricData{Value: 10 << 30},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemInactiveFileNuma,
+					metricValue: metricutil.MetricData{Value: 10 << 30},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemInactiveFileNuma,
+					metricValue: metricutil.MetricData{Value: 10 << 30},
+				},
+			},
+			containerNUMAMetrics: []containerNUMAMetric{
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numaID:        1,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numaID:        2,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numaID:        1,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numaID:        2,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numaID:        3,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numaID:        3,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        1,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        2,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        3,
+				},
+
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numaID:        1,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numaID:        2,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numaID:        3,
 				},
 			},
 			wantHeadroom: *resource.NewQuantity(871<<30, resource.DecimalSI),
@@ -1661,6 +2648,66 @@ func TestUpdate(t *testing.T) {
 					metricName:  coreconsts.MetricMemBandwidthNuma,
 					metricValue: metricutil.MetricData{Value: 100},
 				},
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemFreeNuma,
+					metricValue: metricutil.MetricData{Value: 10 << 30},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemFreeNuma,
+					metricValue: metricutil.MetricData{Value: 10 << 30},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemFreeNuma,
+					metricValue: metricutil.MetricData{Value: 10 << 30},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemFreeNuma,
+					metricValue: metricutil.MetricData{Value: 10 << 30},
+				},
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemTotalNuma,
+					metricValue: metricutil.MetricData{Value: 200 << 30},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemTotalNuma,
+					metricValue: metricutil.MetricData{Value: 200 << 30},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemTotalNuma,
+					metricValue: metricutil.MetricData{Value: 200 << 30},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemTotalNuma,
+					metricValue: metricutil.MetricData{Value: 200 << 30},
+				},
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemInactiveFileNuma,
+					metricValue: metricutil.MetricData{Value: 5 << 30},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemInactiveFileNuma,
+					metricValue: metricutil.MetricData{Value: 5 << 30},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemInactiveFileNuma,
+					metricValue: metricutil.MetricData{Value: 5 << 30},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemInactiveFileNuma,
+					metricValue: metricutil.MetricData{Value: 5 << 30},
+				},
 			},
 			containerNUMAMetrics: []containerNUMAMetric{
 				{
@@ -1690,6 +2737,76 @@ func TestUpdate(t *testing.T) {
 					podUID:        "uid4",
 					containerName: "c4",
 					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        1,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        2,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        3,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numaID:        1,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numaID:        2,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numaID:        3,
 				},
 			},
 			wantHeadroom: *resource.NewQuantity(980<<30, resource.DecimalSI),
@@ -1820,6 +2937,66 @@ func TestUpdate(t *testing.T) {
 					metricName:  coreconsts.MetricMemBandwidthNuma,
 					metricValue: metricutil.MetricData{Value: 100},
 				},
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemFreeNuma,
+					metricValue: metricutil.MetricData{Value: 10},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemFreeNuma,
+					metricValue: metricutil.MetricData{Value: 10},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemFreeNuma,
+					metricValue: metricutil.MetricData{Value: 10},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemFreeNuma,
+					metricValue: metricutil.MetricData{Value: 10},
+				},
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemTotalNuma,
+					metricValue: metricutil.MetricData{Value: 200},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemTotalNuma,
+					metricValue: metricutil.MetricData{Value: 200},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemTotalNuma,
+					metricValue: metricutil.MetricData{Value: 200},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemTotalNuma,
+					metricValue: metricutil.MetricData{Value: 200},
+				},
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemInactiveFileNuma,
+					metricValue: metricutil.MetricData{Value: 5},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemInactiveFileNuma,
+					metricValue: metricutil.MetricData{Value: 5},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemInactiveFileNuma,
+					metricValue: metricutil.MetricData{Value: 5},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemInactiveFileNuma,
+					metricValue: metricutil.MetricData{Value: 5},
+				},
 			},
 			containerNUMAMetrics: []containerNUMAMetric{
 				{
@@ -1849,6 +3026,76 @@ func TestUpdate(t *testing.T) {
 					podUID:        "uid4",
 					containerName: "c4",
 					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        1,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        2,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        3,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numaID:        1,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numaID:        2,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numaID:        3,
 				},
 			},
 			wantHeadroom: *resource.NewQuantity(980<<30, resource.DecimalSI),
@@ -1946,6 +3193,66 @@ func TestUpdate(t *testing.T) {
 					metricName:  coreconsts.MetricMemBandwidthNuma,
 					metricValue: metricutil.MetricData{Value: 100},
 				},
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemFreeNuma,
+					metricValue: metricutil.MetricData{Value: 10},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemFreeNuma,
+					metricValue: metricutil.MetricData{Value: 10},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemFreeNuma,
+					metricValue: metricutil.MetricData{Value: 10},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemFreeNuma,
+					metricValue: metricutil.MetricData{Value: 10},
+				},
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemTotalNuma,
+					metricValue: metricutil.MetricData{Value: 200},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemTotalNuma,
+					metricValue: metricutil.MetricData{Value: 200},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemTotalNuma,
+					metricValue: metricutil.MetricData{Value: 200},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemTotalNuma,
+					metricValue: metricutil.MetricData{Value: 200},
+				},
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemInactiveFileNuma,
+					metricValue: metricutil.MetricData{Value: 5},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemInactiveFileNuma,
+					metricValue: metricutil.MetricData{Value: 5},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemInactiveFileNuma,
+					metricValue: metricutil.MetricData{Value: 5},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemInactiveFileNuma,
+					metricValue: metricutil.MetricData{Value: 5},
+				},
 			},
 			containerNUMAMetrics: []containerNUMAMetric{
 				{
@@ -1972,6 +3279,34 @@ func TestUpdate(t *testing.T) {
 				{
 					metricName:    coreconsts.MetricsMemAnonPerNumaContainer,
 					metricValue:   metricutil.MetricData{Value: 512 << 20},
+					podUID:        "uid4",
+					containerName: "c4",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
 					podUID:        "uid4",
 					containerName: "c4",
 					numaID:        0,
@@ -2105,6 +3440,66 @@ func TestUpdate(t *testing.T) {
 					metricName:  coreconsts.MetricMemBandwidthNuma,
 					metricValue: metricutil.MetricData{Value: 100},
 				},
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemFreeNuma,
+					metricValue: metricutil.MetricData{Value: 10},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemFreeNuma,
+					metricValue: metricutil.MetricData{Value: 10},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemFreeNuma,
+					metricValue: metricutil.MetricData{Value: 10},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemFreeNuma,
+					metricValue: metricutil.MetricData{Value: 10},
+				},
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemTotalNuma,
+					metricValue: metricutil.MetricData{Value: 200},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemTotalNuma,
+					metricValue: metricutil.MetricData{Value: 200},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemTotalNuma,
+					metricValue: metricutil.MetricData{Value: 200},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemTotalNuma,
+					metricValue: metricutil.MetricData{Value: 200},
+				},
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemInactiveFileNuma,
+					metricValue: metricutil.MetricData{Value: 5},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemInactiveFileNuma,
+					metricValue: metricutil.MetricData{Value: 5},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemInactiveFileNuma,
+					metricValue: metricutil.MetricData{Value: 5},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemInactiveFileNuma,
+					metricValue: metricutil.MetricData{Value: 5},
+				},
 			},
 			containerNUMAMetrics: []containerNUMAMetric{
 				{
@@ -2134,6 +3529,76 @@ func TestUpdate(t *testing.T) {
 					podUID:        "uid4",
 					containerName: "c4",
 					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        1,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        2,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        3,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numaID:        1,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numaID:        2,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numaID:        3,
 				},
 			},
 			wantHeadroom: *resource.NewQuantity(980<<30, resource.DecimalSI),
@@ -2239,6 +3704,66 @@ func TestUpdate(t *testing.T) {
 					metricName:  coreconsts.MetricMemBandwidthNuma,
 					metricValue: metricutil.MetricData{Value: 300},
 				},
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemFreeNuma,
+					metricValue: metricutil.MetricData{Value: 10},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemFreeNuma,
+					metricValue: metricutil.MetricData{Value: 10},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemFreeNuma,
+					metricValue: metricutil.MetricData{Value: 10},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemFreeNuma,
+					metricValue: metricutil.MetricData{Value: 10},
+				},
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemTotalNuma,
+					metricValue: metricutil.MetricData{Value: 200},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemTotalNuma,
+					metricValue: metricutil.MetricData{Value: 200},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemTotalNuma,
+					metricValue: metricutil.MetricData{Value: 200},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemTotalNuma,
+					metricValue: metricutil.MetricData{Value: 200},
+				},
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemInactiveFileNuma,
+					metricValue: metricutil.MetricData{Value: 5},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemInactiveFileNuma,
+					metricValue: metricutil.MetricData{Value: 5},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemInactiveFileNuma,
+					metricValue: metricutil.MetricData{Value: 5},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemInactiveFileNuma,
+					metricValue: metricutil.MetricData{Value: 5},
+				},
 			},
 			containerNUMAMetrics: []containerNUMAMetric{
 				{
@@ -2268,6 +3793,34 @@ func TestUpdate(t *testing.T) {
 					podUID:        "uid4",
 					containerName: "c4",
 					numaID:        2,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numaID:        0,
 				},
 			},
 			wantHeadroom: *resource.NewQuantity(980<<30, resource.DecimalSI),
@@ -2371,6 +3924,66 @@ func TestUpdate(t *testing.T) {
 					metricName:  coreconsts.MetricMemBandwidthNuma,
 					metricValue: metricutil.MetricData{Value: 100},
 				},
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemFreeNuma,
+					metricValue: metricutil.MetricData{Value: 10},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemFreeNuma,
+					metricValue: metricutil.MetricData{Value: 10},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemFreeNuma,
+					metricValue: metricutil.MetricData{Value: 10},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemFreeNuma,
+					metricValue: metricutil.MetricData{Value: 10},
+				},
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemTotalNuma,
+					metricValue: metricutil.MetricData{Value: 200},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemTotalNuma,
+					metricValue: metricutil.MetricData{Value: 200},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemTotalNuma,
+					metricValue: metricutil.MetricData{Value: 200},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemTotalNuma,
+					metricValue: metricutil.MetricData{Value: 200},
+				},
+				{
+					numaID:      0,
+					metricName:  coreconsts.MetricMemInactiveFileNuma,
+					metricValue: metricutil.MetricData{Value: 5},
+				},
+				{
+					numaID:      1,
+					metricName:  coreconsts.MetricMemInactiveFileNuma,
+					metricValue: metricutil.MetricData{Value: 5},
+				},
+				{
+					numaID:      2,
+					metricName:  coreconsts.MetricMemInactiveFileNuma,
+					metricValue: metricutil.MetricData{Value: 5},
+				},
+				{
+					numaID:      3,
+					metricName:  coreconsts.MetricMemInactiveFileNuma,
+					metricValue: metricutil.MetricData{Value: 5},
+				},
 			},
 			containerNUMAMetrics: []containerNUMAMetric{
 				{
@@ -2400,6 +4013,34 @@ func TestUpdate(t *testing.T) {
 					podUID:        "uid4",
 					containerName: "c4",
 					numaID:        2,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid1",
+					containerName: "c1",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid2",
+					containerName: "c2",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid3",
+					containerName: "c3",
+					numaID:        0,
+				},
+				{
+					metricName:    coreconsts.MetricsMemTotalPerNumaContainer,
+					metricValue:   metricutil.MetricData{Value: 50 << 30},
+					podUID:        "uid4",
+					containerName: "c4",
+					numaID:        0,
 				},
 			},
 			wantHeadroom: *resource.NewQuantity(980<<30, resource.DecimalSI),
@@ -2491,7 +4132,7 @@ func TestUpdate(t *testing.T) {
 				assert.ElementsMatch(t, tt.wantAdviceResult.ContainerEntries, result.ContainerEntries)
 			}
 
-			headroom, err := advisor.GetHeadroom()
+			headroom, _, err := advisor.GetHeadroom()
 			if reflect.DeepEqual(tt.wantHeadroom, resource.Quantity{}) {
 				assert.Error(t, err)
 			} else {

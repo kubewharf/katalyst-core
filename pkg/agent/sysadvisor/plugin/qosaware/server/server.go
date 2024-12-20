@@ -26,7 +26,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -60,16 +62,36 @@ type qrmServerWrapper struct {
 
 // NewQRMServer returns a qrm server wrapper, which instantiates
 // all required qrm plugin servers according to config
-func NewQRMServer(advisorWrapper resource.ResourceAdvisor, conf *config.Configuration,
+func NewQRMServer(advisorWrapper resource.ResourceAdvisor, headroomResourceGetter reporter.HeadroomResourceGetter, conf *config.Configuration,
 	metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) (QRMServer, error) {
+	if headroomResourceGetter == nil {
+		return nil, fmt.Errorf("invalid headroom resource getter")
+	}
+
 	qrmServer := qrmServerWrapper{
 		serversToRun: make(map[v1.ResourceName]subQRMServer),
 	}
 
 	for _, resourceNameStr := range conf.QRMServers {
 		resourceName := v1.ResourceName(resourceNameStr)
-		server, err := newSubQRMServer(resourceName, advisorWrapper, conf, metaCache, metaServer, emitter)
+		var headroomResourceManager reporter.HeadroomResourceManager
+		var err error
+		switch resourceName {
+		case v1.ResourceCPU:
+			headroomResourceManager, err = headroomResourceGetter.GetHeadroomResource(consts.ReclaimedResourceMilliCPU)
+			if err != nil {
+				return nil, err
+			}
+		case v1.ResourceMemory:
+			headroomResourceManager, err = headroomResourceGetter.GetHeadroomResource(consts.ReclaimedResourceMemory)
+			if err != nil {
+				return nil, err
+			}
+		default:
+			klog.Warningf("[qosaware-server] resource %s do NOT has headroomResourceManager, be care not to use the invalid manager", resourceName)
+		}
+		server, err := newSubQRMServer(resourceName, advisorWrapper, headroomResourceManager, conf, metaCache, metaServer, emitter)
 		if err != nil {
 			return nil, fmt.Errorf("new qrm plugin server for %v failed: %v", resourceName, err)
 		} else {
@@ -108,7 +130,7 @@ func (qs *qrmServerWrapper) Run(ctx context.Context) {
 	}
 }
 
-func newSubQRMServer(resourceName v1.ResourceName, advisorWrapper resource.ResourceAdvisor,
+func newSubQRMServer(resourceName v1.ResourceName, advisorWrapper resource.ResourceAdvisor, headroomResourceManager reporter.HeadroomResourceManager,
 	conf *config.Configuration, metaCache metacache.MetaCache, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) (subQRMServer, error) {
 	switch resourceName {
@@ -117,13 +139,13 @@ func newSubQRMServer(resourceName v1.ResourceName, advisorWrapper resource.Resou
 		if err != nil {
 			return nil, err
 		}
-		return NewCPUServer(conf, metaCache, metaServer, subAdvisor, emitter)
+		return NewCPUServer(conf, headroomResourceManager, metaCache, metaServer, subAdvisor, emitter)
 	case v1.ResourceMemory:
 		subAdvisor, err := advisorWrapper.GetSubAdvisor(types.QoSResourceMemory)
 		if err != nil {
 			return nil, err
 		}
-		return NewMemoryServer(conf, metaCache, metaServer, subAdvisor, emitter)
+		return NewMemoryServer(conf, headroomResourceManager, metaCache, metaServer, subAdvisor, emitter)
 	default:
 		return nil, fmt.Errorf("illegal resource %v", resourceName)
 	}

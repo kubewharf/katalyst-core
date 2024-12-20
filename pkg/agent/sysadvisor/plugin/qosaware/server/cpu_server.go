@@ -18,6 +18,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"sync/atomic"
@@ -33,6 +34,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -49,12 +51,14 @@ const (
 
 type cpuServer struct {
 	*baseServer
-	startTime           time.Time
-	hasListAndWatchLoop atomic.Value
+	startTime               time.Time
+	hasListAndWatchLoop     atomic.Value
+	headroomResourceManager reporter.HeadroomResourceManager
 }
 
 func NewCPUServer(
 	conf *config.Configuration,
+	headroomResourceManager reporter.HeadroomResourceManager,
 	metaCache metacache.MetaCache,
 	metaServer *metaserver.MetaServer,
 	advisor subResourceAdvisor,
@@ -66,6 +70,7 @@ func NewCPUServer(
 	cs.startTime = time.Now()
 	cs.advisorSocketPath = conf.CPUAdvisorSocketAbsPath
 	cs.pluginSocketPath = conf.CPUPluginSocketAbsPath
+	cs.headroomResourceManager = headroomResourceManager
 	cs.resourceRequestName = "CPURequest"
 	return cs, nil
 }
@@ -228,9 +233,47 @@ func (cs *cpuServer) assembleResponse(advisorResp *types.InternalCPUCalculationR
 	cs.metaCache.RangeContainer(f)
 
 	// Send result
-	return &cpuadvisor.ListAndWatchResponse{
+	resp := &cpuadvisor.ListAndWatchResponse{
 		Entries:                               calculationEntriesMap,
+		ExtraEntries:                          make([]*advisorsvc.CalculationInfo, 0),
 		AllowSharedCoresOverlapReclaimedCores: advisorResp.AllowSharedCoresOverlapReclaimedCores,
+	}
+
+	extraNumaHeadRoom := cs.assembleHeadroom()
+	if extraNumaHeadRoom != nil {
+		resp.ExtraEntries = append(resp.ExtraEntries, extraNumaHeadRoom)
+	}
+
+	return resp
+}
+
+// assemble per-numa headroom
+func (cs *cpuServer) assembleHeadroom() *advisorsvc.CalculationInfo {
+	numaAllocatable, err := cs.headroomResourceManager.GetNumaAllocatable()
+	if err != nil {
+		klog.Errorf("get numa allocatable failed: %v", err)
+		return nil
+	}
+
+	numaHeadroom := make(cpuadvisor.CPUNUMAHeadroom)
+	for numaID, res := range numaAllocatable {
+		numaHeadroom[numaID] = float64(res.Value()) / 1000.0
+	}
+	data, err := json.Marshal(numaHeadroom)
+	if err != nil {
+		klog.Errorf("marshal headroom failed: %v", err)
+		return nil
+	}
+
+	calculationResult := &advisorsvc.CalculationResult{
+		Values: map[string]string{
+			string(cpuadvisor.ControlKnobKeyCPUNUMAHeadroom): string(data),
+		},
+	}
+
+	return &advisorsvc.CalculationInfo{
+		CgroupPath:        "",
+		CalculationResult: calculationResult,
 	}
 }
 
