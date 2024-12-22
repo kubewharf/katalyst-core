@@ -13,13 +13,16 @@ import (
 )
 
 type globalMBPolicy struct {
-	sourcer         quotasourcing.Sourcer
-	domainManager   mbdomain.MBDomainManager
-	ccdGroupPlanner *strategy.CCDGroupPlanner
+	domainManager *mbdomain.MBDomainManager
 
 	lock             sync.Mutex
 	domainLeafQuotas map[int]int
 	//	leafQoSMBPolicy qospolicy.QoSMBPolicy
+
+	sourcer         quotasourcing.Sourcer
+	throttler       strategy.LowPrioPlanner
+	easer           strategy.LowPrioPlanner
+	ccdGroupPlanner *strategy.CCDGroupPlanner
 }
 
 func (g *globalMBPolicy) GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoSMB map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
@@ -131,7 +134,7 @@ func (g *globalMBPolicy) calcLeafMBTargets(mbQoSGroups map[qosgroup.QoSGroup]*mo
 	highQoSDomainMBs := g.sumHighQoSMB(mbQoSGroups)
 	leafDomainMBs := g.sumLeafDomainMB(mbQoSGroups)
 	leafLocalDomainMBs := g.sumLeafDomainMBLocal(mbQoSGroups)
-	desiredDomainLeafTargets := guessDesiredTarget(highQoSDomainMBs, leafDomainMBs)
+	desiredDomainLeafTargets := g.guessDesiredTarget(highQoSDomainMBs, leafDomainMBs)
 
 	result := make([]quotasourcing.DomainMB, len(g.domainManager.Domains))
 	for i := range result {
@@ -144,8 +147,28 @@ func (g *globalMBPolicy) calcLeafMBTargets(mbQoSGroups map[qosgroup.QoSGroup]*mo
 	return result
 }
 
-func guessDesiredTarget(hiQoSDomainMBs, leafQoSDomainMBs map[int]int) map[int]int {
-	panic("impl")
+func (g *globalMBPolicy) guessDesiredTarget(hiQoSDomainMBs, leafQoSDomainMBs map[int]int) map[int]int {
+	result := make(map[int]int)
+	for domain := range hiQoSDomainMBs {
+		result[domain] = g.guessDamianTarget(hiQoSDomainMBs[domain], leafQoSDomainMBs[domain])
+	}
+	return result
+}
+
+func (g *globalMBPolicy) guessDamianTarget(hiQoSMB, leafMB int) int {
+	// if not under pressure (too much available mb), get to-ease-to
+	// if under pressure, get to-throttle-to
+	// in middle way, noop
+	totalUsage := hiQoSMB + leafMB
+	if strategy.IsResourceUnderPressure(122_000, totalUsage) {
+		return g.throttler.GetQuota(122_000-totalUsage, leafMB)
+	}
+	if strategy.IsResourceAtEase(122_000, totalUsage) {
+		return g.easer.GetQuota(122_000-totalUsage, leafMB)
+	}
+
+	// neither under pressure nor at ease, everything seems fine
+	return leafMB
 }
 
 func (g *globalMBPolicy) setLeafQuotas(leafQuotas []int) {
@@ -180,16 +203,21 @@ func hasHighQoMB(mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) bool {
 	return false
 }
 
-func NewGlobalMBPolicy(domainManager mbdomain.MBDomainManager) DomainMBPolicy {
+func NewGlobalMBPolicy(ccdMBMin int, domainManager *mbdomain.MBDomainManager, throttleType, easeType strategy.LowPrioPlannerType,
+) (DomainMBPolicy, error) {
 	domainLeafQuotas := make(map[int]int)
 	for domain := range domainManager.Domains {
 		domainLeafQuotas[domain] = -1
 	}
 
+	ccdPlanner := strategy.NewCCDGroupPlanner(ccdMBMin, 35_000)
+
 	return &globalMBPolicy{
 		sourcer:          &quotasourcing.CrossSourcer{},
+		throttler:        strategy.New(throttleType, ccdPlanner),
+		easer:            strategy.New(easeType, ccdPlanner),
 		domainManager:    domainManager,
 		domainLeafQuotas: domainLeafQuotas,
-		ccdGroupPlanner:  strategy.NewCCDGroupPlanner(4_000, 35_000),
-	}
+		ccdGroupPlanner:  ccdPlanner,
+	}, nil
 }

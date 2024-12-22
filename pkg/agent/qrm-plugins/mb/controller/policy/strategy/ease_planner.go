@@ -10,6 +10,14 @@ type fullEasePlanner struct {
 	ccdGroupPlanner *CCDGroupPlanner
 }
 
+func (t fullEasePlanner) GetQuota(capacity, currentUsage int) int {
+	allocatable := capacity - easeThreshold
+	if allocatable <= 0 {
+		return 0
+	}
+	return allocatable
+}
+
 func (t fullEasePlanner) Name() string {
 	return "full ease planner"
 }
@@ -34,6 +42,11 @@ func newFullEasePlanner(planner *CCDGroupPlanner) LowPrioPlanner {
 
 type halfEasePlanner struct {
 	innerPlanner fullEasePlanner
+}
+
+func (s halfEasePlanner) GetQuota(capacity, currentUsage int) int {
+	constraintCapacity := (capacity + easeThreshold + currentUsage) / 2
+	return s.innerPlanner.GetQuota(constraintCapacity, currentUsage)
 }
 
 func (s halfEasePlanner) Name() string {

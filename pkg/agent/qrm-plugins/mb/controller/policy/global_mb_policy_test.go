@@ -12,7 +12,7 @@ import (
 func Test_globalMBPolicy_sumHighQoSMB(t *testing.T) {
 	t.Parallel()
 	type fields struct {
-		domainManager mbdomain.MBDomainManager
+		domainManager *mbdomain.MBDomainManager
 	}
 	type args struct {
 		mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup
@@ -26,7 +26,7 @@ func Test_globalMBPolicy_sumHighQoSMB(t *testing.T) {
 		{
 			name: "happy path",
 			fields: fields{
-				domainManager: mbdomain.MBDomainManager{
+				domainManager: &mbdomain.MBDomainManager{
 					Domains: map[int]*mbdomain.MBDomain{
 						1: {
 							ID:        1,

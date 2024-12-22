@@ -12,6 +12,10 @@ type extremeThrottlePlanner struct {
 	ccdGroupPlanner *CCDGroupPlanner
 }
 
+func (e extremeThrottlePlanner) GetQuota(capacity, currentUsage int) int {
+	return 4_000
+}
+
 func (e extremeThrottlePlanner) Name() string {
 	return "extreme throttle planner"
 }
@@ -31,18 +35,22 @@ type halfThrottlePlanner struct {
 	ccdGroupPlanner *CCDGroupPlanner
 }
 
+func (h halfThrottlePlanner) GetQuota(capacity, currentUsage int) int {
+	allocatable := currentUsage / 2
+	// summarized low prio qos plans should  not exceeding the ease bar
+	if allocatable > capacity-easeThreshold {
+		allocatable = capacity - easeThreshold
+	}
+	return allocatable
+}
+
 func (h halfThrottlePlanner) Name() string {
 	return "half throttle planner"
 }
 
 func (h halfThrottlePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
 	totalUsage := monitor.SumMB(mbQoSGroups)
-
-	allocatable := totalUsage / 2
-	// summarized low prio qos plans should  not exceeding the ease bar
-	if allocatable > capacity-easeThreshold {
-		allocatable = capacity - easeThreshold
-	}
+	allocatable := h.GetQuota(capacity, totalUsage)
 
 	// distribute total among all proportionally
 	ratio := float64(allocatable) / float64(totalUsage)
