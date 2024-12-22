@@ -56,3 +56,18 @@ func getMeetingPoint(r0, r1, t0, t1 float64) (x, y float64, err error) {
 
 	return (t1 - r1*(t0+t1)) / (1.0 - r0 - r1), (t0 - r0*(t0+t1)) / (1.0 - r0 - r1), nil
 }
+
+// orthogonalPoint locates the (x,y) to which draw a line from origin (originX, originY)
+// orthogonal to the line y=ax+b
+func orthogonalPoint(originX, originY, a, b float64) (x, y int) {
+	demoninator := a*a + 1
+	xNumarator := originX + a*(originY-b)
+	yNumerator := a*(originX+a*originY) + b
+	x = int(xNumarator / demoninator)
+	y = int(yNumerator / demoninator)
+	return x, y
+}
+
+func euclidDistance(x0, y0, x1, y1 float64) int {
+	return int((x0-x1)*(x0-x1) + (y0-y1)*(y0-y1))
+}

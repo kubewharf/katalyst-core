@@ -97,3 +97,55 @@ func Test_getMeetingPoint(t *testing.T) {
 		})
 	}
 }
+
+func Test_orthogonalPoint(t *testing.T) {
+	t.Parallel()
+	type args struct {
+		originX float64
+		originY float64
+		a       float64
+		b       float64
+	}
+	tests := []struct {
+		name  string
+		args  args
+		wantX int
+		wantY int
+	}{
+		{
+			name: "horizontal line",
+			args: args{
+				originX: 10,
+				originY: 10,
+				a:       0,
+				b:       4,
+			},
+			wantX: 10,
+			wantY: 4,
+		},
+		{
+			name: "diagonal line",
+			args: args{
+				originX: 10,
+				originY: 10,
+				a:       -1,
+				b:       4,
+			},
+			wantX: 2,
+			wantY: 2,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			gotX, gotY := orthogonalPoint(tt.args.originX, tt.args.originY, tt.args.a, tt.args.b)
+			if gotX != tt.wantX {
+				t.Errorf("orthogonalPoint() gotX = %v, want %v", gotX, tt.wantX)
+			}
+			if gotY != tt.wantY {
+				t.Errorf("orthogonalPoint() gotY = %v, want %v", gotY, tt.wantY)
+			}
+		})
+	}
+}
