@@ -37,10 +37,11 @@ type MBDomainManager struct {
 	Domains  map[int]*MBDomain
 	nodeCCDs map[int]sets.Int
 
-	// derived, reverse lookup table: from ccd to numa node
+	// derived, reverse lookup table: from ccd to numa node and domain
 	// exposure it for testability
 	// todo: hide it for proper encapsulation
-	CCDNode map[int]int
+	CCDNode   map[int]int
+	CCDDomain map[int]int
 }
 
 func (m MBDomainManager) GetNode(ccd int) (int, error) {
@@ -92,6 +93,15 @@ func (m MBDomainManager) IncubateNodes(nodes []int) {
 	m.StartIncubation(ccds)
 }
 
+func (m MBDomainManager) IdentifyDomainByCCD(ccd int) (int, error) {
+	domain, ok := m.CCDDomain[ccd]
+	if !ok {
+		return -1, fmt.Errorf("ccd %d not in any domain", ccd)
+	}
+
+	return domain, nil
+}
+
 func NewMBDomainManager(dieTopology *machine.DieTopology, incubationInterval time.Duration, mbCapacity int) *MBDomainManager {
 	onceDomainManagerInit.Do(func() {
 		domainManager = newMBDomainManager(dieTopology, incubationInterval, mbCapacity)
@@ -109,11 +119,29 @@ func genCCDNode(nodeCCDs map[int]sets.Int) map[int]int {
 	return result
 }
 
+func genCCDDomain(nodeCCDs map[int]sets.Int, domainNodes map[int][]int) map[int]int {
+	nodeDomain := make(map[int]int)
+	for domain, nodes := range domainNodes {
+		for _, node := range nodes {
+			nodeDomain[node] = domain
+		}
+	}
+
+	result := make(map[int]int)
+	for node, ccds := range nodeCCDs {
+		for ccd := range ccds {
+			result[ccd] = nodeDomain[node]
+		}
+	}
+	return result
+}
+
 func newMBDomainManager(dieTopology *machine.DieTopology, incubationInterval time.Duration, mbCapacity int) *MBDomainManager {
 	manager := &MBDomainManager{
-		Domains:  make(map[int]*MBDomain),
-		nodeCCDs: dieTopology.DiesInNuma,
-		CCDNode:  genCCDNode(dieTopology.DiesInNuma),
+		Domains:   make(map[int]*MBDomain),
+		nodeCCDs:  dieTopology.DiesInNuma,
+		CCDNode:   genCCDNode(dieTopology.DiesInNuma),
+		CCDDomain: genCCDDomain(dieTopology.DiesInNuma, dieTopology.NUMAsInPackage),
 	}
 
 	for packageID := 0; packageID < dieTopology.Packages; packageID++ {
