@@ -30,6 +30,9 @@ type constraintDomainMBPolicy struct {
 	qosMBPolicy qospolicy.QoSMBPolicy
 }
 
+func (c constraintDomainMBPolicy) ProcessGlobalQoSCCDMB(qos map[qosgroup.QoSGroup]*monitor.MBQoSGroup) {
+}
+
 func (c constraintDomainMBPolicy) GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoSMB map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
 	return c.qosMBPolicy.GetPlan(totalMB, currQoSMB, true)
 }

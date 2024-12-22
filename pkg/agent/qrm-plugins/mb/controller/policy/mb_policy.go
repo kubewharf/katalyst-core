@@ -28,11 +28,18 @@ import (
 
 type DomainMBPolicy interface {
 	GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoSMB map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc
+
+	// let policy have a sense of global view; essentail for domains having impacts on/from others
+	ProcessGlobalQoSCCDMB(qos map[qosgroup.QoSGroup]*monitor.MBQoSGroup)
 }
 
 type domainMBPolicy struct {
 	preemptMBPolicy    DomainMBPolicy
 	constraintMBPolicy DomainMBPolicy
+}
+
+func (d domainMBPolicy) ProcessGlobalQoSCCDMB(qos map[qosgroup.QoSGroup]*monitor.MBQoSGroup) {
+	// noop as this policy treats domain as silo uint.
 }
 
 func calcResvForIncubation(incubates mbdomain.IncubatedCCDs, currQoSMB map[qosgroup.QoSGroup]*monitor.MBQoSGroup) int {

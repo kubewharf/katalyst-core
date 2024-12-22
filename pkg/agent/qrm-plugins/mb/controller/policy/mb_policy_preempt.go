@@ -32,6 +32,9 @@ type preemptDomainMBPolicy struct {
 	qosMBPolicy qospolicy.QoSMBPolicy
 }
 
+func (p preemptDomainMBPolicy) ProcessGlobalQoSCCDMB(qos map[qosgroup.QoSGroup]*monitor.MBQoSGroup) {
+}
+
 // todo： consider to work on CCDs instead of nodes?
 func getReservationPlan(domain *mbdomain.MBDomain, preemptingNodes []int) *plan.MBAlloc {
 	ccds := make([]int, 0)

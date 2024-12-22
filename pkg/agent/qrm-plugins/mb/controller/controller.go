@@ -145,6 +145,9 @@ func (c *Controller) run(ctx context.Context) {
 }
 
 func (c *Controller) process(ctx context.Context) {
+	// policy does applicable customization based on current MB usages of all domains
+	c.policy.ProcessGlobalQoSCCDMB(c.CurrQoSCCDMB)
+
 	for i, domain := range c.DomainManager.Domains {
 		// we only care about qosCCDMB manageable by the domain
 		applicableQoSCCDMB := getApplicableQoSCCDMB(domain, c.CurrQoSCCDMB)

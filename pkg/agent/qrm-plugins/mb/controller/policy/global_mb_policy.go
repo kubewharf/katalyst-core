@@ -10,10 +10,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
 
-type GlobalMBPlanner interface {
-	ProcessGlobalQoSCCDMB(qos map[qosgroup.QoSGroup]*monitor.MBQoSGroup)
-}
-
 type globalMBPolicy struct {
 	domainManager    mbdomain.MBDomainManager
 	domainLeafQuotas map[int]int
