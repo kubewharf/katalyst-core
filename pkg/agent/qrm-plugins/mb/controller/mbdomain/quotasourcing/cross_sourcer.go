@@ -25,30 +25,17 @@ func (c CrossSourcer) AttributeMBToSources(domainTargets []DomainMB) []int {
 			// domain i has constraint rule: ri * qi + (1-rj) * qj <= ti
 			// consider 3 possible candidates:
 			//   orthogonal point, left end point, and right end point
-
 			j := (i + 1) % 2 // stands if there are 2 domains only
 			if orthoHost, orthOther, err := getOrthogonalPoint(domainTargets[i], domainTargets[j]); err == nil {
-				orthPoint := make([]int, 3)
-				orthPoint[j] = orthOther
-				orthPoint[i] = orthoHost
-				orthPoint[2] = i // of domain i
-				candidates = append(candidates, orthPoint)
+				candidates = appendCandidate(candidates, i, orthoHost, orthOther)
 			}
 
 			if hostQuota, remoteQuote, err := getRightEndpoint(domainTargets[i], domainTargets[j]); err == nil {
-				point := make([]int, 3)
-				point[j] = remoteQuote
-				point[i] = hostQuota
-				point[2] = i // of domain i
-				candidates = append(candidates, point)
+				candidates = appendCandidate(candidates, i, hostQuota, remoteQuote)
 			}
 
 			if hostQuota, remoteQuote, err := getLeftEndpoint(domainTargets[i], domainTargets[j]); err == nil {
-				point := make([]int, 3)
-				point[j] = remoteQuote
-				point[i] = hostQuota
-				point[2] = i // of domain i
-				candidates = append(candidates, point)
+				candidates = appendCandidate(candidates, i, hostQuota, remoteQuote)
 			}
 		}
 	}
@@ -58,12 +45,22 @@ func (c CrossSourcer) AttributeMBToSources(domainTargets []DomainMB) []int {
 	}
 
 	// the meeting point, if exists, is also a candidate need to consider
-	if hostQuota, otherQuote, err := getCrossPoint(domainTargets[0], domainTargets[1]); err == nil {
-		candidates = append(candidates, []int{hostQuota, otherQuote, 0})
+	if quota0, quote1, err := getCrossPoint(domainTargets[0], domainTargets[1]); err == nil {
+		candidates = append(candidates, []int{quota0, quote1, 0})
 	}
 
 	return locateFittest(candidates, float64(domainTargets[0].MBSource), float64(domainTargets[1].MBSource),
 		domainTargets)
+}
+
+func appendCandidate(candidates [][]int, hostDomain int, hostValue, remoteValue int) [][]int {
+	remoteDomain := (hostDomain + 1) % 2 // assuming there are 2 domains only
+	item := make([]int, 3)
+	item[remoteDomain] = remoteValue
+	item[hostDomain] = hostValue
+	item[2] = hostDomain // keeping track of host domain
+	candidates = append(candidates, item)
+	return candidates
 }
 
 func locateFittest(candidates [][]int, x, y float64, domainTargets []DomainMB) []int {
@@ -74,23 +71,24 @@ func locateFittest(candidates [][]int, x, y float64, domainTargets []DomainMB) [
 		return result
 	}
 
-	// todo: find a better sentinal than -1
-	minDist := -1
+	minDist := -1 // no min dist yet
 	for _, candidate := range candidates {
 		iDomain := candidate[2]
 		jDomain := (iDomain + 1) % 2 // stands if there are 2 domains only
 
-		// keeps i if i satisfies the constraint of j
+		// keeps i only if it satisfies the constraint of j: (1-ri) * qi + rj * qj <= tj
 		iLocalRatio := getLocalRatio(domainTargets[iDomain])
 		jLocalRatio := getLocalRatio(domainTargets[jDomain])
-		jValue := (1-iLocalRatio)*float64(candidate[0]) + jLocalRatio*float64(candidate[1])
-		if domainTargets[jDomain].Target >= 0 && jValue > float64(domainTargets[jDomain].Target) {
+		jPredict := (1-iLocalRatio)*float64(candidate[iDomain]) + jLocalRatio*float64(candidate[jDomain])
+		if domainTargets[jDomain].Target != -1 && jPredict > float64(domainTargets[jDomain].Target) {
 			continue
 		}
-		if minDist == -1 || euclidDistance(float64(candidate[0]), x, float64(candidate[1]), y) < minDist {
-			result[0] = candidate[0]
-			result[1] = candidate[1]
-			minDist = euclidDistance(float64(candidate[0]), x, float64(candidate[1]), y)
+
+		dist := euclidDistance(float64(candidate[iDomain]), x, float64(candidate[jDomain]), y)
+		if minDist == -1 || dist < minDist {
+			result[iDomain] = candidate[iDomain]
+			result[jDomain] = candidate[jDomain]
+			minDist = dist
 		}
 	}
 

@@ -12,7 +12,7 @@ type Sourcer interface {
 	//     domain 0: target 50, source-local 75, source-remote 25
 	//     domain 1: target 60, source-local 60, source-remote 30
 	// we would like to decide what the quota set to domain 0 and domain 1, so that
-	// the desired target would be 50, 60
+	// the desired target would be end up with (50, 60)
 	AttributeMBToSources(domainTargets []DomainMB) []int
 }
 
