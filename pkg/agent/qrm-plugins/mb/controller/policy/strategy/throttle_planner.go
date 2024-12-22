@@ -17,7 +17,7 @@ func (e extremeThrottlePlanner) Name() string {
 }
 
 func (e extremeThrottlePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
-	return e.ccdGroupPlanner.getFixedPlan(e.ccdGroupPlanner.ccdMBMin, mbQoSGroups)
+	return e.ccdGroupPlanner.GetFixedPlan(e.ccdGroupPlanner.ccdMBMin, mbQoSGroups)
 }
 
 func newExtremeThrottlePlanner(ccdPlanner *CCDGroupPlanner) LowPrioPlanner {

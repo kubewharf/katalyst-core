@@ -23,7 +23,7 @@ func (t fullEasePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup
 	// distribute total among all proportionally
 	totalUsage := monitor.SumMB(mbQoSGroups)
 	ratio := float64(allocatable) / float64(totalUsage)
-	return t.ccdGroupPlanner.getProportionalPlan(ratio, mbQoSGroups)
+	return t.ccdGroupPlanner.GetProportionalPlan(ratio, mbQoSGroups)
 }
 
 func newFullEasePlanner(planner *CCDGroupPlanner) LowPrioPlanner {
