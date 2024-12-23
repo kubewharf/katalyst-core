@@ -73,7 +73,7 @@ func (g *globalMBPolicy) ProcessGlobalQoSCCDMB(mbQoSGroups map[qosgroup.QoSGroup
 
 	// calculate the leaf mb targets of all domains
 	// figure out the leaf quotas by taking into account of cross-domain impacts
-	leafCCDMBs := g.calcLeafMBTargets(mbQoSGroups)
+	leafCCDMBs := g.getLeafMBTargets(mbQoSGroups)
 	leafQuotas := g.sourcer.AttributeMBToSources(leafCCDMBs)
 	g.setLeafQuotas(leafQuotas)
 }
@@ -130,11 +130,12 @@ func (g *globalMBPolicy) sumHighQoSMB(mbQoSGroups map[qosgroup.QoSGroup]*monitor
 	return g.sumupToDomain(ccdMBs)
 }
 
-func (g *globalMBPolicy) calcLeafMBTargets(mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) []quotasourcing.DomainMB {
+func (g *globalMBPolicy) getLeafMBTargets(mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) []quotasourcing.DomainMB {
 	highQoSDomainMBs := g.sumHighQoSMB(mbQoSGroups)
 	leafDomainMBs := g.sumLeafDomainMB(mbQoSGroups)
 	leafLocalDomainMBs := g.sumLeafDomainMBLocal(mbQoSGroups)
-	desiredDomainLeafTargets := g.guessDesiredTarget(highQoSDomainMBs, leafDomainMBs)
+
+	desiredDomainLeafTargets := g.calcDomainLeafTargets(highQoSDomainMBs, leafDomainMBs)
 
 	result := make([]quotasourcing.DomainMB, len(g.domainManager.Domains))
 	for i := range result {
@@ -147,24 +148,26 @@ func (g *globalMBPolicy) calcLeafMBTargets(mbQoSGroups map[qosgroup.QoSGroup]*mo
 	return result
 }
 
-func (g *globalMBPolicy) guessDesiredTarget(hiQoSDomainMBs, leafQoSDomainMBs map[int]int) map[int]int {
+func (g *globalMBPolicy) calcDomainLeafTargets(hiQoSDomainMBs, leafQoSDomainMBs map[int]int) map[int]int {
 	result := make(map[int]int)
-	for domain := range hiQoSDomainMBs {
-		result[domain] = g.guessDamianTarget(hiQoSDomainMBs[domain], leafQoSDomainMBs[domain])
+	for domain := range g.domainManager.Domains {
+		result[domain] = g.calcDomainLeafTarget(hiQoSDomainMBs[domain], leafQoSDomainMBs[domain])
 	}
 	return result
 }
 
-func (g *globalMBPolicy) guessDamianTarget(hiQoSMB, leafMB int) int {
+func (g *globalMBPolicy) calcDomainLeafTarget(hiQoSMB, leafMB int) int {
 	// if not under pressure (too much available mb), get to-ease-to
 	// if under pressure, get to-throttle-to
 	// in middle way, noop
 	totalUsage := hiQoSMB + leafMB
+	capacityForLeaf := 122_000 - hiQoSMB
+
 	if strategy.IsResourceUnderPressure(122_000, totalUsage) {
-		return g.throttler.GetQuota(122_000-totalUsage, leafMB)
+		return g.throttler.GetQuota(capacityForLeaf, leafMB)
 	}
 	if strategy.IsResourceAtEase(122_000, totalUsage) {
-		return g.easer.GetQuota(122_000-totalUsage, leafMB)
+		return g.easer.GetQuota(capacityForLeaf, leafMB)
 	}
 
 	// neither under pressure nor at ease, everything seems fine
