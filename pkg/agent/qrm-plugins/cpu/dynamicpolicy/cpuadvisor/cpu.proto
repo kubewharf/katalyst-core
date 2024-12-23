@@ -101,30 +101,17 @@ message AllocationInfo {
 }
 
 // Combination of container metadata and allocation info
-message FullAllocationInfo {
-    string pod_uid = 1;
-    string pod_namespace = 2;
-    string pod_name = 3;
-    string container_name = 4;
-    resourceplugin.v1alpha1.ContainerType container_type = 5;
-    uint64 container_index = 6;
-    map<string,string> labels = 7;
-    map<string,string> annotations = 8;
-    string qos_level = 9;
-    uint64 requestQuantity = 10;
-
-    bool ramp_up = 11;
-    string owner_pool_name = 12;
-    map<uint64,string> topology_aware_assignments = 13; // keyed by NUMA id
-    map<uint64,string> original_topology_aware_assignments = 14; // keyed by NUMA id
+message ContainerAllocationInfo {
+    advisorsvc.ContainerMetadata metadata = 1;
+    AllocationInfo allocation_info = 2;
 }
 
-message FullAllocationInfoEntries {
-    map<string,FullAllocationInfo> entries = 1; // keyed by pool name or podUID
+message ContainerAllocationInfoEntries {
+    map<string,ContainerAllocationInfo> entries = 1; // keyed by pool name or podUID
 }
 
 message GetAdviceRequest {
-    map<string,FullAllocationInfoEntries> entries = 1; // keyed by pool name or podUID
+    map<string,ContainerAllocationInfoEntries> entries = 1; // keyed by pool name or podUID
 }
 
 message GetAdviceResponse {
