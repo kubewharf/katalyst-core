@@ -29,12 +29,12 @@ type branchedQoSPolicy struct {
 	filter     func(mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup, isTopMost bool) bool
 }
 
-func (v branchedQoSPolicy) GetPlan(totalMB int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup, isTopMost bool) *plan.MBAlloc {
+func (v branchedQoSPolicy) GetPlan(totalMB int, mbQoSGroups, globalMBQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup, isTopMost bool) *plan.MBAlloc {
 	if v.filter(mbQoSGroups, isTopMost) {
-		return v.either.GetPlan(totalMB, mbQoSGroups, isTopMost)
+		return v.either.GetPlan(totalMB, mbQoSGroups, globalMBQoSGroups, isTopMost)
 	}
 
-	return v.or.GetPlan(totalMB, mbQoSGroups, isTopMost)
+	return v.or.GetPlan(totalMB, mbQoSGroups, globalMBQoSGroups, isTopMost)
 }
 
 func NewValveQoSMBPolicy(condition func(mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup, isTopMost bool) bool,

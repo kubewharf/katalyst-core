@@ -33,12 +33,12 @@ type terminalQoSPolicy struct {
 	easePlanner     strategy.LowPrioPlanner
 }
 
-func (t terminalQoSPolicy) GetPlan(totalMB int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup, isTopMost bool) *plan.MBAlloc {
+func (t terminalQoSPolicy) GetPlan(totalMB int, mbQoSGroups, globalMBQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup, isTopMost bool) *plan.MBAlloc {
 	if isTopMost {
 		return t.getTopMostPlan(totalMB, mbQoSGroups)
 	}
 
-	return t.getLeafPlan(totalMB, mbQoSGroups)
+	return t.getLeafPlan(totalMB, mbQoSGroups, globalMBQoSGroups)
 }
 
 func (t terminalQoSPolicy) getTopMostPlan(totalMB int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
@@ -57,8 +57,10 @@ func (t terminalQoSPolicy) getFixedPlan(fixed int, mbQoSGroups map[qosgroup.QoSG
 }
 
 // getLeafPlan actually cope with the low-priority qos groups (needing throttle with mb usage) only
-func (t terminalQoSPolicy) getLeafPlan(totalMB int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
-	totalUsage := monitor.SumMB(mbQoSGroups)
+func (t terminalQoSPolicy) getLeafPlan(totalMB int, mbQoSGroups, globalMBQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
+	// point of view of the receiver makes more sense for MB usage
+	totalUsage := getReceiverMBUsage(mbQoSGroups, globalMBQoSGroups)
+
 	if strategy.IsResourceUnderPressure(totalMB, totalUsage) {
 		return t.throttlePlanner.GetPlan(totalMB, mbQoSGroups)
 	}
@@ -68,6 +70,25 @@ func (t terminalQoSPolicy) getLeafPlan(totalMB int, mbQoSGroups map[qosgroup.QoS
 
 	// neither under pressure nor at ease, everything seems fine
 	return nil
+}
+
+func getReceiverMBUsage(hostQoSMBGroup, globalQoSMBGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) int {
+	result := 0
+	for qos, group := range hostQoSMBGroup {
+		for _, mb := range group.CCDMB {
+			result += mb.LocalTotalMB
+		}
+
+		globalGroup := globalQoSMBGroups[qos] // it must exists
+		for ccd, mb := range globalGroup.CCDMB {
+			if _, ok := group.CCDMB[ccd]; ok { // one of the host ccds
+				continue
+			}
+			result += mb.TotalMB - mb.LocalTotalMB
+		}
+
+	}
+	return result
 }
 
 func (t terminalQoSPolicy) getProportionalPlan(ratio float64, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {

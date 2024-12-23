@@ -38,8 +38,9 @@ type domainMBPolicy struct {
 	constraintMBPolicy DomainMBPolicy
 }
 
-func (d domainMBPolicy) ProcessGlobalQoSCCDMB(qos map[qosgroup.QoSGroup]*monitor.MBQoSGroup) {
-	// noop as this policy treats domain as silo uint.
+func (d *domainMBPolicy) ProcessGlobalQoSCCDMB(qos map[qosgroup.QoSGroup]*monitor.MBQoSGroup) {
+	d.preemptMBPolicy.ProcessGlobalQoSCCDMB(qos)
+	d.constraintMBPolicy.ProcessGlobalQoSCCDMB(qos)
 }
 
 func calcResvForIncubation(incubates mbdomain.IncubatedCCDs, currQoSMB map[qosgroup.QoSGroup]*monitor.MBQoSGroup) int {
@@ -65,7 +66,7 @@ func calcResvForIncubation(incubates mbdomain.IncubatedCCDs, currQoSMB map[qosgr
 	return reserveToIncubate
 }
 
-func (d domainMBPolicy) GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoSMB map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
+func (d *domainMBPolicy) GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoSMB map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
 	// some newly started pods may still be in so-called incubation period;
 	// special care need to take to ensure they have no less than the reserved mb
 	// by subtracting the mb for incubation

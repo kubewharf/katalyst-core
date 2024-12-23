@@ -31,13 +31,13 @@ func Test_valveQoSMBPolicy_GetPlan(t *testing.T) {
 	t.Parallel()
 
 	upperPolicy := new(mockQoSPolicy)
-	upperPolicy.On("GetPlan", mock.Anything, mock.Anything, mock.Anything).
+	upperPolicy.On("GetPlan", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&plan.MBAlloc{Plan: map[qosgroup.QoSGroup]map[int]int{
 			"upper": {},
 		}})
 
 	lowerPolicy := new(mockQoSPolicy)
-	lowerPolicy.On("GetPlan", mock.Anything, mock.Anything, mock.Anything).
+	lowerPolicy.On("GetPlan", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&plan.MBAlloc{Plan: map[qosgroup.QoSGroup]map[int]int{
 			"lower": {},
 		}})
@@ -96,7 +96,7 @@ func Test_valveQoSMBPolicy_GetPlan(t *testing.T) {
 				or:     tt.fields.or,
 				filter: tt.fields.filter,
 			}
-			assert.Equalf(t, tt.want, v.GetPlan(tt.args.totalMB, tt.args.mbQoSGroups, tt.args.isTopMost), "GetPlan(%v, %v, %v)", tt.args.totalMB, tt.args.mbQoSGroups, tt.args.isTopMost)
+			assert.Equalf(t, tt.want, v.GetPlan(tt.args.totalMB, tt.args.mbQoSGroups, nil, tt.args.isTopMost), "GetPlan(%v, %v, %v)", tt.args.totalMB, tt.args.mbQoSGroups, tt.args.isTopMost)
 		})
 	}
 }

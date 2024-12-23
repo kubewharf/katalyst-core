@@ -17,24 +17,44 @@ limitations under the License.
 package policy
 
 import (
+	"sync"
+
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/qospolicy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
+	"github.com/kubewharf/katalyst-core/pkg/util/syntax"
 )
 
 // constraintDomainMBPolicy implements soft-constraint mb policy
 type constraintDomainMBPolicy struct {
 	qosMBPolicy qospolicy.QoSMBPolicy
+
+	lock sync.RWMutex
+	qos  map[qosgroup.QoSGroup]*monitor.MBQoSGroup
 }
 
-func (c constraintDomainMBPolicy) ProcessGlobalQoSCCDMB(qos map[qosgroup.QoSGroup]*monitor.MBQoSGroup) {
+func (c *constraintDomainMBPolicy) ProcessGlobalQoSCCDMB(qos map[qosgroup.QoSGroup]*monitor.MBQoSGroup) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	c.qos = qos
 }
 
-func (c constraintDomainMBPolicy) GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoSMB map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
-	return c.qosMBPolicy.GetPlan(totalMB, currQoSMB, true)
+func (c *constraintDomainMBPolicy) getQosMBGroups() map[qosgroup.QoSGroup]*monitor.MBQoSGroup {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	qos := syntax.DeepCopy(c.qos)
+	if result, ok := qos.(map[qosgroup.QoSGroup]*monitor.MBQoSGroup); ok {
+		return result
+	}
+	return nil
+}
+
+func (c *constraintDomainMBPolicy) GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoSMB map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
+	qos := c.getQosMBGroups()
+	return c.qosMBPolicy.GetPlan(totalMB, currQoSMB, qos, true)
 }
 
 func newConstraintDomainMBPolicy(qosMBPolicy qospolicy.QoSMBPolicy) DomainMBPolicy {

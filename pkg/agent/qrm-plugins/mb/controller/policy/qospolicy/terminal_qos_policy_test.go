@@ -96,7 +96,7 @@ func Test_getLeafPlan(t *testing.T) {
 		"shared-30": {
 			CCDs: sets.Int{6: sets.Empty{}},
 			CCDMB: map[int]*monitor.MBData{6: {
-				TotalMB: 11_000,
+				TotalMB: 11_000, LocalTotalMB: 11_000,
 			}},
 		},
 	}
@@ -154,7 +154,7 @@ func Test_getLeafPlan(t *testing.T) {
 					"shared-30": {
 						CCDs: sets.Int{6: sets.Empty{}},
 						CCDMB: map[int]*monitor.MBData{6: {
-							TotalMB: 8_000,
+							TotalMB: 8_000, LocalTotalMB: 8_000,
 						}},
 					},
 				},
@@ -171,7 +171,7 @@ func Test_getLeafPlan(t *testing.T) {
 				throttlePlanner: tt.fields.throttlePlanner,
 				easePlanner:     tt.fields.easePlanner,
 			}
-			assert.Equalf(t, tt.want, p.getLeafPlan(tt.args.totalMB, tt.args.mbQoSGroups), "getLeafPlan(%v, %v)", tt.args.totalMB, tt.args.mbQoSGroups)
+			assert.Equalf(t, tt.want, p.getLeafPlan(tt.args.totalMB, tt.args.mbQoSGroups, tt.args.mbQoSGroups), "getLeafPlan(%v, %v)", tt.args.totalMB, tt.args.mbQoSGroups)
 
 			if tt.fields.throttlePlanner != nil {
 				mock.AssertExpectationsForObjects(t, tt.fields.throttlePlanner)
@@ -179,6 +179,54 @@ func Test_getLeafPlan(t *testing.T) {
 			if tt.fields.easePlanner != nil {
 				mock.AssertExpectationsForObjects(t, tt.fields.easePlanner)
 			}
+		})
+	}
+}
+
+func Test_getReceiverMBUsage(t *testing.T) {
+	type args struct {
+		hostQoSMBGroup    map[qosgroup.QoSGroup]*monitor.MBQoSGroup
+		globalQoSMBGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup
+	}
+	tests := []struct {
+		name string
+		args args
+		want int
+	}{
+		{
+			name: "happy path",
+			args: args{
+				hostQoSMBGroup: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+					"shared-30": {
+						CCDMB: map[int]*monitor.MBData{
+							2: {TotalMB: 12_000, LocalTotalMB: 9_000},
+							5: {TotalMB: 7_766, LocalTotalMB: 6_666},
+						},
+					},
+				},
+				globalQoSMBGroups: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+					"shared-50": {
+						CCDMB: map[int]*monitor.MBData{
+							0: {TotalMB: 22_000},
+							1: {TotalMB: 23_000},
+						},
+					},
+					"shared-30": {
+						CCDMB: map[int]*monitor.MBData{
+							2:  {TotalMB: 12_000, LocalTotalMB: 9_000},
+							5:  {TotalMB: 7_766, LocalTotalMB: 6_666},
+							12: {TotalMB: 20_000, LocalTotalMB: 19_000},
+							15: {TotalMB: 19_999, LocalTotalMB: 16_666},
+						},
+					},
+				},
+			},
+			want: 9_000 + 6_666 + (20_000 - 19_000) + (19_999 - 16_666),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equalf(t, tt.want, getReceiverMBUsage(tt.args.hostQoSMBGroup, tt.args.globalQoSMBGroups), "getReceiverMBUsage(%v, %v)", tt.args.hostQoSMBGroup, tt.args.globalQoSMBGroups)
 		})
 	}
 }

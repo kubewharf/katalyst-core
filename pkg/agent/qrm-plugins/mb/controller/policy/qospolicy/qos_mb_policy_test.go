@@ -94,7 +94,7 @@ func TestBuildHiPrioDetectedQoSMBPolicy(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			assert.Equalf(t, tt.want, smartPolicy.GetPlan(tt.args.totalMB, tt.args.mbQoSGroups, tt.args.isTopMost).Plan,
+			assert.Equalf(t, tt.want, smartPolicy.GetPlan(tt.args.totalMB, tt.args.mbQoSGroups, tt.args.mbQoSGroups, tt.args.isTopMost).Plan,
 				"getTopMostPlan(%v, %v)", tt.args.totalMB, tt.args.mbQoSGroups)
 		})
 	}

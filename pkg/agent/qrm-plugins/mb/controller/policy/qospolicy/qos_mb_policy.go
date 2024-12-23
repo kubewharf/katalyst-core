@@ -25,7 +25,7 @@ import (
 
 // QoSMBPolicy abstracts planning to distribute given MB to various QoS groups
 type QoSMBPolicy interface {
-	GetPlan(totalMB int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup, isTopMost bool) *plan.MBAlloc
+	GetPlan(totalMB int, mbQoSGroups, globalQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup, isTopMost bool) *plan.MBAlloc
 }
 
 // BuildFullyChainedQoSPolicy builds up the full chain of {dedicated, shared-50, system} -> {shared-30, reclaimed}

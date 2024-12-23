@@ -25,14 +25,21 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"sync"
 )
 
 // preemptDomainMBPolicy implements the admitting pod MB reservation (preemption)
 type preemptDomainMBPolicy struct {
 	qosMBPolicy qospolicy.QoSMBPolicy
+
+	lock sync.RWMutex
+	qos  map[qosgroup.QoSGroup]*monitor.MBQoSGroup
 }
 
-func (p preemptDomainMBPolicy) ProcessGlobalQoSCCDMB(qos map[qosgroup.QoSGroup]*monitor.MBQoSGroup) {
+func (p *preemptDomainMBPolicy) ProcessGlobalQoSCCDMB(qos map[qosgroup.QoSGroup]*monitor.MBQoSGroup) {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	p.qos = qos
 }
 
 // todo： consider to work on CCDs instead of nodes?
@@ -54,7 +61,7 @@ func getReservationPlan(domain *mbdomain.MBDomain, preemptingNodes []int) *plan.
 	}
 }
 
-func (p preemptDomainMBPolicy) GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoSMB map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
+func (p *preemptDomainMBPolicy) GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoSMB map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
 	preemptingNodes := domain.GetPreemptingNodes()
 	mbToReserve := config.ReservedPerNuma * len(preemptingNodes)
 	reservationPlan := getReservationPlan(domain, preemptingNodes)
@@ -64,7 +71,9 @@ func (p preemptDomainMBPolicy) GetPlan(totalMB int, domain *mbdomain.MBDomain, c
 	if mbAllocatable < 0 {
 		mbAllocatable = 0
 	}
-	allocatablePlan := p.qosMBPolicy.GetPlan(mbAllocatable, currQoSMB, true)
+
+	// todo: protect q.qos from accidental update race
+	allocatablePlan := p.qosMBPolicy.GetPlan(mbAllocatable, currQoSMB, p.qos, true)
 
 	return plan.Merge(reservationPlan, allocatablePlan)
 }

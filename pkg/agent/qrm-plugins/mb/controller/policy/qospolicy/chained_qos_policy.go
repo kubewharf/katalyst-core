@@ -43,11 +43,11 @@ func (p *chainedQosPolicy) splitQoSGroups(groups map[qosgroup.QoSGroup]*monitor.
 	return
 }
 
-func (p *chainedQosPolicy) GetPlan(totalMB int, qosGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup, isTopMost bool) *plan.MBAlloc {
+func (p *chainedQosPolicy) GetPlan(totalMB int, qosGroups, globalMBQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup, isTopMost bool) *plan.MBAlloc {
 	currGroups, nextGroups := p.splitQoSGroups(qosGroups)
-	planCurrTier := p.current.GetPlan(totalMB, currGroups, isTopMost)
+	planCurrTier := p.current.GetPlan(totalMB, currGroups, globalMBQoSGroups, isTopMost)
 	leftMB := totalMB - monitor.SumMB(currGroups)
-	planNextTiers := p.next.GetPlan(leftMB, nextGroups, false)
+	planNextTiers := p.next.GetPlan(leftMB, nextGroups, globalMBQoSGroups, false)
 	return plan.Merge(planCurrTier, planNextTiers)
 }
 
