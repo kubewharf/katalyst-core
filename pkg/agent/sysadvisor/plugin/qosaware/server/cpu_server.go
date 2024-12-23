@@ -332,7 +332,10 @@ func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, resp *cpuadvisor.
 		poolName := entryName
 		livingPoolNameSet.Insert(poolName)
 		if err := cs.createOrUpdatePoolInfo(
-			poolName, poolInfo.OwnerPoolName, poolInfo.TopologyAwareAssignments, poolInfo.OriginalTopologyAwareAssignments,
+			poolName,
+			poolInfo.AllocationInfo.OwnerPoolName,
+			poolInfo.AllocationInfo.TopologyAwareAssignments,
+			poolInfo.AllocationInfo.OriginalTopologyAwareAssignments,
 		); err != nil {
 			errs = append(errs, fmt.Errorf("update pool info failed: %w", err))
 		}
@@ -471,34 +474,28 @@ func (cs *cpuServer) createOrUpdatePoolInfo(
 	return cs.metaCache.SetPoolInfo(poolName, pi)
 }
 
-func (cs *cpuServer) setContainerInfoBasedOnFullAllocationInfo(
+// The new update method for container info to replace setContainerInfoBasedOnAllocationInfo
+func (cs *cpuServer) setContainerInfoBasedOnContainerAllocationInfo(
 	pod *v1.Pod,
 	ci *types.ContainerInfo,
-	info *cpuadvisor.FullAllocationInfo,
+	info *cpuadvisor.ContainerAllocationInfo,
 ) error {
-	if err := cs.setContainerInfoBasedOnAllocationInfo(
-		pod, ci, &cpuadvisor.AllocationInfo{
-			RampUp:                           info.RampUp,
-			OwnerPoolName:                    info.OwnerPoolName,
-			TopologyAwareAssignments:         info.TopologyAwareAssignments,
-			OriginalTopologyAwareAssignments: info.OriginalTopologyAwareAssignments,
-		},
-	); err != nil {
+	if err := cs.setContainerInfoBasedOnAllocationInfo(pod, ci, info.AllocationInfo); err != nil {
 		return err
 	}
 
-	ci.Labels = info.Labels
-	ci.Annotations = info.Annotations
-	ci.CPURequest = float64(info.RequestQuantity)
-	if info.QosLevel == consts.PodAnnotationQoSLevelSharedCores &&
-		info.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable {
-		originOwnerPoolName, err := commonstate.GetSpecifiedNUMABindingPoolName(info.QosLevel, info.Annotations)
+	ci.Labels = info.Metadata.Labels
+	ci.Annotations = info.Metadata.Annotations
+	ci.CPURequest = float64(info.Metadata.RequestQuantity)
+	if info.Metadata.QosLevel == consts.PodAnnotationQoSLevelSharedCores &&
+		info.Metadata.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable {
+		originOwnerPoolName, err := commonstate.GetSpecifiedNUMABindingPoolName(info.Metadata.QosLevel, info.Metadata.Annotations)
 		if err != nil {
 			return fmt.Errorf("get specified numa binding pool name failed: %w", err)
 		}
 		ci.OriginOwnerPoolName = originOwnerPoolName
 	} else {
-		ci.OriginOwnerPoolName = commonstate.GetSpecifiedPoolName(info.QosLevel, info.Annotations[consts.PodAnnotationCPUEnhancementCPUSet])
+		ci.OriginOwnerPoolName = commonstate.GetSpecifiedPoolName(info.Metadata.QosLevel, info.Metadata.Annotations[consts.PodAnnotationCPUEnhancementCPUSet])
 	}
 
 	return nil
@@ -545,23 +542,23 @@ func (cs *cpuServer) createOrUpdateContainerInfo(
 	podUID string,
 	containerName string,
 	pod *v1.Pod,
-	info *cpuadvisor.FullAllocationInfo,
+	info *cpuadvisor.ContainerAllocationInfo,
 ) error {
 	ci, ok := cs.metaCache.GetContainerInfo(podUID, containerName)
 	if !ok {
 		ci = &types.ContainerInfo{
 			PodUID:         podUID,
-			PodNamespace:   info.PodNamespace,
-			PodName:        info.PodName,
+			PodNamespace:   info.Metadata.PodNamespace,
+			PodName:        info.Metadata.PodName,
 			ContainerName:  containerName,
-			ContainerType:  info.ContainerType,
-			ContainerIndex: int(info.ContainerIndex),
-			Labels:         info.Labels,
-			Annotations:    info.Annotations,
-			QoSLevel:       info.QosLevel,
-			CPURequest:     float64(info.RequestQuantity),
+			ContainerType:  info.Metadata.ContainerType,
+			ContainerIndex: int(info.Metadata.ContainerIndex),
+			Labels:         info.Metadata.Labels,
+			Annotations:    info.Metadata.Annotations,
+			QoSLevel:       info.Metadata.QosLevel,
+			CPURequest:     float64(info.Metadata.RequestQuantity),
 		}
-		if err := cs.setContainerInfoBasedOnFullAllocationInfo(pod, ci, info); err != nil {
+		if err := cs.setContainerInfoBasedOnContainerAllocationInfo(pod, ci, info); err != nil {
 			return fmt.Errorf("set container info for new container %v/%v failed: %w", podUID, containerName, err)
 		}
 		// use AddContainer instead of SetContainer to set the creation time in meta cache (is this necessary?)
@@ -571,7 +568,7 @@ func (cs *cpuServer) createOrUpdateContainerInfo(
 		return nil
 	}
 
-	if err := cs.setContainerInfoBasedOnFullAllocationInfo(pod, ci, info); err != nil {
+	if err := cs.setContainerInfoBasedOnContainerAllocationInfo(pod, ci, info); err != nil {
 		return fmt.Errorf("set container info for existing container %v/%v failed: %w", podUID, containerName, err)
 	}
 	if err := cs.metaCache.SetContainerInfo(podUID, containerName, ci); err != nil {

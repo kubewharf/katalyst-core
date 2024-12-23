@@ -20,28 +20,24 @@ package advisorsvc
 import (
 	context "context"
 	fmt "fmt"
-	io "io"
-	math "math"
-	math_bits "math/bits"
-	reflect "reflect"
-	strings "strings"
-
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
 	github_com_gogo_protobuf_sortkeys "github.com/gogo/protobuf/sortkeys"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
-
+	io "io"
 	v1alpha1 "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
+	math "math"
+	math_bits "math/bits"
+	reflect "reflect"
+	strings "strings"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
-var (
-	_ = proto.Marshal
-	_ = fmt.Errorf
-	_ = math.Inf
-)
+var _ = proto.Marshal
+var _ = fmt.Errorf
+var _ = math.Inf
 
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the proto package it is being compiled against.
@@ -70,11 +66,9 @@ func (*ContainerMetadata) ProtoMessage() {}
 func (*ContainerMetadata) Descriptor() ([]byte, []int) {
 	return fileDescriptor_870376c87c2a4145, []int{0}
 }
-
 func (m *ContainerMetadata) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-
 func (m *ContainerMetadata) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_ContainerMetadata.Marshal(b, m, deterministic)
@@ -87,15 +81,12 @@ func (m *ContainerMetadata) XXX_Marshal(b []byte, deterministic bool) ([]byte, e
 		return b[:n], nil
 	}
 }
-
 func (m *ContainerMetadata) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_ContainerMetadata.Merge(m, src)
 }
-
 func (m *ContainerMetadata) XXX_Size() int {
 	return m.Size()
 }
-
 func (m *ContainerMetadata) XXX_DiscardUnknown() {
 	xxx_messageInfo_ContainerMetadata.DiscardUnknown(m)
 }
@@ -182,11 +173,9 @@ func (*AddContainerResponse) ProtoMessage() {}
 func (*AddContainerResponse) Descriptor() ([]byte, []int) {
 	return fileDescriptor_870376c87c2a4145, []int{1}
 }
-
 func (m *AddContainerResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-
 func (m *AddContainerResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_AddContainerResponse.Marshal(b, m, deterministic)
@@ -199,15 +188,12 @@ func (m *AddContainerResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte
 		return b[:n], nil
 	}
 }
-
 func (m *AddContainerResponse) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_AddContainerResponse.Merge(m, src)
 }
-
 func (m *AddContainerResponse) XXX_Size() int {
 	return m.Size()
 }
-
 func (m *AddContainerResponse) XXX_DiscardUnknown() {
 	xxx_messageInfo_AddContainerResponse.DiscardUnknown(m)
 }
@@ -224,11 +210,9 @@ func (*Empty) ProtoMessage() {}
 func (*Empty) Descriptor() ([]byte, []int) {
 	return fileDescriptor_870376c87c2a4145, []int{2}
 }
-
 func (m *Empty) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-
 func (m *Empty) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_Empty.Marshal(b, m, deterministic)
@@ -241,15 +225,12 @@ func (m *Empty) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 		return b[:n], nil
 	}
 }
-
 func (m *Empty) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_Empty.Merge(m, src)
 }
-
 func (m *Empty) XXX_Size() int {
 	return m.Size()
 }
-
 func (m *Empty) XXX_DiscardUnknown() {
 	xxx_messageInfo_Empty.DiscardUnknown(m)
 }
@@ -267,11 +248,9 @@ func (*RemovePodRequest) ProtoMessage() {}
 func (*RemovePodRequest) Descriptor() ([]byte, []int) {
 	return fileDescriptor_870376c87c2a4145, []int{3}
 }
-
 func (m *RemovePodRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-
 func (m *RemovePodRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_RemovePodRequest.Marshal(b, m, deterministic)
@@ -284,15 +263,12 @@ func (m *RemovePodRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, er
 		return b[:n], nil
 	}
 }
-
 func (m *RemovePodRequest) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_RemovePodRequest.Merge(m, src)
 }
-
 func (m *RemovePodRequest) XXX_Size() int {
 	return m.Size()
 }
-
 func (m *RemovePodRequest) XXX_DiscardUnknown() {
 	xxx_messageInfo_RemovePodRequest.DiscardUnknown(m)
 }
@@ -316,11 +292,9 @@ func (*RemovePodResponse) ProtoMessage() {}
 func (*RemovePodResponse) Descriptor() ([]byte, []int) {
 	return fileDescriptor_870376c87c2a4145, []int{4}
 }
-
 func (m *RemovePodResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-
 func (m *RemovePodResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_RemovePodResponse.Marshal(b, m, deterministic)
@@ -333,15 +307,12 @@ func (m *RemovePodResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, e
 		return b[:n], nil
 	}
 }
-
 func (m *RemovePodResponse) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_RemovePodResponse.Merge(m, src)
 }
-
 func (m *RemovePodResponse) XXX_Size() int {
 	return m.Size()
 }
-
 func (m *RemovePodResponse) XXX_DiscardUnknown() {
 	xxx_messageInfo_RemovePodResponse.DiscardUnknown(m)
 }
@@ -360,11 +331,9 @@ func (*ListAndWatchResponse) ProtoMessage() {}
 func (*ListAndWatchResponse) Descriptor() ([]byte, []int) {
 	return fileDescriptor_870376c87c2a4145, []int{5}
 }
-
 func (m *ListAndWatchResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-
 func (m *ListAndWatchResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_ListAndWatchResponse.Marshal(b, m, deterministic)
@@ -377,15 +346,12 @@ func (m *ListAndWatchResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte
 		return b[:n], nil
 	}
 }
-
 func (m *ListAndWatchResponse) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_ListAndWatchResponse.Merge(m, src)
 }
-
 func (m *ListAndWatchResponse) XXX_Size() int {
 	return m.Size()
 }
-
 func (m *ListAndWatchResponse) XXX_DiscardUnknown() {
 	xxx_messageInfo_ListAndWatchResponse.DiscardUnknown(m)
 }
@@ -417,11 +383,9 @@ func (*CalculationEntries) ProtoMessage() {}
 func (*CalculationEntries) Descriptor() ([]byte, []int) {
 	return fileDescriptor_870376c87c2a4145, []int{6}
 }
-
 func (m *CalculationEntries) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-
 func (m *CalculationEntries) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_CalculationEntries.Marshal(b, m, deterministic)
@@ -434,15 +398,12 @@ func (m *CalculationEntries) XXX_Marshal(b []byte, deterministic bool) ([]byte, 
 		return b[:n], nil
 	}
 }
-
 func (m *CalculationEntries) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_CalculationEntries.Merge(m, src)
 }
-
 func (m *CalculationEntries) XXX_Size() int {
 	return m.Size()
 }
-
 func (m *CalculationEntries) XXX_DiscardUnknown() {
 	xxx_messageInfo_CalculationEntries.DiscardUnknown(m)
 }
@@ -470,11 +431,9 @@ func (*CalculationInfo) ProtoMessage() {}
 func (*CalculationInfo) Descriptor() ([]byte, []int) {
 	return fileDescriptor_870376c87c2a4145, []int{7}
 }
-
 func (m *CalculationInfo) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-
 func (m *CalculationInfo) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_CalculationInfo.Marshal(b, m, deterministic)
@@ -487,15 +446,12 @@ func (m *CalculationInfo) XXX_Marshal(b []byte, deterministic bool) ([]byte, err
 		return b[:n], nil
 	}
 }
-
 func (m *CalculationInfo) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_CalculationInfo.Merge(m, src)
 }
-
 func (m *CalculationInfo) XXX_Size() int {
 	return m.Size()
 }
-
 func (m *CalculationInfo) XXX_DiscardUnknown() {
 	xxx_messageInfo_CalculationInfo.DiscardUnknown(m)
 }
@@ -527,11 +483,9 @@ func (*CalculationResult) ProtoMessage() {}
 func (*CalculationResult) Descriptor() ([]byte, []int) {
 	return fileDescriptor_870376c87c2a4145, []int{8}
 }
-
 func (m *CalculationResult) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-
 func (m *CalculationResult) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_CalculationResult.Marshal(b, m, deterministic)
@@ -544,15 +498,12 @@ func (m *CalculationResult) XXX_Marshal(b []byte, deterministic bool) ([]byte, e
 		return b[:n], nil
 	}
 }
-
 func (m *CalculationResult) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_CalculationResult.Merge(m, src)
 }
-
 func (m *CalculationResult) XXX_Size() int {
 	return m.Size()
 }
-
 func (m *CalculationResult) XXX_DiscardUnknown() {
 	xxx_messageInfo_CalculationResult.DiscardUnknown(m)
 }
@@ -577,11 +528,9 @@ func (*ContainerMetadataEntries) ProtoMessage() {}
 func (*ContainerMetadataEntries) Descriptor() ([]byte, []int) {
 	return fileDescriptor_870376c87c2a4145, []int{9}
 }
-
 func (m *ContainerMetadataEntries) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-
 func (m *ContainerMetadataEntries) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_ContainerMetadataEntries.Marshal(b, m, deterministic)
@@ -594,15 +543,12 @@ func (m *ContainerMetadataEntries) XXX_Marshal(b []byte, deterministic bool) ([]
 		return b[:n], nil
 	}
 }
-
 func (m *ContainerMetadataEntries) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_ContainerMetadataEntries.Merge(m, src)
 }
-
 func (m *ContainerMetadataEntries) XXX_Size() int {
 	return m.Size()
 }
-
 func (m *ContainerMetadataEntries) XXX_DiscardUnknown() {
 	xxx_messageInfo_ContainerMetadataEntries.DiscardUnknown(m)
 }
@@ -627,11 +573,9 @@ func (*GetAdviceRequest) ProtoMessage() {}
 func (*GetAdviceRequest) Descriptor() ([]byte, []int) {
 	return fileDescriptor_870376c87c2a4145, []int{10}
 }
-
 func (m *GetAdviceRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-
 func (m *GetAdviceRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_GetAdviceRequest.Marshal(b, m, deterministic)
@@ -644,15 +588,12 @@ func (m *GetAdviceRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, er
 		return b[:n], nil
 	}
 }
-
 func (m *GetAdviceRequest) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_GetAdviceRequest.Merge(m, src)
 }
-
 func (m *GetAdviceRequest) XXX_Size() int {
 	return m.Size()
 }
-
 func (m *GetAdviceRequest) XXX_DiscardUnknown() {
 	xxx_messageInfo_GetAdviceRequest.DiscardUnknown(m)
 }
@@ -678,11 +619,9 @@ func (*GetAdviceResponse) ProtoMessage() {}
 func (*GetAdviceResponse) Descriptor() ([]byte, []int) {
 	return fileDescriptor_870376c87c2a4145, []int{11}
 }
-
 func (m *GetAdviceResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-
 func (m *GetAdviceResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_GetAdviceResponse.Marshal(b, m, deterministic)
@@ -695,15 +634,12 @@ func (m *GetAdviceResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, e
 		return b[:n], nil
 	}
 }
-
 func (m *GetAdviceResponse) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_GetAdviceResponse.Merge(m, src)
 }
-
 func (m *GetAdviceResponse) XXX_Size() int {
 	return m.Size()
 }
-
 func (m *GetAdviceResponse) XXX_DiscardUnknown() {
 	xxx_messageInfo_GetAdviceResponse.DiscardUnknown(m)
 }
@@ -735,11 +671,9 @@ func (*ListContainersResponse) ProtoMessage() {}
 func (*ListContainersResponse) Descriptor() ([]byte, []int) {
 	return fileDescriptor_870376c87c2a4145, []int{12}
 }
-
 func (m *ListContainersResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-
 func (m *ListContainersResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_ListContainersResponse.Marshal(b, m, deterministic)
@@ -752,15 +686,12 @@ func (m *ListContainersResponse) XXX_Marshal(b []byte, deterministic bool) ([]by
 		return b[:n], nil
 	}
 }
-
 func (m *ListContainersResponse) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_ListContainersResponse.Merge(m, src)
 }
-
 func (m *ListContainersResponse) XXX_Size() int {
 	return m.Size()
 }
-
 func (m *ListContainersResponse) XXX_DiscardUnknown() {
 	xxx_messageInfo_ListContainersResponse.DiscardUnknown(m)
 }
@@ -867,10 +798,8 @@ var fileDescriptor_870376c87c2a4145 = []byte{
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
-var (
-	_ context.Context
-	_ grpc.ClientConn
-)
+var _ context.Context
+var _ grpc.ClientConn
 
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the grpc package it is being compiled against.
@@ -962,20 +891,18 @@ type AdvisorServiceServer interface {
 }
 
 // UnimplementedAdvisorServiceServer can be embedded to have forward compatible implementations.
-type UnimplementedAdvisorServiceServer struct{}
+type UnimplementedAdvisorServiceServer struct {
+}
 
 func (*UnimplementedAdvisorServiceServer) AddContainer(ctx context.Context, req *ContainerMetadata) (*AddContainerResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AddContainer not implemented")
 }
-
 func (*UnimplementedAdvisorServiceServer) RemovePod(ctx context.Context, req *RemovePodRequest) (*RemovePodResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RemovePod not implemented")
 }
-
 func (*UnimplementedAdvisorServiceServer) ListAndWatch(req *Empty, srv AdvisorService_ListAndWatchServer) error {
 	return status.Errorf(codes.Unimplemented, "method ListAndWatch not implemented")
 }
-
 func (*UnimplementedAdvisorServiceServer) GetAdvice(ctx context.Context, req *GetAdviceRequest) (*GetAdviceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetAdvice not implemented")
 }
@@ -1116,7 +1043,8 @@ type QRMServiceServer interface {
 }
 
 // UnimplementedQRMServiceServer can be embedded to have forward compatible implementations.
-type UnimplementedQRMServiceServer struct{}
+type UnimplementedQRMServiceServer struct {
+}
 
 func (*UnimplementedQRMServiceServer) ListContainers(ctx context.Context, req *Empty) (*ListContainersResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListContainers not implemented")
@@ -1772,7 +1700,6 @@ func encodeVarintAdvisorSvc(dAtA []byte, offset int, v uint64) int {
 	dAtA[offset] = uint8(v)
 	return base
 }
-
 func (m *ContainerMetadata) Size() (n int) {
 	if m == nil {
 		return 0
@@ -2041,17 +1968,15 @@ func (m *ListContainersResponse) Size() (n int) {
 func sovAdvisorSvc(x uint64) (n int) {
 	return (math_bits.Len64(x|1) + 6) / 7
 }
-
 func sozAdvisorSvc(x uint64) (n int) {
 	return sovAdvisorSvc(uint64((x << 1) ^ uint64((int64(x) >> 63))))
 }
-
 func (this *ContainerMetadata) String() string {
 	if this == nil {
 		return "nil"
 	}
 	keysForLabels := make([]string, 0, len(this.Labels))
-	for k := range this.Labels {
+	for k, _ := range this.Labels {
 		keysForLabels = append(keysForLabels, k)
 	}
 	github_com_gogo_protobuf_sortkeys.Strings(keysForLabels)
@@ -2061,7 +1986,7 @@ func (this *ContainerMetadata) String() string {
 	}
 	mapStringForLabels += "}"
 	keysForAnnotations := make([]string, 0, len(this.Annotations))
-	for k := range this.Annotations {
+	for k, _ := range this.Annotations {
 		keysForAnnotations = append(keysForAnnotations, k)
 	}
 	github_com_gogo_protobuf_sortkeys.Strings(keysForAnnotations)
@@ -2070,8 +1995,7 @@ func (this *ContainerMetadata) String() string {
 		mapStringForAnnotations += fmt.Sprintf("%v: %v,", k, this.Annotations[k])
 	}
 	mapStringForAnnotations += "}"
-	s := strings.Join([]string{
-		`&ContainerMetadata{`,
+	s := strings.Join([]string{`&ContainerMetadata{`,
 		`PodUid:` + fmt.Sprintf("%v", this.PodUid) + `,`,
 		`PodNamespace:` + fmt.Sprintf("%v", this.PodNamespace) + `,`,
 		`PodName:` + fmt.Sprintf("%v", this.PodName) + `,`,
@@ -2086,52 +2010,43 @@ func (this *ContainerMetadata) String() string {
 	}, "")
 	return s
 }
-
 func (this *AddContainerResponse) String() string {
 	if this == nil {
 		return "nil"
 	}
-	s := strings.Join([]string{
-		`&AddContainerResponse{`,
+	s := strings.Join([]string{`&AddContainerResponse{`,
 		`}`,
 	}, "")
 	return s
 }
-
 func (this *Empty) String() string {
 	if this == nil {
 		return "nil"
 	}
-	s := strings.Join([]string{
-		`&Empty{`,
+	s := strings.Join([]string{`&Empty{`,
 		`}`,
 	}, "")
 	return s
 }
-
 func (this *RemovePodRequest) String() string {
 	if this == nil {
 		return "nil"
 	}
-	s := strings.Join([]string{
-		`&RemovePodRequest{`,
+	s := strings.Join([]string{`&RemovePodRequest{`,
 		`PodUid:` + fmt.Sprintf("%v", this.PodUid) + `,`,
 		`}`,
 	}, "")
 	return s
 }
-
 func (this *RemovePodResponse) String() string {
 	if this == nil {
 		return "nil"
 	}
-	s := strings.Join([]string{
-		`&RemovePodResponse{`,
+	s := strings.Join([]string{`&RemovePodResponse{`,
 		`}`,
 	}, "")
 	return s
 }
-
 func (this *ListAndWatchResponse) String() string {
 	if this == nil {
 		return "nil"
@@ -2142,7 +2057,7 @@ func (this *ListAndWatchResponse) String() string {
 	}
 	repeatedStringForExtraEntries += "}"
 	keysForPodEntries := make([]string, 0, len(this.PodEntries))
-	for k := range this.PodEntries {
+	for k, _ := range this.PodEntries {
 		keysForPodEntries = append(keysForPodEntries, k)
 	}
 	github_com_gogo_protobuf_sortkeys.Strings(keysForPodEntries)
@@ -2151,21 +2066,19 @@ func (this *ListAndWatchResponse) String() string {
 		mapStringForPodEntries += fmt.Sprintf("%v: %v,", k, this.PodEntries[k])
 	}
 	mapStringForPodEntries += "}"
-	s := strings.Join([]string{
-		`&ListAndWatchResponse{`,
+	s := strings.Join([]string{`&ListAndWatchResponse{`,
 		`PodEntries:` + mapStringForPodEntries + `,`,
 		`ExtraEntries:` + repeatedStringForExtraEntries + `,`,
 		`}`,
 	}, "")
 	return s
 }
-
 func (this *CalculationEntries) String() string {
 	if this == nil {
 		return "nil"
 	}
 	keysForContainerEntries := make([]string, 0, len(this.ContainerEntries))
-	for k := range this.ContainerEntries {
+	for k, _ := range this.ContainerEntries {
 		keysForContainerEntries = append(keysForContainerEntries, k)
 	}
 	github_com_gogo_protobuf_sortkeys.Strings(keysForContainerEntries)
@@ -2174,33 +2087,29 @@ func (this *CalculationEntries) String() string {
 		mapStringForContainerEntries += fmt.Sprintf("%v: %v,", k, this.ContainerEntries[k])
 	}
 	mapStringForContainerEntries += "}"
-	s := strings.Join([]string{
-		`&CalculationEntries{`,
+	s := strings.Join([]string{`&CalculationEntries{`,
 		`ContainerEntries:` + mapStringForContainerEntries + `,`,
 		`}`,
 	}, "")
 	return s
 }
-
 func (this *CalculationInfo) String() string {
 	if this == nil {
 		return "nil"
 	}
-	s := strings.Join([]string{
-		`&CalculationInfo{`,
+	s := strings.Join([]string{`&CalculationInfo{`,
 		`CgroupPath:` + fmt.Sprintf("%v", this.CgroupPath) + `,`,
 		`CalculationResult:` + strings.Replace(this.CalculationResult.String(), "CalculationResult", "CalculationResult", 1) + `,`,
 		`}`,
 	}, "")
 	return s
 }
-
 func (this *CalculationResult) String() string {
 	if this == nil {
 		return "nil"
 	}
 	keysForValues := make([]string, 0, len(this.Values))
-	for k := range this.Values {
+	for k, _ := range this.Values {
 		keysForValues = append(keysForValues, k)
 	}
 	github_com_gogo_protobuf_sortkeys.Strings(keysForValues)
@@ -2209,20 +2118,18 @@ func (this *CalculationResult) String() string {
 		mapStringForValues += fmt.Sprintf("%v: %v,", k, this.Values[k])
 	}
 	mapStringForValues += "}"
-	s := strings.Join([]string{
-		`&CalculationResult{`,
+	s := strings.Join([]string{`&CalculationResult{`,
 		`Values:` + mapStringForValues + `,`,
 		`}`,
 	}, "")
 	return s
 }
-
 func (this *ContainerMetadataEntries) String() string {
 	if this == nil {
 		return "nil"
 	}
 	keysForEntries := make([]string, 0, len(this.Entries))
-	for k := range this.Entries {
+	for k, _ := range this.Entries {
 		keysForEntries = append(keysForEntries, k)
 	}
 	github_com_gogo_protobuf_sortkeys.Strings(keysForEntries)
@@ -2231,20 +2138,18 @@ func (this *ContainerMetadataEntries) String() string {
 		mapStringForEntries += fmt.Sprintf("%v: %v,", k, this.Entries[k])
 	}
 	mapStringForEntries += "}"
-	s := strings.Join([]string{
-		`&ContainerMetadataEntries{`,
+	s := strings.Join([]string{`&ContainerMetadataEntries{`,
 		`Entries:` + mapStringForEntries + `,`,
 		`}`,
 	}, "")
 	return s
 }
-
 func (this *GetAdviceRequest) String() string {
 	if this == nil {
 		return "nil"
 	}
 	keysForEntries := make([]string, 0, len(this.Entries))
-	for k := range this.Entries {
+	for k, _ := range this.Entries {
 		keysForEntries = append(keysForEntries, k)
 	}
 	github_com_gogo_protobuf_sortkeys.Strings(keysForEntries)
@@ -2253,14 +2158,12 @@ func (this *GetAdviceRequest) String() string {
 		mapStringForEntries += fmt.Sprintf("%v: %v,", k, this.Entries[k])
 	}
 	mapStringForEntries += "}"
-	s := strings.Join([]string{
-		`&GetAdviceRequest{`,
+	s := strings.Join([]string{`&GetAdviceRequest{`,
 		`Entries:` + mapStringForEntries + `,`,
 		`}`,
 	}, "")
 	return s
 }
-
 func (this *GetAdviceResponse) String() string {
 	if this == nil {
 		return "nil"
@@ -2271,7 +2174,7 @@ func (this *GetAdviceResponse) String() string {
 	}
 	repeatedStringForExtraEntries += "}"
 	keysForPodEntries := make([]string, 0, len(this.PodEntries))
-	for k := range this.PodEntries {
+	for k, _ := range this.PodEntries {
 		keysForPodEntries = append(keysForPodEntries, k)
 	}
 	github_com_gogo_protobuf_sortkeys.Strings(keysForPodEntries)
@@ -2280,15 +2183,13 @@ func (this *GetAdviceResponse) String() string {
 		mapStringForPodEntries += fmt.Sprintf("%v: %v,", k, this.PodEntries[k])
 	}
 	mapStringForPodEntries += "}"
-	s := strings.Join([]string{
-		`&GetAdviceResponse{`,
+	s := strings.Join([]string{`&GetAdviceResponse{`,
 		`PodEntries:` + mapStringForPodEntries + `,`,
 		`ExtraEntries:` + repeatedStringForExtraEntries + `,`,
 		`}`,
 	}, "")
 	return s
 }
-
 func (this *ListContainersResponse) String() string {
 	if this == nil {
 		return "nil"
@@ -2298,14 +2199,12 @@ func (this *ListContainersResponse) String() string {
 		repeatedStringForContainers += strings.Replace(f.String(), "ContainerMetadata", "ContainerMetadata", 1) + ","
 	}
 	repeatedStringForContainers += "}"
-	s := strings.Join([]string{
-		`&ListContainersResponse{`,
+	s := strings.Join([]string{`&ListContainersResponse{`,
 		`Containers:` + repeatedStringForContainers + `,`,
 		`}`,
 	}, "")
 	return s
 }
-
 func valueToStringAdvisorSvc(v interface{}) string {
 	rv := reflect.ValueOf(v)
 	if rv.IsNil() {
@@ -2314,7 +2213,6 @@ func valueToStringAdvisorSvc(v interface{}) string {
 	pv := reflect.Indirect(rv).Interface()
 	return fmt.Sprintf("*%v", pv)
 }
-
 func (m *ContainerMetadata) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -2836,7 +2734,6 @@ func (m *ContainerMetadata) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-
 func (m *AddContainerResponse) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -2887,7 +2784,6 @@ func (m *AddContainerResponse) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-
 func (m *Empty) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -2938,7 +2834,6 @@ func (m *Empty) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-
 func (m *RemovePodRequest) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -3021,7 +2916,6 @@ func (m *RemovePodRequest) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-
 func (m *RemovePodResponse) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -3072,7 +2966,6 @@ func (m *RemovePodResponse) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-
 func (m *ListAndWatchResponse) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -3286,7 +3179,6 @@ func (m *ListAndWatchResponse) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-
 func (m *CalculationEntries) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -3466,7 +3358,6 @@ func (m *CalculationEntries) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-
 func (m *CalculationInfo) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -3585,7 +3476,6 @@ func (m *CalculationInfo) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-
 func (m *CalculationResult) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -3763,7 +3653,6 @@ func (m *CalculationResult) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-
 func (m *ContainerMetadataEntries) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -3943,7 +3832,6 @@ func (m *ContainerMetadataEntries) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-
 func (m *GetAdviceRequest) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -4123,7 +4011,6 @@ func (m *GetAdviceRequest) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-
 func (m *GetAdviceResponse) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -4337,7 +4224,6 @@ func (m *GetAdviceResponse) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-
 func (m *ListContainersResponse) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -4422,7 +4308,6 @@ func (m *ListContainersResponse) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-
 func skipAdvisorSvc(dAtA []byte) (n int, err error) {
 	l := len(dAtA)
 	iNdEx := 0

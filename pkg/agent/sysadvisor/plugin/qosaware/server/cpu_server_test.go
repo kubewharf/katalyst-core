@@ -1634,32 +1634,38 @@ func TestCPUServerUpdate(t *testing.T) {
 	) {
 		// populate GetAdviceRequest
 		request := &cpuadvisor.GetAdviceRequest{
-			Entries: map[string]*cpuadvisor.FullAllocationInfoEntries{},
+			Entries: map[string]*cpuadvisor.ContainerAllocationInfoEntries{},
 		}
-		request.Entries[commonstate.PoolNameReserve] = &cpuadvisor.FullAllocationInfoEntries{
-			Entries: map[string]*cpuadvisor.FullAllocationInfo{
+		request.Entries[commonstate.PoolNameReserve] = &cpuadvisor.ContainerAllocationInfoEntries{
+			Entries: map[string]*cpuadvisor.ContainerAllocationInfo{
 				commonstate.FakedContainerName: {
-					OwnerPoolName: commonstate.PoolNameReserve,
+					AllocationInfo: &cpuadvisor.AllocationInfo{
+						OwnerPoolName: commonstate.PoolNameReserve,
+					},
 				},
 			},
 		}
 		for _, info := range tt.infos {
 			if _, ok := request.Entries[info.request.PodUid]; !ok {
-				request.Entries[info.request.PodUid] = &cpuadvisor.FullAllocationInfoEntries{
-					Entries: make(map[string]*cpuadvisor.FullAllocationInfo),
+				request.Entries[info.request.PodUid] = &cpuadvisor.ContainerAllocationInfoEntries{
+					Entries: make(map[string]*cpuadvisor.ContainerAllocationInfo),
 				}
 			}
-			request.Entries[info.request.PodUid].Entries[info.request.ContainerName] = &cpuadvisor.FullAllocationInfo{
-				PodUid:                           info.request.PodUid,
-				PodNamespace:                     info.podInfo.Namespace,
-				PodName:                          info.podInfo.Name,
-				ContainerName:                    info.request.ContainerName,
-				Annotations:                      info.request.Annotations,
-				QosLevel:                         info.request.QosLevel,
-				RampUp:                           info.allocationInfo.RampUp,
-				OwnerPoolName:                    info.allocationInfo.OwnerPoolName,
-				TopologyAwareAssignments:         info.allocationInfo.TopologyAwareAssignments,
-				OriginalTopologyAwareAssignments: info.allocationInfo.OriginalTopologyAwareAssignments,
+			request.Entries[info.request.PodUid].Entries[info.request.ContainerName] = &cpuadvisor.ContainerAllocationInfo{
+				Metadata: &advisorsvc.ContainerMetadata{
+					PodUid:        info.request.PodUid,
+					PodNamespace:  info.podInfo.Namespace,
+					PodName:       info.podInfo.Name,
+					ContainerName: info.request.ContainerName,
+					Annotations:   info.request.Annotations,
+					QosLevel:      info.request.QosLevel,
+				},
+				AllocationInfo: &cpuadvisor.AllocationInfo{
+					RampUp:                           info.allocationInfo.RampUp,
+					OwnerPoolName:                    info.allocationInfo.OwnerPoolName,
+					TopologyAwareAssignments:         info.allocationInfo.TopologyAwareAssignments,
+					OriginalTopologyAwareAssignments: info.allocationInfo.OriginalTopologyAwareAssignments,
+				},
 			}
 		}
 		advisor.onUpdate = func() {
@@ -1960,79 +1966,99 @@ func TestCPUServerUpdateMetaCacheInput(t *testing.T) {
 	t.Parallel()
 
 	request := &cpuadvisor.GetAdviceRequest{
-		Entries: map[string]*cpuadvisor.FullAllocationInfoEntries{
+		Entries: map[string]*cpuadvisor.ContainerAllocationInfoEntries{
 			"pod2": {
-				Entries: map[string]*cpuadvisor.FullAllocationInfo{
+				Entries: map[string]*cpuadvisor.ContainerAllocationInfo{
 					"c1": {
-						PodUid:        "pod2",
-						ContainerName: "c1",
-						Annotations: map[string]string{
-							consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
-							cpuconsts.CPUStateAnnotationKeyNUMAHint:          "0",
+						Metadata: &advisorsvc.ContainerMetadata{
+							PodUid:        "pod2",
+							ContainerName: "c1",
+							Annotations: map[string]string{
+								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+								cpuconsts.CPUStateAnnotationKeyNUMAHint:          "0",
+							},
+							QosLevel:        consts.PodAnnotationQoSLevelSharedCores,
+							RequestQuantity: 2,
 						},
-						QosLevel:        consts.PodAnnotationQoSLevelSharedCores,
-						RequestQuantity: 2,
-						RampUp:          false,
-						OwnerPoolName:   commonstate.PoolNameShare + commonstate.NUMAPoolInfix + "0",
+						AllocationInfo: &cpuadvisor.AllocationInfo{
+							RampUp:        false,
+							OwnerPoolName: commonstate.PoolNameShare + commonstate.NUMAPoolInfix + "0",
+						},
 					},
 				},
 			},
 			"pod3": {
-				Entries: map[string]*cpuadvisor.FullAllocationInfo{
+				Entries: map[string]*cpuadvisor.ContainerAllocationInfo{
 					"c1": {
-						PodUid:        "pod2",
-						ContainerName: "c1",
-						Annotations: map[string]string{
-							consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
-							cpuconsts.CPUStateAnnotationKeyNUMAHint:          "0",
+						Metadata: &advisorsvc.ContainerMetadata{
+							PodUid:        "pod2",
+							ContainerName: "c1",
+							Annotations: map[string]string{
+								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+								cpuconsts.CPUStateAnnotationKeyNUMAHint:          "0",
+							},
+							QosLevel:        consts.PodAnnotationQoSLevelSharedCores,
+							RequestQuantity: 4,
 						},
-						QosLevel:        consts.PodAnnotationQoSLevelSharedCores,
-						RequestQuantity: 4,
-						RampUp:          false,
-						OwnerPoolName:   commonstate.PoolNameShare + commonstate.NUMAPoolInfix + "0",
+						AllocationInfo: &cpuadvisor.AllocationInfo{
+							RampUp:        false,
+							OwnerPoolName: commonstate.PoolNameShare + commonstate.NUMAPoolInfix + "0",
+						},
 					},
 				},
 			},
 			commonstate.PoolNameReserve: {
-				Entries: map[string]*cpuadvisor.FullAllocationInfo{
+				Entries: map[string]*cpuadvisor.ContainerAllocationInfo{
 					"": {
-						PodUid:        commonstate.PoolNameReserve,
-						OwnerPoolName: commonstate.PoolNameReserve,
-						TopologyAwareAssignments: map[uint64]string{
-							0: "0",
-							1: "16",
+						Metadata: &advisorsvc.ContainerMetadata{
+							PodUid: commonstate.PoolNameReserve,
 						},
-						OriginalTopologyAwareAssignments: map[uint64]string{
-							0: "0",
-							1: "16",
+						AllocationInfo: &cpuadvisor.AllocationInfo{
+							OwnerPoolName: commonstate.PoolNameReserve,
+							TopologyAwareAssignments: map[uint64]string{
+								0: "0",
+								1: "16",
+							},
+							OriginalTopologyAwareAssignments: map[uint64]string{
+								0: "0",
+								1: "16",
+							},
 						},
 					},
 				},
 			},
 			commonstate.PoolNameShare: {
-				Entries: map[string]*cpuadvisor.FullAllocationInfo{
+				Entries: map[string]*cpuadvisor.ContainerAllocationInfo{
 					"": {
-						PodUid:        commonstate.PoolNameShare,
-						OwnerPoolName: commonstate.PoolNameShare,
-						TopologyAwareAssignments: map[uint64]string{
-							1: "17-31",
+						Metadata: &advisorsvc.ContainerMetadata{
+							PodUid: commonstate.PoolNameShare,
 						},
-						OriginalTopologyAwareAssignments: map[uint64]string{
-							1: "17-31",
+						AllocationInfo: &cpuadvisor.AllocationInfo{
+							OwnerPoolName: commonstate.PoolNameShare,
+							TopologyAwareAssignments: map[uint64]string{
+								1: "17-31",
+							},
+							OriginalTopologyAwareAssignments: map[uint64]string{
+								1: "17-31",
+							},
 						},
 					},
 				},
 			},
 			commonstate.PoolNameShare + commonstate.NUMAPoolInfix + "0": {
-				Entries: map[string]*cpuadvisor.FullAllocationInfo{
+				Entries: map[string]*cpuadvisor.ContainerAllocationInfo{
 					"": {
-						PodUid:        commonstate.PoolNameShare + commonstate.NUMAPoolInfix + "0",
-						OwnerPoolName: commonstate.PoolNameShare + commonstate.NUMAPoolInfix + "0",
-						TopologyAwareAssignments: map[uint64]string{
-							0: "1-15",
+						Metadata: &advisorsvc.ContainerMetadata{
+							PodUid: commonstate.PoolNameShare + commonstate.NUMAPoolInfix + "0",
 						},
-						OriginalTopologyAwareAssignments: map[uint64]string{
-							0: "1-15",
+						AllocationInfo: &cpuadvisor.AllocationInfo{
+							OwnerPoolName: commonstate.PoolNameShare + commonstate.NUMAPoolInfix + "0",
+							TopologyAwareAssignments: map[uint64]string{
+								0: "1-15",
+							},
+							OriginalTopologyAwareAssignments: map[uint64]string{
+								0: "1-15",
+							},
 						},
 					},
 				},

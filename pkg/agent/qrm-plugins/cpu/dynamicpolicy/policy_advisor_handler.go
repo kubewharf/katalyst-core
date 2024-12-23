@@ -218,11 +218,11 @@ func (p *DynamicPolicy) pushCPUAdvisor() error {
 
 func (p *DynamicPolicy) createGetAdviceRequest() (*advisorapi.GetAdviceRequest, error) {
 	stateEntries := p.state.GetPodEntries()
-	chkEntries := make(map[string]*advisorapi.FullAllocationInfoEntries)
+	chkEntries := make(map[string]*advisorapi.ContainerAllocationInfoEntries)
 	for uid, containerEntries := range stateEntries {
 		if chkEntries[uid] == nil {
-			chkEntries[uid] = &advisorapi.FullAllocationInfoEntries{
-				Entries: make(map[string]*advisorapi.FullAllocationInfo),
+			chkEntries[uid] = &advisorapi.ContainerAllocationInfoEntries{
+				Entries: make(map[string]*advisorapi.ContainerAllocationInfo),
 			}
 		}
 
@@ -231,18 +231,22 @@ func (p *DynamicPolicy) createGetAdviceRequest() (*advisorapi.GetAdviceRequest, 
 				continue
 			}
 
-			info := &advisorapi.FullAllocationInfo{
-				PodUid:          allocationInfo.PodUid,
-				PodNamespace:    allocationInfo.PodNamespace,
-				PodName:         allocationInfo.PodName,
-				ContainerName:   allocationInfo.ContainerName,
-				ContainerIndex:  allocationInfo.ContainerIndex,
-				Labels:          maputil.CopySS(allocationInfo.Labels),
-				Annotations:     maputil.CopySS(allocationInfo.Annotations),
-				QosLevel:        allocationInfo.QoSLevel,
-				RequestQuantity: uint64(allocationInfo.RequestQuantity),
-				RampUp:          allocationInfo.RampUp,
-				OwnerPoolName:   allocationInfo.OwnerPoolName,
+			info := &advisorapi.ContainerAllocationInfo{
+				Metadata: &advisorsvc.ContainerMetadata{
+					PodUid:          allocationInfo.PodUid,
+					PodNamespace:    allocationInfo.PodNamespace,
+					PodName:         allocationInfo.PodName,
+					ContainerName:   allocationInfo.ContainerName,
+					ContainerIndex:  allocationInfo.ContainerIndex,
+					Labels:          maputil.CopySS(allocationInfo.Labels),
+					Annotations:     maputil.CopySS(allocationInfo.Annotations),
+					QosLevel:        allocationInfo.QoSLevel,
+					RequestQuantity: uint64(allocationInfo.RequestQuantity),
+				},
+				AllocationInfo: &advisorapi.AllocationInfo{
+					RampUp:        allocationInfo.RampUp,
+					OwnerPoolName: allocationInfo.OwnerPoolName,
+				},
 			}
 
 			// Only fill in the container type for non-pool entries.
@@ -252,7 +256,7 @@ func (p *DynamicPolicy) createGetAdviceRequest() (*advisorapi.GetAdviceRequest, 
 					return nil, fmt.Errorf("container type %q for container %s/%s not found", allocationInfo.ContainerType, uid, entryName)
 				}
 
-				info.ContainerType = pluginapi.ContainerType(containerType)
+				info.Metadata.ContainerType = pluginapi.ContainerType(containerType)
 			}
 
 			ownerPoolName := allocationInfo.GetOwnerPoolName()
@@ -268,18 +272,15 @@ func (p *DynamicPolicy) createGetAdviceRequest() (*advisorapi.GetAdviceRequest, 
 				}
 			}
 
-			info.OwnerPoolName = ownerPoolName
+			info.AllocationInfo.OwnerPoolName = ownerPoolName
 
 			// not set topology-aware assignments for shared_cores and reclaimed_cores,
 			// since their topology-aware assignments are same to the pools they are in.
 			if (!allocationInfo.CheckShared() && !allocationInfo.CheckReclaimed()) || containerEntries.IsPoolEntry() {
-				info.TopologyAwareAssignments = machine.ParseCPUAssignmentFormat(allocationInfo.TopologyAwareAssignments)
-				info.OriginalTopologyAwareAssignments = machine.ParseCPUAssignmentFormat(allocationInfo.OriginalTopologyAwareAssignments)
+				info.AllocationInfo.TopologyAwareAssignments = machine.ParseCPUAssignmentFormat(allocationInfo.TopologyAwareAssignments)
+				info.AllocationInfo.OriginalTopologyAwareAssignments = machine.ParseCPUAssignmentFormat(allocationInfo.OriginalTopologyAwareAssignments)
 			}
 
-			if chkEntries[uid].Entries == nil {
-				chkEntries[uid].Entries = make(map[string]*advisorapi.FullAllocationInfo)
-			}
 			chkEntries[uid].Entries[entryName] = info
 		}
 	}
