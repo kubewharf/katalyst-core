@@ -60,6 +60,7 @@ func (t terminalQoSPolicy) getFixedPlan(fixed int, mbQoSGroups map[qosgroup.QoSG
 func (t terminalQoSPolicy) getLeafPlan(totalMB int, mbQoSGroups, globalMBQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
 	// point of view of the receiver makes more sense for MB usage
 	totalUsage := getReceiverMBUsage(mbQoSGroups, globalMBQoSGroups)
+	general.InfofV(6, "mbm: (recv) total mb usage: %d, (sender) detail mb: %v", totalUsage, mbQoSGroups)
 
 	if strategy.IsResourceUnderPressure(totalMB, totalUsage) {
 		return t.throttlePlanner.GetPlan(totalMB, mbQoSGroups)
