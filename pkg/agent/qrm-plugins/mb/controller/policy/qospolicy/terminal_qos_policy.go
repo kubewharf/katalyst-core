@@ -59,8 +59,9 @@ func (t terminalQoSPolicy) getFixedPlan(fixed int, mbQoSGroups map[qosgroup.QoSG
 // getLeafPlan actually cope with the low-priority qos groups (needing throttle with mb usage) only
 func (t terminalQoSPolicy) getLeafPlan(totalMB int, mbQoSGroups, globalMBQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
 	// point of view of the receiver makes more sense for MB usage
-	totalUsage := getReceiverMBUsage(mbQoSGroups, globalMBQoSGroups)
-	general.InfofV(6, "mbm: low priority (high prio excluded): total %d, (recv) mb usage: %d", totalMB, totalUsage)
+	hostLocal, otherRemote := getReceiverMBUsage(mbQoSGroups, globalMBQoSGroups)
+	totalUsage := hostLocal + otherRemote
+	general.InfofV(6, "mbm: low priority (high prio excluded): capacity %d, (recv) mb total usage: %d (host local: %d, ext remote %d)", totalMB, totalUsage, hostLocal, otherRemote)
 
 	if strategy.IsResourceUnderPressure(totalMB, totalUsage) {
 		return t.throttlePlanner.GetPlan(totalMB, mbQoSGroups)
@@ -73,11 +74,10 @@ func (t terminalQoSPolicy) getLeafPlan(totalMB int, mbQoSGroups, globalMBQoSGrou
 	return nil
 }
 
-func getReceiverMBUsage(hostQoSMBGroup, globalQoSMBGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) int {
-	result := 0
+func getReceiverMBUsage(hostQoSMBGroup, globalQoSMBGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) (hostLocal, otherRemote int) {
 	for qos, group := range hostQoSMBGroup {
 		for _, mb := range group.CCDMB {
-			result += mb.LocalTotalMB
+			hostLocal += mb.LocalTotalMB
 		}
 
 		globalGroup := globalQoSMBGroups[qos] // it must exists
@@ -85,11 +85,11 @@ func getReceiverMBUsage(hostQoSMBGroup, globalQoSMBGroups map[qosgroup.QoSGroup]
 			if _, ok := group.CCDMB[ccd]; ok { // one of the host ccds
 				continue
 			}
-			result += mb.TotalMB - mb.LocalTotalMB
+			otherRemote += mb.TotalMB - mb.LocalTotalMB
 		}
 
 	}
-	return result
+	return hostLocal, otherRemote
 }
 
 func (t terminalQoSPolicy) getProportionalPlan(ratio float64, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {

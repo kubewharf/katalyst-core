@@ -18,17 +18,19 @@ package monitor
 
 import (
 	"fmt"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/readmb/rmbtype"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/spf13/afero"
+	"golang.org/x/exp/maps"
+	"golang.org/x/exp/slices"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/readmb"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/readmb/rmbtype"
 	resctrlfile "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/file"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/writemb"
@@ -222,7 +224,11 @@ func DisplayMBSummary(qosCCDMB map[qosgroup.QoSGroup]*MBQoSGroup) string {
 	sb.WriteString("----- mb summary -----\n")
 	for qos, ccdmb := range qosCCDMB {
 		sb.WriteString(fmt.Sprintf("--QoS: %s\n", qos))
-		for ccd, mb := range ccdmb.CCDMB {
+		// in order to help log checking
+		ccds := maps.Keys(ccdmb.CCDMB)
+		slices.Sort(ccds)
+		for _, ccd := range ccds {
+			mb := ccdmb.CCDMB[ccd]
 			rLocal, rRemote, wLocal, wRemote := distributeLocalRemote(mb.ReadsMB, mb.WritesMB, mb.LocalReadsMB)
 			totalLocal := mb.LocalTotalMB
 			totalRemote := mb.TotalMB - totalLocal

@@ -17,14 +17,14 @@ limitations under the License.
 package qospolicy
 
 import (
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
-	"github.com/stretchr/testify/mock"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
@@ -184,14 +184,16 @@ func Test_getLeafPlan(t *testing.T) {
 }
 
 func Test_getReceiverMBUsage(t *testing.T) {
+	t.Parallel()
 	type args struct {
 		hostQoSMBGroup    map[qosgroup.QoSGroup]*monitor.MBQoSGroup
 		globalQoSMBGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup
 	}
 	tests := []struct {
-		name string
-		args args
-		want int
+		name       string
+		args       args
+		wantLocal  int
+		wantRemote int
 	}{
 		{
 			name: "happy path",
@@ -221,12 +223,17 @@ func Test_getReceiverMBUsage(t *testing.T) {
 					},
 				},
 			},
-			want: 9_000 + 6_666 + (20_000 - 19_000) + (19_999 - 16_666),
+			wantLocal:  9_000 + 6_666,
+			wantRemote: (20_000 - 19_000) + (19_999 - 16_666),
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equalf(t, tt.want, getReceiverMBUsage(tt.args.hostQoSMBGroup, tt.args.globalQoSMBGroups), "getReceiverMBUsage(%v, %v)", tt.args.hostQoSMBGroup, tt.args.globalQoSMBGroups)
+			t.Parallel()
+			gotLocal, gotRemote := getReceiverMBUsage(tt.args.hostQoSMBGroup, tt.args.globalQoSMBGroups)
+			assert.Equalf(t, tt.wantLocal, gotLocal, "local part of getReceiverMBUsage(%v, %v)", tt.args.hostQoSMBGroup, tt.args.globalQoSMBGroups)
+			assert.Equalf(t, tt.wantRemote, gotRemote, "remote part of getReceiverMBUsage(%v, %v)", tt.args.hostQoSMBGroup, tt.args.globalQoSMBGroups)
 		})
 	}
 }
