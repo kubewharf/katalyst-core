@@ -20,6 +20,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 // branchedQoSPolicy is a special form of qos mb policy
@@ -34,6 +35,7 @@ func (v branchedQoSPolicy) GetPlan(totalMB int, mbQoSGroups, globalMBQoSGroups m
 		return v.either.GetPlan(totalMB, mbQoSGroups, globalMBQoSGroups, isTopMost)
 	}
 
+	general.InfofV(6, "mbm: +++ branch or policy, istopmost %v", isTopMost)
 	return v.or.GetPlan(totalMB, mbQoSGroups, globalMBQoSGroups, isTopMost)
 }
 
