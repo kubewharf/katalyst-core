@@ -20,7 +20,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 type chainedQosPolicy struct {
@@ -45,7 +44,6 @@ func (p *chainedQosPolicy) splitQoSGroups(groups map[qosgroup.QoSGroup]*monitor.
 }
 
 func (p *chainedQosPolicy) GetPlan(totalMB int, qosGroups, globalMBQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup, isTopMost bool) *plan.MBAlloc {
-	general.InfofV(6, "mbm: ++++ chained qos policy, istopmost: %v", isTopMost)
 	currGroups, nextGroups := p.splitQoSGroups(qosGroups)
 	planCurrTier := p.current.GetPlan(totalMB, currGroups, globalMBQoSGroups, isTopMost)
 	leftMB := totalMB - monitor.SumMB(currGroups)

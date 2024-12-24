@@ -34,7 +34,6 @@ type terminalQoSPolicy struct {
 }
 
 func (t terminalQoSPolicy) GetPlan(totalMB int, mbQoSGroups, globalMBQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup, isTopMost bool) *plan.MBAlloc {
-	general.InfofV(6, "mbm: +++++ terminal qos planner called, istopmost: %v", isTopMost)
 	if isTopMost {
 		return t.getTopMostPlan(totalMB, mbQoSGroups)
 	}
@@ -61,7 +60,7 @@ func (t terminalQoSPolicy) getFixedPlan(fixed int, mbQoSGroups map[qosgroup.QoSG
 func (t terminalQoSPolicy) getLeafPlan(totalMB int, mbQoSGroups, globalMBQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
 	// point of view of the receiver makes more sense for MB usage
 	totalUsage := getReceiverMBUsage(mbQoSGroups, globalMBQoSGroups)
-	general.InfofV(6, "mbm: +++++ (recv) total mb usage: %d, (sender) detail mb: %v", totalUsage, mbQoSGroups)
+	general.InfofV(6, "mbm: low priority (high prio excluded): total %d, (recv) mb usage: %d", totalMB, totalUsage)
 
 	if strategy.IsResourceUnderPressure(totalMB, totalUsage) {
 		return t.throttlePlanner.GetPlan(totalMB, mbQoSGroups)

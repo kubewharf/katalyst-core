@@ -80,11 +80,9 @@ func (d *domainMBPolicy) GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoS
 	}
 
 	if len(domain.GetPreemptingNodes()) != 0 {
-		general.InfofV(6, "mbm: +++ preempting qos policy")
 		return d.preemptMBPolicy.GetPlan(availableMB, domain, currQoSMB)
 	}
 
-	general.InfofV(6, "mbm: +++ constraint qos policy")
 	return d.constraintMBPolicy.GetPlan(availableMB, domain, currQoSMB)
 }
 
