@@ -387,3 +387,114 @@ func TestMBDomainManager_SumQoSMBByDomainRecipient(t *testing.T) {
 		})
 	}
 }
+
+func TestMBDomainManager_sumGroupMBByDomainSender(t *testing.T) {
+	t.Parallel()
+	type fields struct {
+		CCDDomain map[int]int
+	}
+	type args struct {
+		mbGroup *stat.MBQoSGroup
+	}
+	tests := []struct {
+		name             string
+		fields           fields
+		args             args
+		wantDomainMBStat map[int]*rmbtype.MBStat
+	}{
+		{
+			name: "happy path",
+			fields: fields{
+				CCDDomain: map[int]int{
+					0: 0, 1: 0,
+					8: 1, 9: 1,
+				},
+			},
+			args: args{
+				mbGroup: &stat.MBQoSGroup{
+					CCDMB: map[int]*stat.MBData{
+						0: {TotalMB: 8_000, LocalTotalMB: 6_001},
+						1: {TotalMB: 12_000, LocalTotalMB: 7_021},
+						8: {TotalMB: 8_000, LocalTotalMB: 4_004},
+						9: {TotalMB: 11_000, LocalTotalMB: 5_050},
+					},
+				},
+			},
+			wantDomainMBStat: map[int]*rmbtype.MBStat{
+				0: {Total: 20_000, Local: 13_022},
+				1: {Total: 19_000, Local: 9_054},
+			},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			m := &MBDomainManager{
+				CCDDomain: tt.fields.CCDDomain,
+			}
+			assert.Equalf(t, tt.wantDomainMBStat, m.sumGroupMBByDomainSender(tt.args.mbGroup), "sumGroupMBByDomainSender(%v)", tt.args.mbGroup)
+		})
+	}
+}
+
+func TestMBDomainManager_SumQoSMBByDomainSender(t *testing.T) {
+	t.Parallel()
+	type fields struct {
+		CCDDomain map[int]int
+	}
+	type args struct {
+		qosMBGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup
+	}
+	tests := []struct {
+		name            string
+		fields          fields
+		args            args
+		wantDomainQoSMB map[int]map[qosgroup.QoSGroup]rmbtype.MBStat
+	}{
+		{
+			name: "happy path",
+			fields: fields{
+				CCDDomain: map[int]int{
+					2: 1, 5: 1,
+					7: 0,
+				},
+			},
+			args: args{
+				qosMBGroups: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
+					"dedicated": {
+						CCDMB: map[int]*stat.MBData{
+							2: {TotalMB: 11_000, LocalTotalMB: 7_001},
+							7: {TotalMB: 12_000, LocalTotalMB: 8_002},
+						},
+					},
+					"shared-50": {
+						CCDMB: map[int]*stat.MBData{
+							5: {TotalMB: 6_666, LocalTotalMB: 4_020},
+							7: {TotalMB: 3_000, LocalTotalMB: 1_030},
+						},
+					},
+				},
+			},
+			wantDomainQoSMB: map[int]map[qosgroup.QoSGroup]rmbtype.MBStat{
+				1: {
+					"dedicated": {Total: 11_000, Local: 7_001},
+					"shared-50": {Total: 6_666, Local: 4_020},
+				},
+				0: {
+					"dedicated": {Total: 12_000, Local: 8_002},
+					"shared-50": {Total: 3_000, Local: 1_030},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			m := &MBDomainManager{
+				CCDDomain: tt.fields.CCDDomain,
+			}
+			assert.Equalf(t, tt.wantDomainQoSMB, m.SumQoSMBByDomainSender(tt.args.qosMBGroups), "SumQoSMBByDomainSender(%v)", tt.args.qosMBGroups)
+		})
+	}
+}

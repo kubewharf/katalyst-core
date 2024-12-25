@@ -153,10 +153,44 @@ func (m *MBDomainManager) SumQoSMBByDomainRecipient(qosMBGroups map[qosgroup.QoS
 	return domainQoSMB
 }
 
+func (m *MBDomainManager) SumQoSMBByDomainSender(qosMBGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) (domainQoSMB map[int]map[qosgroup.QoSGroup]rmbtype.MBStat) {
+	domainQoSMB = make(map[int]map[qosgroup.QoSGroup]rmbtype.MBStat)
+	for qos, mbGroup := range qosMBGroups {
+		domainMBStats := m.sumGroupMBByDomainSender(mbGroup)
+		for domain, mbStat := range domainMBStats {
+			if _, ok := domainQoSMB[domain]; !ok {
+				domainQoSMB[domain] = make(map[qosgroup.QoSGroup]rmbtype.MBStat)
+			}
+			domainQoSMB[domain][qos] = *mbStat
+		}
+	}
+	return domainQoSMB
+}
+
 func (m *MBDomainManager) sumGroupMBByDomainRecipient(mbGroup *stat.MBQoSGroup) (domainMBStat map[int]*rmbtype.MBStat) {
 	domainMBStat = make(map[int]*rmbtype.MBStat)
 	m.sumHostingGroupMBByDomainRecipient(domainMBStat, mbGroup)
 	m.sumAlienGroupMBByDomainRecipient(domainMBStat, mbGroup)
+	return domainMBStat
+}
+
+func (m *MBDomainManager) sumGroupMBByDomainSender(mbGroup *stat.MBQoSGroup) (domainMBStat map[int]*rmbtype.MBStat) {
+	domainMBStat = make(map[int]*rmbtype.MBStat)
+
+	for ccd, mb := range mbGroup.CCDMB {
+		domain, err := m.IdentifyDomainByCCD(ccd)
+		if err != nil {
+			panic(err)
+		}
+
+		if _, ok := domainMBStat[domain]; !ok {
+			domainMBStat[domain] = &rmbtype.MBStat{}
+		}
+		totalMB := domainMBStat[domain].Total + mb.TotalMB
+		localMB := domainMBStat[domain].Local + mb.LocalTotalMB
+		domainMBStat[domain].Total = totalMB
+		domainMBStat[domain].Local = localMB
+	}
 	return domainMBStat
 }
 
