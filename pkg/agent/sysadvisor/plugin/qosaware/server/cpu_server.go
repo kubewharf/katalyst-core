@@ -117,11 +117,7 @@ func (cs *cpuServer) ListAndWatch(_ *advisorsvc.Empty, server cpuadvisor.CPUAdvi
 	defer general.UnregisterTemporaryHeartbeatCheck(cpuServerLWHealthCheckName)
 
 	timer := time.NewTimer(cs.period)
-	defer func() {
-		if !timer.Stop() {
-			<-timer.C
-		}
-	}()
+	defer timer.Stop()
 
 	for {
 		select {
