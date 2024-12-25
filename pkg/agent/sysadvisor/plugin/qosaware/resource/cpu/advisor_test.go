@@ -828,8 +828,8 @@ func TestAdvisorUpdate(t *testing.T) {
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]int{
 					commonstate.PoolNameReserve: {-1: 2},
-					commonstate.PoolNameShare:   {-1: 84},
-					commonstate.PoolNameReclaim: {-1: 8},
+					commonstate.PoolNameShare:   {-1: 82},
+					commonstate.PoolNameReclaim: {-1: 10},
 					"isolation-pod1":            {-1: 2},
 				},
 			},
@@ -959,8 +959,8 @@ func TestAdvisorUpdate(t *testing.T) {
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]int{
 					commonstate.PoolNameReserve: {-1: 2},
-					commonstate.PoolNameShare:   {-1: 90},
-					commonstate.PoolNameReclaim: {-1: 4},
+					commonstate.PoolNameShare:   {-1: 88},
+					commonstate.PoolNameReclaim: {-1: 6},
 				},
 			},
 			wantHeadroom: resource.Quantity{},
@@ -1074,8 +1074,8 @@ func TestAdvisorUpdate(t *testing.T) {
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]int{
 					commonstate.PoolNameReserve: {-1: 2},
-					commonstate.PoolNameShare:   {-1: 90},
-					commonstate.PoolNameReclaim: {-1: 4},
+					commonstate.PoolNameShare:   {-1: 88},
+					commonstate.PoolNameReclaim: {-1: 6},
 				},
 			},
 			wantHeadroom: resource.Quantity{},

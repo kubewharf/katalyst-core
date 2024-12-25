@@ -94,12 +94,12 @@ func (r *QoSRegionShare) TryUpdateProvision() {
 	restrictedControlKnobs := r.restrictProvisionControlKnob(rawControlKnobs)
 
 	// regulate control knobs
-	r.regulateProvisionControlKnob(restrictedControlKnobs, &r.ControlKnobs)
+	r.regulateProvisionControlKnob(restrictedControlKnobs, r.getEffectiveControlKnobs())
 }
 
 func (r *QoSRegionShare) updateProvisionPolicy() {
 	r.ControlEssentials = types.ControlEssentials{
-		ControlKnobs:   r.getControlKnobs(),
+		ControlKnobs:   r.getEffectiveControlKnobs(),
 		ReclaimOverlap: r.AllowSharedCoresOverlapReclaimedCores,
 	}
 
@@ -197,7 +197,7 @@ func (r *QoSRegionShare) restrictProvisionControlKnob(originControlKnob map[type
 	return restrictedControlKnob
 }
 
-func (r *QoSRegionShare) getControlKnobs() types.ControlKnob {
+func (r *QoSRegionShare) getEffectiveControlKnobs() types.ControlKnob {
 	regionInfo, ok := r.metaReader.GetRegionInfo(r.name)
 	if ok {
 		if _, existed := regionInfo.ControlKnobMap[configapi.ControlKnobNonReclaimedCPURequirement]; existed {

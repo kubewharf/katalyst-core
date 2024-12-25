@@ -77,14 +77,14 @@ func (p *PolicyRama) Update() error {
 
 		controller, ok := p.controllers[metricName]
 		if !ok {
-			controller = helper.NewPIDController(metricName, params)
+			controller = helper.NewPIDController(metricName, params, p.GetMetaInfo())
 			p.controllers[metricName] = controller
 		}
 
 		controller.SetEssentials(p.ResourceEssentials)
 		cpuAdjusted := controller.Adjust(cpuSize, indicator.Target, indicator.Current)
 
-		general.InfoS("[qosaware-cpu-rama] pid adjust result", "regionName", p.regionName, "metricName", metricName, "cpuAdjusted", cpuAdjusted, "last cpu size", cpuSize)
+		general.InfoS("[qosaware-cpu-rama] pid adjust result", "meta", p.GetMetaInfo(), "metricName", metricName, "cpuAdjusted", cpuAdjusted, "last cpu size", cpuSize)
 
 		if cpuAdjusted > cpuAdjustedRaw {
 			cpuAdjustedRaw = cpuAdjusted
@@ -104,12 +104,10 @@ func (p *PolicyRama) Update() error {
 		}
 	}
 
-	general.Infof("[qosaware-cpu-rama] ReclaimOverlap=%v, region=%v", p.ControlEssentials.ReclaimOverlap, p.regionName)
-
 	cpuAdjustedRestricted := cpuAdjustedRaw
 
 	p.controlKnobAdjusted = types.ControlKnob{
-		configapi.ControlKnobNonReclaimedCPURequirement: types.ControlKnobValue{
+		configapi.ControlKnobNonReclaimedCPURequirement: types.ControlKnobItem{
 			Value:  cpuAdjustedRestricted,
 			Action: types.ControlKnobActionNone,
 		},

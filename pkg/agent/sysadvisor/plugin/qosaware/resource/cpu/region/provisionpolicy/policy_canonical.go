@@ -60,7 +60,7 @@ func (p *PolicyCanonical) Update() error {
 	}
 
 	p.controlKnobAdjusted = types.ControlKnob{
-		configapi.ControlKnobNonReclaimedCPURequirement: types.ControlKnobValue{
+		configapi.ControlKnobNonReclaimedCPURequirement: types.ControlKnobItem{
 			Value:  cpuEstimation,
 			Action: types.ControlKnobActionNone,
 		},
