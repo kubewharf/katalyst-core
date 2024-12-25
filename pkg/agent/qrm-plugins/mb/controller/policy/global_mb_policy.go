@@ -4,13 +4,18 @@ import (
 	"fmt"
 	"sync"
 
+	"k8s.io/apimachinery/pkg/util/sets"
+
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain/quotasourcing"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
+
+var qosLeaves = sets.String{"shared-30": sets.Empty{}}
 
 type globalMBPolicy struct {
 	domainManager *mbdomain.MBDomainManager
@@ -71,18 +76,55 @@ func (g *globalMBPolicy) ProcessGlobalQoSCCDMB(mbQoSGroups map[qosgroup.QoSGroup
 		return
 	}
 
+	// get the domain summary MB
+	highQoSMBGroups, lowQoSMBGroups := g.split(mbQoSGroups)
+	highMBStat := g.domainManager.SumQoSMBByDomainSender(highQoSMBGroups)
+	leafMBStat := g.domainManager.SumQoSMBByDomainRecipient(lowQoSMBGroups)
+
 	// calculate the leaf mb targets of all domains
+	leafPolicyArgs := make([]quotasourcing.DomainMB, len(g.domainManager.Domains))
+	for domain := range g.domainManager.Domains {
+		highMBTotal, highMBTotalLocal := 0, 0
+		for _, mbStat := range highMBStat[domain] {
+			highMBTotal += mbStat.Total
+			highMBTotalLocal += mbStat.Local
+		}
+		leafMBTotal, leafMBTotalLocal := 0, 0
+		for _, mbStat := range leafMBStat[domain] {
+			leafMBTotal += mbStat.Total
+			leafMBTotalLocal += mbStat.Local
+		}
+
+		general.InfofV(6, "mbm: mb summary: domain %d: (high-qos usage: %d, shared-30 usage: %d, local %d)", domain, highMBTotal, leafMBTotal, leafMBTotalLocal)
+		leafPolicyArgs[domain] = quotasourcing.DomainMB{
+			Target:         g.calcDomainLeafTarget(highMBTotal, leafMBTotal),
+			MBSource:       leafMBTotal,
+			MBSourceRemote: leafMBTotal - leafMBTotalLocal,
+		}
+	}
+
 	// figure out the leaf quotas by taking into account of cross-domain impacts
-	leafCCDMBs := g.getLeafMBTargets(mbQoSGroups)
-	leafQuotas := g.sourcer.AttributeMBToSources(leafCCDMBs)
+	leafQuotas := g.sourcer.AttributeMBToSources(leafPolicyArgs)
 	g.setLeafQuotas(leafQuotas)
+}
+
+func (g *globalMBPolicy) split(mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) (highQoSs, leaves map[qosgroup.QoSGroup]*stat.MBQoSGroup) {
+	highQoSs = make(map[qosgroup.QoSGroup]*stat.MBQoSGroup)
+	leaves = make(map[qosgroup.QoSGroup]*stat.MBQoSGroup)
+	for qos, ccdmb := range mbQoSGroups {
+		if qosLeaves.Has(string(qos)) {
+			leaves[qos] = ccdmb
+		} else {
+			highQoSs[qos] = ccdmb
+		}
+	}
+	return highQoSs, leaves
 }
 
 func (g *globalMBPolicy) sumLeafDomainMB(mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) map[int]int {
 	ccdMBs := make(map[int]int)
 	for qos, ccdmb := range mbQoSGroups {
-		// system qos is always there; not to count it for this purpose
-		if qos == "shared-30" {
+		if qosLeaves.Has(string(qos)) {
 			for ccd, mb := range ccdmb.CCDMB {
 				ccdMBs[ccd] += mb.TotalMB
 			}
@@ -95,7 +137,7 @@ func (g *globalMBPolicy) sumLeafDomainMBLocal(mbQoSGroups map[qosgroup.QoSGroup]
 	ccdMBs := make(map[int]int)
 	for qos, ccdmb := range mbQoSGroups {
 		// system qos is always there; not to count it for this purpose
-		if qos == "shared-30" {
+		if qosLeaves.Has(string(qos)) {
 			for ccd, mb := range ccdmb.CCDMB {
 				ccdMBs[ccd] += mb.LocalTotalMB
 			}
@@ -128,6 +170,16 @@ func (g *globalMBPolicy) sumHighQoSMB(mbQoSGroups map[qosgroup.QoSGroup]*stat.MB
 		}
 	}
 	return g.sumupToDomain(ccdMBs)
+}
+
+func (g *globalMBPolicy) sumMBTotal(mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) int {
+	total := 0
+	for _, ccdmb := range mbQoSGroups {
+		for _, mb := range ccdmb.CCDMB {
+			total += mb.TotalMB
+		}
+	}
+	return total
 }
 
 func (g *globalMBPolicy) getLeafMBTargets(mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) []quotasourcing.DomainMB {
