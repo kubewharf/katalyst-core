@@ -8,7 +8,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain/quotasourcing"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
 
@@ -25,7 +25,7 @@ type globalMBPolicy struct {
 	ccdGroupPlanner *strategy.CCDGroupPlanner
 }
 
-func (g *globalMBPolicy) GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoSMB map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
+func (g *globalMBPolicy) GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoSMB map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
 	// this relies on the beforehand ProcessGlobalQoSCCDMB(...), which had processed taking into account all the domains
 	leafQuota, ok := g.domainLeafQuotas[domain.ID]
 	if !ok {
@@ -39,14 +39,14 @@ func (g *globalMBPolicy) GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoS
 	}
 
 	// split into higher qos groups, and lowest leaf group ("shared-30")
-	hiQoSGroups := make(map[qosgroup.QoSGroup]*monitor.MBQoSGroup)
+	hiQoSGroups := make(map[qosgroup.QoSGroup]*stat.MBQoSGroup)
 	for qos, mbQoSGroup := range currQoSMB {
 		if qos == "shared-30" {
 			continue
 		}
 		hiQoSGroups[qos] = mbQoSGroup
 	}
-	leafQoSGroup := map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+	leafQoSGroup := map[qosgroup.QoSGroup]*stat.MBQoSGroup{
 		"shared-30": currQoSMB["shared-30"],
 	}
 
@@ -55,14 +55,14 @@ func (g *globalMBPolicy) GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoS
 
 	// to generate mb plan for leaf (lowest priority) group
 	// distribute total among all proportionally
-	leafUsage := monitor.SumMB(leafQoSGroup)
+	leafUsage := stat.SumMB(leafQoSGroup)
 	ratio := float64(leafQuota) / float64(leafUsage)
 	leafPlan := g.ccdGroupPlanner.GetProportionalPlan(ratio, leafQoSGroup)
 
 	return plan.Merge(hiPlans, leafPlan)
 }
 
-func (g *globalMBPolicy) ProcessGlobalQoSCCDMB(mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) {
+func (g *globalMBPolicy) ProcessGlobalQoSCCDMB(mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) {
 	// todo: reserve for socket pods in admission
 
 	// no high priority traffic, no constraint on leaves
@@ -78,7 +78,7 @@ func (g *globalMBPolicy) ProcessGlobalQoSCCDMB(mbQoSGroups map[qosgroup.QoSGroup
 	g.setLeafQuotas(leafQuotas)
 }
 
-func (g *globalMBPolicy) sumLeafDomainMB(mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) map[int]int {
+func (g *globalMBPolicy) sumLeafDomainMB(mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) map[int]int {
 	ccdMBs := make(map[int]int)
 	for qos, ccdmb := range mbQoSGroups {
 		// system qos is always there; not to count it for this purpose
@@ -91,7 +91,7 @@ func (g *globalMBPolicy) sumLeafDomainMB(mbQoSGroups map[qosgroup.QoSGroup]*moni
 	return g.sumupToDomain(ccdMBs)
 }
 
-func (g *globalMBPolicy) sumLeafDomainMBLocal(mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) map[int]int {
+func (g *globalMBPolicy) sumLeafDomainMBLocal(mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) map[int]int {
 	ccdMBs := make(map[int]int)
 	for qos, ccdmb := range mbQoSGroups {
 		// system qos is always there; not to count it for this purpose
@@ -116,7 +116,7 @@ func (g *globalMBPolicy) sumupToDomain(ccdValues map[int]int) map[int]int {
 	return domainValues
 }
 
-func (g *globalMBPolicy) sumHighQoSMB(mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) map[int]int {
+func (g *globalMBPolicy) sumHighQoSMB(mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) map[int]int {
 	ccdMBs := make(map[int]int)
 	for qos, ccdmb := range mbQoSGroups {
 		// system qos is always there; not to count it for this purpose
@@ -130,7 +130,7 @@ func (g *globalMBPolicy) sumHighQoSMB(mbQoSGroups map[qosgroup.QoSGroup]*monitor
 	return g.sumupToDomain(ccdMBs)
 }
 
-func (g *globalMBPolicy) getLeafMBTargets(mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) []quotasourcing.DomainMB {
+func (g *globalMBPolicy) getLeafMBTargets(mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) []quotasourcing.DomainMB {
 	highQoSDomainMBs := g.sumHighQoSMB(mbQoSGroups)
 	leafDomainMBs := g.sumLeafDomainMB(mbQoSGroups)
 	leafLocalDomainMBs := g.sumLeafDomainMBLocal(mbQoSGroups)
@@ -190,7 +190,7 @@ func (g *globalMBPolicy) setLeafNoLimit() {
 	}
 }
 
-func hasHighQoMB(mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) bool {
+func hasHighQoMB(mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) bool {
 	// there may exist random mb traffic in small amount, which is zombie
 	const zombieMB = 100 // 100 MB (0.1 GB)
 	for qos, ccdmb := range mbQoSGroups {

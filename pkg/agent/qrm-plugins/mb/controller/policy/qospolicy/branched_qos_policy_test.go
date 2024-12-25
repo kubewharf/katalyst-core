@@ -17,13 +17,13 @@ limitations under the License.
 package qospolicy
 
 import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
 
@@ -45,11 +45,11 @@ func Test_valveQoSMBPolicy_GetPlan(t *testing.T) {
 	type fields struct {
 		either QoSMBPolicy
 		or     QoSMBPolicy
-		filter func(mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup, isTopMost bool) bool
+		filter func(mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup, isTopMost bool) bool
 	}
 	type args struct {
 		totalMB     int
-		mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup
+		mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup
 		isTopMost   bool
 	}
 	tests := []struct {
@@ -63,7 +63,7 @@ func Test_valveQoSMBPolicy_GetPlan(t *testing.T) {
 			fields: fields{
 				either: upperPolicy,
 				or:     lowerPolicy,
-				filter: func(_ map[qosgroup.QoSGroup]*monitor.MBQoSGroup, _ bool) bool {
+				filter: func(_ map[qosgroup.QoSGroup]*stat.MBQoSGroup, _ bool) bool {
 					return true
 				},
 			},
@@ -77,7 +77,7 @@ func Test_valveQoSMBPolicy_GetPlan(t *testing.T) {
 			fields: fields{
 				either: upperPolicy,
 				or:     lowerPolicy,
-				filter: func(_ map[qosgroup.QoSGroup]*monitor.MBQoSGroup, _ bool) bool {
+				filter: func(_ map[qosgroup.QoSGroup]*stat.MBQoSGroup, _ bool) bool {
 					return false
 				},
 			},

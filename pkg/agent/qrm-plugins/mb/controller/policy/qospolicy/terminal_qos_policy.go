@@ -20,7 +20,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -33,7 +33,7 @@ type terminalQoSPolicy struct {
 	easePlanner     strategy.LowPrioPlanner
 }
 
-func (t terminalQoSPolicy) GetPlan(totalMB int, mbQoSGroups, globalMBQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup, isTopMost bool) *plan.MBAlloc {
+func (t terminalQoSPolicy) GetPlan(totalMB int, mbQoSGroups, globalMBQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup, isTopMost bool) *plan.MBAlloc {
 	if isTopMost {
 		return t.getTopMostPlan(totalMB, mbQoSGroups)
 	}
@@ -41,11 +41,11 @@ func (t terminalQoSPolicy) GetPlan(totalMB int, mbQoSGroups, globalMBQoSGroups m
 	return t.getLeafPlan(totalMB, mbQoSGroups, globalMBQoSGroups)
 }
 
-func (t terminalQoSPolicy) getTopMostPlan(totalMB int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
+func (t terminalQoSPolicy) getTopMostPlan(totalMB int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
 	return t.getFixedPlan(config.CCDMBMax, mbQoSGroups)
 }
 
-func (t terminalQoSPolicy) getFixedPlan(fixed int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
+func (t terminalQoSPolicy) getFixedPlan(fixed int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
 	mbPlan := &plan.MBAlloc{Plan: make(map[qosgroup.QoSGroup]map[int]int)}
 	for qos, group := range mbQoSGroups {
 		mbPlan.Plan[qos] = make(map[int]int)
@@ -57,7 +57,7 @@ func (t terminalQoSPolicy) getFixedPlan(fixed int, mbQoSGroups map[qosgroup.QoSG
 }
 
 // getLeafPlan actually cope with the low-priority qos groups (needing throttle with mb usage) only
-func (t terminalQoSPolicy) getLeafPlan(totalMB int, mbQoSGroups, globalMBQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
+func (t terminalQoSPolicy) getLeafPlan(totalMB int, mbQoSGroups, globalMBQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
 	// point of view of the receiver makes more sense for MB usage
 	hostLocal, otherRemote := getReceiverMBUsage(mbQoSGroups, globalMBQoSGroups)
 	totalUsage := hostLocal + otherRemote
@@ -74,7 +74,7 @@ func (t terminalQoSPolicy) getLeafPlan(totalMB int, mbQoSGroups, globalMBQoSGrou
 	return nil
 }
 
-func getReceiverMBUsage(hostQoSMBGroup, globalQoSMBGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) (hostLocal, otherRemote int) {
+func getReceiverMBUsage(hostQoSMBGroup, globalQoSMBGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) (hostLocal, otherRemote int) {
 	for qos, group := range hostQoSMBGroup {
 		for _, mb := range group.CCDMB {
 			hostLocal += mb.LocalTotalMB
@@ -92,7 +92,7 @@ func getReceiverMBUsage(hostQoSMBGroup, globalQoSMBGroups map[qosgroup.QoSGroup]
 	return hostLocal, otherRemote
 }
 
-func (t terminalQoSPolicy) getProportionalPlan(ratio float64, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
+func (t terminalQoSPolicy) getProportionalPlan(ratio float64, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
 	mbPlan := &plan.MBAlloc{Plan: make(map[qosgroup.QoSGroup]map[int]int)}
 	for qos, group := range mbQoSGroups {
 		mbPlan.Plan[qos] = make(map[int]int)

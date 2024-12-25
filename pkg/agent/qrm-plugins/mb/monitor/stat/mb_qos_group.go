@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package monitor
+package stat
 
 import (
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -41,7 +41,7 @@ type MBQoSGroup struct {
 	CCDMB map[int]*MBData
 }
 
-func newMBQoSGroup(ccdMB map[int]*MBData) *MBQoSGroup {
+func NewMBQoSGroup(ccdMB map[int]*MBData) *MBQoSGroup {
 	result := &MBQoSGroup{
 		CCDs:  make(sets.Int),
 		CCDMB: ccdMB,

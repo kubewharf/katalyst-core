@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"reflect"
 	"testing"
 
@@ -9,7 +10,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain/quotasourcing"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
 
@@ -19,7 +19,7 @@ func Test_globalMBPolicy_sumHighQoSMB(t *testing.T) {
 		domainManager *mbdomain.MBDomainManager
 	}
 	type args struct {
-		mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup
+		mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup
 	}
 	tests := []struct {
 		name   string
@@ -60,16 +60,16 @@ func Test_globalMBPolicy_sumHighQoSMB(t *testing.T) {
 				},
 			},
 			args: args{
-				mbQoSGroups: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+				mbQoSGroups: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
 					"shared-50": {
-						CCDMB: map[int]*monitor.MBData{
+						CCDMB: map[int]*stat.MBData{
 							1:  {TotalMB: 16_000},
 							4:  {TotalMB: 12_000},
 							12: {TotalMB: 21_000},
 						},
 					},
 					"dedicated": {
-						CCDMB: map[int]*monitor.MBData{
+						CCDMB: map[int]*stat.MBData{
 							0:  {TotalMB: 10_000},
 							3:  {TotalMB: 9_000},
 							15: {TotalMB: 22_000},
@@ -103,7 +103,7 @@ func Test_globalMBPolicy_sumLeafDomainMB(t *testing.T) {
 		domainManager *mbdomain.MBDomainManager
 	}
 	type args struct {
-		mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup
+		mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup
 	}
 	tests := []struct {
 		name   string
@@ -144,16 +144,16 @@ func Test_globalMBPolicy_sumLeafDomainMB(t *testing.T) {
 				},
 			},
 			args: args{
-				mbQoSGroups: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+				mbQoSGroups: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
 					"shared-50": {
-						CCDMB: map[int]*monitor.MBData{
+						CCDMB: map[int]*stat.MBData{
 							1:  {TotalMB: 16_000},
 							4:  {TotalMB: 12_000},
 							12: {TotalMB: 21_000},
 						},
 					},
 					"shared-30": {
-						CCDMB: map[int]*monitor.MBData{
+						CCDMB: map[int]*stat.MBData{
 							0:  {TotalMB: 10_000},
 							3:  {TotalMB: 9_000},
 							15: {TotalMB: 22_000},
@@ -183,7 +183,7 @@ func Test_globalMBPolicy_sumLeafDomainMBLocal(t *testing.T) {
 		domainManager *mbdomain.MBDomainManager
 	}
 	type args struct {
-		mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup
+		mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup
 	}
 	tests := []struct {
 		name   string
@@ -224,9 +224,9 @@ func Test_globalMBPolicy_sumLeafDomainMBLocal(t *testing.T) {
 				},
 			},
 			args: args{
-				mbQoSGroups: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+				mbQoSGroups: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
 					"shared-50": {
-						CCDMB: map[int]*monitor.MBData{
+						CCDMB: map[int]*stat.MBData{
 							1: {
 								TotalMB: 16_000, LocalTotalMB: 3_000},
 							4:  {TotalMB: 12_000},
@@ -234,7 +234,7 @@ func Test_globalMBPolicy_sumLeafDomainMBLocal(t *testing.T) {
 						},
 					},
 					"shared-30": {
-						CCDMB: map[int]*monitor.MBData{
+						CCDMB: map[int]*stat.MBData{
 							0:  {TotalMB: 10_000, LocalTotalMB: 8_000},
 							3:  {TotalMB: 9_000, LocalTotalMB: 1_500},
 							15: {TotalMB: 22_000, LocalTotalMB: 12_000},
@@ -352,7 +352,7 @@ func Test_globalMBPolicy_getLeafMBTargets(t *testing.T) {
 		easer         strategy.LowPrioPlanner
 	}
 	type args struct {
-		mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup
+		mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup
 	}
 	tests := []struct {
 		name   string
@@ -395,9 +395,9 @@ func Test_globalMBPolicy_getLeafMBTargets(t *testing.T) {
 				easer:     mockPlanner,
 			},
 			args: args{
-				mbQoSGroups: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+				mbQoSGroups: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
 					"dedicated": {
-						CCDMB: map[int]*monitor.MBData{
+						CCDMB: map[int]*stat.MBData{
 							0: {TotalMB: 20_000},
 							1: {TotalMB: 21_000},
 							4: {TotalMB: 20_000},
@@ -405,7 +405,7 @@ func Test_globalMBPolicy_getLeafMBTargets(t *testing.T) {
 						},
 					},
 					"shared-30": {
-						CCDMB: map[int]*monitor.MBData{
+						CCDMB: map[int]*stat.MBData{
 							2: {TotalMB: 10_000, LocalTotalMB: 9_500},
 							3: {TotalMB: 9_000, LocalTotalMB: 8_500},
 							6: {TotalMB: 10_000, LocalTotalMB: 9_500},

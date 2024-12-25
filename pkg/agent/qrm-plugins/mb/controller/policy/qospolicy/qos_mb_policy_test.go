@@ -18,12 +18,12 @@ package qospolicy
 
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/util/sets"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
 
@@ -33,7 +33,7 @@ func TestBuildHiPrioDetectedQoSMBPolicy(t *testing.T) {
 
 	type args struct {
 		totalMB     int
-		mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup
+		mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup
 		isTopMost   bool
 	}
 
@@ -46,14 +46,14 @@ func TestBuildHiPrioDetectedQoSMBPolicy(t *testing.T) {
 			name: "no high priority groups, no limit on shared-30",
 			args: args{
 				totalMB: 120_000,
-				mbQoSGroups: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+				mbQoSGroups: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
 					"system": {
 						CCDs:  sets.Int{1: sets.Empty{}},
-						CCDMB: map[int]*monitor.MBData{1: {TotalMB: 100}},
+						CCDMB: map[int]*stat.MBData{1: {TotalMB: 100}},
 					},
 					"shared-30": {
 						CCDs:  sets.Int{2: sets.Empty{}, 3: sets.Empty{}},
-						CCDMB: map[int]*monitor.MBData{2: {TotalMB: 100}, 3: {TotalMB: 100}},
+						CCDMB: map[int]*stat.MBData{2: {TotalMB: 100}, 3: {TotalMB: 100}},
 					},
 				},
 				isTopMost: true,
@@ -67,18 +67,18 @@ func TestBuildHiPrioDetectedQoSMBPolicy(t *testing.T) {
 			name: "yes shared-50 - shared-30 being limited",
 			args: args{
 				totalMB: 120_000,
-				mbQoSGroups: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+				mbQoSGroups: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
 					"shared-50": {
 						CCDs:  sets.Int{1: sets.Empty{}, 4: sets.Empty{}, 5: sets.Empty{}, 6: sets.Empty{}},
-						CCDMB: map[int]*monitor.MBData{1: {TotalMB: 20_000}, 4: {TotalMB: 20_000}, 5: {TotalMB: 20_000}, 6: {TotalMB: 10_000}},
+						CCDMB: map[int]*stat.MBData{1: {TotalMB: 20_000}, 4: {TotalMB: 20_000}, 5: {TotalMB: 20_000}, 6: {TotalMB: 10_000}},
 					},
 					"system": {
 						CCDs:  sets.Int{1: sets.Empty{}},
-						CCDMB: map[int]*monitor.MBData{1: {TotalMB: 20_000}},
+						CCDMB: map[int]*stat.MBData{1: {TotalMB: 20_000}},
 					},
 					"shared-30": {
 						CCDs:  sets.Int{2: sets.Empty{}, 3: sets.Empty{}},
-						CCDMB: map[int]*monitor.MBData{2: {TotalMB: 100}, 3: {TotalMB: 100}},
+						CCDMB: map[int]*stat.MBData{2: {TotalMB: 100}, 3: {TotalMB: 100}},
 					},
 				},
 				isTopMost: true,

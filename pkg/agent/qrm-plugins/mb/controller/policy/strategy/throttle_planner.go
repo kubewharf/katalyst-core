@@ -2,7 +2,7 @@ package strategy
 
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
 
@@ -20,7 +20,7 @@ func (e extremeThrottlePlanner) Name() string {
 	return "extreme throttle planner"
 }
 
-func (e extremeThrottlePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
+func (e extremeThrottlePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
 	return e.ccdGroupPlanner.GetFixedPlan(e.ccdGroupPlanner.ccdMBMin, mbQoSGroups)
 }
 
@@ -48,8 +48,8 @@ func (h halfThrottlePlanner) Name() string {
 	return "half throttle planner"
 }
 
-func (h halfThrottlePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
-	totalUsage := monitor.SumMB(mbQoSGroups)
+func (h halfThrottlePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
+	totalUsage := stat.SumMB(mbQoSGroups)
 	allocatable := h.GetQuota(capacity, totalUsage)
 
 	// distribute total among all proportionally

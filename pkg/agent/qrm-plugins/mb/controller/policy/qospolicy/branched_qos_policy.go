@@ -18,7 +18,7 @@ package qospolicy
 
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
 
@@ -26,10 +26,10 @@ import (
 // its middle tier ("floating") combines to upper tier - if applicable, or falls back to lower tier
 type branchedQoSPolicy struct {
 	either, or QoSMBPolicy
-	filter     func(mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup, isTopMost bool) bool
+	filter     func(mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup, isTopMost bool) bool
 }
 
-func (v branchedQoSPolicy) GetPlan(totalMB int, mbQoSGroups, globalMBQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup, isTopMost bool) *plan.MBAlloc {
+func (v branchedQoSPolicy) GetPlan(totalMB int, mbQoSGroups, globalMBQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup, isTopMost bool) *plan.MBAlloc {
 	if v.filter(mbQoSGroups, isTopMost) {
 		return v.either.GetPlan(totalMB, mbQoSGroups, globalMBQoSGroups, isTopMost)
 	}
@@ -37,7 +37,7 @@ func (v branchedQoSPolicy) GetPlan(totalMB int, mbQoSGroups, globalMBQoSGroups m
 	return v.or.GetPlan(totalMB, mbQoSGroups, globalMBQoSGroups, isTopMost)
 }
 
-func NewValveQoSMBPolicy(condition func(mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup, isTopMost bool) bool,
+func NewValveQoSMBPolicy(condition func(mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup, isTopMost bool) bool,
 	either, or QoSMBPolicy,
 ) QoSMBPolicy {
 	return &branchedQoSPolicy{

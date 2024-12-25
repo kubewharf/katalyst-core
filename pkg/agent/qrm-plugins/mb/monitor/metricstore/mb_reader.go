@@ -18,6 +18,7 @@ package metricstore
 
 import (
 	"fmt"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"github.com/pkg/errors"
 
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -33,23 +34,23 @@ type mbReader struct {
 	metricsFetcher types.MetricsFetcher
 }
 
-func toMBQoSGroup(ccdMetricData map[int][]metric.MetricData) *monitor.MBQoSGroup {
+func toMBQoSGroup(ccdMetricData map[int][]metric.MetricData) *stat.MBQoSGroup {
 	if ccdMetricData == nil {
 		return nil
 	}
 
 	CCDs := make(sets.Int)
-	CCDMBs := make(map[int]*monitor.MBData)
+	CCDMBs := make(map[int]*stat.MBData)
 	for ccd, mbSummry := range ccdMetricData {
 		// mbSummry if slice of 2 elements: 0 - total mb; 1: local ratio
 		CCDs.Insert(ccd)
-		CCDMBs[ccd] = &monitor.MBData{
+		CCDMBs[ccd] = &stat.MBData{
 			TotalMB:      int(mbSummry[0].Value),
 			LocalTotalMB: int(mbSummry[0].Value * mbSummry[1].Value),
 		}
 	}
 
-	result := monitor.MBQoSGroup{
+	result := stat.MBQoSGroup{
 		CCDs:  CCDs,
 		CCDMB: CCDMBs,
 	}
@@ -69,14 +70,14 @@ func (m *mbReader) getMetricByQoSCCD(metricKey string) (map[string]map[int][]met
 	return qosCCDMetrics, nil
 }
 
-func (m *mbReader) GetMBQoSGroups() (map[qosgroup.QoSGroup]*monitor.MBQoSGroup, error) {
+func (m *mbReader) GetMBQoSGroups() (map[qosgroup.QoSGroup]*stat.MBQoSGroup, error) {
 	// retrieve mb total and mb local-remote ratio
 	qosCCDMBTotal, err := m.getMetricByQoSCCD(consts.MetricTotalMemBandwidthQoSGroup)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to retrieve mb summary from metric store")
 	}
 
-	result := make(map[qosgroup.QoSGroup]*monitor.MBQoSGroup)
+	result := make(map[qosgroup.QoSGroup]*stat.MBQoSGroup)
 	for qos, data := range qosCCDMBTotal {
 		result[qosgroup.QoSGroup(qos)] = toMBQoSGroup(data)
 	}

@@ -24,6 +24,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/readmb/rmbtype"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -269,6 +272,118 @@ func Test_genCCDNode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			assert.Equalf(t, tt.want, genCCDNode(tt.args.nodeCCDs), "genCCDNode(%v)", tt.args.nodeCCDs)
+		})
+	}
+}
+
+func TestMBDomainManager_SumGroupMBByDomainRecipient(t *testing.T) {
+	t.Parallel()
+	type fields struct {
+		CCDDomain map[int]int
+	}
+	type args struct {
+		mbGroup *stat.MBQoSGroup
+	}
+	tests := []struct {
+		name             string
+		fields           fields
+		args             args
+		wantDomainMBStat map[int]*rmbtype.MBStat
+	}{
+		{
+			name: "happy path",
+			fields: fields{
+				CCDDomain: map[int]int{
+					0: 1, 1: 1,
+					5: 0, 7: 0,
+				},
+			},
+			args: args{
+				mbGroup: &stat.MBQoSGroup{
+					CCDMB: map[int]*stat.MBData{
+						0: {TotalMB: 10_000, LocalTotalMB: 9_000},
+						5: {TotalMB: 11_000, LocalTotalMB: 6_000},
+						7: {TotalMB: 13_000, LocalTotalMB: 3_000},
+						1: {TotalMB: 8_000, LocalTotalMB: 1_234},
+					},
+				},
+			},
+			wantDomainMBStat: map[int]*rmbtype.MBStat{
+				1: {Total: 9_000 + 1_234 + 5_000 + 10_000, Local: 9_000 + 1_234},
+				0: {Total: 6_000 + 3_000 + 1_000 + (8_000 - 1_234), Local: 6_000 + 3_000},
+			},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			m := &MBDomainManager{
+				CCDDomain: tt.fields.CCDDomain,
+			}
+			assert.Equalf(t, tt.wantDomainMBStat, m.sumGroupMBByDomainRecipient(tt.args.mbGroup), "sumGroupMBByDomainRecipient(%v)", tt.args.mbGroup)
+		})
+	}
+}
+
+func TestMBDomainManager_SumQoSMBByDomainRecipient(t *testing.T) {
+	t.Parallel()
+	type fields struct {
+		CCDDomain map[int]int
+	}
+	type args struct {
+		qosMBGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup
+	}
+	tests := []struct {
+		name            string
+		fields          fields
+		args            args
+		wantDomainQoSMB map[int]map[qosgroup.QoSGroup]rmbtype.MBStat
+	}{
+		{
+			name: "happy path",
+			fields: fields{
+				CCDDomain: map[int]int{
+					0: 0, 3: 0,
+					9: 1, 14: 1,
+				},
+			},
+			args: args{
+				qosMBGroups: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
+					"shared-30": {
+						CCDMB: map[int]*stat.MBData{
+							0:  {TotalMB: 5_000, LocalTotalMB: 2_333},
+							3:  {TotalMB: 4_000, LocalTotalMB: 1_111},
+							9:  {TotalMB: 7_000, LocalTotalMB: 3_000},
+							14: {TotalMB: 2_000, LocalTotalMB: 555},
+						},
+					},
+				},
+			},
+			wantDomainQoSMB: map[int]map[qosgroup.QoSGroup]rmbtype.MBStat{
+				0: {
+					"shared-30": {
+						Total: 2_333 + 1_111 + 4_000 + (2000 - 555),
+						Local: 2_333 + 1_111,
+					},
+				},
+				1: {
+					"shared-30": {
+						Total: 3_000 + 555 + (5_000 - 2_333) + (4_000 - 1_111),
+						Local: 3_000 + 555,
+					},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			m := &MBDomainManager{
+				CCDDomain: tt.fields.CCDDomain,
+			}
+			assert.Equalf(t, tt.wantDomainQoSMB, m.SumQoSMBByDomainRecipient(tt.args.qosMBGroups), "SumQoSMBByDomainRecipient(%v)", tt.args.qosMBGroups)
 		})
 	}
 }

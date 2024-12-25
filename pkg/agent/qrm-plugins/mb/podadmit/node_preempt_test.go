@@ -1,6 +1,7 @@
 package podadmit
 
 import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -8,7 +9,6 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/task"
 )
@@ -68,7 +68,7 @@ func TestNodePreempter_getNotInUseNodes(t *testing.T) {
 				mbController: &controller.Controller{
 					DomainManager: testDomainManager,
 					TaskManager:   task.New(afero.NewMemMapFs()),
-					CurrQoSCCDMB:  map[qosgroup.QoSGroup]*monitor.MBQoSGroup{},
+					CurrQoSCCDMB:  map[qosgroup.QoSGroup]*stat.MBQoSGroup{},
 				},
 			},
 			args: args{
@@ -85,9 +85,9 @@ func TestNodePreempter_getNotInUseNodes(t *testing.T) {
 				mbController: &controller.Controller{
 					DomainManager: testDomainManager,
 					TaskManager:   task.New(afero.NewMemMapFs()),
-					CurrQoSCCDMB: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+					CurrQoSCCDMB: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
 						qosgroup.QoSGroupDedicated: {
-							CCDMB: map[int]*monitor.MBData{3: {
+							CCDMB: map[int]*stat.MBData{3: {
 								TotalMB: 0,
 							}},
 						},

@@ -21,16 +21,16 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 type DomainMBPolicy interface {
-	GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoSMB map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc
+	GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoSMB map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc
 
 	// let policy have a sense of global view; essentail for domains having impacts on/from others
-	ProcessGlobalQoSCCDMB(qos map[qosgroup.QoSGroup]*monitor.MBQoSGroup)
+	ProcessGlobalQoSCCDMB(qos map[qosgroup.QoSGroup]*stat.MBQoSGroup)
 }
 
 type domainMBPolicy struct {
@@ -38,12 +38,12 @@ type domainMBPolicy struct {
 	constraintMBPolicy DomainMBPolicy
 }
 
-func (d *domainMBPolicy) ProcessGlobalQoSCCDMB(qos map[qosgroup.QoSGroup]*monitor.MBQoSGroup) {
+func (d *domainMBPolicy) ProcessGlobalQoSCCDMB(qos map[qosgroup.QoSGroup]*stat.MBQoSGroup) {
 	d.preemptMBPolicy.ProcessGlobalQoSCCDMB(qos)
 	d.constraintMBPolicy.ProcessGlobalQoSCCDMB(qos)
 }
 
-func calcResvForIncubation(incubates mbdomain.IncubatedCCDs, currQoSMB map[qosgroup.QoSGroup]*monitor.MBQoSGroup) int {
+func calcResvForIncubation(incubates mbdomain.IncubatedCCDs, currQoSMB map[qosgroup.QoSGroup]*stat.MBQoSGroup) int {
 	var reserveToIncubate int
 
 	for qos, qosmb := range currQoSMB {
@@ -66,7 +66,7 @@ func calcResvForIncubation(incubates mbdomain.IncubatedCCDs, currQoSMB map[qosgr
 	return reserveToIncubate
 }
 
-func (d *domainMBPolicy) GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoSMB map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
+func (d *domainMBPolicy) GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoSMB map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
 	// some newly started pods may still be in so-called incubation period;
 	// special care need to take to ensure they have no less than the reserved mb
 	// by subtracting the mb for incubation

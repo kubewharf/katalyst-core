@@ -1,6 +1,7 @@
 package metricstore
 
 import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"reflect"
 	"testing"
 
@@ -8,7 +9,6 @@ import (
 	"github.com/stretchr/testify/mock"
 	"k8s.io/apimachinery/pkg/util/sets"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
@@ -109,7 +109,7 @@ func Test_mbReader_GetMBQoSGroups(t *testing.T) {
 	tests := []struct {
 		name    string
 		fields  fields
-		want    map[qosgroup.QoSGroup]*monitor.MBQoSGroup
+		want    map[qosgroup.QoSGroup]*stat.MBQoSGroup
 		wantErr bool
 	}{
 		{
@@ -117,17 +117,17 @@ func Test_mbReader_GetMBQoSGroups(t *testing.T) {
 			fields: fields{
 				metricsFetcher: mockFatcher,
 			},
-			want: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+			want: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
 				"dedicated": {
 					CCDs: sets.Int{2: sets.Empty{}, 3: sets.Empty{}},
-					CCDMB: map[int]*monitor.MBData{
+					CCDMB: map[int]*stat.MBData{
 						2: {TotalMB: 2222, LocalTotalMB: 2222},
 						3: {TotalMB: 3333, LocalTotalMB: 2933},
 					},
 				},
 				"shared-30": {
 					CCDs: sets.Int{0: sets.Empty{}, 1: sets.Empty{}, 4: sets.Empty{}, 5: sets.Empty{}},
-					CCDMB: map[int]*monitor.MBData{
+					CCDMB: map[int]*stat.MBData{
 						0: {TotalMB: 1230, LocalTotalMB: 0},
 						1: {TotalMB: 1231, LocalTotalMB: 1169},
 						4: {TotalMB: 1234, LocalTotalMB: 1234},

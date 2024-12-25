@@ -28,6 +28,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 	resctrltask "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/task"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
@@ -58,10 +59,10 @@ type Controller struct {
 	lock sync.RWMutex
 	// expose below field to make test easier
 	// todo: not to expose this field
-	CurrQoSCCDMB map[qosgroup.QoSGroup]*monitor.MBQoSGroup
+	CurrQoSCCDMB map[qosgroup.QoSGroup]*stat.MBQoSGroup
 }
 
-func (c *Controller) updateQoSCCDMB(qosCCDMB map[qosgroup.QoSGroup]*monitor.MBQoSGroup) {
+func (c *Controller) updateQoSCCDMB(qosCCDMB map[qosgroup.QoSGroup]*stat.MBQoSGroup) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	c.CurrQoSCCDMB = qosCCDMB
@@ -184,8 +185,8 @@ func New(podMBMonitor monitor.MBMonitor, mbPlanAllocator allocator.PlanAllocator
 	}, nil
 }
 
-func getApplicableQoSCCDMB(domain *mbdomain.MBDomain, qosccdmb map[qosgroup.QoSGroup]*monitor.MBQoSGroup) map[qosgroup.QoSGroup]*monitor.MBQoSGroup {
-	result := make(map[qosgroup.QoSGroup]*monitor.MBQoSGroup)
+func getApplicableQoSCCDMB(domain *mbdomain.MBDomain, qosccdmb map[qosgroup.QoSGroup]*stat.MBQoSGroup) map[qosgroup.QoSGroup]*stat.MBQoSGroup {
+	result := make(map[qosgroup.QoSGroup]*stat.MBQoSGroup)
 
 	for qos, mbQosGroup := range qosccdmb {
 		for ccd, _ := range mbQosGroup.CCDs {
@@ -195,9 +196,9 @@ func getApplicableQoSCCDMB(domain *mbdomain.MBDomain, qosccdmb map[qosgroup.QoSG
 			}
 			if _, ok := domain.CCDNode[ccd]; ok {
 				if _, ok := result[qos]; !ok {
-					result[qos] = &monitor.MBQoSGroup{
+					result[qos] = &stat.MBQoSGroup{
 						CCDs:  make(sets.Int),
-						CCDMB: make(map[int]*monitor.MBData),
+						CCDMB: make(map[int]*stat.MBData),
 					}
 				}
 				result[qos].CCDs.Insert(ccd)

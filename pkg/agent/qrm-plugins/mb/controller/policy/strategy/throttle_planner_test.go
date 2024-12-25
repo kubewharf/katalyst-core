@@ -1,13 +1,13 @@
 package strategy
 
 import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"reflect"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
 
@@ -18,7 +18,7 @@ func Test_halfThrottlePlanner_GetPlan(t1 *testing.T) {
 	}
 	type args struct {
 		capacity    int
-		mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup
+		mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup
 	}
 	tests := []struct {
 		name   string
@@ -33,10 +33,10 @@ func Test_halfThrottlePlanner_GetPlan(t1 *testing.T) {
 			},
 			args: args{
 				capacity: 30_000,
-				mbQoSGroups: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+				mbQoSGroups: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
 					"shared-30": {
 						CCDs: sets.Int{0: sets.Empty{}, 1: sets.Empty{}},
-						CCDMB: map[int]*monitor.MBData{
+						CCDMB: map[int]*stat.MBData{
 							0: {TotalMB: 28_000},
 						},
 					},
@@ -53,10 +53,10 @@ func Test_halfThrottlePlanner_GetPlan(t1 *testing.T) {
 			},
 			args: args{
 				capacity: 12_000,
-				mbQoSGroups: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+				mbQoSGroups: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
 					"shared-30": {
 						CCDs: sets.Int{0: sets.Empty{}},
-						CCDMB: map[int]*monitor.MBData{
+						CCDMB: map[int]*stat.MBData{
 							0: {TotalMB: 10_000},
 						},
 					},
@@ -88,7 +88,7 @@ func Test_extremeThrottlePlanner_GetPlan(t *testing.T) {
 	}
 	type args struct {
 		capacity    int
-		mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup
+		mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup
 	}
 	tests := []struct {
 		name   string
@@ -103,10 +103,10 @@ func Test_extremeThrottlePlanner_GetPlan(t *testing.T) {
 			},
 			args: args{
 				capacity: 30_000,
-				mbQoSGroups: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+				mbQoSGroups: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
 					"shared-30": {
 						CCDs: sets.Int{0: sets.Empty{}, 1: sets.Empty{}},
-						CCDMB: map[int]*monitor.MBData{
+						CCDMB: map[int]*stat.MBData{
 							0: {TotalMB: 2_000},
 							1: {TotalMB: 10_000},
 						},

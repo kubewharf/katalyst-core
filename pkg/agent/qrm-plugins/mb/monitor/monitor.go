@@ -18,6 +18,7 @@ package monitor
 
 import (
 	"fmt"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"strings"
 	"sync"
 	"time"
@@ -50,7 +51,7 @@ var (
 )
 
 type MBMonitor interface {
-	GetMBQoSGroups() (map[qosgroup.QoSGroup]*MBQoSGroup, error)
+	GetMBQoSGroups() (map[qosgroup.QoSGroup]*stat.MBQoSGroup, error)
 }
 
 func newMBMonitor(rmbReader readmb.ReadMBReader, wmbReader writemb.WriteMBReader, fs afero.Fs) (MBMonitor, error) {
@@ -100,7 +101,7 @@ type mbMonitor struct {
 	fs afero.Fs
 }
 
-func (m mbMonitor) GetMBQoSGroups() (map[qosgroup.QoSGroup]*MBQoSGroup, error) {
+func (m mbMonitor) GetMBQoSGroups() (map[qosgroup.QoSGroup]*stat.MBQoSGroup, error) {
 	rQoSCCDMB, err := m.getTopLevelReadsMBs()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get reads mb")
@@ -112,9 +113,9 @@ func (m mbMonitor) GetMBQoSGroups() (map[qosgroup.QoSGroup]*MBQoSGroup, error) {
 	}
 
 	groupCCDMBs := getGroupCCDMBs(rQoSCCDMB, wQoSCCDMB)
-	groups := make(map[qosgroup.QoSGroup]*MBQoSGroup)
+	groups := make(map[qosgroup.QoSGroup]*stat.MBQoSGroup)
 	for qos, ccdMB := range groupCCDMBs {
-		groups[qos] = newMBQoSGroup(ccdMB)
+		groups[qos] = stat.NewMBQoSGroup(ccdMB)
 	}
 
 	return groups, nil
@@ -126,12 +127,12 @@ func isRWRatioValid(r, w int) bool {
 }
 
 func getGroupCCDMBs(rGroupCCDMB map[qosgroup.QoSGroup]map[int]rmbtype.MBStat, wGroupCCDMB map[qosgroup.QoSGroup]map[int]int,
-) map[qosgroup.QoSGroup]map[int]*MBData {
-	groupCCDMBs := make(map[qosgroup.QoSGroup]map[int]*MBData)
+) map[qosgroup.QoSGroup]map[int]*stat.MBData {
+	groupCCDMBs := make(map[qosgroup.QoSGroup]map[int]*stat.MBData)
 	for qos, ccdMB := range rGroupCCDMB {
-		groupCCDMBs[qos] = make(map[int]*MBData)
+		groupCCDMBs[qos] = make(map[int]*stat.MBData)
 		for ccd, mb := range ccdMB {
-			groupCCDMBs[qos][ccd] = &MBData{
+			groupCCDMBs[qos][ccd] = &stat.MBData{
 				ReadsMB:      mb.Total,
 				LocalReadsMB: mb.Local,
 			}
@@ -140,10 +141,10 @@ func getGroupCCDMBs(rGroupCCDMB map[qosgroup.QoSGroup]map[int]rmbtype.MBStat, wG
 	for qos, ccdMB := range wGroupCCDMB {
 		for ccd, wmb := range ccdMB {
 			if _, ok := groupCCDMBs[qos]; !ok {
-				groupCCDMBs[qos] = make(map[int]*MBData)
+				groupCCDMBs[qos] = make(map[int]*stat.MBData)
 			}
 			if _, ok := groupCCDMBs[qos][ccd]; !ok {
-				groupCCDMBs[qos][ccd] = &MBData{}
+				groupCCDMBs[qos][ccd] = &stat.MBData{}
 			}
 			if !isRWRatioValid(groupCCDMBs[qos][ccd].ReadsMB, wmb) {
 				continue
@@ -219,7 +220,7 @@ func distributeLocalRemote(r, w, readLocal int) (rLocal, rRemote, wLocal, wRemot
 	return
 }
 
-func DisplayMBSummary(qosCCDMB map[qosgroup.QoSGroup]*MBQoSGroup) string {
+func DisplayMBSummary(qosCCDMB map[qosgroup.QoSGroup]*stat.MBQoSGroup) string {
 	var sb strings.Builder
 	sb.WriteString("----- mb summary -----\n")
 	for qos, ccdmb := range qosCCDMB {

@@ -17,6 +17,7 @@ limitations under the License.
 package monitor
 
 import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/readmb/rmbtype"
 	"github.com/stretchr/testify/assert"
 	"reflect"
@@ -70,7 +71,7 @@ func Test_mbMonitor_GetMBQoSGroups(t1 *testing.T) {
 	tests := []struct {
 		name    string
 		fields  fields
-		want    map[qosgroup.QoSGroup]*MBQoSGroup
+		want    map[qosgroup.QoSGroup]*stat.MBQoSGroup
 		wantErr bool
 	}{
 		{
@@ -80,10 +81,10 @@ func Test_mbMonitor_GetMBQoSGroups(t1 *testing.T) {
 				wmbReader: wmbReader,
 				fs:        stubFs,
 			},
-			want: map[qosgroup.QoSGroup]*MBQoSGroup{
+			want: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
 				"shared-50": {
 					CCDs: sets.Int{2: sets.Empty{}, 3: sets.Empty{}},
-					CCDMB: map[int]*MBData{
+					CCDMB: map[int]*stat.MBData{
 						2: {ReadsMB: 200, WritesMB: 20},
 						3: {ReadsMB: 300, WritesMB: 30},
 					},
@@ -122,7 +123,7 @@ func Test_getGroupCCDMBs(t *testing.T) {
 	tests := []struct {
 		name string
 		args args
-		want map[qosgroup.QoSGroup]map[int]*MBData
+		want map[qosgroup.QoSGroup]map[int]*stat.MBData
 	}{
 		{
 			name: "happy path 1 gos group",
@@ -134,7 +135,7 @@ func Test_getGroupCCDMBs(t *testing.T) {
 					qosgroup.QoSGroupDedicated: {2: 20, 3: 30},
 				},
 			},
-			want: map[qosgroup.QoSGroup]map[int]*MBData{
+			want: map[qosgroup.QoSGroup]map[int]*stat.MBData{
 				qosgroup.QoSGroupDedicated: {
 					2: {TotalMB: 0, ReadsMB: 200, WritesMB: 20},
 					3: {TotalMB: 0, ReadsMB: 300, WritesMB: 30},
@@ -153,7 +154,7 @@ func Test_getGroupCCDMBs(t *testing.T) {
 					qosgroup.QoSGroupSystem:    {2: 20, 3: 30},
 				},
 			},
-			want: map[qosgroup.QoSGroup]map[int]*MBData{
+			want: map[qosgroup.QoSGroup]map[int]*stat.MBData{
 				qosgroup.QoSGroupDedicated: {
 					2: {TotalMB: 0, ReadsMB: 0, WritesMB: 0},
 					3: {TotalMB: 0, ReadsMB: 300, WritesMB: 30},

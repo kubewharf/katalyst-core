@@ -18,6 +18,7 @@ package resctrl
 
 import (
 	"context"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"time"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
@@ -88,7 +89,7 @@ func (r *resctrlMetricsProvisioner) sample(ctx context.Context) {
 	// todo: save read/write MB metrics
 }
 
-func (r *resctrlMetricsProvisioner) processMBSummary(qosCCDMB map[qosgroup.QoSGroup]*monitor.MBQoSGroup) {
+func (r *resctrlMetricsProvisioner) processMBSummary(qosCCDMB map[qosgroup.QoSGroup]*stat.MBQoSGroup) {
 	if qosCCDMB == nil {
 		return
 	}

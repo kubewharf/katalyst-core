@@ -17,6 +17,7 @@ limitations under the License.
 package qospolicy
 
 import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -25,7 +26,6 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
 
@@ -33,7 +33,7 @@ func Test_getTopMostPlan(t *testing.T) {
 	t.Parallel()
 	type args struct {
 		totalMB     int
-		mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup
+		mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup
 	}
 	tests := []struct {
 		name string
@@ -44,7 +44,7 @@ func Test_getTopMostPlan(t *testing.T) {
 			name: "happy path",
 			args: args{
 				totalMB: 1_000,
-				mbQoSGroups: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+				mbQoSGroups: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
 					"dedicated": {CCDs: sets.Int{4: sets.Empty{}, 5: sets.Empty{}}},
 					"shared-50": {CCDs: sets.Int{0: sets.Empty{}, 1: sets.Empty{}}},
 					"system":    {CCDs: sets.Int{1: sets.Empty{}}},
@@ -74,7 +74,7 @@ type mockLeafPlanner struct {
 	strategy.LowPrioPlanner
 }
 
-func (m *mockLeafPlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
+func (m *mockLeafPlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
 	args := m.Called(capacity, mbQoSGroups)
 	return args.Get(0).(*plan.MBAlloc)
 }
@@ -82,9 +82,9 @@ func (m *mockLeafPlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGrou
 func Test_getLeafPlan(t *testing.T) {
 	t.Parallel()
 
-	underUsed := map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+	underUsed := map[qosgroup.QoSGroup]*stat.MBQoSGroup{
 		"shared-30": {
-			CCDMB: map[int]*monitor.MBData{6: {
+			CCDMB: map[int]*stat.MBData{6: {
 				TotalMB: 4_000,
 			}},
 		},
@@ -92,10 +92,10 @@ func Test_getLeafPlan(t *testing.T) {
 	mockEasePlanner := new(mockLeafPlanner)
 	mockEasePlanner.On("GetPlan", 15_000, underUsed).Return(&plan.MBAlloc{Plan: map[qosgroup.QoSGroup]map[int]int{"shared-30": {6: 6_000}}})
 
-	overUsed := map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+	overUsed := map[qosgroup.QoSGroup]*stat.MBQoSGroup{
 		"shared-30": {
 			CCDs: sets.Int{6: sets.Empty{}},
-			CCDMB: map[int]*monitor.MBData{6: {
+			CCDMB: map[int]*stat.MBData{6: {
 				TotalMB: 11_000, LocalTotalMB: 11_000,
 			}},
 		},
@@ -108,7 +108,7 @@ func Test_getLeafPlan(t *testing.T) {
 	}
 	type args struct {
 		totalMB     int
-		mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup
+		mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup
 	}
 	tests := []struct {
 		name   string
@@ -150,10 +150,10 @@ func Test_getLeafPlan(t *testing.T) {
 			},
 			args: args{
 				totalMB: 15_000,
-				mbQoSGroups: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+				mbQoSGroups: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
 					"shared-30": {
 						CCDs: sets.Int{6: sets.Empty{}},
-						CCDMB: map[int]*monitor.MBData{6: {
+						CCDMB: map[int]*stat.MBData{6: {
 							TotalMB: 8_000, LocalTotalMB: 8_000,
 						}},
 					},
@@ -186,8 +186,8 @@ func Test_getLeafPlan(t *testing.T) {
 func Test_getReceiverMBUsage(t *testing.T) {
 	t.Parallel()
 	type args struct {
-		hostQoSMBGroup    map[qosgroup.QoSGroup]*monitor.MBQoSGroup
-		globalQoSMBGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup
+		hostQoSMBGroup    map[qosgroup.QoSGroup]*stat.MBQoSGroup
+		globalQoSMBGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup
 	}
 	tests := []struct {
 		name       string
@@ -198,23 +198,23 @@ func Test_getReceiverMBUsage(t *testing.T) {
 		{
 			name: "happy path",
 			args: args{
-				hostQoSMBGroup: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+				hostQoSMBGroup: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
 					"shared-30": {
-						CCDMB: map[int]*monitor.MBData{
+						CCDMB: map[int]*stat.MBData{
 							2: {TotalMB: 12_000, LocalTotalMB: 9_000},
 							5: {TotalMB: 7_766, LocalTotalMB: 6_666},
 						},
 					},
 				},
-				globalQoSMBGroups: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+				globalQoSMBGroups: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
 					"shared-50": {
-						CCDMB: map[int]*monitor.MBData{
+						CCDMB: map[int]*stat.MBData{
 							0: {TotalMB: 22_000},
 							1: {TotalMB: 23_000},
 						},
 					},
 					"shared-30": {
-						CCDMB: map[int]*monitor.MBData{
+						CCDMB: map[int]*stat.MBData{
 							2:  {TotalMB: 12_000, LocalTotalMB: 9_000},
 							5:  {TotalMB: 7_766, LocalTotalMB: 6_666},
 							12: {TotalMB: 20_000, LocalTotalMB: 19_000},

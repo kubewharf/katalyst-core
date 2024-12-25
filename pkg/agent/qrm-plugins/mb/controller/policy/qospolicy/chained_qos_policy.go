@@ -18,7 +18,7 @@ package qospolicy
 
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
 
@@ -28,11 +28,11 @@ type chainedQosPolicy struct {
 	next          QoSMBPolicy
 }
 
-func (p *chainedQosPolicy) splitQoSGroups(groups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) (
-	curr, others map[qosgroup.QoSGroup]*monitor.MBQoSGroup,
+func (p *chainedQosPolicy) splitQoSGroups(groups map[qosgroup.QoSGroup]*stat.MBQoSGroup) (
+	curr, others map[qosgroup.QoSGroup]*stat.MBQoSGroup,
 ) {
-	curr = make(map[qosgroup.QoSGroup]*monitor.MBQoSGroup)
-	others = make(map[qosgroup.QoSGroup]*monitor.MBQoSGroup)
+	curr = make(map[qosgroup.QoSGroup]*stat.MBQoSGroup)
+	others = make(map[qosgroup.QoSGroup]*stat.MBQoSGroup)
 	for qos, ccdMB := range groups {
 		if _, ok := p.currQoSLevels[qos]; ok {
 			curr[qos] = ccdMB
@@ -43,10 +43,10 @@ func (p *chainedQosPolicy) splitQoSGroups(groups map[qosgroup.QoSGroup]*monitor.
 	return
 }
 
-func (p *chainedQosPolicy) GetPlan(totalMB int, qosGroups, globalMBQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup, isTopMost bool) *plan.MBAlloc {
+func (p *chainedQosPolicy) GetPlan(totalMB int, qosGroups, globalMBQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup, isTopMost bool) *plan.MBAlloc {
 	currGroups, nextGroups := p.splitQoSGroups(qosGroups)
 	planCurrTier := p.current.GetPlan(totalMB, currGroups, globalMBQoSGroups, isTopMost)
-	leftMB := totalMB - monitor.SumMB(currGroups)
+	leftMB := totalMB - stat.SumMB(currGroups)
 	planNextTiers := p.next.GetPlan(leftMB, nextGroups, globalMBQoSGroups, false)
 	return plan.Merge(planCurrTier, planNextTiers)
 }

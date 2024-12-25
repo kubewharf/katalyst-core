@@ -2,7 +2,7 @@ package strategy
 
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
 
@@ -22,14 +22,14 @@ func (t fullEasePlanner) Name() string {
 	return "full ease planner"
 }
 
-func (t fullEasePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
+func (t fullEasePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
 	allocatable := capacity - easeThreshold
 	if allocatable <= 0 {
 		return nil
 	}
 
 	// distribute total among all proportionally
-	totalUsage := monitor.SumMB(mbQoSGroups)
+	totalUsage := stat.SumMB(mbQoSGroups)
 	ratio := float64(allocatable) / float64(totalUsage)
 	return t.ccdGroupPlanner.GetProportionalPlan(ratio, mbQoSGroups)
 }
@@ -53,8 +53,8 @@ func (s halfEasePlanner) Name() string {
 	return "half ease planner"
 }
 
-func (s halfEasePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup]*monitor.MBQoSGroup) *plan.MBAlloc {
-	totalUsage := monitor.SumMB(mbQoSGroups)
+func (s halfEasePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
+	totalUsage := stat.SumMB(mbQoSGroups)
 	// step ease planner eases 1/2 newly allocatable only at ease step
 	constraintCapacity := (capacity + easeThreshold + totalUsage) / 2
 	return s.innerPlanner.GetPlan(constraintCapacity, mbQoSGroups)

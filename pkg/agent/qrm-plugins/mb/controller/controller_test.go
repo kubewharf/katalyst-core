@@ -23,7 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
 
@@ -31,12 +31,12 @@ func Test_getApplicableQoSCCDMB(t *testing.T) {
 	t.Parallel()
 	type args struct {
 		domain   *mbdomain.MBDomain
-		qosccdmb map[qosgroup.QoSGroup]*monitor.MBQoSGroup
+		qosccdmb map[qosgroup.QoSGroup]*stat.MBQoSGroup
 	}
 	tests := []struct {
 		name string
 		args args
-		want map[qosgroup.QoSGroup]*monitor.MBQoSGroup
+		want map[qosgroup.QoSGroup]*stat.MBQoSGroup
 	}{
 		{
 			name: "happy path of all applicable",
@@ -45,10 +45,10 @@ func Test_getApplicableQoSCCDMB(t *testing.T) {
 					ID:      3,
 					CCDNode: map[int]int{16: 4, 17: 4, 22: 5, 23: 5},
 				},
-				qosccdmb: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+				qosccdmb: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
 					qosgroup.QoSGroupSystem: {
 						CCDs: sets.Int{17: sets.Empty{}},
-						CCDMB: map[int]*monitor.MBData{
+						CCDMB: map[int]*stat.MBData{
 							17: {
 								ReadsMB:  12345,
 								WritesMB: 11111,
@@ -57,10 +57,10 @@ func Test_getApplicableQoSCCDMB(t *testing.T) {
 					},
 				},
 			},
-			want: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+			want: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
 				qosgroup.QoSGroupSystem: {
 					CCDs: sets.Int{17: sets.Empty{}},
-					CCDMB: map[int]*monitor.MBData{
+					CCDMB: map[int]*stat.MBData{
 						17: {
 							ReadsMB:  12345,
 							WritesMB: 11111,
@@ -76,10 +76,10 @@ func Test_getApplicableQoSCCDMB(t *testing.T) {
 					ID:      3,
 					CCDNode: map[int]int{16: 4, 17: 4, 22: 5, 23: 5},
 				},
-				qosccdmb: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+				qosccdmb: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
 					qosgroup.QoSGroupSystem: {
 						CCDs: sets.Int{99: sets.Empty{}},
-						CCDMB: map[int]*monitor.MBData{
+						CCDMB: map[int]*stat.MBData{
 							17: {
 								ReadsMB:  12345,
 								WritesMB: 11111,
@@ -88,7 +88,7 @@ func Test_getApplicableQoSCCDMB(t *testing.T) {
 					},
 				},
 			},
-			want: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{},
+			want: map[qosgroup.QoSGroup]*stat.MBQoSGroup{},
 		},
 		{
 			name: "mixed CCDs leading to partial applicable",
@@ -97,10 +97,10 @@ func Test_getApplicableQoSCCDMB(t *testing.T) {
 					ID:      3,
 					CCDNode: map[int]int{16: 4, 17: 4, 22: 5, 23: 5},
 				},
-				qosccdmb: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+				qosccdmb: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
 					qosgroup.QoSGroupSystem: {
 						CCDs: sets.Int{17: sets.Empty{}, 99: sets.Empty{}},
-						CCDMB: map[int]*monitor.MBData{
+						CCDMB: map[int]*stat.MBData{
 							17: {
 								ReadsMB:  12345,
 								WritesMB: 11111,
@@ -113,10 +113,10 @@ func Test_getApplicableQoSCCDMB(t *testing.T) {
 					},
 				},
 			},
-			want: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+			want: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
 				qosgroup.QoSGroupSystem: {
 					CCDs: sets.Int{17: sets.Empty{}},
-					CCDMB: map[int]*monitor.MBData{
+					CCDMB: map[int]*stat.MBData{
 						17: {
 							ReadsMB:  12345,
 							WritesMB: 11111,
@@ -141,7 +141,7 @@ func TestController_getDedicatedNodes(t *testing.T) {
 	t.Parallel()
 	type fields struct {
 		domainManager *mbdomain.MBDomainManager
-		CurrQoSCCDMB  map[qosgroup.QoSGroup]*monitor.MBQoSGroup
+		CurrQoSCCDMB  map[qosgroup.QoSGroup]*stat.MBQoSGroup
 	}
 	tests := []struct {
 		name   string
@@ -154,9 +154,9 @@ func TestController_getDedicatedNodes(t *testing.T) {
 				domainManager: &mbdomain.MBDomainManager{
 					CCDNode: map[int]int{0: 0, 1: 0, 2: 1, 3: 1, 4: 2, 5: 2, 6: 3, 7: 3},
 				},
-				CurrQoSCCDMB: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+				CurrQoSCCDMB: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
 					qosgroup.QoSGroupDedicated: {
-						CCDMB: map[int]*monitor.MBData{
+						CCDMB: map[int]*stat.MBData{
 							2: {
 								TotalMB: 1_234,
 							},
@@ -175,9 +175,9 @@ func TestController_getDedicatedNodes(t *testing.T) {
 				domainManager: &mbdomain.MBDomainManager{
 					CCDNode: map[int]int{0: 0, 1: 0, 2: 1, 3: 1, 4: 2, 5: 2, 6: 3, 7: 3},
 				},
-				CurrQoSCCDMB: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+				CurrQoSCCDMB: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
 					qosgroup.QoSGroupDedicated: {
-						CCDMB: map[int]*monitor.MBData{
+						CCDMB: map[int]*stat.MBData{
 							6: {
 								TotalMB: 0,
 							},
@@ -193,9 +193,9 @@ func TestController_getDedicatedNodes(t *testing.T) {
 				domainManager: &mbdomain.MBDomainManager{
 					CCDNode: map[int]int{0: 0, 1: 0, 2: 1, 3: 1, 4: 2, 5: 2, 6: 3, 7: 3},
 				},
-				CurrQoSCCDMB: map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+				CurrQoSCCDMB: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
 					qosgroup.QoSGroupDedicated: {
-						CCDMB: map[int]*monitor.MBData{},
+						CCDMB: map[int]*stat.MBData{},
 					},
 				},
 			},

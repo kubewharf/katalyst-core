@@ -1,26 +1,26 @@
 package policy
 
 import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"reflect"
 	"testing"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
 
 func Test_constraintDomainMBPolicy_getQosMBGroups(t *testing.T) {
 	t.Parallel()
 
-	testQoSMBGroups := map[qosgroup.QoSGroup]*monitor.MBQoSGroup{
+	testQoSMBGroups := map[qosgroup.QoSGroup]*stat.MBQoSGroup{
 		"shared-50": {
-			CCDMB: map[int]*monitor.MBData{
+			CCDMB: map[int]*stat.MBData{
 				1:  {TotalMB: 16_000},
 				4:  {TotalMB: 12_000},
 				12: {TotalMB: 21_000},
 			},
 		},
 		"dedicated": {
-			CCDMB: map[int]*monitor.MBData{
+			CCDMB: map[int]*stat.MBData{
 				0:  {TotalMB: 10_000},
 				3:  {TotalMB: 9_000},
 				15: {TotalMB: 22_000},
@@ -29,12 +29,12 @@ func Test_constraintDomainMBPolicy_getQosMBGroups(t *testing.T) {
 	}
 
 	type fields struct {
-		qos map[qosgroup.QoSGroup]*monitor.MBQoSGroup
+		qos map[qosgroup.QoSGroup]*stat.MBQoSGroup
 	}
 	tests := []struct {
 		name   string
 		fields fields
-		want   map[qosgroup.QoSGroup]*monitor.MBQoSGroup
+		want   map[qosgroup.QoSGroup]*stat.MBQoSGroup
 	}{
 		{
 			name: "happy path",
