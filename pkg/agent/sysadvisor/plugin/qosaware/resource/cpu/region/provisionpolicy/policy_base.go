@@ -76,7 +76,7 @@ func (p *PolicyBase) GetControlKnobAdjusted() (types.ControlKnob, error) {
 		return p.controlKnobAdjusted.Clone(), nil
 
 	case configapi.QoSRegionTypeIsolation:
-		return map[configapi.ControlKnobName]types.ControlKnobValue{
+		return map[configapi.ControlKnobName]types.ControlKnobItem{
 			configapi.ControlKnobNonReclaimedCPURequirementUpper: {
 				Value:  p.ResourceUpperBound,
 				Action: types.ControlKnobActionNone,
@@ -90,4 +90,8 @@ func (p *PolicyBase) GetControlKnobAdjusted() (types.ControlKnob, error) {
 	default:
 		return nil, fmt.Errorf("unsupported region type %v", p.regionType)
 	}
+}
+
+func (p *PolicyBase) GetMetaInfo() string {
+	return fmt.Sprintf("[regionName: %s, regionType: %s, ownerPoolName: %s, NUMAs: %v]", p.regionName, p.regionType, p.ownerPoolName, p.bindingNumas.String())
 }

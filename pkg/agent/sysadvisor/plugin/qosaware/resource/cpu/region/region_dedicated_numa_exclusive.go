@@ -110,12 +110,12 @@ func (r *QoSRegionDedicatedNumaExclusive) TryUpdateProvision() {
 	rawControlKnobs := r.getProvisionControlKnob()
 
 	// regulate control knobs
-	r.regulateProvisionControlKnob(rawControlKnobs, &r.ControlKnobs)
+	r.regulateProvisionControlKnob(rawControlKnobs, r.getEffectiveControlKnobs())
 }
 
 func (r *QoSRegionDedicatedNumaExclusive) updateProvisionPolicy() {
 	r.ControlEssentials = types.ControlEssentials{
-		ControlKnobs:   r.getControlKnobs(),
+		ControlKnobs:   r.getEffectiveControlKnobs(),
 		ReclaimOverlap: true,
 	}
 
@@ -174,7 +174,7 @@ out:
 	r.idle.Store(idle)
 }
 
-func (r *QoSRegionDedicatedNumaExclusive) getControlKnobs() types.ControlKnob {
+func (r *QoSRegionDedicatedNumaExclusive) getEffectiveControlKnobs() types.ControlKnob {
 	reclaimedCPUSize := 0
 	if reclaimedInfo, ok := r.metaReader.GetPoolInfo(commonstate.PoolNameReclaim); ok {
 		for _, numaID := range r.bindingNumas.ToSliceInt() {

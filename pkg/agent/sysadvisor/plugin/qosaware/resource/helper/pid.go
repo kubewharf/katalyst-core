@@ -26,6 +26,7 @@ import (
 )
 
 type PIDController struct {
+	msg                string
 	variableName       string
 	resourceEssentials types.ResourceEssentials
 	params             types.FirstOrderPIDParams
@@ -35,8 +36,9 @@ type PIDController struct {
 	errorValuePrev     float64
 }
 
-func NewPIDController(variableName string, params types.FirstOrderPIDParams) *PIDController {
+func NewPIDController(variableName string, params types.FirstOrderPIDParams, msg string) *PIDController {
 	return &PIDController{
+		msg:             msg,
 		variableName:    variableName,
 		params:          params,
 		adjustmentTotal: 0,
@@ -100,8 +102,11 @@ func (c *PIDController) Adjust(controlKnob, target, current float64) float64 {
 	c.adjustmentTotal = general.Clamp(c.adjustmentTotal, c.params.AdjustmentLowerBound, c.params.AdjustmentUpperBound)
 	c.adjustmentTotal = general.Clamp(c.adjustmentTotal, c.resourceEssentials.ResourceLowerBound-controlKnob, c.resourceEssentials.ResourceUpperBound-controlKnob)
 
-	klog.Infof("[qosaware-cpu-pid] indicator %v controlKnob %.2f adjustment %.2f adjustmentTotal %.2f target %.2f current %.2f errorValue %.2f errorRate %.2f pterm %.2f dterm %.2f",
-		c.variableName, controlKnob, adjustment, c.adjustmentTotal, target, current, c.errorValue, errorRate, pterm, dterm)
+	result := controlKnob + c.adjustmentTotal
 
-	return controlKnob + c.adjustmentTotal
+	klog.InfoS("[qosaware-cpu-pid]", "meta", c.msg, "indicator", c.variableName, "controlKnob", controlKnob,
+		"adjustment", adjustment, "adjustmentTotal", c.adjustmentTotal, "result", result, "target", target, "current", current,
+		"errorValue", c.errorValue, "errorRate", errorRate, "pterm", pterm, "dterm", dterm)
+
+	return result
 }

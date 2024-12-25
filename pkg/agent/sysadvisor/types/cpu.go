@@ -67,15 +67,15 @@ const (
 )
 
 // ControlKnob holds tunable system entries affecting indicator metrics
-type ControlKnob map[v1alpha1.ControlKnobName]ControlKnobValue
+type ControlKnob map[v1alpha1.ControlKnobName]ControlKnobItem
 
-// ControlKnobValue holds control knob value and action
-type ControlKnobValue struct {
+// ControlKnobItem holds control knob value and action
+type ControlKnobItem struct {
 	Value  float64
 	Action ControlKnobAction
 }
 
-var InvalidControlKnob = map[v1alpha1.ControlKnobName]ControlKnobValue{"": {}}
+var InvalidControlKnob = map[v1alpha1.ControlKnobName]ControlKnobItem{"": {}}
 
 const (
 	InvalidHeadroom = -1

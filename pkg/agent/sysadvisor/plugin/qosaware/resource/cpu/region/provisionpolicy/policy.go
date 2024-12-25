@@ -41,6 +41,8 @@ type ProvisionPolicy interface {
 	Update() error
 	// GetControlKnobAdjusted returns the latest legal control knob value
 	GetControlKnobAdjusted() (types.ControlKnob, error)
+
+	GetMetaInfo() string
 }
 
 type InitFunc func(regionName string, regionType configapi.QoSRegionType, ownerPoolName string,

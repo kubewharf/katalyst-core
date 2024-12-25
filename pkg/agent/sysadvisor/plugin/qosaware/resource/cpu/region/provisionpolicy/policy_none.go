@@ -42,3 +42,4 @@ func (p *PolicyNone) Update() error                                             
 func (p *PolicyNone) GetControlKnobAdjusted() (types.ControlKnob, error) {
 	return types.InvalidControlKnob, nil
 }
+func (p *PolicyNone) GetMetaInfo() string { return "" }

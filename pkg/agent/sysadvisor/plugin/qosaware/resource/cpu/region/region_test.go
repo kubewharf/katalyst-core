@@ -220,8 +220,8 @@ func TestRestrictProvisionControlKnob(t *testing.T) {
 					MaxLowerGap: pointer.Float64(1),
 				},
 			},
-			originControlKnob: map[types.CPUProvisionPolicyName]types.ControlKnob{"p1": {"c1": types.ControlKnobValue{Value: 8}}, "p2": {"c1": types.ControlKnobValue{Value: 10}}},
-			wantControlKnob:   map[types.CPUProvisionPolicyName]types.ControlKnob{"p1": {"c1": types.ControlKnobValue{Value: 9}}, "p2": {"c1": types.ControlKnobValue{Value: 10}}},
+			originControlKnob: map[types.CPUProvisionPolicyName]types.ControlKnob{"p1": {"c1": types.ControlKnobItem{Value: 8}}, "p2": {"c1": types.ControlKnobItem{Value: 10}}},
+			wantControlKnob:   map[types.CPUProvisionPolicyName]types.ControlKnob{"p1": {"c1": types.ControlKnobItem{Value: 9}}, "p2": {"c1": types.ControlKnobItem{Value: 10}}},
 		},
 		{
 			name: "upper ref",
@@ -231,8 +231,8 @@ func TestRestrictProvisionControlKnob(t *testing.T) {
 					MaxLowerGap: pointer.Float64(1),
 				},
 			},
-			originControlKnob: map[types.CPUProvisionPolicyName]types.ControlKnob{"p1": {"c1": types.ControlKnobValue{Value: 16}}, "p2": {"c1": types.ControlKnobValue{Value: 10}}},
-			wantControlKnob:   map[types.CPUProvisionPolicyName]types.ControlKnob{"p1": {"c1": types.ControlKnobValue{Value: 14}}, "p2": {"c1": types.ControlKnobValue{Value: 10}}},
+			originControlKnob: map[types.CPUProvisionPolicyName]types.ControlKnob{"p1": {"c1": types.ControlKnobItem{Value: 16}}, "p2": {"c1": types.ControlKnobItem{Value: 10}}},
+			wantControlKnob:   map[types.CPUProvisionPolicyName]types.ControlKnob{"p1": {"c1": types.ControlKnobItem{Value: 14}}, "p2": {"c1": types.ControlKnobItem{Value: 10}}},
 		},
 	}
 

@@ -74,6 +74,10 @@ func (fake *FakeRegion) Type() configapi.QoSRegionType {
 	return fake.regionType
 }
 
+func (fake *FakeRegion) GetMetaInfo() string {
+	return "fake"
+}
+
 func (fake *FakeRegion) OwnerPoolName() string {
 	return fake.ownerPoolName
 }
