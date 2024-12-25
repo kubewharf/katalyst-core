@@ -728,7 +728,7 @@ func (r *QoSRegionBase) getIndicators() (types.Indicator, error) {
 						defaultTarget, indicatorName, podUID, err)
 				}
 				sumTarget = sumTarget + *indicatorTarget
-				minTarget = math.Min(target, *indicatorTarget)
+				minTarget = math.Min(minTarget, *indicatorTarget)
 			}
 			avgTarget := sumTarget / float64(len(r.podSet))
 			switch indicatorName {
