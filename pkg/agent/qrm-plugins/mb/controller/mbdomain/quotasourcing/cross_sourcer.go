@@ -101,7 +101,7 @@ func locateFittest(candidates [][]int, x, y float64, domainTargets []DomainMB) [
 // both local and remote mb is originated from same domain, but the destination is different.
 func getLocalRatio(data DomainMB) float64 {
 	if data.MBSource == 0 {
-		return 0.0
+		return 1.0
 	}
 	if data.MBSourceRemote >= data.MBSource {
 		return 0.0
