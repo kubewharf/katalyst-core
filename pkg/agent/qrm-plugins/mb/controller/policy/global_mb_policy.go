@@ -16,6 +16,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
+const zombieMBDefault = 100 // 100 MB (0.1 GB)
+
 var qosLeaves = sets.String{"shared-30": sets.Empty{}}
 
 type globalMBPolicy struct {
@@ -29,6 +31,7 @@ type globalMBPolicy struct {
 	throttler       strategy.LowPrioPlanner
 	easer           strategy.LowPrioPlanner
 	ccdGroupPlanner *strategy.CCDGroupPlanner
+	zombieMB        int
 }
 
 func (g *globalMBPolicy) getLeafQuotas(domain int) (int, error) {
@@ -83,7 +86,7 @@ func (g *globalMBPolicy) ProcessGlobalQoSCCDMB(mbQoSGroups map[qosgroup.QoSGroup
 	mbQoSGroups = g.adjustSocketCCDMB(mbQoSGroups)
 
 	// no high priority traffic, no constraint on leaves
-	if !hasHighQoSMB(mbQoSGroups) {
+	if !g.hasHighQoSMB(mbQoSGroups) {
 		general.InfofV(6, "mbm: policy: no significant high qos traffic; no constraint on low priority")
 		g.setLeafNoLimit()
 		return
@@ -290,14 +293,13 @@ func (g *globalMBPolicy) adjustWthAdmissionIncubation(group *stat.MBQoSGroup) *s
 	return group
 }
 
-func hasHighQoSMB(mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) bool {
+func (g *globalMBPolicy) hasHighQoSMB(mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) bool {
 	// there may exist random mb traffic in small amount, which is zombie
-	const zombieMB = 1000 // 1000 MB (1 GB)
 	for qos, ccdmb := range mbQoSGroups {
 		// system qos is always there; not to count it for this purpose
 		if qos == qosgroup.QoSGroupDedicated || qos == "shared-50" {
 			for _, mb := range ccdmb.CCDMB {
-				if mb.TotalMB > zombieMB {
+				if mb.TotalMB > g.zombieMB {
 					return true
 				}
 			}
@@ -322,5 +324,6 @@ func NewGlobalMBPolicy(ccdMBMin int, domainManager *mbdomain.MBDomainManager, th
 		domainManager:    domainManager,
 		domainLeafQuotas: domainLeafQuotas,
 		ccdGroupPlanner:  ccdPlanner,
+		zombieMB:         zombieMBDefault,
 	}, nil
 }
