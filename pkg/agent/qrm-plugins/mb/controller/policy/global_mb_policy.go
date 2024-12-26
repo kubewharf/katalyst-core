@@ -21,7 +21,7 @@ var qosLeaves = sets.String{"shared-30": sets.Empty{}}
 type globalMBPolicy struct {
 	domainManager *mbdomain.MBDomainManager
 
-	lock             sync.Mutex
+	lock             sync.RWMutex
 	domainLeafQuotas map[int]int
 	//	leafQoSMBPolicy qospolicy.QoSMBPolicy
 
@@ -31,11 +31,21 @@ type globalMBPolicy struct {
 	ccdGroupPlanner *strategy.CCDGroupPlanner
 }
 
+func (g *globalMBPolicy) getLeafQuotas(domain int) (int, error) {
+	g.lock.RLock()
+	defer g.lock.RUnlock()
+	if leafQuota, ok := g.domainLeafQuotas[domain]; ok {
+		return leafQuota, nil
+	}
+
+	return -1, fmt.Errorf("unknown domain %d", domain)
+}
+
 func (g *globalMBPolicy) GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoSMB map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
 	// this relies on the beforehand ProcessGlobalQoSCCDMB(...), which had processed taking into account all the domains
-	leafQuota, ok := g.domainLeafQuotas[domain.ID]
-	if !ok {
-		panic(fmt.Sprintf("missing well prepared plan for domain %d", domain.ID))
+	leafQuota, err := g.getLeafQuotas(domain.ID)
+	if err != nil {
+		panic(fmt.Sprintf("missing well prepared plan: %v", err))
 	}
 
 	// no high qos in any domains; trivial - no constraint on all CCDs
