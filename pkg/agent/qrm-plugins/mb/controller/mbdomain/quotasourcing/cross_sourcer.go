@@ -187,4 +187,6 @@ func getCrossPoint(hostDomain, otherDomain DomainMB) (hostQuota, otherQuote int,
 	return int(hostQuo), int(otherQuo), err
 }
 
-var _ Sourcer = &CrossSourcer{}
+func NewOptimalCrossSourcer() Sourcer {
+	return CrossSourcer{}
+}

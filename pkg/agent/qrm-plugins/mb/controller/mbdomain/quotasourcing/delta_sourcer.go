@@ -41,5 +41,6 @@ func (d deltaSourcer) AttributeMBToSources(domainTargets []DomainMB) []int {
 }
 
 func NewDeltaSourcer() Sourcer {
+	panic("has flaw; not already")
 	return deltaSourcer{}
 }

@@ -54,5 +54,6 @@ func attributeBasedOnSolution(domainTargets []DomainMB) []int {
 }
 
 func NewFormulaSourcer() Sourcer {
+	panic("has flaw; not already")
 	return &formulaSourcer{}
 }
