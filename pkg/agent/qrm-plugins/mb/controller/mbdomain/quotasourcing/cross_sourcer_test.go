@@ -108,6 +108,24 @@ func TestCrossSourcer_AttributeMBToSources(t *testing.T) {
 			},
 			want: []int{12_000, 12_000},
 		},
+		{
+			name: "little socket traffic",
+			args: args{
+				domainTargets: []DomainMB{
+					{
+						Target:         70_198,
+						MBSource:       27_700,
+						MBSourceRemote: 27_700 - 18_490,
+					},
+					{
+						Target:         59_000,
+						MBSource:       14_121,
+						MBSourceRemote: 14_121 - 5_180,
+					},
+				},
+			},
+			want: []int{54993, 52891},
+		},
 	}
 	for _, tt := range tests {
 		tt := tt

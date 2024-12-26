@@ -97,9 +97,10 @@ func (g *globalMBPolicy) ProcessGlobalQoSCCDMB(mbQoSGroups map[qosgroup.QoSGroup
 			leafMBTotalLocal += mbStat.Local
 		}
 
-		general.InfofV(6, "mbm: mb summary: domain %d: (high-qos usage: %d, shared-30 usage: %d, local %d)", domain, highMBTotal, leafMBTotal, leafMBTotalLocal)
+		leafTarget := g.calcDomainLeafTarget(highMBTotal, leafMBTotal)
+		general.InfofV(6, "mbm: policy: summary: domain %d: (high-qos usage: %d, shared-30 usage: %d, local %d, target %d)", domain, highMBTotal, leafMBTotal, leafMBTotalLocal, leafTarget)
 		leafPolicyArgs[domain] = quotasourcing.DomainMB{
-			Target:         g.calcDomainLeafTarget(highMBTotal, leafMBTotal),
+			Target:         leafTarget,
 			MBSource:       leafMBTotal,
 			MBSourceRemote: leafMBTotal - leafMBTotalLocal,
 		}
@@ -107,6 +108,7 @@ func (g *globalMBPolicy) ProcessGlobalQoSCCDMB(mbQoSGroups map[qosgroup.QoSGroup
 
 	// figure out the leaf quotas by taking into account of cross-domain impacts
 	leafQuotas := g.sourcer.AttributeMBToSources(leafPolicyArgs)
+	general.InfofV(6, "mbm: policy: domain quotas: %v", leafQuotas)
 	g.setLeafQuotas(leafQuotas)
 }
 
