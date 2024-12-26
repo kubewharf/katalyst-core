@@ -303,7 +303,7 @@ func NewGlobalMBPolicy(ccdMBMin int, domainManager *mbdomain.MBDomainManager, th
 	ccdPlanner := strategy.NewCCDGroupPlanner(ccdMBMin, 35_000)
 
 	return &globalMBPolicy{
-		sourcer:          quotasourcing.NewFormulaSourcer(),
+		sourcer:          &quotasourcing.CrossSourcer{}, //quotasourcing.NewFormulaSourcer(),
 		throttler:        strategy.New(throttleType, ccdPlanner),
 		easer:            strategy.New(easeType, ccdPlanner),
 		domainManager:    domainManager,
