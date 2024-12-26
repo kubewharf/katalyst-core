@@ -8,6 +8,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain/quotasourcing"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
@@ -68,7 +69,8 @@ func (g *globalMBPolicy) GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoS
 }
 
 func (g *globalMBPolicy) ProcessGlobalQoSCCDMB(mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) {
-	// todo: reserve for socket pods in admission
+	// reserve for socket pods in admission or incubation
+	mbQoSGroups = g.adjustSocketCCDMB(mbQoSGroups)
 
 	// no high priority traffic, no constraint on leaves
 	if !hasHighQoMB(mbQoSGroups) {
@@ -106,6 +108,17 @@ func (g *globalMBPolicy) ProcessGlobalQoSCCDMB(mbQoSGroups map[qosgroup.QoSGroup
 	// figure out the leaf quotas by taking into account of cross-domain impacts
 	leafQuotas := g.sourcer.AttributeMBToSources(leafPolicyArgs)
 	g.setLeafQuotas(leafQuotas)
+}
+
+func (g *globalMBPolicy) adjustSocketCCDMB(mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) map[qosgroup.QoSGroup]*stat.MBQoSGroup {
+	for qos, qosGroup := range mbQoSGroups {
+		if qos != "dedicated" {
+			continue
+		}
+		mbQoSGroups[qos] = g.adjustWthAdmissionIncubation(qosGroup)
+	}
+
+	return mbQoSGroups
 }
 
 func (g *globalMBPolicy) split(mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) (highQoSs, leaves map[qosgroup.QoSGroup]*stat.MBQoSGroup) {
@@ -240,6 +253,28 @@ func (g *globalMBPolicy) setLeafNoLimit() {
 	for domain := range g.domainLeafQuotas {
 		g.domainLeafQuotas[domain] = -1
 	}
+}
+
+func (g *globalMBPolicy) adjustWthAdmissionIncubation(group *stat.MBQoSGroup) *stat.MBQoSGroup {
+	incubCCDs := make(sets.Int)
+	for _, domain := range g.domainManager.Domains {
+		domain.CleanseIncubates()
+		for ccd, _ := range domain.CloneIncubates() {
+			incubCCDs.Insert(ccd)
+		}
+	}
+
+	for incubCCD, _ := range incubCCDs {
+		group.CCDs.Insert(incubCCD)
+		if _, ok := group.CCDMB[incubCCD]; !ok {
+			group.CCDMB[incubCCD] = &stat.MBData{}
+		}
+		if group.CCDMB[incubCCD].TotalMB < config.ReservedPerCCD {
+			group.CCDMB[incubCCD].TotalMB = config.ReservedPerCCD
+		}
+	}
+
+	return group
 }
 
 func hasHighQoMB(mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) bool {

@@ -71,7 +71,7 @@ func TestNewMBDomainManager(t *testing.T) {
 						},
 						CCDs:               []int{0, 1, 2, 3, 4, 5, 6, 7},
 						PreemptyNodes:      make(sets.Int),
-						ccdIncubated:       IncubatedCCDs{},
+						CCDIncubateds:      IncubatedCCDs{},
 						incubationInterval: time.Second * 1,
 						MBQuota:            120_000_000,
 					},

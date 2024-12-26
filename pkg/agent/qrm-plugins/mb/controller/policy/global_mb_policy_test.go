@@ -1,15 +1,17 @@
 package policy
 
 import (
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/mock"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain/quotasourcing"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
 
@@ -439,6 +441,157 @@ func Test_globalMBPolicy_getLeafMBTargets(t *testing.T) {
 			}
 			if got := g.getLeafMBTargets(tt.args.mbQoSGroups); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("getLeafMBTargets() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_globalMBPolicy_adjustSocketCCDMB(t *testing.T) {
+	t.Parallel()
+	type fields struct {
+		domainManager *mbdomain.MBDomainManager
+	}
+	type args struct {
+		mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		args   args
+		want   map[qosgroup.QoSGroup]*stat.MBQoSGroup
+	}{
+		{
+			name: "0 admission 0 incubation",
+			fields: fields{
+				domainManager: &mbdomain.MBDomainManager{
+					Domains: map[int]*mbdomain.MBDomain{
+						0: {
+							ID:        0,
+							NumaNodes: []int{0, 1, 2, 3},
+							NodeCCDs: map[int][]int{
+								0: []int{0, 1},
+								1: []int{2, 3},
+								2: []int{4, 5},
+								3: []int{6, 7},
+							},
+							PreemptyNodes: sets.Int{},
+							MBQuota:       0,
+						},
+					},
+				},
+			},
+			args: args{
+				mbQoSGroups: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
+					"dedicated": {
+						CCDMB: map[int]*stat.MBData{
+							6: {TotalMB: 6_000, LocalTotalMB: 1_006},
+							7: {TotalMB: 7_000, LocalTotalMB: 1_007},
+						},
+					},
+				},
+			},
+			want: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
+				"dedicated": {
+					CCDMB: map[int]*stat.MBData{
+						6: {TotalMB: 6_000, LocalTotalMB: 1_006},
+						7: {TotalMB: 7_000, LocalTotalMB: 1_007},
+					},
+				},
+			},
+		},
+		{
+			name: "having incubation",
+			fields: fields{
+				domainManager: &mbdomain.MBDomainManager{
+					Domains: map[int]*mbdomain.MBDomain{
+						0: {
+							ID: 0,
+							CCDIncubateds: map[int]time.Time{
+								6: time.Now().Add(time.Minute),
+							},
+							NumaNodes: []int{0, 1, 2, 3},
+							NodeCCDs: map[int][]int{
+								0: []int{0, 1},
+								1: []int{2, 3},
+								2: []int{4, 5},
+								3: []int{6, 7},
+							},
+							PreemptyNodes: sets.Int{},
+							MBQuota:       0,
+						},
+					},
+				},
+			},
+			args: args{
+				mbQoSGroups: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
+					"dedicated": {
+						CCDs: sets.Int{6: sets.Empty{}, 7: sets.Empty{}},
+						CCDMB: map[int]*stat.MBData{
+							6: {TotalMB: 6_000, LocalTotalMB: 1_006},
+							7: {TotalMB: 7_000, LocalTotalMB: 1_007},
+						},
+					},
+				},
+			},
+			want: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
+				"dedicated": {
+					CCDs: sets.Int{6: sets.Empty{}, 7: sets.Empty{}},
+					CCDMB: map[int]*stat.MBData{
+						6: {TotalMB: 17_500, LocalTotalMB: 1_006},
+						7: {TotalMB: 7_000, LocalTotalMB: 1_007},
+					},
+				},
+			},
+		},
+		{
+			name: "having admission",
+			fields: fields{
+				domainManager: &mbdomain.MBDomainManager{
+					Domains: map[int]*mbdomain.MBDomain{
+						0: {
+							ID: 0,
+							CCDIncubateds: map[int]time.Time{
+								2: time.Now().Add(time.Minute),
+								3: time.Now().Add(time.Minute),
+							},
+							PreemptyNodes: sets.Int{1: sets.Empty{}},
+						},
+					},
+				},
+			},
+			args: args{
+				mbQoSGroups: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
+					"dedicated": {
+						CCDs: sets.Int{6: sets.Empty{}, 7: sets.Empty{}},
+						CCDMB: map[int]*stat.MBData{
+							6: {TotalMB: 6_000, LocalTotalMB: 1_006},
+							7: {TotalMB: 7_000, LocalTotalMB: 1_007},
+						},
+					},
+				},
+			},
+			want: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
+				"dedicated": {
+					CCDs: sets.Int{2: sets.Empty{}, 3: sets.Empty{}, 6: sets.Empty{}, 7: sets.Empty{}},
+					CCDMB: map[int]*stat.MBData{
+						2: {TotalMB: 17_500},
+						3: {TotalMB: 17_500},
+						6: {TotalMB: 6_000, LocalTotalMB: 1_006},
+						7: {TotalMB: 7_000, LocalTotalMB: 1_007},
+					},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			g := &globalMBPolicy{
+				domainManager: tt.fields.domainManager,
+			}
+			if got := g.adjustSocketCCDMB(tt.args.mbQoSGroups); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("adjustSocketCCDMB() = %v, want %v", got, tt.want)
 			}
 		})
 	}

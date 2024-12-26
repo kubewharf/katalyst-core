@@ -246,7 +246,7 @@ func newMBDomainManager(dieTopology *machine.DieTopology, incubationInterval tim
 			CCDNode:            make(map[int]int),
 			NodeCCDs:           make(map[int][]int),
 			PreemptyNodes:      make(sets.Int),
-			ccdIncubated:       make(IncubatedCCDs),
+			CCDIncubateds:      make(IncubatedCCDs),
 			incubationInterval: incubationInterval,
 			MBQuota:            mbCapacity,
 		}

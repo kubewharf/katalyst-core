@@ -37,7 +37,7 @@ type MBDomain struct {
 	// numa nodes that will be assigned to dedicated pods that still are in Admit state
 	PreemptyNodes sets.Int
 
-	ccdIncubated       IncubatedCCDs
+	CCDIncubateds      IncubatedCCDs
 	incubationInterval time.Duration
 
 	// MBQuota is the maximum MB capacity a domain has
@@ -70,7 +70,7 @@ func (m *MBDomain) startIncubation(ccds sets.Int) {
 
 	for _, ccd := range m.CCDs {
 		if ccds.Has(ccd) {
-			m.ccdIncubated[ccd] = time.Now().Add(m.incubationInterval)
+			m.CCDIncubateds[ccd] = time.Now().Add(m.incubationInterval)
 			m.undoPreemptNodeByCCD(ccd)
 		}
 	}
@@ -119,9 +119,9 @@ func (m *MBDomain) CleanseIncubates() {
 	m.rwLock.Lock()
 	m.rwLock.Unlock()
 
-	for ccd, v := range m.ccdIncubated {
+	for ccd, v := range m.CCDIncubateds {
 		if !isIncubated(v) {
-			delete(m.ccdIncubated, ccd)
+			delete(m.CCDIncubateds, ccd)
 		}
 	}
 }
@@ -131,7 +131,7 @@ func (m *MBDomain) CloneIncubates() IncubatedCCDs {
 	m.rwLock.RUnlock()
 
 	clone := make(IncubatedCCDs)
-	for ccd, v := range m.ccdIncubated {
+	for ccd, v := range m.CCDIncubateds {
 		clone[ccd] = v
 	}
 
