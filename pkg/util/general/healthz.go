@@ -91,8 +91,8 @@ const (
 	// this rule will be considered as unhealthy.
 	HealthzCheckModeHeartBeat HealthzCheckMode = "heartbeat"
 	// HealthzCheckModeReport in this mode, caller only reports the failed state when the function does not work well.
-	// when the LatestUnhealthyTime is not earlier than the GracePeriod ago, we consider this rule as unhealthy.
-	// if caller doesn't report new failed state for more than GracePeriod, we consider the exception recovered.
+	// when the LatestUnhealthyTime is not earlier than the AutoRecoverPeriod ago, we consider this rule as unhealthy.
+	// if caller doesn't report new failed state for more than AutoRecoverPeriod, we consider the exception recovered.
 	HealthzCheckModeReport HealthzCheckMode = "report"
 )
 
@@ -249,7 +249,7 @@ func GetRegisterReadinessCheckResult() map[HealthzCheckName]HealthzCheckResult {
 				ready = false
 			}
 		case HealthzCheckModeReport:
-			if checkStatus.LatestUnhealthyTime.After(time.Now().Add(-checkStatus.TolerationPeriod)) {
+			if checkStatus.LatestUnhealthyTime.After(time.Now().Add(-checkStatus.AutoRecoverPeriod)) {
 				ready = false
 			}
 		}
