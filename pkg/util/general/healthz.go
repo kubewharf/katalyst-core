@@ -61,15 +61,11 @@ type healthzCheckStatus struct {
 	// in HealthzCheckModeReport mode, when LatestUnhealthyTime is not earlier than AutoRecoverPeriod ago, we consider this rule
 	// is failed.
 	AutoRecoverPeriod time.Duration `json:"autoRecoverPeriod"`
-	mutex             sync.RWMutex
 	temporary         bool
 	count             int
 }
 
 func (h *healthzCheckStatus) update(state HealthzCheckState, message string) {
-	h.mutex.Lock()
-	defer h.mutex.Unlock()
-
 	now := time.Now()
 	h.Message = message
 	h.LastUpdateTime = now
@@ -95,8 +91,8 @@ const (
 	// this rule will be considered as unhealthy.
 	HealthzCheckModeHeartBeat HealthzCheckMode = "heartbeat"
 	// HealthzCheckModeReport in this mode, caller only reports the failed state when the function does not work well.
-	// when the LatestUnhealthyTime is not earlier than the GracePeriod ago, we consider this rule as unhealthy.
-	// if caller doesn't report new failed state for more than GracePeriod, we consider the exception recovered.
+	// when the LatestUnhealthyTime is not earlier than the AutoRecoverPeriod ago, we consider this rule as unhealthy.
+	// if caller doesn't report new failed state for more than AutoRecoverPeriod, we consider the exception recovered.
 	HealthzCheckModeReport HealthzCheckMode = "report"
 )
 
@@ -217,8 +213,8 @@ func UpdateHealthzStateByError(name string, err error) error {
 }
 
 func UpdateHealthzState(name string, state HealthzCheckState, message string) error {
-	healthzCheckLock.RLock()
-	defer healthzCheckLock.RUnlock()
+	healthzCheckLock.Lock()
+	defer healthzCheckLock.Unlock()
 
 	status, ok := healthzCheckMap[HealthzCheckName(name)]
 	if !ok {
@@ -235,37 +231,32 @@ func GetRegisterReadinessCheckResult() map[HealthzCheckName]HealthzCheckResult {
 
 	results := make(map[HealthzCheckName]HealthzCheckResult)
 	for name, checkStatus := range healthzCheckMap {
-		func() {
-			checkStatus.mutex.RLock()
-			defer checkStatus.mutex.RUnlock()
-
-			ready := true
-			message := checkStatus.Message
-			switch checkStatus.Mode {
-			case HealthzCheckModeHeartBeat:
-				if checkStatus.TimeoutPeriod > 0 && time.Now().Sub(checkStatus.LastUpdateTime) > checkStatus.TimeoutPeriod {
-					ready = false
-					message = fmt.Sprintf("the status has not been updated for more than %v, last update time is %v", checkStatus.TimeoutPeriod, checkStatus.LastUpdateTime)
-				}
-
-				if checkStatus.TolerationPeriod <= 0 && checkStatus.State != HealthzCheckStateReady {
-					ready = false
-				}
-
-				if checkStatus.TolerationPeriod > 0 && time.Now().Sub(checkStatus.UnhealthyStartTime) > checkStatus.TolerationPeriod &&
-					checkStatus.State != HealthzCheckStateReady {
-					ready = false
-				}
-			case HealthzCheckModeReport:
-				if checkStatus.LatestUnhealthyTime.After(time.Now().Add(-checkStatus.TolerationPeriod)) {
-					ready = false
-				}
+		ready := true
+		message := checkStatus.Message
+		switch checkStatus.Mode {
+		case HealthzCheckModeHeartBeat:
+			if checkStatus.TimeoutPeriod > 0 && time.Now().Sub(checkStatus.LastUpdateTime) > checkStatus.TimeoutPeriod {
+				ready = false
+				message = fmt.Sprintf("the status has not been updated for more than %v, last update time is %v", checkStatus.TimeoutPeriod, checkStatus.LastUpdateTime)
 			}
-			results[name] = HealthzCheckResult{
-				Ready:   ready,
-				Message: message,
+
+			if checkStatus.TolerationPeriod <= 0 && checkStatus.State != HealthzCheckStateReady {
+				ready = false
 			}
-		}()
+
+			if checkStatus.TolerationPeriod > 0 && time.Now().Sub(checkStatus.UnhealthyStartTime) > checkStatus.TolerationPeriod &&
+				checkStatus.State != HealthzCheckStateReady {
+				ready = false
+			}
+		case HealthzCheckModeReport:
+			if checkStatus.LatestUnhealthyTime.After(time.Now().Add(-checkStatus.AutoRecoverPeriod)) {
+				ready = false
+			}
+		}
+		results[name] = HealthzCheckResult{
+			Ready:   ready,
+			Message: message,
+		}
 	}
 	return results
 }

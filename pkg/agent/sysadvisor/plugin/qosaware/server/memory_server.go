@@ -139,11 +139,7 @@ func (ms *memoryServer) ListAndWatch(_ *advisorsvc.Empty, server advisorsvc.Advi
 	defer general.UnregisterTemporaryHeartbeatCheck(memoryServerLWHealthCheckName)
 
 	timer := time.NewTimer(ms.period)
-	defer func() {
-		if !timer.Stop() {
-			<-timer.C
-		}
-	}()
+	defer timer.Stop()
 
 	for {
 		select {

@@ -31,7 +31,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
@@ -39,7 +38,6 @@ import (
 	configv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	workloadapis "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
-	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
@@ -80,20 +78,16 @@ func newTestCPUResourceAdvisor(t *testing.T, pods []*v1.Pod, conf *config.Config
 	cpuTopology, err := machine.GenerateDummyCPUTopology(96, 2, 2)
 	assert.NoError(t, err)
 
-	genericCtx, err := katalyst_base.GenerateFakeGenericContext([]runtime.Object{})
-	require.NoError(t, err)
-
-	metaServer, err := metaserver.NewMetaServer(genericCtx.Client, metrics.DummyMetrics{}, conf)
-	require.NoError(t, err)
-
-	metaServer.MetaAgent = &agent.MetaAgent{
-		KatalystMachineInfo: &machine.KatalystMachineInfo{
-			CPUTopology: cpuTopology,
+	metaServer := &metaserver.MetaServer{
+		MetaAgent: &agent.MetaAgent{
+			KatalystMachineInfo: &machine.KatalystMachineInfo{
+				CPUTopology: cpuTopology,
+			},
+			PodFetcher: &pod.PodFetcherStub{
+				PodList: pods,
+			},
+			MetricsFetcher: mf,
 		},
-		PodFetcher: &pod.PodFetcherStub{
-			PodList: pods,
-		},
-		MetricsFetcher: mf,
 	}
 
 	err = metaServer.SetServiceProfilingManager(spd.NewDummyServiceProfilingManager(profiles))
