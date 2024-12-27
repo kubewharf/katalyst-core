@@ -29,7 +29,6 @@ import (
 	maputil "k8s.io/kubernetes/pkg/util/maps"
 
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
-	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 func (m *ManagerImpl) GetTopologyAwareResources(pod *v1.Pod, container *v1.Container) []*podresourcesapi.TopologyAwareResource {
@@ -131,12 +130,12 @@ func (m *ManagerImpl) getTopologyAwareResources(pod *v1.Pod, container *v1.Conta
 		err := fmt.Errorf("GetTopologyAwareResources got nil pod: %v or container: %v", pod, container)
 		return nil, err
 	}
-	systemCores, err := isPodKatalystQoSLevelSystemCores(m.qosConfig, pod)
+	skipPod, err := isSkippedPod(pod, m.qosConfig)
 	if err != nil {
 		err = fmt.Errorf("[ORM] check pod %s qos level fail: %v", pod.Name, err)
 		return nil, err
 	}
-	if native.CheckDaemonPod(pod) && !systemCores {
+	if skipPod {
 		klog.V(5).Infof("[ORM] skip pod: %s, container: %v", pod.Name, container.Name)
 		return nil, nil
 	}
