@@ -70,7 +70,7 @@ type MalachiteRealtimeMetricsProvisioner struct {
 
 func (m *MalachiteRealtimeMetricsProvisioner) Run(ctx context.Context) {
 	m.startOnce.Do(func() {
-		general.RegisterHeartbeatCheck(malachiteProvisionerHealthCheckName,
+		general.RegisterHeartbeatCheck(malachiteRealtimeProvisionerHealthCheckName,
 			malachiteRealtimeProvisionTolerationTime,
 			general.HealthzCheckStateNotReady,
 			malachiteRealtimeProvisionTolerationTime)
