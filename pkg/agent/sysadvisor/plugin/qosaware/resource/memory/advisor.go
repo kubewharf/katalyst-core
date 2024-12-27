@@ -70,7 +70,7 @@ const (
 	criticalWaterMarkScaleFactor = 2
 
 	memoryAdvisorHealthCheckName  = "memory_advisor_update"
-	healthCheckTolerationDuration = 15 * time.Second
+	healthCheckTolerationDuration = 30 * time.Second
 )
 
 // memoryResourceAdvisor updates memory headroom for reclaimed resource
@@ -126,7 +126,7 @@ func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{},
 }
 
 func (ra *memoryResourceAdvisor) Run(ctx context.Context) {
-	general.RegisterReportCheck(memoryAdvisorHealthCheckName, healthCheckTolerationDuration)
+	general.RegisterHeartbeatCheck(memoryAdvisorHealthCheckName, healthCheckTolerationDuration, general.HealthzCheckStateNotReady, healthCheckTolerationDuration)
 	<-ctx.Done()
 }
 
