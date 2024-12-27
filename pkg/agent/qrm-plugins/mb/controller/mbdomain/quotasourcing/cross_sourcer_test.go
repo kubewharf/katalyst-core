@@ -126,6 +126,78 @@ func TestCrossSourcer_AttributeMBToSources(t *testing.T) {
 			},
 			want: []int{54993, 52891},
 		},
+		{
+			name: "both to throttle, major local",
+			args: args{
+				domainTargets: []DomainMB{
+					{
+						Target:         30_198,
+						MBSource:       47_700,
+						MBSourceRemote: 18_490,
+					},
+					{
+						Target:         29_000,
+						MBSource:       35_121,
+						MBSourceRemote: 5_180,
+					},
+				},
+			},
+			want: []int{34372, 18388},
+		},
+		{
+			name: "one to throttle, the other to ease, major local",
+			args: args{
+				domainTargets: []DomainMB{
+					{
+						Target:         30_198,
+						MBSource:       47_700,
+						MBSourceRemote: 18_490,
+					},
+					{
+						Target:         60_000,
+						MBSource:       35_121,
+						MBSourceRemote: 5_180,
+					},
+				},
+			},
+			want: []int{40_540, 36_426},
+		},
+		{
+			name: "both throttle, major remote",
+			args: args{
+				domainTargets: []DomainMB{
+					{
+						Target:         30_198,
+						MBSource:       37_700,
+						MBSourceRemote: 30_000,
+					},
+					{
+						Target:         20_000,
+						MBSource:       44_121,
+						MBSourceRemote: 40_180,
+					},
+				},
+			},
+			want: []int{21_964, 28_233},
+		},
+		{
+			name: "one to throttle, the other to ease, major remote",
+			args: args{
+				domainTargets: []DomainMB{
+					{
+						Target:         30_198,
+						MBSource:       37_700,
+						MBSourceRemote: 30_000,
+					},
+					{
+						Target:         55_000,
+						MBSource:       44_121,
+						MBSourceRemote: 40_180,
+					},
+				},
+			},
+			want: []int{39_667, 24_263},
+		},
 	}
 	for _, tt := range tests {
 		tt := tt

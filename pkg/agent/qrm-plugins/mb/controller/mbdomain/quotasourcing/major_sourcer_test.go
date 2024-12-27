@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func Test_trendSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
+func Test_majorfactorSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 	t1.Parallel()
 	type args struct {
 		domainTargets []DomainMB
@@ -24,16 +24,16 @@ func Test_trendSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					{
 						Target:         70_198,
 						MBSource:       27_700,
-						MBSourceRemote: 27_700 - 18_490,
+						MBSourceRemote: 7_700,
 					},
 					{
 						Target:         59_000,
 						MBSource:       14_121,
-						MBSourceRemote: 14_121 - 5_180,
+						MBSourceRemote: 5_180,
 					},
 				},
 			},
-			want: []int{85078, 44119},
+			want: []int{67_248, 58_996},
 		},
 		{
 			name: "both to throttle, major local",
@@ -51,7 +51,7 @@ func Test_trendSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{36722, 22477},
+			want: []int{37_367, 17_027},
 		},
 		{
 			name: "one to throttle, the other to ease, major local",
@@ -69,7 +69,7 @@ func Test_trendSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{25_000, 50_000},
+			want: []int{37_585, 48_691},
 		},
 		// both major remote traffic
 		{
@@ -88,7 +88,7 @@ func Test_trendSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{22_535, 27_664},
+			want: []int{20_429, 28_577},
 		},
 		{
 			name: "both to ease, major remote",
@@ -106,7 +106,7 @@ func Test_trendSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{55_483, 64_714},
+			want: []int{55_871, 62_023},
 		},
 		{
 			name: "one to throttle, the other to ease, major remote",
@@ -124,7 +124,7 @@ func Test_trendSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{53_470, 31_728},
+			want: []int{64_164, 18_769},
 		},
 		// mixed traffic: one major local, the other major remote
 		{
@@ -137,13 +137,13 @@ func Test_trendSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 						MBSourceRemote: 30_000,
 					},
 					{
-						Target:         50_000,
-						MBSource:       44_121,
+						Target:         60_000,
+						MBSource:       34_121,
 						MBSourceRemote: 10_180,
 					},
 				},
 			},
-			want: []int{53_689, 66_508},
+			want: []int{38_597, 41_738},
 		},
 		{
 			name: "both to throttle, one major local, the other major remote",
@@ -161,7 +161,7 @@ func Test_trendSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{18_037, 21_162},
+			want: []int{16_012, 22_433},
 		},
 		{
 			name: "one to throttle major local, one to ease major remote",
@@ -179,7 +179,7 @@ func Test_trendSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{28_234, 41_965},
+			want: []int{0, 31_623},
 		},
 		{
 			name: "one to ease major local, one to throttle major remote",
@@ -197,14 +197,14 @@ func Test_trendSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{47_682, 0},
+			want: []int{68_330, 10_206},
 		},
 	}
 	for _, tt := range tests {
 		tt := tt
 		t1.Run(tt.name, func(t1 *testing.T) {
 			t1.Parallel()
-			t := trendSourcer{}
+			t := majorfactorSourcer{}
 			assert.Equalf(t1, tt.want, t.AttributeMBToSources(tt.args.domainTargets), "AttributeMBToSources(%v)", tt.args.domainTargets)
 		})
 	}
