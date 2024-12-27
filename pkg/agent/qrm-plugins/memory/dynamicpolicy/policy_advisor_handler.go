@@ -126,9 +126,13 @@ func (p *DynamicPolicy) createGetAdviceRequest() (*advisorsvc.GetAdviceRequest, 
 }
 
 func (p *DynamicPolicy) getAdviceFromAdvisor(ctx context.Context) (isImplemented bool, err error) {
-	p.Lock()
-	defer p.Unlock()
+	startTime := time.Now()
 	general.Infof("called")
+	p.Lock()
+	defer func() {
+		p.Unlock()
+		general.InfoS("finished", "duration", time.Since(startTime))
+	}()
 
 	request, err := p.createGetAdviceRequest()
 	if err != nil {
@@ -232,12 +236,14 @@ func (p *DynamicPolicy) handleAdvisorResp(advisorResp *advisorsvc.ListAndWatchRe
 		return fmt.Errorf("handleAdvisorResp got nil advisorResp")
 	}
 
+	startTime := time.Now()
 	general.Infof("called")
 	_ = p.emitter.StoreInt64(util.MetricNameHandleAdvisorRespCalled, 1, metrics.MetricTypeNameRaw)
 	defer func() {
 		if retErr != nil {
 			_ = p.emitter.StoreInt64(util.MetricNameHandleAdvisorRespFailed, 1, metrics.MetricTypeNameRaw)
 		}
+		general.InfoS("finished", "duration", time.Since(startTime))
 	}()
 
 	podResourceEntries := p.state.GetPodResourceEntries()

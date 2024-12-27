@@ -579,12 +579,24 @@ func (p *DynamicPolicy) GetTopologyHints(ctx context.Context,
 			})
 	}
 
+	startTime := time.Now()
 	p.RLock()
 	defer func() {
 		p.RUnlock()
 		if err != nil {
 			_ = p.emitter.StoreInt64(util.MetricNameGetTopologyHintsFailed, 1, metrics.MetricTypeNameRaw)
+			general.ErrorS(err, "GetTopologyHints failed",
+				"podNamespace", req.PodNamespace,
+				"podName", req.PodName,
+				"containerName", req.ContainerName,
+			)
 		}
+		general.InfoS("finished",
+			"duration", time.Since(startTime),
+			"podNamespace", req.PodNamespace,
+			"podName", req.PodName,
+			"containerName", req.ContainerName,
+		)
 	}()
 
 	if p.hintHandlers[qosLevel] == nil {
@@ -609,12 +621,15 @@ func (p *DynamicPolicy) RemovePod(ctx context.Context,
 
 	general.InfoS("called", "podUID", req.PodUid)
 
+	startTime := time.Now()
 	p.Lock()
 	defer func() {
 		p.Unlock()
 		if err != nil {
 			_ = p.emitter.StoreInt64(util.MetricNameRemovePodFailed, 1, metrics.MetricTypeNameRaw)
+			general.ErrorS(err, "RemovePod failed", "podUID", req.PodUid)
 		}
+		general.InfoS("finished", "duration", time.Since(startTime), "podUID", req.PodUid)
 	}()
 
 	for lastLevelEnhancementKey, handler := range p.enhancementHandlers[apiconsts.QRMPhaseRemovePod] {
@@ -905,6 +920,7 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 		}, nil
 	}
 
+	startTime := time.Now()
 	p.Lock()
 	defer func() {
 		// calls sys-advisor to inform the latest container
@@ -932,6 +948,19 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 		}
 
 		p.Unlock()
+		if respErr != nil {
+			general.ErrorS(respErr, "Allocate failed",
+				"podNamespace", req.PodNamespace,
+				"podName", req.PodName,
+				"containerName", req.ContainerName,
+			)
+		}
+		general.InfoS("finished",
+			"duration", time.Since(startTime),
+			"podNamespace", req.PodNamespace,
+			"podName", req.PodName,
+			"containerName", req.ContainerName,
+		)
 		return
 	}()
 

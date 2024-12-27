@@ -291,9 +291,13 @@ func (p *DynamicPolicy) createGetAdviceRequest() (*advisorapi.GetAdviceRequest, 
 }
 
 func (p *DynamicPolicy) getAdviceFromAdvisor(ctx context.Context) (isImplemented bool, err error) {
-	p.Lock()
-	defer p.Unlock()
+	startTime := time.Now()
 	general.Infof("called")
+	p.Lock()
+	defer func() {
+		p.Unlock()
+		general.InfoS("finished", "duration", time.Since(startTime))
+	}()
 
 	request, err := p.createGetAdviceRequest()
 	if err != nil {
@@ -400,12 +404,14 @@ func (p *DynamicPolicy) allocateByCPUAdvisor(resp *advisorapi.ListAndWatchRespon
 		return fmt.Errorf("allocateByCPUAdvisor got nil qos aware lw response")
 	}
 
+	startTime := time.Now()
 	general.Infof("allocateByCPUAdvisor is called")
 	_ = p.emitter.StoreInt64(util.MetricNameHandleAdvisorRespCalled, 1, metrics.MetricTypeNameRaw)
 	defer func() {
 		if err != nil {
 			_ = p.emitter.StoreInt64(util.MetricNameHandleAdvisorRespFailed, 1, metrics.MetricTypeNameRaw)
 		}
+		general.InfoS("finished", "duration", time.Since(startTime))
 	}()
 
 	vErr := p.advisorValidator.Validate(resp)
