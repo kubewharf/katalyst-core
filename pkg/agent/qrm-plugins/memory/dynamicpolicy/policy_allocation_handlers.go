@@ -533,6 +533,12 @@ func (p *DynamicPolicy) allocateTargetNUMAs(req *pluginapi.ResourceRequest,
 // and it will be called when entries without numa binding should be adjusted
 // according to current entries and machine state.
 func (p *DynamicPolicy) adjustAllocationEntries() error {
+	startTime := time.Now()
+	general.Infof("called")
+	defer func() {
+		general.InfoS("finished", "duration", time.Since(startTime))
+	}()
+
 	resourcesMachineState := p.state.GetMachineState()
 	podResourceEntries := p.state.GetPodResourceEntries()
 	machineState := resourcesMachineState[v1.ResourceMemory]
