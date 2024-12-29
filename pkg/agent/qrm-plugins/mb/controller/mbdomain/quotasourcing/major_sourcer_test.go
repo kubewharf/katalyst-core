@@ -199,6 +199,61 @@ func Test_majorfactorSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 			},
 			want: []int{68_330, 10_206},
 		},
+		// special cases for total remote, simulating cross-fire
+		{
+			name: "both major total remote, both to ease",
+			args: args{
+				domainTargets: []DomainMB{
+					{
+						Target:         80_198,
+						MBSource:       17_700,
+						MBSourceRemote: 17_700,
+					},
+					{
+						Target:         30_000,
+						MBSource:       44_121,
+						MBSourceRemote: 44_121,
+					},
+				},
+			},
+			want: []int{29_999, 58_600}, // the ideal {3_000, 80_198}
+		},
+		{
+			name: "both major total remote, both to throttle",
+			args: args{
+				domainTargets: []DomainMB{
+					{
+						Target:         20_198,
+						MBSource:       57_700,
+						MBSourceRemote: 57_700,
+					},
+					{
+						Target:         35_000,
+						MBSource:       44_121,
+						MBSourceRemote: 44_121,
+					},
+				},
+			},
+			want: []int{35_000, 12_815}, // ideal {35_000, 20_198},
+		},
+		{
+			name: "both major total remote, one to throttle and the other ease",
+			args: args{
+				domainTargets: []DomainMB{
+					{
+						Target:         40_198,
+						MBSource:       57_700,
+						MBSourceRemote: 57_700,
+					},
+					{
+						Target:         20_000,
+						MBSource:       24_121,
+						MBSourceRemote: 24_121,
+					},
+				},
+			},
+			want: []int{20_000, 40_198},
+		},
 	}
 	for _, tt := range tests {
 		tt := tt

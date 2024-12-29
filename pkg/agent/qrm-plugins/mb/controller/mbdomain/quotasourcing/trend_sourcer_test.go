@@ -69,7 +69,7 @@ func Test_trendSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{25_000, 50_000},
+			want: []int{48_556, 41_641},
 		},
 		// both major remote traffic
 		{

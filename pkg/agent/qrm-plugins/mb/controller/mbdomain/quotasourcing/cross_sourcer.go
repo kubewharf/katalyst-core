@@ -188,5 +188,6 @@ func getCrossPoint(hostDomain, otherDomain DomainMB) (hostQuota, otherQuote int,
 }
 
 func NewOptimalCrossSourcer() Sourcer {
+	panic("has flaw in corner case; not to use")
 	return CrossSourcer{}
 }

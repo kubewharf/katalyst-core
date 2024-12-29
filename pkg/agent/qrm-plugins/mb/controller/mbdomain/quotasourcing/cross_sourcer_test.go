@@ -274,3 +274,280 @@ func Test_getLeftEndpoint(t *testing.T) {
 		})
 	}
 }
+
+func Test_crossSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
+	t1.Parallel()
+	type args struct {
+		domainTargets []DomainMB
+	}
+	tests := []struct {
+		name string
+		args args
+		want []int
+	}{
+		// both major local traffic
+		{
+			name: "both to ease, major local",
+			args: args{
+				domainTargets: []DomainMB{
+					{
+						Target:         70_198,
+						MBSource:       27_700,
+						MBSourceRemote: 7_700,
+					},
+					{
+						Target:         59_000,
+						MBSource:       14_121,
+						MBSourceRemote: 5_180,
+					},
+				},
+			},
+			want: []int{64_202, 64_995},
+		},
+		{
+			name: "both to throttle, major local",
+			args: args{
+				domainTargets: []DomainMB{
+					{
+						Target:         30_198,
+						MBSource:       47_700,
+						MBSourceRemote: 18_490,
+					},
+					{
+						Target:         29_000,
+						MBSource:       35_121,
+						MBSourceRemote: 5_180,
+					},
+				},
+			},
+			want: []int{34_372, 18_388},
+		},
+		{
+			name: "one to throttle, the other to ease, major local",
+			args: args{
+				domainTargets: []DomainMB{
+					{
+						Target:         30_198,
+						MBSource:       47_700,
+						MBSourceRemote: 18_490,
+					},
+					{
+						Target:         60_000,
+						MBSource:       35_121,
+						MBSourceRemote: 5_180,
+					},
+				},
+			},
+			want: []int{40_540, 36_426},
+		},
+		// both major remote traffic
+		{
+			name: "both throttle, major remote",
+			args: args{
+				domainTargets: []DomainMB{
+					{
+						Target:         30_198,
+						MBSource:       37_700,
+						MBSourceRemote: 30_000,
+					},
+					{
+						Target:         20_000,
+						MBSource:       44_121,
+						MBSourceRemote: 40_180,
+					},
+				},
+			},
+			want: []int{21_964, 28_233},
+		},
+		{
+			name: "both to ease, major remote",
+			args: args{
+				domainTargets: []DomainMB{
+					{
+						Target:         70_198,
+						MBSource:       37_700,
+						MBSourceRemote: 30_000,
+					},
+					{
+						Target:         50_000,
+						MBSource:       44_121,
+						MBSourceRemote: 40_180,
+					},
+				},
+			},
+			want: []int{55_580, 64_617},
+		},
+		{
+			name: "one to throttle, the other to ease, major remote",
+			args: args{
+				domainTargets: []DomainMB{
+					{
+						Target:         30_198,
+						MBSource:       37_700,
+						MBSourceRemote: 30_000,
+					},
+					{
+						Target:         55_000,
+						MBSource:       44_121,
+						MBSourceRemote: 40_180,
+					},
+				},
+			},
+			want: []int{39_667, 24_263}, // other sourcers getting {64_xxx, 18_xxx} which seems inferior :)
+		},
+		// mixed traffic: one major local, the other major remote
+		{
+			name: "both to ease, one major local, the other major remote",
+			args: args{
+				domainTargets: []DomainMB{
+					{
+						Target:         70_198,
+						MBSource:       37_700,
+						MBSourceRemote: 30_000,
+					},
+					{
+						Target:         60_000,
+						MBSource:       34_121,
+						MBSourceRemote: 10_180,
+					},
+				},
+			},
+			want: []int{40_208, 39_911}, // other sourcers getting {39_xxx, 41_xxx}
+		},
+		{
+			name: "both to throttle, one major local, the other major remote",
+			args: args{
+				domainTargets: []DomainMB{
+					{
+						Target:         9_198,
+						MBSource:       37_700,
+						MBSourceRemote: 30_000,
+					},
+					{
+						Target:         30_000,
+						MBSource:       44_121,
+						MBSourceRemote: 10_180,
+					},
+				},
+			},
+			want: []int{18_860, 19_487},
+		},
+		{
+			name: "one to throttle major local, one to ease major remote",
+			args: args{
+				domainTargets: []DomainMB{
+					{
+						Target:         20_198,
+						MBSource:       37_700,
+						MBSourceRemote: 9_000,
+					},
+					{
+						Target:         50_000,
+						MBSource:       44_121,
+						MBSourceRemote: 28_180,
+					},
+				},
+			},
+			want: []int{12_073, 17_233}, // other sourcers getting {0, 31_623}, - neither is ideal in terms of trend
+		},
+		{
+			name: "one to ease major local, one to throttle major remote",
+			args: args{
+				domainTargets: []DomainMB{
+					{
+						Target:         80_198,
+						MBSource:       37_700,
+						MBSourceRemote: 9_000,
+					},
+					{
+						Target:         20_000,
+						MBSource:       44_121,
+						MBSourceRemote: 28_180,
+					},
+				},
+			},
+			want: []int{34_363, 32_650}, // others geeting {68_330, 10_206}, which seems inferior
+		},
+		// special cases for total remote, simulating cross-fire
+		{
+			name: "both major total remote, both to ease",
+			args: args{
+				domainTargets: []DomainMB{
+					{
+						Target:         80_198,
+						MBSource:       17_700,
+						MBSourceRemote: 17_700,
+					},
+					{
+						Target:         30_000,
+						MBSource:       44_121,
+						MBSourceRemote: 44_121,
+					},
+				},
+			},
+			want: []int{30_000, 44_121}, // the ideal {3_000, 80_198}; this one got {30_000, 44_121} chooses the "conservative" candidate
+		},
+		{
+			name: "both major total remote, continuing with the previous case - unable to dissolve itself", // this sourcer has flaw in conner case of total remotes!
+			args: args{
+				domainTargets: []DomainMB{
+					{
+						Target:         80_198,
+						MBSource:       30_000,
+						MBSourceRemote: 30_300,
+					},
+					{
+						Target:         30_000,
+						MBSource:       44_121,
+						MBSourceRemote: 44_121,
+					},
+				},
+			},
+			want: []int{30_000, 44_121}, // the ideal {3_000, 80_198}; this one got {30_000, 44_121} no change in inferior trap
+		},
+		{
+			name: "both major total remote, both to throttle",
+			args: args{
+				domainTargets: []DomainMB{
+					{
+						Target:         20_198,
+						MBSource:       57_700,
+						MBSourceRemote: 57_700,
+					},
+					{
+						Target:         35_000,
+						MBSource:       44_121,
+						MBSourceRemote: 44_121,
+					},
+				},
+			},
+			want: []int{35_000, 20_198}, // ideal {35_000, 20_198},
+		},
+		{
+			name: "both major total remote, one to throttle and the other ease",
+			args: args{
+				domainTargets: []DomainMB{
+					{
+						Target:         40_198,
+						MBSource:       57_700,
+						MBSourceRemote: 57_700,
+					},
+					{
+						Target:         20_000,
+						MBSource:       24_121,
+						MBSourceRemote: 24_121,
+					},
+				},
+			},
+			want: []int{20_000, 24_121}, //this one got {20000, 24121}, not the best - the most "conservative" candidate
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t1.Run(tt.name, func(t1 *testing.T) {
+			t1.Parallel()
+			t := CrossSourcer{}
+			assert.Equalf(t1, tt.want, t.AttributeMBToSources(tt.args.domainTargets), "AttributeMBToSources(%v)", tt.args.domainTargets)
+		})
+	}
+}

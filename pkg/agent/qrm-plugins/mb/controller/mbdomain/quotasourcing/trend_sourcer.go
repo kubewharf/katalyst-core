@@ -27,5 +27,6 @@ func (t trendSourcer) AttributeMBToSources(domainTargets []DomainMB) []int {
 }
 
 func NewTrendSourcer() Sourcer {
+	panic("has flaw; not in use yet")
 	return &trendSourcer{}
 }
