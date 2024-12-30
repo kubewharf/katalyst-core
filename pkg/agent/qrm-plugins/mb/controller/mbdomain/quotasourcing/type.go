@@ -30,3 +30,14 @@ func (s SiloSourcer) AttributeMBToSources(domainTargets []DomainMB) []int {
 }
 
 var _ Sourcer = &SiloSourcer{}
+
+func New(sourcerType string) Sourcer {
+	switch sourcerType {
+	case "category":
+		return NewCategorySourcer()
+	case "majorfactor":
+		return NewMajorfactorSourcer()
+	default:
+		panic("not supported sourcer type")
+	}
+}

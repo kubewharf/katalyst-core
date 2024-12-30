@@ -31,6 +31,8 @@ type MBQRMPluginConfig struct {
 	// type of leaf planners
 	LeafThrottleType strategy.LowPrioPlannerType
 	LeafEaseType     strategy.LowPrioPlannerType
+
+	SourcerType string
 }
 
 func NewMBQRMPluginConfig() *MBQRMPluginConfig {

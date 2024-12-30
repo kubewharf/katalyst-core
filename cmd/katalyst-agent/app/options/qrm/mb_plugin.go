@@ -36,6 +36,8 @@ type MBOptions struct {
 	// type of leaf planners
 	LeafThrottleType string
 	LeafEaseType     string
+
+	SourcerType string
 }
 
 func NewMBOptions() *MBOptions {
@@ -51,6 +53,8 @@ func NewMBOptions() *MBOptions {
 
 		LeafThrottleType: string(strategy.ExtremeThrottle),
 		LeafEaseType:     string(strategy.HalfEase),
+
+		SourcerType: "category",
 	}
 }
 
@@ -64,6 +68,7 @@ func (m *MBOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.IntVar(&m.DomainMBCapacity, "domain-mb-capacity", m.DomainMBCapacity, "MB capacity per domain(socket) in MBps")
 	fs.StringVar(&m.LeafThrottleType, "mb-leaf-throttle-type", m.LeafThrottleType, "type of shared-30 throttle planner")
 	fs.StringVar(&m.LeafEaseType, "mb-leaf-ease-type", m.LeafEaseType, "type of shared-30 ease planner")
+	fs.StringVar(&m.SourcerType, "mb-sourcer-type", m.SourcerType, "type of mb target source distributor")
 }
 
 func (m *MBOptions) ApplyTo(conf *qrmconfig.MBQRMPluginConfig) error {
@@ -75,5 +80,7 @@ func (m *MBOptions) ApplyTo(conf *qrmconfig.MBQRMPluginConfig) error {
 	// todo: to validate assignments
 	conf.LeafThrottleType = strategy.LowPrioPlannerType(m.LeafThrottleType)
 	conf.LeafEaseType = strategy.LowPrioPlannerType(m.LeafEaseType)
+
+	conf.SourcerType = m.SourcerType
 	return nil
 }

@@ -309,6 +309,7 @@ func (g *globalMBPolicy) hasHighQoSMB(mbQoSGroups map[qosgroup.QoSGroup]*stat.MB
 }
 
 func NewGlobalMBPolicy(ccdMBMin int, domainManager *mbdomain.MBDomainManager, throttleType, easeType strategy.LowPrioPlannerType,
+	sourcerType string,
 ) (DomainMBPolicy, error) {
 	domainLeafQuotas := make(map[int]int)
 	for domain := range domainManager.Domains {
@@ -318,7 +319,7 @@ func NewGlobalMBPolicy(ccdMBMin int, domainManager *mbdomain.MBDomainManager, th
 	ccdPlanner := strategy.NewCCDGroupPlanner(ccdMBMin, 35_000)
 
 	return &globalMBPolicy{
-		sourcer:          quotasourcing.NewCategorySourcer(),
+		sourcer:          quotasourcing.New(sourcerType),
 		throttler:        strategy.New(throttleType, ccdPlanner),
 		easer:            strategy.New(easeType, ccdPlanner),
 		domainManager:    domainManager,
