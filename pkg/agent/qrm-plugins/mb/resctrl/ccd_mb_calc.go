@@ -55,7 +55,7 @@ func calcMB(fs afero.Fs, monGroup string, ccd int, tsCurr time.Time, dataKeeper 
 	monPathLocalMB := path.Join(monGroup, consts.MonData, ccdMon, consts.MBLocalRawFile)
 	totalCurr := file.ReadValueFromFile(fs, monPathTotalMB)
 	localCurr := file.ReadValueFromFile(fs, monPathLocalMB)
-	general.InfofV(6, "mbm: resctrl: read value from file %s: total %d, local %d", monPathTotalMB, totalCurr, localCurr)
+	general.InfofV(7, "mbm: resctrl: read value from file %s: total %d, local %d", monPathTotalMB, totalCurr, localCurr)
 
 	mb := rmbtype.MBStat{Total: consts.UninitializedMB, Local: consts.UninitializedMB}
 	if prev, err := dataKeeper.Get(monPathTotalMB); err == nil {
