@@ -64,10 +64,10 @@ func (c categorySourcer) AttributeMBToSources(domainTargets []DomainMB) []int {
 			}
 		}
 	} else if deltaY[0] >= 0 && deltaY[1] <= 0 {
-		deltaX = processEaseThrottl(rho, deltaY)
+		deltaX = processEaseThrottle(rho, deltaY)
 	} else {
 		deltaXReversed := []int{0, 0}
-		deltaXReversed = processEaseThrottl([]float64{rho[1], rho[0]}, []float64{deltaY[1], deltaY[0]})
+		deltaXReversed = processEaseThrottle([]float64{rho[1], rho[0]}, []float64{deltaY[1], deltaY[0]})
 		deltaX = []int{deltaXReversed[1], deltaXReversed[0]}
 	}
 
@@ -80,31 +80,34 @@ func (c categorySourcer) AttributeMBToSources(domainTargets []DomainMB) []int {
 }
 
 // mixed case: 0 to ease, 1 to throttle
-func processEaseThrottl(rho []float64, deltaY []float64) (deltaX []int) {
+func processEaseThrottle(rho []float64, deltaY []float64) (deltaX []int) {
 	// has to be one positive the other negative
 	foundResult := false
-	// try domain 0 negative
+	// first try domain 0 negative
 	crossPoint, err := locateCrossPointForm2(rho, []float64{deltaY[0], -deltaY[1]})
 	if err == nil && isAllPositive(crossPoint) {
 		deltaX = []int{-crossPoint[0], crossPoint[1]}
 		foundResult = true
 	} else {
-		//x0, y0 := getLineEnds(-rho[0], 1-rho[1], deltaY[0])
 		x1, _ := getLineEnds(-(1 - rho[0]), rho[1], -deltaY[0])
-		if x1 > 0 {
+		if x1 > 0 && x1 != math.MaxInt {
 			deltaX = []int{-x1, 0}
 			foundResult = true
 		}
 	}
 
-	// try domain 0 as positive
+	// try domain 0 as positive, if first try is not good enough
 	if !foundResult {
 		crossPoint2, err2 := locateCrossPointForm3(rho, []float64{deltaY[0], -deltaY[1]})
 		if err2 == nil && isAllPositive(crossPoint2) {
 			deltaX = []int{crossPoint2[0], -crossPoint2[1]}
 		} else {
 			if rho[1] != 0 {
-				deltaX = []int{0, -int(deltaY[1] / rho[1])}
+				deltaX = []int{0, -int(-deltaY[1] / rho[1])}
+			} else {
+				// in theory no solution for rho[0] == 1 && rho[1] == 0, as the formula (1-rho[0]*x0 + rho[1]*x1 <= -y1 (if y1 != 0 ) no way to be true
+				// in practice, lets make a compromise of keeping domain 0 unchanged, and domain 1 less mb, to be at conservative (safer) side
+				deltaX = []int{0, -int(deltaY[0])}
 			}
 		}
 	}

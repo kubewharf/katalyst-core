@@ -254,6 +254,44 @@ func Test_categorySourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 			},
 			want: []int{20_000, 40_198},
 		},
+		// another special case: both total local
+		{
+			name: "both major total remote, one to throttle and the other ease",
+			args: args{
+				domainTargets: []DomainMB{
+					{
+						Target:         40_198,
+						MBSource:       57_700,
+						MBSourceRemote: 0,
+					},
+					{
+						Target:         20_000,
+						MBSource:       24_121,
+						MBSourceRemote: 0,
+					},
+				},
+			},
+			want: []int{40_198, 20_000},
+		},
+		// really conner case: one total local, the other total remote
+		{
+			name: "one major total local, the other total remote, one to throttle and the other ease - choose at conservative side",
+			args: args{
+				domainTargets: []DomainMB{
+					{
+						Target:         40_198,
+						MBSource:       57_700,
+						MBSourceRemote: 0,
+					},
+					{
+						Target:         20_000,
+						MBSource:       24_121,
+						MBSourceRemote: 24_121,
+					},
+				},
+			},
+			want: []int{16_077, 24_121},
+		},
 	}
 	for _, tt := range tests {
 		tt := tt
