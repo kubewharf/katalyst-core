@@ -1,5 +1,7 @@
 package quotasourcing
 
+import "github.com/kubewharf/katalyst-core/pkg/util/general"
+
 type DomainMB struct {
 	Target         int // the desired mb to have; -1 means no constraint at all - maximum mb it can get
 	MBSource       int // the current mb totaling by all contributors (e.g. low prio CCDs)
@@ -32,6 +34,7 @@ func (s SiloSourcer) AttributeMBToSources(domainTargets []DomainMB) []int {
 var _ Sourcer = &SiloSourcer{}
 
 func New(sourcerType string) Sourcer {
+	general.Infof("mbm: mb sourcer type: %s", sourcerType)
 	switch sourcerType {
 	case "category":
 		return NewCategorySourcer()

@@ -328,6 +328,25 @@ func Test_categorySourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 			},
 			want: []int{26_809, 133_88},
 		},
+		// test case based on integration half-cross
+		{
+			name: "one major total local, the other half local; one to throttle, one to ease",
+			args: args{
+				domainTargets: []DomainMB{
+					{
+						Target:         35_198,
+						MBSource:       50_151,
+						MBSourceRemote: 0,
+					},
+					{
+						Target:         81_641,
+						MBSource:       51_517 + 20_485,
+						MBSourceRemote: 20_485,
+					},
+				},
+			},
+			want: []int{2_409, 114_430},
+		},
 	}
 	for _, tt := range tests {
 		tt := tt
