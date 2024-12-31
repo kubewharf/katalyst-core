@@ -14,10 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package policy
+package silodomain
 
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
@@ -26,16 +27,9 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
-type DomainMBPolicy interface {
-	GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoSMB map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc
-
-	// let policy have a sense of global view; essentail for domains having impacts on/from others
-	ProcessGlobalQoSCCDMB(qos map[qosgroup.QoSGroup]*stat.MBQoSGroup)
-}
-
 type domainMBPolicy struct {
-	preemptMBPolicy    DomainMBPolicy
-	constraintMBPolicy DomainMBPolicy
+	preemptMBPolicy    policy.DomainMBPolicy
+	constraintMBPolicy policy.DomainMBPolicy
 }
 
 func (d *domainMBPolicy) ProcessGlobalQoSCCDMB(qos map[qosgroup.QoSGroup]*stat.MBQoSGroup) {
@@ -86,7 +80,7 @@ func (d *domainMBPolicy) GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoS
 	return d.constraintMBPolicy.GetPlan(availableMB, domain, currQoSMB)
 }
 
-func newDomainMBPolicy(preemptMBPolicy, softLimitMBPolicy DomainMBPolicy) (DomainMBPolicy, error) {
+func newDomainMBPolicy(preemptMBPolicy, softLimitMBPolicy policy.DomainMBPolicy) (policy.DomainMBPolicy, error) {
 	return &domainMBPolicy{
 		preemptMBPolicy:    preemptMBPolicy,
 		constraintMBPolicy: softLimitMBPolicy,
@@ -99,7 +93,7 @@ func newDomainMBPolicy(preemptMBPolicy, softLimitMBPolicy DomainMBPolicy) (Domai
 //	return NewDomainMBPolicy(ccdMBMin, strategy.ExtremeThrottle, strategy.HalfEase)
 //}
 
-func NewDomainMBPolicy(ccdMBMin int, _ *mbdomain.MBDomainManager, throttleType, easeType strategy.LowPrioPlannerType) (DomainMBPolicy, error) {
+func NewDomainMBPolicy(ccdMBMin int, _ *mbdomain.MBDomainManager, throttleType, easeType strategy.LowPrioPlannerType) (policy.DomainMBPolicy, error) {
 	general.Infof("mbm: creating domain mb policy using ccdmbmin %d MB, throttling %v, easing %v", ccdMBMin, throttleType, easeType)
 	return newDomainMBPolicy(
 		NewPreemptDomainMBPolicy(ccdMBMin, throttleType, easeType),

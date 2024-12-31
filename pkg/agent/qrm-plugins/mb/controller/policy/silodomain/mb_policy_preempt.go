@@ -14,15 +14,16 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package policy
+package silodomain
 
 import (
 	"sync"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/qospolicy"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/silodomain/qospolicy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
@@ -79,7 +80,7 @@ func (p *preemptDomainMBPolicy) GetPlan(totalMB int, domain *mbdomain.MBDomain, 
 	return plan.Merge(reservationPlan, allocatablePlan)
 }
 
-func newPreemptDomainMBPolicy(chainedPolicy qospolicy.QoSMBPolicy) DomainMBPolicy {
+func newPreemptDomainMBPolicy(chainedPolicy qospolicy.QoSMBPolicy) policy.DomainMBPolicy {
 	return &preemptDomainMBPolicy{
 		qosMBPolicy: chainedPolicy,
 	}
@@ -89,7 +90,7 @@ func newPreemptDomainMBPolicy(chainedPolicy qospolicy.QoSMBPolicy) DomainMBPolic
 //	return NewPreemptDomainMBPolicy(ccdMBMin, strategy.ExtremeThrottle, strategy.HalfEase)
 //}
 
-func NewPreemptDomainMBPolicy(ccdMBMin int, throttleType, easeType strategy.LowPrioPlannerType) DomainMBPolicy {
+func NewPreemptDomainMBPolicy(ccdMBMin int, throttleType, easeType strategy.LowPrioPlannerType) policy.DomainMBPolicy {
 	// since there is admitting socket pod, the qos policy is {dedicated, shared-50, system} -> {shared-30}
 	qosMBPolicy := qospolicy.BuildFullyChainedQoSPolicy(ccdMBMin, throttleType, easeType)
 	return newPreemptDomainMBPolicy(qosMBPolicy)
