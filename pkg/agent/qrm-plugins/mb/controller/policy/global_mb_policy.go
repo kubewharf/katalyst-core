@@ -2,6 +2,7 @@ package policy
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -120,10 +121,22 @@ func (g *globalMBPolicy) ProcessGlobalQoSCCDMB(mbQoSGroups map[qosgroup.QoSGroup
 		}
 	}
 
+	general.InfofV(6, "mbm: policy: source args: %s", getPolicySourcerArgs(leafPolicyArgs))
+
 	// figure out the leaf quotas by taking into account of cross-domain impacts
 	leafQuotas := g.sourcer.AttributeMBToSources(leafPolicyArgs)
 	general.InfofV(6, "mbm: policy: domain quotas: %v", leafQuotas)
 	g.setLeafQuotas(leafQuotas)
+}
+
+func getPolicySourcerArgs(args []quotasourcing.DomainMB) string {
+	var sb strings.Builder
+	for id, domainMB := range args {
+		sb.WriteString(fmt.Sprintf("domain: %d ", id))
+		sb.WriteString(fmt.Sprintf("target: %d, sending total: %d, sending to remote: %d", domainMB.Target, domainMB.MBSource, domainMB.MBSourceRemote))
+		sb.WriteString("\n")
+	}
+	return sb.String()
 }
 
 func (g *globalMBPolicy) adjustSocketCCDMB(mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) map[qosgroup.QoSGroup]*stat.MBQoSGroup {
