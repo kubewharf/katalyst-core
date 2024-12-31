@@ -1,11 +1,11 @@
 package policy
 
 import (
-	"github.com/stretchr/testify/assert"
 	"reflect"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"k8s.io/apimachinery/pkg/util/sets"
 
@@ -14,6 +14,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/readmb/rmbtype"
 )
 
 func Test_globalMBPolicy_sumHighQoSMB(t *testing.T) {
@@ -591,8 +592,8 @@ func Test_globalMBPolicy_adjustSocketCCDMB(t *testing.T) {
 			g := &globalMBPolicy{
 				domainManager: tt.fields.domainManager,
 			}
-			if got := g.adjustSocketCCDMB(tt.args.mbQoSGroups); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("adjustSocketCCDMB() = %v, want %v", got, tt.want)
+			if got := g.adjustSocketCCDMBWithIncubates(tt.args.mbQoSGroups); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("adjustSocketCCDMBWithIncubates() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -624,15 +625,58 @@ func Test_getPolicySourcerArgs(t *testing.T) {
 					},
 				},
 			},
-			want: "domain: 0 target: 35678, sending total: 51224, sending to remote: 4567\n        domain: 1 target: 80432, sending total: 71765, sending to remote: 20909",
+			want: "domain: 0 target: 35678, sending total: 51224, sending to remote: 4567\ndomain: 1 target: 80432, sending total: 71765, sending to remote: 20909\n",
 		},
 	}
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := getPolicySourcerArgs(tt.args.args)
+			got := stringifyPolicySourceInfo(tt.args.args)
 			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func Test_getTotalLocalRemoteSummary(t *testing.T) {
+	t.Parallel()
+	type args struct {
+		qosMBStat map[qosgroup.QoSGroup]rmbtype.MBStat
+	}
+	tests := []struct {
+		name       string
+		args       args
+		wantTotal  int
+		wantLocal  int
+		wantRemote int
+	}{
+		{
+			name: "happy path",
+			args: args{
+				qosMBStat: map[qosgroup.QoSGroup]rmbtype.MBStat{
+					"dedicated": {
+						Total: 12_345,
+						Local: 10_000,
+					},
+					"system": {
+						Total: 9_000,
+						Local: 3_333,
+					},
+				},
+			},
+			wantTotal:  12_345 + 9_000,
+			wantLocal:  10_000 + 3_333,
+			wantRemote: 12_345 + 9_000 - (10_000 + 3_333),
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			gotTotal, gotLocal, gotRemote := getTotalLocalRemoteMBStatSummary(tt.args.qosMBStat)
+			assert.Equalf(t, tt.wantTotal, gotTotal, "getTotalLocalRemoteSummary(%v)", tt.args.qosMBStat)
+			assert.Equalf(t, tt.wantLocal, gotLocal, "getTotalLocalRemoteSummary(%v)", tt.args.qosMBStat)
+			assert.Equalf(t, tt.wantRemote, gotRemote, "getTotalLocalRemoteSummary(%v)", tt.args.qosMBStat)
 		})
 	}
 }
