@@ -19,7 +19,8 @@ package qospolicy
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy/ccdtarget"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy/domaintarget"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -29,8 +30,8 @@ const saturationThreshold = 8_000
 
 type terminalQoSPolicy struct {
 	ccdMBMin        int
-	throttlePlanner strategy.LowPrioPlanner
-	easePlanner     strategy.LowPrioPlanner
+	throttlePlanner domaintarget.DomainMBAdjuster
+	easePlanner     domaintarget.DomainMBAdjuster
 }
 
 func (t terminalQoSPolicy) GetPlan(totalMB int, mbQoSGroups, globalMBQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup, isTopMost bool) *plan.MBAlloc {
@@ -63,10 +64,10 @@ func (t terminalQoSPolicy) getLeafPlan(totalMB int, mbQoSGroups, globalMBQoSGrou
 	totalUsage := hostLocal + otherRemote
 	general.InfofV(6, "mbm: low priority (high prio excluded): capacity %d, (recv) mb total usage: %d (host local: %d, ext remote %d)", totalMB, totalUsage, hostLocal, otherRemote)
 
-	if strategy.IsResourceUnderPressure(totalMB, totalUsage) {
+	if domaintarget.IsResourceUnderPressure(totalMB, totalUsage) {
 		return t.throttlePlanner.GetPlan(totalMB, mbQoSGroups)
 	}
-	if strategy.IsResourceAtEase(totalMB, totalUsage) {
+	if domaintarget.IsResourceAtEase(totalMB, totalUsage) {
 		return t.easePlanner.GetPlan(totalMB, mbQoSGroups)
 	}
 
@@ -110,12 +111,12 @@ func (t terminalQoSPolicy) getProportionalPlan(ratio float64, mbQoSGroups map[qo
 	return mbPlan
 }
 
-func NewTerminalQoSPolicy(ccdMBMin int, throttleType, easeType strategy.LowPrioPlannerType) QoSMBPolicy {
-	ccdGroupPlanner := strategy.NewCCDGroupPlanner(ccdMBMin, config.CCDMBMax)
+func NewTerminalQoSPolicy(ccdMBMin int, throttleType, easeType domaintarget.MBAdjusterType) QoSMBPolicy {
+	ccdGroupPlanner := ccdtarget.NewCCDGroupPlanner(ccdMBMin, config.CCDMBMax)
 	policy := terminalQoSPolicy{
 		ccdMBMin:        ccdMBMin,
-		throttlePlanner: strategy.New(throttleType, ccdGroupPlanner),
-		easePlanner:     strategy.New(easeType, ccdGroupPlanner),
+		throttlePlanner: domaintarget.New(throttleType, ccdGroupPlanner),
+		easePlanner:     domaintarget.New(easeType, ccdGroupPlanner),
 	}
 	general.Infof("mbm: created terminal policy with throttle planner: %v, ease planner %v",
 		policy.throttlePlanner.Name(),

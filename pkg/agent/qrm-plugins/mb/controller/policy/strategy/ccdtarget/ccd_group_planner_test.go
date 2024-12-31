@@ -1,4 +1,4 @@
-package strategy
+package ccdtarget
 
 import (
 	"reflect"
@@ -55,7 +55,7 @@ func TestCCDGroupPlanner_GetFixedPlan(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			c := &CCDGroupPlanner{
-				ccdMBMin: tt.fields.ccdMBMin,
+				CCDMBMin: tt.fields.ccdMBMin,
 				ccdMBMax: tt.fields.ccdMBMax,
 			}
 			if got := c.GetFixedPlan(tt.args.fixed, tt.args.mbQoSGroups); !reflect.DeepEqual(got, tt.want) {

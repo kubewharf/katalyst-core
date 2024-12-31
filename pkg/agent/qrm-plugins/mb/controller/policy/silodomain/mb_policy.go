@@ -21,7 +21,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy/domaintarget"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -93,7 +93,7 @@ func newDomainMBPolicy(preemptMBPolicy, softLimitMBPolicy policy.DomainMBPolicy)
 //	return NewDomainMBPolicy(ccdMBMin, strategy.ExtremeThrottle, strategy.HalfEase)
 //}
 
-func NewDomainMBPolicy(ccdMBMin int, _ *mbdomain.MBDomainManager, throttleType, easeType strategy.LowPrioPlannerType) (policy.DomainMBPolicy, error) {
+func NewDomainMBPolicy(ccdMBMin int, _ *mbdomain.MBDomainManager, throttleType, easeType domaintarget.MBAdjusterType) (policy.DomainMBPolicy, error) {
 	general.Infof("mbm: creating domain mb policy using ccdmbmin %d MB, throttling %v, easing %v", ccdMBMin, throttleType, easeType)
 	return newDomainMBPolicy(
 		NewPreemptDomainMBPolicy(ccdMBMin, throttleType, easeType),

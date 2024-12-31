@@ -17,7 +17,6 @@ limitations under the License.
 package qospolicy
 
 import (
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -25,7 +24,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy/domaintarget"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
 
@@ -71,7 +71,7 @@ func Test_getTopMostPlan(t *testing.T) {
 
 type mockLeafPlanner struct {
 	mock.Mock
-	strategy.LowPrioPlanner
+	domaintarget.DomainMBAdjuster
 }
 
 func (m *mockLeafPlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
@@ -104,7 +104,7 @@ func Test_getLeafPlan(t *testing.T) {
 	mockThrottlePlanner.On("GetPlan", 15_000, overUsed).Return(&plan.MBAlloc{Plan: map[qosgroup.QoSGroup]map[int]int{"shared-30": {6: 3_456}}})
 
 	type fields struct {
-		throttlePlanner, easePlanner strategy.LowPrioPlanner
+		throttlePlanner, easePlanner domaintarget.DomainMBAdjuster
 	}
 	type args struct {
 		totalMB     int

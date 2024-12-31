@@ -1,6 +1,7 @@
-package strategy
+package domaintarget
 
 import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy/ccdtarget"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"reflect"
 	"testing"
@@ -14,7 +15,7 @@ import (
 func Test_halfThrottlePlanner_GetPlan(t1 *testing.T) {
 	t1.Parallel()
 	type fields struct {
-		ccdGroupPlanner *CCDGroupPlanner
+		ccdGroupPlanner *ccdtarget.CCDGroupPlanner
 	}
 	type args struct {
 		capacity    int
@@ -29,7 +30,7 @@ func Test_halfThrottlePlanner_GetPlan(t1 *testing.T) {
 		{
 			name: "happy path of halving",
 			fields: fields{
-				ccdGroupPlanner: NewCCDGroupPlanner(8_000, 35_000),
+				ccdGroupPlanner: ccdtarget.NewCCDGroupPlanner(8_000, 35_000),
 			},
 			args: args{
 				capacity: 30_000,
@@ -49,7 +50,7 @@ func Test_halfThrottlePlanner_GetPlan(t1 *testing.T) {
 		{
 			name: "halving is bounded by easement bar",
 			fields: fields{
-				ccdGroupPlanner: NewCCDGroupPlanner(2_000, 35_000),
+				ccdGroupPlanner: ccdtarget.NewCCDGroupPlanner(2_000, 35_000),
 			},
 			args: args{
 				capacity: 12_000,
@@ -84,7 +85,7 @@ func Test_halfThrottlePlanner_GetPlan(t1 *testing.T) {
 func Test_extremeThrottlePlanner_GetPlan(t *testing.T) {
 	t.Parallel()
 	type fields struct {
-		ccdGroupPlanner *CCDGroupPlanner
+		ccdGroupPlanner *ccdtarget.CCDGroupPlanner
 	}
 	type args struct {
 		capacity    int
@@ -99,7 +100,7 @@ func Test_extremeThrottlePlanner_GetPlan(t *testing.T) {
 		{
 			name: "extreme throttling always get plan of min mb",
 			fields: fields{
-				ccdGroupPlanner: NewCCDGroupPlanner(4_000, 35_000),
+				ccdGroupPlanner: ccdtarget.NewCCDGroupPlanner(4_000, 35_000),
 			},
 			args: args{
 				capacity: 30_000,

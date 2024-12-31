@@ -1,13 +1,14 @@
-package strategy
+package domaintarget
 
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy/ccdtarget"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
 
 type fullEasePlanner struct {
-	ccdGroupPlanner *CCDGroupPlanner
+	ccdGroupPlanner *ccdtarget.CCDGroupPlanner
 }
 
 func (t fullEasePlanner) GetQuota(capacity, currentUsage int) int {
@@ -34,7 +35,7 @@ func (t fullEasePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup
 	return t.ccdGroupPlanner.GetProportionalPlan(ratio, mbQoSGroups)
 }
 
-func newFullEasePlanner(planner *CCDGroupPlanner) LowPrioPlanner {
+func newFullEasePlanner(planner *ccdtarget.CCDGroupPlanner) DomainMBAdjuster {
 	return &fullEasePlanner{
 		ccdGroupPlanner: planner,
 	}
@@ -60,7 +61,7 @@ func (s halfEasePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup
 	return s.innerPlanner.GetPlan(constraintCapacity, mbQoSGroups)
 }
 
-func newHalfEasePlanner(planner *CCDGroupPlanner) LowPrioPlanner {
+func newHalfEasePlanner(planner *ccdtarget.CCDGroupPlanner) DomainMBAdjuster {
 	return &halfEasePlanner{
 		innerPlanner: fullEasePlanner{ccdGroupPlanner: planner},
 	}

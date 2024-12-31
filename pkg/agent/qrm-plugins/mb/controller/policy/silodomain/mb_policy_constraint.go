@@ -23,7 +23,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/silodomain/qospolicy"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy/domaintarget"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 	"github.com/kubewharf/katalyst-core/pkg/util/syntax"
@@ -70,7 +70,7 @@ func newConstraintDomainMBPolicy(qosMBPolicy qospolicy.QoSMBPolicy) policy.Domai
 //	return NewConstraintDomainMBPolicy(ccdMBMin, strategy.ExtremeThrottle, strategy.HalfEase)
 //}
 
-func NewConstraintDomainMBPolicy(ccdMBMin int, throttleType, easeType strategy.LowPrioPlannerType) policy.DomainMBPolicy {
+func NewConstraintDomainMBPolicy(ccdMBMin int, throttleType, easeType domaintarget.MBAdjusterType) policy.DomainMBPolicy {
 	qosMBPolicy := qospolicy.BuildHiPrioDetectedQoSMBPolicy(ccdMBMin, throttleType, easeType)
 	return newConstraintDomainMBPolicy(qosMBPolicy)
 }

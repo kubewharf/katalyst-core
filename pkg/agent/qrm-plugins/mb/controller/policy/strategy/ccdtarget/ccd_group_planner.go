@@ -1,4 +1,4 @@
-package strategy
+package ccdtarget
 
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
@@ -7,14 +7,14 @@ import (
 )
 
 type CCDGroupPlanner struct {
-	ccdMBMin, ccdMBMax int
+	CCDMBMin, ccdMBMax int
 }
 
 func (c *CCDGroupPlanner) GetProportionalPlan(ratio float64, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
-	return c.getProportionalPlanWithUpperLimit(ratio, mbQoSGroups, c.ccdMBMax)
+	return c.GetProportionalPlanWithUpperLimit(ratio, mbQoSGroups, c.ccdMBMax)
 }
 
-func (c *CCDGroupPlanner) getProportionalPlanWithUpperLimit(ratio float64, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup, high int) *plan.MBAlloc {
+func (c *CCDGroupPlanner) GetProportionalPlanWithUpperLimit(ratio float64, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup, high int) *plan.MBAlloc {
 	mbPlan := &plan.MBAlloc{Plan: make(map[qosgroup.QoSGroup]map[int]int)}
 	for qos, group := range mbQoSGroups {
 		mbPlan.Plan[qos] = make(map[int]int)
@@ -23,8 +23,8 @@ func (c *CCDGroupPlanner) getProportionalPlanWithUpperLimit(ratio float64, mbQoS
 			if newMB > high {
 				newMB = high
 			}
-			if newMB < c.ccdMBMin {
-				newMB = c.ccdMBMin
+			if newMB < c.CCDMBMin {
+				newMB = c.CCDMBMin
 			}
 			mbPlan.Plan[qos][ccd] = newMB
 		}
@@ -45,7 +45,7 @@ func (c *CCDGroupPlanner) GetFixedPlan(fixed int, mbQoSGroups map[qosgroup.QoSGr
 
 func NewCCDGroupPlanner(min, max int) *CCDGroupPlanner {
 	return &CCDGroupPlanner{
-		ccdMBMin: min,
+		CCDMBMin: min,
 		ccdMBMax: max,
 	}
 }

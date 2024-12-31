@@ -18,7 +18,7 @@ package qospolicy
 
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy/domaintarget"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
@@ -29,7 +29,7 @@ type QoSMBPolicy interface {
 }
 
 // BuildFullyChainedQoSPolicy builds up the full chain of {dedicated, shared-50, system} -> {shared-30, reclaimed}
-func BuildFullyChainedQoSPolicy(ccdMBMin int, throttleType, easeType strategy.LowPrioPlannerType) QoSMBPolicy {
+func BuildFullyChainedQoSPolicy(ccdMBMin int, throttleType, easeType domaintarget.MBAdjusterType) QoSMBPolicy {
 	return NewChainedQoSMBPolicy(
 		map[qosgroup.QoSGroup]struct{}{
 			"dedicated": {},
@@ -41,7 +41,7 @@ func BuildFullyChainedQoSPolicy(ccdMBMin int, throttleType, easeType strategy.Lo
 	)
 }
 
-func BuildHiPrioDetectedQoSMBPolicy(ccdMBMin int, throttleType, easeType strategy.LowPrioPlannerType) QoSMBPolicy {
+func BuildHiPrioDetectedQoSMBPolicy(ccdMBMin int, throttleType, easeType domaintarget.MBAdjusterType) QoSMBPolicy {
 	//--[if any dedicated|shared-50 pod exist]:    {dedicated, shared-50, system} -> {shared-30}
 	//        \ or ---------------------------:    {system, shared-30}
 

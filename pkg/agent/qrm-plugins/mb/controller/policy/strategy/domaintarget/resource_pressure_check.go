@@ -1,4 +1,4 @@
-package strategy
+package domaintarget
 
 const (
 	PressureThreshold = 6_000

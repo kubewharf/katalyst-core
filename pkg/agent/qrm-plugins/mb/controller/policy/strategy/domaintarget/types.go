@@ -1,27 +1,28 @@
-package strategy
+package domaintarget
 
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy/ccdtarget"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
 
-type LowPrioPlanner interface {
+type DomainMBAdjuster interface {
 	GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc
 	GetQuota(capacity, currentUsage int) int
 	Name() string
 }
 
-type LowPrioPlannerType string
+type MBAdjusterType string
 
 const (
-	ExtremeThrottle = LowPrioPlannerType("extreme-throttle")
-	HalfThrottle    = LowPrioPlannerType("half-throttle")
-	FullEase        = LowPrioPlannerType("full-ease")
-	HalfEase        = LowPrioPlannerType("half-ease")
+	ExtremeThrottle = MBAdjusterType("extreme-throttle")
+	HalfThrottle    = MBAdjusterType("half-throttle")
+	FullEase        = MBAdjusterType("full-ease")
+	HalfEase        = MBAdjusterType("half-ease")
 )
 
-func New(typ LowPrioPlannerType, ccdPlanner *CCDGroupPlanner) LowPrioPlanner {
+func New(typ MBAdjusterType, ccdPlanner *ccdtarget.CCDGroupPlanner) DomainMBAdjuster {
 	switch typ {
 	case ExtremeThrottle:
 		return newExtremeThrottlePlanner(ccdPlanner)

@@ -17,9 +17,8 @@ limitations under the License.
 package qrm
 
 import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy/domaintarget"
 	"time"
-
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
 )
 
 type MBQRMPluginConfig struct {
@@ -29,8 +28,8 @@ type MBQRMPluginConfig struct {
 	DomainMBCapacity           int
 
 	// type of leaf planners
-	LeafThrottleType strategy.LowPrioPlannerType
-	LeafEaseType     strategy.LowPrioPlannerType
+	LeafThrottleType domaintarget.MBAdjusterType
+	LeafEaseType     domaintarget.MBAdjusterType
 
 	SourcerType string
 }

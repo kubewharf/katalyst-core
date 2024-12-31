@@ -24,7 +24,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/silodomain/qospolicy"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy/domaintarget"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -90,7 +90,7 @@ func newPreemptDomainMBPolicy(chainedPolicy qospolicy.QoSMBPolicy) policy.Domain
 //	return NewPreemptDomainMBPolicy(ccdMBMin, strategy.ExtremeThrottle, strategy.HalfEase)
 //}
 
-func NewPreemptDomainMBPolicy(ccdMBMin int, throttleType, easeType strategy.LowPrioPlannerType) policy.DomainMBPolicy {
+func NewPreemptDomainMBPolicy(ccdMBMin int, throttleType, easeType domaintarget.MBAdjusterType) policy.DomainMBPolicy {
 	// since there is admitting socket pod, the qos policy is {dedicated, shared-50, system} -> {shared-30}
 	qosMBPolicy := qospolicy.BuildFullyChainedQoSPolicy(ccdMBMin, throttleType, easeType)
 	return newPreemptDomainMBPolicy(qosMBPolicy)

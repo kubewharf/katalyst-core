@@ -17,11 +17,11 @@ limitations under the License.
 package qrm
 
 import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy/domaintarget"
 	"time"
 
 	cliflag "k8s.io/component-base/cli/flag"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 )
 
@@ -51,8 +51,8 @@ func NewMBOptions() *MBOptions {
 		MinMBPerCCD:      4_000,
 		DomainMBCapacity: 122_000, // 122_000 MBps = 122 GBps
 
-		LeafThrottleType: string(strategy.ExtremeThrottle),
-		LeafEaseType:     string(strategy.HalfEase),
+		LeafThrottleType: string(domaintarget.ExtremeThrottle),
+		LeafEaseType:     string(domaintarget.HalfEase),
 
 		SourcerType: "category",
 	}
@@ -78,8 +78,8 @@ func (m *MBOptions) ApplyTo(conf *qrmconfig.MBQRMPluginConfig) error {
 	conf.DomainMBCapacity = m.DomainMBCapacity
 
 	// todo: to validate assignments
-	conf.LeafThrottleType = strategy.LowPrioPlannerType(m.LeafThrottleType)
-	conf.LeafEaseType = strategy.LowPrioPlannerType(m.LeafEaseType)
+	conf.LeafThrottleType = domaintarget.MBAdjusterType(m.LeafThrottleType)
+	conf.LeafEaseType = domaintarget.MBAdjusterType(m.LeafEaseType)
 
 	conf.SourcerType = m.SourcerType
 	return nil

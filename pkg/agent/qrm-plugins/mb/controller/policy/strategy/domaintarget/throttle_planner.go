@@ -1,7 +1,8 @@
-package strategy
+package domaintarget
 
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy/ccdtarget"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
@@ -9,7 +10,7 @@ import (
 // extremeThrottlePlanner implements the extreme throttling by generating the plan
 // that set all groups to their min allocation
 type extremeThrottlePlanner struct {
-	ccdGroupPlanner *CCDGroupPlanner
+	ccdGroupPlanner *ccdtarget.CCDGroupPlanner
 }
 
 func (e extremeThrottlePlanner) GetQuota(capacity, currentUsage int) int {
@@ -21,10 +22,10 @@ func (e extremeThrottlePlanner) Name() string {
 }
 
 func (e extremeThrottlePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
-	return e.ccdGroupPlanner.GetFixedPlan(e.ccdGroupPlanner.ccdMBMin, mbQoSGroups)
+	return e.ccdGroupPlanner.GetFixedPlan(e.ccdGroupPlanner.CCDMBMin, mbQoSGroups)
 }
 
-func newExtremeThrottlePlanner(ccdPlanner *CCDGroupPlanner) LowPrioPlanner {
+func newExtremeThrottlePlanner(ccdPlanner *ccdtarget.CCDGroupPlanner) DomainMBAdjuster {
 	return &extremeThrottlePlanner{
 		ccdGroupPlanner: ccdPlanner,
 	}
@@ -32,7 +33,7 @@ func newExtremeThrottlePlanner(ccdPlanner *CCDGroupPlanner) LowPrioPlanner {
 
 // halfThrottlePlanner forces qos groups to yield half of mb in use
 type halfThrottlePlanner struct {
-	ccdGroupPlanner *CCDGroupPlanner
+	ccdGroupPlanner *ccdtarget.CCDGroupPlanner
 }
 
 func (h halfThrottlePlanner) GetQuota(capacity, currentUsage int) int {
@@ -54,10 +55,10 @@ func (h halfThrottlePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSG
 
 	// distribute total among all proportionally
 	ratio := float64(allocatable) / float64(totalUsage)
-	return h.ccdGroupPlanner.getProportionalPlanWithUpperLimit(ratio, mbQoSGroups, capacity-easeThreshold)
+	return h.ccdGroupPlanner.GetProportionalPlanWithUpperLimit(ratio, mbQoSGroups, capacity-easeThreshold)
 }
 
-func newHalfThrottlePlanner(ccdPlanner *CCDGroupPlanner) LowPrioPlanner {
+func newHalfThrottlePlanner(ccdPlanner *ccdtarget.CCDGroupPlanner) DomainMBAdjuster {
 	return &halfThrottlePlanner{
 		ccdGroupPlanner: ccdPlanner,
 	}

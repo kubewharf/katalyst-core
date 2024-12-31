@@ -1,6 +1,7 @@
-package strategy
+package domaintarget
 
 import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy/ccdtarget"
 	"reflect"
 	"testing"
 
@@ -13,7 +14,7 @@ import (
 
 func Test_fullEasePlanner_GetPlan(t1 *testing.T) {
 	type fields struct {
-		ccdGroupPlanner *CCDGroupPlanner
+		ccdGroupPlanner *ccdtarget.CCDGroupPlanner
 	}
 	type args struct {
 		capacity    int
@@ -28,7 +29,7 @@ func Test_fullEasePlanner_GetPlan(t1 *testing.T) {
 		{
 			name: "happy path of halving",
 			fields: fields{
-				ccdGroupPlanner: NewCCDGroupPlanner(4_000, 35_000),
+				ccdGroupPlanner: ccdtarget.NewCCDGroupPlanner(4_000, 35_000),
 			},
 			args: args{
 				capacity: 20_000,
@@ -74,7 +75,7 @@ func Test_halfEasePlanner_GetPlan(t *testing.T) {
 		{
 			name: "happy path of halving",
 			fields: fields{
-				innerPlanner: fullEasePlanner{ccdGroupPlanner: NewCCDGroupPlanner(4_000, 35_000)},
+				innerPlanner: fullEasePlanner{ccdGroupPlanner: ccdtarget.NewCCDGroupPlanner(4_000, 35_000)},
 			},
 			args: args{
 				capacity: 20_000,

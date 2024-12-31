@@ -17,19 +17,19 @@ limitations under the License.
 package qospolicy
 
 import (
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy/domaintarget"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
 
 func TestBuildHiPrioDetectedQoSMBPolicy(t *testing.T) {
 	t.Parallel()
-	smartPolicy := BuildHiPrioDetectedQoSMBPolicy(4_000, strategy.ExtremeThrottle, strategy.HalfEase)
+	smartPolicy := BuildHiPrioDetectedQoSMBPolicy(4_000, domaintarget.ExtremeThrottle, domaintarget.HalfEase)
 
 	type args struct {
 		totalMB     int
