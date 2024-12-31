@@ -23,7 +23,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/allocator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/crossdomain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/metricstore"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/podadmit"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl"
@@ -76,7 +76,7 @@ func NewComponent(agentCtx *agent.GenericContext, conf *config.Configuration,
 		return false, nil, errors.Wrap(err, "mbm: failed to create mb plan allocator")
 	}
 
-	domainPolicy, err := policy.NewGlobalMBPolicy(conf.MinMBPerCCD, domainManager, conf.LeafThrottleType, conf.LeafEaseType, conf.SourcerType)
+	domainPolicy, err := crossdomain.NewGlobalMBPolicy(conf.MinMBPerCCD, domainManager, conf.LeafThrottleType, conf.LeafEaseType, conf.SourcerType)
 	if err != nil {
 		return false, nil, errors.Wrap(err, "mbm: failed to create domain manager")
 	}
