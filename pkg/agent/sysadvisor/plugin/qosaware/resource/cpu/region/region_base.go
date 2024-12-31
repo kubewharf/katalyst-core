@@ -79,13 +79,15 @@ type internalHeadroomPolicy struct {
 }
 
 type provisionPolicyResult struct {
+	msg                        string
 	essentials                 types.ResourceEssentials
 	regulatorOptions           regulator.RegulatorOptions
 	controlKnobValueRegulators map[v1alpha1.ControlKnobName]regulator.Regulator
 }
 
-func newProvisionPolicyResult(essentials types.ResourceEssentials, regulatorOptions regulator.RegulatorOptions) *provisionPolicyResult {
+func newProvisionPolicyResult(essentials types.ResourceEssentials, regulatorOptions regulator.RegulatorOptions, msg string) *provisionPolicyResult {
 	return &provisionPolicyResult{
+		msg:                        msg,
 		essentials:                 essentials,
 		regulatorOptions:           regulatorOptions,
 		controlKnobValueRegulators: make(map[v1alpha1.ControlKnobName]regulator.Regulator),
@@ -102,26 +104,20 @@ func (r *provisionPolicyResult) setEssentials(essentials types.ResourceEssential
 
 // regulateControlKnob is to regulate control knob with current and last one
 // todo: current only regulate control knob value, it will also regulate action in the future
-func (r *provisionPolicyResult) regulateControlKnob(currentControlKnob types.ControlKnob, lastControlKnob *types.ControlKnob) {
-	if lastControlKnob != nil {
-		for name, knob := range *lastControlKnob {
-			reg, ok := r.controlKnobValueRegulators[name]
-			if !ok || reg == nil {
-				reg = r.newRegulator(name)
-			}
-
-			reg.SetLatestControlKnobValue(knob)
-			r.controlKnobValueRegulators[name] = reg
-		}
-	}
-
+func (r *provisionPolicyResult) regulateControlKnob(currentControlKnob, effectiveControlKnob types.ControlKnob) {
+	klog.InfoS("[provisionPolicyResult]", "region", r.msg,
+		"currentControlKnob", currentControlKnob, "effectiveControlKnob", effectiveControlKnob)
 	for name, knob := range currentControlKnob {
 		reg, ok := r.controlKnobValueRegulators[name]
 		if !ok || reg == nil {
 			reg = r.newRegulator(name)
 		}
-
-		reg.Regulate(knob)
+		effectiveKnobItem, ok := effectiveControlKnob[name]
+		if ok {
+			reg.Regulate(knob, &effectiveKnobItem)
+		} else {
+			reg.Regulate(knob, nil)
+		}
 		r.controlKnobValueRegulators[name] = reg
 	}
 }
@@ -140,9 +136,9 @@ func (r *provisionPolicyResult) newRegulator(name v1alpha1.ControlKnobName) regu
 // getControlKnob is to get final control knob from regulators
 func (r *provisionPolicyResult) getControlKnob() types.ControlKnob {
 	controlKnob := make(types.ControlKnob)
-	for name, r := range r.controlKnobValueRegulators {
-		controlKnob[name] = types.ControlKnobValue{
-			Value:  float64(r.GetRequirement()),
+	for name, regulator := range r.controlKnobValueRegulators {
+		controlKnob[name] = types.ControlKnobItem{
+			Value:  float64(regulator.GetRequirement()),
 			Action: types.ControlKnobActionNone,
 		}
 	}
@@ -230,6 +226,11 @@ func NewQoSRegionBase(name string, ownerPoolName string, regionType v1alpha1.QoS
 			MaxRampUpStep:     conf.MaxRampUpStep,
 			MaxRampDownStep:   conf.MaxRampDownStep,
 			MinRampDownPeriod: conf.MinRampDownPeriod,
+			NeedHTAligned: func() bool {
+				return machine.SmtActive() &&
+					!conf.GetDynamicConfiguration().AllowSharedCoresOverlapReclaimedCores &&
+					regionType == v1alpha1.QoSRegionTypeShare
+			},
 		},
 
 		metaReader: metaReader,
@@ -287,6 +288,16 @@ func (r *QoSRegionBase) Clear() {
 
 	r.podSet = make(types.PodSet)
 	r.containerTopologyAwareAssignment = make(types.TopologyAwareAssignment)
+}
+
+func (r *QoSRegionBase) GetMetaInfo() string {
+	r.Lock()
+	defer r.Unlock()
+	return r.getMetaInfo()
+}
+
+func (r *QoSRegionBase) getMetaInfo() string {
+	return fmt.Sprintf("[regionName: %s, regionType: %s, ownerPoolName: %s, NUMAs: %v]", r.name, r.regionType, r.ownerPoolName, r.bindingNumas.String())
 }
 
 func (r *QoSRegionBase) GetBindingNumas() machine.CPUSet {
@@ -626,7 +637,7 @@ func (r *QoSRegionBase) getProvisionControlKnob() map[types.CPUProvisionPolicyNa
 				{Key: metricTagKeyControlKnobAction, Val: string(value.Action)},
 			}...)
 
-			klog.InfoS("[qosaware-cpu] get raw control knob", "region", r.name, "policy", internal.name,
+			klog.InfoS("[qosaware-cpu] get raw control knob", "meta", r.getMetaInfo(), "policy", internal.name,
 				"knob", name, "action", value.Action, "value", value.Value)
 		}
 	}
@@ -636,7 +647,7 @@ func (r *QoSRegionBase) getProvisionControlKnob() map[types.CPUProvisionPolicyNa
 
 // regulateProvisionControlKnob regulate provision control knob for each provision policy
 func (r *QoSRegionBase) regulateProvisionControlKnob(originControlKnob map[types.CPUProvisionPolicyName]types.ControlKnob,
-	lastControlKnob *types.ControlKnob,
+	effectiveControlKnob types.ControlKnob,
 ) {
 	provisionPolicyResults := make(map[types.CPUProvisionPolicyName]*provisionPolicyResult)
 	firstValidPolicy := types.CPUProvisionPolicyNone
@@ -660,13 +671,13 @@ func (r *QoSRegionBase) regulateProvisionControlKnob(originControlKnob map[types
 
 		policyResult, ok := r.provisionPolicyResults[internal.name]
 		if !ok || policyResult == nil {
-			policyResult = newProvisionPolicyResult(r.ResourceEssentials, r.cpuRegulatorOptions)
-			policyResult.regulateControlKnob(controlKnob, lastControlKnob)
+			policyResult = newProvisionPolicyResult(r.ResourceEssentials, r.cpuRegulatorOptions, r.getMetaInfo())
+			policyResult.regulateControlKnob(controlKnob, effectiveControlKnob)
 		} else {
 			policyResult.setEssentials(r.ResourceEssentials)
 			// only set regulator last cpu requirement for first valid policy
 			if internal.name == firstValidPolicy {
-				policyResult.regulateControlKnob(controlKnob, lastControlKnob)
+				policyResult.regulateControlKnob(controlKnob, effectiveControlKnob)
 			} else {
 				policyResult.regulateControlKnob(controlKnob, nil)
 			}
@@ -685,8 +696,8 @@ func (r *QoSRegionBase) regulateProvisionControlKnob(originControlKnob map[types
 				{Key: metricTagKeyControlKnobName, Val: string(knob)},
 				{Key: metricTagKeyControlKnobAction, Val: string(value.Action)},
 			}...)
-			klog.InfoS("[qosaware-cpu] get regulated control knob", "region", r.name, "policy", policy, "knob", knob,
-				"action", value.Action, "value", value.Value)
+			klog.InfoS("[qosaware-cpu] get regulated control knob", "region", r.name, "bindingNumas", r.bindingNumas.String(),
+				"policy", policy, "knob", knob, "action", value.Action, "value", value.Value)
 		}
 	}
 }

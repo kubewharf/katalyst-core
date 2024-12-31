@@ -19,10 +19,13 @@ package machine
 import (
 	"io/ioutil"
 	"regexp"
+	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog/v2"
 )
 
 const cpuInfoPath = "/proc/cpuinfo"
@@ -30,6 +33,9 @@ const cpuInfoPath = "/proc/cpuinfo"
 var (
 	avx2RegExp   = regexp.MustCompile(`^flags\s*:.* (avx2 .*|avx2)$`)
 	avx512RegExp = regexp.MustCompile(`^flags\s*:.* (avx512 .*|avx512)$`)
+
+	smtActive = false
+	checkOnce = sync.Once{}
 )
 
 type ExtraCPUInfo struct {
@@ -106,4 +112,22 @@ func GetCoreNumReservedForReclaim(numReservedCores, numNumaNodes int) map[int]in
 	}
 
 	return reservedForReclaim
+}
+
+func SmtActive() bool {
+	checkOnce.Do(func() {
+		data, err := ioutil.ReadFile("/sys/devices/system/cpu/smt/active")
+		if err != nil {
+			klog.ErrorS(err, "failed to check SmtActive")
+			return
+		}
+		active, err := strconv.Atoi(strings.TrimSpace(string(data)))
+		if err != nil {
+			klog.ErrorS(err, "failed to parse smt active file")
+			return
+		}
+		klog.Infof("smt active %v", active)
+		smtActive = active == 1
+	})
+	return smtActive
 }
