@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"github.com/stretchr/testify/assert"
 	"reflect"
 	"testing"
 	"time"
@@ -593,6 +594,45 @@ func Test_globalMBPolicy_adjustSocketCCDMB(t *testing.T) {
 			if got := g.adjustSocketCCDMB(tt.args.mbQoSGroups); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("adjustSocketCCDMB() = %v, want %v", got, tt.want)
 			}
+		})
+	}
+}
+
+func Test_getPolicySourcerArgs(t *testing.T) {
+	t.Parallel()
+	type args struct {
+		args []quotasourcing.DomainMB
+	}
+	tests := []struct {
+		name string
+		args args
+		want string
+	}{
+		{
+			name: "happy path",
+			args: args{
+				args: []quotasourcing.DomainMB{
+					{
+						Target:         35_678,
+						MBSource:       51_224,
+						MBSourceRemote: 4_567,
+					},
+					{
+						Target:         80_432,
+						MBSource:       71_765,
+						MBSourceRemote: 20_909,
+					},
+				},
+			},
+			want: "domain: 0 target: 35678, sending total: 51224, sending to remote: 4567\n        domain: 1 target: 80432, sending total: 71765, sending to remote: 20909",
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := getPolicySourcerArgs(tt.args.args)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
