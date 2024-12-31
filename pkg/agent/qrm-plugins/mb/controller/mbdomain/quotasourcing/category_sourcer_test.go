@@ -143,7 +143,7 @@ func Test_categorySourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{46_355, 314_121},
+			want: []int{41_486, 38_448},
 		},
 		{
 			name: "both to throttle, one major local, the other major remote",
@@ -275,7 +275,7 @@ func Test_categorySourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 		},
 		// really conner case: one total local, the other total remote
 		{
-			name: "one major total local, the other total remote, one to throttle and the other ease - choose at conservative side",
+			name: "one major total local, the other total remote, one to throttle and the other ease",
 			args: args{
 				domainTargets: []DomainMB{
 					{
@@ -291,6 +291,42 @@ func Test_categorySourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 				},
 			},
 			want: []int{16_077, 24_121},
+		},
+		{
+			name: "one major total local, the other total remote, one to throttle and the other ease - impossible?",
+			args: args{
+				domainTargets: []DomainMB{
+					{
+						Target:         20_000,
+						MBSource:       57_700,
+						MBSourceRemote: 0,
+					},
+					{
+						Target:         40_198,
+						MBSource:       24_121,
+						MBSourceRemote: 24_121,
+					},
+				},
+			},
+			want: []int{0, 20_000},
+		},
+		{
+			name: "one major total local, the other total remote, both to ease",
+			args: args{
+				domainTargets: []DomainMB{
+					{
+						Target:         40_198,
+						MBSource:       24_121,
+						MBSourceRemote: 0,
+					},
+					{
+						Target:         20_000,
+						MBSource:       10_700,
+						MBSourceRemote: 10_700,
+					},
+				},
+			},
+			want: []int{26_809, 133_88},
 		},
 	}
 	for _, tt := range tests {

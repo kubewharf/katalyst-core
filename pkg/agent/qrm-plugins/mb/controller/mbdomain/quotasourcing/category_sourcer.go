@@ -81,6 +81,13 @@ func (c categorySourcer) AttributeMBToSources(domainTargets []DomainMB) []int {
 
 // mixed case: 0 to ease, 1 to throttle
 func processEaseThrottle(rho []float64, deltaY []float64) (deltaX []int) {
+	if deltaY[0] < 0 {
+		panic("precondition broken")
+	}
+	if deltaY[1] > 0 {
+		panic("precondition broken")
+	}
+
 	// has to be one positive the other negative
 	foundResult := false
 	// first try domain 0 negative
@@ -89,7 +96,7 @@ func processEaseThrottle(rho []float64, deltaY []float64) (deltaX []int) {
 		deltaX = []int{-crossPoint[0], crossPoint[1]}
 		foundResult = true
 	} else {
-		x1, _ := getLineEnds(-(1 - rho[0]), rho[1], -deltaY[0])
+		x1, _ := getLineEnds(-(1 - rho[0]), rho[1], -deltaY[1])
 		if x1 > 0 && x1 != math.MaxInt {
 			deltaX = []int{-x1, 0}
 			foundResult = true
@@ -106,8 +113,8 @@ func processEaseThrottle(rho []float64, deltaY []float64) (deltaX []int) {
 				deltaX = []int{0, -int(-deltaY[1] / rho[1])}
 			} else {
 				// in theory no solution for rho[0] == 1 && rho[1] == 0, as the formula (1-rho[0]*x0 + rho[1]*x1 <= -y1 (if y1 != 0 ) no way to be true
-				// in practice, lets make a compromise of keeping domain 0 unchanged, and domain 1 less mb, to be at conservative (safer) side
-				deltaX = []int{0, -int(deltaY[0])}
+				// in practice, lets make a compromise of being at conservative (safer) side
+				deltaX = []int{0, -maxMB * 8}
 			}
 		}
 	}
@@ -132,7 +139,7 @@ func getLineEnds(a, b, c float64) (x, y int) {
 	}
 	y = math.MaxInt
 	if b != 0 {
-		x = int(c / b)
+		y = int(c / b)
 	}
 	return x, y
 }
