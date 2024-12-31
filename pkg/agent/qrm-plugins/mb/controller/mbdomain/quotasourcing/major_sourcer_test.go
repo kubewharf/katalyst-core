@@ -290,7 +290,62 @@ func Test_majorfactorSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{36_888, 3_309},
+			want: []int{0, 40198}, // inferior to what category getting sort of more balanced {16_077, 24_121}
+		},
+		{
+			name: "one major total local, the other total remote, one to throttle and the other ease - impossible?",
+			args: args{
+				domainTargets: []DomainMB{
+					{
+						Target:         20_000,
+						MBSource:       57_700,
+						MBSourceRemote: 0,
+					},
+					{
+						Target:         40_198,
+						MBSource:       24_121,
+						MBSourceRemote: 24_121,
+					},
+				},
+			},
+			want: []int{0, 20_000},
+		},
+		{
+			name: "one major total local, the other total remote, both to ease",
+			args: args{
+				domainTargets: []DomainMB{
+					{
+						Target:         40_198,
+						MBSource:       24_121,
+						MBSourceRemote: 0,
+					},
+					{
+						Target:         20_000,
+						MBSource:       10_700,
+						MBSourceRemote: 10_700,
+					},
+				},
+			},
+			want: []int{26_809, 133_88},
+		},
+		// test case based on integration half-cross
+		{
+			name: "one major total local, the other half local; one to throttle, one to ease",
+			args: args{
+				domainTargets: []DomainMB{
+					{
+						Target:         35_198,
+						MBSource:       50_151,
+						MBSourceRemote: 0,
+					},
+					{
+						Target:         81_641,
+						MBSource:       51_517 + 20_485,
+						MBSourceRemote: 20_485,
+					},
+				},
+			},
+			want: []int{2_734, 114_104},
 		},
 	}
 	for _, tt := range tests {

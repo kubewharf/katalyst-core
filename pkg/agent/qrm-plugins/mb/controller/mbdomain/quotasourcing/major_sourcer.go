@@ -5,6 +5,17 @@ import "math"
 type majorfactorSourcer struct {
 }
 
+func getTrend(i int, domainTargets []DomainMB) float64 {
+	j := (i + 1) % 2 // assuming only 2 domains
+	currentRecipientUsage := domainTargets[i].MBSource - domainTargets[i].MBSourceRemote + domainTargets[j].MBSourceRemote
+	if currentRecipientUsage <= 0 {
+		return math.MaxFloat64
+	}
+
+	delta := domainTargets[i].Target - currentRecipientUsage
+	return toFixedPoint(float64(delta) / float64(currentRecipientUsage))
+}
+
 func (m majorfactorSourcer) AttributeMBToSources(domainTargets []DomainMB) []int {
 	rho := []float64{getLocalRatio(domainTargets[0]), getLocalRatio(domainTargets[1])}
 	deltaY := []float64{
@@ -13,8 +24,8 @@ func (m majorfactorSourcer) AttributeMBToSources(domainTargets []DomainMB) []int
 	}
 
 	trendY := []float64{
-		toFixedPoint(deltaY[0] / float64((domainTargets[0].MBSource - domainTargets[0].MBSourceRemote + domainTargets[1].MBSourceRemote))),
-		toFixedPoint(deltaY[1] / float64((domainTargets[1].MBSource - domainTargets[1].MBSourceRemote + domainTargets[0].MBSourceRemote))),
+		getTrend(0, domainTargets),
+		getTrend(1, domainTargets),
 	}
 
 	majorTrendX := []float64{
