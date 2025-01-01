@@ -23,6 +23,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/allocator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
+	policyconfig "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/crossdomain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/metricstore"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/podadmit"
@@ -59,6 +60,8 @@ func NewComponent(agentCtx *agent.GenericContext, conf *config.Configuration,
 		dieTopology:        agentCtx.DieTopology,
 		incubationInterval: conf.IncubationInterval,
 	}
+
+	policyconfig.PolicyConfig.MBConfig = *conf.QRMPluginsConfiguration.MBQRMPluginConfig
 
 	domainManager := mbdomain.NewMBDomainManager(plugin.dieTopology, plugin.incubationInterval, conf.DomainMBCapacity)
 

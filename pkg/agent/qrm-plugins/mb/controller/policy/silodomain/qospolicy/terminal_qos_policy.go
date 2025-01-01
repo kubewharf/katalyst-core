@@ -43,7 +43,7 @@ func (t terminalQoSPolicy) GetPlan(totalMB int, mbQoSGroups, globalMBQoSGroups m
 }
 
 func (t terminalQoSPolicy) getTopMostPlan(totalMB int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
-	return t.getFixedPlan(config.CCDMBMax, mbQoSGroups)
+	return t.getFixedPlan(config.PolicyConfig.CCDMBMax, mbQoSGroups)
 }
 
 func (t terminalQoSPolicy) getFixedPlan(fixed int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
@@ -99,8 +99,8 @@ func (t terminalQoSPolicy) getProportionalPlan(ratio float64, mbQoSGroups map[qo
 		mbPlan.Plan[qos] = make(map[int]int)
 		for ccd, mb := range group.CCDMB {
 			newMB := int(ratio * float64(mb.TotalMB))
-			if newMB > config.CCDMBMax {
-				newMB = config.CCDMBMax
+			if newMB > config.PolicyConfig.CCDMBMax {
+				newMB = config.PolicyConfig.CCDMBMax
 			}
 			if newMB < t.ccdMBMin {
 				newMB = t.ccdMBMin
@@ -112,7 +112,7 @@ func (t terminalQoSPolicy) getProportionalPlan(ratio float64, mbQoSGroups map[qo
 }
 
 func NewTerminalQoSPolicy(ccdMBMin int, throttleType, easeType domaintarget.MBAdjusterType) QoSMBPolicy {
-	ccdGroupPlanner := ccdtarget.NewCCDGroupPlanner(ccdMBMin, config.CCDMBMax)
+	ccdGroupPlanner := ccdtarget.NewCCDGroupPlanner(ccdMBMin, config.PolicyConfig.CCDMBMax)
 	policy := terminalQoSPolicy{
 		ccdMBMin:        ccdMBMin,
 		throttlePlanner: domaintarget.New(throttleType, ccdGroupPlanner),

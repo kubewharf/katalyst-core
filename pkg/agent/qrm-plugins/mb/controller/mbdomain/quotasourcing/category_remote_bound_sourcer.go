@@ -1,9 +1,6 @@
 package quotasourcing
 
-const (
-	DefaultRemoteLimit = 20_000 //20GB
-	MaxDomainMB        = 8 * maxMB
-)
+import "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 
 type categoryRemoteBoundSourcer struct {
 	cateSourcer categorySourcer
@@ -49,6 +46,6 @@ func (c categoryRemoteBoundSourcer) adjustResult(result []int, rho []float64, ta
 func NewCategoryRemoteBoundSourcer() Sourcer {
 	return &categoryRemoteBoundSourcer{
 		cateSourcer: categorySourcer{},
-		remoteLimit: DefaultRemoteLimit,
+		remoteLimit: config.PolicyConfig.RemoteLimit,
 	}
 }

@@ -16,6 +16,8 @@ limitations under the License.
 
 package config
 
+import qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
+
 const (
 	// obsolete by arg domain-mb-capacity for flexibility knob of testing/comparison
 	// the effective bandwidth 120 GB, with the surplus of part of pressure-check sentinal (which mainly serves as collision detection)
@@ -24,10 +26,34 @@ const (
 	ReservedPerNuma = 35_000              // 35 GBps reserved per node for dedicated pod
 	ReservedPerCCD  = ReservedPerNuma / 2 // hardcoded divisor 2 may not be applicable all the places
 
-	// min value set via arg to provide flexibility for exploring
-	//CCDMBMin = 8_000 // per CCD 8 GB
-
 	// set max of CCD mb even higher, hopefully the initial spike efffect would be obliviated
 	// todo: to fix test cases (which expect original 30GB) after the 35 is finalized
-	CCDMBMax = 35_000 // per CCD 35 GB (hopefully effective 25GB)
+	ccdMBMax    = 35_000 // per CCD 35 GB (hopefully effective 25GB)
+	domainMBMax = 8 * ccdMBMax
+	domainMBMin = 4_000
+
+	defaultRemoteLimit = 20_000 //20GB
+	defaultZombieMB    = 100    // 100 MB (0.1 GB)
 )
+
+type MBPolicyConfig struct {
+	MBConfig    qrmconfig.MBQRMPluginConfig
+	CCDMBMax    int
+	DomainMBMax int
+	DomainMBMin int
+
+	RemoteLimit int
+	ZombieCCDMB int
+}
+
+// global mb policy configuration
+var PolicyConfig = MBPolicyConfig{
+	MBConfig: qrmconfig.MBQRMPluginConfig{
+		MinMBPerCCD: 4_000,
+	},
+	CCDMBMax:    ccdMBMax,
+	DomainMBMax: domainMBMax,
+	DomainMBMin: domainMBMin,
+	RemoteLimit: defaultRemoteLimit,
+	ZombieCCDMB: defaultZombieMB,
+}

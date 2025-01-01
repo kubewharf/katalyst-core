@@ -3,9 +3,9 @@ package quotasourcing
 import (
 	"fmt"
 	"math"
-)
 
-const maxMB = 35_000
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
+)
 
 type categorySourcer struct{}
 
@@ -120,7 +120,7 @@ func processEaseThrottle(rho []float64, deltaY []float64) (deltaX []int) {
 			} else {
 				// in theory no solution for rho[0] == 1 && rho[1] == 0, as the formula (1-rho[0]*x0 + rho[1]*x1 <= -y1 (if y1 != 0 ) no way to be true
 				// in practice, lets make a compromise of being at conservative (safer) side
-				deltaX = []int{0, -maxMB * 8}
+				deltaX = []int{0, -config.PolicyConfig.DomainMBMax}
 			}
 		}
 	}
@@ -130,9 +130,9 @@ func processEaseThrottle(rho []float64, deltaY []float64) (deltaX []int) {
 
 func pickAlongLine(x, y int) []int {
 	if x == math.MaxInt {
-		return []int{maxMB * 8, y}
+		return []int{config.PolicyConfig.DomainMBMax, y}
 	} else if y == math.MaxInt {
-		return []int{x, maxMB * 8}
+		return []int{x, config.PolicyConfig.DomainMBMax}
 	}
 	return []int{x / 2, y / 2}
 }

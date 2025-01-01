@@ -4,10 +4,8 @@ import (
 	"fmt"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
+	policyconfig "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 )
-
-// todo: var config
-const minValue = 4_000
 
 type CrossSourcer struct{}
 
@@ -134,6 +132,8 @@ func getOrthogonalPoint(hostDomain DomainMB, remoteDomain DomainMB) (hostQuota, 
 }
 
 func getRightEndpoint(hostDomain DomainMB, remoteDomain DomainMB) (hostQuota, remoteQuota int, err error) {
+	minValue := policyconfig.PolicyConfig.DomainMBMin
+
 	hostLocalRatio := getLocalRatio(hostDomain)
 	remoteLocalRatio := getLocalRatio(remoteDomain)
 	if hostLocalRatio == 0 && remoteLocalRatio == 1.0 {
@@ -154,6 +154,8 @@ func getRightEndpoint(hostDomain DomainMB, remoteDomain DomainMB) (hostQuota, re
 }
 
 func getLeftEndpoint(hostDomain DomainMB, remoteDomain DomainMB) (hostQuota, remoteQuota int, err error) {
+	minValue := policyconfig.PolicyConfig.DomainMBMin
+
 	hostLocalRatio := getLocalRatio(hostDomain)
 	remoteLocalRatio := getLocalRatio(remoteDomain)
 	if hostLocalRatio == 0 && remoteLocalRatio == 1.0 {

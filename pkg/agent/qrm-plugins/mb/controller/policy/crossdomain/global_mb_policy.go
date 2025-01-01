@@ -20,8 +20,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
-const zombieMBDefault = 100 // 100 MB (0.1 GB)
-
 // the leaf layer of QoS that could be throttled with their mb resource quota to give room for high levels of QoS
 var qosLeaves = sets.String{"shared-30": sets.Empty{}}
 
@@ -135,9 +133,9 @@ func (g *globalMBPolicy) proposeDomainRecipientTarget(domainID int, highIncoming
 
 func assemblePolicySourceInfo(recipientTarget int, outgoingMBStat map[qosgroup.QoSGroup]rmbtype.MBStat, alientDomainLimitIncomingRemote bool) quotasourcing.DomainMB {
 	leafOutgoingMBTotal, _, leafOutgoingMBRemote := getTotalLocalRemoteMBStatSummary(outgoingMBStat)
-	outgoingRemoteLimit := quotasourcing.MaxDomainMB
+	outgoingRemoteLimit := config.PolicyConfig.DomainMBMax
 	if alientDomainLimitIncomingRemote {
-		outgoingRemoteLimit = quotasourcing.DefaultRemoteLimit
+		outgoingRemoteLimit = config.PolicyConfig.RemoteLimit
 	}
 	return quotasourcing.DomainMB{
 		Target:               recipientTarget,
@@ -291,6 +289,6 @@ func NewGlobalMBPolicy(ccdMBMin int, domainManager *mbdomain.MBDomainManager, th
 		domainManager:            domainManager,
 		domainLeafOutgoingQuotas: domainLeafQuotas,
 		ccdGroupPlanner:          ccdPlanner,
-		zombieMB:                 zombieMBDefault,
+		zombieMB:                 config.PolicyConfig.ZombieCCDMB,
 	}, nil
 }

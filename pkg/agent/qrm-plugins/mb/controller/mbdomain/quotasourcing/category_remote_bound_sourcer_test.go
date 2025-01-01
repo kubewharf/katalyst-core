@@ -3,6 +3,7 @@ package quotasourcing
 import (
 	"testing"
 
+	policyconfig "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -23,7 +24,7 @@ func Test_categoryRemoteBoundSourcer_AttributeMBToSources_matrix(t *testing.T) {
 				domainTargets: []DomainMB{
 					{
 						Target:               70_198,
-						TargetOutgoingRemote: MaxDomainMB,
+						TargetOutgoingRemote: policyconfig.PolicyConfig.DomainMBMax,
 						MBSource:             27_700,
 						MBSourceRemote:       7_700,
 					},
@@ -69,7 +70,7 @@ func Test_categoryRemoteBoundSourcer_AttributeMBToSources_matrix(t *testing.T) {
 					},
 					{
 						Target:               60_000,
-						TargetOutgoingRemote: MaxDomainMB,
+						TargetOutgoingRemote: policyconfig.PolicyConfig.DomainMBMax,
 						MBSource:             35_121,
 						MBSourceRemote:       5_180,
 					},
@@ -124,7 +125,7 @@ func Test_categoryRemoteBoundSourcer_AttributeMBToSources_matrix(t *testing.T) {
 				domainTargets: []DomainMB{
 					{
 						Target:               30_198,
-						TargetOutgoingRemote: MaxDomainMB,
+						TargetOutgoingRemote: policyconfig.PolicyConfig.DomainMBMax,
 						MBSource:             37_700,
 						MBSourceRemote:       30_000,
 					},
@@ -151,7 +152,7 @@ func Test_categoryRemoteBoundSourcer_AttributeMBToSources_matrix(t *testing.T) {
 					},
 					{
 						Target:               60_000,
-						TargetOutgoingRemote: MaxDomainMB,
+						TargetOutgoingRemote: policyconfig.PolicyConfig.DomainMBMax,
 						MBSource:             34_121,
 						MBSourceRemote:       10_180,
 					},
@@ -185,7 +186,7 @@ func Test_categoryRemoteBoundSourcer_AttributeMBToSources_matrix(t *testing.T) {
 				domainTargets: []DomainMB{
 					{
 						Target:               20_198,
-						TargetOutgoingRemote: MaxDomainMB,
+						TargetOutgoingRemote: policyconfig.PolicyConfig.DomainMBMax,
 						MBSource:             37_700,
 						MBSourceRemote:       9_000,
 					},
@@ -211,7 +212,7 @@ func Test_categoryRemoteBoundSourcer_AttributeMBToSources_matrix(t *testing.T) {
 					},
 					{
 						Target:               20_000,
-						TargetOutgoingRemote: MaxDomainMB,
+						TargetOutgoingRemote: policyconfig.PolicyConfig.DomainMBMax,
 						MBSource:             44_121,
 						MBSourceRemote:       28_180,
 					},
@@ -232,7 +233,7 @@ func Test_categoryRemoteBoundSourcer_AttributeMBToSources_matrix(t *testing.T) {
 					},
 					{
 						Target:               30_000,
-						TargetOutgoingRemote: MaxDomainMB,
+						TargetOutgoingRemote: policyconfig.PolicyConfig.DomainMBMax,
 						MBSource:             44_121,
 						MBSourceRemote:       44_121,
 					},
@@ -272,7 +273,7 @@ func Test_categoryRemoteBoundSourcer_AttributeMBToSources_matrix(t *testing.T) {
 					},
 					{
 						Target:               20_000,
-						TargetOutgoingRemote: MaxDomainMB,
+						TargetOutgoingRemote: policyconfig.PolicyConfig.DomainMBMax,
 						MBSource:             24_121,
 						MBSourceRemote:       24_121,
 					},
@@ -328,7 +329,7 @@ func Test_categoryRemoteBoundSourcer_AttributeMBToSources_matrix(t *testing.T) {
 				domainTargets: []DomainMB{
 					{
 						Target:               20_000,
-						TargetOutgoingRemote: MaxDomainMB,
+						TargetOutgoingRemote: policyconfig.PolicyConfig.DomainMBMax,
 						MBSource:             57_700,
 						MBSourceRemote:       0,
 					},
@@ -369,7 +370,7 @@ func Test_categoryRemoteBoundSourcer_AttributeMBToSources_matrix(t *testing.T) {
 				domainTargets: []DomainMB{
 					{
 						Target:               35_198,
-						TargetOutgoingRemote: MaxDomainMB,
+						TargetOutgoingRemote: policyconfig.PolicyConfig.DomainMBMax,
 						MBSource:             50_151,
 						MBSourceRemote:       0,
 					},
