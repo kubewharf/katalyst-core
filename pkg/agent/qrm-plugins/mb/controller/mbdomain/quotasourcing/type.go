@@ -3,9 +3,10 @@ package quotasourcing
 import "github.com/kubewharf/katalyst-core/pkg/util/general"
 
 type DomainMB struct {
-	Target         int // the desired mb to have; -1 means no constraint at all - maximum mb it can get
-	MBSource       int // the current mb totaling by all contributors (e.g. low prio CCDs)
-	MBSourceRemote int // the current mb accessing other domains' memory
+	Target               int // the desired recipient (incoming) mb to have; -1 means no constraint at all - maximum mb it can get
+	TargetOutgoingRemote int // the upper limit outgoing remote MB target (applicable if the other domain has high QoS traffic)
+	MBSource             int // the current mb totaling by all contributors (e.g. low prio CCDs)
+	MBSourceRemote       int // the current mb accessing other domains' memory
 }
 
 type Sourcer interface {

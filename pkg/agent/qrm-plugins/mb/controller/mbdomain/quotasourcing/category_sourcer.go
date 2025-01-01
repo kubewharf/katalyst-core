@@ -23,6 +23,17 @@ func (c categorySourcer) AttributeMBToSources(domainTargets []DomainMB) []int {
 		float64(domainTargets[1].Target - (domainTargets[1].MBSource - domainTargets[1].MBSourceRemote + domainTargets[0].MBSourceRemote)),
 	}
 
+	deltaX := c.sourceOutgoingQuota(rho, deltaY)
+
+	result := []int{
+		domainTargets[0].MBSource + deltaX[0],
+		domainTargets[1].MBSource + deltaX[1],
+	}
+
+	return c.adjustResult(result, rho, target)
+}
+
+func (c categorySourcer) sourceOutgoingQuota(rho []float64, deltaY []float64) []int {
 	// both to ease
 	deltaX := []int{0, 0}
 	if deltaY[0] >= 0 && deltaY[1] >= 0 {
@@ -71,12 +82,7 @@ func (c categorySourcer) AttributeMBToSources(domainTargets []DomainMB) []int {
 		deltaX = []int{deltaXReversed[1], deltaXReversed[0]}
 	}
 
-	result := []int{
-		domainTargets[0].MBSource + deltaX[0],
-		domainTargets[1].MBSource + deltaX[1],
-	}
-
-	return adjustResult(result, rho, target)
+	return deltaX
 }
 
 // mixed case: 0 to ease, 1 to throttle
@@ -199,16 +205,7 @@ func isAllPositive(values []int) bool {
 	return true
 }
 
-//func isAllBelowMax(values []int) bool {
-//	for _, v := range values {
-//		if v > maxMB {
-//			return false
-//		}
-//	}
-//	return true
-//}
-
-func adjustResult(result []int, rho []float64, target []int) []int {
+func (c categorySourcer) adjustResult(result []int, rho []float64, target []int) []int {
 	if !isAllPositive(result) {
 		if result[0] < 0 {
 			return []int{0, calcMinFormula(1-rho[1], target[0], target[1])}
