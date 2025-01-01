@@ -1,12 +1,16 @@
 package quotasourcing
 
-import "math"
+import (
+	"math"
+
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
+)
 
 type majorfactorSourcer struct {
 }
 
 func getTrend(i int, domainTargets []DomainMB) float64 {
-	j := (i + 1) % 2 // assuming only 2 domains
+	j := mbdomain.GetAlienDomainID(i)
 	currentRecipientUsage := domainTargets[i].MBSource - domainTargets[i].MBSourceRemote + domainTargets[j].MBSourceRemote
 	if currentRecipientUsage <= 0 {
 		return math.MaxFloat64

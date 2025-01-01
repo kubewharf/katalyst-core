@@ -137,3 +137,9 @@ func (m *MBDomain) CloneIncubates() IncubatedCCDs {
 
 	return clone
 }
+
+func GetAlienDomainID(hostDomain int) int {
+	// assuming only 2 domains for now
+	// todo: when there are more than 2 domain
+	return (hostDomain + 1) % 2
+}

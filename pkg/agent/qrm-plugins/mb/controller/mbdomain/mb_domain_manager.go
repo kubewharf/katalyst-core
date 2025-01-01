@@ -201,14 +201,14 @@ func (m *MBDomainManager) sumAlienGroupMBByDomainRecipient(domainMBStat map[int]
 			panic(err)
 		}
 
-		// domain is the recipient alien domain
-		domain := (senderDomain + 1) % 2 //assuming 2 domains only
+		// recipientDomain is the recipient alien recipientDomain
+		recipientDomain := GetAlienDomainID(senderDomain)
 
-		if _, ok := domainMBStat[domain]; !ok {
-			domainMBStat[domain] = &rmbtype.MBStat{}
+		if _, ok := domainMBStat[recipientDomain]; !ok {
+			domainMBStat[recipientDomain] = &rmbtype.MBStat{}
 		}
-		totalMB := domainMBStat[domain].Total + mb.TotalMB - mb.LocalTotalMB
-		domainMBStat[domain].Total = totalMB
+		totalMB := domainMBStat[recipientDomain].Total + mb.TotalMB - mb.LocalTotalMB
+		domainMBStat[recipientDomain].Total = totalMB
 	}
 	return domainMBStat
 }

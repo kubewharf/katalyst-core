@@ -1,6 +1,10 @@
 package quotasourcing
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
+)
 
 // todo: var config
 const minValue = 4_000
@@ -25,7 +29,7 @@ func (c CrossSourcer) AttributeMBToSources(domainTargets []DomainMB) []int {
 			// domain i has constraint rule: ri * qi + (1-rj) * qj <= ti
 			// consider 3 possible candidates:
 			//   orthogonal point, left end point, and right end point
-			j := (i + 1) % 2 // stands if there are 2 domains only
+			j := mbdomain.GetAlienDomainID(i)
 			if orthoHost, orthOther, err := getOrthogonalPoint(domainTargets[i], domainTargets[j]); err == nil {
 				candidates = appendCandidate(candidates, i, orthoHost, orthOther)
 			}
@@ -74,7 +78,7 @@ func locateFittest(candidates [][]int, x, y float64, domainTargets []DomainMB) [
 	minDist := -1 // no min dist yet
 	for _, candidate := range candidates {
 		iDomain := candidate[2]
-		jDomain := (iDomain + 1) % 2 // stands if there are 2 domains only
+		jDomain := mbdomain.GetAlienDomainID(iDomain)
 
 		// keeps i only if it satisfies the constraint of j: (1-ri) * qi + rj * qj <= tj
 		iLocalRatio := getLocalRatio(domainTargets[iDomain])
