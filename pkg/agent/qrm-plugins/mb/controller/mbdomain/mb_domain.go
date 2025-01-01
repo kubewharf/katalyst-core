@@ -18,6 +18,8 @@ package mbdomain
 
 import (
 	"fmt"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 	"strings"
 	"sync"
 	"time"
@@ -136,6 +138,31 @@ func (m *MBDomain) CloneIncubates() IncubatedCCDs {
 	}
 
 	return clone
+}
+
+func (m *MBDomain) GetApplicableQoSCCDMB(qosccdmb map[qosgroup.QoSGroup]*stat.MBQoSGroup) map[qosgroup.QoSGroup]*stat.MBQoSGroup {
+	result := make(map[qosgroup.QoSGroup]*stat.MBQoSGroup)
+
+	for qos, mbQosGroup := range qosccdmb {
+		for ccd, _ := range mbQosGroup.CCDs {
+			if _, ok := mbQosGroup.CCDMB[ccd]; !ok {
+				// no ccd-mb stat; skip it
+				continue
+			}
+			if _, ok := m.CCDNode[ccd]; ok {
+				if _, ok := result[qos]; !ok {
+					result[qos] = &stat.MBQoSGroup{
+						CCDs:  make(sets.Int),
+						CCDMB: make(map[int]*stat.MBData),
+					}
+				}
+				result[qos].CCDs.Insert(ccd)
+				result[qos].CCDMB[ccd] = qosccdmb[qos].CCDMB[ccd]
+			}
+		}
+	}
+
+	return result
 }
 
 func GetAlienDomainID(hostDomain int) int {

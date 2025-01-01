@@ -151,7 +151,7 @@ func (c *Controller) process(ctx context.Context) {
 
 	for i, domain := range c.DomainManager.Domains {
 		// we only care about qosCCDMB manageable by the domain
-		applicableQoSCCDMB := getApplicableQoSCCDMB(domain, c.CurrQoSCCDMB)
+		applicableQoSCCDMB := domain.GetApplicableQoSCCDMB(c.CurrQoSCCDMB)
 		general.InfofV(6, "mbm: domain %d mb stat: %#v", i, applicableQoSCCDMB)
 
 		mbAlloc := c.policy.GetPlan(domain.MBQuota, domain, applicableQoSCCDMB)
@@ -183,29 +183,4 @@ func New(podMBMonitor monitor.MBMonitor, mbPlanAllocator allocator.PlanAllocator
 		cgCPUSet:        cgcpuset.New(fs),
 		TaskManager:     resctrltask.New(fs),
 	}, nil
-}
-
-func getApplicableQoSCCDMB(domain *mbdomain.MBDomain, qosccdmb map[qosgroup.QoSGroup]*stat.MBQoSGroup) map[qosgroup.QoSGroup]*stat.MBQoSGroup {
-	result := make(map[qosgroup.QoSGroup]*stat.MBQoSGroup)
-
-	for qos, mbQosGroup := range qosccdmb {
-		for ccd, _ := range mbQosGroup.CCDs {
-			if _, ok := mbQosGroup.CCDMB[ccd]; !ok {
-				// no ccd-mb stat; skip it
-				continue
-			}
-			if _, ok := domain.CCDNode[ccd]; ok {
-				if _, ok := result[qos]; !ok {
-					result[qos] = &stat.MBQoSGroup{
-						CCDs:  make(sets.Int),
-						CCDMB: make(map[int]*stat.MBData),
-					}
-				}
-				result[qos].CCDs.Insert(ccd)
-				result[qos].CCDMB[ccd] = qosccdmb[qos].CCDMB[ccd]
-			}
-		}
-	}
-
-	return result
 }

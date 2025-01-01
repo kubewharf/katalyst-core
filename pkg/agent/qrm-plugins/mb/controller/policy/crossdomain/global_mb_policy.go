@@ -97,6 +97,12 @@ func (g *globalMBPolicy) ProcessGlobalQoSCCDMB(mbQoSGroups map[qosgroup.QoSGroup
 	// todo: use incoming direction ms stat instead
 	highOutgoingMBStat := g.domainManager.SumQoSMBByDomainSender(highQoSMBGroups)
 
+	domainHasHighQoS := make([]bool, len(g.domainManager.Domains))
+	for domainID, domain := range g.domainManager.Domains {
+		qosGroup := domain.GetApplicableQoSCCDMB(mbQoSGroups)
+		domainHasHighQoS[domainID] = g.hasHighQoSMB(qosGroup)
+	}
+
 	// critical for leaf QoS to have outgoing vs incoming mb stats
 	leafOutgoingMBStat := g.domainManager.SumQoSMBByDomainSender(lowQoSMBGroups)
 	leafIncomingMBStat := g.domainManager.SumQoSMBByDomainRecipient(lowQoSMBGroups)
@@ -105,7 +111,8 @@ func (g *globalMBPolicy) ProcessGlobalQoSCCDMB(mbQoSGroups map[qosgroup.QoSGroup
 	leafPolicySourceInfo := make([]quotasourcing.DomainMB, len(g.domainManager.Domains))
 	for domainID := range g.domainManager.Domains {
 		leafRecipientTarget := g.proposeDomainRecipientTarget(domainID, highOutgoingMBStat[domainID], leafIncomingMBStat[domainID])
-		leafPolicySourceInfo[domainID] = assemblePolicySourceInfo(leafRecipientTarget, leafOutgoingMBStat[domainID])
+		alienID := mbdomain.GetAlienDomainID(domainID)
+		leafPolicySourceInfo[domainID] = assemblePolicySourceInfo(leafRecipientTarget, leafOutgoingMBStat[domainID], domainHasHighQoS[alienID])
 	}
 
 	general.InfofV(6, "mbm: policy: source args: %d records: %s", len(leafPolicySourceInfo), stringifyPolicySourceInfo(leafPolicySourceInfo))
@@ -126,12 +133,17 @@ func (g *globalMBPolicy) proposeDomainRecipientTarget(domainID int, highIncoming
 	return leafRecipientTarget
 }
 
-func assemblePolicySourceInfo(recipientTarget int, outgoingMBStat map[qosgroup.QoSGroup]rmbtype.MBStat) quotasourcing.DomainMB {
+func assemblePolicySourceInfo(recipientTarget int, outgoingMBStat map[qosgroup.QoSGroup]rmbtype.MBStat, alientDomainLimitIncomingRemote bool) quotasourcing.DomainMB {
 	leafOutgoingMBTotal, _, leafOutgoingMBRemote := getTotalLocalRemoteMBStatSummary(outgoingMBStat)
+	outgoingRemoteLimit := quotasourcing.MaxDomainMB
+	if alientDomainLimitIncomingRemote {
+		outgoingRemoteLimit = quotasourcing.DefaultRemoteLimit
+	}
 	return quotasourcing.DomainMB{
-		Target:         recipientTarget,
-		MBSource:       leafOutgoingMBTotal,
-		MBSourceRemote: leafOutgoingMBRemote,
+		Target:               recipientTarget,
+		TargetOutgoingRemote: outgoingRemoteLimit,
+		MBSource:             leafOutgoingMBTotal,
+		MBSourceRemote:       leafOutgoingMBRemote,
 	}
 }
 

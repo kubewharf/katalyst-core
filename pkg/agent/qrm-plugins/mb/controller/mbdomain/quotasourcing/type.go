@@ -39,6 +39,8 @@ func New(sourcerType string) Sourcer {
 	switch sourcerType {
 	case "category":
 		return NewCategorySourcer()
+	case "crbs":
+		return NewCategoryRemoteBoundSourcer()
 	case "majorfactor":
 		return NewMajorfactorSourcer()
 	default:
