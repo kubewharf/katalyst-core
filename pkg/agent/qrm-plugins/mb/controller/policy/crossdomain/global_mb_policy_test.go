@@ -87,6 +87,9 @@ func Test_globalMBPolicy_guessDamianTarget(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			g := &globalMBPolicy{
+				domainManager: &mbdomain.MBDomainManager{Domains: map[int]*mbdomain.MBDomain{0: {
+					MBQuota: 122_000,
+				}}},
 				throttler: tt.fields.throttler,
 				easer:     tt.fields.easer,
 			}

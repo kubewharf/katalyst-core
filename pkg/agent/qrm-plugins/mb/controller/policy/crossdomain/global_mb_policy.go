@@ -191,16 +191,19 @@ func (g *globalMBPolicy) splitQoSHighAndLeaf(mbQoSGroups map[qosgroup.QoSGroup]*
 }
 
 func (g *globalMBPolicy) calcDomainLeafTarget(hiQoSMB, leafMB int) int {
+	// todo: find a better way to get hold of this value
+	domainMBCapacity := g.domainManager.Domains[0].MBQuota
+
 	// if not under pressure (too much available mb), get to-ease-to
 	// if under pressure, get to-throttle-to
 	// in middle way, noop
 	totalUsage := hiQoSMB + leafMB
-	capacityForLeaf := 122_000 - hiQoSMB
+	capacityForLeaf := domainMBCapacity - hiQoSMB
 
-	if domaintarget.IsResourceUnderPressure(122_000, totalUsage) {
+	if domaintarget.IsResourceUnderPressure(domainMBCapacity, totalUsage) {
 		return g.throttler.GetQuota(capacityForLeaf, leafMB)
 	}
-	if domaintarget.IsResourceAtEase(122_000, totalUsage) {
+	if domaintarget.IsResourceAtEase(domainMBCapacity, totalUsage) {
 		return g.easer.GetQuota(capacityForLeaf, leafMB)
 	}
 
