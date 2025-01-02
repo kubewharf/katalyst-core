@@ -61,7 +61,7 @@ func NewComponent(agentCtx *agent.GenericContext, conf *config.Configuration,
 		incubationInterval: conf.IncubationInterval,
 	}
 
-	policyconfig.PolicyConfig.MBConfig = *conf.QRMPluginsConfiguration.MBQRMPluginConfig
+	policyconfig.PolicyConfig.MBQRMPluginConfig = *conf.QRMPluginsConfiguration.MBQRMPluginConfig
 
 	domainManager := mbdomain.NewMBDomainManager(plugin.dieTopology, plugin.incubationInterval, conf.DomainMBCapacity)
 

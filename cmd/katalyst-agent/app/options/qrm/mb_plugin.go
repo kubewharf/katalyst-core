@@ -32,6 +32,7 @@ type MBOptions struct {
 	CPUSetPoolToSharedSubgroup map[string]int
 	MinMBPerCCD                int
 	DomainMBCapacity           int
+	RemoteLimit                int
 
 	// type of leaf planners
 	LeafThrottleType string
@@ -48,8 +49,9 @@ func NewMBOptions() *MBOptions {
 			"flink": 30,
 			"share": 50,
 		},
-		MinMBPerCCD:      4_000,
+		MinMBPerCCD:      4_000,   // 4 GB
 		DomainMBCapacity: 122_000, // 122_000 MBps = 122 GBps
+		RemoteLimit:      20_000,  // 20 GB
 
 		LeafThrottleType: string(domaintarget.ExtremeThrottle),
 		LeafEaseType:     string(domaintarget.HalfEase),
@@ -66,6 +68,7 @@ func (m *MBOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"mapping from cpuset pool name to shared_xx")
 	fs.IntVar(&m.MinMBPerCCD, "min-mb-per-ccd", m.MinMBPerCCD, "lower bound of MB per ccd in MBps")
 	fs.IntVar(&m.DomainMBCapacity, "domain-mb-capacity", m.DomainMBCapacity, "MB capacity per domain(socket) in MBps")
+	fs.IntVar(&m.RemoteLimit, "mb-remote-limit", m.RemoteLimit, "upper bound limit from remote if high QoS workload is running")
 	fs.StringVar(&m.LeafThrottleType, "mb-leaf-throttle-type", m.LeafThrottleType, "type of shared-30 throttle planner")
 	fs.StringVar(&m.LeafEaseType, "mb-leaf-ease-type", m.LeafEaseType, "type of shared-30 ease planner")
 	fs.StringVar(&m.SourcerType, "mb-sourcer-type", m.SourcerType, "type of mb target source distributor")
@@ -76,6 +79,7 @@ func (m *MBOptions) ApplyTo(conf *qrmconfig.MBQRMPluginConfig) error {
 	conf.CPUSetPoolToSharedSubgroup = m.CPUSetPoolToSharedSubgroup
 	conf.MinMBPerCCD = m.MinMBPerCCD
 	conf.DomainMBCapacity = m.DomainMBCapacity
+	conf.RemoteLimit = m.RemoteLimit
 
 	// todo: to validate assignments
 	conf.LeafThrottleType = domaintarget.MBAdjusterType(m.LeafThrottleType)

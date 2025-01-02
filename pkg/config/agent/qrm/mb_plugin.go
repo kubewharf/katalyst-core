@@ -26,6 +26,7 @@ type MBQRMPluginConfig struct {
 	CPUSetPoolToSharedSubgroup map[string]int
 	MinMBPerCCD                int
 	DomainMBCapacity           int
+	RemoteLimit                int
 
 	// type of leaf planners
 	LeafThrottleType domaintarget.MBAdjusterType

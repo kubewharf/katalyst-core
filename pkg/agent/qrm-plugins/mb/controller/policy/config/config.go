@@ -37,23 +37,22 @@ const (
 )
 
 type MBPolicyConfig struct {
-	MBConfig    qrmconfig.MBQRMPluginConfig
+	qrmconfig.MBQRMPluginConfig
 	CCDMBMax    int
 	DomainMBMax int
 	DomainMBMin int
 
-	RemoteLimit int
 	ZombieCCDMB int
 }
 
 // global mb policy configuration
 var PolicyConfig = MBPolicyConfig{
-	MBConfig: qrmconfig.MBQRMPluginConfig{
+	MBQRMPluginConfig: qrmconfig.MBQRMPluginConfig{
 		MinMBPerCCD: 4_000,
+		RemoteLimit: defaultRemoteLimit,
 	},
 	CCDMBMax:    ccdMBMax,
 	DomainMBMax: domainMBMax,
 	DomainMBMin: domainMBMin,
-	RemoteLimit: defaultRemoteLimit,
 	ZombieCCDMB: defaultZombieMB,
 }
