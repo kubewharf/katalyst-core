@@ -20,6 +20,7 @@ const (
 	HalfThrottle    = MBAdjusterType("half-throttle")
 	FullEase        = MBAdjusterType("full-ease")
 	HalfEase        = MBAdjusterType("half-ease")
+	QuarterEase     = MBAdjusterType("quarter-ease")
 )
 
 func New(typ MBAdjusterType, ccdPlanner *ccdtarget.CCDGroupPlanner) DomainMBAdjuster {
@@ -32,6 +33,8 @@ func New(typ MBAdjusterType, ccdPlanner *ccdtarget.CCDGroupPlanner) DomainMBAdju
 		return newFullEasePlanner(ccdPlanner)
 	case HalfEase:
 		return newHalfEasePlanner(ccdPlanner)
+	case QuarterEase:
+		return newQuarterEasePlanner()
 	default:
 		panic("not implemented yet")
 	}

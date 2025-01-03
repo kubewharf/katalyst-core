@@ -67,3 +67,23 @@ func newHalfEasePlanner(planner *ccdtarget.CCDGroupPlanner) DomainMBAdjuster {
 		innerPlanner: fullEasePlanner{ccdGroupPlanner: planner},
 	}
 }
+
+type quarterEasePlanner struct{}
+
+func (q quarterEasePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (q quarterEasePlanner) GetQuota(capacity, currentUsage int) int {
+	easeRoom := capacity - policyconfig.PolicyConfig.MBEaseThreshold - currentUsage
+	return currentUsage + easeRoom/4
+}
+
+func (q quarterEasePlanner) Name() string {
+	return "quarter ease planner"
+}
+
+func newQuarterEasePlanner() DomainMBAdjuster {
+	return &quarterEasePlanner{}
+}
