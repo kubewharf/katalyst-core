@@ -13,7 +13,7 @@ type fullEasePlanner struct {
 }
 
 func (t fullEasePlanner) GetQuota(capacity, currentUsage int) int {
-	allocatable := capacity - policyconfig.PolicyConfig.EaseThreshold
+	allocatable := capacity - policyconfig.PolicyConfig.MBEaseThreshold
 	if allocatable <= 0 {
 		return 0
 	}
@@ -25,7 +25,7 @@ func (t fullEasePlanner) Name() string {
 }
 
 func (t fullEasePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
-	allocatable := capacity - policyconfig.PolicyConfig.EaseThreshold
+	allocatable := capacity - policyconfig.PolicyConfig.MBEaseThreshold
 	if allocatable <= 0 {
 		return nil
 	}
@@ -47,7 +47,7 @@ type halfEasePlanner struct {
 }
 
 func (s halfEasePlanner) GetQuota(capacity, currentUsage int) int {
-	constraintCapacity := (capacity + policyconfig.PolicyConfig.EaseThreshold + currentUsage) / 2
+	constraintCapacity := (capacity + policyconfig.PolicyConfig.MBEaseThreshold + currentUsage) / 2
 	return s.innerPlanner.GetQuota(constraintCapacity, currentUsage)
 }
 
@@ -58,7 +58,7 @@ func (s halfEasePlanner) Name() string {
 func (s halfEasePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
 	totalUsage := stat.SumMB(mbQoSGroups)
 	// step ease planner eases 1/2 newly allocatable only at ease step
-	constraintCapacity := (capacity + policyconfig.PolicyConfig.EaseThreshold + totalUsage) / 2
+	constraintCapacity := (capacity + policyconfig.PolicyConfig.MBEaseThreshold + totalUsage) / 2
 	return s.innerPlanner.GetPlan(constraintCapacity, mbQoSGroups)
 }
 

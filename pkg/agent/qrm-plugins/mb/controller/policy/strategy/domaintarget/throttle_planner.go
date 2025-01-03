@@ -40,8 +40,8 @@ type halfThrottlePlanner struct {
 func (h halfThrottlePlanner) GetQuota(capacity, currentUsage int) int {
 	allocatable := currentUsage / 2
 	// summarized low prio qos plans should  not exceeding the ease bar
-	if allocatable > capacity-policyconfig.PolicyConfig.EaseThreshold {
-		allocatable = capacity - policyconfig.PolicyConfig.EaseThreshold
+	if allocatable > capacity-policyconfig.PolicyConfig.MBEaseThreshold {
+		allocatable = capacity - policyconfig.PolicyConfig.MBEaseThreshold
 	}
 	return allocatable
 }
@@ -56,7 +56,7 @@ func (h halfThrottlePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSG
 
 	// distribute total among all proportionally
 	ratio := float64(allocatable) / float64(totalUsage)
-	return h.ccdGroupPlanner.GetProportionalPlanWithUpperLimit(ratio, mbQoSGroups, capacity-policyconfig.PolicyConfig.EaseThreshold)
+	return h.ccdGroupPlanner.GetProportionalPlanWithUpperLimit(ratio, mbQoSGroups, capacity-policyconfig.PolicyConfig.MBEaseThreshold)
 }
 
 func newHalfThrottlePlanner(ccdPlanner *ccdtarget.CCDGroupPlanner) DomainMBAdjuster {

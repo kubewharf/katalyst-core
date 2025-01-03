@@ -135,7 +135,7 @@ func assemblePolicySourceInfo(recipientTarget int, outgoingMBStat map[qosgroup.Q
 	leafOutgoingMBTotal, _, leafOutgoingMBRemote := getTotalLocalRemoteMBStatSummary(outgoingMBStat)
 	outgoingRemoteLimit := config.PolicyConfig.DomainMBMax
 	if alientDomainLimitIncomingRemote {
-		outgoingRemoteLimit = config.PolicyConfig.RemoteLimit
+		outgoingRemoteLimit = config.PolicyConfig.MBRemoteLimit
 	}
 	return quotasourcing.DomainMB{
 		Target:               recipientTarget,

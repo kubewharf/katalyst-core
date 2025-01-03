@@ -16,26 +16,31 @@ limitations under the License.
 
 package qrm
 
-import (
-	"time"
-)
+import "time"
 
 type MBQRMPluginConfig struct {
-	IncubationInterval         time.Duration
+	// shared meta group related which has several subgroups like shared-50, shared-30
+	// this is to notify kubelet which subgroup a pod should be in
+	// based on pod spec (qos level + relevant cpuset_pool annotation)
 	CPUSetPoolToSharedSubgroup map[string]int
 
+	// mb resource allocation and policy related
 	MinMBPerCCD      int
 	DomainMBCapacity int
-	RemoteLimit      int
+	MBRemoteLimit    int
 
-	// type of leaf planners
+	// socket (top qos) mb reservation related
+	IncubationInterval time.Duration
+
+	// leaf (lowest qos) mb planner related
 	LeafThrottleType string
 	LeafEaseType     string
 
 	// domain mb usage policy
-	PressureThreshold int
-	EaseThreshold     int
+	MBPressureThreshold int
+	MBEaseThreshold     int
 
+	// incoming (recipient view) to outgoing (sender view) mapping related
 	SourcerType string
 }
 

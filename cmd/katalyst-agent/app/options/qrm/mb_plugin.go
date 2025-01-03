@@ -28,19 +28,24 @@ import (
 const defaultIncubationInterval = time.Second * 30
 
 type MBOptions struct {
-	IncubationInterval         time.Duration
+	// shared meta group related (it could have several subgroups like shared-50, shared-30)
 	CPUSetPoolToSharedSubgroup map[string]int
-	MinMBPerCCD                int
-	DomainMBCapacity           int
-	RemoteLimit                int
 
-	// type of leaf planners
-	LeafThrottleType string
-	LeafEaseType     string
+	// mb resource allocation and policy related
+	MinMBPerCCD      int
+	DomainMBCapacity int
+	MBRemoteLimit    int
 
-	PressureThreshold int
-	EaseThreshold     int
+	// socket (top qos) mb reservation related
+	IncubationInterval time.Duration
 
+	// leaf (lowest qos) mb planner related
+	LeafThrottleType    string
+	LeafEaseType        string
+	MBPressureThreshold int
+	MBEaseThreshold     int
+
+	// incoming (recipient view) to outgoing (sender view) mapping related
 	SourcerType string
 }
 
@@ -54,13 +59,13 @@ func NewMBOptions() *MBOptions {
 		},
 		MinMBPerCCD:      4_000,   // 4 GB
 		DomainMBCapacity: 122_000, // 122_000 MBps = 122 GBps
-		RemoteLimit:      20_000,  // 20 GB
+		MBRemoteLimit:    20_000,  // 20 GB
 
 		LeafThrottleType: string(domaintarget.ExtremeThrottle),
 		LeafEaseType:     string(domaintarget.HalfEase),
 
-		PressureThreshold: 6_000,
-		EaseThreshold:     9_000,
+		MBPressureThreshold: 6_000,
+		MBEaseThreshold:     9_000,
 
 		SourcerType: "category",
 	}
@@ -74,11 +79,11 @@ func (m *MBOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"mapping from cpuset pool name to shared_xx")
 	fs.IntVar(&m.MinMBPerCCD, "min-mb-per-ccd", m.MinMBPerCCD, "lower bound of MB per ccd in MBps")
 	fs.IntVar(&m.DomainMBCapacity, "domain-mb-capacity", m.DomainMBCapacity, "MB capacity per domain(socket) in MBps")
-	fs.IntVar(&m.RemoteLimit, "mb-remote-limit", m.RemoteLimit, "upper bound limit from remote if high QoS workload is running")
+	fs.IntVar(&m.MBRemoteLimit, "mb-remote-limit", m.MBRemoteLimit, "upper bound limit from remote if high QoS workload is running")
 	fs.StringVar(&m.LeafThrottleType, "mb-leaf-throttle-type", m.LeafThrottleType, "type of shared-30 throttle planner")
 	fs.StringVar(&m.LeafEaseType, "mb-leaf-ease-type", m.LeafEaseType, "type of shared-30 ease planner")
-	fs.IntVar(&m.PressureThreshold, "mb-pressure-threshold", m.PressureThreshold, "the threshold below which a domain available mb is would try to throttle leaf qos workloads")
-	fs.IntVar(&m.EaseThreshold, "mb-ease-threshold", m.EaseThreshold, "the threshold above which a domain available mb is would try to ease leaf qos workloads")
+	fs.IntVar(&m.MBPressureThreshold, "mb-pressure-threshold", m.MBPressureThreshold, "the threshold below which a domain available mb is would try to throttle leaf qos workloads")
+	fs.IntVar(&m.MBEaseThreshold, "mb-ease-threshold", m.MBEaseThreshold, "the threshold above which a domain available mb is would try to ease leaf qos workloads")
 	fs.StringVar(&m.SourcerType, "mb-sourcer-type", m.SourcerType, "type of mb target source distributor")
 }
 
@@ -87,14 +92,14 @@ func (m *MBOptions) ApplyTo(conf *qrmconfig.MBQRMPluginConfig) error {
 	conf.CPUSetPoolToSharedSubgroup = m.CPUSetPoolToSharedSubgroup
 	conf.MinMBPerCCD = m.MinMBPerCCD
 	conf.DomainMBCapacity = m.DomainMBCapacity
-	conf.RemoteLimit = m.RemoteLimit
+	conf.MBRemoteLimit = m.MBRemoteLimit
 
 	// todo: to validate assignments
 	conf.LeafThrottleType = m.LeafThrottleType
 	conf.LeafEaseType = m.LeafEaseType
 
-	conf.PressureThreshold = m.PressureThreshold
-	conf.EaseThreshold = m.EaseThreshold
+	conf.MBPressureThreshold = m.MBPressureThreshold
+	conf.MBEaseThreshold = m.MBEaseThreshold
 
 	conf.SourcerType = m.SourcerType
 	return nil

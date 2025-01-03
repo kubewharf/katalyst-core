@@ -46,6 +46,6 @@ func (c categoryRemoteBoundSourcer) adjustResult(result []int, rho []float64, ta
 func NewCategoryRemoteBoundSourcer() Sourcer {
 	return &categoryRemoteBoundSourcer{
 		cateSourcer: categorySourcer{},
-		remoteLimit: config.PolicyConfig.RemoteLimit,
+		remoteLimit: config.PolicyConfig.MBRemoteLimit,
 	}
 }

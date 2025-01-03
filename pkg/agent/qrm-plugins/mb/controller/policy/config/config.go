@@ -52,10 +52,10 @@ type MBPolicyConfig struct {
 // global mb policy configuration
 var PolicyConfig = MBPolicyConfig{
 	MBQRMPluginConfig: qrmconfig.MBQRMPluginConfig{
-		MinMBPerCCD:       4_000,
-		RemoteLimit:       defaultRemoteLimit,
-		PressureThreshold: defaultPressureThreshold,
-		EaseThreshold:     defaultEaseThreshold,
+		MinMBPerCCD:         4_000,
+		MBRemoteLimit:       defaultRemoteLimit,
+		MBPressureThreshold: defaultPressureThreshold,
+		MBEaseThreshold:     defaultEaseThreshold,
 	},
 	CCDMBMax:    ccdMBMax,
 	DomainMBMax: domainMBMax,
