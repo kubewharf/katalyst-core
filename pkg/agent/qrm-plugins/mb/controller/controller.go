@@ -18,7 +18,6 @@ package controller
 
 import (
 	"context"
-	"sync"
 	"time"
 
 	"github.com/spf13/afero"
@@ -28,7 +27,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 	resctrltask "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/task"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
@@ -44,6 +42,7 @@ type Controller struct {
 	cancel  context.CancelFunc
 	chAdmit chan struct{}
 
+	MBStat          *MBStatKeeper
 	podMBMonitor    monitor.MBMonitor
 	policy          policy.DomainMBPolicy
 	mbPlanAllocator allocator.PlanAllocator
@@ -53,27 +52,6 @@ type Controller struct {
 
 	// exposure it for testability
 	DomainManager *mbdomain.MBDomainManager
-
-	lock sync.RWMutex
-	// expose below field to make test easier
-	// todo: not to expose this field
-	CurrQoSCCDMB map[qosgroup.QoSGroup]*stat.MBQoSGroup
-}
-
-func (c *Controller) updateCurrentQoSCCDMBStat(qosCCDMB map[qosgroup.QoSGroup]*stat.MBQoSGroup) {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-	c.CurrQoSCCDMB = qosCCDMB
-}
-
-func (c *Controller) getCurrentDedicatedQoSCCDMB() *stat.MBQoSGroup {
-	c.lock.RLock()
-	defer c.lock.RUnlock()
-	dedicatedCCDMB, ok := c.CurrQoSCCDMB[qosgroup.QoSGroupDedicated]
-	if !ok {
-		return nil
-	}
-	return dedicatedCCDMB
 }
 
 func (c *Controller) GetDedicatedNodes() sets.Int {
@@ -90,7 +68,7 @@ func (c *Controller) GetDedicatedNodes() sets.Int {
 
 // guessDedicatedNodesByCheckingActiveMBStat identifies the nodes currently assigned to dedicated qos and having active traffic (including 0)
 func (c *Controller) guessDedicatedNodesByCheckingActiveMBStat() sets.Int {
-	dedicatedCCDMB := c.getCurrentDedicatedQoSCCDMB()
+	dedicatedCCDMB := c.MBStat.getByQoSGroup(qosgroup.QoSGroupDedicated)
 	if dedicatedCCDMB == nil {
 		return nil
 	}
@@ -145,7 +123,7 @@ func (c *Controller) run(ctx context.Context) {
 		general.Errorf("mbm: failed to get MB usages: %v", err)
 	}
 
-	c.updateCurrentQoSCCDMBStat(qosCCDMB)
+	c.MBStat.update(qosCCDMB)
 	general.InfofV(6, "mbm: controller: mb usage summary: %v", monitor.DisplayMBSummary(qosCCDMB))
 
 	c.process(ctx)
@@ -153,11 +131,12 @@ func (c *Controller) run(ctx context.Context) {
 
 func (c *Controller) process(ctx context.Context) {
 	// policy does applicable customization based on current MB usages of all domains
-	c.policy.PreprocessQoSCCDMB(c.CurrQoSCCDMB)
+	currQoSCCDMBStat := c.MBStat.get()
+	c.policy.PreprocessQoSCCDMB(currQoSCCDMBStat)
 
 	for i, domain := range c.DomainManager.Domains {
 		// we only care about qosCCDMB manageable by the specific domain
-		applicableQoSCCDMB := domain.GetApplicableQoSCCDMB(c.CurrQoSCCDMB)
+		applicableQoSCCDMB := domain.GetApplicableQoSCCDMB(currQoSCCDMBStat)
 		mbAlloc := c.policy.GetPlan(domain.MBQuota, domain, applicableQoSCCDMB)
 		general.InfofV(6, "mbm: domain %d mb alloc plan: %v", i, mbAlloc)
 
@@ -186,5 +165,6 @@ func New(podMBMonitor monitor.MBMonitor, mbPlanAllocator allocator.PlanAllocator
 		chAdmit:         make(chan struct{}, 1),
 		cgCPUSet:        cgcpuset.New(fs),
 		TaskManager:     resctrltask.New(fs),
+		MBStat:          NewMBStatKeeper(nil),
 	}, nil
 }

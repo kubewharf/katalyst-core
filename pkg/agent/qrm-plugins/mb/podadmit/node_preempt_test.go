@@ -68,7 +68,7 @@ func TestNodePreempter_getNotInUseNodes(t *testing.T) {
 				mbController: &controller.Controller{
 					DomainManager: testDomainManager,
 					TaskManager:   task.New(afero.NewMemMapFs()),
-					CurrQoSCCDMB:  map[qosgroup.QoSGroup]*stat.MBQoSGroup{},
+					MBStat:        controller.NewMBStatKeeper(map[qosgroup.QoSGroup]*stat.MBQoSGroup{}),
 				},
 			},
 			args: args{
@@ -85,13 +85,13 @@ func TestNodePreempter_getNotInUseNodes(t *testing.T) {
 				mbController: &controller.Controller{
 					DomainManager: testDomainManager,
 					TaskManager:   task.New(afero.NewMemMapFs()),
-					CurrQoSCCDMB: map[qosgroup.QoSGroup]*stat.MBQoSGroup{
+					MBStat: controller.NewMBStatKeeper(map[qosgroup.QoSGroup]*stat.MBQoSGroup{
 						qosgroup.QoSGroupDedicated: {
-							CCDMB: map[int]*stat.MBData{3: {
-								TotalMB: 0,
-							}},
+							CCDMB: map[int]*stat.MBData{
+								3: {TotalMB: 0},
+							},
 						},
-					},
+					}),
 				},
 			},
 			args: args{
