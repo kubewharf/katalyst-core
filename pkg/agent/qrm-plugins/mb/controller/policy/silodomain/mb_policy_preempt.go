@@ -38,7 +38,7 @@ type preemptDomainMBPolicy struct {
 	qos  map[qosgroup.QoSGroup]*stat.MBQoSGroup
 }
 
-func (p *preemptDomainMBPolicy) ProcessGlobalQoSCCDMB(qos map[qosgroup.QoSGroup]*stat.MBQoSGroup) {
+func (p *preemptDomainMBPolicy) PreprocessQoSCCDMB(qos map[qosgroup.QoSGroup]*stat.MBQoSGroup) {
 	p.lock.Lock()
 	defer p.lock.Unlock()
 	p.qos = qos

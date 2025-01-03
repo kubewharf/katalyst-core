@@ -32,9 +32,9 @@ type domainMBPolicy struct {
 	constraintMBPolicy policy.DomainMBPolicy
 }
 
-func (d *domainMBPolicy) ProcessGlobalQoSCCDMB(qos map[qosgroup.QoSGroup]*stat.MBQoSGroup) {
-	d.preemptMBPolicy.ProcessGlobalQoSCCDMB(qos)
-	d.constraintMBPolicy.ProcessGlobalQoSCCDMB(qos)
+func (d *domainMBPolicy) PreprocessQoSCCDMB(qos map[qosgroup.QoSGroup]*stat.MBQoSGroup) {
+	d.preemptMBPolicy.PreprocessQoSCCDMB(qos)
+	d.constraintMBPolicy.PreprocessQoSCCDMB(qos)
 }
 
 func calcResvForIncubation(incubates mbdomain.IncubatedCCDs, currQoSMB map[qosgroup.QoSGroup]*stat.MBQoSGroup) int {

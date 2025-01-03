@@ -100,8 +100,8 @@ func TestController_getDedicatedNodes(t *testing.T) {
 				DomainManager: tt.fields.domainManager,
 				CurrQoSCCDMB:  tt.fields.CurrQoSCCDMB,
 			}
-			if got := c.getDedicatedNodes(); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("getDedicatedNodes() = %v, want %v", got, tt.want)
+			if got := c.guessDedicatedNodesByCheckingActiveMBStat(); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("guessDedicatedNodesByCheckingActiveMBStat() = %v, want %v", got, tt.want)
 			}
 		})
 	}

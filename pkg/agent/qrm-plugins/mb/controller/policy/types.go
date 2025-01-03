@@ -8,8 +8,9 @@ import (
 )
 
 type DomainMBPolicy interface {
+	// GetPlan returns mb allocation plan for a specific domain
 	GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoSMB map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc
 
-	// let policy have a sense of global view; essentail for domains having cross-domain impacts
-	ProcessGlobalQoSCCDMB(qos map[qosgroup.QoSGroup]*stat.MBQoSGroup)
+	// PreprocessQoSCCDMB lets policy have a sense of global view; essential for domains having cross-domain impacts
+	PreprocessQoSCCDMB(qos map[qosgroup.QoSGroup]*stat.MBQoSGroup)
 }

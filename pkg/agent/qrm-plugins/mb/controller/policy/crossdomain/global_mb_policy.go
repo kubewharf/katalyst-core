@@ -52,7 +52,7 @@ type globalMBPolicy struct {
 }
 
 func (g *globalMBPolicy) GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoSMB map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
-	// this relies on the beforehand ProcessGlobalQoSCCDMB(...), which had processed taking into account all the domains
+	// this relies on the beforehand PreprocessQoSCCDMB(...), which had processed taking into account all the domains
 	leafOutgoingQuota, err := g.getLeafOutgoingQuotas(domain.ID)
 	if err != nil {
 		panic(fmt.Sprintf("missing well prepared plan: %v", err))
@@ -78,7 +78,7 @@ func (g *globalMBPolicy) GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoS
 	return plan.Merge(hiPlans, leafPlan)
 }
 
-func (g *globalMBPolicy) ProcessGlobalQoSCCDMB(mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) {
+func (g *globalMBPolicy) PreprocessQoSCCDMB(mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) {
 	// reserve for socket pods in admission or incubation
 	mbQoSGroups = g.adjustSocketCCDMBWithIncubates(mbQoSGroups)
 

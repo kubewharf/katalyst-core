@@ -41,20 +41,18 @@ const (
 )
 
 type Controller struct {
-	cancel context.CancelFunc
+	cancel  context.CancelFunc
+	chAdmit chan struct{}
+
+	podMBMonitor    monitor.MBMonitor
+	policy          policy.DomainMBPolicy
+	mbPlanAllocator allocator.PlanAllocator
 
 	TaskManager *resctrltask.TaskManager
 	cgCPUSet    *cgcpuset.CPUSet
 
-	podMBMonitor    monitor.MBMonitor
-	mbPlanAllocator allocator.PlanAllocator
-
 	// exposure it for testability
 	DomainManager *mbdomain.MBDomainManager
-
-	policy policy.DomainMBPolicy
-
-	chAdmit chan struct{}
 
 	lock sync.RWMutex
 	// expose below field to make test easier
@@ -62,10 +60,20 @@ type Controller struct {
 	CurrQoSCCDMB map[qosgroup.QoSGroup]*stat.MBQoSGroup
 }
 
-func (c *Controller) updateQoSCCDMB(qosCCDMB map[qosgroup.QoSGroup]*stat.MBQoSGroup) {
+func (c *Controller) updateCurrentQoSCCDMBStat(qosCCDMB map[qosgroup.QoSGroup]*stat.MBQoSGroup) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	c.CurrQoSCCDMB = qosCCDMB
+}
+
+func (c *Controller) getCurrentDedicatedQoSCCDMB() *stat.MBQoSGroup {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	dedicatedCCDMB, ok := c.CurrQoSCCDMB[qosgroup.QoSGroupDedicated]
+	if !ok {
+		return nil
+	}
+	return dedicatedCCDMB
 }
 
 func (c *Controller) GetDedicatedNodes() sets.Int {
@@ -77,19 +85,17 @@ func (c *Controller) GetDedicatedNodes() sets.Int {
 	}
 
 	// fall back to educated guess by looking at the slots of active mb metrics
-	c.lock.RLock()
-	defer c.lock.RUnlock()
-	return c.getDedicatedNodes()
+	return c.guessDedicatedNodesByCheckingActiveMBStat()
 }
 
-// getDedicatedNodes identifies the nodes currently assigned to dedicated qos and having active traffic (including 0)
-func (c *Controller) getDedicatedNodes() sets.Int {
-	// identify the ccds having active traffic as dedicated groups
-	dedicatedCCDMB, ok := c.CurrQoSCCDMB[qosgroup.QoSGroupDedicated]
-	if !ok {
+// guessDedicatedNodesByCheckingActiveMBStat identifies the nodes currently assigned to dedicated qos and having active traffic (including 0)
+func (c *Controller) guessDedicatedNodesByCheckingActiveMBStat() sets.Int {
+	dedicatedCCDMB := c.getCurrentDedicatedQoSCCDMB()
+	if dedicatedCCDMB == nil {
 		return nil
 	}
 
+	// identify the ccds having active traffic as dedicated groups
 	dedicatedNodes := make(sets.Int)
 	for ccd := range dedicatedCCDMB.CCDMB {
 		node, err := c.DomainManager.GetNode(ccd)
@@ -111,7 +117,7 @@ func (c *Controller) ReqToAdjustMB() {
 }
 
 func (c *Controller) Run() {
-	general.Infof("mbm: main control loop Run started")
+	general.Infof("mbm: mb controller Run started")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	c.cancel = cancel
@@ -122,12 +128,12 @@ func (c *Controller) Run() {
 	for {
 		select {
 		case <-ctx.Done():
-			general.Infof("mbm: main control loop Run exited")
+			general.Infof("mbm: mb controller Run loop had stopped by request")
 			return
 		case <-ticker.C:
 			c.run(ctx)
 		case <-c.chAdmit:
-			general.InfofV(6, "mbm: process admit request")
+			general.InfofV(6, "mbm: mb controller to process pod admit request")
 			c.process(ctx)
 		}
 	}
@@ -139,21 +145,19 @@ func (c *Controller) run(ctx context.Context) {
 		general.Errorf("mbm: failed to get MB usages: %v", err)
 	}
 
-	c.updateQoSCCDMB(qosCCDMB)
+	c.updateCurrentQoSCCDMBStat(qosCCDMB)
+	general.InfofV(6, "mbm: controller: mb usage summary: %v", monitor.DisplayMBSummary(qosCCDMB))
 
-	general.InfofV(6, "mbm: mb usage summary: %v", monitor.DisplayMBSummary(qosCCDMB))
 	c.process(ctx)
 }
 
 func (c *Controller) process(ctx context.Context) {
 	// policy does applicable customization based on current MB usages of all domains
-	c.policy.ProcessGlobalQoSCCDMB(c.CurrQoSCCDMB)
+	c.policy.PreprocessQoSCCDMB(c.CurrQoSCCDMB)
 
 	for i, domain := range c.DomainManager.Domains {
-		// we only care about qosCCDMB manageable by the domain
+		// we only care about qosCCDMB manageable by the specific domain
 		applicableQoSCCDMB := domain.GetApplicableQoSCCDMB(c.CurrQoSCCDMB)
-		general.InfofV(6, "mbm: domain %d mb stat: %#v", i, applicableQoSCCDMB)
-
 		mbAlloc := c.policy.GetPlan(domain.MBQuota, domain, applicableQoSCCDMB)
 		general.InfofV(6, "mbm: domain %d mb alloc plan: %v", i, mbAlloc)
 
