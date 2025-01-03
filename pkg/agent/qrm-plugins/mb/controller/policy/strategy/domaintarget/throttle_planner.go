@@ -1,6 +1,7 @@
 package domaintarget
 
 import (
+	policyconfig "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy/ccdtarget"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
@@ -39,8 +40,8 @@ type halfThrottlePlanner struct {
 func (h halfThrottlePlanner) GetQuota(capacity, currentUsage int) int {
 	allocatable := currentUsage / 2
 	// summarized low prio qos plans should  not exceeding the ease bar
-	if allocatable > capacity-easeThreshold {
-		allocatable = capacity - easeThreshold
+	if allocatable > capacity-policyconfig.PolicyConfig.EaseThreshold {
+		allocatable = capacity - policyconfig.PolicyConfig.EaseThreshold
 	}
 	return allocatable
 }
@@ -55,7 +56,7 @@ func (h halfThrottlePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSG
 
 	// distribute total among all proportionally
 	ratio := float64(allocatable) / float64(totalUsage)
-	return h.ccdGroupPlanner.GetProportionalPlanWithUpperLimit(ratio, mbQoSGroups, capacity-easeThreshold)
+	return h.ccdGroupPlanner.GetProportionalPlanWithUpperLimit(ratio, mbQoSGroups, capacity-policyconfig.PolicyConfig.EaseThreshold)
 }
 
 func newHalfThrottlePlanner(ccdPlanner *ccdtarget.CCDGroupPlanner) DomainMBAdjuster {

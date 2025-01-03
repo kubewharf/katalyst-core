@@ -38,6 +38,9 @@ type MBOptions struct {
 	LeafThrottleType string
 	LeafEaseType     string
 
+	PressureThreshold int
+	EaseThreshold     int
+
 	SourcerType string
 }
 
@@ -56,6 +59,9 @@ func NewMBOptions() *MBOptions {
 		LeafThrottleType: string(domaintarget.ExtremeThrottle),
 		LeafEaseType:     string(domaintarget.HalfEase),
 
+		PressureThreshold: 6_000,
+		EaseThreshold:     9_000,
+
 		SourcerType: "category",
 	}
 }
@@ -71,6 +77,8 @@ func (m *MBOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.IntVar(&m.RemoteLimit, "mb-remote-limit", m.RemoteLimit, "upper bound limit from remote if high QoS workload is running")
 	fs.StringVar(&m.LeafThrottleType, "mb-leaf-throttle-type", m.LeafThrottleType, "type of shared-30 throttle planner")
 	fs.StringVar(&m.LeafEaseType, "mb-leaf-ease-type", m.LeafEaseType, "type of shared-30 ease planner")
+	fs.IntVar(&m.PressureThreshold, "mb-pressure-threshold", m.PressureThreshold, "the threshold below which a domain available mb is would try to throttle leaf qos workloads")
+	fs.IntVar(&m.EaseThreshold, "mb-ease-threshold", m.EaseThreshold, "the threshold above which a domain available mb is would try to ease leaf qos workloads")
 	fs.StringVar(&m.SourcerType, "mb-sourcer-type", m.SourcerType, "type of mb target source distributor")
 }
 
@@ -82,8 +90,11 @@ func (m *MBOptions) ApplyTo(conf *qrmconfig.MBQRMPluginConfig) error {
 	conf.RemoteLimit = m.RemoteLimit
 
 	// todo: to validate assignments
-	conf.LeafThrottleType = domaintarget.MBAdjusterType(m.LeafThrottleType)
-	conf.LeafEaseType = domaintarget.MBAdjusterType(m.LeafEaseType)
+	conf.LeafThrottleType = m.LeafThrottleType
+	conf.LeafEaseType = m.LeafEaseType
+
+	conf.PressureThreshold = m.PressureThreshold
+	conf.EaseThreshold = m.EaseThreshold
 
 	conf.SourcerType = m.SourcerType
 	return nil

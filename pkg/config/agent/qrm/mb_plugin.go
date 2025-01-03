@@ -17,20 +17,24 @@ limitations under the License.
 package qrm
 
 import (
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy/domaintarget"
 	"time"
 )
 
 type MBQRMPluginConfig struct {
 	IncubationInterval         time.Duration
 	CPUSetPoolToSharedSubgroup map[string]int
-	MinMBPerCCD                int
-	DomainMBCapacity           int
-	RemoteLimit                int
+
+	MinMBPerCCD      int
+	DomainMBCapacity int
+	RemoteLimit      int
 
 	// type of leaf planners
-	LeafThrottleType domaintarget.MBAdjusterType
-	LeafEaseType     domaintarget.MBAdjusterType
+	LeafThrottleType string
+	LeafEaseType     string
+
+	// domain mb usage policy
+	PressureThreshold int
+	EaseThreshold     int
 
 	SourcerType string
 }

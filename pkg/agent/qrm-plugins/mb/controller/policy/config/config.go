@@ -34,10 +34,14 @@ const (
 
 	defaultRemoteLimit = 20_000 //20GB
 	defaultZombieMB    = 100    // 100 MB (0.1 GB)
+
+	defaultPressureThreshold = 6_000
+	defaultEaseThreshold     = 1.5 * defaultPressureThreshold
 )
 
 type MBPolicyConfig struct {
 	qrmconfig.MBQRMPluginConfig
+
 	CCDMBMax    int
 	DomainMBMax int
 	DomainMBMin int
@@ -48,8 +52,10 @@ type MBPolicyConfig struct {
 // global mb policy configuration
 var PolicyConfig = MBPolicyConfig{
 	MBQRMPluginConfig: qrmconfig.MBQRMPluginConfig{
-		MinMBPerCCD: 4_000,
-		RemoteLimit: defaultRemoteLimit,
+		MinMBPerCCD:       4_000,
+		RemoteLimit:       defaultRemoteLimit,
+		PressureThreshold: defaultPressureThreshold,
+		EaseThreshold:     defaultEaseThreshold,
 	},
 	CCDMBMax:    ccdMBMax,
 	DomainMBMax: domainMBMax,

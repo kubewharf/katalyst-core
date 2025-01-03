@@ -1,14 +1,11 @@
 package domaintarget
 
-const (
-	PressureThreshold = 6_000
-	easeThreshold     = 1.5 * PressureThreshold
-)
+import policyconfig "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 
 func IsResourceUnderPressure(capacity, used int) bool {
-	return used+PressureThreshold >= capacity
+	return used+policyconfig.PolicyConfig.PressureThreshold >= capacity
 }
 
 func IsResourceAtEase(capacity, used int) bool {
-	return used+easeThreshold < capacity
+	return used+policyconfig.PolicyConfig.EaseThreshold < capacity
 }
