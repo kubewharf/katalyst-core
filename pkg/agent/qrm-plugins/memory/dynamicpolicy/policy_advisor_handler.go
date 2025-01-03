@@ -128,9 +128,7 @@ func (p *DynamicPolicy) createGetAdviceRequest() (*advisorsvc.GetAdviceRequest, 
 func (p *DynamicPolicy) getAdviceFromAdvisor(ctx context.Context) (isImplemented bool, err error) {
 	startTime := time.Now()
 	general.Infof("called")
-	p.Lock()
 	defer func() {
-		p.Unlock()
 		general.InfoS("finished", "duration", time.Since(startTime))
 	}()
 
@@ -217,9 +215,7 @@ func (p *DynamicPolicy) lwMemoryAdvisorServer(stopCh <-chan struct{}) error {
 				err, status.Code(err))
 		}
 
-		p.Lock()
 		err = p.handleAdvisorResp(resp)
-		p.Unlock()
 		if err != nil {
 			general.Errorf("handle ListAndWatch response of MemoryAdvisorServer failed with error: %v", err)
 		}
@@ -239,7 +235,9 @@ func (p *DynamicPolicy) handleAdvisorResp(advisorResp *advisorsvc.ListAndWatchRe
 	startTime := time.Now()
 	general.Infof("called")
 	_ = p.emitter.StoreInt64(util.MetricNameHandleAdvisorRespCalled, 1, metrics.MetricTypeNameRaw)
+	p.Lock()
 	defer func() {
+		p.Unlock()
 		if retErr != nil {
 			_ = p.emitter.StoreInt64(util.MetricNameHandleAdvisorRespFailed, 1, metrics.MetricTypeNameRaw)
 		}
