@@ -26,6 +26,9 @@ coverage:
 
 ignore:
   - "**/*_generated.*"
+  - "pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor/cpu.pb.go"
+  - "pkg/agent/qrm-plugins/advisorsvc/advisor_svc.pb.go"
+  - "pkg/agent/sysadvisor/plugin/inference/models/borwein/inferencesvc/inference_svc.pb.go"
   - "pkg/config/**/*.*"
 
 github_checks:

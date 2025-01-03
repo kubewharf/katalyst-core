@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -102,6 +103,7 @@ type DynamicPolicy struct {
 	// those are parsed from configurations
 	// todo if we want to use dynamic configuration, we'd better not use self-defined conf
 	enableCPUAdvisor                          bool
+	getAdviceInterval                         time.Duration
 	reservedCPUs                              machine.CPUSet
 	cpuAdvisorSocketAbsPath                   string
 	cpuPluginSocketAbsPath                    string
@@ -185,6 +187,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		cpuPluginSocketAbsPath:        conf.CPUPluginSocketAbsPath,
 		enableReclaimNUMABinding:      conf.EnableReclaimNUMABinding,
 		enableCPUAdvisor:              conf.CPUQRMPluginConfig.EnableCPUAdvisor,
+		getAdviceInterval:             conf.CPUQRMPluginConfig.GetAdviceInterval,
 		cpuNUMAHintPreferPolicy:       conf.CPUQRMPluginConfig.CPUNUMAHintPreferPolicy,
 		cpuNUMAHintPreferLowThreshold: conf.CPUQRMPluginConfig.CPUNUMAHintPreferLowThreshold,
 		reservedCPUs:                  reservedCPUs,
@@ -354,15 +357,24 @@ func (p *DynamicPolicy) Start() (err error) {
 		}
 		general.Infof("cpu plugin checkpoint server serving confirmed")
 
-		err = p.pushCPUAdvisor()
-		if err != nil {
+		p.getAdviceFromAdvisorLoop(p.stopCh)
+		select {
+		case <-p.stopCh:
+			// stopCh closed, no need to fall back to ListAndWatch.
+			return
+		default:
+		}
+
+		general.Infof("advisor does not implement GetAdvice, fall back to ListAndWatch")
+
+		if err := p.pushCPUAdvisor(); err != nil {
 			general.Errorf("sync existing containers to cpu advisor failed with error: %v", err)
 			return
 		}
 		general.Infof("sync existing containers to cpu advisor successfully")
 
 		// call lw of CPUAdvisorServer and do allocation
-		if err = p.lwCPUAdvisorServer(p.stopCh); err != nil {
+		if err := p.lwCPUAdvisorServer(p.stopCh); err != nil {
 			general.Errorf("lwCPUAdvisorServer failed with error: %v", err)
 		} else {
 			general.Infof("lwCPUAdvisorServer finished")
@@ -677,12 +689,24 @@ func (p *DynamicPolicy) GetTopologyHints(ctx context.Context,
 			})
 	}
 
+	startTime := time.Now()
 	p.RLock()
 	defer func() {
 		p.RUnlock()
 		if err != nil {
 			_ = p.emitter.StoreInt64(util.MetricNameGetTopologyHintsFailed, 1, metrics.MetricTypeNameRaw)
+			general.ErrorS(err, "GetTopologyHints failed",
+				"podNamespace", req.PodNamespace,
+				"podName", req.PodName,
+				"containerName", req.ContainerName,
+			)
 		}
+		general.InfoS("finished",
+			"duration", time.Since(startTime).String(),
+			"podNamespace", req.PodNamespace,
+			"podName", req.PodName,
+			"containerName", req.ContainerName,
+		)
 	}()
 
 	if p.hintHandlers[qosLevel] == nil {
@@ -792,6 +816,7 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 		}, nil
 	}
 
+	startTime := time.Now()
 	p.Lock()
 	defer func() {
 		// calls sys-advisor to inform the latest container
@@ -819,6 +844,19 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 		}
 
 		p.Unlock()
+		if respErr != nil {
+			general.ErrorS(respErr, "Allocate failed",
+				"podNamespace", req.PodNamespace,
+				"podName", req.PodName,
+				"containerName", req.ContainerName,
+			)
+		}
+		general.InfoS("finished",
+			"duration", time.Since(startTime).String(),
+			"podNamespace", req.PodNamespace,
+			"podName", req.PodName,
+			"containerName", req.ContainerName,
+		)
 		return
 	}()
 
@@ -890,13 +928,15 @@ func (p *DynamicPolicy) RemovePod(ctx context.Context,
 	}
 	general.InfoS("called", "podUID", req.PodUid)
 
+	startTime := time.Now()
 	p.Lock()
 	defer func() {
 		p.Unlock()
 		if err != nil {
-			general.ErrorS(err, "remove pod failed with error", "podUID", req.PodUid)
 			_ = p.emitter.StoreInt64(util.MetricNameRemovePodFailed, 1, metrics.MetricTypeNameRaw)
+			general.ErrorS(err, "RemovePod failed", "podUID", req.PodUid)
 		}
+		general.InfoS("finished", "duration", time.Since(startTime).String(), "podUID", req.PodUid)
 	}()
 
 	podEntries := p.state.GetPodEntries()
@@ -964,7 +1004,16 @@ func (p *DynamicPolicy) removeContainer(podUID, containerName string) error {
 
 // initAdvisorClientConn initializes cpu-advisor related connections
 func (p *DynamicPolicy) initAdvisorClientConn() (err error) {
-	cpuAdvisorConn, err := process.Dial(p.cpuAdvisorSocketAbsPath, 5*time.Second)
+	cpuAdvisorConn, err := process.Dial(
+		p.cpuAdvisorSocketAbsPath,
+		5*time.Second,
+		grpc.WithUnaryInterceptor(func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+			// add metadata to outgoing context to indicate that qrm supports GetAdvice.
+			// advisor that also supports GetAdvice will ignore such AddContainer/RemovePod requests.
+			ctx = metadata.AppendToOutgoingContext(ctx, util.AdvisorRPCMetadataKeySupportsGetAdvice, util.AdvisorRPCMetadataValueSupportsGetAdvice)
+			return invoker(ctx, method, req, reply, cc, opts...)
+		}),
+	)
 	if err != nil {
 		err = fmt.Errorf("get cpu advisor connection with socket: %s failed with error: %v", p.cpuAdvisorSocketAbsPath, err)
 		return

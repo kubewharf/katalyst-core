@@ -77,8 +77,12 @@ generate-sys-advisor-cpu-plugin:
 AdvisorSvcPath = $(MakeFilePath)/pkg/agent/qrm-plugins/advisorsvc/
 .PHONY: generate-advisor-svc ## Generate protocol for general qrm-plugin with sys-advisor
 generate-advisor-svc:
+	mkdir -p $(TempRepoDir)/github.com/kubewharf && \
+	mkdir -p $(TempRepoDir)/github.com/gogo && \
+	git clone https://github.com/kubewharf/kubelet.git $(TempRepoDir)/github.com/kubewharf/kubelet && \
+	git clone https://github.com/gogo/protobuf.git $(TempRepoDir)/github.com/gogo/protobuf && \
 	targetTag=`cat $(MakeFilePath)/go.mod | grep kubewharf/kubelet | awk '{print $$4}'` && \
-        cd $(GOPATH)/src/github.com/kubewharf/kubelet && \
+        cd $(TempRepoDir)/github.com/kubewharf/kubelet && \
 		git fetch --tags && \
 		git checkout $$targetTag && \
 		cd - && \

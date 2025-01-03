@@ -137,6 +137,7 @@ type DynamicPolicy struct {
 	enableSettingSockMem       bool
 	enableSettingFragMem       bool
 	enableMemoryAdvisor        bool
+	getAdviceInterval          time.Duration
 	memoryAdvisorSocketAbsPath string
 	memoryPluginSocketAbsPath  string
 
@@ -213,6 +214,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		enableSettingSockMem:       conf.EnableSettingSockMem,
 		enableSettingFragMem:       conf.EnableSettingFragMem,
 		enableMemoryAdvisor:        conf.EnableMemoryAdvisor,
+		getAdviceInterval:          conf.GetAdviceInterval,
 		memoryAdvisorSocketAbsPath: conf.MemoryAdvisorSocketAbsPath,
 		memoryPluginSocketAbsPath:  conf.MemoryPluginSocketAbsPath,
 		extraControlKnobConfigs:    extraControlKnobConfigs, // [TODO]: support modifying extraControlKnobConfigs by KCC
@@ -471,9 +473,18 @@ func (p *DynamicPolicy) Start() (err error) {
 		}
 		general.Infof("memory plugin checkpoint server serving confirmed")
 
+		p.getAdviceFromAdvisorLoop(p.stopCh)
+		select {
+		case <-p.stopCh:
+			// stopCh closed, no need to fall back to ListAndWatch.
+			return
+		default:
+		}
+
+		general.Infof("advisor does not implement GetAdvice, fall back to ListAndWatch")
+
 		// keep compatible to old version sys advisor not supporting list containers from memory plugin
-		err = p.pushMemoryAdvisor()
-		if err != nil {
+		if err := p.pushMemoryAdvisor(); err != nil {
 			general.Errorf("sync existing containers to memory advisor failed with error: %v", err)
 			return
 		}
@@ -568,12 +579,24 @@ func (p *DynamicPolicy) GetTopologyHints(ctx context.Context,
 			})
 	}
 
+	startTime := time.Now()
 	p.RLock()
 	defer func() {
 		p.RUnlock()
 		if err != nil {
 			_ = p.emitter.StoreInt64(util.MetricNameGetTopologyHintsFailed, 1, metrics.MetricTypeNameRaw)
+			general.ErrorS(err, "GetTopologyHints failed",
+				"podNamespace", req.PodNamespace,
+				"podName", req.PodName,
+				"containerName", req.ContainerName,
+			)
 		}
+		general.InfoS("finished",
+			"duration", time.Since(startTime),
+			"podNamespace", req.PodNamespace,
+			"podName", req.PodName,
+			"containerName", req.ContainerName,
+		)
 	}()
 
 	if p.hintHandlers[qosLevel] == nil {
@@ -598,12 +621,15 @@ func (p *DynamicPolicy) RemovePod(ctx context.Context,
 
 	general.InfoS("called", "podUID", req.PodUid)
 
+	startTime := time.Now()
 	p.Lock()
 	defer func() {
 		p.Unlock()
 		if err != nil {
 			_ = p.emitter.StoreInt64(util.MetricNameRemovePodFailed, 1, metrics.MetricTypeNameRaw)
+			general.ErrorS(err, "RemovePod failed", "podUID", req.PodUid)
 		}
+		general.InfoS("finished", "duration", time.Since(startTime), "podUID", req.PodUid)
 	}()
 
 	for lastLevelEnhancementKey, handler := range p.enhancementHandlers[apiconsts.QRMPhaseRemovePod] {
@@ -894,6 +920,7 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 		}, nil
 	}
 
+	startTime := time.Now()
 	p.Lock()
 	defer func() {
 		// calls sys-advisor to inform the latest container
@@ -921,6 +948,19 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 		}
 
 		p.Unlock()
+		if respErr != nil {
+			general.ErrorS(respErr, "Allocate failed",
+				"podNamespace", req.PodNamespace,
+				"podName", req.PodName,
+				"containerName", req.ContainerName,
+			)
+		}
+		general.InfoS("finished",
+			"duration", time.Since(startTime),
+			"podNamespace", req.PodNamespace,
+			"podName", req.PodName,
+			"containerName", req.ContainerName,
+		)
 		return
 	}()
 

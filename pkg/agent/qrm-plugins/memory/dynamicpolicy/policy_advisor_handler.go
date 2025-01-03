@@ -27,9 +27,11 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/uuid"
+	"k8s.io/apimachinery/pkg/util/wait"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	maputil "k8s.io/kubernetes/pkg/util/maps"
 
@@ -65,7 +67,16 @@ const (
 
 // initAdvisorClientConn initializes memory-advisor related connections
 func (p *DynamicPolicy) initAdvisorClientConn() (err error) {
-	memoryAdvisorConn, err := process.Dial(p.memoryAdvisorSocketAbsPath, 5*time.Second)
+	memoryAdvisorConn, err := process.Dial(
+		p.memoryAdvisorSocketAbsPath,
+		5*time.Second,
+		grpc.WithUnaryInterceptor(func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+			// add metadata to outgoing context to indicate that qrm supports GetAdvice.
+			// advisor that also supports GetAdvice will ignore such AddContainer/RemovePod requests.
+			ctx = metadata.AppendToOutgoingContext(ctx, util.AdvisorRPCMetadataKeySupportsGetAdvice, util.AdvisorRPCMetadataValueSupportsGetAdvice)
+			return invoker(ctx, method, req, reply, cc, opts...)
+		}),
+	)
 	if err != nil {
 		err = fmt.Errorf("get memory advisor connection with socket: %s failed with error: %v", p.memoryAdvisorSocketAbsPath, err)
 		return
@@ -74,6 +85,109 @@ func (p *DynamicPolicy) initAdvisorClientConn() (err error) {
 	p.advisorClient = advisorsvc.NewAdvisorServiceClient(memoryAdvisorConn)
 	p.advisorConn = memoryAdvisorConn
 	return nil
+}
+
+func (p *DynamicPolicy) createGetAdviceRequest() (*advisorsvc.GetAdviceRequest, error) {
+	resp := &advisorsvc.GetAdviceRequest{Entries: make(map[string]*advisorsvc.ContainerMetadataEntries)}
+	podEntries := p.state.GetPodResourceEntries()[v1.ResourceMemory]
+	for podUID, entries := range podEntries {
+		if _, ok := resp.Entries[podUID]; !ok {
+			resp.Entries[podUID] = &advisorsvc.ContainerMetadataEntries{
+				Entries: make(map[string]*advisorsvc.ContainerMetadata),
+			}
+		}
+
+		for containerName, allocationInfo := range entries {
+			if allocationInfo == nil {
+				continue
+			}
+
+			containerType, found := pluginapi.ContainerType_value[allocationInfo.ContainerType]
+			if !found {
+				return nil, fmt.Errorf("container type %s not found", allocationInfo.ContainerType)
+			}
+
+			resp.Entries[podUID].Entries[containerName] = &advisorsvc.ContainerMetadata{
+				PodUid:          allocationInfo.PodUid,
+				PodNamespace:    allocationInfo.PodNamespace,
+				PodName:         allocationInfo.PodName,
+				ContainerName:   allocationInfo.ContainerName,
+				ContainerType:   pluginapi.ContainerType(containerType),
+				ContainerIndex:  allocationInfo.ContainerIndex,
+				Labels:          maputil.CopySS(allocationInfo.Labels),
+				Annotations:     maputil.CopySS(allocationInfo.Annotations),
+				QosLevel:        allocationInfo.QoSLevel,
+				RequestQuantity: allocationInfo.AggregatedQuantity,
+			}
+		}
+	}
+
+	return resp, nil
+}
+
+func (p *DynamicPolicy) getAdviceFromAdvisor(ctx context.Context) (isImplemented bool, err error) {
+	startTime := time.Now()
+	general.Infof("called")
+	defer func() {
+		general.InfoS("finished", "duration", time.Since(startTime))
+	}()
+
+	request, err := p.createGetAdviceRequest()
+	if err != nil {
+		return false, fmt.Errorf("create GetAdviceRequest failed with error: %w", err)
+	}
+	resp, err := p.advisorClient.GetAdvice(ctx, request)
+	if err != nil {
+		if general.IsUnimplementedError(err) {
+			return false, nil
+		}
+		return true, fmt.Errorf("GetAdvice failed with error: %w", err)
+	}
+
+	err = p.handleAdvisorResp(&advisorsvc.ListAndWatchResponse{
+		PodEntries:   resp.PodEntries,
+		ExtraEntries: resp.ExtraEntries,
+	})
+	if err != nil {
+		return true, fmt.Errorf("allocate by GetAdvice response failed with error: %w", err)
+	}
+
+	return true, nil
+}
+
+// getAdviceFromAdvisorLoop gets advice from memory-advisor periodically.
+// qrm-plugin works in client-mode, while cpu-advisor works in server-mode.
+// All information required by memory-advisor is included in the request, and the response is returned synchronously.
+// This new communication mode is meant to replace the legacy list-and-watch mode.
+// This function only returns if stopCh is closed, or if the advisor does not implement GetAdvice,
+// in which case we should fall back to the legacy list-and-watch mode.
+func (p *DynamicPolicy) getAdviceFromAdvisorLoop(stopCh <-chan struct{}) {
+	general.Infof("called")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		<-stopCh
+		general.Infof("received stop signal, stop calling GetAdvice on MemoryAdvisorServer")
+		cancel()
+	}()
+
+	_ = wait.PollImmediateUntilWithContext(ctx, p.getAdviceInterval, func(ctx context.Context) (bool, error) {
+		isImplemented, err := p.getAdviceFromAdvisor(ctx)
+		if err != nil {
+			_ = p.emitter.StoreInt64(util.MetricNameGetAdviceFailed, 1, metrics.MetricTypeNameRaw)
+			general.Errorf("get advice from advisor failed with error: %v", err)
+		} else if !isImplemented {
+			general.Infof("MemoryAdvisorServer does not implement GetAdvice")
+			return true, nil
+		}
+
+		_ = general.UpdateHealthzStateByError(memconsts.CommunicateWithAdvisor, err)
+
+		if p.advisorMonitor != nil && err == nil {
+			p.advisorMonitor.UpdateRefreshTime()
+		}
+		return false, nil
+	})
 }
 
 // lwMemoryAdvisorServer works as a client to connect with memory-advisor.
@@ -118,6 +232,7 @@ func (p *DynamicPolicy) handleAdvisorResp(advisorResp *advisorsvc.ListAndWatchRe
 		return fmt.Errorf("handleAdvisorResp got nil advisorResp")
 	}
 
+	startTime := time.Now()
 	general.Infof("called")
 	_ = p.emitter.StoreInt64(util.MetricNameHandleAdvisorRespCalled, 1, metrics.MetricTypeNameRaw)
 	p.Lock()
@@ -126,6 +241,7 @@ func (p *DynamicPolicy) handleAdvisorResp(advisorResp *advisorsvc.ListAndWatchRe
 		if retErr != nil {
 			_ = p.emitter.StoreInt64(util.MetricNameHandleAdvisorRespFailed, 1, metrics.MetricTypeNameRaw)
 		}
+		general.InfoS("finished", "duration", time.Since(startTime))
 	}()
 
 	podResourceEntries := p.state.GetPodResourceEntries()

@@ -850,6 +850,12 @@ func (p *DynamicPolicy) calcPoolResizeRequest(originAllocation, allocation *stat
 
 // adjustAllocationEntries calculates and generates the latest checkpoint
 func (p *DynamicPolicy) adjustAllocationEntries() error {
+	startTime := time.Now()
+	general.Infof("called")
+	defer func() {
+		general.InfoS("finished", "duration", time.Since(startTime))
+	}()
+
 	entries := p.state.GetPodEntries()
 	machineState := p.state.GetMachineState()
 
