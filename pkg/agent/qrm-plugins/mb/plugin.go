@@ -22,25 +22,25 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller"
-	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
+const pluginName = "qrm_mb_plugin"
+
+// plugin is the memory bandwidth resource control plugin
 type plugin struct {
-	qosConfig          *generic.QoSConfiguration
 	dieTopology        *machine.DieTopology
 	incubationInterval time.Duration
 	mbController       *controller.Controller
 }
 
 func (p *plugin) Name() string {
-	return "qrm_mb_plugin"
+	return pluginName
 }
 
 func (p *plugin) Start() error {
-	general.InfofV(6, "mbm: plugin component starting ....")
-	general.InfofV(6, "mbm: mb incubation interval %v", p.incubationInterval)
+	general.Infof("mbm: mb plugin is starting: incubation interval %v", p.incubationInterval)
 	general.InfofV(6, "mbm: numa-CCD-cpu topology: \n%s", p.dieTopology)
 
 	// todo: NOT to return error (to crash explicitly); consider downgrade service

@@ -30,6 +30,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/podadmit"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 const defaultSharedSubgroup = 50
@@ -53,28 +54,18 @@ func createMBPlanAllocator() (allocator.PlanAllocator, error) {
 
 	return allocator.NewPlanAllocator(ctrlGroupMBSetter)
 }
-func NewComponent(agentCtx *agent.GenericContext, conf *config.Configuration,
-	_ interface{}, agentName string,
-) (bool, agent.Component, error) {
-	plugin := &plugin{
-		qosConfig:          conf.QoSConfiguration,
-		dieTopology:        agentCtx.DieTopology,
-		incubationInterval: conf.IncubationInterval,
-	}
 
+func NewComponent(agentCtx *agent.GenericContext, conf *config.Configuration, _ interface{}, agentName string,
+) (bool, agent.Component, error) {
+	general.Infof("mbm: %s is created", agentName)
+
+	// override policy config with user provided args
 	policyconfig.PolicyConfig.MBQRMPluginConfig = *conf.QRMPluginsConfiguration.MBQRMPluginConfig
 
-	domainManager := mbdomain.NewMBDomainManager(plugin.dieTopology, plugin.incubationInterval, conf.DomainMBCapacity)
-
-	var err error
-
+	domainManager := mbdomain.NewMBDomainManager(agentCtx.DieTopology, conf.IncubationInterval, conf.DomainMBCapacity)
 	mbMonitor := metricstore.NewMBReader(agentCtx.MetricsFetcher)
 
-	//podMBMonitor, err := monitor.NewDefaultMBMonitor(plugin.dieTopology.CPUsInDie, dataKeeper, taskManager, domainManager)
-	//if err != nil {
-	//	return false, nil, errors.Wrap(err, "mbm: failed to create default mb monitor")
-	//}
-
+	var err error
 	mbPlanAllocator, err := createMBPlanAllocator()
 	if err != nil {
 		return false, nil, errors.Wrap(err, "mbm: failed to create mb plan allocator")
@@ -86,11 +77,16 @@ func NewComponent(agentCtx *agent.GenericContext, conf *config.Configuration,
 		return false, nil, errors.Wrap(err, "mbm: failed to create domain manager")
 	}
 
+	plugin := &plugin{
+		dieTopology:        agentCtx.DieTopology,
+		incubationInterval: conf.IncubationInterval,
+	}
 	plugin.mbController, err = controller.New(mbMonitor, mbPlanAllocator, domainManager, domainPolicy)
 	if err != nil {
 		return false, nil, errors.Wrap(err, "mbm: failed to create mb controller")
 	}
 
+	// set up pod admitter to interact with kubelet to cope with shared or socket pod admissions
 	defaultSubgroup, ok := conf.CPUSetPoolToSharedSubgroup["share"]
 	if !ok {
 		defaultSubgroup = defaultSharedSubgroup
