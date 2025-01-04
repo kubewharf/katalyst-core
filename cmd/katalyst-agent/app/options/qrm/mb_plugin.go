@@ -17,11 +17,12 @@ limitations under the License.
 package qrm
 
 import (
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy/domaintarget"
 	"time"
 
 	cliflag "k8s.io/component-base/cli/flag"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy/ccdtarget"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy/domaintarget"
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 )
 
@@ -45,6 +46,9 @@ type MBOptions struct {
 	MBPressureThreshold int
 	MBEaseThreshold     int
 
+	// ccd mb planner
+	CCDMBPlannerType string
+
 	// incoming (recipient view) to outgoing (sender view) mapping related
 	SourcerType string
 }
@@ -67,6 +71,8 @@ func NewMBOptions() *MBOptions {
 		MBPressureThreshold: 6_000,
 		MBEaseThreshold:     9_000,
 
+		CCDMBPlannerType: string(ccdtarget.LogarithmicScalePlanner),
+
 		SourcerType: "category",
 	}
 }
@@ -84,6 +90,7 @@ func (m *MBOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringVar(&m.LeafEaseType, "mb-leaf-ease-type", m.LeafEaseType, "type of shared-30 ease planner")
 	fs.IntVar(&m.MBPressureThreshold, "mb-pressure-threshold", m.MBPressureThreshold, "the threshold below which a domain available mb is would try to throttle leaf qos workloads")
 	fs.IntVar(&m.MBEaseThreshold, "mb-ease-threshold", m.MBEaseThreshold, "the threshold above which a domain available mb is would try to ease leaf qos workloads")
+	fs.StringVar(&m.CCDMBPlannerType, "mb-ccd-planner", m.CCDMBPlannerType, "type of ccd mb planner")
 	fs.StringVar(&m.SourcerType, "mb-sourcer-type", m.SourcerType, "type of mb target source distributor")
 }
 
@@ -100,6 +107,8 @@ func (m *MBOptions) ApplyTo(conf *qrmconfig.MBQRMPluginConfig) error {
 
 	conf.MBPressureThreshold = m.MBPressureThreshold
 	conf.MBEaseThreshold = m.MBEaseThreshold
+
+	conf.CCDMBPlannerType = m.CCDMBPlannerType
 
 	conf.SourcerType = m.SourcerType
 	return nil

@@ -4,6 +4,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 type CCDMBPlanner interface {
@@ -19,6 +20,7 @@ const (
 )
 
 func New(plannerType CCDMBPlannerType, min, max int) CCDMBPlanner {
+	general.Infof("mbm: ccd mb planner type %s", plannerType)
 	switch plannerType {
 	case LinearCCDMBPlanner:
 		return newCCDGroupPlanner(min, max)
