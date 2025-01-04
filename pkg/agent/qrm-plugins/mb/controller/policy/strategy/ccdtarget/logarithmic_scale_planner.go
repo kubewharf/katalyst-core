@@ -45,8 +45,8 @@ func (l *logarithmicScalePlanner) GetFixedPlan(fixed int, mbQoSGroups map[qosgro
 	return getFixedPlan(fixed, mbQoSGroups)
 }
 
-func NewLogarithmicScalePlanner(min, max int) CCDMBPlanner {
+func newLogarithmicScalePlanner(min, max int) CCDMBPlanner {
 	return &logarithmicScalePlanner{
-		linearPlanner: NewCCDGroupPlanner(min, max),
+		linearPlanner: newCCDGroupPlanner(min, max),
 	}
 }

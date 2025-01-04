@@ -77,7 +77,7 @@ func Test_logarithmicScalePlanner_GetPlan(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			l := NewLogarithmicScalePlanner(4_000, 35_000)
+			l := newLogarithmicScalePlanner(4_000, 35_000)
 			if got := l.GetPlan(tt.args.total, tt.args.ccdMB); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("GetPlan() = %v, want %v", got, tt.want)
 			}

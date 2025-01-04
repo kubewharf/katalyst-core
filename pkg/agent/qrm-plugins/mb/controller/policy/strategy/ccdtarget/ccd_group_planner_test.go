@@ -56,7 +56,7 @@ func TestCCDGroupPlanner_GetFixedPlan(t *testing.T) {
 			t.Parallel()
 			c := &CCDGroupPlanner{
 				CCDMBMin: tt.fields.ccdMBMin,
-				ccdMBMax: tt.fields.ccdMBMax,
+				CCDMBMax: tt.fields.ccdMBMax,
 			}
 			if got := c.GetFixedPlan(tt.args.fixed, tt.args.mbQoSGroups); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("GetFixedPlan() = %v, want %v", got, tt.want)

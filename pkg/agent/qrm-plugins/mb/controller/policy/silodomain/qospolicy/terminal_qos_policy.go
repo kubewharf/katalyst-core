@@ -112,7 +112,10 @@ func (t terminalQoSPolicy) getProportionalPlan(ratio float64, mbQoSGroups map[qo
 }
 
 func NewTerminalQoSPolicy(ccdMBMin int, throttleType, easeType domaintarget.MBAdjusterType) QoSMBPolicy {
-	ccdGroupPlanner := ccdtarget.NewCCDGroupPlanner(ccdMBMin, config.PolicyConfig.CCDMBMax)
+	ccdGroupPlanner := &ccdtarget.CCDGroupPlanner{
+		CCDMBMin: ccdMBMin,
+		CCDMBMax: config.PolicyConfig.CCDMBMax,
+	}
 	policy := terminalQoSPolicy{
 		ccdMBMin:        ccdMBMin,
 		throttlePlanner: domaintarget.New(throttleType, ccdGroupPlanner),

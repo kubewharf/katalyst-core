@@ -30,7 +30,10 @@ func Test_extremeThrottlePlanner_GetPlan(t *testing.T) {
 		{
 			name: "extreme throttling always get plan of min mb",
 			fields: fields{
-				ccdGroupPlanner: ccdtarget.NewCCDGroupPlanner(4_000, 35_000),
+				ccdGroupPlanner: &ccdtarget.CCDGroupPlanner{
+					CCDMBMin: 4_000,
+					CCDMBMax: 35_000,
+				},
 			},
 			args: args{
 				capacity: 30_000,

@@ -278,7 +278,7 @@ func NewGlobalMBPolicy(ccdMBMin int, domainManager *mbdomain.MBDomainManager, th
 		domainLeafQuotas[domain] = -1
 	}
 
-	ccdPlanner := ccdtarget.NewLogarithmicScalePlanner(ccdMBMin, 35_000)
+	ccdPlanner := ccdtarget.New(ccdtarget.LogarithmicScalePlanner, ccdMBMin, 35_000)
 
 	return &globalMBPolicy{
 		sourcer:                  quotasourcing.New(sourcerType),

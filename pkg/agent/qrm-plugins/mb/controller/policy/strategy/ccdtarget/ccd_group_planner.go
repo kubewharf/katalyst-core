@@ -6,13 +6,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
 
-type CCDMBPlanner interface {
-	GetPlan(target int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc
-	GetFixedPlan(fixed int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc
-}
-
 type CCDGroupPlanner struct {
-	CCDMBMin, ccdMBMax int
+	CCDMBMin, CCDMBMax int
 }
 
 func (c *CCDGroupPlanner) GetPlan(target int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
@@ -37,7 +32,7 @@ func (c *CCDGroupPlanner) getCCDMBPlan(target int, ccdMB map[int]*stat.MBData) m
 }
 
 func (c *CCDGroupPlanner) getProportionalPlan(ratio float64, ccdMB map[int]*stat.MBData) map[int]int {
-	return c.getProportionalPlanWithUpperLimit(ratio, ccdMB, c.ccdMBMax)
+	return c.getProportionalPlanWithUpperLimit(ratio, ccdMB, c.CCDMBMax)
 }
 
 func (c *CCDGroupPlanner) getProportionalPlanWithUpperLimit(ratio float64, ccdMB map[int]*stat.MBData, upperBound int) map[int]int {
@@ -70,9 +65,9 @@ func getFixedPlan(fixed int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup)
 	return mbPlan
 }
 
-func NewCCDGroupPlanner(min, max int) CCDMBPlanner {
+func newCCDGroupPlanner(min, max int) CCDMBPlanner {
 	return &CCDGroupPlanner{
 		CCDMBMin: min,
-		ccdMBMax: max,
+		CCDMBMax: max,
 	}
 }
