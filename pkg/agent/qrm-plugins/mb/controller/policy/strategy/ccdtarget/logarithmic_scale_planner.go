@@ -13,12 +13,23 @@ type logarithmicScalePlanner struct {
 	linearPlanner CCDMBPlanner
 }
 
-func (l *logarithmicScalePlanner) GetPlan(total int, ccdMB map[int]*stat.MBData) map[int]int {
-	weights := getWeightedCCDMB(ccdMB)
-	return l.linearPlanner.GetPlan(total, weights)
+func (l *logarithmicScalePlanner) GetPlan(target int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
+	weights := logarithmicScale(mbQoSGroups)
+	return l.linearPlanner.GetPlan(target, weights)
 }
 
-func getWeightedCCDMB(ccdMB map[int]*stat.MBData) map[int]*stat.MBData {
+func logarithmicScale(mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) map[qosgroup.QoSGroup]*stat.MBQoSGroup {
+	result := make(map[qosgroup.QoSGroup]*stat.MBQoSGroup)
+	for qos, mbGroup := range mbQoSGroups {
+		result[qos] = &stat.MBQoSGroup{
+			CCDs:  mbGroup.CCDs,
+			CCDMB: getLogarithmicScaledCCDMB(mbGroup.CCDMB),
+		}
+	}
+	return result
+}
+
+func getLogarithmicScaledCCDMB(ccdMB map[int]*stat.MBData) map[int]*stat.MBData {
 	clone := syntax.DeepCopy(ccdMB).(map[int]*stat.MBData)
 	for ccd, mb := range ccdMB {
 		if mb.TotalMB == 0 {

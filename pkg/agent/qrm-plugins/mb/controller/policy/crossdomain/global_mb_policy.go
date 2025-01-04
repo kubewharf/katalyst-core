@@ -71,10 +71,7 @@ func (g *globalMBPolicy) GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoS
 	hiPlans := g.ccdGroupPlanner.GetFixedPlan(35_000, hiQoSGroups)
 
 	// to generate mb plan for leaf (lowest priority) group
-	leafCCDMBTarget := g.ccdGroupPlanner.GetPlan(leafOutgoingQuota, leafQoSGroup["shared-30"].CCDMB)
-	leafPlan := &plan.MBAlloc{Plan: map[qosgroup.QoSGroup]map[int]int{
-		"shared-30": leafCCDMBTarget,
-	}}
+	leafPlan := g.ccdGroupPlanner.GetPlan(leafOutgoingQuota, leafQoSGroup)
 
 	return plan.Merge(hiPlans, leafPlan)
 }

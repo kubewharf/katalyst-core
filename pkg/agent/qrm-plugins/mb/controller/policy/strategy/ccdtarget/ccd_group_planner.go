@@ -7,7 +7,7 @@ import (
 )
 
 type CCDMBPlanner interface {
-	GetPlan(total int, ccdMB map[int]*stat.MBData) map[int]int
+	GetPlan(target int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc
 	GetFixedPlan(fixed int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc
 }
 
@@ -15,7 +15,22 @@ type CCDGroupPlanner struct {
 	CCDMBMin, ccdMBMax int
 }
 
-func (c *CCDGroupPlanner) GetPlan(target int, ccdMB map[int]*stat.MBData) map[int]int {
+func (c *CCDGroupPlanner) GetPlan(target int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
+	plan := &plan.MBAlloc{
+		Plan: make(map[qosgroup.QoSGroup]map[int]int),
+	}
+
+	totalUsed := stat.SumMB(mbQoSGroups)
+	for qos, mbGroup := range mbQoSGroups {
+		used := stat.SumCCDMB(mbGroup.CCDMB)
+		groupTarget := target * used / totalUsed
+		plan.Plan[qos] = c.getCCDMBPlan(groupTarget, mbGroup.CCDMB)
+	}
+
+	return plan
+}
+
+func (c *CCDGroupPlanner) getCCDMBPlan(target int, ccdMB map[int]*stat.MBData) map[int]int {
 	used := stat.SumCCDMB(ccdMB)
 	ratio := float64(target) / float64(used)
 	return c.getProportionalPlan(ratio, ccdMB)
