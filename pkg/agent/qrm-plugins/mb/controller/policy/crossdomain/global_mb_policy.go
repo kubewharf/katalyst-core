@@ -45,7 +45,7 @@ type globalMBPolicy struct {
 	easer     domaintarget.DomainMBAdjuster
 
 	// ccdGroupPlanner distributes ccd mb shares of domain quota based on weighted usage
-	ccdGroupPlanner *ccdtarget.CCDGroupPlanner
+	ccdGroupPlanner ccdtarget.CCDMBPlanner
 
 	// traffic negligible for high QoS traffic
 	zombieMB int
@@ -71,9 +71,10 @@ func (g *globalMBPolicy) GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoS
 	hiPlans := g.ccdGroupPlanner.GetFixedPlan(35_000, hiQoSGroups)
 
 	// to generate mb plan for leaf (lowest priority) group
-	leafOutgoingAmount := stat.SumMB(leafQoSGroup)
-	ratio := float64(leafOutgoingQuota) / float64(leafOutgoingAmount)
-	leafPlan := g.ccdGroupPlanner.GetProportionalPlan(ratio, leafQoSGroup)
+	leafCCDMBTarget := g.ccdGroupPlanner.GetPlan(leafOutgoingQuota, leafQoSGroup["share-30"].CCDMB)
+	leafPlan := &plan.MBAlloc{Plan: map[qosgroup.QoSGroup]map[int]int{
+		"shared-30": leafCCDMBTarget,
+	}}
 
 	return plan.Merge(hiPlans, leafPlan)
 }
@@ -280,7 +281,7 @@ func NewGlobalMBPolicy(ccdMBMin int, domainManager *mbdomain.MBDomainManager, th
 		domainLeafQuotas[domain] = -1
 	}
 
-	ccdPlanner := ccdtarget.NewCCDGroupPlanner(ccdMBMin, 35_000)
+	ccdPlanner := ccdtarget.NewLogarithmicScalePlanner(ccdMBMin, 35_000)
 
 	return &globalMBPolicy{
 		sourcer:                  quotasourcing.New(sourcerType),

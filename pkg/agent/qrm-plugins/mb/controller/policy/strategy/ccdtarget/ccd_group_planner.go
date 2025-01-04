@@ -6,33 +6,45 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
 
+type CCDMBPlanner interface {
+	GetPlan(total int, ccdMB map[int]*stat.MBData) map[int]int
+	GetFixedPlan(fixed int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc
+}
+
 type CCDGroupPlanner struct {
 	CCDMBMin, ccdMBMax int
 }
 
-func (c *CCDGroupPlanner) GetProportionalPlan(ratio float64, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
-	return c.GetProportionalPlanWithUpperLimit(ratio, mbQoSGroups, c.ccdMBMax)
+func (c *CCDGroupPlanner) GetPlan(target int, ccdMB map[int]*stat.MBData) map[int]int {
+	used := stat.SumCCDMB(ccdMB)
+	ratio := float64(target) / float64(used)
+	return c.getProportionalPlan(ratio, ccdMB)
 }
 
-func (c *CCDGroupPlanner) GetProportionalPlanWithUpperLimit(ratio float64, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup, high int) *plan.MBAlloc {
-	mbPlan := &plan.MBAlloc{Plan: make(map[qosgroup.QoSGroup]map[int]int)}
-	for qos, group := range mbQoSGroups {
-		mbPlan.Plan[qos] = make(map[int]int)
-		for ccd, mb := range group.CCDMB {
-			newMB := int(ratio * float64(mb.TotalMB))
-			if newMB > high {
-				newMB = high
-			}
-			if newMB < c.CCDMBMin {
-				newMB = c.CCDMBMin
-			}
-			mbPlan.Plan[qos][ccd] = newMB
+func (c *CCDGroupPlanner) getProportionalPlan(ratio float64, ccdMB map[int]*stat.MBData) map[int]int {
+	return c.getProportionalPlanWithUpperLimit(ratio, ccdMB, c.ccdMBMax)
+}
+
+func (c *CCDGroupPlanner) getProportionalPlanWithUpperLimit(ratio float64, ccdMB map[int]*stat.MBData, upperBound int) map[int]int {
+	distributions := make(map[int]int)
+	for ccd, mb := range ccdMB {
+		newMB := int(ratio * float64(mb.TotalMB))
+		if newMB > upperBound {
+			newMB = upperBound
 		}
+		if newMB < c.CCDMBMin {
+			newMB = c.CCDMBMin
+		}
+		distributions[ccd] = newMB
 	}
-	return mbPlan
+	return distributions
 }
 
 func (c *CCDGroupPlanner) GetFixedPlan(fixed int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
+	return getFixedPlan(fixed, mbQoSGroups)
+}
+
+func getFixedPlan(fixed int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
 	mbPlan := &plan.MBAlloc{Plan: make(map[qosgroup.QoSGroup]map[int]int)}
 	for qos, group := range mbQoSGroups {
 		mbPlan.Plan[qos] = make(map[int]int)
@@ -43,7 +55,7 @@ func (c *CCDGroupPlanner) GetFixedPlan(fixed int, mbQoSGroups map[qosgroup.QoSGr
 	return mbPlan
 }
 
-func NewCCDGroupPlanner(min, max int) *CCDGroupPlanner {
+func NewCCDGroupPlanner(min, max int) CCDMBPlanner {
 	return &CCDGroupPlanner{
 		CCDMBMin: min,
 		ccdMBMax: max,

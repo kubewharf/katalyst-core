@@ -9,7 +9,7 @@ import (
 )
 
 type fullEasePlanner struct {
-	ccdGroupPlanner *ccdtarget.CCDGroupPlanner
+	ccdGroupPlanner ccdtarget.CCDMBPlanner
 }
 
 func (t fullEasePlanner) GetQuota(capacity, currentUsage int) int {
@@ -25,18 +25,10 @@ func (t fullEasePlanner) Name() string {
 }
 
 func (t fullEasePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
-	allocatable := capacity - policyconfig.PolicyConfig.MBEaseThreshold
-	if allocatable <= 0 {
-		return nil
-	}
-
-	// distribute total among all proportionally
-	totalUsage := stat.SumMB(mbQoSGroups)
-	ratio := float64(allocatable) / float64(totalUsage)
-	return t.ccdGroupPlanner.GetProportionalPlan(ratio, mbQoSGroups)
+	panic("should not be called")
 }
 
-func newFullEasePlanner(planner *ccdtarget.CCDGroupPlanner) DomainMBAdjuster {
+func newFullEasePlanner(planner ccdtarget.CCDMBPlanner) DomainMBAdjuster {
 	return &fullEasePlanner{
 		ccdGroupPlanner: planner,
 	}
@@ -62,7 +54,7 @@ func (s halfEasePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup
 	return s.innerPlanner.GetPlan(constraintCapacity, mbQoSGroups)
 }
 
-func newHalfEasePlanner(planner *ccdtarget.CCDGroupPlanner) DomainMBAdjuster {
+func newHalfEasePlanner(planner ccdtarget.CCDMBPlanner) DomainMBAdjuster {
 	return &halfEasePlanner{
 		innerPlanner: fullEasePlanner{ccdGroupPlanner: planner},
 	}

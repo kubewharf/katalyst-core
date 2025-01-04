@@ -11,7 +11,7 @@ import (
 // extremeThrottlePlanner implements the extreme throttling by generating the plan
 // that set all groups to their min allocation
 type extremeThrottlePlanner struct {
-	ccdGroupPlanner *ccdtarget.CCDGroupPlanner
+	ccdGroupPlanner ccdtarget.CCDMBPlanner
 }
 
 func (e extremeThrottlePlanner) GetQuota(capacity, currentUsage int) int {
@@ -23,10 +23,10 @@ func (e extremeThrottlePlanner) Name() string {
 }
 
 func (e extremeThrottlePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
-	return e.ccdGroupPlanner.GetFixedPlan(e.ccdGroupPlanner.CCDMBMin, mbQoSGroups)
+	return e.ccdGroupPlanner.GetFixedPlan(policyconfig.PolicyConfig.MinMBPerCCD, mbQoSGroups)
 }
 
-func newExtremeThrottlePlanner(ccdPlanner *ccdtarget.CCDGroupPlanner) DomainMBAdjuster {
+func newExtremeThrottlePlanner(ccdPlanner ccdtarget.CCDMBPlanner) DomainMBAdjuster {
 	return &extremeThrottlePlanner{
 		ccdGroupPlanner: ccdPlanner,
 	}
@@ -34,7 +34,7 @@ func newExtremeThrottlePlanner(ccdPlanner *ccdtarget.CCDGroupPlanner) DomainMBAd
 
 // halfThrottlePlanner forces qos groups to yield half of mb in use
 type halfThrottlePlanner struct {
-	ccdGroupPlanner *ccdtarget.CCDGroupPlanner
+	ccdGroupPlanner ccdtarget.CCDMBPlanner
 }
 
 func (h halfThrottlePlanner) GetQuota(capacity, currentUsage int) int {
@@ -51,15 +51,10 @@ func (h halfThrottlePlanner) Name() string {
 }
 
 func (h halfThrottlePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
-	totalUsage := stat.SumMB(mbQoSGroups)
-	allocatable := h.GetQuota(capacity, totalUsage)
-
-	// distribute total among all proportionally
-	ratio := float64(allocatable) / float64(totalUsage)
-	return h.ccdGroupPlanner.GetProportionalPlanWithUpperLimit(ratio, mbQoSGroups, capacity-policyconfig.PolicyConfig.MBEaseThreshold)
+	panic("should not call be called")
 }
 
-func newHalfThrottlePlanner(ccdPlanner *ccdtarget.CCDGroupPlanner) DomainMBAdjuster {
+func newHalfThrottlePlanner(ccdPlanner ccdtarget.CCDMBPlanner) DomainMBAdjuster {
 	return &halfThrottlePlanner{
 		ccdGroupPlanner: ccdPlanner,
 	}

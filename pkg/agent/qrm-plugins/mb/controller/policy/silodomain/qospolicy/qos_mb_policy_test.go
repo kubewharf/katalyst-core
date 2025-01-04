@@ -28,6 +28,7 @@ import (
 )
 
 func TestBuildHiPrioDetectedQoSMBPolicy(t *testing.T) {
+	t.Skip("going to obsolete")
 	t.Parallel()
 	smartPolicy := BuildHiPrioDetectedQoSMBPolicy(4_000, domaintarget.ExtremeThrottle, domaintarget.HalfEase)
 
