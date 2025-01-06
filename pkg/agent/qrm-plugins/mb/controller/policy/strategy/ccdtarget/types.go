@@ -15,12 +15,12 @@ type CCDMBDistributor interface {
 type CCDMBDistributorType string
 
 const (
-	LinearCCDMBDistributor      = CCDMBDistributorType("linear-ccd-distributor")
-	LogarithmicScaleDistributor = CCDMBDistributorType("logarithm-ccd-distributor")
+	LinearCCDMBDistributor      = CCDMBDistributorType("linear-distributor")
+	LogarithmicScaleDistributor = CCDMBDistributorType("logarithm-distributor")
 )
 
 func New(plannerType CCDMBDistributorType, min, max int) CCDMBDistributor {
-	general.Infof("mbm: ccd mb planner type %s", plannerType)
+	general.Infof("mbm: ccd mb distributor type %s", plannerType)
 	switch plannerType {
 	case LinearCCDMBDistributor:
 		return newLinearDistributor(min, max)
