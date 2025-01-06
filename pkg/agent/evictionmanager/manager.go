@@ -521,7 +521,7 @@ func (m *EvictionManger) getEvictPodFromCandidates(candidateEvictPods map[string
 	}
 
 	m.killStrategy.CandidateSort(rpList)
-	return rpList[0]
+	return rpList[len(rpList)-1]
 }
 
 // thresholdsFirstObservedAt merges the input set of thresholds with the previous observation to determine when active set of thresholds were initially met.
