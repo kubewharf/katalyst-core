@@ -131,8 +131,13 @@ func (ra *memoryResourceAdvisor) Run(ctx context.Context) {
 }
 
 func (ra *memoryResourceAdvisor) GetHeadroom() (resource.Quantity, map[int]resource.Quantity, error) {
+	startTime := time.Now()
 	ra.mutex.RLock()
+	general.InfoS("acquired lock", "duration", time.Since(startTime))
 	defer ra.mutex.RUnlock()
+	defer func() {
+		general.InfoS("finished", "duration", time.Since(startTime))
+	}()
 
 	for _, headroomPolicy := range ra.headroomPolices {
 		headroom, numaHeadroom, err := headroomPolicy.GetHeadroom()
@@ -149,6 +154,10 @@ func (ra *memoryResourceAdvisor) GetHeadroom() (resource.Quantity, map[int]resou
 }
 
 func (ra *memoryResourceAdvisor) UpdateAndGetAdvice() (interface{}, error) {
+	startTime := time.Now()
+	defer func() {
+		general.InfoS("finished", "duration", time.Since(startTime))
+	}()
 	result, err := ra.update()
 	_ = general.UpdateHealthzStateByError(memoryAdvisorHealthCheckName, err)
 	if result != nil {
@@ -161,8 +170,13 @@ func (ra *memoryResourceAdvisor) UpdateAndGetAdvice() (interface{}, error) {
 // update updates memory headroom and plugin advices.
 // If the returned result is not nil, it is valid even if an error is returned.
 func (ra *memoryResourceAdvisor) update() (*types.InternalMemoryCalculationResult, error) {
+	startTime := time.Now()
 	ra.mutex.Lock()
+	general.InfoS("acquired lock", "duration", time.Since(startTime))
 	defer ra.mutex.Unlock()
+	defer func() {
+		general.InfoS("finished", "duration", time.Since(startTime))
+	}()
 
 	if !ra.metaReader.HasSynced() {
 		general.InfoS("metaReader has not synced, skip updating")

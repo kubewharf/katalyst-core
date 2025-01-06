@@ -115,6 +115,7 @@ func (ms *memoryServer) populateMetaCache(memoryPluginClient advisorsvc.QRMServi
 }
 
 func (ms *memoryServer) GetAdvice(ctx context.Context, request *advisorsvc.GetAdviceRequest) (*advisorsvc.GetAdviceResponse, error) {
+	startTime := time.Now()
 	_ = ms.emitter.StoreInt64(ms.genMetricsName(metricServerGetAdviceCalled), 1, metrics.MetricTypeNameCount)
 	general.Infof("get advice request: %v", general.ToString(request))
 
@@ -122,6 +123,8 @@ func (ms *memoryServer) GetAdvice(ctx context.Context, request *advisorsvc.GetAd
 		general.Errorf("update meta cache failed: %v", err)
 		return nil, fmt.Errorf("update meta cache failed: %w", err)
 	}
+
+	general.InfoS("updated meta cache input", "duration", time.Since(startTime))
 
 	result, err := ms.updateAdvisor()
 	if err != nil {
@@ -133,12 +136,15 @@ func (ms *memoryServer) GetAdvice(ctx context.Context, request *advisorsvc.GetAd
 		ExtraEntries: result.ExtraEntries,
 	}
 	general.Infof("get advice response: %v", general.ToString(resp))
+	general.InfoS("get advice", "duration", time.Since(startTime))
 	return resp, nil
 }
 
 func (ms *memoryServer) updateMetaCacheInput(ctx context.Context, request *advisorsvc.GetAdviceRequest) error {
+	startTime := time.Now()
 	// lock meta cache to prevent race with cpu server
 	ms.metaCache.Lock()
+	general.InfoS("acquired lock", "duration", time.Since(startTime))
 	defer ms.metaCache.Unlock()
 
 	var errs []error
@@ -149,6 +155,8 @@ func (ms *memoryServer) updateMetaCacheInput(ctx context.Context, request *advis
 			}
 		}
 	}
+
+	general.InfoS("added containers", "duration", time.Since(startTime))
 
 	if err := ms.metaCache.RangeAndDeleteContainer(func(container *types.ContainerInfo) bool {
 		info, ok := request.Entries[container.PodUID]
@@ -163,6 +171,7 @@ func (ms *memoryServer) updateMetaCacheInput(ctx context.Context, request *advis
 		errs = append(errs, fmt.Errorf("clean up containers failed: %w", err))
 	}
 
+	general.InfoS("cleaned up containers", "duration", time.Since(startTime))
 	return errors.NewAggregate(errs)
 }
 
@@ -285,6 +294,10 @@ func (ms *memoryServer) assembleHeadroom() *advisorsvc.CalculationInfo {
 }
 
 func (ms *memoryServer) assembleResponse(result *types.InternalMemoryCalculationResult) *memoryInternalResult {
+	startTime := time.Now()
+	defer func() {
+		general.InfoS("finished", "duration", time.Since(startTime))
+	}()
 	if result == nil {
 		return nil
 	}

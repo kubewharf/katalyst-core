@@ -97,6 +97,7 @@ func (cs *cpuServer) RegisterAdvisorServer() {
 }
 
 func (cs *cpuServer) GetAdvice(ctx context.Context, request *cpuadvisor.GetAdviceRequest) (*cpuadvisor.GetAdviceResponse, error) {
+	startTime := time.Now()
 	_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerGetAdviceCalled), 1, metrics.MetricTypeNameCount)
 	general.Infof("get advice request: %v", general.ToString(request))
 
@@ -104,6 +105,8 @@ func (cs *cpuServer) GetAdvice(ctx context.Context, request *cpuadvisor.GetAdvic
 		general.Errorf("update meta cache failed: %v", err)
 		return nil, fmt.Errorf("update meta cache failed: %w", err)
 	}
+
+	general.InfoS("updated meta cache input", "duration", time.Since(startTime))
 
 	result, err := cs.updateAdvisor()
 	if err != nil {
@@ -116,6 +119,7 @@ func (cs *cpuServer) GetAdvice(ctx context.Context, request *cpuadvisor.GetAdvic
 		ExtraEntries:                          result.ExtraEntries,
 	}
 	general.Infof("get advice response: %v", general.ToString(resp))
+	general.InfoS("get advice", "duration", time.Since(startTime))
 	return resp, nil
 }
 
@@ -256,6 +260,10 @@ type cpuInternalResult struct {
 }
 
 func (cs *cpuServer) assembleResponse(advisorResp *types.InternalCPUCalculationResult) *cpuInternalResult {
+	startTime := time.Now()
+	defer func() {
+		general.InfoS("finished", "duration", time.Since(startTime))
+	}()
 	calculationEntriesMap := make(map[string]*cpuadvisor.CalculationEntries)
 	blockID2Blocks := NewBlockSet()
 
@@ -316,8 +324,10 @@ func (cs *cpuServer) assembleHeadroom() *advisorsvc.CalculationInfo {
 }
 
 func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, resp *cpuadvisor.GetAdviceRequest) error {
+	startTime := time.Now()
 	// lock meta cache to prevent race with cpu server
 	cs.metaCache.Lock()
+	general.InfoS("acquired lock", "duration", time.Since(startTime))
 	defer cs.metaCache.Unlock()
 
 	var errs []error
@@ -340,6 +350,8 @@ func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, resp *cpuadvisor.
 			errs = append(errs, fmt.Errorf("update pool info failed: %w", err))
 		}
 	}
+
+	general.InfoS("updated pool entries", "duration", time.Since(startTime))
 
 	// update container entries after pool entries
 	for entryName, entry := range resp.Entries {
@@ -365,6 +377,8 @@ func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, resp *cpuadvisor.
 		}
 	}
 
+	general.InfoS("updated container entries", "duration", time.Since(startTime))
+
 	// clean up containers that no longer exist
 	if err := cs.metaCache.RangeAndDeleteContainer(func(containerInfo *types.ContainerInfo) bool {
 		info, ok := resp.Entries[containerInfo.PodUID]
@@ -380,6 +394,8 @@ func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, resp *cpuadvisor.
 		errs = append(errs, fmt.Errorf("clean up containers failed: %w", err))
 	}
 
+	general.InfoS("cleaned up container entries", "duration", time.Since(startTime))
+
 	// add all containers' original owner pools to livingPoolNameSet
 	cs.metaCache.RangeContainer(func(podUID string, containerName string, containerInfo *types.ContainerInfo) bool {
 		livingPoolNameSet.Insert(containerInfo.OriginOwnerPoolName)
@@ -391,6 +407,7 @@ func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, resp *cpuadvisor.
 		errs = append(errs, fmt.Errorf("gc pool entries failed: %w", err))
 	}
 
+	general.InfoS("cleaned up pool entries", "duration", time.Since(startTime))
 	return errors.NewAggregate(errs)
 }
 
