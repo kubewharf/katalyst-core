@@ -123,7 +123,7 @@ func Test_getPolicySourcerArgs(t *testing.T) {
 					},
 				},
 			},
-			want: "domain: 0 target: 35678, sending total: 51224, sending to remote: 4567\ndomain: 1 target: 80432, sending total: 71765, sending to remote: 20909\n",
+			want: "{domain: 0, target: 35678, sending total: 51224, sending to remote: 4567}, {domain: 1, target: 80432, sending total: 71765, sending to remote: 20909}, ",
 		},
 	}
 	for _, tt := range tests {

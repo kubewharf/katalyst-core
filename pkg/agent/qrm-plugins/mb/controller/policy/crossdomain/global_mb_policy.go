@@ -152,9 +152,9 @@ func getTotalLocalRemoteMBStatSummary(qosMBStat map[qosgroup.QoSGroup]rmbtype.MB
 func stringifyPolicySourceInfo(domainSources []quotasourcing.DomainMB) string {
 	var sb strings.Builder
 	for id, domainMB := range domainSources {
-		sb.WriteString(fmt.Sprintf("domain: %d ", id))
+		sb.WriteString(fmt.Sprintf("{domain: %d, ", id))
 		sb.WriteString(fmt.Sprintf("target: %d, sending total: %d, sending to remote: %d", domainMB.Target, domainMB.MBSource, domainMB.MBSourceRemote))
-		sb.WriteString("\n")
+		sb.WriteString("}, ")
 	}
 	return sb.String()
 }
