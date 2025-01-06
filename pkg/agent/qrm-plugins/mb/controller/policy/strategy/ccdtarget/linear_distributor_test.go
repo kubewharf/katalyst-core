@@ -54,7 +54,7 @@ func TestCCDGroupPlanner_GetFixedPlan(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			c := &CCDGroupPlanner{
+			c := &linearDistributor{
 				CCDMBMin: tt.fields.ccdMBMin,
 				CCDMBMax: tt.fields.ccdMBMax,
 			}
@@ -103,7 +103,7 @@ func TestCCDGroupPlanner_getCCDMBPlan(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			c := &CCDGroupPlanner{
+			c := &linearDistributor{
 				CCDMBMin: tt.fields.CCDMBMin,
 				CCDMBMax: tt.fields.CCDMBMax,
 			}

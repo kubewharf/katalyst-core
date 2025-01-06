@@ -40,8 +40,7 @@ type MBQRMPluginConfig struct {
 	MBPressureThreshold int
 	MBEaseThreshold     int
 
-	// ccd mb planner
-	CCDMBPlannerType string
+	CCDMBDistributorType string
 
 	// incoming (recipient view) to outgoing (sender view) mapping related
 	SourcerType string

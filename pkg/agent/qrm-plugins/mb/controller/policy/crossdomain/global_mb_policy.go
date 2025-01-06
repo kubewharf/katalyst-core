@@ -2,7 +2,6 @@ package crossdomain
 
 import (
 	"fmt"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
 	"strings"
 	"sync"
 
@@ -15,6 +14,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy/ccdtarget"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy/domaintarget"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/readmb/rmbtype"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -45,7 +45,7 @@ type globalMBPolicy struct {
 	easer     domaintarget.DomainMBAdjuster
 
 	// ccdGroupPlanner distributes ccd mb shares of domain quota based on weighted usage
-	ccdGroupPlanner ccdtarget.CCDMBPlanner
+	ccdGroupPlanner ccdtarget.CCDMBDistributor
 
 	// traffic negligible for high QoS traffic
 	zombieMB int
@@ -242,7 +242,7 @@ func NewGlobalMBPolicy(ccdMBMin int, domainManager *mbdomain.MBDomainManager, th
 		domainLeafQuotas[domain] = -1
 	}
 
-	ccdPlanner := ccdtarget.New(ccdtarget.CCDMBPlannerType(config.PolicyConfig.CCDMBPlannerType), ccdMBMin, 35_000)
+	ccdPlanner := ccdtarget.New(ccdtarget.CCDMBDistributorType(config.PolicyConfig.CCDMBDistributorType), ccdMBMin, 35_000)
 
 	return &globalMBPolicy{
 		sourcer:                  quotasourcing.New(sourcerType),

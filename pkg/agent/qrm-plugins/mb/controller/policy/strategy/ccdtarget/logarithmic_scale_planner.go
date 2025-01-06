@@ -9,11 +9,11 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/syntax"
 )
 
-type logarithmicScalePlanner struct {
-	linearPlanner CCDMBPlanner
+type logarithmicScaleDistributor struct {
+	linearPlanner CCDMBDistributor
 }
 
-func (l *logarithmicScalePlanner) GetPlan(target int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
+func (l *logarithmicScaleDistributor) GetPlan(target int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
 	weights := logarithmicScale(mbQoSGroups)
 	return l.linearPlanner.GetPlan(target, weights)
 }
@@ -41,12 +41,12 @@ func getLogarithmicScaledCCDMB(ccdMB map[int]*stat.MBData) map[int]*stat.MBData 
 	return clone
 }
 
-func (l *logarithmicScalePlanner) GetFixedPlan(fixed int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
+func (l *logarithmicScaleDistributor) GetFixedPlan(fixed int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc {
 	return getFixedPlan(fixed, mbQoSGroups)
 }
 
-func newLogarithmicScalePlanner(min, max int) CCDMBPlanner {
-	return &logarithmicScalePlanner{
-		linearPlanner: newCCDGroupPlanner(min, max),
+func newLogarithmicScalePlanner(min, max int) CCDMBDistributor {
+	return &logarithmicScaleDistributor{
+		linearPlanner: newLinearDistributor(min, max),
 	}
 }

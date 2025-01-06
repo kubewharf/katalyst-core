@@ -46,8 +46,7 @@ type MBOptions struct {
 	MBPressureThreshold int
 	MBEaseThreshold     int
 
-	// ccd mb planner
-	CCDMBPlannerType string
+	CCDMBDistributorType string
 
 	// incoming (recipient view) to outgoing (sender view) mapping related
 	SourcerType string
@@ -71,7 +70,7 @@ func NewMBOptions() *MBOptions {
 		MBPressureThreshold: 6_000,
 		MBEaseThreshold:     9_000,
 
-		CCDMBPlannerType: string(ccdtarget.LogarithmicScalePlanner),
+		CCDMBDistributorType: string(ccdtarget.LogarithmicScaleDistributor),
 
 		SourcerType: "category",
 	}
@@ -90,7 +89,7 @@ func (m *MBOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringVar(&m.LeafEaseType, "mb-leaf-ease-type", m.LeafEaseType, "type of shared-30 ease planner")
 	fs.IntVar(&m.MBPressureThreshold, "mb-pressure-threshold", m.MBPressureThreshold, "the threshold below which a domain available mb is would try to throttle leaf qos workloads")
 	fs.IntVar(&m.MBEaseThreshold, "mb-ease-threshold", m.MBEaseThreshold, "the threshold above which a domain available mb is would try to ease leaf qos workloads")
-	fs.StringVar(&m.CCDMBPlannerType, "mb-ccd-planner", m.CCDMBPlannerType, "type of ccd mb planner")
+	fs.StringVar(&m.CCDMBDistributorType, "mb-ccd-distributor", m.CCDMBDistributorType, "type of ccd mb planner")
 	fs.StringVar(&m.SourcerType, "mb-sourcer-type", m.SourcerType, "type of mb target source distributor")
 }
 
@@ -108,7 +107,7 @@ func (m *MBOptions) ApplyTo(conf *qrmconfig.MBQRMPluginConfig) error {
 	conf.MBPressureThreshold = m.MBPressureThreshold
 	conf.MBEaseThreshold = m.MBEaseThreshold
 
-	conf.CCDMBPlannerType = m.CCDMBPlannerType
+	conf.CCDMBDistributorType = m.CCDMBDistributorType
 
 	conf.SourcerType = m.SourcerType
 	return nil

@@ -9,7 +9,7 @@ import (
 )
 
 type fullEasePlanner struct {
-	ccdGroupPlanner ccdtarget.CCDMBPlanner
+	ccdGroupPlanner ccdtarget.CCDMBDistributor
 }
 
 func (t fullEasePlanner) GetQuota(capacity, currentUsage int) int {
@@ -28,7 +28,7 @@ func (t fullEasePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup
 	panic("should not be called")
 }
 
-func newFullEasePlanner(planner ccdtarget.CCDMBPlanner) DomainMBAdjuster {
+func newFullEasePlanner(planner ccdtarget.CCDMBDistributor) DomainMBAdjuster {
 	return &fullEasePlanner{
 		ccdGroupPlanner: planner,
 	}
@@ -54,7 +54,7 @@ func (s halfEasePlanner) GetPlan(capacity int, mbQoSGroups map[qosgroup.QoSGroup
 	return s.innerPlanner.GetPlan(constraintCapacity, mbQoSGroups)
 }
 
-func newHalfEasePlanner(planner ccdtarget.CCDMBPlanner) DomainMBAdjuster {
+func newHalfEasePlanner(planner ccdtarget.CCDMBDistributor) DomainMBAdjuster {
 	return &halfEasePlanner{
 		innerPlanner: fullEasePlanner{ccdGroupPlanner: planner},
 	}

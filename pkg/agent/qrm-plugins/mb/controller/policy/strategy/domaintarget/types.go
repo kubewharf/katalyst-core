@@ -23,7 +23,7 @@ const (
 	QuarterEase     = MBAdjusterType("quarter-ease")
 )
 
-func New(typ MBAdjusterType, ccdPlanner ccdtarget.CCDMBPlanner) DomainMBAdjuster {
+func New(typ MBAdjusterType, ccdPlanner ccdtarget.CCDMBDistributor) DomainMBAdjuster {
 	switch typ {
 	case ExtremeThrottle:
 		return newExtremeThrottlePlanner(ccdPlanner)

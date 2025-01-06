@@ -7,24 +7,24 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
-type CCDMBPlanner interface {
+type CCDMBDistributor interface {
 	GetPlan(target int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc
 	GetFixedPlan(fixed int, mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) *plan.MBAlloc
 }
 
-type CCDMBPlannerType string
+type CCDMBDistributorType string
 
 const (
-	LinearCCDMBPlanner      = CCDMBPlannerType("linear-ccd-planner")
-	LogarithmicScalePlanner = CCDMBPlannerType("logarithm-ccd-planner")
+	LinearCCDMBDistributor      = CCDMBDistributorType("linear-ccd-distributor")
+	LogarithmicScaleDistributor = CCDMBDistributorType("logarithm-ccd-distributor")
 )
 
-func New(plannerType CCDMBPlannerType, min, max int) CCDMBPlanner {
+func New(plannerType CCDMBDistributorType, min, max int) CCDMBDistributor {
 	general.Infof("mbm: ccd mb planner type %s", plannerType)
 	switch plannerType {
-	case LinearCCDMBPlanner:
-		return newCCDGroupPlanner(min, max)
-	case LogarithmicScalePlanner:
+	case LinearCCDMBDistributor:
+		return newLinearDistributor(min, max)
+	case LogarithmicScaleDistributor:
 		return newLogarithmicScalePlanner(min, max)
 	default:
 		panic("unrecognized ccd planner type")
