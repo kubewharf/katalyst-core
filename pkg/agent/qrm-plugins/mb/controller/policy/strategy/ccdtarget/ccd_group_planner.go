@@ -1,6 +1,7 @@
 package ccdtarget
 
 import (
+	policyconfig "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
@@ -16,6 +17,10 @@ func (c *CCDGroupPlanner) GetPlan(target int, mbQoSGroups map[qosgroup.QoSGroup]
 	}
 
 	totalUsed := stat.SumMB(mbQoSGroups)
+	if totalUsed == 0 {
+		return c.GetFixedPlan(policyconfig.PolicyConfig.MinMBPerCCD, mbQoSGroups)
+	}
+
 	for qos, mbGroup := range mbQoSGroups {
 		used := stat.SumCCDMB(mbGroup.CCDMB)
 		groupTarget := target * used / totalUsed
@@ -26,8 +31,10 @@ func (c *CCDGroupPlanner) GetPlan(target int, mbQoSGroups map[qosgroup.QoSGroup]
 }
 
 func (c *CCDGroupPlanner) getCCDMBPlan(target int, ccdMB map[int]*stat.MBData) map[int]int {
-	used := stat.SumCCDMB(ccdMB)
-	ratio := float64(target) / float64(used)
+	ratio := 1.0
+	if used := stat.SumCCDMB(ccdMB); used != 0 {
+		ratio = float64(target) / float64(used)
+	}
 	return c.getProportionalPlan(ratio, ccdMB)
 }
 

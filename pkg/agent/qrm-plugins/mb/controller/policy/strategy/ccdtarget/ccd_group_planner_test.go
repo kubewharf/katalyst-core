@@ -64,3 +64,52 @@ func TestCCDGroupPlanner_GetFixedPlan(t *testing.T) {
 		})
 	}
 }
+
+func TestCCDGroupPlanner_getCCDMBPlan(t *testing.T) {
+	t.Parallel()
+	type fields struct {
+		CCDMBMin int
+		CCDMBMax int
+	}
+	type args struct {
+		target int
+		ccdMB  map[int]*stat.MBData
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		args   args
+		want   map[int]int
+	}{
+		{
+			name: "0 if ok",
+			fields: fields{
+				CCDMBMin: 4_000,
+				CCDMBMax: 35_000,
+			},
+			args: args{
+				target: 25_475,
+				ccdMB: map[int]*stat.MBData{
+					4: {
+						TotalMB:      0,
+						LocalTotalMB: 0,
+					},
+				},
+			},
+			want: map[int]int{4: 4_000},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			c := &CCDGroupPlanner{
+				CCDMBMin: tt.fields.CCDMBMin,
+				CCDMBMax: tt.fields.CCDMBMax,
+			}
+			if got := c.getCCDMBPlan(tt.args.target, tt.args.ccdMB); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("getCCDMBPlan() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
