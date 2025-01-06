@@ -17,6 +17,7 @@ limitations under the License.
 package mb
 
 import (
+	"runtime/debug"
 	"time"
 
 	"github.com/pkg/errors"
@@ -52,7 +53,7 @@ func (p *plugin) Start() error {
 		defer func() {
 			err := recover()
 			if err != nil {
-				general.Errorf("mbm: background run exited, due to error: %v", err)
+				general.Errorf("mbm: background run exited, due to error: %v, stack trace: %s", err, string(debug.Stack()))
 			}
 		}()
 
