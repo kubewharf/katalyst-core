@@ -26,7 +26,9 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/allocator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 	resctrltask "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/resctrl/task"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/task"
@@ -132,6 +134,10 @@ func (c *Controller) run(ctx context.Context) {
 func (c *Controller) process(ctx context.Context) {
 	// policy does applicable customization based on current MB usages of all domains
 	currQoSCCDMBStat := c.MBStat.get()
+
+	// reserve for socket pods in admission or incubation
+	currQoSCCDMBStat = c.adjustSocketCCDMBWithIncubates(currQoSCCDMBStat)
+
 	c.policy.PreprocessQoSCCDMB(currQoSCCDMBStat)
 
 	for i, domain := range c.DomainManager.Domains {
@@ -144,6 +150,39 @@ func (c *Controller) process(ctx context.Context) {
 			general.Errorf("mbm: failed to allocate mb plan for domain %d: %v", i, err)
 		}
 	}
+}
+
+func (c *Controller) adjustSocketCCDMBWithIncubates(mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) map[qosgroup.QoSGroup]*stat.MBQoSGroup {
+	for qos, qosGroup := range mbQoSGroups {
+		if qos != "dedicated" {
+			continue
+		}
+		mbQoSGroups[qos] = c.adjustWthAdmissionIncubation(qosGroup)
+	}
+
+	return mbQoSGroups
+}
+
+func (c *Controller) adjustWthAdmissionIncubation(group *stat.MBQoSGroup) *stat.MBQoSGroup {
+	incubCCDs := make(sets.Int)
+	for _, domain := range c.DomainManager.Domains {
+		domain.CleanseIncubates()
+		for ccd, _ := range domain.CloneIncubates() {
+			incubCCDs.Insert(ccd)
+		}
+	}
+
+	for incubCCD, _ := range incubCCDs {
+		group.CCDs.Insert(incubCCD)
+		if _, ok := group.CCDMB[incubCCD]; !ok {
+			group.CCDMB[incubCCD] = &stat.MBData{}
+		}
+		if group.CCDMB[incubCCD].TotalMB < config.ReservedPerCCD {
+			group.CCDMB[incubCCD].TotalMB = config.ReservedPerCCD
+		}
+	}
+
+	return group
 }
 
 func (c *Controller) Stop() error {

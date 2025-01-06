@@ -77,9 +77,6 @@ func (g *globalMBPolicy) GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoS
 }
 
 func (g *globalMBPolicy) PreprocessQoSCCDMB(mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) {
-	// reserve for socket pods in admission or incubation
-	mbQoSGroups = g.adjustSocketCCDMBWithIncubates(mbQoSGroups)
-
 	// no high priority traffic, no constraint on leaves
 	if !g.hasHighQoSMB(mbQoSGroups) {
 		general.InfofV(6, "mbm: policy: no significant high qos traffic; no constraint on low priority")
@@ -162,17 +159,6 @@ func stringifyPolicySourceInfo(domainSources []quotasourcing.DomainMB) string {
 	return sb.String()
 }
 
-func (g *globalMBPolicy) adjustSocketCCDMBWithIncubates(mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) map[qosgroup.QoSGroup]*stat.MBQoSGroup {
-	for qos, qosGroup := range mbQoSGroups {
-		if qos != "dedicated" {
-			continue
-		}
-		mbQoSGroups[qos] = g.adjustWthAdmissionIncubation(qosGroup)
-	}
-
-	return mbQoSGroups
-}
-
 func (g *globalMBPolicy) splitQoSHighAndLeaf(mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) (highQoSs, leaves map[qosgroup.QoSGroup]*stat.MBQoSGroup) {
 	highQoSs = make(map[qosgroup.QoSGroup]*stat.MBQoSGroup)
 	leaves = make(map[qosgroup.QoSGroup]*stat.MBQoSGroup)
@@ -231,28 +217,6 @@ func (g *globalMBPolicy) setLeafOutgoingNoLimit() {
 	for domain := range g.domainLeafOutgoingQuotas {
 		g.domainLeafOutgoingQuotas[domain] = -1
 	}
-}
-
-func (g *globalMBPolicy) adjustWthAdmissionIncubation(group *stat.MBQoSGroup) *stat.MBQoSGroup {
-	incubCCDs := make(sets.Int)
-	for _, domain := range g.domainManager.Domains {
-		domain.CleanseIncubates()
-		for ccd, _ := range domain.CloneIncubates() {
-			incubCCDs.Insert(ccd)
-		}
-	}
-
-	for incubCCD, _ := range incubCCDs {
-		group.CCDs.Insert(incubCCD)
-		if _, ok := group.CCDMB[incubCCD]; !ok {
-			group.CCDMB[incubCCD] = &stat.MBData{}
-		}
-		if group.CCDMB[incubCCD].TotalMB < config.ReservedPerCCD {
-			group.CCDMB[incubCCD].TotalMB = config.ReservedPerCCD
-		}
-	}
-
-	return group
 }
 
 func (g *globalMBPolicy) hasHighQoSMB(mbQoSGroups map[qosgroup.QoSGroup]*stat.MBQoSGroup) bool {
