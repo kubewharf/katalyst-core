@@ -23,16 +23,6 @@ type MBAlloc struct {
 	Plan map[qosgroup.QoSGroup]map[int]int
 }
 
-func (m MBAlloc) GetAllocatedMB() int {
-	sum := 0
-	for _, ccdMB := range m.Plan {
-		for _, mb := range ccdMB {
-			sum += mb
-		}
-	}
-	return sum
-}
-
 func Merge(plans ...*MBAlloc) *MBAlloc {
 	result := &MBAlloc{
 		Plan: make(map[qosgroup.QoSGroup]map[int]int),
