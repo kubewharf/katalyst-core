@@ -309,7 +309,7 @@ func (p *DynamicPolicy) getAdviceFromAdvisor(ctx context.Context) (isImplemented
 		return true, fmt.Errorf("GetAdvice failed with error: %w", err)
 	}
 
-	err = p.allocateByCPUAdvisor(&advisorapi.ListAndWatchResponse{
+	err = p.allocateByCPUAdvisor(request, &advisorapi.ListAndWatchResponse{
 		Entries:                               resp.Entries,
 		AllowSharedCoresOverlapReclaimedCores: resp.AllowSharedCoresOverlapReclaimedCores,
 		ExtraEntries:                          resp.ExtraEntries,
@@ -381,7 +381,7 @@ func (p *DynamicPolicy) lwCPUAdvisorServer(stopCh <-chan struct{}) error {
 				err, status.Code(err))
 		}
 
-		err = p.allocateByCPUAdvisor(resp)
+		err = p.allocateByCPUAdvisor(nil, resp)
 		if err != nil {
 			general.Errorf("allocate by ListAndWatch response of CPUAdvisorServer failed with error: %v", err)
 		}
@@ -395,7 +395,10 @@ func (p *DynamicPolicy) lwCPUAdvisorServer(stopCh <-chan struct{}) error {
 }
 
 // allocateByCPUAdvisor perform allocate actions based on allocation response from cpu-advisor.
-func (p *DynamicPolicy) allocateByCPUAdvisor(resp *advisorapi.ListAndWatchResponse) (err error) {
+func (p *DynamicPolicy) allocateByCPUAdvisor(
+	req *advisorapi.GetAdviceRequest,
+	resp *advisorapi.ListAndWatchResponse,
+) (err error) {
 	if resp == nil {
 		return fmt.Errorf("allocateByCPUAdvisor got nil qos aware lw response")
 	}
@@ -412,6 +415,12 @@ func (p *DynamicPolicy) allocateByCPUAdvisor(resp *advisorapi.ListAndWatchRespon
 		general.InfoS("finished", "duration", time.Since(startTime))
 	}()
 
+	if req != nil {
+		vErr := p.advisorValidator.ValidateRequest(req)
+		if vErr != nil {
+			return fmt.Errorf("ValidateCPUAdvisorReq failed with error: %v", vErr)
+		}
+	}
 	vErr := p.advisorValidator.Validate(resp)
 	if vErr != nil {
 		return fmt.Errorf("ValidateCPUAdvisorResp failed with error: %v", vErr)

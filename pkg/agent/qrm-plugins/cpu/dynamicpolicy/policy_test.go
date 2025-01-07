@@ -5465,7 +5465,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 			dynamicPolicy.state.SetMachineState(machineState)
 			dynamicPolicy.initReservePool()
 
-			err = dynamicPolicy.allocateByCPUAdvisor(tc.lwResp)
+			err = dynamicPolicy.allocateByCPUAdvisor(nil, tc.lwResp)
 			as.Nilf(err, "dynamicPolicy.allocateByCPUAdvisorServerListAndWatchResp got err: %v, case: %s", err, tc.name)
 
 			getPodEntries := dynamicPolicy.state.GetPodEntries()
