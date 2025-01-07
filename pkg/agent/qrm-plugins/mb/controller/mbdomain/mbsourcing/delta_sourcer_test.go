@@ -1,4 +1,4 @@
-package quotasourcing
+package mbsourcing
 
 import (
 	"github.com/stretchr/testify/assert"
@@ -8,7 +8,7 @@ import (
 func Test_deltaSourcer_AttributeMBToSources(t *testing.T) {
 	t.Parallel()
 	type args struct {
-		domainTargets []DomainMB
+		domainTargets []DomainMBTargetSource
 	}
 	tests := []struct {
 		name string
@@ -18,14 +18,14 @@ func Test_deltaSourcer_AttributeMBToSources(t *testing.T) {
 		//{
 		//	name: "little socket traffic",
 		//	args: args{
-		//		domainTargets: []DomainMB{
+		//		domainTargets: []DomainMBTargetSource{
 		//			{
-		//				Target:         70_198,
+		//				TargetIncoming:         70_198,
 		//				MBSource:       27_700,
 		//				MBSourceRemote: 27_700 - 18_490,
 		//			},
 		//			{
-		//				Target:         59_000,
+		//				TargetIncoming:         59_000,
 		//				MBSource:       14_121,
 		//				MBSourceRemote: 14_121 - 5_180,
 		//			},
@@ -39,7 +39,7 @@ func Test_deltaSourcer_AttributeMBToSources(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			d := deltaSourcer{}
-			assert.Equalf(t, tt.want, d.AttributeMBToSources(tt.args.domainTargets), "AttributeMBToSources(%v)", tt.args.domainTargets)
+			assert.Equalf(t, tt.want, d.AttributeIncomingMBToSources(tt.args.domainTargets), "AttributeIncomingMBToSources(%v)", tt.args.domainTargets)
 		})
 	}
 }

@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain/quotasourcing"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain/mbsourcing"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy/domaintarget"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
@@ -100,7 +100,7 @@ func Test_globalMBPolicy_guessDamianTarget(t *testing.T) {
 func Test_getPolicySourcerArgs(t *testing.T) {
 	t.Parallel()
 	type args struct {
-		args []quotasourcing.DomainMB
+		args []mbsourcing.DomainMBTargetSource
 	}
 	tests := []struct {
 		name string
@@ -110,14 +110,14 @@ func Test_getPolicySourcerArgs(t *testing.T) {
 		{
 			name: "happy path",
 			args: args{
-				args: []quotasourcing.DomainMB{
+				args: []mbsourcing.DomainMBTargetSource{
 					{
-						Target:         35_678,
+						TargetIncoming: 35_678,
 						MBSource:       51_224,
 						MBSourceRemote: 4_567,
 					},
 					{
-						Target:         80_432,
+						TargetIncoming: 80_432,
 						MBSource:       71_765,
 						MBSourceRemote: 20_909,
 					},

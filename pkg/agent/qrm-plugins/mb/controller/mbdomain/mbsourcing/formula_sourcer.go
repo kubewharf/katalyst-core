@@ -1,10 +1,10 @@
-package quotasourcing
+package mbsourcing
 
 import "math"
 
 type formulaSourcer struct{}
 
-func (f formulaSourcer) AttributeMBToSources(domainTargets []DomainMB) []int {
+func (f formulaSourcer) AttributeIncomingMBToSources(domainTargets []DomainMBTargetSource) []int {
 	localRatios := map[int]float64{
 		0: getLocalRatio(domainTargets[0]),
 		1: getLocalRatio(domainTargets[1]),
@@ -17,7 +17,7 @@ func (f formulaSourcer) AttributeMBToSources(domainTargets []DomainMB) []int {
 				continue
 			}
 
-			value := int(float64(mb.Target) / localRatios[domain])
+			value := int(float64(mb.TargetIncoming) / localRatios[domain])
 			if value < sum {
 				sum = value
 			}
@@ -35,7 +35,7 @@ func (f formulaSourcer) AttributeMBToSources(domainTargets []DomainMB) []int {
 }
 
 // corner case to calc x0 + x1 <= sum
-func attributeSumProportions(domainTargets []DomainMB, sum int) []int {
+func attributeSumProportions(domainTargets []DomainMBTargetSource, sum int) []int {
 	current := domainTargets[0].MBSource + domainTargets[1].MBSource
 	ratio := float64(sum) / float64(current)
 	return []int{
@@ -44,9 +44,9 @@ func attributeSumProportions(domainTargets []DomainMB, sum int) []int {
 	}
 }
 
-func attributeBasedOnSolution(domainTargets []DomainMB) []int {
+func attributeBasedOnSolution(domainTargets []DomainMBTargetSource) []int {
 	rho := []float64{getLocalRatio(domainTargets[0]), getLocalRatio(domainTargets[1])}
-	y := []float64{float64(domainTargets[0].Target), float64(domainTargets[1].Target)}
+	y := []float64{float64(domainTargets[0].TargetIncoming), float64(domainTargets[1].TargetIncoming)}
 
 	x0 := (rho[1]*y[0] - (1-rho[1])*y[1]) / (rho[0] + rho[1] - 1)
 	x1 := (rho[0]*y[1] - (1-rho[0])*y[0]) / (rho[0] + rho[1] - 1)

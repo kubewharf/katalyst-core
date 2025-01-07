@@ -1,4 +1,4 @@
-package quotasourcing
+package mbsourcing
 
 import (
 	"testing"
@@ -9,7 +9,7 @@ import (
 func Test_categorySourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 	t1.Parallel()
 	type args struct {
-		domainTargets []DomainMB
+		domainTargets []DomainMBTargetSource
 	}
 	tests := []struct {
 		name string
@@ -20,14 +20,14 @@ func Test_categorySourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 		{
 			name: "both to ease, major local",
 			args: args{
-				domainTargets: []DomainMB{
+				domainTargets: []DomainMBTargetSource{
 					{
-						Target:         70_198,
+						TargetIncoming: 70_198,
 						MBSource:       27_700,
 						MBSourceRemote: 7_700,
 					},
 					{
-						Target:         59_000,
+						TargetIncoming: 59_000,
 						MBSource:       14_121,
 						MBSourceRemote: 5_180,
 					},
@@ -38,14 +38,14 @@ func Test_categorySourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 		{
 			name: "both to throttle, major local",
 			args: args{
-				domainTargets: []DomainMB{
+				domainTargets: []DomainMBTargetSource{
 					{
-						Target:         30_198,
+						TargetIncoming: 30_198,
 						MBSource:       47_700,
 						MBSourceRemote: 18_490,
 					},
 					{
-						Target:         29_000,
+						TargetIncoming: 29_000,
 						MBSource:       35_121,
 						MBSourceRemote: 5_180,
 					},
@@ -56,14 +56,14 @@ func Test_categorySourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 		{
 			name: "one to throttle, the other to ease, major local",
 			args: args{
-				domainTargets: []DomainMB{
+				domainTargets: []DomainMBTargetSource{
 					{
-						Target:         30_198,
+						TargetIncoming: 30_198,
 						MBSource:       47_700,
 						MBSourceRemote: 18_490,
 					},
 					{
-						Target:         60_000,
+						TargetIncoming: 60_000,
 						MBSource:       35_121,
 						MBSourceRemote: 5_180,
 					},
@@ -75,14 +75,14 @@ func Test_categorySourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 		{
 			name: "both throttle, major remote",
 			args: args{
-				domainTargets: []DomainMB{
+				domainTargets: []DomainMBTargetSource{
 					{
-						Target:         30_198,
+						TargetIncoming: 30_198,
 						MBSource:       37_700,
 						MBSourceRemote: 30_000,
 					},
 					{
-						Target:         20_000,
+						TargetIncoming: 20_000,
 						MBSource:       44_121,
 						MBSourceRemote: 40_180,
 					},
@@ -93,14 +93,14 @@ func Test_categorySourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 		{
 			name: "both to ease, major remote",
 			args: args{
-				domainTargets: []DomainMB{
+				domainTargets: []DomainMBTargetSource{
 					{
-						Target:         70_198,
+						TargetIncoming: 70_198,
 						MBSource:       37_700,
 						MBSourceRemote: 30_000,
 					},
 					{
-						Target:         50_000,
+						TargetIncoming: 50_000,
 						MBSource:       44_121,
 						MBSourceRemote: 40_180,
 					},
@@ -111,14 +111,14 @@ func Test_categorySourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 		{
 			name: "one to throttle, the other to ease, major remote",
 			args: args{
-				domainTargets: []DomainMB{
+				domainTargets: []DomainMBTargetSource{
 					{
-						Target:         30_198,
+						TargetIncoming: 30_198,
 						MBSource:       37_700,
 						MBSourceRemote: 30_000,
 					},
 					{
-						Target:         55_000,
+						TargetIncoming: 55_000,
 						MBSource:       44_121,
 						MBSourceRemote: 40_180,
 					},
@@ -130,14 +130,14 @@ func Test_categorySourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 		{
 			name: "both to ease, one major local, the other major remote",
 			args: args{
-				domainTargets: []DomainMB{
+				domainTargets: []DomainMBTargetSource{
 					{
-						Target:         70_198,
+						TargetIncoming: 70_198,
 						MBSource:       37_700,
 						MBSourceRemote: 30_000,
 					},
 					{
-						Target:         60_000,
+						TargetIncoming: 60_000,
 						MBSource:       34_121,
 						MBSourceRemote: 10_180,
 					},
@@ -148,14 +148,14 @@ func Test_categorySourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 		{
 			name: "both to throttle, one major local, the other major remote",
 			args: args{
-				domainTargets: []DomainMB{
+				domainTargets: []DomainMBTargetSource{
 					{
-						Target:         9_198,
+						TargetIncoming: 9_198,
 						MBSource:       37_700,
 						MBSourceRemote: 30_000,
 					},
 					{
-						Target:         30_000,
+						TargetIncoming: 30_000,
 						MBSource:       44_121,
 						MBSourceRemote: 10_180,
 					},
@@ -166,14 +166,14 @@ func Test_categorySourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 		{
 			name: "one to throttle major local, one to ease major remote",
 			args: args{
-				domainTargets: []DomainMB{
+				domainTargets: []DomainMBTargetSource{
 					{
-						Target:         20_198,
+						TargetIncoming: 20_198,
 						MBSource:       37_700,
 						MBSourceRemote: 9_000,
 					},
 					{
-						Target:         50_000,
+						TargetIncoming: 50_000,
 						MBSource:       44_121,
 						MBSourceRemote: 28_180,
 					},
@@ -184,14 +184,14 @@ func Test_categorySourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 		{
 			name: "one to ease major local, one to throttle major remote",
 			args: args{
-				domainTargets: []DomainMB{
+				domainTargets: []DomainMBTargetSource{
 					{
-						Target:         80_198,
+						TargetIncoming: 80_198,
 						MBSource:       37_700,
 						MBSourceRemote: 9_000,
 					},
 					{
-						Target:         20_000,
+						TargetIncoming: 20_000,
 						MBSource:       44_121,
 						MBSourceRemote: 28_180,
 					},
@@ -203,14 +203,14 @@ func Test_categorySourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 		{
 			name: "both major total remote, both to ease",
 			args: args{
-				domainTargets: []DomainMB{
+				domainTargets: []DomainMBTargetSource{
 					{
-						Target:         80_198,
+						TargetIncoming: 80_198,
 						MBSource:       17_700,
 						MBSourceRemote: 17_700,
 					},
 					{
-						Target:         30_000,
+						TargetIncoming: 30_000,
 						MBSource:       44_121,
 						MBSourceRemote: 44_121,
 					},
@@ -221,14 +221,14 @@ func Test_categorySourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 		{
 			name: "both major total remote, both to throttle",
 			args: args{
-				domainTargets: []DomainMB{
+				domainTargets: []DomainMBTargetSource{
 					{
-						Target:         20_198,
+						TargetIncoming: 20_198,
 						MBSource:       57_700,
 						MBSourceRemote: 57_700,
 					},
 					{
-						Target:         35_000,
+						TargetIncoming: 35_000,
 						MBSource:       44_121,
 						MBSourceRemote: 44_121,
 					},
@@ -239,14 +239,14 @@ func Test_categorySourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 		{
 			name: "both major total remote, one to throttle and the other ease",
 			args: args{
-				domainTargets: []DomainMB{
+				domainTargets: []DomainMBTargetSource{
 					{
-						Target:         40_198,
+						TargetIncoming: 40_198,
 						MBSource:       57_700,
 						MBSourceRemote: 57_700,
 					},
 					{
-						Target:         20_000,
+						TargetIncoming: 20_000,
 						MBSource:       24_121,
 						MBSourceRemote: 24_121,
 					},
@@ -258,14 +258,14 @@ func Test_categorySourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 		{
 			name: "both major total remote, one to throttle and the other ease",
 			args: args{
-				domainTargets: []DomainMB{
+				domainTargets: []DomainMBTargetSource{
 					{
-						Target:         40_198,
+						TargetIncoming: 40_198,
 						MBSource:       57_700,
 						MBSourceRemote: 0,
 					},
 					{
-						Target:         20_000,
+						TargetIncoming: 20_000,
 						MBSource:       24_121,
 						MBSourceRemote: 0,
 					},
@@ -277,14 +277,14 @@ func Test_categorySourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 		{
 			name: "one major total local, the other total remote, one to throttle and the other ease",
 			args: args{
-				domainTargets: []DomainMB{
+				domainTargets: []DomainMBTargetSource{
 					{
-						Target:         40_198,
+						TargetIncoming: 40_198,
 						MBSource:       57_700,
 						MBSourceRemote: 0,
 					},
 					{
-						Target:         20_000,
+						TargetIncoming: 20_000,
 						MBSource:       24_121,
 						MBSourceRemote: 24_121,
 					},
@@ -295,14 +295,14 @@ func Test_categorySourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 		{
 			name: "one major total local, the other total remote, one to throttle and the other ease - impossible?",
 			args: args{
-				domainTargets: []DomainMB{
+				domainTargets: []DomainMBTargetSource{
 					{
-						Target:         20_000,
+						TargetIncoming: 20_000,
 						MBSource:       57_700,
 						MBSourceRemote: 0,
 					},
 					{
-						Target:         40_198,
+						TargetIncoming: 40_198,
 						MBSource:       24_121,
 						MBSourceRemote: 24_121,
 					},
@@ -313,14 +313,14 @@ func Test_categorySourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 		{
 			name: "one major total local, the other total remote, both to ease",
 			args: args{
-				domainTargets: []DomainMB{
+				domainTargets: []DomainMBTargetSource{
 					{
-						Target:         40_198,
+						TargetIncoming: 40_198,
 						MBSource:       24_121,
 						MBSourceRemote: 0,
 					},
 					{
-						Target:         20_000,
+						TargetIncoming: 20_000,
 						MBSource:       10_700,
 						MBSourceRemote: 10_700,
 					},
@@ -332,14 +332,14 @@ func Test_categorySourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 		{
 			name: "one major total local, the other half local; one to throttle, one to ease",
 			args: args{
-				domainTargets: []DomainMB{
+				domainTargets: []DomainMBTargetSource{
 					{
-						Target:         35_198,
+						TargetIncoming: 35_198,
 						MBSource:       50_151,
 						MBSourceRemote: 0,
 					},
 					{
-						Target:         81_641,
+						TargetIncoming: 81_641,
 						MBSource:       51_517 + 20_485,
 						MBSourceRemote: 20_485,
 					},
@@ -353,7 +353,7 @@ func Test_categorySourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 		t1.Run(tt.name, func(t1 *testing.T) {
 			t1.Parallel()
 			t := categorySourcer{}
-			assert.Equalf(t1, tt.want, t.AttributeMBToSources(tt.args.domainTargets), "AttributeMBToSources(%v)", tt.args.domainTargets)
+			assert.Equalf(t1, tt.want, t.AttributeIncomingMBToSources(tt.args.domainTargets), "AttributeIncomingMBToSources(%v)", tt.args.domainTargets)
 		})
 	}
 }

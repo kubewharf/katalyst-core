@@ -1,4 +1,4 @@
-package quotasourcing
+package mbsourcing
 
 import (
 	"fmt"
@@ -9,18 +9,18 @@ import (
 
 type categorySourcer struct{}
 
-func (c categorySourcer) AttributeMBToSources(domainTargets []DomainMB) []int {
+func (c categorySourcer) AttributeIncomingMBToSources(domainTargets []DomainMBTargetSource) []int {
 	rho := []float64{
 		toFixedPoint2(getLocalRatio(domainTargets[0])),
 		toFixedPoint2(getLocalRatio(domainTargets[1])),
 	}
 	target := []int{
-		domainTargets[0].Target,
-		domainTargets[1].Target,
+		domainTargets[0].TargetIncoming,
+		domainTargets[1].TargetIncoming,
 	}
 	deltaY := []float64{
-		float64(domainTargets[0].Target - (domainTargets[0].MBSource - domainTargets[0].MBSourceRemote + domainTargets[1].MBSourceRemote)),
-		float64(domainTargets[1].Target - (domainTargets[1].MBSource - domainTargets[1].MBSourceRemote + domainTargets[0].MBSourceRemote)),
+		float64(domainTargets[0].TargetIncoming - (domainTargets[0].MBSource - domainTargets[0].MBSourceRemote + domainTargets[1].MBSourceRemote)),
+		float64(domainTargets[1].TargetIncoming - (domainTargets[1].MBSource - domainTargets[1].MBSourceRemote + domainTargets[0].MBSourceRemote)),
 	}
 
 	deltaX := c.sourceOutgoingQuota(rho, deltaY)

@@ -1,4 +1,4 @@
-package quotasourcing
+package mbsourcing
 
 import (
 	"math"
@@ -9,22 +9,22 @@ import (
 type majorfactorSourcer struct {
 }
 
-func getTrend(i int, domainTargets []DomainMB) float64 {
+func getTrend(i int, domainTargets []DomainMBTargetSource) float64 {
 	j := mbdomain.GetAlienDomainID(i)
 	currentRecipientUsage := domainTargets[i].MBSource - domainTargets[i].MBSourceRemote + domainTargets[j].MBSourceRemote
 	if currentRecipientUsage <= 0 {
 		return math.MaxFloat64
 	}
 
-	delta := domainTargets[i].Target - currentRecipientUsage
+	delta := domainTargets[i].TargetIncoming - currentRecipientUsage
 	return toFixedPoint(float64(delta) / float64(currentRecipientUsage))
 }
 
-func (m majorfactorSourcer) AttributeMBToSources(domainTargets []DomainMB) []int {
+func (m majorfactorSourcer) AttributeIncomingMBToSources(domainTargets []DomainMBTargetSource) []int {
 	rho := []float64{getLocalRatio(domainTargets[0]), getLocalRatio(domainTargets[1])}
 	deltaY := []float64{
-		float64(domainTargets[0].Target - (domainTargets[0].MBSource - domainTargets[0].MBSourceRemote + domainTargets[1].MBSourceRemote)),
-		float64(domainTargets[1].Target - (domainTargets[1].MBSource - domainTargets[1].MBSourceRemote + domainTargets[0].MBSourceRemote)),
+		float64(domainTargets[0].TargetIncoming - (domainTargets[0].MBSource - domainTargets[0].MBSourceRemote + domainTargets[1].MBSourceRemote)),
+		float64(domainTargets[1].TargetIncoming - (domainTargets[1].MBSource - domainTargets[1].MBSourceRemote + domainTargets[0].MBSourceRemote)),
 	}
 
 	trendY := []float64{
@@ -172,12 +172,12 @@ func (m majorfactorSourcer) AttributeMBToSources(domainTargets []DomainMB) []int
 	if result[0] < 0 {
 		return []int{
 			0,
-			int(math.Min(float64(domainTargets[0].Target)/(1-rho[1]), float64(domainTargets[1].Target)/rho[1])),
+			int(math.Min(float64(domainTargets[0].TargetIncoming)/(1-rho[1]), float64(domainTargets[1].TargetIncoming)/rho[1])),
 		}
 	}
 	if result[1] < 0 {
 		return []int{
-			int(math.Min(float64(domainTargets[0].Target)/rho[0], float64(domainTargets[1].Target)/(1-rho[0]))),
+			int(math.Min(float64(domainTargets[0].TargetIncoming)/rho[0], float64(domainTargets[1].TargetIncoming)/(1-rho[0]))),
 			0,
 		}
 	}

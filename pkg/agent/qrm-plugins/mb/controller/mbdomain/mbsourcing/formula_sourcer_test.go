@@ -1,4 +1,4 @@
-package quotasourcing
+package mbsourcing
 
 import (
 	"testing"
@@ -9,7 +9,7 @@ import (
 func Test_attributeBasedOnSolution(t *testing.T) {
 	t.Parallel()
 	type args struct {
-		domainTargets []DomainMB
+		domainTargets []DomainMBTargetSource
 	}
 	tests := []struct {
 		name string
@@ -19,14 +19,14 @@ func Test_attributeBasedOnSolution(t *testing.T) {
 		{
 			name: "happy path",
 			args: args{
-				domainTargets: []DomainMB{
+				domainTargets: []DomainMBTargetSource{
 					{
-						Target:         10_000,
+						TargetIncoming: 10_000,
 						MBSource:       13_000,
 						MBSourceRemote: 3_000,
 					},
 					{
-						Target:         8_000,
+						TargetIncoming: 8_000,
 						MBSource:       12_000,
 						MBSourceRemote: 4_000,
 					},
@@ -37,14 +37,14 @@ func Test_attributeBasedOnSolution(t *testing.T) {
 		//{
 		//	name: "little socket traffic",
 		//	args: args{
-		//		domainTargets: []DomainMB{
+		//		domainTargets: []DomainMBTargetSource{
 		//			{
-		//				Target:         70_198,
+		//				TargetIncoming:         70_198,
 		//				MBSource:       27_700,
 		//				MBSourceRemote: 27_700 - 18_490,
 		//			},
 		//			{
-		//				Target:         59_000,
+		//				TargetIncoming:         59_000,
 		//				MBSource:       14_121,
 		//				MBSourceRemote: 14_121 - 5_180,
 		//			},

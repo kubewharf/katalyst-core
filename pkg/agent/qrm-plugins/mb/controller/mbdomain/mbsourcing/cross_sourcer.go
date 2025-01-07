@@ -1,4 +1,4 @@
-package quotasourcing
+package mbsourcing
 
 import (
 	"fmt"
@@ -9,14 +9,14 @@ import (
 
 type CrossSourcer struct{}
 
-func (c CrossSourcer) AttributeMBToSources(domainTargets []DomainMB) []int {
+func (c CrossSourcer) AttributeIncomingMBToSources(domainTargets []DomainMBTargetSource) []int {
 	if len(domainTargets) != 2 {
 		panic("only 2 domains supported for now")
 	}
 
 	results := make([]int, len(domainTargets))
 	for i, domainTarget := range domainTargets {
-		if domainTarget.Target == -1 {
+		if domainTarget.TargetIncoming == -1 {
 			results[i] = -1 // no constraint for this domain
 		}
 	}
@@ -65,7 +65,7 @@ func appendCandidate(candidates [][]int, hostDomain int, hostValue, remoteValue 
 	return candidates
 }
 
-func locateFittest(candidates [][]int, x, y float64, domainTargets []DomainMB) []int {
+func locateFittest(candidates [][]int, x, y float64, domainTargets []DomainMBTargetSource) []int {
 	result := make([]int, 2)
 	if len(candidates) == 1 {
 		result[0] = candidates[0][0]
@@ -82,7 +82,7 @@ func locateFittest(candidates [][]int, x, y float64, domainTargets []DomainMB) [
 		iLocalRatio := getLocalRatio(domainTargets[iDomain])
 		jLocalRatio := getLocalRatio(domainTargets[jDomain])
 		jPredict := (1-iLocalRatio)*float64(candidate[iDomain]) + jLocalRatio*float64(candidate[jDomain])
-		if domainTargets[jDomain].Target != -1 && jPredict > float64(domainTargets[jDomain].Target) {
+		if domainTargets[jDomain].TargetIncoming != -1 && jPredict > float64(domainTargets[jDomain].TargetIncoming) {
 			continue
 		}
 
@@ -101,7 +101,7 @@ func locateFittest(candidates [][]int, x, y float64, domainTargets []DomainMB) [
 // local mb is the mb amount accessing the memory in the domain (e.g. cpu socket);
 // remote mb is amount accessing memory to other domain (e.g. the other cpu socket).
 // both local and remote mb is originated from same domain, but the destination is different.
-func getLocalRatio(data DomainMB) float64 {
+func getLocalRatio(data DomainMBTargetSource) float64 {
 	if data.MBSource == 0 {
 		return 1.0
 	}
@@ -111,7 +111,7 @@ func getLocalRatio(data DomainMB) float64 {
 	return 1 - float64(data.MBSourceRemote)/float64(data.MBSource)
 }
 
-func getOrthogonalPoint(hostDomain DomainMB, remoteDomain DomainMB) (hostQuota, remoteQuota int, err error) {
+func getOrthogonalPoint(hostDomain DomainMBTargetSource, remoteDomain DomainMBTargetSource) (hostQuota, remoteQuota int, err error) {
 	hostLocalRatio := getLocalRatio(hostDomain)
 	remoteLocalRatio := getLocalRatio(remoteDomain)
 	if hostLocalRatio == 0 { //all host originated is accessing other domain;
@@ -119,19 +119,19 @@ func getOrthogonalPoint(hostDomain DomainMB, remoteDomain DomainMB) (hostQuota, 
 			return 0, 0, fmt.Errorf("no way to have some host mb amount")
 		}
 		hostQuota = hostDomain.MBSource // keep current value for orthogonal line
-		remoteQuota = int(float64(hostDomain.Target) / (1 - remoteLocalRatio))
+		remoteQuota = int(float64(hostDomain.TargetIncoming) / (1 - remoteLocalRatio))
 		return hostQuota, remoteQuota, nil
 	}
 
 	a := (remoteLocalRatio - 1) / hostLocalRatio
-	b := float64(hostDomain.Target) / hostLocalRatio
+	b := float64(hostDomain.TargetIncoming) / hostLocalRatio
 	originX := float64(remoteDomain.MBSource)
 	originY := float64(remoteDomain.MBSource)
 	remoteQuota, hostQuota = orthogonalPoint(originX, originY, a, b)
 	return hostQuota, remoteQuota, nil
 }
 
-func getRightEndpoint(hostDomain DomainMB, remoteDomain DomainMB) (hostQuota, remoteQuota int, err error) {
+func getRightEndpoint(hostDomain DomainMBTargetSource, remoteDomain DomainMBTargetSource) (hostQuota, remoteQuota int, err error) {
 	minValue := policyconfig.PolicyConfig.DomainMBMin
 
 	hostLocalRatio := getLocalRatio(hostDomain)
@@ -141,7 +141,7 @@ func getRightEndpoint(hostDomain DomainMB, remoteDomain DomainMB) (hostQuota, re
 	}
 
 	if hostLocalRatio == 0 {
-		remoteQuota = int(float64(hostDomain.Target) / (1 - remoteLocalRatio))
+		remoteQuota = int(float64(hostDomain.TargetIncoming) / (1 - remoteLocalRatio))
 		if remoteQuota < minValue {
 			remoteQuota = minValue
 		}
@@ -149,11 +149,11 @@ func getRightEndpoint(hostDomain DomainMB, remoteDomain DomainMB) (hostQuota, re
 	}
 
 	remoteQuota = minValue
-	hostQuota = int((float64(hostDomain.Target) - (1-remoteLocalRatio)*float64(remoteQuota)) / hostLocalRatio)
+	hostQuota = int((float64(hostDomain.TargetIncoming) - (1-remoteLocalRatio)*float64(remoteQuota)) / hostLocalRatio)
 	return hostQuota, remoteQuota, nil
 }
 
-func getLeftEndpoint(hostDomain DomainMB, remoteDomain DomainMB) (hostQuota, remoteQuota int, err error) {
+func getLeftEndpoint(hostDomain DomainMBTargetSource, remoteDomain DomainMBTargetSource) (hostQuota, remoteQuota int, err error) {
 	minValue := policyconfig.PolicyConfig.DomainMBMin
 
 	hostLocalRatio := getLocalRatio(hostDomain)
@@ -163,7 +163,7 @@ func getLeftEndpoint(hostDomain DomainMB, remoteDomain DomainMB) (hostQuota, rem
 	}
 
 	if remoteLocalRatio == 1.0 {
-		hostQuota = int(float64(hostDomain.Target) / hostLocalRatio)
+		hostQuota = int(float64(hostDomain.TargetIncoming) / hostLocalRatio)
 		if hostQuota < minValue {
 			hostQuota = minValue
 		}
@@ -171,25 +171,25 @@ func getLeftEndpoint(hostDomain DomainMB, remoteDomain DomainMB) (hostQuota, rem
 	}
 
 	hostQuota = minValue
-	remoteQuota = int((float64(hostDomain.Target) - hostLocalRatio*float64(hostQuota)) / (1 - remoteLocalRatio))
+	remoteQuota = int((float64(hostDomain.TargetIncoming) - hostLocalRatio*float64(hostQuota)) / (1 - remoteLocalRatio))
 	return hostQuota, remoteQuota, nil
 
 }
 
-func getCrossPoint(hostDomain, otherDomain DomainMB) (hostQuota, otherQuote int, err error) {
-	if hostDomain.Target < 0 || otherDomain.Target < 0 {
-		return -1, -1, fmt.Errorf("no cross point for target %d, %d", hostDomain.Target, otherDomain.Target)
+func getCrossPoint(hostDomain, otherDomain DomainMBTargetSource) (hostQuota, otherQuote int, err error) {
+	if hostDomain.TargetIncoming < 0 || otherDomain.TargetIncoming < 0 {
+		return -1, -1, fmt.Errorf("no cross point for target %d, %d", hostDomain.TargetIncoming, otherDomain.TargetIncoming)
 	}
 
 	hostLocalRatio := getLocalRatio(hostDomain)
 	remoteLocalRatio := getLocalRatio(otherDomain)
-	a0, b0, c0 := hostLocalRatio, 1-remoteLocalRatio, float64(hostDomain.Target)
-	a1, b1, c1 := 1-hostLocalRatio, remoteLocalRatio, float64(otherDomain.Target)
+	a0, b0, c0 := hostLocalRatio, 1-remoteLocalRatio, float64(hostDomain.TargetIncoming)
+	a1, b1, c1 := 1-hostLocalRatio, remoteLocalRatio, float64(otherDomain.TargetIncoming)
 	if !hasValidMeetingPoint(a0, b0, c0, a1, b1, c1) {
 		return -1, -1, fmt.Errorf("no cross point for duplicated(parallel) lines")
 	}
 
-	hostQuo, otherQuo, err := getMeetingPoint(hostLocalRatio, remoteLocalRatio, float64(hostDomain.Target), float64(otherDomain.Target))
+	hostQuo, otherQuo, err := getMeetingPoint(hostLocalRatio, remoteLocalRatio, float64(hostDomain.TargetIncoming), float64(otherDomain.TargetIncoming))
 	return int(hostQuo), int(otherQuo), err
 }
 

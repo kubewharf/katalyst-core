@@ -1,4 +1,4 @@
-package quotasourcing
+package mbsourcing
 
 import "math"
 
@@ -6,11 +6,11 @@ const alpha = 0.5
 
 type deltaSourcer struct{}
 
-func (d deltaSourcer) AttributeMBToSources(domainTargets []DomainMB) []int {
+func (d deltaSourcer) AttributeIncomingMBToSources(domainTargets []DomainMBTargetSource) []int {
 	rho := []float64{getLocalRatio(domainTargets[0]), getLocalRatio(domainTargets[1])}
 	delataY := []float64{
-		float64(domainTargets[0].Target - (domainTargets[0].MBSource - domainTargets[0].MBSourceRemote + domainTargets[1].MBSourceRemote)),
-		float64(domainTargets[1].Target - (domainTargets[1].MBSource - domainTargets[1].MBSourceRemote + domainTargets[0].MBSourceRemote)),
+		float64(domainTargets[0].TargetIncoming - (domainTargets[0].MBSource - domainTargets[0].MBSourceRemote + domainTargets[1].MBSourceRemote)),
+		float64(domainTargets[1].TargetIncoming - (domainTargets[1].MBSource - domainTargets[1].MBSourceRemote + domainTargets[0].MBSourceRemote)),
 	}
 
 	if rho[0]+rho[1] == 1.0 {

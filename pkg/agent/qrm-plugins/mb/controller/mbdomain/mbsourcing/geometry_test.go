@@ -1,4 +1,4 @@
-package quotasourcing
+package mbsourcing
 
 import (
 	"fmt"

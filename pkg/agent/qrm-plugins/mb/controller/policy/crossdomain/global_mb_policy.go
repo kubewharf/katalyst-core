@@ -8,7 +8,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain/quotasourcing"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain/mbsourcing"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy/ccdtarget"
@@ -38,7 +38,7 @@ type globalMBPolicy struct {
 
 	// sourcer is the component that attributes leaf sender quotas
 	// based on domain desired recipient targets, and domain sending total usage and local/remote ratio
-	sourcer quotasourcing.Sourcer
+	sourcer mbsourcing.Sourcer
 
 	// throttler and easer are policy decision makers that decide how much to throttle/ease the recipient traffic (desired recipient target)
 	throttler domaintarget.DomainMBAdjuster
@@ -101,7 +101,7 @@ func (g *globalMBPolicy) PreprocessQoSCCDMB(mbQoSGroups map[qosgroup.QoSGroup]*s
 	leafIncomingMBStat := g.domainManager.SumQoSMBByDomainRecipient(lowQoSMBGroups)
 
 	// args for calculation of the leaf outgoing mb quota of all domains
-	leafPolicySourceInfo := make([]quotasourcing.DomainMB, len(g.domainManager.Domains))
+	leafPolicySourceInfo := make([]mbsourcing.DomainMBTargetSource, len(g.domainManager.Domains))
 	for domainID := range g.domainManager.Domains {
 		leafRecipientTarget := g.proposeDomainRecipientTarget(domainID, highOutgoingMBStat[domainID], leafIncomingMBStat[domainID])
 		alienID := mbdomain.GetAlienDomainID(domainID)
@@ -111,7 +111,7 @@ func (g *globalMBPolicy) PreprocessQoSCCDMB(mbQoSGroups map[qosgroup.QoSGroup]*s
 	general.InfofV(6, "mbm: policy: source args: %d records: %s", len(leafPolicySourceInfo), stringifyPolicySourceInfo(leafPolicySourceInfo))
 
 	// figure out the leaf sender quotas that satisfies the desired recipient targets by taking into account of cross-domain impact
-	leafQuotas := g.sourcer.AttributeMBToSources(leafPolicySourceInfo)
+	leafQuotas := g.sourcer.AttributeIncomingMBToSources(leafPolicySourceInfo)
 	general.InfofV(6, "mbm: policy: domain outgoing quotas: %v", leafQuotas)
 	g.setLeafOutgoingQuotas(leafQuotas)
 }
@@ -126,17 +126,17 @@ func (g *globalMBPolicy) proposeDomainRecipientTarget(domainID int, highIncoming
 	return leafRecipientTarget
 }
 
-func assemblePolicySourceInfo(recipientTarget int, outgoingMBStat map[qosgroup.QoSGroup]rmbtype.MBStat, alientDomainLimitIncomingRemote bool) quotasourcing.DomainMB {
+func assemblePolicySourceInfo(recipientTarget int, outgoingMBStat map[qosgroup.QoSGroup]rmbtype.MBStat, alientDomainLimitIncomingRemote bool) mbsourcing.DomainMBTargetSource {
 	leafOutgoingMBTotal, _, leafOutgoingMBRemote := getTotalLocalRemoteMBStatSummary(outgoingMBStat)
 	outgoingRemoteLimit := config.PolicyConfig.DomainMBMax
 	if alientDomainLimitIncomingRemote {
 		outgoingRemoteLimit = config.PolicyConfig.MBRemoteLimit
 	}
-	return quotasourcing.DomainMB{
-		Target:               recipientTarget,
-		TargetOutgoingRemote: outgoingRemoteLimit,
-		MBSource:             leafOutgoingMBTotal,
-		MBSourceRemote:       leafOutgoingMBRemote,
+	return mbsourcing.DomainMBTargetSource{
+		TargetIncoming:      recipientTarget,
+		MBSourceRemoteLimit: outgoingRemoteLimit,
+		MBSource:            leafOutgoingMBTotal,
+		MBSourceRemote:      leafOutgoingMBRemote,
 	}
 }
 
@@ -149,11 +149,11 @@ func getTotalLocalRemoteMBStatSummary(qosMBStat map[qosgroup.QoSGroup]rmbtype.MB
 	return total, local, remote
 }
 
-func stringifyPolicySourceInfo(domainSources []quotasourcing.DomainMB) string {
+func stringifyPolicySourceInfo(domainSources []mbsourcing.DomainMBTargetSource) string {
 	var sb strings.Builder
 	for id, domainMB := range domainSources {
 		sb.WriteString(fmt.Sprintf("{domain: %d, ", id))
-		sb.WriteString(fmt.Sprintf("target: %d, sending total: %d, sending to remote: %d", domainMB.Target, domainMB.MBSource, domainMB.MBSourceRemote))
+		sb.WriteString(fmt.Sprintf("target: %d, sending total: %d, sending to remote: %d", domainMB.TargetIncoming, domainMB.MBSource, domainMB.MBSourceRemote))
 		sb.WriteString("}, ")
 	}
 	return sb.String()
@@ -245,7 +245,7 @@ func NewGlobalMBPolicy(ccdMBMin int, domainManager *mbdomain.MBDomainManager, th
 	ccdPlanner := ccdtarget.New(ccdtarget.CCDMBDistributorType(config.PolicyConfig.CCDMBDistributorType), ccdMBMin, 35_000)
 
 	return &globalMBPolicy{
-		sourcer:                  quotasourcing.New(sourcerType),
+		sourcer:                  mbsourcing.New(sourcerType),
 		throttler:                domaintarget.New(throttleType, ccdPlanner),
 		easer:                    domaintarget.New(easeType, ccdPlanner),
 		domainManager:            domainManager,
