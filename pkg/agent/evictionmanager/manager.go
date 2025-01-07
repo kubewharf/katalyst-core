@@ -675,6 +675,7 @@ func metricsPodToEvict(emitter metrics.MetricEmitter, qosConfig *generic.QoSConf
 		{Key: "victim_ns", Val: pod.Namespace},
 		{Key: "victim_name", Val: pod.Name},
 		{Key: "qos", Val: podQosLevel},
+		{Key: "priority", Val: genPodPriorityMetricValue(pod)},
 	}
 	if pod.Labels != nil {
 		for _, metricLabel := range podMetricLabels.List() {
@@ -693,4 +694,12 @@ func metricsPodToEvict(emitter metrics.MetricEmitter, qosConfig *generic.QoSConf
 func genPodLabelMetricKey(key string) string {
 	key = strings.ReplaceAll(key, "-", "_")
 	return strings.Join([]string{MetricsPodLabelPrefix, key}, "_")
+}
+
+func genPodPriorityMetricValue(pod *v1.Pod) string {
+	if pod == nil || pod.Spec.Priority == nil {
+		return "empty"
+	}
+
+	return fmt.Sprintf("%d", *pod.Spec.Priority)
 }
