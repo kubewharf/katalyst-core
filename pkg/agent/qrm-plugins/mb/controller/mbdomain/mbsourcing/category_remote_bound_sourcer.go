@@ -32,15 +32,15 @@ func (c categoryRemoteBoundSourcer) AttributeIncomingMBToSources(domainTargets [
 	return c.adjustResult(result, rho, target, []int{domainTargets[0].MBSourceRemoteLimit, domainTargets[1].MBSourceRemoteLimit})
 }
 
-func (c categoryRemoteBoundSourcer) adjustResult(result []int, rho []float64, target []int, targetIncomingRemote []int) []int {
-	result = c.cateSourcer.adjustResult(result, rho, target)
-	for i, quota := range result {
+func (c categoryRemoteBoundSourcer) adjustResult(domainOutgoingQuotas []int, rho []float64, targetIncoming []int, targetIncomingRemote []int) []int {
+	domainOutgoingQuotas = c.cateSourcer.adjustResult(domainOutgoingQuotas, rho, targetIncoming)
+	for domain, sourceQuota := range domainOutgoingQuotas {
 		// to clip down with the remote upper bound
-		if (1-rho[i])*float64(quota) > float64(targetIncomingRemote[i]) {
-			result[i] = int(float64(targetIncomingRemote[i]) / (1 - rho[i]))
+		if (1-rho[domain])*float64(sourceQuota) > float64(targetIncomingRemote[domain]) {
+			domainOutgoingQuotas[domain] = int(float64(targetIncomingRemote[domain]) / (1 - rho[domain]))
 		}
 	}
-	return result
+	return domainOutgoingQuotas
 }
 
 func NewCategoryRemoteBoundSourcer() Sourcer {
