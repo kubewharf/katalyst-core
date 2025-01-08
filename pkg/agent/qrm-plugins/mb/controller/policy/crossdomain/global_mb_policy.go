@@ -128,10 +128,14 @@ func (g *globalMBPolicy) proposeDomainRecipientTarget(domainID int, highIncoming
 
 func assemblePolicySourceInfo(recipientTarget int, outgoingMBStat map[qosgroup.QoSGroup]rmbtype.MBStat, alientDomainLimitIncomingRemote bool) mbsourcing.DomainMBTargetSource {
 	leafOutgoingMBTotal, _, leafOutgoingMBRemote := getTotalLocalRemoteMBStatSummary(outgoingMBStat)
+
+	// incoming remote limit only applicable to domain having high QoS traffic
+	// in other words, outgoing remote limit applicable only when the other alien domain has high QoS traffic
 	outgoingRemoteLimit := config.PolicyConfig.DomainMBMax
 	if alientDomainLimitIncomingRemote {
 		outgoingRemoteLimit = config.PolicyConfig.MBRemoteLimit
 	}
+
 	return mbsourcing.DomainMBTargetSource{
 		TargetIncoming:      recipientTarget,
 		MBSourceRemoteLimit: outgoingRemoteLimit,
