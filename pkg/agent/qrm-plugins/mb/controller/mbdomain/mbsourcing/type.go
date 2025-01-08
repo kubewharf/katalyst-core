@@ -30,6 +30,10 @@ func New(sourcerType string) Sourcer {
 		return NewCategoryRemoteBoundSourcer()
 	case "majorfactor":
 		return NewMajorfactorSourcer()
+	case "adaptive-crbs":
+		return newFeedbackSourcer(NewCategoryRemoteBoundSourcer())
+	case "adaptive-category":
+		return newFeedbackSourcer(NewCategorySourcer())
 	default:
 		panic("not supported sourcer type")
 	}
