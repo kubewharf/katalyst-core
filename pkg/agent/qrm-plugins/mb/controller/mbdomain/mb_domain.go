@@ -18,13 +18,14 @@ package mbdomain
 
 import (
 	"fmt"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 	"strings"
 	"sync"
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/sets"
+
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor/stat"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/qosgroup"
 )
 
 type MBDomain struct {
@@ -43,8 +44,8 @@ type MBDomain struct {
 	incubationInterval time.Duration
 
 	// MBQuota is the maximum MB capacity a domain has
-	// part of capacity is allocated as pressure detection sentinal, so the effective MB
-	// (capacity - sentinal) is actually used
+	// part of capacity is allocated as pressure detection sentinel, so the effective MB
+	// (capacity - sentinel) is actually used
 	MBQuota int
 }
 

@@ -62,3 +62,44 @@ func Test_extremeThrottlePlanner_GetPlan(t *testing.T) {
 		})
 	}
 }
+
+func Test_halfThrottlePlanner_GetQuota(t *testing.T) {
+	t.Parallel()
+	type fields struct {
+		ccdGroupPlanner ccdtarget.CCDMBDistributor
+	}
+	type args struct {
+		capacity     int
+		currentUsage int
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		args   args
+		want   int
+	}{
+		{
+			name: "half occupied",
+			fields: fields{
+				ccdGroupPlanner: nil,
+			},
+			args: args{
+				capacity:     122_000 - 55_370,
+				currentUsage: 20_323 + 36_175,
+			},
+			want: 28249,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := halfThrottlePlanner{
+				ccdGroupPlanner: tt.fields.ccdGroupPlanner,
+			}
+			if got := h.GetQuota(tt.args.capacity, tt.args.currentUsage); got != tt.want {
+				t.Errorf("GetQuota() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
