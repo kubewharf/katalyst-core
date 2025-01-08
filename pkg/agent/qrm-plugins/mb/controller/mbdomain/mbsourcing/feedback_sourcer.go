@@ -19,6 +19,9 @@ func (f *feedbackSourcer) updatePreviousOutgoingQuota(data []int) {
 func (f *feedbackSourcer) getPreviousOutgoingQuota() []int {
 	f.lock.RLock()
 	defer f.lock.RUnlock()
+	if f.previousOutgoingQuota == nil {
+		return nil
+	}
 	return f.previousOutgoingQuota[:]
 }
 
