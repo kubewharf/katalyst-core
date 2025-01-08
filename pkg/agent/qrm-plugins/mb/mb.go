@@ -61,6 +61,7 @@ func NewComponent(agentCtx *agent.GenericContext, conf *config.Configuration, _ 
 
 	// override policy config with user provided args
 	policyconfig.PolicyConfig.MBQRMPluginConfig = *conf.QRMPluginsConfiguration.MBQRMPluginConfig
+	general.Infof("mbm: config: %s", policyconfig.PolicyConfig.String())
 
 	domainManager := mbdomain.NewMBDomainManager(agentCtx.DieTopology, conf.IncubationInterval, conf.DomainMBCapacity)
 	mbMonitor := metricstore.NewMBReader(agentCtx.MetricsFetcher)

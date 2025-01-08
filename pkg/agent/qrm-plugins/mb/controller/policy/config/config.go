@@ -16,7 +16,12 @@ limitations under the License.
 
 package config
 
-import qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
+import (
+	"fmt"
+	"strings"
+
+	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
+)
 
 const (
 	// obsolete by arg domain-mb-capacity for flexibility knob of testing/comparison
@@ -61,4 +66,22 @@ var PolicyConfig = MBPolicyConfig{
 	DomainMBMax: domainMBMax,
 	DomainMBMin: domainMBMin,
 	ZombieCCDMB: defaultZombieMB,
+}
+
+func (m MBPolicyConfig) String() string {
+	var sb strings.Builder
+
+	sb.WriteString("mb policy config {")
+
+	fmt.Fprintf(&sb, "CCDMBMax:%d,DomainMBMax:%d,DomainMBMin:%d,ZombieCCDMB:%d,", m.CCDMBMax, m.DomainMBMax, m.DomainMBMin, m.ZombieCCDMB)
+	fmt.Fprintf(&sb, "MinMBPerCCD:%d,MBRemoteLimit:%d,", m.MinMBPerCCD, m.MBRemoteLimit)
+	fmt.Fprintf(&sb, "MBPressureThreshold:%d,MBEaseThreshold:%d,", m.MBPressureThreshold, m.MBEaseThreshold)
+	fmt.Fprintf(&sb, "DomainMBCapacity:%d,IncubationInterval:%v,", m.DomainMBCapacity, m.IncubationInterval)
+	fmt.Fprintf(&sb, "LeafThrottleType:%s,LeafEaseType:%s,", m.LeafThrottleType, m.LeafEaseType)
+	fmt.Fprintf(&sb, "CCDMBDistributorType:%s,SourcerType:%s,", m.CCDMBDistributorType, m.SourcerType)
+
+	fmt.Fprintf(&sb, "CPUSetPoolToSharedSubgroup:%v", m.CPUSetPoolToSharedSubgroup)
+
+	sb.WriteString("}")
+	return sb.String()
 }
