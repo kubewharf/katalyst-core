@@ -112,10 +112,6 @@ func (g *globalMBPolicy) PreprocessQoSCCDMB(mbQoSGroups map[qosgroup.QoSGroup]*s
 
 	// figure out the leaf sender quotas that satisfies the desired recipient targets by taking into account of cross-domain impact
 	leafQuotas := g.sourcer.AttributeIncomingMBToSources(leafPolicySourceInfo)
-
-	// adaptive leaf quota tuner takes into consideration of previous {desired-outgoing-quota, observed-outgoing-traffic}
-	// to fine tune current {desired-outgoing-quota', desired-outgoing-target}
-
 	general.InfofV(6, "mbm: policy: domain outgoing quotas: %v", leafQuotas)
 	g.setLeafOutgoingQuotas(leafQuotas)
 }

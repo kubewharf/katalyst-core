@@ -1,31 +1,50 @@
 package mbsourcing
 
+import "sync"
+
 // feedbackSourcer takes into considerations of previous {desired-outgoing-quota, observed-outgoing-traffic}
 // to adaptively adjust desired-outgoing-quota in order to get desired-outgoing-target
 type feedbackSourcer struct {
 	innerSourcer          Sourcer
+	lock                  sync.RWMutex
 	previousOutgoingQuota []int
+}
+
+func (f *feedbackSourcer) updatePreviousOutgoingQuota(data []int) {
+	f.lock.Lock()
+	defer f.lock.Unlock()
+	f.previousOutgoingQuota = data
+}
+
+func (f *feedbackSourcer) getPreviousOutgoingQuota() []int {
+	f.lock.RLock()
+	defer f.lock.RUnlock()
+	return f.previousOutgoingQuota[:]
 }
 
 func (f *feedbackSourcer) AttributeIncomingMBToSources(domainTargets []DomainMBTargetSource) []int {
 	desiredOutgoingTarget := f.innerSourcer.AttributeIncomingMBToSources(domainTargets)
+	if len(desiredOutgoingTarget) != 2 {
+		panic("--------- expecting 2 targets")
+	}
 	observedOutgoingMB := []int{
 		domainTargets[0].MBSource,
 		domainTargets[1].MBSource,
 	}
 	result := f.getByFeedback(observedOutgoingMB, desiredOutgoingTarget)
-	f.previousOutgoingQuota = result
+	f.updatePreviousOutgoingQuota(result)
 	return result
 }
 
 func (f *feedbackSourcer) getByFeedback(observedOutgoingMB []int, desiredOutgoingMB []int) []int {
-	if f.previousOutgoingQuota == nil {
+	prev := f.getPreviousOutgoingQuota()
+	if prev == nil || len(prev) != 2 {
 		return desiredOutgoingMB
 	}
 
 	result := make([]int, len(desiredOutgoingMB))
 	for domain := range result {
-		result[domain] = getByFeedback(f.previousOutgoingQuota[domain],
+		result[domain] = getByFeedback(prev[domain],
 			observedOutgoingMB[domain],
 			desiredOutgoingMB[domain])
 	}
