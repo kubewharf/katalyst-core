@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func Test_majorfactorSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
+func Test_categorySourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 	t1.Parallel()
 	type args struct {
 		domainTargets []DomainMBTargetSource
@@ -33,7 +33,7 @@ func Test_majorfactorSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{67_235, 59_020},
+			want: []int{63_952, 65_245},
 		},
 		{
 			name: "both to throttle, major local",
@@ -51,7 +51,7 @@ func Test_majorfactorSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{37_671, 16_888},
+			want: []int{46_291, 12_908},
 		},
 		{
 			name: "one to throttle, the other to ease, major local",
@@ -69,7 +69,7 @@ func Test_majorfactorSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{37_585, 48_691},
+			want: []int{36_182, 54_016},
 		},
 		// both major remote traffic
 		{
@@ -88,7 +88,7 @@ func Test_majorfactorSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{20_086, 28_655},
+			want: []int{21_852, 28_347},
 		},
 		{
 			name: "both to ease, major remote",
@@ -106,7 +106,7 @@ func Test_majorfactorSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{55_882, 61_917},
+			want: []int{55_740, 64_457},
 		},
 		{
 			name: "one to throttle, the other to ease, major remote",
@@ -124,7 +124,7 @@ func Test_majorfactorSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{64_164, 18_769},
+			want: []int{66_573, 18_625},
 		},
 		// mixed traffic: one major local, the other major remote
 		{
@@ -143,7 +143,7 @@ func Test_majorfactorSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{38_592, 41_744},
+			want: []int{41_486, 38_448},
 		},
 		{
 			name: "both to throttle, one major local, the other major remote",
@@ -161,7 +161,7 @@ func Test_majorfactorSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{16_012, 22_433},
+			want: []int{0, 38325},
 		},
 		{
 			name: "one to throttle major local, one to ease major remote",
@@ -179,7 +179,7 @@ func Test_majorfactorSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{0, 31_623},
+			want: []int{0, 31_559},
 		},
 		{
 			name: "one to ease major local, one to throttle major remote",
@@ -197,7 +197,7 @@ func Test_majorfactorSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{68_330, 10_206},
+			want: []int{83_333, 0},
 		},
 		// special cases for total remote, simulating cross-fire
 		{
@@ -216,7 +216,7 @@ func Test_majorfactorSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{29_999, 58_560}, // the ideal {3_000, 80_198}
+			want: []int{30_000, 80_198},
 		},
 		{
 			name: "both major total remote, both to throttle",
@@ -234,7 +234,7 @@ func Test_majorfactorSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{35_000, 12_690}, // ideal {35_000, 20_198},
+			want: []int{35_000, 20_198},
 		},
 		{
 			name: "both major total remote, one to throttle and the other ease",
@@ -271,11 +271,11 @@ func Test_majorfactorSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{40_198, 14_203}, // ideal {40_198, 20_000}; major factor sourcer is not ideal but acceptable
+			want: []int{40_198, 20_000},
 		},
 		// really conner case: one total local, the other total remote
 		{
-			name: "one major total local, the other total remote, one to throttle and the other ease - choose at conservative side",
+			name: "one major total local, the other total remote, one to throttle and the other ease",
 			args: args{
 				domainTargets: []DomainMBTargetSource{
 					{
@@ -290,7 +290,7 @@ func Test_majorfactorSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{0, 40198}, // inferior to what category getting sort of more balanced {16_077, 24_121}
+			want: []int{16_077, 24_121},
 		},
 		{
 			name: "one major total local, the other total remote, one to throttle and the other ease - impossible?",
@@ -345,14 +345,14 @@ func Test_majorfactorSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{2_734, 114_104},
+			want: []int{2_409, 114_430},
 		},
 	}
 	for _, tt := range tests {
 		tt := tt
 		t1.Run(tt.name, func(t1 *testing.T) {
 			t1.Parallel()
-			t := majorfactorSourcer{}
+			t := geometrySourcer{}
 			assert.Equalf(t1, tt.want, t.AttributeIncomingMBToSources(tt.args.domainTargets), "AttributeIncomingMBToSources(%v)", tt.args.domainTargets)
 		})
 	}

@@ -389,7 +389,7 @@ func Test_categoryRemoteBoundSourcer_AttributeMBToSources_matrix(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			c := categoryRemoteBoundSourcer{}
+			c := geometryRemoteBoundSourcer{}
 			assert.Equalf(t, tt.want, c.AttributeIncomingMBToSources(tt.args.domainTargets), "AttributeIncomingMBToSources(%v)", tt.args.domainTargets)
 		})
 	}

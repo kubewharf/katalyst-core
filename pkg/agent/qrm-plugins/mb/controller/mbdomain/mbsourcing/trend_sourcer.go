@@ -6,7 +6,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
 )
 
-type majorfactorSourcer struct {
+type trendfactorSourcer struct {
 }
 
 func getTrend(i int, domainTargets []DomainMBTargetSource) float64 {
@@ -20,7 +20,7 @@ func getTrend(i int, domainTargets []DomainMBTargetSource) float64 {
 	return toFixedPoint2(float64(delta) / float64(currentRecipientUsage))
 }
 
-func (m majorfactorSourcer) AttributeIncomingMBToSources(domainTargets []DomainMBTargetSource) []int {
+func (m trendfactorSourcer) AttributeIncomingMBToSources(domainTargets []DomainMBTargetSource) []int {
 	rho := []float64{getLocalRatio(domainTargets[0]), getLocalRatio(domainTargets[1])}
 	deltaY := []float64{
 		float64(domainTargets[0].TargetIncoming - (domainTargets[0].MBSource - domainTargets[0].MBSourceRemote + domainTargets[1].MBSourceRemote)),
@@ -224,6 +224,6 @@ func getMajorTrend(localRatio float64, hostYTrend, alienYTrend float64) float64 
 	return toFixedPoint2(localRatio*hostYTrend + (1-localRatio)*alienYTrend)
 }
 
-func NewMajorfactorSourcer() Sourcer {
-	return &majorfactorSourcer{}
+func newTrendSourcer() Sourcer {
+	return &trendfactorSourcer{}
 }

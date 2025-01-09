@@ -8,11 +8,11 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 )
 
-// categorySourcer categorizes into 4 cases based on positive/negative of domain incoming changes
+// geometrySourcer categorizes into 4 cases based on positive/negative of domain incoming changes
 // and assumes the directions of domain outgoing traffic change accordingly
-type categorySourcer struct{}
+type geometrySourcer struct{}
 
-func (c categorySourcer) AttributeIncomingMBToSources(domainTargets []DomainMBTargetSource) []int {
+func (c geometrySourcer) AttributeIncomingMBToSources(domainTargets []DomainMBTargetSource) []int {
 	rho := []float64{
 		toFixedPoint2(getLocalRatio(domainTargets[0])),
 		toFixedPoint2(getLocalRatio(domainTargets[1])),
@@ -36,7 +36,7 @@ func (c categorySourcer) AttributeIncomingMBToSources(domainTargets []DomainMBTa
 	return c.adjustResult(result, rho, target)
 }
 
-func (c categorySourcer) sourceOutgoingQuota(rho []float64, deltaY []float64) []int {
+func (c geometrySourcer) sourceOutgoingQuota(rho []float64, deltaY []float64) []int {
 	// both to ease
 	deltaX := []int{0, 0}
 	if deltaY[0] >= 0 && deltaY[1] >= 0 {
@@ -202,7 +202,7 @@ func getLineEnds(a, b, c float64) (x, y int) {
 	return x, y
 }
 
-func (c categorySourcer) adjustResult(domainOutgoingQuotas []int, rho []float64, targetIncoming []int) []int {
+func (c geometrySourcer) adjustResult(domainOutgoingQuotas []int, rho []float64, targetIncoming []int) []int {
 	if !isAllPositive(domainOutgoingQuotas) {
 		if domainOutgoingQuotas[0] < 0 {
 			return []int{0, calcMinFormula(1-rho[1], targetIncoming[0], targetIncoming[1])}
@@ -232,6 +232,6 @@ func calcMinFormula(rho float64, y0, y1 int) int {
 	return result
 }
 
-func NewCategorySourcer() Sourcer {
-	return &categorySourcer{}
+func newGeometrySourcer() Sourcer {
+	return &geometrySourcer{}
 }

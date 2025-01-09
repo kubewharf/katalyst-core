@@ -22,18 +22,12 @@ type Sourcer interface {
 func New(sourcerType string) Sourcer {
 	general.Infof("mbm: mb sourcer type: %s", sourcerType)
 	switch sourcerType {
-	case "silo":
-		return &SiloSourcer{}
-	case "category":
-		return NewCategorySourcer()
-	case "crbs":
-		return NewCategoryRemoteBoundSourcer()
-	case "majorfactor":
-		return NewMajorfactorSourcer()
-	case "adaptive-crbs":
-		return newFeedbackSourcer(NewCategoryRemoteBoundSourcer())
-	case "adaptive-category":
-		return newFeedbackSourcer(NewCategorySourcer())
+	case "adaptive-silo":
+		return newFeedbackSourcer(&SiloSourcer{})
+	case "adaptive-grbs":
+		return newFeedbackSourcer(newGeometryRemoteBoundSourcer())
+	case "adaptive-geo":
+		return newFeedbackSourcer(newGeometrySourcer())
 	default:
 		panic("not supported sourcer type")
 	}

@@ -2,12 +2,12 @@ package mbsourcing
 
 import "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 
-type categoryRemoteBoundSourcer struct {
-	cateSourcer categorySourcer
-	remoteLimit int
+type geometryRemoteBoundSourcer struct {
+	innerSourcer geometrySourcer
+	remoteLimit  int
 }
 
-func (c categoryRemoteBoundSourcer) AttributeIncomingMBToSources(domainTargets []DomainMBTargetSource) []int {
+func (c geometryRemoteBoundSourcer) AttributeIncomingMBToSources(domainTargets []DomainMBTargetSource) []int {
 	rho := []float64{
 		toFixedPoint2(getLocalRatio(domainTargets[0])),
 		toFixedPoint2(getLocalRatio(domainTargets[1])),
@@ -21,7 +21,7 @@ func (c categoryRemoteBoundSourcer) AttributeIncomingMBToSources(domainTargets [
 		float64(domainTargets[1].TargetIncoming - (domainTargets[1].MBSource - domainTargets[1].MBSourceRemote + domainTargets[0].MBSourceRemote)),
 	}
 
-	deltaX := c.cateSourcer.sourceOutgoingQuota(rho, deltaY)
+	deltaX := c.innerSourcer.sourceOutgoingQuota(rho, deltaY)
 
 	result := []int{
 		domainTargets[0].MBSource + deltaX[0],
@@ -32,8 +32,8 @@ func (c categoryRemoteBoundSourcer) AttributeIncomingMBToSources(domainTargets [
 	return c.adjustResult(result, rho, target, []int{domainTargets[0].MBSourceRemoteLimit, domainTargets[1].MBSourceRemoteLimit})
 }
 
-func (c categoryRemoteBoundSourcer) adjustResult(domainOutgoingQuotas []int, rho []float64, targetIncoming []int, targetIncomingRemote []int) []int {
-	domainOutgoingQuotas = c.cateSourcer.adjustResult(domainOutgoingQuotas, rho, targetIncoming)
+func (c geometryRemoteBoundSourcer) adjustResult(domainOutgoingQuotas []int, rho []float64, targetIncoming []int, targetIncomingRemote []int) []int {
+	domainOutgoingQuotas = c.innerSourcer.adjustResult(domainOutgoingQuotas, rho, targetIncoming)
 	for domain, sourceQuota := range domainOutgoingQuotas {
 		// to clip down with the remote upper bound
 		if (1-rho[domain])*float64(sourceQuota) > float64(targetIncomingRemote[domain]) {
@@ -43,9 +43,9 @@ func (c categoryRemoteBoundSourcer) adjustResult(domainOutgoingQuotas []int, rho
 	return domainOutgoingQuotas
 }
 
-func NewCategoryRemoteBoundSourcer() Sourcer {
-	return &categoryRemoteBoundSourcer{
-		cateSourcer: categorySourcer{},
-		remoteLimit: config.PolicyConfig.MBRemoteLimit,
+func newGeometryRemoteBoundSourcer() Sourcer {
+	return &geometryRemoteBoundSourcer{
+		innerSourcer: geometrySourcer{},
+		remoteLimit:  config.PolicyConfig.MBRemoteLimit,
 	}
 }
