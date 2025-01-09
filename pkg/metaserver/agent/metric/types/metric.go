@@ -72,6 +72,8 @@ type MetricsReader interface {
 	GetNumaMetric(numaID int, metricName string) (metric.MetricData, error)
 	// GetDeviceMetric get metric of device.
 	GetDeviceMetric(deviceName string, metricName string) (metric.MetricData, error)
+	// GetDeviceMetric get metric of network.
+	GetNetworkMetric(networkName string, metricName string) (metric.MetricData, error)
 	// GetCPUMetric get metric of cpu.
 	GetCPUMetric(coreID int, metricName string) (metric.MetricData, error)
 	// GetContainerMetric get metric of container.

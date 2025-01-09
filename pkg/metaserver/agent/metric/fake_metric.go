@@ -102,6 +102,10 @@ func (f *FakeMetricsFetcher) GetNumaMetric(numaID int, metricName string) (metri
 	return f.checkMetricDataExpire(f.metricStore.GetNumaMetric(numaID, metricName))
 }
 
+func (f *FakeMetricsFetcher) GetNetworkMetric(networkName string, metricName string) (metric.MetricData, error) {
+	return f.checkMetricDataExpire(f.metricStore.GetDeviceMetric(networkName, metricName))
+}
+
 func (f *FakeMetricsFetcher) GetDeviceMetric(deviceName string, metricName string) (metric.MetricData, error) {
 	return f.checkMetricDataExpire(f.metricStore.GetDeviceMetric(deviceName, metricName))
 }

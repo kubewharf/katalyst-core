@@ -49,23 +49,24 @@ type SystemNetworkData struct {
 }
 
 type NetworkCard struct {
-	Name               string `json:"name"`
-	ReceiveBytes       uint64 `json:"receive_bytes"`
-	ReceivePackets     uint64 `json:"receive_packets"`
-	ReceiveErrs        uint64 `json:"receive_errs"`
-	ReceiveDrop        uint64 `json:"receive_drop"`
-	ReceiveFifo        uint64 `json:"receive_fifo"`
-	ReceiveFrame       uint64 `json:"receive_frame"`
-	ReceiveCompressed  uint64 `json:"receive_compressed"`
-	ReceiveMulticast   uint64 `json:"receive_multicast"`
-	TransmitBytes      uint64 `json:"transmit_bytes"`
-	TransmitPackets    uint64 `json:"transmit_packets"`
-	TransmitErrs       uint64 `json:"transmit_errs"`
-	TransmitDrop       uint64 `json:"transmit_drop"`
-	TransmitFifo       uint64 `json:"transmit_fifo"`
-	TransmitColls      uint64 `json:"transmit_colls"`
-	TransmitCarrier    uint64 `json:"transmit_carrier"`
-	TransmitCompressed uint64 `json:"transmit_compressed"`
+	Name               string  `json:"name"`
+	ReceiveBytes       uint64  `json:"receive_bytes"`
+	ReceivePackets     uint64  `json:"receive_packets"`
+	ReceiveErrs        uint64  `json:"receive_errs"`
+	ReceiveDrop        uint64  `json:"receive_drop"`
+	ReceiveFifo        uint64  `json:"receive_fifo"`
+	ReceiveFrame       uint64  `json:"receive_frame"`
+	ReceiveCompressed  uint64  `json:"receive_compressed"`
+	ReceiveMulticast   uint64  `json:"receive_multicast"`
+	TransmitBytes      uint64  `json:"transmit_bytes"`
+	TransmitPackets    uint64  `json:"transmit_packets"`
+	TransmitErrs       uint64  `json:"transmit_errs"`
+	TransmitDrop       uint64  `json:"transmit_drop"`
+	TransmitFifo       uint64  `json:"transmit_fifo"`
+	TransmitColls      uint64  `json:"transmit_colls"`
+	TransmitCarrier    uint64  `json:"transmit_carrier"`
+	TransmitCompressed uint64  `json:"transmit_compressed"`
+	Speeds             *uint64 `json:"speeds"`
 }
 
 type TCP struct {
