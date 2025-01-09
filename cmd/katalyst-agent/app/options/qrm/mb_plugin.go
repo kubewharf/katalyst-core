@@ -72,7 +72,7 @@ func NewMBOptions() *MBOptions {
 
 		CCDMBDistributorType: string(ccdtarget.LogarithmicScaleDistributor),
 
-		SourcerType: "category",
+		SourcerType: "adaptive-crbs",
 	}
 }
 
