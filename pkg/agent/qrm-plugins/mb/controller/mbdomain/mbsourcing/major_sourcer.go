@@ -17,7 +17,7 @@ func getTrend(i int, domainTargets []DomainMBTargetSource) float64 {
 	}
 
 	delta := domainTargets[i].TargetIncoming - currentRecipientUsage
-	return toFixedPoint(float64(delta) / float64(currentRecipientUsage))
+	return toFixedPoint2(float64(delta) / float64(currentRecipientUsage))
 }
 
 func (m majorfactorSourcer) AttributeIncomingMBToSources(domainTargets []DomainMBTargetSource) []int {
@@ -221,12 +221,7 @@ func getMajorTrend(localRatio float64, hostYTrend, alienYTrend float64) float64 
 		return alienYTrend
 	}
 
-	return toFixedPoint(localRatio*hostYTrend + (1-localRatio)*alienYTrend)
-}
-
-func toFixedPoint(value float64) float64 {
-	const point3 = 1000
-	return float64(int(value*1000)) / 1000
+	return toFixedPoint2(localRatio*hostYTrend + (1-localRatio)*alienYTrend)
 }
 
 func NewMajorfactorSourcer() Sourcer {

@@ -33,7 +33,7 @@ func Test_majorfactorSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{67_248, 58_996},
+			want: []int{67_235, 59_020},
 		},
 		{
 			name: "both to throttle, major local",
@@ -51,7 +51,7 @@ func Test_majorfactorSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{37_367, 17_027},
+			want: []int{37_671, 16_888},
 		},
 		{
 			name: "one to throttle, the other to ease, major local",
@@ -88,7 +88,7 @@ func Test_majorfactorSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{20_429, 28_577},
+			want: []int{20_086, 28_655},
 		},
 		{
 			name: "both to ease, major remote",
@@ -106,7 +106,7 @@ func Test_majorfactorSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{55_871, 62_023},
+			want: []int{55_882, 61_917},
 		},
 		{
 			name: "one to throttle, the other to ease, major remote",
@@ -143,7 +143,7 @@ func Test_majorfactorSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{38_597, 41_738},
+			want: []int{38_592, 41_744},
 		},
 		{
 			name: "both to throttle, one major local, the other major remote",
@@ -216,7 +216,7 @@ func Test_majorfactorSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{29_999, 58_600}, // the ideal {3_000, 80_198}
+			want: []int{29_999, 58_560}, // the ideal {3_000, 80_198}
 		},
 		{
 			name: "both major total remote, both to throttle",
@@ -234,7 +234,7 @@ func Test_majorfactorSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{35_000, 12_815}, // ideal {35_000, 20_198},
+			want: []int{35_000, 12_690}, // ideal {35_000, 20_198},
 		},
 		{
 			name: "both major total remote, one to throttle and the other ease",
@@ -271,7 +271,7 @@ func Test_majorfactorSourcer_AttributeMBToSources_matrix(t1 *testing.T) {
 					},
 				},
 			},
-			want: []int{40_198, 14_301}, // ideal {40_198, 20_000}; major factor sourcer is not ideal but acceptable
+			want: []int{40_198, 14_203}, // ideal {40_198, 20_000}; major factor sourcer is not ideal but acceptable
 		},
 		// really conner case: one total local, the other total remote
 		{

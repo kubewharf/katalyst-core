@@ -1,7 +1,6 @@
 package mbsourcing
 
 import (
-	"fmt"
 	"math"
 
 	"github.com/pkg/errors"
@@ -203,61 +202,6 @@ func getLineEnds(a, b, c float64) (x, y int) {
 	return x, y
 }
 
-// line r0 * x0 + (1-r1) * x1 = y0, and
-//      (1-r0) * x0 + r1 * x1 = y1, given all xi,yi >=0
-func locateCrossPoint(rho []float64, y []float64) ([]int, error) {
-	if rho[0]+rho[1] == 1 {
-		return nil, fmt.Errorf("parallel lines having no cross point")
-	}
-
-	x0 := (rho[1]*y[0] - (1-rho[1])*y[1]) / (rho[0] + rho[1] - 1)
-	x1 := (rho[0]*y[1] - (1-rho[0])*y[0]) / (rho[0] + rho[1] - 1)
-	return []int{int(x0), int(x1)}, nil
-}
-
-// line -r0 * x0 + (1-r1) * x1 = y0, and
-//      -(1-r0) * x0 + r1 * x1 = -y1, given all xi,yi >=0
-func locateCrossPointForm2(rho []float64, y []float64) ([]int, error) {
-	if rho[0]+rho[1] == 1 {
-		return nil, fmt.Errorf("parallel lines having no cross point")
-	}
-
-	x0 := (rho[1]*y[0] + (1-rho[1])*y[1]) / (1 - rho[0] - rho[1])
-	var x1 float64
-	if rho[1] != 1.0 {
-		x1 = (rho[0]*x0 + y[0]) / (1 - rho[1])
-	} else {
-		x1 = (1-rho[0])*x0 - y[1]
-	}
-	return []int{int(x0), int(x1)}, nil
-}
-
-// line r0 * x0 - (1-r1) * x1 = y0, and
-//      (1-r0) * x0 - r1 * x1 = -y1, given all xi,yi >=0
-func locateCrossPointForm3(rho []float64, y []float64) ([]int, error) {
-	if rho[0]+rho[1] == 1 {
-		return nil, fmt.Errorf("parallel lines having no cross point")
-	}
-
-	x0 := (-rho[1]*y[0] - (1-rho[1])*y[1]) / (1 - rho[0] - rho[1])
-	var x1 float64
-	if rho[1] != 1.0 {
-		x1 = (rho[0]*x0 - y[0]) / (1 - rho[1])
-	} else {
-		x1 = (1-rho[0])*x0 + y[1]
-	}
-	return []int{int(x0), int(x1)}, nil
-}
-
-func isAllPositive(values []int) bool {
-	for _, v := range values {
-		if v < 0 {
-			return false
-		}
-	}
-	return true
-}
-
 func (c categorySourcer) adjustResult(domainOutgoingQuotas []int, rho []float64, targetIncoming []int) []int {
 	if !isAllPositive(domainOutgoingQuotas) {
 		if domainOutgoingQuotas[0] < 0 {
@@ -286,12 +230,6 @@ func calcMinFormula(rho float64, y0, y1 int) int {
 		}
 	}
 	return result
-}
-
-// uint of 0.01
-func toFixedPoint2(value float64) float64 {
-	const point2 = 100
-	return float64(int(value*point2)) / point2
 }
 
 func NewCategorySourcer() Sourcer {
