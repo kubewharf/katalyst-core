@@ -57,12 +57,13 @@ func (n *NodePreempter) PreemptNodes(req *pluginapi.ResourceRequest) error {
 
 	general.InfofV(6, "mbm: preempt nodes for pod %s/%s, hinted nodes %v", req.PodNamespace, req.PodName, req.Hint.Nodes)
 	nodesToPreempt, nodesToIncubateJustInCase := n.splitDedicatedNodesToNotInAndInUses(req.Hint.Nodes)
+	if len(nodesToPreempt) == 0 && len(nodesToIncubateJustInCase) == 0 {
+		return nil
+	}
+
 	if len(nodesToPreempt) > 0 {
 		general.InfofV(6, "mbm: preempt nodes %v for pod %s/%s", nodesToPreempt, req.PodNamespace, req.PodName)
-		if n.domainManager.PreemptNodes(nodesToPreempt) {
-			// requests to adjust mb ASAP for new preemption if there are any changes
-			n.mbController.ReqToAdjustMB()
-		}
+		n.domainManager.PreemptNodes(nodesToPreempt)
 	}
 
 	// if a node has traffic for some(e.g. previous state not cleaned up) reason, incubate just in case
@@ -71,6 +72,8 @@ func (n *NodePreempter) PreemptNodes(req *pluginapi.ResourceRequest) error {
 		n.domainManager.IncubateNodes(nodesToIncubateJustInCase)
 	}
 
+	// requests to adjust mb ASAP for new preemption if there are any changes
+	n.mbController.ReqToAdjustMB()
 	return nil
 }
 
