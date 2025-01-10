@@ -18,11 +18,12 @@ package evictor
 
 import (
 	"context"
-
 	v1 "k8s.io/api/core/v1"
 
+	powermetric "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/metric"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
@@ -33,6 +34,7 @@ type PercentageEvictor interface {
 }
 
 type loadEvictor struct {
+	emitter    metrics.MetricEmitter
 	qosConfig  *generic.QoSConfiguration
 	podFetcher pod.PodFetcher
 	podEvictor PodEvictor
@@ -69,6 +71,7 @@ func (l *loadEvictor) Evict(ctx context.Context, targetPercent int) {
 	pods, err := l.podFetcher.GetPodList(ctx, nil)
 	if err != nil {
 		general.Errorf("pap: evict: failed to get pods: %v", err)
+		l.emitErrorCode(powermetric.ErrorCodePowerEvictFailure)
 		return
 	}
 	countToEvict := getNumToEvict(len(pods), targetPercent)
@@ -80,9 +83,11 @@ func (l *loadEvictor) Evict(ctx context.Context, targetPercent int) {
 	evictablePods, err := l.podFetcher.GetPodList(ctx, l.isEvictablePod)
 	if err != nil {
 		general.Errorf("pap: evict: failed to get BE pods: %v", err)
+		l.emitErrorCode(powermetric.ErrorCodePowerEvictFailure)
 		return
 	}
 
+	l.emitEvictReq(countToEvict)
 	general.InfofV(6, "pap: evict: %d pods, %d BE; going to evict BE up to %d%%%% pods = %d",
 		len(pods), len(evictablePods), targetPercent, countToEvict)
 
@@ -91,15 +96,18 @@ func (l *loadEvictor) Evict(ctx context.Context, targetPercent int) {
 	if err := l.podEvictor.Evict(ctx, getN(evictablePods, countToEvict)); err != nil {
 		// power alert eviction is the best effort by design; ok to log the error here
 		general.Warningf("pap: failed to request eviction of pods: %v", err)
+		l.emitErrorCode(powermetric.ErrorCodePowerEvictFailure)
 	}
 }
 
 func NewPowerLoadEvict(qosConfig *generic.QoSConfiguration,
+	emitter metrics.MetricEmitter,
 	podFetcher pod.PodFetcher,
 	podEvictor PodEvictor,
 ) PercentageEvictor {
 	return &loadEvictor{
 		qosConfig:  qosConfig,
+		emitter:    emitter,
 		podFetcher: podFetcher,
 		podEvictor: podEvictor,
 	}

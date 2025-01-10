@@ -51,16 +51,6 @@ func (p *powerReconciler) OnDVFSReset() {
 	p.strategy.OnDVFSReset()
 }
 
-func (p *powerReconciler) emitOpCode(action action.PowerAction, mode string) {
-	// report metrics of action op code with tag of dryRun
-	op := action.Op.String()
-	_ = p.emitter.StoreInt64(metricPowerAwareActionPlan, 1, metrics.MetricTypeNameCount,
-		metrics.ConvertMapToTags(map[string]string{
-			metricTagNameActionPlanOp:   op,
-			metricTagNameActionPlanMode: mode,
-		})...)
-}
-
 func (p *powerReconciler) Reconcile(ctx context.Context, desired *spec.PowerSpec, actual int) (bool, error) {
 	alertTimeLimit, err := spec.GetPowerAlertResponseTimeLimit(desired.Alert)
 	if err != nil {
@@ -78,13 +68,13 @@ func (p *powerReconciler) Reconcile(ctx context.Context, desired *spec.PowerSpec
 			return false, nil
 		}
 		general.Infof("pap: dryRun: %s", actionPlan)
-		p.emitOpCode(actionPlan, "dryRun")
+		p.emitPowerAdvice(actionPlan, "dryRun")
 		p.priorAction = actionPlan
 		return false, nil
 	}
 
 	general.InfofV(6, "pap: reconcile action %#v", actionPlan)
-	p.emitOpCode(actionPlan, "real")
+	p.emitPowerAdvice(actionPlan, "real")
 
 	switch actionPlan.Op {
 	case spec.InternalOpFreqCap:
@@ -107,7 +97,7 @@ func newReconciler(dryRun bool, metricsReader metrictypes.MetricsReader, emitter
 		priorAction: action.PowerAction{},
 		evictor:     evictor,
 		capper:      capper,
-		strategy:    strategy.NewEvictFirstStrategy(evictor, metricsReader),
+		strategy:    strategy.NewEvictFirstStrategy(emitter, evictor, metricsReader),
 		emitter:     emitter,
 	}
 }

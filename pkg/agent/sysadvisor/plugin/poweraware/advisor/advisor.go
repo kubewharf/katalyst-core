@@ -26,6 +26,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/capper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/evictor"
+	powermetric "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/metric"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/reader"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/spec"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
@@ -40,12 +41,6 @@ const (
 	// 9 seconds between actions since RAPL/HSMP capping needs 4-6 seconds to stabilize itself
 	// and malachite realtime metric server imposes delay of up to 2 seconds
 	intervalSpecFetch = time.Second * 9
-
-	metricPowerAwareCurrentPowerInWatt = "power_current_watt"
-	metricPowerAwareDesiredPowerInWatt = "power_desired_watt"
-	metricPowerAwareActionPlan         = "power_action_plan"
-	metricTagNameActionPlanOp          = "op"
-	metricTagNameActionPlanMode        = "mode"
 )
 
 // PowerAwareAdvisor is the interface that runs the whole power advisory process
@@ -74,20 +69,25 @@ func (p *powerAwareAdvisor) Init() error {
 		return errors.New("no power reader is provided")
 	}
 	if err := p.powerReader.Init(); err != nil {
+		p.emitErrorCode(powermetric.ErrorCodeInitFailure)
 		return errors.Wrap(err, "failed to initialize power reader")
 	}
 
 	if p.podEvictor == nil {
+		p.emitErrorCode(powermetric.ErrorCodeInitFailure)
 		return errors.New("no pod eviction server is provided")
 	}
 	if err := p.podEvictor.Init(); err != nil {
+		p.emitErrorCode(powermetric.ErrorCodeInitFailure)
 		return errors.Wrap(err, "failed to initialize evict service")
 	}
 
 	if p.powerCapper == nil {
+		p.emitErrorCode(powermetric.ErrorCodeInitFailure)
 		return errors.New("no power capping server is provided")
 	}
 	if err := p.powerCapper.Init(); err != nil {
+		p.emitErrorCode(powermetric.ErrorCodeInitFailure)
 		return errors.Wrap(err, "failed to initialize power capping server")
 	}
 
@@ -97,10 +97,12 @@ func (p *powerAwareAdvisor) Init() error {
 func (p *powerAwareAdvisor) Run(ctx context.Context) {
 	general.Infof("pap: advisor Run started")
 	if err := p.podEvictor.Start(); err != nil {
+		p.emitErrorCode(powermetric.ErrorCodeStartFailure)
 		general.Errorf("pap: failed to start pod evict service: %v", err)
 		return
 	}
 	if err := p.powerCapper.Start(); err != nil {
+		p.emitErrorCode(powermetric.ErrorCodeStartFailure)
 		general.Errorf("pap: failed to start power capping service: %v", err)
 		return
 	}
@@ -126,6 +128,7 @@ func (p *powerAwareAdvisor) cleanup() {
 func (p *powerAwareAdvisor) run(ctx context.Context) {
 	powerSpec, err := p.specFetcher.GetPowerSpec(ctx)
 	if err != nil {
+		p.emitErrorCode(powermetric.ErrorCodePowerSpecFormat)
 		klog.Errorf("pap: getting power spec failed: %#v", err)
 		return
 	}
@@ -150,6 +153,7 @@ func (p *powerAwareAdvisor) run(ctx context.Context) {
 
 	currentWatts, err := p.powerReader.Get(ctx)
 	if err != nil {
+		p.emitErrorCode(powermetric.ErrorCodePowerGetCurrentUsage)
 		klog.Errorf("pap: reading power failed: %#v", err)
 		return
 	}
@@ -157,13 +161,13 @@ func (p *powerAwareAdvisor) run(ctx context.Context) {
 	klog.V(6).Infof("pap: current power usage: %d watts", currentWatts)
 
 	// report metrics: current power reading, desired power value
-	_ = p.emitter.StoreInt64(metricPowerAwareCurrentPowerInWatt, int64(currentWatts), metrics.MetricTypeNameRaw)
-	_ = p.emitter.StoreInt64(metricPowerAwareDesiredPowerInWatt, int64(powerSpec.Budget), metrics.MetricTypeNameRaw)
+	p.emitCurrentPowerUSage(currentWatts)
+	p.emitPowerSpec(powerSpec)
 
 	freqCapped, err := p.reconciler.Reconcile(ctx, powerSpec, currentWatts)
 	if err != nil {
+		p.emitErrorCode(powermetric.ErrorCodeRecoverable)
 		general.Errorf("pap: reconcile error: %v", err)
-		// todo: report to metric dashboard
 		return
 	}
 
@@ -183,13 +187,14 @@ func NewAdvisor(dryRun bool,
 	capper capper.PowerCapper,
 	metricsReader metrictypes.MetricsReader,
 ) PowerAwareAdvisor {
+	percentageEvictor := evictor.NewPowerLoadEvict(qosConfig, emitter, podFetcher, podEvictor)
 	return &powerAwareAdvisor{
 		emitter:     emitter,
 		specFetcher: spec.NewFetcher(nodeFetcher, annotationKeyPrefix),
 		powerReader: reader,
 		podEvictor:  podEvictor,
 		powerCapper: capper,
-		reconciler:  newReconciler(dryRun, metricsReader, emitter, evictor.NewPowerLoadEvict(qosConfig, podFetcher, podEvictor), capper),
+		reconciler:  newReconciler(dryRun, metricsReader, emitter, percentageEvictor, capper),
 		inFreqCap:   false,
 	}
 }

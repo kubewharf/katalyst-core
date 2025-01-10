@@ -14,45 +14,21 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package action
+package advisor
 
 import (
-	"testing"
-
+	powermetric "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/metric"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/spec"
 )
 
-func TestPowerAction_String(t *testing.T) {
-	t.Parallel()
-	type fields struct {
-		op  spec.InternalOp
-		arg int
-	}
-	tests := []struct {
-		name   string
-		fields fields
-		want   string
-	}{
-		{
-			name: "happy path normal result",
-			fields: fields{
-				op:  spec.InternalOpFreqCap,
-				arg: 255,
-			},
-			want: "op: cap, arg: 255",
-		},
-	}
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			pa := PowerAction{
-				Op:  tt.fields.op,
-				Arg: tt.fields.arg,
-			}
-			if got := pa.String(); got != tt.want {
-				t.Errorf("expected %s, got %s", tt.want, got)
-			}
-		})
-	}
+func (p *powerAwareAdvisor) emitCurrentPowerUSage(currentWatts int) {
+	powermetric.EmitCurrentPowerUSage(p.emitter, currentWatts)
+}
+
+func (p *powerAwareAdvisor) emitPowerSpec(powerSpec *spec.PowerSpec) {
+	powermetric.EmitPowerSpec(p.emitter, powerSpec)
+}
+
+func (p *powerAwareAdvisor) emitErrorCode(errorCode int) {
+	powermetric.EmitErrorCode(p.emitter, errorCode)
 }
