@@ -22,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/advisor/action"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/capper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/spec"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	metrictypes "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
@@ -38,6 +39,11 @@ const (
 
 type EvictableProber interface {
 	HasEvictablePods() bool
+}
+
+// CapperProber is only applicable to advisor; capper actor(client) won't be required to implement
+type CapperProber interface {
+	IsCapperReady() bool
 }
 
 // evictFirstStrategy always attempts to evict low priority pods if any; only after all are exhausted will it resort to DVFS means.
@@ -163,13 +169,17 @@ func (e *evictFirstStrategy) emitDVFSAccumulatedEffect(percentage int) {
 	_ = e.emitter.StoreInt64(metricPowerAwareDVFSEffect, int64(percentage), metrics.MetricTypeNameRaw)
 }
 
-func NewEvictFirstStrategy(emitter metrics.MetricEmitter, prober EvictableProber, metricsReader metrictypes.MetricsReader) PowerActionStrategy {
+func NewEvictFirstStrategy(emitter metrics.MetricEmitter, prober EvictableProber, metricsReader metrictypes.MetricsReader, capper capper.PowerCapper) PowerActionStrategy {
 	general.Infof("pap: using EvictFirst strategy")
+	capperProber, _ := capper.(CapperProber)
 	return &evictFirstStrategy{
 		emitter:         emitter,
 		coefficient:     exponentialDecay{b: defaultDecayB},
 		evictableProber: prober,
-		dvfsTracker:     dvfsTracker{dvfsAccumEffect: 0},
-		metricsReader:   metricsReader,
+		dvfsTracker: dvfsTracker{
+			dvfsAccumEffect: 0,
+			capperProber:    capperProber,
+		},
+		metricsReader: metricsReader,
 	}
 }

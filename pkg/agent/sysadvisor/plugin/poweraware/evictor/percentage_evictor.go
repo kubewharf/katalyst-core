@@ -18,6 +18,7 @@ package evictor
 
 import (
 	"context"
+
 	v1 "k8s.io/api/core/v1"
 
 	powermetric "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/metric"

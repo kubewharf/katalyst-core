@@ -97,7 +97,7 @@ func newReconciler(dryRun bool, metricsReader metrictypes.MetricsReader, emitter
 		priorAction: action.PowerAction{},
 		evictor:     evictor,
 		capper:      capper,
-		strategy:    strategy.NewEvictFirstStrategy(emitter, evictor, metricsReader),
+		strategy:    strategy.NewEvictFirstStrategy(emitter, evictor, metricsReader, capper),
 		emitter:     emitter,
 	}
 }

@@ -50,6 +50,10 @@ type powerCapService struct {
 	grpcServer     *grpcServer
 }
 
+func (p *powerCapService) IsCapperReady() bool {
+	return !p.notify.IsEmpty()
+}
+
 func (p *powerCapService) Stop() error {
 	p.Lock()
 	defer p.Unlock()
