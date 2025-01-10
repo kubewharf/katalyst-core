@@ -23,6 +23,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller"
+	policyconfig "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -46,7 +47,12 @@ func (p *plugin) Start() error {
 
 	// todo: NOT to return error (to crash explicitly); consider downgrade service
 	if !p.dieTopology.FakeNUMAEnabled {
-		return errors.New("mbm: not virtual numa; no need to dynamically manage the memory bandwidth")
+		if policyconfig.PolicyConfig.FailOnUnsupportedNode {
+			return errors.New("mbm: not virtual numa; no need to dynamically manage the memory bandwidth")
+		} else {
+			general.Errorf("mbm: not virtual numa; no need to dynamically manage the memory bandwidth; continue without mbm functionality")
+			return nil
+		}
 	}
 
 	go func() {

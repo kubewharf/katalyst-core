@@ -50,6 +50,8 @@ type MBOptions struct {
 
 	// incoming (recipient view) to outgoing (sender view) mapping related
 	SourcerType string
+
+	FailOnUnsupportedNode bool
 }
 
 func NewMBOptions() *MBOptions {
@@ -73,6 +75,8 @@ func NewMBOptions() *MBOptions {
 		CCDMBDistributorType: string(ccdtarget.LogarithmicScaleDistributor),
 
 		SourcerType: "adaptive-grbs",
+
+		FailOnUnsupportedNode: true,
 	}
 }
 
@@ -91,6 +95,7 @@ func (m *MBOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.IntVar(&m.MBEaseThreshold, "mb-ease-threshold", m.MBEaseThreshold, "the threshold above which a domain available mb is would try to ease leaf qos workloads")
 	fs.StringVar(&m.CCDMBDistributorType, "mb-ccd-distributor", m.CCDMBDistributorType, "type of ccd mb planner")
 	fs.StringVar(&m.SourcerType, "mb-sourcer-type", m.SourcerType, "type of mb target source distributor")
+	fs.BoolVar(&m.FailOnUnsupportedNode, "fail-hard", m.FailOnUnsupportedNode, "true to fail hard, false to run downgraded")
 }
 
 func (m *MBOptions) ApplyTo(conf *qrmconfig.MBQRMPluginConfig) error {
@@ -110,5 +115,7 @@ func (m *MBOptions) ApplyTo(conf *qrmconfig.MBQRMPluginConfig) error {
 	conf.CCDMBDistributorType = m.CCDMBDistributorType
 
 	conf.SourcerType = m.SourcerType
+
+	conf.FailOnUnsupportedNode = m.FailOnUnsupportedNode
 	return nil
 }

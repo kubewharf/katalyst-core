@@ -44,6 +44,8 @@ type MBQRMPluginConfig struct {
 
 	// incoming (recipient view) to outgoing (sender view) mapping related
 	SourcerType string
+
+	FailOnUnsupportedNode bool
 }
 
 func NewMBQRMPluginConfig() *MBQRMPluginConfig {
