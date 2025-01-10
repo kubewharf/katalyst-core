@@ -19,6 +19,7 @@ package katalyst_base
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"go.uber.org/atomic"
@@ -53,7 +54,9 @@ func (h *HealthzChecker) Run(ctx context.Context) {
 		for key, result := range results {
 			if !result.Ready {
 				_ = h.emitter.StoreInt64(MetricNameUnhealthyRule, 1, metrics.MetricTypeNameRaw,
-					metrics.MetricTag{Key: "rule", Val: string(key)})
+					metrics.MetricTag{Key: "rule", Val: string(key)},
+					metrics.MetricTag{Key: "error_message", Val: strings.ReplaceAll(result.Message, " ", "_")})
+				general.Warningf("%v healthz rule is not ready,error message is %v", string(key), result.Message)
 			}
 		}
 	}, syncPeriod, ctx.Done())
