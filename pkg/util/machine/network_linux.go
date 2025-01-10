@@ -31,6 +31,7 @@ import (
 	"syscall"
 
 	"github.com/vishvananda/netns"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -44,6 +45,7 @@ const (
 const (
 	nicPathNameDeviceFormatPCI = "devices/pci"
 	nicPathNAMEBaseDir         = "class/net"
+	bondingMasterPath          = "bonding_masters"
 )
 
 const (
@@ -160,6 +162,8 @@ func getNSNetworkHardwareTopology(nsName, netNSDirAbsPath string) ([]InterfaceIn
 		return nil, err
 	}
 
+	bondingNICs := getBondingNetworkInterfaces(path.Join(nicsBaseDirPath, bondingMasterPath))
+
 	nicsAddrMap, err := getInterfaceAddr()
 	if err != nil {
 		return nil, err
@@ -176,7 +180,7 @@ func getNSNetworkHardwareTopology(nsName, netNSDirAbsPath string) ([]InterfaceIn
 		}
 
 		// only return PCI NIC
-		if !strings.Contains(devPath, nicPathNameDeviceFormatPCI) {
+		if !strings.Contains(devPath, nicPathNameDeviceFormatPCI) && !bondingNICs.Has(nicName) {
 			general.Warningf("skip nic: %s with devPath: %s which isn't pci device", nicName, devPath)
 			continue
 		}
@@ -293,4 +297,19 @@ func getInterfaceAddr() (map[string]*IfaceAddr, error) {
 	}
 
 	return ias, nil
+}
+
+func getBondingNetworkInterfaces(bondingMasterPath string) sets.String {
+	bondingNICs := sets.String{}
+	lines, err := general.ReadFileIntoLines(bondingMasterPath)
+	if err != nil {
+		return bondingNICs
+	}
+	for _, line := range lines {
+		nics := strings.Split(line, " ")
+		for _, nic := range nics {
+			bondingNICs.Insert(nic)
+		}
+	}
+	return bondingNICs
 }
