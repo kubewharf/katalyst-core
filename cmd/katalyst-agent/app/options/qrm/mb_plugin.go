@@ -95,7 +95,7 @@ func (m *MBOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.IntVar(&m.MBEaseThreshold, "mb-ease-threshold", m.MBEaseThreshold, "the threshold above which a domain available mb is would try to ease leaf qos workloads")
 	fs.StringVar(&m.CCDMBDistributorType, "mb-ccd-distributor", m.CCDMBDistributorType, "type of ccd mb planner")
 	fs.StringVar(&m.SourcerType, "mb-sourcer-type", m.SourcerType, "type of mb target source distributor")
-	fs.BoolVar(&m.FailOnUnsupportedNode, "fail-hard", m.FailOnUnsupportedNode, "true to fail hard, false to run downgraded")
+	fs.BoolVar(&m.FailOnUnsupportedNode, "mb-fail-hard", m.FailOnUnsupportedNode, "true to fail hard, false to run downgraded")
 }
 
 func (m *MBOptions) ApplyTo(conf *qrmconfig.MBQRMPluginConfig) error {
