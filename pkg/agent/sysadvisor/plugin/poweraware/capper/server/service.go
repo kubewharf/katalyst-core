@@ -133,7 +133,7 @@ stream:
 			err := server.Send(resp)
 			if err != nil {
 				general.Errorf("pap: [power capping] send response failed: %v", err)
-				p.emitErrorCode(powermetric.ErrorCodePowerCapLWSendResponseFailed)
+				p.emitErrorCode(powermetric.ErrorCodePowerCapCommunication)
 				break stream
 			}
 		}

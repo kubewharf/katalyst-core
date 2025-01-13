@@ -29,6 +29,6 @@ func (p *powerCapService) emitPowerCapReset() {
 	powermetric.EmitPowerCapReset(p.emitter)
 }
 
-func (p *powerCapService) emitErrorCode(errorCode int) {
-	powermetric.EmitErrorCode(p.emitter, errorCode)
+func (p *powerCapService) emitErrorCode(errorCause powermetric.ErrorCause) {
+	powermetric.EmitErrorCode(p.emitter, errorCause)
 }

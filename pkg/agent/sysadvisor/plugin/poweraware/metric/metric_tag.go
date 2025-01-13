@@ -31,5 +31,5 @@ const (
 	tagPowerActionOp      = "op"
 	tagPowerActionMode    = "mode"
 	tagPowerCappingOpCode = "op"
-	tagErrorCode          = "code"
+	tagErrorCause         = "cause"
 )

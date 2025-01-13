@@ -17,8 +17,6 @@ limitations under the License.
 package metric
 
 import (
-	"strconv"
-
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/advisor/action"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/capper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/spec"
@@ -76,10 +74,10 @@ func EmitPowerCapReset(emitter metrics.MetricEmitter) {
 	_ = emitter.StoreInt64(metricPowerCappingReset, 1, metrics.MetricTypeNameCount)
 }
 
-func EmitErrorCode(emitter metrics.MetricEmitter, errorCode int) {
-	_ = emitter.StoreInt64(metricPowerError, 1, metrics.MetricTypeNameRaw,
+func EmitErrorCode(emitter metrics.MetricEmitter, cause ErrorCause) {
+	_ = emitter.StoreInt64(metricPowerError, 1, metrics.MetricTypeNameCount,
 		metrics.ConvertMapToTags(map[string]string{
-			tagErrorCode: strconv.Itoa(errorCode),
+			tagErrorCause: string(cause),
 		})...,
 	)
 }

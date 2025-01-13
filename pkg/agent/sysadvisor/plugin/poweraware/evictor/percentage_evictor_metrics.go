@@ -24,6 +24,6 @@ func (l *loadEvictor) emitEvictReq(pods int) {
 	powermetric.EmitEvictReq(l.emitter, pods)
 }
 
-func (l *loadEvictor) emitErrorCode(errorCode int) {
-	powermetric.EmitErrorCode(l.emitter, errorCode)
+func (l *loadEvictor) emitErrorCode(errorCause powermetric.ErrorCause) {
+	powermetric.EmitErrorCode(l.emitter, errorCause)
 }

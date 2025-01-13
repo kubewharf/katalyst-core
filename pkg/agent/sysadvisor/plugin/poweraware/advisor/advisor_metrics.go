@@ -29,6 +29,6 @@ func (p *powerAwareAdvisor) emitPowerSpec(powerSpec *spec.PowerSpec) {
 	powermetric.EmitPowerSpec(p.emitter, powerSpec)
 }
 
-func (p *powerAwareAdvisor) emitErrorCode(errorCode int) {
-	powermetric.EmitErrorCode(p.emitter, errorCode)
+func (p *powerAwareAdvisor) emitErrorCode(errorCause powermetric.ErrorCause) {
+	powermetric.EmitErrorCode(p.emitter, errorCause)
 }
