@@ -19,6 +19,8 @@ package provisionassembler
 import (
 	"fmt"
 	"math"
+	"os"
+	"strconv"
 	"time"
 
 	"k8s.io/klog/v2"
@@ -34,6 +36,16 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
+
+var defaultMinReclaimPoolSize = 8
+
+func init() {
+	if value := os.Getenv("MIN_RECLAIM_POOLSIZE"); value == "" {
+		if size, err := strconv.Atoi(value); err == nil && size > defaultMinReclaimPoolSize {
+			defaultMinReclaimPoolSize = size
+		}
+	}
+}
 
 type ProvisionAssemblerCommon struct {
 	conf                                  *config.Configuration
@@ -293,6 +305,23 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 					}
 				}
 				reclaimPoolSizeOfNonBindingNUMAs = general.SumUpMapValues(sharedOverlapReclaimSize)
+
+				if reclaimPoolSizeOfNonBindingNUMAs < defaultMinReclaimPoolSize {
+					newSharedOverlapReclaimSize, err := regulateOverlapReclaimPoolSize(sharePoolSizes, defaultMinReclaimPoolSize)
+					if err != nil {
+						klog.ErrorS(err, "calculate pool size is too low, fall back to ratio policy failed",
+							"share pool size", sharePoolSizes,
+							"min reclaim pool size", defaultMinReclaimPoolSize,
+							"old reclaim pool", sharedOverlapReclaimSize)
+					} else {
+						klog.InfoS("calculate pool size is too low, fall back to ratio policy",
+							"share pool size", sharePoolSizes,
+							"min reclaim pool size", defaultMinReclaimPoolSize,
+							"old reclaim pool", sharedOverlapReclaimSize, "new reclaim pool", newSharedOverlapReclaimSize)
+						sharedOverlapReclaimSize = newSharedOverlapReclaimSize
+						reclaimPoolSizeOfNonBindingNUMAs = general.SumUpMapValues(sharedOverlapReclaimSize)
+					}
+				}
 			}
 
 			for overlapPoolName, size := range sharedOverlapReclaimSize {
