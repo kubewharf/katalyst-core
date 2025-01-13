@@ -25,6 +25,8 @@ type dvfsTracker struct {
 	dvfsAccumEffect int
 	inDVFS          bool
 	prevPower       int
+
+	capperProber CapperProber
 }
 
 func (d *dvfsTracker) getDVFSAllowPercent() int {
@@ -35,9 +37,13 @@ func (d *dvfsTracker) getDVFSAllowPercent() int {
 	return leftPercentage
 }
 
+func (d *dvfsTracker) isCapperAvailable() bool {
+	return d.capperProber != nil && d.capperProber.IsCapperReady()
+}
+
 func (d *dvfsTracker) update(actualWatt, desiredWatt int) {
 	// only accumulate when dvfs is engaged
-	if d.prevPower >= 0 && d.inDVFS {
+	if d.prevPower >= 0 && d.inDVFS && d.isCapperAvailable() {
 		// if actual power is more than previous, likely previous round dvfs took no effect; not to take into account
 		if actualWatt < d.prevPower {
 			dvfsEffect := (d.prevPower - actualWatt) * 100 / d.prevPower

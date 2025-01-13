@@ -75,14 +75,16 @@ func GetPowerAlertResponseTimeLimit(alert PowerAlert) (time.Duration, error) {
 
 func (o InternalOp) String() string {
 	switch o {
+	case InternalOpAuto:
+		return ""
 	case InternalOpThrottle:
-		return "Throttle"
+		return "throttle"
 	case InternalOpEvict:
-		return "Evict"
+		return "evict"
 	case InternalOpFreqCap:
-		return "FreqCap"
+		return "cap"
 	case InternalOpNoop:
-		return "Noop"
+		return "noop"
 	default:
 		return fmt.Sprintf("%d", int(o))
 	}

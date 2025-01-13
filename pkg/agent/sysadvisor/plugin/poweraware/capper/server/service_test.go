@@ -23,12 +23,13 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/capper"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
 func Test_powerCapAdvisorPluginServer_Reset(t *testing.T) {
 	t.Parallel()
 
-	pcs := newPowerCapService()
+	pcs := newPowerCapService(&metrics.DummyMetrics{})
 	pcs.started = true
 	pcs.Reset()
 
@@ -42,15 +43,17 @@ func Test_powerCapAdvisorPluginServer_Reset(t *testing.T) {
 func Test_powerCapAdvisorPluginServer_Cap(t *testing.T) {
 	t.Parallel()
 
-	pcs := newPowerCapService()
+	pcs := newPowerCapService(&metrics.DummyMetrics{})
 	pcs.started = true
 	pcs.Cap(context.TODO(), 111, 123)
 
 	assert.Equal(t,
 		&capper.CapInstruction{
-			OpCode:         "4",
-			OpCurrentValue: "123",
-			OpTargetValue:  "111",
+			OpCode:          "4",
+			OpCurrentValue:  "123",
+			OpTargetValue:   "111",
+			RawCurrentValue: 123,
+			RawTargetValue:  111,
 		},
 		pcs.capInstruction,
 		"the latest power capping instruction should be what was just to Cap",

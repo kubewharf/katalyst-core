@@ -22,17 +22,28 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/advisor/action"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/capper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/spec"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	metrictypes "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 // threshold of cpu usage that allows voluntary dvfs
-const voluntaryDVFSCPUUsageThreshold = 0.45
+const (
+	voluntaryDVFSCPUUsageThreshold = 0.45
+
+	metricPowerAwareDVFSEffect = "node_power_accu_dvfs_effect"
+)
 
 type EvictableProber interface {
 	HasEvictablePods() bool
+}
+
+// CapperProber is only applicable to advisor; capper actor(client) won't be required to implement
+type CapperProber interface {
+	IsCapperReady() bool
 }
 
 // evictFirstStrategy always attempts to evict low priority pods if any; only after all are exhausted will it resort to DVFS means.
@@ -42,6 +53,7 @@ type EvictableProber interface {
 // P0 - evict if applicable; otherwise conduct DVFS once if needed (DVFS is limited to 10%);
 // S0 - DVFS in urgency (no limit on DVFS)
 type evictFirstStrategy struct {
+	emitter         metrics.MetricEmitter
 	coefficient     exponentialDecay
 	evictableProber EvictableProber
 	dvfsTracker     dvfsTracker
@@ -135,6 +147,7 @@ func (e *evictFirstStrategy) yieldActionPlan(op, internalOp spec.InternalOp, act
 
 func (e *evictFirstStrategy) RecommendAction(actualWatt int, desiredWatt int, alert spec.PowerAlert, internalOp spec.InternalOp, ttl time.Duration) action.PowerAction {
 	e.dvfsTracker.update(actualWatt, desiredWatt)
+	e.emitDVFSAccumulatedEffect(e.dvfsTracker.dvfsAccumEffect)
 	general.InfofV(6, "pap: dvfs effect: %d", e.dvfsTracker.dvfsAccumEffect)
 
 	if actualWatt <= desiredWatt {
@@ -152,12 +165,21 @@ func (e *evictFirstStrategy) RecommendAction(actualWatt int, desiredWatt int, al
 	return actionPlan
 }
 
-func NewEvictFirstStrategy(prober EvictableProber, metricsReader metrictypes.MetricsReader) PowerActionStrategy {
+func (e *evictFirstStrategy) emitDVFSAccumulatedEffect(percentage int) {
+	_ = e.emitter.StoreInt64(metricPowerAwareDVFSEffect, int64(percentage), metrics.MetricTypeNameRaw)
+}
+
+func NewEvictFirstStrategy(emitter metrics.MetricEmitter, prober EvictableProber, metricsReader metrictypes.MetricsReader, capper capper.PowerCapper) PowerActionStrategy {
 	general.Infof("pap: using EvictFirst strategy")
+	capperProber, _ := capper.(CapperProber)
 	return &evictFirstStrategy{
+		emitter:         emitter,
 		coefficient:     exponentialDecay{b: defaultDecayB},
 		evictableProber: prober,
-		dvfsTracker:     dvfsTracker{dvfsAccumEffect: 0},
-		metricsReader:   metricsReader,
+		dvfsTracker: dvfsTracker{
+			dvfsAccumEffect: 0,
+			capperProber:    capperProber,
+		},
+		metricsReader: metricsReader,
 	}
 }

@@ -26,6 +26,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
 func Test_loadEvictor_isEvictablePod(t *testing.T) {
@@ -146,6 +147,7 @@ func Test_loadEvictor_Evict(t *testing.T) {
 	podEvictor := &noopPodEvictor{}
 	l := loadEvictor{
 		qosConfig:  generic.NewQoSConfiguration(),
+		emitter:    &metrics.DummyMetrics{},
 		podFetcher: &mockPodFetcher{},
 		podEvictor: podEvictor,
 	}

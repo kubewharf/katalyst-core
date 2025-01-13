@@ -20,10 +20,24 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 )
+
+type mockCapperProber struct {
+	mock.Mock
+}
+
+func (m *mockCapperProber) IsCapperReady() bool {
+	args := m.Called()
+	return args.Bool(0)
+}
 
 func Test_dvfsTracker_update(t *testing.T) {
 	t.Parallel()
+
+	mockProber := new(mockCapperProber)
+	mockProber.On("IsCapperReady").Return(true)
+
 	type fields struct {
 		dvfsUsed  int
 		indvfs    bool
@@ -51,6 +65,7 @@ func Test_dvfsTracker_update(t *testing.T) {
 				desiredWatt: 85,
 			},
 			wantDVFSTracker: dvfsTracker{
+				capperProber:    mockProber,
 				dvfsAccumEffect: 3,
 				inDVFS:          false,
 				prevPower:       90,
@@ -68,6 +83,7 @@ func Test_dvfsTracker_update(t *testing.T) {
 				desiredWatt: 85,
 			},
 			wantDVFSTracker: dvfsTracker{
+				capperProber:    mockProber,
 				dvfsAccumEffect: 13,
 				inDVFS:          true,
 				prevPower:       90,
@@ -85,6 +101,7 @@ func Test_dvfsTracker_update(t *testing.T) {
 				desiredWatt: 85,
 			},
 			wantDVFSTracker: dvfsTracker{
+				capperProber:    mockProber,
 				dvfsAccumEffect: 3,
 				inDVFS:          true,
 				prevPower:       101,
@@ -96,6 +113,7 @@ func Test_dvfsTracker_update(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			d := &dvfsTracker{
+				capperProber:    mockProber,
 				dvfsAccumEffect: tt.fields.dvfsUsed,
 				inDVFS:          tt.fields.indvfs,
 				prevPower:       tt.fields.prevPower,

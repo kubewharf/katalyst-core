@@ -42,9 +42,14 @@ var PowerCapReset = &CapInstruction{
 }
 
 type CapInstruction struct {
-	OpCode         PowerCapOpCode
+	OpCode PowerCapOpCode
+
+	// keep string forms to facilitate wire encoding which prefers string(text) format
 	OpCurrentValue string
 	OpTargetValue  string
+
+	RawTargetValue  int
+	RawCurrentValue int
 }
 
 func (c CapInstruction) ToListAndWatchResponse() *advisorsvc.ListAndWatchResponse {
@@ -104,10 +109,29 @@ func getCappingInstructionFromCalcInfo(info *advisorsvc.CalculationInfo) (*CapIn
 	opCurrValue := values[keyOpCurrentValue]
 	opTargetValue := values[keyOpTargetValue]
 
+	var err error
+	currValue := 0
+	if len(opCurrValue) > 0 {
+		currValue, err = strconv.Atoi(opCurrValue)
+		if err != nil {
+			return nil, errors.New("current value format error")
+		}
+	}
+
+	targetValue := 0
+	if len(opTargetValue) > 0 {
+		targetValue, err = strconv.Atoi(opTargetValue)
+		if err != nil {
+			return nil, errors.New("target value format error")
+		}
+	}
+
 	return &CapInstruction{
-		OpCode:         PowerCapOpCode(opCode),
-		OpCurrentValue: opCurrValue,
-		OpTargetValue:  opTargetValue,
+		OpCode:          PowerCapOpCode(opCode),
+		OpCurrentValue:  opCurrValue,
+		OpTargetValue:   opTargetValue,
+		RawCurrentValue: currValue,
+		RawTargetValue:  targetValue,
 	}, nil
 }
 
@@ -136,8 +160,10 @@ func NewCapInstruction(targetWatts, currWatt int) (*CapInstruction, error) {
 	}
 
 	return &CapInstruction{
-		OpCode:         OpCap,
-		OpCurrentValue: fmt.Sprintf("%d", currWatt),
-		OpTargetValue:  fmt.Sprintf("%d", targetWatts),
+		OpCode:          OpCap,
+		OpCurrentValue:  fmt.Sprintf("%d", currWatt),
+		OpTargetValue:   fmt.Sprintf("%d", targetWatts),
+		RawTargetValue:  targetWatts,
+		RawCurrentValue: currWatt,
 	}, nil
 }
