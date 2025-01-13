@@ -18,6 +18,7 @@ package malachite
 
 import (
 	"context"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -52,7 +53,12 @@ const (
 
 	malachiteProvisionerHealthCheckName = "malachite_provisioner_sample"
 	malachiteProvisionTolerationTime    = 15 * time.Second
+
+	CpiFetchFreq = time.Second * 10
+	window       = time.Second * 30
 )
+
+var Exp30s = 1 / math.Exp(float64(CpiFetchFreq)/float64(window))
 
 // NewMalachiteMetricsProvisioner returns the default implementation of MetricsFetcher.
 func NewMalachiteMetricsProvisioner(baseConf *global.BaseConfiguration, _ *metaserver.MetricConfiguration,
@@ -861,6 +867,14 @@ func (m *MalachiteMetricsProvisioner) processContainerCPUData(podUID, containerN
 			instructionDiff := float64(cpu.Instructions) - instructionsOld.Value
 			if instructionDiff > 0 {
 				cpi := (float64(cpu.Cycles) - cyclesOld.Value) / instructionDiff
+
+				// exponential weighted moving average
+				lastData, err := m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricCPUCPIContainer)
+				if err == nil && !lastData.Time.Equal(updateTime) {
+					// newCPI = oldCPI * exp + CPI * (1 - exp)
+					cpi = lastData.Value*Exp30s + cpi*(1-Exp30s)
+				}
+
 				m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUCPIContainer,
 					utilmetric.MetricData{Value: cpi, Time: &updateTime})
 			}
@@ -945,6 +959,13 @@ func (m *MalachiteMetricsProvisioner) processContainerCPUData(podUID, containerN
 			instructionDiff := float64(cpu.Instructions) - instructionsOld.Value
 			if instructionDiff > 0 {
 				cpi := (float64(cpu.Cycles) - cyclesOld.Value) / instructionDiff
+				// exponential weighted moving average
+				lastData, err := m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricCPUCPIContainer)
+				if err == nil && !lastData.Time.Equal(updateTime) {
+					// newCPI = oldCPI * exp + CPI * (1 - exp)
+					cpi = lastData.Value*Exp30s + cpi*(1-Exp30s)
+				}
+
 				m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUCPIContainer,
 					utilmetric.MetricData{Value: cpi, Time: &updateTime})
 			}
