@@ -26,6 +26,7 @@ import (
 
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
@@ -93,6 +94,33 @@ func (cs *cpuServer) RegisterAdvisorServer() {
 	grpcServer := grpc.NewServer()
 	cpuadvisor.RegisterCPUAdvisorServer(grpcServer, cs)
 	cs.grpcServer = grpcServer
+}
+
+func (cs *cpuServer) GetAdvice(ctx context.Context, request *cpuadvisor.GetAdviceRequest) (*cpuadvisor.GetAdviceResponse, error) {
+	startTime := time.Now()
+	_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerGetAdviceCalled), 1, metrics.MetricTypeNameCount)
+	general.Infof("get advice request: %v", general.ToString(request))
+
+	if err := cs.updateMetaCacheInput(ctx, request); err != nil {
+		general.Errorf("update meta cache failed: %v", err)
+		return nil, fmt.Errorf("update meta cache failed: %w", err)
+	}
+
+	general.InfoS("updated meta cache input", "duration", time.Since(startTime))
+
+	result, err := cs.updateAdvisor()
+	if err != nil {
+		general.Errorf("update advisor failed: %v", err)
+		return nil, fmt.Errorf("update advisor failed: %w", err)
+	}
+	resp := &cpuadvisor.GetAdviceResponse{
+		Entries:                               result.Entries,
+		AllowSharedCoresOverlapReclaimedCores: result.AllowSharedCoresOverlapReclaimedCores,
+		ExtraEntries:                          result.ExtraEntries,
+	}
+	general.Infof("get advice response: %v", general.ToString(resp))
+	general.InfoS("get advice", "duration", time.Since(startTime))
+	return resp, nil
 }
 
 func (cs *cpuServer) ListAndWatch(_ *advisorsvc.Empty, server cpuadvisor.CPUAdvisor_ListAndWatchServer) error {
@@ -177,7 +205,7 @@ func (cs *cpuServer) shouldTriggerAdvisorUpdate() bool {
 	return true
 }
 
-// getAndPushAdvice implements the legacy asynchronous bidirectional communication model between
+// Deprecated: getAndPushAdvice implements the legacy asynchronous bidirectional communication model between
 // qrm plugins and sys-advisor. This is kept for backward compatibility.
 // TODO: remove this function after all qrm plugins are migrated to the new synchronous model
 func (cs *cpuServer) getAndPushAdvice(client cpuadvisor.CPUPluginClient, server cpuadvisor.CPUAdvisor_ListAndWatchServer) error {
@@ -189,21 +217,15 @@ func (cs *cpuServer) getAndPushAdvice(client cpuadvisor.CPUPluginClient, server 
 		return nil
 	}
 
-	// trigger advisor update and get latest advice
-	advisorRespRaw, err := cs.resourceAdvisor.UpdateAndGetAdvice()
+	result, err := cs.updateAdvisor()
 	if err != nil {
-		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerAdvisorUpdateFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
-		return fmt.Errorf("get advice failed: %w", err)
+		return err
 	}
-	advisorResp, ok := advisorRespRaw.(*types.InternalCPUCalculationResult)
-	if !ok {
-		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerAdvisorUpdateFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
-		return fmt.Errorf("get advice failed: invalid type: %T", advisorRespRaw)
+	lwResp := &cpuadvisor.ListAndWatchResponse{
+		Entries:                               result.Entries,
+		AllowSharedCoresOverlapReclaimedCores: result.AllowSharedCoresOverlapReclaimedCores,
+		ExtraEntries:                          result.ExtraEntries,
 	}
-
-	klog.Infof("[qosaware-server-cpu] get advisor update: %+v", general.ToString(advisorResp))
-
-	lwResp := cs.assembleResponse(advisorResp)
 	if err := server.Send(lwResp); err != nil {
 		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWSendResponseFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 		return fmt.Errorf("send listWatch response failed: %w", err)
@@ -213,7 +235,35 @@ func (cs *cpuServer) getAndPushAdvice(client cpuadvisor.CPUPluginClient, server 
 	return nil
 }
 
-func (cs *cpuServer) assembleResponse(advisorResp *types.InternalCPUCalculationResult) *cpuadvisor.ListAndWatchResponse {
+func (cs *cpuServer) updateAdvisor() (*cpuInternalResult, error) {
+	// trigger advisor update and get latest advice
+	advisorRespRaw, err := cs.resourceAdvisor.UpdateAndGetAdvice()
+	if err != nil {
+		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerAdvisorUpdateFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
+		return nil, fmt.Errorf("get advice failed: %w", err)
+	}
+	advisorResp, ok := advisorRespRaw.(*types.InternalCPUCalculationResult)
+	if !ok {
+		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerAdvisorUpdateFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
+		return nil, fmt.Errorf("get advice failed: invalid type: %T", advisorRespRaw)
+	}
+
+	klog.Infof("[qosaware-server-cpu] get advisor update: %+v", general.ToString(advisorResp))
+
+	return cs.assembleResponse(advisorResp), nil
+}
+
+type cpuInternalResult struct {
+	Entries                               map[string]*cpuadvisor.CalculationEntries
+	AllowSharedCoresOverlapReclaimedCores bool
+	ExtraEntries                          []*advisorsvc.CalculationInfo
+}
+
+func (cs *cpuServer) assembleResponse(advisorResp *types.InternalCPUCalculationResult) *cpuInternalResult {
+	startTime := time.Now()
+	defer func() {
+		general.InfoS("finished", "duration", time.Since(startTime))
+	}()
 	calculationEntriesMap := make(map[string]*cpuadvisor.CalculationEntries)
 	blockID2Blocks := NewBlockSet()
 
@@ -229,7 +279,7 @@ func (cs *cpuServer) assembleResponse(advisorResp *types.InternalCPUCalculationR
 	cs.metaCache.RangeContainer(f)
 
 	// Send result
-	resp := &cpuadvisor.ListAndWatchResponse{
+	resp := &cpuInternalResult{
 		Entries:                               calculationEntriesMap,
 		ExtraEntries:                          make([]*advisorsvc.CalculationInfo, 0),
 		AllowSharedCoresOverlapReclaimedCores: advisorResp.AllowSharedCoresOverlapReclaimedCores,
@@ -273,6 +323,95 @@ func (cs *cpuServer) assembleHeadroom() *advisorsvc.CalculationInfo {
 	}
 }
 
+func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, resp *cpuadvisor.GetAdviceRequest) error {
+	startTime := time.Now()
+	// lock meta cache to prevent race with cpu server
+	cs.metaCache.Lock()
+	general.InfoS("acquired lock", "duration", time.Since(startTime))
+	defer cs.metaCache.Unlock()
+
+	var errs []error
+	livingPoolNameSet := sets.NewString()
+
+	// update pool entries first, which are needed for updating container entries
+	for entryName, entry := range resp.Entries {
+		poolInfo, ok := entry.Entries[commonstate.FakedContainerName]
+		if !ok {
+			continue
+		}
+		poolName := entryName
+		livingPoolNameSet.Insert(poolName)
+		if err := cs.createOrUpdatePoolInfo(
+			poolName,
+			poolInfo.AllocationInfo.OwnerPoolName,
+			poolInfo.AllocationInfo.TopologyAwareAssignments,
+			poolInfo.AllocationInfo.OriginalTopologyAwareAssignments,
+		); err != nil {
+			errs = append(errs, fmt.Errorf("update pool info failed: %w", err))
+		}
+	}
+
+	general.InfoS("updated pool entries", "duration", time.Since(startTime))
+
+	// update container entries after pool entries
+	for entryName, entry := range resp.Entries {
+		if _, ok := entry.Entries[commonstate.FakedContainerName]; ok {
+			continue
+		}
+		podUID := entryName
+		pod, err := cs.metaServer.GetPod(ctx, podUID)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("get pod info for %s failed: %w", podUID, err))
+			continue
+		}
+
+		for containerName, info := range entry.Entries {
+			if err := cs.createOrUpdateContainerInfo(podUID, containerName, pod, info); err != nil {
+				errs = append(errs, fmt.Errorf("update container info for %s/%s failed: %w", podUID, containerName, err))
+				_ = cs.emitter.StoreInt64(
+					cs.genMetricsName(metricServerCheckpointUpdateContainerFailed), 1, metrics.MetricTypeNameCount,
+					metrics.MetricTag{Key: "podUID", Val: podUID},
+					metrics.MetricTag{Key: "containerName", Val: containerName},
+				)
+			}
+		}
+	}
+
+	general.InfoS("updated container entries", "duration", time.Since(startTime))
+
+	// clean up containers that no longer exist
+	if err := cs.metaCache.RangeAndDeleteContainer(func(containerInfo *types.ContainerInfo) bool {
+		info, ok := resp.Entries[containerInfo.PodUID]
+		if !ok {
+			return true
+		}
+		if _, ok := info.Entries[containerInfo.ContainerName]; !ok {
+			return true
+		}
+		return false
+	}, 0, // there is no need for safeTime check
+	); err != nil {
+		errs = append(errs, fmt.Errorf("clean up containers failed: %w", err))
+	}
+
+	general.InfoS("cleaned up container entries", "duration", time.Since(startTime))
+
+	// add all containers' original owner pools to livingPoolNameSet
+	cs.metaCache.RangeContainer(func(podUID string, containerName string, containerInfo *types.ContainerInfo) bool {
+		livingPoolNameSet.Insert(containerInfo.OriginOwnerPoolName)
+		return true
+	},
+	)
+
+	if err := cs.metaCache.GCPoolEntries(livingPoolNameSet); err != nil {
+		errs = append(errs, fmt.Errorf("gc pool entries failed: %w", err))
+	}
+
+	general.InfoS("cleaned up pool entries", "duration", time.Since(startTime))
+	return errors.NewAggregate(errs)
+}
+
+// Deprecated: to be removed after all qrm plugins are migrated to the new synchronous model
 func (cs *cpuServer) syncCheckpoint(ctx context.Context, resp *cpuadvisor.GetCheckpointResponse, safeTime int64) {
 	livingPoolNameSet := sets.NewString()
 
@@ -281,7 +420,9 @@ func (cs *cpuServer) syncCheckpoint(ctx context.Context, resp *cpuadvisor.GetChe
 		if poolInfo, ok := entry.Entries[commonstate.FakedContainerName]; ok {
 			poolName := entryName
 			livingPoolNameSet.Insert(poolName)
-			if err := cs.updatePoolInfo(poolName, poolInfo); err != nil {
+			if err := cs.createOrUpdatePoolInfo(
+				poolName, poolInfo.OwnerPoolName, poolInfo.TopologyAwareAssignments, poolInfo.OriginalTopologyAwareAssignments,
+			); err != nil {
 				klog.Errorf("[qosaware-server-cpu] update pool info with error: %v", err)
 			}
 		}
@@ -331,25 +472,58 @@ func (cs *cpuServer) syncCheckpoint(ctx context.Context, resp *cpuadvisor.GetChe
 	_ = cs.metaCache.GCPoolEntries(livingPoolNameSet)
 }
 
-func (cs *cpuServer) updatePoolInfo(poolName string, info *cpuadvisor.AllocationInfo) error {
+// TODO: are poolName and ownerPoolName the same?
+func (cs *cpuServer) createOrUpdatePoolInfo(
+	poolName string,
+	ownerPoolName string,
+	topologyAwareAssignments map[uint64]string,
+	originalTopologyAwareAssignments map[uint64]string,
+) error {
 	pi, ok := cs.metaCache.GetPoolInfo(poolName)
 	if !ok {
 		pi = &types.PoolInfo{
-			PoolName: info.OwnerPoolName,
+			PoolName: ownerPoolName,
 		}
 	}
-	pi.TopologyAwareAssignments = machine.TransformCPUAssignmentFormat(info.TopologyAwareAssignments)
-	pi.OriginalTopologyAwareAssignments = machine.TransformCPUAssignmentFormat(info.OriginalTopologyAwareAssignments)
+	pi.TopologyAwareAssignments = machine.TransformCPUAssignmentFormat(topologyAwareAssignments)
+	pi.OriginalTopologyAwareAssignments = machine.TransformCPUAssignmentFormat(originalTopologyAwareAssignments)
 
 	return cs.metaCache.SetPoolInfo(poolName, pi)
 }
 
-func (cs *cpuServer) updateContainerInfo(podUID string, containerName string, pod *v1.Pod, info *cpuadvisor.AllocationInfo) error {
-	ci, ok := cs.metaCache.GetContainerInfo(podUID, containerName)
-	if !ok {
-		return fmt.Errorf("container %v/%v not exist", podUID, containerName)
+// The new update method for container info to replace setContainerInfoBasedOnAllocationInfo
+func (cs *cpuServer) setContainerInfoBasedOnContainerAllocationInfo(
+	pod *v1.Pod,
+	ci *types.ContainerInfo,
+	info *cpuadvisor.ContainerAllocationInfo,
+) error {
+	if err := cs.setContainerInfoBasedOnAllocationInfo(pod, ci, info.AllocationInfo); err != nil {
+		return err
 	}
 
+	ci.Labels = info.Metadata.Labels
+	ci.Annotations = info.Metadata.Annotations
+	ci.CPURequest = float64(info.Metadata.RequestQuantity)
+	if info.Metadata.QosLevel == consts.PodAnnotationQoSLevelSharedCores &&
+		info.Metadata.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable {
+		originOwnerPoolName, err := commonstate.GetSpecifiedNUMABindingPoolName(info.Metadata.QosLevel, info.Metadata.Annotations)
+		if err != nil {
+			return fmt.Errorf("get specified numa binding pool name failed: %w", err)
+		}
+		ci.OriginOwnerPoolName = originOwnerPoolName
+	} else {
+		ci.OriginOwnerPoolName = commonstate.GetSpecifiedPoolName(info.Metadata.QosLevel, info.Metadata.Annotations[consts.PodAnnotationCPUEnhancementCPUSet])
+	}
+
+	return nil
+}
+
+// Deprecated: to be removed after all qrm plugins are migrated to the new synchronous model
+func (cs *cpuServer) setContainerInfoBasedOnAllocationInfo(
+	pod *v1.Pod,
+	ci *types.ContainerInfo,
+	info *cpuadvisor.AllocationInfo,
+) error {
 	ci.RampUp = info.RampUp
 	ci.TopologyAwareAssignments = machine.TransformCPUAssignmentFormat(info.TopologyAwareAssignments)
 	ci.OriginalTopologyAwareAssignments = machine.TransformCPUAssignmentFormat(info.OriginalTopologyAwareAssignments)
@@ -358,14 +532,13 @@ func (cs *cpuServer) updateContainerInfo(podUID string, containerName string, po
 	// get qos level name according to the qos conf
 	qosLevel, err := cs.qosConf.GetQoSLevelForPod(pod)
 	if err != nil {
-		return fmt.Errorf("container %v/%v get qos level failed", podUID, containerName)
+		return fmt.Errorf("get qos level failed: %w", err)
 	}
 	if ci.QoSLevel != qosLevel {
-		general.Infof("qos level has change from %s to %s", ci.QoSLevel, qosLevel)
+		general.Infof("qos level of %v/%v has change from %s to %s", ci.PodUID, ci.ContainerName, ci.QoSLevel, qosLevel)
 		ci.QoSLevel = qosLevel
 	}
 
-	// TODO: can we do without sysadvisor persisted states?
 	if ci.OriginOwnerPoolName == "" {
 		ci.OriginOwnerPoolName = ci.OwnerPoolName
 	}
@@ -377,6 +550,63 @@ func (cs *cpuServer) updateContainerInfo(podUID string, containerName string, po
 				ci.TopologyAwareAssignments = poolInfo.TopologyAwareAssignments.Clone()
 			}
 		}
+	}
+
+	return nil
+}
+
+func (cs *cpuServer) createOrUpdateContainerInfo(
+	podUID string,
+	containerName string,
+	pod *v1.Pod,
+	info *cpuadvisor.ContainerAllocationInfo,
+) error {
+	ci, ok := cs.metaCache.GetContainerInfo(podUID, containerName)
+	if !ok {
+		ci = &types.ContainerInfo{
+			PodUID:         podUID,
+			PodNamespace:   info.Metadata.PodNamespace,
+			PodName:        info.Metadata.PodName,
+			ContainerName:  containerName,
+			ContainerType:  info.Metadata.ContainerType,
+			ContainerIndex: int(info.Metadata.ContainerIndex),
+			Labels:         info.Metadata.Labels,
+			Annotations:    info.Metadata.Annotations,
+			QoSLevel:       info.Metadata.QosLevel,
+			CPURequest:     float64(info.Metadata.RequestQuantity),
+		}
+		if err := cs.setContainerInfoBasedOnContainerAllocationInfo(pod, ci, info); err != nil {
+			return fmt.Errorf("set container info for new container %v/%v failed: %w", podUID, containerName, err)
+		}
+		// use AddContainer instead of SetContainer to set the creation time in meta cache (is this necessary?)
+		if err := cs.metaCache.AddContainer(podUID, containerName, ci); err != nil {
+			return fmt.Errorf("add container %v/%v failed: %w", podUID, containerName, err)
+		}
+		return nil
+	}
+
+	if err := cs.setContainerInfoBasedOnContainerAllocationInfo(pod, ci, info); err != nil {
+		return fmt.Errorf("set container info for existing container %v/%v failed: %w", podUID, containerName, err)
+	}
+	if err := cs.metaCache.SetContainerInfo(podUID, containerName, ci); err != nil {
+		return fmt.Errorf("update container info %v/%v failed: %w", podUID, containerName, err)
+	}
+	return nil
+}
+
+func (cs *cpuServer) updateContainerInfo(
+	podUID string,
+	containerName string,
+	pod *v1.Pod,
+	info *cpuadvisor.AllocationInfo,
+) error {
+	ci, ok := cs.metaCache.GetContainerInfo(podUID, containerName)
+	if !ok {
+		return fmt.Errorf("container %v/%v not exist", podUID, containerName)
+	}
+
+	if err := cs.setContainerInfoBasedOnAllocationInfo(pod, ci, info); err != nil {
+		return fmt.Errorf("update container info %v/%v failed: %w", podUID, containerName, err)
 	}
 
 	// Need to set back because of deep copy

@@ -17,6 +17,8 @@ limitations under the License.
 package qrm
 
 import (
+	"time"
+
 	cliflag "k8s.io/component-base/cli/flag"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
@@ -35,6 +37,7 @@ type CPUOptions struct {
 
 type CPUDynamicPolicyOptions struct {
 	EnableCPUAdvisor              bool
+	AdvisorGetAdviceInterval      time.Duration
 	EnableCPUPressureEviction     bool
 	LoadPressureEvictionSkipPools []string
 	EnableSyncingCPUIdle          bool
@@ -55,6 +58,7 @@ func NewCPUOptions() *CPUOptions {
 		SkipCPUStateCorruption: false,
 		CPUDynamicPolicyOptions: CPUDynamicPolicyOptions{
 			EnableCPUAdvisor:          false,
+			AdvisorGetAdviceInterval:  5 * time.Second,
 			EnableCPUPressureEviction: false,
 			EnableSyncingCPUIdle:      false,
 			EnableCPUIdle:             false,
@@ -80,6 +84,8 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.PolicyName, "The policy cpu resource plugin should use")
 	fs.BoolVar(&o.EnableCPUAdvisor, "cpu-resource-plugin-advisor",
 		o.EnableCPUAdvisor, "Whether cpu resource plugin should enable sys-advisor")
+	fs.DurationVar(&o.AdvisorGetAdviceInterval, "cpu-resource-plugin-advisor-interval",
+		o.AdvisorGetAdviceInterval, "If cpu advisor is enabled, this is the interval at which we get advice from sys-advisor")
 	fs.IntVar(&o.ReservedCPUCores, "cpu-resource-plugin-reserved",
 		o.ReservedCPUCores, "The total cores cpu resource plugin should reserve")
 	fs.BoolVar(&o.SkipCPUStateCorruption, "skip-cpu-state-corruption",
@@ -108,6 +114,7 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 	conf.PolicyName = o.PolicyName
 	conf.EnableCPUAdvisor = o.EnableCPUAdvisor
+	conf.GetAdviceInterval = o.AdvisorGetAdviceInterval
 	conf.ReservedCPUCores = o.ReservedCPUCores
 	conf.SkipCPUStateCorruption = o.SkipCPUStateCorruption
 	conf.EnableCPUPressureEviction = o.EnableCPUPressureEviction

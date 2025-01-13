@@ -31,6 +31,7 @@ type MemoryOptions struct {
 	SkipMemoryStateCorruption                     bool
 	EnableSettingMemoryMigrate                    bool
 	EnableMemoryAdvisor                           bool
+	AdvisorGetAdviceInterval                      time.Duration
 	ExtraControlKnobConfigFile                    string
 	EnableOOMPriority                             bool
 	OOMPriorityPinnedMapAbsPath                   string
@@ -77,12 +78,13 @@ type FragMemOptions struct {
 
 func NewMemoryOptions() *MemoryOptions {
 	return &MemoryOptions{
-		PolicyName:                 "dynamic",
-		ReservedMemoryGB:           0,
-		SkipMemoryStateCorruption:  false,
-		EnableSettingMemoryMigrate: false,
-		EnableMemoryAdvisor:        false,
-		EnableOOMPriority:          false,
+		PolicyName:                                    "dynamic",
+		ReservedMemoryGB:                              0,
+		SkipMemoryStateCorruption:                     false,
+		EnableSettingMemoryMigrate:                    false,
+		EnableMemoryAdvisor:                           false,
+		AdvisorGetAdviceInterval:                      5 * time.Second,
+		EnableOOMPriority:                             false,
 		EnableNonBindingShareCoresMemoryResourceCheck: true,
 		EnableNUMAAllocationReactor:                   false,
 		NUMABindResultResourceAllocationAnnotationKey: consts.QRMResourceAnnotationKeyNUMABindResult,
@@ -120,6 +122,8 @@ func (o *MemoryOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.EnableSettingMemoryMigrate, "if set true, we will enable cpuset.memory_migrate for containers not numa_binding")
 	fs.BoolVar(&o.EnableMemoryAdvisor, "memory-resource-plugin-advisor",
 		o.EnableMemoryAdvisor, "Whether memory resource plugin should enable sys-advisor")
+	fs.DurationVar(&o.AdvisorGetAdviceInterval, "memory-resource-plugin-advisor-interval",
+		o.AdvisorGetAdviceInterval, "If memory advisor is enabled, this is the interval at which we get advice from sys-advisor")
 	fs.StringVar(&o.ExtraControlKnobConfigFile, "memory-extra-control-knob-config-file",
 		o.ExtraControlKnobConfigFile, "the absolute path of extra control knob config file")
 	fs.BoolVar(&o.EnableOOMPriority, "enable-oom-priority",
@@ -164,6 +168,7 @@ func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
 	conf.SkipMemoryStateCorruption = o.SkipMemoryStateCorruption
 	conf.EnableSettingMemoryMigrate = o.EnableSettingMemoryMigrate
 	conf.EnableMemoryAdvisor = o.EnableMemoryAdvisor
+	conf.GetAdviceInterval = o.AdvisorGetAdviceInterval
 	conf.ExtraControlKnobConfigFile = o.ExtraControlKnobConfigFile
 	conf.EnableOOMPriority = o.EnableOOMPriority
 	conf.EnableNonBindingShareCoresMemoryResourceCheck = o.EnableNonBindingShareCoresMemoryResourceCheck

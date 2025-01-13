@@ -98,19 +98,7 @@ func (am *AllocationMeta) GetSpecifiedNUMABindingNUMAID() (int, error) {
 		return FakedNUMAID, fmt.Errorf("empty am")
 	}
 
-	if _, ok := am.Annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint]; !ok {
-		return FakedNUMAID, nil
-	}
-
-	numaSet, pErr := machine.Parse(am.Annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint])
-	if pErr != nil {
-		return FakedNUMAID, fmt.Errorf("parse numaHintStr: %s failed with error: %v",
-			am.Annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint], pErr)
-	} else if numaSet.Size() != 1 {
-		return FakedNUMAID, fmt.Errorf("parse numaHintStr: %s with invalid size", numaSet.String())
-	}
-
-	return numaSet.ToSliceNoSortInt()[0], nil
+	return GetSpecifiedNUMABindingNUMAID(am.Annotations)
 }
 
 // SetSpecifiedNUMABindingNUMAID set the numa id for AllocationInfo
@@ -129,26 +117,7 @@ func (am *AllocationMeta) SetSpecifiedNUMABindingNUMAID(numaID uint64) {
 // GetSpecifiedNUMABindingPoolName get numa_binding pool name
 // for numa_binding shared_cores according to enhancements and NUMA hint
 func (am *AllocationMeta) GetSpecifiedNUMABindingPoolName() (string, error) {
-	if !am.CheckSharedNUMABinding() {
-		return EmptyOwnerPoolName, fmt.Errorf("GetSpecifiedNUMABindingPoolName only for numa_binding shared_cores")
-	}
-
-	numaID, err := am.GetSpecifiedNUMABindingNUMAID()
-	if err != nil {
-		return EmptyOwnerPoolName, err
-	}
-
-	if numaID == FakedNUMAID {
-		return EmptyOwnerPoolName, fmt.Errorf("invalid numa id for numa_binding shared_cores")
-	}
-
-	specifiedPoolName := am.GetSpecifiedPoolName()
-
-	if specifiedPoolName == EmptyOwnerPoolName {
-		return EmptyOwnerPoolName, fmt.Errorf("empty specifiedPoolName")
-	}
-
-	return GetNUMAPoolName(specifiedPoolName, numaID), nil
+	return GetSpecifiedNUMABindingPoolName(am.QoSLevel, am.Annotations)
 }
 
 func GetNUMAPoolName(candidateSpecifiedPoolName string, targetNUMANode int) string {

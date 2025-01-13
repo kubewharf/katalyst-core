@@ -21,11 +21,13 @@ import (
 	"path"
 	"reflect"
 	"sync"
+	"time"
 
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/errors"
 
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -127,6 +129,11 @@ func (sc *stateCheckpoint) RestoreState(topology *machine.CPUTopology) error {
 }
 
 func (sc *stateCheckpoint) storeState() error {
+	startTime := time.Now()
+	general.InfoS("called")
+	defer func() {
+		general.InfoS("finished", "duration", time.Since(startTime))
+	}()
 	checkpoint := NewCPUPluginCheckpoint()
 	checkpoint.PolicyName = sc.policyName
 	checkpoint.MachineState = sc.cache.GetMachineState()

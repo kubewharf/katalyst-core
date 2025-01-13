@@ -21,6 +21,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/errors"
 
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
@@ -40,6 +41,52 @@ func NewCPUAdvisorValidator(state state.State, machineInfo *machine.KatalystMach
 		state:       state,
 		machineInfo: machineInfo,
 	}
+}
+
+// ValidateRequest validates the GetAdvice request.
+// We validate the request because we cannot infer the container metadata from sys-advisor response.
+func (c *CPUAdvisorValidator) ValidateRequest(req *advisorapi.GetAdviceRequest) error {
+	if req == nil {
+		return fmt.Errorf("got nil req")
+	}
+
+	entries := c.state.GetPodEntries()
+
+	// validate shared_cores with numa_binding entries
+	sharedNUMABindingAllocationInfos := entries.GetFilteredPodEntries(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedNUMABinding))
+
+	for podUID, containerEntries := range sharedNUMABindingAllocationInfos {
+		for containerName, containerInfo := range containerEntries {
+			if req.Entries[podUID] == nil || req.Entries[podUID].Entries[containerName] == nil {
+				return fmt.Errorf("missing request entry for shared_cores with numa_binding pod: %s container: %s", podUID, containerName)
+			}
+			requestInfo := req.Entries[podUID].Entries[containerName]
+			// This container may have been changed from shared_cores without numa_binding to shared_cores with numa_binding.
+			// Verify if we have included this information in the request.
+			// If we have, sys-advisor must have observed it.
+			if requestInfo.Metadata.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] != consts.PodAnnotationMemoryEnhancementNumaBindingEnable {
+				return fmt.Errorf(
+					"shared_cores with numa_binding pod: %s container: %s has invalid owner pool name: %s in request, expected %s",
+					podUID, containerName, requestInfo.AllocationInfo.OwnerPoolName, containerInfo.OwnerPoolName)
+			}
+		}
+	}
+
+	for podUID, containerEntries := range req.Entries {
+		if containerEntries == nil {
+			continue
+		}
+		for containerName, requestInfo := range containerEntries.Entries {
+			if requestInfo.Metadata.QosLevel == consts.PodAnnotationQoSLevelSharedCores &&
+				requestInfo.Metadata.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable {
+				if entries[podUID][containerName] == nil {
+					return fmt.Errorf("missing state entry for shared_cores with numa_binding pod: %s container: %s", podUID, containerName)
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 func (c *CPUAdvisorValidator) Validate(resp *advisorapi.ListAndWatchResponse) error {

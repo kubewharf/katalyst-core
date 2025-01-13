@@ -78,10 +78,24 @@ message CalculationResult {
     map<string,string> values = 1;  // eg. map[string]string{"memory_limit_in_bytes": "1073741824"}    
 }
 
+message ContainerMetadataEntries {
+    map<string,ContainerMetadata> entries = 1; // keyed by container name
+}
+
+message GetAdviceRequest {
+    map<string,ContainerMetadataEntries> entries = 1; // keyed by podUID
+}
+
+message GetAdviceResponse {
+    map<string,CalculationEntries> pod_entries = 1; // keyed by podUID
+    repeated CalculationInfo extra_entries = 2; // for non-container level adjustment (eg. /kubepods/besteffort)
+}
+
 service AdvisorService {
     rpc AddContainer(ContainerMetadata) returns (AddContainerResponse) {}
     rpc RemovePod(RemovePodRequest) returns (RemovePodResponse) {}
     rpc ListAndWatch(Empty) returns (stream ListAndWatchResponse) {}
+    rpc GetAdvice(GetAdviceRequest) returns (GetAdviceResponse) {}
 }
 
 message ListContainersResponse {
