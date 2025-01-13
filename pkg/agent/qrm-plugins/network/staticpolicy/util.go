@@ -254,7 +254,7 @@ func selectOneNIC(nics []machine.InterfaceInfo, policy NICSelectionPoligy) machi
 }
 
 // packAllocationResponse fills pluginapi.ResourceAllocationResponse with information from AllocationInfo and pluginapi.ResourceRequest
-func packAllocationResponse(req *pluginapi.ResourceRequest, allocationInfo *state.AllocationInfo, respHint *pluginapi.TopologyHint, resourceAllocationAnnotations map[string]string) (*pluginapi.ResourceAllocationResponse, error) {
+func packAllocationResponse(req *pluginapi.ResourceRequest, allocationInfo *state.AllocationInfo, resourceAllocationAnnotations map[string]string) (*pluginapi.ResourceAllocationResponse, error) {
 	if allocationInfo == nil {
 		return nil, fmt.Errorf("packAllocationResponse got nil allocationInfo")
 	} else if req == nil {
@@ -281,7 +281,7 @@ func packAllocationResponse(req *pluginapi.ResourceRequest, allocationInfo *stat
 					Annotations:       resourceAllocationAnnotations,
 					ResourceHints: &pluginapi.ListOfTopologyHints{
 						Hints: []*pluginapi.TopologyHint{
-							respHint,
+							req.Hint,
 						},
 					},
 				},
