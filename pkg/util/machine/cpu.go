@@ -17,6 +17,7 @@ limitations under the License.
 package machine
 
 import (
+	"io/ioutil"
 	"os"
 	"regexp"
 	"strconv"
