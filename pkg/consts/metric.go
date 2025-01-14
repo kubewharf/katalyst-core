@@ -99,11 +99,13 @@ const (
 	MetricNetTcpRetranSegs  = "net.tcp.retrans_segs"
 	MetricNetTcpRecvPackets = "net.tcp.out_segs"
 	MetricNetTcpCloseWait   = "net.tcp.close_wait"
+	MetricNetUpdateTime     = "net.updatetime"
 )
 
 // System network metrics
 const (
 	MetricNetReceiveBytes       = "net.tcp.receive_bytes"
+	MetricNetReceiveBPS         = "net.receive.bps"
 	MetricNetReceivePackets     = "net.tcp.receive_packets"
 	MetricNetReceiveErrs        = "net.tcp.receive_errs"
 	MetricNetReceiveDrops       = "net.tcp.receive_drop"
@@ -112,6 +114,7 @@ const (
 	MetricNetReceiveCompressed  = "net.tcp.receive_compressed"
 	MetricNetTransmitMulticast  = "net.tcp.receive_multicast"
 	MetricNetTransmitBytes      = "net.tcp.transmit_bytes"
+	MetricNetTransmitBPS        = "net.transmit.bps"
 	MetricNetTransmitPackets    = "net.tcp.transmit_packets"
 	MetricNetTransmitErrs       = "net.tcp.transmit_errs"
 	MetricNetTransmitDrops      = "net.tcp.transmit_drop"
@@ -119,6 +122,7 @@ const (
 	MetricNetTransmitColls      = "net.tcp.transmit_colls"
 	MetricNetTransmitCarrier    = "net.tcp.transmit_carrier"
 	MetricNetTransmitCompressed = "net.tcp.transmit_compressed"
+	MetricNetSpeed              = "net.speed"
 )
 
 // Node filesystem metrics
