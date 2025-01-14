@@ -154,11 +154,7 @@ func (cra *cpuResourceAdvisor) updateNumasAvailableResource() {
 	reservePoolInfo, _ := cra.metaCache.GetPoolInfo(commonstate.PoolNameReserve)
 	cpusPerNuma := cra.metaServer.CPUsPerNuma()
 
-	coreNumReservedForReclaim := cra.conf.GetDynamicConfiguration().MinReclaimedResourceForAllocate[v1.ResourceCPU]
-	if coreNumReservedForReclaim.Value() > int64(cra.metaServer.NumCPUs) {
-		coreNumReservedForReclaim.Set(int64(cra.metaServer.NumCPUs))
-	}
-	cra.reservedForReclaim = machine.GetCoreNumReservedForReclaim(int(coreNumReservedForReclaim.Value()), cra.metaServer.NumNUMANodes)
+	cra.updateReservedForReclaim()
 
 	for id := 0; id < cra.metaServer.NumNUMANodes; id++ {
 		reservePoolNuma := 0
@@ -171,6 +167,19 @@ func (cra *cpuResourceAdvisor) updateNumasAvailableResource() {
 		}
 		cra.numaAvailable[id] = cpusPerNuma - reservePoolNuma - reservedForReclaimNuma
 	}
+}
+
+func (cra *cpuResourceAdvisor) updateReservedForReclaim() {
+	coreNumReservedForReclaim := cra.conf.GetDynamicConfiguration().MinReclaimedResourceForAllocate[v1.ResourceCPU]
+	if coreNumReservedForReclaim.Value() > int64(cra.metaServer.NumCPUs) {
+		coreNumReservedForReclaim.Set(int64(cra.metaServer.NumCPUs))
+	}
+
+	// make sure coreNumReservedForReclaim >= NumNUMANodes
+	if coreNumReservedForReclaim.Value() < int64(cra.metaServer.NumNUMANodes) {
+		coreNumReservedForReclaim.Set(int64(cra.metaServer.NumNUMANodes))
+	}
+	cra.reservedForReclaim = machine.GetCoreNumReservedForReclaim(int(coreNumReservedForReclaim.Value()), cra.metaServer.NumNUMANodes)
 }
 
 func (cra *cpuResourceAdvisor) getNumasReservedForAllocate(numas machine.CPUSet) float64 {

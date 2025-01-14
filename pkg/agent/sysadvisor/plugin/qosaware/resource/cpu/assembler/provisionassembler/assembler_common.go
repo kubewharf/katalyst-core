@@ -257,6 +257,7 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 	}
 
 	var reclaimPoolSizeOfNonBindingNUMAs int
+	nonBindingNUMAsReservedForReclaim := pa.getNumasReservedForReclaim(*pa.nonBindingNumas)
 	if *pa.allowSharedCoresOverlapReclaimedCores {
 		isolated := 0
 		sharePoolSizes := make(map[string]int)
@@ -269,9 +270,9 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 			}
 		}
 
-		reclaimPoolSizeOfNonBindingNUMAs = general.Max(pa.getNumasReservedForReclaim(*pa.nonBindingNumas), shareAndIsolatedPoolAvailable-isolated-general.SumUpMapValues(sharePoolRequirements))
+		reclaimPoolSizeOfNonBindingNUMAs = general.Max(nonBindingNUMAsReservedForReclaim, shareAndIsolatedPoolAvailable-isolated-general.SumUpMapValues(sharePoolRequirements))
 		if !nodeEnableReclaim {
-			reclaimPoolSizeOfNonBindingNUMAs = pa.getNumasReservedForReclaim(*pa.nonBindingNumas)
+			reclaimPoolSizeOfNonBindingNUMAs = nonBindingNUMAsReservedForReclaim
 		}
 
 		if len(sharePoolSizes) > 0 {
@@ -292,7 +293,16 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 						sharedOverlapReclaimSize[poolName] = 1
 					}
 				}
+
 				reclaimPoolSizeOfNonBindingNUMAs = general.SumUpMapValues(sharedOverlapReclaimSize)
+				if reclaimPoolSizeOfNonBindingNUMAs < nonBindingNUMAsReservedForReclaim {
+					reclaimPoolSizeOfNonBindingNUMAs = nonBindingNUMAsReservedForReclaim
+					regulatedOverlapReclaimPoolSize, err := regulateOverlapReclaimPoolSize(sharePoolSizes, reclaimPoolSizeOfNonBindingNUMAs)
+					if err != nil {
+						return types.InternalCPUCalculationResult{}, fmt.Errorf("failed to regulateOverlapReclaimPoolSize for non-binding NUMAs reserved for reclaim")
+					}
+					sharedOverlapReclaimSize = regulatedOverlapReclaimPoolSize
+				}
 			}
 
 			for overlapPoolName, size := range sharedOverlapReclaimSize {
@@ -300,9 +310,9 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 			}
 		}
 	} else {
-		reclaimPoolSizeOfNonBindingNUMAs = shareAndIsolatedPoolAvailable - general.SumUpMapValues(shareAndIsolatePoolSizes) + pa.getNumasReservedForReclaim(*pa.nonBindingNumas)
+		reclaimPoolSizeOfNonBindingNUMAs = shareAndIsolatedPoolAvailable - general.SumUpMapValues(shareAndIsolatePoolSizes) + nonBindingNUMAsReservedForReclaim
 		if !nodeEnableReclaim {
-			reclaimPoolSizeOfNonBindingNUMAs = pa.getNumasReservedForReclaim(*pa.nonBindingNumas)
+			reclaimPoolSizeOfNonBindingNUMAs = nonBindingNUMAsReservedForReclaim
 		}
 	}
 
