@@ -64,6 +64,7 @@ func NewComponent(agentCtx *agent.GenericContext, conf *config.Configuration, _ 
 	general.Infof("mbm: config: %s", policyconfig.PolicyConfig.String())
 
 	if !agentCtx.DieTopology.FakeNUMAEnabled {
+		general.Infof("mbm: virtual numa not enabled")
 		if policyconfig.PolicyConfig.FailOnUnsupportedNode {
 			return false, nil, errors.New("mbm: not virtual numa; should not dynamically manage the memory bandwidth")
 		} else {
@@ -72,6 +73,7 @@ func NewComponent(agentCtx *agent.GenericContext, conf *config.Configuration, _ 
 		}
 	}
 
+	general.Infof("mbm: virtual numa enabled")
 	domainManager := mbdomain.NewMBDomainManager(agentCtx.DieTopology, conf.IncubationInterval, conf.DomainMBCapacity)
 	mbMonitor := metricstore.NewMBReader(agentCtx.MetricsFetcher)
 
