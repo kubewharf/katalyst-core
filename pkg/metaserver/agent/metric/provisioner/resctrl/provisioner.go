@@ -43,7 +43,7 @@ const (
 // NewResctrlMetricsProvisioner returns the default implementation of MetricsFetcher.
 func NewResctrlMetricsProvisioner(baseConf *global.BaseConfiguration, _ *metaserver.MetricConfiguration,
 	emitter metrics.MetricEmitter, fetcher pod.PodFetcher, metricStore *utilmetric.MetricStore,
-	_ *machine.KatalystMachineInfo,
+	machineInfo *machine.KatalystMachineInfo,
 ) types.MetricsProvisioner {
 	dataKeeper, err := state.NewMBRawDataKeeper()
 	if err != nil {
@@ -51,8 +51,7 @@ func NewResctrlMetricsProvisioner(baseConf *global.BaseConfiguration, _ *metaser
 		return nil
 	}
 
-	// todo: leverage the passed arg of machine.KatalystMachineInfo
-	dieTopology := machine.HostDieTopology
+	dieTopology := machineInfo.DieTopology
 	incubationInterval := monitor.IncubationInterval
 	domainManager := mbdomain.NewMBDomainManager(dieTopology, incubationInterval, monitor.DomainMBCapacity)
 
