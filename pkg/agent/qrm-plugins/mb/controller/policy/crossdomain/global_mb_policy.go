@@ -61,14 +61,14 @@ func (g *globalMBPolicy) GetPlan(totalMB int, domain *mbdomain.MBDomain, currQoS
 	// no high qos in any domains; trivial - no constraint on all CCDs
 	allLeaves := leafOutgoingQuota == -1
 	if allLeaves {
-		return g.ccdGroupPlanner.GetFixedPlan(35_000, currQoSMB)
+		return g.ccdGroupPlanner.GetFixedPlan(config.PolicyConfig.MaxMBPerCCD, currQoSMB)
 	}
 
 	// splitQoSHighAndLeaf into higher qos groups, and lowest leaf group ("shared-30")
 	hiQoSGroups, leafQoSGroup := g.splitQoSHighAndLeaf(currQoSMB)
 
 	// to generate mb plan for higher priority groups (usually at least system)
-	hiPlans := g.ccdGroupPlanner.GetFixedPlan(35_000, hiQoSGroups)
+	hiPlans := g.ccdGroupPlanner.GetFixedPlan(config.PolicyConfig.MaxMBPerCCD, hiQoSGroups)
 
 	// to generate mb plan for leaf (lowest priority) group
 	leafPlan := g.ccdGroupPlanner.GetPlan(leafOutgoingQuota, leafQoSGroup)
@@ -246,7 +246,7 @@ func NewGlobalMBPolicy(ccdMBMin int, domainManager *mbdomain.MBDomainManager, th
 		domainLeafQuotas[domain] = -1
 	}
 
-	ccdPlanner := ccdtarget.New(ccdtarget.CCDMBDistributorType(config.PolicyConfig.CCDMBDistributorType), ccdMBMin, 35_000)
+	ccdPlanner := ccdtarget.New(ccdtarget.CCDMBDistributorType(config.PolicyConfig.CCDMBDistributorType), ccdMBMin, config.PolicyConfig.MaxMBPerCCD)
 
 	return &globalMBPolicy{
 		sourcer:                  mbsourcing.New(sourcerType),
