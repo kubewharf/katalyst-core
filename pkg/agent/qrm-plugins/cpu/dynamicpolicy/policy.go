@@ -19,6 +19,7 @@ package dynamicpolicy
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -695,13 +696,16 @@ func (p *DynamicPolicy) GetTopologyHints(ctx context.Context,
 	defer func() {
 		p.RUnlock()
 		if err != nil {
+			inplaceUpdateResizing := util.PodInplaceUpdateResizing(req)
 			_ = p.emitter.StoreInt64(util.MetricNameGetTopologyHintsFailed, 1, metrics.MetricTypeNameRaw,
-				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)})
+				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)},
+				metrics.MetricTag{Key: util.MetricTagNameInplaceUpdateResizing, Val: strconv.FormatBool(inplaceUpdateResizing)})
 
 			general.ErrorS(err, "GetTopologyHints failed",
 				"podNamespace", req.PodNamespace,
 				"podName", req.PodName,
 				"containerName", req.ContainerName,
+				"inplaceUpdateResizing", inplaceUpdateResizing,
 			)
 		}
 		general.InfoS("finished",
@@ -844,7 +848,8 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 		} else if respErr != nil {
 			_ = p.removeContainer(req.PodUid, req.ContainerName)
 			_ = p.emitter.StoreInt64(util.MetricNameAllocateFailed, 1, metrics.MetricTypeNameRaw,
-				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(respErr)})
+				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(respErr)},
+				metrics.MetricTag{Key: util.MetricTagNameInplaceUpdateResizing, Val: strconv.FormatBool(util.PodInplaceUpdateResizing(req))})
 		}
 
 		p.Unlock()

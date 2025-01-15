@@ -58,6 +58,10 @@ const (
 	MetricNameShareCoresNoEnoughResourceFailed = "share_cores_no_enough_resource"
 )
 
+const (
+	MetricTagNameInplaceUpdateResizing = "inplaceUpdateResizing"
+)
+
 // those are OCI property names to be used by QRM plugins
 const (
 	OCIPropertyNameCPUSetCPUs         = "CpusetCpus"
