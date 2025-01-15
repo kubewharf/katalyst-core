@@ -34,6 +34,7 @@ type MBOptions struct {
 
 	// mb resource allocation and policy related
 	MinMBPerCCD      int
+	MaxMBPerCCD      int
 	DomainMBCapacity int
 	MBRemoteLimit    int
 
@@ -63,6 +64,7 @@ func NewMBOptions() *MBOptions {
 			"share": 50,
 		},
 		MinMBPerCCD:      4_000,   // 4 GB
+		MaxMBPerCCD:      35_000,  // 35 GB
 		DomainMBCapacity: 122_000, // 122_000 MBps = 122 GBps
 		MBRemoteLimit:    20_000,  // 20 GB
 
@@ -87,6 +89,7 @@ func (m *MBOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringToIntVar(&m.CPUSetPoolToSharedSubgroup, "cpuset-pool-to-shared-subgroup", m.CPUSetPoolToSharedSubgroup,
 		"mapping from cpuset pool name to shared_xx")
 	fs.IntVar(&m.MinMBPerCCD, "min-mb-per-ccd", m.MinMBPerCCD, "lower bound of MB per ccd in MBps")
+	fs.IntVar(&m.MaxMBPerCCD, "max-mb-per-ccd", m.MaxMBPerCCD, "upper bound of MB per ccd in MBps")
 	fs.IntVar(&m.DomainMBCapacity, "domain-mb-capacity", m.DomainMBCapacity, "MB capacity per domain(socket) in MBps")
 	fs.IntVar(&m.MBRemoteLimit, "mb-remote-limit", m.MBRemoteLimit, "upper bound limit from remote if high QoS workload is running")
 	fs.StringVar(&m.LeafThrottleType, "mb-leaf-throttle-type", m.LeafThrottleType, "type of shared-30 throttle planner")
@@ -102,6 +105,7 @@ func (m *MBOptions) ApplyTo(conf *qrmconfig.MBQRMPluginConfig) error {
 	conf.IncubationInterval = m.IncubationInterval
 	conf.CPUSetPoolToSharedSubgroup = m.CPUSetPoolToSharedSubgroup
 	conf.MinMBPerCCD = m.MinMBPerCCD
+	conf.MaxMBPerCCD = m.MaxMBPerCCD
 	conf.DomainMBCapacity = m.DomainMBCapacity
 	conf.MBRemoteLimit = m.MBRemoteLimit
 

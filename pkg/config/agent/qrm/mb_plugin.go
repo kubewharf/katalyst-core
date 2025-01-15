@@ -26,6 +26,7 @@ type MBQRMPluginConfig struct {
 
 	// mb resource allocation and policy related
 	MinMBPerCCD      int
+	MaxMBPerCCD      int
 	DomainMBCapacity int
 	MBRemoteLimit    int
 

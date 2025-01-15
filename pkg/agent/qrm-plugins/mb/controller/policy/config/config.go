@@ -47,7 +47,6 @@ const (
 type MBPolicyConfig struct {
 	qrmconfig.MBQRMPluginConfig
 
-	CCDMBMax    int
 	DomainMBMax int
 	DomainMBMin int
 
@@ -61,8 +60,8 @@ var PolicyConfig = MBPolicyConfig{
 		MBRemoteLimit:       defaultRemoteLimit,
 		MBPressureThreshold: defaultPressureThreshold,
 		MBEaseThreshold:     defaultEaseThreshold,
+		MaxMBPerCCD:         ccdMBMax,
 	},
-	CCDMBMax:    ccdMBMax,
 	DomainMBMax: domainMBMax,
 	DomainMBMin: domainMBMin,
 	ZombieCCDMB: defaultZombieMB,
@@ -73,7 +72,7 @@ func (m MBPolicyConfig) String() string {
 
 	sb.WriteString("mb policy config {")
 
-	fmt.Fprintf(&sb, "CCDMBMax:%d,DomainMBMax:%d,DomainMBMin:%d,ZombieCCDMB:%d,", m.CCDMBMax, m.DomainMBMax, m.DomainMBMin, m.ZombieCCDMB)
+	fmt.Fprintf(&sb, "MaxMBPerCCD:%d,DomainMBMax:%d,DomainMBMin:%d,ZombieCCDMB:%d,", m.MaxMBPerCCD, m.DomainMBMax, m.DomainMBMin, m.ZombieCCDMB)
 	fmt.Fprintf(&sb, "MinMBPerCCD:%d,MBRemoteLimit:%d,", m.MinMBPerCCD, m.MBRemoteLimit)
 	fmt.Fprintf(&sb, "MBPressureThreshold:%d,MBEaseThreshold:%d,", m.MBPressureThreshold, m.MBEaseThreshold)
 	fmt.Fprintf(&sb, "DomainMBCapacity:%d,IncubationInterval:%v,", m.DomainMBCapacity, m.IncubationInterval)

@@ -53,7 +53,7 @@ func getReservationPlan(domain *mbdomain.MBDomain, preemptingNodes []int) *plan.
 
 	ccdMB := make(map[int]int)
 	for _, ccd := range ccds {
-		ccdMB[ccd] = config.PolicyConfig.CCDMBMax
+		ccdMB[ccd] = config.PolicyConfig.MaxMBPerCCD
 	}
 
 	return &plan.MBAlloc{

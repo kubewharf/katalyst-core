@@ -10,7 +10,6 @@ func TestMBPolicyConfig_String(t *testing.T) {
 	t.Parallel()
 	type fields struct {
 		MBQRMPluginConfig qrm.MBQRMPluginConfig
-		CCDMBMax          int
 		DomainMBMax       int
 		DomainMBMin       int
 		ZombieCCDMB       int
@@ -29,6 +28,7 @@ func TestMBPolicyConfig_String(t *testing.T) {
 						"flink": 50,
 					},
 					MinMBPerCCD:          4_000,
+					MaxMBPerCCD:          35_000,
 					DomainMBCapacity:     122_000,
 					MBRemoteLimit:        20_000,
 					IncubationInterval:   time.Minute * 1,
@@ -39,12 +39,11 @@ func TestMBPolicyConfig_String(t *testing.T) {
 					CCDMBDistributorType: "logarithm-distributor",
 					SourcerType:          "crbs",
 				},
-				CCDMBMax:    35_000,
 				DomainMBMax: 122_000,
 				DomainMBMin: 4_000,
 				ZombieCCDMB: 100,
 			},
-			want: "mb policy config {CCDMBMax:35000,DomainMBMax:122000,DomainMBMin:4000,ZombieCCDMB:100,MinMBPerCCD:4000,MBRemoteLimit:20000,MBPressureThreshold:6000,MBEaseThreshold:9000,DomainMBCapacity:122000,IncubationInterval:1m0s,LeafThrottleType:half-throttle,LeafEaseType:quarter-ease,CCDMBDistributorType:logarithm-distributor,SourcerType:crbs,CPUSetPoolToSharedSubgroup:map[batch:30 flink:50]}",
+			want: "mb policy config {MaxMBPerCCD:35000,DomainMBMax:122000,DomainMBMin:4000,ZombieCCDMB:100,MinMBPerCCD:4000,MBRemoteLimit:20000,MBPressureThreshold:6000,MBEaseThreshold:9000,DomainMBCapacity:122000,IncubationInterval:1m0s,LeafThrottleType:half-throttle,LeafEaseType:quarter-ease,CCDMBDistributorType:logarithm-distributor,SourcerType:crbs,CPUSetPoolToSharedSubgroup:map[batch:30 flink:50]}",
 		},
 	}
 	for _, tt := range tests {
@@ -53,7 +52,6 @@ func TestMBPolicyConfig_String(t *testing.T) {
 			t.Parallel()
 			m := MBPolicyConfig{
 				MBQRMPluginConfig: tt.fields.MBQRMPluginConfig,
-				CCDMBMax:          tt.fields.CCDMBMax,
 				DomainMBMax:       tt.fields.DomainMBMax,
 				DomainMBMin:       tt.fields.DomainMBMin,
 				ZombieCCDMB:       tt.fields.ZombieCCDMB,
