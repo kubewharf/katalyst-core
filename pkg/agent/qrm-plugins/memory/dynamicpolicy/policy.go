@@ -40,12 +40,13 @@ import (
 	memconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/oom"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/reactor"
+	memoryreactor "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/reactor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/handlers/fragmem"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/handlers/logcache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/handlers/sockmem"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/reactor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
@@ -152,7 +153,6 @@ type DynamicPolicy struct {
 	enableReclaimNUMABinding                      bool
 	enableNonBindingShareCoresMemoryResourceCheck bool
 
-	enableNUMAAllocationReactor                   bool
 	numaAllocationReactor                         reactor.AllocationReactor
 	numaBindResultResourceAllocationAnnotationKey string
 }
@@ -223,7 +223,6 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		enableEvictingLogCache:     conf.EnableEvictingLogCache,
 		enableReclaimNUMABinding:   conf.EnableReclaimNUMABinding,
 		enableNonBindingShareCoresMemoryResourceCheck: conf.EnableNonBindingShareCoresMemoryResourceCheck,
-		enableNUMAAllocationReactor:                   conf.EnableNUMAAllocationReactor,
 		numaBindResultResourceAllocationAnnotationKey: conf.NUMABindResultResourceAllocationAnnotationKey,
 	}
 
@@ -278,11 +277,12 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	}
 
 	policyImplement.numaAllocationReactor = reactor.DummyAllocationReactor{}
-	if policyImplement.enableNUMAAllocationReactor {
-		policyImplement.numaAllocationReactor = reactor.NewNUMAAllocationReactor(
-			agentCtx.MetaServer.PodFetcher,
-			agentCtx.Client.KubeClient,
-		)
+	if conf.EnableNUMAAllocationReactor {
+		policyImplement.numaAllocationReactor = memoryreactor.NewNUMAPodAllocationReactor(
+			reactor.NewPodAllocationReactor(
+				agentCtx.MetaServer.PodFetcher,
+				agentCtx.Client.KubeClient,
+			))
 	}
 
 	return true, &agent.PluginWrapper{GenericPlugin: pluginWrapper}, nil
