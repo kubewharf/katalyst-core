@@ -21,60 +21,21 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/samber/lo"
 	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
-	"github.com/kubewharf/katalyst-core/pkg/client/control"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/reactor"
 )
 
-type numaAllocationReactor struct {
-	podFetcher pod.PodFetcher
-	podUpdater control.PodUpdater
-	client     kubernetes.Interface
+type numaPodAllocationWrapper struct {
+	*state.AllocationInfo
 }
 
-func NewNUMAAllocationReactor(podFetcher pod.PodFetcher, client kubernetes.Interface) AllocationReactor {
-	return &numaAllocationReactor{podFetcher: podFetcher, podUpdater: control.NewRealPodUpdater(client), client: client}
-}
-
-func (r *numaAllocationReactor) UpdateAllocation(ctx context.Context, allocation *state.AllocationInfo) error {
-	if allocation == nil {
-		return fmt.Errorf("allocation info is nil")
-	}
-
-	var getPod *v1.Pod
-	getPod, err := r.podFetcher.GetPod(ctx, allocation.PodUid)
-	if err != nil {
-		getPod, err = r.client.CoreV1().Pods(allocation.PodNamespace).Get(ctx, allocation.PodName, metav1.GetOptions{ResourceVersion: "0"})
-		if err != nil {
-			return err
-		}
-	}
-
-	if !r.needUpdateNUMAAllocation(getPod) {
-		return nil
-	}
-
-	podCopy := getPod.DeepCopy()
-	err = r.setNUMAAllocation(podCopy, allocation)
-	if err != nil {
-		return err
-	}
-
-	err = r.podUpdater.PatchPod(ctx, getPod, podCopy)
-	if err != nil {
-		return fmt.Errorf("failed to patch pod numa allocation annotation: %v", err)
-	}
-
-	return nil
-}
-
-func (r *numaAllocationReactor) setNUMAAllocation(pod *v1.Pod, allocation *state.AllocationInfo) error {
-	numaID, err := allocation.GetSpecifiedNUMABindingNUMAID()
+func (p numaPodAllocationWrapper) UpdateAllocation(pod *v1.Pod) error {
+	numaID, err := p.AllocationInfo.GetSpecifiedNUMABindingNUMAID()
 	if err != nil {
 		return err
 	}
@@ -89,10 +50,39 @@ func (r *numaAllocationReactor) setNUMAAllocation(pod *v1.Pod, allocation *state
 	return nil
 }
 
-func (r *numaAllocationReactor) needUpdateNUMAAllocation(pod *v1.Pod) bool {
+func (p numaPodAllocationWrapper) NeedUpdateAllocation(pod *v1.Pod) bool {
+	if p.CheckSideCar() {
+		return false
+	}
+
 	if _, ok := pod.Annotations[apiconsts.PodAnnotationNUMABindResultKey]; !ok {
 		return true
 	}
 
 	return false
+}
+
+type numaPodAllocationReactor struct {
+	reactor.AllocationReactor
+}
+
+func NewNUMAPodAllocationReactor(r reactor.AllocationReactor) reactor.AllocationReactor {
+	return &numaPodAllocationReactor{
+		AllocationReactor: r,
+	}
+}
+
+func (r *numaPodAllocationReactor) UpdateAllocation(ctx context.Context, allocation commonstate.Allocation) error {
+	if lo.IsNil(allocation) {
+		return fmt.Errorf("allocation is nil")
+	}
+
+	allocationInfo, ok := allocation.(*state.AllocationInfo)
+	if !ok {
+		return fmt.Errorf("allocation info is not of type memory.AllocationInfo")
+	}
+
+	return r.AllocationReactor.UpdateAllocation(ctx, numaPodAllocationWrapper{
+		AllocationInfo: allocationInfo,
+	})
 }

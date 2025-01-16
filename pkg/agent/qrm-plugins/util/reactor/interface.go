@@ -19,15 +19,15 @@ package reactor
 import (
 	"context"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 )
 
 type AllocationReactor interface {
-	UpdateAllocation(ctx context.Context, allocation *state.AllocationInfo) error
+	UpdateAllocation(ctx context.Context, allocation commonstate.Allocation) error
 }
 
 type DummyAllocationReactor struct{}
 
-func (d DummyAllocationReactor) UpdateAllocation(_ context.Context, _ *state.AllocationInfo) error {
+func (d DummyAllocationReactor) UpdateAllocation(_ context.Context, _ commonstate.Allocation) error {
 	return nil
 }
