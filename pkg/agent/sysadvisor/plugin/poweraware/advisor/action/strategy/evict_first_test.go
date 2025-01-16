@@ -26,6 +26,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/advisor/action"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/spec"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
 type mockEvicableProber struct {
@@ -174,9 +175,11 @@ func Test_evictFirstStrategy_RecommendAction(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			e := &evictFirstStrategy{
+				emitter:         &metrics.DummyMetrics{},
 				coefficient:     tt.fields.coefficient,
 				evictableProber: tt.fields.evictableProber,
 				dvfsTracker:     dvfsTracker{dvfsAccumEffect: tt.fields.dvfsUsed},
+				metricsReader:   nil,
 			}
 			if got := e.RecommendAction(tt.args.actualWatt, tt.args.desiredWatt, tt.args.alert, tt.args.internalOp, tt.args.ttl); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("RecommendAction() = %v, want %v", got, tt.want)

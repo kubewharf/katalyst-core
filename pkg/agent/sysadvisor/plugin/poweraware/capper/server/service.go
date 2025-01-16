@@ -30,6 +30,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/capper"
+	powermetric "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/metric"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -38,11 +39,6 @@ import (
 const (
 	// ServiceNamePowerCap also is the unix socket name of the server is listening on
 	ServiceNamePowerCap = "node_power_cap"
-
-	metricPowerCappingTargetName           = "power_capping_target"
-	metricPowerCappingResetName            = "power_capping_reset"
-	metricPowerCappingNoActorName          = "power_capping_no_actor"
-	metricPowerCappingLWSendResponseFailed = "power_capping_lw_send_response_failed"
 )
 
 type powerCapService struct {
@@ -52,6 +48,10 @@ type powerCapService struct {
 	notify         *fanoutNotifier
 	emitter        metrics.MetricEmitter
 	grpcServer     *grpcServer
+}
+
+func (p *powerCapService) IsCapperReady() bool {
+	return !p.notify.IsEmpty()
 }
 
 func (p *powerCapService) Stop() error {
@@ -99,6 +99,10 @@ func (p *powerCapService) RemovePod(ctx context.Context, request *advisorsvc.Rem
 	return nil, errors.New("not implemented")
 }
 
+func (p *powerCapService) GetAdvice(ctx context.Context, request *advisorsvc.GetAdviceRequest) (*advisorsvc.GetAdviceResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (p *powerCapService) deliverPendingReset(ch chan<- struct{}) {
 	p.Lock()
 	defer p.Unlock()
@@ -133,7 +137,7 @@ stream:
 			err := server.Send(resp)
 			if err != nil {
 				general.Errorf("pap: [power capping] send response failed: %v", err)
-				_ = p.emitter.StoreInt64(metricPowerCappingLWSendResponseFailed, 1, metrics.MetricTypeNameCount)
+				p.emitErrorCode(powermetric.ErrorCodePowerCapCommunication)
 				break stream
 			}
 		}
@@ -143,10 +147,9 @@ stream:
 }
 
 func (p *powerCapService) Reset() {
-	p.emitRawMetric(metricPowerCappingResetName, 1)
 	if p.notify.IsEmpty() {
 		klog.Warningf("pap: no power capping plugin connected; Reset op is lost")
-		p.emitRawMetric(metricPowerCappingNoActorName, 1)
+		p.emitErrorCode(powermetric.ErrorCodePowerCapperUnavailable)
 	}
 
 	p.Lock()
@@ -154,9 +157,11 @@ func (p *powerCapService) Reset() {
 
 	if !p.started {
 		general.Warningf("pap: power capping service is unavailable")
+		p.emitErrorCode(powermetric.ErrorCodePowerCapperUnavailable)
 		return
 	}
 
+	p.emitPowerCapReset()
 	p.requestReset()
 }
 
@@ -165,25 +170,17 @@ func (p *powerCapService) requestReset() {
 	p.notify.Notify()
 }
 
-func (p *powerCapService) emitRawMetric(name string, value int) {
-	if p.emitter == nil {
-		return
-	}
-
-	_ = p.emitter.StoreInt64(name, int64(value), metrics.MetricTypeNameRaw)
-}
-
 func (p *powerCapService) Cap(ctx context.Context, targetWatts, currWatt int) {
 	capInst, err := capper.NewCapInstruction(targetWatts, currWatt)
 	if err != nil {
 		klog.Warningf("invalid cap request: %v", err)
+		p.emitErrorCode(powermetric.ErrorCodeOther)
 		return
 	}
 
-	p.emitRawMetric(metricPowerCappingTargetName, targetWatts)
 	if p.notify.IsEmpty() {
 		klog.Warningf("pap: no power capping plugin connected; Cap op from %d to %d watt is lost", currWatt, targetWatts)
-		p.emitRawMetric(metricPowerCappingNoActorName, 1)
+		p.emitErrorCode(powermetric.ErrorCodePowerCapperUnavailable)
 	}
 
 	p.Lock()
@@ -191,22 +188,24 @@ func (p *powerCapService) Cap(ctx context.Context, targetWatts, currWatt int) {
 
 	if !p.started {
 		general.Warningf("pap: power capping service is unavailable")
+		p.emitErrorCode(powermetric.ErrorCodePowerCapperUnavailable)
 		return
 	}
 
+	p.emitPowerCapInstruction(capInst)
 	p.capInstruction = capInst
 	p.notify.Notify()
 }
 
-func newPowerCapService() *powerCapService {
+func newPowerCapService(emitter metrics.MetricEmitter) *powerCapService {
 	return &powerCapService{
-		notify: newNotifier(),
+		notify:  newNotifier(),
+		emitter: emitter,
 	}
 }
 
 func newPowerCapServiceSuite(conf *config.Configuration, emitter metrics.MetricEmitter) (*powerCapService, *grpcServer, error) {
-	powerCapSvc := newPowerCapService()
-	powerCapSvc.emitter = emitter
+	powerCapSvc := newPowerCapService(emitter)
 
 	socketPath := conf.PowerCappingAdvisorSocketAbsPath
 	if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {

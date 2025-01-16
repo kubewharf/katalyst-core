@@ -26,6 +26,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/evictor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/reader"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/spec"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 )
 
@@ -168,6 +169,7 @@ func Test_powerAwareAdvisor_run_abort_on_spec_fetcher_error(t *testing.T) {
 	depPowerReader := &dummyPowerReader{}
 
 	advisor := powerAwareAdvisor{
+		emitter:     &metrics.DummyMetrics{},
 		specFetcher: &depSpecFetcher,
 		powerReader: depPowerReader,
 	}
@@ -250,6 +252,7 @@ func Test_powerAwareAdvisor_Run_does_Init_Cleanup(t *testing.T) {
 	depPodEvictor := &dummyPodEvictor{}
 
 	advisor := powerAwareAdvisor{
+		emitter:     &metrics.DummyMetrics{},
 		powerReader: depPowerReader,
 		podEvictor:  depPodEvictor,
 	}

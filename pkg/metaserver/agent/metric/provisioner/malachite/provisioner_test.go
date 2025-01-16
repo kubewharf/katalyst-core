@@ -18,12 +18,14 @@ package malachite
 
 import (
 	"testing"
+	"time"
 
 	"bou.ke/monkey"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 	malachitetypes "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/malachite/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -205,4 +207,79 @@ func Test_noneExistMetricsProvisioner(t *testing.T) {
 		"d1", "d2", "d3", "/kubepods/burstable", "/kubepods/besteffort",
 		"test", "test-0", "test-1", "test-2", "test-3",
 	})
+}
+
+func Test_getCPI(t *testing.T) {
+	t.Parallel()
+
+	store := utilmetric.NewMetricStore()
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	assert.Nil(t, err)
+
+	implement := NewMalachiteMetricsProvisioner(&global.BaseConfiguration{
+		ReclaimRelativeRootCgroupPath: "test",
+		MalachiteConfiguration: &global.MalachiteConfiguration{
+			GeneralRelativeCgroupPaths:  []string{"d1", "d2"},
+			OptionalRelativeCgroupPaths: []string{"d3", "d4"},
+		},
+	}, &metaserver.MetricConfiguration{}, metrics.DummyMetrics{}, &pod.PodFetcherStub{}, store,
+		&machine.KatalystMachineInfo{
+			CPUTopology: cpuTopology,
+		})
+
+	fakeCgroupInfoV1t1 := &malachitetypes.MalachiteCgroupInfo{
+		CgroupType: "V1",
+		V1: &malachitetypes.MalachiteCgroupV1Info{
+			Cpu: &malachitetypes.CPUCgDataV1{Instructions: 1, Cycles: 1, UpdateTime: int64(time.Date(2024, 1, 1, 0, 0, 0, 0, time.Local).Second())},
+		},
+	}
+
+	fakeCgroupInfoV1t2 := &malachitetypes.MalachiteCgroupInfo{
+		CgroupType: "V1",
+		V1: &malachitetypes.MalachiteCgroupV1Info{
+			Cpu: &malachitetypes.CPUCgDataV1{Instructions: 2, Cycles: 2, UpdateTime: int64(time.Date(2024, 1, 1, 0, 0, 1, 0, time.Local).Second())},
+		},
+	}
+	fakeCgroupInfoV1t3 := &malachitetypes.MalachiteCgroupInfo{
+		CgroupType: "V1",
+		V1: &malachitetypes.MalachiteCgroupV1Info{
+			Cpu: &malachitetypes.CPUCgDataV1{Instructions: 3, Cycles: 3, UpdateTime: int64(time.Date(2024, 1, 1, 0, 0, 2, 0, time.Local).Second())},
+		},
+	}
+
+	implement.(*MalachiteMetricsProvisioner).processContainerCPUData("pod1", "container1", fakeCgroupInfoV1t1)
+	implement.(*MalachiteMetricsProvisioner).processContainerCPUData("pod1", "container1", fakeCgroupInfoV1t2)
+	implement.(*MalachiteMetricsProvisioner).processContainerCPUData("pod1", "container1", fakeCgroupInfoV1t3)
+
+	data, err := store.GetContainerMetric("pod1", "container1", consts.MetricCPUCPIContainer)
+	assert.NoError(t, err)
+	assert.Equal(t, float64(1), data.Value)
+
+	fakeCgroupInfoV2t1 := &malachitetypes.MalachiteCgroupInfo{
+		CgroupType: "V2",
+		V2: &malachitetypes.MalachiteCgroupV2Info{
+			Cpu: &malachitetypes.CPUCgDataV2{Instructions: 1, Cycles: 1, UpdateTime: int64(time.Date(2024, 1, 1, 0, 0, 0, 0, time.Local).Second())},
+		},
+	}
+	fakeCgroupInfoV2t2 := &malachitetypes.MalachiteCgroupInfo{
+		CgroupType: "V2",
+		V2: &malachitetypes.MalachiteCgroupV2Info{
+			Cpu: &malachitetypes.CPUCgDataV2{Instructions: 2, Cycles: 2, UpdateTime: int64(time.Date(2024, 1, 1, 0, 0, 1, 0, time.Local).Second())},
+		},
+	}
+	fakeCgroupInfoV2t3 := &malachitetypes.MalachiteCgroupInfo{
+		CgroupType: "V2",
+		V2: &malachitetypes.MalachiteCgroupV2Info{
+			Cpu: &malachitetypes.CPUCgDataV2{Instructions: 3, Cycles: 3, UpdateTime: int64(time.Date(2024, 1, 1, 0, 0, 2, 0, time.Local).Second())},
+		},
+	}
+
+	implement.(*MalachiteMetricsProvisioner).processContainerCPUData("pod2", "container1", fakeCgroupInfoV2t1)
+	implement.(*MalachiteMetricsProvisioner).processContainerCPUData("pod2", "container1", fakeCgroupInfoV2t2)
+	implement.(*MalachiteMetricsProvisioner).processContainerCPUData("pod2", "container1", fakeCgroupInfoV2t3)
+
+	data, err = store.GetContainerMetric("pod2", "container1", consts.MetricCPUCPIContainer)
+	assert.NoError(t, err)
+	assert.Equal(t, float64(1), data.Value)
 }

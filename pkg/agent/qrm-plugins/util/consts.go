@@ -23,6 +23,7 @@ const (
 	MetricNameGetTopologyHintsFailed  = "get_topology_hints_failed"
 	MetricNameRemovePodFailed         = "remove_pod_failed"
 	MetricNameLWAdvisorServerFailed   = "lw_advisor_server_failed"
+	MetricNameGetAdviceFailed         = "get_advice_failed"
 	MetricNameHandleAdvisorRespCalled = "handle_advisor_resp_called"
 	MetricNameHandleAdvisorRespFailed = "handle_advisor_resp_failed"
 	MetricNameAdvisorUnhealthy        = "advisor_unhealthy"
@@ -67,3 +68,8 @@ const (
 const QRMTimeFormat = "2006-01-02 15:04:05.999999999 -0700 MST"
 
 const QRMPluginPolicyTagName = "policy"
+
+const (
+	AdvisorRPCMetadataKeySupportsGetAdvice   = "supports_get_advice"
+	AdvisorRPCMetadataValueSupportsGetAdvice = "true"
+)

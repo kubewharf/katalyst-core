@@ -82,6 +82,7 @@ func Test_notifySystem(t *testing.T) {
 	now := time.Now()
 	m.metricStore.SetNodeMetric("test-node-metric", metric.MetricData{Value: 34, Time: &now})
 	m.metricStore.SetNumaMetric(1, "test-numa-metric", metric.MetricData{Value: 56, Time: &now})
+	m.metricStore.SetNetworkMetric("eth0", "test-net-metric", metric.MetricData{Value: 56, Time: &now})
 	m.metricStore.SetCPUMetric(2, "test-cpu-metric", metric.MetricData{Value: 78, Time: &now})
 	m.metricStore.SetDeviceMetric("test-device", "test-device-metric", metric.MetricData{Value: 91, Time: &now})
 	m.metricStore.SetContainerMetric("test-pod", "test-container", "test-container-metric", metric.MetricData{Value: 91, Time: &now})
@@ -152,6 +153,12 @@ func Test_notifySystem(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 8, totalNotification)
+	_, err := f.GetNetworkMetric("eth0", "test-net-metric")
+	assert.Nil(t, err)
+
+	ff := NewFakeMetricsFetcher(metrics.DummyMetrics{})
+	_, err = ff.GetNetworkMetric("eth0", "test-net-metric")
+	assert.NotNil(t, err)
 }
 
 func TestStore_Aggregate(t *testing.T) {

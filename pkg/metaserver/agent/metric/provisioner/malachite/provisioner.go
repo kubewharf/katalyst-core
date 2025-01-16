@@ -18,6 +18,8 @@ package malachite
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -37,6 +39,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
@@ -52,7 +55,12 @@ const (
 
 	malachiteProvisionerHealthCheckName = "malachite_provisioner_sample"
 	malachiteProvisionTolerationTime    = 15 * time.Second
+
+	CpiFetchFreq = time.Second * 10
+	window       = time.Second * 30
 )
+
+var Exp30s = 1 / math.Exp(float64(CpiFetchFreq)/float64(window))
 
 // NewMalachiteMetricsProvisioner returns the default implementation of MetricsFetcher.
 func NewMalachiteMetricsProvisioner(baseConf *global.BaseConfiguration, _ *metaserver.MetricConfiguration,
@@ -406,6 +414,7 @@ func (m *MalachiteMetricsProvisioner) processSystemNetData(systemNetData *malach
 	if systemNetData == nil {
 		return
 	}
+
 	// todo, currently we only get a unified data for the whole system io data
 	updateTime := time.Unix(systemNetData.UpdateTime, 0)
 
@@ -427,6 +436,8 @@ func (m *MalachiteMetricsProvisioner) processSystemNetData(systemNetData *malach
 		utilmetric.MetricData{Value: float64(systemNetData.TCP.TCPOutSegs), Time: &updateTime})
 	m.metricStore.SetNodeMetric(consts.MetricNetTcpCloseWait,
 		utilmetric.MetricData{Value: float64(systemNetData.TCP.TCPCloseWait), Time: &updateTime})
+	m.metricStore.SetNodeMetric(consts.MetricNetUpdateTime,
+		utilmetric.MetricData{Value: float64(systemNetData.UpdateTime), Time: &updateTime})
 
 	for _, device := range systemNetData.NetworkCard {
 		// for now, we will only consider standard network interface
@@ -434,6 +445,14 @@ func (m *MalachiteMetricsProvisioner) processSystemNetData(systemNetData *malach
 		if !strings.HasPrefix(device.Name, "eth") {
 			continue
 		}
+
+		errs := []error{}
+		// setNetworkRateMetric will use metricStore.GetNetworkMetric to get previous round metric,
+		// we should call setNetworkRateMetric before calling SetNetworkMetric
+		errs = append(errs, m.setNetworkRateMetric(device.Name, consts.MetricNetTransmitBPS,
+			consts.MetricNetTransmitBytes, float64(device.TransmitBytes), &updateTime))
+		errs = append(errs, m.setNetworkRateMetric(device.Name, consts.MetricNetReceiveBPS,
+			consts.MetricNetReceiveBytes, float64(device.ReceiveBytes), &updateTime))
 
 		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetReceiveBytes,
 			utilmetric.MetricData{Value: float64(device.ReceiveBytes), Time: &updateTime})
@@ -468,7 +487,52 @@ func (m *MalachiteMetricsProvisioner) processSystemNetData(systemNetData *malach
 		m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetTransmitCompressed,
 			utilmetric.MetricData{Value: float64(device.TransmitCompressed), Time: &updateTime})
 
+		if device.Speeds != nil {
+			m.metricStore.SetNetworkMetric(device.Name, consts.MetricNetSpeed,
+				utilmetric.MetricData{Value: float64(*device.Speeds), Time: &updateTime})
+		}
+
+		aggErrs := errors.NewAggregate(errs)
+
+		if aggErrs != nil {
+			general.Warningf("set network metrics for: %s got errors: %s", device.Name, aggErrs.Error())
+		}
 	}
+}
+
+func (m *MalachiteMetricsProvisioner) setNetworkRateMetric(deviceName,
+	rateMetricName, valueMetricName string,
+	curValue float64,
+	curUpdateTime *time.Time,
+) error {
+	lastMetric, err := m.metricStore.GetNetworkMetric(deviceName, valueMetricName)
+	if err != nil {
+		return fmt.Errorf("get value metric: %s for %s failed with err: %v",
+			valueMetricName, rateMetricName, err)
+	}
+
+	lastValue := lastMetric.Value
+	lastUpdateTime := lastMetric.Time
+
+	if curUpdateTime == nil || lastUpdateTime == nil || curUpdateTime.Unix() == 0 || lastUpdateTime.Unix() == 0 {
+		return fmt.Errorf("nil curUpdateTime or lastUpdateTime for rateMetricName: %s", rateMetricName)
+	}
+
+	timeDeltaInSec := curUpdateTime.Sub(*lastUpdateTime).Seconds()
+
+	if timeDeltaInSec <= 0 {
+		return fmt.Errorf("invalid timeDelta: %.2f", timeDeltaInSec)
+	}
+
+	if (curValue > lastValue) && (curValue != 0) && (lastValue != 0) {
+		m.metricStore.SetNetworkMetric(deviceName, rateMetricName,
+			metric.MetricData{Value: (curValue - lastValue) / timeDeltaInSec, Time: curUpdateTime})
+	} else {
+		return fmt.Errorf("invalid curValue: %.2f, lastValue: %.2f for rateMetricName: %s",
+			curValue, lastValue, rateMetricName)
+	}
+
+	return nil
 }
 
 func (m *MalachiteMetricsProvisioner) processSystemNumaData(systemMemoryData *malachitetypes.SystemMemoryData, systemComputeData *malachitetypes.SystemComputeData) {
@@ -861,6 +925,14 @@ func (m *MalachiteMetricsProvisioner) processContainerCPUData(podUID, containerN
 			instructionDiff := float64(cpu.Instructions) - instructionsOld.Value
 			if instructionDiff > 0 {
 				cpi := (float64(cpu.Cycles) - cyclesOld.Value) / instructionDiff
+
+				// exponential weighted moving average
+				lastData, err := m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricCPUCPIContainer)
+				if err == nil && !lastData.Time.Equal(updateTime) {
+					// newCPI = oldCPI * exp + CPI * (1 - exp)
+					cpi = lastData.Value*Exp30s + cpi*(1-Exp30s)
+				}
+
 				m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUCPIContainer,
 					utilmetric.MetricData{Value: cpi, Time: &updateTime})
 			}
@@ -945,6 +1017,13 @@ func (m *MalachiteMetricsProvisioner) processContainerCPUData(podUID, containerN
 			instructionDiff := float64(cpu.Instructions) - instructionsOld.Value
 			if instructionDiff > 0 {
 				cpi := (float64(cpu.Cycles) - cyclesOld.Value) / instructionDiff
+				// exponential weighted moving average
+				lastData, err := m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricCPUCPIContainer)
+				if err == nil && !lastData.Time.Equal(updateTime) {
+					// newCPI = oldCPI * exp + CPI * (1 - exp)
+					cpi = lastData.Value*Exp30s + cpi*(1-Exp30s)
+				}
+
 				m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUCPIContainer,
 					utilmetric.MetricData{Value: cpi, Time: &updateTime})
 			}

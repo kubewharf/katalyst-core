@@ -20,6 +20,7 @@ package cpuadvisor;
 
 import "github.com/gogo/protobuf/gogoproto/gogo.proto";
 import "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc/advisor_svc.proto";
+import "github.com/kubewharf/kubelet/pkg/apis/resourceplugin/v1alpha1/api.proto";
 
 option (gogoproto.goproto_stringer_all) = false;
 option (gogoproto.stringer_all) =  true;
@@ -99,10 +100,31 @@ message AllocationInfo {
     map<uint64,string> original_topology_aware_assignments = 4; // keyed by NUMA id
 }
 
+// Combination of container metadata and allocation info
+message ContainerAllocationInfo {
+    advisorsvc.ContainerMetadata metadata = 1;
+    AllocationInfo allocation_info = 2;
+}
+
+message ContainerAllocationInfoEntries {
+    map<string,ContainerAllocationInfo> entries = 1; // keyed by pool name or podUID
+}
+
+message GetAdviceRequest {
+    map<string,ContainerAllocationInfoEntries> entries = 1; // keyed by pool name or podUID
+}
+
+message GetAdviceResponse {
+    map<string,CalculationEntries> entries = 1; // keyed by pool name or podUID
+    bool allow_shared_cores_overlap_reclaimed_cores= 2; // if set to true, cpuset of shared_cores may overlap with reclaimed_cores
+    repeated advisorsvc.CalculationInfo extra_entries = 3; // for non-pool and non-container level adjustment (eg. cpu_numa_headroom)
+}
+
 service CPUAdvisor {
     rpc AddContainer(advisorsvc.ContainerMetadata) returns (advisorsvc.AddContainerResponse) {}
     rpc RemovePod(advisorsvc.RemovePodRequest) returns (advisorsvc.RemovePodResponse) {}
     rpc ListAndWatch(advisorsvc.Empty) returns (stream ListAndWatchResponse) {}
+    rpc GetAdvice(GetAdviceRequest) returns (GetAdviceResponse) {}
 }
 
 service CPUPlugin {

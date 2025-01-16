@@ -204,17 +204,18 @@ func (a *MockMemoryAdvisor) UpdateAndGetAdvice() (interface{}, error) {
 	return a.advice, a.err
 }
 
-func TestMemoryServerListAndWatch(t *testing.T) {
+func TestMemoryServerUpdate(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	type testCase struct {
 		name       string
 		empty      *advisorsvc.Empty
 		provision  types.InternalMemoryCalculationResult
 		containers []*advisorsvc.ContainerMetadata
-		wantErr    bool
 		wantRes    *advisorsvc.ListAndWatchResponse
-	}{
+	}
+
+	tests := []testCase{
 		{
 			name:  "normal",
 			empty: &advisorsvc.Empty{},
@@ -257,7 +258,6 @@ func TestMemoryServerListAndWatch(t *testing.T) {
 					},
 				},
 			},
-			wantErr: false,
 			wantRes: &advisorsvc.ListAndWatchResponse{
 				PodEntries: map[string]*advisorsvc.CalculationEntries{
 					"pod1": {
@@ -306,40 +306,79 @@ func TestMemoryServerListAndWatch(t *testing.T) {
 			},
 		},
 	}
+
+	testWithListAndWatch := func(
+		t *testing.T,
+		advisor *MockMemoryAdvisor,
+		ms *memoryServer,
+		tt testCase,
+	) {
+		qrmServer := &mockQRMMemoryPluginServer{containers: tt.containers}
+		server := grpc.NewServer()
+		advisorsvc.RegisterQRMServiceServer(server, qrmServer)
+
+		sock, err := net.Listen("unix", ms.pluginSocketPath)
+		require.NoError(t, err)
+		defer sock.Close()
+		go func() {
+			server.Serve(sock)
+		}()
+
+		s := &mockMemoryServerService_ListAndWatchServer{ResultsChan: make(chan *advisorsvc.ListAndWatchResponse)}
+
+		stop := make(chan struct{})
+		go func() {
+			err := ms.ListAndWatch(tt.empty, s)
+			require.NoError(t, err)
+			stop <- struct{}{}
+		}()
+		res := <-s.ResultsChan
+		close(ms.stopCh)
+		<-stop
+		if !reflect.DeepEqual(res, tt.wantRes) {
+			t.Errorf("ListAndWatch()\ngot = %+v, \nwant= %+v", res, tt.wantRes)
+		}
+	}
+
+	testWithGetAdvice := func(
+		t *testing.T,
+		advisor *MockMemoryAdvisor,
+		ms *memoryServer,
+		tt testCase,
+	) {
+		request := &advisorsvc.GetAdviceRequest{
+			Entries: map[string]*advisorsvc.ContainerMetadataEntries{},
+		}
+		for _, container := range tt.containers {
+			if _, ok := request.Entries[container.PodUid]; !ok {
+				request.Entries[container.PodUid] = &advisorsvc.ContainerMetadataEntries{}
+			}
+			request.Entries[container.PodUid].Entries[container.ContainerName] = container
+		}
+
+		res, err := ms.GetAdvice(context.Background(), request)
+		require.NoError(t, err)
+		lwResp := &advisorsvc.ListAndWatchResponse{
+			PodEntries:   res.PodEntries,
+			ExtraEntries: res.ExtraEntries,
+		}
+		require.Equal(t, tt.wantRes, lwResp)
+	}
+
 	for _, tt := range tests {
 		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+		for apiMode, testFunc := range map[string]func(*testing.T, *MockMemoryAdvisor, *memoryServer, testCase){
+			"ListAndWatch": testWithListAndWatch,
+			"GetAdvice":    testWithGetAdvice,
+		} {
+			testFunc := testFunc
+			t.Run(tt.name+"_"+apiMode, func(t *testing.T) {
+				t.Parallel()
 
-			advisor := &MockMemoryAdvisor{advice: &tt.provision}
-			ms := newTestMemoryServer(t, advisor, []*v1.Pod{})
-
-			qrmServer := &mockQRMMemoryPluginServer{containers: tt.containers}
-			server := grpc.NewServer()
-			advisorsvc.RegisterQRMServiceServer(server, qrmServer)
-
-			sock, err := net.Listen("unix", ms.pluginSocketPath)
-			require.NoError(t, err)
-			defer sock.Close()
-			go func() {
-				server.Serve(sock)
-			}()
-
-			s := &mockMemoryServerService_ListAndWatchServer{ResultsChan: make(chan *advisorsvc.ListAndWatchResponse)}
-
-			stop := make(chan struct{})
-			go func() {
-				if err := ms.ListAndWatch(tt.empty, s); (err != nil) != tt.wantErr {
-					t.Errorf("ListAndWatch() error = %v, wantErr %v", err, tt.wantErr)
-				}
-				stop <- struct{}{}
-			}()
-			res := <-s.ResultsChan
-			close(ms.stopCh)
-			<-stop
-			if !reflect.DeepEqual(res, tt.wantRes) {
-				t.Errorf("ListAndWatch()\ngot = %+v, \nwant= %+v", res, tt.wantRes)
-			}
-		})
+				advisor := &MockMemoryAdvisor{advice: &tt.provision}
+				ms := newTestMemoryServer(t, advisor, []*v1.Pod{})
+				testFunc(t, advisor, ms, tt)
+			})
+		}
 	}
 }

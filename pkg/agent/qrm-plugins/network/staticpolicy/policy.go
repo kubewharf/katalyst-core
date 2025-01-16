@@ -554,13 +554,16 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 		return emptyResponse, nil
 	} else if req.ContainerType == pluginapi.ContainerType_SIDECAR {
 		// not to deal with sidecars, and return a trivial allocationResult to avoid re-allocating
-		return packAllocationResponse(req, &state.AllocationInfo{}, nil, nil)
+		return packAllocationResponse(req, &state.AllocationInfo{}, nil)
 	}
 
 	// check allocationInfo is nil or not
 	podEntries := p.state.GetPodEntries()
 	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
 
+	// if allocationInfo is not nil, assume that this container has already been allocated,
+	// and check whether the current allocation meets the requirement, if not, clear the record and re-allocate,
+	// otherwise, return the current allocationResult
 	if allocationInfo != nil {
 		if allocationInfo.Egress >= uint32(reqInt) && allocationInfo.Ingress >= uint32(reqInt) {
 			general.InfoS("already allocated and meet requirement",
@@ -578,7 +581,7 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 				return nil, err
 			}
 
-			resp, packErr := packAllocationResponse(req, allocationInfo, req.Hint, resourceAllocationAnnotations)
+			resp, packErr := packAllocationResponse(req, allocationInfo, resourceAllocationAnnotations)
 			if packErr != nil {
 				general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
 					req.PodNamespace, req.PodName, req.ContainerName, packErr)
@@ -635,18 +638,6 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 		general.Errorf("get siblingNUMAs for nic: %s failed with error: %v. Incorrect NumaNodes in machineState allocationInfo", selectedNIC.Iface, err)
 	}
 
-	// generate the response hint
-	// it could be different from the req.Hint if the affinitive NIC does not have sufficient bandwidth
-	nicPreference, err := checkNICPreferenceOfReq(selectedNIC, req.Annotations)
-	if err != nil {
-		return nil, fmt.Errorf("checkNICPreferenceOfReq for nic: %s failed with error: %v", selectedNIC.Iface, err)
-	}
-
-	respHint := &pluginapi.TopologyHint{
-		Nodes:     siblingNUMAs.ToSliceUInt64(),
-		Preferred: nicPreference,
-	}
-
 	// generate allocationInfo and update the checkpoint accordingly
 	newAllocation := &state.AllocationInfo{
 		PodUid:         req.PodUid,
@@ -690,7 +681,7 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 	// update state cache
 	p.state.SetMachineState(machineState)
 
-	return packAllocationResponse(req, newAllocation, respHint, resourceAllocationAnnotations)
+	return packAllocationResponse(req, newAllocation, resourceAllocationAnnotations)
 }
 
 // AllocateForPod is called during pod admit so that the resource

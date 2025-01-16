@@ -118,6 +118,8 @@ type MetaWriter interface {
 
 	// SetInferenceResult sets specified model inference result
 	SetInferenceResult(modelName string, result interface{}) error
+
+	sync.Locker
 }
 
 type AdvisorNotifier struct{}
@@ -154,6 +156,9 @@ type MetaCacheImp struct {
 	modelMutex    sync.RWMutex
 
 	containerCreateTimestamp map[string]int64
+
+	// Lock for the entire MetaCache. Useful when you want to make multiple writes atomically.
+	sync.Mutex
 }
 
 var _ MetaCache = &MetaCacheImp{}

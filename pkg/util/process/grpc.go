@@ -25,16 +25,21 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-func Dial(unixSocketPath string, timeout time.Duration) (*grpc.ClientConn, error) {
+func Dial(unixSocketPath string, timeout time.Duration, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	c, err := grpc.DialContext(ctx, unixSocketPath,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
-		grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(ctx, "unix", addr)
-		}),
+	c, err := grpc.DialContext(
+		ctx,
+		unixSocketPath,
+		append(
+			opts,
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithBlock(),
+			grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
+				return (&net.Dialer{}).DialContext(ctx, "unix", addr)
+			}),
+		)...,
 	)
 	if err != nil {
 		return nil, err

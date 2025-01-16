@@ -159,10 +159,15 @@ func (cra *cpuResourceAdvisor) Run(ctx context.Context) {
 }
 
 func (cra *cpuResourceAdvisor) GetHeadroom() (resource.Quantity, map[int]resource.Quantity, error) {
+	startTime := time.Now()
 	klog.Infof("[qosaware-cpu] receive get headroom request")
 
 	cra.mutex.RLock()
+	general.InfoS("acquired lock", "duration", time.Since(startTime))
 	defer cra.mutex.RUnlock()
+	defer func() {
+		general.InfoS("finished", "duration", time.Since(startTime))
+	}()
 
 	if !cra.advisorUpdated {
 		klog.Infof("[qosaware-cpu] skip getting headroom: advisor not updated")
@@ -185,15 +190,19 @@ func (cra *cpuResourceAdvisor) GetHeadroom() (resource.Quantity, map[int]resourc
 }
 
 func (cra *cpuResourceAdvisor) UpdateAndGetAdvice() (interface{}, error) {
+	startTime := time.Now()
 	result, err := cra.update()
 	_ = general.UpdateHealthzStateByError(cpuAdvisorHealthCheckName, err)
+	general.InfoS("finished", "duration", time.Since(startTime))
 	return result, err
 }
 
 // update works in a monolithic way to maintain lifecycle and triggers update actions for all regions;
 // todo: re-consider whether it's efficient or we should make start individual goroutine for each region
 func (cra *cpuResourceAdvisor) update() (*types.InternalCPUCalculationResult, error) {
+	startTime := time.Now()
 	cra.mutex.Lock()
+	general.InfoS("acquired lock", "duration", time.Since(startTime))
 	defer cra.mutex.Unlock()
 
 	result, err := cra.updateWithIsolationGuardian(true)
@@ -204,6 +213,7 @@ func (cra *cpuResourceAdvisor) update() (*types.InternalCPUCalculationResult, er
 		}
 		return nil, err
 	}
+	general.InfoS("finished", "duration", time.Since(startTime))
 	return result, nil
 }
 
