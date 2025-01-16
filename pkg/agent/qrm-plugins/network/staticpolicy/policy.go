@@ -33,6 +33,7 @@ import (
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -666,23 +667,14 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 
 	// generate allocationInfo and update the checkpoint accordingly
 	newAllocation := &state.AllocationInfo{
-		PodUid:         req.PodUid,
-		PodNamespace:   req.PodNamespace,
-		PodName:        req.PodName,
-		ContainerName:  req.ContainerName,
-		ContainerType:  req.ContainerType.String(),
-		ContainerIndex: req.ContainerIndex,
-		PodRole:        req.PodRole,
-		PodType:        req.PodType,
-		Egress:         uint32(reqInt),
-		Ingress:        uint32(reqInt),
-		IfName:         selectedNIC.Iface,
-		NSName:         selectedNIC.NSName,
-		NumaNodes:      siblingNUMAs,
-		Labels:         general.DeepCopyMap(req.Labels),
-		Annotations:    general.DeepCopyMap(req.Annotations),
-		QoSLevel:       qosLevel,
-		NetClassID:     fmt.Sprintf("%d", netClassID),
+		AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(req,
+			commonstate.EmptyOwnerPoolName, qosLevel),
+		Egress:     uint32(reqInt),
+		Ingress:    uint32(reqInt),
+		NSName:     selectedNIC.NSName,
+		IfName:     selectedNIC.Iface,
+		NumaNodes:  siblingNUMAs,
+		NetClassID: fmt.Sprintf("%d", netClassID),
 	}
 
 	err = applyImplicitReq(req, newAllocation)

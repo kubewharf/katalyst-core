@@ -22,32 +22,21 @@ import (
 	"strconv"
 
 	info "github.com/google/cadvisor/info/v1"
-	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 type AllocationInfo struct {
-	PodUid         string         `json:"pod_uid,omitempty"`
-	PodNamespace   string         `json:"pod_namespace,omitempty"`
-	PodName        string         `json:"pod_name,omitempty"`
-	ContainerName  string         `json:"container_name,omitempty"`
-	ContainerType  string         `json:"container_type,omitempty"`
-	ContainerIndex uint64         `json:"container_index,omitempty"`
-	RampUp         bool           `json:"ramp_up,omitempty"`
-	PodRole        string         `json:"pod_role,omitempty"`
-	PodType        string         `json:"pod_type,omitempty"`
-	Egress         uint32         `json:"egress"`
-	Ingress        uint32         `json:"ingress"`
-	IfName         string         `json:"if_name"` // we do not support cross-nic bandwidth
-	NSName         string         `json:"ns_name"`
-	NumaNodes      machine.CPUSet `json:"numa_node"` // associated numa nodes of the socket connecting to the selected NIC
-	QoSLevel       string         `json:"qosLevel"`
-	NetClassID     string         `json:"net_class_id"`
+	commonstate.AllocationMeta `json:",inline"`
 
-	Labels      map[string]string `json:"labels"`
-	Annotations map[string]string `json:"annotations"`
+	Egress     uint32         `json:"egress"`
+	Ingress    uint32         `json:"ingress"`
+	NSName     string         `json:"ns_name"`
+	IfName     string         `json:"if_name"`   // we do not support cross-nic bandwidth
+	NumaNodes  machine.CPUSet `json:"numa_node"` // associated numa nodes of the socket connecting to the selected NIC
+	NetClassID string         `json:"net_class_id"`
 }
 
 type (
@@ -100,36 +89,27 @@ func (ai *AllocationInfo) Clone() *AllocationInfo {
 	}
 
 	clone := &AllocationInfo{
-		PodUid:         ai.PodUid,
-		PodNamespace:   ai.PodNamespace,
-		PodName:        ai.PodName,
-		ContainerName:  ai.ContainerName,
-		ContainerType:  ai.ContainerType,
-		ContainerIndex: ai.ContainerIndex,
-		RampUp:         ai.RampUp,
-		PodRole:        ai.PodRole,
-		PodType:        ai.PodType,
+		AllocationMeta: *ai.AllocationMeta.Clone(),
 		Egress:         ai.Egress,
 		Ingress:        ai.Ingress,
+		NSName:         ai.NSName,
 		IfName:         ai.IfName,
 		NumaNodes:      ai.NumaNodes.Clone(),
-		QoSLevel:       ai.QoSLevel,
 		NetClassID:     ai.NetClassID,
-		Labels:         general.DeepCopyMap(ai.Labels),
-		Annotations:    general.DeepCopyMap(ai.Annotations),
 	}
 
 	return clone
 }
 
-// CheckMainContainer returns true if the AllocationInfo is for main container
-func (ai *AllocationInfo) CheckMainContainer() bool {
-	return ai.ContainerType == pluginapi.ContainerType_MAIN.String()
-}
-
-// CheckSideCar returns true if the AllocationInfo is for side-car container
-func (ai *AllocationInfo) CheckSideCar() bool {
-	return ai.ContainerType == pluginapi.ContainerType_SIDECAR.String()
+func (pe PodEntries) Clone() PodEntries {
+	clone := make(PodEntries)
+	for podUID, containerEntries := range pe {
+		clone[podUID] = make(ContainerEntries)
+		for containerName, allocationInfo := range containerEntries {
+			clone[podUID][containerName] = allocationInfo.Clone()
+		}
+	}
+	return clone
 }
 
 func (ai *AllocationInfo) GetRequestedEgress() (uint32, error) {
@@ -153,17 +133,6 @@ func (ai *AllocationInfo) GetRequestedEgress() (uint32, error) {
 	}
 
 	return 0, nil
-}
-
-func (pe PodEntries) Clone() PodEntries {
-	clone := make(PodEntries)
-	for podUID, containerEntries := range pe {
-		clone[podUID] = make(ContainerEntries)
-		for containerName, allocationInfo := range containerEntries {
-			clone[podUID][containerName] = allocationInfo.Clone()
-		}
-	}
-	return clone
 }
 
 func (pe PodEntries) String() string {
