@@ -35,7 +35,9 @@ import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/state"
+	networkreactor "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/staticpolicy/reactor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/reactor"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	agentconfig "github.com/kubewharf/katalyst-core/pkg/config/agent"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
@@ -99,6 +101,8 @@ type StaticPolicy struct {
 	podLabelKeptKeys      []string
 
 	lowPriorityGroups map[string]*qrmgeneral.NetworkGroup
+
+	nicAllocationReactor reactor.AllocationReactor
 
 	// aliveCgroupID is used to record the alive cgroupIDs and their last alive time
 	aliveCgroupID map[uint64]time.Time
@@ -170,6 +174,15 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	err = policyImplement.generateAndApplyGroups()
 	if err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("generateAndApplyGroups failed with error: %v", err)
+	}
+
+	policyImplement.nicAllocationReactor = reactor.DummyAllocationReactor{}
+	if conf.EnableNICAllocationReactor {
+		policyImplement.nicAllocationReactor = networkreactor.NewNICPodAllocationReactor(
+			reactor.NewPodAllocationReactor(
+				agentCtx.MetaServer.PodFetcher,
+				agentCtx.Client.KubeClient,
+			))
 	}
 
 	pluginWrapper, err := skeleton.NewRegistrationPluginWrapper(policyImplement, conf.QRMPluginSocketDirs,
@@ -509,7 +522,7 @@ func (p *StaticPolicy) GetResourcePluginOptions(context.Context,
 // Allocate is called during pod admit so that the resource
 // plugin can allocate corresponding resource for the container
 // according to resource request
-func (p *StaticPolicy) Allocate(_ context.Context,
+func (p *StaticPolicy) Allocate(ctx context.Context,
 	req *pluginapi.ResourceRequest,
 ) (resp *pluginapi.ResourceAllocationResponse, err error) {
 	if req == nil {
@@ -711,9 +724,15 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 	p.state.SetMachineState(machineState, false)
 
 	err = p.generateAndApplyGroups()
-
 	if err != nil {
 		general.Errorf("generateAndApplyGroups failed with error: %v", err)
+	}
+
+	// update nic allocation
+	err = p.nicAllocationReactor.UpdateAllocation(ctx, newAllocation)
+	if err != nil {
+		general.Errorf("nicAllocationReactor UpdateAllocation failed with error: %v", err)
+		return nil, err
 	}
 
 	return packAllocationResponse(req, newAllocation, resourceAllocationAnnotations)
