@@ -45,6 +45,7 @@ import (
 	cgroupcmutils "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
@@ -290,7 +291,8 @@ func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 	defer func() {
 		p.Unlock()
 		if err != nil {
-			_ = p.emitter.StoreInt64(util.MetricNameGetTopologyHintsFailed, 1, metrics.MetricTypeNameRaw)
+			_ = p.emitter.StoreInt64(util.MetricNameGetTopologyHintsFailed, 1, metrics.MetricTypeNameRaw,
+				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)})
 		}
 	}()
 
@@ -531,7 +533,8 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 	defer func() {
 		p.Unlock()
 		if err != nil {
-			_ = p.emitter.StoreInt64(util.MetricNameAllocateFailed, 1, metrics.MetricTypeNameRaw)
+			_ = p.emitter.StoreInt64(util.MetricNameAllocateFailed, 1, metrics.MetricTypeNameRaw,
+				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)})
 		}
 	}()
 

@@ -17,6 +17,8 @@ limitations under the License.
 package metric
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -32,6 +34,8 @@ type Aggregator string
 const (
 	AggregatorSum Aggregator = "sum"
 	AggregatorAvg Aggregator = "avg"
+
+	MaxTagLength = 255
 )
 
 // ContainerMetricFilter is used to filter out unnecessary metrics if this function returns false
@@ -140,4 +144,9 @@ func (c *MetricStore) AggregateCoreMetric(cpuset machine.CPUSet, metricName stri
 		}
 	}
 	return data
+}
+
+// MetricTagValueFormat formats the given tag value to a string that is suitable for metric tagging
+func MetricTagValueFormat(tagValue interface{}) string {
+	return general.TruncateString(strings.ReplaceAll(fmt.Sprintf("%v", tagValue), " ", "_"), MaxTagLength)
 }
