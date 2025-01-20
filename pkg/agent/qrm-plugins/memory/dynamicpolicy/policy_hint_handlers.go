@@ -215,19 +215,7 @@ func (p *DynamicPolicy) numaBindingHintHandler(_ context.Context,
 			hints = regenerateHints(allocationInfo, false)
 		}
 	} else {
-		// otherwise, calculate hint for container without allocated memory
-		var calculateErr error
-		// calculate hint for container without allocated memory
-		hints, calculateErr = p.calculateHints(uint64(podAggregatedRequest), resourcesMachineState, req)
-		if calculateErr != nil {
-			general.Errorf("failed to calculate hints for pod: %s/%s, container: %s, error: %v",
-				req.PodNamespace, req.PodName, req.ContainerName, calculateErr)
-			return nil, fmt.Errorf("calculateHints failed with error: %v", calculateErr)
-		}
-	}
-
-	// if hints exists in extra state-file, prefer to use them
-	if hints == nil {
+		// if hints exists in extra state-file, prefer to use them
 		availableNUMAs := resourcesMachineState[v1.ResourceMemory].GetNUMANodesWithoutSharedOrDedicatedNUMABindingPods()
 
 		var extraErr error
@@ -236,6 +224,18 @@ func (p *DynamicPolicy) numaBindingHintHandler(_ context.Context,
 		if extraErr != nil {
 			general.Infof("pod: %s/%s, container: %s GetHintsFromExtraStateFile failed with error: %v",
 				req.PodNamespace, req.PodName, req.ContainerName, extraErr)
+		}
+	}
+
+	if hints == nil {
+		// otherwise, calculate hint for container without allocated memory
+		var calculateErr error
+		// calculate hint for container without allocated memory
+		hints, calculateErr = p.calculateHints(uint64(podAggregatedRequest), resourcesMachineState, req)
+		if calculateErr != nil {
+			general.Errorf("failed to calculate hints for pod: %s/%s, container: %s, error: %v",
+				req.PodNamespace, req.PodName, req.ContainerName, calculateErr)
+			return nil, fmt.Errorf("calculateHints failed with error: %v", calculateErr)
 		}
 	}
 
