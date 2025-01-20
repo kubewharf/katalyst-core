@@ -55,6 +55,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
 	"github.com/kubewharf/katalyst-core/pkg/util/timemonitor"
@@ -694,7 +695,9 @@ func (p *DynamicPolicy) GetTopologyHints(ctx context.Context,
 	defer func() {
 		p.RUnlock()
 		if err != nil {
-			_ = p.emitter.StoreInt64(util.MetricNameGetTopologyHintsFailed, 1, metrics.MetricTypeNameRaw)
+			_ = p.emitter.StoreInt64(util.MetricNameGetTopologyHintsFailed, 1, metrics.MetricTypeNameRaw,
+				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)})
+
 			general.ErrorS(err, "GetTopologyHints failed",
 				"podNamespace", req.PodNamespace,
 				"podName", req.PodName,
@@ -840,7 +843,8 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 			}
 		} else if respErr != nil {
 			_ = p.removeContainer(req.PodUid, req.ContainerName)
-			_ = p.emitter.StoreInt64(util.MetricNameAllocateFailed, 1, metrics.MetricTypeNameRaw)
+			_ = p.emitter.StoreInt64(util.MetricNameAllocateFailed, 1, metrics.MetricTypeNameRaw,
+				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(respErr)})
 		}
 
 		p.Unlock()
@@ -933,7 +937,8 @@ func (p *DynamicPolicy) RemovePod(ctx context.Context,
 	defer func() {
 		p.Unlock()
 		if err != nil {
-			_ = p.emitter.StoreInt64(util.MetricNameRemovePodFailed, 1, metrics.MetricTypeNameRaw)
+			_ = p.emitter.StoreInt64(util.MetricNameRemovePodFailed, 1, metrics.MetricTypeNameRaw,
+				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)})
 			general.ErrorS(err, "RemovePod failed", "podUID", req.PodUid)
 		}
 		general.InfoS("finished", "duration", time.Since(startTime).String(), "podUID", req.PodUid)

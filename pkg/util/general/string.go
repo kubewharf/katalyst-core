@@ -35,3 +35,12 @@ func StructToString(val interface{}) string {
 func BytesToString(b []byte) string {
 	return string(b)
 }
+
+// TruncateString truncates the string to the first n characters
+func TruncateString(s string, n int) string {
+	runeSlice := []rune(s)
+	if len(runeSlice) > n {
+		return string(runeSlice[:n])
+	}
+	return s
+}
