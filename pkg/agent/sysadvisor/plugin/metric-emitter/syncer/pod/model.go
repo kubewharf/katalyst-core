@@ -22,6 +22,7 @@ import (
 
 	"k8s.io/klog/v2"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/modelresultfetcher/borwein/latencyregression"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/modelresultfetcher/borwein/trainingtpreg"
 	borweinconsts "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/consts"
 	borweininfsvc "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/inferencesvc"
@@ -106,6 +107,7 @@ func (p *MetricSyncerPod) emitBorweinTrainingThroughput() {
 	trainingThroughputData, resultTimestamp, err := trainingtpreg.GetTrainingTHRegPredictValue(p.metaReader)
 	if err != nil {
 		klog.Errorf("failed to get inference results of model(%s)", borweinconsts.ModelNameBorweinTrainingThroughput)
+		return
 	}
 
 	for podUID, containerData := range trainingThroughputData {
@@ -132,4 +134,80 @@ func (p *MetricSyncerPod) emitBorweinTrainingThroughput() {
 				)...)
 		}
 	}
+}
+
+func (p *MetricSyncerPod) emitBorweinLatencyRegression() {
+	latencyRegressionData, resultTimestamp, err := latencyregression.GetLatencyRegressionPredictResult(p.metaReader)
+	if err != nil {
+		klog.Errorf("failed to get inference results of model(%s) error: %v\n", borweinconsts.ModelNameBorweinLatencyRegression, err)
+		return
+	}
+
+	klog.Infof("Start to emit pod latency regression result")
+
+	predictSum := 0.0
+	containerCnt := 0.0
+	nodeName := ""
+
+	for podUID, containerData := range latencyRegressionData {
+		pod, err := p.metaServer.GetPod(context.Background(), podUID)
+		if err != nil || !p.metricPod(pod) {
+			return
+		}
+
+		if nodeName == "" {
+			nodeName = pod.Spec.NodeName
+		}
+
+		tags := p.generateMetricTag(pod)
+
+		for containerName, latencyRegression := range containerData {
+			predictSum += latencyRegression.PredictValue
+			containerCnt += 1
+
+			klog.Infof("Emit latency regression result, pod %v, container %v, predict value %v",
+				podUID, containerName, latencyRegression.PredictValue)
+			_ = p.dataEmitter.StoreFloat64(podLatencyRegressionInferenceResultBorwein,
+				latencyRegression.PredictValue,
+				metrics.MetricTypeNameRaw,
+				append(tags,
+					metrics.MetricTag{
+						Key: fmt.Sprintf("%s", data.CustomMetricLabelKeyTimestamp),
+						Val: fmt.Sprintf("%v", resultTimestamp),
+					},
+					metrics.MetricTag{
+						Key: fmt.Sprintf("%scontainer", data.CustomMetricLabelSelectorPrefixKey),
+						Val: containerName,
+					},
+				)...)
+		}
+	}
+
+	if containerCnt == 0 {
+		klog.Errorf("Found no valid containers, emit node-level latency regression result error")
+		return
+	}
+
+	predictAvg := predictSum / containerCnt
+
+	klog.Infof("Emit node-level latency regression result, node %v, predict value %v", nodeName, predictAvg)
+	_ = p.dataEmitter.StoreFloat64(nodeLatencyRegressionInferenceResultBorwein,
+		predictAvg,
+		metrics.MetricTypeNameRaw,
+		metrics.MetricTag{
+			Key: fmt.Sprintf("%s", data.CustomMetricLabelKeyTimestamp),
+			Val: fmt.Sprintf("%v", resultTimestamp),
+		},
+		metrics.MetricTag{
+			Key: fmt.Sprintf("%s", podMetricLabelSelectorNodeName),
+			Val: nodeName,
+		})
+	_ = p.metricEmitter.StoreFloat64(metricBorweinInferenceResult,
+		predictAvg,
+		metrics.MetricTypeNameRaw,
+		metrics.MetricTag{
+			Key: fmt.Sprintf("%s", "model_name"),
+			Val: fmt.Sprintf("%v", borweinconsts.ModelNameBorweinLatencyRegression),
+		},
+	)
 }

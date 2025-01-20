@@ -167,6 +167,7 @@ func (bmrf *BorweinModelResultFetcher) FetchModelResult(ctx context.Context, met
 		general.Warningf("there is no target container to inference for")
 		return nil
 	}
+	general.Infof("Inference %v containers", len(requestContainers))
 
 	req, err := bmrf.getInferenceRequestForPods(requestContainers, metaReader, metaWriter, metaServer)
 	if err != nil {
@@ -192,6 +193,7 @@ func (bmrf *BorweinModelResultFetcher) FetchModelResult(ctx context.Context, met
 				errCh <- fmt.Errorf("nil client for model: %s", modelName)
 				return
 			}
+			general.Infof("Inference for model: %s start", modelName)
 
 			resp, err := client.Inference(ctx, req)
 			if err != nil {
@@ -394,6 +396,7 @@ func (bmrf *BorweinModelResultFetcher) initInferenceSvcClientConn() (bool, error
 				allSuccess = false
 				break
 			}
+			general.Infof("init inference svc connection with socket: %s for model: %s success", sockAbsPath, modelName)
 
 			modelNameToConn[modelName] = infSvcConn
 		}

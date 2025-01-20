@@ -44,10 +44,12 @@ import (
 )
 
 const (
-	podMetricLabelSelectorNodeName = "node_name"
-
+	podMetricLabelSelectorNodeName              = "node_name"
 	podModelInferenceResultBorwein              = "pod_borwein_inference_result"
 	podTrainingThroughputInferenceResultBorwein = "pod_borwein_training_throughput_inference_result"
+	podLatencyRegressionInferenceResultBorwein  = "pod_borwein_latency_regression_inference_result"
+	nodeLatencyRegressionInferenceResultBorwein = "node_borwein_latency_regression_inference_result"
+	metricBorweinInferenceResult                = "borwein_inference_result"
 )
 
 // podRawMetricNameMapping maps the raw metricName (collected from agent.MetricsFetcher)
@@ -119,6 +121,7 @@ func NewMetricSyncerPod(conf *config.Configuration, _ interface{},
 
 	metricSyncerPod.modelToCustomizedEmitterFunc = map[string]func(){
 		borweinconsts.ModelNameBorweinTrainingThroughput: metricSyncerPod.emitBorweinTrainingThroughput,
+		borweinconsts.ModelNameBorweinLatencyRegression:  metricSyncerPod.emitBorweinLatencyRegression,
 	}
 
 	return metricSyncerPod, nil
@@ -256,6 +259,7 @@ func (p *MetricSyncerPod) generateMetricTag(pod *v1.Pod) (tags []metrics.MetricT
 			Val: pod.Spec.NodeName,
 		},
 	}
+
 	for key, value := range pod.Labels {
 		if p.emitterConf.PodMetricLabel.Has(key) {
 			tags = append(tags, metrics.MetricTag{
