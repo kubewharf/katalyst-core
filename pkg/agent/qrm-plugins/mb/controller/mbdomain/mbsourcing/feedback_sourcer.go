@@ -1,5 +1,11 @@
 package mbsourcing
 
+import (
+	"math"
+
+	policyconfig "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
+)
+
 // feedbackSourcer takes into considerations of previous {desired-outgoing-quota, observed-outgoing-traffic}
 // to adaptively adjust desired-outgoing-quota in order to get desired-outgoing-target
 type feedbackSourcer struct {
@@ -44,11 +50,15 @@ func (f *feedbackSourcer) getByFeedback(observedOutgoingMB []int, desiredOutgoin
 func getByFeedback(previous, observed, desired int) int {
 	// previous ==> observed-outcome
 	// ?        ==> desired-outcome
-	if observed == 0 || previous == 0 {
-		// not sure how to getting out of the previous x  observed; keep going
+	if observed == 0 || previous <= 0 {
+		// not sure how to get out of the previous x  observed; keep going
 		return desired
 	}
-	return int(float64(desired) * float64(previous) / float64(observed))
+	result := int(float64(desired) * float64(previous) / float64(observed))
+	if result >= math.MaxInt || result <= math.MinInt {
+		result = policyconfig.PolicyConfig.DomainMBMax
+	}
+	return result
 }
 
 func newFeedbackSourcer(sourcer Sourcer) Sourcer {
