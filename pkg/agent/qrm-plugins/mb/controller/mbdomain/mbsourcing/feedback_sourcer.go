@@ -55,7 +55,10 @@ func getByFeedback(previous, observed, desired int) int {
 		return desired
 	}
 	result := int(float64(desired) * float64(previous) / float64(observed))
-	if result >= math.MaxInt || result <= math.MinInt {
+	if result == math.MaxInt || result == math.MinInt {
+		result = policyconfig.PolicyConfig.DomainMBMax
+	}
+	if result > policyconfig.PolicyConfig.DomainMBMax {
 		result = policyconfig.PolicyConfig.DomainMBMax
 	}
 	return result

@@ -75,6 +75,17 @@ func Test_feedbackSourcer_AttributeIncomingMBToSources(t *testing.T) {
 			},
 			want: []int{55_656, 0},
 		},
+		{
+			name: "with invalid big value history",
+			fields: fields{
+				innerSourcer:          dummySourcer,
+				previousOutgoingQuota: []int{165962537, 2312728019},
+			},
+			args: args{
+				domainTargets: testDomainTargets,
+			},
+			want: []int{280_000, 0},
+		},
 	}
 	for _, tt := range tests {
 		tt := tt
