@@ -19,4 +19,5 @@ package consts
 const (
 	ModelNameBorwein                   = "borwein"
 	ModelNameBorweinTrainingThroughput = "borwein_training_throughput"
+	ModelNameBorweinLatencyRegression  = "borwein_latency_regression"
 )

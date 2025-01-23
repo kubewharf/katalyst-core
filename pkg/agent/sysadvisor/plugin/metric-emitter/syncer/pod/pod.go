@@ -26,6 +26,7 @@ import (
 	"k8s.io/klog/v2"
 
 	apimetricpod "github.com/kubewharf/katalyst-api/pkg/metric/pod"
+
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	borweinconsts "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metric-emitter/syncer"
@@ -46,8 +47,10 @@ import (
 const (
 	podMetricLabelSelectorNodeName = "node_name"
 
-	podModelInferenceResultBorwein              = "pod_borwein_inference_result"
-	podTrainingThroughputInferenceResultBorwein = "pod_borwein_training_throughput_inference_result"
+	podModelInferenceResultBorwein                 = "pod_borwein_inference_result"
+	podTrainingThroughputInferenceResultBorwein    = "pod_borwein_training_throughput_inference_result"
+	podLatencyRegressionInferenceResultBorwein     = "pod_borwein_latency_regression_inference_result"
+	podNodeLatencyRegressionInferenceResultBorwein = "pod_node_borwein_latency_regression_inference_result"
 )
 
 // podRawMetricNameMapping maps the raw metricName (collected from agent.MetricsFetcher)
@@ -119,6 +122,7 @@ func NewMetricSyncerPod(conf *config.Configuration, _ interface{},
 
 	metricSyncerPod.modelToCustomizedEmitterFunc = map[string]func(){
 		borweinconsts.ModelNameBorweinTrainingThroughput: metricSyncerPod.emitBorweinTrainingThroughput,
+		borweinconsts.ModelNameBorweinLatencyRegression:  metricSyncerPod.emitBorweinLatencyRegression,
 	}
 
 	return metricSyncerPod, nil
@@ -256,6 +260,7 @@ func (p *MetricSyncerPod) generateMetricTag(pod *v1.Pod) (tags []metrics.MetricT
 			Val: pod.Spec.NodeName,
 		},
 	}
+
 	for key, value := range pod.Labels {
 		if p.emitterConf.PodMetricLabel.Has(key) {
 			tags = append(tags, metrics.MetricTag{
