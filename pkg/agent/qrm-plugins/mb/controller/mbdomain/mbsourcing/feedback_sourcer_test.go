@@ -84,7 +84,7 @@ func Test_feedbackSourcer_AttributeIncomingMBToSources(t *testing.T) {
 			args: args{
 				domainTargets: testDomainTargets,
 			},
-			want: []int{280_000, 0},
+			want: []int{55_656, 0},
 		},
 	}
 	for _, tt := range tests {

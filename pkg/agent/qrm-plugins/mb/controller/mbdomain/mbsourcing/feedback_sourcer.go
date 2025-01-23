@@ -58,8 +58,8 @@ func getByFeedback(previous, observed, desired int) int {
 	if result == math.MaxInt || result == math.MinInt {
 		result = policyconfig.PolicyConfig.DomainMBMax
 	}
-	if result > policyconfig.PolicyConfig.DomainMBMax {
-		result = policyconfig.PolicyConfig.DomainMBMax
+	if result > desired {
+		result = desired
 	}
 	return result
 }
