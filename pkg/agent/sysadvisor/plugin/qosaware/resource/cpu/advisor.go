@@ -267,7 +267,9 @@ func (cra *cpuResourceAdvisor) updateWithIsolationGuardian(tryIsolation bool) (
 
 	cra.advisorUpdated = true
 
-	klog.Infof("[qosaware-cpu] region map: %v", general.ToString(cra.regionMap))
+	if klog.V(6).Enabled() {
+		klog.Infof("[qosaware-cpu] region map: %v", general.ToString(cra.regionMap))
+	}
 
 	// assemble provision result from each region
 	calculationResult, err := cra.assembleProvision()

@@ -258,7 +258,11 @@ func (ms *memoryServer) getAndPushAdvice(server advisorsvc.AdvisorService_ListAn
 		_ = ms.emitter.StoreInt64(ms.genMetricsName(metricServerLWSendResponseFailed), int64(ms.period.Seconds()), metrics.MetricTypeNameCount)
 		return fmt.Errorf("send listWatch response failed: %w", err)
 	}
-	klog.Infof("[qosaware-server-memory] sent listWatch resp: %v", general.ToString(lwResp))
+
+	if klog.V(6).Enabled() {
+		klog.Infof("[qosaware-server-memory] sent listWatch resp: %v", general.ToString(lwResp))
+	}
+
 	_ = ms.emitter.StoreInt64(ms.genMetricsName(metricServerLWSendResponseSucceeded), int64(ms.period.Seconds()), metrics.MetricTypeNameCount)
 	return nil
 }

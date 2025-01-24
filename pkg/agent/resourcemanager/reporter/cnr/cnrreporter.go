@@ -353,7 +353,10 @@ func (c *cnrReporterImpl) tryUpdateCNRStatus(ctx context.Context,
 				"status": "success",
 			})...)
 
-		klog.Infof("patch cnr status success old status: %#v,\n new status: %#v", originCNR.Status, cnr.Status)
+		if klog.V(6).Enabled() {
+			klog.Infof("patch cnr status success old status: %#v,\n new status: %#v", originCNR.Status, cnr.Status)
+		}
+
 		c.latestUpdatedCNR = cnr.DeepCopy()
 
 		// notify cnr status update

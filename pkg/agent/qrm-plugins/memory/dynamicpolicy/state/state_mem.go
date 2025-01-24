@@ -127,8 +127,10 @@ func (s *memoryPluginState) SetMachineState(numaNodeResourcesMap NUMANodeResourc
 	defer s.Unlock()
 
 	s.machineState = numaNodeResourcesMap.Clone()
-	klog.InfoS("[memory_plugin] Updated memory plugin machine state",
-		"numaNodeResourcesMap", numaNodeResourcesMap.String())
+	if klog.V(6).Enabled() {
+		klog.InfoS("[memory_plugin] Updated memory plugin machine state",
+			"numaNodeResourcesMap", numaNodeResourcesMap.String())
+	}
 }
 
 func (s *memoryPluginState) SetNUMAHeadroom(numaHeadroom map[int]int64) {
