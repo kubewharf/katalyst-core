@@ -118,6 +118,19 @@ func (m mbMonitor) GetMBQoSGroups() (map[qosgroup.QoSGroup]*stat.MBQoSGroup, err
 		groups[qos] = stat.NewMBQoSGroup(ccdMB)
 	}
 
+	// root traffic only count in reads for simplicity
+	rootCCDMB, err := m.getRootReadsMBs()
+	if err == nil {
+		ccdData := make(map[int]*stat.MBData)
+		for ccd, mb := range rootCCDMB {
+			ccdData[ccd] = &stat.MBData{
+				ReadsMB:      mb.Total,
+				LocalReadsMB: mb.Local,
+			}
+		}
+		groups["/"] = stat.NewMBQoSGroup(ccdData)
+	}
+
 	return groups, nil
 }
 
@@ -164,6 +177,10 @@ func getCCDQoSGroups(qosMBs map[qosgroup.QoSGroup]map[int]rmbtype.MBStat) map[in
 		}
 	}
 	return result
+}
+
+func (m *mbMonitor) getRootReadsMBs() (map[int]rmbtype.MBStat, error) {
+	return m.rmbReader.GetMB("/")
 }
 
 // getTopLevelReadsMBs gets MB based on top level mon data

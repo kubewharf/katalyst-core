@@ -55,6 +55,7 @@ func Test_mbMonitor_GetMBQoSGroups(t1 *testing.T) {
 
 	rmbReader := new(mockReadMBReader)
 	rmbReader.On("GetMB", "shared-50").Return(map[int]rmbtype.MBStat{2: {Total: 200}, 3: {Total: 300}}, nil)
+	rmbReader.On("GetMB", "/").Return(map[int]rmbtype.MBStat{8: {Total: 50}, 9: {Total: 20}}, nil)
 
 	wmbReader := new(mockWriteMBReader)
 	wmbReader.On("GetMB", 2).Return(20, nil)
@@ -87,6 +88,13 @@ func Test_mbMonitor_GetMBQoSGroups(t1 *testing.T) {
 					CCDMB: map[int]*stat.MBData{
 						2: {ReadsMB: 200, WritesMB: 20},
 						3: {ReadsMB: 300, WritesMB: 30},
+					},
+				},
+				"/": {
+					CCDs: sets.Int{8: sets.Empty{}, 9: sets.Empty{}},
+					CCDMB: map[int]*stat.MBData{
+						8: {ReadsMB: 50},
+						9: {ReadsMB: 20},
 					},
 				},
 			},

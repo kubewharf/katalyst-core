@@ -25,6 +25,8 @@ func TestQoSGroupMBReader_GetMB(t *testing.T) {
 	mockMGReader := new(mockMonGrpReader)
 	mockMGReader.On("ReadMB", "/sys/fs/resctrl/system", []int{4, 5}).
 		Return(map[int]rmbtype.MBStat{4: {Total: 111}, 5: {Total: 222}}, nil)
+	mockMGReader.On("ReadMB", "/sys/fs/resctrl", []int{8, 9}).
+		Return(map[int]rmbtype.MBStat{8: {Total: 88}, 9: {Total: 99}}, nil)
 
 	type fields struct {
 		ccds           []int
@@ -50,6 +52,18 @@ func TestQoSGroupMBReader_GetMB(t *testing.T) {
 				qosGroup: "system",
 			},
 			want:    map[int]rmbtype.MBStat{4: {Total: 111}, 5: {Total: 222}},
+			wantErr: false,
+		},
+		{
+			name: "root",
+			fields: fields{
+				ccds:           []int{8, 9},
+				monGroupReader: mockMGReader,
+			},
+			args: args{
+				qosGroup: "/",
+			},
+			want:    map[int]rmbtype.MBStat{8: {Total: 88}, 9: {Total: 99}},
 			wantErr: false,
 		},
 	}

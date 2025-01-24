@@ -138,6 +138,10 @@ func (c *Controller) process(ctx context.Context) {
 	// policy does applicable customization based on current MB usages of all domains
 	currQoSCCDMBStat := c.MBStat.get()
 
+	// for now, root traffic is not used for dynamic mb mgmt; instead, the domain capacity is shrink to compensate root mb if not negligible
+	// todo: treat root as a high qos group
+	delete(currQoSCCDMBStat, "/")
+
 	// reserve for socket pods in admission or incubation
 	currQoSCCDMBStat = c.adjustSocketCCDMBWithIncubates(currQoSCCDMBStat)
 
