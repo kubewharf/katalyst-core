@@ -34,7 +34,7 @@ func (m monGroupReader) ReadMB(monGroup string, dies []int) (map[int]rmbtype.MBS
 	for _, ccd := range dies {
 		mb, err := m.ccdReader.ReadMB(monGroup, ccd)
 		if err != nil {
-			general.InfofV(6, "mbm: failed to get mb for mon group %s, ccd %d", monGroup, ccd)
+			general.InfofV(7, "mbm: failed to get mb for mon group %s, ccd %d", monGroup, ccd)
 			continue
 		}
 		result[ccd] = mb
