@@ -104,7 +104,7 @@ func (s *cpuPluginState) SetMachineState(numaNodeMap NUMANodeMap) {
 	defer s.Unlock()
 
 	s.machineState = numaNodeMap.Clone()
-	klog.InfoS("[cpu_plugin] Updated cpu plugin machine state", "numaNodeMap", numaNodeMap.String())
+	klog.V(7).InfoS("[cpu_plugin] Updated cpu plugin machine state", "numaNodeMap", numaNodeMap.String())
 }
 
 func (s *cpuPluginState) SetNUMAHeadroom(numaHeadroom map[int]float64) {
@@ -124,7 +124,7 @@ func (s *cpuPluginState) SetAllocationInfo(podUID string, containerName string, 
 	}
 
 	s.podEntries[podUID][containerName] = allocationInfo.Clone()
-	klog.InfoS("[cpu_plugin] updated cpu plugin pod entries",
+	klog.V(7).InfoS("[cpu_plugin] updated cpu plugin pod entries",
 		"podUID", podUID,
 		"containerName", containerName,
 		"allocationInfo", allocationInfo.String())
@@ -135,7 +135,7 @@ func (s *cpuPluginState) SetPodEntries(podEntries PodEntries) {
 	defer s.Unlock()
 
 	s.podEntries = podEntries.Clone()
-	klog.InfoS("[cpu_plugin] Updated cpu plugin pod entries",
+	klog.V(7).InfoS("[cpu_plugin] Updated cpu plugin pod entries",
 		"podEntries", podEntries.String())
 }
 
