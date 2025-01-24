@@ -180,7 +180,11 @@ func (cs *cpuServer) getAndSyncCheckpoint(ctx context.Context, client cpuadvisor
 		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWGetCheckpointFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 		return fmt.Errorf("got nil checkpoint")
 	}
-	klog.Infof("[qosaware-server-cpu] got checkpoint: %v", general.ToString(getCheckpointResp.Entries))
+
+	if klog.V(6).Enabled() {
+		klog.Infof("[qosaware-server-cpu] got checkpoint: %v", general.ToString(getCheckpointResp.Entries))
+	}
+
 	_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWGetCheckpointSucceeded), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 
 	cs.syncCheckpoint(ctx, getCheckpointResp, safeTime)
@@ -230,7 +234,11 @@ func (cs *cpuServer) getAndPushAdvice(client cpuadvisor.CPUPluginClient, server 
 		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWSendResponseFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 		return fmt.Errorf("send listWatch response failed: %w", err)
 	}
-	klog.Infof("[qosaware-server-cpu] sent listWatch resp: %v", general.ToString(lwResp))
+
+	if klog.V(6).Enabled() {
+		klog.Infof("[qosaware-server-cpu] sent listWatch resp: %v", general.ToString(lwResp))
+	}
+
 	_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWSendResponseSucceeded), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 	return nil
 }
