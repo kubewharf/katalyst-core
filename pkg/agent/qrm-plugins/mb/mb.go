@@ -18,6 +18,7 @@ package mb
 
 import (
 	"github.com/pkg/errors"
+	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/allocator"
@@ -57,6 +58,7 @@ func createMBPlanAllocator() (allocator.PlanAllocator, error) {
 
 func NewComponent(agentCtx *agent.GenericContext, conf *config.Configuration, _ interface{}, agentName string,
 ) (bool, agent.Component, error) {
+	klog.V(6).Infof("mbm: version 0.0.2 root rmb metrics")
 	general.Infof("mbm: %s is created", agentName)
 
 	// override policy config with user provided args
