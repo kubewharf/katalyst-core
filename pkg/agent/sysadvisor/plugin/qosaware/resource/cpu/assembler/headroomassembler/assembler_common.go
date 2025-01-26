@@ -162,6 +162,12 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 		MaxCapacity:       dynamicConfig.MaxHeadroomCapacityRate * float64(ha.metaServer.MachineInfo.NumCores/ha.metaServer.NumNUMANodes),
 	}
 
+	reclaimedCPUs, err := ha.getLastReclaimedCPUPerNUMA()
+	if err != nil {
+		general.Errorf("getLastReclaimedCPUPerNUMA failed: %v", err)
+		return resource.Quantity{}, nil, err
+	}
+
 	// get headroom per NUMA
 	for _, numaID := range bindingNUMAs {
 		cpuSet, ok := reclaimPoolInfo.TopologyAwareAssignments[numaID]
@@ -174,7 +180,9 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 			return resource.Quantity{}, nil, fmt.Errorf("get reclaim Metrics failed with numa %d: %v", numaID, err)
 		}
 
-		headroom, err := ha.getUtilBasedHeadroom(options, reclaimMetrics)
+		lastReclaimedCPUPerNumaForCalculate := make(map[int]float64)
+		lastReclaimedCPUPerNumaForCalculate[numaID] = reclaimedCPUs[numaID]
+		headroom, err := ha.getUtilBasedHeadroom(options, reclaimMetrics, lastReclaimedCPUPerNumaForCalculate)
 		if err != nil {
 			return resource.Quantity{}, nil, fmt.Errorf("get util-based headroom failed with numa %d: %v", numaID, err)
 		}
@@ -186,6 +194,7 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 	// get global reclaim headroom
 	if len(nonBindingNumas) > 0 {
 		cpusets := machine.NewCPUSet()
+		lastReclaimedCPUPerNumaForCalculate := make(map[int]float64)
 		for _, numaID := range nonBindingNumas {
 			cpuSet, ok := reclaimPoolInfo.TopologyAwareAssignments[numaID]
 			if !ok {
@@ -193,6 +202,7 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 			}
 
 			cpusets = cpusets.Union(cpuSet)
+			lastReclaimedCPUPerNumaForCalculate[numaID] = reclaimedCPUs[numaID]
 		}
 
 		reclaimMetrics, err := metricHelper.GetReclaimMetrics(cpusets, ha.getReclaimCgroupPath(), ha.metaServer.MetricsFetcher)
@@ -201,7 +211,7 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 		}
 
 		options.MaxCapacity *= float64(len(nonBindingNumas))
-		headroom, err := ha.getUtilBasedHeadroom(options, reclaimMetrics)
+		headroom, err := ha.getUtilBasedHeadroom(options, reclaimMetrics, lastReclaimedCPUPerNumaForCalculate)
 		if err != nil {
 			return resource.Quantity{}, nil, fmt.Errorf("get util-based headroom failed: %v", err)
 		}

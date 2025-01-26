@@ -19,10 +19,13 @@ package util
 import (
 	"fmt"
 	"sort"
+	"strconv"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/klog/v2"
 
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
@@ -211,4 +214,36 @@ func ValidateSharedCoresWithNumaBindingPod(qosConf *generic.QoSConfiguration, po
 	}
 
 	return true, nil
+}
+
+func GetReclaimedCPUPerNUMA(topologyZones []*nodev1alpha1.TopologyZone) map[int]float64 {
+	numaMap := make(map[int]float64)
+	for _, topologyZone := range topologyZones {
+		if topologyZone.Type != nodev1alpha1.TopologyTypeSocket {
+			continue
+		}
+
+		for _, child := range topologyZone.Children {
+			if child.Type != nodev1alpha1.TopologyTypeNuma {
+				continue
+			}
+
+			numaID, err := strconv.Atoi(child.Name)
+			if err != nil {
+				klog.Errorf("invalid numa name: %v, %v", child.Name, err)
+				continue
+			}
+
+			if child.Resources.Allocatable == nil {
+				klog.Errorf("numa zone without allocatable resource: %d", numaID)
+				continue
+			}
+
+			if reclaimedMilliCPU, ok := (*child.Resources.Allocatable)[consts.ReclaimedResourceMilliCPU]; ok {
+				numaMap[numaID] = float64(reclaimedMilliCPU.Value()) / 1000
+			}
+		}
+	}
+
+	return numaMap
 }
