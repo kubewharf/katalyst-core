@@ -61,6 +61,7 @@ var PolicyConfig = MBPolicyConfig{
 		MBPressureThreshold: defaultPressureThreshold,
 		MBEaseThreshold:     defaultEaseThreshold,
 		MaxMBPerCCD:         ccdMBMax,
+		MBPolicy:            "global",
 	},
 	DomainMBMax: domainMBMax,
 	DomainMBMin: domainMBMin,

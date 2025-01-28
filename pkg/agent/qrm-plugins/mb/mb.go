@@ -17,6 +17,7 @@ limitations under the License.
 package mb
 
 import (
+	"fmt"
 	"github.com/pkg/errors"
 	"k8s.io/klog/v2"
 
@@ -24,6 +25,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/allocator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/mbdomain"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy"
 	policyconfig "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/config"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/crossdomain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/controller/policy/strategy/domaintarget"
@@ -85,10 +87,18 @@ func NewComponent(agentCtx *agent.GenericContext, conf *config.Configuration, _ 
 		return false, nil, errors.Wrap(err, "mbm: failed to create mb plan allocator")
 	}
 
-	domainPolicy, err := crossdomain.NewGlobalMBPolicy(conf.MinMBPerCCD, domainManager,
-		domaintarget.MBAdjusterType(conf.LeafThrottleType), domaintarget.MBAdjusterType(conf.LeafEaseType), conf.SourcerType)
-	if err != nil {
-		return false, nil, errors.Wrap(err, "mbm: failed to create domain manager")
+	var domainPolicy policy.DomainMBPolicy
+	switch conf.MBPolicy {
+	case "global":
+		domainPolicy, err = crossdomain.NewGlobalMBPolicy(conf.MinMBPerCCD, domainManager,
+			domaintarget.MBAdjusterType(conf.LeafThrottleType), domaintarget.MBAdjusterType(conf.LeafEaseType), conf.SourcerType)
+		if err != nil {
+			return false, nil, errors.Wrap(err, "mbm: failed to create domain manager")
+		}
+	case "noop":
+		domainPolicy = policy.NewNoopDomainMBPolicy()
+	default:
+		return false, nil, fmt.Errorf("unknown mb policy type %s", conf.MBPolicy)
 	}
 
 	plugin := &plugin{

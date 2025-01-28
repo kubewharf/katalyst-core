@@ -33,18 +33,19 @@ type MBQRMPluginConfig struct {
 	// socket (top qos) mb reservation related
 	IncubationInterval time.Duration
 
+	MBPolicy string
+
+	// global mb policy specific
 	// leaf (lowest qos) mb planner related
 	LeafThrottleType string
 	LeafEaseType     string
-
 	// domain mb usage policy
 	MBPressureThreshold int
 	MBEaseThreshold     int
-
-	CCDMBDistributorType string
-
 	// incoming (recipient view) to outgoing (sender view) mapping related
 	SourcerType string
+
+	CCDMBDistributorType string
 
 	FailOnUnsupportedNode bool
 }

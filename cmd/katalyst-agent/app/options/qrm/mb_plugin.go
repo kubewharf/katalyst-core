@@ -41,7 +41,9 @@ type MBOptions struct {
 	// socket (top qos) mb reservation related
 	IncubationInterval time.Duration
 
-	// leaf (lowest qos) mb planner related
+	MBPolicy string
+
+	// leaf (lowest qos) mb planner related - global mb policy specific
 	LeafThrottleType    string
 	LeafEaseType        string
 	MBPressureThreshold int
@@ -67,6 +69,8 @@ func NewMBOptions() *MBOptions {
 		MaxMBPerCCD:      35_000,  // 35 GB
 		DomainMBCapacity: 122_000, // 122_000 MBps = 122 GBps
 		MBRemoteLimit:    20_000,  // 20 GB
+
+		MBPolicy: "global",
 
 		LeafThrottleType: string(domaintarget.ExtremeThrottle),
 		LeafEaseType:     string(domaintarget.HalfEase),
@@ -99,6 +103,7 @@ func (m *MBOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringVar(&m.CCDMBDistributorType, "mb-ccd-distributor", m.CCDMBDistributorType, "type of ccd mb planner")
 	fs.StringVar(&m.SourcerType, "mb-sourcer-type", m.SourcerType, "type of mb target source distributor")
 	fs.BoolVar(&m.FailOnUnsupportedNode, "mb-fail-hard", m.FailOnUnsupportedNode, "true to fail hard, false to run downgraded")
+	fs.StringVar(&m.MBPolicy, "mb-policy", m.MBPolicy, "type of domain mb policy")
 }
 
 func (m *MBOptions) ApplyTo(conf *qrmconfig.MBQRMPluginConfig) error {
@@ -108,6 +113,8 @@ func (m *MBOptions) ApplyTo(conf *qrmconfig.MBQRMPluginConfig) error {
 	conf.MaxMBPerCCD = m.MaxMBPerCCD
 	conf.DomainMBCapacity = m.DomainMBCapacity
 	conf.MBRemoteLimit = m.MBRemoteLimit
+
+	conf.MBPolicy = m.MBPolicy
 
 	// todo: to validate assignments
 	conf.LeafThrottleType = m.LeafThrottleType
