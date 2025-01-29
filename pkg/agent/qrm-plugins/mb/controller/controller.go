@@ -151,6 +151,11 @@ func (c *Controller) process(ctx context.Context) {
 		// we only care about qosCCDMB manageable by the specific domain
 		applicableQoSCCDMB := domain.GetApplicableQoSCCDMB(currQoSCCDMBStat)
 		mbAlloc := c.policy.GetPlan(domain.MBQuota, domain, applicableQoSCCDMB)
+		if mbAlloc == nil {
+			general.InfofV(6, "mbm: domain %d mb alloc plan nil, skip allocation", i)
+			continue
+		}
+
 		general.InfofV(6, "mbm: domain %d mb alloc plan: %v", i, mbAlloc)
 
 		if err := c.mbPlanAllocator.Allocate(mbAlloc); err != nil {
