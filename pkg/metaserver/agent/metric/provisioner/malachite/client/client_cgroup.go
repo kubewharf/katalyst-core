@@ -21,8 +21,11 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"time"
 
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/malachite/types"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 func (c *MalachiteClient) GetCgroupStats(cgroupPath string) (*types.MalachiteCgroupInfo, error) {
@@ -76,6 +79,7 @@ func (c *MalachiteClient) GetCgroupStats(cgroupPath string) (*types.MalachiteCgr
 		return nil, fmt.Errorf("unknow cgroup type %s in cgroup info", cgroupInfo.CgroupType)
 	}
 
+	c.checkCgroupStatsOutOfDate(cgroupPath, cgroupInfo)
 	return cgroupInfo, nil
 }
 
@@ -108,4 +112,55 @@ func (c *MalachiteClient) getCgroupStats(cgroupPath string) ([]byte, error) {
 	}
 
 	return ioutil.ReadAll(rsp.Body)
+}
+
+func (c *MalachiteClient) checkCgroupStatsOutOfDate(cgroupPath string, stats *types.MalachiteCgroupInfo) {
+	checkAndEmit := func(updateTimestamp int64, statsType string) {
+		updateTime := time.Unix(updateTimestamp, 0)
+		if time.Since(updateTime) <= UpdateTimeout {
+			return
+		}
+
+		general.Warningf(
+			"malachite cgroup %s stats outdated, cgroup %s, last update time %s",
+			statsType, cgroupPath, updateTime)
+		_ = c.emitter.StoreInt64(metricMalachiteCgroupStatsOutOfDate, 1, metrics.MetricTypeNameCount,
+			metrics.MetricTag{Key: "type", Val: statsType},
+			metrics.MetricTag{Key: "cgroupPath", Val: cgroupPath},
+		)
+	}
+
+	if stats.CgroupType == "V1" && stats.V1 != nil {
+		if stats.V1.Cpu != nil {
+			checkAndEmit(stats.V1.Cpu.UpdateTime, "cpu")
+		}
+		if stats.V1.Memory != nil {
+			checkAndEmit(stats.V1.Memory.UpdateTime, "memory")
+		}
+		if stats.V1.CpuSet != nil {
+			checkAndEmit(stats.V1.CpuSet.UpdateTime, "cpuset")
+		}
+		if stats.V1.Blkio != nil {
+			checkAndEmit(stats.V1.Blkio.UpdateTime, "blkio")
+		}
+		if stats.V1.NetCls != nil {
+			checkAndEmit(stats.V1.NetCls.UpdateTime, "netcls")
+		}
+	} else if stats.CgroupType == "V2" && stats.V2 != nil {
+		if stats.V2.Cpu != nil {
+			checkAndEmit(stats.V2.Cpu.UpdateTime, "cpu")
+		}
+		if stats.V2.Memory != nil {
+			checkAndEmit(stats.V2.Memory.UpdateTime, "memory")
+		}
+		if stats.V2.CpuSet != nil {
+			checkAndEmit(stats.V2.CpuSet.UpdateTime, "cpuset")
+		}
+		if stats.V2.Blkio != nil {
+			checkAndEmit(stats.V2.Blkio.UpdateTime, "blkio")
+		}
+		if stats.V2.NetCls != nil {
+			checkAndEmit(stats.V2.NetCls.UpdateTime, "netcls")
+		}
+	}
 }

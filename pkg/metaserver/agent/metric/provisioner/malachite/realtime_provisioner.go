@@ -47,7 +47,7 @@ func NewMalachiteRealtimeMetricsProvisioner(baseConf *global.BaseConfiguration, 
 	emitter metrics.MetricEmitter, fetcher pod.PodFetcher, metricStore *utilmetric.MetricStore, _ *machine.KatalystMachineInfo,
 ) types.MetricsProvisioner {
 	inner := &MalachiteMetricsProvisioner{
-		malachiteClient: client.NewMalachiteClient(fetcher),
+		malachiteClient: client.NewMalachiteClient(fetcher, emitter),
 		metricStore:     metricStore,
 		emitter:         emitter,
 		baseConf:        baseConf,

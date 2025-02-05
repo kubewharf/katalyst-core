@@ -19,8 +19,10 @@ package client
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
 const (
@@ -35,6 +37,18 @@ const (
 	SystemComputeResource = "system/compute"
 
 	RealtimePowerResource = "realtime/power"
+)
+
+const (
+	UpdateTimeout         = 30 * time.Second
+	RealtimeUpdateTimeout = 5 * time.Second
+)
+
+const (
+	metricMalachiteSystemStatsOutOfDate = "malachite_system_stats_out_of_date"
+	metricMalachiteCgroupStatsOutOfDate = "malachite_cgroup_stats_out_of_date"
+
+	metricMalachiteContainerStatsMissing = "malachite_container_stats_missing"
 )
 
 type SystemResourceKind int
@@ -52,10 +66,11 @@ type MalachiteClient struct {
 	urls             map[string]string
 	relativePathFunc *func(podUID, containerId string) (string, error)
 
+	emitter metrics.MetricEmitter
 	fetcher pod.PodFetcher
 }
 
-func NewMalachiteClient(fetcher pod.PodFetcher) *MalachiteClient {
+func NewMalachiteClient(fetcher pod.PodFetcher, emitter metrics.MetricEmitter) *MalachiteClient {
 	urls := make(map[string]string)
 	for _, path := range []string{
 		CgroupResource,
@@ -70,6 +85,7 @@ func NewMalachiteClient(fetcher pod.PodFetcher) *MalachiteClient {
 
 	return &MalachiteClient{
 		fetcher: fetcher,
+		emitter: emitter,
 		urls:    urls,
 	}
 }

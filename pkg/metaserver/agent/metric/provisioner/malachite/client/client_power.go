@@ -40,6 +40,7 @@ func (c *MalachiteClient) GetPowerData() (*types.PowerData, error) {
 		return nil, fmt.Errorf("system compute stats status is not ok, %d", rsp.Status)
 	}
 
+	c.checkSystemStatsOutOfDate("power", RealtimeUpdateTimeout, rsp.Data.Sensors.UpdateTime)
 	return &rsp.Data, nil
 }
 

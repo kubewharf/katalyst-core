@@ -23,6 +23,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/malachite/types"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	cgroupcm "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
@@ -59,7 +60,11 @@ func (c *MalachiteClient) GetPodStats(ctx context.Context, podUID string) (map[s
 		containerID := native.TrimContainerIDPrefix(containerStatus.ContainerID)
 		stats, err := c.GetPodContainerStats(podUID, containerID)
 		if err != nil {
-			general.Errorf("GetPodStats err %v", err)
+			general.Errorf("failed to get pod %s container %s stats, err %v", podUID, containerID, err)
+			_ = c.emitter.StoreInt64(metricMalachiteContainerStatsMissing, 1, metrics.MetricTypeNameCount,
+				metrics.MetricTag{Key: "podUID", Val: podUID},
+				metrics.MetricTag{Key: "containerID", Val: containerID},
+			)
 			continue
 		}
 		containersStats[containerStatus.Name] = stats
@@ -85,5 +90,6 @@ func (c *MalachiteClient) GetPodContainerStats(podUID, containerID string) (*typ
 	if err != nil {
 		return nil, fmt.Errorf("GetPodContainerStats %s/%v get-status %v err %v", podUID, containerID, cgroupPath, err)
 	}
+
 	return containersStats, nil
 }
