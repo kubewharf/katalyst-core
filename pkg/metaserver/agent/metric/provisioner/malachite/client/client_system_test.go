@@ -26,6 +26,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/malachite/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
 var (
@@ -89,7 +90,7 @@ func TestGetSystemComputeStats(t *testing.T) {
 	server := getSystemTestServer(data)
 	defer server.Close()
 
-	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{})
+	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{}, metrics.DummyMetrics{})
 	malachiteClient.SetURL(map[string]string{
 		SystemComputeResource: server.URL,
 	})
@@ -108,7 +109,7 @@ func TestGetSystemCPUCodeName(t *testing.T) {
 	data, _ := json.Marshal(fakeSystemCompute)
 	server := getSystemTestServer(data)
 	defer server.Close()
-	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{})
+	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{}, metrics.DummyMetrics{})
 	malachiteClient.SetURL(map[string]string{
 		SystemComputeResource: server.URL,
 	})
@@ -129,7 +130,7 @@ func TestGetSystemMemoryStats(t *testing.T) {
 	server := getSystemTestServer(data)
 	defer server.Close()
 
-	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{})
+	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{}, metrics.DummyMetrics{})
 	malachiteClient.SetURL(map[string]string{
 		SystemMemoryResource: server.URL,
 	})
@@ -150,7 +151,7 @@ func TestGetSystemIOStats(t *testing.T) {
 	server := getSystemTestServer(data)
 	defer server.Close()
 
-	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{})
+	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{}, metrics.DummyMetrics{})
 	malachiteClient.SetURL(map[string]string{
 		SystemIOResource: server.URL,
 	})
@@ -171,7 +172,7 @@ func TestGetSystemNetStats(t *testing.T) {
 	server := getSystemTestServer(data)
 	defer server.Close()
 
-	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{})
+	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{}, metrics.DummyMetrics{})
 	malachiteClient.SetURL(map[string]string{
 		SystemNetResource: server.URL,
 	})
@@ -191,7 +192,7 @@ func TestGetSystemNonExistStats(t *testing.T) {
 	server := getSystemTestServer([]byte{})
 	defer server.Close()
 
-	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{})
+	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{}, metrics.DummyMetrics{})
 	_, err := malachiteClient.getSystemStats(100)
 	assert.ErrorContains(t, err, "unknown")
 }

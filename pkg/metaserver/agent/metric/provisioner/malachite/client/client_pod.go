@@ -19,10 +19,12 @@ package client
 import (
 	"context"
 	"fmt"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/malachite/types"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	cgroupcm "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
@@ -59,7 +61,11 @@ func (c *MalachiteClient) GetPodStats(ctx context.Context, podUID string) (map[s
 		containerID := native.TrimContainerIDPrefix(containerStatus.ContainerID)
 		stats, err := c.GetPodContainerStats(podUID, containerID)
 		if err != nil {
-			general.Errorf("GetPodStats err %v", err)
+			general.Errorf("failed to get pod %s container %s stats, err %v", podUID, containerID, err)
+			_ = c.emitter.StoreInt64(metricMalachiteContainerStatsMissing, 1, metrics.MetricTypeNameCount,
+				metrics.MetricTag{Key: "podUID", Val: podUID},
+				metrics.MetricTag{Key: "containerID", Val: containerID},
+			)
 			continue
 		}
 		containersStats[containerStatus.Name] = stats
@@ -85,5 +91,62 @@ func (c *MalachiteClient) GetPodContainerStats(podUID, containerID string) (*typ
 	if err != nil {
 		return nil, fmt.Errorf("GetPodContainerStats %s/%v get-status %v err %v", podUID, containerID, cgroupPath, err)
 	}
+
+	c.checkContainerStatsOutdated(podUID, containerID, containersStats)
 	return containersStats, nil
+}
+
+func (c *MalachiteClient) checkContainerStatsOutdated(
+	podUID, containerID string,
+	stats *types.MalachiteCgroupInfo,
+) {
+	checkAndEmit := func(updateTimestamp int64, statsType string) {
+		updateTime := time.Unix(updateTimestamp, 0)
+		if time.Since(updateTime) <= UpdateTimeout {
+			return
+		}
+
+		general.Warningf(
+			"malachite container %s stats outdated, pod %s container %s, last update time %s",
+			statsType, podUID, containerID, updateTime)
+		_ = c.emitter.StoreInt64(metricMalachiteContainerStatsOutdated, 1, metrics.MetricTypeNameCount,
+			metrics.MetricTag{Key: "type", Val: statsType},
+			metrics.MetricTag{Key: "podUID", Val: podUID},
+			metrics.MetricTag{Key: "containerID", Val: containerID},
+		)
+	}
+
+	if stats.CgroupType == "V1" && stats.V1 != nil {
+		if stats.V1.Cpu != nil {
+			checkAndEmit(stats.V1.Cpu.UpdateTime, "cpu")
+		}
+		if stats.V1.Memory != nil {
+			checkAndEmit(stats.V1.Memory.UpdateTime, "memory")
+		}
+		if stats.V1.CpuSet != nil {
+			checkAndEmit(stats.V1.CpuSet.UpdateTime, "cpuset")
+		}
+		if stats.V1.Blkio != nil {
+			checkAndEmit(stats.V1.Blkio.UpdateTime, "blkio")
+		}
+		if stats.V1.NetCls != nil {
+			checkAndEmit(stats.V1.NetCls.UpdateTime, "netcls")
+		}
+	} else if stats.CgroupType == "V2" && stats.V2 != nil {
+		if stats.V2.Cpu != nil {
+			checkAndEmit(stats.V2.Cpu.UpdateTime, "cpu")
+		}
+		if stats.V2.Memory != nil {
+			checkAndEmit(stats.V2.Memory.UpdateTime, "memory")
+		}
+		if stats.V2.CpuSet != nil {
+			checkAndEmit(stats.V2.CpuSet.UpdateTime, "cpuset")
+		}
+		if stats.V2.Blkio != nil {
+			checkAndEmit(stats.V2.Blkio.UpdateTime, "blkio")
+		}
+		if stats.V2.NetCls != nil {
+			checkAndEmit(stats.V2.NetCls.UpdateTime, "netcls")
+		}
+	}
 }

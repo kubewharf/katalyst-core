@@ -32,6 +32,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/malachite/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 )
 
@@ -153,7 +154,7 @@ func TestGetPodContainerStats(t *testing.T) {
 	}
 	fetcher := &pod.PodFetcherStub{PodList: pods}
 
-	malachiteClient := NewMalachiteClient(fetcher)
+	malachiteClient := NewMalachiteClient(fetcher, metrics.DummyMetrics{})
 	malachiteClient.SetURL(map[string]string{
 		CgroupResource: server.URL,
 	})

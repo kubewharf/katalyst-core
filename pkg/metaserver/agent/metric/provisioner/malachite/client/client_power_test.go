@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/malachite/types"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
 func TestMalachiteClient_GetPower(t *testing.T) {
@@ -103,7 +104,8 @@ func TestMalachiteClient_GetPower(t *testing.T) {
 			defer s.Close()
 
 			c := &MalachiteClient{
-				urls: map[string]string{"realtime/power": s.URL},
+				emitter: metrics.DummyMetrics{},
+				urls:    map[string]string{"realtime/power": s.URL},
 			}
 			got, err := c.GetPowerData()
 			if !tt.wantErr(t, err, fmt.Sprintf("GetPowerData()")) {
