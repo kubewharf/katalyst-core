@@ -394,6 +394,12 @@ func (p *StaticPolicy) GetTopologyAwareResources(_ context.Context,
 	}
 
 	nic := p.getNICByName(allocationInfo.IfName)
+	identifier := allocationInfo.Identifier
+	if identifier == "" {
+		// backup to use ifName and nic.NSName as identifier
+		identifier = getResourceIdentifier(nic.NSName, nic.Iface)
+	}
+
 	topologyAwareQuantityList := []*pluginapi.TopologyAwareQuantity{
 		{
 			ResourceValue: float64(allocationInfo.Egress),
@@ -402,7 +408,7 @@ func (p *StaticPolicy) GetTopologyAwareResources(_ context.Context,
 			Type:          string(apinode.TopologyTypeNIC),
 			TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 			Annotations: map[string]string{
-				apiconsts.ResourceAnnotationKeyResourceIdentifier: getResourceIdentifier(nic.NSName, allocationInfo.IfName),
+				apiconsts.ResourceAnnotationKeyResourceIdentifier: identifier,
 				apiconsts.ResourceAnnotationKeyNICNetNSName:       nic.NSName,
 			},
 		},
@@ -684,6 +690,7 @@ func (p *StaticPolicy) Allocate(ctx context.Context,
 			commonstate.EmptyOwnerPoolName, qosLevel),
 		Egress:     uint32(reqInt),
 		Ingress:    uint32(reqInt),
+		Identifier: getResourceIdentifier(selectedNIC.NSName, selectedNIC.Iface),
 		NSName:     selectedNIC.NSName,
 		IfName:     selectedNIC.Iface,
 		NumaNodes:  siblingNUMAs,

@@ -43,7 +43,7 @@ func (p nicPodAllocationWrapper) UpdateAllocation(pod *v1.Pod) error {
 		annotations = make(map[string]string)
 	}
 
-	annotations[apiconsts.PodAnnotationNICSelectionResultKey] = p.AllocationInfo.IfName
+	annotations[apiconsts.PodAnnotationNICSelectionResultKey] = p.AllocationInfo.Identifier
 	pod.SetAnnotations(annotations)
 
 	return nil
