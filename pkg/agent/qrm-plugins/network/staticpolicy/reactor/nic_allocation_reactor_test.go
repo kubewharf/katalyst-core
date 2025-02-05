@@ -96,7 +96,8 @@ func Test_podNICAllocationReactor_UpdateAllocation(t *testing.T) {
 							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
 						},
 					},
-					IfName: "eth0",
+					Identifier: "ns0-eth0",
+					IfName:     "eth0",
 				},
 			},
 			wantPod: &v1.Pod{
@@ -105,7 +106,7 @@ func Test_podNICAllocationReactor_UpdateAllocation(t *testing.T) {
 					Namespace: "test",
 					UID:       types.UID("test-1-uid"),
 					Annotations: map[string]string{
-						consts.PodAnnotationNICSelectionResultKey: "eth0",
+						consts.PodAnnotationNICSelectionResultKey: "ns0-eth0",
 					},
 				},
 			},

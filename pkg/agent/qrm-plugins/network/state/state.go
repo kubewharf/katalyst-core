@@ -33,6 +33,7 @@ type AllocationInfo struct {
 
 	Egress     uint32         `json:"egress"`
 	Ingress    uint32         `json:"ingress"`
+	Identifier string         `json:"identifier"`
 	NSName     string         `json:"ns_name"`
 	IfName     string         `json:"if_name"`   // we do not support cross-nic bandwidth
 	NumaNodes  machine.CPUSet `json:"numa_node"` // associated numa nodes of the socket connecting to the selected NIC
@@ -92,6 +93,7 @@ func (ai *AllocationInfo) Clone() *AllocationInfo {
 		AllocationMeta: *ai.AllocationMeta.Clone(),
 		Egress:         ai.Egress,
 		Ingress:        ai.Ingress,
+		Identifier:     ai.Identifier,
 		NSName:         ai.NSName,
 		IfName:         ai.IfName,
 		NumaNodes:      ai.NumaNodes.Clone(),
