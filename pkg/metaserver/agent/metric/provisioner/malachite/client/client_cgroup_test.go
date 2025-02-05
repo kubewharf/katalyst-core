@@ -26,6 +26,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/malachite/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
 var (
@@ -132,7 +133,7 @@ func TestGetCgroupStats(t *testing.T) {
 	}))
 	defer server.Close()
 
-	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{})
+	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{}, metrics.DummyMetrics{})
 	malachiteClient.SetURL(map[string]string{
 		CgroupResource: server.URL,
 	})
