@@ -19,70 +19,69 @@ package reactor
 import (
 	"context"
 	"fmt"
-	"strconv"
 
 	"github.com/samber/lo"
 	v1 "k8s.io/api/core/v1"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/reactor"
 )
 
-type numaPodAllocationWrapper struct {
+type nicPodAllocationWrapper struct {
 	*state.AllocationInfo
 }
 
-func (p numaPodAllocationWrapper) UpdateAllocation(pod *v1.Pod) error {
-	numaID, err := p.AllocationInfo.GetSpecifiedNUMABindingNUMAID()
-	if err != nil {
-		return err
+func (p nicPodAllocationWrapper) UpdateAllocation(pod *v1.Pod) error {
+	if p.AllocationInfo == nil {
+		return nil
 	}
 
 	annotations := pod.GetAnnotations()
 	if annotations == nil {
 		annotations = make(map[string]string)
 	}
-	annotations[apiconsts.PodAnnotationNUMABindResultKey] = strconv.Itoa(numaID)
+
+	annotations[apiconsts.PodAnnotationNICSelectionResultKey] = p.AllocationInfo.Identifier
 	pod.SetAnnotations(annotations)
 
 	return nil
 }
 
-func (p numaPodAllocationWrapper) NeedUpdateAllocation(pod *v1.Pod) bool {
+func (p nicPodAllocationWrapper) NeedUpdateAllocation(pod *v1.Pod) bool {
 	if p.CheckSideCar() {
 		return false
 	}
 
-	if _, ok := pod.Annotations[apiconsts.PodAnnotationNUMABindResultKey]; !ok {
+	if _, ok := pod.Annotations[apiconsts.PodAnnotationNICSelectionResultKey]; !ok {
 		return true
 	}
 
 	return false
 }
 
-type numaPodAllocationReactor struct {
+type nicPodAllocationReactor struct {
 	reactor.AllocationReactor
 }
 
-func NewNUMAPodAllocationReactor(r reactor.AllocationReactor) reactor.AllocationReactor {
-	return &numaPodAllocationReactor{
+func NewNICPodAllocationReactor(r reactor.AllocationReactor) reactor.AllocationReactor {
+	return &nicPodAllocationReactor{
 		AllocationReactor: r,
 	}
 }
 
-func (r *numaPodAllocationReactor) UpdateAllocation(ctx context.Context, allocation commonstate.Allocation) error {
+func (r *nicPodAllocationReactor) UpdateAllocation(ctx context.Context, allocation commonstate.Allocation) error {
 	if lo.IsNil(allocation) {
 		return fmt.Errorf("allocation is nil")
 	}
 
 	allocationInfo, ok := allocation.(*state.AllocationInfo)
 	if !ok {
-		return fmt.Errorf("allocation info is not of type memory.AllocationInfo")
+		return fmt.Errorf("allocation info is not of type network.AllocationInfo")
 	}
 
-	return r.AllocationReactor.UpdateAllocation(ctx, numaPodAllocationWrapper{
+	return r.AllocationReactor.UpdateAllocation(ctx, nicPodAllocationWrapper{
 		AllocationInfo: allocationInfo,
 	})
 }

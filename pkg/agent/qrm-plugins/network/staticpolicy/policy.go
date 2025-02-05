@@ -33,8 +33,11 @@ import (
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/state"
+	networkreactor "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/staticpolicy/reactor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/reactor"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	agentconfig "github.com/kubewharf/katalyst-core/pkg/config/agent"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
@@ -94,6 +97,8 @@ type StaticPolicy struct {
 
 	podAnnotationKeptKeys []string
 	podLabelKeptKeys      []string
+
+	nicAllocationReactor reactor.AllocationReactor
 
 	// aliveCgroupID is used to record the alive cgroupIDs and their last alive time
 	aliveCgroupID map[uint64]time.Time
@@ -159,6 +164,15 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	}
 
 	policyImplement.ApplyConfig(conf.StaticAgentConfiguration)
+
+	policyImplement.nicAllocationReactor = reactor.DummyAllocationReactor{}
+	if conf.EnableNICAllocationReactor {
+		policyImplement.nicAllocationReactor = networkreactor.NewNICPodAllocationReactor(
+			reactor.NewPodAllocationReactor(
+				agentCtx.MetaServer.PodFetcher,
+				agentCtx.Client.KubeClient,
+			))
+	}
 
 	pluginWrapper, err := skeleton.NewRegistrationPluginWrapper(policyImplement, conf.QRMPluginSocketDirs,
 		func(key string, value int64) {
@@ -369,6 +383,12 @@ func (p *StaticPolicy) GetTopologyAwareResources(_ context.Context,
 	}
 
 	nic := p.getNICByName(allocationInfo.IfName)
+	identifier := allocationInfo.Identifier
+	if identifier == "" {
+		// backup to use ifName and nic.NSName as identifier
+		identifier = getResourceIdentifier(nic.NSName, nic.Iface)
+	}
+
 	topologyAwareQuantityList := []*pluginapi.TopologyAwareQuantity{
 		{
 			ResourceValue: float64(allocationInfo.Egress),
@@ -377,7 +397,7 @@ func (p *StaticPolicy) GetTopologyAwareResources(_ context.Context,
 			Type:          string(apinode.TopologyTypeNIC),
 			TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 			Annotations: map[string]string{
-				apiconsts.ResourceAnnotationKeyResourceIdentifier: getResourceIdentifier(nic.NSName, allocationInfo.IfName),
+				apiconsts.ResourceAnnotationKeyResourceIdentifier: allocationInfo.Identifier,
 				apiconsts.ResourceAnnotationKeyNICNetNSName:       nic.NSName,
 			},
 		},
@@ -497,7 +517,7 @@ func (p *StaticPolicy) GetResourcePluginOptions(context.Context,
 // Allocate is called during pod admit so that the resource
 // plugin can allocate corresponding resource for the container
 // according to resource request
-func (p *StaticPolicy) Allocate(_ context.Context,
+func (p *StaticPolicy) Allocate(ctx context.Context,
 	req *pluginapi.ResourceRequest,
 ) (resp *pluginapi.ResourceAllocationResponse, err error) {
 	if req == nil {
@@ -643,20 +663,14 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 
 	// generate allocationInfo and update the checkpoint accordingly
 	newAllocation := &state.AllocationInfo{
-		PodUid:         req.PodUid,
-		PodNamespace:   req.PodNamespace,
-		PodName:        req.PodName,
-		ContainerName:  req.ContainerName,
-		ContainerType:  req.ContainerType.String(),
-		ContainerIndex: req.ContainerIndex,
-		PodRole:        req.PodRole,
-		PodType:        req.PodType,
-		Egress:         uint32(reqInt),
-		Ingress:        uint32(reqInt),
-		IfName:         selectedNIC.Iface,
-		NumaNodes:      siblingNUMAs,
-		Labels:         general.DeepCopyMap(req.Labels),
-		Annotations:    general.DeepCopyMap(req.Annotations),
+		AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(req,
+			commonstate.EmptyOwnerPoolName, qosLevel),
+		Egress:     uint32(reqInt),
+		Ingress:    uint32(reqInt),
+		Identifier: getResourceIdentifier(selectedNIC.NSName, selectedNIC.Iface),
+		IfNSName:   selectedNIC.NSName,
+		IfName:     selectedNIC.Iface,
+		NumaNodes:  siblingNUMAs,
 	}
 
 	resourceAllocationAnnotations, err := p.getResourceAllocationAnnotations(podAnnotations, newAllocation)
@@ -683,6 +697,13 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 
 	// update state cache
 	p.state.SetMachineState(machineState)
+
+	// update nic allocation
+	err = p.nicAllocationReactor.UpdateAllocation(ctx, newAllocation)
+	if err != nil {
+		general.Errorf("nicAllocationReactor UpdateAllocation failed with error: %v", err)
+		return nil, err
+	}
 
 	return packAllocationResponse(req, newAllocation, resourceAllocationAnnotations)
 }
