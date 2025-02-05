@@ -30,10 +30,12 @@ import (
 type AllocationInfo struct {
 	commonstate.AllocationMeta `json:",inline"`
 
-	Egress    uint32         `json:"egress"`
-	Ingress   uint32         `json:"ingress"`
-	IfName    string         `json:"if_name"`   // we do not support cross-nic bandwidth
-	NumaNodes machine.CPUSet `json:"numa_node"` // associated numa nodes of the socket connecting to the selected NIC
+	Egress     uint32         `json:"egress"`
+	Ingress    uint32         `json:"ingress"`
+	Identifier string         `json:"identifier"`
+	IfNSName   string         `json:"if_ns_name"`
+	IfName     string         `json:"if_name"`   // we do not support cross-nic bandwidth
+	NumaNodes  machine.CPUSet `json:"numa_node"` // associated numa nodes of the socket connecting to the selected NIC
 }
 
 type (
@@ -89,6 +91,8 @@ func (ai *AllocationInfo) Clone() *AllocationInfo {
 		AllocationMeta: *ai.AllocationMeta.Clone(),
 		Egress:         ai.Egress,
 		Ingress:        ai.Ingress,
+		Identifier:     ai.Identifier,
+		IfNSName:       ai.IfNSName,
 		IfName:         ai.IfName,
 		NumaNodes:      ai.NumaNodes.Clone(),
 	}
