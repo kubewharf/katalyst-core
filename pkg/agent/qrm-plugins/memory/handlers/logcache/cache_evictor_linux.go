@@ -40,7 +40,7 @@ func EvictFileCache(filePath string, fileSizeBytes int64) error {
 
 	err = unix.Fadvise(int(file.Fd()), 0, fileSizeBytes, unix.FADV_DONTNEED)
 	if err != nil {
-		return fmt.Errorf("failed to evict page cache for file %s", filePath)
+		return fmt.Errorf("failed   to evict page cache for file %s", filePath)
 	}
 
 	return nil
