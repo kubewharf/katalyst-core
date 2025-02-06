@@ -165,7 +165,7 @@ func TestDynamicPolicy_getReclaimOverlapShareRatio(t *testing.T) {
 			as.Nil(err)
 
 			if tt.fields.allowSharedCoresOverlapReclaimedCores {
-				p.state.SetAllowSharedCoresOverlapReclaimedCores(true)
+				p.state.SetAllowSharedCoresOverlapReclaimedCores(true, true)
 			}
 
 			got, err := p.getReclaimOverlapShareRatio(tt.args.entries)

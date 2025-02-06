@@ -338,7 +338,7 @@ func (p *DynamicPolicy) Start() (err error) {
 		defer func() {
 			p.Unlock()
 		}()
-		if err := p.adjustAllocationEntries(); err != nil {
+		if err := p.adjustAllocationEntries(true); err != nil {
 			general.Warningf("failed to sync memory state from pod spec: %q", err)
 		} else {
 			general.Warningf("sync memory state from pod spec successfully")
@@ -656,7 +656,7 @@ func (p *DynamicPolicy) RemovePod(ctx context.Context,
 		}
 	}
 
-	err = p.removePod(req.PodUid)
+	err = p.removePod(req.PodUid, false)
 	if err != nil {
 		general.ErrorS(err, "remove pod failed with error", "podUID", req.PodUid)
 		_ = p.emitter.StoreInt64(util.MetricNameRemovePodFailed, 1, metrics.MetricTypeNameRaw,
@@ -664,9 +664,12 @@ func (p *DynamicPolicy) RemovePod(ctx context.Context,
 		return nil, err
 	}
 
-	aErr := p.adjustAllocationEntries()
+	aErr := p.adjustAllocationEntries(false)
 	if aErr != nil {
 		general.ErrorS(aErr, "adjustAllocationEntries failed", "podUID", req.PodUid)
+	}
+	if err := p.state.StoreState(); err != nil {
+		general.ErrorS(err, "store state failed", "podUID", req.PodUid)
 	}
 
 	return &pluginapi.RemovePodResponse{}, nil
@@ -701,7 +704,7 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 				if applySidecarAllocationInfoFromMainContainer(allocationInfo, mainContainerAllocationInfo) {
 					general.Infof("pod: %s/%s sidecar container: %s update its allocation",
 						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
-					p.state.SetAllocationInfo(v1.ResourceMemory, podUID, containerName, allocationInfo)
+					p.state.SetAllocationInfo(v1.ResourceMemory, podUID, containerName, allocationInfo, true)
 					needUpdateMachineState = true
 				}
 			}
@@ -731,7 +734,7 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 			general.Infof("GetResourcesAllocation GenerateMachineStateFromPodEntries failed with error: %v", err)
 			return nil, fmt.Errorf("calculate machineState by updated pod entries failed with error: %v", err)
 		}
-		p.state.SetMachineState(resourcesState)
+		p.state.SetMachineState(resourcesState, true)
 	}
 
 	return &pluginapi.GetResourcesAllocationResponse{
@@ -948,13 +951,16 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 			if err != nil {
 				resp = nil
 				respErr = fmt.Errorf("add container to qos aware server failed with error: %v", err)
-				_ = p.removeContainer(req.PodUid, req.ContainerName)
+				_ = p.removeContainer(req.PodUid, req.ContainerName, false)
 			}
 		} else if respErr != nil {
-			_ = p.removeContainer(req.PodUid, req.ContainerName)
+			_ = p.removeContainer(req.PodUid, req.ContainerName, false)
 			_ = p.emitter.StoreInt64(util.MetricNameAllocateFailed, 1, metrics.MetricTypeNameRaw,
 				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(respErr)},
 				metrics.MetricTag{Key: util.MetricTagNameInplaceUpdateResizing, Val: strconv.FormatBool(util.PodInplaceUpdateResizing(req))})
+		}
+		if err := p.state.StoreState(); err != nil {
+			general.ErrorS(err, "store state failed", "podName", req.PodName, "containerName", req.ContainerName)
 		}
 
 		p.Unlock()
@@ -1011,7 +1017,7 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 	if p.allocationHandlers[qosLevel] == nil {
 		return nil, fmt.Errorf("katalyst QoS level: %s is not supported yet", qosLevel)
 	}
-	return p.allocationHandlers[qosLevel](ctx, req)
+	return p.allocationHandlers[qosLevel](ctx, req, false)
 }
 
 // AllocateForPod is called during pod admit so that the resource
@@ -1030,7 +1036,7 @@ func (p *DynamicPolicy) PreStartContainer(context.Context, *pluginapi.PreStartCo
 	return nil, nil
 }
 
-func (p *DynamicPolicy) removePod(podUID string) error {
+func (p *DynamicPolicy) removePod(podUID string, persistCheckpoint bool) error {
 	podResourceEntries := p.state.GetPodResourceEntries()
 	for _, podEntries := range podResourceEntries {
 		delete(podEntries, podUID)
@@ -1042,12 +1048,15 @@ func (p *DynamicPolicy) removePod(podUID string) error {
 		return fmt.Errorf("calculate machineState by updated pod entries failed with error: %v", err)
 	}
 
-	p.state.SetPodResourceEntries(podResourceEntries)
-	p.state.SetMachineState(resourcesMachineState)
+	p.state.SetPodResourceEntries(podResourceEntries, false)
+	p.state.SetMachineState(resourcesMachineState, false)
+	if persistCheckpoint {
+		return p.state.StoreState()
+	}
 	return nil
 }
 
-func (p *DynamicPolicy) removeContainer(podUID, containerName string) error {
+func (p *DynamicPolicy) removeContainer(podUID, containerName string, persistCheckpoint bool) error {
 	podResourceEntries := p.state.GetPodResourceEntries()
 
 	found := false
@@ -1069,8 +1078,11 @@ func (p *DynamicPolicy) removeContainer(podUID, containerName string) error {
 		return fmt.Errorf("calculate machineState by updated pod entries failed with error: %v", err)
 	}
 
-	p.state.SetPodResourceEntries(podResourceEntries)
-	p.state.SetMachineState(resourcesMachineState)
+	p.state.SetPodResourceEntries(podResourceEntries, false)
+	p.state.SetMachineState(resourcesMachineState, false)
+	if persistCheckpoint {
+		return p.state.StoreState()
+	}
 	return nil
 }
 

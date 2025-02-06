@@ -455,7 +455,7 @@ func (p *NativePolicy) GetResourcesAllocation(_ context.Context,
 					allocationInfo.TopologyAwareAssignments = clonedDefaultCPUSetTopologyAwareAssignments
 					allocationInfo.OriginalTopologyAwareAssignments = clonedDefaultCPUSetTopologyAwareAssignments
 
-					p.state.SetAllocationInfo(podUID, containerName, allocationInfo)
+					p.state.SetAllocationInfo(podUID, containerName, allocationInfo, true)
 				}
 			default:
 				general.Errorf("skip container because the pool name is not supported, pod: %s, container: %s, cpuset: %s",
@@ -609,9 +609,9 @@ func (p *NativePolicy) removePod(podUID string) error {
 		return fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
 
-	p.state.SetPodEntries(podEntries)
-	p.state.SetMachineState(updatedMachineState)
-	return nil
+	p.state.SetPodEntries(podEntries, false)
+	p.state.SetMachineState(updatedMachineState, false)
+	return p.state.StoreState()
 }
 
 func (p *NativePolicy) removeContainer(podUID, containerName string) error {
@@ -626,9 +626,9 @@ func (p *NativePolicy) removeContainer(podUID, containerName string) error {
 		return fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
 
-	p.state.SetPodEntries(podEntries)
-	p.state.SetMachineState(updatedMachineState)
-	return nil
+	p.state.SetPodEntries(podEntries, false)
+	p.state.SetMachineState(updatedMachineState, false)
+	return p.state.StoreState()
 }
 
 // getContainerRequestedCores parses and returns request cores for the given container

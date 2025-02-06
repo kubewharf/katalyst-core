@@ -446,7 +446,7 @@ func (p *DynamicPolicy) allocateByCPUAdvisor(
 	if curAllowSharedCoresOverlapReclaimedCores != resp.AllowSharedCoresOverlapReclaimedCores {
 		general.Infof("set allowSharedCoresOverlapReclaimedCores from %v to %v",
 			curAllowSharedCoresOverlapReclaimedCores, resp.AllowSharedCoresOverlapReclaimedCores)
-		p.state.SetAllowSharedCoresOverlapReclaimedCores(resp.AllowSharedCoresOverlapReclaimedCores)
+		p.state.SetAllowSharedCoresOverlapReclaimedCores(resp.AllowSharedCoresOverlapReclaimedCores, true)
 	}
 
 	return nil
@@ -802,9 +802,11 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 	if err != nil {
 		return fmt.Errorf("calculate machineState by newPodEntries failed with error: %v", err)
 	}
-	p.state.SetPodEntries(newEntries)
-	p.state.SetMachineState(newMachineState)
-
+	p.state.SetPodEntries(newEntries, false)
+	p.state.SetMachineState(newMachineState, false)
+	if err := p.state.StoreState(); err != nil {
+		general.ErrorS(err, "store state failed")
+	}
 	return nil
 }
 
@@ -849,7 +851,7 @@ func (p *DynamicPolicy) applyNUMAHeadroom(resp *advisorapi.ListAndWatchResponse)
 				advisorapi.ControlKnobKeyCPUNUMAHeadroom, cpuNUMAHeadroomValue, err)
 		}
 
-		p.state.SetNUMAHeadroom(*cpuNUMAHeadroom)
+		p.state.SetNUMAHeadroom(*cpuNUMAHeadroom, true)
 		general.Infof("cpuNUMAHeadroom: %v", cpuNUMAHeadroom)
 	}
 

@@ -160,8 +160,11 @@ func (p *DynamicPolicy) setExtraControlKnobByConfigs(_ *coreconfig.Configuration
 		return
 	}
 
-	p.state.SetPodResourceEntries(podResourceEntries)
-	p.state.SetMachineState(resourcesMachineState)
+	p.state.SetPodResourceEntries(podResourceEntries, false)
+	p.state.SetMachineState(resourcesMachineState, false)
+	if err := p.state.StoreState(); err != nil {
+		general.ErrorS(err, "store state failed")
+	}
 }
 
 func (p *DynamicPolicy) applyExternalCgroupParams(_ *coreconfig.Configuration,
@@ -465,12 +468,15 @@ func (p *DynamicPolicy) clearResidualState(_ *coreconfig.Configuration,
 			return
 		}
 
-		p.state.SetPodResourceEntries(podResourceEntries)
-		p.state.SetMachineState(resourcesMachineState)
+		p.state.SetPodResourceEntries(podResourceEntries, false)
+		p.state.SetMachineState(resourcesMachineState, false)
 
-		err = p.adjustAllocationEntries()
+		err = p.adjustAllocationEntries(false)
 		if err != nil {
 			general.ErrorS(err, "adjustAllocationEntries failed")
+		}
+		if err := p.state.StoreState(); err != nil {
+			general.ErrorS(err, "store state failed")
 		}
 	}
 }
@@ -787,6 +793,9 @@ func (p *DynamicPolicy) syncOOMPriority(conf *coreconfig.Configuration,
 		return
 	}
 
-	p.state.SetPodResourceEntries(podResourceEntries)
-	p.state.SetMachineState(resourcesMachineState)
+	p.state.SetPodResourceEntries(podResourceEntries, false)
+	p.state.SetMachineState(resourcesMachineState, false)
+	if err := p.state.StoreState(); err != nil {
+		general.Errorf("store state failed with error: %v", err)
+	}
 }
