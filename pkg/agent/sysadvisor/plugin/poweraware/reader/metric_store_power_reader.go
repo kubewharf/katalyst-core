@@ -55,7 +55,12 @@ func (m *metricStorePowerReader) Get(ctx context.Context) (int, error) {
 func (m *metricStorePowerReader) get(ctx context.Context, now time.Time) (int, error) {
 	data, err := m.GetNodeMetric(consts.MetricTotalPowerUsedWatts)
 	if err != nil {
-		return 0, errors.Wrap(err, "failed to get metric from metric store")
+		return 0, errors.Wrap(err, "failed to get power usage from metric store")
+	}
+
+	// 0 actually is error, typically caused by null response from malachite realtime power service
+	if data.Value == 0 {
+		return 0, errors.New("got invalid 0 power usage from metric store")
 	}
 
 	if !isDataFresh(data, now) {
