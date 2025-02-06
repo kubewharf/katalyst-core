@@ -42,14 +42,14 @@ func main() {
 
 	conf, err := opt.Config()
 	if err != nil {
-		fmt.Printf("parse config error: %v\n", err)
+		fmt.Printf("parse config error : %v\n", err)
 		os.Exit(1)
 	}
 
 	clientSet, ClientErr := client.BuildGenericClient(conf.GenericConfiguration.ClientConnection, opt.MasterURL,
 		opt.KubeConfig, fmt.Sprintf("%v", consts.KatalystComponentAgent))
 	if ClientErr != nil {
-		fmt.Printf("build client set error: %v\n", err)
+		fmt.Printf("build client set error : %v\n", err)
 		os.Exit(1)
 	}
 
