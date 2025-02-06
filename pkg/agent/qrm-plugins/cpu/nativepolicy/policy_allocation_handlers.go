@@ -128,7 +128,7 @@ func (p *NativePolicy) dedicatedCoresAllocationHandler(_ context.Context,
 
 	// update pod entries directly.
 	// if one of subsequent steps is failed, we will delete current allocationInfo from podEntries in defer function of allocation function.
-	p.state.SetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, allocationInfo)
+	p.state.SetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, allocationInfo, true)
 	podEntries := p.state.GetPodEntries()
 
 	updatedMachineState, err := nativepolicyutil.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
@@ -137,7 +137,7 @@ func (p *NativePolicy) dedicatedCoresAllocationHandler(_ context.Context,
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
-	p.state.SetMachineState(updatedMachineState)
+	p.state.SetMachineState(updatedMachineState, true)
 
 	resp, err := cpuutil.PackAllocationResponse(allocationInfo, string(v1.ResourceCPU), util.OCIPropertyNameCPUSetCPUs, false, true, req)
 	if err != nil {
@@ -195,7 +195,7 @@ func (p *NativePolicy) sharedPoolAllocationHandler(ctx context.Context,
 
 	// update pod entries directly.
 	// if one of subsequent steps is failed, we will delete current allocationInfo from podEntries in defer function of allocation function.
-	p.state.SetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, allocationInfo)
+	p.state.SetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, allocationInfo, true)
 	podEntries := p.state.GetPodEntries()
 
 	updatedMachineState, err := nativepolicyutil.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
@@ -204,7 +204,7 @@ func (p *NativePolicy) sharedPoolAllocationHandler(ctx context.Context,
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
-	p.state.SetMachineState(updatedMachineState)
+	p.state.SetMachineState(updatedMachineState, true)
 
 	resp, err := cpuutil.PackAllocationResponse(allocationInfo, string(v1.ResourceCPU), util.OCIPropertyNameCPUSetCPUs, false, true, req)
 	if err != nil {

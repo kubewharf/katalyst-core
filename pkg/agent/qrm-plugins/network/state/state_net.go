@@ -41,9 +41,7 @@ type networkPluginState struct {
 	podEntries   PodEntries
 }
 
-var _ State = &networkPluginState{}
-
-func NewNetworkPluginState(conf *qrm.QRMPluginsConfiguration, machineInfo *info.MachineInfo, nics []machine.InterfaceInfo, reservedBandwidth map[string]uint32) (State, error) {
+func NewNetworkPluginState(conf *qrm.QRMPluginsConfiguration, machineInfo *info.MachineInfo, nics []machine.InterfaceInfo, reservedBandwidth map[string]uint32) (*networkPluginState, error) {
 	generalLog.InfoS("initializing new network plugin in-memory state store")
 
 	defaultMachineState, err := GenerateMachineState(conf, nics, reservedBandwidth)

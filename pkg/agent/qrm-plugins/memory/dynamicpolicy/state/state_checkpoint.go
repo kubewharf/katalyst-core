@@ -38,7 +38,7 @@ var _ State = &stateCheckpoint{}
 // go to in-memory State, and then go to disk State, i.e. in write-back mode
 type stateCheckpoint struct {
 	sync.RWMutex
-	cache             State
+	cache             *memoryPluginState
 	policyName        string
 	checkpointManager checkpointmanager.CheckpointManager
 	checkpointName    string
@@ -135,6 +135,12 @@ func (sc *stateCheckpoint) restoreState(machineInfo *info.MachineInfo, reservedM
 	return nil
 }
 
+func (sc *stateCheckpoint) StoreState() error {
+	sc.Lock()
+	defer sc.Unlock()
+	return sc.storeState()
+}
+
 func (sc *stateCheckpoint) storeState() error {
 	checkpoint := NewMemoryPluginCheckpoint()
 	checkpoint.PolicyName = sc.policyName
@@ -192,58 +198,68 @@ func (sc *stateCheckpoint) GetPodResourceEntries() PodResourceEntries {
 	return sc.cache.GetPodResourceEntries()
 }
 
-func (sc *stateCheckpoint) SetMachineState(numaNodeResourcesMap NUMANodeResourcesMap) {
+func (sc *stateCheckpoint) SetMachineState(numaNodeResourcesMap NUMANodeResourcesMap, persist bool) {
 	sc.Lock()
 	defer sc.Unlock()
 
 	sc.cache.SetMachineState(numaNodeResourcesMap)
-	err := sc.storeState()
-	if err != nil {
-		klog.ErrorS(err, "[memory_plugin] store machineState to checkpoint error")
+	if persist {
+		err := sc.storeState()
+		if err != nil {
+			klog.ErrorS(err, "[memory_plugin] store machineState to checkpoint error")
+		}
 	}
 }
 
-func (sc *stateCheckpoint) SetNUMAHeadroom(numaHeadroom map[int]int64) {
+func (sc *stateCheckpoint) SetNUMAHeadroom(numaHeadroom map[int]int64, persist bool) {
 	sc.Lock()
 	defer sc.Unlock()
 
 	sc.cache.SetNUMAHeadroom(numaHeadroom)
-	err := sc.storeState()
-	if err != nil {
-		klog.ErrorS(err, "[memory_plugin] store numa headroom to checkpoint error")
+	if persist {
+		err := sc.storeState()
+		if err != nil {
+			klog.ErrorS(err, "[memory_plugin] store numa headroom to checkpoint error")
+		}
 	}
 }
 
-func (sc *stateCheckpoint) SetAllocationInfo(resourceName v1.ResourceName, podUID, containerName string, allocationInfo *AllocationInfo) {
+func (sc *stateCheckpoint) SetAllocationInfo(resourceName v1.ResourceName, podUID, containerName string, allocationInfo *AllocationInfo, persist bool) {
 	sc.Lock()
 	defer sc.Unlock()
 
 	sc.cache.SetAllocationInfo(resourceName, podUID, containerName, allocationInfo)
-	err := sc.storeState()
-	if err != nil {
-		klog.ErrorS(err, "[memory_plugin] store allocationInfo to checkpoint error")
+	if persist {
+		err := sc.storeState()
+		if err != nil {
+			klog.ErrorS(err, "[memory_plugin] store allocationInfo to checkpoint error")
+		}
 	}
 }
 
-func (sc *stateCheckpoint) SetPodResourceEntries(podResourceEntries PodResourceEntries) {
+func (sc *stateCheckpoint) SetPodResourceEntries(podResourceEntries PodResourceEntries, persist bool) {
 	sc.Lock()
 	defer sc.Unlock()
 
 	sc.cache.SetPodResourceEntries(podResourceEntries)
-	err := sc.storeState()
-	if err != nil {
-		klog.ErrorS(err, "[memory_plugin] store pod entries to checkpoint error", "err")
+	if persist {
+		err := sc.storeState()
+		if err != nil {
+			klog.ErrorS(err, "[memory_plugin] store pod entries to checkpoint error", "err")
+		}
 	}
 }
 
-func (sc *stateCheckpoint) Delete(resourceName v1.ResourceName, podUID, containerName string) {
+func (sc *stateCheckpoint) Delete(resourceName v1.ResourceName, podUID, containerName string, persist bool) {
 	sc.Lock()
 	defer sc.Unlock()
 
 	sc.cache.Delete(resourceName, podUID, containerName)
-	err := sc.storeState()
-	if err != nil {
-		klog.ErrorS(err, "[memory_plugin] store state after delete operation to checkpoint error")
+	if persist {
+		err := sc.storeState()
+		if err != nil {
+			klog.ErrorS(err, "[memory_plugin] store state after delete operation to checkpoint error")
+		}
 	}
 }
 

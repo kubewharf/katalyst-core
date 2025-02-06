@@ -42,7 +42,7 @@ var (
 // go to in-memory State, and then go to disk State, i.e. in write-back mode
 type stateCheckpoint struct {
 	sync.RWMutex
-	cache             State
+	cache             *networkPluginState
 	policyName        string
 	checkpointManager checkpointmanager.CheckpointManager
 	checkpointName    string
@@ -196,47 +196,55 @@ func (sc *stateCheckpoint) GetPodEntries() PodEntries {
 	return sc.cache.GetPodEntries()
 }
 
-func (sc *stateCheckpoint) SetMachineState(nicMap NICMap) {
+func (sc *stateCheckpoint) SetMachineState(nicMap NICMap, persist bool) {
 	sc.Lock()
 	defer sc.Unlock()
 
 	sc.cache.SetMachineState(nicMap)
-	err := sc.storeState()
-	if err != nil {
-		generalLog.ErrorS(err, "store machineState to checkpoint error")
+	if persist {
+		err := sc.storeState()
+		if err != nil {
+			generalLog.ErrorS(err, "store machineState to checkpoint error")
+		}
 	}
 }
 
-func (sc *stateCheckpoint) SetAllocationInfo(podUID, containerName string, allocationInfo *AllocationInfo) {
+func (sc *stateCheckpoint) SetAllocationInfo(podUID, containerName string, allocationInfo *AllocationInfo, persist bool) {
 	sc.Lock()
 	defer sc.Unlock()
 
 	sc.cache.SetAllocationInfo(podUID, containerName, allocationInfo)
-	err := sc.storeState()
-	if err != nil {
-		generalLog.ErrorS(err, "store allocationInfo to checkpoint error")
+	if persist {
+		err := sc.storeState()
+		if err != nil {
+			generalLog.ErrorS(err, "store allocationInfo to checkpoint error")
+		}
 	}
 }
 
-func (sc *stateCheckpoint) SetPodEntries(podEntries PodEntries) {
+func (sc *stateCheckpoint) SetPodEntries(podEntries PodEntries, persist bool) {
 	sc.Lock()
 	defer sc.Unlock()
 
 	sc.cache.SetPodEntries(podEntries)
-	err := sc.storeState()
-	if err != nil {
-		generalLog.ErrorS(err, "store pod entries to checkpoint error", "err")
+	if persist {
+		err := sc.storeState()
+		if err != nil {
+			generalLog.ErrorS(err, "store pod entries to checkpoint error", "err")
+		}
 	}
 }
 
-func (sc *stateCheckpoint) Delete(podUID, containerName string) {
+func (sc *stateCheckpoint) Delete(podUID, containerName string, persist bool) {
 	sc.Lock()
 	defer sc.Unlock()
 
 	sc.cache.Delete(podUID, containerName)
-	err := sc.storeState()
-	if err != nil {
-		generalLog.ErrorS(err, "store state after delete operation to checkpoint error")
+	if persist {
+		err := sc.storeState()
+		if err != nil {
+			generalLog.ErrorS(err, "store state after delete operation to checkpoint error")
+		}
 	}
 }
 
@@ -249,4 +257,10 @@ func (sc *stateCheckpoint) ClearState() {
 	if err != nil {
 		generalLog.ErrorS(err, "store state after clear operation to checkpoint error")
 	}
+}
+
+func (sc *stateCheckpoint) StoreState() error {
+	sc.Lock()
+	defer sc.Unlock()
+	return sc.storeState()
 }

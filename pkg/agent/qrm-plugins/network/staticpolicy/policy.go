@@ -531,6 +531,9 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 
 	p.Lock()
 	defer func() {
+		if err := p.state.StoreState(); err != nil {
+			general.ErrorS(err, "store state failed", "podName", req.PodName, "containerName", req.ContainerName)
+		}
 		p.Unlock()
 		if err != nil {
 			_ = p.emitter.StoreInt64(util.MetricNameAllocateFailed, 1, metrics.MetricTypeNameRaw,
@@ -668,7 +671,7 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 	}
 
 	// update PodEntries
-	p.state.SetAllocationInfo(req.PodUid, req.ContainerName, newAllocation)
+	p.state.SetAllocationInfo(req.PodUid, req.ContainerName, newAllocation, false)
 
 	machineState, stateErr := state.GenerateMachineStateFromPodEntries(p.qrmConfig, p.nics, p.state.GetPodEntries(), p.state.GetReservedBandwidth())
 	if stateErr != nil {
@@ -682,7 +685,7 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 	}
 
 	// update state cache
-	p.state.SetMachineState(machineState)
+	p.state.SetMachineState(machineState, false)
 
 	return packAllocationResponse(req, newAllocation, resourceAllocationAnnotations)
 }
@@ -993,10 +996,9 @@ func (p *StaticPolicy) removePod(podUID string) error {
 		return fmt.Errorf("calculate machineState by updated pod entries failed with error: %v", err)
 	}
 
-	p.state.SetPodEntries(podEntries)
-	p.state.SetMachineState(machineState)
-
-	return nil
+	p.state.SetPodEntries(podEntries, false)
+	p.state.SetMachineState(machineState, false)
+	return p.state.StoreState()
 }
 
 func (p *StaticPolicy) getNetClassID(podAnnotations map[string]string, podLevelNetClassAnnoKey string) (uint32, error) {

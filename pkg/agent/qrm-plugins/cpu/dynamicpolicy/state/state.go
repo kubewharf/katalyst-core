@@ -584,14 +584,15 @@ type reader interface {
 // writer is used to store information into local states,
 // and it also provides functionality to maintain the local files
 type writer interface {
-	SetMachineState(numaNodeMap NUMANodeMap)
-	SetNUMAHeadroom(map[int]float64)
-	SetPodEntries(podEntries PodEntries)
-	SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo)
-	SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores bool)
+	SetMachineState(numaNodeMap NUMANodeMap, persist bool)
+	SetNUMAHeadroom(numaHeadroom map[int]float64, persist bool)
+	SetPodEntries(podEntries PodEntries, writeThrough bool)
+	SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo, persist bool)
+	SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores, persist bool)
 
-	Delete(podUID string, containerName string)
+	Delete(podUID string, containerName string, persist bool)
 	ClearState()
+	StoreState() error
 }
 
 // State interface provides methods for tracking and setting pod assignments
