@@ -42,12 +42,13 @@ type cpuAccumulator struct {
 }
 
 func newCPUAccumulator(machineInfo *machine.KatalystMachineInfo, availableCPUs machine.CPUSet, numCPUs int) *cpuAccumulator {
-	return &cpuAccumulator{
+	a := &cpuAccumulator{
 		numCPUsNeeded: numCPUs,
 		cpuTopology:   machineInfo.CPUTopology,
 		cpuDetails:    machineInfo.CPUDetails.KeepOnly(availableCPUs),
 		result:        machine.NewCPUSet(),
 	}
+	return a
 }
 
 func (a *cpuAccumulator) getDetails() machine.CPUDetails {
@@ -268,7 +269,12 @@ func TakeByNUMABalance(info *machine.KatalystMachineInfo, availableCPUs machine.
 ) (machine.CPUSet, machine.CPUSet, error) {
 	var err error
 	acc := newCPUAccumulator(info, availableCPUs, cpuRequirement)
+
 	if acc.isSatisfied() {
+		goto successful
+	}
+
+	if takeFreeCoresByNumaBalance(acc) {
 		goto successful
 	}
 
@@ -278,20 +284,7 @@ func TakeByNUMABalance(info *machine.KatalystMachineInfo, availableCPUs machine.
 			goto failed
 		}
 
-	numaLoop:
 		for _, s := range info.CPUDetails.NUMANodes().ToSliceInt() {
-			if acc.needs(acc.getTopology().CPUsPerCore()) && len(acc.freeCores()) > 0 {
-				for _, c := range acc.freeCoresInNUMANode(s) {
-					acc.take(acc.getDetails().CPUsInCores(c))
-					if acc.isSatisfied() {
-						goto successful
-					} else {
-						continue numaLoop
-					}
-				}
-				continue
-			}
-
 			for _, c := range acc.freeCPUsInNUMANode(s) {
 				if acc.needs(1) {
 					acc.take(machine.NewCPUSet(c))
@@ -359,7 +352,12 @@ func TakeByNUMABalanceReversely(info *machine.KatalystMachineInfo, availableCPUs
 ) (machine.CPUSet, machine.CPUSet, error) {
 	var err error
 	acc := newCPUAccumulator(info, availableCPUs, cpuRequirement)
+
 	if acc.isSatisfied() {
+		goto successful
+	}
+
+	if takeFreeCoresByNumaBalanceReversely(acc) {
 		goto successful
 	}
 
@@ -369,20 +367,7 @@ func TakeByNUMABalanceReversely(info *machine.KatalystMachineInfo, availableCPUs
 			goto failed
 		}
 
-	numaLoop:
 		for _, s := range info.CPUDetails.NUMANodes().ToSliceInt() {
-			if acc.needs(acc.getTopology().CPUsPerCore()) && len(acc.freeCores()) > 0 {
-				for _, c := range acc.freeCoresInNUMANodeReversely(s) {
-					acc.take(acc.getDetails().CPUsInCores(c))
-					if acc.isSatisfied() {
-						goto successful
-					} else {
-						continue numaLoop
-					}
-				}
-				continue
-			}
-
 			for _, c := range acc.freeCPUsInNUMANodeReversely(s) {
 				if acc.needs(1) {
 					acc.take(machine.NewCPUSet(c))
@@ -402,4 +387,69 @@ failed:
 	return availableCPUs, availableCPUs, err
 successful:
 	return acc.result.Clone(), availableCPUs.Difference(acc.result), nil
+}
+
+func takeFreeCoresByNumaBalance(acc *cpuAccumulator) bool {
+	info := acc.getTopology()
+	if !acc.needs(info.CPUsPerCore()) {
+		return false
+	}
+
+	numaSlice := info.CPUDetails.NUMANodes().ToSliceInt()
+	freeCoresMap := make(map[int][]int)
+	maxFreeCoresCountInNuma := 0
+	for _, s := range numaSlice {
+		freeCores := acc.freeCoresInNUMANode(s)
+		freeCoresMap[s] = freeCores
+		if len(freeCores) > maxFreeCoresCountInNuma {
+			maxFreeCoresCountInNuma = len(freeCores)
+		}
+	}
+
+	for i := 0; i < maxFreeCoresCountInNuma; i++ {
+		for _, s := range numaSlice {
+			if len(freeCoresMap[s]) > i {
+				c := freeCoresMap[s][i]
+				if acc.needs(info.CPUsPerCore()) {
+					acc.take(acc.getDetails().CPUsInCores(c))
+					if acc.isSatisfied() {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+func takeFreeCoresByNumaBalanceReversely(acc *cpuAccumulator) bool {
+	info := acc.getTopology()
+	if !acc.needs(info.CPUsPerCore()) {
+		return false
+	}
+
+	numaSlice := info.CPUDetails.NUMANodes().ToSliceInt()
+	reverselyFreeCoresMap := make(map[int][]int)
+	maxFreeCoresCountInNuma := 0
+	for _, s := range numaSlice {
+		freeCores := acc.freeCoresInNUMANodeReversely(s)
+		reverselyFreeCoresMap[s] = freeCores
+		if len(freeCores) > maxFreeCoresCountInNuma {
+			maxFreeCoresCountInNuma = len(freeCores)
+		}
+	}
+	for i := 0; i < maxFreeCoresCountInNuma; i++ {
+		for _, s := range numaSlice {
+			if len(reverselyFreeCoresMap[s]) > i {
+				c := reverselyFreeCoresMap[s][i]
+				if acc.needs(info.CPUsPerCore()) {
+					acc.take(acc.getDetails().CPUsInCores(c))
+					if acc.isSatisfied() {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
 }
