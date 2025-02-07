@@ -29,6 +29,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/modelresultfetcher/borwein/latencyregression"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/modelresultfetcher/borwein/trainingtpreg"
 	borweinconsts "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/consts"
 	borweininfsvc "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/inferencesvc"
@@ -127,6 +128,24 @@ func TestPodAddAndRemoved(t *testing.T) {
 			},
 		},
 	})
+
+	res2 := &latencyregression.LatencyRegression{
+		PredictValue: -1.1,
+	}
+	bs2, _ := json.Marshal(res2)
+	reader.SetInferenceResult(borweinutils.GetInferenceResultKey(borweinconsts.ModelNameBorweinLatencyRegression), &borweintypes.BorweinInferenceResults{
+		Timestamp: timeNow,
+		Results: map[string]map[string][]*borweininfsvc.InferenceResult{
+			"000002": {
+				"c-1": []*borweininfsvc.InferenceResult{
+					{
+						GenericOutput: string(bs2),
+					},
+				},
+			},
+		},
+	})
+
 	si, err := NewMetricSyncerPod(conf, struct{}{}, metrics.DummyMetrics{}, metricspool.DummyMetricsEmitterPool{}, meta, reader)
 	assert.NoError(t, err)
 
@@ -136,6 +155,8 @@ func TestPodAddAndRemoved(t *testing.T) {
 	t.Logf("run with non-empty pod fetcher")
 	s.syncChanel()
 	s.modelMetric()
+	s.emitBorweinTrainingThroughput()
+	s.emitBorweinLatencyRegression()
 	assert.Equal(t, len(s.rawNotifier), 1)
 
 	metaEmpty := &metaserver.MetaServer{
