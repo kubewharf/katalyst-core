@@ -17,6 +17,7 @@ limitations under the License.
 package state
 
 import (
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"math"
@@ -28,6 +29,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 	testutil "k8s.io/kubernetes/pkg/kubelet/cm/cpumanager/state/testing"
@@ -1506,6 +1508,11 @@ func TestNewCheckpointState(t *testing.T) {
 
 func TestClearState(t *testing.T) {
 	t.Parallel()
+
+	flagSet := flag.NewFlagSet("test", flag.ExitOnError)
+	klog.InitFlags(flagSet)
+	_ = flagSet.Parse([]string{"--v", "6"})
+	defer klog.InitFlags(nil)
 
 	as := require.New(t)
 

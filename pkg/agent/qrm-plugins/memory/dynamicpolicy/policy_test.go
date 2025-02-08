@@ -18,6 +18,7 @@ package dynamicpolicy
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -2212,6 +2213,11 @@ func TestGenerateResourcesMachineStateFromPodEntries(t *testing.T) {
 
 func TestHandleAdvisorResp(t *testing.T) {
 	t.Parallel()
+
+	flagSet := flag.NewFlagSet("test", flag.ExitOnError)
+	klog.InitFlags(flagSet)
+	_ = flagSet.Parse([]string{"--v", "6"})
+	defer klog.InitFlags(nil)
 
 	as := require.New(t)
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)

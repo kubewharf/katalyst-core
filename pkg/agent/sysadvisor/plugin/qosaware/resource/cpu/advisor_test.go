@@ -18,6 +18,7 @@ package cpu
 
 import (
 	"context"
+	"flag"
 	"io/ioutil"
 	"os"
 	"reflect"
@@ -32,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8stypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/klog/v2"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
@@ -133,6 +135,11 @@ func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel, owne
 
 func TestAdvisorUpdate(t *testing.T) {
 	t.Parallel()
+
+	flagSet := flag.NewFlagSet("test", flag.ExitOnError)
+	klog.InitFlags(flagSet)
+	_ = flagSet.Parse([]string{"--v", "6"})
+	defer klog.InitFlags(nil)
 
 	type containerMetricItem struct {
 		pod       string

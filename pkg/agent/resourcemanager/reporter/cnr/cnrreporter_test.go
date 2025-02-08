@@ -19,6 +19,7 @@ package cnr
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"testing"
 	"time"
 
@@ -29,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/klog/v2"
 
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
@@ -520,6 +522,11 @@ func Test_initializeCNRFields(t *testing.T) {
 
 func Test_cnrReporterImpl_Update(t *testing.T) {
 	t.Parallel()
+
+	flagSet := flag.NewFlagSet("test", flag.ExitOnError)
+	klog.InitFlags(flagSet)
+	_ = flagSet.Parse([]string{"--v", "6"})
+	defer klog.InitFlags(nil)
 
 	type fields struct {
 		defaultCNR *nodev1alpha1.CustomNodeResource
