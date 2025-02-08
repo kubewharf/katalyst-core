@@ -499,7 +499,7 @@ func GetNumaAwareAssignments(topology *CPUTopology, cset CPUSet) (map[int]CPUSet
 	topologyAwareAssignments := make(map[int]CPUSet)
 	numaNodes := topology.CPUDetails.NUMANodes()
 	for _, numaNode := range numaNodes.ToSliceNoSortInt() {
-		cs := cset.Intersection(topology.CPUDetails.CPUsInNUMANodes(numaNode).Clone())
+		cs := cset.Intersection(topology.CPUDetails.CPUsInNUMANodes(numaNode))
 		if cs.Size() > 0 {
 			topologyAwareAssignments[numaNode] = cs
 		}
