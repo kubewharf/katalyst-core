@@ -75,3 +75,15 @@ func DeepCopyIntToInt64Map(origin map[int]int64) map[int]int64 {
 	}
 	return res
 }
+
+func DeepCopyIntToStringMap(origin map[int]string) map[int]string {
+	if origin == nil {
+		return nil
+	}
+
+	res := make(map[int]string, len(origin))
+	for key, val := range origin {
+		res[key] = val
+	}
+	return res
+}
