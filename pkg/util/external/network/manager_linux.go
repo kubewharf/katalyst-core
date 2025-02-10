@@ -20,6 +20,7 @@ limitations under the License.
 package network
 
 import (
+	"context"
 	"errors"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
@@ -40,7 +41,7 @@ func (*defaultNetworkManager) ApplyNetClass(podUID, containerId string, data *co
 }
 
 // ListNetClass lists the net class config for all containers managed by kubernetes.
-func (m *defaultNetworkManager) ListNetClass() ([]*common.NetClsData, error) {
+func (n *defaultNetworkManager) ListNetClass() ([]*common.NetClsData, error) {
 	// TODO: implement traffic tagging by using eBPF
 	return nil, errors.New("not implemented yet")
 }
@@ -55,3 +56,5 @@ func (*defaultNetworkManager) ClearNetClass(cgroupID uint64) error {
 func (n *defaultNetworkManager) ApplyNetworkGroups(map[string]*qrmgeneral.NetworkGroup) error {
 	return nil
 }
+
+func (n *defaultNetworkManager) Run(ctx context.Context) {}

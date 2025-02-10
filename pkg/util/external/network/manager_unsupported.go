@@ -20,6 +20,8 @@ limitations under the License.
 package network
 
 import (
+	"context"
+
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 )
 
@@ -44,3 +46,5 @@ func (*unsupportedNetworkManager) ListNetClass() ([]*common.NetClsData, error) {
 func (*unsupportedNetworkManager) ClearNetClass(cgroupID uint64) error {
 	return nil
 }
+
+func (*unsupportedNetworkManager) Run(ctx context.Context) {}

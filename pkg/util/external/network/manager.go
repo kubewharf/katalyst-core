@@ -17,6 +17,7 @@ limitations under the License.
 package network
 
 import (
+	"context"
 	"sync"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
@@ -33,6 +34,8 @@ type NetworkManager interface {
 	ClearNetClass(cgroupID uint64) error
 	// ApplyNetworkGroups apply parameters for network groups.
 	ApplyNetworkGroups(map[string]*qrmgeneral.NetworkGroup) error
+	// Run runs the network manager.
+	Run(ctx context.Context)
 }
 
 type NetworkManagerStub struct {
@@ -81,3 +84,5 @@ func (n *NetworkManagerStub) ClearNetClass(cgroupID uint64) error {
 func (n *NetworkManagerStub) ApplyNetworkGroups(map[string]*qrmgeneral.NetworkGroup) error {
 	return nil
 }
+
+func (n *NetworkManagerStub) Run(ctx context.Context) {}
