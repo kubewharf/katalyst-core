@@ -185,6 +185,11 @@ func (ce ContainerEntries) GetMainContainerEntry() *AllocationInfo {
 
 // GetMainContainerPoolName returns the main container owner pool name in pod container entries
 func (ce ContainerEntries) GetMainContainerPoolName() string {
+	mainContainerEntry := ce.GetMainContainerEntry()
+	if mainContainerEntry == nil {
+		return commonstate.EmptyOwnerPoolName
+	}
+
 	return ce.GetMainContainerEntry().GetOwnerPoolName()
 }
 
