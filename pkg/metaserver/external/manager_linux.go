@@ -69,6 +69,7 @@ func (m *externalManagerImpl) Run(ctx context.Context) {
 	m.start = true
 
 	go m.CgroupIDManager.Run(ctx)
+	go m.NetworkManager.Run(ctx)
 
 	m.mutex.Unlock()
 	<-ctx.Done()
