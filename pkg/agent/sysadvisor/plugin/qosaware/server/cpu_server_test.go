@@ -19,6 +19,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -37,6 +38,7 @@ import (
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
@@ -353,6 +355,11 @@ type ContainerInfo struct {
 
 func TestCPUServerUpdate(t *testing.T) {
 	t.Parallel()
+
+	flagSet := flag.NewFlagSet("test", flag.ExitOnError)
+	klog.InitFlags(flagSet)
+	_ = flagSet.Parse([]string{"--v", "6"})
+	defer klog.InitFlags(nil)
 
 	type testCase struct {
 		name      string

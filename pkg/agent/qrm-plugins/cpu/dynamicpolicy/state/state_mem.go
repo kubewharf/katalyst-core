@@ -104,7 +104,9 @@ func (s *cpuPluginState) SetMachineState(numaNodeMap NUMANodeMap) {
 	defer s.Unlock()
 
 	s.machineState = numaNodeMap.Clone()
-	klog.InfoS("[cpu_plugin] Updated cpu plugin machine state", "numaNodeMap", numaNodeMap.String())
+	if klog.V(6).Enabled() {
+		klog.InfoS("[cpu_plugin] Updated cpu plugin machine state", "numaNodeMap", numaNodeMap.String())
+	}
 }
 
 func (s *cpuPluginState) SetNUMAHeadroom(numaHeadroom map[int]float64) {
@@ -135,8 +137,10 @@ func (s *cpuPluginState) SetPodEntries(podEntries PodEntries) {
 	defer s.Unlock()
 
 	s.podEntries = podEntries.Clone()
-	klog.InfoS("[cpu_plugin] Updated cpu plugin pod entries",
-		"podEntries", podEntries.String())
+	if klog.V(6).Enabled() {
+		klog.InfoS("[cpu_plugin] Updated cpu plugin pod entries",
+			"podEntries", podEntries.String())
+	}
 }
 
 func (s *cpuPluginState) SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores bool) {
