@@ -69,22 +69,54 @@ func Test_evictFirstStrategy_RecommendAction(t *testing.T) {
 		wantInDVFS bool
 	}{
 		{
-			name: "internal op is always respected if exists",
+			name: "plan of s0 always targets full range",
 			fields: fields{
 				coefficient:     exponentialDecay{},
 				evictableProber: nil,
 				dvfsUsed:        0,
 			},
 			args: args{
+				alert:       spec.PowerAlertS0,
 				actualWatt:  100,
 				desiredWatt: 80,
-				internalOp:  spec.InternalOpFreqCap,
 			},
 			want: action.PowerAction{
 				Op:  spec.InternalOpFreqCap,
 				Arg: 80,
 			},
 			wantInDVFS: true,
+		},
+		{
+			name: "plan of p0 is constraint when allowing dvfs only",
+			fields: fields{
+				coefficient:     exponentialDecay{},
+				evictableProber: nil,
+				dvfsUsed:        0,
+			},
+			args: args{
+				alert:       spec.PowerAlertP0,
+				actualWatt:  100,
+				desiredWatt: 80,
+				internalOp:  spec.InternalOpFreqCap,
+			},
+			want: action.PowerAction{
+				Op:  spec.InternalOpFreqCap,
+				Arg: 90,
+			},
+			wantInDVFS: true,
+		},
+		{
+			name:   "p1 is noop",
+			fields: fields{},
+			args: args{
+				actualWatt:  100,
+				desiredWatt: 80,
+				alert:       spec.PowerAlertP1,
+			},
+			want: action.PowerAction{
+				Op:  spec.InternalOpNoop,
+				Arg: 0,
+			},
 		},
 		{
 			name:   "p2 is noop",

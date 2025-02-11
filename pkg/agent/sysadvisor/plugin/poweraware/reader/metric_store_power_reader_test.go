@@ -21,6 +21,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
@@ -100,4 +102,20 @@ func Test_metricStorePowerReader_get(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_metricStorePowerReader_get_0_is_error(t *testing.T) {
+	t.Parallel()
+
+	setTime := time.Date(2024, 11, 11, 8, 30, 10, 0, time.UTC)
+	dummyMetricStore := utilmetric.NewMetricStore()
+	dummyMetricStore.SetNodeMetric("total.power.used.watts", utilmetric.MetricData{
+		Value: 0,
+		Time:  &setTime,
+	})
+
+	m := NewMetricStorePowerReader(dummyMetricStore).(*metricStorePowerReader)
+	now := time.Date(2024, 11, 11, 8, 30, 11, 0, time.UTC)
+	_, err := m.get(context.TODO(), now)
+	assert.Error(t, err)
 }

@@ -49,7 +49,8 @@ type CapperProber interface {
 // evictFirstStrategy always attempts to evict low priority pods if any; only after all are exhausted will it resort to DVFS means.
 // besides, it will continue to try the best to meet the alert spec, regardless of the alert update time.
 // alert level has the following meanings in this strategy:
-// P1 - eviction only;
+// P2 - noop and expecting scheduler to bias against the node
+// P1 - noop and expecting scheduler not to schedule to the node
 // P0 - evict if applicable; otherwise conduct DVFS once if needed (DVFS is limited to 10%);
 // S0 - DVFS in urgency (no limit on DVFS)
 type evictFirstStrategy struct {
@@ -95,7 +96,10 @@ func (e *evictFirstStrategy) recommendEvictFirstOp() spec.InternalOp {
 
 func (e *evictFirstStrategy) recommendOp(alert spec.PowerAlert, internalOp spec.InternalOp) spec.InternalOp {
 	if internalOp != spec.InternalOpAuto {
-		return internalOp
+		// internal op is only applicable to dvfs related levels, i.e. s0 + p0
+		if alert == spec.PowerAlertS0 || alert == spec.PowerAlertP0 {
+			return internalOp
+		}
 	}
 
 	switch alert {
@@ -103,8 +107,6 @@ func (e *evictFirstStrategy) recommendOp(alert spec.PowerAlert, internalOp spec.
 		return spec.InternalOpFreqCap
 	case spec.PowerAlertP0:
 		return e.recommendEvictFirstOp()
-	case spec.PowerAlertP1:
-		return spec.InternalOpEvict
 	default:
 		return spec.InternalOpNoop
 	}
@@ -126,8 +128,8 @@ func (e *evictFirstStrategy) adjustTargetForConstraintDVFS(actualWatt, desiredWa
 func (e *evictFirstStrategy) yieldActionPlan(op, internalOp spec.InternalOp, actualWatt, desiredWatt int, alert spec.PowerAlert, ttl time.Duration) action.PowerAction {
 	switch op {
 	case spec.InternalOpFreqCap:
-		// try to conduct freq capping within the allowed limit if not set for hard dvfs
-		if internalOp != spec.InternalOpFreqCap && !(alert == spec.PowerAlertS0 && internalOp == spec.InternalOpAuto) {
+		// try to conduct freq capping within the allowed limit except for the unconstrained dvfs
+		if alert != spec.PowerAlertS0 {
 			var err error
 			desiredWatt, err = e.adjustTargetForConstraintDVFS(actualWatt, desiredWatt)
 			if err != nil {
