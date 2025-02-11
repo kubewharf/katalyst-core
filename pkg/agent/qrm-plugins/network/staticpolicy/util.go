@@ -57,14 +57,6 @@ func isReqAffinityRestricted(reqAnnotations map[string]string) bool {
 		consts.PodAnnotationNetworkEnhancementAffinityRestrictedTrue
 }
 
-// isReqNamespaceRestricted returns true if allocated network interface must be bind to a certain namespace type
-func isReqNamespaceRestricted(reqAnnotations map[string]string) bool {
-	return reqAnnotations[consts.PodAnnotationNetworkEnhancementNamespaceType] ==
-		consts.PodAnnotationNetworkEnhancementNamespaceTypeHost ||
-		reqAnnotations[consts.PodAnnotationNetworkEnhancementNamespaceType] ==
-			consts.PodAnnotationNetworkEnhancementNamespaceTypeNotHost
-}
-
 // checkNICPreferenceOfReq returns true if allocate network interface matches up with the
 // preference of requests, and it will return error if it breaks hard restrictions.
 func checkNICPreferenceOfReq(nic machine.InterfaceInfo, reqAnnotations map[string]string) (bool, error) {

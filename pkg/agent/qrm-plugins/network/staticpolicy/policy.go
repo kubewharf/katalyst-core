@@ -945,8 +945,8 @@ func (p *StaticPolicy) calculateHints(req *pluginapi.ResourceRequest) (map[strin
 		hints[p.ResourceName()].Hints = append(hints[p.ResourceName()].Hints, hint)
 	}
 
-	// check if restricted affinity or ns requested
-	if !isReqAffinityRestricted(req.Annotations) && !isReqNamespaceRestricted(req.Annotations) {
+	// check if restricted affinity requested
+	if !isReqAffinityRestricted(req.Annotations) {
 		general.InfoS("add all NUMAs to hint to avoid affinity error",
 			"podNamespace", req.PodNamespace,
 			"podName", req.PodName,
