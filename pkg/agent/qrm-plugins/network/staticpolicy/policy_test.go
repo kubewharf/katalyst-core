@@ -1192,6 +1192,10 @@ func TestGetTopologyHints(t *testing.T) {
 								Nodes:     []uint64{0, 1},
 								Preferred: true,
 							},
+							{
+								Nodes:     []uint64{0, 1, 2, 3},
+								Preferred: false,
+							},
 						},
 					},
 				},
@@ -1285,7 +1289,12 @@ func TestGetTopologyHints(t *testing.T) {
 				ResourceName:   string(consts.ResourceNetBandwidth),
 				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
 					string(consts.ResourceNetBandwidth): {
-						Hints: []*pluginapi.TopologyHint{},
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{0, 1, 2, 3},
+								Preferred: false,
+							},
+						},
 					},
 				},
 				Labels: map[string]string{
