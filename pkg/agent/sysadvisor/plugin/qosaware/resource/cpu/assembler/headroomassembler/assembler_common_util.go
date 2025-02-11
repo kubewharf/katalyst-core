@@ -30,6 +30,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	metaserverHelper "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
+	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
@@ -40,11 +41,8 @@ const (
 
 func (ha *HeadroomAssemblerCommon) getUtilBasedHeadroom(options helper.UtilBasedCapacityOptions,
 	reclaimMetrics *metaserverHelper.ReclaimMetrics,
+	lastReclaimedCPUPerNumaForCalculate map[int]float64,
 ) (resource.Quantity, error) {
-	lastReclaimedCPU, err := ha.getLastReclaimedCPU()
-	if err != nil {
-		return resource.Quantity{}, err
-	}
 	if reclaimMetrics == nil {
 		return resource.Quantity{}, fmt.Errorf("reclaimMetrics is nil")
 	}
@@ -54,10 +52,14 @@ func (ha *HeadroomAssemblerCommon) getUtilBasedHeadroom(options helper.UtilBased
 	}
 
 	util := reclaimMetrics.CgroupCPUUsage / reclaimMetrics.ReclaimedCoresSupply
+	lastReclaimedCPU := 0.0
+	for _, cpu := range lastReclaimedCPUPerNumaForCalculate {
+		lastReclaimedCPU += cpu
+	}
 
 	general.InfoS("getUtilBasedHeadroom", "reclaimedCoresSupply", reclaimMetrics.ReclaimedCoresSupply,
 		"util", util, "reclaim PoolCPUUsage", reclaimMetrics.PoolCPUUsage, "reclaim CgroupCPUUsage", reclaimMetrics.CgroupCPUUsage,
-		"lastReclaimedCPU", lastReclaimedCPU)
+		"lastReclaimedCPUPerNUMA", lastReclaimedCPUPerNumaForCalculate)
 
 	headroom, err := helper.EstimateUtilBasedCapacity(
 		options,
@@ -72,20 +74,13 @@ func (ha *HeadroomAssemblerCommon) getUtilBasedHeadroom(options helper.UtilBased
 	return *resource.NewQuantity(int64(math.Ceil(headroom)), resource.DecimalSI), nil
 }
 
-func (ha *HeadroomAssemblerCommon) getLastReclaimedCPU() (float64, error) {
+func (ha *HeadroomAssemblerCommon) getLastReclaimedCPUPerNUMA() (map[int]float64, error) {
 	cnr, err := ha.metaServer.CNRFetcher.GetCNR(context.Background())
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
-	if cnr.Status.Resources.Allocatable != nil {
-		if reclaimedMilliCPU, ok := (*cnr.Status.Resources.Allocatable)[consts.ReclaimedResourceMilliCPU]; ok {
-			return float64(reclaimedMilliCPU.Value()) / 1000, nil
-		}
-	}
-
-	klog.Errorf("cnr status resource allocatable reclaimed milli cpu not found")
-	return 0, nil
+	return util.GetReclaimedCPUPerNUMA(cnr.Status.TopologyZone), nil
 }
 
 func (ha *HeadroomAssemblerCommon) getReclaimNUMABindingTopo(reclaimPool *types.PoolInfo) (bindingNUMAs, nonBindingNumas []int, err error) {
