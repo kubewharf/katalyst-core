@@ -21,8 +21,11 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"time"
 
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/malachite/types"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 func (c *MalachiteClient) GetSystemComputeStats() (*types.SystemComputeData, error) {
@@ -40,6 +43,7 @@ func (c *MalachiteClient) GetSystemComputeStats() (*types.SystemComputeData, err
 		return nil, fmt.Errorf("system compute stats status is not ok, %d", rsp.Status)
 	}
 
+	c.checkSystemStatsOutOfDate("compute", UpdateTimeout, rsp.Data.UpdateTime)
 	return &rsp.Data, nil
 }
 
@@ -58,6 +62,7 @@ func (c *MalachiteClient) GetSystemMemoryStats() (*types.SystemMemoryData, error
 		return nil, fmt.Errorf("system memory stats status is not ok, %d", rsp.Status)
 	}
 
+	c.checkSystemStatsOutOfDate("memory", UpdateTimeout, rsp.Data.UpdateTime)
 	return &rsp.Data, nil
 }
 
@@ -76,6 +81,7 @@ func (c *MalachiteClient) GetSystemIOStats() (*types.SystemDiskIoData, error) {
 		return nil, fmt.Errorf("system io stats status is not ok, %d", rsp.Status)
 	}
 
+	c.checkSystemStatsOutOfDate("io", UpdateTimeout, rsp.Data.UpdateTime)
 	return &rsp.Data, nil
 }
 
@@ -94,6 +100,7 @@ func (c *MalachiteClient) GetSystemNetStats() (*types.SystemNetworkData, error) 
 		return nil, fmt.Errorf("system network stats status is not ok, %d", rsp.Status)
 	}
 
+	c.checkSystemStatsOutOfDate("network", UpdateTimeout, rsp.Data.UpdateTime)
 	return &rsp.Data, nil
 }
 
@@ -137,4 +144,19 @@ func (c *MalachiteClient) getSystemStats(kind SystemResourceKind) ([]byte, error
 	}
 
 	return ioutil.ReadAll(rsp.Body)
+}
+
+func (c *MalachiteClient) checkSystemStatsOutOfDate(statsType string, timeout time.Duration, updateTimestamp int64) {
+	updateTime := time.Unix(updateTimestamp, 0)
+	if time.Since(updateTime) <= timeout {
+		return
+	}
+
+	general.Warningf(
+		"malachite system %s stats outdated, last update time %s",
+		statsType, updateTime)
+	_ = c.emitter.StoreInt64(metricMalachiteSystemStatsOutOfDate, 1, metrics.MetricTypeNameCount, metrics.MetricTag{
+		Key: "type",
+		Val: statsType,
+	})
 }
