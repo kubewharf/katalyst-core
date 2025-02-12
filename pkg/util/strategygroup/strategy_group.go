@@ -50,7 +50,6 @@ func IsStrategyEnabledForNode(strategyName string, defaultValue bool, conf *conf
 	if err != nil {
 		return defaultValue, fmt.Errorf("invalid conf: %v", err)
 	}
-
 	for _, strategy := range strategyGroup.EnabledStrategies {
 		if strategy.Name != nil && *strategy.Name == strategyName {
 			return true, nil
@@ -74,4 +73,19 @@ func GetEnabledStrategiesForNode(conf *config.Configuration) ([]string, error) {
 	}
 
 	return enabledStrategies, nil
+}
+
+func GetSpecificStrategyParam(strategyName string, conf *config.Configuration) (string, bool, error) {
+	strategyGroup, err := validateConf(conf)
+	if err != nil {
+		return "", false, fmt.Errorf("invalid conf: %v", err)
+	}
+
+	for _, strategy := range strategyGroup.EnabledStrategies {
+		if strategy.Name != nil && *strategy.Name == strategyName {
+			return strategy.Parameters[strategyName], true, nil
+		}
+	}
+
+	return "", false, nil
 }
