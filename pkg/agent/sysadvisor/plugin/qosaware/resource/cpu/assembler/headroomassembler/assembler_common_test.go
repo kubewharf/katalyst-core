@@ -137,6 +137,23 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 								consts.ReclaimedResourceMilliCPU: resource.MustParse("10000"),
 							},
 						},
+						TopologyZone: []*v1alpha1.TopologyZone{
+							{
+								Type: v1alpha1.TopologyTypeSocket,
+								Name: "0",
+								Children: []*v1alpha1.TopologyZone{
+									{
+										Type: v1alpha1.TopologyTypeNuma,
+										Name: "0",
+										Resources: v1alpha1.Resources{
+											Allocatable: &v1.ResourceList{
+												consts.ReclaimedResourceMilliCPU: resource.MustParse("10000"),
+											},
+										},
+									},
+								},
+							},
+						},
 					},
 				},
 				reclaimedResourceConfiguration: &reclaimedresource.ReclaimedResourceConfiguration{
@@ -188,6 +205,23 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 						Resources: v1alpha1.Resources{
 							Allocatable: &v1.ResourceList{
 								consts.ReclaimedResourceMilliCPU: resource.MustParse("10000"),
+							},
+						},
+						TopologyZone: []*v1alpha1.TopologyZone{
+							{
+								Type: v1alpha1.TopologyTypeSocket,
+								Name: "0",
+								Children: []*v1alpha1.TopologyZone{
+									{
+										Type: v1alpha1.TopologyTypeNuma,
+										Name: "0",
+										Resources: v1alpha1.Resources{
+											Allocatable: &v1.ResourceList{
+												consts.ReclaimedResourceMilliCPU: resource.MustParse("10000"),
+											},
+										},
+									},
+								},
 							},
 						},
 					},
@@ -296,6 +330,23 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 								consts.ReclaimedResourceMilliCPU: resource.MustParse("10000"),
 							},
 						},
+						TopologyZone: []*v1alpha1.TopologyZone{
+							{
+								Type: v1alpha1.TopologyTypeSocket,
+								Name: "0",
+								Children: []*v1alpha1.TopologyZone{
+									{
+										Type: v1alpha1.TopologyTypeNuma,
+										Name: "0",
+										Resources: v1alpha1.Resources{
+											Allocatable: &v1.ResourceList{
+												consts.ReclaimedResourceMilliCPU: resource.MustParse("10000"),
+											},
+										},
+									},
+								},
+							},
+						},
 					},
 				},
 				reclaimedResourceConfiguration: &reclaimedresource.ReclaimedResourceConfiguration{
@@ -344,6 +395,23 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 								consts.ReclaimedResourceMilliCPU: resource.MustParse("15000"),
 							},
 						},
+						TopologyZone: []*v1alpha1.TopologyZone{
+							{
+								Type: v1alpha1.TopologyTypeSocket,
+								Name: "0",
+								Children: []*v1alpha1.TopologyZone{
+									{
+										Type: v1alpha1.TopologyTypeNuma,
+										Name: "0",
+										Resources: v1alpha1.Resources{
+											Allocatable: &v1.ResourceList{
+												consts.ReclaimedResourceMilliCPU: resource.MustParse("15000"),
+											},
+										},
+									},
+								},
+							},
+						},
 					},
 				},
 				reclaimedResourceConfiguration: &reclaimedresource.ReclaimedResourceConfiguration{
@@ -390,6 +458,32 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 						Resources: v1alpha1.Resources{
 							Allocatable: &v1.ResourceList{
 								consts.ReclaimedResourceMilliCPU: resource.MustParse("86000"),
+							},
+						},
+						TopologyZone: []*v1alpha1.TopologyZone{
+							{
+								Type: v1alpha1.TopologyTypeSocket,
+								Name: "0",
+								Children: []*v1alpha1.TopologyZone{
+									{
+										Type: v1alpha1.TopologyTypeNuma,
+										Name: "0",
+										Resources: v1alpha1.Resources{
+											Allocatable: &v1.ResourceList{
+												consts.ReclaimedResourceMilliCPU: resource.MustParse("43000"),
+											},
+										},
+									},
+									{
+										Type: v1alpha1.TopologyTypeNuma,
+										Name: "1",
+										Resources: v1alpha1.Resources{
+											Allocatable: &v1.ResourceList{
+												consts.ReclaimedResourceMilliCPU: resource.MustParse("43000"),
+											},
+										},
+									},
+								},
 							},
 						},
 					},
