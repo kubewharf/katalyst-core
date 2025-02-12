@@ -137,6 +137,23 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 								consts.ReclaimedResourceMilliCPU: resource.MustParse("10000"),
 							},
 						},
+						TopologyZone: []*v1alpha1.TopologyZone{
+							{
+								Type: "Socket",
+								Name: "0",
+								Children: []*v1alpha1.TopologyZone{
+									{
+										Type: "Numa",
+										Name: "0",
+										Resources: v1alpha1.Resources{
+											Allocatable: &v1.ResourceList{
+												consts.ReclaimedResourceMilliCPU: resource.MustParse("10000"),
+											},
+										},
+									},
+								},
+							},
+						},
 					},
 				},
 				reclaimedResourceConfiguration: &reclaimedresource.ReclaimedResourceConfiguration{
@@ -154,6 +171,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 					for i := 0; i < 10; i++ {
 						store.SetCPUMetric(i, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.3, Time: &now})
 					}
+					store.SetCgroupMetric("/kubepods/besteffort-0", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 3, Time: &now})
 					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 3, Time: &now})
 				},
 				setMetaCache: func(cache *metacache.MetaCacheImp) {
@@ -188,6 +206,23 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 						Resources: v1alpha1.Resources{
 							Allocatable: &v1.ResourceList{
 								consts.ReclaimedResourceMilliCPU: resource.MustParse("10000"),
+							},
+						},
+						TopologyZone: []*v1alpha1.TopologyZone{
+							{
+								Type: "Socket",
+								Name: "0",
+								Children: []*v1alpha1.TopologyZone{
+									{
+										Type: "Numa",
+										Name: "0",
+										Resources: v1alpha1.Resources{
+											Allocatable: &v1.ResourceList{
+												consts.ReclaimedResourceMilliCPU: resource.MustParse("10000"),
+											},
+										},
+									},
+								},
 							},
 						},
 					},
@@ -296,6 +331,23 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 								consts.ReclaimedResourceMilliCPU: resource.MustParse("10000"),
 							},
 						},
+						TopologyZone: []*v1alpha1.TopologyZone{
+							{
+								Type: "Socket",
+								Name: "0",
+								Children: []*v1alpha1.TopologyZone{
+									{
+										Type: "Numa",
+										Name: "0",
+										Resources: v1alpha1.Resources{
+											Allocatable: &v1.ResourceList{
+												consts.ReclaimedResourceMilliCPU: resource.MustParse("10000"),
+											},
+										},
+									},
+								},
+							},
+						},
 					},
 				},
 				reclaimedResourceConfiguration: &reclaimedresource.ReclaimedResourceConfiguration{
@@ -344,6 +396,23 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 								consts.ReclaimedResourceMilliCPU: resource.MustParse("15000"),
 							},
 						},
+						TopologyZone: []*v1alpha1.TopologyZone{
+							{
+								Type: "Socket",
+								Name: "0",
+								Children: []*v1alpha1.TopologyZone{
+									{
+										Type: "Numa",
+										Name: "0",
+										Resources: v1alpha1.Resources{
+											Allocatable: &v1.ResourceList{
+												consts.ReclaimedResourceMilliCPU: resource.MustParse("15000"),
+											},
+										},
+									},
+								},
+							},
+						},
 					},
 				},
 				reclaimedResourceConfiguration: &reclaimedresource.ReclaimedResourceConfiguration{
@@ -390,6 +459,32 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 						Resources: v1alpha1.Resources{
 							Allocatable: &v1.ResourceList{
 								consts.ReclaimedResourceMilliCPU: resource.MustParse("86000"),
+							},
+						},
+						TopologyZone: []*v1alpha1.TopologyZone{
+							{
+								Type: "Socket",
+								Name: "0",
+								Children: []*v1alpha1.TopologyZone{
+									{
+										Type: "Numa",
+										Name: "0",
+										Resources: v1alpha1.Resources{
+											Allocatable: &v1.ResourceList{
+												consts.ReclaimedResourceMilliCPU: resource.MustParse("43000"),
+											},
+										},
+									},
+									{
+										Type: "Numa",
+										Name: "1",
+										Resources: v1alpha1.Resources{
+											Allocatable: &v1.ResourceList{
+												consts.ReclaimedResourceMilliCPU: resource.MustParse("43000"),
+											},
+										},
+									},
+								},
 							},
 						},
 					},
