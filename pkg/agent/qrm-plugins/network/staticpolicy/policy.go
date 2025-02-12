@@ -1355,7 +1355,6 @@ func (p *StaticPolicy) generateAndApplyGroups() error {
 		return fmt.Errorf("generateLowPriorityGroup failed with error: %v", err)
 	} else {
 		err = p.applyNetworkGroupsFunc(p.lowPriorityGroups)
-
 		if err != nil {
 			return fmt.Errorf("applyGroups failed with error: %v", err)
 		}

@@ -30,6 +30,7 @@ type BorweinOptions struct {
 	FeatureDescriptionFilePath         string
 	NodeFeatureNames                   []string
 	ContainerFeatureNames              []string
+	TargetIndicators                   []string
 }
 
 func NewBorweinOptions() *BorweinOptions {
@@ -50,6 +51,8 @@ func (o *BorweinOptions) AddFlags(fs *pflag.FlagSet) {
 		"borwein node feature name list")
 	fs.StringSliceVar(&o.ContainerFeatureNames, "borwein-container-feature-names", o.ContainerFeatureNames,
 		"borwein node feature name list")
+	fs.StringSliceVar(&o.TargetIndicators, "borwein-target-indicators", o.TargetIndicators,
+		"borwein target indicator name list")
 }
 
 // ApplyTo fills up config with options
@@ -61,6 +64,7 @@ func (o *BorweinOptions) ApplyTo(c *borwein.BorweinConfiguration) error {
 	}{}
 
 	c.ModelNameToInferenceSvcSockAbsPath = o.ModelNameToInferenceSvcSockAbsPath
+	c.TargetIndicators = o.TargetIndicators
 
 	if len(o.NodeFeatureNames)+len(o.ContainerFeatureNames) > 0 {
 		c.NodeFeatureNames = o.NodeFeatureNames
