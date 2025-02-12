@@ -34,6 +34,7 @@ import (
 	sysadvisortypes "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	metricemitter "github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/metric-emitter"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/qosaware/model/borwein"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/data"
@@ -80,6 +81,7 @@ type MetricSyncerPod struct {
 
 	emitterConf *metricemitter.MetricEmitterPluginConfiguration
 	qosConf     *generic.QoSConfiguration
+	borweinConf *borwein.BorweinConfiguration
 
 	// no need to lock this map, since we only refer to it in syncChanel
 	rawNotifier map[string]podRawChanel
@@ -117,6 +119,7 @@ func NewMetricSyncerPod(conf *config.Configuration, _ interface{},
 
 		emitterConf: conf.AgentConfiguration.MetricEmitterPluginConfiguration,
 		qosConf:     conf.GenericConfiguration.QoSConfiguration,
+		borweinConf: conf.BorweinConfiguration,
 		rawNotifier: make(map[string]podRawChanel),
 
 		metricEmitter: metricEmitter,

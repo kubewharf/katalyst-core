@@ -26,21 +26,24 @@ type BorweinConfiguration struct {
 	NodeFeatureNames                   []string
 	ContainerFeatureNames              []string
 	ModelNameToInferenceSvcSockAbsPath map[string]string
+	TargetIndicators                   []string
+	DryRun                             bool
 }
 
 func NewBorweinConfiguration() *BorweinConfiguration {
 	return &BorweinConfiguration{
 		BorweinParameters: map[string]*borweintypes.BorweinParameter{
-			string(v1alpha1.ServiceSystemIndicatorNameCPUSchedWait): {
-				AbnormalRatioThreshold: 0.12,
-				OffsetMax:              250,
-				OffsetMin:              -50,
-				RampUpStep:             2,
-				RampDownStep:           10,
-				Version:                "default",
+			string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): {
+				OffsetMax:    0.2,
+				OffsetMin:    -0.17,
+				Version:      "default",
+				IndicatorMax: 0.87,
+				IndicatorMin: 0.5,
 			},
 		},
 		NodeFeatureNames:      []string{},
 		ContainerFeatureNames: []string{},
+		TargetIndicators:      []string{},
+		DryRun:                false,
 	}
 }
