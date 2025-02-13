@@ -18,15 +18,22 @@ package qrm
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
+	phconsts "github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler/consts"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 )
 
 const (
 	QRMPluginNameNetwork = "qrm_network_plugin"
 )
+
+var QRMNetworkPluginPeriodicalHandlerGroupName = strings.Join([]string{
+	QRMPluginNameNetwork,
+	phconsts.PeriodicalHandlersGroupNameSuffix,
+}, phconsts.GroupNameSeparator)
 
 // networkPolicyInitializers is used to store the initializing function for network resource plugin policies
 var networkPolicyInitializers sync.Map

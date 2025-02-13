@@ -25,6 +25,8 @@ import (
 	"sync"
 	"time"
 
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	maputil "k8s.io/kubernetes/pkg/util/maps"
@@ -33,13 +35,17 @@ import (
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
+	appqrm "github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/state"
 	networkreactor "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/staticpolicy/reactor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/reactor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	agentconfig "github.com/kubewharf/katalyst-core/pkg/config/agent"
+	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -73,16 +79,17 @@ const (
 type StaticPolicy struct {
 	sync.Mutex
 
-	name       string
-	stopCh     chan struct{}
-	started    bool
-	qosConfig  *generic.QoSConfiguration
-	qrmConfig  *qrm.QRMPluginsConfiguration
-	emitter    metrics.MetricEmitter
-	metaServer *metaserver.MetaServer
-	agentCtx   *agent.GenericContext
-	nics       []machine.InterfaceInfo
-	state      state.State
+	name           string
+	stopCh         chan struct{}
+	started        bool
+	qosConfig      *generic.QoSConfiguration
+	qrmConfig      *qrm.QRMPluginsConfiguration
+	emitter        metrics.MetricEmitter
+	metaServer     *metaserver.MetaServer
+	agentCtx       *agent.GenericContext
+	nics           []machine.InterfaceInfo
+	state          state.State
+	residualHitMap map[string]int64
 
 	CgroupV2Env                                     bool
 	qosLevelToNetClassMap                           map[string]uint32
@@ -250,9 +257,113 @@ func (p *StaticPolicy) Start() (err error) {
 	go wait.Until(func() {
 		_ = p.emitter.StoreInt64(util.MetricNameHeartBeat, 1, metrics.MetricTypeNameRaw)
 	}, time.Second*30, p.stopCh)
+
+	err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(consts.ClearResidualState, general.HealthzCheckStateNotReady,
+		appqrm.QRMNetworkPluginPeriodicalHandlerGroupName, p.clearResidualState, consts.StateCheckPeriod, consts.StateCheckTolerationTimes)
+	if err != nil {
+		general.Errorf("start %v failed, err: %v", consts.ClearResidualState, err)
+	}
+
+	go wait.Until(func() {
+		periodicalhandler.ReadyToStartHandlersByGroup(appqrm.QRMNetworkPluginPeriodicalHandlerGroupName)
+	}, 5*time.Second, p.stopCh)
+
 	go wait.Until(p.applyNetClass, 5*time.Second, p.stopCh)
 
 	return nil
+}
+
+// clearResidualState is used to clean residual pods in local state
+func (p *StaticPolicy) clearResidualState(_ *config.Configuration,
+	_ interface{},
+	_ *dynamicconfig.DynamicAgentConfiguration,
+	_ metrics.MetricEmitter,
+	_ *metaserver.MetaServer,
+) {
+	general.Infof("exec")
+	var (
+		err     error
+		podList []*v1.Pod
+	)
+	residualSet := make(map[string]bool)
+
+	defer func() {
+		_ = general.UpdateHealthzStateByError(consts.ClearResidualState, err)
+	}()
+
+	if p.metaServer == nil {
+		general.Errorf("nil metaServer")
+		return
+	}
+
+	ctx := context.Background()
+	podList, err = p.metaServer.GetPodList(ctx, nil)
+	if err != nil {
+		general.Errorf("get pod list failed: %v", err)
+		return
+	}
+
+	podSet := sets.NewString()
+	for _, pod := range podList {
+		podSet.Insert(fmt.Sprintf("%v", pod.UID))
+	}
+
+	p.Lock()
+	defer p.Unlock()
+
+	podEntries := p.state.GetPodEntries()
+	for podUID := range podEntries {
+		if !podSet.Has(podUID) {
+			residualSet[podUID] = true
+			p.residualHitMap[podUID] += 1
+			general.Infof("found pod: %s with state but doesn't show up in pod watcher, hit count: %d", podUID, p.residualHitMap[podUID])
+		}
+	}
+
+	podsToDelete := sets.NewString()
+	for podUID, hitCount := range p.residualHitMap {
+		if !residualSet[podUID] {
+			general.Infof("already found pod: %s in pod watcher or its state is cleared, delete it from residualHitMap", podUID)
+			delete(p.residualHitMap, podUID)
+			continue
+		}
+
+		if time.Duration(hitCount)*consts.StateCheckPeriod >= consts.MaxResidualTime {
+			podsToDelete.Insert(podUID)
+		}
+	}
+
+	if podsToDelete.Len() > 0 {
+		for {
+			podUID, found := podsToDelete.PopAny()
+			if !found {
+				break
+			}
+
+			general.Infof("clear residual pod: %s in state", podUID)
+			delete(podEntries, podUID)
+		}
+
+		machineState, err := state.GenerateMachineStateFromPodEntries(p.qrmConfig, p.nics, podEntries, p.state.GetReservedBandwidth())
+		if err != nil {
+			general.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
+			return
+		}
+
+		p.state.SetPodEntries(podEntries, false)
+		p.state.SetMachineState(machineState, false)
+
+		err = p.state.StoreState()
+		if err != nil {
+			general.Errorf("store state failed: %v", err)
+			return
+		}
+	}
+
+	err = p.generateAndApplyGroups()
+	if err != nil {
+		general.Errorf("generateAndApplyGroups failed with error: %v", err)
+	}
 }
 
 // Stop stops this plugin
@@ -1062,10 +1173,17 @@ func (p *StaticPolicy) removePod(podUID string) error {
 
 	err = p.state.StoreState()
 	if err != nil {
+		general.Errorf("store state failed with error: %v", err)
 		return err
 	}
 
-	return p.generateAndApplyGroups()
+	err = p.generateAndApplyGroups()
+	if err != nil {
+		general.Errorf("generateAndApplyGroups failed with error: %v", err)
+		return err
+	}
+
+	return nil
 }
 
 func (p *StaticPolicy) getNetClassID(podAnnotations map[string]string, podLevelNetClassAnnoKey, qosLevel string) (uint32, error) {

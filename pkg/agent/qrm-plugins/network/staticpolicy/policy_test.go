@@ -996,6 +996,19 @@ func TestResourceName(t *testing.T) {
 	assert.Equal(t, string(consts.ResourceNetBandwidth), policy.ResourceName())
 }
 
+func TestClearResidualState(t *testing.T) {
+	t.Parallel()
+
+	policy := makeStaticPolicy(t, true)
+
+	policy.metaServer = &metaserver.MetaServer{
+		MetaAgent: &metaserveragent.MetaAgent{
+			PodFetcher: &pod.PodFetcherStub{},
+		},
+	}
+	policy.clearResidualState(nil, nil, nil, nil, nil)
+}
+
 func TestGetTopologyHints(t *testing.T) {
 	t.Parallel()
 
