@@ -42,6 +42,7 @@ type MemoryOptions struct {
 	SockMemOptions
 	LogCacheOptions
 	FragMemOptions
+	ResctrlOptions
 }
 
 type SockMemOptions struct {
@@ -76,6 +77,14 @@ type FragMemOptions struct {
 	SetMemFragScoreAsync int
 }
 
+type ResctrlOptions struct {
+	EnableResctrlHint bool
+	// CPUSetPoolToSharedSubgroup specifies, if present, the subgroup id for shared-core QoS pod
+	// based on its cpu set pool annotation
+	CPUSetPoolToSharedSubgroup map[string]int
+	DefaultSharedSubgroup      int
+}
+
 func NewMemoryOptions() *MemoryOptions {
 	return &MemoryOptions{
 		PolicyName:                                    "dynamic",
@@ -105,6 +114,10 @@ func NewMemoryOptions() *MemoryOptions {
 		FragMemOptions: FragMemOptions{
 			EnableSettingFragMem: false,
 			SetMemFragScoreAsync: 80,
+		},
+		ResctrlOptions: ResctrlOptions{
+			CPUSetPoolToSharedSubgroup: nil,
+			DefaultSharedSubgroup:      50,
 		},
 	}
 }
@@ -160,6 +173,12 @@ func (o *MemoryOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.EnableSettingFragMem, "if set true, we will enable memory compaction related features")
 	fs.IntVar(&o.SetMemFragScoreAsync, "qrm-memory-frag-score-async",
 		o.SetMemFragScoreAsync, "set the threshold of frag score for async memory compaction")
+	fs.BoolVar(&o.EnableResctrlHint, "pod-admit-resctrl-layout-hint",
+		o.EnableResctrlHint, "if set true, we will enable resctrl hint on pod admission")
+	fs.StringToIntVar(&o.CPUSetPoolToSharedSubgroup, "pod-admit-resctrl-cpuset-pool-to-shared-subgroup",
+		o.CPUSetPoolToSharedSubgroup, "customize shared-xx subgroup if present")
+	fs.IntVar(&o.DefaultSharedSubgroup, "pod-admit-resctrl-default-shared-subgroup",
+		o.DefaultSharedSubgroup, "default subgroup for shared qos")
 }
 
 func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
@@ -187,5 +206,8 @@ func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
 	conf.FileFilters = o.FileFilters
 	conf.EnableSettingFragMem = o.EnableSettingFragMem
 	conf.SetMemFragScoreAsync = o.SetMemFragScoreAsync
+	conf.EnableResctrlHint = o.EnableResctrlHint
+	conf.CPUSetPoolToSharedSubgroup = o.CPUSetPoolToSharedSubgroup
+	conf.DefaultSharedSubgroup = o.DefaultSharedSubgroup
 	return nil
 }
