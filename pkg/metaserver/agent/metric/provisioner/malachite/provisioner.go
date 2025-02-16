@@ -970,6 +970,19 @@ func (m *MalachiteMetricsProvisioner) processContainerCPUData(podUID, containerN
 			utilmetric.MetricData{Value: cpu.CPUSysUsageRatio, Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUUsageRatioContainer,
 			utilmetric.MetricData{Value: cpu.CPUUsageRatio / (float64(cpu.Max) / float64(cpu.MaxPeriod)), Time: &updateTime})
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUShareContainer,
+			utilmetric.MetricData{Value: float64(cpu.Weight), Time: &updateTime})
+
+		var cpuQuota float64
+		if cpu.Max == math.MaxUint64 {
+			cpuQuota = -1
+		} else {
+			cpuQuota = float64(cpu.Max)
+		}
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUQuotaContainer,
+			utilmetric.MetricData{Value: cpuQuota, Time: &updateTime})
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUPeriodContainer,
+			utilmetric.MetricData{Value: float64(cpu.MaxPeriod), Time: &updateTime})
 
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrRunnableContainer,
 			utilmetric.MetricData{Value: float64(cpu.TaskNrRunning), Time: &updateTime})
