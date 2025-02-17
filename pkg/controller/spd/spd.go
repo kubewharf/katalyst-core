@@ -384,7 +384,7 @@ func (sc *SPDController) workloadWorker() {
 
 func (sc *SPDController) processNextWorkload() bool {
 	key, quit := sc.workloadSyncQueue.Get()
-	klog.Infof("[spd] process next workload key: ", key)
+	klog.Infof("[spd] process next workload key: %v", key)
 	if quit {
 		return false
 	}
