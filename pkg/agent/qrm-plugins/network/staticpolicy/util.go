@@ -18,14 +18,17 @@ package staticpolicy
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
 	"time"
 
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/state"
+	qrmutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -42,6 +45,8 @@ const (
 	RandomOne NICSelectionPoligy = "random"
 	FirstOne  NICSelectionPoligy = "first"
 	LastOne   NICSelectionPoligy = "last"
+
+	LowPriorityGroupNameSuffix = "low_priority"
 )
 
 type NICFilter func(nics []machine.InterfaceInfo, req *pluginapi.ResourceRequest, agentCtx *agent.GenericContext) []machine.InterfaceInfo
@@ -324,4 +329,26 @@ func getResourceIdentifier(ifaceNS, ifaceName string) string {
 	}
 
 	return ifaceName
+}
+
+func applyImplicitReq(req *pluginapi.ResourceRequest, allocationInfo *state.AllocationInfo) error {
+	if req == nil || allocationInfo == nil {
+		return fmt.Errorf("nil req or allocationInfo")
+	}
+
+	if !isImplicitReq(req.Annotations) {
+		return nil
+	}
+
+	allocationInfo.Annotations[state.NetBandwidthImplicitAnnotationKey] = fmt.Sprintf("%d",
+		general.Max(int(math.Ceil(req.ResourceRequests[string(apiconsts.ResourceNetBandwidth)])), 0))
+	return nil
+}
+
+func isImplicitReq(annotations map[string]string) bool {
+	return annotations[qrmutil.PodAnnotationQuantityFromQRMDeclarationKey] == qrmutil.PodAnnotationQuantityFromQRMDeclarationTrue
+}
+
+func getGroupName(nicName, groupSuffix string) string {
+	return fmt.Sprintf("%s_%s", nicName, groupSuffix)
 }

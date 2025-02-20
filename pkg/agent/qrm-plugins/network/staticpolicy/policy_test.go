@@ -177,6 +177,7 @@ func makeStaticPolicy(t *testing.T, hasNic bool) *StaticPolicy {
 			consts.PodAnnotationQoSLevelDedicatedCores: testDefaultDedicatedNetClsId,
 		},
 		agentCtx:                                 agentCtx,
+		applyNetworkGroupsFunc:                   agentCtx.MetaServer.ExternalManager.ApplyNetworkGroups,
 		nics:                                     availableNICs,
 		state:                                    stateImpl,
 		podLevelNetClassAnnoKey:                  consts.PodAnnotationNetClassKey,
@@ -882,6 +883,7 @@ func TestGetNetClassID(t *testing.T) {
 	testCases := []struct {
 		description     string
 		pod             *v1.Pod
+		qosLevel        string
 		expectedClassID uint32
 	}{
 		{
@@ -897,6 +899,7 @@ func TestGetNetClassID(t *testing.T) {
 					},
 				},
 			},
+			qosLevel:        consts.PodAnnotationQoSLevelSharedCores,
 			expectedClassID: 20,
 		},
 		{
@@ -912,6 +915,7 @@ func TestGetNetClassID(t *testing.T) {
 					},
 				},
 			},
+			qosLevel:        consts.PodAnnotationQoSLevelReclaimedCores,
 			expectedClassID: 10,
 		},
 		{
@@ -927,6 +931,7 @@ func TestGetNetClassID(t *testing.T) {
 					},
 				},
 			},
+			qosLevel:        consts.PodAnnotationQoSLevelDedicatedCores,
 			expectedClassID: 30,
 		},
 		{
@@ -942,6 +947,7 @@ func TestGetNetClassID(t *testing.T) {
 					},
 				},
 			},
+			qosLevel:        consts.PodAnnotationQoSLevelSystemCores,
 			expectedClassID: 70,
 		},
 		{
@@ -958,12 +964,13 @@ func TestGetNetClassID(t *testing.T) {
 					},
 				},
 			},
+			qosLevel:        consts.PodAnnotationQoSLevelSharedCores,
 			expectedClassID: 100,
 		},
 	}
 
 	for _, tc := range testCases {
-		gotClassID, err := staticPolicy.getNetClassID(tc.pod.Annotations, staticPolicy.podLevelNetClassAnnoKey)
+		gotClassID, err := staticPolicy.getNetClassID(tc.pod.Annotations, staticPolicy.podLevelNetClassAnnoKey, tc.qosLevel)
 		assert.NoError(t, err)
 		assert.Equal(t, tc.expectedClassID, gotClassID)
 	}
