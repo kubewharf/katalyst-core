@@ -19,6 +19,7 @@ package node
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -50,11 +51,16 @@ var nodeRawMetricNameMapping = map[string]string{
 	consts.MetricMemAvailableSystem: apimetricnode.CustomMetricNodeMemoryAvailable,
 }
 
-// nodeCachedMetricNameMapping maps the cached metricName (processed by plugin.SysAdvisorPlugin)
+// nodeNUMARawMetricNameMapping maps the raw metricName (collected from agent.MetricsFetcher)
 // to the standard metricName (used by custom-metric-api-server)
+var nodeNUMARawMetricNameMapping = map[string]string{
+	consts.MetricMemBandwidthReadNuma:  apimetricnode.CustomMetricNUMAMemoryBandwidthRead,
+	consts.MetricMemBandwidthWriteNuma: apimetricnode.CustomMetricNUMAMemoryBandwidthWrite,
+}
 
 type MetricSyncerNode struct {
-	metricMapping map[string]string
+	metricMapping     map[string]string
+	numaMetricMapping map[string]string
 
 	conf *metricemitter.MetricEmitterPluginConfiguration
 	node *v1.Node
@@ -79,9 +85,11 @@ func NewMetricSyncerNode(conf *config.Configuration, _ interface{},
 	}
 
 	metricMapping := general.MergeMap(nodeRawMetricNameMapping, conf.MetricEmitterNodeConfiguration.MetricMapping)
+	numaMetricMapping := general.MergeMap(nodeNUMARawMetricNameMapping, conf.MetricEmitterNodeConfiguration.NUMAMetricMapping)
 
 	return &MetricSyncerNode{
-		metricMapping: metricMapping,
+		metricMapping:     metricMapping,
+		numaMetricMapping: numaMetricMapping,
 
 		conf: conf.AgentConfiguration.MetricEmitterPluginConfiguration,
 
@@ -98,15 +106,28 @@ func (n *MetricSyncerNode) Name() string {
 
 func (n *MetricSyncerNode) Run(ctx context.Context) {
 	rChan := make(chan metrictypes.NotifiedResponse, 20)
+	rNUMAChan := make(chan metrictypes.NotifiedResponse, 20)
 	go n.receiveRawNode(ctx, rChan)
-	go wait.Until(func() { n.advisorMetric(ctx) }, time.Second*3, ctx.Done())
+	go n.receiveRawNodeNUMA(ctx, rNUMAChan)
 
+	go wait.Until(func() { n.advisorMetric(ctx) }, time.Second*3, ctx.Done())
 	// there is no need to deRegister for node-related metric
 	for rawMetricName := range n.metricMapping {
 		klog.Infof("register raw node metric: %v", rawMetricName)
 		n.metaServer.MetricsFetcher.RegisterNotifier(metrictypes.MetricsScopeNode, metrictypes.NotifiedRequest{
 			MetricName: rawMetricName,
 		}, rChan)
+	}
+
+	// there is no need to deRegister for numa-related metric
+	for rawNUMAMetricName := range n.numaMetricMapping {
+		for _, numaID := range n.metaServer.CPUDetails.NUMANodes().ToSliceNoSortInt() {
+			klog.Infof("register raw node numa metric: %v, numa: %d", rawNUMAMetricName, numaID)
+			n.metaServer.MetricsFetcher.RegisterNotifier(metrictypes.MetricsScopeNuma, metrictypes.NotifiedRequest{
+				MetricName: rawNUMAMetricName,
+				NumaID:     numaID,
+			}, rNUMAChan)
+		}
 	}
 }
 
@@ -137,6 +158,41 @@ func (n *MetricSyncerNode) receiveRawNode(ctx context.Context, rChan chan metric
 			}
 		case <-ctx.Done():
 			klog.Infof("metric emitter for node has been stopped")
+			return
+		}
+	}
+}
+
+func (n *MetricSyncerNode) receiveRawNodeNUMA(ctx context.Context, rChan chan metrictypes.NotifiedResponse) {
+	for {
+		select {
+		case response := <-rChan:
+			if response.Req.MetricName == "" {
+				continue
+			} else if response.Time == nil {
+				continue
+			}
+
+			targetMetricName, ok := n.numaMetricMapping[response.Req.MetricName]
+			if !ok {
+				klog.Warningf("invalid npde numa raw metric name: %v", response.Req.MetricName)
+				continue
+			}
+
+			klog.V(4).Infof("get metric %v for node, numa %v", response.Req.MetricName, response.Req.NumaNode)
+			if tags := n.generateMetricTag(ctx); len(tags) > 0 {
+				_ = n.dataEmitter.StoreFloat64(targetMetricName, response.Value, metrics.MetricTypeNameRaw, append(tags,
+					metrics.MetricTag{
+						Key: fmt.Sprintf("%s", data.CustomMetricLabelKeyTimestamp),
+						Val: fmt.Sprintf("%v", response.Time.UnixMilli()),
+					},
+					metrics.MetricTag{
+						Key: fmt.Sprintf("%snuma", data.CustomMetricLabelSelectorPrefixKey),
+						Val: strconv.Itoa(response.Req.NumaID),
+					})...)
+			}
+		case <-ctx.Done():
+			klog.Infof("metric emitter for node numa has been stopped")
 			return
 		}
 	}
