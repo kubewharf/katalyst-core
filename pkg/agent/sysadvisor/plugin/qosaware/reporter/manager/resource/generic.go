@@ -249,8 +249,8 @@ func (m *GenericHeadroomManager) sync(_ context.Context) {
 		reportResult = &reclaimOptions.MinReclaimedResourceForReport
 	}
 
-	klog.Infof("headroom manager for %s with originResultFromAdvisor: %s, reportResult: %s, "+
-		"reservedResourceForReport: %s", m.resourceName, originResultFromAdvisor.String(),
+	klog.Infof("headroom manager for %s with originResultFromAdvisor: %s, numaOriRet: %#v, reportResult: %s, "+
+		"reservedResourceForReport: %s", m.resourceName, originResultFromAdvisor.String(), numaResult,
 		reportResult.String(), reclaimOptions.ReservedResourceForReport.String())
 
 	m.setLastReportResult(*reportResult)

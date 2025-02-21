@@ -187,6 +187,10 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 			return resource.Quantity{}, nil, fmt.Errorf("get util-based headroom failed with numa %d: %v", numaID, err)
 		}
 
+		// reserve at least 1 cpu per numa
+		if headroom.IsZero() {
+			headroom.Add(*resource.NewQuantity(1, resource.DecimalSI))
+		}
 		numaHeadroom[numaID] = headroom
 		totalHeadroom.Add(headroom)
 	}
@@ -218,6 +222,10 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 
 		totalHeadroom.Add(headroom)
 		headroomPerNUMA := float64(headroom.Value()) / float64(len(nonBindingNumas))
+		// reserve at least 1 cpu per numa
+		if headroomPerNUMA == 0.0 {
+			headroomPerNUMA = 1.0
+		}
 		for _, numaID := range nonBindingNumas {
 			numaHeadroom[numaID] = *resource.NewQuantity(int64(headroomPerNUMA), resource.DecimalSI)
 		}

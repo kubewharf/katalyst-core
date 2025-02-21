@@ -154,6 +154,11 @@ func (p *PolicyNUMAAware) Update() (err error) {
 	numaHeadroom := 0.0
 	for numaID := range numaReclaimableMemory {
 		numaReclaimableMemory[numaID] *= reduceRatio
+		// reserve at least 1 GB for reclaimable numa
+		if numaReclaimableMemory[numaID] <= 0.0 {
+			numaReclaimableMemory[numaID] = 1073741824
+			p.memoryHeadroom += numaReclaimableMemory[numaID]
+		}
 		numaHeadroom += numaReclaimableMemory[numaID]
 		p.numaMemoryHeadroom[numaID] = *resource.NewQuantity(int64(numaReclaimableMemory[numaID]), resource.BinarySI)
 		general.InfoS("memory reclaimable per NUMA", "NUMA-ID", numaID, "headroom", numaReclaimableMemory[numaID])
@@ -161,7 +166,7 @@ func (p *PolicyNUMAAware) Update() (err error) {
 
 	allNUMAs := p.metaServer.CPUDetails.NUMANodes()
 	for _, numaID := range allNUMAs.ToSliceInt() {
-		if _, ok := p.numaMemoryHeadroom[numaID]; !ok {
+		if _, ok := numaReclaimableMemory[numaID]; !ok {
 			general.InfoS("set non-reclaim NUMA memory reclaimable as empty", "NUMA-ID", numaID)
 			p.numaMemoryHeadroom[numaID] = *resource.NewQuantity(0, resource.BinarySI)
 		}

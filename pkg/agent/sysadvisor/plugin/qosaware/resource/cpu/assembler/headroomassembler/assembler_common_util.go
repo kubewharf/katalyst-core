@@ -94,6 +94,7 @@ func (ha *HeadroomAssemblerCommon) getReclaimNUMABindingTopo(reclaimPool *types.
 		err = fmt.Errorf("get available numa failed: %v", e)
 		return
 	}
+	klog.Infof("get available numa: %#v", availNUMAs)
 
 	numaMap := make(map[int]bool)
 	for numaID := range reclaimPool.TopologyAwareAssignments {
