@@ -75,6 +75,10 @@ func (c *PIDController) Adjust(controlKnob, target, current float64) float64 {
 			kp = c.params.Kpn
 			kpSign = -1
 		}
+		// The default value of kp is evaluated on the machine which has 96 Cores.
+		// In an actual scenario, if kp remains unchanged, when the region is large, the control will be excessively sluggish.
+		// So here we scale kp according to the region size.
+		kp *= c.resourceEssentials.ResourceUpperBound
 
 		if errorRate >= 0 {
 			kdSign = kpSign
@@ -91,6 +95,8 @@ func (c *PIDController) Adjust(controlKnob, target, current float64) float64 {
 		pterm = kp * c.errorValue
 		dterm = kdSign * kd * math.Abs(errorRate)
 		adjustment = pterm + dterm
+	} else {
+		klog.InfoS("in deadband", "errorRaw", errorRaw, "target", target, "params", c.params)
 	}
 
 	if c.controlKnobPrev != controlKnob {
@@ -106,7 +112,7 @@ func (c *PIDController) Adjust(controlKnob, target, current float64) float64 {
 
 	klog.InfoS("[qosaware-cpu-pid]", "meta", c.msg, "indicator", c.variableName, "controlKnob", controlKnob,
 		"adjustment", adjustment, "adjustmentTotal", c.adjustmentTotal, "result", result, "target", target, "current", current,
-		"errorValue", c.errorValue, "errorRate", errorRate, "pterm", pterm, "dterm", dterm)
+		"errorValue", c.errorValue, "errorRate", errorRate, "pterm", pterm, "dterm", dterm, "kp", kp, "kd", kd, "resourceEssentials", c.resourceEssentials)
 
 	return result
 }

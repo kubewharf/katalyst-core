@@ -65,7 +65,8 @@ func NewQoSRegionDedicatedNumaExclusive(ci *types.ContainerInfo, conf *config.Co
 	}
 	r.bindingNumas = machine.NewCPUSet(numaID)
 	r.indicatorCurrentGetters = map[string]types.IndicatorCurrentGetter{
-		string(workloadapis.ServiceSystemIndicatorNameCPI): r.getPodCPICurrent,
+		string(workloadapis.ServiceSystemIndicatorNameCPI):           r.getPodCPICurrent,
+		string(workloadapis.ServiceSystemIndicatorNameCPUUsageRatio): r.getCPUUsageRatio,
 	}
 	r.enableReclaim = r.EnableReclaim
 
@@ -175,6 +176,13 @@ out:
 }
 
 func (r *QoSRegionDedicatedNumaExclusive) getEffectiveControlKnobs() types.ControlKnob {
+	regionInfo, ok := r.metaReader.GetRegionInfo(r.name)
+	if ok {
+		if _, existed := regionInfo.ControlKnobMap[configapi.ControlKnobNonReclaimedCPURequirement]; existed {
+			return regionInfo.ControlKnobMap
+		}
+	}
+
 	reclaimedCPUSize := 0
 	if reclaimedInfo, ok := r.metaReader.GetPoolInfo(commonstate.PoolNameReclaim); ok {
 		for _, numaID := range r.bindingNumas.ToSliceInt() {
@@ -217,4 +225,21 @@ func (r *QoSRegionDedicatedNumaExclusive) getPodCPICurrent() (float64, error) {
 	}
 
 	return cpiSum / containerCnt, nil
+}
+
+func (r *QoSRegionDedicatedNumaExclusive) getCPUUsageRatio() (float64, error) {
+	usage := 0.0
+	nr := 0
+	for _, numaID := range r.bindingNumas.ToSliceInt() {
+		data, err := r.metaReader.GetNumaMetric(numaID, consts.MetricCPUUsageNuma)
+		if err != nil {
+			return 0, err
+		}
+		usage += data.Value
+		nr += r.metaServer.CPUDetails.CPUsInNUMANodes(numaID).Size()
+	}
+	if nr == 0 {
+		return 0, fmt.Errorf("invalid cpu nr")
+	}
+	return usage / float64(nr), nil
 }

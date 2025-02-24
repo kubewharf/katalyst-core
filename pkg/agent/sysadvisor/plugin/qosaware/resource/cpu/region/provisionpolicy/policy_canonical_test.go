@@ -74,8 +74,8 @@ func generateCanonicalTestConfiguration(t *testing.T, checkpointDir, stateFileDi
 	conf.PolicyRama = &provisionconfig.PolicyRamaConfiguration{
 		PIDParameters: map[string]types.FirstOrderPIDParams{
 			consts.MetricCPUSchedwait: {
-				Kpp:                  10.0,
-				Kpn:                  1.0,
+				Kpp:                  0.1,
+				Kpn:                  0.01,
 				Kdp:                  0.0,
 				Kdn:                  0.0,
 				AdjustmentUpperBound: types.MaxRampUpStep,
@@ -84,8 +84,8 @@ func generateCanonicalTestConfiguration(t *testing.T, checkpointDir, stateFileDi
 				DeadbandUpperPct:     0.05,
 			},
 			consts.MetricCPUCPIContainer: {
-				Kpp:                  10.0,
-				Kpn:                  1.0,
+				Kpp:                  0.1,
+				Kpn:                  0.01,
 				Kdp:                  0.0,
 				Kdn:                  0.0,
 				AdjustmentUpperBound: types.MaxRampUpStep,
@@ -94,8 +94,8 @@ func generateCanonicalTestConfiguration(t *testing.T, checkpointDir, stateFileDi
 				DeadbandUpperPct:     0.02,
 			},
 			consts.MetricMemBandwidthNuma: {
-				Kpp:                  10.0,
-				Kpn:                  1.0,
+				Kpp:                  0.1,
+				Kpn:                  0.01,
 				Kdp:                  0.0,
 				Kdn:                  0.0,
 				AdjustmentUpperBound: types.MaxRampUpStep,

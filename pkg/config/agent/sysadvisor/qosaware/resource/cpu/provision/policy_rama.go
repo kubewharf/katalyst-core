@@ -31,8 +31,8 @@ func NewPolicyRamaConfiguration() *PolicyRamaConfiguration {
 	return &PolicyRamaConfiguration{
 		PIDParameters: map[string]types.FirstOrderPIDParams{
 			string(v1alpha1.ServiceSystemIndicatorNameCPUSchedWait): {
-				Kpp:                  5.0,
-				Kpn:                  0.9,
+				Kpp:                  0.05,
+				Kpn:                  0.009,
 				Kdp:                  0.0,
 				Kdn:                  0.0,
 				AdjustmentUpperBound: types.MaxRampUpStep,
@@ -41,8 +41,8 @@ func NewPolicyRamaConfiguration() *PolicyRamaConfiguration {
 				DeadbandLowerPct:     0.2,
 			},
 			string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): {
-				Kpp:                  10.0,
-				Kpn:                  2.0,
+				Kpp:                  0.1,
+				Kpn:                  0.04,
 				Kdp:                  0.0,
 				Kdn:                  0.0,
 				AdjustmentUpperBound: types.MaxRampUpStep,
@@ -51,8 +51,8 @@ func NewPolicyRamaConfiguration() *PolicyRamaConfiguration {
 				DeadbandLowerPct:     0.06,
 			},
 			string(v1alpha1.ServiceSystemIndicatorNameCPI): {
-				Kpp:                  10.0,
-				Kpn:                  2.0,
+				Kpp:                  0.1,
+				Kpn:                  0.04,
 				Kdp:                  0.0,
 				Kdn:                  0.0,
 				AdjustmentUpperBound: types.MaxRampUpStep,
@@ -61,8 +61,8 @@ func NewPolicyRamaConfiguration() *PolicyRamaConfiguration {
 				DeadbandLowerPct:     0.02,
 			},
 			string(v1alpha1.ServiceSystemIndicatorNameMemoryAccessReadLatency): {
-				Kpp:                  5.0,
-				Kpn:                  0.9,
+				Kpp:                  0.05,
+				Kpn:                  0.009,
 				Kdp:                  0.0,
 				Kdn:                  0.0,
 				AdjustmentUpperBound: types.MaxRampUpStep,
@@ -71,8 +71,8 @@ func NewPolicyRamaConfiguration() *PolicyRamaConfiguration {
 				DeadbandLowerPct:     0.2,
 			},
 			string(v1alpha1.ServiceSystemIndicatorNameMemoryAccessWriteLatency): {
-				Kpp:                  5.0,
-				Kpn:                  0.9,
+				Kpp:                  0.05,
+				Kpn:                  0.009,
 				Kdp:                  0.0,
 				Kdn:                  0.0,
 				AdjustmentUpperBound: types.MaxRampUpStep,
@@ -81,8 +81,8 @@ func NewPolicyRamaConfiguration() *PolicyRamaConfiguration {
 				DeadbandLowerPct:     0.2,
 			},
 			string(v1alpha1.ServiceSystemIndicatorNameMemoryL3MissLatency): {
-				Kpp:                  5.0,
-				Kpn:                  0.9,
+				Kpp:                  0.05,
+				Kpn:                  0.009,
 				Kdp:                  0.0,
 				Kdn:                  0.0,
 				AdjustmentUpperBound: types.MaxRampUpStep,
