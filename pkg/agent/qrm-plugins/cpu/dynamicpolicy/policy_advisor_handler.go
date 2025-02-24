@@ -158,9 +158,9 @@ func (p *DynamicPolicy) GetCheckpoint(_ context.Context,
 
 			chkEntries[uid].Entries[entryName].OwnerPoolName = ownerPoolName
 
-			// not set topology-aware assignments for shared_cores and reclaimed_cores,
+			// not set topology-aware assignments for shared_cores,
 			// since their topology-aware assignments are same to the pools they are in.
-			if (!allocationInfo.CheckShared() && !allocationInfo.CheckReclaimed()) || containerEntries.IsPoolEntry() {
+			if !allocationInfo.CheckShared() || containerEntries.IsPoolEntry() {
 				chkEntries[uid].Entries[entryName].TopologyAwareAssignments = machine.ParseCPUAssignmentFormat(allocationInfo.TopologyAwareAssignments)
 				chkEntries[uid].Entries[entryName].OriginalTopologyAwareAssignments = machine.ParseCPUAssignmentFormat(allocationInfo.OriginalTopologyAwareAssignments)
 			}
@@ -274,9 +274,9 @@ func (p *DynamicPolicy) createGetAdviceRequest() (*advisorapi.GetAdviceRequest, 
 
 			info.AllocationInfo.OwnerPoolName = ownerPoolName
 
-			// not set topology-aware assignments for shared_cores and reclaimed_cores,
+			// not set topology-aware assignments for shared_cores,
 			// since their topology-aware assignments are same to the pools they are in.
-			if (!allocationInfo.CheckShared() && !allocationInfo.CheckReclaimed()) || containerEntries.IsPoolEntry() {
+			if !allocationInfo.CheckShared() || containerEntries.IsPoolEntry() {
 				info.AllocationInfo.TopologyAwareAssignments = machine.ParseCPUAssignmentFormat(allocationInfo.TopologyAwareAssignments)
 				info.AllocationInfo.OriginalTopologyAwareAssignments = machine.ParseCPUAssignmentFormat(allocationInfo.OriginalTopologyAwareAssignments)
 			}

@@ -552,7 +552,7 @@ func (cs *cpuServer) setContainerInfoBasedOnAllocationInfo(
 	}
 
 	// fill in topology aware assignment for containers with owner pool
-	if ci.QoSLevel != consts.PodAnnotationQoSLevelDedicatedCores {
+	if info.TopologyAwareAssignments == nil {
 		if len(ci.OwnerPoolName) > 0 {
 			if poolInfo, ok := cs.metaCache.GetPoolInfo(ci.OwnerPoolName); ok {
 				ci.TopologyAwareAssignments = poolInfo.TopologyAwareAssignments.Clone()

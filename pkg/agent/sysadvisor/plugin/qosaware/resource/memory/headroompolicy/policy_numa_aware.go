@@ -151,21 +151,25 @@ func (p *PolicyNUMAAware) Update() (err error) {
 	if reclaimableMemory > 0 {
 		reduceRatio = p.memoryHeadroom / reclaimableMemory
 	}
-	numaHeadroom := 0.0
+
+	totalNUMAHeadroom := 0.0
+	allNUMAs := p.metaServer.CPUDetails.NUMANodes().ToSliceInt()
+	numaHeadroom := make(map[int]resource.Quantity, len(allNUMAs))
 	for numaID := range numaReclaimableMemory {
 		numaReclaimableMemory[numaID] *= reduceRatio
-		numaHeadroom += numaReclaimableMemory[numaID]
-		p.numaMemoryHeadroom[numaID] = *resource.NewQuantity(int64(numaReclaimableMemory[numaID]), resource.BinarySI)
+		totalNUMAHeadroom += numaReclaimableMemory[numaID]
+		numaHeadroom[numaID] = *resource.NewQuantity(int64(numaReclaimableMemory[numaID]), resource.BinarySI)
 		general.InfoS("memory reclaimable per NUMA", "NUMA-ID", numaID, "headroom", numaReclaimableMemory[numaID])
 	}
 
-	allNUMAs := p.metaServer.CPUDetails.NUMANodes()
-	for _, numaID := range allNUMAs.ToSliceInt() {
-		if _, ok := p.numaMemoryHeadroom[numaID]; !ok {
+	for _, numaID := range allNUMAs {
+		if _, ok := numaHeadroom[numaID]; !ok {
 			general.InfoS("set non-reclaim NUMA memory reclaimable as empty", "NUMA-ID", numaID)
-			p.numaMemoryHeadroom[numaID] = *resource.NewQuantity(0, resource.BinarySI)
+			numaHeadroom[numaID] = *resource.NewQuantity(0, resource.BinarySI)
 		}
 	}
+
+	p.numaMemoryHeadroom = numaHeadroom
 
 	general.InfoS("total memory reclaimable",
 		"reclaimableMemory", general.FormatMemoryQuantity(reclaimableMemory),
@@ -173,6 +177,7 @@ func (p *PolicyNUMAAware) Update() (err error) {
 		"systemWatermarkReserved", general.FormatMemoryQuantity(systemWatermarkReserved),
 		"reservedForAllocate", general.FormatMemoryQuantity(reservedForAllocate),
 		"headroom", p.memoryHeadroom,
+		"totalNUMAHeadroom", totalNUMAHeadroom,
 		"numaHeadroom", numaHeadroom,
 	)
 	return nil
