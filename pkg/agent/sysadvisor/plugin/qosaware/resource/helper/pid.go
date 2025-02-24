@@ -75,6 +75,7 @@ func (c *PIDController) Adjust(controlKnob, target, current float64) float64 {
 			kp = c.params.Kpn
 			kpSign = -1
 		}
+		kp *= c.resourceEssentials.ResourceUpperBound / 10
 
 		if errorRate >= 0 {
 			kdSign = kpSign
@@ -106,7 +107,7 @@ func (c *PIDController) Adjust(controlKnob, target, current float64) float64 {
 
 	klog.InfoS("[qosaware-cpu-pid]", "meta", c.msg, "indicator", c.variableName, "controlKnob", controlKnob,
 		"adjustment", adjustment, "adjustmentTotal", c.adjustmentTotal, "result", result, "target", target, "current", current,
-		"errorValue", c.errorValue, "errorRate", errorRate, "pterm", pterm, "dterm", dterm)
+		"errorValue", c.errorValue, "errorRate", errorRate, "pterm", pterm, "dterm", dterm, "kp", kp, "kd", kd)
 
 	return result
 }
