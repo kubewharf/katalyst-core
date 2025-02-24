@@ -89,8 +89,13 @@ func (ha *HeadroomAssemblerCommon) getReclaimNUMABindingTopo(reclaimPool *types.
 		return
 	}
 
-	numaMap := make(map[int]bool)
+	availNUMAs, _, e := helper.GetAvailableNUMAsAndReclaimedCores(ha.conf, ha.metaReader, ha.metaServer)
+	if e != nil {
+		err = fmt.Errorf("get available numa failed: %v", e)
+		return
+	}
 
+	numaMap := make(map[int]bool)
 	for numaID := range reclaimPool.TopologyAwareAssignments {
 		numaMap[numaID] = false
 	}
@@ -131,7 +136,9 @@ func (ha *HeadroomAssemblerCommon) getReclaimNUMABindingTopo(reclaimPool *types.
 		if bound {
 			bindingNUMAs = append(bindingNUMAs, numaID)
 		} else {
-			nonBindingNumas = append(nonBindingNumas, numaID)
+			if availNUMAs.Contains(numaID) {
+				nonBindingNumas = append(nonBindingNumas, numaID)
+			}
 		}
 	}
 
