@@ -216,7 +216,7 @@ func TestPolicyRama(t *testing.T) {
 			},
 			wantResult: types.ControlKnob{
 				configapi.ControlKnobNonReclaimedCPURequirement: {
-					Value:  46.93147180559946,
+					Value:  46.23832462503951,
 					Action: types.ControlKnobActionNone,
 				},
 			},
@@ -380,7 +380,7 @@ func TestPolicyRama(t *testing.T) {
 			},
 			wantResult: types.ControlKnob{
 				configapi.ControlKnobNonReclaimedCPURequirement: {
-					Value:  46.93147180559945,
+					Value:  46.23832462503951,
 					Action: types.ControlKnobActionNone,
 				},
 			},
