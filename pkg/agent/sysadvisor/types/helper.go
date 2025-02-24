@@ -273,6 +273,21 @@ func (r *InternalCPUCalculationResult) SetPoolEntry(poolName string, numaID int,
 	r.PoolEntries[poolName][numaID] = CPUResource{Size: poolSize, Quota: cpuQuota}
 }
 
+//func (r *InternalCPUCalculationResult) MergePool(r2 *InternalCPUCalculationResult) {
+//	for poolName, numaIDToSize := range r2.PoolEntries {
+//		for numaID, size := range numaIDToSize {
+//			r.SetPoolEntry(poolName, numaID, size.Size, size.Quota)
+//		}
+//	}
+//	for poolName, numaIDToSize := range r2.PoolOverlapInfo {
+//		for numaID, overlapPoolNameToSize := range numaIDToSize {
+//			for overlapPoolName, size := range overlapPoolNameToSize {
+//				r.SetPoolOverlapInfo(poolName, numaID, overlapPoolName, size)
+//			}
+//		}
+//	}
+//}
+
 func (r *InternalCPUCalculationResult) SetPoolOverlapInfo(poolName string, numaID int, overlapPoolName string, poolSize int) {
 	if poolSize <= 0 {
 		return
