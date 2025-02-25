@@ -6525,6 +6525,14 @@ func (m *mockCPUAdvisor) ListAndWatch(in *advisorsvc.Empty, srv advisorapi.CPUAd
 	return args.Error(0)
 }
 
+func (m *mockCPUAdvisor) AddContainer(ctx context.Context, req *advisorsvc.ContainerMetadata) (*advisorsvc.AddContainerResponse, error) {
+	return &advisorsvc.AddContainerResponse{}, nil
+}
+
+func (m *mockCPUAdvisor) RemovePod(ctx context.Context, req *advisorsvc.RemovePodRequest) (*advisorsvc.RemovePodResponse, error) {
+	return &advisorsvc.RemovePodResponse{}, nil
+}
+
 func enableAdvisorForTest(dynamicPolicy *DynamicPolicy, pluginSocketDir string) {
 	dynamicPolicy.enableCPUAdvisor = true
 	dynamicPolicy.getAdviceInterval = 1 * time.Second
@@ -6665,6 +6673,74 @@ func TestSwitchBetweenAPIs(t *testing.T) {
 			checkpointDir := filepath.Join(tmpDir, "checkpoint")
 			dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, checkpointDir)
 			as.NoError(err)
+			podEntries := state.PodEntries{
+				"373d08e4-7a6b-4293-aaaf-b135ff812aaa": state.ContainerEntries{
+					"main": &state.AllocationInfo{
+						AllocationMeta: commonstate.AllocationMeta{
+							PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff812aaa",
+							PodNamespace:   "default",
+							PodName:        "test",
+							ContainerName:  "main",
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  "share-NUMA1",
+							Labels: map[string]string{
+								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+							},
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+								cpuconsts.CPUStateAnnotationKeyNUMAHint:          "1",
+							},
+							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
+						},
+						RampUp:                   false,
+						AllocationResult:         machine.MustParse("3,10"),
+						OriginalAllocationResult: machine.MustParse("3,10"),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							1: machine.NewCPUSet(3, 10),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							1: machine.NewCPUSet(3, 10),
+						},
+						RequestQuantity: 2,
+					},
+					"sidecar": &state.AllocationInfo{
+						AllocationMeta: commonstate.AllocationMeta{
+							PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff812aaa",
+							PodNamespace:   "default",
+							PodName:        "test",
+							ContainerName:  "sidecar",
+							ContainerType:  pluginapi.ContainerType_SIDECAR.String(),
+							ContainerIndex: 1,
+							OwnerPoolName:  commonstate.EmptyOwnerPoolName,
+							Labels: map[string]string{
+								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+							},
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+							},
+							QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
+						},
+						RampUp:                   false,
+						AllocationResult:         machine.MustParse("3,10"),
+						OriginalAllocationResult: machine.MustParse("3,10"),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							1: machine.NewCPUSet(3, 10),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							1: machine.NewCPUSet(3, 10),
+						},
+						RequestQuantity: 2,
+					},
+				},
+			}
+			machineState, err := generateMachineStateFromPodEntries(cpuTopology, podEntries)
+			as.Nil(err)
+
+			dynamicPolicy.state.SetPodEntries(podEntries)
+			dynamicPolicy.state.SetMachineState(machineState)
 
 			enableAdvisorForTest(dynamicPolicy, tmpDir)
 

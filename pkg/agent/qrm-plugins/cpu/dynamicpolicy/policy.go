@@ -1279,6 +1279,14 @@ func (p *DynamicPolicy) applySidecarAllocationInfoFromMainContainer(sidecarAlloc
 		changed = true
 	}
 
+	// Copy missing annotations from main container
+	for key, value := range mainAllocationInfo.Annotations {
+		if _, ok := sidecarAllocationInfo.Annotations[key]; !ok {
+			sidecarAllocationInfo.Annotations[key] = value
+			changed = true
+		}
+	}
+
 	request := p.getContainerRequestedCores(sidecarAllocationInfo)
 	if sidecarAllocationInfo.RequestQuantity != request {
 		sidecarAllocationInfo.RequestQuantity = request
