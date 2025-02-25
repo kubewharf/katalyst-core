@@ -41,7 +41,7 @@ func NewPolicyRamaConfiguration() *PolicyRamaConfiguration {
 				DeadbandLowerPct:     0.2,
 			},
 			string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): {
-				Kpp:                  10.0,
+				Kpp:                  4.0,
 				Kpn:                  2.0,
 				Kdp:                  0.0,
 				Kdn:                  0.0,
@@ -51,7 +51,7 @@ func NewPolicyRamaConfiguration() *PolicyRamaConfiguration {
 				DeadbandLowerPct:     0.06,
 			},
 			string(v1alpha1.ServiceSystemIndicatorNameCPI): {
-				Kpp:                  10.0,
+				Kpp:                  4.0,
 				Kpn:                  2.0,
 				Kdp:                  0.0,
 				Kdn:                  0.0,
