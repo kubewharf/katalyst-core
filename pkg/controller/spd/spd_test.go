@@ -969,7 +969,7 @@ func TestIndicatorUpdater(t *testing.T) {
 					Current: &current,
 				},
 				{
-					Name:    "system-2",
+					Name:    "business-2",
 					Current: &current,
 				},
 			},
@@ -1067,7 +1067,7 @@ func TestIndicatorUpdater(t *testing.T) {
 		Status: apiworkload.ServiceProfileDescriptorStatus{
 			BusinessStatus: []apiworkload.ServiceBusinessIndicatorStatus{
 				{
-					Name:    "system-2",
+					Name:    "business-2",
 					Current: &value,
 				},
 			},
@@ -1246,11 +1246,11 @@ func TestIndicatorUpdater(t *testing.T) {
 	sc.indicatorManager.UpdateBusinessIndicatorStatus(
 		nn, []apiworkload.ServiceBusinessIndicatorStatus{
 			{
-				Name:    "system-1",
+				Name:    "business-1",
 				Current: &value,
 			},
 			{
-				Name:    "system-2",
+				Name:    "business-2",
 				Current: &value,
 			},
 		},
