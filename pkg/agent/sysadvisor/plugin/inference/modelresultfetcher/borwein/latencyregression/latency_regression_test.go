@@ -32,19 +32,33 @@ import (
 func TestGetLatencyRegressionPredictValue(t *testing.T) {
 	t.Parallel()
 	timeNow := time.Now().Unix()
-	res := &LatencyRegression{
+	res1 := &LatencyRegression{
 		PredictValue:     0.6,
 		EquilibriumValue: 0.1,
+		Ignore:           false,
 	}
-	bs, _ := json.Marshal(res)
+	bs1, _ := json.Marshal(res1)
+	res2 := &LatencyRegression{
+		PredictValue:     0.7,
+		EquilibriumValue: 0.1,
+		Ignore:           true,
+	}
+	bs2, _ := json.Marshal(res2)
 	reader := metacache.NewDummyMetaCacheImp()
 	_ = reader.SetInferenceResult(borweinutils.GetInferenceResultKey(borweinconsts.ModelNameBorweinLatencyRegression), &borweintypes.BorweinInferenceResults{
 		Timestamp: timeNow,
 		Results: map[string]map[string][]*borweininfsvc.InferenceResult{
-			"test": {
+			"test1": {
 				"test": []*borweininfsvc.InferenceResult{
 					{
-						GenericOutput: string(bs),
+						GenericOutput: string(bs1),
+					},
+				},
+			},
+			"test2": {
+				"test": []*borweininfsvc.InferenceResult{
+					{
+						GenericOutput: string(bs2),
 					},
 				},
 			},
@@ -57,13 +71,13 @@ func TestGetLatencyRegressionPredictValue(t *testing.T) {
 		name    string
 		args    args
 		want    map[string]map[string]*LatencyRegression
-		want1   int64
+		wantTs  int64
 		wantErr bool
 	}{
 		{
 			name:    "GetLatencyRegressionPredictValue failed",
 			want:    nil,
-			want1:   0,
+			wantTs:  0,
 			wantErr: true,
 		},
 		{
@@ -72,14 +86,15 @@ func TestGetLatencyRegressionPredictValue(t *testing.T) {
 				metaReader: reader,
 			},
 			want: map[string]map[string]*LatencyRegression{
-				"test": {
+				"test1": {
 					"test": &LatencyRegression{
 						PredictValue:     0.6,
 						EquilibriumValue: 0.1,
+						Ignore:           false,
 					},
 				},
 			},
-			want1:   timeNow,
+			wantTs:  timeNow,
 			wantErr: false,
 		},
 	}
@@ -87,16 +102,13 @@ func TestGetLatencyRegressionPredictValue(t *testing.T) {
 		curTT := tt
 		t.Run(curTT.name, func(t *testing.T) {
 			t.Parallel()
-			got, got1, err := GetLatencyRegressionPredictResult(curTT.args.metaReader)
+			got, _, err := GetLatencyRegressionPredictResult(curTT.args.metaReader)
 			if (err != nil) != curTT.wantErr {
 				t.Errorf("GetLatencyRegressionPredictResult() error = %v, wantErr %v", err, curTT.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(got, curTT.want) {
 				t.Errorf("GetLatencyRegressionPredictResult() got = %v, want %v", got, curTT.want)
-			}
-			if got1 != curTT.want1 {
-				t.Errorf("GetLatencyRegressionPredictResult() got1 = %v, want %v", got1, curTT.want1)
 			}
 		})
 	}

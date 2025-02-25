@@ -31,6 +31,8 @@ import (
 type LatencyRegression struct {
 	PredictValue     float64 `json:"predict_value"`
 	EquilibriumValue float64 `json:"equilibrium_value"`
+	// Ignore is used to ignore the result of this container
+	Ignore bool `json:"ignore"`
 }
 
 func GetLatencyRegressionPredictResult(metaReader metacache.MetaReader) (map[string]map[string]*LatencyRegression, int64, error) {
@@ -58,6 +60,9 @@ func GetLatencyRegressionPredictResult(metaReader metacache.MetaReader) (map[str
 			err := json.Unmarshal([]byte(result.GenericOutput), specificResult)
 			if err != nil {
 				general.Errorf("invalid generic output: %s for %s", result.GenericOutput, inferenceResultKey)
+				return
+			}
+			if specificResult.Ignore {
 				return
 			}
 
