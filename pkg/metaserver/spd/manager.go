@@ -69,7 +69,7 @@ type ServiceProfilingManager interface {
 	// - containerAggregator: Aggregates metrics across different containers.
 	// - metricsAggregator: Aggregates metrics across different time windows.
 	ServiceAggregateMetrics(ctx context.Context, podMeta metav1.ObjectMeta, name v1.ResourceName, milliValue bool,
-		podAggregator, containerAggregator, metricsAggregator workloadapis.Aggregator) (*resource.Quantity, error)
+		podAggregator, containerAggregator workloadapis.Aggregator) ([]resource.Quantity, error)
 
 	// Run starts the service profiling manager
 	Run(ctx context.Context)
@@ -78,7 +78,7 @@ type ServiceProfilingManager interface {
 type DummyPodServiceProfile struct {
 	PerformanceLevel PerformanceLevel
 	Score            float64
-	AggregatedMetric *resource.Quantity
+	AggregatedMetric []resource.Quantity
 }
 
 type DummyServiceProfilingManager struct {
@@ -86,11 +86,11 @@ type DummyServiceProfilingManager struct {
 }
 
 func (d *DummyServiceProfilingManager) ServiceAggregateMetrics(_ context.Context, podMeta metav1.ObjectMeta, _ v1.ResourceName,
-	_ bool, _, _, _ workloadapis.Aggregator,
-) (*resource.Quantity, error) {
+	_ bool, _, _ workloadapis.Aggregator,
+) ([]resource.Quantity, error) {
 	profile, ok := d.podProfiles[podMeta.UID]
 	if !ok {
-		return &resource.Quantity{}, nil
+		return nil, nil
 	}
 	return profile.AggregatedMetric, nil
 }
@@ -136,9 +136,9 @@ type serviceProfilingManager struct {
 }
 
 // ServiceAggregateMetrics get service aggregate metrics by given resource name and aggregators
-func (m *serviceProfilingManager) ServiceAggregateMetrics(ctx context.Context, podMeta metav1.ObjectMeta, name v1.ResourceName, milliValue bool,
-	podAggregator, containerAggregator, metricsAggregator workloadapis.Aggregator,
-) (*resource.Quantity, error) {
+func (m *serviceProfilingManager) ServiceAggregateMetrics(ctx context.Context, podMeta metav1.ObjectMeta, name v1.ResourceName,
+	milliValue bool, podAggregator, containerAggregator workloadapis.Aggregator,
+) ([]resource.Quantity, error) {
 	spd, err := m.fetcher.GetSPD(ctx, podMeta)
 	if err != nil {
 		return nil, err
@@ -167,20 +167,15 @@ func (m *serviceProfilingManager) ServiceAggregateMetrics(ctx context.Context, p
 			}
 
 			if metric != nil {
+				if milliValue {
+					metric = resource.NewMilliQuantity(metric.Value(), metric.Format)
+				}
 				aggregatedContainerMetrics = append(aggregatedContainerMetrics, *metric)
 			}
 		}
 
-		metric, err := util.AggregateMetrics(aggregatedContainerMetrics, metricsAggregator)
-		if err != nil {
-			return nil, err
-		}
-
-		if metric != nil {
-			if milliValue {
-				metric = resource.NewMilliQuantity(metric.Value(), metric.Format)
-			}
-			return metric, nil
+		if len(aggregatedContainerMetrics) != 0 {
+			return aggregatedContainerMetrics, nil
 		}
 	}
 
@@ -213,10 +208,8 @@ func (m *serviceProfilingManager) ServiceExtendedIndicator(ctx context.Context, 
 
 func (m *serviceProfilingManager) ServiceBaseline(ctx context.Context, podMeta metav1.ObjectMeta) (bool, error) {
 	spd, err := m.fetcher.GetSPD(ctx, podMeta)
-	if err != nil && !errors.IsNotFound(err) {
+	if err != nil {
 		return false, err
-	} else if err != nil {
-		return false, nil
 	}
 
 	baselineSentinel, err := util.GetSPDBaselineSentinel(spd)
