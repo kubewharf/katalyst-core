@@ -30,7 +30,7 @@ import (
 // AllocationHandler and HintHandler are used as standard functions
 // for qrm plugins to acquire resource allocation/hint info
 type (
-	AllocationHandler func(context.Context, *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error)
+	AllocationHandler func(context.Context, *pluginapi.ResourceRequest, bool) (*pluginapi.ResourceAllocationResponse, error)
 	HintHandler       func(context.Context, *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error)
 )
 

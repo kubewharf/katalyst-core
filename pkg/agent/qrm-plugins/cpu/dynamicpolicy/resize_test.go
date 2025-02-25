@@ -774,7 +774,7 @@ func TestNonBindingShareCoresInplaceUpdateResizeWithSidecar(t *testing.T) {
 
 	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, tmpDir)
 	as.Nil(err)
-	dynamicPolicy.state.SetAllowSharedCoresOverlapReclaimedCores(false)
+	dynamicPolicy.state.SetAllowSharedCoresOverlapReclaimedCores(false, true)
 	dynamicPolicy.transitionPeriod = 10 * time.Millisecond
 
 	dynamicPolicy.podAnnotationKeptKeys = []string{

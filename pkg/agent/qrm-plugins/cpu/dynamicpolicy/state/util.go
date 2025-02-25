@@ -439,7 +439,7 @@ func GenerateMachineStateFromPodEntriesByPolicy(topology *machine.CPUTopology, p
 	machineState := make(NUMANodeMap)
 	for _, numaNode := range topology.CPUDetails.NUMANodes().ToSliceInt64() {
 		numaNodeState := &NUMANodeState{}
-		numaNodeAllCPUs := topology.CPUDetails.CPUsInNUMANodes(int(numaNode)).Clone()
+		numaNodeAllCPUs := topology.CPUDetails.CPUsInNUMANodes(int(numaNode))
 		allocatedCPUsInNumaNode := machine.NewCPUSet()
 
 		for podUID, containerEntries := range podEntries {
@@ -473,12 +473,15 @@ func GenerateMachineStateFromPodEntriesByPolicy(topology *machine.CPUTopology, p
 					}
 				}
 
-				topologyAwareAssignments, _ := machine.GetNumaAwareAssignments(topology, allocationInfo.AllocationResult.Intersection(numaNodeAllCPUs))
-				originalTopologyAwareAssignments, _ := machine.GetNumaAwareAssignments(topology, allocationInfo.OriginalAllocationResult.Intersection(numaNodeAllCPUs))
+				allocationResult := allocationInfo.AllocationResult.Intersection(numaNodeAllCPUs)
+				originalAllocationResult := allocationInfo.OriginalAllocationResult.Intersection(numaNodeAllCPUs)
+
+				topologyAwareAssignments := map[int]machine.CPUSet{int(numaNode): allocationResult}
+				originalTopologyAwareAssignments := map[int]machine.CPUSet{int(numaNode): originalAllocationResult}
 
 				numaNodeAllocationInfo := allocationInfo.Clone()
-				numaNodeAllocationInfo.AllocationResult = allocationInfo.AllocationResult.Intersection(numaNodeAllCPUs)
-				numaNodeAllocationInfo.OriginalAllocationResult = allocationInfo.OriginalAllocationResult.Intersection(numaNodeAllCPUs)
+				numaNodeAllocationInfo.AllocationResult = allocationResult
+				numaNodeAllocationInfo.OriginalAllocationResult = originalAllocationResult
 				numaNodeAllocationInfo.TopologyAwareAssignments = topologyAwareAssignments
 				numaNodeAllocationInfo.OriginalTopologyAwareAssignments = originalTopologyAwareAssignments
 
@@ -486,7 +489,7 @@ func GenerateMachineStateFromPodEntriesByPolicy(topology *machine.CPUTopology, p
 			}
 		}
 
-		numaNodeState.AllocatedCPUSet = allocatedCPUsInNumaNode.Clone()
+		numaNodeState.AllocatedCPUSet = allocatedCPUsInNumaNode
 		numaNodeState.DefaultCPUSet = numaNodeAllCPUs.Difference(numaNodeState.AllocatedCPUSet)
 		machineState[int(numaNode)] = numaNodeState
 	}

@@ -221,7 +221,7 @@ func TestCheckMemorySet(t *testing.T) {
 				},
 			},
 		},
-	})
+	}, true)
 
 	dynamicPolicy.metaServer = &metaserver.MetaServer{
 		MetaAgent: &agent.MetaAgent{
@@ -319,7 +319,7 @@ func TestSetMemoryMigrate(t *testing.T) {
 				},
 			},
 		},
-	})
+	}, true)
 
 	dynamicPolicy.metaServer = &metaserver.MetaServer{
 		MetaAgent: &agent.MetaAgent{
@@ -1687,7 +1687,7 @@ func TestGetTopologyHints(t *testing.T) {
 			}
 
 			if tc.numaHeadroom != nil {
-				dynamicPolicy.state.SetNUMAHeadroom(tc.numaHeadroom)
+				dynamicPolicy.state.SetNUMAHeadroom(tc.numaHeadroom, true)
 			}
 
 			resp, err := dynamicPolicy.GetTopologyHints(context.Background(), tc.req)
@@ -2746,8 +2746,8 @@ func TestHandleAdvisorResp(t *testing.T) {
 		as.Nil(err)
 
 		if tc.podResourceEntries != nil {
-			dynamicPolicy.state.SetPodResourceEntries(tc.podResourceEntries)
-			dynamicPolicy.state.SetMachineState(machineState)
+			dynamicPolicy.state.SetPodResourceEntries(tc.podResourceEntries, true)
+			dynamicPolicy.state.SetMachineState(machineState, true)
 		}
 
 		err = dynamicPolicy.handleAdvisorResp(tc.lwResp)
@@ -3122,8 +3122,8 @@ func TestSetExtraControlKnobByConfigs(t *testing.T) {
 	resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(machineInfo, podResourceEntries, reserved)
 	as.Nil(err)
 
-	dynamicPolicy.state.SetPodResourceEntries(podResourceEntries)
-	dynamicPolicy.state.SetMachineState(resourcesMachineState)
+	dynamicPolicy.state.SetPodResourceEntries(podResourceEntries, true)
+	dynamicPolicy.state.SetMachineState(resourcesMachineState, true)
 
 	dynamicPolicy.setExtraControlKnobByConfigs(nil, nil, nil, nil, nil)
 
@@ -3285,17 +3285,17 @@ func TestRemoveContainer(t *testing.T) {
 				},
 			},
 		},
-	})
+	}, true)
 
 	allocationInfo := dynamicPolicy.state.GetAllocationInfo(v1.ResourceMemory, podUID, containerName)
 	as.NotNil(allocationInfo)
 
-	dynamicPolicy.removeContainer(podUID, containerName)
+	dynamicPolicy.removeContainer(podUID, containerName, true)
 
 	allocationInfo = dynamicPolicy.state.GetAllocationInfo(v1.ResourceMemory, podUID, containerName)
 	as.Nil(allocationInfo)
 
-	dynamicPolicy.removeContainer(podUID, containerName)
+	dynamicPolicy.removeContainer(podUID, containerName, true)
 
 	allocationInfo = dynamicPolicy.state.GetAllocationInfo(v1.ResourceMemory, podUID, containerName)
 	as.Nil(allocationInfo)
@@ -3380,7 +3380,7 @@ func TestDynamicPolicy_ListContainers(t *testing.T) {
 				"testName": allocationInfo,
 			},
 		},
-	})
+	}, true)
 
 	containerType, found := pluginapi.ContainerType_value[allocationInfo.ContainerType]
 	as.True(found)
@@ -3501,7 +3501,7 @@ func TestDynamicPolicy_hasLastLevelEnhancementKey(t *testing.T) {
 				},
 			},
 		},
-	})
+	}, true)
 
 	type args struct {
 		lastLevelEnhancementKey string
@@ -4054,7 +4054,7 @@ func TestDynamicPolicy_adjustAllocationEntries(t *testing.T) {
 			dynamicPolicy.emitter = tt.fields.emitter
 			dynamicPolicy.metaServer = tt.fields.metaServer
 			dynamicPolicy.asyncWorkers = asyncworker.NewAsyncWorkers(memoryPluginAsyncWorkersName, dynamicPolicy.emitter)
-			dynamicPolicy.state.SetPodResourceEntries(podResourceEntries)
+			dynamicPolicy.state.SetPodResourceEntries(podResourceEntries, true)
 			reservedMemory, err := getReservedMemory(fakeConf, dynamicPolicy.metaServer, machineInfo)
 			assert.NoError(t, err)
 
@@ -4063,9 +4063,9 @@ func TestDynamicPolicy_adjustAllocationEntries(t *testing.T) {
 			}
 			machineState, err := state.GenerateMachineStateFromPodEntries(machineInfo, podResourceEntries, resourcesReservedMemory)
 			assert.NoError(t, err)
-			dynamicPolicy.state.SetMachineState(machineState)
+			dynamicPolicy.state.SetMachineState(machineState, true)
 
-			if err := dynamicPolicy.adjustAllocationEntries(); (err != nil) != tt.wantErr {
+			if err := dynamicPolicy.adjustAllocationEntries(true); (err != nil) != tt.wantErr {
 				t.Errorf("DynamicPolicy.adjustAllocationEntries() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
@@ -4374,7 +4374,7 @@ func Test_getContainerRequestedMemoryBytes(t *testing.T) {
 		},
 		AggregatedQuantity: 512,
 	}
-	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-1-uid", "test-pod-1", pod1Allocation)
+	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-1-uid", "test-pod-1", pod1Allocation, true)
 	// case 1. pod spec not found, return the current allocated memory
 	as.Equal(uint64(512), dynamicPolicy.getContainerRequestedMemoryBytes(pod1Allocation))
 
@@ -4417,7 +4417,7 @@ func Test_getContainerRequestedMemoryBytes(t *testing.T) {
 	// case 3. check non-binding share cores scale in
 	memorySize2G := resource.MustParse("2Gi")
 	pod1Allocation.AggregatedQuantity = uint64(memorySize2G.Value())
-	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-1-uid", "test-pod-1", pod1Allocation)
+	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-1-uid", "test-pod-1", pod1Allocation, true)
 	as.Equal(uint64(memorySize1G.Value()), dynamicPolicy.getContainerRequestedMemoryBytes(pod1Allocation))
 
 	// check snb
@@ -4466,12 +4466,12 @@ func Test_getContainerRequestedMemoryBytes(t *testing.T) {
 	})
 
 	// case 2. snb scale out (expect ignore)
-	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-2-uid", "test-pod-2", pod2Allocation)
+	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-2-uid", "test-pod-2", pod2Allocation, true)
 	as.Equal(uint64(512), dynamicPolicy.getContainerRequestedMemoryBytes(pod2Allocation))
 
 	// case 3. snb scale in (expect sync from pod spec)
 	pod2Allocation.AggregatedQuantity = uint64(memorySize2G.Value())
-	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-2-uid", "test-pod-2", pod2Allocation)
+	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-2-uid", "test-pod-2", pod2Allocation, true)
 	as.Equal(uint64(memorySize1G.Value()), dynamicPolicy.getContainerRequestedMemoryBytes(pod2Allocation))
 
 	// snb with sidecar
@@ -4543,8 +4543,8 @@ func Test_getContainerRequestedMemoryBytes(t *testing.T) {
 	}
 	as.Equalf(true, pod3Container4Allocation.CheckSideCar(), "check sidecar container failed")
 
-	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-3-uid", "test-container-3", pod3Container3Allocation)
-	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-3-uid", "test-container-4", pod3Container4Allocation)
+	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-3-uid", "test-container-3", pod3Container3Allocation, true)
+	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-3-uid", "test-container-4", pod3Container4Allocation, true)
 
 	// case 1. check snb with sidecar scale out (expect ignore)
 	as.Equal(uint64(512), dynamicPolicy.getContainerRequestedMemoryBytes(pod3Container3Allocation))
@@ -4552,21 +4552,21 @@ func Test_getContainerRequestedMemoryBytes(t *testing.T) {
 
 	// case 2. check snb with sidecar scale in (expect not sync from pod spec)
 	pod3Container3Allocation.AggregatedQuantity = uint64(memorySize2G.Value())
-	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-3-uid", "test-container-3", pod3Container3Allocation)
+	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-3-uid", "test-container-3", pod3Container3Allocation, true)
 	as.Equal(uint64(memorySize2G.Value()), dynamicPolicy.getContainerRequestedMemoryBytes(pod3Container3Allocation))
 	as.Equal(uint64(0), dynamicPolicy.getContainerRequestedMemoryBytes(pod3Container4Allocation))
 
 	// case 3. check snb with sidecar scale in (expect not sync from pod spec)
 	memorySize1_5G := resource.MustParse("1.5Gi")
 	pod3Container3Allocation.AggregatedQuantity = uint64(memorySize1_5G.Value())
-	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-3-uid", "test-container-3", pod3Container3Allocation)
+	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-3-uid", "test-container-3", pod3Container3Allocation, true)
 	as.Equal(uint64(memorySize1_5G.Value()), dynamicPolicy.getContainerRequestedMemoryBytes(pod3Container3Allocation))
 	as.Equal(uint64(0), dynamicPolicy.getContainerRequestedMemoryBytes(pod3Container4Allocation))
 
 	// case 4. check snb with sidecar scale in (expect sync from pod spec)
 	memorySize3G := resource.MustParse("3Gi")
 	pod3Container3Allocation.AggregatedQuantity = uint64(memorySize3G.Value())
-	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-3-uid", "test-container-3", pod3Container3Allocation)
+	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-3-uid", "test-container-3", pod3Container3Allocation, true)
 	as.Equal(uint64(memorySize2G.Value()), dynamicPolicy.getContainerRequestedMemoryBytes(pod3Container3Allocation))
 	as.Equal(uint64(0), dynamicPolicy.getContainerRequestedMemoryBytes(pod3Container4Allocation))
 }
@@ -4729,7 +4729,7 @@ func Test_adjustAllocationEntries(t *testing.T) {
 		AggregatedQuantity:   512,
 		NumaAllocationResult: machine.NewCPUSet(3),
 	}
-	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-1-uid", "test-container-1", pod1Allocation)
+	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-1-uid", "test-container-1", pod1Allocation, true)
 
 	pod2Allocation := &state.AllocationInfo{
 		AllocationMeta: commonstate.AllocationMeta{
@@ -4748,7 +4748,7 @@ func Test_adjustAllocationEntries(t *testing.T) {
 			0: uint64(2 * memorySize1G.Value()),
 		},
 	}
-	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-2-uid", "test-container-2", pod2Allocation)
+	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-2-uid", "test-container-2", pod2Allocation, true)
 
 	pod3Container3Allocation := &state.AllocationInfo{
 		AllocationMeta: commonstate.AllocationMeta{
@@ -4769,7 +4769,7 @@ func Test_adjustAllocationEntries(t *testing.T) {
 		},
 	}
 	as.Equal(true, pod3Container3Allocation.CheckMainContainer())
-	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-3-uid", "test-container-3", pod3Container3Allocation)
+	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-3-uid", "test-container-3", pod3Container3Allocation, true)
 
 	pod3Container4Allocation := &state.AllocationInfo{
 		AllocationMeta: commonstate.AllocationMeta{
@@ -4787,7 +4787,7 @@ func Test_adjustAllocationEntries(t *testing.T) {
 		NumaAllocationResult: machine.NewCPUSet(1),
 	}
 	as.Equalf(true, pod3Container4Allocation.CheckSideCar(), "check sidecar container failed")
-	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-3-uid", "test-container-4", pod3Container4Allocation)
+	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-3-uid", "test-container-4", pod3Container4Allocation, true)
 
 	pod4Container1Allocation := &state.AllocationInfo{
 		AllocationMeta: commonstate.AllocationMeta{
@@ -4807,14 +4807,14 @@ func Test_adjustAllocationEntries(t *testing.T) {
 		},
 	}
 	as.Equal(true, pod3Container3Allocation.CheckMainContainer())
-	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-4-uid", "test-container-1", pod4Container1Allocation)
+	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-4-uid", "test-container-1", pod4Container1Allocation, true)
 
 	podResourceEntries := dynamicPolicy.state.GetPodResourceEntries()
 	machineState, err := state.GenerateMachineStateFromPodEntries(dynamicPolicy.state.GetMachineInfo(), podResourceEntries, dynamicPolicy.state.GetReservedMemory())
 	as.NoError(err)
-	dynamicPolicy.state.SetMachineState(machineState)
+	dynamicPolicy.state.SetMachineState(machineState, true)
 
-	as.NoError(dynamicPolicy.adjustAllocationEntries())
+	as.NoError(dynamicPolicy.adjustAllocationEntries(true))
 
 	allcation1 := dynamicPolicy.state.GetAllocationInfo(v1.ResourceMemory, "test-pod-1-uid", "test-container-1")
 	as.Equal(uint64(memorySize1G.Value()), allcation1.AggregatedQuantity)

@@ -1501,7 +1501,7 @@ func TestNewCheckpointState(t *testing.T) {
 		} else {
 			require.NoError(t, err, "unexpected error while creating checkpointState, case: %s", tc.description)
 			// compare state after restoration with the one expected
-			assertStateEqual(t, restoredState, tc.expectedState)
+			assertStateEqual(t, restoredState, &stateCheckpoint{cache: tc.expectedState})
 		}
 	}
 }
@@ -2018,8 +2018,8 @@ func TestClearState(t *testing.T) {
 
 			state1.ClearState()
 
-			state1.SetMachineState(tc.machineState)
-			state1.SetPodEntries(tc.podEntries)
+			state1.SetMachineState(tc.machineState, true)
+			state1.SetPodEntries(tc.podEntries, true)
 
 			state2, err := NewCheckpointState(testingDir, cpuPluginStateFileName, policyName, tc.cpuTopology, false, GenerateMachineStateFromPodEntries)
 			as.Nil(err)
@@ -2535,10 +2535,10 @@ func TestCheckpointStateHelpers(t *testing.T) {
 
 			state.ClearState()
 
-			state.SetMachineState(tc.machineState)
+			state.SetMachineState(tc.machineState, true)
 			as.Equalf(tc.machineState, state.GetMachineState(), "failed in test case: %s", tc.description)
 
-			state.SetPodEntries(tc.podEntries)
+			state.SetPodEntries(tc.podEntries, true)
 			as.Equalf(tc.podEntries, state.GetPodEntries(), "failed in test case: %s", tc.description)
 
 			state.ClearState()
@@ -2546,7 +2546,7 @@ func TestCheckpointStateHelpers(t *testing.T) {
 			as.NotEqualf(tc.podEntries, state.GetPodEntries(), "failed in test case: %s", tc.description)
 			for podUID, containerEntries := range tc.podEntries {
 				for containerName, allocationInfo := range containerEntries {
-					state.SetAllocationInfo(podUID, containerName, allocationInfo)
+					state.SetAllocationInfo(podUID, containerName, allocationInfo, true)
 				}
 			}
 			as.Equalf(tc.podEntries, state.GetPodEntries(), "failed in test case: %s", tc.description)
