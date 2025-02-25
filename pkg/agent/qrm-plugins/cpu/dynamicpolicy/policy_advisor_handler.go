@@ -249,30 +249,42 @@ func (p *DynamicPolicy) createGetAdviceRequest() (*advisorapi.GetAdviceRequest, 
 				},
 			}
 
-			// Only fill in the container type for non-pool entries.
-			if entryName != commonstate.FakedContainerName {
+			if !containerEntries.IsPoolEntry() {
+				// Only fill in the container type for non-pool entries.
 				containerType, found := pluginapi.ContainerType_value[allocationInfo.ContainerType]
 				if !found {
 					return nil, fmt.Errorf("container type %q for container %s/%s not found", allocationInfo.ContainerType, uid, entryName)
 				}
-
 				info.Metadata.ContainerType = pluginapi.ContainerType(containerType)
-			}
 
-			ownerPoolName := allocationInfo.GetOwnerPoolName()
-			if ownerPoolName == commonstate.EmptyOwnerPoolName {
-				general.Warningf("pod: %s/%s container: %s get empty owner pool name",
-					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
+				ownerPoolName := allocationInfo.GetOwnerPoolName()
+				if ownerPoolName == commonstate.EmptyOwnerPoolName {
+					general.Warningf("pod: %s/%s container: %s get empty owner pool name",
+						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
+					if allocationInfo.CheckSideCar() {
+						ownerPoolName = containerEntries.GetMainContainerPoolName()
+
+						general.Warningf("set pod: %s/%s sidecar container: %s owner pool name: %s same to its main container",
+							allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName,
+							ownerPoolName)
+					}
+				}
+				info.AllocationInfo.OwnerPoolName = ownerPoolName
+
+				// Copy annotations missing in sidecar container from main container.
+				// This should have been done during sidecar allocation, but we do it again here
+				// to ensure backward compatibility with checkpoint written by older versions of the plugin.
 				if allocationInfo.CheckSideCar() {
-					ownerPoolName = containerEntries.GetMainContainerPoolName()
-
-					general.Warningf("set pod: %s/%s sidecar container: %s owner pool name: %s same to its main container",
-						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName,
-						ownerPoolName)
+					mainContainerInfo := containerEntries.GetMainContainerEntry()
+					if mainContainerInfo != nil {
+						for key, value := range mainContainerInfo.Annotations {
+							if _, ok := info.Metadata.Annotations[key]; !ok {
+								info.Metadata.Annotations[key] = value
+							}
+						}
+					}
 				}
 			}
-
-			info.AllocationInfo.OwnerPoolName = ownerPoolName
 
 			// not set topology-aware assignments for shared_cores,
 			// since their topology-aware assignments are same to the pools they are in.
