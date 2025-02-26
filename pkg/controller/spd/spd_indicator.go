@@ -17,6 +17,7 @@ limitations under the License.
 package spd
 
 import (
+	"strings"
 	"time"
 
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
@@ -192,26 +193,38 @@ func (sc *SPDController) mergeIndicatorSpec(spd *apiworkload.ServiceProfileDescr
 		util.InsertSPDExtendedIndicatorSpec(&spd.Spec, &indicator)
 	}
 
-	for i := 0; i < len(spd.Spec.BusinessIndicator); i++ {
-		if _, ok := sc.indicatorsSpecBusiness[spd.Spec.BusinessIndicator[i].Name]; !ok {
-			klog.Infof("skip spec business %v for spd %v", spd.Spec.BusinessIndicator[i].Name, spd.Name)
-			spd.Spec.BusinessIndicator = append(spd.Spec.BusinessIndicator[:i], spd.Spec.BusinessIndicator[i+1:]...)
+	// process BusinessIndicator
+	businessNew := spd.Spec.BusinessIndicator[:0]
+	for _, indicator := range spd.Spec.BusinessIndicator {
+		if shouldKeep(indicator.Name, sc.indicatorsSpecBusiness) {
+			businessNew = append(businessNew, indicator)
+		} else {
+			klog.Infof("skip spec business %v for spd %v", indicator.Name, spd.Name)
 		}
 	}
+	spd.Spec.BusinessIndicator = businessNew
 
-	for i := 0; i < len(spd.Spec.SystemIndicator); i++ {
-		if _, ok := sc.indicatorsSpecSystem[spd.Spec.SystemIndicator[i].Name]; !ok {
-			klog.Infof("skip spec system %v for spd %v", spd.Spec.SystemIndicator[i].Name, spd.Name)
-			spd.Spec.SystemIndicator = append(spd.Spec.SystemIndicator[:i], spd.Spec.SystemIndicator[i+1:]...)
+	// process SystemIndicator
+	systemNew := spd.Spec.SystemIndicator[:0]
+	for _, indicator := range spd.Spec.SystemIndicator {
+		if shouldKeep(indicator.Name, sc.indicatorsSpecSystem) {
+			systemNew = append(systemNew, indicator)
+		} else {
+			klog.Infof("skip spec system %v for spd %v", indicator.Name, spd.Name)
 		}
 	}
+	spd.Spec.SystemIndicator = systemNew
 
-	for i := 0; i < len(spd.Spec.ExtendedIndicator); i++ {
-		if _, ok := sc.indicatorsSpecExtended[spd.Spec.ExtendedIndicator[i].Name]; !ok {
-			klog.Infof("skip spec extended %v for spd %v", spd.Spec.ExtendedIndicator[i].Name, spd.Name)
-			spd.Spec.ExtendedIndicator = append(spd.Spec.ExtendedIndicator[:i], spd.Spec.ExtendedIndicator[i+1:]...)
+	// process ExtendedIndicator
+	extendedNew := spd.Spec.ExtendedIndicator[:0]
+	for _, indicator := range spd.Spec.ExtendedIndicator {
+		if shouldKeep(indicator.Name, sc.indicatorsSpecExtended) {
+			extendedNew = append(extendedNew, indicator)
+		} else {
+			klog.Infof("skip spec extended %v for spd %v", indicator.Name, spd.Name)
 		}
 	}
+	spd.Spec.ExtendedIndicator = extendedNew
 }
 
 func (sc *SPDController) mergeIndicatorStatus(spd *apiworkload.ServiceProfileDescriptor, expected apiworkload.ServiceProfileDescriptorStatus) {
@@ -219,12 +232,15 @@ func (sc *SPDController) mergeIndicatorStatus(spd *apiworkload.ServiceProfileDes
 		util.InsertSPDBusinessIndicatorStatus(&spd.Status, &indicator)
 	}
 
-	for i := 0; i < len(spd.Status.BusinessStatus); i++ {
-		if _, ok := sc.indicatorsStatusBusiness[spd.Status.BusinessStatus[i].Name]; !ok {
-			klog.Infof("skip status business %v for spd %v", spd.Status.BusinessStatus[i].Name, spd.Name)
-			spd.Status.BusinessStatus = append(spd.Status.BusinessStatus[:i], spd.Status.BusinessStatus[i+1:]...)
+	BusinessStatusNew := spd.Status.BusinessStatus[:0]
+	for _, indicator := range spd.Status.BusinessStatus {
+		if shouldKeep(indicator.Name, sc.indicatorsStatusBusiness) {
+			BusinessStatusNew = append(BusinessStatusNew, indicator)
+		} else {
+			klog.Infof("skip status business %v for spd %v", indicator.Name, spd.Name)
 		}
 	}
+	spd.Status.BusinessStatus = BusinessStatusNew
 
 	for _, aggMetrics := range expected.AggMetrics {
 		util.InsertSPDAggMetricsStatus(&spd.Status, &aggMetrics)
@@ -241,4 +257,16 @@ func (sc *SPDController) mergeIndicatorStatus(spd *apiworkload.ServiceProfileDes
 			spd.Status.AggMetrics = append(spd.Status.AggMetrics[:i], spd.Status.AggMetrics[i+1:]...)
 		}
 	}
+}
+
+func shouldKeep[K ~string](name K, validMap map[K]interface{}) bool {
+	if _, ok := validMap[name]; ok {
+		return true
+	}
+	for key := range validMap {
+		if strings.HasPrefix(string(name), string(key)) {
+			return true
+		}
+	}
+	return false
 }
