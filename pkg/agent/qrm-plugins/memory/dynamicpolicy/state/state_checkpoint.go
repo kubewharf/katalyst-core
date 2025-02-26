@@ -109,6 +109,7 @@ func (sc *stateCheckpoint) restoreState(machineInfo *info.MachineInfo, reservedM
 	}
 
 	sc.cache.SetMachineState(generatedResourcesMachineState)
+	sc.cache.SetNUMAHeadroom(checkpoint.NUMAHeadroom)
 	sc.cache.SetPodResourceEntries(checkpoint.PodResourceEntries)
 
 	if !reflect.DeepEqual(generatedResourcesMachineState, checkpoint.MachineState) {

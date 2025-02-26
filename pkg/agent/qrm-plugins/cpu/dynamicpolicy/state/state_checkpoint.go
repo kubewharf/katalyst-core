@@ -105,6 +105,7 @@ func (sc *stateCheckpoint) RestoreState(topology *machine.CPUTopology) error {
 
 	sc.cache.SetMachineState(generatedMachineState)
 	sc.cache.SetPodEntries(checkpoint.PodEntries)
+	sc.cache.SetNUMAHeadroom(checkpoint.NUMAHeadroom)
 	sc.cache.SetAllowSharedCoresOverlapReclaimedCores(checkpoint.AllowSharedCoresOverlapReclaimedCores)
 
 	if !reflect.DeepEqual(generatedMachineState, checkpoint.MachineState) {
