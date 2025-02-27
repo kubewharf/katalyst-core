@@ -280,6 +280,7 @@ func Test_cncCacheController_Run(t *testing.T) {
 			go spdController.Run()
 			synced := cache.WaitForCacheSync(ctx.Done(), spdController.syncedFunc...)
 			assert.True(t, synced)
+			spdController.cncCacheController.clearUnusedConfig()
 			time.Sleep(1 * time.Second)
 
 			newCNC, err := controlCtx.Client.InternalClient.ConfigV1alpha1().CustomNodeConfigs().
