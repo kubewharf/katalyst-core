@@ -20,6 +20,7 @@ import (
 	"sync"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	qrmgeneral "github.com/kubewharf/katalyst-core/pkg/util/qrm"
 )
 
 // NetworkManager provides methods that control network resources.
@@ -30,6 +31,8 @@ type NetworkManager interface {
 	ListNetClass() ([]*common.NetClsData, error)
 	// ClearNetClass clears the net class config for a container.
 	ClearNetClass(cgroupID uint64) error
+	// ApplyNetworkGroups apply parameters for network groups.
+	ApplyNetworkGroups(map[string]*qrmgeneral.NetworkGroup) error
 }
 
 type NetworkManagerStub struct {
@@ -72,5 +75,9 @@ func (n *NetworkManagerStub) ClearNetClass(cgroupID uint64) error {
 			}
 		}
 	}
+	return nil
+}
+
+func (n *NetworkManagerStub) ApplyNetworkGroups(map[string]*qrmgeneral.NetworkGroup) error {
 	return nil
 }
