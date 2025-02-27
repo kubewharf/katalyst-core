@@ -42,6 +42,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer/serviceprofile"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/validator"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
@@ -127,6 +129,8 @@ type DynamicPolicy struct {
 	reservedReclaimedCPUsSize                 int
 	reservedReclaimedCPUSet                   machine.CPUSet
 	reservedReclaimedTopologyAwareAssignments map[int]machine.CPUSet
+
+	sharedCoresNUMABindingHintOptimizer hintoptimizer.HintOptimizer
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -204,6 +208,11 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		podLabelKeptKeys:          conf.PodLabelKeptKeys,
 		transitionPeriod:          30 * time.Second,
 		reservedReclaimedCPUsSize: general.Max(reservedReclaimedCPUsSize, agentCtx.KatalystMachineInfo.NumNUMANodes),
+	}
+
+	policyImplement.sharedCoresNUMABindingHintOptimizer = &hintoptimizer.DummyHintOptimizer{}
+	if conf.EnableSharedCoresNUMABindingHintOptimizer {
+		policyImplement.sharedCoresNUMABindingHintOptimizer = serviceprofile.NewServiceProfileHintOptimizer(wrappedEmitter, agentCtx.MetaServer, conf.SharedCoresNUMABindingHintOptimizerConfig)
 	}
 
 	// register allocation behaviors for pods with different QoS level
