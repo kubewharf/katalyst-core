@@ -20,9 +20,11 @@ limitations under the License.
 package network
 
 import (
+	"context"
 	"errors"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	qrmgeneral "github.com/kubewharf/katalyst-core/pkg/util/qrm"
 )
 
 type defaultNetworkManager struct{}
@@ -39,7 +41,7 @@ func (*defaultNetworkManager) ApplyNetClass(podUID, containerId string, data *co
 }
 
 // ListNetClass lists the net class config for all containers managed by kubernetes.
-func (m *defaultNetworkManager) ListNetClass() ([]*common.NetClsData, error) {
+func (n *defaultNetworkManager) ListNetClass() ([]*common.NetClsData, error) {
 	// TODO: implement traffic tagging by using eBPF
 	return nil, errors.New("not implemented yet")
 }
@@ -49,3 +51,10 @@ func (*defaultNetworkManager) ClearNetClass(cgroupID uint64) error {
 	// TODO: clear the eBPF map when a pod is removed
 	return errors.New("not implemented yet")
 }
+
+// ApplyNetworkGroups apply parameters for network groups.
+func (n *defaultNetworkManager) ApplyNetworkGroups(map[string]*qrmgeneral.NetworkGroup) error {
+	return nil
+}
+
+func (n *defaultNetworkManager) Run(ctx context.Context) {}

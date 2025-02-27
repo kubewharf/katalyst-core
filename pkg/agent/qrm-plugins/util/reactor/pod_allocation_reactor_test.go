@@ -28,16 +28,41 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
-	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
-	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/reactor"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-func Test_podNUMAAllocationReactor_UpdateAllocation(t *testing.T) {
+type fakePodAllocation struct {
+	commonstate.AllocationMeta
+	annotations map[string]string
+}
+
+func (f fakePodAllocation) NeedUpdateAllocation(pod *v1.Pod) bool {
+	if pod.Annotations == nil {
+		return true
+	}
+	for k, v := range f.annotations {
+		if pod.Annotations[k] != v {
+			return true
+		}
+	}
+	return false
+}
+
+func (f fakePodAllocation) UpdateAllocation(pod *v1.Pod) error {
+	if f.annotations == nil {
+		return nil
+	}
+	for k, v := range f.annotations {
+		if pod.Annotations == nil {
+			pod.Annotations = make(map[string]string)
+		}
+		pod.Annotations[k] = v
+	}
+	return nil
+}
+
+func Test_podAllocationReactor_UpdateAllocation(t *testing.T) {
 	t.Parallel()
 
 	type fields struct {
@@ -45,7 +70,7 @@ func Test_podNUMAAllocationReactor_UpdateAllocation(t *testing.T) {
 		client     kubernetes.Interface
 	}
 	type args struct {
-		allocation *state.AllocationInfo
+		allocation *fakePodAllocation
 	}
 	tests := []struct {
 		name    string
@@ -55,7 +80,7 @@ func Test_podNUMAAllocationReactor_UpdateAllocation(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "actual_numa_binding_pod",
+			name: "update_annotation",
 			fields: fields{
 				podFetcher: &pod.PodFetcherStub{
 					PodList: []*v1.Pod{
@@ -79,7 +104,7 @@ func Test_podNUMAAllocationReactor_UpdateAllocation(t *testing.T) {
 				),
 			},
 			args: args{
-				allocation: &state.AllocationInfo{
+				allocation: &fakePodAllocation{
 					AllocationMeta: commonstate.AllocationMeta{
 						PodUid:         "test-1-uid",
 						PodNamespace:   "test",
@@ -87,20 +112,9 @@ func Test_podNUMAAllocationReactor_UpdateAllocation(t *testing.T) {
 						ContainerName:  "container-1",
 						ContainerType:  pluginapi.ContainerType_MAIN.String(),
 						ContainerIndex: 0,
-						QoSLevel:       consts.PodAnnotationQoSLevelSharedCores,
-						Annotations: map[string]string{
-							consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
-							consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
-							cpuconsts.CPUStateAnnotationKeyNUMAHint:          "0",
-						},
-						Labels: map[string]string{
-							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
-						},
 					},
-					AggregatedQuantity:   7516192768,
-					NumaAllocationResult: machine.NewCPUSet(0),
-					TopologyAwareAllocations: map[int]uint64{
-						0: 7516192768,
+					annotations: map[string]string{
+						"aa": "bb",
 					},
 				},
 			},
@@ -110,13 +124,13 @@ func Test_podNUMAAllocationReactor_UpdateAllocation(t *testing.T) {
 					Namespace: "test",
 					UID:       types.UID("test-1-uid"),
 					Annotations: map[string]string{
-						consts.PodAnnotationNUMABindResultKey: "0",
+						"aa": "bb",
 					},
 				},
 			},
 		},
 		{
-			name: "non-actual_numa_binding_pod",
+			name: "overwrite_annotation",
 			fields: fields{
 				podFetcher: &pod.PodFetcherStub{
 					PodList: []*v1.Pod{
@@ -125,6 +139,9 @@ func Test_podNUMAAllocationReactor_UpdateAllocation(t *testing.T) {
 								Name:      "test-1",
 								Namespace: "test",
 								UID:       "test-1-uid",
+								Annotations: map[string]string{
+									"aa": "cc",
+								},
 							},
 						},
 					},
@@ -140,7 +157,7 @@ func Test_podNUMAAllocationReactor_UpdateAllocation(t *testing.T) {
 				),
 			},
 			args: args{
-				allocation: &state.AllocationInfo{
+				allocation: &fakePodAllocation{
 					AllocationMeta: commonstate.AllocationMeta{
 						PodUid:         "test-1-uid",
 						PodNamespace:   "test",
@@ -148,19 +165,9 @@ func Test_podNUMAAllocationReactor_UpdateAllocation(t *testing.T) {
 						ContainerName:  "container-1",
 						ContainerType:  pluginapi.ContainerType_MAIN.String(),
 						ContainerIndex: 0,
-						QoSLevel:       consts.PodAnnotationQoSLevelSharedCores,
-						Annotations: map[string]string{
-							consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
-							consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
-						},
-						Labels: map[string]string{
-							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
-						},
 					},
-					AggregatedQuantity:   7516192768,
-					NumaAllocationResult: machine.NewCPUSet(0),
-					TopologyAwareAllocations: map[int]uint64{
-						0: 7516192768,
+					annotations: map[string]string{
+						"aa": "bb",
 					},
 				},
 			},
@@ -170,13 +177,13 @@ func Test_podNUMAAllocationReactor_UpdateAllocation(t *testing.T) {
 					Namespace: "test",
 					UID:       types.UID("test-1-uid"),
 					Annotations: map[string]string{
-						consts.PodAnnotationNUMABindResultKey: "-1",
+						"aa": "bb",
 					},
 				},
 			},
 		},
 		{
-			name: "actual_numa_binding_pod_fallback_to_api-server",
+			name: "pod_fallback_to_api-server",
 			fields: fields{
 				podFetcher: &pod.PodFetcherStub{
 					PodList: []*v1.Pod{},
@@ -187,12 +194,15 @@ func Test_podNUMAAllocationReactor_UpdateAllocation(t *testing.T) {
 							Name:      "test-1",
 							Namespace: "test",
 							UID:       "test-1-uid",
+							Annotations: map[string]string{
+								"aa": "bb",
+							},
 						},
 					},
 				),
 			},
 			args: args{
-				allocation: &state.AllocationInfo{
+				allocation: &fakePodAllocation{
 					AllocationMeta: commonstate.AllocationMeta{
 						PodUid:         "test-1-uid",
 						PodNamespace:   "test",
@@ -200,20 +210,9 @@ func Test_podNUMAAllocationReactor_UpdateAllocation(t *testing.T) {
 						ContainerName:  "container-1",
 						ContainerType:  pluginapi.ContainerType_MAIN.String(),
 						ContainerIndex: 0,
-						QoSLevel:       consts.PodAnnotationQoSLevelSharedCores,
-						Annotations: map[string]string{
-							consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
-							consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
-							cpuconsts.CPUStateAnnotationKeyNUMAHint:          "0",
-						},
-						Labels: map[string]string{
-							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
-						},
 					},
-					AggregatedQuantity:   7516192768,
-					NumaAllocationResult: machine.NewCPUSet(0),
-					TopologyAwareAllocations: map[int]uint64{
-						0: 7516192768,
+					annotations: map[string]string{
+						"aa": "bb",
 					},
 				},
 			},
@@ -223,7 +222,7 @@ func Test_podNUMAAllocationReactor_UpdateAllocation(t *testing.T) {
 					Namespace: "test",
 					UID:       types.UID("test-1-uid"),
 					Annotations: map[string]string{
-						consts.PodAnnotationNUMABindResultKey: "0",
+						"aa": "bb",
 					},
 				},
 			},
@@ -233,7 +232,7 @@ func Test_podNUMAAllocationReactor_UpdateAllocation(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			r := NewNUMAPodAllocationReactor(reactor.NewPodAllocationReactor(tt.fields.podFetcher, tt.fields.client))
+			r := NewPodAllocationReactor(tt.fields.podFetcher, tt.fields.client)
 			if err := r.UpdateAllocation(context.Background(), tt.args.allocation); (err != nil) != tt.wantErr {
 				t.Errorf("UpdateAllocation() error = %v, wantErr %v", err, tt.wantErr)
 			}
