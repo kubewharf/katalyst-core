@@ -343,9 +343,11 @@ func (p *DynamicPolicy) handleAdvisorResp(advisorResp *advisorsvc.ListAndWatchRe
 		return fmt.Errorf("calculate machineState by updated pod entries failed with error: %v", err)
 	}
 
-	p.state.SetPodResourceEntries(podResourceEntries)
-	p.state.SetMachineState(resourcesMachineState)
-
+	p.state.SetPodResourceEntries(podResourceEntries, false)
+	p.state.SetMachineState(resourcesMachineState, false)
+	if err := p.state.StoreState(); err != nil {
+		general.ErrorS(err, "store state failed")
+	}
 	return nil
 }
 
@@ -484,7 +486,7 @@ func (p *DynamicPolicy) handleAdvisorMemoryNUMAHeadroom(
 			memoryadvisor.ControlKnobKeyMemoryNUMAHeadroom, memoryNUMAHeadroomValue, err)
 	}
 
-	p.state.SetNUMAHeadroom(*memoryNUMAHeadroom)
+	p.state.SetNUMAHeadroom(*memoryNUMAHeadroom, true)
 	general.Infof("memoryNUMAHeadroom: %v", memoryNUMAHeadroom)
 
 	_ = emitter.StoreInt64(util.MetricNameMemoryHandlerAdvisorMemoryNUMAHeadroom, 1,

@@ -91,7 +91,10 @@ func (p *NativePolicy) clearResidualState() {
 			return
 		}
 
-		p.state.SetPodEntries(podEntries)
-		p.state.SetMachineState(updatedMachineState)
+		p.state.SetPodEntries(podEntries, false)
+		p.state.SetMachineState(updatedMachineState, false)
+		if err := p.state.StoreState(); err != nil {
+			general.ErrorS(err, "store state failed")
+		}
 	}
 }

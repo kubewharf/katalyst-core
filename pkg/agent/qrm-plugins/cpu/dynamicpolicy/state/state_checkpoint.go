@@ -36,7 +36,7 @@ import (
 // go to in-memory State, and then go to disk State, i.e. in write-back mode
 type stateCheckpoint struct {
 	sync.RWMutex
-	cache             State
+	cache             *cpuPluginState
 	policyName        string
 	checkpointManager checkpointmanager.CheckpointManager
 	checkpointName    string
@@ -129,6 +129,12 @@ func (sc *stateCheckpoint) RestoreState(topology *machine.CPUTopology) error {
 	return nil
 }
 
+func (sc *stateCheckpoint) StoreState() error {
+	sc.Lock()
+	defer sc.Unlock()
+	return sc.storeState()
+}
+
 func (sc *stateCheckpoint) storeState() error {
 	startTime := time.Now()
 	general.InfoS("called")
@@ -178,58 +184,68 @@ func (sc *stateCheckpoint) GetPodEntries() PodEntries {
 	return sc.cache.GetPodEntries()
 }
 
-func (sc *stateCheckpoint) SetMachineState(numaNodeMap NUMANodeMap) {
+func (sc *stateCheckpoint) SetMachineState(numaNodeMap NUMANodeMap, persist bool) {
 	sc.Lock()
 	defer sc.Unlock()
 
 	sc.cache.SetMachineState(numaNodeMap)
-	err := sc.storeState()
-	if err != nil {
-		klog.ErrorS(err, "[cpu_plugin] store machineState to checkpoint error")
+	if persist {
+		err := sc.storeState()
+		if err != nil {
+			klog.ErrorS(err, "[cpu_plugin] store machineState to checkpoint error")
+		}
 	}
 }
 
-func (sc *stateCheckpoint) SetNUMAHeadroom(m map[int]float64) {
+func (sc *stateCheckpoint) SetNUMAHeadroom(m map[int]float64, persist bool) {
 	sc.Lock()
 	defer sc.Unlock()
 
 	sc.cache.SetNUMAHeadroom(m)
-	err := sc.storeState()
-	if err != nil {
-		klog.ErrorS(err, "[cpu_plugin] store numa headroom to checkpoint error")
+	if persist {
+		err := sc.storeState()
+		if err != nil {
+			klog.ErrorS(err, "[cpu_plugin] store numa headroom to checkpoint error")
+		}
 	}
 }
 
-func (sc *stateCheckpoint) SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo) {
+func (sc *stateCheckpoint) SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo, persist bool) {
 	sc.Lock()
 	defer sc.Unlock()
 
 	sc.cache.SetAllocationInfo(podUID, containerName, allocationInfo)
-	err := sc.storeState()
-	if err != nil {
-		klog.ErrorS(err, "[cpu_plugin] store allocationInfo to checkpoint error")
+	if persist {
+		err := sc.storeState()
+		if err != nil {
+			klog.ErrorS(err, "[cpu_plugin] store allocationInfo to checkpoint error")
+		}
 	}
 }
 
-func (sc *stateCheckpoint) SetPodEntries(podEntries PodEntries) {
+func (sc *stateCheckpoint) SetPodEntries(podEntries PodEntries, persist bool) {
 	sc.Lock()
 	defer sc.Unlock()
 
 	sc.cache.SetPodEntries(podEntries)
-	err := sc.storeState()
-	if err != nil {
-		klog.ErrorS(err, "[cpu_plugin] store pod entries to checkpoint error")
+	if persist {
+		err := sc.storeState()
+		if err != nil {
+			klog.ErrorS(err, "[cpu_plugin] store pod entries to checkpoint error")
+		}
 	}
 }
 
-func (sc *stateCheckpoint) SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores bool) {
+func (sc *stateCheckpoint) SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores, persist bool) {
 	sc.Lock()
 	defer sc.Unlock()
 
 	sc.cache.SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores)
-	err := sc.storeState()
-	if err != nil {
-		klog.ErrorS(err, "[cpu_plugin] store allowSharedCoresOverlapReclaimedCores to checkpoint error")
+	if persist {
+		err := sc.storeState()
+		if err != nil {
+			klog.ErrorS(err, "[cpu_plugin] store allowSharedCoresOverlapReclaimedCores to checkpoint error")
+		}
 	}
 }
 
@@ -240,14 +256,16 @@ func (sc *stateCheckpoint) GetAllowSharedCoresOverlapReclaimedCores() bool {
 	return sc.cache.GetAllowSharedCoresOverlapReclaimedCores()
 }
 
-func (sc *stateCheckpoint) Delete(podUID string, containerName string) {
+func (sc *stateCheckpoint) Delete(podUID string, containerName string, persist bool) {
 	sc.Lock()
 	defer sc.Unlock()
 
 	sc.cache.Delete(podUID, containerName)
-	err := sc.storeState()
-	if err != nil {
-		klog.ErrorS(err, "[cpu_plugin] store state after delete operation to checkpoint error")
+	if persist {
+		err := sc.storeState()
+		if err != nil {
+			klog.ErrorS(err, "[cpu_plugin] store state after delete operation to checkpoint error")
+		}
 	}
 }
 
