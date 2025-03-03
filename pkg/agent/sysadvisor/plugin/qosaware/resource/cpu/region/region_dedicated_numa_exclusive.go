@@ -19,6 +19,7 @@ package region
 import (
 	"context"
 	"fmt"
+	"math"
 
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/klog/v2"
@@ -34,6 +35,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -174,14 +177,40 @@ out:
 	r.idle.Store(idle)
 }
 
-func (r *QoSRegionDedicatedNumaExclusive) getEffectiveControlKnobs() types.ControlKnob {
-	reclaimedCPUSize := 0
+func (r *QoSRegionDedicatedNumaExclusive) getEffectiveReclaimResource() (quota float64, cpusetsize int, err error) {
+	numaID := r.bindingNumas.ToSliceInt()[0]
+	reclaimPath := common.GetReclaimRelativeRootCgroupPath(r.conf.ReclaimRelativeRootCgroupPath, numaID)
+	cpustats, err := cgroupmgr.GetCPUWithRelativePath(reclaimPath)
+	if err != nil {
+		return 0, 0, err
+	}
+	if cpustats.CpuQuota == math.MaxInt || cpustats.CpuQuota == -1 {
+		quota = -1
+	} else {
+		quota = float64(cpustats.CpuQuota) / float64(cpustats.CpuPeriod)
+	}
+
 	if reclaimedInfo, ok := r.metaReader.GetPoolInfo(commonstate.PoolNameReclaim); ok {
-		for _, numaID := range r.bindingNumas.ToSliceInt() {
-			reclaimedCPUSize += reclaimedInfo.TopologyAwareAssignments[numaID].Size()
+		cpusetsize = reclaimedInfo.TopologyAwareAssignments[numaID].Size()
+	}
+	return
+}
+
+func (r *QoSRegionDedicatedNumaExclusive) getEffectiveControlKnobs() types.ControlKnob {
+	quota, cpusetsize, err := r.getEffectiveReclaimResource()
+	if err != nil {
+		return types.ControlKnob{}
+	}
+	if quota > 0 {
+		return types.ControlKnob{
+			configapi.ControlKnobReclaimedCPUQuota: {
+				Value:  quota,
+				Action: types.ControlKnobActionNone,
+			},
 		}
 	}
-	cpuRequirement := r.ResourceUpperBound + r.ReservedForReclaim - float64(reclaimedCPUSize)
+
+	cpuRequirement := r.ResourceUpperBound + r.ReservedForReclaim - float64(cpusetsize)
 
 	return types.ControlKnob{
 		configapi.ControlKnobNonReclaimedCPURequirement: {

@@ -124,9 +124,6 @@ func (pa *ProvisionAssemblerCommon) assembleShareNB(r region.QoSRegion, result *
 	// available = NUMA Size - Reserved - ReservedForReclaimed when allowSharedCoresOverlapReclaimedCores == false
 	// available = NUMA Size - Reserved when allowSharedCoresOverlapReclaimedCores == true
 	available := getNUMAsResource(*pa.numaAvailable, r.GetBindingNumas())
-	if *pa.allowSharedCoresOverlapReclaimedCores {
-		available += reservedForReclaim
-	}
 
 	isolationRequirements, err := pa.getIsolationRequirements(r)
 	if err != nil {
@@ -135,7 +132,8 @@ func (pa *ProvisionAssemblerCommon) assembleShareNB(r region.QoSRegion, result *
 
 	shareRequirements := map[string]int{r.OwnerPoolName(): podsRequests}
 
-	poolSizes, poolThrottled := regulatePoolSizes(shareRequirements, isolationRequirements, available, !nodeEnableReclaim || *pa.allowSharedCoresOverlapReclaimedCores)
+	allowExpand := !nodeEnableReclaim || *pa.allowSharedCoresOverlapReclaimedCores
+	poolSizes, poolThrottled := regulatePoolSizes(shareRequirements, isolationRequirements, available, allowExpand)
 	r.SetThrottled(poolThrottled)
 
 	for poolName, size := range poolSizes {
@@ -151,6 +149,7 @@ func (pa *ProvisionAssemblerCommon) assembleShareNB(r region.QoSRegion, result *
 			reclaimedCoresAvail = 0
 		}
 		if cgroups.IsCgroup2UnifiedMode() {
+			// consider quota
 			reclaimedCoresQuota = float64(general.Max(reservedForReclaim, reclaimedCoresAvail))
 			reclaimedCoresSize = poolSizes[r.OwnerPoolName()]
 		} else {
@@ -165,6 +164,7 @@ func (pa *ProvisionAssemblerCommon) assembleShareNB(r region.QoSRegion, result *
 		}
 	}
 
+	// 把这个结果放到effectiveControlKnob中，供RAMA使用
 	result.SetPoolEntry(commonstate.PoolNameReclaim, regionNuma, reclaimedCoresSize, reclaimedCoresQuota)
 	return nil
 }
@@ -200,7 +200,7 @@ func (pa *ProvisionAssemblerCommon) assembleIsolationNB(r region.QoSRegion, resu
 				}
 				isolationSizes += int(ck[configapi.ControlKnobNonReclaimedCPURequirementUpper].Value)
 			}
-			reclaimedCoresSize := general.Max(available-isolationSizes, 0) + reservedForReclaim
+			reclaimedCoresSize := general.Max(available-isolationSizes, reservedForReclaim)
 			result.SetPoolEntry(commonstate.PoolNameReclaim, regionNuma, reclaimedCoresSize, -1)
 		}
 	}
@@ -224,26 +224,25 @@ func (pa *ProvisionAssemblerCommon) assembleDedicatedNE(r region.QoSRegion, resu
 	reclaimedCoresQuota := float64(-1)
 
 	// fill in reclaim pool entry for dedicated numa exclusive regions
+	nonReclaimRequirement := int(controlKnob[configapi.ControlKnobNonReclaimedCPURequirement].Value)
 	if !r.EnableReclaim() {
-		if cgroups.IsCgroup2UnifiedMode() {
-			reclaimedCoresQuota = float64(reservedForReclaim)
-			reclaimedCoresSize = available + reservedForReclaim
-		} else {
-			reclaimedCoresSize = reservedForReclaim
+		nonReclaimRequirement = available
+	}
+	if cgroups.IsCgroup2UnifiedMode() {
+		reclaimedCoresSize = available
+		reclaimedCoresQuota = general.MaxFloat64(float64(reservedForReclaim), float64(available-nonReclaimRequirement))
+
+		if quota, ok := controlKnob[configapi.ControlKnobReclaimedCPUQuota]; ok {
+			reclaimedCoresQuota = general.MinFloat64(reclaimedCoresQuota, quota.Value)
 		}
 	} else {
-		nonReclaimRequirement := int(controlKnob[configapi.ControlKnobNonReclaimedCPURequirement].Value)
-		if cgroups.IsCgroup2UnifiedMode() {
-			reclaimedCoresSize = available + reservedForReclaim
-			reclaimedCoresQuota = float64(available + reservedForReclaim - nonReclaimRequirement)
-		} else {
-			reclaimedCoresSize = available + reservedForReclaim - nonReclaimRequirement
-		}
-
-		klog.InfoS("assemble info", "regionName", r.Name(), "reclaimedCoresSize", reclaimedCoresSize,
-			"available", available, "nonReclaimRequirement", nonReclaimRequirement,
-			"reservedForReclaim", reservedForReclaim)
+		reclaimedCoresSize = general.Max(reservedForReclaim, available-nonReclaimRequirement)
 	}
+
+	klog.InfoS("assembleDedicatedNE info", "regionName", r.Name(), "reclaimedCoresSize", reclaimedCoresSize,
+		"available", available, "nonReclaimRequirement", nonReclaimRequirement,
+		"reservedForReclaim", reservedForReclaim, "controlKnob", controlKnob)
+
 	result.SetPoolEntry(commonstate.PoolNameReclaim, regionNuma, reclaimedCoresSize, reclaimedCoresQuota)
 	return nil
 }
@@ -256,8 +255,8 @@ func (pa *ProvisionAssemblerCommon) assembleShare(sharePoolRequirements, sharePo
 	isolationUppers := general.SumUpMapValues(isolationUpperSizes)
 
 	shareAndIsolatedPoolAvailable := getNUMAsResource(*pa.numaAvailable, *pa.nonBindingNumas)
-	if *pa.allowSharedCoresOverlapReclaimedCores {
-		shareAndIsolatedPoolAvailable += getNUMAsResource(*pa.reservedForReclaim, *pa.nonBindingNumas)
+	if !*pa.allowSharedCoresOverlapReclaimedCores {
+		shareAndIsolatedPoolAvailable -= getNUMAsResource(*pa.reservedForReclaim, *pa.nonBindingNumas)
 	}
 
 	isolationPoolSizes := isolationUpperSizes
@@ -293,6 +292,7 @@ func (pa *ProvisionAssemblerCommon) assembleShare(sharePoolRequirements, sharePo
 	}
 
 	// assemble reclaim pool for non-binding NUMAs
+	reclaimedCoresQuota := float64(-1)
 	var reclaimPoolSizeOfNonBindingNUMAs int
 	nonBindingNUMAsReservedForReclaim := getNUMAsResource(*pa.reservedForReclaim, *pa.nonBindingNumas)
 	if *pa.allowSharedCoresOverlapReclaimedCores {
@@ -342,8 +342,17 @@ func (pa *ProvisionAssemblerCommon) assembleShare(sharePoolRequirements, sharePo
 				}
 			}
 
-			for overlapPoolName, size := range sharedOverlapReclaimSize {
-				result.SetPoolOverlapInfo(commonstate.PoolNameReclaim, commonstate.FakedNUMAID, overlapPoolName, size)
+			if cgroups.IsCgroup2UnifiedMode() && len(sharePoolSizes) == 1 {
+				reclaimedCoresQuota = float64(general.SumUpMapValues(sharedOverlapReclaimSize))
+				reclaimPoolSizeOfNonBindingNUMAs = general.SumUpMapValues(sharePoolSizes)
+				for overlapPoolName := range sharedOverlapReclaimSize {
+					result.SetPoolOverlapInfo(commonstate.PoolNameReclaim, commonstate.FakedNUMAID, overlapPoolName, reclaimPoolSizeOfNonBindingNUMAs)
+					break
+				}
+			} else {
+				for overlapPoolName, size := range sharedOverlapReclaimSize {
+					result.SetPoolOverlapInfo(commonstate.PoolNameReclaim, commonstate.FakedNUMAID, overlapPoolName, size)
+				}
 			}
 		}
 	} else {
@@ -353,7 +362,7 @@ func (pa *ProvisionAssemblerCommon) assembleShare(sharePoolRequirements, sharePo
 		}
 	}
 
-	result.SetPoolEntry(commonstate.PoolNameReclaim, commonstate.FakedNUMAID, reclaimPoolSizeOfNonBindingNUMAs, -1)
+	result.SetPoolEntry(commonstate.PoolNameReclaim, commonstate.FakedNUMAID, reclaimPoolSizeOfNonBindingNUMAs, reclaimedCoresQuota)
 	return nil
 }
 
@@ -384,6 +393,10 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 		if err != nil {
 			return types.InternalCPUCalculationResult{}, err
 		}
+
+		// nonReclaimRequirement和reclaim quota取个小的就行
+		// 如果canonical 没有返回值，rama会怎么处理？会直接使用rama的结果
+		// quota 不支持multi region，因为无法控制reclaim quota在每个region的数量，reclaim cgroup是同一个
 
 		switch r.Type() {
 		case configapi.QoSRegionTypeShare:

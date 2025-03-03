@@ -91,10 +91,10 @@ func (r *QoSRegionShare) TryUpdateProvision() {
 	rawControlKnobs := r.getProvisionControlKnob()
 
 	// restrict control knobs by reference policy
-	restrictedControlKnobs := r.restrictProvisionControlKnob(rawControlKnobs)
+	//restrictedControlKnobs := r.restrictProvisionControlKnob(rawControlKnobs)
 
 	// regulate control knobs
-	r.regulateProvisionControlKnob(restrictedControlKnobs, r.getEffectiveControlKnobs())
+	r.regulateProvisionControlKnob(rawControlKnobs, r.getEffectiveControlKnobs())
 }
 
 func (r *QoSRegionShare) updateProvisionPolicy() {
@@ -197,6 +197,7 @@ func (r *QoSRegionShare) restrictProvisionControlKnob(originControlKnob map[type
 	return restrictedControlKnob
 }
 
+// 这个返回真正起作用的control knob，比如quota或者requirement
 func (r *QoSRegionShare) getEffectiveControlKnobs() types.ControlKnob {
 	regionInfo, ok := r.metaReader.GetRegionInfo(r.name)
 	if ok {
