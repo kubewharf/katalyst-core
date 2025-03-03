@@ -747,6 +747,7 @@ func (r *QoSRegionBase) getIndicators() (types.Indicator, error) {
 					general.Warningf("use default indicator target[%v],because of failed to get indicator %s of poduid[%s] err: %v",
 						defaultTarget, indicatorName, podUID, err)
 				}
+				general.InfoS("indicatorTarget", "indicatorName", indicatorName, "podUID", podUID, "indicatorTarget", indicatorTarget)
 				sumTarget = sumTarget + *indicatorTarget
 				minTarget = math.Min(minTarget, *indicatorTarget)
 			}
