@@ -53,6 +53,7 @@ import (
 // metric names for cpu advisor
 const (
 	metricCPUAdvisorPoolSize           = "cpu_advisor_pool_size"
+	metricCPUAdvisorPoolQuota          = "cpu_advisor_pool_quota"
 	metricCPUAdvisorUpdateDuration     = "cpu_advisor_update_duration"
 	metricRegionStatus                 = "region_status"
 	metricRegionIndicatorTargetPrefix  = "region_indicator_target_"
@@ -586,8 +587,12 @@ func (cra *cpuResourceAdvisor) emitMetrics(calculationResult types.InternalCPUCa
 
 	// emit calculated pool sizes
 	for poolName, poolEntry := range calculationResult.PoolEntries {
-		for numaID, size := range poolEntry {
-			_ = cra.emitter.StoreInt64(metricCPUAdvisorPoolSize, int64(size), metrics.MetricTypeNameRaw,
+		for numaID, resource := range poolEntry {
+			_ = cra.emitter.StoreInt64(metricCPUAdvisorPoolSize, int64(resource.Size), metrics.MetricTypeNameRaw,
+				metrics.MetricTag{Key: "name", Val: poolName},
+				metrics.MetricTag{Key: "numa_id", Val: strconv.Itoa(numaID)},
+				metrics.MetricTag{Key: "pool_type", Val: commonstate.GetPoolType(poolName)})
+			_ = cra.emitter.StoreFloat64(metricCPUAdvisorPoolSize, resource.Quota, metrics.MetricTypeNameRaw,
 				metrics.MetricTag{Key: "name", Val: poolName},
 				metrics.MetricTag{Key: "numa_id", Val: strconv.Itoa(numaID)},
 				metrics.MetricTag{Key: "pool_type", Val: commonstate.GetPoolType(poolName)})

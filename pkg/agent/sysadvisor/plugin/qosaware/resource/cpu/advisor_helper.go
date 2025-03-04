@@ -161,11 +161,7 @@ func (cra *cpuResourceAdvisor) updateNumasAvailableResource() {
 		if cpuset, ok := reservePoolInfo.TopologyAwareAssignments[id]; ok {
 			reservePoolNuma = cpuset.Size()
 		}
-		reservedForReclaimNuma := 0
-		if v, ok := cra.reservedForReclaim[id]; ok {
-			reservedForReclaimNuma = v
-		}
-		cra.numaAvailable[id] = cpusPerNuma - reservePoolNuma - reservedForReclaimNuma
+		cra.numaAvailable[id] = cpusPerNuma - reservePoolNuma
 	}
 }
 
@@ -201,7 +197,7 @@ func (cra *cpuResourceAdvisor) getRegionMaxRequirement(r region.QoSRegion) float
 		res = general.MaxFloat64(1, res)
 	default:
 		for _, numaID := range r.GetBindingNumas().ToSliceInt() {
-			res += float64(cra.numaAvailable[numaID])
+			res += float64(cra.numaAvailable[numaID] - cra.reservedForReclaim[numaID])
 		}
 	}
 	return res

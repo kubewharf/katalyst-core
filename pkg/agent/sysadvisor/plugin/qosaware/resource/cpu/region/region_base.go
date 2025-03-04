@@ -430,6 +430,7 @@ func (r *QoSRegionBase) GetProvision() (types.ControlKnob, error) {
 				r.borweinController.ResetIndicatorOffsets()
 			}
 		}
+		// 只有某一个策略的结果会被返回，这里建议将不同的controlKnob都返回了
 		return result.getControlKnob(), nil
 	}
 
