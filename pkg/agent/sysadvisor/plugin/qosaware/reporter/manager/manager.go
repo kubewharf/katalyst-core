@@ -33,12 +33,16 @@ var headroomManagerInitializers sync.Map
 
 // HeadroomManager is used to manage resource headroom reporting and overcommit.
 type HeadroomManager interface {
-	// global resource management
+	// ResourceManager global resource management
 	ResourceManager
-	// NUMA-specific resource management
+	// NumaResourceManager NUMA-specific resource management
 	NumaResourceManager
+	// Name is origin headroom name
+	Name() v1.ResourceName
 	// Run starts the resource manager
 	Run(ctx context.Context)
+	// MilliValue shows whether the report value is milli-value
+	MilliValue() bool
 }
 
 // ResourceManager provides a general interface for managing resources
@@ -62,6 +66,7 @@ type InitFunc func(emitter metrics.MetricEmitter, metaServer *metaserver.MetaSer
 	conf *config.Configuration, headroomAdvisor hmadvisor.ResourceAdvisor) (HeadroomManager, error)
 
 // RegisterHeadroomManagerInitializer is used to register user-defined headroom manager init functions
+// name is used as the headroom report name
 func RegisterHeadroomManagerInitializer(name v1.ResourceName, initFunc InitFunc) {
 	headroomManagerInitializers.Store(name, initFunc)
 }

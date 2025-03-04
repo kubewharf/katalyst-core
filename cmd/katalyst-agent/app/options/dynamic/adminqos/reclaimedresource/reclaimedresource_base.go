@@ -29,11 +29,12 @@ import (
 )
 
 type ReclaimedResourceOptions struct {
-	EnableReclaim                     bool
-	ReservedResourceForReport         general.ResourceList
-	MinReclaimedResourceForReport     general.ResourceList
-	ReservedResourceForAllocate       general.ResourceList
-	ReservedResourceForReclaimedCores general.ResourceList
+	EnableReclaim                        bool
+	ReservedResourceForReport            general.ResourceList
+	MinReclaimedResourceForReport        general.ResourceList
+	MinIgnoredReclaimedResourceForReport general.ResourceList
+	ReservedResourceForAllocate          general.ResourceList
+	ReservedResourceForReclaimedCores    general.ResourceList
 
 	*cpuheadroom.CPUHeadroomOptions
 	*memoryheadroom.MemoryHeadroomOptions
@@ -49,6 +50,10 @@ func NewReclaimedResourceOptions() *ReclaimedResourceOptions {
 		MinReclaimedResourceForReport: map[v1.ResourceName]resource.Quantity{
 			v1.ResourceCPU:    resource.MustParse("4"),
 			v1.ResourceMemory: resource.MustParse("5Gi"),
+		},
+		MinIgnoredReclaimedResourceForReport: map[v1.ResourceName]resource.Quantity{
+			v1.ResourceCPU:    resource.MustParse("0.1"),
+			v1.ResourceMemory: resource.MustParse("100Mi"),
 		},
 		ReservedResourceForAllocate: map[v1.ResourceName]resource.Quantity{
 			v1.ResourceCPU:    resource.MustParse("4"),
@@ -73,6 +78,8 @@ func (o *ReclaimedResourceOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"reserved reclaimed resource report to cnr")
 	fs.Var(&o.MinReclaimedResourceForReport, "min-reclaimed-resource-for-report",
 		"min reclaimed resource report to cnr")
+	fs.Var(&o.MinIgnoredReclaimedResourceForReport, "min-ignored-reclaimed-resource-for-report",
+		"min ignored reclaimed resource report to cnr")
 	fs.Var(&o.ReservedResourceForAllocate, "reserved-resource-for-allocate",
 		"reserved reclaimed resource actually not allocate to reclaimed resource")
 	fs.Var(&o.ReservedResourceForReclaimedCores, "reserved-resource-for-reclaimed-cores",
@@ -88,6 +95,7 @@ func (o *ReclaimedResourceOptions) ApplyTo(c *reclaimedresource.ReclaimedResourc
 	c.EnableReclaim = o.EnableReclaim
 	c.ReservedResourceForReport = v1.ResourceList(o.ReservedResourceForReport)
 	c.MinReclaimedResourceForReport = v1.ResourceList(o.MinReclaimedResourceForReport)
+	c.MinIgnoredReclaimedResourceForReport = v1.ResourceList(o.MinIgnoredReclaimedResourceForReport)
 	c.ReservedResourceForAllocate = v1.ResourceList(o.ReservedResourceForAllocate)
 	c.MinReclaimedResourceForAllocate = v1.ResourceList(o.ReservedResourceForReclaimedCores)
 

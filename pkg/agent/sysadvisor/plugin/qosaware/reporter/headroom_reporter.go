@@ -36,9 +36,11 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter/manager/resource"
 	hmadvisor "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 func init() {
@@ -111,6 +113,9 @@ type reclaimedResource struct {
 	capacity        v1.ResourceList
 	numaAllocatable map[int]v1.ResourceList
 	numaCapacity    map[int]v1.ResourceList
+
+	resourceNameMap map[v1.ResourceName]v1.ResourceName
+	milliValue      map[v1.ResourceName]bool
 }
 
 type headroomReporterPlugin struct {
@@ -118,9 +123,10 @@ type headroomReporterPlugin struct {
 	headroomManagers      map[v1.ResourceName]manager.HeadroomManager
 	numaSocketZoneNodeMap map[util.ZoneNode]util.ZoneNode
 
-	ctx     context.Context
-	cancel  context.CancelFunc
-	started bool
+	dynamicConf *dynamic.DynamicAgentConfiguration
+	ctx         context.Context
+	cancel      context.CancelFunc
+	started     bool
 }
 
 func newHeadroomReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
@@ -131,6 +137,11 @@ func newHeadroomReporterPlugin(emitter metrics.MetricEmitter, metaServer *metase
 		errList []error
 	)
 
+	// init numa topo info by metaServer
+	if metaServer == nil || metaServer.MachineInfo == nil {
+		return nil, nil, fmt.Errorf("get metaserver machine info is nil")
+	}
+
 	initializers := manager.GetRegisteredManagerInitializers()
 	headroomManagers := make(map[v1.ResourceName]manager.HeadroomManager, len(initializers))
 	for name, initializer := range initializers {
@@ -140,11 +151,6 @@ func newHeadroomReporterPlugin(emitter metrics.MetricEmitter, metaServer *metase
 		}
 	}
 
-	// init numa topo info by metaServer
-	if metaServer == nil || metaServer.MachineInfo == nil {
-		errList = append(errList, fmt.Errorf("get metaserver machine info is nil"))
-	}
-
 	if len(errList) > 0 {
 		return nil, nil, errors.NewAggregate(errList)
 	}
@@ -152,6 +158,7 @@ func newHeadroomReporterPlugin(emitter metrics.MetricEmitter, metaServer *metase
 	reporter := &headroomReporterPlugin{
 		headroomManagers:      headroomManagers,
 		numaSocketZoneNodeMap: util.GenerateNumaSocketZone(metaServer.MachineInfo.Topology),
+		dynamicConf:           conf.DynamicAgentConfiguration,
 	}
 	pluginWrapper, err := skeleton.NewRegistrationPluginWrapper(reporter, []string{conf.PluginRegistrationDir},
 		func(key string, value int64) {
@@ -223,6 +230,12 @@ func (r *headroomReporterPlugin) GetReportContent(_ context.Context, _ *v1alpha1
 		return nil, err
 	}
 
+	// revise reclaimed resource to avoid resource fragmentation
+	err = r.reviseReclaimedResource(res)
+	if err != nil {
+		return nil, err
+	}
+
 	reportToCNR, err := r.getReportReclaimedResourceForCNR(res)
 	if err != nil {
 		return nil, err
@@ -256,21 +269,26 @@ func (r *headroomReporterPlugin) getReclaimedResource() (*reclaimedResource, err
 	capacity := make(v1.ResourceList)
 	numaAllocatable := make(map[int]v1.ResourceList)
 	numaCapacity := make(map[int]v1.ResourceList)
-	for resourceName, rm := range r.headroomManagers {
-		allocatable[resourceName], err = rm.GetAllocatable()
+	resourceNameMap := make(map[v1.ResourceName]v1.ResourceName)
+	milliValue := make(map[v1.ResourceName]bool)
+	for reportName, rm := range r.headroomManagers {
+		// get origin resource name
+		resourceNameMap[reportName] = rm.Name()
+		milliValue[reportName] = rm.MilliValue()
+		allocatable[reportName], err = rm.GetAllocatable()
 		if err != nil {
-			errList = append(errList, fmt.Errorf("get reclaimed %s allocatable failed: %s", resourceName, err))
+			errList = append(errList, fmt.Errorf("get reclaimed %s allocatable failed: %s", reportName, err))
 		}
 
-		capacity[resourceName], err = rm.GetCapacity()
+		capacity[reportName], err = rm.GetCapacity()
 		if err != nil {
-			errList = append(errList, err, fmt.Errorf("get reclaimed %s capacity failed: %s", resourceName, err))
+			errList = append(errList, err, fmt.Errorf("get reclaimed %s capacity failed: %s", reportName, err))
 		}
 
 		// get allocatable per numa
 		allocatableMap, err := rm.GetNumaAllocatable()
 		if err != nil {
-			errList = append(errList, fmt.Errorf("get reclaimed %s numa allocatable failed: %s", resourceName, err))
+			errList = append(errList, fmt.Errorf("get reclaimed %s numa allocatable failed: %s", reportName, err))
 		} else {
 			for numaID, quantity := range allocatableMap {
 				perNumaAllocatable, ok := numaAllocatable[numaID]
@@ -278,14 +296,14 @@ func (r *headroomReporterPlugin) getReclaimedResource() (*reclaimedResource, err
 					perNumaAllocatable = make(v1.ResourceList)
 					numaAllocatable[numaID] = perNumaAllocatable
 				}
-				perNumaAllocatable[resourceName] = quantity
+				perNumaAllocatable[reportName] = quantity
 			}
 		}
 
 		// get capacity per numa
 		capacityMap, err := rm.GetNumaCapacity()
 		if err != nil {
-			errList = append(errList, fmt.Errorf("get reclaimed %s numa capacity failed: %s", resourceName, err))
+			errList = append(errList, fmt.Errorf("get reclaimed %s numa capacity failed: %s", reportName, err))
 		} else {
 			for numaID, quantity := range capacityMap {
 				perNumaCapacity, ok := numaCapacity[numaID]
@@ -293,10 +311,9 @@ func (r *headroomReporterPlugin) getReclaimedResource() (*reclaimedResource, err
 					perNumaCapacity = make(v1.ResourceList)
 					numaCapacity[numaID] = perNumaCapacity
 				}
-				perNumaCapacity[resourceName] = quantity
+				perNumaCapacity[reportName] = quantity
 			}
 		}
-
 	}
 
 	if len(errList) > 0 {
@@ -308,7 +325,9 @@ func (r *headroomReporterPlugin) getReclaimedResource() (*reclaimedResource, err
 		capacity:        capacity,
 		numaAllocatable: numaAllocatable,
 		numaCapacity:    numaCapacity,
-	}, err
+		milliValue:      milliValue,
+		resourceNameMap: resourceNameMap,
+	}, nil
 }
 
 func (r *headroomReporterPlugin) getReportReclaimedResourceForCNR(reclaimedResource *reclaimedResource) (*v1alpha1.ReportContent, error) {
@@ -384,4 +403,60 @@ func (r *headroomReporterPlugin) getReportNUMAReclaimedResource(reclaimedResourc
 		FieldName: util.CNRFieldNameTopologyZone,
 		Value:     value,
 	}, nil
+}
+
+func (r *headroomReporterPlugin) reviseReclaimedResource(res *reclaimedResource) error {
+	if res == nil {
+		return fmt.Errorf("reclaimed resource is nil")
+	}
+
+	conf := r.dynamicConf.GetDynamicConfiguration()
+	reviseFunc := func(resList v1.ResourceList) bool {
+		revise := false
+		for reportName, quantity := range resList {
+			resourceName, ok := res.resourceNameMap[reportName]
+			if !ok {
+				resourceName = reportName
+			}
+
+			minIgnored, ok := conf.MinIgnoredReclaimedResourceForReport[resourceName]
+			if ok {
+				milliValue, ok := res.milliValue[reportName]
+				if ok && milliValue {
+					minIgnored = *apiresource.NewQuantity(minIgnored.MilliValue(), minIgnored.Format)
+				}
+
+				if quantity.Cmp(minIgnored) <= 0 {
+					revise = true
+					break
+				}
+			}
+		}
+
+		if revise {
+			for resourceName := range resList {
+				resList[resourceName] = apiresource.Quantity{}
+			}
+		}
+
+		return revise
+	}
+
+	numaRevised := false
+	for numaID := range res.numaAllocatable {
+		if reviseFunc(res.numaAllocatable[numaID]) {
+			numaRevised = true
+		}
+	}
+
+	if numaRevised {
+		sumNUMAAllocatable := v1.ResourceList{}
+		for _, allocatable := range res.numaAllocatable {
+			sumNUMAAllocatable = native.AddResources(sumNUMAAllocatable, allocatable)
+		}
+		res.allocatable = sumNUMAAllocatable
+	}
+
+	reviseFunc(res.allocatable)
+	return nil
 }
