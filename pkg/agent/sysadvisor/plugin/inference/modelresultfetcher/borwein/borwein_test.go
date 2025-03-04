@@ -334,8 +334,10 @@ func TestBorweinModelResultFetcher_FetchModelResult(t *testing.T) {
 				qosConfig:             tt.fields.qosConfig,
 				nodeFeatureNames:      tt.fields.nodeFeatureNames,
 				containerFeatureNames: tt.fields.containerFeatureNames,
-				infSvcClient:          tt.fields.infSvcClient,
 				emitter:               metrics.DummyMetrics{},
+				modelNameToInferenceSvcClient: map[string]borweininfsvc.InferenceServiceClient{
+					"test": tt.fields.infSvcClient,
+				},
 			}
 			if err := bmrf.FetchModelResult(tt.args.ctx, tt.args.metaReader, tt.args.metaWriter, tt.args.metaServer); (err != nil) != tt.wantErr {
 				t.Errorf("BorweinModelResultFetcher.FetchModelResult() error = %v, wantErr %v", err, tt.wantErr)
@@ -493,7 +495,6 @@ func TestBorweinModelResultFetcher_parseInferenceRespForPods(t *testing.T) {
 				qosConfig:             tt.fields.qosConfig,
 				nodeFeatureNames:      tt.fields.nodeFeatureNames,
 				containerFeatureNames: tt.fields.containerFeatureNames,
-				infSvcClient:          tt.fields.infSvcClient,
 				emitter:               metrics.DummyMetrics{},
 			}
 			got, err := bmrf.parseInferenceRespForPods(tt.args.containers, tt.args.resp)
@@ -649,7 +650,6 @@ func TestBorweinModelResultFetcher_getInferenceRequestForPods(t *testing.T) {
 				qosConfig:             tt.fields.qosConfig,
 				nodeFeatureNames:      tt.fields.nodeFeatureNames,
 				containerFeatureNames: tt.fields.containerFeatureNames,
-				infSvcClient:          tt.fields.infSvcClient,
 				emitter:               metrics.DummyMetrics{},
 			}
 			got, err := bmrf.getInferenceRequestForPods(tt.args.containers, tt.args.metaReader, tt.args.metaWriter, tt.args.metaServer)
@@ -743,14 +743,14 @@ func TestNewBorweinModelResultFetcher(t *testing.T) {
 	})
 
 	type args struct {
-		fetcherName                     string
-		enableBorweinModelResultFetcher bool
-		conf                            *config.Configuration
-		extraConf                       interface{}
-		emitterPool                     metricspool.MetricsEmitterPool
-		metaServer                      *metaserver.MetaServer
-		metaCache                       metacache.MetaCache
-		inferenceServiceSocketAbsPath   string
+		fetcherName                        string
+		enableBorweinModelResultFetcher    bool
+		conf                               *config.Configuration
+		extraConf                          interface{}
+		emitterPool                        metricspool.MetricsEmitterPool
+		metaServer                         *metaserver.MetaServer
+		metaCache                          metacache.MetaCache
+		modelNameToInferenceSvcSockAbsPath map[string]string
 	}
 	tests := []struct {
 		name    string
@@ -767,7 +767,9 @@ func TestNewBorweinModelResultFetcher(t *testing.T) {
 				emitterPool:                     metricspool.DummyMetricsEmitterPool{},
 				metaServer:                      metaServer,
 				metaCache:                       mc,
-				inferenceServiceSocketAbsPath:   path.Join(sockDir, "test.sock"),
+				modelNameToInferenceSvcSockAbsPath: map[string]string{
+					"test": path.Join(sockDir, "test.sock"),
+				},
 			},
 			wantErr: false,
 		},
@@ -792,7 +794,9 @@ func TestNewBorweinModelResultFetcher(t *testing.T) {
 				emitterPool:                     metricspool.DummyMetricsEmitterPool{},
 				metaServer:                      nil,
 				metaCache:                       mc,
-				inferenceServiceSocketAbsPath:   path.Join(sockDir, "test.sock"),
+				modelNameToInferenceSvcSockAbsPath: map[string]string{
+					"test": path.Join(sockDir, "test.sock"),
+				},
 			},
 			wantErr: true,
 		},
@@ -805,7 +809,9 @@ func TestNewBorweinModelResultFetcher(t *testing.T) {
 				emitterPool:                     metricspool.DummyMetricsEmitterPool{},
 				metaServer:                      metaServer,
 				metaCache:                       nil,
-				inferenceServiceSocketAbsPath:   path.Join(sockDir, "test.sock"),
+				modelNameToInferenceSvcSockAbsPath: map[string]string{
+					"test": path.Join(sockDir, "test.sock"),
+				},
 			},
 			wantErr: true,
 		},
@@ -818,7 +824,9 @@ func TestNewBorweinModelResultFetcher(t *testing.T) {
 				emitterPool:                     metricspool.DummyMetricsEmitterPool{},
 				metaServer:                      metaServer,
 				metaCache:                       nil,
-				inferenceServiceSocketAbsPath:   path.Join(sockDir, "test.sock"),
+				modelNameToInferenceSvcSockAbsPath: map[string]string{
+					"test": path.Join(sockDir, "test.sock"),
+				},
 			},
 			wantErr: false,
 		},
@@ -827,34 +835,56 @@ func TestNewBorweinModelResultFetcher(t *testing.T) {
 		if tt.args.conf != nil {
 			tt.args.conf.PolicyRama.EnableBorweinModelResultFetcher = tt.args.enableBorweinModelResultFetcher
 		}
+		if tt.args.modelNameToInferenceSvcSockAbsPath != nil {
+			tt.args.conf.BorweinConfiguration.ModelNameToInferenceSvcSockAbsPath = tt.args.modelNameToInferenceSvcSockAbsPath
+		}
 
-		var svr *grpc.Server
-		if tt.args.inferenceServiceSocketAbsPath != "" {
-			svr, err = RunFakeInferenceSvr(tt.args.inferenceServiceSocketAbsPath)
+		var svrs map[string]*grpc.Server
+		if len(tt.args.modelNameToInferenceSvcSockAbsPath) > 0 {
+			svrs, err = RunMultipleInferenceSvrs(tt.args.modelNameToInferenceSvcSockAbsPath)
+			if err != nil {
+				return
+			}
 			require.NoError(t, err)
-			conf.BorweinConfiguration.InferenceServiceSocketAbsPath = tt.args.inferenceServiceSocketAbsPath
 		}
 
 		fetcher, err := NewBorweinModelResultFetcher(tt.args.fetcherName, tt.args.conf, tt.args.extraConf, tt.args.emitterPool, tt.args.metaServer, tt.args.metaCache)
 		if (err != nil) != tt.wantErr {
 			t.Errorf("NewBorweinModelResultFetcher() error = %v, wantErr %v", err, tt.wantErr)
-			if svr != nil {
-				svr.Stop()
+			if len(svrs) > 0 {
+				for _, svr := range svrs {
+					svr.Stop()
+				}
 			}
 			return
 		} else if !tt.args.enableBorweinModelResultFetcher {
 			require.Nil(t, fetcher)
-			if svr != nil {
-				svr.Stop()
+			if len(svrs) > 0 {
+				for _, svr := range svrs {
+					svr.Stop()
+				}
 			}
 			return
 		}
 
-		if svr != nil {
-			svr.Stop()
-			conf.BorweinConfiguration.InferenceServiceSocketAbsPath = ""
+		if len(svrs) > 0 {
+			for _, svr := range svrs {
+				svr.Stop()
+			}
 		}
 	}
+}
+
+func RunMultipleInferenceSvrs(modelNameToInferenceSvcSockAbsPath map[string]string) (map[string]*grpc.Server, error) {
+	res := make(map[string]*grpc.Server)
+	for _, sock := range modelNameToInferenceSvcSockAbsPath {
+		svr, err := RunFakeInferenceSvr(sock)
+		if err != nil {
+			return nil, err
+		}
+		res[sock] = svr
+	}
+	return res, nil
 }
 
 func RunFakeInferenceSvr(absSockPath string) (*grpc.Server, error) {

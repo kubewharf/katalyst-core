@@ -27,6 +27,7 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 
 	borweinconsts "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/consts"
+	borweinutils "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/utils"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
@@ -53,11 +54,11 @@ func TestMetaCacheImp_GetFilteredInferenceResult(t *testing.T) {
 			fields: fields{
 				emitter: metrics.DummyMetrics{},
 				modelToResult: map[string]interface{}{
-					borweinconsts.ModelNameBorwein: []int{1, 2, 3},
+					borweinutils.GetInferenceResultKey(borweinconsts.ModelNameBorweinLatencyRegression): []int{1, 2, 3},
 				},
 			},
 			args: args{
-				modelName: borweinconsts.ModelNameBorwein,
+				modelName: borweinconsts.ModelNameBorweinLatencyRegression,
 			},
 			want:    []int{1, 2, 3},
 			wantErr: false,
@@ -67,7 +68,7 @@ func TestMetaCacheImp_GetFilteredInferenceResult(t *testing.T) {
 			fields: fields{
 				emitter: metrics.DummyMetrics{},
 				modelToResult: map[string]interface{}{
-					borweinconsts.ModelNameBorwein: []int{1, 2, 3},
+					borweinutils.GetInferenceResultKey(borweinconsts.ModelNameBorweinLatencyRegression): []int{1, 2, 3},
 				},
 			},
 			args: args{
@@ -88,7 +89,7 @@ func TestMetaCacheImp_GetFilteredInferenceResult(t *testing.T) {
 
 					return filteredResult, nil
 				},
-				modelName: borweinconsts.ModelNameBorwein,
+				modelName: borweinconsts.ModelNameBorweinLatencyRegression,
 			},
 			want:    []int{1, 2},
 			wantErr: false,
@@ -98,7 +99,7 @@ func TestMetaCacheImp_GetFilteredInferenceResult(t *testing.T) {
 			fields: fields{
 				emitter: metrics.DummyMetrics{},
 				modelToResult: map[string]interface{}{
-					borweinconsts.ModelNameBorwein: []string{"1", "2", "3"},
+					borweinutils.GetInferenceResultKey(borweinconsts.ModelNameBorweinLatencyRegression): []string{"1", "2", "3"},
 				},
 			},
 			args: args{
@@ -119,7 +120,7 @@ func TestMetaCacheImp_GetFilteredInferenceResult(t *testing.T) {
 
 					return filteredResult, nil
 				},
-				modelName: borweinconsts.ModelNameBorwein,
+				modelName: borweinconsts.ModelNameBorweinLatencyRegression,
 			},
 			want:    nil,
 			wantErr: true,
@@ -133,7 +134,7 @@ func TestMetaCacheImp_GetFilteredInferenceResult(t *testing.T) {
 				emitter:       tt.fields.emitter,
 				modelToResult: tt.fields.modelToResult,
 			}
-			got, err := mc.GetFilteredInferenceResult(tt.args.filterFunc, tt.args.modelName)
+			got, err := mc.GetFilteredInferenceResult(tt.args.filterFunc, borweinutils.GetInferenceResultKey(tt.args.modelName))
 			if (err != nil) != tt.wantErr {
 				t.Errorf("MetaCacheImp.GetFilteredInferenceResult() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -166,11 +167,11 @@ func TestMetaCacheImp_GetInferenceResult(t *testing.T) {
 			fields: fields{
 				emitter: metrics.DummyMetrics{},
 				modelToResult: map[string]interface{}{
-					borweinconsts.ModelNameBorwein: []int{1, 2, 3},
+					borweinconsts.ModelNameBorweinLatencyRegression: []int{1, 2, 3},
 				},
 			},
 			args: args{
-				modelName: borweinconsts.ModelNameBorwein,
+				modelName: borweinconsts.ModelNameBorweinLatencyRegression,
 			},
 			want:    []int{1, 2, 3},
 			wantErr: false,
@@ -221,7 +222,7 @@ func TestMetaCacheImp_SetInferenceResult(t *testing.T) {
 				modelToResult: make(map[string]interface{}),
 			},
 			args: args{
-				modelName: borweinconsts.ModelNameBorwein,
+				modelName: borweinconsts.ModelNameBorweinLatencyRegression,
 				result:    []int{1, 2, 3},
 			},
 			want:    []int{1, 2, 3},

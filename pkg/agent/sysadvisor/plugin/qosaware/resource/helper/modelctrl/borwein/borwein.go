@@ -17,19 +17,9 @@ limitations under the License.
 package borwein
 
 import (
-	"fmt"
-	"math"
-
-	//nolint
-	"github.com/golang/protobuf/proto"
-
 	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
-	"github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
-	borweinconsts "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/consts"
-	borweininfsvc "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/inferencesvc"
 	borweintypes "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/types"
-	borweinutils "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/utils"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -69,128 +59,9 @@ func NewBorweinController(regionName string, regionType configapi.QoSRegionType,
 		emitter:                 emitter,
 	}
 
-	bc.indicatorOffsets[string(v1alpha1.ServiceSystemIndicatorNameCPUSchedWait)] = 0
-	bc.indicatorOffsetUpdaters[string(v1alpha1.ServiceSystemIndicatorNameCPUSchedWait)] = updateCPUSchedWaitIndicatorOffset
 	bc.borweinParameters = conf.BorweinConfiguration.BorweinParameters
 
 	return bc
-}
-
-func updateCPUSchedWaitIndicatorOffset(podSet types.PodSet, currentIndicatorOffset float64,
-	borweinParameter *borweintypes.BorweinParameter, metaReader metacache.MetaReader,
-) (float64, error) {
-	filteredObj, err := metaReader.GetFilteredInferenceResult(func(input interface{}) (interface{}, error) {
-		cachedResult, ok := input.(*borweintypes.BorweinInferenceResults)
-		if !ok || cachedResult == nil {
-			return nil, fmt.Errorf("invalid input")
-		}
-
-		filteredResults := borweintypes.NewBorweinInferenceResults()
-
-		for podUID := range cachedResult.Results {
-			if podSet[podUID].Len() == 0 {
-				continue
-			}
-
-			for _, containerName := range podSet[podUID].UnsortedList() {
-				results := cachedResult.Results[podUID][containerName]
-				if len(results) == 0 {
-					continue
-				}
-
-				inferenceResults := make([]*borweininfsvc.InferenceResult, len(results))
-				for idx, result := range results {
-					if result == nil {
-						continue
-					}
-
-					inferenceResults[idx] = proto.Clone(result).(*borweininfsvc.InferenceResult)
-				}
-
-				filteredResults.SetInferenceResults(podUID, containerName, inferenceResults...)
-			}
-
-			if len(filteredResults.Results[podUID]) == 0 {
-				return nil, fmt.Errorf("there is no result for pod: %s", podUID)
-			}
-		}
-
-		return filteredResults, nil
-	}, borweinutils.GetInferenceResultKey(borweinconsts.ModelNameBorwein))
-	if err != nil {
-		return 0, fmt.Errorf("GetFilteredInferenceResult failed with error: %v", err)
-	}
-
-	filteredResult, ok := filteredObj.(*borweintypes.BorweinInferenceResults)
-	if !ok {
-		return 0, fmt.Errorf("GetFilteredInferenceResult return invalid result")
-	}
-
-	var classificationNormalCnt, classificationAbnormalCnt,
-		regressionNormalCnt, regressionAbnormalCnt int
-
-	filteredResult.RangeInferenceResults(func(podUID, containerName string, result *borweininfsvc.InferenceResult) {
-		if result == nil {
-			return
-		}
-
-		switch result.InferenceType {
-		case borweininfsvc.InferenceType_ClassificationOverload:
-			if result.Output >= result.Percentile {
-				classificationAbnormalCnt += 1
-			} else {
-				classificationNormalCnt += 1
-			}
-			// todo: emit metrics
-
-		case borweininfsvc.InferenceType_LatencyRegression:
-			// regression prediction by default model isn't trusted
-			if !result.IsDefault {
-				if result.Output > result.Percentile {
-					regressionAbnormalCnt += 1
-				} else {
-					regressionNormalCnt += 1
-				}
-				// todo: emit metrics
-			}
-		}
-	})
-
-	classificationCnt := classificationNormalCnt + classificationAbnormalCnt
-	regressionCnt := regressionNormalCnt + regressionAbnormalCnt
-	classificationAbnormalRatio := 0.0
-	regressionAbnormalRatio := 0.0
-
-	// Reset offset because of no classification prob result
-	if classificationCnt <= 0 {
-		general.Infof("non positive classification cnt, reset offset")
-		// todo: emit metrics
-		return 0, nil
-	} else {
-		classificationAbnormalRatio = float64(classificationAbnormalCnt) / float64(classificationCnt)
-		// todo: emit metrics
-	}
-
-	if regressionCnt <= 0 {
-		general.Infof("non positive regression cnt, skip regression abnormal ratio")
-	} else {
-		regressionAbnormalRatio = float64(regressionAbnormalCnt) / float64(regressionCnt)
-		// todo: emit metrics
-	}
-
-	abnormalRatio := math.Max(classificationAbnormalRatio, regressionAbnormalRatio)
-	if abnormalRatio <= borweinParameter.AbnormalRatioThreshold {
-		currentIndicatorOffset += borweinParameter.RampUpStep
-	} else {
-		currentIndicatorOffset -= borweinParameter.RampDownStep
-	}
-	currentIndicatorOffset = general.Clamp(currentIndicatorOffset, borweinParameter.OffsetMin, borweinParameter.OffsetMax)
-	general.Infof("classificationNormalCnt: %v, classificationAbnormalCnt: %v,"+
-		" regressionNormalCnt: %v, regressionAbnormalCnt: %v, currentIndicatorOffset: %v",
-		classificationNormalCnt, classificationAbnormalCnt,
-		regressionNormalCnt, regressionAbnormalCnt, currentIndicatorOffset)
-
-	return currentIndicatorOffset, nil
 }
 
 func (bc *BorweinController) updateIndicatorOffsets(podSet types.PodSet) {
