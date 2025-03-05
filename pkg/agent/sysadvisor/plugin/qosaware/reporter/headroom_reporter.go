@@ -40,6 +40,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
@@ -50,6 +51,10 @@ func init() {
 
 const (
 	headroomReporterPluginName = "headroom-reporter-plugin"
+)
+
+const (
+	metricsNameReclaimedResourceRevised = "reclaimed_resource_revised"
 )
 
 type HeadroomResourceManager interface {
@@ -126,6 +131,7 @@ type headroomReporterPlugin struct {
 	dynamicConf *dynamic.DynamicAgentConfiguration
 	ctx         context.Context
 	cancel      context.CancelFunc
+	emitter     metrics.MetricEmitter
 	started     bool
 }
 
@@ -159,6 +165,7 @@ func newHeadroomReporterPlugin(emitter metrics.MetricEmitter, metaServer *metase
 		headroomManagers:      headroomManagers,
 		numaSocketZoneNodeMap: util.GenerateNumaSocketZone(metaServer.MachineInfo.Topology),
 		dynamicConf:           conf.DynamicAgentConfiguration,
+		emitter:               emitter,
 	}
 	pluginWrapper, err := skeleton.NewRegistrationPluginWrapper(reporter, []string{conf.PluginRegistrationDir},
 		func(key string, value int64) {
@@ -457,6 +464,14 @@ func (r *headroomReporterPlugin) reviseReclaimedResource(res *reclaimedResource)
 		res.allocatable = sumNUMAAllocatable
 	}
 
-	reviseFunc(res.allocatable)
+	revised := reviseFunc(res.allocatable)
+	if numaRevised || revised {
+		general.InfoS("revised result",
+			"allocatable", res.allocatable,
+			"capacity", res.capacity,
+			"numaAllocatable", res.numaAllocatable,
+			"numaCapacity", res.numaCapacity)
+		_ = r.emitter.StoreInt64(metricsNameReclaimedResourceRevised, 1, metrics.MetricTypeNameRaw)
+	}
 	return nil
 }

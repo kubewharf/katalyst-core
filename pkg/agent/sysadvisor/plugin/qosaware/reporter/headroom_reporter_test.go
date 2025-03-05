@@ -737,6 +737,7 @@ func TestReviseReclaimedResource(t *testing.T) {
 
 			r := &headroomReporterPlugin{
 				dynamicConf: dynamic.NewDynamicAgentConfiguration(),
+				emitter:     metrics.DummyMetrics{},
 			}
 
 			if tt.setupConf != nil {
