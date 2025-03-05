@@ -31,7 +31,9 @@ const (
 	ClearResidualState         = CPUPluginDynamicPolicyName + "_clear_residual_state"
 	CheckCPUSet                = CPUPluginDynamicPolicyName + "_check_cpuset"
 	SyncCPUIdle                = CPUPluginDynamicPolicyName + "_sync_cpu_idle"
-	CommunicateWithAdvisor     = CPUPluginDynamicPolicyName + "_communicate_with_advisor"
+	IRQTuning                  = CPUPluginDynamicPolicyName + "_irq_tuning"
+
+	CommunicateWithAdvisor = CPUPluginDynamicPolicyName + "_communicate_with_advisor"
 )
 
 const (

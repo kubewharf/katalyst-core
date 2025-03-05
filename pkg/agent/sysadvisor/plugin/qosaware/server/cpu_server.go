@@ -762,6 +762,15 @@ func (cs *cpuServer) assemblePoolEntries(advisorResp *types.InternalCPUCalculati
 		}
 		calculationEntriesMap[commonstate.PoolNameReclaim] = poolEntry
 	}
+
+	// Since the interrupt pool does not require advisor calculation, it is still necessary to fill the pool to
+	// ensure that the original data of the interrupt pool is not overwritten.
+	if poolInfo, ok := cs.metaCache.GetPoolInfo(commonstate.PoolNameInterrupt); ok && poolInfo != nil {
+		poolEntry := NewPoolCalculationEntries(commonstate.PoolNameInterrupt)
+		calculationEntriesMap[commonstate.PoolNameInterrupt] = poolEntry
+	} else {
+		general.Warningf("cpu server meta cache does not exist interrupt pool")
+	}
 }
 
 // assemblePoolEntries fills up calculationEntriesMap and blockSet based on types.ContainerInfo

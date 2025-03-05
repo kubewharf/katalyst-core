@@ -21,6 +21,7 @@ import (
 	cliflag "k8s.io/component-base/cli/flag"
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/dynamic/adminqos"
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/dynamic/irqtuning"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/dynamic/strategygroup"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/dynamic/tmo"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
@@ -30,6 +31,7 @@ type DynamicOptions struct {
 	*adminqos.AdminQoSOptions
 	*tmo.TransparentMemoryOffloadingOptions
 	*strategygroup.StrategyGroupOptions
+	*irqtuning.IRQTuningOptions
 }
 
 func NewDynamicOptions() *DynamicOptions {
@@ -37,6 +39,7 @@ func NewDynamicOptions() *DynamicOptions {
 		AdminQoSOptions:                    adminqos.NewAdminQoSOptions(),
 		TransparentMemoryOffloadingOptions: tmo.NewTransparentMemoryOffloadingOptions(),
 		StrategyGroupOptions:               strategygroup.NewStrategyGroupOptions(),
+		IRQTuningOptions:                   irqtuning.NewIRQTuningOptions(),
 	}
 }
 
@@ -44,6 +47,7 @@ func (o *DynamicOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	o.AdminQoSOptions.AddFlags(fss)
 	o.TransparentMemoryOffloadingOptions.AddFlags(fss)
 	o.StrategyGroupOptions.AddFlags(fss)
+	o.IRQTuningOptions.AddFlags(fss)
 }
 
 func (o *DynamicOptions) ApplyTo(c *dynamic.Configuration) error {
@@ -51,5 +55,6 @@ func (o *DynamicOptions) ApplyTo(c *dynamic.Configuration) error {
 	errList = append(errList, o.AdminQoSOptions.ApplyTo(c.AdminQoSConfiguration))
 	errList = append(errList, o.TransparentMemoryOffloadingOptions.ApplyTo(c.TransparentMemoryOffloadingConfiguration))
 	errList = append(errList, o.StrategyGroupOptions.ApplyTo(c.StrategyGroupConfiguration))
+	errList = append(errList, o.IRQTuningOptions.ApplyTo(c.IRQTuningConfiguration))
 	return errors.NewAggregate(errList)
 }
