@@ -27,6 +27,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/qos"
@@ -39,13 +40,29 @@ func GetAvailableNUMAsAndReclaimedCores(conf *config.Configuration, metaReader m
 	reclaimedCoresContainers := make([]*types.ContainerInfo, 0)
 
 	metaReader.RangeContainer(func(podUID string, containerName string, containerInfo *types.ContainerInfo) bool {
+		ctx := context.Background()
 		if reclaimedContainersFilter(containerInfo) {
-			reclaimedCoresContainers = append(reclaimedCoresContainers, containerInfo)
+			pod, err := metaServer.GetPod(ctx, podUID)
+			if err != nil {
+				errList = append(errList, err)
+				return true
+			}
+
+			if native.PodIsActive(pod) {
+				reclaimedCoresContainers = append(reclaimedCoresContainers, containerInfo)
+			} else {
+				general.InfoS("pod is in-active",
+					"podUID", podUID,
+					"name", containerInfo.PodName,
+					"namespace", containerInfo.PodNamespace,
+					"container", containerInfo.ContainerName,
+					"qos_level", containerInfo.QoSLevel)
+			}
 			return true
 		}
 
 		nodeReclaim := conf.GetDynamicConfiguration().EnableReclaim
-		reclaimEnable, err := PodEnableReclaim(context.Background(), metaServer, podUID, nodeReclaim)
+		reclaimEnable, err := PodEnableReclaim(ctx, metaServer, podUID, nodeReclaim)
 		if err != nil {
 			errList = append(errList, err)
 			return true
