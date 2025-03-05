@@ -41,6 +41,15 @@ type RawCGroupEvent struct {
 	OldData    string
 }
 
+type RawProcfsEvent struct {
+	BaseEventImpl
+	Cost     time.Duration
+	ProcPath string
+	ProcFile string
+	Data     string
+	OldData  string
+}
+
 type SyscallEvent struct {
 	BaseEventImpl
 	Cost        time.Duration
