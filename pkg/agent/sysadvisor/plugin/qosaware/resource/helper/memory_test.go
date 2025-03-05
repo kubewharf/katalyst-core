@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -146,16 +147,16 @@ func TestGetAvailableNUMAsAndReclaimedCores(t *testing.T) {
 		}, 30<<30)
 	tests := []struct {
 		name           string
-		setup          func() (*config.Configuration, metacache.MetaReader, *metaserver.MetaServer)
+		podList        []*v1.Pod
+		setup          func(podList []*v1.Pod) (*config.Configuration, metacache.MetaReader, *metaserver.MetaServer)
 		wantNUMAs      machine.CPUSet
 		wantContainers []*types.ContainerInfo
 		wantErr        bool
 	}{
 		{
 			name: "Empty TopologyAwareAssignments",
-			setup: func() (*config.Configuration, metacache.MetaReader, *metaserver.MetaServer) {
+			setup: func(podList []*v1.Pod) (*config.Configuration, metacache.MetaReader, *metaserver.MetaServer) {
 				conf := generateTestConfiguration(t, "/tmp/checkpoint", "/tmp/statefile")
-				var podList []*v1.Pod
 				metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
 				metaServer := generateTestMetaServer(t, podList, metricsFetcher)
 				metaReader, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metricsFetcher)
@@ -175,9 +176,8 @@ func TestGetAvailableNUMAsAndReclaimedCores(t *testing.T) {
 		},
 		{
 			name: "No Containers",
-			setup: func() (*config.Configuration, metacache.MetaReader, *metaserver.MetaServer) {
+			setup: func(podList []*v1.Pod) (*config.Configuration, metacache.MetaReader, *metaserver.MetaServer) {
 				conf := generateTestConfiguration(t, "/tmp/checkpoint", "/tmp/statefile")
-				var podList []*v1.Pod
 				metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
 				metaServer := generateTestMetaServer(t, podList, metricsFetcher)
 				metaReader, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metricsFetcher)
@@ -192,9 +192,33 @@ func TestGetAvailableNUMAsAndReclaimedCores(t *testing.T) {
 		},
 		{
 			name: "One Reclaimed Containers",
-			setup: func() (*config.Configuration, metacache.MetaReader, *metaserver.MetaServer) {
+			podList: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod1",
+						Namespace: "default",
+						UID:       "pod1",
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name: "container1",
+							},
+						},
+					},
+					Status: v1.PodStatus{
+						Phase: v1.PodRunning,
+						ContainerStatuses: []v1.ContainerStatus{
+							{
+								Name:        "container1",
+								ContainerID: "container1",
+							},
+						},
+					},
+				},
+			},
+			setup: func(podList []*v1.Pod) (*config.Configuration, metacache.MetaReader, *metaserver.MetaServer) {
 				conf := generateTestConfiguration(t, "/tmp/checkpoint", "/tmp/statefile")
-				var podList []*v1.Pod
 				metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
 				metaServer := generateTestMetaServer(t, podList, metricsFetcher)
 				metaReader, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metricsFetcher)
@@ -217,9 +241,33 @@ func TestGetAvailableNUMAsAndReclaimedCores(t *testing.T) {
 		},
 		{
 			name: "One Reclaimed Containers And Dedicated Containers",
-			setup: func() (*config.Configuration, metacache.MetaReader, *metaserver.MetaServer) {
+			podList: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod1",
+						Namespace: "default",
+						UID:       "pod1",
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name: "container1",
+							},
+						},
+					},
+					Status: v1.PodStatus{
+						Phase: v1.PodRunning,
+						ContainerStatuses: []v1.ContainerStatus{
+							{
+								Name:        "container1",
+								ContainerID: "container1",
+							},
+						},
+					},
+				},
+			},
+			setup: func(podList []*v1.Pod) (*config.Configuration, metacache.MetaReader, *metaserver.MetaServer) {
 				conf := generateTestConfiguration(t, "/tmp/checkpoint", "/tmp/statefile")
-				var podList []*v1.Pod
 				metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
 				metaServer := generateTestMetaServer(t, podList, metricsFetcher)
 				metaReader, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metricsFetcher)
@@ -242,10 +290,59 @@ func TestGetAvailableNUMAsAndReclaimedCores(t *testing.T) {
 			wantErr:        false,
 		},
 		{
-			name: "One Dedicated Containers",
-			setup: func() (*config.Configuration, metacache.MetaReader, *metaserver.MetaServer) {
+			name: "One Reclaimed Container And Dedicated Containers, but Reclaim Container Is Not Ready",
+			podList: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod1",
+						Namespace: "default",
+						UID:       "pod1",
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name: "container1",
+							},
+						},
+					},
+					Status: v1.PodStatus{
+						Phase: v1.PodFailed,
+						ContainerStatuses: []v1.ContainerStatus{
+							{
+								Name:        "container1",
+								ContainerID: "container1",
+							},
+						},
+					},
+				},
+			},
+			setup: func(podList []*v1.Pod) (*config.Configuration, metacache.MetaReader, *metaserver.MetaServer) {
 				conf := generateTestConfiguration(t, "/tmp/checkpoint", "/tmp/statefile")
-				var podList []*v1.Pod
+				metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
+				metaServer := generateTestMetaServer(t, podList, metricsFetcher)
+				metaReader, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metricsFetcher)
+				require.NoError(t, err)
+				err = metaReader.ClearContainers()
+				require.NoError(t, err)
+				infos := []*types.ContainerInfo{
+					containerInfoReclaimedCores,
+					containerInfoDedicatedCores,
+				}
+
+				for _, info := range infos {
+					err := metaReader.SetContainerInfo(info.PodUID, info.ContainerName, info)
+					assert.NoError(t, err)
+				}
+				return conf, metaReader, metaServer
+			},
+			wantNUMAs:      machine.NewCPUSet(1),
+			wantContainers: []*types.ContainerInfo{},
+			wantErr:        false,
+		},
+		{
+			name: "One Dedicated Containers",
+			setup: func(podList []*v1.Pod) (*config.Configuration, metacache.MetaReader, *metaserver.MetaServer) {
+				conf := generateTestConfiguration(t, "/tmp/checkpoint", "/tmp/statefile")
 				metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
 				metaServer := generateTestMetaServer(t, podList, metricsFetcher)
 				metaReader, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metricsFetcher)
@@ -268,9 +365,8 @@ func TestGetAvailableNUMAsAndReclaimedCores(t *testing.T) {
 		},
 		{
 			name: "Two Dedicated Containers",
-			setup: func() (*config.Configuration, metacache.MetaReader, *metaserver.MetaServer) {
+			setup: func(podList []*v1.Pod) (*config.Configuration, metacache.MetaReader, *metaserver.MetaServer) {
 				conf := generateTestConfiguration(t, "/tmp/checkpoint", "/tmp/statefile")
-				var podList []*v1.Pod
 				metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
 				metaServer := generateTestMetaServer(t, podList, metricsFetcher)
 				metaReader, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metricsFetcher)
@@ -299,7 +395,7 @@ func TestGetAvailableNUMAsAndReclaimedCores(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			conf, metaReader, metaServer := tt.setup()
+			conf, metaReader, metaServer := tt.setup(tt.podList)
 
 			gotNUMAs, gotContainers, err := GetAvailableNUMAsAndReclaimedCores(conf, metaReader, metaServer)
 			if (err != nil) != tt.wantErr {
