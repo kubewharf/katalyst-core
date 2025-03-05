@@ -34,6 +34,12 @@ func (b *BaseAuditSink) Run(ctx context.Context, bus eventbus.EventBus) {
 	if err != nil {
 		general.Errorf("subscribe %v failed", consts.TopicNameApplyCGroup)
 	}
+
+	err = bus.Subscribe(consts.TopicNameApplyProcFS, b.GetName(), b.GetBufferSize(), b.GetHandler())
+	if err != nil {
+		general.Errorf("subscribe %v failed", consts.TopicNameApplyProcFS)
+	}
+
 	err = bus.Subscribe(consts.TopicNameSyscall, b.GetName(), b.GetBufferSize(), b.GetHandler())
 	if err != nil {
 		general.Errorf("subscribe %v failed", consts.TopicNameSyscall)
