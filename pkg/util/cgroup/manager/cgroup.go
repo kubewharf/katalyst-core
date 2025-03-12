@@ -248,9 +248,28 @@ func GetMetricsWithRelativePath(relCgroupPath string, subsystems map[string]stru
 	return GetManager().GetMetrics(relCgroupPath, subsystems)
 }
 
-func GetPidsWithRelativePath(relCgroupPath string) ([]string, error) {
-	absCgroupPath := common.GetAbsCgroupPath(common.DefaultSelectedSubsys, relCgroupPath)
+func GetPidsWithRelativePath(relCgroupPath string, subsystems ...string) ([]string, error) {
+	if len(subsystems) == 0 {
+		subsystems = []string{common.DefaultSelectedSubsys}
+	}
+
+	absCgroupPath, err := getExistingCgroupPath(relCgroupPath, subsystems)
+	if err != nil {
+		return nil, err
+	}
+
 	return GetManager().GetPids(absCgroupPath)
+}
+
+func getExistingCgroupPath(relCgroupPath string, subsystems []string) (string, error) {
+	for _, subsys := range subsystems {
+		absCgroupPath := common.GetAbsCgroupPath(subsys, relCgroupPath)
+		if general.IsPathExists(absCgroupPath) {
+			return absCgroupPath, nil
+		}
+	}
+
+	return "", fmt.Errorf("cgroup path does not exist for any provided subsystem")
 }
 
 func GetPidsWithAbsolutePath(absCgroupPath string) ([]string, error) {
