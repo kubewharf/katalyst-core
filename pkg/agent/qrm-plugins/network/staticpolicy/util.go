@@ -111,27 +111,6 @@ func filterAvailableNICsByReq(nics []machine.InterfaceInfo, req *pluginapi.Resou
 	return filteredNICs, nil
 }
 
-func filterNICsByAvailability(nics []machine.InterfaceInfo, _ *pluginapi.ResourceRequest, _ *agent.GenericContext) []machine.InterfaceInfo {
-	filteredNICs := make([]machine.InterfaceInfo, 0, len(nics))
-	for _, nic := range nics {
-		if !nic.Enable {
-			general.Warningf("nic: %s isn't enabled", nic.Iface)
-			continue
-		} else if nic.Addr == nil || (len(nic.Addr.IPV4) == 0 && len(nic.Addr.IPV6) == 0) {
-			general.Warningf("nic: %s doesn't have IP address", nic.Iface)
-			continue
-		}
-
-		filteredNICs = append(filteredNICs, nic)
-	}
-
-	if len(filteredNICs) == 0 {
-		general.InfoS("nic list returned by filterNICsByAvailability is empty")
-	}
-
-	return filteredNICs
-}
-
 func filterNICsByNamespaceType(nics []machine.InterfaceInfo, req *pluginapi.ResourceRequest, _ *agent.GenericContext) []machine.InterfaceInfo {
 	filteredNICs := make([]machine.InterfaceInfo, 0, len(nics))
 

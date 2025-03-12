@@ -19,7 +19,6 @@ package staticpolicy
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -39,6 +38,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/staticpolicy/nic"
 	networkreactor "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/staticpolicy/reactor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/reactor"
@@ -87,7 +87,6 @@ type StaticPolicy struct {
 	emitter        metrics.MetricEmitter
 	metaServer     *metaserver.MetaServer
 	agentCtx       *agent.GenericContext
-	nics           []machine.InterfaceInfo
 	state          state.State
 	residualHitMap map[string]int64
 
@@ -111,6 +110,8 @@ type StaticPolicy struct {
 
 	nicAllocationReactor reactor.AllocationReactor
 
+	nicManager nic.NICManager
+
 	// aliveCgroupID is used to record the alive cgroupIDs and their last alive time
 	aliveCgroupID map[uint64]time.Time
 }
@@ -124,18 +125,11 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 		Val: NetworkResourcePluginPolicyNameStatic,
 	})
 
-	// it is incorrect to reserve bandwidth on those diabled NICs.
-	// we only count active NICs as available network devices and allocate bandwidth on them
-	enabledNICs := filterNICsByAvailability(agentCtx.KatalystMachineInfo.ExtraNetworkInfo.Interface, nil, nil)
-	if len(enabledNICs) != 0 {
-		// the NICs should be in order by interface name so that we can adopt specific policies for bandwidth reservation or allocation
-		// e.g. reserve bandwidth for high-priority tasks on the first NIC
-		sort.SliceStable(enabledNICs, func(i, j int) bool {
-			return enabledNICs[i].Iface < enabledNICs[j].Iface
-		})
-	} else {
-		general.Infof("no valid nics on this node")
+	nicManager, err := nic.NewNICManager(agentCtx.MetaServer, wrappedEmitter, conf)
+	if err != nil {
+		return false, nil, err
 	}
+	enabledNICs := getAllNICs(nicManager)
 
 	// we only support one spreading policy for now: reserve the bandwidth on the first NIC.
 	// TODO: make the reservation policy configurable
@@ -151,7 +145,7 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	}
 
 	policyImplement := &StaticPolicy{
-		nics:                  enabledNICs,
+		nicManager:            nicManager,
 		qosConfig:             conf.QoSConfiguration,
 		qrmConfig:             conf.QRMPluginsConfiguration,
 		emitter:               wrappedEmitter,
@@ -269,6 +263,13 @@ func (p *StaticPolicy) Start() (err error) {
 		periodicalhandler.ReadyToStartHandlersByGroup(appqrm.QRMNetworkPluginPeriodicalHandlerGroupName)
 	}, 5*time.Second, p.stopCh)
 
+	go func(stopCh <-chan struct{}) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		p.nicManager.Run(ctx)
+		<-stopCh
+	}(p.stopCh)
+
 	go wait.Until(p.applyNetClass, 5*time.Second, p.stopCh)
 
 	return nil
@@ -345,7 +346,7 @@ func (p *StaticPolicy) clearResidualState(_ *config.Configuration,
 			delete(podEntries, podUID)
 		}
 
-		machineState, err := state.GenerateMachineStateFromPodEntries(p.qrmConfig, p.nics, podEntries, p.state.GetReservedBandwidth())
+		machineState, err := state.GenerateMachineStateFromPodEntries(p.qrmConfig, getAllNICs(p.nicManager), podEntries, p.state.GetReservedBandwidth())
 		if err != nil {
 			general.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 			return
@@ -500,16 +501,16 @@ func (p *StaticPolicy) GetTopologyAwareResources(_ context.Context,
 		return &pluginapi.GetTopologyAwareResourcesResponse{}, nil
 	}
 
-	socket, err := p.getSocketIDByNIC(allocationInfo.IfName)
+	interfaceInfo := p.getNICByName(getAllNICs(p.nicManager), allocationInfo.IfName)
+	socket, err := p.getSocketIDByNIC(interfaceInfo)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find topologyNode for pod %s, container %s : %v", req.PodUid, req.ContainerName, err)
 	}
 
-	nic := p.getNICByName(allocationInfo.IfName)
 	identifier := allocationInfo.Identifier
 	if identifier == "" {
-		// backup to use ifName and nic.NSName as identifier
-		identifier = getResourceIdentifier(nic.NSName, nic.Iface)
+		// backup to use ifName and interfaceInfo.NSName as identifier
+		identifier = getResourceIdentifier(interfaceInfo.NSName, interfaceInfo.Iface)
 	}
 
 	topologyAwareQuantityList := []*pluginapi.TopologyAwareQuantity{
@@ -521,7 +522,7 @@ func (p *StaticPolicy) GetTopologyAwareResources(_ context.Context,
 			TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 			Annotations: map[string]string{
 				apiconsts.ResourceAnnotationKeyResourceIdentifier: identifier,
-				apiconsts.ResourceAnnotationKeyNICNetNSName:       nic.NSName,
+				apiconsts.ResourceAnnotationKeyNICNetNSName:       interfaceInfo.NSName,
 			},
 		},
 	}
@@ -574,42 +575,61 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 	topologyAwareCapacityQuantityList := make([]*pluginapi.TopologyAwareQuantity, 0, len(machineState))
 
 	var aggregatedAllocatableQuantity, aggregatedCapacityQuantity uint32 = 0, 0
-	for _, iface := range p.nics {
-		nicState := machineState[iface.Iface]
-		if nicState == nil {
-			return nil, fmt.Errorf("nil nicState for NIC: %s", iface.Iface)
-		}
+	topologyAwareAllocatableQuantityFunc := func(nics []machine.InterfaceInfo, health bool) error {
+		for _, iface := range nics {
+			nicState := machineState[iface.Iface]
+			if nicState == nil {
+				return fmt.Errorf("nil nicState for NIC: %s", iface.Iface)
+			}
 
-		topologyNode, err := p.getSocketIDByNIC(iface.Iface)
-		if err != nil {
-			return nil, fmt.Errorf("failed to find topologyNode: %v", err)
-		}
+			topologyNode, err := p.getSocketIDByNIC(iface)
+			if err != nil {
+				return fmt.Errorf("failed to find topologyNode: %v", err)
+			}
 
-		resourceIdentifier := getResourceIdentifier(iface.NSName, iface.Iface)
-		topologyAwareAllocatableQuantityList = append(topologyAwareAllocatableQuantityList, &pluginapi.TopologyAwareQuantity{
-			ResourceValue: float64(general.MinUInt32(nicState.EgressState.Allocatable, nicState.IngressState.Allocatable)),
-			Node:          uint64(topologyNode),
-			Name:          iface.Iface,
-			Type:          string(apinode.TopologyTypeNIC),
-			TopologyLevel: pluginapi.TopologyLevel_SOCKET,
-			Annotations: map[string]string{
-				apiconsts.ResourceAnnotationKeyResourceIdentifier: resourceIdentifier,
-				apiconsts.ResourceAnnotationKeyNICNetNSName:       iface.NSName,
-			},
-		})
-		topologyAwareCapacityQuantityList = append(topologyAwareCapacityQuantityList, &pluginapi.TopologyAwareQuantity{
-			ResourceValue: float64(general.MinUInt32(nicState.EgressState.Capacity, nicState.IngressState.Capacity)),
-			Node:          uint64(topologyNode),
-			Name:          iface.Iface,
-			Type:          string(apinode.TopologyTypeNIC),
-			TopologyLevel: pluginapi.TopologyLevel_SOCKET,
-			Annotations: map[string]string{
-				apiconsts.ResourceAnnotationKeyResourceIdentifier: resourceIdentifier,
-				apiconsts.ResourceAnnotationKeyNICNetNSName:       iface.NSName,
-			},
-		})
-		aggregatedAllocatableQuantity += general.MinUInt32(nicState.EgressState.Allocatable, nicState.IngressState.Allocatable)
-		aggregatedCapacityQuantity += general.MinUInt32(nicState.EgressState.Capacity, nicState.IngressState.Capacity)
+			var allocatable uint32
+			resourceIdentifier := getResourceIdentifier(iface.NSName, iface.Iface)
+			if health {
+				allocatable = general.MinUInt32(nicState.EgressState.Allocatable, nicState.IngressState.Allocatable)
+			}
+			capacity := general.MinUInt32(nicState.EgressState.Capacity, nicState.IngressState.Capacity)
+			topologyAwareAllocatableQuantityList = append(topologyAwareAllocatableQuantityList, &pluginapi.TopologyAwareQuantity{
+				ResourceValue: float64(allocatable),
+				Node:          uint64(topologyNode),
+				Name:          iface.Iface,
+				Type:          string(apinode.TopologyTypeNIC),
+				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
+				Annotations: map[string]string{
+					apiconsts.ResourceAnnotationKeyResourceIdentifier: resourceIdentifier,
+					apiconsts.ResourceAnnotationKeyNICNetNSName:       iface.NSName,
+				},
+			})
+			topologyAwareCapacityQuantityList = append(topologyAwareCapacityQuantityList, &pluginapi.TopologyAwareQuantity{
+				ResourceValue: float64(capacity),
+				Node:          uint64(topologyNode),
+				Name:          iface.Iface,
+				Type:          string(apinode.TopologyTypeNIC),
+				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
+				Annotations: map[string]string{
+					apiconsts.ResourceAnnotationKeyResourceIdentifier: resourceIdentifier,
+					apiconsts.ResourceAnnotationKeyNICNetNSName:       iface.NSName,
+				},
+			})
+			aggregatedAllocatableQuantity += allocatable
+			aggregatedCapacityQuantity += capacity
+		}
+		return nil
+	}
+
+	nics := p.nicManager.GetNICs()
+	err := topologyAwareAllocatableQuantityFunc(nics.HealthyNICs, true)
+	if err != nil {
+		return nil, fmt.Errorf("get healthyNICs failed: %v", err)
+	}
+
+	err = topologyAwareAllocatableQuantityFunc(nics.UnhealthyNICs, false)
+	if err != nil {
+		return nil, fmt.Errorf("get unHealthyNICs failed: %v", err)
 	}
 
 	return &pluginapi.GetTopologyAwareAllocatableResourcesResponse{
@@ -718,6 +738,7 @@ func (p *StaticPolicy) Allocate(ctx context.Context,
 	// check allocationInfo is nil or not
 	podEntries := p.state.GetPodEntries()
 	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
+	nics := getAllNICs(p.nicManager)
 
 	// if allocationInfo is not nil, assume that this container has already been allocated,
 	// and check whether the current allocation meets the requirement, if not, clear the record and re-allocate,
@@ -731,7 +752,7 @@ func (p *StaticPolicy) Allocate(ctx context.Context,
 				"bandwidthReq(Mbps)", reqInt,
 				"currentResult(Mbps)", allocationInfo.Egress)
 
-			resourceAllocationAnnotations, err := p.getResourceAllocationAnnotations(podAnnotations, allocationInfo, netClassID)
+			resourceAllocationAnnotations, err := p.getResourceAllocationAnnotations(nics, podAnnotations, allocationInfo, netClassID)
 			if err != nil {
 				err = fmt.Errorf("getResourceAllocationAnnotations for pod: %s/%s, container: %s failed with error: %v",
 					req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -755,7 +776,7 @@ func (p *StaticPolicy) Allocate(ctx context.Context,
 				"currentResult(Mbps)", allocationInfo.Egress)
 			delete(podEntries, req.PodUid)
 
-			_, stateErr := state.GenerateMachineStateFromPodEntries(p.qrmConfig, p.nics, podEntries, p.state.GetReservedBandwidth())
+			_, stateErr := state.GenerateMachineStateFromPodEntries(p.qrmConfig, nics, podEntries, p.state.GetReservedBandwidth())
 			if stateErr != nil {
 				general.ErrorS(stateErr, "generateNetworkMachineStateByPodEntries failed",
 					"podNamespace", req.PodNamespace,
@@ -768,7 +789,7 @@ func (p *StaticPolicy) Allocate(ctx context.Context,
 		}
 	}
 
-	candidateNICs, err := p.selectNICsByReq(req)
+	candidateNICs, err := p.selectNICsByReq(nics, req)
 	if err != nil {
 		err = fmt.Errorf("selectNICsByReq for pod: %s/%s, container: %s, reqInt: %d, failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, reqInt, err)
@@ -817,7 +838,7 @@ func (p *StaticPolicy) Allocate(ctx context.Context,
 		return nil, err
 	}
 
-	resourceAllocationAnnotations, err := p.getResourceAllocationAnnotations(podAnnotations, newAllocation, netClassID)
+	resourceAllocationAnnotations, err := p.getResourceAllocationAnnotations(nics, podAnnotations, newAllocation, netClassID)
 	if err != nil {
 		err = fmt.Errorf("getResourceAllocationAnnotations for pod: %s/%s, container: %s failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -828,7 +849,7 @@ func (p *StaticPolicy) Allocate(ctx context.Context,
 	// update PodEntries
 	p.state.SetAllocationInfo(req.PodUid, req.ContainerName, newAllocation, false)
 
-	machineState, stateErr := state.GenerateMachineStateFromPodEntries(p.qrmConfig, p.nics, p.state.GetPodEntries(), p.state.GetReservedBandwidth())
+	machineState, stateErr := state.GenerateMachineStateFromPodEntries(p.qrmConfig, nics, p.state.GetPodEntries(), p.state.GetReservedBandwidth())
 	if stateErr != nil {
 		general.ErrorS(stateErr, "generateNetworkMachineStateByPodEntries failed",
 			"podNamespace", req.PodNamespace,
@@ -1005,12 +1026,13 @@ func (p *StaticPolicy) calculateHints(req *pluginapi.ResourceRequest) (map[strin
 		},
 	}
 
-	// return empty hints immediately if no valid nics on this node
-	if len(p.nics) == 0 {
+	nics := p.nicManager.GetNICs()
+	// return empty hints immediately if no healthy nics on this node
+	if len(nics.HealthyNICs) == 0 {
 		return hints, nil
 	}
 
-	candidateNICs, err := p.selectNICsByReq(req)
+	candidateNICs, err := p.selectNICsByReq(nics.HealthyNICs, req)
 	if err != nil {
 		return hints, fmt.Errorf("failed to select available NICs: %v", err)
 	}
@@ -1087,18 +1109,18 @@ If the specified NIC has insufficient bandwidth, it cannot be included in the ca
 may use req.Hints to prioritize the selection of a NIC connected to that socket. However, this requirement is only satisfied as much as possible.
 If the NIC connected to the socket has sufficient bandwidth, only this NIC is returned. Otherwise, other cards with sufficient bandwidth will be returned.
 */
-func (p *StaticPolicy) selectNICsByReq(req *pluginapi.ResourceRequest) ([]machine.InterfaceInfo, error) {
+func (p *StaticPolicy) selectNICsByReq(nics []machine.InterfaceInfo, req *pluginapi.ResourceRequest) ([]machine.InterfaceInfo, error) {
 	nicFilters := []NICFilter{
 		p.filterAvailableNICsByBandwidth,
 		filterNICsByNamespaceType,
 		filterNICsByHint,
 	}
 
-	if len(p.nics) == 0 {
+	if len(nics) == 0 {
 		return []machine.InterfaceInfo{}, nil
 	}
 
-	candidateNICs, err := filterAvailableNICsByReq(p.nics, req, p.agentCtx, nicFilters)
+	candidateNICs, err := filterAvailableNICsByReq(nics, req, p.agentCtx, nicFilters)
 	if err != nil {
 		return nil, fmt.Errorf("filterAvailableNICsByReq failed with error: %v", err)
 	}
@@ -1114,10 +1136,12 @@ func (p *StaticPolicy) selectNICsByReq(req *pluginapi.ResourceRequest) ([]machin
 	return candidateNICs, nil
 }
 
-func (p *StaticPolicy) getResourceAllocationAnnotations(podAnnotations map[string]string,
+func (p *StaticPolicy) getResourceAllocationAnnotations(
+	nics []machine.InterfaceInfo,
+	podAnnotations map[string]string,
 	allocation *state.AllocationInfo, netClsID uint32,
 ) (map[string]string, error) {
-	selectedNIC := p.getNICByName(allocation.IfName)
+	selectedNIC := p.getNICByName(nics, allocation.IfName)
 
 	resourceAllocationAnnotations := map[string]string{
 		p.ipv4ResourceAllocationAnnotationKey:             strings.Join(selectedNIC.GetNICIPs(machine.IPVersionV4), IPsSeparator),
@@ -1163,7 +1187,7 @@ func (p *StaticPolicy) removePod(podUID string) error {
 	podEntries := p.state.GetPodEntries()
 	delete(podEntries, podUID)
 
-	machineState, err := state.GenerateMachineStateFromPodEntries(p.qrmConfig, p.nics, podEntries, p.state.GetReservedBandwidth())
+	machineState, err := state.GenerateMachineStateFromPodEntries(p.qrmConfig, getAllNICs(p.nicManager), podEntries, p.state.GetReservedBandwidth())
 	if err != nil {
 		general.Errorf("pod: %s, GenerateMachineStateFromPodEntries failed with error: %v", podUID, err)
 		return fmt.Errorf("calculate machineState by updated pod entries failed with error: %v", err)
@@ -1207,10 +1231,10 @@ func (p *StaticPolicy) getNetClassIDByQoSLevel(qosLevel string) (uint32, error) 
 	}
 }
 
-func (p *StaticPolicy) getNICByName(ifName string) machine.InterfaceInfo {
-	for idx := range p.nics {
-		if p.nics[idx].Iface == ifName {
-			return p.nics[idx]
+func (p *StaticPolicy) getNICByName(nics []machine.InterfaceInfo, ifName string) machine.InterfaceInfo {
+	for idx := range nics {
+		if nics[idx].Iface == ifName {
+			return nics[idx]
 		}
 	}
 
@@ -1218,19 +1242,14 @@ func (p *StaticPolicy) getNICByName(ifName string) machine.InterfaceInfo {
 }
 
 // return the Socket id/index that the specified NIC attached to
-func (p *StaticPolicy) getSocketIDByNIC(ifName string) (int, error) {
-	for _, iface := range p.nics {
-		if iface.Iface == ifName {
-			socketIDs := p.agentCtx.KatalystMachineInfo.CPUDetails.SocketsInNUMANodes(iface.NumaNode)
-			if socketIDs.Size() == 0 {
-				return -1, fmt.Errorf("failed to find the associated socket ID for the specified NIC %s - numanode: %d, cpuDetails: %v", ifName, iface.NumaNode, p.agentCtx.KatalystMachineInfo.CPUDetails)
-			}
-
-			return socketIDs.ToSliceInt()[0], nil
-		}
+func (p *StaticPolicy) getSocketIDByNIC(nic machine.InterfaceInfo) (int, error) {
+	socketIDs := p.agentCtx.KatalystMachineInfo.CPUDetails.SocketsInNUMANodes(nic.NumaNode)
+	if socketIDs.Size() == 0 {
+		return -1, fmt.Errorf("failed to find the associated socket ID for the specified NIC %s - numanode: %d, cpuDetails: %v",
+			nic.Iface, nic.NumaNode, p.agentCtx.KatalystMachineInfo.CPUDetails)
 	}
 
-	return -1, fmt.Errorf("invalid NIC name - failed to find a matched NIC")
+	return socketIDs.ToSliceInt()[0], nil
 }
 
 // clearResidualNetClass clear residual net class in cgroupv2 environment
@@ -1274,6 +1293,7 @@ func (p *StaticPolicy) clearResidualNetClass(activeNetClsData map[uint64]*common
 func (p *StaticPolicy) generateLowPriorityGroup() error {
 	lowPriorityGroups := make(map[string]*qrmgeneral.NetworkGroup)
 	machineState := p.state.GetMachineState()
+	nics := getAllNICs(p.nicManager)
 
 	for nicName, nicState := range machineState {
 		groupName := getGroupName(nicName, LowPriorityGroupNameSuffix)
@@ -1317,7 +1337,7 @@ func (p *StaticPolicy) generateLowPriorityGroup() error {
 		} else {
 			lowPriorityGroups[groupName].Egress = general.MaxUInt32(uint32(float64(nicState.EgressState.Allocatable)*0.05), lowPriorityGroups[groupName].Egress)
 		}
-		selectedNIC := p.getNICByName(nicName)
+		selectedNIC := p.getNICByName(nics, nicName)
 		lowPriorityGroups[groupName].MergedIPv4 = strings.Join(selectedNIC.GetNICIPs(machine.IPVersionV4), IPsSeparator)
 		lowPriorityGroups[groupName].MergedIPv6 = strings.Join(selectedNIC.GetNICIPs(machine.IPVersionV6), IPsSeparator)
 	}
@@ -1342,4 +1362,9 @@ func (p *StaticPolicy) generateAndApplyGroups() error {
 	}
 
 	return nil
+}
+
+func getAllNICs(nicManager nic.NICManager) []machine.InterfaceInfo {
+	nics := nicManager.GetNICs()
+	return append(nics.HealthyNICs, nics.UnhealthyNICs...)
 }
