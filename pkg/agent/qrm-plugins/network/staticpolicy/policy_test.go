@@ -41,6 +41,7 @@ import (
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/reactor"
@@ -181,6 +182,7 @@ func makeStaticPolicy(t *testing.T, hasNic bool) *StaticPolicy {
 		applyNetworkGroupsFunc:                   agentCtx.MetaServer.ExternalManager.ApplyNetworkGroups,
 		nics:                                     availableNICs,
 		state:                                    stateImpl,
+		residualHitMap:                           make(map[string]int64),
 		podLevelNetClassAnnoKey:                  consts.PodAnnotationNetClassKey,
 		podLevelNetAttributesAnnoKeys:            []string{},
 		ipv4ResourceAllocationAnnotationKey:      testIPv4ResourceAllocationAnnotationKey,
@@ -999,14 +1001,65 @@ func TestResourceName(t *testing.T) {
 func TestClearResidualState(t *testing.T) {
 	t.Parallel()
 
-	policy := makeStaticPolicy(t, true)
+	t.Run("with_residual_pods", func(t *testing.T) {
+		t.Parallel()
+		policy := makeStaticPolicy(t, true)
+		policy.metaServer = &metaserver.MetaServer{
+			MetaAgent: &metaserveragent.MetaAgent{
+				PodFetcher: &pod.PodFetcherStub{
+					PodList: []*v1.Pod{},
+				},
+			},
+		}
 
-	policy.metaServer = &metaserver.MetaServer{
-		MetaAgent: &metaserveragent.MetaAgent{
-			PodFetcher: &pod.PodFetcherStub{},
-		},
-	}
-	policy.clearResidualState(nil, nil, nil, nil, nil)
+		policy.residualHitMap["residual-pod-1"] = 10
+		policy.residualHitMap["residual-pod-2"] = 15
+		policy.state.SetPodEntries(state.PodEntries{
+			"residual-pod-1": state.ContainerEntries{
+				"container-1": &state.AllocationInfo{
+					AllocationMeta: commonstate.AllocationMeta{
+						PodNamespace:  "residual-namespace",
+						PodName:       "residual-pod-1",
+						PodUid:        "residual-pod-1",
+						ContainerName: "container-1",
+					},
+				},
+			},
+			"residual-pod-2": state.ContainerEntries{
+				"container-2": &state.AllocationInfo{
+					AllocationMeta: commonstate.AllocationMeta{
+						PodNamespace:  "residual-namespace",
+						PodName:       "residual-pod-2",
+						PodUid:        "residual-pod-2",
+						ContainerName: "container-2",
+					},
+				},
+			},
+		}, true)
+
+		policy.clearResidualState(nil, nil, nil, nil, nil)
+		policy.clearResidualState(nil, nil, nil, nil, nil)
+
+		as := assert.New(t)
+		as.Empty(policy.state.GetPodEntries(), "should clean residual pods")
+		as.Empty(policy.residualHitMap, "should clean hit map")
+	})
+
+	t.Run("no_residual_pods", func(t *testing.T) {
+		t.Parallel()
+		policy := makeStaticPolicy(t, true)
+		policy.metaServer = &metaserver.MetaServer{
+			MetaAgent: &metaserveragent.MetaAgent{
+				PodFetcher: &pod.PodFetcherStub{},
+			},
+		}
+
+		originalEntries := policy.state.GetPodEntries().Clone()
+		policy.clearResidualState(nil, nil, nil, nil, nil)
+
+		as := assert.New(t)
+		as.Equal(originalEntries, policy.state.GetPodEntries(), "should maintain original state")
+	})
 }
 
 func TestGetTopologyHints(t *testing.T) {
