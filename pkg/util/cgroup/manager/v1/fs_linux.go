@@ -410,7 +410,7 @@ func (m *manager) GetMetrics(relCgroupPath string, subsystemMap map[string]struc
 
 // GetPids return pids in current cgroup
 func (m *manager) GetPids(absCgroupPath string) ([]string, error) {
-	pids, err := libcgroups.GetPids(absCgroupPath)
+	pids, err := libcgroups.GetAllPids(absCgroupPath)
 	if err != nil {
 		return nil, err
 	}
