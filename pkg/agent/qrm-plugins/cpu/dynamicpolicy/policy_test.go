@@ -1168,7 +1168,7 @@ func TestAllocate(t *testing.T) {
 			}
 
 			if tc.allowSharedCoresOverlapReclaimedCores {
-				dynamicPolicy.state.SetAllowSharedCoresOverlapReclaimedCores(true)
+				dynamicPolicy.state.SetAllowSharedCoresOverlapReclaimedCores(true, true)
 			}
 
 			resp, err := dynamicPolicy.Allocate(context.Background(), tc.req)
@@ -1182,7 +1182,7 @@ func TestAllocate(t *testing.T) {
 			as.Equalf(tc.expectedResp, resp, "failed in test case: %s", tc.name)
 
 			if tc.allowSharedCoresOverlapReclaimedCores {
-				err := dynamicPolicy.adjustAllocationEntries()
+				err := dynamicPolicy.adjustAllocationEntries(true)
 				as.NotNil(err)
 			}
 
@@ -3532,12 +3532,12 @@ func TestGetTopologyHints(t *testing.T) {
 				machineState, err := generateMachineStateFromPodEntries(tc.cpuTopology, tc.podEntries)
 				as.Nil(err)
 
-				dynamicPolicy.state.SetPodEntries(tc.podEntries)
-				dynamicPolicy.state.SetMachineState(machineState)
+				dynamicPolicy.state.SetPodEntries(tc.podEntries, true)
+				dynamicPolicy.state.SetMachineState(machineState, true)
 			}
 
 			if tc.numaHeadroom != nil {
-				dynamicPolicy.state.SetNUMAHeadroom(tc.numaHeadroom)
+				dynamicPolicy.state.SetNUMAHeadroom(tc.numaHeadroom, true)
 			}
 
 			if tc.cpuNUMAHintPreferPolicy != "" {
@@ -3972,7 +3972,7 @@ func TestGetResourcesAllocation(t *testing.T) {
 		},
 	}
 
-	dynamicPolicy.state.SetAllowSharedCoresOverlapReclaimedCores(true)
+	dynamicPolicy.state.SetAllowSharedCoresOverlapReclaimedCores(true, true)
 	dynamicPolicy.dynamicConfig.GetDynamicConfiguration().EnableReclaim = true
 	dynamicPolicy.state.SetAllocationInfo(commonstate.PoolNameReclaim, "", &state.AllocationInfo{
 		AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
@@ -3988,7 +3988,7 @@ func TestGetResourcesAllocation(t *testing.T) {
 			1: machine.NewCPUSet(3),
 			2: machine.NewCPUSet(4, 5),
 		},
-	})
+	}, true)
 	_, err = dynamicPolicy.Allocate(context.Background(), req)
 	as.Nil(err)
 
@@ -5461,8 +5461,8 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 			machineState, err := generateMachineStateFromPodEntries(tc.cpuTopology, tc.podEntries)
 			as.Nil(err)
 
-			dynamicPolicy.state.SetPodEntries(tc.podEntries)
-			dynamicPolicy.state.SetMachineState(machineState)
+			dynamicPolicy.state.SetPodEntries(tc.podEntries, true)
+			dynamicPolicy.state.SetMachineState(machineState, true)
 			dynamicPolicy.initReservePool()
 
 			err = dynamicPolicy.allocateByCPUAdvisor(nil, tc.lwResp)
@@ -5716,17 +5716,17 @@ func TestRemoveContainer(t *testing.T) {
 		},
 	}
 
-	dynamicPolicy.state.SetPodEntries(podEntries)
+	dynamicPolicy.state.SetPodEntries(podEntries, true)
 
 	allocationInfo := dynamicPolicy.state.GetAllocationInfo(podUID, containerName)
 	as.NotNil(allocationInfo)
 
-	dynamicPolicy.removeContainer(podUID, containerName)
+	dynamicPolicy.removeContainer(podUID, containerName, true)
 
 	allocationInfo = dynamicPolicy.state.GetAllocationInfo(podUID, containerName)
 	as.Nil(allocationInfo)
 
-	dynamicPolicy.removeContainer(podUID, containerName)
+	dynamicPolicy.removeContainer(podUID, containerName, true)
 
 	allocationInfo = dynamicPolicy.state.GetAllocationInfo(podUID, containerName)
 	as.Nil(allocationInfo)
@@ -5763,7 +5763,7 @@ func TestShoudSharedCoresRampUp(t *testing.T) {
 			2: machine.NewCPUSet(4, 5, 11, 12),
 			3: machine.NewCPUSet(6, 14),
 		},
-	})
+	}, true)
 
 	existPodUID := uuid.NewUUID()
 	existName := "exist"
@@ -5800,7 +5800,7 @@ func TestShoudSharedCoresRampUp(t *testing.T) {
 			3: machine.NewCPUSet(6, 14),
 		},
 		RequestQuantity: 2,
-	})
+	}, true)
 
 	testName := "test"
 	podUID := uuid.NewUUID()
@@ -6739,8 +6739,8 @@ func TestSwitchBetweenAPIs(t *testing.T) {
 			machineState, err := generateMachineStateFromPodEntries(cpuTopology, podEntries)
 			as.Nil(err)
 
-			dynamicPolicy.state.SetPodEntries(podEntries)
-			dynamicPolicy.state.SetMachineState(machineState)
+			dynamicPolicy.state.SetPodEntries(podEntries, true)
+			dynamicPolicy.state.SetMachineState(machineState, true)
 
 			enableAdvisorForTest(dynamicPolicy, tmpDir)
 

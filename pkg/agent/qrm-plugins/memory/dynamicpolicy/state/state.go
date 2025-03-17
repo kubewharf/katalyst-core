@@ -454,13 +454,14 @@ type reader interface {
 // writer is used to store information into local states,
 // and it also provides functionality to maintain the local files
 type writer interface {
-	SetMachineState(numaNodeResourcesMap NUMANodeResourcesMap)
-	SetNUMAHeadroom(map[int]int64)
-	SetPodResourceEntries(podResourceEntries PodResourceEntries)
-	SetAllocationInfo(resourceName v1.ResourceName, podUID, containerName string, allocationInfo *AllocationInfo)
+	SetMachineState(numaNodeResourcesMap NUMANodeResourcesMap, persist bool)
+	SetNUMAHeadroom(m map[int]int64, persist bool)
+	SetPodResourceEntries(podResourceEntries PodResourceEntries, persist bool)
+	SetAllocationInfo(resourceName v1.ResourceName, podUID, containerName string, allocationInfo *AllocationInfo, persist bool)
 
-	Delete(resourceName v1.ResourceName, podUID, containerName string)
+	Delete(resourceName v1.ResourceName, podUID, containerName string, persist bool)
 	ClearState()
+	StoreState() error
 }
 
 // ReadonlyState interface only provides methods for tracking pod assignments

@@ -43,9 +43,7 @@ type memoryPluginState struct {
 	podResourceEntries PodResourceEntries
 }
 
-var _ State = &memoryPluginState{}
-
-func NewMemoryPluginState(topology *machine.CPUTopology, machineInfo *info.MachineInfo, reservedMemory map[v1.ResourceName]map[int]uint64) (State, error) {
+func NewMemoryPluginState(topology *machine.CPUTopology, machineInfo *info.MachineInfo, reservedMemory map[v1.ResourceName]map[int]uint64) (*memoryPluginState, error) {
 	klog.InfoS("[memory_plugin] initializing new memory plugin in-memory state store")
 
 	socketTopology := make(map[int]string)
@@ -200,4 +198,8 @@ func (s *memoryPluginState) ClearState() {
 	s.socketTopology = make(map[int]string)
 
 	klog.V(2).InfoS("[memory_plugin] cleared state")
+}
+
+func (s *memoryPluginState) StoreState() error {
+	return nil
 }

@@ -40,8 +40,6 @@ type cpuPluginState struct {
 	socketTopology                        map[int]string
 }
 
-var _ State = &cpuPluginState{}
-
 func GetDefaultMachineState(topology *machine.CPUTopology) NUMANodeMap {
 	if topology == nil {
 		return nil
@@ -58,7 +56,7 @@ func GetDefaultMachineState(topology *machine.CPUTopology) NUMANodeMap {
 	return defaultMachineState
 }
 
-func NewCPUPluginState(topology *machine.CPUTopology) State {
+func NewCPUPluginState(topology *machine.CPUTopology) *cpuPluginState {
 	klog.InfoS("[cpu_plugin] initializing new cpu plugin in-memory state store")
 	return &cpuPluginState{
 		podEntries:     make(PodEntries),

@@ -262,12 +262,15 @@ func (p *DynamicPolicy) clearResidualState(_ *coreconfig.Configuration,
 			return
 		}
 
-		p.state.SetPodEntries(podEntries)
-		p.state.SetMachineState(updatedMachineState)
+		p.state.SetPodEntries(podEntries, false)
+		p.state.SetMachineState(updatedMachineState, false)
 
-		err = p.adjustAllocationEntries()
+		err = p.adjustAllocationEntries(false)
 		if err != nil {
 			general.ErrorS(err, "adjustAllocationEntries failed")
+		}
+		if err := p.state.StoreState(); err != nil {
+			general.ErrorS(err, "store state failed")
 		}
 	}
 }

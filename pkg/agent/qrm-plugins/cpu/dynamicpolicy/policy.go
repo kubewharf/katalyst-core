@@ -464,7 +464,7 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 				if p.applySidecarAllocationInfoFromMainContainer(allocationInfo, mainContainerAllocationInfo) {
 					general.Infof("pod: %s/%s, container: %s sync allocation info from main container",
 						allocationInfo.PodNamespace, allocationInfo.PodName, containerName)
-					p.state.SetAllocationInfo(podUID, containerName, allocationInfo)
+					p.state.SetAllocationInfo(podUID, containerName, allocationInfo, true)
 					needUpdateMachineState = true
 				}
 			}
@@ -488,11 +488,11 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 				}
 
 				allocationInfo.InitTimestamp = time.Now().Format(util.QRMTimeFormat)
-				p.state.SetAllocationInfo(podUID, containerName, allocationInfo)
+				p.state.SetAllocationInfo(podUID, containerName, allocationInfo, true)
 			} else if allocationInfo.RampUp && time.Now().After(initTs.Add(p.transitionPeriod)) {
 				general.Infof("pod: %s/%s, container: %s ramp up finished", allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
 				allocationInfo.RampUp = false
-				p.state.SetAllocationInfo(podUID, containerName, allocationInfo)
+				p.state.SetAllocationInfo(podUID, containerName, allocationInfo, true)
 
 				if allocationInfo.CheckShared() {
 					allocationInfosJustFinishRampUp = append(allocationInfosJustFinishRampUp, allocationInfo)
@@ -503,7 +503,7 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 	}
 
 	if len(allocationInfosJustFinishRampUp) > 0 {
-		if err = p.putAllocationsAndAdjustAllocationEntries(allocationInfosJustFinishRampUp, true); err != nil {
+		if err = p.putAllocationsAndAdjustAllocationEntries(allocationInfosJustFinishRampUp, true, true); err != nil {
 			// not influencing return response to kubelet when putAllocationsAndAdjustAllocationEntries failed
 			general.Errorf("putAllocationsAndAdjustAllocationEntries failed with error: %v", err)
 		}
@@ -517,7 +517,7 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 			general.Errorf("GetResourcesAllocation GenerateMachineStateFromPodEntries failed with error: %v", err)
 			return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 		}
-		p.state.SetMachineState(updatedMachineState)
+		p.state.SetMachineState(updatedMachineState, true)
 	}
 
 	podEntries = p.state.GetPodEntries()
@@ -843,13 +843,16 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 			if err != nil {
 				resp = nil
 				respErr = fmt.Errorf("add container to qos aware server failed with error: %v", err)
-				_ = p.removeContainer(req.PodUid, req.ContainerName)
+				_ = p.removeContainer(req.PodUid, req.ContainerName, false)
 			}
 		} else if respErr != nil {
-			_ = p.removeContainer(req.PodUid, req.ContainerName)
+			_ = p.removeContainer(req.PodUid, req.ContainerName, false)
 			_ = p.emitter.StoreInt64(util.MetricNameAllocateFailed, 1, metrics.MetricTypeNameRaw,
 				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(respErr)},
 				metrics.MetricTag{Key: util.MetricTagNameInplaceUpdateResizing, Val: strconv.FormatBool(util.PodInplaceUpdateResizing(req))})
+		}
+		if err := p.state.StoreState(); err != nil {
+			general.ErrorS(err, "store state failed", "podName", req.PodName, "containerName", req.ContainerName)
 		}
 
 		p.Unlock()
@@ -908,7 +911,7 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 	if p.allocationHandlers[qosLevel] == nil {
 		return nil, fmt.Errorf("katalyst QoS level: %s is not supported yet", qosLevel)
 	}
-	return p.allocationHandlers[qosLevel](ctx, req)
+	return p.allocationHandlers[qosLevel](ctx, req, false)
 }
 
 // AllocateForPod is called during pod admit so that the resource
@@ -961,21 +964,24 @@ func (p *DynamicPolicy) RemovePod(ctx context.Context,
 		}
 	}
 
-	err = p.removePod(req.PodUid, podEntries)
+	err = p.removePod(req.PodUid, podEntries, false)
 	if err != nil {
 		general.ErrorS(err, "remove pod failed with error", "podUID", req.PodUid)
 		return nil, err
 	}
 
-	aErr := p.adjustAllocationEntries()
+	aErr := p.adjustAllocationEntries(false)
 	if aErr != nil {
 		general.ErrorS(aErr, "adjustAllocationEntries failed", "podUID", req.PodUid)
+	}
+	if err := p.state.StoreState(); err != nil {
+		general.ErrorS(err, "store state failed", "podUID", req.PodUid)
 	}
 
 	return &pluginapi.RemovePodResponse{}, nil
 }
 
-func (p *DynamicPolicy) removePod(podUID string, podEntries state.PodEntries) error {
+func (p *DynamicPolicy) removePod(podUID string, podEntries state.PodEntries, persistCheckpoint bool) error {
 	delete(podEntries, podUID)
 
 	updatedMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
@@ -983,12 +989,15 @@ func (p *DynamicPolicy) removePod(podUID string, podEntries state.PodEntries) er
 		return fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
 
-	p.state.SetPodEntries(podEntries)
-	p.state.SetMachineState(updatedMachineState)
+	p.state.SetPodEntries(podEntries, false)
+	p.state.SetMachineState(updatedMachineState, false)
+	if persistCheckpoint {
+		return p.state.StoreState()
+	}
 	return nil
 }
 
-func (p *DynamicPolicy) removeContainer(podUID, containerName string) error {
+func (p *DynamicPolicy) removeContainer(podUID, containerName string, persistCheckpoint bool) error {
 	podEntries := p.state.GetPodEntries()
 
 	found := false
@@ -1007,8 +1016,11 @@ func (p *DynamicPolicy) removeContainer(podUID, containerName string) error {
 		return fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
 
-	p.state.SetPodEntries(podEntries)
-	p.state.SetMachineState(updatedMachineState)
+	p.state.SetPodEntries(podEntries, false)
+	p.state.SetMachineState(updatedMachineState, false)
+	if persistCheckpoint {
+		return p.state.StoreState()
+	}
 	return nil
 }
 
@@ -1074,8 +1086,11 @@ func (p *DynamicPolicy) cleanPools() error {
 			return fmt.Errorf("calculate machineState by podEntries failed with error: %v", err)
 		}
 
-		p.state.SetPodEntries(podEntries)
-		p.state.SetMachineState(machineState)
+		p.state.SetPodEntries(podEntries, false)
+		p.state.SetMachineState(machineState, false)
+		if err := p.state.StoreState(); err != nil {
+			general.ErrorS(err, "store state failed")
+		}
 	} else {
 		general.Infof("there is no pool to delete")
 	}
@@ -1105,7 +1120,7 @@ func (p *DynamicPolicy) initReservePool() error {
 		TopologyAwareAssignments:         topologyAwareAssignments,
 		OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(topologyAwareAssignments),
 	}
-	p.state.SetAllocationInfo(commonstate.PoolNameReserve, commonstate.FakedContainerName, curReserveAllocationInfo)
+	p.state.SetAllocationInfo(commonstate.PoolNameReserve, commonstate.FakedContainerName, curReserveAllocationInfo, true)
 
 	return nil
 }
@@ -1173,7 +1188,7 @@ func (p *DynamicPolicy) initReclaimPool() error {
 			TopologyAwareAssignments:         topologyAwareAssignments,
 			OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(topologyAwareAssignments),
 		}
-		p.state.SetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName, curPoolAllocationInfo)
+		p.state.SetAllocationInfo(commonstate.PoolNameReclaim, commonstate.FakedContainerName, curPoolAllocationInfo, true)
 	} else {
 		general.Infof("exist initial %s: %s", commonstate.PoolNameReclaim, reclaimedAllocationInfo.AllocationResult.String())
 	}
