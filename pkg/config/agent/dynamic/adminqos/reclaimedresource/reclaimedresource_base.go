@@ -25,11 +25,12 @@ import (
 )
 
 type ReclaimedResourceConfiguration struct {
-	EnableReclaim                   bool
-	ReservedResourceForReport       v1.ResourceList
-	MinReclaimedResourceForReport   v1.ResourceList
-	ReservedResourceForAllocate     v1.ResourceList
-	MinReclaimedResourceForAllocate v1.ResourceList
+	EnableReclaim                        bool
+	ReservedResourceForReport            v1.ResourceList
+	MinReclaimedResourceForReport        v1.ResourceList
+	MinIgnoredReclaimedResourceForReport v1.ResourceList
+	ReservedResourceForAllocate          v1.ResourceList
+	MinReclaimedResourceForAllocate      v1.ResourceList
 
 	*cpuheadroom.CPUHeadroomConfiguration
 	*memoryheadroom.MemoryHeadroomConfiguration
@@ -58,6 +59,12 @@ func (c *ReclaimedResourceConfiguration) ApplyConfiguration(conf *crd.DynamicCon
 		if config.MinReclaimedResourceForReport != nil {
 			for resourceName, value := range *config.MinReclaimedResourceForReport {
 				c.MinReclaimedResourceForReport[resourceName] = value
+			}
+		}
+
+		if config.MinIgnoredReclaimedResourceForReport != nil {
+			for resourceName, value := range *config.MinIgnoredReclaimedResourceForReport {
+				c.MinIgnoredReclaimedResourceForReport[resourceName] = value
 			}
 		}
 

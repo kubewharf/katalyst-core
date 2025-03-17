@@ -124,6 +124,14 @@ func NewGenericHeadroomManager(name v1.ResourceName, useMilliValue, reportMilliV
 	}
 }
 
+func (m *GenericHeadroomManager) Name() v1.ResourceName {
+	return m.resourceName
+}
+
+func (m *GenericHeadroomManager) MilliValue() bool {
+	return m.useMilliValue
+}
+
 func (m *GenericHeadroomManager) GetAllocatable() (resource.Quantity, error) {
 	m.RLock()
 	defer m.RUnlock()
