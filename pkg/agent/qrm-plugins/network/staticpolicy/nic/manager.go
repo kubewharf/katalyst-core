@@ -65,16 +65,14 @@ func NewNICManager(metaServer *metaserver.MetaServer, emitter metrics.MetricEmit
 		return nil, err
 	}
 
-	nics, err := checkNICs(emitter, checkers, enabledNICs)
-	if err != nil {
-		return nil, err
-	}
-
 	return &nicManagerImpl{
 		emitter:     emitter,
 		enabledNICs: enabledNICs,
-		nics:        nics,
-		checkers:    checkers,
+		// we initialize nics with enabledNICs, since we don't want to miss any nics
+		nics: &NICs{
+			HealthyNICs: enabledNICs,
+		},
+		checkers: checkers,
 	}, nil
 }
 
@@ -85,6 +83,7 @@ func (n *nicManagerImpl) GetNICs() NICs {
 }
 
 func (n *nicManagerImpl) Run(ctx context.Context) {
+	n.updateNICs(ctx)
 	go wait.UntilWithContext(ctx, n.updateNICs, 1*time.Minute)
 }
 
