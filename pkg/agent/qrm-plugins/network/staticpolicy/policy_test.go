@@ -41,8 +41,10 @@ import (
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/reactor"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	metaserveragent "github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
@@ -177,8 +179,10 @@ func makeStaticPolicy(t *testing.T, hasNic bool) *StaticPolicy {
 			consts.PodAnnotationQoSLevelDedicatedCores: testDefaultDedicatedNetClsId,
 		},
 		agentCtx:                                 agentCtx,
+		applyNetworkGroupsFunc:                   agentCtx.MetaServer.ExternalManager.ApplyNetworkGroups,
 		nics:                                     availableNICs,
 		state:                                    stateImpl,
+		residualHitMap:                           make(map[string]int64),
 		podLevelNetClassAnnoKey:                  consts.PodAnnotationNetClassKey,
 		podLevelNetAttributesAnnoKeys:            []string{},
 		ipv4ResourceAllocationAnnotationKey:      testIPv4ResourceAllocationAnnotationKey,
@@ -187,6 +191,7 @@ func makeStaticPolicy(t *testing.T, hasNic bool) *StaticPolicy {
 		netInterfaceNameResourceAllocationAnnotationKey: testNetInterfaceNameResourceAllocationAnnotationKey,
 		netClassIDResourceAllocationAnnotationKey:       testNetClassIDResourceAllocationAnnotationKey,
 		netBandwidthResourceAllocationAnnotationKey:     testNetBandwidthResourceAllocationAnnotationKey,
+		nicAllocationReactor:                            reactor.DummyAllocationReactor{},
 	}
 }
 
@@ -882,6 +887,7 @@ func TestGetNetClassID(t *testing.T) {
 	testCases := []struct {
 		description     string
 		pod             *v1.Pod
+		qosLevel        string
 		expectedClassID uint32
 	}{
 		{
@@ -897,6 +903,7 @@ func TestGetNetClassID(t *testing.T) {
 					},
 				},
 			},
+			qosLevel:        consts.PodAnnotationQoSLevelSharedCores,
 			expectedClassID: 20,
 		},
 		{
@@ -912,6 +919,7 @@ func TestGetNetClassID(t *testing.T) {
 					},
 				},
 			},
+			qosLevel:        consts.PodAnnotationQoSLevelReclaimedCores,
 			expectedClassID: 10,
 		},
 		{
@@ -927,6 +935,7 @@ func TestGetNetClassID(t *testing.T) {
 					},
 				},
 			},
+			qosLevel:        consts.PodAnnotationQoSLevelDedicatedCores,
 			expectedClassID: 30,
 		},
 		{
@@ -942,6 +951,7 @@ func TestGetNetClassID(t *testing.T) {
 					},
 				},
 			},
+			qosLevel:        consts.PodAnnotationQoSLevelSystemCores,
 			expectedClassID: 70,
 		},
 		{
@@ -958,12 +968,13 @@ func TestGetNetClassID(t *testing.T) {
 					},
 				},
 			},
+			qosLevel:        consts.PodAnnotationQoSLevelSharedCores,
 			expectedClassID: 100,
 		},
 	}
 
 	for _, tc := range testCases {
-		gotClassID, err := staticPolicy.getNetClassID(tc.pod.Annotations, staticPolicy.podLevelNetClassAnnoKey)
+		gotClassID, err := staticPolicy.getNetClassID(tc.pod.Annotations, staticPolicy.podLevelNetClassAnnoKey, tc.qosLevel)
 		assert.NoError(t, err)
 		assert.Equal(t, tc.expectedClassID, gotClassID)
 	}
@@ -985,6 +996,70 @@ func TestResourceName(t *testing.T) {
 	assert.NotNil(t, policy)
 
 	assert.Equal(t, string(consts.ResourceNetBandwidth), policy.ResourceName())
+}
+
+func TestClearResidualState(t *testing.T) {
+	t.Parallel()
+
+	t.Run("with_residual_pods", func(t *testing.T) {
+		t.Parallel()
+		policy := makeStaticPolicy(t, true)
+		policy.metaServer = &metaserver.MetaServer{
+			MetaAgent: &metaserveragent.MetaAgent{
+				PodFetcher: &pod.PodFetcherStub{
+					PodList: []*v1.Pod{},
+				},
+			},
+		}
+
+		policy.residualHitMap["residual-pod-1"] = 10
+		policy.residualHitMap["residual-pod-2"] = 15
+		policy.state.SetPodEntries(state.PodEntries{
+			"residual-pod-1": state.ContainerEntries{
+				"container-1": &state.AllocationInfo{
+					AllocationMeta: commonstate.AllocationMeta{
+						PodNamespace:  "residual-namespace",
+						PodName:       "residual-pod-1",
+						PodUid:        "residual-pod-1",
+						ContainerName: "container-1",
+					},
+				},
+			},
+			"residual-pod-2": state.ContainerEntries{
+				"container-2": &state.AllocationInfo{
+					AllocationMeta: commonstate.AllocationMeta{
+						PodNamespace:  "residual-namespace",
+						PodName:       "residual-pod-2",
+						PodUid:        "residual-pod-2",
+						ContainerName: "container-2",
+					},
+				},
+			},
+		}, true)
+
+		policy.clearResidualState(nil, nil, nil, nil, nil)
+		policy.clearResidualState(nil, nil, nil, nil, nil)
+
+		as := assert.New(t)
+		as.Empty(policy.state.GetPodEntries(), "should clean residual pods")
+		as.Empty(policy.residualHitMap, "should clean hit map")
+	})
+
+	t.Run("no_residual_pods", func(t *testing.T) {
+		t.Parallel()
+		policy := makeStaticPolicy(t, true)
+		policy.metaServer = &metaserver.MetaServer{
+			MetaAgent: &metaserveragent.MetaAgent{
+				PodFetcher: &pod.PodFetcherStub{},
+			},
+		}
+
+		originalEntries := policy.state.GetPodEntries().Clone()
+		policy.clearResidualState(nil, nil, nil, nil, nil)
+
+		as := assert.New(t)
+		as.Equal(originalEntries, policy.state.GetPodEntries(), "should maintain original state")
+	})
 }
 
 func TestGetTopologyHints(t *testing.T) {
@@ -1183,6 +1258,10 @@ func TestGetTopologyHints(t *testing.T) {
 								Nodes:     []uint64{0, 1},
 								Preferred: true,
 							},
+							{
+								Nodes:     []uint64{0, 1, 2, 3},
+								Preferred: false,
+							},
 						},
 					},
 				},
@@ -1276,7 +1355,12 @@ func TestGetTopologyHints(t *testing.T) {
 				ResourceName:   string(consts.ResourceNetBandwidth),
 				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
 					string(consts.ResourceNetBandwidth): {
-						Hints: []*pluginapi.TopologyHint{},
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{0, 1, 2, 3},
+								Preferred: false,
+							},
+						},
 					},
 				},
 				Labels: map[string]string{

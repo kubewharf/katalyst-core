@@ -39,6 +39,9 @@ type NetworkQRMPluginConfig struct {
 	NetInterfaceNameResourceAllocationAnnotationKey string
 	NetClassIDResourceAllocationAnnotationKey       string
 	NetBandwidthResourceAllocationAnnotationKey     string
+
+	// EnableNICAllocationReactor: enable the nic allocation reactor for pods already have nic allocated by runtime
+	EnableNICAllocationReactor bool
 }
 
 type NetClassConfig struct {

@@ -43,6 +43,50 @@ type AllocationMeta struct {
 	QoSLevel    string            `json:"qosLevel"`
 }
 
+func (am *AllocationMeta) GetPodUid() string {
+	return am.PodUid
+}
+
+func (am *AllocationMeta) GetPodNamespace() string {
+	return am.PodNamespace
+}
+
+func (am *AllocationMeta) GetPodName() string {
+	return am.PodName
+}
+
+func (am *AllocationMeta) GetContainerName() string {
+	return am.ContainerName
+}
+
+func (am *AllocationMeta) GetContainerType() string {
+	return am.ContainerType
+}
+
+func (am *AllocationMeta) GetContainerIndex() uint64 {
+	return am.ContainerIndex
+}
+
+func (am *AllocationMeta) GetPodRole() string {
+	return am.PodRole
+}
+
+func (am *AllocationMeta) GetPodType() string {
+	return am.PodType
+}
+
+func (am *AllocationMeta) GetLabels() map[string]string {
+	return am.Labels
+}
+
+func (am *AllocationMeta) GetAnnotations() map[string]string {
+	return am.Annotations
+}
+
+func (am *AllocationMeta) GetQoSLevel() string {
+	return am.QoSLevel
+}
+
 func (am *AllocationMeta) Clone() *AllocationMeta {
 	clone := &AllocationMeta{
 		PodUid:         am.PodUid,

@@ -14,20 +14,22 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package reactor
+package consts
 
 import (
-	"context"
+	"time"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 )
 
-type AllocationReactor interface {
-	UpdateAllocation(ctx context.Context, allocation *state.AllocationInfo) error
-}
+const (
+	// NetworkResourcePluginPolicyNameDynamic is the name of the dynamic policy.
+	NetworkResourcePluginPolicyNameDynamic = string(consts.ResourcePluginPolicyNameDynamic)
 
-type DummyAllocationReactor struct{}
+	NetworkPluginDynamicPolicyName = "qrm_network_plugin_" + NetworkResourcePluginPolicyNameDynamic
+	ClearResidualState             = NetworkPluginDynamicPolicyName + "_clear_residual_state"
 
-func (d DummyAllocationReactor) UpdateAllocation(_ context.Context, _ *state.AllocationInfo) error {
-	return nil
-}
+	StateCheckPeriod          = 30 * time.Second
+	StateCheckTolerationTimes = 3
+	MaxResidualTime           = 5 * time.Minute
+)
