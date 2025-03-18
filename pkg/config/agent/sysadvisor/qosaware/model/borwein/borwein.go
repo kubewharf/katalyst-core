@@ -25,7 +25,6 @@ type BorweinConfiguration struct {
 	BorweinParameters                  map[string]*borweintypes.BorweinParameter
 	NodeFeatureNames                   []string
 	ContainerFeatureNames              []string
-	InferenceServiceSocketAbsPath      string
 	ModelNameToInferenceSvcSockAbsPath map[string]string
 }
 

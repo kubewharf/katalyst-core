@@ -23,10 +23,5 @@ import (
 )
 
 func GetInferenceResultKey(modelName string) string {
-	// legacy model name compatible
-	if modelName == borweinconsts.ModelNameBorwein {
-		return modelName
-	}
-
-	return fmt.Sprintf("%s/%s", borweinconsts.ModelNameBorwein, modelName)
+	return fmt.Sprintf("%s/%s", borweinconsts.BorweinPrefix, modelName)
 }

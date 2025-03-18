@@ -45,7 +45,7 @@ import (
 
 const (
 	podMetricLabelSelectorNodeName              = "node_name"
-	podModelInferenceResultBorwein              = "pod_borwein_inference_result"
+	qosLevelTag                                 = "qos_level"
 	podTrainingThroughputInferenceResultBorwein = "pod_borwein_training_throughput_inference_result"
 	podLatencyRegressionInferenceResultBorwein  = "pod_borwein_latency_regression_inference_result"
 	nodeLatencyRegressionInferenceResultBorwein = "node_borwein_latency_regression_inference_result"
@@ -89,6 +89,8 @@ type MetricSyncerPod struct {
 	metaReader metacache.MetaReader
 
 	modelToCustomizedEmitterFunc map[string]func()
+
+	enableBorwein bool
 }
 
 func NewMetricSyncerPod(conf *config.Configuration, _ interface{},
@@ -106,6 +108,8 @@ func NewMetricSyncerPod(conf *config.Configuration, _ interface{},
 
 	metricMapping := general.MergeMap(podRawMetricNameMapping, conf.MetricEmitterPodConfiguration.MetricMapping)
 
+	enableBorwein := conf.PolicyRama.EnableBorweinModelResultFetcher
+
 	metricSyncerPod := &MetricSyncerPod{
 		metricMapping: metricMapping,
 
@@ -117,6 +121,7 @@ func NewMetricSyncerPod(conf *config.Configuration, _ interface{},
 		dataEmitter:   dataEmitter,
 		metaServer:    metaServer,
 		metaReader:    metaReader,
+		enableBorwein: enableBorwein,
 	}
 
 	metricSyncerPod.modelToCustomizedEmitterFunc = map[string]func(){
@@ -133,8 +138,12 @@ func (p *MetricSyncerPod) Name() string {
 
 func (p *MetricSyncerPod) Run(ctx context.Context) {
 	p.ctx = ctx
-	go wait.Until(p.modelMetric, p.emitterConf.PodSyncPeriod, ctx.Done())
 	go wait.Until(p.syncChanel, p.emitterConf.PodSyncPeriod, ctx.Done())
+
+	if p.enableBorwein {
+		klog.Infof("borwein enabled, start to emit model metric periodically")
+		go wait.Until(p.modelMetric, p.emitterConf.PodSyncPeriod, ctx.Done())
+	}
 }
 
 func (p *MetricSyncerPod) syncChanel() {
