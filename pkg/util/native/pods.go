@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/apis/core/v1/helper/qos"
@@ -272,14 +273,14 @@ func ApplyPodResources(resources map[string]v1.ResourceRequirements, pod *v1.Pod
 	}
 }
 
-func GetPodNamespaceNameKeyMap(podList []*v1.Pod) map[string]*v1.Pod {
+func GetPodKeyMap(podList []*v1.Pod, keyFunc func(obj metav1.Object) string) map[string]*v1.Pod {
 	podMap := make(map[string]*v1.Pod, len(podList))
 	for _, pod := range podList {
 		if pod == nil {
 			continue
 		}
 
-		key := GenerateUniqObjectNameKey(pod)
+		key := keyFunc(pod)
 		if oldPod, ok := podMap[key]; ok && oldPod.CreationTimestamp.After(pod.CreationTimestamp.Time) {
 			continue
 		}

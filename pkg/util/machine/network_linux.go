@@ -27,6 +27,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -214,6 +215,8 @@ func getNSNetworkHardwareTopology(nsName, netNSDirAbsPath string) ([]InterfaceIn
 			if nicAddr, exist := nicsAddrMap[nicName]; exist {
 				nic.Addr = nicAddr
 			}
+
+			getInterfaceIndex(&nic)
 			getInterfaceAttr(&nic, nicPath)
 
 			general.Infof("discover nic: %#v", nic)
@@ -226,6 +229,26 @@ func getNSNetworkHardwareTopology(nsName, netNSDirAbsPath string) ([]InterfaceIn
 	}
 
 	return nics, nil
+}
+
+func getInterfaceIndex(info *InterfaceInfo) {
+	if info == nil {
+		return
+	}
+
+	nicName := info.Iface
+	iface, err := net.InterfaceByName(nicName)
+	if err != nil {
+		general.Warningf("failed to InterfaceByName(%s), err %v", nicName, err)
+		ifIndex, err := getIfIndexFromSys(nicName)
+		if err != nil {
+			general.Errorf("failed to get %s interface index from sys: %v", nicName, err)
+			return
+		}
+		info.IfIndex = ifIndex
+		return
+	}
+	info.IfIndex = iface.Index
 }
 
 // getInterfaceAttr parses key information from system files
@@ -269,6 +292,21 @@ func getInterfaceAttr(info *InterfaceInfo, nicPath string) {
 	}
 }
 
+func getIfIndexFromSys(nicName string) (int, error) {
+	ifIndexPath := fmt.Sprintf("/sys/class/net/%s/ifindex", nicName)
+	b, err := os.ReadFile(ifIndexPath)
+	if err != nil {
+		return 0, err
+	}
+
+	ifindex, err := strconv.Atoi(strings.TrimSpace(strings.TrimRight(string(b), "\n")))
+	if err != nil {
+		return 0, err
+	}
+
+	return ifindex, nil
+}
+
 // getInterfaceAddr get interface address which is map of interface name to
 // its interface address which includes both ipv6 and ipv4 address.
 func getInterfaceAddr() (map[string]*IfaceAddr, error) {
@@ -282,43 +320,14 @@ func getInterfaceAddr() (map[string]*IfaceAddr, error) {
 	}
 
 	for _, i := range interfaces {
-		// if the interface is down or a loopback interface, we just skip it
-		if i.Flags&net.FlagUp == 0 || i.Flags&net.FlagLoopback > 0 {
-			continue
-		}
-
-		address, err := i.Addrs()
+		addr, err := GetInterfaceAddr(i)
 		if err != nil {
+			general.Warningf("failed to get interface addr from %v, err %v", i, err)
 			continue
 		}
 
-		if len(address) > 0 {
-			ia := &IfaceAddr{}
-
-			for _, addr := range address {
-				var ip net.IP
-				switch v := addr.(type) {
-				case *net.IPNet:
-					ip = v.IP
-				case *net.IPAddr:
-					ip = v.IP
-				default:
-					continue
-				}
-
-				// filter out ips that are not global uni-cast
-				if !ip.IsGlobalUnicast() {
-					continue
-				}
-
-				if ip.To4() != nil {
-					ia.IPV4 = append(ia.IPV4, &ip)
-				} else {
-					ia.IPV6 = append(ia.IPV6, &ip)
-				}
-			}
-
-			ias[i.Name] = ia
+		if addr != nil {
+			ias[i.Name] = addr
 		}
 	}
 

@@ -168,30 +168,30 @@ func filterNICsByHint(nics []machine.InterfaceInfo, req *pluginapi.ResourceReque
 	}
 
 	for i, nic := range nics {
-		siblingNUMAs, err := machine.GetSiblingNUMAs(nic.NumaNode, agentCtx.CPUTopology)
+		allocateNUMAs, err := machine.GetNICAllocateNUMAs(nic, agentCtx.KatalystMachineInfo)
 		if err != nil {
-			general.Errorf("get siblingNUMAs for nic: %s failed with error: %v, filter out it", nic.Iface, err)
+			general.Errorf("get allocateNUMAs for nic: %s failed with error: %v, filter out it", nic.Iface, err)
 			continue
 		}
 
-		if siblingNUMAs.Equals(hintNUMASet) {
+		if allocateNUMAs.Equals(hintNUMASet) {
 			if exactlyMatchNIC == nil {
 				general.InfoS("add hint exactly matched nic",
 					"podNamespace", req.PodNamespace,
 					"podName", req.PodName,
 					"containerName", req.ContainerName,
 					"nic", nic.Iface,
-					"siblingNUMAs", siblingNUMAs.String(),
+					"allocateNUMAs", allocateNUMAs.String(),
 					"hintNUMASet", hintNUMASet.String())
 				exactlyMatchNIC = &nics[i]
 			}
-		} else if siblingNUMAs.IsSubsetOf(hintNUMASet) { // for pod affinity_restricted != true
+		} else if allocateNUMAs.IsSubsetOf(hintNUMASet) { // for pod affinity_restricted != true
 			general.InfoS("add hint matched nic",
 				"podNamespace", req.PodNamespace,
 				"podName", req.PodName,
 				"containerName", req.ContainerName,
 				"nic", nic.Iface,
-				"siblingNUMAs", siblingNUMAs.String(),
+				"allocateNUMAs", allocateNUMAs.String(),
 				"hintNUMASet", hintNUMASet.String())
 			hintMatchedNICs = append(hintMatchedNICs, nic)
 		}
