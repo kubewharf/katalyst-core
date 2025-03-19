@@ -36,7 +36,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/eviction"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnr"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
@@ -69,7 +68,6 @@ type nicEvictionPlugin struct {
 	pluginName    string
 	metaServer    *metaserver.MetaServer
 	dynamicConfig *dynamic.DynamicAgentConfiguration
-	cnrFetcher    cnr.CNRFetcher
 }
 
 func NewNICEvictionPlugin(_ *client.GenericClientSet, _ events.EventRecorder,
@@ -82,7 +80,6 @@ func NewNICEvictionPlugin(_ *client.GenericClientSet, _ events.EventRecorder,
 		pluginName:        EvictionPluginNameNetwork,
 		metaServer:        metaServer,
 		dynamicConfig:     conf.DynamicAgentConfiguration,
-		cnrFetcher:        metaServer.CNRFetcher,
 	}
 }
 
@@ -119,7 +116,7 @@ func (n *nicEvictionPlugin) GetEvictPods(ctx context.Context, request *pluginapi
 	nicState := n.getUnhealthyNICState()
 
 	// get all active pods
-	podMap := native.GetPodNamespaceNameKeyMap(request.ActivePods)
+	podMap := native.GetPodKeyMap(request.ActivePods, native.GenerateUniqObjectUIDKey)
 
 	// get unhealthy nic allocation UIDs
 	nicPods := n.getUnhealthyNICAllocationPods(nicState, podMap)
@@ -274,7 +271,7 @@ func (n *nicEvictionPlugin) syncUnhealthyNICState(ctx context.Context) {
 		_ = general.UpdateHealthzStateByError(EvictionPluginNameNetwork, err)
 	}()
 
-	getCNR, err := n.cnrFetcher.GetCNR(ctx)
+	getCNR, err := n.metaServer.GetCNR(ctx)
 	if err != nil {
 		klog.Errorf("Failed to get CNR: %v", err)
 		return

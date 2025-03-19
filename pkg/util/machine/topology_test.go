@@ -755,3 +755,58 @@ func TestGetSiblingNumaInfo(t *testing.T) {
 		})
 	}
 }
+
+func TestGetInterfaceSocketInfo(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name        string
+		nics        []InterfaceInfo
+		cpuTopology *CPUTopology
+		expectErr   bool
+	}{
+		{
+			name:        "No sockets available",
+			nics:        []InterfaceInfo{{IfIndex: 1, NumaNode: 0}},
+			cpuTopology: &CPUTopology{NumSockets: 0},
+			expectErr:   true,
+		},
+		{
+			name: "Single NIC, valid socket binding",
+			nics: []InterfaceInfo{{IfIndex: 1, NumaNode: 0}},
+			cpuTopology: &CPUTopology{
+				NumSockets:           2,
+				CPUDetails:           CPUDetails{0: CPUInfo{NUMANodeID: 0, SocketID: 1}},
+				NUMANodeIDToSocketID: map[int]int{0: 1},
+			},
+			expectErr: false,
+		},
+		{
+			name: "Multiple NICs, evenly distributed",
+			nics: []InterfaceInfo{
+				{IfIndex: 1, NumaNode: 0},
+				{IfIndex: 2, NumaNode: 1},
+			},
+			cpuTopology: &CPUTopology{
+				NumSockets:           2,
+				CPUDetails:           CPUDetails{0: CPUInfo{NUMANodeID: 0, SocketID: 0}, 1: CPUInfo{NUMANodeID: 1, SocketID: 1}},
+				NUMANodeIDToSocketID: map[int]int{0: 0, 1: 1},
+			},
+			expectErr: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			result, err := GetInterfaceSocketInfo(tc.nics, tc.cpuTopology)
+			if tc.expectErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, result)
+			}
+		})
+	}
+}

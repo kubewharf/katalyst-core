@@ -127,7 +127,7 @@ func (p *CPUPressureSuppression) GetEvictPods(_ context.Context, request *plugin
 	evictPods = append(evictPods, actualNUMABindingPods...)
 
 	// clear inactive filtered pod from lastToleranceTime
-	filteredPodsMap := native.GetPodNamespaceNameKeyMap(filteredPods)
+	filteredPodsMap := native.GetPodKeyMap(filteredPods, native.GenerateUniqObjectNameKey)
 	p.lastToleranceTime.Range(func(key, _ interface{}) bool {
 		if _, ok := filteredPodsMap[key.(string)]; !ok {
 			p.lastToleranceTime.Delete(key)

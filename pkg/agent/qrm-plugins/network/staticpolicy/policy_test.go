@@ -146,6 +146,17 @@ func makeStaticPolicy(t *testing.T, hasNic bool) *StaticPolicy {
 	mockQrmConfig.IngressCapacityRate = 0.85
 
 	conf := generateTestConfiguration(t)
+
+	allocatableInterfaceSocketInfo, err := machine.GetInterfaceSocketInfo(
+		agentCtx.KatalystMachineInfo.ExtraNetworkInfo.GetAllocatableNICs(conf.MachineInfoConfiguration),
+		agentCtx.KatalystMachineInfo.CPUTopology,
+	)
+	assert.NoError(t, err)
+
+	agentCtx.KatalystMachineInfo.ExtraTopologyInfo = &machine.ExtraTopologyInfo{
+		AllocatableInterfaceSocketInfo: allocatableInterfaceSocketInfo,
+	}
+
 	nicManager, err := nic.NewNICManager(agentCtx.MetaServer, wrappedEmitter, conf)
 	assert.NoError(t, err)
 
@@ -208,6 +219,7 @@ func makeNICs(hasNics bool) []machine.InterfaceInfo {
 		return []machine.InterfaceInfo{
 			{
 				Iface:    testEth0Name,
+				IfIndex:  0,
 				Speed:    25000,
 				NumaNode: testEth0AffinitiveNUMANode,
 				Enable:   true,
@@ -219,6 +231,7 @@ func makeNICs(hasNics bool) []machine.InterfaceInfo {
 			},
 			{
 				Iface:    testEth1Name,
+				IfIndex:  1,
 				Speed:    25000,
 				NumaNode: testEth1AffinitiveNUMANode,
 				Enable:   false,
@@ -226,6 +239,7 @@ func makeNICs(hasNics bool) []machine.InterfaceInfo {
 			},
 			{
 				Iface:    testEth2Name,
+				IfIndex:  2,
 				Speed:    25000,
 				NumaNode: testEth2AffinitiveNUMANode,
 				Enable:   true,
@@ -240,6 +254,7 @@ func makeNICs(hasNics bool) []machine.InterfaceInfo {
 		return []machine.InterfaceInfo{
 			{
 				Iface:    testEth0Name,
+				IfIndex:  0,
 				Speed:    25000,
 				NumaNode: testEth0AffinitiveNUMANode,
 				Enable:   false,
@@ -251,6 +266,7 @@ func makeNICs(hasNics bool) []machine.InterfaceInfo {
 			},
 			{
 				Iface:    testEth1Name,
+				IfIndex:  1,
 				Speed:    25000,
 				NumaNode: testEth1AffinitiveNUMANode,
 				Enable:   false,
@@ -258,6 +274,7 @@ func makeNICs(hasNics bool) []machine.InterfaceInfo {
 			},
 			{
 				Iface:    testEth2Name,
+				IfIndex:  2,
 				Speed:    25000,
 				NumaNode: testEth2AffinitiveNUMANode,
 				Enable:   false,
@@ -339,12 +356,12 @@ func TestRemovePod(t *testing.T) {
 	}
 
 	resp, err := policy.Allocate(context.Background(), addReq)
+	assert.NoError(t, err)
 
 	// verify the state
 	allocationInfo := policy.state.GetAllocationInfo(podID, testName)
 	machineState := policy.state.GetMachineState()
 	podEntries := policy.state.GetPodEntries()
-	assert.NoError(t, err)
 	assert.NotNil(t, resp)
 	assert.Equal(t, allocationInfo.IfName, testEth0Name)
 	assert.Equal(t, allocationInfo.Egress, uint32(bwReq))

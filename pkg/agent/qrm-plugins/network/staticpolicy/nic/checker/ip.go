@@ -19,6 +19,7 @@ package checker
 import (
 	"net"
 
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -38,11 +39,17 @@ func (c *ipChecker) CheckHealth(info machine.InterfaceInfo) (bool, error) {
 		return false, err
 	}
 
-	if iface.Flags&net.FlagUp == 0 {
+	if iface == nil {
+		general.Errorf("IP checker for interface %s not found", info.Iface)
 		return false, nil
 	}
 
-	if len(info.GetNICIPs(machine.IPVersionV4)) == 0 && len(info.GetNICIPs(machine.IPVersionV6)) == 0 {
+	addr, err := machine.GetInterfaceAddr(*iface)
+	if err != nil {
+		return false, err
+	}
+
+	if len(addr.GetNICIPs(machine.IPVersionV4)) == 0 && len(addr.GetNICIPs(machine.IPVersionV6)) == 0 {
 		return false, nil
 	}
 

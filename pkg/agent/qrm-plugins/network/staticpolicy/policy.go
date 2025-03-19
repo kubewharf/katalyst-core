@@ -812,9 +812,9 @@ func (p *StaticPolicy) Allocate(ctx context.Context,
 	selectedNIC := selectOneNIC(candidateNICs, RandomOne)
 	general.Infof("select NIC %s to allocate bandwidth (%dMbps)", selectedNIC.Iface, reqInt)
 
-	siblingNUMAs, err := machine.GetSiblingNUMAs(selectedNIC.NumaNode, p.agentCtx.CPUTopology)
+	allocateNUMAs, err := machine.GetNICAllocateNUMAs(selectedNIC, p.agentCtx.KatalystMachineInfo)
 	if err != nil {
-		general.Errorf("get siblingNUMAs for nic: %s failed with error: %v. Incorrect NumaNodes in machineState allocationInfo", selectedNIC.Iface, err)
+		general.Errorf("get allocateNUMAs for nic: %s failed with error: %v. Incorrect NumaNodes in machineState allocationInfo", selectedNIC.Iface, err)
 	}
 
 	// generate allocationInfo and update the checkpoint accordingly
@@ -826,7 +826,7 @@ func (p *StaticPolicy) Allocate(ctx context.Context,
 		Identifier: getResourceIdentifier(selectedNIC.NSName, selectedNIC.Iface),
 		NSName:     selectedNIC.NSName,
 		IfName:     selectedNIC.Iface,
-		NumaNodes:  siblingNUMAs,
+		NumaNodes:  allocateNUMAs,
 		NetClassID: fmt.Sprintf("%d", netClassID),
 	}
 
@@ -856,7 +856,7 @@ func (p *StaticPolicy) Allocate(ctx context.Context,
 			"podName", req.PodName,
 			"containerName", req.ContainerName,
 			"bandwidthReq(Mbps)", reqInt,
-			"currentResult(Mbps)", allocationInfo.Egress)
+			"currentResult(Mbps)", newAllocation.Egress)
 		return nil, fmt.Errorf("generateNetworkMachineStateByPodEntries failed with error: %v", stateErr)
 	}
 
@@ -1048,9 +1048,9 @@ func (p *StaticPolicy) calculateHints(req *pluginapi.ResourceRequest) (map[strin
 
 	numasToHintMap := make(map[string]*pluginapi.TopologyHint)
 	for _, nic := range candidateNICs {
-		siblingNUMAs, err := machine.GetSiblingNUMAs(nic.NumaNode, p.agentCtx.CPUTopology)
+		allocateNUMAs, err := machine.GetNICAllocateNUMAs(nic, p.agentCtx.KatalystMachineInfo)
 		if err != nil {
-			return nil, fmt.Errorf("get siblingNUMAs for nic: %s failed with error: %v", nic.Iface, err)
+			return nil, fmt.Errorf("get allocateNUMAs for nic: %s failed with error: %v", nic.Iface, err)
 		}
 
 		nicPreference, err := checkNICPreferenceOfReq(nic, req.Annotations)
@@ -1058,10 +1058,10 @@ func (p *StaticPolicy) calculateHints(req *pluginapi.ResourceRequest) (map[strin
 			return nil, fmt.Errorf("checkNICPreferenceOfReq for nic: %s failed with error: %v", nic.Iface, err)
 		}
 
-		siblingNUMAsStr := siblingNUMAs.String()
+		siblingNUMAsStr := allocateNUMAs.String()
 		if numasToHintMap[siblingNUMAsStr] == nil {
 			numasToHintMap[siblingNUMAsStr] = &pluginapi.TopologyHint{
-				Nodes: siblingNUMAs.ToSliceUInt64(),
+				Nodes: allocateNUMAs.ToSliceUInt64(),
 			}
 		}
 
@@ -1144,8 +1144,8 @@ func (p *StaticPolicy) getResourceAllocationAnnotations(
 	selectedNIC := p.getNICByName(nics, allocation.IfName)
 
 	resourceAllocationAnnotations := map[string]string{
-		p.ipv4ResourceAllocationAnnotationKey:             strings.Join(selectedNIC.GetNICIPs(machine.IPVersionV4), IPsSeparator),
-		p.ipv6ResourceAllocationAnnotationKey:             strings.Join(selectedNIC.GetNICIPs(machine.IPVersionV6), IPsSeparator),
+		p.ipv4ResourceAllocationAnnotationKey:             strings.Join(selectedNIC.Addr.GetNICIPs(machine.IPVersionV4), IPsSeparator),
+		p.ipv6ResourceAllocationAnnotationKey:             strings.Join(selectedNIC.Addr.GetNICIPs(machine.IPVersionV6), IPsSeparator),
 		p.netInterfaceNameResourceAllocationAnnotationKey: selectedNIC.Iface,
 		p.netClassIDResourceAllocationAnnotationKey:       fmt.Sprintf("%d", netClsID),
 	}
@@ -1243,13 +1243,13 @@ func (p *StaticPolicy) getNICByName(nics []machine.InterfaceInfo, ifName string)
 
 // return the Socket id/index that the specified NIC attached to
 func (p *StaticPolicy) getSocketIDByNIC(nic machine.InterfaceInfo) (int, error) {
-	socketIDs := p.agentCtx.KatalystMachineInfo.CPUDetails.SocketsInNUMANodes(nic.NumaNode)
-	if socketIDs.Size() == 0 {
-		return -1, fmt.Errorf("failed to find the associated socket ID for the specified NIC %s - numanode: %d, cpuDetails: %v",
-			nic.Iface, nic.NumaNode, p.agentCtx.KatalystMachineInfo.CPUDetails)
+	socketIDs, ok := p.agentCtx.IfIndex2Sockets[nic.IfIndex]
+	if !ok {
+		return -1, fmt.Errorf("failed to find the associated socket ID for the specified NIC %s - numanode: %d, ifIndex: %d, ifIndex2Sockets: %v",
+			nic.Iface, nic.NumaNode, nic.IfIndex, p.agentCtx.IfIndex2Sockets)
 	}
 
-	return socketIDs.ToSliceInt()[0], nil
+	return socketIDs[0], nil
 }
 
 // clearResidualNetClass clear residual net class in cgroupv2 environment
@@ -1338,8 +1338,8 @@ func (p *StaticPolicy) generateLowPriorityGroup() error {
 			lowPriorityGroups[groupName].Egress = general.MaxUInt32(uint32(float64(nicState.EgressState.Allocatable)*0.05), lowPriorityGroups[groupName].Egress)
 		}
 		selectedNIC := p.getNICByName(nics, nicName)
-		lowPriorityGroups[groupName].MergedIPv4 = strings.Join(selectedNIC.GetNICIPs(machine.IPVersionV4), IPsSeparator)
-		lowPriorityGroups[groupName].MergedIPv6 = strings.Join(selectedNIC.GetNICIPs(machine.IPVersionV6), IPsSeparator)
+		lowPriorityGroups[groupName].MergedIPv4 = strings.Join(selectedNIC.Addr.GetNICIPs(machine.IPVersionV4), IPsSeparator)
+		lowPriorityGroups[groupName].MergedIPv6 = strings.Join(selectedNIC.Addr.GetNICIPs(machine.IPVersionV6), IPsSeparator)
 	}
 
 	general.Infof("old lowPriorityGroups: %+v, new lowPriorityGroups: %+v", p.lowPriorityGroups, lowPriorityGroups)

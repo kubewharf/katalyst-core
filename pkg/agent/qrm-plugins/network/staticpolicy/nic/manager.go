@@ -18,7 +18,6 @@ package nic
 
 import (
 	"context"
-	"sort"
 	"sync"
 	"time"
 
@@ -40,37 +39,25 @@ const (
 type nicManagerImpl struct {
 	sync.RWMutex
 
-	emitter     metrics.MetricEmitter
-	nics        *NICs
-	enabledNICs []machine.InterfaceInfo
-	checkers    map[string]checker.NICHealthChecker
+	emitter                metrics.MetricEmitter
+	nics                   *NICs
+	defaultAllocatableNICs []machine.InterfaceInfo
+	checkers               map[string]checker.NICHealthChecker
 }
 
 func NewNICManager(metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter, conf *config.Configuration) (NICManager, error) {
-	// it is incorrect to reserve bandwidth on those disabled NICs.
-	// we only count active NICs as available network devices and allocate bandwidth on them
-	enabledNICs := filterNICsByAvailability(metaServer.KatalystMachineInfo.ExtraNetworkInfo.Interface)
-	if len(enabledNICs) != 0 {
-		// the NICs should be in order by interface name so that we can adopt specific policies for bandwidth reservation or allocation
-		// e.g. reserve bandwidth for high-priority tasks on the first NIC
-		sort.SliceStable(enabledNICs, func(i, j int) bool {
-			return enabledNICs[i].Iface < enabledNICs[j].Iface
-		})
-	} else {
-		general.Infof("no valid nics on this node")
-	}
-
+	defaultAllocatableNICs := metaServer.ExtraNetworkInfo.GetAllocatableNICs(conf.MachineInfoConfiguration)
 	checkers, err := initHealthCheckers(checker.DefaultRegistry, conf.NICHealthCheckers)
 	if err != nil {
 		return nil, err
 	}
 
 	return &nicManagerImpl{
-		emitter:     emitter,
-		enabledNICs: enabledNICs,
-		// we initialize nics with enabledNICs, since we don't want to miss any nics
+		emitter:                emitter,
+		defaultAllocatableNICs: defaultAllocatableNICs,
+		// we initialize nics with defaultAllocatableNICs, since we don't want to miss any nics
 		nics: &NICs{
-			HealthyNICs: enabledNICs,
+			HealthyNICs: defaultAllocatableNICs,
 		},
 		checkers: checkers,
 	}, nil
@@ -89,12 +76,12 @@ func (n *nicManagerImpl) Run(ctx context.Context) {
 
 func (n *nicManagerImpl) updateNICs(_ context.Context) {
 	general.Infof("start to update nics")
-	if len(n.enabledNICs) == 0 || len(n.checkers) == 0 {
+	if len(n.defaultAllocatableNICs) == 0 || len(n.checkers) == 0 {
 		general.Warningf("no enabled nics or checkers")
 		return
 	}
 
-	nics, err := checkNICs(n.emitter, n.checkers, n.enabledNICs)
+	nics, err := checkNICs(n.emitter, n.checkers, n.defaultAllocatableNICs)
 	if err != nil {
 		general.Errorf("failed to check nics: %v", err)
 		return
@@ -125,27 +112,6 @@ func initHealthCheckers(registry checker.Registry, enableCheckers []string) (map
 	}
 
 	return checkers, nil
-}
-
-func filterNICsByAvailability(nics []machine.InterfaceInfo) []machine.InterfaceInfo {
-	filteredNICs := make([]machine.InterfaceInfo, 0, len(nics))
-	for _, nic := range nics {
-		if !nic.Enable {
-			general.Warningf("nic: %s isn't enabled", nic.Iface)
-			continue
-		} else if nic.Addr == nil || (len(nic.Addr.IPV4) == 0 && len(nic.Addr.IPV6) == 0) {
-			general.Warningf("nic: %s doesn't have IP address", nic.Iface)
-			continue
-		}
-
-		filteredNICs = append(filteredNICs, nic)
-	}
-
-	if len(filteredNICs) == 0 {
-		general.InfoS("nic list returned by filterNICsByAvailability is empty")
-	}
-
-	return filteredNICs
 }
 
 func checkNICs(emitter metrics.MetricEmitter, checkers map[string]checker.NICHealthChecker, nics []machine.InterfaceInfo) (*NICs, error) {
