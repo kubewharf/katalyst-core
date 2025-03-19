@@ -21,7 +21,6 @@ import (
 	"testing"
 	"time"
 
-	"bou.ke/monkey"
 	"github.com/h2non/gock"
 	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/assert"
@@ -29,12 +28,6 @@ import (
 
 func TestGeneratePredictionInput(t *testing.T) {
 	t.Parallel()
-
-	defer monkey.UnpatchAll()
-	now := time.Now()
-	monkey.Patch(time.Now, func() time.Time {
-		return now
-	})
 
 	want := &predictionInput{
 		Quantile:            0.99,

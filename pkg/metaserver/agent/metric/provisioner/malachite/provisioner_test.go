@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"bou.ke/monkey"
+	"github.com/bytedance/mockey"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
@@ -193,14 +193,14 @@ func Test_noneExistMetricsProvisioner(t *testing.T) {
 		return
 	}
 
-	monkey.Patch(general.IsPathExists, func(path string) bool {
+	defer mockey.UnPatchAll()
+	mockey.Mock(general.IsPathExists).To(func(path string) bool {
 		if path == "/sys/fs/cgroup/d3" {
 			return true
 		}
 		return false
-	})
-	monkey.Patch(common.CheckCgroup2UnifiedMode, func() bool { return true })
-	defer monkey.UnpatchAll()
+	}).Build()
+	mockey.Mock(common.CheckCgroup2UnifiedMode).Return(true).Build()
 
 	paths := implement.(*MalachiteMetricsProvisioner).getCgroupPaths()
 	assert.ElementsMatch(t, paths, []string{

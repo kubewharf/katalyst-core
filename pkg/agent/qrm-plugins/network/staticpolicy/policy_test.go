@@ -26,7 +26,7 @@ import (
 	"testing"
 	"time"
 
-	"bou.ke/monkey"
+	"github.com/bytedance/mockey"
 	info "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1717,7 +1717,7 @@ func TestPreStartContainer(t *testing.T) {
 
 func TestStaticPolicy_applyNetClass(t *testing.T) {
 	t.Parallel()
-	defer monkey.UnpatchAll()
+	defer mockey.UnPatchAll()
 
 	policy := makeStaticPolicy(t, true)
 	assert.NotNil(t, policy)
@@ -1786,9 +1786,9 @@ func TestStaticPolicy_applyNetClass(t *testing.T) {
 
 	policy.applyNetClassFunc = policy.metaServer.ExternalManager.ApplyNetClass
 
-	monkey.Patch(common.IsContainerCgroupExist, func(podUID, containerID string) (bool, error) {
+	mockey.Mock(common.IsContainerCgroupExist).To(func(podUID, containerID string) (bool, error) {
 		return true, nil
-	})
+	}).Build()
 
 	policy.applyNetClass()
 }
