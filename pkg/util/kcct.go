@@ -120,7 +120,16 @@ func (g KCCTargetResource) SetGenericStatus(status v1alpha1.GenericConfigStatus)
 	if err != nil {
 		return
 	}
-	_ = unstructured.SetNestedField(g.Object, obj, consts.ObjectFieldNameStatus)
+
+	oldStatus, ok, _ := unstructured.NestedFieldNoCopy(g.Object, consts.ObjectFieldNameStatus)
+	if !ok {
+		_ = unstructured.SetNestedField(g.Object, obj, consts.ObjectFieldNameStatus)
+		return
+	}
+
+	for key, val := range obj {
+		oldStatus.(map[string]interface{})[key] = val
+	}
 }
 
 func (g KCCTargetResource) GetObservedGeneration() int64 {
