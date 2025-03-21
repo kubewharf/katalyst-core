@@ -123,7 +123,7 @@ func checkNICs(emitter metrics.MetricEmitter, checkers map[string]checker.NICHea
 
 	for _, nic := range nics {
 		var unHealthCheckers []string
-		err := machine.DoNetNS(nic.NSName, nic.NSAbsolutePath, func(sysFsDir string) error {
+		err := machine.DoNetNS(nic.NSName, nic.NSAbsolutePath, func(sysFsDir, nsAbsPath string) error {
 			for name, healthChecker := range checkers {
 				health, err := healthChecker.CheckHealth(nic)
 				if err != nil {
