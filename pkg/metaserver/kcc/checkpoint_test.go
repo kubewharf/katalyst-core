@@ -19,6 +19,7 @@ package kcc
 import (
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
@@ -47,6 +48,13 @@ func TestNewCheckpoint(t *testing.T) {
 					},
 				},
 			},
+			Status: v1alpha1.GenericConfigStatus{
+				Conditions: []v1alpha1.GenericConfigCondition{
+					{
+						LastTransitionTime: makeTime(t, "2025-03-21T08:34:49Z"),
+					},
+				},
+			},
 		},
 	}
 
@@ -70,4 +78,24 @@ func TestNewCheckpoint(t *testing.T) {
 	configField.Set(configData)
 	assert.Equal(t, metav1.Unix(now.Unix(), 0), timestamp)
 	assert.Equal(t, dynamicCRD, dynamicConfigCRD)
+}
+
+func makeTime(t *testing.T, s string) metav1.Time {
+	res, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	nt := metav1.NewTime(res)
+
+	marshal, err := nt.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = nt.Unmarshal(marshal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return nt
 }

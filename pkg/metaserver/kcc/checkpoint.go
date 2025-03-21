@@ -108,10 +108,15 @@ func (d *Data) SetData(kind string, val reflect.Value, t metav1.Time) {
 	configField := reflect.ValueOf(dynamicConfiguration).Elem().FieldByName(kind)
 	configField.Set(reflect.New(configField.Type().Elem()))
 
-	// only set target dynamic configField's spec field
+	// set target dynamic configField's spec field
 	specValue := val.Elem().FieldByName("Spec")
 	specField := configField.Elem().FieldByName("Spec")
 	specField.Set(specValue)
+
+	// set target dynamic configField's status field
+	statusValue := val.Elem().FieldByName("Status")
+	statusField := configField.Elem().FieldByName("Status")
+	statusField.Set(statusValue)
 
 	d.Item.Data[kind] = TargetConfigData{
 		Value:     dynamicConfiguration,
