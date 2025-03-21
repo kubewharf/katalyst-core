@@ -164,6 +164,28 @@ func (g KCCTargetResource) GenerateConfigHash() (string, error) {
 		return "", err
 	}
 
+	if val == nil {
+		val = make(map[string]interface{})
+	}
+
+	genericStatus := g.GetGenericStatus()
+	genericStatusObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&genericStatus)
+	if err != nil {
+		return "", err
+	}
+
+	status, ok, _ := unstructured.NestedFieldNoCopy(g.Object, consts.ObjectFieldNameStatus)
+	if ok {
+		for k := range genericStatusObj {
+			delete(status.(map[string]interface{}), k)
+		}
+
+		// add status field to consider
+		for k, v := range status.(map[string]interface{}) {
+			val.(map[string]interface{})[fmt.Sprintf("%s/%s", consts.ObjectFieldNameStatus, k)] = v
+		}
+	}
+
 	data, err := json.Marshal(val)
 	if err != nil {
 		return "", err
