@@ -46,6 +46,8 @@ type MachineInfoConfiguration struct {
 	// if NetMultipleNS set as true, we should collect network interfaces from multiple ns
 	NetMultipleNS   bool
 	NetNSDirAbsPath string
+	// NetAllocatableNS is the list of namespaces that are allocatable.
+	NetAllocatableNS []string
 
 	// SiblingNumaMaxDistance represents the maximum distance between sibling NUMA nodes.
 	// These sibling NUMA nodes have the smallest distance to each other, except for the

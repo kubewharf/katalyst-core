@@ -108,23 +108,16 @@ func MaskToUInt64Array(mask BitMask) []uint64 {
 	return maskBitsUint64
 }
 
-// GetSiblingNUMAs returns numa IDs that lays in the socket with the given numa
-func GetSiblingNUMAs(numaID int, topology *CPUTopology) (CPUSet, error) {
-	if topology == nil {
-		return NewCPUSet(), fmt.Errorf("getSiblingNUMAs got nil topology")
+// GetNICAllocateNUMAs returns numa nodes that are allocated to the given nic
+func GetNICAllocateNUMAs(nic InterfaceInfo, info *KatalystMachineInfo) (CPUSet, error) {
+	if info == nil {
+		return NewCPUSet(), fmt.Errorf("got nil machineInfo")
 	}
 
-	socketSet := topology.CPUDetails.SocketsInNUMANodes(numaID)
-	if socketSet.Size() != 1 {
-		return NewCPUSet(), fmt.Errorf("get invalid socketSet: %s from NUMA: %d",
-			socketSet.String(), numaID)
+	sockets, ok := info.IfIndex2Sockets[nic.IfIndex]
+	if !ok {
+		return NewCPUSet(), fmt.Errorf("nic: %s has no socket", nic.Iface)
 	}
 
-	numaSet := topology.CPUDetails.NUMANodesInSockets(socketSet.ToSliceNoSortInt()...)
-	if numaSet.IsEmpty() {
-		return NewCPUSet(), fmt.Errorf("get empty numaSet from socketSet: %s",
-			socketSet.String())
-	}
-
-	return numaSet, nil
+	return info.CPUDetails.NUMANodesInSockets(sockets...), nil
 }

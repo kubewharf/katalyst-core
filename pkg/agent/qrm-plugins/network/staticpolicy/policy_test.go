@@ -26,7 +26,7 @@ import (
 	"testing"
 	"time"
 
-	"bou.ke/monkey"
+	"github.com/bytedance/mockey"
 	info "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -43,6 +43,7 @@ import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network/staticpolicy/nic"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/reactor"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -129,6 +130,7 @@ func makeTestGenericContext(t *testing.T) *agent.GenericContext {
 
 func makeStaticPolicy(t *testing.T, hasNic bool) *StaticPolicy {
 	agentCtx := makeTestGenericContext(t)
+	agentCtx.KatalystMachineInfo.ExtraNetworkInfo.Interface = makeNICs(hasNic)
 	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(NetworkResourcePluginPolicyNameStatic, metrics.MetricTag{
 		Key: util.QRMPluginPolicyTagName,
 		Val: NetworkResourcePluginPolicyNameStatic,
@@ -143,8 +145,22 @@ func makeStaticPolicy(t *testing.T, hasNic bool) *StaticPolicy {
 	mockQrmConfig.EgressCapacityRate = 0.9
 	mockQrmConfig.IngressCapacityRate = 0.85
 
-	nics := makeNICs(hasNic)
-	availableNICs := filterNICsByAvailability(nics, nil, nil)
+	conf := generateTestConfiguration(t)
+
+	allocatableInterfaceSocketInfo, err := machine.GetInterfaceSocketInfo(
+		agentCtx.KatalystMachineInfo.ExtraNetworkInfo.GetAllocatableNICs(conf.MachineInfoConfiguration),
+		agentCtx.KatalystMachineInfo.CPUTopology,
+	)
+	assert.NoError(t, err)
+
+	agentCtx.KatalystMachineInfo.ExtraTopologyInfo = &machine.ExtraTopologyInfo{
+		AllocatableInterfaceSocketInfo: allocatableInterfaceSocketInfo,
+	}
+
+	nicManager, err := nic.NewNICManager(agentCtx.MetaServer, wrappedEmitter, conf)
+	assert.NoError(t, err)
+
+	availableNICs := getAllNICs(nicManager)
 	reservation := make(map[string]uint32)
 	if hasNic {
 		assert.Len(t, availableNICs, 2)
@@ -167,7 +183,7 @@ func makeStaticPolicy(t *testing.T, hasNic bool) *StaticPolicy {
 	assert.NoError(t, err)
 
 	return &StaticPolicy{
-		qosConfig:  generateTestConfiguration(t).QoSConfiguration,
+		qosConfig:  conf.QoSConfiguration,
 		qrmConfig:  mockQrmConfig,
 		emitter:    wrappedEmitter,
 		metaServer: agentCtx.MetaServer,
@@ -180,7 +196,7 @@ func makeStaticPolicy(t *testing.T, hasNic bool) *StaticPolicy {
 		},
 		agentCtx:                                 agentCtx,
 		applyNetworkGroupsFunc:                   agentCtx.MetaServer.ExternalManager.ApplyNetworkGroups,
-		nics:                                     availableNICs,
+		nicManager:                               nicManager,
 		state:                                    stateImpl,
 		residualHitMap:                           make(map[string]int64),
 		podLevelNetClassAnnoKey:                  consts.PodAnnotationNetClassKey,
@@ -203,6 +219,7 @@ func makeNICs(hasNics bool) []machine.InterfaceInfo {
 		return []machine.InterfaceInfo{
 			{
 				Iface:    testEth0Name,
+				IfIndex:  0,
 				Speed:    25000,
 				NumaNode: testEth0AffinitiveNUMANode,
 				Enable:   true,
@@ -214,6 +231,7 @@ func makeNICs(hasNics bool) []machine.InterfaceInfo {
 			},
 			{
 				Iface:    testEth1Name,
+				IfIndex:  1,
 				Speed:    25000,
 				NumaNode: testEth1AffinitiveNUMANode,
 				Enable:   false,
@@ -221,6 +239,7 @@ func makeNICs(hasNics bool) []machine.InterfaceInfo {
 			},
 			{
 				Iface:    testEth2Name,
+				IfIndex:  2,
 				Speed:    25000,
 				NumaNode: testEth2AffinitiveNUMANode,
 				Enable:   true,
@@ -235,6 +254,7 @@ func makeNICs(hasNics bool) []machine.InterfaceInfo {
 		return []machine.InterfaceInfo{
 			{
 				Iface:    testEth0Name,
+				IfIndex:  0,
 				Speed:    25000,
 				NumaNode: testEth0AffinitiveNUMANode,
 				Enable:   false,
@@ -246,6 +266,7 @@ func makeNICs(hasNics bool) []machine.InterfaceInfo {
 			},
 			{
 				Iface:    testEth1Name,
+				IfIndex:  1,
 				Speed:    25000,
 				NumaNode: testEth1AffinitiveNUMANode,
 				Enable:   false,
@@ -253,6 +274,7 @@ func makeNICs(hasNics bool) []machine.InterfaceInfo {
 			},
 			{
 				Iface:    testEth2Name,
+				IfIndex:  2,
 				Speed:    25000,
 				NumaNode: testEth2AffinitiveNUMANode,
 				Enable:   false,
@@ -334,12 +356,12 @@ func TestRemovePod(t *testing.T) {
 	}
 
 	resp, err := policy.Allocate(context.Background(), addReq)
+	assert.NoError(t, err)
 
 	// verify the state
 	allocationInfo := policy.state.GetAllocationInfo(podID, testName)
 	machineState := policy.state.GetMachineState()
 	podEntries := policy.state.GetPodEntries()
-	assert.NoError(t, err)
 	assert.NotNil(t, resp)
 	assert.Equal(t, allocationInfo.IfName, testEth0Name)
 	assert.Equal(t, allocationInfo.Egress, uint32(bwReq))
@@ -1695,7 +1717,7 @@ func TestPreStartContainer(t *testing.T) {
 
 func TestStaticPolicy_applyNetClass(t *testing.T) {
 	t.Parallel()
-	defer monkey.UnpatchAll()
+	defer mockey.UnPatchAll()
 
 	policy := makeStaticPolicy(t, true)
 	assert.NotNil(t, policy)
@@ -1764,9 +1786,9 @@ func TestStaticPolicy_applyNetClass(t *testing.T) {
 
 	policy.applyNetClassFunc = policy.metaServer.ExternalManager.ApplyNetClass
 
-	monkey.Patch(common.IsContainerCgroupExist, func(podUID, containerID string) (bool, error) {
+	mockey.Mock(common.IsContainerCgroupExist).To(func(podUID, containerID string) (bool, error) {
 		return true, nil
-	})
+	}).Build()
 
 	policy.applyNetClass()
 }

@@ -42,6 +42,8 @@ type NetworkQRMPluginConfig struct {
 
 	// EnableNICAllocationReactor: enable the nic allocation reactor for pods already have nic allocated by runtime
 	EnableNICAllocationReactor bool
+	// NICHealthCheckers is the list of enabled NIC health checkers
+	NICHealthCheckers []string
 }
 
 type NetClassConfig struct {

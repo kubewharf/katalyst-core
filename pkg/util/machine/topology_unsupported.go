@@ -20,15 +20,9 @@ limitations under the License.
 package machine
 
 import (
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
+	"fmt"
 )
 
-// GetExtraNetworkInfo get network info from /sys/class/net and system function net.Interfaces.
-// if multiple network namespace is enabled, we should exec into all namespaces and parse nics for them.
-func GetExtraNetworkInfo(_ *global.MachineInfoConfiguration) (*ExtraNetworkInfo, error) {
-	return &ExtraNetworkInfo{}, nil
-}
-
-func DoNetNS(nsName, nsAbsPath string, cb func(sysFsDir string) error) error {
-	return cb(nsAbsPath)
+func getNUMADistanceMap() (map[int][]NumaDistanceInfo, error) {
+	return nil, fmt.Errorf("not supported")
 }

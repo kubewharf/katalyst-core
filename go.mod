@@ -3,7 +3,6 @@ module github.com/kubewharf/katalyst-core
 go 1.18
 
 require (
-	bou.ke/monkey v1.0.2
 	github.com/alecthomas/units v0.0.0-20190924025748-f65c72e2690d
 	github.com/bytedance/mockey v1.2.11
 	github.com/cespare/xxhash v1.1.0
@@ -166,6 +165,7 @@ require (
 )
 
 replace (
+	github.com/kubewharf/katalyst-api => github.com/luomingmeng/katalyst-api v0.0.0-20250318034027-f1a5d8269496
 	k8s.io/api => k8s.io/api v0.24.6
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.24.6
 	k8s.io/apimachinery => k8s.io/apimachinery v0.24.6

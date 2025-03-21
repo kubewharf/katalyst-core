@@ -38,6 +38,7 @@ type NetworkOptions struct {
 	NetInterfaceNameResourceAllocationAnnotationKey string
 	NetClassIDResourceAllocationAnnotationKey       string
 	NetBandwidthResourceAllocationAnnotationKey     string
+	NICHealthCheckers                               []string
 	EnableNICAllocationReactor                      bool
 }
 
@@ -68,6 +69,7 @@ func NewNetworkOptions() *NetworkOptions {
 		NetClassIDResourceAllocationAnnotationKey:       "qrm.katalyst.kubewharf.io/netcls_id",
 		NetBandwidthResourceAllocationAnnotationKey:     "qrm.katalyst.kubewharf.io/net_bandwidth",
 		EnableNICAllocationReactor:                      true,
+		NICHealthCheckers:                               []string{"*"},
 	}
 }
 
@@ -110,6 +112,9 @@ func (o *NetworkOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.NetBandwidthResourceAllocationAnnotationKey, "The annotation key of allocated bandwidth for the container, which is ready by runtime")
 	fs.BoolVar(&o.EnableNICAllocationReactor, "enable-network-resource-plugin-nic-allocation-reactor",
 		o.EnableNICAllocationReactor, "enable network allocation reactor, default is true")
+	fs.StringSliceVar(&o.NICHealthCheckers, "network-resource-plugin-nic-health-checkers",
+		o.NICHealthCheckers, "list of nic health checkers, '*' run all on-by-default checkers,"+
+			"'ip' run checker 'ip', '-ip' not run checker 'ip'")
 }
 
 func (o *NetworkOptions) ApplyTo(conf *qrmconfig.NetworkQRMPluginConfig) error {
@@ -131,6 +136,7 @@ func (o *NetworkOptions) ApplyTo(conf *qrmconfig.NetworkQRMPluginConfig) error {
 	conf.NetClassIDResourceAllocationAnnotationKey = o.NetClassIDResourceAllocationAnnotationKey
 	conf.NetBandwidthResourceAllocationAnnotationKey = o.NetBandwidthResourceAllocationAnnotationKey
 	conf.EnableNICAllocationReactor = o.EnableNICAllocationReactor
+	conf.NICHealthCheckers = o.NICHealthCheckers
 
 	return nil
 }
