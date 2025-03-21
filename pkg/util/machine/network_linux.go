@@ -53,6 +53,7 @@ const (
 	netFileNameSpeed    = "speed"
 	netFileNameNUMANode = "device/numa_node"
 	netFileNameEnable   = "device/enable"
+	nicFileNameIfindex  = "ifindex"
 	netOperstate        = "operstate"
 	netUP               = "up"
 	netEnable           = 1
@@ -105,14 +106,16 @@ func GetExtraNetworkInfo(conf *global.MachineInfoConfiguration) (*ExtraNetworkIn
 // DoNetNS executes a callback function within the specified network namespace.
 // If the namespace is the default one, the callback runs in the current network namespace.
 // Otherwise, it mounts a temporary sysfs to avoid contaminating the host sysfs.
-func DoNetNS(nsName, nsAbsPath string, cb func(sysFsDir string) error) error {
+func DoNetNS(nsName, netNSDirAbsPath string, cb func(sysFsDir, nsAbsPath string) error) error {
 	// if nsName is defaulted, the callback function will be run in the current network namespace.
 	// So skip the whole function, just call cb().
 	// cb() needs a sysFsDir as arg but ignored, give it a fake one.
+	var nsAbsPath string
 	sysFsDir := sysFSDirNormal
 	if nsName == DefaultNICNamespace {
-		return cb(sysFsDir)
+		return cb(sysFsDir, nsAbsPath)
 	}
+	nsAbsPath = path.Join(netNSDirAbsPath, nsName)
 
 	// if nsName is not defaulted, we should exec into the new network namespace.
 	// So we need to mount sysfs to /tmp/net_ns_sysfs to avoid contaminating the host sysfs directory.
@@ -169,15 +172,14 @@ func DoNetNS(nsName, nsAbsPath string, cb func(sysFsDir string) error) error {
 		}
 	}()
 
-	return cb(sysFsDir)
+	return cb(sysFsDir, nsAbsPath)
 }
 
 // getNSNetworkHardwareTopology set given network namespaces and get nics inside if needed
 func getNSNetworkHardwareTopology(nsName, netNSDirAbsPath string) ([]InterfaceInfo, error) {
 	var nics []InterfaceInfo
 
-	nsAbsPath := path.Join(netNSDirAbsPath, nsName)
-	err := DoNetNS(nsName, nsAbsPath, func(sysFsDir string) error {
+	err := DoNetNS(nsName, netNSDirAbsPath, func(sysFsDir, nsAbsPath string) error {
 		nicsBaseDirPath := path.Join(sysFsDir, nicPathNAMEBaseDir)
 		nicDirs, err := os.ReadDir(nicsBaseDirPath)
 		if err != nil {
@@ -216,7 +218,7 @@ func getNSNetworkHardwareTopology(nsName, netNSDirAbsPath string) ([]InterfaceIn
 				nic.Addr = nicAddr
 			}
 
-			getInterfaceIndex(&nic)
+			getInterfaceIndex(nicsBaseDirPath, &nic)
 			getInterfaceAttr(&nic, nicPath)
 
 			general.Infof("discover nic: %#v", nic)
@@ -231,7 +233,7 @@ func getNSNetworkHardwareTopology(nsName, netNSDirAbsPath string) ([]InterfaceIn
 	return nics, nil
 }
 
-func getInterfaceIndex(info *InterfaceInfo) {
+func getInterfaceIndex(nicsBaseDirPath string, info *InterfaceInfo) {
 	if info == nil {
 		return
 	}
@@ -240,7 +242,7 @@ func getInterfaceIndex(info *InterfaceInfo) {
 	iface, err := net.InterfaceByName(nicName)
 	if err != nil {
 		general.Warningf("failed to InterfaceByName(%s), err %v", nicName, err)
-		ifIndex, err := getIfIndexFromSys(nicName)
+		ifIndex, err := getIfIndexFromSys(nicsBaseDirPath, nicName)
 		if err != nil {
 			general.Errorf("failed to get %s interface index from sys: %v", nicName, err)
 			return
@@ -292,8 +294,8 @@ func getInterfaceAttr(info *InterfaceInfo, nicPath string) {
 	}
 }
 
-func getIfIndexFromSys(nicName string) (int, error) {
-	ifIndexPath := fmt.Sprintf("/sys/class/net/%s/ifindex", nicName)
+func getIfIndexFromSys(nicsBaseDirPath, nicName string) (int, error) {
+	ifIndexPath := path.Join(nicsBaseDirPath, nicName, nicFileNameIfindex)
 	b, err := os.ReadFile(ifIndexPath)
 	if err != nil {
 		return 0, err
