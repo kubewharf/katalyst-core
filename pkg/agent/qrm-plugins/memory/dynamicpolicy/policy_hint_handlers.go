@@ -349,7 +349,7 @@ func (p *DynamicPolicy) calculateHints(reqInt uint64,
 	for numaNode := range machineState {
 		numaNodes = append(numaNodes, numaNode)
 	}
-	sort.Ints(numaNodes)
+	sort.Sort(sort.Reverse(sort.IntSlice(numaNodes)))
 
 	bytesPerNUMA, err := machineState.BytesPerNUMA()
 	if err != nil {

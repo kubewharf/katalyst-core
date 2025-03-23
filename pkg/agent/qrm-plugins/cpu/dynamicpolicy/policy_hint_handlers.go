@@ -788,6 +788,8 @@ func (p *DynamicPolicy) populateHintsByPreferPolicy(numaNodes []int, preferPolic
 ) {
 	preferIndexes, maxLeft, minLeft := []int{}, float64(-1), math.MaxFloat64
 
+	sort.Sort(sort.Reverse(sort.IntSlice(numaNodes)))
+
 	for _, nodeID := range numaNodes {
 		availableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(p.reservedCPUs)
 		if !cpuutil.CPUIsSufficient(request, availableCPUQuantity) {
