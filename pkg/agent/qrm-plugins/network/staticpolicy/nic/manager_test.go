@@ -18,7 +18,6 @@ package nic
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -110,6 +109,9 @@ func TestUpdateNICs(t *testing.T) {
 		mockChecker := new(MockNICHealthChecker)
 		mockChecker.On("CheckHealth", mock.Anything).Return(true, nil)
 
+		conf, err := options.NewOptions().Config()
+		assert.NoError(t, err)
+
 		manager := &nicManagerImpl{
 			nics: &NICs{},
 			defaultAllocatableNICs: []machine.InterfaceInfo{
@@ -118,6 +120,7 @@ func TestUpdateNICs(t *testing.T) {
 			checkers: map[string]checker.NICHealthChecker{
 				"mockChecker": mockChecker,
 			},
+			conf: conf,
 		}
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -178,10 +181,20 @@ func TestCheckNICs(t *testing.T) {
 		mockChecker := new(MockNICHealthChecker)
 		mockChecker.On("CheckHealth", mock.Anything).Return(true, nil)
 
+		conf, err := options.NewOptions().Config()
+		assert.NoError(t, err)
+
 		checkers := map[string]checker.NICHealthChecker{"mockChecker": mockChecker}
 		nics := []machine.InterfaceInfo{{Iface: "eth0"}, {Iface: "eth1"}}
+		n := &nicManagerImpl{
+			checkers:               checkers,
+			emitter:                mockEmitter,
+			conf:                   conf,
+			nicHealthCheckTime:     1,
+			nicHealthCheckInterval: 0,
+		}
 
-		result, err := checkNICs(mockEmitter, checkers, nics)
+		result, err := n.checkNICs(nics)
 		assert.NoError(t, err)
 		assert.Len(t, result.HealthyNICs, 2)
 		assert.Empty(t, result.UnhealthyNICs)
@@ -190,28 +203,25 @@ func TestCheckNICs(t *testing.T) {
 	t.Run("Some NICs unhealthy", func(t *testing.T) {
 		t.Parallel()
 		mockChecker := new(MockNICHealthChecker)
-		mockChecker.On("CheckHealth", mock.Anything).Return(false, nil).Once()
-		mockChecker.On("CheckHealth", mock.Anything).Return(true, nil).Once()
+		mockChecker.On("CheckHealth", mock.Anything).Return(false, nil).Twice()
+		mockChecker.On("CheckHealth", mock.Anything).Return(true, nil).Twice()
+
+		conf, err := options.NewOptions().Config()
+		assert.NoError(t, err)
 
 		checkers := map[string]checker.NICHealthChecker{"mockChecker": mockChecker}
 		nics := []machine.InterfaceInfo{{Iface: "eth0"}, {Iface: "eth1"}}
+		n := &nicManagerImpl{
+			checkers:               checkers,
+			emitter:                mockEmitter,
+			conf:                   conf,
+			nicHealthCheckTime:     1,
+			nicHealthCheckInterval: 0,
+		}
 
-		result, err := checkNICs(mockEmitter, checkers, nics)
+		result, err := n.checkNICs(nics)
 		assert.NoError(t, err)
 		assert.Len(t, result.HealthyNICs, 1)
 		assert.Len(t, result.UnhealthyNICs, 1)
-	})
-
-	t.Run("Health check error", func(t *testing.T) {
-		t.Parallel()
-		mockChecker := new(MockNICHealthChecker)
-		mockChecker.On("CheckHealth", mock.Anything).Return(false, errors.New("mock error"))
-
-		checkers := map[string]checker.NICHealthChecker{"mockChecker": mockChecker}
-		nics := []machine.InterfaceInfo{{Iface: "eth0"}}
-
-		result, err := checkNICs(mockEmitter, checkers, nics)
-		assert.Error(t, err)
-		assert.Nil(t, result)
 	})
 }
