@@ -35,6 +35,7 @@ const (
 	SystemNetResource     = "system/network"
 	SystemMemoryResource  = "system/memory"
 	SystemComputeResource = "system/compute"
+	SystemInfoResource    = "system/info"
 
 	RealtimePowerResource = "realtime/power"
 )
@@ -54,7 +55,8 @@ const (
 type SystemResourceKind int
 
 const (
-	Compute SystemResourceKind = iota
+	Info SystemResourceKind = iota
+	Compute
 	Memory
 	IO
 	Net

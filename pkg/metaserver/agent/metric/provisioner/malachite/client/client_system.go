@@ -28,6 +28,25 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
+func (c *MalachiteClient) GetSystemInfoStats() (*types.SystemInfoData, error) {
+	statsData, err := c.getSystemStats(Info)
+	if err != nil {
+		return nil, err
+	}
+
+	rsp := &types.MalachiteSystemInfoResponse{}
+	if err := json.Unmarshal(statsData, rsp); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal system info stats raw data, err %s", err)
+	}
+
+	if rsp.Status != 0 {
+		return nil, fmt.Errorf("system info stats status is not ok, %d", rsp.Status)
+	}
+
+	c.checkSystemStatsOutOfDate("info", UpdateTimeout, rsp.Data.UpdateTime)
+	return &rsp.Data, nil
+}
+
 func (c *MalachiteClient) GetSystemComputeStats() (*types.SystemComputeData, error) {
 	statsData, err := c.getSystemStats(Compute)
 	if err != nil {
@@ -110,6 +129,8 @@ func (c *MalachiteClient) getSystemStats(kind SystemResourceKind) ([]byte, error
 
 	resource := ""
 	switch kind {
+	case Info:
+		resource = SystemInfoResource
 	case Compute:
 		resource = SystemComputeResource
 	case Memory:
