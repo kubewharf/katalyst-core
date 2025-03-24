@@ -339,3 +339,11 @@ func (cl *ContainerInfoList) GetSource(index int) interface{} {
 func (cl *ContainerInfoList) SetSource(index int, p interface{}) {
 	cl.containers[index] = p.(*ContainerInfo)
 }
+
+func NumaIDBitMask(numaIDs []int) int {
+	ret := int(0)
+	for _, id := range numaIDs {
+		ret += 1 << id
+	}
+	return ret
+}

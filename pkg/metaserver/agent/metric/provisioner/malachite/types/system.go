@@ -83,6 +83,16 @@ type TCP struct {
 	TCPCloseWait       uint64  `json:"tcp_close_wait"`
 }
 
+type MalachiteSystemInfoResponse struct {
+	Status int            `json:"status"`
+	Data   SystemInfoData `json:"data"`
+}
+
+type SystemInfoData struct {
+	IsVM       bool  `json:"is_vm"`
+	UpdateTime int64 `json:"update_time"`
+}
+
 type MalachiteSystemComputeResponse struct {
 	Status int               `json:"status"`
 	Data   SystemComputeData `json:"data"`

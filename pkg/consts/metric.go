@@ -30,6 +30,9 @@ const (
 
 // System compute metrics
 const (
+	MetricCPUTotalSystem = "cpu.total.system"
+
+	MetricCPUUsageSystem      = "cpu.usage.system"
 	MetricCPUUsageRatioSystem = "cpu.usage.ratio.system"
 
 	MetricLoad1MinSystem  = "cpu.load.1min.system"
@@ -172,6 +175,12 @@ const (
 	MetricMemFragScoreNuma        = "mem.frag.score.numa"
 
 	MetricCPUUsageNuma = "cpu.usage.numa"
+)
+
+// System info metrics
+const (
+	// MetricInfoIsVM is not normal metric, only used to store is virtual machine info into metric store
+	MetricInfoIsVM = "info.is.vm"
 )
 
 // System cpu compute metrics
