@@ -21,6 +21,7 @@ import (
 
 	cliflag "k8s.io/component-base/cli/flag"
 
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
@@ -36,14 +37,15 @@ type CPUOptions struct {
 }
 
 type CPUDynamicPolicyOptions struct {
-	EnableCPUAdvisor              bool
-	AdvisorGetAdviceInterval      time.Duration
-	EnableCPUPressureEviction     bool
-	LoadPressureEvictionSkipPools []string
-	EnableSyncingCPUIdle          bool
-	EnableCPUIdle                 bool
-	CPUNUMAHintPreferPolicy       string
-	CPUNUMAHintPreferLowThreshold float64
+	EnableCPUAdvisor                          bool
+	AdvisorGetAdviceInterval                  time.Duration
+	EnableCPUPressureEviction                 bool
+	LoadPressureEvictionSkipPools             []string
+	EnableSyncingCPUIdle                      bool
+	EnableCPUIdle                             bool
+	CPUNUMAHintPreferPolicy                   string
+	CPUNUMAHintPreferLowThreshold             float64
+	SharedCoresNUMABindingResultAnnotationKey string
 }
 
 type CPUNativePolicyOptions struct {
@@ -69,6 +71,7 @@ func NewCPUOptions() *CPUOptions {
 				commonstate.PoolNameFallback,
 				commonstate.PoolNameReserve,
 			},
+			SharedCoresNUMABindingResultAnnotationKey: consts.PodAnnotationNUMABindResultKey,
 		},
 		CPUNativePolicyOptions: CPUNativePolicyOptions{
 			EnableFullPhysicalCPUsOnly: false,
@@ -109,6 +112,9 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.BoolVar(&o.EnableFullPhysicalCPUsOnly, "enable-full-physical-cpus-only",
 		o.EnableFullPhysicalCPUsOnly, "if set true, we will enable extra allocation restrictions to "+
 			"avoid different containers to possibly end up on the same core.")
+	fs.StringVar(&o.SharedCoresNUMABindingResultAnnotationKey, "shared-cores-numa-binding-result-annotation-key",
+		o.SharedCoresNUMABindingResultAnnotationKey, "the key of shared cores numa binding result annotation, "+
+			"default is katalyst.kubewharf.io/numa_bind_result")
 }
 
 func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
@@ -125,5 +131,6 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 	conf.CPUAllocationOption = o.CPUAllocationOption
 	conf.CPUNUMAHintPreferPolicy = o.CPUNUMAHintPreferPolicy
 	conf.CPUNUMAHintPreferLowThreshold = o.CPUNUMAHintPreferLowThreshold
+	conf.SharedCoresNUMABindingResultAnnotationKey = o.SharedCoresNUMABindingResultAnnotationKey
 	return nil
 }

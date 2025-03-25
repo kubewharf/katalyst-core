@@ -49,6 +49,9 @@ type CPUDynamicPolicyConfig struct {
 	// CPUNUMAHintPreferLowThreshold indicates threshold to apply CPUNUMAHintPreferPolicy dynamically,
 	// and it's working when CPUNUMAHintPreferPolicy is set to dynamic_packing
 	CPUNUMAHintPreferLowThreshold float64
+	// SharedCoresNUMABindingResultAnnotationKey is the annotation key used to store
+	// the NUMA binding results for shared CPU cores.
+	SharedCoresNUMABindingResultAnnotationKey string
 }
 
 type CPUNativePolicyConfig struct {
