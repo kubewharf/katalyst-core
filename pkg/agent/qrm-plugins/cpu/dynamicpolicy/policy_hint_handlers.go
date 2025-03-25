@@ -941,9 +941,72 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(request float64,
 		return nil, errNoAvailableCPUHints
 	}
 
+	// populate hints by already existed numa binding result
+	err = p.populateHintsByAlreadyExistedNUMABindingResult(req, hints)
+	if err != nil {
+		general.Warningf("populateHintsByAlreadyExistedNUMABindingResult failed with error: %v", err)
+		return nil, err
+	}
+
 	return map[string]*pluginapi.ListOfTopologyHints{
 		string(v1.ResourceCPU): hints,
 	}, nil
+}
+
+func (p *DynamicPolicy) populateHintsByAlreadyExistedNUMABindingResult(req *pluginapi.ResourceRequest, hints *pluginapi.ListOfTopologyHints) error {
+	result, err := p.getSharedCoresNUMABindingResultFromAnnotation(req)
+	if err != nil {
+		return err
+	}
+
+	// skip empty result
+	if result.IsEmpty() {
+		return nil
+	}
+
+	index := -1
+	for i, hint := range hints.Hints {
+		hintNUMASet, err := machine.NewCPUSetUint64(hint.Nodes...)
+		if err != nil {
+			return err
+		}
+
+		if result.Equals(hintNUMASet) {
+			index = i
+			break
+		}
+	}
+
+	if index == -1 {
+		general.Warningf("failed to find already existed numa binding result %s from hints %v for pod: %s/%s, container: %s",
+			result, hints.Hints, req.PodNamespace, req.PodName, req.ContainerName)
+	} else {
+		general.Infof("found already existed numa binding result %s from hints %v for pod: %s/%s, container: %s",
+			result, hints.Hints, req.PodNamespace, req.PodName, req.ContainerName)
+		for i, hint := range hints.Hints {
+			if i == index {
+				hint.Preferred = true
+			} else {
+				hint.Preferred = false
+			}
+		}
+	}
+
+	return nil
+}
+
+func (p *DynamicPolicy) getSharedCoresNUMABindingResultFromAnnotation(req *pluginapi.ResourceRequest) (machine.CPUSet, error) {
+	result, ok := req.Annotations[p.sharedCoresNUMABindingResultAnnotationKey]
+	if !ok {
+		return machine.CPUSet{}, nil
+	}
+
+	numaSet, err := machine.Parse(result)
+	if err != nil {
+		return machine.CPUSet{}, err
+	}
+
+	return numaSet, nil
 }
 
 func (p *DynamicPolicy) populateHintsByAvailableNUMANodes(numaNodes []int,
