@@ -331,7 +331,7 @@ func (p *DynamicPolicy) checkMemorySet(_ *coreconfig.Configuration,
 		}
 	}
 
-	unionNUMABindingActualMemorySet := machine.NewCPUSet()
+	unionDedicatedNUMABindingExclusiveActualMemorySet := machine.NewCPUSet()
 	unionDedicatedActualMemorySet := machine.NewCPUSet()
 	unionSharedActualMemorySet := machine.NewCPUSet()
 
@@ -344,13 +344,13 @@ func (p *DynamicPolicy) checkMemorySet(_ *coreconfig.Configuration,
 
 			switch allocationInfo.QoSLevel {
 			case consts.PodAnnotationQoSLevelDedicatedCores:
-				if allocationInfo.CheckNUMABinding() {
-					if !memorySetOverlap && cset.Intersection(unionNUMABindingActualMemorySet).Size() != 0 {
+				if allocationInfo.CheckNUMABinding() && allocationInfo.CheckNumaExclusive() {
+					if !memorySetOverlap && cset.Intersection(unionDedicatedNUMABindingExclusiveActualMemorySet).Size() != 0 {
 						memorySetOverlap = true
 						general.Errorf("pod: %s/%s, container: %s memset: %s overlaps with others",
 							allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, cset.String())
 					}
-					unionNUMABindingActualMemorySet = unionNUMABindingActualMemorySet.Union(cset)
+					unionDedicatedNUMABindingExclusiveActualMemorySet = unionDedicatedNUMABindingExclusiveActualMemorySet.Union(cset)
 				} else {
 					unionDedicatedActualMemorySet = unionDedicatedActualMemorySet.Union(cset)
 				}
@@ -360,11 +360,11 @@ func (p *DynamicPolicy) checkMemorySet(_ *coreconfig.Configuration,
 		}
 	}
 
-	regionOverlap := unionNUMABindingActualMemorySet.Intersection(unionSharedActualMemorySet).Size() != 0 ||
-		unionNUMABindingActualMemorySet.Intersection(unionDedicatedActualMemorySet).Size() != 0
+	regionOverlap := unionDedicatedNUMABindingExclusiveActualMemorySet.Intersection(unionSharedActualMemorySet).Size() != 0 ||
+		unionDedicatedNUMABindingExclusiveActualMemorySet.Intersection(unionDedicatedActualMemorySet).Size() != 0
 	if regionOverlap {
-		general.Errorf("shared_cores union memset: %s, dedicated_cores union memset: %s overlap with numa_binding union memset: %s",
-			unionSharedActualMemorySet.String(), unionDedicatedActualMemorySet.String(), unionNUMABindingActualMemorySet.String())
+		general.Errorf("shared_cores union memset: %s, dedicated_cores union memset: %s overlap with numa_binding and exclusive union memset: %s",
+			unionSharedActualMemorySet.String(), unionDedicatedActualMemorySet.String(), unionDedicatedNUMABindingExclusiveActualMemorySet.String())
 	}
 
 	if !memorySetOverlap {
