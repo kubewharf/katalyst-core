@@ -43,6 +43,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
@@ -55,7 +56,8 @@ const (
 const (
 	InactiveProbe            = 0.1
 	OffloadingSizeScaleCoeff = 1.05
-	CacheMappedCoeff         = 2
+	CacheMappedCoeff         = 1.2
+	minSizeToReclaim         = 1024 * 1024 * 1024
 )
 
 const (
@@ -433,7 +435,7 @@ func (tmoEngine *tmoEngineInstance) CalculateOffloadingTargetSize() {
 
 			cacheExceptMapped := currStats.cache - currStats.mapped
 			general.InfoS("Handle targetSize from policy", "Tmo obj:", currStats.obj, "targetSize:", targetSize, "cacheExceptMapped", cacheExceptMapped)
-			targetSize = math.Max(0, math.Min(cacheExceptMapped, targetSize))
+			targetSize = math.Max(minSizeToReclaim, math.Min(cacheExceptMapped, targetSize))
 			tmoEngine.offloadingTargetSize = targetSize
 			currStats.offloadingTargetSize = targetSize
 			tmoEngine.lastStats = currStats
@@ -458,6 +460,8 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 	if tmo.conf.GetDynamicConfiguration().BlockConfig != nil {
 		RegisterTMOBlockFunc(FromDynamicConfigTMOBlockFnName, TMOBlockFnFromDynamicConfig)
 	}
+
+	swapProactiveEnable := machine.SwappinessProactiveEnable()
 	podContainerNamesMap := make(map[katalystcoreconsts.PodContainerName]bool)
 	podList, err := tmo.metaServer.GetPodList(context.Background(), native.PodIsActive)
 	if err != nil {
@@ -541,6 +545,11 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 					tmo.containerTmoEngines[podContainerName].GetConf().EnableTMO = false
 					general.Infof("container with podContainerName: %s is required to disable TMO by TMOBlockFn: %s", podContainerName, tmoBlockFnName)
 				}
+			}
+
+			if tmo.containerTmoEngines[podContainerName].GetConf().EnableTMO && containerInfo.QoSLevel == string(katalystapiconsts.QoSLevelReclaimedCores) && swapProactiveEnable {
+				tmo.containerTmoEngines[podContainerName].GetConf().EnableSwap = true
+				general.Infof("container with podContainerName: %s is required to enable swap since swappiness proactive enabled and it is reclaimed", podContainerName)
 			}
 
 			general.Infof("Final TMO configs for podContainerName: %v, enableTMO: %v, enableSwap: %v, interval: %v, policy: %v", podContainerName,
