@@ -18,6 +18,10 @@ package machine
 
 import (
 	"fmt"
+	"io/ioutil"
+	"k8s.io/klog/v2"
+	"strconv"
+	"strings"
 )
 
 const (
@@ -127,4 +131,18 @@ func GetSiblingNUMAs(numaID int, topology *CPUTopology) (CPUSet, error) {
 	}
 
 	return numaSet, nil
+}
+
+func SwappinessProactiveEnable() bool {
+	data, err := ioutil.ReadFile("/proc/sys/vm/swappiness_proactive")
+	if err != nil {
+		klog.ErrorS(err, "failed to check swappiness_proactive")
+		return false
+	}
+	active, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		klog.ErrorS(err, "failed to parse swappiness_proactive file")
+		return false
+	}
+	return active == 1
 }
