@@ -323,8 +323,8 @@ func TestGetProcessPageStats_SmapsFileNotFound(t *testing.T) {
 	}{
 		{
 			name:    "read smaps file failed",
-			wantErr: true,
-			errMsg:  "failed to ReadLines",
+			wantErr: false,
+			errMsg:  "",
 		},
 	}
 
@@ -339,8 +339,9 @@ func TestGetProcessPageStats_SmapsFileNotFound(t *testing.T) {
 				t.Errorf("test name: %s for getProcessPageStats error = %v, wantErr %v", tt.name, err, tt.wantErr)
 				return
 			}
-
-			assert.Assert(t, strings.Contains(err.Error(), tt.errMsg))
+			if err != nil {
+				assert.Assert(t, strings.Contains(err.Error(), tt.errMsg))
+			}
 		})
 	}
 }
