@@ -153,6 +153,7 @@ type DynamicPolicy struct {
 	logCacheEvictionManager logcache.Manager
 
 	enableReclaimNUMABinding                      bool
+	enableSNBHighNumaPreference                   bool
 	enableNonBindingShareCoresMemoryResourceCheck bool
 
 	numaAllocationReactor                         reactor.AllocationReactor
@@ -195,35 +196,36 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	})
 
 	policyImplement := &DynamicPolicy{
-		topology:                   agentCtx.CPUTopology,
-		dynamicConf:                conf.DynamicAgentConfiguration,
-		qosConfig:                  conf.QoSConfiguration,
-		emitter:                    wrappedEmitter,
-		metaServer:                 agentCtx.MetaServer,
-		state:                      stateImpl,
-		stopCh:                     make(chan struct{}),
-		migratingMemory:            make(map[string]map[string]bool),
-		residualHitMap:             make(map[string]int64),
-		enhancementHandlers:        make(util.ResourceEnhancementHandlerMap),
-		extraStateFileAbsPath:      conf.ExtraStateFileAbsPath,
-		name:                       fmt.Sprintf("%s_%s", agentName, memconsts.MemoryResourcePluginPolicyNameDynamic),
-		podDebugAnnoKeys:           conf.PodDebugAnnoKeys,
-		podAnnotationKeptKeys:      conf.PodAnnotationKeptKeys,
-		podLabelKeptKeys:           conf.PodLabelKeptKeys,
-		asyncWorkers:               asyncworker.NewAsyncWorkers(memoryPluginAsyncWorkersName, wrappedEmitter),
-		defaultAsyncLimitedWorkers: asyncworker.NewAsyncLimitedWorkers(memoryPluginAsyncWorkersName, defaultAsyncWorkLimit, wrappedEmitter),
-		enableSettingMemoryMigrate: conf.EnableSettingMemoryMigrate,
-		enableSettingSockMem:       conf.EnableSettingSockMem,
-		enableSettingFragMem:       conf.EnableSettingFragMem,
-		enableMemoryAdvisor:        conf.EnableMemoryAdvisor,
-		getAdviceInterval:          conf.GetAdviceInterval,
-		memoryAdvisorSocketAbsPath: conf.MemoryAdvisorSocketAbsPath,
-		memoryPluginSocketAbsPath:  conf.MemoryPluginSocketAbsPath,
-		extraControlKnobConfigs:    extraControlKnobConfigs, // [TODO]: support modifying extraControlKnobConfigs by KCC
-		enableOOMPriority:          conf.EnableOOMPriority,
-		oomPriorityMapPinnedPath:   conf.OOMPriorityPinnedMapAbsPath,
-		enableEvictingLogCache:     conf.EnableEvictingLogCache,
-		enableReclaimNUMABinding:   conf.EnableReclaimNUMABinding,
+		topology:                    agentCtx.CPUTopology,
+		dynamicConf:                 conf.DynamicAgentConfiguration,
+		qosConfig:                   conf.QoSConfiguration,
+		emitter:                     wrappedEmitter,
+		metaServer:                  agentCtx.MetaServer,
+		state:                       stateImpl,
+		stopCh:                      make(chan struct{}),
+		migratingMemory:             make(map[string]map[string]bool),
+		residualHitMap:              make(map[string]int64),
+		enhancementHandlers:         make(util.ResourceEnhancementHandlerMap),
+		extraStateFileAbsPath:       conf.ExtraStateFileAbsPath,
+		name:                        fmt.Sprintf("%s_%s", agentName, memconsts.MemoryResourcePluginPolicyNameDynamic),
+		podDebugAnnoKeys:            conf.PodDebugAnnoKeys,
+		podAnnotationKeptKeys:       conf.PodAnnotationKeptKeys,
+		podLabelKeptKeys:            conf.PodLabelKeptKeys,
+		asyncWorkers:                asyncworker.NewAsyncWorkers(memoryPluginAsyncWorkersName, wrappedEmitter),
+		defaultAsyncLimitedWorkers:  asyncworker.NewAsyncLimitedWorkers(memoryPluginAsyncWorkersName, defaultAsyncWorkLimit, wrappedEmitter),
+		enableSettingMemoryMigrate:  conf.EnableSettingMemoryMigrate,
+		enableSettingSockMem:        conf.EnableSettingSockMem,
+		enableSettingFragMem:        conf.EnableSettingFragMem,
+		enableMemoryAdvisor:         conf.EnableMemoryAdvisor,
+		getAdviceInterval:           conf.GetAdviceInterval,
+		memoryAdvisorSocketAbsPath:  conf.MemoryAdvisorSocketAbsPath,
+		memoryPluginSocketAbsPath:   conf.MemoryPluginSocketAbsPath,
+		extraControlKnobConfigs:     extraControlKnobConfigs, // [TODO]: support modifying extraControlKnobConfigs by KCC
+		enableOOMPriority:           conf.EnableOOMPriority,
+		oomPriorityMapPinnedPath:    conf.OOMPriorityPinnedMapAbsPath,
+		enableEvictingLogCache:      conf.EnableEvictingLogCache,
+		enableReclaimNUMABinding:    conf.EnableReclaimNUMABinding,
+		enableSNBHighNumaPreference: conf.EnableSNBHighNumaPreference,
 		enableNonBindingShareCoresMemoryResourceCheck: conf.EnableNonBindingShareCoresMemoryResourceCheck,
 		numaBindResultResourceAllocationAnnotationKey: conf.NUMABindResultResourceAllocationAnnotationKey,
 	}
