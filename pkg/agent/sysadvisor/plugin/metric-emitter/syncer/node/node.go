@@ -181,7 +181,7 @@ func (n *MetricSyncerNode) generateMetricTag(ctx context.Context) (tags []metric
 	cpuCodeNameInterface := n.metaServer.MetricsFetcher.GetByStringIndex(consts.MetricCPUCodeName)
 	cpuCodeName, ok := cpuCodeNameInterface.(string)
 	if !ok {
-		klog.Errorf("parse cpu code name %v failed", cpuCodeNameInterface)
+		klog.Warningf("parse cpu code name %v failed", cpuCodeNameInterface)
 		cpuCodeName = ""
 	}
 
@@ -190,7 +190,7 @@ func (n *MetricSyncerNode) generateMetricTag(ctx context.Context) (tags []metric
 	isVMInterface := n.metaServer.MetricsFetcher.GetByStringIndex(consts.MetricInfoIsVM)
 	isVM, ok := isVMInterface.(bool)
 	if !ok {
-		klog.Errorf("parse is vm %v failed", isVMInterface)
+		klog.Warningf("parse is vm %v failed", isVMInterface)
 	} else {
 		if isVM {
 			vendor = "vm"
