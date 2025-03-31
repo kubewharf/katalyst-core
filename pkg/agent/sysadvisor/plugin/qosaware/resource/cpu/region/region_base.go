@@ -30,11 +30,14 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	workloadv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/headroompolicy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/provisionpolicy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/regulator"
 	borweinctrl "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper/modelctrl/borwein"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -119,6 +122,12 @@ func (r *provisionPolicyResult) regulateControlKnob(currentControlKnob, effectiv
 			reg.Regulate(knob, nil)
 		}
 		r.controlKnobValueRegulators[name] = reg
+	}
+	// cleanup control knob regulators
+	for name := range r.controlKnobValueRegulators {
+		if _, ok := currentControlKnob[name]; !ok {
+			delete(r.controlKnobValueRegulators, name)
+		}
 	}
 }
 
@@ -430,6 +439,7 @@ func (r *QoSRegionBase) GetProvision() (types.ControlKnob, error) {
 				r.borweinController.ResetIndicatorOffsets()
 			}
 		}
+		// 只有某一个策略的结果会被返回，这里建议将不同的controlKnob都返回了
 		return result.getControlKnob(), nil
 	}
 
@@ -583,7 +593,7 @@ func (r *QoSRegionBase) initProvisionPolicy(conf *config.Configuration, extraCon
 	for _, policyName := range configuredProvisionPolicy {
 		if initializer, ok := initializers[policyName]; ok {
 			policy := initializer(r.name, r.regionType, r.ownerPoolName, conf, extraConf, metaReader, metaServer, emitter)
-			policy.SetBindingNumas(r.bindingNumas)
+			policy.SetBindingNumas(r.bindingNumas, false)
 			r.provisionPolicies = append(r.provisionPolicies, &internalProvisionPolicy{
 				name:                policyName,
 				policy:              policy,
@@ -926,4 +936,28 @@ func (r *QoSRegionBase) getMemoryL3MissLatency() (float64, error) {
 	}
 
 	return latency, nil
+}
+
+func (r *QoSRegionBase) getEffectiveReclaimResource() (quota float64, cpusetsize int, err error) {
+	numaID := commonstate.FakedNUMAID
+	if r.isNumaBinding {
+		numaID = r.bindingNumas.ToSliceInt()[0]
+	}
+	reclaimPath := common.GetReclaimRelativeRootCgroupPath(r.conf.ReclaimRelativeRootCgroupPath, numaID)
+	cpustats, err := cgroupmgr.GetCPUWithRelativePath(reclaimPath)
+	if err != nil {
+		return 0, 0, err
+	}
+	if cpustats.CpuQuota == math.MaxInt || cpustats.CpuQuota == -1 {
+		quota = -1
+	} else {
+		quota = float64(cpustats.CpuQuota) / float64(cpustats.CpuPeriod)
+	}
+
+	for _, numaID := range r.bindingNumas.ToSliceInt() {
+		if reclaimedInfo, ok := r.metaReader.GetPoolInfo(commonstate.PoolNameReclaim); ok {
+			cpusetsize += reclaimedInfo.TopologyAwareAssignments[numaID].Size()
+		}
+	}
+	return
 }

@@ -26,7 +26,6 @@ import (
 
 	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	workloadapis "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
@@ -131,7 +130,7 @@ func (r *QoSRegionDedicatedNumaExclusive) updateProvisionPolicy() {
 
 		// set essentials for policy and regulator
 		internal.policy.SetPodSet(r.podSet)
-		internal.policy.SetBindingNumas(r.bindingNumas)
+		internal.policy.SetBindingNumas(r.bindingNumas, true)
 		internal.policy.SetEssentials(r.ResourceEssentials, r.ControlEssentials)
 
 		// run an episode of policy update
@@ -175,13 +174,21 @@ out:
 }
 
 func (r *QoSRegionDedicatedNumaExclusive) getEffectiveControlKnobs() types.ControlKnob {
-	reclaimedCPUSize := 0
-	if reclaimedInfo, ok := r.metaReader.GetPoolInfo(commonstate.PoolNameReclaim); ok {
-		for _, numaID := range r.bindingNumas.ToSliceInt() {
-			reclaimedCPUSize += reclaimedInfo.TopologyAwareAssignments[numaID].Size()
+	// 判断一下是否应该使用quota 作为control knob
+	quota, cpusetsize, err := r.getEffectiveReclaimResource()
+	if err != nil {
+		return types.ControlKnob{}
+	}
+	if quota > 0 {
+		return types.ControlKnob{
+			configapi.ControlKnobReclaimedCPUQuota: {
+				Value:  quota,
+				Action: types.ControlKnobActionNone,
+			},
 		}
 	}
-	cpuRequirement := r.ResourceUpperBound + r.ReservedForReclaim - float64(reclaimedCPUSize)
+
+	cpuRequirement := r.ResourceUpperBound + r.ReservedForReclaim - float64(cpusetsize)
 
 	return types.ControlKnob{
 		configapi.ControlKnobNonReclaimedCPURequirement: {

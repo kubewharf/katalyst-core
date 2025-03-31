@@ -20,30 +20,37 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/opencontainers/runc/libcontainer/cgroups"
 	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/klog/v2"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
+	workloadv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 type PolicyCanonical struct {
 	*PolicyBase
+	conf *config.Configuration
 }
 
 func NewPolicyCanonical(regionName string, regionType configapi.QoSRegionType, ownerPoolName string,
-	_ *config.Configuration, _ interface{}, metaReader metacache.MetaReader,
+	conf *config.Configuration, _ interface{}, metaReader metacache.MetaReader,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) ProvisionPolicy {
 	p := &PolicyCanonical{
 		PolicyBase: NewPolicyBase(regionName, regionType, ownerPoolName, metaReader, metaServer, emitter),
+		conf:       conf,
 	}
 	return p
 }
@@ -52,6 +59,38 @@ func (p *PolicyCanonical) Update() error {
 	// sanity check
 	if err := p.sanityCheck(); err != nil {
 		return err
+	}
+
+	if cgroups.IsCgroup2UnifiedMode() && p.isNUMABinding {
+		for metricName, indicator := range p.Indicators {
+			if metricName == string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio) {
+
+				reclaimPath := common.GetReclaimRelativeRootCgroupPath(p.conf.ReclaimRelativeRootCgroupPath, p.bindingNumas.ToSliceInt()[0])
+				data, err := p.metaServer.GetCgroupMetric(reclaimPath, pkgconsts.MetricCPUUsageCgroup)
+				if err != nil {
+					return err
+				}
+				reclaimCoresCPUUsage := data.Value
+
+				// TODO: const definition 4
+
+				cpuNr, err := p.metaServer.GetNumaMetric(p.bindingNumas.ToSliceInt()[0], pkgconsts.MetricCPUNrNuma)
+				if err != nil {
+					return err
+				}
+				quota := general.MaxFloat64(cpuNr.Value*(indicator.Target-indicator.Current)+reclaimCoresCPUUsage, 4)
+
+				general.InfoS("metrics", "cpuUsage", reclaimCoresCPUUsage, "cpuNr", cpuNr.Value, "target", indicator.Target, "current", indicator.Current, "quota", quota, "numas", p.bindingNumas.String())
+
+				p.controlKnobAdjusted = types.ControlKnob{
+					configapi.ControlKnobReclaimedCPUQuota: types.ControlKnobItem{
+						Value:  quota,
+						Action: types.ControlKnobActionNone,
+					},
+				}
+				return nil
+			}
+		}
 	}
 
 	cpuEstimation, err := p.estimateCPUUsage()
@@ -76,9 +115,17 @@ func (p *PolicyCanonical) sanityCheck() error {
 
 	// 1. check control knob legality
 	isLegal = true
-	if p.ControlKnobs != nil {
-		v, ok := p.ControlKnobs[configapi.ControlKnobNonReclaimedCPURequirement]
-		if !ok || v.Value <= 0 {
+	if p.ControlKnobs == nil || len(p.ControlKnobs) <= 0 {
+		isLegal = false
+	} else {
+		v1, ok1 := p.ControlKnobs[configapi.ControlKnobNonReclaimedCPURequirement]
+		v2, ok2 := p.ControlKnobs[configapi.ControlKnobReclaimedCPUQuota]
+
+		if !ok1 && !ok2 {
+			isLegal = false
+		} else if ok1 && v1.Value <= 0 {
+			isLegal = false
+		} else if ok2 && v2.Value <= 0 {
 			isLegal = false
 		}
 	}

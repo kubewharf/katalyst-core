@@ -24,6 +24,7 @@ import (
 	"k8s.io/klog/v2"
 
 	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
+	workloadv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
@@ -35,7 +36,28 @@ import (
 
 const (
 	metricRamaDominantIndicator = "rama_dominant_indicator"
+	controlActingDirect         = "direct"
+	controlActingReverse        = "reverse"
 )
+
+var controllerDirections = map[configapi.ControlKnobName]map[workloadv1alpha1.ServiceSystemIndicatorName]string{
+	configapi.ControlKnobNonReclaimedCPURequirement: {
+		workloadv1alpha1.ServiceSystemIndicatorNameCPUSchedWait:             controlActingReverse,
+		workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio:            controlActingReverse,
+		workloadv1alpha1.ServiceSystemIndicatorNameCPI:                      controlActingReverse,
+		workloadv1alpha1.ServiceSystemIndicatorNameMemoryAccessWriteLatency: controlActingReverse,
+		workloadv1alpha1.ServiceSystemIndicatorNameMemoryAccessReadLatency:  controlActingReverse,
+		workloadv1alpha1.ServiceSystemIndicatorNameMemoryL3MissLatency:      controlActingReverse,
+	},
+	configapi.ControlKnobReclaimedCPUQuota: {
+		workloadv1alpha1.ServiceSystemIndicatorNameCPUSchedWait:             controlActingDirect,
+		workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio:            controlActingDirect,
+		workloadv1alpha1.ServiceSystemIndicatorNameCPI:                      controlActingDirect,
+		workloadv1alpha1.ServiceSystemIndicatorNameMemoryAccessWriteLatency: controlActingDirect,
+		workloadv1alpha1.ServiceSystemIndicatorNameMemoryAccessReadLatency:  controlActingDirect,
+		workloadv1alpha1.ServiceSystemIndicatorNameMemoryL3MissLatency:      controlActingDirect,
+	},
+}
 
 type PolicyRama struct {
 	*PolicyBase
@@ -62,9 +84,19 @@ func (p *PolicyRama) Update() error {
 		return err
 	}
 
-	cpuSize := p.ControlKnobs[configapi.ControlKnobNonReclaimedCPURequirement].Value
-
+	knobName := configapi.ControlKnobNonReclaimedCPURequirement
+	knobValue := 0.0
 	cpuAdjustedRaw := math.Inf(-1)
+
+	if value, ok := p.ControlKnobs[configapi.ControlKnobReclaimedCPUQuota]; ok {
+		knobName = configapi.ControlKnobReclaimedCPUQuota
+		knobValue = value.Value
+		cpuAdjustedRaw = math.Inf(1)
+	} else if value, ok = p.ControlKnobs[configapi.ControlKnobNonReclaimedCPURequirement]; ok {
+		knobName = configapi.ControlKnobNonReclaimedCPURequirement
+		knobValue = value.Value
+	}
+
 	dominantIndicator := "unknown"
 
 	// run pid control for each indicator
@@ -81,12 +113,22 @@ func (p *PolicyRama) Update() error {
 			p.controllers[metricName] = controller
 		}
 
+		direction := controlActingDirect
+		if tmp, ok := controllerDirections[knobName]; ok {
+			if v, ok := tmp[workloadv1alpha1.ServiceSystemIndicatorName(metricName)]; ok {
+				direction = v
+			}
+		}
+
 		controller.SetEssentials(p.ResourceEssentials)
-		cpuAdjusted := controller.Adjust(cpuSize, indicator.Target, indicator.Current)
+		cpuAdjusted := controller.Adjust(knobValue, indicator.Target, indicator.Current, direction == controlActingDirect)
 
-		general.InfoS("[qosaware-cpu-rama] pid adjust result", "meta", p.GetMetaInfo(), "metricName", metricName, "cpuAdjusted", cpuAdjusted, "last cpu size", cpuSize)
+		general.InfoS("[qosaware-cpu-rama] pid adjust result", "meta", p.GetMetaInfo(), "metricName", metricName, "cpuAdjusted", cpuAdjusted, "last knobValue", knobValue, "knobName", knobName, "direction", direction, "target", indicator.Target, "current", indicator.Current, "params", params)
 
-		if cpuAdjusted > cpuAdjustedRaw {
+		if cpuAdjusted > cpuAdjustedRaw && knobName == configapi.ControlKnobNonReclaimedCPURequirement {
+			cpuAdjustedRaw = cpuAdjusted
+			dominantIndicator = metricName
+		} else if cpuAdjusted < cpuAdjustedRaw && knobName == configapi.ControlKnobReclaimedCPUQuota {
 			cpuAdjustedRaw = cpuAdjusted
 			dominantIndicator = metricName
 		}
@@ -107,7 +149,7 @@ func (p *PolicyRama) Update() error {
 	cpuAdjustedRestricted := cpuAdjustedRaw
 
 	p.controlKnobAdjusted = types.ControlKnob{
-		configapi.ControlKnobNonReclaimedCPURequirement: types.ControlKnobItem{
+		knobName: types.ControlKnobItem{
 			Value:  cpuAdjustedRestricted,
 			Action: types.ControlKnobActionNone,
 		},
@@ -139,8 +181,14 @@ func (p *PolicyRama) sanityCheck() error {
 	if p.ControlKnobs == nil || len(p.ControlKnobs) <= 0 {
 		isLegal = false
 	} else {
-		v, ok := p.ControlKnobs[configapi.ControlKnobNonReclaimedCPURequirement]
-		if !ok || v.Value <= 0 {
+		v1, ok1 := p.ControlKnobs[configapi.ControlKnobNonReclaimedCPURequirement]
+		v2, ok2 := p.ControlKnobs[configapi.ControlKnobReclaimedCPUQuota]
+
+		if !ok1 && !ok2 {
+			isLegal = false
+		} else if ok1 && v1.Value <= 0 {
+			isLegal = false
+		} else if ok2 && v2.Value <= 0 {
 			isLegal = false
 		}
 	}

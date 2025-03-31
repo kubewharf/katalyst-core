@@ -18,6 +18,7 @@ package headroomassembler
 
 import (
 	"fmt"
+	"math"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -31,6 +32,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	metricHelper "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -86,7 +89,7 @@ func (ha *HeadroomAssemblerCommon) GetHeadroom() (resource.Quantity, map[int]res
 		if r.EnableReclaim() && reclaimPoolExist && reclaimPoolInfo != nil {
 			for _, numaID := range r.GetBindingNumas().ToSliceInt() {
 				headroomNuma[numaID] = float64(reclaimPoolInfo.TopologyAwareAssignments[numaID].Size())
-				general.InfoS("region headroom", "region", r.Name(), "numaID", numaID, "headroom", headroomNuma[numaID], "emptyNUMAs", emptyNUMAs)
+				general.InfoS("region headroom", "region", r.Name(), "numaID", numaID, "headroom", headroomNuma[numaID])
 			}
 		}
 
@@ -101,7 +104,7 @@ func (ha *HeadroomAssemblerCommon) GetHeadroom() (resource.Quantity, map[int]res
 		headroom := float64(available) - reservedForAllocate + float64(reservedForReclaim)
 		headroomNuma[numaID] = headroom
 
-		klog.InfoS("empty NUMA headroom", "headroom", headroom)
+		klog.InfoS("empty NUMA headroom", "headroom", headroom, "numaID", numaID)
 	}
 
 	for numaID, headroom := range headroomNuma {
@@ -129,14 +132,6 @@ func (ha *HeadroomAssemblerCommon) GetHeadroom() (resource.Quantity, map[int]res
 	}
 
 	return ha.getHeadroomByUtil()
-}
-
-func (ha *HeadroomAssemblerCommon) getReclaimCgroupPathByNUMA(numaID int) string {
-	return fmt.Sprintf("%s-%d", ha.conf.ReclaimRelativeRootCgroupPath, numaID)
-}
-
-func (ha *HeadroomAssemblerCommon) getReclaimCgroupPath() string {
-	return ha.conf.ReclaimRelativeRootCgroupPath
 }
 
 func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[int]resource.Quantity, error) {
@@ -175,7 +170,8 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 			return resource.Quantity{}, nil, fmt.Errorf("reclaim pool NOT found TopologyAwareAssignments with numaID: %v", numaID)
 		}
 
-		reclaimMetrics, err := metricHelper.GetReclaimMetrics(cpuSet, ha.getReclaimCgroupPathByNUMA(numaID), ha.metaServer.MetricsFetcher)
+		reclaimPath := common.GetReclaimRelativeRootCgroupPath(ha.conf.ReclaimRelativeRootCgroupPath, numaID)
+		reclaimMetrics, err := metricHelper.GetReclaimMetrics(cpuSet, reclaimPath, ha.metaServer.MetricsFetcher)
 		if err != nil {
 			return resource.Quantity{}, nil, fmt.Errorf("get reclaim Metrics failed with numa %d: %v", numaID, err)
 		}
@@ -185,6 +181,17 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 		headroom, err := ha.getUtilBasedHeadroom(options, reclaimMetrics, lastReclaimedCPUPerNumaForCalculate)
 		if err != nil {
 			return resource.Quantity{}, nil, fmt.Errorf("get util-based headroom failed with numa %d: %v", numaID, err)
+		}
+
+		cpustats, err := cgroupmgr.GetCPUWithRelativePath(reclaimPath)
+		if err != nil {
+			return resource.Quantity{}, nil, err
+		}
+		if cpustats.CpuQuota != math.MaxInt || cpustats.CpuQuota > 0 {
+			general.InfoS("binding NUMA cpu quota", "numaID", numaID, "quota", cpustats.CpuQuota, "headroom origin", headroom.Value())
+			if headroom.Value() > (cpustats.CpuQuota / int64(cpustats.CpuPeriod)) {
+				headroom.Set(cpustats.CpuQuota / int64(cpustats.CpuPeriod))
+			}
 		}
 
 		numaHeadroom[numaID] = headroom
@@ -205,7 +212,7 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 			lastReclaimedCPUPerNumaForCalculate[numaID] = reclaimedCPUs[numaID]
 		}
 
-		reclaimMetrics, err := metricHelper.GetReclaimMetrics(cpusets, ha.getReclaimCgroupPath(), ha.metaServer.MetricsFetcher)
+		reclaimMetrics, err := metricHelper.GetReclaimMetrics(cpusets, common.GetReclaimRelativeRootCgroupPath(ha.conf.ReclaimRelativeRootCgroupPath, commonstate.FakedNUMAID), ha.metaServer.MetricsFetcher)
 		if err != nil {
 			return resource.Quantity{}, nil, fmt.Errorf("get reclaim Metrics failed: %v", err)
 		}
@@ -216,10 +223,23 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 			return resource.Quantity{}, nil, fmt.Errorf("get util-based headroom failed: %v", err)
 		}
 
-		totalHeadroom.Add(headroom)
 		headroomPerNUMA := float64(headroom.Value()) / float64(len(nonBindingNumas))
 		for _, numaID := range nonBindingNumas {
-			numaHeadroom[numaID] = *resource.NewQuantity(int64(headroomPerNUMA), resource.DecimalSI)
+			reclaimPath := common.GetReclaimRelativeRootCgroupPath(ha.conf.ReclaimRelativeRootCgroupPath, numaID)
+			cpustats, err := cgroupmgr.GetCPUWithRelativePath(reclaimPath)
+			if err != nil {
+				return resource.Quantity{}, nil, err
+			}
+			h := headroomPerNUMA
+			if cpustats.CpuQuota != math.MaxInt || cpustats.CpuQuota > 0 {
+				general.InfoS("non-binding NUMA cpu quota", "numaID", numaID, "quota", cpustats.CpuQuota, "headroom origin", headroomPerNUMA)
+				if h > float64(cpustats.CpuQuota)/float64(cpustats.CpuPeriod) {
+					h = float64(cpustats.CpuQuota) / float64(cpustats.CpuPeriod)
+				}
+			}
+			q := *resource.NewQuantity(int64(h), resource.DecimalSI)
+			numaHeadroom[numaID] = q
+			totalHeadroom.Add(q)
 		}
 	}
 

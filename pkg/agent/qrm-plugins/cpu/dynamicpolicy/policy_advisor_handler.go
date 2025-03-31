@@ -25,6 +25,8 @@ import (
 	"path"
 	"time"
 
+	"github.com/google/cadvisor/container/libcontainer"
+	"github.com/opencontainers/runc/libcontainer/configs"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -436,6 +438,39 @@ func (p *DynamicPolicy) allocateByCPUAdvisor(
 	vErr := p.advisorValidator.Validate(resp)
 	if vErr != nil {
 		return fmt.Errorf("ValidateCPUAdvisorResp failed with error: %v", vErr)
+	}
+
+	for _, calculationInfo := range resp.ExtraEntries {
+		cgConf, ok := calculationInfo.CalculationResult.Values[string(advisorapi.ControlKnobKeyCgroupConfig)]
+		if ok {
+			resources := &configs.Resources{}
+			err := json.Unmarshal([]byte(cgConf), resources)
+			if err != nil {
+				return fmt.Errorf("unmarshal %s: %s failed with error: %v",
+					advisorapi.ControlKnobKeyCgroupConfig, cgConf, err)
+			}
+			resources.SkipDevices = true
+			resources.SkipFreezeOnSet = true
+
+			subSystems, err := libcontainer.GetCgroupSubsystems(nil)
+			if err != nil {
+				return fmt.Errorf("GetCgroupSubsystems failed with error: %v", err)
+			}
+
+			paths := make(map[string]string)
+			for name, subsystem := range subSystems {
+				paths[name] = path.Join(subsystem, calculationInfo.CgroupPath)
+			}
+
+			manager, err := libcontainer.NewCgroupManager("", paths)
+			if err != nil {
+				return fmt.Errorf("NewCgroupManager failed with error: %v", err)
+			}
+			if err := manager.Set(resources); err != nil {
+				return fmt.Errorf("set %s: %s failed with error: %v",
+					advisorapi.ControlKnobKeyCgroupConfig, cgConf, err)
+			}
+		}
 	}
 
 	blockToCPUSet, aErr := p.generateBlockCPUSet(resp)
