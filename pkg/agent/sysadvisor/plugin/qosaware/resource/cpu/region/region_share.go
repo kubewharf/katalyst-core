@@ -17,7 +17,6 @@ limitations under the License.
 package region
 
 import (
-	"encoding/json"
 	"math"
 
 	"k8s.io/apimachinery/pkg/util/uuid"
@@ -35,13 +34,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
-)
-
-const (
-	metricCPUProvisionControlKnobRestricted = "cpu_provision_control_knob_restricted"
-
-	metricTagKeyRefPolicyName    = "ref_policy_name"
-	metricTagKeyRestrictedReason = "restricted_reason"
 )
 
 type QoSRegionShare struct {
@@ -117,7 +109,7 @@ func (r *QoSRegionShare) updateProvisionPolicy() {
 
 		// set essentials for policy and regulator
 		internal.policy.SetPodSet(r.podSet)
-		internal.policy.SetBindingNumas(r.bindingNumas)
+		internal.policy.SetBindingNumas(r.bindingNumas, r.isNumaBinding)
 		internal.policy.SetEssentials(r.ResourceEssentials, r.ControlEssentials)
 
 		// run an episode of policy update
@@ -129,75 +121,21 @@ func (r *QoSRegionShare) updateProvisionPolicy() {
 	}
 }
 
-// restrictProvisionControlKnob is to restrict provision control knob by reference policy
-func (r *QoSRegionShare) restrictProvisionControlKnob(originControlKnob map[types.CPUProvisionPolicyName]types.ControlKnob) map[types.CPUProvisionPolicyName]types.ControlKnob {
-	restrictConstraints := r.conf.GetDynamicConfiguration().RestrictConstraints
-	s, _ := json.Marshal(restrictConstraints)
-	klog.Infof("restrictConstraints: %+v", string(s))
-
-	restrictedControlKnob := make(map[types.CPUProvisionPolicyName]types.ControlKnob)
-	for policyName, controlKnob := range originControlKnob {
-		restrictedControlKnob[policyName] = controlKnob.Clone()
-		refPolicyName, ok := r.conf.RestrictRefPolicy[policyName]
-		if !ok {
-			continue
-		}
-		refControlKnob, ok := originControlKnob[refPolicyName]
-		if !ok {
-			klog.Errorf("get control knob from reference policy %v for policy %v failed", refPolicyName, policyName)
-			continue
-		}
-
-		for controlKnobName, rawKnobValue := range controlKnob {
-			refKnobValue, ok := refControlKnob[controlKnobName]
-			if !ok {
-				continue
+func (r *QoSRegionShare) getEffectiveControlKnobs() types.ControlKnob {
+	quota, _, err := r.getEffectiveReclaimResource()
+	if err != nil {
+		klog.Errorf("[qosaware-cpu] failed to get effective reclaim resource, ignore it: %v", err)
+	} else if r.isNumaBinding {
+		if quota > 0 {
+			return types.ControlKnob{
+				configapi.ControlKnobReclaimedCPUQuota: {
+					Value:  quota,
+					Action: types.ControlKnobActionNone,
+				},
 			}
-
-			min, max := refKnobValue.Value, refKnobValue.Value
-
-			if constraints, ok := restrictConstraints[controlKnobName]; ok {
-				if constraints.MaxUpperGap != nil {
-					max = math.Max(max, refKnobValue.Value+*constraints.MaxUpperGap)
-				}
-				if constraints.MaxLowerGap != nil {
-					min = math.Min(min, refKnobValue.Value-*constraints.MaxLowerGap)
-				}
-				if constraints.MaxUpperGapRatio != nil {
-					max = math.Max(max, refKnobValue.Value*(1+*constraints.MaxUpperGapRatio))
-				}
-				if constraints.MaxLowerGapRatio != nil {
-					min = math.Min(min, refKnobValue.Value*(1-*constraints.MaxLowerGapRatio))
-				}
-			}
-
-			restrictedKnobValue := rawKnobValue
-
-			reason := "none"
-			if rawKnobValue.Value > max {
-				restrictedKnobValue.Value = max
-				reason = "above"
-			} else if rawKnobValue.Value < min {
-				restrictedKnobValue.Value = min
-				reason = "below"
-			}
-			if restrictedKnobValue != rawKnobValue {
-				klog.Infof("[qosaware-cpu] restrict control knob %v for policy %v by policy %v from %.2f to %.2f, reason: %v, refKnobValue: %v",
-					controlKnobName, policyName, refPolicyName, rawKnobValue.Value, restrictedKnobValue.Value, reason, refKnobValue.Value)
-			}
-			restrictedControlKnob[policyName][controlKnobName] = restrictedKnobValue
-			_ = r.emitter.StoreInt64(metricCPUProvisionControlKnobRestricted, int64(r.conf.QoSAwarePluginConfiguration.SyncPeriod.Seconds()), metrics.MetricTypeNameCount, []metrics.MetricTag{
-				{Key: metricTagKeyPolicyName, Val: string(policyName)},
-				{Key: metricTagKeyRefPolicyName, Val: string(refPolicyName)},
-				{Key: metricTagKeyControlKnobName, Val: string(controlKnobName)},
-				{Key: metricTagKeyRestrictedReason, Val: reason},
-			}...)
 		}
 	}
-	return restrictedControlKnob
-}
 
-func (r *QoSRegionShare) getEffectiveControlKnobs() types.ControlKnob {
 	regionInfo, ok := r.metaReader.GetRegionInfo(r.name)
 	if ok {
 		if _, existed := regionInfo.ControlKnobMap[configapi.ControlKnobNonReclaimedCPURequirement]; existed {
