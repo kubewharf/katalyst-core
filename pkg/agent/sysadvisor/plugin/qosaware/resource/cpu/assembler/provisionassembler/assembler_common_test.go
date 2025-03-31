@@ -266,7 +266,7 @@ func TestAssembleProvision(t *testing.T) {
 		enableReclaimed                       bool
 		allowSharedCoresOverlapReclaimedCores bool
 		poolInfos                             []testCasePoolConfig
-		expectPoolEntries                     map[string]map[int]int
+		expectPoolEntries                     map[string]map[int]types.CPUResource
 		expectPoolOverlapInfo                 map[string]map[int]map[string]int
 	}{
 		{
@@ -292,19 +292,19 @@ func TestAssembleProvision(t *testing.T) {
 					},
 				},
 			},
-			expectPoolEntries: map[string]map[int]int{
+			expectPoolEntries: map[string]map[int]types.CPUResource{
 				"share": {
-					-1: 6,
+					-1: types.CPUResource{Size: 6, Quota: -1},
 				},
 				"share-NUMA1": {
-					1: 8,
+					1: types.CPUResource{Size: 8, Quota: -1},
 				},
 				"reserve": {
-					-1: 0,
+					-1: types.CPUResource{Size: 0, Quota: -1},
 				},
 				"reclaim": {
-					-1: 18,
-					1:  16,
+					-1: types.CPUResource{Size: 18, Quota: -1},
+					1:  types.CPUResource{Size: 16, Quota: -1},
 				},
 			},
 		},
@@ -331,19 +331,19 @@ func TestAssembleProvision(t *testing.T) {
 					},
 				},
 			},
-			expectPoolEntries: map[string]map[int]int{
+			expectPoolEntries: map[string]map[int]types.CPUResource{
 				"share": {
-					-1: 20,
+					-1: types.CPUResource{Size: 20, Quota: -1},
 				},
 				"share-NUMA1": {
-					1: 20,
+					1: types.CPUResource{Size: 20, Quota: -1},
 				},
 				"reserve": {
-					-1: 0,
+					-1: types.CPUResource{Size: 0, Quota: -1},
 				},
 				"reclaim": {
-					-1: 4,
-					1:  4,
+					-1: types.CPUResource{Size: 4, Quota: -1},
+					1:  types.CPUResource{Size: 4, Quota: -1},
 				},
 			},
 		},
@@ -380,22 +380,22 @@ func TestAssembleProvision(t *testing.T) {
 					},
 				},
 			},
-			expectPoolEntries: map[string]map[int]int{
+			expectPoolEntries: map[string]map[int]types.CPUResource{
 				"share": {
-					-1: 6,
+					-1: types.CPUResource{Size: 6, Quota: -1},
 				},
 				"share-NUMA1": {
-					1: 8,
+					1: types.CPUResource{Size: 8, Quota: -1},
 				},
 				"isolation-NUMA1": {
-					1: 8,
+					1: types.CPUResource{Size: 8, Quota: -1},
 				},
 				"reserve": {
-					-1: 0,
+					-1: types.CPUResource{Size: 0, Quota: -1},
 				},
 				"reclaim": {
-					-1: 18,
-					1:  8,
+					-1: types.CPUResource{Size: 18, Quota: -1},
+					1:  types.CPUResource{Size: 8, Quota: -1},
 				},
 			},
 		},
@@ -432,22 +432,22 @@ func TestAssembleProvision(t *testing.T) {
 					},
 				},
 			},
-			expectPoolEntries: map[string]map[int]int{
+			expectPoolEntries: map[string]map[int]types.CPUResource{
 				"share": {
-					-1: 20,
+					-1: types.CPUResource{Size: 20, Quota: -1},
 				},
 				"share-NUMA1": {
-					1: 12,
+					1: types.CPUResource{Size: 12, Quota: -1},
 				},
 				"isolation-NUMA1": {
-					1: 8,
+					1: types.CPUResource{Size: 8, Quota: -1},
 				},
 				"reserve": {
-					-1: 0,
+					-1: types.CPUResource{Size: 0, Quota: -1},
 				},
 				"reclaim": {
-					-1: 4,
-					1:  4,
+					-1: types.CPUResource{Size: 4, Quota: -1},
+					1:  types.CPUResource{Size: 4, Quota: -1},
 				},
 			},
 		},
@@ -484,22 +484,22 @@ func TestAssembleProvision(t *testing.T) {
 					},
 				},
 			},
-			expectPoolEntries: map[string]map[int]int{
+			expectPoolEntries: map[string]map[int]types.CPUResource{
 				"share": {
-					-1: 20,
+					-1: types.CPUResource{Size: 20, Quota: -1},
 				},
 				"share-NUMA1": {
-					1: 16,
+					1: types.CPUResource{Size: 16, Quota: -1},
 				},
 				"isolation-NUMA1": {
-					1: 4,
+					1: types.CPUResource{Size: 4, Quota: -1},
 				},
 				"reserve": {
-					-1: 0,
+					-1: types.CPUResource{Size: 0, Quota: -1},
 				},
 				"reclaim": {
-					-1: 4,
-					1:  4,
+					-1: types.CPUResource{Size: 4, Quota: -1},
+					1:  types.CPUResource{Size: 4, Quota: -1},
 				},
 			},
 		},
@@ -536,22 +536,22 @@ func TestAssembleProvision(t *testing.T) {
 					},
 				},
 			},
-			expectPoolEntries: map[string]map[int]int{
+			expectPoolEntries: map[string]map[int]types.CPUResource{
 				"share": {
-					-1: 6,
+					-1: types.CPUResource{Size: 6, Quota: -1},
 				},
 				"share-NUMA1": {
-					1: 15,
+					1: types.CPUResource{Size: 15, Quota: -1},
 				},
 				"isolation-NUMA1": {
-					1: 4,
+					1: types.CPUResource{Size: 4, Quota: -1},
 				},
 				"reserve": {
-					-1: 0,
+					-1: types.CPUResource{Size: 0, Quota: -1},
 				},
 				"reclaim": {
-					-1: 18,
-					1:  5,
+					-1: types.CPUResource{Size: 18, Quota: -1},
+					1:  types.CPUResource{Size: 5, Quota: -1},
 				},
 			},
 		},
@@ -598,25 +598,25 @@ func TestAssembleProvision(t *testing.T) {
 					},
 				},
 			},
-			expectPoolEntries: map[string]map[int]int{
+			expectPoolEntries: map[string]map[int]types.CPUResource{
 				"share": {
-					-1: 6,
+					-1: types.CPUResource{Size: 6, Quota: -1},
 				},
 				"share-NUMA1": {
-					1: 4,
+					1: types.CPUResource{Size: 4, Quota: -1},
 				},
 				"isolation-NUMA1": {
-					1: 8,
+					1: types.CPUResource{Size: 8, Quota: -1},
 				},
 				"isolation-NUMA1-pod2": {
-					1: 8,
+					1: types.CPUResource{Size: 8, Quota: -1},
 				},
 				"reserve": {
-					-1: 0,
+					-1: types.CPUResource{Size: 0, Quota: -1},
 				},
 				"reclaim": {
-					-1: 18,
-					1:  4,
+					-1: types.CPUResource{Size: 18, Quota: -1},
+					1:  types.CPUResource{Size: 4, Quota: -1},
 				},
 			},
 		},
@@ -663,25 +663,25 @@ func TestAssembleProvision(t *testing.T) {
 					},
 				},
 			},
-			expectPoolEntries: map[string]map[int]int{
+			expectPoolEntries: map[string]map[int]types.CPUResource{
 				"share": {
-					-1: 6,
+					-1: types.CPUResource{Size: 6, Quota: -1},
 				},
 				"share-NUMA1": {
-					1: 8,
+					1: types.CPUResource{Size: 8, Quota: -1},
 				},
 				"isolation-NUMA1": {
-					1: 4,
+					1: types.CPUResource{Size: 4, Quota: -1},
 				},
 				"isolation-NUMA1-pod2": {
-					1: 4,
+					1: types.CPUResource{Size: 4, Quota: -1},
 				},
 				"reserve": {
-					-1: 0,
+					-1: types.CPUResource{Size: 0, Quota: -1},
 				},
 				"reclaim": {
-					-1: 18,
-					1:  8,
+					-1: types.CPUResource{Size: 18, Quota: -1},
+					1:  types.CPUResource{Size: 8, Quota: -1},
 				},
 			},
 		},
@@ -728,25 +728,25 @@ func TestAssembleProvision(t *testing.T) {
 					},
 				},
 			},
-			expectPoolEntries: map[string]map[int]int{
+			expectPoolEntries: map[string]map[int]types.CPUResource{
 				"share": {
-					-1: 20,
+					-1: types.CPUResource{Size: 20, Quota: -1},
 				},
 				"share-NUMA1": {
-					1: 12,
+					1: types.CPUResource{Size: 12, Quota: -1},
 				},
 				"isolation-NUMA1": {
-					1: 4,
+					1: types.CPUResource{Size: 4, Quota: -1},
 				},
 				"isolation-NUMA1-pod2": {
-					1: 4,
+					1: types.CPUResource{Size: 4, Quota: -1},
 				},
 				"reserve": {
-					-1: 0,
+					-1: types.CPUResource{Size: 0, Quota: -1},
 				},
 				"reclaim": {
-					-1: 4,
-					1:  4,
+					-1: types.CPUResource{Size: 4, Quota: -1},
+					1:  types.CPUResource{Size: 4, Quota: -1},
 				},
 			},
 		},
@@ -794,25 +794,25 @@ func TestAssembleProvision(t *testing.T) {
 					},
 				},
 			},
-			expectPoolEntries: map[string]map[int]int{
+			expectPoolEntries: map[string]map[int]types.CPUResource{
 				"share": {
-					-1: 24,
+					-1: types.CPUResource{Size: 24, Quota: -1},
 				},
 				"share-NUMA1": {
-					1: 8,
+					1: types.CPUResource{Size: 8, Quota: -1},
 				},
 				"isolation-NUMA1": {
-					1: 8,
+					1: types.CPUResource{Size: 8, Quota: -1},
 				},
 				"isolation-NUMA1-pod2": {
-					1: 8,
+					1: types.CPUResource{Size: 8, Quota: -1},
 				},
 				"reserve": {
-					-1: 0,
+					-1: types.CPUResource{Size: 0, Quota: -1},
 				},
 				"reclaim": {
-					-1: 18,
-					1:  4,
+					-1: types.CPUResource{Size: 18, Quota: -1},
+					1:  types.CPUResource{Size: 4, Quota: -1},
 				},
 			},
 			expectPoolOverlapInfo: map[string]map[int]map[string]int{
@@ -824,12 +824,12 @@ func TestAssembleProvision(t *testing.T) {
 			enableReclaimed:                       true,
 			allowSharedCoresOverlapReclaimedCores: true,
 			poolInfos:                             []testCasePoolConfig{},
-			expectPoolEntries: map[string]map[int]int{
+			expectPoolEntries: map[string]map[int]types.CPUResource{
 				"reserve": {
-					-1: 0,
+					-1: types.CPUResource{Size: 0, Quota: -1},
 				},
 				"reclaim": {
-					-1: 48,
+					-1: types.CPUResource{Size: 48, Quota: -1},
 				},
 			},
 		},
@@ -877,25 +877,25 @@ func TestAssembleProvision(t *testing.T) {
 					},
 				},
 			},
-			expectPoolEntries: map[string]map[int]int{
+			expectPoolEntries: map[string]map[int]types.CPUResource{
 				"share": {
-					-1: 24,
+					-1: types.CPUResource{Size: 24, Quota: -1},
 				},
 				"share-NUMA1": {
-					1: 8,
+					1: types.CPUResource{Size: 8, Quota: -1},
 				},
 				"isolation-NUMA1": {
-					1: 8,
+					1: types.CPUResource{Size: 8, Quota: -1},
 				},
 				"isolation-NUMA1-pod2": {
-					1: 8,
+					1: types.CPUResource{Size: 8, Quota: -1},
 				},
 				"reserve": {
-					-1: 0,
+					-1: types.CPUResource{Size: 0, Quota: -1},
 				},
 				"reclaim": {
-					-1: 4,
-					1:  4,
+					-1: types.CPUResource{Size: 4, Quota: -1},
+					1:  types.CPUResource{Size: 4, Quota: -1},
 				},
 			},
 			expectPoolOverlapInfo: map[string]map[int]map[string]int{
@@ -928,19 +928,19 @@ func TestAssembleProvision(t *testing.T) {
 					},
 				},
 			},
-			expectPoolEntries: map[string]map[int]int{
+			expectPoolEntries: map[string]map[int]types.CPUResource{
 				"isolation-NUMA1": {
-					1: 8,
+					1: types.CPUResource{Size: 8, Quota: -1},
 				},
 				"isolation-NUMA1-pod2": {
-					1: 8,
+					1: types.CPUResource{Size: 8, Quota: -1},
 				},
 				"reserve": {
-					-1: 0,
+					-1: types.CPUResource{Size: 0, Quota: -1},
 				},
 				"reclaim": {
-					1:  8,
-					-1: 24,
+					1:  types.CPUResource{Size: 8, Quota: -1},
+					-1: types.CPUResource{Size: 24, Quota: -1},
 				},
 			},
 		},
@@ -968,18 +968,18 @@ func TestAssembleProvision(t *testing.T) {
 					},
 				},
 			},
-			expectPoolEntries: map[string]map[int]int{
+			expectPoolEntries: map[string]map[int]types.CPUResource{
 				"share-a": {
-					-1: 24,
+					-1: types.CPUResource{Size: 24, Quota: -1},
 				},
 				"share-b": {
-					-1: 24,
+					-1: types.CPUResource{Size: 24, Quota: -1},
 				},
 				"reserve": {
-					-1: 0,
+					-1: types.CPUResource{Size: 0, Quota: -1},
 				},
 				"reclaim": {
-					-1: 34,
+					-1: types.CPUResource{Size: 34, Quota: -1},
 				},
 			},
 			expectPoolOverlapInfo: map[string]map[int]map[string]int{
@@ -994,8 +994,8 @@ func TestAssembleProvision(t *testing.T) {
 	}
 
 	numaAvailable := map[int]int{
-		0: 20,
-		1: 20,
+		0: 24,
+		1: 24,
 	}
 
 	for _, tt := range tests {
@@ -1065,7 +1065,7 @@ func generateTestConf(t *testing.T, enableReclaim bool) *config.Configuration {
 
 	conf.GenericSysAdvisorConfiguration.StateFileDirectory = stateFileDir
 	conf.MetaServerConfiguration.CheckpointManagerDir = checkpointDir
-	conf.CPUShareConfiguration.RestrictRefPolicy = nil
+	conf.RestrictRefPolicy = nil
 	conf.CPUAdvisorConfiguration.ProvisionPolicies = map[configapi.QoSRegionType][]types.CPUProvisionPolicyName{
 		configapi.QoSRegionTypeShare: {types.CPUProvisionPolicyCanonical},
 	}

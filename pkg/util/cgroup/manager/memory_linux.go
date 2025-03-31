@@ -86,7 +86,7 @@ func doReclaimMemory(cmd string, mems machine.CPUSet) error {
 	}
 
 	_, err = exec.Command("bash", "-c", cmd).Output()
-	klog.ErrorS(err, "failed to exec %v", cmd)
+	klog.ErrorS(err, "failed to exec", "cmd", cmd)
 
 	// restore original memory policy
 	if err := SetMemPolicy(mode, mask); err != nil {

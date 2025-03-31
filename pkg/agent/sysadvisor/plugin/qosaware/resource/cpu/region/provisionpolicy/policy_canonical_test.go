@@ -132,7 +132,7 @@ func newTestPolicyCanonical(t *testing.T, checkpointDir string, stateFileDir str
 	err = metaCacheTmp.SetRegionInfo(regionInfo.RegionName, &regionInfo)
 	assert.NoError(t, err)
 
-	p.SetBindingNumas(regionInfo.BindingNumas)
+	p.SetBindingNumas(regionInfo.BindingNumas, false)
 	p.SetPodSet(podSet)
 
 	return p

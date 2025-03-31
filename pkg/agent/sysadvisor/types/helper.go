@@ -254,23 +254,23 @@ func (ps PodSet) Pods() int {
 	return count
 }
 
-func (r *InternalCPUCalculationResult) GetPoolEntry(poolName string, numaID int) (int, bool) {
+func (r *InternalCPUCalculationResult) GetPoolEntry(poolName string, numaID int) (CPUResource, bool) {
 	v1, ok := r.PoolEntries[poolName]
 	if ok {
 		v2, ok := v1[numaID]
 		return v2, ok
 	}
-	return 0, false
+	return CPUResource{}, false
 }
 
-func (r *InternalCPUCalculationResult) SetPoolEntry(poolName string, numaID int, poolSize int) {
+func (r *InternalCPUCalculationResult) SetPoolEntry(poolName string, numaID int, poolSize int, cpuLimit float64) {
 	if poolSize <= 0 && !state.StaticPools.Has(poolName) {
 		return
 	}
 	if r.PoolEntries[poolName] == nil {
-		r.PoolEntries[poolName] = make(map[int]int)
+		r.PoolEntries[poolName] = make(map[int]CPUResource)
 	}
-	r.PoolEntries[poolName][numaID] = poolSize
+	r.PoolEntries[poolName][numaID] = CPUResource{Size: poolSize, Quota: cpuLimit}
 }
 
 func (r *InternalCPUCalculationResult) SetPoolOverlapInfo(poolName string, numaID int, overlapPoolName string, poolSize int) {
