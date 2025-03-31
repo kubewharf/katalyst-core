@@ -110,8 +110,11 @@ func (r *QoSRegionDedicatedNumaExclusive) TryUpdateProvision() {
 	// get raw provision control knob
 	rawControlKnobs := r.getProvisionControlKnob()
 
+	// restrict control knobs by reference policy
+	restrictedControlKnobs := r.restrictProvisionControlKnob(rawControlKnobs)
+
 	// regulate control knobs
-	r.regulateProvisionControlKnob(rawControlKnobs, r.getEffectiveControlKnobs())
+	r.regulateProvisionControlKnob(restrictedControlKnobs, r.getEffectiveControlKnobs())
 }
 
 func (r *QoSRegionDedicatedNumaExclusive) updateProvisionPolicy() {
@@ -132,7 +135,7 @@ func (r *QoSRegionDedicatedNumaExclusive) updateProvisionPolicy() {
 
 		// set essentials for policy and regulator
 		internal.policy.SetPodSet(r.podSet)
-		internal.policy.SetBindingNumas(r.bindingNumas)
+		internal.policy.SetBindingNumas(r.bindingNumas, true)
 		internal.policy.SetEssentials(r.ResourceEssentials, r.ControlEssentials)
 
 		// run an episode of policy update
@@ -176,10 +179,15 @@ out:
 }
 
 func (r *QoSRegionDedicatedNumaExclusive) getEffectiveControlKnobs() types.ControlKnob {
-	regionInfo, ok := r.metaReader.GetRegionInfo(r.name)
-	if ok {
-		if _, existed := regionInfo.ControlKnobMap[configapi.ControlKnobNonReclaimedCPURequirement]; existed {
-			return regionInfo.ControlKnobMap
+	quota, _, err := r.getEffectiveReclaimResource()
+	if err != nil {
+		klog.Errorf("[qosaware-cpu] failed to get effective reclaim resource, ignore it: %v", err)
+	} else if quota > 0 {
+		return types.ControlKnob{
+			configapi.ControlKnobReclaimedCoresCPUQuota: {
+				Value:  quota,
+				Action: types.ControlKnobActionNone,
+			},
 		}
 	}
 
@@ -189,6 +197,7 @@ func (r *QoSRegionDedicatedNumaExclusive) getEffectiveControlKnobs() types.Contr
 			reclaimedCPUSize += reclaimedInfo.TopologyAwareAssignments[numaID].Size()
 		}
 	}
+
 	cpuRequirement := r.ResourceUpperBound + r.ReservedForReclaim - float64(reclaimedCPUSize)
 
 	return types.ControlKnob{

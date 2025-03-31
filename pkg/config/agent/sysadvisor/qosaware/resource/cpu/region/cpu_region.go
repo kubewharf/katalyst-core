@@ -16,12 +16,18 @@ limitations under the License.
 
 package region
 
+import "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+
 type CPURegionConfiguration struct {
 	*CPUShareConfiguration
+
+	RestrictRefPolicy map[types.CPUProvisionPolicyName]types.CPUProvisionPolicyName
 }
 
 func NewCPURegionConfiguration() *CPURegionConfiguration {
 	return &CPURegionConfiguration{
 		CPUShareConfiguration: NewCPUShareConfiguration(),
+
+		RestrictRefPolicy: make(map[types.CPUProvisionPolicyName]types.CPUProvisionPolicyName),
 	}
 }

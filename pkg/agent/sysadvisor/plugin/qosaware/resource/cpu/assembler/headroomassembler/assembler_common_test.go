@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/agiledragon/gomonkey/v2"
 	info "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
@@ -50,6 +51,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	metric_util "github.com/kubewharf/katalyst-core/pkg/util/metric"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
@@ -574,9 +577,20 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 					require.NoError(t, err)
 				},
 			},
-			want: *resource.NewQuantity(58, resource.DecimalSI),
+			want: *resource.NewQuantity(56, resource.DecimalSI),
 		},
 	}
+
+	patches := gomonkey.ApplyFunc(cgroupmgr.GetCPUWithRelativePath, func(relCgroupPath string) (*common.CPUStats, error) {
+		return &common.CPUStats{
+			CpuPeriod: 100000,
+			CpuQuota:  -1,
+		}, nil
+	})
+	defer t.Cleanup(func() {
+		patches.Reset()
+	})
+
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {

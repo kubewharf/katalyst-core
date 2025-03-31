@@ -52,7 +52,7 @@ func (c *PIDController) SetEssentials(resourceEssentials types.ResourceEssential
 	c.resourceEssentials = resourceEssentials
 }
 
-func (c *PIDController) Adjust(controlKnob, target, current float64) float64 {
+func (c *PIDController) Adjust(controlKnob, target, current float64, direct bool) float64 {
 	var (
 		kp, kd, kpSign, kdSign float64
 		pterm                  float64 = 0
@@ -106,13 +106,19 @@ func (c *PIDController) Adjust(controlKnob, target, current float64) float64 {
 
 	c.adjustmentTotal += adjustment
 	c.adjustmentTotal = general.Clamp(c.adjustmentTotal, c.params.AdjustmentLowerBound, c.params.AdjustmentUpperBound)
-	c.adjustmentTotal = general.Clamp(c.adjustmentTotal, c.resourceEssentials.ResourceLowerBound-controlKnob, c.resourceEssentials.ResourceUpperBound-controlKnob)
 
-	result := controlKnob + c.adjustmentTotal
+	directSign := -1.0
+	if !direct {
+		directSign = 1
+	}
+
+	result := controlKnob + c.adjustmentTotal*directSign
+	result = general.Clamp(result, c.resourceEssentials.ResourceLowerBound, c.resourceEssentials.ResourceUpperBound)
 
 	klog.InfoS("[qosaware-cpu-pid]", "meta", c.msg, "indicator", c.variableName, "controlKnob", controlKnob,
 		"adjustment", adjustment, "adjustmentTotal", c.adjustmentTotal, "result", result, "target", target, "current", current,
-		"errorValue", c.errorValue, "errorRate", errorRate, "pterm", pterm, "dterm", dterm, "kp", kp, "kd", kd, "resourceEssentials", c.resourceEssentials)
+		"errorValue", c.errorValue, "errorRate", errorRate, "pterm", pterm, "dterm", dterm, "kp", kp, "kd", kd,
+		"resourceEssentials", c.resourceEssentials, "directSign", directSign)
 
 	return result
 }
