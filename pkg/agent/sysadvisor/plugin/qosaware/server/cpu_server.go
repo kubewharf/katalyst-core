@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -36,6 +37,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -48,6 +50,10 @@ const (
 	cpuServerName string = "cpu-server"
 
 	cpuServerLWHealthCheckName = "cpu-server-lw"
+)
+
+var (
+	registerCPUAdvisorHealthCheckOnce sync.Once
 )
 
 type cpuServer struct {
@@ -97,6 +103,11 @@ func (cs *cpuServer) RegisterAdvisorServer() {
 }
 
 func (cs *cpuServer) GetAdvice(ctx context.Context, request *cpuadvisor.GetAdviceRequest) (*cpuadvisor.GetAdviceResponse, error) {
+	// Register health check only when the QRM cpu plugins actually calls the sysadvisor GetAdvice or ListAndWatch method
+	registerCPUAdvisorHealthCheckOnce.Do(func() {
+		cpu.RegisterCPUAdvisorHealthCheck()
+	})
+
 	startTime := time.Now()
 	_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerGetAdviceCalled), 1, metrics.MetricTypeNameCount)
 	general.Infof("get advice request: %v", general.ToString(request))
@@ -124,6 +135,11 @@ func (cs *cpuServer) GetAdvice(ctx context.Context, request *cpuadvisor.GetAdvic
 }
 
 func (cs *cpuServer) ListAndWatch(_ *advisorsvc.Empty, server cpuadvisor.CPUAdvisor_ListAndWatchServer) error {
+	// Register health check only when the QRM cpu plugins actually calls the sysadvisor GetAdvice or ListAndWatch method
+	registerCPUAdvisorHealthCheckOnce.Do(func() {
+		cpu.RegisterCPUAdvisorHealthCheck()
+	})
+
 	_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWCalled), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 
 	if cs.hasListAndWatchLoop.Swap(true).(bool) {
