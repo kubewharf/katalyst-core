@@ -373,10 +373,10 @@ func TestCPUServerUpdate(t *testing.T) {
 			name: "reclaim pool with shared pool",
 			provision: types.InternalCPUCalculationResult{
 				TimeStamp: time.Now(),
-				PoolEntries: map[string]map[int]int{
-					commonstate.PoolNameShare:                       {-1: 2},
-					commonstate.PoolNameReclaim:                     {-1: 4},
-					commonstate.PoolNamePrefixIsolation + "-test-1": {-1: 4},
+				PoolEntries: map[string]map[int]types.CPUResource{
+					commonstate.PoolNameShare:                       {-1: {Size: 2, Quota: types.CPUUnlimited}},
+					commonstate.PoolNameReclaim:                     {-1: {Size: 4, Quota: types.CPUUnlimited}},
+					commonstate.PoolNamePrefixIsolation + "-test-1": {-1: {Size: 4, Quota: types.CPUUnlimited}},
 				},
 			},
 			infos: []*ContainerInfo{
@@ -482,10 +482,10 @@ func TestCPUServerUpdate(t *testing.T) {
 			name: "reclaim pool with dedicated pod",
 			provision: types.InternalCPUCalculationResult{
 				TimeStamp: time.Now(),
-				PoolEntries: map[string]map[int]int{
+				PoolEntries: map[string]map[int]types.CPUResource{
 					commonstate.PoolNameReclaim: {
-						0: 4,
-						1: 8,
+						0: {Size: 4, Quota: -1},
+						1: {Size: 8, Quota: -1},
 					},
 				},
 			},
@@ -618,10 +618,10 @@ func TestCPUServerUpdate(t *testing.T) {
 			name: "reclaim pool colocated with dedicated pod(2 containers)",
 			provision: types.InternalCPUCalculationResult{
 				TimeStamp: time.Now(),
-				PoolEntries: map[string]map[int]int{
+				PoolEntries: map[string]map[int]types.CPUResource{
 					commonstate.PoolNameReclaim: {
-						0: 4,
-						1: 8,
+						0: {Size: 4, Quota: types.CPUUnlimited},
+						1: {Size: 8, Quota: types.CPUUnlimited},
 					},
 				},
 			},
@@ -866,10 +866,10 @@ func TestCPUServerUpdate(t *testing.T) {
 			name: "reclaim pool colocated with dedicated pod(3 containers)",
 			provision: types.InternalCPUCalculationResult{
 				TimeStamp: time.Now(),
-				PoolEntries: map[string]map[int]int{
+				PoolEntries: map[string]map[int]types.CPUResource{
 					commonstate.PoolNameReclaim: {
-						0: 4,
-						1: 8,
+						0: {Size: 4, Quota: types.CPUUnlimited},
+						1: {Size: 8, Quota: types.CPUUnlimited},
 					},
 				},
 			},
@@ -1256,11 +1256,11 @@ func TestCPUServerUpdate(t *testing.T) {
 			provision: types.InternalCPUCalculationResult{
 				AllowSharedCoresOverlapReclaimedCores: true,
 				TimeStamp:                             time.Now(),
-				PoolEntries: map[string]map[int]int{
-					strings.Join([]string{commonstate.PoolNameShare, "1"}, "-"): {-1: 2},
-					strings.Join([]string{commonstate.PoolNameShare, "2"}, "-"): {-1: 2},
-					commonstate.PoolNameReclaim:                                 {-1: 4},
-					commonstate.PoolNamePrefixIsolation + "-test-1":             {-1: 4},
+				PoolEntries: map[string]map[int]types.CPUResource{
+					strings.Join([]string{commonstate.PoolNameShare, "1"}, "-"): {-1: {Size: 2, Quota: types.CPUUnlimited}},
+					strings.Join([]string{commonstate.PoolNameShare, "2"}, "-"): {-1: {Size: 2, Quota: types.CPUUnlimited}},
+					commonstate.PoolNameReclaim:                                 {-1: {Size: 4, Quota: types.CPUUnlimited}},
+					commonstate.PoolNamePrefixIsolation + "-test-1":             {-1: {Size: 4, Quota: types.CPUUnlimited}},
 				},
 				PoolOverlapInfo: map[string]map[int]map[string]int{
 					commonstate.PoolNameReclaim: {
@@ -1380,11 +1380,11 @@ func TestCPUServerUpdate(t *testing.T) {
 			provision: types.InternalCPUCalculationResult{
 				AllowSharedCoresOverlapReclaimedCores: true,
 				TimeStamp:                             time.Now(),
-				PoolEntries: map[string]map[int]int{
-					strings.Join([]string{commonstate.PoolNameShare, "1"}, "-"): {-1: 4},
-					strings.Join([]string{commonstate.PoolNameShare, "2"}, "-"): {-1: 4},
-					commonstate.PoolNameReclaim:                                 {-1: 2},
-					commonstate.PoolNamePrefixIsolation + "-test-1":             {-1: 4},
+				PoolEntries: map[string]map[int]types.CPUResource{
+					strings.Join([]string{commonstate.PoolNameShare, "1"}, "-"): {-1: {Size: 4, Quota: types.CPUUnlimited}},
+					strings.Join([]string{commonstate.PoolNameShare, "2"}, "-"): {-1: {Size: 4, Quota: types.CPUUnlimited}},
+					commonstate.PoolNameReclaim:                                 {-1: {Size: 2, Quota: types.CPUUnlimited}},
+					commonstate.PoolNamePrefixIsolation + "-test-1":             {-1: {Size: 4, Quota: types.CPUUnlimited}},
 				},
 				PoolOverlapInfo: map[string]map[int]map[string]int{
 					commonstate.PoolNameReclaim: {
@@ -1510,9 +1510,9 @@ func TestCPUServerUpdate(t *testing.T) {
 			provision: types.InternalCPUCalculationResult{
 				AllowSharedCoresOverlapReclaimedCores: true,
 				TimeStamp:                             time.Now(),
-				PoolEntries: map[string]map[int]int{
-					commonstate.PoolNameReclaim:                     {-1: 2},
-					commonstate.PoolNamePrefixIsolation + "-test-1": {-1: 4},
+				PoolEntries: map[string]map[int]types.CPUResource{
+					commonstate.PoolNameReclaim:                     {-1: {Size: 2, Quota: types.CPUUnlimited}},
+					commonstate.PoolNamePrefixIsolation + "-test-1": {-1: {Size: 4, Quota: types.CPUUnlimited}},
 				},
 			},
 			wantRes: &cpuadvisor.ListAndWatchResponse{

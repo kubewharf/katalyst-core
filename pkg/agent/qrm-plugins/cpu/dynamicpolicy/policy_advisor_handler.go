@@ -453,6 +453,11 @@ func (p *DynamicPolicy) allocateByCPUAdvisor(
 		return fmt.Errorf("applyNUMAHeadroom failed with error: %v", applyErr)
 	}
 
+	applyErr = p.applyCgroupConfigs(resp)
+	if applyErr != nil {
+		return fmt.Errorf("applyCgroupConfigs failed with error: %v", applyErr)
+	}
+
 	curAllowSharedCoresOverlapReclaimedCores := p.state.GetAllowSharedCoresOverlapReclaimedCores()
 
 	if curAllowSharedCoresOverlapReclaimedCores != resp.AllowSharedCoresOverlapReclaimedCores {
@@ -852,7 +857,6 @@ func (p *DynamicPolicy) applyNUMAHeadroom(resp *advisorapi.ListAndWatchResponse)
 
 		cpuNUMAHeadroomValue, ok := calculationInfo.CalculationResult.Values[string(advisorapi.ControlKnobKeyCPUNUMAHeadroom)]
 		if !ok {
-			general.Warningf("resp.ExtraEntry has no cpu_numa_headroom value")
 			continue
 		}
 
