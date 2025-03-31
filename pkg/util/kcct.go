@@ -120,7 +120,16 @@ func (g KCCTargetResource) SetGenericStatus(status v1alpha1.GenericConfigStatus)
 	if err != nil {
 		return
 	}
-	_ = unstructured.SetNestedField(g.Object, obj, consts.ObjectFieldNameStatus)
+
+	oldStatus, ok, _ := unstructured.NestedFieldNoCopy(g.Object, consts.ObjectFieldNameStatus)
+	if !ok {
+		_ = unstructured.SetNestedField(g.Object, obj, consts.ObjectFieldNameStatus)
+		return
+	}
+
+	for key, val := range obj {
+		oldStatus.(map[string]interface{})[key] = val
+	}
 }
 
 func (g KCCTargetResource) GetObservedGeneration() int64 {
@@ -153,6 +162,28 @@ func (g KCCTargetResource) GenerateConfigHash() (string, error) {
 	val, _, err := unstructured.NestedFieldCopy(g.Object, consts.ObjectFieldNameSpec, consts.KCCTargetConfFieldNameConfig)
 	if err != nil {
 		return "", err
+	}
+
+	if val == nil {
+		val = make(map[string]interface{})
+	}
+
+	genericStatus := g.GetGenericStatus()
+	genericStatusObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&genericStatus)
+	if err != nil {
+		return "", err
+	}
+
+	status, ok, _ := unstructured.NestedFieldNoCopy(g.Object, consts.ObjectFieldNameStatus)
+	if ok {
+		for k := range genericStatusObj {
+			delete(status.(map[string]interface{}), k)
+		}
+
+		// add status field to consider
+		for k, v := range status.(map[string]interface{}) {
+			val.(map[string]interface{})[fmt.Sprintf("%s/%s", consts.ObjectFieldNameStatus, k)] = v
+		}
 	}
 
 	data, err := json.Marshal(val)
