@@ -76,6 +76,7 @@ func NewMalachiteClient(fetcher pod.PodFetcher, emitter metrics.MetricEmitter) *
 	urls := make(map[string]string)
 	for _, path := range []string{
 		CgroupResource,
+		SystemInfoResource,
 		SystemIOResource,
 		SystemNetResource,
 		SystemComputeResource,
