@@ -286,16 +286,16 @@ func (cs *cpuServer) assembleResponse(advisorResp *types.InternalCPUCalculationR
 	}
 	cs.metaCache.RangeContainer(f)
 
+	extraEntries := cs.assembleCgroupConfig(advisorResp)
+	extraNumaHeadRoom := cs.assembleHeadroom()
+	if extraNumaHeadRoom != nil {
+		extraEntries = append(extraEntries, extraNumaHeadRoom)
+	}
 	// Send result
 	resp := &cpuInternalResult{
 		Entries:                               calculationEntriesMap,
-		ExtraEntries:                          make([]*advisorsvc.CalculationInfo, 0),
+		ExtraEntries:                          extraEntries,
 		AllowSharedCoresOverlapReclaimedCores: advisorResp.AllowSharedCoresOverlapReclaimedCores,
-	}
-
-	extraNumaHeadRoom := cs.assembleHeadroom()
-	if extraNumaHeadRoom != nil {
-		resp.ExtraEntries = append(resp.ExtraEntries, extraNumaHeadRoom)
 	}
 
 	return resp
@@ -331,7 +331,7 @@ func (cs *cpuServer) assembleHeadroom() *advisorsvc.CalculationInfo {
 	}
 }
 
-func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, resp *cpuadvisor.GetAdviceRequest) error {
+func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, request *cpuadvisor.GetAdviceRequest) error {
 	startTime := time.Now()
 	// lock meta cache to prevent race with cpu server
 	cs.metaCache.Lock()
@@ -342,7 +342,7 @@ func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, resp *cpuadvisor.
 	livingPoolNameSet := sets.NewString()
 
 	// update pool entries first, which are needed for updating container entries
-	for entryName, entry := range resp.Entries {
+	for entryName, entry := range request.Entries {
 		poolInfo, ok := entry.Entries[commonstate.FakedContainerName]
 		if !ok {
 			continue
@@ -362,7 +362,7 @@ func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, resp *cpuadvisor.
 	general.InfoS("updated pool entries", "duration", time.Since(startTime))
 
 	// update container entries after pool entries
-	for entryName, entry := range resp.Entries {
+	for entryName, entry := range request.Entries {
 		if _, ok := entry.Entries[commonstate.FakedContainerName]; ok {
 			continue
 		}
@@ -389,7 +389,7 @@ func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, resp *cpuadvisor.
 
 	// clean up containers that no longer exist
 	if err := cs.metaCache.RangeAndDeleteContainer(func(containerInfo *types.ContainerInfo) bool {
-		info, ok := resp.Entries[containerInfo.PodUID]
+		info, ok := request.Entries[containerInfo.PodUID]
 		if !ok {
 			return true
 		}
@@ -630,8 +630,8 @@ func (cs *cpuServer) assemblePoolEntries(advisorResp *types.InternalCPUCalculati
 			continue
 		}
 		poolEntry := NewPoolCalculationEntries(poolName)
-		for numaID, size := range entries {
-			block := NewBlock(uint64(size), "")
+		for numaID, cpu := range entries {
+			block := NewBlock(uint64(cpu.Size), "")
 			numaCalculationResult := &cpuadvisor.NumaCalculationResult{Blocks: []*cpuadvisor.Block{block}}
 
 			innerBlock := NewInnerBlock(block, int64(numaID), poolName, nil, numaCalculationResult)
@@ -644,12 +644,12 @@ func (cs *cpuServer) assemblePoolEntries(advisorResp *types.InternalCPUCalculati
 
 	if reclaimEntries, ok := advisorResp.PoolEntries[commonstate.PoolNameReclaim]; ok && advisorResp.AllowSharedCoresOverlapReclaimedCores {
 		poolEntry := NewPoolCalculationEntries(commonstate.PoolNameReclaim)
-		for numaID, reclaimSize := range reclaimEntries {
+		for numaID, reclaimCpu := range reclaimEntries {
 
 			overlapSize := advisorResp.GetPoolOverlapInfo(commonstate.PoolNameReclaim, numaID)
 			if len(overlapSize) == 0 {
 				// If share pool not exists，join reclaim pool directly
-				block := NewBlock(uint64(reclaimSize), "")
+				block := NewBlock(uint64(reclaimCpu.Size), "")
 				numaCalculationResult := &cpuadvisor.NumaCalculationResult{Blocks: []*cpuadvisor.Block{block}}
 
 				innerBlock := NewInnerBlock(block, int64(numaID), commonstate.PoolNameReclaim, nil, numaCalculationResult)

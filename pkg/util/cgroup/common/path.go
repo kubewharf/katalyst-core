@@ -21,6 +21,7 @@ import (
 	"path"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
@@ -172,4 +173,11 @@ func GetNUMABindingReclaimRelativeRootCgroupPaths(reclaimRelativeRootCgroupPath 
 		paths[numaID] = reclaimRelativeRootCgroupPath + numaBindingReclaimRelativeRootCgroupPathSeparator + strconv.Itoa(numaID)
 	}
 	return paths
+}
+
+func GetReclaimRelativeRootCgroupPath(reclaimRelativeRootCgroupPath string, NUMANode int) string {
+	if NUMANode < 0 {
+		return reclaimRelativeRootCgroupPath
+	}
+	return strings.Join([]string{reclaimRelativeRootCgroupPath, strconv.Itoa(NUMANode)}, numaBindingReclaimRelativeRootCgroupPathSeparator)
 }

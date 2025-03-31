@@ -53,6 +53,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/asyncworker"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -63,7 +64,8 @@ import (
 )
 
 const (
-	cpuPluginStateFileName = "cpu_plugin_state"
+	cpuPluginStateFileName    = "cpu_plugin_state"
+	cpuPluginAsyncWorkersName = "qrm_cpu_plugin_async_workers"
 
 	reservedReclaimedCPUsSize = 4
 
@@ -127,6 +129,8 @@ type DynamicPolicy struct {
 	reservedReclaimedCPUsSize                 int
 	reservedReclaimedCPUSet                   machine.CPUSet
 	reservedReclaimedTopologyAwareAssignments map[int]machine.CPUSet
+
+	asyncWorkers *asyncworker.AsyncWorkers
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -204,6 +208,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		podLabelKeptKeys:          conf.PodLabelKeptKeys,
 		transitionPeriod:          30 * time.Second,
 		reservedReclaimedCPUsSize: general.Max(reservedReclaimedCPUsSize, agentCtx.KatalystMachineInfo.NumNUMANodes),
+		asyncWorkers:              asyncworker.NewAsyncWorkers(cpuPluginAsyncWorkersName, wrappedEmitter),
 	}
 
 	// register allocation behaviors for pods with different QoS level
