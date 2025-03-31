@@ -324,7 +324,7 @@ func (c *MetricStore) GetCgroupMetric(cgroupPath, metricName string) (MetricData
 
 	metrics, ok := c.cgroupMetricMap[cgroupPath]
 	if !ok {
-		return MetricData{}, fmt.Errorf("[MetricStore] load value for %v failed", cgroupPath)
+		return MetricData{}, fmt.Errorf("[MetricStore] load cgroup for %v failed", cgroupPath)
 	}
 	data, ok := metrics[metricName]
 	if !ok {
