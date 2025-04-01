@@ -347,7 +347,7 @@ func (cs *cpuServer) assembleHeadroom() *advisorsvc.CalculationInfo {
 	}
 }
 
-func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, resp *cpuadvisor.GetAdviceRequest) error {
+func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, req *cpuadvisor.GetAdviceRequest) error {
 	startTime := time.Now()
 	// lock meta cache to prevent race with cpu server
 	cs.metaCache.Lock()
@@ -358,7 +358,7 @@ func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, resp *cpuadvisor.
 	livingPoolNameSet := sets.NewString()
 
 	// update pool entries first, which are needed for updating container entries
-	for entryName, entry := range resp.Entries {
+	for entryName, entry := range req.Entries {
 		poolInfo, ok := entry.Entries[commonstate.FakedContainerName]
 		if !ok {
 			continue
@@ -378,7 +378,7 @@ func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, resp *cpuadvisor.
 	general.InfoS("updated pool entries", "duration", time.Since(startTime))
 
 	// update container entries after pool entries
-	for entryName, entry := range resp.Entries {
+	for entryName, entry := range req.Entries {
 		if _, ok := entry.Entries[commonstate.FakedContainerName]; ok {
 			continue
 		}
@@ -405,7 +405,7 @@ func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, resp *cpuadvisor.
 
 	// clean up containers that no longer exist
 	if err := cs.metaCache.RangeAndDeleteContainer(func(containerInfo *types.ContainerInfo) bool {
-		info, ok := resp.Entries[containerInfo.PodUID]
+		info, ok := req.Entries[containerInfo.PodUID]
 		if !ok {
 			return true
 		}
