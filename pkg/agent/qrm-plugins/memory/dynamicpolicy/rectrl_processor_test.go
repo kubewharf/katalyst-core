@@ -73,6 +73,7 @@ func TestResctrlProcessor_getInjectedAnnotationResp(t *testing.T) {
 					EnableResctrlHint:          false,
 					CPUSetPoolToSharedSubgroup: map[string]int{"batch": 30},
 					DefaultSharedSubgroup:      50,
+					MonGroupsPolicy:            &qrm.MonGroupsPolicy{EnabledClosIDs: ""},
 				},
 			},
 			args: args{
@@ -94,6 +95,9 @@ func TestResctrlProcessor_getInjectedAnnotationResp(t *testing.T) {
 					CPUSetPoolToSharedSubgroup: map[string]int{
 						"batch": 30,
 					},
+					MonGroupsPolicy: &qrm.MonGroupsPolicy{
+						EnabledClosIDs: "dedicated,shared-30",
+					},
 				},
 			},
 			args: args{
@@ -112,6 +116,7 @@ func TestResctrlProcessor_getInjectedAnnotationResp(t *testing.T) {
 							Annotations: map[string]string{
 								"test-key":                             "test-value",
 								"rdt.resources.beta.kubernetes.io/pod": "shared-30",
+								"rdt.resources.beta.kubernetes.io/mon-groups-enabled-closids": "dedicated,shared-30",
 							},
 						},
 					},

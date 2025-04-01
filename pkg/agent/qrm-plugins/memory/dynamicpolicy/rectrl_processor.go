@@ -25,6 +25,7 @@ import (
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 )
 
@@ -86,7 +87,19 @@ func injectRespAnnotationSharedGroup(resp *pluginapi.ResourceAllocationResponse,
 	if allocInfo.Annotations == nil {
 		allocInfo.Annotations = make(map[string]string)
 	}
-	allocInfo.Annotations["rdt.resources.beta.kubernetes.io/pod"] = monGroup
+	allocInfo.Annotations[util.AnnotationRdtClosID] = monGroup
+}
+
+func injectRespAnnotationMonGroupsPolicy(resp *pluginapi.ResourceAllocationResponse, enabledClosIDs string) {
+	if _, ok := resp.AllocationResult.ResourceAllocation[string(v1.ResourceMemory)]; !ok {
+		resp.AllocationResult.ResourceAllocation[string(v1.ResourceMemory)] = &pluginapi.ResourceAllocationInfo{}
+	}
+
+	allocInfo := resp.AllocationResult.ResourceAllocation[string(v1.ResourceMemory)]
+	if allocInfo.Annotations == nil {
+		allocInfo.Annotations = make(map[string]string)
+	}
+	allocInfo.Annotations[util.AnnotationMonGroupsEnabledClosIDs] = enabledClosIDs
 }
 
 func (r *resctrlHinter) HintResp(qosLevel string,
@@ -103,9 +116,17 @@ func (r *resctrlHinter) HintResp(qosLevel string,
 		injectRespAnnotationSharedGroup(resp, monGroup)
 	}
 
+	// not most efficient sending back static mon-group enabled closids via this pod admission mechanism
+	// todo: consider leverage other approach to hint kubelet of such static policy
+	if r.option.MonGroupsPolicy != nil || len(r.option.MonGroupsPolicy.EnabledClosIDs) == 0 {
+		injectRespAnnotationMonGroupsPolicy(resp, r.option.MonGroupsPolicy.EnabledClosIDs)
+	}
+
 	return resp
 }
 
 func newResctrlHinter(option *qrm.ResctrlOptions) ResctrlHinter {
-	return &resctrlHinter{option: option}
+	return &resctrlHinter{
+		option: option,
+	}
 }

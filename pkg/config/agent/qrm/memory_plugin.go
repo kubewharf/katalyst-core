@@ -17,7 +17,11 @@ limitations under the License.
 package qrm
 
 import (
+	"encoding/json"
 	"time"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/pkg/errors"
 )
 
 type MemoryQRMPluginConfig struct {
@@ -89,6 +93,25 @@ type FragMemOptions struct {
 	SetMemFragScoreAsync int
 }
 
+// MonGroupsPolicy is inner field of ResctrlOptions
+type MonGroupsPolicy struct {
+	EnabledClosIDs string `json:"enabled-closids,omitempty"`
+}
+
+func ToMonGroupsPolicy(input string) (*MonGroupsPolicy, error) {
+	if len(input) == 0 {
+		return nil, nil
+	}
+
+	policy := &MonGroupsPolicy{}
+	if err := json.Unmarshal([]byte(input), policy); err != nil {
+		general.Errorf("unmarshal mon_groups policy %s error: %v", input, err)
+		return nil, errors.Wrap(err, "failed to parse into MonGroupPolicy")
+	}
+
+	return policy, nil
+}
+
 type ResctrlOptions struct {
 	// EnableResctrlHint is the flag that enable/disable resctrl option related pod admission
 	EnableResctrlHint bool
@@ -96,6 +119,9 @@ type ResctrlOptions struct {
 	// based on its cpu set pool annotation
 	CPUSetPoolToSharedSubgroup map[string]int
 	DefaultSharedSubgroup      int
+
+	// MonGroupsPolicy hints about mon_group layout policy
+	MonGroupsPolicy *MonGroupsPolicy
 }
 
 func NewMemoryQRMPluginConfig() *MemoryQRMPluginConfig {

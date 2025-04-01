@@ -72,7 +72,7 @@ type LogCacheOptions struct {
 
 type FragMemOptions struct {
 	EnableSettingFragMem bool
-	// SetMemFragScoreAsync sets the threashold of frag score for async memory compaction.
+	// SetMemFragScoreAsync sets the threshold of frag score for async memory compaction.
 	// The async compaction behavior will be triggered while exceeding this score.
 	SetMemFragScoreAsync int
 }
@@ -83,6 +83,12 @@ type ResctrlOptions struct {
 	// based on its cpu set pool annotation
 	CPUSetPoolToSharedSubgroup map[string]int
 	DefaultSharedSubgroup      int
+
+	// MonGroupsPolicy specifies mon_groups layout policy of kubelet
+	// by default no special mon_groups layout, which allows kubelet to decide by itself,
+	// suitable for scenarios that need no memory bandwidth control (which would exceed the
+	// closid limit of hardware).
+	MonGroupsPolicy string
 }
 
 func NewMemoryOptions() *MemoryOptions {
@@ -175,10 +181,11 @@ func (o *MemoryOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.SetMemFragScoreAsync, "set the threshold of frag score for async memory compaction")
 	fs.BoolVar(&o.EnableResctrlHint, "pod-admit-resctrl-layout-hint",
 		o.EnableResctrlHint, "if set true, we will enable resctrl hint on pod admission")
-	fs.StringToIntVar(&o.CPUSetPoolToSharedSubgroup, "pod-admit-resctrl-cpuset-pool-to-shared-subgroup",
+	fs.StringToIntVar(&o.CPUSetPoolToSharedSubgroup, "resctrl-cpuset-pool-to-shared-subgroup",
 		o.CPUSetPoolToSharedSubgroup, "customize shared-xx subgroup if present")
-	fs.IntVar(&o.DefaultSharedSubgroup, "pod-admit-resctrl-default-shared-subgroup",
+	fs.IntVar(&o.DefaultSharedSubgroup, "resctrl-default-shared-subgroup",
 		o.DefaultSharedSubgroup, "default subgroup for shared qos")
+	fs.StringVar(&o.MonGroupsPolicy, "resctrl-mon-groups-policy", o.MonGroupsPolicy, "detail of mon-groups policy")
 }
 
 func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
@@ -209,5 +216,12 @@ func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
 	conf.EnableResctrlHint = o.EnableResctrlHint
 	conf.CPUSetPoolToSharedSubgroup = o.CPUSetPoolToSharedSubgroup
 	conf.DefaultSharedSubgroup = o.DefaultSharedSubgroup
+
+	// to parse json into receptacle struct here so to fail fast in case of invalid input
+	var err error
+	if conf.MonGroupsPolicy, err = qrmconfig.ToMonGroupsPolicy(o.MonGroupsPolicy); err != nil {
+		return err
+	}
+
 	return nil
 }
