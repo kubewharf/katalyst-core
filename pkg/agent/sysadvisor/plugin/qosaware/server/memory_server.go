@@ -20,7 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -30,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/klog/v2"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter"
@@ -48,9 +48,7 @@ const (
 	memoryServerLWHealthCheckName = "memory-server-lw"
 )
 
-var (
-	registerMemoryHealthCheckOnce sync.Once
-)
+var registerMemoryHealthCheckOnce sync.Once
 
 type memoryServer struct {
 	*baseServer

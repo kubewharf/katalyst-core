@@ -52,9 +52,7 @@ const (
 	cpuServerLWHealthCheckName = "cpu-server-lw"
 )
 
-var (
-	registerCPUAdvisorHealthCheckOnce sync.Once
-)
+var registerCPUAdvisorHealthCheckOnce sync.Once
 
 type cpuServer struct {
 	*baseServer
