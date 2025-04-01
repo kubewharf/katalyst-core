@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
@@ -124,7 +125,31 @@ func TestPolicyNUMAAware(t *testing.T) {
 		{
 			name: "normal: reclaimed_cores containers only",
 			fields: fields{
-				podList: []*v1.Pod{},
+				podList: []*v1.Pod{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "pod1",
+							Namespace: "default",
+							UID:       "pod1",
+						},
+						Spec: v1.PodSpec{
+							Containers: []v1.Container{
+								{
+									Name: "container1",
+								},
+							},
+						},
+						Status: v1.PodStatus{
+							Phase: v1.PodRunning,
+							ContainerStatuses: []v1.ContainerStatus{
+								{
+									Name:        "container1",
+									ContainerID: "container1",
+								},
+							},
+						},
+					},
+				},
 				containers: []*types.ContainerInfo{
 					makeContainerInfo("pod1", "default",
 						"pod1", "container1",
@@ -157,7 +182,54 @@ func TestPolicyNUMAAware(t *testing.T) {
 		{
 			name: "normal: reclaimed_cores containers with numa-exclusive containers",
 			fields: fields{
-				podList: []*v1.Pod{},
+				podList: []*v1.Pod{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "pod1",
+							Namespace: "default",
+							UID:       "pod1",
+						},
+						Spec: v1.PodSpec{
+							Containers: []v1.Container{
+								{
+									Name: "container1",
+								},
+							},
+						},
+						Status: v1.PodStatus{
+							Phase: v1.PodRunning,
+							ContainerStatuses: []v1.ContainerStatus{
+								{
+									Name:        "container1",
+									ContainerID: "container1",
+								},
+							},
+						},
+					},
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "pod2",
+							Namespace: "default",
+							UID:       "pod2",
+						},
+						Spec: v1.PodSpec{
+							Containers: []v1.Container{
+								{
+									Name: "container2",
+								},
+							},
+						},
+						Status: v1.PodStatus{
+							Phase: v1.PodRunning,
+							ContainerStatuses: []v1.ContainerStatus{
+								{
+									Name:        "container2",
+									ContainerID: "container2",
+								},
+							},
+						},
+					},
+				},
 				containers: []*types.ContainerInfo{
 					makeContainerInfo("pod1", "default",
 						"pod1", "container1",
