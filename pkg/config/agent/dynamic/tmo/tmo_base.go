@@ -30,6 +30,7 @@ import (
 const (
 	DefaultEnableTMO                                   bool                   = false
 	DefaultEnableSwap                                  bool                   = false
+	DefaultEnableSwapOnProactiveEnabled                bool                   = false
 	DefaultTMOInterval                                 time.Duration          = 30 * time.Second
 	DefaultTMOPolicyName                               v1alpha1.TMOPolicyName = v1alpha1.TMOPolicyNamePSI
 	DefaultTMOMaxProbe                                 float64                = 0.01
@@ -57,6 +58,7 @@ func NewTransparentMemoryOffloadingConfiguration() *TransparentMemoryOffloadingC
 type TMODefaultConfigurations struct {
 	DefaultEnableTMO                                   bool
 	DefaultEnableSwap                                  bool
+	DefaultEnableSwapOnProactiveEnabled                bool
 	DefaultTMOInterval                                 time.Duration
 	DefaultTMOPolicyName                               v1alpha1.TMOPolicyName
 	DefaultTMOMaxProbe                                 float64
@@ -69,6 +71,7 @@ func NewTMODefaultConfigurations() *TMODefaultConfigurations {
 	return &TMODefaultConfigurations{
 		DefaultEnableTMO:                                   DefaultEnableTMO,
 		DefaultEnableSwap:                                  DefaultEnableSwap,
+		DefaultEnableSwapOnProactiveEnabled:                DefaultEnableSwapOnProactiveEnabled,
 		DefaultTMOInterval:                                 DefaultTMOInterval,
 		DefaultTMOPolicyName:                               DefaultTMOPolicyName,
 		DefaultTMOMaxProbe:                                 DefaultTMOMaxProbe,
@@ -79,21 +82,22 @@ func NewTMODefaultConfigurations() *TMODefaultConfigurations {
 }
 
 type TMOConfigDetail struct {
-	EnableTMO                               bool
-	EnableSwap                              bool
-	EnableSwapWhenSwappinessProactiveEnable bool
-	Interval                                time.Duration
-	PolicyName                              v1alpha1.TMOPolicyName
+	EnableTMO                    bool
+	EnableSwap                   bool
+	EnableSwapOnProactiveEnabled bool
+	Interval                     time.Duration
+	PolicyName                   v1alpha1.TMOPolicyName
 	*PSIPolicyConf
 	*RefaultPolicyConf
 }
 
 func NewTMOConfigDetail(defaultConfigs *TMODefaultConfigurations) *TMOConfigDetail {
 	return &TMOConfigDetail{
-		EnableTMO:  defaultConfigs.DefaultEnableTMO,
-		EnableSwap: defaultConfigs.DefaultEnableSwap,
-		Interval:   defaultConfigs.DefaultTMOInterval,
-		PolicyName: defaultConfigs.DefaultTMOPolicyName,
+		EnableTMO:                    defaultConfigs.DefaultEnableTMO,
+		EnableSwap:                   defaultConfigs.DefaultEnableSwap,
+		EnableSwapOnProactiveEnabled: defaultConfigs.DefaultEnableSwapOnProactiveEnabled,
+		Interval:                     defaultConfigs.DefaultTMOInterval,
+		PolicyName:                   defaultConfigs.DefaultTMOPolicyName,
 		PSIPolicyConf: &PSIPolicyConf{
 			MaxProbe:          defaultConfigs.DefaultTMOMaxProbe,
 			PsiAvg60Threshold: defaultConfigs.DefaultTMOPSIPolicyPSIAvg60Threshold,
@@ -129,6 +133,9 @@ func ApplyTMOConfigDetail(tmoConfigDetail *TMOConfigDetail, tmoConfigDetailDynam
 	if tmoConfigDetailDynamic.EnableSwap != nil {
 		tmoConfigDetail.EnableSwap = *tmoConfigDetailDynamic.EnableSwap
 	}
+	if tmoConfigDetailDynamic.EnableSwapOnProactiveEnabled != nil {
+		tmoConfigDetail.EnableSwapOnProactiveEnabled = *tmoConfigDetailDynamic.EnableSwapOnProactiveEnabled
+	}
 	if tmoConfigDetailDynamic.Interval != nil {
 		tmoConfigDetail.Interval = tmoConfigDetailDynamic.Interval.Duration
 	}
@@ -163,7 +170,6 @@ func (c *TransparentMemoryOffloadingConfiguration) ApplyConfiguration(conf *crd.
 				tmoConfigDetail := NewTMOConfigDetail(c.DefaultConfigurations)
 				ApplyTMOConfigDetail(tmoConfigDetail, qosLevelConfig.ConfigDetail)
 				c.QoSLevelConfigs[qosLevelConfig.QoSLevel] = tmoConfigDetail
-
 			}
 		}
 		if tmoConf.Spec.Config.CgroupConfig != nil {

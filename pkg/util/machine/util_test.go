@@ -52,3 +52,7 @@ func TestMaskToUInt64Array(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, []uint64{0, 1, 2, 3}, MaskToUInt64Array(mask))
 }
+
+func TestSwappinessProactiveEnabled(t *testing.T) {
+
+}

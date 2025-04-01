@@ -29,6 +29,10 @@ const (
 	MBWNUMAsPoint   = 8
 )
 
+var (
+	swappinessProactiveFile = "/proc/sys/vm/swappiness_proactive"
+)
+
 // TransformCPUAssignmentFormat transforms cpu assignment string format to cpuset format
 func TransformCPUAssignmentFormat(assignment map[uint64]string) map[int]CPUSet {
 	res := make(map[int]CPUSet)
@@ -133,8 +137,8 @@ func GetSiblingNUMAs(numaID int, topology *CPUTopology) (CPUSet, error) {
 	return numaSet, nil
 }
 
-func SwappinessProactiveEnable() bool {
-	data, err := ioutil.ReadFile("/proc/sys/vm/swappiness_proactive")
+func SwappinessProactiveEnabled() bool {
+	data, err := ioutil.ReadFile(swappinessProactiveFile)
 	if err != nil {
 		klog.ErrorS(err, "failed to check swappiness_proactive")
 		return false

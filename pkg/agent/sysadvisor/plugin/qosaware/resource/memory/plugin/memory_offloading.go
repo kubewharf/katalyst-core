@@ -18,6 +18,7 @@ package plugin
 
 import (
 	"context"
+	"log"
 	"math"
 	"path/filepath"
 	"strconv"
@@ -57,7 +58,7 @@ const (
 	InactiveProbe            = 0.1
 	OffloadingSizeScaleCoeff = 1.05
 	CacheMappedCoeff         = 1.2
-	minSizeToReclaim         = 1024 * 1024 * 1024
+	minSizeToReclaim         = 1 * 1024 * 1024
 )
 
 const (
@@ -389,6 +390,7 @@ func (tmoEngine *tmoEngineInstance) GetCgpath() string {
 func (tmoEngine *tmoEngineInstance) LoadConf(detail *tmo.TMOConfigDetail) {
 	tmoEngine.conf.EnableTMO = detail.EnableTMO
 	tmoEngine.conf.EnableSwap = detail.EnableSwap
+	tmoEngine.conf.EnableSwapOnProactiveEnabled = detail.EnableSwapOnProactiveEnabled
 	tmoEngine.conf.Interval = detail.Interval
 	tmoEngine.conf.PolicyName = detail.PolicyName
 	if psiPolicyConfDynamic := detail.PSIPolicyConf; psiPolicyConfDynamic != nil {
@@ -432,6 +434,7 @@ func (tmoEngine *tmoEngineInstance) CalculateOffloadingTargetSize() {
 				general.ErrorS(err, "Failed to calculate offloading memory size")
 				return
 			}
+			log.Printf("tmo obj: %s", currStats.obj)
 
 			cacheExceptMapped := currStats.cache - currStats.mapped
 			general.InfoS("Handle targetSize from policy", "Tmo obj:", currStats.obj, "targetSize:", targetSize, "cacheExceptMapped", cacheExceptMapped)
@@ -461,13 +464,18 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 		RegisterTMOBlockFunc(FromDynamicConfigTMOBlockFnName, TMOBlockFnFromDynamicConfig)
 	}
 
-	swapProactiveEnable := machine.SwappinessProactiveEnable()
+	swapProactiveEnable := machine.SwappinessProactiveEnabled()
 	podContainerNamesMap := make(map[katalystcoreconsts.PodContainerName]bool)
 	podList, err := tmo.metaServer.GetPodList(context.Background(), native.PodIsActive)
 	if err != nil {
 		general.Infof("Failed to get pod list: %v", err)
 		return err
 	}
+
+	var (
+		containerTmoEngines = make(map[katalystcoreconsts.PodContainerName]TmoEngine)
+		cgpathTmoEngines    = make(map[string]TmoEngine)
+	)
 
 	for _, pod := range podList {
 		if pod == nil {
@@ -493,20 +501,20 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 			}
 			podContainerName := native.GeneratePodContainerName(containerInfo.PodName, containerInfo.ContainerName)
 			podContainerNamesMap[podContainerName] = true
-			_, exist := tmo.containerTmoEngines[podContainerName]
+			_, exist := containerTmoEngines[podContainerName]
 			if !exist {
-				tmo.containerTmoEngines[podContainerName] = NewTmoEngineInstance(containerInfo, tmo.metaServer, tmo.emitter, tmo.conf.GetDynamicConfiguration().TransparentMemoryOffloadingConfiguration)
+				containerTmoEngines[podContainerName] = NewTmoEngineInstance(containerInfo, tmo.metaServer, tmo.emitter, tmo.conf.GetDynamicConfiguration().TransparentMemoryOffloadingConfiguration)
 			}
 			// load QoSLevelConfig
 			if helper.IsValidQosLevel(containerInfo.QoSLevel) {
 				if tmoConfigDetail, exist := tmo.conf.GetDynamicConfiguration().QoSLevelConfigs[katalystapiconsts.QoSLevel(containerInfo.QoSLevel)]; exist {
-					tmo.containerTmoEngines[podContainerName].LoadConf(tmoConfigDetail)
+					containerTmoEngines[podContainerName].LoadConf(tmoConfigDetail)
 					general.Infof("Load QosLevel %s TMO config for podContainerName %s, enableTMO: %v, enableSwap: %v, interval: %v, policy: %v",
 						containerInfo.QoSLevel, podContainerName,
-						tmo.containerTmoEngines[podContainerName].GetConf().EnableTMO,
-						tmo.containerTmoEngines[podContainerName].GetConf().EnableSwap,
-						tmo.containerTmoEngines[podContainerName].GetConf().Interval,
-						tmo.containerTmoEngines[podContainerName].GetConf().PolicyName)
+						containerTmoEngines[podContainerName].GetConf().EnableTMO,
+						containerTmoEngines[podContainerName].GetConf().EnableSwap,
+						containerTmoEngines[podContainerName].GetConf().Interval,
+						containerTmoEngines[podContainerName].GetConf().PolicyName)
 				}
 			}
 			// load SPD conf if exists
@@ -515,23 +523,29 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 			if err != nil {
 				general.Infof("Error occurred when load check baseline and load TransparentMemoryOffloadingIndicators, err : %v", err)
 			} else if !isBaseline {
-				tmoConfigDetail := tmo.containerTmoEngines[podContainerName].GetConf()
+				tmoConfigDetail := containerTmoEngines[podContainerName].GetConf()
 				if tmoIndicator.ConfigDetail != nil {
 					tmoconf.ApplyTMOConfigDetail(tmoConfigDetail, *tmoIndicator.ConfigDetail)
 					general.Infof("Load Service Level TMO config for podContainerName %s, enableTMO: %v, enableSwap: %v, interval: %v, policy: %v",
 						podContainerName,
-						tmo.containerTmoEngines[podContainerName].GetConf().EnableTMO,
-						tmo.containerTmoEngines[podContainerName].GetConf().EnableSwap,
-						tmo.containerTmoEngines[podContainerName].GetConf().Interval,
-						tmo.containerTmoEngines[podContainerName].GetConf().PolicyName)
+						containerTmoEngines[podContainerName].GetConf().EnableTMO,
+						containerTmoEngines[podContainerName].GetConf().EnableSwap,
+						containerTmoEngines[podContainerName].GetConf().Interval,
+						containerTmoEngines[podContainerName].GetConf().PolicyName)
 				}
 			}
 
 			// disable TMO if the Pod is numa exclusive and is not reclaimable
 			enableReclaim, _ := helper.PodEnableReclaim(context.Background(), tmo.metaServer, containerInfo.PodUID, true)
 			if containerInfo.IsNumaExclusive() && !enableReclaim {
-				tmo.containerTmoEngines[podContainerName].GetConf().EnableTMO = false
+				containerTmoEngines[podContainerName].GetConf().EnableTMO = false
 				general.Infof("container with podContainerName: %s is required to disable TMO since it is not reclaimable", podContainerName)
+			}
+
+			if containerTmoEngines[podContainerName].GetConf().EnableTMO && !containerTmoEngines[podContainerName].GetConf().EnableSwap &&
+				swapProactiveEnable && containerTmoEngines[podContainerName].GetConf().EnableSwapOnProactiveEnabled {
+				containerTmoEngines[podContainerName].GetConf().EnableSwap = true
+				general.Infof("container with podContainerName: %s is required to enable swap since swappiness proactive enabled", podContainerName)
 			}
 
 			// disable TMO if the container is in TMO block list
@@ -542,63 +556,78 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 			})
 			for tmoBlockFnName, tmoBlockFn := range funcs {
 				if tmoBlockFn(containerInfo, tmo.extraConf, tmo.conf.GetDynamicConfiguration().BlockConfig) {
-					tmo.containerTmoEngines[podContainerName].GetConf().EnableTMO = false
+					containerTmoEngines[podContainerName].GetConf().EnableTMO = false
 					general.Infof("container with podContainerName: %s is required to disable TMO by TMOBlockFn: %s", podContainerName, tmoBlockFnName)
 				}
 			}
 
-			if tmo.containerTmoEngines[podContainerName].GetConf().EnableTMO && containerInfo.QoSLevel == string(katalystapiconsts.QoSLevelReclaimedCores) && swapProactiveEnable {
-				tmo.containerTmoEngines[podContainerName].GetConf().EnableSwap = true
-				general.Infof("container with podContainerName: %s is required to enable swap since swappiness proactive enabled and it is reclaimed", podContainerName)
-			}
-
 			general.Infof("Final TMO configs for podContainerName: %v, enableTMO: %v, enableSwap: %v, interval: %v, policy: %v", podContainerName,
-				tmo.containerTmoEngines[podContainerName].GetConf().EnableTMO,
-				tmo.containerTmoEngines[podContainerName].GetConf().EnableSwap,
-				tmo.containerTmoEngines[podContainerName].GetConf().Interval,
-				tmo.containerTmoEngines[podContainerName].GetConf().PolicyName)
+				containerTmoEngines[podContainerName].GetConf().EnableTMO,
+				containerTmoEngines[podContainerName].GetConf().EnableSwap,
+				containerTmoEngines[podContainerName].GetConf().Interval,
+				containerTmoEngines[podContainerName].GetConf().PolicyName)
 		}
 	}
 
 	// update tmo config for specified cgroup paths
 	for cgpath, tmoConfigDetail := range tmo.conf.GetDynamicConfiguration().TransparentMemoryOffloadingConfiguration.CgroupConfigs {
 		general.Infof("Load Cgroup TMO config for specific cgroup path %v", cgpath)
-		if _, exist := tmo.cgpathTmoEngines[cgpath]; !exist {
-			tmo.cgpathTmoEngines[cgpath] = NewTmoEngineInstance(cgpath, tmo.metaServer, tmo.emitter, tmo.conf.GetDynamicConfiguration().TransparentMemoryOffloadingConfiguration)
+		if _, exist := cgpathTmoEngines[cgpath]; !exist {
+			cgpathTmoEngines[cgpath] = NewTmoEngineInstance(cgpath, tmo.metaServer, tmo.emitter, tmo.conf.GetDynamicConfiguration().TransparentMemoryOffloadingConfiguration)
 		}
-		tmo.cgpathTmoEngines[cgpath].LoadConf(tmoConfigDetail)
+		cgpathTmoEngines[cgpath].LoadConf(tmoConfigDetail)
+
+		if cgpathTmoEngines[cgpath].GetConf().EnableTMO && !cgpathTmoEngines[cgpath].GetConf().EnableSwap &&
+			swapProactiveEnable && cgpathTmoEngines[cgpath].GetConf().EnableSwapOnProactiveEnabled {
+			cgpathTmoEngines[cgpath].GetConf().EnableSwap = true
+			general.Infof("cgroup with path: %s is required to enable swap since swappiness proactive enabled", cgpath)
+		}
+
 		general.Infof("TMO configs for cgroup: %v, enableTMO: %v, enableSwap: %v, interval: %v, policy: %v", cgpath,
 			tmoConfigDetail.EnableTMO, tmoConfigDetail.EnableSwap, tmoConfigDetail.Interval, tmoConfigDetail.PolicyName)
 	}
 
-	// delete tmo engines for not existed containers
-	for podContainerName := range tmo.containerTmoEngines {
-		_, exist := podContainerNamesMap[podContainerName]
-		if !exist {
-			delete(tmo.containerTmoEngines, podContainerName)
-		}
-	}
+	//// delete tmo engines for not existed containers
+	//for podContainerName := range tmo.containerTmoEngines {
+	//	_, exist := podContainerNamesMap[podContainerName]
+	//	if !exist {
+	//		delete(tmo.containerTmoEngines, podContainerName)
+	//	}
+	//}
 
 	// delete tmo engines for not existed cgroups
-	for cgpath := range tmo.cgpathTmoEngines {
+	for cgpath := range cgpathTmoEngines {
 		if _, exist := tmo.conf.GetDynamicConfiguration().CgroupConfigs[cgpath]; !exist {
-			delete(tmo.cgpathTmoEngines, cgpath)
+			delete(cgpathTmoEngines, cgpath)
 		}
 	}
 
 	// calculate memory offloading size for each container
-	for podContainerName, tmoEngine := range tmo.containerTmoEngines {
+	for podContainerName, tmoEngine := range containerTmoEngines {
 		tmoEngine.CalculateOffloadingTargetSize()
 		general.InfoS("Calculate target offloading size", "podContainer", podContainerName,
 			"result", general.FormatMemoryQuantity(tmoEngine.GetOffloadingTargetSize()))
 	}
 
 	// calculate memory offloading size for each cgroups
-	for cgpath, tmoEngine := range tmo.cgpathTmoEngines {
+	for cgpath, tmoEngine := range cgpathTmoEngines {
 		tmoEngine.CalculateOffloadingTargetSize()
 		general.InfoS("Calculate target offloading size", "groupPath", cgpath,
 			"result", general.FormatMemoryQuantity(tmoEngine.GetOffloadingTargetSize()))
 	}
+
+	tmo.mutex.Lock()
+	defer tmo.mutex.Unlock()
+
+	tmo.containerTmoEngines = make(map[katalystcoreconsts.PodContainerName]TmoEngine)
+	tmo.cgpathTmoEngines = make(map[string]TmoEngine)
+	for podContainerName := range containerTmoEngines {
+		tmo.containerTmoEngines[podContainerName] = containerTmoEngines[podContainerName]
+	}
+	for cgpath := range cgpathTmoEngines {
+		tmo.cgpathTmoEngines[cgpath] = cgpathTmoEngines[cgpath]
+	}
+
 	return nil
 }
 

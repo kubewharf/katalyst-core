@@ -23,9 +23,15 @@ import (
 	"context"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+
+	qrmgeneral "github.com/kubewharf/katalyst-core/pkg/util/qrm"
 )
 
 type unsupportedNetworkManager struct{}
+
+func (m *unsupportedNetworkManager) ApplyNetworkGroups(m2 map[string]*qrmgeneral.NetworkGroup) error {
+	return nil
+}
 
 // NewNetworkManager returns a defaultNetworkManager.
 func NewNetworkManager() NetworkManager {
