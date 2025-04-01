@@ -25,12 +25,21 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
+
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	utilkubeconfig "github.com/kubewharf/katalyst-core/pkg/util/kubelet/config"
 )
+
+var annoQoSLevelToShortQoSLevel = map[string]string{
+	apiconsts.PodAnnotationQoSLevelSharedCores:    "shared",
+	apiconsts.PodAnnotationQoSLevelDedicatedCores: "dedicated",
+	apiconsts.PodAnnotationQoSLevelReclaimedCores: "reclaimed",
+	apiconsts.PodAnnotationQoSLevelSystemCores:    "system",
+}
 
 func GetFullyDropCacheBytes(container *v1.Container) int64 {
 	if container == nil {

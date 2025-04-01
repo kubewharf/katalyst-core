@@ -26,7 +26,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 )
 
-func TestResctrlProcessor_getInjectedAnnotationResp(t *testing.T) {
+func TestResctrlProcessor_HintResp(t *testing.T) {
 	t.Parallel()
 
 	respTest := &pluginapi.ResourceAllocationResponse{
@@ -87,12 +87,51 @@ func TestResctrlProcessor_getInjectedAnnotationResp(t *testing.T) {
 			want: respTest,
 		},
 		{
-			name: "batch is shared-30 if specified so",
+			name: "batch is shared-30 if specified so, and no pod mon-group",
 			fields: fields{
 				option: &qrm.ResctrlOptions{
 					EnableResctrlHint: true,
 					CPUSetPoolToSharedSubgroup: map[string]int{
 						"batch": 30,
+					},
+					MonGroupsPolicy: &qrm.MonGroupsPolicy{
+						EnabledClosIDs: []string{"dedicated", "shared-50"},
+					},
+				},
+			},
+			args: args{
+				qosLevel: "shared_cores",
+				req: &pluginapi.ResourceRequest{
+					Annotations: map[string]string{
+						"katalyst.kubewharf.io/cpu_enhancement": `{"cpuset_pool":"batch"}`,
+					},
+				},
+				resp: respTest,
+			},
+			want: &pluginapi.ResourceAllocationResponse{
+				AllocationResult: &pluginapi.ResourceAllocation{
+					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+						"memory": {
+							Annotations: map[string]string{
+								"test-key":                             "test-value",
+								"rdt.resources.beta.kubernetes.io/pod": "shared-30",
+								"rdt.resources.beta.kubernetes.io/need-mon-groups": "false",
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "batch is shared-30, and default yes pod mon-group",
+			fields: fields{
+				option: &qrm.ResctrlOptions{
+					EnableResctrlHint: true,
+					CPUSetPoolToSharedSubgroup: map[string]int{
+						"batch": 30,
+					},
+					MonGroupsPolicy: &qrm.MonGroupsPolicy{
+						EnabledClosIDs: []string{"dedicated", "shared-30"},
 					},
 				},
 			},
@@ -123,9 +162,7 @@ func TestResctrlProcessor_getInjectedAnnotationResp(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			r := resctrlHinter{
-				option: tt.fields.option,
-			}
+			r := newResctrlHinter(tt.fields.option)
 			assert.Equalf(t, tt.want, r.HintResp(tt.args.qosLevel, tt.args.req, tt.args.resp), "HintResp(%v, %v, %v)", tt.args.qosLevel, tt.args.req, tt.args.resp)
 		})
 	}

@@ -83,6 +83,11 @@ type ResctrlOptions struct {
 	// based on its cpu set pool annotation
 	CPUSetPoolToSharedSubgroup map[string]int
 	DefaultSharedSubgroup      int
+
+	// MonGroupsPolicy specifies mon_groups layout policy of kubelet
+	// by default no special mon_groups layout, which allows kubelet to decide by itself, suitable for scenarios
+	// that need no memory bandwidth control (which would exceed the closid limit of hardware).
+	MonGroupsPolicy string
 }
 
 func NewMemoryOptions() *MemoryOptions {
@@ -179,6 +184,7 @@ func (o *MemoryOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.CPUSetPoolToSharedSubgroup, "customize shared-xx subgroup if present")
 	fs.IntVar(&o.DefaultSharedSubgroup, "pod-admit-resctrl-default-shared-subgroup",
 		o.DefaultSharedSubgroup, "default subgroup for shared qos")
+	fs.StringVar(&o.MonGroupsPolicy, "mon-groups-policy", o.MonGroupsPolicy, "type of mon-groups policy")
 }
 
 func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
@@ -209,5 +215,12 @@ func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
 	conf.EnableResctrlHint = o.EnableResctrlHint
 	conf.CPUSetPoolToSharedSubgroup = o.CPUSetPoolToSharedSubgroup
 	conf.DefaultSharedSubgroup = o.DefaultSharedSubgroup
+
+	// to parse json into receptacle struct here so to fail fast in case of invalid input
+	var err error
+	if conf.MonGroupsPolicy, err = qrmconfig.ToMonGroupsPolicy(o.MonGroupsPolicy); err != nil {
+		return err
+	}
+
 	return nil
 }

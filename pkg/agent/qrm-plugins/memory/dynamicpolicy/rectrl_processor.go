@@ -19,13 +19,17 @@ package dynamicpolicy
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 const (
@@ -39,7 +43,8 @@ type ResctrlHinter interface {
 }
 
 type resctrlHinter struct {
-	option *qrm.ResctrlOptions
+	option               *qrm.ResctrlOptions
+	closidEnablingGroups sets.String
 }
 
 func identifyCPUSetPool(annoInReq map[string]string) string {
@@ -77,7 +82,7 @@ func (r *resctrlHinter) getSharedSubgroupByPool(pool string) string {
 	return getSharedSubgroup(r.option.DefaultSharedSubgroup)
 }
 
-func injectRespAnnotationSharedGroup(resp *pluginapi.ResourceAllocationResponse, monGroup string) {
+func ensureToGetMemAllocInfo(resp *pluginapi.ResourceAllocationResponse) *pluginapi.ResourceAllocationInfo {
 	if _, ok := resp.AllocationResult.ResourceAllocation[string(v1.ResourceMemory)]; !ok {
 		resp.AllocationResult.ResourceAllocation[string(v1.ResourceMemory)] = &pluginapi.ResourceAllocationInfo{}
 	}
@@ -86,7 +91,26 @@ func injectRespAnnotationSharedGroup(resp *pluginapi.ResourceAllocationResponse,
 	if allocInfo.Annotations == nil {
 		allocInfo.Annotations = make(map[string]string)
 	}
+
+	return allocInfo
+}
+
+func injectRespAnnotationSharedGroup(resp *pluginapi.ResourceAllocationResponse, monGroup string) {
+	allocInfo := ensureToGetMemAllocInfo(resp)
 	allocInfo.Annotations["rdt.resources.beta.kubernetes.io/pod"] = monGroup
+}
+
+func injectRespAnnotationPodMonGroup(resp *pluginapi.ResourceAllocationResponse,
+	enablingGroups sets.String, group string,
+) {
+	if enablingGroups.Has(group) {
+		return
+	}
+
+	allocInfo := ensureToGetMemAllocInfo(resp)
+	general.InfofV(6, "mbm: pod %s/%s qos %s not need pod mon_groups",
+		resp.PodNamespace, resp.PodName, group)
+	allocInfo.Annotations[util.AnnotationRdtNeedPodMonGroups] = strconv.FormatBool(false)
 }
 
 func (r *resctrlHinter) HintResp(qosLevel string,
@@ -96,16 +120,33 @@ func (r *resctrlHinter) HintResp(qosLevel string,
 		return resp
 	}
 
+	podShortQoS, ok := annoQoSLevelToShortQoSLevel[qosLevel]
+	if !ok {
+		general.Errorf("pod admit: fail to identify short qos level for %s; skip resctl hint", qosLevel)
+		return resp
+	}
+
 	// inject shared subgroup if applicable
 	if qosLevel == apiconsts.PodAnnotationQoSLevelSharedCores {
 		cpusetPool := identifyCPUSetPool(req.Annotations)
-		monGroup := r.getSharedSubgroupByPool(cpusetPool)
-		injectRespAnnotationSharedGroup(resp, monGroup)
+		podShortQoS = r.getSharedSubgroupByPool(cpusetPool)
+		injectRespAnnotationSharedGroup(resp, podShortQoS)
 	}
+
+	// inject pod mon group (false only) if applicable
+	injectRespAnnotationPodMonGroup(resp, r.closidEnablingGroups, podShortQoS)
 
 	return resp
 }
 
 func newResctrlHinter(option *qrm.ResctrlOptions) ResctrlHinter {
-	return &resctrlHinter{option: option}
+	closidEnablingGroups := make(sets.String)
+	if option != nil && option.MonGroupsPolicy != nil {
+		closidEnablingGroups = sets.NewString(option.MonGroupsPolicy.EnabledClosIDs...)
+	}
+
+	return &resctrlHinter{
+		option:               option,
+		closidEnablingGroups: closidEnablingGroups,
+	}
 }
