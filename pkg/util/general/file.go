@@ -152,7 +152,7 @@ func IsPathExists(path string) bool {
 func ReadFileIntoLines(filepath string) ([]string, error) {
 	lines, err := ioutil.ReadFile(filepath)
 	if err != nil {
-		return nil, fmt.Errorf("could not read file %s", filepath)
+		return nil, err
 	}
 
 	var contents []string
