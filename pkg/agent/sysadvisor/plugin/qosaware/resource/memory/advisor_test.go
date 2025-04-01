@@ -4099,6 +4099,7 @@ func TestUpdate(t *testing.T) {
 			transparentMemoryOffloadingConfiguration.QoSLevelConfigs[consts.QoSLevelReclaimedCores] = tmo.NewTMOConfigDetail(transparentMemoryOffloadingConfiguration.DefaultConfigurations)
 			transparentMemoryOffloadingConfiguration.QoSLevelConfigs[consts.QoSLevelReclaimedCores].EnableTMO = true
 			transparentMemoryOffloadingConfiguration.QoSLevelConfigs[consts.QoSLevelReclaimedCores].EnableSwap = false
+			transparentMemoryOffloadingConfiguration.QoSLevelConfigs[consts.QoSLevelReclaimedCores].EnableSwapOnProactiveEnabled = true
 			transparentMemoryOffloadingConfiguration.QoSLevelConfigs[consts.QoSLevelSharedCores] = tmo.NewTMOConfigDetail(transparentMemoryOffloadingConfiguration.DefaultConfigurations)
 			transparentMemoryOffloadingConfiguration.QoSLevelConfigs[consts.QoSLevelSharedCores].EnableTMO = true
 			transparentMemoryOffloadingConfiguration.QoSLevelConfigs[consts.QoSLevelSharedCores].EnableSwap = true
