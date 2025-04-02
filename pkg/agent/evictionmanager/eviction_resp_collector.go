@@ -184,7 +184,7 @@ func (e *evictionRespCollector) collectTopEvictionPods(dryRunPlugins []string, p
 			pluginName, threshold.EvictionScope, threshold.ThresholdValue, threshold.ObservedValue)
 
 		forceEvictPod := e.getForceEvictPods()[string(pod.UID)]
-		if forceEvictPod != nil {
+		if forceEvictPod != nil && forceEvictPod.EvictPod != nil {
 			if deletionOptions != nil && forceEvictPod.EvictPod.DeletionOptions != nil {
 				deletionOptions.GracePeriodSeconds = general.MaxInt64(deletionOptions.GracePeriodSeconds,
 					forceEvictPod.EvictPod.DeletionOptions.GracePeriodSeconds)
