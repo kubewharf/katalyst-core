@@ -35,6 +35,7 @@ const (
 	SystemNetResource     = "system/network"
 	SystemMemoryResource  = "system/memory"
 	SystemComputeResource = "system/compute"
+	SystemInfoResource    = "system/info"
 
 	RealtimePowerResource = "realtime/power"
 )
@@ -54,7 +55,8 @@ const (
 type SystemResourceKind int
 
 const (
-	Compute SystemResourceKind = iota
+	Info SystemResourceKind = iota
+	Compute
 	Memory
 	IO
 	Net
@@ -74,6 +76,7 @@ func NewMalachiteClient(fetcher pod.PodFetcher, emitter metrics.MetricEmitter) *
 	urls := make(map[string]string)
 	for _, path := range []string{
 		CgroupResource,
+		SystemInfoResource,
 		SystemIOResource,
 		SystemNetResource,
 		SystemComputeResource,

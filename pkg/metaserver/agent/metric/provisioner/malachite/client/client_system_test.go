@@ -30,6 +30,13 @@ import (
 )
 
 var (
+	fakeSystemInfo = &types.MalachiteSystemInfoResponse{
+		Status: 0,
+		Data: types.SystemInfoData{
+			IsVM: true,
+		},
+	}
+
 	fakeSystemCompute = &types.MalachiteSystemComputeResponse{
 		Status: 0,
 		Data: types.SystemComputeData{
@@ -81,6 +88,27 @@ func getSystemTestServer(data []byte) *httptest.Server {
 		r.Response.StatusCode = http.StatusOK
 		_, _ = w.Write(data)
 	}))
+}
+
+func TestGetSystemInfoStats(t *testing.T) {
+	t.Parallel()
+
+	data, _ := json.Marshal(fakeSystemInfo)
+	server := getSystemTestServer(data)
+	defer server.Close()
+
+	malachiteClient := NewMalachiteClient(&pod.PodFetcherStub{}, metrics.DummyMetrics{})
+	malachiteClient.SetURL(map[string]string{
+		SystemInfoResource: server.URL,
+	})
+	_, err := malachiteClient.GetSystemInfoStats()
+	assert.NoError(t, err)
+
+	malachiteClient.SetURL(map[string]string{
+		SystemInfoResource: "none",
+	})
+	_, err = malachiteClient.GetSystemInfoStats()
+	assert.NotNil(t, err)
 }
 
 func TestGetSystemComputeStats(t *testing.T) {
