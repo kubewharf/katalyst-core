@@ -23,6 +23,7 @@ type MemoryUtilBasedConfiguration struct {
 	FreeBasedRatio      float64
 	StaticBasedCapacity float64
 	CacheBasedRatio     float64
+	MaxOversoldRate     float64
 }
 
 func NewMemoryUtilBasedConfiguration() *MemoryUtilBasedConfiguration {
@@ -49,6 +50,10 @@ func (c *MemoryUtilBasedConfiguration) ApplyConfiguration(conf *crd.DynamicConfi
 
 		if config.CacheBasedRatio != nil {
 			c.CacheBasedRatio = *config.CacheBasedRatio
+		}
+
+		if config.MaxOversoldRate != nil {
+			c.MaxOversoldRate = *config.MaxOversoldRate
 		}
 	}
 }

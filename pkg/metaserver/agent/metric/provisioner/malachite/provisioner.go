@@ -735,6 +735,7 @@ func (m *MalachiteMetricsProvisioner) processCgroupMemoryData(cgroupPath string,
 	} else if cgStats.CgroupType == "V2" && cgStats.V2 != nil {
 		mem := cgStats.V2.Memory
 		updateTime := time.Unix(cgStats.V2.Memory.UpdateTime, 0)
+		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemLimitCgroup, utilmetric.MetricData{Value: float64(mem.Max), Time: &updateTime})
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemUsageCgroup, utilmetric.MetricData{Value: float64(mem.MemoryUsageInBytes), Time: &updateTime})
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemRssCgroup, utilmetric.MetricData{Value: float64(mem.MemStats.Anon), Time: &updateTime})
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemCacheCgroup, utilmetric.MetricData{Value: float64(mem.MemStats.File), Time: &updateTime})

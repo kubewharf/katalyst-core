@@ -158,7 +158,7 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 	options := helper.UtilBasedCapacityOptions{
 		TargetUtilization: dynamicConfig.TargetReclaimedCoreUtilization,
 		MaxUtilization:    dynamicConfig.MaxReclaimedCoreUtilization,
-		MaxOversoldRate:   dynamicConfig.MaxOversoldRate,
+		MaxOversoldRate:   dynamicConfig.CPUUtilBasedConfiguration.MaxOversoldRate,
 		MaxCapacity:       dynamicConfig.MaxHeadroomCapacityRate * float64(ha.metaServer.MachineInfo.NumCores/ha.metaServer.NumNUMANodes),
 	}
 

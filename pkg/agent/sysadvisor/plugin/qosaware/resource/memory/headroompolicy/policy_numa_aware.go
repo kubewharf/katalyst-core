@@ -22,15 +22,17 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/resource"
 
-	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
@@ -38,11 +40,13 @@ type PolicyNUMAAware struct {
 	*PolicyBase
 
 	// memoryHeadroom is valid to be used iff updateStatus successes
-	memoryHeadroom     float64
+	memoryHeadroom     resource.Quantity
 	numaMemoryHeadroom map[int]resource.Quantity
 	updateStatus       types.PolicyUpdateStatus
 
 	conf *config.Configuration
+
+	numaBindingReclaimRelativeRootCgroupPaths map[int]string
 }
 
 func NewPolicyNUMAAware(conf *config.Configuration, _ interface{}, metaReader metacache.MetaReader,
@@ -53,6 +57,8 @@ func NewPolicyNUMAAware(conf *config.Configuration, _ interface{}, metaReader me
 		numaMemoryHeadroom: make(map[int]resource.Quantity),
 		updateStatus:       types.PolicyUpdateFailed,
 		conf:               conf,
+		numaBindingReclaimRelativeRootCgroupPaths: common.GetNUMABindingReclaimRelativeRootCgroupPaths(conf.ReclaimRelativeRootCgroupPath,
+			metaServer.CPUDetails.NUMANodes().ToSliceNoSortInt()),
 	}
 
 	return &p
@@ -60,10 +66,6 @@ func NewPolicyNUMAAware(conf *config.Configuration, _ interface{}, metaReader me
 
 func (p *PolicyNUMAAware) Name() types.MemoryHeadroomPolicyName {
 	return types.MemoryHeadroomPolicyNUMAAware
-}
-
-func (p *PolicyNUMAAware) reclaimedContainersFilter(ci *types.ContainerInfo) bool {
-	return ci != nil && ci.QoSLevel == apiconsts.PodAnnotationQoSLevelReclaimedCores
 }
 
 func (p *PolicyNUMAAware) Update() (err error) {
@@ -128,8 +130,8 @@ func (p *PolicyNUMAAware) Update() (err error) {
 	}
 
 	for _, container := range reclaimedCoresContainers {
-		reclaimableMemory += container.MemoryRequest
 		if container.MemoryRequest > 0 && len(container.TopologyAwareAssignments) > 0 {
+			reclaimableMemory += container.MemoryRequest
 			reclaimableMemoryPerNuma := container.MemoryRequest / float64(len(container.TopologyAwareAssignments))
 			for numaID := range container.TopologyAwareAssignments {
 				numaReclaimableMemory[numaID] += reclaimableMemoryPerNuma
@@ -146,38 +148,48 @@ func (p *PolicyNUMAAware) Update() (err error) {
 	// reserve memory for watermark_scale_factor to make kswapd less happened
 	systemWatermarkReserved := availNUMATotal * watermarkScaleFactor.Value / 10000
 
-	p.memoryHeadroom = math.Max(reclaimableMemory-systemWatermarkReserved-reservedForAllocate, 0)
+	memoryHeadroom := math.Max(reclaimableMemory-systemWatermarkReserved-reservedForAllocate, 0)
 	reduceRatio := 0.0
 	if reclaimableMemory > 0 {
-		reduceRatio = p.memoryHeadroom / reclaimableMemory
+		reduceRatio = memoryHeadroom / reclaimableMemory
 	}
 
-	totalNUMAHeadroom := 0.0
 	allNUMAs := p.metaServer.CPUDetails.NUMANodes().ToSliceInt()
-	numaHeadroom := make(map[int]resource.Quantity, len(allNUMAs))
+	numaHeadroom := make(map[int]float64, len(allNUMAs))
+	totalNUMAHeadroom := 0.0
 	for numaID := range numaReclaimableMemory {
-		numaReclaimableMemory[numaID] *= reduceRatio
-		totalNUMAHeadroom += numaReclaimableMemory[numaID]
-		numaHeadroom[numaID] = *resource.NewQuantity(int64(numaReclaimableMemory[numaID]), resource.BinarySI)
-		general.InfoS("memory reclaimable per NUMA", "NUMA-ID", numaID, "headroom", numaReclaimableMemory[numaID])
+		numaHeadroom[numaID] = numaReclaimableMemory[numaID] * reduceRatio
+		totalNUMAHeadroom += numaHeadroom[numaID]
+		general.InfoS("numa memory headroom", "NUMA-ID", numaID, "headroom", general.FormatMemoryQuantity(numaHeadroom[numaID]))
 	}
 
+	// revise memory headroom by dynamic config
+	numaHeadroom, totalNUMAHeadroom, err = p.reviseNUMAHeadroomMemory(dynamicConfig, numaHeadroom, totalNUMAHeadroom, availNUMAs)
+	if err != nil {
+		general.Errorf("reviseNUMAHeadroomMemory failed: %v", err)
+		return err
+	}
+
+	numaHeadroomQuantity := make(map[int]resource.Quantity, len(allNUMAs))
 	for _, numaID := range allNUMAs {
 		if _, ok := numaHeadroom[numaID]; !ok {
-			general.InfoS("set non-reclaim NUMA memory reclaimable as empty", "NUMA-ID", numaID)
-			numaHeadroom[numaID] = *resource.NewQuantity(0, resource.BinarySI)
+			numaHeadroomQuantity[numaID] = *resource.NewQuantity(0, resource.BinarySI)
+		} else {
+			numaHeadroomQuantity[numaID] = *resource.NewQuantity(int64(numaHeadroom[numaID]), resource.BinarySI)
 		}
+		general.InfoS("revised numa memory headroom", "NUMA-ID", numaID, "headroom", general.FormatMemoryQuantity(numaHeadroom[numaID]))
 	}
 
-	p.numaMemoryHeadroom = numaHeadroom
+	p.numaMemoryHeadroom = numaHeadroomQuantity
+	p.memoryHeadroom = *resource.NewQuantity(int64(totalNUMAHeadroom), resource.BinarySI)
 
 	general.InfoS("total memory reclaimable",
 		"reclaimableMemory", general.FormatMemoryQuantity(reclaimableMemory),
+		"memoryHeadroom", general.FormatMemoryQuantity(memoryHeadroom),
 		"ResourceUpperBound", general.FormatMemoryQuantity(p.essentials.ResourceUpperBound),
 		"systemWatermarkReserved", general.FormatMemoryQuantity(systemWatermarkReserved),
 		"reservedForAllocate", general.FormatMemoryQuantity(reservedForAllocate),
-		"headroom", p.memoryHeadroom,
-		"totalNUMAHeadroom", totalNUMAHeadroom,
+		"totalNUMAHeadroom", general.FormatMemoryQuantity(totalNUMAHeadroom),
 		"numaHeadroom", numaHeadroom,
 	)
 	return nil
@@ -188,5 +200,75 @@ func (p *PolicyNUMAAware) GetHeadroom() (resource.Quantity, map[int]resource.Qua
 		return resource.Quantity{}, nil, fmt.Errorf("last update failed")
 	}
 
-	return *resource.NewQuantity(int64(p.memoryHeadroom), resource.BinarySI), p.numaMemoryHeadroom, nil
+	return p.memoryHeadroom, p.numaMemoryHeadroom, nil
+}
+
+func (p *PolicyNUMAAware) getReclaimMemoryLimit(actualNUMABindingNUMAs, nonActualNUMABindingNUMAs machine.CPUSet) (map[int]float64, error) {
+	numaReclaimMemoryLimit := make(map[int]float64, actualNUMABindingNUMAs.Size()+nonActualNUMABindingNUMAs.Size())
+	for _, numaID := range actualNUMABindingNUMAs.ToSliceNoSortInt() {
+		cgroupPath := p.numaBindingReclaimRelativeRootCgroupPaths[numaID]
+		data, err := p.metaServer.GetCgroupMetric(cgroupPath, consts.MetricMemLimitCgroup)
+		if err != nil {
+			return nil, fmt.Errorf("get cgroup %s metric failed: %v", cgroupPath, err)
+		}
+
+		numaReclaimMemoryLimit[numaID] = data.Value
+	}
+
+	cgroupMetric, err := p.metaServer.GetCgroupMetric(p.conf.ReclaimRelativeRootCgroupPath, consts.MetricMemLimitCgroup)
+	if err != nil {
+		return nil, err
+	}
+	reclaimMemoryLimit := cgroupMetric.Value
+
+	if !nonActualNUMABindingNUMAs.IsEmpty() {
+		reclaimMemoryLimitPerNUMA := reclaimMemoryLimit / float64(nonActualNUMABindingNUMAs.Size())
+		for _, numaID := range nonActualNUMABindingNUMAs.ToSliceNoSortInt() {
+			numaReclaimMemoryLimit[numaID] = reclaimMemoryLimitPerNUMA
+		}
+	}
+
+	return numaReclaimMemoryLimit, nil
+}
+
+// reviseNUMAHeadroomMemory adjusts reclaimable memory based on NUMA configuration and oversold rate settings
+// It ensures memory allocation doesn't exceed limits set by MaxOversoldRate for both NUMA-bound and non-NUMA-bound memory
+// Returns:
+//   - Revised NUMA-specific reclaimable memory map
+//   - Total revised reclaimable memory
+//   - Error if any occurs during the adjustment process
+func (p *PolicyNUMAAware) reviseNUMAHeadroomMemory(
+	conf *dynamic.Configuration,
+	numaHeadroom map[int]float64,
+	totalNUMAHeadroom float64,
+	availNUMAs machine.CPUSet,
+) (map[int]float64, float64, error) {
+	// if MaxOversoldRate <= 0, we will not revise reclaimable memory
+	maxOversoldRate := conf.MemoryUtilBasedConfiguration.MaxOversoldRate
+	if maxOversoldRate <= 0 {
+		return numaHeadroom, totalNUMAHeadroom, nil
+	}
+
+	// get actual-numa-binding numa
+	actualNUMABindingNUMAs, err := helper.GetActualNUMABindingNUMAsForReclaimedCores(p.conf, p.metaServer)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	nonActualNUMABindingNUMAs := availNUMAs.Difference(actualNUMABindingNUMAs)
+	numaReclaimMemoryLimit, err := p.getReclaimMemoryLimit(actualNUMABindingNUMAs, nonActualNUMABindingNUMAs)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	general.InfoS("NUMA memory limit", "numaReclaimMemoryLimit", numaReclaimMemoryLimit)
+
+	revisedNUMAHeadroom := make(map[int]float64, len(numaHeadroom))
+	revisedTotalNUMAHeadroom := 0.
+	for numaID, memory := range numaHeadroom {
+		revisedNUMAHeadroom[numaID] = math.Min(memory, numaReclaimMemoryLimit[numaID]*maxOversoldRate)
+		revisedTotalNUMAHeadroom += revisedNUMAHeadroom[numaID]
+	}
+
+	return revisedNUMAHeadroom, revisedTotalNUMAHeadroom, nil
 }
