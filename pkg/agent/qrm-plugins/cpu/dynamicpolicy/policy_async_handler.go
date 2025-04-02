@@ -233,6 +233,21 @@ func (p *DynamicPolicy) clearResidualState(_ *coreconfig.Configuration,
 		}
 	}
 
+	removePodFromAdvisor := func(podUID string) {
+		if p.enableCPUAdvisor {
+			if p.advisorClient == nil {
+				return
+			}
+			_, rErr := p.advisorClient.RemovePod(ctx, &advisorsvc.RemovePodRequest{
+				PodUid: podUID,
+			})
+			if rErr != nil {
+				general.Errorf("remove residual pod: %s in sys advisor failed with error: %v, remain it in state", podUID, rErr)
+				return
+			}
+		}
+	}
+
 	if podsToDelete.Len() > 0 {
 		for {
 			podUID, found := podsToDelete.PopAny()
@@ -240,16 +255,7 @@ func (p *DynamicPolicy) clearResidualState(_ *coreconfig.Configuration,
 				break
 			}
 
-			var rErr error
-			if p.enableCPUAdvisor {
-				_, rErr = p.advisorClient.RemovePod(ctx, &advisorsvc.RemovePodRequest{
-					PodUid: podUID,
-				})
-			}
-			if rErr != nil {
-				general.Errorf("remove residual pod: %s in sys advisor failed with error: %v, remain it in state", podUID, rErr)
-				continue
-			}
+			removePodFromAdvisor(podUID)
 
 			general.Infof("clear residual pod: %s in state", podUID)
 			delete(podEntries, podUID)
