@@ -259,7 +259,7 @@ func (p *prometheusCollector) checkTargetPod(pod *v1.Pod) bool {
 	klog.V(6).Infof("check for pod %v: %v, %v, %v",
 		pod.Name, native.PodIsReady(pod), p.collectConf.PodSelector.Matches(labels.Set(pod.Labels)), p.checkTargetNode(node))
 
-	return native.PodIsReady(pod) && p.collectConf.PodSelector.Matches(labels.Set(pod.Labels)) && p.checkTargetNode(node)
+	return p.collectConf.PodSelector.Matches(labels.Set(pod.Labels)) && p.checkTargetNode(node)
 }
 
 // checkTargetNode checks whether the given node is targeted
