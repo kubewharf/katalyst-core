@@ -19,6 +19,7 @@ package node
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -185,23 +186,24 @@ func (n *MetricSyncerNode) generateMetricTag(ctx context.Context) (tags []metric
 		cpuCodeName = ""
 	}
 
+	tags = append(tags, metrics.MetricTag{
+		Key: fmt.Sprintf("%s%s", data.CustomMetricLabelSelectorPrefixKey, "cpu_codename"),
+		Val: cpuCodeName,
+	})
+
 	// append vendor info
-	vendor := ""
+	isVM := ""
 	isVMInterface := n.metaServer.MetricsFetcher.GetByStringIndex(consts.MetricInfoIsVM)
-	isVM, ok := isVMInterface.(bool)
+	isVMBool, ok := isVMInterface.(bool)
 	if !ok {
 		klog.Warningf("parse is vm %v failed", isVMInterface)
 	} else {
-		if isVM {
-			vendor = "vm"
-		} else {
-			vendor = "bm"
-		}
+		isVM = strconv.FormatBool(isVMBool)
 	}
 
 	tags = append(tags, metrics.MetricTag{
-		Key: fmt.Sprintf("%s%s", data.CustomMetricLabelSelectorPrefixKey, "node_model"),
-		Val: fmt.Sprintf("%s-%s", cpuCodeName, vendor),
+		Key: fmt.Sprintf("%s%s", data.CustomMetricLabelSelectorPrefixKey, "is_vm"),
+		Val: isVM,
 	})
 
 	// append node numa bit mask
