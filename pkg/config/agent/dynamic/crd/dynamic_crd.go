@@ -35,6 +35,7 @@ type DynamicConfigCRD struct {
 	AdminQoSConfiguration                    *v1alpha1.AdminQoSConfiguration
 	AuthConfiguration                        *v1alpha1.AuthConfiguration
 	TransparentMemoryOffloadingConfiguration *v1alpha1.TransparentMemoryOffloadingConfiguration
+	StrategyGroup                            *v1alpha1.StrategyGroup
 }
 
 var (
@@ -44,4 +45,6 @@ var (
 	AuthConfigurationGVR = metav1.GroupVersionResource(v1alpha1.SchemeGroupVersion.WithResource(v1alpha1.ResourceNameAuthConfigurations))
 	// TransparentMemoryOffloadingConfigurationGVR is the group version resource for TransparentMemoryOffloadingConfiguration
 	TransparentMemoryOffloadingConfigurationGVR = metav1.GroupVersionResource(v1alpha1.SchemeGroupVersion.WithResource(v1alpha1.ResourceNameTMOConfigurations))
+	// StrategyGroupGVR is the group version resource for StrategyGroup
+	StrategyGroupGVR = metav1.GroupVersionResource(v1alpha1.SchemeGroupVersion.WithResource(v1alpha1.ResourceNameStrategyGroups))
 )

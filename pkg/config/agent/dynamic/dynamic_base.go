@@ -19,6 +19,7 @@ package dynamic
 import (
 	"sync"
 
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/strategygroup"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/tmo"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos"
@@ -55,6 +56,7 @@ type Configuration struct {
 	*adminqos.AdminQoSConfiguration
 	*auth.AuthConfiguration
 	*tmo.TransparentMemoryOffloadingConfiguration
+	*strategygroup.StrategyGroup
 }
 
 func NewConfiguration() *Configuration {
@@ -62,6 +64,7 @@ func NewConfiguration() *Configuration {
 		AdminQoSConfiguration:                    adminqos.NewAdminQoSConfiguration(),
 		AuthConfiguration:                        auth.NewAuthConfiguration(),
 		TransparentMemoryOffloadingConfiguration: tmo.NewTransparentMemoryOffloadingConfiguration(),
+		StrategyGroup:                            strategygroup.NewStrategyGroup(),
 	}
 }
 
@@ -69,4 +72,5 @@ func (c *Configuration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 	c.AdminQoSConfiguration.ApplyConfiguration(conf)
 	c.AuthConfiguration.ApplyConfiguration(conf)
 	c.TransparentMemoryOffloadingConfiguration.ApplyConfiguration(conf)
+	c.StrategyGroup.ApplyConfiguration(conf)
 }
