@@ -16,6 +16,8 @@ limitations under the License.
 
 package consts
 
+// names of strategies would be configured by StrategyGroupConfiguration
+// refer https://github.com/kubewharf/katalyst-api/blob/main/pkg/apis/config/v1alpha1/strategygroupconfig.go in detail
 const (
 	// StrategyNameBorweinV2 is the name of borwein_v2 strategy,
 	// it adjusts the amount of be headroom on node in real time based on model inference results
