@@ -25,7 +25,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
@@ -33,7 +32,7 @@ const (
 	sysNodeDirectory = "/sys/devices/system/node"
 )
 
-func GetExtraTopologyInfo(conf *global.MachineInfoConfiguration) (*ExtraTopologyInfo, error) {
+func getNUMADistanceMap() (map[int][]NumaDistanceInfo, error) {
 	fInfos, err := ioutil.ReadDir(sysNodeDirectory)
 	if err != nil {
 		return nil, fmt.Errorf("faield to ReadDir /sys/devices/system/node, err %s", err)
@@ -74,8 +73,5 @@ func GetExtraTopologyInfo(conf *global.MachineInfoConfiguration) (*ExtraTopology
 		numaDistanceArray[nodeID] = distanceArray
 	}
 
-	return &ExtraTopologyInfo{
-		NumaDistanceMap: numaDistanceArray,
-		SiblingNumaInfo: GetSiblingNumaInfo(conf, numaDistanceArray),
-	}, nil
+	return numaDistanceArray, nil
 }

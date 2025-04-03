@@ -41,6 +41,7 @@ import (
 	endpointpkg "github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/endpoint"
 	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/plugin"
 	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/plugin/memory"
+	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/plugin/network"
 	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/plugin/resource"
 	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/plugin/rootfs"
 	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/podkiller"
@@ -132,6 +133,7 @@ func NewInnerEvictionPluginInitializers() map[string]plugin.InitFunc {
 	innerEvictionPluginInitializers[memory.EvictionPluginNameSystemMemoryPressure] = memory.NewSystemPressureEvictionPlugin
 	innerEvictionPluginInitializers[memory.EvictionPluginNameRssOveruse] = memory.NewRssOveruseEvictionPlugin
 	innerEvictionPluginInitializers[rootfs.EvictionPluginNamePodRootfsPressure] = rootfs.NewPodRootfsPressureEvictionPlugin
+	innerEvictionPluginInitializers[network.EvictionPluginNameNetwork] = network.NewNICEvictionPlugin
 	return innerEvictionPluginInitializers
 }
 

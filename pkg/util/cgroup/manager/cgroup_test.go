@@ -30,7 +30,7 @@ import (
 	"sync"
 	"testing"
 
-	"bou.ke/monkey"
+	"github.com/bytedance/mockey"
 	"github.com/opencontainers/runc/libcontainer/cgroups"
 	"github.com/stretchr/testify/assert"
 
@@ -48,10 +48,9 @@ func TestV1Manager(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	defer monkey.UnpatchAll()
-	monkey.Patch(common.CheckCgroup2UnifiedMode, func() bool { return false })
-	monkey.Patch(GetManager, func() Manager { return v1.NewManager() })
-
+	defer mockey.UnPatchAll()
+	mockey.Mock(common.CheckCgroup2UnifiedMode).Return(false).Build()
+	mockey.Mock(GetManager).Return(v1.NewManager()).Build()
 	testManager(t, "v1")
 	testNetCls(t, "v1")
 	testMemPressureV1(t)
@@ -63,14 +62,19 @@ func TestV2Manager(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	defer monkey.UnpatchAll()
-	monkey.Patch(common.CheckCgroup2UnifiedMode, func() bool { return true })
-	monkey.Patch(GetManager, func() Manager { return v2.NewManager() })
-
+	defer mockey.UnPatchAll()
+	mockey.Mock(common.CheckCgroup2UnifiedMode).Return(true).Build()
+	mockey.Mock(GetManager).Return(v2.NewManager()).Build()
 	testManager(t, "v2")
-	testSwapMax(t)
-	testMemPressure(t)
-	testMemoryOffloadingWithAbsolutePath(t)
+	mockey.PatchConvey("testSwapMax", t, func() {
+		testSwapMax(t)
+	})
+	mockey.PatchConvey("testMemPressure", t, func() {
+		testMemPressure(t)
+	})
+	mockey.PatchConvey("testMemoryOffloadingWithAbsolutePath", t, func() {
+		testMemoryOffloadingWithAbsolutePath(t)
+	})
 }
 
 func testManager(t *testing.T, version string) {
@@ -127,10 +131,10 @@ func testSwapMax(t *testing.T) {
 	tmpDir, err := ioutil.TempDir(dir, "fake-cgroup")
 	assert.NoError(t, err)
 
-	monkey.Patch(common.GetCgroupRootPath, func(s string) string {
+	mockey.Mock(common.GetCgroupRootPath).To(func(s string) string {
 		t.Logf("rootDir=%v", rootDir)
 		return rootDir
-	})
+	}).Build()
 
 	err = cgroups.WriteFile(tmpDir, "memory.swap.max", "")
 	assert.NoError(t, err)
@@ -173,10 +177,10 @@ func testMemPressure(t *testing.T) {
 	tmpDir, err := ioutil.TempDir(dir, "fake-cgroup")
 	assert.NoError(t, err)
 
-	monkey.Patch(common.GetCgroupRootPath, func(s string) string {
+	mockey.Mock(common.GetCgroupRootPath).To(func(s string) string {
 		t.Logf("rootDir=%v", rootDir)
 		return rootDir
-	})
+	}).Build()
 
 	content := "some avg10=1.00 avg60=2.00 avg300=3.00 total=67455876\nfull avg10=4.00 avg60=5.00 avg300=6.00 total=65331646\n"
 	statFile := filepath.Join(tmpDir, "memory.pressure")
@@ -217,10 +221,10 @@ func testMemoryOffloadingWithAbsolutePath(t *testing.T) {
 	tmpDir, err := ioutil.TempDir(dir, "fake-cgroup")
 	assert.NoError(t, err)
 
-	monkey.Patch(common.GetCgroupRootPath, func(s string) string {
+	mockey.Mock(common.GetCgroupRootPath).To(func(s string) string {
 		t.Logf("rootDir=%v", rootDir)
 		return rootDir
-	})
+	}).Build()
 
 	err = MemoryOffloadingWithAbsolutePath(context.TODO(), tmpDir, 100, machine.NewCPUSet(0))
 	assert.NoError(t, err)
@@ -238,9 +242,9 @@ func TestGetEffectiveCPUSetWithAbsolutePathV1(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	defer monkey.UnpatchAll()
-	monkey.Patch(common.CheckCgroup2UnifiedMode, func() bool { return false })
-	monkey.Patch(GetManager, func() Manager { return v1.NewManager() })
+	defer mockey.UnPatchAll()
+	mockey.Mock(common.CheckCgroup2UnifiedMode).Return(false).Build()
+	mockey.Mock(GetManager).Return(v1.NewManager()).Build()
 
 	rootDir := os.TempDir()
 	dir := filepath.Join(rootDir, "tmp")
@@ -251,14 +255,14 @@ func TestGetEffectiveCPUSetWithAbsolutePathV1(t *testing.T) {
 	tmpDir, err := ioutil.TempDir(dir, "fake-cgroup")
 	assert.NoError(t, err)
 
-	monkey.Patch(IsCgroupPath, func(path string) bool {
+	mockey.Mock(IsCgroupPath).To(func(path string) bool {
 		return strings.Contains(path, tmpDir)
-	})
+	}).Build()
 
-	monkey.Patch(common.GetCgroupRootPath, func(s string) string {
+	mockey.Mock(common.GetCgroupRootPath).To(func(s string) string {
 		t.Logf("rootDir=%v", rootDir)
 		return rootDir
-	})
+	}).Build()
 
 	// tmpDir is root cgroup
 	err = cgroups.WriteFile(tmpDir, "cpuset.cpus", "0-1")
@@ -333,9 +337,9 @@ func TestGetEffectiveCPUSetWithAbsolutePathV2(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	defer monkey.UnpatchAll()
-	monkey.Patch(common.CheckCgroup2UnifiedMode, func() bool { return true })
-	monkey.Patch(GetManager, func() Manager { return v2.NewManager() })
+	defer mockey.UnPatchAll()
+	mockey.Mock(common.CheckCgroup2UnifiedMode).Return(true).Build()
+	mockey.Mock(GetManager).Return(v2.NewManager()).Build()
 
 	rootDir := os.TempDir()
 	dir := filepath.Join(rootDir, "tmp")
@@ -346,14 +350,14 @@ func TestGetEffectiveCPUSetWithAbsolutePathV2(t *testing.T) {
 	tmpDir, err := ioutil.TempDir(dir, "fake-cgroup")
 	assert.NoError(t, err)
 
-	monkey.Patch(IsCgroupPath, func(path string) bool {
+	mockey.Mock(IsCgroupPath).To(func(path string) bool {
 		return strings.Contains(path, tmpDir)
-	})
+	}).Build()
 
-	monkey.Patch(common.GetCgroupRootPath, func(s string) string {
+	mockey.Mock(common.GetCgroupRootPath).Return(func() string {
 		t.Logf("rootDir=%v", rootDir)
 		return rootDir
-	})
+	}()).Build()
 
 	// tmpDir is root cgroup
 	err = cgroups.WriteFile(tmpDir, "cpuset.cpus", "0-1")
