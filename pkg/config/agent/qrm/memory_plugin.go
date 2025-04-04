@@ -20,8 +20,9 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/pkg/errors"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 type MemoryQRMPluginConfig struct {
