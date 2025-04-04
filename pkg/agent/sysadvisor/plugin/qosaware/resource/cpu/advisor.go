@@ -149,7 +149,6 @@ func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, me
 }
 
 func (cra *cpuResourceAdvisor) Run(ctx context.Context) {
-	general.RegisterHeartbeatCheck(cpuAdvisorHealthCheckName, healthCheckTolerationDuration, general.HealthzCheckStateNotReady, healthCheckTolerationDuration)
 	<-ctx.Done()
 }
 
