@@ -82,4 +82,8 @@ const QRMPluginPolicyTagName = "policy"
 const (
 	AdvisorRPCMetadataKeySupportsGetAdvice   = "supports_get_advice"
 	AdvisorRPCMetadataValueSupportsGetAdvice = "true"
+
+	// annotation keys for resctrl
+	AnnotationRdtClosID               = "rdt.resources.beta.kubernetes.io/pod"
+	AnnotationMonGroupsEnabledClosIDs = "rdt.resources.beta.kubernetes.io/mon-groups-enabled-closids"
 )
