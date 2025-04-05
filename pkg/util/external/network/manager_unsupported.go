@@ -23,6 +23,7 @@ import (
 	"context"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	qrmgeneral "github.com/kubewharf/katalyst-core/pkg/util/qrm"
 )
 
 type unsupportedNetworkManager struct{}
@@ -48,3 +49,7 @@ func (*unsupportedNetworkManager) ClearNetClass(cgroupID uint64) error {
 }
 
 func (*unsupportedNetworkManager) Run(ctx context.Context) {}
+
+func (m *unsupportedNetworkManager) ApplyNetworkGroups(map[string]*qrmgeneral.NetworkGroup) error {
+	return nil
+}
