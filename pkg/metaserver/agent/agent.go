@@ -212,10 +212,12 @@ func getAllAdditionalK8sCgroupPaths(conf *config.Configuration, machineInfo *mac
 	additionalK8sCgroupPaths = append(additionalK8sCgroupPaths, conf.ReclaimRelativeRootCgroupPath)
 
 	// if we have multiple numa nodes, we should add numa-binding reclaim cgroup path
-	nonNUMABindingReclaimRelativeRootCgroupPaths := common.GetNUMABindingReclaimRelativeRootCgroupPaths(conf.ReclaimRelativeRootCgroupPath,
-		machineInfo.CPUDetails.NUMANodes().ToSliceNoSortInt())
-	for _, cgroupPath := range nonNUMABindingReclaimRelativeRootCgroupPaths {
-		additionalK8sCgroupPaths = append(additionalK8sCgroupPaths, cgroupPath)
+	if machineInfo.CPUTopology != nil {
+		nonNUMABindingReclaimRelativeRootCgroupPaths := common.GetNUMABindingReclaimRelativeRootCgroupPaths(conf.ReclaimRelativeRootCgroupPath,
+			machineInfo.CPUDetails.NUMANodes().ToSliceNoSortInt())
+		for _, cgroupPath := range nonNUMABindingReclaimRelativeRootCgroupPaths {
+			additionalK8sCgroupPaths = append(additionalK8sCgroupPaths, cgroupPath)
+		}
 	}
 	return additionalK8sCgroupPaths
 }
