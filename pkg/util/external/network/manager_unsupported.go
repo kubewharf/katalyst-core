@@ -54,3 +54,7 @@ func (*unsupportedNetworkManager) ApplyNetworkGroups(map[string]*qrmgeneral.Netw
 }
 
 func (*unsupportedNetworkManager) Run(ctx context.Context) {}
+
+func (m *unsupportedNetworkManager) ApplyNetworkGroups(map[string]*qrmgeneral.NetworkGroup) error {
+	return nil
+}
