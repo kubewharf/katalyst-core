@@ -35,6 +35,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -79,6 +80,13 @@ func NewAdvisorAgent(conf *config.Configuration, extraConf interface{}, metaServ
 		plugins:      make([]pkgplugin.SysAdvisorPlugin, 0),
 		pluginsToRun: make([]pkgplugin.SysAdvisorPlugin, 0),
 	}
+
+	if metaServer.ConfigurationManager == nil {
+		return nil, fmt.Errorf("nil ConfigurationManager in metaServer")
+	}
+
+	// add watcher for general gvrs needed in most cases
+	metaServer.ConfigurationManager.AddConfigWatcher(crd.StrategyGroupGVR)
 
 	if err := agent.getAdvisorPlugins(pkgplugin.GetRegisteredAdvisorPlugins()); err != nil {
 		return nil, err
