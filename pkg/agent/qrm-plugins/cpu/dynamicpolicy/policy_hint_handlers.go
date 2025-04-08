@@ -787,7 +787,6 @@ func (p *DynamicPolicy) populateHintsByPreferPolicy(numaNodes []int, preferPolic
 	hints *pluginapi.ListOfTopologyHints, machineState state.NUMANodeMap, request float64,
 ) {
 	preferIndexes, maxLeft, minLeft := []int{}, float64(-1), math.MaxFloat64
-
 	for _, nodeID := range numaNodes {
 		availableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(p.reservedCPUs)
 		if !cpuutil.CPUIsSufficient(request, availableCPUQuantity) {
@@ -912,6 +911,14 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(request float64,
 	if minNUMAsCountNeeded > 1 {
 		return nil, fmt.Errorf("numa_binding shared_cores container has request larger than 1 NUMA")
 	}
+
+	if p.enableSNBHighNumaPreference {
+		general.Infof("SNB high numa preference is enabled,high numa node is preferential when calculating cpu hints")
+		sort.Slice(numaNodes, func(i, j int) bool {
+			return numaNodes[i] > numaNodes[j]
+		})
+	}
+
 	switch p.cpuNUMAHintPreferPolicy {
 	case cpuconsts.CPUNUMAHintPreferPolicyPacking, cpuconsts.CPUNUMAHintPreferPolicySpreading:
 		general.Infof("apply %s policy on NUMAs: %+v", p.cpuNUMAHintPreferPolicy, numaNodes)

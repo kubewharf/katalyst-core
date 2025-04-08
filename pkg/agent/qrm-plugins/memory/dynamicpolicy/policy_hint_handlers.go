@@ -349,7 +349,15 @@ func (p *DynamicPolicy) calculateHints(reqInt uint64,
 	for numaNode := range machineState {
 		numaNodes = append(numaNodes, numaNode)
 	}
-	sort.Ints(numaNodes)
+
+	if p.enableSNBHighNumaPreference {
+		general.Infof("SNB high numa preference is enabled,high numa node is preferential when calculating memory hints")
+		sort.Slice(numaNodes, func(i, j int) bool {
+			return numaNodes[i] > numaNodes[j]
+		})
+	} else {
+		sort.Ints(numaNodes)
+	}
 
 	bytesPerNUMA, err := machineState.BytesPerNUMA()
 	if err != nil {
