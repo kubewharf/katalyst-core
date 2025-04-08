@@ -132,6 +132,17 @@ func (m *MalachiteMetricsProvisioner) checkMalachiteHealthy() bool {
 // Get raw system stats by malachite sdk and set to metricStore
 func (m *MalachiteMetricsProvisioner) updateSystemStats() error {
 	errList := make([]error, 0)
+
+	systemInfoData, err := m.malachiteClient.GetSystemInfoStats()
+	if err != nil {
+		errList = append(errList, err)
+		klog.Errorf("[malachite] get system info stats failed, err %v", err)
+		_ = m.emitter.StoreInt64(metricsNameMalachiteGetSystemStatusFailed, 1, metrics.MetricTypeNameCount,
+			metrics.MetricTag{Key: "kind", Val: "info"})
+	} else {
+		m.processSystemInfoData(systemInfoData)
+	}
+
 	systemComputeData, err := m.malachiteClient.GetSystemComputeStats()
 	if err != nil {
 		errList = append(errList, err)
@@ -252,6 +263,13 @@ func (m *MalachiteMetricsProvisioner) updatePodsCgroupData(ctx context.Context) 
 	return err
 }
 
+func (m *MalachiteMetricsProvisioner) processSystemInfoData(systemInfoData *malachitetypes.SystemInfoData) {
+	if systemInfoData == nil {
+		return
+	}
+	m.metricStore.SetByStringIndex(consts.MetricInfoIsVM, systemInfoData.IsVM)
+}
+
 func (m *MalachiteMetricsProvisioner) processSystemComputeData(systemComputeData *malachitetypes.SystemComputeData) {
 	if systemComputeData == nil {
 		return
@@ -259,7 +277,13 @@ func (m *MalachiteMetricsProvisioner) processSystemComputeData(systemComputeData
 	// todo, currently we only get a unified data for the whole system compute data
 	updateTime := time.Unix(systemComputeData.UpdateTime, 0)
 
+	cpu := systemComputeData.CPU
+	m.metricStore.SetNodeMetric(consts.MetricCPUTotalSystem,
+		utilmetric.MetricData{Value: float64(len(cpu)), Time: &updateTime})
+
 	globalCPU := systemComputeData.GlobalCPU
+	m.metricStore.SetNodeMetric(consts.MetricCPUUsageSystem,
+		utilmetric.MetricData{Value: globalCPU.CPUUsage / 100 * float64(len(cpu)), Time: &updateTime})
 	m.metricStore.SetNodeMetric(consts.MetricCPUUsageRatioSystem,
 		utilmetric.MetricData{Value: globalCPU.CPUUsage / 100, Time: &updateTime})
 

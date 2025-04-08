@@ -24,12 +24,14 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
+	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	apimetricpod "github.com/kubewharf/katalyst-api/pkg/metric/pod"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	borweinconsts "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metric-emitter/syncer"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metric-emitter/types"
+	sysadvisortypes "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	metricemitter "github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/metric-emitter"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
@@ -40,12 +42,12 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 const (
 	podMetricLabelSelectorNodeName              = "node_name"
-	qosLevelTag                                 = "qos_level"
 	podTrainingThroughputInferenceResultBorwein = "pod_borwein_training_throughput_inference_result"
 	podLatencyRegressionInferenceResultBorwein  = "pod_borwein_latency_regression_inference_result"
 	nodeLatencyRegressionInferenceResultBorwein = "node_borwein_latency_regression_inference_result"
@@ -278,7 +280,36 @@ func (p *MetricSyncerPod) generateMetricTag(pod *v1.Pod) (tags []metrics.MetricT
 		}
 	}
 
-	return
+	// append qos level tag
+	qosLevel, err := p.qosConf.GetQoSLevelForPod(pod)
+	if err != nil {
+		klog.Warningf("get pod %v qos level error: %v", pod.Name, err)
+		qosLevel = ""
+	}
+
+	tags = append(tags, metrics.MetricTag{
+		Key: fmt.Sprintf("%s%s", data.CustomMetricLabelSelectorPrefixKey, "qos_level"),
+		Val: qosLevel,
+	})
+
+	// append main container numa bit mask
+	numaBitMask := int(0)
+	containerInfos, ok := p.metaReader.GetContainerEntries(string(pod.UID))
+	if ok {
+		for _, containerInfo := range containerInfos {
+			if containerInfo.ContainerType == v1alpha1.ContainerType_MAIN {
+				cpuset := machine.GetCPUAssignmentNUMAs(containerInfo.TopologyAwareAssignments)
+				numaBitMask = sysadvisortypes.NumaIDBitMask(cpuset.ToSliceInt())
+			}
+		}
+	}
+
+	tags = append(tags, metrics.MetricTag{
+		Key: fmt.Sprintf("%s%s", data.CustomMetricLabelSelectorPrefixKey, "numa_bit_mask"),
+		Val: fmt.Sprintf("%d", numaBitMask),
+	})
+
+	return tags
 }
 
 // metricPod filter out pods that won't be needed by custom metrics apiserver

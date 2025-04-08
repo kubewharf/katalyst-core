@@ -96,12 +96,6 @@ func (p *MetricSyncerPod) emitBorweinLatencyRegression() {
 			nodeName = pod.Spec.NodeName
 		}
 
-		qosLevel, err := p.qosConf.GetQoSLevelForPod(pod)
-		if err != nil {
-			klog.Warningf("get pod %v qos level error: %v", pod.Name, err)
-			qosLevel = ""
-		}
-
 		tags := p.generateMetricTag(pod)
 
 		for containerName, latencyRegression := range containerData {
@@ -121,10 +115,6 @@ func (p *MetricSyncerPod) emitBorweinLatencyRegression() {
 					metrics.MetricTag{
 						Key: fmt.Sprintf("%scontainer", data.CustomMetricLabelSelectorPrefixKey),
 						Val: containerName,
-					},
-					metrics.MetricTag{
-						Key: fmt.Sprintf("%s", qosLevelTag),
-						Val: qosLevel,
 					},
 				)...)
 		}

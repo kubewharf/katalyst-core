@@ -19,6 +19,7 @@ package node
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -29,6 +30,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metric-emitter/syncer"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/metric-emitter/types"
+	sysadvisortypes "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	metricemitter "github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/metric-emitter"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
@@ -43,8 +45,10 @@ import (
 // nodeRawMetricNameMapping maps the raw metricName (collected from agent.MetricsFetcher)
 // to the standard metricName (used by custom-metric-api-server)
 var nodeRawMetricNameMapping = map[string]string{
-	consts.MetricLoad1MinSystem:      apimetricnode.CustomMetricNodeCPULoad1Min,
+	consts.MetricCPUTotalSystem:      apimetricnode.CustomMetricNodeCPUTotal,
+	consts.MetricCPUUsageSystem:      apimetricnode.CustomMetricNodeCPUUsage,
 	consts.MetricCPUUsageRatioSystem: apimetricnode.CustomMetricNodeCPUUsageRatio,
+	consts.MetricLoad1MinSystem:      apimetricnode.CustomMetricNodeCPULoad1Min,
 
 	consts.MetricMemFreeSystem:      apimetricnode.CustomMetricNodeMemoryFree,
 	consts.MetricMemAvailableSystem: apimetricnode.CustomMetricNodeMemoryAvailable,
@@ -173,6 +177,43 @@ func (n *MetricSyncerNode) generateMetricTag(ctx context.Context) (tags []metric
 			}
 		}
 	}
+
+	// append cpu codename info
+	cpuCodeNameInterface := n.metaServer.MetricsFetcher.GetByStringIndex(consts.MetricCPUCodeName)
+	cpuCodeName, ok := cpuCodeNameInterface.(string)
+	if !ok {
+		klog.Warningf("parse cpu code name %v failed", cpuCodeNameInterface)
+		cpuCodeName = ""
+	}
+
+	tags = append(tags, metrics.MetricTag{
+		Key: fmt.Sprintf("%s%s", data.CustomMetricLabelSelectorPrefixKey, "cpu_codename"),
+		Val: cpuCodeName,
+	})
+
+	// append vendor info
+	isVM := ""
+	isVMInterface := n.metaServer.MetricsFetcher.GetByStringIndex(consts.MetricInfoIsVM)
+	isVMBool, ok := isVMInterface.(bool)
+	if !ok {
+		klog.Warningf("parse is vm %v failed", isVMInterface)
+	} else {
+		isVM = strconv.FormatBool(isVMBool)
+	}
+
+	tags = append(tags, metrics.MetricTag{
+		Key: fmt.Sprintf("%s%s", data.CustomMetricLabelSelectorPrefixKey, "is_vm"),
+		Val: isVM,
+	})
+
+	// append node numa bit mask
+	numas := n.metaServer.KatalystMachineInfo.CPUDetails.NUMANodes()
+	numaBitMask := sysadvisortypes.NumaIDBitMask(numas.ToSliceInt())
+
+	tags = append(tags, metrics.MetricTag{
+		Key: fmt.Sprintf("%s%s", data.CustomMetricLabelSelectorPrefixKey, "numa_bit_mask"),
+		Val: fmt.Sprintf("%d", numaBitMask),
+	})
 
 	return tags
 }
