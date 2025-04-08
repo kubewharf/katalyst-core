@@ -19,6 +19,7 @@ package machine
 import (
 	"fmt"
 	"math"
+	"sort"
 
 	info "github.com/google/cadvisor/info/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -694,6 +695,20 @@ func GetInterfaceSocketInfo(nics []InterfaceInfo, cpuTopology *CPUTopology) (*Al
 		}
 		return minSocket
 	}
+
+	// Sort NICs by NUMA node in ascending order, with numaNode=-1 NICs sorted last.
+	// This ensures NUMA-aware NICs are allocated first based on their NUMA node,
+	// while NICs without NUMA affinity are allocated last.
+	sort.SliceStable(nics, func(i, j int) bool {
+		if nics[i].NumaNode == -1 {
+			return false
+		}
+		if nics[j].NumaNode == -1 {
+			return true
+		}
+		return nics[i].NumaNode < nics[j].NumaNode
+	})
+
 	// Assign sockets to each NIC
 	for _, nic := range nics {
 		var assignedSockets []int

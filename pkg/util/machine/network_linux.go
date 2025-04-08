@@ -258,14 +258,12 @@ func getInterfaceAttr(info *InterfaceInfo, nicPath string) {
 	if nicNUMANode, err := general.ReadFileIntoInt(path.Join(nicPath, netFileNameNUMANode)); err != nil {
 		general.Errorf("ns %v name %v, read NUMA node failed with error: %v. Suppose it's associated with NUMA node 0", info.NSName, info.Iface, err)
 		// some net device files are missed on VMs (e.g. "device/numanode")
-		info.NumaNode = 0
+		info.NumaNode = -1
 	} else {
-		if nicNUMANode != -1 {
-			info.NumaNode = nicNUMANode
-		} else {
+		info.NumaNode = nicNUMANode
+		if info.NumaNode == -1 {
 			// the "device/numanode" file is filled with -1 on some VMs (e.g. byte-vm), we should return 0 instead
 			general.Errorf("Invalid NUMA node %v for interface %v. Suppose it's associated with NUMA node 0", info.NumaNode, info.Iface)
-			info.NumaNode = 0
 		}
 	}
 
