@@ -19,12 +19,13 @@ package strategygroup
 import (
 	"context"
 	"testing"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/tools/cache"
 
 	v1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	fakeapi "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/fake"
+	katalystinformers "github.com/kubewharf/katalyst-api/pkg/client/informers/externalversions"
 	configpkg "github.com/kubewharf/katalyst-core/pkg/config"
 )
 
@@ -32,8 +33,11 @@ func TestNewStrategyGroupController(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	client := fakeapi.NewSimpleClientset().ConfigV1alpha1().StrategyGroups()
+	kclientset := fakeapi.NewSimpleClientset()
+	ksharedInformerFactory := katalystinformers.NewSharedInformerFactory(kclientset, 300*time.Second)
+	informer := ksharedInformerFactory.Config().V1alpha1().StrategyGroupConfigurations().Informer()
+
 	config := &configpkg.Configuration{}
-	informer := cache.NewSharedIndexInformer(nil, nil, 0, nil)
 
 	controller, err := NewStrategyGroupController(ctx, client, config, informer)
 	if err != nil {
@@ -59,9 +63,13 @@ func TestNewStrategyGroupController(t *testing.T) {
 func TestStrategyGroupController_Run(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
+
 	client := fakeapi.NewSimpleClientset().ConfigV1alpha1().StrategyGroups()
+	kclientset := fakeapi.NewSimpleClientset()
+	ksharedInformerFactory := katalystinformers.NewSharedInformerFactory(kclientset, 300*time.Second)
+	informer := ksharedInformerFactory.Config().V1alpha1().StrategyGroupConfigurations().Informer()
+
 	config := &configpkg.Configuration{}
-	informer := cache.NewSharedIndexInformer(nil, nil, 0, nil)
 	controller, _ := NewStrategyGroupController(ctx, client, config, informer)
 
 	go controller.Run()
@@ -71,9 +79,12 @@ func TestStrategyGroupController_Run(t *testing.T) {
 func TestStrategyGroupController_handleAddStrategyGroupConfiguration(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
+
 	client := fakeapi.NewSimpleClientset().ConfigV1alpha1().StrategyGroups()
+	kclientset := fakeapi.NewSimpleClientset()
+	ksharedInformerFactory := katalystinformers.NewSharedInformerFactory(kclientset, 300*time.Second)
+	informer := ksharedInformerFactory.Config().V1alpha1().StrategyGroupConfigurations().Informer()
 	config := &configpkg.Configuration{}
-	informer := cache.NewSharedIndexInformer(nil, nil, 0, nil)
 	controller, _ := NewStrategyGroupController(ctx, client, config, informer)
 
 	sgConfig := &v1alpha1.StrategyGroupConfiguration{
@@ -88,9 +99,12 @@ func TestStrategyGroupController_handleAddStrategyGroupConfiguration(t *testing.
 func TestStrategyGroupController_handleUpdateStrategyGroupConfiguration(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
+
 	client := fakeapi.NewSimpleClientset().ConfigV1alpha1().StrategyGroups()
+	kclientset := fakeapi.NewSimpleClientset()
+	ksharedInformerFactory := katalystinformers.NewSharedInformerFactory(kclientset, 300*time.Second)
+	informer := ksharedInformerFactory.Config().V1alpha1().StrategyGroupConfigurations().Informer()
 	config := &configpkg.Configuration{}
-	informer := cache.NewSharedIndexInformer(nil, nil, 0, nil)
 	controller, _ := NewStrategyGroupController(ctx, client, config, informer)
 
 	oldConfig := &v1alpha1.StrategyGroupConfiguration{
@@ -110,9 +124,12 @@ func TestStrategyGroupController_handleUpdateStrategyGroupConfiguration(t *testi
 func TestStrategyGroupController_handleDeleteStrategyGroupConfiguration(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
+
 	client := fakeapi.NewSimpleClientset().ConfigV1alpha1().StrategyGroups()
+	kclientset := fakeapi.NewSimpleClientset()
+	ksharedInformerFactory := katalystinformers.NewSharedInformerFactory(kclientset, 300*time.Second)
+	informer := ksharedInformerFactory.Config().V1alpha1().StrategyGroupConfigurations().Informer()
 	config := &configpkg.Configuration{}
-	informer := cache.NewSharedIndexInformer(nil, nil, 0, nil)
 	controller, _ := NewStrategyGroupController(ctx, client, config, informer)
 
 	sgConfig := &v1alpha1.StrategyGroupConfiguration{
@@ -127,9 +144,12 @@ func TestStrategyGroupController_handleDeleteStrategyGroupConfiguration(t *testi
 func TestStrategyGroupController_createStrategyGroups(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
+
 	client := fakeapi.NewSimpleClientset().ConfigV1alpha1().StrategyGroups()
+	kclientset := fakeapi.NewSimpleClientset()
+	ksharedInformerFactory := katalystinformers.NewSharedInformerFactory(kclientset, 300*time.Second)
+	informer := ksharedInformerFactory.Config().V1alpha1().StrategyGroupConfigurations().Informer()
 	config := &configpkg.Configuration{}
-	informer := cache.NewSharedIndexInformer(nil, nil, 0, nil)
 	controller, _ := NewStrategyGroupController(ctx, client, config, informer)
 
 	sgConfig := &v1alpha1.StrategyGroupConfiguration{
