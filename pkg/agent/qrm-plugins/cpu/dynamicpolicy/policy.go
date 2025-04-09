@@ -335,6 +335,7 @@ func (p *DynamicPolicy) Start() (err error) {
 	}
 
 	general.Infof("start dynamic policy cpu plugin with sys-advisor")
+	general.RegisterHeartbeatCheck(cpuconsts.CommunicateWithAdvisor, 2*time.Minute, general.HealthzCheckStateNotReady, 2*time.Minute)
 	err = p.initAdvisorClientConn()
 	if err != nil {
 		general.Errorf("initAdvisorClientConn failed with error: %v", err)
@@ -387,7 +388,6 @@ func (p *DynamicPolicy) Start() (err error) {
 		}
 	}
 
-	general.RegisterHeartbeatCheck(cpuconsts.CommunicateWithAdvisor, 2*time.Minute, general.HealthzCheckStateNotReady, 2*time.Minute)
 	go wait.BackoffUntil(communicateWithCPUAdvisorServer, wait.NewExponentialBackoffManager(800*time.Millisecond,
 		30*time.Second, 2*time.Minute, 2.0, 0, &clock.RealClock{}), true, p.stopCh)
 
@@ -962,6 +962,9 @@ func (p *DynamicPolicy) RemovePod(ctx context.Context,
 	}
 
 	if p.enableCPUAdvisor {
+		if p.advisorClient == nil {
+			return nil, fmt.Errorf("cpu advisor client is nil")
+		}
 		_, err = p.advisorClient.RemovePod(ctx, &advisorsvc.RemovePodRequest{PodUid: req.PodUid})
 		if err != nil {
 			return nil, fmt.Errorf("remove pod in QoS aware server failed with error: %v", err)

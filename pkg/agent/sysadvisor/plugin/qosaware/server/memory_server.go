@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -32,6 +33,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/memory"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -45,6 +47,8 @@ const (
 
 	memoryServerLWHealthCheckName = "memory-server-lw"
 )
+
+var registerMemoryHealthCheckOnce sync.Once
 
 type memoryServer struct {
 	*baseServer
@@ -115,6 +119,11 @@ func (ms *memoryServer) populateMetaCache(memoryPluginClient advisorsvc.QRMServi
 }
 
 func (ms *memoryServer) GetAdvice(ctx context.Context, request *advisorsvc.GetAdviceRequest) (*advisorsvc.GetAdviceResponse, error) {
+	// Register health check only when the QRM memory plugins actually calls the sysadvisor GetAdvice or ListAndWatch method
+	registerMemoryHealthCheckOnce.Do(func() {
+		memory.RegisterMemoryAdvisorHealthCheck()
+	})
+
 	startTime := time.Now()
 	_ = ms.emitter.StoreInt64(ms.genMetricsName(metricServerGetAdviceCalled), 1, metrics.MetricTypeNameCount)
 	general.Infof("get advice request: %v", general.ToString(request))
@@ -176,6 +185,10 @@ func (ms *memoryServer) updateMetaCacheInput(ctx context.Context, request *advis
 }
 
 func (ms *memoryServer) ListAndWatch(_ *advisorsvc.Empty, server advisorsvc.AdvisorService_ListAndWatchServer) error {
+	// Register health check only when the QRM memory plugins actually calls the sysadvisor GetAdvice or ListAndWatch method
+	registerMemoryHealthCheckOnce.Do(func() {
+		memory.RegisterMemoryAdvisorHealthCheck()
+	})
 	_ = ms.emitter.StoreInt64(ms.genMetricsName(metricServerLWCalled), int64(ms.period.Seconds()), metrics.MetricTypeNameCount)
 
 	if ms.hasListAndWatchLoop.Swap(true).(bool) {

@@ -242,6 +242,10 @@ func (p *DynamicPolicy) clearResidualState(_ *coreconfig.Configuration,
 
 			var rErr error
 			if p.enableCPUAdvisor {
+				if p.advisorClient == nil {
+					general.Errorf("remove residual pod: %s in sys advisor failed due to nil cpu advisor client, remain it in state", podUID)
+					continue
+				}
 				_, rErr = p.advisorClient.RemovePod(ctx, &advisorsvc.RemovePodRequest{
 					PodUid: podUID,
 				})

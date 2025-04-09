@@ -34,6 +34,11 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
+func RegisterCPUAdvisorHealthCheck() {
+	general.Infof("register CPU advisor health check")
+	general.RegisterHeartbeatCheck(cpuAdvisorHealthCheckName, healthCheckTolerationDuration, general.HealthzCheckStateNotReady, healthCheckTolerationDuration)
+}
+
 func (cra *cpuResourceAdvisor) getRegionsByRegionNames(names sets.String) []region.QoSRegion {
 	var regions []region.QoSRegion = nil
 	for regionName := range names {

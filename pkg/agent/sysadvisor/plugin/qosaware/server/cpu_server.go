@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -36,6 +37,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -49,6 +51,8 @@ const (
 
 	cpuServerLWHealthCheckName = "cpu-server-lw"
 )
+
+var registerCPUAdvisorHealthCheckOnce sync.Once
 
 type cpuServer struct {
 	*baseServer
@@ -97,6 +101,11 @@ func (cs *cpuServer) RegisterAdvisorServer() {
 }
 
 func (cs *cpuServer) GetAdvice(ctx context.Context, request *cpuadvisor.GetAdviceRequest) (*cpuadvisor.GetAdviceResponse, error) {
+	// Register health check only when the QRM cpu plugins actually calls the sysadvisor GetAdvice or ListAndWatch method
+	registerCPUAdvisorHealthCheckOnce.Do(func() {
+		cpu.RegisterCPUAdvisorHealthCheck()
+	})
+
 	startTime := time.Now()
 	_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerGetAdviceCalled), 1, metrics.MetricTypeNameCount)
 	general.Infof("get advice request: %v", general.ToString(request))
@@ -124,6 +133,11 @@ func (cs *cpuServer) GetAdvice(ctx context.Context, request *cpuadvisor.GetAdvic
 }
 
 func (cs *cpuServer) ListAndWatch(_ *advisorsvc.Empty, server cpuadvisor.CPUAdvisor_ListAndWatchServer) error {
+	// Register health check only when the QRM cpu plugins actually calls the sysadvisor GetAdvice or ListAndWatch method
+	registerCPUAdvisorHealthCheckOnce.Do(func() {
+		cpu.RegisterCPUAdvisorHealthCheck()
+	})
+
 	_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerLWCalled), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 
 	if cs.hasListAndWatchLoop.Swap(true).(bool) {
@@ -331,7 +345,7 @@ func (cs *cpuServer) assembleHeadroom() *advisorsvc.CalculationInfo {
 	}
 }
 
-func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, resp *cpuadvisor.GetAdviceRequest) error {
+func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, req *cpuadvisor.GetAdviceRequest) error {
 	startTime := time.Now()
 	// lock meta cache to prevent race with cpu server
 	cs.metaCache.Lock()
@@ -342,7 +356,7 @@ func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, resp *cpuadvisor.
 	livingPoolNameSet := sets.NewString()
 
 	// update pool entries first, which are needed for updating container entries
-	for entryName, entry := range resp.Entries {
+	for entryName, entry := range req.Entries {
 		poolInfo, ok := entry.Entries[commonstate.FakedContainerName]
 		if !ok {
 			continue
@@ -362,7 +376,7 @@ func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, resp *cpuadvisor.
 	general.InfoS("updated pool entries", "duration", time.Since(startTime))
 
 	// update container entries after pool entries
-	for entryName, entry := range resp.Entries {
+	for entryName, entry := range req.Entries {
 		if _, ok := entry.Entries[commonstate.FakedContainerName]; ok {
 			continue
 		}
@@ -389,7 +403,7 @@ func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, resp *cpuadvisor.
 
 	// clean up containers that no longer exist
 	if err := cs.metaCache.RangeAndDeleteContainer(func(containerInfo *types.ContainerInfo) bool {
-		info, ok := resp.Entries[containerInfo.PodUID]
+		info, ok := req.Entries[containerInfo.PodUID]
 		if !ok {
 			return true
 		}

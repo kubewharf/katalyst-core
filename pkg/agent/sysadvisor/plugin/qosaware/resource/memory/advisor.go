@@ -125,8 +125,12 @@ func NewMemoryResourceAdvisor(conf *config.Configuration, extraConf interface{},
 	return ra
 }
 
-func (ra *memoryResourceAdvisor) Run(ctx context.Context) {
+func RegisterMemoryAdvisorHealthCheck() {
+	general.Infof("register memory advisor health check")
 	general.RegisterHeartbeatCheck(memoryAdvisorHealthCheckName, healthCheckTolerationDuration, general.HealthzCheckStateNotReady, healthCheckTolerationDuration)
+}
+
+func (ra *memoryResourceAdvisor) Run(ctx context.Context) {
 	<-ctx.Done()
 }
 
