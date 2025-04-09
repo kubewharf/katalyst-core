@@ -11,31 +11,31 @@
 
 ### owners for command lines
 /cmd/katalyst-controller/ @luomingmeng @caohe
-/cmd/katalyst-metric/ @gary-lgy @luomingmeng
+/cmd/katalyst-metric/ @JulyWindK @luomingmeng
 /cmd/katalyst-scheduler/ @caohe @WangZzzhe
 /cmd/katalyst-webhook/ @caohe @luomingmeng
 
 /cmd/katalyst-agent/app/agent/qrm/ @luomingmeng 
-/cmd/katalyst-agent/app/options/eviction @gary-lgy @luomingmeng
+/cmd/katalyst-agent/app/options/eviction @yehlemias @luomingmeng
 /cmd/katalyst-agent/app/options/qrm @luomingmeng
-/cmd/katalyst-agent/app/options/reporter @luomingmeng
-/cmd/katalyst-agent/app/options/sysadvisor  @gary-lgy
+/cmd/katalyst-agent/app/options/reporter @yehlemias
+/cmd/katalyst-agent/app/options/sysadvisor  @xu282934741
 
 ### owners for configurations
 /pkg/config/controller/ @luomingmeng @caohe
-/pkg/config/metric/ @gary-lgy @luomingmeng
+/pkg/config/metric/ @JulyWindK @luomingmeng
 /pkg/config/webhook/ @caohe @luomingmeng
 
 /pkg/config/agent/orm/ @caohe @WangZzzhe
 /pkg/config/agent/qrm/ @luomingmeng 
-/pkg/config/agent/eviction/ @gary-lgy @luomingmeng
+/pkg/config/agent/eviction/ @yehlemias @luomingmeng
 /pkg/config/agent/reporter/ @luomingmeng
-/pkg/config/agent/sysadvisor/  @gary-lgy
+/pkg/config/agent/sysadvisor/  @xu282934741
 
 ### owners for controllers
 /pkg/controller/kcc/ @luomingmeng
 /pkg/controller/lifecycle/ @luomingmeng 
-/pkg/controller/monitor/ @luomingmeng  @gary-lgy
+/pkg/controller/monitor/ @luomingmeng  @JulyWindK
 /pkg/controller/overcommit/ @caohe @WangZzzhe
 /pkg/controller/tide/ @caohe @WangZzzhe
 /pkg/controller/spd/ @luomingmeng
@@ -48,7 +48,7 @@
 /pkg/metaserver/external/ @luomingmeng @caohe
 /pkg/metaserver/agent/cnc/ @luomingmeng
 /pkg/metaserver/agent/cnr/ @luomingmeng
-/pkg/metaserver/agent/metric/ @gary-lgy
+/pkg/metaserver/agent/metric/ @JulyWindK
 /pkg/metaserver/agent/kubeletconfig/ @caohe 
 /pkg/metaserver/agent/node/  @luomingmeng
 /pkg/metaserver/agent/pod/  @luomingmeng
@@ -58,19 +58,19 @@
 /pkg/agent/evictionmanager/ @luomingmeng
 /pkg/agent/qrm-plugins/ @luomingmeng 
 /pkg/agent/resourcemanager/ @luomingmeng
-/pkg/agent/sysadvisor/ @gary-lgy
-/pkg/agent/sysadvisor/plugin/inference @gary-lgy
-/pkg/agent/sysadvisor/plugin/metric-emitter @gary-lgy @luomingmeng
-/pkg/agent/utilcomponent/ @luomingmeng  @gary-lgy
+/pkg/agent/sysadvisor/ @xu282934741
+/pkg/agent/sysadvisor/plugin/inference @xu282934741
+/pkg/agent/sysadvisor/plugin/metric-emitter @xu282934741 @luomingmeng
+/pkg/agent/utilcomponent/ @luomingmeng  @xu282934741
 
 ### owners for util
 /pkg/util/  @luomingmeng
-/pkg/util/asyncworker/ @gary-lgy
-/pkg/util/cgroup/ @gary-lgy
-/pkg/util/credential/ @gary-lgy @luomingmeng
-/pkg/util/eviction/ @gary-lgy @luomingmeng
-/pkg/util/external/ @gary-lgy
-/pkg/util/metric/  @gary-lgy
+/pkg/util/asyncworker/ @luomingmeng
+/pkg/util/cgroup/ @luomingmeng
+/pkg/util/credential/ @yehlemias 
+/pkg/util/eviction/ @yehlemias 
+/pkg/util/external/ @yehlemias
+/pkg/util/metric/  @JulyWindK
 /pkg/util/service-discovery/ @luomingmeng
 
 ### owners for scheduler
@@ -80,7 +80,7 @@
 /pkg/webhook/ @caohe @luomingmeng
 
 ### owners for custom-metric
-/pkg/custom-metric/ @gary-lgy @luomingmeng
+/pkg/custom-metric/ @JulyWindK @luomingmeng
 
 ### owners for metrics-emitter
-/pkg/metrics/ @luomingmeng @gary-lgy
+/pkg/metrics/ @luomingmeng 
