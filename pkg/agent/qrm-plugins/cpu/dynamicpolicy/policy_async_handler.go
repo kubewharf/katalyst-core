@@ -26,6 +26,7 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
@@ -37,6 +38,11 @@ import (
 	cgroupcmutils "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
+)
+
+const (
+	metricsNamePodTotalRequestLargerThanBindingCPUSet = "pod_total_request_larger_than_cpu_set"
 )
 
 // checkCPUSet emit errors if the memory allocation falls into unexpected results
@@ -166,7 +172,137 @@ func (p *DynamicPolicy) checkCPUSet(_ *coreconfig.Configuration,
 		_ = p.emitter.StoreInt64(util.MetricNameCPUSetOverlap, 1, metrics.MetricTypeNameRaw)
 	}
 
+	p.checkCPUSetWithPodTotalRequest(podEntries, actualCPUSets)
 	general.Infof("finish checkCPUSet")
+}
+
+type cpusetPodState struct {
+	cpuset               machine.CPUSet
+	totalMilliCPURequest int64
+	podUIDs              sets.String
+	podMap               map[string]*v1.Pod
+}
+
+func (p *DynamicPolicy) checkCPUSetWithPodTotalRequest(
+	podEntries state.PodEntries,
+	actualCPUSets map[string]map[string]machine.CPUSet,
+) {
+	ctx := context.Background()
+	cpusetPodStateMap := p.buildCPUSetPodStateMap(ctx, podEntries, actualCPUSets)
+	p.checkAndEmitMetrics(podEntries, cpusetPodStateMap)
+	general.Infof("finish checkCPUSetWithPodTotalRequest")
+}
+
+func (p *DynamicPolicy) buildCPUSetPodStateMap(ctx context.Context, podEntries state.PodEntries, actualCPUSets map[string]map[string]machine.CPUSet) map[string]*cpusetPodState {
+	cpusetPodStateMap := make(map[string]*cpusetPodState)
+
+	// Build initial cpuset state map
+	for podUID, containerCPUSets := range actualCPUSets {
+		for _, cset := range containerCPUSets {
+			mainContainerEntry := podEntries[podUID].GetMainContainerEntry()
+			if mainContainerEntry == nil || mainContainerEntry.CheckReclaimed() {
+				continue
+			}
+
+			csetStr := cset.String()
+			if _, ok := cpusetPodStateMap[csetStr]; !ok {
+				cpusetPodStateMap[csetStr] = &cpusetPodState{
+					cpuset:  cset,
+					podUIDs: sets.NewString(),
+				}
+			}
+			cpusetPodStateMap[csetStr].podUIDs.Insert(podUID)
+		}
+	}
+
+	// Populate pod info and calculate total CPU requests
+	for csetStr, cs := range cpusetPodStateMap {
+		podMap := make(map[string]*v1.Pod, cs.podUIDs.Len())
+		totalMilliCPURequest := int64(0)
+
+		for _, podUID := range cs.podUIDs.List() {
+			pod, err := p.metaServer.GetPod(ctx, podUID)
+			if err != nil {
+				general.Errorf("get pod: %s failed with error: %v", podUID, err)
+				continue
+			}
+
+			if !native.PodIsActive(pod) {
+				continue
+			}
+
+			resources := native.SumUpPodRequestResources(pod)
+			totalMilliCPURequest += resources.Cpu().MilliValue()
+			podMap[podUID] = pod
+		}
+
+		cs.podMap = podMap
+		cs.totalMilliCPURequest = totalMilliCPURequest
+		general.Infof("cpuset: %s, size: %d, totalMilliCPURequest: %d, podUIDs: %v", csetStr, cs.cpuset.Size(),
+			totalMilliCPURequest, cs.podUIDs.List())
+	}
+
+	return cpusetPodStateMap
+}
+
+func (p *DynamicPolicy) checkAndEmitMetrics(podEntries state.PodEntries, cpusetPodStateMap map[string]*cpusetPodState) {
+	allowSharedCoresOverlapReclaimedCores := p.state.GetAllowSharedCoresOverlapReclaimedCores()
+
+	for cpuset, cs := range cpusetPodStateMap {
+		totalMilliCPURequest := p.calculateTotalCPURequest(cpuset, cs, cpusetPodStateMap)
+		exceededRatio := float64(totalMilliCPURequest-int64(cs.cpuset.Size()*1000)) / float64(cs.totalMilliCPURequest)
+
+		if exceededRatio > 0 {
+			p.emitExceededMetrics(podEntries, cpuset, cs, exceededRatio, allowSharedCoresOverlapReclaimedCores)
+		}
+	}
+}
+
+func (p *DynamicPolicy) calculateTotalCPURequest(cpuset string, cs *cpusetPodState, cpusetPodStateMap map[string]*cpusetPodState) int64 {
+	totalMilliCPURequest := cs.totalMilliCPURequest
+
+	// Add requests from subsets
+	for otherCPUSet, otherState := range cpusetPodStateMap {
+		if cpuset == otherCPUSet {
+			continue
+		}
+
+		if otherState.cpuset.IsSubsetOf(cs.cpuset) {
+			totalMilliCPURequest += otherState.totalMilliCPURequest
+		}
+	}
+
+	return totalMilliCPURequest
+}
+
+func (p *DynamicPolicy) emitExceededMetrics(
+	podEntries state.PodEntries,
+	cpuset string,
+	cs *cpusetPodState,
+	exceededRatio float64,
+	allowSharedCoresOverlapReclaimedCores bool,
+) {
+	enableReclaim := p.dynamicConfig.GetDynamicConfiguration().EnableReclaim
+	for podUID, pod := range cs.podMap {
+		mainContainerEntry := podEntries[podUID].GetMainContainerEntry()
+		if mainContainerEntry == nil ||
+			(mainContainerEntry.CheckShared() && enableReclaim && !allowSharedCoresOverlapReclaimedCores) {
+			continue
+		}
+
+		general.Errorf("pod: %s/%s, ownerPoolName: %s, qosLevel: %s, cpuset: %s, size %d, exceeds total cpu request: %.3f, exceeded ratio: %.3f",
+			pod.Namespace, pod.Name, mainContainerEntry.OwnerPoolName, mainContainerEntry.QoSLevel, cpuset, cs.cpuset.Size(),
+			float64(cs.totalMilliCPURequest)/1000, exceededRatio)
+
+		_ = p.emitter.StoreFloat64(metricsNamePodTotalRequestLargerThanBindingCPUSet, exceededRatio, metrics.MetricTypeNameRaw, []metrics.MetricTag{
+			{Key: "podNamespace", Val: pod.Namespace},
+			{Key: "podName", Val: pod.Name},
+			{Key: "qosLevel", Val: mainContainerEntry.QoSLevel},
+			{Key: "ownerPoolName", Val: mainContainerEntry.OwnerPoolName},
+			{Key: "poolType", Val: commonstate.GetPoolType(mainContainerEntry.OwnerPoolName)},
+			{Key: "cpuset", Val: cpuset},
+		}...)
+	}
 }
 
 // clearResidualState is used to clean residual pods in local state
