@@ -42,7 +42,7 @@ func NewPolicyRamaConfiguration() *PolicyRamaConfiguration {
 			},
 			string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): {
 				Kpp:                  10.0,
-				Kpn:                  2.0,
+				Kpn:                  4.0,
 				Kdp:                  0.0,
 				Kdn:                  0.0,
 				AdjustmentUpperBound: types.MaxRampUpStep,
@@ -52,7 +52,7 @@ func NewPolicyRamaConfiguration() *PolicyRamaConfiguration {
 			},
 			string(v1alpha1.ServiceSystemIndicatorNameCPI): {
 				Kpp:                  10.0,
-				Kpn:                  2.0,
+				Kpn:                  4.0,
 				Kdp:                  0.0,
 				Kdn:                  0.0,
 				AdjustmentUpperBound: types.MaxRampUpStep,

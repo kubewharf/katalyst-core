@@ -1171,6 +1171,10 @@ func TestAdvisorUpdate(t *testing.T) {
 						Name:   workloadapis.ServiceSystemIndicatorNameCPI,
 						Target: 1.4,
 					},
+					{
+						Name:   workloadapis.ServiceSystemIndicatorNameCPUUsageRatio,
+						Target: 0.55,
+					},
 				},
 			}
 
