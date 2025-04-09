@@ -1,6 +1,3 @@
-//go:build !linux && !windows
-// +build !linux,!windows
-
 /*
 Copyright 2022 The Katalyst Authors.
 
@@ -17,18 +14,27 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package machine
+package checker
 
 import (
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
+	"fmt"
 )
 
-// GetExtraNetworkInfo get network info from /sys/class/net and system function net.Interfaces.
-// if multiple network namespace is enabled, we should exec into all namespaces and parse nics for them.
-func GetExtraNetworkInfo(_ *global.MachineInfoConfiguration) (*ExtraNetworkInfo, error) {
-	return &ExtraNetworkInfo{}, nil
+var DefaultRegistry = NewRegistry()
+
+type Registry map[string]NICHealthCheckerFactory
+
+func NewRegistry() Registry {
+	return Registry{
+		HealthCheckerNameIP: NewIPChecker,
+	}
 }
 
-func DoNetNS(nsName, nsAbsPath string, cb func(sysFsDir string, nsAbsPath string) error) error {
-	return cb("", nsAbsPath)
+// Register registers a new NIC health checker
+func (r Registry) Register(name string, factory NICHealthCheckerFactory) error {
+	if _, ok := r[name]; ok {
+		return fmt.Errorf("a checker named %v already exists", name)
+	}
+	r[name] = factory
+	return nil
 }

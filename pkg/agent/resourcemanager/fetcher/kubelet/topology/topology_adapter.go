@@ -461,7 +461,7 @@ func (p *topologyAdapterImpl) getZoneAllocations(podList []*v1.Pod, podResources
 		errList []error
 	)
 
-	podMap := native.GetPodNamespaceNameKeyMap(podList)
+	podMap := native.GetPodKeyMap(podList, native.GenerateUniqObjectNameKey)
 	zoneAllocationsMap := make(map[util.ZoneNode]util.ZoneAllocations)
 	for _, podResources := range podResourcesList {
 		if podResources == nil {

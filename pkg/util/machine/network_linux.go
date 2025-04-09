@@ -27,6 +27,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -52,6 +53,7 @@ const (
 	netFileNameSpeed    = "speed"
 	netFileNameNUMANode = "device/numa_node"
 	netFileNameEnable   = "device/enable"
+	nicFileNameIfindex  = "ifindex"
 	netOperstate        = "operstate"
 	netUP               = "up"
 	netEnable           = 1
@@ -101,105 +103,154 @@ func GetExtraNetworkInfo(conf *global.MachineInfoConfiguration) (*ExtraNetworkIn
 	return networkInfo, nil
 }
 
+// DoNetNS executes a callback function within the specified network namespace.
+// If the namespace is the default one, the callback runs in the current network namespace.
+// Otherwise, it mounts a temporary sysfs to avoid contaminating the host sysfs.
+func DoNetNS(nsName, netNSDirAbsPath string, cb func(sysFsDir, nsAbsPath string) error) error {
+	// if nsName is defaulted, the callback function will be run in the current network namespace.
+	// So skip the whole function, just call cb().
+	// cb() needs a sysFsDir as arg but ignored, give it a fake one.
+	var nsAbsPath string
+	sysFsDir := sysFSDirNormal
+	if nsName == DefaultNICNamespace {
+		return cb(sysFsDir, nsAbsPath)
+	}
+	nsAbsPath = path.Join(netNSDirAbsPath, nsName)
+
+	// if nsName is not defaulted, we should exec into the new network namespace.
+	// So we need to mount sysfs to /tmp/net_ns_sysfs to avoid contaminating the host sysfs directory.
+	// create the target directory if it doesn't exist
+	sysFsDir = sysFSDirNetNSTmp
+
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	// save the current network namespace
+	originNS, err := netns.Get()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		// switch back to the original namespace
+		if err := netns.Set(originNS); err != nil {
+			general.Fatalf("failed to unmount sys fs: %v", err)
+		}
+		_ = originNS.Close()
+	}()
+
+	// exec into the new network namespace
+	newNS, err := netns.GetFromPath(nsAbsPath)
+	if err != nil {
+		return fmt.Errorf("get handle from net ns path: %s failed with error: %v", nsAbsPath, err)
+	}
+	defer func() { _ = newNS.Close() }()
+
+	if err = netns.Set(newNS); err != nil {
+		return fmt.Errorf("set newNS: %s failed with error: %v", nsAbsPath, err)
+	}
+
+	// mount sysfs to /tmp/net_ns_sysfs to avoid contaminating the host sysfs directory
+	// create the target directory if it doesn't exist
+	if _, err := os.Stat(sysFsDir); err != nil {
+		if os.IsNotExist(err) {
+			if err := os.MkdirAll(sysFsDir, os.FileMode(0o755)); err != nil {
+				return fmt.Errorf("make dir: %s failed with error: %v", sysFsDir, err)
+			}
+		} else {
+			return fmt.Errorf("check dir: %s failed with error: %v", sysFsDir, err)
+		}
+	}
+
+	if err := syscall.Mount("sysfs", sysFsDir, "sysfs", 0, ""); err != nil {
+		return fmt.Errorf("mount sysfs to %s failed with error: %v", sysFsDir, err)
+	}
+
+	// the sysfs needs to be remounted before switching network namespace back
+	defer func() {
+		if err := syscall.Unmount(sysFsDir, 0); err != nil {
+			general.Fatalf("unmount sysfs: %s failed with error: %v", sysFsDir, err)
+		}
+	}()
+
+	return cb(sysFsDir, nsAbsPath)
+}
+
 // getNSNetworkHardwareTopology set given network namespaces and get nics inside if needed
 func getNSNetworkHardwareTopology(nsName, netNSDirAbsPath string) ([]InterfaceInfo, error) {
 	var nics []InterfaceInfo
 
-	nsAbsPath := ""
-	sysFsDir := sysFSDirNormal
-
-	if nsName != DefaultNICNamespace {
-		nsAbsPath = path.Join(netNSDirAbsPath, nsName)
-		sysFsDir = sysFSDirNetNSTmp
-
-		// save the current network namespace
-		originNS, _ := netns.Get()
-		defer func() {
-			// switch back to the original namespace
-			if err := netns.Set(originNS); err != nil {
-				general.Fatalf("failed to unmount sys fs: %v", err)
-			}
-			_ = originNS.Close()
-		}()
-
-		// exec into the new network namespace
-		newNS, err := netns.GetFromPath(nsAbsPath)
+	err := DoNetNS(nsName, netNSDirAbsPath, func(sysFsDir, nsAbsPath string) error {
+		nicsBaseDirPath := path.Join(sysFsDir, nicPathNAMEBaseDir)
+		nicDirs, err := os.ReadDir(nicsBaseDirPath)
 		if err != nil {
-			return nil, fmt.Errorf("get handle from net ns path: %s failed with error: %v", nsAbsPath, err)
-		}
-		defer func() { _ = newNS.Close() }()
-
-		if err = netns.Set(newNS); err != nil {
-			return nil, fmt.Errorf("set newNS: %s failed with error: %v", nsAbsPath, err)
+			return err
 		}
 
-		// create the target directory if it doesn't exist
-		if _, err := os.Stat(sysFSDirNetNSTmp); err != nil {
-			if os.IsNotExist(err) {
-				if err := os.MkdirAll(sysFSDirNetNSTmp, os.FileMode(0o755)); err != nil {
-					return nil, fmt.Errorf("make dir: %s failed with error: %v", sysFSDirNetNSTmp, err)
-				}
-			} else {
-				return nil, fmt.Errorf("check dir: %s failed with error: %v", sysFSDirNetNSTmp, err)
+		bondingNICs := getBondingNetworkInterfaces(path.Join(nicsBaseDirPath, bondingMasterPath))
+
+		nicsAddrMap, err := getInterfaceAddr()
+		if err != nil {
+			return err
+		}
+
+		for _, nicDir := range nicDirs {
+			nicName := nicDir.Name()
+			nicPath := path.Join(nicsBaseDirPath, nicName)
+
+			devPath, err := filepath.EvalSymlinks(nicPath)
+			if err != nil {
+				general.Warningf("eval sym link: %s failed with error: %v", nicPath, err)
+				continue
 			}
-		}
 
-		if err := syscall.Mount("sysfs", sysFSDirNetNSTmp, "sysfs", 0, ""); err != nil {
-			return nil, fmt.Errorf("mount sysfs to %s failed with error: %v", sysFSDirNetNSTmp, err)
-		}
-
-		// the sysfs needs to be remounted before switching network namespace back
-		defer func() {
-			if err := syscall.Unmount(sysFSDirNetNSTmp, 0); err != nil {
-				general.Fatalf("unmount sysfs: %s failed with error: %v", sysFSDirNetNSTmp, err)
+			// only return PCI NIC
+			if !strings.Contains(devPath, nicPathNameDeviceFormatPCI) && !bondingNICs.Has(nicName) {
+				general.Warningf("skip nic: %s with devPath: %s which isn't pci device", nicName, devPath)
+				continue
 			}
-		}()
-	}
 
-	nicsBaseDirPath := path.Join(sysFsDir, nicPathNAMEBaseDir)
-	nicDirs, err := ioutil.ReadDir(nicsBaseDirPath)
+			nic := InterfaceInfo{
+				Iface:          nicName,
+				NSName:         nsName,
+				NSAbsolutePath: nsAbsPath,
+			}
+			if nicAddr, exist := nicsAddrMap[nicName]; exist {
+				nic.Addr = nicAddr
+			}
+
+			getInterfaceIndex(nicsBaseDirPath, &nic)
+			getInterfaceAttr(&nic, nicPath)
+
+			general.Infof("discover nic: %#v", nic)
+			nics = append(nics, nic)
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
-	}
-
-	bondingNICs := getBondingNetworkInterfaces(path.Join(nicsBaseDirPath, bondingMasterPath))
-
-	nicsAddrMap, err := getInterfaceAddr()
-	if err != nil {
-		return nil, err
-	}
-
-	for _, nicDir := range nicDirs {
-		nicName := nicDir.Name()
-		nicPath := path.Join(nicsBaseDirPath, nicName)
-
-		devPath, err := filepath.EvalSymlinks(nicPath)
-		if err != nil {
-			general.Warningf("eval sym link: %s failed with error: %v", nicPath, err)
-			continue
-		}
-
-		// only return PCI NIC
-		if !strings.Contains(devPath, nicPathNameDeviceFormatPCI) && !bondingNICs.Has(nicName) {
-			general.Warningf("skip nic: %s with devPath: %s which isn't pci device", nicName, devPath)
-			continue
-		}
-
-		nic := InterfaceInfo{
-			Iface:          nicName,
-			NSName:         nsName,
-			NSAbsolutePath: nsAbsPath,
-		}
-		if nicAddr, exist := nicsAddrMap[nicName]; exist {
-			nic.Addr = nicAddr
-		}
-		getInterfaceAttr(&nic, nicPath)
-
-		general.Infof("discover nic: %#v", nic)
-		nics = append(nics, nic)
 	}
 
 	return nics, nil
+}
+
+func getInterfaceIndex(nicsBaseDirPath string, info *InterfaceInfo) {
+	if info == nil {
+		return
+	}
+
+	nicName := info.Iface
+	iface, err := net.InterfaceByName(nicName)
+	if err != nil {
+		general.Warningf("failed to InterfaceByName(%s), err %v", nicName, err)
+		ifIndex, err := getIfIndexFromSys(nicsBaseDirPath, nicName)
+		if err != nil {
+			general.Errorf("failed to get %s interface index from sys: %v", nicName, err)
+			return
+		}
+		info.IfIndex = ifIndex
+		return
+	}
+	info.IfIndex = iface.Index
 }
 
 // getInterfaceAttr parses key information from system files
@@ -207,14 +258,12 @@ func getInterfaceAttr(info *InterfaceInfo, nicPath string) {
 	if nicNUMANode, err := general.ReadFileIntoInt(path.Join(nicPath, netFileNameNUMANode)); err != nil {
 		general.Errorf("ns %v name %v, read NUMA node failed with error: %v. Suppose it's associated with NUMA node 0", info.NSName, info.Iface, err)
 		// some net device files are missed on VMs (e.g. "device/numanode")
-		info.NumaNode = 0
+		info.NumaNode = -1
 	} else {
-		if nicNUMANode != -1 {
-			info.NumaNode = nicNUMANode
-		} else {
+		info.NumaNode = nicNUMANode
+		if info.NumaNode == -1 {
 			// the "device/numanode" file is filled with -1 on some VMs (e.g. byte-vm), we should return 0 instead
 			general.Errorf("Invalid NUMA node %v for interface %v. Suppose it's associated with NUMA node 0", info.NumaNode, info.Iface)
-			info.NumaNode = 0
 		}
 	}
 
@@ -243,6 +292,21 @@ func getInterfaceAttr(info *InterfaceInfo, nicPath string) {
 	}
 }
 
+func getIfIndexFromSys(nicsBaseDirPath, nicName string) (int, error) {
+	ifIndexPath := path.Join(nicsBaseDirPath, nicName, nicFileNameIfindex)
+	b, err := os.ReadFile(ifIndexPath)
+	if err != nil {
+		return 0, err
+	}
+
+	ifindex, err := strconv.Atoi(strings.TrimSpace(strings.TrimRight(string(b), "\n")))
+	if err != nil {
+		return 0, err
+	}
+
+	return ifindex, nil
+}
+
 // getInterfaceAddr get interface address which is map of interface name to
 // its interface address which includes both ipv6 and ipv4 address.
 func getInterfaceAddr() (map[string]*IfaceAddr, error) {
@@ -256,43 +320,14 @@ func getInterfaceAddr() (map[string]*IfaceAddr, error) {
 	}
 
 	for _, i := range interfaces {
-		// if the interface is down or a loopback interface, we just skip it
-		if i.Flags&net.FlagUp == 0 || i.Flags&net.FlagLoopback > 0 {
-			continue
-		}
-
-		address, err := i.Addrs()
+		addr, err := GetInterfaceAddr(i)
 		if err != nil {
+			general.Warningf("failed to get interface addr from %v, err %v", i, err)
 			continue
 		}
 
-		if len(address) > 0 {
-			ia := &IfaceAddr{}
-
-			for _, addr := range address {
-				var ip net.IP
-				switch v := addr.(type) {
-				case *net.IPNet:
-					ip = v.IP
-				case *net.IPAddr:
-					ip = v.IP
-				default:
-					continue
-				}
-
-				// filter out ips that are not global uni-cast
-				if !ip.IsGlobalUnicast() {
-					continue
-				}
-
-				if ip.To4() != nil {
-					ia.IPV4 = append(ia.IPV4, &ip)
-				} else {
-					ia.IPV6 = append(ia.IPV6, &ip)
-				}
-			}
-
-			ias[i.Name] = ia
+		if addr != nil {
+			ias[i.Name] = addr
 		}
 	}
 

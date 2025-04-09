@@ -19,6 +19,7 @@ package machine
 import (
 	"fmt"
 	"math"
+	"sort"
 
 	info "github.com/google/cadvisor/info/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -537,7 +538,26 @@ func CheckNUMACrossSockets(numaNodes []int, cpuTopology *CPUTopology) (bool, err
 	return false, nil
 }
 
-func GetSiblingNumaInfo(conf *global.MachineInfoConfiguration,
+func GetExtraTopologyInfo(conf *global.MachineInfoConfiguration, cpuTopology *CPUTopology, extraNetworkInfo *ExtraNetworkInfo) (*ExtraTopologyInfo, error) {
+	numaDistanceArray, err := getNUMADistanceMap()
+	if err != nil {
+		return nil, err
+	}
+
+	interfaceSocketInfo, err := GetInterfaceSocketInfo(extraNetworkInfo.GetAllocatableNICs(conf), cpuTopology)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ExtraTopologyInfo{
+		NumaDistanceMap:                numaDistanceArray,
+		SiblingNumaInfo:                GetSiblingNumaInfo(conf, numaDistanceArray),
+		AllocatableInterfaceSocketInfo: interfaceSocketInfo,
+	}, nil
+}
+
+func GetSiblingNumaInfo(
+	conf *global.MachineInfoConfiguration,
 	numaDistanceMap map[int][]NumaDistanceInfo,
 ) *SiblingNumaInfo {
 	siblingNumaMap := make(map[int]sets.Int)
@@ -598,6 +618,7 @@ type NumaDistanceInfo struct {
 type ExtraTopologyInfo struct {
 	NumaDistanceMap map[int][]NumaDistanceInfo
 	*SiblingNumaInfo
+	*AllocatableInterfaceSocketInfo
 }
 
 type SiblingNumaInfo struct {
@@ -609,4 +630,113 @@ type SiblingNumaInfo struct {
 	// averaged similarly.
 	SiblingNumaAvgMBWAllocatableMap map[int]int64
 	SiblingNumaAvgMBWCapacityMap    map[int]int64
+}
+
+type AllocatableInterfaceSocketInfo struct {
+	// IfIndex2Sockets maps allocatable network interface indexes to
+	// the sockets they belong to.
+	// Socket2IfIndexes maps sockets to the allocatable network interface indexes
+	// they contain.
+	IfIndex2Sockets  map[int][]int
+	Socket2IfIndexes map[int][]int
+}
+
+// GetInterfaceSocketInfo assigns network interfaces (NICs) to CPU sockets based on NUMA topology.
+//
+// It takes a list of available network interfaces (`nics`) and a `cpuTopology` structure.
+// The function attempts to distribute NICs evenly across sockets while considering NUMA affinity.
+//
+// The resulting mappings are:
+// - `IfIndex2Sockets`: Maps each NIC index to the socket(s) it is assigned to.
+// - `Socket2IfIndexes`: Maps each socket to the NIC indices assigned to it.
+//
+// The logic follows these steps:
+// 1. If there are no sockets, return an error.
+// 2. Retrieve available sockets from `cpuTopology`.
+// 3. Initialize mappings and track socket usage.
+// 4. Compute an ideal maximum number of NICs per socket to balance the distribution.
+// 5. Assign NICs to sockets based on:
+//   - NUMA affinity when possible.
+//   - Least-used socket when NUMA binding is unavailable or overloaded.
+//
+// 6. Populate the mappings and return them.
+func GetInterfaceSocketInfo(nics []InterfaceInfo, cpuTopology *CPUTopology) (*AllocatableInterfaceSocketInfo, error) {
+	// Check if there are available sockets
+	if cpuTopology == nil {
+		return nil, fmt.Errorf("get nil CPUTopology")
+	}
+
+	sockets := cpuTopology.CPUDetails.Sockets().ToSliceInt()
+	// Map NIC indices to their assigned sockets
+	ifIndex2Sockets := make(map[int][]int)
+	// Map sockets to the NIC indices assigned to them
+	socket2IfIndexes := make(map[int][]int)
+	for _, socket := range cpuTopology.CPUDetails.Sockets().ToSliceNoSortInt() {
+		socket2IfIndexes[socket] = []int{}
+	}
+	// Track the number of NICs assigned to each socket
+	socketUsage := make(map[int]int)
+	numSockets := len(sockets)
+	if numSockets == 0 {
+		return nil, fmt.Errorf("no sockets available")
+	}
+
+	// Calculate the maximum ideal NICs per socket (rounded up division)
+	idealMax := (len(nics) + numSockets - 1) / numSockets
+	// Function to find the least-used socket, preferring lower-numbered sockets in case of ties
+	getLeastUsedSocket := func() int {
+		minSocket, minCount := sockets[0], len(nics)+1
+		for _, socket := range sockets {
+			if count := socketUsage[socket]; count < minCount {
+				minSocket, minCount = socket, count
+			} else if count == minCount && socket < minSocket {
+				minSocket = socket
+			}
+		}
+		return minSocket
+	}
+
+	// Sort NICs by NUMA node in ascending order, with numaNode=-1 NICs sorted last.
+	// This ensures NUMA-aware NICs are allocated first based on their NUMA node,
+	// while NICs without NUMA affinity are allocated last.
+	sort.SliceStable(nics, func(i, j int) bool {
+		if nics[i].NumaNode == -1 {
+			return false
+		}
+		if nics[j].NumaNode == -1 {
+			return true
+		}
+		return nics[i].NumaNode < nics[j].NumaNode
+	})
+
+	// Assign sockets to each NIC
+	for _, nic := range nics {
+		var assignedSockets []int
+		socketBind, ok := cpuTopology.NUMANodeIDToSocketID[nic.NumaNode]
+		if !ok {
+			socketBind = -1
+		}
+		if len(nics) == 1 {
+			// If there is only one NIC, assign all available sockets to it
+			assignedSockets = append(assignedSockets, sockets...)
+		} else if socketBind != -1 && socketUsage[socketBind] < idealMax {
+			// If NIC has a valid socket bind and the socket isn't overloaded, use it
+			assignedSockets = []int{socketBind}
+		} else {
+			// Otherwise, assign the least-used socket
+			least := getLeastUsedSocket()
+			assignedSockets = []int{least}
+		}
+		// Store NIC to socket assignment
+		ifIndex2Sockets[nic.IfIndex] = assignedSockets
+		for _, socket := range assignedSockets {
+			// Store socket to NIC mapping and update usage count
+			socket2IfIndexes[socket] = append(socket2IfIndexes[socket], nic.IfIndex)
+			socketUsage[socket]++
+		}
+	}
+	return &AllocatableInterfaceSocketInfo{
+		IfIndex2Sockets:  ifIndex2Sockets,
+		Socket2IfIndexes: socket2IfIndexes,
+	}, nil
 }

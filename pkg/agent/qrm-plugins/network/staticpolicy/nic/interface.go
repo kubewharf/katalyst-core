@@ -1,6 +1,3 @@
-//go:build !linux && !windows
-// +build !linux,!windows
-
 /*
 Copyright 2022 The Katalyst Authors.
 
@@ -17,18 +14,20 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package machine
+package nic
 
 import (
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
+	"context"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-// GetExtraNetworkInfo get network info from /sys/class/net and system function net.Interfaces.
-// if multiple network namespace is enabled, we should exec into all namespaces and parse nics for them.
-func GetExtraNetworkInfo(_ *global.MachineInfoConfiguration) (*ExtraNetworkInfo, error) {
-	return &ExtraNetworkInfo{}, nil
+type NICs struct {
+	HealthyNICs   []machine.InterfaceInfo
+	UnhealthyNICs []machine.InterfaceInfo
 }
 
-func DoNetNS(nsName, nsAbsPath string, cb func(sysFsDir string, nsAbsPath string) error) error {
-	return cb("", nsAbsPath)
+type NICManager interface {
+	GetNICs() NICs
+	Run(ctx context.Context)
 }

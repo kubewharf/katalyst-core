@@ -68,6 +68,7 @@ type BaseOptions struct {
 	// configurations for machine-info
 	MachineNetMultipleNS                             bool
 	MachineNetNSDirAbsPath                           string
+	MachineNetAllocatableNS                          []string
 	MachineSiblingNumaMaxDistance                    int
 	MachineSiblingNumaMemoryBandwidthCapacity        resource.QuantityValue
 	MachineSiblingNumaMemoryBandwidthAllocatableRate float64
@@ -93,6 +94,7 @@ func NewBaseOptions() *BaseOptions {
 		RuntimeEndpoint: defaultRemoteRuntimeEndpoint,
 
 		MachineNetMultipleNS:                             false,
+		MachineNetAllocatableNS:                          []string{"*"},
 		MachineSiblingNumaMemoryBandwidthAllocatableRate: 1.0,
 	}
 }
@@ -141,7 +143,10 @@ func (o *BaseOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.BoolVar(&o.MachineNetMultipleNS, "machine-net-multi-ns", o.MachineNetMultipleNS,
 		"if set as true, we should collect network interfaces from multiple ns")
 	fs.StringVar(&o.MachineNetNSDirAbsPath, "machine-net-ns-dir", o.MachineNetNSDirAbsPath,
-		"if set as true, we should collect network interfaces from multiple ns")
+		"the absolute path of network ns dir")
+	fs.StringSliceVar(&o.MachineNetAllocatableNS, "machine-net-allocatable-ns", o.MachineNetAllocatableNS,
+		"the list of allocatable network namespaces, '*' means all namespaces are allocatable, "+
+			"'ns2' means ns2 is allocatable, '-ns3' not ns3 is not allocatable")
 
 	fs.IntVar(&o.MachineSiblingNumaMaxDistance, "machine-sibling-numa-max-distance", o.MachineSiblingNumaMaxDistance,
 		"The maximum distance between sibling NUMA nodes. If not set, the maximum distance defaults to the distance to itself.")
@@ -167,6 +172,7 @@ func (o *BaseOptions) ApplyTo(c *global.BaseConfiguration) error {
 
 	c.NetMultipleNS = o.MachineNetMultipleNS
 	c.NetNSDirAbsPath = o.MachineNetNSDirAbsPath
+	c.NetAllocatableNS = o.MachineNetAllocatableNS
 	c.SiblingNumaMaxDistance = o.MachineSiblingNumaMaxDistance
 	c.SiblingNumaMemoryBandwidthCapacity = o.MachineSiblingNumaMemoryBandwidthCapacity.Quantity.Value()
 	c.SiblingNumaMemoryBandwidthAllocatableRate = o.MachineSiblingNumaMemoryBandwidthAllocatableRate
