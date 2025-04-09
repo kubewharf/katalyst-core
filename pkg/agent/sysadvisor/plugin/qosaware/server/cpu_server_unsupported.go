@@ -1,3 +1,6 @@
+//go:build !linux
+// +build !linux
+
 /*
 Copyright 2022 The Katalyst Authors.
 
@@ -14,13 +17,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package cpuadvisor
+package server
 
-type CPUControlKnobName string
-
-const (
-	ControlKnobKeyCPUNUMAHeadroom CPUControlKnobName = "cpu_numa_headroom"
-	ControlKnobKeyCgroupConfig    CPUControlKnobName = "cgroup_config"
+import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 )
 
-type CPUNUMAHeadroom map[int]float64
+func (cs *cpuServer) assembleCgroupConfig(advisorResp *types.InternalCPUCalculationResult) (extraEntries []*advisorsvc.CalculationInfo) {
+	return []*advisorsvc.CalculationInfo{}
+}
