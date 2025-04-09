@@ -121,6 +121,7 @@ type DynamicPolicy struct {
 	podDebugAnnoKeys                          []string
 	podAnnotationKeptKeys                     []string
 	podLabelKeptKeys                          []string
+	sharedCoresNUMABindingResultAnnotationKey string
 	transitionPeriod                          time.Duration
 	cpuNUMAHintPreferPolicy                   string
 	cpuNUMAHintPreferLowThreshold             float64
@@ -201,11 +202,12 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		reclaimRelativeRootCgroupPath: conf.ReclaimRelativeRootCgroupPath,
 		numaBindingReclaimRelativeRootCgroupPaths: common.GetNUMABindingReclaimRelativeRootCgroupPaths(conf.ReclaimRelativeRootCgroupPath,
 			agentCtx.CPUDetails.NUMANodes().ToSliceNoSortInt()),
-		podDebugAnnoKeys:          conf.PodDebugAnnoKeys,
-		podAnnotationKeptKeys:     conf.PodAnnotationKeptKeys,
-		podLabelKeptKeys:          conf.PodLabelKeptKeys,
-		transitionPeriod:          30 * time.Second,
-		reservedReclaimedCPUsSize: general.Max(reservedReclaimedCPUsSize, agentCtx.KatalystMachineInfo.NumNUMANodes),
+		podDebugAnnoKeys:                          conf.PodDebugAnnoKeys,
+		podAnnotationKeptKeys:                     conf.PodAnnotationKeptKeys,
+		podLabelKeptKeys:                          conf.PodLabelKeptKeys,
+		sharedCoresNUMABindingResultAnnotationKey: conf.SharedCoresNUMABindingResultAnnotationKey,
+		transitionPeriod:                          30 * time.Second,
+		reservedReclaimedCPUsSize:                 general.Max(reservedReclaimedCPUsSize, agentCtx.KatalystMachineInfo.NumNUMANodes),
 	}
 
 	// register allocation behaviors for pods with different QoS level
