@@ -21,11 +21,14 @@ package dynamicpolicy
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 	"unsafe"
 
@@ -246,6 +249,11 @@ func MovePagesForProcess(ctx context.Context, procDir string, pid int, srcNumas 
 	pidSmapsInfo, err := getProcessPageStats(procDir, pid)
 	if err != nil {
 		return err
+	}
+
+	if pidSmapsInfo == nil {
+		general.Warningf("get pid smaps info nil, procDir: %s pid: %d", procDir, pid)
+		return nil
 	}
 
 	srcNumasBitSet, err := bitmask.NewBitMask(srcNumas...)
@@ -492,6 +500,10 @@ func getProcessPageStats(procDir string, pid int) (*smapsInfo, error) {
 	smapFile := filepath.Join(procDir, fmt.Sprintf("%d/smaps", pid))
 	lines, err := general.ReadFileIntoLines(smapFile)
 	if err != nil {
+		// if smap file not found, return nil
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("failed to ReadLines(%s), err %v", smapFile, err)
 	}
 
@@ -619,8 +631,11 @@ func movePages(pid int32, pagesCount uint64, pagesAddr []uint64, nodes []int32) 
 		uintptr(unsafe.Pointer(nodesBaseAddr)),
 		uintptr(unsafe.Pointer(&status[0])),
 		uintptr(moveFlags))
-
 	if errNo != 0 {
+		if errors.Is(errNo, syscall.ESRCH) {
+			general.Warningf("pid: %d no such process", pid)
+			return nil, nil
+		}
 		return nil, fmt.Errorf("failed to call SYS_MOVE_PAGES syscall, err %v", errNo.Error())
 	}
 
