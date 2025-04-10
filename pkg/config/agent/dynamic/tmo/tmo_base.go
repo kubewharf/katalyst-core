@@ -79,10 +79,11 @@ func NewTMODefaultConfigurations() *TMODefaultConfigurations {
 }
 
 type TMOConfigDetail struct {
-	EnableTMO  bool
-	EnableSwap bool
-	Interval   time.Duration
-	PolicyName v1alpha1.TMOPolicyName
+	EnableTMO                               bool
+	EnableSwap                              bool
+	EnableSwapWhenSwappinessProactiveEnable bool
+	Interval                                time.Duration
+	PolicyName                              v1alpha1.TMOPolicyName
 	*PSIPolicyConf
 	*RefaultPolicyConf
 }
