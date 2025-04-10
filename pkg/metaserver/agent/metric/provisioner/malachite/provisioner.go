@@ -135,8 +135,8 @@ func (m *MalachiteMetricsProvisioner) updateSystemStats() error {
 
 	systemInfoData, err := m.malachiteClient.GetSystemInfoStats()
 	if err != nil {
-		errList = append(errList, err)
-		klog.Errorf("[malachite] get system info stats failed, err %v", err)
+		// todo: append to errList after malachite core updates to newer version
+		klog.Warningf("[malachite] get system info stats failed, err %v", err)
 		_ = m.emitter.StoreInt64(metricsNameMalachiteGetSystemStatusFailed, 1, metrics.MetricTypeNameCount,
 			metrics.MetricTag{Key: "kind", Val: "info"})
 	} else {
