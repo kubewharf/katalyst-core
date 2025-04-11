@@ -274,7 +274,12 @@ func (bs *baseServer) addContainer(request *advisorsvc.ContainerMetadata) error 
 	if !field.IsValid() {
 		return fmt.Errorf("%v is invalid", bs.resourceRequestName)
 	}
-	field.SetFloat(float64(request.RequestQuantity))
+
+	if request.UseMilliQuantity {
+		field.SetFloat(float64(request.RequestMilliQuantity) / 1000)
+	} else {
+		field.SetFloat(float64(request.RequestQuantity))
+	}
 
 	if err := bs.metaCache.AddContainer(containerInfo.PodUID, containerInfo.ContainerName, containerInfo); err != nil {
 		// Try to delete container info in both memory and state file if add container returns error

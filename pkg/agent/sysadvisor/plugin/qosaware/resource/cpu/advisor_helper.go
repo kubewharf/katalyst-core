@@ -222,7 +222,7 @@ func (cra *cpuResourceAdvisor) getRegionMinRequirement(r region.QoSRegion) float
 			if _, ok := r.GetPods()[podUID]; ok && ci.ContainerType == v1alpha1.ContainerType_MAIN {
 				// todo: to be compatible with resource over-commit,
 				//  set lower-bound as limit too, but we need to reconsider this in the future
-				res += general.MaxFloat64(ci.CPULimit, ci.CPURequest)
+				res += general.MinFloat64(ci.CPULimit, ci.CPURequest)
 			}
 			return true
 		})

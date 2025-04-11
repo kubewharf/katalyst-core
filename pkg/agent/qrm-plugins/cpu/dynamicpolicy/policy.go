@@ -833,16 +833,18 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 		// calls sys-advisor to inform the latest container
 		if p.enableCPUAdvisor && respErr == nil && req.ContainerType != pluginapi.ContainerType_INIT {
 			_, err := p.advisorClient.AddContainer(ctx, &advisorsvc.ContainerMetadata{
-				PodUid:          req.PodUid,
-				PodNamespace:    req.PodNamespace,
-				PodName:         req.PodName,
-				ContainerName:   req.ContainerName,
-				ContainerType:   req.ContainerType,
-				ContainerIndex:  req.ContainerIndex,
-				Labels:          maputil.CopySS(req.Labels),
-				Annotations:     maputil.CopySS(req.Annotations),
-				QosLevel:        qosLevel,
-				RequestQuantity: uint64(reqInt),
+				PodUid:               req.PodUid,
+				PodNamespace:         req.PodNamespace,
+				PodName:              req.PodName,
+				ContainerName:        req.ContainerName,
+				ContainerType:        req.ContainerType,
+				ContainerIndex:       req.ContainerIndex,
+				Labels:               maputil.CopySS(req.Labels),
+				Annotations:          maputil.CopySS(req.Annotations),
+				QosLevel:             qosLevel,
+				RequestQuantity:      uint64(reqInt),
+				RequestMilliQuantity: uint64(reqFloat64 * 1000),
+				UseMilliQuantity:     true,
 			})
 			if err != nil {
 				resp = nil
