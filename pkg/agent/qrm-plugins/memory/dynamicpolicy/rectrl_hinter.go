@@ -95,15 +95,15 @@ func ensureToGetMemAllocInfo(resp *pluginapi.ResourceAllocationResponse) *plugin
 	return allocInfo
 }
 
-func injectRespAnnotationSharedGroup(resp *pluginapi.ResourceAllocationResponse, monGroup string) {
+func injectRespAnnotationSharedGroup(resp *pluginapi.ResourceAllocationResponse, group string) {
 	allocInfo := ensureToGetMemAllocInfo(resp)
-	allocInfo.Annotations["rdt.resources.beta.kubernetes.io/pod"] = monGroup
+	allocInfo.Annotations[util.AnnotationRdtClosID] = group
 }
 
 func injectRespAnnotationPodMonGroup(resp *pluginapi.ResourceAllocationResponse,
 	enablingGroups sets.String, group string,
 ) {
-	if enablingGroups.Has(group) {
+	if len(enablingGroups) == 0 || enablingGroups.Has(group) {
 		return
 	}
 

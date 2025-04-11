@@ -180,11 +180,11 @@ func (o *MemoryOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.SetMemFragScoreAsync, "set the threshold of frag score for async memory compaction")
 	fs.BoolVar(&o.EnableResctrlHint, "pod-admit-resctrl-layout-hint",
 		o.EnableResctrlHint, "if set true, we will enable resctrl hint on pod admission")
-	fs.StringToIntVar(&o.CPUSetPoolToSharedSubgroup, "pod-admit-resctrl-cpuset-pool-to-shared-subgroup",
+	fs.StringToIntVar(&o.CPUSetPoolToSharedSubgroup, "resctrl-cpuset-pool-to-shared-subgroup",
 		o.CPUSetPoolToSharedSubgroup, "customize shared-xx subgroup if present")
-	fs.IntVar(&o.DefaultSharedSubgroup, "pod-admit-resctrl-default-shared-subgroup",
+	fs.IntVar(&o.DefaultSharedSubgroup, "resctrl-default-shared-subgroup",
 		o.DefaultSharedSubgroup, "default subgroup for shared qos")
-	fs.StringVar(&o.MonGroupsPolicy, "mon-groups-policy", o.MonGroupsPolicy, "type of mon-groups policy")
+	fs.StringVar(&o.MonGroupsPolicy, "resctrl-mon-groups-policy", o.MonGroupsPolicy, "type of mon-groups policy")
 }
 
 func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
