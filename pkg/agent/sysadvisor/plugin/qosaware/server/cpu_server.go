@@ -525,7 +525,13 @@ func (cs *cpuServer) setContainerInfoBasedOnContainerAllocationInfo(
 
 	ci.Labels = info.Metadata.Labels
 	ci.Annotations = info.Metadata.Annotations
-	ci.CPURequest = float64(info.Metadata.RequestQuantity)
+
+	if info.Metadata.UseMilliQuantity {
+		ci.CPURequest = float64(info.Metadata.RequestMilliQuantity) / 1000.0
+	} else {
+		ci.CPURequest = float64(info.Metadata.RequestQuantity)
+	}
+
 	if info.Metadata.QosLevel == consts.PodAnnotationQoSLevelSharedCores &&
 		info.Metadata.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable {
 		originOwnerPoolName, err := commonstate.GetSpecifiedNUMABindingPoolName(info.Metadata.QosLevel, info.Metadata.Annotations)
@@ -595,8 +601,14 @@ func (cs *cpuServer) createOrUpdateContainerInfo(
 			Labels:         info.Metadata.Labels,
 			Annotations:    info.Metadata.Annotations,
 			QoSLevel:       info.Metadata.QosLevel,
-			CPURequest:     float64(info.Metadata.RequestQuantity),
 		}
+
+		if info.Metadata.UseMilliQuantity {
+			ci.CPURequest = float64(info.Metadata.RequestMilliQuantity) / 1000.0
+		} else {
+			ci.CPURequest = float64(info.Metadata.RequestQuantity)
+		}
+
 		if err := cs.setContainerInfoBasedOnContainerAllocationInfo(pod, ci, info); err != nil {
 			return fmt.Errorf("set container info for new container %v/%v failed: %w", podUID, containerName, err)
 		}

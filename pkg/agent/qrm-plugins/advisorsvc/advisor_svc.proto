@@ -43,6 +43,8 @@ message ContainerMetadata {
     map<string,string> annotations = 8;
     string qos_level = 9;
     uint64 requestQuantity = 10;
+    uint64 requestMilliQuantity = 11;
+    bool useMilliQuantity = 12;
 }
 
 message AddContainerResponse {
