@@ -56,7 +56,6 @@ const (
 	metricsNameGenericSyncCost      = "reporter_generic_sync_cost"
 
 	reporterPushContentHealthCheckName = "reporter_push_content"
-	healthCheckAutoRecoverPeriod       = 1 * time.Minute
 )
 
 // ReporterPluginManager is used to manage in-tree or out-tree reporter plugin registrations and
@@ -219,7 +218,7 @@ func (m *ReporterPluginManager) DeRegisterPlugin(pluginName string) {
 
 // Run start the reporter plugin manager
 func (m *ReporterPluginManager) Run(ctx context.Context) {
-	general.RegisterReportCheck(reporterManagerCheckpoint, healthCheckAutoRecoverPeriod)
+	general.RegisterReportCheck(reporterPushContentHealthCheckName, m.reconcilePeriod*3)
 	go wait.UntilWithContext(ctx, m.syncFunc, m.reconcilePeriod)
 
 	klog.Infof("reporter plugin manager started")
