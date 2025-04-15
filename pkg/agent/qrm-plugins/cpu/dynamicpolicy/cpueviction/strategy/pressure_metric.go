@@ -90,6 +90,14 @@ func (ring *MetricRing) Sum() float64 {
 	return sum
 }
 
+func (ring *MetricRing) Avg() float64 {
+	length := len(ring.Queue)
+	if length == 0 {
+		return 0
+	}
+	return ring.Sum() / float64(length)
+}
+
 func (ring *MetricRing) Push(snapShot *MetricSnapshot) {
 	ring.Lock()
 	defer ring.Unlock()
@@ -136,6 +144,23 @@ func (ring *MetricRing) Count() (softOverCount, hardOverCount int) {
 			if snapshot.Info.Value > snapshot.Info.UpperBound {
 				hardOverCount++
 			}
+		}
+	}
+	return
+}
+
+// OverCount pass threshold from outside
+func (ring *MetricRing) OverCount(threshold float64) (overCount int) {
+	ring.RLock()
+	defer ring.RUnlock()
+
+	for _, snapshot := range ring.Queue {
+		if snapshot == nil {
+			continue
+		}
+
+		if snapshot.Info.Value > threshold {
+			overCount++
 		}
 	}
 	return

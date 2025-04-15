@@ -33,6 +33,8 @@ const (
 	StrategyNameBorweinTaint = "borwein_taint"
 
 	StrategyNameMetricPreferredNUMAAllocation = "metric_preferred_numa_allocation"
+
+	StrategyNameNumaCpuPressureEviction = "numa_cpu_pressure_eviction"
 )
 
 const (
