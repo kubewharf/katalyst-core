@@ -25,6 +25,13 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
+type (
+	CPUAdvisorPluginName string
+	CPUPressureState     int
+)
+
+type CPUPressureStatus struct{}
+
 type TopologyAwareAssignment map[int]machine.CPUSet
 
 // CPUProvisionPolicyName defines policy names for cpu advisor resource provision

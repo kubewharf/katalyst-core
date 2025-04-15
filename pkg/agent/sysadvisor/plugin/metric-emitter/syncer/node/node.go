@@ -19,7 +19,6 @@ package node
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -36,6 +35,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/data"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	metrictypes "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
@@ -179,31 +179,17 @@ func (n *MetricSyncerNode) generateMetricTag(ctx context.Context) (tags []metric
 	}
 
 	// append cpu codename info
-	cpuCodeNameInterface := n.metaServer.MetricsFetcher.GetByStringIndex(consts.MetricCPUCodeName)
-	cpuCodeName, ok := cpuCodeNameInterface.(string)
-	if !ok {
-		klog.Warningf("parse cpu code name %v failed", cpuCodeNameInterface)
-		cpuCodeName = ""
-	}
-
 	tags = append(tags, metrics.MetricTag{
 		Key: fmt.Sprintf("%s%s", data.CustomMetricLabelSelectorPrefixKey, "cpu_codename"),
-		Val: cpuCodeName,
+		Val: helper.GetCpuCodeName(n.metaServer.MetricsFetcher),
 	})
 
 	// append vendor info
-	isVM := ""
-	isVMInterface := n.metaServer.MetricsFetcher.GetByStringIndex(consts.MetricInfoIsVM)
-	isVMBool, ok := isVMInterface.(bool)
-	if !ok {
-		klog.Warningf("parse is vm %v failed", isVMInterface)
-	} else {
-		isVM = strconv.FormatBool(isVMBool)
-	}
+	_, isVmStr := helper.GetIsVm(n.metaServer.MetricsFetcher)
 
 	tags = append(tags, metrics.MetricTag{
 		Key: fmt.Sprintf("%s%s", data.CustomMetricLabelSelectorPrefixKey, "is_vm"),
-		Val: isVM,
+		Val: isVmStr,
 	})
 
 	// append node numa bit mask
