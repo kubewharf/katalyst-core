@@ -121,8 +121,8 @@ func NewMemoryOptions() *MemoryOptions {
 			SetMemFragScoreAsync: 80,
 		},
 		ResctrlOptions: ResctrlOptions{
-			CPUSetPoolToSharedSubgroup: nil,
-			DefaultSharedSubgroup:      50,
+			CPUSetPoolToSharedSubgroup: make(map[string]int),
+			DefaultSharedSubgroup:      -1,
 		},
 	}
 }
