@@ -34,12 +34,14 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
+	"github.com/kubewharf/katalyst-core/pkg/util/strategygroup"
 )
 
 var errNoAvailableCPUHints = fmt.Errorf("no available cpu hints")
@@ -919,24 +921,41 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(request float64,
 		})
 	}
 
-	switch p.cpuNUMAHintPreferPolicy {
-	case cpuconsts.CPUNUMAHintPreferPolicyPacking, cpuconsts.CPUNUMAHintPreferPolicySpreading:
-		general.Infof("apply %s policy on NUMAs: %+v", p.cpuNUMAHintPreferPolicy, numaNodes)
-		p.populateHintsByPreferPolicy(numaNodes, p.cpuNUMAHintPreferPolicy, hints, machineState, request)
-	case cpuconsts.CPUNUMAHintPreferPolicyDynamicPacking:
-		filteredNUMANodes, filteredOutNUMANodes := p.filterNUMANodesByHintPreferLowThreshold(request, machineState, numaNodes)
+	metricPolicyEnabled, _ := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameMetricPreferredNUMAAllocation, false, p.conf)
 
-		if len(filteredNUMANodes) > 0 {
-			general.Infof("dynamically apply packing policy on NUMAs: %+v", filteredNUMANodes)
-			p.populateHintsByPreferPolicy(filteredNUMANodes, cpuconsts.CPUNUMAHintPreferPolicyPacking, hints, machineState, request)
-			p.populateHintsByAvailableNUMANodes(filteredOutNUMANodes, hints, false)
+	general.Infof("metricPolicyEnabled: %v", metricPolicyEnabled)
+
+	if metricPolicyEnabled {
+		_ = p.emitter.StoreInt64(util.MetricNameMetricBasedNUMAAllocationEnabled, 1, metrics.MetricTypeNameCount)
+		err = p.populateHintsByMetricPolicy(numaNodes, hints, machineState, request)
+
+		if err != nil {
+			general.Errorf("populateHintsByMetricPolicy failed with error: %v", err)
 		} else {
-			general.Infof("empty filteredNUMANodes, dynamically apply spreading policy on NUMAs: %+v", numaNodes)
+			_ = p.emitter.StoreInt64(util.MetricNameMetricBasedNUMAAllocationSuccess, 1, metrics.MetricTypeNameCount)
+		}
+	}
+
+	if !metricPolicyEnabled || err != nil {
+		switch p.cpuNUMAHintPreferPolicy {
+		case cpuconsts.CPUNUMAHintPreferPolicyPacking, cpuconsts.CPUNUMAHintPreferPolicySpreading:
+			general.Infof("apply %s policy on NUMAs: %+v", p.cpuNUMAHintPreferPolicy, numaNodes)
+			p.populateHintsByPreferPolicy(numaNodes, p.cpuNUMAHintPreferPolicy, hints, machineState, request)
+		case cpuconsts.CPUNUMAHintPreferPolicyDynamicPacking:
+			filteredNUMANodes, filteredOutNUMANodes := p.filterNUMANodesByHintPreferLowThreshold(request, machineState, numaNodes)
+
+			if len(filteredNUMANodes) > 0 {
+				general.Infof("dynamically apply packing policy on NUMAs: %+v", filteredNUMANodes)
+				p.populateHintsByPreferPolicy(filteredNUMANodes, cpuconsts.CPUNUMAHintPreferPolicyPacking, hints, machineState, request)
+				p.populateHintsByAvailableNUMANodes(filteredOutNUMANodes, hints, false)
+			} else {
+				general.Infof("empty filteredNUMANodes, dynamically apply spreading policy on NUMAs: %+v", numaNodes)
+				p.populateHintsByPreferPolicy(numaNodes, cpuconsts.CPUNUMAHintPreferPolicySpreading, hints, machineState, request)
+			}
+		default:
+			general.Infof("unknown policy: %s, apply default spreading policy on NUMAs: %+v", p.cpuNUMAHintPreferPolicy, numaNodes)
 			p.populateHintsByPreferPolicy(numaNodes, cpuconsts.CPUNUMAHintPreferPolicySpreading, hints, machineState, request)
 		}
-	default:
-		general.Infof("unknown policy: %s, apply default spreading policy on NUMAs: %+v", p.cpuNUMAHintPreferPolicy, numaNodes)
-		p.populateHintsByPreferPolicy(numaNodes, cpuconsts.CPUNUMAHintPreferPolicySpreading, hints, machineState, request)
 	}
 
 	// NOTE: because grpc is inability to distinguish between an empty array and nil,
