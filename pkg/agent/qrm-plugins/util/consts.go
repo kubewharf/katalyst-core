@@ -57,6 +57,12 @@ const (
 
 	// metrics for some cases
 	MetricNameShareCoresNoEnoughResourceFailed = "share_cores_no_enough_resource"
+
+	// metrics for numa allocation
+	MetricNameMetricBasedNUMAAllocationEnabled = "metric_based_numa_allocation_enabled"
+	MetricNameMetricBasedNUMAAllocationSuccess = "metric_based_numa_allocation_success"
+	MetricNameCollectNUMAMetrics               = "collect_numa_metrics"
+	MetricNameNUMAMetricOverThreshold          = "numa_metric_over_threshold"
 )
 
 const (
