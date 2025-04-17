@@ -1,3 +1,6 @@
+//go:build !linux
+// +build !linux
+
 /*
 Copyright 2022 The Katalyst Authors.
 
@@ -14,13 +17,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package cpuadvisor
+package dynamicpolicy
 
-type CPUControlKnobName string
-
-const (
-	ControlKnobKeyCPUNUMAHeadroom CPUControlKnobName = "cpu_numa_headroom"
-	ControlKnobKeyCgroupConfig    CPUControlKnobName = "cgroup_config"
+import (
+	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 )
 
-type CPUNUMAHeadroom map[int]float64
+func (p *DynamicPolicy) applyCgroupConfigs(resp *advisorapi.ListAndWatchResponse) error {
+	return nil
+}
