@@ -8,7 +8,7 @@ on:
 jobs:
   status-check:
     name: Status Check
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Check if the PR is hold
         if: contains(github.event.pull_request.labels.*.name, 'workflow/merge-hold')
