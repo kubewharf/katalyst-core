@@ -663,6 +663,8 @@ func (p *StaticPolicy) GetResourcePluginOptions(context.Context,
 func (p *StaticPolicy) Allocate(ctx context.Context,
 	req *pluginapi.ResourceRequest,
 ) (resp *pluginapi.ResourceAllocationResponse, err error) {
+	var isReallocated bool
+
 	if req == nil {
 		return nil, fmt.Errorf("GetTopologyHints got nil req")
 	}
@@ -709,7 +711,8 @@ func (p *StaticPolicy) Allocate(ctx context.Context,
 		p.Unlock()
 		if err != nil {
 			_ = p.emitter.StoreInt64(util.MetricNameAllocateFailed, 1, metrics.MetricTypeNameRaw,
-				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)})
+				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)},
+				metrics.MetricTag{Key: "reallocated", Val: strconv.FormatBool(isReallocated)})
 		}
 	}()
 
@@ -744,6 +747,7 @@ func (p *StaticPolicy) Allocate(ctx context.Context,
 	// and check whether the current allocation meets the requirement, if not, clear the record and re-allocate,
 	// otherwise, return the current allocationResult
 	if allocationInfo != nil {
+		isReallocated = true
 		if allocationInfo.Egress >= uint32(reqInt) && allocationInfo.Ingress >= uint32(reqInt) {
 			general.InfoS("already allocated and meet requirement",
 				"podNamespace", req.PodNamespace,
