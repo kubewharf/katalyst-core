@@ -364,10 +364,7 @@ func (p *nodeMetricsReporterPlugin) getGroupMetricInfo() ([]nodeapis.GroupMetric
 
 	for _, qosLevel := range qosLevels {
 		metricInfo := *newGroupMetricInfo(qosLevel)
-		pods, ok := qosLevel2Pods[qosLevel]
-		if !ok || len(pods) == 0 {
-			continue
-		}
+		pods := qosLevel2Pods[qosLevel]
 		groupUsage, groupNUMAUsages, effectivePods, err := p.getGroupUsage(pods, qosLevel)
 		if err != nil {
 			errList = append(errList, err)
@@ -545,7 +542,10 @@ func (p *nodeMetricsReporterPlugin) getGroupUsage(pods []*v1.Pod, qosLevel strin
 	for numaID := 0; numaID < p.metaServer.NumNUMANodes; numaID++ {
 		resourceUsages, ok := numaUsages[numaID]
 		if !ok {
-			continue
+			resourceUsages = map[v1.ResourceName]resource.Quantity{
+				v1.ResourceCPU:    *resource.NewQuantity(0, resource.DecimalSI),
+				v1.ResourceMemory: *resource.NewQuantity(0, resource.BinarySI),
+			}
 		}
 		resourceNUMAMetric := nodeapis.ResourceMetric{}
 

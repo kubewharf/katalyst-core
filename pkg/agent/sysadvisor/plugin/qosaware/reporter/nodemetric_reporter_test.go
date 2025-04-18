@@ -333,7 +333,22 @@ func TestNodeMetricUpdate(t *testing.T) {
 					{
 						QoSLevel: apiconsts.PodAnnotationQoSLevelDedicatedCores,
 						ResourceUsage: nodeapis.ResourceUsage{
-							NUMAUsage: nil,
+							NUMAUsage: []nodeapis.NUMAMetricInfo{
+								{
+									NUMAId: 0,
+									Usage: &nodeapis.ResourceMetric{
+										Memory: mustParse("0"),
+										CPU:    mustParse("0"),
+									},
+								},
+								{
+									NUMAId: 1,
+									Usage: &nodeapis.ResourceMetric{
+										Memory: mustParse("0"),
+										CPU:    mustParse("0"),
+									},
+								},
+							},
 							GenericUsage: &nodeapis.ResourceMetric{
 								CPU:    mustParse("1"),
 								Memory: mustParse("10Gi"),
@@ -370,13 +385,54 @@ func TestNodeMetricUpdate(t *testing.T) {
 					{
 						QoSLevel: apiconsts.PodAnnotationQoSLevelReclaimedCores,
 						ResourceUsage: nodeapis.ResourceUsage{
-							NUMAUsage: nil,
+							NUMAUsage: []nodeapis.NUMAMetricInfo{
+								{
+									NUMAId: 0,
+									Usage: &nodeapis.ResourceMetric{
+										Memory: mustParse("0"),
+										CPU:    mustParse("0"),
+									},
+								},
+								{
+									NUMAId: 1,
+									Usage: &nodeapis.ResourceMetric{
+										Memory: mustParse("0"),
+										CPU:    mustParse("0"),
+									},
+								},
+							},
 							GenericUsage: &nodeapis.ResourceMetric{
 								CPU:    mustParse("1"),
 								Memory: mustParse("10Gi"),
 							},
 						},
 						PodList: []string{"default/pod3"},
+					},
+					{
+						QoSLevel: apiconsts.PodAnnotationQoSLevelSystemCores,
+						ResourceUsage: nodeapis.ResourceUsage{
+							NUMAUsage: []nodeapis.NUMAMetricInfo{
+								{
+									NUMAId: 0,
+									Usage: &nodeapis.ResourceMetric{
+										Memory: mustParse("0"),
+										CPU:    mustParse("0"),
+									},
+								},
+								{
+									NUMAId: 1,
+									Usage: &nodeapis.ResourceMetric{
+										Memory: mustParse("0"),
+										CPU:    mustParse("0"),
+									},
+								},
+							},
+							GenericUsage: &nodeapis.ResourceMetric{
+								CPU:    mustParse("0"),
+								Memory: mustParse("0"),
+							},
+						},
+						PodList: nil,
 					},
 				},
 			},
