@@ -863,6 +863,8 @@ func (p *DynamicPolicy) GetResourcePluginOptions(context.Context,
 func (p *DynamicPolicy) Allocate(ctx context.Context,
 	req *pluginapi.ResourceRequest,
 ) (resp *pluginapi.ResourceAllocationResponse, respErr error) {
+	var isReallocated bool
+
 	if req == nil {
 		return nil, fmt.Errorf("Allocate got nil req")
 	}
@@ -962,7 +964,9 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 			_ = p.removeContainer(req.PodUid, req.ContainerName, false)
 			_ = p.emitter.StoreInt64(util.MetricNameAllocateFailed, 1, metrics.MetricTypeNameRaw,
 				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(respErr)},
-				metrics.MetricTag{Key: util.MetricTagNameInplaceUpdateResizing, Val: strconv.FormatBool(util.PodInplaceUpdateResizing(req))})
+				metrics.MetricTag{Key: util.MetricTagNameInplaceUpdateResizing, Val: strconv.FormatBool(util.PodInplaceUpdateResizing(req))},
+				metrics.MetricTag{Key: "reallocated", Val: strconv.FormatBool(isReallocated)})
+
 		}
 		if err := p.state.StoreState(); err != nil {
 			general.ErrorS(err, "store state failed", "podName", req.PodName, "containerName", req.ContainerName)
@@ -986,37 +990,46 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 	}()
 
 	allocationInfo := p.state.GetAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName)
-	if allocationInfo != nil && allocationInfo.AggregatedQuantity >= uint64(reqInt) && !util.PodInplaceUpdateResizing(req) {
-		general.InfoS("already allocated and meet requirement",
+	if allocationInfo != nil {
+		isReallocated = true
+		general.InfoS("reallocate memory for",
 			"podNamespace", req.PodNamespace,
 			"podName", req.PodName,
 			"containerName", req.ContainerName,
-			"memoryReq(bytes)", reqInt,
-			"currentResult(bytes)", allocationInfo.AggregatedQuantity)
-		return &pluginapi.ResourceAllocationResponse{
-			PodUid:         req.PodUid,
-			PodNamespace:   req.PodNamespace,
-			PodName:        req.PodName,
-			ContainerName:  req.ContainerName,
-			ContainerType:  req.ContainerType,
-			ContainerIndex: req.ContainerIndex,
-			PodRole:        req.PodRole,
-			PodType:        req.PodType,
-			ResourceName:   string(v1.ResourceMemory),
-			AllocationResult: &pluginapi.ResourceAllocation{
-				ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
-					string(v1.ResourceMemory): {
-						OciPropertyName:   util.OCIPropertyNameCPUSetMems,
-						IsNodeResource:    false,
-						IsScalarResource:  true,
-						AllocatedQuantity: float64(allocationInfo.AggregatedQuantity),
-						AllocationResult:  allocationInfo.NumaAllocationResult.String(),
+		)
+
+		if allocationInfo.AggregatedQuantity >= uint64(reqInt) && !util.PodInplaceUpdateResizing(req) {
+			general.InfoS("already allocated and meet requirement",
+				"podNamespace", req.PodNamespace,
+				"podName", req.PodName,
+				"containerName", req.ContainerName,
+				"memoryReq(bytes)", reqInt,
+				"currentResult(bytes)", allocationInfo.AggregatedQuantity)
+			return &pluginapi.ResourceAllocationResponse{
+				PodUid:         req.PodUid,
+				PodNamespace:   req.PodNamespace,
+				PodName:        req.PodName,
+				ContainerName:  req.ContainerName,
+				ContainerType:  req.ContainerType,
+				ContainerIndex: req.ContainerIndex,
+				PodRole:        req.PodRole,
+				PodType:        req.PodType,
+				ResourceName:   string(v1.ResourceMemory),
+				AllocationResult: &pluginapi.ResourceAllocation{
+					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+						string(v1.ResourceMemory): {
+							OciPropertyName:   util.OCIPropertyNameCPUSetMems,
+							IsNodeResource:    false,
+							IsScalarResource:  true,
+							AllocatedQuantity: float64(allocationInfo.AggregatedQuantity),
+							AllocationResult:  allocationInfo.NumaAllocationResult.String(),
+						},
 					},
 				},
-			},
-			Labels:      general.DeepCopyMap(req.Labels),
-			Annotations: general.DeepCopyMap(req.Annotations),
-		}, nil
+				Labels:      general.DeepCopyMap(req.Labels),
+				Annotations: general.DeepCopyMap(req.Annotations),
+			}, nil
+		}
 	}
 
 	if p.allocationHandlers[qosLevel] == nil {
