@@ -60,6 +60,10 @@ func NewCPUProvisionConfiguration() *CPUProvisionConfiguration {
 					Name:   workloadv1alpha1.ServiceSystemIndicatorNameCPI,
 					Target: 1.4,
 				},
+				{
+					Name:   workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio,
+					Target: 0.55,
+				},
 			},
 		},
 		RestrictConstraints: NewRestrictConstraints(),

@@ -287,10 +287,7 @@ func (cra *cpuResourceAdvisor) updateRegionEntries() {
 
 		entries[regionName] = regionInfo
 
-		general.InfoS("region info", "HeadroomPolicyTopPriority", regionInfo.HeadroomPolicyTopPriority,
-			"HeadroomPolicyInUse", regionInfo.HeadroomPolicyInUse, "ProvisionPolicyTopPriority", regionInfo.ProvisionPolicyTopPriority,
-			"ProvisionPolicyInUse", regionInfo.ProvisionPolicyInUse, "regionName", r.Name(), "bindingNUMAs", r.GetBindingNumas().String(),
-			"headroom", regionInfo.Headroom)
+		general.InfoS("region info", "info", regionInfo)
 	}
 
 	_ = cra.metaCache.SetRegionEntries(entries)
