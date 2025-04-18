@@ -27,6 +27,8 @@ type BorweinParameter struct {
 	RampUpStep             float64 `json:"ramp_up_step"`
 	RampDownStep           float64 `json:"ramp_down_step"`
 	Version                string  `json:"version"`
+	IndicatorMax           float64 `json:"indicator_max"`
+	IndicatorMin           float64 `json:"indicator_min"`
 }
 
 // BorweinInferenceResults is a descriptor for borwein inference results.
