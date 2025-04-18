@@ -959,10 +959,13 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 				_ = p.removeContainer(req.PodUid, req.ContainerName, false)
 			}
 		} else if respErr != nil {
-			_ = p.removeContainer(req.PodUid, req.ContainerName, false)
+			inplaceUpdateResizing := util.PodInplaceUpdateResizing(req)
+			if !inplaceUpdateResizing {
+				_ = p.removeContainer(req.PodUid, req.ContainerName, false)
+			}
 			_ = p.emitter.StoreInt64(util.MetricNameAllocateFailed, 1, metrics.MetricTypeNameRaw,
 				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(respErr)},
-				metrics.MetricTag{Key: util.MetricTagNameInplaceUpdateResizing, Val: strconv.FormatBool(util.PodInplaceUpdateResizing(req))})
+				metrics.MetricTag{Key: util.MetricTagNameInplaceUpdateResizing, Val: strconv.FormatBool(inplaceUpdateResizing)})
 		}
 		if err := p.state.StoreState(); err != nil {
 			general.ErrorS(err, "store state failed", "podName", req.PodName, "containerName", req.ContainerName)
