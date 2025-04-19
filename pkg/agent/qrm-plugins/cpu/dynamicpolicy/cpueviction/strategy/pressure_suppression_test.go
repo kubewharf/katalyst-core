@@ -168,6 +168,8 @@ func TestCPUPressureSuppression_GetEvictPods(t *testing.T) {
 				store.SetCPUMetric(14, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.5, Time: &now})
 
 				store.SetCgroupMetric("test", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 5, Time: &now})
+				store.SetCgroupMetric("test", pkgconsts.MetricCPUQuotaCgroup, utilmetric.MetricData{Value: 20000, Time: &now})
+				store.SetCgroupMetric("test", pkgconsts.MetricCPUPeriodCgroup, utilmetric.MetricData{Value: 1000, Time: &now})
 			},
 		},
 		{
@@ -281,6 +283,123 @@ func TestCPUPressureSuppression_GetEvictPods(t *testing.T) {
 				store.SetCPUMetric(14, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.5, Time: &now})
 
 				store.SetCgroupMetric("test", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 5, Time: &now})
+				store.SetCgroupMetric("test", pkgconsts.MetricCPUQuotaCgroup, utilmetric.MetricData{Value: 20000, Time: &now})
+				store.SetCgroupMetric("test", pkgconsts.MetricCPUPeriodCgroup, utilmetric.MetricData{Value: 1000, Time: &now})
+			},
+		},
+		{
+			name: "over tolerance rate, because quota limited",
+			podEntries: qrmstate.PodEntries{
+				pod1UID: qrmstate.ContainerEntries{
+					pod1Name: &qrmstate.AllocationInfo{
+						AllocationMeta: commonstate.AllocationMeta{
+							PodUid:         pod1UID,
+							PodNamespace:   pod1Name,
+							PodName:        pod1Name,
+							ContainerName:  pod1Name,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  commonstate.PoolNameReclaim,
+							Labels: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+							},
+							Annotations: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey:       apiconsts.PodAnnotationQoSLevelReclaimedCores,
+								apiconsts.PodAnnotationCPUEnhancementKey: `{"suppression_tolerance_rate": "1.2"}`,
+							},
+							QoSLevel: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+						},
+						RampUp:                   false,
+						AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
+						OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(1, 9),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(1, 9),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						RequestQuantity: 15,
+					},
+				},
+				pod2UID: qrmstate.ContainerEntries{
+					pod1Name: &qrmstate.AllocationInfo{
+						AllocationMeta: commonstate.AllocationMeta{
+							PodUid:         pod2UID,
+							PodNamespace:   pod2Name,
+							PodName:        pod2Name,
+							ContainerName:  pod2Name,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  commonstate.PoolNameReclaim,
+							Labels: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+							},
+							Annotations: map[string]string{
+								apiconsts.PodAnnotationQoSLevelKey:       apiconsts.PodAnnotationQoSLevelReclaimedCores,
+								apiconsts.PodAnnotationCPUEnhancementKey: `{"suppression_tolerance_rate": "1.2"}`,
+							},
+							QoSLevel: apiconsts.PodAnnotationQoSLevelReclaimedCores,
+						},
+						RampUp:                   false,
+						AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
+						OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(1, 9),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(1, 9),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						RequestQuantity: 4,
+					},
+				},
+				commonstate.PoolNameReclaim: qrmstate.ContainerEntries{
+					"": &qrmstate.AllocationInfo{
+						AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
+						AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
+						OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(1, 9),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(1, 9),
+							1: machine.NewCPUSet(3, 11),
+							2: machine.NewCPUSet(4, 5, 11, 12),
+							3: machine.NewCPUSet(6, 14),
+						},
+					},
+				},
+			},
+			wantEvictPodUIDSet: sets.NewString(pod1UID),
+			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+				store.SetCPUMetric(1, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.5, Time: &now})
+				store.SetCPUMetric(3, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.5, Time: &now})
+				store.SetCPUMetric(4, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.5, Time: &now})
+				store.SetCPUMetric(5, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.5, Time: &now})
+				store.SetCPUMetric(6, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.5, Time: &now})
+				store.SetCPUMetric(9, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.5, Time: &now})
+				store.SetCPUMetric(11, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.5, Time: &now})
+				store.SetCPUMetric(12, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.5, Time: &now})
+				store.SetCPUMetric(13, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.5, Time: &now})
+				store.SetCPUMetric(14, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.5, Time: &now})
+
+				store.SetCgroupMetric("test", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 55, Time: &now})
+				store.SetCgroupMetric("test", pkgconsts.MetricCPUQuotaCgroup, utilmetric.MetricData{Value: 5000, Time: &now})
+				store.SetCgroupMetric("test", pkgconsts.MetricCPUPeriodCgroup, utilmetric.MetricData{Value: 1000, Time: &now})
 			},
 		},
 	}

@@ -175,7 +175,12 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 						store.SetCPUMetric(i, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.3, Time: &now})
 					}
 					store.SetCgroupMetric("/kubepods/besteffort-0", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 3, Time: &now})
+					store.SetCgroupMetric("/kubepods/besteffort-0", pkgconsts.MetricCPUQuotaCgroup, utilmetric.MetricData{Value: -1, Time: &now})
+					store.SetCgroupMetric("/kubepods/besteffort-0", pkgconsts.MetricCPUPeriodCgroup, utilmetric.MetricData{Value: 1000, Time: &now})
+
 					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 3, Time: &now})
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUQuotaCgroup, utilmetric.MetricData{Value: -1, Time: &now})
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUPeriodCgroup, utilmetric.MetricData{Value: 1000, Time: &now})
 				},
 				setMetaCache: func(cache *metacache.MetaCacheImp) {
 					err := cache.SetPoolInfo(commonstate.PoolNameReclaim, &types.PoolInfo{
@@ -188,6 +193,77 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 				},
 			},
 			want: *resource.NewQuantity(13, resource.DecimalSI),
+		},
+		{
+			name: "limited by quota",
+			fields: fields{
+				entries: map[string]*types.RegionInfo{
+					"share": {
+						RegionType:    configapi.QoSRegionTypeShare,
+						OwnerPoolName: "share",
+						BindingNumas:  machine.NewCPUSet(0, 1),
+					},
+				},
+				cnr: &v1alpha1.CustomNodeResource{
+					Status: v1alpha1.CustomNodeResourceStatus{
+						Resources: v1alpha1.Resources{
+							Allocatable: &v1.ResourceList{
+								consts.ReclaimedResourceMilliCPU: resource.MustParse("10000"),
+							},
+						},
+						TopologyZone: []*v1alpha1.TopologyZone{
+							{
+								Type: "Socket",
+								Name: "0",
+								Children: []*v1alpha1.TopologyZone{
+									{
+										Type: "Numa",
+										Name: "0",
+										Resources: v1alpha1.Resources{
+											Allocatable: &v1.ResourceList{
+												consts.ReclaimedResourceMilliCPU: resource.MustParse("10000"),
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+				reclaimedResourceConfiguration: &reclaimedresource.ReclaimedResourceConfiguration{
+					EnableReclaim: true,
+					CPUHeadroomConfiguration: &cpuheadroom.CPUHeadroomConfiguration{
+						CPUUtilBasedConfiguration: &cpuheadroom.CPUUtilBasedConfiguration{
+							Enable:                         true,
+							TargetReclaimedCoreUtilization: 0.6,
+							MaxReclaimedCoreUtilization:    0,
+							MaxOversoldRate:                1.5,
+						},
+					},
+				},
+				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+					for i := 0; i < 10; i++ {
+						store.SetCPUMetric(i, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.3, Time: &now})
+					}
+					store.SetCgroupMetric("/kubepods/besteffort-0", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 3, Time: &now})
+					store.SetCgroupMetric("/kubepods/besteffort-0", pkgconsts.MetricCPUQuotaCgroup, utilmetric.MetricData{Value: -1, Time: &now})
+					store.SetCgroupMetric("/kubepods/besteffort-0", pkgconsts.MetricCPUPeriodCgroup, utilmetric.MetricData{Value: 1000, Time: &now})
+
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 3, Time: &now})
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUQuotaCgroup, utilmetric.MetricData{Value: 5000, Time: &now})
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUPeriodCgroup, utilmetric.MetricData{Value: 1000, Time: &now})
+				},
+				setMetaCache: func(cache *metacache.MetaCacheImp) {
+					err := cache.SetPoolInfo(commonstate.PoolNameReclaim, &types.PoolInfo{
+						PoolName: commonstate.PoolNameReclaim,
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.MustParse("0-9"),
+						},
+					})
+					require.NoError(t, err)
+				},
+			},
+			want: *resource.NewQuantity(8, resource.DecimalSI),
 		},
 		{
 			name: "allow shared cores overlap reclaimed cores",
@@ -246,6 +322,8 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 						store.SetCPUMetric(i, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.8, Time: &now})
 					}
 					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 1, Time: &now})
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUQuotaCgroup, utilmetric.MetricData{Value: -1, Time: &now})
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUPeriodCgroup, utilmetric.MetricData{Value: 1000, Time: &now})
 					store.SetContainerMetric("pod1", "container1", metric_consts.MetricCPUUsageContainer, metric_util.MetricData{Value: 4})
 				},
 				setMetaCache: func(cache *metacache.MetaCacheImp) {
@@ -256,7 +334,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 						},
 					})
 					require.NoError(t, err)
-					cache.SetPoolInfo("share-0", &types.PoolInfo{
+					err = cache.SetPoolInfo("share-0", &types.PoolInfo{
 						PoolName: "share-0",
 						TopologyAwareAssignments: map[int]machine.CPUSet{
 							0: machine.NewCPUSet(0, 1, 2, 4),
@@ -265,6 +343,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 						OriginalTopologyAwareAssignments: nil,
 						RegionNames:                      sets.NewString("share-0"),
 					})
+					require.NoError(t, err)
 				},
 			},
 			want: *resource.NewQuantity(5, resource.DecimalSI),
@@ -369,6 +448,8 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 						store.SetCPUMetric(i, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Time: &now})
 					}
 					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 0, Time: &now})
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUQuotaCgroup, utilmetric.MetricData{Value: -1, Time: &now})
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUPeriodCgroup, utilmetric.MetricData{Value: 1000, Time: &now})
 				},
 				setMetaCache: func(cache *metacache.MetaCacheImp) {
 					err := cache.SetPoolInfo(commonstate.PoolNameReclaim, &types.PoolInfo{
@@ -434,6 +515,8 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 						store.SetCPUMetric(i, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.9, Time: &now})
 					}
 					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 9, Time: &now})
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUQuotaCgroup, utilmetric.MetricData{Value: -1, Time: &now})
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUPeriodCgroup, utilmetric.MetricData{Value: 1000, Time: &now})
 				},
 				setMetaCache: func(cache *metacache.MetaCacheImp) {
 					err := cache.SetPoolInfo(commonstate.PoolNameReclaim, &types.PoolInfo{
@@ -510,6 +593,8 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 						store.SetCPUMetric(i, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.3, Time: &now})
 					}
 					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 28.8, Time: &now})
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUQuotaCgroup, utilmetric.MetricData{Value: -1, Time: &now})
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUPeriodCgroup, utilmetric.MetricData{Value: 1000, Time: &now})
 				},
 				setMetaCache: func(cache *metacache.MetaCacheImp) {
 					err := cache.SetPoolInfo(commonstate.PoolNameReclaim, &types.PoolInfo{
@@ -565,6 +650,8 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 						store.SetCPUMetric(i, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.3, Time: &now})
 					}
 					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 28.8, Time: &now})
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUQuotaCgroup, utilmetric.MetricData{Value: -1, Time: &now})
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUPeriodCgroup, utilmetric.MetricData{Value: 1000, Time: &now})
 				},
 				setMetaCache: func(cache *metacache.MetaCacheImp) {
 					err := cache.SetPoolInfo(commonstate.PoolNameReclaim, &types.PoolInfo{
