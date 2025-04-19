@@ -1,3 +1,6 @@
+//go:build !linux
+// +build !linux
+
 /*
 Copyright 2022 The Katalyst Authors.
 
@@ -14,12 +17,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package region
+package dynamicpolicy
 
-// CPUShareConfiguration stores configurations of cpu share
-type CPUShareConfiguration struct{}
+import (
+	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
+)
 
-// NewCPUShareConfiguration creates new resource advisor configurations
-func NewCPUShareConfiguration() *CPUShareConfiguration {
-	return &CPUShareConfiguration{}
+func (p *DynamicPolicy) applyCgroupConfigs(resp *advisorapi.ListAndWatchResponse) error {
+	return nil
 }

@@ -29,6 +29,7 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
+	workloadv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
@@ -59,22 +60,22 @@ func generateRamaTestConfiguration(t *testing.T, checkpointDir, stateFileDir, ch
 	conf.GetDynamicConfiguration().RegionIndicatorTargetConfiguration = map[v1alpha1.QoSRegionType][]v1alpha1.IndicatorTargetConfiguration{
 		configapi.QoSRegionTypeShare: {
 			{
-				Name: consts.MetricCPUSchedwait,
+				Name: workloadv1alpha1.ServiceSystemIndicatorNameCPUSchedWait,
 			},
 		},
 		configapi.QoSRegionTypeDedicatedNumaExclusive: {
 			{
-				Name: consts.MetricCPUCPIContainer,
+				Name: workloadv1alpha1.ServiceSystemIndicatorNameCPI,
 			},
 			{
-				Name: consts.MetricMemBandwidthNuma,
+				Name: workloadv1alpha1.ServiceSystemIndicatorNameMemoryAccessReadLatency,
 			},
 		},
 	}
 
 	conf.PolicyRama = &provision.PolicyRamaConfiguration{
 		PIDParameters: map[string]types.FirstOrderPIDParams{
-			consts.MetricCPUSchedwait: {
+			string(workloadv1alpha1.ServiceSystemIndicatorNameCPUSchedWait): {
 				Kpp:                  10.0,
 				Kpn:                  1.0,
 				Kdp:                  0.0,
@@ -84,7 +85,7 @@ func generateRamaTestConfiguration(t *testing.T, checkpointDir, stateFileDir, ch
 				DeadbandLowerPct:     0.8,
 				DeadbandUpperPct:     0.05,
 			},
-			consts.MetricCPUCPIContainer: {
+			string(workloadv1alpha1.ServiceSystemIndicatorNameCPI): {
 				Kpp:                  10.0,
 				Kpn:                  1.0,
 				Kdp:                  0.0,
@@ -94,7 +95,7 @@ func generateRamaTestConfiguration(t *testing.T, checkpointDir, stateFileDir, ch
 				DeadbandLowerPct:     0.95,
 				DeadbandUpperPct:     0.02,
 			},
-			consts.MetricMemBandwidthNuma: {
+			string(workloadv1alpha1.ServiceSystemIndicatorNameMemoryAccessReadLatency): {
 				Kpp:                  10.0,
 				Kpn:                  1.0,
 				Kdp:                  0.0,
@@ -133,7 +134,7 @@ func newTestPolicyRama(t *testing.T, checkpointDir string, stateFileDir string,
 	err = metaCacheTmp.SetRegionInfo(regionInfo.RegionName, &regionInfo)
 	assert.NoError(t, err)
 
-	p.SetBindingNumas(regionInfo.BindingNumas)
+	p.SetBindingNumas(regionInfo.BindingNumas, false)
 	p.SetPodSet(podSet)
 
 	return p
@@ -207,7 +208,7 @@ func TestPolicyRama(t *testing.T) {
 					},
 				},
 				Indicators: types.Indicator{
-					consts.MetricCPUSchedwait: {
+					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUSchedWait): {
 						Current: 800,
 						Target:  400,
 					},
@@ -262,7 +263,7 @@ func TestPolicyRama(t *testing.T) {
 					},
 				},
 				Indicators: types.Indicator{
-					consts.MetricCPUSchedwait: {
+					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUSchedWait): {
 						Current: 4,
 						Target:  400,
 					},
@@ -317,7 +318,7 @@ func TestPolicyRama(t *testing.T) {
 					},
 				},
 				Indicators: types.Indicator{
-					consts.MetricCPUSchedwait: {
+					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUSchedWait): {
 						Current: 401,
 						Target:  400,
 					},
@@ -367,11 +368,11 @@ func TestPolicyRama(t *testing.T) {
 					},
 				},
 				Indicators: types.Indicator{
-					consts.MetricCPUCPIContainer: {
+					string(workloadv1alpha1.ServiceSystemIndicatorNameCPI): {
 						Current: 2.0,
 						Target:  1.0,
 					},
-					consts.MetricMemBandwidthNuma: {
+					string(workloadv1alpha1.ServiceSystemIndicatorNameMemoryAccessReadLatency): {
 						Current: 4,
 						Target:  40,
 					},

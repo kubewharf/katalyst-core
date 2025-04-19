@@ -35,7 +35,7 @@ type ProvisionPolicy interface {
 	// SetPodSet overwrites policy's pod/container record
 	SetPodSet(types.PodSet)
 	// SetBindingNumas overwrites the numa ids this policy interested in
-	SetBindingNumas(machine.CPUSet)
+	SetBindingNumas(numas machine.CPUSet, isNUMABinding bool)
 
 	// Update triggers an episode of algorithm update
 	Update() error
