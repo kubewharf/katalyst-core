@@ -18,7 +18,6 @@ package headroomassembler
 
 import (
 	"fmt"
-	"math"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -33,7 +32,6 @@ import (
 	metricHelper "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
-	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -182,20 +180,6 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 			return resource.Quantity{}, nil, fmt.Errorf("get util-based headroom failed with numa %d: %v", numaID, err)
 		}
 
-		cpuStats, err := cgroupmgr.GetCPUWithRelativePath(reclaimPath)
-		if err != nil {
-			return resource.Quantity{}, nil, err
-		}
-		if cpuStats.CpuQuota == math.MaxInt {
-			cpuStats.CpuQuota = -1
-		}
-		if cpuStats.CpuQuota > 0 {
-			general.InfoS("binding NUMA cpu quota", "numaID", numaID, "quota", cpuStats.CpuQuota, "headroom origin", headroom.Value())
-			if headroom.Value() > (cpuStats.CpuQuota / int64(cpuStats.CpuPeriod)) {
-				headroom.Set(cpuStats.CpuQuota / int64(cpuStats.CpuPeriod))
-			}
-		}
-
 		numaHeadroom[numaID] = headroom
 		totalHeadroom.Add(headroom)
 	}
@@ -227,22 +211,7 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 
 		headroomPerNUMA := float64(headroom.Value()) / float64(len(nonBindingNumas))
 		for _, numaID := range nonBindingNumas {
-			reclaimPath := common.GetReclaimRelativeRootCgroupPath(ha.conf.ReclaimRelativeRootCgroupPath, numaID)
-			cpustats, err := cgroupmgr.GetCPUWithRelativePath(reclaimPath)
-			if err != nil {
-				return resource.Quantity{}, nil, err
-			}
-			h := headroomPerNUMA
-			if cpustats.CpuQuota == math.MaxInt {
-				cpustats.CpuQuota = -1
-			}
-			if cpustats.CpuQuota > 0 {
-				general.InfoS("non-binding NUMA cpu quota", "numaID", numaID, "quota", cpustats.CpuQuota, "headroom origin", headroomPerNUMA)
-				if h > float64(cpustats.CpuQuota)/float64(cpustats.CpuPeriod) {
-					h = float64(cpustats.CpuQuota) / float64(cpustats.CpuPeriod)
-				}
-			}
-			q := *resource.NewQuantity(int64(h), resource.DecimalSI)
+			q := *resource.NewQuantity(int64(headroomPerNUMA), resource.DecimalSI)
 			numaHeadroom[numaID] = q
 			totalHeadroom.Add(q)
 		}
