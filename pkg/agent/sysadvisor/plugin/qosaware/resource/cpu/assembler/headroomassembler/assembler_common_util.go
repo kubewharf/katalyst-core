@@ -57,10 +57,6 @@ func (ha *HeadroomAssemblerCommon) getUtilBasedHeadroom(options helper.UtilBased
 		lastReclaimedCPU += cpu
 	}
 
-	general.InfoS("getUtilBasedHeadroom", "reclaimedCoresSupply", reclaimMetrics.ReclaimedCoresSupply,
-		"util", util, "reclaim PoolCPUUsage", reclaimMetrics.PoolCPUUsage, "reclaim CgroupCPUUsage", reclaimMetrics.CgroupCPUUsage,
-		"lastReclaimedCPUPerNUMA", lastReclaimedCPUPerNumaForCalculate)
-
 	headroom, err := helper.EstimateUtilBasedCapacity(
 		options,
 		reclaimMetrics.ReclaimedCoresSupply,
@@ -70,6 +66,9 @@ func (ha *HeadroomAssemblerCommon) getUtilBasedHeadroom(options helper.UtilBased
 	if err != nil {
 		return resource.Quantity{}, err
 	}
+
+	general.InfoS("getUtilBasedHeadroom", "reclaimMetrics", reclaimMetrics,
+		"util", util, "lastReclaimedCPUPerNUMA", lastReclaimedCPUPerNumaForCalculate, "headroom", headroom)
 
 	return *resource.NewQuantity(int64(math.Ceil(headroom)), resource.DecimalSI), nil
 }
