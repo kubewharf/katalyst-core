@@ -49,6 +49,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/validator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation"
+	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -130,6 +132,7 @@ func getTestDynamicPolicyWithoutInitialization(topology *machine.CPUTopology, st
 		dynamicConfig:             dynamicConfig,
 		state:                     stateImpl,
 		advisorValidator:          validator.NewCPUAdvisorValidator(stateImpl, machineInfo),
+		featureGateManager:        featuregatenegotiation.NewFeatureGateManager(config.NewConfiguration()),
 		reservedReclaimedCPUsSize: general.Max(reservedReclaimedCPUsSize, topology.NumNUMANodes),
 		reservedCPUs:              reservedCPUs,
 		enableReclaimNUMABinding:  true,
@@ -5465,7 +5468,8 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 			dynamicPolicy.state.SetMachineState(machineState, true)
 			dynamicPolicy.initReservePool()
 
-			err = dynamicPolicy.allocateByCPUAdvisor(nil, tc.lwResp)
+			emptyMap := map[string]*advisorsvc.FeatureGate{}
+			err = dynamicPolicy.allocateByCPUAdvisor(nil, tc.lwResp, emptyMap)
 			as.Nilf(err, "dynamicPolicy.allocateByCPUAdvisorServerListAndWatchResp got err: %v, case: %s", err, tc.name)
 
 			getPodEntries := dynamicPolicy.state.GetPodEntries()

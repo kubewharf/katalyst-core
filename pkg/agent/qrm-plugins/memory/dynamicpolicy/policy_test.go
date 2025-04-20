@@ -62,6 +62,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/reactor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	configagent "github.com/kubewharf/katalyst-core/pkg/config/agent"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
@@ -139,6 +140,7 @@ func getTestDynamicPolicyWithInitialization(topology *machine.CPUTopology, machi
 	policyImplement := &DynamicPolicy{
 		topology:                 topology,
 		dynamicConf:              dynamic.NewDynamicAgentConfiguration(),
+		featureGateManager:       featuregatenegotiation.NewFeatureGateManager(config.NewConfiguration()),
 		qosConfig:                qosConfig,
 		state:                    stateImpl,
 		emitter:                  metrics.DummyMetrics{},
@@ -2750,7 +2752,8 @@ func TestHandleAdvisorResp(t *testing.T) {
 			dynamicPolicy.state.SetMachineState(machineState, true)
 		}
 
-		err = dynamicPolicy.handleAdvisorResp(tc.lwResp)
+		emptyMap := map[string]*advisorsvc.FeatureGate{}
+		err = dynamicPolicy.handleAdvisorResp(tc.lwResp, emptyMap)
 		as.Nilf(err, "dynamicPolicy.handleAdvisorResp got err: %v, case: %s", err, tc.description)
 
 		if tc.expectedPodResourceEntries != nil {

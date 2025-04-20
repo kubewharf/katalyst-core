@@ -26,6 +26,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/samber/lo"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -43,6 +44,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation"
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
@@ -54,6 +57,7 @@ import (
 	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
 )
 
@@ -88,11 +92,24 @@ func (p *DynamicPolicy) initAdvisorClientConn() (err error) {
 }
 
 func (p *DynamicPolicy) createGetAdviceRequest() (*advisorsvc.GetAdviceRequest, error) {
-	resp := &advisorsvc.GetAdviceRequest{Entries: make(map[string]*advisorsvc.ContainerMetadataEntries)}
+	if lo.IsNil(p.featureGateManager) {
+		return nil, fmt.Errorf("featureGateManager is nil")
+	}
+	wantedFeatureGates, err := p.featureGateManager.GetWantedFeatureGates(finders.FeatureGateTypeMemory)
+	if err != nil {
+		return nil, err
+	}
+
+	general.InfofV(6, "Memory plugin negotiation desire feature gates: %#v", wantedFeatureGates)
+
+	request := &advisorsvc.GetAdviceRequest{
+		Entries:            make(map[string]*advisorsvc.ContainerMetadataEntries),
+		WantedFeatureGates: wantedFeatureGates,
+	}
 	podEntries := p.state.GetPodResourceEntries()[v1.ResourceMemory]
 	for podUID, entries := range podEntries {
-		if _, ok := resp.Entries[podUID]; !ok {
-			resp.Entries[podUID] = &advisorsvc.ContainerMetadataEntries{
+		if _, ok := request.Entries[podUID]; !ok {
+			request.Entries[podUID] = &advisorsvc.ContainerMetadataEntries{
 				Entries: make(map[string]*advisorsvc.ContainerMetadata),
 			}
 		}
@@ -107,7 +124,7 @@ func (p *DynamicPolicy) createGetAdviceRequest() (*advisorsvc.GetAdviceRequest, 
 				return nil, fmt.Errorf("container type %s not found", allocationInfo.ContainerType)
 			}
 
-			resp.Entries[podUID].Entries[containerName] = &advisorsvc.ContainerMetadata{
+			request.Entries[podUID].Entries[containerName] = &advisorsvc.ContainerMetadata{
 				PodUid:          allocationInfo.PodUid,
 				PodNamespace:    allocationInfo.PodNamespace,
 				PodName:         allocationInfo.PodName,
@@ -122,7 +139,7 @@ func (p *DynamicPolicy) createGetAdviceRequest() (*advisorsvc.GetAdviceRequest, 
 		}
 	}
 
-	return resp, nil
+	return request, nil
 }
 
 func (p *DynamicPolicy) getAdviceFromAdvisor(ctx context.Context) (isImplemented bool, err error) {
@@ -144,12 +161,25 @@ func (p *DynamicPolicy) getAdviceFromAdvisor(ctx context.Context) (isImplemented
 		return true, fmt.Errorf("GetAdvice failed with error: %w", err)
 	}
 
+	general.InfofV(6, "QRM Memory Plugin wanted feature gates: %v, sysadvisor supported feature gates: %v", lo.Keys(request.WantedFeatureGates), lo.Keys(resp.SupportedFeatureGates))
+	// check if there are feature gates wanted by QRM that are not supported by memory sysadvisor
+	wantedButNotSupportedFeatureGates := featuregatenegotiation.GetWantedButNotSupportedFeatureGates(request.WantedFeatureGates, resp.SupportedFeatureGates)
+	for _, featureGate := range wantedButNotSupportedFeatureGates {
+		if featureGate.MustMutuallySupported {
+			return true, fmt.Errorf("feature gate %s which must be mutually supported is not supported by memory-advisor", featureGate.Name)
+		}
+	}
+
 	err = p.handleAdvisorResp(&advisorsvc.ListAndWatchResponse{
 		PodEntries:   resp.PodEntries,
 		ExtraEntries: resp.ExtraEntries,
-	})
+	}, resp.SupportedFeatureGates)
 	if err != nil {
 		return true, fmt.Errorf("allocate by GetAdvice response failed with error: %w", err)
+	}
+
+	if len(wantedButNotSupportedFeatureGates) > 0 {
+		return true, featuregatenegotiation.FeatureGatesNotSupportedError{WantedButNotSupportedFeatureGates: wantedButNotSupportedFeatureGates}
 	}
 
 	return true, nil
@@ -174,8 +204,17 @@ func (p *DynamicPolicy) getAdviceFromAdvisorLoop(stopCh <-chan struct{}) {
 	_ = wait.PollImmediateUntilWithContext(ctx, p.getAdviceInterval, func(ctx context.Context) (bool, error) {
 		isImplemented, err := p.getAdviceFromAdvisor(ctx)
 		if err != nil {
-			_ = p.emitter.StoreInt64(util.MetricNameGetAdviceFailed, 1, metrics.MetricTypeNameRaw)
-			general.Errorf("get advice from advisor failed with error: %v", err)
+			if featuregatenegotiation.IsFeatureGatesNotSupportedError(err) {
+				_ = p.emitter.StoreInt64(util.MetricNameGetAdviceFeatureNotSupported, 1,
+					metrics.MetricTypeNameRaw,
+					metrics.MetricTag{
+						Key: "error_message", Val: metric.MetricTagValueFormat(err),
+					})
+				general.Warningf("get advice from memory advisor found not supported feature gate: %v", err)
+			} else {
+				_ = p.emitter.StoreInt64(util.MetricNameGetAdviceFailed, 1, metrics.MetricTypeNameRaw)
+				general.Errorf("get advice from memory advisor failed with error: %v", err)
+			}
 		} else if !isImplemented {
 			general.Infof("MemoryAdvisorServer does not implement GetAdvice")
 			return true, nil
@@ -215,7 +254,9 @@ func (p *DynamicPolicy) lwMemoryAdvisorServer(stopCh <-chan struct{}) error {
 				err, status.Code(err))
 		}
 
-		err = p.handleAdvisorResp(resp)
+		// old asynchronous communication interface does not support feature gate negotiation. If necessary, upgrade to the synchronization interface.
+		emptyMap := map[string]*advisorsvc.FeatureGate{}
+		err = p.handleAdvisorResp(resp, emptyMap)
 		if err != nil {
 			general.Errorf("handle ListAndWatch response of MemoryAdvisorServer failed with error: %v", err)
 		}
@@ -227,7 +268,7 @@ func (p *DynamicPolicy) lwMemoryAdvisorServer(stopCh <-chan struct{}) error {
 	}
 }
 
-func (p *DynamicPolicy) handleAdvisorResp(advisorResp *advisorsvc.ListAndWatchResponse) (retErr error) {
+func (p *DynamicPolicy) handleAdvisorResp(advisorResp *advisorsvc.ListAndWatchResponse, supportedFeatureGates map[string]*advisorsvc.FeatureGate) (retErr error) {
 	if advisorResp == nil {
 		return fmt.Errorf("handleAdvisorResp got nil advisorResp")
 	}

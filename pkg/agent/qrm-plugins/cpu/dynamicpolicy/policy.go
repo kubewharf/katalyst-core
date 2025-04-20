@@ -46,6 +46,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/validator"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
@@ -92,7 +93,8 @@ type DynamicPolicy struct {
 	advisorConn      *grpc.ClientConn
 	advisorValidator *validator.CPUAdvisorValidator
 	advisorapi.UnimplementedCPUPluginServer
-	advisorMonitor *timemonitor.TimeMonitor
+	advisorMonitor     *timemonitor.TimeMonitor
+	featureGateManager featuregatenegotiation.FeatureGateManager
 
 	state              state.State
 	residualHitMap     map[string]int64
@@ -181,7 +183,8 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		state:          stateImpl,
 		residualHitMap: make(map[string]int64),
 
-		advisorValidator: validator.NewCPUAdvisorValidator(stateImpl, agentCtx.KatalystMachineInfo),
+		advisorValidator:   validator.NewCPUAdvisorValidator(stateImpl, agentCtx.KatalystMachineInfo),
+		featureGateManager: featuregatenegotiation.NewFeatureGateManager(conf),
 
 		cpuPressureEviction: cpuPressureEviction,
 
@@ -336,6 +339,7 @@ func (p *DynamicPolicy) Start() (err error) {
 
 	general.Infof("start dynamic policy cpu plugin with sys-advisor")
 	general.RegisterHeartbeatCheck(cpuconsts.CommunicateWithAdvisor, 2*time.Minute, general.HealthzCheckStateNotReady, 2*time.Minute)
+
 	err = p.initAdvisorClientConn()
 	if err != nil {
 		general.Errorf("initAdvisorClientConn failed with error: %v", err)
