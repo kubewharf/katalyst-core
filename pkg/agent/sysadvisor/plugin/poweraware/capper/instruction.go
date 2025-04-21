@@ -54,17 +54,8 @@ type CapInstruction struct {
 
 func (c CapInstruction) ToListAndWatchResponse() *advisorsvc.ListAndWatchResponse {
 	return &advisorsvc.ListAndWatchResponse{
-		PodEntries: nil,
-		ExtraEntries: []*advisorsvc.CalculationInfo{{
-			CgroupPath: "",
-			CalculationResult: &advisorsvc.CalculationResult{
-				Values: map[string]string{
-					keyOpCode:         string(c.OpCode),
-					keyOpCurrentValue: c.OpCurrentValue,
-					keyOpTargetValue:  c.OpTargetValue,
-				},
-			},
-		}},
+		PodEntries:   nil,
+		ExtraEntries: []*advisorsvc.CalculationInfo{wrapCapInst(c)},
 	}
 }
 
@@ -84,6 +75,26 @@ func (c CapInstruction) ToCapRequest() (opCode PowerCapOpCode, targetValue, curr
 	}
 
 	return opCode, targetValue, currentValue
+}
+
+func wrapCapInst(c CapInstruction) *advisorsvc.CalculationInfo {
+	return &advisorsvc.CalculationInfo{
+		CgroupPath: "",
+		CalculationResult: &advisorsvc.CalculationResult{
+			Values: map[string]string{
+				keyOpCode:         string(c.OpCode),
+				keyOpCurrentValue: c.OpCurrentValue,
+				keyOpTargetValue:  c.OpTargetValue,
+			},
+		},
+	}
+}
+
+func (c CapInstruction) ToAdviceResponse() *advisorsvc.GetAdviceResponse {
+	return &advisorsvc.GetAdviceResponse{
+		PodEntries:   nil,
+		ExtraEntries: []*advisorsvc.CalculationInfo{wrapCapInst(c)},
+	}
 }
 
 func getCappingInstructionFromCalcInfo(info *advisorsvc.CalculationInfo) (*CapInstruction, error) {

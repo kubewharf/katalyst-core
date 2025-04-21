@@ -39,15 +39,23 @@ import (
 const (
 	// ServiceNamePowerCap also is the unix socket name of the server is listening on
 	ServiceNamePowerCap = "node_power_cap"
+
+	metricServerGetAdviceCalled = "get_advice_called"
 )
 
 type powerCapService struct {
-	sync.Mutex
+	sync.RWMutex
 	started        bool
 	capInstruction *capper.CapInstruction
 	notify         *fanoutNotifier
 	emitter        metrics.MetricEmitter
 	grpcServer     *grpcServer
+}
+
+func (p *powerCapService) getCapInstruction() *capper.CapInstruction {
+	p.RLock()
+	defer p.RUnlock()
+	return p.capInstruction
 }
 
 func (p *powerCapService) IsCapperReady() bool {
@@ -100,12 +108,24 @@ func (p *powerCapService) RemovePod(ctx context.Context, request *advisorsvc.Rem
 }
 
 func (p *powerCapService) GetAdvice(ctx context.Context, request *advisorsvc.GetAdviceRequest) (*advisorsvc.GetAdviceResponse, error) {
-	return nil, errors.New("not implemented")
+	_ = p.emitter.StoreInt64(metricServerGetAdviceCalled, 1, metrics.MetricTypeNameCount)
+	general.InfofV(6, "pap: get advice request: %v", general.ToString(request))
+	return p.getAdvice(ctx, request)
+}
+
+func (p *powerCapService) getAdvice(_ context.Context, _ *advisorsvc.GetAdviceRequest) (*advisorsvc.GetAdviceResponse, error) {
+	capInst := p.getCapInstruction()
+	if capInst == nil {
+		return &advisorsvc.GetAdviceResponse{}, nil
+	}
+
+	resp := capInst.ToAdviceResponse()
+	return resp, nil
 }
 
 func (p *powerCapService) deliverPendingReset(ch chan<- struct{}) {
-	p.Lock()
-	defer p.Unlock()
+	p.RLock()
+	defer p.RUnlock()
 
 	if p.capInstruction != nil && p.capInstruction.OpCode == capper.OpReset {
 		ch <- struct{}{}
@@ -129,13 +149,12 @@ stream:
 			klog.Warningf("remote client disconnected")
 			break stream
 		case <-ch:
-			capInst := p.capInstruction
+			capInst := p.getCapInstruction()
 			if capInst == nil {
 				break
 			}
 			resp := capInst.ToListAndWatchResponse()
-			err := server.Send(resp)
-			if err != nil {
+			if err := server.Send(resp); err != nil {
 				general.Errorf("pap: [power capping] send response failed: %v", err)
 				p.emitErrorCode(powermetric.ErrorCodePowerCapCommunication)
 				break stream

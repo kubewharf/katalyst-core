@@ -18,12 +18,15 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/capper"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 )
 
 func Test_powerCapAdvisorPluginServer_Reset(t *testing.T) {
@@ -58,4 +61,79 @@ func Test_powerCapAdvisorPluginServer_Cap(t *testing.T) {
 		pcs.capInstruction,
 		"the latest power capping instruction should be what was just to Cap",
 	)
+}
+
+func Test_powerCapService_GetAdvice(t *testing.T) {
+	t.Parallel()
+	type fields struct {
+		capInstruction *capper.CapInstruction
+	}
+	type args struct {
+		ctx     context.Context
+		request *advisorsvc.GetAdviceRequest
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		args    args
+		want    *advisorsvc.GetAdviceResponse
+		wantErr assert.ErrorAssertionFunc
+	}{
+		{
+			name: "empty response for none instruction",
+			fields: fields{
+				capInstruction: nil,
+			},
+			args: args{},
+			want: &advisorsvc.GetAdviceResponse{
+				PodEntries:   nil,
+				ExtraEntries: nil,
+			},
+			wantErr: assert.NoError,
+		},
+		{
+			name: "happy path of an instruction",
+			fields: fields{
+				capInstruction: &capper.CapInstruction{
+					OpCode:          "4",
+					OpCurrentValue:  "100",
+					OpTargetValue:   "90",
+					RawTargetValue:  90,
+					RawCurrentValue: 100,
+				},
+			},
+			args: args{},
+			want: &advisorsvc.GetAdviceResponse{
+				PodEntries: nil,
+				ExtraEntries: []*advisorsvc.CalculationInfo{
+					{
+						CgroupPath: "",
+						CalculationResult: &advisorsvc.CalculationResult{
+							Values: map[string]string{
+								"op-code":          "4",
+								"op-current-value": "100",
+								"op-target-value":  "90",
+							},
+						},
+					},
+				},
+			},
+			wantErr: assert.NoError,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			p := &powerCapService{
+				capInstruction: tt.fields.capInstruction,
+				emitter:        metricspool.DummyMetricsEmitterPool{}.GetDefaultMetricsEmitter(),
+			}
+			got, err := p.GetAdvice(tt.args.ctx, tt.args.request)
+			if !tt.wantErr(t, err, fmt.Sprintf("GetAdvice(%v, %v)", tt.args.ctx, tt.args.request)) {
+				return
+			}
+			assert.Equalf(t, tt.want, got, "GetAdvice(%v, %v)", tt.args.ctx, tt.args.request)
+		})
+	}
 }
