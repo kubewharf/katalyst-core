@@ -250,7 +250,7 @@ func (p *DynamicPolicy) checkAndEmitMetrics(podEntries state.PodEntries, cpusetP
 
 	for cpuset, cs := range cpusetPodStateMap {
 		totalMilliCPURequest := p.calculateTotalCPURequest(cpuset, cs, cpusetPodStateMap)
-		exceededRatio := float64(totalMilliCPURequest-int64(cs.cpuset.Size()*1000)) / float64(cs.totalMilliCPURequest)
+		exceededRatio := float64(totalMilliCPURequest-int64(cs.cpuset.Size()*1000)) / float64(totalMilliCPURequest)
 
 		if exceededRatio > 0 {
 			p.emitExceededMetrics(podEntries, cpuset, cs, exceededRatio, allowSharedCoresOverlapReclaimedCores)
