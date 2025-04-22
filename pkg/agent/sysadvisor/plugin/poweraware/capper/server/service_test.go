@@ -20,8 +20,10 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/grpc/metadata"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/capper"
@@ -63,7 +65,7 @@ func Test_powerCapAdvisorPluginServer_Cap(t *testing.T) {
 	)
 }
 
-func Test_powerCapService_GetAdvice(t *testing.T) {
+func Test_powerCapService_getAdviceWithClientReadySignal(t *testing.T) {
 	t.Parallel()
 	type fields struct {
 		capInstruction *capper.CapInstruction
@@ -84,7 +86,9 @@ func Test_powerCapService_GetAdvice(t *testing.T) {
 			fields: fields{
 				capInstruction: nil,
 			},
-			args: args{},
+			args: args{
+				ctx: context.TODO(),
+			},
 			want: &advisorsvc.GetAdviceResponse{
 				PodEntries:   nil,
 				ExtraEntries: nil,
@@ -102,7 +106,9 @@ func Test_powerCapService_GetAdvice(t *testing.T) {
 					RawCurrentValue: 100,
 				},
 			},
-			args: args{},
+			args: args{
+				ctx: context.TODO(),
+			},
 			want: &advisorsvc.GetAdviceResponse{
 				PodEntries: nil,
 				ExtraEntries: []*advisorsvc.CalculationInfo{
@@ -126,10 +132,105 @@ func Test_powerCapService_GetAdvice(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			p := &powerCapService{
-				capInstruction: tt.fields.capInstruction,
-				emitter:        metricspool.DummyMetricsEmitterPool{}.GetDefaultMetricsEmitter(),
+				emitter: metricspool.DummyMetricsEmitterPool{}.GetDefaultMetricsEmitter(),
+				longPoller: &longPoller{
+					timeout:       time.Second * 1,
+					dataUpdatedCh: make(chan struct{}),
+				},
 			}
-			got, err := p.GetAdvice(tt.args.ctx, tt.args.request)
+
+			clientReadyCh := make(chan struct{})
+			go func() {
+				<-clientReadyCh
+				p.Lock()
+				defer p.Unlock()
+				p.capInstruction = tt.fields.capInstruction
+				p.longPoller.setDataUpdated()
+			}()
+
+			t.Log("advisor will set update ready signal when client is ready (already get hold of broadcast chan")
+			got, err := p.getAdviceWithClientReadySignal(tt.args.ctx, tt.args.request, clientReadyCh)
+
+			if !tt.wantErr(t, err, fmt.Sprintf("getAdviceWithClientReadySignal(%v, %v)", tt.args.ctx, tt.args.request)) {
+				return
+			}
+			assert.Equalf(t, tt.want, got, "getAdviceWithClientReadySignal(%v, %v)", tt.args.ctx, tt.args.request)
+		})
+	}
+}
+
+func Test_powerCapService_GetAdvice_when_it_had_missed_reset(t *testing.T) {
+	t.Parallel()
+
+	mdYes := metadata.Pairs("x-apply-previous-reset", "yes")
+	mdOther := metadata.Pairs("x-other", "other")
+
+	type args struct {
+		ctx     context.Context
+		request *advisorsvc.GetAdviceRequest
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    *advisorsvc.GetAdviceResponse
+		wantErr assert.ErrorAssertionFunc
+	}{
+		{
+			name: "reset response for yes apply request",
+			args: args{
+				ctx: metadata.NewOutgoingContext(context.Background(), mdYes),
+			},
+			want: &advisorsvc.GetAdviceResponse{
+				PodEntries: nil,
+				ExtraEntries: []*advisorsvc.CalculationInfo{
+					{
+						CgroupPath: "",
+						CalculationResult: &advisorsvc.CalculationResult{
+							Values: map[string]string{
+								"op-code":          "-1",
+								"op-current-value": "",
+								"op-target-value":  "",
+							},
+						},
+					},
+				},
+			},
+			wantErr: assert.NoError,
+		},
+		{
+			name: "empty for nil metadata request",
+			args: args{
+				ctx: metadata.NewOutgoingContext(context.Background(), mdOther),
+			},
+			want: &advisorsvc.GetAdviceResponse{
+				PodEntries:   nil,
+				ExtraEntries: nil,
+			},
+			wantErr: assert.NoError,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// extract out Outgoing Metadata, and assemble a server side Incoming Context
+			outgoingMD, ok := metadata.FromOutgoingContext(tt.args.ctx)
+			assert.True(t, ok)
+			serverCtx := metadata.NewIncomingContext(context.Background(), outgoingMD)
+
+			p := &powerCapService{
+				capInstruction: capper.PowerCapReset,
+				emitter:        metricspool.DummyMetricsEmitterPool{}.GetDefaultMetricsEmitter(),
+				longPoller: &longPoller{
+					timeout:       time.Millisecond * 5,
+					dataUpdatedCh: make(chan struct{}),
+				},
+			}
+
+			t.Log("advisor had reset instruction")
+			got, err := p.GetAdvice(serverCtx, tt.args.request)
+
 			if !tt.wantErr(t, err, fmt.Sprintf("GetAdvice(%v, %v)", tt.args.ctx, tt.args.request)) {
 				return
 			}

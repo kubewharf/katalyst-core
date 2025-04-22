@@ -23,9 +23,11 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/pkg/errors"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
@@ -40,8 +42,26 @@ const (
 	// ServiceNamePowerCap also is the unix socket name of the server is listening on
 	ServiceNamePowerCap = "node_power_cap"
 
-	metricServerGetAdviceCalled = "get_advice_called"
+	metricServerGetAdviceCalled = "pap_get_advice_called"
+
+	pollingTimeout = time.Second * 60
+
+	// MetadataApplyPreviousReset is the custom information from power cap client to power cap advisor that
+	// allows client to catch up with the reset it just missed by specifying x-apply-previous-reset:yes.
+	// Typically, the client should not carry this metadata info anymore with the successive GetAdvice calls.
+	MetadataApplyPreviousReset = "x-apply-previous-reset"
 )
+
+type longPoller struct {
+	timeout       time.Duration
+	dataUpdatedCh chan struct{}
+}
+
+func (l *longPoller) setDataUpdated() {
+	// chan close unblocks all waiting for the ready signal
+	close(l.dataUpdatedCh)
+	l.dataUpdatedCh = make(chan struct{})
+}
 
 type powerCapService struct {
 	sync.RWMutex
@@ -50,6 +70,16 @@ type powerCapService struct {
 	notify         *fanoutNotifier
 	emitter        metrics.MetricEmitter
 	grpcServer     *grpcServer
+
+	longPoller *longPoller
+}
+
+func (p *powerCapService) hadReset() bool {
+	p.RLock()
+	defer p.RUnlock()
+
+	// reset op is so critical that it needs to apply even when it was missed
+	return p.capInstruction != nil && p.capInstruction.OpCode == capper.OpReset
 }
 
 func (p *powerCapService) getCapInstruction() *capper.CapInstruction {
@@ -108,9 +138,46 @@ func (p *powerCapService) RemovePod(ctx context.Context, request *advisorsvc.Rem
 }
 
 func (p *powerCapService) GetAdvice(ctx context.Context, request *advisorsvc.GetAdviceRequest) (*advisorsvc.GetAdviceResponse, error) {
+	return p.getAdviceWithClientReadySignal(ctx, request, nil)
+}
+
+// getAdviceWithClientReadySignal has test hook point clientReadyCh, which serves as client signal that it has got hold of
+// data-ready channel and server can 'broadcast' the test update
+func (p *powerCapService) getAdviceWithClientReadySignal(ctx context.Context, request *advisorsvc.GetAdviceRequest, clientReadyCh chan<- struct{}) (*advisorsvc.GetAdviceResponse, error) {
 	_ = p.emitter.StoreInt64(metricServerGetAdviceCalled, 1, metrics.MetricTypeNameCount)
 	general.InfofV(6, "pap: get advice request: %v", general.ToString(request))
-	return p.getAdvice(ctx, request)
+
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		toApplyPreviousReset := md.Get(MetadataApplyPreviousReset)
+		if len(toApplyPreviousReset) > 0 && toApplyPreviousReset[0] == "yes" {
+			if p.hadReset() {
+				return p.getAdvice(ctx, request)
+			}
+		}
+	}
+
+	// when no ready instruction ready yet, fall back to long polling
+	serverCtx, cancel := context.WithTimeout(ctx, p.longPoller.timeout)
+	defer cancel()
+
+	p.RLock()
+	dataUpdatedCh := p.longPoller.dataUpdatedCh
+	p.RUnlock()
+
+	// test facility only; production code should always set it nil
+	if clientReadyCh != nil {
+		clientReadyCh <- struct{}{}
+	}
+
+	select {
+	case <-dataUpdatedCh:
+		return p.getAdvice(ctx, request)
+	case <-serverCtx.Done():
+		return &advisorsvc.GetAdviceResponse{}, nil
+	case <-ctx.Done():
+		general.Warningf("pap: get advice aborted by either client disconnection or timeout")
+		return nil, errors.New("client disconnected or canceled")
+	}
 }
 
 func (p *powerCapService) getAdvice(_ context.Context, _ *advisorsvc.GetAdviceRequest) (*advisorsvc.GetAdviceResponse, error) {
@@ -185,8 +252,12 @@ func (p *powerCapService) Reset() {
 }
 
 func (p *powerCapService) requestReset() {
+	// for LW style server streaming communication
 	p.capInstruction = capper.PowerCapReset
 	p.notify.Notify()
+
+	// below for unary GetAdvice communication
+	p.longPoller.setDataUpdated()
 }
 
 func (p *powerCapService) Cap(ctx context.Context, targetWatts, currWatt int) {
@@ -214,12 +285,17 @@ func (p *powerCapService) Cap(ctx context.Context, targetWatts, currWatt int) {
 	p.emitPowerCapInstruction(capInst)
 	p.capInstruction = capInst
 	p.notify.Notify()
+	p.longPoller.setDataUpdated()
 }
 
 func newPowerCapService(emitter metrics.MetricEmitter) *powerCapService {
 	return &powerCapService{
 		notify:  newNotifier(),
 		emitter: emitter,
+		longPoller: &longPoller{
+			timeout:       pollingTimeout,
+			dataUpdatedCh: make(chan struct{}),
+		},
 	}
 }
 
