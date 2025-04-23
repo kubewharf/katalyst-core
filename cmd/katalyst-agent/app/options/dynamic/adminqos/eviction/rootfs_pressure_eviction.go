@@ -21,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	cliflag "k8s.io/component-base/cli/flag"
 
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/eviction"
 )
 
@@ -33,6 +34,16 @@ const (
 	defaultReclaimedQoSPodUsedPriorityThreshold       = ""
 	defaultReclaimedQoSPodInodesUsedPriorityThreshold = ""
 	defaultMinimumImageFsDiskSizeThreshold            = "10Gi"
+
+	defaultEnableRootfsOveruseEviction        = false
+	defaultSharedQoSRootfsOveruseThreshold    = ""
+	defaultReclaimedQoSRootfsOveruseThreshold = ""
+	defaultRootfsOveruseEvictionCount         = 1
+)
+
+var (
+	defaultSupportedQoSLevels       = []string{consts.PodAnnotationQoSLevelSharedCores}
+	defaultSharedQoSNamespaceFilter = []string{"default"}
 )
 
 type RootfsPressureEvictionOptions struct {
@@ -45,6 +56,15 @@ type RootfsPressureEvictionOptions struct {
 	ReclaimedQoSPodInodesUsedPriorityThreshold string
 	MinimumImageFsDiskCapacityThreshold        string
 	GracePeriod                                int64
+
+	EnableRootfsOveruseEviction             bool
+	RootfsOveruseEvictionSupportedQoSLevels []string
+	// RootfsOveruseEviction only supports shared qos and reclaimed qos, so
+	// only thresholds for shared cores and reclaimed cores can be configured.
+	SharedQoSRootfsOveruseThreshold    string
+	ReclaimedQoSRootfsOveruseThreshold string
+	RootfsOveruseEvictionCount         int
+	SharedQoSNamespaceFilter           []string
 }
 
 func NewRootfsPressureEvictionOptions() *RootfsPressureEvictionOptions {
@@ -58,6 +78,12 @@ func NewRootfsPressureEvictionOptions() *RootfsPressureEvictionOptions {
 		ReclaimedQoSPodInodesUsedPriorityThreshold: defaultReclaimedQoSPodInodesUsedPriorityThreshold,
 		MinimumImageFsDiskCapacityThreshold:        defaultMinimumImageFsDiskSizeThreshold,
 		GracePeriod:                                defaultGracePeriod,
+		EnableRootfsOveruseEviction:                defaultEnableRootfsOveruseEviction,
+		RootfsOveruseEvictionSupportedQoSLevels:    defaultSupportedQoSLevels,
+		SharedQoSRootfsOveruseThreshold:            defaultSharedQoSRootfsOveruseThreshold,
+		ReclaimedQoSRootfsOveruseThreshold:         defaultReclaimedQoSRootfsOveruseThreshold,
+		RootfsOveruseEvictionCount:                 defaultRootfsOveruseEvictionCount,
+		SharedQoSNamespaceFilter:                   defaultSharedQoSNamespaceFilter,
 	}
 }
 
@@ -81,6 +107,11 @@ func (o *RootfsPressureEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"the minimum image fs disk capacity for nodes. the eviction manager will ignore those nodes whose image fs disk capacity is less than this threshold")
 	fs.Int64Var(&o.GracePeriod, "eviction-rootfs-grace-period", 0,
 		"the grace period of pod deletion")
+
+	fs.BoolVar(&o.EnableRootfsOveruseEviction, "eviction-rootfs-overuse-enable", o.EnableRootfsOveruseEviction, "set true to enable rootfs overuse eviction")
+	fs.StringSliceVar(&o.RootfsOveruseEvictionSupportedQoSLevels, "eviction-rootfs-overuse-supported-qos-levels", o.RootfsOveruseEvictionSupportedQoSLevels, "the supported qos levels for rootfs overuse eviction, supported qos levels are: shared, reclaimed")
+	fs.StringVar(&o.SharedQoSRootfsOveruseThreshold, "eviction-rootfs-overuse-shared-qos-threshold", o.SharedQoSRootfsOveruseThreshold, "the shared qos rootfs overuse threshold for shared qos pods. example 500Gi, 20%")
+	fs.StringVar(&o.ReclaimedQoSRootfsOveruseThreshold, "eviction-rootfs-overuse-reclaimed-qos-threshold", o.ReclaimedQoSRootfsOveruseThreshold, "the reclaimed qos rootfs overuse threshold for reclaimed qos pods. example 500Gi, 20%")
 }
 
 func (o *RootfsPressureEvictionOptions) ApplyTo(c *eviction.RootfsPressureEvictionConfiguration) error {
@@ -135,5 +166,25 @@ func (o *RootfsPressureEvictionOptions) ApplyTo(c *eviction.RootfsPressureEvicti
 		c.MinimumImageFsDiskCapacityThreshold = &value
 	}
 	c.GracePeriod = o.GracePeriod
+
+	c.EnableRootfsOveruseEviction = o.EnableRootfsOveruseEviction
+	c.RootfsOveruseEvictionSupportedQoSLevels = o.RootfsOveruseEvictionSupportedQoSLevels
+	c.RootfsOveruseEvictionCount = o.RootfsOveruseEvictionCount
+	c.SharedQoSNamespaceFilter = o.SharedQoSNamespaceFilter
+	if o.SharedQoSRootfsOveruseThreshold != "" {
+		value, err := eviction.ParseThresholdValue(o.SharedQoSRootfsOveruseThreshold)
+		if err != nil {
+			return errors.Wrapf(err, "failed to parse option: 'eviction-rootfs-overuse-shared-qos-rootfs-overuse-threshold'")
+		}
+		c.SharedQoSRootfsOveruseThreshold = value
+	}
+	if o.ReclaimedQoSRootfsOveruseThreshold != "" {
+		value, err := eviction.ParseThresholdValue(o.ReclaimedQoSRootfsOveruseThreshold)
+		if err != nil {
+			return errors.Wrapf(err, "failed to parse option: 'eviction-rootfs-overuse-reclaimed-qos-rootfs-overuse-threshold'")
+		}
+		c.ReclaimedQoSRootfsOveruseThreshold = value
+	}
+
 	return nil
 }
