@@ -37,7 +37,15 @@ type RootfsPressureEvictionConfiguration struct {
 	ReclaimedQoSPodUsedPriorityThreshold       *evictionapi.ThresholdValue
 	ReclaimedQoSPodInodesUsedPriorityThreshold *evictionapi.ThresholdValue
 	MinimumImageFsDiskCapacityThreshold        *resource.Quantity
-	GracePeriod                                int64
+
+	EnableRootfsOveruseEviction             bool
+	RootfsOveruseEvictionSupportedQoSLevels []string
+	SharedQoSRootfsOveruseThreshold         *evictionapi.ThresholdValue
+	ReclaimedQoSRootfsOveruseThreshold      *evictionapi.ThresholdValue
+	RootfsOveruseEvictionCount              int
+	SharedQoSNamespaceFilter                []string
+
+	GracePeriod int64
 }
 
 func NewRootfsPressureEvictionPluginConfiguration() *RootfsPressureEvictionConfiguration {
