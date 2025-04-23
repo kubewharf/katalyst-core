@@ -88,7 +88,6 @@ const (
 	syncOOMPriorityPeriod      = 5 * time.Second
 
 	healthCheckTolerationTimes = 3
-	dropCacheGracePeriod       = 60 * time.Second
 
 	defaultAsyncWorkLimit = 8
 	movePagesWorkLimit    = 2
@@ -293,7 +292,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 }
 
 func (p *DynamicPolicy) registerControlKnobHandlerCheckRules() {
-	general.RegisterReportCheck(memconsts.DropCache, dropCacheGracePeriod)
+	general.RegisterReportCheck(memconsts.DropCache, p.getAdviceInterval*3, general.HealthzCheckStateReady)
 }
 
 func (p *DynamicPolicy) Start() (err error) {

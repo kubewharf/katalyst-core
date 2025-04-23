@@ -57,12 +57,8 @@ type healthzCheckStatus struct {
 	// TolerationPeriod, we consider this rule is failed. 0 or negative value means no need to check the UnhealthyStartTime.
 	TolerationPeriod time.Duration `json:"gracePeriod"`
 
-	LatestUnhealthyTime time.Time `json:"latestUnhealthyTime"`
-	// in HealthzCheckModeReport mode, when LatestUnhealthyTime is not earlier than AutoRecoverPeriod ago, we consider this rule
-	// is failed.
-	AutoRecoverPeriod time.Duration `json:"autoRecoverPeriod"`
-	temporary         bool
-	count             int
+	temporary bool
+	count     int
 }
 
 func (h *healthzCheckStatus) update(state HealthzCheckState, message string) {
@@ -71,9 +67,6 @@ func (h *healthzCheckStatus) update(state HealthzCheckState, message string) {
 	h.LastUpdateTime = now
 	if h.State == HealthzCheckStateReady && state != HealthzCheckStateReady {
 		h.UnhealthyStartTime = now
-	}
-	if state != HealthzCheckStateReady {
-		h.LatestUnhealthyTime = now
 	}
 	h.State = state
 }
@@ -153,7 +146,7 @@ func UnregisterTemporaryHeartbeatCheck(name string) {
 	unregisterHealthCheck(name, HealthzCheckModeHeartBeat)
 }
 
-func RegisterReportCheck(name string, autoRecoverPeriod time.Duration) {
+func RegisterReportCheck(name string, timeout time.Duration, initState HealthzCheckState) {
 	healthzCheckLock.Lock()
 	defer healthzCheckLock.Unlock()
 
@@ -166,42 +159,12 @@ func RegisterReportCheck(name string, autoRecoverPeriod time.Duration) {
 	}
 
 	healthzCheckMap[HealthzCheckName(name)] = &healthzCheckStatus{
-		State:             HealthzCheckStateReady,
-		Message:           InitMessage,
-		AutoRecoverPeriod: autoRecoverPeriod,
-		Mode:              HealthzCheckModeReport,
-		temporary:         false,
+		State:         initState,
+		Message:       InitMessage,
+		TimeoutPeriod: timeout,
+		Mode:          HealthzCheckModeReport,
+		temporary:     false,
 	}
-}
-
-func RegisterTemporaryReportCheck(name string, autoRecoverPeriod time.Duration) {
-	healthzCheckLock.Lock()
-	defer healthzCheckLock.Unlock()
-
-	origin, ok := healthzCheckMap[HealthzCheckName(name)]
-	if ok {
-		if !origin.temporary {
-			klog.Errorf("RegisterTemporaryReportCheck not allow to change non-temporary health check")
-			return
-		}
-		origin.count++
-		klog.Infof("request to register temporary report check(name: %s, count: %d)", name, origin.count)
-		return
-	}
-
-	klog.Infof("request to register temporary report check(name: %s)", name)
-	healthzCheckMap[HealthzCheckName(name)] = &healthzCheckStatus{
-		State:             HealthzCheckStateReady,
-		Message:           InitMessage,
-		AutoRecoverPeriod: autoRecoverPeriod,
-		Mode:              HealthzCheckModeReport,
-		temporary:         true,
-		count:             1,
-	}
-}
-
-func UnregisterTemporaryReportCheck(name string) {
-	unregisterHealthCheck(name, HealthzCheckModeReport)
 }
 
 func UpdateHealthzStateByError(name string, err error) error {
@@ -249,8 +212,10 @@ func GetRegisterReadinessCheckResult() map[HealthzCheckName]HealthzCheckResult {
 				ready = false
 			}
 		case HealthzCheckModeReport:
-			if checkStatus.LatestUnhealthyTime.After(time.Now().Add(-checkStatus.AutoRecoverPeriod)) {
+			ready = checkStatus.State == HealthzCheckStateReady
+			if !checkStatus.LastUpdateTime.IsZero() && checkStatus.LastUpdateTime.Before(time.Now().Add(-checkStatus.TimeoutPeriod)) {
 				ready = false
+				message = "timeout"
 			}
 		}
 		results[name] = HealthzCheckResult{

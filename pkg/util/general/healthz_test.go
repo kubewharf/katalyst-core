@@ -17,6 +17,7 @@ limitations under the License.
 package general
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -116,72 +117,36 @@ func TestReportCheck(t *testing.T) {
 	t.Parallel()
 
 	testCheckName := "testReportCheck"
-	RegisterReportCheck(testCheckName, 2*time.Second)
+	RegisterReportCheck(testCheckName, 10*time.Millisecond, HealthzCheckStateNotReady)
 
+	// assume first report is failed when UpdateHealthzStateByError is not invoked
 	results := GetRegisterReadinessCheckResult()
 	status, ok := results[HealthzCheckName(testCheckName)]
 	assert.True(t, ok)
-	assert.True(t, status.Ready)
+	assert.False(t, status.Ready)
 
-	// timeout
-	time.Sleep(3 * time.Second)
+	// update the status to ready
+	err := UpdateHealthzStateByError(testCheckName, nil)
+	assert.NoError(t, err)
 	results = GetRegisterReadinessCheckResult()
 	status, ok = results[HealthzCheckName(testCheckName)]
 	assert.True(t, ok)
 	assert.True(t, status.Ready)
 
+	// timeout
+	time.Sleep(20 * time.Millisecond)
+	results = GetRegisterReadinessCheckResult()
+	status, ok = results[HealthzCheckName(testCheckName)]
+	assert.True(t, ok)
+	assert.False(t, status.Ready)
+	assert.Equal(t, "timeout", status.Message)
+
 	// updated with error
-	err := UpdateHealthzStateByError(testCheckName, fmt.Errorf("error"))
+	err = UpdateHealthzStateByError(testCheckName, errors.New("error"))
 	assert.NoError(t, err)
 	results = GetRegisterReadinessCheckResult()
 	status, ok = results[HealthzCheckName(testCheckName)]
 	assert.True(t, ok)
 	assert.False(t, status.Ready)
-
-	// no new errors after AutoRecoverPeriod
-	time.Sleep(3 * time.Second)
-	results = GetRegisterReadinessCheckResult()
-	status, ok = results[HealthzCheckName(testCheckName)]
-	assert.True(t, ok)
-	assert.True(t, status.Ready)
-}
-
-func TestTemporaryReportCheck(t *testing.T) {
-	t.Parallel()
-
-	testCheckName := "testTemporaryReportCheck"
-	RegisterTemporaryReportCheck(testCheckName, 2*time.Second)
-
-	results := GetRegisterReadinessCheckResult()
-	status, ok := results[HealthzCheckName(testCheckName)]
-	assert.True(t, ok)
-	assert.True(t, status.Ready)
-
-	// timeout
-	time.Sleep(3 * time.Second)
-	results = GetRegisterReadinessCheckResult()
-	status, ok = results[HealthzCheckName(testCheckName)]
-	assert.True(t, ok)
-	assert.True(t, status.Ready)
-
-	// updated with error
-	err := UpdateHealthzStateByError(testCheckName, fmt.Errorf("error"))
-	assert.NoError(t, err)
-	results = GetRegisterReadinessCheckResult()
-	status, ok = results[HealthzCheckName(testCheckName)]
-	assert.True(t, ok)
-	assert.False(t, status.Ready)
-
-	// no new errors after AutoRecoverPeriod
-	time.Sleep(3 * time.Second)
-	results = GetRegisterReadinessCheckResult()
-	status, ok = results[HealthzCheckName(testCheckName)]
-	assert.True(t, ok)
-	assert.True(t, status.Ready)
-
-	// unregister
-	UnregisterTemporaryReportCheck(testCheckName)
-	results = GetRegisterReadinessCheckResult()
-	status, ok = results[HealthzCheckName(testCheckName)]
-	assert.False(t, ok)
+	assert.Equal(t, "error", status.Message)
 }
