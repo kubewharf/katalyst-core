@@ -117,7 +117,7 @@ func TestReportCheck(t *testing.T) {
 	t.Parallel()
 
 	testCheckName := "testReportCheck"
-	RegisterReportCheck(testCheckName, 10*time.Millisecond)
+	RegisterReportCheck(testCheckName, 10*time.Millisecond, HealthzCheckStateNotReady)
 
 	// assume first report is failed when UpdateHealthzStateByError is not invoked
 	results := GetRegisterReadinessCheckResult()

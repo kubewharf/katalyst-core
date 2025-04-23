@@ -146,7 +146,7 @@ func UnregisterTemporaryHeartbeatCheck(name string) {
 	unregisterHealthCheck(name, HealthzCheckModeHeartBeat)
 }
 
-func RegisterReportCheck(name string, timeout time.Duration) {
+func RegisterReportCheck(name string, timeout time.Duration, initState HealthzCheckState) {
 	healthzCheckLock.Lock()
 	defer healthzCheckLock.Unlock()
 
@@ -159,7 +159,7 @@ func RegisterReportCheck(name string, timeout time.Duration) {
 	}
 
 	healthzCheckMap[HealthzCheckName(name)] = &healthzCheckStatus{
-		State:         HealthzCheckStateNotReady, // assume State is notReady before we do first check
+		State:         initState,
 		Message:       InitMessage,
 		TimeoutPeriod: timeout,
 		Mode:          HealthzCheckModeReport,

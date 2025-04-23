@@ -218,7 +218,7 @@ func (m *ReporterPluginManager) DeRegisterPlugin(pluginName string) {
 
 // Run start the reporter plugin manager
 func (m *ReporterPluginManager) Run(ctx context.Context) {
-	general.RegisterReportCheck(reporterPushContentHealthCheckName, m.reconcilePeriod*3)
+	general.RegisterReportCheck(reporterPushContentHealthCheckName, m.reconcilePeriod*3, general.HealthzCheckStateNotReady)
 	go wait.UntilWithContext(ctx, m.syncFunc, m.reconcilePeriod)
 
 	klog.Infof("reporter plugin manager started")

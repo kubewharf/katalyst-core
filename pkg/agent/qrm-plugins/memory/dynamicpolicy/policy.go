@@ -292,7 +292,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 }
 
 func (p *DynamicPolicy) registerControlKnobHandlerCheckRules() {
-	general.RegisterReportCheck(memconsts.DropCache, p.getAdviceInterval*3)
+	general.RegisterReportCheck(memconsts.DropCache, p.getAdviceInterval*3, general.HealthzCheckStateReady)
 }
 
 func (p *DynamicPolicy) Start() (err error) {
