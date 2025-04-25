@@ -31,8 +31,12 @@ const (
 	// StrategyNameBorweinTaint is the name of borwein_taint strategy,
 	// it taints nodes with poor performance according to model inference results.
 	StrategyNameBorweinTaint = "borwein_taint"
-
+	// StrategyNameMetricPreferredNUMAAllocation is the name of metric_preferred_numa_allocation strategy,
+	// it tries to allocate pods to NUMA nodes balancedly based on metrics and thresholds.
 	StrategyNameMetricPreferredNUMAAllocation = "metric_preferred_numa_allocation"
+	// StrategyNameBorweinTaint is the placeholder strategy for the strategy group,
+	// it indicates that there is no strategy enabled in the strategy group.
+	StrategyNameNone = "none"
 )
 
 const (
