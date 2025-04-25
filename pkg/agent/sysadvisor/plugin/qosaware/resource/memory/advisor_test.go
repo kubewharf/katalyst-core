@@ -1667,14 +1667,22 @@ func TestUpdate(t *testing.T) {
 							string(memoryadvisor.ControlKnowKeyMemoryOffloading): "96636764",
 						},
 					},
-					//{
-					//	PodUID:        "uid4",
-					//	ContainerName: "c4",
-					//	Values: map[string]string{
-					//		string(memoryadvisor.ControlKnobKeySwapMax):          coreconsts.ControlKnobOFF,
-					//		string(memoryadvisor.ControlKnowKeyMemoryOffloading): "96636764",
-					//	},
-					//},
+					{
+						PodUID:        "uid2",
+						ContainerName: "c2",
+						Values: map[string]string{
+							string(memoryadvisor.ControlKnobKeySwapMax):          coreconsts.ControlKnobOFF,
+							string(memoryadvisor.ControlKnowKeyMemoryOffloading): "0",
+						},
+					},
+					{
+						PodUID:        "uid4",
+						ContainerName: "c4",
+						Values: map[string]string{
+							string(memoryadvisor.ControlKnobKeySwapMax):          coreconsts.ControlKnobOFF,
+							string(memoryadvisor.ControlKnowKeyMemoryOffloading): "0",
+						},
+					},
 				},
 			},
 		},

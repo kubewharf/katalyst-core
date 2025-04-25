@@ -863,11 +863,6 @@ func (p *DynamicPolicy) handleAdvisorMemoryOffloading(_ *config.Configuration,
 ) error {
 	var absCGPath string
 	var memoryOffloadingWorkName string
-	memoryOffloadingSizeInBytes := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnowKeyMemoryOffloading)]
-	memoryOffloadingSizeInBytesInt64, err := strconv.ParseInt(memoryOffloadingSizeInBytes, 10, 64)
-	if err != nil {
-		return fmt.Errorf("parse %s: %s failed with error: %v", memoryadvisor.ControlKnowKeyMemoryOffloading, memoryOffloadingSizeInBytes, err)
-	}
 
 	if calculationInfo.CgroupPath == "" {
 		memoryOffloadingWorkName = util.GetContainerAsyncWorkName(entryName, subEntryName, memoryPluginAsyncWorkTopicMemoryOffloading)
@@ -896,6 +891,17 @@ func (p *DynamicPolicy) handleAdvisorMemoryOffloading(_ *config.Configuration,
 		if err != nil {
 			general.Infof("Failed to disable swap, err: %v", err)
 		}
+	}
+
+	memoryOffloadingSizeInBytes := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnowKeyMemoryOffloading)]
+	memoryOffloadingSizeInBytesInt64, err := strconv.ParseInt(memoryOffloadingSizeInBytes, 10, 64)
+	if err != nil {
+		return fmt.Errorf("parse %s: %s failed with error: %v", memoryadvisor.ControlKnowKeyMemoryOffloading, memoryOffloadingSizeInBytes, err)
+	}
+
+	if memoryOffloadingSizeInBytesInt64 <= 0 {
+		general.Infof("Skip memory offlading since target size is invalid: %d", memoryOffloadingSizeInBytesInt64)
+		return nil
 	}
 
 	_, mems, err := cgroupmgr.GetEffectiveCPUSetWithAbsolutePath(absCGPath)
