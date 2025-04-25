@@ -31,6 +31,9 @@ const (
 	// StrategyNameBorweinTaint is the name of borwein_taint strategy,
 	// it taints nodes with poor performance according to model inference results.
 	StrategyNameBorweinTaint = "borwein_taint"
+	// StrategyNameBorweinTaint is the placeholder strategy for the strategy group,
+	// it indicates that there is no strategy enabled in the strategy group.
+	StrategyNameNone = "none"
 )
 
 const (
