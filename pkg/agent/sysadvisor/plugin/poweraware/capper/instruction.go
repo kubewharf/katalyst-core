@@ -150,10 +150,13 @@ func GetCappingInstructions(response *advisorsvc.ListAndWatchResponse) ([]*CapIn
 	if len(response.ExtraEntries) == 0 {
 		return nil, errors.New("no valid data of no capping instruction")
 	}
+	return GetCappingInstructionsFromCalculationInfo(response.ExtraEntries)
+}
 
-	count := len(response.ExtraEntries)
+func GetCappingInstructionsFromCalculationInfo(calcInfos []*advisorsvc.CalculationInfo) ([]*CapInstruction, error) {
+	count := len(calcInfos)
 	cis := make([]*CapInstruction, count)
-	for i, calcInfo := range response.ExtraEntries {
+	for i, calcInfo := range calcInfos {
 		ci, err := getCappingInstructionFromCalcInfo(calcInfo)
 		if err != nil {
 			return nil, err

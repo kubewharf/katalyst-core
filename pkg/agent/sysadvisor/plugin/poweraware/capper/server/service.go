@@ -42,14 +42,14 @@ const (
 	// ServiceNamePowerCap also is the unix socket name of the server is listening on
 	ServiceNamePowerCap = "node_power_cap"
 
-	metricServerGetAdviceCalled = "pap_get_advice_called"
-
 	pollingTimeout = time.Second * 60
 
 	// MetadataApplyPreviousReset is the custom information from power cap client to power cap advisor that
 	// allows client to catch up with the reset it just missed by specifying x-apply-previous-reset:yes.
 	// Typically, the client should not carry this metadata info anymore with the successive GetAdvice calls.
 	MetadataApplyPreviousReset = "x-apply-previous-reset"
+
+	MetadataValueYes = "yes"
 )
 
 type longPoller struct {
@@ -144,12 +144,12 @@ func (p *powerCapService) GetAdvice(ctx context.Context, request *advisorsvc.Get
 // getAdviceWithClientReadySignal has test hook point clientReadyCh, which serves as client signal that it has got hold of
 // data-ready channel and server can 'broadcast' the test update
 func (p *powerCapService) getAdviceWithClientReadySignal(ctx context.Context, request *advisorsvc.GetAdviceRequest, clientReadyCh chan<- struct{}) (*advisorsvc.GetAdviceResponse, error) {
-	_ = p.emitter.StoreInt64(metricServerGetAdviceCalled, 1, metrics.MetricTypeNameCount)
+	powermetric.EmitGetAdviceCalled(p.emitter)
 	general.InfofV(6, "pap: get advice request: %v", general.ToString(request))
 
 	if md, ok := metadata.FromIncomingContext(ctx); ok {
 		toApplyPreviousReset := md.Get(MetadataApplyPreviousReset)
-		if len(toApplyPreviousReset) > 0 && toApplyPreviousReset[0] == "yes" {
+		if len(toApplyPreviousReset) > 0 && toApplyPreviousReset[0] == MetadataValueYes {
 			if p.hadReset() {
 				return p.getAdvice(ctx, request)
 			}
