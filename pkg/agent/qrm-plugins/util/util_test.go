@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
@@ -247,5 +248,305 @@ func TestTransformTopologyAwareQuantity(t *testing.T) {
 	for _, tc := range testCases {
 		actualQuantityList := GetTopologyAwareQuantityFromAssignments(tc.assignments)
 		as.Equalf(tc.expectedQuantityList, actualQuantityList, "failed in test case: %s", tc.description)
+	}
+}
+
+func TestGetNUMANodesCountToFitCPUReq(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		cpuReq        float64
+		cpuTopology   *machine.CPUTopology
+		expectedNodes int
+		expectedCPUs  int
+		expectedErr   string
+	}{
+		{
+			name:        "nil cpu topology",
+			cpuReq:      1.0,
+			cpuTopology: nil,
+			expectedErr: "GetNumaNodesToFitCPUReq got nil cpuTopology",
+		},
+		{
+			name:   "no numa nodes",
+			cpuReq: 1.0,
+			cpuTopology: &machine.CPUTopology{
+				CPUDetails: make(machine.CPUDetails),
+			},
+			expectedErr: "there is no NUMA in cpuTopology",
+		},
+		{
+			name:   "invalid numa count",
+			cpuReq: 1.0,
+			cpuTopology: &machine.CPUTopology{
+				NumCPUs: 5,
+				CPUDetails: machine.CPUDetails{
+					0: {NUMANodeID: 0},
+					1: {NUMANodeID: 0},
+					2: {NUMANodeID: 1},
+					3: {NUMANodeID: 1},
+					4: {NUMANodeID: 2},
+				},
+			},
+			expectedErr: "invalid NUMAs count: 3 with CPUs count: 5",
+		},
+		{
+			name:   "cpu req too large",
+			cpuReq: 10.0,
+			cpuTopology: &machine.CPUTopology{
+				NumCPUs: 4,
+				CPUDetails: machine.CPUDetails{
+					0: {NUMANodeID: 0},
+					1: {NUMANodeID: 0},
+					2: {NUMANodeID: 1},
+					3: {NUMANodeID: 1},
+				},
+			},
+			expectedErr: "invalid cpu req: 10.000 in topology with NUMAs count: 2 and CPUs count: 4",
+		},
+		{
+			name:   "single numa node required",
+			cpuReq: 1.5,
+			cpuTopology: &machine.CPUTopology{
+				NumCPUs: 4,
+				CPUDetails: machine.CPUDetails{
+					0: {NUMANodeID: 0},
+					1: {NUMANodeID: 0},
+					2: {NUMANodeID: 1},
+					3: {NUMANodeID: 1},
+				},
+			},
+			expectedNodes: 1,
+			expectedCPUs:  2,
+		},
+		{
+			name:   "multiple numa nodes required",
+			cpuReq: 3.0,
+			cpuTopology: &machine.CPUTopology{
+				NumCPUs: 8,
+				CPUDetails: machine.CPUDetails{
+					0: {NUMANodeID: 0},
+					1: {NUMANodeID: 0},
+					2: {NUMANodeID: 1},
+					3: {NUMANodeID: 1},
+					4: {NUMANodeID: 2},
+					5: {NUMANodeID: 2},
+					6: {NUMANodeID: 3},
+					7: {NUMANodeID: 3},
+				},
+			},
+			expectedNodes: 2,
+			expectedCPUs:  2,
+		},
+		{
+			name:   "minimum numa nodes when cpu req is 0",
+			cpuReq: 0.1,
+			cpuTopology: &machine.CPUTopology{
+				NumCPUs: 8,
+				CPUDetails: machine.CPUDetails{
+					0: {NUMANodeID: 0},
+					1: {NUMANodeID: 0},
+					2: {NUMANodeID: 1},
+					3: {NUMANodeID: 1},
+					4: {NUMANodeID: 2},
+					5: {NUMANodeID: 2},
+					6: {NUMANodeID: 3},
+					7: {NUMANodeID: 3},
+				},
+			},
+			expectedNodes: 1,
+			expectedCPUs:  1,
+		},
+		{
+			name:        "cpu req is 0 with nil cpu topology",
+			cpuReq:      0,
+			cpuTopology: nil,
+			expectedErr: "GetNumaNodesToFitCPUReq got nil cpuTopology",
+		},
+		{
+			name:   "cpu req is 0 with no numa nodes",
+			cpuReq: 0,
+			cpuTopology: &machine.CPUTopology{
+				CPUDetails: make(machine.CPUDetails),
+			},
+			expectedErr: "there is no NUMA in cpuTopology",
+		},
+		{
+			name:   "cpu req is 0 with single numa node",
+			cpuReq: 0,
+			cpuTopology: &machine.CPUTopology{
+				NumCPUs: 4,
+				CPUDetails: machine.CPUDetails{
+					0: {NUMANodeID: 0},
+					1: {NUMANodeID: 0},
+					2: {NUMANodeID: 0},
+					3: {NUMANodeID: 0},
+				},
+			},
+			expectedNodes: 1,
+			expectedCPUs:  0,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			nodes, cpus, err := GetNUMANodesCountToFitCPUReq(tt.cpuReq, tt.cpuTopology)
+
+			if tt.expectedErr != "" {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedErr)
+				return
+			}
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expectedNodes, nodes)
+			assert.Equal(t, tt.expectedCPUs, cpus)
+		})
+	}
+}
+
+func TestGetNUMANodesCountToFitMemoryReq(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name          string
+		memoryReq     uint64
+		bytesPerNUMA  uint64
+		numaCount     int
+		expectedNodes int
+		expectedBytes uint64
+		expectedError string
+	}{
+		{
+			name:          "zero bytesPerNUMA should error",
+			memoryReq:     100,
+			bytesPerNUMA:  0,
+			numaCount:     4,
+			expectedError: "zero bytesPerNUMA",
+		},
+		{
+			name:          "memory requirement exceeds available NUMA nodes",
+			memoryReq:     500,
+			bytesPerNUMA:  100,
+			numaCount:     4,
+			expectedError: "invalid memory req: 500 in topology with NUMAs count: 4 and bytesPerNUMA: 100",
+		},
+		{
+			name:          "memory requirement exactly fits one NUMA node",
+			memoryReq:     100,
+			bytesPerNUMA:  100,
+			numaCount:     4,
+			expectedNodes: 1,
+			expectedBytes: 100,
+		},
+		{
+			name:          "memory requirement less than one NUMA node",
+			memoryReq:     50,
+			bytesPerNUMA:  100,
+			numaCount:     4,
+			expectedNodes: 1,
+			expectedBytes: 50,
+		},
+		{
+			name:          "memory requirement spans two NUMA nodes",
+			memoryReq:     150,
+			bytesPerNUMA:  100,
+			numaCount:     4,
+			expectedNodes: 2,
+			expectedBytes: 75,
+		},
+		{
+			name:          "memory requirement spans three NUMA nodes with uneven distribution",
+			memoryReq:     250,
+			bytesPerNUMA:  100,
+			numaCount:     4,
+			expectedNodes: 3,
+			expectedBytes: 84, // ceil(250/3) = 84
+		},
+		{
+			name:          "memory requirement equals total available NUMA memory",
+			memoryReq:     400,
+			bytesPerNUMA:  100,
+			numaCount:     4,
+			expectedNodes: 4,
+			expectedBytes: 100,
+		},
+		{
+			name:          "very large memory requirement with large NUMA nodes",
+			memoryReq:     1_000_000_000,
+			bytesPerNUMA:  500_000_000,
+			numaCount:     4,
+			expectedNodes: 2,
+			expectedBytes: 500_000_000,
+		},
+		{
+			name:          "zero memoryReq",
+			memoryReq:     0,
+			bytesPerNUMA:  1000,
+			numaCount:     4,
+			expectedNodes: 1,
+			expectedBytes: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			nodes, bytes, err := GetNUMANodesCountToFitMemoryReq(tt.memoryReq, tt.bytesPerNUMA, tt.numaCount)
+
+			if tt.expectedError != "" {
+				assert.Error(t, err)
+				assert.Equal(t, tt.expectedError, err.Error())
+				return
+			}
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expectedNodes, nodes)
+			assert.Equal(t, tt.expectedBytes, bytes)
+		})
+	}
+}
+
+func TestCeilEdgeCases(t *testing.T) {
+	t.Parallel()
+	// Test that our ceil calculations work correctly with edge cases
+	tests := []struct {
+		name          string
+		memoryReq     uint64
+		bytesPerNUMA  uint64
+		numaCount     int
+		expectedNodes int
+		expectedBytes uint64
+	}{
+		{
+			name:          "ceil calculation with remainder",
+			memoryReq:     101,
+			bytesPerNUMA:  100,
+			numaCount:     2,
+			expectedNodes: 2,
+			expectedBytes: 51, // ceil(101/2) = 51
+		},
+		{
+			name:          "ceil calculation with exact division",
+			memoryReq:     200,
+			bytesPerNUMA:  100,
+			numaCount:     2,
+			expectedNodes: 2,
+			expectedBytes: 100,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			nodes, bytes, err := GetNUMANodesCountToFitMemoryReq(tt.memoryReq, tt.bytesPerNUMA, tt.numaCount)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expectedNodes, nodes)
+			assert.Equal(t, tt.expectedBytes, bytes)
+		})
 	}
 }
