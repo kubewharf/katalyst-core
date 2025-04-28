@@ -18,6 +18,7 @@ package kcc
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"reflect"
 	"testing"
@@ -125,8 +126,8 @@ func generateTestEvictionConfiguration(evictionThreshold map[v1.ResourceName]flo
 	}
 }
 
-func constructTestDynamicConfigManager(t *testing.T, nodeName, dir string, evictionConfiguration *v1alpha1.AdminQoSConfiguration) *DynamicConfigManager {
-	clientSet := generateTestGenericClientSet(generateTestCNC(nodeName), evictionConfiguration)
+func constructTestDynamicConfigManager(t *testing.T, nodeName, dir string, adminQoSConfiguration *v1alpha1.AdminQoSConfiguration) *DynamicConfigManager {
+	clientSet := generateTestGenericClientSet(generateTestCNC(nodeName), adminQoSConfiguration)
 	conf := generateTestConfiguration(t, nodeName, dir)
 	cncFetcher := cnc.NewCachedCNCFetcher(conf.BaseConfiguration, conf.CNCConfiguration,
 		clientSet.InternalClient.ConfigV1alpha1().CustomNodeConfigs())
@@ -180,6 +181,89 @@ func TestNewDynamicConfigManager(t *testing.T) {
 	err = manager.InitializeConfig(context.TODO())
 	require.NoError(t, err)
 	go manager.Run(context.TODO())
+}
+
+func TestDynamicConfigManager_ConfigHooks(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		hooks       []ConfigurationHook
+		wantErr     bool
+		execOrder   []int
+		description string
+	}{
+		{
+			name: "single hook success",
+			hooks: []ConfigurationHook{
+				func(ctx context.Context, oldConf, newConf *dynamic.Configuration) error {
+					return nil
+				},
+			},
+			wantErr:   false,
+			execOrder: []int{0},
+		},
+		{
+			name: "multiple hooks success",
+			hooks: []ConfigurationHook{
+				func(ctx context.Context, oldConf, newConf *dynamic.Configuration) error {
+					return nil
+				},
+				func(ctx context.Context, oldConf, newConf *dynamic.Configuration) error {
+					return nil
+				},
+			},
+			wantErr:   false,
+			execOrder: []int{0, 1},
+		},
+		{
+			name: "hook failure",
+			hooks: []ConfigurationHook{
+				func(ctx context.Context, oldConf, newConf *dynamic.Configuration) error {
+					return fmt.Errorf("hook failed")
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "partial hooks failure",
+			hooks: []ConfigurationHook{
+				func(ctx context.Context, oldConf, newConf *dynamic.Configuration) error {
+					return nil
+				},
+				func(ctx context.Context, oldConf, newConf *dynamic.Configuration) error {
+					return fmt.Errorf("second hook failed")
+				},
+			},
+			wantErr:   true,
+			execOrder: []int{0},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			aqc := generateTestEvictionConfiguration(map[v1.ResourceName]float64{
+				v1.ResourceCPU:    1.2,
+				v1.ResourceMemory: 1.3,
+			})
+			manager := constructTestDynamicConfigManager(t, "test-node",
+				"/tmp/metaserver1/TestConfigHooks", aqc)
+			manager.AddConfigHook(tt.hooks...)
+
+			// Setup test data
+			oldConf := &dynamic.Configuration{}
+			manager.conf.SetDynamicConfiguration(oldConf)
+
+			// Execute updateConfig which triggers hooks
+			err := manager.updateConfig(context.Background())
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("updateConfig() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
 }
 
 func TestDynamicConfigManager_getConfig(t *testing.T) {

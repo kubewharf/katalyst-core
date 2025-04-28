@@ -86,6 +86,18 @@ type ConfigurationManager interface {
 	Run(ctx context.Context)
 }
 
+// ConfigurationHook is called when dynamic configuration updates occur.
+// Parameters:
+//   - oldConf: The previous configuration (read-only)
+//   - newConf: The new configuration (can be modified)
+//
+// Returns:
+//   - error: If non-nil, the new config will be discarded
+//
+// Note: Modifying oldConf will have no effect.
+type ConfigurationHook func(ctx context.Context, oldConf,
+	newConf *dynamic.Configuration) error
+
 type DummyConfigurationManager struct{}
 
 func (d *DummyConfigurationManager) InitializeConfig(_ context.Context) error {
@@ -114,6 +126,9 @@ type DynamicConfigManager struct {
 
 	configLoader ConfigurationLoader
 	emitter      metrics.MetricEmitter
+
+	// hooks is used to trigger some actions when dynamic config is updated
+	configHooks []ConfigurationHook
 
 	// resourceGVRMap records those GVR that should be interested
 	// gvrToKind maps from GVR to GVK (only kind can be used to reflect objects)
@@ -162,6 +177,12 @@ func (c *DynamicConfigManager) AddConfigWatcher(gvrs ...metav1.GroupVersionResou
 	}
 
 	return nil
+}
+
+func (c *DynamicConfigManager) AddConfigHook(hook ...ConfigurationHook) {
+	c.mux.Lock()
+	defer c.mux.Unlock()
+	c.configHooks = append(c.configHooks, hook...)
 }
 
 // Run is to start update config loops until the context is done
@@ -234,6 +255,19 @@ func (c *DynamicConfigManager) updateConfig(ctx context.Context) error {
 	klog.Infof("dynamic config crd is changed from %v to %v", c.lastDynamicConfigCRD, dynamicConfigCRD)
 	currentConfig := deepCopy(c.defaultConfig)
 	applyDynamicConfig(currentConfig, dynamicConfigCRD)
+
+	var errList []error
+	for _, hook := range c.configHooks {
+		if err = hook(ctx, c.conf.GetDynamicConfiguration(), currentConfig); err != nil {
+			klog.Errorf("failed to run config hook: %v", err)
+			errList = append(errList, err)
+		}
+	}
+
+	if len(errList) > 0 {
+		return errors.NewAggregate(errList)
+	}
+
 	c.conf.SetDynamicConfiguration(currentConfig)
 	c.lastDynamicConfigCRD = dynamicConfigCRD
 	return err
