@@ -540,7 +540,7 @@ func (p *DynamicPolicy) ResourceName() string {
 // GetTopologyHints returns hints of corresponding resources
 func (p *DynamicPolicy) GetTopologyHints(ctx context.Context,
 	req *pluginapi.ResourceRequest,
-) (*pluginapi.ResourceHintsResponse, error) {
+) (resp *pluginapi.ResourceHintsResponse, err error) {
 	if req == nil {
 		return nil, fmt.Errorf("GetTopologyHints got nil req")
 	}
