@@ -27,8 +27,13 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/errors"
 
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+)
+
+const (
+	metricMetaCacheStoreStateDuration = "metacache_store_state_duration"
 )
 
 // stateCheckpoint is an in-memory implementation of State;
@@ -44,12 +49,14 @@ type stateCheckpoint struct {
 	// it will cause checkpoint corruption, and we should skip it
 	skipStateCorruption                bool
 	GenerateMachineStateFromPodEntries GenerateMachineStateFromPodEntriesFunc
+	emitter                            metrics.MetricEmitter
 }
 
 var _ State = &stateCheckpoint{}
 
 func NewCheckpointState(stateDir, checkpointName, policyName string,
 	topology *machine.CPUTopology, skipStateCorruption bool, generateMachineStateFunc GenerateMachineStateFromPodEntriesFunc,
+	emitter metrics.MetricEmitter,
 ) (State, error) {
 	checkpointManager, err := checkpointmanager.NewCheckpointManager(stateDir)
 	if err != nil {
@@ -63,6 +70,7 @@ func NewCheckpointState(stateDir, checkpointName, policyName string,
 		checkpointName:                     checkpointName,
 		skipStateCorruption:                skipStateCorruption,
 		GenerateMachineStateFromPodEntries: generateMachineStateFunc,
+		emitter:                            emitter,
 	}
 
 	if err := sc.RestoreState(topology); err != nil {
@@ -139,7 +147,9 @@ func (sc *stateCheckpoint) storeState() error {
 	startTime := time.Now()
 	general.InfoS("called")
 	defer func() {
-		general.InfoS("finished", "duration", time.Since(startTime))
+		elapsed := time.Since(startTime)
+		general.InfoS("finished", "duration", elapsed)
+		_ = sc.emitter.StoreFloat64(metricMetaCacheStoreStateDuration, float64(elapsed/time.Millisecond), metrics.MetricTypeNameRaw)
 	}()
 	checkpoint := NewCPUPluginCheckpoint()
 	checkpoint.PolicyName = sc.policyName

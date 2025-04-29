@@ -140,19 +140,19 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 			conf.ReservedCPUCores, reserveErr)
 	}
 
+	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(agentName, metrics.MetricTag{
+		Key: util.QRMPluginPolicyTagName,
+		Val: cpuconsts.CPUResourcePluginPolicyNameDynamic,
+	})
+
 	stateImpl, stateErr := state.NewCheckpointState(conf.GenericQRMPluginConfiguration.StateFileDirectory, cpuPluginStateFileName,
-		cpuconsts.CPUResourcePluginPolicyNameDynamic, agentCtx.CPUTopology, conf.SkipCPUStateCorruption, state.GenerateMachineStateFromPodEntries)
+		cpuconsts.CPUResourcePluginPolicyNameDynamic, agentCtx.CPUTopology, conf.SkipCPUStateCorruption, state.GenerateMachineStateFromPodEntries, wrappedEmitter)
 	if stateErr != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("NewCheckpointState failed with error: %v", stateErr)
 	}
 
 	state.SetReadonlyState(stateImpl)
 	state.SetReadWriteState(stateImpl)
-
-	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(agentName, metrics.MetricTag{
-		Key: util.QRMPluginPolicyTagName,
-		Val: cpuconsts.CPUResourcePluginPolicyNameDynamic,
-	})
 
 	var (
 		cpuPressureEviction agent.Component

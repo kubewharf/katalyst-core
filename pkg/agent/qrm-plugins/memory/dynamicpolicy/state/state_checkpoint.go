@@ -21,6 +21,7 @@ import (
 	"path"
 	"reflect"
 	"sync"
+	"time"
 
 	info "github.com/google/cadvisor/info/v1"
 	v1 "k8s.io/api/core/v1"
@@ -28,7 +29,13 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/errors"
 
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+)
+
+const (
+	metricMetaCacheStoreStateDuration = "metacache_store_state_duration"
 )
 
 var _ State = &stateCheckpoint{}
@@ -45,11 +52,13 @@ type stateCheckpoint struct {
 	// when we add new properties to checkpoint,
 	// it will cause checkpoint corruption and we should skip it
 	skipStateCorruption bool
+	emitter             metrics.MetricEmitter
 }
 
 func NewCheckpointState(stateDir, checkpointName, policyName string,
 	topology *machine.CPUTopology, machineInfo *info.MachineInfo,
 	reservedMemory map[v1.ResourceName]map[int]uint64, skipStateCorruption bool,
+	emitter metrics.MetricEmitter,
 ) (State, error) {
 	checkpointManager, err := checkpointmanager.NewCheckpointManager(stateDir)
 	if err != nil {
@@ -67,6 +76,7 @@ func NewCheckpointState(stateDir, checkpointName, policyName string,
 		checkpointManager:   checkpointManager,
 		checkpointName:      checkpointName,
 		skipStateCorruption: skipStateCorruption,
+		emitter:             emitter,
 	}
 
 	if err := stateCheckpoint.restoreState(machineInfo, reservedMemory); err != nil {
@@ -142,6 +152,14 @@ func (sc *stateCheckpoint) StoreState() error {
 }
 
 func (sc *stateCheckpoint) storeState() error {
+	startTime := time.Now()
+	general.InfoS("called")
+	defer func() {
+		elapsed := time.Since(startTime)
+		general.InfoS("finished", "duration", elapsed)
+		_ = sc.emitter.StoreFloat64(metricMetaCacheStoreStateDuration, float64(elapsed/time.Millisecond), metrics.MetricTypeNameRaw)
+	}()
+
 	checkpoint := NewMemoryPluginCheckpoint()
 	checkpoint.PolicyName = sc.policyName
 	checkpoint.MachineState = sc.cache.GetMachineState()

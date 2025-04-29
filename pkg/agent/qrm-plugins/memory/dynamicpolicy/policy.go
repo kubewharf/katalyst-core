@@ -168,11 +168,15 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		return false, agent.ComponentStub{}, fmt.Errorf("getReservedMemoryFromOptions failed with error: %v", err)
 	}
 
+	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(agentName, metrics.MetricTag{
+		Key: util.QRMPluginPolicyTagName,
+		Val: memconsts.MemoryResourcePluginPolicyNameDynamic,
+	})
 	resourcesReservedMemory := map[v1.ResourceName]map[int]uint64{
 		v1.ResourceMemory: reservedMemory,
 	}
 	stateImpl, err := state.NewCheckpointState(conf.GenericQRMPluginConfiguration.StateFileDirectory, memoryPluginStateFileName,
-		memconsts.MemoryResourcePluginPolicyNameDynamic, agentCtx.CPUTopology, agentCtx.MachineInfo, resourcesReservedMemory, conf.SkipMemoryStateCorruption)
+		memconsts.MemoryResourcePluginPolicyNameDynamic, agentCtx.CPUTopology, agentCtx.MachineInfo, resourcesReservedMemory, conf.SkipMemoryStateCorruption, wrappedEmitter)
 	if err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("NewCheckpointState failed with error: %v", err)
 	}
@@ -189,11 +193,6 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 
 	state.SetReadonlyState(stateImpl)
 	state.SetReadWriteState(stateImpl)
-
-	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(agentName, metrics.MetricTag{
-		Key: util.QRMPluginPolicyTagName,
-		Val: memconsts.MemoryResourcePluginPolicyNameDynamic,
-	})
 
 	policyImplement := &DynamicPolicy{
 		topology:                    agentCtx.CPUTopology,
