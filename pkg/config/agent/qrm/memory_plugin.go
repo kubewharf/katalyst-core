@@ -17,12 +17,7 @@ limitations under the License.
 package qrm
 
 import (
-	"encoding/json"
 	"time"
-
-	"github.com/pkg/errors"
-
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 type MemoryQRMPluginConfig struct {
@@ -57,8 +52,8 @@ type MemoryQRMPluginConfig struct {
 	LogCacheQRMPluginConfig
 	// FragMemOptions: the configuration for memory compaction related features
 	FragMemOptions
-	// ResctrlOptions: the configuration for resctrl FS related hints
-	ResctrlOptions
+	// ResctrlConfig: the configuration for resctrl FS related hints
+	ResctrlConfig
 }
 
 type SockMemQRMPluginConfig struct {
@@ -94,35 +89,17 @@ type FragMemOptions struct {
 	SetMemFragScoreAsync int
 }
 
-type ResctrlOptions struct {
+type ResctrlConfig struct {
 	// EnableResctrlHint is the flag that enable/disable resctrl option related pod admission
 	EnableResctrlHint bool
+
 	// CPUSetPoolToSharedSubgroup specifies, if present, the subgroup id for shared-core QoS pod
 	// based on its cpu set pool annotation
 	CPUSetPoolToSharedSubgroup map[string]int
 	DefaultSharedSubgroup      int
 
-	// MonGroupsPolicy is about mon_group layout hint policy
-	MonGroupsPolicy *MonGroupsPolicy
-}
-
-// MonGroupsPolicy is inner field of ResctrlOptions
-type MonGroupsPolicy struct {
-	EnabledClosIDs []string `json:"enabled-closids,omitempty"`
-}
-
-func ToMonGroupsPolicy(input string) (*MonGroupsPolicy, error) {
-	if len(input) == 0 {
-		return nil, nil
-	}
-
-	policy := &MonGroupsPolicy{}
-	if err := json.Unmarshal([]byte(input), policy); err != nil {
-		general.Errorf("unmarshal mon_groups policy %s error: %v", input, err)
-		return nil, errors.Wrap(err, "failed to parse into MonGroupPolicy")
-	}
-
-	return policy, nil
+	// MonGroupEnabledClosIDs is about mon_group layout hint policy
+	MonGroupEnabledClosIDs []string
 }
 
 func NewMemoryQRMPluginConfig() *MemoryQRMPluginConfig {

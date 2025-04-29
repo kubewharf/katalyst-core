@@ -27,14 +27,15 @@ import (
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 const (
-	templateSharedSubgroup = "shared-%02d"
-	sharedGroup            = "shared"
+	templateSharedSubgroup = "share-%02d"
+	sharedGroup            = "share"
 )
 
 type ResctrlHinter interface {
@@ -43,7 +44,7 @@ type ResctrlHinter interface {
 }
 
 type resctrlHinter struct {
-	option               *qrm.ResctrlOptions
+	config               *qrm.ResctrlConfig
 	closidEnablingGroups sets.String
 }
 
@@ -76,10 +77,10 @@ func getSharedSubgroup(val int) string {
 }
 
 func (r *resctrlHinter) getSharedSubgroupByPool(pool string) string {
-	if v, ok := r.option.CPUSetPoolToSharedSubgroup[pool]; ok {
+	if v, ok := r.config.CPUSetPoolToSharedSubgroup[pool]; ok {
 		return getSharedSubgroup(v)
 	}
-	return getSharedSubgroup(r.option.DefaultSharedSubgroup)
+	return getSharedSubgroup(r.config.DefaultSharedSubgroup)
 }
 
 func ensureToGetMemAllocInfo(resp *pluginapi.ResourceAllocationResponse) *pluginapi.ResourceAllocationInfo {
@@ -103,7 +104,13 @@ func injectRespAnnotationSharedGroup(resp *pluginapi.ResourceAllocationResponse,
 func injectRespAnnotationPodMonGroup(resp *pluginapi.ResourceAllocationResponse,
 	enablingGroups sets.String, group string,
 ) {
-	if len(enablingGroups) == 0 || enablingGroups.Has(group) {
+	// by default no special mon_groups layout, which allows kubelet to decide by itself, no need to hint explicitly
+	if len(enablingGroups) == 0 {
+		return
+	}
+
+	// if enabled, no need to hint as kubelet treats default as true
+	if enablingGroups.Has(group) {
 		return
 	}
 
@@ -116,37 +123,47 @@ func injectRespAnnotationPodMonGroup(resp *pluginapi.ResourceAllocationResponse,
 func (r *resctrlHinter) HintResp(qosLevel string,
 	req *pluginapi.ResourceRequest, resp *pluginapi.ResourceAllocationResponse,
 ) *pluginapi.ResourceAllocationResponse {
-	if r.option == nil || !r.option.EnableResctrlHint {
+	if r.config == nil || !r.config.EnableResctrlHint {
 		return resp
 	}
 
-	podShortQoS, ok := annoQoSLevelToShortQoSLevel[qosLevel]
-	if !ok {
+	poolName := commonstate.GetSpecifiedPoolName(qosLevel, commonstate.EmptyOwnerPoolName)
+	// tweak the case of system qos
+	if poolName == apiconsts.PodAnnotationQoSLevelSystemCores {
+		poolName = commonstate.PoolNamePrefixSystem
+	}
+	// when no recognized qos can be identified, no hint
+	if poolName == commonstate.EmptyOwnerPoolName {
 		general.Errorf("pod admit: fail to identify short qos level for %s; skip resctl hint", qosLevel)
 		return resp
 	}
 
-	// inject shared subgroup if applicable
+	// resctrl hint cares sub pool actually
+	subPoolName := poolName
 	if qosLevel == apiconsts.PodAnnotationQoSLevelSharedCores {
 		cpusetPool := identifyCPUSetPool(req.Annotations)
-		podShortQoS = r.getSharedSubgroupByPool(cpusetPool)
-		injectRespAnnotationSharedGroup(resp, podShortQoS)
+		subPoolName = r.getSharedSubgroupByPool(cpusetPool)
+	}
+
+	// inject shared subgroup if share pool
+	if qosLevel == apiconsts.PodAnnotationQoSLevelSharedCores {
+		injectRespAnnotationSharedGroup(resp, subPoolName)
 	}
 
 	// inject pod mon group (false only) if applicable
-	injectRespAnnotationPodMonGroup(resp, r.closidEnablingGroups, podShortQoS)
+	injectRespAnnotationPodMonGroup(resp, r.closidEnablingGroups, subPoolName)
 
 	return resp
 }
 
-func newResctrlHinter(option *qrm.ResctrlOptions) ResctrlHinter {
+func newResctrlHinter(config *qrm.ResctrlConfig) ResctrlHinter {
 	closidEnablingGroups := make(sets.String)
-	if option != nil && option.MonGroupsPolicy != nil {
-		closidEnablingGroups = sets.NewString(option.MonGroupsPolicy.EnabledClosIDs...)
+	if config != nil && config.MonGroupEnabledClosIDs != nil {
+		closidEnablingGroups = sets.NewString(config.MonGroupEnabledClosIDs...)
 	}
 
 	return &resctrlHinter{
-		option:               option,
+		config:               config,
 		closidEnablingGroups: closidEnablingGroups,
 	}
 }

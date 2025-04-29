@@ -20,7 +20,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
@@ -29,20 +28,22 @@ import (
 func TestResctrlProcessor_HintResp(t *testing.T) {
 	t.Parallel()
 
-	respTest := &pluginapi.ResourceAllocationResponse{
-		AllocationResult: &pluginapi.ResourceAllocation{
-			ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
-				"memory": {
-					Annotations: map[string]string{
-						"test-key": "test-value",
+	genRespTest := func() *pluginapi.ResourceAllocationResponse {
+		return &pluginapi.ResourceAllocationResponse{
+			AllocationResult: &pluginapi.ResourceAllocation{
+				ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+					"memory": {
+						Annotations: map[string]string{
+							"test-key": "test-value",
+						},
 					},
 				},
 			},
-		},
+		}
 	}
 
 	type fields struct {
-		option *qrm.ResctrlOptions
+		config *qrm.ResctrlConfig
 	}
 	type args struct {
 		qosLevel string
@@ -58,18 +59,18 @@ func TestResctrlProcessor_HintResp(t *testing.T) {
 		{
 			name: "default nil no change",
 			fields: fields{
-				option: nil,
+				config: nil,
 			},
 			args: args{
 				qosLevel: "shared_cores",
-				resp:     respTest,
+				resp:     genRespTest(),
 			},
-			want: respTest,
+			want: genRespTest(),
 		},
 		{
 			name: "disabled opt no change",
 			fields: fields{
-				option: &qrm.ResctrlOptions{
+				config: &qrm.ResctrlConfig{
 					EnableResctrlHint:          false,
 					CPUSetPoolToSharedSubgroup: map[string]int{"batch": 30},
 					DefaultSharedSubgroup:      50,
@@ -82,21 +83,19 @@ func TestResctrlProcessor_HintResp(t *testing.T) {
 						"katalyst.kubewharf.io/cpu_enhancement": `{"cpuset_pool":"batch"}`,
 					},
 				},
-				resp: respTest,
+				resp: genRespTest(),
 			},
-			want: respTest,
+			want: genRespTest(),
 		},
 		{
-			name: "batch is shared-30 if specified so, and no pod mon-group",
+			name: "batch is share-30 if specified so, and no pod mon-group",
 			fields: fields{
-				option: &qrm.ResctrlOptions{
+				config: &qrm.ResctrlConfig{
 					EnableResctrlHint: true,
 					CPUSetPoolToSharedSubgroup: map[string]int{
 						"batch": 30,
 					},
-					MonGroupsPolicy: &qrm.MonGroupsPolicy{
-						EnabledClosIDs: []string{"dedicated", "shared-50"},
-					},
+					MonGroupEnabledClosIDs: []string{"dedicated", "share-50"},
 				},
 			},
 			args: args{
@@ -106,7 +105,7 @@ func TestResctrlProcessor_HintResp(t *testing.T) {
 						"katalyst.kubewharf.io/cpu_enhancement": `{"cpuset_pool":"batch"}`,
 					},
 				},
-				resp: respTest,
+				resp: genRespTest(),
 			},
 			want: &pluginapi.ResourceAllocationResponse{
 				AllocationResult: &pluginapi.ResourceAllocation{
@@ -114,7 +113,7 @@ func TestResctrlProcessor_HintResp(t *testing.T) {
 						"memory": {
 							Annotations: map[string]string{
 								"test-key":                             "test-value",
-								"rdt.resources.beta.kubernetes.io/pod": "shared-30",
+								"rdt.resources.beta.kubernetes.io/pod": "share-30",
 								"rdt.resources.beta.kubernetes.io/need-mon-groups": "false",
 							},
 						},
@@ -123,16 +122,14 @@ func TestResctrlProcessor_HintResp(t *testing.T) {
 			},
 		},
 		{
-			name: "batch is shared-30, and default yes pod mon-group",
+			name: "batch is share-30, and default yes pod mon-group",
 			fields: fields{
-				option: &qrm.ResctrlOptions{
+				config: &qrm.ResctrlConfig{
 					EnableResctrlHint: true,
 					CPUSetPoolToSharedSubgroup: map[string]int{
 						"batch": 30,
 					},
-					MonGroupsPolicy: &qrm.MonGroupsPolicy{
-						EnabledClosIDs: []string{"dedicated", "shared-30"},
-					},
+					MonGroupEnabledClosIDs: []string{"dedicated", "share-30"},
 				},
 			},
 			args: args{
@@ -142,7 +139,7 @@ func TestResctrlProcessor_HintResp(t *testing.T) {
 						"katalyst.kubewharf.io/cpu_enhancement": `{"cpuset_pool":"batch"}`,
 					},
 				},
-				resp: respTest,
+				resp: genRespTest(),
 			},
 			want: &pluginapi.ResourceAllocationResponse{
 				AllocationResult: &pluginapi.ResourceAllocation{
@@ -150,7 +147,7 @@ func TestResctrlProcessor_HintResp(t *testing.T) {
 						"memory": {
 							Annotations: map[string]string{
 								"test-key":                             "test-value",
-								"rdt.resources.beta.kubernetes.io/pod": "shared-30",
+								"rdt.resources.beta.kubernetes.io/pod": "share-30",
 							},
 						},
 					},
@@ -162,8 +159,9 @@ func TestResctrlProcessor_HintResp(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			r := newResctrlHinter(tt.fields.option)
-			assert.Equalf(t, tt.want, r.HintResp(tt.args.qosLevel, tt.args.req, tt.args.resp), "HintResp(%v, %v, %v)", tt.args.qosLevel, tt.args.req, tt.args.resp)
+			r := newResctrlHinter(tt.fields.config)
+			got := r.HintResp(tt.args.qosLevel, tt.args.req, tt.args.resp)
+			assert.Equalf(t, tt.want, got, "HintResp(%v, %v, %v)", tt.args.qosLevel, tt.args.req, tt.args.resp)
 		})
 	}
 }

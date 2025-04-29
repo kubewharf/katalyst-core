@@ -84,10 +84,10 @@ type ResctrlOptions struct {
 	CPUSetPoolToSharedSubgroup map[string]int
 	DefaultSharedSubgroup      int
 
-	// MonGroupsPolicy specifies mon_groups layout policy of kubelet
+	// MonGroupEnabledClosIDs specifies mon_groups layout policy of kubelet
 	// by default no special mon_groups layout, which allows kubelet to decide by itself, suitable for scenarios
 	// that need no memory bandwidth control (which would exceed the closid limit of hardware).
-	MonGroupsPolicy string
+	MonGroupEnabledClosIDs []string
 }
 
 func NewMemoryOptions() *MemoryOptions {
@@ -123,6 +123,7 @@ func NewMemoryOptions() *MemoryOptions {
 		ResctrlOptions: ResctrlOptions{
 			CPUSetPoolToSharedSubgroup: make(map[string]int),
 			DefaultSharedSubgroup:      -1,
+			MonGroupEnabledClosIDs:     []string{},
 		},
 	}
 }
@@ -184,7 +185,8 @@ func (o *MemoryOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.CPUSetPoolToSharedSubgroup, "customize shared-xx subgroup if present")
 	fs.IntVar(&o.DefaultSharedSubgroup, "resctrl-default-shared-subgroup",
 		o.DefaultSharedSubgroup, "default subgroup for shared qos")
-	fs.StringVar(&o.MonGroupsPolicy, "resctrl-mon-groups-policy", o.MonGroupsPolicy, "type of mon-groups policy")
+	fs.StringSliceVar(&o.MonGroupEnabledClosIDs, "resctrl-mon-groups-enabled_closids",
+		o.MonGroupEnabledClosIDs, "enabled-closid mon-groups")
 }
 
 func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
@@ -215,12 +217,7 @@ func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
 	conf.EnableResctrlHint = o.EnableResctrlHint
 	conf.CPUSetPoolToSharedSubgroup = o.CPUSetPoolToSharedSubgroup
 	conf.DefaultSharedSubgroup = o.DefaultSharedSubgroup
-
-	// to parse json into receptacle struct here so to fail fast in case of invalid input
-	var err error
-	if conf.MonGroupsPolicy, err = qrmconfig.ToMonGroupsPolicy(o.MonGroupsPolicy); err != nil {
-		return err
-	}
+	conf.MonGroupEnabledClosIDs = o.MonGroupEnabledClosIDs
 
 	return nil
 }
