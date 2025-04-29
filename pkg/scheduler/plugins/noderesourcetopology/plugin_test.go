@@ -19,14 +19,14 @@ package noderesourcetopology
 import (
 	"fmt"
 
-	"github.com/kubewharf/katalyst-api/pkg/consts"
-
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 
 	config2 "github.com/kubewharf/katalyst-api/pkg/apis/scheduling/config"
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 )
 
 func MakeTestTm(args *config2.NodeResourceTopologyArgs, h framework.Handle) (framework.Plugin, error) {
@@ -62,6 +62,7 @@ func MakeTestArgs(scoringType config.ScoringStrategyType, alignedResource []stri
 func makePodByResourceList(resources *v1.ResourceList, annotation map[string]string) *v1.Pod {
 	return &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
+			UID:         uuid.NewUUID(),
 			Annotations: annotation,
 		},
 		Spec: v1.PodSpec{

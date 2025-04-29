@@ -91,10 +91,10 @@ func newTestSharedLister(pods []*v1.Pod, nodes []*v1.Node) *testSharedLister {
 	}
 }
 
-func makeTestFilterNodes(policy v1alpha1.TopologyPolicy) ([]*v1alpha1.CustomNodeResource, []string, []*v1.Pod) {
+func makeTestFilterNodes(policy v1alpha1.TopologyPolicy, namePrefix string) ([]*v1alpha1.CustomNodeResource, []string, []*v1.Pod) {
 	cnrs := []*v1alpha1.CustomNodeResource{
 		{
-			ObjectMeta: metav1.ObjectMeta{Name: "node-2numa-8c16g"},
+			ObjectMeta: metav1.ObjectMeta{Name: namePrefix + "node-2numa-8c16g"},
 			Status: v1alpha1.CustomNodeResourceStatus{
 				TopologyPolicy: policy,
 				TopologyZone: []*v1alpha1.TopologyZone{
@@ -140,7 +140,7 @@ func makeTestFilterNodes(policy v1alpha1.TopologyPolicy) ([]*v1alpha1.CustomNode
 			},
 		},
 		{
-			ObjectMeta: metav1.ObjectMeta{Name: "node-2numa-4c8g"},
+			ObjectMeta: metav1.ObjectMeta{Name: namePrefix + "node-2numa-4c8g"},
 			Status: v1alpha1.CustomNodeResourceStatus{
 				TopologyPolicy: policy,
 				TopologyZone: []*v1alpha1.TopologyZone{
@@ -186,7 +186,7 @@ func makeTestFilterNodes(policy v1alpha1.TopologyPolicy) ([]*v1alpha1.CustomNode
 			},
 		},
 		{
-			ObjectMeta: metav1.ObjectMeta{Name: "node-2numa-8c16g-with-allocation"},
+			ObjectMeta: metav1.ObjectMeta{Name: namePrefix + "node-2numa-8c16g-with-allocation"},
 			Status: v1alpha1.CustomNodeResourceStatus{
 				TopologyPolicy: policy,
 				TopologyZone: []*v1alpha1.TopologyZone{
@@ -242,7 +242,7 @@ func makeTestFilterNodes(policy v1alpha1.TopologyPolicy) ([]*v1alpha1.CustomNode
 			},
 		},
 		{
-			ObjectMeta: metav1.ObjectMeta{Name: "node-4numa-8c16g-cross-socket"},
+			ObjectMeta: metav1.ObjectMeta{Name: namePrefix + "node-4numa-8c16g-cross-socket"},
 			Status: v1alpha1.CustomNodeResourceStatus{
 				TopologyPolicy: policy,
 				TopologyZone: []*v1alpha1.TopologyZone{
@@ -336,7 +336,7 @@ func makeTestFilterNodes(policy v1alpha1.TopologyPolicy) ([]*v1alpha1.CustomNode
 			},
 		},
 		{
-			ObjectMeta: metav1.ObjectMeta{Name: "node-4numa-8c16g-full-socket"},
+			ObjectMeta: metav1.ObjectMeta{Name: namePrefix + "node-4numa-8c16g-full-socket"},
 			Status: v1alpha1.CustomNodeResourceStatus{
 				TopologyPolicy: policy,
 				TopologyZone: []*v1alpha1.TopologyZone{
@@ -441,7 +441,7 @@ func makeTestFilterNodes(policy v1alpha1.TopologyPolicy) ([]*v1alpha1.CustomNode
 				},
 			},
 			Spec: v1.PodSpec{
-				NodeName: "node-2numa-8c16g-with-allocation",
+				NodeName: namePrefix + "node-2numa-8c16g-with-allocation",
 			},
 		},
 		{
@@ -453,7 +453,7 @@ func makeTestFilterNodes(policy v1alpha1.TopologyPolicy) ([]*v1alpha1.CustomNode
 				},
 			},
 			Spec: v1.PodSpec{
-				NodeName: "node-4numa-8c16g-cross-socket",
+				NodeName: namePrefix + "node-4numa-8c16g-cross-socket",
 			},
 		},
 		{
@@ -465,7 +465,7 @@ func makeTestFilterNodes(policy v1alpha1.TopologyPolicy) ([]*v1alpha1.CustomNode
 				},
 			},
 			Spec: v1.PodSpec{
-				NodeName: "node-4numa-8c16g-cross-socket",
+				NodeName: namePrefix + "node-4numa-8c16g-cross-socket",
 			},
 		},
 		{
@@ -477,7 +477,7 @@ func makeTestFilterNodes(policy v1alpha1.TopologyPolicy) ([]*v1alpha1.CustomNode
 				},
 			},
 			Spec: v1.PodSpec{
-				NodeName: "node-4numa-8c16g-full-socket",
+				NodeName: namePrefix + "node-4numa-8c16g-full-socket",
 			},
 		},
 		{
@@ -489,17 +489,22 @@ func makeTestFilterNodes(policy v1alpha1.TopologyPolicy) ([]*v1alpha1.CustomNode
 				},
 			},
 			Spec: v1.PodSpec{
-				NodeName: "node-4numa-8c16g-full-socket",
+				NodeName: namePrefix + "node-4numa-8c16g-full-socket",
 			},
 		},
 	}
 
-	return cnrs, []string{"node-2numa-8c16g", "node-2numa-4c8g", "node-2numa-8c16g-with-allocation", "node-4numa-8c16g-cross-socket", "node-4numa-8c16g-full-socket"}, pods
+	return cnrs, []string{
+		namePrefix + "node-2numa-8c16g", namePrefix + "node-2numa-4c8g", namePrefix + "node-2numa-8c16g-with-allocation",
+		namePrefix + "node-4numa-8c16g-cross-socket", namePrefix + "node-4numa-8c16g-full-socket",
+	}, pods
 }
 
 func TestFilterNative(t *testing.T) {
+	t.Parallel()
 	type testCase struct {
 		name            string
+		prefix          string
 		policy          v1alpha1.TopologyPolicy
 		alignedResource []string
 		pod             *v1.Pod
@@ -510,6 +515,7 @@ func TestFilterNative(t *testing.T) {
 		{
 			// 4C8G pod with a 4C8G container, can not be allocated on 2C4G NUMA node
 			name:            "native pod + single numa",
+			prefix:          "FilterNative1",
 			policy:          v1alpha1.TopologyPolicySingleNUMANodeContainerLevel,
 			alignedResource: []string{"cpu", "memory"},
 			pod: makePodByResourceList(&v1.ResourceList{
@@ -527,6 +533,7 @@ func TestFilterNative(t *testing.T) {
 		{
 			// 4C8G pod with two 2C4G container, both containers can be allocated in a NUMA node
 			name:            "native pod multi container + single numa",
+			prefix:          "FilterNative2",
 			policy:          v1alpha1.TopologyPolicySingleNUMANodeContainerLevel,
 			alignedResource: []string{"cpu", "memory"},
 			pod: makePodByResourceLists([]v1.ResourceList{
@@ -548,6 +555,7 @@ func TestFilterNative(t *testing.T) {
 		},
 		{
 			name:            "native pod multi container + pod single numa",
+			prefix:          "FilterNative3",
 			policy:          v1alpha1.TopologyPolicySingleNUMANodePodLevel,
 			alignedResource: []string{"cpu", "memory"},
 			pod: makePodByResourceLists([]v1.ResourceList{
@@ -569,6 +577,7 @@ func TestFilterNative(t *testing.T) {
 		},
 		{
 			name:            "native pod + numeric",
+			prefix:          "FilterNative4",
 			policy:          v1alpha1.TopologyPolicyNumericContainerLevel,
 			alignedResource: []string{"cpu", "memory"},
 			pod: makePodByResourceList(&v1.ResourceList{
@@ -585,6 +594,7 @@ func TestFilterNative(t *testing.T) {
 		},
 		{
 			name:            "native pod without full cpu",
+			prefix:          "FilterNative5",
 			policy:          v1alpha1.TopologyPolicySingleNUMANodeContainerLevel,
 			alignedResource: []string{"cpu", "memory"},
 			pod: makePodByResourceList(&v1.ResourceList{
@@ -601,6 +611,7 @@ func TestFilterNative(t *testing.T) {
 		},
 		{
 			name:            "native pod with non numa level resource",
+			prefix:          "FilterNative6",
 			policy:          v1alpha1.TopologyPolicySingleNUMANodeContainerLevel,
 			alignedResource: []string{"cpu", "memory"},
 			pod: makePodByResourceList(&v1.ResourceList{
@@ -621,7 +632,7 @@ func TestFilterNative(t *testing.T) {
 	c := cache.GetCache()
 	util.SetQoSConfig(generic.NewQoSConfiguration())
 	for _, tc := range nativeTestCase {
-		cnrs, nodeNames, pods := makeTestFilterNodes(tc.policy)
+		cnrs, nodeNames, pods := makeTestFilterNodes(tc.policy, tc.prefix)
 		for _, cnr := range cnrs {
 			c.AddOrUpdateCNR(cnr)
 		}
@@ -657,15 +668,17 @@ func TestFilterNative(t *testing.T) {
 			if wantS == nil {
 				assert.Nil(t, ret[wantN])
 			} else {
-				assert.Equal(t, wantS.Code(), ret[wantN].Code())
+				assert.Equal(t, wantS.Code(), ret[tc.prefix+wantN].Code())
 			}
 		}
 	}
 }
 
 func TestFilterDedicatedNumaBinding(t *testing.T) {
+	t.Parallel()
 	type testCase struct {
 		name            string
+		prefix          string
 		policy          v1alpha1.TopologyPolicy
 		alignedResource []string
 		pod             *v1.Pod
@@ -675,6 +688,7 @@ func TestFilterDedicatedNumaBinding(t *testing.T) {
 	numaBindingCase := []testCase{
 		{
 			name:            "dedicated + numaBinding + single numa",
+			prefix:          "FilterDedicatedNumaBinding1",
 			policy:          v1alpha1.TopologyPolicySingleNUMANodeContainerLevel,
 			alignedResource: []string{"cpu", "memory"},
 			pod: makePodByResourceList(&v1.ResourceList{
@@ -694,6 +708,7 @@ func TestFilterDedicatedNumaBinding(t *testing.T) {
 		},
 		{
 			name:            "dedicated + numabinding + numeric",
+			prefix:          "FilterDedicatedNumaBinding2",
 			policy:          v1alpha1.TopologyPolicyNumericContainerLevel,
 			alignedResource: []string{"cpu", "memory"},
 			pod: makePodByResourceList(&v1.ResourceList{
@@ -714,6 +729,7 @@ func TestFilterDedicatedNumaBinding(t *testing.T) {
 		},
 		{
 			name:            "dedicated + numaBinding + numeric + Gpu aligned",
+			prefix:          "FilterDedicatedNumaBinding3",
 			policy:          v1alpha1.TopologyPolicyNumericContainerLevel,
 			alignedResource: []string{"cpu", "memory", "Gpu"},
 			pod: makePodByResourceList(&v1.ResourceList{
@@ -734,6 +750,7 @@ func TestFilterDedicatedNumaBinding(t *testing.T) {
 		},
 		{
 			name:            "dedicated + multiContainer + numaBinding + numeric",
+			prefix:          "FilterDedicatedNumaBinding4",
 			policy:          v1alpha1.TopologyPolicyNumericContainerLevel,
 			alignedResource: []string{"cpu", "memory"},
 			pod: makePodByResourceLists([]v1.ResourceList{
@@ -758,6 +775,7 @@ func TestFilterDedicatedNumaBinding(t *testing.T) {
 		},
 		{
 			name:            "dedicated + multiContainer + numaBinding + numeric + Gpu not aligned",
+			prefix:          "FilterDedicatedNumaBinding5",
 			policy:          v1alpha1.TopologyPolicyNumericContainerLevel,
 			alignedResource: []string{"cpu", "memory"},
 			pod: makePodByResourceLists([]v1.ResourceList{
@@ -784,6 +802,7 @@ func TestFilterDedicatedNumaBinding(t *testing.T) {
 		},
 		{
 			name:            "dedicated + multiContainer + numaBinding + numeric + Gpu aligned",
+			prefix:          "FilterDedicatedNumaBinding6",
 			policy:          v1alpha1.TopologyPolicyNumericContainerLevel,
 			alignedResource: []string{"cpu", "memory", "Gpu"},
 			pod: makePodByResourceLists([]v1.ResourceList{
@@ -813,7 +832,7 @@ func TestFilterDedicatedNumaBinding(t *testing.T) {
 	c := cache.GetCache()
 	util.SetQoSConfig(generic.NewQoSConfiguration())
 	for _, tc := range numaBindingCase {
-		cnrs, nodeNames, pods := makeTestFilterNodes(tc.policy)
+		cnrs, nodeNames, pods := makeTestFilterNodes(tc.policy, tc.prefix)
 		for _, cnr := range cnrs {
 			c.AddOrUpdateCNR(cnr)
 		}
@@ -849,15 +868,17 @@ func TestFilterDedicatedNumaBinding(t *testing.T) {
 			if wantS == nil {
 				assert.Nil(t, ret[wantN])
 			} else {
-				assert.Equal(t, wantS.Code(), ret[wantN].Code())
+				assert.Equal(t, wantS.Code(), ret[tc.prefix+wantN].Code())
 			}
 		}
 	}
 }
 
 func TestFilterDedicatedExclusive(t *testing.T) {
+	t.Parallel()
 	type testCase struct {
 		name            string
+		prefix          string
 		policy          v1alpha1.TopologyPolicy
 		alignedResource []string
 		pod             *v1.Pod
@@ -867,6 +888,7 @@ func TestFilterDedicatedExclusive(t *testing.T) {
 	numaExclusiveCase := []testCase{
 		{
 			name:            "dedicated + exclusive + single numa",
+			prefix:          "FilterDedicatedExclusive1",
 			policy:          v1alpha1.TopologyPolicySingleNUMANodeContainerLevel,
 			alignedResource: []string{"cpu", "memory"},
 			pod: makePodByResourceList(&v1.ResourceList{
@@ -886,6 +908,7 @@ func TestFilterDedicatedExclusive(t *testing.T) {
 		},
 		{
 			name:            "dedicated + exclusive + single numa + multi container",
+			prefix:          "FilterDedicatedExclusive1",
 			policy:          v1alpha1.TopologyPolicySingleNUMANodeContainerLevel,
 			alignedResource: []string{"cpu", "memory"},
 			pod: makePodByResourceLists([]v1.ResourceList{
@@ -911,6 +934,7 @@ func TestFilterDedicatedExclusive(t *testing.T) {
 		},
 		{
 			name:            "dedicated + exclusive + numeric",
+			prefix:          "FilterDedicatedExclusive1",
 			policy:          v1alpha1.TopologyPolicyNumericContainerLevel,
 			alignedResource: []string{"cpu", "memory"},
 			pod: makePodByResourceList(&v1.ResourceList{
@@ -930,6 +954,7 @@ func TestFilterDedicatedExclusive(t *testing.T) {
 		},
 		{
 			name:            "dedicated + exclusive + numeric + multi container",
+			prefix:          "FilterDedicatedExclusive1",
 			policy:          v1alpha1.TopologyPolicyNumericContainerLevel,
 			alignedResource: []string{"cpu", "memory"},
 			pod: makePodByResourceLists([]v1.ResourceList{
@@ -958,7 +983,7 @@ func TestFilterDedicatedExclusive(t *testing.T) {
 	c := cache.GetCache()
 	util.SetQoSConfig(generic.NewQoSConfiguration())
 	for _, tc := range numaExclusiveCase {
-		cnrs, nodeNames, pods := makeTestFilterNodes(tc.policy)
+		cnrs, nodeNames, pods := makeTestFilterNodes(tc.policy, tc.prefix)
 		for _, cnr := range cnrs {
 			c.AddOrUpdateCNR(cnr)
 		}
@@ -993,8 +1018,994 @@ func TestFilterDedicatedExclusive(t *testing.T) {
 			if wantS == nil {
 				assert.Nil(t, ret[wantN])
 			} else {
-				assert.Equal(t, wantS.Code(), ret[wantN].Code())
+				assert.Equal(t, wantS.Code(), ret[tc.prefix+wantN].Code())
 			}
 		}
+	}
+}
+
+func TestFilterSharedCores(t *testing.T) {
+	t.Parallel()
+	type testCase struct {
+		name       string
+		cnr        *v1alpha1.CustomNodeResource
+		node       *v1.Node
+		existsPods []*v1.Pod
+		pod        *v1.Pod
+		wantRes    *framework.Status
+	}
+
+	testCases := []testCase{
+		{
+			name: "empty node",
+			cnr: &v1alpha1.CustomNodeResource{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "TestFilterSharedCores_1",
+				},
+				Status: v1alpha1.CustomNodeResourceStatus{
+					TopologyZone: []*v1alpha1.TopologyZone{
+						{
+							Name: "0",
+							Type: v1alpha1.TopologyTypeSocket,
+							Children: []*v1alpha1.TopologyZone{
+								{
+									Name: "0",
+									Type: v1alpha1.TopologyTypeNuma,
+									Resources: v1alpha1.Resources{
+										Capacity: &v1.ResourceList{
+											v1.ResourceCPU:    resource.MustParse("4"),
+											v1.ResourceMemory: resource.MustParse("8Gi"),
+										},
+										Allocatable: &v1.ResourceList{
+											v1.ResourceCPU:    resource.MustParse("4"),
+											v1.ResourceMemory: resource.MustParse("8Gi"),
+										},
+									},
+								},
+								{
+									Name: "1",
+									Type: v1alpha1.TopologyTypeNuma,
+									Resources: v1alpha1.Resources{
+										Capacity: &v1.ResourceList{
+											v1.ResourceCPU:    resource.MustParse("4"),
+											v1.ResourceMemory: resource.MustParse("8Gi"),
+										},
+										Allocatable: &v1.ResourceList{
+											v1.ResourceCPU:    resource.MustParse("4"),
+											v1.ResourceMemory: resource.MustParse("8Gi"),
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			existsPods: []*v1.Pod{},
+			node: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "TestFilterSharedCores_1",
+				},
+				Status: v1.NodeStatus{
+					Capacity: map[v1.ResourceName]resource.Quantity{
+						v1.ResourceCPU:    resource.MustParse("8"),
+						v1.ResourceMemory: resource.MustParse("16Gi"),
+					},
+					Allocatable: map[v1.ResourceName]resource.Quantity{
+						v1.ResourceCPU:    resource.MustParse("8"),
+						v1.ResourceMemory: resource.MustParse("16Gi"),
+					},
+				},
+			},
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "testPod",
+					UID:  "testUID",
+				},
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Name: "testContainer",
+							Resources: v1.ResourceRequirements{
+								Requests: map[v1.ResourceName]resource.Quantity{
+									v1.ResourceCPU:    resource.MustParse("2"),
+									v1.ResourceMemory: resource.MustParse("4Gi"),
+								},
+								Limits: map[v1.ResourceName]resource.Quantity{
+									v1.ResourceCPU:    resource.MustParse("2"),
+									v1.ResourceMemory: resource.MustParse("4Gi"),
+								},
+							},
+						},
+					},
+				},
+			},
+			wantRes: nil,
+		},
+		{
+			name: "numa not satisfy",
+			cnr: &v1alpha1.CustomNodeResource{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "TestFilterSharedCores_2",
+				},
+				Status: v1alpha1.CustomNodeResourceStatus{
+					TopologyZone: []*v1alpha1.TopologyZone{
+						{
+							Name: "0",
+							Type: v1alpha1.TopologyTypeSocket,
+							Children: []*v1alpha1.TopologyZone{
+								{
+									Name: "0",
+									Type: v1alpha1.TopologyTypeNuma,
+									Resources: v1alpha1.Resources{
+										Capacity: &v1.ResourceList{
+											v1.ResourceCPU:    resource.MustParse("4"),
+											v1.ResourceMemory: resource.MustParse("8Gi"),
+										},
+										Allocatable: &v1.ResourceList{
+											v1.ResourceCPU:    resource.MustParse("4"),
+											v1.ResourceMemory: resource.MustParse("8Gi"),
+										},
+									},
+									Allocations: []*v1alpha1.Allocation{
+										{
+											Consumer: "/dedicated1/dedicated1",
+											Requests: &v1.ResourceList{
+												v1.ResourceCPU:    resource.MustParse("2"),
+												v1.ResourceMemory: resource.MustParse("4Gi"),
+											},
+										},
+									},
+								},
+								{
+									Name: "1",
+									Type: v1alpha1.TopologyTypeNuma,
+									Resources: v1alpha1.Resources{
+										Capacity: &v1.ResourceList{
+											v1.ResourceCPU:    resource.MustParse("4"),
+											v1.ResourceMemory: resource.MustParse("8Gi"),
+										},
+										Allocatable: &v1.ResourceList{
+											v1.ResourceCPU:    resource.MustParse("4"),
+											v1.ResourceMemory: resource.MustParse("8Gi"),
+										},
+									},
+									Allocations: []*v1alpha1.Allocation{
+										{
+											Consumer: "/dedicated2/dedicated2",
+											Requests: &v1.ResourceList{
+												v1.ResourceCPU:    resource.MustParse("2"),
+												v1.ResourceMemory: resource.MustParse("4Gi"),
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			existsPods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "dedicated1",
+						UID:  "dedicated1",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+							consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding":"true"}`,
+						},
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name: "testContainer",
+								Resources: v1.ResourceRequirements{
+									Requests: map[v1.ResourceName]resource.Quantity{
+										v1.ResourceCPU:    resource.MustParse("2"),
+										v1.ResourceMemory: resource.MustParse("4Gi"),
+									},
+									Limits: map[v1.ResourceName]resource.Quantity{
+										v1.ResourceCPU:    resource.MustParse("2"),
+										v1.ResourceMemory: resource.MustParse("4Gi"),
+									},
+								},
+							},
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "dedicated2",
+						UID:  "dedicated2",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+							consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding":"true"}`,
+						},
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name: "testContainer",
+								Resources: v1.ResourceRequirements{
+									Requests: map[v1.ResourceName]resource.Quantity{
+										v1.ResourceCPU:    resource.MustParse("2"),
+										v1.ResourceMemory: resource.MustParse("4Gi"),
+									},
+									Limits: map[v1.ResourceName]resource.Quantity{
+										v1.ResourceCPU:    resource.MustParse("2"),
+										v1.ResourceMemory: resource.MustParse("4Gi"),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			node: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "TestFilterSharedCores_2",
+				},
+				Status: v1.NodeStatus{
+					Capacity: map[v1.ResourceName]resource.Quantity{
+						v1.ResourceCPU:    resource.MustParse("8"),
+						v1.ResourceMemory: resource.MustParse("16Gi"),
+					},
+					Allocatable: map[v1.ResourceName]resource.Quantity{
+						v1.ResourceCPU:    resource.MustParse("8"),
+						v1.ResourceMemory: resource.MustParse("16Gi"),
+					},
+				},
+			},
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "testPod",
+					UID:  "testUID",
+				},
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Name: "testContainer",
+							Resources: v1.ResourceRequirements{
+								Requests: map[v1.ResourceName]resource.Quantity{
+									v1.ResourceCPU:    resource.MustParse("2"),
+									v1.ResourceMemory: resource.MustParse("4Gi"),
+								},
+								Limits: map[v1.ResourceName]resource.Quantity{
+									v1.ResourceCPU:    resource.MustParse("2"),
+									v1.ResourceMemory: resource.MustParse("4Gi"),
+								},
+							},
+						},
+					},
+				},
+			},
+			wantRes: framework.NewStatus(framework.Unschedulable, ""),
+		},
+		{
+			name: "single numa resource not satisfy",
+			cnr: &v1alpha1.CustomNodeResource{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "TestFilterSharedCores_3",
+				},
+				Status: v1alpha1.CustomNodeResourceStatus{
+					TopologyZone: []*v1alpha1.TopologyZone{
+						{
+							Name: "0",
+							Type: v1alpha1.TopologyTypeSocket,
+							Children: []*v1alpha1.TopologyZone{
+								{
+									Name: "0",
+									Type: v1alpha1.TopologyTypeNuma,
+									Resources: v1alpha1.Resources{
+										Capacity: &v1.ResourceList{
+											v1.ResourceCPU:    resource.MustParse("4"),
+											v1.ResourceMemory: resource.MustParse("8Gi"),
+										},
+										Allocatable: &v1.ResourceList{
+											v1.ResourceCPU:    resource.MustParse("4"),
+											v1.ResourceMemory: resource.MustParse("8Gi"),
+										},
+									},
+									Allocations: []*v1alpha1.Allocation{
+										{
+											Consumer: "/dedicated1/dedicated1",
+											Requests: &v1.ResourceList{
+												v1.ResourceCPU:    resource.MustParse("2"),
+												v1.ResourceMemory: resource.MustParse("4Gi"),
+											},
+										},
+									},
+								},
+								{
+									Name: "1",
+									Type: v1alpha1.TopologyTypeNuma,
+									Resources: v1alpha1.Resources{
+										Capacity: &v1.ResourceList{
+											v1.ResourceCPU:    resource.MustParse("4"),
+											v1.ResourceMemory: resource.MustParse("8Gi"),
+										},
+										Allocatable: &v1.ResourceList{
+											v1.ResourceCPU:    resource.MustParse("4"),
+											v1.ResourceMemory: resource.MustParse("8Gi"),
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			existsPods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "dedicated1",
+						UID:  "dedicated1",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+							consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding":"true"}`,
+						},
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name: "testContainer",
+								Resources: v1.ResourceRequirements{
+									Requests: map[v1.ResourceName]resource.Quantity{
+										v1.ResourceCPU:    resource.MustParse("2"),
+										v1.ResourceMemory: resource.MustParse("4Gi"),
+									},
+									Limits: map[v1.ResourceName]resource.Quantity{
+										v1.ResourceCPU:    resource.MustParse("2"),
+										v1.ResourceMemory: resource.MustParse("4Gi"),
+									},
+								},
+							},
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "shared1",
+						UID:  "shared1",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+						},
+					},
+					Spec: v1.PodSpec{
+						NodeName: "TestFilterSharedCores_3",
+						Containers: []v1.Container{
+							{
+								Name: "testContainer",
+								Resources: v1.ResourceRequirements{
+									Requests: map[v1.ResourceName]resource.Quantity{
+										v1.ResourceCPU:    resource.MustParse("2"),
+										v1.ResourceMemory: resource.MustParse("4Gi"),
+									},
+									Limits: map[v1.ResourceName]resource.Quantity{
+										v1.ResourceCPU:    resource.MustParse("2"),
+										v1.ResourceMemory: resource.MustParse("4Gi"),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			node: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "TestFilterSharedCores_3",
+				},
+				Status: v1.NodeStatus{
+					Capacity: map[v1.ResourceName]resource.Quantity{
+						v1.ResourceCPU:    resource.MustParse("8"),
+						v1.ResourceMemory: resource.MustParse("16Gi"),
+					},
+					Allocatable: map[v1.ResourceName]resource.Quantity{
+						v1.ResourceCPU:    resource.MustParse("8"),
+						v1.ResourceMemory: resource.MustParse("16Gi"),
+					},
+				},
+			},
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "testPod",
+					UID:  "testUID",
+				},
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Name: "testContainer",
+							Resources: v1.ResourceRequirements{
+								Requests: map[v1.ResourceName]resource.Quantity{
+									v1.ResourceCPU:    resource.MustParse("2"),
+									v1.ResourceMemory: resource.MustParse("6Gi"),
+								},
+								Limits: map[v1.ResourceName]resource.Quantity{
+									v1.ResourceCPU:    resource.MustParse("2"),
+									v1.ResourceMemory: resource.MustParse("6Gi"),
+								},
+							},
+						},
+					},
+				},
+			},
+			wantRes: framework.NewStatus(framework.Unschedulable, ""),
+		},
+		{
+			name: "numa resource not satisfy for existed shared pods",
+			cnr: &v1alpha1.CustomNodeResource{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "TestFilterSharedCores_4",
+				},
+				Status: v1alpha1.CustomNodeResourceStatus{
+					TopologyPolicy: "NumericContainerLevel",
+					TopologyZone: []*v1alpha1.TopologyZone{
+						{
+							Name: "0",
+							Type: v1alpha1.TopologyTypeSocket,
+							Children: []*v1alpha1.TopologyZone{
+								{
+									Name: "0",
+									Type: v1alpha1.TopologyTypeNuma,
+									Resources: v1alpha1.Resources{
+										Capacity: &v1.ResourceList{
+											v1.ResourceCPU:    resource.MustParse("4"),
+											v1.ResourceMemory: resource.MustParse("8Gi"),
+										},
+										Allocatable: &v1.ResourceList{
+											v1.ResourceCPU:    resource.MustParse("4"),
+											v1.ResourceMemory: resource.MustParse("8Gi"),
+										},
+									},
+									Allocations: []*v1alpha1.Allocation{
+										{
+											Consumer: "/dedicated1/dedicated1",
+											Requests: &v1.ResourceList{
+												v1.ResourceCPU:    resource.MustParse("2"),
+												v1.ResourceMemory: resource.MustParse("4Gi"),
+											},
+										},
+									},
+								},
+								{
+									Name: "1",
+									Type: v1alpha1.TopologyTypeNuma,
+									Resources: v1alpha1.Resources{
+										Capacity: &v1.ResourceList{
+											v1.ResourceCPU:    resource.MustParse("4"),
+											v1.ResourceMemory: resource.MustParse("8Gi"),
+										},
+										Allocatable: &v1.ResourceList{
+											v1.ResourceCPU:    resource.MustParse("4"),
+											v1.ResourceMemory: resource.MustParse("8Gi"),
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			existsPods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "shared2",
+						UID:  "shared2",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+						},
+					},
+					Spec: v1.PodSpec{
+						NodeName: "TestFilterSharedCores_4",
+						Containers: []v1.Container{
+							{
+								Name: "testContainer",
+								Resources: v1.ResourceRequirements{
+									Requests: map[v1.ResourceName]resource.Quantity{
+										v1.ResourceCPU:    resource.MustParse("2"),
+										v1.ResourceMemory: resource.MustParse("4Gi"),
+									},
+									Limits: map[v1.ResourceName]resource.Quantity{
+										v1.ResourceCPU:    resource.MustParse("2"),
+										v1.ResourceMemory: resource.MustParse("4Gi"),
+									},
+								},
+							},
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "shared1",
+						UID:  "shared1",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+						},
+					},
+					Spec: v1.PodSpec{
+						NodeName: "TestFilterSharedCores_4",
+						Containers: []v1.Container{
+							{
+								Name: "testContainer",
+								Resources: v1.ResourceRequirements{
+									Requests: map[v1.ResourceName]resource.Quantity{
+										v1.ResourceCPU:    resource.MustParse("2"),
+										v1.ResourceMemory: resource.MustParse("4Gi"),
+									},
+									Limits: map[v1.ResourceName]resource.Quantity{
+										v1.ResourceCPU:    resource.MustParse("2"),
+										v1.ResourceMemory: resource.MustParse("4Gi"),
+									},
+								},
+							},
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "shared3",
+						UID:  "shared3",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+						},
+					},
+					Spec: v1.PodSpec{
+						NodeName: "TestFilterSharedCores_4",
+						Containers: []v1.Container{
+							{
+								Name: "testContainer",
+								Resources: v1.ResourceRequirements{
+									Requests: map[v1.ResourceName]resource.Quantity{
+										v1.ResourceCPU:    resource.MustParse("2"),
+										v1.ResourceMemory: resource.MustParse("4Gi"),
+									},
+									Limits: map[v1.ResourceName]resource.Quantity{
+										v1.ResourceCPU:    resource.MustParse("2"),
+										v1.ResourceMemory: resource.MustParse("4Gi"),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			node: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "TestFilterSharedCores_4",
+				},
+				Status: v1.NodeStatus{
+					Capacity: map[v1.ResourceName]resource.Quantity{
+						v1.ResourceCPU:    resource.MustParse("8"),
+						v1.ResourceMemory: resource.MustParse("16Gi"),
+					},
+					Allocatable: map[v1.ResourceName]resource.Quantity{
+						v1.ResourceCPU:    resource.MustParse("8"),
+						v1.ResourceMemory: resource.MustParse("16Gi"),
+					},
+				},
+			},
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "testPod",
+					UID:  "testUID",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+						consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding":"true"}`,
+					},
+				},
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Name: "testContainer",
+							Resources: v1.ResourceRequirements{
+								Requests: map[v1.ResourceName]resource.Quantity{
+									v1.ResourceCPU:    resource.MustParse("2"),
+									v1.ResourceMemory: resource.MustParse("4Gi"),
+								},
+								Limits: map[v1.ResourceName]resource.Quantity{
+									v1.ResourceCPU:    resource.MustParse("2"),
+									v1.ResourceMemory: resource.MustParse("4Gi"),
+								},
+							},
+						},
+					},
+				},
+			},
+			wantRes: framework.NewStatus(framework.Unschedulable, ""),
+		},
+		{
+			name: "numa resource not satisfy for existed shared pods singlenumanode",
+			cnr: &v1alpha1.CustomNodeResource{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "TestFilterSharedCores_5",
+				},
+				Status: v1alpha1.CustomNodeResourceStatus{
+					TopologyPolicy: "SingleNUMANodeContainerLevel",
+					TopologyZone: []*v1alpha1.TopologyZone{
+						{
+							Name: "0",
+							Type: v1alpha1.TopologyTypeSocket,
+							Children: []*v1alpha1.TopologyZone{
+								{
+									Name: "0",
+									Type: v1alpha1.TopologyTypeNuma,
+									Resources: v1alpha1.Resources{
+										Capacity: &v1.ResourceList{
+											v1.ResourceCPU:    resource.MustParse("4"),
+											v1.ResourceMemory: resource.MustParse("8Gi"),
+										},
+										Allocatable: &v1.ResourceList{
+											v1.ResourceCPU:    resource.MustParse("4"),
+											v1.ResourceMemory: resource.MustParse("8Gi"),
+										},
+									},
+									Allocations: []*v1alpha1.Allocation{
+										{
+											Consumer: "/dedicated1/dedicated1",
+											Requests: &v1.ResourceList{
+												v1.ResourceCPU:    resource.MustParse("2"),
+												v1.ResourceMemory: resource.MustParse("4Gi"),
+											},
+										},
+									},
+								},
+								{
+									Name: "1",
+									Type: v1alpha1.TopologyTypeNuma,
+									Resources: v1alpha1.Resources{
+										Capacity: &v1.ResourceList{
+											v1.ResourceCPU:    resource.MustParse("4"),
+											v1.ResourceMemory: resource.MustParse("8Gi"),
+										},
+										Allocatable: &v1.ResourceList{
+											v1.ResourceCPU:    resource.MustParse("4"),
+											v1.ResourceMemory: resource.MustParse("8Gi"),
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			existsPods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "shared2",
+						UID:  "shared2",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+						},
+					},
+					Spec: v1.PodSpec{
+						NodeName: "TestFilterSharedCores_5",
+						Containers: []v1.Container{
+							{
+								Name: "testContainer",
+								Resources: v1.ResourceRequirements{
+									Requests: map[v1.ResourceName]resource.Quantity{
+										v1.ResourceCPU:    resource.MustParse("2"),
+										v1.ResourceMemory: resource.MustParse("4Gi"),
+									},
+									Limits: map[v1.ResourceName]resource.Quantity{
+										v1.ResourceCPU:    resource.MustParse("2"),
+										v1.ResourceMemory: resource.MustParse("4Gi"),
+									},
+								},
+							},
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "shared1",
+						UID:  "shared1",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+						},
+					},
+					Spec: v1.PodSpec{
+						NodeName: "TestFilterSharedCores_5",
+						Containers: []v1.Container{
+							{
+								Name: "testContainer",
+								Resources: v1.ResourceRequirements{
+									Requests: map[v1.ResourceName]resource.Quantity{
+										v1.ResourceCPU:    resource.MustParse("2"),
+										v1.ResourceMemory: resource.MustParse("4Gi"),
+									},
+									Limits: map[v1.ResourceName]resource.Quantity{
+										v1.ResourceCPU:    resource.MustParse("2"),
+										v1.ResourceMemory: resource.MustParse("4Gi"),
+									},
+								},
+							},
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "shared3",
+						UID:  "shared3",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+						},
+					},
+					Spec: v1.PodSpec{
+						NodeName: "TestFilterSharedCores_5",
+						Containers: []v1.Container{
+							{
+								Name: "testContainer",
+								Resources: v1.ResourceRequirements{
+									Requests: map[v1.ResourceName]resource.Quantity{
+										v1.ResourceCPU:    resource.MustParse("2"),
+										v1.ResourceMemory: resource.MustParse("4Gi"),
+									},
+									Limits: map[v1.ResourceName]resource.Quantity{
+										v1.ResourceCPU:    resource.MustParse("2"),
+										v1.ResourceMemory: resource.MustParse("4Gi"),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			node: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "TestFilterSharedCores_5",
+				},
+				Status: v1.NodeStatus{
+					Capacity: map[v1.ResourceName]resource.Quantity{
+						v1.ResourceCPU:    resource.MustParse("8"),
+						v1.ResourceMemory: resource.MustParse("16Gi"),
+					},
+					Allocatable: map[v1.ResourceName]resource.Quantity{
+						v1.ResourceCPU:    resource.MustParse("8"),
+						v1.ResourceMemory: resource.MustParse("16Gi"),
+					},
+				},
+			},
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "testPod",
+					UID:  "testUID",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+						consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding":"true"}`,
+					},
+				},
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Name: "testContainer",
+							Resources: v1.ResourceRequirements{
+								Requests: map[v1.ResourceName]resource.Quantity{
+									v1.ResourceCPU:    resource.MustParse("2"),
+									v1.ResourceMemory: resource.MustParse("4Gi"),
+								},
+								Limits: map[v1.ResourceName]resource.Quantity{
+									v1.ResourceCPU:    resource.MustParse("2"),
+									v1.ResourceMemory: resource.MustParse("4Gi"),
+								},
+							},
+						},
+					},
+				},
+			},
+			wantRes: framework.NewStatus(framework.Unschedulable, ""),
+		},
+		{
+			name: "numa resource satisfy for existed shared pods",
+			cnr: &v1alpha1.CustomNodeResource{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "TestFilterSharedCores_6",
+				},
+				Status: v1alpha1.CustomNodeResourceStatus{
+					TopologyPolicy: "SingleNumaNodeContainerLevel",
+					TopologyZone: []*v1alpha1.TopologyZone{
+						{
+							Name: "0",
+							Type: v1alpha1.TopologyTypeSocket,
+							Children: []*v1alpha1.TopologyZone{
+								{
+									Name: "0",
+									Type: v1alpha1.TopologyTypeNuma,
+									Resources: v1alpha1.Resources{
+										Capacity: &v1.ResourceList{
+											v1.ResourceCPU:    resource.MustParse("4"),
+											v1.ResourceMemory: resource.MustParse("8Gi"),
+										},
+										Allocatable: &v1.ResourceList{
+											v1.ResourceCPU:    resource.MustParse("4"),
+											v1.ResourceMemory: resource.MustParse("8Gi"),
+										},
+									},
+									Allocations: []*v1alpha1.Allocation{
+										{
+											Consumer: "/dedicated1/dedicated1",
+											Requests: &v1.ResourceList{
+												v1.ResourceCPU:    resource.MustParse("2"),
+												v1.ResourceMemory: resource.MustParse("4Gi"),
+											},
+										},
+									},
+								},
+								{
+									Name: "1",
+									Type: v1alpha1.TopologyTypeNuma,
+									Resources: v1alpha1.Resources{
+										Capacity: &v1.ResourceList{
+											v1.ResourceCPU:    resource.MustParse("4"),
+											v1.ResourceMemory: resource.MustParse("8Gi"),
+										},
+										Allocatable: &v1.ResourceList{
+											v1.ResourceCPU:    resource.MustParse("4"),
+											v1.ResourceMemory: resource.MustParse("8Gi"),
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			existsPods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "shared2",
+						UID:  "shared2",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+						},
+					},
+					Spec: v1.PodSpec{
+						NodeName: "TestFilterSharedCores_6",
+						Containers: []v1.Container{
+							{
+								Name: "testContainer",
+								Resources: v1.ResourceRequirements{
+									Requests: map[v1.ResourceName]resource.Quantity{
+										v1.ResourceCPU:    resource.MustParse("2"),
+										v1.ResourceMemory: resource.MustParse("4Gi"),
+									},
+									Limits: map[v1.ResourceName]resource.Quantity{
+										v1.ResourceCPU:    resource.MustParse("2"),
+										v1.ResourceMemory: resource.MustParse("4Gi"),
+									},
+								},
+							},
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "shared1",
+						UID:  "shared1",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+						},
+					},
+					Spec: v1.PodSpec{
+						NodeName: "TestFilterSharedCores_6",
+						Containers: []v1.Container{
+							{
+								Name: "testContainer",
+								Resources: v1.ResourceRequirements{
+									Requests: map[v1.ResourceName]resource.Quantity{
+										v1.ResourceCPU:    resource.MustParse("2"),
+										v1.ResourceMemory: resource.MustParse("4Gi"),
+									},
+									Limits: map[v1.ResourceName]resource.Quantity{
+										v1.ResourceCPU:    resource.MustParse("2"),
+										v1.ResourceMemory: resource.MustParse("4Gi"),
+									},
+								},
+							},
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "dedicated1",
+						UID:  "dedicated1",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+						},
+					},
+					Spec: v1.PodSpec{
+						NodeName: "TestFilterSharedCores_6",
+						Containers: []v1.Container{
+							{
+								Name: "testContainer",
+								Resources: v1.ResourceRequirements{
+									Requests: map[v1.ResourceName]resource.Quantity{
+										v1.ResourceCPU:    resource.MustParse("2"),
+										v1.ResourceMemory: resource.MustParse("4Gi"),
+									},
+									Limits: map[v1.ResourceName]resource.Quantity{
+										v1.ResourceCPU:    resource.MustParse("2"),
+										v1.ResourceMemory: resource.MustParse("4Gi"),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			node: &v1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "TestFilterSharedCores_6",
+				},
+				Status: v1.NodeStatus{
+					Capacity: map[v1.ResourceName]resource.Quantity{
+						v1.ResourceCPU:    resource.MustParse("8"),
+						v1.ResourceMemory: resource.MustParse("16Gi"),
+					},
+					Allocatable: map[v1.ResourceName]resource.Quantity{
+						v1.ResourceCPU:    resource.MustParse("8"),
+						v1.ResourceMemory: resource.MustParse("16Gi"),
+					},
+				},
+			},
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "testPod",
+					UID:  "testUID",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+						consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding":"true"}`,
+					},
+				},
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Name: "testContainer",
+							Resources: v1.ResourceRequirements{
+								Requests: map[v1.ResourceName]resource.Quantity{
+									v1.ResourceCPU:    resource.MustParse("2"),
+									v1.ResourceMemory: resource.MustParse("4Gi"),
+								},
+								Limits: map[v1.ResourceName]resource.Quantity{
+									v1.ResourceCPU:    resource.MustParse("2"),
+									v1.ResourceMemory: resource.MustParse("4Gi"),
+								},
+							},
+						},
+					},
+				},
+			},
+			wantRes: nil,
+		},
+	}
+
+	c := cache.GetCache()
+	util.SetQoSConfig(generic.NewQoSConfiguration())
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			c.AddOrUpdateCNR(tc.cnr)
+			for _, pod := range tc.existsPods {
+				c.AddPod(pod)
+			}
+
+			nodeInfo := framework.NewNodeInfo(tc.existsPods...)
+			nodeInfo.SetNode(tc.node)
+
+			f, err := runtime.NewFramework(nil, nil,
+				runtime.WithSnapshotSharedLister(newTestSharedLister(tc.existsPods, []*v1.Node{tc.node})))
+			assert.NoError(t, err)
+
+			tm, err := MakeTestTm(MakeTestArgs(config.MostAllocated, []string{}, "dynamic"), f)
+			assert.NoError(t, err)
+
+			status := tm.(*TopologyMatch).Filter(context.TODO(), nil, tc.pod, nodeInfo)
+			if status == nil {
+				assert.Equal(t, tc.wantRes, status)
+			} else {
+				assert.Equal(t, tc.wantRes.Code(), status.Code())
+			}
+		})
 	}
 }

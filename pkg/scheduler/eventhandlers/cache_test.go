@@ -27,7 +27,9 @@ import (
 
 	apis "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	schedulercache "github.com/kubewharf/katalyst-core/pkg/scheduler/cache"
+	"github.com/kubewharf/katalyst-core/pkg/scheduler/util"
 )
 
 var makeCachedPod = func(uid types.UID, name string, res v1.ResourceList, node string) *v1.Pod {
@@ -36,6 +38,9 @@ var makeCachedPod = func(uid types.UID, name string, res v1.ResourceList, node s
 			Namespace: "n1",
 			Name:      name,
 			UID:       uid,
+			Annotations: map[string]string{
+				consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+			},
 		},
 		Spec: v1.PodSpec{
 			Containers: []v1.Container{
@@ -68,6 +73,7 @@ var makeCachedCNR = func(name string, res v1.ResourceList) *apis.CustomNodeResou
 func Test_CalculateQoSResource(t *testing.T) {
 	t.Parallel()
 
+	util.SetQoSConfig(generic.NewQoSConfiguration())
 	cache := schedulercache.GetCache()
 
 	_, err := cache.GetNodeInfo("c1")

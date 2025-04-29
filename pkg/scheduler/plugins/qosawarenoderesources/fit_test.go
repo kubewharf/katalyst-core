@@ -150,6 +150,7 @@ var makeFitCNR = func(name string, res v1.ResourceList) *apis.CustomNodeResource
 }
 
 func Test_Fit(t *testing.T) {
+	t.Parallel()
 	util.SetQoSConfig(generic.NewQoSConfiguration())
 
 	f, err := makeFit(kubeschedulerconfig.LeastAllocated)
@@ -199,6 +200,7 @@ func Test_Fit(t *testing.T) {
 }
 
 func Test_Allocated(t *testing.T) {
+	t.Parallel()
 	util.SetQoSConfig(generic.NewQoSConfiguration())
 
 	f, _ := makeFit(kubeschedulerconfig.LeastAllocated)
@@ -208,12 +210,12 @@ func Test_Allocated(t *testing.T) {
 	p1 := makeFitPod("p1", "p1", map[v1.ResourceName]resource.Quantity{
 		consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(2000, resource.DecimalSI),
 		consts.ReclaimedResourceMemory:   *resource.NewQuantity(2*1024*0o124*1024, resource.DecimalSI),
-	}, "n1")
+	}, "Test_Allocated_n1")
 	p2 := makeFitPod("p2", "p2", map[v1.ResourceName]resource.Quantity{
 		consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(3000, resource.DecimalSI),
 		consts.ReclaimedResourceMemory:   *resource.NewQuantity(3*1024*0o124*1024, resource.DecimalSI),
-	}, "n1")
-	n1 := makeFitNode("n1", []*v1.Pod{p1, p2}, map[v1.ResourceName]resource.Quantity{
+	}, "Test_Allocated_n1")
+	n1 := makeFitNode("Test_Allocated_n1", []*v1.Pod{p1, p2}, map[v1.ResourceName]resource.Quantity{
 		consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(9000, resource.DecimalSI),
 		consts.ReclaimedResourceMemory:   *resource.NewQuantity(12*1024*0o124*1024, resource.DecimalSI),
 	})
@@ -228,7 +230,7 @@ func Test_Allocated(t *testing.T) {
 	t.Logf("%v", status.Reasons())
 	assert.Equal(t, status.IsSuccess(), false)
 
-	c1 := makeFitCNR("n1", map[v1.ResourceName]resource.Quantity{
+	c1 := makeFitCNR("Test_Allocated_n1", map[v1.ResourceName]resource.Quantity{
 		consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(9000, resource.DecimalSI),
 		consts.ReclaimedResourceMemory:   *resource.NewQuantity(12*1024*0o124*1024, resource.DecimalSI),
 	})
@@ -248,22 +250,23 @@ func Test_Allocated(t *testing.T) {
 }
 
 func Test_FitScore(t *testing.T) {
+	t.Parallel()
 	util.SetQoSConfig(generic.NewQoSConfiguration())
 
 	state := framework.NewCycleState()
 	p1 := makeFitPod("p1", "p1", map[v1.ResourceName]resource.Quantity{
 		consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(2000, resource.DecimalSI),
 		consts.ReclaimedResourceMemory:   *resource.NewQuantity(2*1024*0o124*1024, resource.DecimalSI),
-	}, "n1")
+	}, "Test_FitScore_n1")
 	_ = cache.GetCache().AddPod(p1)
 
 	p2 := makeFitPod("p2", "p2", map[v1.ResourceName]resource.Quantity{
 		consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(3000, resource.DecimalSI),
 		consts.ReclaimedResourceMemory:   *resource.NewQuantity(3*1024*0o124*1024, resource.DecimalSI),
-	}, "n1")
+	}, "Test_FitScore_n1")
 	_ = cache.GetCache().AddPod(p2)
 
-	c1 := makeFitCNR("n1", map[v1.ResourceName]resource.Quantity{
+	c1 := makeFitCNR("Test_FitScore_n1", map[v1.ResourceName]resource.Quantity{
 		consts.ReclaimedResourceMilliCPU: *resource.NewQuantity(9000, resource.DecimalSI),
 		consts.ReclaimedResourceMemory:   *resource.NewQuantity(12*1024*0o124*1024, resource.DecimalSI),
 	})
@@ -276,16 +279,16 @@ func Test_FitScore(t *testing.T) {
 
 	leastF, _ := makeFit(kubeschedulerconfig.LeastAllocated)
 	leastFit := leastF.(*Fit)
-	score, _ := leastFit.Score(context.Background(), state, p3, "n1")
+	score, _ := leastFit.Score(context.Background(), state, p3, "Test_FitScore_n1")
 	assert.Equal(t, score, int64(26))
 
 	mostF, _ := makeFit(kubeschedulerconfig.MostAllocated)
 	mostFit := mostF.(*Fit)
-	score, _ = mostFit.Score(context.Background(), state, p3, "n1")
+	score, _ = mostFit.Score(context.Background(), state, p3, "Test_FitScore_n1")
 	assert.Equal(t, score, int64(72))
 
 	ratioF, _ := makeFit(kubeschedulerconfig.RequestedToCapacityRatio)
 	ratioFit := ratioF.(*Fit)
-	score, _ = ratioFit.Score(context.Background(), state, p3, "n1")
+	score, _ = ratioFit.Score(context.Background(), state, p3, "Test_FitScore_n1")
 	assert.Equal(t, score, int64(70))
 }
