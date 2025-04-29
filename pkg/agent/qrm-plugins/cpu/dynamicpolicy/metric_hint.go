@@ -32,15 +32,20 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
+var thresholdNameToResourceName = map[string]string{
+	metricthreshold.NUMACPUUsageRatioThreshold: consts.MetricCPUUsageContainer,
+	metricthreshold.NUMACPULoadRatioThreshold:  consts.MetricLoad1MinContainer,
+}
+
 func (p *DynamicPolicy) collectNUMAMetrics() {
 	_ = p.emitter.StoreInt64(util.MetricNameCollectNUMAMetrics, 1, metrics.MetricTypeNameRaw)
 	collectTime := time.Now().UnixNano()
 	machineState := p.state.GetMachineState()
 	for numaID, subEntries := range p.numaMetrics {
-		for _, resourceName := range []string{consts.MetricCPUUsageContainer, consts.MetricLoad1MinContainer} {
-			value, err := p.getNUMAMeric(numaID, resourceName, machineState)
+		for _, resourceName := range thresholdNameToResourceName {
+			value, err := p.getNUMAMetric(numaID, resourceName, machineState)
 			if err != nil {
-				general.Errorf("getNUMAMeric failed with error: %v", err)
+				general.Errorf("getNUMAMetric failed with error: %v", err)
 				continue
 			}
 
@@ -55,12 +60,12 @@ func (p *DynamicPolicy) collectNUMAMetrics() {
 				Time: collectTime,
 			})
 
-			general.Infof("numa: %d, resourceName: %s, value: %.2f, window_size: %d", numaID, resourceName, value, subEntries[resourceName].Len())
+			general.Infof("numa: %d, resourceName: %s, value: %.2f, windowSize: %d", numaID, resourceName, value, subEntries[resourceName].Len())
 		}
 	}
 }
 
-func (p *DynamicPolicy) getNUMAMeric(numa int, resourceName string, machineState state.NUMANodeMap) (float64, error) {
+func (p *DynamicPolicy) getNUMAMetric(numa int, resourceName string, machineState state.NUMANodeMap) (float64, error) {
 	if machineState == nil || machineState[numa] == nil {
 		return 0.0, fmt.Errorf("invalid machineState")
 	}
@@ -82,14 +87,32 @@ func (p *DynamicPolicy) getNUMAMeric(numa int, resourceName string, machineState
 	return sum, nil
 }
 
-func (p *DynamicPolicy) getNUMAMetricThreshold(resourceName string) (float64, error) {
+func (p *DynamicPolicy) getNUMAMetricThresholdNameToValue() (map[string]float64, error) {
 	if p.dynamicConfig == nil {
-		return 0.0, fmt.Errorf("nil dynamicConf")
+		return nil, fmt.Errorf("nil dynamicConf")
 	} else if p.metaServer == nil {
-		return 0.0, fmt.Errorf("nil metaServer")
+		return nil, fmt.Errorf("nil metaServer")
 	}
 
 	metricThreshold := p.dynamicConfig.GetDynamicConfiguration().MetricThreshold
+	if metricThreshold == nil {
+		return nil, fmt.Errorf("nil metricThreshold")
+	}
+
+	res := make(map[string]float64, len(thresholdNameToResourceName))
+	for thresholdName := range thresholdNameToResourceName {
+		thresholdValue, err := p.getNUMAMetricThreshold(thresholdName, metricThreshold)
+		if err != nil {
+			return nil, fmt.Errorf("getNUMAMetricThreshold failed for %s", thresholdName)
+		}
+
+		res[thresholdName] = thresholdValue
+	}
+
+	return res, nil
+}
+
+func (p *DynamicPolicy) getNUMAMetricThreshold(thresholdName string, metricThreshold *metricthreshold.MetricThreshold) (float64, error) {
 	if metricThreshold == nil {
 		return 0.0, fmt.Errorf("nil metricThreshold")
 	}
@@ -106,21 +129,11 @@ func (p *DynamicPolicy) getNUMAMetricThreshold(resourceName string) (float64, er
 	if !ok {
 		return 0.0, fmt.Errorf("parse is_vm failed")
 	}
-	switch resourceName {
-	case consts.MetricCPUUsageContainer:
-		if value, found := metricThreshold.Threshold[cpuCodeName][isVM]["cpu_usage_threshold"]; found {
-			return value, nil
-		} else {
-			return 0.0, fmt.Errorf("threshold: %s isn't found cpuCodeName: %s and isVM: %v", "cpu_usage_threshold", cpuCodeName, isVM)
-		}
-	case consts.MetricLoad1MinContainer:
-		if value, found := metricThreshold.Threshold[cpuCodeName][isVM]["cpu_load_threshold"]; found {
-			return value, nil
-		} else {
-			return 0.0, fmt.Errorf("threshold: %s isn't found cpuCodeName: %s and isVM: %v", "cpu_usage_threshold", cpuCodeName, isVM)
-		}
-	default:
-		return 0.0, fmt.Errorf("invalid resourceName: %s", resourceName)
+
+	if value, found := metricThreshold.Threshold[cpuCodeName][isVM][thresholdName]; found {
+		return value, nil
+	} else {
+		return 0.0, fmt.Errorf("threshold: %s isn't found cpuCodeName: %s and isVM: %v", thresholdName, cpuCodeName, isVM)
 	}
 }
 
@@ -155,14 +168,20 @@ func (p *DynamicPolicy) isNUMAOverThreshold(numa int, threshold, request float64
 func (p *DynamicPolicy) populateHintsByMetricPolicy(numaNodes []int,
 	hints *pluginapi.ListOfTopologyHints, machineState state.NUMANodeMap, request float64,
 ) error {
+	thresholdNameToValue, err := p.getNUMAMetricThresholdNameToValue()
+	if err != nil {
+		return fmt.Errorf("getNUMAMetricThresholdNameToValue faield with error: %v", err)
+	}
+
 	general.Infof("candidate numaNodes: %+v", numaNodes)
+
 	tmpHints := make([]*pluginapi.TopologyHint, 0, len(numaNodes))
 	for _, numaID := range numaNodes {
 		prefer := true
-		for _, resourceName := range []string{consts.MetricCPUUsageContainer, consts.MetricLoad1MinContainer} {
-			threshold, err := p.getNUMAMetricThreshold(resourceName)
-			if err != nil {
-				return fmt.Errorf("get numa metric threshold for %s failed: %v", resourceName, err)
+		for thresholdName, resourceName := range thresholdNameToResourceName {
+			threshold, found := thresholdNameToValue[thresholdName]
+			if !found {
+				return fmt.Errorf("threshold %s not found", thresholdName)
 			}
 
 			overThreshold, err := p.isNUMAOverThreshold(numaID, threshold, request, resourceName, machineState)

@@ -22,6 +22,9 @@ import (
 
 const (
 	DefaultCPUCodeName = "default"
+
+	NUMACPUUsageRatioThreshold = "numa_cpu_usage_ratio_threshold"
+	NUMACPULoadRatioThreshold  = "numa_cpu_load_ratio_threshold"
 )
 
 type MetricThreshold struct {
@@ -33,94 +36,94 @@ func NewMetricThreshold() *MetricThreshold {
 		Threshold: map[string]map[bool]map[string]float64{
 			"Intel_CascadeLake": {
 				false: {
-					"cpu_usage_threshold": 0.55,
-					"cpu_load_threshold":  0.68,
+					NUMACPUUsageRatioThreshold: 0.55,
+					NUMACPULoadRatioThreshold:  0.68,
 				},
 				true: {
-					"cpu_usage_threshold": 0.54,
-					"cpu_load_threshold":  0.68,
+					NUMACPUUsageRatioThreshold: 0.54,
+					NUMACPULoadRatioThreshold:  0.68,
 				},
 			},
 			"Intel_EmeraldRapids": {
 				false: {
-					"cpu_usage_threshold": 0.6,
-					"cpu_load_threshold":  1.0,
+					NUMACPUUsageRatioThreshold: 0.6,
+					NUMACPULoadRatioThreshold:  1.0,
 				},
 				true: {
-					"cpu_usage_threshold": 0.6,
-					"cpu_load_threshold":  0.75,
+					NUMACPUUsageRatioThreshold: 0.6,
+					NUMACPULoadRatioThreshold:  0.75,
 				},
 			},
 			"AMD_K19Zen4": {
 				false: {
-					"cpu_usage_threshold": 0.55,
-					"cpu_load_threshold":  0.7,
+					NUMACPUUsageRatioThreshold: 0.55,
+					NUMACPULoadRatioThreshold:  0.7,
 				},
 				true: {
-					"cpu_usage_threshold": 0.55,
-					"cpu_load_threshold":  0.7,
+					NUMACPUUsageRatioThreshold: 0.55,
+					NUMACPULoadRatioThreshold:  0.7,
 				},
 			},
 			"Intel_SapphireRapids": {
 				false: {
-					"cpu_usage_threshold": 0.59,
-					"cpu_load_threshold":  1.0,
+					NUMACPUUsageRatioThreshold: 0.59,
+					NUMACPULoadRatioThreshold:  1.0,
 				},
 				true: {
-					"cpu_usage_threshold": 0.59,
-					"cpu_load_threshold":  1.0,
+					NUMACPUUsageRatioThreshold: 0.59,
+					NUMACPULoadRatioThreshold:  1.0,
 				},
 			},
 			"AMD_K19Zen3": {
 				false: {
-					"cpu_usage_threshold": 0.55,
-					"cpu_load_threshold":  0.7,
+					NUMACPUUsageRatioThreshold: 0.55,
+					NUMACPULoadRatioThreshold:  0.7,
 				},
 				true: {
-					"cpu_usage_threshold": 0.55,
-					"cpu_load_threshold":  0.6,
+					NUMACPUUsageRatioThreshold: 0.55,
+					NUMACPULoadRatioThreshold:  0.6,
 				},
 			},
 			"Intel_IceLake": {
 				false: {
-					"cpu_usage_threshold": 0.57,
-					"cpu_load_threshold":  0.7,
+					NUMACPUUsageRatioThreshold: 0.57,
+					NUMACPULoadRatioThreshold:  0.7,
 				},
 				true: {
-					"cpu_usage_threshold": 0.54,
-					"cpu_load_threshold":  0.7,
+					NUMACPUUsageRatioThreshold: 0.54,
+					NUMACPULoadRatioThreshold:  0.7,
 				},
 			},
 			"AMD_K17Zen2": {
 				false: {
-					"cpu_usage_threshold": 0.51,
-					"cpu_load_threshold":  0.68,
+					NUMACPUUsageRatioThreshold: 0.51,
+					NUMACPULoadRatioThreshold:  0.68,
 				},
 			},
 			"Intel_SkyLake": {
 				false: {
-					"cpu_usage_threshold": 0.53,
-					"cpu_load_threshold":  0.68,
+					NUMACPUUsageRatioThreshold: 0.53,
+					NUMACPULoadRatioThreshold:  0.68,
 				},
 				true: {
-					"cpu_usage_threshold": 0.53,
-					"cpu_load_threshold":  0.68,
+					NUMACPUUsageRatioThreshold: 0.53,
+					NUMACPULoadRatioThreshold:  0.68,
 				},
 			},
 			"Intel_Broadwell": {
 				false: {
-					"cpu_usage_threshold": 0.47,
-					"cpu_load_threshold":  0.68,
+					NUMACPUUsageRatioThreshold: 0.47,
+					NUMACPULoadRatioThreshold:  0.68,
 				},
 			},
 			DefaultCPUCodeName: {
 				false: {
-					"cpu_usage_threshold": 0.6,
-					"cpu_load_threshold":  1.0,
+					NUMACPUUsageRatioThreshold: 0.6,
+					NUMACPULoadRatioThreshold:  1.0,
 				},
 				true: {
-					"cpu_usage_threshold": 0.6,
-					"cpu_load_threshold":  1.0,
+					NUMACPUUsageRatioThreshold: 0.6,
+					NUMACPULoadRatioThreshold:  1.0,
 				},
 			},
 		},

@@ -29,6 +29,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction/strategy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/metricthreshold"
 	coreconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	metaagent "github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
@@ -153,7 +154,7 @@ func TestDynamicPolicy_collectNUMAMetrics(t *testing.T) {
 	}
 }
 
-func TestDynamicPolicy_getNUMAMeric(t *testing.T) {
+func TestDynamicPolicy_getNUMAMetric(t *testing.T) {
 	t.Parallel()
 	cpuTopology, _ := machine.GenerateDummyCPUTopology(16, 2, 4)
 	testName := "test"
@@ -258,13 +259,13 @@ func TestDynamicPolicy_getNUMAMeric(t *testing.T) {
 			p := &DynamicPolicy{
 				metaServer: ttt.fields.metaServer,
 			}
-			got, err := p.getNUMAMeric(ttt.args.numa, ttt.args.resourceName, ttt.args.machineState)
+			got, err := p.getNUMAMetric(ttt.args.numa, ttt.args.resourceName, ttt.args.machineState)
 			if (err != nil) != ttt.wantErr {
-				t.Errorf("DynamicPolicy.getNUMAMeric() error = %v, wantErr %v", err, ttt.wantErr)
+				t.Errorf("DynamicPolicy.getNUMAMetric() error = %v, wantErr %v", err, ttt.wantErr)
 				return
 			}
 			if got != ttt.want {
-				t.Errorf("DynamicPolicy.getNUMAMeric() = %v, want %v", got, ttt.want)
+				t.Errorf("DynamicPolicy.getNUMAMetric() = %v, want %v", got, ttt.want)
 			}
 		})
 	}
@@ -289,7 +290,7 @@ func TestDynamicPolicy_getNUMAMetricThreshold(t *testing.T) {
 		dynamicConfig *dynamicconfig.DynamicAgentConfiguration
 	}
 	type args struct {
-		resourceName string
+		thresholdName string
 	}
 	tests := []struct {
 		name    string
@@ -305,7 +306,7 @@ func TestDynamicPolicy_getNUMAMetricThreshold(t *testing.T) {
 				dynamicConfig: dynamicConfig,
 			},
 			args: args{
-				resourceName: coreconsts.MetricCPUUsageContainer,
+				thresholdName: metricthreshold.NUMACPUUsageRatioThreshold,
 			},
 			want:    0.55,
 			wantErr: false,
@@ -319,7 +320,12 @@ func TestDynamicPolicy_getNUMAMetricThreshold(t *testing.T) {
 				metaServer:    tt.fields.metaServer,
 				dynamicConfig: tt.fields.dynamicConfig,
 			}
-			got, err := p.getNUMAMetricThreshold(tt.args.resourceName)
+			metricThreshold := p.dynamicConfig.GetDynamicConfiguration().MetricThreshold
+			if metricThreshold == nil {
+				t.Errorf("DynamicPolicy.getNUMAMetricThreshold() nil metricThreshold")
+				return
+			}
+			got, err := p.getNUMAMetricThreshold(tt.args.thresholdName, metricThreshold)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("DynamicPolicy.getNUMAMetricThreshold() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -481,6 +487,32 @@ func TestDynamicPolicy_isNUMAOverThreshold(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGetNUMAMetricThresholdNameToValue(t *testing.T) {
+	t.Parallel()
+	as := require.New(t)
+	testName := "test"
+	podUID := "373d08e4-7a6b-4293-aaaf-b135ff812aaa"
+	containerName := testName
+	emitter := metrics.DummyMetrics{}
+	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
+	// create metric data without time.
+	fakeFetcher.SetContainerMetric(podUID, containerName, coreconsts.MetricCPUUsageContainer, utilmetric.MetricData{Value: 5})
+	fakeFetcher.SetContainerMetric(podUID, containerName, coreconsts.MetricLoad1MinContainer, utilmetric.MetricData{Value: 5})
+	metaServer := &metaserver.MetaServer{
+		MetaAgent: &metaagent.MetaAgent{
+			MetricsFetcher: fakeFetcher,
+		},
+	}
+	dynamicConfig := dynamicconfig.NewDynamicAgentConfiguration()
+	p := &DynamicPolicy{
+		metaServer:    metaServer,
+		dynamicConfig: dynamicConfig,
+	}
+
+	_, err := p.getNUMAMetricThresholdNameToValue()
+	as.NotNil(err)
 }
 
 //func TestDynamicPolicy_populateHintsByMetricPolicy(t *testing.T) {
