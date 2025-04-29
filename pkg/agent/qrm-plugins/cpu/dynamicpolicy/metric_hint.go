@@ -38,9 +38,9 @@ func (p *DynamicPolicy) collectNUMAMetrics() {
 	machineState := p.state.GetMachineState()
 	for numaID, subEntries := range p.numaMetrics {
 		for _, resourceName := range []string{consts.MetricCPUUsageContainer, consts.MetricLoad1MinContainer} {
-			value, err := p.getNUMAMeric(numaID, resourceName, machineState)
+			value, err := p.getNUMAMetric(numaID, resourceName, machineState)
 			if err != nil {
-				general.Errorf("getNUMAMeric failed with error: %v", err)
+				general.Errorf("getNUMAMetric failed with error: %v", err)
 				continue
 			}
 
@@ -55,12 +55,12 @@ func (p *DynamicPolicy) collectNUMAMetrics() {
 				Time: collectTime,
 			})
 
-			general.Infof("numa: %d, resourceName: %s, value: %.2f, window_size: %d", numaID, resourceName, value, subEntries[resourceName].Len())
+			general.Infof("numa: %d, resourceName: %s, value: %.2f, windowSize: %d", numaID, resourceName, value, subEntries[resourceName].Len())
 		}
 	}
 }
 
-func (p *DynamicPolicy) getNUMAMeric(numa int, resourceName string, machineState state.NUMANodeMap) (float64, error) {
+func (p *DynamicPolicy) getNUMAMetric(numa int, resourceName string, machineState state.NUMANodeMap) (float64, error) {
 	if machineState == nil || machineState[numa] == nil {
 		return 0.0, fmt.Errorf("invalid machineState")
 	}

@@ -153,7 +153,7 @@ func TestDynamicPolicy_collectNUMAMetrics(t *testing.T) {
 	}
 }
 
-func TestDynamicPolicy_getNUMAMeric(t *testing.T) {
+func TestDynamicPolicy_getNUMAMetric(t *testing.T) {
 	t.Parallel()
 	cpuTopology, _ := machine.GenerateDummyCPUTopology(16, 2, 4)
 	testName := "test"
@@ -258,13 +258,13 @@ func TestDynamicPolicy_getNUMAMeric(t *testing.T) {
 			p := &DynamicPolicy{
 				metaServer: ttt.fields.metaServer,
 			}
-			got, err := p.getNUMAMeric(ttt.args.numa, ttt.args.resourceName, ttt.args.machineState)
+			got, err := p.getNUMAMetric(ttt.args.numa, ttt.args.resourceName, ttt.args.machineState)
 			if (err != nil) != ttt.wantErr {
-				t.Errorf("DynamicPolicy.getNUMAMeric() error = %v, wantErr %v", err, ttt.wantErr)
+				t.Errorf("DynamicPolicy.getNUMAMetric() error = %v, wantErr %v", err, ttt.wantErr)
 				return
 			}
 			if got != ttt.want {
-				t.Errorf("DynamicPolicy.getNUMAMeric() = %v, want %v", got, ttt.want)
+				t.Errorf("DynamicPolicy.getNUMAMetric() = %v, want %v", got, ttt.want)
 			}
 		})
 	}
