@@ -95,7 +95,7 @@ func TestResctrlProcessor_HintResp(t *testing.T) {
 					CPUSetPoolToSharedSubgroup: map[string]int{
 						"batch": 30,
 					},
-					MonGroupEnabledClosIDs: []string{"dedicated", "share-50"},
+					MonGroupEnabledClosIDs: []string{"dedicated", "shared-50"},
 				},
 			},
 			args: args{
@@ -113,7 +113,7 @@ func TestResctrlProcessor_HintResp(t *testing.T) {
 						"memory": {
 							Annotations: map[string]string{
 								"test-key":                             "test-value",
-								"rdt.resources.beta.kubernetes.io/pod": "share-30",
+								"rdt.resources.beta.kubernetes.io/pod": "shared-30",
 								"rdt.resources.beta.kubernetes.io/need-mon-groups": "false",
 							},
 						},
@@ -129,7 +129,7 @@ func TestResctrlProcessor_HintResp(t *testing.T) {
 					CPUSetPoolToSharedSubgroup: map[string]int{
 						"batch": 30,
 					},
-					MonGroupEnabledClosIDs: []string{"dedicated", "share-30"},
+					MonGroupEnabledClosIDs: []string{"dedicated", "shared-30"},
 				},
 			},
 			args: args{
@@ -147,7 +147,7 @@ func TestResctrlProcessor_HintResp(t *testing.T) {
 						"memory": {
 							Annotations: map[string]string{
 								"test-key":                             "test-value",
-								"rdt.resources.beta.kubernetes.io/pod": "share-30",
+								"rdt.resources.beta.kubernetes.io/pod": "shared-30",
 							},
 						},
 					},

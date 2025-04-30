@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	templateSharedSubgroup = "share-%02d"
+	templateSharedSubgroup = "shared-%02d"
 	sharedGroup            = "share"
 )
 
