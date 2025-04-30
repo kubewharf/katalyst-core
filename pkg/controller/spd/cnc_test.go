@@ -36,6 +36,7 @@ import (
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
+	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 )
 
 func Test_cncCacheController_Run(t *testing.T) {
@@ -116,6 +117,9 @@ func Test_cncCacheController_Run(t *testing.T) {
 								Kind:       "StatefulSet",
 								Name:       "sts1",
 							},
+						},
+						Annotations: map[string]string{
+							pkgconsts.ServiceProfileDescriptorAnnotationKeyConfigHash: "51131be1b092",
 						},
 					},
 					Spec: apiworkload.ServiceProfileDescriptorSpec{

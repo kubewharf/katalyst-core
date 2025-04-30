@@ -32,14 +32,15 @@ import (
 )
 
 const (
-	metricsNameSyncIndicatorSpec         = "sync_indicator_spec"
-	metricsNameSyncIndicatorStatus       = "sync_indicator_status"
-	metricsNameSyncIndicatorSpecCost     = "sync_indicator_spec_cost"
-	metricsNameSyncIndicatorStatusCost   = "sync_indicator_status_cost"
-	metricsNameIndicatorSpecChanLength   = "indicator_spec_chan_length"
-	metricsNameIndicatorStatusChanLength = "indicator_status_chan_length"
-	metricsNameCreateSPDByWorkloadCost   = "create_spd_by_workload_cost"
-	metricsNameSPDCreatedAfterPod        = "spd_created_after_pod"
+	metricsNameSyncIndicatorSpec                  = "sync_indicator_spec"
+	metricsNameSyncIndicatorStatus                = "sync_indicator_status"
+	metricsNameSyncIndicatorSpecCost              = "sync_indicator_spec_cost"
+	metricsNameSyncIndicatorStatusCost            = "sync_indicator_status_cost"
+	metricsNameIndicatorSpecChanLength            = "indicator_spec_chan_length"
+	metricsNameIndicatorStatusChanLength          = "indicator_status_chan_length"
+	metricsNameCreateSPDByWorkloadCost            = "create_spd_by_workload_cost"
+	metricsNameInitializeSPDStatusByWorkloadDelay = "initialize_spd_status_by_workload_delay"
+	metricsNameSPDCreatedAfterPod                 = "spd_created_after_pod"
 )
 
 func (sc *SPDController) syncIndicatorSpec() {

@@ -110,7 +110,7 @@ func (p *Plugin) GetSupportedAggMetricsStatus() []string {
 	return nil
 }
 
-func (p *Plugin) GetAggMetrics(_ *unstructured.Unstructured) ([]apiworkload.AggPodMetrics, error) {
+func (p *Plugin) GetAggMetrics(_ *unstructured.Unstructured, _ string) ([]apiworkload.AggPodMetrics, error) {
 	return nil, nil
 }
 

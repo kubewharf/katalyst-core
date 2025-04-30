@@ -55,19 +55,21 @@ const (
 */
 
 // GetSPDForWorkload is used to get spd that should manage the given workload
-func getSPDFroWorkloadWithIndex(workload *unstructured.Unstructured, spdIndexer cache.Indexer) (*apiworkload.ServiceProfileDescriptor, error) {
+func getSPDFroWorkloadWithIndex(workload *unstructured.Unstructured, spdIndexer cache.Indexer) ([]*apiworkload.ServiceProfileDescriptor, error) {
 	objs, err := spdIndexer.ByIndex(consts.TargetReferenceIndex, generateWorkloadReferenceKey(workload))
 	if err != nil {
 		return nil, errors.Wrapf(err, "spd for workload %s/%s not exist", workload.GetNamespace(), workload.GetName())
-	} else if len(objs) > 1 || len(objs) == 0 {
-		return nil, fmt.Errorf("spd for workload %s/%s invalid", workload.GetNamespace(), workload.GetName())
 	}
 
-	spd, ok := objs[0].(*apiworkload.ServiceProfileDescriptor)
-	if !ok {
-		return nil, fmt.Errorf("invalid spd")
+	spdList := make([]*apiworkload.ServiceProfileDescriptor, 0, len(objs))
+	for _, obj := range objs {
+		spd, ok := obj.(*apiworkload.ServiceProfileDescriptor)
+		if !ok {
+			return nil, fmt.Errorf("invalid spd")
+		}
+		spdList = append(spdList, spd)
 	}
-	return spd, nil
+	return spdList, nil
 }
 
 /*
@@ -96,35 +98,74 @@ func GetWorkloadForSPD(spd *apiworkload.ServiceProfileDescriptor, lister cache.G
 // the preference is annotation ---> indexer --> lister
 func GetSPDForWorkload(workload *unstructured.Unstructured, spdIndexer cache.Indexer,
 	spdLister workloadlister.ServiceProfileDescriptorLister,
-) (*apiworkload.ServiceProfileDescriptor, error) {
+) ([]*apiworkload.ServiceProfileDescriptor, []string, error) {
 	if !WorkloadSPDEnabled(workload) {
-		return nil, fmt.Errorf("workload not enable spd")
+		return nil, nil, fmt.Errorf("workload not enable spd")
 	}
 
-	spdName := workload.GetName()
-	spd, err := spdLister.ServiceProfileDescriptors(workload.GetNamespace()).Get(spdName)
-	if err == nil && checkTargetRefMatch(spd.Spec.TargetRef, workload) {
-		return spd, nil
+	var (
+		spdList           []*apiworkload.ServiceProfileDescriptor
+		absentSPDNameList []string
+		err               error
+	)
+	spdNameList, specified := GetSPDNameForWorkload(workload)
+	for _, spdName := range spdNameList {
+		spd, err := spdLister.ServiceProfileDescriptors(workload.GetNamespace()).Get(spdName)
+		if err != nil && !apierrors.IsNotFound(err) {
+			return nil, nil, err
+		} else if err == nil {
+			if checkTargetRefMatch(spd.Spec.TargetRef, workload) {
+				spdList = append(spdList, spd)
+				continue
+			}
+		}
+		absentSPDNameList = append(absentSPDNameList, spdName)
 	}
-	klog.InfoS("no matched spd found with same name", "workload", workload.GetName())
 
+	// if spdList is not empty or specified, we will return it directly
+	if len(spdList) > 0 || specified {
+		return spdList, absentSPDNameList, nil
+	}
+
+	// if spd name is not specified, we will try to find it by indexer and lister
+	klog.InfoS("no spd found need by workload", "workload", workload.GetName())
 	if spdIndexer != nil {
-		if spd, err := getSPDFroWorkloadWithIndex(workload, spdIndexer); err == nil {
-			return spd, nil
+		if spdList, err := getSPDFroWorkloadWithIndex(workload, spdIndexer); err == nil && len(spdList) > 0 {
+			return spdList, nil, nil
 		}
 	}
 
-	spdList, err := spdLister.List(labels.Everything())
+	allSPDList, err := spdLister.List(labels.Everything())
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	for _, spd := range spdList {
+	for _, spd := range allSPDList {
 		if checkTargetRefMatch(spd.Spec.TargetRef, workload) {
-			return spd, nil
+			spdList = append(spdList, spd)
 		}
 	}
-	return nil, apierrors.NewNotFound(apiworkload.Resource(apiworkload.ResourceNameServiceProfileDescriptors), "spd for workload")
+
+	if len(spdList) > 0 {
+		return spdList, nil, nil
+	}
+	return nil, spdNameList, nil
+}
+
+func GetSPDNameForWorkload(workload *unstructured.Unstructured) ([]string, bool) {
+	if workload == nil {
+		return nil, false
+	}
+	var specified bool
+	spdNameList := make([]string, 0)
+	spdNameListStr, ok := workload.GetAnnotations()[apiconsts.WorkloadAnnotationSPDNameList]
+	if ok {
+		spdNameList = strings.Split(spdNameListStr, ",")
+		specified = true
+	} else {
+		spdNameList = append(spdNameList, workload.GetName())
+	}
+	return spdNameList, specified
 }
 
 // GetSPDForPod is used to get spd that should manage the given pod,
@@ -148,12 +189,18 @@ func GetSPDForPod(pod *core.Pod, spdIndexer cache.Indexer, workloadListerMap map
 				var targetSPD *apiworkload.ServiceProfileDescriptor
 				native.VisitUnstructuredAncestors(workloadObj.(*unstructured.Unstructured),
 					workloadListerMap, func(owner *unstructured.Unstructured) bool {
-						spd, err := GetSPDForWorkload(owner, spdIndexer, spdLister)
+						spdList, absent, err := GetSPDForWorkload(owner, spdIndexer, spdLister)
 						if err != nil {
 							return true
 						}
 
-						targetSPD = spd
+						if len(spdList) != 1 || len(absent) > 0 {
+							klog.Errorf("spd for workload %s/%s is invalid, len %d, absent %v",
+								owner.GetNamespace(), owner.GetName(), len(spdList), absent)
+							return false
+						}
+
+						targetSPD = spdList[0]
 						return false
 					})
 				if targetSPD != nil {
