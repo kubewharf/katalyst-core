@@ -183,6 +183,9 @@ type QoSRegionBase struct {
 	provisionPolicyNameInUse types.CPUProvisionPolicyName
 	provisionPolicyResults   map[types.CPUProvisionPolicyName]*provisionPolicyResult
 
+	// ctrl knob need policy restrict
+	ctrlKnobsNeedPolicyRestrict map[v1alpha1.ControlKnobName]bool
+
 	// cpuRegulatorOptions is the regulator options for cpu regulator
 	cpuRegulatorOptions regulator.RegulatorOptions
 
@@ -242,6 +245,8 @@ func NewQoSRegionBase(name string, ownerPoolName string, regionType v1alpha1.QoS
 					regionType == v1alpha1.QoSRegionTypeShare
 			},
 		},
+
+		ctrlKnobsNeedPolicyRestrict: map[v1alpha1.ControlKnobName]bool{configapi.ControlKnobReclaimedCPUQuota: true},
 
 		metaReader: metaReader,
 		metaServer: metaServer,
@@ -441,6 +446,7 @@ func (r *QoSRegionBase) GetProvision() (types.ControlKnob, error) {
 			}
 		}
 		// 只有某一个策略的结果会被返回，这里建议将不同的controlKnob都返回了
+		// TODO: return ctrl knobs of all policies
 		return result.getControlKnob(), nil
 	}
 
@@ -939,7 +945,7 @@ func (r *QoSRegionBase) getMemoryL3MissLatency() (float64, error) {
 	return latency, nil
 }
 
-func (r *QoSRegionBase) getEffectiveReclaimResource() (quota float64, cpusetsize int, err error) {
+func (r *QoSRegionBase) getEffectiveReclaimResource() (quota float64, cpusetSize int, err error) {
 	numaID := commonstate.FakedNUMAID
 	if r.isNumaBinding {
 		numaID = r.bindingNumas.ToSliceInt()[0]
@@ -949,15 +955,15 @@ func (r *QoSRegionBase) getEffectiveReclaimResource() (quota float64, cpusetsize
 	if err != nil {
 		return 0, 0, err
 	}
-	if cpuStats.CpuQuota == math.MaxInt || cpuStats.CpuQuota == -1 {
-		quota = -1
+	if cpuStats.CpuQuota == math.MaxInt || cpuStats.CpuQuota == common.CPUQuotaUnlimit {
+		quota = common.CPUQuotaUnlimit
 	} else {
 		quota = float64(cpuStats.CpuQuota) / float64(cpuStats.CpuPeriod)
 	}
 
 	for _, numaID := range r.bindingNumas.ToSliceInt() {
 		if reclaimedInfo, ok := r.metaReader.GetPoolInfo(commonstate.PoolNameReclaim); ok {
-			cpusetsize += reclaimedInfo.TopologyAwareAssignments[numaID].Size()
+			cpusetSize += reclaimedInfo.TopologyAwareAssignments[numaID].Size()
 		}
 	}
 	return
@@ -979,8 +985,13 @@ func (r *QoSRegionBase) restrictProvisionControlKnob(originControlKnob map[types
 		}
 
 		for controlKnobName, rawKnobValue := range controlKnob {
+			needed, ok := r.ctrlKnobsNeedPolicyRestrict[controlKnobName]
+			if !ok || !needed {
+				continue
+			}
+
 			refKnobValue, ok := refControlKnob[controlKnobName]
-			if !ok || controlKnobName != configapi.ControlKnobReclaimedCPUQuota {
+			if !ok {
 				continue
 			}
 			restrictedKnobValue := rawKnobValue

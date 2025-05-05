@@ -68,7 +68,7 @@ func (ha *HeadroomAssemblerCommon) getUtilBasedHeadroom(options helper.UtilBased
 	}
 
 	general.InfoS("getUtilBasedHeadroom", "reclaimMetrics", reclaimMetrics,
-		"util", util, "lastReclaimedCPUPerNUMA", lastReclaimedCPUPerNumaForCalculate, "headroom", headroom)
+		"util", util, "lastReclaimedCPUPerNumaForCalculate", lastReclaimedCPUPerNumaForCalculate, "headroom", headroom)
 
 	return *resource.NewQuantity(int64(math.Ceil(headroom)), resource.DecimalSI), nil
 }

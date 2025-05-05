@@ -32,6 +32,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 )
 
+const (
+	DefaultCFSCPUPeriod = 100000
+)
+
 func (cs *cpuServer) assembleCgroupConfig(advisorResp *types.InternalCPUCalculationResult) (extraEntries []*advisorsvc.CalculationInfo) {
 	for poolName, entries := range advisorResp.PoolEntries {
 		if poolName != commonstate.PoolNameReclaim {
@@ -43,11 +47,11 @@ func (cs *cpuServer) assembleCgroupConfig(advisorResp *types.InternalCPUCalculat
 			quota := int64(-1)
 			cpuResource, ok := entries[numaID]
 			if ok && cpuResource.Quota > 0 {
-				quota = int64(cpuResource.Quota * 100000)
+				quota = int64(cpuResource.Quota * DefaultCFSCPUPeriod)
 			}
 			resourceConf := &configs.Resources{
 				CpuQuota:  quota,
-				CpuPeriod: 100000,
+				CpuPeriod: DefaultCFSCPUPeriod,
 			}
 			bytes, err := json.Marshal(resourceConf)
 			if err != nil {

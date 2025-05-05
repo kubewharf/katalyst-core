@@ -118,7 +118,7 @@ func (pa *ProvisionAssemblerCommon) getIsolationRequirementsFor(r region.QoSRegi
 	return isolationRequirements, nil
 }
 
-func (pa *ProvisionAssemblerCommon) assembleShareNB(r region.QoSRegion, result *types.InternalCPUCalculationResult) error {
+func (pa *ProvisionAssemblerCommon) assembleSharedCoresWithNUMABindingRegion(r region.QoSRegion, result *types.InternalCPUCalculationResult) error {
 	if r.Type() != configapi.QoSRegionTypeShare || !r.IsNumaBinding() {
 		return fmt.Errorf("region %v is not a SNB region", r.Name())
 	}
@@ -191,7 +191,7 @@ func (pa *ProvisionAssemblerCommon) assembleShareNB(r region.QoSRegion, result *
 	return nil
 }
 
-func (pa *ProvisionAssemblerCommon) assembleIsolationNB(r region.QoSRegion, result *types.InternalCPUCalculationResult) error {
+func (pa *ProvisionAssemblerCommon) assembleIsolationWithNUMABindingRegion(r region.QoSRegion, result *types.InternalCPUCalculationResult) error {
 	if r.Type() != configapi.QoSRegionTypeIsolation || !r.IsNumaBinding() {
 		return fmt.Errorf("region %v is not a IsolationNB region", r.Name())
 	}
@@ -229,9 +229,9 @@ func (pa *ProvisionAssemblerCommon) assembleIsolationNB(r region.QoSRegion, resu
 	return nil
 }
 
-func (pa *ProvisionAssemblerCommon) assembleDedicatedNE(r region.QoSRegion, result *types.InternalCPUCalculationResult) error {
+func (pa *ProvisionAssemblerCommon) assembleDedicatedNUMAExclusiveRegion(r region.QoSRegion, result *types.InternalCPUCalculationResult) error {
 	if r.Type() != configapi.QoSRegionTypeDedicatedNumaExclusive {
-		return fmt.Errorf("region %v is not a DedicatedNE region", r.Name())
+		return fmt.Errorf("region %v is not a DedicatedNUMAExclusive region", r.Name())
 	}
 
 	controlKnob, err := r.GetProvision()
@@ -262,7 +262,7 @@ func (pa *ProvisionAssemblerCommon) assembleDedicatedNE(r region.QoSRegion, resu
 		reclaimedCoresSize = general.Max(reservedForReclaim, available-nonReclaimRequirement)
 	}
 
-	klog.InfoS("assembleDedicatedNE info", "regionName", r.Name(), "reclaimedCoresSize", reclaimedCoresSize,
+	klog.InfoS("assembleDedicatedNUMAExclusive info", "regionName", r.Name(), "reclaimedCoresSize", reclaimedCoresSize,
 		"available", available, "nonReclaimRequirement", nonReclaimRequirement,
 		"reservedForReclaim", reservedForReclaim, "controlKnob", controlKnob)
 
@@ -409,7 +409,7 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 		switch r.Type() {
 		case configapi.QoSRegionTypeShare:
 			if r.IsNumaBinding() {
-				if err := pa.assembleShareNB(r, &calculationResult); err != nil {
+				if err := pa.assembleSharedCoresWithNUMABindingRegion(r, &calculationResult); err != nil {
 					return types.InternalCPUCalculationResult{}, err
 				}
 			} else {
@@ -419,7 +419,7 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 			}
 		case configapi.QoSRegionTypeIsolation:
 			if r.IsNumaBinding() {
-				if err := pa.assembleIsolationNB(r, &calculationResult); err != nil {
+				if err := pa.assembleIsolationWithNUMABindingRegion(r, &calculationResult); err != nil {
 					return types.InternalCPUCalculationResult{}, err
 				}
 			} else {
@@ -428,7 +428,7 @@ func (pa *ProvisionAssemblerCommon) AssembleProvision() (types.InternalCPUCalcul
 				isolationLowerSizes[r.Name()] = int(controlKnob[configapi.ControlKnobNonReclaimedCPURequirementLower].Value)
 			}
 		case configapi.QoSRegionTypeDedicatedNumaExclusive:
-			if err := pa.assembleDedicatedNE(r, &calculationResult); err != nil {
+			if err := pa.assembleDedicatedNUMAExclusiveRegion(r, &calculationResult); err != nil {
 				return types.InternalCPUCalculationResult{}, err
 			}
 		}
