@@ -125,10 +125,10 @@ func (p *PolicyRama) Update() error {
 
 		general.InfoS("[qosaware-cpu-rama] pid adjust result", "meta", p.GetMetaInfo(), "metricName", metricName, "cpuAdjusted", cpuAdjusted, "last knobValue", knobValue, "knobName", knobName, "direction", direction, "target", indicator.Target, "current", indicator.Current, "params", params)
 
-		if cpuAdjusted > cpuAdjustedRaw && knobName == configapi.ControlKnobNonReclaimedCPURequirement {
+		if cpuAdjusted > cpuAdjustedRaw && direction == controlActingReverse {
 			cpuAdjustedRaw = cpuAdjusted
 			dominantIndicator = metricName
-		} else if cpuAdjusted < cpuAdjustedRaw && knobName == configapi.ControlKnobReclaimedCoresCPUQuota {
+		} else if cpuAdjusted < cpuAdjustedRaw && direction == controlActingDirect {
 			cpuAdjustedRaw = cpuAdjusted
 			dominantIndicator = metricName
 		}

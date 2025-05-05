@@ -35,6 +35,7 @@ const (
 	CPUProvisionPolicyNonReclaim CPUProvisionPolicyName = "non-reclaim"
 	CPUProvisionPolicyCanonical  CPUProvisionPolicyName = "canonical"
 	CPUProvisionPolicyRama       CPUProvisionPolicyName = "rama"
+	CPUProvisionPolicyAnother    CPUProvisionPolicyName = "another"
 )
 
 // CPUHeadroomPolicyName defines policy names for cpu advisor headroom estimation

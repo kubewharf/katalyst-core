@@ -47,6 +47,10 @@ const (
 	SystemdRootPathBurstable  = "/kubepods.slice/kubepods-burstable.slice"
 )
 
+const (
+	CPUQuotaUnlimit = -1
+)
+
 // defaultSelectedSubsysList cgroupv1 most common subsystems
 var defaultSelectedSubsysList = []string{CgroupSubsysCPU, CgroupSubsysMemory, CgroupSubsysCPUSet}
 

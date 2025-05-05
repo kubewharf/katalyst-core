@@ -672,12 +672,12 @@ func (cs *cpuServer) assemblePoolEntries(advisorResp *types.InternalCPUCalculati
 
 	if reclaimEntries, ok := advisorResp.PoolEntries[commonstate.PoolNameReclaim]; ok && advisorResp.AllowSharedCoresOverlapReclaimedCores {
 		poolEntry := NewPoolCalculationEntries(commonstate.PoolNameReclaim)
-		for numaID, reclaimCpu := range reclaimEntries {
+		for numaID, reclaimCPU := range reclaimEntries {
 
 			overlapSize := advisorResp.GetPoolOverlapInfo(commonstate.PoolNameReclaim, numaID)
 			if len(overlapSize) == 0 {
 				// If share pool not exists，join reclaim pool directly
-				block := NewBlock(uint64(reclaimCpu.Size), "")
+				block := NewBlock(uint64(reclaimCPU.Size), "")
 				numaCalculationResult := &cpuadvisor.NumaCalculationResult{Blocks: []*cpuadvisor.Block{block}}
 
 				innerBlock := NewInnerBlock(block, int64(numaID), commonstate.PoolNameReclaim, nil, numaCalculationResult)
