@@ -31,6 +31,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/moby/sys/mountinfo"
 	"github.com/vishvananda/netns"
 	"k8s.io/apimachinery/pkg/util/sets"
 
@@ -59,8 +60,9 @@ const (
 	netEnable           = 1
 )
 
-// GetExtraNetworkInfo get network info from /sys/class/net and system function net.Interfaces.
-// if multiple network namespace is enabled, we should exec into all namespaces and parse nics for them.
+// GetExtraNetworkInfo collects network interface information from /sys/class/net and net.Interfaces.
+// When multiple network namespaces are enabled, it executes in each namespace to gather NIC information.
+// Returns ExtraNetworkInfo containing all discovered network interfaces and their attributes.
 func GetExtraNetworkInfo(conf *global.MachineInfoConfiguration) (*ExtraNetworkInfo, error) {
 	networkInfo := &ExtraNetworkInfo{}
 
@@ -104,8 +106,12 @@ func GetExtraNetworkInfo(conf *global.MachineInfoConfiguration) (*ExtraNetworkIn
 }
 
 // DoNetNS executes a callback function within the specified network namespace.
-// If the namespace is the default one, the callback runs in the current network namespace.
-// Otherwise, it mounts a temporary sysfs to avoid contaminating the host sysfs.
+// For the default namespace, runs callback in current namespace without modification.
+// For other namespaces:
+// 1. Locks OS thread to maintain namespace context
+// 2. Creates temporary sysfs mount to isolate from host
+// 3. Executes callback with isolated sysfs path
+// 4. Cleans up mount and restores original namespace
 func DoNetNS(nsName, netNSDirAbsPath string, cb func(sysFsDir, nsAbsPath string) error) error {
 	// if nsName is defaulted, the callback function will be run in the current network namespace.
 	// So skip the whole function, just call cb().
@@ -133,7 +139,7 @@ func DoNetNS(nsName, netNSDirAbsPath string, cb func(sysFsDir, nsAbsPath string)
 	defer func() {
 		// switch back to the original namespace
 		if err := netns.Set(originNS); err != nil {
-			general.Fatalf("failed to unmount sys fs: %v", err)
+			general.Fatalf("failed set originNS: %v", err)
 		}
 		_ = originNS.Close()
 	}()
@@ -161,8 +167,12 @@ func DoNetNS(nsName, netNSDirAbsPath string, cb func(sysFsDir, nsAbsPath string)
 		}
 	}
 
-	if err := syscall.Mount("sysfs", sysFsDir, "sysfs", 0, ""); err != nil {
-		return fmt.Errorf("mount sysfs to %s failed with error: %v", sysFsDir, err)
+	if mounted, err := mountinfo.Mounted(sysFsDir); err != nil {
+		return fmt.Errorf("check mounted dir: %s failed with error: %v", sysFsDir, err)
+	} else if !mounted {
+		if err := syscall.Mount("sysfs", sysFsDir, "sysfs", 0, ""); err != nil {
+			return fmt.Errorf("mount sysfs to %s failed with error: %v", sysFsDir, err)
+		}
 	}
 
 	// the sysfs needs to be remounted before switching network namespace back
@@ -175,7 +185,9 @@ func DoNetNS(nsName, netNSDirAbsPath string, cb func(sysFsDir, nsAbsPath string)
 	return cb(sysFsDir, nsAbsPath)
 }
 
-// getNSNetworkHardwareTopology set given network namespaces and get nics inside if needed
+// getNSNetworkHardwareTopology discovers network interfaces and their hardware attributes
+// within a specified network namespace. Handles both regular and bonded interfaces.
+// Returns slice of InterfaceInfo containing NIC details like speed, NUMA node, etc.
 func getNSNetworkHardwareTopology(nsName, netNSDirAbsPath string) ([]InterfaceInfo, error) {
 	var nics []InterfaceInfo
 
