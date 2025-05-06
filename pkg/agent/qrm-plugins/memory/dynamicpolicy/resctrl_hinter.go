@@ -101,23 +101,47 @@ func injectRespAnnotationSharedGroup(resp *pluginapi.ResourceAllocationResponse,
 	allocInfo.Annotations[util.AnnotationRdtClosID] = group
 }
 
+func isPodLevelSubgroupDisabled(group string, enablingGroups sets.String) bool {
+	// by default no special mon_groups layout, which allows kubelet to decide by itself, so not to explicitly disable
+	if len(enablingGroups) == 0 {
+		return false
+	}
+
+	return !enablingGroups.Has(group)
+}
+
 func injectRespAnnotationPodMonGroup(resp *pluginapi.ResourceAllocationResponse,
 	enablingGroups sets.String, group string,
 ) {
-	// by default no special mon_groups layout, which allows kubelet to decide by itself, no need to hint explicitly
-	if len(enablingGroups) == 0 {
+	if isPodLevelSubgroupDisabled(group, enablingGroups) {
+		allocInfo := ensureToGetMemAllocInfo(resp)
+		general.InfofV(6, "mbm: pod %s/%s of group %s has no pod level mon subgroups",
+			resp.PodNamespace, resp.PodName, group)
+		allocInfo.Annotations[util.AnnotationRdtNeedPodMonGroups] = strconv.FormatBool(false)
 		return
 	}
 
-	// if enabled, no need to hint as kubelet treats default as true
-	if enablingGroups.Has(group) {
-		return
+	// by default, or having pod level subgroup, no need to hint explicitly
+	return
+}
+
+// getResctrlGroup returns the resctrl FS top level resource group name
+// based on pod qos level, and applicable share qos cpuset pool
+func (r *resctrlHinter) getResctrlGroup(qosLevel string, cpusetPool string) string {
+	// for shared-core qos, we need to locate the sub group as specified by cpuset pool
+	if qosLevel == apiconsts.PodAnnotationQoSLevelSharedCores {
+		subGroupName := r.getSharedSubgroupByPool(cpusetPool)
+		return subGroupName
 	}
 
-	allocInfo := ensureToGetMemAllocInfo(resp)
-	general.InfofV(6, "mbm: pod %s/%s qos %s not need pod mon_groups",
-		resp.PodNamespace, resp.PodName, group)
-	allocInfo.Annotations[util.AnnotationRdtNeedPodMonGroups] = strconv.FormatBool(false)
+	// for system core qos, resctrl FS top level group is system
+	if qosLevel == apiconsts.PodAnnotationQoSLevelSystemCores {
+		// tweak the case of system qos
+		return commonstate.PoolNamePrefixSystem
+	}
+
+	// for other qos, resctrl FS top level group is the same as pool name as specified by qos
+	return commonstate.GetSpecifiedPoolName(qosLevel, commonstate.EmptyOwnerPoolName)
 }
 
 func (r *resctrlHinter) HintResp(qosLevel string,
@@ -127,31 +151,25 @@ func (r *resctrlHinter) HintResp(qosLevel string,
 		return resp
 	}
 
-	poolName := commonstate.GetSpecifiedPoolName(qosLevel, commonstate.EmptyOwnerPoolName)
-	// tweak the case of system qos
-	if poolName == apiconsts.PodAnnotationQoSLevelSystemCores {
-		poolName = commonstate.PoolNamePrefixSystem
+	cpusetPoolShareQoS := ""
+	if qosLevel == apiconsts.PodAnnotationQoSLevelSharedCores {
+		cpusetPoolShareQoS = identifyCPUSetPool(req.Annotations)
 	}
+	resctrlGroup := r.getResctrlGroup(qosLevel, cpusetPoolShareQoS)
+
 	// when no recognized qos can be identified, no hint
-	if poolName == commonstate.EmptyOwnerPoolName {
+	if resctrlGroup == commonstate.EmptyOwnerPoolName {
 		general.Errorf("pod admit: fail to identify short qos level for %s; skip resctl hint", qosLevel)
 		return resp
 	}
 
-	// resctrl hint cares sub pool actually
-	subPoolName := poolName
-	if qosLevel == apiconsts.PodAnnotationQoSLevelSharedCores {
-		cpusetPool := identifyCPUSetPool(req.Annotations)
-		subPoolName = r.getSharedSubgroupByPool(cpusetPool)
-	}
-
 	// inject shared subgroup if share pool
 	if qosLevel == apiconsts.PodAnnotationQoSLevelSharedCores {
-		injectRespAnnotationSharedGroup(resp, subPoolName)
+		injectRespAnnotationSharedGroup(resp, resctrlGroup)
 	}
 
 	// inject pod mon group (false only) if applicable
-	injectRespAnnotationPodMonGroup(resp, r.closidEnablingGroups, subPoolName)
+	injectRespAnnotationPodMonGroup(resp, r.closidEnablingGroups, resctrlGroup)
 
 	return resp
 }
