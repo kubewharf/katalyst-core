@@ -386,7 +386,7 @@ func (p *DynamicPolicy) reclaimedCoresWithNUMABindingHintHandler(_ context.Conte
 		}
 	}
 
-	general.Infof("memory hints for pod:%s/%s, container: %s success, hints: %v",
+	general.Infof("cpu hints for pod:%s/%s, container: %s success, hints: %v",
 		req.PodNamespace, req.PodName, req.ContainerName, hints)
 
 	return util.PackResourceHintsResponse(req, string(v1.ResourceCPU), hints)
@@ -1126,10 +1126,17 @@ func (p *DynamicPolicy) populateBestEffortHintsByAvailableNUMANodes(
 	hintList := make([]*pluginapi.TopologyHint, 0, len(nodeHints))
 	// Add sorted hints to the hint list
 	for _, nh := range nodeHints {
-		hintList = append(hintList, &pluginapi.TopologyHint{
-			Nodes:     []uint64{uint64(nh.nodeID)},
-			Preferred: true,
-		})
+		if nh.curLeft < 0 {
+			hintList = append(hintList, &pluginapi.TopologyHint{
+				Nodes:     []uint64{uint64(nh.nodeID)},
+				Preferred: false,
+			})
+		} else {
+			hintList = append(hintList, &pluginapi.TopologyHint{
+				Nodes:     []uint64{uint64(nh.nodeID)},
+				Preferred: true,
+			})
+		}
 	}
 
 	// Update the hints map
