@@ -23,40 +23,45 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/irqtuning/coresexclusion"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/irqtuning/loadbalance"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/irqtuning/netoverload"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/irqtuning/throughputclassswitch"
 )
 
 // IRQTuningConfiguration is the configuration for irq tuner.
 type IRQTuningConfiguration struct {
-	EnableTuner          bool
-	TuningPolicy         v1alpha1.TuningPolicy
-	TuningInterval       int
-	EnableRPS            bool
-	NICAffinityPolicy    v1alpha1.NICAffinityPolicy
-	ReniceKsoftirqd      bool
-	KsoftirqdNice        int
-	CoresExpectedCPUUtil int
+	EnableTuner             bool
+	TuningPolicy            v1alpha1.TuningPolicy
+	TuningInterval          int
+	EnableRPS               bool
+	EnableRPSCPUVSNicsQueue float64
+	NICAffinityPolicy       v1alpha1.NICAffinityPolicy
+	ReniceKsoftirqd         bool
+	KsoftirqdNice           int
+	CoresExpectedCPUUtil    int
 
-	CoreNetOverLoadThresh *netoverload.IRQCoreNetOverloadThresholds
-	LoadBalanceConf       *loadbalance.IRQLoadBalanceConfig
-	CoresAdjustConf       *coresadjust.IRQCoresAdjustConfig
-	CoresExclusionConf    *coresexclusion.IRQCoresExclusionConfig
+	ThrouputClassSwitchConf *throughputclassswitch.ThroughputClassSwitchConfig
+	CoreNetOverLoadThresh   *netoverload.IRQCoreNetOverloadThresholds
+	LoadBalanceConf         *loadbalance.IRQLoadBalanceConfig
+	CoresAdjustConf         *coresadjust.IRQCoresAdjustConfig
+	CoresExclusionConf      *coresexclusion.IRQCoresExclusionConfig
 }
 
 func NewIRQTuningConfiguration() *IRQTuningConfiguration {
 	return &IRQTuningConfiguration{
-		EnableTuner:          false,
-		TuningPolicy:         v1alpha1.TuningPolicyBalance,
-		TuningInterval:       5,
-		EnableRPS:            false,
-		NICAffinityPolicy:    v1alpha1.NICAffinityPolicyCompleteMap,
-		ReniceKsoftirqd:      false,
-		KsoftirqdNice:        -20,
-		CoresExpectedCPUUtil: 50,
+		EnableTuner:             false,
+		TuningPolicy:            v1alpha1.TuningPolicyBalance,
+		TuningInterval:          5,
+		EnableRPS:               false,
+		EnableRPSCPUVSNicsQueue: 0,
+		NICAffinityPolicy:       v1alpha1.NICAffinityPolicyCompleteMap,
+		ReniceKsoftirqd:         false,
+		KsoftirqdNice:           -20,
+		CoresExpectedCPUUtil:    50,
 
-		CoreNetOverLoadThresh: netoverload.NewIRQCoreNetOverloadThresholds(),
-		LoadBalanceConf:       loadbalance.NewIRQLoadBalanceConfig(),
-		CoresAdjustConf:       coresadjust.NewIRQCoresAdjustConfig(),
-		CoresExclusionConf:    coresexclusion.NewIRQCoresExclusionConfig(),
+		ThrouputClassSwitchConf: throughputclassswitch.NewThroughputClassSwitchConfig(),
+		CoreNetOverLoadThresh:   netoverload.NewIRQCoreNetOverloadThresholds(),
+		LoadBalanceConf:         loadbalance.NewIRQLoadBalanceConfig(),
+		CoresAdjustConf:         coresadjust.NewIRQCoresAdjustConfig(),
+		CoresExclusionConf:      coresexclusion.NewIRQCoresExclusionConfig(),
 	}
 }
 
@@ -72,6 +77,9 @@ func (c *IRQTuningConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) 
 		if itc.Spec.Config.EnableRPS != nil {
 			c.EnableRPS = *itc.Spec.Config.EnableRPS
 		}
+		if itc.Spec.Config.EnableRPSCPUVSNicsQueue != nil {
+			c.EnableRPSCPUVSNicsQueue = *itc.Spec.Config.EnableRPSCPUVSNicsQueue
+		}
 		c.NICAffinityPolicy = itc.Spec.Config.NICAffinityPolicy
 		if itc.Spec.Config.ReniceKsoftirqd != nil {
 			c.ReniceKsoftirqd = *itc.Spec.Config.ReniceKsoftirqd
@@ -83,6 +91,7 @@ func (c *IRQTuningConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) 
 			c.CoresExpectedCPUUtil = *itc.Spec.Config.CoresExpectedCPUUtil
 		}
 
+		c.ThrouputClassSwitchConf.ApplyConfiguration(conf)
 		c.CoreNetOverLoadThresh.ApplyConfiguration(conf)
 		c.LoadBalanceConf.ApplyConfiguration(conf)
 		c.CoresAdjustConf.ApplyConfiguration(conf)

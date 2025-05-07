@@ -25,40 +25,45 @@ import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/dynamic/irqtuning/coresexclusion"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/dynamic/irqtuning/loadbalance"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/dynamic/irqtuning/netoverload"
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/dynamic/irqtuning/throughputclassswitch"
 	irqdynamicconf "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/irqtuning"
 )
 
 type IRQTuningOptions struct {
-	EnableTuner          bool
-	TuningPolicy         string
-	TuningInterval       int
-	EnableRPS            bool
-	NICAffinityPolicy    string
-	ReniceKsoftirqd      bool
-	KsoftirqdNice        int
-	CoresExpectedCPUUtil int
+	EnableTuner             bool
+	TuningPolicy            string
+	TuningInterval          int
+	EnableRPS               bool
+	EnableRPSCPUVSNicsQueue float64
+	NICAffinityPolicy       string
+	ReniceKsoftirqd         bool
+	KsoftirqdNice           int
+	CoresExpectedCPUUtil    int
 
-	CoreNetOverLoadThresh *netoverload.IRQCoreNetOverloadThresholdOptions
-	LoadBalanceOptions    *loadbalance.IRQLoadBalanceOptions
-	CoresAdjustOptions    *coresadjust.IRQCoresAdjustOptions
-	CoresExclusionOptions *coresexclusion.IRQCoresExclusionOptions
+	ThrouputClassSwitchOptions *throughputclassswitch.ThroughputClassSwitchOptions
+	CoreNetOverLoadThresh      *netoverload.IRQCoreNetOverloadThresholdOptions
+	LoadBalanceOptions         *loadbalance.IRQLoadBalanceOptions
+	CoresAdjustOptions         *coresadjust.IRQCoresAdjustOptions
+	CoresExclusionOptions      *coresexclusion.IRQCoresExclusionOptions
 }
 
 func NewIRQTuningOptions() *IRQTuningOptions {
 	return &IRQTuningOptions{
-		EnableTuner:          false,
-		TuningPolicy:         string(v1alpha1.TuningPolicyBalance),
-		TuningInterval:       5,
-		EnableRPS:            false,
-		NICAffinityPolicy:    string(v1alpha1.NICAffinityPolicyCompleteMap),
-		ReniceKsoftirqd:      false,
-		KsoftirqdNice:        -20,
-		CoresExpectedCPUUtil: 50,
+		EnableTuner:             false,
+		TuningPolicy:            string(v1alpha1.TuningPolicyBalance),
+		TuningInterval:          5,
+		EnableRPS:               false,
+		EnableRPSCPUVSNicsQueue: 0,
+		NICAffinityPolicy:       string(v1alpha1.NICAffinityPolicyCompleteMap),
+		ReniceKsoftirqd:         false,
+		KsoftirqdNice:           -20,
+		CoresExpectedCPUUtil:    50,
 
-		CoreNetOverLoadThresh: netoverload.NewIRQCoreNetOverloadThresholdOptions(),
-		LoadBalanceOptions:    loadbalance.NewIRQLoadBalanceOptions(),
-		CoresAdjustOptions:    coresadjust.NewIRQCoresAdjustOptions(),
-		CoresExclusionOptions: coresexclusion.NewIRQCoresExclusionOptions(),
+		ThrouputClassSwitchOptions: throughputclassswitch.NewThroughputClassSwitchOptions(),
+		CoreNetOverLoadThresh:      netoverload.NewIRQCoreNetOverloadThresholdOptions(),
+		LoadBalanceOptions:         loadbalance.NewIRQLoadBalanceOptions(),
+		CoresAdjustOptions:         coresadjust.NewIRQCoresAdjustOptions(),
+		CoresExclusionOptions:      coresexclusion.NewIRQCoresExclusionOptions(),
 	}
 }
 
@@ -68,11 +73,13 @@ func (o *IRQTuningOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringVar(&o.TuningPolicy, "tuning-policy", o.TuningPolicy, "irq tuning policy")
 	fs.IntVar(&o.TuningInterval, "tuning-interval", o.TuningInterval, "irq tuning periodic interval")
 	fs.BoolVar(&o.EnableRPS, "enable-rps", o.EnableRPS, "enable irq rps")
+	fs.Float64Var(&o.EnableRPSCPUVSNicsQueue, "enable-rps-cpu-vs-nics-queue", o.EnableRPSCPUVSNicsQueue, "enable rps cpu vs nics queue")
 	fs.StringVar(&o.NICAffinityPolicy, "nic-affinity-policy", o.NICAffinityPolicy, "irq nic affinity policy")
 	fs.BoolVar(&o.ReniceKsoftirqd, "renice-ksoftirqd", o.ReniceKsoftirqd, "renice ksoftirqd")
 	fs.IntVar(&o.KsoftirqdNice, "ksoftirqd-nice", o.KsoftirqdNice, "ksoftirqd nice")
 	fs.IntVar(&o.CoresExpectedCPUUtil, "cores-expected-cpu-util", o.CoresExpectedCPUUtil, "irq cores expected cpu util")
 
+	o.ThrouputClassSwitchOptions.AddFlags(fss)
 	o.CoreNetOverLoadThresh.AddFlags(fss)
 	o.LoadBalanceOptions.AddFlags(fss)
 	o.CoresAdjustOptions.AddFlags(fss)
@@ -86,6 +93,7 @@ func (o *IRQTuningOptions) ApplyTo(c *irqdynamicconf.IRQTuningConfiguration) err
 	c.TuningInterval = o.TuningInterval
 
 	c.EnableRPS = o.EnableRPS
+	c.EnableRPSCPUVSNicsQueue = o.EnableRPSCPUVSNicsQueue
 	c.NICAffinityPolicy = v1alpha1.NICAffinityPolicy(o.NICAffinityPolicy)
 
 	c.ReniceKsoftirqd = o.ReniceKsoftirqd
@@ -93,6 +101,7 @@ func (o *IRQTuningOptions) ApplyTo(c *irqdynamicconf.IRQTuningConfiguration) err
 
 	c.CoresExpectedCPUUtil = o.CoresExpectedCPUUtil
 
+	errList = append(errList, o.ThrouputClassSwitchOptions.ApplyTo(c.ThrouputClassSwitchConf))
 	errList = append(errList, o.CoreNetOverLoadThresh.ApplyTo(c.CoreNetOverLoadThresh))
 	errList = append(errList, o.LoadBalanceOptions.ApplyTo(c.LoadBalanceConf))
 	errList = append(errList, o.CoresAdjustOptions.ApplyTo(c.CoresAdjustConf))
