@@ -80,7 +80,7 @@ func TestResctrlProcessor_HintResp(t *testing.T) {
 				qosLevel: "shared_cores",
 				req: &pluginapi.ResourceRequest{
 					Annotations: map[string]string{
-						"katalyst.kubewharf.io/cpu_enhancement": `{"cpuset_pool":"batch"}`,
+						"cpuset_pool": "batch",
 					},
 				},
 				resp: genRespTest(),
@@ -102,7 +102,7 @@ func TestResctrlProcessor_HintResp(t *testing.T) {
 				qosLevel: "shared_cores",
 				req: &pluginapi.ResourceRequest{
 					Annotations: map[string]string{
-						"katalyst.kubewharf.io/cpu_enhancement": `{"cpuset_pool":"batch"}`,
+						"cpuset_pool": "batch",
 					},
 				},
 				resp: genRespTest(),
@@ -136,7 +136,7 @@ func TestResctrlProcessor_HintResp(t *testing.T) {
 				qosLevel: "shared_cores",
 				req: &pluginapi.ResourceRequest{
 					Annotations: map[string]string{
-						"katalyst.kubewharf.io/cpu_enhancement": `{"cpuset_pool":"batch"}`,
+						"cpuset_pool": "batch",
 					},
 				},
 				resp: genRespTest(),

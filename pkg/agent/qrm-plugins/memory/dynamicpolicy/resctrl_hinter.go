@@ -17,7 +17,6 @@ limitations under the License.
 package dynamicpolicy
 
 import (
-	"encoding/json"
 	"fmt"
 	"strconv"
 
@@ -46,25 +45,6 @@ type ResctrlHinter interface {
 type resctrlHinter struct {
 	config               *qrm.ResctrlConfig
 	closidEnablingGroups sets.String
-}
-
-func identifyCPUSetPool(annoInReq map[string]string) string {
-	if pool, ok := annoInReq[apiconsts.PodAnnotationCPUEnhancementCPUSet]; ok {
-		return pool
-	}
-
-	// fall back to original composite (not flattened) form
-	enhancementValue, ok := annoInReq[apiconsts.PodAnnotationCPUEnhancementKey]
-	if !ok {
-		return ""
-	}
-
-	flattenedEnhancements := map[string]string{}
-	err := json.Unmarshal([]byte(enhancementValue), &flattenedEnhancements)
-	if err != nil {
-		return ""
-	}
-	return identifyCPUSetPool(flattenedEnhancements)
 }
 
 func getSharedSubgroup(val int) string {
@@ -125,25 +105,6 @@ func injectRespAnnotationPodMonGroup(resp *pluginapi.ResourceAllocationResponse,
 	return
 }
 
-// getResctrlGroup returns the resctrl FS top level resource group name
-// based on pod qos level, and applicable share qos cpuset pool
-func (r *resctrlHinter) getResctrlGroup(qosLevel string, cpusetPool string) string {
-	// for shared-core qos, we need to locate the sub group as specified by cpuset pool
-	if qosLevel == apiconsts.PodAnnotationQoSLevelSharedCores {
-		subGroupName := r.getSharedSubgroupByPool(cpusetPool)
-		return subGroupName
-	}
-
-	// for system core qos, resctrl FS top level group is system
-	if qosLevel == apiconsts.PodAnnotationQoSLevelSystemCores {
-		// tweak the case of system qos
-		return commonstate.PoolNamePrefixSystem
-	}
-
-	// for other qos, resctrl FS top level group is the same as pool name as specified by qos
-	return commonstate.GetSpecifiedPoolName(qosLevel, commonstate.EmptyOwnerPoolName)
-}
-
 func (r *resctrlHinter) HintResp(qosLevel string,
 	req *pluginapi.ResourceRequest, resp *pluginapi.ResourceAllocationResponse,
 ) *pluginapi.ResourceAllocationResponse {
@@ -151,15 +112,18 @@ func (r *resctrlHinter) HintResp(qosLevel string,
 		return resp
 	}
 
-	cpusetPoolShareQoS := ""
-	if qosLevel == apiconsts.PodAnnotationQoSLevelSharedCores {
-		cpusetPoolShareQoS = identifyCPUSetPool(req.Annotations)
+	var resctrlGroup string
+	if qosLevel == apiconsts.PodAnnotationQoSLevelSystemCores {
+		// tweak the case of system qos
+		resctrlGroup = commonstate.PoolNamePrefixSystem
+	} else {
+		resctrlGroup = commonstate.GetSpecifiedPoolName(qosLevel,
+			r.getSharedSubgroupByPool(req.Annotations[apiconsts.PodAnnotationCPUEnhancementCPUSet]))
 	}
-	resctrlGroup := r.getResctrlGroup(qosLevel, cpusetPoolShareQoS)
 
 	// when no recognized qos can be identified, no hint
 	if resctrlGroup == commonstate.EmptyOwnerPoolName {
-		general.Errorf("pod admit: fail to identify short qos level for %s; skip resctl hint", qosLevel)
+		general.Errorf("pod admit: fail to identify resctrl top level group for qos %s; skip resctl hint", qosLevel)
 		return resp
 	}
 
