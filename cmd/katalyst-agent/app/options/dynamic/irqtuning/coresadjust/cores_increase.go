@@ -25,8 +25,8 @@ import (
 type IRQCoresIncOptions struct {
 	// interval of two successive irq cores increase MUST greater-equal this interval
 	SuccessiveIncInterval int
-	// scale factor of irq cores cpu usage to calculate expected irq cores number when irq cores cpu util nearly full, default 1.5
-	FullScaleFactor float64
+	// when irq cores cpu util hit this thresh, then fallback to balance-fair policy
+	FullThresh int
 
 	Thresholds *IRQCoresIncThresholds
 }
@@ -39,7 +39,7 @@ type IRQCoresIncThresholds struct {
 func NewIRQCoresIncOptions() *IRQCoresIncOptions {
 	return &IRQCoresIncOptions{
 		SuccessiveIncInterval: 5,
-		FullScaleFactor:       85,
+		FullThresh:            85,
 		Thresholds: &IRQCoresIncThresholds{
 			AvgCPUUtilThresh: 60,
 		},
@@ -49,13 +49,13 @@ func NewIRQCoresIncOptions() *IRQCoresIncOptions {
 func (o *IRQCoresIncOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs := fss.FlagSet("irq-cores-increase")
 	fs.IntVar(&o.SuccessiveIncInterval, "successive-inc-interval", o.SuccessiveIncInterval, "interval of two successive irq cores increase MUST greater-equal this interval")
-	fs.Float64Var(&o.FullScaleFactor, "full-scale-factor", o.FullScaleFactor, "scale factor of irq cores cpu usage to calculate expected irq cores number when irq cores cpu util nearly full, default 1.5")
+	fs.IntVar(&o.FullThresh, "full-thresh", o.FullThresh, "when irq cores cpu util hit this thresh, then fallback to balance-fair policy")
 	fs.IntVar(&o.Thresholds.AvgCPUUtilThresh, "avg-cpu-util-thresh", o.Thresholds.AvgCPUUtilThresh, "threshold of increasing irq cores, generally this thresh equal to or a litter greater-than IrqCoresExpectedCpuUtil")
 }
 
 func (o *IRQCoresIncOptions) ApplyTo(c *coresadjust.IRQCoresIncConfig) error {
 	c.SuccessiveIncInterval = o.SuccessiveIncInterval
-	c.FullScaleFactor = o.FullScaleFactor
+	c.FullThresh = o.FullThresh
 	c.Thresholds.AvgCPUUtilThresh = o.Thresholds.AvgCPUUtilThresh
 
 	return nil
