@@ -2237,6 +2237,7 @@ func TestHandleAdvisorResp(t *testing.T) {
 	pod2UID := string(uuid.NewUUID())
 	pod3UID := string(uuid.NewUUID())
 	pod4UID := string(uuid.NewUUID())
+	pod5UID := string(uuid.NewUUID())
 	testName := "test"
 
 	testCases := []struct {
@@ -2357,10 +2358,24 @@ func TestHandleAdvisorResp(t *testing.T) {
 					pod4UID: {
 						ContainerEntries: map[string]*advisorsvc.CalculationInfo{
 							testName: {
+								CgroupPath: pod4UID,
 								CalculationResult: &advisorsvc.CalculationResult{
 									Values: map[string]string{
 										string(memoryadvisor.ControlKnobKeySwapMax):          coreconsts.ControlKnobON,
 										string(memoryadvisor.ControlKnowKeyMemoryOffloading): "40960",
+									},
+								},
+							},
+						},
+					},
+					pod5UID: {
+						ContainerEntries: map[string]*advisorsvc.CalculationInfo{
+							testName: {
+								CgroupPath: pod5UID,
+								CalculationResult: &advisorsvc.CalculationResult{
+									Values: map[string]string{
+										string(memoryadvisor.ControlKnobKeySwapMax):          coreconsts.ControlKnobOFF,
+										string(memoryadvisor.ControlKnowKeyMemoryOffloading): "0",
 									},
 								},
 							},

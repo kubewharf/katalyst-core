@@ -601,9 +601,6 @@ func (tmo *transparentMemoryOffloading) GetAdvices() types.InternalMemoryCalcula
 	tmo.mutex.RLock()
 	defer tmo.mutex.RUnlock()
 	for _, tmoEngine := range tmo.containerTmoEngines {
-		if tmoEngine.GetOffloadingTargetSize() <= 0 {
-			continue
-		}
 		enableSwap := consts.ControlKnobOFF
 		if tmoEngine.GetConf().EnableSwap {
 			enableSwap = consts.ControlKnobON
@@ -621,9 +618,6 @@ func (tmo *transparentMemoryOffloading) GetAdvices() types.InternalMemoryCalcula
 	}
 
 	for cgpath, tmoEngine := range tmo.cgpathTmoEngines {
-		if tmoEngine.GetOffloadingTargetSize() <= 0 {
-			continue
-		}
 		enableSwap := consts.ControlKnobOFF
 		if tmoEngine.GetConf().EnableSwap {
 			enableSwap = consts.ControlKnobON
