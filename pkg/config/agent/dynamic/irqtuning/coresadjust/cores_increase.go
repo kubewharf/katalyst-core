@@ -21,8 +21,8 @@ import "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 type IRQCoresIncConfig struct {
 	// interval of two successive irq cores increase MUST greater-equal this interval
 	SuccessiveIncInterval int
-	// scale factor of irq cores cpu usage to calculate expected irq cores number when irq cores cpu util nearly full, default 1.5
-	FullScaleFactor float64
+	// when irq cores cpu util hit this thresh, then fallback to balance-fair policy
+	FullThresh int
 
 	Thresholds *IRQCoresIncThresholds
 }
@@ -35,7 +35,7 @@ type IRQCoresIncThresholds struct {
 func NewIRQCoresIncConfig() *IRQCoresIncConfig {
 	return &IRQCoresIncConfig{
 		SuccessiveIncInterval: 5,
-		FullScaleFactor:       85,
+		FullThresh:            85,
 		Thresholds: &IRQCoresIncThresholds{
 			AvgCPUUtilThresh: 60,
 		},
@@ -51,8 +51,8 @@ func (c *IRQCoresIncConfig) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 		if config.SuccessiveIncInterval != nil {
 			c.SuccessiveIncInterval = *config.SuccessiveIncInterval
 		}
-		if config.FullScaleFactor != nil {
-			c.FullScaleFactor = *config.FullScaleFactor
+		if config.FullThresh != nil {
+			c.FullThresh = *config.FullThresh
 		}
 		if config.Thresholds != nil {
 			if config.Thresholds.AvgCPUUtilThresh != nil {
