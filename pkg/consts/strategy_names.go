@@ -25,6 +25,12 @@ const (
 	// StrategyNameBalanceSchedV1 is the name of balance_sched_v1 strategy,
 	// it scatters the overloaded nodes by pre-set node utilization and load thresholds
 	StrategyNameBalanceSchedV1 = "balance_sched_v1"
+	// StrategyNameBalanceSchedV2 is the name of balance_sched_v2 strategy,
+	// it is an improved version of balance_sched_v1 with enhanced node selection logic
+	StrategyNameBalanceSchedV2 = "balance_sched_v2"
+	// StrategyNameBalanceSchedV3 is the name of balance_sched_v3 strategy,
+	// it supports machine-type-specific thresholds and uses NUMA-level metrics
+	StrategyNameBalanceSchedV3 = "balance_sched_v3"
 	// StrategyNameBorweinOfflineTraining is the name of borwein_offline_training strategy,
 	// it reschedules offline training pods according to model inference results to improve the performance of the pods.
 	StrategyNameBorweinOfflineTraining = "borwein_offline_training"
