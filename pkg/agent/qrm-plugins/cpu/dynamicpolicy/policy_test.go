@@ -3232,19 +3232,19 @@ func TestGetTopologyHints(t *testing.T) {
 						Hints: []*pluginapi.TopologyHint{
 							{
 								Nodes:     []uint64{3},
-								Preferred: true,
+								Preferred: false,
 							},
 							{
 								Nodes:     []uint64{2},
-								Preferred: true,
+								Preferred: false,
 							},
 							{
 								Nodes:     []uint64{0},
-								Preferred: true,
+								Preferred: false,
 							},
 							{
 								Nodes:     []uint64{1},
-								Preferred: true,
+								Preferred: false,
 							},
 						},
 					},
@@ -3495,7 +3495,7 @@ func TestGetTopologyHints(t *testing.T) {
 							},
 							{
 								Nodes:     []uint64{0},
-								Preferred: true,
+								Preferred: false,
 							},
 						},
 					},
