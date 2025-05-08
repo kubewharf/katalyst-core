@@ -75,8 +75,8 @@ func generateRamaTestConfiguration(t *testing.T, checkpointDir, stateFileDir, ch
 	conf.PolicyRama = &provision.PolicyRamaConfiguration{
 		PIDParameters: map[string]types.FirstOrderPIDParams{
 			consts.MetricCPUSchedwait: {
-				Kpp:                  10.0,
-				Kpn:                  1.0,
+				Kpp:                  0.1,
+				Kpn:                  0.01,
 				Kdp:                  0.0,
 				Kdn:                  0.0,
 				AdjustmentUpperBound: types.MaxRampUpStep,
@@ -85,8 +85,8 @@ func generateRamaTestConfiguration(t *testing.T, checkpointDir, stateFileDir, ch
 				DeadbandUpperPct:     0.05,
 			},
 			consts.MetricCPUCPIContainer: {
-				Kpp:                  10.0,
-				Kpn:                  1.0,
+				Kpp:                  0.1,
+				Kpn:                  0.01,
 				Kdp:                  0.0,
 				Kdn:                  0.0,
 				AdjustmentUpperBound: types.MaxRampUpStep,
@@ -95,8 +95,8 @@ func generateRamaTestConfiguration(t *testing.T, checkpointDir, stateFileDir, ch
 				DeadbandUpperPct:     0.02,
 			},
 			consts.MetricMemBandwidthNuma: {
-				Kpp:                  10.0,
-				Kpn:                  1.0,
+				Kpp:                  0.1,
+				Kpn:                  0.01,
 				Kdp:                  0.0,
 				Kdn:                  0.0,
 				AdjustmentUpperBound: types.MaxRampUpStep,
@@ -216,7 +216,7 @@ func TestPolicyRama(t *testing.T) {
 			},
 			wantResult: types.ControlKnob{
 				configapi.ControlKnobNonReclaimedCPURequirement: {
-					Value:  46.93147180559946,
+					Value:  46.23832462503951,
 					Action: types.ControlKnobActionNone,
 				},
 			},
@@ -380,7 +380,7 @@ func TestPolicyRama(t *testing.T) {
 			},
 			wantResult: types.ControlKnob{
 				configapi.ControlKnobNonReclaimedCPURequirement: {
-					Value:  46.93147180559945,
+					Value:  46.23832462503951,
 					Action: types.ControlKnobActionNone,
 				},
 			},
