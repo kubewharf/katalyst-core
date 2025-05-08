@@ -193,7 +193,19 @@ func GetSPDForVPA(vpa *apis.KatalystVerticalPodAutoscaler, spdIndexer cache.Inde
 		return nil, err
 	}
 
-	return GetSPDForWorkload(workloadObj.(*unstructured.Unstructured), spdIndexer, spdLister)
+	spdList, absent, err := GetSPDForWorkload(workloadObj.(*unstructured.Unstructured), spdIndexer, spdLister)
+	if err != nil {
+		return nil, err
+	}
+
+	// todo support multiple spd for a vpa in the future
+	if len(spdList) != 1 || len(absent) > 0 {
+		klog.Errorf("spd for vpa %s/%s is invalid, len %d, absent %v",
+			vpa.GetNamespace(), vpa.GetName(), len(spdList), absent)
+		return nil, fmt.Errorf("spd for vpa is invalid")
+	}
+
+	return spdList[0], nil
 }
 
 /*

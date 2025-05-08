@@ -47,7 +47,7 @@ type IndicatorPlugin interface {
 	GetSupportedAggMetricsStatus() []string
 	// GetAggMetrics is only used in SPD creation for timing-sensitive status.
 	// The other non-timing-sensitive status are updated at UpdateAggMetrics in indicatorUpdater.
-	GetAggMetrics(workload *unstructured.Unstructured) ([]apiworkload.AggPodMetrics, error)
+	GetAggMetrics(workload *unstructured.Unstructured, spdName string) ([]apiworkload.AggPodMetrics, error)
 }
 
 type DummyIndicatorPlugin struct {
@@ -82,7 +82,7 @@ func (d DummyIndicatorPlugin) GetSupportedAggMetricsStatus() []string {
 	return nil
 }
 
-func (d DummyIndicatorPlugin) GetAggMetrics(_ *unstructured.Unstructured) ([]apiworkload.AggPodMetrics, error) {
+func (d DummyIndicatorPlugin) GetAggMetrics(_ *unstructured.Unstructured, _ string) ([]apiworkload.AggPodMetrics, error) {
 	return nil, nil
 }
 
