@@ -58,6 +58,7 @@ TempRepoDir := $(shell mktemp -d)
 SysAdvisorCPUPluginPath = $(MakeFilePath)/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor/
 .PHONY: generate-sys-advisor-cpu-plugin ## Generate protocol for cpu resource plugin with sys-advisor
 generate-sys-advisor-cpu-plugin:
+	rm -rf $(TempRepoDir) && \
 	mkdir -p $(TempRepoDir)/github.com/kubewharf && \
 	mkdir -p $(TempRepoDir)/github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc && \
 	mkdir -p $(TempRepoDir)/github.com/gogo && \
@@ -77,6 +78,7 @@ generate-sys-advisor-cpu-plugin:
 AdvisorSvcPath = $(MakeFilePath)/pkg/agent/qrm-plugins/advisorsvc/
 .PHONY: generate-advisor-svc ## Generate protocol for general qrm-plugin with sys-advisor
 generate-advisor-svc:
+	rm -rf $(TempRepoDir) && \
 	mkdir -p $(TempRepoDir)/github.com/kubewharf && \
 	mkdir -p $(TempRepoDir)/github.com/gogo && \
 	git clone https://github.com/kubewharf/kubelet.git $(TempRepoDir)/github.com/kubewharf/kubelet && \
