@@ -42,6 +42,7 @@ type MemoryOptions struct {
 	SockMemOptions
 	LogCacheOptions
 	FragMemOptions
+	ResctrlOptions
 }
 
 type SockMemOptions struct {
@@ -76,6 +77,19 @@ type FragMemOptions struct {
 	SetMemFragScoreAsync int
 }
 
+type ResctrlOptions struct {
+	EnableResctrlHint bool
+	// CPUSetPoolToSharedSubgroup specifies, if present, the subgroup id for shared-core QoS pod
+	// based on its cpu set pool annotation
+	CPUSetPoolToSharedSubgroup map[string]int
+	DefaultSharedSubgroup      int
+
+	// MonGroupEnabledClosIDs specifies mon_groups layout policy of kubelet
+	// by default no special mon_groups layout, which allows kubelet to decide by itself, suitable for scenarios
+	// that need no memory bandwidth control (which would exceed the closid limit of hardware).
+	MonGroupEnabledClosIDs []string
+}
+
 func NewMemoryOptions() *MemoryOptions {
 	return &MemoryOptions{
 		PolicyName:                                    "dynamic",
@@ -105,6 +119,11 @@ func NewMemoryOptions() *MemoryOptions {
 		FragMemOptions: FragMemOptions{
 			EnableSettingFragMem: false,
 			SetMemFragScoreAsync: 80,
+		},
+		ResctrlOptions: ResctrlOptions{
+			CPUSetPoolToSharedSubgroup: make(map[string]int),
+			DefaultSharedSubgroup:      -1,
+			MonGroupEnabledClosIDs:     []string{},
 		},
 	}
 }
@@ -160,6 +179,14 @@ func (o *MemoryOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.EnableSettingFragMem, "if set true, we will enable memory compaction related features")
 	fs.IntVar(&o.SetMemFragScoreAsync, "qrm-memory-frag-score-async",
 		o.SetMemFragScoreAsync, "set the threshold of frag score for async memory compaction")
+	fs.BoolVar(&o.EnableResctrlHint, "pod-admit-resctrl-layout-hint",
+		o.EnableResctrlHint, "if set true, we will enable resctrl hint on pod admission")
+	fs.StringToIntVar(&o.CPUSetPoolToSharedSubgroup, "resctrl-cpuset-pool-to-shared-subgroup",
+		o.CPUSetPoolToSharedSubgroup, "customize shared-xx subgroup if present")
+	fs.IntVar(&o.DefaultSharedSubgroup, "resctrl-default-shared-subgroup",
+		o.DefaultSharedSubgroup, "default subgroup for shared qos")
+	fs.StringSliceVar(&o.MonGroupEnabledClosIDs, "resctrl-mon-groups-enabled_closids",
+		o.MonGroupEnabledClosIDs, "enabled-closid mon-groups")
 }
 
 func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
@@ -187,5 +214,10 @@ func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
 	conf.FileFilters = o.FileFilters
 	conf.EnableSettingFragMem = o.EnableSettingFragMem
 	conf.SetMemFragScoreAsync = o.SetMemFragScoreAsync
+	conf.EnableResctrlHint = o.EnableResctrlHint
+	conf.CPUSetPoolToSharedSubgroup = o.CPUSetPoolToSharedSubgroup
+	conf.DefaultSharedSubgroup = o.DefaultSharedSubgroup
+	conf.MonGroupEnabledClosIDs = o.MonGroupEnabledClosIDs
+
 	return nil
 }

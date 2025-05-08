@@ -52,6 +52,8 @@ type MemoryQRMPluginConfig struct {
 	LogCacheQRMPluginConfig
 	// FragMemOptions: the configuration for memory compaction related features
 	FragMemOptions
+	// ResctrlConfig: the configuration for resctrl FS related hints
+	ResctrlConfig
 }
 
 type SockMemQRMPluginConfig struct {
@@ -85,6 +87,19 @@ type FragMemOptions struct {
 	// SetMemFragScoreAsync sets the threashold of frag score for async memory compaction.
 	// The async compaction behavior will be triggered while exceeding this score.
 	SetMemFragScoreAsync int
+}
+
+type ResctrlConfig struct {
+	// EnableResctrlHint is the flag that enable/disable resctrl option related pod admission
+	EnableResctrlHint bool
+
+	// CPUSetPoolToSharedSubgroup specifies, if present, the subgroup id for shared-core QoS pod
+	// based on its cpu set pool annotation
+	CPUSetPoolToSharedSubgroup map[string]int
+	DefaultSharedSubgroup      int
+
+	// MonGroupEnabledClosIDs is about mon_group layout hint policy
+	MonGroupEnabledClosIDs []string
 }
 
 func NewMemoryQRMPluginConfig() *MemoryQRMPluginConfig {

@@ -111,6 +111,9 @@ type DynamicPolicy struct {
 	advisorConn    *grpc.ClientConn
 	advisorMonitor *timemonitor.TimeMonitor
 
+	// resctrlHinter is in charge of resctrl FS hints for mon group layout customizations
+	resctrlHinter ResctrlHinter
+
 	topology *machine.CPUTopology
 	state    state.State
 
@@ -225,6 +228,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		enableEvictingLogCache:      conf.EnableEvictingLogCache,
 		enableReclaimNUMABinding:    conf.EnableReclaimNUMABinding,
 		enableSNBHighNumaPreference: conf.EnableSNBHighNumaPreference,
+		resctrlHinter:               newResctrlHinter(&conf.ResctrlConfig),
 		enableNonBindingShareCoresMemoryResourceCheck: conf.EnableNonBindingShareCoresMemoryResourceCheck,
 		numaBindResultResourceAllocationAnnotationKey: conf.NUMABindResultResourceAllocationAnnotationKey,
 	}
@@ -856,6 +860,16 @@ func (p *DynamicPolicy) GetResourcePluginOptions(context.Context,
 	}, nil
 }
 
+// postAllocateForResctrl makes applicable changes to response's annotations
+// as hint to kubelet about resctrl FS related settings
+func (p *DynamicPolicy) postAllocateForResctrl(qosLevel string, req *pluginapi.ResourceRequest, resp *pluginapi.ResourceAllocationResponse) *pluginapi.ResourceAllocationResponse {
+	if p.resctrlHinter == nil {
+		return resp
+	}
+
+	return p.resctrlHinter.HintResp(qosLevel, req, resp)
+}
+
 // Allocate is called during pod admit so that the resource
 // plugin can allocate corresponding resource for the container
 // according to resource request
@@ -879,6 +893,13 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 		general.Errorf("%s", err.Error())
 		return nil, err
 	}
+
+	// register post-process to inject applicable resp annotation as kubelet pod admit hint
+	defer func() {
+		if respErr == nil {
+			resp = p.postAllocateForResctrl(qosLevel, req, resp)
+		}
+	}()
 
 	reqInt, _, err := util.GetQuantityFromResourceReq(req)
 	if err != nil {
