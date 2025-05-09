@@ -18,6 +18,7 @@ package logcache
 
 import (
 	"io/fs"
+	"os"
 	"path/filepath"
 	"regexp"
 	"time"
@@ -66,7 +67,9 @@ func (e *fileCacheEvictionManager) shouldEvictFile(filePath string) bool {
 
 func (e *fileCacheEvictionManager) evictWalk(path string) error {
 	return filepath.Walk(path, func(path string, file fs.FileInfo, err error) error {
-		if err != nil {
+		if err != nil && os.IsNotExist(err) {
+			return nil
+		} else if err != nil {
 			return err
 		}
 

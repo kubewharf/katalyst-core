@@ -30,7 +30,9 @@ import (
 
 func EvictFileCache(filePath string, fileSizeBytes int64) error {
 	file, err := openFileWithRetry(filePath, os.O_RDONLY|syscall.O_NOATIME)
-	if err != nil {
+	if err != nil && os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
 		return err
 	}
 
