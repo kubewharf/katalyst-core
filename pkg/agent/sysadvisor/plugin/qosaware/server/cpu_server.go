@@ -25,6 +25,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/samber/lo"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/errors"
@@ -39,6 +40,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation"
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -117,7 +120,15 @@ func (cs *cpuServer) GetAdvice(ctx context.Context, request *cpuadvisor.GetAdvic
 
 	general.InfoS("updated meta cache input", "duration", time.Since(startTime))
 
-	result, err := cs.updateAdvisor()
+	// generate both sys advisor supported and qrm wanted feature gates
+	supportedWantedFeatureGates, err := featuregatenegotiation.GenerateSupportedWantedFeatureGates(request.WantedFeatureGates, finders.FeatureGateTypeCPU)
+	if err != nil {
+		return nil, err
+	}
+
+	general.InfofV(6, "QRM CPU Plugin wanted feature gates: %v, among them sysadvisor supported feature gates: %v", lo.Keys(request.WantedFeatureGates), lo.Keys(supportedWantedFeatureGates))
+
+	result, err := cs.updateAdvisor(supportedWantedFeatureGates)
 	if err != nil {
 		general.Errorf("update advisor failed: %v", err)
 		return nil, fmt.Errorf("update advisor failed: %w", err)
@@ -126,6 +137,7 @@ func (cs *cpuServer) GetAdvice(ctx context.Context, request *cpuadvisor.GetAdvic
 		Entries:                               result.Entries,
 		AllowSharedCoresOverlapReclaimedCores: result.AllowSharedCoresOverlapReclaimedCores,
 		ExtraEntries:                          result.ExtraEntries,
+		SupportedFeatureGates:                 supportedWantedFeatureGates,
 	}
 	general.Infof("get advice response: %v", general.ToString(resp))
 	general.InfoS("get advice", "duration", time.Since(startTime))
@@ -235,7 +247,9 @@ func (cs *cpuServer) getAndPushAdvice(client cpuadvisor.CPUPluginClient, server 
 		return nil
 	}
 
-	result, err := cs.updateAdvisor()
+	// old asynchronous communication interface does not support feature gate negotiation. If necessary, upgrade to the synchronization interface.
+	emptyMap := map[string]*advisorsvc.FeatureGate{}
+	result, err := cs.updateAdvisor(emptyMap)
 	if err != nil {
 		return err
 	}
@@ -257,7 +271,7 @@ func (cs *cpuServer) getAndPushAdvice(client cpuadvisor.CPUPluginClient, server 
 	return nil
 }
 
-func (cs *cpuServer) updateAdvisor() (*cpuInternalResult, error) {
+func (cs *cpuServer) updateAdvisor(featureGates map[string]*advisorsvc.FeatureGate) (*cpuInternalResult, error) {
 	// trigger advisor update and get latest advice
 	advisorRespRaw, err := cs.resourceAdvisor.UpdateAndGetAdvice()
 	if err != nil {

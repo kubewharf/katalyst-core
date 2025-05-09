@@ -48,6 +48,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/handlers/sockmem"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/reactor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
@@ -107,9 +108,10 @@ type DynamicPolicy struct {
 	emitter    metrics.MetricEmitter
 	metaServer *metaserver.MetaServer
 
-	advisorClient  advisorsvc.AdvisorServiceClient
-	advisorConn    *grpc.ClientConn
-	advisorMonitor *timemonitor.TimeMonitor
+	advisorClient      advisorsvc.AdvisorServiceClient
+	advisorConn        *grpc.ClientConn
+	advisorMonitor     *timemonitor.TimeMonitor
+	featureGateManager featuregatenegotiation.FeatureGateManager
 
 	// resctrlHinter is in charge of resctrl FS hints for mon group layout customizations
 	resctrlHinter ResctrlHinter
@@ -207,6 +209,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		stopCh:                      make(chan struct{}),
 		migratingMemory:             make(map[string]map[string]bool),
 		residualHitMap:              make(map[string]int64),
+		featureGateManager:          featuregatenegotiation.NewFeatureGateManager(conf),
 		enhancementHandlers:         make(util.ResourceEnhancementHandlerMap),
 		extraStateFileAbsPath:       conf.ExtraStateFileAbsPath,
 		name:                        fmt.Sprintf("%s_%s", agentName, memconsts.MemoryResourcePluginPolicyNameDynamic),
@@ -454,6 +457,7 @@ func (p *DynamicPolicy) Start() (err error) {
 	general.Infof("start dynamic policy memory plugin with memory advisor")
 	general.RegisterHeartbeatCheck(memconsts.CommunicateWithAdvisor, 2*time.Minute, general.HealthzCheckStateNotReady,
 		2*time.Minute)
+
 	err = p.initAdvisorClientConn()
 	if err != nil {
 		general.Errorf("initAdvisorClientConn failed with error: %v", err)

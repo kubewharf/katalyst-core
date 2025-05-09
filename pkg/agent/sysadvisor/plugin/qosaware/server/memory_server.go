@@ -25,6 +25,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/samber/lo"
 	"google.golang.org/grpc"
 	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/klog/v2"
@@ -35,6 +36,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/memory"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation"
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -135,14 +138,23 @@ func (ms *memoryServer) GetAdvice(ctx context.Context, request *advisorsvc.GetAd
 
 	general.InfoS("updated meta cache input", "duration", time.Since(startTime))
 
-	result, err := ms.updateAdvisor()
+	// generate both sys advisor supported and qrm wanted feature gates
+	supportedWantedFeatureGates, err := featuregatenegotiation.GenerateSupportedWantedFeatureGates(request.WantedFeatureGates, finders.FeatureGateTypeMemory)
+	if err != nil {
+		return nil, err
+	}
+
+	general.InfofV(6, "QRM Memory Plugin wanted feature gates: %v, among them sysadvisor supported feature gates: %v", lo.Keys(request.WantedFeatureGates), lo.Keys(supportedWantedFeatureGates))
+
+	result, err := ms.updateAdvisor(supportedWantedFeatureGates)
 	if err != nil {
 		general.Errorf("update advisor failed: %v", err)
 		return nil, fmt.Errorf("update advisor failed: %w", err)
 	}
 	resp := &advisorsvc.GetAdviceResponse{
-		PodEntries:   result.PodEntries,
-		ExtraEntries: result.ExtraEntries,
+		PodEntries:            result.PodEntries,
+		ExtraEntries:          result.ExtraEntries,
+		SupportedFeatureGates: supportedWantedFeatureGates,
 	}
 	general.Infof("get advice response: %v", general.ToString(resp))
 	general.InfoS("get advice", "duration", time.Since(startTime))
@@ -242,7 +254,7 @@ type memoryInternalResult struct {
 	ExtraEntries []*advisorsvc.CalculationInfo
 }
 
-func (ms *memoryServer) updateAdvisor() (*memoryInternalResult, error) {
+func (ms *memoryServer) updateAdvisor(supportedWantedFeatureGates map[string]*advisorsvc.FeatureGate) (*memoryInternalResult, error) {
 	advisorRespRaw, err := ms.resourceAdvisor.UpdateAndGetAdvice()
 	if err != nil {
 		return nil, fmt.Errorf("get memory advice failed: %w", err)
@@ -257,7 +269,9 @@ func (ms *memoryServer) updateAdvisor() (*memoryInternalResult, error) {
 }
 
 func (ms *memoryServer) getAndPushAdvice(server advisorsvc.AdvisorService_ListAndWatchServer) error {
-	result, err := ms.updateAdvisor()
+	// old asynchronous communication interface does not support feature gate negotiation. If necessary, upgrade to the synchronization interface.
+	emptyMap := map[string]*advisorsvc.FeatureGate{}
+	result, err := ms.updateAdvisor(emptyMap)
 	if err != nil {
 		_ = ms.emitter.StoreInt64(ms.genMetricsName(metricServerAdvisorUpdateFailed), int64(ms.period.Seconds()), metrics.MetricTypeNameCount)
 		return fmt.Errorf("update advisor failed: %w", err)

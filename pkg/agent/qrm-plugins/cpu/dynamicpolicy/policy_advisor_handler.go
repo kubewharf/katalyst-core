@@ -25,6 +25,7 @@ import (
 	"path"
 	"time"
 
+	"github.com/samber/lo"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -40,9 +41,12 @@ import (
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation"
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
 )
 
@@ -297,8 +301,19 @@ func (p *DynamicPolicy) createGetAdviceRequest() (*advisorapi.GetAdviceRequest, 
 		}
 	}
 
+	if lo.IsNil(p.featureGateManager) {
+		return nil, fmt.Errorf("featureGateManager is nil")
+	}
+	wantedFeatureGates, err := p.featureGateManager.GetWantedFeatureGates(finders.FeatureGateTypeCPU)
+	if err != nil {
+		return nil, err
+	}
+
+	general.InfofV(6, "CPU plugin desire negotiation feature gates: %#v", wantedFeatureGates)
+
 	return &advisorapi.GetAdviceRequest{
-		Entries: chkEntries,
+		Entries:            chkEntries,
+		WantedFeatureGates: wantedFeatureGates,
 	}, nil
 }
 
@@ -321,13 +336,27 @@ func (p *DynamicPolicy) getAdviceFromAdvisor(ctx context.Context) (isImplemented
 		return true, fmt.Errorf("GetAdvice failed with error: %w", err)
 	}
 
+	general.InfofV(6, "QRM CPU plugin wanted feature gates: %v, sysadvisor supported feature gates: %v", lo.Keys(request.WantedFeatureGates), lo.Keys(resp.SupportedFeatureGates))
+	// check if there are feature gates wanted by QRM that are not supported by cpu sysadvisor
+	wantedButNotSupportedFeatureGates := featuregatenegotiation.GetWantedButNotSupportedFeatureGates(request.WantedFeatureGates, resp.SupportedFeatureGates)
+	for _, featureGate := range wantedButNotSupportedFeatureGates {
+		if featureGate.MustMutuallySupported {
+			return true, fmt.Errorf("feature gate %s which must be mutually supported is not supported by cpu-advisor", featureGate.Name)
+		}
+	}
+
 	err = p.allocateByCPUAdvisor(request, &advisorapi.ListAndWatchResponse{
 		Entries:                               resp.Entries,
 		AllowSharedCoresOverlapReclaimedCores: resp.AllowSharedCoresOverlapReclaimedCores,
 		ExtraEntries:                          resp.ExtraEntries,
-	})
+	}, resp.SupportedFeatureGates)
 	if err != nil {
 		return true, fmt.Errorf("allocate by GetAdvice response failed with error: %w", err)
+	}
+
+	if len(wantedButNotSupportedFeatureGates) > 0 {
+		general.Warningf("feature gates wanted by QRM that are not supported by cpu sysadvisor: %v", lo.Keys(wantedButNotSupportedFeatureGates))
+		return true, featuregatenegotiation.FeatureGatesNotSupportedError{WantedButNotSupportedFeatureGates: wantedButNotSupportedFeatureGates}
 	}
 
 	return true, nil
@@ -352,8 +381,17 @@ func (p *DynamicPolicy) getAdviceFromAdvisorLoop(stopCh <-chan struct{}) {
 	_ = wait.PollImmediateUntilWithContext(ctx, p.getAdviceInterval, func(ctx context.Context) (bool, error) {
 		isImplemented, err := p.getAdviceFromAdvisor(ctx)
 		if err != nil {
-			_ = p.emitter.StoreInt64(util.MetricNameGetAdviceFailed, 1, metrics.MetricTypeNameRaw)
-			general.Errorf("get advice from advisor failed with error: %v", err)
+			if featuregatenegotiation.IsFeatureGatesNotSupportedError(err) {
+				_ = p.emitter.StoreInt64(util.MetricNameGetAdviceFeatureNotSupported, 1,
+					metrics.MetricTypeNameRaw,
+					metrics.MetricTag{
+						Key: "error_message", Val: metric.MetricTagValueFormat(err),
+					})
+				general.Warningf("get advice from cpu advisor found not supported feature gate: %v", err)
+			} else {
+				_ = p.emitter.StoreInt64(util.MetricNameGetAdviceFailed, 1, metrics.MetricTypeNameRaw)
+				general.Errorf("get advice from cpu advisor failed with error: %v", err)
+			}
 		} else if !isImplemented {
 			general.Infof("CPUAdvisorServer does not implement GetAdvice")
 			return true, nil
@@ -393,7 +431,9 @@ func (p *DynamicPolicy) lwCPUAdvisorServer(stopCh <-chan struct{}) error {
 				err, status.Code(err))
 		}
 
-		err = p.allocateByCPUAdvisor(nil, resp)
+		// old asynchronous communication interface does not support feature gate negotiation. If necessary, upgrade to the synchronization interface.
+		emptyMap := map[string]*advisorsvc.FeatureGate{}
+		err = p.allocateByCPUAdvisor(nil, resp, emptyMap)
 		if err != nil {
 			general.Errorf("allocate by ListAndWatch response of CPUAdvisorServer failed with error: %v", err)
 		}
@@ -407,9 +447,11 @@ func (p *DynamicPolicy) lwCPUAdvisorServer(stopCh <-chan struct{}) error {
 }
 
 // allocateByCPUAdvisor perform allocate actions based on allocation response from cpu-advisor.
+// supportedFeatureGates means the feature gates than both qrm wanted and sysadvisor supported
 func (p *DynamicPolicy) allocateByCPUAdvisor(
 	req *advisorapi.GetAdviceRequest,
 	resp *advisorapi.ListAndWatchResponse,
+	featureGates map[string]*advisorsvc.FeatureGate,
 ) (err error) {
 	if resp == nil {
 		return fmt.Errorf("allocateByCPUAdvisor got nil qos aware lw response")

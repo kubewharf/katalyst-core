@@ -22,7 +22,7 @@ import "github.com/gogo/protobuf/gogoproto/gogo.proto";
 import "github.com/kubewharf/kubelet/pkg/apis/resourceplugin/v1alpha1/api.proto";
 
 option (gogoproto.goproto_stringer_all) = false;
-option (gogoproto.stringer_all) =  true;
+option (gogoproto.stringer_all) = true;
 option (gogoproto.goproto_getters_all) = true;
 option (gogoproto.marshaler_all) = true;
 option (gogoproto.sizer_all) = true;
@@ -33,16 +33,16 @@ option go_package = "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/ad
 
 // containing metadata of the container which won't be changed during container's lifecycle
 message ContainerMetadata {
-    string pod_uid = 1;
-    string pod_namespace = 2;
-    string pod_name = 3;
-    string container_name = 4;
-    resourceplugin.v1alpha1.ContainerType container_type = 5;
-    uint64 container_index = 6;
-    map<string,string> labels = 7;
-    map<string,string> annotations = 8;
-    string qos_level = 9;
-    uint64 requestQuantity = 10;
+  string pod_uid = 1;
+  string pod_namespace = 2;
+  string pod_name = 3;
+  string container_name = 4;
+  resourceplugin.v1alpha1.ContainerType container_type = 5;
+  uint64 container_index = 6;
+  map<string, string> labels = 7;
+  map<string, string> annotations = 8;
+  string qos_level = 9;
+  uint64 requestQuantity = 10;
 }
 
 message AddContainerResponse {
@@ -52,56 +52,64 @@ message Empty {
 }
 
 message RemovePodRequest {
-        string pod_uid = 1;
+  string pod_uid = 1;
 }
 
 message RemovePodResponse {
 }
 
 message ListAndWatchResponse {
-    map<string,CalculationEntries> pod_entries = 1; // keyed by podUID
-    repeated CalculationInfo extra_entries = 2; // for non-container level adjustment (eg. /kubepods/besteffort) 
+  map<string, CalculationEntries> pod_entries = 1; // keyed by podUID
+  repeated CalculationInfo extra_entries = 2; // for non-container level adjustment (eg. /kubepods/besteffort)
 }
 
 message CalculationEntries {
-    map<string,CalculationInfo> container_entries = 1; // keyed by container name
+  map<string, CalculationInfo> container_entries = 1; // keyed by container name
 }
 
 message CalculationInfo {
-    // eg. "/kubepods/besteffort";
-    // empty for container; non-empty for high level cgroup path; since subsystem may be different for different control knob, so we use relative path here. 
-    string cgroup_path = 1; 
-    CalculationResult calculation_result  = 2;
+  // eg. "/kubepods/besteffort";
+  // empty for container; non-empty for high level cgroup path; since subsystem may be different for different control knob, so we use relative path here.
+  string cgroup_path = 1;
+  CalculationResult calculation_result = 2;
 }
 
-message CalculationResult {  
-    map<string,string> values = 1;  // eg. map[string]string{"memory_limit_in_bytes": "1073741824"}    
+message CalculationResult {
+  map<string, string> values = 1;  // eg. map[string]string{"memory_limit_in_bytes": "1073741824"}
 }
 
 message ContainerMetadataEntries {
-    map<string,ContainerMetadata> entries = 1; // keyed by container name
+  map<string, ContainerMetadata> entries = 1; // keyed by container name
 }
 
 message GetAdviceRequest {
-    map<string,ContainerMetadataEntries> entries = 1; // keyed by podUID
+  map<string, ContainerMetadataEntries> entries = 1; // keyed by podUID
+  map<string, FeatureGate> wanted_feature_gates = 2; // keyed by feature gate name
 }
 
 message GetAdviceResponse {
-    map<string,CalculationEntries> pod_entries = 1; // keyed by podUID
-    repeated CalculationInfo extra_entries = 2; // for non-container level adjustment (eg. /kubepods/besteffort)
+  map<string, CalculationEntries> pod_entries = 1; // keyed by podUID
+  repeated CalculationInfo extra_entries = 2; // for non-container level adjustment (eg. /kubepods/besteffort)
+  map<string, FeatureGate> supported_feature_gates = 3; // keyed by feature gate name
+}
+
+message FeatureGate {
+  string name = 1;
+  string type = 2;
+  bool must_mutually_supported = 3;
 }
 
 service AdvisorService {
-    rpc AddContainer(ContainerMetadata) returns (AddContainerResponse) {}
-    rpc RemovePod(RemovePodRequest) returns (RemovePodResponse) {}
-    rpc ListAndWatch(Empty) returns (stream ListAndWatchResponse) {}
-    rpc GetAdvice(GetAdviceRequest) returns (GetAdviceResponse) {}
+  rpc AddContainer(ContainerMetadata) returns (AddContainerResponse) {}
+  rpc RemovePod(RemovePodRequest) returns (RemovePodResponse) {}
+  rpc ListAndWatch(Empty) returns (stream ListAndWatchResponse) {}
+  rpc GetAdvice(GetAdviceRequest) returns (GetAdviceResponse) {}
 }
 
 message ListContainersResponse {
-    repeated ContainerMetadata containers = 1;
+  repeated ContainerMetadata containers = 1;
 }
 
 service QRMService {
-    rpc ListContainers(Empty) returns (ListContainersResponse) {}
+  rpc ListContainers(Empty) returns (ListContainersResponse) {}
 }
