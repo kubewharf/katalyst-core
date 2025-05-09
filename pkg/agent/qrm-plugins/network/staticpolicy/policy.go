@@ -667,6 +667,8 @@ func (p *StaticPolicy) Allocate(ctx context.Context,
 		return nil, fmt.Errorf("GetTopologyHints got nil req")
 	}
 
+	existReallocAnno, isReallocation := util.IsReallocation(req.Annotations)
+
 	// since qos config util will filter out annotation keys not related to katalyst QoS,
 	// we copy original pod annotations here to use them later
 	podAnnotations := maputil.CopySS(req.Annotations)
@@ -708,8 +710,13 @@ func (p *StaticPolicy) Allocate(ctx context.Context,
 		}
 		p.Unlock()
 		if err != nil {
-			_ = p.emitter.StoreInt64(util.MetricNameAllocateFailed, 1, metrics.MetricTypeNameRaw,
-				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)})
+			metricTags := []metrics.MetricTag{
+				{Key: "error_message", Val: metric.MetricTagValueFormat(err)},
+			}
+			if existReallocAnno {
+				metricTags = append(metricTags, metrics.MetricTag{Key: "reallocation", Val: isReallocation})
+			}
+			_ = p.emitter.StoreInt64(util.MetricNameAllocateFailed, 1, metrics.MetricTypeNameRaw, metricTags...)
 		}
 	}()
 
