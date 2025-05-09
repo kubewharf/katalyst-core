@@ -19,6 +19,7 @@ package dynamic
 import (
 	"sync"
 
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/metricthreshold"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/strategygroup"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/tmo"
 
@@ -57,6 +58,7 @@ type Configuration struct {
 	*auth.AuthConfiguration
 	*tmo.TransparentMemoryOffloadingConfiguration
 	*strategygroup.StrategyGroup
+	*metricthreshold.MetricThreshold
 }
 
 func NewConfiguration() *Configuration {
@@ -65,6 +67,7 @@ func NewConfiguration() *Configuration {
 		AuthConfiguration:                        auth.NewAuthConfiguration(),
 		TransparentMemoryOffloadingConfiguration: tmo.NewTransparentMemoryOffloadingConfiguration(),
 		StrategyGroup:                            strategygroup.NewStrategyGroup(),
+		MetricThreshold:                          metricthreshold.NewMetricThreshold(),
 	}
 }
 
@@ -73,4 +76,5 @@ func (c *Configuration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 	c.AuthConfiguration.ApplyConfiguration(conf)
 	c.TransparentMemoryOffloadingConfiguration.ApplyConfiguration(conf)
 	c.StrategyGroup.ApplyConfiguration(conf)
+	c.MetricThreshold.ApplyConfiguration(conf)
 }

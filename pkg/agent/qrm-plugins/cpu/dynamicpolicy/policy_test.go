@@ -41,6 +41,9 @@ import (
 	utilfs "k8s.io/kubernetes/pkg/util/filesystem"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
+	componentagent "github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
@@ -56,8 +59,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/kcc"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupcm "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupcmutils "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
@@ -6758,6 +6763,80 @@ func TestSwitchBetweenAPIs(t *testing.T) {
 			defer grpcServer.Stop()
 
 			testCase.fn(t, cpuAdvisorServer, dynamicPolicy)
+		})
+	}
+}
+
+func generateTestConfiguration(t *testing.T, nodeName string, dir string) *config.Configuration {
+	testConfiguration, err := options.NewOptions().Config()
+	require.NoError(t, err)
+	require.NotNil(t, testConfiguration)
+
+	testConfiguration.NodeName = nodeName
+	testConfiguration.CheckpointManagerDir = dir
+	return testConfiguration
+}
+
+func TestNewDynamicPolicy(t *testing.T) {
+	t.Parallel()
+	cpuTopology, _ := machine.GenerateDummyCPUTopology(16, 2, 4)
+	conf := config.NewConfiguration()
+	kccConf := generateTestConfiguration(t, "test", "/tmp/metaserver1/TestNewDynamicConfigManager")
+	kccMgr, _ := kcc.NewDynamicConfigManager(nil, nil, nil, kccConf)
+	metaServer := &metaserver.MetaServer{
+		MetaAgent: &agent.MetaAgent{
+			KatalystMachineInfo: &machine.KatalystMachineInfo{
+				CPUTopology: cpuTopology,
+			},
+		},
+		ConfigurationManager: kccMgr,
+	}
+	testingDir, err := ioutil.TempDir("", "dynamic_policy_new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(testingDir)
+	conf.GenericQRMPluginConfiguration.StateFileDirectory = testingDir
+	type args struct {
+		agentCtx  *componentagent.GenericContext
+		conf      *config.Configuration
+		in2       interface{}
+		agentName string
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    bool
+		wantErr bool
+	}{
+		{
+			name: "normal case",
+			args: args{
+				agentCtx: &componentagent.GenericContext{
+					GenericContext: &katalystbase.GenericContext{
+						EmitterPool: metricspool.DummyMetricsEmitterPool{},
+					},
+					MetaServer: metaServer,
+				},
+				conf:      conf,
+				agentName: "test",
+			},
+			want:    true,
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, _, err := NewDynamicPolicy(tt.args.agentCtx, tt.args.conf, nil, tt.args.agentName)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("NewDynamicPolicy() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("NewDynamicPolicy() got = %v, want %v", got, tt.want)
+			}
 		})
 	}
 }
