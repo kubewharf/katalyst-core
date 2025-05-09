@@ -30,9 +30,16 @@ func TestGenerateURI(t *testing.T) {
 	nodeAddress := "127.0.0.1"
 	endpoint := "/configz"
 
+	// ipv4
 	uri, err := generateURI(port, nodeAddress, endpoint)
 	assert.NoError(t, err)
 	assert.Equal(t, "https://127.0.0.1:10250/configz", uri)
+
+	// ipv6
+	nodeAddress = "::1"
+	uri, err = generateURI(port, nodeAddress, endpoint)
+	assert.NoError(t, err)
+	assert.Equal(t, "https://[::1]:10250/configz", uri)
 }
 
 func TestInsecureConfig(t *testing.T) {

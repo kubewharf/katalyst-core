@@ -20,8 +20,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
+	"strconv"
 	"time"
 
 	"k8s.io/client-go/discovery"
@@ -145,8 +147,7 @@ func generateURI(port int, nodeAddress, endpoint string) (string, error) {
 	if nodeAddress == "" {
 		return "", fmt.Errorf("node address is empty")
 	}
-
-	u, err := url.ParseRequestURI(fmt.Sprintf("https://%s:%d%s", nodeAddress, port, endpoint))
+	u, err := url.ParseRequestURI(fmt.Sprintf("https://%s%s", net.JoinHostPort(nodeAddress, strconv.Itoa(port)), endpoint))
 	if err != nil {
 		return "", fmt.Errorf("failed to parse -kubelet-config-uri: %w", err)
 	}
