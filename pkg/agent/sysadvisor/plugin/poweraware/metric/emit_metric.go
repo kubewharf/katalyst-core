@@ -81,3 +81,7 @@ func EmitErrorCode(emitter metrics.MetricEmitter, cause ErrorCause) {
 		})...,
 	)
 }
+
+func EmitGetAdviceCalled(emitter metrics.MetricEmitter) {
+	_ = emitter.StoreInt64(metricGetAdviceCalled, 1, metrics.MetricTypeNameCount)
+}

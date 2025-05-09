@@ -25,6 +25,7 @@ const (
 	metricPowerCappingTarget           = "node_power_cap_target"
 	metricPowerCappingCurrent          = "node_power_cap_current"
 	metricPowerError                   = "node_power_error"
+	metricGetAdviceCalled              = "node_power_get_advice"
 
 	tagPowerAlert         = "alert"
 	tagPowerInternalOp    = "internal_op"

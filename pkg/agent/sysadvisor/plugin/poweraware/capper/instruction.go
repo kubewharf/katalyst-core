@@ -54,17 +54,8 @@ type CapInstruction struct {
 
 func (c CapInstruction) ToListAndWatchResponse() *advisorsvc.ListAndWatchResponse {
 	return &advisorsvc.ListAndWatchResponse{
-		PodEntries: nil,
-		ExtraEntries: []*advisorsvc.CalculationInfo{{
-			CgroupPath: "",
-			CalculationResult: &advisorsvc.CalculationResult{
-				Values: map[string]string{
-					keyOpCode:         string(c.OpCode),
-					keyOpCurrentValue: c.OpCurrentValue,
-					keyOpTargetValue:  c.OpTargetValue,
-				},
-			},
-		}},
+		PodEntries:   nil,
+		ExtraEntries: []*advisorsvc.CalculationInfo{wrapCapInst(c)},
 	}
 }
 
@@ -84,6 +75,26 @@ func (c CapInstruction) ToCapRequest() (opCode PowerCapOpCode, targetValue, curr
 	}
 
 	return opCode, targetValue, currentValue
+}
+
+func wrapCapInst(c CapInstruction) *advisorsvc.CalculationInfo {
+	return &advisorsvc.CalculationInfo{
+		CgroupPath: "",
+		CalculationResult: &advisorsvc.CalculationResult{
+			Values: map[string]string{
+				keyOpCode:         string(c.OpCode),
+				keyOpCurrentValue: c.OpCurrentValue,
+				keyOpTargetValue:  c.OpTargetValue,
+			},
+		},
+	}
+}
+
+func (c CapInstruction) ToAdviceResponse() *advisorsvc.GetAdviceResponse {
+	return &advisorsvc.GetAdviceResponse{
+		PodEntries:   nil,
+		ExtraEntries: []*advisorsvc.CalculationInfo{wrapCapInst(c)},
+	}
 }
 
 func getCappingInstructionFromCalcInfo(info *advisorsvc.CalculationInfo) (*CapInstruction, error) {
@@ -139,10 +150,13 @@ func GetCappingInstructions(response *advisorsvc.ListAndWatchResponse) ([]*CapIn
 	if len(response.ExtraEntries) == 0 {
 		return nil, errors.New("no valid data of no capping instruction")
 	}
+	return GetCappingInstructionsFromCalculationInfo(response.ExtraEntries)
+}
 
-	count := len(response.ExtraEntries)
+func GetCappingInstructionsFromCalculationInfo(calcInfos []*advisorsvc.CalculationInfo) ([]*CapInstruction, error) {
+	count := len(calcInfos)
 	cis := make([]*CapInstruction, count)
-	for i, calcInfo := range response.ExtraEntries {
+	for i, calcInfo := range calcInfos {
 		ci, err := getCappingInstructionFromCalcInfo(calcInfo)
 		if err != nil {
 			return nil, err
