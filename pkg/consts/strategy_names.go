@@ -31,6 +31,10 @@ const (
 	// StrategyNameBorweinTaint is the name of borwein_taint strategy,
 	// it taints nodes with poor performance according to model inference results.
 	StrategyNameBorweinTaint = "borwein_taint"
+
+	StrategyNameMetricPreferredNUMAAllocation = "metric_preferred_numa_allocation"
+
+	StrategyNameNumaCpuPressureEviction = "numa_cpu_pressure_eviction"
 )
 
 const (

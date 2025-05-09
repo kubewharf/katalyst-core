@@ -17,6 +17,7 @@ limitations under the License.
 package strategy
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
@@ -57,6 +58,25 @@ type PoolMetricCollectHandler func(dynamicConfig *dynamic.Configuration, poolsUn
 	metricName string, metricValue float64, poolName string,
 	poolSize int, collectTime int64, allowSharedCoresOverlapReclaimedCores bool)
 
+func (ring *MetricRing) AvgAfterTimestampWithCountBound(ts int64, countBound int) (float64, error) {
+	ring.RLock()
+	defer ring.RUnlock()
+
+	sum := 0.0
+	count := 0
+	for _, snapshot := range ring.Queue {
+		if snapshot != nil && snapshot.Time > ts {
+			sum += snapshot.Info.Value
+			count++
+		}
+	}
+
+	if count < countBound {
+		return 0.0, fmt.Errorf("not enough timely data to calculate avg")
+	}
+	return sum / float64(count), nil
+}
+
 func (ring *MetricRing) Sum() float64 {
 	ring.RLock()
 	defer ring.RUnlock()
@@ -68,6 +88,14 @@ func (ring *MetricRing) Sum() float64 {
 		}
 	}
 	return sum
+}
+
+func (ring *MetricRing) Avg() float64 {
+	length := len(ring.Queue)
+	if length == 0 {
+		return 0
+	}
+	return ring.Sum() / float64(length)
 }
 
 func (ring *MetricRing) Push(snapShot *MetricSnapshot) {
@@ -83,6 +111,21 @@ func (ring *MetricRing) Push(snapShot *MetricSnapshot) {
 
 	ring.CurrentIndex = (ring.CurrentIndex + 1) % ring.MaxLen
 	ring.Queue[ring.CurrentIndex] = snapShot
+}
+
+func (ring *MetricRing) Len() int {
+	ring.RLock()
+	defer ring.RUnlock()
+
+	count := 0
+	for _, snapshot := range ring.Queue {
+		if snapshot == nil {
+			continue
+		}
+		count++
+	}
+
+	return count
 }
 
 func (ring *MetricRing) Count() (softOverCount, hardOverCount int) {
@@ -101,6 +144,23 @@ func (ring *MetricRing) Count() (softOverCount, hardOverCount int) {
 			if snapshot.Info.Value > snapshot.Info.UpperBound {
 				hardOverCount++
 			}
+		}
+	}
+	return
+}
+
+// OverCount pass threshold from outside
+func (ring *MetricRing) OverCount(threshold float64) (overCount int) {
+	ring.RLock()
+	defer ring.RUnlock()
+
+	for _, snapshot := range ring.Queue {
+		if snapshot == nil {
+			continue
+		}
+
+		if snapshot.Info.Value > threshold {
+			overCount++
 		}
 	}
 	return
