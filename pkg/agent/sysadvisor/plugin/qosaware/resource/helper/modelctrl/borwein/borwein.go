@@ -17,13 +17,20 @@ limitations under the License.
 package borwein
 
 import (
+	"fmt"
+
 	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
+	"github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/modelresultfetcher/borwein/latencyregression"
+	borweinconsts "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/consts"
 	borweintypes "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/types"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/strategygroup"
 )
 
 const (
@@ -31,7 +38,8 @@ const (
 )
 
 type IndicatorOffsetUpdater func(podSet types.PodSet, currentIndicatorOffset float64,
-	borweinParameter *borweintypes.BorweinParameter, metaReader metacache.MetaReader) (float64, error)
+	borweinParameter *borweintypes.BorweinParameter, metaReader metacache.MetaReader,
+	conf *config.Configuration) (float64, error)
 
 type BorweinController struct {
 	regionName string
@@ -59,9 +67,65 @@ func NewBorweinController(regionName string, regionType configapi.QoSRegionType,
 		emitter:                 emitter,
 	}
 
+	for _, indicator := range conf.BorweinConfiguration.TargetIndicators {
+		general.Infof("Enable indicator %v offset update", indicator)
+		bc.indicatorOffsets[indicator] = 0
+	}
+	bc.indicatorOffsetUpdaters[string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio)] = updateCPUUsageIndicatorOffset
 	bc.borweinParameters = conf.BorweinConfiguration.BorweinParameters
 
 	return bc
+}
+
+func updateCPUUsageIndicatorOffset(_ types.PodSet, _ float64,
+	borweinParameter *borweintypes.BorweinParameter, metaReader metacache.MetaReader, conf *config.Configuration,
+) (float64, error) {
+	strategy, err := fetchBorweinV2Strategy(conf)
+	if err != nil {
+		general.Warningf("%v strategy is not enabled %v", consts.StrategyNameBorweinV2, err)
+		return 0, err
+	}
+
+	ret, _, err := latencyregression.GetLatencyRegressionPredictResult(metaReader, conf.BorweinConfiguration.DryRun)
+	if err != nil {
+		general.Errorf("failed to get inference results of model(%s), error: %v", borweinconsts.ModelNameBorweinLatencyRegression, err)
+		return 0, err
+	}
+
+	predictSum := 0.0
+	containerCnt := 0.0
+	// avg by node
+	for _, containerData := range ret {
+		for _, res := range containerData {
+			predictSum += res.PredictValue
+			containerCnt++
+		}
+	}
+
+	if containerCnt == 0 {
+		general.Warningf("got no valid containers, skip update")
+		return 0, nil
+	}
+	predictAvg := predictSum / containerCnt
+
+	targetOffset := latencyregression.MatchSlotOffset(predictAvg, strategy.StrategySlots,
+		string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio), borweinParameter)
+
+	offsetMin := borweinParameter.OffsetMin
+	if specialOffset, match := latencyregression.MatchSpecialTimes(strategy.StrategySpecialTime,
+		string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio)); match {
+		targetOffset = specialOffset
+		// expand min bound
+		offsetMin = specialOffset
+	}
+
+	targetOffset = general.Clamp(targetOffset, offsetMin, borweinParameter.OffsetMax)
+	general.InfoS("offset update by borwein",
+		"indicator", string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio),
+		"predictedAvg", predictAvg,
+		"targetOffset", targetOffset,
+	)
+	return targetOffset, nil
 }
 
 func (bc *BorweinController) updateIndicatorOffsets(podSet types.PodSet) {
@@ -83,14 +147,15 @@ func (bc *BorweinController) updateIndicatorOffsets(podSet types.PodSet) {
 		updatedIndicatorOffset, err := bc.indicatorOffsetUpdaters[indicatorName](podSet,
 			currentIndicatorOffset,
 			bc.borweinParameters[indicatorName],
-			bc.metaReader)
+			bc.metaReader,
+			bc.conf)
 		if err != nil {
 			general.Errorf("update indicator: %s offset failed with error: %v", indicatorName, err)
 			continue
 		}
 
 		bc.indicatorOffsets[indicatorName] = updatedIndicatorOffset
-		general.Infof("update indicator: %s offset from: %.2f to %2.f",
+		general.Infof("update indicator: %s offset from: %.2f to %.2f",
 			indicatorName, currentIndicatorOffset, updatedIndicatorOffset)
 		bc.emitter.StoreFloat64(metricBorweinIndicatorOffset, bc.indicatorOffsets[indicatorName],
 			metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
@@ -106,29 +171,43 @@ func (bc *BorweinController) updateBorweinParameters() types.Indicator {
 }
 
 func (bc *BorweinController) getUpdatedIndicators(indicators types.Indicator) types.Indicator {
-	updatedIndicators := make(types.Indicator, len(indicators))
+	finalIndicators := make(types.Indicator, len(indicators))
 
-	// update target indicators by bc.indicatorOffsets
 	for indicatorName, indicatorValue := range indicators {
 		if _, found := bc.indicatorOffsets[indicatorName]; !found {
-			general.Infof("there is no offset for indicator: %s, use its original value(current: %.2f, target: %.2f) without updating",
+			general.Infof("there is no offset for indicator: %s, use its original value(current: %.4f, target: %.4f) without updating",
 				indicatorName, indicatorValue.Current, indicatorValue.Target)
-			updatedIndicators[indicatorName] = indicatorValue
-			continue
+		} else {
+			general.Infof("update indicator: %s target: %.2f by offset: %.2f",
+				indicatorName, indicatorValue.Target, bc.indicatorOffsets[indicatorName])
+			indicatorValue.Target += bc.indicatorOffsets[indicatorName]
+			print()
 		}
 
-		general.Infof("update indicator: %s taget: %.2f by offset: %.2f",
-			indicatorName, indicators[indicatorName].Target,
-			bc.indicatorOffsets[indicatorName])
+		// restrict target in specific range
+		bp := bc.borweinParameters[indicatorName]
+		if bp != nil && bp.IndicatorMin != 0 && bp.IndicatorMax != 0 {
+			indicatorValue.Target = general.Clamp(indicatorValue.Target, bp.IndicatorMin, bp.IndicatorMax)
+			general.Infof("restricted indicator: %s target: %.2f ", indicatorName, indicatorValue.Target)
+		}
 
-		indicatorValue.Target += bc.indicatorOffsets[indicatorName]
-
-		updatedIndicators[indicatorName] = indicatorValue
+		finalIndicators[indicatorName] = indicatorValue
 	}
-	return updatedIndicators
+
+	return finalIndicators
 }
 
 func (bc *BorweinController) GetUpdatedIndicators(indicators types.Indicator, podSet types.PodSet) types.Indicator {
+	borweinV2Enabled, err := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameBorweinV2, false, bc.conf)
+	if err != nil {
+		general.Warningf("Failed to get %v strategy %v", consts.StrategyNameBorweinV2, err)
+		return indicators
+	}
+	if !borweinV2Enabled {
+		general.Warningf("%v strategy is not enabled", consts.StrategyNameBorweinV2)
+		return indicators
+	}
+
 	bc.updateIndicatorOffsets(podSet)
 	return bc.getUpdatedIndicators(indicators)
 }
@@ -140,4 +219,27 @@ func (bc *BorweinController) ResetIndicatorOffsets() {
 
 		bc.indicatorOffsets[indicatorName] = 0
 	}
+}
+
+func fetchBorweinV2Strategy(conf *config.Configuration) (*latencyregression.BorweinStrategy, error) {
+	// get strategy
+	strategyName := consts.StrategyNameBorweinV2
+	strategyContent, enabled, err := strategygroup.GetSpecificStrategyParam(strategyName, conf)
+	if err != nil {
+		return nil, fmt.Errorf("get %v grep param error: %v", strategyName, err)
+	}
+	if !enabled {
+		return nil, fmt.Errorf("%v strategy is not enabled", strategyName)
+	}
+	// unmarshall
+	strategy, err := latencyregression.ParseStrategy(strategyContent)
+	if err != nil {
+		return nil, fmt.Errorf("parse %v strategy error: %v", strategyName, err)
+	}
+	// validate
+	if len(strategy.StrategySlots) == 0 {
+		return nil, fmt.Errorf("strategy slots is empty")
+	}
+	general.Infof("%v strategy: %+v", strategyName, strategy)
+	return &strategy, nil
 }
