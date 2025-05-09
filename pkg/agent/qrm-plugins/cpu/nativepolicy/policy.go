@@ -92,19 +92,19 @@ func NewNativePolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 ) (bool, agent.Component, error) {
 	general.Infof("new native policy")
 
+	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(agentName, metrics.MetricTag{
+		Key: util.QRMPluginPolicyTagName,
+		Val: cpuconsts.CPUResourcePluginPolicyNameNative,
+	})
+
 	stateImpl, stateErr := state.NewCheckpointState(conf.GenericQRMPluginConfiguration.StateFileDirectory, cpuPluginStateFileName,
-		cpuconsts.CPUResourcePluginPolicyNameNative, agentCtx.CPUTopology, conf.SkipCPUStateCorruption, nativepolicyutil.GenerateMachineStateFromPodEntries)
+		cpuconsts.CPUResourcePluginPolicyNameNative, agentCtx.CPUTopology, conf.SkipCPUStateCorruption, nativepolicyutil.GenerateMachineStateFromPodEntries, wrappedEmitter)
 	if stateErr != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("NewCheckpointState failed with error: %v", stateErr)
 	}
 
 	state.SetReadonlyState(stateImpl)
 	state.SetReadWriteState(stateImpl)
-
-	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(agentName, metrics.MetricTag{
-		Key: util.QRMPluginPolicyTagName,
-		Val: cpuconsts.CPUResourcePluginPolicyNameNative,
-	})
 
 	policyImplement := &NativePolicy{
 		name:                       fmt.Sprintf("%s_%s", agentName, cpuconsts.CPUResourcePluginPolicyNameNative),
