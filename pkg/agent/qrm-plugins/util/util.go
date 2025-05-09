@@ -77,6 +77,12 @@ func IsDebugPod(podAnnotations map[string]string, podDebugAnnoKeys []string) boo
 	return false
 }
 
+func IsReallocation(podAnnotations map[string]string) (bool, string) {
+	value, exists := podAnnotations[PodAnnotationResourceReallocationKey]
+
+	return exists, value
+}
+
 // GetKatalystQoSLevelFromResourceReq retrieves QoS Level for a given request
 func GetKatalystQoSLevelFromResourceReq(qosConf *generic.QoSConfiguration, req *pluginapi.ResourceRequest,
 	podAnnotationKeptKeys, podLabelKeptKeys []string,
