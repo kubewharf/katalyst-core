@@ -66,7 +66,7 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 
 	conf.GenericSysAdvisorConfiguration.StateFileDirectory = stateFileDir
 	conf.MetaServerConfiguration.CheckpointManagerDir = checkpointDir
-	conf.CPUShareConfiguration.RestrictRefPolicy = nil
+	conf.RestrictRefPolicy = nil
 
 	return conf
 }
@@ -190,9 +190,9 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			nodeEnableReclaim: true,
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
-				PoolEntries: map[string]map[int]int{
-					commonstate.PoolNameReserve: {-1: 2},
-					commonstate.PoolNameReclaim: {-1: 94},
+				PoolEntries: map[string]map[int]types.CPUResource{
+					commonstate.PoolNameReserve: {-1: {Size: 2, Quota: -1}},
+					commonstate.PoolNameReclaim: {-1: {Size: 94, Quota: -1}},
 				},
 			},
 			headroomPolicies: map[configapi.QoSRegionType][]types.CPUHeadroomPolicyName{
@@ -237,10 +237,10 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			nodeEnableReclaim: true,
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
-				PoolEntries: map[string]map[int]int{
-					commonstate.PoolNameReserve: {-1: 2},
-					commonstate.PoolNameShare:   {-1: 8},
-					commonstate.PoolNameReclaim: {-1: 86},
+				PoolEntries: map[string]map[int]types.CPUResource{
+					commonstate.PoolNameReserve: {-1: {Size: 2, Quota: -1}},
+					commonstate.PoolNameShare:   {-1: {Size: 8, Quota: -1}},
+					commonstate.PoolNameReclaim: {-1: {Size: 86, Quota: -1}},
 				},
 			},
 			wantHeadroom: resource.Quantity{},
@@ -281,10 +281,10 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			nodeEnableReclaim: true,
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
-				PoolEntries: map[string]map[int]int{
-					commonstate.PoolNameReserve: {-1: 2},
-					commonstate.PoolNameShare:   {-1: 90},
-					commonstate.PoolNameReclaim: {-1: 4},
+				PoolEntries: map[string]map[int]types.CPUResource{
+					commonstate.PoolNameReserve: {-1: {Size: 2, Quota: -1}},
+					commonstate.PoolNameShare:   {-1: {Size: 90, Quota: -1}},
+					commonstate.PoolNameReclaim: {-1: {Size: 4, Quota: -1}},
 				},
 			},
 			wantHeadroom: resource.Quantity{},
@@ -344,11 +344,11 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			nodeEnableReclaim: true,
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
-				PoolEntries: map[string]map[int]int{
-					commonstate.PoolNameReserve: {-1: 2},
-					commonstate.PoolNameShare:   {-1: 6},
-					"batch":                     {-1: 8},
-					commonstate.PoolNameReclaim: {-1: 80},
+				PoolEntries: map[string]map[int]types.CPUResource{
+					commonstate.PoolNameReserve: {-1: {Size: 2, Quota: -1}},
+					commonstate.PoolNameShare:   {-1: {Size: 6, Quota: -1}},
+					"batch":                     {-1: {Size: 8, Quota: -1}},
+					commonstate.PoolNameReclaim: {-1: {Size: 80, Quota: -1}},
 				},
 			},
 			wantHeadroom: resource.Quantity{},
@@ -408,11 +408,11 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			nodeEnableReclaim: true,
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
-				PoolEntries: map[string]map[int]int{
-					commonstate.PoolNameReserve: {-1: 2},
-					commonstate.PoolNameShare:   {-1: 30},
-					"batch":                     {-1: 60},
-					commonstate.PoolNameReclaim: {-1: 4},
+				PoolEntries: map[string]map[int]types.CPUResource{
+					commonstate.PoolNameReserve: {-1: {Size: 2, Quota: -1}},
+					commonstate.PoolNameShare:   {-1: {Size: 30, Quota: -1}},
+					"batch":                     {-1: {Size: 60, Quota: -1}},
+					commonstate.PoolNameReclaim: {-1: {Size: 4, Quota: -1}},
 				},
 			},
 			wantHeadroom: resource.Quantity{},
@@ -454,14 +454,9 @@ func TestAdvisorUpdate(t *testing.T) {
 			nodeEnableReclaim: true,
 			headroomAssembler: types.CPUHeadroomAssemblerDedicated,
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
-				PoolEntries: map[string]map[int]int{
-					commonstate.PoolNameReserve: {
-						-1: 2,
-					},
-					commonstate.PoolNameReclaim: {
-						0:  9,
-						-1: 47,
-					},
+				PoolEntries: map[string]map[int]types.CPUResource{
+					commonstate.PoolNameReserve: {-1: {Size: 2, Quota: -1}},
+					commonstate.PoolNameReclaim: {0: {Size: 9, Quota: -1}, -1: {Size: 47, Quota: -1}},
 				},
 			},
 			// dedicated_cores headroom(9) + empty numa headroom(45)
@@ -507,14 +502,9 @@ func TestAdvisorUpdate(t *testing.T) {
 				configapi.QoSRegionTypeDedicatedNumaExclusive: {types.CPUHeadroomPolicyNonReclaim},
 			},
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
-				PoolEntries: map[string]map[int]int{
-					commonstate.PoolNameReserve: {
-						-1: 2,
-					},
-					commonstate.PoolNameReclaim: {
-						0:  9,
-						-1: 47,
-					},
+				PoolEntries: map[string]map[int]types.CPUResource{
+					commonstate.PoolNameReserve: {-1: {Size: 2, Quota: -1}},
+					commonstate.PoolNameReclaim: {0: {Size: 9, Quota: -1}, -1: {Size: 47, Quota: -1}},
 				},
 			},
 			wantHeadroomErr: false,
@@ -563,14 +553,9 @@ func TestAdvisorUpdate(t *testing.T) {
 				configapi.QoSRegionTypeDedicatedNumaExclusive: {types.CPUHeadroomPolicyNUMAExclusive},
 			},
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
-				PoolEntries: map[string]map[int]int{
-					commonstate.PoolNameReserve: {
-						-1: 2,
-					},
-					commonstate.PoolNameReclaim: {
-						0:  2,
-						-1: 47,
-					},
+				PoolEntries: map[string]map[int]types.CPUResource{
+					commonstate.PoolNameReserve: {-1: {Size: 2, Quota: -1}},
+					commonstate.PoolNameReclaim: {0: {Size: 2, Quota: -1}, -1: {Size: 47, Quota: -1}},
 				},
 			},
 			wantHeadroom: *resource.NewQuantity(45, resource.DecimalSI),
@@ -617,13 +602,13 @@ func TestAdvisorUpdate(t *testing.T) {
 				configapi.QoSRegionTypeDedicatedNumaExclusive: {types.CPUHeadroomPolicyNUMAExclusive},
 			},
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
-				PoolEntries: map[string]map[int]int{
+				PoolEntries: map[string]map[int]types.CPUResource{
 					commonstate.PoolNameReserve: {
-						-1: 2,
+						-1: {Size: 2, Quota: -1},
 					},
 					commonstate.PoolNameReclaim: {
-						0:  6,
-						-1: 47,
+						0:  {Size: 6, Quota: -1},
+						-1: {Size: 47, Quota: -1},
 					},
 				},
 			},
@@ -682,16 +667,16 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			nodeEnableReclaim: true,
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
-				PoolEntries: map[string]map[int]int{
+				PoolEntries: map[string]map[int]types.CPUResource{
 					commonstate.PoolNameReserve: {
-						-1: 2,
+						-1: {Size: 2, Quota: -1},
 					},
 					commonstate.PoolNameShare: {
-						-1: 6,
+						-1: {Size: 6, Quota: -1},
 					},
 					commonstate.PoolNameReclaim: {
-						0:  9,
-						-1: 41,
+						0:  {Size: 9, Quota: -1},
+						-1: {Size: 41, Quota: -1},
 					},
 				},
 			},
@@ -750,16 +735,16 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			nodeEnableReclaim: false,
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
-				PoolEntries: map[string]map[int]int{
+				PoolEntries: map[string]map[int]types.CPUResource{
 					commonstate.PoolNameReserve: {
-						-1: 2,
+						-1: {Size: 2, Quota: -1},
 					},
 					commonstate.PoolNameShare: {
-						-1: 45,
+						-1: {Size: 45, Quota: -1},
 					},
 					commonstate.PoolNameReclaim: {
-						0:  2,
-						-1: 2,
+						0:  {Size: 2, Quota: -1},
+						-1: {Size: 2, Quota: -1},
 					},
 				},
 			},
@@ -833,11 +818,11 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			nodeEnableReclaim: true,
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
-				PoolEntries: map[string]map[int]int{
-					commonstate.PoolNameReserve: {-1: 2},
-					commonstate.PoolNameShare:   {-1: 82},
-					commonstate.PoolNameReclaim: {-1: 10},
-					"isolation-pod1":            {-1: 2},
+				PoolEntries: map[string]map[int]types.CPUResource{
+					commonstate.PoolNameReserve: {-1: {Size: 2, Quota: -1}},
+					commonstate.PoolNameShare:   {-1: {Size: 82, Quota: -1}},
+					commonstate.PoolNameReclaim: {-1: {Size: 10, Quota: -1}},
+					"isolation-pod1":            {-1: {Size: 2, Quota: -1}},
 				},
 			},
 			wantHeadroom: resource.Quantity{},
@@ -964,10 +949,10 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			nodeEnableReclaim: true,
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
-				PoolEntries: map[string]map[int]int{
-					commonstate.PoolNameReserve: {-1: 2},
-					commonstate.PoolNameShare:   {-1: 88},
-					commonstate.PoolNameReclaim: {-1: 6},
+				PoolEntries: map[string]map[int]types.CPUResource{
+					commonstate.PoolNameReserve: {-1: {Size: 2, Quota: -1}},
+					commonstate.PoolNameShare:   {-1: {Size: 88, Quota: -1}},
+					commonstate.PoolNameReclaim: {-1: {Size: 6, Quota: -1}},
 				},
 			},
 			wantHeadroom: resource.Quantity{},
@@ -1079,10 +1064,10 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			nodeEnableReclaim: true,
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
-				PoolEntries: map[string]map[int]int{
-					commonstate.PoolNameReserve: {-1: 2},
-					commonstate.PoolNameShare:   {-1: 88},
-					commonstate.PoolNameReclaim: {-1: 6},
+				PoolEntries: map[string]map[int]types.CPUResource{
+					commonstate.PoolNameReserve: {-1: {Size: 2, Quota: -1}},
+					commonstate.PoolNameShare:   {-1: {Size: 88, Quota: -1}},
+					commonstate.PoolNameReclaim: {-1: {Size: 6, Quota: -1}},
 				},
 			},
 			wantHeadroom: resource.Quantity{},
@@ -1228,7 +1213,7 @@ func TestAdvisorUpdate(t *testing.T) {
 
 			// check provision
 			if !reflect.DeepEqual(tt.wantInternalCalculationResult, types.InternalCPUCalculationResult{}) {
-				resp := make(map[string]map[int]int)
+				resp := make(map[string]map[int]types.CPUResource)
 				for pool := range advisorResp.PoolEntries {
 					if strings.HasPrefix(pool, "isolation") && len(pool) > 15 {
 						resp[pool[:14]] = advisorResp.PoolEntries[pool]

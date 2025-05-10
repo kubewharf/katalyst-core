@@ -29,6 +29,8 @@ type ReclaimMetrics struct {
 	PoolCPUUsage float64
 	// cpu usage of root cgroup for reclaim pods
 	CgroupCPUUsage float64
+	// cpu quota of root cgroup for reclaim pods, -1 means no limit
+	CgroupCPUQuota float64
 	// reclaim pool size
 	Size int
 	// reclaimedCoresSupply is the actual CPU resource can be supplied to reclaimed cores
@@ -46,12 +48,32 @@ func GetReclaimMetrics(cpus machine.CPUSet, cgroupPath string, metricsFetcher ty
 	}
 	cgroupCPUUsage := data.Value
 
+	data, err = metricsFetcher.GetCgroupMetric(cgroupPath, pkgconsts.MetricCPUQuotaCgroup)
+	if err != nil {
+		return nil, err
+	}
+	cfsQuota := data.Value
+
+	data, err = metricsFetcher.GetCgroupMetric(cgroupPath, pkgconsts.MetricCPUPeriodCgroup)
+	if err != nil {
+		return nil, err
+	}
+	cfsPeriod := data.Value
+
+	if cfsQuota > 0 && cfsPeriod > 0 {
+		cfsQuota = cfsQuota / cfsPeriod
+	}
+
 	// when shared_cores overlap reclaimed_cores, the actual CPU resource can be supplied to reclaimed cores is idle + reclaimed_cores cpu usage
 	reclaimedCoresSupply := general.MaxFloat64(float64(cpus.Size())-poolCPUUsage, 0) + cgroupCPUUsage
+	if cfsQuota > 0 {
+		reclaimedCoresSupply = general.MinFloat64(reclaimedCoresSupply, cfsQuota)
+	}
 
 	return &ReclaimMetrics{
 		PoolCPUUsage:         poolCPUUsage,
 		CgroupCPUUsage:       cgroupCPUUsage,
+		CgroupCPUQuota:       cfsQuota,
 		Size:                 cpus.Size(),
 		ReclaimedCoresSupply: reclaimedCoresSupply,
 	}, nil

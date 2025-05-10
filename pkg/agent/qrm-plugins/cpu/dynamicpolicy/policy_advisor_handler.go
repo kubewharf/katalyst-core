@@ -495,6 +495,11 @@ func (p *DynamicPolicy) allocateByCPUAdvisor(
 		return fmt.Errorf("applyNUMAHeadroom failed with error: %v", applyErr)
 	}
 
+	applyErr = p.applyCgroupConfigs(resp)
+	if applyErr != nil {
+		return fmt.Errorf("applyCgroupConfigs failed with error: %v", applyErr)
+	}
+
 	curAllowSharedCoresOverlapReclaimedCores := p.state.GetAllowSharedCoresOverlapReclaimedCores()
 
 	if curAllowSharedCoresOverlapReclaimedCores != resp.AllowSharedCoresOverlapReclaimedCores {

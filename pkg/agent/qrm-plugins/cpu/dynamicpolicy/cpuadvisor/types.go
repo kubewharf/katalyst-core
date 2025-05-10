@@ -20,6 +20,7 @@ type CPUControlKnobName string
 
 const (
 	ControlKnobKeyCPUNUMAHeadroom CPUControlKnobName = "cpu_numa_headroom"
+	ControlKnobKeyCgroupConfig    CPUControlKnobName = "cgroup_config"
 )
 
 type CPUNUMAHeadroom map[int]float64

@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"math"
 
+	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -158,4 +160,42 @@ func selectPoolHelper(poolSizesOriginal, poolSizesNormalized map[string]int) str
 		}
 	}
 	return selected
+}
+
+type RegionMapHelper struct {
+	regions map[int]map[configapi.QoSRegionType][]region.QoSRegion
+}
+
+func NewRegionMapHelper(regions map[string]region.QoSRegion) *RegionMapHelper {
+	helper := &RegionMapHelper{
+		regions: map[int]map[configapi.QoSRegionType][]region.QoSRegion{},
+	}
+
+	helper.preProcessRegions(regions)
+
+	return helper
+}
+
+func (rm *RegionMapHelper) GetRegions(numaID int, regionType configapi.QoSRegionType) []region.QoSRegion {
+	numaRecords, ok := rm.regions[numaID]
+	if !ok {
+		return nil
+	}
+
+	return numaRecords[regionType]
+}
+
+func (rm *RegionMapHelper) preProcessRegions(regions map[string]region.QoSRegion) {
+	for _, r := range regions {
+		for _, numaID := range r.GetBindingNumas().ToSliceInt() {
+			numaRecords, ok := rm.regions[numaID]
+			if !ok {
+				numaRecords = map[configapi.QoSRegionType][]region.QoSRegion{}
+			}
+			numaRegions := numaRecords[r.Type()]
+			numaRegions = append(numaRegions, r)
+			numaRecords[r.Type()] = numaRegions
+			rm.regions[numaID] = numaRecords
+		}
+	}
 }
