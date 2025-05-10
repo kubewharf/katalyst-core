@@ -985,9 +985,9 @@ func (r *QoSRegionBase) restrictProvisionControlKnob(originControlKnob map[types
 			restrictedKnobValue := rawKnobValue
 			if rawKnobValue.Value > refKnobValue.Value {
 				restrictedKnobValue = refKnobValue
-
-				klog.Infof("[qosaware-cpu] restrict control knob %v for policy %v by policy %v from %.2f to %.2f, refKnobValue: %v",
-					controlKnobName, policyName, refPolicyName, rawKnobValue.Value, restrictedKnobValue.Value, refKnobValue.Value)
+				klog.InfoS("[qosaware-cpu] restrict control knob", "meta", r.getMetaInfo(), "policy", policyName, "controlKnobName", controlKnobName, "rawKnobValue", rawKnobValue.Value, "refKnobValue", refKnobValue.Value, "restrictedKnobValue", restrictedKnobValue.Value)
+			} else {
+				klog.InfoS("[qosaware-cpu] use raw control knob", "meta", r.getMetaInfo(), "policy", policyName, "controlKnobName", controlKnobName, "rawKnobValue", rawKnobValue.Value, "refKnobValue", refKnobValue.Value)
 			}
 
 			restrictedControlKnob[policyName][controlKnobName] = restrictedKnobValue

@@ -26,6 +26,7 @@ import (
 
 	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	workloadv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
@@ -64,21 +65,38 @@ func (p *PolicyCanonical) isCPUQuotaAsControlKnob() bool {
 }
 
 func (p *PolicyCanonical) updateForCPUQuota() error {
+	numaID := p.bindingNumas.ToSliceInt()[0]
 	indicator := p.Indicators[string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio)]
-	reclaimPath := common.GetReclaimRelativeRootCgroupPath(p.conf.ReclaimRelativeRootCgroupPath, p.bindingNumas.ToSliceInt()[0])
-	data, err := p.metaServer.GetCgroupMetric(reclaimPath, pkgconsts.MetricCPUUsageCgroup)
+	cpuNr, err := p.metaServer.GetNumaMetric(numaID, pkgconsts.MetricCPUNrNuma)
 	if err != nil {
 		return err
 	}
-	reclaimCoresCPUUsage := data.Value
 
-	cpuNr, err := p.metaServer.GetNumaMetric(p.bindingNumas.ToSliceInt()[0], pkgconsts.MetricCPUNrNuma)
-	if err != nil {
-		return err
-	}
-	quota := general.MaxFloat64(cpuNr.Value*(indicator.Target-indicator.Current)+reclaimCoresCPUUsage, p.ReservedForReclaim)
+	targetCPUUsage := cpuNr.Value * indicator.Target
 
-	general.InfoS("metrics", "cpuUsage", reclaimCoresCPUUsage, "cpuNr", cpuNr.Value, "target", indicator.Target, "current", indicator.Current, "quota", quota, "numas", p.bindingNumas.String())
+	curCPUUsage := 0.0
+
+	var errList []error
+	p.metaReader.RangeContainer(func(podUID string, containerName string, containerInfo *types.ContainerInfo) bool {
+		if containerInfo.IsNumaBinding() &&
+			(containerInfo.QoSLevel == consts.PodAnnotationQoSLevelSharedCores || containerInfo.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores) {
+			NUMAs := machine.GetCPUAssignmentNUMAs(containerInfo.TopologyAwareAssignments)
+			if NUMAs.Contains(numaID) {
+				data, err := p.metaServer.GetContainerMetric(containerInfo.PodUID, containerInfo.ContainerName, pkgconsts.MetricCPUUsageContainer)
+				if err != nil {
+					errList = append(errList, err)
+					return true
+				}
+				curCPUUsage += data.Value / float64(NUMAs.Size())
+			}
+		}
+		return true
+	})
+
+	quota := general.MaxFloat64(targetCPUUsage-curCPUUsage, p.ReservedForReclaim)
+
+	general.InfoS("metrics", "targetCPUUsage", targetCPUUsage, "curCPUUsage", curCPUUsage,
+		"cpuNr", cpuNr.Value, "target", indicator.Target, "current", indicator.Current, "quota", quota, "numas", p.bindingNumas.String())
 
 	p.controlKnobAdjusted = types.ControlKnob{
 		configapi.ControlKnobReclaimedCoresCPUQuota: types.ControlKnobItem{
@@ -86,7 +104,7 @@ func (p *PolicyCanonical) updateForCPUQuota() error {
 			Action: types.ControlKnobActionNone,
 		},
 	}
-	return nil
+	return errors.NewAggregate(errList)
 }
 
 func (p *PolicyCanonical) Update() error {
