@@ -36,6 +36,7 @@ type PolicyBase struct {
 	ownerPoolName       string
 	podSet              types.PodSet
 	bindingNumas        machine.CPUSet
+	isNUMABinding       bool
 	controlKnobAdjusted types.ControlKnob
 
 	metaReader metacache.MetaReader
@@ -66,8 +67,9 @@ func (p *PolicyBase) SetPodSet(podSet types.PodSet) {
 	p.podSet = podSet.Clone()
 }
 
-func (p *PolicyBase) SetBindingNumas(numas machine.CPUSet) {
+func (p *PolicyBase) SetBindingNumas(numas machine.CPUSet, isNUMABinding bool) {
 	p.bindingNumas = numas
+	p.isNUMABinding = isNUMABinding
 }
 
 func (p *PolicyBase) GetControlKnobAdjusted() (types.ControlKnob, error) {
@@ -77,11 +79,11 @@ func (p *PolicyBase) GetControlKnobAdjusted() (types.ControlKnob, error) {
 
 	case configapi.QoSRegionTypeIsolation:
 		return map[configapi.ControlKnobName]types.ControlKnobItem{
-			configapi.ControlKnobNonReclaimedCPURequirementUpper: {
+			configapi.ControlKnobNonIsolatedUpperCPUSize: {
 				Value:  p.ResourceUpperBound,
 				Action: types.ControlKnobActionNone,
 			},
-			configapi.ControlKnobNonReclaimedCPURequirementLower: {
+			configapi.ControlKnobNonIsolatedLowerCPUSize: {
 				Value:  p.ResourceLowerBound,
 				Action: types.ControlKnobActionNone,
 			},

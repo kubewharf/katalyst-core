@@ -25,9 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/utils/pointer"
 
-	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
@@ -158,7 +156,7 @@ func TestIsNumaBinding(t *testing.T) {
 
 	conf.GenericSysAdvisorConfiguration.StateFileDirectory = stateFileDir
 	conf.MetaServerConfiguration.CheckpointManagerDir = checkpointDir
-	conf.CPUShareConfiguration.RestrictRefPolicy = nil
+	conf.RestrictRefPolicy = nil
 
 	genericCtx, err := katalyst_base.GenerateFakeGenericContext([]runtime.Object{})
 	require.NoError(t, err)
@@ -207,32 +205,19 @@ func TestRestrictProvisionControlKnob(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name                   string
-		controlKnobConstraints map[v1alpha1.ControlKnobName]v1alpha1.RestrictConstraints
-		originControlKnob      map[types.CPUProvisionPolicyName]types.ControlKnob
-		wantControlKnob        map[types.CPUProvisionPolicyName]types.ControlKnob
+		name              string
+		originControlKnob map[types.CPUProvisionPolicyName]types.ControlKnob
+		wantControlKnob   map[types.CPUProvisionPolicyName]types.ControlKnob
 	}{
 		{
-			name: "below ref",
-			controlKnobConstraints: map[configapi.ControlKnobName]configapi.RestrictConstraints{
-				"c1": {
-					MaxUpperGap: pointer.Float64(4),
-					MaxLowerGap: pointer.Float64(1),
-				},
-			},
+			name:              "no restriction",
 			originControlKnob: map[types.CPUProvisionPolicyName]types.ControlKnob{"p1": {"c1": types.ControlKnobItem{Value: 8}}, "p2": {"c1": types.ControlKnobItem{Value: 10}}},
-			wantControlKnob:   map[types.CPUProvisionPolicyName]types.ControlKnob{"p1": {"c1": types.ControlKnobItem{Value: 9}}, "p2": {"c1": types.ControlKnobItem{Value: 10}}},
+			wantControlKnob:   map[types.CPUProvisionPolicyName]types.ControlKnob{"p1": {"c1": types.ControlKnobItem{Value: 8}}, "p2": {"c1": types.ControlKnobItem{Value: 10}}},
 		},
 		{
-			name: "upper ref",
-			controlKnobConstraints: map[configapi.ControlKnobName]configapi.RestrictConstraints{
-				"c1": {
-					MaxUpperGap: pointer.Float64(4),
-					MaxLowerGap: pointer.Float64(1),
-				},
-			},
-			originControlKnob: map[types.CPUProvisionPolicyName]types.ControlKnob{"p1": {"c1": types.ControlKnobItem{Value: 16}}, "p2": {"c1": types.ControlKnobItem{Value: 10}}},
-			wantControlKnob:   map[types.CPUProvisionPolicyName]types.ControlKnob{"p1": {"c1": types.ControlKnobItem{Value: 14}}, "p2": {"c1": types.ControlKnobItem{Value: 10}}},
+			name:              "restricted by p2",
+			originControlKnob: map[types.CPUProvisionPolicyName]types.ControlKnob{"p1": {configapi.ControlKnobReclaimedCoresCPUQuota: types.ControlKnobItem{Value: 16}}, "p2": {configapi.ControlKnobReclaimedCoresCPUQuota: types.ControlKnobItem{Value: 10}}},
+			wantControlKnob:   map[types.CPUProvisionPolicyName]types.ControlKnob{"p1": {configapi.ControlKnobReclaimedCoresCPUQuota: types.ControlKnobItem{Value: 10}}, "p2": {configapi.ControlKnobReclaimedCoresCPUQuota: types.ControlKnobItem{Value: 10}}},
 		},
 	}
 
@@ -250,8 +235,7 @@ func TestRestrictProvisionControlKnob(t *testing.T) {
 
 			conf.GenericSysAdvisorConfiguration.StateFileDirectory = stateFileDir
 			conf.MetaServerConfiguration.CheckpointManagerDir = checkpointDir
-			conf.CPUShareConfiguration.RestrictRefPolicy = map[types.CPUProvisionPolicyName]types.CPUProvisionPolicyName{"p1": "p2"}
-			conf.GetDynamicConfiguration().RestrictConstraints = tt.controlKnobConstraints
+			conf.RestrictRefPolicy = map[types.CPUProvisionPolicyName]types.CPUProvisionPolicyName{"p1": "p2"}
 
 			genericCtx, err := katalyst_base.GenerateFakeGenericContext([]runtime.Object{})
 			require.NoError(t, err)

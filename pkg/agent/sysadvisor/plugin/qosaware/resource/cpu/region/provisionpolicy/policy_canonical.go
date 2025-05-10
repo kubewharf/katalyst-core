@@ -74,7 +74,6 @@ func (p *PolicyCanonical) sanityCheck() error {
 		errList []error
 	)
 
-	// 1. check control knob legality
 	isLegal = true
 	if p.ControlKnobs != nil {
 		v, ok := p.ControlKnobs[configapi.ControlKnobNonReclaimedCPURequirement]
