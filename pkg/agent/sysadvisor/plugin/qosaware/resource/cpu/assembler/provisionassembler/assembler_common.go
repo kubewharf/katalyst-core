@@ -28,6 +28,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders/feature_cpu"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -167,7 +168,17 @@ func (pa *ProvisionAssemblerCommon) assembleSharedCoresWithNUMABindingRegion(r r
 			reclaimedCoresAvail = 0
 		}
 
-		if pa.conf.PreferControlKnobCPUQuota && common.CheckCgroup2UnifiedMode() {
+		featureGates, err := pa.metaReader.GetSupportedWantedFeatureGates()
+		if err != nil {
+			return fmt.Errorf("get feature gates failed: %v", err)
+		}
+
+		preferControlKnobCPUQuota := false
+		if feature, ok := featureGates[feature_cpu.NegotiationFeatureGateQuotaCtrlKnob]; ok && feature != nil {
+			preferControlKnobCPUQuota = true
+		}
+
+		if preferControlKnobCPUQuota && common.CheckCgroup2UnifiedMode() {
 			reclaimedCoresQuota = float64(general.Max(reservedForReclaim, reclaimedCoresAvail))
 			if quota, ok := controlKnob[configapi.ControlKnobReclaimedCoresCPUQuota]; ok {
 				reclaimedCoresQuota = quota.Value
@@ -251,7 +262,17 @@ func (pa *ProvisionAssemblerCommon) assembleDedicatedNUMAExclusiveRegion(r regio
 		nonReclaimRequirement = available
 	}
 
-	if pa.conf.PreferControlKnobCPUQuota && common.CheckCgroup2UnifiedMode() {
+	featureGates, err := pa.metaReader.GetSupportedWantedFeatureGates()
+	if err != nil {
+		return fmt.Errorf("get feature gates failed: %v", err)
+	}
+
+	preferControlKnobCPUQuota := false
+	if feature, ok := featureGates[feature_cpu.NegotiationFeatureGateQuotaCtrlKnob]; ok && feature != nil {
+		preferControlKnobCPUQuota = true
+	}
+
+	if preferControlKnobCPUQuota && common.CheckCgroup2UnifiedMode() {
 		reclaimedCoresSize = available
 		reclaimedCoresLimit = general.MaxFloat64(float64(reservedForReclaim), float64(available-nonReclaimRequirement))
 

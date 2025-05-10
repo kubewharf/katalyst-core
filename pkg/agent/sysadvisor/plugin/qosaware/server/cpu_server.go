@@ -127,7 +127,6 @@ func (cs *cpuServer) GetAdvice(ctx context.Context, request *cpuadvisor.GetAdvic
 	}
 
 	general.InfofV(6, "QRM CPU Plugin wanted feature gates: %v, among them sysadvisor supported feature gates: %v", lo.Keys(request.WantedFeatureGates), lo.Keys(supportedWantedFeatureGates))
-
 	result, err := cs.updateAdvisor(supportedWantedFeatureGates)
 	if err != nil {
 		general.Errorf("update advisor failed: %v", err)
@@ -273,6 +272,12 @@ func (cs *cpuServer) getAndPushAdvice(client cpuadvisor.CPUPluginClient, server 
 
 func (cs *cpuServer) updateAdvisor(featureGates map[string]*advisorsvc.FeatureGate) (*cpuInternalResult, error) {
 	// trigger advisor update and get latest advice
+	err := cs.metaCache.SetSupportedWantedFeatureGates(featureGates)
+	if err != nil {
+		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerAdvisorUpdateFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
+		return nil, fmt.Errorf("set feature gates failed: %w", err)
+	}
+
 	advisorRespRaw, err := cs.resourceAdvisor.UpdateAndGetAdvice()
 	if err != nil {
 		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerAdvisorUpdateFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)

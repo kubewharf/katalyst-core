@@ -149,7 +149,7 @@ func (p *PolicyRama) Update() error {
 	cpuAdjustedRestricted := cpuAdjustedRaw
 
 	p.controlKnobAdjusted = types.ControlKnob{
-		knobName: types.ControlKnobItem{
+		`knobName`: types.ControlKnobItem{
 			Value:  cpuAdjustedRestricted,
 			Action: types.ControlKnobActionNone,
 		},
