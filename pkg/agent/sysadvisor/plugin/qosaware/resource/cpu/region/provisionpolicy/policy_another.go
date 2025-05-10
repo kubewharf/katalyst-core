@@ -50,7 +50,7 @@ func NewPolicyAnother(regionName string, regionType configapi.QoSRegionType, own
 }
 
 func (p *PolicyAnother) isCPUQuotaAsControlKnob() bool {
-	if !common.CheckCgroup2UnifiedMode() || !p.isNUMABinding || !p.conf.PreferControlKnobCPUQuota {
+	if !common.CheckCgroup2UnifiedMode() || !p.isNUMABinding {
 		return false
 	}
 
