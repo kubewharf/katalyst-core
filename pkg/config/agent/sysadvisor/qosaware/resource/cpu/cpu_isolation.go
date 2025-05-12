@@ -47,6 +47,9 @@ type CPUIsolationConfiguration struct {
 	IsolationDisabledPools     sets.String
 	IsolationForceEnablePools  sets.String
 	IsolationNonExclusivePools sets.String
+
+	UtilWatermarkHigh float64
+	UtilWatermarkLow  float64
 }
 
 // NewCPUIsolationConfiguration creates new resource advisor configurations
