@@ -98,6 +98,12 @@ func (nc *NPDController) syncStatus(nodeName string) error {
 			Key: "status", Val: "success",
 		})
 
+		// update cnc hash
+		if err = nc.applyNPDTargetConfigToCNC(npdCopy); err != nil {
+			klog.Errorf("[npd] failed to apply npd hash to cnc %v: %v", nodeName, err)
+			return err
+		}
+
 		return nil
 	})
 	if err != nil {

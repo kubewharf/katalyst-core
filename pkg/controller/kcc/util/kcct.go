@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -274,4 +275,15 @@ func RemoveKCCTargetFinalizers(
 	})
 
 	return err
+}
+
+var skippedGVR sync.Map
+
+func RegisterKCCSkippedGVR(gvr metav1.GroupVersionResource) {
+	skippedGVR.Store(gvr.String(), gvr)
+}
+
+func IsKCCSkippedGVR(gvr metav1.GroupVersionResource) bool {
+	_, ok := skippedGVR.Load(gvr.String())
+	return ok
 }
