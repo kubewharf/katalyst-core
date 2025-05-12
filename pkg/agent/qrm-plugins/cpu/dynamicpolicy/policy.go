@@ -42,6 +42,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction/strategy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/validator"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
@@ -120,6 +121,7 @@ type DynamicPolicy struct {
 	numaBindingReclaimRelativeRootCgroupPaths map[int]string
 	qosConfig                                 *generic.QoSConfiguration
 	dynamicConfig                             *dynamicconfig.DynamicAgentConfiguration
+	conf                                      *config.Configuration
 	podDebugAnnoKeys                          []string
 	podAnnotationKeptKeys                     []string
 	podLabelKeptKeys                          []string
@@ -131,11 +133,14 @@ type DynamicPolicy struct {
 	reservedReclaimedCPUsSize                 int
 	reservedReclaimedCPUSet                   machine.CPUSet
 	reservedReclaimedTopologyAwareAssignments map[int]machine.CPUSet
+
+	numaMetrics map[int]strategy.SubEntries
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	_ interface{}, agentName string,
 ) (bool, agent.Component, error) {
+	// add watcher for general gvrs needed in most cases
 	reservedCPUs, reserveErr := cpuutil.GetCoresReservedForSystem(conf, agentCtx.MetaServer, agentCtx.KatalystMachineInfo, agentCtx.CPUDetails.CPUs().Clone())
 	if reserveErr != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("GetCoresReservedForSystem for reservedCPUsNum: %d failed with error: %v",
@@ -188,6 +193,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 
 		cpuPressureEviction: cpuPressureEviction,
 
+		conf:                          conf,
 		qosConfig:                     conf.QoSConfiguration,
 		dynamicConfig:                 conf.DynamicAgentConfiguration,
 		cpuAdvisorSocketAbsPath:       conf.CPUAdvisorSocketAbsPath,
@@ -211,6 +217,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		sharedCoresNUMABindingResultAnnotationKey: conf.SharedCoresNUMABindingResultAnnotationKey,
 		transitionPeriod:                          30 * time.Second,
 		reservedReclaimedCPUsSize:                 general.Max(reservedReclaimedCPUsSize, agentCtx.KatalystMachineInfo.NumNUMANodes),
+		numaMetrics:                               make(map[int]strategy.SubEntries),
 	}
 
 	// register allocation behaviors for pods with different QoS level
@@ -241,8 +248,17 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		return false, agent.ComponentStub{}, fmt.Errorf("dynamic policy initReclaimPool failed with error: %v", err)
 	}
 
+	numaNodes := policyImplement.machineInfo.CPUDetails.NUMANodes().ToSliceInt()
+	for _, numaID := range numaNodes {
+		policyImplement.numaMetrics[numaID] = make(strategy.SubEntries)
+	}
+
 	err = agentCtx.MetaServer.ConfigurationManager.AddConfigWatcher(crd.AdminQoSConfigurationGVR)
 	if err != nil {
+		return false, nil, err
+	}
+
+	if err := agentCtx.MetaServer.ConfigurationManager.AddConfigWatcher(crd.StrategyGroupGVR); err != nil {
 		return false, nil, err
 	}
 
@@ -394,6 +410,8 @@ func (p *DynamicPolicy) Start() (err error) {
 
 	go wait.BackoffUntil(communicateWithCPUAdvisorServer, wait.NewExponentialBackoffManager(800*time.Millisecond,
 		30*time.Second, 2*time.Minute, 2.0, 0, &clock.RealClock{}), true, p.stopCh)
+
+	go wait.Until(p.collectNUMAMetrics, 30*time.Second, p.stopCh)
 
 	return nil
 }
