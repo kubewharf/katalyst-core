@@ -92,6 +92,7 @@ var (
 const (
 	TopicNameApplyCGroup = "ApplyCGroup"
 	TopicNameApplyProcFS = "ApplyProcFS"
+	TopicNameApplySysFS  = "ApplySysFS"
 	TopicNameSyscall     = "Syscall"
 )
 
