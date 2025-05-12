@@ -388,7 +388,7 @@ func TestLoadIsolator(t *testing.T) {
 		conf.CPUIsolationConfiguration = tc.conf
 		loader := NewLoadIsolator(conf, struct{}{}, metrics.DummyMetrics{}, metaCache, metaServer)
 
-		res := loader.GetIsolatedPods()
+		res, _ := loader.GetIsolatedPods()
 		assert.EqualValues(t, tc.expects, res)
 	}
 
@@ -463,7 +463,7 @@ func TestLoadIsolator(t *testing.T) {
 		}
 		time.Sleep(time.Millisecond * 10)
 
-		res := loader.GetIsolatedPods()
+		res, _ := loader.GetIsolatedPods()
 		assert.EqualValues(t, tc.expects, res)
 	}
 }

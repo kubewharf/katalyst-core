@@ -16,10 +16,14 @@ limitations under the License.
 
 package isolation
 
+import "context"
+
 // Isolator works as a helper component to judge the isolation status
 // for each existing container; we will get different implementations.
 type Isolator interface {
 	// GetIsolatedPods calculates and generates the isolated pods
 	// the returned slice contains the isolated pod-uid
-	GetIsolatedPods() []string
+	GetIsolatedPods() ([]string, error)
+
+	Start(ctx context.Context) error
 }
