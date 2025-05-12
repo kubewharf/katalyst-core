@@ -49,6 +49,8 @@ const (
 	// StrategyNameMetricThreshold is the name of metric threshold,
 	// it offers metric threshold from trombe
 	StrategyNameMetricThreshold = "metric_threshold"
+
+	StrategyNameNonOverCommittedPodsIsolator = "non_overcommitted_pods_isolator"
 )
 
 const (
