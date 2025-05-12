@@ -1007,6 +1007,9 @@ func (k *KatalystCustomConfigTargetController) clearUnusedConfig() {
 	})
 
 	needToDeleteFunc := func(config configapis.TargetConfig) bool {
+		if kccutil.IsKCCSkippedGVR(config.ConfigType) {
+			return false // keep it
+		}
 		if _, ok := configGVRSet[config.ConfigType]; !ok {
 			return true
 		}
