@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 )
 
@@ -63,6 +64,7 @@ func TestResctrlProcessor_HintResp(t *testing.T) {
 			},
 			args: args{
 				qosLevel: "shared_cores",
+				req:      &pluginapi.ResourceRequest{},
 				resp:     genRespTest(),
 			},
 			want: genRespTest(),
@@ -160,8 +162,9 @@ func TestResctrlProcessor_HintResp(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			r := newResctrlHinter(tt.fields.config)
-			got := r.HintResp(tt.args.qosLevel, tt.args.req, tt.args.resp)
-			assert.Equalf(t, tt.want, got, "HintResp(%v, %v, %v)", tt.args.qosLevel, tt.args.req, tt.args.resp)
+			meta := state.GenerateMemoryContainerAllocationMeta(tt.args.req, tt.args.qosLevel)
+			r.HintResourceAllocation(meta, tt.args.resp.AllocationResult)
+			assert.Equalf(t, tt.want, tt.args.resp, "HintResourceAllocation(%v, %v, %v)", tt.args.qosLevel, tt.args.req, tt.args.resp)
 		})
 	}
 }

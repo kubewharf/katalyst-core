@@ -724,8 +724,7 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 				podResources[podUID].ContainerResources = make(map[string]*pluginapi.ResourceAllocation)
 			}
 
-			var err error
-			podResources[podUID].ContainerResources[containerName], err = allocationInfo.GetResourceAllocation()
+			resourceAllocation, err := allocationInfo.GetResourceAllocation()
 			if err != nil {
 				errMsg := "allocationInfo.GetResourceAllocation failed"
 				general.ErrorS(err, errMsg,
@@ -734,6 +733,12 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 					"containerName", allocationInfo.ContainerName)
 				return nil, fmt.Errorf(errMsg)
 			}
+
+			if p.resctrlHinter != nil {
+				p.resctrlHinter.HintResourceAllocation(allocationInfo.AllocationMeta, resourceAllocation)
+			}
+
+			podResources[podUID].ContainerResources[containerName] = resourceAllocation
 		}
 	}
 
@@ -865,12 +870,12 @@ func (p *DynamicPolicy) GetResourcePluginOptions(context.Context,
 
 // postAllocateForResctrl makes applicable changes to response's annotations
 // as hint to kubelet about resctrl FS related settings
-func (p *DynamicPolicy) postAllocateForResctrl(qosLevel string, req *pluginapi.ResourceRequest, resp *pluginapi.ResourceAllocationResponse) *pluginapi.ResourceAllocationResponse {
+func (p *DynamicPolicy) postAllocateForResctrl(qosLevel string, req *pluginapi.ResourceRequest, resp *pluginapi.ResourceAllocationResponse) {
 	if p.resctrlHinter == nil {
-		return resp
+		return
 	}
-
-	return p.resctrlHinter.HintResp(qosLevel, req, resp)
+	meta := state.GenerateMemoryContainerAllocationMeta(req, qosLevel)
+	p.resctrlHinter.HintResourceAllocation(meta, resp.AllocationResult)
 }
 
 // Allocate is called during pod admit so that the resource
@@ -902,7 +907,7 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 	// register post-process to inject applicable resp annotation as kubelet pod admit hint
 	defer func() {
 		if respErr == nil {
-			resp = p.postAllocateForResctrl(qosLevel, req, resp)
+			p.postAllocateForResctrl(qosLevel, req, resp)
 		}
 	}()
 
