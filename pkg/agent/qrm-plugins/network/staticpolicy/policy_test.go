@@ -179,7 +179,7 @@ func makeStaticPolicy(t *testing.T, hasNic bool) *StaticPolicy {
 	defer os.RemoveAll(tmpDir)
 
 	stateImpl, err := state.NewCheckpointState(mockQrmConfig, tmpDir, NetworkPluginStateFileName,
-		NetworkResourcePluginPolicyNameStatic, &info.MachineInfo{}, availableNICs, reservation, false)
+		NetworkResourcePluginPolicyNameStatic, &info.MachineInfo{}, availableNICs, reservation, false, metrics.DummyMetrics{})
 	assert.NoError(t, err)
 
 	return &StaticPolicy{

@@ -21,15 +21,21 @@ import (
 	"path"
 	"reflect"
 	"sync"
+	"time"
 
 	info "github.com/google/cadvisor/info/v1"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/errors"
+)
+
+const (
+	metricMetaCacheStoreStateDuration = "metacache_store_state_duration"
 )
 
 var (
@@ -49,11 +55,12 @@ type stateCheckpoint struct {
 	// when we add new properties to checkpoint,
 	// it will cause checkpoint corruption and we should skip it
 	skipStateCorruption bool
+	emitter             metrics.MetricEmitter
 }
 
 func NewCheckpointState(conf *qrm.QRMPluginsConfiguration, stateDir, checkpointName, policyName string,
 	machineInfo *info.MachineInfo, nics []machine.InterfaceInfo, reservedBandwidth map[string]uint32,
-	skipStateCorruption bool,
+	skipStateCorruption bool, emitter metrics.MetricEmitter,
 ) (State, error) {
 	checkpointManager, err := checkpointmanager.NewCheckpointManager(stateDir)
 	if err != nil {
@@ -71,6 +78,7 @@ func NewCheckpointState(conf *qrm.QRMPluginsConfiguration, stateDir, checkpointN
 		checkpointManager:   checkpointManager,
 		checkpointName:      checkpointName,
 		skipStateCorruption: skipStateCorruption,
+		emitter:             emitter,
 	}
 
 	if err := stateCheckpoint.restoreState(conf, nics, reservedBandwidth); err != nil {
@@ -141,6 +149,13 @@ func (sc *stateCheckpoint) restoreState(conf *qrm.QRMPluginsConfiguration, nics 
 }
 
 func (sc *stateCheckpoint) storeState() error {
+	startTime := time.Now()
+	general.InfoS("called")
+	defer func() {
+		elapsed := time.Since(startTime)
+		general.InfoS("finished", "duration", elapsed)
+		_ = sc.emitter.StoreFloat64(metricMetaCacheStoreStateDuration, float64(elapsed/time.Millisecond), metrics.MetricTypeNameRaw)
+	}()
 	checkpoint := NewNetworkPluginCheckpoint()
 	checkpoint.PolicyName = sc.policyName
 	checkpoint.MachineState = sc.cache.GetMachineState()
