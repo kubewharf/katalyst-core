@@ -49,7 +49,7 @@ func TestDynamicPolicy_collectNUMAMetrics(t *testing.T) {
 	defer os.RemoveAll(testingDir)
 
 	cpuTopology, _ := machine.GenerateDummyCPUTopology(16, 2, 4)
-	state1, err := state.NewCheckpointState(testingDir, "test", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries)
+	state1, err := state.NewCheckpointState(testingDir, "test", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
 	as.Nil(err)
 	testName := "test"
 	podUID := "373d08e4-7a6b-4293-aaaf-b135ff812aaa"
@@ -416,7 +416,7 @@ func TestDynamicPolicy_isNUMAOverThreshold(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(testingDir)
-	state1, err := state.NewCheckpointState(testingDir, "test", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries)
+	state1, err := state.NewCheckpointState(testingDir, "test", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
 	if err != nil {
 		t.Fatal(err)
 	}
