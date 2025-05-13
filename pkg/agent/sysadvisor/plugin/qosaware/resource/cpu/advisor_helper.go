@@ -193,9 +193,11 @@ func (cra *cpuResourceAdvisor) getRegionMaxRequirement(r region.QoSRegion) float
 	switch r.Type() {
 	case configapi.QoSRegionTypeIsolation:
 		cra.metaCache.RangeContainer(func(podUID string, containerName string, ci *types.ContainerInfo) bool {
-			if _, ok := r.GetPods()[podUID]; ok && ci.ContainerType == v1alpha1.ContainerType_MAIN {
-				// for pods without limits, fallback to requests instead
-				res += general.MaxFloat64(ci.CPULimit, ci.CPURequest)
+			if _, ok := r.GetPods()[podUID]; ok {
+				if ci.ContainerType == v1alpha1.ContainerType_MAIN || cra.conf.IsolationIncludeSidecarRequirement {
+					// for pods without limits, fallback to requests instead
+					res += general.MaxFloat64(ci.CPULimit, ci.CPURequest)
+				}
 			}
 			return true
 		})
@@ -215,10 +217,12 @@ func (cra *cpuResourceAdvisor) getRegionMinRequirement(r region.QoSRegion) float
 	case configapi.QoSRegionTypeIsolation:
 		res := 0.0
 		cra.metaCache.RangeContainer(func(podUID string, containerName string, ci *types.ContainerInfo) bool {
-			if _, ok := r.GetPods()[podUID]; ok && ci.ContainerType == v1alpha1.ContainerType_MAIN {
-				// todo: to be compatible with resource over-commit,
-				//  set lower-bound as limit too, but we need to reconsider this in the future
-				res += general.MaxFloat64(ci.CPULimit, ci.CPURequest)
+			if _, ok := r.GetPods()[podUID]; ok {
+				if ci.ContainerType == v1alpha1.ContainerType_MAIN || cra.conf.IsolationIncludeSidecarRequirement {
+					// todo: to be compatible with resource over-commit,
+					//  set lower-bound as limit too, but we need to reconsider this in the future
+					res += general.MaxFloat64(ci.CPULimit, ci.CPURequest)
+				}
 			}
 			return true
 		})
