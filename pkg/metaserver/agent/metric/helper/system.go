@@ -99,3 +99,32 @@ func GetNumaMetric(metricsFetcher types.MetricsFetcher, emitter metrics.MetricEm
 	}
 	return metricWithTime.Value, err
 }
+
+func GetCpuCodeName(metricsFetcher types.MetricsFetcher) string {
+	cpuCodeNameInterface := metricsFetcher.GetByStringIndex(consts.MetricCPUCodeName)
+	cpuCodeName, ok := cpuCodeNameInterface.(string)
+	if !ok {
+		general.Warningf("parse cpu code name %v failed", cpuCodeNameInterface)
+		cpuCodeName = ""
+	}
+	return cpuCodeName
+}
+
+func GetIsVm(metricsFetcher types.MetricsFetcher) (bool, string) {
+	isVMInterface := metricsFetcher.GetByStringIndex(consts.MetricInfoIsVM)
+	if isVMInterface == nil {
+		general.Warningf("isVM metric not found")
+		return false, ""
+	}
+	isVMStr, ok := isVMInterface.(string)
+	if !ok {
+		general.Warningf("parse is vm %v failed", isVMInterface)
+		return false, ""
+	}
+	parseBool, err := strconv.ParseBool(isVMStr)
+	if err != nil {
+		general.Warningf("parse is vm %v failed %v", isVMInterface, err)
+		return false, ""
+	}
+	return parseBool, isVMStr
+}

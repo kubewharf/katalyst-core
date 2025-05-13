@@ -43,6 +43,9 @@ const (
 	// StrategyNameBorweinTaint is the placeholder strategy for the strategy group,
 	// it indicates that there is no strategy enabled in the strategy group.
 	StrategyNameNone = "none"
+	// StrategyNameNumaCpuPressureEviction is the name of numa_cpu_pressure_eviction strategy,
+	// it evicts pods with high cpu pressure on numa nodes.
+	StrategyNameNumaCpuPressureEviction = "numa_cpu_pressure_eviction"
 )
 
 const (
