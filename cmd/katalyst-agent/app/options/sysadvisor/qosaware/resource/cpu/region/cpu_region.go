@@ -32,7 +32,7 @@ type CPURegionOptions struct {
 func NewCPURegionOptions() *CPURegionOptions {
 	return &CPURegionOptions{
 		CPUShare:          NewCPUShareOptions(),
-		RestrictRefPolicy: map[string]string{string(types.CPUProvisionPolicyRama): string(types.CPUProvisionPolicyCanonical)},
+		RestrictRefPolicy: map[string]string{string(types.CPUProvisionPolicyRama): string(types.CPUProvisionPolicyDynamicQuota)},
 	}
 }
 

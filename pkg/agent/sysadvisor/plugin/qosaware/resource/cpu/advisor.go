@@ -70,7 +70,7 @@ func init() {
 	provisionpolicy.RegisterInitializer(types.CPUProvisionPolicyNone, provisionpolicy.NewPolicyNone)
 	provisionpolicy.RegisterInitializer(types.CPUProvisionPolicyCanonical, provisionpolicy.NewPolicyCanonical)
 	provisionpolicy.RegisterInitializer(types.CPUProvisionPolicyRama, provisionpolicy.NewPolicyRama)
-	provisionpolicy.RegisterInitializer(types.CPUProvisionPolicyAnother, provisionpolicy.NewPolicyAnother)
+	provisionpolicy.RegisterInitializer(types.CPUProvisionPolicyDynamicQuota, provisionpolicy.NewPolicyDynamicQuota)
 
 	headroompolicy.RegisterInitializer(types.CPUHeadroomPolicyNone, headroompolicy.NewPolicyNone)
 	headroompolicy.RegisterInitializer(types.CPUHeadroomPolicyCanonical, headroompolicy.NewPolicyCanonical)

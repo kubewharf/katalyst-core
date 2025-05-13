@@ -31,11 +31,11 @@ type TopologyAwareAssignment map[int]machine.CPUSet
 type CPUProvisionPolicyName string
 
 const (
-	CPUProvisionPolicyNone       CPUProvisionPolicyName = "none"
-	CPUProvisionPolicyNonReclaim CPUProvisionPolicyName = "non-reclaim"
-	CPUProvisionPolicyCanonical  CPUProvisionPolicyName = "canonical"
-	CPUProvisionPolicyRama       CPUProvisionPolicyName = "rama"
-	CPUProvisionPolicyAnother    CPUProvisionPolicyName = "another"
+	CPUProvisionPolicyNone         CPUProvisionPolicyName = "none"
+	CPUProvisionPolicyNonReclaim   CPUProvisionPolicyName = "non-reclaim"
+	CPUProvisionPolicyCanonical    CPUProvisionPolicyName = "canonical"
+	CPUProvisionPolicyRama         CPUProvisionPolicyName = "rama"
+	CPUProvisionPolicyDynamicQuota CPUProvisionPolicyName = "dynamic-quota"
 )
 
 // CPUHeadroomPolicyName defines policy names for cpu advisor headroom estimation

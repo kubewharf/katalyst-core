@@ -33,23 +33,23 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
-type PolicyAnother struct {
+type PolicyDynamicQuota struct {
 	*PolicyBase
 	conf *config.Configuration
 }
 
-func NewPolicyAnother(regionName string, regionType configapi.QoSRegionType, ownerPoolName string,
+func NewPolicyDynamicQuota(regionName string, regionType configapi.QoSRegionType, ownerPoolName string,
 	conf *config.Configuration, _ interface{}, metaReader metacache.MetaReader,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) ProvisionPolicy {
-	p := &PolicyAnother{
+	p := &PolicyDynamicQuota{
 		PolicyBase: NewPolicyBase(regionName, regionType, ownerPoolName, metaReader, metaServer, emitter),
 		conf:       conf,
 	}
 	return p
 }
 
-func (p *PolicyAnother) isCPUQuotaAsControlKnob() bool {
+func (p *PolicyDynamicQuota) isCPUQuotaAsControlKnob() bool {
 	if !common.CheckCgroup2UnifiedMode() || !p.isNUMABinding {
 		return false
 	}
@@ -58,7 +58,7 @@ func (p *PolicyAnother) isCPUQuotaAsControlKnob() bool {
 	return ok
 }
 
-func (p *PolicyAnother) updateForCPUQuota() error {
+func (p *PolicyDynamicQuota) updateForCPUQuota() error {
 	indicator := p.Indicators[string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio)]
 	reclaimPath := common.GetReclaimRelativeRootCgroupPath(p.conf.ReclaimRelativeRootCgroupPath, p.bindingNumas.ToSliceInt()[0])
 	data, err := p.metaServer.GetCgroupMetric(reclaimPath, pkgconsts.MetricCPUUsageCgroup)
@@ -84,7 +84,7 @@ func (p *PolicyAnother) updateForCPUQuota() error {
 	return nil
 }
 
-func (p *PolicyAnother) Update() error {
+func (p *PolicyDynamicQuota) Update() error {
 	// sanity check
 	if err := p.sanityCheck(); err != nil {
 		return err
@@ -97,7 +97,7 @@ func (p *PolicyAnother) Update() error {
 	return nil
 }
 
-func (p *PolicyAnother) sanityCheck() error {
+func (p *PolicyDynamicQuota) sanityCheck() error {
 	var (
 		isLegal bool
 		errList []error
