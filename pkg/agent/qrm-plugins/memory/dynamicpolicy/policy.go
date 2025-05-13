@@ -890,6 +890,8 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 	// we should do it before GetKatalystQoSLevelFromResourceReq.
 	isDebugPod := util.IsDebugPod(req.Annotations, p.podDebugAnnoKeys)
 
+	existReallocAnno, isReallocation := util.IsReallocation(req.Annotations)
+
 	qosLevel, err := util.GetKatalystQoSLevelFromResourceReq(p.qosConfig, req, p.podAnnotationKeptKeys, p.podLabelKeptKeys)
 	if err != nil {
 		err = fmt.Errorf("GetKatalystQoSLevelFromResourceReq for pod: %s/%s, container: %s failed with error: %v",
@@ -987,9 +989,15 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 			if !inplaceUpdateResizing {
 				_ = p.removeContainer(req.PodUid, req.ContainerName, false)
 			}
-			_ = p.emitter.StoreInt64(util.MetricNameAllocateFailed, 1, metrics.MetricTypeNameRaw,
-				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(respErr)},
-				metrics.MetricTag{Key: util.MetricTagNameInplaceUpdateResizing, Val: strconv.FormatBool(inplaceUpdateResizing)})
+
+			metricTags := []metrics.MetricTag{
+				{Key: "error_message", Val: metric.MetricTagValueFormat(respErr)},
+				{Key: util.MetricTagNameInplaceUpdateResizing, Val: strconv.FormatBool(inplaceUpdateResizing)},
+			}
+			if existReallocAnno {
+				metricTags = append(metricTags, metrics.MetricTag{Key: "reallocation", Val: isReallocation})
+			}
+			_ = p.emitter.StoreInt64(util.MetricNameAllocateFailed, 1, metrics.MetricTypeNameRaw, metricTags...)
 		}
 		if err := p.state.StoreState(); err != nil {
 			general.ErrorS(err, "store state failed", "podName", req.PodName, "containerName", req.ContainerName)
