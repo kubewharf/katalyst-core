@@ -121,7 +121,7 @@ func (p *ResourcePortraitIndicatorPlugin) GetSupportedAggMetricsStatus() []strin
 	return []string{ResourcePortraitPluginName}
 }
 
-func (p *ResourcePortraitIndicatorPlugin) GetAggMetrics(_ *unstructured.Unstructured) ([]apiworkload.AggPodMetrics, error) {
+func (p *ResourcePortraitIndicatorPlugin) GetAggMetrics(_ *unstructured.Unstructured, _ string) ([]apiworkload.AggPodMetrics, error) {
 	return nil, nil
 }
 

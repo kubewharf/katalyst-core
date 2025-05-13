@@ -384,7 +384,7 @@ func (sc *SPDController) workloadWorker() {
 
 func (sc *SPDController) processNextWorkload() bool {
 	key, quit := sc.workloadSyncQueue.Get()
-	klog.Infof("[spd] process next workload key: ", key)
+	klog.Infof("[spd] process next workload key: %v", key)
 	if quit {
 		return false
 	}
@@ -499,7 +499,7 @@ func (sc *SPDController) syncWorkloadCreateSPD(key string) error {
 		return err
 	}
 
-	_, err = sc.getOrCreateSPDForWorkload(workload)
+	_, err = sc.getOrCreateSPDsForWorkload(workload)
 	if err != nil {
 		klog.Errorf("[spd] get or create spd for workload %s/%s failed: %v", namespace, name, err)
 		return err
@@ -581,6 +581,12 @@ func (sc *SPDController) syncSPD(key string) error {
 			return nil
 		}
 		return err
+	}
+
+	_, ok := spd.Annotations[consts.ServiceProfileDescriptorAnnotationKeyConfigHash]
+	if !ok {
+		klog.Warningf("spd not initialized, skip spd %v", key)
+		return nil
 	}
 
 	// update baseline percentile
@@ -690,8 +696,8 @@ func (sc *SPDController) defaultBaselinePercent(workload *unstructured.Unstructu
 	return pointer.Int32(int32(baselinePercent))
 }
 
-// getOrCreateSPDForWorkload get workload's spd or create one if the spd doesn't exist
-func (sc *SPDController) getOrCreateSPDForWorkload(workload *unstructured.Unstructured) (*apiworkload.ServiceProfileDescriptor, error) {
+// getOrCreateSPDsForWorkload get workload's spd or create one if the spd doesn't exist
+func (sc *SPDController) getOrCreateSPDsForWorkload(workload *unstructured.Unstructured) ([]*apiworkload.ServiceProfileDescriptor, error) {
 	gvk := workload.GroupVersionKind()
 	ownerRef := metav1.OwnerReference{
 		Name:       workload.GetName(),
@@ -700,12 +706,17 @@ func (sc *SPDController) getOrCreateSPDForWorkload(workload *unstructured.Unstru
 		UID:        workload.GetUID(),
 	}
 
-	spd, err := util.GetSPDForWorkload(workload, sc.spdIndexer, sc.spdLister)
+	spdList, absent, err := util.GetSPDForWorkload(workload, sc.spdIndexer, sc.spdLister)
 	if err != nil {
-		if errors.IsNotFound(err) {
-			spd = &apiworkload.ServiceProfileDescriptor{
+		return nil, err
+	}
+
+	if len(absent) > 0 {
+		for _, spdName := range absent {
+			klog.Warningf("[spd] spd %s not found for workload %s/%s", spdName, workload.GetNamespace(), workload.GetName())
+			spd := &apiworkload.ServiceProfileDescriptor{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:            workload.GetName(),
+					Name:            spdName,
 					Namespace:       workload.GetNamespace(),
 					OwnerReferences: []metav1.OwnerReference{ownerRef},
 					Labels:          workload.GetLabels(),
@@ -723,52 +734,79 @@ func (sc *SPDController) getOrCreateSPDForWorkload(workload *unstructured.Unstru
 				},
 			}
 
-			err = sc.updateSPDAnnotations(spd)
-			if err != nil {
-				return nil, fmt.Errorf("[spd] failed to update spd [%v] annotation: %v", spd.Name, err)
+			newSPD, err := sc.spdControl.CreateSPD(sc.ctx, spd, metav1.CreateOptions{})
+			if err != nil && !errors.IsAlreadyExists(err) {
+				return nil, fmt.Errorf("[spd] failed to create spd [%v] err: %v", spdName, err)
+			} else if err == nil {
+				cost := newSPD.GetCreationTimestamp().Sub(workload.GetCreationTimestamp().Time)
+				_ = sc.metricsEmitter.StoreInt64(metricsNameCreateSPDByWorkloadCost, cost.Microseconds(), metrics.MetricTypeNameRaw,
+					metrics.MetricTag{Key: "workload", Val: workload.GetName()},
+					metrics.MetricTag{Key: "namespace", Val: workload.GetNamespace()},
+					metrics.MetricTag{Key: "spdName", Val: newSPD.Name})
+			} else {
+				newSPD, err = sc.spdLister.ServiceProfileDescriptors(workload.GetNamespace()).Get(spdName)
+				if err != nil {
+					return nil, fmt.Errorf("[spd] failed to get spd [%v] err: %v", spdName, err)
+				}
 			}
 
-			spd, err = sc.spdControl.CreateSPD(sc.ctx, spd, metav1.CreateOptions{})
-			cost := spd.GetCreationTimestamp().Sub(workload.GetCreationTimestamp().Time)
-			_ = sc.metricsEmitter.StoreInt64(metricsNameCreateSPDByWorkloadCost, cost.Microseconds(), metrics.MetricTypeNameRaw)
-			if err != nil {
-				return nil, fmt.Errorf("[spd] failed to create spd: %v", err)
-			}
-
-			return sc.setSPDStatus(workload, spd)
+			spdList = append(spdList, newSPD)
 		}
-
-		return nil, err
 	}
 
-	return spd, nil
+	for i := range spdList {
+		updatedSPD, initial, err := sc.initializeSPDStatus(workload, spdList[i])
+		if err != nil {
+			return nil, fmt.Errorf("[spd] failed to set spd status [%v] err: %v", spdList[i].Name, err)
+		}
+
+		if initial {
+			cost := time.Since(workload.GetCreationTimestamp().Time)
+			_ = sc.metricsEmitter.StoreInt64(metricsNameInitializeSPDStatusByWorkloadDelay, cost.Microseconds(), metrics.MetricTypeNameRaw,
+				metrics.MetricTag{Key: "workload", Val: workload.GetName()},
+				metrics.MetricTag{Key: "namespace", Val: workload.GetNamespace()},
+				metrics.MetricTag{Key: "spdName", Val: updatedSPD.Name})
+		}
+		spdList[i] = updatedSPD
+	}
+
+	return spdList, nil
 }
 
-func (sc *SPDController) setSPDStatus(workload *unstructured.Unstructured, spd *apiworkload.ServiceProfileDescriptor) (*apiworkload.ServiceProfileDescriptor, error) {
-	klog.Infof("[spd] setting status for new SPD")
+func (sc *SPDController) initializeSPDStatus(
+	workload *unstructured.Unstructured,
+	spd *apiworkload.ServiceProfileDescriptor,
+) (*apiworkload.ServiceProfileDescriptor, bool, error) {
+	// skip if spd is initialized
+	if _, ok := spd.Annotations[consts.ServiceProfileDescriptorAnnotationKeyConfigHash]; ok {
+		return spd, false, nil
+	}
+
+	klog.Infof("[spd] initialize status for new SPD")
+	newSPD := spd.DeepCopy()
 	for _, plugin := range sc.indicatorPlugins {
-		aggMetrics, err := plugin.GetAggMetrics(workload)
+		aggMetrics, err := plugin.GetAggMetrics(workload, spd.Name)
 		if err != nil {
-			klog.Errorf("[spd] failed to get spd aggMetrics for workload %s: %v", workload, err)
-			continue
+			return nil, false, err
 		}
 		for _, aggPodMetric := range aggMetrics {
-			spd.Status.AggMetrics = append(spd.Status.AggMetrics, aggPodMetric)
+			newSPD.Status.AggMetrics = append(newSPD.Status.AggMetrics, aggPodMetric)
 		}
 	}
 
-	err := sc.updateHash(spd)
+	err := sc.updateSPDAnnotations(newSPD)
 	if err != nil {
 		klog.Errorf("[spd] failed to update hash for workload %s: %v", workload, err)
-		return nil, err
+		return nil, false, err
 	}
 
-	spd, err = sc.spdControl.UpdateSPDStatus(sc.ctx, spd, metav1.UpdateOptions{})
+	spd, err = sc.spdControl.UpdateSPDStatus(sc.ctx, newSPD, metav1.UpdateOptions{})
 	if err != nil {
 		klog.Errorf("[spd] failed to update spd status for workload %s: %v", workload, err)
+		return nil, false, err
 	}
 
-	return spd, nil
+	return spd, true, nil
 }
 
 func (sc *SPDController) setPodListSPDAnnotation(podList []*core.Pod, workload *unstructured.Unstructured) error {
@@ -776,10 +814,17 @@ func (sc *SPDController) setPodListSPDAnnotation(podList []*core.Pod, workload *
 	var errList []error
 
 	spdName := workload.GetName()
-	spd, err := util.GetSPDForWorkload(workload, sc.spdIndexer, sc.spdLister)
+	spdList, absent, err := util.GetSPDForWorkload(workload, sc.spdIndexer, sc.spdLister)
 	if err != nil {
 		return fmt.Errorf("[spd] failed to get spd %s: %v", spdName, err)
 	}
+
+	if len(spdList) != 1 || len(absent) > 0 {
+		klog.Infof("skip setting pod spd annotation for workload %s, spd list length is not 1", workload.GetName())
+		return nil
+	}
+
+	spd := spdList[0]
 	spdCreationTime := spd.GetCreationTimestamp()
 	setPodAnnotations := func(i int) {
 		err := sc.setPodSPDAnnotation(podList[i], spdName, spdCreationTime)
