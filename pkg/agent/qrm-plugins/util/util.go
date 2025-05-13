@@ -225,8 +225,9 @@ func GetNUMANodesCountToFitCPUReq(cpuReq float64, cpuTopology *machine.CPUTopolo
 	cpusPerNUMA := cpuTopology.NumCPUs / numaCount
 	numaCountNeeded := int(math.Ceil(cpuReq / float64(cpusPerNUMA)))
 	if numaCountNeeded == 0 {
-		return 0, 0, fmt.Errorf("zero numaCountNeeded")
-	} else if numaCountNeeded > numaCount {
+		numaCountNeeded = 1
+	}
+	if numaCountNeeded > numaCount {
 		return 0, 0, fmt.Errorf("invalid cpu req: %.3f in topology with NUMAs count: %d and CPUs count: %d", cpuReq, numaCount, cpuTopology.NumCPUs)
 	}
 
@@ -245,8 +246,9 @@ func GetNUMANodesCountToFitMemoryReq(memoryReq, bytesPerNUMA uint64, numaCount i
 	numaCountNeeded := int(math.Ceil(float64(memoryReq) / float64(bytesPerNUMA)))
 
 	if numaCountNeeded == 0 {
-		return 0, 0, fmt.Errorf("zero numaCountNeeded")
-	} else if numaCountNeeded > numaCount {
+		numaCountNeeded = 1
+	}
+	if numaCountNeeded > numaCount {
 		return 0, 0, fmt.Errorf("invalid memory req: %d in topology with NUMAs count: %d and bytesPerNUMA: %d", memoryReq, numaCount, bytesPerNUMA)
 	}
 
