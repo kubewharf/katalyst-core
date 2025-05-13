@@ -155,7 +155,6 @@ const (
 
 // System numa metrics
 const (
-	MetricCPUNrNuma           = "cpu.nr.numa"
 	MetricMemTotalNuma        = "mem.total.numa"
 	MetricMemUsedNuma         = "mem.used.numa"
 	MetricMemFreeNuma         = "mem.free.numa"

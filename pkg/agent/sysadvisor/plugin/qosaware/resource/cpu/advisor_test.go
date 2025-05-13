@@ -27,6 +27,7 @@ import (
 	"testing"
 	"time"
 
+	info "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
@@ -83,6 +84,17 @@ func newTestCPUResourceAdvisor(t *testing.T, pods []*v1.Pod, conf *config.Config
 	metaServer := &metaserver.MetaServer{
 		MetaAgent: &agent.MetaAgent{
 			KatalystMachineInfo: &machine.KatalystMachineInfo{
+				MachineInfo: &info.MachineInfo{
+					NumCores: 96,
+					Topology: []info.Node{
+						{
+							Id: 0,
+						},
+						{
+							Id: 1,
+						},
+					},
+				},
 				CPUTopology: cpuTopology,
 			},
 			PodFetcher: &pod.PodFetcherStub{
@@ -153,6 +165,18 @@ func TestAdvisorUpdate(t *testing.T) {
 		value  float64
 	}
 
+	type cpuMetricItem struct {
+		cpuID int
+		name  string
+		value float64
+	}
+
+	type cgroupMetricItem struct {
+		cgroupPath string
+		name       string
+		value      float64
+	}
+
 	tests := []struct {
 		name                          string
 		preUpdate                     bool
@@ -169,6 +193,8 @@ func TestAdvisorUpdate(t *testing.T) {
 		wantHeadroomErr               bool
 		containerMetrics              []containerMetricItem
 		numaMetricItems               []numaMetricItem
+		cpuMetricItems                []cpuMetricItem
+		cgroupMetricItems             []cgroupMetricItem
 	}{
 		{
 			name:                          "missing_reserve_pool",
@@ -430,8 +456,8 @@ func TestAdvisorUpdate(t *testing.T) {
 				commonstate.PoolNameReclaim: {
 					PoolName: commonstate.PoolNameReclaim,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
-						0: machine.MustParse("0-8"),
-						1: machine.MustParse("48-93"),
+						0: machine.MustParse("70-71"),
+						1: machine.MustParse("94-95"),
 					},
 				},
 			},
@@ -456,11 +482,49 @@ func TestAdvisorUpdate(t *testing.T) {
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]types.CPUResource{
 					commonstate.PoolNameReserve: {-1: {Size: 2, Quota: -1}},
-					commonstate.PoolNameReclaim: {0: {Size: 9, Quota: -1}, -1: {Size: 47, Quota: -1}},
+					commonstate.PoolNameReclaim: {0: {Size: 4, Quota: -1}, -1: {Size: 47, Quota: -1}},
 				},
 			},
-			// dedicated_cores headroom(9) + empty numa headroom(45)
-			wantHeadroom: *resource.NewQuantity(54, resource.DecimalSI),
+			wantHeadroom: *resource.NewQuantity(4, resource.DecimalSI),
+			cgroupMetricItems: []cgroupMetricItem{
+				{
+					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUUsageCgroup,
+					value:      2.8,
+				},
+				{
+					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUQuotaCgroup,
+					value:      -1,
+				},
+				{
+					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUPeriodCgroup,
+					value:      100000,
+				},
+			},
+			cpuMetricItems: []cpuMetricItem{
+				{
+					cpuID: 70,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 71,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 94,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 95,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+			},
 		},
 		{
 			name: "provision:single_dedicated_numa_exclusive with invalid headroom policy",
@@ -475,8 +539,8 @@ func TestAdvisorUpdate(t *testing.T) {
 				commonstate.PoolNameReclaim: {
 					PoolName: commonstate.PoolNameReclaim,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
-						0: machine.MustParse("70-78"),
-						1: machine.MustParse("2-46"),
+						0: machine.MustParse("70-71"),
+						1: machine.MustParse("94-95"),
 					},
 				},
 			},
@@ -504,12 +568,50 @@ func TestAdvisorUpdate(t *testing.T) {
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]types.CPUResource{
 					commonstate.PoolNameReserve: {-1: {Size: 2, Quota: -1}},
-					commonstate.PoolNameReclaim: {0: {Size: 9, Quota: -1}, -1: {Size: 47, Quota: -1}},
+					commonstate.PoolNameReclaim: {0: {Size: 4, Quota: -1}, -1: {Size: 47, Quota: -1}},
 				},
 			},
 			wantHeadroomErr: false,
-			// dedicated_cores headroom(9) + empty numa headroom(45)
-			wantHeadroom: *resource.NewQuantity(54, resource.DecimalSI),
+			wantHeadroom:    *resource.NewQuantity(4, resource.DecimalSI),
+			cgroupMetricItems: []cgroupMetricItem{
+				{
+					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUUsageCgroup,
+					value:      2.8,
+				},
+				{
+					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUQuotaCgroup,
+					value:      -1,
+				},
+				{
+					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUPeriodCgroup,
+					value:      100000,
+				},
+			},
+			cpuMetricItems: []cpuMetricItem{
+				{
+					cpuID: 70,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 71,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 94,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 95,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+			},
 		},
 		{
 			name: "single_dedicated_numa_exclusive pod un-reclaimed",
@@ -525,7 +627,7 @@ func TestAdvisorUpdate(t *testing.T) {
 					PoolName: commonstate.PoolNameReclaim,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("70-71"),
-						1: machine.MustParse("25-47,72-95"),
+						1: machine.MustParse("94-95"),
 					},
 				},
 			},
@@ -558,7 +660,46 @@ func TestAdvisorUpdate(t *testing.T) {
 					commonstate.PoolNameReclaim: {0: {Size: 2, Quota: -1}, -1: {Size: 47, Quota: -1}},
 				},
 			},
-			wantHeadroom: *resource.NewQuantity(45, resource.DecimalSI),
+			wantHeadroom: *resource.NewQuantity(4, resource.DecimalSI),
+			cgroupMetricItems: []cgroupMetricItem{
+				{
+					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUUsageCgroup,
+					value:      2.8,
+				},
+				{
+					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUQuotaCgroup,
+					value:      -1,
+				},
+				{
+					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUPeriodCgroup,
+					value:      100000,
+				},
+			},
+			cpuMetricItems: []cpuMetricItem{
+				{
+					cpuID: 70,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 71,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 94,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 95,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+			},
 		},
 		{
 			name: "single_dedicated_numa_exclusive pod with performance score",
@@ -573,8 +714,8 @@ func TestAdvisorUpdate(t *testing.T) {
 				commonstate.PoolNameReclaim: {
 					PoolName: commonstate.PoolNameReclaim,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
-						0: machine.MustParse("70-73"),
-						1: machine.MustParse("25-47,72-95"),
+						0: machine.MustParse("70-71"),
+						1: machine.MustParse("94-95"),
 					},
 				},
 			},
@@ -607,12 +748,51 @@ func TestAdvisorUpdate(t *testing.T) {
 						-1: {Size: 2, Quota: -1},
 					},
 					commonstate.PoolNameReclaim: {
-						0:  {Size: 6, Quota: -1},
+						0:  {Size: 4, Quota: -1},
 						-1: {Size: 47, Quota: -1},
 					},
 				},
 			},
-			wantHeadroom: *resource.NewQuantity(49, resource.DecimalSI),
+			wantHeadroom: *resource.NewQuantity(4, resource.DecimalSI),
+			cgroupMetricItems: []cgroupMetricItem{
+				{
+					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUUsageCgroup,
+					value:      2.8,
+				},
+				{
+					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUQuotaCgroup,
+					value:      -1,
+				},
+				{
+					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUPeriodCgroup,
+					value:      100000,
+				},
+			},
+			cpuMetricItems: []cpuMetricItem{
+				{
+					cpuID: 70,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 71,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 94,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 95,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+			},
 		},
 		{
 			name: "dedicated_numa_exclusive_&_share",
@@ -633,8 +813,8 @@ func TestAdvisorUpdate(t *testing.T) {
 				commonstate.PoolNameReclaim: {
 					PoolName: commonstate.PoolNameReclaim,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
-						0: machine.MustParse("19-23,66-71"),
-						1: machine.MustParse("31-47,72-93"),
+						0: machine.MustParse("70-71"),
+						1: machine.MustParse("94-95"),
 					},
 				},
 			},
@@ -675,12 +855,51 @@ func TestAdvisorUpdate(t *testing.T) {
 						-1: {Size: 6, Quota: -1},
 					},
 					commonstate.PoolNameReclaim: {
-						0:  {Size: 9, Quota: -1},
+						0:  {Size: 4, Quota: -1},
 						-1: {Size: 41, Quota: -1},
 					},
 				},
 			},
-			wantHeadroom: *resource.NewQuantity(50, resource.DecimalSI), // 41 + 9
+			wantHeadroom: *resource.NewQuantity(4, resource.DecimalSI),
+			cgroupMetricItems: []cgroupMetricItem{
+				{
+					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUUsageCgroup,
+					value:      2.8,
+				},
+				{
+					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUQuotaCgroup,
+					value:      -1,
+				},
+				{
+					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUPeriodCgroup,
+					value:      100000,
+				},
+			},
+			cpuMetricItems: []cpuMetricItem{
+				{
+					cpuID: 70,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 71,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 94,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 95,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+			},
 		},
 		{
 			name: "dedicated_numa_exclusive_&_share_disable_reclaim",
@@ -1175,6 +1394,14 @@ func TestAdvisorUpdate(t *testing.T) {
 
 			for _, metric := range tt.numaMetricItems {
 				mf.SetNumaMetric(metric.numaID, metric.name, utilmetric.MetricData{Value: metric.value, Time: &now})
+			}
+
+			for _, metric := range tt.cpuMetricItems {
+				mf.SetCPUMetric(metric.cpuID, metric.name, utilmetric.MetricData{Value: metric.value, Time: &now})
+			}
+
+			for _, metric := range tt.cgroupMetricItems {
+				mf.SetCgroupMetric(metric.cgroupPath, metric.name, utilmetric.MetricData{Value: metric.value, Time: &now})
 			}
 
 			for poolName, poolInfo := range tt.pools {

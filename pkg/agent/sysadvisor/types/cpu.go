@@ -176,10 +176,6 @@ type CPUResource struct {
 	Quota float64
 }
 
-const (
-	CPUUnlimited = -1
-)
-
 // ControlEssentials defines essential metrics for cpu advisor feedback control
 type ControlEssentials struct {
 	ControlKnobs   ControlKnob

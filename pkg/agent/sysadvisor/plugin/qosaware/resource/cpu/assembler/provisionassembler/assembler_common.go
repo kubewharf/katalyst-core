@@ -168,17 +168,12 @@ func (pa *ProvisionAssemblerCommon) assembleSharedCoresWithNUMABindingRegion(r r
 			reclaimedCoresAvail = 0
 		}
 
-		featureGates, err := pa.metaReader.GetSupportedWantedFeatureGates()
+		quotaCtrlKnobEnabled, err := pa.IsQuotaCtrlKnobEnabled()
 		if err != nil {
-			return fmt.Errorf("get feature gates failed: %v", err)
+			return err
 		}
 
-		preferControlKnobCPUQuota := false
-		if feature, ok := featureGates[feature_cpu.NegotiationFeatureGateQuotaCtrlKnob]; ok && feature != nil {
-			preferControlKnobCPUQuota = true
-		}
-
-		if preferControlKnobCPUQuota && common.CheckCgroup2UnifiedMode() {
+		if quotaCtrlKnobEnabled {
 			reclaimedCoresQuota = float64(general.Max(reservedForReclaim, reclaimedCoresAvail))
 			if quota, ok := controlKnob[configapi.ControlKnobReclaimedCoresCPUQuota]; ok {
 				reclaimedCoresQuota = quota.Value
@@ -240,6 +235,20 @@ func (pa *ProvisionAssemblerCommon) assembleIsolationWithNUMABindingRegion(r reg
 	return nil
 }
 
+func (pa *ProvisionAssemblerCommon) IsQuotaCtrlKnobEnabled() (bool, error) {
+	featureGates, err := pa.metaReader.GetSupportedWantedFeatureGates()
+	if err != nil {
+		return false, fmt.Errorf("get feature gates failed: %v", err)
+	}
+
+	quotaCtrlKnobEnabled := false
+	if feature, ok := featureGates[feature_cpu.NegotiationFeatureGateQuotaCtrlKnob]; ok && feature != nil {
+		quotaCtrlKnobEnabled = true
+	}
+
+	return quotaCtrlKnobEnabled && common.CheckCgroup2UnifiedMode(), nil
+}
+
 func (pa *ProvisionAssemblerCommon) assembleDedicatedNUMAExclusiveRegion(r region.QoSRegion, result *types.InternalCPUCalculationResult) error {
 	if r.Type() != configapi.QoSRegionTypeDedicatedNumaExclusive {
 		return fmt.Errorf("region %v is not a DedicatedNUMAExclusive region", r.Name())
@@ -262,17 +271,12 @@ func (pa *ProvisionAssemblerCommon) assembleDedicatedNUMAExclusiveRegion(r regio
 		nonReclaimRequirement = available
 	}
 
-	featureGates, err := pa.metaReader.GetSupportedWantedFeatureGates()
+	quotaCtrlKnobEnabled, err := pa.IsQuotaCtrlKnobEnabled()
 	if err != nil {
-		return fmt.Errorf("get feature gates failed: %v", err)
+		return err
 	}
 
-	preferControlKnobCPUQuota := false
-	if feature, ok := featureGates[feature_cpu.NegotiationFeatureGateQuotaCtrlKnob]; ok && feature != nil {
-		preferControlKnobCPUQuota = true
-	}
-
-	if preferControlKnobCPUQuota && common.CheckCgroup2UnifiedMode() {
+	if quotaCtrlKnobEnabled {
 		reclaimedCoresSize = available
 		reclaimedCoresLimit = general.MaxFloat64(float64(reservedForReclaim), float64(available-nonReclaimRequirement))
 

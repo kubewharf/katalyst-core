@@ -581,8 +581,6 @@ func (m *MalachiteMetricsProvisioner) processSystemNumaData(systemMemoryData *ma
 	}
 
 	for _, numa := range systemMemoryData.Numa {
-		m.metricStore.SetNumaMetric(numa.ID, consts.MetricCPUNrNuma,
-			utilmetric.MetricData{Value: float64(len(numa.CPUList.Inner)), Time: &updateTime})
 		m.metricStore.SetNumaMetric(numa.ID, consts.MetricMemTotalNuma,
 			utilmetric.MetricData{Value: float64(numa.MemTotal << 10), Time: &updateTime})
 		m.metricStore.SetNumaMetric(numa.ID, consts.MetricMemUsedNuma,

@@ -18,10 +18,9 @@ package headroomassembler
 
 import (
 	"fmt"
+	"math"
 
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
@@ -74,58 +73,80 @@ func (ha *HeadroomAssemblerCommon) GetHeadroom() (resource.Quantity, map[int]res
 		return *resource.NewQuantity(0, resource.DecimalSI), nil, nil
 	}
 
-	reserved := ha.conf.GetDynamicConfiguration().ReservedResourceForAllocate[v1.ResourceCPU]
-	headroomTotal := 0.0
-	headroomNuma := make(map[int]float64)
-	emptyNUMAs := ha.metaServer.CPUDetails.NUMANodes()
+	if !dynamicConfig.CPUUtilBasedConfiguration.Enable {
+		reclaimPoolInfo, reclaimPoolExist := ha.metaReader.GetPoolInfo(commonstate.PoolNameReclaim)
+		if !reclaimPoolExist || reclaimPoolInfo == nil {
+			return resource.Quantity{}, nil, fmt.Errorf("get headroom failed: reclaim pool not found")
+		}
 
-	reclaimPoolInfo, reclaimPoolExist := ha.metaReader.GetPoolInfo(commonstate.PoolNameReclaim)
+		bindingNUMAs, nonBindingNumas, err := ha.getReclaimNUMABindingTopo(reclaimPoolInfo)
+		if err != nil {
+			general.Errorf("getReclaimNUMABindingTop failed: %v", err)
+			return resource.Quantity{}, nil, err
+		}
 
-	// sum up dedicated region headroom
-	for _, r := range *ha.regionMap {
-		general.Infof("region is enable: %v, %v", r.EnableReclaim(), r.Name())
-		if r.EnableReclaim() && reclaimPoolExist && reclaimPoolInfo != nil {
-			for _, numaID := range r.GetBindingNumas().ToSliceInt() {
-				headroomNuma[numaID] = float64(reclaimPoolInfo.TopologyAwareAssignments[numaID].Size())
-				general.InfoS("region headroom", "region", r.Name(), "numaID", numaID, "headroom", headroomNuma[numaID])
+		general.Infof("RNB NUMA topo: %v, %v", bindingNUMAs, nonBindingNumas)
+
+		numaHeadroom := make(map[int]resource.Quantity, ha.metaServer.NumNUMANodes)
+		totalHeadroom := resource.Quantity{}
+
+		// get headroom per NUMA
+		for _, numaID := range bindingNUMAs {
+			cpuSet, ok := reclaimPoolInfo.TopologyAwareAssignments[numaID]
+			if !ok {
+				return resource.Quantity{}, nil, fmt.Errorf("reclaim pool NOT found TopologyAwareAssignments with numaID: %v", numaID)
+			}
+
+			reclaimPath := common.GetReclaimRelativeRootCgroupPath(ha.conf.ReclaimRelativeRootCgroupPath, numaID)
+			reclaimMetrics, err := metricHelper.GetReclaimMetrics(cpuSet, reclaimPath, ha.metaServer.MetricsFetcher)
+			if err != nil {
+				return resource.Quantity{}, nil, fmt.Errorf("get reclaim Metrics failed with numa %d: %v", numaID, err)
+			}
+
+			headroom := *resource.NewQuantity(int64(math.Ceil(reclaimMetrics.ReclaimedCoresSupply)), resource.DecimalSI)
+			numaHeadroom[numaID] = headroom
+			totalHeadroom.Add(headroom)
+		}
+
+		// get global reclaim headroom
+		if len(nonBindingNumas) > 0 {
+			cpuSets := machine.NewCPUSet()
+			for _, numaID := range nonBindingNumas {
+				cpuSet, ok := reclaimPoolInfo.TopologyAwareAssignments[numaID]
+				if !ok {
+					return resource.Quantity{}, nil, fmt.Errorf("reclaim pool NOT found TopologyAwareAssignments with numaID: %v", numaID)
+				}
+
+				cpuSets = cpuSets.Union(cpuSet)
+			}
+
+			reclaimMetrics, err := metricHelper.GetReclaimMetrics(cpuSets, common.GetReclaimRelativeRootCgroupPath(ha.conf.ReclaimRelativeRootCgroupPath, commonstate.FakedNUMAID), ha.metaServer.MetricsFetcher)
+			if err != nil {
+				return resource.Quantity{}, nil, fmt.Errorf("get reclaim Metrics failed: %v", err)
+			}
+
+			headroomPerNUMA := reclaimMetrics.ReclaimedCoresSupply / float64(len(nonBindingNumas))
+			for _, numaID := range nonBindingNumas {
+				q := *resource.NewQuantity(int64(headroomPerNUMA), resource.DecimalSI)
+				numaHeadroom[numaID] = q
+				totalHeadroom.Add(q)
 			}
 		}
 
-		emptyNUMAs = emptyNUMAs.Difference(r.GetBindingNumas())
-	}
-
-	// add empty numa headroom
-	for _, numaID := range emptyNUMAs.ToSliceInt() {
-		available, _ := (*ha.numaAvailable)[numaID]
-		reservedForAllocate := float64(reserved.Value()*int64(emptyNUMAs.Size())) / float64(ha.metaServer.NumNUMANodes)
-		headroom := float64(available) - reservedForAllocate
-		headroomNuma[numaID] = headroom
-
-		klog.InfoS("empty NUMA headroom", "headroom", headroom, "numaID", numaID)
-	}
-
-	for numaID, headroom := range headroomNuma {
-		general.InfoS("[qosaware-cpu] NUMA headroom assembled", "NUMA-ID", numaID, "headroom", headroom)
-		headroomTotal += headroom
-	}
-	general.InfoS("[qosaware-cpu] headroom assembled", "headroomTotal", headroomTotal,
-		"util based enabled", dynamicConfig.CPUUtilBasedConfiguration.Enable)
-
-	// if util based cpu headroom disable or reclaim pool not existed, just return total reclaim pool size as headroom
-	if !dynamicConfig.CPUUtilBasedConfiguration.Enable || !reclaimPoolExist || reclaimPoolInfo == nil {
-		headroomNumaRet := make(map[int]resource.Quantity)
-		for numaID, headroom := range headroomNuma {
-			headroomNumaRet[numaID] = *resource.NewMilliQuantity(int64(headroom*1000), resource.DecimalSI)
+		general.InfoS("[qosaware-cpu] get headroom ret", "total", totalHeadroom.Value())
+		for numaID, headroom := range numaHeadroom {
+			general.InfoS("[qosaware-cpu] get headroom per numa", "NUMA-ID", numaID, "headroom", headroom.Value())
 		}
 
 		allNUMAs := ha.metaServer.CPUDetails.NUMANodes()
 		for _, numaID := range allNUMAs.ToSliceInt() {
-			if _, ok := headroomNumaRet[numaID]; !ok {
+			if _, ok := numaHeadroom[numaID]; !ok {
 				general.InfoS("set non-reclaim NUMA cpu headroom as empty", "NUMA-ID", numaID)
-				headroomNumaRet[numaID] = *resource.NewQuantity(0, resource.BinarySI)
+				numaHeadroom[numaID] = *resource.NewQuantity(0, resource.BinarySI)
 			}
 		}
-		return *resource.NewQuantity(int64(headroomTotal), resource.DecimalSI), headroomNumaRet, nil
+
+		return totalHeadroom, numaHeadroom, nil
 	}
 
 	return ha.getHeadroomByUtil()
