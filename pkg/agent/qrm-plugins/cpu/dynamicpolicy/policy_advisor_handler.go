@@ -25,6 +25,7 @@ import (
 	"path"
 	"time"
 
+	"github.com/opencontainers/runc/libcontainer/configs"
 	"github.com/samber/lo"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
@@ -44,6 +45,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
@@ -506,6 +508,32 @@ func (p *DynamicPolicy) allocateByCPUAdvisor(
 		general.Infof("set allowSharedCoresOverlapReclaimedCores from %v to %v",
 			curAllowSharedCoresOverlapReclaimedCores, resp.AllowSharedCoresOverlapReclaimedCores)
 		p.state.SetAllowSharedCoresOverlapReclaimedCores(resp.AllowSharedCoresOverlapReclaimedCores, true)
+	}
+
+	return nil
+}
+
+func (p *DynamicPolicy) applyCgroupConfigs(resp *advisorapi.ListAndWatchResponse) error {
+	for _, calculationInfo := range resp.ExtraEntries {
+		cgConf, ok := calculationInfo.CalculationResult.Values[string(advisorapi.ControlKnobKeyCgroupConfig)]
+		if !ok {
+			continue
+		}
+
+		resources := &configs.Resources{}
+		err := json.Unmarshal([]byte(cgConf), resources)
+		if err != nil {
+			return fmt.Errorf("unmarshal %s: %s failed with error: %v",
+				advisorapi.ControlKnobKeyCgroupConfig, cgConf, err)
+		}
+
+		resources.SkipDevices = true
+		resources.SkipFreezeOnSet = true
+
+		err = common.ApplyCgroupConfigs(calculationInfo.CgroupPath, resources)
+		if err != nil {
+			return fmt.Errorf("ApplyCgroupConfigs failed: %s", calculationInfo.CgroupPath)
+		}
 	}
 
 	return nil

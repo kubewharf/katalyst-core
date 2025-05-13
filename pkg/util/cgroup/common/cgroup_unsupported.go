@@ -21,6 +21,8 @@ package common
 
 import (
 	"fmt"
+
+	"github.com/opencontainers/runc/libcontainer/configs"
 )
 
 func ReadTasksFile(file string) ([]string, error) {
@@ -41,4 +43,8 @@ func IsCPUIdleSupported() bool {
 
 func CheckCgroup2UnifiedMode() bool {
 	return false
+}
+
+func ApplyCgroupConfigs(cgroupPath string, resources *configs.Resources) error {
+	return nil
 }

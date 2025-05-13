@@ -284,6 +284,7 @@ func (pa *ProvisionAssemblerCommon) assembleDedicatedNUMAExclusiveRegion(r regio
 	}
 
 	klog.InfoS("assembleDedicatedNUMAExclusive info", "regionName", r.Name(), "reclaimedCoresSize", reclaimedCoresSize,
+		"reclaimedCoresLimit", reclaimedCoresLimit,
 		"available", available, "nonReclaimRequirement", nonReclaimRequirement,
 		"reservedForReclaim", reservedForReclaim, "controlKnob", controlKnob)
 

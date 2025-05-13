@@ -25,6 +25,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/opencontainers/runc/libcontainer/configs"
 	"github.com/samber/lo"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
@@ -45,6 +46,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -53,6 +55,8 @@ const (
 	cpuServerName string = "cpu-server"
 
 	cpuServerLWHealthCheckName = "cpu-server-lw"
+
+	DefaultCFSCPUPeriod = 100000
 )
 
 var registerCPUAdvisorHealthCheckOnce sync.Once
@@ -271,13 +275,14 @@ func (cs *cpuServer) getAndPushAdvice(client cpuadvisor.CPUPluginClient, server 
 }
 
 func (cs *cpuServer) updateAdvisor(featureGates map[string]*advisorsvc.FeatureGate) (*cpuInternalResult, error) {
-	// trigger advisor update and get latest advice
+	// update feature gates in meta cache
 	err := cs.metaCache.SetSupportedWantedFeatureGates(featureGates)
 	if err != nil {
 		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerAdvisorUpdateFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 		return nil, fmt.Errorf("set feature gates failed: %w", err)
 	}
 
+	// trigger advisor update and get latest advice
 	advisorRespRaw, err := cs.resourceAdvisor.UpdateAndGetAdvice()
 	if err != nil {
 		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerAdvisorUpdateFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
@@ -332,6 +337,43 @@ func (cs *cpuServer) assembleResponse(advisorResp *types.InternalCPUCalculationR
 	}
 
 	return resp
+}
+
+// assemble cgroup config
+func (cs *cpuServer) assembleCgroupConfig(advisorResp *types.InternalCPUCalculationResult) (extraEntries []*advisorsvc.CalculationInfo) {
+	for poolName, entries := range advisorResp.PoolEntries {
+		if poolName != commonstate.PoolNameReclaim {
+			continue
+		}
+
+		// range from fakeNUMAID
+		for numaID := -1; numaID < cs.metaServer.NumNUMANodes; numaID++ {
+			quota := int64(-1)
+			cpuResource, ok := entries[numaID]
+			if ok && cpuResource.Quota > 0 {
+				quota = int64(cpuResource.Quota * DefaultCFSCPUPeriod)
+			}
+			resourceConf := &configs.Resources{
+				CpuQuota:  quota,
+				CpuPeriod: DefaultCFSCPUPeriod,
+			}
+			bytes, err := json.Marshal(resourceConf)
+			if err != nil {
+				klog.ErrorS(err, "")
+				continue
+			}
+
+			extraEntries = append(extraEntries, &advisorsvc.CalculationInfo{
+				CgroupPath: common.GetReclaimRelativeRootCgroupPath(cs.reclaimRelativeRootCgroupPath, numaID),
+				CalculationResult: &advisorsvc.CalculationResult{
+					Values: map[string]string{
+						string(cpuadvisor.ControlKnobKeyCgroupConfig): string(bytes),
+					},
+				},
+			})
+		}
+	}
+	return
 }
 
 // assemble per-numa headroom

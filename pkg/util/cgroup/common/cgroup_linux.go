@@ -25,12 +25,15 @@ import (
 	"io/ioutil"
 	"math"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/google/cadvisor/container/libcontainer"
 	"github.com/opencontainers/runc/libcontainer/cgroups"
+	"github.com/opencontainers/runc/libcontainer/configs"
 
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/eventbus"
@@ -178,4 +181,29 @@ func writeFileIfChange(dir, file, data string) (error, bool, string) {
 func IsCPUIdleSupported() bool {
 	_, err := GetKubernetesAnyExistAbsCgroupPath(CgroupSubsysCPU, "cpu.idle")
 	return err == nil
+}
+
+// apply cgroup resource
+func ApplyCgroupConfigs(cgroupPath string, resources *configs.Resources) error {
+	subSystems, err := libcontainer.GetCgroupSubsystems(nil)
+	if err != nil {
+		return fmt.Errorf("GetCgroupSubsystems failed with error: %v", err)
+	}
+
+	paths := make(map[string]string)
+	for name, subsystem := range subSystems {
+		paths[name] = path.Join(subsystem, cgroupPath)
+	}
+
+	manager, err := libcontainer.NewCgroupManager("", paths)
+	if err != nil {
+		return fmt.Errorf("NewCgroupManager failed with error: %v", err)
+	}
+
+	if err := manager.Set(resources); err != nil {
+		return fmt.Errorf("set cgroup resources failed with error: %#v, %v",
+			resources, err)
+	}
+
+	return nil
 }
