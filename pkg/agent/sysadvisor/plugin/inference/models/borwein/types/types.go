@@ -21,12 +21,13 @@ import (
 )
 
 type BorweinParameter struct {
-	AbnormalRatioThreshold float64 `json:"abnormal_ratio_threshold"`
-	OffsetMax              float64 `json:"offset_max"`
-	OffsetMin              float64 `json:"offset_min"`
-	RampUpStep             float64 `json:"ramp_up_step"`
-	RampDownStep           float64 `json:"ramp_down_step"`
-	Version                string  `json:"version"`
+	OffsetMax    float64 `json:"offset_max"`
+	OffsetMin    float64 `json:"offset_min"`
+	RampUpStep   float64 `json:"ramp_up_step"`
+	RampDownStep float64 `json:"ramp_down_step"`
+	Version      string  `json:"version"`
+	IndicatorMax float64 `json:"indicator_max"`
+	IndicatorMin float64 `json:"indicator_min"`
 }
 
 // BorweinInferenceResults is a descriptor for borwein inference results.
