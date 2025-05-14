@@ -727,6 +727,13 @@ func (m *MalachiteMetricsProvisioner) processCgroupCPUData(cgroupPath string, cg
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricLoad1MinCgroup, utilmetric.MetricData{Value: cpu.Load.One, Time: &updateTime})
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricLoad5MinCgroup, utilmetric.MetricData{Value: cpu.Load.Five, Time: &updateTime})
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricLoad15MinCgroup, utilmetric.MetricData{Value: cpu.Load.Fifteen, Time: &updateTime})
+
+		quota := float64(cpu.Max)
+		if cpu.Max == math.MaxUint64 {
+			quota = -1
+		}
+		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricCPUQuotaCgroup, utilmetric.MetricData{Value: quota, Time: &updateTime})
+		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricCPUPeriodCgroup, utilmetric.MetricData{Value: float64(cpu.MaxPeriod), Time: &updateTime})
 	}
 }
 

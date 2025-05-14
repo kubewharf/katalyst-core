@@ -20,9 +20,14 @@ import (
 	"sync"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders/feature_cpu"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
+
+func init() {
+	RegisterNegotiationTypeFeatureGatesFinder(feature_cpu.NegotiationFeatureGateQuotaCtrlKnob, &feature_cpu.QuotaCtrlKnob{})
+}
 
 var negotiationTypeFeatureGatesFinder sync.Map
 

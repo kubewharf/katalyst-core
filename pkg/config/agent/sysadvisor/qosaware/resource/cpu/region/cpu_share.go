@@ -16,12 +16,8 @@ limitations under the License.
 
 package region
 
-import "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
-
 // CPUShareConfiguration stores configurations of cpu share
-type CPUShareConfiguration struct {
-	RestrictRefPolicy map[types.CPUProvisionPolicyName]types.CPUProvisionPolicyName
-}
+type CPUShareConfiguration struct{}
 
 // NewCPUShareConfiguration creates new resource advisor configurations
 func NewCPUShareConfiguration() *CPUShareConfiguration {

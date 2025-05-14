@@ -28,6 +28,7 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/errors"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	metrictypes "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
@@ -79,6 +80,9 @@ type MetaReader interface {
 	// GetInferenceResult gets specified model inference result
 	GetInferenceResult(modelName string) (interface{}, error)
 
+	// GetSupportedWantedFeatureGates gets supported and wanted FeatureGates
+	GetSupportedWantedFeatureGates() (map[string]*advisorsvc.FeatureGate, error)
+
 	metrictypes.MetricsReader
 }
 
@@ -119,6 +123,8 @@ type MetaWriter interface {
 	// SetInferenceResult sets specified model inference result
 	SetInferenceResult(modelName string, result interface{}) error
 
+	// SetSupportedWantedFeatureGates sets supported and wanted FeatureGates
+	SetSupportedWantedFeatureGates(featureGates map[string]*advisorsvc.FeatureGate) error
 	sync.Locker
 }
 
@@ -155,6 +161,9 @@ type MetaCacheImp struct {
 	modelToResult map[string]interface{}
 	modelMutex    sync.RWMutex
 
+	featureGates      map[string]*advisorsvc.FeatureGate
+	featureGatesMutex sync.RWMutex
+
 	containerCreateTimestamp map[string]int64
 
 	// Lock for the entire MetaCache. Useful when you want to make multiple writes atomically.
@@ -189,6 +198,7 @@ func NewMetaCacheImp(conf *config.Configuration, emitterPool metricspool.Metrics
 		checkpointName:           stateFileName,
 		emitter:                  emitter,
 		modelToResult:            make(map[string]interface{}),
+		featureGates:             make(map[string]*advisorsvc.FeatureGate),
 		containerCreateTimestamp: make(map[string]int64),
 	}
 
@@ -289,6 +299,14 @@ func (mc *MetaCacheImp) GetFilteredInferenceResult(filterFunc func(result interf
 // notice it doesn't return a deep copied result
 func (mc *MetaCacheImp) GetInferenceResult(modelName string) (interface{}, error) {
 	return mc.GetFilteredInferenceResult(nil, modelName)
+}
+
+// GetSupportedWantedFeatureGates gets supported and wanted FeatureGates
+func (mc *MetaCacheImp) GetSupportedWantedFeatureGates() (map[string]*advisorsvc.FeatureGate, error) {
+	mc.featureGatesMutex.RLock()
+	defer mc.featureGatesMutex.RUnlock()
+
+	return mc.featureGates, nil
 }
 
 func (mc *MetaCacheImp) RangeRegionInfo(f func(regionName string, regionInfo *types.RegionInfo) bool) {
@@ -539,6 +557,15 @@ func (mc *MetaCacheImp) SetInferenceResult(modelName string, result interface{})
 	defer mc.modelMutex.Unlock()
 
 	mc.modelToResult[modelName] = result
+	return nil
+}
+
+// SetSupportedWantedFeatureGates sets supported and wanted FeatureGates
+func (mc *MetaCacheImp) SetSupportedWantedFeatureGates(featureGates map[string]*advisorsvc.FeatureGate) error {
+	mc.featureGatesMutex.Lock()
+	defer mc.featureGatesMutex.Unlock()
+
+	mc.featureGates = featureGates
 	return nil
 }
 

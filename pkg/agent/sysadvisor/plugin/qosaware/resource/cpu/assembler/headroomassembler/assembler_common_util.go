@@ -57,10 +57,6 @@ func (ha *HeadroomAssemblerCommon) getUtilBasedHeadroom(options helper.UtilBased
 		lastReclaimedCPU += cpu
 	}
 
-	general.InfoS("getUtilBasedHeadroom", "reclaimedCoresSupply", reclaimMetrics.ReclaimedCoresSupply,
-		"util", util, "reclaim PoolCPUUsage", reclaimMetrics.PoolCPUUsage, "reclaim CgroupCPUUsage", reclaimMetrics.CgroupCPUUsage,
-		"lastReclaimedCPUPerNUMA", lastReclaimedCPUPerNumaForCalculate)
-
 	headroom, err := helper.EstimateUtilBasedCapacity(
 		options,
 		reclaimMetrics.ReclaimedCoresSupply,
@@ -70,6 +66,9 @@ func (ha *HeadroomAssemblerCommon) getUtilBasedHeadroom(options helper.UtilBased
 	if err != nil {
 		return resource.Quantity{}, err
 	}
+
+	general.InfoS("getUtilBasedHeadroom", "reclaimMetrics", reclaimMetrics,
+		"util", util, "lastReclaimedCPUPerNumaForCalculate", lastReclaimedCPUPerNumaForCalculate, "headroom", headroom)
 
 	return *resource.NewQuantity(int64(math.Ceil(headroom)), resource.DecimalSI), nil
 }
@@ -84,7 +83,17 @@ func (ha *HeadroomAssemblerCommon) getLastReclaimedCPUPerNUMA() (map[int]float64
 }
 
 func (ha *HeadroomAssemblerCommon) getReclaimNUMABindingTopo(reclaimPool *types.PoolInfo) (bindingNUMAs, nonBindingNumas []int, err error) {
-	if ha.metaServer == nil || ha.metaServer.MachineInfo == nil || len(ha.metaServer.MachineInfo.Topology) == 0 {
+	if ha.metaServer == nil {
+		err = fmt.Errorf("invalid metaserver")
+		return
+	}
+
+	if ha.metaServer.MachineInfo == nil {
+		err = fmt.Errorf("invalid machaine info")
+		return
+	}
+
+	if len(ha.metaServer.MachineInfo.Topology) == 0 {
 		err = fmt.Errorf("invalid machaine topo")
 		return
 	}

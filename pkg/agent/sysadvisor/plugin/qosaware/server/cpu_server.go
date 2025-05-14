@@ -25,6 +25,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/opencontainers/runc/libcontainer/configs"
 	"github.com/samber/lo"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
@@ -45,6 +46,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -53,6 +55,8 @@ const (
 	cpuServerName string = "cpu-server"
 
 	cpuServerLWHealthCheckName = "cpu-server-lw"
+
+	DefaultCFSCPUPeriod = 100000
 )
 
 var registerCPUAdvisorHealthCheckOnce sync.Once
@@ -127,7 +131,6 @@ func (cs *cpuServer) GetAdvice(ctx context.Context, request *cpuadvisor.GetAdvic
 	}
 
 	general.InfofV(6, "QRM CPU Plugin wanted feature gates: %v, among them sysadvisor supported feature gates: %v", lo.Keys(request.WantedFeatureGates), lo.Keys(supportedWantedFeatureGates))
-
 	result, err := cs.updateAdvisor(supportedWantedFeatureGates)
 	if err != nil {
 		general.Errorf("update advisor failed: %v", err)
@@ -272,6 +275,13 @@ func (cs *cpuServer) getAndPushAdvice(client cpuadvisor.CPUPluginClient, server 
 }
 
 func (cs *cpuServer) updateAdvisor(featureGates map[string]*advisorsvc.FeatureGate) (*cpuInternalResult, error) {
+	// update feature gates in meta cache
+	err := cs.metaCache.SetSupportedWantedFeatureGates(featureGates)
+	if err != nil {
+		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerAdvisorUpdateFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
+		return nil, fmt.Errorf("set feature gates failed: %w", err)
+	}
+
 	// trigger advisor update and get latest advice
 	advisorRespRaw, err := cs.resourceAdvisor.UpdateAndGetAdvice()
 	if err != nil {
@@ -314,19 +324,56 @@ func (cs *cpuServer) assembleResponse(advisorResp *types.InternalCPUCalculationR
 	}
 	cs.metaCache.RangeContainer(f)
 
+	extraEntries := cs.assembleCgroupConfig(advisorResp)
+	extraNumaHeadRoom := cs.assembleHeadroom()
+	if extraNumaHeadRoom != nil {
+		extraEntries = append(extraEntries, extraNumaHeadRoom)
+	}
 	// Send result
 	resp := &cpuInternalResult{
 		Entries:                               calculationEntriesMap,
-		ExtraEntries:                          make([]*advisorsvc.CalculationInfo, 0),
+		ExtraEntries:                          extraEntries,
 		AllowSharedCoresOverlapReclaimedCores: advisorResp.AllowSharedCoresOverlapReclaimedCores,
 	}
 
-	extraNumaHeadRoom := cs.assembleHeadroom()
-	if extraNumaHeadRoom != nil {
-		resp.ExtraEntries = append(resp.ExtraEntries, extraNumaHeadRoom)
-	}
-
 	return resp
+}
+
+// assemble cgroup config
+func (cs *cpuServer) assembleCgroupConfig(advisorResp *types.InternalCPUCalculationResult) (extraEntries []*advisorsvc.CalculationInfo) {
+	for poolName, entries := range advisorResp.PoolEntries {
+		if poolName != commonstate.PoolNameReclaim {
+			continue
+		}
+
+		// range from fakeNUMAID
+		for numaID := -1; numaID < cs.metaServer.NumNUMANodes; numaID++ {
+			quota := int64(-1)
+			cpuResource, ok := entries[numaID]
+			if ok && cpuResource.Quota > 0 {
+				quota = int64(cpuResource.Quota * DefaultCFSCPUPeriod)
+			}
+			resourceConf := &configs.Resources{
+				CpuQuota:  quota,
+				CpuPeriod: DefaultCFSCPUPeriod,
+			}
+			bytes, err := json.Marshal(resourceConf)
+			if err != nil {
+				klog.ErrorS(err, "")
+				continue
+			}
+
+			extraEntries = append(extraEntries, &advisorsvc.CalculationInfo{
+				CgroupPath: common.GetReclaimRelativeRootCgroupPath(cs.reclaimRelativeRootCgroupPath, numaID),
+				CalculationResult: &advisorsvc.CalculationResult{
+					Values: map[string]string{
+						string(cpuadvisor.ControlKnobKeyCgroupConfig): string(bytes),
+					},
+				},
+			})
+		}
+	}
+	return
 }
 
 // assemble per-numa headroom
@@ -658,8 +705,8 @@ func (cs *cpuServer) assemblePoolEntries(advisorResp *types.InternalCPUCalculati
 			continue
 		}
 		poolEntry := NewPoolCalculationEntries(poolName)
-		for numaID, size := range entries {
-			block := NewBlock(uint64(size), "")
+		for numaID, cpu := range entries {
+			block := NewBlock(uint64(cpu.Size), "")
 			numaCalculationResult := &cpuadvisor.NumaCalculationResult{Blocks: []*cpuadvisor.Block{block}}
 
 			innerBlock := NewInnerBlock(block, int64(numaID), poolName, nil, numaCalculationResult)
@@ -672,12 +719,12 @@ func (cs *cpuServer) assemblePoolEntries(advisorResp *types.InternalCPUCalculati
 
 	if reclaimEntries, ok := advisorResp.PoolEntries[commonstate.PoolNameReclaim]; ok && advisorResp.AllowSharedCoresOverlapReclaimedCores {
 		poolEntry := NewPoolCalculationEntries(commonstate.PoolNameReclaim)
-		for numaID, reclaimSize := range reclaimEntries {
+		for numaID, reclaimCPU := range reclaimEntries {
 
 			overlapSize := advisorResp.GetPoolOverlapInfo(commonstate.PoolNameReclaim, numaID)
 			if len(overlapSize) == 0 {
 				// If share pool not exists，join reclaim pool directly
-				block := NewBlock(uint64(reclaimSize), "")
+				block := NewBlock(uint64(reclaimCPU.Size), "")
 				numaCalculationResult := &cpuadvisor.NumaCalculationResult{Blocks: []*cpuadvisor.Block{block}}
 
 				innerBlock := NewInnerBlock(block, int64(numaID), commonstate.PoolNameReclaim, nil, numaCalculationResult)

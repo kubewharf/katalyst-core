@@ -27,6 +27,7 @@ import (
 	"testing"
 	"time"
 
+	info "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
@@ -66,7 +67,7 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 
 	conf.GenericSysAdvisorConfiguration.StateFileDirectory = stateFileDir
 	conf.MetaServerConfiguration.CheckpointManagerDir = checkpointDir
-	conf.CPUShareConfiguration.RestrictRefPolicy = nil
+	conf.RestrictRefPolicy = nil
 
 	return conf
 }
@@ -83,6 +84,17 @@ func newTestCPUResourceAdvisor(t *testing.T, pods []*v1.Pod, conf *config.Config
 	metaServer := &metaserver.MetaServer{
 		MetaAgent: &agent.MetaAgent{
 			KatalystMachineInfo: &machine.KatalystMachineInfo{
+				MachineInfo: &info.MachineInfo{
+					NumCores: 96,
+					Topology: []info.Node{
+						{
+							Id: 0,
+						},
+						{
+							Id: 1,
+						},
+					},
+				},
 				CPUTopology: cpuTopology,
 			},
 			PodFetcher: &pod.PodFetcherStub{
@@ -153,6 +165,18 @@ func TestAdvisorUpdate(t *testing.T) {
 		value  float64
 	}
 
+	type cpuMetricItem struct {
+		cpuID int
+		name  string
+		value float64
+	}
+
+	type cgroupMetricItem struct {
+		cgroupPath string
+		name       string
+		value      float64
+	}
+
 	tests := []struct {
 		name                          string
 		preUpdate                     bool
@@ -169,6 +193,8 @@ func TestAdvisorUpdate(t *testing.T) {
 		wantHeadroomErr               bool
 		containerMetrics              []containerMetricItem
 		numaMetricItems               []numaMetricItem
+		cpuMetricItems                []cpuMetricItem
+		cgroupMetricItems             []cgroupMetricItem
 	}{
 		{
 			name:                          "missing_reserve_pool",
@@ -190,9 +216,9 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			nodeEnableReclaim: true,
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
-				PoolEntries: map[string]map[int]int{
-					commonstate.PoolNameReserve: {-1: 2},
-					commonstate.PoolNameReclaim: {-1: 94},
+				PoolEntries: map[string]map[int]types.CPUResource{
+					commonstate.PoolNameReserve: {-1: {Size: 2, Quota: -1}},
+					commonstate.PoolNameReclaim: {-1: {Size: 94, Quota: -1}},
 				},
 			},
 			headroomPolicies: map[configapi.QoSRegionType][]types.CPUHeadroomPolicyName{
@@ -237,10 +263,10 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			nodeEnableReclaim: true,
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
-				PoolEntries: map[string]map[int]int{
-					commonstate.PoolNameReserve: {-1: 2},
-					commonstate.PoolNameShare:   {-1: 8},
-					commonstate.PoolNameReclaim: {-1: 86},
+				PoolEntries: map[string]map[int]types.CPUResource{
+					commonstate.PoolNameReserve: {-1: {Size: 2, Quota: -1}},
+					commonstate.PoolNameShare:   {-1: {Size: 8, Quota: -1}},
+					commonstate.PoolNameReclaim: {-1: {Size: 86, Quota: -1}},
 				},
 			},
 			wantHeadroom: resource.Quantity{},
@@ -281,10 +307,10 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			nodeEnableReclaim: true,
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
-				PoolEntries: map[string]map[int]int{
-					commonstate.PoolNameReserve: {-1: 2},
-					commonstate.PoolNameShare:   {-1: 90},
-					commonstate.PoolNameReclaim: {-1: 4},
+				PoolEntries: map[string]map[int]types.CPUResource{
+					commonstate.PoolNameReserve: {-1: {Size: 2, Quota: -1}},
+					commonstate.PoolNameShare:   {-1: {Size: 90, Quota: -1}},
+					commonstate.PoolNameReclaim: {-1: {Size: 4, Quota: -1}},
 				},
 			},
 			wantHeadroom: resource.Quantity{},
@@ -344,11 +370,11 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			nodeEnableReclaim: true,
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
-				PoolEntries: map[string]map[int]int{
-					commonstate.PoolNameReserve: {-1: 2},
-					commonstate.PoolNameShare:   {-1: 6},
-					"batch":                     {-1: 8},
-					commonstate.PoolNameReclaim: {-1: 80},
+				PoolEntries: map[string]map[int]types.CPUResource{
+					commonstate.PoolNameReserve: {-1: {Size: 2, Quota: -1}},
+					commonstate.PoolNameShare:   {-1: {Size: 6, Quota: -1}},
+					"batch":                     {-1: {Size: 8, Quota: -1}},
+					commonstate.PoolNameReclaim: {-1: {Size: 80, Quota: -1}},
 				},
 			},
 			wantHeadroom: resource.Quantity{},
@@ -408,11 +434,11 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			nodeEnableReclaim: true,
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
-				PoolEntries: map[string]map[int]int{
-					commonstate.PoolNameReserve: {-1: 2},
-					commonstate.PoolNameShare:   {-1: 30},
-					"batch":                     {-1: 60},
-					commonstate.PoolNameReclaim: {-1: 4},
+				PoolEntries: map[string]map[int]types.CPUResource{
+					commonstate.PoolNameReserve: {-1: {Size: 2, Quota: -1}},
+					commonstate.PoolNameShare:   {-1: {Size: 30, Quota: -1}},
+					"batch":                     {-1: {Size: 60, Quota: -1}},
+					commonstate.PoolNameReclaim: {-1: {Size: 4, Quota: -1}},
 				},
 			},
 			wantHeadroom: resource.Quantity{},
@@ -430,8 +456,8 @@ func TestAdvisorUpdate(t *testing.T) {
 				commonstate.PoolNameReclaim: {
 					PoolName: commonstate.PoolNameReclaim,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
-						0: machine.MustParse("0-8"),
-						1: machine.MustParse("48-93"),
+						0: machine.MustParse("70-71"),
+						1: machine.MustParse("94-95"),
 					},
 				},
 			},
@@ -454,18 +480,51 @@ func TestAdvisorUpdate(t *testing.T) {
 			nodeEnableReclaim: true,
 			headroomAssembler: types.CPUHeadroomAssemblerDedicated,
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
-				PoolEntries: map[string]map[int]int{
-					commonstate.PoolNameReserve: {
-						-1: 2,
-					},
-					commonstate.PoolNameReclaim: {
-						0:  9,
-						-1: 47,
-					},
+				PoolEntries: map[string]map[int]types.CPUResource{
+					commonstate.PoolNameReserve: {-1: {Size: 2, Quota: -1}},
+					commonstate.PoolNameReclaim: {0: {Size: 4, Quota: -1}, -1: {Size: 47, Quota: -1}},
 				},
 			},
-			// dedicated_cores headroom(9) + empty numa headroom(45)
-			wantHeadroom: *resource.NewQuantity(54, resource.DecimalSI),
+			wantHeadroom: *resource.NewQuantity(4, resource.DecimalSI),
+			cgroupMetricItems: []cgroupMetricItem{
+				{
+					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUUsageCgroup,
+					value:      2.8,
+				},
+				{
+					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUQuotaCgroup,
+					value:      -1,
+				},
+				{
+					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUPeriodCgroup,
+					value:      100000,
+				},
+			},
+			cpuMetricItems: []cpuMetricItem{
+				{
+					cpuID: 70,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 71,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 94,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 95,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+			},
 		},
 		{
 			name: "provision:single_dedicated_numa_exclusive with invalid headroom policy",
@@ -480,8 +539,8 @@ func TestAdvisorUpdate(t *testing.T) {
 				commonstate.PoolNameReclaim: {
 					PoolName: commonstate.PoolNameReclaim,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
-						0: machine.MustParse("70-78"),
-						1: machine.MustParse("2-46"),
+						0: machine.MustParse("70-71"),
+						1: machine.MustParse("94-95"),
 					},
 				},
 			},
@@ -507,19 +566,52 @@ func TestAdvisorUpdate(t *testing.T) {
 				configapi.QoSRegionTypeDedicatedNumaExclusive: {types.CPUHeadroomPolicyNonReclaim},
 			},
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
-				PoolEntries: map[string]map[int]int{
-					commonstate.PoolNameReserve: {
-						-1: 2,
-					},
-					commonstate.PoolNameReclaim: {
-						0:  9,
-						-1: 47,
-					},
+				PoolEntries: map[string]map[int]types.CPUResource{
+					commonstate.PoolNameReserve: {-1: {Size: 2, Quota: -1}},
+					commonstate.PoolNameReclaim: {0: {Size: 4, Quota: -1}, -1: {Size: 47, Quota: -1}},
 				},
 			},
 			wantHeadroomErr: false,
-			// dedicated_cores headroom(9) + empty numa headroom(45)
-			wantHeadroom: *resource.NewQuantity(54, resource.DecimalSI),
+			wantHeadroom:    *resource.NewQuantity(4, resource.DecimalSI),
+			cgroupMetricItems: []cgroupMetricItem{
+				{
+					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUUsageCgroup,
+					value:      2.8,
+				},
+				{
+					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUQuotaCgroup,
+					value:      -1,
+				},
+				{
+					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUPeriodCgroup,
+					value:      100000,
+				},
+			},
+			cpuMetricItems: []cpuMetricItem{
+				{
+					cpuID: 70,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 71,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 94,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 95,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+			},
 		},
 		{
 			name: "single_dedicated_numa_exclusive pod un-reclaimed",
@@ -535,7 +627,7 @@ func TestAdvisorUpdate(t *testing.T) {
 					PoolName: commonstate.PoolNameReclaim,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
 						0: machine.MustParse("70-71"),
-						1: machine.MustParse("25-47,72-95"),
+						1: machine.MustParse("94-95"),
 					},
 				},
 			},
@@ -563,17 +655,51 @@ func TestAdvisorUpdate(t *testing.T) {
 				configapi.QoSRegionTypeDedicatedNumaExclusive: {types.CPUHeadroomPolicyNUMAExclusive},
 			},
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
-				PoolEntries: map[string]map[int]int{
-					commonstate.PoolNameReserve: {
-						-1: 2,
-					},
-					commonstate.PoolNameReclaim: {
-						0:  2,
-						-1: 47,
-					},
+				PoolEntries: map[string]map[int]types.CPUResource{
+					commonstate.PoolNameReserve: {-1: {Size: 2, Quota: -1}},
+					commonstate.PoolNameReclaim: {0: {Size: 2, Quota: -1}, -1: {Size: 47, Quota: -1}},
 				},
 			},
-			wantHeadroom: *resource.NewQuantity(45, resource.DecimalSI),
+			wantHeadroom: *resource.NewQuantity(4, resource.DecimalSI),
+			cgroupMetricItems: []cgroupMetricItem{
+				{
+					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUUsageCgroup,
+					value:      2.8,
+				},
+				{
+					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUQuotaCgroup,
+					value:      -1,
+				},
+				{
+					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUPeriodCgroup,
+					value:      100000,
+				},
+			},
+			cpuMetricItems: []cpuMetricItem{
+				{
+					cpuID: 70,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 71,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 94,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 95,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+			},
 		},
 		{
 			name: "single_dedicated_numa_exclusive pod with performance score",
@@ -588,8 +714,8 @@ func TestAdvisorUpdate(t *testing.T) {
 				commonstate.PoolNameReclaim: {
 					PoolName: commonstate.PoolNameReclaim,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
-						0: machine.MustParse("70-73"),
-						1: machine.MustParse("25-47,72-95"),
+						0: machine.MustParse("70-71"),
+						1: machine.MustParse("94-95"),
 					},
 				},
 			},
@@ -617,17 +743,56 @@ func TestAdvisorUpdate(t *testing.T) {
 				configapi.QoSRegionTypeDedicatedNumaExclusive: {types.CPUHeadroomPolicyNUMAExclusive},
 			},
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
-				PoolEntries: map[string]map[int]int{
+				PoolEntries: map[string]map[int]types.CPUResource{
 					commonstate.PoolNameReserve: {
-						-1: 2,
+						-1: {Size: 2, Quota: -1},
 					},
 					commonstate.PoolNameReclaim: {
-						0:  6,
-						-1: 47,
+						0:  {Size: 4, Quota: -1},
+						-1: {Size: 47, Quota: -1},
 					},
 				},
 			},
-			wantHeadroom: *resource.NewQuantity(49, resource.DecimalSI),
+			wantHeadroom: *resource.NewQuantity(4, resource.DecimalSI),
+			cgroupMetricItems: []cgroupMetricItem{
+				{
+					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUUsageCgroup,
+					value:      2.8,
+				},
+				{
+					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUQuotaCgroup,
+					value:      -1,
+				},
+				{
+					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUPeriodCgroup,
+					value:      100000,
+				},
+			},
+			cpuMetricItems: []cpuMetricItem{
+				{
+					cpuID: 70,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 71,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 94,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 95,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+			},
 		},
 		{
 			name: "dedicated_numa_exclusive_&_share",
@@ -648,8 +813,8 @@ func TestAdvisorUpdate(t *testing.T) {
 				commonstate.PoolNameReclaim: {
 					PoolName: commonstate.PoolNameReclaim,
 					TopologyAwareAssignments: map[int]machine.CPUSet{
-						0: machine.MustParse("19-23,66-71"),
-						1: machine.MustParse("31-47,72-93"),
+						0: machine.MustParse("70-71"),
+						1: machine.MustParse("94-95"),
 					},
 				},
 			},
@@ -682,20 +847,59 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			nodeEnableReclaim: true,
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
-				PoolEntries: map[string]map[int]int{
+				PoolEntries: map[string]map[int]types.CPUResource{
 					commonstate.PoolNameReserve: {
-						-1: 2,
+						-1: {Size: 2, Quota: -1},
 					},
 					commonstate.PoolNameShare: {
-						-1: 6,
+						-1: {Size: 6, Quota: -1},
 					},
 					commonstate.PoolNameReclaim: {
-						0:  9,
-						-1: 41,
+						0:  {Size: 4, Quota: -1},
+						-1: {Size: 41, Quota: -1},
 					},
 				},
 			},
-			wantHeadroom: *resource.NewQuantity(50, resource.DecimalSI), // 41 + 9
+			wantHeadroom: *resource.NewQuantity(4, resource.DecimalSI),
+			cgroupMetricItems: []cgroupMetricItem{
+				{
+					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUUsageCgroup,
+					value:      2.8,
+				},
+				{
+					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUQuotaCgroup,
+					value:      -1,
+				},
+				{
+					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUPeriodCgroup,
+					value:      100000,
+				},
+			},
+			cpuMetricItems: []cpuMetricItem{
+				{
+					cpuID: 70,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 71,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 94,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 95,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+			},
 		},
 		{
 			name: "dedicated_numa_exclusive_&_share_disable_reclaim",
@@ -750,16 +954,16 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			nodeEnableReclaim: false,
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
-				PoolEntries: map[string]map[int]int{
+				PoolEntries: map[string]map[int]types.CPUResource{
 					commonstate.PoolNameReserve: {
-						-1: 2,
+						-1: {Size: 2, Quota: -1},
 					},
 					commonstate.PoolNameShare: {
-						-1: 45,
+						-1: {Size: 45, Quota: -1},
 					},
 					commonstate.PoolNameReclaim: {
-						0:  2,
-						-1: 2,
+						0:  {Size: 2, Quota: -1},
+						-1: {Size: 2, Quota: -1},
 					},
 				},
 			},
@@ -833,11 +1037,11 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			nodeEnableReclaim: true,
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
-				PoolEntries: map[string]map[int]int{
-					commonstate.PoolNameReserve: {-1: 2},
-					commonstate.PoolNameShare:   {-1: 82},
-					commonstate.PoolNameReclaim: {-1: 10},
-					"isolation-pod1":            {-1: 2},
+				PoolEntries: map[string]map[int]types.CPUResource{
+					commonstate.PoolNameReserve: {-1: {Size: 2, Quota: -1}},
+					commonstate.PoolNameShare:   {-1: {Size: 82, Quota: -1}},
+					commonstate.PoolNameReclaim: {-1: {Size: 10, Quota: -1}},
+					"isolation-pod1":            {-1: {Size: 2, Quota: -1}},
 				},
 			},
 			wantHeadroom: resource.Quantity{},
@@ -964,10 +1168,10 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			nodeEnableReclaim: true,
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
-				PoolEntries: map[string]map[int]int{
-					commonstate.PoolNameReserve: {-1: 2},
-					commonstate.PoolNameShare:   {-1: 88},
-					commonstate.PoolNameReclaim: {-1: 6},
+				PoolEntries: map[string]map[int]types.CPUResource{
+					commonstate.PoolNameReserve: {-1: {Size: 2, Quota: -1}},
+					commonstate.PoolNameShare:   {-1: {Size: 88, Quota: -1}},
+					commonstate.PoolNameReclaim: {-1: {Size: 6, Quota: -1}},
 				},
 			},
 			wantHeadroom: resource.Quantity{},
@@ -1079,10 +1283,10 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			nodeEnableReclaim: true,
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
-				PoolEntries: map[string]map[int]int{
-					commonstate.PoolNameReserve: {-1: 2},
-					commonstate.PoolNameShare:   {-1: 88},
-					commonstate.PoolNameReclaim: {-1: 6},
+				PoolEntries: map[string]map[int]types.CPUResource{
+					commonstate.PoolNameReserve: {-1: {Size: 2, Quota: -1}},
+					commonstate.PoolNameShare:   {-1: {Size: 88, Quota: -1}},
+					commonstate.PoolNameReclaim: {-1: {Size: 6, Quota: -1}},
 				},
 			},
 			wantHeadroom: resource.Quantity{},
@@ -1192,6 +1396,14 @@ func TestAdvisorUpdate(t *testing.T) {
 				mf.SetNumaMetric(metric.numaID, metric.name, utilmetric.MetricData{Value: metric.value, Time: &now})
 			}
 
+			for _, metric := range tt.cpuMetricItems {
+				mf.SetCPUMetric(metric.cpuID, metric.name, utilmetric.MetricData{Value: metric.value, Time: &now})
+			}
+
+			for _, metric := range tt.cgroupMetricItems {
+				mf.SetCgroupMetric(metric.cgroupPath, metric.name, utilmetric.MetricData{Value: metric.value, Time: &now})
+			}
+
 			for poolName, poolInfo := range tt.pools {
 				_ = metaCache.SetPoolInfo(poolName, poolInfo)
 			}
@@ -1228,7 +1440,7 @@ func TestAdvisorUpdate(t *testing.T) {
 
 			// check provision
 			if !reflect.DeepEqual(tt.wantInternalCalculationResult, types.InternalCPUCalculationResult{}) {
-				resp := make(map[string]map[int]int)
+				resp := make(map[string]map[int]types.CPUResource)
 				for pool := range advisorResp.PoolEntries {
 					if strings.HasPrefix(pool, "isolation") && len(pool) > 15 {
 						resp[pool[:14]] = advisorResp.PoolEntries[pool]

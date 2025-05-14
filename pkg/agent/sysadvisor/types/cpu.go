@@ -38,10 +38,11 @@ type TopologyAwareAssignment map[int]machine.CPUSet
 type CPUProvisionPolicyName string
 
 const (
-	CPUProvisionPolicyNone       CPUProvisionPolicyName = "none"
-	CPUProvisionPolicyNonReclaim CPUProvisionPolicyName = "non-reclaim"
-	CPUProvisionPolicyCanonical  CPUProvisionPolicyName = "canonical"
-	CPUProvisionPolicyRama       CPUProvisionPolicyName = "rama"
+	CPUProvisionPolicyNone         CPUProvisionPolicyName = "none"
+	CPUProvisionPolicyNonReclaim   CPUProvisionPolicyName = "non-reclaim"
+	CPUProvisionPolicyCanonical    CPUProvisionPolicyName = "canonical"
+	CPUProvisionPolicyRama         CPUProvisionPolicyName = "rama"
+	CPUProvisionPolicyDynamicQuota CPUProvisionPolicyName = "dynamic-quota"
 )
 
 // CPUHeadroomPolicyName defines policy names for cpu advisor headroom estimation
@@ -171,10 +172,15 @@ type RegionInfo struct {
 // InternalCPUCalculationResult conveys minimal information to cpu server for composing
 // calculation result
 type InternalCPUCalculationResult struct {
-	PoolEntries                           map[string]map[int]int            // map[poolName][numaId]cpuSize
+	PoolEntries                           map[string]map[int]CPUResource    // map[poolName][numaId]CPUResource
 	PoolOverlapInfo                       map[string]map[int]map[string]int // map[poolName][numaId][targetOverlapPoolName]int
 	TimeStamp                             time.Time
 	AllowSharedCoresOverlapReclaimedCores bool
+}
+
+type CPUResource struct {
+	Size  int
+	Quota float64
 }
 
 // ControlEssentials defines essential metrics for cpu advisor feedback control
