@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1067,9 +1068,12 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 			OriginalTopologyAwareAssignments: machine.DeepcopyCPUAssignment(topologyAwareAssignments),
 		}
 
-		_ = p.emitter.StoreInt64(util.MetricNamePoolSize, int64(cset.Size()), metrics.MetricTypeNameRaw,
-			metrics.MetricTag{Key: "poolName", Val: poolName},
-			metrics.MetricTag{Key: "pool_type", Val: commonstate.GetPoolType(poolName)})
+		for numaID, cpus := range topologyAwareAssignments {
+			_ = p.emitter.StoreInt64(util.MetricNamePoolSize, int64(cpus.Size()),
+				metrics.MetricTypeNameRaw, metrics.MetricTag{Key: "poolName", Val: poolName},
+				metrics.MetricTag{Key: "pool_type", Val: commonstate.GetPoolType(poolName)},
+				metrics.MetricTag{Key: "numa_id", Val: strconv.Itoa(numaID)})
+		}
 	}
 
 	// revise reclaim pool size to avoid reclaimed_cores and numa_binding containers
