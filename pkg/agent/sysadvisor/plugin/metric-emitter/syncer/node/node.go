@@ -52,6 +52,8 @@ var nodeRawMetricNameMapping = map[string]string{
 
 	consts.MetricMemFreeSystem:      apimetricnode.CustomMetricNodeMemoryFree,
 	consts.MetricMemAvailableSystem: apimetricnode.CustomMetricNodeMemoryAvailable,
+
+	consts.MetricTotalMemBandwidthNuma: "numa_mbm_usage",
 }
 
 // nodeCachedMetricNameMapping maps the cached metricName (processed by plugin.SysAdvisorPlugin)
@@ -127,11 +129,11 @@ func (n *MetricSyncerNode) receiveRawNode(ctx context.Context, rChan chan metric
 
 			targetMetricName, ok := n.metricMapping[response.Req.MetricName]
 			if !ok {
-				klog.Warningf("invalid node raw metric name: %v", response.Req.MetricName)
+				klog.Warningf("[debug] invalid node raw metric name: %v", response.Req.MetricName)
 				continue
 			}
 
-			klog.V(4).Infof("get metric %v for node", response.Req.MetricName)
+			klog.Infof("[debug] get metric %v for node", response.Req.MetricName)
 			if tags := n.generateMetricTag(ctx); len(tags) > 0 {
 				_ = n.dataEmitter.StoreFloat64(targetMetricName, response.Value, metrics.MetricTypeNameRaw, append(tags,
 					metrics.MetricTag{
@@ -195,6 +197,7 @@ func (n *MetricSyncerNode) generateMetricTag(ctx context.Context) (tags []metric
 	// append node numa bit mask
 	numas := n.metaServer.KatalystMachineInfo.CPUDetails.NUMANodes()
 	numaBitMask := sysadvisortypes.NumaIDBitMask(numas.ToSliceInt())
+	klog.Infof("[debug] numas %v", numas)
 
 	tags = append(tags, metrics.MetricTag{
 		Key: fmt.Sprintf("%s%s", data.CustomMetricLabelSelectorPrefixKey, "numa_bit_mask"),

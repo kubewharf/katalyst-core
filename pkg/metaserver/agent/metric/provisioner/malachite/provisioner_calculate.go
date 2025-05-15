@@ -19,11 +19,17 @@ package malachite
 // for those metrics need extra calculation logic,
 // we will put them in a separate file here
 import (
+	"fmt"
+	"io/ioutil"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/malachite/types"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
+	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
 // processContainerMemBandwidth handles memory bandwidth (read/write) rate in a period while,
@@ -277,6 +283,17 @@ func (m *MalachiteMetricsProvisioner) setContainerRateMetric(podUID, containerNa
 		metric.MetricData{Value: deltaValueFunc() / float64(timeDeltaInSec), Time: &updateTime})
 }
 
+// setCgroupMbmTotalMetric calcuate the total memory bandwidth usage of a container
+func (m *MalachiteMetricsProvisioner) setCgroupMbmTotalMetric(cgroupPath string, data types.MbmbandData, updateTime *time.Time) {
+	var totalMbm uint64
+	for _, item := range data.Mbm {
+		if item.MBMTotalBytes != nil {
+			totalMbm += *item.MBMTotalBytes
+		}
+	}
+	m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemMappedCgroup, utilmetric.MetricData{Value: float64(totalMbm), Time: updateTime})
+}
+
 // uint64CounterDelta calculate the delta between two uint64 counters
 // Sometimes the counter value would go beyond the MaxUint64. In that case,
 // negative counter delta would happen, and the data is not incorrect.
@@ -288,4 +305,88 @@ func uint64CounterDelta(previous, current uint64) uint64 {
 	// Return 0 when previous > current, because we may not be able to make sure
 	// the upper bound for each counter.
 	return 0
+}
+
+func getNumaIDByL3CacheID(l3ID int) (int, error) {
+	cpuPath := consts.SystemCpuDir
+	nodePath := consts.SystemNodeDir
+
+	files, err := ioutil.ReadDir(cpuPath)
+	if err != nil {
+		return -1, fmt.Errorf("failed to read CPU directory: %v", err)
+	}
+
+	for _, file := range files {
+		if !strings.HasPrefix(file.Name(), "cpu") {
+			continue
+		}
+
+		cpuID, err := strconv.Atoi(strings.TrimPrefix(file.Name(), "cpu"))
+		if err != nil {
+			continue
+		}
+
+		cacheIDPath := filepath.Join(cpuPath, file.Name(), consts.SystemL3CacheSubPath)
+		cacheIDBytes, err := ioutil.ReadFile(cacheIDPath)
+		if err != nil {
+			continue
+		}
+
+		cacheID, err := strconv.Atoi(strings.TrimSpace(string(cacheIDBytes)))
+		if err != nil {
+			continue
+		}
+
+		if cacheID == l3ID {
+			nodeFiles, err := ioutil.ReadDir(nodePath)
+			if err != nil {
+				return -1, fmt.Errorf("failed to read NUMA node directory: %v", err)
+			}
+
+			for _, nodeFile := range nodeFiles {
+				if !strings.HasPrefix(nodeFile.Name(), "node") {
+					continue
+				}
+
+				numaID, err := strconv.Atoi(strings.TrimPrefix(nodeFile.Name(), "node"))
+				if err != nil {
+					continue
+				}
+
+				cpuListPath := filepath.Join(nodePath, nodeFile.Name(), "cpulist")
+				cpuListBytes, err := ioutil.ReadFile(cpuListPath)
+				if err != nil {
+					continue
+				}
+				cpuList := strings.TrimSpace(string(cpuListBytes))
+
+				if cpuInList(cpuID, cpuList) {
+					return numaID, nil
+				}
+			}
+
+			return -1, fmt.Errorf("NUMA ID not found for CPU %d", cpuID)
+		}
+	}
+
+	return -1, fmt.Errorf("no matching NUMA ID found for L3 Cache ID: %d", l3ID)
+}
+
+func cpuInList(cpu int, cpuList string) bool {
+	ranges := strings.Split(cpuList, ",")
+	for _, r := range ranges {
+		parts := strings.Split(r, "-")
+		if len(parts) == 1 {
+			if p, err := strconv.Atoi(parts[0]); err == nil && p == cpu {
+				return true
+			}
+		} else if len(parts) == 2 {
+			start, err1 := strconv.Atoi(parts[0])
+			end, err2 := strconv.Atoi(parts[1])
+			if err1 == nil && err2 == nil && cpu >= start && cpu <= end {
+				return true
+			}
+		}
+	}
+	return false
 }
