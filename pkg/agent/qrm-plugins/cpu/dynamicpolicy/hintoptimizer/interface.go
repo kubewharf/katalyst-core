@@ -23,11 +23,11 @@ import (
 )
 
 type HintOptimizer interface {
-	OptimizeHints(*pluginapi.ResourceRequest, []*pluginapi.TopologyHint, state.NUMANodeMap) error
+	OptimizeHints(*pluginapi.ResourceRequest, *pluginapi.ListOfTopologyHints, state.NUMANodeMap) error
 }
 
 type DummyHintOptimizer struct{}
 
-func (d *DummyHintOptimizer) OptimizeHints(*pluginapi.ResourceRequest, []*pluginapi.TopologyHint, state.NUMANodeMap) error {
+func (d *DummyHintOptimizer) OptimizeHints(*pluginapi.ResourceRequest, *pluginapi.ListOfTopologyHints, state.NUMANodeMap) error {
 	return nil
 }
