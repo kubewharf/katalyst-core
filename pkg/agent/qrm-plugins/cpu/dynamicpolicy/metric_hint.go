@@ -32,17 +32,12 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
-var thresholdNameToResourceName = map[string]string{
-	metricthreshold.NUMACPUUsageRatioThreshold: consts.MetricCPUUsageContainer,
-	metricthreshold.NUMACPULoadRatioThreshold:  consts.MetricLoad1MinContainer,
-}
-
 func (p *DynamicPolicy) collectNUMAMetrics() {
 	_ = p.emitter.StoreInt64(util.MetricNameCollectNUMAMetrics, 1, metrics.MetricTypeNameRaw)
 	collectTime := time.Now().UnixNano()
 	machineState := p.state.GetMachineState()
 	for numaID, subEntries := range p.numaMetrics {
-		for _, resourceName := range thresholdNameToResourceName {
+		for _, resourceName := range metricthreshold.ThresholdNameToResourceName {
 			value, err := p.getNUMAMetric(numaID, resourceName, machineState)
 			if err != nil {
 				general.Errorf("getNUMAMetric failed with error: %v", err)
@@ -99,8 +94,8 @@ func (p *DynamicPolicy) getNUMAMetricThresholdNameToValue() (map[string]float64,
 		return nil, fmt.Errorf("nil metricThreshold")
 	}
 
-	res := make(map[string]float64, len(thresholdNameToResourceName))
-	for thresholdName := range thresholdNameToResourceName {
+	res := make(map[string]float64, len(metricthreshold.ThresholdNameToResourceName))
+	for thresholdName := range metricthreshold.ThresholdNameToResourceName {
 		thresholdValue, err := p.getNUMAMetricThreshold(thresholdName, metricThreshold)
 		if err != nil {
 			return nil, fmt.Errorf("getNUMAMetricThreshold failed for %s", thresholdName)
@@ -178,7 +173,7 @@ func (p *DynamicPolicy) populateHintsByMetricPolicy(numaNodes []int,
 	tmpHints := make([]*pluginapi.TopologyHint, 0, len(numaNodes))
 	for _, numaID := range numaNodes {
 		prefer := true
-		for thresholdName, resourceName := range thresholdNameToResourceName {
+		for thresholdName, resourceName := range metricthreshold.ThresholdNameToResourceName {
 			threshold, found := thresholdNameToValue[thresholdName]
 			if !found {
 				return fmt.Errorf("threshold %s not found", thresholdName)
