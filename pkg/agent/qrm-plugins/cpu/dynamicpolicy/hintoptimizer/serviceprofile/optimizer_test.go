@@ -134,14 +134,14 @@ func Test_serviceProfileHintOptimizer_OptimizeHints(t *testing.T) {
 	}
 	type args struct {
 		req          *pluginapi.ResourceRequest
-		hints        []*pluginapi.TopologyHint
+		hints        *pluginapi.ListOfTopologyHints
 		machineState state.NUMANodeMap
 	}
 	tests := []struct {
 		name    string
 		fields  fields
 		args    args
-		want    []*pluginapi.TopologyHint
+		want    *pluginapi.ListOfTopologyHints
 		wantErr assert.ErrorAssertionFunc
 	}{
 		{
@@ -217,15 +217,17 @@ func Test_serviceProfileHintOptimizer_OptimizeHints(t *testing.T) {
 			},
 			args: args{
 				req: &pluginapi.ResourceRequest{},
-				hints: []*pluginapi.TopologyHint{
-					{
-						Nodes: []uint64{0},
-					},
-					{
-						Nodes: []uint64{1},
-					},
-					{
-						Nodes: []uint64{2},
+				hints: &pluginapi.ListOfTopologyHints{
+					Hints: []*pluginapi.TopologyHint{
+						{
+							Nodes: []uint64{0},
+						},
+						{
+							Nodes: []uint64{1},
+						},
+						{
+							Nodes: []uint64{2},
+						},
 					},
 				},
 				machineState: state.NUMANodeMap{
@@ -282,16 +284,18 @@ func Test_serviceProfileHintOptimizer_OptimizeHints(t *testing.T) {
 					2: &state.NUMANodeState{},
 				},
 			},
-			want: []*pluginapi.TopologyHint{
-				{
-					Nodes:     []uint64{2},
-					Preferred: true,
-				},
-				{
-					Nodes: []uint64{0},
-				},
-				{
-					Nodes: []uint64{1},
+			want: &pluginapi.ListOfTopologyHints{
+				Hints: []*pluginapi.TopologyHint{
+					{
+						Nodes:     []uint64{2},
+						Preferred: true,
+					},
+					{
+						Nodes: []uint64{0},
+					},
+					{
+						Nodes: []uint64{1},
+					},
 				},
 			},
 			wantErr: assert.NoError,
