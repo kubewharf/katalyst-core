@@ -110,7 +110,7 @@ func NewServiceProfileHintOptimizer(
 
 func (p *serviceProfileHintOptimizer) OptimizeHints(
 	req *pluginapi.ResourceRequest,
-	hints []*pluginapi.TopologyHint,
+	hint *pluginapi.ListOfTopologyHints,
 	machineState state.NUMANodeMap,
 ) error {
 	now := time.Now()
@@ -120,7 +120,7 @@ func (p *serviceProfileHintOptimizer) OptimizeHints(
 		)
 	}()
 
-	err := p.optimizeHints(req, hints, machineState)
+	err := p.optimizeHints(req, hint.Hints, machineState)
 	if err != nil {
 		general.Warningf("optimize hints failed with error: %v", err)
 		_ = p.emitter.StoreInt64(metricNameServiceProfileOptimizeHintsFailed, 1,
