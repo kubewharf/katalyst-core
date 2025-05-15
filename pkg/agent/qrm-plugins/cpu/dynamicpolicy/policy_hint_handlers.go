@@ -317,21 +317,19 @@ func (p *DynamicPolicy) calculateHints(request float64,
 		return nil, errNoAvailableCPUHints
 	}
 
-	if numaBound > machine.MBWNUMAsPoint {
-		numaAllocatedMemBW, err := getNUMAAllocatedMemBW(machineState, p.metaServer, p.getContainerRequestedCores)
+	numaAllocatedMemBW, err := getNUMAAllocatedMemBW(machineState, p.metaServer, p.getContainerRequestedCores)
 
-		general.InfoS("getNUMAAllocatedMemBW",
-			"podNamespace", req.PodNamespace,
-			"podName", req.PodName,
-			"numaAllocatedMemBW", numaAllocatedMemBW)
+	general.InfoS("getNUMAAllocatedMemBW",
+		"podNamespace", req.PodNamespace,
+		"podName", req.PodName,
+		"numaAllocatedMemBW", numaAllocatedMemBW)
 
-		if err != nil {
-			general.Errorf("getNUMAAllocatedMemBW failed with error: %v", err)
-			_ = p.emitter.StoreInt64(util.MetricNameGetNUMAAllocatedMemBWFailed, 1, metrics.MetricTypeNameRaw)
-		} else {
-			p.updatePreferredCPUHintsByMemBW(preferredHintIndexes, availableNumaHints,
-				request, numaAllocatedMemBW, req, numaExclusive)
-		}
+	if err != nil {
+		general.Errorf("getNUMAAllocatedMemBW failed with error: %v", err)
+		_ = p.emitter.StoreInt64(util.MetricNameGetNUMAAllocatedMemBWFailed, 1, metrics.MetricTypeNameRaw)
+	} else {
+		p.updatePreferredCPUHintsByMemBW(preferredHintIndexes, availableNumaHints,
+			request, numaAllocatedMemBW, req, numaExclusive)
 	}
 
 	hints := map[string]*pluginapi.ListOfTopologyHints{
