@@ -76,9 +76,9 @@ func Test_convertThreshold(t *testing.T) {
 			name: "test",
 			args: args{
 				origin: map[string]float64{
-					"cpu_usage_threshold": 1,
-					"cpu_load_threshold":  2,
-					"xxx":                 3,
+					metricthreshold.NUMACPUUsageRatioThreshold: 1,
+					metricthreshold.NUMACPULoadRatioThreshold:  2,
+					"xxx": 3,
 				},
 			},
 			want: map[string]float64{
@@ -115,22 +115,22 @@ func Test_getOverLoadThreshold(t *testing.T) {
 					Threshold: map[string]map[bool]map[string]float64{
 						"abc": {
 							true: {
-								"cpu_usage_threshold": 1,
-								"cpu_load_threshold":  2,
+								metricthreshold.NUMACPUUsageRatioThreshold: 1,
+								metricthreshold.NUMACPULoadRatioThreshold:  2,
 							},
 							false: {
-								"cpu_usage_threshold": 3,
-								"cpu_load_threshold":  4,
+								metricthreshold.NUMACPUUsageRatioThreshold: 3,
+								metricthreshold.NUMACPULoadRatioThreshold:  4,
 							},
 						},
 						"def": {
 							true: {
-								"cpu_usage_threshold": 5,
-								"cpu_load_threshold":  6,
+								metricthreshold.NUMACPUUsageRatioThreshold: 5,
+								metricthreshold.NUMACPULoadRatioThreshold:  6,
 							},
 							false: {
-								"cpu_usage_threshold": 7,
-								"cpu_load_threshold":  8,
+								metricthreshold.NUMACPUUsageRatioThreshold: 7,
+								metricthreshold.NUMACPULoadRatioThreshold:  8,
 							},
 						},
 					},
@@ -139,8 +139,20 @@ func Test_getOverLoadThreshold(t *testing.T) {
 				isVM:    true,
 			},
 			want: map[string]float64{
-				"cpu_usage_threshold": 1,
-				"cpu_load_threshold":  2,
+				metricthreshold.NUMACPUUsageRatioThreshold: 1,
+				metricthreshold.NUMACPULoadRatioThreshold:  2,
+			},
+		},
+		{
+			name: "test",
+			args: args{
+				globalThresholds: metricthreshold.NewMetricThreshold(),
+				cpuCode:          "Intel_CascadeLake",
+				isVM:             false,
+			},
+			want: map[string]float64{
+				metricthreshold.NUMACPUUsageRatioThreshold: 0.55,
+				metricthreshold.NUMACPULoadRatioThreshold:  0.68,
 			},
 		},
 	}

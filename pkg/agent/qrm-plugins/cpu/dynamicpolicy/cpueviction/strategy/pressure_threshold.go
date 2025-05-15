@@ -95,11 +95,12 @@ func getOverLoadThreshold(globalThresholds *metricthreshold.MetricThreshold, cpu
 func convertThreshold(origin map[string]float64) map[string]float64 {
 	res := map[string]float64{}
 	for k, v := range origin {
-		if k == "cpu_usage_threshold" {
-			res[consts.MetricCPUUsageContainer] = v
-		} else if k == "cpu_load_threshold" {
-			res[consts.MetricLoad1MinContainer] = v
+		newKey, ok := metricthreshold.ThresholdNameToResourceName[k]
+		if !ok {
+			general.Warningf("no suitable threshold for %v", k)
+			continue
 		}
+		res[newKey] = v
 	}
 	return res
 }

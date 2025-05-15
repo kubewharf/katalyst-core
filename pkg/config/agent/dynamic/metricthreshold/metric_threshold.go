@@ -18,6 +18,7 @@ package metricthreshold
 
 import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
 
 const (
@@ -26,6 +27,11 @@ const (
 	NUMACPUUsageRatioThreshold = "numa_cpu_usage_ratio_threshold"
 	NUMACPULoadRatioThreshold  = "numa_cpu_load_ratio_threshold"
 )
+
+var ThresholdNameToResourceName = map[string]string{
+	NUMACPUUsageRatioThreshold: consts.MetricCPUUsageContainer,
+	NUMACPULoadRatioThreshold:  consts.MetricLoad1MinContainer,
+}
 
 type MetricThreshold struct {
 	Threshold map[string]map[bool]map[string]float64
