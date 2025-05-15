@@ -152,6 +152,7 @@ func (m *MalachiteMetricsProvisioner) updateSystemStats() error {
 	} else {
 		m.processSystemComputeData(systemComputeData)
 		m.processSystemCPUComputeData(systemComputeData)
+		m.processSystemNUMAComputeData(systemComputeData)
 	}
 
 	systemMemoryData, err := m.malachiteClient.GetSystemMemoryStats()
@@ -679,6 +680,28 @@ func (m *MalachiteMetricsProvisioner) processSystemCPUComputeData(systemComputeD
 	}
 }
 
+func (m *MalachiteMetricsProvisioner) processSystemNUMAComputeData(systemComputeData *malachitetypes.SystemComputeData) {
+	// TODO xudong.l
+	if systemComputeData == nil {
+		return
+	}
+	updateTime := time.Unix(systemComputeData.UpdateTime, 0)
+	numaMbmTotalPsData := make(map[int]uint64)
+	ccdMbmTotalPsData := systemComputeData.L3Mon.L3Mon
+
+	for _, ccdMbmTotalPs := range ccdMbmTotalPsData {
+		numaID, err := getNumaIDByL3CacheID(ccdMbmTotalPs.ID)
+		if err != nil {
+			continue
+		}
+		numaMbmTotalPsData[numaID] += ccdMbmTotalPs.MbmTotalBytes
+	}
+
+	for numaID, totalMbm := range numaMbmTotalPsData {
+		m.metricStore.SetNumaMetric(numaID, consts.MetricTotalMemBandwidthNuma, utilmetric.MetricData{Value: float64(totalMbm), Time: &updateTime})
+	}
+}
+
 func (m *MalachiteMetricsProvisioner) processCgroupCPUData(cgroupPath string, cgStats *malachitetypes.MalachiteCgroupInfo) {
 	if cgStats == nil {
 		return
@@ -763,6 +786,7 @@ func (m *MalachiteMetricsProvisioner) processCgroupMemoryData(cgroupPath string,
 
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemOomCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(mem.BpfMemStat.OomCnt)})
 		// m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemScaleFactorCgroup, utilmetric.MetricData{Time: &updateTime, Value: general.UIntPointerToFloat64(mem.WatermarkScaleFactor)})
+		m.setCgroupMbmTotalMetric(cgroupPath, mem.Mb, &updateTime)
 	} else if cgStats.CgroupType == "V2" && cgStats.V2 != nil {
 		mem := cgStats.V2.Memory
 		updateTime := time.Unix(cgStats.V2.Memory.UpdateTime, 0)
@@ -785,6 +809,7 @@ func (m *MalachiteMetricsProvisioner) processCgroupMemoryData(cgroupPath string,
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemInactiveAnonCgroup, utilmetric.MetricData{Value: float64(mem.MemStats.InactiveAnon), Time: &updateTime})
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemInactiveFileCgroup, utilmetric.MetricData{Value: float64(mem.MemStats.InactiveFile), Time: &updateTime})
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemMappedCgroup, utilmetric.MetricData{Value: float64(mem.MemStats.FileMapped), Time: &updateTime})
+		m.setCgroupMbmTotalMetric(cgroupPath, mem.Mb, &updateTime)
 	}
 }
 
