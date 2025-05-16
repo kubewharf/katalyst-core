@@ -21,5 +21,5 @@ package isolation
 type Isolator interface {
 	// GetIsolatedPods calculates and generates the isolated pods
 	// the returned slice contains the isolated pod-uid
-	GetIsolatedPods() []string
+	GetIsolatedPods() ([]string, error)
 }
