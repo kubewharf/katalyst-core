@@ -32,11 +32,13 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
+	configv1alpha1 "github.com/kubewharf/katalyst-api/pkg/client/listers/config/v1alpha1"
 	npdlisters "github.com/kubewharf/katalyst-api/pkg/client/listers/node/v1alpha1"
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/pkg/client/control"
 	"github.com/kubewharf/katalyst-core/pkg/config/controller"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
+	kccutil "github.com/kubewharf/katalyst-core/pkg/controller/kcc/util"
 	metrics_plugin "github.com/kubewharf/katalyst-core/pkg/controller/npd/metrics-plugin"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
@@ -48,9 +50,11 @@ type NPDController struct {
 
 	conf *controller.NPDConfig
 
+	cncControl control.CNCControl
 	npdControl control.NodeProfileControl
 	npdLister  npdlisters.NodeProfileDescriptorLister
 	nodeLister corev1.NodeLister
+	cncLister  configv1alpha1.CustomNodeConfigLister
 
 	metricsManager      metrics_plugin.MetricsGetter
 	metricsPlugins      map[string]metrics_plugin.MetricsPlugin
@@ -73,10 +77,12 @@ func NewNPDController(
 ) (*NPDController, error) {
 	nodeInformer := controlCtx.KubeInformerFactory.Core().V1().Nodes()
 	npdInformer := controlCtx.InternalInformerFactory.Node().V1alpha1().NodeProfileDescriptors()
+	cncInformer := controlCtx.InternalInformerFactory.Config().V1alpha1().CustomNodeConfigs()
 
 	npdController := &NPDController{
 		ctx:            ctx,
 		conf:           conf,
+		cncControl:     &control.DummyCNCControl{},
 		npdControl:     &control.DummyNPDControl{},
 		nodeQueue:      workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "npd"),
 		metricsEmitter: controlCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(npdControllerName),
@@ -88,6 +94,9 @@ func NewNPDController(
 	npdController.npdLister = npdInformer.Lister()
 	npdController.syncedFunc = append(npdController.syncedFunc, npdInformer.Informer().HasSynced)
 
+	npdController.cncLister = cncInformer.Lister()
+	npdController.syncedFunc = append(npdController.syncedFunc, cncInformer.Informer().HasSynced)
+
 	nodeInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    npdController.onNodeAdd,
 		UpdateFunc: npdController.onNodeUpdate,
@@ -96,11 +105,14 @@ func NewNPDController(
 
 	if !genericConf.DryRun {
 		npdController.npdControl = control.NewNPDControlImp(controlCtx.Client.InternalClient)
+		npdController.cncControl = control.NewRealCNCControl(controlCtx.Client.InternalClient)
 	}
 
 	if err := npdController.initializeMetricsPlugins(controlCtx, extraConf); err != nil {
 		return nil, err
 	}
+
+	kccutil.RegisterKCCSkippedGVR(npdGVR)
 
 	return npdController, nil
 }
