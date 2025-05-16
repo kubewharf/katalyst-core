@@ -57,6 +57,8 @@ type CPUIsolationOptions struct {
 	IsolationDisabledPools     []string
 	IsolationForceEnablePools  []string
 	IsolationNonExclusivePools []string
+
+	IsolationIncludeSidecarRequirement bool
 }
 
 // NewCPUIsolationOptions creates a new Options with a default config
@@ -115,6 +117,8 @@ func (o *CPUIsolationOptions) AddFlags(fs *pflag.FlagSet) {
 		"isolation force enable for get given pool")
 	fs.StringArrayVar(&o.IsolationNonExclusivePools, "isolation-non-exclusive-pools", o.IsolationNonExclusivePools,
 		"isolation is non-exclusive for get given pool")
+	fs.BoolVar(&o.IsolationIncludeSidecarRequirement, "isolation-include-sidecar-requirement", o.IsolationIncludeSidecarRequirement,
+		"isolation include sidecar requirement")
 }
 
 // ApplyTo fills up config with options
@@ -157,6 +161,8 @@ func (o *CPUIsolationOptions) ApplyTo(c *cpu.CPUIsolationConfiguration) error {
 	c.IsolationDisabledPools = sets.NewString(o.IsolationDisabledPools...)
 	c.IsolationForceEnablePools = sets.NewString(o.IsolationForceEnablePools...)
 	c.IsolationNonExclusivePools = sets.NewString(o.IsolationNonExclusivePools...)
+
+	c.IsolationIncludeSidecarRequirement = o.IsolationIncludeSidecarRequirement
 
 	return nil
 }
