@@ -18,16 +18,31 @@ package hintoptimizer
 
 import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 )
 
-type HintOptimizer interface {
-	OptimizeHints(*pluginapi.ResourceRequest, *pluginapi.ListOfTopologyHints, state.NUMANodeMap) error
+// Request wraps the original ResourceRequest and includes the CPU request amount.
+type Request struct {
+	*pluginapi.ResourceRequest
+	CPURequest float64
 }
 
+// HintOptimizer is the interface for optimizing topology hints.
+type HintOptimizer interface {
+	// OptimizeHints optimizes the given list of topology hints based on the current state and request.
+	OptimizeHints(Request, *pluginapi.ListOfTopologyHints) error
+	// Run starts the hint optimizer.
+	Run(stopCh <-chan struct{})
+}
+
+// DummyHintOptimizer is a no-op implementation of HintOptimizer.
 type DummyHintOptimizer struct{}
 
-func (d *DummyHintOptimizer) OptimizeHints(*pluginapi.ResourceRequest, *pluginapi.ListOfTopologyHints, state.NUMANodeMap) error {
+var _ HintOptimizer = &DummyHintOptimizer{}
+
+// OptimizeHints for DummyHintOptimizer does nothing and returns nil.
+func (d *DummyHintOptimizer) OptimizeHints(Request, *pluginapi.ListOfTopologyHints) error {
 	return nil
 }
+
+// Run for DummyHintOptimizer does nothing.
+func (d *DummyHintOptimizer) Run(<-chan struct{}) {}

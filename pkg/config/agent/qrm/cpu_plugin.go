@@ -19,7 +19,7 @@ package qrm
 import (
 	"time"
 
-	v1 "k8s.io/api/core/v1"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/hintoptimizer"
 )
 
 type CPUQRMPluginConfig struct {
@@ -48,25 +48,14 @@ type CPUDynamicPolicyConfig struct {
 	EnableSyncingCPUIdle bool
 	// EnableCPUIdle indicates whether enabling cpu idle
 	EnableCPUIdle bool
-	// CPUNUMAHintPreferPolicy decides hint preference calculation strategy
-	CPUNUMAHintPreferPolicy string
-	// CPUNUMAHintPreferLowThreshold indicates threshold to apply CPUNUMAHintPreferPolicy dynamically,
-	// and it's working when CPUNUMAHintPreferPolicy is set to dynamic_packing
-	CPUNUMAHintPreferLowThreshold float64
 	// EnableMetricPreferredNumaAllocation indicates whether to enable metric preferred numa allocation
 	EnableMetricPreferredNumaAllocation bool
 	// SharedCoresNUMABindingResultAnnotationKey is the annotation key for storing NUMA binding results of shared_cores QoS pods.
 	// It enables schedulers to specify NUMA binding results, and the plugin will make best efforts to follow these results.
 	// This key must be included in the pod-annotation-kept-keys configuration.
 	SharedCoresNUMABindingResultAnnotationKey string
-	// EnableSharedCoresNUMABindingHintOptimizer is set to enable shared cores numa binding hint optimizer
-	EnableSharedCoresNUMABindingHintOptimizer bool
-	// SharedCoresNUMABindingHintOptimizerConfig is used to control service profile hint optimizer
-	SharedCoresNUMABindingHintOptimizerConfig ServiceProfileHintOptimizerConfig
-}
 
-type ServiceProfileHintOptimizerConfig struct {
-	ResourceWeights map[v1.ResourceName]float64
+	*hintoptimizer.HintOptimizerConfiguration
 }
 
 type CPUNativePolicyConfig struct {
@@ -79,7 +68,9 @@ type CPUNativePolicyConfig struct {
 
 func NewCPUQRMPluginConfig() *CPUQRMPluginConfig {
 	return &CPUQRMPluginConfig{
-		CPUDynamicPolicyConfig: CPUDynamicPolicyConfig{},
-		CPUNativePolicyConfig:  CPUNativePolicyConfig{},
+		CPUDynamicPolicyConfig: CPUDynamicPolicyConfig{
+			HintOptimizerConfiguration: hintoptimizer.NewHintOptimizerConfiguration(),
+		},
+		CPUNativePolicyConfig: CPUNativePolicyConfig{},
 	}
 }

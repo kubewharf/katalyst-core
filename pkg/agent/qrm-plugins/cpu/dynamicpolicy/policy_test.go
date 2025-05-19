@@ -23,7 +23,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -50,8 +49,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer/policy/canonical"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/validator"
+	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -132,19 +133,24 @@ func getTestDynamicPolicyWithoutInitialization(topology *machine.CPUTopology, st
 	qosConfig := generic.NewQoSConfiguration()
 	dynamicConfig := dynamic.NewDynamicAgentConfiguration()
 
+	conf, err := options.NewOptions().Config()
+	if err != nil {
+		return nil, err
+	}
+
 	policyImplement := &DynamicPolicy{
-		machineInfo:                         machineInfo,
-		qosConfig:                           qosConfig,
-		dynamicConfig:                       dynamicConfig,
-		state:                               stateImpl,
-		advisorValidator:                    validator.NewCPUAdvisorValidator(stateImpl, machineInfo),
-		featureGateManager:                  featuregatenegotiation.NewFeatureGateManager(config.NewConfiguration()),
-		reservedReclaimedCPUsSize:           general.Max(reservedReclaimedCPUsSize, topology.NumNUMANodes),
-		reservedCPUs:                        reservedCPUs,
-		enableReclaimNUMABinding:            true,
-		emitter:                             metrics.DummyMetrics{},
-		podDebugAnnoKeys:                    []string{podDebugAnnoKey},
-		sharedCoresNUMABindingHintOptimizer: &hintoptimizer.DummyHintOptimizer{},
+		conf:                      conf,
+		machineInfo:               machineInfo,
+		qosConfig:                 qosConfig,
+		dynamicConfig:             dynamicConfig,
+		state:                     stateImpl,
+		advisorValidator:          validator.NewCPUAdvisorValidator(stateImpl, machineInfo),
+		featureGateManager:        featuregatenegotiation.NewFeatureGateManager(config.NewConfiguration()),
+		reservedReclaimedCPUsSize: general.Max(reservedReclaimedCPUsSize, topology.NumNUMANodes),
+		reservedCPUs:              reservedCPUs,
+		enableReclaimNUMABinding:  true,
+		emitter:                   metrics.DummyMetrics{},
+		podDebugAnnoKeys:          []string{podDebugAnnoKey},
 	}
 
 	// register allocation behaviors for pods with different QoS level
@@ -165,9 +171,16 @@ func getTestDynamicPolicyWithoutInitialization(topology *machine.CPUTopology, st
 
 	policyImplement.metaServer = &metaserver.MetaServer{
 		MetaAgent: &agent.MetaAgent{
-			PodFetcher: &pod.PodFetcherStub{},
+			PodFetcher:          &pod.PodFetcherStub{},
+			KatalystMachineInfo: machineInfo,
 		},
 		ServiceProfilingManager: &spd.DummyServiceProfilingManager{},
+	}
+
+	// initialize hint optimizer
+	err = policyImplement.initHintOptimizers()
+	if err != nil {
+		return nil, err
 	}
 
 	return policyImplement, nil
@@ -3551,12 +3564,17 @@ func TestGetTopologyHints(t *testing.T) {
 			}
 
 			if tc.cpuNUMAHintPreferPolicy != "" {
-				dynamicPolicy.cpuNUMAHintPreferPolicy = tc.cpuNUMAHintPreferPolicy
+				dynamicPolicy.conf.CPUNUMAHintPreferPolicy = tc.cpuNUMAHintPreferPolicy
 
-				if dynamicPolicy.cpuNUMAHintPreferPolicy == cpuconsts.CPUNUMAHintPreferPolicyDynamicPacking {
-					dynamicPolicy.cpuNUMAHintPreferLowThreshold = 0.5
+				if dynamicPolicy.conf.CPUNUMAHintPreferPolicy == cpuconsts.CPUNUMAHintPreferPolicyDynamicPacking {
+					dynamicPolicy.conf.CPUNUMAHintPreferLowThreshold = 0.5
 				}
 			}
+
+			dynamicPolicy.sharedCoresNUMABindingHintOptimizer, err = canonical.NewCanonicalHintOptimizer(dynamicPolicy.generateHintOptimizerFactoryOptions())
+			as.NoError(err)
+
+			dynamicPolicy.dedicatedCoresNUMABindingHintOptimizer = &hintoptimizer.DummyHintOptimizer{}
 
 			resp, err := dynamicPolicy.GetTopologyHints(context.Background(), tc.req)
 			as.Nil(err)
@@ -5971,347 +5989,6 @@ func BenchmarkGetTopologyHints(b *testing.B) {
 	}
 }
 
-func Test_getPreferenceByMemBW(t *testing.T) {
-	t.Parallel()
-	type args struct {
-		targetNUMANodesUInt64           []uint64
-		containerMemoryBandwidthRequest int
-		numaAllocatedMemBW              map[int]int
-		machineInfo                     *machine.KatalystMachineInfo
-		metaServer                      *metaserver.MetaServer
-		req                             *pluginapi.ResourceRequest
-	}
-	tests := []struct {
-		name    string
-		args    args
-		want    *memBWHintUpdate
-		wantErr bool
-	}{
-		{
-			name:    "req is nil",
-			args:    args{},
-			want:    nil,
-			wantErr: true,
-		},
-		{
-			name: "targetNUMANodesUInt64 is empty",
-			args: args{
-				req:                   &pluginapi.ResourceRequest{},
-				targetNUMANodesUInt64: []uint64{},
-			},
-			want:    nil,
-			wantErr: true,
-		},
-		{
-			name: "machineInfo is nil",
-			args: args{
-				req:                   &pluginapi.ResourceRequest{},
-				targetNUMANodesUInt64: []uint64{1},
-			},
-			want:    nil,
-			wantErr: true,
-		},
-		{
-			name: "ExtraTopologyInfo is nil",
-			args: args{
-				req:                   &pluginapi.ResourceRequest{},
-				targetNUMANodesUInt64: []uint64{1},
-				machineInfo:           &machine.KatalystMachineInfo{},
-			},
-			want:    nil,
-			wantErr: true,
-		},
-		{
-			name: "metaServer is nil",
-			args: args{
-				req:                   &pluginapi.ResourceRequest{},
-				targetNUMANodesUInt64: []uint64{1},
-				machineInfo:           &machine.KatalystMachineInfo{ExtraTopologyInfo: &machine.ExtraTopologyInfo{}},
-			},
-			want:    nil,
-			wantErr: true,
-		},
-	}
-	for _, tt := range tests {
-		curTT := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got, err := getPreferenceByMemBW(curTT.args.targetNUMANodesUInt64, curTT.args.containerMemoryBandwidthRequest, curTT.args.numaAllocatedMemBW, curTT.args.machineInfo, curTT.args.metaServer, curTT.args.req)
-			if (err != nil) != curTT.wantErr {
-				t.Errorf("getPreferenceByMemBW() error = %v, wantErr %v", err, curTT.wantErr)
-				return
-			}
-			if got != curTT.want {
-				t.Errorf("getPreferenceByMemBW() = %v, want %v", got, curTT.want)
-			}
-		})
-	}
-}
-
-func Test_getNUMAAllocatedMemBW(t *testing.T) {
-	t.Parallel()
-	as := require.New(t)
-
-	policyImplement := &DynamicPolicy{}
-
-	testName := "test"
-	highDensityCPUTopology, err := machine.GenerateDummyCPUTopology(384, 2, 12)
-	as.Nil(err)
-	podEntries := state.PodEntries{
-		"373d08e4-7a6b-4293-aaaf-b135ff812kkk": state.ContainerEntries{
-			testName: &state.AllocationInfo{
-				AllocationMeta: commonstate.AllocationMeta{
-					PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff812kkk",
-					PodNamespace:   testName,
-					PodName:        testName,
-					ContainerName:  testName,
-					ContainerType:  pluginapi.ContainerType_MAIN.String(),
-					ContainerIndex: 0,
-					OwnerPoolName:  commonstate.PoolNameDedicated,
-					Labels: map[string]string{
-						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
-					},
-					Annotations: map[string]string{
-						consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
-						consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
-					},
-					QoSLevel: consts.PodAnnotationQoSLevelDedicatedCores,
-				},
-				RampUp:                   false,
-				AllocationResult:         machine.MustParse("1,8,9"),
-				OriginalAllocationResult: machine.MustParse("1,8,9"),
-				TopologyAwareAssignments: map[int]machine.CPUSet{
-					0: machine.NewCPUSet(1, 8, 9),
-				},
-				OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
-					0: machine.NewCPUSet(1, 8, 9),
-				},
-				RequestQuantity: 2,
-			},
-		},
-		"373d08e4-7a6b-4293-aaaf-b135ff8123bf": state.ContainerEntries{
-			testName: &state.AllocationInfo{
-				AllocationMeta: commonstate.AllocationMeta{
-					PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
-					PodNamespace:   testName,
-					PodName:        testName,
-					ContainerName:  testName,
-					ContainerType:  pluginapi.ContainerType_MAIN.String(),
-					ContainerIndex: 0,
-					OwnerPoolName:  commonstate.PoolNameShare,
-					Labels: map[string]string{
-						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
-					},
-					Annotations: map[string]string{
-						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
-					},
-					QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
-				},
-				RampUp:                   false,
-				AllocationResult:         machine.MustParse("4-5,12,6-7,14"),
-				OriginalAllocationResult: machine.MustParse("4-5,12,6-7,14"),
-				TopologyAwareAssignments: map[int]machine.CPUSet{
-					2: machine.NewCPUSet(4, 5, 12),
-					3: machine.NewCPUSet(6, 7, 14),
-				},
-				OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
-					2: machine.NewCPUSet(4, 5, 12),
-					3: machine.NewCPUSet(6, 7, 14),
-				},
-				RequestQuantity: 2,
-			},
-		},
-		"ec6e2f30-c78a-4bc4-9576-c916db5281a3": state.ContainerEntries{
-			testName: &state.AllocationInfo{
-				AllocationMeta: commonstate.AllocationMeta{
-					PodUid:         "ec6e2f30-c78a-4bc4-9576-c916db5281a3",
-					PodNamespace:   testName,
-					PodName:        testName,
-					ContainerName:  testName,
-					ContainerType:  pluginapi.ContainerType_MAIN.String(),
-					ContainerIndex: 0,
-					OwnerPoolName:  commonstate.PoolNameShare,
-					Labels: map[string]string{
-						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
-					},
-					Annotations: map[string]string{
-						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
-					},
-					QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
-				},
-				RampUp:                   false,
-				AllocationResult:         machine.MustParse("4-5,12,6-7,14"),
-				OriginalAllocationResult: machine.MustParse("4-5,12,6-7,14"),
-				TopologyAwareAssignments: map[int]machine.CPUSet{
-					2: machine.NewCPUSet(4, 5, 12),
-					3: machine.NewCPUSet(6, 7, 14),
-				},
-				OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
-					2: machine.NewCPUSet(4, 5, 12),
-					3: machine.NewCPUSet(6, 7, 14),
-				},
-				RequestQuantity: 2,
-			},
-		},
-		"2432d068-c5a0-46ba-a7bd-b69d9bd16961": state.ContainerEntries{
-			testName: &state.AllocationInfo{
-				AllocationMeta: commonstate.AllocationMeta{
-					PodUid:         "2432d068-c5a0-46ba-a7bd-b69d9bd16961",
-					PodNamespace:   testName,
-					PodName:        testName,
-					ContainerName:  testName,
-					ContainerType:  pluginapi.ContainerType_MAIN.String(),
-					ContainerIndex: 0,
-					OwnerPoolName:  commonstate.PoolNameReclaim,
-					Labels: map[string]string{
-						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
-					},
-					Annotations: map[string]string{
-						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
-					},
-					QoSLevel: consts.PodAnnotationQoSLevelReclaimedCores,
-				},
-				RampUp:                   false,
-				AllocationResult:         machine.MustParse("9,11,13,15"),
-				OriginalAllocationResult: machine.MustParse("9,11,13,15"),
-				TopologyAwareAssignments: map[int]machine.CPUSet{
-					0: machine.NewCPUSet(9),
-					1: machine.NewCPUSet(11),
-					2: machine.NewCPUSet(13),
-					3: machine.NewCPUSet(15),
-				},
-				OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
-					0: machine.NewCPUSet(9),
-					1: machine.NewCPUSet(11),
-					2: machine.NewCPUSet(13),
-					3: machine.NewCPUSet(15),
-				},
-				RequestQuantity: 2,
-			},
-		},
-		commonstate.PoolNameReclaim: state.ContainerEntries{
-			"": &state.AllocationInfo{
-				AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameReclaim),
-				AllocationResult:         machine.MustParse("9,11,13,15"),
-				OriginalAllocationResult: machine.MustParse("9,11,13,15"),
-				TopologyAwareAssignments: map[int]machine.CPUSet{
-					0: machine.NewCPUSet(9),
-					1: machine.NewCPUSet(11),
-					2: machine.NewCPUSet(13),
-					3: machine.NewCPUSet(15),
-				},
-				OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
-					0: machine.NewCPUSet(9),
-					1: machine.NewCPUSet(11),
-					2: machine.NewCPUSet(13),
-					3: machine.NewCPUSet(15),
-				},
-			},
-		},
-		commonstate.PoolNameShare: state.ContainerEntries{
-			"": &state.AllocationInfo{
-				AllocationMeta:           commonstate.GenerateGenericPoolAllocationMeta(commonstate.PoolNameShare),
-				AllocationResult:         machine.MustParse("4-5,12,6-7,14"),
-				OriginalAllocationResult: machine.MustParse("4-5,12,6-7,14"),
-				TopologyAwareAssignments: map[int]machine.CPUSet{
-					2: machine.NewCPUSet(4, 5, 12),
-					3: machine.NewCPUSet(6, 7, 14),
-				},
-				OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
-					2: machine.NewCPUSet(4, 5, 12),
-					3: machine.NewCPUSet(6, 7, 14),
-				},
-			},
-		},
-		"share-NUMA1": state.ContainerEntries{
-			"": &state.AllocationInfo{
-				AllocationMeta:           generateSharedNumaBindingPoolAllocationMeta("share-NUMA1"),
-				AllocationResult:         machine.MustParse("3,10"),
-				OriginalAllocationResult: machine.MustParse("3,10"),
-				TopologyAwareAssignments: map[int]machine.CPUSet{
-					1: machine.NewCPUSet(3, 10),
-				},
-				OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
-					1: machine.NewCPUSet(3, 10),
-				},
-			},
-		},
-		"373d08e4-7a6b-4293-aaaf-b135ff812aaa": state.ContainerEntries{
-			testName: &state.AllocationInfo{
-				AllocationMeta: commonstate.AllocationMeta{
-					PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff812aaa",
-					PodNamespace:   testName,
-					PodName:        testName,
-					ContainerName:  testName,
-					ContainerType:  pluginapi.ContainerType_MAIN.String(),
-					ContainerIndex: 0,
-					OwnerPoolName:  "share-NUMA1",
-					Labels: map[string]string{
-						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
-					},
-					Annotations: map[string]string{
-						consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
-						consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
-					},
-					QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
-				},
-				RampUp:                   false,
-				AllocationResult:         machine.MustParse("3,10"),
-				OriginalAllocationResult: machine.MustParse("3,10"),
-				TopologyAwareAssignments: map[int]machine.CPUSet{
-					1: machine.NewCPUSet(3, 10),
-				},
-				OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
-					1: machine.NewCPUSet(3, 10),
-				},
-				RequestQuantity: 1,
-			},
-		},
-	}
-	machineState, err := generateMachineStateFromPodEntries(highDensityCPUTopology, podEntries)
-	as.Nil(err)
-
-	type args struct {
-		machineState state.NUMANodeMap
-		metaServer   *metaserver.MetaServer
-	}
-	tests := []struct {
-		name    string
-		args    args
-		want    map[int]int
-		wantErr bool
-	}{
-		{
-			name: "getNUMAAllocatedMemBW normally",
-			args: args{
-				machineState: machineState,
-				metaServer: &metaserver.MetaServer{
-					MetaAgent: &agent.MetaAgent{
-						PodFetcher: &pod.PodFetcherStub{},
-					},
-					ServiceProfilingManager: &spd.DummyServiceProfilingManager{},
-				},
-			},
-			want:    map[int]int{0: 0},
-			wantErr: false,
-		},
-	}
-	for _, tt := range tests {
-		curTT := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got, err := getNUMAAllocatedMemBW(curTT.args.machineState, curTT.args.metaServer, policyImplement.getContainerRequestedCores)
-			if (err != nil) != curTT.wantErr {
-				t.Errorf("getNUMAAllocatedMemBW() error = %v, wantErr %v", err, curTT.wantErr)
-				return
-			}
-			if !reflect.DeepEqual(got, curTT.want) {
-				t.Errorf("getNUMAAllocatedMemBW() = %v, want %v", got, curTT.want)
-			}
-		})
-	}
-}
-
 func TestSNBAdmitWithSidecarReallocate(t *testing.T) {
 	t.Parallel()
 	as := require.New(t)
@@ -6427,7 +6104,7 @@ func TestSNBAdmitWithSidecarReallocate(t *testing.T) {
 
 	// pod aggregated size is 8, the new container request is 4, 8 + 4 > 11 (share-NUMA0 size)
 	_, err = dynamicPolicy.GetTopologyHints(context.Background(), anotherReq)
-	as.ErrorContains(err, errNoAvailableCPUHints.Error())
+	as.ErrorContains(err, cpuutil.ErrNoAvailableCPUHints.Error())
 
 	// reallocate sidecar
 	_, err = dynamicPolicy.Allocate(context.Background(), sidecarReq)
