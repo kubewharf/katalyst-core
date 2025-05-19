@@ -32,7 +32,6 @@ import (
 	workloadapis "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
-	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	pkgconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnc"
@@ -40,12 +39,13 @@ import (
 )
 
 func generateTestConfiguration(t *testing.T, nodeName string, checkpoint string) *pkgconfig.Configuration {
-	testConfiguration, err := options.NewOptions().Config()
-	require.NoError(t, err)
+	testConfiguration := pkgconfig.NewConfiguration()
 	require.NotNil(t, testConfiguration)
 
 	testConfiguration.NodeName = nodeName
+	testConfiguration.ServiceProfileCacheTTL = 1 * time.Minute
 	testConfiguration.CheckpointManagerDir = checkpoint
+	testConfiguration.ServiceProfileEnableNamespaces = []string{"*"}
 	testConfiguration.SPDGetFromRemote = true
 	return testConfiguration
 }

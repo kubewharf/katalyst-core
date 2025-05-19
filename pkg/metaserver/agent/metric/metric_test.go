@@ -25,7 +25,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	metrictypes "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
@@ -35,8 +34,7 @@ import (
 )
 
 func generateTestConfiguration(t *testing.T) *config.Configuration {
-	testConfiguration, err := options.NewOptions().Config()
-	require.NoError(t, err)
+	testConfiguration := config.NewConfiguration()
 	require.NotNil(t, testConfiguration)
 	return testConfiguration
 }
