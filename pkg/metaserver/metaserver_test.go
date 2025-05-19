@@ -28,7 +28,6 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 
 	internalfake "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/fake"
-	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
@@ -44,8 +43,7 @@ import (
 )
 
 func generateTestConfiguration(t *testing.T) *config.Configuration {
-	testConfiguration, err := options.NewOptions().Config()
-	require.NoError(t, err)
+	testConfiguration := config.NewConfiguration()
 	require.NotNil(t, testConfiguration)
 	return testConfiguration
 }
