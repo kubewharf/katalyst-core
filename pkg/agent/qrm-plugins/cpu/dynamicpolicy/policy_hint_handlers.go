@@ -19,37 +19,22 @@ package dynamicpolicy
 import (
 	"context"
 	"fmt"
-	"math"
 	"sort"
 
 	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
-	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
-	"github.com/kubewharf/katalyst-core/pkg/consts"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
-	"github.com/kubewharf/katalyst-core/pkg/util/strategygroup"
 )
-
-var errNoAvailableCPUHints = fmt.Errorf("no available cpu hints")
-
-type memBWHintUpdate struct {
-	updatedPreferrence bool
-	leftAllocatable    int
-}
 
 func (p *DynamicPolicy) sharedCoresHintHandler(ctx context.Context,
 	req *pluginapi.ResourceRequest,
@@ -78,7 +63,7 @@ func (p *DynamicPolicy) sharedCoresHintHandler(ctx context.Context,
 				"podName":       req.PodName,
 				"containerName": req.ContainerName,
 			})...)
-			return nil, errNoAvailableCPUHints
+			return nil, cpuutil.ErrNoAvailableCPUHints
 		}
 	}
 
@@ -314,31 +299,25 @@ func (p *DynamicPolicy) calculateHints(request float64,
 	if len(availableNumaHints) == 0 {
 		general.Warningf("calculateHints got no available cpu hints for pod: %s/%s, container: %s",
 			req.PodNamespace, req.PodName, req.ContainerName)
-		return nil, errNoAvailableCPUHints
+		return nil, cpuutil.ErrNoAvailableCPUHints
 	}
 
-	numaAllocatedMemBW, err := getNUMAAllocatedMemBW(machineState, p.metaServer, p.getContainerRequestedCores)
+	hints := &pluginapi.ListOfTopologyHints{
+		Hints: availableNumaHints,
+	}
 
-	general.InfoS("getNUMAAllocatedMemBW",
-		"podNamespace", req.PodNamespace,
-		"podName", req.PodName,
-		"numaAllocatedMemBW", numaAllocatedMemBW)
-
+	err = p.dedicatedCoresNUMABindingHintOptimizer.OptimizeHints(
+		hintoptimizer.Request{
+			ResourceRequest: req,
+			CPURequest:      request,
+		}, hints)
 	if err != nil {
-		general.Errorf("getNUMAAllocatedMemBW failed with error: %v", err)
-		_ = p.emitter.StoreInt64(util.MetricNameGetNUMAAllocatedMemBWFailed, 1, metrics.MetricTypeNameRaw)
-	} else {
-		p.updatePreferredCPUHintsByMemBW(preferredHintIndexes, availableNumaHints,
-			request, numaAllocatedMemBW, req, numaExclusive)
+		return nil, err
 	}
 
-	hints := map[string]*pluginapi.ListOfTopologyHints{
-		string(v1.ResourceCPU): {
-			Hints: availableNumaHints,
-		},
-	}
-
-	return hints, nil
+	return map[string]*pluginapi.ListOfTopologyHints{
+		string(v1.ResourceCPU): hints,
+	}, nil
 }
 
 func (p *DynamicPolicy) reclaimedCoresWithNUMABindingHintHandler(_ context.Context,
@@ -420,7 +399,7 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingReclaimedCores(reqFloat floa
 
 	// If no valid hints are generated and this is not a single-NUMA scenario, return an error
 	if len(hints.Hints) == 0 && !(p.metaServer.NumNUMANodes == 1 && nonActualBindingNUMAs.Size() > 0) {
-		return nil, errNoAvailableCPUHints
+		return nil, cpuutil.ErrNoAvailableCPUHints
 	}
 
 	general.InfoS("calculate numa hints for reclaimed cores success",
@@ -434,250 +413,6 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingReclaimedCores(reqFloat floa
 	return map[string]*pluginapi.ListOfTopologyHints{
 		string(v1.ResourceCPU): hints,
 	}, nil
-}
-
-func getNUMAAllocatedMemBW(machineState state.NUMANodeMap, metaServer *metaserver.MetaServer, getContainerRequestedCores state.GetContainerRequestedCoresFunc) (map[int]int, error) {
-	numaAllocatedMemBW := make(map[int]int)
-	podUIDToMemBWReq := make(map[string]int)
-	podUIDToBindingNUMAs := make(map[string]sets.Int)
-
-	if metaServer == nil {
-		return nil, fmt.Errorf("getNUMAAllocatedMemBW got nil metaServer")
-	}
-
-	for numaID, numaState := range machineState {
-		if numaState == nil {
-			general.Errorf("numaState is nil, NUMA: %d", numaID)
-			continue
-		}
-
-		for _, entries := range numaState.PodEntries {
-			for _, allocationInfo := range entries {
-				if !(allocationInfo.CheckDedicatedNUMABinding() && allocationInfo.CheckMainContainer()) {
-					continue
-				}
-
-				if _, found := podUIDToMemBWReq[allocationInfo.PodUid]; !found {
-					containerMemoryBandwidthRequest, err := spd.GetContainerMemoryBandwidthRequest(metaServer, metav1.ObjectMeta{
-						UID:         types.UID(allocationInfo.PodUid),
-						Namespace:   allocationInfo.PodNamespace,
-						Name:        allocationInfo.PodName,
-						Labels:      allocationInfo.Labels,
-						Annotations: allocationInfo.Annotations,
-					}, int(math.Ceil(getContainerRequestedCores(allocationInfo))))
-					if err != nil {
-						return nil, fmt.Errorf("GetContainerMemoryBandwidthRequest for pod: %s/%s, container: %s failed with error: %v",
-							allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, err)
-					}
-
-					podUIDToMemBWReq[allocationInfo.PodUid] = containerMemoryBandwidthRequest
-				}
-
-				if podUIDToBindingNUMAs[allocationInfo.PodUid] == nil {
-					podUIDToBindingNUMAs[allocationInfo.PodUid] = sets.NewInt()
-				}
-
-				podUIDToBindingNUMAs[allocationInfo.PodUid].Insert(numaID)
-			}
-		}
-	}
-
-	for podUID, numaSet := range podUIDToBindingNUMAs {
-		podMemBWReq, found := podUIDToMemBWReq[podUID]
-
-		if !found {
-			return nil, fmt.Errorf("pod: %s is found in podUIDToBindingNUMAs, but not found in podUIDToMemBWReq", podUID)
-		}
-
-		numaCount := numaSet.Len()
-
-		if numaCount == 0 {
-			continue
-		}
-
-		perNUMAMemoryBandwidthRequest := podMemBWReq / numaCount
-
-		for _, numaID := range numaSet.UnsortedList() {
-			numaAllocatedMemBW[numaID] += perNUMAMemoryBandwidthRequest
-		}
-	}
-
-	return numaAllocatedMemBW, nil
-}
-
-func (p *DynamicPolicy) updatePreferredCPUHintsByMemBW(preferredHintIndexes []int, cpuHints []*pluginapi.TopologyHint, request float64,
-	numaAllocatedMemBW map[int]int, req *pluginapi.ResourceRequest, numaExclusive bool,
-) {
-	if len(preferredHintIndexes) == 0 {
-		general.Infof("there is no preferred hints, skip update")
-		return
-	} else if req == nil {
-		general.Errorf("empty req")
-		return
-	}
-
-	containerMemoryBandwidthRequest, err := spd.GetContainerMemoryBandwidthRequest(p.metaServer,
-		metav1.ObjectMeta{
-			UID:         types.UID(req.PodUid),
-			Namespace:   req.PodNamespace,
-			Name:        req.PodName,
-			Labels:      req.Labels,
-			Annotations: req.Annotations,
-		}, int(math.Ceil(request)))
-	if err != nil {
-		general.Errorf("GetContainerMemoryBandwidthRequest failed with error: %v", err)
-		return
-	}
-
-	general.InfoS("GetContainerMemoryBandwidthRequest",
-		"podNamespace", req.PodNamespace,
-		"podName", req.PodName,
-		"containerMemoryBandwidthRequest", containerMemoryBandwidthRequest)
-
-	memBWHintUpdates := make([]*memBWHintUpdate, 0, len(preferredHintIndexes))
-	allFalse := true
-	maxLeftAllocatable := math.MinInt
-	for _, i := range preferredHintIndexes {
-		if len(cpuHints[i].Nodes) == 0 {
-			continue
-		}
-
-		memBWHintUpdateResult, err := getPreferenceByMemBW(cpuHints[i].Nodes, containerMemoryBandwidthRequest,
-			numaAllocatedMemBW, p.machineInfo,
-			p.metaServer, req)
-		if err != nil {
-			general.Errorf("getPreferenceByMemBW for hints: %#v failed with error: %v", cpuHints[i].Nodes, err)
-			_ = p.emitter.StoreInt64(util.MetricNameGetMemBWPreferenceFailed, 1, metrics.MetricTypeNameRaw)
-			return
-		}
-
-		if memBWHintUpdateResult.updatedPreferrence {
-			allFalse = false
-		}
-
-		memBWHintUpdates = append(memBWHintUpdates, memBWHintUpdateResult)
-
-		general.Infof("hint: %+v updated preference: %v, leftAllocatable: %d",
-			cpuHints[i].Nodes, memBWHintUpdateResult.updatedPreferrence, memBWHintUpdateResult.leftAllocatable)
-
-		maxLeftAllocatable = general.Max(maxLeftAllocatable, memBWHintUpdateResult.leftAllocatable)
-	}
-
-	updatePreferredCPUHintsByMemBWInPlace(memBWHintUpdates, allFalse, numaExclusive, cpuHints, preferredHintIndexes, maxLeftAllocatable)
-}
-
-func updatePreferredCPUHintsByMemBWInPlace(memBWHintUpdates []*memBWHintUpdate,
-	allFalse, numaExclusive bool, cpuHints []*pluginapi.TopologyHint,
-	preferredHintIndexes []int, maxLeftAllocatable int,
-) {
-	if !allFalse {
-		general.Infof("not all updated hints indicate false")
-		for ui, hi := range preferredHintIndexes {
-			if cpuHints[hi].Preferred != memBWHintUpdates[ui].updatedPreferrence {
-				general.Infof("set hint: %+v preference from %v to %v", cpuHints[hi].Nodes, cpuHints[hi].Preferred, memBWHintUpdates[ui].updatedPreferrence)
-				cpuHints[hi].Preferred = memBWHintUpdates[ui].updatedPreferrence
-			}
-		}
-		return
-	}
-
-	general.Infof("all updated hints indicate false")
-
-	if !numaExclusive {
-		general.Infof("candidate isn't numa exclusive, keep all preferred hints")
-		return
-	}
-
-	for ui, hi := range preferredHintIndexes {
-		if memBWHintUpdates[ui].leftAllocatable == maxLeftAllocatable {
-			general.Infof("hint: %+v with max left allocatable memory bw: %d, set itspreference to true",
-				cpuHints[hi].Nodes, maxLeftAllocatable)
-			cpuHints[hi].Preferred = true
-		} else {
-			cpuHints[hi].Preferred = false
-		}
-	}
-
-	return
-}
-
-func getPreferenceByMemBW(targetNUMANodesUInt64 []uint64,
-	containerMemoryBandwidthRequest int, numaAllocatedMemBW map[int]int,
-	machineInfo *machine.KatalystMachineInfo,
-	metaServer *metaserver.MetaServer, req *pluginapi.ResourceRequest,
-) (*memBWHintUpdate, error) {
-	if req == nil {
-		return nil, fmt.Errorf("empty req")
-	} else if len(targetNUMANodesUInt64) == 0 {
-		return nil, fmt.Errorf("empty targetNUMANodes")
-	} else if machineInfo == nil || machineInfo.ExtraTopologyInfo == nil {
-		return nil, fmt.Errorf("invalid machineInfo")
-	} else if metaServer == nil {
-		return nil, fmt.Errorf("nil metaServer")
-	}
-
-	ret := &memBWHintUpdate{
-		updatedPreferrence: true,
-	}
-
-	targetNUMANodes := make([]int, len(targetNUMANodesUInt64))
-	for i, numaID := range targetNUMANodesUInt64 {
-		var err error
-		targetNUMANodes[i], err = general.CovertUInt64ToInt(numaID)
-		if err != nil {
-			return nil, fmt.Errorf("convert NUMA: %d to int failed with error: %v", numaID, err)
-		}
-	}
-
-	perNUMAMemoryBandwidthRequest := containerMemoryBandwidthRequest / len(targetNUMANodes)
-	copiedNUMAAllocatedMemBW := general.DeepCopyIntToIntMap(numaAllocatedMemBW)
-
-	for _, numaID := range targetNUMANodes {
-		copiedNUMAAllocatedMemBW[numaID] += perNUMAMemoryBandwidthRequest
-	}
-
-	groupID := 0
-	groupNUMAsAllocatedMemBW := make(map[int]int)
-	groupNUMAsAllocatableMemBW := make(map[int]int)
-	visNUMAs := sets.NewInt()
-
-	// aggregate each target NUMA and all its sibling NUMAs into a group.
-	// calculate allocated and allocable memory bandwidth for each group.
-	// currently, if there is one group whose allocated memory bandwidth is greater than its allocatable memory bandwidth,
-	// we will set preferrence of the hint to false.
-	// for the future, we can gather group statistics of each hint,
-	// and to get the most suitable hint, then set its preferrence to true.
-	for _, numaID := range targetNUMANodes {
-		if visNUMAs.Has(numaID) {
-			continue
-		}
-
-		groupNUMAsAllocatableMemBW[groupID] += int(machineInfo.ExtraTopologyInfo.SiblingNumaAvgMBWAllocatableMap[numaID])
-		groupNUMAsAllocatedMemBW[groupID] += copiedNUMAAllocatedMemBW[numaID]
-		visNUMAs.Insert(numaID)
-		for _, siblingNUMAID := range machineInfo.ExtraTopologyInfo.SiblingNumaMap[numaID].UnsortedList() {
-			groupNUMAsAllocatedMemBW[groupID] += copiedNUMAAllocatedMemBW[siblingNUMAID]
-			groupNUMAsAllocatableMemBW[groupID] += int(machineInfo.ExtraTopologyInfo.SiblingNumaAvgMBWAllocatableMap[siblingNUMAID])
-			visNUMAs.Insert(siblingNUMAID)
-		}
-
-		general.InfoS("getPreferenceByMemBW",
-			"podNamespace", req.PodNamespace,
-			"podName", req.PodName,
-			"groupID", groupID,
-			"targetNUMANodes", targetNUMANodes,
-			"groupNUMAsAllocatedMemBW", groupNUMAsAllocatedMemBW[groupID],
-			"groupNUMAsAllocatableMemBW", groupNUMAsAllocatableMemBW[groupID])
-
-		if ret.updatedPreferrence && groupNUMAsAllocatedMemBW[groupID] > groupNUMAsAllocatableMemBW[groupID] {
-			ret.updatedPreferrence = false
-		}
-
-		ret.leftAllocatable += (groupNUMAsAllocatableMemBW[groupID] - groupNUMAsAllocatedMemBW[groupID])
-		groupID++
-	}
-
-	return ret, nil
 }
 
 func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
@@ -749,7 +484,7 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 				} else {
 					general.Errorf("pod: %s/%s, container: %s request inplace update resize, but no enough resource for it in current NUMA",
 						req.PodNamespace, req.PodName, req.ContainerName)
-					return nil, errNoAvailableCPUHints
+					return nil, cpuutil.ErrNoAvailableCPUHints
 				}
 			} else {
 				general.Infof("pod: %s/%s, container: %s request inplace update resize, there is enough resource for it in current NUMA",
@@ -783,101 +518,27 @@ func (p *DynamicPolicy) clearContainerAndRegenerateMachineState(podEntries state
 	return machineState, nil
 }
 
-func (p *DynamicPolicy) populateHintsByPreferPolicy(numaNodes []int, preferPolicy string,
-	hints *pluginapi.ListOfTopologyHints, machineState state.NUMANodeMap, request float64,
-) {
-	preferIndexes, maxLeft, minLeft := []int{}, float64(-1), math.MaxFloat64
-	for _, nodeID := range numaNodes {
-		availableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(p.reservedCPUs)
-		if !cpuutil.CPUIsSufficient(request, availableCPUQuantity) {
-			general.Warningf("numa_binding shared_cores container skip NUMA: %d available: %.3f request: %.3f",
-				nodeID, availableCPUQuantity, request)
-			continue
-		}
-
-		hints.Hints = append(hints.Hints, &pluginapi.TopologyHint{
-			Nodes: []uint64{uint64(nodeID)},
-		})
-
-		curLeft := availableCPUQuantity - request
-
-		general.Infof("NUMA: %d, left cpu quantity: %.3f", nodeID, curLeft)
-
-		if preferPolicy == cpuconsts.CPUNUMAHintPreferPolicyPacking {
-			if curLeft < minLeft {
-				minLeft = curLeft
-				preferIndexes = []int{len(hints.Hints) - 1}
-			} else if curLeft == minLeft {
-				preferIndexes = append(preferIndexes, len(hints.Hints)-1)
-			}
-		} else {
-			if curLeft > maxLeft {
-				maxLeft = curLeft
-				preferIndexes = []int{len(hints.Hints) - 1}
-			} else if curLeft == maxLeft {
-				preferIndexes = append(preferIndexes, len(hints.Hints)-1)
-			}
-		}
-	}
-
-	if len(preferIndexes) >= 0 {
-		for _, preferIndex := range preferIndexes {
-			hints.Hints[preferIndex].Preferred = true
-		}
-	}
-}
-
-func (p *DynamicPolicy) filterNUMANodesByHintPreferLowThreshold(request float64,
-	machineState state.NUMANodeMap, numaNodes []int,
-) ([]int, []int) {
-	filteredNUMANodes := make([]int, 0, len(numaNodes))
-	filteredOutNUMANodes := make([]int, 0, len(numaNodes))
-
-	for _, nodeID := range numaNodes {
-		availableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(p.reservedCPUs)
-		allocatableCPUQuantity := machineState[nodeID].GetFilteredDefaultCPUSet(nil, nil).Difference(p.reservedCPUs).Size()
-
-		if allocatableCPUQuantity == 0 {
-			general.Warningf("numa: %d allocatable cpu quantity is zero", nodeID)
-			continue
-		}
-
-		availableRatio := availableCPUQuantity / float64(allocatableCPUQuantity)
-
-		general.Infof("NUMA: %d, availableCPUQuantity: %.3f, allocatableCPUQuantity: %d, availableRatio: %.3f, cpuNUMAHintPreferLowThreshold:%.3f",
-			nodeID, availableCPUQuantity, allocatableCPUQuantity, availableRatio, p.cpuNUMAHintPreferLowThreshold)
-
-		if availableRatio >= p.cpuNUMAHintPreferLowThreshold {
-			filteredNUMANodes = append(filteredNUMANodes, nodeID)
-		} else {
-			filteredOutNUMANodes = append(filteredOutNUMANodes, nodeID)
-		}
-	}
-
-	return filteredNUMANodes, filteredOutNUMANodes
-}
-
-func (p *DynamicPolicy) filterNUMANodesByNonBindingSharedRequestedQuantity(nonBindingSharedRequestedQuantity,
-	nonBindingNUMAsCPUQuantity int,
+func (p *DynamicPolicy) filterNUMANodesByNonBindingSharedRequestedQuantity(
+	request float64,
+	nonBindingSharedRequestedQuantity, nonBindingNUMAsCPUQuantity int,
 	nonBindingNUMAs machine.CPUSet,
 	machineState state.NUMANodeMap, numaNodes []int,
 ) []int {
 	filteredNUMANodes := make([]int, 0, len(numaNodes))
 
 	for _, nodeID := range numaNodes {
+		allocatableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(p.reservedCPUs)
 		if nonBindingNUMAs.Contains(nodeID) {
-			allocatableCPUQuantity := machineState[nodeID].GetFilteredDefaultCPUSet(nil, nil).Difference(p.reservedCPUs).Size()
-
 			// take this non-binding NUMA for candidate shared_cores with numa_binding,
 			// won't cause non-binding shared_cores in short supply
-			if nonBindingNUMAsCPUQuantity-allocatableCPUQuantity >= nonBindingSharedRequestedQuantity {
+			if cpuutil.CPUIsSufficient(float64(nonBindingSharedRequestedQuantity), float64(nonBindingNUMAsCPUQuantity)-allocatableCPUQuantity) {
 				filteredNUMANodes = append(filteredNUMANodes, nodeID)
 			} else {
 				general.Infof("filter out NUMA: %d since taking it will cause non-binding shared_cores in short supply;"+
-					" nonBindingNUMAsCPUQuantity: %d, targetNUMAAllocatableCPUQuantity: %d, nonBindingSharedRequestedQuantity: %d",
-					nodeID, nonBindingNUMAsCPUQuantity, allocatableCPUQuantity, nonBindingSharedRequestedQuantity)
+					" nonBindingNUMAsCPUQuantity: %d, targetNUMAAllocatableCPUQuantity: %f, nonBindingSharedRequestedQuantity: %d, request: %f",
+					nodeID, nonBindingNUMAsCPUQuantity, allocatableCPUQuantity, nonBindingSharedRequestedQuantity, request)
 			}
-		} else {
+		} else if cpuutil.CPUIsSufficient(request, allocatableCPUQuantity) {
 			filteredNUMANodes = append(filteredNUMANodes, nodeID)
 		}
 	}
@@ -895,8 +556,8 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(request float64,
 	nonBindingSharedRequestedQuantity := state.GetNonBindingSharedRequestedQuantityFromPodEntries(podEntries, nil, p.getContainerRequestedCores)
 
 	reqAnnotations := req.Annotations
-	numaNodes := p.filterNUMANodesByNonBindingSharedRequestedQuantity(nonBindingSharedRequestedQuantity,
-		nonBindingNUMAsCPUQuantity, nonBindingNUMAs, machineState,
+	numaNodes := p.filterNUMANodesByNonBindingSharedRequestedQuantity(
+		request, nonBindingSharedRequestedQuantity, nonBindingNUMAsCPUQuantity, nonBindingNUMAs, machineState,
 		machineState.GetFilteredNUMASetWithAnnotations(state.WrapAllocationMetaFilterWithAnnotations(commonstate.CheckNUMABindingSharedCoresAntiAffinity), reqAnnotations).ToSliceInt())
 
 	hints := &pluginapi.ListOfTopologyHints{}
@@ -919,39 +580,17 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(request float64,
 		})
 	}
 
-	metricPolicyEnabled, _ := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameMetricPreferredNUMAAllocation, p.enableMetricPreferredNumaAllocation, p.conf)
-	general.Infof("metricPolicyEnabled: %v", metricPolicyEnabled)
-	if metricPolicyEnabled {
-		_ = p.emitter.StoreInt64(util.MetricNameMetricBasedNUMAAllocationEnabled, 1, metrics.MetricTypeNameCount)
-		err = p.populateHintsByMetricPolicy(numaNodes, hints, machineState, request)
+	// populate hints by available numa nodes
+	cpuutil.PopulateHintsByAvailableNUMANodes(numaNodes, hints, true)
 
-		if err != nil {
-			general.Errorf("populateHintsByMetricPolicy failed with error: %v", err)
-		} else {
-			_ = p.emitter.StoreInt64(util.MetricNameMetricBasedNUMAAllocationSuccess, 1, metrics.MetricTypeNameCount)
-		}
-	}
-
-	if !metricPolicyEnabled || err != nil {
-		switch p.cpuNUMAHintPreferPolicy {
-		case cpuconsts.CPUNUMAHintPreferPolicyPacking, cpuconsts.CPUNUMAHintPreferPolicySpreading:
-			general.Infof("apply %s policy on NUMAs: %+v", p.cpuNUMAHintPreferPolicy, numaNodes)
-			p.populateHintsByPreferPolicy(numaNodes, p.cpuNUMAHintPreferPolicy, hints, machineState, request)
-		case cpuconsts.CPUNUMAHintPreferPolicyDynamicPacking:
-			filteredNUMANodes, filteredOutNUMANodes := p.filterNUMANodesByHintPreferLowThreshold(request, machineState, numaNodes)
-
-			if len(filteredNUMANodes) > 0 {
-				general.Infof("dynamically apply packing policy on NUMAs: %+v", filteredNUMANodes)
-				p.populateHintsByPreferPolicy(filteredNUMANodes, cpuconsts.CPUNUMAHintPreferPolicyPacking, hints, machineState, request)
-				p.populateHintsByAvailableNUMANodes(filteredOutNUMANodes, hints, false)
-			} else {
-				general.Infof("empty filteredNUMANodes, dynamically apply spreading policy on NUMAs: %+v", numaNodes)
-				p.populateHintsByPreferPolicy(numaNodes, cpuconsts.CPUNUMAHintPreferPolicySpreading, hints, machineState, request)
-			}
-		default:
-			general.Infof("unknown policy: %s, apply default spreading policy on NUMAs: %+v", p.cpuNUMAHintPreferPolicy, numaNodes)
-			p.populateHintsByPreferPolicy(numaNodes, cpuconsts.CPUNUMAHintPreferPolicySpreading, hints, machineState, request)
-		}
+	// optimize hints by shared_cores numa_binding hint optimizer
+	err = p.sharedCoresNUMABindingHintOptimizer.OptimizeHints(
+		hintoptimizer.Request{
+			ResourceRequest: req,
+			CPURequest:      request,
+		}, hints)
+	if err != nil {
+		return nil, err
 	}
 
 	// NOTE: because grpc is inability to distinguish between an empty array and nil,
@@ -960,14 +599,7 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(request float64,
 	if len(hints.Hints) == 0 {
 		general.Warningf("calculateHints got no available cpu hints for snb pod: %s/%s, container: %s",
 			req.PodNamespace, req.PodName, req.ContainerName)
-		return nil, errNoAvailableCPUHints
-	}
-
-	// optimize hints by shared_cores numa_binding hint optimizer
-	// TODO: refactor the HintOptimizer interface to support multiple plugins
-	err = p.sharedCoresNUMABindingHintOptimizer.OptimizeHints(req, hints, machineState)
-	if err != nil {
-		return nil, err
+		return nil, cpuutil.ErrNoAvailableCPUHints
 	}
 
 	// populate hints by already existed numa binding result
@@ -1036,17 +668,6 @@ func (p *DynamicPolicy) getSharedCoresNUMABindingResultFromAnnotation(req *plugi
 	}
 
 	return numaSet, nil
-}
-
-func (p *DynamicPolicy) populateHintsByAvailableNUMANodes(numaNodes []int,
-	hints *pluginapi.ListOfTopologyHints, preferred bool,
-) {
-	for _, nodeID := range numaNodes {
-		hints.Hints = append(hints.Hints, &pluginapi.TopologyHint{
-			Nodes:     []uint64{uint64(nodeID)},
-			Preferred: preferred,
-		})
-	}
 }
 
 func (p *DynamicPolicy) filterNUMANodesByNonBindingReclaimedRequestedQuantity(nonBindingReclaimedRequestedQuantity,
