@@ -25,6 +25,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction/strategy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/metricthreshold"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
@@ -172,6 +173,12 @@ func (p *DynamicPolicy) populateHintsByMetricPolicy(numaNodes []int,
 
 	tmpHints := make([]*pluginapi.TopologyHint, 0, len(numaNodes))
 	for _, numaID := range numaNodes {
+		availableCPUQuantity := machineState[numaID].GetAvailableCPUQuantity(p.reservedCPUs)
+		if !cpuutil.CPUIsSufficient(request, availableCPUQuantity) {
+			general.Warningf("numa_binding shared_cores container skip NUMA: %d available: %.3f request: %.3f",
+				numaID, availableCPUQuantity, request)
+			continue
+		}
 		prefer := true
 		for thresholdName, resourceName := range metricthreshold.ThresholdNameToResourceName {
 			threshold, found := thresholdNameToValue[thresholdName]
