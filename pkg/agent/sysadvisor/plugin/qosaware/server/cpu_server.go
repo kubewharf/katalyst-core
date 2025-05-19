@@ -25,7 +25,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/opencontainers/runc/libcontainer/configs"
 	"github.com/samber/lo"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
@@ -353,7 +352,7 @@ func (cs *cpuServer) assembleCgroupConfig(advisorResp *types.InternalCPUCalculat
 			if ok && cpuResource.Quota > 0 {
 				quota = int64(cpuResource.Quota * DefaultCFSCPUPeriod)
 			}
-			resourceConf := &configs.Resources{
+			resourceConf := &common.CgroupResources{
 				CpuQuota:  quota,
 				CpuPeriod: DefaultCFSCPUPeriod,
 			}
@@ -723,7 +722,7 @@ func (cs *cpuServer) assemblePoolEntries(advisorResp *types.InternalCPUCalculati
 
 			overlapSize := advisorResp.GetPoolOverlapInfo(commonstate.PoolNameReclaim, numaID)
 			if len(overlapSize) == 0 {
-				// If share pool not exists，join reclaim pool directly
+				// If share pool not exists, join reclaim pool directly
 				block := NewBlock(uint64(reclaimCPU.Size), "")
 				numaCalculationResult := &cpuadvisor.NumaCalculationResult{Blocks: []*cpuadvisor.Block{block}}
 

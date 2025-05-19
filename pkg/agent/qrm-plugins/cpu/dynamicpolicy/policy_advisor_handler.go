@@ -25,7 +25,6 @@ import (
 	"path"
 	"time"
 
-	"github.com/opencontainers/runc/libcontainer/configs"
 	"github.com/samber/lo"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
@@ -520,7 +519,7 @@ func (p *DynamicPolicy) applyCgroupConfigs(resp *advisorapi.ListAndWatchResponse
 			continue
 		}
 
-		resources := &configs.Resources{}
+		resources := &common.CgroupResources{}
 		err := json.Unmarshal([]byte(cgConf), resources)
 		if err != nil {
 			return fmt.Errorf("unmarshal %s: %s failed with error: %v",
