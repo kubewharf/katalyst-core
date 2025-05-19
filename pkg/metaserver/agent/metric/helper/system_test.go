@@ -73,7 +73,7 @@ func TestGetIsVm(t *testing.T) {
 		{
 			name: "test",
 			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
-				store.SetByStringIndex(consts.MetricInfoIsVM, "true")
+				store.SetByStringIndex(consts.MetricInfoIsVM, true)
 			},
 			wantBool: true,
 			wantStr:  "true",
@@ -81,7 +81,7 @@ func TestGetIsVm(t *testing.T) {
 		{
 			name: "test",
 			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
-				store.SetByStringIndex(consts.MetricInfoIsVM, "false")
+				store.SetByStringIndex(consts.MetricInfoIsVM, false)
 			},
 			wantBool: false,
 			wantStr:  "false",
