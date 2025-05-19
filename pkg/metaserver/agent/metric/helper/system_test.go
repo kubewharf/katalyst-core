@@ -127,7 +127,7 @@ func TestGetIsVm(t *testing.T) {
 			store := metricsFetcher.(*metric.FakeMetricsFetcher)
 			tt.setFakeMetric(store)
 
-			wantBool, wantStr := GetIsVm(metricsFetcher)
+			wantBool, wantStr := GetIsVM(metricsFetcher)
 			assert.Equalf(t, tt.wantBool, wantBool, "GetCpuCodeName")
 			assert.Equalf(t, tt.wantStr, wantStr, "GetCpuCodeName")
 		})
