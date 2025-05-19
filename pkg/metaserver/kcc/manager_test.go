@@ -33,7 +33,6 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
-	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	pkgconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
@@ -74,8 +73,7 @@ var (
 )
 
 func generateTestConfiguration(t *testing.T, nodeName string, dir string) *pkgconfig.Configuration {
-	testConfiguration, err := options.NewOptions().Config()
-	require.NoError(t, err)
+	testConfiguration := pkgconfig.NewConfiguration()
 	require.NotNil(t, testConfiguration)
 
 	testConfiguration.NodeName = nodeName
