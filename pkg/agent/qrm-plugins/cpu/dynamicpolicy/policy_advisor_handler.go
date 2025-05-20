@@ -532,7 +532,7 @@ func (p *DynamicPolicy) applyCgroupConfigs(resp *advisorapi.ListAndWatchResponse
 
 		err = common.ApplyCgroupConfigs(calculationInfo.CgroupPath, resources)
 		if err != nil {
-			return fmt.Errorf("ApplyCgroupConfigs failed: %s", calculationInfo.CgroupPath)
+			return fmt.Errorf("ApplyCgroupConfigs failed: %s, %v", calculationInfo.CgroupPath, err)
 		}
 	}
 

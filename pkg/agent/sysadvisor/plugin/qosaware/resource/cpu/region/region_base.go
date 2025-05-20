@@ -949,12 +949,18 @@ func (r *QoSRegionBase) getEffectiveReclaimResource() (quota float64, cpusetSize
 	if r.isNumaBinding {
 		numaID = r.bindingNumas.ToSliceInt()[0]
 	}
+
+	quotaCtrlKnobEnabled, err := metacache.IsQuotaCtrlKnobEnabled(r.metaReader)
+	if err != nil {
+		return 0, 0, err
+	}
+
 	reclaimPath := common.GetReclaimRelativeRootCgroupPath(r.conf.ReclaimRelativeRootCgroupPath, numaID)
 	cpuStats, err := cgroupmgr.GetCPUWithRelativePath(reclaimPath)
 	if err != nil {
 		return 0, 0, err
 	}
-	if cpuStats.CpuQuota == math.MaxInt || cpuStats.CpuQuota == common.CPUQuotaUnlimit {
+	if cpuStats.CpuQuota == math.MaxInt || cpuStats.CpuQuota == common.CPUQuotaUnlimit || !quotaCtrlKnobEnabled {
 		quota = common.CPUQuotaUnlimit
 	} else {
 		quota = float64(cpuStats.CpuQuota) / float64(cpuStats.CpuPeriod)

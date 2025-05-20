@@ -75,9 +75,17 @@ func (p *PolicyCanonical) sanityCheck() error {
 	)
 
 	isLegal = true
-	if p.ControlKnobs != nil {
-		v, ok := p.ControlKnobs[configapi.ControlKnobNonReclaimedCPURequirement]
-		if !ok || v.Value <= 0 {
+	if p.ControlKnobs == nil || len(p.ControlKnobs) <= 0 {
+		isLegal = false
+	} else {
+		v1, ok1 := p.ControlKnobs[configapi.ControlKnobNonReclaimedCPURequirement]
+		v2, ok2 := p.ControlKnobs[configapi.ControlKnobReclaimedCoresCPUQuota]
+
+		if !ok1 && !ok2 {
+			isLegal = false
+		} else if ok1 && v1.Value <= 0 {
+			isLegal = false
+		} else if ok2 && v2.Value <= 0 {
 			isLegal = false
 		}
 	}
