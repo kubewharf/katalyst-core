@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -65,11 +66,12 @@ func (l *longPoller) setDataUpdated() {
 
 type powerCapService struct {
 	sync.RWMutex
-	started        bool
-	capInstruction *capper.CapInstruction
-	notify         *fanoutNotifier
-	emitter        metrics.MetricEmitter
-	grpcServer     *grpcServer
+	started         bool
+	capInstruction  *capper.CapInstruction
+	notify          *fanoutNotifier
+	inGetAdviceCall uint32
+	emitter         metrics.MetricEmitter
+	grpcServer      *grpcServer
 
 	longPoller *longPoller
 }
@@ -89,7 +91,7 @@ func (p *powerCapService) getCapInstruction() *capper.CapInstruction {
 }
 
 func (p *powerCapService) IsCapperReady() bool {
-	return !p.notify.IsEmpty()
+	return !p.notify.IsEmpty() || atomic.LoadUint32(&p.inGetAdviceCall) != 0
 }
 
 func (p *powerCapService) Stop() error {
@@ -144,6 +146,8 @@ func (p *powerCapService) GetAdvice(ctx context.Context, request *advisorsvc.Get
 // getAdviceWithClientReadySignal has test hook point clientReadyCh, which serves as client signal that it has got hold of
 // data-ready channel and server can 'broadcast' the test update
 func (p *powerCapService) getAdviceWithClientReadySignal(ctx context.Context, request *advisorsvc.GetAdviceRequest, clientReadyCh chan<- struct{}) (*advisorsvc.GetAdviceResponse, error) {
+	atomic.StoreUint32(&p.inGetAdviceCall, 1)
+	defer atomic.StoreUint32(&p.inGetAdviceCall, 0)
 	powermetric.EmitGetAdviceCalled(p.emitter)
 	general.InfofV(6, "pap: get advice request: %v", general.ToString(request))
 
