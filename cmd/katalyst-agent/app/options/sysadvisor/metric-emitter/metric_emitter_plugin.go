@@ -37,6 +37,7 @@ type MetricEmitterPluginOptions struct {
 
 	NodeMetricLabels  []string
 	NodeMetricMapping map[string]string
+	NUMAMetricMapping map[string]string
 
 	MetricSyncers []string
 }
@@ -74,7 +75,8 @@ func (o *MetricEmitterPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"node labels to be added in metric selector lists")
 	fs.StringToStringVar(&o.NodeMetricMapping, "metric-node-metrics", o.NodeMetricMapping,
 		"the metric name for node-level to override the default collecting logic")
-
+	fs.StringToStringVar(&o.NUMAMetricMapping, "metric-node-numa-metrics", o.NUMAMetricMapping,
+		"the metric name for node-numa-level to override the default collecting logic")
 	fs.StringSliceVar(&o.MetricSyncers, "metric-syncers", o.MetricSyncers,
 		"those syncers that should be enabled")
 }
@@ -106,6 +108,9 @@ func (o *MetricEmitterPluginOptions) ApplyTo(c *metricemitter.MetricEmitterPlugi
 		c.MetricEmitterNodeConfiguration.MetricMapping = o.NodeMetricMapping
 	}
 
+	if o.NUMAMetricMapping != nil && len(o.NUMAMetricMapping) != 0 {
+		c.MetricEmitterNodeConfiguration.NUMAMetricMapping = o.NUMAMetricMapping
+	}
 	c.MetricSyncers = o.MetricSyncers
 	return nil
 }

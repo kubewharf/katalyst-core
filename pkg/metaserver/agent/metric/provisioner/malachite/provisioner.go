@@ -685,8 +685,6 @@ func (m *MalachiteMetricsProvisioner) processSystemNUMAComputeData(systemCompute
 		return
 	}
 
-	general.InfoS("debug 1", "system compute data", systemComputeData)
-
 	updateTime := time.Unix(systemComputeData.UpdateTime, 0)
 	// report numa's total memory bandwidth usage
 	ccdMbmTotalPsData := systemComputeData.L3Mon.L3Mon
@@ -698,10 +696,13 @@ func (m *MalachiteMetricsProvisioner) processSystemNUMAComputeData(systemCompute
 			continue
 		}
 		numaMbmTotalPsData[numaID] += ccdMbmTotalPs.MbmTotalBytes
+		// for AMD milan & AMD genoa, it also needs to sum the victim mbm
+		if strings.Contains(systemComputeData.CPUCodeName, consts.AMDMilanArch) || strings.Contains(systemComputeData.CPUCodeName, consts.AMDGenoaArch) {
+			numaMbmTotalPsData[numaID] += ccdMbmTotalPs.MbmVictimBytesPerSec
+		}
 	}
 
 	for numaID, totalMbm := range numaMbmTotalPsData {
-		general.InfoS("debug 2", "numa", numaID, "mbm_total", totalMbm)
 		m.metricStore.SetNumaMetric(numaID, consts.MetricTotalMemBandwidthNuma, utilmetric.MetricData{Value: float64(totalMbm), Time: &updateTime})
 	}
 }
@@ -768,7 +769,6 @@ func (m *MalachiteMetricsProvisioner) processCgroupMemoryData(cgroupPath string,
 	if cgStats == nil {
 		return
 	}
-	general.InfoS("debug container", "cgroup path", cgroupPath, "cgroup stats", cgStats)
 
 	if cgStats.CgroupType == "V1" && cgStats.V1 != nil {
 		mem := cgStats.V1.Memory
@@ -790,8 +790,6 @@ func (m *MalachiteMetricsProvisioner) processCgroupMemoryData(cgroupPath string,
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemKswapdstealCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(mem.KswapdSteal)})
 
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemOomCgroup, utilmetric.MetricData{Time: &updateTime, Value: float64(mem.BpfMemStat.OomCnt)})
-		general.InfoS("debug container v1", "mbm total", mem.Mb)
-		m.setCgroupMbmTotalMetric(cgroupPath, mem.Mb, &updateTime)
 		// m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemScaleFactorCgroup, utilmetric.MetricData{Time: &updateTime, Value: general.UIntPointerToFloat64(mem.WatermarkScaleFactor)})
 	} else if cgStats.CgroupType == "V2" && cgStats.V2 != nil {
 		mem := cgStats.V2.Memory
@@ -815,8 +813,6 @@ func (m *MalachiteMetricsProvisioner) processCgroupMemoryData(cgroupPath string,
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemInactiveAnonCgroup, utilmetric.MetricData{Value: float64(mem.MemStats.InactiveAnon), Time: &updateTime})
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemInactiveFileCgroup, utilmetric.MetricData{Value: float64(mem.MemStats.InactiveFile), Time: &updateTime})
 		m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemMappedCgroup, utilmetric.MetricData{Value: float64(mem.MemStats.FileMapped), Time: &updateTime})
-		general.InfoS("debug container v2", "mbm total", mem.Mb)
-		m.setCgroupMbmTotalMetric(cgroupPath, mem.Mb, &updateTime)
 	}
 }
 
@@ -1172,6 +1168,7 @@ func (m *MalachiteMetricsProvisioner) processContainerMemoryData(podUID, contain
 
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemOomContainer,
 			utilmetric.MetricData{Value: float64(mem.BpfMemStat.OomCnt), Time: &updateTime})
+		m.setContainerMbmTotalMetric(podUID, containerName, mem.Mb, &updateTime)
 		// m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemScaleFactorContainer,
 		//	utilmetric.MetricData{Value: general.UIntPointerToFloat64(mem.WatermarkScaleFactor), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemUpdateTimeContainer,
@@ -1224,6 +1221,7 @@ func (m *MalachiteMetricsProvisioner) processContainerMemoryData(podUID, contain
 			utilmetric.MetricData{Value: float64(mem.MemStats.InactiveFile), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemMappedContainer,
 			utilmetric.MetricData{Value: float64(mem.MemStats.FileMapped), Time: &updateTime})
+		m.setContainerMbmTotalMetric(podUID, containerName, mem.Mb, &updateTime)
 	}
 }
 

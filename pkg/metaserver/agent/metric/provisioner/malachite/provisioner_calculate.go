@@ -21,6 +21,7 @@ package malachite
 import (
 	"fmt"
 	"io/ioutil"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -283,15 +284,16 @@ func (m *MalachiteMetricsProvisioner) setContainerRateMetric(podUID, containerNa
 		metric.MetricData{Value: deltaValueFunc() / float64(timeDeltaInSec), Time: &updateTime})
 }
 
-// setCgroupMbmTotalMetric calcuate the total memory bandwidth usage of a container
-func (m *MalachiteMetricsProvisioner) setCgroupMbmTotalMetric(cgroupPath string, data types.MbmbandData, updateTime *time.Time) {
+// setContainerMbmTotalMetric calcuate the total memory bandwidth usage of a container
+func (m *MalachiteMetricsProvisioner) setContainerMbmTotalMetric(podUID, containerName string, data types.MbmbandData, updateTime *time.Time) {
 	var totalMbm uint64
 	for _, item := range data.Mbm {
 		if item.MBMTotalBytes != nil {
 			totalMbm += *item.MBMTotalBytes
 		}
 	}
-	m.metricStore.SetCgroupMetric(cgroupPath, consts.MetricMemMappedCgroup, utilmetric.MetricData{Value: float64(totalMbm), Time: updateTime})
+	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMbmTotalContainer,
+		utilmetric.MetricData{Value: float64(totalMbm), Time: updateTime})
 }
 
 // uint64CounterDelta calculate the delta between two uint64 counters
@@ -327,7 +329,7 @@ func getNumaIDByL3CacheID(l3ID int) (int, error) {
 		}
 
 		cacheIDPath := filepath.Join(cpuPath, file.Name(), consts.SystemL3CacheSubPath)
-		cacheIDBytes, err := ioutil.ReadFile(cacheIDPath)
+		cacheIDBytes, err := os.ReadFile(cacheIDPath)
 		if err != nil {
 			continue
 		}
@@ -354,7 +356,7 @@ func getNumaIDByL3CacheID(l3ID int) (int, error) {
 				}
 
 				cpuListPath := filepath.Join(nodePath, nodeFile.Name(), "cpulist")
-				cpuListBytes, err := ioutil.ReadFile(cpuListPath)
+				cpuListBytes, err := os.ReadFile(cpuListPath)
 				if err != nil {
 					continue
 				}

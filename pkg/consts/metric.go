@@ -269,6 +269,10 @@ const (
 	MetricMemInactiveAnonContainer       = "mem.inactiveanon.container"
 	MetricMemInactiveFileContainer       = "mem.inactivefile.container"
 	MetricMemMappedContainer             = "mem.mapped.container"
+
+	MetricMbmTotalContainer  = "mbm.total.container"
+	MetricMbmlocalContainer  = "mbm.local.container"
+	MetricMbmVictimContainer = "mbm.victim.container"
 )
 
 // container blkio metrics
@@ -392,10 +396,6 @@ const (
 	MetricMemInactiveAnonCgroup       = "mem.inactiveanon.cgroup"
 	MetricMemInactiveFileCgroup       = "mem.inactivefile.cgroup"
 	MetricMemMappedCgroup             = "mem.mapped.cgroup"
-
-	MetricMbmTotalCgroup = "mbm.total.cgroup"
-	MetricMbmlocalCgroup = "mbm.local.cgroup"
-	MetricMbmVictimgroup = "mbm.victim.cgroup"
 )
 
 // Cgroup blkio metrics

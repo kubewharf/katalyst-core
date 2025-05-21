@@ -99,3 +99,8 @@ const (
 	SystemCpuDir         = "/sys/devices/system/cpu/"
 	SystemL3CacheSubPath = "cache/index3/id"
 )
+
+const (
+	AMDMilanArch = "Zen3"
+	AMDGenoaArch = "Zen4"
+)

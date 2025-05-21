@@ -18,6 +18,7 @@ package node
 
 import (
 	"context"
+	"strconv"
 	"testing"
 	"time"
 
@@ -128,4 +129,103 @@ func TestReceiveRawNode(t *testing.T) {
 	}()
 
 	s.receiveRawNode(ctx, rChan)
+}
+
+type testResp struct {
+	tags []metrics.MetricTag
+	res  float64
+}
+
+type testMetrics struct {
+	res chan testResp
+	metrics.DummyMetrics
+}
+
+func (t testMetrics) StoreFloat64(_ string, data float64, _ metrics.MetricTypeName, tags ...metrics.MetricTag) error {
+	t.res <- testResp{
+		res:  data,
+		tags: tags,
+	}
+	return nil
+}
+
+func TestMetricSyncerNode_receiveRawNodeNUMA(t *testing.T) {
+	t.Parallel()
+
+	testTimestamp := time.Date(2024, 11, 12, 0, 0, 0, 0, time.Local)
+	testUnixTime := testTimestamp.UnixMilli()
+
+	type fields struct {
+		numaMetricMapping map[string]string
+	}
+	type args struct {
+		resp metrictypes.NotifiedResponse
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		args   args
+		want   testResp
+	}{
+		{
+			name: "test",
+			fields: fields{
+				numaMetricMapping: nodeNUMARawMetricNameMapping,
+			},
+			args: args{
+				resp: metrictypes.NotifiedResponse{
+					MetricData: metricutil.MetricData{
+						Value: 100,
+						Time:  &testTimestamp,
+					},
+					Req: metrictypes.NotifiedRequest{
+						MetricName: consts.MetricMemBandwidthReadNuma,
+						NumaID:     0,
+					},
+				},
+			},
+			want: testResp{
+				tags: []metrics.MetricTag{
+					{
+						Key: "object",
+						Val: "nodes",
+					},
+					{
+						Key: "object_name",
+						Val: "",
+					},
+					{
+						Key: "timestamp",
+						Val: strconv.Itoa(int(testUnixTime)),
+					},
+					{
+						Key: "selector_numa",
+						Val: "0",
+					},
+				},
+				res: 100,
+			},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			res := make(chan testResp)
+			defer close(res)
+			n := &MetricSyncerNode{
+				numaMetricMapping: tt.fields.numaMetricMapping,
+				dataEmitter:       testMetrics{res: res},
+				node:              &v1.Node{},
+			}
+			rChan := make(chan metrictypes.NotifiedResponse)
+			defer close(rChan)
+			go n.receiveRawNUMA(context.TODO(), rChan)
+			go func() {
+				rChan <- tt.args.resp
+			}()
+			result := <-res
+			assert.Equal(t, tt.want, result)
+		})
+	}
 }
