@@ -141,12 +141,13 @@ func Test_powerCapService_getAdviceWithClientReadySignal(t *testing.T) {
 			}
 
 			clientReadyCh := make(chan struct{})
-			inGetAdvice := false
+			inGetAdvice := atomic.LoadInt32(&p.activeGetAdvices) > 0
+			assert.False(t, inGetAdvice, "false as not yet run GetAdvice call")
 			go func() {
 				<-clientReadyCh
 				p.Lock()
 				defer p.Unlock()
-				inGetAdvice = atomic.LoadUint32(&p.inGetAdviceCall) != 0
+				inGetAdvice = atomic.LoadInt32(&p.activeGetAdvices) > 0
 				p.capInstruction = tt.fields.capInstruction
 				p.longPoller.setDataUpdated()
 			}()
@@ -159,6 +160,9 @@ func Test_powerCapService_getAdviceWithClientReadySignal(t *testing.T) {
 			}
 			assert.Equalf(t, tt.want, got, "getAdviceWithClientReadySignal(%v, %v)", tt.args.ctx, tt.args.request)
 			assert.True(t, inGetAdvice, "should have been in GetAdvice")
+
+			inGetAdvice = atomic.LoadInt32(&p.activeGetAdvices) > 0
+			assert.False(t, inGetAdvice, "false as GetAdvice call has done")
 		})
 	}
 }
