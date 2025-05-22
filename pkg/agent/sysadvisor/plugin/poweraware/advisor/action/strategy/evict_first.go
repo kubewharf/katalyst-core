@@ -22,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/advisor/action"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/advisor/action/strategy/assess"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/capper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/spec"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
@@ -118,11 +119,8 @@ func (e *evictFirstStrategy) adjustTargetForConstraintDVFS(actualWatt, desiredWa
 		return 0, errors.New("no room for dvfs")
 	}
 
-	lowerLimit := (100 - leftPercentage) * actualWatt / 100
-	if lowerLimit > desiredWatt {
-		return lowerLimit, nil
-	}
-	return desiredWatt, nil
+	adjustedTarget := e.dvfsTracker.adjustTargetWatt(actualWatt, desiredWatt)
+	return adjustedTarget, nil
 }
 
 func (e *evictFirstStrategy) yieldActionPlan(op, internalOp spec.InternalOp, actualWatt, desiredWatt int, alert spec.PowerAlert, ttl time.Duration) action.PowerAction {
@@ -148,7 +146,9 @@ func (e *evictFirstStrategy) yieldActionPlan(op, internalOp spec.InternalOp, act
 }
 
 func (e *evictFirstStrategy) RecommendAction(actualWatt int, desiredWatt int, alert spec.PowerAlert, internalOp spec.InternalOp, ttl time.Duration) action.PowerAction {
-	e.dvfsTracker.update(actualWatt, desiredWatt)
+	// todo: what if indicator of cpu freq?
+	e.dvfsTracker.update(actualWatt)
+
 	e.emitDVFSAccumulatedEffect(e.dvfsTracker.dvfsAccumEffect)
 	general.InfofV(6, "pap: dvfs effect: %d", e.dvfsTracker.dvfsAccumEffect)
 
@@ -181,6 +181,7 @@ func NewEvictFirstStrategy(emitter metrics.MetricEmitter, prober EvictableProber
 		dvfsTracker: dvfsTracker{
 			dvfsAccumEffect: 0,
 			capperProber:    capperProber,
+			assessor:        assess.NewPowerChangeAssessor(0, 0),
 		},
 		metricsReader: metricsReader,
 	}
