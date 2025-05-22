@@ -21,6 +21,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/advisor/action/strategy/assess"
 )
 
 type mockCapperProber struct {
@@ -68,7 +70,7 @@ func Test_dvfsTracker_update(t *testing.T) {
 				capperProber:    mockProber,
 				dvfsAccumEffect: 3,
 				inDVFS:          false,
-				prevPower:       90,
+				assessor:        assess.NewPowerChangeAssessor(90),
 			},
 		},
 		{
@@ -86,7 +88,7 @@ func Test_dvfsTracker_update(t *testing.T) {
 				capperProber:    mockProber,
 				dvfsAccumEffect: 13,
 				inDVFS:          true,
-				prevPower:       90,
+				assessor:        assess.NewPowerChangeAssessor(90),
 			},
 		},
 		{
@@ -104,7 +106,7 @@ func Test_dvfsTracker_update(t *testing.T) {
 				capperProber:    mockProber,
 				dvfsAccumEffect: 3,
 				inDVFS:          true,
-				prevPower:       101,
+				assessor:        assess.NewPowerChangeAssessor(101),
 			},
 		},
 	}
@@ -116,7 +118,7 @@ func Test_dvfsTracker_update(t *testing.T) {
 				capperProber:    mockProber,
 				dvfsAccumEffect: tt.fields.dvfsUsed,
 				inDVFS:          tt.fields.indvfs,
-				prevPower:       tt.fields.prevPower,
+				assessor:        assess.NewPowerChangeAssessor(tt.fields.prevPower),
 			}
 			d.update(tt.args.actualWatt, tt.args.desiredWatt)
 			assert.Equal(t, &tt.wantDVFSTracker, d)

@@ -16,6 +16,10 @@ limitations under the License.
 
 package strategy
 
+import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/advisor/action/strategy/assess"
+)
+
 // DVFS: Dynamic Voltage Frequency Scaling, is a technique servers use to manage the power consumption.
 // the limit of dvfs effect a voluntary dvfs plan is allowed
 const voluntaryDVFSEffectMaximum = 10
@@ -24,9 +28,9 @@ const voluntaryDVFSEffectMaximum = 10
 type dvfsTracker struct {
 	dvfsAccumEffect int
 	inDVFS          bool
-	prevPower       int
 
 	capperProber CapperProber
+	assessor     assess.Assessor
 }
 
 func (d *dvfsTracker) getDVFSAllowPercent() int {
@@ -43,15 +47,11 @@ func (d *dvfsTracker) isCapperAvailable() bool {
 
 func (d *dvfsTracker) update(actualWatt, desiredWatt int) {
 	// only accumulate when dvfs is engaged
-	if d.prevPower >= 0 && d.inDVFS && d.isCapperAvailable() {
-		// if actual power is more than previous, likely previous round dvfs took no effect; not to take into account
-		if actualWatt < d.prevPower {
-			dvfsEffect := (d.prevPower - actualWatt) * 100 / d.prevPower
-			d.dvfsAccumEffect += dvfsEffect
-		}
+	if d.inDVFS && d.isCapperAvailable() {
+		d.dvfsAccumEffect += d.assessor.AssessChange(actualWatt)
 	}
 
-	d.prevPower = actualWatt
+	d.assessor.Update(actualWatt, desiredWatt)
 }
 
 func (d *dvfsTracker) dvfsEnter() {
@@ -64,6 +64,6 @@ func (d *dvfsTracker) dvfsExit() {
 
 func (d *dvfsTracker) clear() {
 	d.dvfsAccumEffect = 0
-	d.prevPower = 0
 	d.inDVFS = false
+	d.assessor.Clear()
 }

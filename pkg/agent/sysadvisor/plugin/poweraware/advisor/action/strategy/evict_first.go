@@ -22,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/advisor/action"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/advisor/action/strategy/assess"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/capper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/spec"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
@@ -181,6 +182,7 @@ func NewEvictFirstStrategy(emitter metrics.MetricEmitter, prober EvictableProber
 		dvfsTracker: dvfsTracker{
 			dvfsAccumEffect: 0,
 			capperProber:    capperProber,
+			assessor:        assess.NewPowerChangeAssessor(0),
 		},
 		metricsReader: metricsReader,
 	}
