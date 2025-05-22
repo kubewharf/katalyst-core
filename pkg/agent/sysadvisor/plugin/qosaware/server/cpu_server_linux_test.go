@@ -119,18 +119,6 @@ func TestCPUServerUpdate(t *testing.T) {
 							Values: map[string]string{"cgroup_config": defaultCgroupConfig},
 						},
 					},
-					{
-						CgroupPath: "/kubepods/besteffort-0",
-						CalculationResult: &advisorsvc.CalculationResult{
-							Values: map[string]string{"cgroup_config": defaultCgroupConfig},
-						},
-					},
-					{
-						CgroupPath: "/kubepods/besteffort-1",
-						CalculationResult: &advisorsvc.CalculationResult{
-							Values: map[string]string{"cgroup_config": defaultCgroupConfig},
-						},
-					},
 				},
 				Entries: map[string]*cpuadvisor.CalculationEntries{
 					commonstate.PoolNameShare: {
@@ -245,12 +233,6 @@ func TestCPUServerUpdate(t *testing.T) {
 					{
 						CalculationResult: &advisorsvc.CalculationResult{
 							Values: map[string]string{"cpu_numa_headroom": "{}"},
-						},
-					},
-					{
-						CgroupPath: "/kubepods/besteffort",
-						CalculationResult: &advisorsvc.CalculationResult{
-							Values: map[string]string{"cgroup_config": defaultCgroupConfig},
 						},
 					},
 					{
@@ -434,12 +416,6 @@ func TestCPUServerUpdate(t *testing.T) {
 					{
 						CalculationResult: &advisorsvc.CalculationResult{
 							Values: map[string]string{"cpu_numa_headroom": "{}"},
-						},
-					},
-					{
-						CgroupPath: "/kubepods/besteffort",
-						CalculationResult: &advisorsvc.CalculationResult{
-							Values: map[string]string{"cgroup_config": defaultCgroupConfig},
 						},
 					},
 					{
@@ -735,12 +711,6 @@ func TestCPUServerUpdate(t *testing.T) {
 					{
 						CalculationResult: &advisorsvc.CalculationResult{
 							Values: map[string]string{"cpu_numa_headroom": "{}"},
-						},
-					},
-					{
-						CgroupPath: "/kubepods/besteffort",
-						CalculationResult: &advisorsvc.CalculationResult{
-							Values: map[string]string{"cgroup_config": defaultCgroupConfig},
 						},
 					},
 					{
@@ -1053,18 +1023,6 @@ func TestCPUServerUpdate(t *testing.T) {
 							Values: map[string]string{"cgroup_config": defaultCgroupConfig},
 						},
 					},
-					{
-						CgroupPath: "/kubepods/besteffort-0",
-						CalculationResult: &advisorsvc.CalculationResult{
-							Values: map[string]string{"cgroup_config": defaultCgroupConfig},
-						},
-					},
-					{
-						CgroupPath: "/kubepods/besteffort-1",
-						CalculationResult: &advisorsvc.CalculationResult{
-							Values: map[string]string{"cgroup_config": defaultCgroupConfig},
-						},
-					},
 				},
 				Entries: map[string]*cpuadvisor.CalculationEntries{
 					"share-1": {
@@ -1195,18 +1153,6 @@ func TestCPUServerUpdate(t *testing.T) {
 							Values: map[string]string{"cgroup_config": defaultCgroupConfig},
 						},
 					},
-					{
-						CgroupPath: "/kubepods/besteffort-0",
-						CalculationResult: &advisorsvc.CalculationResult{
-							Values: map[string]string{"cgroup_config": defaultCgroupConfig},
-						},
-					},
-					{
-						CgroupPath: "/kubepods/besteffort-1",
-						CalculationResult: &advisorsvc.CalculationResult{
-							Values: map[string]string{"cgroup_config": defaultCgroupConfig},
-						},
-					},
 				},
 				Entries: map[string]*cpuadvisor.CalculationEntries{
 					"share-1": {
@@ -1329,18 +1275,6 @@ func TestCPUServerUpdate(t *testing.T) {
 					},
 					{
 						CgroupPath: "/kubepods/besteffort",
-						CalculationResult: &advisorsvc.CalculationResult{
-							Values: map[string]string{"cgroup_config": defaultCgroupConfig},
-						},
-					},
-					{
-						CgroupPath: "/kubepods/besteffort-0",
-						CalculationResult: &advisorsvc.CalculationResult{
-							Values: map[string]string{"cgroup_config": defaultCgroupConfig},
-						},
-					},
-					{
-						CgroupPath: "/kubepods/besteffort-1",
 						CalculationResult: &advisorsvc.CalculationResult{
 							Values: map[string]string{"cgroup_config": defaultCgroupConfig},
 						},
