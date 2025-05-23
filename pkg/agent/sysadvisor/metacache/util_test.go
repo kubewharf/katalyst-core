@@ -19,12 +19,10 @@ package metacache
 import (
 	"testing"
 
-	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
-
-	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders"
-
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
+	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders/feature_cpu"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 )
 
 func TestUtil_IsQuotaCtrlKnobEnabled(t *testing.T) {
