@@ -18,11 +18,12 @@ package assess
 
 // powerChangeAssessor assesses change effect by power consumption
 type powerChangeAssessor struct {
-	prevPower int
+	accumulatedEffect int
+	prevPower         int
 }
 
-func (p *powerChangeAssessor) AssessTarget(actualWatt int, desiredWatt int, lowerPercent int) int {
-	lowerLimit := lowerPercent * actualWatt / 100
+func (p *powerChangeAssessor) AssessTarget(actualWatt, desiredWatt int, maxDecreasePercent int) int {
+	lowerLimit := (100 - maxDecreasePercent) * actualWatt / 100
 	if lowerLimit > desiredWatt {
 		return lowerLimit
 	}
@@ -30,26 +31,29 @@ func (p *powerChangeAssessor) AssessTarget(actualWatt int, desiredWatt int, lowe
 	return desiredWatt
 }
 
-func (p *powerChangeAssessor) Update(actual, desired int) {
-	p.prevPower = actual
+func (p *powerChangeAssessor) Update(currValue int) {
+	p.prevPower = currValue
 }
 
-func (p *powerChangeAssessor) AssessChange(current int) int {
-	dvfsEffect := 0
+func (p *powerChangeAssessor) AccumulateEffect(current int) int {
+	change := 0
 	// if actual power is more than previous, likely previous round dvfs took no effect;
 	// not to take into account
 	if current > 0 && current < p.prevPower {
-		dvfsEffect = (p.prevPower - current) * 100 / p.prevPower
+		change = (p.prevPower - current) * 100 / p.prevPower
 	}
-	return dvfsEffect
+
+	p.accumulatedEffect += change
+	return p.accumulatedEffect
 }
 
 func (p *powerChangeAssessor) Clear() {
 	p.prevPower = 0
 }
 
-func NewPowerChangeAssessor(value int) Assessor {
+func NewPowerChangeAssessor(effect, preValue int) Assessor {
 	return &powerChangeAssessor{
-		prevPower: value,
+		accumulatedEffect: effect,
+		prevPower:         preValue,
 	}
 }

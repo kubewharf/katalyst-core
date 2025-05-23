@@ -41,23 +41,22 @@ func (d *dvfsTracker) getDVFSAllowPercent() int {
 	return leftPercentage
 }
 
-// adjustTargetWatt yields the target value taking into account actual, desired, and lower boundary
-// It further delegates to the assessor, which does it in line with the resource it assesses with.
-func (d *dvfsTracker) adjustTargetWatt(actualWatt, desiredWatt int, lowerPercent int) int {
-	return d.assessor.AssessTarget(actualWatt, desiredWatt, lowerPercent)
+// adjustTargetWatt yields the target value taking into account the limiting indicator value.
+func (d *dvfsTracker) adjustTargetWatt(actualWatt, desiredWatt int) int {
+	return d.assessor.AssessTarget(actualWatt, desiredWatt, d.getDVFSAllowPercent())
 }
 
 func (d *dvfsTracker) isCapperAvailable() bool {
 	return d.capperProber != nil && d.capperProber.IsCapperReady()
 }
 
-func (d *dvfsTracker) update(actualWatt, desiredWatt int) {
+func (d *dvfsTracker) update(currIndicateValue int) {
 	// only accumulate when dvfs is engaged
 	if d.inDVFS && d.isCapperAvailable() {
-		d.dvfsAccumEffect += d.assessor.AssessChange(actualWatt)
+		d.dvfsAccumEffect = d.assessor.AccumulateEffect(currIndicateValue)
 	}
 
-	d.assessor.Update(actualWatt, desiredWatt)
+	d.assessor.Update(currIndicateValue)
 }
 
 func (d *dvfsTracker) dvfsEnter() {

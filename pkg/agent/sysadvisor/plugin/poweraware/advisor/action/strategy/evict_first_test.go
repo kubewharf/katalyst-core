@@ -213,7 +213,7 @@ func Test_evictFirstStrategy_RecommendAction(t *testing.T) {
 				evictableProber: tt.fields.evictableProber,
 				dvfsTracker: dvfsTracker{
 					dvfsAccumEffect: tt.fields.dvfsUsed,
-					assessor:        assess.NewPowerChangeAssessor(0),
+					assessor:        assess.NewPowerChangeAssessor(10, 0),
 				},
 				metricsReader: nil,
 			}

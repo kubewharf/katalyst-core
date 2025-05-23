@@ -70,7 +70,7 @@ func Test_dvfsTracker_update(t *testing.T) {
 				capperProber:    mockProber,
 				dvfsAccumEffect: 3,
 				inDVFS:          false,
-				assessor:        assess.NewPowerChangeAssessor(90),
+				assessor:        assess.NewPowerChangeAssessor(3, 90),
 			},
 		},
 		{
@@ -88,7 +88,7 @@ func Test_dvfsTracker_update(t *testing.T) {
 				capperProber:    mockProber,
 				dvfsAccumEffect: 13,
 				inDVFS:          true,
-				assessor:        assess.NewPowerChangeAssessor(90),
+				assessor:        assess.NewPowerChangeAssessor(13, 90),
 			},
 		},
 		{
@@ -106,7 +106,7 @@ func Test_dvfsTracker_update(t *testing.T) {
 				capperProber:    mockProber,
 				dvfsAccumEffect: 3,
 				inDVFS:          true,
-				assessor:        assess.NewPowerChangeAssessor(101),
+				assessor:        assess.NewPowerChangeAssessor(3, 101),
 			},
 		},
 	}
@@ -118,9 +118,9 @@ func Test_dvfsTracker_update(t *testing.T) {
 				capperProber:    mockProber,
 				dvfsAccumEffect: tt.fields.dvfsUsed,
 				inDVFS:          tt.fields.indvfs,
-				assessor:        assess.NewPowerChangeAssessor(tt.fields.prevPower),
+				assessor:        assess.NewPowerChangeAssessor(3, tt.fields.prevPower),
 			}
-			d.update(tt.args.actualWatt, tt.args.desiredWatt)
+			d.update(tt.args.actualWatt)
 			assert.Equal(t, &tt.wantDVFSTracker, d)
 		})
 	}
