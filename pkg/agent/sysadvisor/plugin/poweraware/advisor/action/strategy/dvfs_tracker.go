@@ -41,6 +41,15 @@ func (d *dvfsTracker) getDVFSAllowPercent() int {
 	return leftPercentage
 }
 
+func (d *dvfsTracker) adjustTargetWatt(actualWatt, desiredWatt int, lowerPercent int) int {
+	lowerLimit := lowerPercent * actualWatt / 100
+	if lowerLimit > desiredWatt {
+		return lowerLimit
+	}
+
+	return desiredWatt
+}
+
 func (d *dvfsTracker) isCapperAvailable() bool {
 	return d.capperProber != nil && d.capperProber.IsCapperReady()
 }

@@ -119,11 +119,8 @@ func (e *evictFirstStrategy) adjustTargetForConstraintDVFS(actualWatt, desiredWa
 		return 0, errors.New("no room for dvfs")
 	}
 
-	lowerLimit := (100 - leftPercentage) * actualWatt / 100
-	if lowerLimit > desiredWatt {
-		return lowerLimit, nil
-	}
-	return desiredWatt, nil
+	adjustedTarget := e.dvfsTracker.adjustTargetWatt(actualWatt, desiredWatt, 100-leftPercentage)
+	return adjustedTarget, nil
 }
 
 func (e *evictFirstStrategy) yieldActionPlan(op, internalOp spec.InternalOp, actualWatt, desiredWatt int, alert spec.PowerAlert, ttl time.Duration) action.PowerAction {
