@@ -41,13 +41,10 @@ func (d *dvfsTracker) getDVFSAllowPercent() int {
 	return leftPercentage
 }
 
+// adjustTargetWatt yields the target value taking into account actual, desired, and lower boundary
+// It further delegates to the assessor, which does it in line with the resource it assesses with.
 func (d *dvfsTracker) adjustTargetWatt(actualWatt, desiredWatt int, lowerPercent int) int {
-	lowerLimit := lowerPercent * actualWatt / 100
-	if lowerLimit > desiredWatt {
-		return lowerLimit
-	}
-
-	return desiredWatt
+	return d.assessor.AssessTarget(actualWatt, desiredWatt, lowerPercent)
 }
 
 func (d *dvfsTracker) isCapperAvailable() bool {

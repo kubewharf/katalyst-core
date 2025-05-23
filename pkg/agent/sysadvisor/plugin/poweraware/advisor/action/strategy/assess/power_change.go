@@ -16,8 +16,18 @@ limitations under the License.
 
 package assess
 
+// powerChangeAssessor assesses change effect by power consumption
 type powerChangeAssessor struct {
 	prevPower int
+}
+
+func (p *powerChangeAssessor) AssessTarget(actualWatt int, desiredWatt int, lowerPercent int) int {
+	lowerLimit := lowerPercent * actualWatt / 100
+	if lowerLimit > desiredWatt {
+		return lowerLimit
+	}
+
+	return desiredWatt
 }
 
 func (p *powerChangeAssessor) Update(actual, desired int) {

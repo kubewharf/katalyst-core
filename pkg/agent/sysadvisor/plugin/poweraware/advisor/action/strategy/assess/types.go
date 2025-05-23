@@ -20,4 +20,5 @@ type Assessor interface {
 	Clear()
 	AssessChange(current int) int
 	Update(actual, desired int)
+	AssessTarget(actualWatt int, desiredWatt int, lowerPercent int) int
 }
