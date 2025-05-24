@@ -16,6 +16,8 @@ limitations under the License.
 
 package assess
 
+import "fmt"
+
 // powerChangeAssessor assesses change effect by power consumption
 type powerChangeAssessor struct {
 	accumulatedEffect int
@@ -35,16 +37,20 @@ func (p *powerChangeAssessor) Update(currValue int) {
 	p.prevPower = currValue
 }
 
-func (p *powerChangeAssessor) AccumulateEffect(current int) int {
-	change := 0
-	// if actual power is more than previous, likely previous round dvfs took no effect;
-	// not to take into account
-	if current > 0 && current < p.prevPower {
-		change = (p.prevPower - current) * 100 / p.prevPower
+func (p *powerChangeAssessor) AssessEffect(current int) (int, error) {
+	if current <= 0 {
+		return 0, fmt.Errorf("invalid cuurent value %d", current)
 	}
 
+	// if actual power is more than previous, likely previous round dvfs took no effect;
+	// not to take into account
+	if current >= p.prevPower {
+		return p.accumulatedEffect, nil
+	}
+
+	change := (p.prevPower - current) * 100 / p.prevPower
 	p.accumulatedEffect += change
-	return p.accumulatedEffect
+	return p.accumulatedEffect, nil
 }
 
 func (p *powerChangeAssessor) Clear() {
