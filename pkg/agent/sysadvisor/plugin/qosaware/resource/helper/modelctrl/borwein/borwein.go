@@ -198,7 +198,7 @@ func (bc *BorweinController) getUpdatedIndicators(indicators types.Indicator) ty
 }
 
 func (bc *BorweinController) GetUpdatedIndicators(indicators types.Indicator, podSet types.PodSet) types.Indicator {
-	borweinV2Enabled, err := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameBorweinV2, false, bc.conf)
+	borweinV2Enabled, err := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameBorweinV2, bc.conf.EnableBorweinV2, bc.conf)
 	if err != nil {
 		general.Warningf("Failed to get %v strategy %v", consts.StrategyNameBorweinV2, err)
 		return indicators

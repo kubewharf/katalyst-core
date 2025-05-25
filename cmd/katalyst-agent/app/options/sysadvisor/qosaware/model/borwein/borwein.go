@@ -32,6 +32,7 @@ type BorweinOptions struct {
 	ContainerFeatureNames              []string
 	TargetIndicators                   []string
 	DryRun                             bool
+	EnableBorweinV2                    bool
 }
 
 func NewBorweinOptions() *BorweinOptions {
@@ -55,6 +56,7 @@ func (o *BorweinOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.StringSliceVar(&o.TargetIndicators, "borwein-target-indicators", o.TargetIndicators,
 		"borwein target indicator name list")
 	fs.BoolVar(&o.DryRun, "borwein-dry-run", o.DryRun, "A bool to enable and disable borwein dry-run")
+	fs.BoolVar(&o.EnableBorweinV2, "enable-borwein-v2", o.EnableBorweinV2, "A bool to enable and disable borwein v2")
 }
 
 // ApplyTo fills up config with options
@@ -68,6 +70,7 @@ func (o *BorweinOptions) ApplyTo(c *borwein.BorweinConfiguration) error {
 	c.ModelNameToInferenceSvcSockAbsPath = o.ModelNameToInferenceSvcSockAbsPath
 	c.TargetIndicators = o.TargetIndicators
 	c.DryRun = o.DryRun
+	c.EnableBorweinV2 = o.EnableBorweinV2
 
 	if len(o.NodeFeatureNames)+len(o.ContainerFeatureNames) > 0 {
 		c.NodeFeatureNames = o.NodeFeatureNames

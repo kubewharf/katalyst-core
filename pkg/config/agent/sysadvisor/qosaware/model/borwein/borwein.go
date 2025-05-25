@@ -28,6 +28,7 @@ type BorweinConfiguration struct {
 	ModelNameToInferenceSvcSockAbsPath map[string]string
 	TargetIndicators                   []string
 	DryRun                             bool
+	EnableBorweinV2                    bool
 }
 
 func NewBorweinConfiguration() *BorweinConfiguration {
@@ -45,5 +46,6 @@ func NewBorweinConfiguration() *BorweinConfiguration {
 		ContainerFeatureNames: []string{},
 		TargetIndicators:      []string{},
 		DryRun:                false,
+		EnableBorweinV2:       false,
 	}
 }
