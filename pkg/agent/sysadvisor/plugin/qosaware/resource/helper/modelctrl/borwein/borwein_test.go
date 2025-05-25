@@ -23,18 +23,15 @@ import (
 	"reflect"
 	"testing"
 
-	borweinutils "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/utils"
-
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-
-	"k8s.io/apimachinery/pkg/util/sets"
 
 	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	workloadv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
@@ -44,6 +41,7 @@ import (
 	borweinconsts "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/consts"
 	borweininfsvc "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/inferencesvc"
 	borweintypes "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/types"
+	borweinutils "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/utils"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -112,6 +110,7 @@ var (
 		conf.BorweinConfiguration.TargetIndicators = []string{
 			string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio),
 		}
+		conf.EnableBorweinV2 = true
 		dynamicConf := dynamic.NewConfiguration()
 		strategyName := consts.StrategyNameBorweinV2
 		dynamicConf.StrategyGroup.EnabledStrategies = []configapi.Strategy{
