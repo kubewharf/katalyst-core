@@ -21,6 +21,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/strategygroup"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
 
 func validateConf(conf *config.Configuration) (*strategygroup.StrategyGroup, error) {
@@ -45,24 +46,39 @@ func validateConf(conf *config.Configuration) (*strategygroup.StrategyGroup, err
 	return strategyGroup, nil
 }
 
+// IsStrategyEnabledForNode checks if a specific strategy is enabled for the node.
+// It takes the strategy name, a default value, and the configuration as input.
+// It returns true if the strategy is enabled, otherwise it returns the default value. An error is returned if the configuration is invalid.
 func IsStrategyEnabledForNode(strategyName string, defaultValue bool, conf *config.Configuration) (bool, error) {
 	strategyGroup, err := validateConf(conf)
 	if err != nil {
 		return defaultValue, fmt.Errorf("invalid conf: %v", err)
 	}
+
+	if !isStrategyGroupEnabled(strategyGroup) {
+		return defaultValue, nil
+	}
+
 	for _, strategy := range strategyGroup.EnabledStrategies {
 		if strategy.Name != nil && *strategy.Name == strategyName {
-			return true, nil
+			return defaultValue, nil
 		}
 	}
 
 	return false, nil
 }
 
+// GetEnabledStrategiesForNode returns a list of enabled strategies for the node.
+// It takes the configuration as input.
+// It returns a slice of strings containing the names of enabled strategies. An error is returned if the configuration is invalid.
 func GetEnabledStrategiesForNode(conf *config.Configuration) ([]string, error) {
 	strategyGroup, err := validateConf(conf)
 	if err != nil {
 		return nil, fmt.Errorf("invalid conf: %v", err)
+	}
+
+	if !isStrategyGroupEnabled(strategyGroup) {
+		return []string{}, nil
 	}
 
 	enabledStrategies := make([]string, 0, len(strategyGroup.EnabledStrategies))
@@ -75,17 +91,33 @@ func GetEnabledStrategiesForNode(conf *config.Configuration) ([]string, error) {
 	return enabledStrategies, nil
 }
 
-func GetSpecificStrategyParam(strategyName string, conf *config.Configuration) (string, bool, error) {
+// GetSpecificStrategyParam returns the parameter value for a specific strategy and whether it's enabled.
+// It takes the strategy name, a default enable status, and the configuration as input.
+// It returns the strategy parameter string, a boolean indicating if the strategy is enabled (or defaultEnable if not found/group disabled), and an error if the configuration is invalid.
+func GetSpecificStrategyParam(strategyName string, defaultEnable bool, conf *config.Configuration) (string, bool, error) {
 	strategyGroup, err := validateConf(conf)
 	if err != nil {
 		return "", false, fmt.Errorf("invalid conf: %v", err)
 	}
 
+	if !isStrategyGroupEnabled(strategyGroup) {
+		return "", defaultEnable, nil
+	}
+
 	for _, strategy := range strategyGroup.EnabledStrategies {
 		if strategy.Name != nil && *strategy.Name == strategyName {
-			return strategy.Parameters[strategyName], true, nil
+			return strategy.Parameters[strategyName], defaultEnable, nil
 		}
 	}
 
 	return "", false, nil
+}
+
+func isStrategyGroupEnabled(strategyGroup *strategygroup.StrategyGroup) bool {
+	if len(strategyGroup.EnabledStrategies) == 1 && strategyGroup.EnabledStrategies[0].Name != nil &&
+		*strategyGroup.EnabledStrategies[0].Name == consts.StrategyNameNone {
+		return false
+	}
+
+	return true
 }
