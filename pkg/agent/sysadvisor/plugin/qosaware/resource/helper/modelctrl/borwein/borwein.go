@@ -224,7 +224,7 @@ func (bc *BorweinController) ResetIndicatorOffsets() {
 func fetchBorweinV2Strategy(conf *config.Configuration) (*latencyregression.BorweinStrategy, error) {
 	// get strategy
 	strategyName := consts.StrategyNameBorweinV2
-	strategyContent, enabled, err := strategygroup.GetSpecificStrategyParam(strategyName, conf)
+	strategyContent, enabled, err := strategygroup.GetSpecificStrategyParam(strategyName, conf.EnableBorweinV2, conf)
 	if err != nil {
 		return nil, fmt.Errorf("get %v grep param error: %v", strategyName, err)
 	}
