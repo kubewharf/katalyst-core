@@ -49,6 +49,8 @@ type CPUDynamicPolicyConfig struct {
 	// CPUNUMAHintPreferLowThreshold indicates threshold to apply CPUNUMAHintPreferPolicy dynamically,
 	// and it's working when CPUNUMAHintPreferPolicy is set to dynamic_packing
 	CPUNUMAHintPreferLowThreshold float64
+	// EnableMetricPreferredNumaAllocation indicates whether to enable metric preferred numa allocation
+	EnableMetricPreferredNumaAllocation bool
 	// SharedCoresNUMABindingResultAnnotationKey is the annotation key for storing NUMA binding results of shared_cores QoS pods.
 	// It enables schedulers to specify NUMA binding results, and the plugin will make best efforts to follow these results.
 	// This key must be included in the pod-annotation-kept-keys configuration.
