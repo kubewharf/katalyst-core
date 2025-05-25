@@ -30,6 +30,7 @@ import (
 var ThresholdMin = 0.4
 
 func (p *NumaCPUPressureEviction) pullThresholds(_ context.Context) {
+	dynamicConf := p.conf.DynamicAgentConfiguration.GetDynamicConfiguration()
 	enabled, err := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameNumaCpuPressureEviction, false, p.conf)
 	if err != nil {
 		general.Errorf("failed to get eviction strategy: %v", err)
@@ -40,13 +41,13 @@ func (p *NumaCPUPressureEviction) pullThresholds(_ context.Context) {
 		return
 	}
 
+	numaPressureConfig := getNumaPressureConfig(dynamicConf)
 	cpuCodeName := helper.GetCpuCodeName(p.metaServer.MetricsFetcher)
 	isVM, _ := helper.GetIsVm(p.metaServer.MetricsFetcher)
 
-	globalThresholds := p.conf.DynamicAgentConfiguration.GetDynamicConfiguration().MetricThreshold
-	thresholds := getOverLoadThreshold(globalThresholds, cpuCodeName, isVM)
+	thresholds := getOverLoadThreshold(dynamicConf.MetricThreshold, cpuCodeName, isVM)
 	thresholds = convertThreshold(thresholds)
-	expandedThresholds := expandThresholds(thresholds, p.numaPressureConfig.ExpandFactor)
+	expandedThresholds := expandThresholds(thresholds, numaPressureConfig.ExpandFactor)
 	err = validateThresholds(thresholds)
 	if err != nil {
 		general.Warningf("%v", err.Error())
@@ -60,6 +61,13 @@ func (p *NumaCPUPressureEviction) pullThresholds(_ context.Context) {
 	p.enabled = enabled
 	general.Infof("update thresholds to %v", expandedThresholds)
 	p.thresholds = expandedThresholds
+	general.Infof("update numaPressureConfig to %v", numaPressureConfig)
+	p.numaPressureConfig = numaPressureConfig
+
+	if p.metricsHistory.RingSize != numaPressureConfig.MetricRingSize {
+		general.Infof("update metricsHistory ring size to %v", numaPressureConfig.MetricRingSize)
+		p.metricsHistory = NewMetricHistory(numaPressureConfig.MetricRingSize)
+	}
 }
 
 func expandThresholds(thresholds map[string]float64, expandFactor float64) map[string]float64 {

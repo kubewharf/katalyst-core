@@ -31,6 +31,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -89,12 +90,7 @@ type NumaCPUPressureEviction struct {
 func NewCPUPressureUsageEviction(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
 	conf *config.Configuration, state state.ReadonlyState,
 ) (CPUPressureEviction, error) {
-	numaPressureConfig := &NumaPressureConfig{
-		MetricRingSize:         conf.DynamicAgentConfiguration.GetDynamicConfiguration().NumaCpuPressureMetricRingSize,
-		ThresholdMetPercentage: conf.DynamicAgentConfiguration.GetDynamicConfiguration().NumaCpuPressureThresholdMetPercentage,
-		GracePeriod:            conf.DynamicAgentConfiguration.GetDynamicConfiguration().NumaCpuPressureGracePeriod,
-		ExpandFactor:           conf.DynamicAgentConfiguration.GetDynamicConfiguration().NumaCpuThresholdExpandFactor,
-	}
+	numaPressureConfig := getNumaPressureConfig(conf.GetDynamicConfiguration())
 
 	return &NumaCPUPressureEviction{
 		state:              state,
@@ -443,9 +439,17 @@ func (p *NumaCPUPressureEviction) pickTopOverRatioPod(numaID int, metricName str
 }
 
 type NumaPressureConfig struct {
-	MetricRingSize          int
-	ThresholdMetPercentage  float64
-	NumaThresholdPercentage float64
-	GracePeriod             int64
-	ExpandFactor            float64
+	MetricRingSize         int
+	ThresholdMetPercentage float64
+	GracePeriod            int64
+	ExpandFactor           float64
+}
+
+func getNumaPressureConfig(conf *dynamic.Configuration) *NumaPressureConfig {
+	return &NumaPressureConfig{
+		MetricRingSize:         conf.NumaCPUPressureEvictionConfiguration.MetricRingSize,
+		ThresholdMetPercentage: conf.NumaCPUPressureEvictionConfiguration.ThresholdMetPercentage,
+		GracePeriod:            conf.NumaCPUPressureEvictionConfiguration.GracePeriod,
+		ExpandFactor:           conf.NumaCPUPressureEvictionConfiguration.ThresholdExpandFactor,
+	}
 }
