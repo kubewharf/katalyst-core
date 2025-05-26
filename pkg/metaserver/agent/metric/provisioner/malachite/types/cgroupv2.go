@@ -124,6 +124,7 @@ type MemoryCgDataV2 struct {
 	SwapMax              uint64                 `json:"swap_max"`
 	WatermarkScaleFactor interface{}            `json:"watermark_scale_factor"`
 	BpfMemStat           BpfMemData             `json:"bpf_mem_data"`
+	Mb                   MbmbandData            `json:"mb"`
 	UpdateTime           int64                  `json:"update_time"`
 }
 
