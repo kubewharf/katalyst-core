@@ -40,6 +40,9 @@ type MetricEmitterNodeConfiguration struct {
 
 	// MetricMapping will override the default to-collected metrics in node-level
 	MetricMapping map[string]string
+
+	// NUMAMetricMapping will override the default to-collected metrics in numa-level
+	NUMAMetricMapping map[string]string
 }
 
 type MetricEmitterExternalConfiguration struct{}
