@@ -664,7 +664,7 @@ func (p *StaticPolicy) Allocate(ctx context.Context,
 	req *pluginapi.ResourceRequest,
 ) (resp *pluginapi.ResourceAllocationResponse, err error) {
 	if req == nil {
-		return nil, fmt.Errorf("GetTopologyHints got nil req")
+		return nil, fmt.Errorf("Allocate got nil req")
 	}
 
 	existReallocAnno, isReallocation := util.IsReallocation(req.Annotations)
