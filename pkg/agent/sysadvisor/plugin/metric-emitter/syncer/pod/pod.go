@@ -65,6 +65,9 @@ var podRawMetricNameMapping = map[string]string{
 
 	consts.MetricMemRssContainer:   apimetricpod.CustomMetricPodMemoryRSS,
 	consts.MetricMemUsageContainer: apimetricpod.CustomMetricPodMemoryUsage,
+
+	// TODO xudong.l
+	consts.MetricMbmTotalContainer: "pod_mbm_total",
 }
 
 type podRawChanel struct {

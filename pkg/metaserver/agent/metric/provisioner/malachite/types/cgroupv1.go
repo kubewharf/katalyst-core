@@ -113,6 +113,7 @@ type MemoryCgDataV1 struct {
 	WatermarkScaleFactor      interface{}   `json:"watermark_scale_factor"`
 	BpfMemStat                BpfMemData    `json:"bpf_mem_data"`
 	NumaStats                 []NumaStatsV1 `json:"numa_stat"`
+	Mb                        MbmbandData   `json:"mb"`
 	UpdateTime                int64         `json:"update_time"`
 }
 
