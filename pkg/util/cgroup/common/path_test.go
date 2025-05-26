@@ -69,3 +69,12 @@ func TestIsContainerCgroupExist(t *testing.T) {
 	_, err := IsContainerCgroupExist("fake-pod-uid", "fake-container-id")
 	as.NotNil(err)
 }
+
+func TestIsContainerCgroupFileExist(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+	// test the case that file doesn't exist
+	_, err := IsContainerCgroupFileExist("cpuset", "fake-pod-uid", "fake-container-id", "nonexistentfile")
+	as.NotNil(err)
+}

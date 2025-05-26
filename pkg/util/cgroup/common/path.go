@@ -18,6 +18,7 @@ package common
 
 import (
 	"fmt"
+	"os"
 	"path"
 	"path/filepath"
 	"strconv"
@@ -164,6 +165,23 @@ func IsContainerCgroupExist(podUID, containerID string) (bool, error) {
 	}
 
 	return general.IsPathExists(containerAbsCGPath), nil
+}
+
+func IsContainerCgroupFileExist(subsys, podUID, containerId, cgroupFileName string) (bool, error) {
+	absCgroupPath, err := GetContainerAbsCgroupPath(subsys, podUID, containerId)
+	if err != nil {
+		return false, fmt.Errorf("GetContainerAbsCgroupPath failed with error: %v", err)
+	}
+
+	absCgroupFilePath := filepath.Join(absCgroupPath, cgroupFileName)
+	_, err = os.Stat(absCgroupFilePath)
+	if err == nil {
+		return true, nil
+	} else if os.IsNotExist(err) {
+		return false, nil
+	} else {
+		return false, err
+	}
 }
 
 // GetNUMABindingReclaimRelativeRootCgroupPaths returns relative cgroup paths for numa-binding reclaim
