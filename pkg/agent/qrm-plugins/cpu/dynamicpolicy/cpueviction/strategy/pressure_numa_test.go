@@ -19,6 +19,8 @@ package strategy
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
+	"os"
 	"testing"
 	"time"
 
@@ -27,6 +29,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	resourcepluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
+
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
@@ -38,6 +43,9 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
+
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 )
 
 const (
@@ -78,12 +86,63 @@ func makeMetaServerWithPodList(metricsFetcher metrictypes.MetricsFetcher, cpuTop
 
 func TestNumaCPUPressureEviction_update(t *testing.T) {
 	t.Parallel()
+	testingDir, err := ioutil.TempDir("", "dynamic_policy_numa_metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(testingDir)
+
+	cpuTopology, _ := machine.GenerateDummyCPUTopology(16, 2, 4)
+	state1, _ := state.NewCheckpointState(testingDir, "test", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
+
+	podEntry := state.PodEntries{
+		"pod1": state.ContainerEntries{
+			"test": &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					PodUid:         "pod1",
+					PodNamespace:   "test",
+					PodName:        "test",
+					ContainerName:  "test",
+					ContainerType:  resourcepluginapi.ContainerType_MAIN.String(),
+					ContainerIndex: 0,
+					OwnerPoolName:  commonstate.PoolNameShare,
+					Labels: map[string]string{
+						apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+					},
+					Annotations: map[string]string{
+						apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
+					},
+					QoSLevel: apiconsts.PodAnnotationQoSLevelSharedCores,
+				},
+				RampUp:                   false,
+				AllocationResult:         machine.MustParse("1,3-6,9,11-14"),
+				OriginalAllocationResult: machine.MustParse("1,3-6,9,11-14"),
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(1, 9),
+					1: machine.NewCPUSet(3, 11),
+					2: machine.NewCPUSet(4, 5, 11, 12),
+					3: machine.NewCPUSet(6, 14),
+				},
+				OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(1, 9),
+					1: machine.NewCPUSet(3, 11),
+					2: machine.NewCPUSet(4, 5, 11, 12),
+					3: machine.NewCPUSet(6, 14),
+				},
+				RequestQuantity: 2,
+			},
+		},
+	}
+
+	state1.SetPodEntries(podEntry, true)
+
 	type fields struct {
 		conf               *config.Configuration
 		numaPressureConfig *NumaPressureConfig
 		metricsHistory     *NumaMetricHistory
 		setFakeMetric      func(store *metric.FakeMetricsFetcher)
 		podList            []*v1.Pod
+		enabled            bool
 	}
 
 	type want struct {
@@ -97,8 +156,9 @@ func TestNumaCPUPressureEviction_update(t *testing.T) {
 		want   want
 	}{
 		{
-			name: "test1",
+			name: "test0",
 			fields: fields{
+				enabled: false,
 				podList: []*v1.Pod{
 					{
 						ObjectMeta: metav1.ObjectMeta{
@@ -127,7 +187,47 @@ func TestNumaCPUPressureEviction_update(t *testing.T) {
 				},
 				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
 					store.SetContainerNumaMetric("pod1", "container", 0,
-						consts.MetricsCPUUsageNUMAContainer, utilmetric.MetricData{Value: 2})
+						consts.MetricCPUUsageContainer, utilmetric.MetricData{Value: 2})
+				},
+				metricsHistory: NewMetricHistory(conf.DynamicAgentConfiguration.GetDynamicConfiguration().LoadMetricRingSize),
+			},
+			want: want{
+				metricsHistory: &NumaMetricHistory{},
+			},
+		},
+		{
+			name: "test1",
+			fields: fields{
+				enabled: true,
+				podList: []*v1.Pod{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "pod1",
+							Namespace: "default",
+							UID:       "pod1",
+							Annotations: map[string]string{
+								"katalyst.kubewharf.io/qos_level": "shared_cores",
+							},
+						},
+						Spec: v1.PodSpec{
+							Containers: []v1.Container{
+								{
+									Name: "container",
+								},
+							},
+						},
+					},
+				},
+				conf: conf,
+				numaPressureConfig: &NumaPressureConfig{
+					MetricRingSize:         1,
+					ThresholdMetPercentage: conf.DynamicAgentConfiguration.GetDynamicConfiguration().NumaCpuPressureThresholdMetPercentage,
+					GracePeriod:            conf.DynamicAgentConfiguration.GetDynamicConfiguration().DeletionGracePeriod,
+					ExpandFactor:           1.2,
+				},
+				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+					store.SetContainerNumaMetric("pod1", "container", 0,
+						consts.MetricCPUUsageContainer, utilmetric.MetricData{Value: 2})
 				},
 				metricsHistory: NewMetricHistory(conf.DynamicAgentConfiguration.GetDynamicConfiguration().LoadMetricRingSize),
 			},
@@ -136,19 +236,19 @@ func TestNumaCPUPressureEviction_update(t *testing.T) {
 					Inner: map[int]map[string]map[string]*MetricRing{
 						0: {
 							FakePodUID: {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 1,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 0.5}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
 									},
 									CurrentIndex: 0,
 								},
 							},
 							"pod1": {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 1,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 0.5}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
 									},
 									CurrentIndex: 0,
 								},
@@ -156,7 +256,7 @@ func TestNumaCPUPressureEviction_update(t *testing.T) {
 						},
 						1: {
 							FakePodUID: {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen:       1,
 									Queue:        []*MetricSnapshot{nil},
 									CurrentIndex: 0,
@@ -165,7 +265,7 @@ func TestNumaCPUPressureEviction_update(t *testing.T) {
 						},
 						2: {
 							FakePodUID: {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen:       1,
 									Queue:        []*MetricSnapshot{nil},
 									CurrentIndex: 0,
@@ -174,7 +274,7 @@ func TestNumaCPUPressureEviction_update(t *testing.T) {
 						},
 						3: {
 							FakePodUID: {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen:       1,
 									Queue:        []*MetricSnapshot{nil},
 									CurrentIndex: 0,
@@ -203,6 +303,8 @@ func TestNumaCPUPressureEviction_update(t *testing.T) {
 				numaPressureConfig: tt.fields.numaPressureConfig,
 				metricsHistory:     tt.fields.metricsHistory,
 				emitter:            metrics.DummyMetrics{},
+				state:              state1,
+				enabled:            tt.fields.enabled,
 			}
 
 			p.update(context.TODO())
@@ -315,40 +417,40 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 					Inner: map[int]map[string]map[string]*MetricRing{
 						0: {
 							FakePodUID: {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 1.0}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
 										nil,
 									},
 									CurrentIndex: 1,
 								},
 							},
 							"pod1": {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 0.5}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
 										nil,
 									},
 									CurrentIndex: 1,
 								},
 							},
 							"pod2": {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 0.25}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
 										nil,
 									},
 									CurrentIndex: 1,
 								},
 							},
 							"pod3": {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 0.25}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -359,7 +461,7 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 					RingSize: 2,
 				},
 				thresholds: map[string]float64{
-					consts.MetricsCPUUsageNUMAContainer: 0.8,
+					consts.MetricCPUUsageContainer: 0.8,
 				},
 				enabled:           true,
 				overloadNumaCount: 1,
@@ -389,40 +491,40 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 					Inner: map[int]map[string]map[string]*MetricRing{
 						0: {
 							FakePodUID: {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 1.0}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
 										nil,
 									},
 									CurrentIndex: 1,
 								},
 							},
 							"pod1": {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 0.5}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
 										nil,
 									},
 									CurrentIndex: 1,
 								},
 							},
 							"pod2": {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 0.25}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
 										nil,
 									},
 									CurrentIndex: 1,
 								},
 							},
 							"pod3": {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 0.25}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -433,7 +535,7 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 					RingSize: 2,
 				},
 				thresholds: map[string]float64{
-					consts.MetricsCPUUsageNUMAContainer: 0.8,
+					consts.MetricCPUUsageContainer: 0.8,
 				},
 				enabled:           true,
 				overloadNumaCount: 1,
@@ -465,40 +567,40 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 					Inner: map[int]map[string]map[string]*MetricRing{
 						0: {
 							FakePodUID: {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 1.0}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
 										nil,
 									},
 									CurrentIndex: 1,
 								},
 							},
 							"pod1": {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 0.5}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
 										nil,
 									},
 									CurrentIndex: 1,
 								},
 							},
 							"pod2": {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 0.25}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
 										nil,
 									},
 									CurrentIndex: 1,
 								},
 							},
 							"pod3": {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 0.25}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -509,7 +611,7 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 					RingSize: 2,
 				},
 				thresholds: map[string]float64{
-					consts.MetricsCPUUsageNUMAContainer: 0.8,
+					consts.MetricCPUUsageContainer: 0.8,
 				},
 				enabled:           false,
 				overloadNumaCount: 1,
@@ -545,40 +647,40 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 					Inner: map[int]map[string]map[string]*MetricRing{
 						0: {
 							FakePodUID: {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 1.0}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
 										nil,
 									},
 									CurrentIndex: 1,
 								},
 							},
 							"pod1": {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 0.5}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
 										nil,
 									},
 									CurrentIndex: 1,
 								},
 							},
 							"pod2": {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 0.25}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
 										nil,
 									},
 									CurrentIndex: 1,
 								},
 							},
 							"pod3": {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 0.25}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -589,7 +691,7 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 					RingSize: 2,
 				},
 				thresholds: map[string]float64{
-					consts.MetricsCPUUsageNUMAContainer: 0.8,
+					consts.MetricCPUUsageContainer: 0.8,
 				},
 				enabled:           true,
 				overloadNumaCount: 1,
@@ -636,20 +738,20 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 					Inner: map[int]map[string]map[string]*MetricRing{
 						0: {
 							FakePodUID: {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 1.0}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
 										nil,
 									},
 									CurrentIndex: 1,
 								},
 							},
 							"pod1": {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 1.0}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -660,7 +762,7 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 					RingSize: 2,
 				},
 				thresholds: map[string]float64{
-					consts.MetricsCPUUsageNUMAContainer: 0.8,
+					consts.MetricCPUUsageContainer: 0.8,
 				},
 				enabled:           true,
 				overloadNumaCount: 1,
@@ -694,39 +796,39 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 					Inner: map[int]map[string]map[string]*MetricRing{
 						0: {
 							FakePodUID: {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 0.3}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.3}},
 										nil,
 									},
 									CurrentIndex: 1,
 								},
 							},
 							"pod1": {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 0.1}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.1}},
 										nil,
 									},
 									CurrentIndex: 0,
 								},
 							},
 							"pod2": {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 0.1}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.1}},
 									},
 									CurrentIndex: 0,
 								},
 							},
 							"pod3": {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 0.1}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.1}},
 									},
 									CurrentIndex: 0,
 								},
@@ -736,7 +838,7 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 					RingSize: 2,
 				},
 				thresholds: map[string]float64{
-					consts.MetricsCPUUsageNUMAContainer: 0.8,
+					consts.MetricCPUUsageContainer: 0.8,
 				},
 				enabled:           true,
 				overloadNumaCount: 0,
@@ -825,40 +927,40 @@ func TestNumaCPUPressureEviction_ThresholdMet(t *testing.T) {
 					Inner: map[int]map[string]map[string]*MetricRing{
 						0: {
 							FakePodUID: {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 1.0}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
 										nil,
 									},
 									CurrentIndex: 1,
 								},
 							},
 							"pod1": {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 0.5}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
 										nil,
 									},
 									CurrentIndex: 1,
 								},
 							},
 							"pod2": {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 0.25}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
 										nil,
 									},
 									CurrentIndex: 1,
 								},
 							},
 							"pod3": {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 0.25}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -869,7 +971,7 @@ func TestNumaCPUPressureEviction_ThresholdMet(t *testing.T) {
 					RingSize: 2,
 				},
 				thresholds: map[string]float64{
-					consts.MetricsCPUUsageNUMAContainer: 0.8,
+					consts.MetricCPUUsageContainer: 0.8,
 				},
 				enabled:           true,
 				overloadNumaCount: 0,
@@ -898,40 +1000,40 @@ func TestNumaCPUPressureEviction_ThresholdMet(t *testing.T) {
 					Inner: map[int]map[string]map[string]*MetricRing{
 						0: {
 							FakePodUID: {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 1.0}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
 										nil,
 									},
 									CurrentIndex: 1,
 								},
 							},
 							"pod1": {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 0.5}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
 										nil,
 									},
 									CurrentIndex: 1,
 								},
 							},
 							"pod2": {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 0.25}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
 										nil,
 									},
 									CurrentIndex: 1,
 								},
 							},
 							"pod3": {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 0.25}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -942,7 +1044,7 @@ func TestNumaCPUPressureEviction_ThresholdMet(t *testing.T) {
 					RingSize: 2,
 				},
 				thresholds: map[string]float64{
-					consts.MetricsCPUUsageNUMAContainer: 0.8,
+					consts.MetricCPUUsageContainer: 0.8,
 				},
 				enabled:           false,
 				overloadNumaCount: 0,
@@ -1046,41 +1148,41 @@ func TestNumaCPUPressureEviction_calOverloadNumaCount(t *testing.T) {
 					Inner: map[int]map[string]map[string]*MetricRing{
 						0: {
 							FakePodUID: {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 1.0}},
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 1.0}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
 									},
 									CurrentIndex: 1,
 								},
 							},
 							"pod1": {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 0.5}},
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 0.5}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
 									},
 									CurrentIndex: 1,
 								},
 							},
 							"pod2": {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 0.25}},
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 0.25}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
 									},
 									CurrentIndex: 1,
 								},
 							},
 							"pod3": {
-								consts.MetricsCPUUsageNUMAContainer: {
+								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 0.25}},
-										{Info: MetricInfo{Name: consts.MetricsCPUUsageNUMAContainer, Value: 0.25}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
 									},
 									CurrentIndex: 1,
 								},
@@ -1090,7 +1192,7 @@ func TestNumaCPUPressureEviction_calOverloadNumaCount(t *testing.T) {
 					RingSize: 2,
 				},
 				thresholds: map[string]float64{
-					consts.MetricsCPUUsageNUMAContainer: 0.8,
+					consts.MetricCPUUsageContainer: 0.8,
 				},
 				overloadNumaCount: 2,
 			},

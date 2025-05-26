@@ -28,15 +28,13 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
-	"github.com/kubewharf/katalyst-core/pkg/util/metric"
-	"github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
 const EvictionNameNumaCpuPressure = "numa-cpu-pressure-plugin"
@@ -64,13 +62,14 @@ const (
 )
 
 var (
-	targetMetric = consts.MetricsCPUUsageNUMAContainer
+	targetMetric = consts.MetricCPUUsageContainer
 	// targetMetrics      = []string{consts.MetricCPUUsageContainer, consts.MetricLoad1MinContainer}
-	targetMetrics = []string{consts.MetricsCPUUsageNUMAContainer}
+	targetMetrics = []string{consts.MetricCPUUsageContainer}
 )
 
 type NumaCPUPressureEviction struct {
 	sync.RWMutex
+	state      state.ReadonlyState
 	emitter    metrics.MetricEmitter
 	metaServer *metaserver.MetaServer
 
@@ -88,7 +87,7 @@ type NumaCPUPressureEviction struct {
 }
 
 func NewCPUPressureUsageEviction(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
-	conf *config.Configuration, _ state.ReadonlyState,
+	conf *config.Configuration, state state.ReadonlyState,
 ) (CPUPressureEviction, error) {
 	numaPressureConfig := &NumaPressureConfig{
 		MetricRingSize:         conf.DynamicAgentConfiguration.GetDynamicConfiguration().NumaCpuPressureMetricRingSize,
@@ -98,6 +97,7 @@ func NewCPUPressureUsageEviction(emitter metrics.MetricEmitter, metaServer *meta
 	}
 
 	return &NumaCPUPressureEviction{
+		state:              state,
 		emitter:            emitter,
 		metaServer:         metaServer,
 		conf:               conf,
@@ -257,58 +257,33 @@ func (p *NumaCPUPressureEviction) update(_ context.Context) {
 
 	_ = p.emitter.StoreInt64(metricsNameNumaCollectMetricsCalled, 1, metrics.MetricTypeNameRaw)
 
-	snbPods, err := p.metaServer.GetPodList(context.Background(), func(pod *v1.Pod) bool {
-		isValid, err := p.conf.QoSConfiguration.CheckSharedQoSForPod(pod)
-		if err != nil || !isValid {
-			return false
-		}
-
-		return qos.IsPodNumaBinding(p.conf.QoSConfiguration, pod)
-	})
-	if err != nil {
-		general.Warningf("failed to check shared qos on pods: %v", err)
-		return
-	}
-
-	if len(snbPods) == 0 {
-		general.Warningf("find no shared_cores pods")
-		return
-	}
-
-	general.Infof("start to collect numa pod metrics, shared pods count %v", len(snbPods))
+	general.Infof("start to collect numa pod metrics")
 	numaSize := p.metaServer.CPUsPerNuma()
-	// numa -> pod -> metric -> ring
-	for numaID := 0; numaID < p.metaServer.NumNUMANodes; numaID++ {
-		for _, pod := range snbPods {
-			podUID := string(pod.UID)
-			for _, metricName := range targetMetrics {
-				val, err := helper.GetPodMetric(p.metaServer.MetricsFetcher, p.emitter, pod, metricName, numaID)
-				if val == 0 {
-					continue
-				}
-				// calculate per core metric
-				// todo refactor
-				valRatio := val / float64(numaSize)
+	machineState := p.state.GetMachineState()
 
-				if err != nil {
-					general.Warningf("failed to get pod metric, numa %v, pod %v, metric %v err: %v",
-						numaID, pod.Name, metricName, err)
-					continue
+	for _, metricName := range targetMetrics {
+		// numa -> pod -> ring
+		for numaID := 0; numaID < p.metaServer.NumNUMANodes; numaID++ {
+			snbEntries := machineState[numaID].PodEntries.GetFilteredPodEntries(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedNUMABinding))
+
+			sum := 0.0
+			for podUID, containerEntries := range snbEntries {
+				for containerName := range containerEntries {
+					val, err := p.metaServer.GetContainerMetric(podUID, containerName, metricName)
+					if err != nil {
+						general.Warningf("failed to get pod metric, numa %v, pod %v, metric %v err: %v",
+							numaID, podUID, metricName, err)
+					}
+					valRatio := val.Value / float64(numaSize)
+					p.metricsHistory.Push(numaID, podUID, metricName, valRatio)
+					general.InfoS("Push pod metric", "metric", metricName, "numa", numaID, "pod", podUID, "value", valRatio)
+
+					sum += valRatio
 				}
-				p.metricsHistory.Push(numaID, podUID, metricName, valRatio)
-				general.InfoS("Push pod metric", "metric", metricName, "numa", numaID, "pod", pod.Name, "value", valRatio)
 			}
-		}
-		// numa level sum
-		for _, metricName := range targetMetrics {
-			val := p.metaServer.AggregatePodNumaMetric(snbPods, numaID, metricName, metric.AggregatorSum, metric.DefaultContainerMetricFilter).Value
-			// calculate per core metric
-			// todo refactor
-			valRatio := val / float64(numaSize)
-
-			p.metricsHistory.PushNuma(numaID, metricName, valRatio)
-			general.InfoS("Push numa metric", "metric", metricName, "numa", numaID, "value", valRatio)
-			_ = p.emitter.StoreFloat64(metricsNameNumaRaw, valRatio, metrics.MetricTypeNameRaw,
+			p.metricsHistory.PushNuma(numaID, metricName, sum)
+			general.InfoS("Push numa metric", "metric", metricName, "numa", numaID, "value", sum)
+			_ = p.emitter.StoreFloat64(metricsNameNumaRaw, sum, metrics.MetricTypeNameRaw,
 				metrics.ConvertMapToTags(map[string]string{
 					metricTagMetricName: metricName,
 					metricTagNuma:       strconv.Itoa(numaID),

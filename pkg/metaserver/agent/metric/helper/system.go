@@ -116,15 +116,10 @@ func GetIsVm(metricsFetcher types.MetricsFetcher) (bool, string) {
 		general.Warningf("isVM metric not found")
 		return false, ""
 	}
-	isVMStr, ok := isVMInterface.(string)
+	isVMBool, ok := isVMInterface.(bool)
 	if !ok {
 		general.Warningf("parse is vm %v failed", isVMInterface)
 		return false, ""
 	}
-	parseBool, err := strconv.ParseBool(isVMStr)
-	if err != nil {
-		general.Warningf("parse is vm %v failed %v", isVMInterface, err)
-		return false, ""
-	}
-	return parseBool, isVMStr
+	return isVMBool, strconv.FormatBool(isVMBool)
 }
