@@ -47,6 +47,10 @@ type CPUIsolationConfiguration struct {
 	IsolationDisabledPools     sets.String
 	IsolationForceEnablePools  sets.String
 	IsolationNonExclusivePools sets.String
+
+	// IsolationIncludeSidecarRequirement indicates whether to include sidecar requirements
+	// when calculating CPU isolation
+	IsolationIncludeSidecarRequirement bool
 }
 
 // NewCPUIsolationConfiguration creates new resource advisor configurations
