@@ -28,7 +28,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/opencontainers/runc/libcontainer/configs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -48,7 +47,7 @@ import (
 func TestCPUServerUpdate(t *testing.T) {
 	t.Parallel()
 
-	cgResource := configs.Resources{CpuQuota: -1, CpuPeriod: 100000}
+	cgResource := common.CgroupResources{CpuQuota: -1, CpuPeriod: 100000}
 	tmp, err := json.Marshal(&cgResource)
 	assert.NoError(t, err)
 	defaultCgroupConfig := string(tmp)

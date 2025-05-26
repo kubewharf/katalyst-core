@@ -20,8 +20,17 @@ limitations under the License.
 package common
 
 import (
+	"fmt"
+	"path"
 	"reflect"
 	"testing"
+
+	"github.com/opencontainers/runc/libcontainer/cgroups"
+	. "github.com/smartystreets/goconvey/convey"
+
+	"github.com/bytedance/mockey"
+	"github.com/google/cadvisor/container/libcontainer"
+	"github.com/opencontainers/runc/libcontainer/configs"
 )
 
 func TestParseCgroupNumaValue(t *testing.T) {
@@ -121,4 +130,212 @@ unevictable N0:0 N1:0`,
 			}
 		})
 	}
+}
+
+// MockManager is a mock implementation of libcontainer.Manager
+// We need to define this because libcontainer.Manager is an interface
+// and we need to mock its Set method.
+
+// Define a mock Manager that implements the libcontainer.Manager interface
+type mockManager struct {
+	cgroups.Manager // Embed the interface to satisfy it implicitly
+	SetFunc         func(r *configs.Resources) error
+}
+
+// Set calls the mock SetFunc
+func (m *mockManager) Set(r *configs.Resources) error {
+	if m.SetFunc != nil {
+		return m.SetFunc(r)
+	}
+	return nil
+}
+
+// GetPaths is a dummy implementation for the mockManager
+func (m *mockManager) GetPaths() map[string]string {
+	return nil
+}
+
+// GetStats is a dummy implementation for the mockManager
+func (m *mockManager) GetStats() (*cgroups.Stats, error) {
+	return nil, nil
+}
+
+// Freeze is a dummy implementation for the mockManager
+func (m *mockManager) Freeze(state configs.FreezerState) error {
+	return nil
+}
+
+// Destroy is a dummy implementation for the mockManager
+func (m *mockManager) Destroy() error {
+	return nil
+}
+
+// GetPids is a dummy implementation for the mockManager
+func (m *mockManager) GetPids() ([]int, error) {
+	return nil, nil
+}
+
+// GetAllPids is a dummy implementation for the mockManager
+func (m *mockManager) GetAllPids() ([]int, error) {
+	return nil, nil
+}
+
+func TestApplyCgroupConfigs(t *testing.T) {
+	t.Parallel()
+
+	cgroupPath := "test/path"
+	resources := &CgroupResources{
+		CpuQuota:  100000,
+		CpuPeriod: 200000,
+	}
+
+	mockey.PatchConvey("When all external calls succeed", t, func() {
+		// Arrange
+		mockSubsystems := map[string]string{
+			"cpu":    "/sys/fs/cgroup/cpu",
+			"memory": "/sys/fs/cgroup/memory",
+		}
+		mockey.Mock(libcontainer.GetCgroupSubsystems).Return(mockSubsystems, nil).Build()
+
+		mockMgr := &mockManager{
+			SetFunc: func(r *configs.Resources) error {
+				// Check if resources are correctly passed
+				So(r.CpuQuota, ShouldEqual, resources.CpuQuota)
+				So(r.CpuPeriod, ShouldEqual, resources.CpuPeriod)
+				return nil
+			},
+		}
+		mockey.Mock(libcontainer.NewCgroupManager).Return(mockMgr, nil).Build()
+
+		// Act
+		err := ApplyCgroupConfigs(cgroupPath, resources)
+
+		// Assert
+		So(err, ShouldBeNil)
+	})
+
+	mockey.PatchConvey("When GetCgroupSubsystems fails", t, func() {
+		// Arrange
+		expectedErr := fmt.Errorf("GetCgroupSubsystems failed")
+		mockey.Mock(libcontainer.GetCgroupSubsystems).Return(nil, expectedErr).Build()
+
+		// Act
+		err := ApplyCgroupConfigs(cgroupPath, resources)
+
+		// Assert
+		So(err, ShouldNotBeNil)
+		So(err.Error(), ShouldContainSubstring, expectedErr.Error())
+	})
+
+	mockey.PatchConvey("When NewCgroupManager fails", t, func() {
+		// Arrange
+		mockSubsystems := map[string]string{
+			"cpu": "/sys/fs/cgroup/cpu",
+		}
+		mockey.Mock(libcontainer.GetCgroupSubsystems).Return(mockSubsystems, nil).Build()
+
+		expectedErr := fmt.Errorf("NewCgroupManager failed")
+		mockey.Mock(libcontainer.NewCgroupManager).Return(nil, expectedErr).Build()
+
+		// Act
+		err := ApplyCgroupConfigs(cgroupPath, resources)
+
+		// Assert
+		So(err, ShouldNotBeNil)
+		So(err.Error(), ShouldContainSubstring, expectedErr.Error())
+	})
+
+	mockey.PatchConvey("When manager.Set fails", t, func() {
+		// Arrange
+		mockSubsystems := map[string]string{
+			"cpu": "/sys/fs/cgroup/cpu",
+		}
+		mockey.Mock(libcontainer.GetCgroupSubsystems).Return(mockSubsystems, nil).Build()
+
+		expectedSetErr := fmt.Errorf("manager.Set failed")
+		mockMgr := &mockManager{
+			SetFunc: func(r *configs.Resources) error {
+				return expectedSetErr
+			},
+		}
+		mockey.Mock(libcontainer.NewCgroupManager).Return(mockMgr, nil).Build()
+
+		// Act
+		err := ApplyCgroupConfigs(cgroupPath, resources)
+
+		// Assert
+		So(err, ShouldNotBeNil)
+		So(err.Error(), ShouldContainSubstring, expectedSetErr.Error())
+	})
+
+	mockey.PatchConvey("When input resources is nil", t, func() {
+		// Arrange
+		mockSubsystems := map[string]string{
+			"cpu":    "/sys/fs/cgroup/cpu",
+			"memory": "/sys/fs/cgroup/memory",
+		}
+		mockey.Mock(libcontainer.GetCgroupSubsystems).Return(mockSubsystems, nil).Build()
+
+		mockMgr := &mockManager{
+			SetFunc: func(r *configs.Resources) error {
+				// toConfigsResources will return nil if input resources is nil
+				// and manager.Set(nil) should not cause error in this mock
+				So(r, ShouldBeNil)
+				return nil
+			},
+		}
+		mockey.Mock(libcontainer.NewCgroupManager).Return(mockMgr, nil).Build()
+
+		// Act
+		err := ApplyCgroupConfigs(cgroupPath, nil) // Pass nil resources
+
+		// Assert
+		So(err, ShouldBeNil)
+	})
+
+	mockey.PatchConvey("When path.Join is called", t, func() {
+		// Arrange
+		mockSubsystems := map[string]string{
+			"cpu":    "/sys/fs/cgroup/cpu",
+			"memory": "/sys/fs/cgroup/memory",
+		}
+		mockey.Mock(libcontainer.GetCgroupSubsystems).Return(mockSubsystems, nil).Build()
+
+		var joinedPaths []string
+		mockey.Mock(path.Join).To(func(elem ...string) string {
+			// Capture the arguments passed to path.Join
+			// The original path.Join is complex to fully replicate,
+			// so we just check if it's called with expected first arg (subsystem path)
+			// and the cgroupPath.
+			if len(elem) == 2 {
+				joinedPaths = append(joinedPaths, elem[0]+"/"+elem[1])
+				return elem[0] + "/" + elem[1]
+			}
+			return "mocked/path/join/result"
+		}).Build()
+
+		mockMgr := &mockManager{
+			SetFunc: func(r *configs.Resources) error {
+				return nil
+			},
+		}
+		mockey.Mock(libcontainer.NewCgroupManager).Return(mockMgr, nil).Build()
+
+		// Act
+		err := ApplyCgroupConfigs(cgroupPath, resources)
+
+		// Assert
+		So(err, ShouldBeNil)
+		So(len(joinedPaths), ShouldEqual, len(mockSubsystems))
+		for _, subPath := range mockSubsystems {
+			found := false
+			for _, jp := range joinedPaths {
+				if jp == subPath+"/"+cgroupPath {
+					found = true
+					break
+				}
+			}
+			So(found, ShouldBeTrue)
+		}
+	})
 }

@@ -183,8 +183,8 @@ func IsCPUIdleSupported() bool {
 	return err == nil
 }
 
-// apply cgroup resource
-func ApplyCgroupConfigs(cgroupPath string, resources *configs.Resources) error {
+// ApplyCgroupConfigs apply cgroup resources
+func ApplyCgroupConfigs(cgroupPath string, resources *CgroupResources) error {
 	subSystems, err := libcontainer.GetCgroupSubsystems(nil)
 	if err != nil {
 		return fmt.Errorf("GetCgroupSubsystems failed with error: %v", err)
@@ -200,10 +200,23 @@ func ApplyCgroupConfigs(cgroupPath string, resources *configs.Resources) error {
 		return fmt.Errorf("NewCgroupManager failed with error: %v", err)
 	}
 
-	if err := manager.Set(resources); err != nil {
+	if err := manager.Set(toConfigsResources(resources)); err != nil {
 		return fmt.Errorf("set cgroup resources failed with error: %#v, %v",
 			resources, err)
 	}
 
 	return nil
+}
+
+func toConfigsResources(resources *CgroupResources) *configs.Resources {
+	if resources == nil {
+		return nil
+	}
+
+	return &configs.Resources{
+		CpuQuota:        resources.CpuQuota,
+		CpuPeriod:       resources.CpuPeriod,
+		SkipDevices:     resources.SkipDevices,
+		SkipFreezeOnSet: resources.SkipFreezeOnSet,
+	}
 }

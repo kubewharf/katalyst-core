@@ -232,3 +232,11 @@ type CgroupMetrics struct {
 	Memory *MemoryMetrics
 	Pid    *PidMetrics
 }
+
+type CgroupResources struct {
+	CpuQuota  int64  `json:"cpu_quota"`
+	CpuPeriod uint64 `json:"cpu_period"`
+
+	SkipDevices     bool `json:"-"`
+	SkipFreezeOnSet bool `json:"-"`
+}
