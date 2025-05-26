@@ -349,7 +349,10 @@ func (cs *cpuServer) assembleCgroupConfig(advisorResp *types.InternalCPUCalculat
 		for numaID := -1; numaID < cs.metaServer.NumNUMANodes; numaID++ {
 			quota := int64(-1)
 			cpuResource, ok := entries[numaID]
-			if ok && cpuResource.Quota > 0 {
+			if !ok {
+				continue
+			}
+			if cpuResource.Quota > 0 {
 				quota = int64(cpuResource.Quota * DefaultCFSCPUPeriod)
 			}
 			resourceConf := &common.CgroupResources{

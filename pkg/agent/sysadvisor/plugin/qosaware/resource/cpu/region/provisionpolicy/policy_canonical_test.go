@@ -386,3 +386,230 @@ func TestPolicyCanonical(t *testing.T) {
 		})
 	}
 }
+
+func TestInvalidPolicyCanonical(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                string
+		regionInfo          types.RegionInfo
+		containerInfo       map[string]map[string]types.ContainerInfo
+		containerMetricData map[string]map[string]map[string]metricutil.MetricData
+		resourceEssentials  types.ResourceEssentials
+		controlEssentials   types.ControlEssentials
+		wantResult          types.ControlKnob
+	}{
+		{
+			name: "InvalidControlKnobNonReclaimedCPURequirement",
+			containerInfo: map[string]map[string]types.ContainerInfo{
+				"pod0": {
+					"container0": types.ContainerInfo{
+						PodUID:        "pod0",
+						PodName:       "pod0",
+						ContainerName: "container0",
+						QoSLevel:      apiconsts.PodAnnotationQoSLevelSharedCores,
+						CPURequest:    4.0,
+						RampUp:        true,
+					},
+				},
+			},
+			containerMetricData: map[string]map[string]map[string]metricutil.MetricData{
+				"pod0": {
+					"container0": {
+						consts.MetricCPUUsageContainer: metricutil.MetricData{
+							Value: 2,
+						},
+					},
+				},
+			},
+			regionInfo: types.RegionInfo{
+				RegionName: "share-xxx",
+				RegionType: v1alpha1.QoSRegionTypeShare,
+			},
+			resourceEssentials: types.ResourceEssentials{
+				EnableReclaim:       true,
+				ResourceUpperBound:  90,
+				ResourceLowerBound:  4,
+				ReservedForAllocate: 0,
+			},
+			controlEssentials: types.ControlEssentials{
+				ControlKnobs: types.ControlKnob{
+					v1alpha1.ControlKnobNonReclaimedCPURequirement: {
+						Value:  -1,
+						Action: types.ControlKnobActionNone,
+					},
+				},
+				Indicators: types.Indicator{
+					consts.MetricCPUSchedwait: {
+						Current: 800,
+						Target:  400,
+					},
+				},
+				ReclaimOverlap: false,
+			},
+			wantResult: types.ControlKnob{
+				v1alpha1.ControlKnobNonReclaimedCPURequirement: {
+					Value:  4,
+					Action: types.ControlKnobActionNone,
+				},
+			},
+		},
+		{
+			name: "InvalidControlKnobReclaimedCoresCPUQuota",
+			containerInfo: map[string]map[string]types.ContainerInfo{
+				"pod0": {
+					"container0": types.ContainerInfo{
+						PodUID:        "pod0",
+						PodName:       "pod0",
+						ContainerName: "container0",
+						QoSLevel:      apiconsts.PodAnnotationQoSLevelSharedCores,
+						CPURequest:    4.0,
+						RampUp:        false,
+					},
+				},
+			},
+			containerMetricData: map[string]map[string]map[string]metricutil.MetricData{
+				"pod0": {
+					"container0": {
+						consts.MetricCPUUsageContainer: metricutil.MetricData{
+							Value: 2,
+						},
+					},
+				},
+			},
+			regionInfo: types.RegionInfo{
+				RegionName: "share-xxx",
+				RegionType: v1alpha1.QoSRegionTypeShare,
+			},
+			resourceEssentials: types.ResourceEssentials{
+				EnableReclaim:       true,
+				ResourceUpperBound:  90,
+				ResourceLowerBound:  4,
+				ReservedForAllocate: 0,
+			},
+			controlEssentials: types.ControlEssentials{
+				ControlKnobs: types.ControlKnob{
+					v1alpha1.ControlKnobReclaimedCoresCPUQuota: {
+						Value:  -1,
+						Action: types.ControlKnobActionNone,
+					},
+				},
+				Indicators: types.Indicator{
+					consts.MetricCPUSchedwait: {
+						Current: 4,
+						Target:  400,
+					},
+				},
+				ReclaimOverlap: false,
+			},
+			wantResult: types.ControlKnob{
+				v1alpha1.ControlKnobNonReclaimedCPURequirement: {
+					Value:  2.5,
+					Action: types.ControlKnobActionNone,
+				},
+			},
+		},
+		{
+			name: "MissingControlKnob",
+			containerInfo: map[string]map[string]types.ContainerInfo{
+				"pod0": {
+					"container0": types.ContainerInfo{
+						PodUID:        "pod0",
+						PodName:       "pod0",
+						ContainerName: "container0",
+						QoSLevel:      apiconsts.PodAnnotationQoSLevelDedicatedCores,
+						CPURequest:    4.0,
+						RampUp:        false,
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(0, 1, 2, 3),
+						},
+					},
+				},
+			},
+			regionInfo: types.RegionInfo{
+				RegionName:   "dedicated-numa-exclusive-xxx",
+				RegionType:   v1alpha1.QoSRegionTypeDedicatedNumaExclusive,
+				BindingNumas: machine.NewCPUSet(0),
+			},
+			resourceEssentials: types.ResourceEssentials{
+				EnableReclaim:       true,
+				ResourceUpperBound:  90,
+				ResourceLowerBound:  4,
+				ReservedForAllocate: 0,
+			},
+			controlEssentials: types.ControlEssentials{
+				Indicators: types.Indicator{
+					consts.MetricCPUCPIContainer: {
+						Current: 2.0,
+						Target:  1.0,
+					},
+					consts.MetricMemBandwidthNuma: {
+						Current: 4,
+						Target:  40,
+					},
+				},
+				ReclaimOverlap: false,
+			},
+			wantResult: types.ControlKnob{
+				v1alpha1.ControlKnobNonReclaimedCPURequirement: {
+					Value:  4,
+					Action: types.ControlKnobActionNone,
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			checkpointDir, err := os.MkdirTemp("", "checkpoint")
+			require.NoError(t, err)
+			defer func() { _ = os.RemoveAll(checkpointDir) }()
+
+			stateFileDir, err := os.MkdirTemp("", "statefile")
+			require.NoError(t, err)
+			defer func() { _ = os.RemoveAll(stateFileDir) }()
+
+			checkpointManagerDir, err := os.MkdirTemp("", "checkpointmanager")
+			require.NoError(t, err)
+			defer func() { _ = os.RemoveAll(checkpointManagerDir) }()
+
+			podSet := make(types.PodSet)
+			for podUID, info := range tt.containerInfo {
+				for containerName := range info {
+					podSet.Insert(podUID, containerName)
+				}
+			}
+
+			metricFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
+			for podUID, m := range tt.containerMetricData {
+				for containerName, c := range m {
+					for name, d := range c {
+						metricFetcher.(*metric.FakeMetricsFetcher).SetContainerMetric(podUID, containerName, name, d)
+					}
+				}
+			}
+
+			policy := newTestPolicyCanonical(t, checkpointDir, stateFileDir,
+				checkpointManagerDir, tt.regionInfo, metricFetcher, podSet).(*PolicyCanonical)
+			assert.NotNil(t, policy)
+
+			podNames := []string{}
+			for podName, containerSet := range tt.containerInfo {
+				podNames = append(podNames, podName)
+				for containerName, info := range containerSet {
+					err = policy.metaReader.(*metacache.MetaCacheImp).AddContainer(podName, containerName, &info)
+					assert.Nil(t, err)
+				}
+			}
+			policy.metaServer.MetaAgent.SetPodFetcher(constructPodFetcherCanonical(podNames))
+
+			policy.SetEssentials(tt.resourceEssentials, tt.controlEssentials)
+			err = policy.Update()
+
+			assert.Error(t, err)
+		})
+	}
+}

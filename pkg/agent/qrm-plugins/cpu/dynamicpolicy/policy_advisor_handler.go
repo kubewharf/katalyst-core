@@ -515,6 +515,11 @@ func (p *DynamicPolicy) allocateByCPUAdvisor(
 
 func (p *DynamicPolicy) applyCgroupConfigs(resp *advisorapi.ListAndWatchResponse) error {
 	for _, calculationInfo := range resp.ExtraEntries {
+		if !general.IsPathExists(common.GetAbsCgroupPath(common.DefaultSelectedSubsys, calculationInfo.CgroupPath)) {
+			general.Infof("cgroup path not exist, skip applyCgroupConfigs: %s", common.GetAbsCgroupPath(common.DefaultSelectedSubsys, calculationInfo.CgroupPath))
+			continue
+		}
+
 		cgConf, ok := calculationInfo.CalculationResult.Values[string(advisorapi.ControlKnobKeyCgroupConfig)]
 		if !ok {
 			continue
@@ -532,7 +537,7 @@ func (p *DynamicPolicy) applyCgroupConfigs(resp *advisorapi.ListAndWatchResponse
 
 		err = common.ApplyCgroupConfigs(calculationInfo.CgroupPath, resources)
 		if err != nil {
-			return fmt.Errorf("ApplyCgroupConfigs failed: %s", calculationInfo.CgroupPath)
+			return fmt.Errorf("ApplyCgroupConfigs failed: %s, %v", calculationInfo.CgroupPath, err)
 		}
 	}
 

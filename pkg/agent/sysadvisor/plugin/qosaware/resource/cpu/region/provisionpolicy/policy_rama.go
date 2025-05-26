@@ -146,6 +146,8 @@ func (p *PolicyRama) Update() error {
 		}
 	}
 
+	general.Infof("rama update ret: %s, %v", knobName, cpuAdjustedRaw)
+
 	cpuAdjustedRestricted := cpuAdjustedRaw
 
 	p.controlKnobAdjusted = types.ControlKnob{

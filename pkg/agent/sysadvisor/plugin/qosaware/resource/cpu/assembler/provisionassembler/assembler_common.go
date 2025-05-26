@@ -28,11 +28,9 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
-	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders/feature_cpu"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
-	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -168,7 +166,7 @@ func (pa *ProvisionAssemblerCommon) assembleSharedCoresWithNUMABindingRegion(r r
 			reclaimedCoresAvail = 0
 		}
 
-		quotaCtrlKnobEnabled, err := pa.IsQuotaCtrlKnobEnabled()
+		quotaCtrlKnobEnabled, err := metacache.IsQuotaCtrlKnobEnabled(pa.metaReader)
 		if err != nil {
 			return err
 		}
@@ -235,20 +233,6 @@ func (pa *ProvisionAssemblerCommon) assembleIsolationWithNUMABindingRegion(r reg
 	return nil
 }
 
-func (pa *ProvisionAssemblerCommon) IsQuotaCtrlKnobEnabled() (bool, error) {
-	featureGates, err := pa.metaReader.GetSupportedWantedFeatureGates()
-	if err != nil {
-		return false, fmt.Errorf("get feature gates failed: %v", err)
-	}
-
-	quotaCtrlKnobEnabled := false
-	if feature, ok := featureGates[feature_cpu.NegotiationFeatureGateQuotaCtrlKnob]; ok && feature != nil {
-		quotaCtrlKnobEnabled = true
-	}
-
-	return quotaCtrlKnobEnabled && common.CheckCgroup2UnifiedMode(), nil
-}
-
 func (pa *ProvisionAssemblerCommon) assembleDedicatedNUMAExclusiveRegion(r region.QoSRegion, result *types.InternalCPUCalculationResult) error {
 	if r.Type() != configapi.QoSRegionTypeDedicatedNumaExclusive {
 		return fmt.Errorf("region %v is not a DedicatedNUMAExclusive region", r.Name())
@@ -271,7 +255,7 @@ func (pa *ProvisionAssemblerCommon) assembleDedicatedNUMAExclusiveRegion(r regio
 		nonReclaimRequirement = available
 	}
 
-	quotaCtrlKnobEnabled, err := pa.IsQuotaCtrlKnobEnabled()
+	quotaCtrlKnobEnabled, err := metacache.IsQuotaCtrlKnobEnabled(pa.metaReader)
 	if err != nil {
 		return err
 	}

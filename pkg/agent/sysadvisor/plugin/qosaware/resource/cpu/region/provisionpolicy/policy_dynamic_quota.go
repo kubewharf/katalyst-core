@@ -98,21 +98,10 @@ func (p *PolicyDynamicQuota) Update() error {
 }
 
 func (p *PolicyDynamicQuota) sanityCheck() error {
-	var (
-		isLegal bool
-		errList []error
-	)
+	var errList []error
 
-	// 1. check control knob legality
-	isLegal = true
-	if p.ControlKnobs != nil {
-		v, ok := p.ControlKnobs[configapi.ControlKnobReclaimedCoresCPUQuota]
-		if !ok || v.Value <= 0 {
-			isLegal = false
-		}
-	}
-	if !isLegal {
-		errList = append(errList, fmt.Errorf("illegal control knob %v", p.ControlKnobs))
+	if !p.conf.GetDynamicConfiguration().EnableReclaim {
+		errList = append(errList, fmt.Errorf("reclaim disabled"))
 	}
 
 	return errors.NewAggregate(errList)
