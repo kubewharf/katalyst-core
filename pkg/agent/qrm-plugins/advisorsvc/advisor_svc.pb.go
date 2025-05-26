@@ -417,6 +417,8 @@ func (m *CalculationEntries) GetContainerEntries() map[string]*CalculationInfo {
 	return nil
 }
 
+func (m *CalculationInfo) Reset() { *m = CalculationInfo{} }
+
 type CalculationInfo struct {
 	// eg. "/kubepods/besteffort";
 	// empty for container; non-empty for high level cgroup path; since subsystem may be different for different control knob, so we use relative path here.
@@ -426,7 +428,6 @@ type CalculationInfo struct {
 	XXX_sizecache        int32              `json:"-"`
 }
 
-func (m *CalculationInfo) Reset()      { *m = CalculationInfo{} }
 func (*CalculationInfo) ProtoMessage() {}
 func (*CalculationInfo) Descriptor() ([]byte, []int) {
 	return fileDescriptor_870376c87c2a4145, []int{7}
