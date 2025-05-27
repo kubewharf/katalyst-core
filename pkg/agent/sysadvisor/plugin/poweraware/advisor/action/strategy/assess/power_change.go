@@ -33,11 +33,11 @@ func (p *powerChangeAssessor) AssessTarget(actualWatt, desiredWatt int, maxDecre
 	return desiredWatt
 }
 
-func (p *powerChangeAssessor) Update(power, freq int) {
-	p.prevPower = power
+func (p *powerChangeAssessor) Update(currPower int) {
+	p.prevPower = currPower
 }
 
-func (p *powerChangeAssessor) AssessEffect(currentPower, _ int) (int, error) {
+func (p *powerChangeAssessor) AssessEffect(currentPower int) (int, error) {
 	if currentPower <= 0 {
 		return 0, fmt.Errorf("invalid cuurent value %d", currentPower)
 	}

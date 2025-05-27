@@ -28,7 +28,15 @@ func (c *cpuFreqChangeAssessor) Clear() {
 	c.initFreqMhz = 0
 }
 
-func (c *cpuFreqChangeAssessor) AssessEffect(_, currentFreq int) (int, error) {
+func (c *cpuFreqChangeAssessor) AssessEffect(_ int) (int, error) {
+	// use cpu freq instead of power to access the effect
+	// todo: fetch cpu freq from metric store
+	currentFreq := 0
+
+	return c.assessEffectByFreq(currentFreq)
+}
+
+func (c *cpuFreqChangeAssessor) assessEffectByFreq(currentFreq int) (int, error) {
 	if c.initFreqMhz < minMHZ {
 		return 0, fmt.Errorf("invalid initial frequency %d mhz", c.initFreqMhz)
 	}
@@ -44,7 +52,7 @@ func (c *cpuFreqChangeAssessor) AssessEffect(_, currentFreq int) (int, error) {
 	return 100 - currentFreq*100/c.initFreqMhz, nil
 }
 
-func (c *cpuFreqChangeAssessor) Update(power, freq int) {
+func (c *cpuFreqChangeAssessor) Update(_ int) {
 	// no need to keep track of the change, as we always compare with the initial frequency
 }
 

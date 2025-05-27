@@ -51,10 +51,10 @@ func (d *dvfsTracker) isCapperAvailable() bool {
 	return d.capperProber != nil && d.capperProber.IsCapperReady()
 }
 
-func (d *dvfsTracker) update(currPower, currFreq int) {
+func (d *dvfsTracker) update(currPower int) {
 	// only accumulate when dvfs is engaged
 	if d.inDVFS && d.isCapperAvailable() {
-		val, err := d.assessor.AssessEffect(currPower, currFreq)
+		val, err := d.assessor.AssessEffect(currPower)
 		if err != nil {
 			general.Errorf("pap: failed to get accumulated effect: %v", err)
 			return
@@ -63,7 +63,7 @@ func (d *dvfsTracker) update(currPower, currFreq int) {
 		d.dvfsAccumEffect = val
 	}
 
-	d.assessor.Update(currPower, currFreq)
+	d.assessor.Update(currPower)
 }
 
 func (d *dvfsTracker) dvfsEnter() {
