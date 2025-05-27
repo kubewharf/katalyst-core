@@ -20,6 +20,8 @@ import (
 	"reflect"
 	"testing"
 
+	"k8s.io/utils/pointer"
+
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent"
@@ -83,26 +85,7 @@ func Test_validateConf(t *testing.T) {
 
 func TestIsStrategyEnabledForNode(t *testing.T) {
 	t.Parallel()
-	gloalConf := &config.Configuration{
-		AgentConfiguration: &agent.AgentConfiguration{
-			DynamicAgentConfiguration: &dynamic.DynamicAgentConfiguration{},
-		},
-	}
 
-	sa, sb := "sa", "sb"
-
-	gloalConf.SetDynamicConfiguration(&dynamic.Configuration{
-		StrategyGroup: &strategygroup.StrategyGroup{
-			EnabledStrategies: []v1alpha1.Strategy{
-				{
-					Name: &sa,
-				},
-				{
-					Name: &sb,
-				},
-			},
-		},
-	})
 	type args struct {
 		strategyName string
 		defaultValue bool
@@ -115,13 +98,73 @@ func TestIsStrategyEnabledForNode(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "normal case",
+			name: "normal case true",
 			args: args{
-				strategyName: sa,
-				defaultValue: false,
-				conf:         gloalConf,
+				strategyName: "sa",
+				defaultValue: true,
+				conf: func() *config.Configuration {
+					globalConf := config.NewConfiguration()
+					globalConf.SetDynamicConfiguration(&dynamic.Configuration{
+						StrategyGroup: &strategygroup.StrategyGroup{
+							EnabledStrategies: []v1alpha1.Strategy{
+								{
+									Name: pointer.String("sa"),
+								},
+							},
+						},
+					})
+					return globalConf
+				}(),
 			},
 			want:    true,
+			wantErr: false,
+		},
+		{
+			name: "normal case false",
+			args: args{
+				strategyName: "sa",
+				defaultValue: true,
+				conf: func() *config.Configuration {
+					globalConf := config.NewConfiguration()
+					globalConf.SetDynamicConfiguration(&dynamic.Configuration{
+						StrategyGroup: &strategygroup.StrategyGroup{
+							EnabledStrategies: []v1alpha1.Strategy{
+								{
+									Name: pointer.String("sc"),
+								},
+							},
+						},
+					})
+					return globalConf
+				}(),
+			},
+			want:    false,
+			wantErr: false,
+		},
+		{
+			name: "diable strategy group but default value is true",
+			args: args{
+				strategyName: "sa",
+				defaultValue: true,
+				conf: func() *config.Configuration {
+					globalConf := config.NewConfiguration()
+					return globalConf
+				}(),
+			},
+			want:    true,
+			wantErr: false,
+		},
+		{
+			name: "diable strategy group but default value is false",
+			args: args{
+				strategyName: "sa",
+				defaultValue: false,
+				conf: func() *config.Configuration {
+					globalConf := config.NewConfiguration()
+					return globalConf
+				}(),
+			},
+			want:    false,
 			wantErr: false,
 		},
 	}

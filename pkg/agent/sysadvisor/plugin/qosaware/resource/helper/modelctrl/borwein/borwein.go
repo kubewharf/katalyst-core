@@ -198,7 +198,7 @@ func (bc *BorweinController) getUpdatedIndicators(indicators types.Indicator) ty
 }
 
 func (bc *BorweinController) GetUpdatedIndicators(indicators types.Indicator, podSet types.PodSet) types.Indicator {
-	borweinV2Enabled, err := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameBorweinV2, false, bc.conf)
+	borweinV2Enabled, err := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameBorweinV2, bc.conf.EnableBorweinV2, bc.conf)
 	if err != nil {
 		general.Warningf("Failed to get %v strategy %v", consts.StrategyNameBorweinV2, err)
 		return indicators
@@ -224,7 +224,7 @@ func (bc *BorweinController) ResetIndicatorOffsets() {
 func fetchBorweinV2Strategy(conf *config.Configuration) (*latencyregression.BorweinStrategy, error) {
 	// get strategy
 	strategyName := consts.StrategyNameBorweinV2
-	strategyContent, enabled, err := strategygroup.GetSpecificStrategyParam(strategyName, conf)
+	strategyContent, enabled, err := strategygroup.GetSpecificStrategyParam(strategyName, conf.EnableBorweinV2, conf)
 	if err != nil {
 		return nil, fmt.Errorf("get %v grep param error: %v", strategyName, err)
 	}

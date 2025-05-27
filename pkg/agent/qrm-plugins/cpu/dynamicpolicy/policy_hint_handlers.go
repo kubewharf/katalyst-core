@@ -921,7 +921,7 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(request float64,
 		})
 	}
 
-	metricPolicyEnabled, _ := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameMetricPreferredNUMAAllocation, false, p.conf)
+	metricPolicyEnabled, _ := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameMetricPreferredNUMAAllocation, p.enableMetricPreferredNumaAllocation, p.conf)
 
 	general.Infof("metricPolicyEnabled: %v", metricPolicyEnabled)
 

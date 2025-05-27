@@ -181,7 +181,7 @@ func TestNumaCPUPressureEviction_update(t *testing.T) {
 				conf: conf,
 				numaPressureConfig: &NumaPressureConfig{
 					MetricRingSize:         1,
-					ThresholdMetPercentage: conf.DynamicAgentConfiguration.GetDynamicConfiguration().NumaCpuPressureThresholdMetPercentage,
+					ThresholdMetPercentage: conf.DynamicAgentConfiguration.GetDynamicConfiguration().ThresholdMetPercentage,
 					GracePeriod:            conf.DynamicAgentConfiguration.GetDynamicConfiguration().DeletionGracePeriod,
 					ExpandFactor:           1.2,
 				},
@@ -221,7 +221,7 @@ func TestNumaCPUPressureEviction_update(t *testing.T) {
 				conf: conf,
 				numaPressureConfig: &NumaPressureConfig{
 					MetricRingSize:         1,
-					ThresholdMetPercentage: conf.DynamicAgentConfiguration.GetDynamicConfiguration().NumaCpuPressureThresholdMetPercentage,
+					ThresholdMetPercentage: conf.DynamicAgentConfiguration.GetDynamicConfiguration().NumaCPUPressureEvictionConfiguration.ThresholdMetPercentage,
 					GracePeriod:            conf.DynamicAgentConfiguration.GetDynamicConfiguration().DeletionGracePeriod,
 					ExpandFactor:           1.2,
 				},

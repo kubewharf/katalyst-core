@@ -49,6 +49,7 @@ type CPUPressureEvictionOptions struct {
 	MaxSuppressionToleranceRate     float64
 	MinSuppressionToleranceDuration time.Duration
 	GracePeriod                     int64
+	NumaCPUPressureEvictionOptions  NumaCPUPressureEvictionOptions
 }
 
 // NewCPUPressureEvictionOptions returns a new CPUPressureEvictionOptions
@@ -64,6 +65,7 @@ func NewCPUPressureEvictionOptions() *CPUPressureEvictionOptions {
 		MaxSuppressionToleranceRate:     defaultMaxSuppressionToleranceRate,
 		MinSuppressionToleranceDuration: defaultMinSuppressionToleranceDuration,
 		GracePeriod:                     defaultGracePeriod,
+		NumaCPUPressureEvictionOptions:  NewNumaCPUPressureEvictionOptions(),
 	}
 }
 
@@ -96,6 +98,7 @@ func (o *CPUPressureEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.Int64Var(&o.GracePeriod, "eviction-cpu-grace-period", o.GracePeriod,
 		"the ratio between the times metric value over the bound value and the metric ring size is greater than this percentage "+
 			", the eviction or node taint will be triggered")
+	o.NumaCPUPressureEvictionOptions.AddFlags(fss)
 }
 
 func (o *CPUPressureEvictionOptions) ApplyTo(c *eviction.CPUPressureEvictionConfiguration) error {
@@ -109,5 +112,10 @@ func (o *CPUPressureEvictionOptions) ApplyTo(c *eviction.CPUPressureEvictionConf
 	c.MaxSuppressionToleranceRate = o.MaxSuppressionToleranceRate
 	c.MinSuppressionToleranceDuration = o.MinSuppressionToleranceDuration
 	c.GracePeriod = o.GracePeriod
+
+	if err := o.NumaCPUPressureEvictionOptions.ApplyTo(&c.NumaCPUPressureEvictionConfiguration); err != nil {
+		return err
+	}
+
 	return nil
 }

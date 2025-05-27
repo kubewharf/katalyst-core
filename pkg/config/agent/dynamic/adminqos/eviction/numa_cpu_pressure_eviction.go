@@ -21,24 +21,39 @@ import (
 )
 
 type NumaCPUPressureEvictionConfiguration struct {
-	NumaCpuPressureEnableEviction         bool
-	NumaCpuPressureThresholdMetPercentage float64
-	NumaCpuPressureMetricRingSize         int
-	NumaCpuPressureGracePeriod            int64
-	NumaCpuThresholdExpandFactor          float64
+	EnableEviction         bool
+	ThresholdMetPercentage float64
+	MetricRingSize         int
+	GracePeriod            int64
+	ThresholdExpandFactor  float64
 }
 
-func NewNumaCPUPressureEvictionConfiguration() *NumaCPUPressureEvictionConfiguration {
-	return &NumaCPUPressureEvictionConfiguration{
-		NumaCpuPressureEnableEviction:         false,
-		NumaCpuPressureThresholdMetPercentage: 0.7,
-		NumaCpuPressureMetricRingSize:         4,
-		NumaCpuPressureGracePeriod:            60,
-		NumaCpuThresholdExpandFactor:          1.1,
-	}
+func NewNumaCPUPressureEvictionConfiguration() NumaCPUPressureEvictionConfiguration {
+	return NumaCPUPressureEvictionConfiguration{}
 }
 
-// todo Due to the tight schedule, the EvictionConfig in AQC of katalyst-api has not been updated.
-// It is expected that the configuration connection will be supported in the future.
 func (n *NumaCPUPressureEvictionConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
+	if aqc := conf.AdminQoSConfiguration; aqc != nil && aqc.Spec.Config.EvictionConfig != nil &&
+		aqc.Spec.Config.EvictionConfig.CPUPressureEvictionConfig != nil {
+		config := aqc.Spec.Config.EvictionConfig.CPUPressureEvictionConfig.NumaCPUPressureEvictionConfig
+		if config.EnableEviction != nil {
+			n.EnableEviction = *config.EnableEviction
+		}
+
+		if config.ThresholdMetPercentage != nil {
+			n.ThresholdMetPercentage = *config.ThresholdMetPercentage
+		}
+
+		if config.MetricRingSize != nil {
+			n.MetricRingSize = *config.MetricRingSize
+		}
+
+		if config.GracePeriod != nil {
+			n.GracePeriod = *config.GracePeriod
+		}
+
+		if config.ThresholdExpandFactor != nil {
+			n.ThresholdExpandFactor = *config.ThresholdExpandFactor
+		}
+	}
 }

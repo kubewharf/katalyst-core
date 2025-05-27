@@ -46,6 +46,7 @@ type CPUDynamicPolicyOptions struct {
 	CPUNUMAHintPreferPolicy                   string
 	CPUNUMAHintPreferLowThreshold             float64
 	SharedCoresNUMABindingResultAnnotationKey string
+	EnableMetricPreferredNumaAllocation       bool
 }
 
 type CPUNativePolicyOptions struct {
@@ -72,6 +73,7 @@ func NewCPUOptions() *CPUOptions {
 				commonstate.PoolNameReserve,
 			},
 			SharedCoresNUMABindingResultAnnotationKey: consts.PodAnnotationNUMABindResultKey,
+			EnableMetricPreferredNumaAllocation:       false,
 		},
 		CPUNativePolicyOptions: CPUNativePolicyOptions{
 			EnableFullPhysicalCPUsOnly: false,
@@ -106,6 +108,8 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"it decides hint preference calculation strategy")
 	fs.Float64Var(&o.CPUNUMAHintPreferLowThreshold, "cpu-numa-hint-prefer-low-threshold", o.CPUNUMAHintPreferLowThreshold,
 		"it indicates threshold to apply CPUNUMAHintPreferPolicy dynamically, and it's working when CPUNUMAHintPreferPolicy is set to dynamic_packing")
+	fs.BoolVar(&o.EnableMetricPreferredNumaAllocation, "enable-metric-preferred-numa-allocation", o.EnableMetricPreferredNumaAllocation,
+		"if set true, we will enable metric preferred numa")
 	fs.StringVar(&o.CPUAllocationOption, "cpu-allocation-option",
 		o.CPUAllocationOption, "The allocation option of cpu (packed/distributed). The default value is packed."+
 			"in cases where more than one NUMA node is required to satisfy the allocation.")
@@ -131,6 +135,7 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 	conf.CPUAllocationOption = o.CPUAllocationOption
 	conf.CPUNUMAHintPreferPolicy = o.CPUNUMAHintPreferPolicy
 	conf.CPUNUMAHintPreferLowThreshold = o.CPUNUMAHintPreferLowThreshold
+	conf.EnableMetricPreferredNumaAllocation = o.EnableMetricPreferredNumaAllocation
 	conf.SharedCoresNUMABindingResultAnnotationKey = o.SharedCoresNUMABindingResultAnnotationKey
 	return nil
 }
