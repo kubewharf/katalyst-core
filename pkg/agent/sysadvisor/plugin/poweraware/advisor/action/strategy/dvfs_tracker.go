@@ -57,10 +57,9 @@ func (d *dvfsTracker) update(currPower int) {
 		val, err := d.assessor.AssessEffect(currPower)
 		if err != nil {
 			general.Errorf("pap: failed to get accumulated effect: %v", err)
-			return
+		} else {
+			d.dvfsAccumEffect = val
 		}
-
-		d.dvfsAccumEffect = val
 	}
 
 	d.assessor.Update(currPower)

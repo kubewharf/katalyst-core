@@ -16,22 +16,41 @@ limitations under the License.
 
 package assess
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+	"time"
 
-const minMHZ = 800
+	"github.com/pkg/errors"
+
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/reader"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
+)
+
+const (
+	// minMHZ is the minimum mhz for a valid cpu freq
+	minMHZ = 800
+	// minElapsedTimeInitFreq is the time at least one newer sample has been collected
+	minElapsedTimeInitFreq = 10 * time.Second
+)
 
 type cpuFreqChangeAssessor struct {
-	initFreqMhz int
+	initFreqMhz    int
+	timestampClear time.Time
+	cpuFreqReader  reader.MetricReader
 }
 
 func (c *cpuFreqChangeAssessor) Clear() {
+	// 0 is uninitialized cpu freq; hopefully next read of cpu freq will populate it given adequate time
 	c.initFreqMhz = 0
+	c.timestampClear = time.Now()
 }
 
 func (c *cpuFreqChangeAssessor) AssessEffect(_ int) (int, error) {
-	// use cpu freq instead of power to access the effect
-	// todo: fetch cpu freq from metric store
-	currentFreq := 0
+	currentFreq, err := c.cpuFreqReader.Get(context.Background())
+	if err != nil {
+		return 0, errors.Wrap(err, "failed to fetch latest cpu freq to access dvfs effect")
+	}
 
 	return c.assessEffectByFreq(currentFreq)
 }
@@ -53,7 +72,23 @@ func (c *cpuFreqChangeAssessor) assessEffectByFreq(currentFreq int) (int, error)
 }
 
 func (c *cpuFreqChangeAssessor) Update(_ int) {
-	// no need to keep track of the change, as we always compare with the initial frequency
+	// no need to keep track of the cpu freq change as long as initial frequency is valid
+	if c.initFreqMhz >= minMHZ {
+		return
+	}
+
+	currentFreq, err := c.cpuFreqReader.Get(context.Background())
+	if err != nil {
+		general.Errorf("pap: failed to fetch latest cpu freq to populate initial freq: %v", err)
+		return
+	}
+
+	if time.Now().Before(c.timestampClear.Add(minElapsedTimeInitFreq)) {
+		general.Warningf("pap: too soon to populate the initial cpu freq")
+		return
+	}
+
+	c.initFreqMhz = currentFreq
 }
 
 func (c *cpuFreqChangeAssessor) AssessTarget(actualWatt, desiredWatt int, maxDecreasePercent int) int {
@@ -71,8 +106,9 @@ func (c *cpuFreqChangeAssessor) AssessTarget(actualWatt, desiredWatt int, maxDec
 	return desiredWatt
 }
 
-func NewCPUFreqChangeAssessor(initMhz int) Assessor {
+func NewCPUFreqChangeAssessor(initMhz int, nodeMetricGetter reader.NodeMetricGetter) Assessor {
 	return &cpuFreqChangeAssessor{
-		initFreqMhz: initMhz,
+		initFreqMhz:   initMhz,
+		cpuFreqReader: reader.NewCPUFreqReader(nodeMetricGetter),
 	}
 }

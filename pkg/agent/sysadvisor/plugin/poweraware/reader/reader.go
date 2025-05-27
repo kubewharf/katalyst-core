@@ -24,6 +24,10 @@ import (
 var errNotRealReader = errors.New("not a real power reader")
 
 type PowerReader interface {
+	MetricReader
+}
+
+type MetricReader interface {
 	Init() error
 	Get(ctx context.Context) (int, error)
 	Cleanup()
