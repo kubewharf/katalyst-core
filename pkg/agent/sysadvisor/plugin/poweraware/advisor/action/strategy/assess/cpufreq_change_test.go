@@ -74,7 +74,7 @@ func Test_cpuFreqChangeAssessor_AccumulateEffect(t *testing.T) {
 			c := &cpuFreqChangeAssessor{
 				initFreqMhz: tt.fields.initFreqMhz,
 			}
-			got, err := c.AssessEffect(tt.args.current)
+			got, err := c.AssessEffect(0, tt.args.current)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("AssessEffect() error = %v, wantErr %v", err, tt.wantErr)
 				return

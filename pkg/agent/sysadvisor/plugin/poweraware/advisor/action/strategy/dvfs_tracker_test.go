@@ -120,7 +120,7 @@ func Test_dvfsTracker_update(t *testing.T) {
 				inDVFS:          tt.fields.indvfs,
 				assessor:        assess.NewPowerChangeAssessor(3, tt.fields.prevPower),
 			}
-			d.update(tt.args.actualWatt)
+			d.update(tt.args.actualWatt, 0)
 			assert.Equal(t, &tt.wantDVFSTracker, d)
 		})
 	}

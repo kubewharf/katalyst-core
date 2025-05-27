@@ -33,22 +33,22 @@ func (p *powerChangeAssessor) AssessTarget(actualWatt, desiredWatt int, maxDecre
 	return desiredWatt
 }
 
-func (p *powerChangeAssessor) Update(currValue int) {
-	p.prevPower = currValue
+func (p *powerChangeAssessor) Update(power, freq int) {
+	p.prevPower = power
 }
 
-func (p *powerChangeAssessor) AssessEffect(current int) (int, error) {
-	if current <= 0 {
-		return 0, fmt.Errorf("invalid cuurent value %d", current)
+func (p *powerChangeAssessor) AssessEffect(currentPower, _ int) (int, error) {
+	if currentPower <= 0 {
+		return 0, fmt.Errorf("invalid cuurent value %d", currentPower)
 	}
 
 	// if actual power is more than previous, likely previous round dvfs took no effect;
 	// not to take into account
-	if current >= p.prevPower {
+	if currentPower >= p.prevPower {
 		return p.accumulatedEffect, nil
 	}
 
-	change := (p.prevPower - current) * 100 / p.prevPower
+	change := (p.prevPower - currentPower) * 100 / p.prevPower
 	p.accumulatedEffect += change
 	return p.accumulatedEffect, nil
 }

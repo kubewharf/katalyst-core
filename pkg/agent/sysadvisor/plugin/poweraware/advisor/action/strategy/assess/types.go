@@ -18,7 +18,7 @@ package assess
 
 type Assessor interface {
 	Clear()
-	AssessEffect(current int) (int, error)
-	Update(currValue int)
+	AssessEffect(currentPower, currentFreq int) (int, error)
+	Update(power, freq int)
 	AssessTarget(actualWatt int, desiredWatt int, maxDecreasePercent int) int
 }

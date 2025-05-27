@@ -28,23 +28,23 @@ func (c *cpuFreqChangeAssessor) Clear() {
 	c.initFreqMhz = 0
 }
 
-func (c *cpuFreqChangeAssessor) AssessEffect(current int) (int, error) {
+func (c *cpuFreqChangeAssessor) AssessEffect(_, currentFreq int) (int, error) {
 	if c.initFreqMhz < minMHZ {
 		return 0, fmt.Errorf("invalid initial frequency %d mhz", c.initFreqMhz)
 	}
 
-	if current < minMHZ {
-		return 0, fmt.Errorf("invalid current frequency %d mhz", current)
+	if currentFreq < minMHZ {
+		return 0, fmt.Errorf("invalid currentFreq frequency %d mhz", currentFreq)
 	}
 
-	if current >= c.initFreqMhz {
+	if currentFreq >= c.initFreqMhz {
 		return 0, nil
 	}
 
-	return 100 - current*100/c.initFreqMhz, nil
+	return 100 - currentFreq*100/c.initFreqMhz, nil
 }
 
-func (c *cpuFreqChangeAssessor) Update(actual int) {
+func (c *cpuFreqChangeAssessor) Update(power, freq int) {
 	// no need to keep track of the change, as we always compare with the initial frequency
 }
 
