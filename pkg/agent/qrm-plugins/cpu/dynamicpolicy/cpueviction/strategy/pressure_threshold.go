@@ -31,7 +31,8 @@ var ThresholdMin = 0.4
 
 func (p *NumaCPUPressureEviction) pullThresholds(_ context.Context) {
 	dynamicConf := p.conf.DynamicAgentConfiguration.GetDynamicConfiguration()
-	enabled, err := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameNumaCpuPressureEviction, false, p.conf)
+	enabled, err := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameNumaCpuPressureEviction,
+		dynamicConf.NumaCPUPressureEvictionConfiguration.EnableEviction, p.conf)
 	if err != nil {
 		general.Errorf("failed to get eviction strategy: %v", err)
 		return
