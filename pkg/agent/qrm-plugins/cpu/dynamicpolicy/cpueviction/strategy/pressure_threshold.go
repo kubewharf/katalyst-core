@@ -21,22 +21,22 @@ import (
 	"fmt"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/metricthreshold"
-	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
-	"github.com/kubewharf/katalyst-core/pkg/util/strategygroup"
 )
 
 var ThresholdMin = 0.4
 
 func (p *NumaCPUPressureEviction) pullThresholds(_ context.Context) {
 	dynamicConf := p.conf.DynamicAgentConfiguration.GetDynamicConfiguration()
-	enabled, err := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameNumaCpuPressureEviction,
-		dynamicConf.NumaCPUPressureEvictionConfiguration.EnableEviction, p.conf)
-	if err != nil {
-		general.Errorf("failed to get eviction strategy: %v", err)
-		return
-	}
+	// todo support strategygroup in the future
+	//enabled, err := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameNumaCpuPressureEviction,
+	//	dynamicConf.NumaCPUPressureEvictionConfiguration.EnableEviction, p.conf)
+	//if err != nil {
+	//	general.Errorf("failed to get eviction strategy: %v", err)
+	//	return
+	//}
+	enabled := dynamicConf.NumaCPUPressureEvictionConfiguration.EnableEviction
 	if !enabled {
 		general.Warningf("eviction strategy is disabled, skip pullThresholds")
 		return
@@ -49,7 +49,7 @@ func (p *NumaCPUPressureEviction) pullThresholds(_ context.Context) {
 	thresholds := getOverLoadThreshold(dynamicConf.MetricThreshold, cpuCodeName, isVM)
 	thresholds = convertThreshold(thresholds)
 	expandedThresholds := expandThresholds(thresholds, numaPressureConfig.ExpandFactor)
-	err = validateThresholds(thresholds)
+	err := validateThresholds(thresholds)
 	if err != nil {
 		general.Warningf("%v", err.Error())
 		return
