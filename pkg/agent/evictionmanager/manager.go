@@ -134,6 +134,7 @@ func NewInnerEvictionPluginInitializers() map[string]plugin.InitFunc {
 	innerEvictionPluginInitializers[memory.EvictionPluginNameRssOveruse] = memory.NewRssOveruseEvictionPlugin
 	innerEvictionPluginInitializers[rootfs.EvictionPluginNamePodRootfsPressure] = rootfs.NewPodRootfsPressureEvictionPlugin
 	innerEvictionPluginInitializers[network.EvictionPluginNameNetwork] = network.NewNICEvictionPlugin
+	innerEvictionPluginInitializers[rootfs.EvictionPluginNamePodRootfsOveruse] = rootfs.NewPodRootfsOveruseEvictionPlugin
 	return innerEvictionPluginInitializers
 }
 

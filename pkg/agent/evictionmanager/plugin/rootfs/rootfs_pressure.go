@@ -260,10 +260,11 @@ func (r *PodRootfsPressureEvictionPlugin) GetEvictPods(_ context.Context, reques
 }
 
 type podUsageItem struct {
-	usage    int64
-	capacity int64
-	priority bool
-	pod      *v1.Pod
+	usage     int64
+	capacity  int64
+	threshold int64
+	priority  bool
+	pod       *v1.Pod
 }
 
 type podUsageList []podUsageItem

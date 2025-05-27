@@ -37,7 +37,15 @@ type RootfsPressureEvictionConfiguration struct {
 	ReclaimedQoSPodUsedPriorityThreshold       *evictionapi.ThresholdValue
 	ReclaimedQoSPodInodesUsedPriorityThreshold *evictionapi.ThresholdValue
 	MinimumImageFsDiskCapacityThreshold        *resource.Quantity
-	GracePeriod                                int64
+
+	EnableRootfsOveruseEviction             bool
+	RootfsOveruseEvictionSupportedQoSLevels []string
+	SharedQoSRootfsOveruseThreshold         *evictionapi.ThresholdValue
+	ReclaimedQoSRootfsOveruseThreshold      *evictionapi.ThresholdValue
+	RootfsOveruseEvictionCount              int
+	SharedQoSNamespaceFilter                []string
+
+	GracePeriod int64
 }
 
 func NewRootfsPressureEvictionPluginConfiguration() *RootfsPressureEvictionConfiguration {
@@ -104,6 +112,28 @@ func (c *RootfsPressureEvictionConfiguration) ApplyTo(conf *crd.DynamicConfigCRD
 		}
 		if config.GracePeriod != nil {
 			c.GracePeriod = *config.GracePeriod
+		}
+		if config.EnableRootfsOveruseEviction != nil {
+			c.EnableRootfsOveruseEviction = *config.EnableRootfsOveruseEviction
+		}
+		if len(config.RootfsOveruseEvictionSupportedQoSLevels) > 0 {
+			c.RootfsOveruseEvictionSupportedQoSLevels = config.RootfsOveruseEvictionSupportedQoSLevels
+		}
+		if config.SharedQoSRootfsOveruseThreshold != nil {
+			thresholdValue, err := ParseThresholdValue(*config.SharedQoSRootfsOveruseThreshold)
+			if err == nil {
+				c.SharedQoSRootfsOveruseThreshold = thresholdValue
+			} else {
+				general.Warningf("failed to parse sharedQoSRootfsOveruseThreshold, ignore this configuration: %q", err)
+			}
+		}
+		if config.ReclaimedQoSRootfsOveruseThreshold != nil {
+			thresholdValue, err := ParseThresholdValue(*config.ReclaimedQoSRootfsOveruseThreshold)
+			if err == nil {
+				c.ReclaimedQoSRootfsOveruseThreshold = thresholdValue
+			} else {
+				general.Warningf("failed to parse reclaimedQoSRootfsOveruseThreshold, ignore this configuration: %q", err)
+			}
 		}
 	}
 }
