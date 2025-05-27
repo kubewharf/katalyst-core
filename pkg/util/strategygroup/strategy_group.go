@@ -21,7 +21,6 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/strategygroup"
-	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
 
 func validateConf(conf *config.Configuration) (*strategygroup.StrategyGroup, error) {
@@ -114,10 +113,5 @@ func GetSpecificStrategyParam(strategyName string, defaultEnable bool, conf *con
 }
 
 func isStrategyGroupEnabled(strategyGroup *strategygroup.StrategyGroup) bool {
-	if len(strategyGroup.EnabledStrategies) == 1 && strategyGroup.EnabledStrategies[0].Name != nil &&
-		*strategyGroup.EnabledStrategies[0].Name == consts.StrategyNameNone {
-		return false
-	}
-
-	return true
+	return len(strategyGroup.EnabledStrategies) != 0
 }
