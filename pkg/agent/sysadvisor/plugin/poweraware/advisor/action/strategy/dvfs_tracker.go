@@ -54,7 +54,7 @@ func (d *dvfsTracker) isCapperAvailable() bool {
 func (d *dvfsTracker) update(currIndicateValue int) {
 	// only accumulate when dvfs is engaged
 	if d.inDVFS && d.isCapperAvailable() {
-		val, err := d.assessor.AccumulateEffect(currIndicateValue)
+		val, err := d.assessor.AssessEffect(currIndicateValue)
 		if err != nil {
 			general.Errorf("pap: failed to get accumulated effect: %v", err)
 			return

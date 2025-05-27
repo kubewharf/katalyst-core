@@ -74,13 +74,13 @@ func Test_cpuFreqChangeAssessor_AccumulateEffect(t *testing.T) {
 			c := &cpuFreqChangeAssessor{
 				initFreqMhz: tt.fields.initFreqMhz,
 			}
-			got, err := c.AccumulateEffect(tt.args.current)
+			got, err := c.AssessEffect(tt.args.current)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("AccumulateEffect() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("AssessEffect() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if got != tt.want {
-				t.Errorf("AccumulateEffect() got = %v, want %v", got, tt.want)
+				t.Errorf("AssessEffect() got = %v, want %v", got, tt.want)
 			}
 		})
 	}

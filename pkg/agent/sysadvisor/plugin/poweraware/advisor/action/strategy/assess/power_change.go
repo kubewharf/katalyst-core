@@ -37,7 +37,7 @@ func (p *powerChangeAssessor) Update(currValue int) {
 	p.prevPower = currValue
 }
 
-func (p *powerChangeAssessor) AccumulateEffect(current int) (int, error) {
+func (p *powerChangeAssessor) AssessEffect(current int) (int, error) {
 	if current <= 0 {
 		return 0, fmt.Errorf("invalid cuurent value %d", current)
 	}

@@ -28,7 +28,7 @@ func (c *cpuFreqChangeAssessor) Clear() {
 	c.initFreqMhz = 0
 }
 
-func (c *cpuFreqChangeAssessor) AccumulateEffect(current int) (int, error) {
+func (c *cpuFreqChangeAssessor) AssessEffect(current int) (int, error) {
 	if c.initFreqMhz < minMHZ {
 		return 0, fmt.Errorf("invalid initial frequency %d mhz", c.initFreqMhz)
 	}
