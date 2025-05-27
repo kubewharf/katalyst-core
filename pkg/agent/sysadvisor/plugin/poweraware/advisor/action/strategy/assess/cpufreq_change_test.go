@@ -21,7 +21,7 @@ import "testing"
 func Test_cpuFreqChangeAssessor_AccumulateEffect(t *testing.T) {
 	t.Parallel()
 	type fields struct {
-		initFreqMhz int
+		initFreqKHZ int
 	}
 	type args struct {
 		current int
@@ -36,10 +36,10 @@ func Test_cpuFreqChangeAssessor_AccumulateEffect(t *testing.T) {
 		{
 			name: "happy path",
 			fields: fields{
-				initFreqMhz: 2500,
+				initFreqKHZ: 2500_000,
 			},
 			args: args{
-				current: 2000,
+				current: 2000_000,
 			},
 			want:    20,
 			wantErr: false,
@@ -47,10 +47,10 @@ func Test_cpuFreqChangeAssessor_AccumulateEffect(t *testing.T) {
 		{
 			name: "negative low current freq",
 			fields: fields{
-				initFreqMhz: 2500,
+				initFreqKHZ: 2500_000,
 			},
 			args: args{
-				current: 777,
+				current: 777_000,
 			},
 			want:    0,
 			wantErr: true,
@@ -58,13 +58,13 @@ func Test_cpuFreqChangeAssessor_AccumulateEffect(t *testing.T) {
 		{
 			name: "higher freq no change",
 			fields: fields{
-				initFreqMhz: 2500,
+				initFreqKHZ: 2500_000,
 			},
 			args: args{
-				current: 2600,
+				current: 2600_000,
 			},
 			want:    0,
-			wantErr: false,
+			wantErr: true,
 		},
 	}
 	for _, tt := range tests {
@@ -72,9 +72,9 @@ func Test_cpuFreqChangeAssessor_AccumulateEffect(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			c := &cpuFreqChangeAssessor{
-				initFreqMhz: tt.fields.initFreqMhz,
+				initFreqKHZ: tt.fields.initFreqKHZ,
 			}
-			got, err := c.AssessEffect(tt.args.current)
+			got, err := c.assessEffectByFreq(tt.args.current)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("AssessEffect() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -132,7 +132,7 @@ func Test_cpuFreqChangeAssessor_AssessTarget(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			c := &cpuFreqChangeAssessor{
-				initFreqMhz: tt.fields.initFreqMhz,
+				initFreqKHZ: tt.fields.initFreqMhz,
 			}
 			if got := c.AssessTarget(tt.args.actualWatt, tt.args.desiredWatt, tt.args.maxDecreasePercent); got != tt.want {
 				t.Errorf("AssessTarget() = %v, want %v", got, tt.want)

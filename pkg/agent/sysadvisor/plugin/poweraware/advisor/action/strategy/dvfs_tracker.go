@@ -25,7 +25,7 @@ import (
 // the limit of dvfs effect a voluntary dvfs plan is allowed
 const voluntaryDVFSEffectMaximum = 10
 
-// dvfsTracker keeps track and accumulates the effect lowering power by means of dvfs
+// dvfsTracker keeps track and accumulates the effect lowering power or cpu frequency by means of dvfs
 type dvfsTracker struct {
 	dvfsAccumEffect int
 	inDVFS          bool
@@ -51,19 +51,18 @@ func (d *dvfsTracker) isCapperAvailable() bool {
 	return d.capperProber != nil && d.capperProber.IsCapperReady()
 }
 
-func (d *dvfsTracker) update(currIndicateValue int) {
+func (d *dvfsTracker) update(currPower int) {
 	// only accumulate when dvfs is engaged
 	if d.inDVFS && d.isCapperAvailable() {
-		val, err := d.assessor.AssessEffect(currIndicateValue)
+		val, err := d.assessor.AssessEffect(currPower)
 		if err != nil {
 			general.Errorf("pap: failed to get accumulated effect: %v", err)
-			return
+		} else {
+			d.dvfsAccumEffect = val
 		}
-
-		d.dvfsAccumEffect = val
 	}
 
-	d.assessor.Update(currIndicateValue)
+	d.assessor.Update(currPower)
 }
 
 func (d *dvfsTracker) dvfsEnter() {

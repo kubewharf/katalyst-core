@@ -146,7 +146,6 @@ func (e *evictFirstStrategy) yieldActionPlan(op, internalOp spec.InternalOp, act
 }
 
 func (e *evictFirstStrategy) RecommendAction(actualWatt int, desiredWatt int, alert spec.PowerAlert, internalOp spec.InternalOp, ttl time.Duration) action.PowerAction {
-	// todo: what if indicator of cpu freq?
 	e.dvfsTracker.update(actualWatt)
 
 	e.emitDVFSAccumulatedEffect(e.dvfsTracker.dvfsAccumEffect)
