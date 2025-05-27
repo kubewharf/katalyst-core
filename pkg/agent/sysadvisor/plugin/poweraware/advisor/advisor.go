@@ -41,6 +41,10 @@ const (
 	// 9 seconds between actions since RAPL/HSMP capping needs 4-6 seconds to stabilize itself
 	// and malachite realtime metric server imposes delay of up to 2 seconds
 	intervalSpecFetch = time.Second * 9
+
+	// recommended interval involving cpu freq monitoring is 21 seconds, which includes
+	// 4-6 seconds for dvfs stabilization, 5 seconds metric sampling, and up to 10 seconds malachite source latency
+	intervalStableReconcile = 21 * time.Second
 )
 
 // PowerAwareAdvisor is the interface that runs the whole power advisory process

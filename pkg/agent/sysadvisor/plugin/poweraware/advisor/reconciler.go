@@ -45,6 +45,8 @@ type powerReconciler struct {
 	capper   capper.PowerCapper
 	strategy strategy.PowerActionStrategy
 	emitter  metrics.MetricEmitter
+
+	lastReconcileTime time.Time
 }
 
 func (p *powerReconciler) OnDVFSReset() {
@@ -52,6 +54,23 @@ func (p *powerReconciler) OnDVFSReset() {
 }
 
 func (p *powerReconciler) Reconcile(ctx context.Context, desired *spec.PowerSpec, actual int) (bool, error) {
+	// for non-S0 alerts, reconcile after the stable period
+	if desired.Alert != spec.PowerAlertS0 {
+		if !p.lastReconcileTime.IsZero() && time.Now().Before(p.lastReconcileTime.Add(intervalStableReconcile)) {
+			general.InfofV(6, "pap: skip reconcile and give time to stabilize")
+			return false, nil
+		}
+	}
+
+	dvfsEngaged, err := p.reconcile(ctx, desired, actual)
+	if err == nil {
+		p.lastReconcileTime = time.Now()
+	}
+
+	return dvfsEngaged, err
+}
+
+func (p *powerReconciler) reconcile(ctx context.Context, desired *spec.PowerSpec, actual int) (bool, error) {
 	alertTimeLimit, err := spec.GetPowerAlertResponseTimeLimit(desired.Alert)
 	if err != nil {
 		general.InfofV(6, "pap: failed to get response time limit of alert: %v", err)
