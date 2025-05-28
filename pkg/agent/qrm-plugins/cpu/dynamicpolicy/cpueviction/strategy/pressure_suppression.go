@@ -215,9 +215,7 @@ func (p *CPUPressureSuppression) evictPodsByReclaimMetrics(now time.Time, filter
 		totalCPURequest.Add(native.CPUQuantityGetter()(native.SumUpPodRequestResources(pod)))
 	}
 
-	general.InfoS("info", "reclaim cpu request", totalCPURequest.String(),
-		"reclaim pool size", reclaimMetrics.Size, "reclaimedCoresSupply", reclaimMetrics.ReclaimedCoresSupply,
-		"reclaimPoolUsage", reclaimMetrics.PoolCPUUsage, "reclaimedCoresUsage", reclaimMetrics.CgroupCPUUsage)
+	general.InfoS("info", "reclaim cpu request", totalCPURequest.String(), "reclaimMetrics", reclaimMetrics)
 
 	var evictPods []*v1alpha1.EvictPod
 	for _, pod := range filteredPods {
