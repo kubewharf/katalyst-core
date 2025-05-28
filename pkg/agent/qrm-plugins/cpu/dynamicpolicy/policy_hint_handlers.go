@@ -34,14 +34,12 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
-	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
-	"github.com/kubewharf/katalyst-core/pkg/util/strategygroup"
 )
 
 var errNoAvailableCPUHints = fmt.Errorf("no available cpu hints")
@@ -921,7 +919,9 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(request float64,
 		})
 	}
 
-	metricPolicyEnabled, _ := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameMetricPreferredNUMAAllocation, false, p.conf)
+	metricPolicyEnabled := p.enableMetricPreferredNumaAllocation
+	// todo support strategygroup in the future
+	// metricPolicyEnabled, _ := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameMetricPreferredNUMAAllocation, p.enableMetricPreferredNumaAllocation, p.conf)
 
 	general.Infof("metricPolicyEnabled: %v", metricPolicyEnabled)
 

@@ -21,33 +21,35 @@ import (
 	"fmt"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/metricthreshold"
-	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
-	"github.com/kubewharf/katalyst-core/pkg/util/strategygroup"
 )
 
 var ThresholdMin = 0.4
 
 func (p *NumaCPUPressureEviction) pullThresholds(_ context.Context) {
-	enabled, err := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameNumaCpuPressureEviction, false, p.conf)
-	if err != nil {
-		general.Errorf("failed to get eviction strategy: %v", err)
-		return
-	}
+	dynamicConf := p.conf.DynamicAgentConfiguration.GetDynamicConfiguration()
+	// todo support strategygroup in the future
+	//enabled, err := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameNumaCpuPressureEviction,
+	//	dynamicConf.NumaCPUPressureEvictionConfiguration.EnableEviction, p.conf)
+	//if err != nil {
+	//	general.Errorf("failed to get eviction strategy: %v", err)
+	//	return
+	//}
+	enabled := dynamicConf.NumaCPUPressureEvictionConfiguration.EnableEviction
 	if !enabled {
 		general.Warningf("eviction strategy is disabled, skip pullThresholds")
 		return
 	}
 
+	numaPressureConfig := getNumaPressureConfig(dynamicConf)
 	cpuCodeName := helper.GetCpuCodeName(p.metaServer.MetricsFetcher)
 	isVM, _ := helper.GetIsVm(p.metaServer.MetricsFetcher)
 
-	globalThresholds := p.conf.DynamicAgentConfiguration.GetDynamicConfiguration().MetricThreshold
-	thresholds := getOverLoadThreshold(globalThresholds, cpuCodeName, isVM)
+	thresholds := getOverLoadThreshold(dynamicConf.MetricThreshold, cpuCodeName, isVM)
 	thresholds = convertThreshold(thresholds)
-	expandedThresholds := expandThresholds(thresholds, p.numaPressureConfig.ExpandFactor)
-	err = validateThresholds(thresholds)
+	expandedThresholds := expandThresholds(thresholds, numaPressureConfig.ExpandFactor)
+	err := validateThresholds(thresholds)
 	if err != nil {
 		general.Warningf("%v", err.Error())
 		return
@@ -60,6 +62,13 @@ func (p *NumaCPUPressureEviction) pullThresholds(_ context.Context) {
 	p.enabled = enabled
 	general.Infof("update thresholds to %v", expandedThresholds)
 	p.thresholds = expandedThresholds
+	general.Infof("update numaPressureConfig to %v", numaPressureConfig)
+	p.numaPressureConfig = numaPressureConfig
+
+	if p.metricsHistory.RingSize != numaPressureConfig.MetricRingSize {
+		general.Infof("update metricsHistory ring size to %v", numaPressureConfig.MetricRingSize)
+		p.metricsHistory = NewMetricHistory(numaPressureConfig.MetricRingSize)
+	}
 }
 
 func expandThresholds(thresholds map[string]float64, expandFactor float64) map[string]float64 {
