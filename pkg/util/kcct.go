@@ -22,6 +22,7 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -35,34 +36,71 @@ const (
 	kccConfigHashLength = 12
 )
 
-// KCCTargetResource is used to provide util function to get detailed information
+type KCCTargetResource interface {
+	metav1.Object
+	GetUnstructured() *unstructured.Unstructured
+	GetLabelSelector() string
+	GetPriority() int32
+	GetNodeNames() []string
+	GetCanary() *intstr.IntOrString
+	GetPaused() bool
+	GetLastDuration() *time.Duration
+	GetRevisionHistoryLimit() int64
+	Unmarshal(conf interface{}) error
+	GetGenericStatus() v1alpha1.GenericConfigStatus
+	SetGenericStatus(status v1alpha1.GenericConfigStatus)
+	GetObservedGeneration() int64
+	SetObservedGeneration(generation int64)
+	GetCollisionCount() *int32
+	SetCollisionCount(count *int32)
+	GenerateConfigHash() (string, error)
+	DeepCopy() KCCTargetResource
+	CheckValid() bool
+	CheckExpired(now time.Time) bool
+	IsUpdated() bool
+	NeedValidateKCC() bool
+	IsPerNode() bool
+}
+
+// KCCTargetResourceGeneral is used to provide util function to get detailed information
 // about KCC Target fields.
-type KCCTargetResource struct {
+type KCCTargetResourceGeneral struct {
 	*unstructured.Unstructured
 }
 
 func ToKCCTargetResource(obj *unstructured.Unstructured) KCCTargetResource {
-	return KCCTargetResource{
-		obj,
+	switch obj.GetKind() {
+	case NPDKind:
+		return &KCCTargetResourceNPD{
+			obj,
+		}
+	default:
+		return &KCCTargetResourceGeneral{
+			obj,
+		}
 	}
 }
 
-func (g KCCTargetResource) GetLabelSelector() string {
+func (g KCCTargetResourceGeneral) GetUnstructured() *unstructured.Unstructured {
+	return g.Unstructured
+}
+
+func (g KCCTargetResourceGeneral) GetLabelSelector() string {
 	labelSelector, _, _ := unstructured.NestedString(g.Object, consts.ObjectFieldNameSpec, consts.KCCTargetConfFieldNameLabelSelector)
 	return labelSelector
 }
 
-func (g KCCTargetResource) GetPriority() int32 {
+func (g KCCTargetResourceGeneral) GetPriority() int32 {
 	priority, _, _ := unstructured.NestedInt64(g.Object, consts.ObjectFieldNameSpec, consts.KCCTargetConfFieldNamePriority)
 	return int32(priority)
 }
 
-func (g KCCTargetResource) GetNodeNames() []string {
+func (g KCCTargetResourceGeneral) GetNodeNames() []string {
 	nodeNames, _, _ := unstructured.NestedStringSlice(g.Object, consts.ObjectFieldNameSpec, consts.KCCTargetConfFieldEphemeralSelector, consts.KCCTargetConfFieldNameNodeNames)
 	return nodeNames
 }
 
-func (g KCCTargetResource) GetCanary() *intstr.IntOrString {
+func (g KCCTargetResourceGeneral) GetCanary() *intstr.IntOrString {
 	canary, exists, _ := unstructured.NestedFieldCopy(g.Object, consts.ObjectFieldNameSpec, consts.KCCTargetConfFieldNameUpdateStrategy, consts.KCCTargetConfFieldNameRollingUpdate, consts.KCCTargetConfFieldNameCanary)
 	if !exists {
 		return nil
@@ -71,12 +109,12 @@ func (g KCCTargetResource) GetCanary() *intstr.IntOrString {
 	return &ret
 }
 
-func (g KCCTargetResource) GetPaused() bool {
+func (g KCCTargetResourceGeneral) GetPaused() bool {
 	canary, _, _ := unstructured.NestedBool(g.Object, consts.ObjectFieldNameSpec, consts.KCCTargetConfFieldNamePaused)
 	return canary
 }
 
-func (g KCCTargetResource) GetLastDuration() *time.Duration {
+func (g KCCTargetResourceGeneral) GetLastDuration() *time.Duration {
 	val, _, _ := unstructured.NestedFieldCopy(g.Object, consts.ObjectFieldNameSpec, consts.KCCTargetConfFieldEphemeralSelector, consts.KCCTargetConfFieldNameLastDuration)
 	if val == nil {
 		return nil
@@ -85,12 +123,12 @@ func (g KCCTargetResource) GetLastDuration() *time.Duration {
 	return &d
 }
 
-func (g KCCTargetResource) GetRevisionHistoryLimit() int64 {
+func (g KCCTargetResourceGeneral) GetRevisionHistoryLimit() int64 {
 	val, _, _ := unstructured.NestedInt64(g.Object, consts.ObjectFieldNameSpec, consts.KCCTargetConfFieldNameRevisionHistoryLimit)
 	return val
 }
 
-func (g KCCTargetResource) Unmarshal(conf interface{}) error {
+func (g KCCTargetResourceGeneral) Unmarshal(conf interface{}) error {
 	if g.Unstructured == nil || g.Object == nil {
 		return nil
 	}
@@ -103,7 +141,7 @@ func (g KCCTargetResource) Unmarshal(conf interface{}) error {
 	return nil
 }
 
-func (g KCCTargetResource) GetGenericStatus() v1alpha1.GenericConfigStatus {
+func (g KCCTargetResourceGeneral) GetGenericStatus() v1alpha1.GenericConfigStatus {
 	val, _, _ := unstructured.NestedFieldCopy(g.Object, consts.ObjectFieldNameStatus)
 	if val == nil {
 		return v1alpha1.GenericConfigStatus{}
@@ -115,7 +153,7 @@ func (g KCCTargetResource) GetGenericStatus() v1alpha1.GenericConfigStatus {
 	return *status
 }
 
-func (g KCCTargetResource) SetGenericStatus(status v1alpha1.GenericConfigStatus) {
+func (g KCCTargetResourceGeneral) SetGenericStatus(status v1alpha1.GenericConfigStatus) {
 	obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&status)
 	if err != nil {
 		return
@@ -132,16 +170,16 @@ func (g KCCTargetResource) SetGenericStatus(status v1alpha1.GenericConfigStatus)
 	}
 }
 
-func (g KCCTargetResource) GetObservedGeneration() int64 {
+func (g KCCTargetResourceGeneral) GetObservedGeneration() int64 {
 	val, _, _ := unstructured.NestedInt64(g.Object, consts.ObjectFieldNameStatus, consts.KCCTargetConfFieldNameObservedGeneration)
 	return val
 }
 
-func (g KCCTargetResource) SetObservedGeneration(generation int64) {
+func (g KCCTargetResourceGeneral) SetObservedGeneration(generation int64) {
 	_ = unstructured.SetNestedField(g.Object, generation, consts.ObjectFieldNameStatus, consts.KCCTargetConfFieldNameObservedGeneration)
 }
 
-func (g KCCTargetResource) GetCollisionCount() *int32 {
+func (g KCCTargetResourceGeneral) GetCollisionCount() *int32 {
 	val, _, _ := unstructured.NestedFieldCopy(g.Object, consts.ObjectFieldNameStatus, consts.KCCTargetConfFieldNameCollisionCount)
 	if val == nil {
 		return nil
@@ -150,7 +188,7 @@ func (g KCCTargetResource) GetCollisionCount() *int32 {
 	return &ret
 }
 
-func (g KCCTargetResource) SetCollisionCount(count *int32) {
+func (g KCCTargetResourceGeneral) SetCollisionCount(count *int32) {
 	if count == nil {
 		unstructured.RemoveNestedField(g.Object, consts.ObjectFieldNameStatus, consts.KCCTargetConfFieldNameCollisionCount)
 	} else {
@@ -158,7 +196,7 @@ func (g KCCTargetResource) SetCollisionCount(count *int32) {
 	}
 }
 
-func (g KCCTargetResource) GenerateConfigHash() (string, error) {
+func (g KCCTargetResourceGeneral) GenerateConfigHash() (string, error) {
 	val, _, err := unstructured.NestedFieldCopy(g.Object, consts.ObjectFieldNameSpec, consts.KCCTargetConfFieldNameConfig)
 	if err != nil {
 		return "", err
@@ -194,13 +232,13 @@ func (g KCCTargetResource) GenerateConfigHash() (string, error) {
 	return general.GenerateHash(data, kccConfigHashLength), nil
 }
 
-func (g KCCTargetResource) DeepCopy() KCCTargetResource {
-	return KCCTargetResource{
+func (g KCCTargetResourceGeneral) DeepCopy() KCCTargetResource {
+	return &KCCTargetResourceGeneral{
 		g.Unstructured.DeepCopy(),
 	}
 }
 
-func (g KCCTargetResource) CheckValid() bool {
+func (g KCCTargetResourceGeneral) CheckValid() bool {
 	status := g.GetGenericStatus()
 	for _, c := range status.Conditions {
 		if c.Type == v1alpha1.ConfigConditionTypeValid && c.Status == v1.ConditionTrue {
@@ -211,7 +249,7 @@ func (g KCCTargetResource) CheckValid() bool {
 	return false
 }
 
-func (g KCCTargetResource) CheckExpired(now time.Time) bool {
+func (g KCCTargetResourceGeneral) CheckExpired(now time.Time) bool {
 	lastDuration := g.GetLastDuration()
 	if lastDuration != nil && g.GetCreationTimestamp().Add(*lastDuration).Before(now) {
 		return true
@@ -220,9 +258,17 @@ func (g KCCTargetResource) CheckExpired(now time.Time) bool {
 	return false
 }
 
-func (g KCCTargetResource) IsUpdated() bool {
+func (g KCCTargetResourceGeneral) IsUpdated() bool {
 	if g.GetGeneration() == g.GetObservedGeneration() {
 		return true
 	}
+	return false
+}
+
+func (g KCCTargetResourceGeneral) NeedValidateKCC() bool {
+	return true
+}
+
+func (g KCCTargetResourceGeneral) IsPerNode() bool {
 	return false
 }

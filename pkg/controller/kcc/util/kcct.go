@@ -102,7 +102,7 @@ func ApplyKCCTargetConfigToCNC(
 func FindMatchedKCCTargetConfigForNode(
 	cnc *apisv1alpha1.CustomNodeConfig,
 	kccTargetList []util.KCCTargetResource,
-) (*util.KCCTargetResource, error) {
+) (util.KCCTargetResource, error) {
 	kccTargetList, err := findMatchedKCCTargetListForNode(cnc, kccTargetList)
 	if err != nil {
 		return nil, err
@@ -120,7 +120,7 @@ func FindMatchedKCCTargetConfigForNode(
 		}
 	}
 
-	return &kccTargetList[0], nil
+	return kccTargetList[0], nil
 }
 
 // findMatchedKCCTargetListForNode gets the matched kcc targets for the given cnc

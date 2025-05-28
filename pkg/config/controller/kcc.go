@@ -23,6 +23,9 @@ import (
 type KCCConfig struct {
 	// ValidAPIGroupSet indicates the api-groups that kcc allows.
 	ValidAPIGroupSet sets.String
+	// DefaultGVRs indicates the gvr that need to watch by default.
+	// value is gvr string, e.g. "nodeprofiledescriptors.v1alpha1.node.katalyst.kubewharf.io"
+	DefaultGVRs []string
 }
 
 func NewKCCConfig() *KCCConfig {
