@@ -131,8 +131,8 @@ func TestInSpecialTime(t *testing.T) {
 		inRangeEndMinute -= 60
 		inRangeEndHour++
 	}
-	//inRangeStartStr := fmt.Sprintf("%02d:%02d", inRangeStartHour, inRangeStartMinute)
-	//inRangeEndStr := fmt.Sprintf("%02d:%02d", inRangeEndHour, inRangeEndMinute)
+	// inRangeStartStr := fmt.Sprintf("%02d:%02d", inRangeStartHour, inRangeStartMinute)
+	// inRangeEndStr := fmt.Sprintf("%02d:%02d", inRangeEndHour, inRangeEndMinute)
 
 	outOfRangeStartHour := currentHour + 1
 	outOfRangeStartMinute := currentMinute
