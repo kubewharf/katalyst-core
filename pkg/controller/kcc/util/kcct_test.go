@@ -79,7 +79,7 @@ func generateTestTargetResource(
 func toTargetResources(configs ...*unstructured.Unstructured) []util.KCCTargetResource {
 	ret := make([]util.KCCTargetResource, 0, len(configs))
 	for _, config := range configs {
-		ret = append(ret, util.KCCTargetResource{
+		ret = append(ret, util.KCCTargetResourceGeneral{
 			Unstructured: config,
 		})
 	}

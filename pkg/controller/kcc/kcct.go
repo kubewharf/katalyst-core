@@ -338,6 +338,31 @@ func (k *KatalystCustomConfigTargetController) syncKCCTs(gvr metav1.GroupVersion
 		return utilerrors.NewAggregate(errors)
 	}
 
+	invalidKCCTs, errs := k.validateKCCTs(gvr, targetResources)
+	errors = append(errors, errs...)
+
+	if len(errors) > 0 {
+		return utilerrors.NewAggregate(errors)
+	}
+
+	// The scope of each KCC target depends on other KCC targets.
+	// If any KCC target is invalid, we need to wait until it is corrected to be able to compute the scope of each KCC target.
+	if len(invalidKCCTs) > 0 {
+		general.Infof("skip manage CNCs for KCCT GVR %s due to presence of invalid KCCTs %v", gvr.String(), invalidKCCTs)
+		return nil
+	}
+
+	return k.manageCNCs(gvr, targetResources)
+}
+
+func (k *KatalystCustomConfigTargetController) validateKCCTs(
+	gvr metav1.GroupVersionResource,
+	targetResources []util.KCCTargetResource,
+) (invalidKCCTs []string, errors []error) {
+	if !targetResources[0].NeedValidateKCC() {
+		return nil, nil
+	}
+
 	// Check if the corresponding KCC is valid
 	kccKeys := k.targetHandler.GetKCCKeyListByGVR(gvr)
 	if len(kccKeys) != 1 {
@@ -347,31 +372,33 @@ func (k *KatalystCustomConfigTargetController) syncKCCTs(gvr metav1.GroupVersion
 			updateInvalidTargetResourceStatus(newTargetResource, message, kccTargetConditionReasonMatchMoreOrLessThanOneKCC)
 			if !apiequality.Semantic.DeepEqual(newTargetResource, targetResource) {
 				general.Infof("gvr: %s, target: %s need update status due to more or less than one kcc keys %v", gvr.String(), native.GenerateUniqObjectNameKey(targetResource), kccKeys)
-				_, err = k.unstructuredControl.UpdateUnstructuredStatus(k.ctx, gvr, newTargetResource.Unstructured, metav1.UpdateOptions{})
+				_, err := k.unstructuredControl.UpdateUnstructuredStatus(k.ctx, gvr, newTargetResource.GetUnstructured(), metav1.UpdateOptions{})
 				if err != nil {
 					errors = append(errors, fmt.Errorf("update kcc target status failed: %w", err))
 				}
 			}
 		}
 
-		return utilerrors.NewAggregate(errors)
+		return invalidKCCTs, errors
 	}
 
 	// Check if each KCCT is valid and update its validity status
 	kccKey := kccKeys[0]
 	namespace, name, err := cache.SplitMetaNamespaceKey(kccKey)
 	if err != nil {
-		return utilerrors.NewAggregate(append(errors, fmt.Errorf("failed to split namespace and name from kcc key %s: %w", kccKey, err)))
+		errors = append(errors, fmt.Errorf("failed to split namespace and name from kcc key %s: %w", kccKey, err))
+		return invalidKCCTs, errors
 	}
 
 	kcc, err := k.katalystCustomConfigLister.KatalystCustomConfigs(namespace).Get(name)
 	if apierrors.IsNotFound(err) {
-		return utilerrors.NewAggregate(append(errors, fmt.Errorf("kcc %s is not found", kccKey)))
+		errors = append(errors, fmt.Errorf("kcc %s is not found", kccKey))
+		return invalidKCCTs, errors
 	} else if err != nil {
-		return utilerrors.NewAggregate(append(errors, fmt.Errorf("get kcc %s failed: %w", kccKey, err)))
+		errors = append(errors, fmt.Errorf("get kcc %s failed: %w", kccKey, err))
+		return invalidKCCTs, errors
 	}
 
-	invalidKCCTs := []string{}
 	for _, targetResource := range targetResources {
 		isValid, message, err := k.validateTargetResourceGenericSpec(kcc, targetResource, targetResources)
 		if err != nil {
@@ -388,25 +415,14 @@ func (k *KatalystCustomConfigTargetController) syncKCCTs(gvr metav1.GroupVersion
 		updateInvalidTargetResourceStatus(newTargetResource, message, kccTargetConditionReasonValidateFailed)
 		if !apiequality.Semantic.DeepEqual(newTargetResource, targetResource) {
 			general.Infof("gvr: %s, target: %s need update status due to failed validation: %s", gvr.String(), native.GenerateUniqObjectNameKey(targetResource), message)
-			_, err := k.unstructuredControl.UpdateUnstructuredStatus(k.ctx, gvr, newTargetResource.Unstructured, metav1.UpdateOptions{})
+			_, err := k.unstructuredControl.UpdateUnstructuredStatus(k.ctx, gvr, newTargetResource.GetUnstructured(), metav1.UpdateOptions{})
 			if err != nil {
 				errors = append(errors, fmt.Errorf("update kcc target %s %s status failed: %w", gvr.String(), native.GenerateUniqObjectNameKey(targetResource), err))
 			}
 		}
 	}
 
-	if len(errors) > 0 {
-		return utilerrors.NewAggregate(errors)
-	}
-
-	// The scope of each KCC target depends on other KCC targets.
-	// If any KCC target is invalid, we need to wait until it is corrected to be able to compute the scope of each KCC target.
-	if len(invalidKCCTs) > 0 {
-		general.Infof("skip manage CNCs for KCCT GVR %s due to presence of invalid KCCTs %v", gvr.String(), invalidKCCTs)
-		return nil
-	}
-
-	return k.manageCNCs(gvr, targetResources)
+	return invalidKCCTs, errors
 }
 
 func (k *KatalystCustomConfigTargetController) manageCNCs(
@@ -470,6 +486,14 @@ func (k *KatalystCustomConfigTargetController) groupCNCsByKCCT(
 			continue
 		}
 
+		// if the KCCT is per-node, we only need to find the KCCT that is on the same node as the CNC.
+		// assumed that the KCCT namespace/name is equal to the CNC's.
+		if targetResources[0].IsPerNode() {
+			kcctName := native.GenerateUniqObjectNameKey(cnc)
+			targetCNCIndexes[kcctName] = append(targetCNCIndexes[kcctName], i)
+			continue
+		}
+
 		matchedTarget, err := kccutil.FindMatchedKCCTargetConfigForNode(cnc, targetResources)
 		if err != nil {
 			errors = append(errors, fmt.Errorf("find matched target for CNC %s failed: %w", cnc.GetName(), err))
@@ -502,7 +526,7 @@ func (k *KatalystCustomConfigTargetController) generateConfigHashesAndMaybeUpdat
 			updateInvalidTargetResourceStatus(newTargetResource, message, kccTargetConditionReasonHashFailed)
 			if !apiequality.Semantic.DeepEqual(newTargetResource, targetResource) {
 				general.Infof("gvr: %s, target: %s need update status due to hash generation: %v", gvr.String(), kcctName, err)
-				_, err := k.unstructuredControl.UpdateUnstructuredStatus(k.ctx, gvr, newTargetResource.Unstructured, metav1.UpdateOptions{})
+				_, err := k.unstructuredControl.UpdateUnstructuredStatus(k.ctx, gvr, newTargetResource.GetUnstructured(), metav1.UpdateOptions{})
 				if err != nil {
 					errors = append(errors, fmt.Errorf("update kcc target %s %s status failed: %w", gvr.String(), kcctName, err))
 				}
@@ -543,7 +567,7 @@ func (k *KatalystCustomConfigTargetController) computeCanaryCutoffPointsAndMaybe
 				updateInvalidTargetResourceStatus(newTargetResource, fmt.Sprintf("failed to get canary cutoff point: %s", err), kccTargetConditionReasonCalculateCanaryCutoffFailed)
 				if !apiequality.Semantic.DeepEqual(newTargetResource, targetResource) {
 					general.Infof("gvr: %s, target: %s need update status due to canary cutoff calculation: %v", gvr.String(), kcctName, err)
-					_, err := k.unstructuredControl.UpdateUnstructuredStatus(k.ctx, gvr, newTargetResource.Unstructured, metav1.UpdateOptions{})
+					_, err := k.unstructuredControl.UpdateUnstructuredStatus(k.ctx, gvr, newTargetResource.GetUnstructured(), metav1.UpdateOptions{})
 					if err != nil {
 						errors = append(errors, fmt.Errorf("update kcc target %s %s status failed: %w", gvr.String(), kcctName, err))
 					}
@@ -677,7 +701,7 @@ func (k *KatalystCustomConfigTargetController) updateTargetStatuses(
 			general.Infof(
 				"kcct %s %s update status targetNodes=%d canaryNodes=%d updatedTargetNodes=%d updatedNodes=%d hash=%s",
 				gvr.String(), kcctName, targetNodes, canaryNodes, updatedTargetNodes, updatedNodes, hash)
-			_, err := k.unstructuredControl.UpdateUnstructuredStatus(k.ctx, gvr, newTargetResource.Unstructured, metav1.UpdateOptions{})
+			_, err := k.unstructuredControl.UpdateUnstructuredStatus(k.ctx, gvr, newTargetResource.GetUnstructured(), metav1.UpdateOptions{})
 			if err != nil {
 				errors = append(errors, fmt.Errorf("update kcc target %s %s status failed: %w", gvr.String(), kcctName, err))
 			}

@@ -24,6 +24,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/cache"
@@ -39,12 +40,13 @@ import (
 type KatalystCustomConfigTargetHandler struct {
 	mu sync.RWMutex
 
-	ctx       context.Context
-	client    *kcclient.GenericClientSet
-	kccConfig *controller.KCCConfig
+	ctx    context.Context
+	client *kcclient.GenericClientSet
 
 	syncedFunc []cache.InformerSynced
 
+	// validAPIGroupSet indicates the api-groups that kcc allows.
+	validAPIGroupSet sets.String
 	// map from gvr to referencing KCCs keys. Actually, it's invalid for multiple KCCs to reference
 	// the same gvr, and this map is mainly used to detect this anomaly
 	gvrKatalystCustomConfigMap map[metav1.GroupVersionResource]sets.String
@@ -62,12 +64,12 @@ func NewKatalystCustomConfigTargetHandler(ctx context.Context, client *kcclient.
 	katalystCustomConfigInformer configinformers.KatalystCustomConfigInformer,
 ) *KatalystCustomConfigTargetHandler {
 	k := &KatalystCustomConfigTargetHandler{
-		ctx:       ctx,
-		client:    client,
-		kccConfig: kccConfig,
+		ctx:    ctx,
+		client: client,
 		syncedFunc: []cache.InformerSynced{
 			katalystCustomConfigInformer.Informer().HasSynced,
 		},
+		validAPIGroupSet:           sets.NewString(kccConfig.ValidAPIGroupSet.UnsortedList()...),
 		gvrKatalystCustomConfigMap: make(map[metav1.GroupVersionResource]sets.String),
 		katalystCustomConfigGVRMap: make(map[string]metav1.GroupVersionResource),
 		targetHandlerFuncMap:       make(map[string]KatalystCustomConfigTargetHandlerFunc),
@@ -79,6 +81,13 @@ func NewKatalystCustomConfigTargetHandler(ctx context.Context, client *kcclient.
 		UpdateFunc: k.updateKatalystCustomConfigEventHandle,
 		DeleteFunc: k.deleteKatalystCustomConfigEventHandle,
 	})
+
+	for _, gvrStr := range kccConfig.DefaultGVRs {
+		if err := k.registerDefaultGVR(gvrStr); err != nil {
+			klog.Fatalf("cannot register default gvr %s: %v", gvrStr, err)
+		}
+	}
+
 	return k
 }
 
@@ -139,6 +148,17 @@ func (k *KatalystCustomConfigTargetHandler) RangeGVRTargetAccessor(f func(gvr me
 			return
 		}
 	}
+}
+
+func (k *KatalystCustomConfigTargetHandler) registerDefaultGVR(gvrStr string) error {
+	gvr, _ := schema.ParseResourceArg(gvrStr)
+	if gvr == nil {
+		return fmt.Errorf("parse to GroupVersionResource failed")
+	}
+
+	k.validAPIGroupSet.Insert(gvr.Group)
+	_, err := k.addOrUpdateGVRAndKCC(metav1.GroupVersionResource(*gvr), gvrStr)
+	return err
 }
 
 func (k *KatalystCustomConfigTargetHandler) addKatalystCustomConfigEventHandle(obj interface{}) {
@@ -298,7 +318,7 @@ func (k *KatalystCustomConfigTargetHandler) addGVRAndKCCKeyWithoutLock(gvr metav
 // checkGVRValid is used to check whether the given gvr is valid, skip to create corresponding
 // target accessor otherwise
 func (k *KatalystCustomConfigTargetHandler) checkGVRValid(gvr metav1.GroupVersionResource) error {
-	if !k.kccConfig.ValidAPIGroupSet.Has(gvr.Group) {
+	if !k.validAPIGroupSet.Has(gvr.Group) {
 		return fmt.Errorf("gvr %s is not in valid api group set", gvr.String())
 	}
 
