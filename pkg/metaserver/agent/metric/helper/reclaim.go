@@ -25,6 +25,7 @@ import (
 )
 
 type ReclaimMetrics struct {
+	CgroupPath string
 	// total cpu usage of cpus in reclaim pool
 	PoolCPUUsage float64
 	// cpu usage of root cgroup for reclaim pods
@@ -71,6 +72,7 @@ func GetReclaimMetrics(cpus machine.CPUSet, cgroupPath string, metricsFetcher ty
 	}
 
 	return &ReclaimMetrics{
+		CgroupPath:           cgroupPath,
 		PoolCPUUsage:         poolCPUUsage,
 		CgroupCPUUsage:       cgroupCPUUsage,
 		CgroupCPUQuota:       cfsQuota,
