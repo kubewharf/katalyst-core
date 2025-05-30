@@ -18,6 +18,7 @@ package malachite
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/errors"
@@ -41,6 +42,8 @@ const (
 	malachiteRealtimeProvisionerHealthCheckName = "malachite_realtime_provisioner_sample"
 	malachiteRealtimeProvisionTolerationTime    = 5 * time.Second
 	metricsNameMalachiteGetRealtimePowerFailed  = "malachite_get_realtime_power_failed"
+
+	metricsNameMalachiteGetRealtimeFreqFailed = "malachite_get_realtime_freq_failed"
 )
 
 func NewMalachiteRealtimeMetricsProvisioner(baseConf *global.BaseConfiguration, _ *metaserver.MetricConfiguration,
@@ -59,12 +62,21 @@ func NewMalachiteRealtimeMetricsProvisioner(baseConf *global.BaseConfiguration, 
 	}
 }
 
+type realtimeDataGetter interface {
+	powerDataGetter
+	sysFreqDataGetter
+}
+
 type powerDataGetter interface {
 	GetPowerData() (*malachitetypes.PowerData, error)
 }
 
+type sysFreqDataGetter interface {
+	GetSysFreqData() (*malachitetypes.SysFreqData, error)
+}
+
 type MalachiteRealtimeMetricsProvisioner struct {
-	malachiteClient powerDataGetter
+	malachiteClient realtimeDataGetter
 	*MalachiteMetricsProvisioner
 }
 
@@ -102,6 +114,9 @@ func (m *MalachiteRealtimeMetricsProvisioner) sample(ctx context.Context) {
 	if err := m.updateSystemTotalPower(); err != nil {
 		errList = append(errList, err)
 	}
+	if err := m.updateSystemCPUFreq(); err != nil {
+		errList = append(errList, err)
+	}
 
 	_ = general.UpdateHealthzStateByError(malachiteRealtimeProvisionerHealthCheckName, errors.NewAggregate(errList))
 }
@@ -111,7 +126,7 @@ func (m *MalachiteRealtimeMetricsProvisioner) updateSystemTotalPower() error {
 	powerData, err := m.malachiteClient.GetPowerData()
 	if err != nil {
 		errList = append(errList, err)
-		klog.Errorf("[malachite] get system compute stats failed, err %v", err)
+		klog.Errorf("[malachite-realtime] get power data failed, err %v", err)
 		_ = m.emitter.StoreInt64(metricsNameMalachiteGetRealtimePowerFailed, 1, metrics.MetricTypeNameCount,
 			metrics.MetricTag{Key: "kind", Val: "power"})
 	} else {
@@ -129,4 +144,45 @@ func (m *MalachiteRealtimeMetricsProvisioner) processSystemPowerData(data *malac
 	updateTime := time.Unix(data.Sensors.UpdateTime, 0)
 	m.metricStore.SetNodeMetric(consts.MetricTotalPowerUsedWatts,
 		utilmetric.MetricData{Value: data.Sensors.TotalPowerWatt, Time: &updateTime})
+}
+
+func (m *MalachiteRealtimeMetricsProvisioner) updateSystemCPUFreq() error {
+	errList := make([]error, 0)
+	data, err := m.malachiteClient.GetSysFreqData()
+	if err != nil {
+		errList = append(errList, err)
+		klog.Errorf("[malachite-realtime] get cpufreq data failed, err %v", err)
+		_ = m.emitter.StoreInt64(metricsNameMalachiteGetRealtimeFreqFailed, 1, metrics.MetricTypeNameCount,
+			metrics.MetricTag{Key: "kind", Val: "power"})
+	} else {
+		m.processSystemCPUFreqData(data)
+	}
+
+	return errors.NewAggregate(errList)
+}
+
+func (m *MalachiteRealtimeMetricsProvisioner) processSystemCPUFreqData(data *malachitetypes.SysFreqData) {
+	if data == nil {
+		return
+	}
+
+	cpuFreqKHZ, err := getScalingCurFreq(data)
+	if err != nil {
+		general.Warningf("pap: got empty scaling_cur_freq")
+		return
+	}
+
+	updateTime := time.Unix(data.SysFreq.UpdateTime, 0)
+	m.metricStore.SetNodeMetric(consts.MetricScalingCPUFreqKHZ,
+		utilmetric.MetricData{Value: float64(cpuFreqKHZ.FreqKHZ), Time: &updateTime})
+}
+
+func getScalingCurFreq(data *malachitetypes.SysFreqData) (*malachitetypes.ScalingCurFreq, error) {
+	cpuFreqs := data.SysFreq.CPUFreq
+	if len(cpuFreqs) == 0 {
+		return nil, fmt.Errorf("empty cpufreq data")
+	}
+
+	// always use 0 element
+	return &cpuFreqs[0], nil
 }
