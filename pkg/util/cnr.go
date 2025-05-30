@@ -45,6 +45,7 @@ const (
 	CNRFieldNameTopologyPolicy         = "TopologyPolicy"
 	CNRFieldNameNodeMetricStatus       = "NodeMetricStatus"
 	CNRFieldNameAnnotations            = "Annotations"
+	CNRFieldNameTaints                 = "Taints"
 )
 
 var CNRGroupVersionKind = metav1.GroupVersionKind{
@@ -101,7 +102,7 @@ func AddOrUpdateCNRTaint(cnr *apis.CustomNodeResource, taint apis.Taint) (*apis.
 	var newTaints []apis.Taint
 	updated := false
 	for i := range cTaints {
-		if MatchCNRTaint(taint, cTaints[i]) {
+		if MatchCNRTaint(taint, &cTaints[i]) {
 			if helper.Semantic.DeepEqual(taint, cTaints[i]) {
 				return newCNR, false, nil
 			}
@@ -130,7 +131,7 @@ func RemoveCNRTaint(cnr *apis.CustomNodeResource, taint apis.Taint) (*apis.Custo
 		return newCNR, false, nil
 	}
 
-	if !CNRTaintExists(cTaints, taint) {
+	if !CNRTaintExists(cTaints, &taint) {
 		return newCNR, false, nil
 	}
 
@@ -139,22 +140,12 @@ func RemoveCNRTaint(cnr *apis.CustomNodeResource, taint apis.Taint) (*apis.Custo
 	return newCNR, true, nil
 }
 
-// CNRTaintExists checks if the given taint exists in list of taints. Returns true if exists false otherwise.
-func CNRTaintExists(taints []apis.Taint, taintToFind apis.Taint) bool {
-	for _, taint := range taints {
-		if MatchCNRTaint(taint, taintToFind) {
-			return true
-		}
-	}
-	return false
-}
-
 // DeleteCNRTaint removes all the taints that have the same key and effect to given taintToDelete.
 func DeleteCNRTaint(taints []apis.Taint, taintToDelete apis.Taint) ([]apis.Taint, bool) {
 	var newTaints []apis.Taint
 	deleted := false
 	for i := range taints {
-		if MatchCNRTaint(taints[i], taintToDelete) {
+		if MatchCNRTaint(taints[i], &taintToDelete) {
 			deleted = true
 			continue
 		}
@@ -163,10 +154,50 @@ func DeleteCNRTaint(taints []apis.Taint, taintToDelete apis.Taint) ([]apis.Taint
 	return newTaints, deleted
 }
 
+func CNRTaintSetFilter(taints []nodev1alpha1.Taint, fn func(*nodev1alpha1.Taint) bool) []nodev1alpha1.Taint {
+	var res []nodev1alpha1.Taint
+
+	for _, taint := range taints {
+		if fn(&taint) {
+			res = append(res, taint)
+		}
+	}
+
+	return res
+}
+
+func CNRTaintSetDiff(t1, t2 []nodev1alpha1.Taint) (taintsToAdd []*nodev1alpha1.Taint, taintsToRemove []*nodev1alpha1.Taint) {
+	for _, taint := range t1 {
+		if !CNRTaintExists(t2, &taint) {
+			t := taint
+			taintsToAdd = append(taintsToAdd, &t)
+		}
+	}
+
+	for _, taint := range t2 {
+		if !CNRTaintExists(t1, &taint) {
+			t := taint
+			taintsToRemove = append(taintsToRemove, &t)
+		}
+	}
+
+	return
+}
+
+// CNRTaintExists checks if the given taint exists in list of taints. Returns true if exists false otherwise.
+func CNRTaintExists(taints []nodev1alpha1.Taint, taintToFind *nodev1alpha1.Taint) bool {
+	for _, taint := range taints {
+		if MatchCNRTaint(taint, taintToFind) {
+			return true
+		}
+	}
+	return false
+}
+
 // MatchCNRTaint checks if the taint matches taintToMatch. Taints are unique by key:effect,
 // if the two taints have same key:effect, regard as they match.
-func MatchCNRTaint(taintToMatch, taint apis.Taint) bool {
-	return taint.Key == taintToMatch.Key && taint.Effect == taintToMatch.Effect
+func MatchCNRTaint(taintToMatch apis.Taint, taint *apis.Taint) bool {
+	return taint.Key == taintToMatch.Key && taint.Effect == taintToMatch.Effect && taint.QoSLevel == taintToMatch.QoSLevel
 }
 
 // MergeResources merges two resources, returns the merged result.

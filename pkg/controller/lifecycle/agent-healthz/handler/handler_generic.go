@@ -116,7 +116,7 @@ func (g *GenericAgentHandler) GetCNRTaintInfo(nodeName string) (*helper.CNRTaint
 	if g.checker.CheckAgentReady(nodeName, g.agent) {
 		// not to trigger eviction if agent is still ready
 		return nil, false
-	} else if util.CNRTaintExists(cnr.Spec.Taints, helper.TaintReclaimedCoresNoSchedule) {
+	} else if util.CNRTaintExists(cnr.Spec.Taints, &helper.TaintReclaimedCoresNoSchedule) {
 		// if taint already exists, not to trigger taints
 		return nil, false
 	}
