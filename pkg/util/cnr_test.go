@@ -244,7 +244,7 @@ func TestCNRTaintExists(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			assert.Equalf(t, tt.want, CNRTaintExists(tt.args.taints, tt.args.taintToFind), "CNRTaintExists(%v, %v)", tt.args.taints, tt.args.taintToFind)
+			assert.Equalf(t, tt.want, CNRTaintExists(tt.args.taints, &tt.args.taintToFind), "CNRTaintExists(%v, %v)", tt.args.taints, tt.args.taintToFind)
 		})
 	}
 }
