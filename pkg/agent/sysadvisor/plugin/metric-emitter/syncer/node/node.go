@@ -185,7 +185,7 @@ func (n *MetricSyncerNode) generateMetricTag(ctx context.Context) (tags []metric
 	})
 
 	// append vendor info
-	_, isVmStr := helper.GetIsVm(n.metaServer.MetricsFetcher)
+	_, isVmStr := helper.GetIsVM(n.metaServer.MetricsFetcher)
 
 	tags = append(tags, metrics.MetricTag{
 		Key: fmt.Sprintf("%s%s", data.CustomMetricLabelSelectorPrefixKey, "is_vm"),
