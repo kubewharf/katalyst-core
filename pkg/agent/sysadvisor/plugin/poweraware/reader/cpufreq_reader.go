@@ -26,23 +26,23 @@ import (
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
-// malachite compute metric server imposes delay of up to 10 seconds coupled with sampling interval of 5 sec
-const cpuFreqTolerationTime = 15 * time.Second
+// malachite realtime freq server imposes delay of up to 2 seconds coupled with sampling interval of 1 sec
+const cpuFreqTolerationTime = 3 * time.Second
 
-type CPUFreqReader struct {
+type cpuFreqReader struct {
 	NodeMetricGetter
 }
 
-func (c *CPUFreqReader) Init() error {
+func (c *cpuFreqReader) Init() error {
 	return nil
 }
 
-func (c *CPUFreqReader) Get(ctx context.Context) (int, error) {
+func (c *cpuFreqReader) Get(ctx context.Context) (int, error) {
 	return c.get(ctx, time.Now())
 }
 
-func (m *CPUFreqReader) get(ctx context.Context, now time.Time) (int, error) {
-	data, err := m.GetNodeMetric(consts.MetricScalingCPUFreqMHZ)
+func (m *cpuFreqReader) get(ctx context.Context, now time.Time) (int, error) {
+	data, err := m.GetNodeMetric(consts.MetricScalingCPUFreqKHZ)
 	if err != nil {
 		return 0, errors.Wrap(err, "failed to get cpu freq from metric store")
 	}
@@ -66,10 +66,10 @@ func isCPUFreqDataFresh(data utilmetric.MetricData, now time.Time) bool {
 	return now.Before(data.Time.Add(cpuFreqTolerationTime))
 }
 
-func (c *CPUFreqReader) Cleanup() {}
+func (c *cpuFreqReader) Cleanup() {}
 
 func NewCPUFreqReader(nodeMetricGetter NodeMetricGetter) MetricReader {
-	return &CPUFreqReader{
+	return &cpuFreqReader{
 		NodeMetricGetter: nodeMetricGetter,
 	}
 }

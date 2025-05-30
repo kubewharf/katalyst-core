@@ -141,7 +141,7 @@ const (
 // System Power and CPUFreq metrics
 const (
 	MetricTotalPowerUsedWatts = "total.power.used.watts"
-	MetricScalingCPUFreqMHZ   = "scaling.cur.freq.mhz"
+	MetricScalingCPUFreqKHZ   = "scaling.cur.freq.khz"
 )
 
 // Image filesystem metrics

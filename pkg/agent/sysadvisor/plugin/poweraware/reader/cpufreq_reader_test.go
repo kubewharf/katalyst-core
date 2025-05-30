@@ -82,7 +82,7 @@ func TestCPUFreqReader_get(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			m := &CPUFreqReader{
+			m := &cpuFreqReader{
 				NodeMetricGetter: tt.fields.NodeMetricGetter,
 			}
 			got, err := m.get(tt.args.ctx, tt.args.now)
