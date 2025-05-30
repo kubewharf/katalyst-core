@@ -108,12 +108,28 @@ func (m *mockPowerDataGetter) GetPowerData() (*malachitetypes.PowerData, error) 
 	return args.Get(0).(*malachitetypes.PowerData), args.Error(1)
 }
 
+func (m *mockPowerDataGetter) GetSysFreqData() (*malachitetypes.SysFreqData, error) {
+	args := m.Called()
+	return args.Get(0).(*malachitetypes.SysFreqData), args.Error(1)
+}
+
 func TestMalachiteRealtimeMetricsProvisioner_Run(t *testing.T) {
 	t.Parallel()
 
 	mockPowerDataClient := new(mockPowerDataGetter)
 	mockPowerDataClient.On("GetPowerData").Return(
 		&malachitetypes.PowerData{Sensors: malachitetypes.SensorData{TotalPowerWatt: 345, UpdateTime: 77777}},
+		nil,
+	)
+	mockPowerDataClient.On("GetSysFreqData").Return(
+		&malachitetypes.SysFreqData{
+			SysFreq: malachitetypes.SysFreq{
+				CPUFreq: []malachitetypes.ScalingCurFreq{
+					{FreqKHZ: 1_234_000},
+				},
+				UpdateTime: 77777,
+			},
+		},
 		nil,
 	)
 

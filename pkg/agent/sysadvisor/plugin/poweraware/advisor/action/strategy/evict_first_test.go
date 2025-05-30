@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/advisor/action"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/advisor/action/strategy/assess"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/spec"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
@@ -210,8 +211,11 @@ func Test_evictFirstStrategy_RecommendAction(t *testing.T) {
 				emitter:         &metrics.DummyMetrics{},
 				coefficient:     tt.fields.coefficient,
 				evictableProber: tt.fields.evictableProber,
-				dvfsTracker:     dvfsTracker{dvfsAccumEffect: tt.fields.dvfsUsed},
-				metricsReader:   nil,
+				dvfsTracker: dvfsTracker{
+					dvfsAccumEffect: tt.fields.dvfsUsed,
+					assessor:        assess.NewPowerChangeAssessor(10, 0),
+				},
+				metricsReader: nil,
 			}
 			if got := e.RecommendAction(tt.args.actualWatt, tt.args.desiredWatt, tt.args.alert, tt.args.internalOp, tt.args.ttl); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("RecommendAction() = %v, want %v", got, tt.want)

@@ -16,17 +16,22 @@ limitations under the License.
 
 package strategy
 
+import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/advisor/action/strategy/assess"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
+)
+
 // DVFS: Dynamic Voltage Frequency Scaling, is a technique servers use to manage the power consumption.
 // the limit of dvfs effect a voluntary dvfs plan is allowed
 const voluntaryDVFSEffectMaximum = 10
 
-// dvfsTracker keeps track and accumulates the effect lowering power by means of dvfs
+// dvfsTracker keeps track and accumulates the effect lowering power or cpu frequency by means of dvfs
 type dvfsTracker struct {
 	dvfsAccumEffect int
 	inDVFS          bool
-	prevPower       int
 
 	capperProber CapperProber
+	assessor     assess.Assessor
 }
 
 func (d *dvfsTracker) getDVFSAllowPercent() int {
@@ -37,21 +42,27 @@ func (d *dvfsTracker) getDVFSAllowPercent() int {
 	return leftPercentage
 }
 
+// adjustTargetWatt yields the target value taking into account the limiting indicator value.
+func (d *dvfsTracker) adjustTargetWatt(actualWatt, desiredWatt int) int {
+	return d.assessor.AssessTarget(actualWatt, desiredWatt, d.getDVFSAllowPercent())
+}
+
 func (d *dvfsTracker) isCapperAvailable() bool {
 	return d.capperProber != nil && d.capperProber.IsCapperReady()
 }
 
-func (d *dvfsTracker) update(actualWatt, desiredWatt int) {
+func (d *dvfsTracker) update(currPower int) {
 	// only accumulate when dvfs is engaged
-	if d.prevPower >= 0 && d.inDVFS && d.isCapperAvailable() {
-		// if actual power is more than previous, likely previous round dvfs took no effect; not to take into account
-		if actualWatt < d.prevPower {
-			dvfsEffect := (d.prevPower - actualWatt) * 100 / d.prevPower
-			d.dvfsAccumEffect += dvfsEffect
+	if d.inDVFS && d.isCapperAvailable() {
+		val, err := d.assessor.AssessEffect(currPower)
+		if err != nil {
+			general.Errorf("pap: failed to get accumulated effect: %v", err)
+		} else {
+			d.dvfsAccumEffect = val
 		}
 	}
 
-	d.prevPower = actualWatt
+	d.assessor.Update(currPower)
 }
 
 func (d *dvfsTracker) dvfsEnter() {
@@ -64,6 +75,6 @@ func (d *dvfsTracker) dvfsExit() {
 
 func (d *dvfsTracker) clear() {
 	d.dvfsAccumEffect = 0
-	d.prevPower = 0
 	d.inDVFS = false
+	d.assessor.Clear()
 }
