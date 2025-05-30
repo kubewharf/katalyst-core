@@ -19,6 +19,7 @@ package assess
 import (
 	"context"
 	"fmt"
+
 	"github.com/pkg/errors"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/reader"
