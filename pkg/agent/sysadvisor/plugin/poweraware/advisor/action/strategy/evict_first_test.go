@@ -52,6 +52,7 @@ func Test_evictFirstStrategy_RecommendAction(t *testing.T) {
 		coefficient     exponentialDecay
 		evictableProber EvictableProber
 		dvfsUsed        int
+		effectCurrent   bool
 		prevPower       int
 		inDVFS          bool
 	}
@@ -90,9 +91,8 @@ func Test_evictFirstStrategy_RecommendAction(t *testing.T) {
 		{
 			name: "plan of p0 is constraint when allowing dvfs only",
 			fields: fields{
-				coefficient:     exponentialDecay{},
-				evictableProber: nil,
-				dvfsUsed:        0,
+				dvfsUsed:      0,
+				effectCurrent: true,
 			},
 			args: args{
 				alert:       spec.PowerAlertP0,
@@ -155,6 +155,7 @@ func Test_evictFirstStrategy_RecommendAction(t *testing.T) {
 			fields: fields{
 				evictableProber: mockPorberFalse,
 				dvfsUsed:        0,
+				effectCurrent:   true,
 			},
 			args: args{
 				actualWatt:  100,
@@ -172,6 +173,7 @@ func Test_evictFirstStrategy_RecommendAction(t *testing.T) {
 			fields: fields{
 				evictableProber: mockPorberFalse,
 				dvfsUsed:        8,
+				effectCurrent:   true,
 			},
 			args: args{
 				actualWatt:  100,
@@ -202,6 +204,26 @@ func Test_evictFirstStrategy_RecommendAction(t *testing.T) {
 			},
 			wantInDVFS: false,
 		},
+		{
+			name: "being previously not current effect should be refreshed by current anyway",
+			fields: fields{
+				evictableProber: mockPorberFalse,
+				dvfsUsed:        8,
+				effectCurrent:   false,
+				prevPower:       100,
+				inDVFS:          true,
+			},
+			args: args{
+				actualWatt:  100,
+				desiredWatt: 80,
+				alert:       spec.PowerAlertP0,
+			},
+			want: action.PowerAction{
+				Op:  spec.InternalOpFreqCap,
+				Arg: 98,
+			},
+			wantInDVFS: true,
+		},
 	}
 	for _, tt := range tests {
 		tt := tt
@@ -213,7 +235,8 @@ func Test_evictFirstStrategy_RecommendAction(t *testing.T) {
 				evictableProber: tt.fields.evictableProber,
 				dvfsTracker: dvfsTracker{
 					dvfsAccumEffect: tt.fields.dvfsUsed,
-					assessor:        assess.NewPowerChangeAssessor(10, 0),
+					isEffectCurrent: tt.fields.effectCurrent,
+					assessor:        assess.NewPowerChangeAssessor(tt.fields.dvfsUsed, 0),
 				},
 				metricsReader: nil,
 			}

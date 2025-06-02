@@ -124,8 +124,8 @@ func TestMalachiteRealtimeMetricsProvisioner_Run(t *testing.T) {
 	mockPowerDataClient.On("GetSysFreqData").Return(
 		&malachitetypes.SysFreqData{
 			SysFreq: malachitetypes.SysFreq{
-				CPUFreq: []malachitetypes.ScalingCurFreq{
-					{FreqKHZ: 1_234_000},
+				CPUFreq: []malachitetypes.CurFreq{
+					{ScalingCurFreqKHZ: 1_234_000},
 				},
 				UpdateTime: 77777,
 			},

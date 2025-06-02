@@ -99,8 +99,10 @@ func NewPowerAwarePlugin(
 
 	var assessor assess.Assessor
 	if conf.PowerAwarePluginConfiguration.DVFSIndication == poweraware.DVFSIndicationPower {
+		general.Infof("pap: power as dvfs indication")
 		assessor = assess.NewPowerChangeAssessor(0, 0)
 	} else {
+		general.Infof("pap: cpufreq as dvfs indication")
 		assessor = assess.NewCPUFreqChangeAssessor(0, metaServer)
 	}
 

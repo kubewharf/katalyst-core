@@ -40,12 +40,31 @@ func (m *mockFreqReader) GetNodeMetric(metricName string) (metric.MetricData, er
 func TestCPUFreqReader_get(t *testing.T) {
 	moment := time.Date(2025, 5, 27, 6, 7, 30, 0, time.UTC)
 	TwoSecBefore := time.Date(2025, 5, 27, 6, 7, 28, 0, time.UTC)
+	FiveSecBefore := time.Date(2025, 5, 27, 6, 7, 25, 0, time.UTC)
 
-	mockFreqReader := new(mockFreqReader)
-	mockFreqReader.On("GetNodeMetric", "scaling.cur.freq.khz").Return(
+	freqReaderMockerOK := new(mockFreqReader)
+	freqReaderMockerOK.On("GetNodeMetric", "scaling.cur.freq.khz").Return(
 		metric.MetricData{
 			Value: 25000_000,
 			Time:  &TwoSecBefore,
+		},
+		nil,
+	)
+
+	freqReaderMockerZero := new(mockFreqReader)
+	freqReaderMockerZero.On("GetNodeMetric", "scaling.cur.freq.khz").Return(
+		metric.MetricData{
+			Value: 0,
+			Time:  &TwoSecBefore,
+		},
+		nil,
+	)
+
+	freqReaderMockerStale := new(mockFreqReader)
+	freqReaderMockerStale.On("GetNodeMetric", "scaling.cur.freq.khz").Return(
+		metric.MetricData{
+			Value: 25000_000,
+			Time:  &FiveSecBefore,
 		},
 		nil,
 	)
@@ -68,7 +87,7 @@ func TestCPUFreqReader_get(t *testing.T) {
 		{
 			name: "happy path",
 			fields: fields{
-				NodeMetricGetter: mockFreqReader,
+				NodeMetricGetter: freqReaderMockerOK,
 			},
 			args: args{
 				ctx: context.TODO(),
@@ -76,6 +95,30 @@ func TestCPUFreqReader_get(t *testing.T) {
 			},
 			want:    25000_000,
 			wantErr: assert.NoError,
+		},
+		{
+			name: "negative zero value",
+			fields: fields{
+				NodeMetricGetter: freqReaderMockerZero,
+			},
+			args: args{
+				ctx: context.TODO(),
+				now: moment,
+			},
+			want:    0,
+			wantErr: assert.Error,
+		},
+		{
+			name: "negative stale value",
+			fields: fields{
+				NodeMetricGetter: freqReaderMockerStale,
+			},
+			args: args{
+				ctx: context.TODO(),
+				now: moment,
+			},
+			want:    0,
+			wantErr: assert.Error,
 		},
 	}
 	for _, tt := range tests {
@@ -90,6 +133,8 @@ func TestCPUFreqReader_get(t *testing.T) {
 				return
 			}
 			assert.Equalf(t, tt.want, got, "get(%v, %v)", tt.args.ctx, tt.args.now)
+			mocker := tt.fields.NodeMetricGetter.(*mockFreqReader)
+			mocker.AssertExpectations(t)
 		})
 	}
 }

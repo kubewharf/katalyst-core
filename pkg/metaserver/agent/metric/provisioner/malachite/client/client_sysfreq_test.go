@@ -49,8 +49,8 @@ func TestMalachiteClient_GetSysFreqData(t *testing.T) {
 			}`,
 			want: &types.SysFreqData{
 				SysFreq: types.SysFreq{
-					CPUFreq: []types.ScalingCurFreq{
-						{FreqKHZ: 2598884},
+					CPUFreq: []types.CurFreq{
+						{ScalingCurFreqKHZ: 2598884},
 					},
 					UpdateTime: 1748574860,
 				},

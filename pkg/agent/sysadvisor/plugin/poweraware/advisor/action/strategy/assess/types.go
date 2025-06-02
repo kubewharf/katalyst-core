@@ -17,8 +17,10 @@ limitations under the License.
 package assess
 
 type Assessor interface {
+	Init() error
+	IsInitialized() bool
 	Clear()
-	AssessEffect(currentPower int) (int, error)
 	Update(power int)
+	AssessEffect(currentPower int, inDVFS, capperAvailable bool) (int, error)
 	AssessTarget(actualWatt int, desiredWatt int, maxDecreasePercent int) int
 }

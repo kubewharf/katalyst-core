@@ -56,7 +56,7 @@ func Test_cpuFreqChangeAssessor_AccumulateEffect(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "higher freq no change",
+			name: "fine for higher freq no change as temporary spike",
 			fields: fields{
 				initFreqKHZ: 2500_000,
 			},
@@ -64,7 +64,7 @@ func Test_cpuFreqChangeAssessor_AccumulateEffect(t *testing.T) {
 				current: 2600_000,
 			},
 			want:    0,
-			wantErr: true,
+			wantErr: false,
 		},
 	}
 	for _, tt := range tests {

@@ -26,10 +26,10 @@ type SysFreqData struct {
 }
 
 type SysFreq struct {
-	CPUFreq    []ScalingCurFreq `json:"cpu_freq"`
-	UpdateTime int64            `json:"update_time"`
+	CPUFreq    []CurFreq `json:"cpu_freq"`
+	UpdateTime int64     `json:"update_time"`
 }
 
-type ScalingCurFreq struct {
-	FreqKHZ int64 `json:"scaling_cur_freq"`
+type CurFreq struct {
+	ScalingCurFreqKHZ int64 `json:"scaling_cur_freq"`
 }

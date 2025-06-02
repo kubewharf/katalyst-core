@@ -56,7 +56,7 @@ func Test_dvfsTracker_update(t *testing.T) {
 		wantDVFSTracker dvfsTracker
 	}{
 		{
-			name: "not in dvfs, not to accumulate",
+			name: "not in dvfs, not to accumulate, and effect is refreshed anyway",
 			fields: fields{
 				dvfsUsed:  3,
 				indvfs:    false,
@@ -69,6 +69,7 @@ func Test_dvfsTracker_update(t *testing.T) {
 			wantDVFSTracker: dvfsTracker{
 				capperProber:    mockProber,
 				dvfsAccumEffect: 3,
+				isEffectCurrent: true,
 				inDVFS:          false,
 				assessor:        assess.NewPowerChangeAssessor(3, 90),
 			},
@@ -87,6 +88,7 @@ func Test_dvfsTracker_update(t *testing.T) {
 			wantDVFSTracker: dvfsTracker{
 				capperProber:    mockProber,
 				dvfsAccumEffect: 13,
+				isEffectCurrent: true,
 				inDVFS:          true,
 				assessor:        assess.NewPowerChangeAssessor(13, 90),
 			},
@@ -105,6 +107,7 @@ func Test_dvfsTracker_update(t *testing.T) {
 			wantDVFSTracker: dvfsTracker{
 				capperProber:    mockProber,
 				dvfsAccumEffect: 3,
+				isEffectCurrent: true,
 				inDVFS:          true,
 				assessor:        assess.NewPowerChangeAssessor(3, 101),
 			},

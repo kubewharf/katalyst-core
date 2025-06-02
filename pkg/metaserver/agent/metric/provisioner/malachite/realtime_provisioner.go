@@ -174,10 +174,10 @@ func (m *MalachiteRealtimeMetricsProvisioner) processSystemCPUFreqData(data *mal
 
 	updateTime := time.Unix(data.SysFreq.UpdateTime, 0)
 	m.metricStore.SetNodeMetric(consts.MetricScalingCPUFreqKHZ,
-		utilmetric.MetricData{Value: float64(cpuFreqKHZ.FreqKHZ), Time: &updateTime})
+		utilmetric.MetricData{Value: float64(cpuFreqKHZ.ScalingCurFreqKHZ), Time: &updateTime})
 }
 
-func getScalingCurFreq(data *malachitetypes.SysFreqData) (*malachitetypes.ScalingCurFreq, error) {
+func getScalingCurFreq(data *malachitetypes.SysFreqData) (*malachitetypes.CurFreq, error) {
 	cpuFreqs := data.SysFreq.CPUFreq
 	if len(cpuFreqs) == 0 {
 		return nil, fmt.Errorf("empty cpufreq data")

@@ -17,6 +17,8 @@ limitations under the License.
 package strategy
 
 import (
+	"errors"
+
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/advisor/action/strategy/assess"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -28,6 +30,7 @@ const voluntaryDVFSEffectMaximum = 10
 // dvfsTracker keeps track and accumulates the effect lowering power or cpu frequency by means of dvfs
 type dvfsTracker struct {
 	dvfsAccumEffect int
+	isEffectCurrent bool
 	inDVFS          bool
 
 	capperProber CapperProber
@@ -42,27 +45,59 @@ func (d *dvfsTracker) getDVFSAllowPercent() int {
 	return leftPercentage
 }
 
-// adjustTargetWatt yields the target value taking into account the limiting indicator value.
-func (d *dvfsTracker) adjustTargetWatt(actualWatt, desiredWatt int) int {
-	return d.assessor.AssessTarget(actualWatt, desiredWatt, d.getDVFSAllowPercent())
+// adjustTargetWatt adjusts the target value taking into account the limiting indication.
+func (d *dvfsTracker) adjustTargetWatt(actualWatt, desiredWatt int) (int, error) {
+	if d.getDVFSAllowPercent() <= 0 {
+		return 0, errors.New("no room for dvfs")
+	}
+
+	if !d.isEffectCurrent {
+		return actualWatt, errors.New("unknown current effect")
+	}
+
+	// fresh effect can be used only once to avoid misinformation of outdated effect
+	d.isEffectCurrent = false
+	return d.assessor.AssessTarget(actualWatt, desiredWatt, d.getDVFSAllowPercent()), nil
 }
 
 func (d *dvfsTracker) isCapperAvailable() bool {
 	return d.capperProber != nil && d.capperProber.IsCapperReady()
 }
 
-func (d *dvfsTracker) update(currPower int) {
-	// only accumulate when dvfs is engaged
-	if d.inDVFS && d.isCapperAvailable() {
-		val, err := d.assessor.AssessEffect(currPower)
-		if err != nil {
-			general.Errorf("pap: failed to get accumulated effect: %v", err)
-		} else {
-			d.dvfsAccumEffect = val
-		}
+func (d *dvfsTracker) isInitialized() bool {
+	return d.assessor.IsInitialized()
+}
+
+func (d *dvfsTracker) tryInit() {
+	if err := d.assessor.Init(); err != nil {
+		general.Errorf("pap: failed to init dvfsTracker: %v", err)
+		return
 	}
 
+	general.Infof("pap: succeeded init dvfsTracker")
+}
+
+func (d *dvfsTracker) update(currPower int) {
+	d.updateTrackedEffect(currPower)
 	d.assessor.Update(currPower)
+	general.InfofV(6, "pap: dvfs effect: %d, is current: %v", d.dvfsAccumEffect, d.isEffectCurrent)
+}
+
+func (d *dvfsTracker) updateTrackedEffect(currPower int) {
+	if !d.isInitialized() {
+		d.tryInit()
+		return
+	}
+
+	val, err := d.assessor.AssessEffect(currPower, d.inDVFS, d.isCapperAvailable())
+	if err != nil {
+		general.Errorf("pap: failed to assess effect: %v", err)
+		d.isEffectCurrent = false
+		return
+	}
+
+	d.isEffectCurrent = true
+	d.dvfsAccumEffect = val
 }
 
 func (d *dvfsTracker) dvfsEnter() {
@@ -75,6 +110,7 @@ func (d *dvfsTracker) dvfsExit() {
 
 func (d *dvfsTracker) clear() {
 	d.dvfsAccumEffect = 0
+	d.isEffectCurrent = false
 	d.inDVFS = false
 	d.assessor.Clear()
 }

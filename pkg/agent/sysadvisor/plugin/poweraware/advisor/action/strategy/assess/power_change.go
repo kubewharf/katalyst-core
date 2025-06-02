@@ -18,10 +18,18 @@ package assess
 
 import "fmt"
 
-// powerChangeAssessor assesses change effect by power consumption
+// powerChangeAssessor estimates change effect by power consumption in incremental approach
 type powerChangeAssessor struct {
 	accumulatedEffect int
 	prevPower         int
+}
+
+func (p *powerChangeAssessor) IsInitialized() bool {
+	return true
+}
+
+func (p *powerChangeAssessor) Init() error {
+	return nil
 }
 
 func (p *powerChangeAssessor) AssessTarget(actualWatt, desiredWatt int, maxDecreasePercent int) int {
@@ -37,13 +45,17 @@ func (p *powerChangeAssessor) Update(currPower int) {
 	p.prevPower = currPower
 }
 
-func (p *powerChangeAssessor) AssessEffect(currentPower int) (int, error) {
-	if currentPower <= 0 {
-		return 0, fmt.Errorf("invalid cuurent value %d", currentPower)
+func (p *powerChangeAssessor) AssessEffect(currentPower int, inDVFS, capperAvailable bool) (int, error) {
+	// when dvfs is not engaged, fine not to accumulate
+	if !inDVFS || !capperAvailable {
+		return p.accumulatedEffect, nil
 	}
 
-	// if actual power is more than previous, likely previous round dvfs took no effect;
-	// not to take into account
+	if currentPower <= 0 {
+		return 0, fmt.Errorf("invalid current value %d", currentPower)
+	}
+
+	// if actual power is more, likely previous round dvfs took no effect; fine not to accumulate
 	if currentPower >= p.prevPower {
 		return p.accumulatedEffect, nil
 	}
@@ -55,6 +67,7 @@ func (p *powerChangeAssessor) AssessEffect(currentPower int) (int, error) {
 
 func (p *powerChangeAssessor) Clear() {
 	p.prevPower = 0
+	p.accumulatedEffect = 0
 }
 
 func NewPowerChangeAssessor(effect, preValue int) Assessor {
