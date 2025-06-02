@@ -170,7 +170,9 @@ func (e *evictFirstStrategy) emitDVFSAccumulatedEffect(percentage int) {
 	_ = e.emitter.StoreInt64(metricPowerAwareDVFSEffect, int64(percentage), metrics.MetricTypeNameRaw)
 }
 
-func NewEvictFirstStrategy(emitter metrics.MetricEmitter, prober EvictableProber, metricsReader metrictypes.MetricsReader, capper capper.PowerCapper) PowerActionStrategy {
+func NewEvictFirstStrategy(emitter metrics.MetricEmitter, prober EvictableProber,
+	metricsReader metrictypes.MetricsReader, capper capper.PowerCapper, assessor assess.Assessor,
+) PowerActionStrategy {
 	general.Infof("pap: using EvictFirst strategy")
 	capperProber, _ := capper.(CapperProber)
 	return &evictFirstStrategy{
@@ -180,7 +182,7 @@ func NewEvictFirstStrategy(emitter metrics.MetricEmitter, prober EvictableProber
 		dvfsTracker: dvfsTracker{
 			dvfsAccumEffect: 0,
 			capperProber:    capperProber,
-			assessor:        assess.NewPowerChangeAssessor(0, 0),
+			assessor:        assessor,
 		},
 		metricsReader: metricsReader,
 	}

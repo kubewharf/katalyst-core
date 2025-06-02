@@ -25,12 +25,15 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/advisor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/advisor/action/strategy"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/advisor/action/strategy/assess"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/capper"
 	capserver "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/capper/server"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/evictor"
 	evictserver "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/evictor/server"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/reader"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/poweraware"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -94,18 +97,26 @@ func NewPowerAwarePlugin(
 		}
 	}
 
-	powerReader := reader.NewMetricStorePowerReader(metaServer)
+	var assessor assess.Assessor
+	if conf.PowerAwarePluginConfiguration.DVFSIndication == poweraware.DVFSIndicationPower {
+		assessor = assess.NewPowerChangeAssessor(0, 0)
+	} else {
+		assessor = assess.NewCPUFreqChangeAssessor(0, metaServer)
+	}
 
+	powerReader := reader.NewMetricStorePowerReader(metaServer)
+	percentageEvictor := evictor.NewPowerLoadEvict(conf.QoSConfiguration, emitter, metaServer.PodFetcher, podEvictor)
+	powerStrategy := strategy.NewEvictFirstStrategy(emitter, percentageEvictor, metaServer, powerCapper, assessor)
+	reconciler := advisor.NewReconciler(conf.PowerAwarePluginConfiguration.DryRun, emitter,
+		percentageEvictor, powerCapper, powerStrategy)
 	powerAdvisor := advisor.NewAdvisor(conf.PowerAwarePluginConfiguration.DryRun,
 		conf.PowerAwarePluginConfiguration.AnnotationKeyPrefix,
 		podEvictor,
 		emitter,
 		metaServer.NodeFetcher,
-		conf.QoSConfiguration,
-		metaServer.PodFetcher,
 		powerReader,
 		powerCapper,
-		metaServer,
+		reconciler,
 	)
 
 	return newPluginWithAdvisor(pluginName, conf, powerAdvisor)

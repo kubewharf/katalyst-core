@@ -29,10 +29,7 @@ import (
 	powermetric "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/metric"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/reader"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/spec"
-	"github.com/kubewharf/katalyst-core/pkg/config/generic"
-	metrictypes "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/node"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -181,20 +178,17 @@ func NewAdvisor(dryRun bool,
 	podEvictor evictor.PodEvictor,
 	emitter metrics.MetricEmitter,
 	nodeFetcher node.NodeFetcher,
-	qosConfig *generic.QoSConfiguration,
-	podFetcher pod.PodFetcher,
 	reader reader.PowerReader,
 	capper capper.PowerCapper,
-	metricsReader metrictypes.MetricsReader,
+	reconciler PowerReconciler,
 ) PowerAwareAdvisor {
-	percentageEvictor := evictor.NewPowerLoadEvict(qosConfig, emitter, podFetcher, podEvictor)
 	return &powerAwareAdvisor{
 		emitter:     emitter,
 		specFetcher: spec.NewFetcher(nodeFetcher, annotationKeyPrefix),
 		powerReader: reader,
 		podEvictor:  podEvictor,
 		powerCapper: capper,
-		reconciler:  newReconciler(dryRun, metricsReader, emitter, percentageEvictor, capper),
+		reconciler:  reconciler,
 		inFreqCap:   false,
 	}
 }

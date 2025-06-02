@@ -85,9 +85,9 @@ func (c *cpuFreqChangeAssessor) AssessTarget(actualWatt, desiredWatt int, maxDec
 	return desiredWatt
 }
 
-func NewCPUFreqChangeAssessor(initMhz int, nodeMetricGetter reader.NodeMetricGetter) Assessor {
+func NewCPUFreqChangeAssessor(initKHZ int, nodeMetricGetter reader.NodeMetricGetter) Assessor {
 	return &cpuFreqChangeAssessor{
-		initFreqKHZ:   initMhz,
+		initFreqKHZ:   initKHZ,
 		cpuFreqReader: reader.NewCPUFreqReader(nodeMetricGetter),
 	}
 }

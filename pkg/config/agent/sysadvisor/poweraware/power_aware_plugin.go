@@ -16,12 +16,18 @@ limitations under the License.
 
 package poweraware
 
+const (
+	DVFSIndicationPower   = "power"
+	DVFSIndicationCPUFreq = "cpufreq"
+)
+
 type PowerAwarePluginConfiguration struct {
 	DryRun                           bool
 	DisablePowerCapping              bool
 	DisablePowerPressureEvict        bool
 	PowerCappingAdvisorSocketAbsPath string
 	AnnotationKeyPrefix              string
+	DVFSIndication                   string
 }
 
 // NewPowerAwarePluginConfiguration creates a default config
