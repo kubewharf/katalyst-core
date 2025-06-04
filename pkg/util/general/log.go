@@ -168,6 +168,14 @@ func FatalfPath(pkg LoggingPKG, message string, params ...interface{}) {
 	klog.FatalfDepth(1, loggingPath(pkg, message, params...))
 }
 
+var klogMutex sync.Mutex
+
+func SetLogFileMaxSize(sizeInMB uint64) {
+	klogMutex.Lock()
+	defer klogMutex.Unlock()
+	klog.MaxSize = sizeInMB * 1024 * 1024
+}
+
 type Logger struct {
 	pkg    LoggingPKG
 	prefix string
