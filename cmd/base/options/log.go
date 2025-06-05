@@ -23,21 +23,25 @@ import (
 )
 
 type LogsOptions struct {
-	LogPackageLevel general.LoggingPKG
+	LogPackageLevel    general.LoggingPKG
+	LogFileMaxSizeInMB uint64
 }
 
 func NewLogsOptions() *LogsOptions {
 	return &LogsOptions{
-		LogPackageLevel: general.LoggingPKGFull,
+		LogPackageLevel:    general.LoggingPKGFull,
+		LogFileMaxSizeInMB: 1800,
 	}
 }
 
 // AddFlags adds flags  to the specified FlagSet.
 func (o *LogsOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.Var(&o.LogPackageLevel, "logs-package-level", "the default package level for logging")
+	fs.Uint64Var(&o.LogFileMaxSizeInMB, "log-file-max-size", o.LogFileMaxSizeInMB, "Max size of klog file in MB.")
 }
 
 func (o *LogsOptions) ApplyTo() error {
 	general.SetDefaultLoggingPackage(o.LogPackageLevel)
+	general.SetLogFileMaxSize(o.LogFileMaxSizeInMB)
 	return nil
 }
