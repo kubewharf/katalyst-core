@@ -19,6 +19,8 @@ package strategy
 import (
 	"context"
 	"fmt"
+	"math"
+	"math/rand"
 	"sort"
 	"strconv"
 	"sync"
@@ -52,7 +54,7 @@ const (
 
 	metricNameNumaOverloadNumaCount = "numa_cpu_pressure_overload_numa_count"
 	metricNameNumaOverloadRatio     = "numa_cpu_pressure_overload_ratio"
-	metricNameNumaOverloadTopPod    = "numa_cpu_pressure_overload_top_pod"
+	metricNameNumaOverloadTargetPod = "numa_cpu_pressure_overload_target_pod"
 
 	metricNameMetricNoThreshold = "numa_cpu_pressure_metric_no_threshold"
 
@@ -136,7 +138,7 @@ func (p *NumaCPUPressureEviction) GetEvictPods(_ context.Context, request *plugi
 	}
 
 	// todo may pick multiple numas if overload
-	numaID, numaOverloadRatio, err := p.pickTopOverRatioNuma(targetMetric, p.thresholds)
+	numaID, numaOverloadRatio, numaUsageRatio, err := p.pickTopOverRatioNuma(targetMetric, p.thresholds)
 	if err != nil {
 		general.ErrorS(err, "pick top over ratio numa failed")
 		_ = p.emitter.StoreFloat64(metricsNameGetEvictPods, 0, metrics.MetricTypeNameRaw,
@@ -147,7 +149,7 @@ func (p *NumaCPUPressureEviction) GetEvictPods(_ context.Context, request *plugi
 		return &pluginapi.GetEvictPodsResponse{}, nil
 	}
 
-	topPod, podUsageRatio, err := p.pickTopOverRatioPod(numaID, targetMetric, request.ActivePods)
+	topPod, podUsageRatio, err := p.pickTargetPod(numaID, targetMetric, request.ActivePods, numaUsageRatio)
 	if err != nil {
 		general.ErrorS(err, "pick top over ratio nums pods failed")
 		_ = p.emitter.StoreFloat64(metricsNameGetEvictPods, 0, metrics.MetricTypeNameRaw,
@@ -159,14 +161,14 @@ func (p *NumaCPUPressureEviction) GetEvictPods(_ context.Context, request *plugi
 	}
 
 	general.InfoS("evict pod", "pod", topPod.Name, "podUsageRatio",
-		podUsageRatio, "numa", numaID, "numaOverloadRatio", numaOverloadRatio)
+		podUsageRatio, "numa", numaID, "numaOverloadRatio", numaOverloadRatio, "numaUsageRatio", numaUsageRatio)
 
 	resp := &pluginapi.GetEvictPodsResponse{
 		EvictPods: []*pluginapi.EvictPod{
 			{
 				Pod: topPod,
 				Reason: fmt.Sprintf("numa cpu usage %f overload, kill top pod with %f",
-					numaOverloadRatio, podUsageRatio),
+					numaUsageRatio, podUsageRatio),
 				ForceEvict:         true,
 				EvictionPluginName: EvictionNameNumaCpuPressure,
 			},
@@ -349,12 +351,13 @@ func (p *NumaCPUPressureEviction) calOverloadNumaCount() (overloadNumaCount int)
 	return
 }
 
-func (p *NumaCPUPressureEviction) pickTopOverRatioNuma(metricName string, thresholds map[string]float64) (int, float64, error) {
-	type NumaOverRatio struct {
+func (p *NumaCPUPressureEviction) pickTopOverRatioNuma(metricName string, thresholds map[string]float64) (int, float64, float64, error) {
+	type NumaOverStat struct {
 		numaID        int
 		overloadRatio float64
+		avgUsageRatio float64
 	}
-	var numaOverRatios []NumaOverRatio
+	var numaOverRatios []NumaOverStat
 
 	for numaID, numaHis := range p.metricsHistory.Inner {
 		numaHisInner := numaHis[FakePodUID]
@@ -365,9 +368,10 @@ func (p *NumaCPUPressureEviction) pickTopOverRatioNuma(metricName string, thresh
 		threshold := thresholds[metricName]
 		overCount := metricRing.OverCount(threshold)
 		overRatio := float64(overCount) / float64(metricRing.MaxLen)
-		numaOverRatios = append(numaOverRatios, NumaOverRatio{
+		numaOverRatios = append(numaOverRatios, NumaOverStat{
 			numaID:        numaID,
 			overloadRatio: overRatio,
+			avgUsageRatio: metricRing.Avg(),
 		})
 
 	}
@@ -377,22 +381,20 @@ func (p *NumaCPUPressureEviction) pickTopOverRatioNuma(metricName string, thresh
 	})
 
 	for _, numa := range numaOverRatios {
-		general.InfoS("Numa with overload ratio", "numa", numa.numaID, "overloadRatio", numa.overloadRatio)
+		general.InfoS("Numa with overload ratio", "numa", numa.numaID, "overloadRatio",
+			numa.overloadRatio, "avgUsageRatio", numa.avgUsageRatio)
 	}
 
-	if len(numaOverRatios) > 0 {
-		return numaOverRatios[0].numaID, numaOverRatios[0].overloadRatio, nil
+	if len(numaOverRatios) == 0 {
+		return -1, 0, 0, fmt.Errorf("no valid numa found")
 	}
-	return -1, 0, fmt.Errorf("no valid numa found")
+	top := numaOverRatios[0]
+	return top.numaID, top.overloadRatio, top.avgUsageRatio, nil
 }
 
-func (p *NumaCPUPressureEviction) pickTopOverRatioPod(numaID int, metricName string,
-	activePods []*v1.Pod,
+func (p *NumaCPUPressureEviction) pickTargetPod(numaID int, metricName string,
+	activePods []*v1.Pod, numaUsageRatio float64,
 ) (*v1.Pod, float64, error) {
-	type PodWithUsage struct {
-		pod        *v1.Pod
-		usageRatio float64
-	}
 	var podWithUsages []PodWithUsage
 	numaHis, ok := p.metricsHistory.Inner[numaID]
 	if !ok {
@@ -419,23 +421,64 @@ func (p *NumaCPUPressureEviction) pickTopOverRatioPod(numaID int, metricName str
 		return nil, 0, fmt.Errorf("cannot find enough pod for numa %v, pod count: %v", numaID, len(podWithUsages))
 	}
 
-	sort.Slice(podWithUsages, func(i, j int) bool {
-		return podWithUsages[i].usageRatio > podWithUsages[j].usageRatio
+	if len(podWithUsages) == 0 {
+		return nil, 0, fmt.Errorf("cannot find any pod to be evicted")
+	}
+
+	// gap = current - original threshold
+	threshold := p.thresholds[targetMetric] / p.numaPressureConfig.ExpandFactor
+	gap := numaUsageRatio - threshold
+	if gap <= 0 {
+		return nil, 0, fmt.Errorf("no need to evict pod with avg usage %v", numaUsageRatio)
+	}
+	general.InfoS("Try to find candidate pods", "gap", gap, "numaID", numaID,
+		"numaUsageRatio", numaUsageRatio, "candidateCount", p.numaPressureConfig.CandidateCount)
+
+	// find candidate pods
+	pods, err := findCandidatePods(podWithUsages, gap, p.numaPressureConfig.CandidateCount)
+	if err != nil {
+		return nil, 0, err
+	}
+	// select one randomly
+	targetPod := selectPodRandomly(pods)
+
+	_ = p.emitter.StoreFloat64(metricNameNumaOverloadTargetPod, targetPod.usageRatio, metrics.MetricTypeNameRaw,
+		metrics.ConvertMapToTags(map[string]string{
+			metricTagMetricName: metricName,
+			metricTagNuma:       strconv.Itoa(numaID),
+		})...)
+	return targetPod.pod, targetPod.usageRatio, nil
+}
+
+func findCandidatePods(pods []PodWithUsage, gap float64, candidateCount int) ([]PodWithUsage, error) {
+	if len(pods) < candidateCount {
+		return nil, fmt.Errorf("pod slice must contain at least %v elements", candidateCount)
+	}
+
+	sort.Slice(pods, func(i, j int) bool {
+		diffI := math.Abs(pods[i].usageRatio - gap)
+		diffJ := math.Abs(pods[j].usageRatio - gap)
+		return diffI < diffJ
 	})
 
-	for _, pod := range podWithUsages {
-		general.InfoS("Pod with usage ratio", "podName", pod.pod.Name, "usageRatio", pod.usageRatio)
+	for _, pod := range pods {
+		general.InfoS("Show candidate pods", "podName", pod.pod.Name, "usageRatio", pod.usageRatio)
 	}
 
-	if len(podWithUsages) > 0 {
-		_ = p.emitter.StoreFloat64(metricNameNumaOverloadTopPod, podWithUsages[0].usageRatio, metrics.MetricTypeNameRaw,
-			metrics.ConvertMapToTags(map[string]string{
-				metricTagMetricName: metricName,
-				metricTagNuma:       strconv.Itoa(numaID),
-			})...)
-		return podWithUsages[0].pod, podWithUsages[0].usageRatio, nil
-	}
-	return nil, 0, fmt.Errorf("cannot find any pod to be evicted")
+	return pods[:candidateCount], nil
+}
+
+func selectPodRandomly(pods []PodWithUsage) *PodWithUsage {
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	randomIndex := r.Intn(len(pods))
+	target := &pods[randomIndex]
+	general.InfoS("Select target pod", "podName", target.pod.Name, "usageRatio", target.usageRatio)
+	return target
+}
+
+type PodWithUsage struct {
+	pod        *v1.Pod
+	usageRatio float64
 }
 
 type NumaPressureConfig struct {
@@ -443,6 +486,7 @@ type NumaPressureConfig struct {
 	ThresholdMetPercentage float64
 	GracePeriod            int64
 	ExpandFactor           float64
+	CandidateCount         int
 }
 
 func getNumaPressureConfig(conf *dynamic.Configuration) *NumaPressureConfig {
@@ -451,5 +495,6 @@ func getNumaPressureConfig(conf *dynamic.Configuration) *NumaPressureConfig {
 		ThresholdMetPercentage: conf.NumaCPUPressureEvictionConfiguration.ThresholdMetPercentage,
 		GracePeriod:            conf.NumaCPUPressureEvictionConfiguration.GracePeriod,
 		ExpandFactor:           conf.NumaCPUPressureEvictionConfiguration.ThresholdExpandFactor,
+		CandidateCount:         conf.NumaCPUPressureEvictionConfiguration.CandidateCount,
 	}
 }
