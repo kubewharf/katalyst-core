@@ -53,9 +53,13 @@ const (
 )
 
 const (
-	InactiveProbe            = 0.1
-	OffloadingSizeScaleCoeff = 1.05
-	CacheMappedCoeff         = 2
+	InactiveProbe               = 0.1
+	OffloadingSizeScaleCoeff    = 1.2
+	CacheMappedCoeff            = 2
+	AttenuationCoeff            = 0.5
+	MinReclaimSize              = 256 << 10 // 256 KiB
+	ReclaimRampUpStep           = 256 << 10 // 256 KiB
+	IndependentRefaultThreshold = 1000
 )
 
 const (
@@ -118,16 +122,19 @@ func refaultPolicyFunc(lastStats TmoStats, currStats TmoStats, conf *tmoconf.TMO
 	if pgstealDelta > 0 && pgscanDelta > 0 {
 		reclaimAccuracyRatio = 1 - refaultDelta/pgstealDelta
 		reclaimScanEfficiencyRatio = pgstealDelta / pgscanDelta
+	} else if refaultDelta > IndependentRefaultThreshold {
+		reclaimAccuracyRatio = 0
 	}
 
 	var result float64
 	if reclaimAccuracyRatio < conf.RefaultPolicyConf.ReclaimAccuracyTarget || reclaimScanEfficiencyRatio < conf.RefaultPolicyConf.ReclaimScanEfficiencyTarget {
 		// Decrease offloading size if detecting the reclaim accuracy or scan efficiency is below the targets
-		result = math.Max(0, lastStats.offloadingTargetSize*reclaimAccuracyRatio)
+		result = math.Max(AttenuationCoeff, reclaimAccuracyRatio) * lastStats.offloadingTargetSize
 	} else {
 		// Try to increase offloading size but make sure not exceed the max probe of memory usage and 10% of inactive memory when the target size of last round is relatively small,
 		// which means reclaim accuracy and reclaim scan efficiency is low.
-		result = math.Min(math.Max(lastStats.offloadingTargetSize*OffloadingSizeScaleCoeff, currStats.memInactive*InactiveProbe), currStats.memUsage*conf.RefaultPolicyConf.MaxProbe)
+		tmp := math.Min(lastStats.offloadingTargetSize*OffloadingSizeScaleCoeff, lastStats.offloadingTargetSize+ReclaimRampUpStep)
+		result = math.Min(math.Max(tmp, MinReclaimSize), math.Min(currStats.memInactive*InactiveProbe, currStats.memUsage*conf.RefaultPolicyConf.MaxProbe))
 	}
 	general.InfoS("refault info", "obj", currStats.obj, "reclaimAccuracyRatio", reclaimAccuracyRatio, "ReclaimAccuracyTarget", conf.RefaultPolicyConf.ReclaimAccuracyTarget,
 		"reclaimScanEfficiencyRatio", reclaimScanEfficiencyRatio, "ReclaimScanEfficiencyTarget", conf.RefaultPolicyConf.ReclaimScanEfficiencyTarget,
