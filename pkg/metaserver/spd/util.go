@@ -39,7 +39,7 @@ func GetContainerMemoryBandwidthRequest(profilingManager ServiceProfilingManager
 	mbwRequest := defaultMemoryBandwidthRequest
 	memoryBandwidthMetrics, err := profilingManager.ServiceAggregateMetrics(context.Background(), podMeta, consts.SPDAggMetricNameMemoryBandwidth,
 		false, workloadapi.Avg, workloadapi.Sum)
-	if err != nil && !errors.IsNotFound(err) {
+	if err != nil && !IsSPDNameOrResourceNotFound(err) {
 		return 0, err
 	} else if err == nil && memoryBandwidthMetrics != nil {
 		memoryBandwidth, err := util.AggregateMetrics(memoryBandwidthMetrics, workloadapi.Max)
@@ -69,7 +69,7 @@ func GetContainerServiceProfileRequest(profilingManager ServiceProfilingManager,
 
 // IsSPDNameOrResourceNotFound returns true if the given error is caused by SPD name not found or SPD not found.
 func IsSPDNameOrResourceNotFound(err error) bool {
-	return errors.IsNotFound(err) || pkgerrors.Is(err, SPDNameNotFoundError)
+	return errors.IsNotFound(err) || IsSPDNameNotFound(err)
 }
 
 // IsSPDNameNotFound returns true if the given error is caused by SPD name not found.
