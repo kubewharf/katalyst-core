@@ -62,3 +62,19 @@ func (m *NumaMetricHistory) Push(numaID int, podUID string, metricName string, p
 func (m *NumaMetricHistory) PushNuma(numaID int, metricName string, podMetric float64) {
 	m.Push(numaID, FakePodUID, metricName, podMetric)
 }
+
+func (m *NumaMetricHistory) GetByNuma(numaID int, metricName string) *MetricRing {
+	numaHis, ok := m.Inner[numaID]
+	if !ok {
+		return nil
+	}
+	metrics, ok := numaHis[FakePodUID]
+	if !ok {
+		return nil
+	}
+	ring, ok := metrics[metricName]
+	if !ok {
+		return nil
+	}
+	return ring
+}
