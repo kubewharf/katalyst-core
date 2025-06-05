@@ -175,9 +175,9 @@ func (p *DynamicPolicy) applyExternalCgroupParams(_ *coreconfig.Configuration,
 ) {
 	general.Infof("called")
 
-	var err error
+	var errList []error
 	defer func() {
-		_ = general.UpdateHealthzStateByError(memconsts.ApplyExternalCGParams, err)
+		_ = general.UpdateHealthzStateByError(memconsts.ApplyExternalCGParams, errors.NewAggregate(errList))
 	}()
 
 	podEntries := p.state.GetPodResourceEntries()[v1.ResourceMemory]
@@ -188,10 +188,9 @@ func (p *DynamicPolicy) applyExternalCgroupParams(_ *coreconfig.Configuration,
 				continue
 			}
 
-			var containerID string
-			containerID, err = p.metaServer.GetContainerID(podUID, containerName)
+			containerID, err := p.metaServer.GetContainerID(podUID, containerName)
 			if err != nil {
-				general.Errorf("get container id of pod: %s/%s container: %s failed with error: %v",
+				general.Warningf("get container id of pod: %s/%s container: %s failed with error: %v",
 					allocationInfo.PodNamespace, allocationInfo.PodName,
 					allocationInfo.ContainerName, err)
 				continue
@@ -210,7 +209,7 @@ func (p *DynamicPolicy) applyExternalCgroupParams(_ *coreconfig.Configuration,
 				}
 
 				if cgroupIfaceName == "" {
-					general.Errorf("pod: %s/%s container: %s control knob name: %s with empty cgroupIfaceName",
+					general.Warningf("pod: %s/%s container: %s control knob name: %s with empty cgroupIfaceName",
 						allocationInfo.PodNamespace, allocationInfo.PodName,
 						allocationInfo.ContainerName, controlKnobName)
 					continue
@@ -225,8 +224,25 @@ func (p *DynamicPolicy) applyExternalCgroupParams(_ *coreconfig.Configuration,
 					"cgroupSubsysName", entry.CgroupSubsysName,
 					"cgroupIfaceName", cgroupIfaceName)
 
+				exist, err := common.IsContainerCgroupFileExist(entry.CgroupSubsysName, podUID, containerID, cgroupIfaceName)
+				if err != nil {
+					general.Warningf("check %v/%v cgroup file's existence of pod: %s/%s container: %s failed with error: %v",
+						cgroupIfaceName, entry.CgroupSubsysName,
+						allocationInfo.PodNamespace, allocationInfo.PodName,
+						allocationInfo.ContainerName, err)
+					continue
+				}
+				if !exist {
+					general.Warningf("%v/%v cgroup file not exist of pod: %s/%s container: %v,skip applyExternalCgroupParams",
+						cgroupIfaceName, entry.CgroupSubsysName,
+						allocationInfo.PodNamespace, allocationInfo.PodName,
+						allocationInfo.ContainerName)
+					continue
+				}
+
 				err = cgroupmgr.ApplyUnifiedDataForContainer(podUID, containerID, entry.CgroupSubsysName, cgroupIfaceName, entry.ControlKnobValue)
 				if err != nil {
+					errList = append(errList, err)
 					general.ErrorS(err, "ApplyUnifiedDataForContainer failed",
 						"podNamespace", allocationInfo.PodNamespace,
 						"podName", allocationInfo.PodName,
