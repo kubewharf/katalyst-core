@@ -80,6 +80,7 @@ func RegisterFileEventWatcher(stop <-chan struct{}, fileWatcherInfo FileWatcherI
 				klog.Errorf("failed add event path %s: %s", watcherInfoPath, err)
 				continue
 			}
+			klog.InfoS("add watcher path", "path", watcherInfoPath)
 		}
 
 		for {

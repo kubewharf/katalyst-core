@@ -146,7 +146,7 @@ func (w *podFetcherImpl) Run(ctx context.Context) {
 	watcherInfo := general.FileWatcherInfo{
 		Path:     w.cgroupRootPaths,
 		Filename: "",
-		Op:       fsnotify.Create,
+		Op:       fsnotify.Create | fsnotify.Write,
 	}
 
 	general.RegisterHeartbeatCheck(podFetcherKubeletHealthCheckName, tolerationTurns*w.podConf.KubeletPodCacheSyncPeriod,
