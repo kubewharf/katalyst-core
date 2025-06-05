@@ -525,7 +525,7 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 
 			// disable TMO if the Pod is numa exclusive and is not reclaimable
 			enableReclaim, _ := helper.PodEnableReclaim(context.Background(), tmo.metaServer, containerInfo.PodUID, true)
-			if containerInfo.IsNumaExclusive() && !enableReclaim {
+			if !enableReclaim {
 				tmo.containerTmoEngines[podContainerName].GetConf().EnableTMO = false
 				general.Infof("container with podContainerName: %s is required to disable TMO since it is not reclaimable", podContainerName)
 			}
