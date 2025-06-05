@@ -28,18 +28,20 @@ import (
 
 const (
 	// minKHZ is the minimum khz for a valid cpu freq
-	minKHZ = 800_000
+	minKHZ = 1000_000
 )
 
 type cpuFreqChangeAssessor struct {
-	initFreqKHZ int
-	highTracked int
+	// highFreqKHZ may update itself to higher value observed
+	// todo: consider to get fixed base cpu freq value instead of this self-updated one
+	highFreqKHZ int
+	highEffect  int
 
 	cpuFreqReader reader.MetricReader
 }
 
 func (c *cpuFreqChangeAssessor) IsInitialized() bool {
-	return c.initFreqKHZ >= minKHZ
+	return c.highFreqKHZ >= minKHZ
 }
 
 func (c *cpuFreqChangeAssessor) Init() error {
@@ -49,12 +51,12 @@ func (c *cpuFreqChangeAssessor) Init() error {
 	}
 
 	general.Infof("pap: cpufreq set initial value %d khz", freq)
-	c.initFreqKHZ = freq
+	c.highFreqKHZ = freq
 	return nil
 }
 
 func (c *cpuFreqChangeAssessor) Clear() {
-	c.highTracked = 0
+	c.highEffect = 0
 }
 
 func (c *cpuFreqChangeAssessor) AssessEffect(_ int, _, _ bool) (int, error) {
@@ -64,24 +66,29 @@ func (c *cpuFreqChangeAssessor) AssessEffect(_ int, _, _ bool) (int, error) {
 		return 0, errors.Wrap(err, "failed to fetch latest cpu freq to access dvfs effect")
 	}
 
+	if currentFreq > c.highFreqKHZ {
+		c.highFreqKHZ = currentFreq
+		c.highEffect = 0
+	}
+
 	return c.assessEffectByFreq(currentFreq)
 }
 
 func (c *cpuFreqChangeAssessor) assessEffectByFreq(currentFreq int) (int, error) {
-	general.InfofV(6, "pap: cpuFreqChangeAssessor assessEffectByFreq: curr %d, init %d", currentFreq, c.initFreqKHZ)
+	general.InfofV(6, "pap: cpuFreqChangeAssessor assessEffectByFreq: curr %d, base %d", currentFreq, c.highFreqKHZ)
 	if currentFreq < minKHZ {
 		return 0, fmt.Errorf("invalid currentFreq frequency %d khz", currentFreq)
 	}
 
-	if currentFreq >= c.initFreqKHZ {
+	if currentFreq >= c.highFreqKHZ {
 		return 0, nil
 	}
 
-	instantEffect := 100 - currentFreq*100/c.initFreqKHZ
-	if instantEffect > c.highTracked {
-		c.highTracked = instantEffect
+	instantEffect := 100 - currentFreq*100/c.highFreqKHZ
+	if instantEffect > c.highEffect {
+		c.highEffect = instantEffect
 	}
-	return c.highTracked, nil
+	return c.highEffect, nil
 }
 
 func (c *cpuFreqChangeAssessor) Update(_ int) {
@@ -105,7 +112,7 @@ func (c *cpuFreqChangeAssessor) AssessTarget(actualWatt, desiredWatt int, maxDec
 
 func NewCPUFreqChangeAssessor(initKHZ int, nodeMetricGetter reader.NodeMetricGetter) Assessor {
 	return &cpuFreqChangeAssessor{
-		initFreqKHZ:   initKHZ,
+		highFreqKHZ:   initKHZ,
 		cpuFreqReader: reader.NewCPUFreqReader(nodeMetricGetter),
 	}
 }

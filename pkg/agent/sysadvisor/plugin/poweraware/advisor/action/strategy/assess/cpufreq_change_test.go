@@ -72,7 +72,7 @@ func Test_cpuFreqChangeAssessor_AccumulateEffect(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			c := &cpuFreqChangeAssessor{
-				initFreqKHZ: tt.fields.initFreqKHZ,
+				highFreqKHZ: tt.fields.initFreqKHZ,
 			}
 			got, err := c.assessEffectByFreq(tt.args.current)
 			if (err != nil) != tt.wantErr {
@@ -132,7 +132,7 @@ func Test_cpuFreqChangeAssessor_AssessTarget(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			c := &cpuFreqChangeAssessor{
-				initFreqKHZ: tt.fields.initFreqMhz,
+				highFreqKHZ: tt.fields.initFreqMhz,
 			}
 			if got := c.AssessTarget(tt.args.actualWatt, tt.args.desiredWatt, tt.args.maxDecreasePercent); got != tt.want {
 				t.Errorf("AssessTarget() = %v, want %v", got, tt.want)
