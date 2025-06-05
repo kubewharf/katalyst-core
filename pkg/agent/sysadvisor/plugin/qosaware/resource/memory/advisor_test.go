@@ -30,6 +30,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	"k8s.io/utils/pointer"
 
@@ -135,7 +136,9 @@ func newTestMemoryAdvisor(t *testing.T, pods []*v1.Pod, checkpointDir, stateFile
 		},
 	}
 
-	err = metaServer.SetServiceProfilingManager(&spd.DummyServiceProfilingManager{})
+	podProfiles := make(map[apitypes.UID]spd.DummyPodServiceProfile)
+	podProfiles["uid5"] = spd.DummyPodServiceProfile{PerformanceLevel: spd.PerformanceLevelPoor}
+	err = metaServer.SetServiceProfilingManager(spd.NewDummyServiceProfilingManager(podProfiles))
 	assert.NoError(t, err)
 
 	mra := NewMemoryResourceAdvisor(conf, struct{}{}, metaCache, metaServer, metrics.DummyMetrics{})
@@ -1281,6 +1284,34 @@ func TestUpdate(t *testing.T) {
 						},
 					},
 				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod5",
+						Namespace: "default",
+						UID:       "uid5",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+						},
+						Labels: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+						},
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name: "c4",
+							},
+						},
+					},
+					Status: v1.PodStatus{
+						ContainerStatuses: []v1.ContainerStatus{
+							{
+								Name:        "c5",
+								ContainerID: "containerd://c5",
+							},
+						},
+					},
+				},
 			},
 			wantHeadroom: *resource.NewQuantity(996<<30, resource.DecimalSI),
 			nodeMetrics:  defaultNodeMetrics,
@@ -1671,13 +1702,21 @@ func TestUpdate(t *testing.T) {
 						PodUID:        "uid2",
 						ContainerName: "c2",
 						Values: map[string]string{
-							string(memoryadvisor.ControlKnobKeySwapMax):          coreconsts.ControlKnobOFF,
-							string(memoryadvisor.ControlKnowKeyMemoryOffloading): "0",
+							string(memoryadvisor.ControlKnobKeySwapMax):          coreconsts.ControlKnobON,
+							string(memoryadvisor.ControlKnowKeyMemoryOffloading): "96636764",
 						},
 					},
 					{
 						PodUID:        "uid4",
 						ContainerName: "c4",
+						Values: map[string]string{
+							string(memoryadvisor.ControlKnobKeySwapMax):          coreconsts.ControlKnobOFF,
+							string(memoryadvisor.ControlKnowKeyMemoryOffloading): "0",
+						},
+					},
+					{
+						PodUID:        "uid5",
+						ContainerName: "c5",
 						Values: map[string]string{
 							string(memoryadvisor.ControlKnobKeySwapMax):          coreconsts.ControlKnobOFF,
 							string(memoryadvisor.ControlKnowKeyMemoryOffloading): "0",
@@ -4252,6 +4291,10 @@ func TestUpdate(t *testing.T) {
 			transparentMemoryOffloadingConfiguration.QoSLevelConfigs[consts.QoSLevelSharedCores] = tmo.NewTMOConfigDetail(transparentMemoryOffloadingConfiguration.DefaultConfigurations)
 			transparentMemoryOffloadingConfiguration.QoSLevelConfigs[consts.QoSLevelSharedCores].EnableTMO = true
 			transparentMemoryOffloadingConfiguration.QoSLevelConfigs[consts.QoSLevelSharedCores].EnableSwap = true
+
+			transparentMemoryOffloadingConfiguration.QoSLevelConfigs[consts.QoSLevelDedicatedCores] = tmo.NewTMOConfigDetail(transparentMemoryOffloadingConfiguration.DefaultConfigurations)
+			transparentMemoryOffloadingConfiguration.QoSLevelConfigs[consts.QoSLevelDedicatedCores].EnableTMO = true
+			transparentMemoryOffloadingConfiguration.QoSLevelConfigs[consts.QoSLevelDedicatedCores].EnableSwap = true
 
 			// cgroup level
 			transparentMemoryOffloadingConfiguration.CgroupConfigs["/sys/fs/cgroup/hdfs"] = tmo.NewTMOConfigDetail(transparentMemoryOffloadingConfiguration.DefaultConfigurations)
