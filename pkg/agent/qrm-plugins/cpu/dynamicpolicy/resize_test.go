@@ -30,6 +30,7 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -708,7 +709,7 @@ func TestNonBindingShareCoresInplaceUpdateResize(t *testing.T) {
 	}
 
 	_, err = dynamicPolicy.GetTopologyHints(context.Background(), resizeReq)
-	as.ErrorContains(err, errNoAvailableCPUHints.Error())
+	as.ErrorContains(err, cpuutil.ErrNoAvailableCPUHints.Error())
 
 	resizeReq1 := &pluginapi.ResourceRequest{
 		PodUid:         req.PodUid,

@@ -110,7 +110,7 @@ func GetCpuCodeName(metricsFetcher types.MetricsFetcher) string {
 	return cpuCodeName
 }
 
-func GetIsVm(metricsFetcher types.MetricsFetcher) (bool, string) {
+func GetIsVM(metricsFetcher types.MetricsFetcher) (bool, string) {
 	isVMInterface := metricsFetcher.GetByStringIndex(consts.MetricInfoIsVM)
 	if isVMInterface == nil {
 		general.Warningf("isVM metric not found")

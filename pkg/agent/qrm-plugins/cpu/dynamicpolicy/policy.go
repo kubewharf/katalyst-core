@@ -42,7 +42,9 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction/strategy"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer/policy"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer/registry"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/validator"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
@@ -59,7 +61,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
-	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
 	"github.com/kubewharf/katalyst-core/pkg/util/timemonitor"
 )
@@ -127,15 +128,14 @@ type DynamicPolicy struct {
 	podLabelKeptKeys                          []string
 	sharedCoresNUMABindingResultAnnotationKey string
 	transitionPeriod                          time.Duration
-	cpuNUMAHintPreferPolicy                   string
-	cpuNUMAHintPreferLowThreshold             float64
 	enableMetricPreferredNumaAllocation       bool
 
 	reservedReclaimedCPUsSize                 int
 	reservedReclaimedCPUSet                   machine.CPUSet
 	reservedReclaimedTopologyAwareAssignments map[int]machine.CPUSet
 
-	numaMetrics map[int]strategy.SubEntries
+	sharedCoresNUMABindingHintOptimizer    hintoptimizer.HintOptimizer
+	dedicatedCoresNUMABindingHintOptimizer hintoptimizer.HintOptimizer
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -203,8 +203,6 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		enableSNBHighNumaPreference:         conf.EnableSNBHighNumaPreference,
 		enableCPUAdvisor:                    conf.CPUQRMPluginConfig.EnableCPUAdvisor,
 		getAdviceInterval:                   conf.CPUQRMPluginConfig.GetAdviceInterval,
-		cpuNUMAHintPreferPolicy:             conf.CPUQRMPluginConfig.CPUNUMAHintPreferPolicy,
-		cpuNUMAHintPreferLowThreshold:       conf.CPUQRMPluginConfig.CPUNUMAHintPreferLowThreshold,
 		enableMetricPreferredNumaAllocation: conf.CPUQRMPluginConfig.EnableMetricPreferredNumaAllocation,
 		reservedCPUs:                        reservedCPUs,
 		extraStateFileAbsPath:               conf.ExtraStateFileAbsPath,
@@ -219,7 +217,12 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		sharedCoresNUMABindingResultAnnotationKey: conf.SharedCoresNUMABindingResultAnnotationKey,
 		transitionPeriod:                          30 * time.Second,
 		reservedReclaimedCPUsSize:                 general.Max(reservedReclaimedCPUsSize, agentCtx.KatalystMachineInfo.NumNUMANodes),
-		numaMetrics:                               make(map[int]strategy.SubEntries),
+	}
+
+	// initialize hint optimizer
+	err = policyImplement.initHintOptimizers()
+	if err != nil {
+		return false, nil, err
 	}
 
 	// register allocation behaviors for pods with different QoS level
@@ -248,11 +251,6 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 
 	if err := policyImplement.initReclaimPool(); err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("dynamic policy initReclaimPool failed with error: %v", err)
-	}
-
-	numaNodes := policyImplement.machineInfo.CPUDetails.NUMANodes().ToSliceInt()
-	for _, numaID := range numaNodes {
-		policyImplement.numaMetrics[numaID] = make(strategy.SubEntries)
 	}
 
 	err = agentCtx.MetaServer.ConfigurationManager.AddConfigWatcher(crd.AdminQoSConfigurationGVR)
@@ -413,7 +411,8 @@ func (p *DynamicPolicy) Start() (err error) {
 	go wait.BackoffUntil(communicateWithCPUAdvisorServer, wait.NewExponentialBackoffManager(800*time.Millisecond,
 		30*time.Second, 2*time.Minute, 2.0, 0, &clock.RealClock{}), true, p.stopCh)
 
-	go wait.Until(p.collectNUMAMetrics, 30*time.Second, p.stopCh)
+	go p.sharedCoresNUMABindingHintOptimizer.Run(p.stopCh)
+	go p.dedicatedCoresNUMABindingHintOptimizer.Run(p.stopCh)
 
 	return nil
 }
@@ -1088,6 +1087,33 @@ func (p *DynamicPolicy) initAdvisorClientConn() (err error) {
 	return nil
 }
 
+func (p *DynamicPolicy) initHintOptimizers() error {
+	var err error
+	p.sharedCoresNUMABindingHintOptimizer, err = registry.SharedCoresHintOptimizerRegistry.HintOptimizer(p.conf.SharedCoresHintOptimizerPolicies,
+		p.generateHintOptimizerFactoryOptions())
+	if err != nil {
+		return fmt.Errorf("SharedCoresHintOptimizerRegistry.HintOptimizer failed with error: %v", err)
+	}
+
+	p.dedicatedCoresNUMABindingHintOptimizer, err = registry.DedicatedCoresHintOptimizerRegistry.HintOptimizer(p.conf.DedicatedCoresHintOptimizerPolicies,
+		p.generateHintOptimizerFactoryOptions())
+	if err != nil {
+		return fmt.Errorf("DedicatedCoresHintOptimizerRegistry.HintOptimizer failed with error: %v", err)
+	}
+
+	return nil
+}
+
+func (p *DynamicPolicy) generateHintOptimizerFactoryOptions() policy.HintOptimizerFactoryOptions {
+	return policy.HintOptimizerFactoryOptions{
+		Conf:         p.conf,
+		Emitter:      p.emitter,
+		MetaServer:   p.metaServer,
+		State:        p.state,
+		ReservedCPUs: p.reservedCPUs,
+	}
+}
+
 // cleanPools is used to clean pools-related data in local state
 func (p *DynamicPolicy) cleanPools() error {
 	remainPools := make(map[string]bool)
@@ -1240,54 +1266,7 @@ func (p *DynamicPolicy) initReclaimPool() error {
 
 // getContainerRequestedCores parses and returns request cores for the given container
 func (p *DynamicPolicy) getContainerRequestedCores(allocationInfo *state.AllocationInfo) float64 {
-	if allocationInfo == nil {
-		general.Errorf("got nil allocationInfo")
-		return 0
-	}
-
-	if p.metaServer == nil {
-		general.Errorf("got nil metaServer")
-		return allocationInfo.RequestQuantity
-	}
-
-	container, err := p.metaServer.GetContainerSpec(allocationInfo.PodUid, allocationInfo.ContainerName)
-	if err != nil || container == nil {
-		general.Errorf("get container failed with error: %v", err)
-		return allocationInfo.RequestQuantity
-	}
-
-	cpuQuantity := native.CPUQuantityGetter()(container.Resources.Requests)
-	metaValue := general.MaxFloat64(float64(cpuQuantity.MilliValue())/1000.0, 0)
-
-	// optimize this logic someday:
-	//	only for refresh cpu request for old pod with cpu ceil and old inplace update resized pods.
-	if allocationInfo.CheckShared() {
-		// if there is these two annotations in memory state, it is a new pod,
-		// we don't need to check the pod request from podWatcher
-		if allocationInfo.Annotations[consts.PodAnnotationAggregatedRequestsKey] != "" ||
-			allocationInfo.Annotations[consts.PodAnnotationInplaceUpdateResizingKey] != "" {
-			return allocationInfo.RequestQuantity
-		}
-		if allocationInfo.CheckNUMABinding() {
-			if metaValue < allocationInfo.RequestQuantity {
-				general.Infof("[snb] get cpu request quantity: (%.3f->%.3f) for pod: %s/%s container: %s from podWatcher",
-					allocationInfo.RequestQuantity, metaValue, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
-				return metaValue
-			}
-		} else {
-			if metaValue != allocationInfo.RequestQuantity {
-				general.Infof("[share] get cpu request quantity: (%.3f->%.3f) for pod: %s/%s container: %s from podWatcher",
-					allocationInfo.RequestQuantity, metaValue, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
-				return metaValue
-			}
-		}
-	} else if allocationInfo.RequestQuantity == 0 {
-		general.Infof("[other] get cpu request quantity: (%.3f->%.3f) for pod: %s/%s container: %s from podWatcher",
-			allocationInfo.RequestQuantity, metaValue, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
-		return metaValue
-	}
-
-	return allocationInfo.RequestQuantity
+	return cpuutil.GetContainerRequestedCores(p.metaServer, allocationInfo)
 }
 
 func (p *DynamicPolicy) checkNonBindingShareCoresCpuResource(req *pluginapi.ResourceRequest) (bool, error) {
