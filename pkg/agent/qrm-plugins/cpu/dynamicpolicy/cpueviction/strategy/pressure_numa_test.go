@@ -46,6 +46,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"sync"
 )
 
 const (
@@ -1219,6 +1220,162 @@ func TestNumaCPUPressureEviction_calOverloadNumaCount(t *testing.T) {
 			}
 			assert.Equalf(t, tt.wantOverloadNumaCount, p.calOverloadNumaCount(), "calOverloadNumaCount()")
 		})
+	}
+}
+
+func Test_findCandidatePods(t *testing.T) {
+	type args struct {
+		pods           []PodWithUsage
+		gap            float64
+		candidateCount int
+	}
+	tests := []struct {
+		name        string
+		args        args
+		wantNames   []string
+		wantRatios  []float64
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "Normal case: Find 3 closest pods",
+			args: args{
+				pods: []PodWithUsage{
+					{pod: makePod("pod1"), usageRatio: 0.25},
+					{pod: makePod("pod2"), usageRatio: 0.40},
+					{pod: makePod("pod3"), usageRatio: 0.30},
+					{pod: makePod("pod4"), usageRatio: 0.60},
+					{pod: makePod("pod5"), usageRatio: 0.35},
+				},
+				gap:            0.35,
+				candidateCount: 3,
+			},
+			wantNames:   []string{"pod5", "pod3", "pod2"},
+			wantRatios:  []float64{0.35, 0.30, 0.40},
+			wantErr:     false,
+			errContains: "",
+		},
+		{
+			name: "Boundary case: Exactly meet candidate count",
+			args: args{
+				pods: []PodWithUsage{
+					{pod: makePod("pod1"), usageRatio: 1.0},
+					{pod: makePod("pod2"), usageRatio: 2.0},
+				},
+				gap:            1.5,
+				candidateCount: 2,
+			},
+			wantNames:   []string{"pod1", "pod2"},
+			wantRatios:  []float64{1.0, 2.0},
+			wantErr:     false,
+			errContains: "",
+		},
+		{
+			name: "Error case: Insufficient pods",
+			args: args{
+				pods: []PodWithUsage{
+					{pod: makePod("pod1"), usageRatio: 1.0},
+				},
+				gap:            0.5,
+				candidateCount: 2,
+			},
+			wantNames:   nil,
+			wantRatios:  nil,
+			wantErr:     true,
+			errContains: "pod slice must contain at least 2 elements",
+		},
+		{
+			name: "Special case: Multiple pods with same distance to gap",
+			args: args{
+				pods: []PodWithUsage{
+					{pod: makePod("pod1"), usageRatio: 0.2},
+					{pod: makePod("pod2"), usageRatio: 0.8},
+					{pod: makePod("pod3"), usageRatio: 0.4},
+					{pod: makePod("pod4"), usageRatio: 0.6},
+				},
+				gap:            0.5,
+				candidateCount: 2,
+			},
+			wantNames:   []string{"pod3", "pod4"},
+			wantRatios:  []float64{0.4, 0.6},
+			wantErr:     false,
+			errContains: "",
+		},
+		{
+			name: "Special case: Gap is 0.0",
+			args: args{
+				pods: []PodWithUsage{
+					{pod: makePod("pod1"), usageRatio: 0.0},
+					{pod: makePod("pod2"), usageRatio: 1.0},
+					{pod: makePod("pod3"), usageRatio: -1.0},
+				},
+				gap:            0.0,
+				candidateCount: 2,
+			},
+			wantNames:   []string{"pod1", "pod2"},
+			wantRatios:  []float64{0.0, 1.0},
+			wantErr:     false,
+			errContains: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := findCandidatePods(tt.args.pods, tt.args.gap, tt.args.candidateCount)
+
+			if tt.wantErr {
+				assert.Error(t, err, "Expected an error but got none")
+				if tt.errContains != "" {
+					assert.Contains(t, err.Error(), tt.errContains, "Error message does not contain expected substring")
+				}
+				return
+			}
+
+			assert.NoError(t, err, "Unexpected error: %v", err)
+			assert.NotNil(t, got, "Result should not be nil")
+			assert.Equal(t, tt.args.candidateCount, len(got), "Unexpected number of candidate pods")
+
+			for i := range got {
+				assert.Equal(t, tt.wantNames[i], got[i].pod.Name, "Pod name mismatch at index %d", i)
+				assert.InDelta(t, tt.wantRatios[i], got[i].usageRatio, 1e-9, "Usage ratio mismatch at index %d", i)
+			}
+		})
+	}
+}
+
+func TestSelectPodRandomly_Concurrency(t *testing.T) {
+	pods := []PodWithUsage{
+		{pod: makePod("pod1"), usageRatio: 0.1},
+		{pod: makePod("pod2"), usageRatio: 0.2},
+		{pod: makePod("pod3"), usageRatio: 0.3},
+	}
+
+	counter := map[string]int{
+		"pod1": 0,
+		"pod2": 0,
+		"pod3": 0,
+	}
+	var mu sync.Mutex
+
+	var wg sync.WaitGroup
+	numWorkers := 1000
+
+	wg.Add(numWorkers)
+	for i := 0; i < numWorkers; i++ {
+		go func() {
+			defer wg.Done()
+			result := selectPodRandomly(pods)
+			if result != nil {
+				mu.Lock()
+				counter[result.pod.Name]++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+
+	for name, count := range counter {
+		assert.Greater(t, count, 0, "Pod %s was never selected", name)
 	}
 }
 

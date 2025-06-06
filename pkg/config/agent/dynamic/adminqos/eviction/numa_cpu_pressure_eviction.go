@@ -26,6 +26,8 @@ type NumaCPUPressureEvictionConfiguration struct {
 	MetricRingSize         int
 	GracePeriod            int64
 	ThresholdExpandFactor  float64
+	CandidateCount         int
+	//SafetyThreshold        float64
 }
 
 func NewNumaCPUPressureEvictionConfiguration() NumaCPUPressureEvictionConfiguration {
@@ -55,5 +57,13 @@ func (n *NumaCPUPressureEvictionConfiguration) ApplyConfiguration(conf *crd.Dyna
 		if config.ThresholdExpandFactor != nil {
 			n.ThresholdExpandFactor = *config.ThresholdExpandFactor
 		}
+
+		//if config.CandidateCount != nil {
+		//	n.CandidateCount = *config.CandidateCount
+		//}
+
+		//if config.SafetyThreshold != nil {
+		//	n.SafetyThreshold = *config.SafetyThreshold
+		//}
 	}
 }
