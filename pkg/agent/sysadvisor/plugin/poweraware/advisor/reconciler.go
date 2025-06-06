@@ -25,7 +25,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/capper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/evictor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/spec"
-	metrictypes "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -91,13 +90,15 @@ func (p *powerReconciler) Reconcile(ctx context.Context, desired *spec.PowerSpec
 	}
 }
 
-func newReconciler(dryRun bool, metricsReader metrictypes.MetricsReader, emitter metrics.MetricEmitter, evictor evictor.PercentageEvictor, capper capper.PowerCapper) PowerReconciler {
+func NewReconciler(dryRun bool, emitter metrics.MetricEmitter,
+	evictor evictor.PercentageEvictor, capper capper.PowerCapper, strategy strategy.PowerActionStrategy,
+) PowerReconciler {
 	return &powerReconciler{
 		dryRun:      dryRun,
 		priorAction: action.PowerAction{},
 		evictor:     evictor,
 		capper:      capper,
-		strategy:    strategy.NewEvictFirstStrategy(emitter, evictor, metricsReader, capper),
+		strategy:    strategy,
 		emitter:     emitter,
 	}
 }
