@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"testing"
 	"time"
 
@@ -40,6 +41,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/reporter"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnr"
@@ -616,6 +618,191 @@ func Test_cnrReporterImpl_Update(t *testing.T) {
 			if err := r.Update(tt.args.ctx, tt.args.fields); (err != nil) != tt.wantErr {
 				t.Errorf("Update() error = %v, wantErr %v", err, tt.wantErr)
 			}
+		})
+	}
+}
+
+func Test_reviseCNR(t *testing.T) {
+	t.Parallel()
+	type args struct {
+		originCNR *nodev1alpha1.CustomNodeResource
+		newCNR    *nodev1alpha1.CustomNodeResource
+	}
+	tests := []struct {
+		name    string
+		args    args
+		wantErr bool
+		wantCNR *nodev1alpha1.CustomNodeResource
+	}{
+		{
+			name: "newCNR is nil",
+			args: args{
+				newCNR: nil,
+			},
+			wantErr: false,
+			wantCNR: nil,
+		},
+		{
+			name: "newCNR is not nil with empty TopologyZone and Taints",
+			args: args{
+				newCNR: &nodev1alpha1.CustomNodeResource{
+					Status: nodev1alpha1.CustomNodeResourceStatus{
+						TopologyZone: []*nodev1alpha1.TopologyZone{},
+					},
+					Spec: nodev1alpha1.CustomNodeResourceSpec{
+						Taints: []nodev1alpha1.Taint{},
+					},
+				},
+			},
+			wantErr: false,
+			wantCNR: &nodev1alpha1.CustomNodeResource{
+				Status: nodev1alpha1.CustomNodeResourceStatus{
+					TopologyZone: nil, // Expect nil after merge if empty
+				},
+				Spec: nodev1alpha1.CustomNodeResourceSpec{
+					Taints: nil, // Expect nil after merge if empty
+				},
+			},
+		},
+		{
+			name: "newCNR is not nil with TopologyZone and Taints",
+			args: args{
+				newCNR: &nodev1alpha1.CustomNodeResource{
+					Status: nodev1alpha1.CustomNodeResourceStatus{
+						TopologyZone: []*nodev1alpha1.TopologyZone{
+							{
+								Type: "Socket",
+								Name: "0",
+							},
+							{
+								Type: "Numa",
+								Name: "0",
+							},
+						},
+					},
+					Spec: nodev1alpha1.CustomNodeResourceSpec{
+						Taints: []nodev1alpha1.Taint{
+							{
+								Taint: v1.Taint{
+									Key:    "key1",
+									Effect: v1.TaintEffectNoSchedule,
+								},
+							},
+							{
+								Taint: v1.Taint{
+									Key:    "key2",
+									Effect: v1.TaintEffectPreferNoSchedule,
+								},
+							},
+						},
+					},
+				},
+			},
+			wantErr: false,
+			wantCNR: &nodev1alpha1.CustomNodeResource{
+				Status: nodev1alpha1.CustomNodeResourceStatus{
+					// util.MergeTopologyZone will sort and merge, for simplicity, we expect the same unique zones
+					// The actual order might differ due to sorting, but content should be equivalent.
+					// For a robust test, consider checking for set equality or sorting before comparison.
+					TopologyZone: []*nodev1alpha1.TopologyZone{
+						{
+							Type: "Numa",
+							Name: "0",
+						},
+						{
+							Type: "Socket",
+							Name: "0",
+						},
+					},
+				},
+				Spec: nodev1alpha1.CustomNodeResourceSpec{
+					// util.MergeTaints will sort and merge unique taints.
+					// The actual order might differ due to sorting, but content should be equivalent.
+					Taints: []nodev1alpha1.Taint{
+						{
+							Taint: v1.Taint{
+								Key:    "key1",
+								Effect: v1.TaintEffectNoSchedule,
+							},
+						},
+						{
+							Taint: v1.Taint{
+								Key:    "key2",
+								Effect: v1.TaintEffectPreferNoSchedule,
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "origin cnr has Taints which are not managed by reporter",
+			args: args{
+				originCNR: &nodev1alpha1.CustomNodeResource{
+					Spec: nodev1alpha1.CustomNodeResourceSpec{
+						Taints: []nodev1alpha1.Taint{
+							{
+								Taint: v1.Taint{
+									Key:    fmt.Sprintf("%s%s%s", consts.KatalystNodeDomainPrefix, consts.KeySeparator, "key1"),
+									Effect: v1.TaintEffectNoSchedule,
+								},
+								QoSLevel: apiconsts.QoSLevelReclaimedCores,
+							},
+							{
+								Taint: v1.Taint{
+									Key:    "key2",
+									Effect: v1.TaintEffectPreferNoSchedule,
+								},
+							},
+						},
+					},
+				},
+				newCNR: &nodev1alpha1.CustomNodeResource{
+					Spec: nodev1alpha1.CustomNodeResourceSpec{
+						Taints: []nodev1alpha1.Taint{
+							{
+								Taint: v1.Taint{
+									Key:    fmt.Sprintf("%s%s%s", consts.KatalystNodeDomainPrefix, consts.KeySeparator, "key2"),
+									Effect: v1.TaintEffectNoSchedule,
+								},
+								QoSLevel: apiconsts.QoSLevelReclaimedCores,
+							},
+						},
+					},
+				},
+			},
+			wantErr: false,
+			wantCNR: &nodev1alpha1.CustomNodeResource{
+				Spec: nodev1alpha1.CustomNodeResourceSpec{
+					// util.MergeTaints will sort and merge unique taints.
+					// The actual order might differ due to sorting, but content should be equivalent.
+					Taints: []nodev1alpha1.Taint{
+						{
+							Taint: v1.Taint{
+								Key:    "key2",
+								Effect: v1.TaintEffectPreferNoSchedule,
+							},
+						},
+						{
+							Taint: v1.Taint{
+								Key:    fmt.Sprintf("%s%s%s", consts.KatalystNodeDomainPrefix, consts.KeySeparator, "key2"),
+								Effect: v1.TaintEffectNoSchedule,
+							},
+							QoSLevel: apiconsts.QoSLevelReclaimedCores,
+						},
+					},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if err := reviseCNR(tt.args.originCNR, tt.args.newCNR); (err != nil) != tt.wantErr {
+				t.Errorf("reviseCNR() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			assert.True(t, apiequality.Semantic.DeepEqual(tt.args.newCNR, tt.wantCNR), "reviseCNR() got = %v, want %v", tt.args.newCNR, tt.wantCNR)
 		})
 	}
 }

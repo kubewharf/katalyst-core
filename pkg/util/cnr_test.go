@@ -244,7 +244,254 @@ func TestCNRTaintExists(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			assert.Equalf(t, tt.want, CNRTaintExists(tt.args.taints, tt.args.taintToFind), "CNRTaintExists(%v, %v)", tt.args.taints, tt.args.taintToFind)
+			assert.Equalf(t, tt.want, CNRTaintExists(tt.args.taints, &tt.args.taintToFind), "CNRTaintExists(%v, %v)", tt.args.taints, tt.args.taintToFind)
+		})
+	}
+}
+
+func TestMergeTaints(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		dst []nodeapis.Taint
+		src []nodeapis.Taint
+	}
+	tests := []struct {
+		name string
+		args args
+		want []nodeapis.Taint
+	}{
+		{
+			name: "both nil",
+			args: args{
+				dst: nil,
+				src: nil,
+			},
+			want: nil,
+		},
+		{
+			name: "dst nil, src not nil",
+			args: args{
+				dst: nil,
+				src: []nodeapis.Taint{
+					{
+						QoSLevel: consts.QoSLevelReclaimedCores,
+						Taint: v1.Taint{
+							Key:    "key1",
+							Value:  "value1",
+							Effect: v1.TaintEffectNoSchedule,
+						},
+					},
+				},
+			},
+			want: []nodeapis.Taint{
+				{
+					QoSLevel: consts.QoSLevelReclaimedCores,
+					Taint: v1.Taint{
+						Key:    "key1",
+						Value:  "value1",
+						Effect: v1.TaintEffectNoSchedule,
+					},
+				},
+			},
+		},
+		{
+			name: "dst not nil, src nil",
+			args: args{
+				dst: []nodeapis.Taint{
+					{
+						QoSLevel: consts.QoSLevelSharedCores,
+						Taint: v1.Taint{
+							Key:    "key2",
+							Value:  "value2",
+							Effect: v1.TaintEffectNoExecute,
+						},
+					},
+				},
+				src: nil,
+			},
+			want: []nodeapis.Taint{
+				{
+					QoSLevel: consts.QoSLevelSharedCores,
+					Taint: v1.Taint{
+						Key:    "key2",
+						Value:  "value2",
+						Effect: v1.TaintEffectNoExecute,
+					},
+				},
+			},
+		},
+		{
+			name: "merge unique taints",
+			args: args{
+				dst: []nodeapis.Taint{
+					{
+						QoSLevel: consts.QoSLevelReclaimedCores,
+						Taint: v1.Taint{
+							Key:    "key1",
+							Value:  "value1",
+							Effect: v1.TaintEffectNoSchedule,
+						},
+					},
+				},
+				src: []nodeapis.Taint{
+					{
+						QoSLevel: consts.QoSLevelSharedCores,
+						Taint: v1.Taint{
+							Key:    "key2",
+							Value:  "value2",
+							Effect: v1.TaintEffectNoExecute,
+						},
+					},
+				},
+			},
+			want: []nodeapis.Taint{
+				{
+					QoSLevel: consts.QoSLevelReclaimedCores,
+					Taint: v1.Taint{
+						Key:    "key1",
+						Value:  "value1",
+						Effect: v1.TaintEffectNoSchedule,
+					},
+				},
+				{
+					QoSLevel: consts.QoSLevelSharedCores,
+					Taint: v1.Taint{
+						Key:    "key2",
+						Value:  "value2",
+						Effect: v1.TaintEffectNoExecute,
+					},
+				},
+			},
+		},
+		{
+			name: "merge with duplicate taints, dst takes precedence",
+			args: args{
+				dst: []nodeapis.Taint{
+					{
+						QoSLevel: consts.QoSLevelReclaimedCores,
+						Taint: v1.Taint{
+							Key:    "key1",
+							Value:  "value1",
+							Effect: v1.TaintEffectNoSchedule,
+						},
+					},
+				},
+				src: []nodeapis.Taint{
+					{
+						QoSLevel: consts.QoSLevelReclaimedCores,
+						Taint: v1.Taint{
+							Key:    "key1",
+							Value:  "newValue",
+							Effect: v1.TaintEffectNoSchedule,
+						},
+					},
+				},
+			},
+			want: []nodeapis.Taint{
+				{
+					QoSLevel: consts.QoSLevelReclaimedCores,
+					Taint: v1.Taint{
+						Key:    "key1",
+						Value:  "value1",
+						Effect: v1.TaintEffectNoSchedule,
+					},
+				},
+			},
+		},
+		{
+			name: "merge with different QoSLevel",
+			args: args{
+				dst: []nodeapis.Taint{
+					{
+						QoSLevel: consts.QoSLevelReclaimedCores,
+						Taint: v1.Taint{
+							Key:    "key1",
+							Value:  "value1",
+							Effect: v1.TaintEffectNoSchedule,
+						},
+					},
+				},
+				src: []nodeapis.Taint{
+					{
+						QoSLevel: consts.QoSLevelSharedCores,
+						Taint: v1.Taint{
+							Key:    "key1",
+							Value:  "value1",
+							Effect: v1.TaintEffectNoSchedule,
+						},
+					},
+				},
+			},
+			want: []nodeapis.Taint{
+				{
+					QoSLevel: consts.QoSLevelReclaimedCores,
+					Taint: v1.Taint{
+						Key:    "key1",
+						Value:  "value1",
+						Effect: v1.TaintEffectNoSchedule,
+					},
+				},
+				{
+					QoSLevel: consts.QoSLevelSharedCores,
+					Taint: v1.Taint{
+						Key:    "key1",
+						Value:  "value1",
+						Effect: v1.TaintEffectNoSchedule,
+					},
+				},
+			},
+		},
+		{
+			name: "merge with different Effect",
+			args: args{
+				dst: []nodeapis.Taint{
+					{
+						QoSLevel: consts.QoSLevelReclaimedCores,
+						Taint: v1.Taint{
+							Key:    "key1",
+							Value:  "value1",
+							Effect: v1.TaintEffectNoSchedule,
+						},
+					},
+				},
+				src: []nodeapis.Taint{
+					{
+						QoSLevel: consts.QoSLevelReclaimedCores,
+						Taint: v1.Taint{
+							Key:    "key1",
+							Value:  "value1",
+							Effect: v1.TaintEffectNoExecute,
+						},
+					},
+				},
+			},
+			want: []nodeapis.Taint{
+				{
+					QoSLevel: consts.QoSLevelReclaimedCores,
+					Taint: v1.Taint{
+						Key:    "key1",
+						Value:  "value1",
+						Effect: v1.TaintEffectNoSchedule,
+					},
+				},
+				{
+					QoSLevel: consts.QoSLevelReclaimedCores,
+					Taint: v1.Taint{
+						Key:    "key1",
+						Value:  "value1",
+						Effect: v1.TaintEffectNoExecute,
+					},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := MergeTaints(tt.args.dst, tt.args.src)
+			assert.ElementsMatch(t, tt.want, got)
 		})
 	}
 }

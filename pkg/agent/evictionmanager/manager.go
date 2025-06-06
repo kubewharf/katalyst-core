@@ -47,6 +47,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/podkiller"
 	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/rule"
 	"github.com/kubewharf/katalyst-core/pkg/client"
+	"github.com/kubewharf/katalyst-core/pkg/client/control"
 	pkgconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
@@ -77,8 +78,11 @@ const (
 
 	evictionManagerHealthCheckName = "eviction_manager_sync"
 	reportTaintHealthCheckName     = "eviction_manager_report_taint"
+	reportCNRTaintHealthCheckName  = "eviction_manager_report_cnr_taint"
 	syncTolerationTurns            = 3
 	reportTaintToleration          = 15 * time.Second
+
+	cnrTaintReporterPluginName = "cnr-taint-reporter"
 )
 
 // LatestCNRGetter returns the latest CNR resources.
@@ -119,6 +123,8 @@ type EvictionManger struct {
 	conditionsLastObservedAt map[string]conditionObservedAt
 	// thresholdsFirstObservedAt map eviction plugin name to *pluginapi.Condition with firstly observed timestamp.
 	thresholdsFirstObservedAt map[string]thresholdObservedAt
+
+	cnrTaintReporter control.Reporter
 
 	cred credential.Credential
 	auth authorization.AccessControl
@@ -165,6 +171,11 @@ func NewEvictionManager(genericClient *client.GenericClientSet, recorder events.
 
 	podKiller := podkiller.NewAsynchronizedPodKiller(killer, genericClient.KubeClient)
 
+	cnrTaintReporter, err := control.NewGenericReporterPlugin(cnrTaintReporterPluginName, conf, emitter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize cnr taint reporter plugin: %v", err)
+	}
+
 	e := &EvictionManger{
 		killQueue:    queue,
 		killStrategy: rule.NewEvictionStrategyImpl(conf),
@@ -172,6 +183,7 @@ func NewEvictionManager(genericClient *client.GenericClientSet, recorder events.
 		metaGetter:                metaServer,
 		emitter:                   emitter,
 		podKiller:                 podKiller,
+		cnrTaintReporter:          cnrTaintReporter,
 		endpoints:                 make(map[string]endpointpkg.Endpoint),
 		conf:                      conf,
 		conditions:                make(map[string]*pluginapi.Condition),
@@ -228,8 +240,15 @@ func (m *EvictionManger) Run(ctx context.Context) {
 	}
 	m.cred.Run(ctx)
 	m.auth.Run(ctx)
+	go func() {
+		err := m.cnrTaintReporter.Run(ctx)
+		if err != nil {
+			general.Fatalf("cnr taint reporter failed with error: %v", err)
+		}
+	}()
 	go wait.UntilWithContext(ctx, m.sync, m.conf.EvictionManagerSyncPeriod)
 	go wait.UntilWithContext(ctx, m.reportConditionsAsNodeTaints, time.Second*5)
+	go wait.UntilWithContext(ctx, m.reportConditionsAsCNRTaints, time.Second*5)
 	<-ctx.Done()
 }
 
