@@ -175,6 +175,10 @@ const (
 	MetricMemFragScoreNuma        = "mem.frag.score.numa"
 
 	MetricCPUUsageNuma = "cpu.usage.numa"
+
+	MetricTotalMemBandwidthNuma  = "mbm.total.numa"
+	MetricLocalMemBandwidthNuma  = "mbm.local.numa"
+	MetricVictimMemBandwidthNuma = "mbm.victim.numa"
 )
 
 // System info metrics
@@ -265,6 +269,10 @@ const (
 	MetricMemInactiveAnonContainer       = "mem.inactiveanon.container"
 	MetricMemInactiveFileContainer       = "mem.inactivefile.container"
 	MetricMemMappedContainer             = "mem.mapped.container"
+
+	MetricMbmTotalContainer  = "mbm.total.container"
+	MetricMbmlocalContainer  = "mbm.local.container"
+	MetricMbmVictimContainer = "mbm.victim.container"
 )
 
 // container blkio metrics

@@ -17,6 +17,9 @@ limitations under the License.
 package malachite
 
 import (
+	"os"
+	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -282,4 +285,249 @@ func Test_getCPI(t *testing.T) {
 	data, err = store.GetContainerMetric("pod2", "container1", consts.MetricCPUCPIContainer)
 	assert.NoError(t, err)
 	assert.Equal(t, float64(1), data.Value)
+}
+
+func Test_setContainerMbmTotalMetric(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		podUID        string
+		containerName string
+		mbmData       malachitetypes.MbmbandData
+		updateTime    *time.Time
+		cpuCodeName   string
+	}
+	now := time.Now()
+	mb1 := uint64(100)
+	mb2 := uint64(200)
+	mb3 := uint64(0)
+	mbLocal1 := uint64(50)
+	mbLocal2 := uint64(70)
+
+	testCases := []struct {
+		name      string
+		args      args
+		wantValue float64
+	}{
+		{
+			name: "sum two values and zero",
+			args: args{
+				podUID:        "test pod 1",
+				containerName: "test container 1",
+				mbmData: malachitetypes.MbmbandData{
+					Mbm: []malachitetypes.MBMItem{
+						{MBMTotalBytes: &mb1},
+						{MBMTotalBytes: &mb2},
+						{MBMTotalBytes: nil},
+						{MBMTotalBytes: &mb3},
+					},
+				},
+				updateTime:  &now,
+				cpuCodeName: "",
+			},
+			wantValue: 300,
+		},
+		{
+			name: "all nil MBMTotalBytes",
+			args: args{
+				podUID:        "test pod 2",
+				containerName: "test container 2",
+				mbmData: malachitetypes.MbmbandData{
+					Mbm: []malachitetypes.MBMItem{
+						{MBMTotalBytes: nil},
+						{MBMTotalBytes: nil},
+					},
+				},
+				updateTime:  &now,
+				cpuCodeName: "",
+			},
+			wantValue: 0,
+		},
+		{
+			name: "empty Mbm slice",
+			args: args{
+				podUID:        "test pod 3",
+				containerName: "test container 3",
+				mbmData: malachitetypes.MbmbandData{
+					Mbm: []malachitetypes.MBMItem{},
+				},
+				updateTime:  &now,
+				cpuCodeName: "",
+			},
+			wantValue: 0,
+		},
+		{
+			name: "AMD Genoa arch sums MBMTotalBytes and MBMLocalBytes",
+			args: args{
+				podUID:        "test pod 4",
+				containerName: "test container 4",
+				mbmData: malachitetypes.MbmbandData{
+					Mbm: []malachitetypes.MBMItem{
+						{MBMTotalBytes: &mb1, MBMLocalBytes: &mbLocal1},
+						{MBMTotalBytes: &mb2, MBMLocalBytes: &mbLocal2},
+					},
+				},
+				updateTime:  &now,
+				cpuCodeName: consts.AMDGenoaArch,
+			},
+			wantValue: 100 + 50 + 200 + 70, // sum of all MBMTotalBytes and MBMLocalBytes
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			store := utilmetric.NewMetricStore()
+			// Set cpu code name if needed
+			if tc.args.cpuCodeName != "" {
+				store.SetByStringIndex(consts.MetricCPUCodeName, tc.args.cpuCodeName)
+			}
+			mmp := &MalachiteMetricsProvisioner{
+				metricStore: store,
+			}
+			mmp.setContainerMbmTotalMetric(tc.args.podUID, tc.args.containerName, tc.args.mbmData, tc.args.updateTime)
+			data, err := store.GetContainerMetric(tc.args.podUID, tc.args.containerName, consts.MetricMbmTotalContainer)
+			assert.NoError(t, err)
+			assert.Equal(t, tc.wantValue, data.Value)
+			assert.Equal(t, *tc.args.updateTime, *data.Time)
+		})
+	}
+}
+
+func Test_cpuInList(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		cpu      int
+		cpuList  string
+		expected bool
+	}{
+		{
+			name:     "single cpu match",
+			cpu:      2,
+			cpuList:  "2",
+			expected: true,
+		},
+		{
+			name:     "single cpu no match",
+			cpu:      3,
+			cpuList:  "2",
+			expected: false,
+		},
+		{
+			name:     "range match",
+			cpu:      4,
+			cpuList:  "2-5",
+			expected: true,
+		},
+		{
+			name:     "range no match",
+			cpu:      6,
+			cpuList:  "2-5",
+			expected: false,
+		},
+		{
+			name:     "empty cpuList",
+			cpu:      0,
+			cpuList:  "",
+			expected: false,
+		},
+		{
+			name:     "malformed range",
+			cpu:      2,
+			cpuList:  "1-b",
+			expected: false,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			result := cpuInList(tc.cpu, tc.cpuList)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+// Helper to create a fake sysfs structure for testing
+func setupFakeSysfs(t *testing.T, l3ID, cpuID, numaID int) (cpuDir, nodeDir string, cleanup func()) {
+	t.Helper()
+	tmpDir := t.TempDir()
+
+	cpuDir = filepath.Join(tmpDir, "cpu")
+	nodeDir = filepath.Join(tmpDir, "node")
+
+	// Fake /sys/devices/system/cpu/cpuX/cache/index3/id
+	cpuSubDir := filepath.Join(cpuDir, "cpu"+strconv.Itoa(cpuID), "cache", "index3")
+	assert.NoError(t, os.MkdirAll(cpuSubDir, 0o755))
+	assert.NoError(t, os.WriteFile(filepath.Join(cpuSubDir, "id"), []byte(strconv.Itoa(l3ID)), 0o644))
+
+	// Fake /sys/devices/system/node/nodeX/cpulist
+	nodeSubDir := filepath.Join(nodeDir, "node"+strconv.Itoa(numaID))
+	assert.NoError(t, os.MkdirAll(nodeSubDir, 0o755))
+	assert.NoError(t, os.WriteFile(filepath.Join(nodeSubDir, "cpulist"), []byte(strconv.Itoa(cpuID)), 0o644))
+
+	return cpuDir, nodeDir, func() {}
+}
+
+func Test_getNumaIDByL3CacheID(t *testing.T) {
+	t.Parallel()
+
+	type sysfsSetup struct {
+		l3ID   int
+		cpuID  int
+		numaID int
+	}
+	testCases := []struct {
+		name       string
+		setup      *sysfsSetup
+		queryL3ID  int
+		wantNumaID int
+		wantErr    bool
+	}{
+		{
+			name: "found numa id",
+			setup: &sysfsSetup{
+				l3ID:   10,
+				cpuID:  2,
+				numaID: 1,
+			},
+			queryL3ID:  10,
+			wantNumaID: 1,
+			wantErr:    false,
+		},
+		{
+			name: "not found",
+			setup: &sysfsSetup{
+				l3ID:   10,
+				cpuID:  2,
+				numaID: 1,
+			},
+			queryL3ID:  999,
+			wantNumaID: -1,
+			wantErr:    true,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var cpuDir, nodeDir string
+			var cleanup func()
+			if tc.setup != nil {
+				cpuDir, nodeDir, cleanup = setupFakeSysfs(t, tc.setup.l3ID, tc.setup.cpuID, tc.setup.numaID)
+				defer cleanup()
+			}
+			numaID, err := getNumaIDByL3CacheID(tc.queryL3ID, cpuDir, nodeDir)
+			if tc.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.Equal(t, tc.wantNumaID, numaID)
+		})
+	}
 }

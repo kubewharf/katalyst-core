@@ -152,6 +152,7 @@ func (m *MalachiteMetricsProvisioner) updateSystemStats() error {
 	} else {
 		m.processSystemComputeData(systemComputeData)
 		m.processSystemCPUComputeData(systemComputeData)
+		m.processSystemNUMAComputeData(systemComputeData)
 	}
 
 	systemMemoryData, err := m.malachiteClient.GetSystemMemoryStats()
@@ -679,6 +680,36 @@ func (m *MalachiteMetricsProvisioner) processSystemCPUComputeData(systemComputeD
 	}
 }
 
+func (m *MalachiteMetricsProvisioner) processSystemNUMAComputeData(systemComputeData *malachitetypes.SystemComputeData) {
+	if systemComputeData == nil {
+		return
+	}
+
+	updateTime := time.Unix(systemComputeData.UpdateTime, 0)
+	// report numa's total memory bandwidth usage
+	ccdMbmTotalPsData := systemComputeData.L3Mon.L3Mon
+
+	numaMbmTotalPsData := make(map[int]uint64)
+	for _, ccdMbmTotalPs := range ccdMbmTotalPsData {
+		numaID, err := getNumaIDByL3CacheID(ccdMbmTotalPs.ID, consts.SystemCpuDir, consts.SystemNodeDir)
+		if err != nil {
+			continue
+		}
+		numaMbmTotalPsData[numaID] += ccdMbmTotalPs.MbmTotalBytes
+		// for AMD milan & AMD genoa, total = 0x3f + 0x40
+		if strings.Contains(systemComputeData.CPUCodeName, consts.AMDMilanArch) {
+			numaMbmTotalPsData[numaID] += ccdMbmTotalPs.MbmVictimBytesPerSec
+		}
+		if strings.Contains(systemComputeData.CPUCodeName, consts.AMDGenoaArch) {
+			numaMbmTotalPsData[numaID] += ccdMbmTotalPs.MbmLocalBytes
+		}
+	}
+
+	for numaID, totalMbm := range numaMbmTotalPsData {
+		m.metricStore.SetNumaMetric(numaID, consts.MetricTotalMemBandwidthNuma, utilmetric.MetricData{Value: float64(totalMbm), Time: &updateTime})
+	}
+}
+
 func (m *MalachiteMetricsProvisioner) processCgroupCPUData(cgroupPath string, cgStats *malachitetypes.MalachiteCgroupInfo) {
 	if cgStats == nil {
 		return
@@ -1140,6 +1171,7 @@ func (m *MalachiteMetricsProvisioner) processContainerMemoryData(podUID, contain
 
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemOomContainer,
 			utilmetric.MetricData{Value: float64(mem.BpfMemStat.OomCnt), Time: &updateTime})
+		m.setContainerMbmTotalMetric(podUID, containerName, mem.Mb, &updateTime)
 		// m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemScaleFactorContainer,
 		//	utilmetric.MetricData{Value: general.UIntPointerToFloat64(mem.WatermarkScaleFactor), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemUpdateTimeContainer,
@@ -1192,6 +1224,7 @@ func (m *MalachiteMetricsProvisioner) processContainerMemoryData(podUID, contain
 			utilmetric.MetricData{Value: float64(mem.MemStats.InactiveFile), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemMappedContainer,
 			utilmetric.MetricData{Value: float64(mem.MemStats.FileMapped), Time: &updateTime})
+		m.setContainerMbmTotalMetric(podUID, containerName, mem.Mb, &updateTime)
 	}
 }
 
