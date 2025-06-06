@@ -27,6 +27,7 @@ import (
 // KCCOptions holds the configurations for katalyst config.
 type KCCOptions struct {
 	ValidAPIGroupSet []string
+	DefaultGVRs      []string
 }
 
 // NewKCCOptions creates a new Options with a default config.
@@ -41,11 +42,13 @@ func (o *KCCOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs := fss.FlagSet("kcc")
 
 	fs.StringSliceVar(&o.ValidAPIGroupSet, "kcc-valid-api-group-set", o.ValidAPIGroupSet, "which Groups is allowed")
+	fs.StringSliceVar(&o.DefaultGVRs, "kcc-default-gvrs", o.DefaultGVRs, "which need to watch by default")
 }
 
 // ApplyTo fills up config with options
 func (o *KCCOptions) ApplyTo(c *controller.KCCConfig) error {
 	c.ValidAPIGroupSet = sets.NewString(o.ValidAPIGroupSet...)
+	c.DefaultGVRs = o.DefaultGVRs
 	return nil
 }
 

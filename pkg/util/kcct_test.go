@@ -101,7 +101,7 @@ func Test_kccTargetResource_GetCollisionCount(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			g := &KCCTargetResource{
+			g := &KCCTargetResourceGeneral{
 				Unstructured: tt.fields.Unstructured,
 			}
 			if got := g.GetCollisionCount(); !reflect.DeepEqual(got, tt.want) {
@@ -201,7 +201,7 @@ func Test_kccTargetResource_GetCanary(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			g := &KCCTargetResource{
+			g := &KCCTargetResourceGeneral{
 				Unstructured: tt.fields.Unstructured,
 			}
 			if got := g.GetCanary(); !reflect.DeepEqual(got, tt.want) {
@@ -262,7 +262,7 @@ func Test_kccTargetResource_GetPaused(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			g := &KCCTargetResource{
+			g := &KCCTargetResourceGeneral{
 				Unstructured: tt.fields.Unstructured,
 			}
 			if got := g.GetPaused(); got != tt.want {
@@ -308,7 +308,7 @@ func Test_kccTargetResource_GetLabelSelector(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			g := &KCCTargetResource{
+			g := &KCCTargetResourceGeneral{
 				Unstructured: tt.fields.Unstructured,
 			}
 			if got := g.GetLabelSelector(); got != tt.want {
@@ -357,7 +357,7 @@ func Test_kccTargetResource_GetLastDuration(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			g := &KCCTargetResource{
+			g := &KCCTargetResourceGeneral{
 				Unstructured: tt.fields.Unstructured,
 			}
 			if got := g.GetLastDuration(); !reflect.DeepEqual(got, tt.want) {
@@ -412,7 +412,7 @@ func Test_kccTargetResource_GetNodeNames(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			g := &KCCTargetResource{
+			g := &KCCTargetResourceGeneral{
 				Unstructured: tt.fields.Unstructured,
 			}
 			if got := g.GetNodeNames(); !reflect.DeepEqual(got, tt.want) {
@@ -457,7 +457,7 @@ func Test_kccTargetResource_GetObservedGeneration(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			g := &KCCTargetResource{
+			g := &KCCTargetResourceGeneral{
 				Unstructured: tt.fields.Unstructured,
 			}
 			if got := g.GetObservedGeneration(); got != tt.want {
@@ -504,7 +504,7 @@ func Test_kccTargetResource_GetRevisionHistoryLimit(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			g := &KCCTargetResource{
+			g := &KCCTargetResourceGeneral{
 				Unstructured: tt.fields.Unstructured,
 			}
 			if got := g.GetRevisionHistoryLimit(); got != tt.want {
@@ -584,7 +584,7 @@ func Test_kccTargetResource_SetCollisionCount(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			g := &KCCTargetResource{
+			g := &KCCTargetResourceGeneral{
 				Unstructured: tt.fields.Unstructured,
 			}
 			g.SetCollisionCount(tt.args.count)
@@ -648,7 +648,7 @@ func Test_kccTargetResource_SetObservedGeneration(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			g := &KCCTargetResource{
+			g := &KCCTargetResourceGeneral{
 				Unstructured: tt.fields.Unstructured,
 			}
 			g.SetObservedGeneration(tt.args.generation)
@@ -709,7 +709,7 @@ func Test_kccTargetResource_GetConfig(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			g := &KCCTargetResource{
+			g := &KCCTargetResourceGeneral{
 				Unstructured: tt.fields.Unstructured,
 			}
 			if err := g.Unmarshal(tt.args.conf); (err != nil) != tt.wantErr {
@@ -762,7 +762,7 @@ func Test_kccTargetResource_GetGenericStatus(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			g := &KCCTargetResource{
+			g := &KCCTargetResourceGeneral{
 				Unstructured: tt.fields.Unstructured,
 			}
 			if got := g.GetGenericStatus(); !reflect.DeepEqual(got, tt.want) {
@@ -851,7 +851,7 @@ func Test_kccTargetResource_SetGenericStatus(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			g := &KCCTargetResource{
+			g := &KCCTargetResourceGeneral{
 				Unstructured: tt.fields.Unstructured,
 			}
 			g.SetGenericStatus(tt.args.status)
@@ -885,7 +885,7 @@ func Test_kccTargetResource_GetIsValid(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			g := &KCCTargetResource{
+			g := &KCCTargetResourceGeneral{
 				Unstructured: tt.fields.Unstructured,
 			}
 			if got := g.CheckExpired(time.Now()); !reflect.DeepEqual(got, tt.want) {
@@ -949,7 +949,7 @@ func Test_kccTargetResource_GenerateConfigHash(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			g := &KCCTargetResource{
+			g := &KCCTargetResourceGeneral{
 				Unstructured: tt.fields.Unstructured,
 			}
 			got, err := g.GenerateConfigHash()
@@ -1027,7 +1027,7 @@ func TestKCCTargetResource_IsExpired(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			g := KCCTargetResource{
+			g := KCCTargetResourceGeneral{
 				Unstructured: tt.fields.Unstructured,
 			}
 			if got := g.CheckExpired(tt.args.now); got != tt.want {

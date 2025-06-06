@@ -17,10 +17,12 @@ limitations under the License.
 package util
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 )
@@ -141,4 +143,181 @@ func TestInsertNPDScopedPodMetrics(t *testing.T) {
 
 	InsertNPDScopedPodMetrics(status, nil)
 	assert.Equal(t, expectedStatus, *status)
+}
+
+func Test_Unmarshal(t *testing.T) {
+	t.Parallel()
+	type args struct {
+		npd KCCTargetResourceNPD
+	}
+	tests := []struct {
+		name string
+		args args
+		want *v1alpha1.NodeProfileDescriptor
+	}{
+		{
+			name: "test unmarshal",
+			args: args{
+				npd: KCCTargetResourceNPD{
+					Unstructured: toTestUnstructured(fakeNPD()),
+				},
+			},
+			want: fakeNPD(),
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := &v1alpha1.NodeProfileDescriptor{}
+			err := tt.args.npd.Unmarshal(&got)
+			assert.NoError(t, err)
+			assert.Equalf(t, tt.want, got, "Unmarshal(%v)", tt.args.npd)
+		})
+	}
+}
+
+func Test_DeepCopy(t *testing.T) {
+	t.Parallel()
+	type args struct {
+		npd *KCCTargetResourceNPD
+	}
+	tests := []struct {
+		name string
+		args args
+		want *KCCTargetResourceNPD
+	}{
+		{
+			name: "deepcopy",
+			args: args{
+				npd: &KCCTargetResourceNPD{
+					Unstructured: toTestUnstructured(fakeNPD()),
+				},
+			},
+			want: &KCCTargetResourceNPD{
+				Unstructured: toTestUnstructured(fakeNPD()),
+			},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := tt.args.npd.DeepCopy()
+			assert.Equalf(t, tt.want, got, "DeepCopy(%v)", tt.args.npd)
+		})
+	}
+}
+
+func Test_ToUnstructured(t *testing.T) {
+	t.Parallel()
+	type args struct {
+		npd *KCCTargetResourceNPD
+	}
+	tests := []struct {
+		name string
+		args args
+	}{
+		{
+			name: "test to unstructured",
+			args: args{
+				npd: &KCCTargetResourceNPD{
+					Unstructured: toTestUnstructured(fakeNPD()),
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := tt.args.npd.GetUnstructured()
+			gotNPD := NewKCCTargetResourceNPD(got)
+			assert.Equalf(t, tt.args.npd, gotNPD, "ToUnstructured(%v)", tt.args.npd)
+		})
+	}
+}
+
+func Test_GenerateConfigHash(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		npd KCCTargetResourceNPD
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    string
+		wantErr assert.ErrorAssertionFunc
+	}{
+		{
+			name: "empty status",
+			args: args{
+				npd: KCCTargetResourceNPD{
+					Unstructured: toTestUnstructured(func() *v1alpha1.NodeProfileDescriptor {
+						return &v1alpha1.NodeProfileDescriptor{
+							ObjectMeta: metav1.ObjectMeta{
+								Name: "node-1",
+							},
+						}
+					}()),
+				},
+			},
+			want:    "44136fa355b3",
+			wantErr: assert.NoError,
+		},
+		{
+			name: "test calculate npd hash",
+			args: args{
+				npd: KCCTargetResourceNPD{
+					Unstructured: toTestUnstructured(fakeNPD()),
+				},
+			},
+			want:    "f8560bfd6669",
+			wantErr: assert.NoError,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := tt.args.npd.GenerateConfigHash()
+			if !tt.wantErr(t, err, fmt.Sprintf("CalculateNPDHash(%v)", tt.args.npd)) {
+				return
+			}
+			assert.Equalf(t, tt.want, got, "CalculateNPDHash(%v)", tt.args.npd)
+		})
+	}
+}
+
+func fakeNPD() *v1alpha1.NodeProfileDescriptor {
+	return &v1alpha1.NodeProfileDescriptor{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "node-1",
+		},
+		Status: v1alpha1.NodeProfileDescriptorStatus{
+			NodeMetrics: []v1alpha1.ScopedNodeMetrics{
+				{
+					Scope: "resource-level",
+					Metrics: []v1alpha1.MetricValue{
+						{
+							MetricName: "cpu",
+							MetricLabels: map[string]string{
+								"level": "L1",
+							},
+							Value: resource.MustParse("4"),
+						},
+						{
+							MetricName: "memory",
+							MetricLabels: map[string]string{
+								"level": "L1",
+							},
+							Value: resource.MustParse("4Gi"),
+						},
+					},
+				},
+			},
+		},
+	}
 }
