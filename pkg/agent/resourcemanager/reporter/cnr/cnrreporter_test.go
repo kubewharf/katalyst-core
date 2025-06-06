@@ -619,3 +619,128 @@ func Test_cnrReporterImpl_Update(t *testing.T) {
 		})
 	}
 }
+
+func Test_reviseCNR(t *testing.T) {
+	t.Parallel()
+	type args struct {
+		cnr *nodev1alpha1.CustomNodeResource
+	}
+	tests := []struct {
+		name    string
+		args    args
+		wantErr bool
+		wantCNR *nodev1alpha1.CustomNodeResource
+	}{
+		{
+			name: "cnr is nil",
+			args: args{
+				cnr: nil,
+			},
+			wantErr: false,
+			wantCNR: nil,
+		},
+		{
+			name: "cnr is not nil with empty TopologyZone and Taints",
+			args: args{
+				cnr: &nodev1alpha1.CustomNodeResource{
+					Status: nodev1alpha1.CustomNodeResourceStatus{
+						TopologyZone: []*nodev1alpha1.TopologyZone{},
+					},
+					Spec: nodev1alpha1.CustomNodeResourceSpec{
+						Taints: []nodev1alpha1.Taint{},
+					},
+				},
+			},
+			wantErr: false,
+			wantCNR: &nodev1alpha1.CustomNodeResource{
+				Status: nodev1alpha1.CustomNodeResourceStatus{
+					TopologyZone: nil, // Expect nil after merge if empty
+				},
+				Spec: nodev1alpha1.CustomNodeResourceSpec{
+					Taints: nil, // Expect nil after merge if empty
+				},
+			},
+		},
+		{
+			name: "cnr is not nil with TopologyZone and Taints",
+			args: args{
+				cnr: &nodev1alpha1.CustomNodeResource{
+					Status: nodev1alpha1.CustomNodeResourceStatus{
+						TopologyZone: []*nodev1alpha1.TopologyZone{
+							{
+								Type: "Socket",
+								Name: "0",
+							},
+							{
+								Type: "Numa",
+								Name: "0",
+							},
+						},
+					},
+					Spec: nodev1alpha1.CustomNodeResourceSpec{
+						Taints: []nodev1alpha1.Taint{
+							{
+								Taint: v1.Taint{
+									Key:    "key1",
+									Effect: v1.TaintEffectNoSchedule,
+								},
+							},
+							{
+								Taint: v1.Taint{
+									Key:    "key2",
+									Effect: v1.TaintEffectPreferNoSchedule,
+								},
+							},
+						},
+					},
+				},
+			},
+			wantErr: false,
+			wantCNR: &nodev1alpha1.CustomNodeResource{
+				Status: nodev1alpha1.CustomNodeResourceStatus{
+					// util.MergeTopologyZone will sort and merge, for simplicity, we expect the same unique zones
+					// The actual order might differ due to sorting, but content should be equivalent.
+					// For a robust test, consider checking for set equality or sorting before comparison.
+					TopologyZone: []*nodev1alpha1.TopologyZone{
+						{
+							Type: "Numa",
+							Name: "0",
+						},
+						{
+							Type: "Socket",
+							Name: "0",
+						},
+					},
+				},
+				Spec: nodev1alpha1.CustomNodeResourceSpec{
+					// util.MergeTaints will sort and merge unique taints.
+					// The actual order might differ due to sorting, but content should be equivalent.
+					Taints: []nodev1alpha1.Taint{
+						{
+							Taint: v1.Taint{
+								Key:    "key1",
+								Effect: v1.TaintEffectNoSchedule,
+							},
+						},
+						{
+							Taint: v1.Taint{
+								Key:    "key2",
+								Effect: v1.TaintEffectPreferNoSchedule,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if err := reviseCNR(tt.args.cnr); (err != nil) != tt.wantErr {
+				t.Errorf("reviseCNR() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			assert.True(t, apiequality.Semantic.DeepEqual(tt.args.cnr, tt.wantCNR), "reviseCNR() got = %v, want %v", tt.args.cnr, tt.wantCNR)
+		})
+	}
+}

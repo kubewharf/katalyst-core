@@ -64,6 +64,14 @@ const (
 	metricsNameUpdateCNRStatusCost       = "update_cnr_status_cost"
 )
 
+// noNeedInitializeFields are fields that will be updated by other than
+// katalyst agent at the same time
+var (
+	noNeedInitializeFields = sets.NewString(
+		util.CNRFieldNameTaints,
+	)
+)
+
 // cnrReporterImpl is to report cnr content to remote
 type cnrReporterImpl struct {
 	cnrName string
@@ -420,8 +428,9 @@ func setCNR(cnr *nodev1alpha1.CustomNodeResource, fields []*v1alpha1.ReportField
 			continue
 		}
 
-		// initialize need report cnr field first
-		if !initializedFields.Has(f.FieldName) {
+		// first initialize the fields that need to be reported to cnr, indicating that
+		// except for the fields updated by katalyst-agent, other fields will be cleared
+		if !noNeedInitializeFields.Has(f.FieldName) && !initializedFields.Has(f.FieldName) {
 			err := initializeFieldToCNR(cnr, *f)
 			if err != nil {
 				errList = append(errList, err)
@@ -458,6 +467,9 @@ func reviseCNR(cnr *nodev1alpha1.CustomNodeResource) error {
 
 	// merge all topology zones
 	cnr.Status.TopologyZone = util.MergeTopologyZone(nil, cnr.Status.TopologyZone)
+
+	// merge all taints
+	cnr.Spec.Taints = util.MergeTaints(nil, cnr.Spec.Taints)
 	return nil
 }
 
