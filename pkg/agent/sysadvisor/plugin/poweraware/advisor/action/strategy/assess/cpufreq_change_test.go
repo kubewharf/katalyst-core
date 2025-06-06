@@ -140,3 +140,42 @@ func Test_cpuFreqChangeAssessor_AssessTarget(t *testing.T) {
 		})
 	}
 }
+
+func Test_effectKeeper_Update(t *testing.T) {
+	t.Parallel()
+	type fields struct {
+		value int
+	}
+	type args struct {
+		curr int
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		args   args
+		want   int
+	}{
+		{
+			name: "happy path to smooth out old spike",
+			fields: fields{
+				value: 100,
+			},
+			args: args{
+				curr: 80,
+			},
+			want: 92,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := &effectKeeper{
+				effectiveValue: tt.fields.value,
+			}
+			if got := h.Update(tt.args.curr); got != tt.want {
+				t.Errorf("Update() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

@@ -29,15 +29,46 @@ import (
 const (
 	// minKHZ is the minimum khz for a valid cpu freq
 	minKHZ = 1000_000
+
+	// alpha is the decaying coefficient of Exponential Moving Average formula
+	alpha = 0.4
 )
 
 type cpuFreqChangeAssessor struct {
 	// highFreqKHZ may update itself to higher value observed
 	// todo: consider to get fixed base cpu freq value instead of this self-updated one
-	highFreqKHZ int
-	highEffect  int
+	highFreqKHZ  int
+	effectKeeper effectKeeper
 
 	cpuFreqReader reader.MetricReader
+}
+
+type effectKeeper struct {
+	effectiveValue int
+}
+
+func (h *effectKeeper) Update(curr int) int {
+	// not to smooth out incoming maxima yet; should it be spiky, it shall be averaged out eventually
+	if curr > h.effectiveValue {
+		h.effectiveValue = curr
+		return curr
+	}
+
+	h.effectiveValue = int(ema(float64(h.effectiveValue), float64(curr), alpha))
+	return h.effectiveValue
+}
+
+// ema implements Sliding-Window Exponential Moving Average algorithm
+func ema(meanAverage, value, alpha float64) float64 {
+	if meanAverage <= 0 {
+		return value
+	}
+
+	return meanAverage*(1-alpha) + value*alpha
+}
+
+func (h *effectKeeper) Clear() {
+	h.effectiveValue = 0
 }
 
 func (c *cpuFreqChangeAssessor) IsInitialized() bool {
@@ -56,7 +87,7 @@ func (c *cpuFreqChangeAssessor) Init() error {
 }
 
 func (c *cpuFreqChangeAssessor) Clear() {
-	c.highEffect = 0
+	c.effectKeeper.Clear()
 }
 
 func (c *cpuFreqChangeAssessor) AssessEffect(_ int, _, _ bool) (int, error) {
@@ -68,7 +99,7 @@ func (c *cpuFreqChangeAssessor) AssessEffect(_ int, _, _ bool) (int, error) {
 
 	if currentFreq > c.highFreqKHZ {
 		c.highFreqKHZ = currentFreq
-		c.highEffect = 0
+		c.effectKeeper.Clear()
 	}
 
 	return c.assessEffectByFreq(currentFreq)
@@ -85,10 +116,7 @@ func (c *cpuFreqChangeAssessor) assessEffectByFreq(currentFreq int) (int, error)
 	}
 
 	instantEffect := 100 - currentFreq*100/c.highFreqKHZ
-	if instantEffect > c.highEffect {
-		c.highEffect = instantEffect
-	}
-	return c.highEffect, nil
+	return c.effectKeeper.Update(instantEffect), nil
 }
 
 func (c *cpuFreqChangeAssessor) Update(_ int) {
@@ -113,6 +141,7 @@ func (c *cpuFreqChangeAssessor) AssessTarget(actualWatt, desiredWatt int, maxDec
 func NewCPUFreqChangeAssessor(initKHZ int, nodeMetricGetter reader.NodeMetricGetter) Assessor {
 	return &cpuFreqChangeAssessor{
 		highFreqKHZ:   initKHZ,
+		effectKeeper:  effectKeeper{},
 		cpuFreqReader: reader.NewCPUFreqReader(nodeMetricGetter),
 	}
 }
