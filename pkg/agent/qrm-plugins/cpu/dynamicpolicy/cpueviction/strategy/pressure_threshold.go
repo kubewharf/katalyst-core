@@ -20,6 +20,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/kubewharf/katalyst-core/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/util/strategygroup"
+
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/metricthreshold"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -29,14 +32,12 @@ var ThresholdMin = 0.4
 
 func (p *NumaCPUPressureEviction) pullThresholds(_ context.Context) {
 	dynamicConf := p.conf.DynamicAgentConfiguration.GetDynamicConfiguration()
-	// todo support strategygroup in the future
-	//enabled, err := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameNumaCpuPressureEviction,
-	//	dynamicConf.NumaCPUPressureEvictionConfiguration.EnableEviction, p.conf)
-	//if err != nil {
-	//	general.Errorf("failed to get eviction strategy: %v", err)
-	//	return
-	//}
-	enabled := dynamicConf.NumaCPUPressureEvictionConfiguration.EnableEviction
+	enabled, err := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameNumaCpuPressureEviction,
+		dynamicConf.NumaCPUPressureEvictionConfiguration.EnableEviction, p.conf)
+	if err != nil {
+		general.Errorf("failed to get eviction strategy: %v", err)
+		return
+	}
 	if !enabled {
 		general.Warningf("eviction strategy is disabled, skip pullThresholds")
 		return
@@ -46,10 +47,10 @@ func (p *NumaCPUPressureEviction) pullThresholds(_ context.Context) {
 	cpuCodeName := helper.GetCpuCodeName(p.metaServer.MetricsFetcher)
 	isVM, _ := helper.GetIsVm(p.metaServer.MetricsFetcher)
 
-	thresholds := getOverLoadThreshold(dynamicConf.MetricThreshold, cpuCodeName, isVM)
+	thresholds := getOverLoadThreshold(dynamicConf.MetricThresholdConfiguration, cpuCodeName, isVM)
 	thresholds = convertThreshold(thresholds)
 	expandedThresholds := expandThresholds(thresholds, numaPressureConfig.ExpandFactor)
-	err := validateThresholds(thresholds)
+	err = validateThresholds(thresholds)
 	if err != nil {
 		general.Warningf("%v", err.Error())
 		return
@@ -87,7 +88,7 @@ func validateThresholds(thresholds map[string]float64) error {
 	return nil
 }
 
-func getOverLoadThreshold(globalThresholds *metricthreshold.MetricThreshold, cpuCode string, isVM bool) map[string]float64 {
+func getOverLoadThreshold(globalThresholds *metricthreshold.MetricThresholdConfiguration, cpuCode string, isVM bool) map[string]float64 {
 	modelThresholds, exists := globalThresholds.Threshold[cpuCode]
 	if !exists {
 		general.Warningf("no suitable threshold for cpuCode %v using default", isVM)

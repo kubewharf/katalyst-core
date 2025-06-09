@@ -33,12 +33,12 @@ var ThresholdNameToResourceName = map[string]string{
 	NUMACPULoadRatioThreshold:  consts.MetricLoad1MinContainer,
 }
 
-type MetricThreshold struct {
+type MetricThresholdConfiguration struct {
 	Threshold map[string]map[bool]map[string]float64
 }
 
-func NewMetricThreshold() *MetricThreshold {
-	return &MetricThreshold{
+func NewMetricThresholdConfiguration() *MetricThresholdConfiguration {
+	return &MetricThresholdConfiguration{
 		Threshold: map[string]map[bool]map[string]float64{
 			"Intel_CascadeLake": {
 				false: {
@@ -136,5 +136,5 @@ func NewMetricThreshold() *MetricThreshold {
 	}
 }
 
-func (sg *MetricThreshold) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
+func (sg *MetricThresholdConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 }

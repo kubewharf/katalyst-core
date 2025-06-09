@@ -105,7 +105,7 @@ func TestIsStrategyEnabledForNode(t *testing.T) {
 				conf: func() *config.Configuration {
 					globalConf := config.NewConfiguration()
 					globalConf.SetDynamicConfiguration(&dynamic.Configuration{
-						StrategyGroup: &strategygroup.StrategyGroup{
+						StrategyGroupConfiguration: &strategygroup.StrategyGroupConfiguration{
 							EnabledStrategies: []v1alpha1.Strategy{
 								{
 									Name: pointer.String("sa"),
@@ -127,7 +127,8 @@ func TestIsStrategyEnabledForNode(t *testing.T) {
 				conf: func() *config.Configuration {
 					globalConf := config.NewConfiguration()
 					globalConf.SetDynamicConfiguration(&dynamic.Configuration{
-						StrategyGroup: &strategygroup.StrategyGroup{
+						StrategyGroupConfiguration: &strategygroup.StrategyGroupConfiguration{
+							EnableStrategyGroup: true,
 							EnabledStrategies: []v1alpha1.Strategy{
 								{
 									Name: pointer.String("sc"),
@@ -195,7 +196,7 @@ func TestGetEnabledStrategiesForNode(t *testing.T) {
 	sa, sb := "sa", "sb"
 
 	gloalConf.SetDynamicConfiguration(&dynamic.Configuration{
-		StrategyGroup: &strategygroup.StrategyGroup{
+		StrategyGroupConfiguration: &strategygroup.StrategyGroupConfiguration{
 			EnabledStrategies: []v1alpha1.Strategy{
 				{
 					Name: &sa,
