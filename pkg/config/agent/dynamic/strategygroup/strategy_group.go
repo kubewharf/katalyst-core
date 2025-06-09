@@ -19,7 +19,6 @@ package strategygroup
 import (
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
-	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
 
 type StrategyGroupConfiguration struct {
@@ -28,14 +27,7 @@ type StrategyGroupConfiguration struct {
 }
 
 func NewStrategyGroupConfiguration() *StrategyGroupConfiguration {
-	strategyNameNone := consts.StrategyNameNone
-	return &StrategyGroupConfiguration{
-		EnabledStrategies: []v1alpha1.Strategy{
-			{
-				Name: &strategyNameNone,
-			},
-		},
-	}
+	return &StrategyGroupConfiguration{}
 }
 
 func (sg *StrategyGroupConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
