@@ -19,12 +19,20 @@ package strategygroup
 import (
 	"fmt"
 
+	"k8s.io/apimachinery/pkg/util/sets"
+
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/strategygroup"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
 
-func validateConf(conf *config.Configuration) (*strategygroup.StrategyGroup, error) {
+// mandatoryEnabledStrategies lists the names of strategies that must be enabled for the strategy group feature.
+// These strategies are considered essential and will always be active.
+var mandatoryEnabledStrategies = sets.NewString(
+	consts.StrategyNameBorweinV2,
+)
+
+func validateConf(conf *config.Configuration) (*strategygroup.StrategyGroupConfiguration, error) {
 	if conf == nil {
 		return nil, fmt.Errorf("nil conf")
 	} else if conf.AgentConfiguration == nil {
@@ -38,7 +46,7 @@ func validateConf(conf *config.Configuration) (*strategygroup.StrategyGroup, err
 		return nil, fmt.Errorf("nil dynamicConf")
 	}
 
-	strategyGroup := dynamicConf.StrategyGroup
+	strategyGroup := dynamicConf.StrategyGroupConfiguration
 	if strategyGroup == nil {
 		return nil, fmt.Errorf("nil strategy group")
 	}
@@ -55,7 +63,7 @@ func IsStrategyEnabledForNode(strategyName string, defaultValue bool, conf *conf
 		return defaultValue, fmt.Errorf("invalid conf: %v", err)
 	}
 
-	if !isStrategyGroupEnabled(strategyGroup) {
+	if !isStrategyGroupEnabled(strategyGroup, strategyName) {
 		return defaultValue, nil
 	}
 
@@ -77,10 +85,6 @@ func GetEnabledStrategiesForNode(conf *config.Configuration) ([]string, error) {
 		return nil, fmt.Errorf("invalid conf: %v", err)
 	}
 
-	if !isStrategyGroupEnabled(strategyGroup) {
-		return []string{}, nil
-	}
-
 	enabledStrategies := make([]string, 0, len(strategyGroup.EnabledStrategies))
 	for _, strategy := range strategyGroup.EnabledStrategies {
 		if strategy.Name != nil {
@@ -100,7 +104,7 @@ func GetSpecificStrategyParam(strategyName string, defaultEnable bool, conf *con
 		return "", false, fmt.Errorf("invalid conf: %v", err)
 	}
 
-	if !isStrategyGroupEnabled(strategyGroup) {
+	if !isStrategyGroupEnabled(strategyGroup, strategyName) {
 		return "", defaultEnable, nil
 	}
 
@@ -113,11 +117,6 @@ func GetSpecificStrategyParam(strategyName string, defaultEnable bool, conf *con
 	return "", false, nil
 }
 
-func isStrategyGroupEnabled(strategyGroup *strategygroup.StrategyGroup) bool {
-	if len(strategyGroup.EnabledStrategies) == 1 && strategyGroup.EnabledStrategies[0].Name != nil &&
-		*strategyGroup.EnabledStrategies[0].Name == consts.StrategyNameNone {
-		return false
-	}
-
-	return true
+func isStrategyGroupEnabled(strategyGroup *strategygroup.StrategyGroupConfiguration, strategyName string) bool {
+	return strategyGroup.EnableStrategyGroup || mandatoryEnabledStrategies.Has(strategyName)
 }

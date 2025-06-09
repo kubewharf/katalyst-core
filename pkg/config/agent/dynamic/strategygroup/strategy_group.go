@@ -22,13 +22,14 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
 
-type StrategyGroup struct {
-	EnabledStrategies []v1alpha1.Strategy
+type StrategyGroupConfiguration struct {
+	EnableStrategyGroup bool
+	EnabledStrategies   []v1alpha1.Strategy
 }
 
-func NewStrategyGroup() *StrategyGroup {
+func NewStrategyGroupConfiguration() *StrategyGroupConfiguration {
 	strategyNameNone := consts.StrategyNameNone
-	return &StrategyGroup{
+	return &StrategyGroupConfiguration{
 		EnabledStrategies: []v1alpha1.Strategy{
 			{
 				Name: &strategyNameNone,
@@ -37,7 +38,7 @@ func NewStrategyGroup() *StrategyGroup {
 	}
 }
 
-func (sg *StrategyGroup) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
+func (sg *StrategyGroupConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 	if dynamicSG := conf.StrategyGroup; dynamicSG != nil && dynamicSG.Status.EnabledStrategies != nil {
 		sg.EnabledStrategies = make([]v1alpha1.Strategy, 0, len(dynamicSG.Status.EnabledStrategies))
 		for _, strategy := range dynamicSG.Status.EnabledStrategies {

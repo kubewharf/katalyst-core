@@ -113,7 +113,7 @@ var (
 		conf.EnableBorweinV2 = true
 		dynamicConf := dynamic.NewConfiguration()
 		strategyName := consts.StrategyNameBorweinV2
-		dynamicConf.StrategyGroup.EnabledStrategies = []configapi.Strategy{
+		dynamicConf.StrategyGroupConfiguration.EnabledStrategies = []configapi.Strategy{
 			{
 				Name: &strategyName,
 				Parameters: map[string]string{

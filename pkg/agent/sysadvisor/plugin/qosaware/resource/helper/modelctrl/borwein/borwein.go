@@ -157,7 +157,7 @@ func (bc *BorweinController) updateIndicatorOffsets(podSet types.PodSet) {
 		bc.indicatorOffsets[indicatorName] = updatedIndicatorOffset
 		general.Infof("update indicator: %s offset from: %.2f to %.2f",
 			indicatorName, currentIndicatorOffset, updatedIndicatorOffset)
-		bc.emitter.StoreFloat64(metricBorweinIndicatorOffset, bc.indicatorOffsets[indicatorName],
+		_ = bc.emitter.StoreFloat64(metricBorweinIndicatorOffset, bc.indicatorOffsets[indicatorName],
 			metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
 				"indicator_name": indicatorName,
 			})...)
