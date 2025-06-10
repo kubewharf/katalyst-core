@@ -29,7 +29,7 @@ import (
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
-func TestMalachiteRealtimeMetricsProvisioner_processSystemPowerData(t *testing.T) {
+func TestRealtimePowerMetricsProvisioner_processSystemPowerData(t *testing.T) {
 	t.Parallel()
 
 	testTimestamp := time.Date(2024, 11, 12, 0, 0, 0, 0, time.Local)
@@ -86,7 +86,7 @@ func TestMalachiteRealtimeMetricsProvisioner_processSystemPowerData(t *testing.T
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			m := &MalachiteRealtimeMetricsProvisioner{
+			m := &RealtimePowerMetricsProvisioner{
 				MalachiteMetricsProvisioner: tt.fields.MalachiteMetricsProvisioner,
 			}
 			m.processSystemPowerData(tt.args.data)
@@ -108,28 +108,12 @@ func (m *mockPowerDataGetter) GetPowerData() (*malachitetypes.PowerData, error) 
 	return args.Get(0).(*malachitetypes.PowerData), args.Error(1)
 }
 
-func (m *mockPowerDataGetter) GetSysFreqData() (*malachitetypes.SysFreqData, error) {
-	args := m.Called()
-	return args.Get(0).(*malachitetypes.SysFreqData), args.Error(1)
-}
-
 func TestMalachiteRealtimeMetricsProvisioner_Run(t *testing.T) {
 	t.Parallel()
 
 	mockPowerDataClient := new(mockPowerDataGetter)
 	mockPowerDataClient.On("GetPowerData").Return(
 		&malachitetypes.PowerData{Sensors: malachitetypes.SensorData{TotalPowerWatt: 345, UpdateTime: 77777}},
-		nil,
-	)
-	mockPowerDataClient.On("GetSysFreqData").Return(
-		&malachitetypes.SysFreqData{
-			SysFreq: malachitetypes.SysFreq{
-				CPUFreq: []malachitetypes.CurFreq{
-					{ScalingCurFreqKHZ: 1_234_000},
-				},
-				UpdateTime: 77777,
-			},
-		},
 		nil,
 	)
 
@@ -163,8 +147,8 @@ func TestMalachiteRealtimeMetricsProvisioner_Run(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			m := &MalachiteRealtimeMetricsProvisioner{
-				malachiteClient:             tt.fields.malachiteClient,
+			m := &RealtimePowerMetricsProvisioner{
+				dataGetter:                  tt.fields.malachiteClient,
 				MalachiteMetricsProvisioner: tt.fields.MalachiteMetricsProvisioner,
 			}
 			m.Run(tt.args.ctx)
