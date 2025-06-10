@@ -277,7 +277,7 @@ func TestGetNUMANodesCountToFitCPUReq(t *testing.T) {
 			expectedErr: "there is no NUMA in cpuTopology",
 		},
 		{
-			name:   "invalid numa count",
+			name:   "can not be divided evenly",
 			cpuReq: 1.0,
 			cpuTopology: &machine.CPUTopology{
 				NumCPUs: 5,
@@ -289,7 +289,8 @@ func TestGetNUMANodesCountToFitCPUReq(t *testing.T) {
 					4: {NUMANodeID: 2},
 				},
 			},
-			expectedErr: "invalid NUMAs count: 3 with CPUs count: 5",
+			expectedNodes: 1,
+			expectedCPUs:  1,
 		},
 		{
 			name:   "cpu req too large",
