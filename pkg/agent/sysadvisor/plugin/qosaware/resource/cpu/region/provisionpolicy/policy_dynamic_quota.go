@@ -67,13 +67,13 @@ func (p *PolicyDynamicQuota) updateForCPUQuota() error {
 	}
 	reclaimCoresCPUUsage := data.Value
 
-	cpusPerNUMA := p.metaServer.CPUsPerNuma()
-	if cpusPerNUMA == 0 {
+	totalNUMACPUSize := p.metaServer.NUMAToCPUs.CPUSizeInNUMAs(p.bindingNumas.ToSliceNoSortInt()...)
+	if totalNUMACPUSize == 0 {
 		return fmt.Errorf("invalid cpu count per numa: %d, %d", p.metaServer.NumNUMANodes, p.metaServer.NumCPUs)
 	}
-	quota := general.MaxFloat64(float64(cpusPerNUMA)*(indicator.Target-indicator.Current)+reclaimCoresCPUUsage, p.ReservedForReclaim)
+	quota := general.MaxFloat64(float64(totalNUMACPUSize)*(indicator.Target-indicator.Current)+reclaimCoresCPUUsage, p.ReservedForReclaim)
 
-	general.InfoS("metrics", "cpuUsage", reclaimCoresCPUUsage, "cpusPerNUMA", cpusPerNUMA, "target", indicator.Target, "current", indicator.Current, "quota", quota, "numas", p.bindingNumas.String())
+	general.InfoS("metrics", "cpuUsage", reclaimCoresCPUUsage, "totalNUMACPUSize", totalNUMACPUSize, "target", indicator.Target, "current", indicator.Current, "quota", quota, "numas", p.bindingNumas.String())
 
 	p.controlKnobAdjusted = types.ControlKnob{
 		configapi.ControlKnobReclaimedCoresCPUQuota: types.ControlKnobItem{

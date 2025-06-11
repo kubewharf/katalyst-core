@@ -113,13 +113,11 @@ func (p *PolicyCanonical) estimateCPUUsage() (float64, error) {
 				continue
 			}
 
-			var containerEstimation float64 = 0
+			var containerEstimation float64
 			if ci.IsDedicatedNumaBinding() && !enableReclaim {
 				if ci.ContainerType == v1alpha1.ContainerType_MAIN {
 					bindingNumas := machine.GetCPUAssignmentNUMAs(ci.TopologyAwareAssignments)
-					for range bindingNumas.ToSliceInt() {
-						containerEstimation += float64(p.metaServer.CPUsPerNuma())
-					}
+					containerEstimation = float64(p.metaServer.NUMAToCPUs.CPUSizeInNUMAs(bindingNumas.ToSliceNoSortInt()...))
 					klog.Infof("[qosaware-cpu-canonical] container %s/%s occupied cpu %v", ci.PodName, ci.ContainerName, containerEstimation)
 				} else {
 					containerEstimation = 0
