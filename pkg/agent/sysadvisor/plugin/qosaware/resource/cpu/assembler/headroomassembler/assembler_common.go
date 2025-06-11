@@ -230,9 +230,15 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 			return resource.Quantity{}, nil, fmt.Errorf("get util-based headroom failed: %v", err)
 		}
 
-		headroomPerNUMA := float64(headroom.Value()) / float64(len(nonBindingNumas))
+		totalCPUSize := ha.metaServer.NUMAToCPUs.CPUSizeInNUMAs(nonBindingNumas...)
+		if totalCPUSize == 0 {
+			return resource.Quantity{}, nil, fmt.Errorf("totalCPUSize is 0")
+		}
+
 		for _, numaID := range nonBindingNumas {
-			q := *resource.NewQuantity(int64(headroomPerNUMA), resource.DecimalSI)
+			numaCPUSize := ha.metaServer.NUMAToCPUs.CPUSizeInNUMAs(numaID)
+			headroomForNUMA := float64(headroom.Value()) * float64(numaCPUSize) / float64(totalCPUSize)
+			q := *resource.NewQuantity(int64(headroomForNUMA), resource.DecimalSI)
 			numaHeadroom[numaID] = q
 			totalHeadroom.Add(q)
 		}
