@@ -320,7 +320,7 @@ func TestDynamicPolicy_getNUMAMetricThreshold(t *testing.T) {
 				metaServer:    tt.fields.metaServer,
 				dynamicConfig: tt.fields.dynamicConfig,
 			}
-			metricThreshold := p.dynamicConfig.GetDynamicConfiguration().MetricThreshold
+			metricThreshold := p.dynamicConfig.GetDynamicConfiguration().MetricThresholdConfiguration
 			if metricThreshold == nil {
 				t.Errorf("DynamicPolicy.getNUMAMetricThreshold() nil metricThreshold")
 				return

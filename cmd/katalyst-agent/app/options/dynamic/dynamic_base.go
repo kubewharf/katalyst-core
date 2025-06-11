@@ -21,6 +21,7 @@ import (
 	cliflag "k8s.io/component-base/cli/flag"
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/dynamic/adminqos"
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/dynamic/strategygroup"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/dynamic/tmo"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 )
@@ -28,23 +29,27 @@ import (
 type DynamicOptions struct {
 	*adminqos.AdminQoSOptions
 	*tmo.TransparentMemoryOffloadingOptions
+	*strategygroup.StrategyGroupOptions
 }
 
 func NewDynamicOptions() *DynamicOptions {
 	return &DynamicOptions{
 		AdminQoSOptions:                    adminqos.NewAdminQoSOptions(),
 		TransparentMemoryOffloadingOptions: tmo.NewTransparentMemoryOffloadingOptions(),
+		StrategyGroupOptions:               strategygroup.NewStrategyGroupOptions(),
 	}
 }
 
 func (o *DynamicOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	o.AdminQoSOptions.AddFlags(fss)
 	o.TransparentMemoryOffloadingOptions.AddFlags(fss)
+	o.StrategyGroupOptions.AddFlags(fss)
 }
 
 func (o *DynamicOptions) ApplyTo(c *dynamic.Configuration) error {
 	var errList []error
 	errList = append(errList, o.AdminQoSOptions.ApplyTo(c.AdminQoSConfiguration))
 	errList = append(errList, o.TransparentMemoryOffloadingOptions.ApplyTo(c.TransparentMemoryOffloadingConfiguration))
+	errList = append(errList, o.StrategyGroupOptions.ApplyTo(c.StrategyGroupConfiguration))
 	return errors.NewAggregate(errList)
 }

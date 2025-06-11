@@ -99,7 +99,7 @@ func Test_convertThreshold(t *testing.T) {
 func Test_getOverLoadThreshold(t *testing.T) {
 	t.Parallel()
 	type args struct {
-		globalThresholds *metricthreshold.MetricThreshold
+		globalThresholds *metricthreshold.MetricThresholdConfiguration
 		cpuCode          string
 		isVM             bool
 	}
@@ -111,7 +111,7 @@ func Test_getOverLoadThreshold(t *testing.T) {
 		{
 			name: "test",
 			args: args{
-				globalThresholds: &metricthreshold.MetricThreshold{
+				globalThresholds: &metricthreshold.MetricThresholdConfiguration{
 					Threshold: map[string]map[bool]map[string]float64{
 						"abc": {
 							true: {
@@ -146,7 +146,7 @@ func Test_getOverLoadThreshold(t *testing.T) {
 		{
 			name: "test",
 			args: args{
-				globalThresholds: metricthreshold.NewMetricThreshold(),
+				globalThresholds: metricthreshold.NewMetricThresholdConfiguration(),
 				cpuCode:          "Intel_CascadeLake",
 				isVM:             false,
 			},

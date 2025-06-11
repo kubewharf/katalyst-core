@@ -90,7 +90,7 @@ func (p *DynamicPolicy) getNUMAMetricThresholdNameToValue() (map[string]float64,
 		return nil, fmt.Errorf("nil metaServer")
 	}
 
-	metricThreshold := p.dynamicConfig.GetDynamicConfiguration().MetricThreshold
+	metricThreshold := p.dynamicConfig.GetDynamicConfiguration().MetricThresholdConfiguration
 	if metricThreshold == nil {
 		return nil, fmt.Errorf("nil metricThreshold")
 	}
@@ -108,7 +108,7 @@ func (p *DynamicPolicy) getNUMAMetricThresholdNameToValue() (map[string]float64,
 	return res, nil
 }
 
-func (p *DynamicPolicy) getNUMAMetricThreshold(thresholdName string, metricThreshold *metricthreshold.MetricThreshold) (float64, error) {
+func (p *DynamicPolicy) getNUMAMetricThreshold(thresholdName string, metricThreshold *metricthreshold.MetricThresholdConfiguration) (float64, error) {
 	if metricThreshold == nil {
 		return 0.0, fmt.Errorf("nil metricThreshold")
 	}

@@ -57,8 +57,8 @@ type Configuration struct {
 	*adminqos.AdminQoSConfiguration
 	*auth.AuthConfiguration
 	*tmo.TransparentMemoryOffloadingConfiguration
-	*strategygroup.StrategyGroup
-	*metricthreshold.MetricThreshold
+	*strategygroup.StrategyGroupConfiguration
+	*metricthreshold.MetricThresholdConfiguration
 }
 
 func NewConfiguration() *Configuration {
@@ -66,8 +66,8 @@ func NewConfiguration() *Configuration {
 		AdminQoSConfiguration:                    adminqos.NewAdminQoSConfiguration(),
 		AuthConfiguration:                        auth.NewAuthConfiguration(),
 		TransparentMemoryOffloadingConfiguration: tmo.NewTransparentMemoryOffloadingConfiguration(),
-		StrategyGroup:                            strategygroup.NewStrategyGroup(),
-		MetricThreshold:                          metricthreshold.NewMetricThreshold(),
+		StrategyGroupConfiguration:               strategygroup.NewStrategyGroupConfiguration(),
+		MetricThresholdConfiguration:             metricthreshold.NewMetricThresholdConfiguration(),
 	}
 }
 
@@ -75,6 +75,6 @@ func (c *Configuration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 	c.AdminQoSConfiguration.ApplyConfiguration(conf)
 	c.AuthConfiguration.ApplyConfiguration(conf)
 	c.TransparentMemoryOffloadingConfiguration.ApplyConfiguration(conf)
-	c.StrategyGroup.ApplyConfiguration(conf)
-	c.MetricThreshold.ApplyConfiguration(conf)
+	c.StrategyGroupConfiguration.ApplyConfiguration(conf)
+	c.MetricThresholdConfiguration.ApplyConfiguration(conf)
 }
