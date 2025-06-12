@@ -111,3 +111,13 @@ type BpfMemData struct {
 	MemAllocTime         uint64 `json:"mem_alloc_time"`
 	MemBalanceDirty      uint64 `json:"mem_balance_dirty"`
 }
+
+type MbmbandData struct {
+	Mbm []MBMItem `json:"mbm"`
+}
+
+type MBMItem struct {
+	ID            uint64  `json:"id"`
+	MBMLocalBytes *uint64 `json:"mbm_local_bytes"`
+	MBMTotalBytes *uint64 `json:"mbm_total_bytes"`
+}

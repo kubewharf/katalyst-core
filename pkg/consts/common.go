@@ -93,3 +93,20 @@ const (
 	TopicNameApplyCGroup = "ApplyCGroup"
 	TopicNameSyscall     = "Syscall"
 )
+
+const (
+	SystemNodeDir        = "/sys/devices/system/node/"
+	SystemCpuDir         = "/sys/devices/system/cpu/"
+	SystemL3CacheSubPath = "cache/index3/id"
+)
+
+const (
+	AMDMilanArch = "Zen3"
+	AMDGenoaArch = "Zen4"
+)
+
+const (
+	BytesPerGB = 1024 * 1024 * 1024
+	MaxMBMDiff = 50 * BytesPerGB
+	MaxMBMStep = 3 * BytesPerGB
+)

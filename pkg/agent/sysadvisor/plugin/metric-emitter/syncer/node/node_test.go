@@ -129,3 +129,43 @@ func TestReceiveRawNode(t *testing.T) {
 
 	s.receiveRawNode(ctx, rChan)
 }
+
+func TestReceiveRawNUMA(t *testing.T) {
+	t.Parallel()
+
+	conf := generateTestConfiguration(t)
+
+	metaServer, err := generateTestMetaServer()
+	assert.NoError(t, err)
+
+	metaServer.MetricsFetcher.RegisterExternalMetric(func(store *metricutil.MetricStore) {
+		store.SetByStringIndex(consts.MetricTotalPsMemBandwidthNuma, "test-numa-bandwidth")
+	})
+	metaServer.MetricsFetcher.Run(context.Background())
+
+	si, err := NewMetricSyncerNode(conf, struct{}{}, metrics.DummyMetrics{}, metricspool.DummyMetricsEmitterPool{}, metaServer, metacache.NewDummyMetaCacheImp())
+	assert.NoError(t, err)
+
+	s := si.(*MetricSyncerNode)
+	ctx, cancel := context.WithCancel(context.Background())
+	rChan := make(chan metrictypes.NotifiedResponse, 20)
+
+	go func() {
+		now := time.Now()
+		notifiedResponse := metrictypes.NotifiedResponse{
+			Req: metrictypes.NotifiedRequest{
+				MetricName: consts.MetricTotalPsMemBandwidthNuma,
+				NumaID:     0,
+			},
+			MetricData: metricutil.MetricData{
+				Value: 1234.5,
+				Time:  &now,
+			},
+		}
+		rChan <- notifiedResponse
+		time.Sleep(time.Second)
+		cancel()
+	}()
+
+	s.receiveRawNUMA(ctx, rChan)
+}
