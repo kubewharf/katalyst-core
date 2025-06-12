@@ -485,7 +485,7 @@ func TestAdvisorUpdate(t *testing.T) {
 					commonstate.PoolNameReclaim: {0: {Size: 4, Quota: -1}, -1: {Size: 47, Quota: -1}},
 				},
 			},
-			wantHeadroom: *resource.NewQuantity(4, resource.DecimalSI),
+			wantHeadroom: *resource.NewQuantity(9, resource.DecimalSI),
 			cgroupMetricItems: []cgroupMetricItem{
 				{
 					cgroupPath: "/kubepods/besteffort",
@@ -499,6 +499,21 @@ func TestAdvisorUpdate(t *testing.T) {
 				},
 				{
 					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUPeriodCgroup,
+					value:      100000,
+				},
+				{
+					cgroupPath: "/kubepods/besteffort-0",
+					name:       pkgconsts.MetricCPUUsageCgroup,
+					value:      2.8,
+				},
+				{
+					cgroupPath: "/kubepods/besteffort-0",
+					name:       pkgconsts.MetricCPUQuotaCgroup,
+					value:      -1,
+				},
+				{
+					cgroupPath: "/kubepods/besteffort-0",
 					name:       pkgconsts.MetricCPUPeriodCgroup,
 					value:      100000,
 				},
@@ -586,6 +601,21 @@ func TestAdvisorUpdate(t *testing.T) {
 				},
 				{
 					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUPeriodCgroup,
+					value:      100000,
+				},
+				{
+					cgroupPath: "/kubepods/besteffort-0",
+					name:       pkgconsts.MetricCPUUsageCgroup,
+					value:      2.8,
+				},
+				{
+					cgroupPath: "/kubepods/besteffort-0",
+					name:       pkgconsts.MetricCPUQuotaCgroup,
+					value:      -1,
+				},
+				{
+					cgroupPath: "/kubepods/besteffort-0",
 					name:       pkgconsts.MetricCPUPeriodCgroup,
 					value:      100000,
 				},
