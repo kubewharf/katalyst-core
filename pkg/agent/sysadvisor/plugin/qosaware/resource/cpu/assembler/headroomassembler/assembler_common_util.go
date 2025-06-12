@@ -131,7 +131,6 @@ func (ha *HeadroomAssemblerCommon) getReclaimNUMABindingTopo(reclaimPool *types.
 
 		switch qos {
 		case consts.PodAnnotationQoSLevelReclaimedCores, consts.PodAnnotationQoSLevelSharedCores:
-			general.Infof("pod annotation: %s, %v", pod.Name, pod.Annotations[consts.PodAnnotationNUMABindResultKey])
 			numaRet, ok := pod.Annotations[consts.PodAnnotationNUMABindResultKey]
 			if !ok || numaRet == FakedNUMAID {
 				continue
