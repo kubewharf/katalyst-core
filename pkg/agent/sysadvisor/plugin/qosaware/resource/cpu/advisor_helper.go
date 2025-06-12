@@ -157,7 +157,6 @@ func (cra *cpuResourceAdvisor) initializeHeadroomAssembler() error {
 func (cra *cpuResourceAdvisor) updateNumasAvailableResource() {
 	cra.numaAvailable = make(map[int]int)
 	reservePoolInfo, _ := cra.metaCache.GetPoolInfo(commonstate.PoolNameReserve)
-	cpusPerNuma := cra.metaServer.CPUsPerNuma()
 
 	cra.updateReservedForReclaim()
 
@@ -166,7 +165,7 @@ func (cra *cpuResourceAdvisor) updateNumasAvailableResource() {
 		if cpuset, ok := reservePoolInfo.TopologyAwareAssignments[id]; ok {
 			reservePoolNuma = cpuset.Size()
 		}
-		cra.numaAvailable[id] = cpusPerNuma - reservePoolNuma
+		cra.numaAvailable[id] = cra.metaServer.NUMAToCPUs.CPUSizeInNUMAs(id) - reservePoolNuma
 	}
 }
 

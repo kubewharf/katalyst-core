@@ -219,10 +219,10 @@ func GetNUMANodesCountToFitCPUReq(cpuReq float64, cpuTopology *machine.CPUTopolo
 	}
 
 	if cpuTopology.NumCPUs%numaCount != 0 {
-		return 0, 0, fmt.Errorf("invalid NUMAs count: %d with CPUs count: %d", numaCount, cpuTopology.NumCPUs)
+		general.Warningf("CPUs %d cannot be evenly divisible by NUMA count %d", cpuTopology.NumCPUs, numaCount)
 	}
 
-	cpusPerNUMA := cpuTopology.NumCPUs / numaCount
+	cpusPerNUMA := (cpuTopology.NumCPUs + numaCount - 1) / numaCount
 	numaCountNeeded := int(math.Ceil(cpuReq / float64(cpusPerNUMA)))
 	if numaCountNeeded == 0 {
 		numaCountNeeded = 1

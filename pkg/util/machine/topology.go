@@ -34,6 +34,16 @@ import (
 // CPU IDs associated with that NUMANode.
 type NUMANodeInfo map[int]CPUSet
 
+// CPUSizeInNUMAs returns the number of logical CPUs
+// associated with each numa nodes.
+func (i NUMANodeInfo) CPUSizeInNUMAs(nodes ...int) int {
+	cpus := 0
+	for _, n := range nodes {
+		cpus += i[n].Size()
+	}
+	return cpus
+}
+
 // CPUDetails is a map from CPU ID to Core ID, Socket ID, and NUMA ID.
 type CPUDetails map[int]CPUInfo
 
@@ -48,6 +58,7 @@ type CPUTopology struct {
 	NumSockets           int
 	NumNUMANodes         int
 	NUMANodeIDToSocketID map[int]int
+	NUMAToCPUs           NUMANodeInfo
 	CPUDetails           CPUDetails
 }
 
@@ -121,15 +132,6 @@ func (topo *CPUTopology) CPUsPerSocket() int {
 		return 0
 	}
 	return topo.NumCPUs / topo.NumSockets
-}
-
-// CPUsPerNuma returns the number of logical CPUs
-// associated with each numa node.
-func (topo *CPUTopology) CPUsPerNuma() int {
-	if topo.NumNUMANodes == 0 {
-		return 0
-	}
-	return topo.NumCPUs / topo.NumNUMANodes
 }
 
 // NUMAsPerSocket returns the the number of NUMA
@@ -220,6 +222,12 @@ func GenerateDummyCPUTopology(cpuNum, socketNum, numaNum int) (*CPUTopology, err
 			}
 		}
 	}
+
+	numaToCPUs := make(NUMANodeInfo, numaNum)
+	for id := range cpuTopology.NUMANodeIDToSocketID {
+		numaToCPUs[id] = cpuTopology.CPUDetails.CPUsInNUMANodes(id)
+	}
+	cpuTopology.NUMAToCPUs = numaToCPUs
 
 	return cpuTopology, nil
 }
@@ -430,7 +438,7 @@ func Discover(machineInfo *info.MachineInfo) (*CPUTopology, *MemoryTopology, err
 		return nil, nil, fmt.Errorf("could not detect number of cpus")
 	}
 
-	CPUDetails := CPUDetails{}
+	cpuDetails := CPUDetails{}
 	numaNodeIDToSocketID := make(map[int]int, len(machineInfo.Topology))
 	numPhysicalCores := 0
 
@@ -443,7 +451,7 @@ func Discover(machineInfo *info.MachineInfo) (*CPUTopology, *MemoryTopology, err
 		for _, core := range node.Cores {
 			if coreID, err := getUniqueCoreID(core.Threads); err == nil {
 				for _, cpu := range core.Threads {
-					CPUDetails[cpu] = CPUInfo{
+					cpuDetails[cpu] = CPUInfo{
 						CoreID:     coreID,
 						SocketID:   core.SocketID,
 						NUMANodeID: node.Id,
@@ -459,13 +467,20 @@ func Discover(machineInfo *info.MachineInfo) (*CPUTopology, *MemoryTopology, err
 		}
 	}
 
+	numNUMANodes := cpuDetails.NUMANodes().Size()
+	numaToCPUs := make(NUMANodeInfo, numNUMANodes)
+	for id := range numaNodeIDToSocketID {
+		numaToCPUs[id] = cpuDetails.CPUsInNUMANodes(id)
+	}
+
 	return &CPUTopology{
 		NumCPUs:              machineInfo.NumCores,
 		NumSockets:           machineInfo.NumSockets,
 		NumCores:             numPhysicalCores,
-		NumNUMANodes:         CPUDetails.NUMANodes().Size(),
+		NumNUMANodes:         numNUMANodes,
 		NUMANodeIDToSocketID: numaNodeIDToSocketID,
-		CPUDetails:           CPUDetails,
+		NUMAToCPUs:           numaToCPUs,
+		CPUDetails:           cpuDetails,
 	}, &memoryTopology, nil
 }
 

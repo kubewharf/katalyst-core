@@ -168,13 +168,6 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 	numaHeadroom := make(map[int]resource.Quantity, ha.metaServer.NumNUMANodes)
 	totalHeadroom := resource.Quantity{}
 	dynamicConfig := ha.conf.GetDynamicConfiguration()
-	options := helper.UtilBasedCapacityOptions{
-		TargetUtilization: dynamicConfig.TargetReclaimedCoreUtilization,
-		MaxUtilization:    dynamicConfig.MaxReclaimedCoreUtilization,
-		MaxOversoldRate:   dynamicConfig.CPUUtilBasedConfiguration.MaxOversoldRate,
-		MaxCapacity:       dynamicConfig.MaxHeadroomCapacityRate * float64(ha.metaServer.MachineInfo.NumCores/ha.metaServer.NumNUMANodes),
-	}
-
 	reclaimedCPUs, err := ha.getLastReclaimedCPUPerNUMA()
 	if err != nil {
 		general.Errorf("getLastReclaimedCPUPerNUMA failed: %v", err)
@@ -194,9 +187,10 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 			return resource.Quantity{}, nil, fmt.Errorf("get reclaim Metrics failed with numa %d: %v", numaID, err)
 		}
 
+		numaOptions := helper.GenerateUtilBasedCapacityOptions(dynamicConfig, float64(ha.metaServer.NUMAToCPUs.CPUSizeInNUMAs(numaID)))
 		lastReclaimedCPUPerNumaForCalculate := make(map[int]float64)
 		lastReclaimedCPUPerNumaForCalculate[numaID] = reclaimedCPUs[numaID]
-		headroom, err := ha.getUtilBasedHeadroom(options, reclaimMetrics, lastReclaimedCPUPerNumaForCalculate)
+		headroom, err := ha.getUtilBasedHeadroom(numaOptions, reclaimMetrics, lastReclaimedCPUPerNumaForCalculate)
 		if err != nil {
 			return resource.Quantity{}, nil, fmt.Errorf("get util-based headroom failed with numa %d: %v", numaID, err)
 		}
@@ -224,15 +218,21 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 			return resource.Quantity{}, nil, fmt.Errorf("get reclaim Metrics failed: %v", err)
 		}
 
-		options.MaxCapacity *= float64(len(nonBindingNumas))
-		headroom, err := ha.getUtilBasedHeadroom(options, reclaimMetrics, lastReclaimedCPUPerNumaForCalculate)
+		totalCPUSize := ha.metaServer.NUMAToCPUs.CPUSizeInNUMAs(nonBindingNumas...)
+		if totalCPUSize == 0 {
+			return resource.Quantity{}, nil, fmt.Errorf("totalCPUSize is 0")
+		}
+
+		globalOptions := helper.GenerateUtilBasedCapacityOptions(dynamicConfig, float64(totalCPUSize))
+		headroom, err := ha.getUtilBasedHeadroom(globalOptions, reclaimMetrics, lastReclaimedCPUPerNumaForCalculate)
 		if err != nil {
 			return resource.Quantity{}, nil, fmt.Errorf("get util-based headroom failed: %v", err)
 		}
 
-		headroomPerNUMA := float64(headroom.Value()) / float64(len(nonBindingNumas))
 		for _, numaID := range nonBindingNumas {
-			q := *resource.NewQuantity(int64(headroomPerNUMA), resource.DecimalSI)
+			numaCPUSize := ha.metaServer.NUMAToCPUs.CPUSizeInNUMAs(numaID)
+			headroomForNUMA := float64(headroom.Value()) * float64(numaCPUSize) / float64(totalCPUSize)
+			q := *resource.NewQuantity(int64(headroomForNUMA), resource.DecimalSI)
 			numaHeadroom[numaID] = q
 			totalHeadroom.Add(q)
 		}

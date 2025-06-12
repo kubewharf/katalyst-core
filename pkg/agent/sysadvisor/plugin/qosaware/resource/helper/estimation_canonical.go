@@ -23,6 +23,7 @@ import (
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -191,6 +192,15 @@ type UtilBasedCapacityOptions struct {
 	MaxUtilization    float64
 	MaxOversoldRate   float64
 	MaxCapacity       float64
+}
+
+func GenerateUtilBasedCapacityOptions(dynamicConfig *dynamic.Configuration, capacity float64) UtilBasedCapacityOptions {
+	return UtilBasedCapacityOptions{
+		TargetUtilization: dynamicConfig.TargetReclaimedCoreUtilization,
+		MaxUtilization:    dynamicConfig.MaxReclaimedCoreUtilization,
+		MaxOversoldRate:   dynamicConfig.CPUUtilBasedConfiguration.MaxOversoldRate,
+		MaxCapacity:       dynamicConfig.MaxHeadroomCapacityRate * capacity,
+	}
 }
 
 // EstimateUtilBasedCapacity capacity by taking into account the difference between the current

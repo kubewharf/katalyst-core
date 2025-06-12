@@ -330,7 +330,7 @@ func (cra *cpuResourceAdvisor) checkIsolationSafety() bool {
 		}
 	}
 
-	nonBindingSize := cra.metaServer.CPUsPerNuma() * nonBindingNumas.Size()
+	nonBindingSize := cra.metaServer.NUMAToCPUs.CPUSizeInNUMAs(cra.nonBindingNumas.ToSliceNoSortInt()...)
 	klog.Infof("[qosaware-cpu] shareAndIsolationPoolSize %v, nonBindingSize %v", shareAndIsolationPoolSize, nonBindingSize)
 	if shareAndIsolationPoolSize > nonBindingSize {
 		return false
