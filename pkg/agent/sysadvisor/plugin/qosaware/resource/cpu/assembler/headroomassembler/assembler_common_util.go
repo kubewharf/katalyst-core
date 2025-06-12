@@ -22,7 +22,9 @@ import (
 	"math"
 	"strconv"
 
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	v1 "k8s.io/api/core/v1"
+
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/klog/v2"
 
@@ -32,7 +34,6 @@ import (
 	metaserverHelper "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
-	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 const (
@@ -98,12 +99,7 @@ func (ha *HeadroomAssemblerCommon) getReclaimNUMABindingTopo(reclaimPool *types.
 		return
 	}
 
-	availNUMAs, _, e := helper.GetAvailableNUMAsAndReclaimedCores(ha.conf, ha.metaReader, ha.metaServer)
-	if e != nil {
-		err = fmt.Errorf("get available numa failed: %v", e)
-		return
-	}
-
+	general.Infof("reclaim pool TopologyAwareAssignments: %v", reclaimPool.TopologyAwareAssignments)
 	numaMap := make(map[int]bool)
 	for numaID := range reclaimPool.TopologyAwareAssignments {
 		numaMap[numaID] = false
@@ -114,12 +110,12 @@ func (ha *HeadroomAssemblerCommon) getReclaimNUMABindingTopo(reclaimPool *types.
 			return false
 		}
 
-		if ok, err := ha.conf.CheckReclaimedQoSForPod(pod); err != nil {
-			klog.Errorf("filter pod %v err: %v", pod.Name, err)
+		if ok, err := ha.conf.CheckSystemQoSForPod(pod); err != nil || ok {
+			klog.Errorf("filter system core pod %v err: %v", pod.Name, err)
 			return false
-		} else {
-			return ok
 		}
+
+		return true
 	})
 	if e != nil {
 		err = fmt.Errorf("get pod list failed: %v", e)
@@ -127,27 +123,54 @@ func (ha *HeadroomAssemblerCommon) getReclaimNUMABindingTopo(reclaimPool *types.
 	}
 
 	for _, pod := range pods {
-		numaRet, ok := pod.Annotations[consts.PodAnnotationNUMABindResultKey]
-		if !ok || numaRet == FakedNUMAID {
-			continue
+		qos, e := ha.conf.GetQoSLevel(pod, map[string]string{})
+		if e != nil {
+			err = fmt.Errorf("get qos level failed: %s, %v", pod.Name, e)
+			return
 		}
 
-		numaID, err := strconv.Atoi(numaRet)
-		if err != nil {
-			klog.Errorf("invalid numa binding result: %s, %s, %v\n", pod.Name, numaRet, err)
-			continue
-		}
+		switch qos {
+		case consts.PodAnnotationQoSLevelReclaimedCores, consts.PodAnnotationQoSLevelSharedCores:
+			general.Infof("pod annotation: %s, %v", pod.Name, pod.Annotations[consts.PodAnnotationNUMABindResultKey])
+			numaRet, ok := pod.Annotations[consts.PodAnnotationNUMABindResultKey]
+			if !ok || numaRet == FakedNUMAID {
+				continue
+			}
 
-		numaMap[numaID] = true
+			numaID, err := strconv.Atoi(numaRet)
+			if err != nil {
+				klog.Errorf("invalid numa binding result: %s, %s, %v", pod.Name, numaRet, err)
+				continue
+			}
+
+			if _, ok := numaMap[numaID]; !ok {
+				continue
+			}
+
+			numaMap[numaID] = true
+		case consts.PodAnnotationQoSLevelDedicatedCores:
+			containers, ok := ha.metaReader.GetContainerEntries(string(pod.UID))
+			if !ok {
+				err = fmt.Errorf("get container entries failed: %s, %s, %v", pod.Name, pod.UID, e)
+				return
+			}
+
+			for _, ci := range containers {
+				for numaID := range ci.TopologyAwareAssignments {
+					if _, ok := numaMap[numaID]; !ok {
+						continue
+					}
+					numaMap[numaID] = true
+				}
+			}
+		}
 	}
 
 	for numaID, bound := range numaMap {
 		if bound {
 			bindingNUMAs = append(bindingNUMAs, numaID)
 		} else {
-			if availNUMAs.Contains(numaID) {
-				nonBindingNumas = append(nonBindingNumas, numaID)
-			}
+			nonBindingNumas = append(nonBindingNumas, numaID)
 		}
 	}
 
