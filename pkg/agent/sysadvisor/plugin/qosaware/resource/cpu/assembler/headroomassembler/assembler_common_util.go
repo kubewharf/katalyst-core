@@ -22,7 +22,6 @@ import (
 	"math"
 	"strconv"
 
-	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	v1 "k8s.io/api/core/v1"
 
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -34,6 +33,7 @@ import (
 	metaserverHelper "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 const (
@@ -149,6 +149,12 @@ func (ha *HeadroomAssemblerCommon) getReclaimNUMABindingTopo(reclaimPool *types.
 
 			numaMap[numaID] = true
 		case consts.PodAnnotationQoSLevelDedicatedCores:
+			enableReclaim, e := helper.PodEnableReclaim(context.Background(), ha.metaServer, string(pod.UID), ha.conf.GetDynamicConfiguration().EnableReclaim)
+			if e != nil {
+				err = fmt.Errorf("check pod enable reclaim failed: %s, %s, %v", pod.Name, pod.UID, e)
+				return
+			}
+
 			containers, ok := ha.metaReader.GetContainerEntries(string(pod.UID))
 			if !ok {
 				err = fmt.Errorf("get container entries failed: %s, %s, %v", pod.Name, pod.UID, e)
@@ -157,6 +163,10 @@ func (ha *HeadroomAssemblerCommon) getReclaimNUMABindingTopo(reclaimPool *types.
 
 			for _, ci := range containers {
 				for numaID := range ci.TopologyAwareAssignments {
+					if !enableReclaim {
+						delete(numaMap, numaID)
+					}
+
 					if _, ok := numaMap[numaID]; !ok {
 						continue
 					}

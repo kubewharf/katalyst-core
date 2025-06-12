@@ -485,7 +485,7 @@ func TestAdvisorUpdate(t *testing.T) {
 					commonstate.PoolNameReclaim: {0: {Size: 4, Quota: -1}, -1: {Size: 47, Quota: -1}},
 				},
 			},
-			wantHeadroom: *resource.NewQuantity(9, resource.DecimalSI),
+			wantHeadroom: *resource.NewQuantity(4, resource.DecimalSI),
 			cgroupMetricItems: []cgroupMetricItem{
 				{
 					cgroupPath: "/kubepods/besteffort",
