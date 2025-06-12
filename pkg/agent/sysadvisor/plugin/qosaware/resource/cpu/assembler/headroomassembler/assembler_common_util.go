@@ -22,7 +22,6 @@ import (
 	"math"
 	"strconv"
 
-	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	v1 "k8s.io/api/core/v1"
 
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -34,6 +33,7 @@ import (
 	metaserverHelper "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 const (
@@ -99,9 +99,18 @@ func (ha *HeadroomAssemblerCommon) getReclaimNUMABindingTopo(reclaimPool *types.
 		return
 	}
 
-	general.Infof("reclaim pool TopologyAwareAssignments: %v", reclaimPool.TopologyAwareAssignments)
+	availNUMAs, _, e := helper.GetAvailableNUMAsAndReclaimedCores(ha.conf, ha.metaReader, ha.metaServer)
+	if e != nil {
+		err = fmt.Errorf("get available numa failed: %v", e)
+		return
+	}
+
 	numaMap := make(map[int]bool)
 	for numaID := range reclaimPool.TopologyAwareAssignments {
+		if !availNUMAs.Contains(numaID) {
+			continue
+		}
+
 		numaMap[numaID] = false
 	}
 
@@ -131,7 +140,6 @@ func (ha *HeadroomAssemblerCommon) getReclaimNUMABindingTopo(reclaimPool *types.
 
 		switch qos {
 		case consts.PodAnnotationQoSLevelReclaimedCores, consts.PodAnnotationQoSLevelSharedCores:
-			general.Infof("pod annotation: %s, %v", pod.Name, pod.Annotations[consts.PodAnnotationNUMABindResultKey])
 			numaRet, ok := pod.Annotations[consts.PodAnnotationNUMABindResultKey]
 			if !ok || numaRet == FakedNUMAID {
 				continue
