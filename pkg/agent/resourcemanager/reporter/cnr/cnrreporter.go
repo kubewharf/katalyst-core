@@ -64,6 +64,14 @@ const (
 	metricsNameUpdateCNRStatusCost       = "update_cnr_status_cost"
 )
 
+// noNeedInitializeFields are fields that will be updated by other than
+// katalyst agent at the same time
+var (
+	noNeedInitializeFields = sets.NewString(
+		util.CNRFieldNameTaints,
+	)
+)
+
 // cnrReporterImpl is to report cnr content to remote
 type cnrReporterImpl struct {
 	cnrName string
@@ -243,7 +251,7 @@ func (c *cnrReporterImpl) tryUpdateCNR(ctx context.Context, fields []*v1alpha1.R
 	}
 
 	originCNR := cnr.DeepCopy()
-	err = setCNR(cnr, fields, c.mergeValueFunc)
+	err = setCNR(originCNR, cnr, fields, c.mergeValueFunc)
 	if err != nil {
 		return err
 	}
@@ -395,7 +403,7 @@ func (c *cnrReporterImpl) defaultCNR() *nodev1alpha1.CustomNodeResource {
 func (c *cnrReporterImpl) createCNR(ctx context.Context, fields []*v1alpha1.ReportField) (*nodev1alpha1.CustomNodeResource, error) {
 	cnr := c.defaultCNR()
 
-	err := setCNR(cnr, fields, c.mergeValueFunc)
+	err := setCNR(nil, cnr, fields, c.mergeValueFunc)
 	if err != nil {
 		return nil, fmt.Errorf("set cnr failed: %s", err)
 	}
@@ -410,7 +418,7 @@ func (c *cnrReporterImpl) createCNR(ctx context.Context, fields []*v1alpha1.Repo
 	return cnr, nil
 }
 
-func setCNR(cnr *nodev1alpha1.CustomNodeResource, fields []*v1alpha1.ReportField,
+func setCNR(originCNR, newCNR *nodev1alpha1.CustomNodeResource, fields []*v1alpha1.ReportField,
 	mergeFunc func(src reflect.Value, dst reflect.Value) error,
 ) error {
 	var errList []error
@@ -422,7 +430,7 @@ func setCNR(cnr *nodev1alpha1.CustomNodeResource, fields []*v1alpha1.ReportField
 
 		// initialize need report cnr field first
 		if !initializedFields.Has(f.FieldName) {
-			err := initializeFieldToCNR(cnr, *f)
+			err := initializeFieldToCNR(newCNR, *f)
 			if err != nil {
 				errList = append(errList, err)
 				continue
@@ -431,8 +439,8 @@ func setCNR(cnr *nodev1alpha1.CustomNodeResource, fields []*v1alpha1.ReportField
 			initializedFields.Insert(f.FieldName)
 		}
 
-		// parse report field to cnr by merge function
-		_, err := parseReportFieldToCNR(cnr, *f, mergeFunc)
+		// parse report field to newCNR by merge function
+		_, err := parseReportFieldToCNR(newCNR, *f, mergeFunc)
 		if err != nil {
 			errList = append(errList, err)
 			continue
@@ -443,7 +451,7 @@ func setCNR(cnr *nodev1alpha1.CustomNodeResource, fields []*v1alpha1.ReportField
 		return errors.NewAggregate(errList)
 	}
 
-	if err := reviseCNR(cnr); err != nil {
+	if err := reviseCNR(originCNR, newCNR); err != nil {
 		return err
 	}
 
@@ -451,13 +459,20 @@ func setCNR(cnr *nodev1alpha1.CustomNodeResource, fields []*v1alpha1.ReportField
 }
 
 // reviseCNR revises the field of cnr to make sure it is not redundant
-func reviseCNR(cnr *nodev1alpha1.CustomNodeResource) error {
-	if cnr == nil {
+func reviseCNR(oldCNR, newCNR *nodev1alpha1.CustomNodeResource) error {
+	if newCNR == nil {
 		return nil
 	}
 
 	// merge all topology zones
-	cnr.Status.TopologyZone = util.MergeTopologyZone(nil, cnr.Status.TopologyZone)
+	newCNR.Status.TopologyZone = util.MergeTopologyZone(nil, newCNR.Status.TopologyZone)
+
+	// merge taints that reporter does not manage with taints that reporter manages
+	var notManagedTaints []nodev1alpha1.Taint
+	if oldCNR != nil {
+		notManagedTaints = util.CNRTaintSetFilter(oldCNR.Spec.Taints, util.IsNotManagedByReporterCNRTaint)
+	}
+	newCNR.Spec.Taints = util.MergeTaints(notManagedTaints, newCNR.Spec.Taints)
 	return nil
 }
 
