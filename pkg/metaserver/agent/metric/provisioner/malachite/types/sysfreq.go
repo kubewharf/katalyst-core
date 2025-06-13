@@ -14,23 +14,22 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package poweraware
+package types
 
-const (
-	DVFSIndicationPower   = "power"
-	DVFSIndicationCPUFreq = "cpufreq"
-)
-
-type PowerAwarePluginConfiguration struct {
-	DryRun                           bool
-	DisablePowerCapping              bool
-	DisablePowerPressureEvict        bool
-	PowerCappingAdvisorSocketAbsPath string
-	AnnotationKeyPrefix              string
-	DVFSIndication                   string
+type MalachiteSysFreqResponse struct {
+	Status int         `json:"status"`
+	Data   SysFreqData `json:"data"`
 }
 
-// NewPowerAwarePluginConfiguration creates a default config
-func NewPowerAwarePluginConfiguration() *PowerAwarePluginConfiguration {
-	return &PowerAwarePluginConfiguration{}
+type SysFreqData struct {
+	SysFreq SysFreq `json:"sysfreq"`
+}
+
+type SysFreq struct {
+	CPUFreq    []CurFreq `json:"cpu_freq"`
+	UpdateTime int64     `json:"update_time"`
+}
+
+type CurFreq struct {
+	ScalingCurFreqKHZ int64 `json:"scaling_cur_freq"`
 }

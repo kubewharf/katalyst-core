@@ -55,8 +55,11 @@ func NewMetricFetcherOptions() *MetricFetcherOptions {
 		MetricInsurancePeriod: defaultMetricInsurancePeriod,
 		MetricProvisions:      []string{metaserver.MetricProvisionerMalachite, metaserver.MetricProvisionerKubelet},
 
-		DefaultInterval:         time.Second * 5,
-		ProvisionerIntervalSecs: map[string]int{metaserver.MetricProvisionerMalachiteRealtime: 1},
+		DefaultInterval: time.Second * 5,
+		ProvisionerIntervalSecs: map[string]int{
+			metaserver.MetricProvisionerMalachiteRealtime:     1,
+			metaserver.MetricProvisionerMalachiteRealtimeFreq: 1,
+		},
 
 		MalachiteOptions: &MalachiteOptions{},
 		CgroupOptions:    &CgroupOptions{},
