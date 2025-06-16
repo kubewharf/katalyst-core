@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 
 	info "github.com/google/cadvisor/info/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -29,6 +30,8 @@ import (
 
 	apis "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
+	"github.com/kubewharf/katalyst-api/pkg/consts"
+	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
@@ -45,6 +48,7 @@ const (
 	CNRFieldNameTopologyPolicy         = "TopologyPolicy"
 	CNRFieldNameNodeMetricStatus       = "NodeMetricStatus"
 	CNRFieldNameAnnotations            = "Annotations"
+	CNRFieldNameTaints                 = "Taints"
 )
 
 var CNRGroupVersionKind = metav1.GroupVersionKind{
@@ -92,6 +96,22 @@ func CheckCNRConditionMatched(curCondition *nodev1alpha1.CNRCondition, status co
 	return curCondition.Status == status && curCondition.Reason == reason && curCondition.Message == message
 }
 
+func IsManagedByReporterCNRTaint(t *nodev1alpha1.Taint) bool {
+	if t == nil {
+		return false
+	}
+
+	return strings.HasPrefix(t.Key, pkgconsts.KatalystNodeDomainPrefix)
+}
+
+func IsNotManagedByReporterCNRTaint(t *nodev1alpha1.Taint) bool {
+	if t == nil {
+		return false
+	}
+
+	return !IsManagedByReporterCNRTaint(t)
+}
+
 // AddOrUpdateCNRTaint tries to add a taint to annotations list.
 // Returns a new copy of updated CNR and true if something was updated false otherwise.
 func AddOrUpdateCNRTaint(cnr *apis.CustomNodeResource, taint apis.Taint) (*apis.CustomNodeResource, bool, error) {
@@ -101,7 +121,7 @@ func AddOrUpdateCNRTaint(cnr *apis.CustomNodeResource, taint apis.Taint) (*apis.
 	var newTaints []apis.Taint
 	updated := false
 	for i := range cTaints {
-		if MatchCNRTaint(taint, cTaints[i]) {
+		if MatchCNRTaint(taint, &cTaints[i]) {
 			if helper.Semantic.DeepEqual(taint, cTaints[i]) {
 				return newCNR, false, nil
 			}
@@ -130,7 +150,7 @@ func RemoveCNRTaint(cnr *apis.CustomNodeResource, taint apis.Taint) (*apis.Custo
 		return newCNR, false, nil
 	}
 
-	if !CNRTaintExists(cTaints, taint) {
+	if !CNRTaintExists(cTaints, &taint) {
 		return newCNR, false, nil
 	}
 
@@ -139,22 +159,12 @@ func RemoveCNRTaint(cnr *apis.CustomNodeResource, taint apis.Taint) (*apis.Custo
 	return newCNR, true, nil
 }
 
-// CNRTaintExists checks if the given taint exists in list of taints. Returns true if exists false otherwise.
-func CNRTaintExists(taints []apis.Taint, taintToFind apis.Taint) bool {
-	for _, taint := range taints {
-		if MatchCNRTaint(taint, taintToFind) {
-			return true
-		}
-	}
-	return false
-}
-
 // DeleteCNRTaint removes all the taints that have the same key and effect to given taintToDelete.
 func DeleteCNRTaint(taints []apis.Taint, taintToDelete apis.Taint) ([]apis.Taint, bool) {
 	var newTaints []apis.Taint
 	deleted := false
 	for i := range taints {
-		if MatchCNRTaint(taints[i], taintToDelete) {
+		if MatchCNRTaint(taints[i], &taintToDelete) {
 			deleted = true
 			continue
 		}
@@ -163,10 +173,48 @@ func DeleteCNRTaint(taints []apis.Taint, taintToDelete apis.Taint) ([]apis.Taint
 	return newTaints, deleted
 }
 
+func CNRTaintSetFilter(taints []nodev1alpha1.Taint, fn func(*nodev1alpha1.Taint) bool) []nodev1alpha1.Taint {
+	var res []nodev1alpha1.Taint
+
+	for _, taint := range taints {
+		if fn(&taint) {
+			res = append(res, taint)
+		}
+	}
+
+	return res
+}
+
+func CNRTaintSetDiff(t1, t2 []nodev1alpha1.Taint) (taintsToAdd []*nodev1alpha1.Taint, taintsToRemove []*nodev1alpha1.Taint) {
+	for i := range t1 {
+		if !CNRTaintExists(t2, &t1[i]) {
+			taintsToAdd = append(taintsToAdd, &t1[i])
+		}
+	}
+
+	for i := range t2 {
+		if !CNRTaintExists(t1, &t2[i]) {
+			taintsToRemove = append(taintsToRemove, &t2[i])
+		}
+	}
+
+	return
+}
+
+// CNRTaintExists checks if the given taint exists in list of taints. Returns true if exists false otherwise.
+func CNRTaintExists(taints []nodev1alpha1.Taint, taintToFind *nodev1alpha1.Taint) bool {
+	for _, taint := range taints {
+		if MatchCNRTaint(taint, taintToFind) {
+			return true
+		}
+	}
+	return false
+}
+
 // MatchCNRTaint checks if the taint matches taintToMatch. Taints are unique by key:effect,
 // if the two taints have same key:effect, regard as they match.
-func MatchCNRTaint(taintToMatch, taint apis.Taint) bool {
-	return taint.Key == taintToMatch.Key && taint.Effect == taintToMatch.Effect
+func MatchCNRTaint(taintToMatch apis.Taint, taint *apis.Taint) bool {
+	return taint.Key == taintToMatch.Key && taint.Effect == taintToMatch.Effect && taint.QoSLevel == taintToMatch.QoSLevel
 }
 
 // MergeResources merges two resources, returns the merged result.
@@ -359,6 +407,60 @@ func MergeTopologyZone(dst, src []*apis.TopologyZone) []*apis.TopologyZone {
 	})
 
 	return zones
+}
+
+func MergeTaints(dst, src []apis.Taint) []apis.Taint {
+	if dst == nil && src == nil {
+		return nil
+	}
+
+	type key struct {
+		qosLevel consts.QoSLevel
+		key      string
+		effect   corev1.TaintEffect
+	}
+
+	taintMap := make(map[key]apis.Taint, len(dst))
+	for _, taint := range dst {
+		k := key{
+			qosLevel: taint.QoSLevel,
+			key:      taint.Key,
+			effect:   taint.Effect,
+		}
+		taintMap[k] = taint
+	}
+
+	for _, taint := range src {
+		k := key{
+			qosLevel: taint.QoSLevel,
+			key:      taint.Key,
+			effect:   taint.Effect,
+		}
+
+		if _, ok := taintMap[k]; !ok {
+			taintMap[k] = taint
+			continue
+		}
+	}
+
+	taints := make([]apis.Taint, 0, len(taintMap))
+	for _, taint := range taintMap {
+		taints = append(taints, taint)
+	}
+
+	sort.SliceStable(taints, func(i, j int) bool {
+		if taints[i].Key != taints[j].Key {
+			return taints[i].Key < taints[j].Key
+		}
+
+		if taints[i].QoSLevel != taints[j].QoSLevel {
+			return taints[i].QoSLevel < taints[j].QoSLevel
+		}
+
+		return taints[i].Effect < taints[j].Effect
+	})
+
+	return taints
 }
 
 // NewNumaSocketTopologyZoneGenerator constructs topology generator by the numa zone node to socket zone node map
