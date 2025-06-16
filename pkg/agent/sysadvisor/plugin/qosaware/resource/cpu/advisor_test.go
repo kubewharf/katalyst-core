@@ -502,6 +502,21 @@ func TestAdvisorUpdate(t *testing.T) {
 					name:       pkgconsts.MetricCPUPeriodCgroup,
 					value:      100000,
 				},
+				{
+					cgroupPath: "/kubepods/besteffort-0",
+					name:       pkgconsts.MetricCPUUsageCgroup,
+					value:      2.8,
+				},
+				{
+					cgroupPath: "/kubepods/besteffort-0",
+					name:       pkgconsts.MetricCPUQuotaCgroup,
+					value:      -1,
+				},
+				{
+					cgroupPath: "/kubepods/besteffort-0",
+					name:       pkgconsts.MetricCPUPeriodCgroup,
+					value:      100000,
+				},
 			},
 			cpuMetricItems: []cpuMetricItem{
 				{
@@ -586,6 +601,21 @@ func TestAdvisorUpdate(t *testing.T) {
 				},
 				{
 					cgroupPath: "/kubepods/besteffort",
+					name:       pkgconsts.MetricCPUPeriodCgroup,
+					value:      100000,
+				},
+				{
+					cgroupPath: "/kubepods/besteffort-0",
+					name:       pkgconsts.MetricCPUUsageCgroup,
+					value:      2.8,
+				},
+				{
+					cgroupPath: "/kubepods/besteffort-0",
+					name:       pkgconsts.MetricCPUQuotaCgroup,
+					value:      -1,
+				},
+				{
+					cgroupPath: "/kubepods/besteffort-0",
 					name:       pkgconsts.MetricCPUPeriodCgroup,
 					value:      100000,
 				},
