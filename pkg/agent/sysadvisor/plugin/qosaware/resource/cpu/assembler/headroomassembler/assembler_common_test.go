@@ -668,6 +668,63 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 			},
 			want: *resource.NewQuantity(68, resource.DecimalSI),
 		},
+		{
+			name: "numa-exclusive region headroom util",
+			fields: fields{
+				entries: map[string]*types.RegionInfo{
+					"dedicated": {
+						RegionType:    configapi.QoSRegionTypeDedicatedNumaExclusive,
+						OwnerPoolName: "dedicated",
+						BindingNumas:  machine.NewCPUSet(0),
+						Headroom:      10,
+						RegionStatus: types.RegionStatus{
+							BoundType: types.BoundUpper,
+						},
+					},
+				},
+				cnr: &v1alpha1.CustomNodeResource{
+					Status: v1alpha1.CustomNodeResourceStatus{
+						Resources: v1alpha1.Resources{
+							Allocatable: &v1.ResourceList{
+								consts.ReclaimedResourceMilliCPU: resource.MustParse("86000"),
+							},
+						},
+					},
+				},
+				reclaimedResourceConfiguration: &reclaimedresource.ReclaimedResourceConfiguration{
+					EnableReclaim: true,
+					CPUHeadroomConfiguration: &cpuheadroom.CPUHeadroomConfiguration{
+						CPUUtilBasedConfiguration: &cpuheadroom.CPUUtilBasedConfiguration{
+							Enable:                         true,
+							TargetReclaimedCoreUtilization: 0.6,
+							MaxReclaimedCoreUtilization:    0.8,
+							MaxOversoldRate:                1.5,
+							MaxHeadroomCapacityRate:        1.,
+						},
+					},
+				},
+				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+					now := time.Now()
+					for i := 0; i < 96; i++ {
+						store.SetCPUMetric(i, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.3, Time: &now})
+					}
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 28.8, Time: &now})
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUQuotaCgroup, utilmetric.MetricData{Value: -1, Time: &now})
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUPeriodCgroup, utilmetric.MetricData{Value: 1000, Time: &now})
+				},
+				setMetaCache: func(cache *metacache.MetaCacheImp) {
+					err := cache.SetPoolInfo(commonstate.PoolNameReclaim, &types.PoolInfo{
+						PoolName: commonstate.PoolNameReclaim,
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.MustParse("0-9"),
+							1: machine.MustParse("49-96"),
+						},
+					})
+					require.NoError(t, err)
+				},
+			},
+			want: *resource.NewQuantity(70, resource.DecimalSI),
+		},
 	}
 
 	patches := gomonkey.ApplyFunc(cgroupmgr.GetCPUWithRelativePath, func(relCgroupPath string) (*common.CPUStats, error) {
