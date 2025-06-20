@@ -49,7 +49,7 @@ func GetQuantityFromResourceReq(req *pluginapi.ResourceRequest) (int, float64, e
 			return general.Max(int(math.Ceil(req.ResourceRequests[key])), 0), req.ResourceRequests[key], nil
 		case string(apiconsts.ReclaimedResourceMilliCPU):
 			return general.Max(int(math.Ceil(req.ResourceRequests[key]/1000.0)), 0), req.ResourceRequests[key] / 1000.0, nil
-		case string(v1.ResourceMemory), string(apiconsts.ReclaimedResourceMemory):
+		case string(v1.ResourceMemory), string(apiconsts.ReclaimedResourceMemory), string(apiconsts.ResourceGPUMemory):
 			return general.Max(int(math.Ceil(req.ResourceRequests[key])), 0), req.ResourceRequests[key], nil
 		case string(apiconsts.ResourceNetBandwidth):
 			if req.Annotations[PodAnnotationQuantityFromQRMDeclarationKey] == PodAnnotationQuantityFromQRMDeclarationTrue {
