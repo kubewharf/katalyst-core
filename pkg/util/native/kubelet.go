@@ -26,13 +26,20 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
+	"k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
+	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
+	"k8s.io/kubernetes/pkg/kubelet/cm/devicemanager/checkpoint"
 )
 
 const (
 	defaultTimeout = time.Second * 10
+
+	// kubeletDeviceManagerCheckpoint is the file name of device plugin checkpoint
+	kubeletDeviceManagerCheckpoint = "kubelet_internal_checkpoint"
 )
 
 // MemoryReservation specifies the memory reservation of different types for each NUMA node
@@ -197,4 +204,22 @@ func insecureConfig(host, tokenFile string) (*rest.Config, error) {
 		BearerToken:     string(token),
 		BearerTokenFile: tokenFile,
 	}, nil
+}
+
+func GetKubeletCheckpoint() (checkpoint.DeviceManagerCheckpoint, error) {
+	checkpointManager, err := checkpointmanager.NewCheckpointManager(v1beta1.DevicePluginPath)
+	if err != nil {
+		return nil, errors.Wrap(err, "new checkpoint manager failed")
+	}
+
+	registeredDevs := make(map[string][]string)
+	devEntries := make([]checkpoint.PodDevicesEntry, 0)
+	cp := checkpoint.New(devEntries, registeredDevs)
+
+	err = checkpointManager.GetCheckpoint(kubeletDeviceManagerCheckpoint, cp)
+	if err != nil {
+		return nil, errors.Wrap(err, "get checkpoint failed")
+	}
+
+	return cp, nil
 }
