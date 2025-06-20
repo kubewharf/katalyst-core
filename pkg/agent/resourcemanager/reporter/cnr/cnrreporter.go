@@ -47,9 +47,9 @@ import (
 )
 
 const (
-	cnrReporterName = "cnr-reporter"
+	cnrReporterName = "newCNR-reporter"
 
-	// cnrUpdateMaxRetryTimes update cnr retry time.
+	// cnrUpdateMaxRetryTimes update newCNR retry time.
 	cnrUpdateMaxRetryTimes = 3
 )
 
@@ -64,7 +64,7 @@ const (
 	metricsNameUpdateCNRStatusCost       = "update_cnr_status_cost"
 )
 
-// cnrReporterImpl is to report cnr content to remote
+// cnrReporterImpl is to report newCNR content to remote
 type cnrReporterImpl struct {
 	cnrName string
 
@@ -86,7 +86,7 @@ type cnrReporterImpl struct {
 	refreshLatestCNRPeriod time.Duration
 }
 
-// NewCNRReporter create a cnr reporter
+// NewCNRReporter create a newCNR reporter
 func NewCNRReporter(genericClient *client.GenericClientSet, metaServer *metaserver.MetaServer,
 	emitter metrics.MetricEmitter, conf *config.Configuration,
 ) (reporter.Reporter, error) {
@@ -106,7 +106,7 @@ func NewCNRReporter(genericClient *client.GenericClientSet, metaServer *metaserv
 	return c, nil
 }
 
-// Run start cnr reporter
+// Run start newCNR reporter
 func (c *cnrReporterImpl) Run(ctx context.Context) {
 	go wait.JitterUntilWithContext(ctx, c.refreshLatestCNR, c.refreshLatestCNRPeriod, refreshLatestCNRJitterFactor, true)
 	<-ctx.Done()
@@ -123,7 +123,7 @@ func (c *cnrReporterImpl) GetCNR(ctx context.Context) (*nodev1alpha1.CustomNodeR
 	return c.client.NodeV1alpha1().CustomNodeResources().Get(ctx, c.cnrName, metav1.GetOptions{ResourceVersion: "0"})
 }
 
-// Update is to update remote cnr according to reported fields
+// Update is to update remote newCNR according to reported fields
 func (c *cnrReporterImpl) Update(ctx context.Context, fields []*v1alpha1.ReportField) error {
 	beginWithLock := time.Now()
 	c.mux.Lock()
@@ -131,12 +131,12 @@ func (c *cnrReporterImpl) Update(ctx context.Context, fields []*v1alpha1.ReportF
 
 	defer func() {
 		costs := time.Since(beginWithoutLock)
-		klog.InfoS("finished update cnr without lock", "costs", costs)
+		klog.InfoS("finished update newCNR without lock", "costs", costs)
 
 		c.mux.Unlock()
 
 		costs = time.Since(beginWithLock)
-		klog.InfoS("finished update cnr with lock", "costs", costs)
+		klog.InfoS("finished update newCNR with lock", "costs", costs)
 		_ = c.emitter.StoreInt64(metricsNameUpdateCNRCost, costs.Microseconds(), metrics.MetricTypeNameRaw)
 	}()
 
@@ -148,16 +148,16 @@ func (c *cnrReporterImpl) Update(ctx context.Context, fields []*v1alpha1.ReportF
 
 	for i := 0; i < cnrUpdateMaxRetryTimes; i++ {
 		if err := c.tryUpdateCNR(ctx, fields, i); err != nil {
-			klog.Errorf("error updating cnr, will retry: %v", err)
+			klog.Errorf("error updating newCNR, will retry: %v", err)
 		} else {
 			return nil
 		}
 	}
 
-	return fmt.Errorf("attempt to update cnr failed with total retries of %d", cnrUpdateMaxRetryTimes)
+	return fmt.Errorf("attempt to update newCNR failed with total retries of %d", cnrUpdateMaxRetryTimes)
 }
 
-// RegisterNotifier register a notifier to cnr reporter
+// RegisterNotifier register a notifier to newCNR reporter
 func (c *cnrReporterImpl) RegisterNotifier(name string, notifier metaservercnr.CNRNotifier) error {
 	c.mux.Lock()
 	defer c.mux.Unlock()
@@ -170,7 +170,7 @@ func (c *cnrReporterImpl) RegisterNotifier(name string, notifier metaservercnr.C
 	return nil
 }
 
-// UnregisterNotifier unregister a notifier from cnr reporter
+// UnregisterNotifier unregister a notifier from newCNR reporter
 func (c *cnrReporterImpl) UnregisterNotifier(name string) error {
 	c.mux.Lock()
 	defer c.mux.Unlock()
@@ -183,7 +183,7 @@ func (c *cnrReporterImpl) UnregisterNotifier(name string) error {
 	return nil
 }
 
-// refreshLatestCNR get latest cnr from remote, because cnr in cache may not have been updated.
+// refreshLatestCNR get latest newCNR from remote, because newCNR in cache may not have been updated.
 func (c *cnrReporterImpl) refreshLatestCNR(ctx context.Context) {
 	c.mux.Lock()
 	defer c.mux.Unlock()
@@ -191,7 +191,7 @@ func (c *cnrReporterImpl) refreshLatestCNR(ctx context.Context) {
 	begin := time.Now()
 	defer func() {
 		costs := time.Since(begin)
-		klog.Infof("finished refresh cnr (%v)", costs)
+		klog.Infof("finished refresh newCNR (%v)", costs)
 		_ = c.emitter.StoreInt64(metricsNameRefreshCNRCost, costs.Microseconds(), metrics.MetricTypeNameRaw)
 	}()
 
@@ -199,19 +199,19 @@ func (c *cnrReporterImpl) refreshLatestCNR(ctx context.Context) {
 	if err == nil {
 		c.latestUpdatedCNR = cnr.DeepCopy()
 	} else if !c.resetCNRIfNeeded(err) {
-		klog.Errorf("refresh local cnr cache failed with error: %v", err)
+		klog.Errorf("refresh local newCNR cache failed with error: %v", err)
 	}
 }
 
-// tryUpdateCNR update cnr according reported fields, first update cnr try will use cached latestUpdatedCNR,
-// if there are some errors such as conflict happened, it will retry by getting cnr from api server
+// tryUpdateCNR update newCNR according reported fields, first update newCNR try will use cached latestUpdatedCNR,
+// if there are some errors such as conflict happened, it will retry by getting newCNR from api server
 func (c *cnrReporterImpl) tryUpdateCNR(ctx context.Context, fields []*v1alpha1.ReportField, tryIdx int) error {
 	var (
 		cnr *nodev1alpha1.CustomNodeResource
 		err error
 	)
 
-	// only get cnr from api server iff latest updated cnr is nil or tryIdx > 0
+	// only get newCNR from api server iff latest updated newCNR is nil or tryIdx > 0
 	if c.latestUpdatedCNR == nil || tryIdx > 0 {
 		c.countMetricsWithBaseTags("reporter_update_retry")
 
@@ -224,12 +224,12 @@ func (c *cnrReporterImpl) tryUpdateCNR(ctx context.Context, fields []*v1alpha1.R
 			return err
 		}
 
-		// NotFound to create cnr
+		// NotFound to create newCNR
 		if err != nil {
 			cnr, err = c.createCNR(ctx, fields)
 			if err != nil {
 				c.countMetricsWithBaseTags("reporter_update_failed")
-				return fmt.Errorf("create cnr failed: %s", err)
+				return fmt.Errorf("create newCNR failed: %s", err)
 			}
 		}
 
@@ -239,11 +239,11 @@ func (c *cnrReporterImpl) tryUpdateCNR(ctx context.Context, fields []*v1alpha1.R
 	}
 
 	if cnr == nil {
-		return fmt.Errorf("nil %q cnr object", c.cnrName)
+		return fmt.Errorf("nil %q newCNR object", c.cnrName)
 	}
 
 	originCNR := cnr.DeepCopy()
-	err = setCNR(cnr, fields, c.mergeValueFunc)
+	err = setCNR(originCNR, cnr, fields, c.mergeValueFunc)
 	if err != nil {
 		return err
 	}
@@ -251,7 +251,7 @@ func (c *cnrReporterImpl) tryUpdateCNR(ctx context.Context, fields []*v1alpha1.R
 	// todo: consider whether we need to handle update error automatically
 	//  i.e. use queue to push and pop those failed items
 
-	// try patch spec and metadata first, because the update of cnr will change the ResourceVersion in ObjectMeta
+	// try patch spec and metadata first, because the update of newCNR will change the ResourceVersion in ObjectMeta
 	originCNR, err = c.tryUpdateCNRSpecAndMetadata(ctx, originCNR, cnr)
 	if err != nil && !c.resetCNRIfNeeded(err) {
 		return err
@@ -276,16 +276,16 @@ func (c *cnrReporterImpl) tryUpdateCNRSpecAndMetadata(ctx context.Context,
 	)
 
 	if cnrSpecHasChanged(&originCNR.Spec, &currentCNR.Spec) || cnrMetadataHasChanged(&originCNR.ObjectMeta, &currentCNR.ObjectMeta) {
-		klog.Infof("cnr spec or metadata changed, try to patch it")
+		klog.Infof("newCNR spec or metadata changed, try to patch it")
 
 		begin := time.Now()
 		defer func() {
 			costs := time.Since(begin)
-			klog.Infof("finished update cnr spec and metadata (%v)", costs)
+			klog.Infof("finished update newCNR spec and metadata (%v)", costs)
 			_ = c.emitter.StoreInt64(metricsNameUpdateCNRSpecMetadataCost, costs.Microseconds(), metrics.MetricTypeNameRaw)
 		}()
 
-		// patch cnr spec and metadata
+		// patch newCNR spec and metadata
 		cnr, err = c.updater.PatchCNRSpecAndMetadata(ctx, c.cnrName, originCNR, currentCNR)
 		if err != nil {
 			c.countMetricsWithBaseTags("reporter_update",
@@ -302,12 +302,12 @@ func (c *cnrReporterImpl) tryUpdateCNRSpecAndMetadata(ctx context.Context,
 				"status": "success",
 			})...)
 
-		klog.Infof("patch cnr spec and metadata success\n old cnr spec: %#v, metadata: %#v,\n "+
-			"new cnr spec: %#v, metadata: %#v",
+		klog.Infof("patch newCNR spec and metadata success\n old newCNR spec: %#v, metadata: %#v,\n "+
+			"new newCNR spec: %#v, metadata: %#v",
 			originCNR.Spec, originCNR.ObjectMeta, cnr.Spec, cnr.ObjectMeta)
 		c.latestUpdatedCNR = cnr.DeepCopy()
 
-		// notify cnr spec and metadata update
+		// notify newCNR spec and metadata update
 		for _, notifier := range c.notifiers {
 			notifier.OnCNRUpdate(cnr)
 		}
@@ -327,16 +327,16 @@ func (c *cnrReporterImpl) tryUpdateCNRStatus(ctx context.Context,
 	)
 
 	if cnrStatusHasChanged(&originCNR.Status, &currentCNR.Status) {
-		klog.Infof("cnr status changed, try to patch it")
+		klog.Infof("newCNR status changed, try to patch it")
 
 		begin := time.Now()
 		defer func() {
 			costs := time.Since(begin)
-			klog.Infof("finished update cnr status (%v)", costs)
+			klog.Infof("finished update newCNR status (%v)", costs)
 			_ = c.emitter.StoreInt64(metricsNameUpdateCNRStatusCost, costs.Microseconds(), metrics.MetricTypeNameRaw)
 		}()
 
-		// patch cnr status
+		// patch newCNR status
 		cnr, err = c.updater.PatchCNRStatus(ctx, c.cnrName, originCNR, currentCNR)
 		if err != nil {
 			c.countMetricsWithBaseTags("reporter_update",
@@ -354,12 +354,12 @@ func (c *cnrReporterImpl) tryUpdateCNRStatus(ctx context.Context,
 			})...)
 
 		if klog.V(6).Enabled() {
-			klog.Infof("patch cnr status success old status: %#v,\n new status: %#v", originCNR.Status, cnr.Status)
+			klog.Infof("patch newCNR status success old status: %#v,\n new status: %#v", originCNR.Status, cnr.Status)
 		}
 
 		c.latestUpdatedCNR = cnr.DeepCopy()
 
-		// notify cnr status update
+		// notify newCNR status update
 		for _, notifier := range c.notifiers {
 			notifier.OnCNRStatusUpdate(cnr)
 		}
@@ -370,13 +370,13 @@ func (c *cnrReporterImpl) tryUpdateCNRStatus(ctx context.Context,
 	return cnr, nil
 }
 
-// resetCNRIfNeeded reset cnr if unmarshal type error, it will initialize
-// local cnr cache to make sure the content of cnr always is true
+// resetCNRIfNeeded reset newCNR if unmarshal type error, it will initialize
+// local newCNR cache to make sure the content of newCNR always is true
 // todo if $ref is supported in CRD, we can skip this since api-server will help with validations
 func (c *cnrReporterImpl) resetCNRIfNeeded(err error) bool {
 	if general.IsUnmarshalTypeError(err) {
 		c.latestUpdatedCNR = c.defaultCNR()
-		klog.Infof("success re-initialize local cnr cache")
+		klog.Infof("success re-initialize local newCNR cache")
 		return true
 	}
 
@@ -395,12 +395,12 @@ func (c *cnrReporterImpl) defaultCNR() *nodev1alpha1.CustomNodeResource {
 func (c *cnrReporterImpl) createCNR(ctx context.Context, fields []*v1alpha1.ReportField) (*nodev1alpha1.CustomNodeResource, error) {
 	cnr := c.defaultCNR()
 
-	err := setCNR(cnr, fields, c.mergeValueFunc)
+	err := setCNR(nil, cnr, fields, c.mergeValueFunc)
 	if err != nil {
-		return nil, fmt.Errorf("set cnr failed: %s", err)
+		return nil, fmt.Errorf("set newCNR failed: %s", err)
 	}
 
-	klog.Infof("try to create cnr: %#v", cnr)
+	klog.Infof("try to create newCNR: %#v", cnr)
 
 	cnr, err = c.client.NodeV1alpha1().CustomNodeResources().Create(ctx, cnr, metav1.CreateOptions{})
 	if err != nil {
@@ -410,7 +410,7 @@ func (c *cnrReporterImpl) createCNR(ctx context.Context, fields []*v1alpha1.Repo
 	return cnr, nil
 }
 
-func setCNR(cnr *nodev1alpha1.CustomNodeResource, fields []*v1alpha1.ReportField,
+func setCNR(originCNR, newCNR *nodev1alpha1.CustomNodeResource, fields []*v1alpha1.ReportField,
 	mergeFunc func(src reflect.Value, dst reflect.Value) error,
 ) error {
 	var errList []error
@@ -420,9 +420,9 @@ func setCNR(cnr *nodev1alpha1.CustomNodeResource, fields []*v1alpha1.ReportField
 			continue
 		}
 
-		// initialize need report cnr field first
+		// initialize need report newCNR field first
 		if !initializedFields.Has(f.FieldName) {
-			err := initializeFieldToCNR(cnr, *f)
+			err := initializeFieldToCNR(newCNR, *f)
 			if err != nil {
 				errList = append(errList, err)
 				continue
@@ -431,8 +431,8 @@ func setCNR(cnr *nodev1alpha1.CustomNodeResource, fields []*v1alpha1.ReportField
 			initializedFields.Insert(f.FieldName)
 		}
 
-		// parse report field to cnr by merge function
-		_, err := parseReportFieldToCNR(cnr, *f, mergeFunc)
+		// parse report field to newCNR by merge function
+		_, err := parseReportFieldToCNR(newCNR, *f, mergeFunc)
 		if err != nil {
 			errList = append(errList, err)
 			continue
@@ -443,21 +443,29 @@ func setCNR(cnr *nodev1alpha1.CustomNodeResource, fields []*v1alpha1.ReportField
 		return errors.NewAggregate(errList)
 	}
 
-	if err := reviseCNR(cnr); err != nil {
+	if err := reviseCNR(originCNR, newCNR); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-// reviseCNR revises the field of cnr to make sure it is not redundant
-func reviseCNR(cnr *nodev1alpha1.CustomNodeResource) error {
-	if cnr == nil {
+// reviseCNR revises the field of newCNR by origin newCNR to make sure it is not redundant and
+// support merge operation
+func reviseCNR(originCNR, newCNR *nodev1alpha1.CustomNodeResource) error {
+	if newCNR == nil {
 		return nil
 	}
 
 	// merge all topology zones
-	cnr.Status.TopologyZone = util.MergeTopologyZone(nil, cnr.Status.TopologyZone)
+	newCNR.Status.TopologyZone = util.MergeTopologyZone(nil, newCNR.Status.TopologyZone)
+
+	// merge taints that reporter does not manage with taints that reporter manages
+	var notManagedTaints []nodev1alpha1.Taint
+	if originCNR != nil {
+		notManagedTaints = util.CNRTaintSetFilter(originCNR.Spec.Taints, util.IsNotManagedByReporterCNRTaint)
+	}
+	newCNR.Spec.Taints = util.MergeTaints(notManagedTaints, newCNR.Spec.Taints)
 	return nil
 }
 
@@ -470,9 +478,9 @@ func (c *cnrReporterImpl) countMetricsWithBaseTags(key string, tags ...metrics.M
 	_ = c.emitter.StoreInt64(key, 1, metrics.MetricTypeNameCount, tags...)
 }
 
-// initializeFieldToCNR initialize cnr fields to nil
+// initializeFieldToCNR initialize newCNR fields to nil
 func initializeFieldToCNR(cnr *nodev1alpha1.CustomNodeResource, field v1alpha1.ReportField) error {
-	// get need report value of cnr
+	// get need report value of newCNR
 	originValue, err := getCNRField(cnr, field)
 	if err != nil {
 		return err
@@ -482,15 +490,15 @@ func initializeFieldToCNR(cnr *nodev1alpha1.CustomNodeResource, field v1alpha1.R
 	return nil
 }
 
-// parseReportFieldToCNR parse reportField and merge to origin cnr by mergeFunc
+// parseReportFieldToCNR parse reportField and merge to origin newCNR by mergeFunc
 func parseReportFieldToCNR(cnr *nodev1alpha1.CustomNodeResource, reportField v1alpha1.ReportField,
 	mergeFunc func(src reflect.Value, dst reflect.Value) error,
 ) (*nodev1alpha1.CustomNodeResource, error) {
 	if cnr == nil {
-		return nil, fmt.Errorf("cnr is nil")
+		return nil, fmt.Errorf("newCNR is nil")
 	}
 
-	// get need report value of cnr
+	// get need report value of newCNR
 	originValue, err := getCNRField(cnr, reportField)
 	if err != nil {
 		return nil, err
@@ -510,7 +518,7 @@ func parseReportFieldToCNR(cnr *nodev1alpha1.CustomNodeResource, reportField v1a
 	return cnr, nil
 }
 
-// getCNRField only support to parse first-level fields in cnr now;
+// getCNRField only support to parse first-level fields in newCNR now;
 // todo: support to parse nested fields in the future.
 func getCNRField(cnr *nodev1alpha1.CustomNodeResource, reportField v1alpha1.ReportField) (reflect.Value, error) {
 	var el reflect.Value
