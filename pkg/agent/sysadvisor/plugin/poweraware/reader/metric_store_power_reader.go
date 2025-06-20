@@ -29,19 +29,19 @@ import (
 // malachite realtime power metric server imposes delay of up to 2 seconds coupled with sampling interval of 1 sec
 const powerTolerationTime = 3 * time.Second
 
-type nodeMetricGetter interface {
+type NodeMetricGetter interface {
 	GetNodeMetric(metricName string) (utilmetric.MetricData, error)
 }
 
 type metricStorePowerReader struct {
-	nodeMetricGetter
+	NodeMetricGetter
 }
 
 func (m *metricStorePowerReader) Init() error {
 	return nil
 }
 
-func isDataFresh(data utilmetric.MetricData, now time.Time) bool {
+func isPowerDataFresh(data utilmetric.MetricData, now time.Time) bool {
 	if data.Time == nil {
 		return false
 	}
@@ -63,7 +63,7 @@ func (m *metricStorePowerReader) get(ctx context.Context, now time.Time) (int, e
 		return 0, errors.New("got invalid 0 power usage from metric store")
 	}
 
-	if !isDataFresh(data, now) {
+	if !isPowerDataFresh(data, now) {
 		return 0, errors.New("power data in metric store is stale")
 	}
 
@@ -72,8 +72,8 @@ func (m *metricStorePowerReader) get(ctx context.Context, now time.Time) (int, e
 
 func (m *metricStorePowerReader) Cleanup() {}
 
-func NewMetricStorePowerReader(nodeMetricGetter nodeMetricGetter) PowerReader {
+func NewMetricStorePowerReader(nodeMetricGetter NodeMetricGetter) PowerReader {
 	return &metricStorePowerReader{
-		nodeMetricGetter: nodeMetricGetter,
+		NodeMetricGetter: nodeMetricGetter,
 	}
 }
