@@ -61,6 +61,7 @@
 /pkg/agent/sysadvisor/ @xu282934741
 /pkg/agent/sysadvisor/plugin/inference @xu282934741
 /pkg/agent/sysadvisor/plugin/metric-emitter @xu282934741 @luomingmeng
+/pkg/agent/sysadvisor/plugin/qosaware  @cheney-lin @sun-yuliang @luomingmeng @xu282934741
 /pkg/agent/utilcomponent/ @luomingmeng  @xu282934741
 
 ### owners for util
