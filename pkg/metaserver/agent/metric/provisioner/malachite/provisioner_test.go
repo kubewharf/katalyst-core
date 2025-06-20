@@ -17,6 +17,9 @@ limitations under the License.
 package malachite
 
 import (
+	"os"
+	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -282,4 +285,326 @@ func Test_getCPI(t *testing.T) {
 	data, err = store.GetContainerMetric("pod2", "container1", consts.MetricCPUCPIContainer)
 	assert.NoError(t, err)
 	assert.Equal(t, float64(1), data.Value)
+}
+
+func Test_setContainerMbmTotalMetric(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		podUID        string
+		containerName string
+		mbmData       malachitetypes.MbmbandData
+		updateTime    *time.Time
+		cpuCodeName   string
+	}
+	now := time.Unix(1749596247, 0) // 0 nanoseconds
+	mb1 := uint64(100)
+	mb2 := uint64(200)
+	mbLocal1 := uint64(50)
+	mbLocal2 := uint64(70)
+
+	testCases := []struct {
+		name          string
+		args          args
+		prevMetric    *utilmetric.MetricData
+		prevMetricErr error
+		wantTotal     float64
+		wantPerSec    float64
+		expectSet     bool
+	}{
+		{
+			name: "AMD Genoa arch sums MBMTotalBytes and MBMLocalBytes, no previous metric",
+			args: args{
+				podUID:        "test pod 4",
+				containerName: "test container 4",
+				mbmData: malachitetypes.MbmbandData{
+					Mbm: []malachitetypes.MBMItem{
+						{MBMTotalBytes: &mb1, MBMLocalBytes: &mbLocal1},
+						{MBMTotalBytes: &mb2, MBMLocalBytes: &mbLocal2},
+					},
+				},
+				updateTime:  &now,
+				cpuCodeName: consts.AMDGenoaArch,
+			},
+			prevMetric:    nil,
+			prevMetricErr: assert.AnError,
+			wantTotal:     100 + 50 + 200 + 70,
+			wantPerSec:    0,
+			expectSet:     true,
+		},
+		{
+			name: "has previous metric, valid time interval",
+			args: args{
+				podUID:        "test pod 5",
+				containerName: "test container 5",
+				mbmData: malachitetypes.MbmbandData{
+					Mbm: []malachitetypes.MBMItem{
+						{MBMTotalBytes: &mb2},
+					},
+				},
+				updateTime:  &now,
+				cpuCodeName: "",
+			},
+			prevMetric: &utilmetric.MetricData{
+				Value: 100,
+				Time:  ptrTime(now.Add(-10 * time.Second)),
+			},
+			prevMetricErr: nil,
+			wantTotal:     200,
+			wantPerSec:    float64(200-100) / 10, // (totalMbm - prevMetric.Value) / timeInterval
+			expectSet:     true,
+		},
+		{
+			name: "has previous metric, time interval <= 0",
+			args: args{
+				podUID:        "test pod 6",
+				containerName: "test container 6",
+				mbmData: malachitetypes.MbmbandData{
+					Mbm: []malachitetypes.MBMItem{
+						{MBMTotalBytes: &mb2},
+					},
+				},
+				updateTime:  &now,
+				cpuCodeName: "",
+			},
+			prevMetric: &utilmetric.MetricData{
+				Value: 100,
+				Time:  ptrTime(now.Add(100 * time.Second)), // future time
+			},
+			prevMetricErr: nil,
+			wantTotal:     200,
+			wantPerSec:    0, // should be zero
+			expectSet:     true,
+		},
+		{
+			name: "has previous metric, nil time",
+			args: args{
+				podUID:        "test pod 7",
+				containerName: "test container 7",
+				mbmData: malachitetypes.MbmbandData{
+					Mbm: []malachitetypes.MBMItem{
+						{MBMTotalBytes: &mb2},
+					},
+				},
+				updateTime:  &now,
+				cpuCodeName: "",
+			},
+			prevMetric: &utilmetric.MetricData{
+				Value: 100,
+				Time:  nil,
+			},
+			prevMetricErr: nil,
+			wantTotal:     200,
+			wantPerSec:    0,
+			expectSet:     true,
+		},
+		{
+			name: "handles MBM overflow, clamps to MaxMBMStep",
+			args: args{
+				podUID:        "test pod overflow",
+				containerName: "test container overflow",
+				mbmData: malachitetypes.MbmbandData{
+					Mbm: []malachitetypes.MBMItem{
+						{MBMTotalBytes: func() *uint64 { v := uint64(51 * consts.BytesPerGB); return &v }()},
+					},
+				},
+				updateTime:  &now,
+				cpuCodeName: "",
+			},
+			prevMetric: &utilmetric.MetricData{
+				Value: 100,
+				Time:  ptrTime(now.Add(-10 * time.Second)),
+			},
+			prevMetricErr: nil,
+			wantTotal:     100 + consts.MaxMBMStep, // totalMbm should be clamped
+			wantPerSec:    float64(consts.MaxMBMStep) / 10,
+			expectSet:     true,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			store := utilmetric.NewMetricStore()
+			// Set cpu code name if needed
+			if tc.args.cpuCodeName != "" {
+				store.SetByStringIndex(consts.MetricCPUCodeName, tc.args.cpuCodeName)
+			}
+			// Set previous metric if needed
+			if tc.prevMetric != nil || tc.prevMetricErr == nil {
+				store.SetContainerMetric(tc.args.podUID, tc.args.containerName, consts.MetricMbmTotalContainer, *tc.prevMetric)
+			}
+			mmp := &MalachiteMetricsProvisioner{
+				metricStore: store,
+			}
+			mmp.setContainerMbmTotalMetric(tc.args.podUID, tc.args.containerName, tc.args.mbmData, tc.args.updateTime)
+			// Check total MBM
+			data, err := store.GetContainerMetric(tc.args.podUID, tc.args.containerName, consts.MetricMbmTotalContainer)
+			if tc.expectSet {
+				assert.NoError(t, err)
+				assert.Equal(t, tc.wantTotal, data.Value)
+				assert.Equal(t, *tc.args.updateTime, *data.Time)
+			} else {
+				// Should not update metric, so value should be unchanged (previous metric)
+				if tc.prevMetric != nil {
+					assert.Equal(t, tc.prevMetric.Value, data.Value)
+				} else {
+					assert.Error(t, err)
+				}
+			}
+			// Check per second MBM
+			dataPerSec, errPerSec := store.GetContainerMetric(tc.args.podUID, tc.args.containerName, consts.MetricMbmTotalPsContainer)
+			if tc.expectSet {
+				assert.NoError(t, errPerSec)
+				assert.InDelta(t, tc.wantPerSec, dataPerSec.Value, 1e-6)
+				assert.Equal(t, *tc.args.updateTime, *dataPerSec.Time)
+			} else {
+				if tc.prevMetric != nil {
+					assert.Error(t, errPerSec)
+				}
+			}
+		})
+	}
+}
+
+func ptrTime(t time.Time) *time.Time {
+	return &t
+}
+
+func Test_cpuInList(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		cpu      int
+		cpuList  string
+		expected bool
+	}{
+		{
+			name:     "single cpu match",
+			cpu:      2,
+			cpuList:  "2",
+			expected: true,
+		},
+		{
+			name:     "single cpu no match",
+			cpu:      3,
+			cpuList:  "2",
+			expected: false,
+		},
+		{
+			name:     "range match",
+			cpu:      4,
+			cpuList:  "2-5",
+			expected: true,
+		},
+		{
+			name:     "range no match",
+			cpu:      6,
+			cpuList:  "2-5",
+			expected: false,
+		},
+		{
+			name:     "empty cpuList",
+			cpu:      0,
+			cpuList:  "",
+			expected: false,
+		},
+		{
+			name:     "malformed range",
+			cpu:      2,
+			cpuList:  "1-b",
+			expected: false,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			result := cpuInList(tc.cpu, tc.cpuList)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+// Helper to create a fake sysfs structure for testing
+func setupFakeSysfs(t *testing.T, l3ID, cpuID, numaID int) (cpuDir, nodeDir string, cleanup func()) {
+	t.Helper()
+	tmpDir := t.TempDir()
+
+	cpuDir = filepath.Join(tmpDir, "cpu")
+	nodeDir = filepath.Join(tmpDir, "node")
+
+	// Fake /sys/devices/system/cpu/cpuX/cache/index3/id
+	cpuSubDir := filepath.Join(cpuDir, "cpu"+strconv.Itoa(cpuID), "cache", "index3")
+	assert.NoError(t, os.MkdirAll(cpuSubDir, 0o755))
+	assert.NoError(t, os.WriteFile(filepath.Join(cpuSubDir, "id"), []byte(strconv.Itoa(l3ID)), 0o644))
+
+	// Fake /sys/devices/system/node/nodeX/cpulist
+	nodeSubDir := filepath.Join(nodeDir, "node"+strconv.Itoa(numaID))
+	assert.NoError(t, os.MkdirAll(nodeSubDir, 0o755))
+	assert.NoError(t, os.WriteFile(filepath.Join(nodeSubDir, "cpulist"), []byte(strconv.Itoa(cpuID)), 0o644))
+
+	return cpuDir, nodeDir, func() {}
+}
+
+func Test_getNumaIDByL3CacheID(t *testing.T) {
+	t.Parallel()
+
+	type sysfsSetup struct {
+		l3ID   int
+		cpuID  int
+		numaID int
+	}
+	testCases := []struct {
+		name       string
+		setup      *sysfsSetup
+		queryL3ID  int
+		wantNumaID int
+		wantErr    bool
+	}{
+		{
+			name: "found numa id",
+			setup: &sysfsSetup{
+				l3ID:   10,
+				cpuID:  2,
+				numaID: 1,
+			},
+			queryL3ID:  10,
+			wantNumaID: 1,
+			wantErr:    false,
+		},
+		{
+			name: "not found",
+			setup: &sysfsSetup{
+				l3ID:   10,
+				cpuID:  2,
+				numaID: 1,
+			},
+			queryL3ID:  999,
+			wantNumaID: -1,
+			wantErr:    true,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var cpuDir, nodeDir string
+			var cleanup func()
+			if tc.setup != nil {
+				cpuDir, nodeDir, cleanup = setupFakeSysfs(t, tc.setup.l3ID, tc.setup.cpuID, tc.setup.numaID)
+				defer cleanup()
+			}
+			numaID, err := getNumaIDByL3CacheID(tc.queryL3ID, cpuDir, nodeDir)
+			if tc.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.Equal(t, tc.wantNumaID, numaID)
+		})
+	}
 }

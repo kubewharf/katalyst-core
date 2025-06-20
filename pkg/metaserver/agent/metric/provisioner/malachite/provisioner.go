@@ -152,6 +152,7 @@ func (m *MalachiteMetricsProvisioner) updateSystemStats() error {
 	} else {
 		m.processSystemComputeData(systemComputeData)
 		m.processSystemCPUComputeData(systemComputeData)
+		m.processSystemNUMAComputeData(systemComputeData)
 	}
 
 	systemMemoryData, err := m.malachiteClient.GetSystemMemoryStats()
@@ -679,6 +680,56 @@ func (m *MalachiteMetricsProvisioner) processSystemCPUComputeData(systemComputeD
 	}
 }
 
+func (m *MalachiteMetricsProvisioner) processSystemNUMAComputeData(systemComputeData *malachitetypes.SystemComputeData) {
+	if systemComputeData == nil {
+		return
+	}
+
+	ccdMbmTotalPsData := systemComputeData.L3Mon.L3Mon
+	updateTimeUnix := systemComputeData.L3Mon.UpdateTime
+	updateTime := time.Unix(updateTimeUnix, 0)
+
+	numaMbmTotalData := make(map[int]uint64)
+	numaMbmVictimPsData := make(map[int]uint64)
+	for _, ccdMbmTotalPs := range ccdMbmTotalPsData {
+		numaID, err := getNumaIDByL3CacheID(ccdMbmTotalPs.ID, consts.SystemCpuDir, consts.SystemNodeDir)
+		if err != nil {
+			continue
+		}
+		numaMbmTotalData[numaID] += ccdMbmTotalPs.MbmTotalBytes
+		// for AMD milan & AMD genoa, total = 0x3f + 0x40
+		if strings.Contains(systemComputeData.CPUCodeName, consts.AMDMilanArch) {
+			numaMbmVictimPsData[numaID] += ccdMbmTotalPs.MbmVictimBytesPerSec
+		}
+		if strings.Contains(systemComputeData.CPUCodeName, consts.AMDGenoaArch) {
+			numaMbmTotalData[numaID] += ccdMbmTotalPs.MbmLocalBytes
+		}
+	}
+
+	for numaID, totalMbm := range numaMbmTotalData {
+		prevMetric, err := m.metricStore.GetNumaMetric(numaID, consts.MetricTotalMemBandwidthNuma)
+		var mbmPerSec float64 = 0
+		if err == nil && prevMetric.Time != nil {
+			timeInterval := uint64(updateTimeUnix - prevMetric.Time.Unix())
+			if timeInterval > 0 && totalMbm > uint64(prevMetric.Value) {
+				mbmDiff := totalMbm - uint64(prevMetric.Value)
+				// handle total mbm overflow
+				if mbmDiff > consts.MaxMBMDiff {
+					mbmDiff = consts.MaxMBMStep
+					totalMbm = uint64(prevMetric.Value) + consts.MaxMBMStep
+				}
+				mbmPerSec = float64(mbmDiff) / float64(timeInterval)
+			}
+		}
+		// for AMD milan, total = 0x3f + 0x40
+		if strings.Contains(systemComputeData.CPUCodeName, consts.AMDMilanArch) {
+			mbmPerSec += float64(numaMbmVictimPsData[numaID])
+		}
+		m.metricStore.SetNumaMetric(numaID, consts.MetricTotalMemBandwidthNuma, utilmetric.MetricData{Value: float64(totalMbm), Time: &updateTime})
+		m.metricStore.SetNumaMetric(numaID, consts.MetricTotalPsMemBandwidthNuma, utilmetric.MetricData{Value: mbmPerSec, Time: &updateTime})
+	}
+}
+
 func (m *MalachiteMetricsProvisioner) processCgroupCPUData(cgroupPath string, cgStats *malachitetypes.MalachiteCgroupInfo) {
 	if cgStats == nil {
 		return
@@ -1140,6 +1191,7 @@ func (m *MalachiteMetricsProvisioner) processContainerMemoryData(podUID, contain
 
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemOomContainer,
 			utilmetric.MetricData{Value: float64(mem.BpfMemStat.OomCnt), Time: &updateTime})
+		m.setContainerMbmTotalMetric(podUID, containerName, mem.Mb, &updateTime)
 		// m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemScaleFactorContainer,
 		//	utilmetric.MetricData{Value: general.UIntPointerToFloat64(mem.WatermarkScaleFactor), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemUpdateTimeContainer,
@@ -1192,6 +1244,7 @@ func (m *MalachiteMetricsProvisioner) processContainerMemoryData(podUID, contain
 			utilmetric.MetricData{Value: float64(mem.MemStats.InactiveFile), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMemMappedContainer,
 			utilmetric.MetricData{Value: float64(mem.MemStats.FileMapped), Time: &updateTime})
+		m.setContainerMbmTotalMetric(podUID, containerName, mem.Mb, &updateTime)
 	}
 }
 
