@@ -260,7 +260,9 @@ func (p *StaticPolicy) GetTopologyAwareResources(_ context.Context,
 			ResourceValue: float64(alloc.GPUMemoryQuantity),
 			Name:          deviceID,
 			Type:          string(v1alpha1.TopologyTypeGPU),
-			TopologyLevel: -1,
+			Annotations: map[string]string{
+				consts.ResourceAnnotationKeyResourceIdentifier: "",
+			},
 		})
 	}
 
@@ -310,15 +312,17 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 			ResourceValue: float64(gpuState.GetGPUMemoryAllocatable()),
 			Name:          deviceID,
 			Type:          string(v1alpha1.TopologyTypeGPU),
-			// use -1 to indicate either nor numa or socket topology level
-			TopologyLevel: -1,
+			Annotations: map[string]string{
+				consts.ResourceAnnotationKeyResourceIdentifier: "",
+			},
 		})
 		topologyAwareCapacityQuantityList = append(topologyAwareCapacityQuantityList, &pluginapi.TopologyAwareQuantity{
 			ResourceValue: float64(gpuState.GetGPUMemoryAllocatable()),
 			Name:          deviceID,
 			Type:          string(v1alpha1.TopologyTypeGPU),
-			// use -1 to indicate either nor numa or socket topology level
-			TopologyLevel: -1,
+			Annotations: map[string]string{
+				consts.ResourceAnnotationKeyResourceIdentifier: "",
+			},
 		})
 	}
 
