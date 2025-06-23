@@ -136,6 +136,9 @@ type DynamicPolicy struct {
 	reservedReclaimedTopologyAwareAssignments map[int]machine.CPUSet
 
 	numaMetrics map[int]strategy.SubEntries
+
+	requestScoreThreshold      float64
+	usageThresholdExpandFactor float64
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -220,6 +223,9 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		transitionPeriod:                          30 * time.Second,
 		reservedReclaimedCPUsSize:                 general.Max(reservedReclaimedCPUsSize, agentCtx.KatalystMachineInfo.NumNUMANodes),
 		numaMetrics:                               make(map[int]strategy.SubEntries),
+		// todo modify
+		requestScoreThreshold:      0.6,
+		usageThresholdExpandFactor: 1.1,
 	}
 
 	// register allocation behaviors for pods with different QoS level
@@ -681,7 +687,7 @@ func (p *DynamicPolicy) GetTopologyHints(ctx context.Context,
 
 	// identify if the pod is a debug pod,
 	// if so, apply specific strategy to it.
-	// since GetKatalystQoSLevelFromResourceReq function will filter annotations,
+	// since GetKatalystQoSLevelFromResourceReq function will filterNuma annotations,
 	// we should do it before GetKatalystQoSLevelFromResourceReq.
 	isDebugPod := util.IsDebugPod(req.Annotations, p.podDebugAnnoKeys)
 
@@ -781,7 +787,7 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 
 	// identify if the pod is a debug pod,
 	// if so, apply specific strategy to it.
-	// since GetKatalystQoSLevelFromResourceReq function will filter annotations,
+	// since GetKatalystQoSLevelFromResourceReq function will filterNuma annotations,
 	// we should do it before GetKatalystQoSLevelFromResourceReq.
 	isDebugPod := util.IsDebugPod(req.Annotations, p.podDebugAnnoKeys)
 
