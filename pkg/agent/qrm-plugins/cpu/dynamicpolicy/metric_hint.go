@@ -133,6 +133,15 @@ func (p *DynamicPolicy) getNUMAMetricThreshold(thresholdName string, metricThres
 	}
 }
 
+func (p *DynamicPolicy) getNUMACpuUsageThreshold(metricThreshold *metricthreshold.MetricThresholdConfiguration,
+	usageThresholdExpandFactor float64) (float64, error) {
+	threshold, err := p.getNUMAMetricThreshold(metricthreshold.NUMACPUUsageRatioThreshold, metricThreshold)
+	if err != nil {
+		return 0, err
+	}
+	return threshold * usageThresholdExpandFactor, nil
+}
+
 func (p *DynamicPolicy) isNUMAOverThreshold(numa int, threshold, request float64, resourceName string, machineState state.NUMANodeMap) (bool, error) {
 	if machineState == nil || machineState[numa] == nil {
 		return false, fmt.Errorf("invalid machineState")
@@ -159,6 +168,21 @@ func (p *DynamicPolicy) isNUMAOverThreshold(numa int, threshold, request float64
 		threshold, (used/allocatable) >= threshold)
 
 	return (used / allocatable) >= threshold, nil
+}
+
+func (p *DynamicPolicy) getNumaUsage(numa int, machineState state.NUMANodeMap) (float64, error) {
+	if machineState == nil || machineState[numa] == nil {
+		return 0, fmt.Errorf("invalid machineState")
+	}
+	if p.numaMetrics[numa][consts.MetricCPUUsageContainer] == nil {
+		return 0, fmt.Errorf("invalid machineState")
+	}
+
+	used, err := p.numaMetrics[numa][consts.MetricCPUUsageContainer].AvgAfterTimestampWithCountBound(time.Now().UnixNano()-10*time.Minute.Nanoseconds(), 10)
+	if err != nil {
+		return 0, fmt.Errorf("get numa metric failed: %v", err)
+	}
+	return used, nil
 }
 
 func (p *DynamicPolicy) populateHintsByMetricPolicy(numaNodes []int,

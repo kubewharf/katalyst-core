@@ -58,6 +58,8 @@ const (
 	// CPUNUMAHintPreferPolicyDynamicPacking refers to the strategy of putting as many containers as possible onto a single NUMA node until the node hits configurable threshold.
 	// if all nodes hit configurable threshold, use spreading policy instead.
 	CPUNUMAHintPreferPolicyDynamicPacking = "dynamic_packing"
+
+	CPUNUMAHintPreferPolicyHybrid = "hybrid"
 	// CPUNUMAHintPreferPolicyNone refers to the strategy of putting containers onto any NUMA node which is not overloaded.
 	CPUNUMAHintPreferPolicyNone = "none"
 )

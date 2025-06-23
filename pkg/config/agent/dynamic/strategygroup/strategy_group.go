@@ -19,6 +19,7 @@ package strategygroup
 import (
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 type StrategyGroupConfiguration struct {
@@ -34,6 +35,7 @@ func (sg *StrategyGroupConfiguration) ApplyConfiguration(conf *crd.DynamicConfig
 	if dynamicSG := conf.StrategyGroup; dynamicSG != nil && dynamicSG.Status.EnabledStrategies != nil {
 		sg.EnabledStrategies = make([]v1alpha1.Strategy, 0, len(dynamicSG.Status.EnabledStrategies))
 		for _, strategy := range dynamicSG.Status.EnabledStrategies {
+			general.Infof("apply enabled strategy %v", *strategy.Name)
 			sg.EnabledStrategies = append(sg.EnabledStrategies, *strategy.DeepCopy())
 		}
 	}

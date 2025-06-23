@@ -146,6 +146,14 @@ func (topo *CPUTopology) NUMAsPerSocket() (int, error) {
 	return numasCount / topo.NumSockets, nil
 }
 
+func (topo *CPUTopology) CPUsPerNuma() int {
+	if topo.NumNUMANodes == 0 {
+		return 0
+	} else {
+		return topo.NumCPUs / topo.NumNUMANodes
+	}
+}
+
 // GetSocketTopology parses the given CPUTopology to a mapping
 // from socket id to cpu id lists
 func (topo *CPUTopology) GetSocketTopology() map[int]string {
