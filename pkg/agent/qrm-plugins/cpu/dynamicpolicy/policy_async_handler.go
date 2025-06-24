@@ -19,6 +19,7 @@ package dynamicpolicy
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -250,6 +251,9 @@ func (p *DynamicPolicy) checkAndEmitMetrics(podEntries state.PodEntries, cpusetP
 
 	for cpuset, cs := range cpusetPodStateMap {
 		totalMilliCPURequest := p.calculateTotalCPURequest(cpuset, cs, cpusetPodStateMap)
+		if cs.cpuset.Size() == 0 || totalMilliCPURequest == 0 {
+			continue
+		}
 		exceededRatio := float64(totalMilliCPURequest-int64(cs.cpuset.Size()*1000)) / float64(totalMilliCPURequest)
 
 		if exceededRatio > 0 {
@@ -290,9 +294,12 @@ func (p *DynamicPolicy) emitExceededMetrics(
 			continue
 		}
 
-		general.Errorf("pod: %s/%s, ownerPoolName: %s, qosLevel: %s, cpuset: %s, size %d, exceeds total cpu request: %.3f, exceeded ratio: %.3f",
+		// check if the pod exceeds the binding cpuset by more than 1 core
+		outOfTolerance := int64(cs.cpuset.Size()+1) < (cs.totalMilliCPURequest / 1000)
+
+		general.Errorf("pod: %s/%s, ownerPoolName: %s, qosLevel: %s, cpuset: %s, size %d, exceeds total cpu request: %.3f, exceeded ratio: %.3f, outOfTolerance: %v",
 			pod.Namespace, pod.Name, mainContainerEntry.OwnerPoolName, mainContainerEntry.QoSLevel, cpuset, cs.cpuset.Size(),
-			float64(cs.totalMilliCPURequest)/1000, exceededRatio)
+			float64(cs.totalMilliCPURequest)/1000, exceededRatio, outOfTolerance)
 
 		_ = p.emitter.StoreFloat64(metricsNamePodTotalRequestLargerThanBindingCPUSet, exceededRatio, metrics.MetricTypeNameRaw, []metrics.MetricTag{
 			{Key: "podNamespace", Val: pod.Namespace},
@@ -300,6 +307,7 @@ func (p *DynamicPolicy) emitExceededMetrics(
 			{Key: "qosLevel", Val: mainContainerEntry.QoSLevel},
 			{Key: "ownerPoolName", Val: mainContainerEntry.OwnerPoolName},
 			{Key: "poolType", Val: commonstate.GetPoolType(mainContainerEntry.OwnerPoolName)},
+			{Key: "outOfTolerance", Val: strconv.FormatBool(outOfTolerance)},
 			{Key: "cpuset", Val: cpuset},
 		}...)
 	}
