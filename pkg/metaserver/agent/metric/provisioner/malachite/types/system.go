@@ -104,12 +104,27 @@ type SystemComputeData struct {
 	CPU          []CPU        `json:"cpu"`
 	GlobalCPU    CPU          `json:"global_cpu"`
 	ProcessStats ProcessStats `json:"process_stats"`
+	L3Mon        L3Monitor    `json:"l3_mon"`
 	UpdateTime   int64        `json:"update_time"`
 }
 
 type ProcessStats struct {
 	ProcessRunning uint64 `json:"procs_running"`
 	ProcessBlocked uint64 `json:"procs_blocked"`
+}
+
+type L3Monitor struct {
+	L3Mon      []L3Mon `json:"l3mon"`
+	Path       string  `json:"path"`
+	UpdateTime int64   `json:"update_time"`
+}
+
+type L3Mon struct {
+	ID                   int    `json:"id"`
+	MbmTotalBytes        uint64 `json:"mbm_total_bytes"`
+	MbmLocalBytes        uint64 `json:"mbm_local_bytes"`
+	MbmVictimBytesPerSec uint64 `json:"mbm_victim_bytes_psec"`
+	Llcoccupancy         uint64 `json:"llc_occupancy"`
 }
 
 type Load struct {
