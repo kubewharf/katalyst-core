@@ -21,6 +21,8 @@ import (
 	"testing"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/advisor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/advisor/action/strategy"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/advisor/action/strategy/assess"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/capper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/evictor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/reader"
@@ -54,6 +56,26 @@ func Test_powerAwarePlugin_Name(t *testing.T) {
 		DryRun: expectedDryRun,
 	}
 	dummyEmitterPool := metricspool.DummyMetricsEmitterPool{}
+
+	percentageEvictor := evictor.NewPowerLoadEvict(nil,
+		dummyEmitterPool.GetDefaultMetricsEmitter(),
+		stubMetaServer.PodFetcher,
+		evictor.NewNoopPodEvictor(),
+	)
+
+	strategy := strategy.NewEvictFirstStrategy(dummyEmitterPool.GetDefaultMetricsEmitter(),
+		percentageEvictor,
+		nil,
+		nil,
+		assess.NewPowerChangeAssessor(0, 0),
+	)
+	reconciler := advisor.NewReconciler(expectedDryRun,
+		dummyEmitterPool.GetDefaultMetricsEmitter(),
+		percentageEvictor,
+		nil,
+		strategy,
+	)
+
 	stubAdvisor := advisor.NewAdvisor(
 		expectedDryRun,
 		"foo",
@@ -61,10 +83,8 @@ func Test_powerAwarePlugin_Name(t *testing.T) {
 		dummyEmitterPool.GetDefaultMetricsEmitter(),
 		stubMetaServer.NodeFetcher,
 		nil,
-		stubMetaServer.PodFetcher,
 		nil,
-		nil,
-		nil,
+		reconciler,
 	)
 
 	p, err := newPluginWithAdvisor(expectedName,
@@ -124,12 +144,34 @@ func Test_powerAwarePlugin_Init(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+			percentageEvictor := evictor.NewPowerLoadEvict(nil,
+				dummyEmitter,
+				nil,
+				evictor.NewNoopPodEvictor(),
+			)
+			strategy := strategy.NewEvictFirstStrategy(dummyEmitter,
+				percentageEvictor,
+				nil,
+				nil,
+				assess.NewPowerChangeAssessor(0, 0),
+			)
+			reconciler := advisor.NewReconciler(false,
+				dummyEmitter,
+				percentageEvictor,
+				nil,
+				strategy,
+			)
 			p := powerAwarePlugin{
 				name:   tt.fields.name,
 				dryRun: tt.fields.dryRun,
-				advisor: advisor.NewAdvisor(false, "bar", evictor.NewNoopPodEvictor(), dummyEmitter,
-					tt.fields.nodeFetcher, nil, nil, reader.NewDummyPowerReader(),
-					capper.NewNoopCapper(), nil,
+				advisor: advisor.NewAdvisor(false,
+					"bar",
+					evictor.NewNoopPodEvictor(),
+					dummyEmitter,
+					tt.fields.nodeFetcher,
+					reader.NewDummyPowerReader(),
+					capper.NewNoopCapper(),
+					reconciler,
 				),
 			}
 			if err := p.Init(); (err != nil) != tt.wantErr {
@@ -186,6 +228,55 @@ func Test_powerAwarePlugin_Run(t *testing.T) {
 			p.Run(tt.args.ctx)
 			if !testAdvisor.called {
 				t.Error("expected advisor Run called; but not")
+			}
+		})
+	}
+}
+
+func TestNewPowerAwarePlugin(t *testing.T) {
+	t.Parallel()
+	stubMetaServer := &metaserver.MetaServer{
+		MetaAgent: &agent.MetaAgent{
+			NodeFetcher: &stubNodeFetcher{},
+		},
+	}
+	type args struct {
+		pluginName string
+		conf       *config.Configuration
+		metaServer *metaserver.MetaServer
+	}
+	tests := []struct {
+		name    string
+		args    args
+		wantNil bool
+		wantErr bool
+	}{
+		{
+			name: "happy path",
+			args: args{
+				pluginName: "test",
+				conf: &config.Configuration{
+					GenericConfiguration: generic.NewGenericConfiguration(),
+					AgentConfiguration:   agentconf.NewAgentConfiguration(),
+				},
+				metaServer: stubMetaServer,
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := NewPowerAwarePlugin(tt.args.pluginName,
+				tt.args.conf, nil, &metricspool.DummyMetricsEmitterPool{},
+				tt.args.metaServer, nil)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("NewPowerAwarePlugin() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if (got == nil) != tt.wantNil {
+				t.Errorf("NewPowerAwarePlugin() got unexpected value %v", got)
 			}
 		})
 	}

@@ -23,11 +23,16 @@ import (
 )
 
 const (
-	MetricProvisionerMalachite         = "malachite"
-	MetricProvisionerMalachiteRealtime = "malachite_realtime"
-	MetricProvisionerCgroup            = "cgroup"
-	MetricProvisionerKubelet           = "kubelet"
-	MetricProvisionerRodan             = "rodan"
+	MetricProvisionerMalachite = "malachite"
+
+	// MetricProvisionerMalachiteRealtime is for power metric due to historical reason
+	// todo: consider rename it to malachite_realtime_power
+	MetricProvisionerMalachiteRealtime     = "malachite_realtime"
+	MetricProvisionerMalachiteRealtimeFreq = "malachite_realtime_freq"
+
+	MetricProvisionerCgroup  = "cgroup"
+	MetricProvisionerKubelet = "kubelet"
+	MetricProvisionerRodan   = "rodan"
 )
 
 type MetricConfiguration struct {
