@@ -27,6 +27,7 @@ type NumaCPUPressureEvictionConfiguration struct {
 	GracePeriod            int64
 	ThresholdExpandFactor  float64
 	CandidateCount         int
+	SkippedPodKinds        []string
 }
 
 func NewNumaCPUPressureEvictionConfiguration() NumaCPUPressureEvictionConfiguration {
@@ -59,6 +60,10 @@ func (n *NumaCPUPressureEvictionConfiguration) ApplyConfiguration(conf *crd.Dyna
 
 		if config.CandidateCount != nil {
 			n.CandidateCount = *config.CandidateCount
+		}
+
+		if config.SkippedPodKinds != nil {
+			n.SkippedPodKinds = config.SkippedPodKinds
 		}
 	}
 }
