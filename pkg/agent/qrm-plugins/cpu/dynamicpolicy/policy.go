@@ -136,6 +136,9 @@ type DynamicPolicy struct {
 	reservedReclaimedTopologyAwareAssignments map[int]machine.CPUSet
 
 	numaMetrics map[int]strategy.SubEntries
+
+	requestScoreThreshold      float64
+	usageThresholdExpandFactor float64
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -220,6 +223,9 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		transitionPeriod:                          30 * time.Second,
 		reservedReclaimedCPUsSize:                 general.Max(reservedReclaimedCPUsSize, agentCtx.KatalystMachineInfo.NumNUMANodes),
 		numaMetrics:                               make(map[int]strategy.SubEntries),
+		// todo modify
+		requestScoreThreshold:      0.7,
+		usageThresholdExpandFactor: 1.1,
 	}
 
 	// register allocation behaviors for pods with different QoS level
