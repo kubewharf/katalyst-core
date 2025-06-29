@@ -28,6 +28,7 @@ type NormalZoneInfo struct {
 	Free         uint64
 	Min          uint64
 	Low          uint64
+	High         uint64
 	FileInactive uint64
 }
 
@@ -70,6 +71,8 @@ func parseNormalZoneInfo(zoneInfoData []byte) ([]NormalZoneInfo, error) {
 				zoneInfoElement.Min = StringToUint64(parts[1])
 			case "low":
 				zoneInfoElement.Low = StringToUint64(parts[1])
+			case "high":
+				zoneInfoElement.High = StringToUint64(parts[1])
 			case "nr_zone_inactive_file":
 				zoneInfoElement.FileInactive = StringToUint64(parts[1])
 			}
