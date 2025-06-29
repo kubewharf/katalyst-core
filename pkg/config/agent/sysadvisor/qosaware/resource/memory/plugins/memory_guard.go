@@ -1,6 +1,3 @@
-//go:build !linux && !windows
-// +build !linux,!windows
-
 /*
 Copyright 2022 The Katalyst Authors.
 
@@ -17,8 +14,21 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package machine
+package plugins
 
-func GetNormalZoneInfos(zoneInfoPath string) []NormalZoneInfo {
-	return nil
+const (
+	MinWatermarkName  = "min"
+	LowWatermarkName  = "low"
+	HighWatermarkName = "high"
+)
+
+type MemoryGuardConfiguration struct {
+	// watermark is for reserving memory to avoid memory reclaim, legal names: min, low, high.
+	CriticalWatermarkName string
+}
+
+func NewMemoryGuardConfiguration() *MemoryGuardConfiguration {
+	return &MemoryGuardConfiguration{
+		CriticalWatermarkName: LowWatermarkName,
+	}
 }

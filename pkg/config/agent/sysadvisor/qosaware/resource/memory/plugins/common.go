@@ -20,6 +20,7 @@ type MemoryAdvisorPluginsConfiguration struct {
 	*CacheReaperConfiguration
 	*MemoryProvisionerConfiguration
 	*NumaBalancerConfiguration
+	*MemoryGuardConfiguration
 }
 
 func NewMemoryAdvisorPluginsConfiguration() *MemoryAdvisorPluginsConfiguration {
@@ -27,5 +28,6 @@ func NewMemoryAdvisorPluginsConfiguration() *MemoryAdvisorPluginsConfiguration {
 		CacheReaperConfiguration:       NewCacheReaperConfiguration(),
 		MemoryProvisionerConfiguration: NewMemoryProvisionerConfiguration(),
 		NumaBalancerConfiguration:      NewNumaBalancerConfiguration(),
+		MemoryGuardConfiguration:       NewMemoryGuardConfiguration(),
 	}
 }
