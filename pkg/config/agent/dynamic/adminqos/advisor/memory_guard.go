@@ -19,12 +19,14 @@ package advisor
 import "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 
 type MemoryGuardConfiguration struct {
-	Enable bool
+	Enable                       bool
+	CriticalWatermarkScaleFactor float64
 }
 
 func NewMemoryGuardConfiguration() *MemoryGuardConfiguration {
 	return &MemoryGuardConfiguration{
-		Enable: true,
+		Enable:                       true,
+		CriticalWatermarkScaleFactor: 1.0,
 	}
 }
 
@@ -36,6 +38,9 @@ func (c *MemoryGuardConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD
 		config := aqc.Spec.Config.AdvisorConfig.MemoryAdvisorConfig.MemoryGuardConfig
 		if config.Enable != nil {
 			c.Enable = *config.Enable
+		}
+		if config.CriticalWatermarkScaleFactor != nil {
+			c.CriticalWatermarkScaleFactor = *config.CriticalWatermarkScaleFactor
 		}
 	}
 }
