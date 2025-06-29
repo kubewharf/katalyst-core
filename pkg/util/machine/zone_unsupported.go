@@ -19,6 +19,6 @@ limitations under the License.
 
 package machine
 
-func GetNormalZoneInfo(zoneInfoPath string) []NormalZoneInfo {
+func GetNormalZoneInfos(zoneInfoPath string) []NormalZoneInfo {
 	return nil
 }

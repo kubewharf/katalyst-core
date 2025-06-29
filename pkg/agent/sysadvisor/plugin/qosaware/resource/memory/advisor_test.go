@@ -1114,7 +1114,7 @@ func TestUpdate(t *testing.T) {
 				ExtraEntries: []types.ExtraMemoryAdvices{
 					{
 						CgroupPath: "/kubepods/besteffort",
-						Values:     map[string]string{string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): strconv.Itoa(240 << 30)},
+						Values:     map[string]string{string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): strconv.Itoa(216 << 30)},
 					},
 				},
 			},

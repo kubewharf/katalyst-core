@@ -21,6 +21,7 @@ import (
 	"strconv"
 
 	"go.uber.org/atomic"
+	"golang.org/x/sys/unix"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
@@ -32,6 +33,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 const (
@@ -41,6 +43,8 @@ const (
 	reconcileStatusFailed    = "failed"
 
 	reclaimMemoryUnlimited = -1
+
+	defaultProcZoneinfoFile = "/proc/zoneinfo"
 )
 
 type memoryGuard struct {
@@ -54,6 +58,7 @@ type memoryGuard struct {
 	reconcileStatus                    *atomic.String
 	minCriticalWatermark               int64
 	conf                               *config.Configuration
+	pageSize                           int
 }
 
 func NewMemoryGuard(conf *config.Configuration, extraConfig interface{}, metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) MemoryAdvisorPlugin {
@@ -69,6 +74,7 @@ func NewMemoryGuard(conf *config.Configuration, extraConfig interface{}, metaRea
 		reconcileStatus:               atomic.NewString(reconcileStatusFailed),
 		minCriticalWatermark:          conf.MinCriticalWatermark,
 		conf:                          conf,
+		pageSize:                      unix.Getpagesize(),
 	}
 }
 
@@ -150,30 +156,51 @@ func (mg *memoryGuard) updateNonActualNUMABindingReclaimMemoryLimit(watermarkSca
 		return err
 	}
 
+	zoneInfos := machine.GetNormalZoneInfos(defaultProcZoneinfoFile)
+
 	for _, numaID := range availNUMAs.Difference(actualNUMABindingNUMAs).ToSliceInt() {
 		reclaimedCoresUsed, err := mg.metaServer.GetCgroupNumaMetric(mg.reclaimRelativeRootCgroupPath, numaID, consts.MetricsMemTotalPerNumaCgroup)
 		if err != nil {
 			return err
 		}
 
-		numaTotal, err := mg.metaServer.GetNumaMetric(numaID, consts.MetricMemTotalNuma)
+		tmp, err := mg.metaServer.GetNumaMetric(numaID, consts.MetricMemTotalNuma)
 		if err != nil {
 			return err
 		}
-		numaFree, err := mg.metaServer.GetNumaMetric(numaID, consts.MetricMemFreeNuma)
+		numaTotal := tmp.Value
+
+		tmp, err = mg.metaServer.GetNumaMetric(numaID, consts.MetricMemFreeNuma)
 		if err != nil {
 			return err
+		}
+		numaFree := tmp.Value
+
+		highWatermark := 2 * numaTotal * watermarkScaleFactor / float64(10000)
+
+		var zoneInfo machine.NormalZoneInfo
+		found := false
+		for _, z := range zoneInfos {
+			if z.Node == int64(numaID) {
+				zoneInfo = z
+				found = true
+				break
+			}
+		}
+		if found {
+			numaFree = float64(zoneInfo.Free) * float64(mg.pageSize)
+			highWatermark = float64(zoneInfo.High) * float64(mg.pageSize)
 		}
 
-		criticalWatermark := math.Max(float64(mg.minCriticalWatermark), numaTotal.Value*watermarkScaleFactor/float64(10000))
+		criticalWatermark := math.Max(float64(mg.minCriticalWatermark), highWatermark)
 		reclaimMemoryLimit += reclaimedCoresUsed.Value +
-			math.Max(numaFree.Value-criticalWatermark, 0)
+			math.Max(numaFree-criticalWatermark, 0)
 
 		general.InfoS("NUMA memory info", "numaID", numaID,
 			"criticalWatermark", general.FormatMemoryQuantity(criticalWatermark),
 			"reclaimedCoresUsed", general.FormatMemoryQuantity(reclaimedCoresUsed.Value),
-			"numaTotal", general.FormatMemoryQuantity(numaTotal.Value),
-			"numaFree", general.FormatMemoryQuantity(numaFree.Value),
+			"highWatermark", general.FormatMemoryQuantity(highWatermark),
+			"numaFree", general.FormatMemoryQuantity(numaFree),
 			"reclaimMemoryLimit", general.FormatMemoryQuantity(reclaimMemoryLimit))
 	}
 
@@ -183,6 +210,8 @@ func (mg *memoryGuard) updateNonActualNUMABindingReclaimMemoryLimit(watermarkSca
 
 func (mg *memoryGuard) updateActualNUMABindingReclaimMemoryLimit(watermarkScaleFactor float64) error {
 	numaBindingReclaimMemoryLimitMap := make(map[int]int64, len(mg.metaServer.Topology))
+	zoneInfos := machine.GetNormalZoneInfos(defaultProcZoneinfoFile)
+
 	for _, numaID := range mg.metaServer.CPUDetails.NUMANodes().ToSliceNoSortInt() {
 		if !general.IsPathExists(common.GetAbsCgroupPath(common.DefaultSelectedSubsys, mg.numaBindingRelativeRootCgroupPaths[numaID])) {
 			continue
@@ -193,24 +222,43 @@ func (mg *memoryGuard) updateActualNUMABindingReclaimMemoryLimit(watermarkScaleF
 			return err
 		}
 
-		numaTotal, err := mg.metaServer.GetNumaMetric(numaID, consts.MetricMemTotalNuma)
+		tmp, err := mg.metaServer.GetNumaMetric(numaID, consts.MetricMemTotalNuma)
 		if err != nil {
 			return err
 		}
-		numaFree, err := mg.metaServer.GetNumaMetric(numaID, consts.MetricMemFreeNuma)
+		numaTotal := tmp.Value
+
+		tmp, err = mg.metaServer.GetNumaMetric(numaID, consts.MetricMemFreeNuma)
 		if err != nil {
 			return err
+		}
+		numaFree := tmp.Value
+
+		highWatermark := 2 * numaTotal * watermarkScaleFactor / float64(10000)
+
+		var zoneInfo machine.NormalZoneInfo
+		found := false
+		for _, z := range zoneInfos {
+			if z.Node == int64(numaID) {
+				zoneInfo = z
+				found = true
+				break
+			}
+		}
+		if found {
+			numaFree = float64(zoneInfo.Free) * float64(mg.pageSize)
+			highWatermark = float64(zoneInfo.High) * float64(mg.pageSize)
 		}
 
-		criticalWatermark := math.Max(float64(mg.minCriticalWatermark), numaTotal.Value*watermarkScaleFactor/float64(10000))
+		criticalWatermark := math.Max(float64(mg.minCriticalWatermark), highWatermark)
 		numaBindingReclaimMemoryLimitMap[numaID] = int64(reclaimedCoresUsed.Value +
-			math.Max(numaFree.Value-criticalWatermark, 0))
+			math.Max(numaFree-criticalWatermark, 0))
 
 		general.InfoS("NUMA memory info", "numaID", numaID,
 			"criticalWatermark", general.FormatMemoryQuantity(criticalWatermark),
 			"reclaimedCoresUsed", general.FormatMemoryQuantity(reclaimedCoresUsed.Value),
-			"numaTotal", general.FormatMemoryQuantity(numaTotal.Value),
-			"numaFree", general.FormatMemoryQuantity(numaFree.Value),
+			"highWatermark", general.FormatMemoryQuantity(highWatermark),
+			"numaFree", general.FormatMemoryQuantity(numaFree),
 			"reclaimMemoryLimit", general.FormatMemoryQuantity(float64(numaBindingReclaimMemoryLimitMap[numaID])))
 	}
 

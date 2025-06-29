@@ -133,7 +133,7 @@ func (n *NumaMemoryPressurePlugin) detectNumaPressures() error {
 	n.isUnderNumaPressure = false
 
 	// step1, check zoneinfo
-	zoneinfo := machine.GetNormalZoneInfo(hostZoneInfoFile)
+	zoneinfo := machine.GetNormalZoneInfos(hostZoneInfoFile)
 	for _, numaID := range n.metaServer.CPUDetails.NUMANodes().ToSliceNoSortInt() {
 		n.numaActionMap[numaID] = actionNoop
 		if _, ok := n.numaFreeBelowWatermarkTimesMap[numaID]; !ok {
