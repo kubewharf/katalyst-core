@@ -22,12 +22,16 @@ import (
 
 	"k8s.io/klog/v2"
 
+	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
+
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/modelresultfetcher/borwein/latencyregression"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/modelresultfetcher/borwein/trainingtpreg"
 	borweinconsts "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/consts"
+	sysadvisortypes "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/data"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 // modelMetric emit pod_level model inference to kcmas.
@@ -75,7 +79,7 @@ func (p *MetricSyncerPod) emitBorweinTrainingThroughput() {
 
 func (p *MetricSyncerPod) emitBorweinLatencyRegression() {
 	latencyRegressionData, resultTimestamp, err := latencyregression.GetLatencyRegressionPredictResult(
-		p.metaReader, p.borweinConf.DryRun)
+		p.metaReader, p.borweinConf.DryRun, nil)
 	if err != nil {
 		klog.Errorf("failed to get inference results of model(%s) error: %v\n", borweinconsts.ModelNameBorweinLatencyRegression, err)
 		return
@@ -99,9 +103,18 @@ func (p *MetricSyncerPod) emitBorweinLatencyRegression() {
 
 		tags := p.generateMetricTag(pod)
 
+		numaBitMask := 0
+
 		for containerName, latencyRegression := range containerData {
 			predictSum += latencyRegression.PredictValue
 			containerCnt += 1
+
+			if ci, exist := p.metaReader.GetContainerInfo(podUID, containerName); exist {
+				if ci.ContainerType == v1alpha1.ContainerType_MAIN {
+					cpuset := machine.GetCPUAssignmentNUMAs(ci.TopologyAwareAssignments)
+					numaBitMask = sysadvisortypes.NumaIDBitMask(cpuset.ToSliceInt())
+				}
+			}
 
 			klog.Infof("Emit latency regression result, pod %v, container %v, predict value %v",
 				podUID, containerName, latencyRegression.PredictValue)
@@ -116,6 +129,23 @@ func (p *MetricSyncerPod) emitBorweinLatencyRegression() {
 					metrics.MetricTag{
 						Key: fmt.Sprintf("%scontainer", data.CustomMetricLabelSelectorPrefixKey),
 						Val: containerName,
+					},
+					metrics.MetricTag{
+						Key: fmt.Sprintf("%s%s", data.CustomMetricLabelSelectorPrefixKey, "numa_bit_mask"),
+						Val: fmt.Sprintf("%d", numaBitMask),
+					},
+				)...)
+			_ = p.metricEmitter.StoreFloat64(podLatencyRegressionInferenceResultBorwein,
+				latencyRegression.PredictValue,
+				metrics.MetricTypeNameRaw,
+				append(tags,
+					metrics.MetricTag{
+						Key: fmt.Sprintf("%s", data.CustomMetricLabelKeyTimestamp),
+						Val: fmt.Sprintf("%v", resultTimestamp),
+					},
+					metrics.MetricTag{
+						Key: fmt.Sprintf("%s%s", data.CustomMetricLabelSelectorPrefixKey, "numa_bit_mask"),
+						Val: fmt.Sprintf("%d", numaBitMask),
 					},
 				)...)
 		}
