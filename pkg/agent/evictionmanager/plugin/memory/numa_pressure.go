@@ -285,7 +285,26 @@ func (n *NumaMemoryPressurePlugin) GetTopEvictionPods(_ context.Context, request
 	resp := &pluginapi.GetTopEvictionPodsResponse{
 		TargetPods: targetPods,
 	}
-	if gracePeriod := dynamicConfig.MemoryPressureEvictionConfiguration.GracePeriod; gracePeriod > 0 {
+
+	gracePeriod := dynamicConfig.MemoryPressureEvictionConfiguration.GracePeriod
+	hasStrongEviction := false
+
+	for _, action := range n.numaActionMap {
+		if action == actionEviction {
+			hasStrongEviction = true
+			break
+		}
+	}
+
+	if !hasStrongEviction {
+		gracePeriod = gracePeriod / 4
+	}
+
+	if gracePeriod < minGrace {
+		gracePeriod = minGrace
+	}
+
+	if gracePeriod > 0 {
 		resp.DeletionOptions = &pluginapi.DeletionOptions{
 			GracePeriodSeconds: gracePeriod,
 		}
