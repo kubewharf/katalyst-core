@@ -45,7 +45,7 @@ func TestGetNormalZoneInfo(t *testing.T) {
 	err = ioutil.WriteFile(statFile, []byte(content), 0o700)
 	assert.NoError(t, err)
 
-	zoneinfo := GetNormalZoneInfo(statFile)
+	zoneinfo := GetNormalZoneInfos(statFile)
 	assert.Equal(t, "72543", fmt.Sprint(zoneinfo[0].Free))
 	assert.Equal(t, "7128", fmt.Sprint(zoneinfo[0].Min))
 	assert.Equal(t, "71013", fmt.Sprint(zoneinfo[0].Low))
