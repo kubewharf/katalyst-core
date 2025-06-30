@@ -20,12 +20,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/kubewharf/katalyst-core/pkg/consts"
-	"github.com/kubewharf/katalyst-core/pkg/util/strategygroup"
-
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/metricthreshold"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/strategygroup"
 )
 
 var ThresholdMin = 0.4
@@ -38,6 +37,12 @@ func (p *NumaCPUPressureEviction) pullThresholds(_ context.Context) {
 		general.Errorf("failed to get eviction strategy: %v", err)
 		return
 	}
+
+	p.Lock()
+	p.enabled = enabled
+	general.Infof("%v update enabled %v", EvictionNameNumaCpuPressure, enabled)
+	p.Unlock()
+
 	if !enabled {
 		general.Warningf("eviction strategy is disabled, skip pullThresholds")
 		return
@@ -59,8 +64,6 @@ func (p *NumaCPUPressureEviction) pullThresholds(_ context.Context) {
 	// update
 	p.Lock()
 	defer p.Unlock()
-	general.Infof("%v update enabled", EvictionNameNumaCpuPressure)
-	p.enabled = enabled
 	general.Infof("update thresholds to %v", expandedThresholds)
 	p.thresholds = expandedThresholds
 	general.Infof("update numaPressureConfig to %v", numaPressureConfig)

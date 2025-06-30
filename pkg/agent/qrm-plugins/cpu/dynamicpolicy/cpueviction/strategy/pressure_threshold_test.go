@@ -17,12 +17,20 @@ limitations under the License.
 package strategy
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"k8s.io/utils/pointer"
 
+	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
+	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/metricthreshold"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
 func Test_expandThresholds(t *testing.T) {
@@ -163,4 +171,303 @@ func Test_getOverLoadThreshold(t *testing.T) {
 			assert.Equalf(t, tt.want, getOverLoadThreshold(tt.args.globalThresholds, tt.args.cpuCode, tt.args.isVM), "getOverLoadThreshold(%v, %v, %v)", tt.args.globalThresholds, tt.args.cpuCode, tt.args.isVM)
 		})
 	}
+}
+
+func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
+	t.Parallel()
+
+	type fields struct {
+		emitter            metrics.MetricEmitter
+		conf               *config.Configuration
+		numaPressureConfig *NumaPressureConfig
+		thresholds         map[string]float64
+		metricsHistory     *NumaMetricHistory
+		overloadNumaCount  int
+		enabled            bool
+	}
+	tests := []struct {
+		name          string
+		fields        fields
+		setFakeMetric func(store *metric.FakeMetricsFetcher)
+		wantEnabled   bool
+	}{
+		{
+			name: "enabled when sgc not enabled, fallback to static config 1",
+			fields: fields{
+				conf:    generatePluginConfig(true, false, true),
+				enabled: false,
+				numaPressureConfig: &NumaPressureConfig{
+					ExpandFactor: 1,
+				},
+			},
+			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+				store.SetByStringIndex(consts.MetricCPUCodeName, "abc")
+				store.SetByStringIndex(consts.MetricInfoIsVM, "false")
+			},
+			wantEnabled: true,
+		},
+		{
+			name: "enabled when sgc not enabled, fallback to static config 2",
+			fields: fields{
+				conf:    generatePluginConfig(true, false, false),
+				enabled: false,
+				numaPressureConfig: &NumaPressureConfig{
+					ExpandFactor: 1,
+				},
+			},
+			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+				store.SetByStringIndex(consts.MetricCPUCodeName, "abc")
+				store.SetByStringIndex(consts.MetricInfoIsVM, "false")
+			},
+			wantEnabled: true,
+		},
+		{
+			name: "enabled when sgc enabled, sgc configured",
+			fields: fields{
+				conf:    generatePluginConfig(true, true, true),
+				enabled: false,
+				numaPressureConfig: &NumaPressureConfig{
+					ExpandFactor: 1,
+				},
+			},
+			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+				store.SetByStringIndex(consts.MetricCPUCodeName, "abc")
+				store.SetByStringIndex(consts.MetricInfoIsVM, "false")
+			},
+			wantEnabled: true,
+		},
+		{
+			name: "disabled when sgc enabled, sgc not configured",
+			fields: fields{
+				conf:    generatePluginConfig(true, true, false),
+				enabled: false,
+				numaPressureConfig: &NumaPressureConfig{
+					ExpandFactor: 1,
+				},
+			},
+			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+				store.SetByStringIndex(consts.MetricCPUCodeName, "abc")
+				store.SetByStringIndex(consts.MetricInfoIsVM, "false")
+			},
+			wantEnabled: false,
+		},
+		{
+			name: "disabled when default enabled 0",
+			fields: fields{
+				conf:    generatePluginConfig(false, false, false),
+				enabled: false,
+				numaPressureConfig: &NumaPressureConfig{
+					ExpandFactor: 1,
+				},
+			},
+			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+				store.SetByStringIndex(consts.MetricCPUCodeName, "abc")
+				store.SetByStringIndex(consts.MetricInfoIsVM, "false")
+			},
+			wantEnabled: false,
+		},
+		{
+			name: "disabled when default enabled 1",
+			fields: fields{
+				conf:    generatePluginConfig(false, true, false),
+				enabled: false,
+				numaPressureConfig: &NumaPressureConfig{
+					ExpandFactor: 1,
+				},
+			},
+			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+				store.SetByStringIndex(consts.MetricCPUCodeName, "abc")
+				store.SetByStringIndex(consts.MetricInfoIsVM, "false")
+			},
+			wantEnabled: false,
+		},
+		{
+			name: "disabled when default enabled 2",
+			fields: fields{
+				conf:    generatePluginConfig(false, false, true),
+				enabled: false,
+				numaPressureConfig: &NumaPressureConfig{
+					ExpandFactor: 1,
+				},
+			},
+			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+				store.SetByStringIndex(consts.MetricCPUCodeName, "abc")
+				store.SetByStringIndex(consts.MetricInfoIsVM, "false")
+			},
+			wantEnabled: false,
+		},
+		{
+			name: "disabled when default enabled 3",
+			fields: fields{
+				conf:    generatePluginConfig(false, true, true),
+				enabled: false,
+				numaPressureConfig: &NumaPressureConfig{
+					ExpandFactor: 1,
+				},
+			},
+			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+				store.SetByStringIndex(consts.MetricCPUCodeName, "abc")
+				store.SetByStringIndex(consts.MetricInfoIsVM, "false")
+			},
+			wantEnabled: false,
+		},
+		{
+			name: "enabled when sgc not enabled, fallback to static config 1",
+			fields: fields{
+				conf:    generatePluginConfig(true, false, true),
+				enabled: true,
+				numaPressureConfig: &NumaPressureConfig{
+					ExpandFactor: 1,
+				},
+			},
+			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+				store.SetByStringIndex(consts.MetricCPUCodeName, "abc")
+				store.SetByStringIndex(consts.MetricInfoIsVM, "false")
+			},
+			wantEnabled: true,
+		},
+		{
+			name: "enabled when sgc not enabled, fallback to static config 2",
+			fields: fields{
+				conf:    generatePluginConfig(true, false, false),
+				enabled: true,
+				numaPressureConfig: &NumaPressureConfig{
+					ExpandFactor: 1,
+				},
+			},
+			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+				store.SetByStringIndex(consts.MetricCPUCodeName, "abc")
+				store.SetByStringIndex(consts.MetricInfoIsVM, "false")
+			},
+			wantEnabled: true,
+		},
+		{
+			name: "enabled when sgc enabled, sgc configured",
+			fields: fields{
+				conf:    generatePluginConfig(true, true, true),
+				enabled: true,
+				numaPressureConfig: &NumaPressureConfig{
+					ExpandFactor: 1,
+				},
+			},
+			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+				store.SetByStringIndex(consts.MetricCPUCodeName, "abc")
+				store.SetByStringIndex(consts.MetricInfoIsVM, "false")
+			},
+			wantEnabled: true,
+		},
+		{
+			name: "disabled when sgc enabled, sgc not configured",
+			fields: fields{
+				conf:    generatePluginConfig(true, true, false),
+				enabled: true,
+				numaPressureConfig: &NumaPressureConfig{
+					ExpandFactor: 1,
+				},
+			},
+			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+				store.SetByStringIndex(consts.MetricCPUCodeName, "abc")
+				store.SetByStringIndex(consts.MetricInfoIsVM, "false")
+			},
+			wantEnabled: false,
+		},
+		{
+			name: "disabled when default enabled 0",
+			fields: fields{
+				conf:    generatePluginConfig(false, false, false),
+				enabled: true,
+				numaPressureConfig: &NumaPressureConfig{
+					ExpandFactor: 1,
+				},
+			},
+			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+				store.SetByStringIndex(consts.MetricCPUCodeName, "abc")
+				store.SetByStringIndex(consts.MetricInfoIsVM, "false")
+			},
+			wantEnabled: false,
+		},
+		{
+			name: "disabled when default enabled 1",
+			fields: fields{
+				conf:    generatePluginConfig(false, true, false),
+				enabled: true,
+				numaPressureConfig: &NumaPressureConfig{
+					ExpandFactor: 1,
+				},
+			},
+			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+				store.SetByStringIndex(consts.MetricCPUCodeName, "abc")
+				store.SetByStringIndex(consts.MetricInfoIsVM, "false")
+			},
+			wantEnabled: false,
+		},
+		{
+			name: "disabled when default enabled 2",
+			fields: fields{
+				conf:    generatePluginConfig(false, false, true),
+				enabled: true,
+				numaPressureConfig: &NumaPressureConfig{
+					ExpandFactor: 1,
+				},
+			},
+			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+				store.SetByStringIndex(consts.MetricCPUCodeName, "abc")
+				store.SetByStringIndex(consts.MetricInfoIsVM, "false")
+			},
+			wantEnabled: false,
+		},
+		{
+			name: "disabled when default enabled 3",
+			fields: fields{
+				conf:    generatePluginConfig(false, true, true),
+				enabled: true,
+				numaPressureConfig: &NumaPressureConfig{
+					ExpandFactor: 1,
+				},
+			},
+			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+				store.SetByStringIndex(consts.MetricCPUCodeName, "abc")
+				store.SetByStringIndex(consts.MetricInfoIsVM, "false")
+			},
+			wantEnabled: false,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
+			store := metricsFetcher.(*metric.FakeMetricsFetcher)
+			tt.setFakeMetric(store)
+			p := &NumaCPUPressureEviction{
+				conf:               tt.fields.conf,
+				numaPressureConfig: tt.fields.numaPressureConfig,
+				thresholds:         tt.fields.thresholds,
+				enabled:            tt.fields.enabled,
+				metaServer:         makeMetaServer(metricsFetcher, nil),
+			}
+			p.pullThresholds(context.TODO())
+			assert.Equalf(t, tt.wantEnabled, p.enabled, "pullThresholds")
+		})
+	}
+}
+
+func generatePluginConfig(staticEnabled bool, sgcEnabled bool, sgcConfigured bool) *config.Configuration {
+	testConfiguration, _ := options.NewOptions().Config()
+
+	d := dynamic.NewConfiguration()
+	d.NumaCPUPressureEvictionConfiguration.EnableEviction = staticEnabled
+	d.StrategyGroupConfiguration.EnableStrategyGroup = sgcEnabled
+	if sgcConfigured {
+		d.StrategyGroupConfiguration.EnabledStrategies = []v1alpha1.Strategy{
+			{
+				Name: pointer.String(consts.StrategyNameNumaCpuPressureEviction),
+			},
+		}
+	}
+
+	testConfiguration.AgentConfiguration.DynamicAgentConfiguration.SetDynamicConfiguration(d)
+
+	return testConfiguration
 }
