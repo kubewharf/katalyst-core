@@ -157,7 +157,7 @@ func acquireLock(genericCtx *agent.GenericContext, conf *config.Configuration) *
 	}()
 
 	for {
-		lock, err := general.GetUniqueLock(conf.LockFileName)
+		lock, err := general.GetUniqueLock(fmt.Sprintf("%s-%s", conf.LockFileName, conf.NodeName))
 		if err != nil {
 			_ = genericCtx.EmitterPool.GetDefaultMetricsEmitter().StoreInt64(metricsNameLockingFailed, 1, metrics.MetricTypeNameRaw)
 			// if waiting is enabled, we will always wait until lock has been obtained successfully;
