@@ -43,6 +43,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
 )
@@ -390,11 +391,21 @@ func (s *SystemPressureEvictionPlugin) GetTopEvictionPods(_ context.Context, req
 	targetPods := make([]*v1.Pod, 0, len(request.ActivePods))
 	podToEvictMap := make(map[string]*v1.Pod)
 
-	general.Infof("GetTopEvictionPods condition, m.isUnderSystemPressure: %+v, "+
-		"m.systemAction: %+v", s.isUnderSystemPressure, s.systemAction)
+	targetNumaID := nonExistNumaID
+	var minFree uint64 = ^uint64(0)
+	zoneinfo := machine.GetNormalZoneInfo(hostZoneInfoFile)
+	for _, numaID := range s.metaServer.CPUDetails.NUMANodes().ToSliceNoSortInt() {
+		if free := zoneinfo[numaID].Free; free < minFree {
+			minFree = free
+			targetNumaID = numaID
+		}
+	}
+
+	general.Infof("GetTopEvictionPods condition,numa=%+v,  m.isUnderSystemPressure: %+v, "+
+		"m.systemAction: %+v", targetNumaID, s.isUnderSystemPressure, s.systemAction)
 
 	if dynamicConfig.EnableSystemLevelEviction && s.isUnderSystemPressure {
-		s.evictionHelper.selectTopNPodsToEvictByMetrics(request.ActivePods, request.TopN, nonExistNumaID, s.systemAction,
+		s.evictionHelper.selectTopNPodsToEvictByMetrics(request.ActivePods, request.TopN, targetNumaID, s.systemAction,
 			dynamicConfig.SystemEvictionRankingMetrics, podToEvictMap)
 	}
 
