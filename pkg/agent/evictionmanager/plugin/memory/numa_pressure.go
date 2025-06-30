@@ -48,7 +48,7 @@ const (
 
 const (
 	memLowReservePages = 1048576 // 4G
-	memGapPages        = 262144  // 1G
+	memGuardPages      = 262144  // 1G
 
 	minDuration = 3
 )
@@ -145,10 +145,12 @@ func (n *NumaMemoryPressurePlugin) detectNumaPressures() error {
 			low := zoneinfo[numaID].Low
 			fileInactive := zoneinfo[numaID].FileInactive
 
+			// Notice: adding a buffer range for mem.low to avoid kswapd ping-pong
+			low += memGuardPages
 			// step2, add a compensation mechanism to prevent system thrashing due to insufficient file memory
 			fileReserved := general.Max(memLowReservePages, int(low))
 			if fileInactive < uint64(fileReserved) {
-				tmp := low + memGapPages
+				tmp := low + memGuardPages
 				low = uint64(general.Max(memLowReservePages, int(tmp)))
 			}
 
@@ -170,7 +172,7 @@ func (n *NumaMemoryPressurePlugin) detectNumaPressures() error {
 }
 
 func (n *NumaMemoryPressurePlugin) isUnderAdditionalPressure(free, min, low int) bool {
-	return free < (min+low)/2 || (low > memGapPages && free < (low-memGapPages))
+	return free < (min+low)/2 || (low > memGuardPages && free < (low-memGuardPages))
 }
 
 func (n *NumaMemoryPressurePlugin) detectNumaWatermarkPressure(numaID, free, min, low int) error {
@@ -217,7 +219,9 @@ func (n *NumaMemoryPressurePlugin) detectNumaWatermarkPressure(numaID, free, min
 			n.numaFreeBelowWatermarkTimesMap[numaID]++
 		}
 	} else {
-		n.numaFreeBelowWatermarkTimesMap[numaID] = 0
+		if n.numaFreeBelowWatermarkTimesMap[numaID] > 0 {
+			n.numaFreeBelowWatermarkTimesMap[numaID]--
+		}
 	}
 	if n.numaFreeBelowWatermarkTimesMap[numaID] >= dynamicConfig.NumaFreeBelowWatermarkTimesThreshold {
 		n.numaActionMap[numaID] = actionEviction
