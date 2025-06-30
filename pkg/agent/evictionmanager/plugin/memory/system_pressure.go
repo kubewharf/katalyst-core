@@ -55,6 +55,7 @@ const (
 	syncTolerationTurns                    = 3
 	minMemPressure                         = 1
 	minPods                                = 3
+	minGrace                               = 5
 )
 
 func NewSystemPressureEvictionPlugin(_ *client.GenericClientSet, _ events.EventRecorder,
@@ -419,7 +420,18 @@ func (s *SystemPressureEvictionPlugin) GetTopEvictionPods(_ context.Context, req
 	resp := &pluginapi.GetTopEvictionPodsResponse{
 		TargetPods: targetPods,
 	}
-	if gracePeriod := dynamicConfig.MemoryPressureEvictionConfiguration.GracePeriod; gracePeriod > 0 {
+
+	gracePeriod := dynamicConfig.MemoryPressureEvictionConfiguration.GracePeriod
+
+	switch s.systemAction {
+	case actionReclaimedEviction:
+		gracePeriod = gracePeriod / 4
+		if gracePeriod < minGrace {
+			gracePeriod = minGrace
+		}
+	}
+
+	if gracePeriod > 0 {
 		resp.DeletionOptions = &pluginapi.DeletionOptions{
 			GracePeriodSeconds: gracePeriod,
 		}
