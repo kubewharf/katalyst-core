@@ -97,6 +97,17 @@ func PodIsDaemonSet(pod *v1.Pod) bool {
 	return false
 }
 
+func PodIsStatefulSet(pod *v1.Pod) bool {
+	if pod != nil && pod.OwnerReferences != nil {
+		for _, ownerReference := range pod.OwnerReferences {
+			if ownerReference.Kind == "StatefulSetExtension" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func IsValidQosLevel(qoslevel string) bool {
 	if qoslevel == string(consts.QoSLevelReclaimedCores) || qoslevel == string(consts.QoSLevelSharedCores) ||
 		qoslevel == string(consts.QoSLevelDedicatedCores) || qoslevel == string(consts.QoSLevelSystemCores) {

@@ -32,6 +32,7 @@ import (
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
@@ -127,6 +128,8 @@ func (p *NumaCPUPressureEviction) GetEvictPods(_ context.Context, request *plugi
 	p.RLock()
 	defer p.RUnlock()
 
+	activePods := filterPods(request.ActivePods)
+
 	if !p.enabled {
 		general.Infof("numa cpu pressure eviction is disabled")
 		return &pluginapi.GetEvictPodsResponse{}, nil
@@ -149,7 +152,7 @@ func (p *NumaCPUPressureEviction) GetEvictPods(_ context.Context, request *plugi
 		return &pluginapi.GetEvictPodsResponse{}, nil
 	}
 
-	topPod, podUsageRatio, err := p.pickTargetPod(numaID, targetMetric, request.ActivePods, numaUsageRatio)
+	topPod, podUsageRatio, err := p.pickTargetPod(numaID, targetMetric, activePods, numaUsageRatio)
 	if err != nil {
 		general.ErrorS(err, "pick top over ratio nums pods failed")
 		_ = p.emitter.StoreFloat64(metricsNameGetEvictPods, 0, metrics.MetricTypeNameRaw,
@@ -474,6 +477,16 @@ func selectPodRandomly(pods []PodWithUsage) *PodWithUsage {
 	target := &pods[randomIndex]
 	general.InfoS("Select target pod", "podName", target.pod.Name, "usageRatio", target.usageRatio)
 	return target
+}
+
+func filterPods(pods []*v1.Pod) []*v1.Pod {
+	var filteredPods []*v1.Pod
+	for _, pod := range pods {
+		if isStatefulSet := helper.PodIsStatefulSet(pod); !isStatefulSet {
+			filteredPods = append(filteredPods, pod)
+		}
+	}
+	return filteredPods
 }
 
 type PodWithUsage struct {
