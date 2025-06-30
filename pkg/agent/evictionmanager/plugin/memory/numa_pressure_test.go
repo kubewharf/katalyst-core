@@ -188,7 +188,7 @@ func TestNumaMemoryPressurePlugin_ThresholdMet(t *testing.T) {
 			wantIsUnderNumaPressure: true,
 			wantNumaAction: map[int]int{
 				0: actionEviction,
-				1: actionNoop,
+				1: actionReclaimedEviction,
 				2: actionNoop,
 				3: actionNoop,
 			},
@@ -205,7 +205,7 @@ func TestNumaMemoryPressurePlugin_ThresholdMet(t *testing.T) {
 			wantIsUnderNumaPressure: true,
 			wantNumaAction: map[int]int{
 				0: actionEviction,
-				1: actionReclaimedEviction,
+				1: actionEviction,
 				2: actionNoop,
 				3: actionNoop,
 			},
