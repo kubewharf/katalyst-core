@@ -22,7 +22,6 @@ import (
 
 const (
 	LargeNUMAsPoint = 16
-	MBWNUMAsPoint   = 8
 )
 
 // TransformCPUAssignmentFormat transforms cpu assignment string format to cpuset format
