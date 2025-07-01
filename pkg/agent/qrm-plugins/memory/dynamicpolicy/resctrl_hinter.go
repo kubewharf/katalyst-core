@@ -37,8 +37,7 @@ const (
 )
 
 type ResctrlHinter interface {
-	HintResp(qosLevel string, req *pluginapi.ResourceRequest, resp *pluginapi.ResourceAllocationResponse,
-	) *pluginapi.ResourceAllocationResponse
+	HintResourceAllocation(podMeta commonstate.AllocationMeta, resourceAllocation *pluginapi.ResourceAllocation)
 }
 
 type resctrlHinter struct {
@@ -62,12 +61,12 @@ func (r *resctrlHinter) getSharedSubgroupByPool(pool string) string {
 	return getSharedSubgroup(r.config.DefaultSharedSubgroup)
 }
 
-func ensureToGetMemAllocInfo(resp *pluginapi.ResourceAllocationResponse) *pluginapi.ResourceAllocationInfo {
-	if _, ok := resp.AllocationResult.ResourceAllocation[string(v1.ResourceMemory)]; !ok {
-		resp.AllocationResult.ResourceAllocation[string(v1.ResourceMemory)] = &pluginapi.ResourceAllocationInfo{}
+func ensureToGetMemAllocInfo(resourceAllocation *pluginapi.ResourceAllocation) *pluginapi.ResourceAllocationInfo {
+	if _, ok := resourceAllocation.ResourceAllocation[string(v1.ResourceMemory)]; !ok {
+		resourceAllocation.ResourceAllocation[string(v1.ResourceMemory)] = &pluginapi.ResourceAllocationInfo{}
 	}
 
-	allocInfo := resp.AllocationResult.ResourceAllocation[string(v1.ResourceMemory)]
+	allocInfo := resourceAllocation.ResourceAllocation[string(v1.ResourceMemory)]
 	if allocInfo.Annotations == nil {
 		allocInfo.Annotations = make(map[string]string)
 	}
@@ -75,8 +74,8 @@ func ensureToGetMemAllocInfo(resp *pluginapi.ResourceAllocationResponse) *plugin
 	return allocInfo
 }
 
-func injectRespAnnotationSharedGroup(resp *pluginapi.ResourceAllocationResponse, group string) {
-	allocInfo := ensureToGetMemAllocInfo(resp)
+func injectRespAnnotationSharedGroup(resourceAllocation *pluginapi.ResourceAllocation, group string) {
+	allocInfo := ensureToGetMemAllocInfo(resourceAllocation)
 	allocInfo.Annotations[util.AnnotationRdtClosID] = group
 }
 
@@ -89,13 +88,13 @@ func isPodLevelSubgroupDisabled(group string, enablingGroups sets.String) bool {
 	return !enablingGroups.Has(group)
 }
 
-func injectRespAnnotationPodMonGroup(resp *pluginapi.ResourceAllocationResponse,
+func injectRespAnnotationPodMonGroup(podMeta commonstate.AllocationMeta, resourceAllocation *pluginapi.ResourceAllocation,
 	enablingGroups sets.String, group string,
 ) {
 	if isPodLevelSubgroupDisabled(group, enablingGroups) {
-		allocInfo := ensureToGetMemAllocInfo(resp)
+		allocInfo := ensureToGetMemAllocInfo(resourceAllocation)
 		general.InfofV(6, "mbm: pod %s/%s of group %s has no pod level mon subgroups",
-			resp.PodNamespace, resp.PodName, group)
+			podMeta.PodNamespace, podMeta.PodName, group)
 		allocInfo.Annotations[util.AnnotationRdtNeedPodMonGroups] = strconv.FormatBool(false)
 		return
 	}
@@ -104,37 +103,37 @@ func injectRespAnnotationPodMonGroup(resp *pluginapi.ResourceAllocationResponse,
 	return
 }
 
-func (r *resctrlHinter) HintResp(qosLevel string,
-	req *pluginapi.ResourceRequest, resp *pluginapi.ResourceAllocationResponse,
-) *pluginapi.ResourceAllocationResponse {
+func (r *resctrlHinter) HintResourceAllocation(podMeta commonstate.AllocationMeta, resourceAllocation *pluginapi.ResourceAllocation) {
 	if r.config == nil || !r.config.EnableResctrlHint {
-		return resp
+		return
 	}
 
 	var resctrlGroup string
-	if qosLevel == apiconsts.PodAnnotationQoSLevelSystemCores {
+	switch podMeta.QoSLevel {
+	case apiconsts.PodAnnotationQoSLevelSystemCores:
 		// tweak the case of system qos
 		resctrlGroup = commonstate.PoolNamePrefixSystem
-	} else {
-		resctrlGroup = commonstate.GetSpecifiedPoolName(qosLevel,
-			r.getSharedSubgroupByPool(req.Annotations[apiconsts.PodAnnotationCPUEnhancementCPUSet]))
+	case apiconsts.PodAnnotationQoSLevelSharedCores:
+		resctrlGroup = r.getSharedSubgroupByPool(podMeta.OwnerPoolName)
+	default:
+		resctrlGroup = podMeta.OwnerPoolName
 	}
 
 	// when no recognized qos can be identified, no hint
 	if resctrlGroup == commonstate.EmptyOwnerPoolName {
-		general.Errorf("pod admit: fail to identify resctrl top level group for qos %s; skip resctl hint", qosLevel)
-		return resp
+		general.Errorf("pod admit: fail to identify resctrl top level group for qos %s; skip resctl hint", podMeta.QoSLevel)
+		return
 	}
 
 	// inject shared subgroup if share pool
-	if qosLevel == apiconsts.PodAnnotationQoSLevelSharedCores {
-		injectRespAnnotationSharedGroup(resp, resctrlGroup)
+	if podMeta.QoSLevel == apiconsts.PodAnnotationQoSLevelSharedCores {
+		injectRespAnnotationSharedGroup(resourceAllocation, resctrlGroup)
 	}
 
 	// inject pod mon group (false only) if applicable
-	injectRespAnnotationPodMonGroup(resp, r.closidEnablingGroups, resctrlGroup)
+	injectRespAnnotationPodMonGroup(podMeta, resourceAllocation, r.closidEnablingGroups, resctrlGroup)
 
-	return resp
+	return
 }
 
 func newResctrlHinter(config *qrm.ResctrlConfig) ResctrlHinter {
