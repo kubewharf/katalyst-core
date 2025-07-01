@@ -24,7 +24,6 @@ import (
 	"k8s.io/utils/pointer"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
-	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/metricthreshold"
@@ -454,7 +453,7 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 }
 
 func generatePluginConfig(staticEnabled bool, sgcEnabled bool, sgcConfigured bool) *config.Configuration {
-	testConfiguration, _ := options.NewOptions().Config()
+	testConfiguration := config.NewConfiguration()
 
 	d := dynamic.NewConfiguration()
 	d.NumaCPUPressureEvictionConfiguration.EnableEviction = staticEnabled

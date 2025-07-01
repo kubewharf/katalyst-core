@@ -22,8 +22,8 @@ import (
 	cliflag "k8s.io/component-base/cli/flag"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/qrm/hintoptimizer"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
-	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 )
 
@@ -47,6 +47,7 @@ type CPUDynamicPolicyOptions struct {
 	CPUNUMAHintPreferLowThreshold             float64
 	SharedCoresNUMABindingResultAnnotationKey string
 	EnableMetricPreferredNumaAllocation       bool
+	*hintoptimizer.HintOptimizerOptions
 }
 
 type CPUNativePolicyOptions struct {
@@ -65,7 +66,6 @@ func NewCPUOptions() *CPUOptions {
 			EnableCPUPressureEviction: false,
 			EnableSyncingCPUIdle:      false,
 			EnableCPUIdle:             false,
-			CPUNUMAHintPreferPolicy:   cpuconsts.CPUNUMAHintPreferPolicySpreading,
 			LoadPressureEvictionSkipPools: []string{
 				commonstate.PoolNameReclaim,
 				commonstate.PoolNameDedicated,
@@ -74,6 +74,7 @@ func NewCPUOptions() *CPUOptions {
 			},
 			SharedCoresNUMABindingResultAnnotationKey: consts.PodAnnotationNUMABindResultKey,
 			EnableMetricPreferredNumaAllocation:       false,
+			HintOptimizerOptions:                      hintoptimizer.NewHintOptimizerOptions(),
 		},
 		CPUNativePolicyOptions: CPUNativePolicyOptions{
 			EnableFullPhysicalCPUsOnly: false,
@@ -104,10 +105,6 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.BoolVar(&o.EnableCPUIdle, "enable-cpu-idle", o.EnableCPUIdle,
 		"if set true, we will enable cpu idle for "+
 			"specific cgroup paths and it requires --enable-syncing-cpu-idle=true to make effect")
-	fs.StringVar(&o.CPUNUMAHintPreferPolicy, "cpu-numa-hint-prefer-policy", o.CPUNUMAHintPreferPolicy,
-		"it decides hint preference calculation strategy")
-	fs.Float64Var(&o.CPUNUMAHintPreferLowThreshold, "cpu-numa-hint-prefer-low-threshold", o.CPUNUMAHintPreferLowThreshold,
-		"it indicates threshold to apply CPUNUMAHintPreferPolicy dynamically, and it's working when CPUNUMAHintPreferPolicy is set to dynamic_packing")
 	fs.BoolVar(&o.EnableMetricPreferredNumaAllocation, "enable-metric-preferred-numa-allocation", o.EnableMetricPreferredNumaAllocation,
 		"if set true, we will enable metric preferred numa")
 	fs.StringVar(&o.CPUAllocationOption, "cpu-allocation-option",
@@ -119,6 +116,7 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringVar(&o.SharedCoresNUMABindingResultAnnotationKey, "shared-cores-numa-binding-result-annotation-key",
 		o.SharedCoresNUMABindingResultAnnotationKey, "the key of shared cores numa binding result annotation, "+
 			"default is katalyst.kubewharf.io/numa_bind_result")
+	o.HintOptimizerOptions.AddFlags(fss)
 }
 
 func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
@@ -133,9 +131,10 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 	conf.EnableCPUIdle = o.EnableCPUIdle
 	conf.EnableFullPhysicalCPUsOnly = o.EnableFullPhysicalCPUsOnly
 	conf.CPUAllocationOption = o.CPUAllocationOption
-	conf.CPUNUMAHintPreferPolicy = o.CPUNUMAHintPreferPolicy
-	conf.CPUNUMAHintPreferLowThreshold = o.CPUNUMAHintPreferLowThreshold
 	conf.EnableMetricPreferredNumaAllocation = o.EnableMetricPreferredNumaAllocation
 	conf.SharedCoresNUMABindingResultAnnotationKey = o.SharedCoresNUMABindingResultAnnotationKey
+	if err := o.HintOptimizerOptions.ApplyTo(conf.HintOptimizerConfiguration); err != nil {
+		return err
+	}
 	return nil
 }

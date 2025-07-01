@@ -21,9 +21,11 @@ import (
 	"fmt"
 	"math"
 
+	pkgerrors "github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -31,7 +33,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	utilkubeconfig "github.com/kubewharf/katalyst-core/pkg/util/kubelet/config"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
+
+var ErrNoAvailableCPUHints = pkgerrors.New("no available cpu hints")
 
 func GetCoresReservedForSystem(conf *config.Configuration, metaServer *metaserver.MetaServer, machineInfo *machine.KatalystMachineInfo, allCPUs machine.CPUSet) (machine.CPUSet, error) {
 	if conf == nil {
@@ -165,4 +170,74 @@ func AdvisorDegradation(advisorHealth, enableReclaim bool) bool {
 func CPUIsSufficient(request, available float64) bool {
 	// the minimal CPU core is 0.001 (1core = 1000m)
 	return request < available+0.0001
+}
+
+// GetContainerRequestedCores parses and returns request cores for the given container
+func GetContainerRequestedCores(metaServer *metaserver.MetaServer, allocationInfo *state.AllocationInfo) float64 {
+	if allocationInfo == nil {
+		general.Errorf("got nil allocationInfo")
+		return 0
+	}
+
+	if metaServer == nil {
+		general.Errorf("got nil metaServer")
+		return allocationInfo.RequestQuantity
+	}
+
+	container, err := metaServer.GetContainerSpec(allocationInfo.PodUid, allocationInfo.ContainerName)
+	if err != nil || container == nil {
+		general.Errorf("get container failed with error: %v", err)
+		return allocationInfo.RequestQuantity
+	}
+
+	cpuQuantity := native.CPUQuantityGetter()(container.Resources.Requests)
+	metaValue := general.MaxFloat64(float64(cpuQuantity.MilliValue())/1000.0, 0)
+
+	// optimize this logic someday:
+	//	only for refresh cpu request for old pod with cpu ceil and old inplace update resized pods.
+	if allocationInfo.CheckShared() {
+		// if there is these two annotations in memory state, it is a new pod,
+		// we don't need to check the pod request from podWatcher
+		if allocationInfo.Annotations[consts.PodAnnotationAggregatedRequestsKey] != "" ||
+			allocationInfo.Annotations[consts.PodAnnotationInplaceUpdateResizingKey] != "" {
+			return allocationInfo.RequestQuantity
+		}
+		if allocationInfo.CheckNUMABinding() {
+			if metaValue < allocationInfo.RequestQuantity {
+				general.Infof("[snb] get cpu request quantity: (%.3f->%.3f) for pod: %s/%s container: %s from podWatcher",
+					allocationInfo.RequestQuantity, metaValue, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
+				return metaValue
+			}
+		} else {
+			if metaValue != allocationInfo.RequestQuantity {
+				general.Infof("[share] get cpu request quantity: (%.3f->%.3f) for pod: %s/%s container: %s from podWatcher",
+					allocationInfo.RequestQuantity, metaValue, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
+				return metaValue
+			}
+		}
+	} else if allocationInfo.RequestQuantity == 0 {
+		general.Infof("[other] get cpu request quantity: (%.3f->%.3f) for pod: %s/%s container: %s from podWatcher",
+			allocationInfo.RequestQuantity, metaValue, allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName)
+		return metaValue
+	}
+
+	return allocationInfo.RequestQuantity
+}
+
+func PopulateHintsByAvailableNUMANodes(
+	numaNodes []int,
+	hints *pluginapi.ListOfTopologyHints,
+	preferred bool,
+) {
+	if hints == nil {
+		general.Errorf("got nil hints")
+		return
+	}
+
+	for _, nodeID := range numaNodes {
+		hints.Hints = append(hints.Hints, &pluginapi.TopologyHint{
+			Nodes:     []uint64{uint64(nodeID)},
+			Preferred: preferred,
+		})
+	}
 }

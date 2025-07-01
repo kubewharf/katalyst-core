@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	pkgerrors "github.com/pkg/errors"
 	"go.uber.org/atomic"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -54,6 +55,8 @@ const (
 	metricsNameUpdateCacheSuccess       = "spd_manager_update_cache_success"
 	metricsNameDeleteCache              = "spd_manager_delete_cache"
 )
+
+var SPDNameNotFoundError = pkgerrors.New("get SPD name not found")
 
 type GetPodSPDNameFunc func(_ metav1.ObjectMeta) (string, error)
 
@@ -127,7 +130,7 @@ func (s *spdFetcher) GetSPD(ctx context.Context, podMeta metav1.ObjectMeta) (*wo
 	spdName, err := s.getPodSPDNameFunc(podMeta)
 	if err != nil {
 		general.Warningf("get spd for pod (%v/%v) err %v", podMeta.Namespace, podMeta.Name, err)
-		return nil, errors.NewNotFound(workloadapis.Resource(workloadapis.ResourceNameServiceProfileDescriptors), fmt.Sprintf("for pod(%v/%v)", podMeta.Namespace, podMeta.Name))
+		return nil, SPDNameNotFoundError
 	}
 
 	spdNamespace := podMeta.GetNamespace()

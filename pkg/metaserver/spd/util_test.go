@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -114,6 +115,96 @@ func TestGetContainerMemoryBandwidthRequest(t *testing.T) {
 			if got != tt.want {
 				t.Errorf("GetContainerMemoryBandwidthRequest() got = %v, want %v", got, tt.want)
 			}
+		})
+	}
+}
+
+func TestGetContainerServiceProfileRequest(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		profilingManager ServiceProfilingManager
+		podMeta          metav1.ObjectMeta
+		resourceName     v1.ResourceName
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    []resource.Quantity
+		wantErr bool
+	}{
+		{
+			name: "test two container",
+			args: args{
+				profilingManager: NewServiceProfilingManager(DummySPDFetcher{
+					SPD: &workloadapi.ServiceProfileDescriptor{
+						Status: workloadapi.ServiceProfileDescriptorStatus{
+							AggMetrics: []workloadapi.AggPodMetrics{
+								{
+									Aggregator: workloadapi.Avg,
+									Items: []v1beta1.PodMetrics{
+										{
+											Timestamp: metav1.NewTime(time.Date(1970, 0, 0, 0, 0, 0, 0, time.UTC)),
+											Window:    metav1.Duration{Duration: time.Hour},
+											Containers: []v1beta1.ContainerMetrics{
+												{
+													Name: "container-1",
+													Usage: map[v1.ResourceName]resource.Quantity{
+														v1.ResourceCPU: resource.MustParse("10"),
+													},
+												},
+												{
+													Name: "container-2",
+													Usage: map[v1.ResourceName]resource.Quantity{
+														v1.ResourceCPU: resource.MustParse("10"),
+													},
+												},
+											},
+										},
+										{
+											Timestamp: metav1.NewTime(time.Date(1970, 0, 0, 1, 0, 0, 0, time.UTC)),
+											Window:    metav1.Duration{Duration: time.Hour},
+											Containers: []v1beta1.ContainerMetrics{
+												{
+													Name: "container-1",
+													Usage: map[v1.ResourceName]resource.Quantity{
+														v1.ResourceCPU: resource.MustParse("20"),
+													},
+												},
+												{
+													Name: "container-2",
+													Usage: map[v1.ResourceName]resource.Quantity{
+														v1.ResourceCPU: resource.MustParse("20"),
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				}),
+				podMeta:      metav1.ObjectMeta{},
+				resourceName: v1.ResourceCPU,
+			},
+			want: []resource.Quantity{
+				resource.MustParse("20"),
+				resource.MustParse("40"),
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := GetContainerServiceProfileRequest(tt.args.profilingManager, tt.args.podMeta, tt.args.resourceName)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetContainerServiceProfileRequest() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			assert.Equal(t, len(got), len(tt.want))
 		})
 	}
 }

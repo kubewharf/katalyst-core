@@ -21,7 +21,6 @@ import (
 	"fmt"
 
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -51,7 +50,7 @@ func PodEnableReclaim(ctx context.Context, metaServer *metaserver.MetaServer,
 
 	// get current service performance level of the pod
 	pLevel, err := metaServer.ServiceBusinessPerformanceLevel(ctx, pod.ObjectMeta)
-	if err != nil && !errors.IsNotFound(err) {
+	if err != nil && !spd.IsSPDNameOrResourceNotFound(err) {
 		return false, err
 	} else if err != nil {
 		return true, nil
@@ -63,8 +62,10 @@ func PodEnableReclaim(ctx context.Context, metaServer *metaserver.MetaServer,
 
 	// check whether current pod is service baseline
 	baseline, err := metaServer.ServiceBaseline(ctx, pod.ObjectMeta)
-	if err != nil {
+	if err != nil && !spd.IsSPDNameOrResourceNotFound(err) {
 		return false, err
+	} else if err != nil {
+		return true, nil
 	} else if baseline {
 		// if pod is baseline, it can not be reclaimed
 		general.InfoS("pod is regarded as baseline, reclaim disabled", "podUID", podUID)

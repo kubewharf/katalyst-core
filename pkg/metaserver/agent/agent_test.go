@@ -35,7 +35,7 @@ import (
 	v1alpha1fake "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/fake"
 	v1alpha1client "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/typed/node/v1alpha1"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
-	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
+	pkgconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	metaconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/metaserver"
 	cnrmeta "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnr"
@@ -95,7 +95,7 @@ func TestFetcher(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	conf, _ := options.NewOptions().Config()
+	conf := pkgconfig.NewConfiguration()
 	conf.CheckpointManagerDir = "/tmp/TestFetcher"
 	bCtx, _ := katalyst_base.GenerateFakeGenericContext(nil, nil, nil)
 
