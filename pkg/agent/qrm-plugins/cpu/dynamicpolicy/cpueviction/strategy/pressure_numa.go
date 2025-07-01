@@ -32,6 +32,7 @@ import (
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
@@ -137,6 +138,13 @@ func (p *NumaCPUPressureEviction) GetEvictPods(_ context.Context, request *plugi
 		return &pluginapi.GetEvictPodsResponse{}, nil
 	}
 
+	activePods := helper.FilterPodsByKind(request.ActivePods, p.numaPressureConfig.SkippedPodKinds)
+
+	if len(activePods) == 0 {
+		general.Warningf("got empty active pods list after filter")
+		return &pluginapi.GetEvictPodsResponse{}, nil
+	}
+
 	// todo may pick multiple numas if overload
 	numaID, numaOverloadRatio, numaUsageRatio, err := p.pickTopOverRatioNuma(targetMetric, p.thresholds)
 	if err != nil {
@@ -149,7 +157,7 @@ func (p *NumaCPUPressureEviction) GetEvictPods(_ context.Context, request *plugi
 		return &pluginapi.GetEvictPodsResponse{}, nil
 	}
 
-	topPod, podUsageRatio, err := p.pickTargetPod(numaID, targetMetric, request.ActivePods, numaUsageRatio)
+	topPod, podUsageRatio, err := p.pickTargetPod(numaID, targetMetric, activePods, numaUsageRatio)
 	if err != nil {
 		general.ErrorS(err, "pick top over ratio nums pods failed")
 		_ = p.emitter.StoreFloat64(metricsNameGetEvictPods, 0, metrics.MetricTypeNameRaw,
@@ -487,6 +495,7 @@ type NumaPressureConfig struct {
 	GracePeriod            int64
 	ExpandFactor           float64
 	CandidateCount         int
+	SkippedPodKinds        []string
 }
 
 func getNumaPressureConfig(conf *dynamic.Configuration) *NumaPressureConfig {
@@ -496,5 +505,6 @@ func getNumaPressureConfig(conf *dynamic.Configuration) *NumaPressureConfig {
 		GracePeriod:            conf.NumaCPUPressureEvictionConfiguration.GracePeriod,
 		ExpandFactor:           conf.NumaCPUPressureEvictionConfiguration.ThresholdExpandFactor,
 		CandidateCount:         conf.NumaCPUPressureEvictionConfiguration.CandidateCount,
+		SkippedPodKinds:        conf.NumaCPUPressureEvictionConfiguration.SkippedPodKinds,
 	}
 }

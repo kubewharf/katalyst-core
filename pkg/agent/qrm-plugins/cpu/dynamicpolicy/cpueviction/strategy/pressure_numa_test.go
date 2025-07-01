@@ -393,6 +393,11 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 	}
 
 	pod1 := makePod("pod1")
+	pod1.OwnerReferences = []metav1.OwnerReference{
+		{
+			Kind: "DaemonSet",
+		},
+	}
 	pod2 := makePod("pod2")
 	pod3 := makePod("pod3")
 
@@ -478,6 +483,85 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 				want: nil,
 			},
 			wantErr: assert.Error,
+		},
+		{
+			name: "pod filtered by kind",
+			fields: fields{
+				podList: []*v1.Pod{
+					pod1,
+					pod2,
+					pod3,
+				},
+				conf: conf,
+				numaPressureConfig: &NumaPressureConfig{
+					MetricRingSize:         2,
+					ThresholdMetPercentage: 0.5,
+					GracePeriod:            -1,
+					ExpandFactor:           1.2,
+					SkippedPodKinds:        []string{"DaemonSet"},
+				},
+				metricsHistory: &NumaMetricHistory{
+					Inner: map[int]map[string]map[string]*MetricRing{
+						0: {
+							FakePodUID: {
+								consts.MetricCPUUsageContainer: {
+									MaxLen: 2,
+									Queue: []*MetricSnapshot{
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
+										nil,
+									},
+									CurrentIndex: 1,
+								},
+							},
+							"pod1": {
+								consts.MetricCPUUsageContainer: {
+									MaxLen: 2,
+									Queue: []*MetricSnapshot{
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
+										nil,
+									},
+									CurrentIndex: 1,
+								},
+							},
+							"pod2": {
+								consts.MetricCPUUsageContainer: {
+									MaxLen: 2,
+									Queue: []*MetricSnapshot{
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
+										nil,
+									},
+									CurrentIndex: 1,
+								},
+							},
+							"pod3": {
+								consts.MetricCPUUsageContainer: {
+									MaxLen: 2,
+									Queue: []*MetricSnapshot{
+										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
+										nil,
+									},
+									CurrentIndex: 1,
+								},
+							},
+						},
+					},
+					RingSize: 2,
+				},
+				thresholds: map[string]float64{
+					consts.MetricCPUUsageContainer: 0.8,
+				},
+				enabled:           true,
+				overloadNumaCount: 1,
+			},
+			args: args{
+				request: &pluginapi.GetEvictPodsRequest{
+					ActivePods: []*v1.Pod{pod1},
+				},
+			},
+			wantResp: wantResp{
+				want: &pluginapi.GetEvictPodsResponse{},
+			},
+			wantErr: assert.NoError,
 		},
 		{
 			name: "empty active pods",

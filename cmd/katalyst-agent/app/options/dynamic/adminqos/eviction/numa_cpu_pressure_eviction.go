@@ -29,6 +29,7 @@ type NumaCPUPressureEvictionOptions struct {
 	GracePeriod            int64
 	ThresholdExpandFactor  float64
 	CandidateCount         int
+	SkippedPodKinds        []string
 }
 
 func NewNumaCPUPressureEvictionOptions() NumaCPUPressureEvictionOptions {
@@ -39,6 +40,7 @@ func NewNumaCPUPressureEvictionOptions() NumaCPUPressureEvictionOptions {
 		GracePeriod:            60,
 		ThresholdExpandFactor:  1.1,
 		CandidateCount:         2,
+		SkippedPodKinds:        []string{},
 	}
 }
 
@@ -57,6 +59,8 @@ func (o *NumaCPUPressureEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"The factor by which to expand the NUMA CPU pressure threshold")
 	fs.IntVar(&o.CandidateCount, "numa-cpu-pressure-eviction-candidate-count", o.CandidateCount,
 		"The candidate count when pick victim pods")
+	fs.StringSliceVar(&o.SkippedPodKinds, "numa-cpu-pressure-eviction-skipped-pod-kinds", o.SkippedPodKinds,
+		"The pod kind that will be skipped when selecting pods to be evicted")
 }
 
 func (o *NumaCPUPressureEvictionOptions) ApplyTo(c *eviction.NumaCPUPressureEvictionConfiguration) error {
@@ -66,5 +70,6 @@ func (o *NumaCPUPressureEvictionOptions) ApplyTo(c *eviction.NumaCPUPressureEvic
 	c.GracePeriod = o.GracePeriod
 	c.ThresholdExpandFactor = o.ThresholdExpandFactor
 	c.CandidateCount = o.CandidateCount
+	c.SkippedPodKinds = o.SkippedPodKinds
 	return nil
 }

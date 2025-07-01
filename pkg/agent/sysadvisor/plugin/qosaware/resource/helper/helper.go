@@ -97,6 +97,35 @@ func PodIsDaemonSet(pod *v1.Pod) bool {
 	return false
 }
 
+func PodMatchKind(pod *v1.Pod, kind string) bool {
+	if pod != nil && pod.OwnerReferences != nil {
+		for _, ownerReference := range pod.OwnerReferences {
+			if ownerReference.Kind == kind {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func FilterPodsByKind(pods []*v1.Pod, skippedPodKinds []string) []*v1.Pod {
+	var filteredPods []*v1.Pod
+	for _, pod := range pods {
+		skipped := false
+		for _, kind := range skippedPodKinds {
+			if matchKind := PodMatchKind(pod, kind); matchKind {
+				skipped = true
+				break
+			}
+		}
+
+		if !skipped {
+			filteredPods = append(filteredPods, pod)
+		}
+	}
+	return filteredPods
+}
+
 func IsValidQosLevel(qoslevel string) bool {
 	if qoslevel == string(consts.QoSLevelReclaimedCores) || qoslevel == string(consts.QoSLevelSharedCores) ||
 		qoslevel == string(consts.QoSLevelDedicatedCores) || qoslevel == string(consts.QoSLevelSystemCores) {
