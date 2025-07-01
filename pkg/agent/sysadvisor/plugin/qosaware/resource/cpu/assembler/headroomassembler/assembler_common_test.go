@@ -28,6 +28,8 @@ import (
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
@@ -49,6 +51,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	metrictypes "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
@@ -98,6 +101,10 @@ func generateTestMetaServer(t *testing.T, cnr *v1alpha1.CustomNodeResource, podL
 			MetricsFetcher: metricsFetcher,
 		},
 	}
+
+	podProfiles := make(map[apitypes.UID]spd.DummyPodServiceProfile)
+	podProfiles["uid5"] = spd.DummyPodServiceProfile{PerformanceLevel: spd.PerformanceLevelPoor}
+	metaServer.SetServiceProfilingManager(spd.NewDummyServiceProfilingManager(podProfiles))
 	return metaServer
 }
 
@@ -126,6 +133,83 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 		{
 			name: "normal report",
 			fields: fields{
+				podList: []*v1.Pod{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:        "pod1",
+							Namespace:   "default",
+							UID:         "uid1",
+							Annotations: map[string]string{consts.PodAnnotationNUMABindResultKey: "0"},
+						},
+						Spec: v1.PodSpec{
+							Containers: []v1.Container{
+								{
+									Name: "container1",
+									Resources: v1.ResourceRequirements{
+										Limits: map[v1.ResourceName]resource.Quantity{
+											v1.ResourceCPU:    resource.MustParse("4"),
+											v1.ResourceMemory: resource.MustParse("40Gi"),
+										},
+										Requests: map[v1.ResourceName]resource.Quantity{
+											v1.ResourceCPU:    resource.MustParse("2"),
+											v1.ResourceMemory: resource.MustParse("20Gi"),
+										},
+									},
+								},
+							},
+						},
+					},
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:        "pod2",
+							Namespace:   "default",
+							UID:         "uid1",
+							Annotations: map[string]string{consts.PodAnnotationNUMABindResultKey: "1000"},
+						},
+						Spec: v1.PodSpec{
+							Containers: []v1.Container{
+								{
+									Name: "container1",
+									Resources: v1.ResourceRequirements{
+										Limits: map[v1.ResourceName]resource.Quantity{
+											v1.ResourceCPU:    resource.MustParse("4"),
+											v1.ResourceMemory: resource.MustParse("40Gi"),
+										},
+										Requests: map[v1.ResourceName]resource.Quantity{
+											v1.ResourceCPU:    resource.MustParse("2"),
+											v1.ResourceMemory: resource.MustParse("20Gi"),
+										},
+									},
+								},
+							},
+						},
+					},
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:        "pod3",
+							Namespace:   "default",
+							UID:         "uid1",
+							Annotations: map[string]string{consts.PodAnnotationNUMABindResultKey: "hehe"},
+						},
+						Spec: v1.PodSpec{
+							Containers: []v1.Container{
+								{
+									Name: "container1",
+									Resources: v1.ResourceRequirements{
+										Limits: map[v1.ResourceName]resource.Quantity{
+											v1.ResourceCPU:    resource.MustParse("4"),
+											v1.ResourceMemory: resource.MustParse("40Gi"),
+										},
+										Requests: map[v1.ResourceName]resource.Quantity{
+											v1.ResourceCPU:    resource.MustParse("2"),
+											v1.ResourceMemory: resource.MustParse("20Gi"),
+										},
+									},
+								},
+							},
+						},
+					},
+				},
 				entries: map[string]*types.RegionInfo{
 					"share": {
 						RegionType:    configapi.QoSRegionTypeShare,
@@ -646,6 +730,97 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 						},
 					},
 				},
+				podList: []*v1.Pod{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:        "pod1",
+							Namespace:   "default",
+							UID:         "uid1",
+							Annotations: map[string]string{consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores},
+						},
+						Spec: v1.PodSpec{
+							Containers: []v1.Container{
+								{
+									Name: "container1",
+									Resources: v1.ResourceRequirements{
+										Limits: map[v1.ResourceName]resource.Quantity{
+											v1.ResourceCPU:    resource.MustParse("4"),
+											v1.ResourceMemory: resource.MustParse("40Gi"),
+										},
+										Requests: map[v1.ResourceName]resource.Quantity{
+											v1.ResourceCPU:    resource.MustParse("2"),
+											v1.ResourceMemory: resource.MustParse("20Gi"),
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+					now := time.Now()
+					for i := 0; i < 96; i++ {
+						store.SetCPUMetric(i, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.3, Time: &now})
+					}
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 28.8, Time: &now})
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUQuotaCgroup, utilmetric.MetricData{Value: -1, Time: &now})
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUPeriodCgroup, utilmetric.MetricData{Value: 1000, Time: &now})
+				},
+				setMetaCache: func(cache *metacache.MetaCacheImp) {
+					err := cache.SetPoolInfo(commonstate.PoolNameReclaim, &types.PoolInfo{
+						PoolName: commonstate.PoolNameReclaim,
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.MustParse("0-9"),
+							1: machine.MustParse("49-96"),
+						},
+					})
+					require.NoError(t, err)
+					err = cache.AddContainer("uid1", "container1", &types.ContainerInfo{
+						PodName:      "pod1",
+						PodNamespace: "default",
+						PodUID:       "uid1",
+						QoSLevel:     consts.PodAnnotationQoSLevelDedicatedCores,
+					})
+					require.NoError(t, err)
+				},
+			},
+			want: *resource.NewQuantity(68, resource.DecimalSI),
+		},
+		{
+			name: "numa-exclusive region headroom util",
+			fields: fields{
+				entries: map[string]*types.RegionInfo{
+					"dedicated": {
+						RegionType:    configapi.QoSRegionTypeDedicatedNumaExclusive,
+						OwnerPoolName: "dedicated",
+						BindingNumas:  machine.NewCPUSet(0),
+						Headroom:      10,
+						RegionStatus: types.RegionStatus{
+							BoundType: types.BoundUpper,
+						},
+					},
+				},
+				cnr: &v1alpha1.CustomNodeResource{
+					Status: v1alpha1.CustomNodeResourceStatus{
+						Resources: v1alpha1.Resources{
+							Allocatable: &v1.ResourceList{
+								consts.ReclaimedResourceMilliCPU: resource.MustParse("86000"),
+							},
+						},
+					},
+				},
+				reclaimedResourceConfiguration: &reclaimedresource.ReclaimedResourceConfiguration{
+					EnableReclaim: true,
+					CPUHeadroomConfiguration: &cpuheadroom.CPUHeadroomConfiguration{
+						CPUUtilBasedConfiguration: &cpuheadroom.CPUUtilBasedConfiguration{
+							Enable:                         true,
+							TargetReclaimedCoreUtilization: 0.6,
+							MaxReclaimedCoreUtilization:    0.8,
+							MaxOversoldRate:                1.5,
+							MaxHeadroomCapacityRate:        1.,
+						},
+					},
+				},
 				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
 					now := time.Now()
 					for i := 0; i < 96; i++ {
@@ -666,7 +841,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 					require.NoError(t, err)
 				},
 			},
-			want: *resource.NewQuantity(68, resource.DecimalSI),
+			want: *resource.NewQuantity(70, resource.DecimalSI),
 		},
 	}
 
