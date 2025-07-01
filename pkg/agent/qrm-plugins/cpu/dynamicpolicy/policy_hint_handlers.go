@@ -859,6 +859,80 @@ func (p *DynamicPolicy) filterNUMANodesByHintPreferLowThreshold(request float64,
 	return filteredNUMANodes, filteredOutNUMANodes
 }
 
+func (p *DynamicPolicy) populateHintsByHybridPolicy(numaNodes []int,
+	hints *pluginapi.ListOfTopologyHints, machineState state.NUMANodeMap, request float64,
+) {
+	hintFilters := []Filter{
+		p.requestSufficientFilter(),
+	}
+	preferFilters := []Filter{
+		p.usageFilter(),
+	}
+	scorers := []Scorer{
+		p.hybridRequestScorer(),
+		//p.hybridUsageScorer(),
+	}
+
+	p.populateHintsByFramework(numaNodes, hints, machineState, request, hintFilters, preferFilters, scorers)
+}
+
+func (p *DynamicPolicy) populateHintsByFramework(numaNodes []int, hints *pluginapi.ListOfTopologyHints,
+	machineState state.NUMANodeMap, request float64, hintFilters []Filter, preferFilters []Filter, scorers []Scorer,
+) {
+	var numaScoreList NumaScoreList
+
+	for _, nodeID := range numaNodes {
+		if pass := filterNuma(hintFilters, request, nodeID, machineState); !pass {
+			continue
+		}
+
+		hints.Hints = append(hints.Hints, &pluginapi.TopologyHint{
+			Nodes: []uint64{uint64(nodeID)},
+		})
+
+		if pass := filterNuma(preferFilters, request, nodeID, machineState); !pass {
+			continue
+		}
+
+		scoreSum := 0
+		for _, scorer := range scorers {
+			score := scorer.ScoreFunc(request, nodeID, machineState)
+			scoreSum += score
+		}
+		score := scoreSum / len(scorers)
+
+		numaScoreList = append(numaScoreList, NumaScore{
+			Name:  nodeID,
+			Index: len(hints.Hints) - 1,
+			Score: int64(score),
+		})
+	}
+
+	if len(numaScoreList) == 0 {
+		return
+	}
+
+	sort.Slice(numaScoreList, func(i, j int) bool {
+		return numaScoreList[i].Score > numaScoreList[j].Score
+	})
+	targetNuma := numaScoreList[0]
+	general.InfoS("Select preferred numa", "request", request, "numa", targetNuma.Name,
+		"score", targetNuma.Score, "hintIndex", targetNuma.Index)
+
+	hints.Hints[targetNuma.Index].Preferred = true
+}
+
+func filterNuma(hintFilters []Filter, request float64, nodeID int, machineState state.NUMANodeMap) bool {
+	pass := true
+	for _, filter := range hintFilters {
+		if !filter(request, nodeID, machineState) {
+			pass = false
+			continue
+		}
+	}
+	return pass
+}
+
 func (p *DynamicPolicy) filterNUMANodesByNonBindingSharedRequestedQuantity(nonBindingSharedRequestedQuantity,
 	nonBindingNUMAsCPUQuantity int,
 	nonBindingNUMAs machine.CPUSet,
@@ -875,7 +949,7 @@ func (p *DynamicPolicy) filterNUMANodesByNonBindingSharedRequestedQuantity(nonBi
 			if nonBindingNUMAsCPUQuantity-allocatableCPUQuantity >= nonBindingSharedRequestedQuantity {
 				filteredNUMANodes = append(filteredNUMANodes, nodeID)
 			} else {
-				general.Infof("filter out NUMA: %d since taking it will cause non-binding shared_cores in short supply;"+
+				general.Infof("filterNuma out NUMA: %d since taking it will cause non-binding shared_cores in short supply;"+
 					" nonBindingNUMAsCPUQuantity: %d, targetNUMAAllocatableCPUQuantity: %d, nonBindingSharedRequestedQuantity: %d",
 					nodeID, nonBindingNUMAsCPUQuantity, allocatableCPUQuantity, nonBindingSharedRequestedQuantity)
 			}
@@ -934,7 +1008,26 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(request float64,
 		}
 	}
 
-	if !metricPolicyEnabled || err != nil {
+	hybridPolicyEnabled, err := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameHybridNUMAAllocation, true, p.conf)
+	if err != nil {
+		general.Warningf("IsStrategyEnabledForNode failed with error: %v", err)
+	}
+	general.Infof("hybridPolicyEnabled: %v", hybridPolicyEnabled)
+
+	if hybridPolicyEnabled {
+		_ = p.emitter.StoreInt64(util.MetricNameHybridNUMAAllocationEnabled, 1, metrics.MetricTypeNameCount)
+		p.populateHintsByHybridPolicy(numaNodes, hints, machineState, request)
+
+		if err != nil {
+			general.Errorf("populateHintsByHybridPolicy failed with error: %v", err)
+		} else {
+			_ = p.emitter.StoreInt64(util.MetricNameHybridNUMAAllocationSuccess, 1, metrics.MetricTypeNameCount)
+		}
+	}
+
+	bypassPolicyTriggered := metricPolicyEnabled || hybridPolicyEnabled
+
+	if !bypassPolicyTriggered || err != nil {
 		switch p.cpuNUMAHintPreferPolicy {
 		case cpuconsts.CPUNUMAHintPreferPolicyPacking, cpuconsts.CPUNUMAHintPreferPolicySpreading:
 			general.Infof("apply %s policy on NUMAs: %+v", p.cpuNUMAHintPreferPolicy, numaNodes)
@@ -1071,7 +1164,7 @@ func (p *DynamicPolicy) filterNUMANodesByNonBindingReclaimedRequestedQuantity(no
 				filteredNUMANodes = append(filteredNUMANodes, nodeID)
 				nonBindingNUMAs = nonBindingNUMAs.Difference(machine.NewCPUSet(nodeID))
 			} else {
-				general.Infof("filter out NUMA: %d since taking it will cause normal reclaimed_cores in short supply;"+
+				general.Infof("filterNuma out NUMA: %d since taking it will cause normal reclaimed_cores in short supply;"+
 					" nonBindingNUMAsCPUQuantity: %.3f, targetNUMAAllocatableCPUQuantity: %.3f, nonBindingReclaimedRequestedQuantity: %.3f",
 					nodeID, nonBindingNUMAsCPUQuantity, allocatableCPUQuantity, nonBindingReclaimedRequestedQuantity)
 			}
