@@ -409,7 +409,11 @@ func (s *SystemPressureEvictionPlugin) GetTopEvictionPods(_ context.Context, req
 		"m.systemAction: %+v", targetNumaID, s.isUnderSystemPressure, s.systemAction)
 
 	if dynamicConfig.EnableSystemLevelEviction && s.isUnderSystemPressure {
-		s.evictionHelper.selectTopNPodsToEvictByMetrics(request.ActivePods, request.TopN, targetNumaID, s.systemAction,
+		candidates := request.ActivePods
+		if targetNumaID != nonExistNumaID {
+			candidates = s.evictionHelper.getCandidates(request.ActivePods, targetNumaID, dynamicConfig.NumaVictimMinimumUtilizationThreshold)
+		}
+		s.evictionHelper.selectTopNPodsToEvictByMetrics(candidates, request.TopN, targetNumaID, s.systemAction,
 			dynamicConfig.SystemEvictionRankingMetrics, podToEvictMap)
 	}
 

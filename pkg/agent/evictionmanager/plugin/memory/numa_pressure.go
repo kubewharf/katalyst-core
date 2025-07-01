@@ -31,7 +31,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
-	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -274,7 +273,7 @@ func (n *NumaMemoryPressurePlugin) GetTopEvictionPods(_ context.Context, request
 
 	if dynamicConfig.EnableNumaLevelEviction && n.isUnderNumaPressure {
 		for numaID, action := range n.numaActionMap {
-			candidates := n.getCandidates(request.ActivePods, numaID, dynamicConfig.NumaVictimMinimumUtilizationThreshold)
+			candidates := n.evictionHelper.getCandidates(request.ActivePods, numaID, dynamicConfig.NumaVictimMinimumUtilizationThreshold)
 			n.evictionHelper.selectTopNPodsToEvictByMetrics(candidates, request.TopN, numaID, action,
 				dynamicConfig.NumaEvictionRankingMetrics, podToEvictMap)
 		}
@@ -307,35 +306,6 @@ func (n *NumaMemoryPressurePlugin) GetTopEvictionPods(_ context.Context, request
 		}
 	}
 	return resp, nil
-}
-
-// getCandidates returns pods which use memory more than minimumUsageThreshold.
-func (n *NumaMemoryPressurePlugin) getCandidates(pods []*v1.Pod, numaID int, minimumUsageThreshold float64) []*v1.Pod {
-	result := make([]*v1.Pod, 0, len(pods))
-	for i := range pods {
-		pod := pods[i]
-		totalMem, totalMemErr := helper.GetNumaMetric(n.metaServer.MetricsFetcher, n.emitter,
-			consts.MetricMemTotalNuma, numaID)
-		if totalMemErr != nil {
-			continue
-		}
-		usedMem, usedMemErr := helper.GetPodMetric(n.metaServer.MetricsFetcher, n.emitter, pod,
-			consts.MetricsMemTotalPerNumaContainer, numaID)
-		if usedMemErr != nil {
-			continue
-		}
-
-		usedMemRatio := usedMem / totalMem
-		if usedMemRatio < minimumUsageThreshold {
-			general.Infof("pod %v/%v memory usage on numa %v is %v, which is lower than threshold %v, "+
-				"ignore it", pod.Namespace, pod.Name, numaID, usedMemRatio, minimumUsageThreshold)
-			continue
-		}
-
-		result = append(result, pod)
-	}
-
-	return result
 }
 
 func (n *NumaMemoryPressurePlugin) GetEvictPods(_ context.Context, request *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
