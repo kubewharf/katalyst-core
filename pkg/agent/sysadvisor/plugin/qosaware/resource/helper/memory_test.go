@@ -29,7 +29,6 @@ import (
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
-	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
@@ -75,8 +74,7 @@ func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel strin
 }
 
 func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string) *config.Configuration {
-	conf, err := options.NewOptions().Config()
-	require.NoError(t, err)
+	conf := config.NewConfiguration()
 	require.NotNil(t, conf)
 
 	conf.GenericSysAdvisorConfiguration.StateFileDirectory = stateFileDir
