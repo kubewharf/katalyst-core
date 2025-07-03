@@ -22,9 +22,26 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
+const (
+	vendorAMD = "AuthenticAMD"
+)
+
+func isSupported(cpuVendorID string) bool {
+	// only AMD is supported
+	return cpuVendorID == vendorAMD
+}
+
 func NewGenericPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	_ interface{}, agentName string,
 ) (bool, agent.Component, error) {
-	general.Infof("mbm: qrm_mb_plugin generic policy created")
-	return false, nil, nil
+	general.Infof("mbm: to create generic policy qrm_mb_plugin")
+
+	cpuVendor := agentCtx.CPUVendorID
+	if !isSupported(cpuVendor) {
+		general.Infof("mbm: unsupported cpu arch %s", cpuVendor)
+		return false, nil, nil
+	}
+
+	mbPlugin := newMBPlugin()
+	return true, &agent.PluginWrapper{GenericPlugin: mbPlugin}, nil
 }
