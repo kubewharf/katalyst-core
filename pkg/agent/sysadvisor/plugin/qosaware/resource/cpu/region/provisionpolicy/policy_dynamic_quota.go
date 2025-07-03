@@ -50,7 +50,7 @@ func NewPolicyDynamicQuota(regionName string, regionType configapi.QoSRegionType
 }
 
 func (p *PolicyDynamicQuota) isCPUQuotaAsControlKnob() bool {
-	if !common.CheckCgroup2UnifiedMode() || !p.isNUMABinding {
+	if !p.isNUMABinding {
 		return false
 	}
 
