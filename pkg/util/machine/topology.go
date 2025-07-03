@@ -22,6 +22,7 @@ import (
 	"sort"
 
 	info "github.com/google/cadvisor/info/v1"
+	"golang.org/x/sys/unix"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
@@ -114,6 +115,7 @@ func (d MemoryDetails) FillNUMANodesWithZero(allNUMAs CPUSet) MemoryDetails {
 
 type MemoryTopology struct {
 	MemoryDetails MemoryDetails
+	PageSize      int
 }
 
 // CPUsPerCore returns the number of logical CPUs
@@ -233,7 +235,7 @@ func GenerateDummyCPUTopology(cpuNum, socketNum, numaNum int) (*CPUTopology, err
 }
 
 func GenerateDummyMemoryTopology(numaNum int, memoryCapacity uint64) (*MemoryTopology, error) {
-	memoryTopology := &MemoryTopology{map[int]uint64{}}
+	memoryTopology := &MemoryTopology{map[int]uint64{}, 4096}
 	for i := 0; i < numaNum; i++ {
 		memoryTopology.MemoryDetails[i] = memoryCapacity / uint64(numaNum)
 	}
@@ -442,7 +444,10 @@ func Discover(machineInfo *info.MachineInfo) (*CPUTopology, *MemoryTopology, err
 	numaNodeIDToSocketID := make(map[int]int, len(machineInfo.Topology))
 	numPhysicalCores := 0
 
-	memoryTopology := MemoryTopology{MemoryDetails: map[int]uint64{}}
+	memoryTopology := MemoryTopology{
+		MemoryDetails: map[int]uint64{},
+		PageSize:      unix.Getpagesize(),
+	}
 
 	for _, node := range machineInfo.Topology {
 		memoryTopology.MemoryDetails[node.Id] = node.Memory
