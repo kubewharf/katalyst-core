@@ -17,10 +17,12 @@ limitations under the License.
 package policy
 
 import (
+	"time"
+
+	"k8s.io/apimachinery/pkg/util/wait"
+
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
-	"k8s.io/apimachinery/pkg/util/wait"
-	"time"
 )
 
 const (

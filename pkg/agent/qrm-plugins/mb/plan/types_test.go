@@ -22,6 +22,7 @@ import (
 )
 
 func TestCCDPlan_ToSchemataInstruction(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		c    GroupCCDPlan
@@ -36,7 +37,9 @@ func TestCCDPlan_ToSchemataInstruction(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := tt.c.ToSchemataInstruction(); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("ToSchemataInstruction() = %v, want %v", string(got), string(tt.want))
 			}
