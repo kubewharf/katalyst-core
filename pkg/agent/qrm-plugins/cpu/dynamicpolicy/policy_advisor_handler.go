@@ -20,10 +20,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
+	v1 "k8s.io/api/core/v1"
 	"net"
 	"os"
 	"path"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/samber/lo"
@@ -46,6 +50,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
@@ -539,6 +544,51 @@ func (p *DynamicPolicy) applyCgroupConfigs(resp *advisorapi.ListAndWatchResponse
 		resources.SkipDevices = true
 		resources.SkipFreezeOnSet = true
 
+		if !common.CheckCgroup2UnifiedMode() {
+			podsPathMap, err := p.getAllPodsPathMap()
+			if err != nil {
+				return fmt.Errorf("getAllPodsPathMap failed with error: %v", err)
+			}
+			absPath := common.GetAbsCgroupPath(common.DefaultSelectedSubsys, calculationInfo.CgroupPath)
+			podDirs, err := p.getAllPodDirs(absPath)
+			if err != nil {
+				return fmt.Errorf("getAllPodsPath failed with error: %v", err)
+			}
+			for _, podDir := range podDirs {
+				podRelativePath := filepath.Join(calculationInfo.CgroupPath, podDir)
+				cpu, err := cgroupmgr.GetCPUWithRelativePath(podRelativePath)
+				if err != nil {
+					return fmt.Errorf("GetCPUWithRelativePath %s failed with error: %v", podRelativePath, err)
+				}
+				podAbsPath := common.GetAbsCgroupPath(common.DefaultSelectedSubsys, podRelativePath)
+				pod, ok := podsPathMap[podAbsPath]
+				if !ok || pod == nil {
+					general.Warningf("can not get pod with abs path: %s", podAbsPath)
+					continue
+				}
+
+				if len(pod.Spec.Containers) == 0 {
+					general.Warningf("pod %s has no containers", pod.Name)
+					continue
+				}
+
+				podLimit := pod.Spec.Containers[0].Resources.Limits.Cpu().Value()
+				podRealQuota := podLimit * int64(cpu.CpuPeriod)
+				if cpu.CpuQuota < 0 && podRealQuota <= resources.CpuQuota {
+					err := cgroupmgr.ApplyCPUWithRelativePath(podRelativePath, &common.CPUData{CpuQuota: podRealQuota})
+					if err != nil {
+						return fmt.Errorf("ApplyCPUWithRelativePath %s failed with error: %v", podRelativePath, err)
+					}
+				}
+				if cpu.CpuQuota > 0 && cpu.CpuQuota > resources.CpuQuota {
+					err := cgroupmgr.ApplyCPUWithRelativePath(podRelativePath, &common.CPUData{CpuQuota: -1})
+					if err != nil {
+						return fmt.Errorf("ApplyCPUWithRelativePath %s failed with error: %v", podRelativePath, err)
+					}
+				}
+			}
+		}
+
 		err = common.ApplyCgroupConfigs(calculationInfo.CgroupPath, resources)
 		if err != nil {
 			return fmt.Errorf("ApplyCgroupConfigs failed: %s, %v", calculationInfo.CgroupPath, err)
@@ -546,6 +596,46 @@ func (p *DynamicPolicy) applyCgroupConfigs(resp *advisorapi.ListAndWatchResponse
 	}
 
 	return nil
+}
+
+func (p *DynamicPolicy) getAllPodDirs(parentPath string) ([]string, error) {
+	entries, err := os.ReadDir(parentPath)
+	if err != nil {
+		return nil, err
+	}
+
+	var podDirs []string
+
+	for _, entry := range entries {
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), "pod") {
+			podDirs = append(podDirs, entry.Name())
+		}
+	}
+
+	return podDirs, nil
+}
+
+func (p *DynamicPolicy) getAllPodsPathMap() (map[string]*v1.Pod, error) {
+	pods, err := p.metaServer.GetPodList(context.Background(), native.PodIsActive)
+	if err != nil {
+		return nil, fmt.Errorf("GetPodList failed with error: %v", err)
+	}
+
+	podAbsPathMap := make(map[string]*v1.Pod)
+
+	for _, pod := range pods {
+		if pod == nil {
+			continue
+		}
+		podAbsPath, err := common.GetPodAbsCgroupPath(common.DefaultSelectedSubsys, string(pod.UID))
+		if err != nil {
+			general.Errorf("get pod %s absolute path failed with error: %v", pod.Name, err)
+			continue
+		}
+		podAbsPathMap[podAbsPath] = pod
+	}
+
+	return podAbsPathMap, nil
 }
 
 // generateBlockCPUSet generates BlockCPUSet from cpu-advisor response
