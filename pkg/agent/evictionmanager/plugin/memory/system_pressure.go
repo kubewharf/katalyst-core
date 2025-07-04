@@ -43,6 +43,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
 )
@@ -54,6 +55,7 @@ const (
 	syncTolerationTurns                    = 3
 	minMemPressure                         = 1
 	minPods                                = 3
+	minGrace                               = 3
 )
 
 func NewSystemPressureEvictionPlugin(_ *client.GenericClientSet, _ events.EventRecorder,
@@ -368,6 +370,35 @@ func (s *SystemPressureEvictionPlugin) detectSystemKswapdStealPressure() error {
 	return nil
 }
 
+// getCandidates returns pods which use memory more than minimumUsageThreshold.
+func (s *SystemPressureEvictionPlugin) getCandidates(pods []*v1.Pod, numaID int, minimumUsageThreshold float64) []*v1.Pod {
+	result := make([]*v1.Pod, 0, len(pods))
+	for i := range pods {
+		pod := pods[i]
+		totalMem, totalMemErr := helper.GetNumaMetric(s.metaServer.MetricsFetcher, s.emitter,
+			consts.MetricMemTotalNuma, numaID)
+		if totalMemErr != nil {
+			continue
+		}
+		usedMem, usedMemErr := helper.GetPodMetric(s.metaServer.MetricsFetcher, s.emitter, pod,
+			consts.MetricsMemTotalPerNumaContainer, numaID)
+		if usedMemErr != nil {
+			continue
+		}
+
+		usedMemRatio := usedMem / totalMem
+		if usedMemRatio < minimumUsageThreshold {
+			general.Infof("pod %v/%v memory usage on numa %v is %v, which is lower than threshold %v, "+
+				"ignore it", pod.Namespace, pod.Name, numaID, usedMemRatio, minimumUsageThreshold)
+			continue
+		}
+
+		result = append(result, pod)
+	}
+
+	return result
+}
+
 func (s *SystemPressureEvictionPlugin) GetTopEvictionPods(_ context.Context, request *pluginapi.GetTopEvictionPodsRequest) (*pluginapi.GetTopEvictionPodsResponse, error) {
 	if request == nil {
 		return nil, fmt.Errorf("GetTopEvictionPods got nil request")
@@ -390,11 +421,25 @@ func (s *SystemPressureEvictionPlugin) GetTopEvictionPods(_ context.Context, req
 	targetPods := make([]*v1.Pod, 0, len(request.ActivePods))
 	podToEvictMap := make(map[string]*v1.Pod)
 
-	general.Infof("GetTopEvictionPods condition, m.isUnderSystemPressure: %+v, "+
-		"m.systemAction: %+v", s.isUnderSystemPressure, s.systemAction)
+	targetNumaID := nonExistNumaID
+	var minFree uint64 = ^uint64(0)
+	zoneinfo := machine.GetNormalZoneInfo(hostZoneInfoFile)
+	for _, numaID := range s.metaServer.CPUDetails.NUMANodes().ToSliceNoSortInt() {
+		if free := zoneinfo[numaID].Free; free < minFree {
+			minFree = free
+			targetNumaID = numaID
+		}
+	}
+
+	general.Infof("GetTopEvictionPods condition,numa=%+v,  m.isUnderSystemPressure: %+v, "+
+		"m.systemAction: %+v", targetNumaID, s.isUnderSystemPressure, s.systemAction)
 
 	if dynamicConfig.EnableSystemLevelEviction && s.isUnderSystemPressure {
-		s.evictionHelper.selectTopNPodsToEvictByMetrics(request.ActivePods, request.TopN, nonExistNumaID, s.systemAction,
+		candidates := request.ActivePods
+		if targetNumaID != nonExistNumaID {
+			candidates = s.getCandidates(request.ActivePods, targetNumaID, dynamicConfig.NumaVictimMinimumUtilizationThreshold)
+		}
+		s.evictionHelper.selectTopNPodsToEvictByMetrics(candidates, request.TopN, targetNumaID, s.systemAction,
 			dynamicConfig.SystemEvictionRankingMetrics, podToEvictMap)
 	}
 
@@ -408,7 +453,18 @@ func (s *SystemPressureEvictionPlugin) GetTopEvictionPods(_ context.Context, req
 	resp := &pluginapi.GetTopEvictionPodsResponse{
 		TargetPods: targetPods,
 	}
-	if gracePeriod := dynamicConfig.MemoryPressureEvictionConfiguration.GracePeriod; gracePeriod > 0 {
+
+	gracePeriod := dynamicConfig.MemoryPressureEvictionConfiguration.GracePeriod
+
+	switch s.systemAction {
+	case actionReclaimedEviction:
+		gracePeriod = gracePeriod / 10
+		if gracePeriod < minGrace {
+			gracePeriod = minGrace
+		}
+	}
+
+	if gracePeriod > 0 {
 		resp.DeletionOptions = &pluginapi.DeletionOptions{
 			GracePeriodSeconds: gracePeriod,
 		}

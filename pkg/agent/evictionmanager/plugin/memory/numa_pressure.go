@@ -49,6 +49,7 @@ const (
 const (
 	memLowReservePages = 1048576 // 4G
 	memGapPages        = 262144  // 1G
+	memGuardPages      = 65536   // 256M
 
 	minDuration = 3
 )
@@ -145,6 +146,8 @@ func (n *NumaMemoryPressurePlugin) detectNumaPressures() error {
 			low := zoneinfo[numaID].Low
 			fileInactive := zoneinfo[numaID].FileInactive
 
+			// Notice: adding a buffer range for mem.low to avoid kswapd ping-pong
+			low += memGuardPages
 			// step2, add a compensation mechanism to prevent system thrashing due to insufficient file memory
 			fileReserved := general.Max(memLowReservePages, int(low))
 			if fileInactive < uint64(fileReserved) {
@@ -217,7 +220,13 @@ func (n *NumaMemoryPressurePlugin) detectNumaWatermarkPressure(numaID, free, min
 			n.numaFreeBelowWatermarkTimesMap[numaID]++
 		}
 	} else {
-		n.numaFreeBelowWatermarkTimesMap[numaID] = 0
+		// added cooling mechanism to avoid kswapd ping-pong
+		if n.numaFreeBelowWatermarkTimesMap[numaID] > 0 {
+			n.numaFreeBelowWatermarkTimesMap[numaID]--
+			if n.numaFreeBelowWatermarkTimesMap[numaID] > (dynamicConfig.NumaFreeBelowWatermarkTimesThreshold / 2) {
+				n.numaFreeBelowWatermarkTimesMap[numaID] = (dynamicConfig.NumaFreeBelowWatermarkTimesThreshold / 2)
+			}
+		}
 	}
 	if n.numaFreeBelowWatermarkTimesMap[numaID] >= dynamicConfig.NumaFreeBelowWatermarkTimesThreshold {
 		n.numaActionMap[numaID] = actionEviction
@@ -281,7 +290,26 @@ func (n *NumaMemoryPressurePlugin) GetTopEvictionPods(_ context.Context, request
 	resp := &pluginapi.GetTopEvictionPodsResponse{
 		TargetPods: targetPods,
 	}
-	if gracePeriod := dynamicConfig.MemoryPressureEvictionConfiguration.GracePeriod; gracePeriod > 0 {
+
+	gracePeriod := dynamicConfig.MemoryPressureEvictionConfiguration.GracePeriod
+	hasStrongEviction := false
+
+	for _, action := range n.numaActionMap {
+		if action == actionEviction {
+			hasStrongEviction = true
+			break
+		}
+	}
+
+	if !hasStrongEviction {
+		gracePeriod = gracePeriod / 10
+	}
+
+	if gracePeriod < minGrace {
+		gracePeriod = minGrace
+	}
+
+	if gracePeriod > 0 {
 		resp.DeletionOptions = &pluginapi.DeletionOptions{
 			GracePeriodSeconds: gracePeriod,
 		}
