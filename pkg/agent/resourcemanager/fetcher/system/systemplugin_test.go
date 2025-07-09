@@ -33,12 +33,15 @@ import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
 func generateTestConfiguration(t *testing.T) *config.Configuration {
 	testConfiguration, err := options.NewOptions().Config()
+	testConfiguration.EnableMetricsFetcher = false
 	require.NoError(t, err)
 	require.NotNil(t, testConfiguration)
 	return testConfiguration
@@ -55,6 +58,11 @@ func Test_systemPlugin_GetReportContent(t *testing.T) {
 	conf := generateTestConfiguration(t)
 	meta, err := metaserver.NewMetaServer(genericClient, metrics.DummyMetrics{}, conf)
 	assert.NoError(t, err)
+
+	metricsFetcher := meta.MetricsFetcher.(*metric.FakeMetricsFetcher)
+	metricsFetcher.SetSynced(true)
+	metricsFetcher.SetByStringIndex(consts.MetricCPUCodeName, "Intel_SkyLake")
+	metricsFetcher.SetByStringIndex(consts.MetricInfoIsVM, false)
 
 	plugin, err := NewSystemReporterPlugin(metrics.DummyMetrics{}, meta, conf, nil)
 	assert.NoError(t, err)
