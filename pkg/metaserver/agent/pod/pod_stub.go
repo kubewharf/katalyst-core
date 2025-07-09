@@ -69,7 +69,7 @@ func (p *PodFetcherStub) GetContainerID(podUID, containerName string) (string, e
 		}
 	}
 
-	return "", fmt.Errorf("container: %s isn't found in pod: %s statues", containerName, podUID)
+	return "", fmt.Errorf("container: %s isn't found in pod: %s status", containerName, podUID)
 }
 
 func (p *PodFetcherStub) GetContainerSpec(podUID, containerName string) (*v1.Container, error) {

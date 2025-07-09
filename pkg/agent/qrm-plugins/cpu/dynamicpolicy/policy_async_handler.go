@@ -23,6 +23,7 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -60,9 +61,10 @@ func (p *DynamicPolicy) checkCPUSet(_ *coreconfig.Configuration,
 		cpuSetOverlap = false
 	)
 
+	var errList []error
 	defer func() {
 		if err != nil {
-			_ = general.UpdateHealthzStateByError(cpuconsts.CheckCPUSet, err)
+			_ = general.UpdateHealthzStateByError(cpuconsts.CheckCPUSet, errors.NewAggregate(errList))
 		} else if invalidCPUSet {
 			_ = general.UpdateHealthzState(cpuconsts.CheckCPUSet, general.HealthzCheckStateNotReady, "invalid cpuset exists")
 		} else if cpuSetOverlap {
@@ -109,6 +111,7 @@ func (p *DynamicPolicy) checkCPUSet(_ *coreconfig.Configuration,
 				general.Errorf("GetCPUSet of pod: %s container: name(%s), id(%s) failed with error: %v",
 					podUID, containerName, containerId, err)
 				_ = p.emitter.StoreInt64(util.MetricNameRealStateInvalid, 1, metrics.MetricTypeNameRaw, tags...)
+				errList = append(errList, err)
 				continue
 			}
 
