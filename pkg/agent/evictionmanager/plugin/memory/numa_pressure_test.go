@@ -48,10 +48,17 @@ func makeNumaPressureEvictionPlugin(conf *config.Configuration) (*NumaMemoryPres
 		return nil, err
 	}
 
+	memoryTopology, err := machine.GenerateDummyMemoryTopology(2, 500<<30)
+	if err != nil {
+		return nil, err
+	}
+
 	metaServer := makeMetaServer()
 	metaServer.KatalystMachineInfo = &machine.KatalystMachineInfo{
-		CPUTopology: cpuTopology,
+		CPUTopology:    cpuTopology,
+		MemoryTopology: memoryTopology,
 	}
+
 	metaServer.MetricsFetcher = metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
 
 	plugin := NewNumaMemoryPressureEvictionPlugin(nil, nil, metaServer, metrics.DummyMetrics{}, conf)

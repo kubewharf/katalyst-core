@@ -46,9 +46,9 @@ const (
 )
 
 const (
-	memLowReservePages = 1048576 // 4G
-	memGapPages        = 262144  // 1G
-	memGuardPages      = 65536   // 256M
+	memLowReservedSize = 4 * 1024 * 1024 * 1024 // 4G
+	memGapSize         = 1 * 1024 * 1024 * 1024 // 1G
+	memGuardSize       = 256 * 1024 * 1024      // 256M
 
 	minDuration = 3
 )
@@ -69,6 +69,10 @@ func NewNumaMemoryPressureEvictionPlugin(_ *client.GenericClientSet, _ events.Ev
 		numaActionMap:                  make(map[int]int),
 		numaFreeBelowWatermarkTimesMap: make(map[int]int),
 		evictionHelper:                 NewEvictionHelper(emitter, metaServer, conf),
+
+		memLowReservePages: uint64(metaServer.KatalystMachineInfo.MemoryTopology.AlignToPageSize(memLowReservedSize)),
+		memGapPages:        uint64(metaServer.KatalystMachineInfo.MemoryTopology.AlignToPageSize(memGapSize)),
+		memGuardPages:      uint64(metaServer.KatalystMachineInfo.MemoryTopology.AlignToPageSize(memGuardSize)),
 	}
 }
 
@@ -88,6 +92,11 @@ type NumaMemoryPressurePlugin struct {
 	numaActionMap                  map[int]int
 	numaFreeBelowWatermarkTimesMap map[int]int
 	isUnderNumaPressure            bool
+
+	// guard pages for numa.mem.pressure detection
+	memLowReservePages uint64 // minimum allowed mem.low
+	memGapPages        uint64 // the depth of the probe, used to judge the pressure
+	memGuardPages      uint64 // a buffer depth to prevent kswpad ping-pong
 }
 
 func (n *NumaMemoryPressurePlugin) Start() {
@@ -146,12 +155,12 @@ func (n *NumaMemoryPressurePlugin) detectNumaPressures() error {
 			fileInactive := zoneinfo[numaID].FileInactive
 
 			// Notice: adding a buffer range for mem.low to avoid kswapd ping-pong
-			low += memGuardPages
+			low += n.memGuardPages
 			// step2, add a compensation mechanism to prevent system thrashing due to insufficient file memory
-			fileReserved := general.Max(memLowReservePages, int(low))
+			fileReserved := general.Max(int(n.memLowReservePages), int(low))
 			if fileInactive < uint64(fileReserved) {
-				tmp := low + memGapPages
-				low = uint64(general.Max(memLowReservePages, int(tmp)))
+				tmp := low + n.memGapPages
+				low = uint64(general.Max(int(n.memLowReservePages), int(tmp)))
 			}
 
 			// step3, compare mem.free, mem.low, mem.min
@@ -172,7 +181,7 @@ func (n *NumaMemoryPressurePlugin) detectNumaPressures() error {
 }
 
 func (n *NumaMemoryPressurePlugin) isUnderAdditionalPressure(free, min, low int) bool {
-	return free < (min+low)/2 || (low > memGapPages && free < (low-memGapPages))
+	return free < (min+low)/2 || (low > int(n.memGapPages) && free < (low-int(n.memGapPages)))
 }
 
 func (n *NumaMemoryPressurePlugin) detectNumaWatermarkPressure(numaID, free, min, low int) error {
