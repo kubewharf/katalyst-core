@@ -16,7 +16,13 @@ limitations under the License.
 
 package domain
 
-import "k8s.io/apimachinery/pkg/util/sets"
+import (
+	"fmt"
+
+	"k8s.io/apimachinery/pkg/util/sets"
+)
+
+type Domains map[int]*Domain
 
 // Domain is the unit of memory bandwidth to share and compete with
 type Domain struct {
@@ -45,4 +51,19 @@ func NewDomain(id int, ccds sets.Int, capacity, ccdMax, ccdMin, ccdAlienMBLimit 
 	}
 
 	return &domain
+}
+
+func NewDomains(domains ...*Domain) (Domains, error) {
+	result := Domains{}
+	ccds := sets.Int{}
+	for _, domain := range domains {
+		ccdsToAdd := domain.CCDs.List()
+		if ccds.HasAny(ccdsToAdd...) {
+			return nil, fmt.Errorf("duplicate ccd in domain %d", domain.ID)
+		}
+		ccds.Insert(domain.CCDs.List()...)
+		result[domain.ID] = domain
+	}
+
+	return result, nil
 }

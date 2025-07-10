@@ -69,3 +69,74 @@ func TestNewDomain(t *testing.T) {
 		})
 	}
 }
+
+func TestNewDomains(t *testing.T) {
+	t.Parallel()
+	type args struct {
+		domains []*Domain
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    Domains
+		wantErr bool
+	}{
+		{
+			name: "overlapping ccds not allowed",
+			args: args{
+				domains: []*Domain{
+					{
+						ID:   0,
+						CCDs: sets.NewInt(0, 7),
+					},
+					{
+						ID:   1,
+						CCDs: sets.NewInt(4, 7),
+					},
+				},
+			},
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name: "happy path",
+			args: args{
+				domains: []*Domain{
+					{
+						ID:   0,
+						CCDs: sets.NewInt(0, 1),
+					},
+					{
+						ID:   1,
+						CCDs: sets.NewInt(2, 3),
+					},
+				},
+			},
+			want: Domains{
+				0: {
+					ID:   0,
+					CCDs: sets.NewInt(0, 1),
+				},
+				1: {
+					ID:   1,
+					CCDs: sets.NewInt(2, 3),
+				},
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := NewDomains(tt.args.domains...)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("NewDomains() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("NewDomains() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
