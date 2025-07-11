@@ -22,7 +22,7 @@ import (
 	"os"
 )
 
-func GetNormalZoneInfo(zoneInfoPath string) []NormalZoneInfo {
+func GetNormalZoneInfos(zoneInfoPath string) []NormalZoneInfo {
 	data, err := os.ReadFile(zoneInfoPath)
 	if err != nil {
 		return nil
