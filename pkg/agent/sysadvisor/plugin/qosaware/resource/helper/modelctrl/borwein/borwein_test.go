@@ -473,7 +473,7 @@ func Test_updateCPUUsageIndicatorOffset(t *testing.T) {
 			})
 			mc.SetInferenceResult(inferenceResultKey, tt.args.inferenceResults)
 			got, err := updateCPUUsageIndicatorOffset(tt.args.podSet, tt.args.currentIndicatorOffset,
-				tt.args.borweinParameter, mc, tt.args.conf)
+				tt.args.borweinParameter, mc, tt.args.conf, metrics.DummyMetrics{}, "test")
 			if (err != nil) != tt.wantErr {
 				t.Errorf("updateCPUUsageIndicatorOffset() error = %v, wantErr %v", err, tt.wantErr)
 				return
