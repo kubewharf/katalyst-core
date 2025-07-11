@@ -48,10 +48,17 @@ func makeNumaPressureEvictionPlugin(conf *config.Configuration) (*NumaMemoryPres
 		return nil, err
 	}
 
+	memoryTopology, err := machine.GenerateDummyMemoryTopology(2, 500<<30)
+	if err != nil {
+		return nil, err
+	}
+
 	metaServer := makeMetaServer()
 	metaServer.KatalystMachineInfo = &machine.KatalystMachineInfo{
-		CPUTopology: cpuTopology,
+		CPUTopology:    cpuTopology,
+		MemoryTopology: memoryTopology,
 	}
+
 	metaServer.MetricsFetcher = metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
 
 	plugin := NewNumaMemoryPressureEvictionPlugin(nil, nil, metaServer, metrics.DummyMetrics{}, conf)
@@ -77,9 +84,13 @@ func TestNewNumaPressureEvictionPlugin(t *testing.T) {
 func TestNumaMemoryPressurePlugin_ThresholdMet(t *testing.T) {
 	t.Parallel()
 
+	hostZoneInfoFileMu.Lock()
 	original := hostZoneInfoFile
 	hostZoneInfoFile = "test"
-	defer func() { hostZoneInfoFile = original }()
+	defer func() {
+		hostZoneInfoFile = original
+		hostZoneInfoFileMu.Unlock()
+	}()
 
 	plugin, err := makeNumaPressureEvictionPlugin(makeConf())
 	assert.NoError(t, err)
@@ -184,7 +195,7 @@ func TestNumaMemoryPressurePlugin_ThresholdMet(t *testing.T) {
 			wantIsUnderNumaPressure: true,
 			wantNumaAction: map[int]int{
 				0: actionEviction,
-				1: actionNoop,
+				1: actionReclaimedEviction,
 				2: actionNoop,
 				3: actionNoop,
 			},
@@ -201,7 +212,7 @@ func TestNumaMemoryPressurePlugin_ThresholdMet(t *testing.T) {
 			wantIsUnderNumaPressure: true,
 			wantNumaAction: map[int]int{
 				0: actionEviction,
-				1: actionReclaimedEviction,
+				1: actionEviction,
 				2: actionNoop,
 				3: actionNoop,
 			},

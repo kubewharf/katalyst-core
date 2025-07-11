@@ -24,6 +24,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	evictionconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/eviction"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -162,4 +163,37 @@ func (e *EvictionHelper) getEvictionCmpFuncs(rankingMetrics []string, numaID int
 	}
 
 	return cmpFuncs
+}
+
+// getCandidates returns pods which use memory more than minimumUsageThreshold.
+func (e *EvictionHelper) getCandidates(pods []*v1.Pod, numaID int, minimumUsageThreshold float64) []*v1.Pod {
+	result := make([]*v1.Pod, 0, len(pods))
+	for i := range pods {
+		pod := pods[i]
+		totalMem, totalMemErr := helper.GetNumaMetric(e.metaServer.MetricsFetcher, e.emitter,
+			consts.MetricMemTotalNuma, numaID)
+		if totalMemErr != nil {
+			continue
+		}
+		usedMem, usedMemErr := helper.GetPodMetric(e.metaServer.MetricsFetcher, e.emitter, pod,
+			consts.MetricsMemTotalPerNumaContainer, numaID)
+		if usedMemErr != nil {
+			continue
+		}
+
+		if totalMem <= 0 {
+			continue
+		}
+
+		usedMemRatio := usedMem / totalMem
+		if usedMemRatio < minimumUsageThreshold {
+			general.Infof("pod %v/%v memory usage on numa %v is %v, which is lower than threshold %v, "+
+				"ignore it", pod.Namespace, pod.Name, numaID, usedMemRatio, minimumUsageThreshold)
+			continue
+		}
+
+		result = append(result, pod)
+	}
+
+	return result
 }

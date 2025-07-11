@@ -31,7 +31,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
-	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -47,8 +46,9 @@ const (
 )
 
 const (
-	memLowReservePages = 1048576 // 4G
-	memGapPages        = 262144  // 1G
+	memLowReservedSize = 4 * 1024 * 1024 * 1024 // 4G
+	memGapSize         = 1 * 1024 * 1024 * 1024 // 1G
+	memGuardSize       = 256 * 1024 * 1024      // 256M
 
 	minDuration = 3
 )
@@ -69,6 +69,10 @@ func NewNumaMemoryPressureEvictionPlugin(_ *client.GenericClientSet, _ events.Ev
 		numaActionMap:                  make(map[int]int),
 		numaFreeBelowWatermarkTimesMap: make(map[int]int),
 		evictionHelper:                 NewEvictionHelper(emitter, metaServer, conf),
+
+		memLowReservePages: uint64(metaServer.KatalystMachineInfo.MemoryTopology.AlignToPageSize(memLowReservedSize)),
+		memGapPages:        uint64(metaServer.KatalystMachineInfo.MemoryTopology.AlignToPageSize(memGapSize)),
+		memGuardPages:      uint64(metaServer.KatalystMachineInfo.MemoryTopology.AlignToPageSize(memGuardSize)),
 	}
 }
 
@@ -88,6 +92,11 @@ type NumaMemoryPressurePlugin struct {
 	numaActionMap                  map[int]int
 	numaFreeBelowWatermarkTimesMap map[int]int
 	isUnderNumaPressure            bool
+
+	// guard pages for numa.mem.pressure detection
+	memLowReservePages uint64 // minimum allowed mem.low
+	memGapPages        uint64 // the depth of the probe, used to judge the pressure
+	memGuardPages      uint64 // a buffer depth to prevent kswpad ping-pong
 }
 
 func (n *NumaMemoryPressurePlugin) Start() {
@@ -145,11 +154,13 @@ func (n *NumaMemoryPressurePlugin) detectNumaPressures() error {
 			low := zoneinfo[numaID].Low
 			fileInactive := zoneinfo[numaID].FileInactive
 
+			// Notice: adding a buffer range for mem.low to avoid kswapd ping-pong
+			low += n.memGuardPages
 			// step2, add a compensation mechanism to prevent system thrashing due to insufficient file memory
-			fileReserved := general.Max(memLowReservePages, int(low))
+			fileReserved := general.Max(int(n.memLowReservePages), int(low))
 			if fileInactive < uint64(fileReserved) {
-				tmp := low + memGapPages
-				low = uint64(general.Max(memLowReservePages, int(tmp)))
+				tmp := low + n.memGapPages
+				low = uint64(general.Max(int(n.memLowReservePages), int(tmp)))
 			}
 
 			// step3, compare mem.free, mem.low, mem.min
@@ -170,7 +181,7 @@ func (n *NumaMemoryPressurePlugin) detectNumaPressures() error {
 }
 
 func (n *NumaMemoryPressurePlugin) isUnderAdditionalPressure(free, min, low int) bool {
-	return free < (min+low)/2 || (low > memGapPages && free < (low-memGapPages))
+	return free < (min+low)/2 || (low > int(n.memGapPages) && free < (low-int(n.memGapPages)))
 }
 
 func (n *NumaMemoryPressurePlugin) detectNumaWatermarkPressure(numaID, free, min, low int) error {
@@ -217,7 +228,13 @@ func (n *NumaMemoryPressurePlugin) detectNumaWatermarkPressure(numaID, free, min
 			n.numaFreeBelowWatermarkTimesMap[numaID]++
 		}
 	} else {
-		n.numaFreeBelowWatermarkTimesMap[numaID] = 0
+		// added cooling mechanism to avoid kswapd ping-pong
+		if n.numaFreeBelowWatermarkTimesMap[numaID] > 0 {
+			n.numaFreeBelowWatermarkTimesMap[numaID]--
+			if n.numaFreeBelowWatermarkTimesMap[numaID] > (dynamicConfig.NumaFreeBelowWatermarkTimesThreshold / 2) {
+				n.numaFreeBelowWatermarkTimesMap[numaID] = (dynamicConfig.NumaFreeBelowWatermarkTimesThreshold / 2)
+			}
+		}
 	}
 	if n.numaFreeBelowWatermarkTimesMap[numaID] >= dynamicConfig.NumaFreeBelowWatermarkTimesThreshold {
 		n.numaActionMap[numaID] = actionEviction
@@ -265,7 +282,7 @@ func (n *NumaMemoryPressurePlugin) GetTopEvictionPods(_ context.Context, request
 
 	if dynamicConfig.EnableNumaLevelEviction && n.isUnderNumaPressure {
 		for numaID, action := range n.numaActionMap {
-			candidates := n.getCandidates(request.ActivePods, numaID, dynamicConfig.NumaVictimMinimumUtilizationThreshold)
+			candidates := n.evictionHelper.getCandidates(request.ActivePods, numaID, dynamicConfig.NumaVictimMinimumUtilizationThreshold)
 			n.evictionHelper.selectTopNPodsToEvictByMetrics(candidates, request.TopN, numaID, action,
 				dynamicConfig.NumaEvictionRankingMetrics, podToEvictMap)
 		}
@@ -281,42 +298,23 @@ func (n *NumaMemoryPressurePlugin) GetTopEvictionPods(_ context.Context, request
 	resp := &pluginapi.GetTopEvictionPodsResponse{
 		TargetPods: targetPods,
 	}
-	if gracePeriod := dynamicConfig.MemoryPressureEvictionConfiguration.GracePeriod; gracePeriod > 0 {
+
+	// TODO: different grace time for different evictions.
+	// Currently, grace time is aligned with actionEviction in the case of mixed evictions.
+	gracePeriod := dynamicConfig.MemoryPressureEvictionConfiguration.ReclaimedGracePeriod
+	for _, action := range n.numaActionMap {
+		if action == actionEviction {
+			gracePeriod = dynamicConfig.MemoryPressureEvictionConfiguration.GracePeriod
+			break
+		}
+	}
+
+	if gracePeriod > 0 {
 		resp.DeletionOptions = &pluginapi.DeletionOptions{
 			GracePeriodSeconds: gracePeriod,
 		}
 	}
-
 	return resp, nil
-}
-
-// getCandidates returns pods which use memory more than minimumUsageThreshold.
-func (n *NumaMemoryPressurePlugin) getCandidates(pods []*v1.Pod, numaID int, minimumUsageThreshold float64) []*v1.Pod {
-	result := make([]*v1.Pod, 0, len(pods))
-	for i := range pods {
-		pod := pods[i]
-		totalMem, totalMemErr := helper.GetNumaMetric(n.metaServer.MetricsFetcher, n.emitter,
-			consts.MetricMemTotalNuma, numaID)
-		if totalMemErr != nil {
-			continue
-		}
-		usedMem, usedMemErr := helper.GetPodMetric(n.metaServer.MetricsFetcher, n.emitter, pod,
-			consts.MetricsMemTotalPerNumaContainer, numaID)
-		if usedMemErr != nil {
-			continue
-		}
-
-		usedMemRatio := usedMem / totalMem
-		if usedMemRatio < minimumUsageThreshold {
-			general.Infof("pod %v/%v memory usage on numa %v is %v, which is lower than threshold %v, "+
-				"ignore it", pod.Namespace, pod.Name, numaID, usedMemRatio, minimumUsageThreshold)
-			continue
-		}
-
-		result = append(result, pod)
-	}
-
-	return result
 }
 
 func (n *NumaMemoryPressurePlugin) GetEvictPods(_ context.Context, request *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {

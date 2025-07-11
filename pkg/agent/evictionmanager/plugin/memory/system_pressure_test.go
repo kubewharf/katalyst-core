@@ -18,6 +18,7 @@ package memory
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -60,6 +61,8 @@ var (
 
 	highPriority int32 = 100000
 	lowPriority  int32 = 50000
+
+	hostZoneInfoFileMu sync.Mutex
 )
 
 func makeConf() *config.Configuration {
@@ -217,6 +220,14 @@ func TestSystemPressureEvictionPlugin_ThresholdMet(t *testing.T) {
 func TestSystemPressureEvictionPlugin_GetTopEvictionPods(t *testing.T) {
 	t.Parallel()
 
+	hostZoneInfoFileMu.Lock()
+	original := hostZoneInfoFile
+	hostZoneInfoFile = "test"
+	defer func() {
+		hostZoneInfoFile = original
+		hostZoneInfoFileMu.Unlock()
+	}()
+
 	plugin, err := makeSystemPressureEvictionPlugin(makeConf())
 	assert.NoError(t, err)
 	assert.NotNil(t, plugin)
@@ -261,14 +272,29 @@ func TestSystemPressureEvictionPlugin_GetTopEvictionPods(t *testing.T) {
 		},
 	}
 
-	bePodUsageSystem := []float64{
-		10 * 1024 * 1024 * 1024,
-		5 * 1024 * 1024 * 1024,
+	bePodUsageNuma := []map[int]float64{
+		{
+			0: 1 * 1024 * 1024 * 1024,
+			1: 9 * 1024 * 1024 * 1024,
+			2: 1 * 1024,
+			3: 1 * 1024,
+		},
+		{
+			0: 4 * 1024 * 1024 * 1024,
+			1: 1 * 1024 * 1024 * 1024,
+			2: 1 * 1024,
+			3: 1 * 1024,
+		},
 	}
 
 	now := time.Now()
 	for i, pod := range bePods {
-		fakeMetricsFetcher.SetContainerMetric(string(pod.UID), pod.Spec.Containers[0].Name, consts.MetricMemUsageContainer, utilMetric.MetricData{Value: bePodUsageSystem[i], Time: &now})
+		for numaID, usage := range bePodUsageNuma[i] {
+			fakeMetricsFetcher.SetContainerNumaMetric(string(pod.UID), pod.Spec.Containers[0].Name, numaID, consts.MetricsMemTotalPerNumaContainer, utilMetric.MetricData{Value: usage, Time: &now})
+		}
+	}
+	for numaID, numaTotal := range numaTotalMap {
+		fakeMetricsFetcher.SetNumaMetric(numaID, consts.MetricMemTotalNuma, utilMetric.MetricData{Value: numaTotal, Time: &now})
 	}
 
 	tests := []struct {

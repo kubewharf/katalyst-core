@@ -35,6 +35,7 @@ type MemoryPressureEvictionOptions struct {
 	NumaEvictionRankingMetrics              []string
 	SystemEvictionRankingMetrics            []string
 	GracePeriod                             int64
+	ReclaimedGracePeriod                    int64
 	EnableRSSOveruseEviction                bool
 	RSSOveruseRateThreshold                 float64
 }
@@ -52,6 +53,7 @@ func NewMemoryPressureEvictionOptions() *MemoryPressureEvictionOptions {
 		NumaEvictionRankingMetrics:              eviction.DefaultNumaEvictionRankingMetrics,
 		SystemEvictionRankingMetrics:            eviction.DefaultSystemEvictionRankingMetrics,
 		GracePeriod:                             eviction.DefaultGracePeriod,
+		ReclaimedGracePeriod:                    eviction.DefaultReclaimedGracePeriod,
 		EnableRSSOveruseEviction:                eviction.DefaultEnableRssOveruseDetection,
 		RSSOveruseRateThreshold:                 eviction.DefaultRSSOveruseRateThreshold,
 	}
@@ -81,6 +83,8 @@ func (o *MemoryPressureEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"the metrics used to rank pods for eviction at the system level")
 	fs.Int64Var(&o.GracePeriod, "eviction-memory-grace-period", o.GracePeriod,
 		"the grace period of memory pressure eviction")
+	fs.Int64Var(&o.ReclaimedGracePeriod, "reclaimed-eviction-memory-grace-period", o.ReclaimedGracePeriod,
+		"the grace period of memory pressure reclaimed eviction")
 	fs.BoolVar(&o.EnableRSSOveruseEviction, "eviction-enable-rss-overuse", o.EnableRSSOveruseEviction,
 		"whether to enable pod-level rss overuse eviction")
 	fs.Float64Var(&o.RSSOveruseRateThreshold, "eviction-rss-overuse-rate-threshold", o.RSSOveruseRateThreshold,
@@ -103,6 +107,7 @@ func (o *MemoryPressureEvictionOptions) ApplyTo(c *eviction.MemoryPressureEvicti
 	c.NumaEvictionRankingMetrics = o.NumaEvictionRankingMetrics
 	c.SystemEvictionRankingMetrics = o.SystemEvictionRankingMetrics
 	c.GracePeriod = o.GracePeriod
+	c.ReclaimedGracePeriod = o.ReclaimedGracePeriod
 	c.EnableRSSOveruseEviction = o.EnableRSSOveruseEviction
 	c.RSSOveruseRateThreshold = o.RSSOveruseRateThreshold
 

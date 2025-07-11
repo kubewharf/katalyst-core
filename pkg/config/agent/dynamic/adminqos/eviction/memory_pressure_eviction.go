@@ -48,6 +48,8 @@ const (
 	DefaultSystemKswapdRateExceedDurationThreshold = 120
 	// DefaultGracePeriod is the default value of grace period
 	DefaultGracePeriod int64 = -1
+	// DefaultReclaimedGracePeriod is the default value of grace period
+	DefaultReclaimedGracePeriod int64 = 5
 	// DefaultEnableRssOveruseDetection is the default value of whether enable pod-level rss overuse detection
 	DefaultEnableRssOveruseDetection = false
 	// DefaultRSSOveruseRateThreshold is the default threshold for the rate of rss
@@ -76,6 +78,7 @@ type MemoryPressureEvictionConfiguration struct {
 	EnableRSSOveruseEviction                bool
 	RSSOveruseRateThreshold                 float64
 	GracePeriod                             int64
+	ReclaimedGracePeriod                    int64
 }
 
 func NewMemoryPressureEvictionPluginConfiguration() *MemoryPressureEvictionConfiguration {
@@ -125,6 +128,10 @@ func (c *MemoryPressureEvictionConfiguration) ApplyConfiguration(conf *crd.Dynam
 
 		if config.GracePeriod != nil {
 			c.GracePeriod = *(config.GracePeriod)
+		}
+
+		if config.ReclaimedGracePeriod != nil {
+			c.ReclaimedGracePeriod = *(config.ReclaimedGracePeriod)
 		}
 
 		if config.EnableRSSOveruseEviction != nil {
