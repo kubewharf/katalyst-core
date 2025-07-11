@@ -152,7 +152,7 @@ func (p *NativePolicy) sharedPoolAllocationHandler(ctx context.Context,
 	req *pluginapi.ResourceRequest,
 ) (*pluginapi.ResourceAllocationResponse, error) {
 	if req == nil {
-		return nil, fmt.Errorf("dedicatedCoresAllocationHandler got nil req")
+		return nil, fmt.Errorf("sharedPoolAllocationHandler got nil req")
 	}
 
 	reqInt, reqFloat64, err := util.GetQuantityFromResourceReq(req)
