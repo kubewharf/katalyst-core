@@ -138,9 +138,10 @@ const (
 	MetricsNodeFsInodesUsed = "used.inodes.fs.node"
 )
 
-// System Power metrics
+// System Power and CPUFreq metrics
 const (
 	MetricTotalPowerUsedWatts = "total.power.used.watts"
+	MetricScalingCPUFreqKHZ   = "scaling.cur.freq.khz"
 )
 
 // Image filesystem metrics
