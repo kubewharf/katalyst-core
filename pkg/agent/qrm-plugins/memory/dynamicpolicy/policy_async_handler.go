@@ -88,11 +88,18 @@ func setExtraControlKnobByConfigForAllocationInfo(allocationInfo *state.Allocati
 			clonedControlKnobInfo.ControlKnobValue = qosLevelDefaultValue
 		}
 
+		if clonedControlKnobInfo.ControlKnobValue == "" {
+			general.Infof("skip set extral control knob: %s by configs: %#v  for pod: %s/%s, container: %s",
+				controlKnobName, clonedControlKnobInfo,
+				allocationInfo.PodNamespace, allocationInfo.PodName,
+				allocationInfo.ContainerName)
+			continue
+		}
+
 		general.Infof("set extral control knob: %s by configs: %#v  for pod: %s/%s, container: %s",
 			controlKnobName, clonedControlKnobInfo,
 			allocationInfo.PodNamespace, allocationInfo.PodName,
 			allocationInfo.ContainerName)
-
 		allocationInfo.ExtraControlKnobInfo[controlKnobName] = clonedControlKnobInfo
 	}
 }
