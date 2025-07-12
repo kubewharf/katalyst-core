@@ -213,7 +213,7 @@ func GetRegisterReadinessCheckResult() map[HealthzCheckName]HealthzCheckResult {
 			}
 		case HealthzCheckModeReport:
 			ready = checkStatus.State == HealthzCheckStateReady
-			if !checkStatus.LastUpdateTime.IsZero() && checkStatus.LastUpdateTime.Before(time.Now().Add(-checkStatus.TimeoutPeriod)) {
+			if checkStatus.TimeoutPeriod > 0 && !checkStatus.LastUpdateTime.IsZero() && checkStatus.LastUpdateTime.Before(time.Now().Add(-checkStatus.TimeoutPeriod)) {
 				ready = false
 				message = "timeout"
 			}
