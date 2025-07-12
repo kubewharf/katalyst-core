@@ -331,7 +331,7 @@ func GetContainerID(pod *v1.Pod, containerName string) (string, error) {
 	for _, containerStatus := range pod.Status.ContainerStatuses {
 		if containerStatus.Name == containerName {
 			if containerStatus.ContainerID == "" {
-				return "", fmt.Errorf("empty container id in container statues of pod")
+				return "", fmt.Errorf("empty container id in container statuses of pod")
 			}
 			return TrimContainerIDPrefix(containerStatus.ContainerID), nil
 		}

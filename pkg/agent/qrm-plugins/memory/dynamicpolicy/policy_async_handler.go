@@ -271,9 +271,10 @@ func (p *DynamicPolicy) checkMemorySet(_ *coreconfig.Configuration,
 		memorySetOverlap = false
 	)
 
+	var errList []error
 	defer func() {
 		if err != nil {
-			_ = general.UpdateHealthzStateByError(memconsts.CheckMemSet, err)
+			_ = general.UpdateHealthzStateByError(memconsts.CheckMemSet, errors.NewAggregate(errList))
 		} else if invalidMemSet {
 			_ = general.UpdateHealthzState(memconsts.CheckMemSet, general.HealthzCheckStateNotReady, "invalid mem set exists")
 		} else if memorySetOverlap {
@@ -321,6 +322,7 @@ func (p *DynamicPolicy) checkMemorySet(_ *coreconfig.Configuration,
 				general.Errorf("GetMemorySet of pod: %s container: name(%s), id(%s) failed with error: %v",
 					podUID, containerName, containerID, err)
 				_ = p.emitter.StoreInt64(util.MetricNameRealStateInvalid, 1, metrics.MetricTypeNameRaw, tags...)
+				errList = append(errList, err)
 				continue
 			}
 
