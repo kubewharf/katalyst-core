@@ -35,6 +35,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	evictionconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/eviction"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -43,6 +44,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
 )
@@ -390,11 +392,28 @@ func (s *SystemPressureEvictionPlugin) GetTopEvictionPods(_ context.Context, req
 	targetPods := make([]*v1.Pod, 0, len(request.ActivePods))
 	podToEvictMap := make(map[string]*v1.Pod)
 
-	general.Infof("GetTopEvictionPods condition, m.isUnderSystemPressure: %+v, "+
-		"m.systemAction: %+v", s.isUnderSystemPressure, s.systemAction)
+	targetNumaID := nonExistNumaID
+	var minFree uint64 = ^uint64(0)
+	zoneinfo := machine.GetNormalZoneInfo(hostZoneInfoFile)
+	for _, numaID := range s.metaServer.CPUDetails.NUMANodes().ToSliceNoSortInt() {
+		if numaID < len(zoneinfo) && zoneinfo[numaID].Node == int64(numaID) {
+			free := zoneinfo[numaID].Free
+			if free < minFree {
+				minFree = free
+				targetNumaID = numaID
+			}
+		}
+	}
+
+	general.Infof("GetTopEvictionPods condition,numa=%+v,  m.isUnderSystemPressure: %+v, "+
+		"m.systemAction: %+v", targetNumaID, s.isUnderSystemPressure, s.systemAction)
 
 	if dynamicConfig.EnableSystemLevelEviction && s.isUnderSystemPressure {
-		s.evictionHelper.selectTopNPodsToEvictByMetrics(request.ActivePods, request.TopN, nonExistNumaID, s.systemAction,
+		candidates := request.ActivePods
+		if targetNumaID != nonExistNumaID {
+			candidates = s.evictionHelper.getCandidates(request.ActivePods, targetNumaID, dynamicConfig.NumaVictimMinimumUtilizationThreshold)
+		}
+		s.evictionHelper.selectTopNPodsToEvictByMetrics(candidates, request.TopN, targetNumaID, s.systemAction,
 			dynamicConfig.SystemEvictionRankingMetrics, podToEvictMap)
 	}
 
@@ -408,7 +427,16 @@ func (s *SystemPressureEvictionPlugin) GetTopEvictionPods(_ context.Context, req
 	resp := &pluginapi.GetTopEvictionPodsResponse{
 		TargetPods: targetPods,
 	}
-	if gracePeriod := dynamicConfig.MemoryPressureEvictionConfiguration.GracePeriod; gracePeriod > 0 {
+
+	gracePeriod := evictionconfig.DefaultGracePeriod
+	switch s.systemAction {
+	case actionReclaimedEviction:
+		gracePeriod = dynamicConfig.MemoryPressureEvictionConfiguration.ReclaimedGracePeriod
+	case actionEviction:
+		gracePeriod = dynamicConfig.MemoryPressureEvictionConfiguration.GracePeriod
+	}
+
+	if gracePeriod > 0 {
 		resp.DeletionOptions = &pluginapi.DeletionOptions{
 			GracePeriodSeconds: gracePeriod,
 		}
