@@ -27,6 +27,7 @@ import (
 	borweininfsvc "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/inferencesvc"
 	borweintypes "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/types"
 	borweinutils "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/utils"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
@@ -71,7 +72,7 @@ type StrategySpecialTimeSlot struct {
 	Offset float64 `json:"offset"`
 }
 
-func GetLatencyRegressionPredictResult(metaReader metacache.MetaReader, dryRun bool) (map[string]map[string]*LatencyRegression, int64, error) {
+func GetLatencyRegressionPredictResult(metaReader metacache.MetaReader, dryRun bool, podSet types.PodSet) (map[string]map[string]*LatencyRegression, int64, error) {
 	if metaReader == nil {
 		return nil, 0, fmt.Errorf("nil metaReader")
 	}
@@ -92,6 +93,11 @@ func GetLatencyRegressionPredictResult(metaReader metacache.MetaReader, dryRun b
 		typedResults.RangeInferenceResults(func(podUID, containerName string, result *borweininfsvc.InferenceResult) {
 			if result == nil {
 				return
+			}
+			if podSet != nil {
+				if _, ok := podSet[podUID]; !ok {
+					return
+				}
 			}
 
 			specificResult := &LatencyRegression{}

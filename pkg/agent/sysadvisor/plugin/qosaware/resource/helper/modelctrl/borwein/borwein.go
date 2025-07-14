@@ -28,18 +28,20 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/custom-metric/store/data"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/strategygroup"
 )
 
 const (
-	metricBorweinIndicatorOffset = "borwein_indicator_offset"
+	metricBorweinIndicatorOffset       = "borwein_indicator_offset"
+	metricBorweinInferenceResultRegion = "borwein_inference_result_region"
 )
 
 type IndicatorOffsetUpdater func(podSet types.PodSet, currentIndicatorOffset float64,
 	borweinParameter *borweintypes.BorweinParameter, metaReader metacache.MetaReader,
-	conf *config.Configuration) (float64, error)
+	conf *config.Configuration, emitter metrics.MetricEmitter, regionName string) (float64, error)
 
 type BorweinController struct {
 	regionName string
@@ -77,8 +79,8 @@ func NewBorweinController(regionName string, regionType configapi.QoSRegionType,
 	return bc
 }
 
-func updateCPUUsageIndicatorOffset(_ types.PodSet, _ float64,
-	borweinParameter *borweintypes.BorweinParameter, metaReader metacache.MetaReader, conf *config.Configuration,
+func updateCPUUsageIndicatorOffset(podSet types.PodSet, _ float64, borweinParameter *borweintypes.BorweinParameter,
+	metaReader metacache.MetaReader, conf *config.Configuration, emitter metrics.MetricEmitter, regionName string,
 ) (float64, error) {
 	strategy, err := fetchBorweinV2Strategy(conf)
 	if err != nil {
@@ -86,7 +88,7 @@ func updateCPUUsageIndicatorOffset(_ types.PodSet, _ float64,
 		return 0, err
 	}
 
-	ret, _, err := latencyregression.GetLatencyRegressionPredictResult(metaReader, conf.BorweinConfiguration.DryRun)
+	ret, resultTimestamp, err := latencyregression.GetLatencyRegressionPredictResult(metaReader, conf.BorweinConfiguration.DryRun, podSet)
 	if err != nil {
 		general.Errorf("failed to get inference results of model(%s), error: %v", borweinconsts.ModelNameBorweinLatencyRegression, err)
 		return 0, err
@@ -107,6 +109,19 @@ func updateCPUUsageIndicatorOffset(_ types.PodSet, _ float64,
 		return 0, nil
 	}
 	predictAvg := predictSum / containerCnt
+
+	_ = emitter.StoreFloat64(metricBorweinInferenceResultRegion,
+		predictAvg,
+		metrics.MetricTypeNameRaw,
+		metrics.MetricTag{
+			Key: fmt.Sprintf("%s", data.CustomMetricLabelKeyTimestamp),
+			Val: fmt.Sprintf("%v", resultTimestamp),
+		},
+		metrics.MetricTag{
+			Key: fmt.Sprintf("%s", "binding_numas"),
+			Val: fmt.Sprintf("%s", getBindingNumas(metaReader, regionName)),
+		},
+	)
 
 	targetOffset := latencyregression.MatchSlotOffset(predictAvg, strategy.StrategySlots,
 		string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio), borweinParameter)
@@ -135,7 +150,6 @@ func (bc *BorweinController) updateIndicatorOffsets(podSet types.PodSet) {
 	}
 
 	for indicatorName, currentIndicatorOffset := range bc.indicatorOffsets {
-
 		if bc.indicatorOffsetUpdaters[indicatorName] == nil {
 			general.Errorf("there is no updater for indicator: %s", indicatorName)
 			continue
@@ -148,7 +162,9 @@ func (bc *BorweinController) updateIndicatorOffsets(podSet types.PodSet) {
 			currentIndicatorOffset,
 			bc.borweinParameters[indicatorName],
 			bc.metaReader,
-			bc.conf)
+			bc.conf,
+			bc.emitter,
+			bc.regionName)
 		if err != nil {
 			general.Errorf("update indicator: %s offset failed with error: %v", indicatorName, err)
 			continue
@@ -157,9 +173,11 @@ func (bc *BorweinController) updateIndicatorOffsets(podSet types.PodSet) {
 		bc.indicatorOffsets[indicatorName] = updatedIndicatorOffset
 		general.Infof("update indicator: %s offset from: %.2f to %.2f",
 			indicatorName, currentIndicatorOffset, updatedIndicatorOffset)
-		_ = bc.emitter.StoreFloat64(metricBorweinIndicatorOffset, bc.indicatorOffsets[indicatorName],
+
+		_ = bc.emitter.StoreFloat64(metricBorweinIndicatorOffset, updatedIndicatorOffset,
 			metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
 				"indicator_name": indicatorName,
+				"binding_numas":  getBindingNumas(bc.metaReader, bc.regionName),
 			})...)
 	}
 }
@@ -242,4 +260,12 @@ func fetchBorweinV2Strategy(conf *config.Configuration) (*latencyregression.Borw
 	}
 	general.Infof("%v strategy: %+v", strategyName, strategy)
 	return &strategy, nil
+}
+
+func getBindingNumas(metaReader metacache.MetaReader, regionName string) string {
+	bindingNumas := ""
+	if ri, exist := metaReader.GetRegionInfo(regionName); exist {
+		bindingNumas = ri.BindingNumas.String()
+	}
+	return bindingNumas
 }
