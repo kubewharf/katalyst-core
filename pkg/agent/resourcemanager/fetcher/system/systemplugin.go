@@ -34,6 +34,7 @@ import (
 	pluginutil "github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/fetcher/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
@@ -44,9 +45,11 @@ const (
 
 	ResourceNameNBW v1.ResourceName = "nbw"
 
-	PropertyNameCIS      = "cis"
-	PropertyNameNUMA     = "numa"
-	PropertyNameTopology = "topology"
+	PropertyNameCIS         = "cis"
+	PropertyNameNUMA        = "numa"
+	PropertyNameTopology    = "topology"
+	PropertyNameCPUCodename = "cpu_codename"
+	PropertyNameIsVM        = "is_vm"
 )
 
 // systemPlugin implements the endpoint interface, and it's an in-tree reporter plugin
@@ -122,6 +125,10 @@ func (p *systemPlugin) setCache(resp *v1alpha1.GetReportContentResponse) {
 func (p *systemPlugin) getResourceProperties() ([]*v1alpha1.ReportContent, error) {
 	var properties []*nodev1alpha1.Property
 
+	if !p.metaServer.HasSynced() {
+		return nil, errors.New("metrics have not synced")
+	}
+
 	// append all properties to one property list
 	properties = append(properties,
 		p.getNUMACount(),
@@ -130,6 +137,8 @@ func (p *systemPlugin) getResourceProperties() ([]*v1alpha1.ReportContent, error
 		p.getMemoryCapacity(),
 		p.getCISProperty(),
 		p.getNetworkTopologyProperty(),
+		p.getCPUCodenameProperty(),
+		p.getIsVMProperty(),
 	)
 
 	value, err := json.Marshal(&properties)
@@ -218,4 +227,26 @@ func (p *systemPlugin) getNetworkTopologyProperty() *nodev1alpha1.Property {
 		PropertyName:   PropertyNameTopology,
 		PropertyValues: propertyValues,
 	}
+}
+
+func (p *systemPlugin) getCPUCodenameProperty() *nodev1alpha1.Property {
+	codename := helper.GetCpuCodeName(p.metaServer.MetricsFetcher)
+	if codename != "" {
+		return &nodev1alpha1.Property{
+			PropertyName:   PropertyNameCPUCodename,
+			PropertyValues: []string{codename},
+		}
+	}
+	return nil
+}
+
+func (p *systemPlugin) getIsVMProperty() *nodev1alpha1.Property {
+	_, isVmStr := helper.GetIsVM(p.metaServer.MetricsFetcher)
+	if isVmStr != "" {
+		return &nodev1alpha1.Property{
+			PropertyName:   PropertyNameIsVM,
+			PropertyValues: []string{isVmStr},
+		}
+	}
+	return nil
 }
