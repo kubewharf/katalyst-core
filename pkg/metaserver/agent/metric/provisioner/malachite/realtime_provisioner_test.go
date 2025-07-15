@@ -29,7 +29,7 @@ import (
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
-func TestMalachiteRealtimeMetricsProvisioner_processSystemPowerData(t *testing.T) {
+func TestRealtimePowerMetricsProvisioner_processSystemPowerData(t *testing.T) {
 	t.Parallel()
 
 	testTimestamp := time.Date(2024, 11, 12, 0, 0, 0, 0, time.Local)
@@ -86,7 +86,7 @@ func TestMalachiteRealtimeMetricsProvisioner_processSystemPowerData(t *testing.T
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			m := &MalachiteRealtimeMetricsProvisioner{
+			m := &RealtimePowerMetricsProvisioner{
 				MalachiteMetricsProvisioner: tt.fields.MalachiteMetricsProvisioner,
 			}
 			m.processSystemPowerData(tt.args.data)
@@ -147,8 +147,8 @@ func TestMalachiteRealtimeMetricsProvisioner_Run(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			m := &MalachiteRealtimeMetricsProvisioner{
-				malachiteClient:             tt.fields.malachiteClient,
+			m := &RealtimePowerMetricsProvisioner{
+				dataGetter:                  tt.fields.malachiteClient,
 				MalachiteMetricsProvisioner: tt.fields.MalachiteMetricsProvisioner,
 			}
 			m.Run(tt.args.ctx)

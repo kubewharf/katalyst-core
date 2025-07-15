@@ -14,23 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package poweraware
+package assess
 
-const (
-	DVFSIndicationPower   = "power"
-	DVFSIndicationCPUFreq = "cpufreq"
-)
-
-type PowerAwarePluginConfiguration struct {
-	DryRun                           bool
-	DisablePowerCapping              bool
-	DisablePowerPressureEvict        bool
-	PowerCappingAdvisorSocketAbsPath string
-	AnnotationKeyPrefix              string
-	DVFSIndication                   string
-}
-
-// NewPowerAwarePluginConfiguration creates a default config
-func NewPowerAwarePluginConfiguration() *PowerAwarePluginConfiguration {
-	return &PowerAwarePluginConfiguration{}
+type Assessor interface {
+	Init() error
+	IsInitialized() bool
+	Clear()
+	Update(power int)
+	AssessEffect(currentPower int, inDVFS, capperAvailable bool) (int, error)
+	AssessTarget(actualWatt int, desiredWatt int, maxDecreasePercent int) int
 }

@@ -28,6 +28,7 @@ type PowerAwarePluginOptions struct {
 	DisablePowerPressureEvict        bool
 	PowerCappingAdvisorSocketAbsPath string
 	AnnotationKeyPrefix              string
+	DVFSIndication                   string
 }
 
 func (p *PowerAwarePluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
@@ -37,6 +38,7 @@ func (p *PowerAwarePluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.BoolVar(&p.DisablePowerCapping, "power-capping-Disabled", p.DisablePowerCapping, "flag for power aware plugin disabling power capping")
 	fs.StringVar(&p.PowerCappingAdvisorSocketAbsPath, "power-capping-advisor-sock-abs-path", p.PowerCappingAdvisorSocketAbsPath, "absolute path of unix socket file for power capping advisor served in sys-advisor")
 	fs.StringVar(&p.AnnotationKeyPrefix, "power-aware-annotation-key-prefix", p.AnnotationKeyPrefix, "prefix of node annotation keys used by power aware plugin")
+	fs.StringVar(&p.DVFSIndication, "power-aware-dvfs-indication", p.DVFSIndication, "indication metric name of dvfs effect")
 }
 
 func (p *PowerAwarePluginOptions) ApplyTo(o *poweraware.PowerAwarePluginConfiguration) error {
@@ -45,11 +47,14 @@ func (p *PowerAwarePluginOptions) ApplyTo(o *poweraware.PowerAwarePluginConfigur
 	o.DisablePowerCapping = p.DisablePowerCapping
 	o.PowerCappingAdvisorSocketAbsPath = p.PowerCappingAdvisorSocketAbsPath
 	o.AnnotationKeyPrefix = p.AnnotationKeyPrefix
+	o.DVFSIndication = p.DVFSIndication
 
 	return nil
 }
 
 // NewPowerAwarePluginOptions creates a new Options with a default config.
 func NewPowerAwarePluginOptions() *PowerAwarePluginOptions {
-	return &PowerAwarePluginOptions{}
+	return &PowerAwarePluginOptions{
+		DVFSIndication: poweraware.DVFSIndicationPower,
+	}
 }

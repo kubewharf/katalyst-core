@@ -26,25 +26,25 @@ import (
 )
 
 func (c *MalachiteClient) GetPowerData() (*types.PowerData, error) {
-	payload, err := c.getRealtimePowerPayload(RealtimePowerResource)
+	payload, err := c.getRealtimePayload(RealtimePowerResource)
 	if err != nil {
 		return nil, err
 	}
 
 	rsp := &types.MalachitePowerResponse{}
 	if err := json.Unmarshal(payload, rsp); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal system compute stats raw data, err %s", err)
+		return nil, fmt.Errorf("failed to unmarshal raw data, err %s", err)
 	}
 
 	if rsp.Status != 0 {
-		return nil, fmt.Errorf("system compute stats status is not ok, %d", rsp.Status)
+		return nil, fmt.Errorf("realtime power status is not ok, %d", rsp.Status)
 	}
 
 	c.checkSystemStatsOutOfDate("power", RealtimeUpdateTimeout, rsp.Data.Sensors.UpdateTime)
 	return &rsp.Data, nil
 }
 
-func (c *MalachiteClient) getRealtimePowerPayload(resource string) ([]byte, error) {
+func (c *MalachiteClient) getRealtimePayload(resource string) ([]byte, error) {
 	c.RLock()
 	defer c.RUnlock()
 

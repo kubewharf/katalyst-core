@@ -21,6 +21,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/advisor/action/strategy/assess"
 )
 
 type mockCapperProber struct {
@@ -54,7 +56,7 @@ func Test_dvfsTracker_update(t *testing.T) {
 		wantDVFSTracker dvfsTracker
 	}{
 		{
-			name: "not in dvfs, not to accumulate",
+			name: "not in dvfs, not to accumulate, and effect is refreshed anyway",
 			fields: fields{
 				dvfsUsed:  3,
 				indvfs:    false,
@@ -67,8 +69,9 @@ func Test_dvfsTracker_update(t *testing.T) {
 			wantDVFSTracker: dvfsTracker{
 				capperProber:    mockProber,
 				dvfsAccumEffect: 3,
+				isEffectCurrent: true,
 				inDVFS:          false,
-				prevPower:       90,
+				assessor:        assess.NewPowerChangeAssessor(3, 90),
 			},
 		},
 		{
@@ -85,8 +88,9 @@ func Test_dvfsTracker_update(t *testing.T) {
 			wantDVFSTracker: dvfsTracker{
 				capperProber:    mockProber,
 				dvfsAccumEffect: 13,
+				isEffectCurrent: true,
 				inDVFS:          true,
-				prevPower:       90,
+				assessor:        assess.NewPowerChangeAssessor(13, 90),
 			},
 		},
 		{
@@ -103,8 +107,9 @@ func Test_dvfsTracker_update(t *testing.T) {
 			wantDVFSTracker: dvfsTracker{
 				capperProber:    mockProber,
 				dvfsAccumEffect: 3,
+				isEffectCurrent: true,
 				inDVFS:          true,
-				prevPower:       101,
+				assessor:        assess.NewPowerChangeAssessor(3, 101),
 			},
 		},
 	}
@@ -116,9 +121,9 @@ func Test_dvfsTracker_update(t *testing.T) {
 				capperProber:    mockProber,
 				dvfsAccumEffect: tt.fields.dvfsUsed,
 				inDVFS:          tt.fields.indvfs,
-				prevPower:       tt.fields.prevPower,
+				assessor:        assess.NewPowerChangeAssessor(3, tt.fields.prevPower),
 			}
-			d.update(tt.args.actualWatt, tt.args.desiredWatt)
+			d.update(tt.args.actualWatt)
 			assert.Equal(t, &tt.wantDVFSTracker, d)
 		})
 	}

@@ -37,13 +37,15 @@ import (
 )
 
 const (
-	metricsNamMalachiteRealtimeUnHealthy        = "malachite_realtime_unhealthy"
-	malachiteRealtimeProvisionerHealthCheckName = "malachite_realtime_provisioner_sample"
-	malachiteRealtimeProvisionTolerationTime    = 5 * time.Second
-	metricsNameMalachiteGetRealtimePowerFailed  = "malachite_get_realtime_power_failed"
+	malachiteRealtimeProvisionTolerationTime = 5 * time.Second
+
+	realtimePowerProvisioner                         = "malachite_realtime_power"
+	metricsNameMalachiteRealtimePowerUnHealthy       = "malachite_realtime_power_unhealthy"
+	malachiteRealtimePowerProvisionerHealthCheckName = "malachite_realtime_power_provisioner_sample"
+	metricsNameMalachiteGetRealtimePowerFailed       = "malachite_get_realtime_power_failed"
 )
 
-func NewMalachiteRealtimeMetricsProvisioner(baseConf *global.BaseConfiguration, _ *metaserver.MetricConfiguration,
+func NewRealtimePowerMetricsProvisioner(baseConf *global.BaseConfiguration, _ *metaserver.MetricConfiguration,
 	emitter metrics.MetricEmitter, fetcher pod.PodFetcher, metricStore *utilmetric.MetricStore, _ *machine.KatalystMachineInfo,
 ) types.MetricsProvisioner {
 	inner := &MalachiteMetricsProvisioner{
@@ -53,8 +55,8 @@ func NewMalachiteRealtimeMetricsProvisioner(baseConf *global.BaseConfiguration, 
 		baseConf:        baseConf,
 	}
 
-	return &MalachiteRealtimeMetricsProvisioner{
-		malachiteClient:             inner.malachiteClient,
+	return &RealtimePowerMetricsProvisioner{
+		dataGetter:                  inner.malachiteClient,
 		MalachiteMetricsProvisioner: inner,
 	}
 }
@@ -63,14 +65,18 @@ type powerDataGetter interface {
 	GetPowerData() (*malachitetypes.PowerData, error)
 }
 
-type MalachiteRealtimeMetricsProvisioner struct {
-	malachiteClient powerDataGetter
+type sysFreqDataGetter interface {
+	GetSysFreqData() (*malachitetypes.SysFreqData, error)
+}
+
+type RealtimePowerMetricsProvisioner struct {
+	dataGetter powerDataGetter
 	*MalachiteMetricsProvisioner
 }
 
-func (m *MalachiteRealtimeMetricsProvisioner) Run(ctx context.Context) {
+func (m *RealtimePowerMetricsProvisioner) Run(ctx context.Context) {
 	m.startOnce.Do(func() {
-		general.RegisterHeartbeatCheck(malachiteRealtimeProvisionerHealthCheckName,
+		general.RegisterHeartbeatCheck(malachiteRealtimePowerProvisionerHealthCheckName,
 			malachiteRealtimeProvisionTolerationTime,
 			general.HealthzCheckStateNotReady,
 			malachiteRealtimeProvisionTolerationTime)
@@ -78,40 +84,41 @@ func (m *MalachiteRealtimeMetricsProvisioner) Run(ctx context.Context) {
 	m.sample(ctx)
 }
 
-func (m *MalachiteRealtimeMetricsProvisioner) checkMalachiteHealthy() bool {
-	_, err := m.malachiteClient.GetPowerData()
+func (m *RealtimePowerMetricsProvisioner) checkMalachiteHealthy() bool {
+	_, err := m.dataGetter.GetPowerData()
 	if err != nil {
-		klog.Errorf("[malachite_realtime] malachite realtime is unhealthy: %v", err)
-		_ = m.emitter.StoreInt64(metricsNamMalachiteRealtimeUnHealthy, 1, metrics.MetricTypeNameRaw)
+		klog.Errorf("[%s] service is unhealthy: %v", realtimePowerProvisioner, err)
+		_ = m.emitter.StoreInt64(metricsNameMalachiteRealtimePowerUnHealthy, 1, metrics.MetricTypeNameRaw)
 		return false
 	}
 
 	return true
 }
 
-func (m *MalachiteRealtimeMetricsProvisioner) sample(ctx context.Context) {
-	klog.V(4).Infof("[malachite_realtime] heartbeat")
+func (m *RealtimePowerMetricsProvisioner) sample(ctx context.Context) {
+	klog.V(4).Infof("[%s] heartbeat", realtimePowerProvisioner)
 
+	// todo: consolidate check healthy and update with single get data call
 	if !m.checkMalachiteHealthy() {
-		_ = general.UpdateHealthzState(malachiteRealtimeProvisionerHealthCheckName, general.HealthzCheckStateNotReady, "malachite realtime is not healthy")
+		_ = general.UpdateHealthzState(malachiteRealtimePowerProvisionerHealthCheckName,
+			general.HealthzCheckStateNotReady, "malachite realtime power is not healthy")
 		return
 	}
-	errList := make([]error, 0)
 
-	// Update system data
+	errList := make([]error, 0)
 	if err := m.updateSystemTotalPower(); err != nil {
 		errList = append(errList, err)
 	}
 
-	_ = general.UpdateHealthzStateByError(malachiteRealtimeProvisionerHealthCheckName, errors.NewAggregate(errList))
+	_ = general.UpdateHealthzStateByError(malachiteRealtimePowerProvisionerHealthCheckName, errors.NewAggregate(errList))
 }
 
-func (m *MalachiteRealtimeMetricsProvisioner) updateSystemTotalPower() error {
+func (m *RealtimePowerMetricsProvisioner) updateSystemTotalPower() error {
 	errList := make([]error, 0)
-	powerData, err := m.malachiteClient.GetPowerData()
+	powerData, err := m.dataGetter.GetPowerData()
 	if err != nil {
 		errList = append(errList, err)
-		klog.Errorf("[malachite] get system compute stats failed, err %v", err)
+		klog.Errorf("[%s] get power data failed, err %v", realtimePowerProvisioner, err)
 		_ = m.emitter.StoreInt64(metricsNameMalachiteGetRealtimePowerFailed, 1, metrics.MetricTypeNameCount,
 			metrics.MetricTag{Key: "kind", Val: "power"})
 	} else {
@@ -121,7 +128,7 @@ func (m *MalachiteRealtimeMetricsProvisioner) updateSystemTotalPower() error {
 	return errors.NewAggregate(errList)
 }
 
-func (m *MalachiteRealtimeMetricsProvisioner) processSystemPowerData(data *malachitetypes.PowerData) {
+func (m *RealtimePowerMetricsProvisioner) processSystemPowerData(data *malachitetypes.PowerData) {
 	if data == nil {
 		return
 	}
