@@ -197,11 +197,15 @@ func (p *DynamicPolicy) sharedCoresWithoutNUMABindingAllocationHandler(_ context
 	return resp, nil
 }
 
-func (p *DynamicPolicy) reclaimedCoresAllocationHandler(_ context.Context,
+func (p *DynamicPolicy) reclaimedCoresAllocationHandler(ctx context.Context,
 	req *pluginapi.ResourceRequest, persistCheckpoint bool,
 ) (*pluginapi.ResourceAllocationResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("reclaimedCoresAllocationHandler got nil request")
+	}
+
+	if req.ContainerType == pluginapi.ContainerType_SIDECAR {
+		return p.allocationSidecarHandler(ctx, req, apiconsts.PodAnnotationQoSLevelReclaimedCores, persistCheckpoint)
 	}
 
 	if util.PodInplaceUpdateResizing(req) {
