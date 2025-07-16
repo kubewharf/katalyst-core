@@ -50,6 +50,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/kubelet/podresources"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
@@ -80,6 +81,15 @@ type topologyAdapterImpl struct {
 
 	// numaSocketZoneNodeMap map numa zone node => socket zone node
 	numaSocketZoneNodeMap map[util.ZoneNode]util.ZoneNode
+
+	// numaCacheGroupZoneNodeMap map numa zone node => cache group zone nodes
+	numaCacheGroupZoneNodeMap map[util.ZoneNode][]util.ZoneNode
+
+	// numaDistanceMap map the distance between a specified numa and other numa.
+	numaDistanceMap map[int][]machine.NumaDistanceInfo
+
+	// cacheGroupCPUsMap records the CPU list in the cache group.
+	cacheGroupCPUsMap map[int]sets.Int
 
 	// skipDeviceNames name of devices which will be skipped in getting numa allocatable and allocation
 	skipDeviceNames sets.String
@@ -129,7 +139,7 @@ func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, qos
 	}
 
 	numaSocketZoneNodeMap := util.GenerateNumaSocketZone(numaInfo)
-
+	numaCacheGroupZoneNodeMap := util.GenerateNumaCacheGroupZone(numaInfo)
 	adapter := &topologyAdapterImpl{
 		endpoints:                      endpoints,
 		kubeletResourcePluginPaths:     kubeletResourcePluginPaths,
@@ -137,6 +147,9 @@ func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, qos
 		qosConf:                        qosConf,
 		metaServer:                     metaServer,
 		numaSocketZoneNodeMap:          numaSocketZoneNodeMap,
+		numaCacheGroupZoneNodeMap:      numaCacheGroupZoneNodeMap,
+		numaDistanceMap:                metaServer.NumaDistanceMap,
+		cacheGroupCPUsMap:              machine.GetCacheGroupCPUs(metaServer.MachineInfo),
 		skipDeviceNames:                skipDeviceNames,
 		getClientFunc:                  getClientFunc,
 		podResourcesFilter:             podResourcesFilter,
@@ -171,9 +184,10 @@ func (p *topologyAdapterImpl) GetTopologyZones(parentCtx context.Context) ([]*no
 		return nil, errors.Wrap(err, "get allocatable Resources from pod resource server failed")
 	}
 
+	listPodResourcesResponseStr, _ := json.Marshal(listPodResourcesResponse)
+	allocatableResourcesResponseStr, _ := json.Marshal(allocatableResources)
 	if klog.V(5).Enabled() {
-		listPodResourcesResponseStr, _ := json.Marshal(listPodResourcesResponse)
-		allocatableResourcesResponseStr, _ := json.Marshal(allocatableResources)
+
 		klog.Infof("list pod Resources: %s\n allocatable Resources: %s", string(listPodResourcesResponseStr),
 			string(allocatableResourcesResponseStr))
 	}
@@ -230,6 +244,12 @@ func (p *topologyAdapterImpl) GetTopologyZones(parentCtx context.Context) ([]*no
 	err = p.addDeviceZoneNodes(topologyZoneGenerator, allocatableResources)
 	if err != nil {
 		return nil, errors.Wrap(err, "get device zone topology failed")
+	}
+
+	// add cache group zone node into topology zone generator by numaCacheGroupZoneNodeMap
+	err = p.addCacheGroupZoneNodes(topologyZoneGenerator)
+	if err != nil {
+		return nil, errors.Wrap(err, "get cache group zone topology failed")
 	}
 
 	return topologyZoneGenerator.GenerateTopologyZoneStatus(zoneAllocations, zoneResources, zoneAttributes, zoneSiblings, nil), nil
@@ -397,6 +417,26 @@ func (p *topologyAdapterImpl) addDeviceZoneNodes(generator *util.TopologyZoneGen
 	return nil
 }
 
+// addCacheGroupZoneNodes add the cache group zone nodes to the generator.
+func (p *topologyAdapterImpl) addCacheGroupZoneNodes(generator *util.TopologyZoneGenerator) error {
+	var errList []error
+	for parent, cacheGroups := range p.numaCacheGroupZoneNodeMap {
+		for _, cacheGroup := range cacheGroups {
+			err := generator.AddNode(&parent, cacheGroup)
+			if err != nil {
+				errList = append(errList, err)
+				continue
+			}
+		}
+	}
+
+	if len(errList) > 0 {
+		return utilerrors.NewAggregate(errList)
+	}
+
+	return nil
+}
+
 // getZoneResources gets a map of zone node to zone Resources. The zone node Resources is combined by allocatable
 // device and allocatable resources from pod resources server
 func (p *topologyAdapterImpl) getZoneResources(allocatableResources *podresv1.AllocatableResourcesResponse) (map[util.ZoneNode]nodev1alpha1.Resources, error) {
@@ -447,6 +487,23 @@ func (p *topologyAdapterImpl) getZoneResources(allocatableResources *podresv1.Al
 	zoneAllocatable, zoneCapacity, err = p.addNumaMemoryBandwidth(zoneAllocatable, zoneCapacity)
 	if err != nil {
 		errList = append(errList, err)
+	}
+
+	// process cache group zone node resources
+	for cacheID, cpusets := range p.cacheGroupCPUsMap {
+		cacheGroupZone := util.GenerateCacheGroupZoneNode(cacheID)
+		quantity, err := resource.ParseQuantity(fmt.Sprintf("%d", cpusets.Len()))
+		if err != nil {
+			errList = append(errList, err)
+		}
+
+		zoneCapacity[cacheGroupZone] = &v1.ResourceList{
+			"cpu": quantity,
+		}
+
+		zoneAllocatable[cacheGroupZone] = &v1.ResourceList{
+			"cpu": quantity,
+		}
 	}
 
 	if len(errList) > 0 {
@@ -632,11 +689,53 @@ func (p *topologyAdapterImpl) getZoneAttributes(allocatableResources *podresv1.A
 		}
 	}
 
+	// generate the attributes of numa zone node
+	for numaNode := range p.numaSocketZoneNodeMap {
+		zoneAttributes[numaNode] = p.generateNodeDistanceAttr(numaNode)
+	}
+
+	// generate the attributes of cache group zone node.
+	for groupID, cpus := range p.cacheGroupCPUsMap {
+		cacheGroupZoneNode := util.GenerateCacheGroupZoneNode(groupID)
+
+		zoneAttributes[cacheGroupZoneNode] = util.ZoneAttributes{
+			nodev1alpha1.Attribute{
+				Name:  "cpu_lists",
+				Value: machine.NewCPUSet(cpus.List()...).String(),
+			},
+		}
+	}
+
 	if len(errList) > 0 {
 		return nil, utilerrors.NewAggregate(errList)
 	}
 
 	return zoneAttributes, nil
+}
+
+func (p *topologyAdapterImpl) generateNodeDistanceAttr(node util.ZoneNode) []nodev1alpha1.Attribute {
+	var (
+		distances []int
+		attrs     []nodev1alpha1.Attribute
+	)
+
+	numaID, err := strconv.Atoi(node.Meta.Name)
+	if err != nil {
+		klog.Warningf("convert numaID to int failed: %v", err)
+		return attrs
+	}
+
+	distanceInfos := p.numaDistanceMap[numaID]
+	for _, distanceInfo := range distanceInfos {
+		distances = append(distances, distanceInfo.Distance)
+	}
+
+	attrs = append(attrs, nodev1alpha1.Attribute{
+		Name:  "numa_distance",
+		Value: general.IntSliceToString(distances),
+	})
+
+	return attrs
 }
 
 // aggregateContainerAllocated aggregates resources in each zone used by all containers of a pod and returns a map of zone node to
