@@ -47,6 +47,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 const (
@@ -1509,9 +1510,203 @@ func makePod(name string) *v1.Pod {
 			Containers: []v1.Container{
 				{
 					Name: "container",
+					Env: []v1.EnvVar{
+						{
+							Name:  native.PrimaryPort,
+							Value: "0.5",
+						},
+					},
 				},
 			},
 		},
 	}
 	return pod1
+}
+
+func TestWithKindFilter(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name         string
+		skippedKinds []string
+		pod          *v1.Pod
+		expected     bool
+	}{
+		{
+			name:         "Skip ReplicaSet owner",
+			skippedKinds: []string{"ReplicaSet"},
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "pod1",
+					OwnerReferences: []metav1.OwnerReference{
+						{Kind: "ReplicaSet"},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name:         "Keep Pod without skipped owner",
+			skippedKinds: []string{"Deployment"},
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "pod2",
+					OwnerReferences: []metav1.OwnerReference{
+						{Kind: "ReplicaSet"},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name:         "Skip multiple kinds",
+			skippedKinds: []string{"Deployment", "StatefulSet"},
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "pod3",
+					OwnerReferences: []metav1.OwnerReference{
+						{Kind: "StatefulSet"},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name:         "No owner references",
+			skippedKinds: []string{"Deployment"},
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{Name: "pod4"},
+			},
+			expected: true,
+		},
+		{
+			name:         "Nil pod",
+			skippedKinds: []string{"Deployment"},
+			pod:          nil,
+			expected:     true,
+		},
+		{
+			name:         "Empty skipped kinds",
+			skippedKinds: []string{},
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "pod5",
+					OwnerReferences: []metav1.OwnerReference{
+						{Kind: "Deployment"},
+					},
+				},
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			filter := native.NewFilterWithOptions(
+				WithKindFilter(tt.skippedKinds),
+			)
+			result := filter.Apply([]*v1.Pod{tt.pod})
+
+			if tt.expected {
+				assert.Len(t, result, 1, "Pod should be kept")
+				assert.Equal(t, tt.pod, result[0], "Pod should match")
+			} else {
+				assert.Len(t, result, 0, "Pod should be filtered out")
+			}
+		})
+	}
+}
+
+func TestWithConsumerFilter(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		pod      *v1.Pod
+		expected bool
+	}{
+		{
+			name: "Keep pod with PrimaryPort env (not consumer)",
+			pod: &v1.Pod{
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Env: []v1.EnvVar{
+								{Name: native.PrimaryPort, Value: "8080"},
+							},
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "Skip pod without PrimaryPort env (consumer)",
+			pod: &v1.Pod{
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Env: []v1.EnvVar{
+								{Name: "OTHER_VAR", Value: "value"},
+							},
+						},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "Keep multi-container pod with PrimaryPort in any container",
+			pod: &v1.Pod{
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{Env: []v1.EnvVar{{Name: "OTHER_VAR", Value: "value"}}},
+						{Env: []v1.EnvVar{{Name: native.PrimaryPort, Value: "8080"}}},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "Skip pod with empty containers (consumer)",
+			pod: &v1.Pod{
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{},
+				},
+			},
+			expected: false,
+		},
+		{
+			name:     "Keep nil pod",
+			pod:      nil,
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			filter := native.NewFilterWithOptions(
+				WithConsumerFilter(),
+			)
+			inputPods := []*v1.Pod{tt.pod}
+			if tt.pod == nil {
+				inputPods = []*v1.Pod{} // Apply方法忽略nil，因此传入空列表
+			}
+
+			result := filter.Apply(inputPods)
+
+			if tt.expected {
+				if tt.pod != nil {
+					assert.Len(t, result, 1, "Pod should be kept")
+					assert.Equal(t, tt.pod, result[0], "Pod should match")
+				} else {
+					assert.Len(t, result, 0, "Nil pod results in empty list")
+				}
+			} else {
+				assert.Len(t, result, 0, "Pod should be filtered out")
+			}
+		})
+	}
 }

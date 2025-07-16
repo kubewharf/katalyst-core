@@ -32,13 +32,13 @@ import (
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 const EvictionNameNumaCpuPressure = "numa-cpu-pressure-plugin"
@@ -138,7 +138,8 @@ func (p *NumaCPUPressureEviction) GetEvictPods(_ context.Context, request *plugi
 		return &pluginapi.GetEvictPodsResponse{}, nil
 	}
 
-	activePods := helper.FilterPodsByKind(request.ActivePods, p.numaPressureConfig.SkippedPodKinds)
+	activePods := p.filterActivePods(request.ActivePods)
+	general.Infof("after filter active pods, count from %d to %d", len(request.ActivePods), len(activePods))
 
 	if len(activePods) == 0 {
 		general.Warningf("got empty active pods list after filter")
@@ -282,7 +283,7 @@ func (p *NumaCPUPressureEviction) update(_ context.Context) {
 					}
 					valRatio := val.Value / float64(numaSize)
 					p.metricsHistory.Push(numaID, podUID, metricName, valRatio)
-					general.InfoS("Push pod metric", "metric", metricName, "numa", numaID, "pod", podUID, "value", valRatio)
+					// general.InfoS("Push pod metric", "metric", metricName, "numa", numaID, "pod", podUID, "value", valRatio)
 
 					sum += valRatio
 				}
@@ -506,5 +507,33 @@ func getNumaPressureConfig(conf *dynamic.Configuration) *NumaPressureConfig {
 		ExpandFactor:           conf.NumaCPUPressureEvictionConfiguration.ThresholdExpandFactor,
 		CandidateCount:         conf.NumaCPUPressureEvictionConfiguration.CandidateCount,
 		SkippedPodKinds:        conf.NumaCPUPressureEvictionConfiguration.SkippedPodKinds,
+	}
+}
+
+func (p *NumaCPUPressureEviction) filterActivePods(activePods []*v1.Pod) []*v1.Pod {
+	return native.NewFilterWithOptions(
+		WithKindFilter(p.numaPressureConfig.SkippedPodKinds),
+		WithConsumerFilter(),
+	).Apply(activePods)
+}
+
+func WithKindFilter(skippedKinds []string) native.FilterOption {
+	return func(f *native.Filter) {
+		f.RegisterFilter(func(pod *v1.Pod) bool {
+			for _, kind := range skippedKinds {
+				if native.PodMatchKind(pod, kind) {
+					return false
+				}
+			}
+			return true
+		})
+	}
+}
+
+func WithConsumerFilter() native.FilterOption {
+	return func(f *native.Filter) {
+		f.RegisterFilter(func(pod *v1.Pod) bool {
+			return native.PodIsNotConsumer(pod)
+		})
 	}
 }
