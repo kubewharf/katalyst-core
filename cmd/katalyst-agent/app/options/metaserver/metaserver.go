@@ -29,6 +29,7 @@ const (
 	defaultCheckpointManagerDir = "/var/lib/katalyst/metaserver/checkpoints"
 	defaultEnableMetricsFetcher = true
 	defaultEnableCNCFetcher     = true
+	defaultEnableNPDFetcher     = true
 )
 
 const (
@@ -65,6 +66,7 @@ type MetaServerOptions struct {
 	CheckpointManagerDir string
 	EnableMetricsFetcher bool
 	EnableCNCFetcher     bool
+	EnableNPDFetcher     bool
 
 	// configurations for kcc
 	ConfigCacheTTL                 time.Duration
@@ -99,6 +101,7 @@ func NewMetaServerOptions() *MetaServerOptions {
 		CheckpointManagerDir: defaultCheckpointManagerDir,
 		EnableMetricsFetcher: defaultEnableMetricsFetcher,
 		EnableCNCFetcher:     defaultEnableCNCFetcher,
+		EnableNPDFetcher:     defaultEnableNPDFetcher,
 
 		ConfigCacheTTL:                 defaultConfigCacheTTL,
 		ConfigDisableDynamic:           defaultConfigDisableDynamic,
@@ -133,6 +136,8 @@ func (o *MetaServerOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"Whether to enable metrics fetcher")
 	fs.BoolVar(&o.EnableCNCFetcher, "enable-cnc-fetcher", o.EnableCNCFetcher,
 		"Whether to enable cnc fetcher")
+	fs.BoolVar(&o.EnableNPDFetcher, "enable-npd-fetcher", o.EnableNPDFetcher,
+		"Whether to enable npd fetcher")
 
 	fs.StringSliceVar(&o.ServiceProfileEnableNamespaces, "service-profile-enable-namespaces", o.ServiceProfileEnableNamespaces,
 		"Comma-separated list of namespaces where service profiles are enabled, default is all namespaces")
@@ -174,6 +179,7 @@ func (o *MetaServerOptions) ApplyTo(c *metaserver.MetaServerConfiguration) error
 	c.CheckpointManagerDir = o.CheckpointManagerDir
 	c.EnableMetricsFetcher = o.EnableMetricsFetcher
 	c.EnableCNCFetcher = o.EnableCNCFetcher
+	c.EnableNPDFetcher = o.EnableNPDFetcher
 
 	c.ConfigCacheTTL = o.ConfigCacheTTL
 	c.ConfigDisableDynamic = o.ConfigDisableDynamic

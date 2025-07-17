@@ -30,6 +30,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/external"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/kcc"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/npd"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
@@ -44,6 +45,7 @@ type MetaServer struct {
 	kcc.ConfigurationManager
 	spd.ServiceProfilingManager
 	external.ExternalManager
+	npd.NPDFetcher
 }
 
 // NewMetaServer returns the instance of MetaServer.
@@ -75,11 +77,19 @@ func NewMetaServer(clientSet *client.GenericClientSet, emitter metrics.MetricEmi
 		return nil, fmt.Errorf("initializes spd fetcher failed: %s", err)
 	}
 
+	var npdFetcher npd.NPDFetcher
+	if conf.EnableNPDFetcher {
+		npdFetcher = npd.NewNPDFetcher(clientSet, metaAgent.CNCFetcher, conf.KCCConfiguration)
+	} else {
+		npdFetcher = npd.NewDummyNPDFetcher()
+	}
+
 	return &MetaServer{
 		MetaAgent:               metaAgent,
 		ConfigurationManager:    configurationManager,
 		ServiceProfilingManager: spd.NewServiceProfilingManager(spdFetcher),
 		ExternalManager:         external.InitExternalManager(metaAgent.PodFetcher),
+		NPDFetcher:              npdFetcher,
 	}, nil
 }
 

@@ -85,6 +85,7 @@ type AgentConfiguration struct {
 
 	EnableMetricsFetcher bool
 	EnableCNCFetcher     bool
+	EnableNPDFetcher     bool
 }
 
 func NewAgentConfiguration() *AgentConfiguration {
