@@ -236,11 +236,17 @@ func (p *CPUPressureSuppression) evictPodsByReclaimMetrics(now time.Time, filter
 
 			// a pod will only be evicted if its cpu suppression lasts longer than minToleranceDuration
 			if lastDuration > evictionConfiguration.MinSuppressionToleranceDuration {
-				evictPods = append(evictPods, &v1alpha1.EvictPod{
+				evictPod := &v1alpha1.EvictPod{
 					Pod: pod,
 					Reason: fmt.Sprintf("current pool suppression rate %.2f is over than the "+
 						"pod suppression tolerance rate %.2f", poolSuppressionRate, podToleranceRate),
-				})
+				}
+				if evictionConfiguration.GracePeriod > 0 {
+					evictPod.DeletionOptions = &v1alpha1.DeletionOptions{
+						GracePeriodSeconds: evictionConfiguration.GracePeriod,
+					}
+				}
+				evictPods = append(evictPods, evictPod)
 				totalCPURequest.Sub(native.CPUQuantityGetter()(native.SumUpPodRequestResources(pod)))
 			}
 		} else {

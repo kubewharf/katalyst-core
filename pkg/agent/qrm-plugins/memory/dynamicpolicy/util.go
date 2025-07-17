@@ -97,9 +97,19 @@ func getReservedMemory(conf *config.Configuration, metaServer *metaserver.MetaSe
 }
 
 func applySidecarAllocationInfoFromMainContainer(sidecarAllocationInfo, mainAllocationInfo *state.AllocationInfo) bool {
+	changed := false
 	if !sidecarAllocationInfo.NumaAllocationResult.Equals(mainAllocationInfo.NumaAllocationResult) {
 		sidecarAllocationInfo.NumaAllocationResult = mainAllocationInfo.NumaAllocationResult.Clone()
-		return true
+		changed = true
 	}
-	return false
+
+	// Copy missing annotations from main container
+	for key, value := range mainAllocationInfo.Annotations {
+		if _, ok := sidecarAllocationInfo.Annotations[key]; !ok {
+			sidecarAllocationInfo.Annotations[key] = value
+			changed = true
+		}
+	}
+
+	return changed
 }
