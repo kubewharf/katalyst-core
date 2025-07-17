@@ -240,3 +240,165 @@ func TestGetEnabledStrategiesForNode(t *testing.T) {
 		})
 	}
 }
+
+func TestStrategyPolicyOverrideForNode(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		strategyPolicyMap map[string]string
+		defaultPolicy     string
+		conf              *config.Configuration
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "return default when any policy is disabled (group disabled + non-mandatory)",
+			args: args{
+				strategyPolicyMap: map[string]string{
+					"sa": "override-sa", // Non-mandatory, group disabled → disabled
+					"sb": "override-sb", // Non-mandatory, group disabled → disabled
+				},
+				defaultPolicy: "default-policy",
+				conf: func() *config.Configuration {
+					cfg := config.NewConfiguration()
+					cfg.SetDynamicConfiguration(&dynamic.Configuration{
+						StrategyGroupConfiguration: &strategygroup.StrategyGroupConfiguration{
+							EnableStrategyGroup: false,
+						},
+					})
+					return cfg
+				}(),
+			},
+			want:    "default-policy",
+			wantErr: false,
+		},
+		{
+			name: "return first matching override when group enabled",
+			args: args{
+				strategyPolicyMap: map[string]string{
+					"sa": "override-sa",
+					"sb": "override-sb",
+				},
+				defaultPolicy: "default-policy",
+				conf: func() *config.Configuration {
+					cfg := config.NewConfiguration()
+					cfg.SetDynamicConfiguration(&dynamic.Configuration{
+						StrategyGroupConfiguration: &strategygroup.StrategyGroupConfiguration{
+							EnableStrategyGroup: true,
+							EnabledStrategies: []v1alpha1.Strategy{
+								{Name: pointer.String("sa")},
+								{Name: pointer.String("sb")},
+							},
+						},
+					})
+					return cfg
+				}(),
+			},
+			want:    "override-sa",
+			wantErr: false,
+		},
+		{
+			name: "return default when no matching enabled strategies",
+			args: args{
+				strategyPolicyMap: map[string]string{
+					"sc": "override-sc", // Not in EnabledStrategies
+				},
+				defaultPolicy: "default-policy",
+				conf: func() *config.Configuration {
+					cfg := config.NewConfiguration()
+					cfg.SetDynamicConfiguration(&dynamic.Configuration{
+						StrategyGroupConfiguration: &strategygroup.StrategyGroupConfiguration{
+							EnableStrategyGroup: true,
+							EnabledStrategies: []v1alpha1.Strategy{
+								{Name: pointer.String("sa")},
+								{Name: pointer.String("sb")},
+							},
+						},
+					})
+					return cfg
+				}(),
+			},
+			want:    "default-policy",
+			wantErr: false,
+		},
+		{
+			name: "return default with error on invalid config",
+			args: args{
+				strategyPolicyMap: map[string]string{"sa": "override-sa"},
+				defaultPolicy:     "default-policy",
+				conf:              &config.Configuration{}, // Invalid config (no dynamic settings)
+			},
+			want:    "default-policy",
+			wantErr: true,
+		},
+		{
+			name: "skip strategies with nil names in enabled list",
+			args: args{
+				strategyPolicyMap: map[string]string{
+					"sa": "override-sa",
+					"sb": "override-sb",
+				},
+				defaultPolicy: "default-policy",
+				conf: func() *config.Configuration {
+					cfg := config.NewConfiguration()
+					cfg.SetDynamicConfiguration(&dynamic.Configuration{
+						StrategyGroupConfiguration: &strategygroup.StrategyGroupConfiguration{
+							EnableStrategyGroup: true,
+							EnabledStrategies: []v1alpha1.Strategy{
+								{Name: nil},                  // Skipped
+								{Name: pointer.String("sb")}, // First valid match
+							},
+						},
+					})
+					return cfg
+				}(),
+			},
+			want:    "override-sb",
+			wantErr: false,
+		},
+		{
+			name: "all policies disabled due to group disabled",
+			args: args{
+				strategyPolicyMap: map[string]string{
+					"sa": "override-sa",
+					"sb": "override-sb",
+				},
+				defaultPolicy: "default-policy",
+				conf: func() *config.Configuration {
+					cfg := config.NewConfiguration()
+					cfg.SetDynamicConfiguration(&dynamic.Configuration{
+						StrategyGroupConfiguration: &strategygroup.StrategyGroupConfiguration{
+							EnableStrategyGroup: false, // All non-mandatory policies disabled
+						},
+					})
+					return cfg
+				}(),
+			},
+			want:    "default-policy",
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := StrategyPolicyOverrideForNode(
+				tt.args.strategyPolicyMap,
+				tt.args.defaultPolicy,
+				tt.args.conf,
+			)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("got = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

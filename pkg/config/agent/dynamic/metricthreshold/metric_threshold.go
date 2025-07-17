@@ -24,8 +24,8 @@ import (
 const (
 	DefaultCPUCodeName = "default"
 
-	NUMACPUUsageRatioThreshold = "numa_cpu_usage_ratio_threshold"
-	NUMACPULoadRatioThreshold  = "numa_cpu_load_ratio_threshold"
+	NUMACPUUsageRatioThreshold = "cpu_usage_threshold"
+	NUMACPULoadRatioThreshold  = "cpu_load_threshold"
 )
 
 var ThresholdNameToResourceName = map[string]string{

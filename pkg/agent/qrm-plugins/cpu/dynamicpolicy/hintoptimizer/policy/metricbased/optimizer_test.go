@@ -17,7 +17,6 @@ limitations under the License.
 package metricbased
 
 import (
-	"fmt"
 	"io/ioutil"
 	"os"
 	"sync"
@@ -26,10 +25,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/api/resource"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	"k8s.io/utils/pointer"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
+	nodev1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction/strategy"
@@ -44,9 +45,11 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/npd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
+	"github.com/kubewharf/katalyst-core/pkg/util/threshold"
 )
 
 func TestNewMetricBasedHintOptimizer(t *testing.T) {
@@ -814,6 +817,30 @@ func TestMetricBasedHintOptimizer_getNUMAMetricThresholdNameToValue(t *testing.T
 	assert.NoError(t, err)
 	assert.Equal(t, want, got)
 
+	metaServer.NPDFetcher = &npd.DummyNPDFetcher{
+		NPD: &nodev1.NodeProfileDescriptor{
+			Status: nodev1.NodeProfileDescriptorStatus{
+				NodeMetrics: []nodev1.ScopedNodeMetrics{
+					{
+						Scope: threshold.ScopeMetricThreshold,
+						Metrics: []nodev1.MetricValue{
+							{
+								MetricName: metricthreshold.NUMACPUUsageRatioThreshold,
+								Value:      resource.MustParse("0.55"),
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	want = map[string]float64{
+		metricthreshold.NUMACPUUsageRatioThreshold: 0.55,
+	}
+	got, err = o.getNUMAMetricThresholdNameToValue()
+	assert.NoError(t, err)
+	assert.Equal(t, want, got)
+
 	// Test case: nil dynamicConf
 	oNilDynamicConf := &metricBasedHintOptimizer{
 		conf:       config.NewConfiguration(), // Fresh config without DynamicAgentConfiguration set
@@ -844,164 +871,4 @@ func TestMetricBasedHintOptimizer_getNUMAMetricThresholdNameToValue(t *testing.T
 	_, err = oNilMetricThreshold.getNUMAMetricThresholdNameToValue()
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "nil metricThreshold")
-}
-
-func TestMetricBasedHintOptimizer_getNUMAMetricThreshold(t *testing.T) {
-	t.Parallel()
-
-	metricThresholdConf := &metricthreshold.MetricThresholdConfiguration{
-		Threshold: map[string]map[bool]map[string]float64{
-			"Intel_CascadeLake": {
-				false: { // Not a VM
-					metricthreshold.NUMACPUUsageRatioThreshold: 0.8,
-				},
-				true: { // Is a VM
-					metricthreshold.NUMACPUUsageRatioThreshold: 0.7,
-				},
-			},
-			"AMD_Rome": {
-				false: {
-					metricthreshold.NUMACPUUsageRatioThreshold: 0.85,
-				},
-			},
-		},
-	}
-
-	type fields struct {
-		metaServer *metaserver.MetaServer
-	}
-	type args struct {
-		thresholdName   string
-		metricThreshold *metricthreshold.MetricThresholdConfiguration
-	}
-	tests := []struct {
-		name          string
-		fields        fields
-		args          args
-		setupFetcher  func(fetcher *metric.FakeMetricsFetcher) // To mock GetCpuCodeName and GetIsVm behavior
-		want          float64
-		wantErr       bool
-		expectErrText string
-	}{
-		{
-			name: "Intel_CascadeLake, not VM",
-			fields: fields{
-				metaServer: &metaserver.MetaServer{MetaAgent: &agent.MetaAgent{MetricsFetcher: metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})}},
-			},
-			args: args{
-				thresholdName:   metricthreshold.NUMACPUUsageRatioThreshold,
-				metricThreshold: metricThresholdConf,
-			},
-			setupFetcher: func(fetcher *metric.FakeMetricsFetcher) {
-				fetcher.SetByStringIndex(consts.MetricCPUCodeName, "Intel_CascadeLake")
-				fetcher.SetByStringIndex(consts.MetricInfoIsVM, false)
-			},
-			want:    0.8,
-			wantErr: false,
-		},
-		{
-			name: "Intel_CascadeLake, is VM",
-			fields: fields{
-				metaServer: &metaserver.MetaServer{MetaAgent: &agent.MetaAgent{MetricsFetcher: metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})}},
-			},
-			args: args{
-				thresholdName:   metricthreshold.NUMACPUUsageRatioThreshold,
-				metricThreshold: metricThresholdConf,
-			},
-			setupFetcher: func(fetcher *metric.FakeMetricsFetcher) {
-				fetcher.SetByStringIndex(consts.MetricCPUCodeName, "Intel_CascadeLake")
-				fetcher.SetByStringIndex(consts.MetricInfoIsVM, true)
-			},
-			want:    0.7,
-			wantErr: false,
-		},
-		{
-			name: "AMD_Rome, not VM",
-			fields: fields{
-				metaServer: &metaserver.MetaServer{MetaAgent: &agent.MetaAgent{MetricsFetcher: metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})}},
-			},
-			args: args{
-				thresholdName:   metricthreshold.NUMACPUUsageRatioThreshold,
-				metricThreshold: metricThresholdConf,
-			},
-			setupFetcher: func(fetcher *metric.FakeMetricsFetcher) {
-				fetcher.SetByStringIndex(consts.MetricCPUCodeName, "AMD_Rome")
-				fetcher.SetByStringIndex(consts.MetricInfoIsVM, false)
-			},
-			want:    0.85,
-			wantErr: false,
-		},
-		{
-			name: "threshold not found - unknown CPU",
-			fields: fields{
-				metaServer: &metaserver.MetaServer{MetaAgent: &agent.MetaAgent{MetricsFetcher: metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})}},
-			},
-			args: args{
-				thresholdName:   metricthreshold.NUMACPUUsageRatioThreshold,
-				metricThreshold: metricThresholdConf,
-			},
-			setupFetcher: func(fetcher *metric.FakeMetricsFetcher) {
-				fetcher.SetByStringIndex(consts.MetricCPUCodeName, "Unknown_CPU")
-				fetcher.SetByStringIndex(consts.MetricInfoIsVM, false)
-			},
-			want:          0.0,
-			wantErr:       true,
-			expectErrText: fmt.Sprintf("threshold: %s isn't found cpuCodeName: Unknown_CPU and isVM: false", metricthreshold.NUMACPUUsageRatioThreshold),
-		},
-		{
-			name: "threshold not found - unknown threshold name",
-			fields: fields{
-				metaServer: &metaserver.MetaServer{MetaAgent: &agent.MetaAgent{MetricsFetcher: metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})}},
-			},
-			args: args{
-				thresholdName:   "UnknownThreshold",
-				metricThreshold: metricThresholdConf,
-			},
-			setupFetcher: func(fetcher *metric.FakeMetricsFetcher) {
-				fetcher.SetByStringIndex(consts.MetricCPUCodeName, "Intel_CascadeLake")
-				fetcher.SetByStringIndex(consts.MetricInfoIsVM, false)
-			},
-			want:          0.0,
-			wantErr:       true,
-			expectErrText: "threshold: UnknownThreshold isn't found cpuCodeName: Intel_CascadeLake and isVM: false",
-		},
-		{
-			name: "nil metricThreshold config",
-			fields: fields{
-				metaServer: &metaserver.MetaServer{MetaAgent: &agent.MetaAgent{MetricsFetcher: metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})}},
-			},
-			args: args{
-				thresholdName:   metricthreshold.NUMACPUUsageRatioThreshold,
-				metricThreshold: nil,
-			},
-			setupFetcher:  func(fetcher *metric.FakeMetricsFetcher) {},
-			want:          0.0,
-			wantErr:       true,
-			expectErrText: "nil metricThreshold",
-		},
-	}
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			o := &metricBasedHintOptimizer{
-				metaServer: tt.fields.metaServer,
-			}
-			if tt.setupFetcher != nil && tt.fields.metaServer != nil && tt.fields.metaServer.MetaAgent != nil {
-				fakeFetcher, ok := tt.fields.metaServer.MetaAgent.MetricsFetcher.(*metric.FakeMetricsFetcher)
-				require.True(t, ok, "MetricsFetcher should be a *metric.FakeMetricsFetcher for this test")
-				tt.setupFetcher(fakeFetcher)
-			}
-			got, err := o.getNUMAMetricThreshold(tt.args.thresholdName, tt.args.metricThreshold)
-			if tt.wantErr {
-				assert.Error(t, err)
-				if tt.expectErrText != "" {
-					assert.Contains(t, err.Error(), tt.expectErrText)
-				}
-			} else {
-				assert.NoError(t, err)
-			}
-			assert.Equal(t, tt.want, got)
-		})
-	}
 }

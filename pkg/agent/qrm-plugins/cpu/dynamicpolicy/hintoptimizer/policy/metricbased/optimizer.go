@@ -36,11 +36,11 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/metricthreshold"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/strategygroup"
+	metric_threshold "github.com/kubewharf/katalyst-core/pkg/util/threshold"
 )
 
 const HintOptimizerNameMetricBased = "metric_based"
@@ -254,29 +254,11 @@ func (o *metricBasedHintOptimizer) getNUMAMetricThresholdNameToValue() (map[stri
 		return nil, fmt.Errorf("nil metricThreshold")
 	}
 
-	res := make(map[string]float64, len(metricthreshold.ThresholdNameToResourceName))
-	for thresholdName := range metricthreshold.ThresholdNameToResourceName {
-		thresholdValue, err := o.getNUMAMetricThreshold(thresholdName, metricThreshold)
-		if err != nil {
-			return nil, fmt.Errorf("getNUMAMetricThreshold failed for %s, %v", thresholdName, err)
-		}
+	thresholds := metric_threshold.GetMetricThresholdsAll(o.metaServer, metricThreshold.Threshold)
 
-		res[thresholdName] = thresholdValue
+	if thresholds == nil {
+		return nil, fmt.Errorf("nil thresholds")
 	}
 
-	return res, nil
-}
-
-func (o *metricBasedHintOptimizer) getNUMAMetricThreshold(thresholdName string, metricThreshold *metricthreshold.MetricThresholdConfiguration) (float64, error) {
-	if metricThreshold == nil {
-		return 0.0, fmt.Errorf("nil metricThreshold")
-	}
-
-	cpuCodeName := helper.GetCpuCodeName(o.metaServer.MetricsFetcher)
-	isVM, _ := helper.GetIsVM(o.metaServer.MetricsFetcher)
-	if value, found := metricThreshold.Threshold[cpuCodeName][isVM][thresholdName]; found {
-		return value, nil
-	} else {
-		return 0.0, fmt.Errorf("threshold: %s isn't found cpuCodeName: %s and isVM: %v", thresholdName, cpuCodeName, isVM)
-	}
+	return thresholds, nil
 }
