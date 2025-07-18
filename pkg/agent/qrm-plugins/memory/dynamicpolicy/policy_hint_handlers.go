@@ -296,7 +296,7 @@ func (p *DynamicPolicy) reclaimedCoresWithNUMABindingHintHandler(_ context.Conte
 		if calculateErr != nil {
 			general.Errorf("failed to calculate hints for pod: %s/%s, container: %s, error: %v",
 				req.PodNamespace, req.PodName, req.ContainerName, calculateErr)
-			return nil, fmt.Errorf("calculateHints failed with error: %v", calculateErr)
+			return nil, fmt.Errorf("calculateHintsForNUMABindingReclaimedCores failed with error: %v", calculateErr)
 		}
 	}
 
