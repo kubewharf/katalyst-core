@@ -50,7 +50,7 @@ const (
 	memGapSize         = 1 * 1024 * 1024 * 1024 // 1G
 	memGuardSize       = 256 * 1024 * 1024      // 256M
 
-	minDuration = 3
+	minDuration = 2
 )
 
 var hostZoneInfoFile = "/proc/zoneinfo"
