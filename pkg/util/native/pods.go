@@ -30,6 +30,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
 
+var PrimaryPort = "TCE_PRIMARY_PORT"
+
 var GetPodHostIPs = func(pod *v1.Pod) ([]string, bool) {
 	ip, ok := GetPodHostIP(pod)
 	if !ok {
@@ -394,4 +396,78 @@ func FilterPodAnnotations(filterKeys []string, pod *v1.Pod) map[string]string {
 	}
 
 	return netAttrMap
+}
+
+func PodMatchKind(pod *v1.Pod, kind string) bool {
+	if pod != nil && pod.OwnerReferences != nil {
+		for _, ownerReference := range pod.OwnerReferences {
+			if ownerReference.Kind == kind {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// PodIsNotConsumer if pod has env TCE_PRIMARY_PORT, it is not consumer
+func PodIsNotConsumer(pod *v1.Pod) bool {
+	if pod == nil {
+		return false
+	}
+	for _, container := range pod.Spec.Containers {
+		for _, env := range container.Env {
+			if env.Name == PrimaryPort {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+type FilterOption func(*Filter)
+
+func NewFilterWithOptions(options ...FilterOption) *Filter {
+	f := NewFilter()
+	for _, opt := range options {
+		opt(f)
+	}
+	return f
+}
+
+type Filter struct {
+	filterFuncs []func(pod *v1.Pod) bool
+}
+
+func NewFilter() *Filter {
+	return &Filter{
+		filterFuncs: make([]func(pod *v1.Pod) bool, 0),
+	}
+}
+
+func (f *Filter) Apply(pods []*v1.Pod) []*v1.Pod {
+	if len(f.filterFuncs) == 0 {
+		return pods
+	}
+
+	var filteredPods []*v1.Pod
+	for _, pod := range pods {
+		keep := true
+		for _, filterFunc := range f.filterFuncs {
+			if !filterFunc(pod) {
+				keep = false
+				break
+			}
+		}
+		if keep {
+			filteredPods = append(filteredPods, pod)
+		}
+	}
+	return filteredPods
+}
+
+func (f *Filter) RegisterFilter(filterFunc func(pod *v1.Pod) bool) *Filter {
+	if filterFunc != nil {
+		f.filterFuncs = append(f.filterFuncs, filterFunc)
+	}
+	return f
 }
