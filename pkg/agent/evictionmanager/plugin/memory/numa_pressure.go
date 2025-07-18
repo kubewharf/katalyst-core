@@ -229,6 +229,12 @@ func (n *NumaMemoryPressurePlugin) detectNumaWatermarkPressure(numaID, free, min
 		n.numaFreeBelowWatermarkTimesMap[numaID]++
 	} else if free < low {
 		n.numaFreeBelowWatermarkTimesMap[numaID]++
+
+		// avoid excessive pressure on LRU spinlock in kswapd
+		if n.numaFreeBelowWatermarkTimesMap[numaID] > minDuration && n.isUnderAdditionalPressure(free, min, low) {
+			n.numaFreeBelowWatermarkTimesMap[numaID]++
+		}
+
 		// Currently, the default value for NumaFreeBelowWatermarkTimesThreshold is 20,
 		// with a default periodic check interval of 5 seconds.
 		// This means if the free memory remains below the low watermark for 50 seconds, actionReclaimedEviction will be triggered.
@@ -238,10 +244,6 @@ func (n *NumaMemoryPressurePlugin) detectNumaWatermarkPressure(numaID, free, min
 			n.numaActionMap[numaID] = actionReclaimedEviction
 		}
 
-		// avoid excessive pressure on LRU spinlock in kswapd
-		if n.numaFreeBelowWatermarkTimesMap[numaID] > minDuration && n.isUnderAdditionalPressure(free, min, low) {
-			n.numaFreeBelowWatermarkTimesMap[numaID]++
-		}
 	} else {
 		// added cooling mechanism to avoid kswapd ping-pong
 		if n.numaFreeBelowWatermarkTimesMap[numaID] > 0 {
