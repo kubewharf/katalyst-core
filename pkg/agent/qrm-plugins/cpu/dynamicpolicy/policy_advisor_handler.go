@@ -652,6 +652,9 @@ func (p *DynamicPolicy) getAllContainersRelativePathMap(pod *v1.Pod) map[string]
 	containerPathMap := make(map[string]*v1.Container)
 
 	for _, container := range pod.Spec.Containers {
+		// Create a copy of the container to avoid the loop variable capture issue
+		containerCopy := container
+
 		containerID, err := native.GetContainerID(pod, container.Name)
 		if err != nil {
 			general.Errorf("get container %s container id failed with error: %v", container.Name, err)
@@ -663,7 +666,7 @@ func (p *DynamicPolicy) getAllContainersRelativePathMap(pod *v1.Pod) map[string]
 			continue
 		}
 
-		containerPathMap[containerRelativeCgroupPath] = &container
+		containerPathMap[containerRelativeCgroupPath] = &containerCopy
 	}
 
 	return containerPathMap
