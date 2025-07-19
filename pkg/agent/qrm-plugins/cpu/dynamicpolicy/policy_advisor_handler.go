@@ -678,7 +678,7 @@ func (p *DynamicPolicy) applyCPUQuotaWithRelativePath(relativePath string, limit
 	}
 
 	// Remove quota when current quota exceeds limits
-	if cpu.CpuQuota > 0 && cpu.CpuQuota > resources.CpuQuota {
+	if cpu.CpuQuota > 0 && realQuota > resources.CpuQuota {
 		err := cgroupmgr.ApplyCPUWithRelativePath(relativePath, &common.CPUData{CpuQuota: -1})
 		if err != nil {
 			return fmt.Errorf("ApplyCPUWithRelativePath %s failed with error: %v", relativePath, err)

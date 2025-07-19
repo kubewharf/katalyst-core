@@ -18,6 +18,7 @@ package dynamicpolicy
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"testing"
 
@@ -243,20 +244,25 @@ func TestDynamicPolicy_applyCPUQuotaWithRelativePath(t *testing.T) {
 	}
 
 	mockey.PatchConvey("test applyCPUQuotaWithRelativePath", t, func() {
-		mockey.Mock(cgroupmgr.GetCPUWithRelativePath).IncludeCurrentGoRoutine().When(
-			func(path string) bool {
-				return path == "test-relative-path-1"
-			}).Return(mockCPU1).Build()
+		mockey.Mock(cgroupmgr.GetCPUWithRelativePath).IncludeCurrentGoRoutine().To(func(path string) (*common.CPUStats, error) {
+			if path == "test-relative-path-1" {
+				return mockCPU1, nil
+			}
+			if path == "test-relative-path-2" {
+				return mockCPU2, nil
+			}
 
-		mockey.Mock(cgroupmgr.GetCPUWithRelativePath).IncludeCurrentGoRoutine().When(
-			func(path string) bool {
-				return path == "test-relative-path-2"
-			}).Return(mockCPU2).Build()
+			return nil, errors.New("not found")
+		}).Build()
+
+		apply := mockey.Mock(cgroupmgr.ApplyCPUWithRelativePath).IncludeCurrentGoRoutine().Return(nil).Build()
 
 		err := p.applyCPUQuotaWithRelativePath("test-relative-path-1", 400, res)
-		convey.So(err, convey.ShouldNotBeNil)
+		convey.So(err, convey.ShouldBeNil)
+		t.Logf("mock time %d", apply.Times())
 
 		err = p.applyCPUQuotaWithRelativePath("test-relative-path-2", 1000, res)
-		convey.So(err, convey.ShouldNotBeNil)
+		convey.So(err, convey.ShouldBeNil)
+		t.Logf("2 mock time %d", apply.Times())
 	})
 }
