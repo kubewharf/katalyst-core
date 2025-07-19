@@ -21,6 +21,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
+
 	"github.com/bytedance/mockey"
 	"github.com/smartystreets/goconvey/convey"
 	"github.com/stretchr/testify/assert"
@@ -34,6 +36,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
@@ -175,5 +178,85 @@ func TestDynamicPolicy_getAllPodsPathMap(t *testing.T) {
 		convey.So(len(podPathMap), convey.ShouldEqual, len(mockPods))
 		convey.So(podPathMap["test-pod-1-path"], convey.ShouldEqual, mockPods[0])
 	})
+}
 
+func TestDynamicPolicy_getAllContainersRelativePathMap(t *testing.T) {
+	t.Parallel()
+
+	mockPod := &v1.Pod{
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Name: "test-container",
+					Resources: v1.ResourceRequirements{
+						Requests: v1.ResourceList{
+							v1.ResourceCPU: resource2.MustParse("2"),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	p := &DynamicPolicy{
+		metaServer: &metaserver.MetaServer{
+			MetaAgent: &agent.MetaAgent{
+				PodFetcher: &pod.PodFetcherStub{},
+			},
+		},
+	}
+
+	mockey.PatchConvey("test getAllContainersRelativePathMap", t, func() {
+		mockey.Mock(native.GetContainerID).IncludeCurrentGoRoutine().Return("test-container-ID", nil).Build()
+		mockey.Mock(common.GetContainerRelativeCgroupPath).IncludeCurrentGoRoutine().Return("test-container-relative-path", nil).Build()
+
+		testMap := p.getAllContainersRelativePathMap(mockPod)
+
+		convey.So(len(testMap), convey.ShouldEqual, 1)
+		convey.So(testMap["test-container-relative-path"].Name, convey.ShouldEqual, mockPod.Spec.Containers[0].Name)
+	})
+}
+
+func TestDynamicPolicy_applyCPUQuotaWithRelativePath(t *testing.T) {
+	t.Parallel()
+
+	res := &common.CgroupResources{
+		CpuQuota: 500000,
+	}
+
+	mockCPU1 := &common.CPUStats{
+		CpuQuota:  -1,
+		CpuPeriod: 1000,
+	}
+
+	mockCPU2 := &common.CPUStats{
+		CpuQuota:  1000,
+		CpuPeriod: 1000,
+	}
+
+	p := &DynamicPolicy{
+		metaServer: &metaserver.MetaServer{
+			MetaAgent: &agent.MetaAgent{
+				PodFetcher: &pod.PodFetcherStub{},
+			},
+		},
+	}
+
+	mockey.PatchConvey("test applyCPUQuotaWithRelativePath", t, func() {
+		mockey.Mock(cgroupmgr.GetCPUWithRelativePath).IncludeCurrentGoRoutine().When(
+			func(path string) bool {
+				return path == "test-relative-path-1"
+			}).Return(mockCPU1).Build()
+
+		mockey.Mock(cgroupmgr.GetCPUWithRelativePath).IncludeCurrentGoRoutine().When(
+			func(path string) bool {
+				return path == "test-relative-path-2"
+			}).Return(mockCPU2).Build()
+
+		err := p.applyCPUQuotaWithRelativePath("test-relative-path-1", 400, res)
+		convey.So(err, convey.ShouldNotBeNil)
+
+		err = p.applyCPUQuotaWithRelativePath("test-relative-path-2", 1000, res)
+		convey.So(err, convey.ShouldNotBeNil)
+	})
 }
