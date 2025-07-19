@@ -464,3 +464,87 @@ func TestDynamicPolicy_checkAllContainersQuota(t *testing.T) {
 		assert.True(t, globalApplyMocker.Times() >= 2, "ApplyCPUWithRelativePath should be called for each container")
 	})
 }
+
+func TestDynamicPolicy_applyCPUQuotaWithRelativePath(t *testing.T) {
+	// Initialize test object
+	policy := &DynamicPolicy{}
+
+	t.Run("Basic functionality test", func(t *testing.T) {
+		t.Parallel()
+
+		// Test with default global mock settings
+		// The global mock is already set up in init() to return unlimited quota
+		err := policy.applyCPUQuotaWithRelativePath("test-path", 1000, &common.CgroupResources{CpuQuota: 200000000})
+
+		// Should succeed with default mock settings
+		assert.NoError(t, err)
+	})
+
+	t.Run("Test with different limit values", func(t *testing.T) {
+		t.Parallel()
+
+		// Test with various limit values
+		testCases := []struct {
+			name     string
+			limit    int64
+			expected bool // whether we expect an error
+		}{
+			{"zero limit", 0, false},
+			{"positive limit", 1000, false},
+			{"large limit", 10000, false},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				err := policy.applyCPUQuotaWithRelativePath("test-path", tc.limit, &common.CgroupResources{CpuQuota: 200000000})
+				if tc.expected {
+					assert.Error(t, err)
+				} else {
+					assert.NoError(t, err)
+				}
+			})
+		}
+	})
+
+	t.Run("Test when calculated quota exceeds resources limit", func(t *testing.T) {
+		t.Parallel()
+
+		// Test case where limit * cpuPeriod > resources.CpuQuota
+		// With default global mock: cpuPeriod = 100000
+		// If limit = 3000, then calculated quota = 3000 * 100000 = 300000000
+		// If resources.CpuQuota = 200000000, then 300000000 > 200000000
+		// This should trigger the logic where quota is not applied
+		err := policy.applyCPUQuotaWithRelativePath("test-path", 3000, &common.CgroupResources{CpuQuota: 200000000})
+
+		// Should succeed but not apply quota (since calculated quota exceeds resources limit)
+		assert.NoError(t, err)
+	})
+
+	t.Run("Test when calculated quota is within resources limit", func(t *testing.T) {
+		t.Parallel()
+
+		// Test case where limit * cpuPeriod <= resources.CpuQuota
+		// With default global mock: cpuPeriod = 100000
+		// If limit = 1000, then calculated quota = 1000 * 100000 = 100000000
+		// If resources.CpuQuota = 200000000, then 100000000 <= 200000000
+		// This should trigger the logic where quota is applied
+		err := policy.applyCPUQuotaWithRelativePath("test-path", 1000, &common.CgroupResources{CpuQuota: 200000000})
+
+		// Should succeed and potentially apply quota
+		assert.NoError(t, err)
+	})
+
+	t.Run("Test edge case with exact quota match", func(t *testing.T) {
+		t.Parallel()
+
+		// Test case where limit * cpuPeriod exactly equals resources.CpuQuota
+		// With default global mock: cpuPeriod = 100000
+		// If limit = 2000, then calculated quota = 2000 * 100000 = 200000000
+		// If resources.CpuQuota = 200000000, then 200000000 == 200000000
+		// This should trigger the logic where quota is applied
+		err := policy.applyCPUQuotaWithRelativePath("test-path", 2000, &common.CgroupResources{CpuQuota: 200000000})
+
+		// Should succeed and potentially apply quota
+		assert.NoError(t, err)
+	})
+}
