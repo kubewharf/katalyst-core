@@ -20,15 +20,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/kubewharf/katalyst-core/pkg/util/native"
-	v1 "k8s.io/api/core/v1"
-	"k8s.io/kubernetes/pkg/api/v1/resource"
 	"net"
 	"os"
 	"path"
 	"path/filepath"
 	"strconv"
 	"time"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/kubernetes/pkg/api/v1/resource"
 
 	"github.com/samber/lo"
 	"google.golang.org/grpc"
@@ -613,7 +614,7 @@ func (p *DynamicPolicy) getAllDirs(parentPath string) ([]string, error) {
 		return nil, err
 	}
 
-	var dirs []string
+	dirs := make([]string, 0)
 
 	for _, entry := range entries {
 		if entry.IsDir() {
