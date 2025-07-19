@@ -573,14 +573,14 @@ func (p *DynamicPolicy) applyCgroupConfigs(resp *advisorapi.ListAndWatchResponse
 					continue
 				}
 
-				//check containers first
+				// check containers first
 				err = p.checkAllContainersQuota(pod, resources)
 				if err != nil {
 					general.Errorf("checkAllContainersQuota failed with error: %v", err)
 					continue
 				}
 
-				//then check pod
+				// then check pod
 				_, limit := resource.PodRequestsAndLimits(pod)
 				podLimit := limit.Cpu().Value()
 				podRealQuota := podLimit * int64(cpu.CpuPeriod)
