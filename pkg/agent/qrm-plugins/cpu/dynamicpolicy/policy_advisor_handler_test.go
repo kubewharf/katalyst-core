@@ -18,10 +18,10 @@ package dynamicpolicy
 
 import (
 	"context"
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -54,53 +54,86 @@ var (
 // setupMocks initializes all mocks for testing
 func setupMocks() {
 	mockSetupOnce.Do(func() {
+		// Save original implementations
+		origGetContainerID := native.GetContainerID
+		origGetContainerRelativeCgroupPath := common.GetContainerRelativeCgroupPath
+		origGetCPUWithRelativePath := cgroupmgr.GetCPUWithRelativePath
+		origApplyCPUWithRelativePath := cgroupmgr.ApplyCPUWithRelativePath
+		origGetPodAbsCgroupPath := common.GetPodAbsCgroupPath
+
 		// Set up global mocks once for all tests
 		globalContainerIDMocker = mockey.Mock(native.GetContainerID).To(func(pod *v1.Pod, containerName string) (string, error) {
-			switch containerName {
-			case "container1":
-				return "container1-id", nil
-			case "container2":
-				return "container2-id", nil
-			case "quota-test-container1-id":
-				return "quota-test-container1-id", nil
-			case "quota-test-container2-id":
-				return "quota-test-container2-id", nil
-			default:
-				return "", fmt.Errorf("unknown container: %s", containerName)
+			// Only mock for our test cases
+			if pod != nil && pod.UID == "test-pod-uid" {
+				switch containerName {
+				case "container1":
+					return "container1-id", nil
+				case "container2":
+					return "container2-id", nil
+				case "quota-test-container1-id":
+					return "quota-test-container1-id", nil
+				case "quota-test-container2-id":
+					return "quota-test-container2-id", nil
+				}
 			}
+			// For other cases, use original implementation
+			return origGetContainerID(pod, containerName)
 		}).Build()
 
 		globalPathMocker = mockey.Mock(common.GetContainerRelativeCgroupPath).To(func(podUID, containerID string) (string, error) {
-			switch containerID {
-			case "container1-id":
-				return "pod/test-pod-uid/container1-id", nil
-			case "container2-id":
-				return "pod/test-pod-uid/container2-id", nil
-			case "quota-test-container1-id":
-				return "pod/test-pod-uid/quota-test-container1-id", nil
-			case "quota-test-container2-id":
-				return "pod/test-pod-uid/quota-test-container2-id", nil
-			default:
-				return "", fmt.Errorf("unknown container ID: %s", containerID)
+			// Only mock for our test cases
+			if podUID == "test-pod-uid" {
+				switch containerID {
+				case "container1-id":
+					return "pod/test-pod-uid/container1-id", nil
+				case "container2-id":
+					return "pod/test-pod-uid/container2-id", nil
+				case "quota-test-container1-id":
+					return "pod/test-pod-uid/quota-test-container1-id", nil
+				case "quota-test-container2-id":
+					return "pod/test-pod-uid/quota-test-container2-id", nil
+				}
 			}
+			// For other cases, use original implementation
+			return origGetContainerRelativeCgroupPath(podUID, containerID)
 		}).Build()
 
-		globalCPUMocker = mockey.Mock(cgroupmgr.GetCPUWithRelativePath).Return(&common.CPUStats{
-			CpuQuota:  -1, // Indicates no quota set
-			CpuPeriod: 100000,
-		}, nil).Build()
+		globalCPUMocker = mockey.Mock(cgroupmgr.GetCPUWithRelativePath).To(func(relativePath string) (*common.CPUStats, error) {
+			// Only mock for our test paths
+			if strings.Contains(relativePath, "test-pod-uid") || strings.Contains(relativePath, "test-path") {
+				return &common.CPUStats{
+					CpuQuota:  -1, // Indicates no quota set
+					CpuPeriod: 100000,
+				}, nil
+			}
+			// For other cases, use original implementation
+			return origGetCPUWithRelativePath(relativePath)
+		}).Build()
 
-		globalApplyMocker = mockey.Mock(cgroupmgr.ApplyCPUWithRelativePath).Return(nil).Build()
+		globalApplyMocker = mockey.Mock(cgroupmgr.ApplyCPUWithRelativePath).To(func(relativePath string, cpuData *common.CPUData) error {
+			// Only mock for our test paths
+			if strings.Contains(relativePath, "test-pod-uid") || strings.Contains(relativePath, "test-path") {
+				return nil
+			}
+			// For other cases, use original implementation
+			return origApplyCPUWithRelativePath(relativePath, cpuData)
+		}).Build()
 
 		globalPodMocker = mockey.Mock((*pod.PodFetcherStub).GetPodList).To(func(ctx context.Context, podFilter func(*v1.Pod) bool) ([]*v1.Pod, error) {
+			// This mock is only used in our tests, so we can return empty list by default
 			return []*v1.Pod{}, nil
 		}).Build()
 
-		globalPodPathMocker = mockey.Mock(common.GetPodAbsCgroupPath).Return("/sys/fs/cgroup/cpu/pod/test-pod-uid", nil).Build()
+		globalPodPathMocker = mockey.Mock(common.GetPodAbsCgroupPath).To(func(subsys, podUID string) (string, error) {
+			// Only mock for our test pod
+			if podUID == "test-pod-uid" {
+				return "/sys/fs/cgroup/cpu/pod/test-pod-uid", nil
+			}
+			// For other cases, use original implementation
+			return origGetPodAbsCgroupPath(subsys, podUID)
+		}).Build()
 	})
 }
-
-
 
 // Mock implementations for testing
 type mockDirEntry struct {
