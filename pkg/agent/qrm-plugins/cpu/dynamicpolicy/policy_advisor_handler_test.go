@@ -259,10 +259,74 @@ func TestDynamicPolicy_applyCPUQuotaWithRelativePath(t *testing.T) {
 
 		err := p.applyCPUQuotaWithRelativePath("test-relative-path-1", 400, res)
 		convey.So(err, convey.ShouldBeNil)
-		t.Logf("mock time %d", apply.Times())
+		convey.So(apply.Times(), convey.ShouldEqual, 1)
 
 		err = p.applyCPUQuotaWithRelativePath("test-relative-path-2", 1000, res)
 		convey.So(err, convey.ShouldBeNil)
-		t.Logf("2 mock time %d", apply.Times())
+		convey.So(apply.Times(), convey.ShouldEqual, 2)
+	})
+}
+
+func TestDynamicPolicy_checkAllContainersQuota(t *testing.T) {
+	t.Parallel()
+
+	p := &DynamicPolicy{
+		metaServer: &metaserver.MetaServer{
+			MetaAgent: &agent.MetaAgent{
+				PodFetcher: &pod.PodFetcherStub{},
+			},
+		},
+	}
+
+	containerPathMap := map[string]*v1.Container{
+		"container1": {
+			Name: "container1",
+			Resources: v1.ResourceRequirements{
+				Requests: v1.ResourceList{
+					v1.ResourceCPU: resource2.MustParse("1"),
+				},
+			},
+		},
+		"container2": {
+			Name: "container2",
+			Resources: v1.ResourceRequirements{
+				Requests: v1.ResourceList{
+					v1.ResourceCPU: resource2.MustParse("2"),
+				},
+			},
+		},
+	}
+
+	pod := &v1.Pod{
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Name: "container1",
+					Resources: v1.ResourceRequirements{
+						Requests: v1.ResourceList{
+							v1.ResourceCPU: resource2.MustParse("1"),
+						},
+					},
+				},
+				{
+					Name: "container2",
+					Resources: v1.ResourceRequirements{
+						Requests: v1.ResourceList{
+							v1.ResourceCPU: resource2.MustParse("2"),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	mockey.PatchConvey("test checkAllContainersQuota", t, func() {
+		mockey.Mock((*DynamicPolicy).getAllContainersRelativePathMap).IncludeCurrentGoRoutine().Return(containerPathMap).Build()
+		apply := mockey.Mock((*DynamicPolicy).applyCPUQuotaWithRelativePath).IncludeCurrentGoRoutine().Return(nil).Build()
+
+		err := p.checkAllContainersQuota(pod, nil)
+
+		convey.So(err, convey.ShouldBeNil)
+		convey.So(apply.Times(), convey.ShouldEqual, 2)
 	})
 }
