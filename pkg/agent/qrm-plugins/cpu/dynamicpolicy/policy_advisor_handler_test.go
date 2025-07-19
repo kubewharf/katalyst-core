@@ -119,6 +119,11 @@ func TestDynamicPolicy_getAllPodsPathMap(t *testing.T) {
 	t.Run("When no pods exist", func(t *testing.T) {
 		t.Parallel()
 
+		// Explicitly set mock to return empty pod list
+		globalPodMocker.To(func(ctx context.Context, podFilter func(*v1.Pod) bool) ([]*v1.Pod, error) {
+			return []*v1.Pod{}, nil
+		})
+
 		// Test with empty pod list
 		resultMap, err := policy.getAllPodsPathMap()
 

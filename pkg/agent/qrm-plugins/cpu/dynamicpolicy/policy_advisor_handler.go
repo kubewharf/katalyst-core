@@ -27,9 +27,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/kubernetes/pkg/api/v1/resource"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 
 	"github.com/samber/lo"
 	"google.golang.org/grpc"
