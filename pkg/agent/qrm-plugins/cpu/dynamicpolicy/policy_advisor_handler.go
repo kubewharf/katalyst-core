@@ -676,6 +676,7 @@ func (p *DynamicPolicy) checkAllContainersQuota(pod *v1.Pod, resources *common.C
 		cpu, err := cgroupmgr.GetCPUWithRelativePath(relativePath)
 		if err != nil {
 			general.Errorf("GetCPUWithRelativePath %s failed with error: %v", relativePath, err)
+			continue
 		}
 
 		limit := container.Resources.Limits.Cpu().Value()
