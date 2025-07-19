@@ -22,6 +22,12 @@ import (
 	"testing"
 
 	"github.com/bytedance/mockey"
+	"github.com/smartystreets/goconvey/convey"
+	"github.com/stretchr/testify/assert"
+	v1 "k8s.io/api/core/v1"
+	resource2 "k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/kubernetes/pkg/api/v1/resource"
+
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -29,11 +35,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
-	"github.com/smartystreets/goconvey/convey"
-	"github.com/stretchr/testify/assert"
-	v1 "k8s.io/api/core/v1"
-	resource2 "k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/kubernetes/pkg/api/v1/resource"
 )
 
 func TestDynamicPolicy_getAllDirs(t *testing.T) {
@@ -134,4 +135,45 @@ func TestDynamicPolicy_applyCgroupConfigs(t *testing.T) {
 
 		convey.So(err, convey.ShouldBeNil)
 	})
+}
+
+func TestDynamicPolicy_getAllPodsPathMap(t *testing.T) {
+	t.Parallel()
+
+	mockPods := []*v1.Pod{
+		{
+			Spec: v1.PodSpec{
+				Containers: []v1.Container{
+					{
+						Name: "test-container",
+						Resources: v1.ResourceRequirements{
+							Requests: v1.ResourceList{
+								v1.ResourceCPU: resource2.MustParse("2"),
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	p := &DynamicPolicy{
+		metaServer: &metaserver.MetaServer{
+			MetaAgent: &agent.MetaAgent{
+				PodFetcher: &pod.PodFetcherStub{},
+			},
+		},
+	}
+
+	mockey.PatchConvey("test getAllPodsPathMap", t, func() {
+		mockey.Mock((*pod.PodFetcherStub).GetPodList).IncludeCurrentGoRoutine().Return(mockPods, nil).Build()
+		mockey.Mock(common.GetPodAbsCgroupPath).IncludeCurrentGoRoutine().Return("test-pod-1-path", nil).Build()
+
+		podPathMap, err := p.getAllPodsPathMap()
+
+		convey.So(err, convey.ShouldBeNil)
+		convey.So(len(podPathMap), convey.ShouldEqual, len(mockPods))
+		convey.So(podPathMap["test-pod-1-path"], convey.ShouldEqual, mockPods[0])
+	})
+
 }
