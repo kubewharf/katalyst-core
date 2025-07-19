@@ -1,3 +1,19 @@
+/*
+Copyright 2022 The Katalyst Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package dynamicpolicy
 
 import (
@@ -46,9 +62,9 @@ type mockDirEntry struct {
 	isDir bool
 }
 
-func (m mockDirEntry) Name() string      { return m.name }
-func (m mockDirEntry) IsDir() bool       { return m.isDir }
-func (m mockDirEntry) Type() os.FileMode { return 0 }
+func (m mockDirEntry) Name() string               { return m.name }
+func (m mockDirEntry) IsDir() bool                { return m.isDir }
+func (m mockDirEntry) Type() os.FileMode          { return 0 }
 func (m mockDirEntry) Info() (os.FileInfo, error) { return nil, nil }
 
 func TestDynamicPolicy_applyCgroupConfigs(t *testing.T) {
@@ -75,7 +91,7 @@ func TestDynamicPolicy_applyCgroupConfigs(t *testing.T) {
 	}
 
 	mockPodPathMap := map[string]*v1.Pod{
-		"test-pod-1": &v1.Pod{
+		"test-pod-1": {
 			Spec: v1.PodSpec{
 				Containers: []v1.Container{
 					{
@@ -112,9 +128,10 @@ func TestDynamicPolicy_applyCgroupConfigs(t *testing.T) {
 		mockey.Mock((*DynamicPolicy).checkAllContainersQuota).IncludeCurrentGoRoutine().Return(nil).Build()
 		mockey.Mock((*DynamicPolicy).applyCPUQuotaWithRelativePath).IncludeCurrentGoRoutine().Return(nil).Build()
 		mockey.Mock(resource.PodRequestsAndLimits).IncludeCurrentGoRoutine().Return(cpuResourceList, cpuResourceList).Build()
+		mockey.Mock(common.ApplyCgroupConfigs).IncludeCurrentGoRoutine().Return(nil).When(func(path string, resources *common.CgroupResources) bool { return path == "test_cgroup_path" }).Build()
 
 		err := p.applyCgroupConfigs(mockResp)
 
 		convey.So(err, convey.ShouldBeNil)
 	})
-} 
+}
