@@ -22,6 +22,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/bytedance/mockey"
@@ -47,51 +48,59 @@ var (
 	globalApplyMocker       *mockey.Mocker
 	globalPodMocker         *mockey.Mocker
 	globalPodPathMocker     *mockey.Mocker
+	mockSetupOnce           sync.Once
 )
 
-func init() {
-	// Set up global mocks once for all tests
-	globalContainerIDMocker = mockey.Mock(native.GetContainerID).To(func(pod *v1.Pod, containerName string) (string, error) {
-		switch containerName {
-		case "container1":
-			return "container1-id", nil
-		case "container2":
-			return "container2-id", nil
-		case "quota-test-container1-id":
-			return "quota-test-container1-id", nil
-		case "quota-test-container2-id":
-			return "quota-test-container2-id", nil
-		default:
-			return "", fmt.Errorf("unknown container: %s", containerName)
-		}
-	}).Build()
+// setupMocks initializes all mocks for testing
+func setupMocks() {
+	mockSetupOnce.Do(func() {
+		// Set up global mocks once for all tests
+		globalContainerIDMocker = mockey.Mock(native.GetContainerID).To(func(pod *v1.Pod, containerName string) (string, error) {
+			switch containerName {
+			case "container1":
+				return "container1-id", nil
+			case "container2":
+				return "container2-id", nil
+			case "quota-test-container1-id":
+				return "quota-test-container1-id", nil
+			case "quota-test-container2-id":
+				return "quota-test-container2-id", nil
+			default:
+				return "", fmt.Errorf("unknown container: %s", containerName)
+			}
+		}).Build()
 
-	globalPathMocker = mockey.Mock(common.GetContainerRelativeCgroupPath).To(func(podUID, containerID string) (string, error) {
-		switch containerID {
-		case "container1-id":
-			return "pod/test-pod-uid/container1-id", nil
-		case "container2-id":
-			return "pod/test-pod-uid/container2-id", nil
-		case "quota-test-container1-id":
-			return "pod/test-pod-uid/quota-test-container1-id", nil
-		case "quota-test-container2-id":
-			return "pod/test-pod-uid/quota-test-container2-id", nil
-		default:
-			return "", fmt.Errorf("unknown container ID: %s", containerID)
-		}
-	}).Build()
+		globalPathMocker = mockey.Mock(common.GetContainerRelativeCgroupPath).To(func(podUID, containerID string) (string, error) {
+			switch containerID {
+			case "container1-id":
+				return "pod/test-pod-uid/container1-id", nil
+			case "container2-id":
+				return "pod/test-pod-uid/container2-id", nil
+			case "quota-test-container1-id":
+				return "pod/test-pod-uid/quota-test-container1-id", nil
+			case "quota-test-container2-id":
+				return "pod/test-pod-uid/quota-test-container2-id", nil
+			default:
+				return "", fmt.Errorf("unknown container ID: %s", containerID)
+			}
+		}).Build()
 
-	globalCPUMocker = mockey.Mock(cgroupmgr.GetCPUWithRelativePath).Return(&common.CPUStats{
-		CpuQuota:  -1, // Indicates no quota set
-		CpuPeriod: 100000,
-	}, nil).Build()
+		globalCPUMocker = mockey.Mock(cgroupmgr.GetCPUWithRelativePath).Return(&common.CPUStats{
+			CpuQuota:  -1, // Indicates no quota set
+			CpuPeriod: 100000,
+		}, nil).Build()
 
-	globalApplyMocker = mockey.Mock(cgroupmgr.ApplyCPUWithRelativePath).Return(nil).Build()
+		globalApplyMocker = mockey.Mock(cgroupmgr.ApplyCPUWithRelativePath).Return(nil).Build()
 
-	globalPodMocker = mockey.Mock((*pod.PodFetcherStub).GetPodList).Return([]*v1.Pod{}, nil).Build()
+		globalPodMocker = mockey.Mock((*pod.PodFetcherStub).GetPodList).To(func(ctx context.Context, podFilter func(*v1.Pod) bool) ([]*v1.Pod, error) {
+			return []*v1.Pod{}, nil
+		}).Build()
 
-	globalPodPathMocker = mockey.Mock(common.GetPodAbsCgroupPath).Return("/sys/fs/cgroup/cpu/pod/test-pod-uid", nil).Build()
+		globalPodPathMocker = mockey.Mock(common.GetPodAbsCgroupPath).Return("/sys/fs/cgroup/cpu/pod/test-pod-uid", nil).Build()
+	})
 }
+
+
 
 // Mock implementations for testing
 type mockDirEntry struct {
@@ -106,6 +115,9 @@ func (m *mockDirEntry) Info() (fs.FileInfo, error) { return nil, nil }
 
 func TestDynamicPolicy_getAllPodsPathMap(t *testing.T) {
 	t.Parallel()
+
+	// Set up mocks for this test
+	setupMocks()
 
 	// Initialize test object
 	policy := &DynamicPolicy{
@@ -180,6 +192,9 @@ func TestDynamicPolicy_getAllPodsPathMap(t *testing.T) {
 
 func TestDynamicPolicy_getAllDirs(t *testing.T) {
 	t.Parallel()
+
+	// Set up mocks for this test
+	setupMocks()
 
 	// Initialize test object
 	policy := &DynamicPolicy{
@@ -283,6 +298,9 @@ func TestDynamicPolicy_getAllDirs(t *testing.T) {
 func TestDynamicPolicy_getAllContainersRelativePathMap(t *testing.T) {
 	t.Parallel()
 
+	// Set up mocks for this test
+	setupMocks()
+
 	// Initialize test object
 	policy := &DynamicPolicy{}
 
@@ -382,6 +400,9 @@ func TestDynamicPolicy_getAllContainersRelativePathMap(t *testing.T) {
 func TestDynamicPolicy_checkAllContainersQuota(t *testing.T) {
 	t.Parallel()
 
+	// Set up mocks for this test
+	setupMocks()
+
 	// Initialize test object
 	policy := &DynamicPolicy{
 		metaServer: &metaserver.MetaServer{
@@ -471,6 +492,9 @@ func TestDynamicPolicy_checkAllContainersQuota(t *testing.T) {
 }
 
 func TestDynamicPolicy_applyCPUQuotaWithRelativePath(t *testing.T) {
+	// Set up mocks for this test
+	setupMocks()
+
 	// Initialize test object
 	policy := &DynamicPolicy{}
 
