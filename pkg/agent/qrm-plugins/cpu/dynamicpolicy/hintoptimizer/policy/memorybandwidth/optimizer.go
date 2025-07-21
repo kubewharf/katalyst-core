@@ -361,7 +361,7 @@ func (o *memoryBandwidthOptimizer) calculateHintAvailabilityList(optReq hintopti
 	}
 
 	if allIgnore {
-		return nil, cpuutil.ErrNoAvailableCPUHints
+		return nil, cpuutil.ErrNoAvailableMemoryBandwidthHints
 	}
 
 	return hintAvailabilityList, nil

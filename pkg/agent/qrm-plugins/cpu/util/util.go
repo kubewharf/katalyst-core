@@ -36,7 +36,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
-var ErrNoAvailableCPUHints = pkgerrors.New("no available cpu hints")
+var (
+	ErrNoAvailableCPUHints             = pkgerrors.New("no available cpu hints")
+	ErrNoAvailableMemoryBandwidthHints = pkgerrors.New("no available memory bandwidth hints")
+)
 
 func GetCoresReservedForSystem(conf *config.Configuration, metaServer *metaserver.MetaServer, machineInfo *machine.KatalystMachineInfo, allCPUs machine.CPUSet) (machine.CPUSet, error) {
 	if conf == nil {

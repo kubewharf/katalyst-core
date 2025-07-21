@@ -486,7 +486,7 @@ func TestMemoryBandwidthOptimizer_calculateHintAvailabilityList(t *testing.T) {
 				},
 			},
 			want:    nil,
-			wantErr: cpuutil.ErrNoAvailableCPUHints,
+			wantErr: cpuutil.ErrNoAvailableMemoryBandwidthHints,
 		},
 		{
 			name: "skip hint with no nodes",
@@ -758,7 +758,7 @@ func TestMemoryBandwidthOptimizer_OptimizeHints(t *testing.T) {
 				mockey.Mock(spd.GetContainerMemoryBandwidthRequest).Return(2000, nil).Build()
 				mockey.Mock(cpuutil.GetContainerRequestedCores).Return(1.0).Build()
 			},
-			wantErr: cpuutil.ErrNoAvailableCPUHints,
+			wantErr: cpuutil.ErrNoAvailableMemoryBandwidthHints,
 			wantHints: &pluginapi.ListOfTopologyHints{
 				Hints: []*pluginapi.TopologyHint{
 					{Nodes: []uint64{0}, Preferred: true},
