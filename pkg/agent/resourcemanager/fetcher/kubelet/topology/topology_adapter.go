@@ -42,6 +42,7 @@ import (
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-api/pkg/utils"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
@@ -116,10 +117,13 @@ type topologyAdapterImpl struct {
 	numaMBWCapacityMap map[int]int64
 	// numaMBWAllocatableMap map numa id => memory bandwidth allocatable
 	numaMBWAllocatableMap map[int]int64
+
+	// reservedCPUs is the cpus reserved
+	reservedCPUs string
 }
 
 // NewPodResourcesServerTopologyAdapter creates a topology adapter which uses pod resources server
-func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, qosConf *generic.QoSConfiguration,
+func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, qosConf *generic.QoSConfiguration, agentConf *agent.AgentConfiguration,
 	endpoints []string, kubeletResourcePluginPaths []string, kubeletResourcePluginStateFile string, resourceNameToZoneTypeMap map[string]string,
 	skipDeviceNames sets.String, numaInfoGetter NumaInfoGetter, podResourcesFilter PodResourcesFilter,
 	getClientFunc podresources.GetClientFunc, needValidationResources []string,
@@ -155,6 +159,7 @@ func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, qos
 		podResourcesFilter:             podResourcesFilter,
 		resourceNameToZoneTypeMap:      resourceNameToZoneTypeMap,
 		needValidationResources:        needValidationResources,
+		reservedCPUs:                   agentConf.ReservedCPUList,
 	}
 
 	return adapter, nil
@@ -490,19 +495,27 @@ func (p *topologyAdapterImpl) getZoneResources(allocatableResources *podresv1.Al
 	}
 
 	// process cache group zone node resources
+	reservedCPUs := machine.MustParse(p.reservedCPUs)
 	for cacheID, cpusets := range p.cacheGroupCPUsMap {
 		cacheGroupZone := util.GenerateCacheGroupZoneNode(cacheID)
-		quantity, err := resource.ParseQuantity(fmt.Sprintf("%d", cpusets.Len()))
+		// calculate capacity by the sum of cache group cpus
+		capacity, err := resource.ParseQuantity(fmt.Sprintf("%d", cpusets.Len()))
+		if err != nil {
+			errList = append(errList, err)
+		}
+		// calculate the allocatable amount by deducting the reserved cpus
+		cacheGroupCPUSets := machine.NewCPUSet(cpusets.List()...)
+		allocatableCPUSets := cacheGroupCPUSets.Difference(reservedCPUs)
+		allocatable, err := resource.ParseQuantity(fmt.Sprintf("%d", allocatableCPUSets.Size()))
 		if err != nil {
 			errList = append(errList, err)
 		}
 
-		zoneCapacity[cacheGroupZone] = &v1.ResourceList{
-			"cpu": quantity,
-		}
-
 		zoneAllocatable[cacheGroupZone] = &v1.ResourceList{
-			"cpu": quantity,
+			"cpu": allocatable,
+		}
+		zoneCapacity[cacheGroupZone] = &v1.ResourceList{
+			"cpu": capacity,
 		}
 	}
 
