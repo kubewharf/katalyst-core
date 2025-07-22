@@ -18,6 +18,7 @@ package resource
 
 import (
 	"context"
+	"io/ioutil"
 	"testing"
 	"time"
 
@@ -26,11 +27,16 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	hmadvisor "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource"
+	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -49,6 +55,25 @@ func generateTestMetaServer(t *testing.T) *metaserver.MetaServer {
 		},
 		ServiceProfilingManager: &spd.DummyServiceProfilingManager{},
 	}
+}
+
+func generateMachineConfig(t *testing.T) *config.Configuration {
+	testConfiguration, err := options.NewOptions().Config()
+	require.NoError(t, err)
+	require.NotNil(t, testConfiguration)
+
+	tmpStateDir, err := ioutil.TempDir("", "sys-advisor-test")
+	require.NoError(t, err)
+	testConfiguration.GenericSysAdvisorConfiguration.StateFileDirectory = tmpStateDir
+
+	return testConfiguration
+}
+
+func newTestMetaCache(t *testing.T) *metacache.MetaCacheImp {
+	metaCache, err := metacache.NewMetaCacheImp(generateMachineConfig(t), metricspool.DummyMetricsEmitterPool{}, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
+	require.NoError(t, err)
+	require.NotNil(t, metaCache)
+	return metaCache
 }
 
 func TestNewGenericHeadroomManager(t *testing.T) {
@@ -101,7 +126,7 @@ func TestNewGenericHeadroomManager(t *testing.T) {
 			mgr := NewGenericHeadroomManager(tt.args.name, tt.args.useMilliValue, tt.args.reportMillValue,
 				tt.args.syncPeriod, tt.args.headroomAdvisor, tt.args.emitter,
 				tt.args.slidingWindowOptions, tt.args.getReclaimOptionsFunc,
-				tt.args.metaServer)
+				tt.args.metaServer, newTestMetaCache(t))
 			mgr.newSlidingWindow()
 		})
 	}
@@ -127,6 +152,7 @@ func TestGenericHeadroomManager_Allocatable(t *testing.T) {
 			return reclaimOptions
 		},
 		generateTestMetaServer(t),
+		newTestMetaCache(t),
 	)
 	go m.Run(context.Background())
 

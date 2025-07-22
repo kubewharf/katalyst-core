@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	hmadvisor "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -69,6 +70,7 @@ type GenericHeadroomManager struct {
 	lastNUMAReportResult map[int]resource.Quantity
 
 	metaServer              *metaserver.MetaServer
+	metaCache               metacache.MetaCache
 	headroomAdvisor         hmadvisor.ResourceAdvisor
 	emitter                 metrics.MetricEmitter
 	useMilliValue           bool
@@ -87,6 +89,7 @@ func NewGenericHeadroomManager(name v1.ResourceName, useMilliValue, reportMilliV
 	emitter metrics.MetricEmitter, slidingWindowOptions GenericSlidingWindowOptions,
 	getReclaimOptions GetGenericReclaimOptionsFunc,
 	metaServer *metaserver.MetaServer,
+	metaCache metacache.MetaCache,
 ) *GenericHeadroomManager {
 	// Sliding window size and ttl are calculated by SlidingWindowTime and syncPeriod,
 	// the valid lifetime of all samples is twice the duration of the sliding window.
@@ -121,6 +124,7 @@ func NewGenericHeadroomManager(name v1.ResourceName, useMilliValue, reportMilliV
 		emitter:                 emitter,
 		getReclaimOptions:       getReclaimOptions,
 		metaServer:              metaServer,
+		metaCache:               metaCache,
 	}
 }
 
@@ -262,6 +266,10 @@ func (m *GenericHeadroomManager) sync(_ context.Context) {
 		reportResult.String(), reclaimOptions.ReservedResourceForReport.String())
 
 	m.setLastReportResult(*reportResult)
+	headroomInfo := &types.HeadroomInfo{
+		TotalHeadroom: float64(m.lastReportResult.MilliValue()) / 1000,
+		NUMAHeadroom:  map[int]float64{},
+	}
 
 	// set latest numa report result
 	diffRatio := float64(reportResult.Value()) / numaSum
@@ -271,8 +279,13 @@ func (m *GenericHeadroomManager) sync(_ context.Context) {
 		}
 		result := m.reportResultTransformer(*res)
 		m.lastNUMAReportResult[numaID] = result
+		headroomInfo.NUMAHeadroom[numaID] = float64(res.MilliValue()) / 1000
 		m.emitNUMAResourceToMetric(numaID, metricsNameHeadroomReportNUMAResult, result)
 		klog.Infof("%s headroom manager for NUMA: %d, headroom: %d", m.resourceName, numaID, result.Value())
+	}
+	err = m.metaCache.SetHeadroomEntries(string(m.resourceName), headroomInfo)
+	if err != nil {
+		klog.Errorf("set headroom entries failed: %v", err)
 	}
 }
 

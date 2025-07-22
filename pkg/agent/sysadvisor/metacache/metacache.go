@@ -71,6 +71,9 @@ type MetaReader interface {
 
 	// GetRegionInfo returns a RegionInfo copy by region name
 	GetRegionInfo(regionName string) (*types.RegionInfo, bool)
+
+	// GetHeadroomEntries returns a HeadroomInfo for specified resourceName like cpu, memory
+	GetHeadroomEntries(resourceName string) (*types.HeadroomInfo, bool)
 	// RangeRegionInfo applies a function to every regionName, regionInfo set.
 	// If f returns false, range stops the iteration.
 	RangeRegionInfo(f func(regionName string, regionInfo *types.RegionInfo) bool)
@@ -119,6 +122,8 @@ type MetaWriter interface {
 	SetRegionEntries(entries types.RegionEntries) error
 	// SetRegionInfo stores a RegionInfo by region name
 	SetRegionInfo(regionName string, regionInfo *types.RegionInfo) error
+	// SetHeadroomEntries store the headroomInfo of resourceName
+	SetHeadroomEntries(resourceName string, headroomInfo *types.HeadroomInfo) error
 
 	// SetInferenceResult sets specified model inference result
 	SetInferenceResult(modelName string, result interface{}) error
@@ -152,6 +157,9 @@ type MetaCacheImp struct {
 
 	regionEntries types.RegionEntries
 	regionMutex   sync.RWMutex
+
+	headroomEntries types.HeadroomEntries
+	headroomMutex   sync.RWMutex
 
 	checkpointManager checkpointmanager.CheckpointManager
 	checkpointName    string
@@ -274,6 +282,16 @@ func (mc *MetaCacheImp) GetRegionInfo(regionName string) (*types.RegionInfo, boo
 
 	regionInfo, ok := mc.regionEntries[regionName]
 	return regionInfo.Clone(), ok
+}
+
+func (mc *MetaCacheImp) GetHeadroomEntries(resourceName string) (*types.HeadroomInfo, bool) {
+	mc.headroomMutex.RLock()
+	defer mc.headroomMutex.RUnlock()
+	if mc.headroomEntries == nil {
+		return nil, false
+	}
+	headroomInfo, ok := mc.headroomEntries[resourceName]
+	return headroomInfo.Clone(), ok
 }
 
 // GetFilteredInferenceResult gets specified model inference result with filter function
@@ -569,6 +587,18 @@ func (mc *MetaCacheImp) SetSupportedWantedFeatureGates(featureGates map[string]*
 	return nil
 }
 
+func (mc *MetaCacheImp) SetHeadroomEntries(resourceName string, headroomInfo *types.HeadroomInfo) error {
+	mc.headroomMutex.Lock()
+	defer mc.headroomMutex.Unlock()
+	if headroomInfo != nil {
+		if mc.headroomEntries == nil {
+			mc.headroomEntries = make(map[string]*types.HeadroomInfo)
+		}
+		mc.headroomEntries[resourceName] = headroomInfo.Clone()
+	}
+	return mc.storeState()
+}
+
 /*
 	other helper functions
 */
@@ -578,6 +608,7 @@ func (mc *MetaCacheImp) storeState() error {
 	checkpoint.PodEntries = mc.podEntries
 	checkpoint.PoolEntries = mc.poolEntries
 	checkpoint.RegionEntries = mc.regionEntries
+	checkpoint.HeadroomEntries = mc.headroomEntries
 
 	startTime := time.Now()
 	defer func(t time.Time) {
@@ -620,6 +651,7 @@ func (mc *MetaCacheImp) restoreState() error {
 	mc.podEntries = checkpoint.PodEntries
 	mc.poolEntries = checkpoint.PoolEntries
 	mc.regionEntries = checkpoint.RegionEntries
+	mc.headroomEntries = checkpoint.HeadroomEntries
 
 	if foundAndSkippedStateCorruption {
 		klog.Infof("[metacache] checkpoint %v recovery corrupt, create it", mc.checkpointName)

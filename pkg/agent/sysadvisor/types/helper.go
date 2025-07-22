@@ -219,6 +219,22 @@ func (ps PodSet) Clone() PodSet {
 	return clone
 }
 
+func (hi *HeadroomInfo) Clone() *HeadroomInfo {
+	if hi == nil {
+		return nil
+	}
+	clone := &HeadroomInfo{
+		NUMAHeadroom:  map[int]float64{},
+		TotalHeadroom: hi.TotalHeadroom,
+	}
+
+	for k, v := range hi.NUMAHeadroom {
+		clone.NUMAHeadroom[k] = v
+	}
+
+	return clone
+}
+
 func (ps PodSet) Insert(podUID string, containerName string) {
 	containerSet, ok := ps[podUID]
 	if !ok {

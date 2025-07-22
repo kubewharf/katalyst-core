@@ -23,6 +23,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	hmadvisor "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -62,7 +63,7 @@ type NumaResourceManager interface {
 }
 
 // InitFunc is used to init headroom manager
-type InitFunc func(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
+type InitFunc func(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer, metaCache metacache.MetaCache,
 	conf *config.Configuration, headroomAdvisor hmadvisor.ResourceAdvisor) (HeadroomManager, error)
 
 // RegisterHeadroomManagerInitializer is used to register user-defined headroom manager init functions
