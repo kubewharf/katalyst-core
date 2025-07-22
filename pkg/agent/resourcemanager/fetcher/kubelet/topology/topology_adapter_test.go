@@ -40,6 +40,7 @@ import (
 
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	agentConf "github.com/kubewharf/katalyst-core/pkg/config/agent"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -3128,7 +3129,7 @@ func Test_podResourcesServerTopologyAdapterImpl_Run(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.TODO())
 	notifier := make(chan struct{}, 1)
-	p, _ := NewPodResourcesServerTopologyAdapter(testMetaServer, generic.NewQoSConfiguration(),
+	p, _ := NewPodResourcesServerTopologyAdapter(testMetaServer, generic.NewQoSConfiguration(), agentConf.NewAgentConfiguration(),
 		endpoints, kubeletResourcePluginPath, pkgconsts.KubeletQoSResourceManagerCheckpoint, nil,
 		nil, getNumaInfo, nil, podresources.GetV1Client, []string{"cpu", "memory"})
 	err = p.Run(ctx, func() {})

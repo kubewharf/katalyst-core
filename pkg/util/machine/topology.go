@@ -638,6 +638,11 @@ func GetSiblingNumaInfo(
 
 func GetCacheGroupCPUs(machineInfo *info.MachineInfo) map[int]sets.Int {
 	cacheGroupMap := make(map[int]sets.Int)
+	if machineInfo == nil {
+		klog.Errorf("GetCacheGroupCPUs got nil machineInfo")
+		return cacheGroupMap
+	}
+
 	for _, node := range machineInfo.Topology {
 		for _, core := range node.Cores {
 			for _, cache := range core.Caches {
