@@ -546,34 +546,9 @@ func (p *DynamicPolicy) applyCgroupConfigs(resp *advisorapi.ListAndWatchResponse
 		resources.SkipDevices = true
 		resources.SkipFreezeOnSet = true
 
-		if !common.CheckCgroup2UnifiedMode() {
-			podsPathMap, podDirs, err := p.getCurrentPathAllPodsDirAndMap(calculationInfo.CgroupPath)
-			if err != nil {
-				return err
-			}
-
-			for _, podDir := range podDirs {
-				pod, podRelativePath, err := p.getPodAndRelativePath(calculationInfo.CgroupPath, podDir, podsPathMap)
-				if err != nil {
-					general.Warningf("getPodAndRelativePath error for pod %s: %v", pod.Name, err)
-					continue
-				}
-
-				// check containers first
-				err = p.checkAllContainersQuota(pod, resources)
-				if err != nil {
-					general.Errorf("checkAllContainersQuota failed with error: %v", err)
-					continue
-				}
-
-				// then check pod
-				_, limit := resource.PodRequestsAndLimits(pod)
-				podLimit := limit.Cpu().Value()
-				err = p.applyCPUQuotaWithRelativePath(podRelativePath, podLimit, resources)
-				if err != nil {
-					return fmt.Errorf("applyCPUQuotaWithRelativePath %s failed with error: %v", podRelativePath, err)
-				}
-			}
+		err = p.checkAndApplyIfCgroupV1(calculationInfo, resources)
+		if err != nil {
+			return fmt.Errorf("checkAndApplyIfCgroupV1 failed with error: %v", err)
 		}
 
 		err = common.ApplyCgroupConfigs(calculationInfo.CgroupPath, resources)
