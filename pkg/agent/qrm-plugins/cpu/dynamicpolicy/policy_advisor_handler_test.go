@@ -17,11 +17,15 @@ limitations under the License.
 package dynamicpolicy
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
+
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
+	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 
@@ -40,6 +44,68 @@ import (
 )
 
 var advisorTestMutex = &sync.Mutex{}
+
+func TestDynamicPolicy_checkAndApplyIfCgroupV1(t *testing.T) {
+	t.Parallel()
+
+	mockPod := &v1.Pod{
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Name: "test-container",
+					Resources: v1.ResourceRequirements{
+						Requests: v1.ResourceList{
+							v1.ResourceCPU: resource2.MustParse("2"),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	mockPodPathMap := map[string]*v1.Pod{
+		"test-pod-1": mockPod,
+	}
+
+	resources := &common.CgroupResources{
+		CpuQuota:  1000,
+		CpuPeriod: 1000,
+	}
+
+	mockBytes, _ := json.Marshal(resources)
+
+	mockCal := &advisorsvc.CalculationInfo{
+		CgroupPath: "test_cgroup_path",
+		CalculationResult: &advisorsvc.CalculationResult{
+			Values: map[string]string{
+				string(advisorapi.ControlKnobKeyCgroupConfig): string(mockBytes),
+			},
+		},
+	}
+
+	p := &DynamicPolicy{
+		metaServer: &metaserver.MetaServer{
+			MetaAgent: &agent.MetaAgent{
+				PodFetcher: &pod.PodFetcherStub{},
+			},
+		},
+	}
+
+	advisorTestMutex.Lock()
+	defer advisorTestMutex.Unlock()
+
+	mockey.PatchConvey("test cgroup v1 resource", t, func() {
+		mockey.Mock(common.CheckCgroup2UnifiedMode).IncludeCurrentGoRoutine().Return(false).Build()
+		mockey.Mock((*DynamicPolicy).getCurrentPathAllPodsDirAndMap).IncludeCurrentGoRoutine().Return(mockPodPathMap, []string{"advisor-test-pod-1"}, nil).Build()
+		mockey.Mock((*DynamicPolicy).getPodAndRelativePath).IncludeCurrentGoRoutine().Return(mockPod, "test_relative_path", nil).Build()
+		mockey.Mock((*DynamicPolicy).checkAllContainersQuota).IncludeCurrentGoRoutine().Return(nil).Build()
+		mockey.Mock((*DynamicPolicy).applyCPUQuotaWithRelativePath).IncludeCurrentGoRoutine().Return(nil).Build()
+
+		err := p.checkAndApplyIfCgroupV1(mockCal, resources)
+
+		convey.So(err, convey.ShouldBeNil)
+	})
+}
 
 func TestDynamicPolicy_getAllDirs(t *testing.T) {
 	t.Parallel()
