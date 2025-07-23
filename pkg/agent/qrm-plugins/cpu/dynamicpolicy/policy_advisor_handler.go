@@ -114,16 +114,12 @@ func (p *DynamicPolicy) serveForAdvisor(stopCh <-chan struct{}) {
 		_ = conn.Close()
 	}
 
-	for {
-		select {
-		case <-exitCh:
-			return
-		case <-stopCh:
-			grpcServer.Stop()
-			return
-		case <-time.After(time.Second):
-			general.Infof("can not exit after 30s")
-		}
+	select {
+	case <-exitCh:
+		return
+	case <-stopCh:
+		grpcServer.Stop()
+		return
 	}
 }
 
@@ -551,26 +547,15 @@ func (p *DynamicPolicy) applyCgroupConfigs(resp *advisorapi.ListAndWatchResponse
 		resources.SkipFreezeOnSet = true
 
 		if !common.CheckCgroup2UnifiedMode() {
-			podsPathMap, err := p.getAllPodsPathMap()
+			podsPathMap, podDirs, err := p.getCurrentPathAllPodsDirAndMap(calculationInfo.CgroupPath)
 			if err != nil {
-				return fmt.Errorf("getAllPodsPathMap failed with error: %v", err)
+				return err
 			}
-			absPath := common.GetAbsCgroupPath(common.DefaultSelectedSubsys, calculationInfo.CgroupPath)
-			podDirs, err := p.getAllDirs(absPath)
-			if err != nil {
-				return fmt.Errorf("getAllPodsPath failed with error: %v", err)
-			}
-			for _, podDir := range podDirs {
-				podRelativePath := filepath.Join(calculationInfo.CgroupPath, podDir)
-				podAbsPath := common.GetAbsCgroupPath(common.DefaultSelectedSubsys, podRelativePath)
-				pod, ok := podsPathMap[podAbsPath]
-				if !ok || pod == nil {
-					general.Warningf("can not get pod with abs path: %s", podAbsPath)
-					continue
-				}
 
-				if len(pod.Spec.Containers) == 0 {
-					general.Warningf("pod %s has no containers", pod.Name)
+			for _, podDir := range podDirs {
+				pod, podRelativePath, err := p.getPodAndRelativePath(calculationInfo.CgroupPath, podDir, podsPathMap)
+				if err != nil {
+					general.Warningf("getPodAndRelativePath error for pod %s: %v", pod.Name, err)
 					continue
 				}
 
@@ -638,6 +623,35 @@ func (p *DynamicPolicy) getAllPodsPathMap() (map[string]*v1.Pod, error) {
 	}
 
 	return podAbsPathMap, nil
+}
+
+func (p *DynamicPolicy) getPodAndRelativePath(currentCgroupPath string, podDir string, podsPathMap map[string]*v1.Pod) (*v1.Pod, string, error) {
+	podRelativePath := filepath.Join(currentCgroupPath, podDir)
+	podAbsPath := common.GetAbsCgroupPath(common.DefaultSelectedSubsys, podRelativePath)
+	pod, ok := podsPathMap[podAbsPath]
+	if !ok || pod == nil {
+		return nil, "", fmt.Errorf("can not get pod with abs path: %s", podAbsPath)
+	}
+
+	if len(pod.Spec.Containers) == 0 {
+		return nil, "", fmt.Errorf("pod %s has no containers", pod.Name)
+	}
+
+	return pod, podRelativePath, nil
+}
+
+func (p *DynamicPolicy) getCurrentPathAllPodsDirAndMap(currentCgroupPath string) (map[string]*v1.Pod, []string, error) {
+	podsPathMap, err := p.getAllPodsPathMap()
+	if err != nil {
+		return nil, nil, fmt.Errorf("getAllPodsPathMap failed with error: %v", err)
+	}
+	absPath := common.GetAbsCgroupPath(common.DefaultSelectedSubsys, currentCgroupPath)
+	podDirs, err := p.getAllDirs(absPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("getAllPodsPath failed with error: %v", err)
+	}
+
+	return podsPathMap, podDirs, nil
 }
 
 func (p *DynamicPolicy) getAllContainersRelativePathMap(pod *v1.Pod) map[string]*v1.Container {
