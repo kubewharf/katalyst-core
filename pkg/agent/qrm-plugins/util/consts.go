@@ -64,6 +64,30 @@ const (
 	MetricNameMetricBasedNUMAAllocationSuccess = "metric_based_numa_allocation_success"
 	MetricNameCollectNUMAMetrics               = "collect_numa_metrics"
 	MetricNameNUMAMetricOverThreshold          = "numa_metric_over_threshold"
+
+	// metrics for irq tuning
+	MetricNameIrqTuningEnabled                        = "irq_tuning_enabled"
+	MetricNameIrqTuningPolicy                         = "irq_tuning_policy"
+	MetricNameIrqTuningNicsCount                      = "irq_tuning_nics_count"
+	MetricNameIrqTuningLowThroughputNicsCount         = "irq_tuning_low_throughput_nics_count"
+	MetricNameIrqTuningNormalThroughputNicsCount      = "irq_tuning_normal_throughput_nics_count"
+	MetricNameIrqTuningRPSEnabled                     = "irq_tuning_rps_enabled"
+	MetricNameIrqTuningNicThroughputClass             = "irq_tuning_throughput_class"
+	MetricNameIrqTuningSriovContainersCount           = "irq_tuning_sriov_containers_count"
+	MetricNameIrqTuningKataBMContainersCount          = "irq_tuning_katabm_containers_count"
+	MetricNameIrqTuningNicIrqAffinityPolicy           = "irq_tuning_nic_irq_affinity_policy"
+	MetricNameIrqTuningNicExclusiveIrqCores           = "irq_tuning_nic_exclusive_irq_cores"
+	MetricNameIrqTuningTotalExclusiveIrqCores         = "irq_tuning_total_exclusive_irq_cores"
+	MetricNameIrqTuningNicIrqLoadBalance              = "irq_tuning_nic_irq_load_balance"
+	MetricNameIrqTuningNicExclusiveIrqCoresIrqUtilAvg = "irq_tuning_nic_exclusive_irq_cores_irq_util_avg"
+	MetricNameIrqTuningNicExclusiveIrqCoresIrqUtilMax = "irq_tuning_nic_exclusive_irq_cores_irq_util_Max"
+	MetricNameIrqTuningNicExclusiveIrqCoresIrqUtilMin = "irq_tuning_nic_exclusive_irq_cores_irq_util_Min"
+	MetricNameIrqTuningNicExclusiveIrqCoresIrqUsage   = "irq_tuning_nic_exclusive_irq_cores_irq_usage"
+	MetricNameIrqTuningNicExclusiveIrqCoresCpuUtilAvg = "irq_tuning_nic_exclusive_irq_cores_cpu_util_avg"
+	MetricNameIrqTuningNicExclusiveIrqCoresCpuUtilMax = "irq_tuning_nic_exclusive_irq_cores_cpu_util_Max"
+	MetricNameIrqTuningNicExclusiveIrqCoresCpuUtilMin = "irq_tuning_nic_exclusive_irq_cores_cpu_util_Min"
+	MetricNameIrqTuningNicExclusiveIrqCoresCpuUsage   = "irq_tuning_nic_exclusive_irq_cores_cpu_usage"
+	MetricNameIrqTuningErr                            = "irq_tuning_err"
 )
 
 const (
