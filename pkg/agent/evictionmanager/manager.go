@@ -169,7 +169,7 @@ func NewEvictionManager(genericClient *client.GenericClientSet, recorder events.
 		return nil, fmt.Errorf("unsupported pod killer %v", conf.PodKiller)
 	}
 
-	podKiller := podkiller.NewAsynchronizedPodKiller(killer, genericClient.KubeClient)
+	podKiller := podkiller.NewAsynchronizedPodKiller(killer, metaServer.PodFetcher, genericClient.KubeClient)
 
 	cnrTaintReporter, err := control.NewGenericReporterPlugin(cnrTaintReporterPluginName, conf, emitter)
 	if err != nil {

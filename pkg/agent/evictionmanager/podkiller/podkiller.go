@@ -38,6 +38,7 @@ import (
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/rule"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
+	metaserverpod "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 )
 
 // PodKiller implements the killing actions for given pods.
@@ -129,7 +130,8 @@ func (s *SynchronizedPodKiller) EvictPods(rpList rule.RuledEvictPodList) error {
 type AsynchronizedPodKiller struct {
 	killer Killer
 
-	client kubernetes.Interface
+	podFetcher metaserverpod.PodFetcher
+	client     kubernetes.Interface
 
 	// use map to act as a limited queue
 	queue workqueue.RateLimitingInterface
@@ -155,9 +157,10 @@ func getEvictPodInfo(rp *rule.RuledEvictPod) *evictPodInfo {
 	}
 }
 
-func NewAsynchronizedPodKiller(killer Killer, client kubernetes.Interface) PodKiller {
+func NewAsynchronizedPodKiller(killer Killer, podFetcher metaserverpod.PodFetcher, client kubernetes.Interface) PodKiller {
 	a := &AsynchronizedPodKiller{
 		killer:         killer,
+		podFetcher:     podFetcher,
 		client:         client,
 		processingPods: make(map[string]map[int64]*evictPodInfo),
 	}
@@ -200,7 +203,7 @@ func (a *AsynchronizedPodKiller) EvictPod(rp *rule.RuledEvictPod) error {
 	if err != nil {
 		return fmt.Errorf("getGracefulDeletionPeriod for pod: %s/%s failed with error: %v", rp.Pod.Namespace, rp.Pod.Name, err)
 	}
-	podKey := podKeyFunc(rp.Pod.Namespace, rp.Pod.Name)
+	podKey := podKeyFunc(rp.Pod.Namespace, rp.Pod.Name, string(rp.Pod.UID))
 
 	a.Lock()
 	if a.processingPods[podKey] != nil {
@@ -296,12 +299,12 @@ func (a *AsynchronizedPodKiller) processNextItem() bool {
 }
 
 func (a *AsynchronizedPodKiller) sync(key string) (retError error, requeue bool) {
-	namespace, name, gracePeriodSeconds, err := splitEvictionKey(key)
+	namespace, name, uid, gracePeriodSeconds, err := splitEvictionKey(key)
 	if err != nil {
 		return fmt.Errorf("[asynchronous] invalid resource key: %s got error: %v", key, err), false
 	}
 
-	podKey := podKeyFunc(namespace, name)
+	podKey := podKeyFunc(namespace, name, uid)
 	defer func() {
 		if !requeue {
 			a.Lock()
@@ -317,10 +320,15 @@ func (a *AsynchronizedPodKiller) sync(key string) (retError error, requeue bool)
 	// todo: actually, this function is safe enough without comparing with pod uid
 	//  if the same pod is created just after the last one exists
 	//  handle with more filters in the future
-	pod, err := a.client.CoreV1().Pods(namespace).Get(context.Background(), name, metav1.GetOptions{})
+	ctx := context.Background()
+	pod, err := a.client.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			klog.Infof("[asynchronous] %s/%s has already been deleted, skip", namespace, name)
+			_, err := a.podFetcher.GetPod(context.WithValue(ctx, metaserverpod.BypassCacheKey, metaserverpod.BypassCacheTrue), uid)
+			if err != nil {
+				klog.Errorf("[asynchronous] get pod %s/%s/%s from metaserver failed with error: %v", namespace, name, uid, err)
+			}
 			return nil, false
 		}
 		return err, true
@@ -344,27 +352,27 @@ func (a *AsynchronizedPodKiller) sync(key string) (retError error, requeue bool)
 	}
 }
 
-func podKeyFunc(podNamespace, podName string) string {
-	return strings.Join([]string{podNamespace, podName}, consts.KeySeparator)
+func podKeyFunc(podNamespace, podName string, uid string) string {
+	return strings.Join([]string{podNamespace, podName, uid}, consts.KeySeparator)
 }
 
 func evictionKeyFunc(podKey string, gracePeriodSeconds int64) string {
 	return strings.Join([]string{podKey, fmt.Sprintf("%d", gracePeriodSeconds)}, consts.KeySeparator)
 }
 
-func splitEvictionKey(key string) (string, string, int64, error) {
+func splitEvictionKey(key string) (string, string, string, int64, error) {
 	parts := strings.Split(key, consts.KeySeparator)
 
-	if len(parts) != 3 {
-		return "", "", 0, fmt.Errorf("unexpected key format: %s", key)
+	if len(parts) != 4 {
+		return "", "", "", 0, fmt.Errorf("unexpected key format: %s", key)
 	}
 
-	gracePeriodSeconds, err := strconv.ParseInt(parts[2], 10, 64)
+	gracePeriodSeconds, err := strconv.ParseInt(parts[3], 10, 64)
 	if err != nil {
-		return "", "", 0, fmt.Errorf("unexpected gracePeriodSeconds: %s", parts[2])
+		return "", "", "", 0, fmt.Errorf("unexpected gracePeriodSeconds: %s", parts[3])
 	}
 
-	return parts[0], parts[1], gracePeriodSeconds, nil
+	return parts[0], parts[1], parts[2], gracePeriodSeconds, nil
 }
 
 func getGracefulDeletionPeriod(pod *v1.Pod, options *pluginapi.DeletionOptions) (int64, error) {
