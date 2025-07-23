@@ -31,52 +31,52 @@ type DomainsMon struct {
 
 // NewDomainsMon splits resctrl style incoming mon data into domains w/ both directions,
 // and attributes incoming traffic to outgoings, in cross-domain style, among XDomGroups
-func NewDomainsMon(statIncoming GroupMonStat, ccdToDomain map[int]int, XDomGroups sets.String) (*DomainsMon, error) {
+func NewDomainsMon(statOutgoing GroupMonStat, ccdToDomain map[int]int, XDomGroups sets.String) (*DomainsMon, error) {
 	result := &DomainsMon{
 		Incoming: make(map[int]GroupMonStat),
 		Outgoing: make(map[int]GroupMonStat),
 	}
 
-	if err := result.splitIncomingStat(statIncoming, ccdToDomain); err != nil {
+	if err := result.splitOutgoingStat(statOutgoing, ccdToDomain); err != nil {
 		return nil, errors.Wrap(err, "failed to split mon data into domains")
 	}
 
-	result.deriveOutgoingStat(XDomGroups)
+	result.deriveIncomingStat(XDomGroups)
 
 	return result, nil
 }
 
-func (d *DomainsMon) splitIncomingStat(statIncoming GroupMonStat, ccdToDomain map[int]int) error {
-	for group, groupCCDMB := range statIncoming.mon {
+func (d *DomainsMon) splitOutgoingStat(statOutgoing GroupMonStat, ccdToDomain map[int]int) error {
+	for group, groupCCDMB := range statOutgoing {
 		for ccd, mb := range groupCCDMB {
 			domain, ok := ccdToDomain[ccd]
 			if !ok {
 				return fmt.Errorf("unknow ccd %d", ccd)
 			}
-			putGroupCCDMBStat(d.Incoming, domain, group, ccd, mb)
+			putGroupCCDMBStat(d.Outgoing, domain, group, ccd, mb)
 		}
 	}
 	return nil
 }
 
-func (d *DomainsMon) deriveOutgoingStat(XDomGroups sets.String) {
-	incomingSummary, incomingDomainSummaries := d.summarizeIncoming(XDomGroups)
+func (d *DomainsMon) deriveIncomingStat(XDomGroups sets.String) {
+	outgoingSummary, outgoingDomainSummaries := d.summarizeOutgoing(XDomGroups)
 
-	for domain, incoming := range d.Incoming {
-		domainLocalMB := incomingDomainSummaries[domain].LocalMB
-		domainRemoteOutgoing := calcRemoteOutgoing(domain, incomingSummary, incomingDomainSummaries)
-		for group, ccdmb := range incoming.mon {
+	for domain, outgoing := range d.Outgoing {
+		domainLocalMB := outgoingDomainSummaries[domain].LocalMB
+		domainRemoteIncoming := calcRemoteIncoming(domain, outgoingSummary, outgoingDomainSummaries)
+		for group, ccdmb := range outgoing {
 			for ccd, mb := range ccdmb {
-				ccdRemoteOutgoing := mb.RemoteMB
+				ccdRemoteIncoming := mb.RemoteMB
 				if XDomGroups.Has(group) {
-					ccdRemoteOutgoing = getPortion(domainRemoteOutgoing, mb.LocalMB, domainLocalMB)
+					ccdRemoteIncoming = getPortion(domainRemoteIncoming, mb.LocalMB, domainLocalMB)
 				}
-				outgoingCCDMB := MBStat{
+				incomingCCDMB := MBStat{
 					LocalMB:  mb.LocalMB,
-					RemoteMB: ccdRemoteOutgoing,
-					TotalMB:  mb.LocalMB + ccdRemoteOutgoing,
+					RemoteMB: ccdRemoteIncoming,
+					TotalMB:  mb.LocalMB + ccdRemoteIncoming,
 				}
-				putGroupCCDMBStat(d.Outgoing, domain, group, ccd, outgoingCCDMB)
+				putGroupCCDMBStat(d.Incoming, domain, group, ccd, incomingCCDMB)
 			}
 		}
 	}
@@ -94,13 +94,13 @@ func getPortion(amount, share, total int) int {
 	return result
 }
 
-func (d *DomainsMon) summarizeIncoming(XDomGroups sets.String) (MBStat, map[int]*MBStat) {
+func (d *DomainsMon) summarizeOutgoing(XDomGroups sets.String) (MBStat, map[int]*MBStat) {
 	summary := MBStat{}
 	domainSummaries := map[int]*MBStat{}
 
-	for domain, incoming := range d.Incoming {
+	for domain, outgoing := range d.Outgoing {
 		domainSummaries[domain] = &MBStat{}
-		for group, ccdmb := range incoming.mon {
+		for group, ccdmb := range outgoing {
 			// only take into account the cross-domain groups
 			if !XDomGroups.Has(group) {
 				continue
@@ -117,17 +117,17 @@ func (d *DomainsMon) summarizeIncoming(XDomGroups sets.String) (MBStat, map[int]
 	return summary, domainSummaries
 }
 
-// calcRemoteOutgoing calculates remote outgoing of a domain based on the formula:
+// calcRemoteIncoming calculates remote incoming of a domain based on the formula:
 // given i the domain id,
 // for all j except for i,
-// sum( remote_incoming[j] * local_incoming[i] / {local_incoming[0] + ... + local_incoming[n], except for i} ),
-func calcRemoteOutgoing(domain int, summaryIncoming MBStat, summaryDomainIncoming map[int]*MBStat) int {
-	domainLocalMB := summaryDomainIncoming[domain].LocalMB
+// sum( remote_outgoing[j] * local_outgoing[i] / {local_outgoing[0] + ... + local_outgoing[n], except for i} ),
+func calcRemoteIncoming(domain int, summaryOutgoing MBStat, summaryDomainOutgoing map[int]*MBStat) int {
+	domainLocalMB := summaryDomainOutgoing[domain].LocalMB
 
 	result := 0
-	for domainID, ccdmb := range summaryDomainIncoming {
+	for domainID, ccdmb := range summaryDomainOutgoing {
 		if domain != domainID {
-			result += getPortion(ccdmb.RemoteMB, domainLocalMB, summaryIncoming.LocalMB-ccdmb.LocalMB)
+			result += getPortion(ccdmb.RemoteMB, domainLocalMB, summaryOutgoing.LocalMB-ccdmb.LocalMB)
 		}
 	}
 	return result
@@ -135,16 +135,16 @@ func calcRemoteOutgoing(domain int, summaryIncoming MBStat, summaryDomainIncomin
 
 func putGroupCCDMBStat(domains map[int]GroupMonStat, domain int, group string, ccd int, ccdMB MBStat) {
 	if _, ok := domains[domain]; !ok {
-		domains[domain] = GroupMonStat{mon: map[string]GroupCCDMB{}}
+		domains[domain] = GroupMonStat{}
 	}
 	stat := domains[domain]
 	putCCDMBStat(stat, group, ccd, ccdMB)
 }
 
 func putCCDMBStat(stat GroupMonStat, group string, ccd int, mbStat MBStat) {
-	if _, ok := stat.mon[group]; !ok {
-		stat.mon[group] = GroupCCDMB{}
+	if _, ok := stat[group]; !ok {
+		stat[group] = GroupCCDMB{}
 	}
-	groupCCDMB := stat.mon[group]
+	groupCCDMB := stat[group]
 	groupCCDMB[ccd] = mbStat
 }

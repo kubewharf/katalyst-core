@@ -16,6 +16,8 @@ limitations under the License.
 
 package monitor
 
+const minActiveMB = 1_000
+
 type GroupCCDMB map[int]MBStat
 
 // MBStat keeps memory bandwidth info
@@ -23,4 +25,16 @@ type MBStat struct {
 	LocalMB  int
 	RemoteMB int
 	TotalMB  int
+}
+
+func (g GroupCCDMB) HasTraffic() bool {
+	sum := 0
+	for _, mbStat := range g {
+		sum += mbStat.TotalMB
+		if sum >= minActiveMB {
+			return true
+		}
+	}
+
+	return false
 }

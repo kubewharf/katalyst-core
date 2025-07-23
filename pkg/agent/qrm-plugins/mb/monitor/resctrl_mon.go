@@ -18,6 +18,4 @@ package monitor
 
 // GroupMonStat is memory bandwidth statistic info corresponding to
 // resctrl monitor data, which is of incoming traffic
-type GroupMonStat struct {
-	mon map[string]GroupCCDMB
-}
+type GroupMonStat map[string]GroupCCDMB

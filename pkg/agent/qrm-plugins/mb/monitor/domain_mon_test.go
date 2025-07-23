@@ -26,7 +26,7 @@ import (
 func TestNewDomainsMon(t *testing.T) {
 	t.Parallel()
 	type args struct {
-		statIncoming GroupMonStat
+		statOutgoing GroupMonStat
 		ccdToDomain  map[int]int
 		xdGroups     sets.String
 	}
@@ -39,8 +39,21 @@ func TestNewDomainsMon(t *testing.T) {
 		{
 			name: "simple case of one domain",
 			args: args{
-				statIncoming: GroupMonStat{
-					mon: map[string]GroupCCDMB{
+				statOutgoing: GroupMonStat{
+					"dedicated": {
+						0: {
+							LocalMB:  1,
+							RemoteMB: 2,
+							TotalMB:  3,
+						},
+					},
+				},
+				ccdToDomain: map[int]int{0: 0},
+				xdGroups:    nil,
+			},
+			want: &DomainsMon{
+				Incoming: map[int]GroupMonStat{
+					0: {
 						"dedicated": {
 							0: {
 								LocalMB:  1,
@@ -50,23 +63,8 @@ func TestNewDomainsMon(t *testing.T) {
 						},
 					},
 				},
-				ccdToDomain: map[int]int{0: 0},
-				xdGroups:    nil,
-			},
-			want: &DomainsMon{
-				Incoming: map[int]GroupMonStat{
-					0: {mon: map[string]GroupCCDMB{
-						"dedicated": {
-							0: {
-								LocalMB:  1,
-								RemoteMB: 2,
-								TotalMB:  3,
-							},
-						},
-					}},
-				},
 				Outgoing: map[int]GroupMonStat{
-					0: {mon: map[string]GroupCCDMB{
+					0: {
 						"dedicated": {
 							0: {
 								LocalMB:  1,
@@ -74,7 +72,7 @@ func TestNewDomainsMon(t *testing.T) {
 								TotalMB:  3,
 							},
 						},
-					}},
+					},
 				},
 			},
 			wantErr: false,
@@ -82,31 +80,29 @@ func TestNewDomainsMon(t *testing.T) {
 		{
 			name: "happy path of all x-doms",
 			args: args{
-				statIncoming: GroupMonStat{
-					mon: map[string]GroupCCDMB{
-						"shared-50": {
-							0: {
-								LocalMB:  10_000,
-								RemoteMB: 5_000,
-								TotalMB:  15_000,
-							},
-							2: {
-								LocalMB:  12_000,
-								RemoteMB: 4_000,
-								TotalMB:  16_000,
-							},
+				statOutgoing: GroupMonStat{
+					"shared-50": {
+						0: {
+							LocalMB:  10_000,
+							RemoteMB: 5_000,
+							TotalMB:  15_000,
 						},
-						"shared-30": {
-							0: {
-								LocalMB:  8_000,
-								RemoteMB: 2_000,
-								TotalMB:  10_000,
-							},
-							1: {
-								LocalMB:  20_000,
-								RemoteMB: 5_000,
-								TotalMB:  25_000,
-							},
+						2: {
+							LocalMB:  12_000,
+							RemoteMB: 4_000,
+							TotalMB:  16_000,
+						},
+					},
+					"shared-30": {
+						0: {
+							LocalMB:  8_000,
+							RemoteMB: 2_000,
+							TotalMB:  10_000,
+						},
+						1: {
+							LocalMB:  20_000,
+							RemoteMB: 5_000,
+							TotalMB:  25_000,
 						},
 					},
 				},
@@ -117,98 +113,8 @@ func TestNewDomainsMon(t *testing.T) {
 				xdGroups: sets.NewString("shared-50", "shared-30", "any"),
 			},
 			want: &DomainsMon{
-				Incoming: map[int]GroupMonStat{
-					0: {
-						mon: map[string]GroupCCDMB{
-							"shared-30": {
-								0: {
-									LocalMB:  8_000,
-									RemoteMB: 2_000,
-									TotalMB:  10_000,
-								},
-								1: {
-									LocalMB:  20_000,
-									RemoteMB: 5_000,
-									TotalMB:  25_000,
-								},
-							},
-							"shared-50": {
-								0: {
-									LocalMB:  10_000,
-									RemoteMB: 5_000,
-									TotalMB:  15_000,
-								},
-							},
-						},
-					},
-					1: {
-						mon: map[string]GroupCCDMB{
-							"shared-50": {
-								2: {
-									LocalMB:  12_000,
-									RemoteMB: 4_000,
-									TotalMB:  16_000,
-								},
-							},
-						},
-					},
-				},
 				Outgoing: map[int]GroupMonStat{
 					0: {
-						mon: map[string]GroupCCDMB{
-							"shared-30": {
-								0: {
-									LocalMB:  8_000,
-									RemoteMB: 842,
-									TotalMB:  8_842,
-								},
-								1: {
-									LocalMB:  20_000,
-									RemoteMB: 2_105,
-									TotalMB:  22_105,
-								},
-							},
-							"shared-50": {
-								0: {
-									LocalMB:  10_000,
-									RemoteMB: 1_052,
-									TotalMB:  11_052,
-								},
-							},
-						},
-					},
-					1: {
-						mon: map[string]GroupCCDMB{
-							"shared-50": {
-								2: {
-									LocalMB:  12_000,
-									RemoteMB: 12_000,
-									TotalMB:  24_000,
-								},
-							},
-						},
-					},
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "happy path with shared-50 to cross-domain",
-			args: args{
-				statIncoming: GroupMonStat{
-					mon: map[string]GroupCCDMB{
-						"shared-50": {
-							0: {
-								LocalMB:  10_000,
-								RemoteMB: 5_000,
-								TotalMB:  15_000,
-							},
-							2: {
-								LocalMB:  12_000,
-								RemoteMB: 4_000,
-								TotalMB:  16_000,
-							},
-						},
 						"shared-30": {
 							0: {
 								LocalMB:  8_000,
@@ -221,6 +127,86 @@ func TestNewDomainsMon(t *testing.T) {
 								TotalMB:  25_000,
 							},
 						},
+						"shared-50": {
+							0: {
+								LocalMB:  10_000,
+								RemoteMB: 5_000,
+								TotalMB:  15_000,
+							},
+						},
+					},
+					1: {
+						"shared-50": {
+							2: {
+								LocalMB:  12_000,
+								RemoteMB: 4_000,
+								TotalMB:  16_000,
+							},
+						},
+					},
+				},
+				Incoming: map[int]GroupMonStat{
+					0: {
+						"shared-30": {
+							0: {
+								LocalMB:  8_000,
+								RemoteMB: 842,
+								TotalMB:  8_842,
+							},
+							1: {
+								LocalMB:  20_000,
+								RemoteMB: 2_105,
+								TotalMB:  22_105,
+							},
+						},
+						"shared-50": {
+							0: {
+								LocalMB:  10_000,
+								RemoteMB: 1_052,
+								TotalMB:  11_052,
+							},
+						},
+					},
+					1: {
+						"shared-50": {
+							2: {
+								LocalMB:  12_000,
+								RemoteMB: 12_000,
+								TotalMB:  24_000,
+							},
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "happy path with shared-50 to cross-domain",
+			args: args{
+				statOutgoing: GroupMonStat{
+					"shared-50": {
+						0: {
+							LocalMB:  10_000,
+							RemoteMB: 5_000,
+							TotalMB:  15_000,
+						},
+						2: {
+							LocalMB:  12_000,
+							RemoteMB: 4_000,
+							TotalMB:  16_000,
+						},
+					},
+					"shared-30": {
+						0: {
+							LocalMB:  8_000,
+							RemoteMB: 2_000,
+							TotalMB:  10_000,
+						},
+						1: {
+							LocalMB:  20_000,
+							RemoteMB: 5_000,
+							TotalMB:  25_000,
+						},
 					},
 				},
 				ccdToDomain: map[int]int{
@@ -230,74 +216,66 @@ func TestNewDomainsMon(t *testing.T) {
 				xdGroups: sets.NewString("shared-50"),
 			},
 			want: &DomainsMon{
-				Incoming: map[int]GroupMonStat{
+				Outgoing: map[int]GroupMonStat{
 					0: {
-						mon: map[string]GroupCCDMB{
-							"shared-30": {
-								0: {
-									LocalMB:  8_000,
-									RemoteMB: 2_000,
-									TotalMB:  10_000,
-								},
-								1: {
-									LocalMB:  20_000,
-									RemoteMB: 5_000,
-									TotalMB:  25_000,
-								},
+						"shared-30": {
+							0: {
+								LocalMB:  8_000,
+								RemoteMB: 2_000,
+								TotalMB:  10_000,
 							},
-							"shared-50": {
-								0: {
-									LocalMB:  10_000,
-									RemoteMB: 5_000,
-									TotalMB:  15_000,
-								},
+							1: {
+								LocalMB:  20_000,
+								RemoteMB: 5_000,
+								TotalMB:  25_000,
+							},
+						},
+						"shared-50": {
+							0: {
+								LocalMB:  10_000,
+								RemoteMB: 5_000,
+								TotalMB:  15_000,
 							},
 						},
 					},
 					1: {
-						mon: map[string]GroupCCDMB{
-							"shared-50": {
-								2: {
-									LocalMB:  12_000,
-									RemoteMB: 4_000,
-									TotalMB:  16_000,
-								},
+						"shared-50": {
+							2: {
+								LocalMB:  12_000,
+								RemoteMB: 4_000,
+								TotalMB:  16_000,
 							},
 						},
 					},
 				},
-				Outgoing: map[int]GroupMonStat{
+				Incoming: map[int]GroupMonStat{
 					0: {
-						mon: map[string]GroupCCDMB{
-							"shared-30": {
-								0: {
-									LocalMB:  8_000,
-									RemoteMB: 2_000,
-									TotalMB:  10_000,
-								},
-								1: {
-									LocalMB:  20_000,
-									RemoteMB: 5_000,
-									TotalMB:  25_000,
-								},
+						"shared-30": {
+							0: {
+								LocalMB:  8_000,
+								RemoteMB: 2_000,
+								TotalMB:  10_000,
 							},
-							"shared-50": {
-								0: {
-									LocalMB:  10_000,
-									RemoteMB: 4_000,
-									TotalMB:  14_000,
-								},
+							1: {
+								LocalMB:  20_000,
+								RemoteMB: 5_000,
+								TotalMB:  25_000,
+							},
+						},
+						"shared-50": {
+							0: {
+								LocalMB:  10_000,
+								RemoteMB: 4_000,
+								TotalMB:  14_000,
 							},
 						},
 					},
 					1: {
-						mon: map[string]GroupCCDMB{
-							"shared-50": {
-								2: {
-									LocalMB:  12_000,
-									RemoteMB: 5_000,
-									TotalMB:  17_000,
-								},
+						"shared-50": {
+							2: {
+								LocalMB:  12_000,
+								RemoteMB: 5_000,
+								TotalMB:  17_000,
 							},
 						},
 					},
@@ -310,7 +288,7 @@ func TestNewDomainsMon(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := NewDomainsMon(tt.args.statIncoming, tt.args.ccdToDomain, tt.args.xdGroups)
+			got, err := NewDomainsMon(tt.args.statOutgoing, tt.args.ccdToDomain, tt.args.xdGroups)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewDomainsMon() error = %v, wantErr %v", err, tt.wantErr)
 				return
