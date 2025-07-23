@@ -72,7 +72,7 @@ func testGetExtraNetworkInfo(t *testing.T) {
 		PatchConvey("Test NetMultipleNS is false", func() {
 			conf.NetMultipleNS = false
 			PatchConvey("Test getNSNetworkHardwareTopology success", func() {
-				expectedNics := []InterfaceInfo{{Iface: "eth0", IfIndex: 1, Speed: 1000, NumaNode: 0, Enable: true}}
+				expectedNics := []InterfaceInfo{{Name: "eth0", IfIndex: 1, Speed: 1000, NumaNode: 0, Enable: true}}
 				Mock(getNSNetworkHardwareTopology).Return(expectedNics, nil).Build()
 				actual, err := GetExtraNetworkInfo(conf)
 				So(actual, ShouldNotBeNil)
@@ -112,8 +112,8 @@ func testGetExtraNetworkInfo(t *testing.T) {
 				}, nil).Build()
 				PatchConvey("Test getNSNetworkHardwareTopology for all namespaces success", func() {
 					expectedNics := []InterfaceInfo{
-						{Iface: "eth0", IfIndex: 1, Speed: 1000, NumaNode: 0, Enable: true},
-						{Iface: "eth1", IfIndex: 2, Speed: 1000, NumaNode: 1, Enable: true},
+						{Name: "eth0", IfIndex: 1, Speed: 1000, NumaNode: 0, Enable: true},
+						{Name: "eth1", IfIndex: 2, Speed: 1000, NumaNode: 1, Enable: true},
 					}
 					Mock(getNSNetworkHardwareTopology).Return(expectedNics, nil).Build()
 					actual, err := GetExtraNetworkInfo(conf)
