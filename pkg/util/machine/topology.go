@@ -46,7 +46,7 @@ func (i NUMANodeInfo) CPUSizeInNUMAs(nodes ...int) int {
 }
 
 // CPUDetails is a map from CPU ID to Core ID, Socket ID, and NUMA ID.
-type CPUDetails map[int]CPUInfo
+type CPUDetails map[int]CPUTopoInfo
 
 // CPUTopology contains details of node cpu, where :
 // CPU  - logical CPU, cadvisor - thread
@@ -61,6 +61,7 @@ type CPUTopology struct {
 	NUMANodeIDToSocketID map[int]int
 	NUMAToCPUs           NUMANodeInfo
 	CPUDetails           CPUDetails
+	CPUInfo              *CPUInfo
 }
 
 type MemoryDetails map[int]uint64
@@ -201,7 +202,7 @@ func GenerateDummyCPUTopology(cpuNum, socketNum, numaNum int) (*CPUTopology, err
 	}
 
 	cpuTopology := new(CPUTopology)
-	cpuTopology.CPUDetails = make(map[int]CPUInfo)
+	cpuTopology.CPUDetails = make(map[int]CPUTopoInfo)
 	cpuTopology.NumCPUs = cpuNum
 	cpuTopology.NumCores = cpuNum / 2
 	cpuTopology.NumSockets = socketNum
@@ -214,13 +215,13 @@ func GenerateDummyCPUTopology(cpuNum, socketNum, numaNum int) (*CPUTopology, err
 	for i := 0; i < socketNum; i++ {
 		for j := i * numaPerSocket; j < (i+1)*numaPerSocket; j++ {
 			for k := j * (cpusPerNUMA / 2); k < (j+1)*(cpusPerNUMA/2); k++ {
-				cpuTopology.CPUDetails[k] = CPUInfo{
+				cpuTopology.CPUDetails[k] = CPUTopoInfo{
 					NUMANodeID: j,
 					SocketID:   i,
 					CoreID:     k,
 				}
 
-				cpuTopology.CPUDetails[k+cpuNum/2] = CPUInfo{
+				cpuTopology.CPUDetails[k+cpuNum/2] = CPUTopoInfo{
 					NUMANodeID: j,
 					SocketID:   i,
 					CoreID:     k,
@@ -288,8 +289,8 @@ func GenerateDummyExtraTopology(numaNum int) (*ExtraTopologyInfo, error) {
 	return extraTopology, nil
 }
 
-// CPUInfo contains the NUMA, socket, and core IDs associated with a CPU.
-type CPUInfo struct {
+// CPUTopoInfo contains the NUMA, socket, and core IDs associated with a CPU.
+type CPUTopoInfo struct {
 	NUMANodeID int
 	SocketID   int
 	CoreID     int
@@ -462,7 +463,7 @@ func Discover(machineInfo *info.MachineInfo) (*CPUTopology, *MemoryTopology, err
 		for _, core := range node.Cores {
 			if coreID, err := getUniqueCoreID(core.Threads); err == nil {
 				for _, cpu := range core.Threads {
-					cpuDetails[cpu] = CPUInfo{
+					cpuDetails[cpu] = CPUTopoInfo{
 						CoreID:     coreID,
 						SocketID:   core.SocketID,
 						NUMANodeID: node.Id,
@@ -476,6 +477,11 @@ func Discover(machineInfo *info.MachineInfo) (*CPUTopology, *MemoryTopology, err
 				return nil, nil, err
 			}
 		}
+	}
+
+	cpuInfo, err := GetCPUInfoWithTopo()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to GetCPUInfoWithTopo, err %s", err)
 	}
 
 	numNUMANodes := cpuDetails.NUMANodes().Size()
@@ -492,6 +498,7 @@ func Discover(machineInfo *info.MachineInfo) (*CPUTopology, *MemoryTopology, err
 		NUMANodeIDToSocketID: numaNodeIDToSocketID,
 		NUMAToCPUs:           numaToCPUs,
 		CPUDetails:           cpuDetails,
+		CPUInfo:              cpuInfo,
 	}, &memoryTopology, nil
 }
 
@@ -570,7 +577,7 @@ func GetExtraTopologyInfo(conf *global.MachineInfoConfiguration, cpuTopology *CP
 		return nil, err
 	}
 
-	interfaceSocketInfo, err := GetInterfaceSocketInfo(extraNetworkInfo.GetAllocatableNICs(conf), cpuTopology)
+	interfaceSocketInfo, err := GetInterfaceSocketInfo(extraNetworkInfo.GetAllocatableNICs(conf), cpuTopology.CPUDetails.Sockets().ToSliceInt())
 	if err != nil {
 		return nil, err
 	}
@@ -686,71 +693,87 @@ type AllocatableInterfaceSocketInfo struct {
 //   - Least-used socket when NUMA binding is unavailable or overloaded.
 //
 // 6. Populate the mappings and return them.
-func GetInterfaceSocketInfo(nics []InterfaceInfo, cpuTopology *CPUTopology) (*AllocatableInterfaceSocketInfo, error) {
+func GetInterfaceSocketInfo(nics []InterfaceInfo, sockets []int) (*AllocatableInterfaceSocketInfo, error) {
 	// Check if there are available sockets
-	if cpuTopology == nil {
-		return nil, fmt.Errorf("get nil CPUTopology")
+	if len(sockets) == 0 {
+		return nil, fmt.Errorf("no sockets available")
 	}
 
-	sockets := cpuTopology.CPUDetails.Sockets().ToSliceInt()
+	sort.Ints(sockets)
+
 	// Map NIC indices to their assigned sockets
 	ifIndex2Sockets := make(map[int][]int)
 	// Map sockets to the NIC indices assigned to them
 	socket2IfIndexes := make(map[int][]int)
-	for _, socket := range cpuTopology.CPUDetails.Sockets().ToSliceNoSortInt() {
-		socket2IfIndexes[socket] = []int{}
-	}
-	// Track the number of NICs assigned to each socket
-	socketUsage := make(map[int]int)
-	numSockets := len(sockets)
-	if numSockets == 0 {
-		return nil, fmt.Errorf("no sockets available")
-	}
 
-	// Calculate the maximum ideal NICs per socket (rounded up division)
-	idealMax := (len(nics) + numSockets - 1) / numSockets
-	// Function to find the least-used socket, preferring lower-numbered sockets in case of ties
-	getLeastUsedSocket := func() int {
-		minSocket, minCount := sockets[0], len(nics)+1
-		for _, socket := range sockets {
-			if count := socketUsage[socket]; count < minCount {
-				minSocket, minCount = socket, count
-			} else if count == minCount && socket < minSocket {
-				minSocket = socket
+	getSocketBind := func(numaNode int) int {
+		var socketBind int
+		if numaNode != UnknownNumaNode {
+			if socket, err := GetNumaPackageID(numaNode); err == nil {
+				socketBind = socket
+			} else {
+				klog.Errorf("failed to GetNumaPackageID(%d), err %s", numaNode, err)
+				socketBind = -1
 			}
-		}
-		return minSocket
-	}
-
-	// Sort NICs by NUMA node in ascending order, with numaNode=-1 NICs sorted last.
-	// This ensures NUMA-aware NICs are allocated first based on their NUMA node,
-	// while NICs without NUMA affinity are allocated last.
-	sort.SliceStable(nics, func(i, j int) bool {
-		if nics[i].NumaNode == -1 {
-			return false
-		}
-		if nics[j].NumaNode == -1 {
-			return true
-		}
-		return nics[i].NumaNode < nics[j].NumaNode
-	})
-
-	// Assign sockets to each NIC
-	for _, nic := range nics {
-		var assignedSockets []int
-		socketBind, ok := cpuTopology.NUMANodeIDToSocketID[nic.NumaNode]
-		if !ok {
+		} else {
 			socketBind = -1
 		}
+
+		return socketBind
+	}
+
+	// Partition NICs into two distinct groups, one group contains NICs with known NUMA node is
+	// placed in the front, the other group contains NICs without known NUMA node is placed in the back,
+	// then sort each group individually by ifindex.
+	// This ensures sockets allocation for NICs with known NUMA node takes precedence over
+	// those without known numa node.
+	sort.SliceStable(nics, func(i, j int) bool {
+		iNicSocketBind := getSocketBind(nics[i].NumaNode)
+		jNicSocketBind := getSocketBind(nics[j].NumaNode)
+
+		if iNicSocketBind == jNicSocketBind {
+			return nics[i].IfIndex < nics[j].IfIndex
+		}
+
+		if iNicSocketBind == -1 {
+			return false
+		}
+
+		if jNicSocketBind == -1 {
+			return true
+		}
+
+		return nics[i].IfIndex < nics[j].IfIndex
+	})
+
+	// Calculate the maximum ideal NICs per socket (rounded up division)
+	idealMax := (len(nics) + len(sockets) - 1) / len(sockets)
+	// Function to select socket with least nics, preferring lower-numbered sockets in case of ties
+	selectSocketWithLeastNics := func() int {
+		targetSocket, targetSocketNicsCount := -1, -1
+		// sockets has been sorted
+		for _, socket := range sockets {
+			if targetSocket == -1 || len(socket2IfIndexes[socket]) < targetSocketNicsCount {
+				targetSocket, targetSocketNicsCount = socket, len(socket2IfIndexes[socket])
+			}
+		}
+		return targetSocket
+	}
+
+	// Assign sockets to each NIC, and make sure no socket assigned nics number more than idealMax
+	for _, nic := range nics {
+		var assignedSockets []int
+		socketBind := getSocketBind(nic.NumaNode)
+
 		if len(nics) == 1 {
 			// If there is only one NIC, assign all available sockets to it
 			assignedSockets = append(assignedSockets, sockets...)
-		} else if socketBind != -1 && socketUsage[socketBind] < idealMax {
+		} else if socketBind != -1 && len(socket2IfIndexes[socketBind]) < idealMax {
 			// If NIC has a valid socket bind and the socket isn't overloaded, use it
 			assignedSockets = []int{socketBind}
 		} else {
 			// Otherwise, assign the least-used socket
-			least := getLeastUsedSocket()
+			least := selectSocketWithLeastNics()
 			assignedSockets = []int{least}
 		}
 		// Store NIC to socket assignment
@@ -758,9 +781,53 @@ func GetInterfaceSocketInfo(nics []InterfaceInfo, cpuTopology *CPUTopology) (*Al
 		for _, socket := range assignedSockets {
 			// Store socket to NIC mapping and update usage count
 			socket2IfIndexes[socket] = append(socket2IfIndexes[socket], nic.IfIndex)
-			socketUsage[socket]++
 		}
 	}
+
+	// Calculate the mininum ideal NICs per socket (rounded down division)
+	idealMin := len(nics) / len(sockets)
+
+	// Function to select socket with most nics, preferring lower-numbered sockets in case of ties
+	selectSocketWithMostNics := func() int {
+		targetSocket, targetSocketNicsCount := -1, -1
+		// sockets has been sorted
+		for _, socket := range sockets {
+			if targetSocket == -1 || len(socket2IfIndexes[socket]) > targetSocketNicsCount {
+				targetSocket, targetSocketNicsCount = socket, len(socket2IfIndexes[socket])
+			}
+		}
+		return targetSocket
+	}
+
+	for _, socket := range sockets {
+		if len(socket2IfIndexes[socket]) < idealMin {
+			if idealMin-len(socket2IfIndexes[socket]) >= len(sockets) {
+				klog.Errorf("it's impossible that socket %d has %d nics, round down socket nics count is %d, diff is greater-than socket count %d",
+					socket, len(socket2IfIndexes[socket]), idealMin, len(sockets))
+			}
+
+			targetSocket := selectSocketWithMostNics()
+
+			targetSocketNicsCount := len(socket2IfIndexes[targetSocket])
+			if targetSocketNicsCount <= 1 {
+				klog.Errorf("it's impossible that target socket %d has %d nics, less-equal 1", socket, targetSocketNicsCount)
+				continue
+			}
+
+			if targetSocketNicsCount-len(socket2IfIndexes[socket]) < 2 {
+				klog.Errorf("it's impossible that target socket %d with %d nics, socket %d with %d nics, diff less than 2",
+					targetSocket, targetSocketNicsCount, socket, len(socket2IfIndexes[socket]))
+				continue
+			}
+
+			targetIfIndex := socket2IfIndexes[targetSocket][targetSocketNicsCount-1]
+
+			ifIndex2Sockets[targetIfIndex] = []int{socket}
+			socket2IfIndexes[targetSocket] = socket2IfIndexes[targetSocket][:targetSocketNicsCount-1]
+			socket2IfIndexes[socket] = append(socket2IfIndexes[socket], targetIfIndex)
+		}
+	}
+
 	return &AllocatableInterfaceSocketInfo{
 		IfIndex2Sockets:  ifIndex2Sockets,
 		Socket2IfIndexes: socket2IfIndexes,

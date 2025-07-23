@@ -60,6 +60,8 @@ const (
 	netEnable           = 1
 )
 
+const UnknownNumaNode = -1
+
 // GetExtraNetworkInfo collects network interface information from /sys/class/net and net.Interfaces.
 // When multiple network namespaces are enabled, it executes in each namespace to gather NIC information.
 // Returns ExtraNetworkInfo containing all discovered network interfaces and their attributes.

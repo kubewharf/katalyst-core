@@ -776,7 +776,7 @@ func TestGetInterfaceSocketInfo(t *testing.T) {
 			nics: []InterfaceInfo{{IfIndex: 1, NumaNode: 0}},
 			cpuTopology: &CPUTopology{
 				NumSockets:           2,
-				CPUDetails:           CPUDetails{0: CPUInfo{NUMANodeID: 0, SocketID: 1}},
+				CPUDetails:           CPUDetails{0: CPUTopoInfo{NUMANodeID: 0, SocketID: 1}},
 				NUMANodeIDToSocketID: map[int]int{0: 1},
 			},
 			expectErr: false,
@@ -789,7 +789,7 @@ func TestGetInterfaceSocketInfo(t *testing.T) {
 			},
 			cpuTopology: &CPUTopology{
 				NumSockets:           2,
-				CPUDetails:           CPUDetails{0: CPUInfo{NUMANodeID: 0, SocketID: 0}, 1: CPUInfo{NUMANodeID: 1, SocketID: 1}},
+				CPUDetails:           CPUDetails{0: CPUTopoInfo{NUMANodeID: 0, SocketID: 0}, 1: CPUTopoInfo{NUMANodeID: 1, SocketID: 1}},
 				NUMANodeIDToSocketID: map[int]int{0: 0, 1: 1},
 			},
 			expectErr: false,
@@ -800,7 +800,7 @@ func TestGetInterfaceSocketInfo(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			result, err := GetInterfaceSocketInfo(tc.nics, tc.cpuTopology)
+			result, err := GetInterfaceSocketInfo(tc.nics, tc.cpuTopology.CPUDetails.Sockets().ToSliceInt())
 			if tc.expectErr {
 				assert.Error(t, err)
 			} else {
