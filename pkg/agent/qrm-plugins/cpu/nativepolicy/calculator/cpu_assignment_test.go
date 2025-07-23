@@ -30,7 +30,7 @@ var (
 		NumCPUs:    8,
 		NumSockets: 1,
 		NumCores:   4,
-		CPUDetails: map[int]machine.CPUInfo{
+		CPUDetails: map[int]machine.CPUTopoInfo{
 			0: {CoreID: 0, SocketID: 0, NUMANodeID: 0},
 			1: {CoreID: 1, SocketID: 0, NUMANodeID: 0},
 			2: {CoreID: 2, SocketID: 0, NUMANodeID: 0},
@@ -46,7 +46,7 @@ var (
 		NumCPUs:    12,
 		NumSockets: 2,
 		NumCores:   6,
-		CPUDetails: map[int]machine.CPUInfo{
+		CPUDetails: map[int]machine.CPUTopoInfo{
 			0:  {CoreID: 0, SocketID: 0, NUMANodeID: 0},
 			1:  {CoreID: 1, SocketID: 1, NUMANodeID: 1},
 			2:  {CoreID: 2, SocketID: 0, NUMANodeID: 0},
@@ -67,7 +67,7 @@ var (
 		NumCPUs:    18,
 		NumSockets: 3,
 		NumCores:   9,
-		CPUDetails: map[int]machine.CPUInfo{
+		CPUDetails: map[int]machine.CPUTopoInfo{
 			0:  {CoreID: 0, SocketID: 1, NUMANodeID: 1},
 			1:  {CoreID: 0, SocketID: 1, NUMANodeID: 1},
 			2:  {CoreID: 1, SocketID: 1, NUMANodeID: 1},
@@ -107,7 +107,7 @@ var (
 		NumSockets:   2,
 		NumCores:     40,
 		NumNUMANodes: 4,
-		CPUDetails: map[int]machine.CPUInfo{
+		CPUDetails: map[int]machine.CPUTopoInfo{
 			0:  {CoreID: 0, SocketID: 0, NUMANodeID: 0},
 			1:  {CoreID: 1, SocketID: 0, NUMANodeID: 0},
 			2:  {CoreID: 2, SocketID: 0, NUMANodeID: 0},
@@ -202,7 +202,7 @@ var (
 		NumSockets:   4,
 		NumCores:     40,
 		NumNUMANodes: 2,
-		CPUDetails: map[int]machine.CPUInfo{
+		CPUDetails: map[int]machine.CPUTopoInfo{
 			0:  {CoreID: 0, SocketID: 0, NUMANodeID: 0},
 			1:  {CoreID: 1, SocketID: 0, NUMANodeID: 0},
 			2:  {CoreID: 2, SocketID: 0, NUMANodeID: 0},
@@ -308,7 +308,7 @@ var (
 		NumSockets:   2,
 		NumCores:     128,
 		NumNUMANodes: 8,
-		CPUDetails: map[int]machine.CPUInfo{
+		CPUDetails: map[int]machine.CPUTopoInfo{
 			0:   {CoreID: 0, SocketID: 0, NUMANodeID: 0},
 			1:   {CoreID: 1, SocketID: 0, NUMANodeID: 0},
 			2:   {CoreID: 2, SocketID: 0, NUMANodeID: 0},
