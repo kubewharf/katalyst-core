@@ -5617,6 +5617,7 @@ func TestStart(t *testing.T) {
 	as.Nil(err)
 
 	err = dynamicPolicy.Start()
+	defer dynamicPolicy.Stop()
 	as.Nil(err)
 }
 

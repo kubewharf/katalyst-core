@@ -21,8 +21,9 @@ import (
 	context "context"
 	"testing"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	grpc "google.golang.org/grpc"
+
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 )
 
 func TestCPUPB(t *testing.T) {

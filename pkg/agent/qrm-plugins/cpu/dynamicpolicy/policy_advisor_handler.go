@@ -114,12 +114,16 @@ func (p *DynamicPolicy) serveForAdvisor(stopCh <-chan struct{}) {
 		_ = conn.Close()
 	}
 
-	select {
-	case <-exitCh:
-		return
-	case <-stopCh:
-		grpcServer.Stop()
-		return
+	for {
+		select {
+		case <-exitCh:
+			return
+		case <-stopCh:
+			grpcServer.Stop()
+			return
+		case <-time.After(time.Second):
+			general.Infof("can not exit after 30s")
+		}
 	}
 }
 
