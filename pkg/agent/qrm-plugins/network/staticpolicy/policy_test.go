@@ -79,7 +79,7 @@ const (
 
 	testEth0Name               = "eth0"
 	testEth0AffinitiveNUMANode = 0
-	testEth0NSAbsolutePath     = ""
+	testEth0NSAbsolutePath     = "/var/run/netns"
 	testEth0NSName             = ""
 
 	testEth1Name               = "eth1"
@@ -87,7 +87,7 @@ const (
 
 	testEth2Name               = "eth2"
 	testEth2AffinitiveNUMANode = 2
-	testEth2NSAbsolutePath     = "/var/run/ns2"
+	testEth2NSAbsolutePath     = "/var/run/netns"
 	testEth2NSName             = "ns2"
 )
 
@@ -149,7 +149,7 @@ func makeStaticPolicy(t *testing.T, hasNic bool) *StaticPolicy {
 
 	allocatableInterfaceSocketInfo, err := machine.GetInterfaceSocketInfo(
 		agentCtx.KatalystMachineInfo.ExtraNetworkInfo.GetAllocatableNICs(conf.MachineInfoConfiguration),
-		agentCtx.KatalystMachineInfo.CPUTopology,
+		agentCtx.KatalystMachineInfo.CPUTopology.CPUDetails.Sockets().ToSliceInt(),
 	)
 	assert.NoError(t, err)
 
@@ -218,7 +218,7 @@ func makeNICs(hasNics bool) []machine.InterfaceInfo {
 	if hasNics {
 		return []machine.InterfaceInfo{
 			{
-				Iface:    testEth0Name,
+				Name:     testEth0Name,
 				IfIndex:  0,
 				Speed:    25000,
 				NumaNode: testEth0AffinitiveNUMANode,
@@ -226,11 +226,13 @@ func makeNICs(hasNics bool) []machine.InterfaceInfo {
 				Addr: &machine.IfaceAddr{
 					IPV4: []*net.IP{&v4},
 				},
-				NSAbsolutePath: testEth0NSAbsolutePath,
-				NSName:         testEth0NSName,
+				NetNSInfo: machine.NetNSInfo{
+					NSAbsDir: testEth0NSAbsolutePath,
+					NSName:   testEth0NSName,
+				},
 			},
 			{
-				Iface:    testEth1Name,
+				Name:     testEth1Name,
 				IfIndex:  1,
 				Speed:    25000,
 				NumaNode: testEth1AffinitiveNUMANode,
@@ -238,7 +240,7 @@ func makeNICs(hasNics bool) []machine.InterfaceInfo {
 				Addr:     &machine.IfaceAddr{},
 			},
 			{
-				Iface:    testEth2Name,
+				Name:     testEth2Name,
 				IfIndex:  2,
 				Speed:    25000,
 				NumaNode: testEth2AffinitiveNUMANode,
@@ -246,14 +248,16 @@ func makeNICs(hasNics bool) []machine.InterfaceInfo {
 				Addr: &machine.IfaceAddr{
 					IPV6: []*net.IP{&v6},
 				},
-				NSAbsolutePath: testEth2NSAbsolutePath,
-				NSName:         testEth2NSName,
+				NetNSInfo: machine.NetNSInfo{
+					NSAbsDir: testEth2NSAbsolutePath,
+					NSName:   testEth2NSName,
+				},
 			},
 		}
 	} else {
 		return []machine.InterfaceInfo{
 			{
-				Iface:    testEth0Name,
+				Name:     testEth0Name,
 				IfIndex:  0,
 				Speed:    25000,
 				NumaNode: testEth0AffinitiveNUMANode,
@@ -261,11 +265,13 @@ func makeNICs(hasNics bool) []machine.InterfaceInfo {
 				Addr: &machine.IfaceAddr{
 					IPV4: []*net.IP{&v4},
 				},
-				NSAbsolutePath: testEth0NSAbsolutePath,
-				NSName:         testEth0NSName,
+				NetNSInfo: machine.NetNSInfo{
+					NSAbsDir: testEth0NSAbsolutePath,
+					NSName:   testEth0NSName,
+				},
 			},
 			{
-				Iface:    testEth1Name,
+				Name:     testEth1Name,
 				IfIndex:  1,
 				Speed:    25000,
 				NumaNode: testEth1AffinitiveNUMANode,
@@ -273,7 +279,7 @@ func makeNICs(hasNics bool) []machine.InterfaceInfo {
 				Addr:     &machine.IfaceAddr{},
 			},
 			{
-				Iface:    testEth2Name,
+				Name:     testEth2Name,
 				IfIndex:  2,
 				Speed:    25000,
 				NumaNode: testEth2AffinitiveNUMANode,
@@ -281,8 +287,10 @@ func makeNICs(hasNics bool) []machine.InterfaceInfo {
 				Addr: &machine.IfaceAddr{
 					IPV6: []*net.IP{&v6},
 				},
-				NSAbsolutePath: testEth2NSAbsolutePath,
-				NSName:         testEth2NSName,
+				NetNSInfo: machine.NetNSInfo{
+					NSAbsDir: testEth2NSAbsolutePath,
+					NSName:   testEth2NSName,
+				},
 			},
 		}
 	}

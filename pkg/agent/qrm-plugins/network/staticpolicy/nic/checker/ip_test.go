@@ -100,7 +100,7 @@ func TestIPChecker_CheckHealth(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		info := machine.InterfaceInfo{Iface: tt.iface}
+		info := machine.InterfaceInfo{Name: tt.iface}
 		result, err := checker.CheckHealth(info)
 
 		assert.Equal(t, tt.expected, result)
