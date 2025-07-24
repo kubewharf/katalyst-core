@@ -13,7 +13,10 @@ var (
 
 type SysFSManager interface {
 	GetSystemCPUs() ([]sysfs.CPU, error)
-	GetCPUTopology(string string) (*sysfs.CPUTopology, error)
+	GetCPUTopology(cpuID string) (*sysfs.CPUTopology, error)
+	GetNicRxQueueRPS(sysPath, nic string, queue int) (string, error)
+
+	SetNicRxQueueRPS(sysPath, nic string, queue int, rpsConf string) error
 }
 
 func GetSysFsManager() SysFSManager {
