@@ -41,6 +41,16 @@ func NewCPUSet(cpus ...int) CPUSet {
 	return cs
 }
 
+func NewCPUSetInt64(cpus ...int64) (CPUSet, error) {
+	cs := CPUSet{true, make(map[int]struct{})}
+	err := cs.AddInt64(cpus...)
+	if err != nil {
+		return cs, err
+	}
+
+	return cs, nil
+}
+
 func NewCPUSetUint64(cpus ...uint64) (CPUSet, error) {
 	cs := CPUSet{true, make(map[int]struct{})}
 	err := cs.AddUint64(cpus...)
@@ -92,6 +102,21 @@ func (s CPUSet) Add(elems ...int) {
 	for _, elem := range elems {
 		s.elems[elem] = struct{}{}
 	}
+}
+
+// AddInt64 adds the supplied int64 elements to the result.
+func (s CPUSet) AddInt64(elems ...int64) error {
+	for _, elem := range elems {
+		elemInt := int(elem)
+
+		if elemInt < 0 || int64(elemInt) != elem {
+			return fmt.Errorf("parse elem: %d to int failed", elem)
+		}
+
+		s.Add(elemInt)
+	}
+
+	return nil
 }
 
 // AddUint64 adds the supplied uint64 elements to the result.

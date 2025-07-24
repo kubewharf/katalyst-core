@@ -41,6 +41,13 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	procm "github.com/kubewharf/katalyst-core/pkg/util/procfs/manager"
+	sysm "github.com/kubewharf/katalyst-core/pkg/util/sysfs/manager"
+)
+
+const (
+	sysFSDirNormal   = "/sys"
+	sysFSDirNetNSTmp = "/tmp/net_ns_sysfs"
 )
 
 const (
@@ -330,17 +337,15 @@ func SetIrqAffinityCPUs(irq int, cpus []int64) error {
 		return fmt.Errorf("empty cpus")
 	}
 
-	irqProcDir := fmt.Sprintf("%s/%d", IrqRootPath, irq)
-	if _, err := os.Stat(irqProcDir); err != nil && os.IsNotExist(err) {
-		return fmt.Errorf("%d is not exist", irq)
+	cpusets, err := NewCPUSetInt64(cpus...)
+	if err != nil {
+		return fmt.Errorf("failed to new cpu set int64(%v): %v", cpus, err)
 	}
 
-	smpAffinityListPath := path.Join(irqProcDir, "smp_affinity_list")
-	cpuListStr := general.ConvertLinuxListToString(cpus)
-
-	if err := os.WriteFile(smpAffinityListPath, []byte(cpuListStr), 0644); err != nil {
-		return fmt.Errorf("failed to write %s to %s, err %v", cpuListStr, smpAffinityListPath, err)
+	if err = procm.ApplyProcInterrupts(irq, cpusets.String()); err != nil {
+		return fmt.Errorf("failed to apply proc interrupts, err %v", err)
 	}
+
 	return nil
 }
 
@@ -353,16 +358,16 @@ func SetIrqAffinity(irq int, cpu int64) error {
 		return fmt.Errorf("invalid cpu: %d", cpu)
 	}
 
-	irqProcDir := fmt.Sprintf("%s/%d", IrqRootPath, irq)
-	if _, err := os.Stat(irqProcDir); err != nil && os.IsNotExist(err) {
-		return fmt.Errorf("%d is not exist", irq)
+	cs := CPUSet{true, make(map[int]struct{})}
+	err := cs.AddInt64(cpu)
+	if err != nil {
+		return fmt.Errorf("failed to add cpu: %d to cpuset, err %v", cpu, err)
 	}
 
-	smpAffinityListPath := path.Join(irqProcDir, "smp_affinity_list")
-
-	if err := os.WriteFile(smpAffinityListPath, []byte(strconv.Itoa(int(cpu))), 0644); err != nil {
-		return fmt.Errorf("failed to write %d to %s, err %v", cpu, smpAffinityListPath, err)
+	if err = procm.ApplyProcInterrupts(irq, cs.String()); err != nil {
+		return fmt.Errorf("failed to apply proc interrupts, err %v", err)
 	}
+
 	return nil
 }
 
@@ -395,15 +400,8 @@ func setNicRxQueueRPS(nic *NicBasicInfo, queue int, rpsConf string) error {
 	}
 	defer nsc.netnsExit()
 
-	nicSysDir := filepath.Join(nsc.sysMountDir, ClassNetBasePath, nic.Name)
-
-	queueRPSPath := fmt.Sprintf("%s/queues/rx-%d/rps_cpus", nicSysDir, queue)
-	if _, err := os.Stat(queueRPSPath); err != nil && os.IsNotExist(err) {
-		return fmt.Errorf("%s is not exist", queueRPSPath)
-	}
-
-	if err := os.WriteFile(queueRPSPath, []byte(rpsConf), 0644); err != nil {
-		return fmt.Errorf("failed to write %s to %s, err %v", rpsConf, queueRPSPath, err)
+	if err = sysm.SetNicRxQueueRPS(nsc.sysMountDir, nic.Name, queue, rpsConf); err != nil {
+		return fmt.Errorf("failed to set nic %s rx queue %d rps to %v, sys mount dir: %v, err %v", nic.Name, queue, rpsConf, nsc.sysMountDir, err)
 	}
 
 	return nil
@@ -481,20 +479,6 @@ func ComparesHexBitmapStrings(a string, b string) bool {
 	return true
 }
 
-func getNicRxQueueRpsConf(nicSysDir string, queue int) (string, error) {
-	queueRPSPath := fmt.Sprintf("%s/queues/rx-%d/rps_cpus", nicSysDir, queue)
-	if _, err := os.Stat(queueRPSPath); err != nil && os.IsNotExist(err) {
-		return "", fmt.Errorf("%s is not exist in nic %s", queueRPSPath, nicSysDir)
-	}
-
-	b, err := os.ReadFile(queueRPSPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to ReadFile(%s), err %s", queueRPSPath, err)
-	}
-
-	return strings.TrimRight(string(b), "\n"), nil
-}
-
 func GetNicRxQueueRpsConf(nic *NicBasicInfo, queue int) (string, error) {
 	nsc, err := netnsEnter(nic.NetNSInfo)
 	if err != nil {
@@ -502,8 +486,7 @@ func GetNicRxQueueRpsConf(nic *NicBasicInfo, queue int) (string, error) {
 	}
 	defer nsc.netnsExit()
 
-	nicSysDir := filepath.Join(nsc.sysMountDir, ClassNetBasePath, nic.Name)
-	return getNicRxQueueRpsConf(nicSysDir, queue)
+	return sysm.GetNicRxQueueRPS(nsc.sysMountDir, nic.Name, queue)
 }
 
 func GetNicRxQueuesRpsConf(nic *NicBasicInfo) (map[int]string, error) {
@@ -517,11 +500,9 @@ func GetNicRxQueuesRpsConf(nic *NicBasicInfo) (map[int]string, error) {
 	}
 	defer nsc.netnsExit()
 
-	nicSysDir := filepath.Join(nsc.sysMountDir, ClassNetBasePath, nic.Name)
-
 	rxQueuesRpsConf := make(map[int]string)
 	for i := 0; i < nic.QueueNum; i++ {
-		conf, err := getNicRxQueueRpsConf(nicSysDir, i)
+		conf, err := sysm.GetNicRxQueueRPS(nsc.sysMountDir, nic.Name, i)
 		if err != nil {
 			return nil, err
 		}
@@ -1359,7 +1340,6 @@ func GetNetDevRxPackets(nic *NicBasicInfo) (uint64, error) {
 		rxPacket, err := general.ReadUint64FromFile(sysRxPacketsFile)
 		if err == nil {
 			return rxPacket, nil
-
 		}
 		klog.Errorf("failed to ReadUint64FromFile(%s), err %v", sysRxPacketsFile, err)
 	} else {
@@ -1367,35 +1347,16 @@ func GetNetDevRxPackets(nic *NicBasicInfo) (uint64, error) {
 	}
 
 	// read rx packets from /proc/net/dev
-	lines, err := general.ReadLines(NetDevProcFile)
+	netDevs, err := procm.GetNetDev()
 	if err != nil {
-		return 0, fmt.Errorf("failed to ReadLines(%s), err %v", NetDevProcFile, err)
+		return 0, fmt.Errorf("failed to GetNetDev(%s), err %v", nic.NSName, err)
+	}
+	rxPacket, ok := netDevs[nic.Name]
+	if !ok {
+		return 0, fmt.Errorf("failed to find %s in %s", nic.Name, NetDevProcFile)
 	}
 
-	if len(lines) < 3 {
-		return 0, fmt.Errorf("%s lines count %d, less than 3", NetDevProcFile, len(lines))
-	}
-
-	nicNameFilter := fmt.Sprintf("%s:", nic.Name)
-
-	for _, line := range lines {
-		cols := strings.Fields(line)
-		if len(cols) < 3 {
-			continue
-		}
-
-		if cols[0] != nicNameFilter {
-			continue
-		}
-
-		rxPackets, err := strconv.ParseUint(cols[2], 10, 64)
-		if err != nil {
-			return 0, fmt.Errorf("failed to ParseUint, err: %v", err)
-		}
-		return rxPackets, nil
-	}
-
-	return 0, fmt.Errorf("failed to find %s in %s", nic.Name, NetDevProcFile)
+	return rxPacket.RxPackets, nil
 }
 
 func GetNicRxQueuePackets(nic *NicBasicInfo) (map[int]uint64, error) {
@@ -1575,7 +1536,9 @@ func (n *NicBasicInfo) Equal(other *NicBasicInfo) bool {
 }
 
 func CollectSoftNetStats(onlineCpus map[int64]bool) (map[int64]*SoftNetStat, error) {
-	lines, err := general.ReadLines(SoftnetStatFile)
+	softnetStats := make(map[int64]*SoftNetStat)
+
+	stats, err := procm.GetNetSoftnetStat()
 	if err != nil {
 		return nil, err
 	}
@@ -1587,24 +1550,10 @@ func CollectSoftNetStats(onlineCpus map[int64]bool) (map[int64]*SoftNetStat, err
 		}
 	}
 
-	softnetStats := make(map[int64]*SoftNetStat)
-
 	cpu := int64(0)
-	for _, line := range lines {
-		cols := strings.Fields(line)
-		if len(cols) < 3 {
-			continue
-		}
-
-		processed, err := strconv.ParseUint(cols[0], 16, 64)
-		if err != nil {
-			return nil, err
-		}
-
-		timeSqueeze, err := strconv.ParseUint(cols[2], 16, 64)
-		if err != nil {
-			return nil, err
-		}
+	for _, stat := range stats {
+		processed := stat.Processed
+		timeSqueeze := stat.TimeSqueezed
 
 		matchedCpu := int64(-1)
 		for ; cpu <= onlineCpuIDMax; cpu++ {
@@ -1621,8 +1570,8 @@ func CollectSoftNetStats(onlineCpus map[int64]bool) (map[int64]*SoftNetStat, err
 		}
 
 		softnetStats[matchedCpu] = &SoftNetStat{
-			ProcessedPackets:   processed,
-			TimeSqueezePackets: timeSqueeze,
+			ProcessedPackets:   uint64(processed),
+			TimeSqueezePackets: uint64(timeSqueeze),
 		}
 	}
 
@@ -1630,37 +1579,19 @@ func CollectSoftNetStats(onlineCpus map[int64]bool) (map[int64]*SoftNetStat, err
 }
 
 func CollectNetRxSoftirqStats() (map[int64]uint64, error) {
-	lines, err := general.ReadLines(SoftIrqsFile)
+	cpuSoftirqCount := make(map[int64]uint64)
+
+	softirqs, err := procm.GetSoftirqs()
 	if err != nil {
 		return nil, err
 	}
 
-	var cpuSoftirqsStr []string
-	for _, line := range lines {
-		cols := strings.Fields(line)
-
-		if len(cols) == 0 {
-			continue
-		}
-
-		if cols[0] == "NET_RX:" {
-			cpuSoftirqsStr = cols[1:]
-			break
-		}
-	}
-
-	if len(cpuSoftirqsStr) == 0 {
+	if len(softirqs.NetRx) == 0 {
 		return nil, fmt.Errorf("failed to find NET_RX softirq stats in %s", SoftIrqsFile)
 	}
 
-	cpuSoftirqCount := make(map[int64]uint64)
-	for cpu, softirqStr := range cpuSoftirqsStr {
-		softirqCount, err := strconv.ParseUint(softirqStr, 10, 64)
-		if err != nil {
-			klog.Errorf("failed to ParseUint, err %s", err)
-			continue
-		}
-		cpuSoftirqCount[int64(cpu)] = softirqCount
+	for cpu, softirq := range softirqs.NetRx {
+		cpuSoftirqCount[int64(cpu)] = softirq
 	}
 
 	return cpuSoftirqCount, nil
