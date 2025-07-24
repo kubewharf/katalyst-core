@@ -511,10 +511,8 @@ func (p *topologyAdapterImpl) getZoneResources(allocatableResources *podresv1.Al
 
 	resources := make(map[util.ZoneNode]nodev1alpha1.Resources)
 	for zone, capacity := range zoneCapacity {
-		if zone.Meta.Type != nodev1alpha1.TopologyTypeCacheGroup {
-			if _, ok := zoneAllocatable[zone]; !ok {
-				return nil, fmt.Errorf("zone %v capacity found but allocatable is not found", zone)
-			}
+		if _, ok := zoneAllocatable[zone]; !ok {
+			return nil, fmt.Errorf("zone %v capacity found but allocatable is not found", zone)
 		}
 
 		resources[zone] = nodev1alpha1.Resources{
