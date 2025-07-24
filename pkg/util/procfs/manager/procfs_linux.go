@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 
@@ -31,6 +32,11 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/procfs/common"
+)
+
+const (
+	IrqRootPath    = "/proc/irq"
+	InterruptsFile = "/proc/interrupts"
 )
 
 type manager struct {
@@ -129,6 +135,11 @@ func (m *manager) GetNetStat() ([]procfs.NetStat, error) {
 	return m.procfs.NetStat()
 }
 
+// GetNetSoftnetStat returns the net softnet stat stats of the host.
+func (m *manager) GetNetSoftnetStat() ([]procfs.SoftnetStat, error) {
+	return m.procfs.NetSoftnetStat()
+}
+
 // GetNetTCP returns the net tcp stats of the host.
 func (m *manager) GetNetTCP() (procfs.NetTCP, error) {
 	return m.procfs.NetTCP()
@@ -156,12 +167,23 @@ func (m *manager) GetSoftirqs() (procfs.Softirqs, error) {
 
 // GetProcInterrupts returns the proc interrupts stats of the host.
 func (m *manager) GetProcInterrupts() (procfs.Interrupts, error) {
-	data, err := ReadFileNoStat("/proc/interrupts")
+	data, err := ReadFileNoStat(InterruptsFile)
 	if err != nil {
 		general.Errorf("[Porcfs] get /proc/interrupts failed, err: %v", err)
 		return nil, err
 	}
 	return parseInterrupts(bytes.NewReader(data))
+}
+
+// GetPorcInterruptAffinityCPUs returns the proc interrupts affinity cpus of the given irq number.
+func (m *manager) GetPorcInterruptAffinityCPUs(irq int) (string, error) {
+	irqProcDir := fmt.Sprintf("%s/%d", IrqRootPath, irq)
+	if _, err := os.Stat(irqProcDir); err != nil && os.IsNotExist(err) {
+		return "", fmt.Errorf("%d is not exist", irq)
+	}
+
+	smpAffinityListPath := path.Join(irqProcDir, "smp_affinity_list")
+	return smpAffinityListPath, nil
 }
 
 // GetPSIStatsForResource returns the psi stats of the given resource.

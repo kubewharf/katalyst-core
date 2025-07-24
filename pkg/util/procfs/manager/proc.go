@@ -72,6 +72,11 @@ func GetNetStat() ([]procfs.NetStat, error) {
 	return GetProcFSManager().GetNetStat()
 }
 
+// GetNetSoftnetStat returns the net softnet stat of the host.
+func GetNetSoftnetStat() ([]procfs.SoftnetStat, error) {
+	return GetProcFSManager().GetNetSoftnetStat()
+}
+
 // GetNetTCP returns the net TCP of the host.
 func GetNetTCP() (procfs.NetTCP, error) {
 	return GetProcFSManager().GetNetTCP()
@@ -100,6 +105,11 @@ func GetSoftirqs() (procfs.Softirqs, error) {
 // GetProcInterrupts returns the proc interrupts of the host.
 func GetProcInterrupts() (procfs.Interrupts, error) {
 	return GetProcFSManager().GetProcInterrupts()
+}
+
+// GetPorcInterruptAffinityCPUs returns the proc interrupts affinity cpus of the host.
+func GetPorcInterruptAffinityCPUs(irq int) (string, error) {
+	return GetProcFSManager().GetPorcInterruptAffinityCPUs(irq)
 }
 
 // GetPSIStatsForResource returns the psi stats for the given resource.

@@ -3,6 +3,8 @@ package manager
 import (
 	"sync"
 
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+
 	"github.com/prometheus/procfs/sysfs"
 )
 
@@ -13,7 +15,10 @@ var (
 
 type SysFSManager interface {
 	GetSystemCPUs() ([]sysfs.CPU, error)
-	GetCPUTopology(string string) (*sysfs.CPUTopology, error)
+	GetCPUTopology(cpuID string) (*sysfs.CPUTopology, error)
+	GetNicRxQueueRPS(nic string, queue int) (string, error)
+
+	SetNicRxQueueRPS(nic string, queue int, destCPUSet machine.CPUSet) error
 }
 
 func GetSysFsManager() SysFSManager {
