@@ -18,8 +18,6 @@ package manager
 
 import (
 	"github.com/prometheus/procfs"
-
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 // GetCPUInfo returns the CPUInfo of the host.
@@ -72,6 +70,11 @@ func GetNetStat() ([]procfs.NetStat, error) {
 	return GetProcFSManager().GetNetStat()
 }
 
+// GetNetSoftnetStat returns the net softnet stat of the host.
+func GetNetSoftnetStat() ([]procfs.SoftnetStat, error) {
+	return GetProcFSManager().GetNetSoftnetStat()
+}
+
 // GetNetTCP returns the net TCP of the host.
 func GetNetTCP() (procfs.NetTCP, error) {
 	return GetProcFSManager().GetNetTCP()
@@ -113,6 +116,6 @@ func GetSchedStat() (*procfs.Schedstat, error) {
 }
 
 // ApplyProcInterrupts applies the given cpuset to the given irq number.
-func ApplyProcInterrupts(irqNumber int, cpuset machine.CPUSet) error {
+func ApplyProcInterrupts(irqNumber int, cpuset string) error {
 	return GetProcFSManager().ApplyProcInterrupts(irqNumber, cpuset)
 }

@@ -251,7 +251,7 @@ func parseInterrupts(r io.Reader) (procfs.Interrupts, error) {
 		}
 
 		if len(parts) < cpuNum+2 {
-			general.Warningf("[Procfs]: Unexpected number of fields in interrupts (expected %d but got %d): %v", cpuNum+2, len(parts), parts)
+			general.Warningf("[Procfs]Unexpected number of fields in interrupts (expected %d but got %d): %v", cpuNum+2, len(parts), parts)
 			return nil, fmt.Errorf("unexpected number of fields in interrupts (expected %d but got %d): %v", cpuNum+2, len(parts), parts)
 		}
 
