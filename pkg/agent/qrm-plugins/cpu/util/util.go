@@ -23,6 +23,7 @@ import (
 
 	pkgerrors "github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -57,6 +58,16 @@ func GetCoresReservedForSystem(conf *config.Configuration, metaServer *metaserve
 			return machine.NewCPUSet(), fmt.Errorf("failed to get kubelet config: %v", err)
 		}
 
+		// Parse the reserved cpu list from the kubelet configuration.
+		reservedCPUList, _, _ := utilkubeconfig.GetReservedCPUList(klConfig, string(v1.ResourceCPU))
+		if reservedCPUList != "" {
+			conf.ReservedCPUList = reservedCPUList
+			klog.Infof("get reservedCPUs: %s from kubelet config", reservedCPUList)
+
+			return machine.MustParse(reservedCPUList), nil
+		}
+
+		// If the reserved cpu list conf is not found, the reservation quantity is parsed from the kubelet configuration.
 		reservedQuantity, found, err := utilkubeconfig.GetReservedQuantity(klConfig, string(v1.ResourceCPU))
 		if err != nil {
 			return machine.NewCPUSet(), fmt.Errorf("GetKubeletReservedQuantity failed with error: %v", err)
@@ -67,6 +78,15 @@ func GetCoresReservedForSystem(conf *config.Configuration, metaServer *metaserve
 			general.Infof("get reservedQuantityInt: %d from kubelet config, found: %v", reservedQuantityInt, found)
 		}
 	} else {
+		// Prioritize obtaining the reserved cpu list.
+		reservedCPUList := conf.ReservedCPUList
+		if reservedCPUList != "" {
+			reservedCPUSet := machine.MustParse(reservedCPUList)
+			klog.Infof("get reservedCPUs: %s from ReservedCPUList configuration %s", reservedCPUSet.String(), reservedCPUList)
+
+			return reservedCPUSet, nil
+		}
+
 		reservedQuantityInt = conf.ReservedCPUCores
 		general.Infof("get reservedQuantityInt: %d from ReservedCPUCores configuration", reservedQuantityInt)
 	}
@@ -76,6 +96,7 @@ func GetCoresReservedForSystem(conf *config.Configuration, metaServer *metaserve
 		return reservedCPUs, fmt.Errorf("takeByNUMABalance for reservedCPUsNum: %d failed with error: %v",
 			reservedQuantityInt, reserveErr)
 	}
+	conf.ReservedCPUList = reservedCPUs.String()
 
 	general.Infof("take reservedCPUs: %s by reservedCPUsNum: %d", reservedCPUs.String(), reservedQuantityInt)
 	return reservedCPUs, nil

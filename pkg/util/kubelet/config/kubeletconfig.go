@@ -40,6 +40,34 @@ func CheckFeatureGateEnable(kubeletConfig *native.KubeletConfiguration, features
 	return true, nil
 }
 
+// GetReservedCPUList the list for reserved resources defined in KubeletConfiguration
+func GetReservedCPUList(kubeletConfig *native.KubeletConfiguration, resourceName string) (string, bool, error) {
+	if kubeletConfig == nil {
+		return "", false, fmt.Errorf("nil KubeletConfiguration")
+	}
+
+	var (
+		found        bool
+		reservedList string
+	)
+
+	if kubeReservedStr, ok := kubeletConfig.KubeReserved[resourceName]; ok {
+		found = true
+		reservedList = fmt.Sprintf("%s", kubeReservedStr)
+	}
+	if systemReservedStr, ok := kubeletConfig.SystemReserved[resourceName]; ok {
+		found = true
+
+		if reservedList != "" {
+			reservedList = fmt.Sprintf("%s,%s", reservedList, systemReservedStr)
+		} else {
+			reservedList = fmt.Sprintf("%s", systemReservedStr)
+		}
+	}
+
+	return reservedList, found, nil
+}
+
 // GetReservedQuantity the quantity for reserved resources defined in KubeletConfiguration
 func GetReservedQuantity(kubeletConfig *native.KubeletConfiguration, resourceName string) (resource.Quantity, bool, error) {
 	if kubeletConfig == nil {
