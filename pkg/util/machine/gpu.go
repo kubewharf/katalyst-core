@@ -17,12 +17,16 @@ limitations under the License.
 package machine
 
 import (
+	"fmt"
+	"sync"
+
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 type GPUTopologyProvider interface {
-	GetGPUTopology() (*GPUTopology, error)
+	GetGPUTopology() (*GPUTopology, bool, error)
+	SetGPUTopology(*GPUTopology) error
 }
 
 type GPUTopology struct {
@@ -30,23 +34,67 @@ type GPUTopology struct {
 }
 
 type GPUInfo struct {
-	NUMANode int
+	Health   string
+	NUMANode []int
 }
 
-type kubeletCheckpointGPUTopologyProvider struct {
+func (i GPUInfo) GetNUMANode() []int {
+	if i.NUMANode == nil {
+		return []int{}
+	}
+	return i.NUMANode
+}
+
+type gpuTopologyProviderImpl struct {
+	mutex         sync.RWMutex
 	resourceNames []string
+
+	gpuTopology       *GPUTopology
+	numaTopologyReady bool
 }
 
-func NewKubeletCheckpointGPUTopologyProvider(resourceNames []string) GPUTopologyProvider {
-	return &kubeletCheckpointGPUTopologyProvider{
+func NewGPUTopologyProvider(resourceNames []string) GPUTopologyProvider {
+	gpuTopology, err := initGPUTopology(resourceNames)
+	if err != nil {
+		gpuTopology = getEmptyGPUTopology()
+		general.Warningf("initGPUTopology failed with error: %v", err)
+	} else {
+		general.Infof("initGPUTopology success: %v", gpuTopology)
+	}
+
+	return &gpuTopologyProviderImpl{
 		resourceNames: resourceNames,
+		gpuTopology:   gpuTopology,
 	}
 }
 
-func (p *kubeletCheckpointGPUTopologyProvider) GetGPUTopology() (*GPUTopology, error) {
-	gpuTopology := &GPUTopology{
+func getEmptyGPUTopology() *GPUTopology {
+	return &GPUTopology{
 		GPUs: make(map[string]GPUInfo),
 	}
+}
+
+func (p *gpuTopologyProviderImpl) SetGPUTopology(gpuTopology *GPUTopology) error {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	if gpuTopology == nil {
+		return fmt.Errorf("gpuTopology is nil")
+	}
+
+	p.gpuTopology = gpuTopology
+	p.numaTopologyReady = checkNUMATopologyReady(gpuTopology)
+	return nil
+}
+
+func (p *gpuTopologyProviderImpl) GetGPUTopology() (*GPUTopology, bool, error) {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
+
+	return p.gpuTopology, p.numaTopologyReady, nil
+}
+
+func initGPUTopology(resourceNames []string) (*GPUTopology, error) {
+	gpuTopology := getEmptyGPUTopology()
 
 	kubeletCheckpoint, err := native.GetKubeletCheckpoint()
 	if err != nil {
@@ -55,19 +103,30 @@ func (p *kubeletCheckpointGPUTopologyProvider) GetGPUTopology() (*GPUTopology, e
 	}
 
 	_, registeredDevs := kubeletCheckpoint.GetDataInLatestFormat()
-	for _, resourceName := range p.resourceNames {
+	for _, resourceName := range resourceNames {
 		gpuDevice, ok := registeredDevs[resourceName]
 		if !ok {
 			continue
 		}
 
 		for _, id := range gpuDevice {
-			gpuTopology.GPUs[id] = GPUInfo{
-				// TODO: get NUMA node from Kubelet
-				NUMANode: 0,
-			}
+			// TODO: get NUMA node from
+			gpuTopology.GPUs[id] = GPUInfo{}
 		}
 	}
 
 	return gpuTopology, nil
+}
+
+func checkNUMATopologyReady(topology *GPUTopology) bool {
+	if topology == nil {
+		return false
+	}
+
+	for _, gpu := range topology.GPUs {
+		if gpu.NUMANode == nil {
+			return false
+		}
+	}
+	return true
 }

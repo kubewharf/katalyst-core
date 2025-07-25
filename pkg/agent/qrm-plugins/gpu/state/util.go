@@ -29,7 +29,7 @@ func GenerateMachineState(conf *qrm.QRMPluginsConfiguration, gpuTopologyProvider
 		return nil, fmt.Errorf("gpu topology provider must not be nil")
 	}
 
-	gpuTopology, err := gpuTopologyProvider.GetGPUTopology()
+	gpuTopology, _, err := gpuTopologyProvider.GetGPUTopology()
 	if err != nil {
 		return nil, fmt.Errorf("gpu topology provider failed with error: %v", err)
 	}
@@ -37,7 +37,7 @@ func GenerateMachineState(conf *qrm.QRMPluginsConfiguration, gpuTopologyProvider
 	gpuMap := make(GPUMap)
 	for deviceID := range gpuTopology.GPUs {
 		gpuMap[deviceID] = &GPUState{
-			GPUMemoryAllocatable: uint64(conf.GPUQRMPluginConfig.GPUMemoryAllocatablePerGPU.Value()),
+			GPUMemoryAllocatable: float64(conf.GPUQRMPluginConfig.GPUMemoryAllocatablePerGPU.Value()),
 			GPUMemoryAllocated:   0,
 		}
 	}
@@ -58,7 +58,7 @@ func GenerateMachineStateFromPodEntries(
 	}
 
 	for gpuID, gpuState := range machineState {
-		var gpuMemoryAllocated uint64
+		var gpuMemoryAllocated float64
 		for podUID, containerEntries := range podEntries {
 			for containerName, allocationInfo := range containerEntries {
 				if containerName != "" && allocationInfo != nil {
@@ -78,8 +78,8 @@ func GenerateMachineStateFromPodEntries(
 
 		generalLog := general.LoggerWithPrefix("GenerateMachineStateFromPodEntries", general.LoggingPKGFull)
 		if gpuState.GPUMemoryAllocatable < gpuState.GPUMemoryAllocated {
-			generalLog.Warningf("invalid allocated GPU memory: %d on GPU: %s"+
-				" with allocatable GPU memory size: %d", gpuState.GPUMemoryAllocated, gpuID, gpuState.GPUMemoryAllocatable)
+			generalLog.Warningf("invalid allocated GPU memory: %f on GPU: %s"+
+				" with allocatable GPU memory size: %f", gpuState.GPUMemoryAllocated, gpuID, gpuState.GPUMemoryAllocatable)
 		}
 		machineState[gpuID] = gpuState
 	}
