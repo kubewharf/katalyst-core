@@ -20,7 +20,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders"
 	"github.com/kubewharf/katalyst-core/pkg/config"
-	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
@@ -29,8 +28,8 @@ const NegotiationFeatureGateQuotaCtrlKnob = "feature_gate_quota_ctrl_knob"
 type QuotaCtrlKnob struct{}
 
 func (e *QuotaCtrlKnob) GetFeatureGate(conf *config.Configuration) *advisorsvc.FeatureGate {
-	if conf.EnableControlKnobCPUQuota == false || !common.CheckCgroup2UnifiedMode() {
-		general.Infof("feature_gate_quota_ctrl_knob is not supported: %v, %v", conf.EnableControlKnobCPUQuota, common.CheckCgroup2UnifiedMode())
+	if conf.EnableControlKnobCPUQuota == false {
+		general.Infof("feature_gate_quota_ctrl_knob is not supported: %v", conf.EnableControlKnobCPUQuota)
 		return nil
 	}
 
