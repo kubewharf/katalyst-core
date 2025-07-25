@@ -48,6 +48,7 @@ const (
 // StaticPolicy is the static io policy
 type StaticPolicy struct {
 	sync.Mutex
+	pluginapi.UnimplementedResourcePluginServer
 
 	name      string
 	stopCh    chan struct{}
