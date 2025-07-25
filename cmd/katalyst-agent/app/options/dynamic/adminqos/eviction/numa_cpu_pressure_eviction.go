@@ -30,6 +30,8 @@ type NumaCPUPressureEvictionOptions struct {
 	ThresholdExpandFactor  float64
 	CandidateCount         int
 	SkippedPodKinds        []string
+	EnabledFilters         []string
+	EnabledScorers         []string
 }
 
 func NewNumaCPUPressureEvictionOptions() NumaCPUPressureEvictionOptions {
@@ -41,6 +43,8 @@ func NewNumaCPUPressureEvictionOptions() NumaCPUPressureEvictionOptions {
 		ThresholdExpandFactor:  1.1,
 		CandidateCount:         2,
 		SkippedPodKinds:        []string{},
+		EnabledFilters:         []string{"OverRatioNuma", "OwnerRef"},
+		EnabledScorers:         []string{"Usage", "Priority"},
 	}
 }
 
@@ -61,6 +65,10 @@ func (o *NumaCPUPressureEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"The candidate count when pick victim pods")
 	fs.StringSliceVar(&o.SkippedPodKinds, "numa-cpu-pressure-eviction-skipped-pod-kinds", o.SkippedPodKinds,
 		"The pod kind that will be skipped when selecting pods to be evicted")
+	fs.StringSliceVar(&o.EnabledFilters, "numa-cpu-pressure-eviction-enabled-filters", o.EnabledFilters,
+		"The filters that will be enabled when selecting pods to be evicted")
+	fs.StringSliceVar(&o.EnabledScorers, "numa-cpu-pressure-eviction-enabled-scorers", o.EnabledScorers,
+		"The scorers that will be enabled when selecting pods to be evicted")
 }
 
 func (o *NumaCPUPressureEvictionOptions) ApplyTo(c *eviction.NumaCPUPressureEvictionConfiguration) error {
@@ -71,5 +79,7 @@ func (o *NumaCPUPressureEvictionOptions) ApplyTo(c *eviction.NumaCPUPressureEvic
 	c.ThresholdExpandFactor = o.ThresholdExpandFactor
 	c.CandidateCount = o.CandidateCount
 	c.SkippedPodKinds = o.SkippedPodKinds
+	c.EnabledFilters = o.EnabledFilters
+	c.EnabledScorers = o.EnabledScorers
 	return nil
 }
