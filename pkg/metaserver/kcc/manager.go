@@ -278,7 +278,7 @@ func (c *DynamicConfigManager) writeCheckpoint(kind string, configData reflect.V
 	data, err := c.readCheckpoint()
 	if err != nil {
 		klog.Errorf("load checkpoint from %q failed: %v, try to overwrite it", configManagerCheckpoint, err)
-		_ = c.emitter.StoreInt64(metricsNameLoadCheckpoint, 1, metrics.MetricTypeNameCount, []metrics.MetricTag{
+		_ = c.emitter.StoreInt64(metricsNameLoadCheckpoint, 1, metrics.MetricTypeNameRaw, []metrics.MetricTag{
 			{Key: "status", Val: metricsValueStatusCheckpointNotFoundOrCorrupted},
 			{Key: "kind", Val: kind},
 		}...)
