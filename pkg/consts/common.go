@@ -101,12 +101,39 @@ const (
 )
 
 const (
+	PlatformGeona   = "geona"
+	PlatformMilan   = "milan"
+	PlatformRome    = "rome"
+	PlatformRapids  = "intel_rapids"
+	PlatformLake    = "intel_lake"
+	PlatformUnknown = "unknown"
+)
+
+var CcdCountMap = map[string]int{
+	PlatformGeona:   12,
+	PlatformMilan:   8,
+	PlatformRome:    8,
+	PlatformRapids:  1,
+	PlatformLake:    1,
+	PlatformUnknown: 1,
+}
+
+var SocketBandwidthMap = map[string]uint64{
+	PlatformGeona:  322 * 1e9, // logical.max = 460, real.max = 460 * 70%
+	PlatformMilan:  142 * 1e9, // logical.max = 204, real.max = 204 * 70%
+	PlatformRome:   142 * 1e9, // logical.max = 204, real.max = 204 * 70%
+	PlatformRapids: 215 * 1e9, // logical.max = 307, real.max = 307 * 70%, Intel:SapphireRapids
+	PlatformLake:   98 * 1e9,  // logical.max = 140, real.max = 140 * 70%, intel:SkyLake/CascadeLake/IceLake
+}
+
+const (
 	AMDMilanArch = "Zen3"
 	AMDGenoaArch = "Zen4"
 )
 
 const (
-	BytesPerGB = 1024 * 1024 * 1024
+	BytesPerGB = 1e9
 	MaxMBMDiff = 50 * BytesPerGB
 	MaxMBMStep = 3 * BytesPerGB
+	MaxMBGBps  = 400 * BytesPerGB // 400 GB/s is the maximum bandwidth of L3 cache in Milan, Genoa, and Rapids platforms
 )
