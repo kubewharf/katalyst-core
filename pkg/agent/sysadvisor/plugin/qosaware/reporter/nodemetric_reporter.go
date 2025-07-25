@@ -250,6 +250,7 @@ func (p *nodeMetricsReporterPlugin) ListAndWatchReportContent(_ *v1alpha1.Empty,
 
 func (p *nodeMetricsReporterPlugin) updateNodeMetrics() {
 	general.InfoS("try to update node metrics")
+	p.metricAggregators.gc()
 
 	var errList []error
 	nodeMetricInfo, err := p.getNodeMetricInfo()
