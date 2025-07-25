@@ -31,8 +31,9 @@ import (
 
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction/history"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction/rules"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
@@ -84,10 +85,11 @@ type NumaCPUPressureEviction struct {
 
 	thresholds map[string]float64
 
-	metricsHistory    *NumaMetricHistory
+	metricsHistory    *history.NumaMetricHistory
 	overloadNumaCount int
 
-	enabled bool
+	enabled       bool
+	numaOverStats []rules.NumaOverStat
 }
 
 func NewCPUPressureUsageEviction(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
@@ -101,7 +103,7 @@ func NewCPUPressureUsageEviction(emitter metrics.MetricEmitter, metaServer *meta
 		metaServer:         metaServer,
 		conf:               conf,
 		numaPressureConfig: numaPressureConfig,
-		metricsHistory:     NewMetricHistory(numaPressureConfig.MetricRingSize),
+		metricsHistory:     history.NewMetricHistory(numaPressureConfig.MetricRingSize),
 		syncPeriod:         15 * time.Second,
 	}, nil
 }
@@ -116,8 +118,7 @@ func (p *NumaCPUPressureEviction) Start(ctx context.Context) (err error) {
 
 func (p *NumaCPUPressureEviction) Name() string { return EvictionNameNumaCpuPressure }
 
-// todo may change to GetTopEvictionPods?
-func (p *NumaCPUPressureEviction) GetEvictPods(_ context.Context, request *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
+func (p *NumaCPUPressureEviction) GetCandidatePods(ctx context.Context, request *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
 	if request == nil {
 		return nil, fmt.Errorf("GetTopEvictionPods got nil request")
 	} else if len(request.ActivePods) == 0 {
@@ -137,46 +138,99 @@ func (p *NumaCPUPressureEviction) GetEvictPods(_ context.Context, request *plugi
 		_ = p.emitter.StoreInt64(metricsNameGetEvictPods, 0, metrics.MetricTypeNameRaw)
 		return &pluginapi.GetEvictPodsResponse{}, nil
 	}
+	//1.OverRatioNumaFilter
+	// activePods, _ := p.OverRatioNumaFilter(request.ActivePods, p.numaOverStat)
+	activePods := request.ActivePods
+	//2.filterParams
+	enabledFilters := p.numaPressureConfig.EnabledFilters
+	filterParams := map[string]interface{}{
+		rules.OwnerRefFilterName:      p.numaPressureConfig.SkippedPodKinds, // OwnerRefFilter params
+		rules.OverRatioNumaFilterName: p.numaOverStats,
+	}
+	//3.allFilter
+	filterer, _ := rules.NewFilter(enabledFilters, p.emitter, filterParams)
+	filteredPods := filterer.Filter(activePods)
 
-	activePods := helper.FilterPodsByKind(request.ActivePods, p.numaPressureConfig.SkippedPodKinds)
+	if len(filteredPods) == 0 {
+		general.Warningf("got empty active pods list after filter")
+		return &pluginapi.GetEvictPodsResponse{}, nil
+	}
+	//TODO
+	return nil, nil
+}
 
-	if len(activePods) == 0 {
+// todo may change to GetTopEvictionPods?
+func (p *NumaCPUPressureEviction) GetEvictPods(ctx context.Context, request *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
+
+	if request == nil {
+		return nil, fmt.Errorf("GetTopEvictionPods got nil request")
+	} else if len(request.ActivePods) == 0 {
+		general.Warningf("got empty active pods list")
+		return &pluginapi.GetEvictPodsResponse{}, nil
+	}
+
+	p.RLock()
+	defer p.RUnlock()
+
+	if !p.enabled {
+		general.Infof("numa cpu pressure eviction is disabled")
+		return &pluginapi.GetEvictPodsResponse{}, nil
+	}
+
+	if p.overloadNumaCount == 0 {
+		_ = p.emitter.StoreInt64(metricsNameGetEvictPods, 0, metrics.MetricTypeNameRaw)
+		return &pluginapi.GetEvictPodsResponse{}, nil
+	}
+	//1.get annotation of pods
+	candidatePods, _ := rules.PrepareCandidatePods(ctx, request)
+	//2.scorerParams
+	enabledScorers := p.numaPressureConfig.EnabledScorers
+	scorerParams := map[string]interface{}{
+		rules.DeploymentEvictionFrequencyScorerName: nil,
+	}
+	//3.allFilter
+	scorer, _ := rules.NewScorer(enabledScorers, p.emitter, scorerParams)
+	candidatePods = scorer.Score(candidatePods)
+	if len(candidatePods) == 0 {
 		general.Warningf("got empty active pods list after filter")
 		return &pluginapi.GetEvictPodsResponse{}, nil
 	}
 
 	// todo may pick multiple numas if overload
-	numaID, numaOverloadRatio, numaUsageRatio, err := p.pickTopOverRatioNuma(targetMetric, p.thresholds)
-	if err != nil {
-		general.ErrorS(err, "pick top over ratio numa failed")
-		_ = p.emitter.StoreFloat64(metricsNameGetEvictPods, 0, metrics.MetricTypeNameRaw,
-			metrics.ConvertMapToTags(map[string]string{
-				metricTagMetricName: targetMetric,
-				metricTagNuma:       strconv.Itoa(numaID),
-			})...)
-		return &pluginapi.GetEvictPodsResponse{}, nil
-	}
+	// numaID, numaOverloadRatio, numaUsageRatio, err := p.pickTopOverRatioNuma(targetMetric, p.thresholds)
+	// if err != nil {
+	// 	general.ErrorS(err, "pick top over ratio numa failed")
+	// 	_ = p.emitter.StoreFloat64(metricsNameGetEvictPods, 0, metrics.MetricTypeNameRaw,
+	// 		metrics.ConvertMapToTags(map[string]string{
+	// 			metricTagMetricName: targetMetric,
+	// 			metricTagNuma:       strconv.Itoa(numaID),
+	// 		})...)
+	// 	return &pluginapi.GetEvictPodsResponse{}, nil
+	// }
+	numaID := p.numaOverStats[0].NumaID
+	numaUsageRatio := p.numaOverStats[0].AvgUsageRatio
+	numaOverloadRatio := p.numaOverStats[0].OverloadRatio
 
-	topPod, podUsageRatio, err := p.pickTargetPod(numaID, targetMetric, activePods, numaUsageRatio)
-	if err != nil {
-		general.ErrorS(err, "pick top over ratio nums pods failed")
-		_ = p.emitter.StoreFloat64(metricsNameGetEvictPods, 0, metrics.MetricTypeNameRaw,
-			metrics.ConvertMapToTags(map[string]string{
-				metricTagMetricName: targetMetric,
-				metricTagNuma:       strconv.Itoa(numaID),
-			})...)
-		return &pluginapi.GetEvictPodsResponse{}, nil
-	}
-
+	// topPod, podUsageRatio, err := p.pickTargetPod(numaID, targetMetric, activePods, numaUsageRatio)
+	// if err != nil {
+	// 	general.ErrorS(err, "pick top over ratio nums pods failed")
+	// 	_ = p.emitter.StoreFloat64(metricsNameGetEvictPods, 0, metrics.MetricTypeNameRaw,
+	// 		metrics.ConvertMapToTags(map[string]string{
+	// 			metricTagMetricName: targetMetric,
+	// 			metricTagNuma:       strconv.Itoa(numaID),
+	// 		})...)
+	// 	return &pluginapi.GetEvictPodsResponse{}, nil
+	// }
+	topPod := candidatePods[0].Pod
 	general.InfoS("evict pod", "pod", topPod.Name, "podUsageRatio",
-		podUsageRatio, "numa", numaID, "numaOverloadRatio", numaOverloadRatio, "numaUsageRatio", numaUsageRatio)
+		candidatePods[0].UsageRatio, "numa", numaID, "numaOverloadRatio", numaOverloadRatio, "numaUsageRatio", numaUsageRatio)
 
 	resp := &pluginapi.GetEvictPodsResponse{
 		EvictPods: []*pluginapi.EvictPod{
 			{
 				Pod: topPod,
 				Reason: fmt.Sprintf("numa cpu usage %f overload, kill top pod with %f",
-					numaUsageRatio, podUsageRatio),
+					numaUsageRatio, candidatePods[0].UsageRatio),
 				ForceEvict:         true,
 				EvictionPluginName: EvictionNameNumaCpuPressure,
 			},
@@ -299,6 +353,10 @@ func (p *NumaCPUPressureEviction) update(_ context.Context) {
 
 	// update overload numa count and node overload
 	p.overloadNumaCount = p.calOverloadNumaCount()
+	_, _, _, err := p.pickTopOverRatioNuma(targetMetric, p.thresholds)
+	if err != nil {
+		general.Warningf("failed to update numaOverStat: %v", err)
+	}
 }
 
 func (p *NumaCPUPressureEviction) isNodeOverload() (nodeOverload bool) {
@@ -318,7 +376,7 @@ func (p *NumaCPUPressureEviction) calOverloadNumaCount() (overloadNumaCount int)
 	emitter := p.emitter
 
 	for numaID, numaHis := range metricsHistory.Inner {
-		numaHisInner := numaHis[FakePodUID]
+		numaHisInner := numaHis[history.FakePodUID]
 		var numaOver bool
 		for metricName, metricRing := range numaHisInner {
 			threshold, exist := thresholds[metricName]
@@ -360,15 +418,9 @@ func (p *NumaCPUPressureEviction) calOverloadNumaCount() (overloadNumaCount int)
 }
 
 func (p *NumaCPUPressureEviction) pickTopOverRatioNuma(metricName string, thresholds map[string]float64) (int, float64, float64, error) {
-	type NumaOverStat struct {
-		numaID        int
-		overloadRatio float64
-		avgUsageRatio float64
-	}
-	var numaOverRatios []NumaOverStat
-
+	var numaOverRatios []rules.NumaOverStat
 	for numaID, numaHis := range p.metricsHistory.Inner {
-		numaHisInner := numaHis[FakePodUID]
+		numaHisInner := numaHis[history.FakePodUID]
 		metricRing, ok := numaHisInner[metricName]
 		if !ok {
 			continue
@@ -376,28 +428,33 @@ func (p *NumaCPUPressureEviction) pickTopOverRatioNuma(metricName string, thresh
 		threshold := thresholds[metricName]
 		overCount := metricRing.OverCount(threshold)
 		overRatio := float64(overCount) / float64(metricRing.MaxLen)
-		numaOverRatios = append(numaOverRatios, NumaOverStat{
-			numaID:        numaID,
-			overloadRatio: overRatio,
-			avgUsageRatio: metricRing.Avg(),
+		// threshold := p.thresholds[targetMetric] / p.numaPressureConfig.ExpandFactor
+		numaUsageRatio := metricRing.Avg()
+		gap := numaUsageRatio - (p.thresholds[targetMetric] / p.numaPressureConfig.ExpandFactor)
+		numaOverRatios = append(numaOverRatios, rules.NumaOverStat{
+			NumaID:         numaID,
+			OverloadRatio:  overRatio,
+			AvgUsageRatio:  numaUsageRatio,
+			MetricsHistory: p.metricsHistory,
+			Gap:            gap,
 		})
 
 	}
 
 	sort.Slice(numaOverRatios, func(i, j int) bool {
-		return numaOverRatios[i].overloadRatio > numaOverRatios[j].overloadRatio
+		return numaOverRatios[i].OverloadRatio > numaOverRatios[j].OverloadRatio
 	})
-
+	p.numaOverStats = numaOverRatios
 	for _, numa := range numaOverRatios {
-		general.InfoS("Numa with overload ratio", "numa", numa.numaID, "overloadRatio",
-			numa.overloadRatio, "avgUsageRatio", numa.avgUsageRatio)
+		general.InfoS("Numa with overload ratio", "numa", numa.NumaID, "overloadRatio",
+			numa.OverloadRatio, "avgUsageRatio", numa.AvgUsageRatio)
 	}
 
 	if len(numaOverRatios) == 0 {
 		return -1, 0, 0, fmt.Errorf("no valid numa found")
 	}
 	top := numaOverRatios[0]
-	return top.numaID, top.overloadRatio, top.avgUsageRatio, nil
+	return top.NumaID, top.OverloadRatio, top.AvgUsageRatio, nil
 }
 
 func (p *NumaCPUPressureEviction) pickTargetPod(numaID int, metricName string,
@@ -496,6 +553,8 @@ type NumaPressureConfig struct {
 	ExpandFactor           float64
 	CandidateCount         int
 	SkippedPodKinds        []string
+	EnabledFilters         []string
+	EnabledScorers         []string
 }
 
 func getNumaPressureConfig(conf *dynamic.Configuration) *NumaPressureConfig {
@@ -506,5 +565,26 @@ func getNumaPressureConfig(conf *dynamic.Configuration) *NumaPressureConfig {
 		ExpandFactor:           conf.NumaCPUPressureEvictionConfiguration.ThresholdExpandFactor,
 		CandidateCount:         conf.NumaCPUPressureEvictionConfiguration.CandidateCount,
 		SkippedPodKinds:        conf.NumaCPUPressureEvictionConfiguration.SkippedPodKinds,
+		EnabledFilters:         conf.NumaCPUPressureEvictionConfiguration.EnabledFilters,
+		EnabledScorers:         conf.NumaCPUPressureEvictionConfiguration.EnabledScorers,
 	}
+}
+
+func (p *NumaCPUPressureEviction) OverRatioNumaFilter(activePods []*v1.Pod, numaStats []rules.NumaOverStat) ([]*v1.Pod, error) {
+
+	numaID := numaStats[0].NumaID
+	numaHis, ok := p.metricsHistory.Inner[numaID]
+	// _, existMetric := numaHis[string(pod.UID)]
+	if !ok {
+		return nil, fmt.Errorf("cannot find numa %v usage", numaID)
+	}
+	var filterdPods []*v1.Pod
+	for _, pod := range activePods {
+		podUID := string(pod.UID)
+		_, existMetric := numaHis[podUID]
+		if existMetric {
+			filterdPods = append(filterdPods, pod)
+		}
+	}
+	return filterdPods, nil
 }
