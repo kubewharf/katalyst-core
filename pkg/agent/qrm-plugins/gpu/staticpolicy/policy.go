@@ -58,6 +58,7 @@ const (
 // StaticPolicy is the static gpu policy
 type StaticPolicy struct {
 	sync.Mutex
+	pluginapi.UnimplementedResourcePluginServer
 
 	name                string
 	stopCh              chan struct{}
