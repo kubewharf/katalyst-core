@@ -31,12 +31,20 @@ type AllocationInfo struct {
 }
 
 type GPUAllocation struct {
-	GPUMemoryQuantity uint64 `json:"gpu_memory_quantity"`
+	GPUMemoryQuantity float64 `json:"gpu_memory_quantity"`
+	NUMANodes         []int   `json:"numa_nodes"`
 }
 
 func (a *GPUAllocation) Clone() GPUAllocation {
+	if a == nil {
+		return GPUAllocation{}
+	}
+
+	numaNodes := make([]int, len(a.NUMANodes))
+	copy(numaNodes, a.NUMANodes)
 	return GPUAllocation{
 		GPUMemoryQuantity: a.GPUMemoryQuantity,
+		NUMANodes:         numaNodes,
 	}
 }
 
@@ -44,9 +52,10 @@ type (
 	ContainerEntries map[string]*AllocationInfo  // Keyed by container name
 	PodEntries       map[string]ContainerEntries // Keyed by pod UID
 )
+
 type GPUState struct {
-	GPUMemoryAllocatable uint64     `json:"gpu_memory_allocatable"`
-	GPUMemoryAllocated   uint64     `json:"gpu_memory_allocated"`
+	GPUMemoryAllocatable float64    `json:"gpu_memory_allocatable"`
+	GPUMemoryAllocated   float64    `json:"gpu_memory_allocated"`
 	PodEntries           PodEntries `json:"pod_entries"`
 }
 
@@ -154,16 +163,25 @@ func (ns *GPUState) Clone() *GPUState {
 
 	return &GPUState{
 		GPUMemoryAllocatable: ns.GPUMemoryAllocatable,
+		GPUMemoryAllocated:   ns.GPUMemoryAllocated,
 		PodEntries:           ns.PodEntries.Clone(),
 	}
 }
 
-func (ns *GPUState) GetGPUMemoryAllocatable() uint64 {
+func (ns *GPUState) GetGPUMemoryAllocatable() float64 {
 	if ns == nil {
 		return 0
 	}
 
 	return ns.GPUMemoryAllocatable
+}
+
+func (ns *GPUState) GetGPUMemoryAllocated() float64 {
+	if ns == nil {
+		return 0
+	}
+
+	return ns.GPUMemoryAllocated
 }
 
 // SetAllocationInfo adds a new AllocationInfo (for pod/container pairs) into the given NICState
@@ -209,11 +227,29 @@ func (m GPUMap) String() string {
 	return string(contentBytes)
 }
 
-func (m GPUMap) GetGPUMemoryAllocatable(id string) uint64 {
+func (m GPUMap) GetGPUMemoryAllocatable(id string) float64 {
 	if m == nil {
 		return 0
 	}
 	return m[id].GetGPUMemoryAllocatable()
+}
+
+func (m GPUMap) GPUMemoryAllocated(id string) float64 {
+	if m == nil {
+		return 0
+	}
+
+	return m[id].GetGPUMemoryAllocated()
+}
+
+func (m GPUMap) GPUMemorySatisfiedRequest(id string, request float64) bool {
+	if m == nil {
+		return false
+	}
+
+	gpuMemoryAllocatable := m.GetGPUMemoryAllocatable(id)
+	gpuMemoryAllocated := m.GPUMemoryAllocated(id)
+	return gpuMemoryAllocatable-gpuMemoryAllocated >= request
 }
 
 // reader is used to get information from local states
