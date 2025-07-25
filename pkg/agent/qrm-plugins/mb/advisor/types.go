@@ -14,29 +14,15 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package monitor
+package advisor
 
-const minActiveMB = 1_000
+import (
+	"context"
 
-type GroupCCDMB map[int]MBStat
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
+)
 
-// MBStat keeps memory bandwidth info
-type MBStat struct {
-	LocalMB  int
-	RemoteMB int
-	TotalMB  int
-}
-
-func (g GroupCCDMB) Sum() int {
-	sum := 0
-	for _, mbStat := range g {
-		sum += mbStat.TotalMB
-	}
-
-	return sum
-}
-
-func (g GroupCCDMB) HasTraffic() bool {
-	sum := g.Sum()
-	return sum >= minActiveMB
+type Advisor interface {
+	GetPlan(ctx context.Context, domainsMon *monitor.DomainsMon) (*plan.MBPlan, error)
 }
