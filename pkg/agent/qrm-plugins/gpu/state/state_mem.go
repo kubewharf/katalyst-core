@@ -94,7 +94,6 @@ func (s *gpuPluginState) Delete(podUID, containerName string, _ bool) {
 		delete(s.podEntries, podUID)
 	}
 	generalLog.InfoS("deleted container entry", "podUID", podUID, "containerName", containerName)
-
 }
 
 func (s *gpuPluginState) ClearState() {
