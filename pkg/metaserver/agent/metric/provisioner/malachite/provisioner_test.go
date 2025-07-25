@@ -297,128 +297,112 @@ func Test_setContainerMbmTotalMetric(t *testing.T) {
 		updateTime    *time.Time
 		cpuCodeName   string
 	}
-	now := time.Unix(1749596247, 0) // 0 nanoseconds
+	now := time.Unix(1749596247, 0)
 	mb1 := uint64(100)
 	mb2 := uint64(200)
+	mb3 := uint64(4001 * consts.BytesPerGB)
 	mbLocal1 := uint64(50)
-	mbLocal2 := uint64(70)
 
 	testCases := []struct {
-		name          string
-		args          args
-		prevMetric    *utilmetric.MetricData
-		prevMetricErr error
-		wantTotal     float64
-		wantPerSec    float64
-		expectSet     bool
+		name            string
+		args            args
+		prevResctrlData *malachitetypes.MbmbandData
+		prevMetric      *utilmetric.MetricData
+		wantData        utilmetric.MetricData
+		expectSet       bool
 	}{
 		{
-			name: "AMD Genoa arch sums MBMTotalBytes and MBMLocalBytes, no previous metric",
+			name: "no previous resctrl data, should not set metric",
 			args: args{
-				podUID:        "test pod 4",
-				containerName: "test container 4",
+				podUID:        "pod1",
+				containerName: "container1",
 				mbmData: malachitetypes.MbmbandData{
 					Mbm: []malachitetypes.MBMItem{
-						{MBMTotalBytes: &mb1, MBMLocalBytes: &mbLocal1},
-						{MBMTotalBytes: &mb2, MBMLocalBytes: &mbLocal2},
-					},
-				},
-				updateTime:  &now,
-				cpuCodeName: consts.AMDGenoaArch,
-			},
-			prevMetric:    nil,
-			prevMetricErr: assert.AnError,
-			wantTotal:     100 + 50 + 200 + 70,
-			wantPerSec:    0,
-			expectSet:     true,
-		},
-		{
-			name: "has previous metric, valid time interval",
-			args: args{
-				podUID:        "test pod 5",
-				containerName: "test container 5",
-				mbmData: malachitetypes.MbmbandData{
-					Mbm: []malachitetypes.MBMItem{
-						{MBMTotalBytes: &mb2},
+						{ID: 0, MBMTotalBytes: mb1, MBMLocalBytes: mbLocal1},
 					},
 				},
 				updateTime:  &now,
 				cpuCodeName: "",
+			},
+			prevResctrlData: nil,
+			prevMetric:      nil,
+			wantData:        utilmetric.MetricData{Value: 0, Time: &now},
+			expectSet:       false,
+		},
+		{
+			name: "has previous metric and resctrl data, valid time interval",
+			args: args{
+				podUID:        "pod3",
+				containerName: "container3",
+				mbmData: malachitetypes.MbmbandData{
+					Mbm: []malachitetypes.MBMItem{
+						{ID: 0, MBMTotalBytes: mb2},
+					},
+				},
+				updateTime:  &now,
+				cpuCodeName: "",
+			},
+			prevResctrlData: &malachitetypes.MbmbandData{
+				Mbm: []malachitetypes.MBMItem{
+					{ID: 0, MBMTotalBytes: mb1},
+				},
 			},
 			prevMetric: &utilmetric.MetricData{
 				Value: 100,
 				Time:  ptrTime(now.Add(-10 * time.Second)),
 			},
-			prevMetricErr: nil,
-			wantTotal:     200,
-			wantPerSec:    float64(200-100) / 10, // (totalMbm - prevMetric.Value) / timeInterval
-			expectSet:     true,
+			wantData:  utilmetric.MetricData{Value: float64(mb2-mb1) / 10, Time: &now},
+			expectSet: true,
 		},
 		{
-			name: "has previous metric, time interval <= 0",
+			name: "has previous metric and resctrl data, time interval <= 0",
 			args: args{
-				podUID:        "test pod 6",
-				containerName: "test container 6",
+				podUID:        "pod4",
+				containerName: "container4",
 				mbmData: malachitetypes.MbmbandData{
 					Mbm: []malachitetypes.MBMItem{
-						{MBMTotalBytes: &mb2},
+						{ID: 0, MBMTotalBytes: mb2},
 					},
 				},
 				updateTime:  &now,
 				cpuCodeName: "",
+			},
+			prevResctrlData: &malachitetypes.MbmbandData{
+				Mbm: []malachitetypes.MBMItem{
+					{ID: 0, MBMTotalBytes: mb1},
+				},
 			},
 			prevMetric: &utilmetric.MetricData{
 				Value: 100,
 				Time:  ptrTime(now.Add(100 * time.Second)), // future time
 			},
-			prevMetricErr: nil,
-			wantTotal:     200,
-			wantPerSec:    0, // should be zero
-			expectSet:     true,
-		},
-		{
-			name: "has previous metric, nil time",
-			args: args{
-				podUID:        "test pod 7",
-				containerName: "test container 7",
-				mbmData: malachitetypes.MbmbandData{
-					Mbm: []malachitetypes.MBMItem{
-						{MBMTotalBytes: &mb2},
-					},
-				},
-				updateTime:  &now,
-				cpuCodeName: "",
-			},
-			prevMetric: &utilmetric.MetricData{
-				Value: 100,
-				Time:  nil,
-			},
-			prevMetricErr: nil,
-			wantTotal:     200,
-			wantPerSec:    0,
-			expectSet:     true,
+			wantData:  utilmetric.MetricData{Value: 100, Time: ptrTime(now.Add(100 * time.Second))},
+			expectSet: true,
 		},
 		{
 			name: "handles MBM overflow, clamps to MaxMBMStep",
 			args: args{
-				podUID:        "test pod overflow",
-				containerName: "test container overflow",
+				podUID:        "pod5",
+				containerName: "container5",
 				mbmData: malachitetypes.MbmbandData{
 					Mbm: []malachitetypes.MBMItem{
-						{MBMTotalBytes: func() *uint64 { v := uint64(51 * consts.BytesPerGB); return &v }()},
+						{ID: 0, MBMTotalBytes: mb3},
 					},
 				},
 				updateTime:  &now,
 				cpuCodeName: "",
 			},
+			prevResctrlData: &malachitetypes.MbmbandData{
+				Mbm: []malachitetypes.MBMItem{
+					{ID: 0, MBMTotalBytes: mb1},
+				},
+			},
 			prevMetric: &utilmetric.MetricData{
-				Value: 100,
+				Value: float64(mb1),
 				Time:  ptrTime(now.Add(-10 * time.Second)),
 			},
-			prevMetricErr: nil,
-			wantTotal:     100 + consts.MaxMBMStep, // totalMbm should be clamped
-			wantPerSec:    float64(consts.MaxMBMStep) / 10,
-			expectSet:     true,
+			wantData:  utilmetric.MetricData{Value: 0, Time: &now},
+			expectSet: true,
 		},
 	}
 
@@ -432,37 +416,25 @@ func Test_setContainerMbmTotalMetric(t *testing.T) {
 				store.SetByStringIndex(consts.MetricCPUCodeName, tc.args.cpuCodeName)
 			}
 			// Set previous metric if needed
-			if tc.prevMetric != nil || tc.prevMetricErr == nil {
-				store.SetContainerMetric(tc.args.podUID, tc.args.containerName, consts.MetricMbmTotalContainer, *tc.prevMetric)
+			if tc.prevMetric != nil {
+				store.SetContainerMetric(tc.args.podUID, tc.args.containerName, consts.MetricMbmTotalPsContainer, *tc.prevMetric)
+			}
+			// Set previous resctrl data if needed
+			if tc.prevResctrlData != nil {
+				store.SetByStringIndex(consts.MetricResctrlDataContainer, *tc.prevResctrlData)
 			}
 			mmp := &MalachiteMetricsProvisioner{
 				metricStore: store,
 			}
 			mmp.setContainerMbmTotalMetric(tc.args.podUID, tc.args.containerName, tc.args.mbmData, tc.args.updateTime)
-			// Check total MBM
-			data, err := store.GetContainerMetric(tc.args.podUID, tc.args.containerName, consts.MetricMbmTotalContainer)
-			if tc.expectSet {
-				assert.NoError(t, err)
-				assert.Equal(t, tc.wantTotal, data.Value)
-				assert.Equal(t, *tc.args.updateTime, *data.Time)
-			} else {
-				// Should not update metric, so value should be unchanged (previous metric)
-				if tc.prevMetric != nil {
-					assert.Equal(t, tc.prevMetric.Value, data.Value)
-				} else {
-					assert.Error(t, err)
-				}
-			}
 			// Check per second MBM
 			dataPerSec, errPerSec := store.GetContainerMetric(tc.args.podUID, tc.args.containerName, consts.MetricMbmTotalPsContainer)
 			if tc.expectSet {
 				assert.NoError(t, errPerSec)
-				assert.InDelta(t, tc.wantPerSec, dataPerSec.Value, 1e-6)
-				assert.Equal(t, *tc.args.updateTime, *dataPerSec.Time)
+				assert.InDelta(t, tc.wantData.Value, dataPerSec.Value, 1e-6)
+				assert.Equal(t, *tc.wantData.Time, *dataPerSec.Time)
 			} else {
-				if tc.prevMetric != nil {
-					assert.Error(t, errPerSec)
-				}
+				assert.Error(t, errPerSec)
 			}
 		})
 	}
@@ -605,6 +577,199 @@ func Test_getNumaIDByL3CacheID(t *testing.T) {
 				assert.NoError(t, err)
 			}
 			assert.Equal(t, tc.wantNumaID, numaID)
+		})
+	}
+}
+
+func Test_findOldL3Cache(t *testing.T) {
+	t.Parallel()
+	type args struct {
+		oldL3Mon *malachitetypes.L3Monitor
+		id       int
+	}
+	l3Mon := &malachitetypes.L3Monitor{
+		L3Mon: []malachitetypes.L3Mon{
+			{ID: 1}, {ID: 2}, {ID: 3},
+		},
+	}
+	tests := []struct {
+		name string
+		args args
+		want *malachitetypes.L3Mon
+	}{
+		{"found", args{l3Mon, 2}, &l3Mon.L3Mon[1]},
+		{"not found", args{l3Mon, 99}, nil},
+		{"nil input", args{nil, 1}, nil},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := findOldL3Cache(tc.args.oldL3Mon, tc.args.id)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func Test_calcBytesPerSec(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		current  uint64
+		previous uint64
+		interval uint64
+		expected uint64
+	}{
+		{"normal", 200, 100, 10, 10},
+		{"zero interval", 200, 100, 0, 0},
+		{"zero previous", 200, 0, 10, 0},
+		{"current < previous", 50, 100, 10, 0},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			result := calcBytesPerSec(tc.current, tc.previous, tc.interval)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+func Test_clampMBMDelta(t *testing.T) {
+	t.Parallel()
+	const maxDiff = 100
+	const maxStep = 50
+	tests := []struct {
+		name     string
+		current  uint64
+		previous uint64
+		oldValue uint64
+		expected uint64
+	}{
+		{"no clamp", 150, 100, 100, 150},
+		{"clamp", 250, 100, 100, 150},
+		{"current < previous", 90, 100, 100, 90},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			result := clampMBMDelta(tc.current, tc.previous, tc.oldValue, maxDiff, maxStep)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+func Test_getNumaAndMaxBandwidth(t *testing.T) {
+	t.Parallel()
+	ccdCountMap := map[string]int{
+		consts.PlatformGeona:   12,
+		consts.PlatformMilan:   8,
+		consts.PlatformRome:    8,
+		consts.PlatformRapids:  1,
+		consts.PlatformLake:    1,
+		consts.PlatformUnknown: 1,
+	}
+	socketBandwidthMap := map[string]uint64{
+		consts.PlatformGeona:  322 * 1e9, // logical.max = 460, real.max = 460 * 70%
+		consts.PlatformMilan:  142 * 1e9, // logical.max = 204, real.max = 204 * 70%
+		consts.PlatformRome:   142 * 1e9, // logical.max = 204, real.max = 204 * 70%
+		consts.PlatformRapids: 215 * 1e9, // logical.max = 307, real.max = 307 * 70%, Intel:SapphireRapids
+		consts.PlatformLake:   98 * 1e9,  // logical.max = 140, real.max = 140 * 70%, intel:SkyLake/CascadeLake/IceLake
+	}
+
+	type testCase struct {
+		name        string
+		cpuCodeName string
+		expectBW    uint64
+	}
+	cases := []testCase{
+		{
+			name:        "empty cpu code name (fallback to default)",
+			cpuCodeName: "",
+			expectBW:    consts.MaxMBGBps,
+		},
+		{
+			name:        "Zen4 cpu code (Genoa)",
+			cpuCodeName: "Zen4",
+			expectBW:    socketBandwidthMap[consts.PlatformGeona] / uint64(ccdCountMap[consts.PlatformGeona]),
+		},
+		{
+			name:        "Zen3 cpu code (Milan)",
+			cpuCodeName: "Zen3",
+			expectBW:    socketBandwidthMap[consts.PlatformMilan] / uint64(ccdCountMap[consts.PlatformMilan]),
+		},
+		{
+			name:        "Zen2 cpu code (Rome)",
+			cpuCodeName: "Zen2",
+			expectBW:    socketBandwidthMap[consts.PlatformRome] / uint64(ccdCountMap[consts.PlatformRome]),
+		},
+		{
+			name:        "Rapids cpu code",
+			cpuCodeName: "Rapids",
+			expectBW:    socketBandwidthMap[consts.PlatformRapids] / uint64(ccdCountMap[consts.PlatformRapids]),
+		},
+		{
+			name:        "Lake cpu code",
+			cpuCodeName: "Lake",
+			expectBW:    socketBandwidthMap[consts.PlatformLake] / uint64(ccdCountMap[consts.PlatformLake]),
+		},
+		{
+			name:        "unknown cpu code (fallback to default)",
+			cpuCodeName: "UnknownCPU",
+			expectBW:    consts.MaxMBGBps,
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, maxBW := getNumaAndMaxBandwidth(0, tc.cpuCodeName)
+			assert.Equal(t, tc.expectBW, maxBW)
+		})
+	}
+}
+
+func Test_aggregateNUMABytesPS(t *testing.T) {
+	t.Parallel()
+	l3BytesPS := map[int]malachitetypes.L3CacheBytesPS{
+		1: {NumaID: 0, MbmTotalBytesPS: 10, MbmLocalBytesPS: 5, MbmVictimBytesPS: 2, MBMMaxBytesPS: 100},
+		2: {NumaID: 0, MbmTotalBytesPS: 20, MbmLocalBytesPS: 10, MbmVictimBytesPS: 4, MBMMaxBytesPS: 100},
+		3: {NumaID: 1, MbmTotalBytesPS: 30, MbmLocalBytesPS: 15, MbmVictimBytesPS: 6, MBMMaxBytesPS: 100},
+	}
+	tests := []struct {
+		name      string
+		input     map[int]malachitetypes.L3CacheBytesPS
+		cpuCode   string
+		wantTotal map[int]float64
+	}{
+		{
+			"normal aggregation",
+			l3BytesPS,
+			"",
+			map[int]float64{0: 30, 1: 30},
+		},
+		{
+			"AMD Milan aggregation",
+			l3BytesPS,
+			consts.AMDMilanArch,
+			map[int]float64{0: 30 + 2 + 4, 1: 30 + 6},
+		},
+		{
+			"AMD Genoa aggregation",
+			l3BytesPS,
+			consts.AMDGenoaArch,
+			map[int]float64{0: 30 + 5 + 10, 1: 30 + 15},
+		},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			result := aggregateNUMABytesPS(tc.input, tc.cpuCode)
+			for numaID, want := range tc.wantTotal {
+				assert.Equal(t, want, float64(result[numaID].MbmTotalBytesPS))
+			}
 		})
 	}
 }

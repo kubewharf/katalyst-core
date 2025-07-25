@@ -101,12 +101,25 @@ const (
 )
 
 const (
-	AMDMilanArch = "Zen3"
-	AMDGenoaArch = "Zen4"
+	PlatformGeona   = "geona"
+	PlatformMilan   = "milan"
+	PlatformRome    = "rome"
+	PlatformRapids  = "intel_rapids"
+	PlatformLake    = "intel_lake"
+	PlatformUnknown = "unknown"
 )
 
 const (
-	BytesPerGB = 1024 * 1024 * 1024
+	AMDRomeArch     = "Zen2"
+	AMDMilanArch    = "Zen3"
+	AMDGenoaArch    = "Zen4"
+	IntelRapidsArch = "Rapids"
+	IntelLakeArch   = "Lake"
+)
+
+const (
+	BytesPerGB = 1e9
 	MaxMBMDiff = 50 * BytesPerGB
 	MaxMBMStep = 3 * BytesPerGB
+	MaxMBGBps  = 400 * BytesPerGB // 400 GB/s is the maximum bandwidth of L3 cache in Milan, Genoa, and Rapids platforms
 )

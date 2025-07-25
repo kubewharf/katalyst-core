@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -149,4 +150,54 @@ func (c *MetricStore) AggregateCoreMetric(cpuset machine.CPUSet, metricName stri
 // MetricTagValueFormat formats the given tag value to a string that is suitable for metric tagging
 func MetricTagValueFormat(tagValue interface{}) string {
 	return general.TruncateString(strings.ReplaceAll(fmt.Sprintf("%v", tagValue), " ", "_"), MaxTagLength)
+}
+
+var ccdCountMap = map[string]int{
+	consts.PlatformGeona:   12,
+	consts.PlatformMilan:   8,
+	consts.PlatformRome:    8,
+	consts.PlatformRapids:  1,
+	consts.PlatformLake:    1,
+	consts.PlatformUnknown: 1,
+}
+
+var socketBandwidthMap = map[string]uint64{
+	consts.PlatformGeona:  322 * 1e9, // logical.max = 460, real.max = 460 * 70%
+	consts.PlatformMilan:  142 * 1e9, // logical.max = 204, real.max = 204 * 70%
+	consts.PlatformRome:   142 * 1e9, // logical.max = 204, real.max = 204 * 70%
+	consts.PlatformRapids: 215 * 1e9, // logical.max = 307, real.max = 307 * 70%, Intel:SapphireRapids
+	consts.PlatformLake:   98 * 1e9,  // logical.max = 140, real.max = 140 * 70%, intel:SkyLake/CascadeLake/IceLake
+}
+
+func GetCPUPlatform(cpuCode string) (string, error) {
+	switch {
+	case strings.Contains(cpuCode, consts.AMDGenoaArch):
+		return consts.PlatformGeona, nil
+	case strings.Contains(cpuCode, consts.AMDMilanArch):
+		return consts.PlatformMilan, nil
+	case strings.Contains(cpuCode, consts.AMDRomeArch):
+		return consts.PlatformRome, nil
+	case strings.Contains(cpuCode, consts.IntelRapidsArch):
+		return consts.PlatformRapids, nil
+	case strings.Contains(cpuCode, consts.IntelLakeArch):
+		return consts.PlatformLake, nil
+	default:
+		return consts.PlatformUnknown, fmt.Errorf("model name not found")
+	}
+}
+
+func GetPlatformCCDCount(platform string) int {
+	count, ok := ccdCountMap[platform]
+	if !ok || count == 0 {
+		count = 1
+	}
+	return count
+}
+
+func GetPlatformSocketBandwidth(platform string) uint64 {
+	bandwidth, ok := socketBandwidthMap[platform]
+	if !ok {
+		bandwidth = consts.MaxMBGBps // default
+	}
+	return bandwidth
 }

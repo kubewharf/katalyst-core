@@ -684,49 +684,69 @@ func (m *MalachiteMetricsProvisioner) processSystemNUMAComputeData(systemCompute
 	if systemComputeData == nil {
 		return
 	}
+	// Get current and previous L3 cache monitoring data
+	curL3Mon := systemComputeData.L3Mon
+	oldL3Mon, ok := m.metricStore.GetByStringIndex(consts.MetricL3MonNuma).(malachitetypes.L3Monitor)
+	if !ok {
+		// No previous data, set current data directly
+		m.metricStore.SetByStringIndex(consts.MetricL3MonNuma, curL3Mon)
+		return
+	}
+	m.metricStore.SetByStringIndex(consts.MetricL3MonNuma, curL3Mon)
 
-	ccdMbmTotalPsData := systemComputeData.L3Mon.L3Mon
-	updateTimeUnix := systemComputeData.L3Mon.UpdateTime
-	updateTime := time.Unix(updateTimeUnix, 0)
-
-	numaMbmTotalData := make(map[int]uint64)
-	numaMbmVictimPsData := make(map[int]uint64)
-	for _, ccdMbmTotalPs := range ccdMbmTotalPsData {
-		numaID, err := getNumaIDByL3CacheID(ccdMbmTotalPs.ID, consts.SystemCpuDir, consts.SystemNodeDir)
-		if err != nil {
-			continue
-		}
-		numaMbmTotalData[numaID] += ccdMbmTotalPs.MbmTotalBytes
-		// for AMD milan & AMD genoa, total = 0x3f + 0x40
-		if strings.Contains(systemComputeData.CPUCodeName, consts.AMDMilanArch) {
-			numaMbmVictimPsData[numaID] += ccdMbmTotalPs.MbmVictimBytesPerSec
-		}
-		if strings.Contains(systemComputeData.CPUCodeName, consts.AMDGenoaArch) {
-			numaMbmTotalData[numaID] += ccdMbmTotalPs.MbmLocalBytes
-		}
+	// Only process if new data is available
+	if curL3Mon.UpdateTime <= oldL3Mon.UpdateTime {
+		return
+	}
+	timeinterval := uint64(curL3Mon.UpdateTime - oldL3Mon.UpdateTime)
+	// Get previous per-L3 bandwidth stats, or initialize
+	l3CacheBandwidthStats := make(map[int]malachitetypes.L3CacheBytesPS)
+	oldL3CacheBandwidthStats, ok := m.metricStore.GetByStringIndex(consts.MetricL3MbmTotalPs).(map[int]malachitetypes.L3CacheBytesPS)
+	if !ok {
+		m.metricStore.SetByStringIndex(consts.MetricL3MbmTotalPs, l3CacheBandwidthStats)
 	}
 
-	for numaID, totalMbm := range numaMbmTotalData {
-		prevMetric, err := m.metricStore.GetNumaMetric(numaID, consts.MetricTotalMemBandwidthNuma)
-		var mbmPerSec float64 = 0
-		if err == nil && prevMetric.Time != nil {
-			timeInterval := uint64(updateTimeUnix - prevMetric.Time.Unix())
-			if timeInterval > 0 && totalMbm > uint64(prevMetric.Value) {
-				mbmDiff := totalMbm - uint64(prevMetric.Value)
-				// handle total mbm overflow
-				if mbmDiff > consts.MaxMBMDiff {
-					mbmDiff = consts.MaxMBMStep
-					totalMbm = uint64(prevMetric.Value) + consts.MaxMBMStep
-				}
-				mbmPerSec = float64(mbmDiff) / float64(timeInterval)
-			}
+	for _, l3Cache := range curL3Mon.L3Mon {
+		// Find previous stats for this L3 cache ID
+		oldL3Cache := findOldL3Cache(&oldL3Mon, l3Cache.ID)
+		if oldL3Cache == nil {
+			continue
 		}
-		// for AMD milan, total = 0x3f + 0x40
-		if strings.Contains(systemComputeData.CPUCodeName, consts.AMDMilanArch) {
-			mbmPerSec += float64(numaMbmVictimPsData[numaID])
+
+		// Calculate bandwidth deltas
+		totalBytesPS := calcBytesPerSec(l3Cache.MbmTotalBytes, oldL3Cache.MbmTotalBytes, timeinterval)
+		localBytesPS := calcBytesPerSec(l3Cache.MbmLocalBytes, oldL3Cache.MbmLocalBytes, timeinterval)
+
+		var numaID int
+		var maxBytesPS uint64
+		if stats, exists := oldL3CacheBandwidthStats[l3Cache.ID]; !exists {
+			numaID, maxBytesPS = getNumaAndMaxBandwidth(l3Cache.ID, systemComputeData.CPUCodeName)
+		} else {
+			numaID = stats.NumaID
+			maxBytesPS = stats.MBMMaxBytesPS
+			// Clamp overflow if needed
+			totalBytesPS = clampMBMDelta(totalBytesPS, stats.MbmTotalBytesPS, oldL3Cache.MbmTotalBytes, consts.MaxMBMDiff, consts.MaxMBMStep)
+			localBytesPS = clampMBMDelta(localBytesPS, stats.MbmLocalBytesPS, oldL3Cache.MbmLocalBytes, consts.MaxMBMDiff, consts.MaxMBMStep)
 		}
-		m.metricStore.SetNumaMetric(numaID, consts.MetricTotalMemBandwidthNuma, utilmetric.MetricData{Value: float64(totalMbm), Time: &updateTime})
-		m.metricStore.SetNumaMetric(numaID, consts.MetricTotalPsMemBandwidthNuma, utilmetric.MetricData{Value: mbmPerSec, Time: &updateTime})
+		// Sanity check: skip if values are unreasonable
+		if (localBytesPS > maxBytesPS) || (totalBytesPS > 2*maxBytesPS) {
+			continue
+		}
+		// Store per-L3 bandwidth stats
+		l3CacheBandwidthStats[l3Cache.ID] = malachitetypes.L3CacheBytesPS{
+			NumaID:           numaID,
+			MbmTotalBytesPS:  totalBytesPS,
+			MbmLocalBytesPS:  localBytesPS,
+			MbmVictimBytesPS: oldL3Cache.MbmVictimBytesPerSec,
+			MBMMaxBytesPS:    maxBytesPS,
+		}
+	}
+	m.metricStore.SetByStringIndex(consts.MetricL3MbmTotalPs, l3CacheBandwidthStats)
+	// Aggregate NUMA bandwidth stats
+	numaBandwidthStats := aggregateNUMABytesPS(l3CacheBandwidthStats, systemComputeData.CPUCodeName)
+	updateTime := time.Unix(curL3Mon.UpdateTime, 0)
+	for numaID, stats := range numaBandwidthStats {
+		m.metricStore.SetNumaMetric(numaID, consts.MetricTotalPsMemBandwidthNuma, utilmetric.MetricData{Value: float64(stats.MbmTotalBytesPS), Time: &updateTime})
 	}
 }
 
