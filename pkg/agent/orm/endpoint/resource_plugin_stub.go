@@ -52,6 +52,9 @@ type Stub struct {
 	getTopologyAwareAllocatableResourcesFunc stubGetTopologyAwareAllocatableResourcesFunc
 	getTopologyAwareResourcesFunc            stubGetTopologyAwareResourcesFunc
 
+	// allocAssociateDeviceFunc is used for handling associated device allocation requests.
+	allocAssociateDeviceFunc stubAllocAssociatedDeviceFunc
+
 	registrationStatus chan watcherapi.RegistrationStatus // for testing
 	endpoint           string                             // for testing
 }
@@ -69,6 +72,8 @@ type stubGetTopologyAwareAllocatableResourcesFunc func(r *pluginapi.GetTopologyA
 
 type stubGetTopologyAwareResourcesFunc func(r *pluginapi.GetTopologyAwareResourcesRequest) (*pluginapi.GetTopologyAwareResourcesResponse, error)
 
+type stubAllocAssociatedDeviceFunc func(r *pluginapi.AssociatedDeviceRequest) (*pluginapi.AssociatedDeviceAllocationResponse, error)
+
 func defaultAllocFunc(r *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
 	var response pluginapi.ResourceAllocationResponse
 
@@ -77,6 +82,11 @@ func defaultAllocFunc(r *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocati
 
 func defaultGetAllocFunc(r *pluginapi.GetResourcesAllocationRequest) (*pluginapi.GetResourcesAllocationResponse, error) {
 	var response pluginapi.GetResourcesAllocationResponse
+	return &response, nil
+}
+
+func defaultAllocateAssociatedDeviceFunc(r *pluginapi.AssociatedDeviceRequest) (*pluginapi.AssociatedDeviceAllocationResponse, error) {
+	var response pluginapi.AssociatedDeviceAllocationResponse
 	return &response, nil
 }
 
@@ -89,8 +99,9 @@ func NewResourcePluginStub(socket string, name string, preStartContainerFlag boo
 
 		stop: make(chan interface{}),
 
-		allocFunc1: defaultAllocFunc,
-		allocFunc2: defaultGetAllocFunc,
+		allocFunc1:               defaultAllocFunc,
+		allocFunc2:               defaultGetAllocFunc,
+		allocAssociateDeviceFunc: defaultAllocateAssociatedDeviceFunc,
 	}
 }
 
@@ -101,6 +112,11 @@ func (m *Stub) SetAllocFunc(f stubAllocFunc1) {
 
 func (m *Stub) SetGetAllocFunc(f stubAllocFunc2) {
 	m.allocFunc2 = f
+}
+
+// SetAssociatedDeviceFunc sets the allocation function for associated devices.
+func (m *Stub) SetAssociatedDeviceFunc(f stubAllocAssociatedDeviceFunc) {
+	m.allocAssociateDeviceFunc = f
 }
 
 func (m *Stub) SetGetTopologyAwareAllocatableResourcesFunc(f stubGetTopologyAwareAllocatableResourcesFunc) {
@@ -289,9 +305,21 @@ func (m *Stub) GetPodTopologyHints(ctx context.Context, r *pluginapi.PodResource
 	return &pluginapi.PodResourceHintsResponse{}, nil
 }
 
-// Notify the resource plugin that the pod has beed deleted,
+// RemovePod Notify the resource plugin that the pod has beed deleted,
 // and the plugin should do some clear-up work.
 func (m *Stub) RemovePod(ctx context.Context, r *pluginapi.RemovePodRequest) (*pluginapi.RemovePodResponse, error) {
 	log.Printf("RemovePod, %+v", r)
 	return &pluginapi.RemovePodResponse{}, nil
+}
+
+func (m *Stub) UpdateAllocatableAssociatedDevices(ctx context.Context, r *pluginapi.UpdateAllocatableAssociatedDevicesRequest) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error) {
+	log.Printf("UpdateAllocatableAssociatedDevices, %+v", r)
+	return &pluginapi.UpdateAllocatableAssociatedDevicesResponse{}, nil
+}
+
+// AllocateAssociatedDevice is the gRPC implementation of the allocation function for associated devices.
+// It calls the registered allocation function.
+func (m *Stub) AllocateAssociatedDevice(ctx context.Context, r *pluginapi.AssociatedDeviceRequest) (*pluginapi.AssociatedDeviceAllocationResponse, error) {
+	log.Printf("AllocateAssociatedDevice, %+v", r)
+	return m.allocAssociateDeviceFunc(r)
 }
