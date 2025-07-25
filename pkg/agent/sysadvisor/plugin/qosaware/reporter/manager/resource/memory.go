@@ -19,6 +19,7 @@ package resource
 import (
 	v1 "k8s.io/api/core/v1"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter/manager"
 	hmadvisor "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -32,7 +33,7 @@ type memoryHeadroomManagerImpl struct {
 	*GenericHeadroomManager
 }
 
-func NewMemoryHeadroomManager(emitter metrics.MetricEmitter, meteServer *metaserver.MetaServer,
+func NewMemoryHeadroomManager(emitter metrics.MetricEmitter, meteServer *metaserver.MetaServer, metaCache metacache.MetaCache,
 	conf *config.Configuration, headroomAdvisor hmadvisor.ResourceAdvisor,
 ) (manager.HeadroomManager, error) {
 	gm := NewGenericHeadroomManager(
@@ -45,6 +46,7 @@ func NewMemoryHeadroomManager(emitter metrics.MetricEmitter, meteServer *metaser
 		generateMemoryWindowOptions(conf.HeadroomReporterConfiguration),
 		generateReclaimedMemoryOptionsFunc(conf.DynamicAgentConfiguration),
 		meteServer,
+		metaCache,
 	)
 
 	cm := &memoryHeadroomManagerImpl{

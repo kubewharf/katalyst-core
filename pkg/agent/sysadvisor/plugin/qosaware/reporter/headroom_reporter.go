@@ -32,6 +32,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/plugins/registration"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-api/pkg/protocol/reporterplugin/v1alpha1"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter/manager"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter/manager/resource"
 	hmadvisor "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource"
@@ -90,10 +91,10 @@ func (mgr *DummyHeadroomResourceManager) GetNumaCapacity() (map[int]apiresource.
 }
 
 // NewHeadroomReporter returns a wrapper of headroom reporter plugins as headroom reporter
-func NewHeadroomReporter(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
+func NewHeadroomReporter(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer, metaCache metacache.MetaCache,
 	conf *config.Configuration, headroomAdvisor hmadvisor.ResourceAdvisor,
 ) (*HeadroomReporter, error) {
-	plugin, getter, err := newHeadroomReporterPlugin(emitter, metaServer, conf, headroomAdvisor)
+	plugin, getter, err := newHeadroomReporterPlugin(emitter, metaServer, metaCache, conf, headroomAdvisor)
 	if err != nil {
 		return nil, fmt.Errorf("[headroom-reporter] create headroom reporter failed: %s", err)
 	}
@@ -135,7 +136,7 @@ type headroomReporterPlugin struct {
 	started     bool
 }
 
-func newHeadroomReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
+func newHeadroomReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer, metaCache metacache.MetaCache,
 	conf *config.Configuration, headroomAdvisor hmadvisor.ResourceAdvisor,
 ) (skeleton.GenericPlugin, HeadroomResourceGetter, error) {
 	var (
@@ -151,7 +152,7 @@ func newHeadroomReporterPlugin(emitter metrics.MetricEmitter, metaServer *metase
 	initializers := manager.GetRegisteredManagerInitializers()
 	headroomManagers := make(map[v1.ResourceName]manager.HeadroomManager, len(initializers))
 	for name, initializer := range initializers {
-		headroomManagers[name], err = initializer(emitter, metaServer, conf, headroomAdvisor)
+		headroomManagers[name], err = initializer(emitter, metaServer, metaCache, conf, headroomAdvisor)
 		if err != nil {
 			errList = append(errList, err)
 		}

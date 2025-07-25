@@ -74,7 +74,7 @@ func NewQoSAwarePlugin(pluginName string, conf *config.Configuration, extraConf 
 	for _, reporterName := range conf.Reporters {
 		switch reporterName {
 		case types.HeadroomReporter:
-			headroomReporter, err := reporter.NewHeadroomReporter(emitter, metaServer, conf, resourceAdvisor)
+			headroomReporter, err := reporter.NewHeadroomReporter(emitter, metaServer, metaCache, conf, resourceAdvisor)
 			if err != nil {
 				return nil, err
 			}

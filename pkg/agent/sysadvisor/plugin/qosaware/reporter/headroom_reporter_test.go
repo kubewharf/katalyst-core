@@ -46,6 +46,7 @@ import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/fetcher"
 	"github.com/kubewharf/katalyst-core/pkg/agent/resourcemanager/reporter"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/reporter/manager"
 	hmadvisor "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource"
 	"github.com/kubewharf/katalyst-core/pkg/client"
@@ -59,6 +60,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/metaserver/kcc"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -163,7 +165,7 @@ func TestNewReclaimedResourcedReporter(t *testing.T) {
 
 	advisorStub := hmadvisor.NewResourceAdvisorStub()
 
-	headroomReporter, err := NewHeadroomReporter(metrics.DummyMetrics{}, metaServer, conf, advisorStub)
+	headroomReporter, err := NewHeadroomReporter(metrics.DummyMetrics{}, metaServer, newTestMetaCache(t), conf, advisorStub)
 	require.NoError(t, err)
 	require.NotNil(t, headroomReporter)
 
@@ -177,6 +179,25 @@ func TestNewReclaimedResourcedReporter(t *testing.T) {
 	time.Sleep(1 * time.Second)
 	cancel()
 	wg.Wait()
+}
+
+func generateMachineConfig(t *testing.T) *config.Configuration {
+	testConfiguration, err := options.NewOptions().Config()
+	require.NoError(t, err)
+	require.NotNil(t, testConfiguration)
+
+	tmpStateDir, err := ioutil.TempDir("", "sys-advisor-test")
+	require.NoError(t, err)
+	testConfiguration.GenericSysAdvisorConfiguration.StateFileDirectory = tmpStateDir
+
+	return testConfiguration
+}
+
+func newTestMetaCache(t *testing.T) *metacache.MetaCacheImp {
+	metaCache, err := metacache.NewMetaCacheImp(generateMachineConfig(t), metricspool.DummyMetricsEmitterPool{}, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
+	require.NoError(t, err)
+	require.NotNil(t, metaCache)
+	return metaCache
 }
 
 func TestReclaimedResourcedReporterWithManager(t *testing.T) {
@@ -195,7 +216,7 @@ func TestReclaimedResourcedReporterWithManager(t *testing.T) {
 	metaServer := generateTestMetaServer(clientSet, conf)
 
 	advisorStub := hmadvisor.NewResourceAdvisorStub()
-	genericPlugin, _, err := newHeadroomReporterPlugin(metrics.DummyMetrics{}, metaServer, conf, advisorStub)
+	genericPlugin, _, err := newHeadroomReporterPlugin(metrics.DummyMetrics{}, metaServer, newTestMetaCache(t), conf, advisorStub)
 	require.NoError(t, err)
 	require.NotNil(t, genericPlugin)
 	_ = genericPlugin.Start()

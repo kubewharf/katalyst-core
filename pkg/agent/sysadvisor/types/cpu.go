@@ -169,6 +169,13 @@ type RegionInfo struct {
 	HeadroomPolicyInUse       CPUHeadroomPolicyName `json:"headroom_policy_in_use"`
 }
 
+type HeadroomEntries map[string]*HeadroomInfo
+
+type HeadroomInfo struct {
+	NUMAHeadroom  map[int]float64 `json:"numa_headroom"`
+	TotalHeadroom float64         `json:"total_headroom"`
+}
+
 // InternalCPUCalculationResult conveys minimal information to cpu server for composing
 // calculation result
 type InternalCPUCalculationResult struct {
