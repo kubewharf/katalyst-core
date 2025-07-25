@@ -23,12 +23,14 @@ import (
 )
 
 type MemoryGuardOptions struct {
-	Enable bool
+	Enable                       bool
+	CriticalWatermarkScaleFactor float64
 }
 
 func NewMemoryGuardOptions() *MemoryGuardOptions {
 	return &MemoryGuardOptions{
-		Enable: true,
+		Enable:                       true,
+		CriticalWatermarkScaleFactor: 1.0,
 	}
 }
 
@@ -38,9 +40,12 @@ func (o *MemoryGuardOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	fs.BoolVar(&o.Enable, "memory-guard-enable", o.Enable,
 		"set true to enable memory guard")
+	fs.Float64Var(&o.CriticalWatermarkScaleFactor, "memory-guard-critical-watermark-scale-factor", o.CriticalWatermarkScaleFactor,
+		"set critical watermark scale factor")
 }
 
 func (o *MemoryGuardOptions) ApplyTo(c *advisor.MemoryGuardConfiguration) error {
 	c.Enable = o.Enable
+	c.CriticalWatermarkScaleFactor = o.CriticalWatermarkScaleFactor
 	return nil
 }
