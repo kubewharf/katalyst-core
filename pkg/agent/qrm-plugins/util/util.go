@@ -25,6 +25,8 @@ import (
 	"strings"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
@@ -43,27 +45,32 @@ func GetQuantityFromResourceReq(req *pluginapi.ResourceRequest) (int, float64, e
 		return 0, 0, fmt.Errorf("invalid req.ResourceRequests length: %d", len(req.ResourceRequests))
 	}
 
-	for key := range req.ResourceRequests {
-		switch key {
-		case string(v1.ResourceCPU):
-			return general.Max(int(math.Ceil(req.ResourceRequests[key])), 0), req.ResourceRequests[key], nil
-		case string(apiconsts.ReclaimedResourceMilliCPU):
-			return general.Max(int(math.Ceil(req.ResourceRequests[key]/1000.0)), 0), req.ResourceRequests[key] / 1000.0, nil
-		case string(v1.ResourceMemory), string(apiconsts.ReclaimedResourceMemory), string(apiconsts.ResourceGPUMemory):
-			return general.Max(int(math.Ceil(req.ResourceRequests[key])), 0), req.ResourceRequests[key], nil
-		case string(apiconsts.ResourceNetBandwidth):
-			if req.Annotations[PodAnnotationQuantityFromQRMDeclarationKey] == PodAnnotationQuantityFromQRMDeclarationTrue {
-				general.Infof("detect %s: %s, return %s: 0 instead of %s: %.2f",
-					PodAnnotationQuantityFromQRMDeclarationKey, PodAnnotationQuantityFromQRMDeclarationTrue, key, key, req.ResourceRequests[key])
-				return 0, 0, nil
-			}
-			return general.Max(int(math.Ceil(req.ResourceRequests[key])), 0), req.ResourceRequests[key], nil
-		default:
-			return 0, 0, fmt.Errorf("invalid request resource name: %s", key)
-		}
+	return GetQuantityFromResourceRequests(req.ResourceRequests, req.ResourceName, IsQuantityFromQRMDeclaration(req.Annotations))
+}
+
+func GetQuantityFromResourceRequests(resourceRequests map[string]float64, resourceName string, isQuantityFromQRMDeclaration bool) (int, float64, error) {
+	quantity, ok := resourceRequests[resourceName]
+	if !ok {
+		return 0, 0, errors.NewNotFound(schema.GroupResource{}, resourceName)
 	}
 
-	return 0, 0, fmt.Errorf("unexpected end")
+	switch resourceName {
+	case string(apiconsts.ReclaimedResourceMilliCPU):
+		return general.Max(int(math.Ceil(quantity/1000.0)), 0), quantity / 1000.0, nil
+	case string(apiconsts.ResourceNetBandwidth):
+		if isQuantityFromQRMDeclaration {
+			general.Infof("detect %s: %s, return %s: 0 instead of %s: %.2f",
+				PodAnnotationQuantityFromQRMDeclarationKey, PodAnnotationQuantityFromQRMDeclarationTrue, resourceName, resourceName, quantity)
+			return 0, 0, nil
+		}
+		return general.Max(int(math.Ceil(quantity)), 0), quantity, nil
+	default:
+		return general.Max(int(math.Ceil(quantity)), 0), quantity, nil
+	}
+}
+
+func IsQuantityFromQRMDeclaration(podAnnotations map[string]string) bool {
+	return podAnnotations[PodAnnotationQuantityFromQRMDeclarationKey] == PodAnnotationQuantityFromQRMDeclarationTrue
 }
 
 // IsDebugPod returns true if the pod annotations show up any configurable debug key
