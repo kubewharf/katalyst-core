@@ -16,7 +16,10 @@ limitations under the License.
 
 package hintoptimizer
 
-type MetricBasedHintOptimizerConfig struct{}
+type MetricBasedHintOptimizerConfig struct {
+	// EnableMetricPreferredNumaAllocation indicates whether to enable metric preferred numa allocation
+	EnableMetricPreferredNumaAllocation bool
+}
 
 func NewMetricBasedHintOptimizerConfig() *MetricBasedHintOptimizerConfig {
 	return &MetricBasedHintOptimizerConfig{}
