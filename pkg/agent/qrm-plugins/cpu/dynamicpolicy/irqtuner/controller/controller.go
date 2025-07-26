@@ -2305,18 +2305,31 @@ func (ic *IrqTuningController) getSocketsQualifiedNumasForBalanceFairPolicy(sock
 	return qualifiedNumas
 }
 
-// get cores which are unqualified for defaut irq affinity
-func (ic *IrqTuningController) getUnqualifiedCoresMapForBalanceFairPolicy() map[int64]interface{} {
+// get cores which are unqualified for irq affinity
+func (ic *IrqTuningController) getUnqualifiedCoresForIrqAffinity() map[int64]interface{} {
 	unqualifiedCores := ic.getKataBMContainerCPUs()
 
-	exclusiveIrqCores := ic.getExclusiveIrqCores([]int{})
-	unqualifiedCores = append(unqualifiedCores, exclusiveIrqCores...)
-
-	// forbbiden cores can be affinitied by irqs of nics with balance-fair policy, but cannot be used as exclusive irq cores
-	// so here we donnot acount forbidden cores
+	// forbidden cores cannot be used as exclusive irq cores,
+	// and also cannot be affinitied by irqs of nics with balance-fair policy,
+	// because forbidden cores include cores DPDK PMD running on.
+	if len(ic.IrqAffForbiddenCores) > 0 {
+		unqualifiedCores = append(unqualifiedCores, ic.IrqAffForbiddenCores...)
+	}
 
 	unqualifiedCoresMap := make(map[int64]interface{})
 	for _, core := range unqualifiedCores {
+		unqualifiedCoresMap[core] = nil
+	}
+	return unqualifiedCoresMap
+}
+
+// get cores which are unqualified for balance-fair policy
+func (ic *IrqTuningController) getUnqualifiedCoresMapForBalanceFairPolicy() map[int64]interface{} {
+	unqualifiedCoresMap := ic.getUnqualifiedCoresForIrqAffinity()
+
+	exclusiveIrqCores := ic.getExclusiveIrqCores([]int{})
+
+	for _, core := range exclusiveIrqCores {
 		unqualifiedCoresMap[core] = nil
 	}
 	return unqualifiedCoresMap
@@ -3602,24 +3615,8 @@ func (ic *IrqTuningController) adaptIrqAffinityPolicy(oldIndicatorsStats *Indica
 }
 
 // get cores which are unqualified for IrqCoreExclusive affinity policy
-func (ic *IrqTuningController) getUnqualifiedCoresMapForAllNicsExclusiveIrqCores() map[int64]interface{} {
-	unqualifiedCores := ic.getKataBMContainerCPUs()
-
-	// forbbiden cores cannot be used as exclusive irq cores, but can be affinitied by irqs of nics with balance-fair policy
-	if len(ic.IrqAffForbiddenCores) > 0 {
-		unqualifiedCores = append(unqualifiedCores, ic.IrqAffForbiddenCores...)
-	}
-
-	unqualifiedCoresMap := make(map[int64]interface{})
-	for _, core := range unqualifiedCores {
-		unqualifiedCoresMap[core] = nil
-	}
-	return unqualifiedCoresMap
-}
-
-// get cores which are unqualified for IrqCoreExclusive affinity policy
 func (ic *IrqTuningController) getUnqualifiedCoresMapForNicExclusiveIrqCores(nic *NicInfo) map[int64]interface{} {
-	unqualifiedCoresMap := ic.getUnqualifiedCoresMapForAllNicsExclusiveIrqCores()
+	unqualifiedCoresMap := ic.getUnqualifiedCoresForIrqAffinity()
 
 	// other nics's exclusive irq cores are unqualified for current nic's exclusive irq cores
 	// of cousre current nic's exclusive irq cores is qualified
@@ -4382,7 +4379,7 @@ func (ic *IrqTuningController) reAdjustAllNicsExclusiveIrqCores() {
 }
 
 func (ic *IrqTuningController) handleUnqualifiedCoresChangeForExclusiveIrqCores() {
-	unqualifiedCoresMap := ic.getUnqualifiedCoresMapForAllNicsExclusiveIrqCores()
+	unqualifiedCoresMap := ic.getUnqualifiedCoresForIrqAffinity()
 
 	for _, nic := range ic.Nics {
 		// if nic in ic.IrqAffinityChanges, this nic's new irq cores selection has exclude
