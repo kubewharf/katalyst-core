@@ -491,7 +491,6 @@ func TestScorer_Score(t *testing.T) {
 
 			result := scorer.Score(tt.args.pods)
 
-			// 提取排序后的 Pod 名称
 			resultNames := make([]string, len(result))
 			for i, pod := range result {
 				resultNames[i] = pod.Pod.Name
