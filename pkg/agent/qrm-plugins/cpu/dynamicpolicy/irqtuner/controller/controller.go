@@ -2397,15 +2397,15 @@ func (ic *IrqTuningController) getNumaQualifiedCCDsForBalanceFairPolicy(numa int
 	var qualifiedCCDs []*machine.LLCDomain
 	for _, ccd := range ccds {
 		ccdCPUList := machine.GetLLCDomainCPUList(ccd)
-		qualified := true
+		qualifiedCoresCount := 0
 		for _, cpu := range ccdCPUList {
-			// if ccd has at least one cpu is unqualified, then this ccd is unqualified
-			if _, ok := unqualifiedCoresMap[cpu]; ok {
-				qualified = false
-				break
+			if _, ok := unqualifiedCoresMap[cpu]; !ok {
+				qualifiedCoresCount++
 			}
 		}
-		if qualified {
+
+		// if at least 2/3 cpus of ccd are qualified, then this ccd is qualified
+		if qualifiedCoresCount >= len(ccdCPUList)*2/3 {
 			qualifiedCCDs = append(qualifiedCCDs, ccd)
 		}
 	}
