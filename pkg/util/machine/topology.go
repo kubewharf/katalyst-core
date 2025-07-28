@@ -642,6 +642,7 @@ func GetCacheGroupCPUs(machineInfo *info.MachineInfo) map[int]sets.Int {
 		klog.Errorf("GetCacheGroupCPUs got nil machineInfo")
 		return cacheGroupMap
 	}
+	klog.Infof("[KFX]GetCacheGroupCPUs: machineInfo(%+v)", *machineInfo)
 
 	for _, node := range machineInfo.Topology {
 		for _, core := range node.Cores {
@@ -659,6 +660,8 @@ func GetCacheGroupCPUs(machineInfo *info.MachineInfo) map[int]sets.Int {
 			}
 		}
 	}
+
+	klog.Infof("[KFX]GetCacheGroupCPUs: cacheGroupMap(%+v)", cacheGroupMap)
 	return cacheGroupMap
 }
 

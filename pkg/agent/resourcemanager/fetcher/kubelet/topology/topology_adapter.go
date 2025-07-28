@@ -676,6 +676,7 @@ func (p *topologyAdapterImpl) getZoneAttributes(allocatableResources *podresv1.A
 			}
 
 			zoneNode, _, err := p.generateZoneNode(*quantity)
+			klog.Infof("[KFX]getZoneAttributes zoneNode: %+v", zoneNode)
 			if err != nil {
 				errList = append(errList, fmt.Errorf("get zone node from quantity %v failed: %v", quantity, err))
 				continue
@@ -733,12 +734,16 @@ func (p *topologyAdapterImpl) generateNodeDistanceAttr(node util.ZoneNode) []nod
 	}
 
 	distanceInfos := p.numaDistanceMap[numaID]
+	klog.Infof("[KFX]generateNodeDistanceAttr numaID:%v distanceInfos: %+v", numaID, distanceInfos)
 	for _, distanceInfo := range distanceInfos {
 		attrs = append(attrs, nodev1alpha1.Attribute{
 			Name:  fmt.Sprintf("numa%d_distance", distanceInfo.NumaID),
 			Value: fmt.Sprintf("%d", distanceInfo.Distance),
 		})
 	}
+
+	klog.Infof("[KFX]generateNodeDistanceAttr attrs: %+v", attrs)
+
 	return attrs
 }
 
