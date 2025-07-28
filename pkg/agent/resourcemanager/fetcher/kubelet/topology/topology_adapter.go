@@ -683,11 +683,9 @@ func (p *topologyAdapterImpl) getZoneAttributes(allocatableResources *podresv1.A
 			}
 
 			if _, ok := zoneAttributes[zoneNode]; !ok {
-				if zoneNode.Meta.Type == nodev1alpha1.TopologyTypeNuma {
-					zoneAttributes[zoneNode] = p.generateNodeDistanceAttr(zoneNode)
-				} else {
-					zoneAttributes[zoneNode] = util.ZoneAttributes{}
-				}
+
+				zoneAttributes[zoneNode] = util.ZoneAttributes{}
+
 			}
 
 			var attrs []nodev1alpha1.Attribute
@@ -701,6 +699,13 @@ func (p *topologyAdapterImpl) getZoneAttributes(allocatableResources *podresv1.A
 			zoneAttributes[zoneNode] = util.MergeAttributes(zoneAttributes[zoneNode], attrs)
 		}
 	}
+
+	klog.Infof("[KFX]getZoneAttributes numaSocketZoneNodeMap: %v", p.numaSocketZoneNodeMap)
+	// generate the attributes of numa zone node
+	for numaNode, _ := range p.numaSocketZoneNodeMap {
+		zoneAttributes[numaNode] = p.generateNodeDistanceAttr(numaNode)
+	}
+
 	klog.Infof("[KFX]getZoneAttributes first zoneAttributes: %v", zoneAttributes)
 
 	klog.Infof("[KFX]getZoneAttributes cacheGroupCPUsMap: %v", p.cacheGroupCPUsMap)
@@ -711,7 +716,7 @@ func (p *topologyAdapterImpl) getZoneAttributes(allocatableResources *podresv1.A
 		zoneAttributes[cacheGroupZoneNode] = util.ZoneAttributes{
 			nodev1alpha1.Attribute{
 				Name:  "cpu_lists",
-				Value: general.IntSliceToString(cpus.List()),
+				Value: machine.NewCPUSet(cpus.List()...).String(),
 			},
 		}
 	}
