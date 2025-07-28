@@ -644,20 +644,24 @@ func GetCacheGroupCPUs(machineInfo *info.MachineInfo) map[int]sets.Int {
 	}
 	klog.Infof("[KFX]GetCacheGroupCPUs: machineInfo(%+v)", *machineInfo)
 
+	processCaches := func(caches []info.Cache, threads []int) {
+		for _, cache := range caches {
+			if cache.Level != 3 {
+				continue
+			}
+			if _, exists := cacheGroupMap[cache.Id]; !exists {
+				cacheGroupMap[cache.Id] = sets.NewInt()
+			}
+			for _, thread := range threads {
+				cacheGroupMap[cache.Id].Insert(thread)
+			}
+		}
+	}
+
 	for _, node := range machineInfo.Topology {
 		for _, core := range node.Cores {
-			for _, cache := range core.Caches {
-				if cache.Level != 3 {
-					continue
-				}
-
-				if _, exists := cacheGroupMap[cache.Id]; !exists {
-					cacheGroupMap[cache.Id] = sets.NewInt()
-				}
-				for _, thread := range core.Threads {
-					cacheGroupMap[cache.Id].Insert(thread)
-				}
-			}
+			processCaches(core.Caches, core.Threads)
+			processCaches(core.UncoreCaches, core.Threads)
 		}
 	}
 
