@@ -522,11 +522,19 @@ func GenerateCacheGroupZone(cores []info.Core) []ZoneNode {
 	cacheGroupZones := make([]ZoneNode, 0)
 
 	// CAUTION: we think all cores in the same index3 ID has the same numa ID.
-	for _, core := range cores {
-		for _, index3ID := range core.Caches {
-			cacheGroupZoneNode := GenerateCacheGroupZoneNode(index3ID.Id)
+	processCaches := func(caches []info.Cache) {
+		for _, cache := range caches {
+			if cache.Level != 3 {
+				continue
+			}
+			cacheGroupZoneNode := GenerateCacheGroupZoneNode(cache.Id)
 			cacheGroupZones = append(cacheGroupZones, cacheGroupZoneNode)
 		}
+	}
+
+	for _, core := range cores {
+		processCaches(core.Caches)
+		processCaches(core.UncoreCaches)
 	}
 
 	return cacheGroupZones
