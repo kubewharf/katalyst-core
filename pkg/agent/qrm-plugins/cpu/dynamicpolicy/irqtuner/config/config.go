@@ -302,6 +302,7 @@ func ConvertDynamicConfigToIrqTuningConfig(dynamicConf *dynconfig.Configuration)
 		}
 
 		conf.EnableRPS = dynamicConf.IRQTuningConfiguration.EnableRPS
+		conf.EnableRPSCPUVSNicsQueue = dynamicConf.IRQTuningConfiguration.EnableRPSCPUVSNicsQueue
 
 		switch dynamicConf.IRQTuningConfiguration.NICAffinityPolicy {
 		case v1alpha1.NICAffinityPolicyPhysicalTopo:
