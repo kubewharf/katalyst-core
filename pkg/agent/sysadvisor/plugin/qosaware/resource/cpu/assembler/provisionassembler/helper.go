@@ -21,6 +21,7 @@ import (
 	"math"
 
 	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -187,15 +188,26 @@ func (rm *RegionMapHelper) GetRegions(numaID int, regionType configapi.QoSRegion
 
 func (rm *RegionMapHelper) preProcessRegions(regions map[string]region.QoSRegion) {
 	for _, r := range regions {
-		for _, numaID := range r.GetBindingNumas().ToSliceInt() {
-			numaRecords, ok := rm.regions[numaID]
+		if r.IsNumaBinding() {
+			for _, numaID := range r.GetBindingNumas().ToSliceInt() {
+				numaRecords, ok := rm.regions[numaID]
+				if !ok {
+					numaRecords = map[configapi.QoSRegionType][]region.QoSRegion{}
+				}
+				numaRegions := numaRecords[r.Type()]
+				numaRegions = append(numaRegions, r)
+				numaRecords[r.Type()] = numaRegions
+				rm.regions[numaID] = numaRecords
+			}
+		} else {
+			numaRecords, ok := rm.regions[commonstate.FakedNUMAID]
 			if !ok {
 				numaRecords = map[configapi.QoSRegionType][]region.QoSRegion{}
 			}
 			numaRegions := numaRecords[r.Type()]
 			numaRegions = append(numaRegions, r)
 			numaRecords[r.Type()] = numaRegions
-			rm.regions[numaID] = numaRecords
+			rm.regions[commonstate.FakedNUMAID] = numaRecords
 		}
 	}
 }
