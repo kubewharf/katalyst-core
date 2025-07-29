@@ -27,9 +27,12 @@ import (
 	hintoptimizerutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
+	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
+	"github.com/kubewharf/katalyst-core/pkg/util/strategygroup"
 )
 
 const HintOptimizerNameCanonical = "canonical"
@@ -41,6 +44,8 @@ type canonicalHintOptimizer struct {
 
 	cpuNUMAHintPreferPolicy       string
 	cpuNUMAHintPreferLowThreshold float64
+
+	conf *config.Configuration
 }
 
 func (o *canonicalHintOptimizer) Run(<-chan struct{}) {}
@@ -54,6 +59,7 @@ func NewCanonicalHintOptimizer(
 		reservedCPUs:                  options.ReservedCPUs,
 		cpuNUMAHintPreferPolicy:       options.Conf.CPUNUMAHintPreferPolicy,
 		cpuNUMAHintPreferLowThreshold: options.Conf.CPUNUMAHintPreferLowThreshold,
+		conf:                          options.Conf,
 	}, nil
 }
 
@@ -83,7 +89,16 @@ func (o *canonicalHintOptimizer) OptimizeHints(
 	hints.Hints = make([]*pluginapi.TopologyHint, 0, len(numaNodes))
 
 	machineState := o.state.GetMachineState()
-	switch o.cpuNUMAHintPreferPolicy {
+
+	preferPolicy := o.cpuNUMAHintPreferPolicy
+	dynamicPackEnabled, err := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameRequestDynamicPack,
+		true, o.conf)
+	if err != nil && dynamicPackEnabled {
+		preferPolicy = cpuconsts.CPUNUMAHintPreferPolicyDynamicPacking
+	}
+	general.Infof("optimize hint by policy %v", preferPolicy)
+
+	switch preferPolicy {
 	case cpuconsts.CPUNUMAHintPreferPolicyPacking, cpuconsts.CPUNUMAHintPreferPolicySpreading:
 		general.Infof("apply %s state policy on NUMAs: %+v", o.cpuNUMAHintPreferPolicy, numaNodes)
 		o.populateHintsByPreferPolicy(numaNodes, o.cpuNUMAHintPreferPolicy, hints, machineState, request.CPURequest)
@@ -130,7 +145,7 @@ func (o *canonicalHintOptimizer) populateHintsByPreferPolicy(numaNodes []int, pr
 
 		curLeft := availableCPUQuantity - request
 
-		general.Infof("NUMA: %d, left cpu quantity: %.3f", nodeID, curLeft)
+		general.Infof("NUMA: %d, request %.3f, left cpu quantity: %.3f, ", nodeID, request, curLeft)
 
 		if preferPolicy == cpuconsts.CPUNUMAHintPreferPolicyPacking {
 			if curLeft < minLeft {
@@ -176,10 +191,12 @@ func (o *canonicalHintOptimizer) filterNUMANodesByHintPreferLowThreshold(request
 			continue
 		}
 
-		availableRatio := availableCPUQuantity / float64(allocatableCPUQuantity)
+		availAfterAllocated := availableCPUQuantity - request
 
-		general.Infof("NUMA: %d, availableCPUQuantity: %.3f, allocatableCPUQuantity: %d, availableRatio: %.3f, cpuNUMAHintPreferLowThreshold:%.3f",
-			nodeID, availableCPUQuantity, allocatableCPUQuantity, availableRatio, o.cpuNUMAHintPreferLowThreshold)
+		availableRatio := availAfterAllocated / float64(allocatableCPUQuantity)
+
+		general.Infof("NUMA: %d, availableCPUQuantity: %.3f, availAfterAllocated: %.3f, allocatableCPUQuantity: %d, availableRatio: %.3f, cpuNUMAHintPreferLowThreshold:%.3f",
+			nodeID, availableCPUQuantity, availAfterAllocated, allocatableCPUQuantity, availableRatio, o.cpuNUMAHintPreferLowThreshold)
 
 		if availableRatio >= o.cpuNUMAHintPreferLowThreshold {
 			filteredNUMANodes = append(filteredNUMANodes, nodeID)
