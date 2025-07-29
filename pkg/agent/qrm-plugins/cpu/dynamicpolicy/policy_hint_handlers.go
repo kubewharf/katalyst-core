@@ -159,7 +159,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Conte
 	// if hints exists in extra state-file, prefer to use them
 	if hints == nil {
 		availableNUMAs := machineState.GetFilteredNUMASet(state.WrapAllocationMetaFilter(
-			(*commonstate.AllocationMeta).CheckSharedOrDedicatedNUMABinding))
+			(*commonstate.AllocationMeta).CheckDedicatedNUMABindingNUMAExclusive))
 
 		var extraErr error
 		hints, extraErr = util.GetHintsFromExtraStateFile(req.PodName, string(v1.ResourceCPU), p.extraStateFileAbsPath, availableNUMAs)
