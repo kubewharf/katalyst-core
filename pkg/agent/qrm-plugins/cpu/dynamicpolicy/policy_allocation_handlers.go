@@ -906,7 +906,7 @@ func (p *DynamicPolicy) adjustPoolsAndIsolatedEntries(
 	persistCheckpoint bool,
 ) error {
 	availableCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, nil,
-		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicatedNUMABinding))
+		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicatedNUMABindingNUMAExclusive))
 
 	reclaimOverlapShareRatio, err := p.getReclaimOverlapShareRatio(entries)
 	if err != nil {
@@ -1091,7 +1091,7 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 	// rampUpCPUs include reclaim pool in NUMAs without NUMA_binding cpus
 	rampUpCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs,
 		nil,
-		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicatedNUMABinding)).
+		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicatedNUMABindingNUMAExclusive)).
 		Difference(unionDedicatedIsolatedCPUSet).
 		Difference(sharedBindingNUMACPUs)
 

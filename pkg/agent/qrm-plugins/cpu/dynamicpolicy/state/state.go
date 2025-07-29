@@ -61,9 +61,9 @@ type (
 )
 
 type NUMANodeState struct {
-	// equals to allocatable cpuset subtracting original allocation result of dedicated_cores with NUMA binding
+	// equals to allocatable cpuset subtracting original allocation result of shared_cores or dedicated_cores with NUMA binding
 	DefaultCPUSet machine.CPUSet `json:"default_cpuset,omitempty"`
-	// equals to original allocation result of dedicated_cores with NUMA binding
+	// equals to original allocation result of shared_cores or dedicated_cores with NUMA binding
 	AllocatedCPUSet machine.CPUSet `json:"allocated_cpuset,omitempty"`
 
 	PodEntries PodEntries `json:"pod_entries"`
