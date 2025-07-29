@@ -14,8 +14,21 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package monitor
+package quota
 
-// GroupMonStat is memory bandwidth statistic info of one domain, which has
-// multiple groups, each of the groups has multiple CCDs
-type GroupMonStat map[string]GroupCCDMB
+import "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/resource"
+
+type easer struct{}
+
+func (e easer) GetGroupQuotas(groupLimits *resource.MBGroupLimits) resource.GroupSettings {
+	//groupQuotas := resource.GroupSettings{}
+	//
+	//balance := groupLimits.CapacityInMB
+	//for group, limits := range groupLimits.GroupLimits {
+	//
+	//}
+	//TODO implement me
+	panic("implement me")
+}
+
+var _ Quota = &easer{}

@@ -23,6 +23,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/resource"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/domain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 )
@@ -120,7 +121,7 @@ func Test_domainAdvisor_calcIncomingQuotas(t *testing.T) {
 		name    string
 		fields  fields
 		args    args
-		want    map[int]mbGroupLimits
+		want    map[int]*resource.MBGroupLimits
 		wantErr bool
 	}{
 		{
@@ -150,10 +151,19 @@ func Test_domainAdvisor_calcIncomingQuotas(t *testing.T) {
 					},
 				},
 			},
-			want: map[int]mbGroupLimits{
-				0: map[string]int{
-					"shared-60": 10_000,
-					"shared-50": 10_000 - 2_200,
+			want: map[int]*resource.MBGroupLimits{
+				0: {
+					CapacityInMB: 10_000,
+					FreeInMB:     10_000 - 2_200 - 6_600,
+					GroupSorted: []sets.String{
+						sets.NewString("shared-60"),
+						sets.NewString("shared-50"),
+					},
+					GroupLimits: map[string]int{
+						"shared-60": 10_000,
+						"shared-50": 10_000 - 2_200,
+					},
+					ResourceState: resource.State("fit"),
 				},
 			},
 			wantErr: false,
@@ -188,10 +198,19 @@ func Test_domainAdvisor_calcIncomingQuotas(t *testing.T) {
 					},
 				},
 			},
-			want: map[int]mbGroupLimits{
-				0: map[string]int{
-					"shared-60": 6_000,
-					"shared-50": 6_000 - 2_200,
+			want: map[int]*resource.MBGroupLimits{
+				0: {
+					CapacityInMB: 6_000,
+					FreeInMB:     0,
+					GroupSorted: []sets.String{
+						sets.NewString("shared-60"),
+						sets.NewString("shared-50"),
+					},
+					GroupLimits: map[string]int{
+						"shared-60": 6_000,
+						"shared-50": 6_000 - 2_200,
+					},
+					ResourceState: resource.State("underStress"),
 				},
 			},
 			wantErr: false,
@@ -206,13 +225,13 @@ func Test_domainAdvisor_calcIncomingQuotas(t *testing.T) {
 				XDomGroups:        tt.fields.XDomGroups,
 				GroupCapacityInMB: tt.fields.GroupCapacityInMB,
 			}
-			got, err := d.calcIncomingQuotas(tt.args.ctx, tt.args.mon)
+			got, err := d.calcIncomingDomainLimits(tt.args.ctx, tt.args.mon)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("calcIncomingQuotas() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("calcIncomingDomainLimits() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("calcIncomingQuotas() got = %v, want %v", got, tt.want)
+				t.Errorf("calcIncomingDomainLimits() got = %v, want %v", got, tt.want)
 			}
 		})
 	}

@@ -1,0 +1,46 @@
+/*
+Copyright 2022 The Katalyst Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package quota
+
+import "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/resource"
+
+type Quota interface {
+	GetGroupQuotas(groupLimits *resource.MBGroupLimits) resource.GroupSettings
+}
+
+type composite struct {
+	throttler Quota
+	easer     Quota
+}
+
+func (c composite) GetGroupQuotas(groupLimits *resource.MBGroupLimits) resource.GroupSettings {
+	switch groupLimits.ResourceState {
+	case resource.ResourceStressful:
+		return c.throttler.GetGroupQuotas(groupLimits)
+	case resource.ResourceAbundant:
+		return c.easer.GetGroupQuotas(groupLimits)
+	default:
+		return nil
+	}
+}
+
+func New() Quota {
+	return &composite{
+		throttler: nil,
+		easer:     nil,
+	}
+}

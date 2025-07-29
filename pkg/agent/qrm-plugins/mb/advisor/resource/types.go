@@ -14,8 +14,24 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package monitor
+package resource
 
-// GroupMonStat is memory bandwidth statistic info of one domain, which has
-// multiple groups, each of the groups has multiple CCDs
-type GroupMonStat map[string]GroupCCDMB
+import "k8s.io/apimachinery/pkg/util/sets"
+
+type State string
+
+const (
+	ResourceStressful State = "underStress"
+	ResourceAbundant  State = "abundance"
+	ResourceFit       State = "fit"
+)
+
+type GroupSettings map[string]int
+
+type MBGroupLimits struct {
+	CapacityInMB  int
+	FreeInMB      int
+	GroupSorted   []sets.String
+	GroupLimits   GroupSettings
+	ResourceState State
+}

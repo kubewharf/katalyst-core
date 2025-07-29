@@ -14,8 +14,21 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package monitor
+package resource
 
-// GroupMonStat is memory bandwidth statistic info of one domain, which has
-// multiple groups, each of the groups has multiple CCDs
-type GroupMonStat map[string]GroupCCDMB
+const (
+	MinFreePercent = 5
+	MaxFreePercent = 20
+)
+
+func GetResourceState(capacity int, free int) State {
+	if free < capacity*MinFreePercent/100 {
+		return ResourceStressful
+	}
+
+	if free > capacity*MaxFreePercent/100 {
+		return ResourceAbundant
+	}
+
+	return ResourceFit
+}

@@ -24,12 +24,12 @@ import (
 	"golang.org/x/exp/maps"
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/quota"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/resource"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/domain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
 )
-
-type mbGroupLimits map[string]int
 
 type domainAdvisor struct {
 	domains domain.Domains
@@ -38,20 +38,35 @@ type domainAdvisor struct {
 	XDomGroups sets.String
 	// GroupCapacityInMB specifies domain capacity demanded by control groups other than the base capacity
 	GroupCapacityInMB map[string]int
+
+	quotaStrategy quota.Quota
 }
 
 func (d *domainAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.DomainsMon) (*plan.MBPlan, error) {
-	domQuotas, err := d.calcIncomingQuotas(ctx, domainsMon)
+	domLimits, err := d.calcIncomingDomainLimits(ctx, domainsMon)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get plan")
+	}
 
-	// based on quota (a.k.a. mb limits), decide what the outgoing settings are
+	// based on mb limits and resource state, decide incoming quotas
+	domQuotas := d.getIncomingDomainQuotas(ctx, domLimits)
 	_ = domQuotas
-	_ = err
+
+	// based on incoming quotas, decide what the outgoing settings are
 
 	panic("implement me")
 }
 
-func (d *domainAdvisor) calcIncomingQuotas(ctx context.Context, mon *monitor.DomainsMon) (map[int]mbGroupLimits, error) {
-	domainQuotas := make(map[int]mbGroupLimits)
+func (d *domainAdvisor) getIncomingDomainQuotas(ctx context.Context, domLimits map[int]*resource.MBGroupLimits) map[int]resource.GroupSettings {
+	domQuotas := map[int]resource.GroupSettings{}
+	for dom, limits := range domLimits {
+		domQuotas[dom] = d.quotaStrategy.GetGroupQuotas(limits)
+	}
+	return domQuotas
+}
+
+func (d *domainAdvisor) calcIncomingDomainLimits(ctx context.Context, mon *monitor.DomainsMon) (map[int]*resource.MBGroupLimits, error) {
+	domainQuotas := make(map[int]*resource.MBGroupLimits)
 	var err error
 	for domID, incomingStats := range mon.Incoming {
 		domainQuotas[domID], err = d.calcIncomingGroupLimits(domID, incomingStats)
@@ -62,8 +77,12 @@ func (d *domainAdvisor) calcIncomingQuotas(ctx context.Context, mon *monitor.Dom
 	return domainQuotas, nil
 }
 
-func distributeCapacityToGroups(capacity int, incomingStats monitor.GroupMonStat) mbGroupLimits {
-	result := mbGroupLimits{}
+func distributeCapacityToGroups(capacity int, incomingStats monitor.GroupMonStat) *resource.MBGroupLimits {
+	result := &resource.MBGroupLimits{
+		CapacityInMB: capacity,
+		GroupLimits:  map[string]int{},
+	}
+
 	// from hi to lo to distribute limits, stripping usage out of the determined capacity
 	balance := capacity
 	groups := maps.Keys(incomingStats)
@@ -76,20 +95,25 @@ func distributeCapacityToGroups(capacity int, incomingStats monitor.GroupMonStat
 
 		// all equivalent groups shared the same quota
 		for group := range groups {
-			result[group] = balance
+			result.GroupLimits[group] = balance
 		}
 
 		if balance < used {
 			balance = 0
 			continue
 		}
+
 		balance -= used
 	}
+
+	result.ResourceState = resource.GetResourceState(capacity, balance)
+	result.FreeInMB = balance
+	result.GroupSorted = sortedGroups
 
 	return result
 }
 
-func (d *domainAdvisor) calcIncomingGroupLimits(domID int, incomingStats monitor.GroupMonStat) (mbGroupLimits, error) {
+func (d *domainAdvisor) calcIncomingGroupLimits(domID int, incomingStats monitor.GroupMonStat) (*resource.MBGroupLimits, error) {
 	capacity, err := d.getCapacity(domID, incomingStats)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to calc domain capacity")
@@ -130,5 +154,6 @@ func New(XDomGroups []string, groupCapacity map[string]int) Advisor {
 	return &domainAdvisor{
 		XDomGroups:        sets.NewString(XDomGroups...),
 		GroupCapacityInMB: groupCapacity,
+		quotaStrategy:     nil,
 	}
 }

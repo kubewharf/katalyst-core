@@ -14,8 +14,15 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package monitor
+package resource
 
-// GroupMonStat is memory bandwidth statistic info of one domain, which has
-// multiple groups, each of the groups has multiple CCDs
-type GroupMonStat map[string]GroupCCDMB
+import "k8s.io/apimachinery/pkg/util/sets"
+
+func GetOne(group sets.String) string {
+	for element := range group {
+		return element
+	}
+
+	// should not go here; group has at least one element
+	return ""
+}

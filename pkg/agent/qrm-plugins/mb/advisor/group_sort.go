@@ -22,6 +22,8 @@ import (
 	"strings"
 
 	"k8s.io/apimachinery/pkg/util/sets"
+
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/resource"
 )
 
 const defaultWeight = 5_000
@@ -79,15 +81,6 @@ func getSortedGroups(groups []string) []sets.String {
 	return mergeGroups(groups)
 }
 
-func getOne(group sets.String) string {
-	for element := range group {
-		return element
-	}
-
-	// should not go here; group has at least one element
-	return ""
-}
-
 func mergeGroups(groups []string) []sets.String {
 	var mergedGroups []sets.String
 	for _, group := range groups {
@@ -97,7 +90,7 @@ func mergeGroups(groups []string) []sets.String {
 		}
 
 		lastGroup := mergedGroups[len(mergedGroups)-1]
-		weightLastGroup := getWeight(getOne(lastGroup))
+		weightLastGroup := getWeight(resource.GetOne(lastGroup))
 		if getWeight(group) == weightLastGroup {
 			lastGroup.Insert(group)
 			continue
