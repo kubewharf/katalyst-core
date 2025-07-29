@@ -181,15 +181,44 @@ func (p *NumaCPUPressureEviction) GetEvictPods(ctx context.Context, request *plu
 		_ = p.emitter.StoreInt64(metricsNameGetEvictPods, 0, metrics.MetricTypeNameRaw)
 		return &pluginapi.GetEvictPodsResponse{}, nil
 	}
+
+	//1.OverRatioNumaFilter
+	// activePods, _ := p.OverRatioNumaFilter(request.ActivePods, p.numaOverStat)
+	activePods := request.ActivePods
+	general.Infof("activePods: %v", activePods)
+	//2.filterParams
+	enabledFilters := p.numaPressureConfig.EnabledFilters
+	filterParams := map[string]interface{}{
+		rules.OwnerRefFilterName:      p.numaPressureConfig.SkippedPodKinds, // OwnerRefFilter params
+		rules.OverRatioNumaFilterName: p.numaOverStats,
+	}
+	//3.allFilter
+	filterer, _ := rules.NewFilter(enabledFilters, p.emitter, filterParams)
+	filteredPods := filterer.Filter(activePods)
+
+	if len(filteredPods) == 0 {
+		general.Warningf("got empty active pods list after filter")
+		return &pluginapi.GetEvictPodsResponse{}, nil
+	}
+
+	general.Infof("filteredPods: %v", filteredPods)
+
 	//1.get annotation of pods
 	candidatePods, _ := rules.PrepareCandidatePods(ctx, request)
+	general.Infof("candidatePods: %v", candidatePods)
+
+	candidatePods = rules.FilterCandidatePods(candidatePods, filteredPods)
+	general.Infof("candidatePods after filter: %v", candidatePods)
+
 	//2.scorerParams
 	enabledScorers := p.numaPressureConfig.EnabledScorers
+	general.Infof("enabledScorers: %v", enabledScorers)
 	scorerParams := map[string]interface{}{
 		rules.DeploymentEvictionFrequencyScorerName: nil,
 	}
 	//3.allFilter
 	scorer, _ := rules.NewScorer(enabledScorers, p.emitter, scorerParams)
+	general.Infof("create scorer success: %v", scorer)
 	candidatePods = scorer.Score(candidatePods)
 	if len(candidatePods) == 0 {
 		general.Warningf("got empty active pods list after filter")
@@ -207,6 +236,10 @@ func (p *NumaCPUPressureEviction) GetEvictPods(ctx context.Context, request *plu
 	// 		})...)
 	// 	return &pluginapi.GetEvictPodsResponse{}, nil
 	// }
+	if len(p.numaOverStats) == 0 {
+		general.Warningf("no numa over stats")
+		return &pluginapi.GetEvictPodsResponse{}, nil
+	}
 	numaID := p.numaOverStats[0].NumaID
 	numaUsageRatio := p.numaOverStats[0].AvgUsageRatio
 	numaOverloadRatio := p.numaOverStats[0].OverloadRatio

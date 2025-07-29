@@ -95,6 +95,11 @@ func calculateEvictionStatsByWindows(currentTime time.Time, evictionResp FetchEv
 	buckets := evictionResp.Buckets.List
 	currentHealthy := evictionResp.CurrentHealthy
 	statsByWindow := make(map[float64]*EvictionStats)
+	if len(buckets) == 0 {
+		general.Warningf("no buckets in eviction info")
+		return statsByWindow, 0
+	}
+
 	currentTimestamp := currentTime.Unix()
 	lastEvictionTime := buckets[0].Time
 	for _, windowSec := range windows {
@@ -128,4 +133,24 @@ func ConvertCandidatesToPods(candidates []*CandidatePod) []*v1.Pod {
 		}
 	}
 	return pods
+}
+
+func FilterCandidatePods(candidates []*CandidatePod, podsToRemove []*v1.Pod) []*CandidatePod {
+	podUIDs := make(map[string]struct{})
+	for _, pod := range podsToRemove {
+		if pod != nil {
+			podUIDs[string(pod.UID)] = struct{}{}
+		}
+	}
+
+	var filtered []*CandidatePod
+	for _, candidate := range candidates {
+		if candidate == nil || candidate.Pod == nil {
+			continue
+		}
+		if _, exists := podUIDs[string(candidate.Pod.UID)]; !exists {
+			filtered = append(filtered, candidate)
+		}
+	}
+	return filtered
 }
