@@ -37,8 +37,13 @@ import (
 	reporterpluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/reporterplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/utils"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+)
+
+const (
+	metricsNameCNRTaint = "cnr_taint"
 )
 
 var validNodeTaintEffects = sets.NewString(
@@ -209,6 +214,8 @@ func (m *EvictionManger) reportConditionsAsCNRTaints(ctx context.Context) {
 		taintToAdd.TimeAdded = &now
 	}
 
+	m.emmitCNRTaintMetrics(taints)
+
 	err = m.reportCNRTaints(ctx, taints)
 	if err != nil {
 		klog.Errorf("[eviction manager] failed to report cnr taints: %v", err)
@@ -236,6 +243,15 @@ func (m *EvictionManger) reportCNRTaints(ctx context.Context, taints []v1alpha1.
 	}
 
 	return m.cnrTaintReporter.ReportContents(ctx, contents, true)
+}
+
+func (m *EvictionManger) emmitCNRTaintMetrics(taints []v1alpha1.Taint) {
+	for _, taint := range taints {
+		_ = m.emitter.StoreInt64(metricsNameCNRTaint, 1, metrics.MetricTypeNameRaw,
+			metrics.MetricTag{Key: "qos_level", Val: string(taint.QoSLevel)},
+			metrics.MetricTag{Key: "key", Val: taint.Key},
+			metrics.MetricTag{Key: "effect", Val: string(taint.Effect)})
+	}
 }
 
 func nodeTaintsLog(taints []*v1.Taint) string {
