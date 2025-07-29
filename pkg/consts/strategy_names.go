@@ -46,6 +46,9 @@ const (
 	// StrategyNameNumaCpuPressureEviction is the name of numa_cpu_pressure_eviction strategy,
 	// it evicts pods with high cpu pressure on numa nodes.
 	StrategyNameNumaCpuPressureEviction = "numa_cpu_pressure_eviction"
+	// StrategyNameRequestDynamicPack is the name of request_dynamic_pack strategy,
+	// it packs pods under given threshold, spreads pods above the threshold.
+	StrategyNameRequestDynamicPack = "req_dynamic_pack"
 )
 
 const (

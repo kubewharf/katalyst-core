@@ -3570,6 +3570,7 @@ func TestGetTopologyHints(t *testing.T) {
 					dynamicPolicy.conf.CPUNUMAHintPreferLowThreshold = 0.5
 				}
 			}
+			dynamicPolicy.conf.GetDynamicConfiguration().EnableStrategyGroup = true
 
 			dynamicPolicy.sharedCoresNUMABindingHintOptimizer, err = canonical.NewCanonicalHintOptimizer(dynamicPolicy.generateHintOptimizerFactoryOptions())
 			as.NoError(err)
