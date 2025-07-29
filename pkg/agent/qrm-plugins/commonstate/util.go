@@ -22,7 +22,6 @@ import (
 
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
-	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
@@ -35,21 +34,7 @@ func CheckNUMABindingSharedCoresAntiAffinity(meta *AllocationMeta, annotations m
 		return false
 	}
 
-	if meta.CheckDedicatedNUMABinding() {
-		return true
-	}
-
-	if meta.CheckSharedNUMABinding() {
-		// considering isolation, use specified pool instead of actual pool name here
-		candidateSpecifiedPoolName := GetSpecifiedPoolName(consts.PodAnnotationQoSLevelSharedCores,
-			annotations[consts.PodAnnotationCPUEnhancementCPUSet])
-		aiSpecifiedPoolName := meta.GetSpecifiedPoolName()
-
-		// shared_cores with numa binding doesn't support two share type pools with same specified name existing at same NUMA
-		if candidateSpecifiedPoolName != aiSpecifiedPoolName {
-			return true
-		}
-	}
+	// todo: current we only support numa-share=true, and we need support numa-share=fale in the future
 
 	return false
 }

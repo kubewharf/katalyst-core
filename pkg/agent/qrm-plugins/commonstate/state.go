@@ -253,6 +253,12 @@ func (am *AllocationMeta) CheckDedicatedNUMABinding() bool {
 	return am.CheckDedicated() && am.CheckNUMABinding()
 }
 
+// CheckDedicatedNUMABindingNUMAExclusive returns true if the AllocationInfo is for pod with
+// dedicated-qos and numa-binding and numa-exclusive enhancement
+func (am *AllocationMeta) CheckDedicatedNUMABindingNUMAExclusive() bool {
+	return am.CheckDedicatedNUMABinding() && am.CheckNumaExclusive()
+}
+
 // CheckSharedNUMABinding returns true if the AllocationInfo is for pod with
 // shared-qos and numa-binding enhancement
 func (am *AllocationMeta) CheckSharedNUMABinding() bool {
