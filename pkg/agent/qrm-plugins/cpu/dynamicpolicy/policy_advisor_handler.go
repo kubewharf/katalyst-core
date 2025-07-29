@@ -700,7 +700,7 @@ func (p *DynamicPolicy) applyCPUQuotaWithRelativePath(relativePath string, limit
 	if cpu.CpuQuota < 0 && realQuota <= resources.CpuQuota {
 		err := cgroupmgr.ApplyCPUWithRelativePath(relativePath, &common.CPUData{CpuQuota: realQuota})
 		if err != nil {
-			return fmt.Errorf("ApplyCPUWithRelativePath %s failed with error: %v", relativePath, err)
+			return fmt.Errorf("ApplyCPUWithRelativePath %s with realQuota %v resourceQuota %v failed with error: %v", relativePath, realQuota, resources.CpuQuota, err)
 		}
 	}
 
@@ -708,7 +708,7 @@ func (p *DynamicPolicy) applyCPUQuotaWithRelativePath(relativePath string, limit
 	if cpu.CpuQuota > 0 && realQuota > resources.CpuQuota {
 		err := cgroupmgr.ApplyCPUWithRelativePath(relativePath, &common.CPUData{CpuQuota: -1})
 		if err != nil {
-			return fmt.Errorf("ApplyCPUWithRelativePath %s failed with error: %v", relativePath, err)
+			return fmt.Errorf("ApplyCPUWithRelativePath %s to -1 with realQuota %v resourceQuota %v failed with error: %v", relativePath, realQuota, resources.CpuQuota, err)
 		}
 	}
 
