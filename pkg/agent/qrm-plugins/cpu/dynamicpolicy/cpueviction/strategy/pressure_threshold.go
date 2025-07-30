@@ -28,7 +28,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/strategygroup"
 )
 
-var ThresholdMin = 0.4
+var ThresholdMin = 0.0
 
 func (p *NumaCPUPressureEviction) pullThresholds(_ context.Context) {
 	dynamicConf := p.conf.DynamicAgentConfiguration.GetDynamicConfiguration()

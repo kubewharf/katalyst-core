@@ -179,7 +179,8 @@ func (p *NumaCPUPressureEviction) GetEvictPods(ctx context.Context, request *plu
 
 	if p.overloadNumaCount == 0 {
 		_ = p.emitter.StoreInt64(metricsNameGetEvictPods, 0, metrics.MetricTypeNameRaw)
-		return &pluginapi.GetEvictPodsResponse{}, nil
+		general.Infof("overloadNumaCount is 0")
+		// return &pluginapi.GetEvictPodsResponse{}, nil
 	}
 
 	//1.OverRatioNumaFilter
@@ -363,6 +364,8 @@ func (p *NumaCPUPressureEviction) update(_ context.Context) {
 			for podUID, containerEntries := range snbEntries {
 				for containerName := range containerEntries {
 					val, err := p.metaServer.GetContainerMetric(podUID, containerName, metricName)
+					general.Infof("get pod metric, podUID %v, containerName %v, metricName %v, numa %v, pod %v, metric %v, val %v",
+						podUID, containerName, metricName, numaID, podUID, metricName, val)
 					if err != nil {
 						general.Warningf("failed to get pod metric, numa %v, pod %v, metric %v err: %v",
 							numaID, podUID, metricName, err)
