@@ -14,47 +14,41 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package advisor
+package resource
 
 import (
 	"reflect"
 	"testing"
-
-	"k8s.io/apimachinery/pkg/util/sets"
 )
 
-func Test_getSortedGroups(t *testing.T) {
+func TestGetGroupedDomainSetting(t *testing.T) {
 	t.Parallel()
 	type args struct {
-		groups []string
+		domsGroupSetting map[int]GroupSettings
 	}
 	tests := []struct {
 		name string
 		args args
-		want []sets.String
+		want map[string][]int
 	}{
 		{
 			name: "happy path",
 			args: args{
-				groups: []string{"reclaim", "dedicated", "unknown", "system", "share"},
+				domsGroupSetting: map[int]GroupSettings{
+					0: {
+						"dedicated": 30_000,
+						"shared-50": 20_000,
+					},
+					1: {
+						"dedicated": 35_000,
+						"shared-60": 25_000,
+					},
+				},
 			},
-			want: []sets.String{
-				sets.NewString("dedicated", "system"),
-				sets.NewString("unknown"),
-				sets.NewString("share"),
-				sets.NewString("reclaim"),
-			},
-		},
-		{
-			name: "with shared sub groups",
-			args: args{
-				groups: []string{"shared-45", "dedicated", "shared-50", "shared-30"},
-			},
-			want: []sets.String{
-				sets.NewString("dedicated"),
-				sets.NewString("shared-50"),
-				sets.NewString("shared-45"),
-				sets.NewString("shared-30"),
+			want: map[string][]int{
+				"dedicated": {30_000, 35_000},
+				"shared-60": {0, 25_000},
+				"shared-50": {20_000, 0},
 			},
 		},
 	}
@@ -62,8 +56,8 @@ func Test_getSortedGroups(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := sortGroups(tt.args.groups); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("sortGroups() = %v, want %v", got, tt.want)
+			if got := GetGroupedDomainSetting(tt.args.domsGroupSetting); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("GetGroupedDomainSetting() = %v, want %v", got, tt.want)
 			}
 		})
 	}

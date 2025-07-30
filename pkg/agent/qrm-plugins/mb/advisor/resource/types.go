@@ -28,10 +28,11 @@ const (
 
 type GroupSettings map[string]int
 
-type MBGroupLimits struct {
-	CapacityInMB  int
-	FreeInMB      int
-	GroupSorted   []sets.String
-	GroupLimits   GroupSettings
-	ResourceState State
+type MBGroupStat struct {
+	CapacityInMB   int
+	FreeInMB       int
+	GroupTotalUses map[string]int
+	ResourceState  State
+	GroupLimits    GroupSettings
+	GroupSorted    []sets.String
 }

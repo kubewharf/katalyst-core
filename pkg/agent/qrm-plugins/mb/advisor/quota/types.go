@@ -18,29 +18,29 @@ package quota
 
 import "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/resource"
 
-type Quota interface {
-	GetGroupQuotas(groupLimits *resource.MBGroupLimits) resource.GroupSettings
+type Decider interface {
+	GetGroupQuotas(groupLimits *resource.MBGroupStat) resource.GroupSettings
 }
 
-type composite struct {
-	throttler Quota
-	easer     Quota
+type phasedDecider struct {
+	throttler Decider
+	easer     Decider
 }
 
-func (c composite) GetGroupQuotas(groupLimits *resource.MBGroupLimits) resource.GroupSettings {
+func (c phasedDecider) GetGroupQuotas(groupLimits *resource.MBGroupStat) resource.GroupSettings {
 	switch groupLimits.ResourceState {
 	case resource.ResourceStressful:
 		return c.throttler.GetGroupQuotas(groupLimits)
 	case resource.ResourceAbundant:
 		return c.easer.GetGroupQuotas(groupLimits)
 	default:
-		return nil
+		return nil // no change if neither stressful nor wasteful
 	}
 }
 
-func New() Quota {
-	return &composite{
-		throttler: nil,
-		easer:     nil,
+func New() Decider {
+	return &phasedDecider{
+		throttler: ratioCapacityReserver{minReserveRatio: resource.MinFreePercent},
+		easer:     ratioCapacityReserver{minReserveRatio: resource.MaxFreePercent},
 	}
 }

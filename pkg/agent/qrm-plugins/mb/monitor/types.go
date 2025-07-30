@@ -27,16 +27,18 @@ type MBStat struct {
 	TotalMB  int
 }
 
-func (g GroupCCDMB) Sum() int {
-	sum := 0
+func (g GroupCCDMB) SumStat() MBStat {
+	sum := MBStat{}
 	for _, mbStat := range g {
-		sum += mbStat.TotalMB
+		sum.TotalMB += mbStat.TotalMB
+		sum.LocalMB += mbStat.LocalMB
+		sum.RemoteMB += mbStat.RemoteMB
 	}
 
 	return sum
 }
 
 func (g GroupCCDMB) HasTraffic() bool {
-	sum := g.Sum()
-	return sum >= minActiveMB
+	totalMB := g.SumStat().TotalMB
+	return totalMB >= minActiveMB
 }

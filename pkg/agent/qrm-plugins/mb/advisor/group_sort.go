@@ -73,15 +73,17 @@ func getWeight(name string) int {
 	return baseWeight + getSubWeight(name)
 }
 
-func getSortedGroups(groups []string) []sets.String {
+// sortGroups sorts groups by their weights in desc order;
+// groups having identical weight put in one set
+func sortGroups(groups []string) []sets.String {
 	sort.Slice(groups, func(i, j int) bool {
 		return getWeight(groups[i]) > getWeight(groups[j])
 	})
 
-	return mergeGroups(groups)
+	return mergeGroupsByWeight(groups)
 }
 
-func mergeGroups(groups []string) []sets.String {
+func mergeGroupsByWeight(groups []string) []sets.String {
 	var mergedGroups []sets.String
 	for _, group := range groups {
 		if len(mergedGroups) == 0 {
@@ -90,8 +92,8 @@ func mergeGroups(groups []string) []sets.String {
 		}
 
 		lastGroup := mergedGroups[len(mergedGroups)-1]
-		weightLastGroup := getWeight(resource.GetOne(lastGroup))
-		if getWeight(group) == weightLastGroup {
+		lastGroupRep, err := resource.GetGroupRepresentative(lastGroup)
+		if err == nil && getWeight(group) == getWeight(lastGroupRep) {
 			lastGroup.Insert(group)
 			continue
 		}

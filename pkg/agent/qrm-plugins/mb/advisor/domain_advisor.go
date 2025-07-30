@@ -26,6 +26,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/quota"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/resource"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/sankey"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/domain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
@@ -39,25 +40,34 @@ type domainAdvisor struct {
 	// GroupCapacityInMB specifies domain capacity demanded by control groups other than the base capacity
 	GroupCapacityInMB map[string]int
 
-	quotaStrategy quota.Quota
+	quotaStrategy quota.Decider
+	flower        sankey.DomainFlower
 }
 
 func (d *domainAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.DomainsMon) (*plan.MBPlan, error) {
+	// based on mb resource usage, decide incoming limits
 	domLimits, err := d.calcIncomingDomainLimits(ctx, domainsMon)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get plan")
 	}
 
-	// based on mb limits and resource state, decide incoming quotas
+	// based on mb limits, decide incoming quotas (i.e. targets) - by setting aside some buffer
 	domQuotas := d.getIncomingDomainQuotas(ctx, domLimits)
-	_ = domQuotas
+	groupedDomIncomingTargets := resource.GetGroupedDomainSetting(domQuotas)
 
-	// based on incoming quotas, decide what the outgoing settings are
+	// for each group, based on incoming targets, decide what the outgoing targets are
+	var groupedDomainOutgoingTargets map[string][]int
+	groupedDomainOutgoingTargets, err = d.deriveOutgoingTargets(domainsMon, groupedDomIncomingTargets)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get plan")
+	}
 
+	// based on the theoretic outgoing targets, decide the outgoing MB to set
+	_ = groupedDomainOutgoingTargets
 	panic("implement me")
 }
 
-func (d *domainAdvisor) getIncomingDomainQuotas(ctx context.Context, domLimits map[int]*resource.MBGroupLimits) map[int]resource.GroupSettings {
+func (d *domainAdvisor) getIncomingDomainQuotas(ctx context.Context, domLimits map[int]*resource.MBGroupStat) map[int]resource.GroupSettings {
 	domQuotas := map[int]resource.GroupSettings{}
 	for dom, limits := range domLimits {
 		domQuotas[dom] = d.quotaStrategy.GetGroupQuotas(limits)
@@ -65,8 +75,8 @@ func (d *domainAdvisor) getIncomingDomainQuotas(ctx context.Context, domLimits m
 	return domQuotas
 }
 
-func (d *domainAdvisor) calcIncomingDomainLimits(ctx context.Context, mon *monitor.DomainsMon) (map[int]*resource.MBGroupLimits, error) {
-	domainQuotas := make(map[int]*resource.MBGroupLimits)
+func (d *domainAdvisor) calcIncomingDomainLimits(ctx context.Context, mon *monitor.DomainsMon) (map[int]*resource.MBGroupStat, error) {
+	domainQuotas := make(map[int]*resource.MBGroupStat)
 	var err error
 	for domID, incomingStats := range mon.Incoming {
 		domainQuotas[domID], err = d.calcIncomingGroupLimits(domID, incomingStats)
@@ -77,25 +87,28 @@ func (d *domainAdvisor) calcIncomingDomainLimits(ctx context.Context, mon *monit
 	return domainQuotas, nil
 }
 
-func distributeCapacityToGroups(capacity int, incomingStats monitor.GroupMonStat) *resource.MBGroupLimits {
-	result := &resource.MBGroupLimits{
-		CapacityInMB: capacity,
-		GroupLimits:  map[string]int{},
+func distributeCapacityToGroups(capacity int, incomingStats monitor.GroupMonStat) *resource.MBGroupStat {
+	result := &resource.MBGroupStat{
+		CapacityInMB:   capacity,
+		GroupTotalUses: map[string]int{},
+		GroupLimits:    map[string]int{},
 	}
 
 	// from hi to lo to distribute limits, stripping usage out of the determined capacity
 	balance := capacity
 	groups := maps.Keys(incomingStats)
-	sortedGroups := getSortedGroups(groups)
+	sortedGroups := sortGroups(groups)
 	for _, groups := range sortedGroups {
-		used := 0
-		for group := range groups {
-			used += incomingStats[group].Sum()
-		}
-
-		// all equivalent groups shared the same quota
+		// all equivalent groups shared the same available balance
 		for group := range groups {
 			result.GroupLimits[group] = balance
+		}
+
+		used := 0
+		for group := range groups {
+			groupUse := incomingStats[group].SumStat().TotalMB
+			result.GroupTotalUses[group] = groupUse
+			used += groupUse
 		}
 
 		if balance < used {
@@ -113,8 +126,8 @@ func distributeCapacityToGroups(capacity int, incomingStats monitor.GroupMonStat
 	return result
 }
 
-func (d *domainAdvisor) calcIncomingGroupLimits(domID int, incomingStats monitor.GroupMonStat) (*resource.MBGroupLimits, error) {
-	capacity, err := d.getCapacity(domID, incomingStats)
+func (d *domainAdvisor) calcIncomingGroupLimits(domID int, incomingStats monitor.GroupMonStat) (*resource.MBGroupStat, error) {
+	capacity, err := d.getEffectiveCapacity(domID, incomingStats)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to calc domain capacity")
 	}
@@ -123,31 +136,62 @@ func (d *domainAdvisor) calcIncomingGroupLimits(domID int, incomingStats monitor
 	return groupCapacities, nil
 }
 
-func (d *domainAdvisor) getCapacity(domID int, incomingStats monitor.GroupMonStat) (int, error) {
+// getEffectiveCapacity gets the effective memory bandwidth capacity of specified domain, with its given resource usage
+func (d *domainAdvisor) getEffectiveCapacity(domID int, incomingStats monitor.GroupMonStat) (int, error) {
 	domInfo, ok := d.domains[domID]
 	if !ok {
 		return 0, fmt.Errorf("invalid domain %d", domID)
 	}
 
-	// check for dynamic mb capacity setting is applicable
 	baseCapacity := domInfo.CapacityInMB
-	return d.getEffectiveCapacity(baseCapacity, incomingStats), nil
+	return getMinEffectiveCapacity(baseCapacity, d.GroupCapacityInMB, incomingStats), nil
 }
 
-func (d *domainAdvisor) getEffectiveCapacity(base int, incomingStats monitor.GroupMonStat) int {
+func getMinEffectiveCapacity(base int, dynaCaps map[string]int, incomingStats monitor.GroupMonStat) int {
 	min := base
-	// check the min dynamic capacity required by pre-defined groups, if the specific groups do have active MB traffics
+
+	// identify the min dynamic capacity required by pre-defined groups, if the specific groups do have active MB traffics
 	for group, groupStat := range incomingStats {
 		if !groupStat.HasTraffic() {
 			continue
 		}
-		if groupCapacity, ok := d.GroupCapacityInMB[group]; ok {
+
+		if groupCapacity, ok := dynaCaps[group]; ok {
 			if groupCapacity < min {
 				min = groupCapacity
 			}
 		}
 	}
+
 	return min
+}
+
+func (d *domainAdvisor) deriveOutgoingTargets(domainsMon *monitor.DomainsMon, incomingTargets map[string][]int,
+) (map[string][]int, error) {
+	// for each group: based on incoming targets, decide what the outgoing targets are
+	result := make(map[string][]int)
+	for group, domSums := range domainsMon.GetGroupedDomainSummary() {
+		incomingTargets, ok := incomingTargets[group]
+		if !ok {
+			return nil, fmt.Errorf("unable to get incoming targets of group %s", group)
+		}
+
+		if d.XDomGroups.Has(group) {
+			localRatio := make([]float64, len(domSums))
+			for i, domSum := range domSums {
+				localRatio[i] = float64(domSum.LocalMB) / float64(domSum.TotalMB)
+			}
+			outgoingTargets, err := d.flower.InvertFlow(localRatio, incomingTargets)
+			if err == nil {
+				result[group] = outgoingTargets
+				continue
+			}
+		}
+
+		result[group] = incomingTargets
+	}
+
+	return result, nil
 }
 
 func New(XDomGroups []string, groupCapacity map[string]int) Advisor {

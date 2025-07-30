@@ -28,7 +28,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 )
 
-func Test_domainAdvisor_getCapacity(t *testing.T) {
+func Test_domainAdvisor_getEffectiveCapacity(t *testing.T) {
 	t.Parallel()
 	type fields struct {
 		domains           domain.Domains
@@ -94,13 +94,13 @@ func Test_domainAdvisor_getCapacity(t *testing.T) {
 				XDomGroups:        tt.fields.XDomGroups,
 				GroupCapacityInMB: tt.fields.GroupCapacityInMB,
 			}
-			got, err := d.getCapacity(tt.args.domID, tt.args.incomingStats)
+			got, err := d.getEffectiveCapacity(tt.args.domID, tt.args.incomingStats)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("getCapacity() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("getEffectiveCapacity() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if got != tt.want {
-				t.Errorf("getCapacity() got = %v, want %v", got, tt.want)
+				t.Errorf("getEffectiveCapacity() got = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -121,7 +121,7 @@ func Test_domainAdvisor_calcIncomingQuotas(t *testing.T) {
 		name    string
 		fields  fields
 		args    args
-		want    map[int]*resource.MBGroupLimits
+		want    map[int]*resource.MBGroupStat
 		wantErr bool
 	}{
 		{
@@ -151,13 +151,17 @@ func Test_domainAdvisor_calcIncomingQuotas(t *testing.T) {
 					},
 				},
 			},
-			want: map[int]*resource.MBGroupLimits{
+			want: map[int]*resource.MBGroupStat{
 				0: {
 					CapacityInMB: 10_000,
 					FreeInMB:     10_000 - 2_200 - 6_600,
 					GroupSorted: []sets.String{
 						sets.NewString("shared-60"),
 						sets.NewString("shared-50"),
+					},
+					GroupTotalUses: map[string]int{
+						"shared-60": 2_200,
+						"shared-50": 5_500 + 1_100,
 					},
 					GroupLimits: map[string]int{
 						"shared-60": 10_000,
@@ -198,13 +202,17 @@ func Test_domainAdvisor_calcIncomingQuotas(t *testing.T) {
 					},
 				},
 			},
-			want: map[int]*resource.MBGroupLimits{
+			want: map[int]*resource.MBGroupStat{
 				0: {
 					CapacityInMB: 6_000,
 					FreeInMB:     0,
 					GroupSorted: []sets.String{
 						sets.NewString("shared-60"),
 						sets.NewString("shared-50"),
+					},
+					GroupTotalUses: map[string]int{
+						"shared-60": 2_200,
+						"shared-50": 5_500 + 1_100,
 					},
 					GroupLimits: map[string]int{
 						"shared-60": 6_000,

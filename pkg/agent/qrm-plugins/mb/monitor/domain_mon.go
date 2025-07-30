@@ -46,6 +46,21 @@ func NewDomainsMon(statOutgoing GroupMonStat, ccdToDomain map[int]int, XDomGroup
 	return result, nil
 }
 
+func (d *DomainsMon) GetGroupedDomainSummary() map[string][]MBStat {
+	// outgoing traffic only, as the original local/remote/total data is collected for outgoing direction
+	result := map[string][]MBStat{}
+	numDomains := len(d.Outgoing)
+	for dom, groupStat := range d.Outgoing {
+		for group, stat := range groupStat {
+			if _, ok := result[group]; !ok {
+				result[group] = make([]MBStat, numDomains)
+			}
+			result[group][dom] = stat.SumStat()
+		}
+	}
+	return result
+}
+
 func (d *DomainsMon) splitOutgoingStat(statOutgoing GroupMonStat, ccdToDomain map[int]int) error {
 	for group, groupCCDMB := range statOutgoing {
 		for ccd, mb := range groupCCDMB {

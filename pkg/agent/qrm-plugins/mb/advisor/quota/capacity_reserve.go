@@ -16,11 +16,14 @@ limitations under the License.
 
 package quota
 
-import "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/resource"
+import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/resource"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
+)
 
-// throttler throttle the groups by ensuring to set aside the reversed capacity
-type throttler struct {
-	reservationRatio int
+// ratioCapacityReserver throttle the groups by ensuring to set aside the reversed capacity
+type ratioCapacityReserver struct {
+	minReserveRatio int
 }
 
 func reserveFrom(available int, toReserve int) (left int, moreToReserve int) {
@@ -35,12 +38,12 @@ func reserveFrom(available int, toReserve int) (left int, moreToReserve int) {
 	return
 }
 
-func (t throttler) GetGroupQuotas(groupLimits *resource.MBGroupLimits) resource.GroupSettings {
+func (r ratioCapacityReserver) GetGroupQuotas(groupLimits *resource.MBGroupStat) resource.GroupSettings {
 	// 1. not to disrupt high-priority groups unless it has to;
 	// 2. to throttle the groups having relatively low priority and accumulated to resource stress.
 	quotas := resource.GroupSettings{}
 
-	bufferNeeded := groupLimits.CapacityInMB*t.reservationRatio/100 - groupLimits.FreeInMB
+	bufferNeeded := groupLimits.CapacityInMB*r.minReserveRatio/100 - groupLimits.FreeInMB
 	for i := len(groupLimits.GroupSorted) - 1; i >= 0; i-- {
 		if bufferNeeded <= 0 {
 			for group := range groupLimits.GroupSorted[i] {
@@ -50,7 +53,11 @@ func (t throttler) GetGroupQuotas(groupLimits *resource.MBGroupLimits) resource.
 		}
 
 		// reserve the needed buffer from this group, as much as it can
-		oneGroup := resource.GetOne(groupLimits.GroupSorted[i])
+		oneGroup, err := resource.GetGroupRepresentative(groupLimits.GroupSorted[i])
+		if err != nil {
+			general.Warningf("[mbm] failed to get rep of group %d: %v", i, err)
+			continue
+		}
 		available := groupLimits.GroupLimits[oneGroup]
 		available, bufferNeeded = reserveFrom(available, bufferNeeded)
 		for group := range groupLimits.GroupSorted[i] {
@@ -61,4 +68,4 @@ func (t throttler) GetGroupQuotas(groupLimits *resource.MBGroupLimits) resource.
 	return quotas
 }
 
-var _ Quota = &throttler{}
+var _ Decider = &ratioCapacityReserver{}

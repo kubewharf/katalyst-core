@@ -299,3 +299,84 @@ func TestNewDomainsMon(t *testing.T) {
 		})
 	}
 }
+
+func TestDomainsMon_GetGroupedDomainSummary(t *testing.T) {
+	t.Parallel()
+	type fields struct {
+		Incoming map[int]GroupMonStat
+		Outgoing map[int]GroupMonStat
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		want   map[string][]MBStat
+	}{
+		{
+			name: "happy path",
+			fields: fields{
+				Outgoing: map[int]GroupMonStat{
+					0: {
+						"shared-60": map[int]MBStat{
+							0: {LocalMB: 8_000, RemoteMB: 2_000, TotalMB: 10_000},
+						},
+					},
+					1: {
+						"shared-60": map[int]MBStat{
+							8: {LocalMB: 4_000, RemoteMB: 2_000, TotalMB: 6_000},
+						},
+					},
+				},
+			},
+			want: map[string][]MBStat{
+				"shared-60": {
+					{LocalMB: 8_000, RemoteMB: 2_000, TotalMB: 10_000},
+					{LocalMB: 4_000, RemoteMB: 2_000, TotalMB: 6_000},
+				},
+			},
+		},
+		{
+			name: "happy path of unbalanced domains",
+			fields: fields{
+				Outgoing: map[int]GroupMonStat{
+					0: {
+						"shared-60": map[int]MBStat{
+							0: {LocalMB: 8_000, RemoteMB: 2000, TotalMB: 10_000},
+						},
+					},
+					1: {
+						"shared-60": map[int]MBStat{
+							8: {LocalMB: 4_000, RemoteMB: 2_000, TotalMB: 6_000},
+							9: {LocalMB: 2_000, RemoteMB: 0, TotalMB: 2_000},
+						},
+						"dedicated": map[int]MBStat{
+							8: {LocalMB: 11_000, RemoteMB: 1_000, TotalMB: 12_000},
+						},
+					},
+				},
+			},
+			want: map[string][]MBStat{
+				"dedicated": {
+					{},
+					{LocalMB: 11_000, RemoteMB: 1_000, TotalMB: 12_000},
+				},
+				"shared-60": {
+					{LocalMB: 8_000, RemoteMB: 2_000, TotalMB: 10_000},
+					{LocalMB: 6_000, RemoteMB: 2_000, TotalMB: 8_000},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			d := &DomainsMon{
+				Incoming: tt.fields.Incoming,
+				Outgoing: tt.fields.Outgoing,
+			}
+			if got := d.GetGroupedDomainSummary(); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("GetGroupedDomainSummary() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

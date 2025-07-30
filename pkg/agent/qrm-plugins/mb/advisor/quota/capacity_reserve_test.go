@@ -31,7 +31,7 @@ func Test_throttler_GetGroupQuotas(t *testing.T) {
 		reservationRatio int
 	}
 	type args struct {
-		groupLimits *resource.MBGroupLimits
+		groupLimits *resource.MBGroupStat
 	}
 	tests := []struct {
 		name   string
@@ -45,7 +45,7 @@ func Test_throttler_GetGroupQuotas(t *testing.T) {
 				reservationRatio: 5,
 			},
 			args: args{
-				groupLimits: &resource.MBGroupLimits{
+				groupLimits: &resource.MBGroupStat{
 					CapacityInMB: 6_000,
 					FreeInMB:     0,
 					GroupSorted: []sets.String{
@@ -68,8 +68,8 @@ func Test_throttler_GetGroupQuotas(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			th := throttler{
-				reservationRatio: tt.fields.reservationRatio,
+			th := ratioCapacityReserver{
+				minReserveRatio: tt.fields.reservationRatio,
 			}
 			if got := th.GetGroupQuotas(tt.args.groupLimits); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("GetGroupQuotas() = %v, want %v", got, tt.want)
