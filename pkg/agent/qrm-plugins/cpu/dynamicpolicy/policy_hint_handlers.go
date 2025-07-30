@@ -226,6 +226,7 @@ func (p *DynamicPolicy) calculateHints(request float64,
 
 	numaToAvailableCPUCount := make(map[int]int, len(numaNodes))
 
+	availableNUMAs := machineState.GetFilteredNUMASetWithAnnotations(state.WrapAllocationMetaFilterWithAnnotations(commonstate.CheckNUMABindingAntiAffinity), req.Annotations)
 	for _, nodeID := range numaNodes {
 		if machineState[nodeID] == nil {
 			general.Warningf("NUMA: %d has nil state", nodeID)
@@ -236,6 +237,10 @@ func (p *DynamicPolicy) calculateHints(request float64,
 		if numaExclusive && machineState[nodeID].AllocatedCPUSet.Size() > 0 {
 			numaToAvailableCPUCount[nodeID] = 0
 			general.Warningf("numa_exclusive container skip NUMA: %d allocated: %d",
+				nodeID, machineState[nodeID].AllocatedCPUSet.Size())
+		} else if numaBinding && !availableNUMAs.Contains(nodeID) {
+			numaToAvailableCPUCount[nodeID] = 0
+			general.Warningf("numa_binding container skip NUMA: %d, allocated: %d",
 				nodeID, machineState[nodeID].AllocatedCPUSet.Size())
 		} else {
 			numaToAvailableCPUCount[nodeID] = machineState[nodeID].GetAvailableCPUSet(p.reservedCPUs).Size()
@@ -558,7 +563,7 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(request float64,
 	reqAnnotations := req.Annotations
 	numaNodes := p.filterNUMANodesByNonBindingSharedRequestedQuantity(
 		request, nonBindingSharedRequestedQuantity, nonBindingNUMAsCPUQuantity, nonBindingNUMAs, machineState,
-		machineState.GetFilteredNUMASetWithAnnotations(state.WrapAllocationMetaFilterWithAnnotations(commonstate.CheckNUMABindingSharedCoresAntiAffinity), reqAnnotations).ToSliceInt())
+		machineState.GetFilteredNUMASetWithAnnotations(state.WrapAllocationMetaFilterWithAnnotations(commonstate.CheckNUMABindingAntiAffinity), reqAnnotations).ToSliceInt())
 
 	hints := &pluginapi.ListOfTopologyHints{}
 
