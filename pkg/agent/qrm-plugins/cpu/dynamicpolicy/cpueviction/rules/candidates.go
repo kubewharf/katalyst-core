@@ -148,7 +148,7 @@ func FilterCandidatePods(candidates []*CandidatePod, podsToRemove []*v1.Pod) []*
 		if candidate == nil || candidate.Pod == nil {
 			continue
 		}
-		if _, exists := podUIDs[string(candidate.Pod.UID)]; !exists {
+		if _, exists := podUIDs[string(candidate.Pod.UID)]; exists {
 			filtered = append(filtered, candidate)
 		}
 	}

@@ -189,6 +189,7 @@ func (p *NumaCPUPressureEviction) GetEvictPods(ctx context.Context, request *plu
 	general.Infof("activePods: %v", activePods)
 	//2.filterParams
 	enabledFilters := p.numaPressureConfig.EnabledFilters
+	general.Infof("enabledFilters: %v", enabledFilters)
 	filterParams := map[string]interface{}{
 		rules.OwnerRefFilterName:      p.numaPressureConfig.SkippedPodKinds, // OwnerRefFilter params
 		rules.OverRatioNumaFilterName: p.numaOverStats,
@@ -199,7 +200,7 @@ func (p *NumaCPUPressureEviction) GetEvictPods(ctx context.Context, request *plu
 
 	if len(filteredPods) == 0 {
 		general.Warningf("got empty active pods list after filter")
-		return &pluginapi.GetEvictPodsResponse{}, nil
+		// return &pluginapi.GetEvictPodsResponse{}, nil
 	}
 
 	general.Infof("filteredPods: %v", filteredPods)
@@ -208,7 +209,7 @@ func (p *NumaCPUPressureEviction) GetEvictPods(ctx context.Context, request *plu
 	candidatePods, _ := rules.PrepareCandidatePods(ctx, request)
 	general.Infof("candidatePods: %v", candidatePods)
 
-	candidatePods = rules.FilterCandidatePods(candidatePods, filteredPods)
+	// candidatePods = rules.FilterCandidatePods(candidatePods, filteredPods)
 	general.Infof("candidatePods after filter: %v", candidatePods)
 
 	//2.scorerParams
@@ -217,15 +218,11 @@ func (p *NumaCPUPressureEviction) GetEvictPods(ctx context.Context, request *plu
 	scorerParams := map[string]interface{}{
 		rules.DeploymentEvictionFrequencyScorerName: nil,
 	}
-	//3.allFilter
+	//3.allScorer
 	scorer, _ := rules.NewScorer(enabledScorers, p.emitter, scorerParams)
 	general.Infof("create scorer success: %v", scorer)
 	candidatePods = scorer.Score(candidatePods)
-	if len(candidatePods) == 0 {
-		general.Warningf("got empty active pods list after filter")
-		return &pluginapi.GetEvictPodsResponse{}, nil
-	}
-
+	general.Infof("candidatePods after scorer: %v", candidatePods)
 	// todo may pick multiple numas if overload
 	// numaID, numaOverloadRatio, numaUsageRatio, err := p.pickTopOverRatioNuma(targetMetric, p.thresholds)
 	// if err != nil {
