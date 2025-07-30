@@ -13,23 +13,22 @@ import (
 )
 
 const evictionInfoStr = `{
-	  "pdbStatus": {
-	    "expired": false,
-	    "buckets": {
-	      "list": [
-	        {"startTime": 1620000000, "count": 5},
-	        {"startTime": 1620003600, "count": 3},
-			{"startTime": 1620007200, "count": 2},
-			{"startTime": 1620010800, "count": 1},
-			{"startTime": 1620014400, "count": 0}
-	      ]
-	    },
-	    "disruptionsAllowed": 10,
-	    "currentHealthy": 8,
-	    "desiredHealthy": 10,
-	    "expectedPods": 10
-	  }
-	}`
+  "HasPDB": true,
+  "Expired": false,
+  "Buckets": {
+    "list": [
+      {"time": 1620000000, "count": 5},
+      {"time": 1620003600, "count": 3},
+      {"time": 1620007200, "count": 2},
+      {"time": 1620010800, "count": 1},
+      {"time": 1620014400, "count": 0}
+    ]
+  },
+  "DisruptionsAllowed": 10,
+  "CurrentHealthy": 8,
+  "DesiredHealthy": 10,
+  "ExpectedPods": 10
+}`
 
 const (
 	workloadEvictionInfoAnnotation = "evictionInfo"
