@@ -98,7 +98,37 @@ func TestCheckNUMABindingSharedCoresAntiAffinity(t *testing.T) {
 		want bool
 	}{
 		{
-			name: "anti affinity with dedicated numa_binding pods",
+			name: "anti affinity with dedicated numa_binding and shared_cores pod (numa_share=false)",
+			args: args{
+				am: &AllocationMeta{
+					PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
+					PodNamespace:   testName,
+					PodName:        testName,
+					ContainerName:  testName,
+					ContainerType:  pluginapi.ContainerType_MAIN.String(),
+					ContainerIndex: 0,
+					OwnerPoolName:  PoolNameShare,
+					Labels: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
+						consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						consts.PodAnnotationCPUEnhancementNUMAShare:      consts.PodAnnotationCPUEnhancementNUMAShareDisable,
+					},
+					QoSLevel: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+					consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					consts.PodAnnotationCPUEnhancementNUMAShare:      consts.PodAnnotationCPUEnhancementNUMAShareDisable,
+					consts.PodAnnotationCPUEnhancementCPUSet:         "bmq",
+				},
+			},
+			want: true,
+		},
+		{
+			name: "not anti affinity with dedicated numa_binding and shared_cores pod",
 			args: args{
 				am: &AllocationMeta{
 					PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
@@ -118,14 +148,43 @@ func TestCheckNUMABindingSharedCoresAntiAffinity(t *testing.T) {
 					QoSLevel: consts.PodAnnotationQoSLevelDedicatedCores,
 				},
 				annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+					consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					consts.PodAnnotationCPUEnhancementCPUSet:         "bmq",
+				},
+			},
+			want: false,
+		},
+		{
+			name: "not anti affinity with dedicated numa_binding pods",
+			args: args{
+				am: &AllocationMeta{
+					PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
+					PodNamespace:   testName,
+					PodName:        testName,
+					ContainerName:  testName,
+					ContainerType:  pluginapi.ContainerType_MAIN.String(),
+					ContainerIndex: 0,
+					OwnerPoolName:  PoolNameShare,
+					Labels: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
+						consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						consts.PodAnnotationCPUEnhancementNUMAShare:      consts.PodAnnotationCPUEnhancementNUMAShareDisable,
+					},
+					QoSLevel: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				annotations: map[string]string{
 					consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
 					consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 				},
 			},
-			want: true,
+			want: false,
 		},
 		{
-			name: "anti affinity with shared_cores numa_binding pods with same specified pool name",
+			name: "anti affinity with shared_cores numa_binding pods with different specified pool name (numa_share=false)",
 			args: args{
 				am: &AllocationMeta{
 					PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
@@ -148,6 +207,7 @@ func TestCheckNUMABindingSharedCoresAntiAffinity(t *testing.T) {
 				annotations: map[string]string{
 					consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
 					consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					consts.PodAnnotationCPUEnhancementNUMAShare:      consts.PodAnnotationCPUEnhancementNUMAShareDisable,
 					consts.PodAnnotationCPUEnhancementCPUSet:         "bmq",
 				},
 			},
@@ -182,13 +242,72 @@ func TestCheckNUMABindingSharedCoresAntiAffinity(t *testing.T) {
 			},
 			want: false,
 		},
+		{
+			name: "not anti affinity with shared_cores numa_binding pods with different specified pool name",
+			args: args{
+				am: &AllocationMeta{
+					PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
+					PodNamespace:   testName,
+					PodName:        testName,
+					ContainerName:  testName,
+					ContainerType:  pluginapi.ContainerType_MAIN.String(),
+					ContainerIndex: 0,
+					OwnerPoolName:  PoolNameShare,
+					Labels: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+						consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						consts.PodAnnotationCPUEnhancementCPUSet:         "batch",
+					},
+					QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
+				},
+				annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+					consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					consts.PodAnnotationCPUEnhancementCPUSet:         "bmq",
+				},
+			},
+			want: false,
+		},
+		{
+			name: "not anti affinity with shared_cores numa_binding pods with same specified pool name (numa_share=false)",
+			args: args{
+				am: &AllocationMeta{
+					PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff8123bf",
+					PodNamespace:   testName,
+					PodName:        testName,
+					ContainerName:  testName,
+					ContainerType:  pluginapi.ContainerType_MAIN.String(),
+					ContainerIndex: 0,
+					OwnerPoolName:  PoolNameShare,
+					Labels: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+						consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						consts.PodAnnotationCPUEnhancementNUMAShare:      consts.PodAnnotationCPUEnhancementNUMAShareDisable,
+						consts.PodAnnotationCPUEnhancementCPUSet:         "batch",
+					},
+					QoSLevel: consts.PodAnnotationQoSLevelSharedCores,
+				},
+				annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelSharedCores,
+					consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					consts.PodAnnotationCPUEnhancementCPUSet:         "batch",
+				},
+			},
+			want: false,
+		},
 	}
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := CheckNUMABindingSharedCoresAntiAffinity(tt.args.am, tt.args.annotations); got != tt.want {
-				t.Errorf("CheckNUMABindingSharedCoresAntiAffinity() = %v, want %v", got, tt.want)
+			if got := CheckNUMABindingAntiAffinity(tt.args.am, tt.args.annotations); got != tt.want {
+				t.Errorf("CheckNUMABindingAntiAffinity() = %v, want %v", got, tt.want)
 			}
 		})
 	}
