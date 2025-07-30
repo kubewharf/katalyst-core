@@ -1678,6 +1678,7 @@ func TestGetTopologyHints(t *testing.T) {
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+								consts.PodAnnotationCPUEnhancementNUMAShare:      consts.PodAnnotationCPUEnhancementNUMAShareDisable,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelDedicatedCores,
 						},
@@ -1948,6 +1949,7 @@ func TestGetTopologyHints(t *testing.T) {
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+								consts.PodAnnotationCPUEnhancementNUMAShare:      consts.PodAnnotationCPUEnhancementNUMAShareDisable,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelDedicatedCores,
 						},
@@ -2215,6 +2217,7 @@ func TestGetTopologyHints(t *testing.T) {
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+								consts.PodAnnotationCPUEnhancementNUMAShare:      consts.PodAnnotationCPUEnhancementNUMAShareDisable,
 							},
 							QoSLevel:      consts.PodAnnotationQoSLevelDedicatedCores,
 							OwnerPoolName: commonstate.PoolNameDedicated,
@@ -2485,6 +2488,7 @@ func TestGetTopologyHints(t *testing.T) {
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
 								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+								consts.PodAnnotationCPUEnhancementNUMAShare:      consts.PodAnnotationCPUEnhancementNUMAShareDisable,
 							},
 							QoSLevel: consts.PodAnnotationQoSLevelDedicatedCores,
 						},
