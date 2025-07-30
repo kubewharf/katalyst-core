@@ -72,6 +72,11 @@ func TestDynamicPolicy_checkAndApplyIfCgroupV1(t *testing.T) {
 		CpuPeriod: 1000,
 	}
 
+	mockBG := &common.CPUStats{
+		CpuQuota:  1000,
+		CpuPeriod: 1000,
+	}
+
 	mockBytes, _ := json.Marshal(resources)
 
 	mockCal := &advisorsvc.CalculationInfo{
@@ -96,6 +101,7 @@ func TestDynamicPolicy_checkAndApplyIfCgroupV1(t *testing.T) {
 
 	mockey.PatchConvey("test cgroup v1 resource", t, func() {
 		mockey.Mock(common.CheckCgroup2UnifiedMode).IncludeCurrentGoRoutine().Return(false).Build()
+		mockey.Mock(cgroupmgr.GetCPUWithRelativePath).IncludeCurrentGoRoutine().Return(mockBG, nil).Build()
 		mockey.Mock((*DynamicPolicy).getCurrentPathAllPodsDirAndMap).IncludeCurrentGoRoutine().Return(mockPodPathMap, []string{"advisor-test-pod-1"}, nil).Build()
 		mockey.Mock((*DynamicPolicy).getPodAndRelativePath).IncludeCurrentGoRoutine().Return(mockPod, "test_relative_path", nil).Build()
 		mockey.Mock((*DynamicPolicy).checkAllContainersQuota).IncludeCurrentGoRoutine().Return(nil).Build()
@@ -308,6 +314,11 @@ func TestDynamicPolicy_applyCPUQuotaWithRelativePath(t *testing.T) {
 		CpuQuota: 500000,
 	}
 
+	mockBGCPU := &common.CPUStats{
+		CpuQuota:  500000,
+		CpuPeriod: 2000,
+	}
+
 	mockCPU1 := &common.CPUStats{
 		CpuQuota:  -1,
 		CpuPeriod: 1000,
@@ -342,11 +353,11 @@ func TestDynamicPolicy_applyCPUQuotaWithRelativePath(t *testing.T) {
 
 		apply := mockey.Mock(cgroupmgr.ApplyCPUWithRelativePath).IncludeCurrentGoRoutine().Return(nil).Build()
 
-		err := p.applyCPUQuotaWithRelativePath("test-relative-path-1", 400, res)
+		err := p.applyCPUQuotaWithRelativePath("test-relative-path-1", 400, res, mockBGCPU)
 		convey.So(err, convey.ShouldBeNil)
 		convey.So(apply.Times(), convey.ShouldEqual, 1)
 
-		err = p.applyCPUQuotaWithRelativePath("test-relative-path-2", 1000, res)
+		err = p.applyCPUQuotaWithRelativePath("test-relative-path-2", 1000, res, mockBGCPU)
 		convey.So(err, convey.ShouldBeNil)
 		convey.So(apply.Times(), convey.ShouldEqual, 2)
 	})
@@ -411,7 +422,7 @@ func TestDynamicPolicy_checkAllContainersQuota(t *testing.T) {
 		mockey.Mock((*DynamicPolicy).getAllContainersRelativePathMap).IncludeCurrentGoRoutine().Return(containerPathMap).Build()
 		apply := mockey.Mock((*DynamicPolicy).applyCPUQuotaWithRelativePath).IncludeCurrentGoRoutine().Return(nil).Build()
 
-		err := p.checkAllContainersQuota(pod, nil)
+		err := p.checkAllContainersQuota(pod, nil, nil)
 
 		convey.So(err, convey.ShouldBeNil)
 		convey.So(apply.Times(), convey.ShouldEqual, 2)

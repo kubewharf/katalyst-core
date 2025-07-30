@@ -567,6 +567,11 @@ func (p *DynamicPolicy) checkAndApplyIfCgroupV1(calculationInfo *advisorsvc.Calc
 			return err
 		}
 
+		currentBigGroupQuota, err := cgroupmgr.GetCPUWithRelativePath(calculationInfo.CgroupPath)
+		if err != nil {
+			return fmt.Errorf("Get big group quota failed with error: %v", err)
+		}
+
 		for _, podDir := range podDirs {
 			pod, podRelativePath, err := p.getPodAndRelativePath(calculationInfo.CgroupPath, podDir, podsPathMap)
 			if err != nil {
@@ -575,7 +580,7 @@ func (p *DynamicPolicy) checkAndApplyIfCgroupV1(calculationInfo *advisorsvc.Calc
 			}
 
 			// check containers first
-			err = p.checkAllContainersQuota(pod, resources)
+			err = p.checkAllContainersQuota(pod, resources, currentBigGroupQuota)
 			if err != nil {
 				general.Errorf("checkAllContainersQuota failed with error: %v", err)
 				continue
@@ -584,7 +589,7 @@ func (p *DynamicPolicy) checkAndApplyIfCgroupV1(calculationInfo *advisorsvc.Calc
 			// then check pod
 			_, limit := resource.PodRequestsAndLimits(pod)
 			podLimit := limit.Cpu().Value()
-			err = p.applyCPUQuotaWithRelativePath(podRelativePath, podLimit, resources)
+			err = p.applyCPUQuotaWithRelativePath(podRelativePath, podLimit, resources, currentBigGroupQuota)
 			if err != nil {
 				return fmt.Errorf("applyCPUQuotaWithRelativePath %s failed with error: %v", podRelativePath, err)
 			}
@@ -688,7 +693,7 @@ func (p *DynamicPolicy) getAllContainersRelativePathMap(pod *v1.Pod) map[string]
 }
 
 // applyCPUQuotaWithRelativePath applies CPU quota to a cgroup path based on the current CPU state and limit
-func (p *DynamicPolicy) applyCPUQuotaWithRelativePath(relativePath string, limit int64, resources *common.CgroupResources) error {
+func (p *DynamicPolicy) applyCPUQuotaWithRelativePath(relativePath string, limit int64, resources *common.CgroupResources, currentBGQuota *common.CPUStats) error {
 	cpu, err := cgroupmgr.GetCPUWithRelativePath(relativePath)
 	if err != nil {
 		return fmt.Errorf("GetCPUWithRelativePath %s failed with error: %v", relativePath, err)
@@ -697,30 +702,30 @@ func (p *DynamicPolicy) applyCPUQuotaWithRelativePath(relativePath string, limit
 	realQuota := limit * int64(cpu.CpuPeriod)
 
 	// Apply quota when current quota is unlimited (-1) and calculated quota is within limits
-	if cpu.CpuQuota < 0 && realQuota <= resources.CpuQuota {
+	if cpu.CpuQuota < 0 && realQuota <= resources.CpuQuota && realQuota <= currentBGQuota.CpuQuota {
 		err := cgroupmgr.ApplyCPUWithRelativePath(relativePath, &common.CPUData{CpuQuota: realQuota})
 		if err != nil {
-			return fmt.Errorf("ApplyCPUWithRelativePath %s with realQuota %v resourceQuota %v failed with error: %v", relativePath, realQuota, resources.CpuQuota, err)
+			return fmt.Errorf("ApplyCPUWithRelativePath %s with realQuota %v resourceQuota %v currentQuota %v failed with error: %v", relativePath, realQuota, resources.CpuQuota, currentBGQuota.CpuQuota, err)
 		}
 	}
 
 	// Remove quota when current quota exceeds limits
-	if cpu.CpuQuota > 0 && realQuota > resources.CpuQuota {
+	if cpu.CpuQuota > 0 && (realQuota > resources.CpuQuota || realQuota > currentBGQuota.CpuQuota) {
 		err := cgroupmgr.ApplyCPUWithRelativePath(relativePath, &common.CPUData{CpuQuota: -1})
 		if err != nil {
-			return fmt.Errorf("ApplyCPUWithRelativePath %s to -1 with realQuota %v resourceQuota %v failed with error: %v", relativePath, realQuota, resources.CpuQuota, err)
+			return fmt.Errorf("ApplyCPUWithRelativePath %s to -1 with realQuota %v resourceQuota %v currentQuota %v failed with error: %v", relativePath, realQuota, resources.CpuQuota, currentBGQuota.CpuQuota, err)
 		}
 	}
 
 	return nil
 }
 
-func (p *DynamicPolicy) checkAllContainersQuota(pod *v1.Pod, resources *common.CgroupResources) error {
+func (p *DynamicPolicy) checkAllContainersQuota(pod *v1.Pod, resources *common.CgroupResources, currentBGQuota *common.CPUStats) error {
 	allContainersRelativePathMap := p.getAllContainersRelativePathMap(pod)
 
 	for relativePath, container := range allContainersRelativePathMap {
 		limit := container.Resources.Limits.Cpu().Value()
-		err := p.applyCPUQuotaWithRelativePath(relativePath, limit, resources)
+		err := p.applyCPUQuotaWithRelativePath(relativePath, limit, resources, currentBGQuota)
 		if err != nil {
 			general.Errorf("applyCPUQuotaWithRelativePath %s failed with error: %v", relativePath, err)
 			continue
