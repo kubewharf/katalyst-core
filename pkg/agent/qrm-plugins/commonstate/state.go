@@ -239,6 +239,14 @@ func (am *AllocationMeta) CheckNUMABinding() bool {
 		consts.PodAnnotationMemoryEnhancementNumaBindingEnable
 }
 
+func (am *AllocationMeta) CheckNUMANotShare() bool {
+	if am == nil {
+		return false
+	}
+	return am.Annotations[consts.PodAnnotationCPUEnhancementNUMAShare] ==
+		consts.PodAnnotationCPUEnhancementNUMAShareDisable
+}
+
 // CheckActualNUMABinding returns true if the AllocationInfo is for pod actual numa-binding
 func (am *AllocationMeta) CheckActualNUMABinding() bool {
 	if am == nil {

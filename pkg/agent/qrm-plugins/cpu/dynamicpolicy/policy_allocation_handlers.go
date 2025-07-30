@@ -1169,7 +1169,7 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 					if ownerPoolName == commonstate.EmptyOwnerPoolName {
 						var err error
 						// why do we integrate GetOwnerPoolName + GetSpecifiedNUMABindingPoolName into GetPoolName for SharedNUMABinding containers?
-						// it's because we reply on GetSpecifiedPoolName (in GetPoolName) when calling CheckNUMABindingSharedCoresAntiAffinity,
+						// it's because we reply on GetSpecifiedPoolName (in GetPoolName) when calling CheckNUMABindingAntiAffinity,
 						// At that time, NUMA hint for the candidate container isn't confirmed, so we can't implement NUMA hint aware logic in GetSpecifiedPoolName.
 						ownerPoolName, err = allocationInfo.GetSpecifiedNUMABindingPoolName()
 						if err != nil {
