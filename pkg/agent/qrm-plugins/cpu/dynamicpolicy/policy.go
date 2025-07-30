@@ -460,13 +460,13 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 	podEntries := p.state.GetPodEntries()
 	machineState := p.state.GetMachineState()
 
-	// pooledCPUs is the total available cpu cores minus those that are reserved
-	pooledCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs,
+	// rumpUpPooledCPUs is the total available cpu cores minus those that are reserved
+	rumpUpPooledCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs,
 		func(ai *state.AllocationInfo) bool {
 			return ai.CheckDedicated() || ai.CheckSharedNUMABinding()
 		},
 		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicatedNUMABinding))
-	pooledCPUsTopologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, pooledCPUs)
+	rumpUpPooledCPUsTopologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, rumpUpPooledCPUs)
 	if err != nil {
 		return nil, fmt.Errorf("GetNumaAwareAssignments err: %v", err)
 	}
@@ -502,8 +502,8 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 					general.Errorf("pod: %s/%s, container: %s init timestamp parsed failed with error: %v, re-ramp-up it",
 						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, tsErr)
 
-					clonedPooledCPUs := pooledCPUs.Clone()
-					clonedPooledCPUsTopologyAwareAssignments := machine.DeepcopyCPUAssignment(pooledCPUsTopologyAwareAssignments)
+					clonedPooledCPUs := rumpUpPooledCPUs.Clone()
+					clonedPooledCPUsTopologyAwareAssignments := machine.DeepcopyCPUAssignment(rumpUpPooledCPUsTopologyAwareAssignments)
 
 					allocationInfo.AllocationResult = clonedPooledCPUs
 					allocationInfo.OriginalAllocationResult = clonedPooledCPUs
