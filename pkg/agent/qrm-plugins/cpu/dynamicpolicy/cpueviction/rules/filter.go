@@ -95,6 +95,7 @@ func OwnerRefFilter(pod *v1.Pod, params interface{}) bool {
 		general.Warningf("OwnerRefFilter params is not []string, no pods will be filtered")
 		return false
 	}
+	general.Infof("OwnerRefFilter: skippedPodKinds %v", skippedPodKinds)
 	for _, ownerRef := range pod.OwnerReferences {
 		for _, kind := range skippedPodKinds {
 			if ownerRef.Kind == kind {
