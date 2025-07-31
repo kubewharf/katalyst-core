@@ -194,7 +194,7 @@ func (p *NumaCPUPressureEviction) GetTopEvictionPods(ctx context.Context, reques
 
 	//1.OverRatioNumaFilter
 	activePods := request.ActivePods
-	general.Infof("activePods: %v", activePods)
+	general.Infof("activePods: %v", len(activePods))
 	//2.filterParams
 	enabledFilters := p.numaPressureConfig.EnabledFilters
 	general.Infof("enabledFilters: %v", enabledFilters)
@@ -211,14 +211,14 @@ func (p *NumaCPUPressureEviction) GetTopEvictionPods(ctx context.Context, reques
 		// return &pluginapi.GetEvictPodsResponse{}, nil
 	}
 
-	general.Infof("filteredPods: %v", filteredPods)
+	general.Infof("filteredPods: %v", len(filteredPods))
 
 	//1.get annotation of pods
 	candidatePods, _ := rules.PrepareCandidatePods(ctx, request)
-	general.Infof("candidatePods: %v", candidatePods)
+	general.Infof("candidatePods: %v", len(candidatePods))
 
-	// candidatePods = rules.FilterCandidatePods(candidatePods, filteredPods)
-	general.Infof("candidatePods after filter: %v", candidatePods)
+	candidatePods = rules.FilterCandidatePods(candidatePods, filteredPods)
+	general.Infof("candidatePods after filter: %v", len(candidatePods))
 
 	//2.scorerParams
 	enabledScorers := p.numaPressureConfig.EnabledScorers
