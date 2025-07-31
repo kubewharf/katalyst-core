@@ -136,17 +136,17 @@ func (p *NumaCPUPressureEviction) ThresholdMet(_ context.Context, _ *pluginapi.E
 		}, nil
 	}
 
-	nodeOverload := p.isNodeOverload()
+	// nodeOverload := p.isNodeOverload()
 
-	if !nodeOverload {
-		_ = p.emitter.StoreFloat64(metricsNameNumaThresholdMet, 0, metrics.MetricTypeNameRaw,
-			metrics.ConvertMapToTags(map[string]string{
-				metricTagMetricName: targetMetric,
-			})...)
-		return &pluginapi.ThresholdMetResponse{
-			MetType: pluginapi.ThresholdMetType_NOT_MET,
-		}, nil
-	}
+	// if !nodeOverload {
+	// 	_ = p.emitter.StoreFloat64(metricsNameNumaThresholdMet, 0, metrics.MetricTypeNameRaw,
+	// 		metrics.ConvertMapToTags(map[string]string{
+	// 			metricTagMetricName: targetMetric,
+	// 		})...)
+	// 	return &pluginapi.ThresholdMetResponse{
+	// 		MetType: pluginapi.ThresholdMetType_NOT_MET,
+	// 	}, nil
+	// }
 
 	_ = p.emitter.StoreFloat64(metricsNameNumaThresholdMet, 1, metrics.MetricTypeNameRaw,
 		metrics.ConvertMapToTags(map[string]string{
