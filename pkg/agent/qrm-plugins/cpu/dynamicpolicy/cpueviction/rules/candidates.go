@@ -57,7 +57,7 @@ const (
 // PrepareCandidatePods converts a list of v1.Pod to a list of *CandidatePod and populates
 // all the necessary information for the Filter and Score stages.
 func PrepareCandidatePods(_ context.Context, request *pluginapi.GetTopEvictionPodsRequest) ([]*CandidatePod, error) {
-
+	general.Infof("prepare candidate pods")
 	// if request == nil || request.CandidateEvictionRecords == nil {
 	// 	general.Warningf("no candidateEvictionRecords in request")
 	// }
@@ -67,23 +67,37 @@ func PrepareCandidatePods(_ context.Context, request *pluginapi.GetTopEvictionPo
 	// }
 	pods := request.ActivePods
 	var candidates []*CandidatePod
-	for _, pod := range pods {
-		for _, record := range evictionRecords {
-			if record.UID == string(pod.UID) {
-				workloadInfos, err := getWorkloadEvictionInfo(record)
-				if err != nil {
-					general.Warningf("get workload eviction info failed: %v", err)
-				}
-				candidates = append(candidates, &CandidatePod{
-					Pod:                   pod,
-					Scores:                make(map[string]int),
-					TotalScore:            0,
-					WorkloadsEvictionInfo: workloadInfos,
-					UsageRatio:            0,
-				})
+	// for _, pod := range pods {
+	// 	for _, record := range evictionRecords {
+	// 		if record.UID == string(pod.UID) {
+	// 			workloadInfos, err := getWorkloadEvictionInfo(record)
+	// 			if err != nil {
+	// 				general.Warningf("get workload eviction info failed: %v", err)
+	// 			}
+	// 			candidates = append(candidates, &CandidatePod{
+	// 				Pod:                   pod,
+	// 				Scores:                make(map[string]int),
+	// 				TotalScore:            0,
+	// 				WorkloadsEvictionInfo: workloadInfos,
+	// 				UsageRatio:            0,
+	// 			})
 
-			}
+	// 		}
+	// 	}
+	// }
+	for _, pod := range pods {
+		workloadInfos, err := getWorkloadEvictionInfo(evictionRecords[0])
+		if err != nil {
+			general.Warningf("get workload eviction info failed: %v", err)
 		}
+		candidates = append(candidates, &CandidatePod{
+			Pod:                   pod,
+			Scores:                make(map[string]int),
+			TotalScore:            0,
+			WorkloadsEvictionInfo: workloadInfos,
+			UsageRatio:            0,
+		})
+
 	}
 
 	return candidates, nil
