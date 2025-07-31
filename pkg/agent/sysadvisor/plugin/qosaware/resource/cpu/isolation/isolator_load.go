@@ -17,6 +17,7 @@ limitations under the License.
 package isolation
 
 import (
+	"context"
 	"sort"
 	"strings"
 	"sync"
@@ -86,9 +87,13 @@ func NewLoadIsolator(conf *config.Configuration, _ interface{}, emitter metrics.
 	}
 }
 
-func (l *LoadIsolator) GetIsolatedPods() []string {
+func (l *LoadIsolator) Start(ctx context.Context) error {
+	return nil
+}
+
+func (l *LoadIsolator) GetIsolatedPods() ([]string, error) {
 	if l.conf.IsolationDisabled {
-		return []string{}
+		return []string{}, nil
 	}
 
 	isolationResources := l.initIsolationStates()
@@ -120,7 +125,7 @@ func (l *LoadIsolator) GetIsolatedPods() []string {
 		return true
 	})
 
-	return uidSets.List()
+	return uidSets.List(), nil
 }
 
 // checkContainerIsolated returns true if current container for isolation
