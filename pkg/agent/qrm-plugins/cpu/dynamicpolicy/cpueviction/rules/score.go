@@ -94,6 +94,7 @@ func (s *Scorer) Score(pods []*CandidatePod) []*CandidatePod {
 	sort.Slice(pods, func(i, j int) bool {
 		return pods[i].TotalScore < pods[j].TotalScore
 	})
+	general.Infof("scored %d pods, top score: %d", len(pods), pods[0].TotalScore)
 	return pods
 }
 
