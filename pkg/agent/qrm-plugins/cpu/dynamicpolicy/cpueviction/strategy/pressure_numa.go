@@ -360,9 +360,7 @@ func (p *NumaCPUPressureEviction) update(_ context.Context) {
 			sum := 0.0
 			for podUID, containerEntries := range snbEntries {
 				for containerName := range containerEntries {
-					general.InfoS("metaserver get pod metric", "pod", podUID)
 					val, err := p.metaServer.GetContainerMetric(podUID, containerName, metricName)
-					general.InfoS("metaserver get pod metric success", "pod", podUID)
 					general.Infof("get pod metric, podUID %v, containerName %v, metricName %v, numa %v, pod %v, metric %v, val %v",
 						podUID, containerName, metricName, numaID, podUID, metricName, val)
 					if err != nil {
