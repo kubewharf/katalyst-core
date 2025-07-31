@@ -34,7 +34,8 @@ type NumaOverStat struct {
 	Gap            float64
 }
 
-type FetchEvictionRecordResp struct {
+type EvictionRecord struct {
+	UID     string
 	HasPDB  bool
 	Expired bool
 	Buckets Buckets

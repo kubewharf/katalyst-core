@@ -2,7 +2,6 @@ package rules
 
 import (
 	"context"
-	"encoding/json"
 
 	v1 "k8s.io/api/core/v1"
 
@@ -12,23 +11,40 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
-const evictionInfoStr = `{
-  "HasPDB": true,
-  "Expired": false,
-  "Buckets": {
-    "list": [
-      {"time": 1620000000, "count": 5},
-      {"time": 1620003600, "count": 3},
-      {"time": 1620007200, "count": 2},
-      {"time": 1620010800, "count": 1},
-      {"time": 1620014400, "count": 0}
-    ]
-  },
-  "DisruptionsAllowed": 10,
-  "CurrentHealthy": 8,
-  "DesiredHealthy": 10,
-  "ExpectedPods": 10
-}`
+// 示例 evictionRecords 数据（包含两个不同 Pod 的驱逐记录）
+var evictionRecords []*EvictionRecord = []*EvictionRecord{
+	{
+		UID:     "pod-uid-12345", // Pod 的唯一标识符
+		HasPDB:  true,            // 该 Pod 关联了 PodDisruptionBudget
+		Expired: false,           // 驱逐记录未过期
+		Buckets: Buckets{
+			List: []Bucket{
+				{Time: 1620000000, Count: 2}, // 时间戳: 2021-05-03 00:00:00, 驱逐数量: 2
+				{Time: 1620086400, Count: 1}, // 时间戳: 2021-05-04 00:00:00, 驱逐数量: 1
+				{Time: 1620172800, Count: 3}, // 时间戳: 2021-05-05 00:00:00, 驱逐数量: 3
+			},
+		},
+		DisruptionsAllowed: 2, // 允许中断的 Pod 数量
+		CurrentHealthy:     5, // 当前健康的 Pod 数量
+		DesiredHealthy:     3, // 期望保持的最小健康 Pod 数量
+		ExpectedPods:       5, // 预期的总 Pod 数量
+	},
+	{
+		UID:     "pod-uid-67890", // 另一个 Pod 的唯一标识符
+		HasPDB:  false,           // 该 Pod 未关联 PDB
+		Expired: true,            // 驱逐记录已过期
+		Buckets: Buckets{
+			List: []Bucket{
+				{Time: 1619827200, Count: 1}, // 时间戳: 2021-05-01 00:00:00, 驱逐数量: 1
+				{Time: 1619913600, Count: 0}, // 时间戳: 2021-05-02 00:00:00, 驱逐数量: 0
+			},
+		},
+		DisruptionsAllowed: 0, // 不允许中断（可能是关键服务）
+		CurrentHealthy:     1, // 当前健康的 Pod 数量
+		DesiredHealthy:     1, // 期望保持的最小健康 Pod 数量
+		ExpectedPods:       1, // 预期的总 Pod 数量
+	},
+}
 
 const (
 	workloadEvictionInfoAnnotation = "evictionInfo"
@@ -40,49 +56,48 @@ const (
 
 // PrepareCandidatePods converts a list of v1.Pod to a list of *CandidatePod and populates
 // all the necessary information for the Filter and Score stages.
-func PrepareCandidatePods(_ context.Context, request *pluginapi.GetEvictPodsRequest) ([]*CandidatePod, error) {
-	workloadInfos, err := getWorkloadEvictionInfo(request)
-	if err != nil {
-		general.Warningf("get workload eviction info failed: %v", err)
-	}
+func PrepareCandidatePods(_ context.Context, request *pluginapi.GetTopEvictionPodsRequest) ([]*CandidatePod, error) {
+
+	// if request == nil || request.CandidateEvictionRecords == nil {
+	// 	general.Warningf("no candidateEvictionRecords in request")
+	// }
+	// var evictionRecords []*EvictionRecord
+	// for _, record := range request.CandidateEvictionRecords {
+	// 	evictionRecords = append(evictionRecords, record)
+	// }
 	pods := request.ActivePods
 	var candidates []*CandidatePod
 	for _, pod := range pods {
+		for _, record := range evictionRecords {
+			if record.UID == string(pod.UID) {
+				workloadInfos, err := getWorkloadEvictionInfo(record)
+				if err != nil {
+					general.Warningf("get workload eviction info failed: %v", err)
+				}
+				candidates = append(candidates, &CandidatePod{
+					Pod:                   pod,
+					Scores:                make(map[string]int),
+					TotalScore:            0,
+					WorkloadsEvictionInfo: workloadInfos,
+					UsageRatio:            0,
+				})
 
-		candidates = append(candidates, &CandidatePod{
-			Pod:                   pod,
-			Scores:                make(map[string]int),
-			TotalScore:            0,
-			WorkloadsEvictionInfo: workloadInfos,
-			UsageRatio:            0,
-		})
+			}
+		}
 	}
 
 	return candidates, nil
 }
 
 // getWorkloadEvictionInfo extracts WorkloadEvictionInfo from the request.
-func getWorkloadEvictionInfo(req *pluginapi.GetEvictPodsRequest) (map[string]*WorkloadEvictionInfo, error) {
+func getWorkloadEvictionInfo(evictionRecord *EvictionRecord) (map[string]*WorkloadEvictionInfo, error) {
 	workloadsEvictionInfo := make(map[string]*WorkloadEvictionInfo)
-	// if req == nil || req.Annotations == nil {
-	// 	general.Warningf("no annotations in request")
-	// }
-	// evictionInfoStr, ok := req.Annotations[workloadEvictionInfoAnnotation]
-	// if !ok {
-	// 	general.Warningf("annotation %s not found", workloadEvictionInfoAnnotation)
-	// }
-
-	var evictionResp FetchEvictionRecordResp
-	if err := json.Unmarshal([]byte(evictionInfoStr), &evictionResp); err != nil {
-		general.Errorf("failed to unmarshal eviction data: %v, raw data : %s", err, evictionInfoStr)
-	}
-
 	timeWindows := []int64{timeWindow1, timeWindow2, timeWindow3}
-	statsByWindow, lastEvictionTime := calculateEvictionStatsByWindows(time.Now(), evictionResp, timeWindows)
+	statsByWindow, lastEvictionTime := calculateEvictionStatsByWindows(time.Now(), evictionRecord, timeWindows)
 	workloadsEvictionInfo[workloadName] = &WorkloadEvictionInfo{
 		WorkloadName:     workloadName,
 		StatsByWindow:    statsByWindow,
-		Replicas:         evictionResp.CurrentHealthy,
+		Replicas:         evictionRecord.CurrentHealthy,
 		LastEvictionTime: lastEvictionTime,
 		Limit:            0,
 	}
@@ -90,9 +105,9 @@ func getWorkloadEvictionInfo(req *pluginapi.GetEvictPodsRequest) (map[string]*Wo
 	return workloadsEvictionInfo, nil
 }
 
-func calculateEvictionStatsByWindows(currentTime time.Time, evictionResp FetchEvictionRecordResp, windows []int64) (map[float64]*EvictionStats, int64) {
-	buckets := evictionResp.Buckets.List
-	currentHealthy := evictionResp.CurrentHealthy
+func calculateEvictionStatsByWindows(currentTime time.Time, evictionRecord *EvictionRecord, windows []int64) (map[float64]*EvictionStats, int64) {
+	buckets := evictionRecord.Buckets.List
+	currentHealthy := evictionRecord.CurrentHealthy
 	statsByWindow := make(map[float64]*EvictionStats)
 	if len(buckets) == 0 {
 		general.Warningf("no buckets in eviction info")

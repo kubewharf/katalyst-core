@@ -118,55 +118,63 @@ func (p *NumaCPUPressureEviction) Start(ctx context.Context) (err error) {
 
 func (p *NumaCPUPressureEviction) Name() string { return EvictionNameNumaCpuPressure }
 
-func (p *NumaCPUPressureEviction) GetCandidatePods(ctx context.Context, request *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
-	if request == nil {
-		return nil, fmt.Errorf("GetTopEvictionPods got nil request")
-	} else if len(request.ActivePods) == 0 {
-		general.Warningf("got empty active pods list")
-		return &pluginapi.GetEvictPodsResponse{}, nil
-	}
-
-	p.RLock()
-	defer p.RUnlock()
-
-	if !p.enabled {
-		general.Infof("numa cpu pressure eviction is disabled")
-		return &pluginapi.GetEvictPodsResponse{}, nil
-	}
-
-	if p.overloadNumaCount == 0 {
-		_ = p.emitter.StoreInt64(metricsNameGetEvictPods, 0, metrics.MetricTypeNameRaw)
-		return &pluginapi.GetEvictPodsResponse{}, nil
-	}
-	//1.OverRatioNumaFilter
-	// activePods, _ := p.OverRatioNumaFilter(request.ActivePods, p.numaOverStat)
-	activePods := request.ActivePods
-	//2.filterParams
-	enabledFilters := p.numaPressureConfig.EnabledFilters
-	filterParams := map[string]interface{}{
-		rules.OwnerRefFilterName:      p.numaPressureConfig.SkippedPodKinds, // OwnerRefFilter params
-		rules.OverRatioNumaFilterName: p.numaOverStats,
-	}
-	//3.allFilter
-	filterer, _ := rules.NewFilter(enabledFilters, p.emitter, filterParams)
-	filteredPods := filterer.Filter(activePods)
-
-	if len(filteredPods) == 0 {
-		general.Warningf("got empty active pods list after filter")
-		return &pluginapi.GetEvictPodsResponse{}, nil
-	}
-	//TODO
-	return nil, nil
+// todo may change to GetTopEvictionPods?
+func (p *NumaCPUPressureEviction) GetEvictPods(_ context.Context, _ *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
+	return &pluginapi.GetEvictPodsResponse{}, nil
 }
 
-// todo may change to GetTopEvictionPods?
-func (p *NumaCPUPressureEviction) GetEvictPods(ctx context.Context, request *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
+func (p *NumaCPUPressureEviction) ThresholdMet(_ context.Context, _ *pluginapi.Empty,
+) (*pluginapi.ThresholdMetResponse, error) {
+	p.RLock()
+	defer p.RUnlock()
+
+	if !p.enabled {
+		general.Infof("numa cpu pressure eviction is disabled")
+		return &pluginapi.ThresholdMetResponse{
+			MetType: pluginapi.ThresholdMetType_NOT_MET,
+		}, nil
+	}
+
+	nodeOverload := p.isNodeOverload()
+
+	if !nodeOverload {
+		_ = p.emitter.StoreFloat64(metricsNameNumaThresholdMet, 0, metrics.MetricTypeNameRaw,
+			metrics.ConvertMapToTags(map[string]string{
+				metricTagMetricName: targetMetric,
+			})...)
+		return &pluginapi.ThresholdMetResponse{
+			MetType: pluginapi.ThresholdMetType_NOT_MET,
+		}, nil
+	}
+
+	_ = p.emitter.StoreFloat64(metricsNameNumaThresholdMet, 1, metrics.MetricTypeNameRaw,
+		metrics.ConvertMapToTags(map[string]string{
+			metricTagMetricName: targetMetric,
+		})...)
+
+	return &pluginapi.ThresholdMetResponse{
+		ThresholdValue:    1,
+		ObservedValue:     1,
+		ThresholdOperator: pluginapi.ThresholdOperator_GREATER_THAN,
+		MetType:           pluginapi.ThresholdMetType_HARD_MET,
+		EvictionScope:     targetMetric,
+		Condition: &pluginapi.Condition{
+			ConditionType: pluginapi.ConditionType_NODE_CONDITION,
+			Effects:       []string{string(v1.TaintEffectNoSchedule)},
+			ConditionName: evictionConditionCPUUsagePressure,
+			MetCondition:  true,
+		},
+	}, nil
+}
+
+func (p *NumaCPUPressureEviction) GetTopEvictionPods(ctx context.Context, request *pluginapi.GetTopEvictionPodsRequest,
+) (*pluginapi.GetTopEvictionPodsResponse, error) {
 
 	if request == nil {
 		return nil, fmt.Errorf("GetTopEvictionPods got nil request")
 	} else if len(request.ActivePods) == 0 {
 		general.Warningf("got empty active pods list")
-		return &pluginapi.GetEvictPodsResponse{}, nil
+		return &pluginapi.GetTopEvictionPodsResponse{}, nil
 	}
 
 	p.RLock()
@@ -174,7 +182,7 @@ func (p *NumaCPUPressureEviction) GetEvictPods(ctx context.Context, request *plu
 
 	if !p.enabled {
 		general.Infof("numa cpu pressure eviction is disabled")
-		return &pluginapi.GetEvictPodsResponse{}, nil
+		return &pluginapi.GetTopEvictionPodsResponse{}, nil
 	}
 
 	if p.overloadNumaCount == 0 {
@@ -236,7 +244,7 @@ func (p *NumaCPUPressureEviction) GetEvictPods(ctx context.Context, request *plu
 	// }
 	if len(p.numaOverStats) == 0 {
 		general.Warningf("no numa over stats")
-		return &pluginapi.GetEvictPodsResponse{}, nil
+		return &pluginapi.GetTopEvictionPodsResponse{}, nil
 	}
 	numaID := p.numaOverStats[0].NumaID
 	numaUsageRatio := p.numaOverStats[0].AvgUsageRatio
@@ -256,25 +264,30 @@ func (p *NumaCPUPressureEviction) GetEvictPods(ctx context.Context, request *plu
 	general.InfoS("evict pod", "pod", topPod.Name, "podUsageRatio",
 		candidatePods[0].UsageRatio, "numa", numaID, "numaOverloadRatio", numaOverloadRatio, "numaUsageRatio", numaUsageRatio)
 
-	resp := &pluginapi.GetEvictPodsResponse{
-		EvictPods: []*pluginapi.EvictPod{
-			{
-				Pod: topPod,
-				Reason: fmt.Sprintf("numa cpu usage %f overload, kill top pod with %f",
-					numaUsageRatio, candidatePods[0].UsageRatio),
-				ForceEvict:         true,
-				EvictionPluginName: EvictionNameNumaCpuPressure,
-			},
-		},
+	resp := &pluginapi.GetTopEvictionPodsResponse{
+		TargetPods: []*v1.Pod{topPod},
 	}
+
+	// resp := &pluginapi.GetEvictPodsResponse{
+	// 	EvictPods: []*pluginapi.EvictPod{
+	// 		{
+	// 			Pod: topPod,
+	// 			Reason: fmt.Sprintf("numa cpu usage %f overload, kill top pod with %f",
+	// 				numaUsageRatio, candidatePods[0].UsageRatio),
+	// 			ForceEvict:         true,
+	// 			EvictionPluginName: EvictionNameNumaCpuPressure,
+	// 		},
+	// 	},
+	// }
 
 	if gracePeriod := p.numaPressureConfig.GracePeriod; gracePeriod >= 0 {
 		deletionOptions := &pluginapi.DeletionOptions{
 			GracePeriodSeconds: gracePeriod,
 		}
-		for _, e := range resp.EvictPods {
-			e.DeletionOptions = deletionOptions
-		}
+		// for _, e := range resp.EvictPods {
+		// 	e.DeletionOptions = deletionOptions
+		// }
+		resp.DeletionOptions = deletionOptions
 	}
 
 	_ = p.emitter.StoreFloat64(metricsNameGetEvictPods, 1, metrics.MetricTypeNameRaw,
@@ -284,55 +297,6 @@ func (p *NumaCPUPressureEviction) GetEvictPods(ctx context.Context, request *plu
 		})...)
 
 	return resp, nil
-}
-
-func (p *NumaCPUPressureEviction) ThresholdMet(_ context.Context, _ *pluginapi.GetThresholdMetRequest,
-) (*pluginapi.ThresholdMetResponse, error) {
-	p.RLock()
-	defer p.RUnlock()
-
-	if !p.enabled {
-		general.Infof("numa cpu pressure eviction is disabled")
-		return &pluginapi.ThresholdMetResponse{
-			MetType: pluginapi.ThresholdMetType_NOT_MET,
-		}, nil
-	}
-
-	nodeOverload := p.isNodeOverload()
-
-	if !nodeOverload {
-		_ = p.emitter.StoreFloat64(metricsNameNumaThresholdMet, 0, metrics.MetricTypeNameRaw,
-			metrics.ConvertMapToTags(map[string]string{
-				metricTagMetricName: targetMetric,
-			})...)
-		return &pluginapi.ThresholdMetResponse{
-			MetType: pluginapi.ThresholdMetType_NOT_MET,
-		}, nil
-	}
-
-	_ = p.emitter.StoreFloat64(metricsNameNumaThresholdMet, 1, metrics.MetricTypeNameRaw,
-		metrics.ConvertMapToTags(map[string]string{
-			metricTagMetricName: targetMetric,
-		})...)
-
-	return &pluginapi.ThresholdMetResponse{
-		ThresholdValue:    1,
-		ObservedValue:     1,
-		ThresholdOperator: pluginapi.ThresholdOperator_GREATER_THAN,
-		MetType:           pluginapi.ThresholdMetType_HARD_MET,
-		EvictionScope:     targetMetric,
-		Condition: &pluginapi.Condition{
-			ConditionType: pluginapi.ConditionType_NODE_CONDITION,
-			Effects:       []string{string(v1.TaintEffectNoSchedule)},
-			ConditionName: evictionConditionCPUUsagePressure,
-			MetCondition:  true,
-		},
-	}, nil
-}
-
-func (p *NumaCPUPressureEviction) GetTopEvictionPods(_ context.Context, _ *pluginapi.GetTopEvictionPodsRequest,
-) (*pluginapi.GetTopEvictionPodsResponse, error) {
-	return &pluginapi.GetTopEvictionPodsResponse{}, nil
 }
 
 // 1 collect numa / pod level metrics
