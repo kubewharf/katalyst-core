@@ -52,8 +52,10 @@ type Stub struct {
 	getTopologyAwareAllocatableResourcesFunc stubGetTopologyAwareAllocatableResourcesFunc
 	getTopologyAwareResourcesFunc            stubGetTopologyAwareResourcesFunc
 
-	// allocAssociateDeviceFunc is used for handling associated device allocation requests.
-	allocAssociateDeviceFunc stubAllocAssociatedDeviceFunc
+	// allocAssociatedDeviceFunc is used for handling associated device allocation requests.
+	allocAssociatedDeviceFunc stubAllocAssociatedDeviceFunc
+	// getAssociatedDeviceFunc is used for handling associated device get topology hints requests.
+	getAssociatedTopologyHintsFunc stubGetAssociatedDeviceTopologyHintsFunc
 
 	registrationStatus chan watcherapi.RegistrationStatus // for testing
 	endpoint           string                             // for testing
@@ -74,6 +76,8 @@ type stubGetTopologyAwareResourcesFunc func(r *pluginapi.GetTopologyAwareResourc
 
 type stubAllocAssociatedDeviceFunc func(r *pluginapi.AssociatedDeviceRequest) (*pluginapi.AssociatedDeviceAllocationResponse, error)
 
+type stubGetAssociatedDeviceTopologyHintsFunc func(r *pluginapi.AssociatedDeviceRequest) (*pluginapi.AssociatedDeviceHintsResponse, error)
+
 func defaultAllocFunc(r *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
 	var response pluginapi.ResourceAllocationResponse
 
@@ -90,6 +94,11 @@ func defaultAllocateAssociatedDeviceFunc(r *pluginapi.AssociatedDeviceRequest) (
 	return &response, nil
 }
 
+func defaultGetAssociatedDeviceTopologyHintsFunc(r *pluginapi.AssociatedDeviceRequest) (*pluginapi.AssociatedDeviceHintsResponse, error) {
+	var response pluginapi.AssociatedDeviceHintsResponse
+	return &response, nil
+}
+
 // NewResourcePluginStub returns an initialized ResourcePlugin Stub.
 func NewResourcePluginStub(socket string, name string, preStartContainerFlag bool) *Stub {
 	return &Stub{
@@ -99,9 +108,10 @@ func NewResourcePluginStub(socket string, name string, preStartContainerFlag boo
 
 		stop: make(chan interface{}),
 
-		allocFunc1:               defaultAllocFunc,
-		allocFunc2:               defaultGetAllocFunc,
-		allocAssociateDeviceFunc: defaultAllocateAssociatedDeviceFunc,
+		allocFunc1:                     defaultAllocFunc,
+		allocFunc2:                     defaultGetAllocFunc,
+		allocAssociatedDeviceFunc:      defaultAllocateAssociatedDeviceFunc,
+		getAssociatedTopologyHintsFunc: defaultGetAssociatedDeviceTopologyHintsFunc,
 	}
 }
 
@@ -116,7 +126,7 @@ func (m *Stub) SetGetAllocFunc(f stubAllocFunc2) {
 
 // SetAssociatedDeviceFunc sets the allocation function for associated devices.
 func (m *Stub) SetAssociatedDeviceFunc(f stubAllocAssociatedDeviceFunc) {
-	m.allocAssociateDeviceFunc = f
+	m.allocAssociatedDeviceFunc = f
 }
 
 func (m *Stub) SetGetTopologyAwareAllocatableResourcesFunc(f stubGetTopologyAwareAllocatableResourcesFunc) {
@@ -321,5 +331,10 @@ func (m *Stub) UpdateAllocatableAssociatedDevices(ctx context.Context, r *plugin
 // It calls the registered allocation function.
 func (m *Stub) AllocateAssociatedDevice(ctx context.Context, r *pluginapi.AssociatedDeviceRequest) (*pluginapi.AssociatedDeviceAllocationResponse, error) {
 	log.Printf("AllocateAssociatedDevice, %+v", r)
-	return m.allocAssociateDeviceFunc(r)
+	return m.allocAssociatedDeviceFunc(r)
+}
+
+func (m *Stub) GetAssociatedDeviceTopologyHints(ctx context.Context, request *pluginapi.AssociatedDeviceRequest) (*pluginapi.AssociatedDeviceHintsResponse, error) {
+	log.Printf("GetAssociatedDeviceTopologyHints, %+v", request)
+	return m.getAssociatedTopologyHintsFunc(request)
 }
