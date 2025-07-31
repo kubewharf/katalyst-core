@@ -97,20 +97,6 @@ func (o *memoryBandwidthOptimizer) OptimizeHints(
 		return err
 	}
 
-	// Get the currently allocated memory bandwidth on each NUMA node
-	numaAllocatedMemBW, err := o.getNUMAAllocatedMemBW(o.state.GetMachineState())
-	if err != nil {
-		general.Errorf("getNUMAAllocatedMemBW failed for pod %s/%s: %v", request.PodNamespace, request.PodName, err)
-		_ = o.emitter.StoreInt64(qrmutil.MetricNameGetNUMAAllocatedMemBWFailed, 1, metrics.MetricTypeNameRaw)
-		// Continue without memory bandwidth optimization if we can't get allocated bandwidth
-		return hintoptimizerutil.ErrHintOptimizerSkip
-	}
-
-	general.InfoS("getNUMAAllocatedMemBW result",
-		"podNamespace", request.PodNamespace,
-		"podName", request.PodName,
-		"numaAllocatedMemBW", numaAllocatedMemBW)
-
 	// Prepare pod metadata for fetching SPD (Service Profile Descriptor) information
 	podMeta := o.preparePodMeta(request)
 
@@ -127,6 +113,24 @@ func (o *memoryBandwidthOptimizer) OptimizeHints(
 		"podNamespace", request.PodNamespace,
 		"podName", request.PodName,
 		"containerMemoryBandwidthRequest", containerMemoryBandwidthRequest)
+	if containerMemoryBandwidthRequest <= 0 {
+		general.Errorf("GetContainerMemoryBandwidthRequest for pod %s/%s returns no larger than 0", request.PodNamespace, request.PodName)
+		return hintoptimizerutil.ErrHintOptimizerSkip
+	}
+
+	// Get the currently allocated memory bandwidth on each NUMA node
+	numaAllocatedMemBW, err := o.getNUMAAllocatedMemBW(o.state.GetMachineState())
+	if err != nil {
+		general.Errorf("getNUMAAllocatedMemBW failed for pod %s/%s: %v", request.PodNamespace, request.PodName, err)
+		_ = o.emitter.StoreInt64(qrmutil.MetricNameGetNUMAAllocatedMemBWFailed, 1, metrics.MetricTypeNameRaw)
+		// Continue without memory bandwidth optimization if we can't get allocated bandwidth
+		return hintoptimizerutil.ErrHintOptimizerSkip
+	}
+
+	general.InfoS("getNUMAAllocatedMemBW result",
+		"podNamespace", request.PodNamespace,
+		"podName", request.PodName,
+		"numaAllocatedMemBW", numaAllocatedMemBW)
 
 	// Collect indexes of hints that are currently marked as preferred
 	preferredHintIndexes := o.getPreferredHintIndexes(hints)
