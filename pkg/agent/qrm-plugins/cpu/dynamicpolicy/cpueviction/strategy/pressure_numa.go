@@ -189,7 +189,7 @@ func (p *NumaCPUPressureEviction) GetTopEvictionPods(ctx context.Context, reques
 	if p.overloadNumaCount == 0 {
 		_ = p.emitter.StoreInt64(metricsNameGetEvictPods, 0, metrics.MetricTypeNameRaw)
 		general.Infof("overloadNumaCount is 0")
-		// return &pluginapi.GetEvictPodsResponse{}, nil
+		// return &pluginapi.GetTopEvictionPodsResponse{}, nil
 	}
 
 	//1.OverRatioNumaFilter
