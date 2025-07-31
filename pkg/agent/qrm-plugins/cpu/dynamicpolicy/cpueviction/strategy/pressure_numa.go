@@ -120,6 +120,7 @@ func (p *NumaCPUPressureEviction) Name() string { return EvictionNameNumaCpuPres
 
 // todo may change to GetTopEvictionPods?
 func (p *NumaCPUPressureEviction) GetEvictPods(_ context.Context, _ *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
+	general.Infof("GetEvictPods called")
 	return &pluginapi.GetEvictPodsResponse{}, nil
 }
 
@@ -169,7 +170,7 @@ func (p *NumaCPUPressureEviction) ThresholdMet(_ context.Context, _ *pluginapi.E
 
 func (p *NumaCPUPressureEviction) GetTopEvictionPods(ctx context.Context, request *pluginapi.GetTopEvictionPodsRequest,
 ) (*pluginapi.GetTopEvictionPodsResponse, error) {
-
+	general.Infof("GetTopEvictionPods called")
 	if request == nil {
 		return nil, fmt.Errorf("GetTopEvictionPods got nil request")
 	} else if len(request.ActivePods) == 0 {
@@ -192,7 +193,6 @@ func (p *NumaCPUPressureEviction) GetTopEvictionPods(ctx context.Context, reques
 	}
 
 	//1.OverRatioNumaFilter
-	// activePods, _ := p.OverRatioNumaFilter(request.ActivePods, p.numaOverStat)
 	activePods := request.ActivePods
 	general.Infof("activePods: %v", activePods)
 	//2.filterParams
