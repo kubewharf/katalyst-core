@@ -881,6 +881,10 @@ func (p *StaticPolicy) UpdateAllocatableAssociatedDevices(_ context.Context, req
 	return &pluginapi.UpdateAllocatableAssociatedDevicesResponse{}, nil
 }
 
+func (*StaticPolicy) GetAssociatedDeviceTopologyHints(_ context.Context, _ *pluginapi.AssociatedDeviceRequest) (*pluginapi.AssociatedDeviceHintsResponse, error) {
+	return &pluginapi.AssociatedDeviceHintsResponse{}, nil
+}
+
 func (p *StaticPolicy) AllocateAssociatedDevice(_ context.Context, req *pluginapi.AssociatedDeviceRequest) (*pluginapi.AssociatedDeviceAllocationResponse, error) {
 	if req == nil || req.ResourceRequest == nil || req.DeviceRequest == nil {
 		return nil, fmt.Errorf("req is nil")
@@ -1017,10 +1021,10 @@ func (p *StaticPolicy) calculateAssociatedDevices(gpuTopology *machine.GPUTopolo
 	}
 
 	availableDevices := request.DeviceRequest.GetAvailableDevices()
-	mustIncludeDevices := request.DeviceRequest.GetMustIncludeDevices()
+	reusableDevices := request.DeviceRequest.GetReusableDevices()
 
 	// allocate must include devices first
-	for _, device := range mustIncludeDevices {
+	for _, device := range reusableDevices {
 		if machineState.GPUMemorySatisfiedRequest(device, gpuMemoryPerGPU) {
 			general.Warningf("must include gpu %s has enough memory to allocate, gpuMemoryAllocatable: %f, gpuMemoryAllocated: %f, gpuMemoryPerGPU: %f",
 				device, machineState.GetGPUMemoryAllocatable(device), machineState.GPUMemoryAllocated(device), gpuMemoryPerGPU)
