@@ -31,6 +31,9 @@ const (
 	// StrategyNameBalanceSchedV3 is the name of balance_sched_v3 strategy,
 	// it supports machine-type-specific thresholds and uses NUMA-level metrics
 	StrategyNameBalanceSchedV3 = "balance_sched_v3"
+	// StrategyNameBSV3Req is the name of bs_v3_req strategy,
+	// it is based on balance_sched_v3 but adds CPU request-based scattering to improve balancing decisions
+	StrategyNameBSV3Req = "bs_v3_req"
 	// StrategyNameBorweinOfflineTraining is the name of borwein_offline_training strategy,
 	// it reschedules offline training pods according to model inference results to improve the performance of the pods.
 	StrategyNameBorweinOfflineTraining = "borwein_offline_training"
