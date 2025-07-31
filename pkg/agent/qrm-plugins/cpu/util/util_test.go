@@ -115,6 +115,33 @@ func TestGetCoresReservedForSystem(t *testing.T) {
 			want:    machine.NewCPUSet(0, 2, 4, 6),
 			wantErr: false,
 		},
+		{
+			name: "GetCoresReservedForSystem with reverse order",
+			args: args{
+				allCPUs: topology.CPUDetails.CPUs(),
+				conf: &config.Configuration{
+					AgentConfiguration: &agent.AgentConfiguration{
+						GenericAgentConfiguration: &agent.GenericAgentConfiguration{
+							GenericQRMPluginConfiguration: &qrm.GenericQRMPluginConfiguration{},
+						},
+						StaticAgentConfiguration: &agent.StaticAgentConfiguration{
+							QRMPluginsConfiguration: &qrm.QRMPluginsConfiguration{
+								CPUQRMPluginConfig: &qrm.CPUQRMPluginConfig{
+									ReservedCPUCores: 4,
+									CPUDynamicPolicyConfig: qrm.CPUDynamicPolicyConfig{
+										EnableReserveCPUReversely: true,
+									},
+								},
+							},
+						},
+					},
+				},
+				metaServer:  &metaserver.MetaServer{},
+				machineInfo: machineInfo,
+			},
+			want:    machine.NewCPUSet(9, 11, 13, 15),
+			wantErr: false,
+		},
 	}
 	for _, tt := range tests {
 		tt := tt
