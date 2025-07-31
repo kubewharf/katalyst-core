@@ -19,6 +19,8 @@ package general
 import (
 	"encoding/json" // nolint: byted_substitute_packages
 	"fmt"
+	"strconv"
+	"strings"
 )
 
 func StructToString(val interface{}) string {
@@ -30,6 +32,14 @@ func StructToString(val interface{}) string {
 		return fmt.Sprintf("%+v", val)
 	}
 	return BytesToString(data)
+}
+
+func IntSliceToString(arr []int) string {
+	strArr := make([]string, len(arr))
+	for i, v := range arr {
+		strArr[i] = strconv.Itoa(v)
+	}
+	return strings.Join(strArr, ",")
 }
 
 func BytesToString(b []byte) string {

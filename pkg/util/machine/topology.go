@@ -636,6 +636,39 @@ func GetSiblingNumaInfo(
 	}
 }
 
+func GetCacheGroupCPUs(machineInfo *info.MachineInfo) map[int]sets.Int {
+	cacheGroupMap := make(map[int]sets.Int)
+	if machineInfo == nil {
+		klog.Errorf("GetCacheGroupCPUs got nil machineInfo")
+		return cacheGroupMap
+	}
+	klog.Infof("[KFX]GetCacheGroupCPUs: machineInfo(%+v)", *machineInfo)
+
+	processCaches := func(caches []info.Cache, threads []int) {
+		for _, cache := range caches {
+			if cache.Level != 3 {
+				continue
+			}
+			if _, exists := cacheGroupMap[cache.Id]; !exists {
+				cacheGroupMap[cache.Id] = sets.NewInt()
+			}
+			for _, thread := range threads {
+				cacheGroupMap[cache.Id].Insert(thread)
+			}
+		}
+	}
+
+	for _, node := range machineInfo.Topology {
+		for _, core := range node.Cores {
+			processCaches(core.Caches, core.Threads)
+			processCaches(core.UncoreCaches, core.Threads)
+		}
+	}
+
+	klog.Infof("[KFX]GetCacheGroupCPUs: cacheGroupMap(%+v)", cacheGroupMap)
+	return cacheGroupMap
+}
+
 type NumaDistanceInfo struct {
 	NumaID   int
 	Distance int

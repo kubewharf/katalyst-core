@@ -68,6 +68,10 @@ func (k *kubeletPodFetcherImpl) GetPodList(ctx context.Context, podFilter func(*
 		if podFilter != nil && !podFilter(&podList.Items[i]) {
 			continue
 		}
+		if podList.Items[i].Spec.NodeName != k.baseConf.NodeName {
+			continue
+		}
+
 		pods = append(pods, &podList.Items[i])
 	}
 	return pods, nil

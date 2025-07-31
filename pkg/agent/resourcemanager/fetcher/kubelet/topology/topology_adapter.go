@@ -24,6 +24,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kubewharf/katalyst-core/pkg/config/agent"
+
 	"github.com/fsnotify/fsnotify"
 	info "github.com/google/cadvisor/info/v1"
 	"github.com/pkg/errors"
@@ -46,6 +48,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/kubelet/podresources"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
@@ -75,6 +78,15 @@ type topologyAdapterImpl struct {
 	// numaSocketZoneNodeMap map numa zone node => socket zone node
 	numaSocketZoneNodeMap map[util.ZoneNode]util.ZoneNode
 
+	// numaCacheGroupZoneNodeMap map numa zone node => cache group zone nodes
+	numaCacheGroupZoneNodeMap map[util.ZoneNode][]util.ZoneNode
+
+	// numaDistanceMap map the distance between a specified numa and other numa.
+	numaDistanceMap map[int][]machine.NumaDistanceInfo
+
+	// cacheGroupCPUsMap records the CPU list in the cache group.
+	cacheGroupCPUsMap map[int]sets.Int
+
 	// skipDeviceNames name of devices which will be skipped in getting numa allocatable and allocation
 	skipDeviceNames sets.String
 
@@ -95,10 +107,13 @@ type topologyAdapterImpl struct {
 
 	// needValidationResources is the resources needed to be validated
 	needValidationResources []string
+
+	// reservedCPUs is the cpus reserved
+	reservedCPUs string
 }
 
 // NewPodResourcesServerTopologyAdapter creates a topology adapter which uses pod resources server
-func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, qosConf *generic.QoSConfiguration,
+func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, qosConf *generic.QoSConfiguration, agentConf *agent.AgentConfiguration,
 	endpoints []string, kubeletResourcePluginPaths []string, kubeletResourcePluginStateFile string, resourceNameToZoneTypeMap map[string]string,
 	skipDeviceNames sets.String, numaInfoGetter NumaInfoGetter, podResourcesFilter PodResourcesFilter,
 	getClientFunc podresources.GetClientFunc, needValidationResources []string,
@@ -118,6 +133,7 @@ func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, qos
 	}
 
 	numaSocketZoneNodeMap := util.GenerateNumaSocketZone(numaInfo)
+	numaCacheGroupZoneNodeMap := util.GenerateNumaCacheGroupZone(numaInfo)
 	return &topologyAdapterImpl{
 		endpoints:                      endpoints,
 		kubeletResourcePluginPaths:     kubeletResourcePluginPaths,
@@ -125,11 +141,15 @@ func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, qos
 		qosConf:                        qosConf,
 		metaServer:                     metaServer,
 		numaSocketZoneNodeMap:          numaSocketZoneNodeMap,
+		numaCacheGroupZoneNodeMap:      numaCacheGroupZoneNodeMap,
+		numaDistanceMap:                metaServer.NumaDistanceMap,
+		cacheGroupCPUsMap:              machine.GetCacheGroupCPUs(metaServer.MachineInfo),
 		skipDeviceNames:                skipDeviceNames,
 		getClientFunc:                  getClientFunc,
 		podResourcesFilter:             podResourcesFilter,
 		resourceNameToZoneTypeMap:      resourceNameToZoneTypeMap,
 		needValidationResources:        needValidationResources,
+		reservedCPUs:                   agentConf.ReservedCPUList,
 	}, nil
 }
 
@@ -157,9 +177,10 @@ func (p *topologyAdapterImpl) GetTopologyZones(parentCtx context.Context) ([]*no
 		return nil, errors.Wrap(err, "get allocatable Resources from pod resource server failed")
 	}
 
+	listPodResourcesResponseStr, _ := json.Marshal(listPodResourcesResponse)
+	allocatableResourcesResponseStr, _ := json.Marshal(allocatableResources)
 	if klog.V(5).Enabled() {
-		listPodResourcesResponseStr, _ := json.Marshal(listPodResourcesResponse)
-		allocatableResourcesResponseStr, _ := json.Marshal(allocatableResources)
+
 		klog.Infof("list pod Resources: %s\n allocatable Resources: %s", string(listPodResourcesResponseStr),
 			string(allocatableResourcesResponseStr))
 	}
@@ -216,6 +237,12 @@ func (p *topologyAdapterImpl) GetTopologyZones(parentCtx context.Context) ([]*no
 	err = p.addDeviceZoneNodes(topologyZoneGenerator, allocatableResources)
 	if err != nil {
 		return nil, errors.Wrap(err, "get device zone topology failed")
+	}
+
+	// add cache group zone node into topology zone generator by numaCacheGroupZoneNodeMap
+	err = p.addCacheGroupZoneNodes(topologyZoneGenerator)
+	if err != nil {
+		return nil, errors.Wrap(err, "get cache group zone topology failed")
 	}
 
 	return topologyZoneGenerator.GenerateTopologyZoneStatus(zoneAllocations, zoneResources, zoneAttributes, zoneSiblings), nil
@@ -376,6 +403,26 @@ func (p *topologyAdapterImpl) addDeviceZoneNodes(generator *util.TopologyZoneGen
 	return nil
 }
 
+// addCacheGroupZoneNodes add the cache group zone nodes to the generator.
+func (p *topologyAdapterImpl) addCacheGroupZoneNodes(generator *util.TopologyZoneGenerator) error {
+	var errList []error
+	for parent, cacheGroups := range p.numaCacheGroupZoneNodeMap {
+		for _, cacheGroup := range cacheGroups {
+			err := generator.AddNode(&parent, cacheGroup)
+			if err != nil {
+				errList = append(errList, err)
+				continue
+			}
+		}
+	}
+
+	if len(errList) > 0 {
+		return utilerrors.NewAggregate(errList)
+	}
+
+	return nil
+}
+
 // getZoneResources gets a map of zone node to zone Resources. The zone node Resources is combined by allocatable
 // device and allocatable resources from pod resources server
 func (p *topologyAdapterImpl) getZoneResources(allocatableResources *podresv1.AllocatableResourcesResponse) (map[util.ZoneNode]nodev1alpha1.Resources, error) {
@@ -433,23 +480,57 @@ func (p *topologyAdapterImpl) getZoneResources(allocatableResources *podresv1.Al
 		errList = append(errList, err)
 	}
 
+	klog.Infof("[KFX]getZoneResources first zoneCapacity: %v", zoneCapacity)
+	klog.Infof("[KFX]getZoneResources first zoneAllocatable: %v", zoneAllocatable)
+
+	// process cache group zone node resources
+	reservedCPUs := machine.MustParse(p.reservedCPUs)
+	klog.Infof("[KFX]getZoneResources p.reservedCPUs:%v reservedCPUs: %v", p.reservedCPUs, reservedCPUs)
+	klog.Infof("[KFX]getZoneResources cacheGroupCPUsMap: %v", p.cacheGroupCPUsMap)
+
+	for cacheID, cpusets := range p.cacheGroupCPUsMap {
+		cacheGroupZone := util.GenerateCacheGroupZoneNode(cacheID)
+		// calculate capacity by the sum of cache group cpus
+		capacity, err := resource.ParseQuantity(fmt.Sprintf("%d", cpusets.Len()))
+		if err != nil {
+			errList = append(errList, err)
+		}
+		// calculate the allocatable amount by deducting the reserved cpus
+		cacheGroupCPUSets := machine.NewCPUSet(cpusets.List()...)
+		allocatableCPUSets := cacheGroupCPUSets.Difference(reservedCPUs)
+		allocatable, err := resource.ParseQuantity(fmt.Sprintf("%d", allocatableCPUSets.Size()))
+		if err != nil {
+			errList = append(errList, err)
+		}
+
+		zoneAllocatable[cacheGroupZone] = &v1.ResourceList{
+			"cpu": allocatable,
+		}
+		zoneCapacity[cacheGroupZone] = &v1.ResourceList{
+			"cpu": capacity,
+		}
+	}
+
+	klog.Infof("[KFX]getZoneResources second zoneCapacity: %v", zoneCapacity)
+	klog.Infof("[KFX]getZoneResources second zoneAllocatable: %v", zoneAllocatable)
+
 	if len(errList) > 0 {
 		return nil, utilerrors.NewAggregate(errList)
 	}
 
 	resources := make(map[util.ZoneNode]nodev1alpha1.Resources)
 	for zone, capacity := range zoneCapacity {
-		allocatable, ok := zoneAllocatable[zone]
-		if !ok {
+		if _, ok := zoneAllocatable[zone]; !ok {
 			return nil, fmt.Errorf("zone %v capacity found but allocatable is not found", zone)
 		}
 
 		resources[zone] = nodev1alpha1.Resources{
 			Capacity:    capacity,
-			Allocatable: allocatable,
+			Allocatable: zoneAllocatable[zone],
 		}
 	}
 
+	klog.Infof("[KFX]getZoneResources resources: %+v", resources)
 	return resources, nil
 }
 
@@ -595,13 +676,16 @@ func (p *topologyAdapterImpl) getZoneAttributes(allocatableResources *podresv1.A
 			}
 
 			zoneNode, _, err := p.generateZoneNode(*quantity)
+			klog.Infof("[KFX]getZoneAttributes zoneNode: %+v", zoneNode)
 			if err != nil {
 				errList = append(errList, fmt.Errorf("get zone node from quantity %v failed: %v", quantity, err))
 				continue
 			}
 
 			if _, ok := zoneAttributes[zoneNode]; !ok {
+
 				zoneAttributes[zoneNode] = util.ZoneAttributes{}
+
 			}
 
 			var attrs []nodev1alpha1.Attribute
@@ -616,11 +700,56 @@ func (p *topologyAdapterImpl) getZoneAttributes(allocatableResources *podresv1.A
 		}
 	}
 
+	klog.Infof("[KFX]getZoneAttributes numaSocketZoneNodeMap: %v", p.numaSocketZoneNodeMap)
+	// generate the attributes of numa zone node
+	for numaNode, _ := range p.numaSocketZoneNodeMap {
+		zoneAttributes[numaNode] = p.generateNodeDistanceAttr(numaNode)
+	}
+
+	klog.Infof("[KFX]getZoneAttributes first zoneAttributes: %v", zoneAttributes)
+
+	klog.Infof("[KFX]getZoneAttributes cacheGroupCPUsMap: %v", p.cacheGroupCPUsMap)
+	// generate the attributes of cache group zone node.
+	for groupID, cpus := range p.cacheGroupCPUsMap {
+		cacheGroupZoneNode := util.GenerateCacheGroupZoneNode(groupID)
+
+		zoneAttributes[cacheGroupZoneNode] = util.ZoneAttributes{
+			nodev1alpha1.Attribute{
+				Name:  "cpu_lists",
+				Value: machine.NewCPUSet(cpus.List()...).String(),
+			},
+		}
+	}
+
 	if len(errList) > 0 {
 		return nil, utilerrors.NewAggregate(errList)
 	}
 
+	klog.Infof("[KFX]getZoneAttributes end zoneAttributes: %v", zoneAttributes)
 	return zoneAttributes, nil
+}
+
+func (p *topologyAdapterImpl) generateNodeDistanceAttr(node util.ZoneNode) []nodev1alpha1.Attribute {
+	var attrs []nodev1alpha1.Attribute
+
+	numaID, err := strconv.Atoi(node.Meta.Name)
+	if err != nil {
+		klog.Warningf("convert numaID to int failed: %v", err)
+		return attrs
+	}
+
+	distanceInfos := p.numaDistanceMap[numaID]
+	klog.Infof("[KFX]generateNodeDistanceAttr numaID:%v distanceInfos: %+v", numaID, distanceInfos)
+	for _, distanceInfo := range distanceInfos {
+		attrs = append(attrs, nodev1alpha1.Attribute{
+			Name:  fmt.Sprintf("numa%d_distance", distanceInfo.NumaID),
+			Value: fmt.Sprintf("%d", distanceInfo.Distance),
+		})
+	}
+
+	klog.Infof("[KFX]generateNodeDistanceAttr attrs: %+v", attrs)
+
+	return attrs
 }
 
 // aggregateContainerAllocated aggregates resources in each zone used by all containers of a pod and returns a map of zone node to
