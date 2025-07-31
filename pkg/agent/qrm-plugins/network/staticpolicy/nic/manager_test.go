@@ -65,13 +65,13 @@ func TestGetNICs(t *testing.T) {
 		t.Parallel()
 		manager := &nicManagerImpl{
 			nics: &NICs{
-				HealthyNICs: []machine.InterfaceInfo{{Iface: "eth0"}},
+				HealthyNICs: []machine.InterfaceInfo{{Name: "eth0"}},
 			},
 		}
 
 		nics := manager.GetNICs()
 		assert.Len(t, nics.HealthyNICs, 1)
-		assert.Equal(t, "eth0", nics.HealthyNICs[0].Iface)
+		assert.Equal(t, "eth0", nics.HealthyNICs[0].Name)
 	})
 
 	t.Run("Empty NICs", func(t *testing.T) {
@@ -89,15 +89,15 @@ func TestGetNICs(t *testing.T) {
 		manager := &nicManagerImpl{
 			nics: &NICs{
 				HealthyNICs: []machine.InterfaceInfo{
-					{Iface: "eth0"},
-					{Iface: "eth1"},
+					{Name: "eth0"},
+					{Name: "eth1"},
 				},
 			},
 		}
 
 		nics := manager.GetNICs()
 		assert.Len(t, nics.HealthyNICs, 2)
-		assert.ElementsMatch(t, []string{"eth0", "eth1"}, []string{nics.HealthyNICs[0].Iface, nics.HealthyNICs[1].Iface})
+		assert.ElementsMatch(t, []string{"eth0", "eth1"}, []string{nics.HealthyNICs[0].Name, nics.HealthyNICs[1].Name})
 	})
 }
 
@@ -115,7 +115,7 @@ func TestUpdateNICs(t *testing.T) {
 		manager := &nicManagerImpl{
 			nics: &NICs{},
 			defaultAllocatableNICs: []machine.InterfaceInfo{
-				{Iface: "eth0"},
+				{Name: "eth0"},
 			},
 			checkers: map[string]checker.NICHealthChecker{
 				"mockChecker": mockChecker,
@@ -130,7 +130,7 @@ func TestUpdateNICs(t *testing.T) {
 
 		nics := manager.GetNICs()
 		assert.Len(t, nics.HealthyNICs, 1)
-		assert.Equal(t, "eth0", nics.HealthyNICs[0].Iface)
+		assert.Equal(t, "eth0", nics.HealthyNICs[0].Name)
 	})
 
 	t.Run("No NICs available", func(t *testing.T) {
@@ -156,7 +156,7 @@ func TestUpdateNICs(t *testing.T) {
 		manager := &nicManagerImpl{
 			nics: &NICs{},
 			defaultAllocatableNICs: []machine.InterfaceInfo{
-				{Iface: "eth0"},
+				{Name: "eth0"},
 			},
 			checkers: map[string]checker.NICHealthChecker{},
 		}
@@ -185,7 +185,7 @@ func TestCheckNICs(t *testing.T) {
 		assert.NoError(t, err)
 
 		checkers := map[string]checker.NICHealthChecker{"mockChecker": mockChecker}
-		nics := []machine.InterfaceInfo{{Iface: "eth0"}, {Iface: "eth1"}}
+		nics := []machine.InterfaceInfo{{Name: "eth0"}, {Name: "eth1"}}
 		n := &nicManagerImpl{
 			checkers:               checkers,
 			emitter:                mockEmitter,
@@ -210,7 +210,7 @@ func TestCheckNICs(t *testing.T) {
 		assert.NoError(t, err)
 
 		checkers := map[string]checker.NICHealthChecker{"mockChecker": mockChecker}
-		nics := []machine.InterfaceInfo{{Iface: "eth0"}, {Iface: "eth1"}}
+		nics := []machine.InterfaceInfo{{Name: "eth0"}, {Name: "eth1"}}
 		n := &nicManagerImpl{
 			checkers:               checkers,
 			emitter:                mockEmitter,
