@@ -23,9 +23,13 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/quota"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/resource"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/sankey"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/domain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
 func Test_domainAdvisor_getEffectiveCapacity(t *testing.T) {
@@ -121,7 +125,7 @@ func Test_domainAdvisor_calcIncomingQuotas(t *testing.T) {
 		name    string
 		fields  fields
 		args    args
-		want    map[int]*resource.MBGroupStat
+		want    map[int]*resource.MBGroupIncomingStat
 		wantErr bool
 	}{
 		{
@@ -151,7 +155,7 @@ func Test_domainAdvisor_calcIncomingQuotas(t *testing.T) {
 					},
 				},
 			},
-			want: map[int]*resource.MBGroupStat{
+			want: map[int]*resource.MBGroupIncomingStat{
 				0: {
 					CapacityInMB: 10_000,
 					FreeInMB:     10_000 - 2_200 - 6_600,
@@ -202,7 +206,7 @@ func Test_domainAdvisor_calcIncomingQuotas(t *testing.T) {
 					},
 				},
 			},
-			want: map[int]*resource.MBGroupStat{
+			want: map[int]*resource.MBGroupIncomingStat{
 				0: {
 					CapacityInMB: 6_000,
 					FreeInMB:     0,
@@ -233,13 +237,120 @@ func Test_domainAdvisor_calcIncomingQuotas(t *testing.T) {
 				XDomGroups:        tt.fields.XDomGroups,
 				GroupCapacityInMB: tt.fields.GroupCapacityInMB,
 			}
-			got, err := d.calcIncomingDomainLimits(tt.args.ctx, tt.args.mon)
+			got, err := d.calcIncomingDomainStats(tt.args.ctx, tt.args.mon)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("calcIncomingDomainLimits() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("calcIncomingDomainStats() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("calcIncomingDomainLimits() got = %v, want %v", got, tt.want)
+				t.Errorf("calcIncomingDomainStats() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_domainAdvisor_GetPlan(t *testing.T) {
+	t.Parallel()
+	type fields struct {
+		domains           domain.Domains
+		XDomGroups        sets.String
+		GroupCapacityInMB map[string]int
+		quotaStrategy     quota.Decider
+		flower            sankey.DomainFlower
+	}
+	type args struct {
+		ctx        context.Context
+		domainsMon *monitor.DomainsMon
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		args    args
+		want    *plan.MBPlan
+		wantErr bool
+	}{
+		{
+			name: "happy path",
+			fields: fields{
+				domains: domain.Domains{
+					0: {
+						ID:           0,
+						CCDs:         nil,
+						CapacityInMB: 30_000,
+					},
+					1: {
+						ID:           1,
+						CCDs:         nil,
+						CapacityInMB: 30_000,
+					},
+				},
+				XDomGroups:        nil,
+				GroupCapacityInMB: nil,
+				quotaStrategy:     quota.New(),
+				flower:            sankey.New(),
+			},
+			args: args{
+				ctx: context.TODO(),
+				domainsMon: &monitor.DomainsMon{
+					Incoming: map[int]monitor.GroupMonStat{
+						0: {
+							"shared-60": map[int]monitor.MBStat{
+								0: {
+									LocalMB:  10_000,
+									RemoteMB: 2_000,
+									TotalMB:  12_000,
+								},
+							},
+							"shared-50": map[int]monitor.MBStat{
+								1: {
+									LocalMB:  11_000,
+									RemoteMB: 2_500,
+									TotalMB:  13_500,
+								},
+							},
+						},
+						1: {
+							"shared-60": map[int]monitor.MBStat{
+								0: {
+									LocalMB:  10_000,
+									RemoteMB: 2_000,
+									TotalMB:  12_000,
+								},
+							},
+							"shared-50": map[int]monitor.MBStat{
+								1: {
+									LocalMB:  11_000,
+									RemoteMB: 2_500,
+									TotalMB:  13_500,
+								},
+							},
+						},
+					},
+				},
+			},
+			want:    nil,
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			d := &domainAdvisor{
+				domains:           tt.fields.domains,
+				XDomGroups:        tt.fields.XDomGroups,
+				GroupCapacityInMB: tt.fields.GroupCapacityInMB,
+				quotaStrategy:     tt.fields.quotaStrategy,
+				flower:            tt.fields.flower,
+				emitter:           &metrics.DummyMetrics{},
+			}
+			got, err := d.GetPlan(tt.args.ctx, tt.args.domainsMon)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetPlan() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("GetPlan() got = %v, want %v", got, tt.want)
 			}
 		})
 	}

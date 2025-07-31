@@ -16,12 +16,16 @@ limitations under the License.
 
 package allocator
 
-import "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
+import (
+	"context"
+
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
+)
 
 type PlanAllocator interface {
-	Allocate(plan *plan.MBPlan) error
+	Allocate(ctx context.Context, plan *plan.MBPlan) error
 }
 
 type CCDPlanAllocator interface {
-	Allocate(ctrlGroup string, plan plan.GroupCCDPlan) error
+	Allocate(ctx context.Context, ctrlGroup string, plan plan.GroupCCDPlan) error
 }

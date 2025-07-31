@@ -17,6 +17,7 @@ limitations under the License.
 package allocator
 
 import (
+	"context"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -115,6 +116,7 @@ func Test_resctrlAllocator_Allocate(t *testing.T) {
 		fs afero.Fs
 	}
 	type args struct {
+		ctx  context.Context
 		plan *plan.MBPlan
 	}
 	tests := []struct {
@@ -130,6 +132,7 @@ func Test_resctrlAllocator_Allocate(t *testing.T) {
 				fs: testFS,
 			},
 			args: args{
+				ctx: context.TODO(),
 				plan: &plan.MBPlan{
 					MBGroups: map[string]plan.GroupCCDPlan{
 						"shared-50": {0: 4_000, 2: 4_500},
@@ -151,7 +154,7 @@ func Test_resctrlAllocator_Allocate(t *testing.T) {
 			r := &resctrlAllocator{
 				fs: tt.fields.fs,
 			}
-			if err := r.Allocate(tt.args.plan); (err != nil) != tt.wantErr {
+			if err := r.Allocate(tt.args.ctx, tt.args.plan); (err != nil) != tt.wantErr {
 				t.Errorf("Allocate() error = %v, wantErr %v", err, tt.wantErr)
 			}
 

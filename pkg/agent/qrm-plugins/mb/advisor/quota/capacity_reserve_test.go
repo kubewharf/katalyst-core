@@ -31,7 +31,7 @@ func Test_throttler_GetGroupQuotas(t *testing.T) {
 		reservationRatio int
 	}
 	type args struct {
-		groupLimits *resource.MBGroupStat
+		groupLimits *resource.MBGroupIncomingStat
 	}
 	tests := []struct {
 		name   string
@@ -45,7 +45,7 @@ func Test_throttler_GetGroupQuotas(t *testing.T) {
 				reservationRatio: 5,
 			},
 			args: args{
-				groupLimits: &resource.MBGroupStat{
+				groupLimits: &resource.MBGroupIncomingStat{
 					CapacityInMB: 6_000,
 					FreeInMB:     0,
 					GroupSorted: []sets.String{

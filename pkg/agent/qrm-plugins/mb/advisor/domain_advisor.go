@@ -30,9 +30,12 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/domain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
 type domainAdvisor struct {
+	emitter metrics.MetricEmitter
+
 	domains domain.Domains
 
 	// XDomGroups are the qos control groups that allow memory access across domains
@@ -46,14 +49,16 @@ type domainAdvisor struct {
 
 func (d *domainAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.DomainsMon) (*plan.MBPlan, error) {
 	// based on mb resource usage, decide incoming limits
-	domLimits, err := d.calcIncomingDomainLimits(ctx, domainsMon)
+	domainStats, err := d.calcIncomingDomainStats(ctx, domainsMon)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get plan")
 	}
+	d.emitDomIncomingStatMetrics(domainStats)
 
 	// based on mb limits, decide incoming quotas (i.e. targets) - by setting aside some buffer
-	domQuotas := d.getIncomingDomainQuotas(ctx, domLimits)
+	domQuotas := d.getIncomingDomainQuotas(ctx, domainStats)
 	groupedDomIncomingTargets := resource.GetGroupedDomainSetting(domQuotas)
+	d.emitIncomingTargets(groupedDomIncomingTargets)
 
 	// for each group, based on incoming targets, decide what the outgoing targets are
 	var groupedDomainOutgoingTargets map[string][]int
@@ -61,13 +66,15 @@ func (d *domainAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.Domains
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get plan")
 	}
+	d.emitOutgoingTargets(groupedDomainOutgoingTargets)
 
-	// based on the theoretic outgoing targets, decide the outgoing MB to set
+	// todo: based on the theoretic outgoing targets, decide the outgoing MB to set
 	_ = groupedDomainOutgoingTargets
-	panic("implement me")
+
+	return nil, nil
 }
 
-func (d *domainAdvisor) getIncomingDomainQuotas(ctx context.Context, domLimits map[int]*resource.MBGroupStat) map[int]resource.GroupSettings {
+func (d *domainAdvisor) getIncomingDomainQuotas(ctx context.Context, domLimits map[int]*resource.MBGroupIncomingStat) map[int]resource.GroupSettings {
 	domQuotas := map[int]resource.GroupSettings{}
 	for dom, limits := range domLimits {
 		domQuotas[dom] = d.quotaStrategy.GetGroupQuotas(limits)
@@ -75,11 +82,11 @@ func (d *domainAdvisor) getIncomingDomainQuotas(ctx context.Context, domLimits m
 	return domQuotas
 }
 
-func (d *domainAdvisor) calcIncomingDomainLimits(ctx context.Context, mon *monitor.DomainsMon) (map[int]*resource.MBGroupStat, error) {
-	domainQuotas := make(map[int]*resource.MBGroupStat)
+func (d *domainAdvisor) calcIncomingDomainStats(ctx context.Context, mon *monitor.DomainsMon) (map[int]*resource.MBGroupIncomingStat, error) {
+	domainQuotas := make(map[int]*resource.MBGroupIncomingStat)
 	var err error
 	for domID, incomingStats := range mon.Incoming {
-		domainQuotas[domID], err = d.calcIncomingGroupLimits(domID, incomingStats)
+		domainQuotas[domID], err = d.calcIncomingStat(domID, incomingStats)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to calc domain quotas")
 		}
@@ -87,8 +94,8 @@ func (d *domainAdvisor) calcIncomingDomainLimits(ctx context.Context, mon *monit
 	return domainQuotas, nil
 }
 
-func distributeCapacityToGroups(capacity int, incomingStats monitor.GroupMonStat) *resource.MBGroupStat {
-	result := &resource.MBGroupStat{
+func distributeCapacityToGroups(capacity int, incomingStats monitor.GroupMonStat) *resource.MBGroupIncomingStat {
+	result := &resource.MBGroupIncomingStat{
 		CapacityInMB:   capacity,
 		GroupTotalUses: map[string]int{},
 		GroupLimits:    map[string]int{},
@@ -126,7 +133,7 @@ func distributeCapacityToGroups(capacity int, incomingStats monitor.GroupMonStat
 	return result
 }
 
-func (d *domainAdvisor) calcIncomingGroupLimits(domID int, incomingStats monitor.GroupMonStat) (*resource.MBGroupStat, error) {
+func (d *domainAdvisor) calcIncomingStat(domID int, incomingStats monitor.GroupMonStat) (*resource.MBGroupIncomingStat, error) {
 	capacity, err := d.getEffectiveCapacity(domID, incomingStats)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to calc domain capacity")

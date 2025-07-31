@@ -17,6 +17,7 @@ limitations under the License.
 package allocator
 
 import (
+	"context"
 	"fmt"
 	"path"
 	"strings"
@@ -49,7 +50,7 @@ func validatePath(name string) error {
 	}
 }
 
-func (r *resctrlAllocator) Allocate(plan *plan.MBPlan) error {
+func (r *resctrlAllocator) Allocate(ctx context.Context, plan *plan.MBPlan) error {
 	for group, ccdPlan := range plan.MBGroups {
 		if err := r.allocateGroupPlan(group, ccdPlan); err != nil {
 			return errors.Wrap(err, "failed to allocate mb plan")

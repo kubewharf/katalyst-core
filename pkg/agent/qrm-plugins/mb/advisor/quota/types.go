@@ -19,7 +19,7 @@ package quota
 import "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/resource"
 
 type Decider interface {
-	GetGroupQuotas(groupLimits *resource.MBGroupStat) resource.GroupSettings
+	GetGroupQuotas(groupLimits *resource.MBGroupIncomingStat) resource.GroupSettings
 }
 
 type phasedDecider struct {
@@ -27,7 +27,7 @@ type phasedDecider struct {
 	easer     Decider
 }
 
-func (c phasedDecider) GetGroupQuotas(groupLimits *resource.MBGroupStat) resource.GroupSettings {
+func (c phasedDecider) GetGroupQuotas(groupLimits *resource.MBGroupIncomingStat) resource.GroupSettings {
 	switch groupLimits.ResourceState {
 	case resource.ResourceStressful:
 		return c.throttler.GetGroupQuotas(groupLimits)

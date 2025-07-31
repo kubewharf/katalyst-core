@@ -28,7 +28,8 @@ const (
 
 type GroupSettings map[string]int
 
-type MBGroupStat struct {
+// MBGroupIncomingStat represents the incoming bound memory bandwidth statistics
+type MBGroupIncomingStat struct {
 	CapacityInMB   int
 	FreeInMB       int
 	GroupTotalUses map[string]int

@@ -116,7 +116,7 @@ func (s *zeroOutDomainFlower) InvertFlow(localRatio []float64, incoming []int) (
 	return outgoing, nil
 }
 
-func New(localRatio []float64) DomainFlower {
+func New() DomainFlower {
 	return &zeroOutDomainFlower{
 		inner: &domainFlower{},
 	}

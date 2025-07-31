@@ -38,7 +38,7 @@ func reserveFrom(available int, toReserve int) (left int, moreToReserve int) {
 	return
 }
 
-func (r ratioCapacityReserver) GetGroupQuotas(groupLimits *resource.MBGroupStat) resource.GroupSettings {
+func (r ratioCapacityReserver) GetGroupQuotas(groupLimits *resource.MBGroupIncomingStat) resource.GroupSettings {
 	// 1. not to disrupt high-priority groups unless it has to;
 	// 2. to throttle the groups having relatively low priority and accumulated to resource stress.
 	quotas := resource.GroupSettings{}

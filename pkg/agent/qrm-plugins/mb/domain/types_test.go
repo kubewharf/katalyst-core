@@ -140,3 +140,39 @@ func TestNewDomains(t *testing.T) {
 		})
 	}
 }
+
+func TestDomains_GetCCDMapping(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		d    Domains
+		want map[int]int
+	}{
+		{
+			name: "happy path",
+			d: Domains{
+				0: {
+					ID:   0,
+					CCDs: sets.NewInt(0, 1, 2, 3),
+				},
+				1: {
+					ID:   1,
+					CCDs: sets.NewInt(4, 5, 6, 7),
+				},
+			},
+			want: map[int]int{
+				0: 0, 1: 0, 2: 0, 3: 0,
+				4: 1, 5: 1, 6: 1, 7: 1,
+			},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tt.d.GetCCDMapping(); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("GetCCDMapping() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

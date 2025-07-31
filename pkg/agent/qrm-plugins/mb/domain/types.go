@@ -24,6 +24,17 @@ import (
 
 type Domains map[int]*Domain
 
+// GetCCDMapping gets the mapping from ccd to domain id
+func (d Domains) GetCCDMapping() map[int]int {
+	result := map[int]int{}
+	for domID, dom := range d {
+		for ccd := range dom.CCDs {
+			result[ccd] = domID
+		}
+	}
+	return result
+}
+
 // Domain is the unit of memory bandwidth to share and compete with
 type Domain struct {
 	ID   int
