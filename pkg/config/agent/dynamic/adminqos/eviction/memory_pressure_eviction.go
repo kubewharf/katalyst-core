@@ -49,7 +49,7 @@ const (
 	// DefaultGracePeriod is the default value of grace period
 	DefaultGracePeriod int64 = -1
 	// DefaultReclaimedGracePeriod is the default value of grace period
-	DefaultReclaimedGracePeriod int64 = 5
+	DefaultReclaimedGracePeriod int64 = 1
 	// DefaultEnableRssOveruseDetection is the default value of whether enable pod-level rss overuse detection
 	DefaultEnableRssOveruseDetection = false
 	// DefaultRSSOveruseRateThreshold is the default threshold for the rate of rss

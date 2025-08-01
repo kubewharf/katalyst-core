@@ -50,7 +50,7 @@ const (
 	memGapSize         = 1 * 1024 * 1024 * 1024 // 1G
 	memGuardSize       = 256 * 1024 * 1024      // 256M
 
-	minDuration = 3
+	minDuration = 2
 )
 
 var hostZoneInfoFile = "/proc/zoneinfo"
@@ -152,10 +152,13 @@ func (n *NumaMemoryPressurePlugin) detectNumaPressures() error {
 		// Notice: the unit of free/min/low from zoneinfo is pages.
 		if numaID < len(zoneinfo) && zoneinfo[numaID].Node == int64(numaID) {
 			low := zoneinfo[numaID].Low
+			min := zoneinfo[numaID].Min
 			fileInactive := zoneinfo[numaID].FileInactive
 
-			// Notice: adding a buffer range for mem.low to avoid kswapd ping-pong
+			// Notice: adding a buffer range for mem.low/mem.min to avoid kswapd ping-pong
 			low += n.memGuardPages
+			min += n.memGapPages
+
 			// step2, add a compensation mechanism to prevent system thrashing due to insufficient file memory
 			fileReserved := general.Max(int(n.memLowReservePages), int(low))
 			if fileInactive < uint64(fileReserved) {
@@ -164,7 +167,7 @@ func (n *NumaMemoryPressurePlugin) detectNumaPressures() error {
 			}
 
 			// step3, compare mem.free, mem.low, mem.min
-			if err := n.detectNumaWatermarkPressure(numaID, int(zoneinfo[numaID].Free), int(zoneinfo[numaID].Min), int(low)); err != nil {
+			if err := n.detectNumaWatermarkPressure(numaID, int(zoneinfo[numaID].Free), int(min), int(low)); err != nil {
 				errList = append(errList, err)
 				continue
 			}
@@ -202,43 +205,62 @@ func (n *NumaMemoryPressurePlugin) detectNumaWatermarkPressure(numaID, free, min
 	}
 
 	dynamicConfig := n.dynamicConfig.GetDynamicConfiguration()
-	general.Infof("numa watermark metrics of ID: %d, "+
-		"free pages: %+v, min pages: %+v, low pages: %+v, numaFreeBelowWatermarkTimes: %+v, numaFreeBelowWatermarkTimesThreshold: %+v",
-		numaID, free, min, low, n.numaFreeBelowWatermarkTimesMap[numaID],
-		dynamicConfig.NumaFreeBelowWatermarkTimesThreshold)
 	_ = n.emitter.StoreFloat64(metricsNameNumaMetric, float64(n.numaFreeBelowWatermarkTimesMap[numaID]), metrics.MetricTypeNameRaw,
 		metrics.ConvertMapToTags(map[string]string{
 			metricsTagKeyNumaID:     strconv.Itoa(numaID),
 			metricsTagKeyMetricName: metricsTagValueNumaFreeBelowWatermarkTimes,
 		})...)
 
-	if free < low {
-		n.numaFreeBelowWatermarkTimesMap[numaID]++
-		// Currently, the default value for NumaFreeBelowWatermarkTimesThreshold is 20,
-		// with a default periodic check interval of 5 seconds.
-		// This means if the free memory remains below the low watermark for 50 seconds, actionReclaimedEviction will be triggered.
-		// If the condition persists for 100 seconds, actionEviction will be triggered.
-		if n.numaFreeBelowWatermarkTimesMap[numaID] > (dynamicConfig.NumaFreeBelowWatermarkTimesThreshold / 2) {
-			n.isUnderNumaPressure = true
-			n.numaActionMap[numaID] = actionReclaimedEviction
+	// Notice:
+	// numaFreeBelowWatermarkTimes > NumaFreeBelowWatermarkTimesThreshold/2, trigger actionReclaimedEviction
+	// numaFreeBelowWatermarkTimes > NumaFreeBelowWatermarkTimesThreshold, trigger actionEviction
+	actionReclaimedThreshold := (dynamicConfig.NumaFreeBelowWatermarkTimesThreshold / 2)
+	if actionReclaimedThreshold <= 0 {
+		actionReclaimedThreshold = dynamicConfig.NumaFreeBelowWatermarkTimesThreshold
+	}
+
+	if free < min {
+		// We are under a DANGEROUS situation, NEED A EVICTION NOW! IMMEDIATELY!
+		n.isUnderNumaPressure = true
+		n.numaActionMap[numaID] = actionReclaimedEviction
+		if n.numaFreeBelowWatermarkTimesMap[numaID] < actionReclaimedThreshold {
+			n.numaFreeBelowWatermarkTimesMap[numaID] = actionReclaimedThreshold
 		}
+		n.numaFreeBelowWatermarkTimesMap[numaID]++
+	} else if free < low {
+		n.numaFreeBelowWatermarkTimesMap[numaID]++
 
 		// avoid excessive pressure on LRU spinlock in kswapd
 		if n.numaFreeBelowWatermarkTimesMap[numaID] > minDuration && n.isUnderAdditionalPressure(free, min, low) {
 			n.numaFreeBelowWatermarkTimesMap[numaID]++
 		}
+
+		// Currently, the default value for NumaFreeBelowWatermarkTimesThreshold is 20,
+		// with a default periodic check interval of 5 seconds.
+		// This means if the free memory remains below the low watermark for 50 seconds, actionReclaimedEviction will be triggered.
+		// If the condition persists for 100 seconds, actionEviction will be triggered.
+		if n.numaFreeBelowWatermarkTimesMap[numaID] > actionReclaimedThreshold {
+			n.isUnderNumaPressure = true
+			n.numaActionMap[numaID] = actionReclaimedEviction
+		}
+
 	} else {
 		// added cooling mechanism to avoid kswapd ping-pong
 		if n.numaFreeBelowWatermarkTimesMap[numaID] > 0 {
 			n.numaFreeBelowWatermarkTimesMap[numaID]--
-			if n.numaFreeBelowWatermarkTimesMap[numaID] > (dynamicConfig.NumaFreeBelowWatermarkTimesThreshold / 2) {
-				n.numaFreeBelowWatermarkTimesMap[numaID] = (dynamicConfig.NumaFreeBelowWatermarkTimesThreshold / 2)
+			if n.numaFreeBelowWatermarkTimesMap[numaID] > actionReclaimedThreshold {
+				n.numaFreeBelowWatermarkTimesMap[numaID] = actionReclaimedThreshold
 			}
 		}
 	}
 	if n.numaFreeBelowWatermarkTimesMap[numaID] >= dynamicConfig.NumaFreeBelowWatermarkTimesThreshold {
 		n.numaActionMap[numaID] = actionEviction
 	}
+
+	general.Infof("numa ID: %d, "+
+		"free pages: %+v, min: %+v, low: %+v, belowTimes: %+v, numaThreshold: %+v",
+		numaID, free, min, low, n.numaFreeBelowWatermarkTimesMap[numaID],
+		dynamicConfig.NumaFreeBelowWatermarkTimesThreshold)
 
 	switch n.numaActionMap[numaID] {
 	case actionReclaimedEviction:
