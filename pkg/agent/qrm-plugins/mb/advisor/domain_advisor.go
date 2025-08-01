@@ -24,6 +24,7 @@ import (
 	"golang.org/x/exp/maps"
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/adjuster"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/quota"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/resource"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/sankey"
@@ -45,6 +46,7 @@ type domainAdvisor struct {
 
 	quotaStrategy quota.Decider
 	flower        sankey.DomainFlower
+	adjusters     map[string]adjuster.Adjuster
 }
 
 func (d *domainAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.DomainsMon) (*plan.MBPlan, error) {
@@ -68,10 +70,47 @@ func (d *domainAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.Domains
 	}
 	d.emitOutgoingTargets(groupedDomainOutgoingTargets)
 
-	// todo: based on the theoretic outgoing targets, decide the outgoing MB to set
-	_ = groupedDomainOutgoingTargets
+	groupedDomOutgoings := domainsMon.GetGroupedDomainSummary()
+	groupedDomainOutgoingQuotas := d.adjust(groupedDomainOutgoingTargets, groupedDomOutgoings)
+
+	// todo: based on the theoretic outgoing quota, decide the outgoing CCD MB to set
+	_ = groupedDomainOutgoingQuotas
 
 	return nil, nil
+}
+
+func getGroupOutgoingTotals(group string, outgoings map[string][]monitor.MBStat) []int {
+	groupOutgoins, ok := outgoings[group]
+	if !ok {
+		groupOutgoins = nil
+	}
+	results := make([]int, len(groupOutgoins))
+	for i, v := range groupOutgoins {
+		results[i] = v.TotalMB
+	}
+	return results
+}
+
+func (d *domainAdvisor) adjust(groupedSettings map[string][]int, observed map[string][]monitor.MBStat) map[string][]int {
+	result := map[string][]int{}
+	activeGroups := sets.String{}
+	for group, values := range groupedSettings {
+		currents := getGroupOutgoingTotals(group, observed)
+		result[group] = d.adjusters[group].AdjustOutgoingTargets(values, currents)
+		activeGroups.Insert(group)
+	}
+
+	// clean up to avoid memory leak
+	if len(groupedSettings) > 0 {
+		for group := range d.adjusters {
+			if activeGroups.Has(group) {
+				continue
+			}
+			delete(d.adjusters, group)
+		}
+	}
+
+	return result
 }
 
 func (d *domainAdvisor) getIncomingDomainQuotas(ctx context.Context, domLimits map[int]*resource.MBGroupIncomingStat) map[int]resource.GroupSettings {
@@ -205,6 +244,8 @@ func New(XDomGroups []string, groupCapacity map[string]int) Advisor {
 	return &domainAdvisor{
 		XDomGroups:        sets.NewString(XDomGroups...),
 		GroupCapacityInMB: groupCapacity,
-		quotaStrategy:     nil,
+		quotaStrategy:     quota.New(),
+		flower:            sankey.New(),
+		adjusters:         map[string]adjuster.Adjuster{},
 	}
 }
