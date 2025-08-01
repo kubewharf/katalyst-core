@@ -618,7 +618,13 @@ func TestMemoryBandwidthOptimizer_OptimizeHints(t *testing.T) {
 			mocks: func(f *fields, a *args) {
 				mockey.Mock(hintoptimizerutil.GenericOptimizeHintsCheck).Return(nil).Build()
 				// Simulate an error from a dependency of getNUMAAllocatedMemBW.
-				mockey.Mock(spd.GetContainerMemoryBandwidthRequest).Return(0, fmt.Errorf("spd failed for allocated bw")).Build()
+				mockey.Mock(spd.GetContainerMemoryBandwidthRequest).
+					To(func(profilingManager spd.ServiceProfilingManager, podMeta metav1.ObjectMeta, cpuRequest int) (int, error) {
+						if podMeta.Name != a.request.PodName {
+							return 0, fmt.Errorf("spd failed for current pod")
+						}
+						return 100, nil
+					}).Build()
 				// Ensure machineState has some pods for this to be triggered.
 				f.state = func() state.State {
 					ms := state.NUMANodeMap{
@@ -676,6 +682,44 @@ func TestMemoryBandwidthOptimizer_OptimizeHints(t *testing.T) {
 					To(func(profilingManager spd.ServiceProfilingManager, podMeta metav1.ObjectMeta, cpuRequest int) (int, error) {
 						if podMeta.Name == a.request.PodName {
 							return 0, fmt.Errorf("spd failed for current pod")
+						}
+						return 100, nil
+					}).Build()
+				mockey.Mock(cpuutil.GetContainerRequestedCores).Return(1.0).Build()
+			},
+			wantErr:   hintoptimizerutil.ErrHintOptimizerSkip,
+			wantHints: &pluginapi.ListOfTopologyHints{Hints: []*pluginapi.TopologyHint{{Nodes: []uint64{0}, Preferred: true}}},
+		},
+		{
+			name: "spd.GetContainerMemoryBandwidthRequest for current request returns 0",
+			fields: fields{
+				metaServer: &metaserver.MetaServer{
+					MetaAgent: &agent.MetaAgent{
+						KatalystMachineInfo: &machine.KatalystMachineInfo{CPUTopology: cpuTopology},
+					},
+				},
+				emitter: dummyEmitter,
+				state:   stateImpl,
+			},
+			args: args{
+				request: hintoptimizer.Request{
+					ResourceRequest: &pluginapi.ResourceRequest{
+						PodUid:        "test-pod-uid",
+						PodNamespace:  "test-ns",
+						PodName:       "test-pod",
+						ContainerName: "test-container",
+						ContainerType: pluginapi.ContainerType_MAIN,
+					},
+					CPURequest: 2,
+				},
+				hints: &pluginapi.ListOfTopologyHints{Hints: []*pluginapi.TopologyHint{{Nodes: []uint64{0}, Preferred: true}}},
+			},
+			mocks: func(f *fields, a *args) {
+				mockey.Mock(hintoptimizerutil.GenericOptimizeHintsCheck).Return(nil).Build()
+				mockey.Mock(spd.GetContainerMemoryBandwidthRequest).
+					To(func(profilingManager spd.ServiceProfilingManager, podMeta metav1.ObjectMeta, cpuRequest int) (int, error) {
+						if podMeta.Name == a.request.PodName {
+							return 0, nil
 						}
 						return 100, nil
 					}).Build()
