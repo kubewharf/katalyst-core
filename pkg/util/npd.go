@@ -81,6 +81,18 @@ func InsertNPDScopedPodMetrics(
 	status.PodMetrics = append(status.PodMetrics, *scopedPodMetrics)
 }
 
+func ExtractNPDScopedNodeMetrics(status *v1alpha1.NodeProfileDescriptorStatus, scope string) []v1alpha1.MetricValue {
+	if status == nil {
+		return nil
+	}
+	for i := range status.NodeMetrics {
+		if status.NodeMetrics[i].Scope == scope {
+			return status.NodeMetrics[i].Metrics
+		}
+	}
+	return nil
+}
+
 // KCCTargetResourceNPD is an implementation of KCCTargetResource for NPD
 type KCCTargetResourceNPD struct {
 	*unstructured.Unstructured

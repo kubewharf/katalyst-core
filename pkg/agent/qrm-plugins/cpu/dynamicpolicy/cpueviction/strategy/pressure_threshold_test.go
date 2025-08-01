@@ -21,53 +21,20 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/utils/pointer"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
+	nodev1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/metricthreshold"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/npd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/threshold"
 )
-
-func Test_expandThresholds(t *testing.T) {
-	t.Parallel()
-	type args struct {
-		thresholds   map[string]float64
-		expandFactor float64
-	}
-	tests := []struct {
-		name string
-		args args
-		want map[string]float64
-	}{
-		{
-			name: "test",
-			args: args{
-				thresholds: map[string]float64{
-					"1": 1,
-					"2": 2,
-					"3": 3,
-				},
-				expandFactor: 2,
-			},
-			want: map[string]float64{
-				"1": 2,
-				"2": 4,
-				"3": 6,
-			},
-		},
-	}
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			assert.Equalf(t, tt.want, expandThresholds(tt.args.thresholds, tt.args.expandFactor), "expandThresholds(%v, %v)", tt.args.thresholds, tt.args.expandFactor)
-		})
-	}
-}
 
 func Test_convertThreshold(t *testing.T) {
 	t.Parallel()
@@ -99,75 +66,6 @@ func Test_convertThreshold(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			assert.Equalf(t, tt.want, convertThreshold(tt.args.origin), "convertThreshold(%v)", tt.args.origin)
-		})
-	}
-}
-
-func Test_getOverLoadThreshold(t *testing.T) {
-	t.Parallel()
-	type args struct {
-		globalThresholds *metricthreshold.MetricThresholdConfiguration
-		cpuCode          string
-		isVM             bool
-	}
-	tests := []struct {
-		name string
-		args args
-		want map[string]float64
-	}{
-		{
-			name: "test",
-			args: args{
-				globalThresholds: &metricthreshold.MetricThresholdConfiguration{
-					Threshold: map[string]map[bool]map[string]float64{
-						"abc": {
-							true: {
-								metricthreshold.NUMACPUUsageRatioThreshold: 1,
-								metricthreshold.NUMACPULoadRatioThreshold:  2,
-							},
-							false: {
-								metricthreshold.NUMACPUUsageRatioThreshold: 3,
-								metricthreshold.NUMACPULoadRatioThreshold:  4,
-							},
-						},
-						"def": {
-							true: {
-								metricthreshold.NUMACPUUsageRatioThreshold: 5,
-								metricthreshold.NUMACPULoadRatioThreshold:  6,
-							},
-							false: {
-								metricthreshold.NUMACPUUsageRatioThreshold: 7,
-								metricthreshold.NUMACPULoadRatioThreshold:  8,
-							},
-						},
-					},
-				},
-				cpuCode: "abc",
-				isVM:    true,
-			},
-			want: map[string]float64{
-				metricthreshold.NUMACPUUsageRatioThreshold: 1,
-				metricthreshold.NUMACPULoadRatioThreshold:  2,
-			},
-		},
-		{
-			name: "test",
-			args: args{
-				globalThresholds: metricthreshold.NewMetricThresholdConfiguration(),
-				cpuCode:          "Intel_CascadeLake",
-				isVM:             false,
-			},
-			want: map[string]float64{
-				metricthreshold.NUMACPUUsageRatioThreshold: 0.55,
-				metricthreshold.NUMACPULoadRatioThreshold:  0.68,
-			},
-		},
-	}
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			assert.Equalf(t, tt.want, getOverLoadThreshold(tt.args.globalThresholds, tt.args.cpuCode, tt.args.isVM), "getOverLoadThreshold(%v, %v, %v)", tt.args.globalThresholds, tt.args.cpuCode, tt.args.isVM)
 		})
 	}
 }
@@ -431,6 +329,7 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 			wantEnabled: false,
 		},
 	}
+
 	for _, tt := range tests {
 		tt := tt
 
@@ -439,12 +338,30 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 			metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
 			store := metricsFetcher.(*metric.FakeMetricsFetcher)
 			tt.setFakeMetric(store)
+			ms := makeMetaServer(metricsFetcher, nil)
+			ms.NPDFetcher = &npd.DummyNPDFetcher{
+				NPD: &nodev1.NodeProfileDescriptor{
+					Status: nodev1.NodeProfileDescriptorStatus{
+						NodeMetrics: []nodev1.ScopedNodeMetrics{
+							{
+								Scope: threshold.ScopeMetricThreshold,
+								Metrics: []nodev1.MetricValue{
+									{
+										MetricName: metricthreshold.NUMACPUUsageRatioThreshold,
+										Value:      resource.MustParse("1"),
+									},
+								},
+							},
+						},
+					},
+				},
+			}
 			p := &NumaCPUPressureEviction{
 				conf:               tt.fields.conf,
 				numaPressureConfig: tt.fields.numaPressureConfig,
 				thresholds:         tt.fields.thresholds,
 				enabled:            tt.fields.enabled,
-				metaServer:         makeMetaServer(metricsFetcher, nil),
+				metaServer:         ms,
 			}
 			p.pullThresholds(context.TODO())
 			assert.Equalf(t, tt.wantEnabled, p.enabled, "pullThresholds")
