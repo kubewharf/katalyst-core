@@ -94,7 +94,10 @@ func (s *Scorer) Score(pods []*CandidatePod) []*CandidatePod {
 	sort.Slice(pods, func(i, j int) bool {
 		return pods[i].TotalScore < pods[j].TotalScore
 	})
-	general.Infof("scored %d pods, top score: %d", len(pods), pods[0].TotalScore)
+	general.Infof("scored %d pods, top score: %s, %d", len(pods), pods[0].Pod.Name, pods[0].TotalScore)
+	for scorerName, score := range pods[0].Scores {
+		general.Infof("%s score: %d", scorerName, score)
+	}
 	return pods
 }
 
@@ -131,6 +134,7 @@ func DeploymentEvictionFrequencyScorer(pod *CandidatePod, params interface{}) in
 		return 0
 	}
 	avgScore := totalScore / float64(workloadCount)
+	general.Infof("DeploymentEvictionFrequencyScorer,  pod: %v, frequencyScore:  %v", pod.Pod.Name, avgScore)
 	return int(avgScore)
 }
 
@@ -149,7 +153,9 @@ func PriorityScorer(pod *CandidatePod, params interface{}) int {
 	} else if clampedPriority < 0 {
 		clampedPriority = 0
 	}
-	return int(float64(clampedPriority) / 10.0)
+	priorityScore := float64(clampedPriority) / 10.0
+	general.Infof("PriorityScorer,  pod: %v, priorityScore:  %v", pod.Pod.Name, priorityScore)
+	return int(priorityScore)
 }
 
 // params: numaOverStat []NumaOverStat
@@ -184,8 +190,9 @@ func UsageGapScorer(pod *CandidatePod, params interface{}) int {
 	avgUsageRatio := metricRing.Avg()
 	pod.UsageRatio = avgUsageRatio
 	gap := numaOverStats[0].Gap
-	// TODO
-	return int((avgUsageRatio - gap) * 10)
+	usageGapScore := (avgUsageRatio - gap) * 10
+	general.Infof("UsageGapScorer,  pod: %v, usageGapScore:  %v, numaGap: %v", pod.Pod.Name, usageGapScore, gap)
+	return int(usageGapScore)
 }
 
 func RunningTimeScore(pod *CandidatePod, params interface{}) int {
