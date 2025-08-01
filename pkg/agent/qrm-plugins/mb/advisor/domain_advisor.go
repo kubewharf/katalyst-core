@@ -91,7 +91,7 @@ func (d *domainAdvisor) adjust(groupedSettings map[string][]int) map[string][]in
 
 	// clean up to avoid memory leak
 	if len(groupedSettings) > 0 {
-		for group, _ := range d.adjusters {
+		for group := range d.adjusters {
 			if activeGroups.Has(group) {
 				continue
 			}
