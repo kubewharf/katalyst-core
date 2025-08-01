@@ -163,9 +163,9 @@ func ConvertCandidatesToPods(candidates []*CandidatePod) []*v1.Pod {
 	return pods
 }
 
-func FilterCandidatePods(candidates []*CandidatePod, podsToRemove []*v1.Pod) []*CandidatePod {
+func FilterCandidatePods(candidates []*CandidatePod, podsToReserve []*v1.Pod) []*CandidatePod {
 	podUIDs := make(map[string]struct{})
-	for _, pod := range podsToRemove {
+	for _, pod := range podsToReserve {
 		if pod != nil {
 			podUIDs[string(pod.UID)] = struct{}{}
 		}

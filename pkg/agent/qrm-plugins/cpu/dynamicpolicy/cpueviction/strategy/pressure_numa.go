@@ -136,18 +136,33 @@ func (p *NumaCPUPressureEviction) ThresholdMet(_ context.Context, _ *pluginapi.E
 		}, nil
 	}
 
-	// nodeOverload := p.isNodeOverload()
-
-	// if !nodeOverload {
-	// 	_ = p.emitter.StoreFloat64(metricsNameNumaThresholdMet, 0, metrics.MetricTypeNameRaw,
-	// 		metrics.ConvertMapToTags(map[string]string{
-	// 			metricTagMetricName: targetMetric,
-	// 		})...)
-	// 	return &pluginapi.ThresholdMetResponse{
-	// 		MetType: pluginapi.ThresholdMetType_NOT_MET,
-	// 	}, nil
-	// }
-
+	nodeOverload := p.isNodeOverload()
+	overloadNumaCount := p.overloadNumaCount
+	if overloadNumaCount == 0 {
+		_ = p.emitter.StoreFloat64(metricsNameNumaThresholdMet, 0, metrics.MetricTypeNameRaw,
+			metrics.ConvertMapToTags(map[string]string{
+				metricTagMetricName: targetMetric,
+			})...)
+		return &pluginapi.ThresholdMetResponse{
+			MetType: pluginapi.ThresholdMetType_NOT_MET,
+		}, nil
+	}
+	if nodeOverload {
+		_ = p.emitter.StoreFloat64(metricsNameNumaThresholdMet, 0, metrics.MetricTypeNameRaw,
+			metrics.ConvertMapToTags(map[string]string{
+				metricTagMetricName: targetMetric,
+			})...)
+		return &pluginapi.ThresholdMetResponse{
+			MetType: pluginapi.ThresholdMetType_HARD_MET,
+			Condition: &pluginapi.Condition{
+				ConditionType: pluginapi.ConditionType_NODE_CONDITION,
+				Effects:       []string{string(v1.TaintEffectNoSchedule)},
+				ConditionName: evictionConditionCPUUsagePressure,
+				MetCondition:  true,
+			},
+		}, nil
+	}
+	general.Infof("overload numa count %v", overloadNumaCount)
 	_ = p.emitter.StoreFloat64(metricsNameNumaThresholdMet, 1, metrics.MetricTypeNameRaw,
 		metrics.ConvertMapToTags(map[string]string{
 			metricTagMetricName: targetMetric,
@@ -350,6 +365,7 @@ func (p *NumaCPUPressureEviction) update(_ context.Context) {
 
 	// update overload numa count and node overload
 	p.overloadNumaCount = p.calOverloadNumaCount()
+	general.Infof("overload numa count %v", p.overloadNumaCount)
 	_, _, _, err := p.pickTopOverRatioNuma(targetMetric, p.thresholds)
 	if err != nil {
 		general.Warningf("failed to update numaOverStat: %v", err)
