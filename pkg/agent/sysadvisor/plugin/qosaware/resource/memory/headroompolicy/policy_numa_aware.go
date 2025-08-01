@@ -261,7 +261,7 @@ func (p *PolicyNUMAAware) reviseNUMAHeadroomMemory(
 		return nil, 0, err
 	}
 
-	general.InfoS("NUMA memory limit", "numaReclaimMemoryLimit", numaReclaimMemoryLimit)
+	general.InfoS("NUMA memory headroom raw data", "numaReclaimMemoryLimit", numaReclaimMemoryLimit, "maxOversoldRate", maxOversoldRate)
 
 	revisedNUMAHeadroom := make(map[int]float64, len(numaHeadroom))
 	revisedTotalNUMAHeadroom := 0.
