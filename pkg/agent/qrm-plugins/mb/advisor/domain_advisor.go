@@ -24,6 +24,7 @@ import (
 	"golang.org/x/exp/maps"
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/adjuster"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/quota"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/resource"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/sankey"
@@ -45,6 +46,7 @@ type domainAdvisor struct {
 
 	quotaStrategy quota.Decider
 	flower        sankey.DomainFlower
+	adjusters     map[string]adjuster.Adjuster
 }
 
 func (d *domainAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.DomainsMon) (*plan.MBPlan, error) {
@@ -68,10 +70,36 @@ func (d *domainAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.Domains
 	}
 	d.emitOutgoingTargets(groupedDomainOutgoingTargets)
 
-	// todo: based on the theoretic outgoing targets, decide the outgoing MB to set
-	_ = groupedDomainOutgoingTargets
+	groupedDomainOutgoingQuotas := d.adjust(groupedDomainOutgoingTargets)
+
+	// todo: based on the theoretic outgoing quota, decide the outgoing CCD MB to set
+	_ = groupedDomainOutgoingQuotas
 
 	return nil, nil
+}
+
+func (d *domainAdvisor) adjust(groupedSettings map[string][]int) map[string][]int {
+	result := map[string][]int{}
+	activeGroups := sets.String{}
+	for group, values := range groupedSettings {
+		if _, ok := d.adjusters[group]; !ok {
+			d.adjusters[group] = adjuster.New()
+		}
+		result[group] = d.adjusters[group].AdjustOutgoingTargets(values)
+		activeGroups.Insert(group)
+	}
+
+	// clean up to avoid memory leak
+	if len(groupedSettings) > 0 {
+		for group, _ := range d.adjusters {
+			if activeGroups.Has(group) {
+				continue
+			}
+			delete(d.adjusters, group)
+		}
+	}
+
+	return result
 }
 
 func (d *domainAdvisor) getIncomingDomainQuotas(ctx context.Context, domLimits map[int]*resource.MBGroupIncomingStat) map[int]resource.GroupSettings {
@@ -205,6 +233,8 @@ func New(XDomGroups []string, groupCapacity map[string]int) Advisor {
 	return &domainAdvisor{
 		XDomGroups:        sets.NewString(XDomGroups...),
 		GroupCapacityInMB: groupCapacity,
-		quotaStrategy:     nil,
+		quotaStrategy:     quota.New(),
+		flower:            sankey.New(),
+		adjusters:         map[string]adjuster.Adjuster{},
 	}
 }
