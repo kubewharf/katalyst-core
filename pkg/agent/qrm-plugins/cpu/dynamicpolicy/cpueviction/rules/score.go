@@ -2,6 +2,7 @@ package rules
 
 import (
 	"fmt"
+	"math"
 	"sort"
 
 	"github.com/kubewharf/katalyst-core/pkg/consts"
@@ -192,7 +193,8 @@ func UsageGapScorer(pod *CandidatePod, params interface{}) int {
 	general.Infof("pod avgUsageRatio: %v", avgUsageRatio)
 	pod.UsageRatio = avgUsageRatio
 	gap := numaOverStats[0].Gap
-	usageGapScore := avgUsageRatio * 1000
+	// choose low score
+	usageGapScore := math.Abs(avgUsageRatio-math.Abs(gap)) * 100
 	// usageGapScore := math.Abs(avgUsageRatio-gap) * 100
 	general.Infof("UsageGapScorer,  pod: %v, usageGapScore:  %v, numaGap: %v", pod.Pod.Name, usageGapScore, gap)
 	return int(usageGapScore)
