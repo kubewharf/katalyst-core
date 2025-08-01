@@ -184,6 +184,7 @@ func UsageGapScorer(pod *CandidatePod, params interface{}) int {
 		return 0
 	}
 	metricRing, ok := podHis[targetMetric]
+	general.Infof("metricRing: %v", metricRing)
 	if !ok {
 		general.Warningf("no %s metric history for pod %s", targetMetric, podUID)
 		return 0
