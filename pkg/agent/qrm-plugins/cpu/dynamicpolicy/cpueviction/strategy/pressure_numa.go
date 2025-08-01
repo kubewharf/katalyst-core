@@ -240,6 +240,7 @@ func (p *NumaCPUPressureEviction) GetTopEvictionPods(ctx context.Context, reques
 	general.Infof("enabledScorers: %v", enabledScorers)
 	scorerParams := map[string]interface{}{
 		rules.DeploymentEvictionFrequencyScorerName: nil,
+		rules.UsageGapScorerName:                    p.numaOverStats,
 	}
 	//3.allScorer
 	scorer, _ := rules.NewScorer(enabledScorers, p.emitter, scorerParams)
