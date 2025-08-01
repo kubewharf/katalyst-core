@@ -2,7 +2,6 @@ package rules
 
 import (
 	"fmt"
-	"math"
 	"sort"
 
 	"github.com/kubewharf/katalyst-core/pkg/consts"
@@ -184,15 +183,17 @@ func UsageGapScorer(pod *CandidatePod, params interface{}) int {
 		return 0
 	}
 	metricRing, ok := podHis[targetMetric]
-	general.Infof("metricRing: %v", metricRing)
+	general.Infof("podmetricRing: %v", metricRing)
 	if !ok {
 		general.Warningf("no %s metric history for pod %s", targetMetric, podUID)
 		return 0
 	}
 	avgUsageRatio := metricRing.Avg()
+	general.Infof("pod avgUsageRatio: %v", avgUsageRatio)
 	pod.UsageRatio = avgUsageRatio
 	gap := numaOverStats[0].Gap
-	usageGapScore := math.Abs(avgUsageRatio-gap) * 100
+	usageGapScore := avgUsageRatio * 1000
+	// usageGapScore := math.Abs(avgUsageRatio-gap) * 100
 	general.Infof("UsageGapScorer,  pod: %v, usageGapScore:  %v, numaGap: %v", pod.Pod.Name, usageGapScore, gap)
 	return int(usageGapScore)
 }
