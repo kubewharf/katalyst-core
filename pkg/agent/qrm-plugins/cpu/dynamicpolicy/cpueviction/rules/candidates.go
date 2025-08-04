@@ -18,9 +18,11 @@ var evictionRecords []*EvictionRecord = []*EvictionRecord{
 		HasPDB: true,            // 该 Pod 关联了 PodDisruptionBudget
 		Buckets: Buckets{
 			List: []Bucket{
-				{Time: 1620000000, Count: 2}, // 时间戳: 2021-05-03 00:00:00, 驱逐数量: 2
-				{Time: 1620086400, Count: 1}, // 时间戳: 2021-05-04 00:00:00, 驱逐数量: 1
-				{Time: 1620172800, Count: 3}, // 时间戳: 2021-05-05 00:00:00, 驱逐数量: 3
+				{Time: time.Now().Add(-120 * time.Minute).Unix(), Duration: 1800, Count: 4},
+				{Time: time.Now().Add(-60 * time.Minute).Unix(), Duration: 1200, Count: 4},
+				{Time: time.Now().Add(-30 * time.Minute).Unix(), Duration: 600, Count: 2},
+				{Time: time.Now().Add(-20 * time.Minute).Unix(), Duration: 600, Count: 1},
+				{Time: time.Now().Add(-10 * time.Minute).Unix(), Duration: 600, Count: 3},
 			},
 		},
 		DisruptionsAllowed: 2, // 允许中断的 Pod 数量
