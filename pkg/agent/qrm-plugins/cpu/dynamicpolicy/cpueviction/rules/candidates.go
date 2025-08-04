@@ -14,9 +14,8 @@ import (
 // 示例 evictionRecords 数据（包含两个不同 Pod 的驱逐记录）
 var evictionRecords []*EvictionRecord = []*EvictionRecord{
 	{
-		UID:     "pod-uid-12345", // Pod 的唯一标识符
-		HasPDB:  true,            // 该 Pod 关联了 PodDisruptionBudget
-		Expired: false,           // 驱逐记录未过期
+		UID:    "pod-uid-12345", // Pod 的唯一标识符
+		HasPDB: true,            // 该 Pod 关联了 PodDisruptionBudget
 		Buckets: Buckets{
 			List: []Bucket{
 				{Time: 1620000000, Count: 2}, // 时间戳: 2021-05-03 00:00:00, 驱逐数量: 2
@@ -30,9 +29,8 @@ var evictionRecords []*EvictionRecord = []*EvictionRecord{
 		ExpectedPods:       5, // 预期的总 Pod 数量
 	},
 	{
-		UID:     "pod-uid-67890", // 另一个 Pod 的唯一标识符
-		HasPDB:  false,           // 该 Pod 未关联 PDB
-		Expired: true,            // 驱逐记录已过期
+		UID:    "pod-uid-67890", // 另一个 Pod 的唯一标识符
+		HasPDB: false,           // 该 Pod 未关联 PDB
 		Buckets: Buckets{
 			List: []Bucket{
 				{Time: 1619827200, Count: 1}, // 时间戳: 2021-05-01 00:00:00, 驱逐数量: 1

@@ -34,10 +34,10 @@ type NumaOverStat struct {
 	Gap            float64
 }
 
+// delete
 type EvictionRecord struct {
 	UID     string
 	HasPDB  bool
-	Expired bool
 	Buckets Buckets
 
 	DisruptionsAllowed int32 // 允许中断的数量（currentHealthy - desiredHealthy）
@@ -50,6 +50,7 @@ type Buckets struct {
 }
 
 type Bucket struct {
-	Time  int64 `json:"time"`  // 秒级时间戳
-	Count int64 `json:"count"` // 驱逐数量
+	Time     int64 // 秒级时间戳
+	Duration int64
+	Count    int64 // 驱逐数量
 }
