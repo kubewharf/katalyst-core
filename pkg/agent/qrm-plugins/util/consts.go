@@ -71,6 +71,7 @@ const (
 	MetricNameIrqTuningNicsCount                      = "irq_tuning_nics_count"
 	MetricNameIrqTuningLowThroughputNicsCount         = "irq_tuning_low_throughput_nics_count"
 	MetricNameIrqTuningNormalThroughputNicsCount      = "irq_tuning_normal_throughput_nics_count"
+	MetricNameIrqTuningBalanceFair                    = "irq_tuning_balance_fair"
 	MetricNameIrqTuningRPSEnabled                     = "irq_tuning_rps_enabled"
 	MetricNameIrqTuningNicThroughputClass             = "irq_tuning_throughput_class"
 	MetricNameIrqTuningSriovContainersCount           = "irq_tuning_sriov_containers_count"

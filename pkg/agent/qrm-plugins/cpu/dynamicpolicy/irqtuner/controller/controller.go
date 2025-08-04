@@ -437,6 +437,9 @@ type IrqTuningController struct {
 	LowThroughputNics []*NicIrqTuningManager // sorted by nic ifindex
 	Nics              []*NicIrqTuningManager // sorted by nic ifindex
 	*IndicatorsStats
+	// map key is last tuned nic's ifindex, map value is nics in ic.Nics when last tuned nic with ifindex stored in key,
+	// map value is used to compare with ic.Nics when next tuning happened and check if next tuning is expected.
+	BalanceFairLastTunedNics map[int][]*machine.NicBasicInfo
 
 	IrqAffinityChanges map[int]*IrqAffinityChange // nic ifindex as map key. used to record irq affinity changes in each periodicTuning, and will be reset at the beginning of periodicTuning
 }
@@ -628,15 +631,16 @@ func NewIrqTuningController(agentConf *agent.AgentConfiguration, irqStateAdapter
 	}
 
 	controller := &IrqTuningController{
-		agentConf:          agentConf,
-		conf:               conf,
-		emitter:            emitter,
-		CPUInfo:            cpuInfo,
-		Ksoftirqds:         ksoftirqds,
-		IrqStateAdapter:    irqStateAdapter,
-		Containers:         make(map[string]*ContainerInfoWrapper),
-		NicSyncInterval:    NicsSyncInterval,
-		IrqAffinityChanges: make(map[int]*IrqAffinityChange),
+		agentConf:                agentConf,
+		conf:                     conf,
+		emitter:                  emitter,
+		CPUInfo:                  cpuInfo,
+		Ksoftirqds:               ksoftirqds,
+		IrqStateAdapter:          irqStateAdapter,
+		Containers:               make(map[string]*ContainerInfoWrapper),
+		NicSyncInterval:          NicsSyncInterval,
+		BalanceFairLastTunedNics: make(map[int][]*machine.NicBasicInfo),
+		IrqAffinityChanges:       make(map[int]*IrqAffinityChange),
 	}
 
 	general.Infof("%s %s", IrqTuningLogPrefix, controller)
@@ -2684,6 +2688,30 @@ func (ic *IrqTuningController) tuneNicIrqsAffinityQualifiedCores(nic *NicInfo, i
 	if hasIrqTuned {
 		if err := nic.sync(); err != nil {
 			general.Errorf("%s failed to sync for nic %s, err %s", IrqTuningLogPrefix, nic, err)
+		}
+
+		if ic.isNormalThroughputNic(nic) {
+			var tunedReason string
+
+			// check if this nic's irqs has been tuned before
+			if nics, ok := ic.BalanceFairLastTunedNics[nic.IfIndex]; ok {
+				var currentNics []*machine.NicBasicInfo
+				for _, nic := range ic.Nics {
+					currentNics = append(currentNics, nic.NicInfo.NicBasicInfo)
+				}
+
+				if !machine.CompareNics(nics, currentNics) {
+					tunedReason = irqtuner.NormalNicsChanged
+				} else {
+					tunedReason = irqtuner.UnexpectedTuning
+				}
+			} else {
+				tunedReason = irqtuner.NormalTuning
+			}
+
+			_ = ic.emitter.StoreInt64(metricUtil.MetricNameIrqTuningBalanceFair, 1, metrics.MetricTypeNameRaw,
+				metrics.MetricTag{Key: "nic", Val: nic.UniqName()},
+				metrics.MetricTag{Key: "reason", Val: tunedReason})
 		}
 	}
 
@@ -5290,6 +5318,17 @@ func (ic *IrqTuningController) periodicTuningIrqBalanceFair() {
 	if err := ic.TuneIrqAffinityForAllNicsWithBalanceFairPolicy(); err != nil {
 		general.Errorf("%s failed to TuneIrqAffinityForAllNicsWithBalanceFairPolicy, err %v", IrqTuningLogPrefix, err)
 		ic.emitErrMetric(irqtuner.TuneIrqAffinityForAllNicsWithBalanceFairPolicyFailed, irqtuner.IrqTuningError)
+	} else {
+		var nics []*machine.NicBasicInfo
+		for _, nic := range ic.Nics {
+			nics = append(nics, nic.NicInfo.NicBasicInfo)
+		}
+
+		// clear old record
+		ic.BalanceFairLastTunedNics = make(map[int][]*machine.NicBasicInfo)
+		for _, nic := range ic.Nics {
+			ic.BalanceFairLastTunedNics[nic.NicInfo.IfIndex] = nics
+		}
 	}
 
 	totalIrqCores, err := ic.getCurrentTotalExclusiveIrqCores()
