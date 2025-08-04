@@ -19,6 +19,7 @@ package dynamicpolicy
 import (
 	"context"
 	"fmt"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -227,11 +228,14 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		return false, nil, err
 	}
 
-	irqTuner, err := irqtuingcontroller.NewIrqTuningController(conf.AgentConfiguration, policyImplement, policyImplement.emitter, policyImplement.machineInfo)
-	if err != nil {
-		general.Errorf("failed to NewIrqTuningController, err %s", err)
-	} else {
-		policyImplement.irqTuner = irqTuner
+	val, exist := os.LookupEnv("EnableIRQTuner")
+	if exist && val == "1" {
+		irqTuner, err := irqtuingcontroller.NewIrqTuningController(conf.AgentConfiguration, policyImplement, policyImplement.emitter, policyImplement.machineInfo)
+		if err != nil {
+			general.Errorf("failed to NewIrqTuningController, err %s", err)
+		} else {
+			policyImplement.irqTuner = irqTuner
+		}
 	}
 
 	// register allocation behaviors for pods with different QoS level
