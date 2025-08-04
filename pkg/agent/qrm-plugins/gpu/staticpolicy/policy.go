@@ -217,10 +217,12 @@ func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 
 	gpuCount, gpuNames, err := p.getGPUCount(req)
 	if err != nil {
+		general.Errorf("getGPUCount failed from req %v with error: %v", req, err)
 		return nil, fmt.Errorf("getGPUCount failed with error: %v", err)
 	}
 
 	if gpuCount == 0 {
+		general.Errorf("getGPUCount failed from req %v with error: no GPU resources found", req)
 		return nil, fmt.Errorf("no GPU resources found")
 	}
 
@@ -460,6 +462,7 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 
 	gpuCount, gpuNames, err := p.getGPUCount(req)
 	if err != nil {
+		general.Errorf("getGPUCount failed from req %v with error: %v", req, err)
 		return nil, fmt.Errorf("getGPUCount failed with error: %v", err)
 	}
 
@@ -843,7 +846,7 @@ func (p *StaticPolicy) calculateHints(gpuMemory float64, gpuReq float64, machine
 }
 
 func (p *StaticPolicy) UpdateAllocatableAssociatedDevices(_ context.Context, request *pluginapi.UpdateAllocatableAssociatedDevicesRequest) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error) {
-	if request == nil {
+	if request == nil || len(request.Devices) == 0 {
 		return nil, fmt.Errorf("request is nil")
 	}
 
@@ -911,6 +914,21 @@ func (p *StaticPolicy) AllocateAssociatedDevice(_ context.Context, req *pluginap
 		general.Errorf("%s", err.Error())
 		return nil, err
 	}
+
+	general.InfoS("called",
+		"podNamespace", req.ResourceRequest.PodNamespace,
+		"podName", req.ResourceRequest.PodName,
+		"containerName", req.ResourceRequest.ContainerName,
+		"qosLevel", qosLevel,
+		"reqAnnotations", req.ResourceRequest.Annotations,
+		"resourceRequests", req.ResourceRequest.ResourceRequests,
+		"deviceName", req.DeviceRequest.DeviceName,
+		"resourceHint", req.ResourceRequest.Hint,
+		"deviceHint", req.DeviceRequest.Hint,
+		"availableDevices", req.DeviceRequest.AvailableDevices,
+		"reusableDevices", req.DeviceRequest.ReusableDevices,
+		"deviceRequest", req.DeviceRequest.DeviceRequest,
+	)
 
 	allocationInfo := p.state.GetAllocationInfo(req.ResourceRequest.PodUid, req.ResourceRequest.ContainerName)
 	if allocationInfo != nil && allocationInfo.TopologyAwareAllocations != nil {
@@ -986,6 +1004,13 @@ func (p *StaticPolicy) AllocateAssociatedDevice(_ context.Context, req *pluginap
 
 	p.state.SetMachineState(machineState, true)
 
+	general.InfoS("allocated devices",
+		"podNamespace", req.ResourceRequest.PodNamespace,
+		"podName", req.ResourceRequest.PodName,
+		"containerName", req.ResourceRequest.ContainerName,
+		"qosLevel", qosLevel,
+		"allocatedDevices", allocatedDevices)
+
 	return &pluginapi.AssociatedDeviceAllocationResponse{
 		AllocationResult: &pluginapi.AssociatedDeviceAllocation{
 			AllocatedDevices: allocatedDevices,
@@ -1045,7 +1070,7 @@ func (p *StaticPolicy) calculateAssociatedDevices(gpuTopology *machine.GPUTopolo
 		}
 
 		// check if gpu's numa node is the subset of hint nodes
-		// todo support
+		// todo support multi numa node
 		if machine.NewCPUSet(info.GetNUMANode()...).IsSubsetOf(hintNodes) {
 			return true
 		}
