@@ -244,6 +244,8 @@ func (p *NumaCPUPressureEviction) GetTopEvictionPods(ctx context.Context, reques
 	}
 
 	activePods := request.ActivePods
+	p.filterer.SetFilterParam(rules.OverRatioNumaFilterName, p.numaOverStats)
+	p.scorer.SetScorerParam(rules.UsageGapScorerName, p.numaOverStats)
 	general.Infof("activePods: %v", len(activePods))
 
 	filteredPods := p.filterer.Filter(activePods)

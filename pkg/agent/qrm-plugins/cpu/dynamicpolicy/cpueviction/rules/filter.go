@@ -81,6 +81,22 @@ podLoop:
 	return filteredPods
 }
 
+func (f *Filterer) SetFilterParam(key string, value interface{}) {
+	if key == "" {
+		general.Warningf("filter key is empty, will not set filter param")
+		return
+	}
+	f.filterParams[key] = value
+}
+
+func (f *Filterer) SetFilter(key string, filter FilterFunc) {
+	if key == "" {
+		general.Warningf("filter key is empty, will not set filter")
+		return
+	}
+	f.filters[key] = filter
+}
+
 func UpgradingFilter(pod *v1.Pod, params interface{}) bool {
 	return false
 }
