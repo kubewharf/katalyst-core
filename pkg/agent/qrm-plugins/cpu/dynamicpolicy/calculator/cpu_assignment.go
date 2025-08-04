@@ -345,6 +345,44 @@ successful:
 	return acc.result.Clone(), availableCPUs.Difference(acc.result), nil
 }
 
+// TakeHTByNUMABalanceReversely sames as TakeHTByNUMABalance, but it takes cpus reversely
+func TakeHTByNUMABalanceReversely(info *machine.KatalystMachineInfo, availableCPUs machine.CPUSet,
+	cpuRequirement int,
+) (machine.CPUSet, machine.CPUSet, error) {
+	var err error
+	acc := newCPUAccumulator(info, availableCPUs, cpuRequirement)
+	if acc.isSatisfied() {
+		goto successful
+	}
+
+	for {
+		if acc.isFailed() {
+			err = fmt.Errorf("not enough cpus available to satisfy request")
+			goto failed
+		}
+
+		for _, s := range info.CPUDetails.NUMANodes().ToSliceInt64() {
+			for _, c := range acc.freeCPUsInNUMANodeReversely(int(s)) {
+				if acc.needs(1) {
+					acc.take(machine.NewCPUSet(c))
+				}
+				if acc.isSatisfied() {
+					goto successful
+				} else {
+					break
+				}
+			}
+		}
+	}
+failed:
+	if err == nil {
+		err = errors.New("failed to allocate cpus")
+	}
+	return availableCPUs, availableCPUs, err
+successful:
+	return acc.result.Clone(), availableCPUs.Difference(acc.result), nil
+}
+
 // TakeByNUMABalanceReversely tries to make the allocated cpu resersely spread on different
 // NUMAs, and it uses cpu Cores as the basic allocation unit
 func TakeByNUMABalanceReversely(info *machine.KatalystMachineInfo, availableCPUs machine.CPUSet,

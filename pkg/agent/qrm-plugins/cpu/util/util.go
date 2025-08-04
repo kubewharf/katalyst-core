@@ -71,7 +71,11 @@ func GetCoresReservedForSystem(conf *config.Configuration, metaServer *metaserve
 		general.Infof("get reservedQuantityInt: %d from ReservedCPUCores configuration", reservedQuantityInt)
 	}
 
-	reservedCPUs, _, reserveErr := calculator.TakeHTByNUMABalance(machineInfo, allCPUs, reservedQuantityInt)
+	takeFn := calculator.TakeHTByNUMABalance
+	if conf.EnableReserveCPUReversely {
+		takeFn = calculator.TakeHTByNUMABalanceReversely
+	}
+	reservedCPUs, _, reserveErr := takeFn(machineInfo, allCPUs, reservedQuantityInt)
 	if reserveErr != nil {
 		return reservedCPUs, fmt.Errorf("takeByNUMABalance for reservedCPUsNum: %d failed with error: %v",
 			reservedQuantityInt, reserveErr)

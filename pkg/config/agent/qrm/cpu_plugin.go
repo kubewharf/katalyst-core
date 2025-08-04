@@ -54,6 +54,8 @@ type CPUDynamicPolicyConfig struct {
 	// It enables schedulers to specify NUMA binding results, and the plugin will make best efforts to follow these results.
 	// This key must be included in the pod-annotation-kept-keys configuration.
 	SharedCoresNUMABindingResultAnnotationKey string
+	// EnableReserveCPUReversely indicates whether to reserve cpu reversely
+	EnableReserveCPUReversely bool
 
 	*hintoptimizer.HintOptimizerConfiguration
 }

@@ -47,6 +47,7 @@ type CPUDynamicPolicyOptions struct {
 	CPUNUMAHintPreferLowThreshold             float64
 	SharedCoresNUMABindingResultAnnotationKey string
 	EnableMetricPreferredNumaAllocation       bool
+	EnableReserveCPUReversely                 bool
 	*hintoptimizer.HintOptimizerOptions
 }
 
@@ -116,6 +117,9 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringVar(&o.SharedCoresNUMABindingResultAnnotationKey, "shared-cores-numa-binding-result-annotation-key",
 		o.SharedCoresNUMABindingResultAnnotationKey, "the key of shared cores numa binding result annotation, "+
 			"default is katalyst.kubewharf.io/numa_bind_result")
+	fs.BoolVar(&o.EnableReserveCPUReversely, "enable-reserve-cpu-reversely",
+		o.EnableReserveCPUReversely, "by default, the reservation of cpu starts from the cpu with lower id,"+
+			"if set to true, it starts from the cpu with higher id")
 	o.HintOptimizerOptions.AddFlags(fss)
 }
 
@@ -133,6 +137,7 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 	conf.CPUAllocationOption = o.CPUAllocationOption
 	conf.EnableMetricPreferredNumaAllocation = o.EnableMetricPreferredNumaAllocation
 	conf.SharedCoresNUMABindingResultAnnotationKey = o.SharedCoresNUMABindingResultAnnotationKey
+	conf.EnableReserveCPUReversely = o.EnableReserveCPUReversely
 	if err := o.HintOptimizerOptions.ApplyTo(conf.HintOptimizerConfiguration); err != nil {
 		return err
 	}
