@@ -1098,26 +1098,5 @@ func (p *StaticPolicy) calculateAssociatedDevices(gpuTopology *machine.GPUTopolo
 		}
 	}
 
-	// final allocate available and non-numa-affinity gpus
-	for _, device := range availableDevices {
-		if allocatedDevices.Has(device) {
-			continue
-		}
-
-		if isNUMAAffinityDevice(device) {
-			continue
-		}
-
-		if !machineState.GPUMemorySatisfiedRequest(device, gpuMemoryPerGPU) {
-			general.Infof("available non-numa-affinity gpu %s has not enough memory to allocate, gpuMemoryAllocatable: %f, gpuMemoryAllocated: %f, gpuMemoryPerGPU: %f",
-				device, machineState.GetGPUMemoryAllocatable(device), machineState.GPUMemoryAllocated(device), gpuMemoryPerGPU)
-			continue
-		}
-
-		if allocateDevices(device) {
-			return allocatedDevices.UnsortedList(), allocatedGPUMemory(allocatedDevices.UnsortedList()...), nil
-		}
-	}
-
 	return nil, nil, fmt.Errorf("no enough available GPUs found in gpuTopology, availableDevices len: %d, allocatedDevices len: %d", len(availableDevices), len(allocatedDevices))
 }
