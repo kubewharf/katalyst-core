@@ -110,7 +110,7 @@ func initGPUTopology(resourceNames []string) (*GPUTopology, error) {
 		}
 
 		for _, id := range gpuDevice {
-			// TODO: get NUMA node from
+			// get NUMA node from UpdateAllocatableAssociatedDevices
 			gpuTopology.GPUs[id] = GPUInfo{}
 		}
 	}
