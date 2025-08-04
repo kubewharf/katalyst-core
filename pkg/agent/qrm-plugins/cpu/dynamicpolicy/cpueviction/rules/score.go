@@ -102,6 +102,22 @@ func (s *Scorer) Score(pods []*CandidatePod) []*CandidatePod {
 	return pods
 }
 
+func (s *Scorer) SetScorerParam(key string, value interface{}) {
+	if key == "" {
+		general.Warningf("scorer key is empty, will not set scorer param")
+		return
+	}
+	s.scorerParams[key] = value
+}
+
+func (s *Scorer) SetScorer(key string, scorer ScoreFunc) {
+	if key == "" {
+		general.Warningf("scorer key is empty, will not set scorer")
+		return
+	}
+	s.scorers[key] = scorer
+}
+
 func DeploymentEvictionFrequencyScorer(pod *CandidatePod, params interface{}) int {
 	if pod == nil || len(pod.WorkloadsEvictionInfo) == 0 {
 		general.Warningf("no eviction info for pod %s", pod.Pod.Name)
