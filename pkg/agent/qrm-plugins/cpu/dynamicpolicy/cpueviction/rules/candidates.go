@@ -111,7 +111,7 @@ func getWorkloadEvictionInfo(evictionRecord *EvictionRecord) (map[string]*Worklo
 		StatsByWindow:    statsByWindow,
 		Replicas:         evictionRecord.CurrentHealthy,
 		LastEvictionTime: lastEvictionTime,
-		Limit:            0,
+		Limit:            evictionRecord.DisruptionsAllowed,
 	}
 
 	return workloadsEvictionInfo, nil
@@ -136,6 +136,8 @@ func calculateEvictionStatsByWindows(currentTime time.Time, evictionRecord *Evic
 		for _, bucket := range buckets {
 			if bucket.Time >= windowStart {
 				totalCount += bucket.Count
+			} else if bucket.Time < windowStart && windowStart <= bucket.Time+bucket.Duration {
+				totalCount += bucket.Count * (bucket.Time + bucket.Duration - windowStart) / bucket.Duration
 			}
 			if bucket.Time > lastEvictionTime {
 				lastEvictionTime = bucket.Time
