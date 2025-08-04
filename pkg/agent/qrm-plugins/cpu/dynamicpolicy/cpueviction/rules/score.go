@@ -97,7 +97,7 @@ func (s *Scorer) Score(pods []*CandidatePod) []*CandidatePod {
 	})
 	general.Infof("scored %d pods, top score: %s, %d", len(pods), pods[0].Pod.Name, pods[0].TotalScore)
 	for scorerName, score := range pods[0].Scores {
-		general.Infof("%s score: %d", scorerName, score)
+		general.Infof("scorer name: %s, score: %d", scorerName, score)
 	}
 	return pods
 }
