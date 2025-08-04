@@ -20,7 +20,17 @@ import (
 	"fmt"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/resource"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+)
+
+const (
+	nameMBMCapacity               = "mbm_capacity"
+	nameMBMFree                   = "mbm_free"
+	nameMBMIncomingTarget         = "mbm_incoming_target"
+	nameMBMOutgoingTarget         = "mbm_outgoing_target"
+	nameMBMAdjustedOutgoingTarget = "mbm_outgoing_target_adjusted"
+	namePlanUpdate                = "mbm_plan_update"
 )
 
 func (d *domainAdvisor) emitDomIncomingStatMetrics(domLimits map[int]*resource.MBGroupIncomingStat) {
@@ -29,17 +39,37 @@ func (d *domainAdvisor) emitDomIncomingStatMetrics(domLimits map[int]*resource.M
 			"domain": fmt.Sprintf("%d", domID),
 			"state":  string(limit.ResourceState),
 		}
-		emitKV(d.emitter, "capacity", limit.CapacityInMB, tags)
-		emitKV(d.emitter, "free", limit.FreeInMB, tags)
+		emitKV(d.emitter, nameMBMCapacity, limit.CapacityInMB, tags)
+		emitKV(d.emitter, nameMBMFree, limit.FreeInMB, tags)
 	}
 }
 
 func (d *domainAdvisor) emitIncomingTargets(groupedDomIncomingTargets map[string][]int) {
-	emitNamedGroupTargets(d.emitter, "incoming_target", groupedDomIncomingTargets)
+	emitNamedGroupTargets(d.emitter, nameMBMIncomingTarget, groupedDomIncomingTargets)
 }
 
 func (d *domainAdvisor) emitOutgoingTargets(groupedDomOutgoingTargets map[string][]int) {
-	emitNamedGroupTargets(d.emitter, "outgoing_target", groupedDomOutgoingTargets)
+	emitNamedGroupTargets(d.emitter, nameMBMOutgoingTarget, groupedDomOutgoingTargets)
+}
+
+func (d *domainAdvisor) emitAdjustedOutgoingTargets(groupedDomOutgoingTargets map[string][]int) {
+	emitNamedGroupTargets(d.emitter, nameMBMAdjustedOutgoingTarget, groupedDomOutgoingTargets)
+}
+
+func (d *domainAdvisor) emitPlanUpdate(updatePlan *plan.MBPlan) {
+	if updatePlan == nil || len(updatePlan.MBGroups) == 0 {
+		return
+	}
+
+	for group, ccdMBs := range updatePlan.MBGroups {
+		for ccd, v := range ccdMBs {
+			tags := map[string]string{
+				"group": group,
+				"ccd":   fmt.Sprintf("%d", ccd),
+			}
+			emitKV(d.emitter, namePlanUpdate, v, tags)
+		}
+	}
 }
 
 func emitKV(emitter metrics.MetricEmitter, k string, v int, tags map[string]string) {

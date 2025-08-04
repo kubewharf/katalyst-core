@@ -23,6 +23,8 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/adjuster"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/distributor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/quota"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/resource"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/sankey"
@@ -257,6 +259,7 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 		GroupCapacityInMB map[string]int
 		quotaStrategy     quota.Decider
 		flower            sankey.DomainFlower
+		adjusters         map[string]adjuster.Adjuster
 	}
 	type args struct {
 		ctx        context.Context
@@ -270,17 +273,17 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "happy path",
+			name: "happy path of no plan update",
 			fields: fields{
 				domains: domain.Domains{
 					0: {
 						ID:           0,
-						CCDs:         nil,
+						CCDs:         sets.NewInt(),
 						CapacityInMB: 30_000,
 					},
 					1: {
 						ID:           1,
-						CCDs:         nil,
+						CCDs:         sets.NewInt(2, 3),
 						CapacityInMB: 30_000,
 					},
 				},
@@ -288,6 +291,7 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 				GroupCapacityInMB: nil,
 				quotaStrategy:     quota.New(),
 				flower:            sankey.New(),
+				adjusters:         map[string]adjuster.Adjuster{},
 			},
 			args: args{
 				ctx: context.TODO(),
@@ -311,6 +315,24 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 						},
 						1: {
 							"shared-60": map[int]monitor.MBStat{
+								2: {
+									LocalMB:  10_000,
+									RemoteMB: 2_000,
+									TotalMB:  12_000,
+								},
+							},
+							"shared-50": map[int]monitor.MBStat{
+								3: {
+									LocalMB:  11_000,
+									RemoteMB: 2_500,
+									TotalMB:  13_500,
+								},
+							},
+						},
+					},
+					Outgoing: map[int]monitor.GroupMonStat{
+						0: {
+							"shared-60": map[int]monitor.MBStat{
 								0: {
 									LocalMB:  10_000,
 									RemoteMB: 2_000,
@@ -325,10 +347,126 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 								},
 							},
 						},
+						1: {
+							"shared-60": map[int]monitor.MBStat{
+								2: {
+									LocalMB:  10_000,
+									RemoteMB: 2_000,
+									TotalMB:  12_000,
+								},
+							},
+							"shared-50": map[int]monitor.MBStat{
+								3: {
+									LocalMB:  11_000,
+									RemoteMB: 2_500,
+									TotalMB:  13_500,
+								},
+							},
+						},
 					},
 				},
 			},
-			want:    nil,
+			want:    &plan.MBPlan{MBGroups: map[string]plan.GroupCCDPlan{}},
+			wantErr: false,
+		},
+		{
+			name: "happy path of yes plan update",
+			fields: fields{
+				domains: domain.Domains{
+					0: {
+						ID:           0,
+						CCDs:         sets.NewInt(0, 1),
+						CapacityInMB: 30_000,
+					},
+					1: {
+						ID:           1,
+						CCDs:         sets.NewInt(2, 3),
+						CapacityInMB: 30_000,
+					},
+				},
+				XDomGroups:        nil,
+				GroupCapacityInMB: nil,
+				quotaStrategy:     quota.New(),
+				flower:            sankey.New(),
+				adjusters:         map[string]adjuster.Adjuster{},
+			},
+			args: args{
+				ctx: context.TODO(),
+				domainsMon: &monitor.DomainsMon{
+					Incoming: map[int]monitor.GroupMonStat{
+						0: {
+							"shared-60": map[int]monitor.MBStat{
+								0: {
+									LocalMB:  10_000,
+									RemoteMB: 5_000,
+									TotalMB:  15_000,
+								},
+							},
+							"shared-50": map[int]monitor.MBStat{
+								1: {
+									LocalMB:  11_000,
+									RemoteMB: 4_500,
+									TotalMB:  15_500,
+								},
+							},
+						},
+						1: {
+							"shared-60": map[int]monitor.MBStat{
+								2: {
+									LocalMB:  10_000,
+									RemoteMB: 5_000,
+									TotalMB:  15_000,
+								},
+							},
+							"shared-50": map[int]monitor.MBStat{
+								3: {
+									LocalMB:  11_000,
+									RemoteMB: 4_500,
+									TotalMB:  15_500,
+								},
+							},
+						},
+					},
+					Outgoing: map[int]monitor.GroupMonStat{
+						0: {
+							"shared-60": map[int]monitor.MBStat{
+								0: {
+									LocalMB:  10_000,
+									RemoteMB: 5_000,
+									TotalMB:  15_000,
+								},
+							},
+							"shared-50": map[int]monitor.MBStat{
+								1: {
+									LocalMB:  11_000,
+									RemoteMB: 4_500,
+									TotalMB:  15_500,
+								},
+							},
+						},
+						1: {
+							"shared-60": map[int]monitor.MBStat{
+								2: {
+									LocalMB:  10_000,
+									RemoteMB: 5_000,
+									TotalMB:  15_000,
+								},
+							},
+							"shared-50": map[int]monitor.MBStat{
+								3: {
+									LocalMB:  11_000,
+									RemoteMB: 4_500,
+									TotalMB:  15_500,
+								},
+							},
+						},
+					},
+				},
+			},
+			want: &plan.MBPlan{MBGroups: map[string]plan.GroupCCDPlan{
+				"shared-60": {0: 20_000, 2: 20_000},
+				"shared-50": {1: 13_500, 3: 13_500},
+			}},
 			wantErr: false,
 		},
 	}
@@ -342,6 +480,8 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 				GroupCapacityInMB: tt.fields.GroupCapacityInMB,
 				quotaStrategy:     tt.fields.quotaStrategy,
 				flower:            tt.fields.flower,
+				adjusters:         tt.fields.adjusters,
+				ccdDistribute:     distributor.New(0, 20_000),
 				emitter:           &metrics.DummyMetrics{},
 			}
 			got, err := d.GetPlan(tt.args.ctx, tt.args.domainsMon)

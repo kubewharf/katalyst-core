@@ -46,7 +46,7 @@ func NewDomainsMon(statOutgoing GroupMonStat, ccdToDomain map[int]int, XDomGroup
 	return result, nil
 }
 
-func (d *DomainsMon) GetGroupedDomainSummary() map[string][]MBStat {
+func (d *DomainsMon) GetGroupedDomainOutgoingSummary() map[string][]MBStat {
 	// outgoing traffic only, as the original local/remote/total data is collected for outgoing direction
 	result := map[string][]MBStat{}
 	numDomains := len(d.Outgoing)

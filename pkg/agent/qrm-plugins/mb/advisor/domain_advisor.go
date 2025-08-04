@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/adjuster"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/distributor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/quota"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/resource"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/sankey"
@@ -32,6 +33,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 type domainAdvisor struct {
@@ -47,6 +49,7 @@ type domainAdvisor struct {
 	quotaStrategy quota.Decider
 	flower        sankey.DomainFlower
 	adjusters     map[string]adjuster.Adjuster
+	ccdDistribute distributor.Distributor
 }
 
 func (d *domainAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.DomainsMon) (*plan.MBPlan, error) {
@@ -70,13 +73,28 @@ func (d *domainAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.Domains
 	}
 	d.emitOutgoingTargets(groupedDomainOutgoingTargets)
 
-	groupedDomOutgoings := domainsMon.GetGroupedDomainSummary()
+	groupedDomOutgoings := domainsMon.GetGroupedDomainOutgoingSummary()
 	groupedDomainOutgoingQuotas := d.adjust(groupedDomainOutgoingTargets, groupedDomOutgoings)
+	d.emitAdjustedOutgoingTargets(groupedDomainOutgoingQuotas)
 
-	// todo: based on the theoretic outgoing quota, decide the outgoing CCD MB to set
-	_ = groupedDomainOutgoingQuotas
+	groupedCCDOutgoingQuotas := d.distribute(groupedDomainOutgoingQuotas, domainsMon.Outgoing)
+	updatePlan := convertToPlan(groupedCCDOutgoingQuotas)
+	d.emitPlanUpdate(updatePlan)
 
-	return nil, nil
+	return updatePlan, nil
+}
+
+func convertToPlan(quotas map[string]map[int]int) *plan.MBPlan {
+	updatePlan := &plan.MBPlan{
+		MBGroups: map[string]plan.GroupCCDPlan{},
+	}
+	for group, ccdQuotas := range quotas {
+		if len(ccdQuotas) == 0 {
+			continue
+		}
+		updatePlan.MBGroups[group] = ccdQuotas
+	}
+	return updatePlan
 }
 
 func getGroupOutgoingTotals(group string, outgoings map[string][]monitor.MBStat) []int {
@@ -96,6 +114,9 @@ func (d *domainAdvisor) adjust(groupedSettings map[string][]int, observed map[st
 	activeGroups := sets.String{}
 	for group, values := range groupedSettings {
 		currents := getGroupOutgoingTotals(group, observed)
+		if _, ok := d.adjusters[group]; !ok {
+			d.adjusters[group] = adjuster.New()
+		}
 		result[group] = d.adjusters[group].AdjustOutgoingTargets(values, currents)
 		activeGroups.Insert(group)
 	}
@@ -216,10 +237,12 @@ func (d *domainAdvisor) deriveOutgoingTargets(domainsMon *monitor.DomainsMon, in
 ) (map[string][]int, error) {
 	// for each group: based on incoming targets, decide what the outgoing targets are
 	result := make(map[string][]int)
-	for group, domSums := range domainsMon.GetGroupedDomainSummary() {
+	for group, domSums := range domainsMon.GetGroupedDomainOutgoingSummary() {
 		incomingTargets, ok := incomingTargets[group]
 		if !ok {
-			return nil, fmt.Errorf("unable to get incoming targets of group %s", group)
+			general.Infof("[mbm] no need to change group %s resource", group)
+			result[group] = nil
+			continue
 		}
 
 		if d.XDomGroups.Has(group) {
@@ -240,12 +263,50 @@ func (d *domainAdvisor) deriveOutgoingTargets(domainsMon *monitor.DomainsMon, in
 	return result, nil
 }
 
-func New(XDomGroups []string, groupCapacity map[string]int) Advisor {
+func (d *domainAdvisor) distribute(quotas map[string][]int, outgoingStat map[int]monitor.GroupMonStat) map[string]map[int]int {
+	result := map[string]map[int]int{}
+	for group, domQuota := range quotas {
+		// each domain is treated independently
+		for domID, domTotal := range domQuota {
+			ccdDistributions := d.domainDistributeGroup(domID, group, domTotal, outgoingStat)
+			if len(ccdDistributions) == 0 {
+				continue
+			}
+
+			if _, ok := result[group]; !ok {
+				result[group] = make(map[int]int)
+			}
+			for ccd, v := range ccdDistributions {
+				result[group][ccd] = v
+			}
+		}
+	}
+	return result
+}
+
+func (d *domainAdvisor) domainDistributeGroup(domID int, group string,
+	domTotal int, outgoingStat map[int]monitor.GroupMonStat,
+) map[int]int {
+	weights := map[int]int{}
+	groupStat := outgoingStat[domID][group]
+	for ccd, stat := range groupStat {
+		weights[ccd] = stat.TotalMB
+	}
+	domCCDQuotas := d.ccdDistribute.Distribute(domTotal, weights)
+	result := map[int]int{}
+	for ccd, v := range domCCDQuotas {
+		result[ccd] = v
+	}
+	return result
+}
+
+func New(ccdMinMB, ccdMaxMB int, XDomGroups []string, groupCapacity map[string]int) Advisor {
 	return &domainAdvisor{
 		XDomGroups:        sets.NewString(XDomGroups...),
 		GroupCapacityInMB: groupCapacity,
 		quotaStrategy:     quota.New(),
 		flower:            sankey.New(),
 		adjusters:         map[string]adjuster.Adjuster{},
+		ccdDistribute:     distributor.New(ccdMinMB, ccdMaxMB),
 	}
 }

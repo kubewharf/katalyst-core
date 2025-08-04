@@ -43,7 +43,10 @@ func NewGenericPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	}
 
 	// todo: stuff with proper objects
-	mbPlugin := newMBPlugin(nil, nil, nil, nil,
+	ccdMinMB := 0
+	ccdMaxMB := 0
+	mbPlugin := newMBPlugin(ccdMinMB, ccdMaxMB,
+		nil, nil, nil, nil,
 		agentCtx.EmitterPool)
 	return true, &agent.PluginWrapper{GenericPlugin: mbPlugin}, nil
 }

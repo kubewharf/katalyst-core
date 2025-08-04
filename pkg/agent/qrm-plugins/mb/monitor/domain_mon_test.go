@@ -374,8 +374,8 @@ func TestDomainsMon_GetGroupedDomainSummary(t *testing.T) {
 				Incoming: tt.fields.Incoming,
 				Outgoing: tt.fields.Outgoing,
 			}
-			if got := d.GetGroupedDomainSummary(); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("GetGroupedDomainSummary() = %v, want %v", got, tt.want)
+			if got := d.GetGroupedDomainOutgoingSummary(); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("GetGroupedDomainOutgoingSummary() = %v, want %v", got, tt.want)
 			}
 		})
 	}
