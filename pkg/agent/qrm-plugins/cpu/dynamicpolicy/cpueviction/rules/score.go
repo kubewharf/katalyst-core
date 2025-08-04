@@ -118,7 +118,7 @@ func DeploymentEvictionFrequencyScorer(pod *CandidatePod, params interface{}) in
 		var weightSum float64
 		for window, stats := range workloadInfo.StatsByWindow {
 			weight := 1.0 / window
-			perHourCount := int(float64(stats.EvictionCount) / window)
+			perHourCount := float64(stats.EvictionCount) / window
 			countScore := normalizeCount(perHourCount, workloadInfo.Limit)
 			ratioScore := stats.EvictionRatio * 10
 			windowContribution := (countScore + ratioScore) * weight
@@ -204,16 +204,11 @@ func RunningTimeScore(pod *CandidatePod, params interface{}) int {
 	return 0
 }
 
-func normalizeCount(count int, limit int) float64 {
+func normalizeCount(perHourCount float64, limit int32) float64 {
 	if limit <= 0 {
-		general.Warningf("invalid limit value %d, using default score 0", limit)
-	}
-	switch {
-	case count >= limit:
-		return score
-	case count > 0:
-		return float64(count / limit * score)
-	default:
-		return 0.0
+		general.Warningf("invalid limit value %d, using default 0", limit)
+		return perHourCount
+	} else {
+		return perHourCount / float64(limit) * score
 	}
 }

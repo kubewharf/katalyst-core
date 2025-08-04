@@ -18,7 +18,7 @@ type WorkloadEvictionInfo struct {
 	StatsByWindow    map[float64]*EvictionStats
 	Replicas         int32
 	LastEvictionTime int64
-	Limit            int
+	Limit            int32
 }
 
 type EvictionStats struct {
