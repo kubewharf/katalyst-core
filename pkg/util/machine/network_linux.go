@@ -1535,6 +1535,19 @@ func (n *NicBasicInfo) Equal(other *NicBasicInfo) bool {
 	return true
 }
 
+func CompareNics(a, b []*NicBasicInfo) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	for i := range a {
+		if !a[i].Equal(b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
 func CollectSoftNetStats(onlineCpus map[int64]bool) (map[int64]*SoftNetStat, error) {
 	softnetStats := make(map[int64]*SoftNetStat)
 

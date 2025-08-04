@@ -47,3 +47,10 @@ const (
 	BalanceNicIrqsToNewIrqCoresFailed                       string = "BalanceNicIrqsToNewIrqCoresFailed"
 	TuneNicIrqAffinityPolicyToIrqCoresExclusiveFailed       string = "TuneNicIrqAffinityPolicyToIrqCoresExclusiveFailed"
 )
+
+// balance-fair irq tuning reason
+const (
+	NormalTuning      string = "normal"
+	NormalNicsChanged string = "nicsChanged"
+	UnexpectedTuning  string = "unexpected"
+)
