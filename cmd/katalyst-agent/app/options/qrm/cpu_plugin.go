@@ -46,7 +46,7 @@ type CPUDynamicPolicyOptions struct {
 	CPUNUMAHintPreferPolicy                   string
 	CPUNUMAHintPreferLowThreshold             float64
 	SharedCoresNUMABindingResultAnnotationKey string
-	EnableMetricPreferredNumaAllocation       bool
+	EnableReserveCPUReversely                 bool
 	*hintoptimizer.HintOptimizerOptions
 }
 
@@ -73,7 +73,6 @@ func NewCPUOptions() *CPUOptions {
 				commonstate.PoolNameReserve,
 			},
 			SharedCoresNUMABindingResultAnnotationKey: consts.PodAnnotationNUMABindResultKey,
-			EnableMetricPreferredNumaAllocation:       false,
 			HintOptimizerOptions:                      hintoptimizer.NewHintOptimizerOptions(),
 		},
 		CPUNativePolicyOptions: CPUNativePolicyOptions{
@@ -105,8 +104,6 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.BoolVar(&o.EnableCPUIdle, "enable-cpu-idle", o.EnableCPUIdle,
 		"if set true, we will enable cpu idle for "+
 			"specific cgroup paths and it requires --enable-syncing-cpu-idle=true to make effect")
-	fs.BoolVar(&o.EnableMetricPreferredNumaAllocation, "enable-metric-preferred-numa-allocation", o.EnableMetricPreferredNumaAllocation,
-		"if set true, we will enable metric preferred numa")
 	fs.StringVar(&o.CPUAllocationOption, "cpu-allocation-option",
 		o.CPUAllocationOption, "The allocation option of cpu (packed/distributed). The default value is packed."+
 			"in cases where more than one NUMA node is required to satisfy the allocation.")
@@ -116,6 +113,9 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringVar(&o.SharedCoresNUMABindingResultAnnotationKey, "shared-cores-numa-binding-result-annotation-key",
 		o.SharedCoresNUMABindingResultAnnotationKey, "the key of shared cores numa binding result annotation, "+
 			"default is katalyst.kubewharf.io/numa_bind_result")
+	fs.BoolVar(&o.EnableReserveCPUReversely, "enable-reserve-cpu-reversely",
+		o.EnableReserveCPUReversely, "by default, the reservation of cpu starts from the cpu with lower id,"+
+			"if set to true, it starts from the cpu with higher id")
 	o.HintOptimizerOptions.AddFlags(fss)
 }
 
@@ -131,8 +131,8 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 	conf.EnableCPUIdle = o.EnableCPUIdle
 	conf.EnableFullPhysicalCPUsOnly = o.EnableFullPhysicalCPUsOnly
 	conf.CPUAllocationOption = o.CPUAllocationOption
-	conf.EnableMetricPreferredNumaAllocation = o.EnableMetricPreferredNumaAllocation
 	conf.SharedCoresNUMABindingResultAnnotationKey = o.SharedCoresNUMABindingResultAnnotationKey
+	conf.EnableReserveCPUReversely = o.EnableReserveCPUReversely
 	if err := o.HintOptimizerOptions.ApplyTo(conf.HintOptimizerConfiguration); err != nil {
 		return err
 	}

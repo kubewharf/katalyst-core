@@ -22,11 +22,14 @@ import (
 	"os"
 	"reflect"
 	"strconv"
+	"sync"
 	"testing"
 
+	"github.com/bytedance/mockey"
 	info "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -473,6 +476,7 @@ func TestUpdate(t *testing.T) {
 		containerMetrics     []containerMetric
 		containerNUMAMetrics []containerNUMAMetric
 		cgroupMetrics        []cgroupMetric
+		zoneInfos            []machine.NormalZoneInfo
 		cgroupNUMAMetrics    []cgroupNUMAMetric
 		metricsFetcherSynced *bool
 		wantAdviceResult     *types.InternalMemoryCalculationResult
@@ -1110,11 +1114,72 @@ func TestUpdate(t *testing.T) {
 			cgroupMetrics:     cgroupMetrics,
 			cgroupNUMAMetrics: cgroupNUMAMetrics,
 			plugins:           []types.MemoryAdvisorPluginName{memadvisorplugin.MemoryGuard},
+			zoneInfos: []machine.NormalZoneInfo{
+				{
+					Node: -1,
+					Free: 100 << 20,
+					Low:  200 << 20,
+				},
+			},
 			wantAdviceResult: &types.InternalMemoryCalculationResult{
 				ExtraEntries: []types.ExtraMemoryAdvices{
 					{
 						CgroupPath: "/kubepods/besteffort",
 						Values:     map[string]string{string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): strconv.Itoa(240 << 30)},
+					},
+				},
+			},
+		},
+		{
+			name: "set reclaimed group memory limit(succeeded, with zoneinfo)",
+			pools: map[string]*types.PoolInfo{
+				commonstate.PoolNameReserve: {
+					PoolName: commonstate.PoolNameReserve,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+				},
+			},
+			reclaimedEnable:   true,
+			wantErr:           false,
+			wantHeadroom:      *resource.NewQuantity(996<<30, resource.DecimalSI),
+			nodeMetrics:       defaultNodeMetrics,
+			numaMetrics:       defaultNumaMetrics,
+			cgroupMetrics:     cgroupMetrics,
+			cgroupNUMAMetrics: cgroupNUMAMetrics,
+			plugins:           []types.MemoryAdvisorPluginName{memadvisorplugin.MemoryGuard},
+			zoneInfos: []machine.NormalZoneInfo{
+				{
+					Node: 0,
+					Low:  (20 << 30) / uint64(unix.Getpagesize()),
+					Free: (60 << 30) / uint64(unix.Getpagesize()),
+				},
+				{
+					Node: 1,
+					Low:  (20 << 30) / uint64(unix.Getpagesize()),
+					Free: (60 << 30) / uint64(unix.Getpagesize()),
+				},
+				{
+					Node: 2,
+					Low:  (20 << 30) / uint64(unix.Getpagesize()),
+					Free: (60 << 30) / uint64(unix.Getpagesize()),
+				},
+				{
+					Node: 3,
+					Low:  (20 << 30) / uint64(unix.Getpagesize()),
+					Free: (60 << 30) / uint64(unix.Getpagesize()),
+				},
+			},
+			wantAdviceResult: &types.InternalMemoryCalculationResult{
+				ExtraEntries: []types.ExtraMemoryAdvices{
+					{
+						CgroupPath: "/kubepods/besteffort",
+						Values:     map[string]string{string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): strconv.Itoa(184 << 30)},
 					},
 				},
 			},
@@ -4245,11 +4310,22 @@ func TestUpdate(t *testing.T) {
 		},
 	}
 
+	mockmu := sync.Mutex{}
+
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			if len(tt.zoneInfos) > 0 {
+				mockmu.Lock()
+				defer mockmu.Unlock()
+
+				defer mockey.UnPatchAll()
+				mockey.Mock(machine.GetNormalZoneInfo).To(func(s string) []machine.NormalZoneInfo {
+					return tt.zoneInfos
+				}).Build()
+			}
 			ckDir, err := ioutil.TempDir("", "checkpoint-TestUpdate")
 			require.NoError(t, err)
 			defer os.RemoveAll(ckDir)

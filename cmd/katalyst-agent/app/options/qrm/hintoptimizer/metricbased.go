@@ -22,15 +22,24 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/hintoptimizer"
 )
 
-type MetricBasedHintOptimizerOptions struct{}
+type MetricBasedHintOptimizerOptions struct {
+	EnableMetricPreferredNumaAllocation bool
+}
 
 func NewMetricBasedHintOptimizerOptions() *MetricBasedHintOptimizerOptions {
-	return &MetricBasedHintOptimizerOptions{}
+	return &MetricBasedHintOptimizerOptions{
+		EnableMetricPreferredNumaAllocation: false,
+	}
 }
 
 func (o *MetricBasedHintOptimizerOptions) AddFlags(fss *cliflag.NamedFlagSets) {
+	fs := fss.FlagSet("metric_based_hint_optimizer")
+
+	fs.BoolVar(&o.EnableMetricPreferredNumaAllocation, "enable-metric-preferred-numa-allocation", o.EnableMetricPreferredNumaAllocation,
+		"if set true, we will enable metric preferred numa")
 }
 
 func (o *MetricBasedHintOptimizerOptions) ApplyTo(conf *hintoptimizer.MetricBasedHintOptimizerConfig) error {
+	conf.EnableMetricPreferredNumaAllocation = o.EnableMetricPreferredNumaAllocation
 	return nil
 }
