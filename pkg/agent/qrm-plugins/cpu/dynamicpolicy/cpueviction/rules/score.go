@@ -1,3 +1,19 @@
+/*
+Copyright 2022 The Katalyst Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package rules
 
 import (
@@ -15,7 +31,6 @@ const (
 	DeploymentEvictionFrequencyScorerName = "DeploymentEvictionFrequency"
 	PriorityScorerName                    = "Priority"
 	UsageGapScorerName                    = "Usage"
-	RunningTimeScorerName                 = "RunningTime"
 	score                                 = 10.0
 	targetMetric                          = consts.MetricCPUUsageContainer
 )
@@ -35,7 +50,6 @@ var allScores = map[string]ScoreFunc{
 	DeploymentEvictionFrequencyScorerName: DeploymentEvictionFrequencyScorer,
 	PriorityScorerName:                    PriorityScorer,
 	UsageGapScorerName:                    UsageGapScorer,
-	RunningTimeScorerName:                 RunningTimeScore,
 }
 
 func NewScorer(enabledScorers []string, emitter metrics.MetricEmitter, scorerParams map[string]interface{}) (*Scorer, error) {
@@ -152,7 +166,7 @@ func DeploymentEvictionFrequencyScorer(pod *CandidatePod, params interface{}) in
 	if workloadCount == 0 {
 		return 0
 	}
-	general.Infof("workloadCount: %d, frequency totalScore:  %v", workloadCount, totalScore)
+	// general.Infof("workloadCount: %d, frequency totalScore:  %v", workloadCount, totalScore)
 	avgScore := totalScore / float64(workloadCount)
 	general.Infof("DeploymentEvictionFrequencyScorer,  pod: %v, frequencyScore:  %v", pod.Pod.Name, avgScore)
 	return int(avgScore)
@@ -203,29 +217,24 @@ func UsageGapScorer(pod *CandidatePod, params interface{}) int {
 		return 0
 	}
 	metricRing, ok := podHis[targetMetric]
-	general.Infof("podmetricRing: %v", metricRing)
+	// general.Infof("podmetricRing: %v", metricRing)
 	if !ok {
 		general.Warningf("no %s metric history for pod %s", targetMetric, podUID)
 		return 0
 	}
 	avgUsageRatio := metricRing.Avg()
-	general.Infof("pod avgUsageRatio: %v", avgUsageRatio)
+	// general.Infof("pod avgUsageRatio: %v", avgUsageRatio)
 	pod.UsageRatio = avgUsageRatio
 	gap := numaOverStats[0].Gap
 	// choose low score
 	usageGapScore := math.Abs(avgUsageRatio-math.Abs(gap)) * 100
-	// usageGapScore := math.Abs(avgUsageRatio-gap) * 100
 	general.Infof("UsageGapScorer,  pod: %v, usageGapScore:  %v, numaGap: %v", pod.Pod.Name, usageGapScore, gap)
 	return int(usageGapScore)
 }
 
-func RunningTimeScore(pod *CandidatePod, params interface{}) int {
-	return 0
-}
-
 func normalizeCount(perHourCount float64, limit int32) float64 {
 	if limit <= 0 {
-		general.Warningf("invalid limit value %d, using default 0", limit)
+		general.Warningf("invalid limit value %d, using perHourCount", limit)
 		return perHourCount
 	} else {
 		return perHourCount / float64(limit) * score

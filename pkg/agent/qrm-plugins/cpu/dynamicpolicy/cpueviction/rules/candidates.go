@@ -1,49 +1,51 @@
+/*
+Copyright 2022 The Katalyst Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package rules
 
 import (
 	"context"
-
-	v1 "k8s.io/api/core/v1"
-
 	"time"
 
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	v1 "k8s.io/api/core/v1"
 )
 
-// 示例 evictionRecords 数据（包含两个不同 Pod 的驱逐记录）
-var evictionRecords []*EvictionRecord = []*EvictionRecord{
-	{
-		UID:    "pod-uid-12345", // Pod 的唯一标识符
-		HasPDB: true,            // 该 Pod 关联了 PodDisruptionBudget
-		Buckets: Buckets{
-			List: []Bucket{
-				{Time: time.Now().Add(-120 * time.Minute).Unix(), Duration: 1800, Count: 4},
-				{Time: time.Now().Add(-60 * time.Minute).Unix(), Duration: 1200, Count: 4},
-				{Time: time.Now().Add(-30 * time.Minute).Unix(), Duration: 600, Count: 2},
-				{Time: time.Now().Add(-20 * time.Minute).Unix(), Duration: 600, Count: 1},
-				{Time: time.Now().Add(-10 * time.Minute).Unix(), Duration: 600, Count: 3},
+func getEvictionRecords() []*EvictionRecord {
+	now := time.Now()
+	return []*EvictionRecord{
+		{
+			UID:    "pod-uid-12345",
+			HasPDB: true,
+			Buckets: Buckets{
+				List: []Bucket{
+					{Time: now.Add(-120 * time.Minute).Unix(), Duration: 1800, Count: 4},
+					{Time: now.Add(-60 * time.Minute).Unix(), Duration: 1200, Count: 4},
+					{Time: now.Add(-30 * time.Minute).Unix(), Duration: 600, Count: 2},
+					{Time: now.Add(-20 * time.Minute).Unix(), Duration: 600, Count: 1},
+					{Time: now.Add(-10 * time.Minute).Unix(), Duration: 600, Count: 3},
+				},
 			},
+			DisruptionsAllowed: 2, // 允许中断的 Pod 数量
+			CurrentHealthy:     5, // 当前健康的 Pod 数量
+			DesiredHealthy:     3, // 期望保持的最小健康 Pod 数量
+			ExpectedPods:       5, // 预期的总 Pod 数量
 		},
-		DisruptionsAllowed: 2, // 允许中断的 Pod 数量
-		CurrentHealthy:     5, // 当前健康的 Pod 数量
-		DesiredHealthy:     3, // 期望保持的最小健康 Pod 数量
-		ExpectedPods:       5, // 预期的总 Pod 数量
-	},
-	{
-		UID:    "pod-uid-67890", // 另一个 Pod 的唯一标识符
-		HasPDB: false,           // 该 Pod 未关联 PDB
-		Buckets: Buckets{
-			List: []Bucket{
-				{Time: 1619827200, Count: 1}, // 时间戳: 2021-05-01 00:00:00, 驱逐数量: 1
-				{Time: 1619913600, Count: 0}, // 时间戳: 2021-05-02 00:00:00, 驱逐数量: 0
-			},
-		},
-		DisruptionsAllowed: 0, // 不允许中断（可能是关键服务）
-		CurrentHealthy:     1, // 当前健康的 Pod 数量
-		DesiredHealthy:     1, // 期望保持的最小健康 Pod 数量
-		ExpectedPods:       1, // 预期的总 Pod 数量
-	},
+	}
 }
 
 const (
@@ -85,8 +87,10 @@ func PrepareCandidatePods(_ context.Context, request *pluginapi.GetTopEvictionPo
 	// 		}
 	// 	}
 	// }
+
+	// to delete
 	for _, pod := range pods {
-		workloadInfos, err := getWorkloadEvictionInfo(evictionRecords[0])
+		workloadInfos, err := getWorkloadEvictionInfo(getEvictionRecords()[0])
 		if err != nil {
 			general.Warningf("get workload eviction info failed: %v", err)
 		}
