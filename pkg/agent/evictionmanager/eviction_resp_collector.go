@@ -40,6 +40,7 @@ type evictionRespCollector struct {
 
 	currentMetThresholds map[string]*pluginapi.ThresholdMetResponse
 	currentConditions    map[string]*pluginapi.Condition
+	currentCandidatePods map[string]*v1.Pod
 
 	// softEvictPods are candidates (among which only one will be chosen);
 	// forceEvictPods are pods that should be killed immediately (but can be withdrawn)
@@ -55,6 +56,7 @@ func newEvictionRespCollector(dryRun []string, conf *pkgconfig.Configuration, em
 		conf:                 conf,
 		currentMetThresholds: make(map[string]*pluginapi.ThresholdMetResponse),
 		currentConditions:    make(map[string]*pluginapi.Condition),
+		currentCandidatePods: make(map[string]*v1.Pod),
 
 		softEvictPods:  make(map[string]*rule.RuledEvictPod),
 		forceEvictPods: make(map[string]*rule.RuledEvictPod),
@@ -140,6 +142,15 @@ func (e *evictionRespCollector) collectMetThreshold(dryRunPlugins []string, plug
 	// save thresholds to currentMetThreshold even in dry run mode so that GetTopEvictionPods function will be called
 	e.getCurrentMetThresholds()[pluginName] = proto.Clone(resp).(*pluginapi.ThresholdMetResponse)
 
+	// save candidate pods to currentCandidatePods for record manager to use
+	for _, pod := range resp.CandidatePods {
+		if pod == nil {
+			continue
+		}
+
+		e.getCurrentCandidatePods()[string(pod.UID)] = pod
+	}
+
 	general.Infof("%v plugin: %s met threshold: %s", e.getLogPrefix(dryRun), pluginName, resp.String())
 	if resp.Condition != nil && resp.Condition.MetCondition {
 		general.Infof("%v plugin: %s requests to set condition: %s of type: %s",
@@ -213,6 +224,10 @@ func (e *evictionRespCollector) getCurrentConditions() map[string]*pluginapi.Con
 
 func (e *evictionRespCollector) getCurrentMetThresholds() map[string]*pluginapi.ThresholdMetResponse {
 	return e.currentMetThresholds
+}
+
+func (e *evictionRespCollector) getCurrentCandidatePods() map[string]*v1.Pod {
+	return e.currentCandidatePods
 }
 
 func (e *evictionRespCollector) getSoftEvictPods() map[string]*rule.RuledEvictPod {

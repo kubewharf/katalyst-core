@@ -18,6 +18,7 @@ package evictionmanager
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	endpointpkg "github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/endpoint"
+	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/record"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/eviction"
@@ -304,7 +306,7 @@ func TestEvictionManger_collectEvictionResult(t *testing.T) {
 			mgr := makeEvictionManager(t)
 			mgr.conf.GetDynamicConfiguration().DryRun = tt.dryrun
 
-			collector, _ := mgr.collectEvictionResult(pods)
+			collector, _ := mgr.collectEvictionResult(context.Background(), pods)
 			gotForceEvictPods := sets.String{}
 			gotSoftEvictPods := sets.String{}
 			gotConditions := sets.String{}
@@ -324,4 +326,175 @@ func TestEvictionManger_collectEvictionResult(t *testing.T) {
 			assert.Equal(t, tt.wantConditions, gotConditions)
 		})
 	}
+}
+
+// mockEvictionRecordManager is a mock implementation of EvictionRecordManager for testing
+type mockEvictionRecordManager struct {
+	records map[string]record.EvictionRecord
+	err     error
+}
+
+func (m *mockEvictionRecordManager) GetEvictionRecords(_ context.Context, _ []*v1.Pod) (map[string]record.EvictionRecord, error) {
+	return m.records, m.err
+}
+
+func (m *mockEvictionRecordManager) Run(_ context.Context) {}
+
+func TestEvictionManager_getEvictionRecords(t *testing.T) {
+	t.Parallel()
+
+	// Test case 1: Normal case with records
+	t.Run("normal case with records", func(t *testing.T) {
+		t.Parallel()
+
+		// Prepare test data
+		pods := map[string]*v1.Pod{
+			"pod-1": {
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "pod-1",
+					UID:  "pod-1",
+				},
+			},
+			"pod-2": {
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "pod-2",
+					UID:  "pod-2",
+				},
+			},
+		}
+
+		mockRecords := map[string]record.EvictionRecord{
+			"pod-1": {
+				HasPDB:             true,
+				Buckets:            record.Buckets{List: []record.Bucket{{Time: 1, Count: 2, Duration: 3}}},
+				DisruptionsAllowed: 1,
+				CurrentHealthy:     2,
+				DesiredHealthy:     3,
+				ExpectedPods:       4,
+			},
+			"pod-2": {
+				HasPDB:             false,
+				Buckets:            record.Buckets{List: []record.Bucket{{Time: 4, Count: 5, Duration: 6}}},
+				DisruptionsAllowed: 0,
+				CurrentHealthy:     1,
+				DesiredHealthy:     2,
+				ExpectedPods:       3,
+			},
+		}
+
+		// Create mock record manager
+		mockRecordManager := &mockEvictionRecordManager{
+			records: mockRecords,
+			err:     nil,
+		}
+
+		// Create eviction manager with mock record manager
+		mgr, err := NewEvictionManager(&client.GenericClientSet{}, nil, makeMetaServer(), metrics.DummyMetrics{}, makeConf())
+		assert.NoError(t, err)
+		mgr.recordManager = mockRecordManager
+
+		// Call the function
+		result := mgr.getEvictionRecords(context.Background(), pods)
+
+		// Verify the result
+		assert.NotNil(t, result)
+		assert.Len(t, result, 2)
+
+		// Check the content of the result
+		assert.Contains(t, result, "pod-1")
+		assert.Contains(t, result, "pod-2")
+
+		// Verify the content of the first record
+		evictionRecord1 := result["pod-1"]
+		assert.Equal(t, "pod-1", evictionRecord1.Uid)
+		assert.Equal(t, true, evictionRecord1.HasPdb)
+		assert.Equal(t, int32(1), evictionRecord1.DisruptionsAllowed)
+		assert.Equal(t, int32(2), evictionRecord1.CurrentHealthy)
+		assert.Equal(t, int32(3), evictionRecord1.DesiredHealthy)
+		assert.Equal(t, int32(4), evictionRecord1.ExpectedPods)
+		assert.NotNil(t, evictionRecord1.Buckets)
+		assert.Len(t, evictionRecord1.Buckets.List, 1)
+		assert.Equal(t, int64(1), evictionRecord1.Buckets.List[0].Time)
+		assert.Equal(t, int64(2), evictionRecord1.Buckets.List[0].Count)
+		assert.Equal(t, int64(3), evictionRecord1.Buckets.List[0].Duration)
+
+		// Verify the content of the second record
+		evictionRecord2 := result["pod-2"]
+		assert.Equal(t, "pod-2", evictionRecord2.Uid)
+		assert.Equal(t, false, evictionRecord2.HasPdb)
+		assert.Equal(t, int32(0), evictionRecord2.DisruptionsAllowed)
+		assert.Equal(t, int32(1), evictionRecord2.CurrentHealthy)
+		assert.Equal(t, int32(2), evictionRecord2.DesiredHealthy)
+		assert.Equal(t, int32(3), evictionRecord2.ExpectedPods)
+		assert.NotNil(t, evictionRecord2.Buckets)
+		assert.Len(t, evictionRecord2.Buckets.List, 1)
+		assert.Equal(t, int64(4), evictionRecord2.Buckets.List[0].Time)
+		assert.Equal(t, int64(5), evictionRecord2.Buckets.List[0].Count)
+		assert.Equal(t, int64(6), evictionRecord2.Buckets.List[0].Duration)
+	})
+
+	// Test case 2: Error case
+	t.Run("error case", func(t *testing.T) {
+		t.Parallel()
+
+		// Prepare test data
+		pods := map[string]*v1.Pod{
+			"pod-1": {
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "pod-1",
+					UID:  "pod-1",
+				},
+			},
+		}
+
+		// Create mock record manager with error
+		mockRecordManager := &mockEvictionRecordManager{
+			records: nil,
+			err:     fmt.Errorf("mock error"),
+		}
+
+		// Create eviction manager with mock record manager
+		mgr, err := NewEvictionManager(&client.GenericClientSet{}, nil, makeMetaServer(), metrics.DummyMetrics{}, makeConf())
+		assert.NoError(t, err)
+		mgr.recordManager = mockRecordManager
+
+		// Call the function
+		result := mgr.getEvictionRecords(context.Background(), pods)
+
+		// Verify the result
+		assert.Nil(t, result)
+	})
+
+	// Test case 3: Empty records
+	t.Run("empty records", func(t *testing.T) {
+		t.Parallel()
+
+		// Prepare test data
+		pods := map[string]*v1.Pod{
+			"pod-1": {
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "pod-1",
+					UID:  "pod-1",
+				},
+			},
+		}
+
+		// Create mock record manager with empty records
+		mockRecordManager := &mockEvictionRecordManager{
+			records: map[string]record.EvictionRecord{},
+			err:     nil,
+		}
+
+		// Create eviction manager with mock record manager
+		mgr, err := NewEvictionManager(&client.GenericClientSet{}, nil, makeMetaServer(), metrics.DummyMetrics{}, makeConf())
+		assert.NoError(t, err)
+		mgr.recordManager = mockRecordManager
+
+		// Call the function
+		result := mgr.getEvictionRecords(context.Background(), pods)
+
+		// Verify the result
+		assert.NotNil(t, result)
+		assert.Len(t, result, 0)
+	})
 }
