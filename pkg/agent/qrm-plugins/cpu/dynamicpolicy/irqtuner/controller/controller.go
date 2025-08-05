@@ -22,7 +22,6 @@ import (
 
 const (
 	NicsSyncInterval      = 600 // seconds
-	IrqBalanceNGProcComm  = "irqbalance-ng"
 	IrqTuningLogPrefix    = "irq-tuning:"
 	KataRuntimeClassName  = "kata-clh"
 	KataBMAnnotationName  = "bytedance.com/kata-bm"
@@ -599,11 +598,6 @@ func NewIrqTuningController(agentConf *agent.AgentConfiguration, irqStateAdapter
 		}
 	}()
 
-	if isIrqBalanceNGServiceRuning() {
-		retErr = fmt.Errorf("irqbalance-ng service is running")
-		return nil, retErr
-	}
-
 	dynConf := agentConf.DynamicAgentConfiguration.GetDynamicConfiguration()
 	if dynConf == nil {
 		general.Errorf("%s GetDynamicConfiguration return nil", IrqTuningLogPrefix)
@@ -646,14 +640,6 @@ func NewIrqTuningController(agentConf *agent.AgentConfiguration, irqStateAdapter
 	general.Infof("%s %s", IrqTuningLogPrefix, controller)
 
 	return controller, nil
-}
-
-func isIrqBalanceNGServiceRuning() bool {
-	running, err := general.CheckIfProcCommRunning(IrqBalanceNGProcComm)
-	if err != nil { // just to be sure, if failed to check if irq balance service is running, consider it as running
-		return true
-	}
-	return running
 }
 
 func getIrqsAffinityCPUs(nic *machine.NicBasicInfo, irqs []int) (map[int]int64, error) {
