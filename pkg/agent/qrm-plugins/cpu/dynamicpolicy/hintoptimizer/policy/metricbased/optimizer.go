@@ -41,6 +41,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/strategygroup"
+	"sort"
 )
 
 const HintOptimizerNameMetricBased = "metric_based"
@@ -56,6 +57,9 @@ type metricBasedHintOptimizer struct {
 	numaMetrics       map[int]strategy.SubEntries
 	metricSampleTime  time.Duration
 	metricSampleCount int
+
+	requestScoreThreshold      float64
+	usageThresholdExpandFactor float64
 }
 
 func NewMetricBasedHintOptimizer(
@@ -67,14 +71,16 @@ func NewMetricBasedHintOptimizer(
 		numaMetrics[numaID] = make(strategy.SubEntries)
 	}
 	return &metricBasedHintOptimizer{
-		conf:              options.Conf,
-		metaServer:        options.MetaServer,
-		emitter:           options.Emitter,
-		state:             options.State,
-		reservedCPUs:      options.ReservedCPUs,
-		numaMetrics:       numaMetrics,
-		metricSampleTime:  10 * time.Minute,
-		metricSampleCount: 10,
+		conf:                       options.Conf,
+		metaServer:                 options.MetaServer,
+		emitter:                    options.Emitter,
+		state:                      options.State,
+		reservedCPUs:               options.ReservedCPUs,
+		numaMetrics:                numaMetrics,
+		metricSampleTime:           10 * time.Minute,
+		metricSampleCount:          10,
+		requestScoreThreshold:      0.8,
+		usageThresholdExpandFactor: 1.2,
 	}, nil
 }
 
@@ -87,18 +93,47 @@ func (o *metricBasedHintOptimizer) OptimizeHints(
 		general.Errorf("GenericOptimizeHintsCheck failed with error: %v", err)
 		return err
 	}
+	//
+	//if !o.enableMetricPreferredNUMAAllocation() {
+	//	return pkgerrors.Wrapf(hintoptimizerutil.ErrHintOptimizerSkip, "metricPolicyEnabled is false")
+	//}
 
-	if !o.enableMetricPreferredNUMAAllocation() {
+	numaNodes, err := hintoptimizerutil.GetSingleNUMATopologyHintNUMANodes(hints.Hints)
+	if err != nil {
+		return err
+	}
+
+	hybridPolicyEnabled, err := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameHybridNUMAAllocation, true, o.conf)
+	if err != nil {
+		general.Warningf("IsStrategyEnabledForNode failed with error: %v", err)
+	}
+	general.Infof("hybridPolicyEnabled: %v", hybridPolicyEnabled)
+
+	metricPolicyEnabled, _ := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameMetricPreferredNUMAAllocation, o.conf.EnableMetricPreferredNumaAllocation, o.conf)
+	general.Infof("metricPolicyEnabled: %v", metricPolicyEnabled)
+
+	if !metricPolicyEnabled && !hybridPolicyEnabled {
 		return pkgerrors.Wrapf(hintoptimizerutil.ErrHintOptimizerSkip, "metricPolicyEnabled is false")
 	}
 
-	_ = o.emitter.StoreInt64(util.MetricNameMetricBasedNUMAAllocationEnabled, 1, metrics.MetricTypeNameCount)
-	err = o.populateHintsByMetricPolicy(hints, o.state.GetMachineState(), request.CPURequest)
-	if err != nil {
-		general.Errorf("populateHintsByMetricPolicy failed with error: %v", err)
-		return pkgerrors.Wrapf(hintoptimizerutil.ErrHintOptimizerSkip, "failed %v", err)
+	if hybridPolicyEnabled {
+		_ = o.emitter.StoreInt64(util.MetricNameHybridNUMAAllocationEnabled, 1, metrics.MetricTypeNameCount)
+		o.populateHintsByHybridPolicy(numaNodes, hints, o.state.GetMachineState(), request.CPURequest)
+
+		if err != nil {
+			general.Errorf("populateHintsByHybridPolicy failed with error: %v", err)
+		} else {
+			_ = o.emitter.StoreInt64(util.MetricNameHybridNUMAAllocationSuccess, 1, metrics.MetricTypeNameCount)
+		}
 	} else {
-		_ = o.emitter.StoreInt64(util.MetricNameMetricBasedNUMAAllocationSuccess, 1, metrics.MetricTypeNameCount)
+		_ = o.emitter.StoreInt64(util.MetricNameMetricBasedNUMAAllocationEnabled, 1, metrics.MetricTypeNameCount)
+		err = o.populateHintsByMetricPolicy(hints, o.state.GetMachineState(), request.CPURequest)
+		if err != nil {
+			general.Errorf("populateHintsByMetricPolicy failed with error: %v", err)
+			return pkgerrors.Wrapf(hintoptimizerutil.ErrHintOptimizerSkip, "failed %v", err)
+		} else {
+			_ = o.emitter.StoreInt64(util.MetricNameMetricBasedNUMAAllocationSuccess, 1, metrics.MetricTypeNameCount)
+		}
 	}
 
 	return nil
@@ -108,6 +143,12 @@ func (o *metricBasedHintOptimizer) enableMetricPreferredNUMAAllocation() bool {
 	metricPolicyEnabled, _ := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameMetricPreferredNUMAAllocation, o.conf.EnableMetricPreferredNumaAllocation, o.conf)
 	general.Infof("metricPolicyEnabled: %v", metricPolicyEnabled)
 	return metricPolicyEnabled
+}
+
+func (o *metricBasedHintOptimizer) enableHybridPreferredNUMAAllocation() bool {
+	hybridPolicyEnabled, _ := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameHybridNUMAAllocation, true, o.conf)
+	general.Infof("hybridPolicyEnabled: %v", hybridPolicyEnabled)
+	return hybridPolicyEnabled
 }
 
 func (o *metricBasedHintOptimizer) Run(stopCh <-chan struct{}) {
@@ -187,7 +228,7 @@ func (o *metricBasedHintOptimizer) isNUMAOverThreshold(numa int, threshold, requ
 }
 
 func (o *metricBasedHintOptimizer) collectNUMAMetrics() {
-	if !o.enableMetricPreferredNUMAAllocation() {
+	if !o.enableMetricPreferredNUMAAllocation() && !o.enableHybridPreferredNUMAAllocation() {
 		return
 	}
 
@@ -279,4 +320,102 @@ func (o *metricBasedHintOptimizer) getNUMAMetricThreshold(thresholdName string, 
 	} else {
 		return 0.0, fmt.Errorf("threshold: %s isn't found cpuCodeName: %s and isVM: %v", thresholdName, cpuCodeName, isVM)
 	}
+}
+
+func (o *metricBasedHintOptimizer) populateHintsByHybridPolicy(numaNodes []int,
+	hints *pluginapi.ListOfTopologyHints, machineState state.NUMANodeMap, request float64) {
+	hintFilters := []Filter{
+		o.requestSufficientFilter(),
+	}
+	preferFilters := []Filter{
+		//o.usageFilter(),
+	}
+	scorers := []Scorer{
+		o.hybridRequestScorer(),
+		//c.hybridUsageScorer(),
+	}
+
+	o.populateHintsByFramework(numaNodes, hints, machineState, request, hintFilters, preferFilters, scorers)
+}
+
+func (o *metricBasedHintOptimizer) populateHintsByFramework(numaNodes []int, hints *pluginapi.ListOfTopologyHints,
+	machineState state.NUMANodeMap, request float64, hintFilters []Filter, preferFilters []Filter, scorers []Scorer,
+) {
+	var numaScoreList NumaScoreList
+
+	// todo: set the hints to empty now, and support post-filtering hints later
+	hints.Hints = make([]*pluginapi.TopologyHint, 0, len(numaNodes))
+
+	for _, numaID := range numaNodes {
+		if pass := filterNuma(hintFilters, request, numaID, machineState); !pass {
+			continue
+		}
+
+		hints.Hints = append(hints.Hints, &pluginapi.TopologyHint{
+			Nodes: []uint64{uint64(numaID)},
+		})
+
+		if pass := filterNuma(preferFilters, request, numaID, machineState); !pass {
+			continue
+		}
+
+		scoreSum := 0
+		for _, scorer := range scorers {
+			score := scorer.ScoreFunc(request, numaID, machineState)
+			scoreSum += score
+		}
+		score := scoreSum / len(scorers)
+
+		numaScoreList = append(numaScoreList, NumaScore{
+			Name:  numaID,
+			Index: len(hints.Hints) - 1,
+			Score: int64(score),
+		})
+	}
+
+	if len(numaScoreList) == 0 {
+		return
+	}
+
+	sort.Slice(numaScoreList, func(i, j int) bool {
+		return numaScoreList[i].Score > numaScoreList[j].Score
+	})
+	targetNuma := numaScoreList[0]
+	general.InfoS("Select preferred numa", "request", request, "numa", targetNuma.Name,
+		"score", targetNuma.Score, "hintIndex", targetNuma.Index)
+
+	hints.Hints[targetNuma.Index].Preferred = true
+}
+
+func filterNuma(hintFilters []Filter, request float64, nodeID int, machineState state.NUMANodeMap) bool {
+	for _, filter := range hintFilters {
+		if !filter(request, nodeID, machineState) {
+			return false
+		}
+	}
+	return true
+}
+
+func (o *metricBasedHintOptimizer) getNumaUsage(numa int, machineState state.NUMANodeMap) (float64, error) {
+	if machineState == nil || machineState[numa] == nil {
+		return 0, fmt.Errorf("invalid machineState")
+	}
+	if o.numaMetrics[numa][consts.MetricCPUUsageContainer] == nil {
+		return 0, fmt.Errorf("invalid machineState")
+	}
+
+	used, err := o.numaMetrics[numa][consts.MetricCPUUsageContainer].AvgAfterTimestampWithCountBound(time.Now().UnixNano()-10*time.Minute.Nanoseconds(), 10)
+	if err != nil {
+		return 0, fmt.Errorf("get numa metric failed: %v", err)
+	}
+	return used, nil
+}
+
+func (o *metricBasedHintOptimizer) getNUMACpuUsageThreshold(metricThreshold *metricthreshold.MetricThresholdConfiguration,
+	usageThresholdExpandFactor float64) (float64, error) {
+	threshold, err := o.getNUMAMetricThreshold(metricthreshold.NUMACPUUsageRatioThreshold, metricThreshold)
+	if err != nil {
+		return 0, err
+	}
+	return threshold * usageThresholdExpandFactor, nil
 }

@@ -63,6 +63,9 @@ const (
 	MetricNameMetricBasedNUMAAllocationSuccess = "metric_based_numa_allocation_success"
 	MetricNameCollectNUMAMetrics               = "collect_numa_metrics"
 	MetricNameNUMAMetricOverThreshold          = "numa_metric_over_threshold"
+
+	MetricNameHybridNUMAAllocationEnabled = "hybrid_numa_allocation_enabled"
+	MetricNameHybridNUMAAllocationSuccess = "hybrid_numa_allocation_success"
 )
 
 const (
