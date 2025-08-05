@@ -54,6 +54,9 @@ type GenericEvictionConfiguration struct {
 
 	// PodMetricLabels defines the pod labels to be added in metric selector lists
 	PodMetricLabels sets.String
+
+	// RecordManager specifies the eviction record manager to use
+	RecordManager string
 }
 
 type EvictionConfiguration struct {
