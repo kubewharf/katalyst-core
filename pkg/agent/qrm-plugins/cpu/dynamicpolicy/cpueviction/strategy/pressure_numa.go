@@ -91,8 +91,8 @@ type NumaCPUPressureEviction struct {
 	enabled bool
 
 	numaOverStats []rules.NumaOverStat
-	filterer      *rules.Filterer
-	scorer        *rules.Scorer
+	Filterer      *rules.Filterer
+	Scorer        *rules.Scorer
 }
 
 func NewCPUPressureUsageEviction(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
@@ -137,8 +137,8 @@ func (p *NumaCPUPressureEviction) initFilterAndScorer() error {
 		return fmt.Errorf("failed to create scorer: %v", err)
 	}
 	general.Infof("create scorer success: %v", scorer)
-	p.filterer = filterer
-	p.scorer = scorer
+	p.Filterer = filterer
+	p.Scorer = scorer
 	return nil
 }
 
@@ -244,11 +244,11 @@ func (p *NumaCPUPressureEviction) GetTopEvictionPods(ctx context.Context, reques
 	}
 
 	activePods := request.ActivePods
-	p.filterer.SetFilterParam(rules.OverRatioNumaFilterName, p.numaOverStats)
-	p.scorer.SetScorerParam(rules.UsageGapScorerName, p.numaOverStats)
+	p.Filterer.SetFilterParam(rules.OverRatioNumaFilterName, p.numaOverStats)
+	p.Scorer.SetScorerParam(rules.UsageGapScorerName, p.numaOverStats)
 	general.Infof("activePods: %v", len(activePods))
 
-	filteredPods := p.filterer.Filter(activePods)
+	filteredPods := p.Filterer.Filter(activePods)
 
 	if len(filteredPods) == 0 {
 		general.Warningf("got empty active pods list after filter")
@@ -264,7 +264,7 @@ func (p *NumaCPUPressureEviction) GetTopEvictionPods(ctx context.Context, reques
 	candidatePods = rules.FilterCandidatePods(candidatePods, filteredPods)
 	general.Infof("candidatePods after filter: %v", len(candidatePods))
 
-	candidatePods = p.scorer.Score(candidatePods)
+	candidatePods = p.Scorer.Score(candidatePods)
 	general.Infof("candidatePods after scorer: %v", candidatePods)
 	// todo may pick multiple numas if overload
 	// numaID, numaOverloadRatio, numaUsageRatio, err := p.pickTopOverRatioNuma(targetMetric, p.thresholds)
