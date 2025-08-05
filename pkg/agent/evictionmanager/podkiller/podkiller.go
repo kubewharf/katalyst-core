@@ -321,18 +321,27 @@ func (a *AsynchronizedPodKiller) sync(key string) (retError error, requeue bool)
 	//  if the same pod is created just after the last one exists
 	//  handle with more filters in the future
 	ctx := context.Background()
-	pod, err := a.client.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
+	pod, err := a.podFetcher.GetPod(context.WithValue(ctx, metaserverpod.BypassCacheKey, metaserverpod.BypassCacheTrue), uid)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			klog.Infof("[asynchronous] %s/%s has already been deleted, skip", namespace, name)
-			// try to get pod from metaserver bypassing cache to get the latest pod info
-			_, err := a.podFetcher.GetPod(context.WithValue(ctx, metaserverpod.BypassCacheKey, metaserverpod.BypassCacheTrue), uid)
-			if err != nil {
-				klog.Errorf("[asynchronous] get pod %s/%s/%s from metaserver failed with error: %v", namespace, name, uid, err)
+		klog.Infof("[asynchronous] get pod %s/%s/%s from metaserver failed with error: %v", namespace, name, uid, err)
+		pod, err = a.client.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				// Now, we can be sure that the pod has already been deleted, so we do not have to attempt to evict it.
+				klog.Infof("[asynchronous] pod %s/%s has already been deleted, skip", namespace, name)
+				return nil, false
 			}
+			return err, true
+		}
+		// Double check if the pod found from api server has the same uid as the pod that we want to evict
+		// This to handle a corner case regarding stateful sets:
+		// Since stateful set pods will always have the same name, we do not want to keep trying to evict a pod
+		// that has already been evicted. We use UID to deduplicate pods in this case.
+		foundUid := pod.UID
+		if string(foundUid) != uid {
+			klog.Infof("[asynchronous] pod %s/%s has already been deleted, skip", namespace, name)
 			return nil, false
 		}
-		return err, true
 	}
 
 	var reason, plugin string
