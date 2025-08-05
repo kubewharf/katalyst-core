@@ -18,6 +18,7 @@ package rules
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
@@ -109,6 +110,11 @@ func PrepareCandidatePods(_ context.Context, request *pluginapi.GetTopEvictionPo
 
 // getWorkloadEvictionInfo extracts WorkloadEvictionInfo from the request.
 func getWorkloadEvictionInfo(evictionRecord *EvictionRecord) (map[string]*WorkloadEvictionInfo, error) {
+	if evictionRecord == nil {
+		general.Warningf("no eviction record")
+		return nil, fmt.Errorf("no eviction record")
+	}
+
 	workloadsEvictionInfo := make(map[string]*WorkloadEvictionInfo)
 	timeWindows := []int64{timeWindow1, timeWindow2, timeWindow3}
 	statsByWindow, lastEvictionTime := calculateEvictionStatsByWindows(time.Now(), evictionRecord, timeWindows)
@@ -124,6 +130,11 @@ func getWorkloadEvictionInfo(evictionRecord *EvictionRecord) (map[string]*Worklo
 }
 
 func calculateEvictionStatsByWindows(currentTime time.Time, evictionRecord *EvictionRecord, windows []int64) (map[float64]*EvictionStats, int64) {
+	if evictionRecord == nil || evictionRecord.Buckets.List == nil {
+		general.Warningf("no buckets in eviction info")
+		return nil, 0
+	}
+
 	buckets := evictionRecord.Buckets.List
 	currentHealthy := evictionRecord.CurrentHealthy
 	statsByWindow := make(map[float64]*EvictionStats)
