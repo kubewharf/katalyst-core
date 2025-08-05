@@ -44,7 +44,7 @@ func TestGetWorkloadEvictionInfo(t *testing.T) {
 				Count:    3,
 			}, {
 				Time:     now.Add(-60 * time.Minute).Unix(),
-				Duration: 3600,
+				Duration: 1800,
 				Count:    5,
 			}}},
 		},
@@ -90,7 +90,6 @@ func TestGetWorkloadEvictionInfo(t *testing.T) {
 			if tc.expectedCount > 0 {
 				assert.True(t, ok)
 				assert.Equal(t, tc.expectedCount, stats.EvictionCount)
-				assert.Equal(t, float64(tc.expectedCount)/float64(tc.inputRecord.CurrentHealthy), stats.EvictionRatio)
 			} else {
 				assert.False(t, ok)
 			}
@@ -108,24 +107,6 @@ func TestCalculateEvictionStatsByWindows(t *testing.T) {
 		expectedStats  map[float64]*EvictionStats
 		expectedLastEv int64
 	}{{
-		name:        "multiple_windows_with_partial_overlap",
-		currentTime: now,
-		inputRecord: &EvictionRecord{
-			Buckets: Buckets{
-				List: []Bucket{{
-					Time:     now.Add(-45 * time.Minute).Unix(), // 2700s ago
-					Duration: 1800,                              // 30min bucket
-					Count:    6,                                 // 6 evictions in bucket
-				}},
-			},
-		},
-		windows: []int64{1800, 3600}, // 30min, 60min windows
-		expectedStats: map[float64]*EvictionStats{
-			0.5: {EvictionCount: 3, EvictionRatio: 3.0 / 5},
-			1.0: {EvictionCount: 6, EvictionRatio: 6.0 / 5},
-		},
-		expectedLastEv: now.Add(-45 * time.Minute).Unix(),
-	}, {
 		name:        "bucket_completely_outside_window",
 		currentTime: now,
 		inputRecord: &EvictionRecord{

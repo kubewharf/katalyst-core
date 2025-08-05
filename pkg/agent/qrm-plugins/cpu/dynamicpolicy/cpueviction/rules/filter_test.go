@@ -324,22 +324,22 @@ func TestOverRatioNumaFilter(t *testing.T) {
 		wantFiltered bool
 	}{
 		{
-			name: "pod with high usage should be filtered",
+			name: "pod with high usage should be reserved",
 			pod:  &v1.Pod{ObjectMeta: metav1.ObjectMeta{UID: types.UID("pod-uid-1")}},
 			params: []NumaOverStat{{
 				NumaID:         0,
 				MetricsHistory: mockMetrics,
 			}},
-			wantFiltered: true,
+			wantFiltered: false,
 		},
 		{
-			name: "pod without metric history should not be filtered",
+			name: "pod without metric history should not be reserved",
 			pod:  &v1.Pod{ObjectMeta: metav1.ObjectMeta{UID: types.UID("pod-uid-2")}},
 			params: []NumaOverStat{{
 				NumaID:         0,
 				MetricsHistory: mockMetrics,
 			}},
-			wantFiltered: false,
+			wantFiltered: true,
 		},
 	}
 
@@ -354,12 +354,16 @@ func TestOverRatioNumaFilter(t *testing.T) {
 
 func TestFilterer_SetFilter(t *testing.T) {
 	filterer, _ := NewFilter([]string{}, metrics.DummyMetrics{}, nil)
-	customFilter := func(pod *v1.Pod, params interface{}) bool { return pod.Name == "custom-filter-pod" }
+	customFilter := func(pod *v1.Pod, params interface{}) bool {
+		return pod.Name == "custom-filter-pod"
+	}
 
 	filterer.SetFilter("custom", customFilter)
-	assert.Equal(t, customFilter, filterer.filters["custom"])
-
-	result := filterer.Filter([]*v1.Pod{{ObjectMeta: metav1.ObjectMeta{Name: "custom-filter-pod"}}})
+	if _, exists := filterer.filters["custom"]; !exists {
+		t.Fatal("custom filter not found in filterer.filters")
+	}
+	testPod := &v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "custom-filter-pod"}}
+	result := filterer.Filter([]*v1.Pod{testPod})
 	assert.Empty(t, result)
 }
 
