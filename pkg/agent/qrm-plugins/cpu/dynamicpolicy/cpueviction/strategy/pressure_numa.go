@@ -267,16 +267,6 @@ func (p *NumaCPUPressureEviction) GetTopEvictionPods(ctx context.Context, reques
 	candidatePods = p.Scorer.Score(candidatePods)
 	general.Infof("candidatePods after scorer: %v", candidatePods)
 	// todo may pick multiple numas if overload
-	// numaID, numaOverloadRatio, numaUsageRatio, err := p.pickTopOverRatioNuma(targetMetric, p.thresholds)
-	// if err != nil {
-	// 	general.ErrorS(err, "pick top over ratio numa failed")
-	// 	_ = p.emitter.StoreFloat64(metricsNameGetEvictPods, 0, metrics.MetricTypeNameRaw,
-	// 		metrics.ConvertMapToTags(map[string]string{
-	// 			metricTagMetricName: targetMetric,
-	// 			metricTagNuma:       strconv.Itoa(numaID),
-	// 		})...)
-	// 	return &pluginapi.GetEvictPodsResponse{}, nil
-	// }
 	if len(p.numaOverStats) == 0 {
 		general.Warningf("no numa over stats")
 		return &pluginapi.GetTopEvictionPodsResponse{}, nil
@@ -285,16 +275,6 @@ func (p *NumaCPUPressureEviction) GetTopEvictionPods(ctx context.Context, reques
 	numaUsageRatio := p.numaOverStats[0].AvgUsageRatio
 	numaOverloadRatio := p.numaOverStats[0].OverloadRatio
 
-	// topPod, podUsageRatio, err := p.pickTargetPod(numaID, targetMetric, activePods, numaUsageRatio)
-	// if err != nil {
-	// 	general.ErrorS(err, "pick top over ratio nums pods failed")
-	// 	_ = p.emitter.StoreFloat64(metricsNameGetEvictPods, 0, metrics.MetricTypeNameRaw,
-	// 		metrics.ConvertMapToTags(map[string]string{
-	// 			metricTagMetricName: targetMetric,
-	// 			metricTagNuma:       strconv.Itoa(numaID),
-	// 		})...)
-	// 	return &pluginapi.GetEvictPodsResponse{}, nil
-	// }
 	topPod := candidatePods[0].Pod
 	general.InfoS("evict pod", "pod", topPod.Name, "podUsageRatio",
 		candidatePods[0].UsageRatio, "numa", numaID, "numaOverloadRatio", numaOverloadRatio, "numaUsageRatio", numaUsageRatio)
@@ -303,25 +283,10 @@ func (p *NumaCPUPressureEviction) GetTopEvictionPods(ctx context.Context, reques
 		TargetPods: []*v1.Pod{topPod},
 	}
 
-	// resp := &pluginapi.GetEvictPodsResponse{
-	// 	EvictPods: []*pluginapi.EvictPod{
-	// 		{
-	// 			Pod: topPod,
-	// 			Reason: fmt.Sprintf("numa cpu usage %f overload, kill top pod with %f",
-	// 				numaUsageRatio, candidatePods[0].UsageRatio),
-	// 			ForceEvict:         true,
-	// 			EvictionPluginName: EvictionNameNumaCpuPressure,
-	// 		},
-	// 	},
-	// }
-
 	if gracePeriod := p.numaPressureConfig.GracePeriod; gracePeriod >= 0 {
 		deletionOptions := &pluginapi.DeletionOptions{
 			GracePeriodSeconds: gracePeriod,
 		}
-		// for _, e := range resp.EvictPods {
-		// 	e.DeletionOptions = deletionOptions
-		// }
 		resp.DeletionOptions = deletionOptions
 	}
 
