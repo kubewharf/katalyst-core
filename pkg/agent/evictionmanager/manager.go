@@ -46,6 +46,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/plugin/resource"
 	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/plugin/rootfs"
 	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/podkiller"
+	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/record"
 	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/rule"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/client/control"
@@ -68,6 +69,9 @@ const (
 	MetricsNameRequestConditionCNT    = "request_condition_cnt"
 	MetricsNameEvictionPluginCalled   = "eviction_plugin_called"
 	MetricsNameEvictionPluginValidate = "eviction_plugin_validate"
+
+	MetricsNameGetEvictionRecordCost   = "get_eviction_record_cost"
+	MetricsNameGetEvictionRecordFailed = "get_eviction_record_failed"
 
 	ValidateFailedReasonGetTokenFailed     = "get_token_failed"
 	ValidateFailedReasonAuthenticateFailed = "authenticate_failed"
@@ -129,6 +133,8 @@ type EvictionManger struct {
 
 	cred credential.Credential
 	auth authorization.AccessControl
+
+	recordManager record.EvictionRecordManager
 }
 
 var InnerEvictionPluginsDisabledByDefault = sets.NewString()
@@ -235,6 +241,22 @@ func NewEvictionManager(genericClient *client.GenericClientSet, recorder events.
 		return nil, fmt.Errorf("failed to initialize cnr taint reporter plugin: %v", err)
 	}
 
+	var recordManager record.EvictionRecordManager
+	if conf.RecordManager != "" {
+		recordManager, err = record.GetEvictionRecordManager(conf.RecordManager, record.InitOptions{
+			Conf:       conf,
+			MetaServer: metaServer,
+			Emitter:    emitter,
+			ClientSet:  genericClient,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize record manager %s: %v", conf.RecordManager, err)
+		}
+		general.Infof("initialize record manager %s success", conf.RecordManager)
+	} else {
+		recordManager = &record.DummyEvictionRecordManager{}
+	}
+
 	e := &EvictionManger{
 		killQueue:    queue,
 		killStrategy: rule.NewEvictionStrategyImpl(conf),
@@ -252,6 +274,7 @@ func NewEvictionManager(genericClient *client.GenericClientSet, recorder events.
 		genericClient:             genericClient,
 		cred:                      credential.DefaultCredential(),
 		auth:                      authorization.DefaultAccessControl(),
+		recordManager:             recordManager,
 	}
 
 	cred, credErr := credential.GetCredential(conf.GenericConfiguration, conf.DynamicAgentConfiguration)
@@ -299,6 +322,7 @@ func (m *EvictionManger) Run(ctx context.Context) {
 	}
 	m.cred.Run(ctx)
 	m.auth.Run(ctx)
+	go m.recordManager.Run(ctx)
 	go func() {
 		err := m.cnrTaintReporter.Run(ctx)
 		if err != nil {
@@ -330,7 +354,7 @@ func (m *EvictionManger) sync(ctx context.Context) {
 	general.Infof(" currently, there are %v candidate pods", len(pods))
 	_ = m.emitter.StoreInt64(MetricsNameCandidatePodCNT, int64(len(pods)), metrics.MetricTypeNameRaw)
 
-	collector, collectErr := m.collectEvictionResult(pods)
+	collector, collectErr := m.collectEvictionResult(ctx, pods)
 	if collectErr != nil {
 		general.Infof("collect eviction result error:%v", collectErr)
 	}
@@ -345,7 +369,7 @@ func (m *EvictionManger) sync(ctx context.Context) {
 	}
 }
 
-func (m *EvictionManger) collectEvictionResult(pods []*v1.Pod) (*evictionRespCollector, error) {
+func (m *EvictionManger) collectEvictionResult(ctx context.Context, pods []*v1.Pod) (*evictionRespCollector, error) {
 	dynamicConfig := m.conf.GetDynamicConfiguration()
 	collector := newEvictionRespCollector(dynamicConfig.DryRun, m.conf, m.emitter)
 	var errList []error
@@ -355,7 +379,7 @@ func (m *EvictionManger) collectEvictionResult(pods []*v1.Pod) (*evictionRespCol
 		_ = m.emitter.StoreInt64(MetricsNameEvictionPluginCalled, 1, metrics.MetricTypeNameCount,
 			metrics.MetricTag{Key: "name", Val: pluginName})
 
-		getEvictResp, err := ep.GetEvictPods(context.Background(), &pluginapi.GetEvictPodsRequest{
+		getEvictResp, err := ep.GetEvictPods(ctx, &pluginapi.GetEvictPodsRequest{
 			ActivePods: pods,
 		})
 		if err != nil {
@@ -368,7 +392,7 @@ func (m *EvictionManger) collectEvictionResult(pods []*v1.Pod) (*evictionRespCol
 			collector.collectEvictPods(dynamicConfig.DryRun, pluginName, getEvictResp)
 		}
 
-		metResp, err := ep.ThresholdMet(context.Background(), &pluginapi.GetThresholdMetRequest{
+		metResp, err := ep.ThresholdMet(ctx, &pluginapi.GetThresholdMetRequest{
 			ActivePods: pods,
 		})
 		if err != nil {
@@ -402,6 +426,9 @@ func (m *EvictionManger) collectEvictionResult(pods []*v1.Pod) (*evictionRespCol
 	m.thresholdsFirstObservedAt = thresholdsFirstObservedAt
 	m.conditionLock.Unlock()
 
+	// get eviction records for all candidate pods
+	records := m.getEvictionRecords(ctx, collector.currentCandidatePods)
+
 	for pluginName, threshold := range thresholdsMet {
 		if threshold.MetType != pluginapi.ThresholdMetType_HARD_MET {
 			general.Infof(" the type: %s of met threshold from plugin: %s isn't  %s", threshold.MetType.String(), pluginName, pluginapi.ThresholdMetType_HARD_MET.String())
@@ -413,10 +440,18 @@ func (m *EvictionManger) collectEvictionResult(pods []*v1.Pod) (*evictionRespCol
 			general.Errorf(" pluginName points to nil endpoint, can't handle threshold from it")
 		}
 
+		candidateEvictionRecords := make([]*pluginapi.EvictionRecord, 0, len(threshold.CandidatePods))
+		for _, pod := range threshold.CandidatePods {
+			if r, ok := records[string(pod.UID)]; ok {
+				candidateEvictionRecords = append(candidateEvictionRecords, r)
+			}
+		}
+
 		resp, err := m.endpoints[pluginName].GetTopEvictionPods(context.Background(), &pluginapi.GetTopEvictionPodsRequest{
-			ActivePods:    pods,
-			TopN:          1,
-			EvictionScope: threshold.EvictionScope,
+			ActivePods:               pods,
+			TopN:                     1,
+			EvictionScope:            threshold.EvictionScope,
+			CandidateEvictionRecords: candidateEvictionRecords,
 		})
 
 		m.endpointLock.RUnlock()
@@ -605,6 +640,60 @@ func (m *EvictionManger) getEvictPodFromCandidates(candidateEvictPods map[string
 
 	m.killStrategy.CandidateSort(rpList)
 	return rpList[len(rpList)-1]
+}
+
+func (m *EvictionManger) getEvictionRecords(ctx context.Context, pods map[string]*v1.Pod) map[string]*pluginapi.EvictionRecord {
+	begin := time.Now()
+	defer func() {
+		costs := time.Since(begin)
+		general.InfoS("finished", "costs", costs, "pods", len(pods))
+		_ = m.emitter.StoreInt64(MetricsNameGetEvictionRecordCost, costs.Microseconds(), metrics.MetricTypeNameRaw)
+	}()
+
+	podList := make([]*v1.Pod, 0, len(pods))
+	for _, pod := range pods {
+		podList = append(podList, pod)
+	}
+
+	records, err := m.recordManager.GetEvictionRecords(ctx, podList)
+	if err != nil {
+		general.Errorf("failed to get eviction records:%v", err)
+		_ = m.emitter.StoreInt64(MetricsNameGetEvictionRecordFailed, 1, metrics.MetricTypeNameCount)
+		return nil
+	}
+
+	result := make(map[string]*pluginapi.EvictionRecord)
+	for uid, r := range records {
+		result[uid] = toEvictionRecord(uid, r)
+	}
+
+	return result
+}
+
+func toEvictionRecord(uid string, r record.EvictionRecord) *pluginapi.EvictionRecord {
+	return &pluginapi.EvictionRecord{
+		Uid:                uid,
+		HasPdb:             r.HasPDB,
+		Buckets:            toBuckets(r.Buckets),
+		DisruptionsAllowed: r.DisruptionsAllowed,
+		CurrentHealthy:     r.CurrentHealthy,
+		DesiredHealthy:     r.DesiredHealthy,
+		ExpectedPods:       r.ExpectedPods,
+	}
+}
+
+func toBuckets(r record.Buckets) *pluginapi.Buckets {
+	list := make([]*pluginapi.Bucket, 0, len(r.List))
+	for _, bucket := range r.List {
+		list = append(list, &pluginapi.Bucket{
+			Time:     bucket.Time,
+			Count:    bucket.Count,
+			Duration: bucket.Duration,
+		})
+	}
+	return &pluginapi.Buckets{
+		List: list,
+	}
 }
 
 // thresholdsFirstObservedAt merges the input set of thresholds with the previous observation to determine when active set of thresholds were initially met.
