@@ -1,5 +1,3 @@
-package rules
-
 /*
 Copyright 2022 The Katalyst Authors.
 
@@ -16,9 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+package rules
+
 import (
 	"fmt"
-	"sort"
 	"testing"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction/history"
@@ -30,235 +29,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-func makePod(name string) *v1.Pod {
-	pod1 := &v1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: "default",
-			UID:       types.UID(name),
-			Annotations: map[string]string{
-				"katalyst.kubewharf.io/qos_level": "shared_cores",
-			},
-		},
-		Spec: v1.PodSpec{
-			Containers: []v1.Container{
-				{
-					Name: "container",
-				},
-			},
-		},
-	}
-	return pod1
-}
-
-func TestFilterer_Filter(t *testing.T) {
-	t.Parallel()
-
-	pod1 := makePod("pod1")
-	pod2 := makePod("pod2")
-	pod2.OwnerReferences = []metav1.OwnerReference{
-		{Kind: "DaemonSet"},
-	}
-	pod3 := makePod("pod3")
-	pod3.OwnerReferences = []metav1.OwnerReference{
-		{Kind: "Deployment"},
-	}
-	type fields struct {
-		enabledFilters []string
-		filterParams   map[string]interface{}
-	}
-	type args struct {
-		pods []*v1.Pod
-	}
-	type want struct {
-		filteredPods []string
-	}
-
-	tests := []struct {
-		name   string
-		fields fields
-		args   args
-		want   want
-	}{
-		{
-			name: "no filters enabled",
-			fields: fields{
-				enabledFilters: []string{},
-				filterParams:   nil,
-			},
-			args: args{
-				pods: []*v1.Pod{pod1, pod2, pod3},
-			},
-			want: want{
-				filteredPods: []string{"pod1", "pod2", "pod3"},
-			},
-		},
-		{
-			name: "OwnerRefFilter with DaemonSet skip",
-			fields: fields{
-				enabledFilters: []string{OwnerRefFilterName},
-				filterParams: map[string]interface{}{
-					OwnerRefFilterName: []string{"DaemonSet"},
-				},
-			},
-			args: args{
-				pods: []*v1.Pod{pod1, pod2, pod3},
-			},
-			want: want{
-				filteredPods: []string{"pod1", "pod3"},
-			},
-		},
-		{
-			name: "OverRatioNumaFilter",
-			fields: fields{
-				enabledFilters: []string{OverRatioNumaFilterName},
-				filterParams: map[string]interface{}{
-					OverRatioNumaFilterName: []NumaOverStat{
-						{
-							NumaID: 0,
-							MetricsHistory: &history.NumaMetricHistory{
-								Inner: map[int]map[string]map[string]*history.MetricRing{
-									0: {
-										history.FakePodUID: {
-											consts.MetricCPUUsageContainer: {
-												MaxLen: 2,
-												Queue: []*history.MetricSnapshot{
-													{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
-													nil,
-												},
-												CurrentIndex: 1,
-											},
-										},
-										"pod1": {
-											consts.MetricCPUUsageContainer: {
-												MaxLen: 2,
-												Queue: []*history.MetricSnapshot{
-													{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
-													nil,
-												},
-												CurrentIndex: 1,
-											},
-										},
-										"pod2": {
-											consts.MetricCPUUsageContainer: {
-												MaxLen: 2,
-												Queue: []*history.MetricSnapshot{
-													{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
-													nil,
-												},
-												CurrentIndex: 1,
-											},
-										},
-									},
-								},
-								RingSize: 2,
-							},
-						},
-					},
-				},
-			},
-			args: args{
-				pods: []*v1.Pod{pod1, pod2, pod3},
-			},
-			want: want{
-				filteredPods: []string{"pod1", "pod2"},
-			},
-		},
-		{
-			name: "multiple filters : OwnerRefFilter and OverRatioNumaFilter",
-			fields: fields{
-				enabledFilters: []string{OwnerRefFilterName, OverRatioNumaFilterName},
-				filterParams: map[string]interface{}{
-					OwnerRefFilterName: []string{"DaemonSet"},
-					OverRatioNumaFilterName: []NumaOverStat{
-						{
-							NumaID: 0,
-							MetricsHistory: &history.NumaMetricHistory{
-								Inner: map[int]map[string]map[string]*history.MetricRing{
-									0: {
-										history.FakePodUID: {
-											consts.MetricCPUUsageContainer: {
-												MaxLen: 2,
-												Queue: []*history.MetricSnapshot{
-													{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
-													nil,
-												},
-												CurrentIndex: 1,
-											},
-										},
-										"pod1": {
-											consts.MetricCPUUsageContainer: {
-												MaxLen: 2,
-												Queue: []*history.MetricSnapshot{
-													{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
-													nil,
-												},
-												CurrentIndex: 1,
-											},
-										},
-										"pod2": {
-											consts.MetricCPUUsageContainer: {
-												MaxLen: 2,
-												Queue: []*history.MetricSnapshot{
-													{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
-													nil,
-												},
-												CurrentIndex: 1,
-											},
-										},
-									},
-								},
-								RingSize: 2,
-							},
-						},
-					},
-				},
-			},
-			args: args{
-				pods: []*v1.Pod{pod1, pod2, pod3},
-			},
-			want: want{
-				filteredPods: []string{"pod1"},
-			},
-		},
-		{
-			name: "invalid filter params",
-			fields: fields{
-				enabledFilters: []string{OwnerRefFilterName, OverRatioNumaFilterName},
-				filterParams: map[string]interface{}{
-					OwnerRefFilterName:      "invalid OwnerRefFilter params",
-					OverRatioNumaFilterName: "invalid OverRatioNumaFilter params",
-				},
-			},
-			args: args{
-				pods: []*v1.Pod{pod1, pod2, pod3},
-			},
-			want: want{
-				filteredPods: []string{"pod1", "pod2", "pod3"},
-			},
-		},
-	}
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			filterer, err := NewFilter(tt.fields.enabledFilters, metrics.DummyMetrics{}, tt.fields.filterParams)
-			assert.NoError(t, err)
-			result := filterer.Filter(tt.args.pods)
-			resultNames := make([]string, 0, len(result))
-			for _, pod := range result {
-				resultNames = append(resultNames, pod.Name)
-			}
-			sort.Strings(resultNames)
-			sort.Strings(tt.want.filteredPods)
-			assert.Equal(t, tt.want.filteredPods, resultNames)
-		})
-	}
-}
-
 func TestScorer_Score(t *testing.T) {
 	t.Parallel()
 
-	// 测试用 Pod 和 CandidatePod
+	// pod and CandidatePod
 	pod1 := makePod("pod1")
 	pod1.Spec.Priority = new(int32)
 	*pod1.Spec.Priority = 100
@@ -267,7 +41,6 @@ func TestScorer_Score(t *testing.T) {
 	pod2.Spec.Priority = new(int32)
 	*pod2.Spec.Priority = 200
 
-	// 添加新测试 Pod
 	pod3 := makePod("pod3")
 	pod3.Spec.Priority = new(int32)
 	*pod3.Spec.Priority = 50
@@ -280,7 +53,7 @@ func TestScorer_Score(t *testing.T) {
 	pod5.Spec.Priority = new(int32)
 	*pod5.Spec.Priority = 75
 
-	// 构造带不同驱逐历史的 CandidatePod
+	// CandidatePod with eviction history
 	candidatePod1 := &CandidatePod{
 		Pod: pod1,
 		WorkloadsEvictionInfo: map[string]*WorkloadEvictionInfo{
@@ -313,7 +86,7 @@ func TestScorer_Score(t *testing.T) {
 		},
 	}
 
-	// 高驱逐频率的 Pod
+	// CandidatePod with high eviction frequency
 	candidatePod3 := &CandidatePod{
 		Pod: pod3,
 		WorkloadsEvictionInfo: map[string]*WorkloadEvictionInfo{
@@ -330,7 +103,7 @@ func TestScorer_Score(t *testing.T) {
 		},
 	}
 
-	// 中等驱逐频率的 Pod
+	// CandidatePod with medium eviction frequency
 	candidatePod4 := &CandidatePod{
 		Pod: pod4,
 		WorkloadsEvictionInfo: map[string]*WorkloadEvictionInfo{
@@ -347,7 +120,7 @@ func TestScorer_Score(t *testing.T) {
 		},
 	}
 
-	// 低驱逐频率但高CPU使用率的 Pod
+	// CandidatePod with low eviction frequency but high CPU usage
 	candidatePod5 := &CandidatePod{
 		Pod: pod5,
 		WorkloadsEvictionInfo: map[string]*WorkloadEvictionInfo{
@@ -364,7 +137,7 @@ func TestScorer_Score(t *testing.T) {
 		},
 	}
 
-	// 构造 NUMA 指标历史（包含所有测试 Pod 的指标）
+	// NUMA Metric History
 	mockMetricsHistory := &history.NumaMetricHistory{
 		Inner: map[int]map[string]map[string]*history.MetricRing{
 			0: {
@@ -421,7 +194,7 @@ func TestScorer_Score(t *testing.T) {
 		pods []*CandidatePod
 	}
 	type want struct {
-		sortedPodNames []string // 按分数升序排列的 Pod 名称
+		sortedPodNames []string
 	}
 
 	tests := []struct {
@@ -502,4 +275,264 @@ func TestScorer_Score(t *testing.T) {
 			assert.Equal(t, tt.want.sortedPodNames, resultNames)
 		})
 	}
+}
+
+func TestDeploymentEvictionFrequencyScorer(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		pod       *CandidatePod
+		wantScore int
+	}{
+		{
+			name: "multiple windows with different weights",
+			pod: &CandidatePod{
+				Pod: makePod("test-pod"),
+				WorkloadsEvictionInfo: map[string]*WorkloadEvictionInfo{
+					workloadName: {
+						WorkloadName: workloadName,
+						StatsByWindow: map[float64]*EvictionStats{
+							1:  {EvictionCount: 3, EvictionRatio: 0.3},
+							24: {EvictionCount: 24, EvictionRatio: 0.2},
+						},
+						Replicas: 10,
+						Limit:    3,
+					},
+				},
+			},
+			wantScore: 7,
+		},
+		{
+			name: "zero eviction count",
+			pod: &CandidatePod{
+				Pod: makePod("test-pod"),
+				WorkloadsEvictionInfo: map[string]*WorkloadEvictionInfo{
+					workloadName: {
+						WorkloadName: workloadName,
+						StatsByWindow: map[float64]*EvictionStats{
+							1: {EvictionCount: 0, EvictionRatio: 0},
+						},
+						Replicas: 10,
+						Limit:    3,
+					},
+				},
+			},
+			wantScore: 0,
+		},
+		{
+			name: "exceed limit normalization",
+			pod: &CandidatePod{
+				Pod: makePod("test-pod"),
+				WorkloadsEvictionInfo: map[string]*WorkloadEvictionInfo{
+					workloadName: {
+						WorkloadName: workloadName,
+						StatsByWindow: map[float64]*EvictionStats{
+							1: {EvictionCount: 6, EvictionRatio: 0.5},
+						},
+						Replicas: 10,
+						Limit:    3,
+					},
+				},
+			},
+			wantScore: 15,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			score := DeploymentEvictionFrequencyScorer(tt.pod, nil)
+			assert.Equal(t, tt.wantScore, score)
+		})
+	}
+}
+
+func TestPriorityScorer(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		pod       *CandidatePod
+		wantScore int
+	}{
+		{
+			name: "priority 0",
+			pod: &CandidatePod{
+				Pod: makePodWithPriority("pod-0", 0),
+			},
+			wantScore: 0,
+		},
+		{
+			name: "priority 100",
+			pod: &CandidatePod{
+				Pod: makePodWithPriority("pod-100", 100),
+			},
+			wantScore: 10,
+		},
+		{
+			name: "priority exceeds 100",
+			pod: &CandidatePod{
+				Pod: makePodWithPriority("pod-200", 200),
+			},
+			wantScore: 10,
+		},
+		{
+			name: "nil priority",
+			pod: &CandidatePod{
+				Pod: makePod("pod-nil-priority"),
+			},
+			wantScore: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			score := PriorityScorer(tt.pod, nil)
+			assert.Equal(t, tt.wantScore, score)
+		})
+	}
+}
+
+func TestUsageGapScorer(t *testing.T) {
+	t.Parallel()
+
+	mockMetricsHistory := &history.NumaMetricHistory{
+		Inner: map[int]map[string]map[string]*history.MetricRing{
+			0: {
+				"pod-uid": {
+					consts.MetricCPUUsageContainer: {
+						MaxLen: 2,
+						Queue: []*history.MetricSnapshot{
+							{Info: history.MetricInfo{Value: 0.8}},
+						},
+					},
+				},
+			},
+		},
+		RingSize: 2,
+	}
+
+	tests := []struct {
+		name      string
+		pod       *CandidatePod
+		params    interface{}
+		wantScore int
+	}{
+		{
+			name: "normal case",
+			pod: &CandidatePod{
+				Pod: &v1.Pod{ObjectMeta: metav1.ObjectMeta{UID: types.UID("pod-uid")}},
+			},
+			params: []NumaOverStat{{
+				NumaID:         0,
+				Gap:            0.5,
+				MetricsHistory: mockMetricsHistory,
+			}},
+			wantScore: 30,
+		},
+		{
+			name: "no metric history",
+			pod: &CandidatePod{
+				Pod: &v1.Pod{ObjectMeta: metav1.ObjectMeta{UID: types.UID("unknown-uid")}},
+			},
+			params: []NumaOverStat{{
+				NumaID:         0,
+				Gap:            0.5,
+				MetricsHistory: mockMetricsHistory,
+			}},
+			wantScore: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			score := UsageGapScorer(tt.pod, tt.params)
+			assert.Equal(t, tt.wantScore, score)
+		})
+	}
+}
+
+func TestNewScorer_InvalidScorer(t *testing.T) {
+	_, err := NewScorer([]string{"invalidScorer"}, metrics.DummyMetrics{}, nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "scorer invalidScorer not exists")
+}
+
+func TestScore_NilPods(t *testing.T) {
+	scorer, _ := NewScorer([]string{PriorityScorerName}, metrics.DummyMetrics{}, nil)
+	result := scorer.Score([]*CandidatePod{nil, {Pod: makePod("valid")}})
+	assert.Len(t, result, 2)
+	assert.NotNil(t, result[1])
+}
+
+func TestScorer_EmptyScorers(t *testing.T) {
+	scorer, _ := NewScorer([]string{}, metrics.DummyMetrics{}, nil)
+	pods := []*CandidatePod{{Pod: makePod("test")}}
+	result := scorer.Score(pods)
+	assert.Equal(t, pods, result)
+}
+
+func TestNormalizeCount(t *testing.T) {
+	tests := []struct {
+		name         string
+		perHourCount float64
+		limit        int32
+		want         float64
+	}{
+		{
+			name:         "limit zero",
+			perHourCount: 5,
+			limit:        0,
+			want:         5,
+		},
+		{
+			name:         "count equals limit",
+			perHourCount: 3,
+			limit:        3,
+			want:         10,
+		},
+		{
+			name:         "count exceeds limit",
+			perHourCount: 6,
+			limit:        3,
+			want:         20,
+		},
+		{
+			name:         "count below limit",
+			perHourCount: 1,
+			limit:        3,
+			want:         3.3333333333333335,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			result := normalizeCount(tt.perHourCount, tt.limit)
+			assert.InDelta(t, tt.want, result, 0.001)
+		})
+	}
+}
+
+func TestSetScorerParam(t *testing.T) {
+	scorer, _ := NewScorer([]string{UsageGapScorerName}, metrics.DummyMetrics{}, nil)
+	testParam := []NumaOverStat{{NumaID: 1}}
+	scorer.SetScorerParam(UsageGapScorerName, testParam)
+	assert.Equal(t, testParam, scorer.scorerParams[UsageGapScorerName])
+}
+
+func TestSetScorer(t *testing.T) {
+	scorer, _ := NewScorer([]string{}, metrics.DummyMetrics{}, nil)
+	customScorer := func(pod *CandidatePod, params interface{}) int { return 42 }
+	scorer.SetScorer("custom", customScorer)
+	assert.Equal(t, customScorer, scorer.scorers["custom"])
+}
+
+func makePodWithPriority(name string, priority int32) *v1.Pod {
+	pod := makePod(name)
+	pod.Spec.Priority = &priority
+	return pod
 }
