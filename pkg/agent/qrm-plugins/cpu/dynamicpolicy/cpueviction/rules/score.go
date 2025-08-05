@@ -78,10 +78,24 @@ func NewScorer(enabledScorers []string, emitter metrics.MetricEmitter, scorerPar
 
 // return: []*CandidatePod - Sorted list of pods by total score (ascending)
 func (s *Scorer) Score(pods []*CandidatePod) []*CandidatePod {
+	if pods == nil {
+		general.Warningf("pods is nil, returning empty list")
+		return []*CandidatePod{}
+	}
 	if len(s.scorers) == 0 {
 		general.Warningf("no scorers enabled, returning pods without scoring")
 		return pods
 	}
+	var validPods []*CandidatePod
+	for _, pod := range pods {
+		if pod == nil {
+			general.Warningf("nil pod found in scoring list, skipping")
+			continue
+		}
+		validPods = append(validPods, pod) // 仅保留非 nil Pod
+	}
+	pods = validPods
+
 	for _, pod := range pods {
 		if pod == nil {
 			general.Warningf("nil pod found in scoring list, skipping")
@@ -194,6 +208,10 @@ func PriorityScorer(pod *CandidatePod, params interface{}) int {
 
 // params: numaOverStat []NumaOverStat
 func UsageGapScorer(pod *CandidatePod, params interface{}) int {
+	if pod == nil || pod.Pod == nil {
+		general.Warningf("nil pod or pod spec passed to UsageGapScorer")
+		return 0
+	}
 	numaOverStats, ok := params.([]NumaOverStat)
 	if !ok {
 		general.Errorf("UsageGapScorer params type error, params: %v", params)

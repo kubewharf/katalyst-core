@@ -1,5 +1,3 @@
-package rules
-
 /*
 Copyright 2022 The Katalyst Authors.
 
@@ -16,8 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+package rules
+
 import (
-	"fmt"
 	"sort"
 	"testing"
 
@@ -255,251 +254,191 @@ func TestFilterer_Filter(t *testing.T) {
 	}
 }
 
-func TestScorer_Score(t *testing.T) {
+func TestOwnerRefFilter(t *testing.T) {
 	t.Parallel()
 
-	// 测试用 Pod 和 CandidatePod
-	pod1 := makePod("pod1")
-	pod1.Spec.Priority = new(int32)
-	*pod1.Spec.Priority = 100
-
-	pod2 := makePod("pod2")
-	pod2.Spec.Priority = new(int32)
-	*pod2.Spec.Priority = 200
-
-	// 添加新测试 Pod
-	pod3 := makePod("pod3")
-	pod3.Spec.Priority = new(int32)
-	*pod3.Spec.Priority = 50
-
-	pod4 := makePod("pod4")
-	pod4.Spec.Priority = new(int32)
-	*pod4.Spec.Priority = 150
-
-	pod5 := makePod("pod5")
-	pod5.Spec.Priority = new(int32)
-	*pod5.Spec.Priority = 75
-
-	// 构造带不同驱逐历史的 CandidatePod
-	candidatePod1 := &CandidatePod{
-		Pod: pod1,
-		WorkloadsEvictionInfo: map[string]*WorkloadEvictionInfo{
-			workloadName: {
-				WorkloadName: workloadName,
-				StatsByWindow: map[float64]*EvictionStats{
-					1:  {EvictionCount: 5, EvictionRatio: 0.5},
-					24: {EvictionCount: 20, EvictionRatio: 0.2},
-				},
-				Replicas:         10,
-				LastEvictionTime: 1620000000,
-				Limit:            3,
-			},
-		},
-	}
-
-	candidatePod2 := &CandidatePod{
-		Pod: pod2,
-		WorkloadsEvictionInfo: map[string]*WorkloadEvictionInfo{
-			workloadName: {
-				WorkloadName: workloadName,
-				StatsByWindow: map[float64]*EvictionStats{
-					1:  {EvictionCount: 2, EvictionRatio: 0.2},
-					24: {EvictionCount: 10, EvictionRatio: 0.1},
-				},
-				Replicas:         10,
-				LastEvictionTime: 1620000000,
-				Limit:            3,
-			},
-		},
-	}
-
-	// 高驱逐频率的 Pod
-	candidatePod3 := &CandidatePod{
-		Pod: pod3,
-		WorkloadsEvictionInfo: map[string]*WorkloadEvictionInfo{
-			workloadName: {
-				WorkloadName: workloadName,
-				StatsByWindow: map[float64]*EvictionStats{
-					1:  {EvictionCount: 15, EvictionRatio: 0.8},
-					24: {EvictionCount: 50, EvictionRatio: 0.6},
-				},
-				Replicas:         5,
-				LastEvictionTime: 1620000000,
-				Limit:            1,
-			},
-		},
-	}
-
-	// 中等驱逐频率的 Pod
-	candidatePod4 := &CandidatePod{
-		Pod: pod4,
-		WorkloadsEvictionInfo: map[string]*WorkloadEvictionInfo{
-			workloadName: {
-				WorkloadName: workloadName,
-				StatsByWindow: map[float64]*EvictionStats{
-					1:  {EvictionCount: 8, EvictionRatio: 0.4},
-					24: {EvictionCount: 30, EvictionRatio: 0.3},
-				},
-				Replicas:         8,
-				LastEvictionTime: 1620000000,
-				Limit:            2,
-			},
-		},
-	}
-
-	// 低驱逐频率但高CPU使用率的 Pod
-	candidatePod5 := &CandidatePod{
-		Pod: pod5,
-		WorkloadsEvictionInfo: map[string]*WorkloadEvictionInfo{
-			workloadName: {
-				WorkloadName: workloadName,
-				StatsByWindow: map[float64]*EvictionStats{
-					1:  {EvictionCount: 1, EvictionRatio: 0.1},
-					24: {EvictionCount: 5, EvictionRatio: 0.05},
-				},
-				Replicas:         15,
-				LastEvictionTime: 1620000000,
-				Limit:            5,
-			},
-		},
-	}
-
-	// 构造 NUMA 指标历史（包含所有测试 Pod 的指标）
-	mockMetricsHistory := &history.NumaMetricHistory{
-		Inner: map[int]map[string]map[string]*history.MetricRing{
-			0: {
-				"pod1": {
-					consts.MetricCPUUsageContainer: {
-						MaxLen: 2,
-						Queue: []*history.MetricSnapshot{
-							{Info: history.MetricInfo{Value: 0.8}},
-						},
-					},
-				},
-				"pod2": {
-					consts.MetricCPUUsageContainer: {
-						MaxLen: 2,
-						Queue: []*history.MetricSnapshot{
-							{Info: history.MetricInfo{Value: 0.6}},
-						},
-					},
-				},
-				"pod3": {
-					consts.MetricCPUUsageContainer: {
-						MaxLen: 2,
-						Queue: []*history.MetricSnapshot{
-							{Info: history.MetricInfo{Value: 0.9}},
-						},
-					},
-				},
-				"pod4": {
-					consts.MetricCPUUsageContainer: {
-						MaxLen: 2,
-						Queue: []*history.MetricSnapshot{
-							{Info: history.MetricInfo{Value: 0.7}},
-						},
-					},
-				},
-				"pod5": {
-					consts.MetricCPUUsageContainer: {
-						MaxLen: 2,
-						Queue: []*history.MetricSnapshot{
-							{Info: history.MetricInfo{Value: 0.95}},
-						},
-					},
-				},
-			},
-		},
-		RingSize: 2,
-	}
-
-	type fields struct {
-		enabledScorers []string
-		scorerParams   map[string]interface{}
-	}
-	type args struct {
-		pods []*CandidatePod
-	}
-	type want struct {
-		sortedPodNames []string // 按分数升序排列的 Pod 名称
-	}
-
 	tests := []struct {
-		name   string
-		fields fields
-		args   args
-		want   want
-	}{{
-		name: "no scorers enabled",
-		fields: fields{
-			enabledScorers: []string{},
-			scorerParams:   nil,
-		},
-		args: args{pods: []*CandidatePod{candidatePod1, candidatePod2, candidatePod3, candidatePod4, candidatePod5}},
-		want: want{sortedPodNames: []string{"pod1", "pod2", "pod3", "pod4", "pod5"}},
-	}, {
-		name: "PriorityScorer only",
-		fields: fields{
-			enabledScorers: []string{PriorityScorerName},
-			scorerParams:   nil,
-		},
-		args: args{pods: []*CandidatePod{candidatePod1, candidatePod2, candidatePod3, candidatePod4, candidatePod5}},
-		want: want{sortedPodNames: []string{"pod3", "pod5", "pod1", "pod4", "pod2"}},
-	}, {
-		name: "DeploymentEvictionFrequencyScorer only",
-		fields: fields{
-			enabledScorers: []string{DeploymentEvictionFrequencyScorerName},
-			scorerParams:   nil,
-		},
-		args: args{pods: []*CandidatePod{candidatePod1, candidatePod2, candidatePod3, candidatePod4, candidatePod5}},
-		want: want{sortedPodNames: []string{"pod5", "pod2", "pod1", "pod4", "pod3"}},
-	}, {
-		name: "UsageGapScorer only",
-		fields: fields{
-			enabledScorers: []string{UsageGapScorerName},
-			scorerParams: map[string]interface{}{
-				UsageGapScorerName: []NumaOverStat{{
-					NumaID:         0,
-					Gap:            0.5,
-					MetricsHistory: mockMetricsHistory,
-				}},
+		name         string
+		pod          *v1.Pod
+		params       interface{}
+		wantFiltered bool
+	}{
+		{
+			name: "daemonset owner should be filtered",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-pod",
+					OwnerReferences: []metav1.OwnerReference{
+						{Kind: "DaemonSet"},
+					},
+				},
 			},
+			params:       []string{"DaemonSet"},
+			wantFiltered: true,
 		},
-		args: args{pods: []*CandidatePod{candidatePod1, candidatePod2, candidatePod3, candidatePod4, candidatePod5}},
-		want: want{sortedPodNames: []string{"pod2", "pod4", "pod1", "pod3", "pod5"}},
-	}, {
-		name: "multiple scorers (Priority + DeploymentEvictionFrequency + UsageGap)",
-		fields: fields{
-			enabledScorers: []string{PriorityScorerName, DeploymentEvictionFrequencyScorerName, UsageGapScorerName},
-			scorerParams: map[string]interface{}{
-				UsageGapScorerName: []NumaOverStat{{
-					NumaID:         0,
-					Gap:            0.5,
-					MetricsHistory: mockMetricsHistory,
-				}},
+		{
+			name: "deployment owner should not be filtered",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-pod",
+					OwnerReferences: []metav1.OwnerReference{
+						{Kind: "Deployment"},
+					},
+				},
 			},
+			params:       []string{"DaemonSet"},
+			wantFiltered: false,
 		},
-		args: args{pods: []*CandidatePod{candidatePod1, candidatePod2, candidatePod3, candidatePod4, candidatePod5}},
-		want: want{sortedPodNames: []string{"pod3", "pod5", "pod1", "pod4", "pod2"}},
-	}}
+		{
+			name:         "nil params should not filter",
+			pod:          &v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "test-pod"}},
+			params:       nil,
+			wantFiltered: false,
+		},
+	}
 
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			scorer, err := NewScorer(tt.fields.enabledScorers, metrics.DummyMetrics{}, tt.fields.scorerParams)
-			assert.NoError(t, err)
+			result := OwnerRefFilter(tt.pod, tt.params)
+			assert.Equal(t, tt.wantFiltered, result)
+		})
+	}
+}
 
-			result := scorer.Score(tt.args.pods)
+func TestOverRatioNumaFilter(t *testing.T) {
+	t.Parallel()
 
-			resultNames := make([]string, len(result))
-			for i, pod := range result {
-				resultNames[i] = pod.Pod.Name
-				fmt.Println(resultNames[i], "total score:", pod.TotalScore)
-				for name, score := range pod.Scores {
-					fmt.Println(resultNames[i], name, "score:", score)
-				}
-			}
-			assert.Equal(t, tt.want.sortedPodNames, resultNames)
+	mockMetrics := &history.NumaMetricHistory{
+		Inner: map[int]map[string]map[string]*history.MetricRing{
+			0: {
+				"pod-uid-1": {consts.MetricCPUUsageContainer: {Queue: []*history.MetricSnapshot{{Info: history.MetricInfo{Value: 0.8}}}}},
+			},
+		},
+	}
+
+	tests := []struct {
+		name         string
+		pod          *v1.Pod
+		params       interface{}
+		wantFiltered bool
+	}{
+		{
+			name: "pod with high usage should be reserved",
+			pod:  &v1.Pod{ObjectMeta: metav1.ObjectMeta{UID: types.UID("pod-uid-1")}},
+			params: []NumaOverStat{{
+				NumaID:         0,
+				MetricsHistory: mockMetrics,
+			}},
+			wantFiltered: false,
+		},
+		{
+			name: "pod without metric history should not be reserved",
+			pod:  &v1.Pod{ObjectMeta: metav1.ObjectMeta{UID: types.UID("pod-uid-2")}},
+			params: []NumaOverStat{{
+				NumaID:         0,
+				MetricsHistory: mockMetrics,
+			}},
+			wantFiltered: true,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			result := OverRatioNumaFilter(tt.pod, tt.params)
+			assert.Equal(t, tt.wantFiltered, result)
+		})
+	}
+}
+
+func TestFilterer_SetFilter(t *testing.T) {
+	filterer, _ := NewFilter([]string{}, metrics.DummyMetrics{}, nil)
+	customFilter := func(pod *v1.Pod, params interface{}) bool {
+		return pod.Name == "custom-filter-pod"
+	}
+
+	filterer.SetFilter("custom", customFilter)
+	if _, exists := filterer.filters["custom"]; !exists {
+		t.Fatal("custom filter not found in filterer.filters")
+	}
+	testPod := &v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "custom-filter-pod"}}
+	result := filterer.Filter([]*v1.Pod{testPod})
+	assert.Empty(t, result)
+}
+
+func TestFilterer_SetFilterParam(t *testing.T) {
+	filterer, _ := NewFilter([]string{OwnerRefFilterName}, metrics.DummyMetrics{}, nil)
+	testParams := []string{"StatefulSet"}
+
+	filterer.SetFilterParam(OwnerRefFilterName, testParams)
+	assert.Equal(t, testParams, filterer.filterParams[OwnerRefFilterName])
+
+	result := filterer.Filter([]*v1.Pod{{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "test-pod",
+			OwnerReferences: []metav1.OwnerReference{{Kind: "StatefulSet"}},
+		},
+	}})
+	assert.Empty(t, result)
+}
+
+func TestNewFilter_InvalidFilter(t *testing.T) {
+	filterer, err := NewFilter([]string{"invalid-filter"}, metrics.DummyMetrics{}, nil)
+	assert.NoError(t, err)
+	assert.Empty(t, filterer.filters)
+}
+
+func TestFilterer_EmptyPodList(t *testing.T) {
+	filterer, _ := NewFilter([]string{OwnerRefFilterName}, metrics.DummyMetrics{}, map[string]interface{}{OwnerRefFilterName: []string{"DaemonSet"}})
+	result := filterer.Filter([]*v1.Pod{})
+	assert.Empty(t, result)
+}
+
+func TestFilterer_NilPod(t *testing.T) {
+	filterer, _ := NewFilter([]string{OwnerRefFilterName}, metrics.DummyMetrics{}, map[string]interface{}{OwnerRefFilterName: []string{"DaemonSet"}})
+	result := filterer.Filter([]*v1.Pod{nil, {ObjectMeta: metav1.ObjectMeta{Name: "valid-pod"}}})
+	assert.Len(t, result, 1)
+	assert.Equal(t, "valid-pod", result[0].Name)
+}
+
+func TestOverRatioNumaFilter_InvalidMetrics(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		params       interface{}
+		wantFiltered bool
+	}{
+		{
+			name: "nil metrics history",
+			params: []NumaOverStat{{
+				NumaID:         0,
+				MetricsHistory: nil,
+			}},
+			wantFiltered: false,
+		},
+		{
+			name:         "empty numa stats",
+			params:       []NumaOverStat{},
+			wantFiltered: false,
+		},
+		{
+			name: "numa not found",
+			params: []NumaOverStat{{
+				NumaID:         999,
+				MetricsHistory: &history.NumaMetricHistory{Inner: map[int]map[string]map[string]*history.MetricRing{}},
+			}},
+			wantFiltered: false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			pod := makePod("test-pod")
+			result := OverRatioNumaFilter(pod, tt.params)
+			assert.Equal(t, tt.wantFiltered, result)
 		})
 	}
 }

@@ -18,6 +18,8 @@ package rules
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"time"
 
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
@@ -109,6 +111,11 @@ func PrepareCandidatePods(_ context.Context, request *pluginapi.GetTopEvictionPo
 
 // getWorkloadEvictionInfo extracts WorkloadEvictionInfo from the request.
 func getWorkloadEvictionInfo(evictionRecord *EvictionRecord) (map[string]*WorkloadEvictionInfo, error) {
+	if evictionRecord == nil {
+		general.Warningf("no eviction record")
+		return nil, fmt.Errorf("no eviction record")
+	}
+
 	workloadsEvictionInfo := make(map[string]*WorkloadEvictionInfo)
 	timeWindows := []int64{timeWindow1, timeWindow2, timeWindow3}
 	statsByWindow, lastEvictionTime := calculateEvictionStatsByWindows(time.Now(), evictionRecord, timeWindows)
@@ -124,6 +131,11 @@ func getWorkloadEvictionInfo(evictionRecord *EvictionRecord) (map[string]*Worklo
 }
 
 func calculateEvictionStatsByWindows(currentTime time.Time, evictionRecord *EvictionRecord, windows []int64) (map[float64]*EvictionStats, int64) {
+	if evictionRecord == nil || evictionRecord.Buckets.List == nil {
+		general.Warningf("no buckets in eviction info")
+		return nil, 0
+	}
+
 	buckets := evictionRecord.Buckets.List
 	currentHealthy := evictionRecord.CurrentHealthy
 	statsByWindow := make(map[float64]*EvictionStats)
@@ -135,6 +147,10 @@ func calculateEvictionStatsByWindows(currentTime time.Time, evictionRecord *Evic
 	currentTimestamp := currentTime.Unix()
 	lastEvictionTime := buckets[0].Time
 	for _, windowSec := range windows {
+		if windowSec <= 0 {
+			general.Warningf("invalid windowSec %d (must be positive), skipping", windowSec)
+			continue
+		}
 		windowHour := float64(windowSec) / 3600
 
 		windowStart := currentTimestamp - windowSec
@@ -143,15 +159,24 @@ func calculateEvictionStatsByWindows(currentTime time.Time, evictionRecord *Evic
 			if bucket.Time >= windowStart {
 				totalCount += bucket.Count
 			} else if bucket.Time < windowStart && windowStart <= bucket.Time+bucket.Duration {
-				totalCount += bucket.Count * (bucket.Time + bucket.Duration - windowStart) / bucket.Duration
+				ratio := float64(bucket.Time+bucket.Duration-windowStart) / float64(bucket.Duration)
+				partialCount := int64(math.Round(float64(bucket.Count) * ratio))
+				totalCount += partialCount
+				// totalCount += bucket.Count * (bucket.Time + bucket.Duration - windowStart) / bucket.Duration
 			}
 			if bucket.Time > lastEvictionTime {
 				lastEvictionTime = bucket.Time
 			}
 		}
+		evictionRatio := 0.0
+		if currentHealthy > 0 {
+			evictionRatio = float64(totalCount) / float64(currentHealthy)
+		} else {
+			general.Warningf("currentHealthy is zero, cannot calculate eviction ratio")
+		}
 		statsByWindow[windowHour] = &EvictionStats{
 			EvictionCount: totalCount,
-			EvictionRatio: float64(totalCount) / float64(currentHealthy),
+			EvictionRatio: evictionRatio,
 		}
 	}
 
