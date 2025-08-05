@@ -258,9 +258,9 @@ func GenerateDummyExtraTopology(numaNum int) (*ExtraTopologyInfo, error) {
 	extraTopology := &ExtraTopologyInfo{
 		NumaDistanceMap: make(map[int][]NumaDistanceInfo),
 		SiblingNumaInfo: &SiblingNumaInfo{
-			SiblingNumaMap:                  make(map[int]sets.Int),
-			SiblingNumaAvgMBWAllocatableMap: make(map[int]int64),
-			SiblingNumaAvgMBWCapacityMap:    make(map[int]int64),
+			SiblingNumaMap:                      make(map[int]sets.Int),
+			SiblingNumaAvgMBWAllocatableRateMap: make(map[string]float64),
+			SiblingNumaAvgMBWCapacityMap:        make(map[int]int64),
 		},
 	}
 
@@ -575,13 +575,11 @@ func GetSiblingNumaInfo(
 	numaDistanceMap map[int][]NumaDistanceInfo,
 ) *SiblingNumaInfo {
 	siblingNumaMap := make(map[int]sets.Int)
-	siblingNumaAvgMBWAllocatableMap := make(map[int]int64)
 	siblingNumaAvgMBWCapacityMap := make(map[int]int64)
 
-	// calculate the sibling NUMA allocatable memory bandwidth by the capacity multiplying the allocatable rate.
-	// Now, all the NUMAs have the same memory bandwidth capacity and allocatable
 	siblingNumaMBWCapacity := conf.SiblingNumaMemoryBandwidthCapacity
-	siblingNumaMBWAllocatable := int64(float64(siblingNumaMBWCapacity) * conf.SiblingNumaMemoryBandwidthAllocatableRate)
+	siblingNumaMBWAllocatableRateMap := conf.SiblingNumaMemoryBandwidthAllocatableRateMap
+	siblingNumaDefaultMBWAllocatableRate := conf.SiblingNumaMemoryBandwidthAllocatableRate
 
 	for numaID, distanceMap := range numaDistanceMap {
 		var selfNumaDistance int
@@ -613,14 +611,14 @@ func GetSiblingNumaInfo(
 		}
 
 		siblingNumaMap[numaID] = siblingSet
-		siblingNumaAvgMBWAllocatableMap[numaID] = siblingNumaMBWAllocatable / int64(len(siblingSet)+1)
 		siblingNumaAvgMBWCapacityMap[numaID] = siblingNumaMBWCapacity / int64(len(siblingSet)+1)
 	}
 
 	return &SiblingNumaInfo{
-		SiblingNumaMap:                  siblingNumaMap,
-		SiblingNumaAvgMBWCapacityMap:    siblingNumaAvgMBWCapacityMap,
-		SiblingNumaAvgMBWAllocatableMap: siblingNumaAvgMBWAllocatableMap,
+		SiblingNumaMap:                       siblingNumaMap,
+		SiblingNumaAvgMBWCapacityMap:         siblingNumaAvgMBWCapacityMap,
+		SiblingNumaAvgMBWAllocatableRateMap:  siblingNumaMBWAllocatableRateMap,
+		SiblingNumaDefaultMBWAllocatableRate: siblingNumaDefaultMBWAllocatableRate,
 	}
 }
 
@@ -638,12 +636,12 @@ type ExtraTopologyInfo struct {
 type SiblingNumaInfo struct {
 	SiblingNumaMap map[int]sets.Int
 
-	// SiblingNumaAvgMBWAllocatableMap maps NUMA IDs to the allocatable memory bandwidth,
-	// averaged across each NUMA node and its siblings.
+	// SiblingNumaAvgMBWAllocatableRateMap maps cpu codename to the according memory bandwidth allocatable rate
 	// SiblingNumaAvgMBWCapacityMap maps NUMA IDs to the capacity memory bandwidth,
-	// averaged similarly.
-	SiblingNumaAvgMBWAllocatableMap map[int]int64
-	SiblingNumaAvgMBWCapacityMap    map[int]int64
+	// averaged across each NUMA node and its siblings.
+	SiblingNumaAvgMBWAllocatableRateMap  map[string]float64
+	SiblingNumaAvgMBWCapacityMap         map[int]int64
+	SiblingNumaDefaultMBWAllocatableRate float64
 }
 
 type AllocatableInterfaceSocketInfo struct {
