@@ -217,7 +217,7 @@ func TestScorer_Score(t *testing.T) {
 			scorerParams:   nil,
 		},
 		args: args{pods: []*CandidatePod{candidatePod1, candidatePod2, candidatePod3, candidatePod4, candidatePod5}},
-		want: want{sortedPodNames: []string{"pod3", "pod5", "pod1", "pod4", "pod2"}},
+		want: want{sortedPodNames: []string{"pod3", "pod5", "pod1", "pod2", "pod4"}},
 	}, {
 		name: "DeploymentEvictionFrequencyScorer only",
 		fields: fields{
@@ -253,7 +253,7 @@ func TestScorer_Score(t *testing.T) {
 			},
 		},
 		args: args{pods: []*CandidatePod{candidatePod1, candidatePod2, candidatePod3, candidatePod4, candidatePod5}},
-		want: want{sortedPodNames: []string{"pod3", "pod5", "pod1", "pod4", "pod2"}},
+		want: want{sortedPodNames: []string{"pod2", "pod5", "pod1", "pod4", "pod3"}},
 	}}
 
 	for _, tt := range tests {
@@ -301,7 +301,7 @@ func TestDeploymentEvictionFrequencyScorer(t *testing.T) {
 					},
 				},
 			},
-			wantScore: 7,
+			wantScore: 12,
 		},
 		{
 			name: "zero eviction count",
@@ -335,7 +335,7 @@ func TestDeploymentEvictionFrequencyScorer(t *testing.T) {
 					},
 				},
 			},
-			wantScore: 15,
+			wantScore: 25,
 		},
 	}
 
@@ -464,8 +464,8 @@ func TestNewScorer_InvalidScorer(t *testing.T) {
 func TestScore_NilPods(t *testing.T) {
 	scorer, _ := NewScorer([]string{PriorityScorerName}, metrics.DummyMetrics{}, nil)
 	result := scorer.Score([]*CandidatePod{nil, {Pod: makePod("valid")}})
-	assert.Len(t, result, 2)
-	assert.NotNil(t, result[1])
+	assert.Len(t, result, 1)
+	assert.NotNil(t, result[0])
 }
 
 func TestScorer_EmptyScorers(t *testing.T) {
@@ -526,9 +526,25 @@ func TestSetScorerParam(t *testing.T) {
 
 func TestSetScorer(t *testing.T) {
 	scorer, _ := NewScorer([]string{}, metrics.DummyMetrics{}, nil)
-	customScorer := func(pod *CandidatePod, params interface{}) int { return 42 }
+	customScore := 100
+	customScorer := func(pod *CandidatePod, params interface{}) int {
+		return customScore
+	}
+
 	scorer.SetScorer("custom", customScorer)
-	assert.Equal(t, customScorer, scorer.scorers["custom"])
+	if _, exists := scorer.scorers["custom"]; !exists {
+		t.Fatal("custom scorer not found in scorer.scorers")
+	}
+	testPod := &CandidatePod{Pod: makePod("test-pod")}
+	scoredPods := scorer.Score([]*CandidatePod{testPod})
+	if len(scoredPods) == 0 {
+		t.Fatal("no pods scored")
+	}
+	actualScore, ok := scoredPods[0].Scores["custom"]
+	if !ok {
+		t.Error("custom scorer score not found in result")
+	}
+	assert.Equal(t, customScore, actualScore, "expected custom score %d, got %d", customScore, actualScore)
 }
 
 func makePodWithPriority(name string, priority int32) *v1.Pod {

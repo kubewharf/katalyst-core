@@ -110,6 +110,15 @@ func (f *Filterer) SetFilter(key string, filter FilterFunc) {
 }
 
 func OwnerRefFilter(pod *v1.Pod, params interface{}) bool {
+	if pod == nil {
+		general.Warningf("OwnerRefFilter: pod is nil, no pods will be filtered")
+		return true
+	}
+	if pod.OwnerReferences == nil || len(pod.OwnerReferences) == 0 {
+		general.Warningf("OwnerRefFilter: pod %s has no ownerRef, will not be filtered", pod.Name)
+		return false
+	}
+
 	skippedPodKinds, ok := params.([]string)
 	if !ok || len(skippedPodKinds) == 0 {
 		general.Warningf("OwnerRefFilter params is not []string, no pods will be filtered")
@@ -129,6 +138,11 @@ func OwnerRefFilter(pod *v1.Pod, params interface{}) bool {
 
 // OverRatioNumaFilter filters out pods that are overloaded on NUMA nodes
 func OverRatioNumaFilter(pod *v1.Pod, params interface{}) bool {
+	if pod == nil {
+		general.Warningf("OverRatioNumaFilter: pod is nil, no pods will be filtered")
+		return true
+	}
+
 	numaStats, ok := params.([]NumaOverStat)
 	if !ok {
 		general.Warningf("OverRatioNumaFilter params is not []NumaOverStat, no pods will be filtered")
@@ -139,6 +153,10 @@ func OverRatioNumaFilter(pod *v1.Pod, params interface{}) bool {
 		return false
 	}
 	numaID := numaStats[0].NumaID
+	if numaStats[0].MetricsHistory == nil {
+		general.Warningf("OverRatioNumaFilter: numaStats[0].MetricsHistory is nil, no pods will be filtered")
+		return false
+	}
 	numaHis, ok := numaStats[0].MetricsHistory.Inner[numaID]
 	if !ok {
 		general.Warningf("OverRatioNumaFilter: numa %d not found in numaStats, no pods will be filtered", numaID)
