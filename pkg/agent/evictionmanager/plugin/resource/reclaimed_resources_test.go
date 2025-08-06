@@ -137,7 +137,7 @@ func TestNewReclaimedResourcesEvictionPlugin(t *testing.T) {
 		metrics.DummyMetrics{}, testConf)
 	assert.NoError(t, err)
 
-	met, err := plugin.ThresholdMet(context.TODO())
+	met, err := plugin.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 	assert.NoError(t, err)
 	assert.NotNil(t, met)
 

@@ -404,7 +404,7 @@ func TestThresholdMet(t *testing.T) {
 
 		plugin.(*CPUPressureLoadEviction).collectMetrics(context.Background())
 
-		metResp, err := plugin.ThresholdMet(context.Background(), &evictionpluginapi.Empty{})
+		metResp, err := plugin.ThresholdMet(context.Background(), &evictionpluginapi.GetThresholdMetRequest{})
 		as.Nil(err)
 		as.NotNil(t, metResp)
 
@@ -801,7 +801,7 @@ func TestGetTopEvictionPods(t *testing.T) {
 
 		plugin.(*CPUPressureLoadEviction).collectMetrics(context.Background())
 
-		metResp, err := plugin.ThresholdMet(context.Background(), &evictionpluginapi.Empty{})
+		metResp, err := plugin.ThresholdMet(context.Background(), &evictionpluginapi.GetThresholdMetRequest{})
 		as.Nil(err)
 		as.NotNil(t, metResp)
 

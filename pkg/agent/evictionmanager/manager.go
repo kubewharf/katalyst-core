@@ -309,7 +309,9 @@ func (m *EvictionManger) collectEvictionResult(pods []*v1.Pod) (*evictionRespCol
 			collector.collectEvictPods(dynamicConfig.DryRun, pluginName, getEvictResp)
 		}
 
-		metResp, err := ep.ThresholdMet(context.Background())
+		metResp, err := ep.ThresholdMet(context.Background(), &pluginapi.GetThresholdMetRequest{
+			ActivePods: pods,
+		})
 		if err != nil {
 			general.Errorf(" calling ThresholdMet of plugin: %s failed with error: %v", pluginName, err)
 			errList = append(errList, err)

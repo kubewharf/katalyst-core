@@ -67,7 +67,7 @@ func NewCPUPressureSuppressionEviction(_ metrics.MetricEmitter, metaServer *meta
 
 func (p *CPUPressureSuppression) Start(context.Context) error { return nil }
 func (p *CPUPressureSuppression) Name() string                { return EvictionNameSuppression }
-func (p *CPUPressureSuppression) ThresholdMet(_ context.Context, _ *pluginapi.Empty) (*pluginapi.ThresholdMetResponse, error) {
+func (p *CPUPressureSuppression) ThresholdMet(_ context.Context, _ *pluginapi.GetThresholdMetRequest) (*pluginapi.ThresholdMetResponse, error) {
 	return &pluginapi.ThresholdMetResponse{}, nil
 }
 

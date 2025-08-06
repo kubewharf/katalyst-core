@@ -135,7 +135,7 @@ func (p *powerPressureEvictPlugin) GetToken(ctx context.Context, empty *pluginap
 	return &pluginapi.GetTokenResponse{Token: ""}, nil
 }
 
-func (p *powerPressureEvictPlugin) ThresholdMet(ctx context.Context, empty *pluginapi.Empty) (*pluginapi.ThresholdMetResponse, error) {
+func (p *powerPressureEvictPlugin) ThresholdMet(ctx context.Context, request *pluginapi.GetThresholdMetRequest) (*pluginapi.ThresholdMetResponse, error) {
 	return &pluginapi.ThresholdMetResponse{}, nil
 }
 

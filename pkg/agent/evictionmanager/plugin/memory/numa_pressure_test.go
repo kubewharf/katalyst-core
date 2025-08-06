@@ -241,7 +241,7 @@ func TestNumaMemoryPressurePlugin_ThresholdMet(t *testing.T) {
 		for numaID, numaFree := range tt.numaFree {
 			fakeMetricsFetcher.SetNumaMetric(numaID, consts.MetricMemFreeNuma, utilMetric.MetricData{Value: numaFree, Time: &now})
 		}
-		metResp, err := plugin.ThresholdMet(context.TODO())
+		metResp, err := plugin.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 		assert.NoError(t, err)
 		assert.NotNil(t, metResp)
 		assert.Equal(t, tt.wantMetType, metResp.MetType)

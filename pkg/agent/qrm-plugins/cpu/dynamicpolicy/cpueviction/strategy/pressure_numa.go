@@ -201,7 +201,7 @@ func (p *NumaCPUPressureEviction) GetEvictPods(_ context.Context, request *plugi
 	return resp, nil
 }
 
-func (p *NumaCPUPressureEviction) ThresholdMet(_ context.Context, _ *pluginapi.Empty,
+func (p *NumaCPUPressureEviction) ThresholdMet(_ context.Context, _ *pluginapi.GetThresholdMetRequest,
 ) (*pluginapi.ThresholdMetResponse, error) {
 	p.RLock()
 	defer p.RUnlock()
