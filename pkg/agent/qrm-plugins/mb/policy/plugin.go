@@ -29,6 +29,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/allocator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/domain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -76,25 +77,24 @@ func (m *MBPlugin) run() {
 	// todo: fetch the current mb stat
 	var statOutgoing monitor.GroupMonStat
 
-	// attributes stat to domain scopes
 	monData, err := monitor.NewDomainsMon(statOutgoing, m.ccdToDomain, m.xDomGroups)
 	if err != nil {
 		general.Errorf("[mbm] failed to run fetching mb stats: %v", err)
 		return
 	}
 
-	plan, err := m.advisor.GetPlan(ctx, monData)
+	var mbPlan *plan.MBPlan
+	mbPlan, err = m.advisor.GetPlan(ctx, monData)
 	if err != nil {
 		general.Errorf("[mbm] failed to run getting plan: %v", err)
 		return
 	}
 	if klog.V(6).Enabled() {
-		// todo: log plan detail
-		general.Infof("todo")
+		general.Infof("[mbm] mb plan update: %v", mbPlan)
 	}
 
 	// execute plan
-	if err := m.planAllocator.Allocate(ctx, plan); err != nil {
+	if err := m.planAllocator.Allocate(ctx, mbPlan); err != nil {
 		general.Errorf("[mbm] failed to run allocating plan: %v", err)
 		return
 	}

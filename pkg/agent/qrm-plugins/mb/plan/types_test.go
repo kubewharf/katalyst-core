@@ -17,6 +17,7 @@ limitations under the License.
 package plan
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 )
@@ -43,6 +44,48 @@ func TestCCDPlan_ToSchemataInstruction(t *testing.T) {
 			if got := tt.c.ToSchemataInstruction(); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("ToSchemataInstruction() = %v, want %v", string(got), string(tt.want))
 			}
+		})
+	}
+}
+
+func TestMBPlan_String(t *testing.T) {
+	t.Parallel()
+	type fields struct {
+		MBGroups map[string]GroupCCDPlan
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		want   string
+	}{
+		{
+			name: "happy path",
+			fields: fields{
+				MBGroups: map[string]GroupCCDPlan{
+					"dedicated": {
+						3: 3_333,
+						5: 5_555,
+					},
+					"shared-50": {
+						2: 20_000,
+						3: 30_000,
+					},
+				},
+			},
+			want: "[mb-plan]\n\t[dedicated]\t3:3333,5:5555,\n\t[shared-50]\t2:20000,3:30000,\n",
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			m := &MBPlan{
+				MBGroups: tt.fields.MBGroups,
+			}
+			if got := fmt.Sprintf("%v", m); got != tt.want {
+				t.Errorf("String() = %v, want %v", got, tt.want)
+			}
+			t.Logf("plan=%s", m)
 		})
 	}
 }

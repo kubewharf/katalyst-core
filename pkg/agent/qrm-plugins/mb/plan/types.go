@@ -33,7 +33,35 @@ type MBPlan struct {
 	MBGroups map[string]GroupCCDPlan
 }
 
-func getSortedKeys(c GroupCCDPlan) []int {
+func (m *MBPlan) String() string {
+	if m == nil || len(m.MBGroups) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.Grow(2048) // expecting most plans close to 2KB
+	b.WriteString("[mb-plan]\n")
+	for _, group := range getSortedGroups(m.MBGroups) {
+		b.WriteString(fmt.Sprintf("\t[%s]\t", group))
+		ccdMBs := m.MBGroups[group]
+		for _, ccd := range getSortedCCDs(ccdMBs) {
+			b.WriteString(fmt.Sprintf("%d:%d,", ccd, ccdMBs[ccd]))
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func getSortedGroups(data map[string]GroupCCDPlan) []string {
+	groups := make([]string, 0, len(data))
+	for k := range data {
+		groups = append(groups, k)
+	}
+	sort.Strings(groups)
+	return groups
+}
+
+func getSortedCCDs(c GroupCCDPlan) []int {
 	keys := make([]int, 0, len(c))
 	for k := range c {
 		keys = append(keys, k)
@@ -47,8 +75,7 @@ func (c GroupCCDPlan) ToSchemataInstruction() []byte {
 	var sb strings.Builder
 	sb.WriteString("MB:")
 
-	ccds := getSortedKeys(c)
-	for _, ccd := range ccds {
+	for _, ccd := range getSortedCCDs(c) {
 		mb := c[ccd]
 		v := (mb + mbUnitAMD - 1) / mbUnitAMD
 		sb.WriteString(fmt.Sprintf("%d=%d;", ccd, v))
