@@ -27,6 +27,7 @@ const (
 // irq tuning error reasons
 const (
 	NewIrqTuningControllerFailed                            string = "NewIrqTuningControllerFailed"
+	InvalidDynamicConfig                                    string = "InvalidDynamicConfig"
 	SyncNicFailed                                           string = "SyncNicFailed"
 	SyncContainersFailed                                    string = "SyncContainersFailed"
 	TuneIrqAffinityForAllNicsWithBalanceFairPolicyFailed    string = "TuneIrqAffinityForAllNicsWithBalanceFairPolicyFailed"
