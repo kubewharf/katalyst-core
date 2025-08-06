@@ -21,6 +21,7 @@ package evictionmanager // import "github.com/kubewharf/katalyst-core/pkg/evicti
 import (
 	"context"
 	"fmt"
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"strconv"
 	"strings"
 	"sync"
@@ -104,7 +105,8 @@ type EvictionManger struct {
 	// easy to test the code.
 	clock clocks.WithTickerAndDelayedExecution
 
-	podKiller podkiller.PodKiller
+	podKiller          podkiller.PodKiller
+	reclaimedPodKiller podkiller.PodKiller
 
 	killQueue    rule.EvictionQueue
 	killStrategy rule.EvictionStrategy
@@ -171,6 +173,19 @@ func NewEvictionManager(genericClient *client.GenericClientSet, recorder events.
 
 	podKiller := podkiller.NewAsynchronizedPodKiller(killer, metaServer.PodFetcher, genericClient.KubeClient)
 
+	var reclaimedKiller podkiller.Killer
+	if initFunc, ok := podKillerInitializers[consts.KillerNameEvictionKiller]; ok {
+		var initErr error
+		reclaimedKiller, initErr = initFunc(conf, genericClient.KubeClient, recorder, emitter)
+		if initErr != nil {
+			return nil, fmt.Errorf("failed to init reclaimed pod killer %v: %v", conf.PodKiller, initErr)
+		}
+	} else {
+		return nil, fmt.Errorf("unsupported reclaimed pod killer %v", consts.KillerNameEvictionKiller)
+	}
+
+	reclaimedPodKiller := podkiller.NewAsynchronizedPodKiller(reclaimedKiller, metaServer.PodFetcher, genericClient.KubeClient)
+
 	cnrTaintReporter, err := control.NewGenericReporterPlugin(cnrTaintReporterPluginName, conf, emitter)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize cnr taint reporter plugin: %v", err)
@@ -183,6 +198,7 @@ func NewEvictionManager(genericClient *client.GenericClientSet, recorder events.
 		metaGetter:                metaServer,
 		emitter:                   emitter,
 		podKiller:                 podKiller,
+		reclaimedPodKiller:        reclaimedPodKiller,
 		cnrTaintReporter:          cnrTaintReporter,
 		endpoints:                 make(map[string]endpointpkg.Endpoint),
 		conf:                      conf,
@@ -235,6 +251,7 @@ func (m *EvictionManger) Run(ctx context.Context) {
 	general.RegisterHeartbeatCheck(reportTaintHealthCheckName, reportTaintToleration,
 		general.HealthzCheckStateNotReady, reportTaintToleration)
 	m.podKiller.Start(ctx)
+	m.reclaimedPodKiller.Start(ctx)
 	for _, endpoint := range m.endpoints {
 		endpoint.Start()
 	}
@@ -526,7 +543,38 @@ func (m *EvictionManger) isVersionCompatibleWithPlugin(versions []string) bool {
 func (m *EvictionManger) killWithRules(rpList rule.RuledEvictPodList) error {
 	// withdraw previous candidate killing pods by set override params as true
 	m.killQueue.Add(rpList, true)
-	return m.podKiller.EvictPods(m.killQueue.Pop())
+
+	newRPList := m.killQueue.Pop()
+	var reclaimedRPList rule.RuledEvictPodList
+	var nonReclaimedRPList rule.RuledEvictPodList
+
+	for _, rp := range newRPList {
+		if rp == nil || rp.Pod == nil {
+			continue
+		}
+		qosLevel, _ := m.conf.GetQoSLevel(rp.Pod, map[string]string{})
+		if qosLevel == apiconsts.PodAnnotationQoSLevelReclaimedCores {
+			reclaimedRPList = append(reclaimedRPList, rp)
+		} else {
+			nonReclaimedRPList = append(nonReclaimedRPList, rp)
+		}
+	}
+
+	var errList []error
+	if len(reclaimedRPList) > 0 {
+		err1 := m.reclaimedPodKiller.EvictPods(reclaimedRPList)
+		if err1 != nil {
+			errList = append(errList, err1)
+		}
+	}
+	if len(nonReclaimedRPList) > 0 {
+		err2 := m.podKiller.EvictPods(nonReclaimedRPList)
+		if err2 != nil {
+			errList = append(errList, err2)
+		}
+	}
+
+	return errors.NewAggregate(errList)
 }
 
 // getEvictPodFromCandidates returns the most critical pod to be evicted
