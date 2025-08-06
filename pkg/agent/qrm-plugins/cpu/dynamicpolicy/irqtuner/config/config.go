@@ -15,6 +15,13 @@ const (
 	IrqTuningAuto              IrqTuningPolicy = "auto"
 )
 
+const (
+	IrqTuingIntervalMin        = 3
+	EnableRPSCPUVSNicsQueueMin = 1
+	ProcessNiceMin             = -20
+	ProcessNiceMax             = 19
+)
+
 type NicAffinitySocketsPolicy string
 
 const (
@@ -275,10 +282,6 @@ func (c *IrqTuningConfig) String() string {
 	return msg
 }
 
-func (c *IrqTuningConfig) Validate() error {
-	return nil
-}
-
 func (c *IrqTuningConfig) Equal(other *IrqTuningConfig) bool {
 	if other == nil {
 		return false
@@ -344,6 +347,211 @@ func (c *IrqTuningConfig) Equal(other *IrqTuningConfig) bool {
 	return true
 }
 
+func ValidateIrqTuningDynamicConfig(dynamicConf *dynconfig.Configuration) error {
+	if dynamicConf == nil {
+		return fmt.Errorf("dynamic config is empty")
+	}
+
+	conf := dynamicConf.IRQTuningConfiguration
+	if conf == nil {
+		return nil
+	}
+
+	if conf.TuningInterval < IrqTuingIntervalMin {
+		return fmt.Errorf("invalid TuningInterval: %d, less-than IrqTuingMinInterval: %d", conf.TuningInterval, IrqTuingIntervalMin)
+	}
+
+	if conf.EnableRPSCPUVSNicsQueue < EnableRPSCPUVSNicsQueueMin && conf.EnableRPSCPUVSNicsQueue != 0 {
+		return fmt.Errorf("invalid EnableRPSCPUVSNicsQueue: %f, less-than EnableRPSCPUVSNicsQueueMin %d", conf.EnableRPSCPUVSNicsQueue, EnableRPSCPUVSNicsQueueMin)
+	}
+
+	if conf.KsoftirqdNice < ProcessNiceMin || conf.KsoftirqdNice > ProcessNiceMax {
+		return fmt.Errorf("invalid KsoftirqdNice: %d", conf.KsoftirqdNice)
+	}
+
+	if conf.CoresExpectedCPUUtil <= 0 || conf.CoresExpectedCPUUtil >= 100 {
+		return fmt.Errorf("invalid CoresExpectedCPUUtil: %d", conf.CoresExpectedCPUUtil)
+	}
+
+	if conf.ThrouputClassSwitchConf != nil {
+		if conf.ThrouputClassSwitchConf.LowThresholdConfig != nil {
+			if conf.ThrouputClassSwitchConf.LowThresholdConfig.SuccessiveCount <= 0 {
+				return fmt.Errorf("invalid ThrouputClassSwitchConf.LowThresholdConfig.SuccessiveCount: %d", conf.ThrouputClassSwitchConf.LowThresholdConfig.SuccessiveCount)
+			}
+		}
+
+		if conf.ThrouputClassSwitchConf.NormalThresholdConfig != nil {
+			if conf.ThrouputClassSwitchConf.NormalThresholdConfig.SuccessiveCount <= 0 {
+				return fmt.Errorf("invalid NormalThresholdConfig.LowThresholdConfig.SuccessiveCount: %d", conf.ThrouputClassSwitchConf.NormalThresholdConfig.SuccessiveCount)
+			}
+		}
+
+		if conf.ThrouputClassSwitchConf.LowThresholdConfig != nil &&
+			conf.ThrouputClassSwitchConf.NormalThresholdConfig != nil {
+			if conf.ThrouputClassSwitchConf.LowThresholdConfig.RxPPSThresh >= conf.ThrouputClassSwitchConf.NormalThresholdConfig.RxPPSThresh {
+				return fmt.Errorf("ThrouputClassSwitchConf.LowThresholdConfig.RxPPSThresh: %d greater-equal ThrouputClassSwitchConf.NormalThresholdConfig.RxPPSThresh: %d",
+					conf.ThrouputClassSwitchConf.LowThresholdConfig.RxPPSThresh, conf.ThrouputClassSwitchConf.NormalThresholdConfig.RxPPSThresh)
+			}
+		}
+	}
+
+	if conf.LoadBalanceConf != nil {
+		lbConf := conf.LoadBalanceConf
+
+		if lbConf.SuccessiveTuningInterval < 1 {
+			return fmt.Errorf("invalid LoadBalanceConf.SuccessiveTuningInterval: %d", lbConf.SuccessiveTuningInterval)
+		}
+
+		if lbConf.PingPongIntervalThresh < 1 {
+			return fmt.Errorf("invalid LoadBalanceConf.PingPongIntervalThresh: %d", lbConf.PingPongIntervalThresh)
+		}
+
+		if lbConf.PingPongCountThresh < 1 {
+			return fmt.Errorf("invalid LoadBalanceConf.PingPongCountThresh: %d", lbConf.PingPongCountThresh)
+		}
+
+		if lbConf.IRQsTunedNumMaxEachTime < 1 {
+			return fmt.Errorf("invalid LoadBalanceConf.IRQsTunedNumMaxEachTime: %d", lbConf.IRQsTunedNumMaxEachTime)
+		}
+
+		if lbConf.IRQCoresTunedNumMaxEachTime < 1 {
+			return fmt.Errorf("invalid LoadBalanceConf.IRQsTunedNumMaxEachTime: %d", lbConf.IRQCoresTunedNumMaxEachTime)
+		}
+
+		if lbConf.Thresholds != nil {
+			if lbConf.Thresholds.CPUUtilThresh <= 0 || lbConf.Thresholds.CPUUtilThresh >= 100 {
+				return fmt.Errorf("invalid LoadBalanceConf.Thresholds.CPUUtilThresh: %d", lbConf.Thresholds.CPUUtilThresh)
+			}
+
+			if lbConf.Thresholds.CPUUtilThresh <= conf.CoresExpectedCPUUtil {
+				return fmt.Errorf("LoadBalanceConf.Thresholds.CPUUtilThresh %d less-equal CoresExpectedCPUUtil: %d",
+					lbConf.Thresholds.CPUUtilThresh, conf.CoresExpectedCPUUtil)
+			}
+
+			if conf.CoresAdjustConf != nil && conf.CoresAdjustConf.IncConf != nil && conf.CoresAdjustConf.IncConf.Thresholds != nil {
+				// LoadBalanceConf.Thresholds.CPUUtilThresh (threshold of balancing irqs) should greater than
+				// CoresAdjustConf.IncConf.Thresholds.AvgCPUUtil (threshthreshold of increasing irq cores),
+				// it's meaningless to let LoadBalanceConf.Thresholds.CPUUtilThresh less-equal CoresAdjustConf.IncConf.Thresholds.AvgCPUUtilThresh.
+				if lbConf.Thresholds.CPUUtilThresh <= conf.CoresAdjustConf.IncConf.Thresholds.AvgCPUUtilThresh {
+					return fmt.Errorf("LoadBalanceConf.Thresholds.CPUUtilThresh %d less-equal CoresAdjustConf.IncConf.Thresholds.AvgCPUUtilThresh %d",
+						lbConf.Thresholds.CPUUtilThresh, conf.CoresAdjustConf.IncConf.Thresholds.AvgCPUUtilThresh)
+				}
+			}
+
+			if lbConf.Thresholds.CPUUtilGapThresh <= 0 || lbConf.Thresholds.CPUUtilGapThresh >= 100 {
+				return fmt.Errorf("invalid LoadBalanceConf.Thresholds.CPUUtilGapThresh: %d", lbConf.Thresholds.CPUUtilGapThresh)
+			}
+		}
+	}
+
+	if conf.CoresAdjustConf != nil {
+		adjConf := conf.CoresAdjustConf
+
+		if adjConf.PercentMin <= 0 || adjConf.PercentMin >= 100 {
+			return fmt.Errorf("invalid CoresAdjustConf.PercentMin: %d", adjConf.PercentMin)
+		}
+
+		if adjConf.PercentMax <= 0 || adjConf.PercentMax >= 100 {
+			return fmt.Errorf("invalid CoresAdjustConf.PercentMax: %d", adjConf.PercentMax)
+		}
+
+		if adjConf.PercentMin >= adjConf.PercentMax {
+			return fmt.Errorf("CoresAdjustConf.PercentMin %d greather-equal CoresAdjustConf.PercentMax: %d", adjConf.PercentMin, adjConf.PercentMax)
+		}
+
+		if adjConf.IncConf != nil {
+			incConf := adjConf.IncConf
+
+			if incConf.SuccessiveIncInterval < 1 {
+				return fmt.Errorf("invalid CoresAdjustConf.IncConf.SuccessiveIncInterval: %d", incConf.SuccessiveIncInterval)
+			}
+
+			if incConf.FullThresh <= 0 || incConf.FullThresh > 100 {
+				return fmt.Errorf("CoresAdjustConf.IncConf.FullThresh: %d", incConf.FullThresh)
+			}
+
+			if incConf.Thresholds != nil {
+				if incConf.FullThresh <= incConf.Thresholds.AvgCPUUtilThresh {
+					return fmt.Errorf("CoresAdjustConf.IncConf.FullThresh %d less-equal CoresAdjustConf.IncConf.Thresholds.AvgCPUUtilThresh %d",
+						incConf.FullThresh, incConf.Thresholds.AvgCPUUtilThresh)
+				}
+
+				if incConf.Thresholds.AvgCPUUtilThresh <= 0 || incConf.Thresholds.AvgCPUUtilThresh >= 100 {
+					return fmt.Errorf("invalid CoresAdjustConf.IncConf.Thresholds.AvgCPUUtilThresh %d", incConf.Thresholds.AvgCPUUtilThresh)
+				}
+
+				if incConf.Thresholds.AvgCPUUtilThresh <= conf.CoresExpectedCPUUtil {
+					return fmt.Errorf("CoresAdjustConf.IncConf.Thresholds.AvgCPUUtilThresh %d less-equal CoresExpectedCPUUtil %d",
+						incConf.Thresholds.AvgCPUUtilThresh, conf.CoresExpectedCPUUtil)
+				}
+			}
+		}
+
+		if adjConf.DecConf != nil {
+			decConf := adjConf.DecConf
+
+			if decConf.SuccessiveDecInterval < 1 {
+				return fmt.Errorf("invalid CoresAdjustConf.DecConf.SuccessiveDecInterval: %d", decConf.SuccessiveDecInterval)
+			}
+
+			if decConf.PingPongAdjustInterval < 1 {
+				return fmt.Errorf("invalid CoresAdjustConf.DecConf.PingPongAdjustInterval: %d", decConf.PingPongAdjustInterval)
+			}
+
+			if decConf.SinceLastBalanceInterval < 1 {
+				return fmt.Errorf("invalid CoresAdjustConf.DecConf.SinceLastBalanceInterval: %d", decConf.SinceLastBalanceInterval)
+			}
+
+			if decConf.DecCoresMaxEachTime < 1 {
+				return fmt.Errorf("invalid CoresAdjustConf.DecConf.DecCoresMaxEachTime: %d", decConf.DecCoresMaxEachTime)
+			}
+
+			if decConf.Thresholds != nil {
+				if decConf.Thresholds.AvgCPUUtilThresh <= 0 || decConf.Thresholds.AvgCPUUtilThresh >= 100 {
+					return fmt.Errorf("invalid CoresAdjustConf.DecConf.Thresholds.AvgCPUUtilThresh: %d", decConf.Thresholds.AvgCPUUtilThresh)
+				}
+
+				if decConf.Thresholds.AvgCPUUtilThresh >= conf.CoresExpectedCPUUtil {
+					return fmt.Errorf("CoresAdjustConf.DecConf.Thresholds.AvgCPUUtilThresh %d greater-equal CoresExpectedCPUUtil %d",
+						decConf.Thresholds.AvgCPUUtilThresh, conf.CoresExpectedCPUUtil)
+				}
+			}
+		}
+	}
+
+	if conf.CoresExclusionConf != nil {
+		exclConf := conf.CoresExclusionConf
+
+		if exclConf.SuccessiveSwitchInterval < 1 {
+			return fmt.Errorf("invalid CoresExclusionConf.SuccessiveSwitchInterval: %f", exclConf.SuccessiveSwitchInterval)
+		}
+
+		if exclConf.Thresholds != nil {
+			if exclConf.Thresholds.EnableThresholds != nil {
+				if exclConf.Thresholds.EnableThresholds.SuccessiveCount <= 0 {
+					return fmt.Errorf("invalid CoresExclusionConf.Thresholds.EnableThresholds.SuccessiveCount %d", exclConf.Thresholds.EnableThresholds.SuccessiveCount)
+				}
+			}
+
+			if exclConf.Thresholds.DisableThresholds != nil {
+				if exclConf.Thresholds.DisableThresholds.SuccessiveCount <= 0 {
+					return fmt.Errorf("invalid CoresExclusionConf.Thresholds.DisableThresholds.SuccessiveCount %d", exclConf.Thresholds.DisableThresholds.SuccessiveCount)
+				}
+			}
+
+			if exclConf.Thresholds.EnableThresholds != nil &&
+				exclConf.Thresholds.DisableThresholds != nil {
+				if exclConf.Thresholds.DisableThresholds.RxPPSThresh >= exclConf.Thresholds.EnableThresholds.RxPPSThresh {
+					return fmt.Errorf("CoresExclusionConf.Thresholds.DisableThresholds.RxPPSThresh: %d greater-equal CoresExclusionConf.Thresholds.EnableThresholds.RxPPSThresh: %d",
+						exclConf.Thresholds.DisableThresholds.RxPPSThresh, exclConf.Thresholds.EnableThresholds.RxPPSThresh)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
 func ConvertDynamicConfigToIrqTuningConfig(dynamicConf *dynconfig.Configuration) *IrqTuningConfig {
 	conf := NewConfiguration()
 
@@ -381,6 +589,20 @@ func ConvertDynamicConfigToIrqTuningConfig(dynamicConf *dynconfig.Configuration)
 		}
 
 		conf.IrqCoresExpectedCpuUtil = dynamicConf.IRQTuningConfiguration.CoresExpectedCPUUtil
+
+		if dynamicConf.IRQTuningConfiguration.ThrouputClassSwitchConf != nil {
+			throughputClassSwitchConf := dynamicConf.IRQTuningConfiguration.ThrouputClassSwitchConf
+			if throughputClassSwitchConf.LowThresholdConfig != nil {
+				conf.ThrouputClassSwitchConf.LowThroughputThresholds.RxPPSThresh = throughputClassSwitchConf.LowThresholdConfig.RxPPSThresh
+				conf.ThrouputClassSwitchConf.LowThroughputThresholds.SuccessiveCount = throughputClassSwitchConf.LowThresholdConfig.SuccessiveCount
+			}
+
+			if throughputClassSwitchConf.NormalThresholdConfig != nil {
+				conf.ThrouputClassSwitchConf.NormalThroughputThresholds.RxPPSThresh = throughputClassSwitchConf.NormalThresholdConfig.RxPPSThresh
+				conf.ThrouputClassSwitchConf.NormalThroughputThresholds.SuccessiveCount = throughputClassSwitchConf.NormalThresholdConfig.SuccessiveCount
+			}
+		}
+
 		conf.ReniceIrqCoresKsoftirqd = dynamicConf.IRQTuningConfiguration.ReniceKsoftirqd
 		conf.IrqCoresKsoftirqdNice = dynamicConf.IRQTuningConfiguration.KsoftirqdNice
 

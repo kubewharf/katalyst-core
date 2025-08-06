@@ -5544,15 +5544,21 @@ func (ic *IrqTuningController) disableIrqTuning() {
 
 func (ic *IrqTuningController) syncDynamicConfig() {
 	dynConf := ic.agentConf.DynamicAgentConfiguration.GetDynamicConfiguration()
-	if dynConf != nil {
-		conf := config.ConvertDynamicConfigToIrqTuningConfig(dynConf)
-		if !ic.conf.Equal(conf) {
-			general.Infof("%s new config: %s", IrqTuningLogPrefix, conf)
+	if err := config.ValidateIrqTuningDynamicConfig(dynConf); err != nil {
+		if ic.conf == nil {
+			ic.conf = config.ConvertDynamicConfigToIrqTuningConfig(nil)
 		}
-		ic.conf = conf
-	} else {
-		general.Errorf("%s GetDynamicConfiguration return nil", IrqTuningLogPrefix)
+
+		ic.emitErrMetric(irqtuner.InvalidDynamicConfig, irqtuner.IrqTuningError)
+		general.Errorf("%s ValidateIrqTuningDynamicConfig, err %s", IrqTuningLogPrefix, err)
+		return
 	}
+
+	conf := config.ConvertDynamicConfigToIrqTuningConfig(dynConf)
+	if !ic.conf.Equal(conf) {
+		general.Infof("%s new config: %s", IrqTuningLogPrefix, conf)
+	}
+	ic.conf = conf
 }
 
 func (ic *IrqTuningController) periodicTuning() {
@@ -5610,7 +5616,7 @@ func (ic *IrqTuningController) Run(stopCh <-chan struct{}) {
 			oldConf := ic.conf
 			ic.syncDynamicConfig()
 
-			if ic.conf.Interval != oldConf.Interval {
+			if oldConf != nil && ic.conf.Interval != oldConf.Interval {
 				close(localStopCh)
 				return
 			}
