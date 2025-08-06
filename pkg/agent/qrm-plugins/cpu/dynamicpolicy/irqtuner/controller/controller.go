@@ -5545,7 +5545,11 @@ func (ic *IrqTuningController) disableIrqTuning() {
 func (ic *IrqTuningController) syncDynamicConfig() {
 	dynConf := ic.agentConf.DynamicAgentConfiguration.GetDynamicConfiguration()
 	if dynConf != nil {
-		ic.conf = config.ConvertDynamicConfigToIrqTuningConfig(dynConf)
+		conf := config.ConvertDynamicConfigToIrqTuningConfig(dynConf)
+		if !ic.conf.Equal(conf) {
+			general.Infof("%s new config: %s", IrqTuningLogPrefix, conf)
+		}
+		ic.conf = conf
 	} else {
 		general.Errorf("%s GetDynamicConfiguration return nil", IrqTuningLogPrefix)
 	}

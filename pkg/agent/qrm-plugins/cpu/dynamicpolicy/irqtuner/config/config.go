@@ -279,6 +279,71 @@ func (c *IrqTuningConfig) Validate() error {
 	return nil
 }
 
+func (c *IrqTuningConfig) Equal(other *IrqTuningConfig) bool {
+	if other == nil {
+		return false
+	}
+
+	if c.Interval != other.Interval ||
+		c.EnableIrqTuning != other.EnableIrqTuning ||
+		c.IrqTuningPolicy != other.IrqTuningPolicy ||
+		c.EnableRPS != other.EnableRPS ||
+		c.EnableRPSCPUVSNicsQueue != other.EnableRPSCPUVSNicsQueue ||
+		c.NicAffinitySocketsPolicy != other.NicAffinitySocketsPolicy ||
+		c.IrqCoresExpectedCpuUtil != other.IrqCoresExpectedCpuUtil {
+		return false
+	}
+
+	if c.ThrouputClassSwitchConf.LowThroughputThresholds.RxPPSThresh != other.ThrouputClassSwitchConf.LowThroughputThresholds.RxPPSThresh ||
+		c.ThrouputClassSwitchConf.LowThroughputThresholds.SuccessiveCount != other.ThrouputClassSwitchConf.LowThroughputThresholds.SuccessiveCount ||
+		c.ThrouputClassSwitchConf.NormalThroughputThresholds.RxPPSThresh != other.ThrouputClassSwitchConf.NormalThroughputThresholds.RxPPSThresh ||
+		c.ThrouputClassSwitchConf.NormalThroughputThresholds.SuccessiveCount != other.ThrouputClassSwitchConf.NormalThroughputThresholds.SuccessiveCount {
+		return false
+	}
+
+	if c.ReniceIrqCoresKsoftirqd != other.ReniceIrqCoresKsoftirqd ||
+		c.IrqCoresKsoftirqdNice != other.IrqCoresKsoftirqdNice {
+		return false
+	}
+
+	if c.IrqCoreNetOverLoadThresh.IrqCoreSoftNetTimeSqueezeRatio != other.IrqCoreNetOverLoadThresh.IrqCoreSoftNetTimeSqueezeRatio {
+		return false
+	}
+
+	if c.IrqLoadBalanceConf.SuccessiveTuningInterval != other.IrqLoadBalanceConf.SuccessiveTuningInterval ||
+		c.IrqLoadBalanceConf.Thresholds.IrqCoreCpuUtilThresh != other.IrqLoadBalanceConf.Thresholds.IrqCoreCpuUtilThresh ||
+		c.IrqLoadBalanceConf.Thresholds.IrqCoreCpuUtilGapThresh != other.IrqLoadBalanceConf.Thresholds.IrqCoreCpuUtilGapThresh ||
+		c.IrqLoadBalanceConf.PingPongIntervalThresh != other.IrqLoadBalanceConf.PingPongIntervalThresh ||
+		c.IrqLoadBalanceConf.PingPongCountThresh != other.IrqLoadBalanceConf.PingPongCountThresh ||
+		c.IrqLoadBalanceConf.IrqsTunedNumMaxEachTime != other.IrqLoadBalanceConf.IrqsTunedNumMaxEachTime ||
+		c.IrqLoadBalanceConf.IrqCoresTunedNumMaxEachTime != other.IrqLoadBalanceConf.IrqCoresTunedNumMaxEachTime {
+		return false
+	}
+
+	if c.IrqCoresAdjustConf.IrqCoresPercentMin != other.IrqCoresAdjustConf.IrqCoresPercentMin ||
+		c.IrqCoresAdjustConf.IrqCoresPercentMax != other.IrqCoresAdjustConf.IrqCoresPercentMax ||
+		c.IrqCoresAdjustConf.IrqCoresIncConf.SuccessiveIncInterval != other.IrqCoresAdjustConf.IrqCoresIncConf.SuccessiveIncInterval ||
+		c.IrqCoresAdjustConf.IrqCoresIncConf.IrqCoresCpuFullThresh != other.IrqCoresAdjustConf.IrqCoresIncConf.IrqCoresCpuFullThresh ||
+		c.IrqCoresAdjustConf.IrqCoresIncConf.Thresholds.IrqCoresAvgCpuUtilThresh != other.IrqCoresAdjustConf.IrqCoresIncConf.Thresholds.IrqCoresAvgCpuUtilThresh ||
+		c.IrqCoresAdjustConf.IrqCoresDecConf.SuccessiveDecInterval != other.IrqCoresAdjustConf.IrqCoresDecConf.SuccessiveDecInterval ||
+		c.IrqCoresAdjustConf.IrqCoresDecConf.PingPongAdjustInterval != other.IrqCoresAdjustConf.IrqCoresDecConf.PingPongAdjustInterval ||
+		c.IrqCoresAdjustConf.IrqCoresDecConf.SinceLastBalanceInterval != other.IrqCoresAdjustConf.IrqCoresDecConf.SinceLastBalanceInterval ||
+		c.IrqCoresAdjustConf.IrqCoresDecConf.Thresholds.IrqCoresAvgCpuUtilThresh != other.IrqCoresAdjustConf.IrqCoresDecConf.Thresholds.IrqCoresAvgCpuUtilThresh ||
+		c.IrqCoresAdjustConf.IrqCoresDecConf.DecCoresMaxEachTime != other.IrqCoresAdjustConf.IrqCoresDecConf.DecCoresMaxEachTime {
+		return false
+	}
+
+	if c.IrqCoresExclusionConf.Thresholds.EnableThresholds.RxPPSThresh != other.IrqCoresExclusionConf.Thresholds.EnableThresholds.RxPPSThresh ||
+		c.IrqCoresExclusionConf.Thresholds.EnableThresholds.SuccessiveCount != other.IrqCoresExclusionConf.Thresholds.EnableThresholds.SuccessiveCount ||
+		c.IrqCoresExclusionConf.Thresholds.DisableThresholds.RxPPSThresh != other.IrqCoresExclusionConf.Thresholds.DisableThresholds.RxPPSThresh ||
+		c.IrqCoresExclusionConf.Thresholds.DisableThresholds.SuccessiveCount != other.IrqCoresExclusionConf.Thresholds.DisableThresholds.SuccessiveCount ||
+		c.IrqCoresExclusionConf.SuccessiveSwitchInterval != other.IrqCoresExclusionConf.SuccessiveSwitchInterval {
+		return false
+	}
+
+	return true
+}
+
 func ConvertDynamicConfigToIrqTuningConfig(dynamicConf *dynconfig.Configuration) *IrqTuningConfig {
 	conf := NewConfiguration()
 
