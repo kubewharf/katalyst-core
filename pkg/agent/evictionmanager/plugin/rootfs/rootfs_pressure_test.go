@@ -79,7 +79,7 @@ func TestPodRootfsPressureEvictionPlugin_ThresholdMetNoMetricDataNoConf(t *testi
 	fakeFetcher := metric.NewFakeMetricsFetcher(emitter).(*metric.FakeMetricsFetcher)
 	tc := &testConf{}
 	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
-	res, err := rootfsPlugin.ThresholdMet(context.TODO())
+	res, err := rootfsPlugin.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 	assert.NoError(t, err)
 	assert.Equal(t, pluginapi.ThresholdMetType_NOT_MET, res.MetType)
 }
@@ -93,7 +93,7 @@ func TestPodRootfsPressureEvictionPlugin_ThresholdMetNoMetricData(t *testing.T) 
 		minimumImageFsInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.9},
 	}
 	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
-	res, err := rootfsPlugin.ThresholdMet(context.TODO())
+	res, err := rootfsPlugin.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 	assert.NoError(t, err)
 	assert.Equal(t, pluginapi.ThresholdMetType_NOT_MET, res.MetType)
 }
@@ -117,7 +117,7 @@ func TestPodRootfsPressureEvictionPlugin_ThresholdMetNotMet(t *testing.T) {
 	}
 	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 
-	res, err := rootfsPlugin.ThresholdMet(context.TODO())
+	res, err := rootfsPlugin.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 	assert.NoError(t, err)
 	assert.Equal(t, pluginapi.ThresholdMetType_NOT_MET, res.MetType)
 
@@ -126,7 +126,7 @@ func TestPodRootfsPressureEvictionPlugin_ThresholdMetNotMet(t *testing.T) {
 		minimumImageFsInodesFreeThreshold: &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(1000, resource.DecimalSI)},
 	}
 	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
-	res, err = rootfsPlugin.ThresholdMet(context.TODO())
+	res, err = rootfsPlugin.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 	assert.NoError(t, err)
 	assert.Equal(t, pluginapi.ThresholdMetType_NOT_MET, res.MetType)
 }
@@ -150,7 +150,7 @@ func TestPodRootfsPressureEvictionPlugin_ThresholdMetUsedMet(t *testing.T) {
 	}
 	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 
-	res, err := rootfsPlugin.ThresholdMet(context.TODO())
+	res, err := rootfsPlugin.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 	assert.NoError(t, err)
 	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
 
@@ -159,7 +159,7 @@ func TestPodRootfsPressureEvictionPlugin_ThresholdMetUsedMet(t *testing.T) {
 		minimumImageFsInodesFreeThreshold: &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(1000, resource.DecimalSI)},
 	}
 	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
-	res, err = rootfsPlugin.ThresholdMet(context.TODO())
+	res, err = rootfsPlugin.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 	assert.NoError(t, err)
 	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
 }
@@ -183,7 +183,7 @@ func TestPodRootfsPressureEvictionPlugin_ThresholdMetInodesMet(t *testing.T) {
 	}
 	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 
-	res, err := rootfsPlugin.ThresholdMet(context.TODO())
+	res, err := rootfsPlugin.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 	assert.NoError(t, err)
 	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
 
@@ -192,7 +192,7 @@ func TestPodRootfsPressureEvictionPlugin_ThresholdMetInodesMet(t *testing.T) {
 		minimumImageFsInodesFreeThreshold: &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(3000, resource.DecimalSI)},
 	}
 	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
-	res, err = rootfsPlugin.ThresholdMet(context.TODO())
+	res, err = rootfsPlugin.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 	assert.NoError(t, err)
 	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
 }
@@ -216,7 +216,7 @@ func TestPodRootfsPressureEvictionPlugin_ThresholdMet(t *testing.T) {
 	}
 	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 
-	res, err := rootfsPlugin.ThresholdMet(context.TODO())
+	res, err := rootfsPlugin.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 	assert.NoError(t, err)
 	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
 
@@ -225,7 +225,7 @@ func TestPodRootfsPressureEvictionPlugin_ThresholdMet(t *testing.T) {
 		minimumImageFsInodesFreeThreshold: &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(3000, resource.DecimalSI)},
 	}
 	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
-	res, err = rootfsPlugin.ThresholdMet(context.TODO())
+	res, err = rootfsPlugin.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 	assert.NoError(t, err)
 	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
 }
@@ -251,7 +251,7 @@ func TestPodRootfsPressureEvictionPlugin_ThresholdMetMetricDataExpire(t *testing
 	}
 	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 
-	res, err := rootfsPlugin.ThresholdMet(context.TODO())
+	res, err := rootfsPlugin.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 	assert.NoError(t, err)
 	assert.Equal(t, pluginapi.ThresholdMetType_NOT_MET, res.MetType)
 
@@ -260,7 +260,7 @@ func TestPodRootfsPressureEvictionPlugin_ThresholdMetMetricDataExpire(t *testing
 		minimumImageFsInodesFreeThreshold: &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(7000, resource.DecimalSI)},
 	}
 	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
-	res, err = rootfsPlugin.ThresholdMet(context.TODO())
+	res, err = rootfsPlugin.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 	assert.NoError(t, err)
 	assert.Equal(t, pluginapi.ThresholdMetType_NOT_MET, res.MetType)
 }
@@ -312,7 +312,7 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsNotMet(t *testing.T) 
 	}
 	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 
-	res, err := rootfsPlugin.ThresholdMet(context.TODO())
+	res, err := rootfsPlugin.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 	assert.NoError(t, err)
 	assert.Equal(t, pluginapi.ThresholdMetType_NOT_MET, res.MetType)
 
@@ -346,7 +346,7 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsMet(t *testing.T) {
 	}
 	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 
-	res, err := rootfsPlugin.ThresholdMet(context.TODO())
+	res, err := rootfsPlugin.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 	assert.NoError(t, err)
 	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
 
@@ -388,7 +388,7 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsUsedMet(t *testing.T)
 	}
 	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 
-	res, err := rootfsPlugin.ThresholdMet(context.TODO())
+	res, err := rootfsPlugin.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 	assert.NoError(t, err)
 	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
 
@@ -430,7 +430,7 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsInodesMet(t *testing.
 	}
 	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 
-	res, err := rootfsPlugin.ThresholdMet(context.TODO())
+	res, err := rootfsPlugin.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 	assert.NoError(t, err)
 	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
 
@@ -473,7 +473,7 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsUsedMetProtection(t *
 	}
 	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 
-	res, err := rootfsPlugin.ThresholdMet(context.TODO())
+	res, err := rootfsPlugin.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 	assert.NoError(t, err)
 	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
 
@@ -502,7 +502,7 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsUsedMetProtection(t *
 		podMinimumUsedThreshold:           &evictionapi.ThresholdValue{Percentage: 0.1},
 	}
 	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
-	res, err = rootfsPlugin.ThresholdMet(context.TODO())
+	res, err = rootfsPlugin.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 	assert.NoError(t, err)
 	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
 
@@ -537,7 +537,7 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsUsedMetProtection(t *
 		minimumImageFsInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.1},
 	}
 	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
-	res, err = rootfsPlugin.ThresholdMet(context.TODO())
+	res, err = rootfsPlugin.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 	assert.NoError(t, err)
 	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
 
@@ -579,7 +579,7 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsInodesMetProtection(t
 		podMinimumInodesUsedThreshold:     &evictionapi.ThresholdValue{Quantity: resource.NewQuantity(900, resource.DecimalSI)},
 	}
 	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
-	res, err := rootfsPlugin.ThresholdMet(context.TODO())
+	res, err := rootfsPlugin.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 	assert.NoError(t, err)
 	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
 
@@ -607,7 +607,7 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsInodesMetProtection(t
 		podMinimumInodesUsedThreshold:     &evictionapi.ThresholdValue{Percentage: 0.1},
 	}
 	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
-	res, err = rootfsPlugin.ThresholdMet(context.TODO())
+	res, err = rootfsPlugin.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 	assert.NoError(t, err)
 	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
 
@@ -642,7 +642,7 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsInodesMetProtection(t
 		minimumImageFsInodesFreeThreshold: &evictionapi.ThresholdValue{Percentage: 0.3},
 	}
 	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
-	res, err = rootfsPlugin.ThresholdMet(context.TODO())
+	res, err = rootfsPlugin.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 	assert.NoError(t, err)
 	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
 
@@ -685,7 +685,7 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsMetReclaimedPriority(
 	}
 	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 
-	res, err := rootfsPlugin.ThresholdMet(context.TODO())
+	res, err := rootfsPlugin.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 	assert.NoError(t, err)
 	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
 
@@ -741,7 +741,7 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsMetReclaimedPriority(
 	}
 	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 
-	res, err = rootfsPlugin.ThresholdMet(context.TODO())
+	res, err = rootfsPlugin.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 	assert.NoError(t, err)
 	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
 
@@ -795,7 +795,7 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsMetReclaimedPriority(
 	}
 	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 
-	res, err = rootfsPlugin.ThresholdMet(context.TODO())
+	res, err = rootfsPlugin.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 	assert.NoError(t, err)
 	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
 
@@ -842,7 +842,7 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsInodesMetReclaimedPri
 	}
 	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 
-	res, err := rootfsPlugin.ThresholdMet(context.TODO())
+	res, err := rootfsPlugin.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 	assert.NoError(t, err)
 	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
 
@@ -898,7 +898,7 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsInodesMetReclaimedPri
 	}
 	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 
-	res, err = rootfsPlugin.ThresholdMet(context.TODO())
+	res, err = rootfsPlugin.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 	assert.NoError(t, err)
 	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
 
@@ -952,7 +952,7 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsInodesMetReclaimedPri
 	}
 	rootfsPlugin = createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 
-	res, err = rootfsPlugin.ThresholdMet(context.TODO())
+	res, err = rootfsPlugin.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 	assert.NoError(t, err)
 	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
 
@@ -1000,7 +1000,7 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsMetExpire(t *testing.
 	}
 	rootfsPlugin := createRootfsPressureEvictionPlugin(tc, emitter, fakeFetcher)
 
-	res, err := rootfsPlugin.ThresholdMet(context.TODO())
+	res, err := rootfsPlugin.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 	assert.NoError(t, err)
 	assert.Equal(t, pluginapi.ThresholdMetType_HARD_MET, res.MetType)
 
