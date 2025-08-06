@@ -91,8 +91,8 @@ type NumaCPUPressureEviction struct {
 	enabled bool
 
 	numaOverStats []rules.NumaOverStat
-	Filterer      *rules.Filterer
-	Scorer        *rules.Scorer
+	filterer      *rules.Filterer
+	scorer        *rules.Scorer
 }
 
 func NewCPUPressureUsageEviction(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
@@ -137,9 +137,23 @@ func (p *NumaCPUPressureEviction) initFilterAndScorer() error {
 		return fmt.Errorf("failed to create scorer: %v", err)
 	}
 	general.Infof("create scorer success: %v", scorer)
-	p.Filterer = filterer
-	p.Scorer = scorer
+	p.filterer = filterer
+	p.scorer = scorer
 	return nil
+}
+
+func (p *NumaCPUPressureEviction) SetEvictionFilter(key string, filter rules.FilterFunc) {
+	p.filterer.SetFilter(key, filter)
+}
+func (p *NumaCPUPressureEviction) SetEvictionFilterParam(key string, value interface{}) {
+	p.filterer.SetFilterParam(key, value)
+}
+
+func (p *NumaCPUPressureEviction) SetEvictionScorer(key string, scorer rules.ScoreFunc) {
+	p.scorer.SetScorer(key, scorer)
+}
+func (p *NumaCPUPressureEviction) SetEvictionScorerParam(key string, value interface{}) {
+	p.scorer.SetScorerParam(key, value)
 }
 
 func (p *NumaCPUPressureEviction) Start(ctx context.Context) (err error) {
@@ -244,11 +258,11 @@ func (p *NumaCPUPressureEviction) GetTopEvictionPods(ctx context.Context, reques
 	}
 
 	activePods := request.ActivePods
-	p.Filterer.SetFilterParam(rules.OverRatioNumaFilterName, p.numaOverStats)
-	p.Scorer.SetScorerParam(rules.UsageGapScorerName, p.numaOverStats)
+	p.SetEvictionFilterParam(rules.OverRatioNumaFilterName, p.numaOverStats)
+	p.SetEvictionScorerParam(rules.UsageGapScorerName, p.numaOverStats)
 	general.Infof("activePods: %v", len(activePods))
 
-	filteredPods := p.Filterer.Filter(activePods)
+	filteredPods := p.filterer.Filter(activePods)
 
 	if len(filteredPods) == 0 {
 		general.Warningf("got empty active pods list after filter")
@@ -264,7 +278,7 @@ func (p *NumaCPUPressureEviction) GetTopEvictionPods(ctx context.Context, reques
 	candidatePods = rules.FilterCandidatePods(candidatePods, filteredPods)
 	general.Infof("candidatePods after filter: %v", len(candidatePods))
 
-	candidatePods = p.Scorer.Score(candidatePods)
+	candidatePods = p.scorer.Score(candidatePods)
 	general.Infof("candidatePods after scorer: %v", candidatePods)
 	// todo may pick multiple numas if overload
 	if len(p.numaOverStats) == 0 {

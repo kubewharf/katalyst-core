@@ -137,7 +137,9 @@ func calculateEvictionStatsByWindows(currentTime time.Time, evictionRecord *Evic
 	}
 
 	buckets := evictionRecord.Buckets.List
-	currentHealthy := evictionRecord.CurrentHealthy
+	// currentHealthy := evictionRecord.CurrentHealthy
+	expectedPods := evictionRecord.ExpectedPods
+
 	statsByWindow := make(map[float64]*EvictionStats)
 	if len(buckets) == 0 {
 		general.Warningf("no buckets in eviction info")
@@ -169,10 +171,10 @@ func calculateEvictionStatsByWindows(currentTime time.Time, evictionRecord *Evic
 			}
 		}
 		evictionRatio := 0.0
-		if currentHealthy > 0 {
-			evictionRatio = float64(totalCount) / float64(currentHealthy)
+		if expectedPods > 0 {
+			evictionRatio = float64(totalCount) / float64(expectedPods)
 		} else {
-			general.Warningf("currentHealthy is zero, cannot calculate eviction ratio")
+			general.Warningf("expectedPods is zero, cannot calculate eviction ratio")
 		}
 		statsByWindow[windowHour] = &EvictionStats{
 			EvictionCount: totalCount,
