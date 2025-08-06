@@ -44,7 +44,7 @@ const (
 // Endpoint represents a single registered plugin. It is responsible
 // for managing gRPC communications with the eviction plugin and caching eviction states.
 type Endpoint interface {
-	ThresholdMet(c context.Context) (*pluginapi.ThresholdMetResponse, error)
+	ThresholdMet(c context.Context, request *pluginapi.GetThresholdMetRequest) (*pluginapi.ThresholdMetResponse, error)
 	// GetTopEvictionPods notice: this function only be called when plugin's threshold is met
 	GetTopEvictionPods(c context.Context, request *pluginapi.GetTopEvictionPodsRequest) (*pluginapi.GetTopEvictionPodsResponse, error)
 	GetEvictPods(c context.Context, request *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error)
@@ -106,13 +106,13 @@ func (e *RemoteEndpointImpl) SetStopTime(t time.Time) {
 }
 
 // ThresholdMet is used to call remote endpoint ThresholdMet
-func (e *RemoteEndpointImpl) ThresholdMet(c context.Context) (*pluginapi.ThresholdMetResponse, error) {
+func (e *RemoteEndpointImpl) ThresholdMet(c context.Context, request *pluginapi.GetThresholdMetRequest) (*pluginapi.ThresholdMetResponse, error) {
 	if e.IsStopped() {
 		return nil, fmt.Errorf(errEndpointStopped, e)
 	}
 	ctx, cancel := context.WithTimeout(c, consts.EvictionPluginThresholdMetRPCTimeoutInSecs*time.Second)
 	defer cancel()
-	return e.client.ThresholdMet(ctx, &pluginapi.Empty{})
+	return e.client.ThresholdMet(ctx, request)
 }
 
 // GetTopEvictionPods is used to call remote endpoint GetTopEvictionPods

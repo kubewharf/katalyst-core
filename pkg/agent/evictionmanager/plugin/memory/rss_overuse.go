@@ -93,7 +93,7 @@ func (r *RssOveruseEvictionPlugin) Name() string {
 	return r.pluginName
 }
 
-func (r *RssOveruseEvictionPlugin) ThresholdMet(_ context.Context) (*pluginapi.ThresholdMetResponse, error) {
+func (r *RssOveruseEvictionPlugin) ThresholdMet(_ context.Context, _ *pluginapi.GetThresholdMetRequest) (*pluginapi.ThresholdMetResponse, error) {
 	return &pluginapi.ThresholdMetResponse{
 		MetType: pluginapi.ThresholdMetType_NOT_MET,
 	}, nil

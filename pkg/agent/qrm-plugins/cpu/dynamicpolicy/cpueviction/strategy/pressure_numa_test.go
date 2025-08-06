@@ -1211,7 +1211,7 @@ func TestNumaCPUPressureEviction_ThresholdMet(t *testing.T) {
 				enabled:            tt.fields.enabled,
 				emitter:            metrics.DummyMetrics{},
 			}
-			got, err := p.ThresholdMet(context.TODO(), nil)
+			got, err := p.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 			if !tt.wantErr(t, err, fmt.Sprintf("ThresholdMet")) {
 				return
 			}

@@ -96,7 +96,7 @@ func (n *nicEvictionPlugin) Start() {
 	go wait.UntilWithContext(context.TODO(), n.syncUnhealthyNICState, time.Second*10)
 }
 
-func (n *nicEvictionPlugin) ThresholdMet(_ context.Context) (*pluginapi.ThresholdMetResponse, error) {
+func (n *nicEvictionPlugin) ThresholdMet(_ context.Context, _ *pluginapi.GetThresholdMetRequest) (*pluginapi.ThresholdMetResponse, error) {
 	return &pluginapi.ThresholdMetResponse{
 		MetType: pluginapi.ThresholdMetType_NOT_MET,
 	}, nil
