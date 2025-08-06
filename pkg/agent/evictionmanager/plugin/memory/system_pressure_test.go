@@ -201,7 +201,7 @@ func TestSystemPressureEvictionPlugin_ThresholdMet(t *testing.T) {
 		fakeMetricsFetcher.SetNodeMetric(consts.MetricMemKswapdstealSystem, utilMetric.MetricData{Value: tt.systemKswapSteal, Time: &now})
 
 		plugin.detectSystemPressures(context.TODO())
-		metResp, err := plugin.ThresholdMet(context.TODO())
+		metResp, err := plugin.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
 		assert.NoError(t, err)
 		assert.NotNil(t, metResp)
 		assert.Equal(t, tt.wantMetType, metResp.MetType)
