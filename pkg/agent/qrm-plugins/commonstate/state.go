@@ -239,6 +239,14 @@ func (am *AllocationMeta) CheckNUMABinding() bool {
 		consts.PodAnnotationMemoryEnhancementNumaBindingEnable
 }
 
+func (am *AllocationMeta) CheckNUMANotShare() bool {
+	if am == nil {
+		return false
+	}
+	return am.Annotations[consts.PodAnnotationCPUEnhancementNUMAShare] ==
+		consts.PodAnnotationCPUEnhancementNUMAShareDisable
+}
+
 // CheckActualNUMABinding returns true if the AllocationInfo is for pod actual numa-binding
 func (am *AllocationMeta) CheckActualNUMABinding() bool {
 	if am == nil {
@@ -251,6 +259,12 @@ func (am *AllocationMeta) CheckActualNUMABinding() bool {
 // dedicated-qos and numa-binding enhancement
 func (am *AllocationMeta) CheckDedicatedNUMABinding() bool {
 	return am.CheckDedicated() && am.CheckNUMABinding()
+}
+
+// CheckDedicatedNUMABindingNUMAExclusive returns true if the AllocationInfo is for pod with
+// dedicated-qos and numa-binding and numa-exclusive enhancement
+func (am *AllocationMeta) CheckDedicatedNUMABindingNUMAExclusive() bool {
+	return am.CheckDedicatedNUMABinding() && am.CheckNumaExclusive()
 }
 
 // CheckSharedNUMABinding returns true if the AllocationInfo is for pod with

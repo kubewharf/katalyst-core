@@ -906,7 +906,7 @@ func (p *DynamicPolicy) adjustPoolsAndIsolatedEntries(
 	persistCheckpoint bool,
 ) error {
 	availableCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, nil,
-		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicatedNUMABinding))
+		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicatedNUMABindingNUMAExclusive))
 
 	reclaimOverlapShareRatio, err := p.getReclaimOverlapShareRatio(entries)
 	if err != nil {
@@ -1091,7 +1091,7 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 	// rampUpCPUs include reclaim pool in NUMAs without NUMA_binding cpus
 	rampUpCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs,
 		nil,
-		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicatedNUMABinding)).
+		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicatedNUMABindingNUMAExclusive)).
 		Difference(unionDedicatedIsolatedCPUSet).
 		Difference(sharedBindingNUMACPUs)
 
@@ -1169,7 +1169,7 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 					if ownerPoolName == commonstate.EmptyOwnerPoolName {
 						var err error
 						// why do we integrate GetOwnerPoolName + GetSpecifiedNUMABindingPoolName into GetPoolName for SharedNUMABinding containers?
-						// it's because we reply on GetSpecifiedPoolName (in GetPoolName) when calling CheckNUMABindingSharedCoresAntiAffinity,
+						// it's because we reply on GetSpecifiedPoolName (in GetPoolName) when calling CheckNUMABindingAntiAffinity,
 						// At that time, NUMA hint for the candidate container isn't confirmed, so we can't implement NUMA hint aware logic in GetSpecifiedPoolName.
 						ownerPoolName, err = allocationInfo.GetSpecifiedNUMABindingPoolName()
 						if err != nil {
