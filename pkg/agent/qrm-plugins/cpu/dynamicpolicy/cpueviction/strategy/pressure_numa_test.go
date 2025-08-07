@@ -46,6 +46,7 @@ import (
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction/history"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 )
 
@@ -140,14 +141,14 @@ func TestNumaCPUPressureEviction_update(t *testing.T) {
 	type fields struct {
 		conf               *config.Configuration
 		numaPressureConfig *NumaPressureConfig
-		metricsHistory     *NumaMetricHistory
+		metricsHistory     *history.NumaMetricHistory
 		setFakeMetric      func(store *metric.FakeMetricsFetcher)
 		podList            []*v1.Pod
 		enabled            bool
 	}
 
 	type want struct {
-		metricsHistory    *NumaMetricHistory
+		metricsHistory    *history.NumaMetricHistory
 		overloadNumaCount int
 	}
 
@@ -190,10 +191,10 @@ func TestNumaCPUPressureEviction_update(t *testing.T) {
 					store.SetContainerNumaMetric("pod1", "container", 0,
 						consts.MetricCPUUsageContainer, utilmetric.MetricData{Value: 2})
 				},
-				metricsHistory: NewMetricHistory(conf.DynamicAgentConfiguration.GetDynamicConfiguration().LoadMetricRingSize),
+				metricsHistory: history.NewMetricHistory(conf.DynamicAgentConfiguration.GetDynamicConfiguration().LoadMetricRingSize),
 			},
 			want: want{
-				metricsHistory: &NumaMetricHistory{},
+				metricsHistory: &history.NumaMetricHistory{},
 			},
 		},
 		{
@@ -230,17 +231,17 @@ func TestNumaCPUPressureEviction_update(t *testing.T) {
 					store.SetContainerNumaMetric("pod1", "container", 0,
 						consts.MetricCPUUsageContainer, utilmetric.MetricData{Value: 2})
 				},
-				metricsHistory: NewMetricHistory(conf.DynamicAgentConfiguration.GetDynamicConfiguration().LoadMetricRingSize),
+				metricsHistory: history.NewMetricHistory(conf.DynamicAgentConfiguration.GetDynamicConfiguration().LoadMetricRingSize),
 			},
 			want: want{
-				metricsHistory: &NumaMetricHistory{
-					Inner: map[int]map[string]map[string]*MetricRing{
+				metricsHistory: &history.NumaMetricHistory{
+					Inner: map[int]map[string]map[string]*history.MetricRing{
 						0: {
-							FakePodUID: {
+							history.FakePodUID: {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 1,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
 									},
 									CurrentIndex: 0,
 								},
@@ -248,36 +249,36 @@ func TestNumaCPUPressureEviction_update(t *testing.T) {
 							"pod1": {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 1,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
 									},
 									CurrentIndex: 0,
 								},
 							},
 						},
 						1: {
-							FakePodUID: {
+							history.FakePodUID: {
 								consts.MetricCPUUsageContainer: {
 									MaxLen:       1,
-									Queue:        []*MetricSnapshot{nil},
+									Queue:        []*history.MetricSnapshot{nil},
 									CurrentIndex: 0,
 								},
 							},
 						},
 						2: {
-							FakePodUID: {
+							history.FakePodUID: {
 								consts.MetricCPUUsageContainer: {
 									MaxLen:       1,
-									Queue:        []*MetricSnapshot{nil},
+									Queue:        []*history.MetricSnapshot{nil},
 									CurrentIndex: 0,
 								},
 							},
 						},
 						3: {
-							FakePodUID: {
+							history.FakePodUID: {
 								consts.MetricCPUUsageContainer: {
 									MaxLen:       1,
-									Queue:        []*MetricSnapshot{nil},
+									Queue:        []*history.MetricSnapshot{nil},
 									CurrentIndex: 0,
 								},
 							},
@@ -316,7 +317,7 @@ func TestNumaCPUPressureEviction_update(t *testing.T) {
 	}
 }
 
-func CompareMetricHistory(mh1, mh2 *NumaMetricHistory) bool {
+func CompareMetricHistory(mh1, mh2 *history.NumaMetricHistory) bool {
 	if mh1.RingSize != mh2.RingSize {
 		return false
 	}
@@ -379,7 +380,7 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 		numaPressureConfig *NumaPressureConfig
 		syncPeriod         time.Duration
 		thresholds         map[string]float64
-		metricsHistory     *NumaMetricHistory
+		metricsHistory     *history.NumaMetricHistory
 		overloadNumaCount  int
 		enabled            bool
 		podList            []*v1.Pod
@@ -423,14 +424,14 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 					GracePeriod:            -1,
 					ExpandFactor:           1.2,
 				},
-				metricsHistory: &NumaMetricHistory{
-					Inner: map[int]map[string]map[string]*MetricRing{
+				metricsHistory: &history.NumaMetricHistory{
+					Inner: map[int]map[string]map[string]*history.MetricRing{
 						0: {
-							FakePodUID: {
+							history.FakePodUID: {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -439,8 +440,8 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 							"pod1": {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -449,8 +450,8 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 							"pod2": {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -459,8 +460,8 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 							"pod3": {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -500,14 +501,14 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 					ExpandFactor:           1.2,
 					SkippedPodKinds:        []string{"DaemonSet"},
 				},
-				metricsHistory: &NumaMetricHistory{
-					Inner: map[int]map[string]map[string]*MetricRing{
+				metricsHistory: &history.NumaMetricHistory{
+					Inner: map[int]map[string]map[string]*history.MetricRing{
 						0: {
-							FakePodUID: {
+							history.FakePodUID: {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -516,8 +517,8 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 							"pod1": {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -526,8 +527,8 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 							"pod2": {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -536,8 +537,8 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 							"pod3": {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -578,14 +579,14 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 					GracePeriod:            -1,
 					ExpandFactor:           1.2,
 				},
-				metricsHistory: &NumaMetricHistory{
-					Inner: map[int]map[string]map[string]*MetricRing{
+				metricsHistory: &history.NumaMetricHistory{
+					Inner: map[int]map[string]map[string]*history.MetricRing{
 						0: {
-							FakePodUID: {
+							history.FakePodUID: {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -594,8 +595,8 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 							"pod1": {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -604,8 +605,8 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 							"pod2": {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -614,8 +615,8 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 							"pod3": {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -656,14 +657,14 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 					GracePeriod:            -1,
 					ExpandFactor:           1.2,
 				},
-				metricsHistory: &NumaMetricHistory{
-					Inner: map[int]map[string]map[string]*MetricRing{
+				metricsHistory: &history.NumaMetricHistory{
+					Inner: map[int]map[string]map[string]*history.MetricRing{
 						0: {
-							FakePodUID: {
+							history.FakePodUID: {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -672,8 +673,8 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 							"pod1": {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -682,8 +683,8 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 							"pod2": {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -692,8 +693,8 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 							"pod3": {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -739,14 +740,14 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 					ExpandFactor:           1.2,
 					CandidateCount:         2,
 				},
-				metricsHistory: &NumaMetricHistory{
-					Inner: map[int]map[string]map[string]*MetricRing{
+				metricsHistory: &history.NumaMetricHistory{
+					Inner: map[int]map[string]map[string]*history.MetricRing{
 						0: {
-							FakePodUID: {
+							history.FakePodUID: {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -755,8 +756,8 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 							"pod1": {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -765,8 +766,8 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 							"pod2": {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -775,8 +776,8 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 							"pod3": {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -834,14 +835,14 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 					GracePeriod:            -1,
 					ExpandFactor:           1.2,
 				},
-				metricsHistory: &NumaMetricHistory{
-					Inner: map[int]map[string]map[string]*MetricRing{
+				metricsHistory: &history.NumaMetricHistory{
+					Inner: map[int]map[string]map[string]*history.MetricRing{
 						0: {
-							FakePodUID: {
+							history.FakePodUID: {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -850,8 +851,8 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 							"pod1": {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -894,14 +895,14 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 					GracePeriod:            -1,
 					ExpandFactor:           1.2,
 				},
-				metricsHistory: &NumaMetricHistory{
-					Inner: map[int]map[string]map[string]*MetricRing{
+				metricsHistory: &history.NumaMetricHistory{
+					Inner: map[int]map[string]map[string]*history.MetricRing{
 						0: {
-							FakePodUID: {
+							history.FakePodUID: {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.3}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.3}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -910,8 +911,8 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 							"pod1": {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.1}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.1}},
 										nil,
 									},
 									CurrentIndex: 0,
@@ -920,8 +921,8 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 							"pod2": {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.1}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.1}},
 									},
 									CurrentIndex: 0,
 								},
@@ -929,8 +930,8 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 							"pod3": {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.1}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.1}},
 									},
 									CurrentIndex: 0,
 								},
@@ -1010,7 +1011,7 @@ func TestNumaCPUPressureEviction_ThresholdMet(t *testing.T) {
 		numaPressureConfig *NumaPressureConfig
 		syncPeriod         time.Duration
 		thresholds         map[string]float64
-		metricsHistory     *NumaMetricHistory
+		metricsHistory     *history.NumaMetricHistory
 		overloadNumaCount  int
 		enabled            bool
 		podList            []*v1.Pod
@@ -1036,14 +1037,14 @@ func TestNumaCPUPressureEviction_ThresholdMet(t *testing.T) {
 					GracePeriod:            -1,
 					ExpandFactor:           1.2,
 				},
-				metricsHistory: &NumaMetricHistory{
-					Inner: map[int]map[string]map[string]*MetricRing{
+				metricsHistory: &history.NumaMetricHistory{
+					Inner: map[int]map[string]map[string]*history.MetricRing{
 						0: {
-							FakePodUID: {
+							history.FakePodUID: {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -1052,8 +1053,8 @@ func TestNumaCPUPressureEviction_ThresholdMet(t *testing.T) {
 							"pod1": {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -1062,8 +1063,8 @@ func TestNumaCPUPressureEviction_ThresholdMet(t *testing.T) {
 							"pod2": {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -1072,8 +1073,8 @@ func TestNumaCPUPressureEviction_ThresholdMet(t *testing.T) {
 							"pod3": {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -1109,14 +1110,14 @@ func TestNumaCPUPressureEviction_ThresholdMet(t *testing.T) {
 					GracePeriod:            -1,
 					ExpandFactor:           1.2,
 				},
-				metricsHistory: &NumaMetricHistory{
-					Inner: map[int]map[string]map[string]*MetricRing{
+				metricsHistory: &history.NumaMetricHistory{
+					Inner: map[int]map[string]map[string]*history.MetricRing{
 						0: {
-							FakePodUID: {
+							history.FakePodUID: {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -1125,8 +1126,8 @@ func TestNumaCPUPressureEviction_ThresholdMet(t *testing.T) {
 							"pod1": {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -1135,8 +1136,8 @@ func TestNumaCPUPressureEviction_ThresholdMet(t *testing.T) {
 							"pod2": {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -1145,8 +1146,8 @@ func TestNumaCPUPressureEviction_ThresholdMet(t *testing.T) {
 							"pod3": {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -1231,7 +1232,7 @@ func TestNumaCPUPressureEviction_calOverloadNumaCount(t *testing.T) {
 		numaPressureConfig *NumaPressureConfig
 		syncPeriod         time.Duration
 		thresholds         map[string]float64
-		metricsHistory     *NumaMetricHistory
+		metricsHistory     *history.NumaMetricHistory
 		overloadNumaCount  int
 		enabled            bool
 		podList            []*v1.Pod
@@ -1257,15 +1258,15 @@ func TestNumaCPUPressureEviction_calOverloadNumaCount(t *testing.T) {
 					GracePeriod:            -1,
 					ExpandFactor:           1.2,
 				},
-				metricsHistory: &NumaMetricHistory{
-					Inner: map[int]map[string]map[string]*MetricRing{
+				metricsHistory: &history.NumaMetricHistory{
+					Inner: map[int]map[string]map[string]*history.MetricRing{
 						0: {
-							FakePodUID: {
+							history.FakePodUID: {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
 									},
 									CurrentIndex: 1,
 								},
@@ -1273,9 +1274,9 @@ func TestNumaCPUPressureEviction_calOverloadNumaCount(t *testing.T) {
 							"pod1": {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
 									},
 									CurrentIndex: 1,
 								},
@@ -1283,9 +1284,9 @@ func TestNumaCPUPressureEviction_calOverloadNumaCount(t *testing.T) {
 							"pod2": {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
 									},
 									CurrentIndex: 1,
 								},
@@ -1293,9 +1294,9 @@ func TestNumaCPUPressureEviction_calOverloadNumaCount(t *testing.T) {
 							"pod3": {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
-									Queue: []*MetricSnapshot{
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
-										{Info: MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
 									},
 									CurrentIndex: 1,
 								},
