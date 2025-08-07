@@ -29,7 +29,6 @@ import (
 	info "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/sys/unix"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1156,23 +1155,23 @@ func TestUpdate(t *testing.T) {
 			zoneInfos: []machine.NormalZoneInfo{
 				{
 					Node: 0,
-					Low:  (20 << 30) / uint64(unix.Getpagesize()),
-					Free: (60 << 30) / uint64(unix.Getpagesize()),
+					Low:  (20 << 30) / 4096,
+					Free: (60 << 30) / 4096,
 				},
 				{
 					Node: 1,
-					Low:  (20 << 30) / uint64(unix.Getpagesize()),
-					Free: (60 << 30) / uint64(unix.Getpagesize()),
+					Low:  (20 << 30) / 4096,
+					Free: (60 << 30) / 4096,
 				},
 				{
 					Node: 2,
-					Low:  (20 << 30) / uint64(unix.Getpagesize()),
-					Free: (60 << 30) / uint64(unix.Getpagesize()),
+					Low:  (20 << 30) / 4096,
+					Free: (60 << 30) / 4096,
 				},
 				{
 					Node: 3,
-					Low:  (20 << 30) / uint64(unix.Getpagesize()),
-					Free: (60 << 30) / uint64(unix.Getpagesize()),
+					Low:  (20 << 30) / 4096,
+					Free: (60 << 30) / 4096,
 				},
 			},
 			wantAdviceResult: &types.InternalMemoryCalculationResult{
