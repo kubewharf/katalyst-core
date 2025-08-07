@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -27,18 +28,18 @@ func TestGetWorkloadEvictionInfo(t *testing.T) {
 	now := time.Now()
 	cases := []struct {
 		name           string
-		inputRecord    *EvictionRecord
+		inputRecord    *pluginapi.EvictionRecord
 		expectedErr    bool
 		expectedWindow int64
 		expectedCount  int64
 	}{{
 		name: "normal_case_with_multiple_buckets",
-		inputRecord: &EvictionRecord{
-			UID:                "test-pod-1",
-			HasPDB:             true,
+		inputRecord: &pluginapi.EvictionRecord{
+			Uid:                "test-pod-1",
+			HasPdb:             true,
 			DisruptionsAllowed: 2,
 			CurrentHealthy:     5,
-			Buckets: Buckets{List: []Bucket{{
+			Buckets: &pluginapi.Buckets{List: []*pluginapi.Bucket{{
 				Time:     now.Add(-30 * time.Minute).Unix(),
 				Duration: 1800,
 				Count:    3,
@@ -53,9 +54,9 @@ func TestGetWorkloadEvictionInfo(t *testing.T) {
 		expectedCount:  3,
 	}, {
 		name: "empty_buckets_list",
-		inputRecord: &EvictionRecord{
-			UID:                "test-pod-2",
-			Buckets:            Buckets{List: []Bucket{}},
+		inputRecord: &pluginapi.EvictionRecord{
+			Uid:                "test-pod-2",
+			Buckets:            &pluginapi.Buckets{List: []*pluginapi.Bucket{}},
 			CurrentHealthy:     5,
 			DisruptionsAllowed: 1,
 		},
@@ -102,16 +103,16 @@ func TestCalculateEvictionStatsByWindows(t *testing.T) {
 	cases := []struct {
 		name           string
 		currentTime    time.Time
-		inputRecord    *EvictionRecord
+		inputRecord    *pluginapi.EvictionRecord
 		windows        []int64
 		expectedStats  map[float64]*EvictionStats
 		expectedLastEv int64
 	}{{
 		name:        "bucket_completely_outside_window",
 		currentTime: now,
-		inputRecord: &EvictionRecord{
-			Buckets: Buckets{
-				List: []Bucket{{
+		inputRecord: &pluginapi.EvictionRecord{
+			Buckets: &pluginapi.Buckets{
+				List: []*pluginapi.Bucket{{
 					Time:     now.Add(-120 * time.Minute).Unix(), // 7200s ago
 					Duration: 1800,
 					Count:    5,
@@ -126,8 +127,8 @@ func TestCalculateEvictionStatsByWindows(t *testing.T) {
 	}, {
 		name:        "empty_buckets_list",
 		currentTime: now,
-		inputRecord: &EvictionRecord{
-			Buckets: Buckets{List: []Bucket{}},
+		inputRecord: &pluginapi.EvictionRecord{
+			Buckets: &pluginapi.Buckets{List: []*pluginapi.Bucket{}},
 		},
 		windows: []int64{1800, 3600},
 		expectedStats: map[float64]*EvictionStats{
