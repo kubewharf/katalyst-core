@@ -130,7 +130,7 @@ func (s *SystemPressureEvictionPlugin) Start() {
 	go wait.UntilWithContext(context.TODO(), s.detectSystemPressures, s.syncPeriod)
 }
 
-func (s *SystemPressureEvictionPlugin) ThresholdMet(_ context.Context) (*pluginapi.ThresholdMetResponse, error) {
+func (s *SystemPressureEvictionPlugin) ThresholdMet(_ context.Context, _ *pluginapi.GetThresholdMetRequest) (*pluginapi.ThresholdMetResponse, error) {
 	resp := &pluginapi.ThresholdMetResponse{
 		MetType: pluginapi.ThresholdMetType_NOT_MET,
 	}

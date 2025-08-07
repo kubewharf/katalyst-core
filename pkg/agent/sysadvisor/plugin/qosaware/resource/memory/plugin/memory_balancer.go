@@ -199,6 +199,8 @@ type memoryBalancer struct {
 	balanceInfo     *BalanceInfo
 }
 
+var _ skeleton.EvictionPlugin = &memoryBalancer{}
+
 func (m *memoryBalancer) Name() string {
 	return EvictionPluginNameMemoryBalancer
 }
@@ -215,7 +217,7 @@ func (m *memoryBalancer) GetToken(_ context.Context, _ *pluginapi.Empty) (*plugi
 	return &pluginapi.GetTokenResponse{Token: ""}, nil
 }
 
-func (m *memoryBalancer) ThresholdMet(_ context.Context, _ *pluginapi.Empty) (*pluginapi.ThresholdMetResponse, error) {
+func (m *memoryBalancer) ThresholdMet(_ context.Context, _ *pluginapi.GetThresholdMetRequest) (*pluginapi.ThresholdMetResponse, error) {
 	return &pluginapi.ThresholdMetResponse{}, nil
 }
 
