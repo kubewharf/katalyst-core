@@ -30,6 +30,7 @@ import (
 
 type ReclaimedResourceOptions struct {
 	EnableReclaim                        bool
+	DisableReclaimSharePools             []string
 	ReservedResourceForReport            general.ResourceList
 	MinReclaimedResourceForReport        general.ResourceList
 	MinIgnoredReclaimedResourceForReport general.ResourceList
@@ -74,6 +75,8 @@ func (o *ReclaimedResourceOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	fs.BoolVar(&o.EnableReclaim, "enable-reclaim", o.EnableReclaim,
 		"show whether enable reclaim resource from shared and agent resource")
+	fs.StringSliceVar(&o.DisableReclaimSharePools, "disable-reclaim-share-pools", o.DisableReclaimSharePools,
+		"disable reclaim resource from shared pools")
 	fs.Var(&o.ReservedResourceForReport, "reserved-resource-for-report",
 		"reserved reclaimed resource report to cnr")
 	fs.Var(&o.MinReclaimedResourceForReport, "min-reclaimed-resource-for-report",
@@ -93,6 +96,7 @@ func (o *ReclaimedResourceOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 func (o *ReclaimedResourceOptions) ApplyTo(c *reclaimedresource.ReclaimedResourceConfiguration) error {
 	var errList []error
 	c.EnableReclaim = o.EnableReclaim
+	c.DisableReclaimSharePools = o.DisableReclaimSharePools
 	c.ReservedResourceForReport = v1.ResourceList(o.ReservedResourceForReport)
 	c.MinReclaimedResourceForReport = v1.ResourceList(o.MinReclaimedResourceForReport)
 	c.MinIgnoredReclaimedResourceForReport = v1.ResourceList(o.MinIgnoredReclaimedResourceForReport)

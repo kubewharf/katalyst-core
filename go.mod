@@ -19,7 +19,7 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/h2non/gock v1.2.0
 	github.com/klauspost/cpuid/v2 v2.2.6
-	github.com/kubewharf/katalyst-api v0.5.6-0.20250723073136-24e693f5681c
+	github.com/kubewharf/katalyst-api v0.5.6-0.20250821112043-d47c4552dc33
 	github.com/moby/sys/mountinfo v0.6.2
 	github.com/montanaflynn/stats v0.7.1
 	github.com/opencontainers/runc v1.1.6
@@ -173,7 +173,6 @@ require (
 )
 
 replace (
-	github.com/kubewharf/katalyst-api => github.com/luomingmeng/katalyst-api v0.0.0-20250730071108-65de9843207d
 	k8s.io/api => k8s.io/api v0.24.6
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.24.6
 	k8s.io/apimachinery => k8s.io/apimachinery v0.24.6

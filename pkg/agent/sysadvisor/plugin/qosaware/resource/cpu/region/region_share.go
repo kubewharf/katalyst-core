@@ -19,6 +19,7 @@ package region
 import (
 	"math"
 
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/klog/v2"
 
@@ -187,4 +188,9 @@ func (r *QoSRegionShare) getPoolCPUUsageRatio() (float64, error) {
 	cpuSet := poolInfo.TopologyAwareAssignments.MergeCPUSet()
 	usageRatio := r.metaServer.AggregateCoreMetric(cpuSet, pkgconsts.MetricCPUUsageRatio, metric.AggregatorAvg)
 	return usageRatio.Value, nil
+}
+
+func (r *QoSRegionShare) EnableReclaim() bool {
+	return r.QoSRegionBase.EnableReclaim() &&
+		!sets.NewString(r.conf.GetDynamicConfiguration().DisableReclaimSharePools...).Has(r.ownerPoolName)
 }
