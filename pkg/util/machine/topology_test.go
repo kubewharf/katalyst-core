@@ -224,6 +224,7 @@ func TestGetSiblingNumaInfo(t *testing.T) {
 					0: 5,
 					1: 5,
 				},
+				SiblingNumaMBWAllocatableRate: 0.5,
 			},
 		},
 		{
@@ -327,6 +328,7 @@ func TestGetSiblingNumaInfo(t *testing.T) {
 					2: 4,
 					3: 4,
 				},
+				SiblingNumaMBWAllocatableRate: 0.8,
 			},
 		},
 		{
@@ -431,6 +433,7 @@ func TestGetSiblingNumaInfo(t *testing.T) {
 					2: 4,
 					3: 4,
 				},
+				SiblingNumaMBWAllocatableRate: 0.8,
 			},
 		},
 		{
@@ -747,6 +750,7 @@ func TestGetSiblingNumaInfo(t *testing.T) {
 					6: 4,
 					7: 4,
 				},
+				SiblingNumaMBWAllocatableRate: 0.8,
 			},
 		},
 	}

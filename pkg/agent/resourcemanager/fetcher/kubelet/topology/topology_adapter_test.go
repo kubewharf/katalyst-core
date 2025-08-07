@@ -156,16 +156,16 @@ func generateTestMetricsFetcher() *metric.FakeMetricsFetcher {
 	}
 
 	fm.SetNumaMetric(0, pkgconsts.MetricMemBandwidthTheoryNuma, utilmetric.MetricData{
-		Value: 10,
+		Value: 10000 / 1024.0,
 	})
 	fm.SetNumaMetric(1, pkgconsts.MetricMemBandwidthTheoryNuma, utilmetric.MetricData{
-		Value: 10,
+		Value: 10000 / 1024.0,
 	})
 	fm.SetNumaMetric(2, pkgconsts.MetricMemBandwidthTheoryNuma, utilmetric.MetricData{
-		Value: 10,
+		Value: 10000 / 1024.0,
 	})
 	fm.SetNumaMetric(3, pkgconsts.MetricMemBandwidthTheoryNuma, utilmetric.MetricData{
-		Value: 10,
+		Value: 10000 / 1024.0,
 	})
 
 	return fm
@@ -1763,6 +1763,7 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 				metaServer: func() *metaserver.MetaServer {
 					m := generateTestMetaServer()
 					m.ExtraTopologyInfo, _ = machine.GenerateDummyExtraTopology(4)
+					m.ExtraTopologyInfo.SiblingNumaMBWAllocatableRate = 0.8
 					m.SiblingNumaMap = map[int]sets.Int{
 						0: sets.NewInt(1),
 						1: sets.NewInt(0),
@@ -1795,13 +1796,13 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 						"gpu":                          resource.MustParse("2"),
 						"cpu":                          resource.MustParse("24"),
 						"memory":                       resource.MustParse("32G"),
-						consts.ResourceMemoryBandwidth: resource.MustParse("10Gi"),
+						consts.ResourceMemoryBandwidth: resource.MustParse("10G"),
 					},
 					Allocatable: &v1.ResourceList{
 						"gpu":                          resource.MustParse("2"),
 						"cpu":                          resource.MustParse("22"),
 						"memory":                       resource.MustParse("30G"),
-						consts.ResourceMemoryBandwidth: resource.MustParse("8"),
+						consts.ResourceMemoryBandwidth: resource.MustParse("8G"),
 					},
 				},
 				{
@@ -1813,12 +1814,12 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 					Capacity: &v1.ResourceList{
 						"cpu":                          resource.MustParse("24"),
 						"memory":                       resource.MustParse("32G"),
-						consts.ResourceMemoryBandwidth: resource.MustParse("10Gi"),
+						consts.ResourceMemoryBandwidth: resource.MustParse("10G"),
 					},
 					Allocatable: &v1.ResourceList{
 						"cpu":                          resource.MustParse("22"),
 						"memory":                       resource.MustParse("30G"),
-						consts.ResourceMemoryBandwidth: resource.MustParse("8"),
+						consts.ResourceMemoryBandwidth: resource.MustParse("8G"),
 					},
 				},
 				{
@@ -1830,12 +1831,12 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 					Capacity: &v1.ResourceList{
 						"cpu":                          resource.MustParse("24"),
 						"memory":                       resource.MustParse("32G"),
-						consts.ResourceMemoryBandwidth: resource.MustParse("10Gi"),
+						consts.ResourceMemoryBandwidth: resource.MustParse("10G"),
 					},
 					Allocatable: &v1.ResourceList{
 						"cpu":                          resource.MustParse("22"),
 						"memory":                       resource.MustParse("30G"),
-						consts.ResourceMemoryBandwidth: resource.MustParse("8"),
+						consts.ResourceMemoryBandwidth: resource.MustParse("8G"),
 					},
 				},
 				{
@@ -1847,12 +1848,12 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 					Capacity: &v1.ResourceList{
 						"cpu":                          resource.MustParse("24"),
 						"memory":                       resource.MustParse("32G"),
-						consts.ResourceMemoryBandwidth: resource.MustParse("10Gi"),
+						consts.ResourceMemoryBandwidth: resource.MustParse("10G"),
 					},
 					Allocatable: &v1.ResourceList{
 						"cpu":                          resource.MustParse("22"),
 						"memory":                       resource.MustParse("30G"),
-						consts.ResourceMemoryBandwidth: resource.MustParse("8"),
+						consts.ResourceMemoryBandwidth: resource.MustParse("8G"),
 					},
 				},
 			},
