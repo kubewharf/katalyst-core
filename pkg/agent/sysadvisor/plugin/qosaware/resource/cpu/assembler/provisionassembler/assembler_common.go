@@ -186,13 +186,13 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 	result *types.InternalCPUCalculationResult,
 ) error {
 	shareRegions := regionHelper.GetRegions(numaID, configapi.QoSRegionTypeShare)
-	shareRequirements, shareRequests, minReclaimedCoresCPUQuota, err := extractShareRegionInfo(shareRegions)
+	shareInfo, err := extractShareRegionInfo(shareRegions)
 	if err != nil {
 		return err
 	}
 
 	isolationRegions := regionHelper.GetRegions(numaID, configapi.QoSRegionTypeIsolation)
-	isolationUpperSizes, isolationLowerSizes, err := extractIsolationRegionInfo(isolationRegions)
+	isolationInfo, err := extractIsolationRegionInfo(isolationRegions)
 	if err != nil {
 		return err
 	}
@@ -219,32 +219,30 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 	}
 
 	allowExpand := !nodeEnableReclaim || *pa.allowSharedCoresOverlapReclaimedCores
-	var requirements map[string]int
-	if allowExpand {
-		requirements = shareRequests
-	} else {
-		requirements = shareRequirements
-	}
+	poolSizeRequirements := getPoolSizeRequirements(shareInfo, allowExpand)
 
-	isolationUppers := general.SumUpMapValues(isolationUpperSizes)
-	isolationPoolSizes := isolationUpperSizes
-	// if the maximum of share requirements and share requests adds up with isolation upper sizes is larger than
+	isolationUppers := general.SumUpMapValues(isolationInfo.isolationUpperSizes)
+	isolationPoolSizes := isolationInfo.isolationUpperSizes
+	// if the maximum of share poolSizeRequirements and share requests adds up with isolation upper sizes is larger than
 	// the available cores of share and isolated pool, we should shrink the isolation pool sizes to lower sizes
-	if general.Max(general.SumUpMapValues(shareRequests), general.SumUpMapValues(shareRequirements))+isolationUppers > shareAndIsolatedPoolAvailable {
-		isolationPoolSizes = isolationLowerSizes
+	if general.Max(general.SumUpMapValues(shareInfo.shareRequests), general.SumUpMapValues(shareInfo.shareRequirements))+isolationUppers > shareAndIsolatedPoolAvailable {
+		isolationPoolSizes = isolationInfo.isolationLowerSizes
 	}
 
-	shareAndIsolatePoolSizes, poolThrottled := regulatePoolSizes(requirements, isolationPoolSizes, shareAndIsolatedPoolAvailable, allowExpand)
+	shareAndIsolatePoolSizes, poolThrottled := regulatePoolSizes(poolSizeRequirements, isolationPoolSizes, shareAndIsolatedPoolAvailable, allowExpand)
 	for _, r := range shareRegions {
 		r.SetThrottled(poolThrottled)
 	}
 
 	general.InfoS("pool info",
 		"numaID", numaID,
-		"shareRequirements", shareRequirements,
-		"shareRequests", shareRequests,
-		"isolationUpperSizes", isolationUpperSizes,
-		"isolationLowerSizes", isolationLowerSizes,
+		"shareRequirements", shareInfo.shareRequirements,
+		"shareRequests", shareInfo.shareRequests,
+		"shareReclaimEnable", shareInfo.shareReclaimEnable,
+		"minReclaimedCoresCPUQuota", shareInfo.minReclaimedCoresCPUQuota,
+		"poolSizeRequirements", poolSizeRequirements,
+		"isolationUpperSizes", isolationInfo.isolationUpperSizes,
+		"isolationLowerSizes", isolationInfo.isolationLowerSizes,
 		"shareAndIsolatePoolSizes", shareAndIsolatePoolSizes,
 		"shareAndIsolatedPoolAvailable", shareAndIsolatedPoolAvailable)
 
@@ -260,9 +258,13 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 	if *pa.allowSharedCoresOverlapReclaimedCores {
 		isolated := 0
 		sharePoolSizes := make(map[string]int)
+		reclaimableSharePoolSizes := make(map[string]int)
 		for poolName, size := range shareAndIsolatePoolSizes {
-			_, ok := shareRequirements[poolName]
+			_, ok := poolSizeRequirements[poolName]
 			if ok {
+				if shareInfo.shareReclaimEnable[poolName] {
+					reclaimableSharePoolSizes[poolName] = shareAndIsolatePoolSizes[poolName]
+				}
 				sharePoolSizes[poolName] = shareAndIsolatePoolSizes[poolName]
 			} else {
 				isolated += size
@@ -270,7 +272,7 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 		}
 
 		if nodeEnableReclaim {
-			reclaimedCoresSize = general.Max(reservedForReclaim, shareAndIsolatedPoolAvailable-isolated-general.SumUpMapValues(shareRequirements))
+			reclaimedCoresSize = general.Max(reservedForReclaim, shareAndIsolatedPoolAvailable-isolated-general.SumUpMapValues(poolSizeRequirements))
 		} else {
 			reclaimedCoresSize = reservedForReclaim
 		}
@@ -279,14 +281,21 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 			sharedOverlapReclaimSize := make(map[string]int)
 			if !nodeEnableReclaim {
 				reclaimedCoresSize = general.Min(reclaimedCoresSize, general.SumUpMapValues(sharePoolSizes))
-				reclaimSizes, err := regulateOverlapReclaimPoolSize(sharePoolSizes, reclaimedCoresSize)
+				var overlapSharePoolSizes map[string]int
+				if reclaimedCoresSize >= general.SumUpMapValues(reclaimableSharePoolSizes) {
+					overlapSharePoolSizes = reclaimableSharePoolSizes
+				} else {
+					overlapSharePoolSizes = sharePoolSizes
+				}
+				reclaimSizes, err := regulateOverlapReclaimPoolSize(overlapSharePoolSizes, reclaimedCoresSize)
 				if err != nil {
 					return fmt.Errorf("failed to calculate sharedOverlapReclaimSize")
 				}
 				sharedOverlapReclaimSize = reclaimSizes
 			} else {
-				for poolName, size := range sharePoolSizes {
-					reclaimSize := size - shareRequirements[poolName]
+				for poolName, size := range reclaimableSharePoolSizes {
+					// calculate the reclaim size for each share pool by subtracting the share requirement from the share pool size
+					reclaimSize := size - shareInfo.shareRequirements[poolName]
 					if reclaimSize > 0 {
 						sharedOverlapReclaimSize[poolName] = reclaimSize
 					} else {
@@ -310,12 +319,13 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 				return err
 			}
 
-			if quotaCtrlKnobEnabled {
+			if quotaCtrlKnobEnabled && numaID != commonstate.FakedNUMAID {
 				reclaimedCoresQuota = float64(general.Max(reservedForReclaim, reclaimedCoresSize))
-				if minReclaimedCoresCPUQuota != -1 {
-					reclaimedCoresQuota = minReclaimedCoresCPUQuota
+				if shareInfo.minReclaimedCoresCPUQuota != -1 {
+					reclaimedCoresQuota = shareInfo.minReclaimedCoresCPUQuota
 				}
-				reclaimedCoresSize = general.SumUpMapValues(sharePoolSizes)
+				// if cpu quota enabled, set all reclaimable share pool size to reclaimedCoresSize
+				reclaimedCoresSize = general.SumUpMapValues(reclaimableSharePoolSizes)
 			}
 
 			for overlapPoolName, size := range sharedOverlapReclaimSize {
@@ -340,18 +350,39 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 	return nil
 }
 
-func extractShareRegionInfo(shareRegions []region.QoSRegion) (map[string]int, map[string]int, float64, error) {
+func getPoolSizeRequirements(info shareRegionInfo, expand bool) map[string]int {
+	result := make(map[string]int)
+	for name, reclaimEnable := range info.shareReclaimEnable {
+		if !reclaimEnable || expand {
+			result[name] = info.shareRequests[name]
+		} else {
+			result[name] = info.shareRequirements[name]
+		}
+	}
+	return result
+}
+
+type shareRegionInfo struct {
+	shareRequirements         map[string]int
+	shareRequests             map[string]int
+	shareReclaimEnable        map[string]bool
+	minReclaimedCoresCPUQuota float64
+}
+
+func extractShareRegionInfo(shareRegions []region.QoSRegion) (shareRegionInfo, error) {
 	shareRequirements := make(map[string]int)
 	shareRequests := make(map[string]int)
+	shareReclaimEnable := make(map[string]bool)
 	minReclaimedCoresCPUQuota := float64(-1)
 
 	for _, r := range shareRegions {
 		controlKnob, err := r.GetProvision()
 		if err != nil {
-			return nil, nil, 0, err
+			return shareRegionInfo{}, err
 		}
 		shareRequirements[r.OwnerPoolName()] = general.Max(1, int(controlKnob[configapi.ControlKnobNonReclaimedCPURequirement].Value))
 		shareRequests[r.OwnerPoolName()] = general.Max(1, int(math.Ceil(r.GetPodsRequest())))
+		shareReclaimEnable[r.OwnerPoolName()] = r.EnableReclaim()
 		if quota, ok := controlKnob[configapi.ControlKnobReclaimedCoresCPUQuota]; ok {
 			if minReclaimedCoresCPUQuota == -1 || quota.Value < minReclaimedCoresCPUQuota {
 				minReclaimedCoresCPUQuota = quota.Value
@@ -359,22 +390,35 @@ func extractShareRegionInfo(shareRegions []region.QoSRegion) (map[string]int, ma
 		}
 	}
 
-	return shareRequirements, shareRequests, minReclaimedCoresCPUQuota, nil
+	return shareRegionInfo{
+		shareRequirements:         shareRequirements,
+		shareRequests:             shareRequests,
+		shareReclaimEnable:        shareReclaimEnable,
+		minReclaimedCoresCPUQuota: minReclaimedCoresCPUQuota,
+	}, nil
 }
 
-func extractIsolationRegionInfo(isolationRegions []region.QoSRegion) (map[string]int, map[string]int, error) {
+type isolationRegionInfo struct {
+	isolationUpperSizes map[string]int
+	isolationLowerSizes map[string]int
+}
+
+func extractIsolationRegionInfo(isolationRegions []region.QoSRegion) (isolationRegionInfo, error) {
 	isolationUpperSizes := make(map[string]int)
 	isolationLowerSizes := make(map[string]int)
 
 	for _, r := range isolationRegions {
 		controlKnob, err := r.GetProvision()
 		if err != nil {
-			return nil, nil, err
+			return isolationRegionInfo{}, err
 		}
 		// save limits and requests for isolated region
 		isolationUpperSizes[r.Name()] = int(controlKnob[configapi.ControlKnobNonIsolatedUpperCPUSize].Value)
 		isolationLowerSizes[r.Name()] = int(controlKnob[configapi.ControlKnobNonIsolatedLowerCPUSize].Value)
 	}
 
-	return isolationUpperSizes, isolationLowerSizes, nil
+	return isolationRegionInfo{
+		isolationUpperSizes: isolationUpperSizes,
+		isolationLowerSizes: isolationLowerSizes,
+	}, nil
 }
