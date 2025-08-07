@@ -43,6 +43,9 @@ const (
 
 type ResourcesGetter func(ctx context.Context) (v1.ResourceList, error)
 
+// NumaResourcesGetter return the resource status of numa granularity, where the key is numaID.
+type NumaResourcesGetter func(ctx context.Context) (map[string]v1.ResourceList, error)
+
 type ThresholdGetter func(resourceName v1.ResourceName) *float64
 
 type GracePeriodGetter func() int64
@@ -56,6 +59,7 @@ type ResourcesEvictionPlugin struct {
 	// thresholdGetter is used to get the threshold of resources.
 	thresholdGetter                     ThresholdGetter
 	resourcesGetter                     ResourcesGetter
+	numaResourcesGetter                 NumaResourcesGetter
 	deletionGracePeriodGetter           GracePeriodGetter
 	thresholdMetToleranceDurationGetter GracePeriodGetter
 
@@ -68,7 +72,7 @@ type ResourcesEvictionPlugin struct {
 }
 
 func NewResourcesEvictionPlugin(pluginName string, metaServer *metaserver.MetaServer,
-	emitter metrics.MetricEmitter, resourcesGetter ResourcesGetter, thresholdGetter ThresholdGetter,
+	emitter metrics.MetricEmitter, resourcesGetter ResourcesGetter, numaResourcesGetter NumaResourcesGetter, thresholdGetter ThresholdGetter,
 	deletionGracePeriodGetter GracePeriodGetter, thresholdMetToleranceDurationGetter GracePeriodGetter,
 	skipZeroQuantityResourceNames sets.String,
 	podFilter func(pod *v1.Pod) (bool, error),
@@ -79,6 +83,7 @@ func NewResourcesEvictionPlugin(pluginName string, metaServer *metaserver.MetaSe
 		emitter:                             emitter,
 		metaServer:                          metaServer,
 		resourcesGetter:                     resourcesGetter,
+		numaResourcesGetter:                 numaResourcesGetter,
 		thresholdGetter:                     thresholdGetter,
 		deletionGracePeriodGetter:           deletionGracePeriodGetter,
 		thresholdMetToleranceDurationGetter: thresholdMetToleranceDurationGetter,

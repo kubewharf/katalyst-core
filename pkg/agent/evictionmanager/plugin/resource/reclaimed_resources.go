@@ -53,6 +53,9 @@ func NewReclaimedResourcesEvictionPlugin(_ *client.GenericClientSet, _ events.Ev
 		}
 		return allocatable, nil
 	}
+	numaResourcesGetter := func(ctx context.Context) (map[string]v1.ResourceList, error) {
+		return nil, nil
+	}
 
 	reclaimedThresholdGetter := func(resourceName v1.ResourceName) *float64 {
 		if threshold, ok := conf.GetDynamicConfiguration().EvictionThreshold[resourceName]; !ok {
@@ -74,6 +77,7 @@ func NewReclaimedResourcesEvictionPlugin(_ *client.GenericClientSet, _ events.Ev
 		metaServer,
 		emitter,
 		reclaimedResourcesGetter,
+		numaResourcesGetter,
 		reclaimedThresholdGetter,
 		deletionGracePeriodGetter,
 		thresholdMetToleranceDurationGetter,
