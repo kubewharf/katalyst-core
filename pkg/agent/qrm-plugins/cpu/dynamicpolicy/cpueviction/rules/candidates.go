@@ -65,6 +65,9 @@ func PrepareCandidatePods(_ context.Context, request *pluginapi.GetTopEvictionPo
 	if request == nil || request.CandidateEvictionRecords == nil {
 		general.Warningf("no candidateEvictionRecords in request")
 	}
+	if request.CandidateEvictionRecords != nil {
+		general.Infof("get candidateEvictionRecords: %v", request.CandidateEvictionRecords)
+	}
 	var evictionRecords []*pluginapi.EvictionRecord
 	for _, record := range request.CandidateEvictionRecords {
 		evictionRecords = append(evictionRecords, record)
