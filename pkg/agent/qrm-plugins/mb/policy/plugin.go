@@ -30,6 +30,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/domain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/reader"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/malachite/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -49,6 +51,7 @@ type MBPlugin struct {
 	xDomGroups  sets.String
 	domains     domain.Domains
 
+	reader        reader.MBReder
 	advisor       advisor.Advisor
 	planAllocator allocator.PlanAllocator
 }
@@ -70,12 +73,41 @@ func (m *MBPlugin) Stop() error {
 	return nil
 }
 
+func ToGroupMonStat(mbData *types.MBData) monitor.GroupMonStat {
+	if mbData == nil {
+		return nil
+	}
+
+	result := monitor.GroupMonStat{}
+	for group, ccdStats := range mbData.MBBody {
+		groupCCDStats := monitor.GroupCCDMB{}
+		for ccd, stat := range ccdStats {
+			groupCCDStats[ccd] = monitor.MBStat{
+				LocalMB:  int(stat.MBLocal),
+				RemoteMB: int(stat.MBRemote),
+				TotalMB:  int(stat.MBLocal) + int(stat.MBRemote),
+			}
+		}
+		result[group] = groupCCDStats
+	}
+
+	return result
+}
+
 func (m *MBPlugin) run() {
 	general.InfofV(6, "[mbm] plugin run start")
-	ctx := context.Background()
 
-	// todo: fetch the current mb stat
-	var statOutgoing monitor.GroupMonStat
+	mbData, err := m.reader.GetMBData()
+	if err != nil {
+		general.Errorf("[mbm] failed to get mb data: %v", err)
+		return
+	}
+
+	statOutgoing := ToGroupMonStat(mbData)
+	if mbData == nil {
+		general.Warningf("[mbm] got empty mb data")
+		return
+	}
 
 	monData, err := monitor.NewDomainsMon(statOutgoing, m.ccdToDomain, m.xDomGroups)
 	if err != nil {
@@ -83,6 +115,7 @@ func (m *MBPlugin) run() {
 		return
 	}
 
+	ctx := context.Background()
 	var mbPlan *plan.MBPlan
 	mbPlan, err = m.advisor.GetPlan(ctx, monData)
 	if err != nil {

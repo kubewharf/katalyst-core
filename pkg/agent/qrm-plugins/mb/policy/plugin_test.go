@@ -28,6 +28,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/domain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/reader"
+	malachitetypes "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/malachite/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
@@ -49,10 +51,36 @@ func (mp *mockPlanAlloctor) Allocate(ctx context.Context, plan *plan.MBPlan) err
 	return args.Error(0)
 }
 
+type mockReader struct {
+	mock.Mock
+}
+
+func (mr *mockReader) GetMBData() (*malachitetypes.MBData, error) {
+	args := mr.Called()
+	return args.Get(0).(*malachitetypes.MBData), args.Error(1)
+}
+
 func TestMBPlugin_run(t *testing.T) {
 	t.Parallel()
 
 	dummyPlan := &plan.MBPlan{}
+
+	mReader := new(mockReader)
+	mReader.On("GetMBData").Return(&malachitetypes.MBData{
+		MBBody: map[string]malachitetypes.MBGroupData{
+			"/": {
+				0: {
+					MBLocal:  888.8,
+					MBRemote: 222.2,
+				},
+				1: {
+					MBLocal:  777.7,
+					MBRemote: 333.3,
+				},
+			},
+		},
+		UpdateTime: 0,
+	}, nil)
 
 	mAdvisor := new(mockAdvisor)
 	mAdvisor.On("GetPlan", mock.Anything, mock.Anything).Return(dummyPlan, nil)
@@ -66,6 +94,7 @@ func TestMBPlugin_run(t *testing.T) {
 		ccdToDomain   map[int]int
 		xDomGroups    sets.String
 		domains       domain.Domains
+		reader        reader.MBReder
 		advisor       advisor.Advisor
 		planAllocator allocator.PlanAllocator
 	}
@@ -77,9 +106,10 @@ func TestMBPlugin_run(t *testing.T) {
 			name: "happy path",
 			fields: fields{
 				emitter:       &metrics.DummyMetrics{},
-				ccdToDomain:   nil,
+				ccdToDomain:   map[int]int{0: 0, 1: 0},
 				xDomGroups:    nil,
 				domains:       nil,
+				reader:        mReader,
 				advisor:       mAdvisor,
 				planAllocator: mPlanAllocator,
 			},
@@ -95,6 +125,7 @@ func TestMBPlugin_run(t *testing.T) {
 				ccdToDomain:   tt.fields.ccdToDomain,
 				xDomGroups:    tt.fields.xDomGroups,
 				domains:       tt.fields.domains,
+				reader:        tt.fields.reader,
 				advisor:       tt.fields.advisor,
 				planAllocator: tt.fields.planAllocator,
 			}
