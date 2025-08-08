@@ -165,9 +165,9 @@ func GetCgroupPids(cgroupPath string) ([]int, error) {
 		absCgroupPath = cgroupPath
 	} else {
 		if libcontainercgroups.IsCgroup2UnifiedMode() {
-			absCgroupPath = filepath.Join(CgroupFSMountPoint, "cpuset", cgroupPath)
-		} else {
 			absCgroupPath = filepath.Join(CgroupFSMountPoint, cgroupPath)
+		} else {
+			absCgroupPath = filepath.Join(CgroupFSMountPoint, "cpuset", cgroupPath)
 		}
 	}
 
