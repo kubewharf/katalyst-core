@@ -95,20 +95,20 @@ func PrepareCandidatePods(_ context.Context, request *pluginapi.GetTopEvictionPo
 	}
 
 	// to delete
-	for _, pod := range pods {
-		workloadInfos, err := getWorkloadEvictionInfo(getEvictionRecords()[0])
-		if err != nil {
-			general.Warningf("get workload eviction info failed: %v", err)
-		}
-		candidates = append(candidates, &CandidatePod{
-			Pod:                   pod,
-			Scores:                make(map[string]int),
-			TotalScore:            0,
-			WorkloadsEvictionInfo: workloadInfos,
-			UsageRatio:            0,
-		})
+	// for _, pod := range pods {
+	// 	workloadInfos, err := getWorkloadEvictionInfo(getEvictionRecords()[0])
+	// 	if err != nil {
+	// 		general.Warningf("get workload eviction info failed: %v", err)
+	// 	}
+	// 	candidates = append(candidates, &CandidatePod{
+	// 		Pod:                   pod,
+	// 		Scores:                make(map[string]int),
+	// 		TotalScore:            0,
+	// 		WorkloadsEvictionInfo: workloadInfos,
+	// 		UsageRatio:            0,
+	// 	})
 
-	}
+	// }
 
 	return candidates, nil
 }
