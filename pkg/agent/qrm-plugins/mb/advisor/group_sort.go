@@ -29,6 +29,7 @@ import (
 const defaultWeight = 5_000
 
 var resctrlGroupWeights = map[string]int{
+	"/":         10_000, // intrinsic root the highest
 	"dedicated": 9_000,
 	"system":    9_000,
 	"share":     1_050, // identical to shared-50

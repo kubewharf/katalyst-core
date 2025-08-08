@@ -97,8 +97,8 @@ func Test_domainAdvisor_getEffectiveCapacity(t *testing.T) {
 			t.Parallel()
 			d := &domainAdvisor{
 				domains:           tt.fields.domains,
-				XDomGroups:        tt.fields.XDomGroups,
-				GroupCapacityInMB: tt.fields.GroupCapacityInMB,
+				xDomGroups:        tt.fields.XDomGroups,
+				groupCapacityInMB: tt.fields.GroupCapacityInMB,
 			}
 			got, err := d.getEffectiveCapacity(tt.args.domID, tt.args.incomingStats)
 			if (err != nil) != tt.wantErr {
@@ -236,8 +236,8 @@ func Test_domainAdvisor_calcIncomingQuotas(t *testing.T) {
 			t.Parallel()
 			d := &domainAdvisor{
 				domains:           tt.fields.domains,
-				XDomGroups:        tt.fields.XDomGroups,
-				GroupCapacityInMB: tt.fields.GroupCapacityInMB,
+				xDomGroups:        tt.fields.XDomGroups,
+				groupCapacityInMB: tt.fields.GroupCapacityInMB,
 			}
 			got, err := d.calcIncomingDomainStats(tt.args.ctx, tt.args.mon)
 			if (err != nil) != tt.wantErr {
@@ -476,8 +476,8 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 			t.Parallel()
 			d := &domainAdvisor{
 				domains:           tt.fields.domains,
-				XDomGroups:        tt.fields.XDomGroups,
-				GroupCapacityInMB: tt.fields.GroupCapacityInMB,
+				xDomGroups:        tt.fields.XDomGroups,
+				groupCapacityInMB: tt.fields.GroupCapacityInMB,
 				quotaStrategy:     tt.fields.quotaStrategy,
 				flower:            tt.fields.flower,
 				adjusters:         tt.fields.adjusters,

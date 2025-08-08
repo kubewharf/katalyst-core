@@ -30,7 +30,7 @@ type DomainsMon struct {
 }
 
 // NewDomainsMon splits resctrl style incoming mon data into domains w/ both directions,
-// and attributes incoming traffic to outgoings, in cross-domain style, among XDomGroups
+// and attributes incoming traffic to outgoings, in cross-domain style among cross-domain groups
 func NewDomainsMon(statOutgoing GroupMonStat, ccdToDomain map[int]int, XDomGroups sets.String) (*DomainsMon, error) {
 	result := &DomainsMon{
 		Incoming: make(map[int]GroupMonStat),

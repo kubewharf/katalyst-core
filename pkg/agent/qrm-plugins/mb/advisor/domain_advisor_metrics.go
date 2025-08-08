@@ -30,6 +30,7 @@ const (
 	nameMBMIncomingTarget         = "mbm_incoming_target"
 	nameMBMOutgoingTarget         = "mbm_outgoing_target"
 	nameMBMAdjustedOutgoingTarget = "mbm_outgoing_target_adjusted"
+	namePlanRaw                   = "mbm_plan_raw"
 	namePlanUpdate                = "mbm_plan_update"
 )
 
@@ -56,18 +57,26 @@ func (d *domainAdvisor) emitAdjustedOutgoingTargets(groupedDomOutgoingTargets ma
 	emitNamedGroupTargets(d.emitter, nameMBMAdjustedOutgoingTarget, groupedDomOutgoingTargets)
 }
 
-func (d *domainAdvisor) emitPlanUpdate(updatePlan *plan.MBPlan) {
-	if updatePlan == nil || len(updatePlan.MBGroups) == 0 {
+func (d *domainAdvisor) emitRawPlan(plan *plan.MBPlan) {
+	d.emitPlanWithMetricName(plan, namePlanRaw)
+}
+
+func (d *domainAdvisor) emitUpdatePlan(plan *plan.MBPlan) {
+	d.emitPlanWithMetricName(plan, namePlanUpdate)
+}
+
+func (d *domainAdvisor) emitPlanWithMetricName(plan *plan.MBPlan, metricName string) {
+	if plan == nil || len(plan.MBGroups) == 0 {
 		return
 	}
 
-	for group, ccdMBs := range updatePlan.MBGroups {
+	for group, ccdMBs := range plan.MBGroups {
 		for ccd, v := range ccdMBs {
 			tags := map[string]string{
 				"group": group,
 				"ccd":   fmt.Sprintf("%d", ccd),
 			}
-			emitKV(d.emitter, namePlanUpdate, v, tags)
+			emitKV(d.emitter, metricName, v, tags)
 		}
 	}
 }
