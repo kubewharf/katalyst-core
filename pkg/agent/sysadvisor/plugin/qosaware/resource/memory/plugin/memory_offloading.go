@@ -56,6 +56,9 @@ const (
 	InactiveProbe            = 0.1
 	OffloadingSizeScaleCoeff = 1.05
 	CacheMappedCoeff         = 2
+	CacheExceptMappedCoeff   = 2
+
+	minSizeCacheExceptMap = 1 * 1024 * 1024
 )
 
 const (
@@ -420,20 +423,36 @@ func (tmoEngine *tmoEngineInstance) CalculateOffloadingTargetSize() {
 	// TODO: get result from qrm to make sure last offloading action finished
 	if fn, ok := tmoPolicyFuncs.Load(tmoEngine.conf.PolicyName); ok {
 		if policyFunc, ok := fn.(TmoPolicyFn); ok {
+			// If swap is not enabled and the cache size is close to the mapped file size,
+			// skip the reclaim process. This is a protective measure to avoid reclaiming
+			// potentially useful page cache when swap is disabled, as reclaiming might
+			// lead to performance degradation if the pages are needed again soon.
 			if !tmoEngine.conf.EnableSwap && currStats.cache < CacheMappedCoeff*currStats.mapped {
 				general.Infof("Tmo obj: %s cache is close to mapped, skip reclaim", currStats.obj)
 				tmoEngine.offloadingTargetSize = 0
 				return
 			}
-			err, targetSize := policyFunc(tmoEngine.lastStats, currStats, tmoEngine.conf, tmoEngine.emitter)
+			err, targetFromPolicy := policyFunc(tmoEngine.lastStats, currStats, tmoEngine.conf, tmoEngine.emitter)
 			if err != nil {
 				general.ErrorS(err, "Failed to calculate offloading memory size")
 				return
 			}
 
+			// Calculate the cache size excluding the mapped size,
+			// which is a primary candidate for offloading.
 			cacheExceptMapped := currStats.cache - currStats.mapped
-			general.InfoS("Handle targetSize from policy", "Tmo obj:", currStats.obj, "targetSize:", targetSize, "cacheExceptMapped", cacheExceptMapped)
-			targetSize = math.Max(0, math.Min(cacheExceptMapped, targetSize))
+
+			// Determine the final target offloading size.
+			// It's calculated as the maximum of two values:
+			// 1. A fraction of the cache size excluding mapped files (cacheExceptMapped), with a minimum floor (minSizeCacheExceptMap).
+			// 2. The target size suggested by the policy function (targetFromPolicy).
+			// The result is capped by targetFromPolicy and floored at 0 to ensure it's a non-negative value
+			// and does not exceed the policy's recommendation.
+			targetSize := math.Max(0, math.Min(math.Max(CacheExceptMappedCoeff*cacheExceptMapped, minSizeCacheExceptMap), targetFromPolicy))
+
+			general.InfoS("Handle targetSize from policy", "Tmo obj:", currStats.obj, "targetFromPolicy:", targetFromPolicy,
+				"cacheExceptMapped", cacheExceptMapped, "targetSize", targetSize)
+
 			tmoEngine.offloadingTargetSize = targetSize
 			currStats.offloadingTargetSize = targetSize
 			tmoEngine.lastStats = currStats
