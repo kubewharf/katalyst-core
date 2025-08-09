@@ -21,6 +21,8 @@ const (
 	KillerNameEvictionKiller  = "eviction-api-killer"
 	KillerNameDeletionKiller  = "deletion-api-killer"
 	KillerNameContainerKiller = "container-killer"
+
+	NotifierNameHostPath = "host-path-notifier"
 )
 
 const (
