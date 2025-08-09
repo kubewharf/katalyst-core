@@ -57,6 +57,9 @@ type GenericEvictionConfiguration struct {
 
 	// RecordManager specifies the eviction record manager to use
 	RecordManager string
+
+	// HostPathNotifierRootPath
+	HostPathNotifierRootPath string
 }
 
 type EvictionConfiguration struct {

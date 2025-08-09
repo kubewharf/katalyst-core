@@ -19,6 +19,7 @@ package resource
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -28,6 +29,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -53,8 +55,10 @@ type ZoneResourcesPlugin struct {
 	podZoneRequestResourcesGetter PodZoneRequestResourcesGetter
 	// thresholdGetter is used to get the threshold of resources.
 	thresholdGetter                     ThresholdGetter
+	softThresholdGetter                 ThresholdGetter
 	deletionGracePeriodGetter           GracePeriodGetter
 	thresholdMetToleranceDurationGetter GracePeriodGetter
+	evictScoreGetter                    EvictScoreGetter
 
 	zoneType   v1alpha1.TopologyType
 	pluginName string
@@ -70,6 +74,8 @@ func NewZoneResourcesPlugin(
 	emitter metrics.MetricEmitter,
 	podZoneRequestResourcesGetter PodZoneRequestResourcesGetter,
 	thresholdGetter ThresholdGetter,
+	softThresholdGetter ThresholdGetter,
+	evictScoreGetter EvictScoreGetter,
 	deletionGracePeriodGetter GracePeriodGetter,
 	thresholdMetToleranceDurationGetter GracePeriodGetter,
 	skipZeroQuantityResourceNames sets.String,
@@ -84,6 +90,8 @@ func NewZoneResourcesPlugin(
 		metaServer:                          metaServer,
 		podZoneRequestResourcesGetter:       podZoneRequestResourcesGetter,
 		thresholdGetter:                     thresholdGetter,
+		softThresholdGetter:                 softThresholdGetter,
+		evictScoreGetter:                    evictScoreGetter,
 		deletionGracePeriodGetter:           deletionGracePeriodGetter,
 		thresholdMetToleranceDurationGetter: thresholdMetToleranceDurationGetter,
 		zoneType:                            zoneType,
@@ -244,6 +252,31 @@ func (p *ZoneResourcesPlugin) ThresholdMet(ctx context.Context, _ *pluginapi.Get
 					GracePeriodSeconds: p.thresholdMetToleranceDurationGetter(),
 				}, nil
 			}
+
+			softThresholdRate := p.softThresholdGetter(resourceName)
+			if softThresholdRate == nil {
+				klog.Warningf("[%s] skip %s resource soft eviction because threshold is empty", p.pluginName, resourceName)
+				continue
+			}
+
+			thresholdValue = *softThresholdRate * total
+			klog.V(4).Infof("[%s] zone %s resource %v: total %v, used %v, softThresholdRate %v, softThresholdValue %v", p.pluginName, zoneID,
+				resourceName, total, used, *softThresholdRate, thresholdValue)
+
+			exceededValue = thresholdValue - used
+			if exceededValue < 0 {
+				klog.Infof("[%s] zone %s resource %v exceeded: total %v, used %v, softThresholdRate %v, softThresholdValue %v", p.pluginName, zoneID,
+					resourceName, total, used, *softThresholdRate, thresholdValue)
+
+				return &pluginapi.ThresholdMetResponse{
+					ThresholdValue:     thresholdValue,
+					ObservedValue:      used,
+					ThresholdOperator:  pluginapi.ThresholdOperator_GREATER_THAN,
+					MetType:            pluginapi.ThresholdMetType_SOFT_MET,
+					EvictionScope:      fmt.Sprintf("zone%s%s%s", zoneID, evictionScopeSplitter, string(resourceName)),
+					GracePeriodSeconds: p.thresholdMetToleranceDurationGetter(),
+				}, nil
+			}
 		}
 	}
 
@@ -275,6 +308,13 @@ func (p *ZoneResourcesPlugin) GetTopEvictionPods(ctx context.Context, request *p
 	cnr, err := p.metaServer.GetCNR(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cnr from metaServer: %v", err)
+	}
+
+	allocatable, err := p.getZoneAllocatable(cnr)
+	if err != nil {
+		errMsg := fmt.Sprintf("failed to get allocatable: %v", err)
+		klog.Errorf("[%s] %s", p.pluginName, errMsg)
+		return nil, fmt.Errorf(errMsg)
 	}
 
 	zoneAllocations, err := p.getZoneAllocation(cnr)
@@ -341,11 +381,31 @@ func (p *ZoneResourcesPlugin) GetTopEvictionPods(ctx context.Context, request *p
 		}(pod)
 	}
 	wg.Wait()
-	sort.Slice(candidateEvictionPods, func(i, j int) bool {
-		return values[string(candidateEvictionPods[i].UID)] > values[string(candidateEvictionPods[j].UID)]
-	})
 
-	retLen := general.MinUInt64(request.TopN, uint64(len(candidateEvictionPods)))
+	isHardEvict := true
+	if request.TopN == 0 {
+		isHardEvict = false
+	}
+
+	var targetPods []*v1.Pod
+	if isHardEvict {
+		targetPods = p.getTopHardEvictionPods(candidateEvictionPods, values, request.TopN)
+	} else {
+		// get soft threshold
+		totalQuantity, ok := allocatable[evictionZoneID][v1.ResourceName(resourceName)]
+		if !ok {
+			klog.Warningf("used resource: %s doesn't exist in allocatable", resourceName)
+			return &pluginapi.GetTopEvictionPodsResponse{}, nil
+		}
+
+		softThresholdRate := p.softThresholdGetter(v1.ResourceName(resourceName))
+		if softThresholdRate == nil {
+			klog.Warningf("failed to get soft threshold: %v", resourceName)
+			return &pluginapi.GetTopEvictionPodsResponse{}, nil
+		}
+
+		targetPods = p.getTopSoftEvictionPods(candidateEvictionPods, values, *softThresholdRate*float64(totalQuantity.Value()))
+	}
 
 	var deletionOptions *pluginapi.DeletionOptions
 	if gracePeriod := p.deletionGracePeriodGetter(); gracePeriod >= 0 {
@@ -355,9 +415,87 @@ func (p *ZoneResourcesPlugin) GetTopEvictionPods(ctx context.Context, request *p
 	}
 
 	return &pluginapi.GetTopEvictionPodsResponse{
-		TargetPods:      candidateEvictionPods[:retLen],
+		TargetPods:      targetPods,
 		DeletionOptions: deletionOptions,
 	}, nil
+}
+
+func (p *ZoneResourcesPlugin) getTopSoftEvictionPods(candidateEvictionPods []*v1.Pod, resReq map[string]int64, threshold float64) (targetPods []*v1.Pod) {
+	// soft evict handle notification-enabled pod only
+	var notifyFilteredPods []*v1.Pod
+	for _, pod := range candidateEvictionPods {
+		if v, ok := pod.Annotations[apiconsts.PodAnnotationSoftEvictNotificationKey]; ok && strings.ToLower(v) == "true" {
+			notifyFilteredPods = append(notifyFilteredPods, pod)
+		}
+	}
+
+	if len(notifyFilteredPods) == 0 {
+		klog.Infof("GetTopEvictionPods got empty active pods after filtering: %d", len(candidateEvictionPods))
+		return
+	}
+
+	// get pod score if score getter exist
+	scores := make(map[string]float64, len(notifyFilteredPods))
+	if p.evictScoreGetter != nil {
+		for _, pod := range notifyFilteredPods {
+			if s := p.evictScoreGetter(pod); s != nil {
+				scores[string(pod.UID)] = *s
+			}
+		}
+	}
+
+	// sort pods
+	sort.Slice(notifyFilteredPods, func(i, j int) bool {
+		// sort by score first
+		valueI, valueJ := math.MaxFloat64, math.MaxFloat64
+		if s, ok := scores[string(notifyFilteredPods[i].UID)]; ok {
+			valueI = s
+		}
+
+		if s, ok := scores[string(notifyFilteredPods[j].UID)]; ok {
+			valueJ = s
+		}
+
+		if valueI != valueJ {
+			return valueI > valueJ
+		}
+
+		// sort by request if with same score
+		return resReq[string(notifyFilteredPods[i].UID)] < resReq[string(notifyFilteredPods[j].UID)]
+	})
+
+	// get pods that can keep running
+	var usedRequest int64
+	cnt := 0
+	for _, pod := range notifyFilteredPods {
+		req, ok := resReq[string(pod.UID)]
+		if !ok {
+			klog.Warningf("pod resource request not exist: %s", pod.Name)
+			continue
+		}
+
+		usedRequest += req
+		if float64(usedRequest) >= threshold {
+			break
+		}
+		cnt++
+	}
+
+	// get topN pod to eviction
+	general.SliceReverse(notifyFilteredPods)
+	podCnt := general.Max(len(notifyFilteredPods)-cnt, 1)
+	retLen := uint64(general.Min(len(notifyFilteredPods), podCnt))
+	klog.Infof("getTopSoftEvictionPods get %d soft pods", retLen)
+
+	return notifyFilteredPods[:retLen]
+}
+
+func (p *ZoneResourcesPlugin) getTopHardEvictionPods(candidateEvictionPods []*v1.Pod, resReq map[string]int64, topN uint64) []*v1.Pod {
+	sort.Slice(candidateEvictionPods, func(i, j int) bool {
+		return resReq[string(candidateEvictionPods[i].UID)] > resReq[string(candidateEvictionPods[j].UID)]
+	})
+
+	return candidateEvictionPods[:general.MinUInt64(topN, uint64(len(candidateEvictionPods)))]
 }
 
 // getZoneAllocatable traverses the topology tree and collects allocatable resources
