@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/api/resource"
+
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -75,6 +77,29 @@ func FilterPods(pods []*v1.Pod, filterFunc func(*v1.Pod) (bool, error)) []*v1.Po
 	}
 
 	return filtered
+}
+
+// GetPodRequestResources get pod resource quantity by resource name
+func GetPodRequestResources(pod *v1.Pod, name v1.ResourceName) *resource.Quantity {
+	ret := resource.NewQuantity(0, resource.DecimalSI)
+
+	for _, container := range pod.Spec.Containers {
+		if q, ok := container.Resources.Requests[name]; ok {
+			ret.Add(q)
+		}
+	}
+
+	if q, ok := pod.Spec.Overhead[name]; ok {
+		ret.Add(q)
+	}
+
+	for _, container := range pod.Spec.InitContainers {
+		if q, ok := container.Resources.Requests[name]; ok {
+			ret.Add(q)
+		}
+	}
+
+	return ret
 }
 
 // SumUpPodRequestResources sum up resources in all containers request
