@@ -98,6 +98,7 @@ func makeConf() *config.Configuration {
 	conf.PodKiller = consts.KillerNameEvictionKiller
 	conf.GenericConfiguration.AuthConfiguration.AuthType = credential.AuthTypeInsecure
 	conf.GenericConfiguration.AuthConfiguration.AccessControlType = authorization.AccessControlTypeInsecure
+	conf.HostPathNotifierRootPath = "/opt/katalyst"
 
 	return conf
 }

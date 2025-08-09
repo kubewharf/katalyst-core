@@ -86,6 +86,9 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 										EvictionThreshold: map[v1.ResourceName]float64{
 											v1.ResourceCPU: 5.0,
 										},
+										SoftEvictionThreshold: map[v1.ResourceName]float64{
+											v1.ResourceCPU: 1.5,
+										},
 									},
 								},
 							},
@@ -106,6 +109,9 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 									ReclaimedResourcesEvictionConfig: &v1alpha1.ReclaimedResourcesEvictionConfig{
 										EvictionThreshold: map[v1.ResourceName]float64{
 											v1.ResourceCPU: 10.0,
+										},
+										SoftEvictionThreshold: map[v1.ResourceName]float64{
+											v1.ResourceCPU: 6.0,
 										},
 									},
 								},
@@ -135,6 +141,9 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 									ReclaimedResourcesEvictionConfig: &v1alpha1.ReclaimedResourcesEvictionConfig{
 										EvictionThreshold: map[v1.ResourceName]float64{
 											v1.ResourceCPU: 15.0,
+										},
+										SoftEvictionThreshold: map[v1.ResourceName]float64{
+											v1.ResourceCPU: 10.0,
 										},
 									},
 								},
@@ -177,6 +186,9 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 									EvictionThreshold: map[v1.ResourceName]float64{
 										v1.ResourceCPU: 5.0,
 									},
+									SoftEvictionThreshold: map[v1.ResourceName]float64{
+										v1.ResourceCPU: 1.5,
+									},
 								},
 							},
 						},
@@ -186,7 +198,7 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 						CanaryNodes:        1,
 						UpdatedTargetNodes: 1,
 						UpdatedNodes:       1,
-						CurrentHash:        "b3ffe223d46e",
+						CurrentHash:        "190b30322065",
 						ObservedGeneration: 1,
 						Conditions: []v1alpha1.GenericConfigCondition{
 							{
@@ -213,6 +225,9 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 									EvictionThreshold: map[v1.ResourceName]float64{
 										v1.ResourceCPU: 10.0,
 									},
+									SoftEvictionThreshold: map[v1.ResourceName]float64{
+										v1.ResourceCPU: 6.0,
+									},
 								},
 							},
 						},
@@ -222,7 +237,7 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 						CanaryNodes:        1,
 						UpdatedTargetNodes: 1,
 						UpdatedNodes:       1,
-						CurrentHash:        "8c1738cd5743",
+						CurrentHash:        "71cf0929a297",
 						ObservedGeneration: 1,
 						Conditions: []v1alpha1.GenericConfigCondition{
 							{
@@ -257,6 +272,9 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 									EvictionThreshold: map[v1.ResourceName]float64{
 										v1.ResourceCPU: 15.0,
 									},
+									SoftEvictionThreshold: map[v1.ResourceName]float64{
+										v1.ResourceCPU: 10.0,
+									},
 								},
 							},
 						},
@@ -266,7 +284,7 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 						CanaryNodes:        1,
 						UpdatedTargetNodes: 1,
 						UpdatedNodes:       1,
-						CurrentHash:        "a7f48154abe2",
+						CurrentHash:        "d4b70d79b95f",
 						ObservedGeneration: 1,
 						Conditions: []v1alpha1.GenericConfigCondition{
 							{
@@ -289,7 +307,7 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 								ConfigType:      crd.AdminQoSConfigurationGVR,
 								ConfigNamespace: "default",
 								ConfigName:      "node-1",
-								Hash:            "a7f48154abe2",
+								Hash:            "d4b70d79b95f",
 							},
 						},
 					},
@@ -307,7 +325,7 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 								ConfigType:      crd.AdminQoSConfigurationGVR,
 								ConfigNamespace: "default",
 								ConfigName:      "aa-bb",
-								Hash:            "8c1738cd5743",
+								Hash:            "71cf0929a297",
 							},
 						},
 					},
@@ -322,7 +340,7 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 								ConfigType:      crd.AdminQoSConfigurationGVR,
 								ConfigNamespace: "default",
 								ConfigName:      "default",
-								Hash:            "b3ffe223d46e",
+								Hash:            "190b30322065",
 							},
 						},
 					},
@@ -363,6 +381,9 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 										EvictionThreshold: map[v1.ResourceName]float64{
 											v1.ResourceCPU: 5.0,
 										},
+										SoftEvictionThreshold: map[v1.ResourceName]float64{
+											v1.ResourceCPU: 1.5,
+										},
 									},
 								},
 							},
@@ -383,6 +404,9 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 									ReclaimedResourcesEvictionConfig: &v1alpha1.ReclaimedResourcesEvictionConfig{
 										EvictionThreshold: map[v1.ResourceName]float64{
 											v1.ResourceCPU: 10.0,
+										},
+										SoftEvictionThreshold: map[v1.ResourceName]float64{
+											v1.ResourceCPU: 6.0,
 										},
 									},
 								},
@@ -405,6 +429,9 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 									ReclaimedResourcesEvictionConfig: &v1alpha1.ReclaimedResourcesEvictionConfig{
 										EvictionThreshold: map[v1.ResourceName]float64{
 											v1.ResourceCPU: 15.0,
+										},
+										SoftEvictionThreshold: map[v1.ResourceName]float64{
+											v1.ResourceCPU: 10.0,
 										},
 									},
 								},
@@ -477,6 +504,9 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 									EvictionThreshold: map[v1.ResourceName]float64{
 										v1.ResourceCPU: 5.0,
 									},
+									SoftEvictionThreshold: map[v1.ResourceName]float64{
+										v1.ResourceCPU: 1.5,
+									},
 								},
 							},
 						},
@@ -500,6 +530,9 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 								ReclaimedResourcesEvictionConfig: &v1alpha1.ReclaimedResourcesEvictionConfig{
 									EvictionThreshold: map[v1.ResourceName]float64{
 										v1.ResourceCPU: 10.0,
+									},
+									SoftEvictionThreshold: map[v1.ResourceName]float64{
+										v1.ResourceCPU: 6.0,
 									},
 								},
 							},
@@ -533,6 +566,9 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 								ReclaimedResourcesEvictionConfig: &v1alpha1.ReclaimedResourcesEvictionConfig{
 									EvictionThreshold: map[v1.ResourceName]float64{
 										v1.ResourceCPU: 15.0,
+									},
+									SoftEvictionThreshold: map[v1.ResourceName]float64{
+										v1.ResourceCPU: 10.0,
 									},
 								},
 							},
@@ -636,6 +672,9 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 										EvictionThreshold: map[v1.ResourceName]float64{
 											v1.ResourceCPU: 5.0,
 										},
+										SoftEvictionThreshold: map[v1.ResourceName]float64{
+											v1.ResourceCPU: 1.5,
+										},
 									},
 								},
 							},
@@ -645,7 +684,7 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 							CanaryNodes:        1,
 							UpdatedTargetNodes: 1,
 							UpdatedNodes:       1,
-							CurrentHash:        "b3ffe223d46e",
+							CurrentHash:        "190b30322065",
 							ObservedGeneration: 1,
 							Conditions: []v1alpha1.GenericConfigCondition{
 								{
@@ -681,6 +720,9 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 										EvictionThreshold: map[v1.ResourceName]float64{
 											v1.ResourceCPU: 15.0,
 										},
+										SoftEvictionThreshold: map[v1.ResourceName]float64{
+											v1.ResourceCPU: 10.0,
+										},
 									},
 								},
 							},
@@ -690,7 +732,7 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 							CanaryNodes:        2,
 							UpdatedTargetNodes: 2,
 							UpdatedNodes:       2,
-							CurrentHash:        "8c1738cd5743",
+							CurrentHash:        "d4b70d79b95f",
 							ObservedGeneration: 1,
 							Conditions: []v1alpha1.GenericConfigCondition{
 								{
@@ -713,7 +755,7 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 									ConfigType:      crd.AdminQoSConfigurationGVR,
 									ConfigNamespace: "default",
 									ConfigName:      "default",
-									Hash:            "b3ffe223d46e",
+									Hash:            "190b30322065",
 								},
 							},
 						},
@@ -770,6 +812,9 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 									EvictionThreshold: map[v1.ResourceName]float64{
 										v1.ResourceCPU: 5.0,
 									},
+									SoftEvictionThreshold: map[v1.ResourceName]float64{
+										v1.ResourceCPU: 1.5,
+									},
 								},
 							},
 						},
@@ -779,7 +824,7 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 						CanaryNodes:        1,
 						UpdatedTargetNodes: 1,
 						UpdatedNodes:       1,
-						CurrentHash:        "b3ffe223d46e",
+						CurrentHash:        "190b30322065",
 						ObservedGeneration: 1,
 						Conditions: []v1alpha1.GenericConfigCondition{
 							{
@@ -815,6 +860,9 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 									EvictionThreshold: map[v1.ResourceName]float64{
 										v1.ResourceCPU: 15.0,
 									},
+									SoftEvictionThreshold: map[v1.ResourceName]float64{
+										v1.ResourceCPU: 10.0,
+									},
 								},
 							},
 						},
@@ -824,7 +872,7 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 						CanaryNodes:        1,
 						UpdatedTargetNodes: 1,
 						UpdatedNodes:       1,
-						CurrentHash:        "a7f48154abe2",
+						CurrentHash:        "d4b70d79b95f",
 						ObservedGeneration: 2,
 						Conditions: []v1alpha1.GenericConfigCondition{
 							{
@@ -847,7 +895,7 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 								ConfigType:      crd.AdminQoSConfigurationGVR,
 								ConfigNamespace: "default",
 								ConfigName:      "default",
-								Hash:            "b3ffe223d46e",
+								Hash:            "190b30322065",
 							},
 						},
 					},
@@ -865,7 +913,7 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 								ConfigType:      crd.AdminQoSConfigurationGVR,
 								ConfigNamespace: "default",
 								ConfigName:      "aa-bb",
-								Hash:            "a7f48154abe2",
+								Hash:            "d4b70d79b95f",
 							},
 						},
 					},
@@ -934,7 +982,7 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 							CanaryNodes:        1,
 							UpdatedTargetNodes: 1,
 							UpdatedNodes:       1,
-							CurrentHash:        "b3ffe223d46e",
+							CurrentHash:        "d66c6afd9fc2",
 							ObservedGeneration: 1,
 							Conditions: []v1alpha1.GenericConfigCondition{
 								{
@@ -998,7 +1046,7 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 									ConfigType:      crd.AdminQoSConfigurationGVR,
 									ConfigNamespace: "default",
 									ConfigName:      "default",
-									Hash:            "b3ffe223d46e",
+									Hash:            "d66c6afd9fc2",
 								},
 							},
 						},
@@ -1046,7 +1094,7 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 						CanaryNodes:        2,
 						UpdatedTargetNodes: 2,
 						UpdatedNodes:       2,
-						CurrentHash:        "b3ffe223d46e",
+						CurrentHash:        "d66c6afd9fc2",
 						ObservedGeneration: 1,
 						Conditions: []v1alpha1.GenericConfigCondition{
 							{
@@ -1108,7 +1156,7 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 								ConfigType:      crd.AdminQoSConfigurationGVR,
 								ConfigNamespace: "default",
 								ConfigName:      "default",
-								Hash:            "b3ffe223d46e",
+								Hash:            "d66c6afd9fc2",
 							},
 						},
 					},
@@ -1126,7 +1174,7 @@ func TestKatalystCustomConfigTargetController_Run(t *testing.T) {
 								ConfigType:      crd.AdminQoSConfigurationGVR,
 								ConfigNamespace: "default",
 								ConfigName:      "default",
-								Hash:            "b3ffe223d46e",
+								Hash:            "d66c6afd9fc2",
 							},
 						},
 					},

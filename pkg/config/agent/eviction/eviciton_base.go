@@ -51,6 +51,9 @@ type GenericEvictionConfiguration struct {
 
 	// PodMetricLabels defines the pod labels to be added in metric selector lists
 	PodMetricLabels sets.String
+
+	// HostPathNotifierRootPath
+	HostPathNotifierRootPath string
 }
 
 type EvictionConfiguration struct {
