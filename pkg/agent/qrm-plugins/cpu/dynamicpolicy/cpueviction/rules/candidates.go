@@ -27,28 +27,28 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
-func getEvictionRecords() []*pluginapi.EvictionRecord {
-	now := time.Now()
-	return []*pluginapi.EvictionRecord{
-		{
-			Uid:    "pod-uid-12345",
-			HasPdb: true,
-			Buckets: &pluginapi.Buckets{
-				List: []*pluginapi.Bucket{
-					{Time: now.Add(-120 * time.Minute).Unix(), Duration: 1800, Count: 4},
-					{Time: now.Add(-60 * time.Minute).Unix(), Duration: 1200, Count: 4},
-					{Time: now.Add(-30 * time.Minute).Unix(), Duration: 600, Count: 2},
-					{Time: now.Add(-20 * time.Minute).Unix(), Duration: 600, Count: 1},
-					{Time: now.Add(-10 * time.Minute).Unix(), Duration: 600, Count: 3},
-				},
-			},
-			DisruptionsAllowed: 2, // 允许中断的 Pod 数量
-			CurrentHealthy:     5, // 当前健康的 Pod 数量
-			DesiredHealthy:     3, // 期望保持的最小健康 Pod 数量
-			ExpectedPods:       5, // 预期的总 Pod 数量
-		},
-	}
-}
+// func getEvictionRecords() []*pluginapi.EvictionRecord {
+// 	now := time.Now()
+// 	return []*pluginapi.EvictionRecord{
+// 		{
+// 			Uid:    "pod-uid-12345",
+// 			HasPdb: true,
+// 			Buckets: &pluginapi.Buckets{
+// 				List: []*pluginapi.Bucket{
+// 					{Time: now.Add(-120 * time.Minute).Unix(), Duration: 1800, Count: 4},
+// 					{Time: now.Add(-60 * time.Minute).Unix(), Duration: 1200, Count: 4},
+// 					{Time: now.Add(-30 * time.Minute).Unix(), Duration: 600, Count: 2},
+// 					{Time: now.Add(-20 * time.Minute).Unix(), Duration: 600, Count: 1},
+// 					{Time: now.Add(-10 * time.Minute).Unix(), Duration: 600, Count: 3},
+// 				},
+// 			},
+// 			DisruptionsAllowed: 2, // 允许中断的 Pod 数量
+// 			CurrentHealthy:     5, // 当前健康的 Pod 数量
+// 			DesiredHealthy:     3, // 期望保持的最小健康 Pod 数量
+// 			ExpectedPods:       5, // 预期的总 Pod 数量
+// 		},
+// 	}
+// }
 
 const (
 	workloadEvictionInfoAnnotation = "evictionInfo"
@@ -61,13 +61,13 @@ const (
 // PrepareCandidatePods converts a list of v1.Pod to a list of *CandidatePod and populates
 // all the necessary information for the Filter and Score stages.
 func PrepareCandidatePods(_ context.Context, request *pluginapi.GetTopEvictionPodsRequest) ([]*CandidatePod, error) {
-	general.Infof("prepare candidate pods")
+
 	if request == nil || request.CandidateEvictionRecords == nil {
 		general.Warningf("no candidateEvictionRecords in request")
 	}
-	if request.CandidateEvictionRecords != nil {
-		general.Infof("get candidateEvictionRecords: %v", request.CandidateEvictionRecords)
-	}
+	// if request.CandidateEvictionRecords != nil {
+	// 	general.Infof("get candidateEvictionRecords: %v", request.CandidateEvictionRecords)
+	// }
 	var evictionRecords []*pluginapi.EvictionRecord
 	for _, record := range request.CandidateEvictionRecords {
 		evictionRecords = append(evictionRecords, record)
@@ -77,7 +77,9 @@ func PrepareCandidatePods(_ context.Context, request *pluginapi.GetTopEvictionPo
 	for _, pod := range pods {
 		for _, record := range evictionRecords {
 			if record.Uid == string(pod.UID) {
-				general.Infof("get eviction record for pod %s, record: %v", pod.Name, record)
+				if record.Buckets != nil {
+					general.Infof("get eviction record for pod %s, record: %v", pod.Name, record)
+				}
 				workloadInfos, err := getWorkloadEvictionInfo(record)
 				if err != nil {
 					general.Warningf("get workload eviction info failed: %v", err)
