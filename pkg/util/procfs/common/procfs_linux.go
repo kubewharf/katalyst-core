@@ -59,7 +59,7 @@ func writeFileIfChange(dir, file, data string) (error, bool, string) {
 	oldDataStr := string(oldData)
 
 	if strings.TrimSpace(data) != strings.TrimSpace(oldDataStr) {
-		if err = os.WriteFile(path, []byte(data), 0644); err != nil {
+		if err = os.WriteFile(path, []byte(data), 0o644); err != nil {
 			return err, false, oldDataStr
 		} else {
 			return nil, true, oldDataStr

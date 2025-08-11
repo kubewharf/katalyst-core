@@ -37,12 +37,11 @@ func NewIRQTunerStub(conf *config.Configuration, sa irqtuner.StateAdapter) irqtu
 }
 
 func (t *IRQTunerStub) Run(stopCh <-chan struct{}) {
-	//general.RegisterHeartbeatCheck(cpuconsts.IRQTuning, 2*time.Minute, general.HealthzCheckStateNotReady, 2*time.Minute)
+	// general.RegisterHeartbeatCheck(cpuconsts.IRQTuning, 2*time.Minute, general.HealthzCheckStateNotReady, 2*time.Minute)
 	// t.run()
 }
 
 func (t *IRQTunerStub) Stop() {
-
 }
 
 func (t *IRQTunerStub) run() {
