@@ -446,6 +446,7 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 				thresholds:         tt.fields.thresholds,
 				enabled:            tt.fields.enabled,
 				metaServer:         makeMetaServer(metricsFetcher, nil),
+				metricsHistory:     history.NewMetricHistory(tt.fields.numaPressureConfig.MetricRingSize),
 			}
 			p.pullThresholds(context.TODO())
 			assert.Equalf(t, tt.wantEnabled, p.enabled, "pullThresholds")
