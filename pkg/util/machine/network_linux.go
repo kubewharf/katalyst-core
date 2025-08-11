@@ -614,6 +614,13 @@ func GetNicQueue2IrqWithQueueFilter(nicInfo *NicBasicInfo, queueFilter string, q
 		}
 	}
 
+	queueCount := len(queue2Irq)
+	for queue, _ := range queue2Irq {
+		if queue >= queueCount {
+			return nil, fmt.Errorf("%s: %d: %s queue %d greater-equal queue count %d", nicInfo.NSName, nicInfo.IfIndex, nicInfo.Name, queue, queueCount)
+		}
+	}
+
 	return queue2Irq, nil
 }
 
@@ -622,26 +629,44 @@ func GetNicQueue2IrqWithQueueFilter(nicInfo *NicBasicInfo, queueFilter string, q
 // https://bytedance.larkoffice.com/docx/HN10digxVoviElxy6nXcChBqnJc
 // https://bytedance.larkoffice.com/wiki/ILS7wV43Ji0DMiknRsOcOwZUnwg
 // https://bytedance.larkoffice.com/wiki/wikcnMfA9FDb2V5ZrcHc1GVnL6m
-func GetNicQueue2Irq(nicInfo *NicBasicInfo) (map[int]int, error) {
+func GetNicQueue2Irq(nicInfo *NicBasicInfo) (map[int]int, map[int]int, error) {
+	if nicInfo.IsVirtioNetDev {
+		queueFilter := fmt.Sprintf("%s-input", nicInfo.VirtioNetName)
+		queueDelimeter := "."
+
+		queue2Irq, err := GetNicQueue2IrqWithQueueFilter(nicInfo, queueFilter, queueDelimeter)
+		if err != nil {
+			return nil, nil, fmt.Errorf("GetNicQueue2Irqs(%s, %s), err %v", queueFilter, queueDelimeter, err)
+		}
+
+		if len(queue2Irq) <= 0 {
+			return nil, nil, fmt.Errorf("failed to find matched input queue in %s for virtio nic %d: %s, virtio name: %s", InterruptsFile, nicInfo.IfIndex, nicInfo.Name, nicInfo.VirtioNetName)
+		}
+
+		queueFilter = fmt.Sprintf("%s-output", nicInfo.VirtioNetName)
+		txQueue2Irq, err := GetNicQueue2IrqWithQueueFilter(nicInfo, queueFilter, queueDelimeter)
+		if err != nil {
+			return nil, nil, fmt.Errorf("GetNicQueue2Irqs(%s, %s), err %v", queueFilter, queueDelimeter, err)
+		}
+
+		if len(txQueue2Irq) <= 0 {
+			return nil, nil, fmt.Errorf("failed to find matched output queue in %s for virtio nic %d: %s, virtio name: %s", InterruptsFile, nicInfo.IfIndex, nicInfo.Name, nicInfo.VirtioNetName)
+		}
+
+		return queue2Irq, txQueue2Irq, nil
+	}
+
+	txQueue2Irq := make(map[int]int)
 	queueFilter := nicInfo.Name
 	queueDelimeter := "-"
-	if nicInfo.IsVirtioNetDev {
-		queueFilter = fmt.Sprintf("%s-input", nicInfo.VirtioNetName)
-		queueDelimeter = "."
-	}
 
 	queue2Irq, err := GetNicQueue2IrqWithQueueFilter(nicInfo, queueFilter, queueDelimeter)
 	if err != nil {
-		return nil, fmt.Errorf("GetNicQueue2Irqs(%s, %s), err %v", queueFilter, queueDelimeter, err)
+		return nil, nil, fmt.Errorf("GetNicQueue2Irqs(%s, %s), err %v", queueFilter, queueDelimeter, err)
 	}
 
 	if len(queue2Irq) > 0 {
-		return queue2Irq, nil
-	}
-
-	// below fallback filters are not for virito-net device
-	if nicInfo.IsVirtioNetDev {
-		return nil, fmt.Errorf("failed to find matched queue in %s for virtio nic %d: %s, virtio name: %s", InterruptsFile, nicInfo.IfIndex, nicInfo.Name, nicInfo.VirtioNetName)
+		return queue2Irq, txQueue2Irq, nil
 	}
 
 	// some mlx driver version naming queue in /proc/interrupts as format mlx5_comp<queue number>@pci:<pci addr>, like mlx5_comp52@pci:0000:5e:00.0
@@ -651,11 +676,11 @@ func GetNicQueue2Irq(nicInfo *NicBasicInfo) (map[int]int, error) {
 
 		queue2Irq, err := GetNicQueue2IrqWithQueueFilter(nicInfo, queueFilter, queueDelimeter)
 		if err != nil {
-			return nil, fmt.Errorf("failed to GetNicQueue2IrqWithQueueFilter(%s, %s), err %v", queueFilter, queueDelimeter, err)
+			return nil, nil, fmt.Errorf("failed to GetNicQueue2IrqWithQueueFilter(%s, %s), err %v", queueFilter, queueDelimeter, err)
 		}
 
 		if len(queue2Irq) > 0 {
-			return queue2Irq, nil
+			return queue2Irq, txQueue2Irq, nil
 		}
 	}
 
@@ -667,15 +692,15 @@ func GetNicQueue2Irq(nicInfo *NicBasicInfo) (map[int]int, error) {
 
 		queue2Irq, err := GetNicQueue2IrqWithQueueFilter(nicInfo, queueFilter, queueDelimeter)
 		if err != nil {
-			return nil, fmt.Errorf("failed to GetNicQueue2IrqWithQueueFilter(%s, %s), err %v", queueFilter, queueDelimeter, err)
+			return nil, nil, fmt.Errorf("failed to GetNicQueue2IrqWithQueueFilter(%s, %s), err %v", queueFilter, queueDelimeter, err)
 		}
 
 		if len(queue2Irq) > 0 {
-			return queue2Irq, nil
+			return queue2Irq, txQueue2Irq, nil
 		}
 	}
 
-	return nil, fmt.Errorf("failed to find matched queue in %s for %d: %s", InterruptsFile, nicInfo.IfIndex, nicInfo.Name)
+	return nil, nil, fmt.Errorf("failed to find matched queue in %s for %d: %s", InterruptsFile, nicInfo.IfIndex, nicInfo.Name)
 }
 
 // before irq tuning initialization, one irq's smp_affinity_list may has multiple cpus
@@ -1308,7 +1333,7 @@ func ListActiveUplinkNics(netNSDir string) ([]*NicBasicInfo, error) {
 		}
 
 		for _, n := range netnsNics {
-			queue2Irq, err := GetNicQueue2Irq(n)
+			queue2Irq, txQueue2irq, err := GetNicQueue2Irq(n)
 			if err != nil {
 				return nil, fmt.Errorf("failed to GetNicQueue2Irq for %d: %s, err %v", n.IfIndex, n.Name, err)
 			}
@@ -1318,9 +1343,16 @@ func ListActiveUplinkNics(netNSDir string) ([]*NicBasicInfo, error) {
 				irq2Queue[irq] = queue
 			}
 
+			txIrq2Queue := make(map[int]int)
+			for queue, irq := range queue2Irq {
+				txIrq2Queue[irq] = queue
+			}
+
 			n.QueueNum = len(queue2Irq)
 			n.Queue2Irq = queue2Irq
 			n.Irq2Queue = irq2Queue
+			n.TxQueue2Irq = txQueue2irq
+			n.TxIrq2Queue = txIrq2Queue
 			nics = append(nics, n)
 		}
 	}

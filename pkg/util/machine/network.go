@@ -122,6 +122,8 @@ type NicBasicInfo struct {
 	QueueNum       int
 	Queue2Irq      map[int]int
 	Irq2Queue      map[int]int
+	TxQueue2Irq    map[int]int
+	TxIrq2Queue    map[int]int
 }
 
 type netnsSwitchContext struct {
