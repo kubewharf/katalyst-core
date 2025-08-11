@@ -27,29 +27,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
-// func getEvictionRecords() []*pluginapi.EvictionRecord {
-// 	now := time.Now()
-// 	return []*pluginapi.EvictionRecord{
-// 		{
-// 			Uid:    "pod-uid-12345",
-// 			HasPdb: true,
-// 			Buckets: &pluginapi.Buckets{
-// 				List: []*pluginapi.Bucket{
-// 					{Time: now.Add(-120 * time.Minute).Unix(), Duration: 1800, Count: 4},
-// 					{Time: now.Add(-60 * time.Minute).Unix(), Duration: 1200, Count: 4},
-// 					{Time: now.Add(-30 * time.Minute).Unix(), Duration: 600, Count: 2},
-// 					{Time: now.Add(-20 * time.Minute).Unix(), Duration: 600, Count: 1},
-// 					{Time: now.Add(-10 * time.Minute).Unix(), Duration: 600, Count: 3},
-// 				},
-// 			},
-// 			DisruptionsAllowed: 2, // 允许中断的 Pod 数量
-// 			CurrentHealthy:     5, // 当前健康的 Pod 数量
-// 			DesiredHealthy:     3, // 期望保持的最小健康 Pod 数量
-// 			ExpectedPods:       5, // 预期的总 Pod 数量
-// 		},
-// 	}
-// }
-
 const (
 	workloadEvictionInfoAnnotation = "evictionInfo"
 	timeWindow1                    = 1800
@@ -58,59 +35,90 @@ const (
 	workloadName                   = "deployment"
 )
 
+// func PrepareCandidatePods(_ context.Context, request *pluginapi.GetTopEvictionPodsRequest) ([]*CandidatePod, error) {
+// 	if request == nil {
+// 		general.Warningf("no request in PrepareCandidatePods")
+// 		return nil, fmt.Errorf("no request in PrepareCandidatePods")
+// 	}
+
+// 	if request.CandidateEvictionRecords == nil {
+// 		general.Warningf("no candidateEvictionRecords in request")
+// 	}
+
+// 	var evictionRecords []*pluginapi.EvictionRecord
+// 	for _, record := range request.CandidateEvictionRecords {
+// 		evictionRecords = append(evictionRecords, record)
+// 	}
+// 	pods := request.ActivePods
+// 	var candidates []*CandidatePod
+// 	for _, pod := range pods {
+// 		for _, record := range evictionRecords {
+// 			if record.Uid == string(pod.UID) {
+// 				if record.Buckets != nil {
+// 					general.Infof("get eviction record for pod %s, record: %v", pod.Name, record)
+// 				}
+// 				workloadInfos, err := getWorkloadEvictionInfo(record)
+// 				if err != nil {
+// 					general.Warningf("get workload eviction info failed: %v", err)
+// 				}
+// 				candidates = append(candidates, &CandidatePod{
+// 					Pod:                   pod,
+// 					Scores:                make(map[string]int),
+// 					TotalScore:            0,
+// 					WorkloadsEvictionInfo: workloadInfos,
+// 					UsageRatio:            0,
+// 				})
+
+// 			}
+// 		}
+// 	}
+
+// 	return candidates, nil
+// }
+
 // PrepareCandidatePods converts a list of v1.Pod to a list of *CandidatePod and populates
 // all the necessary information for the Filter and Score stages.
 func PrepareCandidatePods(_ context.Context, request *pluginapi.GetTopEvictionPodsRequest) ([]*CandidatePod, error) {
+	if request == nil {
+		general.Warningf("no request in PrepareCandidatePods")
+		return nil, fmt.Errorf("no request in PrepareCandidatePods")
+	}
 
-	if request == nil || request.CandidateEvictionRecords == nil {
+	if request.CandidateEvictionRecords == nil {
 		general.Warningf("no candidateEvictionRecords in request")
 	}
-	// if request.CandidateEvictionRecords != nil {
-	// 	general.Infof("get candidateEvictionRecords: %v", request.CandidateEvictionRecords)
-	// }
-	var evictionRecords []*pluginapi.EvictionRecord
-	for _, record := range request.CandidateEvictionRecords {
-		evictionRecords = append(evictionRecords, record)
-	}
-	pods := request.ActivePods
-	var candidates []*CandidatePod
-	for _, pod := range pods {
-		for _, record := range evictionRecords {
-			if record.Uid == string(pod.UID) {
-				if record.Buckets != nil {
-					general.Infof("get eviction record for pod %s, record: %v", pod.Name, record)
-				}
-				workloadInfos, err := getWorkloadEvictionInfo(record)
-				if err != nil {
-					general.Warningf("get workload eviction info failed: %v", err)
-				}
-				candidates = append(candidates, &CandidatePod{
-					Pod:                   pod,
-					Scores:                make(map[string]int),
-					TotalScore:            0,
-					WorkloadsEvictionInfo: workloadInfos,
-					UsageRatio:            0,
-				})
 
-			}
+	recordsMap := make(map[string]*pluginapi.EvictionRecord)
+	for _, record := range request.CandidateEvictionRecords {
+		if record != nil {
+			recordsMap[record.Uid] = record
 		}
 	}
 
-	// to delete
-	// for _, pod := range pods {
-	// 	workloadInfos, err := getWorkloadEvictionInfo(getEvictionRecords()[0])
-	// 	if err != nil {
-	// 		general.Warningf("get workload eviction info failed: %v", err)
-	// 	}
-	// 	candidates = append(candidates, &CandidatePod{
-	// 		Pod:                   pod,
-	// 		Scores:                make(map[string]int),
-	// 		TotalScore:            0,
-	// 		WorkloadsEvictionInfo: workloadInfos,
-	// 		UsageRatio:            0,
-	// 	})
+	pods := request.ActivePods
+	var candidates []*CandidatePod
+	for _, pod := range pods {
+		workloadInfos := make(map[string]*WorkloadEvictionInfo)
+		var err error
 
-	// }
+		if record, ok := recordsMap[string(pod.UID)]; ok {
+			if record.Buckets != nil {
+				general.Infof("get eviction record for pod %s, record: %v", pod.Name, record)
+			}
+			workloadInfos, err = getWorkloadEvictionInfo(record)
+			if err != nil {
+				general.Warningf("get workload eviction info for pod %s failed: %v", pod.Name, err)
+			}
+		}
+
+		candidates = append(candidates, &CandidatePod{
+			Pod:                   pod,
+			Scores:                make(map[string]int),
+			TotalScore:            0,
+			WorkloadsEvictionInfo: workloadInfos,
+			UsageRatio:            0,
+		})
+	}
 
 	return candidates, nil
 }
@@ -137,7 +145,7 @@ func getWorkloadEvictionInfo(evictionRecord *pluginapi.EvictionRecord) (map[stri
 }
 
 func calculateEvictionStatsByWindows(currentTime time.Time, evictionRecord *pluginapi.EvictionRecord, windows []int64) (map[float64]*EvictionStats, int64) {
-	if evictionRecord == nil || evictionRecord.Buckets.List == nil {
+	if evictionRecord == nil || evictionRecord.Buckets == nil || evictionRecord.Buckets.List == nil {
 		general.Warningf("no buckets in eviction info")
 		return nil, 0
 	}
@@ -170,7 +178,6 @@ func calculateEvictionStatsByWindows(currentTime time.Time, evictionRecord *plug
 				ratio := float64(bucket.Time+bucket.Duration-windowStart) / float64(bucket.Duration)
 				partialCount := int64(math.Round(float64(bucket.Count) * ratio))
 				totalCount += partialCount
-				// totalCount += bucket.Count * (bucket.Time + bucket.Duration - windowStart) / bucket.Duration
 			}
 			if bucket.Time > lastEvictionTime {
 				lastEvictionTime = bucket.Time

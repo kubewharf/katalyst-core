@@ -114,6 +114,7 @@ func NewCPUPressureUsageEviction(emitter metrics.MetricEmitter, metaServer *meta
 func (p *NumaCPUPressureEviction) initFilterAndScorer() error {
 	// filterParams
 	enabledFilters := p.numaPressureConfig.EnabledFilters
+	enabledFilters = append(enabledFilters, rules.OwnerRefFilterName, rules.OverRatioNumaFilterName)
 	general.Infof("enabledFilters: %v", enabledFilters)
 	filterParams := map[string]interface{}{
 		rules.OwnerRefFilterName:      p.numaPressureConfig.SkippedPodKinds, // OwnerRefFilter params
@@ -127,6 +128,7 @@ func (p *NumaCPUPressureEviction) initFilterAndScorer() error {
 
 	// scorerParams
 	enabledScorers := p.numaPressureConfig.EnabledScorers
+	enabledScorers = append(enabledScorers, rules.DeploymentEvictionFrequencyScorerName, rules.UsageGapScorerName)
 	general.Infof("enabledScorers: %v", enabledScorers)
 	scorerParams := map[string]interface{}{
 		rules.DeploymentEvictionFrequencyScorerName: nil,
@@ -171,7 +173,6 @@ func (p *NumaCPUPressureEviction) Name() string { return EvictionNameNumaCpuPres
 
 // todo may change to GetTopEvictionPods?
 func (p *NumaCPUPressureEviction) GetEvictPods(_ context.Context, _ *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
-	general.Infof("GetEvictPods called")
 	return &pluginapi.GetEvictPodsResponse{}, nil
 }
 
@@ -258,7 +259,6 @@ func (p *NumaCPUPressureEviction) ThresholdMet(_ context.Context, req *pluginapi
 
 func (p *NumaCPUPressureEviction) GetTopEvictionPods(ctx context.Context, request *pluginapi.GetTopEvictionPodsRequest,
 ) (*pluginapi.GetTopEvictionPodsResponse, error) {
-	general.Infof("GetTopEvictionPods called")
 	if request == nil {
 		return nil, fmt.Errorf("GetTopEvictionPods got nil request")
 	} else if len(request.ActivePods) == 0 {

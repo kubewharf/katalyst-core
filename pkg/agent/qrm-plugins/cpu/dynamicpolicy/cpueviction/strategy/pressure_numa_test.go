@@ -47,6 +47,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction/history"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction/rules"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 )
 
@@ -375,6 +376,17 @@ func CompareMetricHistory(mh1, mh2 *history.NumaMetricHistory) bool {
 
 func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 	t.Parallel()
+	p := &NumaCPUPressureEviction{}
+	req := &pluginapi.GetEvictPodsRequest{}
+	want := &pluginapi.GetEvictPodsResponse{}
+
+	got, err := p.GetEvictPods(context.Background(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, want, got)
+}
+
+func TestNumaCPUPressureEviction_GetTopEvictionPods(t *testing.T) {
+	t.Parallel()
 	type fields struct {
 		conf               *config.Configuration
 		numaPressureConfig *NumaPressureConfig
@@ -386,10 +398,10 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 		podList            []*v1.Pod
 	}
 	type args struct {
-		request *pluginapi.GetEvictPodsRequest
+		request *pluginapi.GetTopEvictionPodsRequest
 	}
 	type wantResp struct {
-		want        *pluginapi.GetEvictPodsResponse
+		want        *pluginapi.GetTopEvictionPodsResponse
 		wantPodList []*v1.Pod
 	}
 
@@ -402,6 +414,8 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 	pod2 := makePod("pod2")
 	pod3 := makePod("pod3")
 
+	conf := &config.Configuration{}
+
 	tests := []struct {
 		name     string
 		fields   fields
@@ -412,70 +426,8 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 		{
 			name: "nil request",
 			fields: fields{
-				podList: []*v1.Pod{
-					pod1,
-					pod2,
-					pod3,
-				},
-				conf: conf,
-				numaPressureConfig: &NumaPressureConfig{
-					MetricRingSize:         2,
-					ThresholdMetPercentage: 0.5,
-					GracePeriod:            -1,
-					ExpandFactor:           1.2,
-				},
-				metricsHistory: &history.NumaMetricHistory{
-					Inner: map[int]map[string]map[string]*history.MetricRing{
-						0: {
-							history.FakePodUID: {
-								consts.MetricCPUUsageContainer: {
-									MaxLen: 2,
-									Queue: []*history.MetricSnapshot{
-										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
-										nil,
-									},
-									CurrentIndex: 1,
-								},
-							},
-							"pod1": {
-								consts.MetricCPUUsageContainer: {
-									MaxLen: 2,
-									Queue: []*history.MetricSnapshot{
-										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
-										nil,
-									},
-									CurrentIndex: 1,
-								},
-							},
-							"pod2": {
-								consts.MetricCPUUsageContainer: {
-									MaxLen: 2,
-									Queue: []*history.MetricSnapshot{
-										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
-										nil,
-									},
-									CurrentIndex: 1,
-								},
-							},
-							"pod3": {
-								consts.MetricCPUUsageContainer: {
-									MaxLen: 2,
-									Queue: []*history.MetricSnapshot{
-										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
-										nil,
-									},
-									CurrentIndex: 1,
-								},
-							},
-						},
-					},
-					RingSize: 2,
-				},
-				thresholds: map[string]float64{
-					consts.MetricCPUUsageContainer: 0.8,
-				},
-				enabled:           true,
-				overloadNumaCount: 1,
+				enabled:            true,
+				numaPressureConfig: &NumaPressureConfig{},
 			},
 			args: args{
 				request: nil,
@@ -486,20 +438,66 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 			wantErr: assert.Error,
 		},
 		{
-			name: "pod filtered by kind",
+			name: "empty active pods",
 			fields: fields{
-				podList: []*v1.Pod{
-					pod1,
-					pod2,
-					pod3,
+				enabled:            true,
+				numaPressureConfig: &NumaPressureConfig{},
+			},
+			args: args{
+				request: &pluginapi.GetTopEvictionPodsRequest{
+					ActivePods: []*v1.Pod{},
 				},
-				conf: conf,
+			},
+			wantResp: wantResp{
+				want: &pluginapi.GetTopEvictionPodsResponse{},
+			},
+			wantErr: assert.NoError,
+		},
+		{
+			name: "plugin not enabled",
+			fields: fields{
+				enabled:            false,
+				numaPressureConfig: &NumaPressureConfig{},
+			},
+			args: args{
+				request: &pluginapi.GetTopEvictionPodsRequest{
+					ActivePods: []*v1.Pod{pod1},
+				},
+			},
+			wantResp: wantResp{
+				want: &pluginapi.GetTopEvictionPodsResponse{},
+			},
+			wantErr: assert.NoError,
+		},
+		{
+			name: "not overload",
+			fields: fields{
+				enabled:            true,
+				overloadNumaCount:  0,
+				numaPressureConfig: &NumaPressureConfig{},
+			},
+			args: args{
+				request: &pluginapi.GetTopEvictionPodsRequest{
+					ActivePods: []*v1.Pod{pod1},
+				},
+			},
+			wantResp: wantResp{
+				want: &pluginapi.GetTopEvictionPodsResponse{},
+			},
+			wantErr: assert.NoError,
+		},
+		{
+			name: "all pods filtered",
+			fields: fields{
+				podList: []*v1.Pod{pod1},
+				conf:    conf,
 				numaPressureConfig: &NumaPressureConfig{
 					MetricRingSize:         2,
 					ThresholdMetPercentage: 0.5,
 					GracePeriod:            -1,
 					ExpandFactor:           1.2,
 					SkippedPodKinds:        []string{"DaemonSet"},
+					EnabledFilters:         []string{rules.OwnerRefFilterName},
 				},
 				metricsHistory: &history.NumaMetricHistory{
 					Inner: map[int]map[string]map[string]*history.MetricRing{
@@ -518,27 +516,7 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*history.MetricSnapshot{
-										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
-										nil,
-									},
-									CurrentIndex: 1,
-								},
-							},
-							"pod2": {
-								consts.MetricCPUUsageContainer: {
-									MaxLen: 2,
-									Queue: []*history.MetricSnapshot{
-										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
-										nil,
-									},
-									CurrentIndex: 1,
-								},
-							},
-							"pod3": {
-								consts.MetricCPUUsageContainer: {
-									MaxLen: 2,
-									Queue: []*history.MetricSnapshot{
-										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.9}},
 										nil,
 									},
 									CurrentIndex: 1,
@@ -548,36 +526,33 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 					},
 					RingSize: 2,
 				},
-				thresholds: map[string]float64{
-					consts.MetricCPUUsageContainer: 0.8,
-				},
+				thresholds:        map[string]float64{consts.MetricCPUUsageContainer: 0.8},
 				enabled:           true,
 				overloadNumaCount: 1,
 			},
 			args: args{
-				request: &pluginapi.GetEvictPodsRequest{
+				request: &pluginapi.GetTopEvictionPodsRequest{
 					ActivePods: []*v1.Pod{pod1},
 				},
 			},
 			wantResp: wantResp{
-				want: &pluginapi.GetEvictPodsResponse{},
+				want: &pluginapi.GetTopEvictionPodsResponse{},
 			},
 			wantErr: assert.NoError,
 		},
 		{
-			name: "empty active pods",
+			name: "some pods filtered, evict one",
 			fields: fields{
-				podList: []*v1.Pod{
-					pod1,
-					pod2,
-					pod3,
-				},
-				conf: conf,
+				podList: []*v1.Pod{pod1, pod2, pod3},
+				conf:    conf,
 				numaPressureConfig: &NumaPressureConfig{
 					MetricRingSize:         2,
 					ThresholdMetPercentage: 0.5,
 					GracePeriod:            -1,
 					ExpandFactor:           1.2,
+					SkippedPodKinds:        []string{"DaemonSet"},
+					EnabledFilters:         []string{rules.OwnerRefFilterName},
+					EnabledScorers:         []string{rules.UsageGapScorerName},
 				},
 				metricsHistory: &history.NumaMetricHistory{
 					Inner: map[int]map[string]map[string]*history.MetricRing{
@@ -603,302 +578,6 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 								},
 							},
 							"pod2": {
-								consts.MetricCPUUsageContainer: {
-									MaxLen: 2,
-									Queue: []*history.MetricSnapshot{
-										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
-										nil,
-									},
-									CurrentIndex: 1,
-								},
-							},
-							"pod3": {
-								consts.MetricCPUUsageContainer: {
-									MaxLen: 2,
-									Queue: []*history.MetricSnapshot{
-										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
-										nil,
-									},
-									CurrentIndex: 1,
-								},
-							},
-						},
-					},
-					RingSize: 2,
-				},
-				thresholds: map[string]float64{
-					consts.MetricCPUUsageContainer: 0.8,
-				},
-				enabled:           true,
-				overloadNumaCount: 1,
-			},
-			args: args{
-				request: &pluginapi.GetEvictPodsRequest{
-					ActivePods: []*v1.Pod{},
-				},
-			},
-			wantResp: wantResp{
-				want: &pluginapi.GetEvictPodsResponse{},
-			},
-			wantErr: assert.NoError,
-		},
-		{
-			name: "return empty when not enabled",
-			fields: fields{
-				podList: []*v1.Pod{
-					pod1,
-					pod2,
-					pod3,
-				},
-				conf: conf,
-				numaPressureConfig: &NumaPressureConfig{
-					MetricRingSize:         2,
-					ThresholdMetPercentage: 0.5,
-					GracePeriod:            -1,
-					ExpandFactor:           1.2,
-				},
-				metricsHistory: &history.NumaMetricHistory{
-					Inner: map[int]map[string]map[string]*history.MetricRing{
-						0: {
-							history.FakePodUID: {
-								consts.MetricCPUUsageContainer: {
-									MaxLen: 2,
-									Queue: []*history.MetricSnapshot{
-										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
-										nil,
-									},
-									CurrentIndex: 1,
-								},
-							},
-							"pod1": {
-								consts.MetricCPUUsageContainer: {
-									MaxLen: 2,
-									Queue: []*history.MetricSnapshot{
-										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
-										nil,
-									},
-									CurrentIndex: 1,
-								},
-							},
-							"pod2": {
-								consts.MetricCPUUsageContainer: {
-									MaxLen: 2,
-									Queue: []*history.MetricSnapshot{
-										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
-										nil,
-									},
-									CurrentIndex: 1,
-								},
-							},
-							"pod3": {
-								consts.MetricCPUUsageContainer: {
-									MaxLen: 2,
-									Queue: []*history.MetricSnapshot{
-										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
-										nil,
-									},
-									CurrentIndex: 1,
-								},
-							},
-						},
-					},
-					RingSize: 2,
-				},
-				thresholds: map[string]float64{
-					consts.MetricCPUUsageContainer: 0.8,
-				},
-				enabled:           false,
-				overloadNumaCount: 1,
-			},
-			args: args{
-				request: &pluginapi.GetEvictPodsRequest{
-					ActivePods: []*v1.Pod{
-						pod1,
-						pod2,
-						pod3,
-					},
-				},
-			},
-			wantResp: wantResp{
-				want: &pluginapi.GetEvictPodsResponse{},
-			},
-			wantErr: assert.NoError,
-		},
-		{
-			name: "kill overload pod",
-			fields: fields{
-				podList: []*v1.Pod{
-					pod1,
-					pod2,
-					pod3,
-				},
-				conf: conf,
-				numaPressureConfig: &NumaPressureConfig{
-					MetricRingSize:         2,
-					ThresholdMetPercentage: 0.5,
-					GracePeriod:            -1,
-					ExpandFactor:           1.2,
-					CandidateCount:         2,
-				},
-				metricsHistory: &history.NumaMetricHistory{
-					Inner: map[int]map[string]map[string]*history.MetricRing{
-						0: {
-							history.FakePodUID: {
-								consts.MetricCPUUsageContainer: {
-									MaxLen: 2,
-									Queue: []*history.MetricSnapshot{
-										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
-										nil,
-									},
-									CurrentIndex: 1,
-								},
-							},
-							"pod1": {
-								consts.MetricCPUUsageContainer: {
-									MaxLen: 2,
-									Queue: []*history.MetricSnapshot{
-										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
-										nil,
-									},
-									CurrentIndex: 1,
-								},
-							},
-							"pod2": {
-								consts.MetricCPUUsageContainer: {
-									MaxLen: 2,
-									Queue: []*history.MetricSnapshot{
-										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
-										nil,
-									},
-									CurrentIndex: 1,
-								},
-							},
-							"pod3": {
-								consts.MetricCPUUsageContainer: {
-									MaxLen: 2,
-									Queue: []*history.MetricSnapshot{
-										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
-										nil,
-									},
-									CurrentIndex: 1,
-								},
-							},
-						},
-					},
-					RingSize: 2,
-				},
-				thresholds: map[string]float64{
-					consts.MetricCPUUsageContainer: 0.48,
-				},
-				enabled:           true,
-				overloadNumaCount: 1,
-			},
-			args: args{
-				request: &pluginapi.GetEvictPodsRequest{
-					// 0.5 - 0.48 / 1.2 = 0.1, near to pod2/3
-					ActivePods: []*v1.Pod{
-						pod1,
-						pod2,
-						pod3,
-					},
-				},
-			},
-			wantResp: wantResp{
-				want: &pluginapi.GetEvictPodsResponse{
-					EvictPods: []*pluginapi.EvictPod{
-						{
-							Pod: pod2,
-							Reason: fmt.Sprintf("numa cpu usage %f overload, kill top pod with %f",
-								0.5, 0.125),
-							ForceEvict:         true,
-							EvictionPluginName: EvictionNameNumaCpuPressure,
-							DeletionOptions:    nil,
-						},
-					},
-				},
-				wantPodList: []*v1.Pod{pod2, pod3},
-			},
-			wantErr: assert.NoError,
-		},
-		{
-			name: "do not kill overload pod if it's the only one",
-			fields: fields{
-				podList: []*v1.Pod{
-					pod1,
-					pod2,
-					pod3,
-				},
-				conf: conf,
-				numaPressureConfig: &NumaPressureConfig{
-					MetricRingSize:         2,
-					ThresholdMetPercentage: 0.5,
-					GracePeriod:            -1,
-					ExpandFactor:           1.2,
-				},
-				metricsHistory: &history.NumaMetricHistory{
-					Inner: map[int]map[string]map[string]*history.MetricRing{
-						0: {
-							history.FakePodUID: {
-								consts.MetricCPUUsageContainer: {
-									MaxLen: 2,
-									Queue: []*history.MetricSnapshot{
-										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
-										nil,
-									},
-									CurrentIndex: 1,
-								},
-							},
-							"pod1": {
-								consts.MetricCPUUsageContainer: {
-									MaxLen: 2,
-									Queue: []*history.MetricSnapshot{
-										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
-										nil,
-									},
-									CurrentIndex: 1,
-								},
-							},
-						},
-					},
-					RingSize: 2,
-				},
-				thresholds: map[string]float64{
-					consts.MetricCPUUsageContainer: 0.8,
-				},
-				enabled:           true,
-				overloadNumaCount: 1,
-			},
-			args: args{
-				request: &pluginapi.GetEvictPodsRequest{
-					ActivePods: []*v1.Pod{
-						pod1,
-					},
-				},
-			},
-			wantResp: wantResp{
-				want: &pluginapi.GetEvictPodsResponse{},
-			},
-			wantErr: assert.NoError,
-		},
-		{
-			name: "numa not overload, do not kill any pod",
-			fields: fields{
-				podList: []*v1.Pod{
-					pod1,
-					pod2,
-					pod3,
-				},
-				conf: conf,
-				numaPressureConfig: &NumaPressureConfig{
-					MetricRingSize:         2,
-					ThresholdMetPercentage: 0.5,
-					GracePeriod:            -1,
-					ExpandFactor:           1.2,
-				},
-				metricsHistory: &history.NumaMetricHistory{
-					Inner: map[int]map[string]map[string]*history.MetricRing{
-						0: {
-							history.FakePodUID: {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*history.MetricSnapshot{
@@ -908,23 +587,78 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 									CurrentIndex: 1,
 								},
 							},
+							"pod3": {
+								consts.MetricCPUUsageContainer: {
+									MaxLen: 2,
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.2}},
+										nil,
+									},
+									CurrentIndex: 1,
+								},
+							},
+						},
+					},
+					RingSize: 2,
+				},
+				thresholds:        map[string]float64{consts.MetricCPUUsageContainer: 0.8},
+				enabled:           true,
+				overloadNumaCount: 1,
+			},
+			args: args{
+				request: &pluginapi.GetTopEvictionPodsRequest{
+					ActivePods: []*v1.Pod{pod1, pod2, pod3},
+					TopN:       1,
+				},
+			},
+			wantResp: wantResp{
+				want: &pluginapi.GetTopEvictionPodsResponse{TargetPods: []*v1.Pod{pod2}},
+			},
+			wantErr: assert.NoError,
+		},
+		{
+			name: "evict pod with highest score",
+			fields: fields{
+				podList: []*v1.Pod{pod1, pod2, pod3},
+				conf:    conf,
+				numaPressureConfig: &NumaPressureConfig{
+					MetricRingSize:         2,
+					ThresholdMetPercentage: 0.5,
+					GracePeriod:            -1,
+					ExpandFactor:           1.2,
+					EnabledScorers:         []string{rules.UsageGapScorerName},
+				},
+				metricsHistory: &history.NumaMetricHistory{
+					Inner: map[int]map[string]map[string]*history.MetricRing{
+						0: {
+							history.FakePodUID: {
+								consts.MetricCPUUsageContainer: {
+									MaxLen: 2,
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
+										nil,
+									},
+									CurrentIndex: 1,
+								},
+							},
 							"pod1": {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*history.MetricSnapshot{
-										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.1}},
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
 										nil,
 									},
-									CurrentIndex: 0,
+									CurrentIndex: 1,
 								},
 							},
 							"pod2": {
 								consts.MetricCPUUsageContainer: {
 									MaxLen: 2,
 									Queue: []*history.MetricSnapshot{
-										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.1}},
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.3}},
+										nil,
 									},
-									CurrentIndex: 0,
+									CurrentIndex: 1,
 								},
 							},
 							"pod3": {
@@ -932,31 +666,108 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 									MaxLen: 2,
 									Queue: []*history.MetricSnapshot{
 										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.1}},
+										nil,
 									},
-									CurrentIndex: 0,
+									CurrentIndex: 1,
 								},
 							},
 						},
 					},
 					RingSize: 2,
 				},
-				thresholds: map[string]float64{
-					consts.MetricCPUUsageContainer: 0.8,
-				},
+				thresholds:        map[string]float64{consts.MetricCPUUsageContainer: 0.8},
 				enabled:           true,
-				overloadNumaCount: 0,
+				overloadNumaCount: 1,
 			},
 			args: args{
-				request: &pluginapi.GetEvictPodsRequest{
-					ActivePods: []*v1.Pod{
-						pod1,
-						pod2,
-						pod3,
-					},
+				request: &pluginapi.GetTopEvictionPodsRequest{
+					ActivePods: []*v1.Pod{pod1, pod2, pod3},
+					TopN:       1,
 				},
 			},
 			wantResp: wantResp{
-				want: &pluginapi.GetEvictPodsResponse{},
+				want: &pluginapi.GetTopEvictionPodsResponse{TargetPods: []*v1.Pod{pod2}},
+			},
+			wantErr: assert.NoError,
+		},
+		{
+			name: "evict pod with grace period",
+			fields: fields{
+				podList: []*v1.Pod{pod1, pod2, pod3},
+				conf:    conf,
+				numaPressureConfig: &NumaPressureConfig{
+					MetricRingSize:         2,
+					ThresholdMetPercentage: 0.5,
+					GracePeriod:            30,
+					ExpandFactor:           1.2,
+					EnabledScorers:         []string{rules.UsageGapScorerName},
+					SkippedPodKinds:        []string{"DaemonSet"},
+					EnabledFilters:         []string{rules.OwnerRefFilterName},
+				},
+				metricsHistory: &history.NumaMetricHistory{
+					Inner: map[int]map[string]map[string]*history.MetricRing{
+						0: {
+							history.FakePodUID: {
+								consts.MetricCPUUsageContainer: {
+									MaxLen: 2,
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
+										nil,
+									},
+									CurrentIndex: 1,
+								},
+							},
+							"pod1": {
+								consts.MetricCPUUsageContainer: {
+									MaxLen: 2,
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
+										nil,
+									},
+									CurrentIndex: 1,
+								},
+							},
+							"pod2": {
+								consts.MetricCPUUsageContainer: {
+									MaxLen: 2,
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.3}},
+										nil,
+									},
+									CurrentIndex: 1,
+								},
+							},
+							"pod3": {
+								consts.MetricCPUUsageContainer: {
+									MaxLen: 2,
+									Queue: []*history.MetricSnapshot{
+										{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.1}},
+										nil,
+									},
+									CurrentIndex: 1,
+								},
+							},
+						},
+					},
+					RingSize: 2,
+				},
+				thresholds:        map[string]float64{consts.MetricCPUUsageContainer: 0.8},
+				enabled:           true,
+				overloadNumaCount: 1,
+			},
+			args: args{
+				request: &pluginapi.GetTopEvictionPodsRequest{
+					ActivePods: []*v1.Pod{pod1, pod2, pod3},
+					TopN:       1,
+				},
+			},
+			wantResp: wantResp{
+				want: &pluginapi.GetTopEvictionPodsResponse{
+					TargetPods: []*v1.Pod{pod2},
+					DeletionOptions: &pluginapi.DeletionOptions{
+						GracePeriodSeconds: 30,
+					},
+				},
 			},
 			wantErr: assert.NoError,
 		},
@@ -965,11 +776,15 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+			cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+			assert.NoError(t, err)
 			metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
-
 			metaServer := makeMetaServerWithPodList(metricsFetcher, cpuTopology, tt.fields.podList)
 
 			p := &NumaCPUPressureEviction{
+				RWMutex:            sync.RWMutex{},
+				state:              nil,
+				emitter:            metrics.DummyMetrics{},
 				metaServer:         metaServer,
 				conf:               tt.fields.conf,
 				numaPressureConfig: tt.fields.numaPressureConfig,
@@ -978,25 +793,21 @@ func TestNumaCPUPressureEviction_GetEvictPods(t *testing.T) {
 				metricsHistory:     tt.fields.metricsHistory,
 				overloadNumaCount:  tt.fields.overloadNumaCount,
 				enabled:            tt.fields.enabled,
-				emitter:            metrics.DummyMetrics{},
 			}
-			got, err := p.GetEvictPods(context.TODO(), tt.args.request)
-			if !tt.wantErr(t, err, fmt.Sprintf("GetEvictPods(%v, %v)", context.TODO(), tt.args.request)) {
+
+			err = p.initFilterAndScorer()
+			assert.NoError(t, err)
+
+			if p.overloadNumaCount > 0 {
+				_, _, _, err = p.pickTopOverRatioNuma(targetMetric, p.thresholds)
+				assert.NoError(t, err)
+			}
+
+			got, err := p.GetTopEvictionPods(context.TODO(), tt.args.request)
+			if !tt.wantErr(t, err, fmt.Sprintf("GetTopEvictionPods(%v)", tt.args.request)) {
 				return
 			}
-			if tt.wantResp.wantPodList != nil {
-				find := false
-				for _, wantPod := range tt.wantResp.wantPodList {
-					if wantPod.Name == got.EvictPods[0].Pod.Name {
-						find = true
-					}
-				}
-				if !find {
-					t.Errorf("expected pod in %v, but %v", tt.wantResp.wantPodList, tt.wantResp.wantPodList)
-				}
-			} else {
-				assert.Equalf(t, tt.wantResp.want, got, "GetEvictPods(%v, %v)", context.TODO(), tt.args.request)
-			}
+			assert.Equalf(t, tt.wantResp.want, got, "GetTopEvictionPods(%v)", tt.args.request)
 		})
 	}
 }
@@ -1006,6 +817,18 @@ func TestNumaCPUPressureEviction_ThresholdMet(t *testing.T) {
 	pod1 := makePod("pod1")
 	pod2 := makePod("pod2")
 	pod3 := makePod("pod3")
+	dsPod := makePod("dspod")
+	dsPod.OwnerReferences = []metav1.OwnerReference{
+		{
+			Kind: "DaemonSet",
+		},
+	}
+	rsPod := makePod("rspod")
+	rsPod.OwnerReferences = []metav1.OwnerReference{
+		{
+			Kind: "ReplicaSet",
+		},
+	}
 	type fields struct {
 		conf               *config.Configuration
 		numaPressureConfig *NumaPressureConfig
@@ -1016,9 +839,13 @@ func TestNumaCPUPressureEviction_ThresholdMet(t *testing.T) {
 		enabled            bool
 		podList            []*v1.Pod
 	}
+	type args struct {
+		req *pluginapi.GetThresholdMetRequest
+	}
 	tests := []struct {
 		name    string
 		fields  fields
+		args    args
 		want    *pluginapi.ThresholdMetResponse
 		wantErr assert.ErrorAssertionFunc
 	}{
@@ -1089,6 +916,15 @@ func TestNumaCPUPressureEviction_ThresholdMet(t *testing.T) {
 				},
 				enabled:           true,
 				overloadNumaCount: 0,
+			},
+			args: args{
+				req: &pluginapi.GetThresholdMetRequest{
+					ActivePods: []*v1.Pod{
+						pod1,
+						pod2,
+						pod3,
+					},
+				},
 			},
 			want: &pluginapi.ThresholdMetResponse{
 				MetType: pluginapi.ThresholdMetType_NOT_MET,
@@ -1163,16 +999,38 @@ func TestNumaCPUPressureEviction_ThresholdMet(t *testing.T) {
 				enabled:           false,
 				overloadNumaCount: 0,
 			},
+			args: args{
+				req: &pluginapi.GetThresholdMetRequest{
+					ActivePods: []*v1.Pod{
+						pod1,
+						pod2,
+						pod3,
+					},
+				},
+			},
 			want: &pluginapi.ThresholdMetResponse{
 				MetType: pluginapi.ThresholdMetType_NOT_MET,
 			},
 			wantErr: assert.NoError,
 		},
 		{
-			name: "all numas are overload",
+			name: "node overload",
 			fields: fields{
 				enabled:           true,
 				overloadNumaCount: 4,
+				podList: []*v1.Pod{
+					makePod("pod1"),
+				},
+				numaPressureConfig: &NumaPressureConfig{
+					EnabledFilters: []string{},
+				},
+			},
+			args: args{
+				req: &pluginapi.GetThresholdMetRequest{
+					ActivePods: []*v1.Pod{
+						pod1,
+					},
+				},
 			},
 			want: &pluginapi.ThresholdMetResponse{
 				ThresholdValue:    1,
@@ -1185,6 +1043,37 @@ func TestNumaCPUPressureEviction_ThresholdMet(t *testing.T) {
 					Effects:       []string{string(v1.TaintEffectNoSchedule)},
 					ConditionName: evictionConditionCPUUsagePressure,
 					MetCondition:  true,
+				},
+				CandidatePods: []*v1.Pod{
+					pod1,
+				},
+			},
+			wantErr: assert.NoError,
+		},
+		{
+			name: "some pods filtered",
+			fields: fields{
+				enabled:           true,
+				overloadNumaCount: 1,
+				podList:           []*v1.Pod{dsPod, rsPod},
+				numaPressureConfig: &NumaPressureConfig{
+					EnabledFilters:  []string{rules.OwnerRefFilterName},
+					SkippedPodKinds: []string{"DaemonSet"},
+				},
+			},
+			args: args{
+				req: &pluginapi.GetThresholdMetRequest{
+					ActivePods: []*v1.Pod{dsPod, rsPod},
+				},
+			},
+			want: &pluginapi.ThresholdMetResponse{
+				ThresholdValue:    1,
+				ObservedValue:     1,
+				ThresholdOperator: pluginapi.ThresholdOperator_GREATER_THAN,
+				MetType:           pluginapi.ThresholdMetType_HARD_MET,
+				EvictionScope:     targetMetric,
+				CandidatePods: []*v1.Pod{
+					rsPod,
 				},
 			},
 			wantErr: assert.NoError,
@@ -1212,7 +1101,10 @@ func TestNumaCPUPressureEviction_ThresholdMet(t *testing.T) {
 				enabled:            tt.fields.enabled,
 				emitter:            metrics.DummyMetrics{},
 			}
-			got, err := p.ThresholdMet(context.TODO(), &pluginapi.GetThresholdMetRequest{})
+			err := p.initFilterAndScorer()
+			assert.NoError(t, err)
+
+			got, err := p.ThresholdMet(context.TODO(), tt.args.req)
 			if !tt.wantErr(t, err, fmt.Sprintf("ThresholdMet")) {
 				return
 			}

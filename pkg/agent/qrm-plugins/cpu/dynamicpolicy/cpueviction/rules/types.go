@@ -49,24 +49,3 @@ type NumaOverStat struct {
 	MetricsHistory *history.NumaMetricHistory
 	Gap            float64
 }
-
-// delete
-// type EvictionRecord struct {
-// 	UID     string
-// 	HasPDB  bool
-// 	Buckets Buckets
-
-// 	DisruptionsAllowed int32 // 允许中断的数量（currentHealthy - desiredHealthy）
-// 	CurrentHealthy     int32 // 当前健康的 Pod 数量（实际通过健康检查的）
-// 	DesiredHealthy     int32 // 根据规则应保持的最小健康数
-// 	ExpectedPods       int32 // 匹配到的总 Pod 数
-// }
-// type Buckets struct {
-// 	List []Bucket `json:"list"`
-// }
-
-// type Bucket struct {
-// 	Time     int64 // 秒级时间戳
-// 	Duration int64
-// 	Count    int64 // 驱逐数量
-// }

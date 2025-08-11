@@ -43,8 +43,8 @@ func NewNumaCPUPressureEvictionOptions() NumaCPUPressureEvictionOptions {
 		ThresholdExpandFactor:  1.1,
 		CandidateCount:         2,
 		SkippedPodKinds:        []string{},
-		EnabledFilters:         []string{"OverRatioNuma", "OwnerRef"},
-		EnabledScorers:         []string{"Usage", "Priority", "DeploymentEvictionFrequency"},
+		EnabledFilters:         []string{},
+		EnabledScorers:         []string{},
 	}
 }
 

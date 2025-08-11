@@ -48,8 +48,8 @@ type Scorer struct {
 // allScores contains all available scoring functions that can be enabled
 var allScores = map[string]ScoreFunc{
 	DeploymentEvictionFrequencyScorerName: DeploymentEvictionFrequencyScorer,
-	PriorityScorerName:                    PriorityScorer,
 	UsageGapScorerName:                    UsageGapScorer,
+	PriorityScorerName:                    PriorityScorer,
 }
 
 func NewScorer(enabledScorers []string, emitter metrics.MetricEmitter, scorerParams map[string]interface{}) (*Scorer, error) {
@@ -123,7 +123,7 @@ func (s *Scorer) Score(pods []*CandidatePod) []*CandidatePod {
 	sort.Slice(pods, func(i, j int) bool {
 		return pods[i].TotalScore < pods[j].TotalScore
 	})
-	general.Infof("scored %d pods, top score: %s, %d", len(pods), pods[0].Pod.Name, pods[0].TotalScore)
+	general.Infof("scored %d pods, bottom score: %s, %d", len(pods), pods[0].Pod.Name, pods[0].TotalScore)
 	for scorerName, score := range pods[0].Scores {
 		general.Infof("scorer name: %s, score: %d", scorerName, score)
 	}
@@ -165,8 +165,6 @@ func DeploymentEvictionFrequencyScorer(pod *CandidatePod, params interface{}) in
 			perHourCount := float64(stats.EvictionCount) / window
 			general.Infof("limit: %v, perHourCount: %v", workloadInfo.Limit, perHourCount)
 			countScore := normalizeCount(perHourCount, workloadInfo.Limit)
-			// ratioScore := stats.EvictionRatio * 10
-			// windowContribution := (countScore + ratioScore) * weight
 			windowContribution := countScore * stats.EvictionRatio * 10
 			general.Infof("window: %v, countScore: %v, ratio: %v, windowContribution: %v", window, countScore, stats.EvictionRatio, windowContribution)
 			windowScore += windowContribution
@@ -185,26 +183,6 @@ func DeploymentEvictionFrequencyScorer(pod *CandidatePod, params interface{}) in
 	avgScore := totalScore / float64(workloadCount)
 	general.Infof("DeploymentEvictionFrequencyScorer,  pod: %v, frequencyScore:  %v", pod.Pod.Name, avgScore)
 	return int(avgScore)
-}
-
-func PriorityScorer(pod *CandidatePod, params interface{}) int {
-	if pod == nil || pod.Pod == nil {
-		general.Warningf("nil pod or pod spec passed to PriorityScorer")
-		return 0
-	}
-	priority := 0
-	if pod.Pod.Spec.Priority != nil {
-		priority = int(*pod.Pod.Spec.Priority)
-	}
-	clampedPriority := priority
-	if clampedPriority > 100 {
-		clampedPriority = 100
-	} else if clampedPriority < 0 {
-		clampedPriority = 0
-	}
-	priorityScore := float64(clampedPriority) / 10.0
-	general.Infof("PriorityScorer,  pod: %v, priorityScore:  %v", pod.Pod.Name, priorityScore)
-	return int(priorityScore)
 }
 
 // params: numaOverStat []NumaOverStat
@@ -236,19 +214,23 @@ func UsageGapScorer(pod *CandidatePod, params interface{}) int {
 		return score
 	}
 	metricRing, ok := podHis[targetMetric]
-	// general.Infof("podmetricRing: %v", metricRing)
+
 	if !ok {
 		general.Warningf("no %s metric history for pod %s", targetMetric, podUID)
 		return score
 	}
 	avgUsageRatio := metricRing.Avg()
-	// general.Infof("pod avgUsageRatio: %v", avgUsageRatio)
+
 	pod.UsageRatio = avgUsageRatio
 	gap := numaOverStats[0].Gap
 	// choose low score
 	usageGapScore := math.Abs(avgUsageRatio-math.Abs(gap)) * 100
 	general.Infof("UsageGapScorer,  pod: %v, usageGapScore:  %v, numaGap: %v", pod.Pod.Name, usageGapScore, gap)
 	return int(usageGapScore)
+}
+
+func PriorityScorer(pod *CandidatePod, params interface{}) int {
+	return 0
 }
 
 func normalizeCount(perHourCount float64, limit int32) float64 {

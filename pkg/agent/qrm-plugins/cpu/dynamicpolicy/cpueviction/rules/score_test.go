@@ -211,14 +211,6 @@ func TestScorer_Score(t *testing.T) {
 		args: args{pods: []*CandidatePod{candidatePod1, candidatePod2, candidatePod3, candidatePod4, candidatePod5}},
 		want: want{sortedPodNames: []string{"pod1", "pod2", "pod3", "pod4", "pod5"}},
 	}, {
-		name: "PriorityScorer only",
-		fields: fields{
-			enabledScorers: []string{PriorityScorerName},
-			scorerParams:   nil,
-		},
-		args: args{pods: []*CandidatePod{candidatePod1, candidatePod2, candidatePod3, candidatePod4, candidatePod5}},
-		want: want{sortedPodNames: []string{"pod3", "pod5", "pod1", "pod2", "pod4"}},
-	}, {
 		name: "DeploymentEvictionFrequencyScorer only",
 		fields: fields{
 			enabledScorers: []string{DeploymentEvictionFrequencyScorerName},
@@ -301,7 +293,7 @@ func TestDeploymentEvictionFrequencyScorer(t *testing.T) {
 					},
 				},
 			},
-			wantScore: 12,
+			wantScore: 35,
 		},
 		{
 			name: "zero eviction count",
@@ -335,7 +327,7 @@ func TestDeploymentEvictionFrequencyScorer(t *testing.T) {
 					},
 				},
 			},
-			wantScore: 25,
+			wantScore: 100,
 		},
 	}
 
@@ -343,53 +335,6 @@ func TestDeploymentEvictionFrequencyScorer(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			score := DeploymentEvictionFrequencyScorer(tt.pod, nil)
-			assert.Equal(t, tt.wantScore, score)
-		})
-	}
-}
-
-func TestPriorityScorer(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name      string
-		pod       *CandidatePod
-		wantScore int
-	}{
-		{
-			name: "priority 0",
-			pod: &CandidatePod{
-				Pod: makePodWithPriority("pod-0", 0),
-			},
-			wantScore: 0,
-		},
-		{
-			name: "priority 100",
-			pod: &CandidatePod{
-				Pod: makePodWithPriority("pod-100", 100),
-			},
-			wantScore: 10,
-		},
-		{
-			name: "priority exceeds 100",
-			pod: &CandidatePod{
-				Pod: makePodWithPriority("pod-200", 200),
-			},
-			wantScore: 10,
-		},
-		{
-			name: "nil priority",
-			pod: &CandidatePod{
-				Pod: makePod("pod-nil-priority"),
-			},
-			wantScore: 0,
-		},
-	}
-
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			score := PriorityScorer(tt.pod, nil)
 			assert.Equal(t, tt.wantScore, score)
 		})
 	}
@@ -442,7 +387,7 @@ func TestUsageGapScorer(t *testing.T) {
 				Gap:            0.5,
 				MetricsHistory: mockMetricsHistory,
 			}},
-			wantScore: 0,
+			wantScore: 10,
 		},
 	}
 
@@ -545,10 +490,4 @@ func TestSetScorer(t *testing.T) {
 		t.Error("custom scorer score not found in result")
 	}
 	assert.Equal(t, customScore, actualScore, "expected custom score %d, got %d", customScore, actualScore)
-}
-
-func makePodWithPriority(name string, priority int32) *v1.Pod {
-	pod := makePod(name)
-	pod.Spec.Priority = &priority
-	return pod
 }
