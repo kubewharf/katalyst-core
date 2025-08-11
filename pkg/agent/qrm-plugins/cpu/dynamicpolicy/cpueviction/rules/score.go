@@ -21,10 +21,11 @@ import (
 	"math"
 	"sort"
 
+	"k8s.io/apimachinery/pkg/util/sets"
+
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
-	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 const (

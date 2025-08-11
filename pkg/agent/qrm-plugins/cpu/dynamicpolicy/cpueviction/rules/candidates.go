@@ -22,9 +22,10 @@ import (
 	"math"
 	"time"
 
+	v1 "k8s.io/api/core/v1"
+
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
-	v1 "k8s.io/api/core/v1"
 )
 
 const (
