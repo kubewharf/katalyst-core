@@ -47,6 +47,9 @@ type GenericEvictionOptions struct {
 	// PodKiller specify the pod killer implementation
 	PodKiller string
 
+	// QoSPodKillers specify the pod killer implementation for different QoS levels
+	QoSPodKillers map[string]string
+
 	// StrictAuthentication means whether to authenticate plugins strictly
 	StrictAuthentication bool
 
@@ -93,6 +96,9 @@ func (o *GenericEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringVar(&o.PodKiller, "pod-killer", o.PodKiller,
 		"the pod killer used to evict pod")
 
+	fs.StringToStringVar(&o.QoSPodKillers, "qos-pod-killers", o.QoSPodKillers,
+		"the pod killer used to evict pod for different QoS levels")
+
 	fs.BoolVar(&o.StrictAuthentication, "strict-authentication", o.StrictAuthentication,
 		"whether to authenticate plugins strictly, the out-of-tree plugins must use valid and authorized token "+
 			"to register if it set to true")
@@ -110,6 +116,7 @@ func (o *GenericEvictionOptions) ApplyTo(c *evictionconfig.GenericEvictionConfig
 	c.EvictionSkippedLabelKeys.Insert(o.EvictionSkippedLabelKeys...)
 	c.EvictionBurst = o.EvictionBurst
 	c.PodKiller = o.PodKiller
+	c.QoSPodKillers = o.QoSPodKillers
 	c.StrictAuthentication = o.StrictAuthentication
 	c.PodMetricLabels.Insert(o.PodMetricLabels...)
 	return nil
