@@ -39,6 +39,7 @@ import (
 	evictionpluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	qrmstate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -840,7 +841,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 		enableReclaim           bool
 		podEntries              qrmstate.PodEntries
 		loads                   map[string]map[string]float64
-		wantSharedPoolSnapshots MetricInfo
+		wantSharedPoolSnapshots util.MetricInfo
 	}{
 		{
 			name:                   "use default bound, without dedicated core pod",
@@ -1005,7 +1006,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 					testName: 8,
 				},
 			},
-			wantSharedPoolSnapshots: MetricInfo{
+			wantSharedPoolSnapshots: util.MetricInfo{
 				Name:       consts.MetricLoad1MinContainer,
 				Value:      2.4,
 				UpperBound: 18,
@@ -1202,7 +1203,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 					testName: 8,
 				},
 			},
-			wantSharedPoolSnapshots: MetricInfo{
+			wantSharedPoolSnapshots: util.MetricInfo{
 				Name:       consts.MetricLoad1MinContainer,
 				Value:      3.4,
 				UpperBound: 8 * 1.8,
@@ -1400,7 +1401,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 					testName: 8,
 				},
 			},
-			wantSharedPoolSnapshots: MetricInfo{
+			wantSharedPoolSnapshots: util.MetricInfo{
 				Name:       consts.MetricLoad1MinContainer,
 				Value:      3.4,
 				LowerBound: 1,
@@ -1598,7 +1599,7 @@ func TestCPUPressureLoadEviction_collectMetrics(t *testing.T) {
 					testName: 8,
 				},
 			},
-			wantSharedPoolSnapshots: MetricInfo{
+			wantSharedPoolSnapshots: util.MetricInfo{
 				Name:       consts.MetricLoad1MinContainer,
 				Value:      3.4,
 				LowerBound: 4.4,
