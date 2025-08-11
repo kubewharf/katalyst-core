@@ -19,6 +19,8 @@ package podkiller
 import (
 	"context"
 	"fmt"
+	"k8s.io/apimachinery/pkg/runtime"
+	ktesting "k8s.io/client-go/testing"
 	"testing"
 
 	"github.com/bytedance/mockey"
@@ -490,6 +492,62 @@ func TestAsynchronizedPodKiller_sync(t *testing.T) {
 		mockKiller.EvictFunc = func(ctx context.Context, pod *v1.Pod, gracePeriodSeconds int64, reason, plugin string) error {
 			return evictionError
 		}
+
+		// Act
+		err, requeue := killer.sync(evictionKey)
+		So(err, ShouldNotBeNil)
+		So(err, ShouldEqual, evictionError)
+
+		So(requeue, ShouldBeTrue)
+		So(killer.processingPods[podKey], ShouldNotBeNil)
+	})
+
+	mockey.PatchConvey("When API server throws an error unexpectedly", t, func() {
+		// Arrange
+		mockKiller := &mockKiller{}
+
+		// Prepare test data
+		namespace := "default"
+		name := "test-pod"
+		uid := types.UID("test-uid1")
+		gracePeriodSeconds := int64(30)
+		reason := "test-reason"
+		plugin := "test-plugin"
+
+		testPod1 := &v1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: namespace,
+				Name:      name,
+				UID:       uid,
+			},
+		}
+
+		fakeClient := fake.NewSimpleClientset()
+
+		evictionError := fmt.Errorf("error when getting pod")
+		// Inject error when trying to get any pod
+		fakeClient.Fake.PrependReactor("get", "pods", func(action ktesting.Action) (bool, runtime.Object, error) {
+			return true, nil, evictionError
+		})
+
+		// Create an AsynchronizedPodKiller instance
+		killer := &AsynchronizedPodKiller{
+			killer:         mockKiller,
+			podFetcher:     &pod.PodFetcherStub{},
+			client:         fakeClient,
+			processingPods: make(map[string]map[int64]*evictPodInfo),
+		}
+
+		podKey := podKeyFunc(namespace, name, string(uid))
+		killer.processingPods[podKey] = make(map[int64]*evictPodInfo)
+		killer.processingPods[podKey][gracePeriodSeconds] = &evictPodInfo{
+			Pod:    testPod1,
+			Reason: reason,
+			Plugin: plugin,
+		}
+
+		// Create eviction key
+		evictionKey := fmt.Sprintf("%s%s%d", podKey, consts.KeySeparator, gracePeriodSeconds)
 
 		// Act
 		err, requeue := killer.sync(evictionKey)
