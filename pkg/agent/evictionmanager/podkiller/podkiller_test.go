@@ -19,9 +19,10 @@ package podkiller
 import (
 	"context"
 	"fmt"
+	"testing"
+
 	"k8s.io/apimachinery/pkg/runtime"
 	ktesting "k8s.io/client-go/testing"
-	"testing"
 
 	"github.com/bytedance/mockey"
 	. "github.com/smartystreets/goconvey/convey"
