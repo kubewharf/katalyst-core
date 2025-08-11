@@ -147,6 +147,7 @@ func (p *NumaCPUPressureEviction) initFilterAndScorer() error {
 func (p *NumaCPUPressureEviction) SetEvictionFilter(key string, filter rules.FilterFunc) {
 	p.filterer.SetFilter(key, filter)
 }
+
 func (p *NumaCPUPressureEviction) SetEvictionFilterParam(key string, value interface{}) {
 	p.filterer.SetFilterParam(key, value)
 }
@@ -154,6 +155,7 @@ func (p *NumaCPUPressureEviction) SetEvictionFilterParam(key string, value inter
 func (p *NumaCPUPressureEviction) SetEvictionScorer(key string, scorer rules.ScoreFunc) {
 	p.scorer.SetScorer(key, scorer)
 }
+
 func (p *NumaCPUPressureEviction) SetEvictionScorerParam(key string, value interface{}) {
 	p.scorer.SetScorerParam(key, value)
 }
@@ -294,7 +296,7 @@ func (p *NumaCPUPressureEviction) GetTopEvictionPods(ctx context.Context, reques
 
 	general.Infof("getTopEvictionPods filteredPods: %v", len(filteredPods))
 
-	//1.get annotation of pods
+	// get eviction info of pods
 	candidatePods, _ := rules.PrepareCandidatePods(ctx, request)
 	general.Infof("candidatePods: %v", len(candidatePods))
 	// to delete
@@ -603,23 +605,4 @@ func getNumaPressureConfig(conf *dynamic.Configuration) *NumaPressureConfig {
 		EnabledFilters:         conf.NumaCPUPressureEvictionConfiguration.EnabledFilters,
 		EnabledScorers:         conf.NumaCPUPressureEvictionConfiguration.EnabledScorers,
 	}
-}
-
-func (p *NumaCPUPressureEviction) OverRatioNumaFilter(activePods []*v1.Pod, numaStats []rules.NumaOverStat) ([]*v1.Pod, error) {
-
-	numaID := numaStats[0].NumaID
-	numaHis, ok := p.metricsHistory.Inner[numaID]
-	// _, existMetric := numaHis[string(pod.UID)]
-	if !ok {
-		return nil, fmt.Errorf("cannot find numa %v usage", numaID)
-	}
-	var filterdPods []*v1.Pod
-	for _, pod := range activePods {
-		podUID := string(pod.UID)
-		_, existMetric := numaHis[podUID]
-		if existMetric {
-			filterdPods = append(filterdPods, pod)
-		}
-	}
-	return filterdPods, nil
 }

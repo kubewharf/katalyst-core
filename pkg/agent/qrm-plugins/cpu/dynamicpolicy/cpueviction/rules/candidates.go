@@ -28,53 +28,11 @@ import (
 )
 
 const (
-	workloadEvictionInfoAnnotation = "evictionInfo"
-	timeWindow1                    = 1800
-	timeWindow2                    = 3600
-	timeWindow3                    = 7200
-	workloadName                   = "deployment"
+	timeWindow1  = 1800
+	timeWindow2  = 3600
+	timeWindow3  = 7200
+	workloadName = "deployment"
 )
-
-// func PrepareCandidatePods(_ context.Context, request *pluginapi.GetTopEvictionPodsRequest) ([]*CandidatePod, error) {
-// 	if request == nil {
-// 		general.Warningf("no request in PrepareCandidatePods")
-// 		return nil, fmt.Errorf("no request in PrepareCandidatePods")
-// 	}
-
-// 	if request.CandidateEvictionRecords == nil {
-// 		general.Warningf("no candidateEvictionRecords in request")
-// 	}
-
-// 	var evictionRecords []*pluginapi.EvictionRecord
-// 	for _, record := range request.CandidateEvictionRecords {
-// 		evictionRecords = append(evictionRecords, record)
-// 	}
-// 	pods := request.ActivePods
-// 	var candidates []*CandidatePod
-// 	for _, pod := range pods {
-// 		for _, record := range evictionRecords {
-// 			if record.Uid == string(pod.UID) {
-// 				if record.Buckets != nil {
-// 					general.Infof("get eviction record for pod %s, record: %v", pod.Name, record)
-// 				}
-// 				workloadInfos, err := getWorkloadEvictionInfo(record)
-// 				if err != nil {
-// 					general.Warningf("get workload eviction info failed: %v", err)
-// 				}
-// 				candidates = append(candidates, &CandidatePod{
-// 					Pod:                   pod,
-// 					Scores:                make(map[string]int),
-// 					TotalScore:            0,
-// 					WorkloadsEvictionInfo: workloadInfos,
-// 					UsageRatio:            0,
-// 				})
-
-// 			}
-// 		}
-// 	}
-
-// 	return candidates, nil
-// }
 
 // PrepareCandidatePods converts a list of v1.Pod to a list of *CandidatePod and populates
 // all the necessary information for the Filter and Score stages.
@@ -196,7 +154,6 @@ func calculateEvictionStatsByWindows(currentTime time.Time, evictionRecord *plug
 	}
 
 	return statsByWindow, lastEvictionTime
-
 }
 
 func ConvertCandidatesToPods(candidates []*CandidatePod) []*v1.Pod {

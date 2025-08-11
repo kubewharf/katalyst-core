@@ -28,6 +28,8 @@ import (
 )
 
 func TestPrepareCandidatePods(t *testing.T) {
+	t.Parallel()
+
 	now := time.Now()
 	pods := []*v1.Pod{
 		{ObjectMeta: metav1.ObjectMeta{UID: "pod-uid-1", Name: "pod-1"}},
@@ -89,7 +91,9 @@ func TestPrepareCandidatePods(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			candidates, err := PrepareCandidatePods(context.Background(), tc.request)
 			if tc.expectedErr {
 				assert.Error(t, err)
@@ -127,6 +131,7 @@ func TestPrepareCandidatePods(t *testing.T) {
 }
 
 func TestGetWorkloadEvictionInfo(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	cases := []struct {
 		name           string
@@ -172,7 +177,9 @@ func TestGetWorkloadEvictionInfo(t *testing.T) {
 	}}
 
 	for _, tc := range cases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			result, err := getWorkloadEvictionInfo(tc.inputRecord)
 
 			if tc.expectedErr {
@@ -198,6 +205,7 @@ func TestGetWorkloadEvictionInfo(t *testing.T) {
 }
 
 func TestCalculateEvictionStatsByWindows(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	cases := []struct {
 		name           string
@@ -238,7 +246,9 @@ func TestCalculateEvictionStatsByWindows(t *testing.T) {
 	}}
 
 	for _, tc := range cases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			stats, lastEv := calculateEvictionStatsByWindows(
 				tc.currentTime,
 				tc.inputRecord,

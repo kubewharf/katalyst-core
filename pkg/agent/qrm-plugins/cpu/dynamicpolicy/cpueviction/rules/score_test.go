@@ -32,6 +32,372 @@ import (
 func TestScorer_Score(t *testing.T) {
 	t.Parallel()
 
+	// NUMA Metric History
+	mockMetricsHistory := &history.NumaMetricHistory{
+		Inner: map[int]map[string]map[string]*history.MetricRing{
+			0: {
+				"pod1": {
+					consts.MetricCPUUsageContainer: {
+						MaxLen: 2,
+						Queue: []*history.MetricSnapshot{
+							{Info: history.MetricInfo{Value: 0.8}},
+						},
+					},
+				},
+				"pod2": {
+					consts.MetricCPUUsageContainer: {
+						MaxLen: 2,
+						Queue: []*history.MetricSnapshot{
+							{Info: history.MetricInfo{Value: 0.6}},
+						},
+					},
+				},
+				"pod3": {
+					consts.MetricCPUUsageContainer: {
+						MaxLen: 2,
+						Queue: []*history.MetricSnapshot{
+							{Info: history.MetricInfo{Value: 0.9}},
+						},
+					},
+				},
+				"pod4": {
+					consts.MetricCPUUsageContainer: {
+						MaxLen: 2,
+						Queue: []*history.MetricSnapshot{
+							{Info: history.MetricInfo{Value: 0.7}},
+						},
+					},
+				},
+				"pod5": {
+					consts.MetricCPUUsageContainer: {
+						MaxLen: 2,
+						Queue: []*history.MetricSnapshot{
+							{Info: history.MetricInfo{Value: 0.95}},
+						},
+					},
+				},
+			},
+		},
+		RingSize: 2,
+	}
+
+	type fields struct {
+		enabledScorers []string
+		scorerParams   map[string]interface{}
+	}
+	type args struct {
+		pods []*CandidatePod
+	}
+	type want struct {
+		sortedPodNames []string
+	}
+
+	tests := []struct {
+		name   string
+		fields fields
+		args   args
+		want   want
+	}{{
+		name: "no scorers enabled",
+		fields: fields{
+			enabledScorers: []string{},
+			scorerParams:   nil,
+		},
+		args: args{pods: makeCandidatePods()},
+		want: want{sortedPodNames: []string{"pod1", "pod2", "pod3", "pod4", "pod5"}},
+	}, {
+		name: "DeploymentEvictionFrequencyScorer only",
+		fields: fields{
+			enabledScorers: []string{DeploymentEvictionFrequencyScorerName},
+			scorerParams:   nil,
+		},
+		args: args{pods: makeCandidatePods()},
+		want: want{sortedPodNames: []string{"pod5", "pod2", "pod1", "pod4", "pod3"}},
+	}, {
+		name: "UsageGapScorer only",
+		fields: fields{
+			enabledScorers: []string{UsageGapScorerName},
+			scorerParams: map[string]interface{}{
+				UsageGapScorerName: []NumaOverStat{{
+					NumaID:         0,
+					Gap:            0.5,
+					MetricsHistory: mockMetricsHistory,
+				}},
+			},
+		},
+		args: args{pods: makeCandidatePods()},
+		want: want{sortedPodNames: []string{"pod2", "pod4", "pod1", "pod3", "pod5"}},
+	}, {
+		name: "multiple scorers (DeploymentEvictionFrequency + UsageGap)",
+		fields: fields{
+			enabledScorers: []string{DeploymentEvictionFrequencyScorerName, UsageGapScorerName},
+			scorerParams: map[string]interface{}{
+				UsageGapScorerName: []NumaOverStat{{
+					NumaID:         0,
+					Gap:            0.5,
+					MetricsHistory: mockMetricsHistory,
+				}},
+			},
+		},
+		args: args{pods: makeCandidatePods()},
+		want: want{sortedPodNames: []string{"pod2", "pod5", "pod1", "pod4", "pod3"}},
+	}}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			scorer, err := NewScorer(tt.fields.enabledScorers, metrics.DummyMetrics{}, tt.fields.scorerParams)
+			assert.NoError(t, err)
+
+			result := scorer.Score(tt.args.pods)
+
+			resultNames := make([]string, len(result))
+			for i, pod := range result {
+				resultNames[i] = pod.Pod.Name
+				fmt.Println(resultNames[i], "total score:", pod.TotalScore)
+				for name, score := range pod.Scores {
+					fmt.Println(resultNames[i], name, "score:", score)
+				}
+			}
+			assert.Equal(t, tt.want.sortedPodNames, resultNames)
+		})
+	}
+}
+
+func TestDeploymentEvictionFrequencyScorer(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		pod       *CandidatePod
+		wantScore int
+	}{
+		{
+			name: "multiple windows with different weights",
+			pod: &CandidatePod{
+				Pod: makePod("test-pod"),
+				WorkloadsEvictionInfo: map[string]*WorkloadEvictionInfo{
+					workloadName: {
+						WorkloadName: workloadName,
+						StatsByWindow: map[float64]*EvictionStats{
+							1:  {EvictionCount: 3, EvictionRatio: 0.3},
+							24: {EvictionCount: 24, EvictionRatio: 0.2},
+						},
+						Replicas: 10,
+						Limit:    3,
+					},
+				},
+			},
+			wantScore: 35,
+		},
+		{
+			name: "zero eviction count",
+			pod: &CandidatePod{
+				Pod: makePod("test-pod"),
+				WorkloadsEvictionInfo: map[string]*WorkloadEvictionInfo{
+					workloadName: {
+						WorkloadName: workloadName,
+						StatsByWindow: map[float64]*EvictionStats{
+							1: {EvictionCount: 0, EvictionRatio: 0},
+						},
+						Replicas: 10,
+						Limit:    3,
+					},
+				},
+			},
+			wantScore: 0,
+		},
+		{
+			name: "exceed limit normalization",
+			pod: &CandidatePod{
+				Pod: makePod("test-pod"),
+				WorkloadsEvictionInfo: map[string]*WorkloadEvictionInfo{
+					workloadName: {
+						WorkloadName: workloadName,
+						StatsByWindow: map[float64]*EvictionStats{
+							1: {EvictionCount: 6, EvictionRatio: 0.5},
+						},
+						Replicas: 10,
+						Limit:    3,
+					},
+				},
+			},
+			wantScore: 100,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			score := DeploymentEvictionFrequencyScorer(tt.pod, nil)
+			assert.Equal(t, tt.wantScore, score)
+		})
+	}
+}
+
+func TestUsageGapScorer(t *testing.T) {
+	t.Parallel()
+
+	mockMetricsHistory := &history.NumaMetricHistory{
+		Inner: map[int]map[string]map[string]*history.MetricRing{
+			0: {
+				"pod-uid": {
+					consts.MetricCPUUsageContainer: {
+						MaxLen: 2,
+						Queue: []*history.MetricSnapshot{
+							{Info: history.MetricInfo{Value: 0.8}},
+						},
+					},
+				},
+			},
+		},
+		RingSize: 2,
+	}
+
+	tests := []struct {
+		name      string
+		pod       *CandidatePod
+		params    interface{}
+		wantScore int
+	}{
+		{
+			name: "normal case",
+			pod: &CandidatePod{
+				Pod: &v1.Pod{ObjectMeta: metav1.ObjectMeta{UID: types.UID("pod-uid")}},
+			},
+			params: []NumaOverStat{{
+				NumaID:         0,
+				Gap:            0.5,
+				MetricsHistory: mockMetricsHistory,
+			}},
+			wantScore: 30,
+		},
+		{
+			name: "no metric history",
+			pod: &CandidatePod{
+				Pod: &v1.Pod{ObjectMeta: metav1.ObjectMeta{UID: types.UID("unknown-uid")}},
+			},
+			params: []NumaOverStat{{
+				NumaID:         0,
+				Gap:            0.5,
+				MetricsHistory: mockMetricsHistory,
+			}},
+			wantScore: 10,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			score := UsageGapScorer(tt.pod, tt.params)
+			assert.Equal(t, tt.wantScore, score)
+		})
+	}
+}
+
+func TestNewScorer_InvalidScorer(t *testing.T) {
+	t.Parallel()
+	_, err := NewScorer([]string{"invalidScorer"}, metrics.DummyMetrics{}, nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "scorer invalidScorer not exists")
+}
+
+func TestScore_NilPods(t *testing.T) {
+	t.Parallel()
+	scorer, _ := NewScorer([]string{PriorityScorerName}, metrics.DummyMetrics{}, nil)
+	result := scorer.Score([]*CandidatePod{nil, {Pod: makePod("valid")}})
+	assert.Len(t, result, 1)
+	assert.NotNil(t, result[0])
+}
+
+func TestScorer_EmptyScorers(t *testing.T) {
+	t.Parallel()
+	scorer, _ := NewScorer([]string{}, metrics.DummyMetrics{}, nil)
+	pods := []*CandidatePod{{Pod: makePod("test")}}
+	result := scorer.Score(pods)
+	assert.Equal(t, pods, result)
+}
+
+func TestNormalizeCount(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name         string
+		perHourCount float64
+		limit        int32
+		want         float64
+	}{
+		{
+			name:         "limit zero",
+			perHourCount: 5,
+			limit:        0,
+			want:         5,
+		},
+		{
+			name:         "count equals limit",
+			perHourCount: 3,
+			limit:        3,
+			want:         10,
+		},
+		{
+			name:         "count exceeds limit",
+			perHourCount: 6,
+			limit:        3,
+			want:         20,
+		},
+		{
+			name:         "count below limit",
+			perHourCount: 1,
+			limit:        3,
+			want:         3.3333333333333335,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			result := normalizeCount(tt.perHourCount, tt.limit)
+			assert.InDelta(t, tt.want, result, 0.001)
+		})
+	}
+}
+
+func TestSetScorerParam(t *testing.T) {
+	t.Parallel()
+	scorer, _ := NewScorer([]string{UsageGapScorerName}, metrics.DummyMetrics{}, nil)
+	testParam := []NumaOverStat{{NumaID: 1}}
+	scorer.SetScorerParam(UsageGapScorerName, testParam)
+	assert.Equal(t, testParam, scorer.scorerParams[UsageGapScorerName])
+}
+
+func TestSetScorer(t *testing.T) {
+	t.Parallel()
+	scorer, _ := NewScorer([]string{}, metrics.DummyMetrics{}, nil)
+	customScore := 100
+	customScorer := func(pod *CandidatePod, params interface{}) int {
+		return customScore
+	}
+
+	scorer.SetScorer("custom", customScorer)
+	if _, exists := scorer.scorers["custom"]; !exists {
+		t.Fatal("custom scorer not found in scorer.scorers")
+	}
+	testPod := &CandidatePod{Pod: makePod("test-pod")}
+	scoredPods := scorer.Score([]*CandidatePod{testPod})
+	if len(scoredPods) == 0 {
+		t.Fatal("no pods scored")
+	}
+	actualScore, ok := scoredPods[0].Scores["custom"]
+	if !ok {
+		t.Error("custom scorer score not found in result")
+	}
+	assert.Equal(t, customScore, actualScore, "expected custom score %d, got %d", customScore, actualScore)
+}
+
+func makeCandidatePods() []*CandidatePod {
 	// pod and CandidatePod
 	pod1 := makePod("pod1")
 	pod1.Spec.Priority = new(int32)
@@ -136,358 +502,5 @@ func TestScorer_Score(t *testing.T) {
 			},
 		},
 	}
-
-	// NUMA Metric History
-	mockMetricsHistory := &history.NumaMetricHistory{
-		Inner: map[int]map[string]map[string]*history.MetricRing{
-			0: {
-				"pod1": {
-					consts.MetricCPUUsageContainer: {
-						MaxLen: 2,
-						Queue: []*history.MetricSnapshot{
-							{Info: history.MetricInfo{Value: 0.8}},
-						},
-					},
-				},
-				"pod2": {
-					consts.MetricCPUUsageContainer: {
-						MaxLen: 2,
-						Queue: []*history.MetricSnapshot{
-							{Info: history.MetricInfo{Value: 0.6}},
-						},
-					},
-				},
-				"pod3": {
-					consts.MetricCPUUsageContainer: {
-						MaxLen: 2,
-						Queue: []*history.MetricSnapshot{
-							{Info: history.MetricInfo{Value: 0.9}},
-						},
-					},
-				},
-				"pod4": {
-					consts.MetricCPUUsageContainer: {
-						MaxLen: 2,
-						Queue: []*history.MetricSnapshot{
-							{Info: history.MetricInfo{Value: 0.7}},
-						},
-					},
-				},
-				"pod5": {
-					consts.MetricCPUUsageContainer: {
-						MaxLen: 2,
-						Queue: []*history.MetricSnapshot{
-							{Info: history.MetricInfo{Value: 0.95}},
-						},
-					},
-				},
-			},
-		},
-		RingSize: 2,
-	}
-
-	type fields struct {
-		enabledScorers []string
-		scorerParams   map[string]interface{}
-	}
-	type args struct {
-		pods []*CandidatePod
-	}
-	type want struct {
-		sortedPodNames []string
-	}
-
-	tests := []struct {
-		name   string
-		fields fields
-		args   args
-		want   want
-	}{{
-		name: "no scorers enabled",
-		fields: fields{
-			enabledScorers: []string{},
-			scorerParams:   nil,
-		},
-		args: args{pods: []*CandidatePod{candidatePod1, candidatePod2, candidatePod3, candidatePod4, candidatePod5}},
-		want: want{sortedPodNames: []string{"pod1", "pod2", "pod3", "pod4", "pod5"}},
-	}, {
-		name: "DeploymentEvictionFrequencyScorer only",
-		fields: fields{
-			enabledScorers: []string{DeploymentEvictionFrequencyScorerName},
-			scorerParams:   nil,
-		},
-		args: args{pods: []*CandidatePod{candidatePod1, candidatePod2, candidatePod3, candidatePod4, candidatePod5}},
-		want: want{sortedPodNames: []string{"pod5", "pod2", "pod1", "pod4", "pod3"}},
-	}, {
-		name: "UsageGapScorer only",
-		fields: fields{
-			enabledScorers: []string{UsageGapScorerName},
-			scorerParams: map[string]interface{}{
-				UsageGapScorerName: []NumaOverStat{{
-					NumaID:         0,
-					Gap:            0.5,
-					MetricsHistory: mockMetricsHistory,
-				}},
-			},
-		},
-		args: args{pods: []*CandidatePod{candidatePod1, candidatePod2, candidatePod3, candidatePod4, candidatePod5}},
-		want: want{sortedPodNames: []string{"pod2", "pod4", "pod1", "pod3", "pod5"}},
-	}, {
-		name: "multiple scorers (Priority + DeploymentEvictionFrequency + UsageGap)",
-		fields: fields{
-			enabledScorers: []string{PriorityScorerName, DeploymentEvictionFrequencyScorerName, UsageGapScorerName},
-			scorerParams: map[string]interface{}{
-				UsageGapScorerName: []NumaOverStat{{
-					NumaID:         0,
-					Gap:            0.5,
-					MetricsHistory: mockMetricsHistory,
-				}},
-			},
-		},
-		args: args{pods: []*CandidatePod{candidatePod1, candidatePod2, candidatePod3, candidatePod4, candidatePod5}},
-		want: want{sortedPodNames: []string{"pod2", "pod5", "pod1", "pod4", "pod3"}},
-	}}
-
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			scorer, err := NewScorer(tt.fields.enabledScorers, metrics.DummyMetrics{}, tt.fields.scorerParams)
-			assert.NoError(t, err)
-
-			result := scorer.Score(tt.args.pods)
-
-			resultNames := make([]string, len(result))
-			for i, pod := range result {
-				resultNames[i] = pod.Pod.Name
-				fmt.Println(resultNames[i], "total score:", pod.TotalScore)
-				for name, score := range pod.Scores {
-					fmt.Println(resultNames[i], name, "score:", score)
-				}
-			}
-			assert.Equal(t, tt.want.sortedPodNames, resultNames)
-		})
-	}
-}
-
-func TestDeploymentEvictionFrequencyScorer(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name      string
-		pod       *CandidatePod
-		wantScore int
-	}{
-		{
-			name: "multiple windows with different weights",
-			pod: &CandidatePod{
-				Pod: makePod("test-pod"),
-				WorkloadsEvictionInfo: map[string]*WorkloadEvictionInfo{
-					workloadName: {
-						WorkloadName: workloadName,
-						StatsByWindow: map[float64]*EvictionStats{
-							1:  {EvictionCount: 3, EvictionRatio: 0.3},
-							24: {EvictionCount: 24, EvictionRatio: 0.2},
-						},
-						Replicas: 10,
-						Limit:    3,
-					},
-				},
-			},
-			wantScore: 35,
-		},
-		{
-			name: "zero eviction count",
-			pod: &CandidatePod{
-				Pod: makePod("test-pod"),
-				WorkloadsEvictionInfo: map[string]*WorkloadEvictionInfo{
-					workloadName: {
-						WorkloadName: workloadName,
-						StatsByWindow: map[float64]*EvictionStats{
-							1: {EvictionCount: 0, EvictionRatio: 0},
-						},
-						Replicas: 10,
-						Limit:    3,
-					},
-				},
-			},
-			wantScore: 0,
-		},
-		{
-			name: "exceed limit normalization",
-			pod: &CandidatePod{
-				Pod: makePod("test-pod"),
-				WorkloadsEvictionInfo: map[string]*WorkloadEvictionInfo{
-					workloadName: {
-						WorkloadName: workloadName,
-						StatsByWindow: map[float64]*EvictionStats{
-							1: {EvictionCount: 6, EvictionRatio: 0.5},
-						},
-						Replicas: 10,
-						Limit:    3,
-					},
-				},
-			},
-			wantScore: 100,
-		},
-	}
-
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			score := DeploymentEvictionFrequencyScorer(tt.pod, nil)
-			assert.Equal(t, tt.wantScore, score)
-		})
-	}
-}
-
-func TestUsageGapScorer(t *testing.T) {
-	t.Parallel()
-
-	mockMetricsHistory := &history.NumaMetricHistory{
-		Inner: map[int]map[string]map[string]*history.MetricRing{
-			0: {
-				"pod-uid": {
-					consts.MetricCPUUsageContainer: {
-						MaxLen: 2,
-						Queue: []*history.MetricSnapshot{
-							{Info: history.MetricInfo{Value: 0.8}},
-						},
-					},
-				},
-			},
-		},
-		RingSize: 2,
-	}
-
-	tests := []struct {
-		name      string
-		pod       *CandidatePod
-		params    interface{}
-		wantScore int
-	}{
-		{
-			name: "normal case",
-			pod: &CandidatePod{
-				Pod: &v1.Pod{ObjectMeta: metav1.ObjectMeta{UID: types.UID("pod-uid")}},
-			},
-			params: []NumaOverStat{{
-				NumaID:         0,
-				Gap:            0.5,
-				MetricsHistory: mockMetricsHistory,
-			}},
-			wantScore: 30,
-		},
-		{
-			name: "no metric history",
-			pod: &CandidatePod{
-				Pod: &v1.Pod{ObjectMeta: metav1.ObjectMeta{UID: types.UID("unknown-uid")}},
-			},
-			params: []NumaOverStat{{
-				NumaID:         0,
-				Gap:            0.5,
-				MetricsHistory: mockMetricsHistory,
-			}},
-			wantScore: 10,
-		},
-	}
-
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			score := UsageGapScorer(tt.pod, tt.params)
-			assert.Equal(t, tt.wantScore, score)
-		})
-	}
-}
-
-func TestNewScorer_InvalidScorer(t *testing.T) {
-	_, err := NewScorer([]string{"invalidScorer"}, metrics.DummyMetrics{}, nil)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "scorer invalidScorer not exists")
-}
-
-func TestScore_NilPods(t *testing.T) {
-	scorer, _ := NewScorer([]string{PriorityScorerName}, metrics.DummyMetrics{}, nil)
-	result := scorer.Score([]*CandidatePod{nil, {Pod: makePod("valid")}})
-	assert.Len(t, result, 1)
-	assert.NotNil(t, result[0])
-}
-
-func TestScorer_EmptyScorers(t *testing.T) {
-	scorer, _ := NewScorer([]string{}, metrics.DummyMetrics{}, nil)
-	pods := []*CandidatePod{{Pod: makePod("test")}}
-	result := scorer.Score(pods)
-	assert.Equal(t, pods, result)
-}
-
-func TestNormalizeCount(t *testing.T) {
-	tests := []struct {
-		name         string
-		perHourCount float64
-		limit        int32
-		want         float64
-	}{
-		{
-			name:         "limit zero",
-			perHourCount: 5,
-			limit:        0,
-			want:         5,
-		},
-		{
-			name:         "count equals limit",
-			perHourCount: 3,
-			limit:        3,
-			want:         10,
-		},
-		{
-			name:         "count exceeds limit",
-			perHourCount: 6,
-			limit:        3,
-			want:         20,
-		},
-		{
-			name:         "count below limit",
-			perHourCount: 1,
-			limit:        3,
-			want:         3.3333333333333335,
-		},
-	}
-
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			result := normalizeCount(tt.perHourCount, tt.limit)
-			assert.InDelta(t, tt.want, result, 0.001)
-		})
-	}
-}
-
-func TestSetScorerParam(t *testing.T) {
-	scorer, _ := NewScorer([]string{UsageGapScorerName}, metrics.DummyMetrics{}, nil)
-	testParam := []NumaOverStat{{NumaID: 1}}
-	scorer.SetScorerParam(UsageGapScorerName, testParam)
-	assert.Equal(t, testParam, scorer.scorerParams[UsageGapScorerName])
-}
-
-func TestSetScorer(t *testing.T) {
-	scorer, _ := NewScorer([]string{}, metrics.DummyMetrics{}, nil)
-	customScore := 100
-	customScorer := func(pod *CandidatePod, params interface{}) int {
-		return customScore
-	}
-
-	scorer.SetScorer("custom", customScorer)
-	if _, exists := scorer.scorers["custom"]; !exists {
-		t.Fatal("custom scorer not found in scorer.scorers")
-	}
-	testPod := &CandidatePod{Pod: makePod("test-pod")}
-	scoredPods := scorer.Score([]*CandidatePod{testPod})
-	if len(scoredPods) == 0 {
-		t.Fatal("no pods scored")
-	}
-	actualScore, ok := scoredPods[0].Scores["custom"]
-	if !ok {
-		t.Error("custom scorer score not found in result")
-	}
-	assert.Equal(t, customScore, actualScore, "expected custom score %d, got %d", customScore, actualScore)
+	return []*CandidatePod{candidatePod1, candidatePod2, candidatePod3, candidatePod4, candidatePod5}
 }

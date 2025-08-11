@@ -240,6 +240,7 @@ func TestFilterer_Filter(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			filterer, err := NewFilter(tt.fields.enabledFilters, metrics.DummyMetrics{}, tt.fields.filterParams)
 			assert.NoError(t, err)
 			result := filterer.Filter(tt.args.pods)
@@ -300,6 +301,7 @@ func TestOwnerRefFilter(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := OwnerRefFilter(tt.pod, tt.params)
 			assert.Equal(t, tt.wantFiltered, result)
 		})
@@ -346,6 +348,7 @@ func TestOverRatioNumaFilter(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := OverRatioNumaFilter(tt.pod, tt.params)
 			assert.Equal(t, tt.wantFiltered, result)
 		})
@@ -353,6 +356,7 @@ func TestOverRatioNumaFilter(t *testing.T) {
 }
 
 func TestFilterer_SetFilter(t *testing.T) {
+	t.Parallel()
 	filterer, _ := NewFilter([]string{}, metrics.DummyMetrics{}, nil)
 	customFilter := func(pod *v1.Pod, params interface{}) bool {
 		return pod.Name == "custom-filter-pod"
@@ -368,6 +372,7 @@ func TestFilterer_SetFilter(t *testing.T) {
 }
 
 func TestFilterer_SetFilterParam(t *testing.T) {
+	t.Parallel()
 	filterer, _ := NewFilter([]string{OwnerRefFilterName}, metrics.DummyMetrics{}, nil)
 	testParams := []string{"StatefulSet"}
 
@@ -384,18 +389,21 @@ func TestFilterer_SetFilterParam(t *testing.T) {
 }
 
 func TestNewFilter_InvalidFilter(t *testing.T) {
+	t.Parallel()
 	filterer, err := NewFilter([]string{"invalid-filter"}, metrics.DummyMetrics{}, nil)
 	assert.NoError(t, err)
 	assert.Empty(t, filterer.filters)
 }
 
 func TestFilterer_EmptyPodList(t *testing.T) {
+	t.Parallel()
 	filterer, _ := NewFilter([]string{OwnerRefFilterName}, metrics.DummyMetrics{}, map[string]interface{}{OwnerRefFilterName: []string{"DaemonSet"}})
 	result := filterer.Filter([]*v1.Pod{})
 	assert.Empty(t, result)
 }
 
 func TestFilterer_NilPod(t *testing.T) {
+	t.Parallel()
 	filterer, _ := NewFilter([]string{OwnerRefFilterName}, metrics.DummyMetrics{}, map[string]interface{}{OwnerRefFilterName: []string{"DaemonSet"}})
 	result := filterer.Filter([]*v1.Pod{nil, {ObjectMeta: metav1.ObjectMeta{Name: "valid-pod"}}})
 	assert.Len(t, result, 1)
@@ -436,6 +444,7 @@ func TestOverRatioNumaFilter_InvalidMetrics(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			pod := makePod("test-pod")
 			result := OverRatioNumaFilter(pod, tt.params)
 			assert.Equal(t, tt.wantFiltered, result)
