@@ -17,8 +17,9 @@ limitations under the License.
 package rules
 
 import (
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction/history"
 	v1 "k8s.io/api/core/v1"
+
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction/history"
 )
 
 type CandidatePod struct {
