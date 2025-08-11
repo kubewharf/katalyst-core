@@ -77,6 +77,7 @@ const (
 	testNotHostPreferEnhancementValue = "{\"namespace_type\": \"anti_host_ns_preferred\"}"
 	testHostEnhancementValue          = "{\"namespace_type\": \"host_ns\"}"
 
+	testNetNSDir               = "/var/run/netns"
 	testEth0Name               = "eth0"
 	testEth0AffinitiveNUMANode = 0
 	testEth0NSAbsolutePath     = "/var/run/netns"
@@ -87,7 +88,7 @@ const (
 
 	testEth2Name               = "eth2"
 	testEth2AffinitiveNUMANode = 2
-	testEth2NSAbsolutePath     = "/var/run/netns"
+	testEth2NSAbsolutePath     = "/var/run/netns/ns2"
 	testEth2NSName             = "ns2"
 )
 
@@ -249,7 +250,7 @@ func makeNICs(hasNics bool) []machine.InterfaceInfo {
 					IPV6: []*net.IP{&v6},
 				},
 				NetNSInfo: machine.NetNSInfo{
-					NSAbsDir: testEth2NSAbsolutePath,
+					NSAbsDir: testNetNSDir,
 					NSName:   testEth2NSName,
 				},
 			},
@@ -288,7 +289,7 @@ func makeNICs(hasNics bool) []machine.InterfaceInfo {
 					IPV6: []*net.IP{&v6},
 				},
 				NetNSInfo: machine.NetNSInfo{
-					NSAbsDir: testEth2NSAbsolutePath,
+					NSAbsDir: testNetNSDir,
 					NSName:   testEth2NSName,
 				},
 			},
@@ -1198,7 +1199,7 @@ func TestGetTopologyHints(t *testing.T) {
 			},
 		},
 		{
-			description: "req for reclaimed_cores main container with not host netns preference",
+			description: "req for reclaimed_cores main container with not host netns preference 1201",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   testName,

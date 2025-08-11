@@ -145,8 +145,8 @@ func testGetNSNetworkHardwareTopology(t *testing.T) {
 	})
 
 	PatchConvey("Test DoNetNS success", t, func() {
-		Mock(DoNetNS).To(func(nsName, netNSDirAbsPath string, cb func(sysFsDir, nsAbsPath string) error) error {
-			return cb("", "")
+		Mock(DoNetNS).To(func(nsName, netNSDirAbsPath string, cb func(sysFsDir string) error) error {
+			return cb("")
 		}).Build()
 		PatchConvey("Test os.ReadDir failed", func() {
 			Mock(os.ReadDir).Return(nil, errors.New("ReadDir failed")).Build()
@@ -213,7 +213,7 @@ func testDoNetNS(t *testing.T) {
 		mockSetup              func()
 		expectError            bool
 		expectedErrorSubstring string
-		cb                     func(sysFsDir, nsAbsPath string) error
+		cb                     func(sysFsDir string) error
 	}{
 		{
 			name:            "Default namespace",
@@ -221,9 +221,8 @@ func testDoNetNS(t *testing.T) {
 			netNSDirAbsPath: "/test/path",
 			mockSetup:       func() {},
 			expectError:     false,
-			cb: func(sysFsDir, nsAbsPath string) error {
+			cb: func(sysFsDir string) error {
 				So(sysFsDir, ShouldEqual, sysFSDirNormal)
-				So(nsAbsPath, ShouldBeEmpty)
 				return nil
 			},
 		},
@@ -244,9 +243,8 @@ func testDoNetNS(t *testing.T) {
 				Mock(syscall.Unmount).Return(nil).Build()
 			},
 			expectError: false,
-			cb: func(sysFsDir, nsAbsPath string) error {
+			cb: func(sysFsDir string) error {
 				So(sysFsDir, ShouldEqual, sysFSDirNetNSTmp)
-				So(nsAbsPath, ShouldEqual, "/test/path/custom-ns")
 				return nil
 			},
 		},
@@ -261,7 +259,7 @@ func testDoNetNS(t *testing.T) {
 			},
 			expectError:            true,
 			expectedErrorSubstring: "get error",
-			cb:                     func(sysFsDir, nsAbsPath string) error { return nil },
+			cb:                     func(sysFsDir string) error { return nil },
 		},
 		{
 			name:            "Custom namespace - GetFromPath error",
@@ -277,7 +275,7 @@ func testDoNetNS(t *testing.T) {
 			},
 			expectError:            true,
 			expectedErrorSubstring: "get from path error",
-			cb:                     func(sysFsDir, nsAbsPath string) error { return nil },
+			cb:                     func(sysFsDir string) error { return nil },
 		},
 		{
 			name:            "Custom namespace - Set error",
@@ -299,7 +297,7 @@ func testDoNetNS(t *testing.T) {
 			},
 			expectError:            true,
 			expectedErrorSubstring: "set error",
-			cb:                     func(sysFsDir, nsAbsPath string) error { return nil },
+			cb:                     func(sysFsDir string) error { return nil },
 		},
 		{
 			name:            "Custom namespace - Stat error (not ErrNotExist)",
@@ -315,8 +313,8 @@ func testDoNetNS(t *testing.T) {
 				Mock(os.Stat).Return(nil, fmt.Errorf("stat error")).Build()
 			},
 			expectError:            true,
-			expectedErrorSubstring: "check dir: /tmp/net_ns_sysfs failed with error: stat error",
-			cb:                     func(sysFsDir, nsAbsPath string) error { return nil },
+			expectedErrorSubstring: "failed to stat /tmp/net_ns_sysfs, err stat error",
+			cb:                     func(sysFsDir string) error { return nil },
 		},
 		{
 			name:            "Custom namespace - MkdirAll error",
@@ -333,8 +331,8 @@ func testDoNetNS(t *testing.T) {
 				Mock(os.MkdirAll).Return(fmt.Errorf("mkdir error")).Build()
 			},
 			expectError:            true,
-			expectedErrorSubstring: "make dir: /tmp/net_ns_sysfs failed with error: mkdir error",
-			cb:                     func(sysFsDir, nsAbsPath string) error { return nil },
+			expectedErrorSubstring: "failed to create /tmp/net_ns_sysfs, err mkdir error",
+			cb:                     func(sysFsDir string) error { return nil },
 		},
 		{
 			name:            "Custom namespace - Mounted check error",
@@ -352,7 +350,7 @@ func testDoNetNS(t *testing.T) {
 			},
 			expectError:            true,
 			expectedErrorSubstring: "check mounted dir: /tmp/net_ns_sysfs failed with error: mounted check error",
-			cb:                     func(sysFsDir, nsAbsPath string) error { return nil },
+			cb:                     func(sysFsDir string) error { return nil },
 		},
 		{
 			name:            "Custom namespace - Mount error",
@@ -370,8 +368,8 @@ func testDoNetNS(t *testing.T) {
 				Mock(syscall.Mount).Return(fmt.Errorf("mount error")).Build()
 			},
 			expectError:            true,
-			expectedErrorSubstring: "mount sysfs to /tmp/net_ns_sysfs failed with error: mount error",
-			cb:                     func(sysFsDir, nsAbsPath string) error { return nil },
+			expectedErrorSubstring: "failed to mount sysfs at /tmp/net_ns_sysfs, err mount error",
+			cb:                     func(sysFsDir string) error { return nil },
 		},
 		{
 			name:            "Custom namespace - Callback error",
@@ -391,7 +389,7 @@ func testDoNetNS(t *testing.T) {
 			},
 			expectError:            true,
 			expectedErrorSubstring: "callback error",
-			cb: func(sysFsDir, nsAbsPath string) error {
+			cb: func(sysFsDir string) error {
 				return fmt.Errorf("callback error")
 			},
 		},
@@ -412,9 +410,8 @@ func testDoNetNS(t *testing.T) {
 				Mock(syscall.Unmount).Return(nil).Build()
 			},
 			expectError: false,
-			cb: func(sysFsDir, nsAbsPath string) error {
+			cb: func(sysFsDir string) error {
 				So(sysFsDir, ShouldEqual, sysFSDirNetNSTmp)
-				So(nsAbsPath, ShouldEqual, "/test/path/custom-ns")
 				return nil
 			},
 		},
@@ -436,15 +433,16 @@ func testDoNetNS(t *testing.T) {
 				Mock(syscall.Unmount).Return(nil).Build()
 			},
 			expectError: false,
-			cb: func(sysFsDir, nsAbsPath string) error {
+			cb: func(sysFsDir string) error {
 				So(sysFsDir, ShouldEqual, sysFSDirNetNSTmp)
-				So(nsAbsPath, ShouldEqual, "/test/path/custom-ns")
 				return nil
 			},
 		},
 	}
 
 	// Run test cases
+	mockLock.Lock()
+	defer mockLock.Unlock()
 	for _, tc := range testCases {
 		PatchConvey(tc.name, t, func() {
 			// Arrange

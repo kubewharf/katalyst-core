@@ -18,6 +18,7 @@ package machine
 
 import (
 	"reflect"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -25,6 +26,8 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 )
+
+var mockLock sync.Mutex
 
 func TestMemoryDetailsEqual(t *testing.T) {
 	t.Parallel()
@@ -800,6 +803,8 @@ func TestGetInterfaceSocketInfo(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			mockLock.Lock()
+			defer mockLock.Unlock()
 			result, err := GetInterfaceSocketInfo(tc.nics, tc.cpuTopology.CPUDetails.Sockets().ToSliceInt())
 			if tc.expectErr {
 				assert.Error(t, err)
