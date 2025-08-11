@@ -26,6 +26,8 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	nodev1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction/rules"
+	util "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/metricthreshold"
@@ -76,9 +78,9 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 	type fields struct {
 		emitter            metrics.MetricEmitter
 		conf               *config.Configuration
-		numaPressureConfig *NumaPressureConfig
+		numaPressureConfig *rules.NumaPressureConfig
 		thresholds         map[string]float64
-		metricsHistory     *NumaMetricHistory
+		metricsHistory     *util.NumaMetricHistory
 		overloadNumaCount  int
 		enabled            bool
 	}
@@ -93,8 +95,9 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 			fields: fields{
 				conf:    generatePluginConfig(true, false, true),
 				enabled: false,
-				numaPressureConfig: &NumaPressureConfig{
-					ExpandFactor: 1,
+				numaPressureConfig: &rules.NumaPressureConfig{
+					ExpandFactor:   1,
+					MetricRingSize: 2,
 				},
 			},
 			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
@@ -108,8 +111,9 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 			fields: fields{
 				conf:    generatePluginConfig(true, false, false),
 				enabled: false,
-				numaPressureConfig: &NumaPressureConfig{
-					ExpandFactor: 1,
+				numaPressureConfig: &rules.NumaPressureConfig{
+					ExpandFactor:   1,
+					MetricRingSize: 2,
 				},
 			},
 			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
@@ -123,8 +127,9 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 			fields: fields{
 				conf:    generatePluginConfig(true, true, true),
 				enabled: false,
-				numaPressureConfig: &NumaPressureConfig{
-					ExpandFactor: 1,
+				numaPressureConfig: &rules.NumaPressureConfig{
+					ExpandFactor:   1,
+					MetricRingSize: 2,
 				},
 			},
 			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
@@ -138,8 +143,9 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 			fields: fields{
 				conf:    generatePluginConfig(true, true, false),
 				enabled: false,
-				numaPressureConfig: &NumaPressureConfig{
-					ExpandFactor: 1,
+				numaPressureConfig: &rules.NumaPressureConfig{
+					ExpandFactor:   1,
+					MetricRingSize: 2,
 				},
 			},
 			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
@@ -153,8 +159,9 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 			fields: fields{
 				conf:    generatePluginConfig(false, false, false),
 				enabled: false,
-				numaPressureConfig: &NumaPressureConfig{
-					ExpandFactor: 1,
+				numaPressureConfig: &rules.NumaPressureConfig{
+					ExpandFactor:   1,
+					MetricRingSize: 2,
 				},
 			},
 			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
@@ -168,8 +175,9 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 			fields: fields{
 				conf:    generatePluginConfig(false, true, false),
 				enabled: false,
-				numaPressureConfig: &NumaPressureConfig{
-					ExpandFactor: 1,
+				numaPressureConfig: &rules.NumaPressureConfig{
+					ExpandFactor:   1,
+					MetricRingSize: 2,
 				},
 			},
 			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
@@ -183,8 +191,9 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 			fields: fields{
 				conf:    generatePluginConfig(false, false, true),
 				enabled: false,
-				numaPressureConfig: &NumaPressureConfig{
-					ExpandFactor: 1,
+				numaPressureConfig: &rules.NumaPressureConfig{
+					ExpandFactor:   1,
+					MetricRingSize: 2,
 				},
 			},
 			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
@@ -198,8 +207,9 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 			fields: fields{
 				conf:    generatePluginConfig(false, true, true),
 				enabled: false,
-				numaPressureConfig: &NumaPressureConfig{
-					ExpandFactor: 1,
+				numaPressureConfig: &rules.NumaPressureConfig{
+					ExpandFactor:   1,
+					MetricRingSize: 2,
 				},
 			},
 			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
@@ -213,8 +223,9 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 			fields: fields{
 				conf:    generatePluginConfig(true, false, true),
 				enabled: true,
-				numaPressureConfig: &NumaPressureConfig{
-					ExpandFactor: 1,
+				numaPressureConfig: &rules.NumaPressureConfig{
+					ExpandFactor:   1,
+					MetricRingSize: 2,
 				},
 			},
 			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
@@ -228,8 +239,9 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 			fields: fields{
 				conf:    generatePluginConfig(true, false, false),
 				enabled: true,
-				numaPressureConfig: &NumaPressureConfig{
-					ExpandFactor: 1,
+				numaPressureConfig: &rules.NumaPressureConfig{
+					ExpandFactor:   1,
+					MetricRingSize: 2,
 				},
 			},
 			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
@@ -243,8 +255,9 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 			fields: fields{
 				conf:    generatePluginConfig(true, true, true),
 				enabled: true,
-				numaPressureConfig: &NumaPressureConfig{
-					ExpandFactor: 1,
+				numaPressureConfig: &rules.NumaPressureConfig{
+					ExpandFactor:   1,
+					MetricRingSize: 2,
 				},
 			},
 			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
@@ -258,7 +271,7 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 			fields: fields{
 				conf:    generatePluginConfig(true, true, false),
 				enabled: true,
-				numaPressureConfig: &NumaPressureConfig{
+				numaPressureConfig: &rules.NumaPressureConfig{
 					ExpandFactor: 1,
 				},
 			},
@@ -273,8 +286,9 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 			fields: fields{
 				conf:    generatePluginConfig(false, false, false),
 				enabled: true,
-				numaPressureConfig: &NumaPressureConfig{
-					ExpandFactor: 1,
+				numaPressureConfig: &rules.NumaPressureConfig{
+					ExpandFactor:   1,
+					MetricRingSize: 2,
 				},
 			},
 			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
@@ -288,8 +302,9 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 			fields: fields{
 				conf:    generatePluginConfig(false, true, false),
 				enabled: true,
-				numaPressureConfig: &NumaPressureConfig{
-					ExpandFactor: 1,
+				numaPressureConfig: &rules.NumaPressureConfig{
+					ExpandFactor:   1,
+					MetricRingSize: 2,
 				},
 			},
 			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
@@ -303,8 +318,9 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 			fields: fields{
 				conf:    generatePluginConfig(false, false, true),
 				enabled: true,
-				numaPressureConfig: &NumaPressureConfig{
-					ExpandFactor: 1,
+				numaPressureConfig: &rules.NumaPressureConfig{
+					ExpandFactor:   1,
+					MetricRingSize: 2,
 				},
 			},
 			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
@@ -318,8 +334,9 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 			fields: fields{
 				conf:    generatePluginConfig(false, true, true),
 				enabled: true,
-				numaPressureConfig: &NumaPressureConfig{
-					ExpandFactor: 1,
+				numaPressureConfig: &rules.NumaPressureConfig{
+					ExpandFactor:   1,
+					MetricRingSize: 2,
 				},
 			},
 			setFakeMetric: func(store *metric.FakeMetricsFetcher) {
@@ -329,7 +346,6 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 			wantEnabled: false,
 		},
 	}
-
 	for _, tt := range tests {
 		tt := tt
 
@@ -360,6 +376,7 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 				conf:               tt.fields.conf,
 				numaPressureConfig: tt.fields.numaPressureConfig,
 				thresholds:         tt.fields.thresholds,
+				metricsHistory:     util.NewMetricHistory(tt.fields.numaPressureConfig.MetricRingSize),
 				enabled:            tt.fields.enabled,
 				metaServer:         ms,
 			}
