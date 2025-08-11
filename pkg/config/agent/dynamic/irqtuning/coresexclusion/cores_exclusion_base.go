@@ -44,5 +44,4 @@ func (c *IRQCoresExclusionConfig) ApplyConfiguration(conf *crd.DynamicConfigCRD)
 			c.SuccessiveSwitchInterval = *config.SuccessiveSwitchInterval
 		}
 	}
-
 }

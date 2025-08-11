@@ -9,6 +9,9 @@ import (
 	"time"
 
 	"github.com/klauspost/cpuid/v2"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
+
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/irqtuner"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/irqtuner/config"
 	metricUtil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
@@ -16,8 +19,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
-	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 const (
@@ -64,7 +65,7 @@ var ErrNotFoundProperDestIrqCore = errors.New("not found proper dest irq core fo
 // [future plans]
 // 1. we may support irq affinity policy switches back to either of irq-cores-exclusive and irq-cores-fair from irq-balance-ng if necessary.
 // 2. we may support static irq affinity policy that different scenario or machine type can adopt appropriate static policy, as opposed to the current dynamic switching
-// between mulitple irq affinity polices based on conditions and rules.
+// between multiple irq affinity polices based on conditions and rules.
 
 type IrqAffinityPolicy string
 
@@ -268,8 +269,8 @@ func calculateQueuePPS(oldNicStats, newNicStats *NicStats, timeDiff float64) []*
 	return queuesPPS
 }
 
-// before irq tuning initialization, one irq's smp_affinity_list may has multiple cpus, Irq2CPUs is only used during irq tuning initialization
-// so during irq initialization, we can re-configure irqs's affinity according to irq's cpu assingment(kernel apic_set_affinity -> irq_matrix_alloc -> matrix_find_best_cpu),
+// NicInfo before irq tuning initialization, one irq's smp_affinity_list may has multiple cpus, Irq2CPUs is only used during irq tuning initialization
+// so during irq initialization, we can re-configure irqs's affinity according to irq's cpu assignment(kernel apic_set_affinity -> irq_matrix_alloc -> matrix_find_best_cpu),
 // to make one irq affinity only one cpu, so we can convert Irq2CPUs to Irq2CPU, then start to tuning irq cores's affinity.
 type NicInfo struct {
 	*machine.NicBasicInfo
@@ -333,9 +334,9 @@ type NicStats struct {
 	RxQueuePackets map[int]uint64 // queue id as map key
 }
 
-// https://docs.kernel.org/scheduler/sched-stats.html
+// IndicatorsStats https://docs.kernel.org/scheduler/sched-stats.html
 // /proc/PID/schedstat 2rd col (NS) is task schedwait, print/report irqcores ksoftirqd avg schedwait and non-irqcores ksoftirqd avg schedwait,
-// in extreme cases, softirq usage maybe not high beacuse significant ksoftirqd schedwait.
+// in extreme cases, softirq usage maybe not high because significant ksoftirqd schedwait.
 // due to the interrupt suppression of NAPI, the frequency of NET_RX_SOFTIRQ on a CPU cannot represent the actual packet reception load,
 // but it can serve as a reference.
 type IndicatorsStats struct {
@@ -352,9 +353,9 @@ type IndicatorsStats struct {
 // 2) exclusive irq cores number change
 // 3) irqs affinity change but exclusive irq cores number not change,
 // here mainly introduce 1) and 2).
-// Generally, irq affinity policy change will also cause irq cores change, however this is not definite, because we cannot infer the truely policy
+// Generally, irq affinity policy change will also cause irq cores change, however this is not definite, because we cannot infer the true policy
 // before katalyst restart, irq affinity policy is always set to InitTuning after katalyst restart. Then after calculation and redecides, there
-// is a high probability that the original policy will be restored, then it's possible needlees to change irq cores if network load has no noticeable
+// is a high probability that the original policy will be restored, then it's possible needles to change irq cores if network load has no noticeable
 // change and specicial containers's cpuset has no change.
 
 // [irq affinity changes]
@@ -388,7 +389,7 @@ type IrqAffinityChange struct {
 	IrqsBalanced         bool
 }
 
-// shared-cores(include snb) sriov containers's irq affinity will be tuned as balance-fair policy.
+// ContainerInfoWrapper shared-cores(include snb) sriov containers's irq affinity will be tuned as balance-fair policy.
 // dedicated-cores and reclaimed-cores sriov container's irqs will be affinitied to container self cpuset.
 // dedicated-cores sriov container's cpus should be excluded from cpu allocation for other nic's balance-fair irq affinity,
 // shared-cores(inlcue snb) and reclaimed-cores sriov container's irqs should be counted when calculating each core's irq count,
@@ -467,6 +468,7 @@ func NewNicIrqTuningManager(conf *config.IrqTuningConfig, nic *machine.NicBasicI
 	return nm, nil
 }
 
+// NewNicIrqTuningManagers
 // return value:
 // first: normal throughput nic managers
 // second: low throughput nic managers
@@ -524,7 +526,7 @@ func NewNicIrqTuningManagers(conf *config.IrqTuningConfig, nics []*machine.NicBa
 
 		lowThroughputNics = []*machine.NicBasicInfo{}
 		for _, nic := range nics {
-			if nic.IfIndex != ppsMaxNic.IfIndex {
+			if ppsMaxNic != nil && nic.IfIndex != ppsMaxNic.IfIndex {
 				lowThroughputNics = append(lowThroughputNics, nic)
 			}
 		}
@@ -571,9 +573,6 @@ func NewNicIrqTuningManagers(conf *config.IrqTuningConfig, nics []*machine.NicBa
 	var lowThroughputNicManagers []*NicIrqTuningManager
 	if len(lowThroughputNics) > 0 {
 		lowThroughputNicIrqsAffSockets := AssignSocketsForLowThroughputNics(lowThroughputNics, cpuInfo, conf.NicAffinitySocketsPolicy)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to AssignSocketsForLowThroughputNics, err %v", err)
-		}
 
 		for _, n := range lowThroughputNics {
 			mng, err := NewNicIrqTuningManager(conf, n, lowThroughputNicIrqsAffSockets[n.IfIndex], Forward)
@@ -617,7 +616,7 @@ func NewIrqTuningController(agentConf *agent.AgentConfiguration, irqStateAdapter
 		return nil, retErr
 	}
 
-	for cpuID, _ := range cpuInfo.CPUOnline {
+	for cpuID := range cpuInfo.CPUOnline {
 		if _, ok := ksoftirqds[cpuID]; !ok {
 			retErr = fmt.Errorf("cpu%d's ksoftirqd not exists", cpuID)
 			return nil, retErr
@@ -668,13 +667,13 @@ retry:
 		retries++
 
 		var irqs []int
-		for irq, _ := range irq2CPUs {
+		for irq := range irq2CPUs {
 			irqs = append(irqs, irq)
 		}
 		sort.Ints(irqs)
 
 		general.Infof("%s [before tidy] nic %s irq affinity:", IrqTuningLogPrefix, nic)
-		for irq, _ := range irqs {
+		for irq := range irqs {
 			cpuStr, _ := general.ConvertIntSliceToBitmapString(irq2CPUs[irq])
 			general.Infof("%s   irq %d: cpu %s", IrqTuningLogPrefix, irq, cpuStr)
 		}
@@ -684,7 +683,7 @@ retry:
 			general.Errorf("%s nic %s failed to TidyUpIrqsAffinityCPUs, err %v", IrqTuningLogPrefix, nic, err)
 		} else {
 			general.Infof("%s [after tidy] nic %s irq affinity:", IrqTuningLogPrefix, nic)
-			for irq, _ := range irqs {
+			for irq := range irqs {
 				general.Infof("%s   irq %d: cpu %d", IrqTuningLogPrefix, irq, irq2Core[irq])
 			}
 		}
@@ -769,7 +768,7 @@ func (n *NicInfo) FormatString() string {
 		msg = fmt.Sprintf("%s        QueueNum: %d\n", msg, basicInfo.QueueNum)
 
 		var queues []int
-		for queue, _ := range basicInfo.Queue2Irq {
+		for queue := range basicInfo.Queue2Irq {
 			queues = append(queues, queue)
 		}
 		sort.Ints(queues)
@@ -779,7 +778,7 @@ func (n *NicInfo) FormatString() string {
 		}
 
 		var irqs []int
-		for irq, _ := range basicInfo.Irq2Queue {
+		for irq := range basicInfo.Irq2Queue {
 			irqs = append(irqs, irq)
 		}
 		sort.Ints(irqs)
@@ -792,7 +791,7 @@ func (n *NicInfo) FormatString() string {
 	}
 
 	var irqs []int
-	for irq, _ := range n.Irq2Core {
+	for irq := range n.Irq2Core {
 		irqs = append(irqs, irq)
 	}
 	sort.Ints(irqs)
@@ -802,7 +801,7 @@ func (n *NicInfo) FormatString() string {
 	}
 
 	var sockets []int
-	for socket, _ := range n.SocketIrqCores {
+	for socket := range n.SocketIrqCores {
 		sockets = append(sockets, socket)
 	}
 	sort.Ints(sockets)
@@ -842,7 +841,7 @@ func (n *NicInfo) getIrqs() []int {
 
 func (n *NicInfo) getQueues() []int {
 	var queues []int
-	for queue, _ := range n.Queue2Irq {
+	for queue := range n.Queue2Irq {
 		queues = append(queues, queue)
 	}
 
@@ -869,7 +868,7 @@ func (n *NicInfo) filterCoresAffinitiedIrqs(coresList []int64) []int {
 	coresAffinitiedIrqs := n.getIrqCoreAffinitiedIrqs()
 
 	var irqs []int
-	for core, _ := range coresMap {
+	for core := range coresMap {
 		if coreIrqs, ok := coresAffinitiedIrqs[core]; ok && len(coreIrqs) > 0 {
 			irqs = append(irqs, coreIrqs...)
 		}
@@ -1001,7 +1000,7 @@ func listActiveUplinkNicsExcludeSriovVFs(netNSDir string) ([]*machine.NicBasicIn
 	return nics, nil
 }
 
-// map[int]int : nic ifindex as map key, nic irqs should affinitied socket slice as value
+// AssignSocketsForNicIrqsForOverallNicsBalance map[int]int : nic ifindex as map key, nic irqs should affinitied socket slice as value
 func AssignSocketsForNicIrqsForOverallNicsBalance(nics []*machine.NicBasicInfo, cpuInfo *machine.CPUInfo) (map[int][]int, error) {
 	var interfaces []machine.InterfaceInfo
 	for _, nic := range nics {
@@ -1109,10 +1108,10 @@ func CalculateNicExclusiveIrqCoresSelectOrdrer(nicAssignedSockets map[int][]int)
 
 	// when multiple nics's assigned sockets has overlaps, then one nic's exclusive irq cores change may cause another nic with
 	// overlapped assigned sockets to change exclusive irq cores accordingly. In order to avoid this situation, two nics with overlapped
-	// assgined sockets can select exlcusive irq cores from different part of overlapped socket, for exmaple, one nic select exclusive irq
+	// assgined sockets can select exclusive irq cores from different part of overlapped socket, for example, one nic select exclusive irq
 	// cores from head part of numa cpus, and another nic select exclusive irq cores from tail part of numa cpus.
 	var nicIfindexes []int
-	for ifIndex, _ := range nicAssignedSockets {
+	for ifIndex := range nicAssignedSockets {
 		nicIfindexes = append(nicIfindexes, ifIndex)
 	}
 	sort.Ints(nicIfindexes)
@@ -1257,7 +1256,7 @@ func (nm *NicIrqTuningManager) String() string {
 		msg = fmt.Sprintf("%s            SourceCores: %+v\n", msg, nm.LastIrqLoadBalance.SourceCores)
 		msg = fmt.Sprintf("%s            DestCores: %+v\n", msg, nm.LastIrqLoadBalance.DestCores)
 		msg = fmt.Sprintf("%s            IrqTunings:\n", msg)
-		for irq, _ := range nm.LastIrqLoadBalance.IrqTunings {
+		for irq := range nm.LastIrqLoadBalance.IrqTunings {
 			irqAffinityTuning := nm.LastIrqLoadBalance.IrqTunings[irq]
 			msg = fmt.Sprintf("%s                irq: %d, soure core: %d, dest core: %d\n", msg, irq, irqAffinityTuning.SourceCore, irqAffinityTuning.DestCore)
 		}
@@ -1454,7 +1453,7 @@ func (ic *IrqTuningController) String() string {
 		indent = spaces
 		msg = fmt.Sprintf("%s%s    CPU2Socket:\n", msg, indent)
 		var cpus []int64
-		for cpu, _ := range ic.CPUInfo.CPU2Socket {
+		for cpu := range ic.CPUInfo.CPU2Socket {
 			cpus = append(cpus, cpu)
 		}
 
@@ -1467,7 +1466,7 @@ func (ic *IrqTuningController) String() string {
 		indent = spaces
 		msg = fmt.Sprintf("%s%s    CPUOnline:\n", msg, indent)
 		cpus = []int64{}
-		for cpu, _ := range ic.CPUInfo.CPUOnline {
+		for cpu := range ic.CPUInfo.CPUOnline {
 			cpus = append(cpus, cpu)
 		}
 
@@ -1484,7 +1483,7 @@ func (ic *IrqTuningController) String() string {
 		msg = fmt.Sprintf("%s    Ksoftirqds:\n", msg)
 
 		var cpus []int64
-		for cpu, _ := range ic.Ksoftirqds {
+		for cpu := range ic.Ksoftirqds {
 			cpus = append(cpus, cpu)
 		}
 		general.SortInt64Slice(cpus)
@@ -1584,7 +1583,7 @@ func (ic *IrqTuningController) emitErrMetric(reason string, level int64) {
 }
 
 func (ic *IrqTuningController) emitIrqTuningPolicy() {
-	irqTuningPolicyMetricVal := int64(-1)
+	var irqTuningPolicyMetricVal int64
 
 	switch ic.conf.IrqTuningPolicy {
 	case config.IrqTuningBalanceFair:
@@ -1736,7 +1735,6 @@ func (ic *IrqTuningController) isSriovContainerNic(nic *NicInfo) bool {
 				return true
 			}
 		}
-
 	}
 	return false
 }
@@ -2017,7 +2015,7 @@ func (ic *IrqTuningController) classifyNicsByThroughput(oldIndicatorsStats *Indi
 
 			if !change {
 				// oldAssignedSockets is sorted
-				for i, _ := range oldAssignedSockets {
+				for i := range oldAssignedSockets {
 					if newAssignedSockets[i] != oldAssignedSockets[i] {
 						change = true
 						break
@@ -2049,9 +2047,6 @@ func (ic *IrqTuningController) classifyNicsByThroughput(oldIndicatorsStats *Indi
 		}
 
 		lowThroughputNicAssignedffSockets := AssignSocketsForLowThroughputNics(lowThroughputBasicNics, ic.CPUInfo, ic.conf.NicAffinitySocketsPolicy)
-		if err != nil {
-			general.Errorf("%s failed to AssignSocketsForLowThroughputNics, err %v", IrqTuningLogPrefix, err)
-		}
 
 		for _, nic := range lowThroughputNics {
 			assignedSockets, ok := lowThroughputNicAssignedffSockets[nic.NicInfo.IfIndex]
@@ -2093,7 +2088,7 @@ func (ic *IrqTuningController) syncNics() error {
 
 	if !nicsChanged {
 		// nics has been sorted by ifindex in listActiveUplinkNicsExcludeSriovVFs
-		for i, _ := range oldNics {
+		for i := range oldNics {
 			if !nics[i].Equal(oldNics[i].NicInfo.NicBasicInfo) {
 				nicsChanged = true
 				break
@@ -2129,7 +2124,7 @@ func (ic *IrqTuningController) syncNics() error {
 		//    because qrm use the same policy to assign nic for container in 2-nics machine to align with irq-tuning manager for best performance.
 		// 3) there is an extremely low probability that any nic will change during node running.
 
-		// regardless of whether the original nics exists or not, tune original nics irq affintiy to balance-fair
+		// regardless of whether the original nics exists or not, tune original nics irq affinity to balance-fair
 		for _, nic := range ic.Nics {
 			if nic.IrqAffinityPolicy != IrqBalanceFair {
 				nic.IrqAffinityPolicy = IrqBalanceFair
@@ -2183,7 +2178,7 @@ func (ic *IrqTuningController) getKataBMContainerNumas() []int {
 	var numas []int
 
 	for _, cnt := range ic.KataBMContainers {
-		for numaID, _ := range cnt.ActualCPUSet {
+		for numaID := range cnt.ActualCPUSet {
 			numas = append(numas, numaID)
 		}
 	}
@@ -2220,7 +2215,7 @@ func (ic *IrqTuningController) isExclusiveIrqCoresNic(ifindex int) (bool, error)
 	return false, fmt.Errorf("failed to find nic with ifindex: %d", ifindex)
 }
 
-// exclusive irq cores MUST be exlcuded from cpu allocation for other nic's balance-fair irq affinity
+// exclusive irq cores MUST be excluded from cpu allocation for other nic's balance-fair irq affinity
 func (ic *IrqTuningController) getExclusiveIrqCores(excludedNicsIfIndex []int) []int64 {
 	var exclusiveIrqCores []int64
 
@@ -2253,7 +2248,7 @@ func (ic *IrqTuningController) getExclusiveIrqCores(excludedNicsIfIndex []int) [
 	return exclusiveIrqCores
 }
 
-// dedicated-cores sriov container's cpus(NOT irq cores, sriov container's cpus containes its irq cores) should be excluded from
+// dedicated-cores sriov container's cpus(NOT irq cores, sriov container's cpus contains its irq cores) should be excluded from
 // cpu allocation for other nic's balance-fair irq affinity.
 func (ic *IrqTuningController) getSRIOVContainerDedicatedCores() []int64 {
 	var sriovDedicatedCores []int64
@@ -2466,7 +2461,7 @@ func (ic *IrqTuningController) getCoresIrqCount(nic *NicInfo, includeAllNormalTh
 
 func (ic *IrqTuningController) calculateCoresIrqSumCount(coresIrqCount map[int64]int, coresMap map[int64]interface{}) int {
 	irqSumCount := 0
-	for core, _ := range coresMap {
+	for core := range coresMap {
 		irqSumCount += coresIrqCount[core]
 	}
 	return irqSumCount
@@ -2489,7 +2484,7 @@ func (ic *IrqTuningController) selectPhysicalCoreWithLeastOrMostIrqs(coreIrqsCou
 
 	var phyCores []machine.PhyCore
 	var socketIDs []int
-	for socketID, _ := range ic.CPUInfo.Sockets {
+	for socketID := range ic.CPUInfo.Sockets {
 		socketIDs = append(socketIDs, socketID)
 	}
 	sort.Ints(socketIDs)
@@ -2933,7 +2928,7 @@ func (ic *IrqTuningController) balanceNicIrqsInCoresFairly(nic *NicInfo, irqs []
 	// make sure no qualified core's irq count less-than round down avg core irq count.
 	// if there is a qualified core's irq count less-than round down avg core irq count, then find one qualified core from parameter
 	// irqs affinitied cores whose irq count - this irq count greater-equal 2,
-	// and cannot find qualified cores beyond paramter irqs affinitied cores, because we donn't know if other irqs can affinity cores in
+	// and cannot find qualified cores beyond parameter irqs affinitied cores, because we donn't know if other irqs can affinity cores in
 	// parameter qualifiedCoresMap.
 
 	// here we cannot use nic's all irqs affinitied cores (nic.getIrqCores), because other irqs cannot affinity cores of qualifiedCoresMap
@@ -2948,7 +2943,7 @@ func (ic *IrqTuningController) balanceNicIrqsInCoresFairly(nic *NicInfo, irqs []
 	}
 
 	roundDownAvgCoreIrqCount := irqSumCount / len(qualifiedCoresMap)
-	for core, _ := range qualifiedCoresMap {
+	for core := range qualifiedCoresMap {
 		coreIrqCount := coresIrqCount[core]
 
 		if coreIrqCount >= roundDownAvgCoreIrqCount {
@@ -3337,7 +3332,7 @@ func (ic *IrqTuningController) getNicsIfSRIOVContainer(cnt *irqtuner.ContainerIn
 	// check this container's netns is shared netns for all containers, like hostnetns, ns2
 	// N.B., shared netns for all containers maybe changed, so missed match in shared netns for all containers
 	// dose not means this container's netns is not shared with other containers, so check if this container's
-	// netns name has prefix "cni-" is neccessary.
+	// netns name has prefix "cni-" is necessary.
 	nms := ic.getAllNics()
 	for _, nic := range nms {
 		if netnsInode == nic.NicInfo.NSInode {
@@ -3606,8 +3601,6 @@ func (ic *IrqTuningController) adaptIrqAffinityPolicy(oldIndicatorsStats *Indica
 				}
 			} else if rxPPS >= ic.conf.IrqCoresExclusionConf.Thresholds.EnableThresholds.RxPPSThresh {
 				nic.DisableExclusionThreshSuccCount = 0
-			} else {
-				// nothing
 			}
 		} else {
 			if rxPPS >= ic.conf.IrqCoresExclusionConf.Thresholds.EnableThresholds.RxPPSThresh {
@@ -3619,8 +3612,6 @@ func (ic *IrqTuningController) adaptIrqAffinityPolicy(oldIndicatorsStats *Indica
 				}
 			} else if rxPPS <= ic.conf.IrqCoresExclusionConf.Thresholds.DisableThresholds.RxPPSThresh {
 				nic.EnableExclusionThreshSuccCount = 0
-			} else {
-				// nothing
 			}
 		}
 	}
@@ -4121,7 +4112,6 @@ func (ic *IrqTuningController) balanceIrqLoadBasedOnIrqUtil(nic *NicIrqTuningMan
 		} else {
 			break
 		}
-
 	}
 
 	if len(needToBalanceIrqCores) == 0 {
@@ -4348,7 +4338,8 @@ func (ic *IrqTuningController) calculateExclusiveIrqCoresDecrease(oldIndicatorsS
 		}
 
 		if irqAffChange.OldIrqAffinityPolicy == IrqCoresExclusive && irqAffChange.NewIrqAffinityPolicy != IrqCoresExclusive {
-			// balance irqs here ?
+			// TODO: balance irqs here ?
+			_ = 0
 		}
 	}
 
@@ -4847,7 +4838,7 @@ func (ic *IrqTuningController) tuneNicIrqAffinityPolicyToIrqCoresExclusive(nic *
 
 		var stepBalanceIrqs []int
 		if i == len(steps)-1 {
-			for irq, _ := range nic.NicInfo.Irq2Queue {
+			for irq := range nic.NicInfo.Irq2Queue {
 				if _, ok := balancedIrqsMap[irq]; !ok {
 					stepBalanceIrqs = append(stepBalanceIrqs, irq)
 					balancedIrqsMap[irq] = nil
@@ -4949,7 +4940,7 @@ func (ic *IrqTuningController) balanceNicsIrqsToNewIrqCores(oldIndicatorsStats *
 	}
 
 	// balance irqs of nic whose irq affinity policy not changed to new irq cores
-	// alloc new increase irq cores in mulitple step with step limit, wait succeed to allocate,
+	// alloc new increase irq cores in multiple step with step limit, wait succeed to allocate,
 	// and then balance irqs, wait 30s, collect indicators stats.
 	for _, nic := range ic.Nics {
 		change, ok := ic.IrqAffinityChanges[nic.NicInfo.IfIndex]
@@ -4969,7 +4960,7 @@ func (ic *IrqTuningController) balanceNicsIrqsToNewIrqCores(oldIndicatorsStats *
 	}
 
 	// balance irqs of nic whose irq affinity policy changed to IrqCoresExclusive
-	// alloc new increase irq cores in mulitple step with step limit, wait succeed to allocate,
+	// alloc new increase irq cores in multiple step with step limit, wait succeed to allocate,
 	// and then balance irqs, wait 30s, collect indicators stats.
 	// N.B., when qrm restarted, nic original irq affinity policy may be IrqCoresExclusive, but we dont know,
 	// we need to set original exclusive irq cores in one step.
@@ -5050,7 +5041,7 @@ func (ic *IrqTuningController) setRPSInNumaForNic(nic *NicIrqTuningManager, assi
 			}
 
 			var destCores []int64
-			for core, _ := range qualifiedCoresMap {
+			for core := range qualifiedCoresMap {
 				destCores = append(destCores, core)
 			}
 
@@ -5096,7 +5087,7 @@ func (ic *IrqTuningController) setRPSInCCDForNic(nic *NicIrqTuningManager, assig
 				}
 
 				var destCores []int64
-				for core, _ := range qualifiedCoresMap {
+				for core := range qualifiedCoresMap {
 					destCores = append(destCores, core)
 				}
 
@@ -5444,7 +5435,7 @@ func (ic *IrqTuningController) periodicTuningIrqCoresExclusive() {
 	//
 	// irq balance is performed in this step if need,
 	// and exclusive irq cores decrease is performed in this step too, exclusive irq cores decrease MUST before SetExclusiveIrqCores to qrm,
-	// but exlcusive irq cores increase is practically performed after qrm-state manager has moved all containers's cpus away from exclusive irq cores.
+	// but exclusive irq cores increase is practically performed after qrm-state manager has moved all containers's cpus away from exclusive irq cores.
 	///////////////////////////////////////////////////////////////////////////////////////
 
 	// calculate exclusive irq cores for nics

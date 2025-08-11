@@ -28,10 +28,11 @@ import (
 	"sync"
 
 	"github.com/klauspost/cpuid/v2"
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 const (
@@ -506,7 +507,6 @@ func GetCPUInfoWithTopo() (*CPUInfo, error) {
 					cpuInfo.Sockets[phyPackageId] = &CPUSocket{
 						IntelNumas: make(map[int]*LLCDomain),
 					}
-
 				}
 				socket := cpuInfo.Sockets[phyPackageId]
 				socket.IntelNumas[nodeID] = numa
@@ -528,7 +528,6 @@ func GetCPUInfoWithTopo() (*CPUInfo, error) {
 					cpuInfo.Sockets[phyPackageId] = &CPUSocket{
 						AMDNumas: make(map[int]*AMDNuma),
 					}
-
 				}
 				socket := cpuInfo.Sockets[phyPackageId]
 				socket.AMDNumas[nodeID] = numa
@@ -705,7 +704,7 @@ func getIntelSocketPhysicalCores(socket *CPUSocket) []PhyCore {
 
 func (c *CPUInfo) GetSocketSlice() []int {
 	var sockets []int
-	for socket, _ := range c.Sockets {
+	for socket := range c.Sockets {
 		sockets = append(sockets, socket)
 	}
 

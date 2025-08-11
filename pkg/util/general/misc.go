@@ -181,7 +181,7 @@ func ConvertIntSliceToBitmapString(nums []int64) (string, error) {
 }
 
 func ReadLines(file string) ([]string, error) {
-	f, err := os.OpenFile(file, os.O_RDONLY, 0600)
+	f, err := os.OpenFile(file, os.O_RDONLY, 0o600)
 	if err != nil {
 		return nil, err
 	}

@@ -615,7 +615,7 @@ func GetNicQueue2IrqWithQueueFilter(nicInfo *NicBasicInfo, queueFilter string, q
 	}
 
 	queueCount := len(queue2Irq)
-	for queue, _ := range queue2Irq {
+	for queue := range queue2Irq {
 		if queue >= queueCount {
 			return nil, fmt.Errorf("%s: %d: %s queue %d greater-equal queue count %d", nicInfo.NSName, nicInfo.IfIndex, nicInfo.Name, queue, queueCount)
 		}
@@ -703,7 +703,7 @@ func GetNicQueue2Irq(nicInfo *NicBasicInfo) (map[int]int, map[int]int, error) {
 	return nil, nil, fmt.Errorf("failed to find matched queue in %s for %d: %s", InterruptsFile, nicInfo.IfIndex, nicInfo.Name)
 }
 
-// before irq tuning initialization, one irq's smp_affinity_list may has multiple cpus
+// GetIrqsAffinityCPUs before irq tuning initialization, one irq's smp_affinity_list may has multiple cpus
 // after irq tuning initialization, one irq only affinity one cpu.
 func GetIrqsAffinityCPUs(irqs []int) (map[int][]int64, error) {
 	irq2CPUs := make(map[int][]int64)
@@ -718,9 +718,9 @@ func GetIrqsAffinityCPUs(irqs []int) (map[int][]int64, error) {
 	return irq2CPUs, nil
 }
 
-// re-configure irqs's affinity according to irq's cpu assingment(kernel apic_set_affinity -> irq_matrix_alloc ->  matrix_find_best_cpu)
+// TidyUpNicIrqsAffinityCPUs re-configure irqs's affinity according to irq's cpu assignment(kernel apic_set_affinity -> irq_matrix_alloc ->  matrix_find_best_cpu)
 // to make one irq affinity only one cpu.
-// TidyUpNicIrqsAffinityCPUs may change irqs's actual affinitied cpu, because we donnot know these cpus's affinitied irqs of other devices, include irqs of other nics,
+// TidyUpNicIrqsAffinityCPUs may change irqs's actual affinitied cpu, because we do not know these cpus's affinitied irqs of other devices, include irqs of other nics,
 // it's corner case that need to tidy up irqs affinity.
 func TidyUpNicIrqsAffinityCPUs(irq2CPUs map[int][]int64) (map[int]int64, error) {
 	var irqs []int
@@ -793,7 +793,7 @@ func getNicDriver(nicSysPath string) (NicDriver, error) {
 	return driver, nil
 }
 
-// get nic's all irqs, inlcuding rx-tx irqs, and some irqs used for control
+// GetNicIrqs get nic's all irqs, including rx-tx irqs, and some irqs used for control
 func GetNicIrqs(nicSysPath string) ([]int, error) {
 	msiIrqsDir := filepath.Join(nicSysPath, "device/msi_irqs")
 

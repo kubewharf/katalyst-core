@@ -21,11 +21,11 @@ import (
 	"net"
 	"path/filepath"
 
+	"github.com/vishvananda/netns"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
-	"github.com/vishvananda/netns"
 )
 
 const (

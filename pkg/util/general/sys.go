@@ -8,8 +8,9 @@ import (
 	"strings"
 	"syscall"
 
-	libcontainercgroups "github.com/opencontainers/runc/libcontainer/cgroups"
 	"k8s.io/klog/v2"
+
+	libcontainercgroups "github.com/opencontainers/runc/libcontainer/cgroups"
 )
 
 const PF_KTHREAD = 0x00200000
