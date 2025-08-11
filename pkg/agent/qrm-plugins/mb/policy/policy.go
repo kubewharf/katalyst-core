@@ -18,13 +18,12 @@ package policy
 
 import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/domain"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
-const (
-	vendorAMD = "AuthenticAMD"
-)
+const vendorAMD = "AuthenticAMD"
 
 func isSupported(cpuVendorID string) bool {
 	// only AMD is supported
@@ -34,19 +33,29 @@ func isSupported(cpuVendorID string) bool {
 func NewGenericPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	_ interface{}, agentName string,
 ) (bool, agent.Component, error) {
-	general.Infof("mbm: to create generic policy qrm_mb_plugin")
+	general.Infof("[mbm] to create generic policy qrm_mb_plugin")
 
 	cpuVendor := agentCtx.CPUVendorID
 	if !isSupported(cpuVendor) {
-		general.Infof("mbm: unsupported cpu arch %s", cpuVendor)
+		general.Infof("[mbm] unsupported cpu arch %s", cpuVendor)
 		return false, nil, nil
 	}
 
-	// todo: stuff with proper objects
 	ccdMinMB := 0
 	ccdMaxMB := 0
+
+	domains, err := domain.NewDomainsByMachineInfo(agentCtx.KatalystMachineInfo, ccdMinMB, ccdMaxMB)
+	if err != nil {
+		general.Infof("[mbm] invalid config in machine info: %v", err)
+		return false, nil, nil
+	}
+
+	groupCapacities := conf.MBQRMPluginConfig.DomainGroupAwareCapacity
+	groupNeverThrottles := conf.MBQRMPluginConfig.NoThrottleGroups
+
+	// todo: stuff with proper objects
 	mbPlugin := newMBPlugin(ccdMinMB, ccdMaxMB,
-		nil, nil, nil, nil, nil,
+		domains, nil, groupNeverThrottles, groupCapacities, nil,
 		agentCtx.EmitterPool)
 	return true, &agent.PluginWrapper{GenericPlugin: mbPlugin}, nil
 }

@@ -85,6 +85,7 @@ func (d *domainAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.Domains
 	d.emitRawPlan(rawPlan)
 
 	// finalize plan in line with never-throttle groups
+	// todo: limit within minCCDMB & maxCCDMB
 	updatePlan := maskPlanWithNoThrottles(rawPlan, d.groupNeverThrottles, d.ccdMaxMB)
 	d.emitUpdatePlan(updatePlan)
 

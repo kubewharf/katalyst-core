@@ -21,6 +21,8 @@ import (
 	"testing"
 
 	"k8s.io/apimachinery/pkg/util/sets"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 func TestNewDomain(t *testing.T) {
@@ -172,6 +174,74 @@ func TestDomains_GetCCDMapping(t *testing.T) {
 			t.Parallel()
 			if got := tt.d.GetCCDMapping(); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("GetCCDMapping() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNewDomainsByMachineInfo(t *testing.T) {
+	t.Parallel()
+	type args struct {
+		info     *machine.KatalystMachineInfo
+		ccdMinMB int
+		ccdMaxMB int
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    Domains
+		wantErr bool
+	}{
+		{
+			name: "nil negative",
+			args: args{
+				info: nil,
+			},
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name: "happy path",
+			args: args{
+				info: &machine.KatalystMachineInfo{
+					CPUTopology: nil,
+					ExtraTopologyInfo: &machine.ExtraTopologyInfo{
+						SiblingNumaInfo: &machine.SiblingNumaInfo{
+							SiblingNumaMap: map[int]sets.Int{
+								0: sets.NewInt(1, 2, 3),
+								1: sets.NewInt(0, 2, 3),
+								2: sets.NewInt(0, 1, 3),
+								3: sets.NewInt(0, 1, 2),
+								4: sets.NewInt(5, 6, 7),
+								5: sets.NewInt(4, 6, 7),
+								6: sets.NewInt(4, 5, 7),
+								7: sets.NewInt(4, 5, 6),
+							},
+							SiblingNumaMBWAllocatable: 90_000,
+						},
+					},
+				},
+				ccdMinMB: 1_000,
+				ccdMaxMB: 35_000,
+			},
+			want: Domains{
+				0: &Domain{ID: 0, CapacityInMB: 90_000, MinMBPerCCD: 1_000, MaxMBPerCCD: 35_000},
+				1: &Domain{ID: 1, CapacityInMB: 90_000, MinMBPerCCD: 1_000, MaxMBPerCCD: 35_000},
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := NewDomainsByMachineInfo(tt.args.info, tt.args.ccdMinMB, tt.args.ccdMaxMB)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("NewDomainsByMachineInfo() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("NewDomainsByMachineInfo() got = %v, want %v", got, tt.want)
 			}
 		})
 	}

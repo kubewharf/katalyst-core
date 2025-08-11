@@ -19,6 +19,10 @@ package qrm
 type MBQRMPluginConfig struct {
 	// PolicyName is used to switch between several strategies
 	PolicyName string
+	// DomainQoSAwareCapacity keeps qos group customized mb upper capacity it allows
+	DomainGroupAwareCapacity map[string]int
+	// NoThrottleGroups are qos groups that should not be throttled with their mb usage
+	NoThrottleGroups []string
 }
 
 func NewMBQRMPluginConfig() *MBQRMPluginConfig {
