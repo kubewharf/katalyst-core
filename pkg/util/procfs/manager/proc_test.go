@@ -180,6 +180,8 @@ func TestGetProcInterrupts(t *testing.T) {
 
 func TestGetPSIStatsForResource(t *testing.T) {
 	t.Parallel()
+	mu.Lock()
+	defer mu.Unlock()
 
 	tcases := []struct {
 		name    string
