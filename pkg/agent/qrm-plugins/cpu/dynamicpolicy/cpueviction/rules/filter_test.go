@@ -391,9 +391,9 @@ func TestFilterer_SetFilterParam(t *testing.T) {
 
 func TestNewFilter_InvalidFilter(t *testing.T) {
 	t.Parallel()
-	filterer, err := NewFilter([]string{"invalid-filter"}, metrics.DummyMetrics{}, nil)
-	assert.NoError(t, err)
-	assert.Empty(t, filterer.filters)
+	_, err := NewFilter([]string{"invalid-filter"}, metrics.DummyMetrics{}, nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "filter invalid-filter not exists")
 }
 
 func TestFilterer_EmptyPodList(t *testing.T) {
