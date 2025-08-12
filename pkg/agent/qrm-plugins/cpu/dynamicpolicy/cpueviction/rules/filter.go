@@ -17,6 +17,8 @@ limitations under the License.
 package rules
 
 import (
+	"fmt"
+
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 
@@ -29,7 +31,12 @@ const (
 	OverRatioNumaFilterName = "OverRatioNuma"
 )
 
-// Returns true if the pod should be filtered out (excluded from eviction candidates)
+var DefaultEnabledFilters = []string{
+	OwnerRefFilterName,
+	OverRatioNumaFilterName,
+}
+
+// Filter returns true if the pod should be filtered out (excluded from eviction candidates)
 type FilterFunc func(pod *v1.Pod, params interface{}) bool
 
 type Filterer struct {
@@ -56,8 +63,7 @@ func NewFilter(enabledFilters []string, emitter metrics.MetricEmitter, filterPar
 	for name := range enabled {
 		filter, exists := allFilters[name]
 		if !exists {
-			general.Warningf("filter %s not found in available filters", name)
-			continue
+			return nil, fmt.Errorf("filter %s not exists", name)
 		}
 		filters[name] = filter
 		params[name] = filterParams[name]
@@ -70,6 +76,7 @@ func NewFilter(enabledFilters []string, emitter metrics.MetricEmitter, filterPar
 	}, nil
 }
 
+// Filter filters the given pods based on the enabled filters and their parameters
 func (f *Filterer) Filter(pods []*v1.Pod) []*v1.Pod {
 	if len(f.filters) == 0 {
 		general.Warningf("no filters enabled, returning all pods")

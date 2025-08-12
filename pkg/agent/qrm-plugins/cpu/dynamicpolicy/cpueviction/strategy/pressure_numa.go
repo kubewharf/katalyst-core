@@ -114,7 +114,7 @@ func NewCPUPressureUsageEviction(emitter metrics.MetricEmitter, metaServer *meta
 func (p *NumaCPUPressureEviction) initFilterAndScorer() error {
 	// filterParams
 	enabledFilters := p.numaPressureConfig.EnabledFilters
-	enabledFilters = append(enabledFilters, rules.OwnerRefFilterName, rules.OverRatioNumaFilterName)
+	enabledFilters = append(enabledFilters, rules.DefaultEnabledFilters...)
 	general.Infof("enabledFilters: %v", enabledFilters)
 	filterParams := map[string]interface{}{
 		rules.OwnerRefFilterName:      p.numaPressureConfig.SkippedPodKinds, // OwnerRefFilter params
@@ -128,7 +128,7 @@ func (p *NumaCPUPressureEviction) initFilterAndScorer() error {
 
 	// scorerParams
 	enabledScorers := p.numaPressureConfig.EnabledScorers
-	enabledScorers = append(enabledScorers, rules.DeploymentEvictionFrequencyScorerName, rules.UsageGapScorerName)
+	enabledScorers = append(enabledScorers, rules.DefaultEnabledScorers...)
 	general.Infof("enabledScorers: %v", enabledScorers)
 	scorerParams := map[string]interface{}{
 		rules.DeploymentEvictionFrequencyScorerName: nil,
@@ -144,19 +144,19 @@ func (p *NumaCPUPressureEviction) initFilterAndScorer() error {
 	return nil
 }
 
-func (p *NumaCPUPressureEviction) SetEvictionFilter(key string, filter rules.FilterFunc) {
+func (p *NumaCPUPressureEviction) UpdateEvictionFilter(key string, filter rules.FilterFunc) {
 	p.filterer.SetFilter(key, filter)
 }
 
-func (p *NumaCPUPressureEviction) SetEvictionFilterParam(key string, value interface{}) {
+func (p *NumaCPUPressureEviction) UpdateEvictionFilterParam(key string, value interface{}) {
 	p.filterer.SetFilterParam(key, value)
 }
 
-func (p *NumaCPUPressureEviction) SetEvictionScorer(key string, scorer rules.ScoreFunc) {
+func (p *NumaCPUPressureEviction) UpdateEvictionScorer(key string, scorer rules.ScoreFunc) {
 	p.scorer.SetScorer(key, scorer)
 }
 
-func (p *NumaCPUPressureEviction) SetEvictionScorerParam(key string, value interface{}) {
+func (p *NumaCPUPressureEviction) UpdateEvictionScorerParam(key string, value interface{}) {
 	p.scorer.SetScorerParam(key, value)
 }
 
@@ -173,7 +173,6 @@ func (p *NumaCPUPressureEviction) Start(ctx context.Context) (err error) {
 
 func (p *NumaCPUPressureEviction) Name() string { return EvictionNameNumaCpuPressure }
 
-// todo may change to GetTopEvictionPods?
 func (p *NumaCPUPressureEviction) GetEvictPods(_ context.Context, _ *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
 	return &pluginapi.GetEvictPodsResponse{}, nil
 }
@@ -210,7 +209,7 @@ func (p *NumaCPUPressureEviction) ThresholdMet(_ context.Context, req *pluginapi
 	}
 
 	activePods := req.ActivePods
-	p.SetEvictionFilterParam(rules.OverRatioNumaFilterName, p.numaOverStats)
+	p.UpdateEvictionFilterParam(rules.OverRatioNumaFilterName, p.numaOverStats)
 	filteredPods := p.filterer.Filter(activePods)
 
 	if len(filteredPods) == 0 {
@@ -283,8 +282,8 @@ func (p *NumaCPUPressureEviction) GetTopEvictionPods(ctx context.Context, reques
 	}
 
 	activePods := request.ActivePods
-	// p.SetEvictionFilterParam(rules.OverRatioNumaFilterName, p.numaOverStats)
-	p.SetEvictionScorerParam(rules.UsageGapScorerName, p.numaOverStats)
+
+	p.UpdateEvictionScorerParam(rules.UsageGapScorerName, p.numaOverStats)
 	general.Infof("activePods: %v", len(activePods))
 
 	filteredPods := p.filterer.Filter(activePods)

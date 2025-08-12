@@ -30,11 +30,21 @@ import (
 
 const (
 	DeploymentEvictionFrequencyScorerName = "DeploymentEvictionFrequency"
-	PriorityScorerName                    = "Priority"
 	UsageGapScorerName                    = "Usage"
 	score                                 = 10.0
 	targetMetric                          = consts.MetricCPUUsageContainer
+	usageGapScoreWeight                   = 1.0
+	qrmEvictionScorerScoreDistributionKey = "qrm_eviction_scorer_score_distribution"
+	qrmEvictionScorerWeightImpactKey      = "qrm_eviction_scorer_weight_impact"
+	scorer_name_key                       = "scorer_name"
+	impact_type_key                       = "impact_type"
+	score_contribution_key                = "score_contribution"
 )
+
+var DefaultEnabledScorers = []string{
+	DeploymentEvictionFrequencyScorerName,
+	UsageGapScorerName,
+}
 
 // ScoreFunc defines the function signature for scoring candidate pods
 type ScoreFunc func(pod *CandidatePod, params interface{}) int
@@ -50,7 +60,6 @@ type Scorer struct {
 var allScores = map[string]ScoreFunc{
 	DeploymentEvictionFrequencyScorerName: DeploymentEvictionFrequencyScorer,
 	UsageGapScorerName:                    UsageGapScorer,
-	PriorityScorerName:                    PriorityScorer,
 }
 
 func NewScorer(enabledScorers []string, emitter metrics.MetricEmitter, scorerParams map[string]interface{}) (*Scorer, error) {
@@ -77,7 +86,7 @@ func NewScorer(enabledScorers []string, emitter metrics.MetricEmitter, scorerPar
 	}, nil
 }
 
-// return: []*CandidatePod - Sorted list of pods by total score (ascending)
+// score return: []*CandidatePod - Sorted list of pods by total score (ascending)
 func (s *Scorer) Score(pods []*CandidatePod) []*CandidatePod {
 	if pods == nil {
 		general.Warningf("pods is nil, returning empty list")
@@ -93,11 +102,10 @@ func (s *Scorer) Score(pods []*CandidatePod) []*CandidatePod {
 			general.Warningf("nil pod found in scoring list, skipping")
 			continue
 		}
-		validPods = append(validPods, pod) // 仅保留非 nil Pod
+		validPods = append(validPods, pod)
 	}
-	pods = validPods
 
-	for _, pod := range pods {
+	for _, pod := range validPods {
 		if pod == nil {
 			general.Warningf("nil pod found in scoring list, skipping")
 			continue
@@ -110,25 +118,25 @@ func (s *Scorer) Score(pods []*CandidatePod) []*CandidatePod {
 			pod.TotalScore += score
 		}
 		for name, score := range pod.Scores {
-			_ = s.emitter.StoreFloat64("qrm_eviction_scorer_score_distribution", float64(score), metrics.MetricTypeNameRaw,
-				metrics.MetricTag{Key: "scorer_name", Val: name},
+			_ = s.emitter.StoreFloat64(qrmEvictionScorerScoreDistributionKey, float64(score), metrics.MetricTypeNameRaw,
+				metrics.MetricTag{Key: scorer_name_key, Val: name},
 			)
 			totalScore := pod.TotalScore
 			contribution := float64(score) / float64(totalScore) * 100
-			_ = s.emitter.StoreFloat64("qrm_eviction_scorer_weight_impact", contribution, metrics.MetricTypeNameRaw,
-				metrics.MetricTag{Key: "scorer_name", Val: name},
-				metrics.MetricTag{Key: "impact_type", Val: "score_contribution"},
+			_ = s.emitter.StoreFloat64(qrmEvictionScorerWeightImpactKey, contribution, metrics.MetricTypeNameRaw,
+				metrics.MetricTag{Key: scorer_name_key, Val: name},
+				metrics.MetricTag{Key: impact_type_key, Val: score_contribution_key},
 			)
 		}
 	}
-	sort.Slice(pods, func(i, j int) bool {
-		return pods[i].TotalScore < pods[j].TotalScore
+	sort.Slice(validPods, func(i, j int) bool {
+		return validPods[i].TotalScore < validPods[j].TotalScore
 	})
-	general.Infof("scored %d pods, bottom score: %s, %d", len(pods), pods[0].Pod.Name, pods[0].TotalScore)
-	for scorerName, score := range pods[0].Scores {
+	general.Infof("scored %d pods, bottom score: %s, %d", len(validPods), validPods[0].Pod.Name, validPods[0].TotalScore)
+	for scorerName, score := range validPods[0].Scores {
 		general.Infof("scorer name: %s, score: %d", scorerName, score)
 	}
-	return pods
+	return validPods
 }
 
 func (s *Scorer) SetScorerParam(key string, value interface{}) {
@@ -148,21 +156,21 @@ func (s *Scorer) SetScorer(key string, scorer ScoreFunc) {
 }
 
 func DeploymentEvictionFrequencyScorer(pod *CandidatePod, params interface{}) int {
-	if pod == nil || len(pod.WorkloadsEvictionInfo) == 0 {
+	if len(pod.WorkloadsEvictionInfo) == 0 {
 		general.Warningf("no eviction info for pod %s", pod.Pod.Name)
 		return 0
 	}
 	var totalScore float64
 	var workloadCount int
 	for _, workloadInfo := range pod.WorkloadsEvictionInfo {
-		if workloadInfo == nil || len(workloadInfo.StatsByWindow) == 0 {
+		if len(workloadInfo.StatsByWindow) == 0 {
 			general.Warningf("no eviction info for workload %s", workloadInfo.WorkloadName)
 			continue
 		}
 		var windowScore float64
 		var weightSum float64
 		for window, stats := range workloadInfo.StatsByWindow {
-			weight := 1.0 / window
+			weight := usageGapScoreWeight / window
 			perHourCount := float64(stats.EvictionCount) / window
 			general.Infof("limit: %v, perHourCount: %v", workloadInfo.Limit, perHourCount)
 			countScore := normalizeCount(perHourCount, workloadInfo.Limit)
@@ -186,7 +194,7 @@ func DeploymentEvictionFrequencyScorer(pod *CandidatePod, params interface{}) in
 	return int(avgScore)
 }
 
-// params: numaOverStat []NumaOverStat
+// UsageGapScorer params: numaOverStat []NumaOverStat
 func UsageGapScorer(pod *CandidatePod, params interface{}) int {
 	if pod == nil || pod.Pod == nil {
 		general.Warningf("nil pod or pod spec passed to UsageGapScorer")
@@ -228,10 +236,6 @@ func UsageGapScorer(pod *CandidatePod, params interface{}) int {
 	usageGapScore := math.Abs(avgUsageRatio-math.Abs(gap)) * 100
 	general.Infof("UsageGapScorer,  pod: %v, usageGapScore:  %v, numaGap: %v", pod.Pod.Name, usageGapScore, gap)
 	return int(usageGapScore)
-}
-
-func PriorityScorer(pod *CandidatePod, params interface{}) int {
-	return 0
 }
 
 func normalizeCount(perHourCount float64, limit int32) float64 {

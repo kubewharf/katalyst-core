@@ -23,16 +23,17 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 const (
-	timeWindow1  = 1800
-	timeWindow2  = 3600
-	timeWindow3  = 7200
-	workloadName = "deployment"
+	timeWindow30Min  = 1800
+	timeWindow60Min  = 3600
+	timeWindow120Min = 7200
+	workloadName     = "deployment"
 )
 
 // PrepareCandidatePods converts a list of v1.Pod to a list of *CandidatePod and populates
@@ -90,7 +91,7 @@ func getWorkloadEvictionInfo(evictionRecord *pluginapi.EvictionRecord) (map[stri
 	}
 
 	workloadsEvictionInfo := make(map[string]*WorkloadEvictionInfo)
-	timeWindows := []int64{timeWindow1, timeWindow2, timeWindow3}
+	timeWindows := []int64{timeWindow30Min, timeWindow60Min, timeWindow120Min}
 	statsByWindow, lastEvictionTime := calculateEvictionStatsByWindows(time.Now(), evictionRecord, timeWindows)
 	workloadsEvictionInfo[workloadName] = &WorkloadEvictionInfo{
 		WorkloadName:     workloadName,
@@ -168,10 +169,10 @@ func ConvertCandidatesToPods(candidates []*CandidatePod) []*v1.Pod {
 }
 
 func FilterCandidatePods(candidates []*CandidatePod, podsToReserve []*v1.Pod) []*CandidatePod {
-	podUIDs := make(map[string]struct{})
+	podsToReserveUIDs := sets.NewString()
 	for _, pod := range podsToReserve {
 		if pod != nil {
-			podUIDs[string(pod.UID)] = struct{}{}
+			podsToReserveUIDs.Insert(string(pod.UID))
 		}
 	}
 
@@ -180,7 +181,7 @@ func FilterCandidatePods(candidates []*CandidatePod, podsToReserve []*v1.Pod) []
 		if candidate == nil || candidate.Pod == nil {
 			continue
 		}
-		if _, exists := podUIDs[string(candidate.Pod.UID)]; exists {
+		if podsToReserveUIDs.Has(string(candidate.Pod.UID)) {
 			filtered = append(filtered, candidate)
 		}
 	}

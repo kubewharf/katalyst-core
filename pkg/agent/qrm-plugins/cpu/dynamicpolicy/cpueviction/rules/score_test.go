@@ -308,7 +308,7 @@ func TestNewScorer_InvalidScorer(t *testing.T) {
 
 func TestScore_NilPods(t *testing.T) {
 	t.Parallel()
-	scorer, _ := NewScorer([]string{PriorityScorerName}, metrics.DummyMetrics{}, nil)
+	scorer, _ := NewScorer([]string{UsageGapScorerName}, metrics.DummyMetrics{}, nil)
 	result := scorer.Score([]*CandidatePod{nil, {Pod: makePod("valid")}})
 	assert.Len(t, result, 1)
 	assert.NotNil(t, result[0])
