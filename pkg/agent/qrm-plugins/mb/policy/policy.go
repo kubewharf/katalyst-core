@@ -18,6 +18,7 @@ package policy
 
 import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/allocator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/domain"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -41,21 +42,22 @@ func NewGenericPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		return false, nil, nil
 	}
 
-	ccdMinMB := 0
-	ccdMaxMB := 0
+	ccdMinMB := conf.MinCCDMB
+	ccdMaxMB := conf.MaxCCDMB
+	maxIncomingRemoteMB := conf.MaxIncomingRemoteMB
+	groupCapacities := conf.MBQRMPluginConfig.DomainGroupAwareCapacity
+	groupNeverThrottles := conf.MBQRMPluginConfig.NoThrottleGroups
+	xDomGroups := conf.CrossDomainGroups
 
-	domains, err := domain.NewDomainsByMachineInfo(agentCtx.KatalystMachineInfo, ccdMinMB, ccdMaxMB)
+	domains, err := domain.NewDomainsByMachineInfo(agentCtx.KatalystMachineInfo, ccdMinMB, ccdMaxMB, maxIncomingRemoteMB)
 	if err != nil {
 		general.Infof("[mbm] invalid config in machine info: %v", err)
 		return false, nil, nil
 	}
 
-	groupCapacities := conf.MBQRMPluginConfig.DomainGroupAwareCapacity
-	groupNeverThrottles := conf.MBQRMPluginConfig.NoThrottleGroups
-
-	// todo: stuff with proper objects
-	mbPlugin := newMBPlugin(ccdMinMB, ccdMaxMB,
-		domains, nil, groupNeverThrottles, groupCapacities, nil,
-		agentCtx.EmitterPool)
+	planAllocator := allocator.New()
+	mbPlugin := newMBPlugin(ccdMinMB, ccdMaxMB, domains,
+		xDomGroups, groupNeverThrottles, groupCapacities,
+		planAllocator, agentCtx.EmitterPool)
 	return true, &agent.PluginWrapper{GenericPlugin: mbPlugin}, nil
 }

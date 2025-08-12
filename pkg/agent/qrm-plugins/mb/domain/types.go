@@ -48,24 +48,24 @@ type Domain struct {
 	CCDs sets.Int
 
 	// below are for incoming memory bandwidth
-	CapacityInMB    int
-	MinMBPerCCD     int
-	MaxMBPerCCD     int
-	ccdAlienMBLimit int
+	CapacityInMB int
+	MinMBPerCCD  int
+	MaxMBPerCCD  int
+	maxAlienMB   int
 }
 
 func (d *Domain) GetAlienMBLimit() int {
-	return d.ccdAlienMBLimit * d.CCDs.Len()
+	return d.maxAlienMB
 }
 
 func NewDomain(id int, ccds sets.Int, capacity, ccdMax, ccdMin, ccdAlienMBLimit int) *Domain {
 	domain := Domain{
-		ID:              id,
-		CCDs:            sets.NewInt(ccds.List()...),
-		CapacityInMB:    capacity,
-		MinMBPerCCD:     ccdMin,
-		MaxMBPerCCD:     ccdMax,
-		ccdAlienMBLimit: ccdAlienMBLimit,
+		ID:           id,
+		CCDs:         sets.NewInt(ccds.List()...),
+		CapacityInMB: capacity,
+		MinMBPerCCD:  ccdMin,
+		MaxMBPerCCD:  ccdMax,
+		maxAlienMB:   ccdAlienMBLimit,
 	}
 
 	return &domain
@@ -158,7 +158,7 @@ func identifyDomainByNumas(numaMap map[int]sets.Int) (map[int]sets.Int, error) {
 	return result, nil
 }
 
-func NewDomainsByMachineInfo(info *machine.KatalystMachineInfo, ccdMinMB, ccdMaxMB int) (Domains, error) {
+func NewDomainsByMachineInfo(info *machine.KatalystMachineInfo, ccdMinMB, ccdMaxMB, maxRemoteMB int) (Domains, error) {
 	if info == nil {
 		return nil, errors.New("invalid nil machine sibling numa info")
 	}
@@ -176,14 +176,14 @@ func NewDomainsByMachineInfo(info *machine.KatalystMachineInfo, ccdMinMB, ccdMax
 
 	result := Domains{}
 	for domainID, numas := range domainToNumas {
-		result[domainID] = newDomainByNumas(domainID, numas, defaultMBCapacity, ccdMinMB, ccdMaxMB, info)
+		result[domainID] = newDomainByNumas(domainID, numas, defaultMBCapacity, ccdMinMB, ccdMaxMB, maxRemoteMB, info)
 	}
 
 	return result, nil
 }
 
 func newDomainByNumas(id int, numas sets.Int,
-	defaultMBCapacity int, ccdMinMB, ccdMaxMB int,
+	defaultMBCapacity int, ccdMinMB, ccdMaxMB int, maxRemoteMB int,
 	info *machine.KatalystMachineInfo,
 ) *Domain {
 	// todo: impl
@@ -192,5 +192,6 @@ func newDomainByNumas(id int, numas sets.Int,
 		CapacityInMB: defaultMBCapacity,
 		MinMBPerCCD:  ccdMinMB,
 		MaxMBPerCCD:  ccdMaxMB,
+		maxAlienMB:   maxRemoteMB,
 	}
 }

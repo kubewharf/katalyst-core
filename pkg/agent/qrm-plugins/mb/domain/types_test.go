@@ -51,12 +51,12 @@ func TestNewDomain(t *testing.T) {
 				ccdAlienMBLimit: 5_000,
 			},
 			want: &Domain{
-				ID:              1,
-				CCDs:            sets.NewInt(4, 5, 6, 7),
-				CapacityInMB:    60_000,
-				ccdAlienMBLimit: 5_000,
-				MaxMBPerCCD:     35_000,
-				MinMBPerCCD:     4_000,
+				ID:           1,
+				CCDs:         sets.NewInt(4, 5, 6, 7),
+				CapacityInMB: 60_000,
+				maxAlienMB:   5_000,
+				MaxMBPerCCD:  35_000,
+				MinMBPerCCD:  4_000,
 			},
 		},
 	}
@@ -182,9 +182,10 @@ func TestDomains_GetCCDMapping(t *testing.T) {
 func TestNewDomainsByMachineInfo(t *testing.T) {
 	t.Parallel()
 	type args struct {
-		info     *machine.KatalystMachineInfo
-		ccdMinMB int
-		ccdMaxMB int
+		info        *machine.KatalystMachineInfo
+		ccdMinMB    int
+		ccdMaxMB    int
+		maxRemoteMB int
 	}
 	tests := []struct {
 		name    string
@@ -221,12 +222,13 @@ func TestNewDomainsByMachineInfo(t *testing.T) {
 						},
 					},
 				},
-				ccdMinMB: 1_000,
-				ccdMaxMB: 35_000,
+				ccdMinMB:    1_000,
+				ccdMaxMB:    35_000,
+				maxRemoteMB: 12_000,
 			},
 			want: Domains{
-				0: &Domain{ID: 0, CapacityInMB: 90_000, MinMBPerCCD: 1_000, MaxMBPerCCD: 35_000},
-				1: &Domain{ID: 1, CapacityInMB: 90_000, MinMBPerCCD: 1_000, MaxMBPerCCD: 35_000},
+				0: &Domain{ID: 0, CapacityInMB: 90_000, MinMBPerCCD: 1_000, MaxMBPerCCD: 35_000, maxAlienMB: 12000},
+				1: &Domain{ID: 1, CapacityInMB: 90_000, MinMBPerCCD: 1_000, MaxMBPerCCD: 35_000, maxAlienMB: 12000},
 			},
 			wantErr: false,
 		},
@@ -235,7 +237,7 @@ func TestNewDomainsByMachineInfo(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := NewDomainsByMachineInfo(tt.args.info, tt.args.ccdMinMB, tt.args.ccdMaxMB)
+			got, err := NewDomainsByMachineInfo(tt.args.info, tt.args.ccdMinMB, tt.args.ccdMaxMB, tt.args.maxRemoteMB)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewDomainsByMachineInfo() error = %v, wantErr %v", err, tt.wantErr)
 				return
