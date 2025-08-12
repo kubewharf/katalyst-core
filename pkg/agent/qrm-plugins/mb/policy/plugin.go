@@ -135,17 +135,20 @@ func (m *MBPlugin) run() {
 	general.InfofV(6, "[mbm] plugin run finish")
 }
 
-func newMBPlugin(ccdMinMB, ccdMaxMB int, domains domain.Domains, xDomGroups []string, groupNeverThrottles []string,
+func newMBPlugin(ccdMinMB, ccdMaxMB int, defaultDomainCapacity int,
+	domains domain.Domains, xDomGroups []string, groupNeverThrottles []string,
 	groupCapacities map[string]int, planAllocator allocator.PlanAllocator, emitPool metricspool.MetricsEmitterPool,
 ) skeleton.GenericPlugin {
 	ccdMappings := domains.GetCCDMapping()
 	emitter := emitPool.GetDefaultMetricsEmitter().WithTags(metricName)
 	return &MBPlugin{
-		emitter:       emitter,
-		ccdToDomain:   ccdMappings,
-		xDomGroups:    sets.NewString(xDomGroups...),
-		domains:       domains,
-		advisor:       advisor.New(ccdMinMB, ccdMaxMB, xDomGroups, groupNeverThrottles, groupCapacities),
+		emitter:     emitter,
+		ccdToDomain: ccdMappings,
+		xDomGroups:  sets.NewString(xDomGroups...),
+		domains:     domains,
+		advisor: advisor.New(ccdMinMB, ccdMaxMB, defaultDomainCapacity,
+			xDomGroups, groupNeverThrottles, groupCapacities,
+		),
 		planAllocator: planAllocator,
 	}
 }

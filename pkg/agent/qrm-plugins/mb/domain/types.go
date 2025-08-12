@@ -23,11 +23,8 @@ import (
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
-
-const minMBCapacity = 10_000 // 10GB
 
 type Domains map[int]*Domain
 
@@ -47,25 +44,26 @@ type Domain struct {
 	ID   int
 	CCDs sets.Int
 
+	minMBPerCCD int
+	maxMBPerCCD int
+
 	// below are for incoming memory bandwidth
-	CapacityInMB int
-	MinMBPerCCD  int
-	MaxMBPerCCD  int
-	maxAlienMB   int
+	defaultCapacityMB  int
+	maxAlienIncomingMB int
 }
 
 func (d *Domain) GetAlienMBLimit() int {
-	return d.maxAlienMB
+	return d.maxAlienIncomingMB
 }
 
-func NewDomain(id int, ccds sets.Int, capacity, ccdMax, ccdMin, ccdAlienMBLimit int) *Domain {
+func newDomain(id int, ccds sets.Int, capacity, ccdMax, ccdMin, ccdAlienMBLimit int) *Domain {
 	domain := Domain{
-		ID:           id,
-		CCDs:         sets.NewInt(ccds.List()...),
-		CapacityInMB: capacity,
-		MinMBPerCCD:  ccdMin,
-		MaxMBPerCCD:  ccdMax,
-		maxAlienMB:   ccdAlienMBLimit,
+		ID:                 id,
+		CCDs:               sets.NewInt(ccds.List()...),
+		defaultCapacityMB:  capacity,
+		minMBPerCCD:        ccdMin,
+		maxMBPerCCD:        ccdMax,
+		maxAlienIncomingMB: ccdAlienMBLimit,
 	}
 
 	return &domain
@@ -158,15 +156,11 @@ func identifyDomainByNumas(numaMap map[int]sets.Int) (map[int]sets.Int, error) {
 	return result, nil
 }
 
-func NewDomainsByMachineInfo(info *machine.KatalystMachineInfo, ccdMinMB, ccdMaxMB, maxRemoteMB int) (Domains, error) {
+func NewDomainsByMachineInfo(info *machine.KatalystMachineInfo,
+	defaultDomainCapacity int, ccdMinMB, ccdMaxMB, maxRemoteMB int,
+) (Domains, error) {
 	if info == nil {
 		return nil, errors.New("invalid nil machine sibling numa info")
-	}
-
-	defaultMBCapacity := int(info.SiblingNumaMBWAllocatable)
-	if defaultMBCapacity < minMBCapacity {
-		general.Infof("[mbm] invalid mb capacity %d as configured; not to enable mbm", defaultMBCapacity)
-		return nil, fmt.Errorf("invalid based mb allocatable %d MB", defaultMBCapacity)
 	}
 
 	domainToNumas, err := identifyDomainByNumas(info.SiblingNumaMap)
@@ -176,7 +170,7 @@ func NewDomainsByMachineInfo(info *machine.KatalystMachineInfo, ccdMinMB, ccdMax
 
 	result := Domains{}
 	for domainID, numas := range domainToNumas {
-		result[domainID] = newDomainByNumas(domainID, numas, defaultMBCapacity, ccdMinMB, ccdMaxMB, maxRemoteMB, info)
+		result[domainID] = newDomainByNumas(domainID, numas, defaultDomainCapacity, ccdMinMB, ccdMaxMB, maxRemoteMB, info)
 	}
 
 	return result, nil
@@ -188,10 +182,10 @@ func newDomainByNumas(id int, numas sets.Int,
 ) *Domain {
 	// todo: impl
 	return &Domain{
-		ID:           id,
-		CapacityInMB: defaultMBCapacity,
-		MinMBPerCCD:  ccdMinMB,
-		MaxMBPerCCD:  ccdMaxMB,
-		maxAlienMB:   maxRemoteMB,
+		ID:                 id,
+		defaultCapacityMB:  defaultMBCapacity,
+		minMBPerCCD:        ccdMinMB,
+		maxMBPerCCD:        ccdMaxMB,
+		maxAlienIncomingMB: maxRemoteMB,
 	}
 }

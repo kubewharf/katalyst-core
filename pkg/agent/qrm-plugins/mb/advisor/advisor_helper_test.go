@@ -85,3 +85,53 @@ func Test_maskPlanWithNoThrottles(t *testing.T) {
 		})
 	}
 }
+
+func Test_applyPlanCCDChecks(t *testing.T) {
+	t.Parallel()
+	type args struct {
+		updatePlan *plan.MBPlan
+		mb         int
+		mb2        int
+	}
+	tests := []struct {
+		name string
+		args args
+		want *plan.MBPlan
+	}{
+		{
+			name: "default no change",
+			args: args{
+				updatePlan: &plan.MBPlan{MBGroups: map[string]plan.GroupCCDPlan{"/": {0: 12345, 4: 54321}}},
+			},
+			want: &plan.MBPlan{MBGroups: map[string]plan.GroupCCDPlan{"/": {0: 12345, 4: 54321}}},
+		},
+		{
+			name: "happy path",
+			args: args{
+				updatePlan: &plan.MBPlan{
+					MBGroups: map[string]plan.GroupCCDPlan{
+						"/":         {0: 123, 4: 12345},
+						"dedicated": {0: 12345, 4: 54321},
+					},
+				},
+				mb:  1_000,
+				mb2: 35_000,
+			},
+			want: &plan.MBPlan{
+				MBGroups: map[string]plan.GroupCCDPlan{
+					"/":         {0: 1_000, 4: 12345},
+					"dedicated": {0: 12345, 4: 35_000},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := applyPlanCCDChecks(tt.args.updatePlan, tt.args.mb, tt.args.mb2); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("applyPlanCCDChecks() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

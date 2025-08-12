@@ -44,7 +44,39 @@ func getMinEffectiveCapacity(base int, dynaCaps map[string]int, incomingStats mo
 	return min
 }
 
+func applyPlanCCDChecks(mbPlan *plan.MBPlan, minCCDMB int, maxCCDMB int) *plan.MBPlan {
+	if mbPlan == nil || len(mbPlan.MBGroups) == 0 {
+		return mbPlan
+	}
+
+	if minCCDMB > 0 {
+		for group, ccdMBs := range mbPlan.MBGroups {
+			for ccd, mb := range ccdMBs {
+				if mb < minCCDMB {
+					mbPlan.MBGroups[group][ccd] = minCCDMB
+				}
+			}
+		}
+	}
+
+	if maxCCDMB > 0 {
+		for group, ccdMBs := range mbPlan.MBGroups {
+			for ccd, mb := range ccdMBs {
+				if mb > maxCCDMB {
+					mbPlan.MBGroups[group][ccd] = maxCCDMB
+				}
+			}
+		}
+	}
+
+	return mbPlan
+}
+
 func maskPlanWithNoThrottles(updatePlan *plan.MBPlan, groupNoThrottles sets.String, noThrottleCCDMB int) *plan.MBPlan {
+	if updatePlan == nil || noThrottleCCDMB == 0 {
+		return updatePlan
+	}
+
 	result := updatePlan
 	// never-throttle groups are of exceptional significance; should be allowed to use mb resource freely whatsoever
 	for notToThrottle := range groupNoThrottles {

@@ -40,7 +40,9 @@ type domainAdvisor struct {
 
 	domains domain.Domains
 
-	ccdMaxMB int
+	defaultDomainCapacity int
+	ccdMinMB              int
+	ccdMaxMB              int
 
 	// xDomGroups are the qos control groups that allow memory access across domains
 	xDomGroups sets.String
@@ -84,12 +86,20 @@ func (d *domainAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.Domains
 	rawPlan := convertToPlan(groupedCCDOutgoingQuotas)
 	d.emitRawPlan(rawPlan)
 
-	// finalize plan in line with never-throttle groups
-	// todo: limit within minCCDMB & maxCCDMB
-	updatePlan := maskPlanWithNoThrottles(rawPlan, d.groupNeverThrottles, d.ccdMaxMB)
+	// finalize plan in line with never-throttle groups and ccb mb checks
+	checkedPlan := applyPlanCCDChecks(rawPlan, d.ccdMinMB, d.ccdMaxMB)
+	updatePlan := maskPlanWithNoThrottles(checkedPlan, d.groupNeverThrottles, d.getNoThrottleMB())
 	d.emitUpdatePlan(updatePlan)
 
 	return updatePlan, nil
+}
+
+func (d *domainAdvisor) getNoThrottleMB() int {
+	if d.ccdMaxMB > 0 {
+		return d.ccdMaxMB
+	}
+
+	return d.defaultDomainCapacity
 }
 
 func (d *domainAdvisor) adjust(groupedSettings map[string][]int, observed map[string][]monitor.MBStat) map[string][]int {
@@ -148,14 +158,12 @@ func (d *domainAdvisor) calcIncomingStat(domID int, incomingStats monitor.GroupM
 }
 
 // getEffectiveCapacity gets the effective memory bandwidth capacity of specified domain, with its given resource usage
-func (d *domainAdvisor) getEffectiveCapacity(domID int, incomingStats monitor.GroupMonStat) (int, error) {
-	domInfo, ok := d.domains[domID]
-	if !ok {
-		return 0, fmt.Errorf("invalid domain %d", domID)
+func (d *domainAdvisor) getEffectiveCapacity(domID int, domIncomingStats monitor.GroupMonStat) (int, error) {
+	if _, ok := d.domains[domID]; !ok {
+		return 0, fmt.Errorf("unknown domain %d", domID)
 	}
 
-	baseCapacity := domInfo.CapacityInMB
-	return getMinEffectiveCapacity(baseCapacity, d.groupCapacityInMB, incomingStats), nil
+	return getMinEffectiveCapacity(d.defaultDomainCapacity, d.groupCapacityInMB, domIncomingStats), nil
 }
 
 func (d *domainAdvisor) deriveOutgoingTargets(domainsMon *monitor.DomainsMon, incomingTargets map[string][]int,
@@ -232,17 +240,19 @@ func (d *domainAdvisor) domainDistributeGroup(domID int, group string,
 	return result
 }
 
-func New(ccdMinMB, ccdMaxMB int, XDomGroups []string, groupNeverThrottles []string,
+func New(ccdMinMB, ccdMaxMB int, defaultDomainCapacity int,
+	XDomGroups []string, groupNeverThrottles []string,
 	groupCapacity map[string]int,
 ) Advisor {
 	return &domainAdvisor{
-		xDomGroups:          sets.NewString(XDomGroups...),
-		groupNeverThrottles: sets.NewString(groupNeverThrottles...),
-		groupCapacityInMB:   groupCapacity,
-		quotaStrategy:       quota.New(),
-		flower:              sankey.New(),
-		adjusters:           map[string]adjuster.Adjuster{},
-		ccdDistribute:       distributor.New(ccdMinMB, ccdMaxMB),
-		ccdMaxMB:            ccdMaxMB,
+		xDomGroups:            sets.NewString(XDomGroups...),
+		groupNeverThrottles:   sets.NewString(groupNeverThrottles...),
+		groupCapacityInMB:     groupCapacity,
+		quotaStrategy:         quota.New(),
+		flower:                sankey.New(),
+		adjusters:             map[string]adjuster.Adjuster{},
+		ccdDistribute:         distributor.New(ccdMinMB, ccdMaxMB),
+		ccdMaxMB:              ccdMaxMB,
+		defaultDomainCapacity: defaultDomainCapacity,
 	}
 }

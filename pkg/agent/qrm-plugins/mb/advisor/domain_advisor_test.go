@@ -37,9 +37,10 @@ import (
 func Test_domainAdvisor_getEffectiveCapacity(t *testing.T) {
 	t.Parallel()
 	type fields struct {
-		domains           domain.Domains
-		XDomGroups        sets.String
-		GroupCapacityInMB map[string]int
+		domains               domain.Domains
+		xDomGroups            sets.String
+		groupCapacityInMB     map[string]int
+		defaultDomainCapacity int
 	}
 	type args struct {
 		domID         int
@@ -57,10 +58,10 @@ func Test_domainAdvisor_getEffectiveCapacity(t *testing.T) {
 			fields: fields{
 				domains: domain.Domains{
 					0: {
-						ID:           0,
-						CapacityInMB: 12_345,
+						ID: 0,
 					},
 				},
+				defaultDomainCapacity: 12_345,
 			},
 			args: args{
 				domID:         0,
@@ -74,11 +75,11 @@ func Test_domainAdvisor_getEffectiveCapacity(t *testing.T) {
 			fields: fields{
 				domains: domain.Domains{
 					0: {
-						ID:           0,
-						CapacityInMB: 12_345,
+						ID: 0,
 					},
 				},
-				GroupCapacityInMB: map[string]int{"shared-60": 9_999, "shared-50": 11_111},
+				groupCapacityInMB:     map[string]int{"shared-60": 9_999, "shared-50": 11_111},
+				defaultDomainCapacity: 12_345,
 			},
 			args: args{
 				domID: 0,
@@ -96,9 +97,10 @@ func Test_domainAdvisor_getEffectiveCapacity(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			d := &domainAdvisor{
-				domains:           tt.fields.domains,
-				xDomGroups:        tt.fields.XDomGroups,
-				groupCapacityInMB: tt.fields.GroupCapacityInMB,
+				domains:               tt.fields.domains,
+				xDomGroups:            tt.fields.xDomGroups,
+				groupCapacityInMB:     tt.fields.groupCapacityInMB,
+				defaultDomainCapacity: tt.fields.defaultDomainCapacity,
 			}
 			got, err := d.getEffectiveCapacity(tt.args.domID, tt.args.incomingStats)
 			if (err != nil) != tt.wantErr {
@@ -115,9 +117,10 @@ func Test_domainAdvisor_getEffectiveCapacity(t *testing.T) {
 func Test_domainAdvisor_calcIncomingQuotas(t *testing.T) {
 	t.Parallel()
 	type fields struct {
-		domains           domain.Domains
-		XDomGroups        sets.String
-		GroupCapacityInMB map[string]int
+		domains               domain.Domains
+		XDomGroups            sets.String
+		GroupCapacityInMB     map[string]int
+		defaultDomainCapacity int
 	}
 	type args struct {
 		ctx context.Context
@@ -135,11 +138,11 @@ func Test_domainAdvisor_calcIncomingQuotas(t *testing.T) {
 			fields: fields{
 				domains: domain.Domains{
 					0: {
-						ID:           0,
-						CCDs:         sets.NewInt(0, 1),
-						CapacityInMB: 10_000,
+						ID:   0,
+						CCDs: sets.NewInt(0, 1),
 					},
 				},
+				defaultDomainCapacity: 10_000,
 			},
 			args: args{
 				ctx: context.TODO(),
@@ -183,14 +186,13 @@ func Test_domainAdvisor_calcIncomingQuotas(t *testing.T) {
 			fields: fields{
 				domains: domain.Domains{
 					0: {
-						ID:           0,
-						CCDs:         sets.NewInt(0, 1),
-						CapacityInMB: 10_000,
+						ID:   0,
+						CCDs: sets.NewInt(0, 1),
 					},
 				},
 				GroupCapacityInMB: map[string]int{
 					"shared-60": 6_000,
-				},
+				}, defaultDomainCapacity: 10_000,
 			},
 			args: args{
 				ctx: context.TODO(),
@@ -235,9 +237,10 @@ func Test_domainAdvisor_calcIncomingQuotas(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			d := &domainAdvisor{
-				domains:           tt.fields.domains,
-				xDomGroups:        tt.fields.XDomGroups,
-				groupCapacityInMB: tt.fields.GroupCapacityInMB,
+				domains:               tt.fields.domains,
+				xDomGroups:            tt.fields.XDomGroups,
+				groupCapacityInMB:     tt.fields.GroupCapacityInMB,
+				defaultDomainCapacity: tt.fields.defaultDomainCapacity,
 			}
 			got, err := d.calcIncomingDomainStats(tt.args.ctx, tt.args.mon)
 			if (err != nil) != tt.wantErr {
@@ -254,12 +257,13 @@ func Test_domainAdvisor_calcIncomingQuotas(t *testing.T) {
 func Test_domainAdvisor_GetPlan(t *testing.T) {
 	t.Parallel()
 	type fields struct {
-		domains           domain.Domains
-		XDomGroups        sets.String
-		GroupCapacityInMB map[string]int
-		quotaStrategy     quota.Decider
-		flower            sankey.DomainFlower
-		adjusters         map[string]adjuster.Adjuster
+		domains               domain.Domains
+		defaultDomainCapacity int
+		XDomGroups            sets.String
+		GroupCapacityInMB     map[string]int
+		quotaStrategy         quota.Decider
+		flower                sankey.DomainFlower
+		adjusters             map[string]adjuster.Adjuster
 	}
 	type args struct {
 		ctx        context.Context
@@ -277,21 +281,20 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 			fields: fields{
 				domains: domain.Domains{
 					0: {
-						ID:           0,
-						CCDs:         sets.NewInt(),
-						CapacityInMB: 30_000,
+						ID:   0,
+						CCDs: sets.NewInt(),
 					},
 					1: {
-						ID:           1,
-						CCDs:         sets.NewInt(2, 3),
-						CapacityInMB: 30_000,
+						ID:   1,
+						CCDs: sets.NewInt(2, 3),
 					},
 				},
-				XDomGroups:        nil,
-				GroupCapacityInMB: nil,
-				quotaStrategy:     quota.New(),
-				flower:            sankey.New(),
-				adjusters:         map[string]adjuster.Adjuster{},
+				defaultDomainCapacity: 30_000,
+				XDomGroups:            nil,
+				GroupCapacityInMB:     nil,
+				quotaStrategy:         quota.New(),
+				flower:                sankey.New(),
+				adjusters:             map[string]adjuster.Adjuster{},
 			},
 			args: args{
 				ctx: context.TODO(),
@@ -374,21 +377,20 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 			fields: fields{
 				domains: domain.Domains{
 					0: {
-						ID:           0,
-						CCDs:         sets.NewInt(0, 1),
-						CapacityInMB: 30_000,
+						ID:   0,
+						CCDs: sets.NewInt(0, 1),
 					},
 					1: {
-						ID:           1,
-						CCDs:         sets.NewInt(2, 3),
-						CapacityInMB: 30_000,
+						ID:   1,
+						CCDs: sets.NewInt(2, 3),
 					},
 				},
-				XDomGroups:        nil,
-				GroupCapacityInMB: nil,
-				quotaStrategy:     quota.New(),
-				flower:            sankey.New(),
-				adjusters:         map[string]adjuster.Adjuster{},
+				defaultDomainCapacity: 30_000,
+				XDomGroups:            nil,
+				GroupCapacityInMB:     nil,
+				quotaStrategy:         quota.New(),
+				flower:                sankey.New(),
+				adjusters:             map[string]adjuster.Adjuster{},
 			},
 			args: args{
 				ctx: context.TODO(),
@@ -475,14 +477,15 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			d := &domainAdvisor{
-				domains:           tt.fields.domains,
-				xDomGroups:        tt.fields.XDomGroups,
-				groupCapacityInMB: tt.fields.GroupCapacityInMB,
-				quotaStrategy:     tt.fields.quotaStrategy,
-				flower:            tt.fields.flower,
-				adjusters:         tt.fields.adjusters,
-				ccdDistribute:     distributor.New(0, 20_000),
-				emitter:           &metrics.DummyMetrics{},
+				domains:               tt.fields.domains,
+				defaultDomainCapacity: tt.fields.defaultDomainCapacity,
+				xDomGroups:            tt.fields.XDomGroups,
+				groupCapacityInMB:     tt.fields.GroupCapacityInMB,
+				quotaStrategy:         tt.fields.quotaStrategy,
+				flower:                tt.fields.flower,
+				adjusters:             tt.fields.adjusters,
+				ccdDistribute:         distributor.New(0, 20_000),
+				emitter:               &metrics.DummyMetrics{},
 			}
 			got, err := d.GetPlan(tt.args.ctx, tt.args.domainsMon)
 			if (err != nil) != tt.wantErr {

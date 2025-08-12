@@ -24,7 +24,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
-const vendorAMD = "AuthenticAMD"
+const (
+	vendorAMD     = "AuthenticAMD"
+	minMBCapacity = 10_000
+)
 
 func isSupported(cpuVendorID string) bool {
 	// only AMD is supported
@@ -42,6 +45,12 @@ func NewGenericPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		return false, nil, nil
 	}
 
+	defaultMBDomainCapacity := int(agentCtx.KatalystMachineInfo.SiblingNumaMBWAllocatable)
+	if defaultMBDomainCapacity < minMBCapacity {
+		general.Infof("[mbm] invalid domain mb capacity %d as configured; not to enable mbm", defaultMBDomainCapacity)
+		return false, nil, nil
+	}
+
 	ccdMinMB := conf.MinCCDMB
 	ccdMaxMB := conf.MaxCCDMB
 	maxIncomingRemoteMB := conf.MaxIncomingRemoteMB
@@ -49,14 +58,16 @@ func NewGenericPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	groupNeverThrottles := conf.MBQRMPluginConfig.NoThrottleGroups
 	xDomGroups := conf.CrossDomainGroups
 
-	domains, err := domain.NewDomainsByMachineInfo(agentCtx.KatalystMachineInfo, ccdMinMB, ccdMaxMB, maxIncomingRemoteMB)
+	domains, err := domain.NewDomainsByMachineInfo(agentCtx.KatalystMachineInfo, defaultMBDomainCapacity,
+		ccdMinMB, ccdMaxMB, maxIncomingRemoteMB)
 	if err != nil {
 		general.Infof("[mbm] invalid config in machine info: %v", err)
 		return false, nil, nil
 	}
 
 	planAllocator := allocator.New()
-	mbPlugin := newMBPlugin(ccdMinMB, ccdMaxMB, domains,
+	mbPlugin := newMBPlugin(ccdMinMB, ccdMaxMB,
+		defaultMBDomainCapacity, domains,
 		xDomGroups, groupNeverThrottles, groupCapacities,
 		planAllocator, agentCtx.EmitterPool)
 	return true, &agent.PluginWrapper{GenericPlugin: mbPlugin}, nil
