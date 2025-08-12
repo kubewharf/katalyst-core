@@ -25,11 +25,16 @@ import (
 )
 
 const (
-	OwnerRefFilterName      = "OwnerRef"
-	OverRatioNumaFilterName = "OverRatioNuma"
+	OwnerRefFilterName     = "OwnerRef"
+	OverloadNumaFilterName = "OverloadNuma"
 )
 
-// Returns true if the pod should be filtered out (excluded from eviction candidates)
+var DefaultEnabledFilters = []string{
+	OwnerRefFilterName,
+	OverloadNumaFilterName,
+}
+
+// Filter returns true if the pod should be filtered out (excluded from eviction candidates)
 type FilterFunc func(pod *v1.Pod, params interface{}) bool
 
 type Filterer struct {
@@ -40,29 +45,24 @@ type Filterer struct {
 
 // allFilters contains all available filter implementations that can be enabled
 var allFilters = map[string]FilterFunc{
-	OwnerRefFilterName:      OwnerRefFilter,
-	OverRatioNumaFilterName: OverRatioNumaFilter,
+	OwnerRefFilterName:     OwnerRefFilter,
+	OverloadNumaFilterName: OverloadNumaFilter,
 }
 
-func NewFilter(enabledFilters []string, emitter metrics.MetricEmitter, filterParams map[string]interface{}) (*Filterer, error) {
+func NewFilter(emitter metrics.MetricEmitter, filterParams map[string]interface{}) (*Filterer, error) {
 	if filterParams == nil {
 		general.Warningf("filterParams is nil, using empty parameters for all filters")
 		filterParams = make(map[string]interface{})
 	}
-	enabled := sets.NewString(enabledFilters...)
+
 	filters := make(map[string]FilterFunc)
 	params := make(map[string]interface{})
 
-	for name := range enabled {
-		filter, exists := allFilters[name]
-		if !exists {
-			general.Warningf("filter %s not found in available filters", name)
-			continue
-		}
+	for name, filter := range allFilters {
 		filters[name] = filter
 		params[name] = filterParams[name]
 	}
-	general.Infof("initialized filterer with %d enabled filters", len(filters))
+	general.Infof("initialized filterer with %d enabled filters default", len(filters))
 	return &Filterer{
 		filters:      filters,
 		filterParams: params,
@@ -70,21 +70,26 @@ func NewFilter(enabledFilters []string, emitter metrics.MetricEmitter, filterPar
 	}, nil
 }
 
-func (f *Filterer) Filter(pods []*v1.Pod) []*v1.Pod {
-	if len(f.filters) == 0 {
-		general.Warningf("no filters enabled, returning all pods")
+// Filter filters the given pods based on the enabled filters and their parameters
+func (f *Filterer) Filter(enabledFilters []string, pods []*v1.Pod) []*v1.Pod {
+	if len(f.filters) == 0 || len(enabledFilters) == 0 {
+		general.Warningf("no filters, returning all pods")
 		return pods
 	}
+	enabled := sets.NewString(enabledFilters...)
+	// general.Infof(" registered filters : %v", f.filters)
+	general.Infof("enabled filters finally: %v", enabled)
 
 	var filteredPods []*v1.Pod
 podLoop:
 	for _, pod := range pods {
-		for name, filter := range f.filters {
-			if filter(pod, f.filterParams[name]) {
-				_ = f.emitter.StoreInt64("qrm_eviction_filter_pods_total", 1, metrics.MetricTypeNameCount,
-					metrics.MetricTag{Key: "filter_name", Val: name},
-					metrics.MetricTag{Key: "result", Val: "filtered"},
-				)
+		for name := range enabled {
+			filter, ok := f.filters[name]
+			if !ok {
+				general.Warningf("filter %q is enabled but not found, skipping this filter", name)
+				continue
+			}
+			if !filter(pod, f.filterParams[name]) {
 				continue podLoop
 			}
 		}
@@ -112,62 +117,60 @@ func (f *Filterer) SetFilter(key string, filter FilterFunc) {
 
 func OwnerRefFilter(pod *v1.Pod, params interface{}) bool {
 	if pod == nil {
-		general.Warningf("OwnerRefFilter: pod is nil, no pods will be filtered")
-		return true
+		// general.Warningf("OwnerRefFilter: pod is nil, will be filtered")
+		return false
 	}
 	if pod.OwnerReferences == nil || len(pod.OwnerReferences) == 0 {
-		general.Warningf("OwnerRefFilter: pod %s has no ownerRef, will not be filtered", pod.Name)
-		return false
+		// general.Warningf("OwnerRefFilter: pod %s has no ownerRef, will pass", pod.Name)
+		return true
 	}
 
 	skippedPodKinds, ok := params.([]string)
 	if !ok || len(skippedPodKinds) == 0 {
-		general.Warningf("OwnerRefFilter params is not []string, no pods will be filtered")
-		return false
+		// general.Warningf("OwnerRefFilter params is not []string, all pods pass")
+		return true
 	}
-	general.Infof("OwnerRefFilter: skippedPodKinds %v", skippedPodKinds)
+	// general.Infof("OwnerRefFilter: skippedPodKinds %v", skippedPodKinds)
 	for _, ownerRef := range pod.OwnerReferences {
 		for _, kind := range skippedPodKinds {
 			if ownerRef.Kind == kind {
-				general.Infof("OwnerRefFilter: pod %s is owned by %s, will be filtered", pod.Name, kind)
-				return true
+				// general.Infof("OwnerRefFilter: pod %s is owned by %s, will be filtered", pod.Name, kind)
+				return false
 			}
 		}
 	}
-	return false
+	// general.Infof("OwnerRefFilter: pod %s has no ownerRef in skippedPodKinds, will pass", pod.Name)
+	return true
 }
 
-// OverRatioNumaFilter filters out pods that are overloaded on NUMA nodes
-func OverRatioNumaFilter(pod *v1.Pod, params interface{}) bool {
+// OverloadNumaFilter filters out pods that are overloaded on NUMA nodes
+func OverloadNumaFilter(pod *v1.Pod, params interface{}) bool {
 	if pod == nil {
-		general.Warningf("OverRatioNumaFilter: pod is nil, no pods will be filtered")
-		return true
+		// general.Warningf("OverloadNumaFilter: pod is nil, no pods will be filtered")
+		return false
 	}
 
 	numaStats, ok := params.([]NumaOverStat)
 	if !ok {
-		general.Warningf("OverRatioNumaFilter params is not []NumaOverStat, no pods will be filtered")
-		return false
+		// general.Warningf("OverloadNumaFilter params is not []NumaOverStat, no pods will be filtered")
+		return true
 	}
 	if len(numaStats) == 0 {
-		general.Warningf("OverRatioNumaFilter: numaStats is empty, no pods will be filtered")
-		return false
+		// general.Warningf("OverloadNumaFilter: numaStats is empty, no pods will be filtered")
+		return true
 	}
 	numaID := numaStats[0].NumaID
 	if numaStats[0].MetricsHistory == nil {
-		general.Warningf("OverRatioNumaFilter: numaStats[0].MetricsHistory is nil, no pods will be filtered")
-		return false
+		// general.Warningf("OverloadNumaFilter: numaStats[0].MetricsHistory is nil, no pods will be filtered")
+		return true
 	}
 	numaHis, ok := numaStats[0].MetricsHistory.Inner[numaID]
 	if !ok {
-		general.Warningf("OverRatioNumaFilter: numa %d not found in numaStats, no pods will be filtered", numaID)
-		return false
+		// general.Warningf("OverloadNumaFilter: numa %d not found in numaStats, no pods will be filtered", numaID)
+		return true
 	}
 
 	_, existMetric := numaHis[string(pod.UID)]
-	if existMetric {
-		general.Infof("OverRatioNumaFilter: pod %s is overloaded on numa %d, will be filtered", pod.Name, numaID)
-	}
 
-	return !existMetric
+	return existMetric
 }

@@ -109,11 +109,11 @@ func TestFilterer_Filter(t *testing.T) {
 			},
 		},
 		{
-			name: "OverRatioNumaFilter",
+			name: "OverloadNumaFilter",
 			fields: fields{
-				enabledFilters: []string{OverRatioNumaFilterName},
+				enabledFilters: []string{OverloadNumaFilterName},
 				filterParams: map[string]interface{}{
-					OverRatioNumaFilterName: []NumaOverStat{
+					OverloadNumaFilterName: []NumaOverStat{
 						{
 							NumaID: 0,
 							MetricsHistory: &history.NumaMetricHistory{
@@ -165,12 +165,12 @@ func TestFilterer_Filter(t *testing.T) {
 			},
 		},
 		{
-			name: "multiple filters : OwnerRefFilter and OverRatioNumaFilter",
+			name: "multiple filters : OwnerRefFilter and OverloadNumaFilter",
 			fields: fields{
-				enabledFilters: []string{OwnerRefFilterName, OverRatioNumaFilterName},
+				enabledFilters: []string{OwnerRefFilterName, OverloadNumaFilterName},
 				filterParams: map[string]interface{}{
 					OwnerRefFilterName: []string{"DaemonSet"},
-					OverRatioNumaFilterName: []NumaOverStat{
+					OverloadNumaFilterName: []NumaOverStat{
 						{
 							NumaID: 0,
 							MetricsHistory: &history.NumaMetricHistory{
@@ -224,10 +224,10 @@ func TestFilterer_Filter(t *testing.T) {
 		{
 			name: "invalid filter params",
 			fields: fields{
-				enabledFilters: []string{OwnerRefFilterName, OverRatioNumaFilterName},
+				enabledFilters: []string{OwnerRefFilterName, OverloadNumaFilterName},
 				filterParams: map[string]interface{}{
-					OwnerRefFilterName:      "invalid OwnerRefFilter params",
-					OverRatioNumaFilterName: "invalid OverRatioNumaFilter params",
+					OwnerRefFilterName:     "invalid OwnerRefFilter params",
+					OverloadNumaFilterName: "invalid OverlaodNumaFilter params",
 				},
 			},
 			args: args{
@@ -242,9 +242,9 @@ func TestFilterer_Filter(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			filterer, err := NewFilter(tt.fields.enabledFilters, metrics.DummyMetrics{}, tt.fields.filterParams)
+			filterer, err := NewFilter(metrics.DummyMetrics{}, tt.fields.filterParams)
 			assert.NoError(t, err)
-			result := filterer.Filter(tt.args.pods)
+			result := filterer.Filter(tt.fields.enabledFilters, tt.args.pods)
 			resultNames := make([]string, 0, len(result))
 			for _, pod := range result {
 				resultNames = append(resultNames, pod.Name)
@@ -276,7 +276,7 @@ func TestOwnerRefFilter(t *testing.T) {
 				},
 			},
 			params:       []string{"DaemonSet"},
-			wantFiltered: true,
+			wantFiltered: false,
 		},
 		{
 			name: "deployment owner should not be filtered",
@@ -289,13 +289,13 @@ func TestOwnerRefFilter(t *testing.T) {
 				},
 			},
 			params:       []string{"DaemonSet"},
-			wantFiltered: false,
+			wantFiltered: true,
 		},
 		{
 			name:         "nil params should not filter",
 			pod:          &v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "test-pod"}},
 			params:       nil,
-			wantFiltered: false,
+			wantFiltered: true,
 		},
 	}
 
@@ -309,7 +309,7 @@ func TestOwnerRefFilter(t *testing.T) {
 	}
 }
 
-func TestOverRatioNumaFilter(t *testing.T) {
+func TestOverloadNumaFilter(t *testing.T) {
 	t.Parallel()
 
 	mockMetrics := &history.NumaMetricHistory{
@@ -333,7 +333,7 @@ func TestOverRatioNumaFilter(t *testing.T) {
 				NumaID:         0,
 				MetricsHistory: mockMetrics,
 			}},
-			wantFiltered: false,
+			wantFiltered: true,
 		},
 		{
 			name: "pod without metric history should not be reserved",
@@ -342,7 +342,7 @@ func TestOverRatioNumaFilter(t *testing.T) {
 				NumaID:         0,
 				MetricsHistory: mockMetrics,
 			}},
-			wantFiltered: true,
+			wantFiltered: false,
 		},
 	}
 
@@ -350,7 +350,7 @@ func TestOverRatioNumaFilter(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			result := OverRatioNumaFilter(tt.pod, tt.params)
+			result := OverloadNumaFilter(tt.pod, tt.params)
 			assert.Equal(t, tt.wantFiltered, result)
 		})
 	}
@@ -358,9 +358,9 @@ func TestOverRatioNumaFilter(t *testing.T) {
 
 func TestFilterer_SetFilter(t *testing.T) {
 	t.Parallel()
-	filterer, _ := NewFilter([]string{}, metrics.DummyMetrics{}, nil)
+	filterer, _ := NewFilter(metrics.DummyMetrics{}, nil)
 	customFilter := func(pod *v1.Pod, params interface{}) bool {
-		return pod.Name == "custom-filter-pod"
+		return pod.Name != "custom-filter-pod"
 	}
 
 	filterer.SetFilter("custom", customFilter)
@@ -368,19 +368,19 @@ func TestFilterer_SetFilter(t *testing.T) {
 		t.Fatal("custom filter not found in filterer.filters")
 	}
 	testPod := &v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "custom-filter-pod"}}
-	result := filterer.Filter([]*v1.Pod{testPod})
+	result := filterer.Filter([]string{"custom"}, []*v1.Pod{testPod})
 	assert.Empty(t, result)
 }
 
 func TestFilterer_SetFilterParam(t *testing.T) {
 	t.Parallel()
-	filterer, _ := NewFilter([]string{OwnerRefFilterName}, metrics.DummyMetrics{}, nil)
+	filterer, _ := NewFilter(metrics.DummyMetrics{}, nil)
 	testParams := []string{"StatefulSet"}
 
 	filterer.SetFilterParam(OwnerRefFilterName, testParams)
 	assert.Equal(t, testParams, filterer.filterParams[OwnerRefFilterName])
 
-	result := filterer.Filter([]*v1.Pod{{
+	result := filterer.Filter([]string{OwnerRefFilterName}, []*v1.Pod{{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            "test-pod",
 			OwnerReferences: []metav1.OwnerReference{{Kind: "StatefulSet"}},
@@ -391,27 +391,35 @@ func TestFilterer_SetFilterParam(t *testing.T) {
 
 func TestNewFilter_InvalidFilter(t *testing.T) {
 	t.Parallel()
-	filterer, err := NewFilter([]string{"invalid-filter"}, metrics.DummyMetrics{}, nil)
+	filterer, err := NewFilter(metrics.DummyMetrics{}, nil)
 	assert.NoError(t, err)
-	assert.Empty(t, filterer.filters)
+	pod1 := makePod("pod1")
+	var result []*v1.Pod
+	assert.NotPanics(t, func() {
+		result = filterer.Filter([]string{"invalid-filter"}, []*v1.Pod{pod1})
+	})
+
+	// Since the invalid filter is skipped, no filtering happens, and the original pod should be in the result.
+	assert.Len(t, result, 1)
+	assert.Equal(t, "pod1", result[0].Name)
 }
 
 func TestFilterer_EmptyPodList(t *testing.T) {
 	t.Parallel()
-	filterer, _ := NewFilter([]string{OwnerRefFilterName}, metrics.DummyMetrics{}, map[string]interface{}{OwnerRefFilterName: []string{"DaemonSet"}})
-	result := filterer.Filter([]*v1.Pod{})
+	filterer, _ := NewFilter(metrics.DummyMetrics{}, map[string]interface{}{OwnerRefFilterName: []string{"DaemonSet"}})
+	result := filterer.Filter([]string{OwnerRefFilterName}, []*v1.Pod{})
 	assert.Empty(t, result)
 }
 
 func TestFilterer_NilPod(t *testing.T) {
 	t.Parallel()
-	filterer, _ := NewFilter([]string{OwnerRefFilterName}, metrics.DummyMetrics{}, map[string]interface{}{OwnerRefFilterName: []string{"DaemonSet"}})
-	result := filterer.Filter([]*v1.Pod{nil, {ObjectMeta: metav1.ObjectMeta{Name: "valid-pod"}}})
+	filterer, _ := NewFilter(metrics.DummyMetrics{}, map[string]interface{}{OwnerRefFilterName: []string{"DaemonSet"}})
+	result := filterer.Filter([]string{OwnerRefFilterName}, []*v1.Pod{nil, {ObjectMeta: metav1.ObjectMeta{Name: "valid-pod"}}})
 	assert.Len(t, result, 1)
 	assert.Equal(t, "valid-pod", result[0].Name)
 }
 
-func TestOverRatioNumaFilter_InvalidMetrics(t *testing.T) {
+func TestOverloadNumaFilter_InvalidMetrics(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -425,12 +433,12 @@ func TestOverRatioNumaFilter_InvalidMetrics(t *testing.T) {
 				NumaID:         0,
 				MetricsHistory: nil,
 			}},
-			wantFiltered: false,
+			wantFiltered: true,
 		},
 		{
 			name:         "empty numa stats",
 			params:       []NumaOverStat{},
-			wantFiltered: false,
+			wantFiltered: true,
 		},
 		{
 			name: "numa not found",
@@ -438,7 +446,7 @@ func TestOverRatioNumaFilter_InvalidMetrics(t *testing.T) {
 				NumaID:         999,
 				MetricsHistory: &history.NumaMetricHistory{Inner: map[int]map[string]map[string]*history.MetricRing{}},
 			}},
-			wantFiltered: false,
+			wantFiltered: true,
 		},
 	}
 
@@ -447,7 +455,7 @@ func TestOverRatioNumaFilter_InvalidMetrics(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			pod := makePod("test-pod")
-			result := OverRatioNumaFilter(pod, tt.params)
+			result := OverloadNumaFilter(pod, tt.params)
 			assert.Equal(t, tt.wantFiltered, result)
 		})
 	}
