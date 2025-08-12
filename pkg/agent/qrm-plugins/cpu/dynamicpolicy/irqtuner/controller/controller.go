@@ -689,7 +689,7 @@ retry:
 		sort.Ints(irqs)
 
 		general.Infof("%s [before tidy] nic %s irq affinity:", IrqTuningLogPrefix, nic)
-		for irq := range irqs {
+		for _, irq := range irqs {
 			cpuStr, _ := general.ConvertIntSliceToBitmapString(irq2CPUs[irq])
 			general.Infof("%s   irq %d: cpu %s", IrqTuningLogPrefix, irq, cpuStr)
 		}
@@ -699,7 +699,7 @@ retry:
 			general.Errorf("%s nic %s failed to TidyUpIrqsAffinityCPUs, err %v", IrqTuningLogPrefix, nic, err)
 		} else {
 			general.Infof("%s [after tidy] nic %s irq affinity:", IrqTuningLogPrefix, nic)
-			for irq := range irqs {
+			for _, irq := range irqs {
 				general.Infof("%s   irq %d: cpu %d", IrqTuningLogPrefix, irq, irq2Core[irq])
 			}
 		}
