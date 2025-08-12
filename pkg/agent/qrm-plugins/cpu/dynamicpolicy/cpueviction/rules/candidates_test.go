@@ -158,8 +158,8 @@ func TestGetWorkloadEvictionInfo(t *testing.T) {
 			}}},
 		},
 		expectedErr:    false,
-		expectedWindow: 1800,
-		expectedCount:  3,
+		expectedWindow: 7200,
+		expectedCount:  8,
 	}, {
 		name: "empty_buckets_list",
 		inputRecord: &pluginapi.EvictionRecord{

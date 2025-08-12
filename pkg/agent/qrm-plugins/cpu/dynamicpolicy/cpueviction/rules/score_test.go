@@ -25,7 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction/history"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
@@ -34,46 +34,46 @@ func TestScorer_Score(t *testing.T) {
 	t.Parallel()
 
 	// NUMA Metric History
-	mockMetricsHistory := &history.NumaMetricHistory{
-		Inner: map[int]map[string]map[string]*history.MetricRing{
+	mockMetricsHistory := &util.NumaMetricHistory{
+		Inner: map[int]map[string]map[string]*util.MetricRing{
 			0: {
 				"pod1": {
 					consts.MetricCPUUsageContainer: {
 						MaxLen: 2,
-						Queue: []*history.MetricSnapshot{
-							{Info: history.MetricInfo{Value: 0.8}},
+						Queue: []*util.MetricSnapshot{
+							{Info: util.MetricInfo{Value: 0.8}},
 						},
 					},
 				},
 				"pod2": {
 					consts.MetricCPUUsageContainer: {
 						MaxLen: 2,
-						Queue: []*history.MetricSnapshot{
-							{Info: history.MetricInfo{Value: 0.6}},
+						Queue: []*util.MetricSnapshot{
+							{Info: util.MetricInfo{Value: 0.6}},
 						},
 					},
 				},
 				"pod3": {
 					consts.MetricCPUUsageContainer: {
 						MaxLen: 2,
-						Queue: []*history.MetricSnapshot{
-							{Info: history.MetricInfo{Value: 0.9}},
+						Queue: []*util.MetricSnapshot{
+							{Info: util.MetricInfo{Value: 0.9}},
 						},
 					},
 				},
 				"pod4": {
 					consts.MetricCPUUsageContainer: {
 						MaxLen: 2,
-						Queue: []*history.MetricSnapshot{
-							{Info: history.MetricInfo{Value: 0.7}},
+						Queue: []*util.MetricSnapshot{
+							{Info: util.MetricInfo{Value: 0.7}},
 						},
 					},
 				},
 				"pod5": {
 					consts.MetricCPUUsageContainer: {
 						MaxLen: 2,
-						Queue: []*history.MetricSnapshot{
-							{Info: history.MetricInfo{Value: 0.95}},
+						Queue: []*util.MetricSnapshot{
+							{Info: util.MetricInfo{Value: 0.95}},
 						},
 					},
 				},
@@ -84,7 +84,7 @@ func TestScorer_Score(t *testing.T) {
 
 	type fields struct {
 		enabledScorers []string
-		scorerParams   map[string]interface{}
+		scorerParams   EvictRules
 	}
 	type args struct {
 		pods []*CandidatePod
@@ -102,7 +102,7 @@ func TestScorer_Score(t *testing.T) {
 		name: "no scorers enabled",
 		fields: fields{
 			enabledScorers: []string{},
-			scorerParams:   nil,
+			scorerParams:   EvictRules{},
 		},
 		args: args{pods: makeCandidatePods()},
 		want: want{sortedPodNames: []string{"pod1", "pod2", "pod3", "pod4", "pod5"}},
@@ -110,16 +110,16 @@ func TestScorer_Score(t *testing.T) {
 		name: "DeploymentEvictionFrequencyScorer only",
 		fields: fields{
 			enabledScorers: []string{DeploymentEvictionFrequencyScorerName},
-			scorerParams:   nil,
+			scorerParams:   EvictRules{},
 		},
 		args: args{pods: makeCandidatePods()},
-		want: want{sortedPodNames: []string{"pod5", "pod2", "pod1", "pod4", "pod3"}},
+		want: want{sortedPodNames: []string{"pod5", "pod2", "pod4", "pod1", "pod3"}},
 	}, {
 		name: "UsageGapScorer only",
 		fields: fields{
 			enabledScorers: []string{UsageGapScorerName},
-			scorerParams: map[string]interface{}{
-				UsageGapScorerName: []NumaOverStat{{
+			scorerParams: EvictRules{
+				NumaOverStats: []NumaOverStat{{
 					NumaID:         0,
 					Gap:            0.5,
 					MetricsHistory: mockMetricsHistory,
@@ -132,8 +132,8 @@ func TestScorer_Score(t *testing.T) {
 		name: "multiple scorers (DeploymentEvictionFrequency + UsageGap)",
 		fields: fields{
 			enabledScorers: []string{DeploymentEvictionFrequencyScorerName, UsageGapScorerName},
-			scorerParams: map[string]interface{}{
-				UsageGapScorerName: []NumaOverStat{{
+			scorerParams: EvictRules{
+				NumaOverStats: []NumaOverStat{{
 					NumaID:         0,
 					Gap:            0.5,
 					MetricsHistory: mockMetricsHistory,
@@ -141,14 +141,14 @@ func TestScorer_Score(t *testing.T) {
 			},
 		},
 		args: args{pods: makeCandidatePods()},
-		want: want{sortedPodNames: []string{"pod2", "pod5", "pod1", "pod4", "pod3"}},
+		want: want{sortedPodNames: []string{"pod2", "pod5", "pod4", "pod1", "pod3"}},
 	}}
 
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			scorer, err := NewScorer(tt.fields.enabledScorers, metrics.DummyMetrics{}, tt.fields.scorerParams)
+			scorer, err := NewScorer(metrics.DummyMetrics{}, tt.fields.scorerParams, tt.fields.enabledScorers)
 			assert.NoError(t, err)
 
 			result := scorer.Score(tt.args.pods)
@@ -190,7 +190,7 @@ func TestDeploymentEvictionFrequencyScorer(t *testing.T) {
 					},
 				},
 			},
-			wantScore: 35,
+			wantScore: 14,
 		},
 		{
 			name: "zero eviction count",
@@ -207,7 +207,7 @@ func TestDeploymentEvictionFrequencyScorer(t *testing.T) {
 					},
 				},
 			},
-			wantScore: 0,
+			wantScore: 100,
 		},
 		{
 			name: "exceed limit normalization",
@@ -224,7 +224,7 @@ func TestDeploymentEvictionFrequencyScorer(t *testing.T) {
 					},
 				},
 			},
-			wantScore: 100,
+			wantScore: -5000,
 		},
 	}
 
@@ -232,7 +232,7 @@ func TestDeploymentEvictionFrequencyScorer(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			score := DeploymentEvictionFrequencyScorer(tt.pod, nil)
+			score := DeploymentEvictionFrequencyScorer(tt.pod, EvictRules{})
 			assert.Equal(t, tt.wantScore, score)
 		})
 	}
@@ -241,14 +241,14 @@ func TestDeploymentEvictionFrequencyScorer(t *testing.T) {
 func TestUsageGapScorer(t *testing.T) {
 	t.Parallel()
 
-	mockMetricsHistory := &history.NumaMetricHistory{
-		Inner: map[int]map[string]map[string]*history.MetricRing{
+	mockMetricsHistory := &util.NumaMetricHistory{
+		Inner: map[int]map[string]map[string]*util.MetricRing{
 			0: {
 				"pod-uid": {
 					consts.MetricCPUUsageContainer: {
 						MaxLen: 2,
-						Queue: []*history.MetricSnapshot{
-							{Info: history.MetricInfo{Value: 0.8}},
+						Queue: []*util.MetricSnapshot{
+							{Info: util.MetricInfo{Value: 0.7}},
 						},
 					},
 				},
@@ -260,7 +260,7 @@ func TestUsageGapScorer(t *testing.T) {
 	tests := []struct {
 		name      string
 		pod       *CandidatePod
-		params    interface{}
+		params    EvictRules
 		wantScore int
 	}{
 		{
@@ -268,24 +268,28 @@ func TestUsageGapScorer(t *testing.T) {
 			pod: &CandidatePod{
 				Pod: &v1.Pod{ObjectMeta: metav1.ObjectMeta{UID: types.UID("pod-uid")}},
 			},
-			params: []NumaOverStat{{
-				NumaID:         0,
-				Gap:            0.5,
-				MetricsHistory: mockMetricsHistory,
-			}},
-			wantScore: 30,
+			params: EvictRules{
+				NumaOverStats: []NumaOverStat{{
+					NumaID:         0,
+					Gap:            0.5,
+					MetricsHistory: mockMetricsHistory,
+				}},
+			},
+			wantScore: 20,
 		},
 		{
 			name: "no metric history",
 			pod: &CandidatePod{
 				Pod: &v1.Pod{ObjectMeta: metav1.ObjectMeta{UID: types.UID("unknown-uid")}},
 			},
-			params: []NumaOverStat{{
-				NumaID:         0,
-				Gap:            0.5,
-				MetricsHistory: mockMetricsHistory,
-			}},
-			wantScore: 10,
+			params: EvictRules{
+				NumaOverStats: []NumaOverStat{{
+					NumaID:         0,
+					Gap:            0.5,
+					MetricsHistory: mockMetricsHistory,
+				}},
+			},
+			wantScore: 0,
 		},
 	}
 
@@ -301,14 +305,22 @@ func TestUsageGapScorer(t *testing.T) {
 
 func TestNewScorer_InvalidScorer(t *testing.T) {
 	t.Parallel()
-	_, err := NewScorer([]string{"invalidScorer"}, metrics.DummyMetrics{}, nil)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "scorer invalidScorer not exists")
+	scorer, err := NewScorer(metrics.DummyMetrics{}, EvictRules{}, []string{"invalid-scorer"})
+	assert.NoError(t, err)
+	pod1 := makePod("pod1")
+	var result []*CandidatePod
+	assert.NotPanics(t, func() {
+		result = scorer.Score([]*CandidatePod{{Pod: pod1}})
+	})
+
+	assert.Len(t, result, 1)
+	assert.Equal(t, "pod1", result[0].Pod.Name)
+
 }
 
 func TestScore_NilPods(t *testing.T) {
 	t.Parallel()
-	scorer, _ := NewScorer([]string{PriorityScorerName}, metrics.DummyMetrics{}, nil)
+	scorer, _ := NewScorer(metrics.DummyMetrics{}, EvictRules{}, []string{UsageGapScorerName})
 	result := scorer.Score([]*CandidatePod{nil, {Pod: makePod("valid")}})
 	assert.Len(t, result, 1)
 	assert.NotNil(t, result[0])
@@ -316,74 +328,30 @@ func TestScore_NilPods(t *testing.T) {
 
 func TestScorer_EmptyScorers(t *testing.T) {
 	t.Parallel()
-	scorer, _ := NewScorer([]string{}, metrics.DummyMetrics{}, nil)
+	scorer, _ := NewScorer(metrics.DummyMetrics{}, EvictRules{}, []string{})
 	pods := []*CandidatePod{{Pod: makePod("test")}}
 	result := scorer.Score(pods)
 	assert.Equal(t, pods, result)
 }
 
-func TestNormalizeCount(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name         string
-		perHourCount float64
-		limit        int32
-		want         float64
-	}{
-		{
-			name:         "limit zero",
-			perHourCount: 5,
-			limit:        0,
-			want:         5,
-		},
-		{
-			name:         "count equals limit",
-			perHourCount: 3,
-			limit:        3,
-			want:         10,
-		},
-		{
-			name:         "count exceeds limit",
-			perHourCount: 6,
-			limit:        3,
-			want:         20,
-		},
-		{
-			name:         "count below limit",
-			perHourCount: 1,
-			limit:        3,
-			want:         3.3333333333333335,
-		},
-	}
-
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			result := normalizeCount(tt.perHourCount, tt.limit)
-			assert.InDelta(t, tt.want, result, 0.001)
-		})
-	}
-}
-
 func TestSetScorerParam(t *testing.T) {
 	t.Parallel()
-	scorer, _ := NewScorer([]string{UsageGapScorerName}, metrics.DummyMetrics{}, nil)
-	testParam := []NumaOverStat{{NumaID: 1}}
-	scorer.SetScorerParam(UsageGapScorerName, testParam)
-	assert.Equal(t, testParam, scorer.scorerParams[UsageGapScorerName])
+	scorer, _ := NewScorer(metrics.DummyMetrics{}, EvictRules{}, []string{})
+	testParam := EvictRules{NumaOverStats: []NumaOverStat{{NumaID: 1}}}
+	scorer.SetScorerParam(testParam)
+	assert.Equal(t, testParam, scorer.scorerParams)
 }
 
-func TestSetScorer(t *testing.T) {
+func TestRegisterScorer(t *testing.T) {
 	t.Parallel()
-	scorer, _ := NewScorer([]string{}, metrics.DummyMetrics{}, nil)
 	customScore := 100
-	customScorer := func(pod *CandidatePod, params interface{}) int {
+	customScorer := func(pod *CandidatePod, params EvictRules) int {
 		return customScore
 	}
+	RegisterScorer("custom", customScorer)
+	scorer, _ := NewScorer(metrics.DummyMetrics{}, EvictRules{}, []string{"custom"})
 
-	scorer.SetScorer("custom", customScorer)
-	if _, exists := scorer.scorers["custom"]; !exists {
+	if _, exists := scorer.scorerFuncs["custom"]; !exists {
 		t.Fatal("custom scorer not found in scorer.scorers")
 	}
 	testPod := &CandidatePod{Pod: makePod("test-pod")}

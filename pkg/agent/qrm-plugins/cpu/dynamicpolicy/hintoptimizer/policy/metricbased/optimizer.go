@@ -26,11 +26,11 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction/history"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer/policy"
 	hintoptimizerutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	cpuUtil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/metricthreshold"
@@ -53,7 +53,7 @@ type metricBasedHintOptimizer struct {
 	state      state.State
 
 	reservedCPUs      machine.CPUSet
-	numaMetrics       map[int]history.SubEntries
+	numaMetrics       map[int]cpuUtil.SubEntries
 	metricSampleTime  time.Duration
 	metricSampleCount int
 }
@@ -61,10 +61,10 @@ type metricBasedHintOptimizer struct {
 func NewMetricBasedHintOptimizer(
 	options policy.HintOptimizerFactoryOptions,
 ) (hintoptimizer.HintOptimizer, error) {
-	numaMetrics := make(map[int]history.SubEntries)
+	numaMetrics := make(map[int]cpuUtil.SubEntries)
 	numaNodes := options.MetaServer.CPUDetails.NUMANodes().ToSliceNoSortInt()
 	for _, numaID := range numaNodes {
-		numaMetrics[numaID] = make(history.SubEntries)
+		numaMetrics[numaID] = make(cpuUtil.SubEntries)
 	}
 	return &metricBasedHintOptimizer{
 		conf:              options.Conf,
@@ -205,11 +205,11 @@ func (o *metricBasedHintOptimizer) collectNUMAMetrics() {
 			}
 
 			if subEntries[resourceName] == nil {
-				subEntries[resourceName] = history.CreateMetricRing(o.metricSampleCount)
+				subEntries[resourceName] = cpuUtil.CreateMetricRing(o.metricSampleCount)
 			}
 
-			subEntries[resourceName].Push(&history.MetricSnapshot{
-				Info: history.MetricInfo{
+			subEntries[resourceName].Push(&cpuUtil.MetricSnapshot{
+				Info: cpuUtil.MetricInfo{
 					Value: value,
 				},
 				Time: collectTime,

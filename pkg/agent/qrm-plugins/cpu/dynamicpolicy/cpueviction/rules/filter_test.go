@@ -25,7 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction/history"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
@@ -65,7 +65,7 @@ func TestFilterer_Filter(t *testing.T) {
 	}
 	type fields struct {
 		enabledFilters []string
-		filterParams   map[string]interface{}
+		filterParams   EvictRules
 	}
 	type args struct {
 		pods []*v1.Pod
@@ -84,7 +84,7 @@ func TestFilterer_Filter(t *testing.T) {
 			name: "no filters enabled",
 			fields: fields{
 				enabledFilters: []string{},
-				filterParams:   nil,
+				filterParams:   EvictRules{},
 			},
 			args: args{
 				pods: []*v1.Pod{pod1, pod2, pod3},
@@ -97,8 +97,8 @@ func TestFilterer_Filter(t *testing.T) {
 			name: "OwnerRefFilter with DaemonSet skip",
 			fields: fields{
 				enabledFilters: []string{OwnerRefFilterName},
-				filterParams: map[string]interface{}{
-					OwnerRefFilterName: []string{"DaemonSet"},
+				filterParams: EvictRules{
+					SkippedPodKinds: []string{"DaemonSet"},
 				},
 			},
 			args: args{
@@ -109,21 +109,21 @@ func TestFilterer_Filter(t *testing.T) {
 			},
 		},
 		{
-			name: "OverRatioNumaFilter",
+			name: "OverloadNumaFilter",
 			fields: fields{
-				enabledFilters: []string{OverRatioNumaFilterName},
-				filterParams: map[string]interface{}{
-					OverRatioNumaFilterName: []NumaOverStat{
+				enabledFilters: []string{OverloadNumaFilterName},
+				filterParams: EvictRules{
+					NumaOverStats: []NumaOverStat{
 						{
 							NumaID: 0,
-							MetricsHistory: &history.NumaMetricHistory{
-								Inner: map[int]map[string]map[string]*history.MetricRing{
+							MetricsHistory: &util.NumaMetricHistory{
+								Inner: map[int]map[string]map[string]*util.MetricRing{
 									0: {
-										history.FakePodUID: {
+										util.FakePodUID: {
 											consts.MetricCPUUsageContainer: {
 												MaxLen: 2,
-												Queue: []*history.MetricSnapshot{
-													{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
+												Queue: []*util.MetricSnapshot{
+													{Info: util.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
 													nil,
 												},
 												CurrentIndex: 1,
@@ -132,8 +132,8 @@ func TestFilterer_Filter(t *testing.T) {
 										"pod1": {
 											consts.MetricCPUUsageContainer: {
 												MaxLen: 2,
-												Queue: []*history.MetricSnapshot{
-													{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
+												Queue: []*util.MetricSnapshot{
+													{Info: util.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
 													nil,
 												},
 												CurrentIndex: 1,
@@ -142,8 +142,8 @@ func TestFilterer_Filter(t *testing.T) {
 										"pod2": {
 											consts.MetricCPUUsageContainer: {
 												MaxLen: 2,
-												Queue: []*history.MetricSnapshot{
-													{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
+												Queue: []*util.MetricSnapshot{
+													{Info: util.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
 													nil,
 												},
 												CurrentIndex: 1,
@@ -165,22 +165,22 @@ func TestFilterer_Filter(t *testing.T) {
 			},
 		},
 		{
-			name: "multiple filters : OwnerRefFilter and OverRatioNumaFilter",
+			name: "multiple filters : OwnerRefFilter and OverloadNumaFilter",
 			fields: fields{
-				enabledFilters: []string{OwnerRefFilterName, OverRatioNumaFilterName},
-				filterParams: map[string]interface{}{
-					OwnerRefFilterName: []string{"DaemonSet"},
-					OverRatioNumaFilterName: []NumaOverStat{
+				enabledFilters: []string{OwnerRefFilterName, OverloadNumaFilterName},
+				filterParams: EvictRules{
+					SkippedPodKinds: []string{"DaemonSet"},
+					NumaOverStats: []NumaOverStat{
 						{
 							NumaID: 0,
-							MetricsHistory: &history.NumaMetricHistory{
-								Inner: map[int]map[string]map[string]*history.MetricRing{
+							MetricsHistory: &util.NumaMetricHistory{
+								Inner: map[int]map[string]map[string]*util.MetricRing{
 									0: {
-										history.FakePodUID: {
+										util.FakePodUID: {
 											consts.MetricCPUUsageContainer: {
 												MaxLen: 2,
-												Queue: []*history.MetricSnapshot{
-													{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
+												Queue: []*util.MetricSnapshot{
+													{Info: util.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 1.0}},
 													nil,
 												},
 												CurrentIndex: 1,
@@ -189,8 +189,8 @@ func TestFilterer_Filter(t *testing.T) {
 										"pod1": {
 											consts.MetricCPUUsageContainer: {
 												MaxLen: 2,
-												Queue: []*history.MetricSnapshot{
-													{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
+												Queue: []*util.MetricSnapshot{
+													{Info: util.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.5}},
 													nil,
 												},
 												CurrentIndex: 1,
@@ -199,8 +199,8 @@ func TestFilterer_Filter(t *testing.T) {
 										"pod2": {
 											consts.MetricCPUUsageContainer: {
 												MaxLen: 2,
-												Queue: []*history.MetricSnapshot{
-													{Info: history.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
+												Queue: []*util.MetricSnapshot{
+													{Info: util.MetricInfo{Name: consts.MetricCPUUsageContainer, Value: 0.25}},
 													nil,
 												},
 												CurrentIndex: 1,
@@ -221,28 +221,12 @@ func TestFilterer_Filter(t *testing.T) {
 				filteredPods: []string{"pod1"},
 			},
 		},
-		{
-			name: "invalid filter params",
-			fields: fields{
-				enabledFilters: []string{OwnerRefFilterName, OverRatioNumaFilterName},
-				filterParams: map[string]interface{}{
-					OwnerRefFilterName:      "invalid OwnerRefFilter params",
-					OverRatioNumaFilterName: "invalid OverRatioNumaFilter params",
-				},
-			},
-			args: args{
-				pods: []*v1.Pod{pod1, pod2, pod3},
-			},
-			want: want{
-				filteredPods: []string{"pod1", "pod2", "pod3"},
-			},
-		},
 	}
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			filterer, err := NewFilter(tt.fields.enabledFilters, metrics.DummyMetrics{}, tt.fields.filterParams)
+			filterer, err := NewFilter(metrics.DummyMetrics{}, tt.fields.filterParams, tt.fields.enabledFilters)
 			assert.NoError(t, err)
 			result := filterer.Filter(tt.args.pods)
 			resultNames := make([]string, 0, len(result))
@@ -262,7 +246,7 @@ func TestOwnerRefFilter(t *testing.T) {
 	tests := []struct {
 		name         string
 		pod          *v1.Pod
-		params       interface{}
+		params       EvictRules
 		wantFiltered bool
 	}{
 		{
@@ -275,8 +259,10 @@ func TestOwnerRefFilter(t *testing.T) {
 					},
 				},
 			},
-			params:       []string{"DaemonSet"},
-			wantFiltered: true,
+			params: EvictRules{
+				SkippedPodKinds: []string{"DaemonSet"},
+			},
+			wantFiltered: false,
 		},
 		{
 			name: "deployment owner should not be filtered",
@@ -288,14 +274,16 @@ func TestOwnerRefFilter(t *testing.T) {
 					},
 				},
 			},
-			params:       []string{"DaemonSet"},
-			wantFiltered: false,
+			params: EvictRules{
+				SkippedPodKinds: []string{"DaemonSet"},
+			},
+			wantFiltered: true,
 		},
 		{
 			name:         "nil params should not filter",
 			pod:          &v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "test-pod"}},
-			params:       nil,
-			wantFiltered: false,
+			params:       EvictRules{},
+			wantFiltered: true,
 		},
 	}
 
@@ -309,13 +297,13 @@ func TestOwnerRefFilter(t *testing.T) {
 	}
 }
 
-func TestOverRatioNumaFilter(t *testing.T) {
+func TestOverloadNumaFilter(t *testing.T) {
 	t.Parallel()
 
-	mockMetrics := &history.NumaMetricHistory{
-		Inner: map[int]map[string]map[string]*history.MetricRing{
+	mockMetrics := &util.NumaMetricHistory{
+		Inner: map[int]map[string]map[string]*util.MetricRing{
 			0: {
-				"pod-uid-1": {consts.MetricCPUUsageContainer: {Queue: []*history.MetricSnapshot{{Info: history.MetricInfo{Value: 0.8}}}}},
+				"pod-uid-1": {consts.MetricCPUUsageContainer: {Queue: []*util.MetricSnapshot{{Info: util.MetricInfo{Value: 0.8}}}}},
 			},
 		},
 	}
@@ -323,26 +311,30 @@ func TestOverRatioNumaFilter(t *testing.T) {
 	tests := []struct {
 		name         string
 		pod          *v1.Pod
-		params       interface{}
+		params       EvictRules
 		wantFiltered bool
 	}{
 		{
 			name: "pod with high usage should be reserved",
 			pod:  &v1.Pod{ObjectMeta: metav1.ObjectMeta{UID: types.UID("pod-uid-1")}},
-			params: []NumaOverStat{{
-				NumaID:         0,
-				MetricsHistory: mockMetrics,
-			}},
-			wantFiltered: false,
+			params: EvictRules{
+				NumaOverStats: []NumaOverStat{{
+					NumaID:         0,
+					MetricsHistory: mockMetrics,
+				}},
+			},
+			wantFiltered: true,
 		},
 		{
 			name: "pod without metric history should not be reserved",
 			pod:  &v1.Pod{ObjectMeta: metav1.ObjectMeta{UID: types.UID("pod-uid-2")}},
-			params: []NumaOverStat{{
-				NumaID:         0,
-				MetricsHistory: mockMetrics,
-			}},
-			wantFiltered: true,
+			params: EvictRules{
+				NumaOverStats: []NumaOverStat{{
+					NumaID:         0,
+					MetricsHistory: mockMetrics,
+				}},
+			},
+			wantFiltered: false,
 		},
 	}
 
@@ -350,7 +342,7 @@ func TestOverRatioNumaFilter(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			result := OverRatioNumaFilter(tt.pod, tt.params)
+			result := OverloadNumaFilter(tt.pod, tt.params)
 			assert.Equal(t, tt.wantFiltered, result)
 		})
 	}
@@ -358,13 +350,13 @@ func TestOverRatioNumaFilter(t *testing.T) {
 
 func TestFilterer_SetFilter(t *testing.T) {
 	t.Parallel()
-	filterer, _ := NewFilter([]string{}, metrics.DummyMetrics{}, nil)
-	customFilter := func(pod *v1.Pod, params interface{}) bool {
-		return pod.Name == "custom-filter-pod"
+	filterer, _ := NewFilter(metrics.DummyMetrics{}, EvictRules{}, []string{"custom"})
+	customFilter := func(pod *v1.Pod, evictRules EvictRules) bool {
+		return pod.Name != "custom-filter-pod"
 	}
 
 	filterer.SetFilter("custom", customFilter)
-	if _, exists := filterer.filters["custom"]; !exists {
+	if _, exists := filterer.filterFuncs["custom"]; !exists {
 		t.Fatal("custom filter not found in filterer.filters")
 	}
 	testPod := &v1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "custom-filter-pod"}}
@@ -374,11 +366,13 @@ func TestFilterer_SetFilter(t *testing.T) {
 
 func TestFilterer_SetFilterParam(t *testing.T) {
 	t.Parallel()
-	filterer, _ := NewFilter([]string{OwnerRefFilterName}, metrics.DummyMetrics{}, nil)
-	testParams := []string{"StatefulSet"}
+	filterer, _ := NewFilter(metrics.DummyMetrics{}, EvictRules{}, []string{OwnerRefFilterName})
+	testParams := EvictRules{
+		SkippedPodKinds: []string{"StatefulSet"},
+	}
 
-	filterer.SetFilterParam(OwnerRefFilterName, testParams)
-	assert.Equal(t, testParams, filterer.filterParams[OwnerRefFilterName])
+	filterer.SetFilterParam(testParams)
+	assert.Equal(t, testParams, filterer.filterParams)
 
 	result := filterer.Filter([]*v1.Pod{{
 		ObjectMeta: metav1.ObjectMeta{
@@ -391,54 +385,68 @@ func TestFilterer_SetFilterParam(t *testing.T) {
 
 func TestNewFilter_InvalidFilter(t *testing.T) {
 	t.Parallel()
-	filterer, err := NewFilter([]string{"invalid-filter"}, metrics.DummyMetrics{}, nil)
+	filterer, err := NewFilter(metrics.DummyMetrics{}, EvictRules{}, []string{"invalid-filter"})
 	assert.NoError(t, err)
-	assert.Empty(t, filterer.filters)
+	pod1 := makePod("pod1")
+	var result []*v1.Pod
+	assert.NotPanics(t, func() {
+		result = filterer.Filter([]*v1.Pod{pod1})
+	})
+
+	// Since the invalid filter is skipped, no filtering happens, and the original pod should be in the result.
+	assert.Len(t, result, 1)
+	assert.Equal(t, "pod1", result[0].Name)
 }
 
 func TestFilterer_EmptyPodList(t *testing.T) {
 	t.Parallel()
-	filterer, _ := NewFilter([]string{OwnerRefFilterName}, metrics.DummyMetrics{}, map[string]interface{}{OwnerRefFilterName: []string{"DaemonSet"}})
+	filterer, _ := NewFilter(metrics.DummyMetrics{}, EvictRules{
+		SkippedPodKinds: []string{"DaemonSet"},
+	}, []string{OwnerRefFilterName})
 	result := filterer.Filter([]*v1.Pod{})
 	assert.Empty(t, result)
 }
 
 func TestFilterer_NilPod(t *testing.T) {
 	t.Parallel()
-	filterer, _ := NewFilter([]string{OwnerRefFilterName}, metrics.DummyMetrics{}, map[string]interface{}{OwnerRefFilterName: []string{"DaemonSet"}})
+	filterer, _ := NewFilter(metrics.DummyMetrics{}, EvictRules{
+		SkippedPodKinds: []string{"DaemonSet"},
+	}, []string{OwnerRefFilterName})
 	result := filterer.Filter([]*v1.Pod{nil, {ObjectMeta: metav1.ObjectMeta{Name: "valid-pod"}}})
 	assert.Len(t, result, 1)
 	assert.Equal(t, "valid-pod", result[0].Name)
 }
 
-func TestOverRatioNumaFilter_InvalidMetrics(t *testing.T) {
+func TestOverloadNumaFilter_InvalidMetrics(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name         string
-		params       interface{}
+		params       EvictRules
 		wantFiltered bool
 	}{
 		{
 			name: "nil metrics history",
-			params: []NumaOverStat{{
-				NumaID:         0,
-				MetricsHistory: nil,
-			}},
-			wantFiltered: false,
+			params: EvictRules{
+				NumaOverStats: []NumaOverStat{{
+					NumaID:         0,
+					MetricsHistory: nil,
+				}},
+			},
+			wantFiltered: true,
 		},
 		{
 			name:         "empty numa stats",
-			params:       []NumaOverStat{},
-			wantFiltered: false,
+			params:       EvictRules{NumaOverStats: []NumaOverStat{}},
+			wantFiltered: true,
 		},
 		{
 			name: "numa not found",
-			params: []NumaOverStat{{
+			params: EvictRules{NumaOverStats: []NumaOverStat{{
 				NumaID:         999,
-				MetricsHistory: &history.NumaMetricHistory{Inner: map[int]map[string]map[string]*history.MetricRing{}},
-			}},
-			wantFiltered: false,
+				MetricsHistory: &util.NumaMetricHistory{Inner: map[int]map[string]map[string]*util.MetricRing{}},
+			}}},
+			wantFiltered: true,
 		},
 	}
 
@@ -447,8 +455,19 @@ func TestOverRatioNumaFilter_InvalidMetrics(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			pod := makePod("test-pod")
-			result := OverRatioNumaFilter(pod, tt.params)
+			result := OverloadNumaFilter(pod, tt.params)
 			assert.Equal(t, tt.wantFiltered, result)
 		})
+	}
+}
+
+func TestRegisterFilter(t *testing.T) {
+	t.Parallel()
+	RegisterFilter("custom", func(pod *v1.Pod, evictRules EvictRules) bool {
+		return true
+	})
+	filterer, _ := NewFilter(metrics.DummyMetrics{}, EvictRules{}, []string{"custom"})
+	if _, exists := filterer.filterFuncs["custom"]; !exists {
+		t.Fatal("custom filter not found in filterer.filters")
 	}
 }

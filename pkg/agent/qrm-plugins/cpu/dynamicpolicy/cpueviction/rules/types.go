@@ -19,7 +19,7 @@ package rules
 import (
 	v1 "k8s.io/api/core/v1"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction/history"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 )
 
 type CandidatePod struct {
@@ -47,6 +47,13 @@ type NumaOverStat struct {
 	NumaID         int
 	OverloadRatio  float64
 	AvgUsageRatio  float64
-	MetricsHistory *history.NumaMetricHistory
+	MetricsHistory *util.NumaMetricHistory
 	Gap            float64
+}
+
+type EvictRules struct {
+	SkippedPodKinds                     []string
+	NumaOverStats                       []NumaOverStat
+	DeploymentEvictionFrequencyLimitStr []string
+	ExtraRules                          map[string]interface{}
 }
