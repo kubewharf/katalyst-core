@@ -30,7 +30,6 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
-	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -46,8 +45,6 @@ import (
 	procm "github.com/kubewharf/katalyst-core/pkg/util/procfs/manager"
 	sysm "github.com/kubewharf/katalyst-core/pkg/util/sysfs/manager"
 )
-
-var networkMockLock sync.Mutex
 
 // MockFileInfo is a mock implementation of os.FileInfo for testing purposes.
 type MockFileInfo struct {
@@ -67,10 +64,6 @@ func (m MockFileInfo) ModTime() time.Time { return m.modTime }
 func (m MockFileInfo) Sys() interface{}   { return m.sys }
 
 func Test_Network(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	testDoNetNS(t)
 	testGetNSNetworkHardwareTopology(t)
 	testGetExtraNetworkInfo(t)
@@ -453,8 +446,6 @@ func testDoNetNS(t *testing.T) {
 	}
 
 	// Run test cases
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
 	for _, tc := range testCases {
 		PatchConvey(tc.name, t, func() {
 			// Arrange
@@ -477,10 +468,6 @@ func testDoNetNS(t *testing.T) {
 }
 
 func Test_getInterfaceAttr(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	PatchConvey("TestGetInterfaceAttr", t, func() {
 		nicPath := "/sys/class/net/eth0"
 
@@ -618,10 +605,6 @@ func Test_getInterfaceAttr(t *testing.T) {
 }
 
 func TestSetIrqAffinityCPUs(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	PatchConvey("TestSetIrqAffinityCPUs", t, func() {
 		PatchConvey("Scenario 1: When the irq number is invalid, an error should be returned", func() {
 			invalidIrq := 0
@@ -693,10 +676,6 @@ func TestSetIrqAffinityCPUs(t *testing.T) {
 }
 
 func TestSetIrqAffinity(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	PatchConvey("TestSetIrqAffinity", t, func() {
 		PatchConvey("Scenario: irq number is invalid", func() {
 			invalidIrq := 0
@@ -764,10 +743,6 @@ func TestSetIrqAffinity(t *testing.T) {
 }
 
 func Test_GetIrqAffinityCPUs(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	PatchConvey("Test GetIrqAffinityCPUs", t, func() {
 		PatchConvey("Scene 1: The irq number is invalid", func() {
 			invalidIrq := 0
@@ -825,10 +800,6 @@ func Test_GetIrqAffinityCPUs(t *testing.T) {
 }
 
 func Test_setNicRxQueueRPS(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	PatchConvey("Test setNicRxQueueRPS", t, func() {
 		nicInfo := &NicBasicInfo{
 			InterfaceInfo: InterfaceInfo{
@@ -893,10 +864,6 @@ func Test_setNicRxQueueRPS(t *testing.T) {
 }
 
 func TestSetNicRxQueueRPS(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	PatchConvey("Test SetNicRxQueueRPS", t, func() {
 		nic := &NicBasicInfo{
 			InterfaceInfo: InterfaceInfo{
@@ -949,10 +916,6 @@ func TestSetNicRxQueueRPS(t *testing.T) {
 }
 
 func Test_ClearNicRxQueueRPS(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	PatchConvey("Test ClearNicRxQueueRPS", t, func() {
 		nic := &NicBasicInfo{
 			InterfaceInfo: InterfaceInfo{
@@ -987,10 +950,6 @@ func Test_ClearNicRxQueueRPS(t *testing.T) {
 }
 
 func Test_IsZeroBitmap(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	PatchConvey("Test the IsZeroBitmap function", t, func() {
 		PatchConvey("Scenario 1: When all fields of the bitmap string are 0, true should be returned", func() {
 			bitmapStr := "0,00,0,000"
@@ -1037,10 +996,6 @@ func Test_IsZeroBitmap(t *testing.T) {
 }
 
 func Test_ComparesHexBitmapStrings(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	PatchConvey("Test ComparesHexBitmapStrings", t, func() {
 		PatchConvey("Scenario 1: Two strings are exactly equal", func() {
 			a := "a,b,c,123"
@@ -1144,10 +1099,6 @@ func Test_ComparesHexBitmapStrings(t *testing.T) {
 }
 
 func TestGetNicRxQueueRpsConf(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	nic := &NicBasicInfo{
 		InterfaceInfo: InterfaceInfo{
 			Name: "eth0",
@@ -1207,10 +1158,6 @@ func TestGetNicRxQueueRpsConf(t *testing.T) {
 }
 
 func TestGetNicRxQueuesRpsConf(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	PatchConvey("TestGetNicRxQueuesRpsConf", t, func() {
 		nicInfo := &NicBasicInfo{
 			InterfaceInfo: InterfaceInfo{
@@ -1282,10 +1229,6 @@ func TestGetNicRxQueuesRpsConf(t *testing.T) {
 }
 
 func Test_GetNicQueue2IrqWithQueueFilter(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	nicInfo := &NicBasicInfo{
 		InterfaceInfo: InterfaceInfo{
 			Name:    "eth0",
@@ -1408,10 +1351,6 @@ func Test_GetNicQueue2IrqWithQueueFilter(t *testing.T) {
 }
 
 func Test_GetNicQueue2Irq(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	PatchConvey("Test GetNicQueue2Irq", t, func() {
 		PatchConvey("Scenario 1: Virtio network card", func() {
 			nicInfo := &NicBasicInfo{
@@ -1583,10 +1522,6 @@ func Test_GetNicQueue2Irq(t *testing.T) {
 }
 
 func Test_GetIrqsAffinityCPUs(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	PatchConvey("Test GetIrqsAffinityCPUs", t, func() {
 		PatchConvey("Scenario 1: Successfully obtain CPU affinity for multiple interrupts", func() {
 			// Arrange: prepare test data and mocks
@@ -1650,10 +1585,6 @@ func Test_GetIrqsAffinityCPUs(t *testing.T) {
 }
 
 func Test_TidyUpNicIrqsAffinityCPUs(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	PatchConvey("Test TidyUpNicIrqsAffinityCPUs", t, func() {
 		PatchConvey("Success Scenario - Distribute IRQ evenly across available CPUs", func() {
 			irq2CPUs := map[int][]int64{
@@ -1750,10 +1681,6 @@ func Test_TidyUpNicIrqsAffinityCPUs(t *testing.T) {
 }
 
 func Test_getNicDriver(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	PatchConvey("Test getNicDriver", t, func() {
 		dummyNicSysPath := "/sys/class/net/eth0"
 		PatchConvey("Scenario 1: When reading a symlink fails, an unknown driver and error should be returned", func() {
@@ -1851,10 +1778,6 @@ func (m *mockDirEntry) Info() (fs.FileInfo, error) {
 }
 
 func Test_GetNicIrqs(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	PatchConvey("Test GetNicIrqs", t, func() {
 		dummyPath := "/sys/class/net/eth0"
 		PatchConvey("Scenario 1: All IRQs are successfully obtained and resolved", func() {
@@ -1913,10 +1836,6 @@ func Test_GetNicIrqs(t *testing.T) {
 }
 
 func Test_IsPCIDevice(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	PatchConvey("Test IsPCIDevice", t, func() {
 		PatchConvey("When EvalSymlinks fails", func() {
 			testPath := "/sys/class/net/eth0"
@@ -1954,10 +1873,6 @@ func Test_IsPCIDevice(t *testing.T) {
 }
 
 func Test_GetNicPCIAddr(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	PatchConvey("Test GetNicPCIAddr", t, func() {
 		nicSysPath := "/sys/class/net/eth0"
 		PatchConvey("Scenario 1: EvalSymlinks fails", func() {
@@ -1997,10 +1912,6 @@ func Test_GetNicPCIAddr(t *testing.T) {
 }
 
 func Test_IsVirtioNetDevice(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	PatchConvey("Test IsVirtioNetDevice", t, func() {
 		PatchConvey("Scenario: It is a virtio-net device", func() {
 			Mock(filepath.EvalSymlinks).Return("/sys/bus/pci/drivers/virtio_net", nil).Build()
@@ -2029,10 +1940,6 @@ func Test_IsVirtioNetDevice(t *testing.T) {
 }
 
 func Test_GetNicVirtioName(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	PatchConvey("Test GetNicVirtioName", t, func() {
 		nicSysPath := "/sys/class/net/eth0"
 		nicDevSysPath := filepath.Join(nicSysPath, "device")
@@ -2063,10 +1970,6 @@ func Test_GetNicVirtioName(t *testing.T) {
 }
 
 func Test_GetNicNumaNode(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	nicSysPath := "/sys/class/net/eth0"
 
 	PatchConvey("Test GetNicNumaNode", t, func() {
@@ -2163,10 +2066,6 @@ func Test_GetNicNumaNode(t *testing.T) {
 }
 
 func Test_GetIfIndex(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	PatchConvey("Test GetIfIndex", t, func() {
 		nicName := "eth0"
 		nicSysPath := "/sys/class/net/eth0"
@@ -2209,10 +2108,6 @@ func Test_GetIfIndex(t *testing.T) {
 }
 
 func Test_GetIfIndexFromSys(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	PatchConvey("Test GetIfIndexFromSys", t, func() {
 		dummyNicSysPath := "/sys/class/net/eth0"
 
@@ -2264,10 +2159,6 @@ func (m *mockFileInfo) IsDir() bool {
 }
 
 func Test_IsBondingNetDevice(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	PatchConvey("Test IsBondingNetDevice", t, func() {
 		nicSysPath := "/sys/class/net/test_nic"
 		PatchConvey("Scenario 1: The bonding path exists and is a directory, and it should return true", func() {
@@ -2298,10 +2189,6 @@ func Test_IsBondingNetDevice(t *testing.T) {
 }
 
 func Test_IsNetDevLinkUp(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	PatchConvey("Test IsNetDevLinkUp", t, func() {
 		dummyNicSysPath := "/sys/class/net/eth0"
 		PatchConvey("Scenario 1: When the operstate file content is 'up', it should return true", func() {
@@ -2339,10 +2226,6 @@ func Test_IsNetDevLinkUp(t *testing.T) {
 }
 
 func Test_ListBondNetDevSlaves(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	PatchConvey("Test ListBondNetDevSlaves", t, func() {
 		dummyNicSysPath := "/sys/class/net/bond0"
 		PatchConvey("Successfully obtained the slaves list", func() {
@@ -2396,10 +2279,6 @@ func Test_ListBondNetDevSlaves(t *testing.T) {
 }
 
 func TestListNetNS(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	PatchConvey("Test ListNetNS", t, func() {
 		testNetNSDir := "/var/run/test_netns"
 		PatchConvey("Scenario 1: Successfully obtain a list of network namespaces", func() {

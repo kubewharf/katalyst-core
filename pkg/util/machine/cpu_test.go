@@ -36,10 +36,6 @@ import (
 )
 
 func TestGetCoreNumReservedForReclaim(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	tests := []struct {
 		name             string
 		numReservedCores int
@@ -96,10 +92,6 @@ func TestGetCoreNumReservedForReclaim(t *testing.T) {
 }
 
 func Test_GetCPUPackageID(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	mockey.PatchConvey("Test GetCPUPackageID", t, func() {
 		mockey.PatchConvey("scenario：Successfully obtained the cpu package id", func() {
 			// Arrange: prepare test data and mock
@@ -181,10 +173,6 @@ func Test_GetCPUPackageID(t *testing.T) {
 }
 
 func Test_GetSocketCount(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	mockey.PatchConvey("Test the GetSocketCount function", t, func() {
 		mockey.PatchConvey("Successful scenario - There are 2 sockets in the system", func() {
 			// Arrange: prepare the test environment and mock
@@ -306,10 +294,6 @@ func Test_GetSocketCount(t *testing.T) {
 }
 
 func Test_GetNodeCount(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	mockey.PatchConvey("Test the GetNodeCount function", t, func() {
 		mockey.PatchConvey("Scenario 1: Successfully obtained the number of nodes", func() {
 			// Arrange: Prepare simulation data, including valid node directory, invalid directory and files
@@ -379,10 +363,6 @@ func Test_GetNodeCount(t *testing.T) {
 }
 
 func TestGetNumaPackageID(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	mockey.PatchConvey("TestGetNumaPackageID", t, func() {
 		mockey.PatchConvey("Scenario 1: The cpulist file does not exist", func() {
 			// Arrange: Simulate os.Stat return file without error
@@ -524,10 +504,6 @@ func TestGetNumaPackageID(t *testing.T) {
 }
 
 func Test_GetCPUOnlineStatus(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	mockey.PatchConvey("Test the GetCPUOnlineStatus function", t, func() {
 		// Scenario 1: Test the special situation when cpuID is 0
 		mockey.PatchConvey("Scenario 1: When cpuID is 0, true should be returned directly", func() {
@@ -656,10 +632,6 @@ func Test_GetCPUOnlineStatus(t *testing.T) {
 }
 
 func Test_getLLCDomain(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	const fakeCPUListFile = "/fake/path/to/cpu_list"
 	mockey.PatchConvey("Test getLLCDomain", t, func() {
 		mockey.PatchConvey("Scenario 1: Successfully obtaining LLC domain information", func() {
@@ -799,10 +771,6 @@ func Test_getLLCDomain(t *testing.T) {
 }
 
 func Test_getIntelNumaTopo(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	const fakeNodeCPUListFile = "/tmp/node0_cpulist"
 	mockey.PatchConvey("Test getIntelNumaTopo", t, func() {
 		mockey.PatchConvey("Scene 1: Get the LLC Domain normally", func() {
@@ -922,10 +890,6 @@ func Test_getIntelNumaTopo(t *testing.T) {
 }
 
 func Test_getAMDNumaTopo(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	mockey.PatchConvey("Test getAMDNumaTopo", t, func() {
 		mockey.PatchConvey("Scenario: Successfully obtained the AMD NUMA topology", func() {
 			mockey.Mock(general.ParseLinuxListFormatFromFile).Return([]int64{0, 8}, nil).Build()
@@ -1021,10 +985,6 @@ func Test_getAMDNumaTopo(t *testing.T) {
 }
 
 func Test_getSocketCPUList(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	mockey.PatchConvey("Test getSocketCPUList", t, func() {
 		mockey.Mock(general.SortInt64Slice).To(func(x []int64) {
 			sort.Slice(x, func(i, j int) bool {
@@ -1120,10 +1080,6 @@ func Test_getSocketCPUList(t *testing.T) {
 }
 
 func Test_GetCPUInfoWithTopo(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	mockey.PatchConvey("Test GetCPUInfoWithTopo", t, func() {
 		mockey.Mock(os.Stat).Return(nil, nil).Build()
 		mockey.PatchConvey("Scenario 1: Successfully obtaining Intel CPU topology", func() {
@@ -1264,10 +1220,6 @@ func Test_GetCPUInfoWithTopo(t *testing.T) {
 }
 
 func TestCollectCpuStats(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	mockey.PatchConvey("Test CollectCpuStats", t, func() {
 		mockey.PatchConvey("Scenario 1: Normal situation, successfully parsing CPU statistics information", func() {
 			// Arrange: Prepare simulation data and mock
@@ -1347,10 +1299,6 @@ func TestCollectCpuStats(t *testing.T) {
 }
 
 func Test_getAMDSocketPhysicalCores(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	mockey.PatchConvey("Test the getAMDSocketPhysicalCores function", t, func() {
 		mockey.PatchConvey("Scenario 1: Normally, Socket contains multiple NUMA nodes and physical cores", func() {
 			socket := &CPUSocket{
@@ -1451,10 +1399,6 @@ func Test_getAMDSocketPhysicalCores(t *testing.T) {
 }
 
 func Test_getIntelSocketPhysicalCores(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	mockey.PatchConvey("Test_getIntelSocketPhysicalCores", t, func() {
 		mockey.PatchConvey("Normal scenario: When the socket contains multiple valid NUMA nodes", func() {
 			socket := &CPUSocket{
@@ -1555,10 +1499,6 @@ func Test_getIntelSocketPhysicalCores(t *testing.T) {
 }
 
 func Test_CPUInfo_GetSocketSlice(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	mockey.PatchConvey("Test CPUInfo GetSocketSlice", t, func() {
 		mockey.PatchConvey("Scenario 1: When Sockets map is empty", func() {
 			cpuInfo := &CPUInfo{
@@ -1610,10 +1550,6 @@ func Test_CPUInfo_GetSocketSlice(t *testing.T) {
 }
 
 func Test_CPUInfo_GetSocketPhysicalCores(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	mockey.PatchConvey("Test CPUInfo.GetSocketPhysicalCores", t, func() {
 		cpuInfo := &CPUInfo{
 			Sockets: map[int]*CPUSocket{
@@ -1698,10 +1634,6 @@ func Test_CPUInfo_GetSocketPhysicalCores(t *testing.T) {
 }
 
 func Test_CPUInfo_GetNodeCPUList(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	mockey.PatchConvey("Test CPUInfo GetNodeCPUList", t, func() {
 		mockey.Mock(general.SortInt64Slice).To(func(x []int64) {
 			sort.Slice(x, func(i, j int) bool {
@@ -1851,10 +1783,6 @@ func Test_CPUInfo_GetNodeCPUList(t *testing.T) {
 }
 
 func Test_CPUInfo_GetAMDNumaCCDs(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	mockey.PatchConvey("Test CPUInfo.GetAMDNumaCCDs", t, func() {
 		mockey.PatchConvey("Scenario 1: The CPU architecture is not AMD, an error should be returned", func() {
 			cpuInfo := &CPUInfo{
@@ -1970,10 +1898,6 @@ func Test_CPUInfo_GetAMDNumaCCDs(t *testing.T) {
 }
 
 func Test_GetLLCDomainCPUList(t *testing.T) {
-	t.Parallel()
-	networkMockLock.Lock()
-	defer networkMockLock.Unlock()
-
 	mockey.PatchConvey("Test GetLLCDomainCPUList", t, func() {
 		mockey.Mock(general.SortInt64Slice).To(func(x []int64) {
 			sort.Slice(x, func(i, j int) bool {
