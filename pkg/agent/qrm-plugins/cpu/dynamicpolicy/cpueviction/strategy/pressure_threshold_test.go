@@ -24,6 +24,7 @@ import (
 	"k8s.io/utils/pointer"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction/history"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/metricthreshold"
@@ -180,7 +181,7 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 		conf               *config.Configuration
 		numaPressureConfig *NumaPressureConfig
 		thresholds         map[string]float64
-		metricsHistory     *NumaMetricHistory
+		metricsHistory     *history.NumaMetricHistory
 		overloadNumaCount  int
 		enabled            bool
 	}
@@ -445,6 +446,7 @@ func TestNumaCPUPressureEviction_pullThresholds(t *testing.T) {
 				thresholds:         tt.fields.thresholds,
 				enabled:            tt.fields.enabled,
 				metaServer:         makeMetaServer(metricsFetcher, nil),
+				metricsHistory:     history.NewMetricHistory(tt.fields.numaPressureConfig.MetricRingSize),
 			}
 			p.pullThresholds(context.TODO())
 			assert.Equalf(t, tt.wantEnabled, p.enabled, "pullThresholds")

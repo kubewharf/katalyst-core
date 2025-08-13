@@ -28,6 +28,8 @@ type NumaCPUPressureEvictionConfiguration struct {
 	ThresholdExpandFactor  float64
 	CandidateCount         int
 	SkippedPodKinds        []string
+	EnabledFilters         []string
+	EnabledScorers         []string
 }
 
 func NewNumaCPUPressureEvictionConfiguration() NumaCPUPressureEvictionConfiguration {

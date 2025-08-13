@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction/history"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/metricthreshold"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
@@ -71,7 +72,7 @@ func (p *NumaCPUPressureEviction) pullThresholds(_ context.Context) {
 
 	if p.metricsHistory.RingSize != numaPressureConfig.MetricRingSize {
 		general.Infof("update metricsHistory ring size to %v", numaPressureConfig.MetricRingSize)
-		p.metricsHistory = NewMetricHistory(numaPressureConfig.MetricRingSize)
+		p.metricsHistory = history.NewMetricHistory(numaPressureConfig.MetricRingSize)
 	}
 }
 
