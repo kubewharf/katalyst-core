@@ -22,6 +22,7 @@ import (
 
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -56,7 +57,7 @@ func (d *Domain) GetAlienMBLimit() int {
 	return d.maxAlienIncomingMB
 }
 
-func newDomain(id int, ccds sets.Int, capacity, ccdMax, ccdMin, ccdAlienMBLimit int) *Domain {
+func newDomain(id int, ccds sets.Int, capacity, ccdMin, ccdMax, ccdAlienMBLimit int) *Domain {
 	domain := Domain{
 		ID:                 id,
 		CCDs:               sets.NewInt(ccds.List()...),
@@ -156,6 +157,18 @@ func identifyDomainByNumas(numaMap map[int]sets.Int) (map[int]sets.Int, error) {
 	return result, nil
 }
 
+func getDiesByNUMAs(numas sets.Int, dieTopology *machine.DieTopology) (sets.Int, error) {
+	result := sets.Int{}
+	for numa := range numas {
+		dies, ok := dieTopology.NUMAToDie[numa]
+		if !ok {
+			return nil, fmt.Errorf("unknown numa id %d", numa)
+		}
+		result.Insert(dies.List()...)
+	}
+	return result, nil
+}
+
 func NewDomainsByMachineInfo(info *machine.KatalystMachineInfo,
 	defaultDomainCapacity int, ccdMinMB, ccdMaxMB, maxRemoteMB int,
 ) (Domains, error) {
@@ -170,22 +183,16 @@ func NewDomainsByMachineInfo(info *machine.KatalystMachineInfo,
 
 	result := Domains{}
 	for domainID, numas := range domainToNumas {
-		result[domainID] = newDomainByNumas(domainID, numas, defaultDomainCapacity, ccdMinMB, ccdMaxMB, maxRemoteMB, info)
+		dies, errCurr := getDiesByNUMAs(numas, info.DieTopology)
+		if errCurr != nil {
+			return nil, errors.Wrapf(err, "failed to locate numa ccds for domain %d", domainID)
+		}
+		result[domainID] = newDomain(domainID, dies, defaultDomainCapacity, ccdMinMB, ccdMaxMB, maxRemoteMB)
+
+		if klog.V(6).Enabled() {
+			klog.Infof("[mbm] mb domain = %d, numa nodes = %v, ccds = %v", domainID, numas.List(), dies.List())
+		}
 	}
 
 	return result, nil
-}
-
-func newDomainByNumas(id int, numas sets.Int,
-	defaultMBCapacity int, ccdMinMB, ccdMaxMB int, maxRemoteMB int,
-	info *machine.KatalystMachineInfo,
-) *Domain {
-	// todo: impl
-	return &Domain{
-		ID:                 id,
-		defaultCapacityMB:  defaultMBCapacity,
-		minMBPerCCD:        ccdMinMB,
-		maxMBPerCCD:        ccdMaxMB,
-		maxAlienIncomingMB: maxRemoteMB,
-	}
 }

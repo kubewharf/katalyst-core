@@ -73,7 +73,7 @@ func (m *MBPlugin) Stop() error {
 	return nil
 }
 
-func ToGroupMonStat(mbData *types.MBData) monitor.GroupMonStat {
+func toGroupMonStat(mbData *types.MBData) monitor.GroupMonStat {
 	if mbData == nil {
 		return nil
 	}
@@ -103,7 +103,7 @@ func (m *MBPlugin) run() {
 		return
 	}
 
-	statOutgoing := ToGroupMonStat(mbData)
+	statOutgoing := toGroupMonStat(mbData)
 	if mbData == nil {
 		general.Warningf("[mbm] got empty mb data")
 		return
@@ -126,13 +126,12 @@ func (m *MBPlugin) run() {
 		general.Infof("[mbm] mb plan update: %v", mbPlan)
 	}
 
-	// execute plan
 	if err := m.planAllocator.Allocate(ctx, mbPlan); err != nil {
 		general.Errorf("[mbm] failed to run allocating plan: %v", err)
 		return
 	}
 
-	general.InfofV(6, "[mbm] plugin run finish")
+	general.InfofV(6, "[mbm] plugin run end")
 }
 
 func newMBPlugin(ccdMinMB, ccdMaxMB int, defaultDomainCapacity int,

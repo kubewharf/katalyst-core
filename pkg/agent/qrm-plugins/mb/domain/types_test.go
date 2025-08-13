@@ -65,7 +65,7 @@ func TestNewDomain(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			if got := newDomain(tt.args.id, tt.args.ccds, tt.args.capacity,
-				tt.args.ccdMax, tt.args.ccdMin, tt.args.ccdAlienMBLimit); !reflect.DeepEqual(got, tt.want) {
+				tt.args.ccdMin, tt.args.ccdMax, tt.args.ccdAlienMBLimit); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("newDomain() = %v, want %v", got, tt.want)
 			}
 		})
@@ -207,6 +207,18 @@ func TestNewDomainsByMachineInfo(t *testing.T) {
 			args: args{
 				info: &machine.KatalystMachineInfo{
 					CPUTopology: nil,
+					DieTopology: &machine.DieTopology{
+						NUMAToDie: map[int]sets.Int{
+							0: sets.NewInt(0, 1, 16, 17),
+							1: sets.NewInt(2, 3, 18, 19),
+							2: sets.NewInt(4, 5, 20, 21),
+							3: sets.NewInt(6, 7, 22, 23),
+							4: sets.NewInt(8, 9, 24, 25),
+							5: sets.NewInt(10, 11, 26, 27),
+							6: sets.NewInt(12, 13, 28, 29),
+							7: sets.NewInt(14, 15, 30, 31),
+						},
+					},
 					ExtraTopologyInfo: &machine.ExtraTopologyInfo{
 						SiblingNumaInfo: &machine.SiblingNumaInfo{
 							SiblingNumaMap: map[int]sets.Int{
@@ -229,8 +241,22 @@ func TestNewDomainsByMachineInfo(t *testing.T) {
 				defaultDomainMB: 90_000,
 			},
 			want: Domains{
-				0: &Domain{ID: 0, defaultCapacityMB: 90_000, minMBPerCCD: 1_000, maxMBPerCCD: 35_000, maxAlienIncomingMB: 12000},
-				1: &Domain{ID: 1, defaultCapacityMB: 90_000, minMBPerCCD: 1_000, maxMBPerCCD: 35_000, maxAlienIncomingMB: 12000},
+				0: &Domain{
+					ID:                 0,
+					CCDs:               sets.NewInt(0, 1, 2, 3, 4, 5, 6, 7, 16, 17, 18, 19, 20, 21, 22, 23),
+					defaultCapacityMB:  90_000,
+					minMBPerCCD:        1_000,
+					maxMBPerCCD:        35_000,
+					maxAlienIncomingMB: 12000,
+				},
+				1: &Domain{
+					ID:                 1,
+					CCDs:               sets.NewInt(8, 9, 10, 11, 12, 13, 14, 15, 24, 25, 26, 27, 28, 29, 30, 31),
+					defaultCapacityMB:  90_000,
+					minMBPerCCD:        1_000,
+					maxMBPerCCD:        35_000,
+					maxAlienIncomingMB: 12000,
+				},
 			},
 			wantErr: false,
 		},

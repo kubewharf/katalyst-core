@@ -37,8 +37,7 @@ const cpuFsRoot = "/sys/devices/system/cpu/"
 var errFound = errors.New("target found and skip all")
 
 type DieTopology struct {
-	numaToDie map[int]sets.Int
-	dieToNuma map[int]int
+	NUMAToDie map[int]sets.Int
 }
 
 type cpuInfo struct {
@@ -57,8 +56,7 @@ func GetDieTopology(numCPU int) (*DieTopology, error) {
 
 func getDieTopology(infoGetter cpuInfoGetter, numCPU int) (*DieTopology, error) {
 	result := &DieTopology{
-		numaToDie: make(map[int]sets.Int),
-		dieToNuma: make(map[int]int),
+		NUMAToDie: make(map[int]sets.Int),
 	}
 
 	for id := 0; id < numCPU; id++ {
@@ -74,12 +72,10 @@ func getDieTopology(infoGetter cpuInfoGetter, numCPU int) (*DieTopology, error) 
 }
 
 func (d *DieTopology) processCPU(cpuID, dieID, numaID int) {
-	d.dieToNuma[dieID] = numaID
-
-	if _, ok := d.numaToDie[numaID]; !ok {
-		d.numaToDie[numaID] = make(sets.Int)
+	if _, ok := d.NUMAToDie[numaID]; !ok {
+		d.NUMAToDie[numaID] = make(sets.Int)
 	}
-	d.numaToDie[numaID].Insert(dieID)
+	d.NUMAToDie[numaID].Insert(dieID)
 }
 
 type procFsCPUInfoGetter struct {
@@ -174,5 +170,7 @@ func parseInt(s string) (int, error) {
 }
 
 func newCPUInfoGetter() cpuInfoGetter {
-	return &procFsCPUInfoGetter{}
+	return &procFsCPUInfoGetter{
+		fs: afero.NewOsFs(),
+	}
 }

@@ -114,8 +114,7 @@ func TestGetDieTopology(t *testing.T) {
 				numCPU:     4,
 			},
 			want: &DieTopology{
-				numaToDie: map[int]sets.Int{0: sets.NewInt(0, 4), 1: sets.NewInt(8, 12)},
-				dieToNuma: map[int]int{0: 0, 4: 0, 8: 1, 12: 1},
+				NUMAToDie: map[int]sets.Int{0: sets.NewInt(0, 4), 1: sets.NewInt(8, 12)},
 			},
 			wantErr: assert.NoError,
 		},
