@@ -84,7 +84,7 @@ func (r *PodRootfsOveruseEvictionPlugin) Name() string {
 
 func (r *PodRootfsOveruseEvictionPlugin) Start() {}
 
-func (r *PodRootfsOveruseEvictionPlugin) ThresholdMet(_ context.Context) (*pluginapi.ThresholdMetResponse, error) {
+func (r *PodRootfsOveruseEvictionPlugin) ThresholdMet(_ context.Context, _ *pluginapi.GetThresholdMetRequest) (*pluginapi.ThresholdMetResponse, error) {
 	return &pluginapi.ThresholdMetResponse{
 		MetType: pluginapi.ThresholdMetType_NOT_MET,
 	}, nil

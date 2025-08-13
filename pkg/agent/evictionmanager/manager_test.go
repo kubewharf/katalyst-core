@@ -130,7 +130,7 @@ type plugin1 struct {
 	pluginSkeleton
 }
 
-func (p *plugin1) ThresholdMet(_ context.Context) (*pluginapi.ThresholdMetResponse, error) {
+func (p *plugin1) ThresholdMet(_ context.Context, _ *pluginapi.GetThresholdMetRequest) (*pluginapi.ThresholdMetResponse, error) {
 	return &pluginapi.ThresholdMetResponse{
 		MetType: pluginapi.ThresholdMetType_NOT_MET,
 	}, nil
@@ -187,7 +187,7 @@ type plugin2 struct {
 	pluginSkeleton
 }
 
-func (p plugin2) ThresholdMet(_ context.Context) (*pluginapi.ThresholdMetResponse, error) {
+func (p plugin2) ThresholdMet(_ context.Context, _ *pluginapi.GetThresholdMetRequest) (*pluginapi.ThresholdMetResponse, error) {
 	return &pluginapi.ThresholdMetResponse{
 		MetType:            pluginapi.ThresholdMetType_HARD_MET,
 		ThresholdValue:     0.8,

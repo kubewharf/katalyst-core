@@ -133,7 +133,7 @@ func (p *CPUPressureLoadEviction) GetEvictPods(_ context.Context, _ *pluginapi.G
 }
 
 func (p *CPUPressureLoadEviction) ThresholdMet(_ context.Context,
-	_ *pluginapi.Empty,
+	_ *pluginapi.GetThresholdMetRequest,
 ) (*pluginapi.ThresholdMetResponse, error) {
 	p.Lock()
 	defer p.Unlock()
