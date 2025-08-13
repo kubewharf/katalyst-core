@@ -32,6 +32,10 @@ type KatalystMachineInfo struct {
 
 	*MemoryTopology
 
+	// DieTopology keeps die(ccd)-numa relationships, which is critical
+	// for memory bandwidth resource
+	*DieTopology
+
 	// ExtraCPUInfo is extra cpu info not in MachineInfo, such as
 	// supported instructions
 	*ExtraCPUInfo
