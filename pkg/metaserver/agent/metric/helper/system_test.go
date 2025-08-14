@@ -24,6 +24,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
 func TestGetCpuCodeName(t *testing.T) {
@@ -130,6 +131,113 @@ func TestGetIsVm(t *testing.T) {
 			wantBool, wantStr := GetIsVM(metricsFetcher)
 			assert.Equalf(t, tt.wantBool, wantBool, "GetCpuCodeName")
 			assert.Equalf(t, tt.wantStr, wantStr, "GetCpuCodeName")
+		})
+	}
+}
+
+func TestGetNumaAvgMBWCapacityMap(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		setup      func(store *metric.FakeMetricsFetcher)
+		numaMBWMap map[int]int64
+		want       map[int]int64
+	}{
+		{
+			name: "get metric",
+			setup: func(store *metric.FakeMetricsFetcher) {
+				store.SetNumaMetric(0, consts.MetricMemBandwidthTheoryNuma, utilmetric.MetricData{Value: 100.0})
+				store.SetNumaMetric(1, consts.MetricMemBandwidthTheoryNuma, utilmetric.MetricData{Value: 100.0})
+			},
+			numaMBWMap: map[int]int64{0: 0, 1: 0},
+			want: map[int]int64{
+				0: int64(100.0 * consts.BytesPerGB),
+				1: int64(100.0 * consts.BytesPerGB),
+			},
+		},
+		{
+			name: "missing metric",
+			setup: func(store *metric.FakeMetricsFetcher) {
+			},
+			numaMBWMap: map[int]int64{0: 50.0 * consts.BytesPerGB, 1: 50.0 * consts.BytesPerGB},
+			want: map[int]int64{
+				0: 50.0 * consts.BytesPerGB,
+				1: 50.0 * consts.BytesPerGB,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			mf := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
+			store := mf.(*metric.FakeMetricsFetcher)
+			tt.setup(store)
+
+			got := GetNumaAvgMBWCapacityMap(mf, tt.numaMBWMap)
+			assert.Equalf(t, tt.want, got, "GetNumaAvgMBWCapacityMap")
+		})
+	}
+}
+
+func TestGetNumaAvgMBWAllocatableMap(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		setup       func(store *metric.FakeMetricsFetcher)
+		numaMBWMap  map[int]int64
+		rateMap     map[string]float64
+		defaultRate float64
+		want        map[int]int64
+	}{
+		{
+			name: "hit allocatableRateMap with valid metrics",
+			setup: func(store *metric.FakeMetricsFetcher) {
+				store.SetByStringIndex(consts.MetricCPUCodeName, "AMD_K19Zen4")
+				store.SetNumaMetric(0, consts.MetricMemBandwidthTheoryNuma, utilmetric.MetricData{Value: 100.0})
+				store.SetNumaMetric(1, consts.MetricMemBandwidthTheoryNuma, utilmetric.MetricData{Value: 100.0})
+			},
+			numaMBWMap:  map[int]int64{0: 0, 1: 0},
+			rateMap:     map[string]float64{"AMD_K19Zen4": 0.7},
+			defaultRate: 0.9,
+			want: map[int]int64{
+				0: int64(100.0 * consts.BytesPerGB * 0.7),
+				1: int64(100.0 * consts.BytesPerGB * 0.7),
+			},
+		},
+		{
+			name: "miss rate map",
+			setup: func(store *metric.FakeMetricsFetcher) {
+				store.SetByStringIndex(consts.MetricCPUCodeName, "unknown")
+				store.SetNumaMetric(0, consts.MetricMemBandwidthTheoryNuma, utilmetric.MetricData{Value: 100.0})
+				store.SetNumaMetric(1, consts.MetricMemBandwidthTheoryNuma, utilmetric.MetricData{Value: 100.0})
+			},
+			numaMBWMap:  map[int]int64{0: 0, 1: 0},
+			rateMap:     map[string]float64{"AMD_K19Zen4": 0.7},
+			defaultRate: 0.9,
+			want: func() map[int]int64 {
+				r := 0.9
+				return map[int]int64{
+					0: int64(100.0 * consts.BytesPerGB * r),
+					1: int64(100.0 * consts.BytesPerGB * r),
+				}
+			}(),
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			mf := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
+			store := mf.(*metric.FakeMetricsFetcher)
+			tt.setup(store)
+
+			got := GetNumaAvgMBWAllocatableMap(mf, tt.numaMBWMap, tt.rateMap, tt.defaultRate)
+			assert.Equalf(t, tt.want, got, "GetNumaAvgMBWAllocatableMap")
 		})
 	}
 }

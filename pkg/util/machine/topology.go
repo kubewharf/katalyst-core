@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 
 	info "github.com/google/cadvisor/info/v1"
 	"golang.org/x/sys/unix"
@@ -259,9 +260,9 @@ func GenerateDummyExtraTopology(numaNum int) (*ExtraTopologyInfo, error) {
 	extraTopology := &ExtraTopologyInfo{
 		NumaDistanceMap: make(map[int][]NumaDistanceInfo),
 		SiblingNumaInfo: &SiblingNumaInfo{
-			SiblingNumaMap:                  make(map[int]sets.Int),
-			SiblingNumaAvgMBWAllocatableMap: make(map[int]int64),
-			SiblingNumaAvgMBWCapacityMap:    make(map[int]int64),
+			SiblingNumaMap:                      make(map[int]sets.Int),
+			SiblingNumaAvgMBWAllocatableRateMap: make(map[string]float64),
+			SiblingNumaAvgMBWCapacityMap:        make(map[int]int64),
 		},
 	}
 
@@ -594,13 +595,27 @@ func GetSiblingNumaInfo(
 	numaDistanceMap map[int][]NumaDistanceInfo,
 ) *SiblingNumaInfo {
 	siblingNumaMap := make(map[int]sets.Int)
-	siblingNumaAvgMBWAllocatableMap := make(map[int]int64)
+	siblingNumaAvgMBWAllocatableRateMap := make(map[string]float64)
 	siblingNumaAvgMBWCapacityMap := make(map[int]int64)
 
-	// calculate the sibling NUMA allocatable memory bandwidth by the capacity multiplying the allocatable rate.
-	// Now, all the NUMAs have the same memory bandwidth capacity and allocatable
+	siblingNumaMBWAllocatableRateMap := conf.SiblingNumaMemoryBandwidthAllocatableRateMap
 	siblingNumaMBWCapacity := conf.SiblingNumaMemoryBandwidthCapacity
-	siblingNumaMBWAllocatable := int64(float64(siblingNumaMBWCapacity) * conf.SiblingNumaMemoryBandwidthAllocatableRate)
+	siblingNumaDefaultMBWAllocatableRate := conf.SiblingNumaMemoryBandwidthAllocatableRate
+
+	// convert allocatable rate from string to float
+	for cpuCodeName, allocatableRateStr := range siblingNumaMBWAllocatableRateMap {
+		if cpuCodeName == "" || allocatableRateStr == "" {
+			continue
+		}
+
+		allocatableRate, err := strconv.ParseFloat(allocatableRateStr, 64)
+		if err != nil {
+			klog.Warningf("warn: invalid float value for key %q (%q), skipped: %v", cpuCodeName, allocatableRateStr, err)
+			continue
+		}
+
+		siblingNumaAvgMBWAllocatableRateMap[cpuCodeName] = allocatableRate
+	}
 
 	for numaID, distanceMap := range numaDistanceMap {
 		var selfNumaDistance int
@@ -632,15 +647,14 @@ func GetSiblingNumaInfo(
 		}
 
 		siblingNumaMap[numaID] = siblingSet
-		siblingNumaAvgMBWAllocatableMap[numaID] = siblingNumaMBWAllocatable / int64(len(siblingSet)+1)
 		siblingNumaAvgMBWCapacityMap[numaID] = siblingNumaMBWCapacity / int64(len(siblingSet)+1)
 	}
 
 	return &SiblingNumaInfo{
-		SiblingNumaMap:                  siblingNumaMap,
-		SiblingNumaAvgMBWCapacityMap:    siblingNumaAvgMBWCapacityMap,
-		SiblingNumaAvgMBWAllocatableMap: siblingNumaAvgMBWAllocatableMap,
-		SiblingNumaMBWAllocatableRate:   conf.SiblingNumaMemoryBandwidthAllocatableRate,
+		SiblingNumaMap:                       siblingNumaMap,
+		SiblingNumaAvgMBWCapacityMap:         siblingNumaAvgMBWCapacityMap,
+		SiblingNumaAvgMBWAllocatableRateMap:  siblingNumaAvgMBWAllocatableRateMap,
+		SiblingNumaDefaultMBWAllocatableRate: siblingNumaDefaultMBWAllocatableRate,
 	}
 }
 
@@ -658,13 +672,12 @@ type ExtraTopologyInfo struct {
 type SiblingNumaInfo struct {
 	SiblingNumaMap map[int]sets.Int
 
-	// SiblingNumaAvgMBWAllocatableMap maps NUMA IDs to the allocatable memory bandwidth,
-	// averaged across each NUMA node and its siblings.
+	// SiblingNumaAvgMBWAllocatableRateMap maps cpu codename to the according memory bandwidth allocatable rate
 	// SiblingNumaAvgMBWCapacityMap maps NUMA IDs to the capacity memory bandwidth,
-	// averaged similarly.
-	SiblingNumaAvgMBWAllocatableMap map[int]int64
-	SiblingNumaAvgMBWCapacityMap    map[int]int64
-	SiblingNumaMBWAllocatableRate   float64
+	// averaged across each NUMA node and its siblings.
+	SiblingNumaAvgMBWAllocatableRateMap  map[string]float64
+	SiblingNumaAvgMBWCapacityMap         map[int]int64
+	SiblingNumaDefaultMBWAllocatableRate float64
 }
 
 type AllocatableInterfaceSocketInfo struct {
