@@ -88,6 +88,8 @@ type ResctrlOptions struct {
 	// by default no special mon_groups layout, which allows kubelet to decide by itself, suitable for scenarios
 	// that need no memory bandwidth control (which would exceed the closid limit of hardware).
 	MonGroupEnabledClosIDs []string
+	// MonGroupMaxCountRatio is the ratio of mon_groups max count in info/L3_MON/num_rmids
+	MonGroupMaxCountRatio float64
 }
 
 func NewMemoryOptions() *MemoryOptions {
@@ -124,6 +126,7 @@ func NewMemoryOptions() *MemoryOptions {
 			CPUSetPoolToSharedSubgroup: make(map[string]int),
 			DefaultSharedSubgroup:      -1,
 			MonGroupEnabledClosIDs:     []string{},
+			MonGroupMaxCountRatio:      0.66,
 		},
 	}
 }
@@ -185,8 +188,10 @@ func (o *MemoryOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.CPUSetPoolToSharedSubgroup, "customize shared-xx subgroup if present")
 	fs.IntVar(&o.DefaultSharedSubgroup, "resctrl-default-shared-subgroup",
 		o.DefaultSharedSubgroup, "default subgroup for shared qos")
-	fs.StringSliceVar(&o.MonGroupEnabledClosIDs, "resctrl-mon-groups-enabled_closids",
+	fs.StringSliceVar(&o.MonGroupEnabledClosIDs, "resctrl-mon-groups-enabled-closids",
 		o.MonGroupEnabledClosIDs, "enabled-closid mon-groups")
+	fs.Float64Var(&o.MonGroupMaxCountRatio, "resctrl-mon-groups-max-count-ratio",
+		o.MonGroupMaxCountRatio, "ratio of mon_groups max count")
 }
 
 func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
@@ -218,6 +223,7 @@ func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
 	conf.CPUSetPoolToSharedSubgroup = o.CPUSetPoolToSharedSubgroup
 	conf.DefaultSharedSubgroup = o.DefaultSharedSubgroup
 	conf.MonGroupEnabledClosIDs = o.MonGroupEnabledClosIDs
+	conf.MonGroupMaxCountRatio = o.MonGroupMaxCountRatio
 
 	return nil
 }
