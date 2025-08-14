@@ -230,7 +230,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		enableEvictingLogCache:      conf.EnableEvictingLogCache,
 		enableReclaimNUMABinding:    conf.EnableReclaimNUMABinding,
 		enableSNBHighNumaPreference: conf.EnableSNBHighNumaPreference,
-		resctrlHinter:               newResctrlHinter(&conf.ResctrlConfig),
+		resctrlHinter:               newResctrlHinter(&conf.ResctrlConfig, wrappedEmitter),
 		enableNonBindingShareCoresMemoryResourceCheck: conf.EnableNonBindingShareCoresMemoryResourceCheck,
 		numaBindResultResourceAllocationAnnotationKey: conf.NUMABindResultResourceAllocationAnnotationKey,
 	}
@@ -875,7 +875,7 @@ func (p *DynamicPolicy) postAllocateForResctrl(qosLevel string, req *pluginapi.R
 		return
 	}
 	meta := state.GenerateMemoryContainerAllocationMeta(req, qosLevel)
-	p.resctrlHinter.HintResourceAllocation(meta, resp.AllocationResult)
+	p.resctrlHinter.Allocate(meta, resp.AllocationResult)
 }
 
 // Allocate is called during pod admit so that the resource
