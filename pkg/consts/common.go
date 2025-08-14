@@ -123,3 +123,8 @@ const (
 	MaxMBMStep = 3 * BytesPerGB
 	MaxMBGBps  = 400 * BytesPerGB // 400 GB/s is the maximum bandwidth of L3 cache in Milan, Genoa, and Rapids platforms
 )
+
+const (
+	DefaultNumaMemoryBandwidthCapacity        = 200 * BytesPerGB
+	DefaultNumaMemoryBandwidthAllocatableRate = 0.9
+)
