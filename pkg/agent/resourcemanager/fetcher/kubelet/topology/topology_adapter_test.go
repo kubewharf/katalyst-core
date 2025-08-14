@@ -156,17 +156,18 @@ func generateTestMetricsFetcher() *metric.FakeMetricsFetcher {
 	}
 
 	fm.SetNumaMetric(0, pkgconsts.MetricMemBandwidthTheoryNuma, utilmetric.MetricData{
-		Value: 10000 / 1024.0,
+		Value: 10,
 	})
 	fm.SetNumaMetric(1, pkgconsts.MetricMemBandwidthTheoryNuma, utilmetric.MetricData{
-		Value: 10000 / 1024.0,
+		Value: 10,
 	})
 	fm.SetNumaMetric(2, pkgconsts.MetricMemBandwidthTheoryNuma, utilmetric.MetricData{
-		Value: 10000 / 1024.0,
+		Value: 10,
 	})
 	fm.SetNumaMetric(3, pkgconsts.MetricMemBandwidthTheoryNuma, utilmetric.MetricData{
-		Value: 10000 / 1024.0,
+		Value: 10,
 	})
+	fm.SetByStringIndex(pkgconsts.MetricCPUCodeName, "test_cpu")
 
 	return fm
 }
@@ -948,9 +949,8 @@ func Test_getZoneAllocationsByPodResources(t *testing.T) {
 				),
 				extraTopologyInfo: &machine.ExtraTopologyInfo{
 					SiblingNumaInfo: &machine.SiblingNumaInfo{
-						SiblingNumaAvgMBWAllocatableMap: map[int]int64{
-							0: 8,
-							1: 8,
+						SiblingNumaAvgMBWAllocatableRateMap: map[string]float64{
+							"test_cpu": 0.8,
 						},
 						SiblingNumaAvgMBWCapacityMap: map[int]int64{
 							0: 10,
@@ -1763,18 +1763,14 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 				metaServer: func() *metaserver.MetaServer {
 					m := generateTestMetaServer()
 					m.ExtraTopologyInfo, _ = machine.GenerateDummyExtraTopology(4)
-					m.ExtraTopologyInfo.SiblingNumaMBWAllocatableRate = 0.8
 					m.SiblingNumaMap = map[int]sets.Int{
 						0: sets.NewInt(1),
 						1: sets.NewInt(0),
 						2: sets.NewInt(3),
 						3: sets.NewInt(2),
 					}
-					m.SiblingNumaAvgMBWAllocatableMap = map[int]int64{
-						0: 8,
-						1: 8,
-						2: 8,
-						3: 8,
+					m.SiblingNumaAvgMBWAllocatableRateMap = map[string]float64{
+						"test_cpu": 0.8,
 					}
 					m.SiblingNumaAvgMBWCapacityMap = map[int]int64{
 						0: 10,

@@ -123,3 +123,40 @@ func GetIsVM(metricsFetcher types.MetricsFetcher) (bool, string) {
 	}
 	return isVMBool, strconv.FormatBool(isVMBool)
 }
+
+func GetNumaAvgMBWCapacityMap(metricsFetcher types.MetricsFetcher, numaMBWMap map[int]int64) map[int]int64 {
+	numaMBWCapacityMap := make(map[int]int64)
+
+	for numaID, defaultCapacity := range numaMBWMap {
+		metric, err := metricsFetcher.GetNumaMetric(numaID, consts.MetricMemBandwidthTheoryNuma)
+		if err != nil || metric.Value == 0 {
+			numaMBWCapacityMap[numaID] = defaultCapacity
+			continue
+		}
+		numaMBWCapacityMap[numaID] = int64(metric.Value * consts.BytesPerGB)
+	}
+	return numaMBWCapacityMap
+}
+
+func GetNumaAvgMBWAllocatableMap(metricsFetcher types.MetricsFetcher, numaMBWMap map[int]int64, allocatableRateMap map[string]float64, defaultAllocatableRate float64) map[int]int64 {
+	var allocatableRate float64
+	cpuCodeName := GetCpuCodeName(metricsFetcher)
+
+	if val, ok := allocatableRateMap[cpuCodeName]; ok {
+		allocatableRate = val
+	} else {
+		allocatableRate = defaultAllocatableRate
+	}
+
+	numaMBWAllocatableMap := make(map[int]int64)
+
+	for numaID, defaultCapacity := range numaMBWMap {
+		metric, err := metricsFetcher.GetNumaMetric(numaID, consts.MetricMemBandwidthTheoryNuma)
+		if err != nil || metric.Value == 0 {
+			numaMBWAllocatableMap[numaID] = int64(float64(defaultCapacity) * allocatableRate)
+			continue
+		}
+		numaMBWAllocatableMap[numaID] = int64(metric.Value * consts.BytesPerGB * allocatableRate)
+	}
+	return numaMBWAllocatableMap
+}
