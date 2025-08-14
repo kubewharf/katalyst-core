@@ -46,6 +46,9 @@ type GenericEvictionConfiguration struct {
 	// PodKiller specify the pod killer implementation
 	PodKiller string
 
+	// QoSPodKillers specify the pod killer implementation for different QoS levels
+	QoSPodKillers map[string]string
+
 	// StrictAuthentication means whether to authenticate plugins strictly
 	StrictAuthentication bool
 

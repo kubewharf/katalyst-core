@@ -18,6 +18,7 @@ package evictionmanager
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -25,15 +26,23 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/tools/events"
 
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	endpointpkg "github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/endpoint"
+	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/podkiller"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/eviction"
+	evictionconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/eviction"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
+	metaserveragent "github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/credential"
@@ -104,7 +113,7 @@ func makeConf() *config.Configuration {
 
 func makeMetaServer() *metaserver.MetaServer {
 	return &metaserver.MetaServer{
-		MetaAgent: &agent.MetaAgent{
+		MetaAgent: &metaserveragent.MetaAgent{
 			PodFetcher: &pod.PodFetcherStub{PodList: pods},
 		},
 	}
@@ -322,6 +331,162 @@ func TestEvictionManger_collectEvictionResult(t *testing.T) {
 			assert.Equal(t, tt.wantForceEvictPods, gotForceEvictPods)
 			assert.Equal(t, tt.wantSoftEvictPods, gotSoftEvictPods)
 			assert.Equal(t, tt.wantConditions, gotConditions)
+		})
+	}
+}
+
+// Test_initializeQoSAwareKiller tests the initialization of QoSAwareKiller
+func Test_initializeQoSAwareKiller(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		initializers map[string]podkiller.InitFunc
+		name         string
+		conf         *config.Configuration
+		wantErr      bool
+	}{
+		{
+			name: "Initialize with valid configuration",
+			conf: &config.Configuration{
+				GenericConfiguration: &generic.GenericConfiguration{
+					QoSConfiguration: &generic.QoSConfiguration{},
+				},
+				AgentConfiguration: &agent.AgentConfiguration{
+					GenericAgentConfiguration: &agent.GenericAgentConfiguration{
+						GenericEvictionConfiguration: &evictionconfig.GenericEvictionConfiguration{
+							PodKiller: consts.KillerNameDeletionKiller,
+							QoSPodKillers: map[string]string{
+								apiconsts.PodAnnotationQoSLevelSharedCores: consts.KillerNameDeletionKiller,
+							},
+						},
+					},
+					StaticAgentConfiguration: &agent.StaticAgentConfiguration{
+						EvictionConfiguration: &evictionconfig.EvictionConfiguration{},
+					},
+				},
+			},
+			initializers: map[string]podkiller.InitFunc{
+				consts.KillerNameDeletionKiller: func(conf *config.Configuration, client kubernetes.Interface, recorder events.EventRecorder, emitter metrics.MetricEmitter) (podkiller.Killer, error) {
+					return podkiller.DummyKiller{}, nil
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "Initialize with invalid default killer",
+			conf: &config.Configuration{
+				GenericConfiguration: &generic.GenericConfiguration{
+					QoSConfiguration: &generic.QoSConfiguration{},
+				},
+				AgentConfiguration: &agent.AgentConfiguration{
+					GenericAgentConfiguration: &agent.GenericAgentConfiguration{
+						GenericEvictionConfiguration: &evictionconfig.GenericEvictionConfiguration{
+							PodKiller: "invalid-killer",
+						},
+					},
+					StaticAgentConfiguration: &agent.StaticAgentConfiguration{
+						EvictionConfiguration: &evictionconfig.EvictionConfiguration{},
+					},
+				},
+			},
+			initializers: map[string]podkiller.InitFunc{
+				consts.KillerNameDeletionKiller: func(conf *config.Configuration, client kubernetes.Interface, recorder events.EventRecorder, emitter metrics.MetricEmitter) (podkiller.Killer, error) {
+					return podkiller.DummyKiller{}, nil
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Initialize default killer failed",
+			conf: &config.Configuration{
+				GenericConfiguration: &generic.GenericConfiguration{
+					QoSConfiguration: &generic.QoSConfiguration{},
+				},
+				AgentConfiguration: &agent.AgentConfiguration{
+					GenericAgentConfiguration: &agent.GenericAgentConfiguration{
+						GenericEvictionConfiguration: &evictionconfig.GenericEvictionConfiguration{
+							PodKiller: consts.KillerNameDeletionKiller,
+						},
+					},
+					StaticAgentConfiguration: &agent.StaticAgentConfiguration{
+						EvictionConfiguration: &evictionconfig.EvictionConfiguration{},
+					},
+				},
+			},
+			initializers: map[string]podkiller.InitFunc{
+				consts.KillerNameDeletionKiller: func(conf *config.Configuration, client kubernetes.Interface, recorder events.EventRecorder, emitter metrics.MetricEmitter) (podkiller.Killer, error) {
+					return nil, fmt.Errorf("init killer failed")
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Initialize with invalid QoS killer",
+			conf: &config.Configuration{
+				GenericConfiguration: &generic.GenericConfiguration{
+					QoSConfiguration: &generic.QoSConfiguration{},
+				},
+				AgentConfiguration: &agent.AgentConfiguration{
+					GenericAgentConfiguration: &agent.GenericAgentConfiguration{
+						GenericEvictionConfiguration: &evictionconfig.GenericEvictionConfiguration{
+							PodKiller: consts.KillerNameDeletionKiller,
+							QoSPodKillers: map[string]string{
+								apiconsts.PodAnnotationQoSLevelSharedCores: "invalid-killer",
+							},
+						},
+					},
+					StaticAgentConfiguration: &agent.StaticAgentConfiguration{
+						EvictionConfiguration: &evictionconfig.EvictionConfiguration{},
+					},
+				},
+			},
+			initializers: map[string]podkiller.InitFunc{
+				consts.KillerNameDeletionKiller: func(conf *config.Configuration, client kubernetes.Interface, recorder events.EventRecorder, emitter metrics.MetricEmitter) (podkiller.Killer, error) {
+					return podkiller.DummyKiller{}, nil
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Initialize QoS killer failed",
+			conf: &config.Configuration{
+				GenericConfiguration: &generic.GenericConfiguration{
+					QoSConfiguration: &generic.QoSConfiguration{},
+				},
+				AgentConfiguration: &agent.AgentConfiguration{
+					GenericAgentConfiguration: &agent.GenericAgentConfiguration{
+						GenericEvictionConfiguration: &evictionconfig.GenericEvictionConfiguration{
+							PodKiller: consts.KillerNameDeletionKiller,
+							QoSPodKillers: map[string]string{
+								apiconsts.PodAnnotationQoSLevelSharedCores: "invalid-killer",
+							},
+						},
+					},
+					StaticAgentConfiguration: &agent.StaticAgentConfiguration{
+						EvictionConfiguration: &evictionconfig.EvictionConfiguration{},
+					},
+				},
+			},
+			initializers: map[string]podkiller.InitFunc{
+				consts.KillerNameDeletionKiller: func(conf *config.Configuration, client kubernetes.Interface, recorder events.EventRecorder, emitter metrics.MetricEmitter) (podkiller.Killer, error) {
+					return podkiller.DummyKiller{}, nil
+				},
+				"invalid-killer": func(conf *config.Configuration, client kubernetes.Interface, recorder events.EventRecorder, emitter metrics.MetricEmitter) (podkiller.Killer, error) {
+					return nil, fmt.Errorf("init killer failed")
+				},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := initializeQoSAwareKiller(tt.initializers, tt.conf, fake.NewSimpleClientset(), &events.FakeRecorder{}, metrics.DummyMetrics{})
+			if (err != nil) != tt.wantErr {
+				t.Errorf("NewQoSAwareKiller() error = %v, wantErr %v", err, tt.wantErr)
+			}
 		})
 	}
 }
