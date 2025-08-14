@@ -66,12 +66,13 @@ type BaseOptions struct {
 	RuntimeEndpoint string
 
 	// configurations for machine-info
-	MachineNetMultipleNS                             bool
-	MachineNetNSDirAbsPath                           string
-	MachineNetAllocatableNS                          []string
-	MachineSiblingNumaMaxDistance                    int
-	MachineSiblingNumaMemoryBandwidthCapacity        resource.QuantityValue
-	MachineSiblingNumaMemoryBandwidthAllocatableRate float64
+	MachineNetMultipleNS                                bool
+	MachineNetNSDirAbsPath                              string
+	MachineNetAllocatableNS                             []string
+	MachineSiblingNumaMaxDistance                       int
+	MachineSiblingNumaMemoryBandwidthCapacity           resource.QuantityValue
+	MachineSiblingNumaMemoryBandwidthAllocatableRate    float64
+	MachineSiblingNumaMemoryBandwidthAllocatableRateMap map[string]string
 }
 
 func NewBaseOptions() *BaseOptions {
@@ -154,6 +155,8 @@ func (o *BaseOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"if set the sibling numa memory bandwidth capacity, the per memory bandwidth capacity and allocatable will be reported to numa zone of cnr")
 	fs.Float64Var(&o.MachineSiblingNumaMemoryBandwidthAllocatableRate, "machine-sibling-numa-memory-bandwidth-allocatable-rate", o.MachineSiblingNumaMemoryBandwidthAllocatableRate,
 		"the rate between sibling numa memory bandwidth allocatable to its capacity")
+	fs.StringToStringVar(&o.MachineSiblingNumaMemoryBandwidthAllocatableRateMap, "machine-sibling-numa-memory-bandwidth-allocatable-rate-map", o.MachineSiblingNumaMemoryBandwidthAllocatableRateMap,
+		"the rate map from cpu codename to sibling numa memory bandwidth allocatable rate")
 }
 
 // ApplyTo fills up config with options
@@ -176,6 +179,7 @@ func (o *BaseOptions) ApplyTo(c *global.BaseConfiguration) error {
 	c.SiblingNumaMaxDistance = o.MachineSiblingNumaMaxDistance
 	c.SiblingNumaMemoryBandwidthCapacity = o.MachineSiblingNumaMemoryBandwidthCapacity.Quantity.Value()
 	c.SiblingNumaMemoryBandwidthAllocatableRate = o.MachineSiblingNumaMemoryBandwidthAllocatableRate
+	c.SiblingNumaMemoryBandwidthAllocatableRateMap = o.MachineSiblingNumaMemoryBandwidthAllocatableRateMap
 
 	c.KubeletReadOnlyPort = o.KubeletReadOnlyPort
 	c.KubeletSecurePortEnabled = o.KubeletSecurePortEnabled

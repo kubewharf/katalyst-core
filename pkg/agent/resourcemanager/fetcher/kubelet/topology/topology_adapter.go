@@ -40,8 +40,8 @@ import (
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-api/pkg/utils"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
-	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	metaserverpod "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/util"
@@ -424,7 +424,12 @@ func (p *topologyAdapterImpl) getZoneResources(allocatableResources *podresv1.Al
 		}
 	}
 
-	zoneCapacity, zoneAllocatable, err = p.addNumaMemoryBandwidthResources(zoneCapacity, zoneAllocatable, p.getNumaAvgMBWCapacityMap())
+	zoneCapacity, err = p.addNumaMemoryBandwidthResources(zoneCapacity, helper.GetNumaAvgMBWCapacityMap(p.metaServer.MetricsFetcher, p.metaServer.SiblingNumaAvgMBWCapacityMap))
+	if err != nil {
+		errList = append(errList, err)
+	}
+
+	zoneAllocatable, err = p.addNumaMemoryBandwidthResources(zoneAllocatable, helper.GetNumaAvgMBWAllocatableMap(p.metaServer.MetricsFetcher, p.metaServer.SiblingNumaAvgMBWCapacityMap, p.metaServer.SiblingNumaAvgMBWAllocatableRateMap, p.metaServer.SiblingNumaDefaultMBWAllocatableRate))
 	if err != nil {
 		errList = append(errList, err)
 	}
@@ -899,7 +904,7 @@ func (p *topologyAdapterImpl) addContainerMemoryBandwidth(zoneAllocated map[util
 		return zoneAllocated, nil
 	}
 
-	numaAvgMBWCapacityMap := p.getNumaAvgMBWCapacityMap()
+	numaAvgMBWCapacityMap := helper.GetNumaAvgMBWCapacityMap(p.metaServer.MetricsFetcher, p.metaServer.SiblingNumaAvgMBWCapacityMap)
 	numaAllocated := make(map[util.ZoneNode]*v1.ResourceList)
 	for zoneNode, allocated := range zoneAllocated {
 		// only consider numa which is allocated cpu and memory bandwidth capacity greater than zero
@@ -936,45 +941,20 @@ func (p *topologyAdapterImpl) addContainerMemoryBandwidth(zoneAllocated map[util
 }
 
 // addNumaMemoryBandwidthResources add numa memory bandwidth by numa to memory bandwidth map
-func (p *topologyAdapterImpl) addNumaMemoryBandwidthResources(zoneCapacity map[util.ZoneNode]*v1.ResourceList, zoneAllocatable map[util.ZoneNode]*v1.ResourceList, memoryBandwidthMap map[int]int64) (map[util.ZoneNode]*v1.ResourceList, map[util.ZoneNode]*v1.ResourceList, error) {
-	allocatableRate := p.metaServer.SiblingNumaMBWAllocatableRate
+func (p *topologyAdapterImpl) addNumaMemoryBandwidthResources(zoneResources map[util.ZoneNode]*v1.ResourceList, memoryBandwidthMap map[int]int64) (map[util.ZoneNode]*v1.ResourceList, error) {
 	for id, memoryBandwidth := range memoryBandwidthMap {
 		if memoryBandwidth <= 0 {
 			continue
 		}
 
 		numaZoneNode := util.GenerateNumaZoneNode(id)
-
-		capacity, ok := zoneCapacity[numaZoneNode]
-		if !ok || capacity == nil {
-			zoneCapacity[numaZoneNode] = &v1.ResourceList{}
+		res, ok := zoneResources[numaZoneNode]
+		if !ok || res == nil {
+			zoneResources[numaZoneNode] = &v1.ResourceList{}
 		}
-		(*zoneCapacity[numaZoneNode])[apiconsts.ResourceMemoryBandwidth] = *resource.NewQuantity(memoryBandwidth, resource.BinarySI)
-
-		allocatable, ok := zoneAllocatable[numaZoneNode]
-		if !ok || allocatable == nil {
-			zoneAllocatable[numaZoneNode] = &v1.ResourceList{}
-		}
-		(*zoneAllocatable[numaZoneNode])[apiconsts.ResourceMemoryBandwidth] = *resource.NewQuantity(int64(float64(memoryBandwidth)*allocatableRate), resource.BinarySI)
+		(*zoneResources[numaZoneNode])[apiconsts.ResourceMemoryBandwidth] = *resource.NewQuantity(memoryBandwidth, resource.BinarySI)
 	}
-	return zoneCapacity, zoneAllocatable, nil
-}
-
-// getNumaAvgMBWCapacityMap get numa memory bandwidth capacity from malachite
-func (p *topologyAdapterImpl) getNumaAvgMBWCapacityMap() map[int]int64 {
-	defaultMBWCapacityMap := p.metaServer.SiblingNumaAvgMBWCapacityMap
-	dynamicMBWCapacityMap := make(map[int]int64)
-
-	for numaID, defaultVal := range defaultMBWCapacityMap {
-		metric, err := p.metaServer.MetricsFetcher.GetNumaMetric(numaID, consts.MetricMemBandwidthTheoryNuma)
-		if err != nil || metric.Value == 0 {
-			dynamicMBWCapacityMap[numaID] = defaultVal
-			continue
-		}
-		// metric.Value in GiB (derived from decimal MB / 1024), converts to MB then to bytes
-		dynamicMBWCapacityMap[numaID] = int64(metric.Value * 1024 * 1000 * 1000)
-	}
-	return dynamicMBWCapacityMap
+	return zoneResources, nil
 }
 
 // filterAllocatedPodResourcesList is to filter pods that have allocated devices or Resources
