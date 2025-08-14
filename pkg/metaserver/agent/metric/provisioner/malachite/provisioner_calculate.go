@@ -284,44 +284,57 @@ func (m *MalachiteMetricsProvisioner) setContainerRateMetric(podUID, containerNa
 }
 
 // setContainerMbmTotalMetric calcuate the total memory bandwidth usage of a container
-func (m *MalachiteMetricsProvisioner) setContainerMbmTotalMetric(podUID, containerName string, data types.MbmbandData, updateTime *time.Time) {
-	var cpuCodeName string
-	cpuCodeNameInterface := m.metricStore.GetByStringIndex(consts.MetricCPUCodeName)
-	if codeName, ok := cpuCodeNameInterface.(string); ok {
-		cpuCodeName = codeName
+func (m *MalachiteMetricsProvisioner) setContainerMbmTotalMetric(podUID, containerName string, resctrlData types.MbmbandData, updateTime *time.Time) {
+	// 1. get previous data
+	oldResctrlData, ok := m.metricStore.GetByStringIndex(consts.MetricResctrlDataContainer).(types.MbmbandData)
+	if !ok || len(oldResctrlData.Mbm) == 0 || len(resctrlData.Mbm) == 0 {
+		// No previous or current data, store current for next round and return
+		m.metricStore.SetByStringIndex(consts.MetricResctrlDataContainer, resctrlData)
+		return
 	}
 
-	var totalMbm uint64
-	for _, item := range data.Mbm {
-		if item.MBMTotalBytes != nil {
-			totalMbm += *item.MBMTotalBytes
-		}
-		// for AMD genoa("zen 4" arch), it also needs to sum the local mbm
-		if strings.Contains(cpuCodeName, consts.AMDGenoaArch) {
-			if item.MBMLocalBytes != nil {
-				totalMbm += *item.MBMLocalBytes
-			}
-		}
+	// 2. calculate the time interval
+	prevMetric, err := m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricMbmTotalPsContainer)
+	if err != nil || prevMetric.Time == nil {
+		// if no previous metric, store current for next round and return
+		m.metricStore.SetByStringIndex(consts.MetricResctrlDataContainer, resctrlData)
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMbmTotalPsContainer,
+			metric.MetricData{Value: 0, Time: updateTime})
+		return
 	}
+	timeInterval := updateTime.Sub(*prevMetric.Time).Seconds()
+	// if previous metric time is after the current update time, do not update
+	if timeInterval <= 0 {
+		return
+	}
+	var totalMbmBytesPS float64
+	for _, l3Mon := range resctrlData.Mbm {
+		l3CacheID := l3Mon.ID
 
-	prevMetric, err := m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricMbmTotalContainer)
-	var mbmPerSec float64 = 0
-	if err == nil && prevMetric.Time != nil {
-		timeInterval := uint64(updateTime.Sub(*prevMetric.Time).Seconds())
-		if timeInterval > 0 && totalMbm > uint64(prevMetric.Value) {
-			mbmDiff := totalMbm - uint64(prevMetric.Value)
-			// handle total mbm overflow
-			if mbmDiff > consts.MaxMBMDiff {
-				mbmDiff = consts.MaxMBMStep
-				totalMbm = uint64(prevMetric.Value) + consts.MaxMBMStep
+		var oldL3Mon *types.MBMItem
+		for _, item := range oldResctrlData.Mbm {
+			if item.ID == l3CacheID {
+				oldL3Mon = &item
+				break
 			}
-			mbmPerSec = float64(mbmDiff) / float64(timeInterval)
 		}
+
+		if oldL3Mon == nil {
+			continue
+		}
+
+		var totalBytesPS float64
+		if l3Mon.MBMTotalBytes > oldL3Mon.MBMTotalBytes && oldL3Mon.MBMTotalBytes != 0 {
+			totalBytesPS = float64(l3Mon.MBMTotalBytes-oldL3Mon.MBMTotalBytes) / timeInterval
+			if totalBytesPS > consts.MaxMBGBps {
+				continue
+			}
+		}
+		totalMbmBytesPS += totalBytesPS
 	}
-	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMbmTotalContainer,
-		metric.MetricData{Value: float64(totalMbm), Time: updateTime})
+	m.metricStore.SetByStringIndex(consts.MetricResctrlDataContainer, resctrlData)
 	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMbmTotalPsContainer,
-		metric.MetricData{Value: mbmPerSec, Time: updateTime})
+		metric.MetricData{Value: totalMbmBytesPS, Time: updateTime})
 }
 
 // uint64CounterDelta calculate the delta between two uint64 counters
@@ -416,4 +429,80 @@ func cpuInList(cpu int, cpuList string) bool {
 		}
 	}
 	return false
+}
+
+func getCCDMaxMemBandwidth(cpuCode string) uint64 {
+	platform, err := metric.GetCPUPlatform(cpuCode)
+	if err != nil {
+		return 0
+	}
+
+	ccdCount := metric.GetPlatformCCDCount(platform)
+	socketBW := metric.GetPlatformSocketBandwidth(platform)
+	return socketBW / uint64(ccdCount)
+}
+
+// findOldL3Cache: Find previous L3 cache data by ID
+// returns pointer to previous L3Mon struct for given ID, or nil if not found.
+func findOldL3Cache(oldL3Mon *types.L3Monitor, id int) *types.L3Mon {
+	if oldL3Mon == nil || len(oldL3Mon.L3Mon) == 0 {
+		return nil
+	}
+	for i := range oldL3Mon.L3Mon {
+		if oldL3Mon.L3Mon[i].ID == id {
+			return &oldL3Mon.L3Mon[i]
+		}
+	}
+	return nil
+}
+
+// calcBytesPerSec: Calculate bytes per second for total/local MBM
+// Returns the per-second bandwidth between two counters, or 0 if invalid.
+func calcBytesPerSec(current, previous uint64, interval uint64) uint64 {
+	if current > previous && previous != 0 && interval > 0 {
+		return (current - previous) / interval
+	}
+	return 0
+}
+
+// clampMBMDelta: Clamp MBM delta to MaxMBMStep if overflow detected
+func clampMBMDelta(current, previous, oldValue uint64, maxDiff, maxStep uint64) uint64 {
+	if current > previous && current-previous > maxDiff {
+		return oldValue + maxStep
+	}
+	return current
+}
+
+// getNumaAndMaxBandwidth: Get NUMA ID and max bandwidth for L3 cache
+func getNumaAndMaxBandwidth(l3ID int, cpuCodeName string) (int, uint64) {
+	numaID, _ := getNumaIDByL3CacheID(l3ID, consts.SystemCpuDir, consts.SystemNodeDir)
+	maxBytesPS := getCCDMaxMemBandwidth(cpuCodeName)
+	if maxBytesPS == 0 {
+		maxBytesPS = consts.MaxMBGBps
+	}
+	return numaID, maxBytesPS
+}
+
+// aggregateNUMABytesPS: Aggregate per-NUMA stats from L3 cache stats
+func aggregateNUMABytesPS(l3BytesPS map[int]types.L3CacheBytesPS, cpuCodeName string) map[int]types.L3CacheBytesPS {
+	numaBytesPS := make(map[int]types.L3CacheBytesPS)
+	for _, mbmStat := range l3BytesPS {
+		numaBandwidthStats, exist := numaBytesPS[mbmStat.NumaID]
+		if !exist {
+			numaBandwidthStats = types.L3CacheBytesPS{NumaID: mbmStat.NumaID}
+		}
+		numaBandwidthStats.MbmTotalBytesPS += mbmStat.MbmTotalBytesPS
+		numaBandwidthStats.MbmLocalBytesPS += mbmStat.MbmLocalBytesPS
+		numaBandwidthStats.MbmVictimBytesPS += mbmStat.MbmVictimBytesPS
+		numaBandwidthStats.MBMMaxBytesPS = mbmStat.MBMMaxBytesPS
+		// AMD-specific aggregation
+		if strings.Contains(cpuCodeName, consts.AMDMilanArch) {
+			numaBandwidthStats.MbmTotalBytesPS += mbmStat.MbmVictimBytesPS
+		}
+		if strings.Contains(cpuCodeName, consts.AMDGenoaArch) {
+			numaBandwidthStats.MbmTotalBytesPS += mbmStat.MbmLocalBytesPS
+		}
+		numaBytesPS[mbmStat.NumaID] = numaBandwidthStats
+	}
+	return numaBytesPS
 }

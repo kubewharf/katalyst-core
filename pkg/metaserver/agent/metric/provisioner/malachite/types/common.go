@@ -117,7 +117,7 @@ type MbmbandData struct {
 }
 
 type MBMItem struct {
-	ID            uint64  `json:"id"`
-	MBMLocalBytes *uint64 `json:"mbm_local_bytes"`
-	MBMTotalBytes *uint64 `json:"mbm_total_bytes"`
+	ID            uint64 `json:"id"`
+	MBMLocalBytes uint64 `json:"mbm_local_bytes"`
+	MBMTotalBytes uint64 `json:"mbm_total_bytes"`
 }

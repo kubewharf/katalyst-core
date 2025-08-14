@@ -177,6 +177,10 @@ const (
 
 	MetricCPUUsageNuma = "cpu.usage.numa"
 
+	MetricL3MonNuma = "resctrl.l3mon.numa"
+
+	MetricL3MbmTotalPs = "mbm.total.ps.l3cache"
+
 	MetricTotalMemBandwidthNuma  = "mbm.total.numa"
 	MetricLocalMemBandwidthNuma  = "mbm.local.numa"
 	MetricVictimMemBandwidthNuma = "mbm.victim.numa"
@@ -282,6 +286,7 @@ const (
 	MetricMbmTotalPsContainer  = "mbm.total.ps.container"
 	MetricMbmlocalPsContainer  = "mbm.local.ps.container"
 	MetricMbmVictimPsContainer = "mbm.victim.ps.container"
+	MetricResctrlDataContainer = "resctrl.data.container"
 )
 
 // container blkio metrics

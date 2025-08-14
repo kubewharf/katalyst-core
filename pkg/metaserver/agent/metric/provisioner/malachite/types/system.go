@@ -127,6 +127,14 @@ type L3Mon struct {
 	Llcoccupancy         uint64 `json:"llc_occupancy"`
 }
 
+type L3CacheBytesPS struct {
+	NumaID           int
+	MbmTotalBytesPS  uint64
+	MbmLocalBytesPS  uint64
+	MbmVictimBytesPS uint64
+	MBMMaxBytesPS    uint64
+}
+
 type Load struct {
 	One     float64 `json:"one"`
 	Five    float64 `json:"five"`
