@@ -28,6 +28,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
 )
 
@@ -53,7 +54,6 @@ func NewReclaimedResourcesEvictionPlugin(_ *client.GenericClientSet, _ events.Ev
 		}
 		return allocatable, nil
 	}
-
 	reclaimedThresholdGetter := func(resourceName v1.ResourceName) *float64 {
 		if threshold, ok := conf.GetDynamicConfiguration().EvictionThreshold[resourceName]; !ok {
 			return nil
@@ -74,6 +74,7 @@ func NewReclaimedResourcesEvictionPlugin(_ *client.GenericClientSet, _ events.Ev
 		metaServer,
 		emitter,
 		reclaimedResourcesGetter,
+		native.SumUpPodRequestResources,
 		reclaimedThresholdGetter,
 		deletionGracePeriodGetter,
 		thresholdMetToleranceDurationGetter,

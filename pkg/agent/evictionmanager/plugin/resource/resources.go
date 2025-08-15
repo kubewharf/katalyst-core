@@ -43,6 +43,8 @@ const (
 
 type ResourcesGetter func(ctx context.Context) (v1.ResourceList, error)
 
+type PodRequestResourcesGetter func(pod *v1.Pod) v1.ResourceList
+
 type ThresholdGetter func(resourceName v1.ResourceName) *float64
 
 type GracePeriodGetter func() int64
@@ -56,6 +58,7 @@ type ResourcesEvictionPlugin struct {
 	// thresholdGetter is used to get the threshold of resources.
 	thresholdGetter                     ThresholdGetter
 	resourcesGetter                     ResourcesGetter
+	podRequestResourcesGetter           PodRequestResourcesGetter
 	deletionGracePeriodGetter           GracePeriodGetter
 	thresholdMetToleranceDurationGetter GracePeriodGetter
 
@@ -68,7 +71,7 @@ type ResourcesEvictionPlugin struct {
 }
 
 func NewResourcesEvictionPlugin(pluginName string, metaServer *metaserver.MetaServer,
-	emitter metrics.MetricEmitter, resourcesGetter ResourcesGetter, thresholdGetter ThresholdGetter,
+	emitter metrics.MetricEmitter, resourcesGetter ResourcesGetter, porRequestResourcesGetter PodRequestResourcesGetter, thresholdGetter ThresholdGetter,
 	deletionGracePeriodGetter GracePeriodGetter, thresholdMetToleranceDurationGetter GracePeriodGetter,
 	skipZeroQuantityResourceNames sets.String,
 	podFilter func(pod *v1.Pod) (bool, error),
@@ -79,6 +82,7 @@ func NewResourcesEvictionPlugin(pluginName string, metaServer *metaserver.MetaSe
 		emitter:                             emitter,
 		metaServer:                          metaServer,
 		resourcesGetter:                     resourcesGetter,
+		podRequestResourcesGetter:           porRequestResourcesGetter,
 		thresholdGetter:                     thresholdGetter,
 		deletionGracePeriodGetter:           deletionGracePeriodGetter,
 		thresholdMetToleranceDurationGetter: thresholdMetToleranceDurationGetter,
@@ -148,7 +152,7 @@ func (b *ResourcesEvictionPlugin) ThresholdMet(ctx context.Context) (*pluginapi.
 	// use requests (rather than limits) as used resource
 	usedResources := make(v1.ResourceList)
 	for _, pod := range filteredPods {
-		resources := native.SumUpPodRequestResources(pod)
+		resources := b.podRequestResourcesGetter(pod)
 		usedResources = native.AddResources(usedResources, resources)
 
 		native.EmitResourceMetrics(MetricsNamePodResource, resources, map[string]string{
@@ -228,7 +232,7 @@ func (b *ResourcesEvictionPlugin) GetTopEvictionPods(_ context.Context, request 
 	sort.Slice(activeFilteredPods, func(i, j int) bool {
 		valueI, valueJ := int64(0), int64(0)
 
-		resourceI, resourceJ := native.SumUpPodRequestResources(activeFilteredPods[i]), native.SumUpPodRequestResources(activeFilteredPods[j])
+		resourceI, resourceJ := b.podRequestResourcesGetter(activeFilteredPods[i]), b.podRequestResourcesGetter(activeFilteredPods[j])
 		if quantity, ok := resourceI[v1.ResourceName(request.EvictionScope)]; ok {
 			valueI = (&quantity).Value()
 		}
