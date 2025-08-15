@@ -115,7 +115,7 @@ func GetNICAllocateNUMAs(nic InterfaceInfo, info *KatalystMachineInfo) (CPUSet, 
 
 	sockets, ok := info.IfIndex2Sockets[nic.IfIndex]
 	if !ok {
-		return NewCPUSet(), fmt.Errorf("nic: %s has no socket", nic.Iface)
+		return NewCPUSet(), fmt.Errorf("nic: %s has no socket", nic.Name)
 	}
 
 	return info.CPUDetails.NUMANodesInSockets(sockets...), nil

@@ -91,6 +91,8 @@ var (
 // event bus topics
 const (
 	TopicNameApplyCGroup = "ApplyCGroup"
+	TopicNameApplyProcFS = "ApplyProcFS"
+	TopicNameApplySysFS  = "ApplySysFS"
 	TopicNameSyscall     = "Syscall"
 )
 
