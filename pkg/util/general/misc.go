@@ -174,7 +174,7 @@ func ConvertIntSliceToBitmapString(nums []int64) (string, error) {
 		}
 	}
 
-	length := (maxVal + 31) / 32
+	length := (maxVal / 32) + 1
 	bitmap := make([]uint32, length)
 
 	for _, i := range nums {
