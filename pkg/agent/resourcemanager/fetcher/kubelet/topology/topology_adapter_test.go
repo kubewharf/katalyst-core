@@ -45,11 +45,14 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/kubeletconfig"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/kubelet/podresources"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
@@ -144,6 +147,31 @@ func tmpSocketDir() (socketDir string, err error) {
 	return
 }
 
+func generateTestMetricsFetcher() *metric.FakeMetricsFetcher {
+	m := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
+
+	fm, ok := m.(*metric.FakeMetricsFetcher)
+	if !ok {
+		panic("failed to cast to *FakeMetricsFetcher")
+	}
+
+	fm.SetNumaMetric(0, pkgconsts.MetricMemBandwidthTheoryNuma, utilmetric.MetricData{
+		Value: 10,
+	})
+	fm.SetNumaMetric(1, pkgconsts.MetricMemBandwidthTheoryNuma, utilmetric.MetricData{
+		Value: 10,
+	})
+	fm.SetNumaMetric(2, pkgconsts.MetricMemBandwidthTheoryNuma, utilmetric.MetricData{
+		Value: 10,
+	})
+	fm.SetNumaMetric(3, pkgconsts.MetricMemBandwidthTheoryNuma, utilmetric.MetricData{
+		Value: 10,
+	})
+	fm.SetByStringIndex(pkgconsts.MetricCPUCodeName, "test_cpu")
+
+	return fm
+}
+
 func generateTestMetaServer(podList ...*v1.Pod) *metaserver.MetaServer {
 	m := &metaserver.MetaServer{
 		MetaAgent: &agent.MetaAgent{
@@ -153,6 +181,7 @@ func generateTestMetaServer(podList ...*v1.Pod) *metaserver.MetaServer {
 	}
 
 	m.ExtraTopologyInfo, _ = machine.GenerateDummyExtraTopology(2)
+	m.MetaAgent.MetricsFetcher = generateTestMetricsFetcher()
 	return m
 }
 
@@ -920,9 +949,8 @@ func Test_getZoneAllocationsByPodResources(t *testing.T) {
 				),
 				extraTopologyInfo: &machine.ExtraTopologyInfo{
 					SiblingNumaInfo: &machine.SiblingNumaInfo{
-						SiblingNumaAvgMBWAllocatableMap: map[int]int64{
-							0: 8,
-							1: 8,
+						SiblingNumaAvgMBWAllocatableRateMap: map[string]float64{
+							"test_cpu": 0.8,
 						},
 						SiblingNumaAvgMBWCapacityMap: map[int]int64{
 							0: 10,
@@ -1741,11 +1769,8 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 						2: sets.NewInt(3),
 						3: sets.NewInt(2),
 					}
-					m.SiblingNumaAvgMBWAllocatableMap = map[int]int64{
-						0: 8,
-						1: 8,
-						2: 8,
-						3: 8,
+					m.SiblingNumaAvgMBWAllocatableRateMap = map[string]float64{
+						"test_cpu": 0.8,
 					}
 					m.SiblingNumaAvgMBWCapacityMap = map[int]int64{
 						0: 10,
@@ -1767,13 +1792,13 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 						"gpu":                          resource.MustParse("2"),
 						"cpu":                          resource.MustParse("24"),
 						"memory":                       resource.MustParse("32G"),
-						consts.ResourceMemoryBandwidth: resource.MustParse("10"),
+						consts.ResourceMemoryBandwidth: resource.MustParse("10G"),
 					},
 					Allocatable: &v1.ResourceList{
 						"gpu":                          resource.MustParse("2"),
 						"cpu":                          resource.MustParse("22"),
 						"memory":                       resource.MustParse("30G"),
-						consts.ResourceMemoryBandwidth: resource.MustParse("8"),
+						consts.ResourceMemoryBandwidth: resource.MustParse("8G"),
 					},
 				},
 				{
@@ -1785,12 +1810,12 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 					Capacity: &v1.ResourceList{
 						"cpu":                          resource.MustParse("24"),
 						"memory":                       resource.MustParse("32G"),
-						consts.ResourceMemoryBandwidth: resource.MustParse("10"),
+						consts.ResourceMemoryBandwidth: resource.MustParse("10G"),
 					},
 					Allocatable: &v1.ResourceList{
 						"cpu":                          resource.MustParse("22"),
 						"memory":                       resource.MustParse("30G"),
-						consts.ResourceMemoryBandwidth: resource.MustParse("8"),
+						consts.ResourceMemoryBandwidth: resource.MustParse("8G"),
 					},
 				},
 				{
@@ -1802,12 +1827,12 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 					Capacity: &v1.ResourceList{
 						"cpu":                          resource.MustParse("24"),
 						"memory":                       resource.MustParse("32G"),
-						consts.ResourceMemoryBandwidth: resource.MustParse("10"),
+						consts.ResourceMemoryBandwidth: resource.MustParse("10G"),
 					},
 					Allocatable: &v1.ResourceList{
 						"cpu":                          resource.MustParse("22"),
 						"memory":                       resource.MustParse("30G"),
-						consts.ResourceMemoryBandwidth: resource.MustParse("8"),
+						consts.ResourceMemoryBandwidth: resource.MustParse("8G"),
 					},
 				},
 				{
@@ -1819,12 +1844,12 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 					Capacity: &v1.ResourceList{
 						"cpu":                          resource.MustParse("24"),
 						"memory":                       resource.MustParse("32G"),
-						consts.ResourceMemoryBandwidth: resource.MustParse("10"),
+						consts.ResourceMemoryBandwidth: resource.MustParse("10G"),
 					},
 					Allocatable: &v1.ResourceList{
 						"cpu":                          resource.MustParse("22"),
 						"memory":                       resource.MustParse("30G"),
-						consts.ResourceMemoryBandwidth: resource.MustParse("8"),
+						consts.ResourceMemoryBandwidth: resource.MustParse("8G"),
 					},
 				},
 			},

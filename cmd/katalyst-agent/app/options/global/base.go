@@ -71,7 +71,7 @@ type BaseOptions struct {
 	MachineNetAllocatableNS                          []string
 	MachineSiblingNumaMaxDistance                    int
 	MachineSiblingNumaMemoryBandwidthCapacity        resource.QuantityValue
-	MachineSiblingNumaMemoryBandwidthAllocatableRate float64
+	MachineSiblingNumaMemoryBandwidthAllocatableRate map[string]string
 }
 
 func NewBaseOptions() *BaseOptions {
@@ -93,9 +93,8 @@ func NewBaseOptions() *BaseOptions {
 
 		RuntimeEndpoint: defaultRemoteRuntimeEndpoint,
 
-		MachineNetMultipleNS:                             false,
-		MachineNetAllocatableNS:                          []string{"*"},
-		MachineSiblingNumaMemoryBandwidthAllocatableRate: 1.0,
+		MachineNetMultipleNS:    false,
+		MachineNetAllocatableNS: []string{"*"},
 	}
 }
 
@@ -152,7 +151,7 @@ func (o *BaseOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"The maximum distance between sibling NUMA nodes. If not set, the maximum distance defaults to the distance to itself.")
 	fs.Var(&o.MachineSiblingNumaMemoryBandwidthCapacity, "machine-sibling-numa-memory-bandwidth-capacity",
 		"if set the sibling numa memory bandwidth capacity, the per memory bandwidth capacity and allocatable will be reported to numa zone of cnr")
-	fs.Float64Var(&o.MachineSiblingNumaMemoryBandwidthAllocatableRate, "machine-sibling-numa-memory-bandwidth-allocatable-rate", o.MachineSiblingNumaMemoryBandwidthAllocatableRate,
+	fs.StringToStringVar(&o.MachineSiblingNumaMemoryBandwidthAllocatableRate, "machine-sibling-numa-memory-bandwidth-allocatable-rate", o.MachineSiblingNumaMemoryBandwidthAllocatableRate,
 		"the rate between sibling numa memory bandwidth allocatable to its capacity")
 }
 

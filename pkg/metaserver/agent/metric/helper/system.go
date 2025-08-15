@@ -123,3 +123,58 @@ func GetIsVM(metricsFetcher types.MetricsFetcher) (bool, string) {
 	}
 	return isVMBool, strconv.FormatBool(isVMBool)
 }
+
+func GetNumaAvgMBWCapacityMap(metricsFetcher types.MetricsFetcher, numaMBWMap map[int]int64) map[int]int64 {
+	numaMBWCapacityMap := make(map[int]int64)
+
+	for numaID := range numaMBWMap {
+		metric, err := metricsFetcher.GetNumaMetric(numaID, consts.MetricMemBandwidthTheoryNuma)
+		if err != nil || metric.Value == 0 {
+			numaMBWCapacityMap[numaID] = consts.DefaultNumaMemoryBandwidthCapacity
+			continue
+		}
+		numaMBWCapacityMap[numaID] = int64(metric.Value * consts.BytesPerGB)
+	}
+	return numaMBWCapacityMap
+}
+
+func GetNumaAvgMBWAllocatableMap(metricsFetcher types.MetricsFetcher, numaMBWMap map[int]int64, allocatableRateMap map[string]float64) map[int]int64 {
+	var allocatableRate float64
+	cpuCodeName := GetCpuCodeName(metricsFetcher)
+
+	if val, ok := allocatableRateMap[cpuCodeName]; ok {
+		allocatableRate = val
+	} else {
+		allocatableRate = consts.DefaultNumaMemoryBandwidthAllocatableRate
+	}
+
+	numaMBWAllocatableMap := make(map[int]int64)
+
+	for numaID := range numaMBWMap {
+		metric, err := metricsFetcher.GetNumaMetric(numaID, consts.MetricMemBandwidthTheoryNuma)
+		if err != nil || metric.Value == 0 {
+			numaMBWAllocatableMap[numaID] = int64(consts.DefaultNumaMemoryBandwidthCapacity * allocatableRate)
+			continue
+		}
+		numaMBWAllocatableMap[numaID] = int64(metric.Value * consts.BytesPerGB * allocatableRate)
+	}
+	return numaMBWAllocatableMap
+}
+
+func GetNumaMBWAllocatable(metricsFetcher types.MetricsFetcher, numaID int, allocatableRateMap map[string]float64) int64 {
+	var allocatableRate float64
+
+	cpuCodeName := GetCpuCodeName(metricsFetcher)
+
+	if val, ok := allocatableRateMap[cpuCodeName]; ok {
+		allocatableRate = val
+	} else {
+		allocatableRate = consts.DefaultNumaMemoryBandwidthAllocatableRate
+	}
+
+	metric, err := metricsFetcher.GetNumaMetric(numaID, consts.MetricMemBandwidthTheoryNuma)
+	if err != nil || metric.Value == 0 {
+		return int64(consts.DefaultNumaMemoryBandwidthCapacity * allocatableRate)
+	}
+	return int64(metric.Value * consts.BytesPerGB * allocatableRate)
+}

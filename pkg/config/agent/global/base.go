@@ -58,7 +58,7 @@ type MachineInfoConfiguration struct {
 	// among sibling NUMAs, and SiblingNumaMemoryBandwidthAllocatableRate is the rate of
 	// the allocatable to the capacity
 	SiblingNumaMemoryBandwidthCapacity        int64
-	SiblingNumaMemoryBandwidthAllocatableRate float64
+	SiblingNumaMemoryBandwidthAllocatableRate map[string]string
 }
 
 type KubeletConfiguration struct {

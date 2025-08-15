@@ -33,6 +33,7 @@ import (
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	qrmutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -275,12 +276,12 @@ func (o *memoryBandwidthOptimizer) calculateHintMemoryBandwidthAvailability(
 			continue
 		}
 
-		groupNUMAsAllocatableMemBW := int(machineInfo.ExtraTopologyInfo.SiblingNumaAvgMBWAllocatableMap[numaID])
+		groupNUMAsAllocatableMemBW := int(helper.GetNumaMBWAllocatable(o.metaServer.MetricsFetcher, numaID, machineInfo.ExtraTopologyInfo.SiblingNumaAvgMBWAllocatableRateMap))
 		groupNUMAsAllocatedMemBW := copiedNUMAAllocatedMemBW[numaID]
 		visNUMAs.Insert(numaID)
 		for _, siblingNUMAID := range machineInfo.ExtraTopologyInfo.SiblingNumaMap[numaID].UnsortedList() {
 			groupNUMAsAllocatedMemBW += copiedNUMAAllocatedMemBW[siblingNUMAID]
-			groupNUMAsAllocatableMemBW += int(machineInfo.ExtraTopologyInfo.SiblingNumaAvgMBWAllocatableMap[siblingNUMAID])
+			groupNUMAsAllocatableMemBW += int(helper.GetNumaMBWAllocatable(o.metaServer.MetricsFetcher, siblingNUMAID, machineInfo.ExtraTopologyInfo.SiblingNumaAvgMBWAllocatableRateMap))
 			visNUMAs.Insert(siblingNUMAID)
 		}
 
