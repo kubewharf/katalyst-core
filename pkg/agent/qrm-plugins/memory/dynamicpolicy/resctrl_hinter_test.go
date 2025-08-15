@@ -161,7 +161,7 @@ func TestResctrlProcessor_HintResp(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			r := newResctrlHinter(tt.fields.config)
+			r := newResctrlHinter(tt.fields.config, nil)
 			meta := state.GenerateMemoryContainerAllocationMeta(tt.args.req, tt.args.qosLevel)
 			r.HintResourceAllocation(meta, tt.args.resp.AllocationResult)
 			assert.Equalf(t, tt.want, tt.args.resp, "HintResourceAllocation(%v, %v, %v)", tt.args.qosLevel, tt.args.req, tt.args.resp)

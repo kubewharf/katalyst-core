@@ -100,6 +100,8 @@ type ResctrlConfig struct {
 
 	// MonGroupEnabledClosIDs is about mon_group layout hint policy
 	MonGroupEnabledClosIDs []string
+	// MonGroupMaxCountRatio is the ratio of mon_groups max count in info/L3_MON/num_rmids
+	MonGroupMaxCountRatio float64
 }
 
 func NewMemoryQRMPluginConfig() *MemoryQRMPluginConfig {
