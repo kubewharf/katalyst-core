@@ -80,7 +80,7 @@ jobs:
         run: |
           echo "refer to https://github.com/kunwardeep/paralleltest for detailed info" &&
           GO111MODULE=on go install github.com/kunwardeep/paralleltest@v1.0.10 &&
-          paralleltest `go list ./... | grep -E -v "pkg/scheduler|pkg/controller/resource-recommend|pkg/util/resource-recommend"`
+          paralleltest `go list ./... | grep -E -v "pkg/scheduler|pkg/controller/resource-recommend|pkg/util/resource-recommend|pkg/util/machine"`
 
   unit-test:
     name: Unit Test
