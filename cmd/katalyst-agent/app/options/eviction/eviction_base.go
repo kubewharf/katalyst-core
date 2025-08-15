@@ -55,6 +55,9 @@ type GenericEvictionOptions struct {
 
 	// PodMetricLabels defines the pod labels to be added into metric selector list.
 	PodMetricLabels []string
+
+	// HostPathNotifierPathRoot is the root path for host-path notifier
+	HostPathNotifierRootPath string
 }
 
 // NewGenericEvictionOptions creates a new Options with a default config.
@@ -66,6 +69,7 @@ func NewGenericEvictionOptions() *GenericEvictionOptions {
 		EvictionSkippedAnnotationKeys: []string{},
 		EvictionSkippedLabelKeys:      []string{},
 		EvictionBurst:                 3,
+		HostPathNotifierRootPath:      "/opt/katalyst",
 		PodKiller:                     consts.KillerNameEvictionKiller,
 		StrictAuthentication:          false,
 	}
@@ -105,6 +109,9 @@ func (o *GenericEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	fs.StringSliceVar(&o.PodMetricLabels, "eviction-pod-metric-labels", o.PodMetricLabels,
 		"The pod labels to be added into metric selector list")
+
+	fs.StringVar(&o.HostPathNotifierRootPath, "pod-notifier-root-path", o.HostPathNotifierRootPath,
+		"root path of host-path notifier")
 }
 
 // ApplyTo fills up config with options
@@ -119,6 +126,7 @@ func (o *GenericEvictionOptions) ApplyTo(c *evictionconfig.GenericEvictionConfig
 	c.QoSPodKillers = o.QoSPodKillers
 	c.StrictAuthentication = o.StrictAuthentication
 	c.PodMetricLabels.Insert(o.PodMetricLabels...)
+	c.HostPathNotifierRootPath = o.HostPathNotifierRootPath
 	return nil
 }
 
