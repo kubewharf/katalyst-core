@@ -21,6 +21,9 @@ import (
 	"fmt"
 	"testing"
 
+	"k8s.io/apimachinery/pkg/runtime"
+	ktesting "k8s.io/client-go/testing"
+
 	"github.com/bytedance/mockey"
 	. "github.com/smartystreets/goconvey/convey"
 	v1 "k8s.io/api/core/v1"
@@ -334,5 +337,225 @@ func TestAsynchronizedPodKiller_sync(t *testing.T) {
 		So(requeue, ShouldBeFalse)
 		// Check error message
 		So(err.Error(), ShouldContainSubstring, "invalid resource key")
+	})
+
+	mockey.PatchConvey("When there is a pod with the same name as the pod that we have evicted", t, func() {
+		// Arrange
+		mockKiller := &mockKiller{}
+
+		// Prepare test data
+		namespace := "default"
+		name := "test-pod"
+		uid1 := types.UID("test-uid1")
+		uid2 := types.UID("test-uid2")
+		gracePeriodSeconds := int64(30)
+		reason := "test-reason"
+		plugin := "test-plugin"
+
+		// Have 2 pods with the same name but different UIDs
+		testPod1 := &v1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: namespace,
+				Name:      name,
+				UID:       uid1,
+			},
+		}
+
+		testPod2 := &v1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: namespace,
+				Name:      name,
+				UID:       uid2,
+			},
+		}
+
+		// Create an AsynchronizedPodKiller instance
+		killer := &AsynchronizedPodKiller{
+			killer:         mockKiller,
+			podFetcher:     &pod.PodFetcherStub{PodList: []*v1.Pod{testPod2}},
+			client:         fake.NewSimpleClientset(testPod2),
+			processingPods: make(map[string]map[int64]*evictPodInfo),
+		}
+
+		podKey := podKeyFunc(namespace, name, string(uid1))
+		killer.processingPods[podKey] = make(map[int64]*evictPodInfo)
+		killer.processingPods[podKey][gracePeriodSeconds] = &evictPodInfo{
+			Pod:    testPod1,
+			Reason: reason,
+			Plugin: plugin,
+		}
+
+		// Create eviction key
+		evictionKey := fmt.Sprintf("%s%s%d", podKey, consts.KeySeparator, gracePeriodSeconds)
+
+		// Act
+		err, requeue := killer.sync(evictionKey)
+		// Should have identified that old pod is already evicted and no requeue
+		So(err, ShouldBeNil)
+		So(requeue, ShouldBeFalse)
+		// Old pod should be removed from cache
+		So(killer.processingPods[podKey], ShouldBeNil)
+	})
+
+	mockey.PatchConvey("When podFetcher throws an error but api server identifies the pod and successfully evicts it", t, func() {
+		// Arrange
+		mockKiller := &mockKiller{}
+
+		// Prepare test data
+		namespace := "default"
+		name := "test-pod"
+		uid := types.UID("test-uid1")
+		gracePeriodSeconds := int64(30)
+		reason := "test-reason"
+		plugin := "test-plugin"
+
+		testPod1 := &v1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: namespace,
+				Name:      name,
+				UID:       uid,
+			},
+		}
+
+		// Create an AsynchronizedPodKiller instance
+		killer := &AsynchronizedPodKiller{
+			killer:         mockKiller,
+			podFetcher:     &pod.PodFetcherStub{},
+			client:         fake.NewSimpleClientset(testPod1),
+			processingPods: make(map[string]map[int64]*evictPodInfo),
+		}
+
+		podKey := podKeyFunc(namespace, name, string(uid))
+		killer.processingPods[podKey] = make(map[int64]*evictPodInfo)
+		killer.processingPods[podKey][gracePeriodSeconds] = &evictPodInfo{
+			Pod:    testPod1,
+			Reason: reason,
+			Plugin: plugin,
+		}
+
+		// Create eviction key
+		evictionKey := fmt.Sprintf("%s%s%d", podKey, consts.KeySeparator, gracePeriodSeconds)
+
+		// Mock killer.Evict to return nil (success)
+		mockKiller.EvictFunc = func(ctx context.Context, pod *v1.Pod, gracePeriodSeconds int64, reason, plugin string) error {
+			return nil
+		}
+
+		// Act
+		err, requeue := killer.sync(evictionKey)
+		So(err, ShouldBeNil)
+
+		So(requeue, ShouldBeFalse)
+		So(killer.processingPods[podKey], ShouldBeNil)
+	})
+
+	mockey.PatchConvey("When podFetcher throws an error and api server does not successfully evict the pod", t, func() {
+		// Arrange
+		mockKiller := &mockKiller{}
+
+		// Prepare test data
+		namespace := "default"
+		name := "test-pod"
+		uid := types.UID("test-uid1")
+		gracePeriodSeconds := int64(30)
+		reason := "test-reason"
+		plugin := "test-plugin"
+
+		testPod1 := &v1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: namespace,
+				Name:      name,
+				UID:       uid,
+			},
+		}
+
+		// Create an AsynchronizedPodKiller instance
+		killer := &AsynchronizedPodKiller{
+			killer:         mockKiller,
+			podFetcher:     &pod.PodFetcherStub{},
+			client:         fake.NewSimpleClientset(testPod1),
+			processingPods: make(map[string]map[int64]*evictPodInfo),
+		}
+
+		podKey := podKeyFunc(namespace, name, string(uid))
+		killer.processingPods[podKey] = make(map[int64]*evictPodInfo)
+		killer.processingPods[podKey][gracePeriodSeconds] = &evictPodInfo{
+			Pod:    testPod1,
+			Reason: reason,
+			Plugin: plugin,
+		}
+
+		// Create eviction key
+		evictionKey := fmt.Sprintf("%s%s%d", podKey, consts.KeySeparator, gracePeriodSeconds)
+
+		// Mock killer.Evict to return an error
+		evictionError := fmt.Errorf("eviction failed")
+		mockKiller.EvictFunc = func(ctx context.Context, pod *v1.Pod, gracePeriodSeconds int64, reason, plugin string) error {
+			return evictionError
+		}
+
+		// Act
+		err, requeue := killer.sync(evictionKey)
+		So(err, ShouldNotBeNil)
+		So(err, ShouldEqual, evictionError)
+
+		So(requeue, ShouldBeTrue)
+		So(killer.processingPods[podKey], ShouldNotBeNil)
+	})
+
+	mockey.PatchConvey("When API server throws an error unexpectedly", t, func() {
+		// Arrange
+		mockKiller := &mockKiller{}
+
+		// Prepare test data
+		namespace := "default"
+		name := "test-pod"
+		uid := types.UID("test-uid1")
+		gracePeriodSeconds := int64(30)
+		reason := "test-reason"
+		plugin := "test-plugin"
+
+		testPod1 := &v1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: namespace,
+				Name:      name,
+				UID:       uid,
+			},
+		}
+
+		fakeClient := fake.NewSimpleClientset()
+
+		evictionError := fmt.Errorf("error when getting pod")
+		// Inject error when trying to get any pod
+		fakeClient.Fake.PrependReactor("get", "pods", func(action ktesting.Action) (bool, runtime.Object, error) {
+			return true, nil, evictionError
+		})
+
+		// Create an AsynchronizedPodKiller instance
+		killer := &AsynchronizedPodKiller{
+			killer:         mockKiller,
+			podFetcher:     &pod.PodFetcherStub{},
+			client:         fakeClient,
+			processingPods: make(map[string]map[int64]*evictPodInfo),
+		}
+
+		podKey := podKeyFunc(namespace, name, string(uid))
+		killer.processingPods[podKey] = make(map[int64]*evictPodInfo)
+		killer.processingPods[podKey][gracePeriodSeconds] = &evictPodInfo{
+			Pod:    testPod1,
+			Reason: reason,
+			Plugin: plugin,
+		}
+
+		// Create eviction key
+		evictionKey := fmt.Sprintf("%s%s%d", podKey, consts.KeySeparator, gracePeriodSeconds)
+
+		// Act
+		err, requeue := killer.sync(evictionKey)
+		So(err, ShouldNotBeNil)
+		So(err, ShouldEqual, evictionError)
+
+		So(requeue, ShouldBeTrue)
+		So(killer.processingPods[podKey], ShouldNotBeNil)
 	})
 }
