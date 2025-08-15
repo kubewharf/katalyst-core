@@ -431,7 +431,6 @@ func (ns *NUMANodeState) GetFilteredDefaultCPUSet(excludeEntry, excludeWholeNUMA
 	}
 
 	res := ns.DefaultCPUSet.Clone()
-	res = res.Union(ns.AllocatedCPUSet)
 	for _, containerEntries := range ns.PodEntries {
 		for _, allocationInfo := range containerEntries {
 			if excludeWholeNUMA != nil && excludeWholeNUMA(allocationInfo) {

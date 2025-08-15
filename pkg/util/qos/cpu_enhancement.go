@@ -27,6 +27,11 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 )
 
+func AnnotationsIndicateNUMANotShare(annotations map[string]string) bool {
+	return annotations[consts.PodAnnotationCPUEnhancementNUMAShare] ==
+		consts.PodAnnotationCPUEnhancementNUMAShareDisable
+}
+
 // GetPodCPUSuppressionToleranceRate parses cpu suppression tolerance rate for the given pod,
 // and cpu suppression is only supported for reclaim pods. if the given is not nominated with
 // cpu suppression, return max to indicate that it can be suppressed for any degree.
