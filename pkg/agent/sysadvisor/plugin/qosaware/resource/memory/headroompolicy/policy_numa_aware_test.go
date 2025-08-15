@@ -30,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/reclaimedresource/memoryheadroom"
@@ -381,7 +382,10 @@ func TestPolicyNUMAAware(t *testing.T) {
 				containers: []*types.ContainerInfo{
 					makeContainerInfo("pod1", "default",
 						"pod1", "container1",
-						consts.PodAnnotationQoSLevelReclaimedCores, nil,
+						consts.PodAnnotationQoSLevelReclaimedCores,
+						map[string]string{
+							cpuconsts.CPUStateAnnotationKeyNUMAHint: "0",
+						},
 						types.TopologyAwareAssignment{
 							0: machine.NewCPUSet(0),
 						}, 50<<30),

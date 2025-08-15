@@ -30,6 +30,7 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -449,6 +450,204 @@ func TestReclaimedContainersFilter(t *testing.T) {
 			result := reclaimedContainersFilter(tt.ci)
 			if result != tt.expected {
 				t.Errorf("reclaimedContainersFilter(%v) = %v, want %v", tt.ci, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGetActualNUMABindingNUMAsForReclaimedCores(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		containers    []*types.ContainerInfo
+		wantNUMAs     machine.CPUSet
+		wantErr       bool
+		expectedError string
+	}{
+		{
+			name: "No reclaimed containers",
+			containers: []*types.ContainerInfo{
+				{PodUID: "pod1", ContainerName: "container1", QoSLevel: consts.PodAnnotationQoSLevelDedicatedCores},
+				{PodUID: "pod2", ContainerName: "container2", QoSLevel: consts.PodAnnotationQoSLevelSharedCores},
+			},
+			wantNUMAs: machine.NewCPUSet(),
+			wantErr:   false,
+		},
+		{
+			name: "Single reclaimed container with valid NUMA binding",
+			containers: []*types.ContainerInfo{
+				{
+					PodUID:        "pod1",
+					ContainerName: "container1",
+					QoSLevel:      consts.PodAnnotationQoSLevelReclaimedCores,
+					Annotations: map[string]string{
+						cpuconsts.CPUStateAnnotationKeyNUMAHint: "0",
+					},
+				},
+			},
+			wantNUMAs: machine.NewCPUSet(0),
+			wantErr:   false,
+		},
+		{
+			name: "Multiple reclaimed containers with different NUMA bindings",
+			containers: []*types.ContainerInfo{
+				{
+					PodUID:        "pod1",
+					ContainerName: "container1",
+					QoSLevel:      consts.PodAnnotationQoSLevelReclaimedCores,
+					Annotations: map[string]string{
+						cpuconsts.CPUStateAnnotationKeyNUMAHint: "0",
+					},
+				},
+				{
+					PodUID:        "pod2",
+					ContainerName: "container2",
+					QoSLevel:      consts.PodAnnotationQoSLevelReclaimedCores,
+					Annotations: map[string]string{
+						cpuconsts.CPUStateAnnotationKeyNUMAHint: "1",
+					},
+				},
+				{
+					PodUID:        "pod3",
+					ContainerName: "container3",
+					QoSLevel:      consts.PodAnnotationQoSLevelReclaimedCores,
+					Annotations: map[string]string{
+						cpuconsts.CPUStateAnnotationKeyNUMAHint: "0",
+					},
+				},
+			},
+			wantNUMAs: machine.NewCPUSet(0, 1),
+			wantErr:   false,
+		},
+		{
+			name: "Reclaimed container with no NUMA binding",
+			containers: []*types.ContainerInfo{
+				{
+					PodUID:        "pod1",
+					ContainerName: "container1",
+					QoSLevel:      consts.PodAnnotationQoSLevelReclaimedCores,
+				},
+			},
+			wantNUMAs: machine.NewCPUSet(),
+			wantErr:   false,
+		},
+		{
+			name: "Mixed container types with some reclaimed",
+			containers: []*types.ContainerInfo{
+				{PodUID: "pod1", ContainerName: "container1", QoSLevel: consts.PodAnnotationQoSLevelDedicatedCores},
+				{
+					PodUID:        "pod2",
+					ContainerName: "container2",
+					QoSLevel:      consts.PodAnnotationQoSLevelReclaimedCores,
+					Annotations: map[string]string{
+						cpuconsts.CPUStateAnnotationKeyNUMAHint: "1",
+					},
+				},
+				{PodUID: "pod3", ContainerName: "container3", QoSLevel: consts.PodAnnotationQoSLevelSharedCores},
+				{
+					PodUID:        "pod4",
+					ContainerName: "container4",
+					QoSLevel:      consts.PodAnnotationQoSLevelReclaimedCores,
+					Annotations: map[string]string{
+						cpuconsts.CPUStateAnnotationKeyNUMAHint: "2",
+					},
+				},
+			},
+			wantNUMAs: machine.NewCPUSet(1, 2),
+			wantErr:   false,
+		},
+		{
+			name: "Error in getting NUMA binding result",
+			containers: []*types.ContainerInfo{
+				{
+					PodUID:        "pod1",
+					ContainerName: "container1",
+					QoSLevel:      consts.PodAnnotationQoSLevelReclaimedCores,
+					Annotations: map[string]string{
+						cpuconsts.CPUStateAnnotationKeyNUMAHint: "xx",
+					},
+				},
+			},
+			wantNUMAs:     machine.CPUSet{},
+			wantErr:       true,
+			expectedError: "strconv.Atoi: parsing",
+		},
+		{
+			name: "Error in getting NUMA binding result multiple numa nodes",
+			containers: []*types.ContainerInfo{
+				{
+					PodUID:        "pod1",
+					ContainerName: "container1",
+					QoSLevel:      consts.PodAnnotationQoSLevelReclaimedCores,
+					Annotations: map[string]string{
+						cpuconsts.CPUStateAnnotationKeyNUMAHint: "0-2",
+					},
+				},
+			},
+			wantNUMAs:     machine.CPUSet{},
+			wantErr:       true,
+			expectedError: "parse numaHintStr:",
+		},
+		{
+			name: "Multiple reclaimed containers with errors",
+			containers: []*types.ContainerInfo{
+				{
+					PodUID:        "pod1",
+					ContainerName: "container1",
+					QoSLevel:      consts.PodAnnotationQoSLevelReclaimedCores,
+					Annotations: map[string]string{
+						cpuconsts.CPUStateAnnotationKeyNUMAHint: "0",
+					},
+				},
+				{PodUID: "pod2", ContainerName: "container2", QoSLevel: consts.PodAnnotationQoSLevelReclaimedCores},
+				{
+					PodUID:        "pod3",
+					ContainerName: "container3",
+					QoSLevel:      consts.PodAnnotationQoSLevelReclaimedCores,
+					Annotations: map[string]string{
+						cpuconsts.CPUStateAnnotationKeyNUMAHint: "xxx",
+					},
+				},
+			},
+			wantNUMAs:     machine.CPUSet{},
+			wantErr:       true,
+			expectedError: "strconv.Atoi: parsing",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			conf := generateTestConfiguration(t, "/tmp/checkpoint", "/tmp/statefile")
+			// Create a mock MetaReader using metacache.MetaReader interface
+			metaReader, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
+			require.NoError(t, err)
+			err = metaReader.ClearContainers()
+			require.NoError(t, err)
+
+			for _, i := range tt.containers {
+				err = metaReader.AddContainer(i.PodUID, i.ContainerName, i)
+				require.NoError(t, err)
+			}
+
+			// Execute the function
+			gotNUMAs, err := GetActualNUMABindingNUMAsForReclaimedCores(metaReader)
+
+			// Assert results
+			if tt.wantErr {
+				assert.Error(t, err)
+				if tt.expectedError != "" {
+					assert.Contains(t, err.Error(), tt.expectedError)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+
+			if !reflect.DeepEqual(gotNUMAs, tt.wantNUMAs) {
+				t.Errorf("GetActualNUMABindingNUMAsForReclaimedCores() = %v, want %v", gotNUMAs, tt.wantNUMAs)
 			}
 		})
 	}

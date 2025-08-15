@@ -30,7 +30,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
-	"github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
 func GetAvailableNUMAsAndReclaimedCores(conf *config.Configuration, metaReader metacache.MetaReader, metaServer *metaserver.MetaServer) (machine.CPUSet, []*types.ContainerInfo, error) {
@@ -93,28 +92,32 @@ func reclaimedContainersFilter(ci *types.ContainerInfo) bool {
 
 // GetActualNUMABindingNUMAsForReclaimedCores gets the actual numa binding numas according to the pod annotation
 // if numa with numa binding result is not -1, it will be added to numa binding numas
-func GetActualNUMABindingNUMAsForReclaimedCores(conf *config.Configuration, metaServer *metaserver.MetaServer) (machine.CPUSet, error) {
-	podList, err := metaServer.GetPodList(context.Background(), native.PodIsActive)
-	if err != nil {
-		return machine.CPUSet{}, err
-	}
-
-	// filter pods with reclaimed qos
-	podList = native.FilterPods(podList, conf.CheckReclaimedQoSForPod)
-
+func GetActualNUMABindingNUMAsForReclaimedCores(metaReader metacache.MetaReader) (machine.CPUSet, error) {
 	// filter pods with numa binding result
 	actualNUMABindingNUMAs := machine.NewCPUSet()
-	for _, pod := range podList {
-		bindingResult, err := qos.GetActualNUMABindingResult(conf.QoSConfiguration, pod)
+	var errList []error
+	metaReader.RangeContainer(func(podUID string, containerName string, ci *types.ContainerInfo) bool {
+		if !reclaimedContainersFilter(ci) {
+			return true
+		}
+
+		bindingResult, err := ci.GetReclaimActualNUMABindingResult()
 		if err != nil {
-			return machine.CPUSet{}, err
+			errList = append(errList, err)
+			return false
 		}
 
 		if bindingResult == -1 {
-			continue
+			return true
 		}
 
 		actualNUMABindingNUMAs.Add(bindingResult)
+		return true
+	})
+
+	if len(errList) > 0 {
+		return machine.CPUSet{}, errors.NewAggregate(errList)
 	}
+
 	return actualNUMABindingNUMAs, nil
 }

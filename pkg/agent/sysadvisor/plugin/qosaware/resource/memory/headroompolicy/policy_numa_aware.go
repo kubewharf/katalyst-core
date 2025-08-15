@@ -250,7 +250,7 @@ func (p *PolicyNUMAAware) reviseNUMAHeadroomMemory(
 	}
 
 	// get actual-numa-binding numa
-	actualNUMABindingNUMAs, err := helper.GetActualNUMABindingNUMAsForReclaimedCores(p.conf, p.metaServer)
+	actualNUMABindingNUMAs, err := helper.GetActualNUMABindingNUMAsForReclaimedCores(p.metaReader)
 	if err != nil {
 		return nil, 0, err
 	}

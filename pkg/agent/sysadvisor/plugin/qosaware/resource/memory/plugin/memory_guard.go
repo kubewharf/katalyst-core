@@ -201,7 +201,7 @@ func (mg *memoryGuard) updateNonActualNUMABindingReclaimMemoryLimit(zoneInfos []
 		return err
 	}
 
-	actualNUMABindingNUMAs, err := helper.GetActualNUMABindingNUMAsForReclaimedCores(mg.conf, mg.metaServer)
+	actualNUMABindingNUMAs, err := helper.GetActualNUMABindingNUMAsForReclaimedCores(mg.metaReader)
 	if err != nil {
 		return err
 	}
