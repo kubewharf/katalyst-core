@@ -324,7 +324,10 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 				if shareInfo.minReclaimedCoresCPUQuota != -1 {
 					reclaimedCoresQuota = shareInfo.minReclaimedCoresCPUQuota
 				}
-				// if cpu quota enabled, set all reclaimable share pool size to reclaimedCoresSize
+				// if cpu quota enabled, set all reclaimable share pool size to reclaimableSharePoolSizes
+				for poolName := range sharedOverlapReclaimSize {
+					sharedOverlapReclaimSize[poolName] = general.Max(sharedOverlapReclaimSize[poolName], reclaimableSharePoolSizes[poolName])
+				}
 				reclaimedCoresSize = general.SumUpMapValues(reclaimableSharePoolSizes)
 			}
 
