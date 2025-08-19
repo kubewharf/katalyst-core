@@ -18,6 +18,7 @@ package machine
 
 import (
 	"reflect"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -25,6 +26,8 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 )
+
+var mockLock sync.Mutex
 
 func TestMemoryDetailsEqual(t *testing.T) {
 	t.Parallel()
@@ -776,7 +779,7 @@ func TestGetInterfaceSocketInfo(t *testing.T) {
 			nics: []InterfaceInfo{{IfIndex: 1, NumaNode: 0}},
 			cpuTopology: &CPUTopology{
 				NumSockets:           2,
-				CPUDetails:           CPUDetails{0: CPUInfo{NUMANodeID: 0, SocketID: 1}},
+				CPUDetails:           CPUDetails{0: CPUTopoInfo{NUMANodeID: 0, SocketID: 1}},
 				NUMANodeIDToSocketID: map[int]int{0: 1},
 			},
 			expectErr: false,
@@ -789,7 +792,7 @@ func TestGetInterfaceSocketInfo(t *testing.T) {
 			},
 			cpuTopology: &CPUTopology{
 				NumSockets:           2,
-				CPUDetails:           CPUDetails{0: CPUInfo{NUMANodeID: 0, SocketID: 0}, 1: CPUInfo{NUMANodeID: 1, SocketID: 1}},
+				CPUDetails:           CPUDetails{0: CPUTopoInfo{NUMANodeID: 0, SocketID: 0}, 1: CPUTopoInfo{NUMANodeID: 1, SocketID: 1}},
 				NUMANodeIDToSocketID: map[int]int{0: 0, 1: 1},
 			},
 			expectErr: false,
@@ -800,7 +803,9 @@ func TestGetInterfaceSocketInfo(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			result, err := GetInterfaceSocketInfo(tc.nics, tc.cpuTopology)
+			mockLock.Lock()
+			defer mockLock.Unlock()
+			result, err := GetInterfaceSocketInfo(tc.nics, tc.cpuTopology.CPUDetails.Sockets().ToSliceInt())
 			if tc.expectErr {
 				assert.Error(t, err)
 			} else {

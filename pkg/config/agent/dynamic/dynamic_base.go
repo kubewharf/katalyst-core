@@ -19,13 +19,13 @@ package dynamic
 import (
 	"sync"
 
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/metricthreshold"
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/strategygroup"
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/tmo"
-
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/auth"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/irqtuning"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/metricthreshold"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/strategygroup"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/tmo"
 )
 
 type DynamicAgentConfiguration struct {
@@ -59,6 +59,7 @@ type Configuration struct {
 	*tmo.TransparentMemoryOffloadingConfiguration
 	*strategygroup.StrategyGroupConfiguration
 	*metricthreshold.MetricThresholdConfiguration
+	*irqtuning.IRQTuningConfiguration
 }
 
 func NewConfiguration() *Configuration {
@@ -68,6 +69,7 @@ func NewConfiguration() *Configuration {
 		TransparentMemoryOffloadingConfiguration: tmo.NewTransparentMemoryOffloadingConfiguration(),
 		StrategyGroupConfiguration:               strategygroup.NewStrategyGroupConfiguration(),
 		MetricThresholdConfiguration:             metricthreshold.NewMetricThresholdConfiguration(),
+		IRQTuningConfiguration:                   irqtuning.NewIRQTuningConfiguration(),
 	}
 }
 
@@ -77,4 +79,5 @@ func (c *Configuration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 	c.TransparentMemoryOffloadingConfiguration.ApplyConfiguration(conf)
 	c.StrategyGroupConfiguration.ApplyConfiguration(conf)
 	c.MetricThresholdConfiguration.ApplyConfiguration(conf)
+	c.IRQTuningConfiguration.ApplyConfiguration(conf)
 }
