@@ -42,17 +42,118 @@ func Test_cncCacheController_Run(t *testing.T) {
 	t.Parallel()
 
 	type fields struct {
-		pod            *v1.Pod
-		workload       *appsv1.StatefulSet
-		spd            *apiworkload.ServiceProfileDescriptor
-		cnc            *configapi.CustomNodeConfig
-		enableCNCCache bool
+		pod                    *v1.Pod
+		workload               *appsv1.StatefulSet
+		spd                    *apiworkload.ServiceProfileDescriptor
+		cnc                    *configapi.CustomNodeConfig
+		spdPodLabelIndexerKeys []string
+		enableCNCCache         bool
 	}
 	tests := []struct {
 		name    string
 		fields  fields
 		wantCNC *configapi.CustomNodeConfig
 	}{
+		{
+			name: "update cnc spd config when cnc cache enable and spd pod label indexer keys not empty",
+			fields: fields{
+				pod: &v1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod1",
+						Namespace: "default",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "apps/v1",
+								Kind:       "StatefulSet",
+								Name:       "sts1",
+							},
+						},
+						Annotations: map[string]string{
+							consts.PodAnnotationSPDNameKey: "spd1",
+						},
+						Labels: map[string]string{
+							"workload": "sts1",
+						},
+					},
+					Spec: v1.PodSpec{
+						NodeName: "node1",
+					},
+				},
+				workload: &appsv1.StatefulSet{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "StatefulSet",
+						APIVersion: "apps/v1",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "sts1",
+						Namespace: "default",
+						Annotations: map[string]string{
+							consts.WorkloadAnnotationSPDEnableKey: consts.WorkloadAnnotationSPDEnabled,
+						},
+					},
+					Spec: appsv1.StatefulSetSpec{
+						Selector: &metav1.LabelSelector{
+							MatchLabels: map[string]string{
+								"workload": "sts1",
+							},
+						},
+						Template: v1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									"katalyst.kubewharf.io/qos_level": "dedicated_cores",
+								},
+							},
+							Spec: v1.PodSpec{},
+						},
+					},
+				},
+				spd: &apiworkload.ServiceProfileDescriptor{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "default",
+						Name:      "sts1",
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion: "apps/v1",
+								Kind:       "StatefulSet",
+								Name:       "sts1",
+							},
+						},
+					},
+					Spec: apiworkload.ServiceProfileDescriptorSpec{
+						TargetRef: apis.CrossVersionObjectReference{
+							Kind:       stsGVK.Kind,
+							Name:       "sts1",
+							APIVersion: stsGVK.GroupVersion().String(),
+						},
+						BaselinePercent: pointer.Int32(100),
+					},
+					Status: apiworkload.ServiceProfileDescriptorStatus{
+						AggMetrics: []apiworkload.AggPodMetrics{},
+					},
+				},
+				cnc: &configapi.CustomNodeConfig{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "node1",
+					},
+				},
+				enableCNCCache:         true,
+				spdPodLabelIndexerKeys: []string{"workload"},
+			},
+			wantCNC: &configapi.CustomNodeConfig{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "node1",
+				},
+				Status: configapi.CustomNodeConfigStatus{
+					ServiceProfileConfigList: []configapi.TargetConfig{
+						{
+							ConfigNamespace: "default",
+							ConfigName:      "sts1",
+							Hash:            "51131be1b092",
+						},
+					},
+				},
+			},
+		},
 		{
 			name: "update cnc spd config when cnc cache enable",
 			fields: fields{
@@ -260,6 +361,7 @@ func Test_cncCacheController_Run(t *testing.T) {
 
 			spdConfig := &controller.SPDConfig{
 				EnableCNCCache:         tt.fields.enableCNCCache,
+				SPDPodLabelIndexerKeys: tt.fields.spdPodLabelIndexerKeys,
 				SPDWorkloadGVResources: []string{"statefulsets.v1.apps"},
 			}
 			genericConfig := &generic.GenericConfiguration{}

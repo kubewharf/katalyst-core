@@ -73,7 +73,8 @@ func getPodListForWorkloadWithIndex(selector labels.Selector, podIndexer cache.I
 	}
 
 	if len(podMap) == 0 {
-		return nil, fmt.Errorf("no pod matched with selector %v", selector.String())
+		klog.Warningf("no pods found for selector %v, indexer key %v", selector.String(), podIndexerKey)
+		return []*core.Pod{}, nil
 	}
 
 	var pods []*core.Pod
@@ -95,7 +96,7 @@ func GetPodListForWorkload(workloadObj runtime.Object, podIndexer cache.Indexer,
 		return nil, err
 	}
 
-	if podIndexer != nil {
+	if podIndexer != nil && len(labelKeyList) > 0 {
 		if podList, err := getPodListForWorkloadWithIndex(selector, podIndexer, labelKeyList); err == nil {
 			klog.V(3).Infof("get pods with index successfully, selector: %v", selector)
 			return podList, nil
