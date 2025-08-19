@@ -19,6 +19,7 @@ package distributor
 import "math"
 
 type Distributor interface {
+	// Distribute distributes total mb into ccds by their relative weights
 	Distribute(total int, weights map[int]int) map[int]int
 }
 

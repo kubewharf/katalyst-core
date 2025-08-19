@@ -94,7 +94,7 @@ func TestMBPlugin_run(t *testing.T) {
 		ccdToDomain   map[int]int
 		xDomGroups    sets.String
 		domains       domain.Domains
-		reader        reader.MBReder
+		reader        reader.MBReader
 		advisor       advisor.Advisor
 		planAllocator allocator.PlanAllocator
 	}

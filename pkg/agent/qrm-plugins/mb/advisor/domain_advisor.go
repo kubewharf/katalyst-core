@@ -247,12 +247,12 @@ func New(ccdMinMB, ccdMaxMB int, defaultDomainCapacity int,
 	return &domainAdvisor{
 		xDomGroups:            sets.NewString(XDomGroups...),
 		groupNeverThrottles:   sets.NewString(groupNeverThrottles...),
+		defaultDomainCapacity: defaultDomainCapacity,
 		groupCapacityInMB:     groupCapacity,
 		quotaStrategy:         quota.New(),
 		flower:                sankey.New(),
 		adjusters:             map[string]adjuster.Adjuster{},
 		ccdDistribute:         distributor.New(ccdMinMB, ccdMaxMB),
 		ccdMaxMB:              ccdMaxMB,
-		defaultDomainCapacity: defaultDomainCapacity,
 	}
 }

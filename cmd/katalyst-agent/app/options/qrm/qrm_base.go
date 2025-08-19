@@ -122,5 +122,8 @@ func (o *QRMPluginsOptions) ApplyTo(conf *qrmconfig.QRMPluginsConfiguration) err
 	if err := o.IOOptions.ApplyTo(conf.IOQRMPluginConfig); err != nil {
 		return err
 	}
+	if err := o.MBOptions.ApplyTo(conf.MBQRMPluginConfig); err != nil {
+		return err
+	}
 	return nil
 }

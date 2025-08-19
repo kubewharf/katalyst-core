@@ -181,6 +181,12 @@ func NewDomainsByMachineInfo(info *machine.KatalystMachineInfo,
 		return nil, errors.Wrap(err, "failed to get domains out of machine info")
 	}
 
+	if klog.V(6).Enabled() {
+		for domainID, numas := range domainToNumas {
+			klog.Infof("[mbm] mb domain %d, numas = %v", domainID, numas)
+		}
+	}
+
 	result := Domains{}
 	for domainID, numas := range domainToNumas {
 		dies, errCurr := getDiesByNUMAs(numas, info.DieTopology)

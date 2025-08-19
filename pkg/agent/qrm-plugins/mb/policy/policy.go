@@ -17,6 +17,8 @@ limitations under the License.
 package policy
 
 import (
+	"k8s.io/klog/v2"
+
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/allocator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/domain"
@@ -45,11 +47,28 @@ func NewGenericPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		return false, nil, nil
 	}
 
-	defaultMBDomainCapacity := int(agentCtx.KatalystMachineInfo.SiblingNumaMBWAllocatable)
+	defaultMBDomainCapacity := int(agentCtx.KatalystMachineInfo.SiblingNumaMBWAllocatable) / 1024 / 1024
 	if defaultMBDomainCapacity < minMBCapacity {
 		general.Infof("[mbm] invalid domain mb capacity %d as configured; not to enable mbm", defaultMBDomainCapacity)
 		return false, nil, nil
 	}
+
+	if klog.V(6).Enabled() {
+		// to print out numa siblings as they are critical to get proper mb domains
+		numaDists := agentCtx.SiblingNumaMap
+		general.Infof("[mbm] numa sibling map len = %d", len(numaDists))
+		for id, siblings := range numaDists {
+			general.Infof("[mbm] numa %d, siblings %v", id, siblings)
+		}
+	}
+
+	general.Infof("[mbm] config: default mb domain capacity %d MB", defaultMBDomainCapacity)
+	general.Infof("[mbm] config: group customized capacities %v", conf.DomainGroupAwareCapacity)
+	general.Infof("[mbm] config: min ccd mb %d MB", conf.MinCCDMB)
+	general.Infof("[mbm] config: max ccd mb %d MB", conf.MaxCCDMB)
+	general.Infof("[mbm] config: domain alient incoming mb limit %d MB", conf.MaxIncomingRemoteMB)
+	general.Infof("[mbm] config: no-throtlle groups %v", conf.NoThrottleGroups)
+	general.Infof("[mbm] config: cross-domain groups %v", conf.CrossDomainGroups)
 
 	ccdMinMB := conf.MinCCDMB
 	ccdMaxMB := conf.MaxCCDMB
@@ -65,10 +84,11 @@ func NewGenericPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		return false, nil, nil
 	}
 
+	metricsFetcher := agentCtx.MetaServer.MetricsFetcher
 	planAllocator := allocator.New()
 	mbPlugin := newMBPlugin(ccdMinMB, ccdMaxMB,
 		defaultMBDomainCapacity, domains,
 		xDomGroups, groupNeverThrottles, groupCapacities,
-		planAllocator, agentCtx.EmitterPool)
+		metricsFetcher, planAllocator, agentCtx.EmitterPool)
 	return true, &agent.PluginWrapper{GenericPlugin: mbPlugin}, nil
 }

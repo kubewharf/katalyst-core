@@ -203,7 +203,53 @@ func TestNewDomainsByMachineInfo(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "happy path",
+			name: "happy path of real numa",
+			args: args{
+				info: &machine.KatalystMachineInfo{
+					CPUTopology: nil,
+					DieTopology: &machine.DieTopology{
+						NUMAToDie: map[int]sets.Int{
+							0: sets.NewInt(0, 1, 16, 17),
+							1: sets.NewInt(2, 3, 18, 19),
+						},
+					},
+					ExtraTopologyInfo: &machine.ExtraTopologyInfo{
+						SiblingNumaInfo: &machine.SiblingNumaInfo{
+							SiblingNumaMap: map[int]sets.Int{
+								0: {},
+								1: {},
+							},
+							SiblingNumaMBWAllocatable: 90_000,
+						},
+					},
+				},
+				ccdMinMB:        1_000,
+				ccdMaxMB:        35_000,
+				maxRemoteMB:     12_000,
+				defaultDomainMB: 90_000,
+			},
+			want: Domains{
+				0: &Domain{
+					ID:                 0,
+					CCDs:               sets.NewInt(0, 1, 16, 17),
+					defaultCapacityMB:  90_000,
+					minMBPerCCD:        1_000,
+					maxMBPerCCD:        35_000,
+					maxAlienIncomingMB: 12000,
+				},
+				1: &Domain{
+					ID:                 1,
+					CCDs:               sets.NewInt(2, 3, 18, 19),
+					defaultCapacityMB:  90_000,
+					minMBPerCCD:        1_000,
+					maxMBPerCCD:        35_000,
+					maxAlienIncomingMB: 12000,
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "happy path of fake numa",
 			args: args{
 				info: &machine.KatalystMachineInfo{
 					CPUTopology: nil,
@@ -273,6 +319,48 @@ func TestNewDomainsByMachineInfo(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("NewDomainsByMachineInfo() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_identifyDomainByNumas(t *testing.T) {
+	t.Parallel()
+	type args struct {
+		numaMap map[int]sets.Int
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    map[int]sets.Int
+		wantErr bool
+	}{
+		{
+			name: "happy path",
+			args: args{
+				numaMap: map[int]sets.Int{
+					0: {},
+					1: {},
+				},
+			},
+			want: map[int]sets.Int{
+				0: sets.NewInt(0),
+				1: sets.NewInt(1),
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := identifyDomainByNumas(tt.args.numaMap)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("identifyDomainByNumas() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("identifyDomainByNumas() got = %v, want %v", got, tt.want)
 			}
 		})
 	}

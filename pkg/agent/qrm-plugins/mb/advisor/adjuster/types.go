@@ -18,7 +18,7 @@ package adjuster
 
 type Adjuster interface {
 	// AdjustOutgoingTargets yields the value to set in order to have the target for each domain,
-	// taking into account of with currents the observed usage controlled by previous set values.
+	// taking into account of the observed usage (i.e. the currents) controlled by previous set values.
 	AdjustOutgoingTargets(targets []int, currents []int) []int
 }
 

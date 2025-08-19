@@ -32,6 +32,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/reader"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/malachite/types"
+	metrictypes "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -51,7 +52,7 @@ type MBPlugin struct {
 	xDomGroups  sets.String
 	domains     domain.Domains
 
-	reader        reader.MBReder
+	reader        reader.MBReader
 	advisor       advisor.Advisor
 	planAllocator allocator.PlanAllocator
 }
@@ -136,7 +137,8 @@ func (m *MBPlugin) run() {
 
 func newMBPlugin(ccdMinMB, ccdMaxMB int, defaultDomainCapacity int,
 	domains domain.Domains, xDomGroups []string, groupNeverThrottles []string,
-	groupCapacities map[string]int, planAllocator allocator.PlanAllocator, emitPool metricspool.MetricsEmitterPool,
+	groupCapacities map[string]int, metricFetcher metrictypes.MetricsFetcher,
+	planAllocator allocator.PlanAllocator, emitPool metricspool.MetricsEmitterPool,
 ) skeleton.GenericPlugin {
 	ccdMappings := domains.GetCCDMapping()
 	emitter := emitPool.GetDefaultMetricsEmitter().WithTags(metricName)
@@ -145,6 +147,7 @@ func newMBPlugin(ccdMinMB, ccdMaxMB int, defaultDomainCapacity int,
 		ccdToDomain: ccdMappings,
 		xDomGroups:  sets.NewString(xDomGroups...),
 		domains:     domains,
+		reader:      reader.New(metricFetcher),
 		advisor: advisor.New(ccdMinMB, ccdMaxMB, defaultDomainCapacity,
 			xDomGroups, groupNeverThrottles, groupCapacities,
 		),

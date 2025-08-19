@@ -19,9 +19,9 @@ package machine
 import (
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -65,6 +65,7 @@ func getDieTopology(infoGetter cpuInfoGetter, numCPU int) (*DieTopology, error) 
 			return nil, errors.Wrap(err, "failed to get cpu die-numa topology")
 		}
 
+		general.Infof("[mbm] get die topology: cpu %d, node %d, die %d", id, info.nodeID, info.l3CacheID)
 		result.processCPU(id, info.l3CacheID, info.nodeID)
 	}
 
@@ -88,7 +89,8 @@ func (p *procFsCPUInfoGetter) Get(cpuID int) (*cpuInfo, error) {
 		return nil, errors.Wrap(err, "failed to get cpu info")
 	}
 
-	nodeID, err := p.getNumaID(cpuID)
+	var nodeID int
+	nodeID, err = p.getNumaID(cpuID)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get cpu info")
 	}
@@ -101,44 +103,42 @@ func (p *procFsCPUInfoGetter) Get(cpuID int) (*cpuInfo, error) {
 }
 
 func (p *procFsCPUInfoGetter) getNumaID(cpuID int) (int, error) {
-	// numa node is as of "nodeX/" folder
+	// numa node is as in "nodeX"
 	cpuPath := path.Join(cpuFsRoot, fmt.Sprintf("cpu%d", cpuID))
+	fullPrefix := path.Join(cpuPath, "node")
 
 	numaNode := -1
-	if err := afero.Walk(p.fs, cpuPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if !info.IsDir() {
+	err := afero.Walk(p.fs, cpuPath, func(path string, info os.FileInfo, err error) error {
+		if path == cpuPath {
 			return nil
 		}
 
-		baseName := strings.TrimPrefix(path, cpuPath)
-		if len(baseName) == 0 {
-			return nil
+		if strings.HasPrefix(path, fullPrefix) {
+			nodeStr := strings.TrimPrefix(path, fullPrefix)
+			var errCurrent error
+			if numaNode, errCurrent = parseInt(nodeStr); errCurrent != nil {
+				return errors.Wrapf(errCurrent, "failed to locate numa node for cpu %d", cpuID)
+			}
+
+			// already got the numa node id here
+			return errFound
 		}
 
-		if !strings.HasPrefix(baseName, "/node") {
-			return filepath.SkipDir
+		if info.IsDir() { // no sub folder
+			return fs.SkipDir
 		}
 
-		nodeStr := strings.TrimPrefix(baseName, "/node")
-		var errCurrent error
-		if numaNode, errCurrent = parseInt(nodeStr); errCurrent != nil {
-			return errors.Wrapf(errCurrent, "failed to locate numa node for cpu %d", cpuID)
-		}
-
-		return errFound
-	}); err != nil && !errors.Is(err, errFound) {
-		return -1, err
+		return nil
+	})
+	if !errors.Is(err, errFound) {
+		return -1, errors.Wrapf(err, "failed to get numa node for cpu %d", cpuID)
 	}
 
 	return numaNode, nil
 }
 
 func (p *procFsCPUInfoGetter) getL3CacheID(cpuID int) (int, error) {
-	// CCD is as of cache/index3/id
+	// CCD(core complex die) id is in file cache/index3/id
 	ccdPath := path.Join(cpuFsRoot, fmt.Sprintf("cpu%d/cache/index3/id", cpuID))
 	var f afero.File
 	f, err := p.fs.Open(ccdPath)

@@ -23,11 +23,12 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	malachitetypes "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/malachite/types"
+	metrictypes "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 )
 
 const tolerationTime = 3 * time.Second
 
-type MBReder interface {
+type MBReader interface {
 	GetMBData() (*malachitetypes.MBData, error)
 }
 
@@ -61,6 +62,8 @@ func (m *metaServerMBReader) getMBData(now time.Time) (*malachitetypes.MBData, e
 	return mbData, nil
 }
 
-func New() MBReder {
-	return &metaServerMBReader{}
+func New(metricFetcher metrictypes.MetricsFetcher) MBReader {
+	return &metaServerMBReader{
+		metricFetcher: metricFetcher,
+	}
 }
