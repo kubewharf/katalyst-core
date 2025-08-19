@@ -58,7 +58,11 @@ import (
 const spdControllerName = "spd"
 
 const (
-	workloadWorkerCount        = 1
+	metricsNameSyncSPDAnnotationCost = "sync_spd_annotation_cost"
+)
+
+const (
+	workloadWorkerCount        = 5
 	spdWorkerCount             = 1
 	indicatorSpecWorkerCount   = 1
 	indicatorStatusWorkerCount = 1
@@ -341,6 +345,9 @@ func (sc *SPDController) updateWorkload(workloadGVR string) func(oldObj, newObj 
 
 		if util.WorkloadSPDEnabled(newWorkload) && !util.WorkloadSPDEnabled(oldWorkload) {
 			sc.enqueueWorkloadForSPDCreate(workloadGVR, newWorkload)
+		} else if !util.WorkloadSPDEnabled(newWorkload) && !util.WorkloadSPDEnabled(oldWorkload) {
+			klog.Infof("[spd] workload %s is disabled spd, skip update", newWorkload.GetName())
+			return
 		}
 
 		sc.enqueueWorkload(workloadGVR, newWorkload)
@@ -404,7 +411,14 @@ func (sc *SPDController) processNextWorkload() bool {
 
 // syncSPDAnnotation is mainly responsible to patch pod spd annotation.
 func (sc *SPDController) syncSPDAnnotation(key string) error {
-	klog.V(5).Infof("[spd] syncing workload [%v]", key)
+	begin := time.Now()
+	defer func() {
+		costs := time.Since(begin)
+		klog.V(5).Infof("[spd] finished workload %q (%v)", key, costs)
+		_ = sc.metricsEmitter.StoreInt64(metricsNameSyncSPDAnnotationCost, costs.Microseconds(),
+			metrics.MetricTypeNameRaw, metrics.MetricTag{Key: "name", Val: key})
+	}()
+
 	workloadGVR, namespace, name, err := native.ParseUniqGVRNameKey(key)
 	if err != nil {
 		klog.Errorf("[spd] failed to parse key %s to workload", key)
