@@ -30,6 +30,12 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
+const (
+	// L3CacheLevel represents the cache level for L3 cache
+	L3CacheLevel = 3
+	L3CacheType  = "Unified"
+)
+
 // NUMANodeInfo is a map from NUMANode ID to a list of
 // CPU IDs associated with that NUMANode.
 type NUMANodeInfo map[int]CPUSet
@@ -47,6 +53,16 @@ func (i NUMANodeInfo) CPUSizeInNUMAs(nodes ...int) int {
 // CPUDetails is a map from CPU ID to Core ID, Socket ID, and NUMA ID.
 type CPUDetails map[int]CPUTopoInfo
 
+// L3CacheTopology contains the mapping relationships between L3 caches, CPUs, and NUMA nodes
+type L3CacheTopology struct {
+	// L3CacheToCPUs maps L3 cache ID to the set of CPUs that share this L3 cache
+	L3CacheToCPUs map[int]CPUSet
+	// NUMAToL3Caches maps NUMA node ID to the set of L3 cache IDs in this NUMA node
+	NUMAToL3Caches map[int]CPUSet
+	// L3CacheToNUMANodes maps L3 cache ID to the set of NUMA nodes that share this L3 cache
+	L3CacheToNUMANodes map[int]CPUSet
+}
+
 // CPUTopology contains details of node cpu, where :
 // CPU  - logical CPU, cadvisor - thread
 // Core - physical CPU, cadvisor - Core
@@ -61,6 +77,7 @@ type CPUTopology struct {
 	NUMAToCPUs           NUMANodeInfo
 	CPUDetails           CPUDetails
 	CPUInfo              *CPUInfo
+	L3CacheTopology      L3CacheTopology
 }
 
 type MemoryDetails map[int]uint64
@@ -142,7 +159,7 @@ func (topo *CPUTopology) CPUsPerSocket() int {
 	return topo.NumCPUs / topo.NumSockets
 }
 
-// NUMAsPerSocket returns the the number of NUMA
+// NUMAsPerSocket returns the number of NUMA
 // are associated with each socket.
 func (topo *CPUTopology) NUMAsPerSocket() (int, error) {
 	numasCount := topo.CPUDetails.NUMANodes().Size()
@@ -218,12 +235,14 @@ func GenerateDummyCPUTopology(cpuNum, socketNum, numaNum int) (*CPUTopology, err
 					NUMANodeID: j,
 					SocketID:   i,
 					CoreID:     k,
+					L3CacheID:  j,
 				}
 
 				cpuTopology.CPUDetails[k+cpuNum/2] = CPUTopoInfo{
 					NUMANodeID: j,
 					SocketID:   i,
 					CoreID:     k,
+					L3CacheID:  j,
 				}
 
 				cpuTopology.NUMANodeIDToSocketID[j] = i
@@ -236,6 +255,9 @@ func GenerateDummyCPUTopology(cpuNum, socketNum, numaNum int) (*CPUTopology, err
 		numaToCPUs[id] = cpuTopology.CPUDetails.CPUsInNUMANodes(id)
 	}
 	cpuTopology.NUMAToCPUs = numaToCPUs
+
+	// Generate dummy L3 cache topology
+	cpuTopology.L3CacheTopology = BuildDummyL3CacheTopology(cpuTopology.CPUDetails)
 
 	return cpuTopology, nil
 }
@@ -293,14 +315,15 @@ type CPUTopoInfo struct {
 	NUMANodeID int
 	SocketID   int
 	CoreID     int
+	L3CacheID  int
 }
 
 // KeepOnly returns a new CPUDetails object with only the supplied cpus.
 func (d CPUDetails) KeepOnly(cpus CPUSet) CPUDetails {
 	result := CPUDetails{}
-	for cpu, info := range d {
+	for cpu, cpuInfo := range d {
 		if cpus.Contains(cpu) {
-			result[cpu] = info
+			result[cpu] = cpuInfo
 		}
 	}
 	return result
@@ -309,8 +332,8 @@ func (d CPUDetails) KeepOnly(cpus CPUSet) CPUDetails {
 // NUMANodes returns all NUMANode IDs associated with the CPUs in this CPUDetails.
 func (d CPUDetails) NUMANodes() CPUSet {
 	b := NewCPUSet()
-	for _, info := range d {
-		b.Add(info.NUMANodeID)
+	for _, cpuInfo := range d {
+		b.Add(cpuInfo.NUMANodeID)
 	}
 	return b
 }
@@ -320,9 +343,9 @@ func (d CPUDetails) NUMANodes() CPUSet {
 func (d CPUDetails) NUMANodesInSockets(ids ...int) CPUSet {
 	b := NewCPUSet()
 	for _, id := range ids {
-		for _, info := range d {
-			if info.SocketID == id {
-				b.Add(info.NUMANodeID)
+		for _, cpuInfo := range d {
+			if cpuInfo.SocketID == id {
+				b.Add(cpuInfo.NUMANodeID)
 			}
 		}
 	}
@@ -332,8 +355,8 @@ func (d CPUDetails) NUMANodesInSockets(ids ...int) CPUSet {
 // Sockets returns all socket IDs associated with the CPUs in this CPUDetails.
 func (d CPUDetails) Sockets() CPUSet {
 	b := NewCPUSet()
-	for _, info := range d {
-		b.Add(info.SocketID)
+	for _, cpuInfo := range d {
+		b.Add(cpuInfo.SocketID)
 	}
 	return b
 }
@@ -343,8 +366,8 @@ func (d CPUDetails) Sockets() CPUSet {
 func (d CPUDetails) CPUsInSockets(ids ...int) CPUSet {
 	b := NewCPUSet()
 	for _, id := range ids {
-		for cpu, info := range d {
-			if info.SocketID == id {
+		for cpu, cpuInfo := range d {
+			if cpuInfo.SocketID == id {
 				b.Add(cpu)
 			}
 		}
@@ -357,9 +380,9 @@ func (d CPUDetails) CPUsInSockets(ids ...int) CPUSet {
 func (d CPUDetails) SocketsInNUMANodes(ids ...int) CPUSet {
 	b := NewCPUSet()
 	for _, id := range ids {
-		for _, info := range d {
-			if info.NUMANodeID == id {
-				b.Add(info.SocketID)
+		for _, cpuInfo := range d {
+			if cpuInfo.NUMANodeID == id {
+				b.Add(cpuInfo.SocketID)
 			}
 		}
 	}
@@ -369,8 +392,8 @@ func (d CPUDetails) SocketsInNUMANodes(ids ...int) CPUSet {
 // Cores returns all core IDs associated with the CPUs in this CPUDetails.
 func (d CPUDetails) Cores() CPUSet {
 	b := NewCPUSet()
-	for _, info := range d {
-		b.Add(info.CoreID)
+	for _, cpuInfo := range d {
+		b.Add(cpuInfo.CoreID)
 	}
 	return b
 }
@@ -380,9 +403,9 @@ func (d CPUDetails) Cores() CPUSet {
 func (d CPUDetails) CoresInNUMANodes(ids ...int) CPUSet {
 	b := NewCPUSet()
 	for _, id := range ids {
-		for _, info := range d {
-			if info.NUMANodeID == id {
-				b.Add(info.CoreID)
+		for _, cpuInfo := range d {
+			if cpuInfo.NUMANodeID == id {
+				b.Add(cpuInfo.CoreID)
 			}
 		}
 	}
@@ -394,9 +417,9 @@ func (d CPUDetails) CoresInNUMANodes(ids ...int) CPUSet {
 func (d CPUDetails) CoresInSockets(ids ...int) CPUSet {
 	b := NewCPUSet()
 	for _, id := range ids {
-		for _, info := range d {
-			if info.SocketID == id {
-				b.Add(info.CoreID)
+		for _, cpuInfo := range d {
+			if cpuInfo.SocketID == id {
+				b.Add(cpuInfo.CoreID)
 			}
 		}
 	}
@@ -417,8 +440,8 @@ func (d CPUDetails) CPUs() CPUSet {
 func (d CPUDetails) CPUsInNUMANodes(ids ...int) CPUSet {
 	b := NewCPUSet()
 	for _, id := range ids {
-		for cpu, info := range d {
-			if info.NUMANodeID == id {
+		for cpu, cpuInfo := range d {
+			if cpuInfo.NUMANodeID == id {
 				b.Add(cpu)
 			}
 		}
@@ -431,10 +454,109 @@ func (d CPUDetails) CPUsInNUMANodes(ids ...int) CPUSet {
 func (d CPUDetails) CPUsInCores(ids ...int) CPUSet {
 	b := NewCPUSet()
 	for _, id := range ids {
-		for cpu, info := range d {
-			if info.CoreID == id {
+		for cpu, cpuInfo := range d {
+			if cpuInfo.CoreID == id {
 				b.Add(cpu)
 			}
+		}
+	}
+	return b
+}
+
+// BuildL3CacheTopologyFromMachineInfo builds L3 cache topology from cpu details
+func BuildL3CacheTopologyFromMachineInfo(cpuDetails CPUDetails) L3CacheTopology {
+	l3CacheToCPUs := make(map[int]CPUSet)
+	numaToL3Caches := make(map[int]CPUSet)
+	l3CacheToNUMANodes := make(map[int]CPUSet)
+
+	// Process cache topology information
+	for cpuID, cpu := range cpuDetails {
+		l3CacheID := cpu.L3CacheID
+		// Map L3 cache ID to CPUs
+		if _, exists := l3CacheToCPUs[l3CacheID]; !exists {
+			l3CacheToCPUs[l3CacheID] = NewCPUSet()
+		}
+		l3CacheToCPUs[l3CacheID].Add(cpuID)
+
+		// Map NUMA node to L3 cache IDs
+		if _, exists := numaToL3Caches[cpu.NUMANodeID]; !exists {
+			numaToL3Caches[cpu.NUMANodeID] = NewCPUSet()
+		}
+		numaToL3Caches[cpu.NUMANodeID].Add(l3CacheID)
+
+		// Map L3 cache ID to NUMA nodes
+		if _, exists := l3CacheToNUMANodes[l3CacheID]; !exists {
+			l3CacheToNUMANodes[l3CacheID] = NewCPUSet()
+		}
+		l3CacheToNUMANodes[l3CacheID].Add(cpu.NUMANodeID)
+	}
+
+	return L3CacheTopology{
+		L3CacheToCPUs:      l3CacheToCPUs,
+		NUMAToL3Caches:     numaToL3Caches,
+		L3CacheToNUMANodes: l3CacheToNUMANodes,
+	}
+}
+
+// BuildDummyL3CacheTopology builds dummy L3 cache topology for testing
+func BuildDummyL3CacheTopology(cpuDetails CPUDetails) L3CacheTopology {
+	l3CacheToCPUs := make(map[int]CPUSet)
+	numaToL3Caches := make(map[int]CPUSet)
+	l3CacheToNUMANodes := make(map[int]CPUSet)
+
+	// In a dummy topology, map each NUMA node to one L3 cache
+	numaNodes := cpuDetails.NUMANodes()
+	for numaID := range numaNodes.ToSliceInt() {
+		l3CacheID := numaID // Simple mapping: one L3 cache per NUMA node
+
+		// Map L3 cache ID to CPUs in this NUMA node
+		l3CacheToCPUs[l3CacheID] = cpuDetails.CPUsInNUMANodes(numaID)
+
+		// Map NUMA node to L3 cache IDs
+		numaToL3Caches[numaID] = NewCPUSet(l3CacheID)
+
+		// Map L3 cache ID to NUMA nodes
+		l3CacheToNUMANodes[l3CacheID] = NewCPUSet(numaID)
+	}
+
+	return L3CacheTopology{
+		L3CacheToCPUs:      l3CacheToCPUs,
+		NUMAToL3Caches:     numaToL3Caches,
+		L3CacheToNUMANodes: l3CacheToNUMANodes,
+	}
+}
+
+// CPUsInL3Caches returns all logical CPU IDs associated with the given
+// L3 cache IDs in this CPUTopology.
+func (topo L3CacheTopology) CPUsInL3Caches(ids ...int) CPUSet {
+	b := NewCPUSet()
+	for _, id := range ids {
+		if cpus, exists := topo.L3CacheToCPUs[id]; exists {
+			b = b.Union(cpus)
+		}
+	}
+	return b
+}
+
+// L3CachesInNUMANodes returns all L3 cache IDs associated with the given
+// NUMA node IDs in this L3CacheTopology.
+func (topo L3CacheTopology) L3CachesInNUMANodes(ids ...int) CPUSet {
+	b := NewCPUSet()
+	for _, id := range ids {
+		if l3Caches, exists := topo.NUMAToL3Caches[id]; exists {
+			b = b.Union(l3Caches)
+		}
+	}
+	return b
+}
+
+// NUMANodesInL3Caches returns all NUMA node IDs associated with the given
+// L3 cache IDs in this CPUTopology.
+func (topo L3CacheTopology) NUMANodesInL3Caches(ids ...int) CPUSet {
+	b := NewCPUSet()
+	for _, id := range ids {
+		if numaNodes, exists := topo.L3CacheToNUMANodes[id]; exists {
+			b = b.Union(numaNodes)
 		}
 	}
 	return b
@@ -460,12 +582,14 @@ func Discover(machineInfo *info.MachineInfo) (*CPUTopology, *MemoryTopology, err
 
 		numPhysicalCores += len(node.Cores)
 		for _, core := range node.Cores {
+			l3CacheID := getUniqueL3CacheID(core)
 			if coreID, err := getUniqueCoreID(core.Threads); err == nil {
 				for _, cpu := range core.Threads {
 					cpuDetails[cpu] = CPUTopoInfo{
 						CoreID:     coreID,
 						SocketID:   core.SocketID,
 						NUMANodeID: node.Id,
+						L3CacheID:  l3CacheID,
 					}
 
 					numaNodeIDToSocketID[node.Id] = core.SocketID
@@ -489,6 +613,9 @@ func Discover(machineInfo *info.MachineInfo) (*CPUTopology, *MemoryTopology, err
 		numaToCPUs[id] = cpuDetails.CPUsInNUMANodes(id)
 	}
 
+	// Build L3 cache topology based on cache information from machineInfo
+	l3CacheTopology := BuildL3CacheTopologyFromMachineInfo(cpuDetails)
+
 	return &CPUTopology{
 		NumCPUs:              machineInfo.NumCores,
 		NumSockets:           machineInfo.NumSockets,
@@ -498,7 +625,20 @@ func Discover(machineInfo *info.MachineInfo) (*CPUTopology, *MemoryTopology, err
 		NUMAToCPUs:           numaToCPUs,
 		CPUDetails:           cpuDetails,
 		CPUInfo:              cpuInfo,
+		L3CacheTopology:      l3CacheTopology,
 	}, &memoryTopology, nil
+}
+
+// getUniqueL3CacheID returns the unique L3 cache ID for the given core.
+// If no L3 cache is found, it returns -1.
+// todo: Intel multi-die machine can not get unique L3 Cache ID from UncoreCaches now.
+func getUniqueL3CacheID(core info.Core) int {
+	for _, cache := range core.UncoreCaches {
+		if cache.Level == L3CacheLevel && cache.Type == L3CacheType {
+			return cache.Id
+		}
+	}
+	return -1
 }
 
 // getUniqueCoreID computes coreId as the lowest cpuID
@@ -513,14 +653,14 @@ func getUniqueCoreID(threads []int) (coreID int, err error) {
 		return 0, fmt.Errorf("cpus provided are not unique")
 	}
 
-	min := threads[0]
+	m := threads[0]
 	for _, thread := range threads[1:] {
-		if thread < min {
-			min = thread
+		if thread < m {
+			m = thread
 		}
 	}
 
-	return min, nil
+	return m, nil
 }
 
 // GetNumaAwareAssignments returns a mapping from NUMA id to cpu core
