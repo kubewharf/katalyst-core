@@ -71,7 +71,7 @@ type ResourcesEvictionPlugin struct {
 }
 
 func NewResourcesEvictionPlugin(pluginName string, metaServer *metaserver.MetaServer,
-	emitter metrics.MetricEmitter, resourcesGetter ResourcesGetter, porRequestResourcesGetter PodRequestResourcesGetter, thresholdGetter ThresholdGetter,
+	emitter metrics.MetricEmitter, resourcesGetter ResourcesGetter, podRequestResourcesGetter PodRequestResourcesGetter, thresholdGetter ThresholdGetter,
 	deletionGracePeriodGetter GracePeriodGetter, thresholdMetToleranceDurationGetter GracePeriodGetter,
 	skipZeroQuantityResourceNames sets.String,
 	podFilter func(pod *v1.Pod) (bool, error),
@@ -82,7 +82,7 @@ func NewResourcesEvictionPlugin(pluginName string, metaServer *metaserver.MetaSe
 		emitter:                             emitter,
 		metaServer:                          metaServer,
 		resourcesGetter:                     resourcesGetter,
-		podRequestResourcesGetter:           porRequestResourcesGetter,
+		podRequestResourcesGetter:           podRequestResourcesGetter,
 		thresholdGetter:                     thresholdGetter,
 		deletionGracePeriodGetter:           deletionGracePeriodGetter,
 		thresholdMetToleranceDurationGetter: thresholdMetToleranceDurationGetter,
