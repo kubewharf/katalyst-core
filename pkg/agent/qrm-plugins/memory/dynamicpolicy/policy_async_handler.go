@@ -273,14 +273,13 @@ func (p *DynamicPolicy) checkMemorySet(_ *coreconfig.Configuration,
 ) {
 	general.Infof("called")
 	var (
-		err              error
+		errList          []error
 		invalidMemSet    = false
 		memorySetOverlap = false
 	)
 
-	var errList []error
 	defer func() {
-		if err != nil {
+		if len(errList) > 0 {
 			_ = general.UpdateHealthzStateByError(memconsts.CheckMemSet, errors.NewAggregate(errList))
 		} else if invalidMemSet {
 			_ = general.UpdateHealthzState(memconsts.CheckMemSet, general.HealthzCheckStateNotReady, "invalid mem set exists")
@@ -318,7 +317,7 @@ func (p *DynamicPolicy) checkMemorySet(_ *coreconfig.Configuration,
 				containerID string
 				cpusetStats *common.CPUSetStats
 			)
-			containerID, err = p.metaServer.GetContainerID(podUID, containerName)
+			containerID, err := p.metaServer.GetContainerID(podUID, containerName)
 			if err != nil {
 				general.Errorf("get container id of pod: %s container: %s failed with error: %v", podUID, containerName, err)
 				continue
