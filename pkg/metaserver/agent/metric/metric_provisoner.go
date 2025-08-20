@@ -24,6 +24,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/cgroup"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/kubelet"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/malachite"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/prjquota"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/rodan"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
@@ -34,6 +35,7 @@ import (
 
 func init() {
 	RegisterProvisioners(metaserver.MetricProvisionerMalachite, malachite.NewMalachiteMetricsProvisioner)
+	RegisterProvisioners(metaserver.MetricProvisionerPrjquota, prjquota.NewPrjquotaMetricsProvisioner)
 	RegisterProvisioners(metaserver.MetricProvisionerMalachiteRealtime, malachite.NewRealtimePowerMetricsProvisioner)
 	RegisterProvisioners(metaserver.MetricProvisionerMalachiteRealtimeFreq, malachite.NewRealtimeFreqMetricsProvisioner)
 	RegisterProvisioners(metaserver.MetricProvisionerKubelet, kubelet.NewKubeletSummaryProvisioner)

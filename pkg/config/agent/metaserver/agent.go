@@ -30,9 +30,10 @@ const (
 	MetricProvisionerMalachiteRealtime     = "malachite_realtime"
 	MetricProvisionerMalachiteRealtimeFreq = "malachite_realtime_freq"
 
-	MetricProvisionerCgroup  = "cgroup"
-	MetricProvisionerKubelet = "kubelet"
-	MetricProvisionerRodan   = "rodan"
+	MetricProvisionerPrjquota = "prjquota"
+	MetricProvisionerCgroup   = "cgroup"
+	MetricProvisionerKubelet  = "kubelet"
+	MetricProvisionerRodan    = "rodan"
 )
 
 type MetricConfiguration struct {
