@@ -525,7 +525,7 @@ func NewNicIrqTuningManagers(conf *config.IrqTuningConfig, nics []*machine.NicBa
 
 		pps := (rxPackets - oldRxPPS) / uint64(timeDiff)
 
-		if pps >= conf.ThrouputClassSwitchConf.NormalThroughputThresholds.RxPPSThresh {
+		if pps >= conf.ThroughputClassSwitchConf.NormalThroughputThresholds.RxPPSThreshold {
 			normalThroughputNics = append(normalThroughputNics, nic)
 		} else {
 			lowThroughputNics = append(lowThroughputNics, nic)
@@ -1887,9 +1887,9 @@ func (ic *IrqTuningController) classifyNicsByThroughput(oldIndicatorsStats *Indi
 
 		pps := (stats.TotalRxPackets - oldStats.TotalRxPackets) / uint64(timeDiff)
 
-		if pps <= ic.conf.ThrouputClassSwitchConf.LowThroughputThresholds.RxPPSThresh {
+		if pps <= ic.conf.ThroughputClassSwitchConf.LowThroughputThresholds.RxPPSThreshold {
 			nic.LowThroughputSuccCount++
-			if nic.LowThroughputSuccCount >= ic.conf.ThrouputClassSwitchConf.LowThroughputThresholds.SuccessiveCount {
+			if nic.LowThroughputSuccCount >= ic.conf.ThroughputClassSwitchConf.LowThroughputThresholds.SuccessiveCount {
 				// move nic to ic.LowThroughputNic from ic.Nics
 				lowThroughputNics = append(lowThroughputNics, nic)
 				nic.LowThroughputSuccCount = 0
@@ -1900,7 +1900,7 @@ func (ic *IrqTuningController) classifyNicsByThroughput(oldIndicatorsStats *Indi
 			}
 		} else {
 			normalThroughputNics = append(normalThroughputNics, nic)
-			if pps >= ic.conf.ThrouputClassSwitchConf.NormalThroughputThresholds.RxPPSThresh {
+			if pps >= ic.conf.ThroughputClassSwitchConf.NormalThroughputThresholds.RxPPSThreshold {
 				nic.LowThroughputSuccCount = 0
 			}
 		}
@@ -1929,9 +1929,9 @@ func (ic *IrqTuningController) classifyNicsByThroughput(oldIndicatorsStats *Indi
 
 		pps := (stats.TotalRxPackets - oldStats.TotalRxPackets) / uint64(timeDiff)
 
-		if pps >= ic.conf.ThrouputClassSwitchConf.NormalThroughputThresholds.RxPPSThresh {
+		if pps >= ic.conf.ThroughputClassSwitchConf.NormalThroughputThresholds.RxPPSThreshold {
 			nic.NormalThroughputSuccCount++
-			if nic.NormalThroughputSuccCount >= ic.conf.ThrouputClassSwitchConf.NormalThroughputThresholds.SuccessiveCount {
+			if nic.NormalThroughputSuccCount >= ic.conf.ThroughputClassSwitchConf.NormalThroughputThresholds.SuccessiveCount {
 				// move nic to ic.Nics from ic.LowThroughputNics
 				normalThroughputNics = append(normalThroughputNics, nic)
 				nic.LowThroughputSuccCount = 0
@@ -1942,7 +1942,7 @@ func (ic *IrqTuningController) classifyNicsByThroughput(oldIndicatorsStats *Indi
 			}
 		} else {
 			lowThroughputNics = append(lowThroughputNics, nic)
-			if pps <= ic.conf.ThrouputClassSwitchConf.LowThroughputThresholds.RxPPSThresh {
+			if pps <= ic.conf.ThroughputClassSwitchConf.LowThroughputThresholds.RxPPSThreshold {
 				nic.NormalThroughputSuccCount = 0
 			}
 		}
@@ -3595,7 +3595,7 @@ func (ic *IrqTuningController) adaptIrqAffinityPolicy(oldIndicatorsStats *Indica
 		rxPPS := (stats.TotalRxPackets - oldStats.TotalRxPackets) / uint64(timeDiff)
 
 		if nic.IrqAffinityPolicy == InitTuning {
-			if rxPPS >= ic.conf.IrqCoresExclusionConf.Thresholds.EnableThresholds.RxPPSThresh {
+			if rxPPS >= ic.conf.IrqCoresExclusionConf.Thresholds.EnableThresholds.RxPPSThreshold {
 				// NewIrqCores will be populated after completing exclusive irq cores calculation and selection
 				ic.IrqAffinityChanges[nic.NicInfo.IfIndex] = buildNicIrqAffinityChange(nic, IrqCoresExclusive, nil)
 			} else {
@@ -3606,27 +3606,27 @@ func (ic *IrqTuningController) adaptIrqAffinityPolicy(oldIndicatorsStats *Indica
 		}
 
 		if nic.IrqAffinityPolicy == IrqCoresExclusive {
-			if rxPPS <= ic.conf.IrqCoresExclusionConf.Thresholds.DisableThresholds.RxPPSThresh {
+			if rxPPS <= ic.conf.IrqCoresExclusionConf.Thresholds.DisableThresholds.RxPPSThreshold {
 				nic.DisableExclusionThreshSuccCount++
-				// after all exclusive irq cores pratically tuned,
+				// after all exclusive irq cores practically tuned,
 				// will set balance-fair policy for nics whose irq cores exclusion switched from enable to disable
 				if nic.DisableExclusionThreshSuccCount >= ic.conf.IrqCoresExclusionConf.Thresholds.DisableThresholds.SuccessiveCount &&
 					time.Since(nic.IrqCoresExclusionLastSwitchTime).Seconds() > ic.conf.IrqCoresExclusionConf.SuccessiveSwitchInterval {
 					// needless to set NewIrqCores for IrqBalanceFair policy, irq cores will be calculated when practically set IrqBalanceFair policy for it.
 					ic.IrqAffinityChanges[nic.NicInfo.IfIndex] = buildNicIrqAffinityChange(nic, IrqBalanceFair, nil)
 				}
-			} else if rxPPS >= ic.conf.IrqCoresExclusionConf.Thresholds.EnableThresholds.RxPPSThresh {
+			} else if rxPPS >= ic.conf.IrqCoresExclusionConf.Thresholds.EnableThresholds.RxPPSThreshold {
 				nic.DisableExclusionThreshSuccCount = 0
 			}
 		} else {
-			if rxPPS >= ic.conf.IrqCoresExclusionConf.Thresholds.EnableThresholds.RxPPSThresh {
+			if rxPPS >= ic.conf.IrqCoresExclusionConf.Thresholds.EnableThresholds.RxPPSThreshold {
 				nic.EnableExclusionThreshSuccCount++
 				if nic.EnableExclusionThreshSuccCount >= ic.conf.IrqCoresExclusionConf.Thresholds.EnableThresholds.SuccessiveCount &&
 					time.Since(nic.IrqCoresExclusionLastSwitchTime).Seconds() > ic.conf.IrqCoresExclusionConf.SuccessiveSwitchInterval {
 					// NewIrqCores will be populated after completing exclusive irq cores calculation and selection
 					ic.IrqAffinityChanges[nic.NicInfo.IfIndex] = buildNicIrqAffinityChange(nic, IrqCoresExclusive, nil)
 				}
-			} else if rxPPS <= ic.conf.IrqCoresExclusionConf.Thresholds.DisableThresholds.RxPPSThresh {
+			} else if rxPPS <= ic.conf.IrqCoresExclusionConf.Thresholds.DisableThresholds.RxPPSThreshold {
 				nic.EnableExclusionThreshSuccCount = 0
 			}
 		}
@@ -3839,11 +3839,11 @@ func (ic *IrqTuningController) calculateNicExclusiveIrqCoresIncrease(nic *NicIrq
 
 	_, cpuUtilAvg := calculateCpuUtils(oldIndicatorsStats.CPUStats, ic.IndicatorsStats.CPUStats, nic.NicInfo.getIrqCores())
 
-	if cpuUtilAvg.IrqUtil < incConf.Thresholds.IrqCoresAvgCpuUtilThresh {
+	if cpuUtilAvg.IrqUtil < incConf.Thresholds.IrqCoresAvgCpuUtilThreshold {
 		return nil, nil
 	}
 
-	if cpuUtilAvg.IrqUtil >= incConf.IrqCoresCpuFullThresh {
+	if cpuUtilAvg.IrqUtil >= incConf.IrqCoresCpuFullThreshold {
 		// fallback to balance-fair policy
 		ic.IrqAffinityChanges[nic.NicInfo.IfIndex] = buildNicIrqAffinityChange(nic, IrqBalanceFair, nil)
 		if err := ic.TuneNicIrqAffinityWithBalanceFairPolicy(nic); err != nil {
@@ -3958,7 +3958,7 @@ func (ic *IrqTuningController) isPingPongIrqBalance(nic *NicIrqTuningManager, sr
 	lbConf := &ic.conf.IrqLoadBalanceConf
 	lastIrqLoadBalance := nic.LastIrqLoadBalance
 
-	if time.Since(lastIrqLoadBalance.TimeStamp).Seconds() >= float64(lbConf.PingPongIntervalThresh) {
+	if time.Since(lastIrqLoadBalance.TimeStamp).Seconds() >= float64(lbConf.PingPongIntervalThreshold) {
 		return false
 	}
 
@@ -4114,7 +4114,7 @@ func (ic *IrqTuningController) balanceIrqLoadBasedOnIrqUtil(nic *NicIrqTuningMan
 
 	cpuUtils, cpuUtilAvg := calculateCpuUtils(oldIndicatorsStats.CPUStats, ic.IndicatorsStats.CPUStats, nic.NicInfo.getIrqCores())
 
-	if cpuUtilAvg.IrqUtil > ic.conf.IrqCoresAdjustConf.IrqCoresIncConf.Thresholds.IrqCoresAvgCpuUtilThresh {
+	if cpuUtilAvg.IrqUtil > ic.conf.IrqCoresAdjustConf.IrqCoresIncConf.Thresholds.IrqCoresAvgCpuUtilThreshold {
 		return false, false
 	}
 
@@ -4123,7 +4123,7 @@ func (ic *IrqTuningController) balanceIrqLoadBasedOnIrqUtil(nic *NicIrqTuningMan
 
 	var needToBalanceIrqCores []*CPUUtil
 	for _, cpuUtil := range cpuUtils {
-		if cpuUtil.IrqUtil >= lbConf.Thresholds.IrqCoreCpuUtilThresh {
+		if cpuUtil.IrqUtil >= lbConf.Thresholds.IrqCoreCpuUtilThreshold {
 			needToBalanceIrqCores = append(needToBalanceIrqCores, cpuUtil)
 		} else {
 			break
@@ -4159,7 +4159,7 @@ func (ic *IrqTuningController) balanceIrqLoadBasedOnIrqUtil(nic *NicIrqTuningMan
 			nic.TuningRecords.IrqLoadBalancePingPongCount = 0
 		}
 
-		irqTunings, err := ic.balanceIrqs(nic, srcIrqCore, cpuUtils[dstIrqCoreIndex], lbConf.Thresholds.IrqCoreCpuUtilGapThresh, lbConf.IrqsTunedNumMaxEachTime, oldIndicatorsStats)
+		irqTunings, err := ic.balanceIrqs(nic, srcIrqCore, cpuUtils[dstIrqCoreIndex], lbConf.Thresholds.IrqCoreCpuUtilGapThreshold, lbConf.IrqsTunedNumMaxEachTime, oldIndicatorsStats)
 		if err != nil {
 			if err == ErrNotFoundProperDestIrqCore {
 				needToIncIrqCores = true
@@ -4281,7 +4281,7 @@ func (ic *IrqTuningController) calculateNicExclusiveIrqCoresDecrease(nic *NicIrq
 
 	_, cpuUtilAvg := calculateCpuUtils(oldIndicatorsStats.CPUStats, ic.IndicatorsStats.CPUStats, nic.NicInfo.getIrqCores())
 
-	if cpuUtilAvg.IrqUtil > decConf.Thresholds.IrqCoresAvgCpuUtilThresh {
+	if cpuUtilAvg.IrqUtil > decConf.Thresholds.IrqCoresAvgCpuUtilThreshold {
 		return nil, nil
 	}
 

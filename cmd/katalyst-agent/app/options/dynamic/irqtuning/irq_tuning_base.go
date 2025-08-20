@@ -40,11 +40,11 @@ type IRQTuningOptions struct {
 	KsoftirqdNice           int
 	CoresExpectedCPUUtil    int
 
-	ThrouputClassSwitchOptions *throughputclassswitch.ThroughputClassSwitchOptions
-	CoreNetOverLoadThresh      *netoverload.IRQCoreNetOverloadThresholdOptions
-	LoadBalanceOptions         *loadbalance.IRQLoadBalanceOptions
-	CoresAdjustOptions         *coresadjust.IRQCoresAdjustOptions
-	CoresExclusionOptions      *coresexclusion.IRQCoresExclusionOptions
+	ThroughputClassSwitchOptions *throughputclassswitch.ThroughputClassSwitchOptions
+	CoreNetOverLoadThreshold     *netoverload.IRQCoreNetOverloadThresholdOptions
+	LoadBalanceOptions           *loadbalance.IRQLoadBalanceOptions
+	CoresAdjustOptions           *coresadjust.IRQCoresAdjustOptions
+	CoresExclusionOptions        *coresexclusion.IRQCoresExclusionOptions
 }
 
 func NewIRQTuningOptions() *IRQTuningOptions {
@@ -59,11 +59,11 @@ func NewIRQTuningOptions() *IRQTuningOptions {
 		KsoftirqdNice:           -20,
 		CoresExpectedCPUUtil:    50,
 
-		ThrouputClassSwitchOptions: throughputclassswitch.NewThroughputClassSwitchOptions(),
-		CoreNetOverLoadThresh:      netoverload.NewIRQCoreNetOverloadThresholdOptions(),
-		LoadBalanceOptions:         loadbalance.NewIRQLoadBalanceOptions(),
-		CoresAdjustOptions:         coresadjust.NewIRQCoresAdjustOptions(),
-		CoresExclusionOptions:      coresexclusion.NewIRQCoresExclusionOptions(),
+		ThroughputClassSwitchOptions: throughputclassswitch.NewThroughputClassSwitchOptions(),
+		CoreNetOverLoadThreshold:     netoverload.NewIRQCoreNetOverloadThresholdOptions(),
+		LoadBalanceOptions:           loadbalance.NewIRQLoadBalanceOptions(),
+		CoresAdjustOptions:           coresadjust.NewIRQCoresAdjustOptions(),
+		CoresExclusionOptions:        coresexclusion.NewIRQCoresExclusionOptions(),
 	}
 }
 
@@ -79,8 +79,8 @@ func (o *IRQTuningOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.IntVar(&o.KsoftirqdNice, "ksoftirqd-nice", o.KsoftirqdNice, "ksoftirqd nice")
 	fs.IntVar(&o.CoresExpectedCPUUtil, "cores-expected-cpu-util", o.CoresExpectedCPUUtil, "irq cores expected cpu util")
 
-	o.ThrouputClassSwitchOptions.AddFlags(fss)
-	o.CoreNetOverLoadThresh.AddFlags(fss)
+	o.ThroughputClassSwitchOptions.AddFlags(fss)
+	o.CoreNetOverLoadThreshold.AddFlags(fss)
 	o.LoadBalanceOptions.AddFlags(fss)
 	o.CoresAdjustOptions.AddFlags(fss)
 	o.CoresExclusionOptions.AddFlags(fss)
@@ -101,8 +101,8 @@ func (o *IRQTuningOptions) ApplyTo(c *irqdynamicconf.IRQTuningConfiguration) err
 
 	c.CoresExpectedCPUUtil = o.CoresExpectedCPUUtil
 
-	errList = append(errList, o.ThrouputClassSwitchOptions.ApplyTo(c.ThrouputClassSwitchConf))
-	errList = append(errList, o.CoreNetOverLoadThresh.ApplyTo(c.CoreNetOverLoadThresh))
+	errList = append(errList, o.ThroughputClassSwitchOptions.ApplyTo(c.ThroughputClassSwitchConf))
+	errList = append(errList, o.CoreNetOverLoadThreshold.ApplyTo(c.CoreNetOverLoadThreshold))
 	errList = append(errList, o.LoadBalanceOptions.ApplyTo(c.LoadBalanceConf))
 	errList = append(errList, o.CoresAdjustOptions.ApplyTo(c.CoresAdjustConf))
 	errList = append(errList, o.CoresExclusionOptions.ApplyTo(c.CoresExclusionConf))

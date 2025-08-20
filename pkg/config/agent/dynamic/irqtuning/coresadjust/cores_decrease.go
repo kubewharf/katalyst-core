@@ -29,8 +29,8 @@ type IRQCoresDecConfig struct {
 }
 
 type IRQCoresDecThresholds struct {
-	// threshold of decreasing irq cores, generally this thresh should be less-than IrqCoresExpectedCpuUtil
-	AvgCPUUtilThresh int
+	// threshold of decreasing irq cores, generally this threshold should be less-than IrqCoresExpectedCpuUtil
+	AvgCPUUtilThreshold int
 }
 
 func NewIRQCoresDecConfig() *IRQCoresDecConfig {
@@ -40,7 +40,7 @@ func NewIRQCoresDecConfig() *IRQCoresDecConfig {
 		SinceLastBalanceInterval: 60,
 		DecCoresMaxEachTime:      1,
 		Thresholds: &IRQCoresDecThresholds{
-			AvgCPUUtilThresh: 40,
+			AvgCPUUtilThreshold: 40,
 		},
 	}
 }
@@ -64,8 +64,8 @@ func (c *IRQCoresDecConfig) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 			c.DecCoresMaxEachTime = *config.DecCoresMaxEachTime
 		}
 		if config.Thresholds != nil {
-			if config.Thresholds.AvgCPUUtilThresh != nil {
-				c.Thresholds.AvgCPUUtilThresh = *config.Thresholds.AvgCPUUtilThresh
+			if config.Thresholds.AvgCPUUtilThreshold != nil {
+				c.Thresholds.AvgCPUUtilThreshold = *config.Thresholds.AvgCPUUtilThreshold
 			}
 		}
 	}

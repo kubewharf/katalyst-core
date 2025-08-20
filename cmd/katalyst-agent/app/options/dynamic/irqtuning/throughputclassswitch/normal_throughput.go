@@ -23,25 +23,25 @@ import (
 )
 
 type NormalThroughputThresholdOptions struct {
-	RxPPSThresh     uint64
+	RxPPSThreshold  uint64
 	SuccessiveCount int
 }
 
 func NewNormalThroughputThresholdOptions() *NormalThroughputThresholdOptions {
 	return &NormalThroughputThresholdOptions{
-		RxPPSThresh:     6000,
+		RxPPSThreshold:  6000,
 		SuccessiveCount: 10,
 	}
 }
 
 func (o *NormalThroughputThresholdOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs := fss.FlagSet("normal-throughput-thresholds")
-	fs.Uint64Var(&o.RxPPSThresh, "rx-pps-thresh", o.RxPPSThresh, "rx pps threshold")
+	fs.Uint64Var(&o.RxPPSThreshold, "rx-pps-threshold", o.RxPPSThreshold, "rx pps threshold")
 	fs.IntVar(&o.SuccessiveCount, "successive-count", o.SuccessiveCount, "successive count")
 }
 
 func (o *NormalThroughputThresholdOptions) ApplyTo(c *throughputclassswitch.NormalThroughputThresholdConfig) error {
-	c.RxPPSThresh = o.RxPPSThresh
+	c.RxPPSThreshold = o.RxPPSThreshold
 	c.SuccessiveCount = o.SuccessiveCount
 
 	return nil

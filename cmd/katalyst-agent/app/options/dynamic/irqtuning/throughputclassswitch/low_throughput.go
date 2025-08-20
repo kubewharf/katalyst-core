@@ -23,25 +23,25 @@ import (
 )
 
 type LowThroughputThresholdOptions struct {
-	RxPPSThresh     uint64
+	RxPPSThreshold  uint64
 	SuccessiveCount int
 }
 
 func NewLowThroughputThresholdOptions() *LowThroughputThresholdOptions {
 	return &LowThroughputThresholdOptions{
-		RxPPSThresh:     3000,
+		RxPPSThreshold:  3000,
 		SuccessiveCount: 30,
 	}
 }
 
 func (o *LowThroughputThresholdOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs := fss.FlagSet("low-throughput-thresholds")
-	fs.Uint64Var(&o.RxPPSThresh, "rx-pps-thresh", o.RxPPSThresh, "rx pps threshold")
+	fs.Uint64Var(&o.RxPPSThreshold, "rx-pps-threshold", o.RxPPSThreshold, "rx pps threshold")
 	fs.IntVar(&o.SuccessiveCount, "successive-count", o.SuccessiveCount, "successive count")
 }
 
 func (o *LowThroughputThresholdOptions) ApplyTo(c *throughputclassswitch.LowThroughputThresholdConfig) error {
-	c.RxPPSThresh = o.RxPPSThresh
+	c.RxPPSThreshold = o.RxPPSThreshold
 	c.SuccessiveCount = o.SuccessiveCount
 
 	return nil

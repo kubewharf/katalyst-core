@@ -24,23 +24,23 @@ type IRQCoresExclusionThresholds struct {
 }
 
 type EnableIRQCoresExclusionThresholds struct {
-	RxPPSThresh     uint64
+	RxPPSThreshold  uint64
 	SuccessiveCount int
 }
 
 type DisableIRQCoresExclusionThresholds struct {
-	RxPPSThresh     uint64
+	RxPPSThreshold  uint64
 	SuccessiveCount int
 }
 
 func NewIRQCoresExclusionThresholds() *IRQCoresExclusionThresholds {
 	return &IRQCoresExclusionThresholds{
 		EnableThresholds: &EnableIRQCoresExclusionThresholds{
-			RxPPSThresh:     60000,
+			RxPPSThreshold:  60000,
 			SuccessiveCount: 30,
 		},
 		DisableThresholds: &DisableIRQCoresExclusionThresholds{
-			RxPPSThresh:     30000,
+			RxPPSThreshold:  30000,
 			SuccessiveCount: 30,
 		},
 	}
@@ -53,16 +53,16 @@ func (c *IRQCoresExclusionThresholds) ApplyConfiguration(conf *crd.DynamicConfig
 		config := itc.Spec.Config.CoresExclusion.Thresholds
 
 		if config.EnableThresholds != nil {
-			if config.EnableThresholds.RxPPSThresh != nil {
-				c.EnableThresholds.RxPPSThresh = *config.EnableThresholds.RxPPSThresh
+			if config.EnableThresholds.RxPPSThreshold != nil {
+				c.EnableThresholds.RxPPSThreshold = *config.EnableThresholds.RxPPSThreshold
 			}
 			if config.EnableThresholds.SuccessiveCount != nil {
 				c.EnableThresholds.SuccessiveCount = *config.EnableThresholds.SuccessiveCount
 			}
 		}
 		if config.DisableThresholds != nil {
-			if config.DisableThresholds.RxPPSThresh != nil {
-				c.DisableThresholds.RxPPSThresh = *config.DisableThresholds.RxPPSThresh
+			if config.DisableThresholds.RxPPSThreshold != nil {
+				c.DisableThresholds.RxPPSThreshold = *config.DisableThresholds.RxPPSThreshold
 			}
 			if config.DisableThresholds.SuccessiveCount != nil {
 				c.DisableThresholds.SuccessiveCount = *config.DisableThresholds.SuccessiveCount

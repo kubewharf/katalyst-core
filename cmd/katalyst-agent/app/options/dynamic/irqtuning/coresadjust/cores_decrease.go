@@ -33,8 +33,8 @@ type IRQCoresDecOptions struct {
 }
 
 type IRQCoresDecThresholds struct {
-	// threshold of decreasing irq cores, generally this thresh should be less-than IrqCoresExpectedCpuUtil
-	AvgCPUUtilThresh int
+	// threshold of decreasing irq cores, generally this threshold should be less-than IrqCoresExpectedCpuUtil
+	AvgCPUUtilThreshold int
 }
 
 func NewIRQCoresDecOptions() *IRQCoresDecOptions {
@@ -44,7 +44,7 @@ func NewIRQCoresDecOptions() *IRQCoresDecOptions {
 		SinceLastBalanceInterval: 60,
 		DecCoresMaxEachTime:      1,
 		Thresholds: &IRQCoresDecThresholds{
-			AvgCPUUtilThresh: 40,
+			AvgCPUUtilThreshold: 40,
 		},
 	}
 }
@@ -55,7 +55,7 @@ func (o *IRQCoresDecOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.IntVar(&o.PingPongAdjustInterval, "ping-pong-adjust-interval", o.PingPongAdjustInterval, "interval of ping-pong adjust")
 	fs.IntVar(&o.SinceLastBalanceInterval, "since-last-balance-interval", o.SinceLastBalanceInterval, "interval of since last balance")
 	fs.IntVar(&o.DecCoresMaxEachTime, "dec-cores-max-each-time", o.DecCoresMaxEachTime, "max cores to decrease each time, deault 1")
-	fs.IntVar(&o.Thresholds.AvgCPUUtilThresh, "avg-cpu-util-thresh", o.Thresholds.AvgCPUUtilThresh, "threshold of decreasing irq cores, generally this thresh should be less-than IrqCoresExpectedCpuUtil")
+	fs.IntVar(&o.Thresholds.AvgCPUUtilThreshold, "avg-cpu-util-threshold", o.Thresholds.AvgCPUUtilThreshold, "threshold of decreasing irq cores, generally this threshold should be less-than IrqCoresExpectedCpuUtil")
 }
 
 func (o *IRQCoresDecOptions) ApplyTo(c *coresadjust.IRQCoresDecConfig) error {
@@ -63,7 +63,7 @@ func (o *IRQCoresDecOptions) ApplyTo(c *coresadjust.IRQCoresDecConfig) error {
 	c.PingPongAdjustInterval = o.PingPongAdjustInterval
 	c.SinceLastBalanceInterval = o.SinceLastBalanceInterval
 	c.DecCoresMaxEachTime = o.DecCoresMaxEachTime
-	c.Thresholds.AvgCPUUtilThresh = o.Thresholds.AvgCPUUtilThresh
+	c.Thresholds.AvgCPUUtilThreshold = o.Thresholds.AvgCPUUtilThreshold
 
 	return nil
 }

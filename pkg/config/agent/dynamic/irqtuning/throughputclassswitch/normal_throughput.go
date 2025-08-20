@@ -19,25 +19,25 @@ package throughputclassswitch
 import "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 
 type NormalThroughputThresholdConfig struct {
-	RxPPSThresh     uint64
+	RxPPSThreshold  uint64
 	SuccessiveCount int
 }
 
 func NewNormalThroughputThresholdConfig() *NormalThroughputThresholdConfig {
 	return &NormalThroughputThresholdConfig{
-		RxPPSThresh:     6000,
+		RxPPSThreshold:  6000,
 		SuccessiveCount: 10,
 	}
 }
 
 func (c *NormalThroughputThresholdConfig) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 	if itc := conf.IRQTuningConfiguration; itc != nil &&
-		itc.Spec.Config.ThrouputClassSwitch != nil {
-		config := itc.Spec.Config.ThrouputClassSwitch
+		itc.Spec.Config.ThroughputClassSwitch != nil {
+		config := itc.Spec.Config.ThroughputClassSwitch
 
 		if config.NormalThroughputThresholds != nil {
-			if config.NormalThroughputThresholds.RxPPSThresh != nil {
-				c.RxPPSThresh = *config.NormalThroughputThresholds.RxPPSThresh
+			if config.NormalThroughputThresholds.RxPPSThreshold != nil {
+				c.RxPPSThreshold = *config.NormalThroughputThresholds.RxPPSThreshold
 			}
 			if config.NormalThroughputThresholds.SuccessiveCount != nil {
 				c.SuccessiveCount = *config.NormalThroughputThresholds.SuccessiveCount

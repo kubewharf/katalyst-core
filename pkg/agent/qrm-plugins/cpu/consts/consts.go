@@ -32,8 +32,7 @@ const (
 	CheckCPUSet                = CPUPluginDynamicPolicyName + "_check_cpuset"
 	SyncCPUIdle                = CPUPluginDynamicPolicyName + "_sync_cpu_idle"
 	IRQTuning                  = CPUPluginDynamicPolicyName + "_irq_tuning"
-
-	CommunicateWithAdvisor = CPUPluginDynamicPolicyName + "_communicate_with_advisor"
+	CommunicateWithAdvisor     = CPUPluginDynamicPolicyName + "_communicate_with_advisor"
 )
 
 const (

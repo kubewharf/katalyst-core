@@ -28,9 +28,9 @@ type IRQLoadBalanceOptions struct {
 	SuccessiveTuningInterval int
 	Thresholds               *IRQLoadBalanceTuningThresholdOptions
 	// two successive tunes whose interval is less-equal this threshold will be considered as pingpong tunings
-	PingPongIntervalThresh int
+	PingPongIntervalThreshold int
 	// ping pong count greater-equal this threshold will trigger increasing irq cores
-	PingPongCountThresh int
+	PingPongCountThreshold int
 	// max number of irqs are permitted to be tuned from some irq cores to other cores in each time, allowed value {1, 2}
 	IRQTunedNumMaxEachTime int
 	// max number of irq cores whose affinitied irqs are permitted to tuned to other cores in each time, allowed value {1,2}
@@ -41,8 +41,8 @@ func NewIRQLoadBalanceOptions() *IRQLoadBalanceOptions {
 	return &IRQLoadBalanceOptions{
 		SuccessiveTuningInterval:    10,
 		Thresholds:                  NewIRQLoadBalanceTuningThresholdOptions(),
-		PingPongIntervalThresh:      180,
-		PingPongCountThresh:         1,
+		PingPongIntervalThreshold:   180,
+		PingPongCountThreshold:      1,
 		IRQTunedNumMaxEachTime:      2,
 		IRQCoresTunedNumMaxEachTime: 1,
 	}
@@ -52,8 +52,8 @@ func (o *IRQLoadBalanceOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs := fss.FlagSet("load-balance")
 
 	fs.IntVar(&o.SuccessiveTuningInterval, "successive-tuning-interval", o.SuccessiveTuningInterval, "interval of two successive irq load balance MUST greater-equal this interval")
-	fs.IntVar(&o.PingPongIntervalThresh, "ping-pong-interval-thresh", o.PingPongIntervalThresh, "ping pong count greater-equal this threshold will trigger increasing irq cores")
-	fs.IntVar(&o.PingPongCountThresh, "ping-pong-count-thresh", o.PingPongCountThresh, "ping pong count greater-equal this threshold will trigger increasing irq cores")
+	fs.IntVar(&o.PingPongIntervalThreshold, "ping-pong-interval-threshold", o.PingPongIntervalThreshold, "ping pong count greater-equal this threshold will trigger increasing irq cores")
+	fs.IntVar(&o.PingPongCountThreshold, "ping-pong-count-threshold", o.PingPongCountThreshold, "ping pong count greater-equal this threshold will trigger increasing irq cores")
 	fs.IntVar(&o.IRQTunedNumMaxEachTime, "irq-tuned-num-max-each-time", o.IRQTunedNumMaxEachTime, "max number of irqs are permitted to be tuned from some irq cores to other cores in each time, allowed value {1, 2}")
 	fs.IntVar(&o.IRQCoresTunedNumMaxEachTime, "irq-cores-tuned-num-max-each-time", o.IRQCoresTunedNumMaxEachTime, "max number of irq cores whose affinitied irqs are permitted to tuned to other cores in each time, allowed value {1,2}")
 
@@ -63,8 +63,8 @@ func (o *IRQLoadBalanceOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 func (o *IRQLoadBalanceOptions) ApplyTo(c *loadbalance.IRQLoadBalanceConfig) error {
 	var errList []error
 	c.SuccessiveTuningInterval = o.SuccessiveTuningInterval
-	c.PingPongIntervalThresh = o.PingPongIntervalThresh
-	c.PingPongCountThresh = o.PingPongCountThresh
+	c.PingPongIntervalThreshold = o.PingPongIntervalThreshold
+	c.PingPongCountThreshold = o.PingPongCountThreshold
 	c.IRQsTunedNumMaxEachTime = o.IRQTunedNumMaxEachTime
 	c.IRQCoresTunedNumMaxEachTime = o.IRQCoresTunedNumMaxEachTime
 

@@ -32,8 +32,8 @@ func NewThroughputClassSwitchConfig() *ThroughputClassSwitchConfig {
 
 func (c *ThroughputClassSwitchConfig) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 	if itc := conf.IRQTuningConfiguration; itc != nil &&
-		itc.Spec.Config.ThrouputClassSwitch != nil {
-		config := itc.Spec.Config.ThrouputClassSwitch
+		itc.Spec.Config.ThroughputClassSwitch != nil {
+		config := itc.Spec.Config.ThroughputClassSwitch
 
 		if config.LowThroughputThresholds != nil {
 			c.LowThresholdConfig.ApplyConfiguration(conf)

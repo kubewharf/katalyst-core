@@ -38,11 +38,11 @@ type IRQTuningConfiguration struct {
 	KsoftirqdNice           int
 	CoresExpectedCPUUtil    int
 
-	ThrouputClassSwitchConf *throughputclassswitch.ThroughputClassSwitchConfig
-	CoreNetOverLoadThresh   *netoverload.IRQCoreNetOverloadThresholds
-	LoadBalanceConf         *loadbalance.IRQLoadBalanceConfig
-	CoresAdjustConf         *coresadjust.IRQCoresAdjustConfig
-	CoresExclusionConf      *coresexclusion.IRQCoresExclusionConfig
+	ThroughputClassSwitchConf *throughputclassswitch.ThroughputClassSwitchConfig
+	CoreNetOverLoadThreshold  *netoverload.IRQCoreNetOverloadThresholds
+	LoadBalanceConf           *loadbalance.IRQLoadBalanceConfig
+	CoresAdjustConf           *coresadjust.IRQCoresAdjustConfig
+	CoresExclusionConf        *coresexclusion.IRQCoresExclusionConfig
 }
 
 func NewIRQTuningConfiguration() *IRQTuningConfiguration {
@@ -57,11 +57,11 @@ func NewIRQTuningConfiguration() *IRQTuningConfiguration {
 		KsoftirqdNice:           -20,
 		CoresExpectedCPUUtil:    50,
 
-		ThrouputClassSwitchConf: throughputclassswitch.NewThroughputClassSwitchConfig(),
-		CoreNetOverLoadThresh:   netoverload.NewIRQCoreNetOverloadThresholds(),
-		LoadBalanceConf:         loadbalance.NewIRQLoadBalanceConfig(),
-		CoresAdjustConf:         coresadjust.NewIRQCoresAdjustConfig(),
-		CoresExclusionConf:      coresexclusion.NewIRQCoresExclusionConfig(),
+		ThroughputClassSwitchConf: throughputclassswitch.NewThroughputClassSwitchConfig(),
+		CoreNetOverLoadThreshold:  netoverload.NewIRQCoreNetOverloadThresholds(),
+		LoadBalanceConf:           loadbalance.NewIRQLoadBalanceConfig(),
+		CoresAdjustConf:           coresadjust.NewIRQCoresAdjustConfig(),
+		CoresExclusionConf:        coresexclusion.NewIRQCoresExclusionConfig(),
 	}
 }
 
@@ -91,8 +91,8 @@ func (c *IRQTuningConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) 
 			c.CoresExpectedCPUUtil = *itc.Spec.Config.CoresExpectedCPUUtil
 		}
 
-		c.ThrouputClassSwitchConf.ApplyConfiguration(conf)
-		c.CoreNetOverLoadThresh.ApplyConfiguration(conf)
+		c.ThroughputClassSwitchConf.ApplyConfiguration(conf)
+		c.CoreNetOverLoadThreshold.ApplyConfiguration(conf)
 		c.LoadBalanceConf.ApplyConfiguration(conf)
 		c.CoresAdjustConf.ApplyConfiguration(conf)
 		c.CoresExclusionConf.ApplyConfiguration(conf)

@@ -20,15 +20,15 @@ import "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 
 type IRQLoadBalanceTuningThresholds struct {
 	// irq core cpu util threshold, which will trigger irq cores load balance, generally this value should greater-equal IrqCoresExpectedCpuUtil
-	CPUUtilThresh int
+	CPUUtilThreshold int
 	// threshold of cpu util gap between source core and dest core of irq affinity changing
-	CPUUtilGapThresh int
+	CPUUtilGapThreshold int
 }
 
 func NewIRQLoadBalanceTuningThresholds() *IRQLoadBalanceTuningThresholds {
 	return &IRQLoadBalanceTuningThresholds{
-		CPUUtilThresh:    65,
-		CPUUtilGapThresh: 20,
+		CPUUtilThreshold:    65,
+		CPUUtilGapThreshold: 20,
 	}
 }
 
@@ -38,11 +38,11 @@ func (c *IRQLoadBalanceTuningThresholds) ApplyConfiguration(conf *crd.DynamicCon
 		itc.Spec.Config.LoadBalance.Thresholds != nil {
 		config := itc.Spec.Config.LoadBalance.Thresholds
 
-		if config.CPUUtilThresh != nil {
-			c.CPUUtilThresh = *config.CPUUtilThresh
+		if config.CPUUtilThreshold != nil {
+			c.CPUUtilThreshold = *config.CPUUtilThreshold
 		}
-		if config.CPUUtilGapThresh != nil {
-			c.CPUUtilGapThresh = *config.CPUUtilGapThresh
+		if config.CPUUtilGapThreshold != nil {
+			c.CPUUtilGapThreshold = *config.CPUUtilGapThreshold
 		}
 	}
 }

@@ -28,23 +28,23 @@ type IRQCoresExclusionThresholdOptions struct {
 }
 
 type EnableIRQCoresExclusionThresholds struct {
-	RxPPSThresh     uint64
+	RxPPSThreshold  uint64
 	SuccessiveCount int
 }
 
 type DisableIRQCoresExclusionThresholds struct {
-	RxPPSThresh     uint64
+	RxPPSThreshold  uint64
 	SuccessiveCount int
 }
 
 func NewIRQCoresExclusionThresholdOptions() *IRQCoresExclusionThresholdOptions {
 	return &IRQCoresExclusionThresholdOptions{
 		EnableThresholds: &EnableIRQCoresExclusionThresholds{
-			RxPPSThresh:     60000,
+			RxPPSThreshold:  60000,
 			SuccessiveCount: 30,
 		},
 		DisableThresholds: &DisableIRQCoresExclusionThresholds{
-			RxPPSThresh:     30000,
+			RxPPSThreshold:  30000,
 			SuccessiveCount: 30,
 		},
 	}
@@ -52,16 +52,16 @@ func NewIRQCoresExclusionThresholdOptions() *IRQCoresExclusionThresholdOptions {
 
 func (o *IRQCoresExclusionThresholdOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs := fss.FlagSet("exclusion-thresholds")
-	fs.Uint64Var(&o.EnableThresholds.RxPPSThresh, "enable-thresholds-rxpps-thresh", o.EnableThresholds.RxPPSThresh, "irq cores exclusion enable thresholds rxpps thresh")
+	fs.Uint64Var(&o.EnableThresholds.RxPPSThreshold, "enable-thresholds-rxpps-threshold", o.EnableThresholds.RxPPSThreshold, "irq cores exclusion enable thresholds rxpps threshold")
 	fs.IntVar(&o.EnableThresholds.SuccessiveCount, "enable-thresholds-successive-count", o.EnableThresholds.SuccessiveCount, "irq cores exclusion enable thresholds successive count")
-	fs.Uint64Var(&o.DisableThresholds.RxPPSThresh, "disable-thresholds-rxpps-thresh", o.DisableThresholds.RxPPSThresh, "irq cores exclusion disable thresholds rxpps thresh")
+	fs.Uint64Var(&o.DisableThresholds.RxPPSThreshold, "disable-thresholds-rxpps-threshold", o.DisableThresholds.RxPPSThreshold, "irq cores exclusion disable thresholds rxpps threshold")
 	fs.IntVar(&o.DisableThresholds.SuccessiveCount, "disable-thresholds-successive-count", o.DisableThresholds.SuccessiveCount, "irq cores exclusion disable thresholds successive count")
 }
 
 func (o *IRQCoresExclusionThresholdOptions) ApplyTo(c *coresexclusion.IRQCoresExclusionThresholds) error {
-	c.EnableThresholds.RxPPSThresh = o.EnableThresholds.RxPPSThresh
+	c.EnableThresholds.RxPPSThreshold = o.EnableThresholds.RxPPSThreshold
 	c.EnableThresholds.SuccessiveCount = o.EnableThresholds.SuccessiveCount
-	c.DisableThresholds.RxPPSThresh = o.DisableThresholds.RxPPSThresh
+	c.DisableThresholds.RxPPSThreshold = o.DisableThresholds.RxPPSThreshold
 	c.DisableThresholds.SuccessiveCount = o.DisableThresholds.SuccessiveCount
 	return nil
 }

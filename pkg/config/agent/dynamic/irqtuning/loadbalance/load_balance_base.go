@@ -24,9 +24,9 @@ type IRQLoadBalanceConfig struct {
 	SuccessiveTuningInterval int
 	Thresholds               *IRQLoadBalanceTuningThresholds
 	// two successive tunes whose interval is less-equal this threshold will be considered as pingpong tunings
-	PingPongIntervalThresh int
+	PingPongIntervalThreshold int
 	// ping pong count greater-equal this threshold will trigger increasing irq cores
-	PingPongCountThresh int
+	PingPongCountThreshold int
 	// max number of irqs are permitted to be tuned from some irq cores to other cores in each time, allowed value {1, 2}
 	IRQsTunedNumMaxEachTime int
 	// max number of irq cores whose affinitied irqs are permitted to tuned to other cores in each time, allowed value {1,2}
@@ -37,8 +37,8 @@ func NewIRQLoadBalanceConfig() *IRQLoadBalanceConfig {
 	return &IRQLoadBalanceConfig{
 		SuccessiveTuningInterval:    10,
 		Thresholds:                  NewIRQLoadBalanceTuningThresholds(),
-		PingPongIntervalThresh:      180,
-		PingPongCountThresh:         1,
+		PingPongIntervalThreshold:   180,
+		PingPongCountThreshold:      1,
 		IRQsTunedNumMaxEachTime:     2,
 		IRQCoresTunedNumMaxEachTime: 1,
 	}
@@ -55,11 +55,11 @@ func (c *IRQLoadBalanceConfig) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 		if config.Thresholds != nil {
 			c.Thresholds.ApplyConfiguration(conf)
 		}
-		if config.PingPongIntervalThresh != nil {
-			c.PingPongIntervalThresh = *config.PingPongIntervalThresh
+		if config.PingPongIntervalThreshold != nil {
+			c.PingPongIntervalThreshold = *config.PingPongIntervalThreshold
 		}
-		if config.PingPongCountThresh != nil {
-			c.PingPongCountThresh = *config.PingPongCountThresh
+		if config.PingPongCountThreshold != nil {
+			c.PingPongCountThreshold = *config.PingPongCountThreshold
 		}
 		if config.IRQTunedNumMaxEachTime != nil {
 			c.IRQsTunedNumMaxEachTime = *config.IRQTunedNumMaxEachTime

@@ -21,23 +21,23 @@ import "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 type IRQCoresIncConfig struct {
 	// interval of two successive irq cores increase MUST greater-equal this interval
 	SuccessiveIncInterval int
-	// when irq cores cpu util hit this thresh, then fallback to balance-fair policy
-	FullThresh int
+	// when irq cores cpu util hit this threshold, then fallback to balance-fair policy
+	FullThreshold int
 
 	Thresholds *IRQCoresIncThresholds
 }
 
 type IRQCoresIncThresholds struct {
-	// threshold of increasing irq cores, generally this thresh equal to or a litter greater-than IrqCoresExpectedCpuUtil
-	AvgCPUUtilThresh int
+	// threshold of increasing irq cores, generally this threshold equal to or a litter greater-than IrqCoresExpectedCpuUtil
+	AvgCPUUtilThreshold int
 }
 
 func NewIRQCoresIncConfig() *IRQCoresIncConfig {
 	return &IRQCoresIncConfig{
 		SuccessiveIncInterval: 5,
-		FullThresh:            85,
+		FullThreshold:         85,
 		Thresholds: &IRQCoresIncThresholds{
-			AvgCPUUtilThresh: 60,
+			AvgCPUUtilThreshold: 60,
 		},
 	}
 }
@@ -51,12 +51,12 @@ func (c *IRQCoresIncConfig) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 		if config.SuccessiveIncInterval != nil {
 			c.SuccessiveIncInterval = *config.SuccessiveIncInterval
 		}
-		if config.FullThresh != nil {
-			c.FullThresh = *config.FullThresh
+		if config.FullThreshold != nil {
+			c.FullThreshold = *config.FullThreshold
 		}
 		if config.Thresholds != nil {
-			if config.Thresholds.AvgCPUUtilThresh != nil {
-				c.Thresholds.AvgCPUUtilThresh = *config.Thresholds.AvgCPUUtilThresh
+			if config.Thresholds.AvgCPUUtilThreshold != nil {
+				c.Thresholds.AvgCPUUtilThreshold = *config.Thresholds.AvgCPUUtilThreshold
 			}
 		}
 	}

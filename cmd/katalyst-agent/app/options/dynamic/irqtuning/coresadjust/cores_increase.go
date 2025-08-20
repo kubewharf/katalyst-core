@@ -25,23 +25,23 @@ import (
 type IRQCoresIncOptions struct {
 	// interval of two successive irq cores increase MUST greater-equal this interval
 	SuccessiveIncInterval int
-	// when irq cores cpu util hit this thresh, then fallback to balance-fair policy
-	FullThresh int
+	// when irq cores cpu util hit this threshold, then fallback to balance-fair policy
+	FullThreshold int
 
 	Thresholds *IRQCoresIncThresholds
 }
 
 type IRQCoresIncThresholds struct {
-	// threshold of increasing irq cores, generally this thresh equal to or a litter greater-than IrqCoresExpectedCpuUtil
-	AvgCPUUtilThresh int
+	// threshold of increasing irq cores, generally this threshold equal to or a litter greater-than IrqCoresExpectedCpuUtil
+	AvgCPUUtilThreshold int
 }
 
 func NewIRQCoresIncOptions() *IRQCoresIncOptions {
 	return &IRQCoresIncOptions{
 		SuccessiveIncInterval: 5,
-		FullThresh:            85,
+		FullThreshold:         85,
 		Thresholds: &IRQCoresIncThresholds{
-			AvgCPUUtilThresh: 60,
+			AvgCPUUtilThreshold: 60,
 		},
 	}
 }
@@ -49,14 +49,14 @@ func NewIRQCoresIncOptions() *IRQCoresIncOptions {
 func (o *IRQCoresIncOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs := fss.FlagSet("irq-cores-increase")
 	fs.IntVar(&o.SuccessiveIncInterval, "successive-inc-interval", o.SuccessiveIncInterval, "interval of two successive irq cores increase MUST greater-equal this interval")
-	fs.IntVar(&o.FullThresh, "full-thresh", o.FullThresh, "when irq cores cpu util hit this thresh, then fallback to balance-fair policy")
-	fs.IntVar(&o.Thresholds.AvgCPUUtilThresh, "avg-cpu-util-thresh", o.Thresholds.AvgCPUUtilThresh, "threshold of increasing irq cores, generally this thresh equal to or a litter greater-than IrqCoresExpectedCpuUtil")
+	fs.IntVar(&o.FullThreshold, "full-threshold", o.FullThreshold, "when irq cores cpu util hit this threshold, then fallback to balance-fair policy")
+	fs.IntVar(&o.Thresholds.AvgCPUUtilThreshold, "avg-cpu-util-threshold", o.Thresholds.AvgCPUUtilThreshold, "threshold of increasing irq cores, generally this threshold equal to or a litter greater-than IrqCoresExpectedCpuUtil")
 }
 
 func (o *IRQCoresIncOptions) ApplyTo(c *coresadjust.IRQCoresIncConfig) error {
 	c.SuccessiveIncInterval = o.SuccessiveIncInterval
-	c.FullThresh = o.FullThresh
-	c.Thresholds.AvgCPUUtilThresh = o.Thresholds.AvgCPUUtilThresh
+	c.FullThreshold = o.FullThreshold
+	c.Thresholds.AvgCPUUtilThreshold = o.Thresholds.AvgCPUUtilThreshold
 
 	return nil
 }

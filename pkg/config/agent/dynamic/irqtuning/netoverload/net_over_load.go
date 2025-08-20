@@ -32,8 +32,8 @@ func NewIRQCoreNetOverloadThresholds() *IRQCoreNetOverloadThresholds {
 
 func (c *IRQCoreNetOverloadThresholds) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 	if itc := conf.IRQTuningConfiguration; itc != nil &&
-		itc.Spec.Config.CoreNetOverLoadThresh != nil {
-		config := itc.Spec.Config.CoreNetOverLoadThresh
+		itc.Spec.Config.CoreNetOverLoadThreshold != nil {
+		config := itc.Spec.Config.CoreNetOverLoadThreshold
 
 		if config.SoftNetTimeSqueezeRatio != nil {
 			c.SoftNetTimeSqueezeRatio = *config.SoftNetTimeSqueezeRatio
