@@ -37,7 +37,7 @@ type mockAdvisor struct {
 	mock.Mock
 }
 
-func (ma *mockAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.DomainsMon) (*plan.MBPlan, error) {
+func (ma *mockAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.DomainStats) (*plan.MBPlan, error) {
 	args := ma.Called(ctx, domainsMon)
 	return args.Get(0).(*plan.MBPlan), args.Error(1)
 }

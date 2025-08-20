@@ -18,17 +18,22 @@ package monitor
 
 const minActiveMB = 1_000
 
-type GroupCCDMB map[int]MBStat
+// GroupMBStats is memory bandwidth statistic info of multiple groups, each of the groups has multiple CCDs,
+// in line with resctrl FS mon-group mon-data structure
+type GroupMBStats map[string]GroupMB
 
-// MBStat keeps memory bandwidth info
-type MBStat struct {
+// GroupMB keeps one group mb info, each group may have multiple ccds
+type GroupMB map[int]MBInfo
+
+// MBInfo is mb of one unit (e.g. one ccd, or one domain, even whole machine)
+type MBInfo struct {
 	LocalMB  int
 	RemoteMB int
 	TotalMB  int
 }
 
-func (g GroupCCDMB) SumStat() MBStat {
-	sum := MBStat{}
+func (g GroupMB) SumStat() MBInfo {
+	sum := MBInfo{}
 	for _, mbStat := range g {
 		sum.TotalMB += mbStat.TotalMB
 		sum.LocalMB += mbStat.LocalMB
@@ -38,7 +43,7 @@ func (g GroupCCDMB) SumStat() MBStat {
 	return sum
 }
 
-func (g GroupCCDMB) HasTraffic() bool {
+func (g GroupMB) HasTraffic() bool {
 	totalMB := g.SumStat().TotalMB
 	return totalMB >= minActiveMB
 }

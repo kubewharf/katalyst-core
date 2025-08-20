@@ -74,16 +74,16 @@ func (m *MBPlugin) Stop() error {
 	return nil
 }
 
-func toGroupMonStat(mbData *types.MBData) monitor.GroupMonStat {
+func toGroupMonStat(mbData *types.MBData) monitor.GroupMBStats {
 	if mbData == nil {
 		return nil
 	}
 
-	result := monitor.GroupMonStat{}
+	result := monitor.GroupMBStats{}
 	for group, ccdStats := range mbData.MBBody {
-		groupCCDStats := monitor.GroupCCDMB{}
+		groupCCDStats := monitor.GroupMB{}
 		for ccd, stat := range ccdStats {
-			groupCCDStats[ccd] = monitor.MBStat{
+			groupCCDStats[ccd] = monitor.MBInfo{
 				LocalMB:  int(stat.MBLocal),
 				RemoteMB: int(stat.MBRemote),
 				TotalMB:  int(stat.MBLocal) + int(stat.MBRemote),
@@ -110,7 +110,7 @@ func (m *MBPlugin) run() {
 		return
 	}
 
-	monData, err := monitor.NewDomainsMon(statOutgoing, m.ccdToDomain, m.xDomGroups)
+	monData, err := monitor.NewDomainStats(statOutgoing, m.ccdToDomain, m.xDomGroups)
 	if err != nil {
 		general.Errorf("[mbm] failed to run fetching mb stats: %v", err)
 		return

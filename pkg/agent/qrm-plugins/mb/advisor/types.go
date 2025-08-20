@@ -24,5 +24,5 @@ import (
 )
 
 type Advisor interface {
-	GetPlan(ctx context.Context, domainsMon *monitor.DomainsMon) (*plan.MBPlan, error)
+	GetPlan(ctx context.Context, domainsMon *monitor.DomainStats) (*plan.MBPlan, error)
 }

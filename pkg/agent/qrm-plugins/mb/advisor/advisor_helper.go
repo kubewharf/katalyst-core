@@ -25,7 +25,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
 )
 
-func getMinEffectiveCapacity(base int, dynaCaps map[string]int, incomingStats monitor.GroupMonStat) int {
+func getMinEffectiveCapacity(base int, dynaCaps map[string]int, incomingStats monitor.GroupMBStats) int {
 	min := base
 
 	// identify the min dynamic capacity required by pre-defined groups, if the specific groups do have active MB traffics
@@ -105,7 +105,7 @@ func convertToPlan(quotas map[string]map[int]int) *plan.MBPlan {
 	return updatePlan
 }
 
-func getGroupOutgoingTotals(group string, outgoings map[string][]monitor.MBStat) []int {
+func getGroupOutgoingTotals(group string, outgoings map[string][]monitor.MBInfo) []int {
 	groupOutgoins, ok := outgoings[group]
 	if !ok {
 		groupOutgoins = nil
@@ -117,7 +117,7 @@ func getGroupOutgoingTotals(group string, outgoings map[string][]monitor.MBStat)
 	return results
 }
 
-func distributeCapacityToGroups(capacity int, incomingStats monitor.GroupMonStat) *resource.MBGroupIncomingStat {
+func distributeCapacityToGroups(capacity int, incomingStats monitor.GroupMBStats) *resource.MBGroupIncomingStat {
 	result := &resource.MBGroupIncomingStat{
 		CapacityInMB:   capacity,
 		GroupTotalUses: map[string]int{},
@@ -128,14 +128,14 @@ func distributeCapacityToGroups(capacity int, incomingStats monitor.GroupMonStat
 	balance := capacity
 	groups := maps.Keys(incomingStats)
 	sortedGroups := sortGroups(groups)
-	for _, groups := range sortedGroups {
+	for _, subGroups := range sortedGroups {
 		// all equivalent groups shared the same available balance
-		for group := range groups {
+		for group := range subGroups {
 			result.GroupLimits[group] = balance
 		}
 
 		used := 0
-		for group := range groups {
+		for group := range subGroups {
 			groupUse := incomingStats[group].SumStat().TotalMB
 			result.GroupTotalUses[group] = groupUse
 			used += groupUse

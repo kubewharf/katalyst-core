@@ -44,7 +44,7 @@ func Test_domainAdvisor_getEffectiveCapacity(t *testing.T) {
 	}
 	type args struct {
 		domID         int
-		incomingStats monitor.GroupMonStat
+		incomingStats monitor.GroupMBStats
 	}
 	tests := []struct {
 		name    string
@@ -63,7 +63,7 @@ func Test_domainAdvisor_getEffectiveCapacity(t *testing.T) {
 			},
 			args: args{
 				domID:         0,
-				incomingStats: monitor.GroupMonStat{},
+				incomingStats: monitor.GroupMBStats{},
 			},
 			want:    12_345,
 			wantErr: false,
@@ -79,9 +79,9 @@ func Test_domainAdvisor_getEffectiveCapacity(t *testing.T) {
 			},
 			args: args{
 				domID: 0,
-				incomingStats: monitor.GroupMonStat{
-					"shared-50": monitor.GroupCCDMB{0: {TotalMB: 5_555}},
-					"shared-60": monitor.GroupCCDMB{1: {TotalMB: 2_222}},
+				incomingStats: monitor.GroupMBStats{
+					"shared-50": monitor.GroupMB{0: {TotalMB: 5_555}},
+					"shared-60": monitor.GroupMB{1: {TotalMB: 2_222}},
 				},
 			},
 			want:    9_999,
@@ -120,7 +120,7 @@ func Test_domainAdvisor_calcIncomingQuotas(t *testing.T) {
 	}
 	type args struct {
 		ctx context.Context
-		mon *monitor.DomainsMon
+		mon *monitor.DomainStats
 	}
 	tests := []struct {
 		name    string
@@ -139,13 +139,13 @@ func Test_domainAdvisor_calcIncomingQuotas(t *testing.T) {
 			},
 			args: args{
 				ctx: context.TODO(),
-				mon: &monitor.DomainsMon{
-					Incoming: map[int]monitor.GroupMonStat{
+				mon: &monitor.DomainStats{
+					Incomings: map[int]monitor.GroupMBStats{
 						0: {
-							"shared-60": map[int]monitor.MBStat{
+							"shared-60": map[int]monitor.MBInfo{
 								1: {TotalMB: 2_200},
 							},
-							"shared-50": map[int]monitor.MBStat{
+							"shared-50": map[int]monitor.MBInfo{
 								0: {TotalMB: 5_500},
 								1: {TotalMB: 1_100},
 							},
@@ -186,13 +186,13 @@ func Test_domainAdvisor_calcIncomingQuotas(t *testing.T) {
 			},
 			args: args{
 				ctx: context.TODO(),
-				mon: &monitor.DomainsMon{
-					Incoming: map[int]monitor.GroupMonStat{
+				mon: &monitor.DomainStats{
+					Incomings: map[int]monitor.GroupMBStats{
 						0: {
-							"shared-60": map[int]monitor.MBStat{
+							"shared-60": map[int]monitor.MBInfo{
 								1: {TotalMB: 2_200},
 							},
-							"shared-50": map[int]monitor.MBStat{
+							"shared-50": map[int]monitor.MBInfo{
 								0: {TotalMB: 5_500},
 								1: {TotalMB: 1_100},
 							},
@@ -257,7 +257,7 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 	}
 	type args struct {
 		ctx        context.Context
-		domainsMon *monitor.DomainsMon
+		domainsMon *monitor.DomainStats
 	}
 	tests := []struct {
 		name    string
@@ -282,17 +282,17 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 			},
 			args: args{
 				ctx: context.TODO(),
-				domainsMon: &monitor.DomainsMon{
-					Incoming: map[int]monitor.GroupMonStat{
+				domainsMon: &monitor.DomainStats{
+					Incomings: map[int]monitor.GroupMBStats{
 						0: {
-							"shared-60": map[int]monitor.MBStat{
+							"shared-60": map[int]monitor.MBInfo{
 								0: {
 									LocalMB:  10_000,
 									RemoteMB: 2_000,
 									TotalMB:  12_000,
 								},
 							},
-							"shared-50": map[int]monitor.MBStat{
+							"shared-50": map[int]monitor.MBInfo{
 								1: {
 									LocalMB:  11_000,
 									RemoteMB: 2_500,
@@ -301,14 +301,14 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 							},
 						},
 						1: {
-							"shared-60": map[int]monitor.MBStat{
+							"shared-60": map[int]monitor.MBInfo{
 								2: {
 									LocalMB:  10_000,
 									RemoteMB: 2_000,
 									TotalMB:  12_000,
 								},
 							},
-							"shared-50": map[int]monitor.MBStat{
+							"shared-50": map[int]monitor.MBInfo{
 								3: {
 									LocalMB:  11_000,
 									RemoteMB: 2_500,
@@ -317,16 +317,16 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 							},
 						},
 					},
-					Outgoing: map[int]monitor.GroupMonStat{
+					Outgoings: map[int]monitor.GroupMBStats{
 						0: {
-							"shared-60": map[int]monitor.MBStat{
+							"shared-60": map[int]monitor.MBInfo{
 								0: {
 									LocalMB:  10_000,
 									RemoteMB: 2_000,
 									TotalMB:  12_000,
 								},
 							},
-							"shared-50": map[int]monitor.MBStat{
+							"shared-50": map[int]monitor.MBInfo{
 								1: {
 									LocalMB:  11_000,
 									RemoteMB: 2_500,
@@ -335,19 +335,45 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 							},
 						},
 						1: {
-							"shared-60": map[int]monitor.MBStat{
+							"shared-60": map[int]monitor.MBInfo{
 								2: {
 									LocalMB:  10_000,
 									RemoteMB: 2_000,
 									TotalMB:  12_000,
 								},
 							},
-							"shared-50": map[int]monitor.MBStat{
+							"shared-50": map[int]monitor.MBInfo{
 								3: {
 									LocalMB:  11_000,
 									RemoteMB: 2_500,
 									TotalMB:  13_500,
 								},
+							},
+						},
+					},
+					OutgoingGroupSumStat: map[string][]monitor.MBInfo{
+						"shared-60": {
+							0: {
+								LocalMB:  10_000,
+								RemoteMB: 2_000,
+								TotalMB:  12_000,
+							},
+							1: {
+								LocalMB:  10_000,
+								RemoteMB: 2_000,
+								TotalMB:  12_000,
+							},
+						},
+						"shared-50": {
+							0: {
+								LocalMB:  11_000,
+								RemoteMB: 2_500,
+								TotalMB:  13_500,
+							},
+							1: {
+								LocalMB:  11_000,
+								RemoteMB: 2_500,
+								TotalMB:  13_500,
 							},
 						},
 					},
@@ -372,17 +398,17 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 			},
 			args: args{
 				ctx: context.TODO(),
-				domainsMon: &monitor.DomainsMon{
-					Incoming: map[int]monitor.GroupMonStat{
+				domainsMon: &monitor.DomainStats{
+					Incomings: map[int]monitor.GroupMBStats{
 						0: {
-							"shared-60": map[int]monitor.MBStat{
+							"shared-60": map[int]monitor.MBInfo{
 								0: {
 									LocalMB:  10_000,
 									RemoteMB: 5_000,
 									TotalMB:  15_000,
 								},
 							},
-							"shared-50": map[int]monitor.MBStat{
+							"shared-50": map[int]monitor.MBInfo{
 								1: {
 									LocalMB:  11_000,
 									RemoteMB: 4_500,
@@ -391,14 +417,14 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 							},
 						},
 						1: {
-							"shared-60": map[int]monitor.MBStat{
+							"shared-60": map[int]monitor.MBInfo{
 								2: {
 									LocalMB:  10_000,
 									RemoteMB: 5_000,
 									TotalMB:  15_000,
 								},
 							},
-							"shared-50": map[int]monitor.MBStat{
+							"shared-50": map[int]monitor.MBInfo{
 								3: {
 									LocalMB:  11_000,
 									RemoteMB: 4_500,
@@ -407,16 +433,16 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 							},
 						},
 					},
-					Outgoing: map[int]monitor.GroupMonStat{
+					Outgoings: map[int]monitor.GroupMBStats{
 						0: {
-							"shared-60": map[int]monitor.MBStat{
+							"shared-60": map[int]monitor.MBInfo{
 								0: {
 									LocalMB:  10_000,
 									RemoteMB: 5_000,
 									TotalMB:  15_000,
 								},
 							},
-							"shared-50": map[int]monitor.MBStat{
+							"shared-50": map[int]monitor.MBInfo{
 								1: {
 									LocalMB:  11_000,
 									RemoteMB: 4_500,
@@ -425,19 +451,45 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 							},
 						},
 						1: {
-							"shared-60": map[int]monitor.MBStat{
+							"shared-60": map[int]monitor.MBInfo{
 								2: {
 									LocalMB:  10_000,
 									RemoteMB: 5_000,
 									TotalMB:  15_000,
 								},
 							},
-							"shared-50": map[int]monitor.MBStat{
+							"shared-50": map[int]monitor.MBInfo{
 								3: {
 									LocalMB:  11_000,
 									RemoteMB: 4_500,
 									TotalMB:  15_500,
 								},
+							},
+						},
+					},
+					OutgoingGroupSumStat: map[string][]monitor.MBInfo{
+						"shared-60": {
+							0: {
+								LocalMB:  10_000,
+								RemoteMB: 5_000,
+								TotalMB:  15_000,
+							},
+							1: {
+								LocalMB:  10_000,
+								RemoteMB: 5_000,
+								TotalMB:  15_000,
+							},
+						},
+						"shared-50": {
+							0: {
+								LocalMB:  11_000,
+								RemoteMB: 4_000,
+								TotalMB:  15_000,
+							},
+							1: {
+								LocalMB:  11_000,
+								RemoteMB: 4_000,
+								TotalMB:  15_000,
 							},
 						},
 					},
