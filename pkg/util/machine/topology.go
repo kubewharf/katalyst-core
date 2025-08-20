@@ -30,6 +30,12 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
+const (
+	// L3CacheLevel represents the cache level for L3 cache
+	L3CacheLevel = 3
+	L3CacheType  = "Unified"
+)
+
 // NUMANodeInfo is a map from NUMANode ID to a list of
 // CPU IDs associated with that NUMANode.
 type NUMANodeInfo map[int]CPUSet
@@ -142,7 +148,7 @@ func (topo *CPUTopology) CPUsPerSocket() int {
 	return topo.NumCPUs / topo.NumSockets
 }
 
-// NUMAsPerSocket returns the the number of NUMA
+// NUMAsPerSocket returns the number of NUMA
 // are associated with each socket.
 func (topo *CPUTopology) NUMAsPerSocket() (int, error) {
 	numasCount := topo.CPUDetails.NUMANodes().Size()
@@ -218,12 +224,14 @@ func GenerateDummyCPUTopology(cpuNum, socketNum, numaNum int) (*CPUTopology, err
 					NUMANodeID: j,
 					SocketID:   i,
 					CoreID:     k,
+					L3CacheID:  j,
 				}
 
 				cpuTopology.CPUDetails[k+cpuNum/2] = CPUTopoInfo{
 					NUMANodeID: j,
 					SocketID:   i,
 					CoreID:     k,
+					L3CacheID:  j,
 				}
 
 				cpuTopology.NUMANodeIDToSocketID[j] = i
@@ -293,14 +301,15 @@ type CPUTopoInfo struct {
 	NUMANodeID int
 	SocketID   int
 	CoreID     int
+	L3CacheID  int
 }
 
 // KeepOnly returns a new CPUDetails object with only the supplied cpus.
 func (d CPUDetails) KeepOnly(cpus CPUSet) CPUDetails {
 	result := CPUDetails{}
-	for cpu, info := range d {
+	for cpu, cpuInfo := range d {
 		if cpus.Contains(cpu) {
-			result[cpu] = info
+			result[cpu] = cpuInfo
 		}
 	}
 	return result
@@ -309,8 +318,8 @@ func (d CPUDetails) KeepOnly(cpus CPUSet) CPUDetails {
 // NUMANodes returns all NUMANode IDs associated with the CPUs in this CPUDetails.
 func (d CPUDetails) NUMANodes() CPUSet {
 	b := NewCPUSet()
-	for _, info := range d {
-		b.Add(info.NUMANodeID)
+	for _, cpuInfo := range d {
+		b.Add(cpuInfo.NUMANodeID)
 	}
 	return b
 }
@@ -320,9 +329,9 @@ func (d CPUDetails) NUMANodes() CPUSet {
 func (d CPUDetails) NUMANodesInSockets(ids ...int) CPUSet {
 	b := NewCPUSet()
 	for _, id := range ids {
-		for _, info := range d {
-			if info.SocketID == id {
-				b.Add(info.NUMANodeID)
+		for _, cpuInfo := range d {
+			if cpuInfo.SocketID == id {
+				b.Add(cpuInfo.NUMANodeID)
 			}
 		}
 	}
@@ -332,8 +341,8 @@ func (d CPUDetails) NUMANodesInSockets(ids ...int) CPUSet {
 // Sockets returns all socket IDs associated with the CPUs in this CPUDetails.
 func (d CPUDetails) Sockets() CPUSet {
 	b := NewCPUSet()
-	for _, info := range d {
-		b.Add(info.SocketID)
+	for _, cpuInfo := range d {
+		b.Add(cpuInfo.SocketID)
 	}
 	return b
 }
@@ -343,8 +352,8 @@ func (d CPUDetails) Sockets() CPUSet {
 func (d CPUDetails) CPUsInSockets(ids ...int) CPUSet {
 	b := NewCPUSet()
 	for _, id := range ids {
-		for cpu, info := range d {
-			if info.SocketID == id {
+		for cpu, cpuInfo := range d {
+			if cpuInfo.SocketID == id {
 				b.Add(cpu)
 			}
 		}
@@ -357,9 +366,9 @@ func (d CPUDetails) CPUsInSockets(ids ...int) CPUSet {
 func (d CPUDetails) SocketsInNUMANodes(ids ...int) CPUSet {
 	b := NewCPUSet()
 	for _, id := range ids {
-		for _, info := range d {
-			if info.NUMANodeID == id {
-				b.Add(info.SocketID)
+		for _, cpuInfo := range d {
+			if cpuInfo.NUMANodeID == id {
+				b.Add(cpuInfo.SocketID)
 			}
 		}
 	}
@@ -369,8 +378,8 @@ func (d CPUDetails) SocketsInNUMANodes(ids ...int) CPUSet {
 // Cores returns all core IDs associated with the CPUs in this CPUDetails.
 func (d CPUDetails) Cores() CPUSet {
 	b := NewCPUSet()
-	for _, info := range d {
-		b.Add(info.CoreID)
+	for _, cpuInfo := range d {
+		b.Add(cpuInfo.CoreID)
 	}
 	return b
 }
@@ -380,9 +389,9 @@ func (d CPUDetails) Cores() CPUSet {
 func (d CPUDetails) CoresInNUMANodes(ids ...int) CPUSet {
 	b := NewCPUSet()
 	for _, id := range ids {
-		for _, info := range d {
-			if info.NUMANodeID == id {
-				b.Add(info.CoreID)
+		for _, cpuInfo := range d {
+			if cpuInfo.NUMANodeID == id {
+				b.Add(cpuInfo.CoreID)
 			}
 		}
 	}
@@ -394,9 +403,9 @@ func (d CPUDetails) CoresInNUMANodes(ids ...int) CPUSet {
 func (d CPUDetails) CoresInSockets(ids ...int) CPUSet {
 	b := NewCPUSet()
 	for _, id := range ids {
-		for _, info := range d {
-			if info.SocketID == id {
-				b.Add(info.CoreID)
+		for _, cpuInfo := range d {
+			if cpuInfo.SocketID == id {
+				b.Add(cpuInfo.CoreID)
 			}
 		}
 	}
@@ -417,8 +426,8 @@ func (d CPUDetails) CPUs() CPUSet {
 func (d CPUDetails) CPUsInNUMANodes(ids ...int) CPUSet {
 	b := NewCPUSet()
 	for _, id := range ids {
-		for cpu, info := range d {
-			if info.NUMANodeID == id {
+		for cpu, cpuInfo := range d {
+			if cpuInfo.NUMANodeID == id {
 				b.Add(cpu)
 			}
 		}
@@ -431,8 +440,8 @@ func (d CPUDetails) CPUsInNUMANodes(ids ...int) CPUSet {
 func (d CPUDetails) CPUsInCores(ids ...int) CPUSet {
 	b := NewCPUSet()
 	for _, id := range ids {
-		for cpu, info := range d {
-			if info.CoreID == id {
+		for cpu, cpuInfo := range d {
+			if cpuInfo.CoreID == id {
 				b.Add(cpu)
 			}
 		}
@@ -460,12 +469,14 @@ func Discover(machineInfo *info.MachineInfo) (*CPUTopology, *MemoryTopology, err
 
 		numPhysicalCores += len(node.Cores)
 		for _, core := range node.Cores {
+			l3CacheID := getUniqueL3CacheID(core)
 			if coreID, err := getUniqueCoreID(core.Threads); err == nil {
 				for _, cpu := range core.Threads {
 					cpuDetails[cpu] = CPUTopoInfo{
 						CoreID:     coreID,
 						SocketID:   core.SocketID,
 						NUMANodeID: node.Id,
+						L3CacheID:  l3CacheID,
 					}
 
 					numaNodeIDToSocketID[node.Id] = core.SocketID
@@ -501,6 +512,18 @@ func Discover(machineInfo *info.MachineInfo) (*CPUTopology, *MemoryTopology, err
 	}, &memoryTopology, nil
 }
 
+// getUniqueL3CacheID returns the unique L3 cache ID for the given core.
+// If no L3 cache is found, it returns -1.
+// todo: Intel multi-die machine can not get unique L3 Cache ID from UncoreCaches now.
+func getUniqueL3CacheID(core info.Core) int {
+	for _, cache := range core.UncoreCaches {
+		if cache.Level == L3CacheLevel && cache.Type == L3CacheType {
+			return cache.Id
+		}
+	}
+	return -1
+}
+
 // getUniqueCoreID computes coreId as the lowest cpuID
 // for a given Threads []int slice. This will assure that coreID's are
 // platform unique (opposite to what cAdvisor reports)
@@ -513,14 +536,14 @@ func getUniqueCoreID(threads []int) (coreID int, err error) {
 		return 0, fmt.Errorf("cpus provided are not unique")
 	}
 
-	min := threads[0]
+	m := threads[0]
 	for _, thread := range threads[1:] {
-		if thread < min {
-			min = thread
+		if thread < m {
+			m = thread
 		}
 	}
 
-	return min, nil
+	return m, nil
 }
 
 // GetNumaAwareAssignments returns a mapping from NUMA id to cpu core
