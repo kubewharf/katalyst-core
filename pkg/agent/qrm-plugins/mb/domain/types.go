@@ -33,7 +33,7 @@ type Domains map[int]*Domain
 func (d Domains) GetCCDMapping() map[int]int {
 	result := map[int]int{}
 	for domID, dom := range d {
-		for ccd := range dom.CCDs {
+		for ccd := range dom.ccds {
 			result[ccd] = domID
 		}
 	}
@@ -42,14 +42,8 @@ func (d Domains) GetCCDMapping() map[int]int {
 
 // Domain is the unit of memory bandwidth to share and compete with
 type Domain struct {
-	ID   int
-	CCDs sets.Int
-
-	minMBPerCCD int
-	maxMBPerCCD int
-
-	// below are for incoming memory bandwidth
-	defaultCapacityMB  int
+	id                 int
+	ccds               sets.Int
 	maxAlienIncomingMB int
 }
 
@@ -57,13 +51,10 @@ func (d *Domain) GetAlienMBLimit() int {
 	return d.maxAlienIncomingMB
 }
 
-func newDomain(id int, ccds sets.Int, capacity, ccdMin, ccdMax, ccdAlienMBLimit int) *Domain {
+func NewDomain(id int, ccds sets.Int, ccdAlienMBLimit int) *Domain {
 	domain := Domain{
-		ID:                 id,
-		CCDs:               sets.NewInt(ccds.List()...),
-		defaultCapacityMB:  capacity,
-		minMBPerCCD:        ccdMin,
-		maxMBPerCCD:        ccdMax,
+		id:                 id,
+		ccds:               sets.NewInt(ccds.List()...),
 		maxAlienIncomingMB: ccdAlienMBLimit,
 	}
 
@@ -74,12 +65,12 @@ func NewDomains(domains ...*Domain) (Domains, error) {
 	result := Domains{}
 	ccds := sets.Int{}
 	for _, domain := range domains {
-		ccdsToAdd := domain.CCDs.List()
+		ccdsToAdd := domain.ccds.List()
 		if ccds.HasAny(ccdsToAdd...) {
-			return nil, fmt.Errorf("duplicate ccd in domain %d", domain.ID)
+			return nil, fmt.Errorf("duplicate ccd in domain %d", domain.id)
 		}
-		ccds.Insert(domain.CCDs.List()...)
-		result[domain.ID] = domain
+		ccds.Insert(domain.ccds.List()...)
+		result[domain.id] = domain
 	}
 
 	return result, nil
@@ -169,9 +160,7 @@ func getDiesByNUMAs(numas sets.Int, dieTopology *machine.DieTopology) (sets.Int,
 	return result, nil
 }
 
-func NewDomainsByMachineInfo(info *machine.KatalystMachineInfo,
-	defaultDomainCapacity int, ccdMinMB, ccdMaxMB, maxRemoteMB int,
-) (Domains, error) {
+func NewDomainsByMachineInfo(info *machine.KatalystMachineInfo, maxRemoteMB int) (Domains, error) {
 	if info == nil {
 		return nil, errors.New("invalid nil machine sibling numa info")
 	}
@@ -193,7 +182,7 @@ func NewDomainsByMachineInfo(info *machine.KatalystMachineInfo,
 		if errCurr != nil {
 			return nil, errors.Wrapf(err, "failed to locate numa ccds for domain %d", domainID)
 		}
-		result[domainID] = newDomain(domainID, dies, defaultDomainCapacity, ccdMinMB, ccdMaxMB, maxRemoteMB)
+		result[domainID] = NewDomain(domainID, dies, maxRemoteMB)
 
 		if klog.V(6).Enabled() {
 			klog.Infof("[mbm] mb domain = %d, numa nodes = %v, ccds = %v", domainID, numas.List(), dies.List())

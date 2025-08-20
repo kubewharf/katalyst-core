@@ -57,9 +57,7 @@ func Test_domainAdvisor_getEffectiveCapacity(t *testing.T) {
 			name: "trivial base capacity",
 			fields: fields{
 				domains: domain.Domains{
-					0: {
-						ID: 0,
-					},
+					0: domain.NewDomain(0, nil, 88888),
 				},
 				defaultDomainCapacity: 12_345,
 			},
@@ -74,9 +72,7 @@ func Test_domainAdvisor_getEffectiveCapacity(t *testing.T) {
 			name: "min of active settings takes effect",
 			fields: fields{
 				domains: domain.Domains{
-					0: {
-						ID: 0,
-					},
+					0: domain.NewDomain(0, nil, 88888),
 				},
 				groupCapacityInMB:     map[string]int{"shared-60": 9_999, "shared-50": 11_111},
 				defaultDomainCapacity: 12_345,
@@ -137,10 +133,7 @@ func Test_domainAdvisor_calcIncomingQuotas(t *testing.T) {
 			name: "happy path of no dynamic capacity",
 			fields: fields{
 				domains: domain.Domains{
-					0: {
-						ID:   0,
-						CCDs: sets.NewInt(0, 1),
-					},
+					0: domain.NewDomain(0, sets.NewInt(0, 1), 88888),
 				},
 				defaultDomainCapacity: 10_000,
 			},
@@ -185,10 +178,7 @@ func Test_domainAdvisor_calcIncomingQuotas(t *testing.T) {
 			name: "dynamic capacity in force",
 			fields: fields{
 				domains: domain.Domains{
-					0: {
-						ID:   0,
-						CCDs: sets.NewInt(0, 1),
-					},
+					0: domain.NewDomain(0, sets.NewInt(0, 1), 88888),
 				},
 				GroupCapacityInMB: map[string]int{
 					"shared-60": 6_000,
@@ -280,14 +270,8 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 			name: "happy path of no plan update",
 			fields: fields{
 				domains: domain.Domains{
-					0: {
-						ID:   0,
-						CCDs: sets.NewInt(),
-					},
-					1: {
-						ID:   1,
-						CCDs: sets.NewInt(2, 3),
-					},
+					0: domain.NewDomain(0, sets.NewInt(), 88888),
+					1: domain.NewDomain(1, sets.NewInt(2, 3), 88888),
 				},
 				defaultDomainCapacity: 30_000,
 				XDomGroups:            nil,
@@ -376,14 +360,8 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 			name: "happy path of yes plan update",
 			fields: fields{
 				domains: domain.Domains{
-					0: {
-						ID:   0,
-						CCDs: sets.NewInt(0, 1),
-					},
-					1: {
-						ID:   1,
-						CCDs: sets.NewInt(2, 3),
-					},
+					0: domain.NewDomain(0, sets.NewInt(0, 1), 88888),
+					1: domain.NewDomain(1, sets.NewInt(2, 3), 88888),
 				},
 				defaultDomainCapacity: 30_000,
 				XDomGroups:            nil,

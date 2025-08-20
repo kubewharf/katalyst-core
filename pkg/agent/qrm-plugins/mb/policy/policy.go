@@ -62,7 +62,8 @@ func NewGenericPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		}
 	}
 
-	general.Infof("[mbm] config: default mb domain capacity %d MB", defaultMBDomainCapacity)
+	general.Infof("[mbm] config: default mb domain capacity %d MB (machineInfo SiblingNumaMBWAllocatable)",
+		defaultMBDomainCapacity)
 	general.Infof("[mbm] config: group customized capacities %v", conf.DomainGroupAwareCapacity)
 	general.Infof("[mbm] config: min ccd mb %d MB", conf.MinCCDMB)
 	general.Infof("[mbm] config: max ccd mb %d MB", conf.MaxCCDMB)
@@ -77,8 +78,7 @@ func NewGenericPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	groupNeverThrottles := conf.MBQRMPluginConfig.NoThrottleGroups
 	xDomGroups := conf.CrossDomainGroups
 
-	domains, err := domain.NewDomainsByMachineInfo(agentCtx.KatalystMachineInfo, defaultMBDomainCapacity,
-		ccdMinMB, ccdMaxMB, maxIncomingRemoteMB)
+	domains, err := domain.NewDomainsByMachineInfo(agentCtx.KatalystMachineInfo, maxIncomingRemoteMB)
 	if err != nil {
 		general.Infof("[mbm] invalid config in machine info: %v", err)
 		return false, nil, nil

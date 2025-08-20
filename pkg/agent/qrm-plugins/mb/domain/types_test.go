@@ -30,9 +30,6 @@ func TestNewDomain(t *testing.T) {
 	type args struct {
 		id              int
 		ccds            sets.Int
-		capacity        int
-		ccdMax          int
-		ccdMin          int
 		ccdAlienMBLimit int
 	}
 	tests := []struct {
@@ -45,18 +42,12 @@ func TestNewDomain(t *testing.T) {
 			args: args{
 				id:              1,
 				ccds:            sets.NewInt(4, 5, 6, 7),
-				capacity:        60_000,
-				ccdMax:          35_000,
-				ccdMin:          4_000,
 				ccdAlienMBLimit: 5_000,
 			},
 			want: &Domain{
-				ID:                 1,
-				CCDs:               sets.NewInt(4, 5, 6, 7),
-				defaultCapacityMB:  60_000,
+				id:                 1,
+				ccds:               sets.NewInt(4, 5, 6, 7),
 				maxAlienIncomingMB: 5_000,
-				maxMBPerCCD:        35_000,
-				minMBPerCCD:        4_000,
 			},
 		},
 	}
@@ -64,9 +55,8 @@ func TestNewDomain(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := newDomain(tt.args.id, tt.args.ccds, tt.args.capacity,
-				tt.args.ccdMin, tt.args.ccdMax, tt.args.ccdAlienMBLimit); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("newDomain() = %v, want %v", got, tt.want)
+			if got := NewDomain(tt.args.id, tt.args.ccds, tt.args.ccdAlienMBLimit); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("NewDomain() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -88,12 +78,12 @@ func TestNewDomains(t *testing.T) {
 			args: args{
 				domains: []*Domain{
 					{
-						ID:   0,
-						CCDs: sets.NewInt(0, 7),
+						id:   0,
+						ccds: sets.NewInt(0, 7),
 					},
 					{
-						ID:   1,
-						CCDs: sets.NewInt(4, 7),
+						id:   1,
+						ccds: sets.NewInt(4, 7),
 					},
 				},
 			},
@@ -105,23 +95,23 @@ func TestNewDomains(t *testing.T) {
 			args: args{
 				domains: []*Domain{
 					{
-						ID:   0,
-						CCDs: sets.NewInt(0, 1),
+						id:   0,
+						ccds: sets.NewInt(0, 1),
 					},
 					{
-						ID:   1,
-						CCDs: sets.NewInt(2, 3),
+						id:   1,
+						ccds: sets.NewInt(2, 3),
 					},
 				},
 			},
 			want: Domains{
 				0: {
-					ID:   0,
-					CCDs: sets.NewInt(0, 1),
+					id:   0,
+					ccds: sets.NewInt(0, 1),
 				},
 				1: {
-					ID:   1,
-					CCDs: sets.NewInt(2, 3),
+					id:   1,
+					ccds: sets.NewInt(2, 3),
 				},
 			},
 			wantErr: false,
@@ -154,12 +144,12 @@ func TestDomains_GetCCDMapping(t *testing.T) {
 			name: "happy path",
 			d: Domains{
 				0: {
-					ID:   0,
-					CCDs: sets.NewInt(0, 1, 2, 3),
+					id:   0,
+					ccds: sets.NewInt(0, 1, 2, 3),
 				},
 				1: {
-					ID:   1,
-					CCDs: sets.NewInt(4, 5, 6, 7),
+					id:   1,
+					ccds: sets.NewInt(4, 5, 6, 7),
 				},
 			},
 			want: map[int]int{
@@ -182,11 +172,8 @@ func TestDomains_GetCCDMapping(t *testing.T) {
 func TestNewDomainsByMachineInfo(t *testing.T) {
 	t.Parallel()
 	type args struct {
-		info            *machine.KatalystMachineInfo
-		ccdMinMB        int
-		ccdMaxMB        int
-		maxRemoteMB     int
-		defaultDomainMB int
+		info        *machine.KatalystMachineInfo
+		maxRemoteMB int
 	}
 	tests := []struct {
 		name    string
@@ -223,26 +210,17 @@ func TestNewDomainsByMachineInfo(t *testing.T) {
 						},
 					},
 				},
-				ccdMinMB:        1_000,
-				ccdMaxMB:        35_000,
-				maxRemoteMB:     12_000,
-				defaultDomainMB: 90_000,
+				maxRemoteMB: 12_000,
 			},
 			want: Domains{
 				0: &Domain{
-					ID:                 0,
-					CCDs:               sets.NewInt(0, 1, 16, 17),
-					defaultCapacityMB:  90_000,
-					minMBPerCCD:        1_000,
-					maxMBPerCCD:        35_000,
+					id:                 0,
+					ccds:               sets.NewInt(0, 1, 16, 17),
 					maxAlienIncomingMB: 12000,
 				},
 				1: &Domain{
-					ID:                 1,
-					CCDs:               sets.NewInt(2, 3, 18, 19),
-					defaultCapacityMB:  90_000,
-					minMBPerCCD:        1_000,
-					maxMBPerCCD:        35_000,
+					id:                 1,
+					ccds:               sets.NewInt(2, 3, 18, 19),
 					maxAlienIncomingMB: 12000,
 				},
 			},
@@ -281,26 +259,17 @@ func TestNewDomainsByMachineInfo(t *testing.T) {
 						},
 					},
 				},
-				ccdMinMB:        1_000,
-				ccdMaxMB:        35_000,
-				maxRemoteMB:     12_000,
-				defaultDomainMB: 90_000,
+				maxRemoteMB: 12_000,
 			},
 			want: Domains{
 				0: &Domain{
-					ID:                 0,
-					CCDs:               sets.NewInt(0, 1, 2, 3, 4, 5, 6, 7, 16, 17, 18, 19, 20, 21, 22, 23),
-					defaultCapacityMB:  90_000,
-					minMBPerCCD:        1_000,
-					maxMBPerCCD:        35_000,
+					id:                 0,
+					ccds:               sets.NewInt(0, 1, 2, 3, 4, 5, 6, 7, 16, 17, 18, 19, 20, 21, 22, 23),
 					maxAlienIncomingMB: 12000,
 				},
 				1: &Domain{
-					ID:                 1,
-					CCDs:               sets.NewInt(8, 9, 10, 11, 12, 13, 14, 15, 24, 25, 26, 27, 28, 29, 30, 31),
-					defaultCapacityMB:  90_000,
-					minMBPerCCD:        1_000,
-					maxMBPerCCD:        35_000,
+					id:                 1,
+					ccds:               sets.NewInt(8, 9, 10, 11, 12, 13, 14, 15, 24, 25, 26, 27, 28, 29, 30, 31),
 					maxAlienIncomingMB: 12000,
 				},
 			},
@@ -311,8 +280,7 @@ func TestNewDomainsByMachineInfo(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := NewDomainsByMachineInfo(tt.args.info,
-				tt.args.defaultDomainMB, tt.args.ccdMinMB, tt.args.ccdMaxMB, tt.args.maxRemoteMB)
+			got, err := NewDomainsByMachineInfo(tt.args.info, tt.args.maxRemoteMB)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewDomainsByMachineInfo() error = %v, wantErr %v", err, tt.wantErr)
 				return
