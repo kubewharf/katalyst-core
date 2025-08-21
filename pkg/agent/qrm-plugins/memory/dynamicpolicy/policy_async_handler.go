@@ -231,7 +231,7 @@ func (p *DynamicPolicy) applyExternalCgroupParams(_ *coreconfig.Configuration,
 					"cgroupSubsysName", entry.CgroupSubsysName,
 					"cgroupIfaceName", cgroupIfaceName)
 
-				exist, err := common.IsContainerCgroupFileExist(entry.CgroupSubsysName, podUID, containerID, cgroupIfaceName)
+				exist, err := common.IsContainerCgroupFileExist(entry.CgroupSubsysName, podUID, containerID, cgroupIfaceName, p.metaServer.GetKataContainerAbsoluteCgroupPath)
 				if err != nil {
 					general.Warningf("check %v/%v cgroup file's existence of pod: %s/%s container: %s failed with error: %v",
 						cgroupIfaceName, entry.CgroupSubsysName,
@@ -247,7 +247,7 @@ func (p *DynamicPolicy) applyExternalCgroupParams(_ *coreconfig.Configuration,
 					continue
 				}
 
-				err = cgroupmgr.ApplyUnifiedDataForContainer(podUID, containerID, entry.CgroupSubsysName, cgroupIfaceName, entry.ControlKnobValue)
+				err = cgroupmgr.ApplyUnifiedDataForContainer(podUID, containerID, entry.CgroupSubsysName, cgroupIfaceName, entry.ControlKnobValue, p.metaServer.GetKataContainerAbsoluteCgroupPath)
 				if err != nil {
 					errList = append(errList, err)
 					general.ErrorS(err, "ApplyUnifiedDataForContainer failed",
@@ -323,7 +323,7 @@ func (p *DynamicPolicy) checkMemorySet(_ *coreconfig.Configuration,
 				continue
 			}
 
-			cpusetStats, err = cgroupmgr.GetCPUSetForContainer(podUID, containerID)
+			cpusetStats, err = cgroupmgr.GetCPUSetForContainer(podUID, containerID, p.metaServer.GetKataContainerAbsoluteCgroupPath)
 			if err != nil {
 				general.Errorf("GetMemorySet of pod: %s container: name(%s), id(%s) failed with error: %v",
 					podUID, containerName, containerID, err)
@@ -567,7 +567,7 @@ func (p *DynamicPolicy) setMemoryMigrate() {
 					general.Infof("start to set cgroup memory migrate for pod: %s, container: %s(%s) and pin memory",
 						podUID, containerName, containerID)
 
-					err = cgroupmgr.ApplyCPUSetForContainer(podUID, containerID, cgData)
+					err = cgroupmgr.ApplyCPUSetForContainer(podUID, containerID, cgData, p.metaServer.GetKataContainerAbsoluteCgroupPath)
 					general.Infof("end to set cgroup memory migrate for pod: %s, container: %s(%s) and pin memory",
 						podUID, containerName, containerID)
 					if err != nil {
@@ -621,7 +621,7 @@ func (p *DynamicPolicy) clearResidualOOMPriority(conf *coreconfig.Configuration,
 				continue
 			}
 
-			if exist, err := common.IsContainerCgroupExist(podUID, containerID); err != nil {
+			if exist, err := common.IsContainerCgroupExist(podUID, containerID, p.metaServer.GetKataContainerAbsoluteCgroupPath); err != nil {
 				general.Errorf("check if container cgroup exists failed, pod: %s, container: %s(%s), err: %v",
 					podUID, containerName, containerID, err)
 				continue
@@ -739,7 +739,7 @@ func (p *DynamicPolicy) syncOOMPriority(conf *coreconfig.Configuration,
 				continue
 			}
 
-			if exist, err := common.IsContainerCgroupExist(podUID, containerID); err != nil {
+			if exist, err := common.IsContainerCgroupExist(podUID, containerID, p.metaServer.GetKataContainerAbsoluteCgroupPath); err != nil {
 				general.Errorf("check if container cgroup exists failed, pod: %s, container: %s(%s), err: %v",
 					podUID, containerName, containerID, err)
 				continue

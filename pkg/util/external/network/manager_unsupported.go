@@ -34,7 +34,7 @@ func NewNetworkManager() NetworkManager {
 }
 
 // ApplyNetClass applies the net class config for a container.
-func (*unsupportedNetworkManager) ApplyNetClass(podUID, containerId string, data *common.NetClsData) error {
+func (*unsupportedNetworkManager) ApplyNetClass(podUID, containerId string, data *common.NetClsData, handlers ...common.OtherAbsoluteCgroupPathHandler) error {
 	return nil
 }
 

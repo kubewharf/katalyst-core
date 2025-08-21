@@ -57,6 +57,7 @@ type labeledContainerInfo struct {
 
 type RuntimePodFetcher interface {
 	GetPods(all bool) ([]*RuntimePod, error)
+	GetContainerInfo(containerId string) (map[string]string, error)
 }
 
 type runtimePodFetcherImpl struct {
@@ -171,6 +172,22 @@ func (r *runtimePodFetcherImpl) getKubeletContainers(allContainers bool) ([]*run
 	}
 
 	return containers, nil
+}
+
+// GetContainerInfo returns the additional runtime info of a container based on container id
+func (r *runtimePodFetcherImpl) GetContainerInfo(containerId string) (map[string]string, error) {
+	containerStatus, err := r.runtimeService.ContainerStatus(containerId, true)
+	if containerStatus == nil || err != nil {
+		klog.ErrorS(err, "GetContainerStatus failed")
+		return nil, fmt.Errorf("get container status failed, err: %v", err)
+	}
+
+	if containerStatus.Info == nil {
+		klog.ErrorS(err, "ContainerStatus has no info")
+		return nil, fmt.Errorf("containerStatus has no info")
+	}
+
+	return containerStatus.Info, nil
 }
 
 // getContainerInfoFromLabels gets labeledContainerInfo from labels.

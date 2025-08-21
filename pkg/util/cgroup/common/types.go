@@ -45,6 +45,9 @@ const (
 	SystemdRootPath           = "/kubepods.slice"
 	SystemdRootPathBestEffort = "/kubepods.slice/kubepods-besteffort.slice"
 	SystemdRootPathBurstable  = "/kubepods.slice/kubepods-burstable.slice"
+
+	// ContainerSandboxIDKey is the key of sandbox id in container info
+	ContainerSandboxIDKey = "sandboxID"
 )
 
 const (
@@ -240,3 +243,7 @@ type CgroupResources struct {
 	SkipDevices     bool `json:"-"`
 	SkipFreezeOnSet bool `json:"-"`
 }
+
+type OtherAbsoluteCgroupPathHandler func(subsys, podUID, containerId string) (string, error)
+
+type OtherRelativeCgroupPathHandler func(podUID, containerId string) (string, error)

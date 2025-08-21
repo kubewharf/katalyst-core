@@ -200,3 +200,11 @@ func (f *FakePodFetcher) GetPod(ctx context.Context, podUID string) (*v1.Pod, er
 func (f *FakePodFetcher) GetPodList(ctx context.Context, podFilter func(*v1.Pod) bool) ([]*v1.Pod, error) {
 	return f.GetPodListFunc(ctx, podFilter)
 }
+
+func (f *FakePodFetcher) GetKataContainerAbsoluteCgroupPath(subsys, podUID, containerName string) (string, error) {
+	return "", nil
+}
+
+func (f *FakePodFetcher) GetKataContainerRelativeCgroupPath(podUID, containerName string) (string, error) {
+	return "", nil
+}
