@@ -19,6 +19,9 @@ package pod
 import (
 	"context"
 	"fmt"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	"k8s.io/apimachinery/pkg/util/json"
+	"path"
 	"sync"
 	"time"
 
@@ -44,6 +47,10 @@ const (
 
 type ContextKey string
 
+type ContainerInfo struct {
+	SandboxID string `json:"sandboxID"`
+}
+
 const (
 	BypassCacheKey  ContextKey = "bypass_cache"
 	BypassCacheTrue ContextKey = "true"
@@ -64,6 +71,13 @@ type PodFetcher interface {
 	GetContainerSpec(podUID, containerName string) (*v1.Container, error)
 	// GetPod returns Pod by UID
 	GetPod(ctx context.Context, podUID string) (*v1.Pod, error)
+
+	// GetKataContainerAbsoluteCgroupPath attempts to get the absolute cgroup path of a kata container.
+	// It will return an error if the container is not a kata container.
+	GetKataContainerAbsoluteCgroupPath(subsys, podUID, containerId string) (string, error)
+
+	// GetKataContainerRelativeCgroupPath attempts to get the
+	GetKataContainerRelativeCgroupPath(podUID, containerId string) (string, error)
 }
 
 type podFetcherImpl struct {
@@ -362,4 +376,34 @@ func (w *podFetcherImpl) checkPodCache() {
 		metrics.ConvertMapToTags(map[string]string{
 			"source": "kubelet",
 		})...)
+}
+
+func (w *podFetcherImpl) GetKataContainerAbsoluteCgroupPath(subsys, podUID, containerId string) (string, error) {
+	cgroupPathSuffix, err := w.getKataCgroupPathSuffix(podUID, containerId)
+	if err != nil {
+		return "", fmt.Errorf("failed to get kata cgroup path suffix: %v", err)
+	}
+	return common.GetKubernetesAnyExistAbsCgroupPath(subsys, cgroupPathSuffix)
+}
+
+func (w *podFetcherImpl) GetKataContainerRelativeCgroupPath(podUID, containerId string) (string, error) {
+	cgroupPathSuffix, err := w.getKataCgroupPathSuffix(podUID, containerId)
+	if err != nil {
+		return "", fmt.Errorf("failed to get kata cgroup path suffix: %v", err)
+	}
+	return common.GetKubernetesAnyExistRelativeCgroupPath(cgroupPathSuffix)
+}
+
+func (w *podFetcherImpl) getKataCgroupPathSuffix(podUID, containerId string) (string, error) {
+	infoRaw, err := w.runtimePodFetcher.GetContainerInfo(containerId)
+	if err != nil {
+		return "", fmt.Errorf("failed to get container info, err: %v", err)
+	}
+
+	var info ContainerInfo
+	if err := json.Unmarshal([]byte(infoRaw["info"]), &info); err != nil {
+		return "", fmt.Errorf("failed to unmarshal info of container into its sandbox id, err: %v", err)
+	}
+	kataPathSuffix := fmt.Sprintf("kata_%s", info.SandboxID)
+	return path.Join(fmt.Sprintf("%s%s", common.PodCgroupPathPrefix, podUID), kataPathSuffix), nil
 }

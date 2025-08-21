@@ -35,7 +35,7 @@ func NewNetworkManager() NetworkManager {
 }
 
 // ApplyNetClass applies the net class config for a container.
-func (*defaultNetworkManager) ApplyNetClass(podUID, containerId string, data *common.NetClsData) error {
+func (*defaultNetworkManager) ApplyNetClass(podUID, containerId string, data *common.NetClsData, _ ...common.OtherAbsoluteCgroupPathHandler) error {
 	// TODO: implement traffic tagging by using eBPF
 	return errors.New("not implemented yet")
 }
