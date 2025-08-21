@@ -17,6 +17,8 @@ limitations under the License.
 package dynamicpolicy
 
 import (
+	"os"
+	"path"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -24,6 +26,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
 func TestResctrlProcessor_HintResp(t *testing.T) {
@@ -43,8 +46,14 @@ func TestResctrlProcessor_HintResp(t *testing.T) {
 		}
 	}
 
+	type fsResctrl struct {
+		numRmids string
+		dirs     []string
+	}
 	type fields struct {
-		config *qrm.ResctrlConfig
+		config     *qrm.ResctrlConfig
+		resctrl    *fsResctrl
+		isAllocate bool
 	}
 	type args struct {
 		qosLevel string
@@ -156,14 +165,109 @@ func TestResctrlProcessor_HintResp(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "default shared-50, and mon_groups not over limit",
+			fields: fields{
+				config: &qrm.ResctrlConfig{
+					EnableResctrlHint:     true,
+					DefaultSharedSubgroup: 50,
+					MonGroupMaxCountRatio: 0.6, // monGroupsMaxCount = 3
+				},
+				resctrl: &fsResctrl{
+					numRmids: "5",
+					dirs: []string{
+						"info",
+						"shared-50/mon_groups/pod1",
+						"shared-50/mon_groups/pod2",
+					},
+				},
+				isAllocate: true,
+			},
+			args: args{
+				qosLevel: "shared_cores",
+				req:      &pluginapi.ResourceRequest{},
+				resp:     genRespTest(),
+			},
+			want: &pluginapi.ResourceAllocationResponse{
+				AllocationResult: &pluginapi.ResourceAllocation{
+					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+						"memory": {
+							Annotations: map[string]string{
+								"test-key":                             "test-value",
+								"rdt.resources.beta.kubernetes.io/pod": "shared-50",
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "default shared-50, and mon_groups is over limit",
+			fields: fields{
+				config: &qrm.ResctrlConfig{
+					EnableResctrlHint:     true,
+					DefaultSharedSubgroup: 50,
+					MonGroupMaxCountRatio: 0.6, // monGroupsMaxCount = 3
+				},
+				resctrl: &fsResctrl{
+					numRmids: "5",
+					dirs: []string{
+						"info",
+						"shared-50/mon_groups/pod1",
+						"shared-50/mon_groups/pod2",
+						"shared-50/mon_groups/pod3",
+					},
+				},
+				isAllocate: true,
+			},
+			args: args{
+				qosLevel: "shared_cores",
+				req:      &pluginapi.ResourceRequest{},
+				resp:     genRespTest(),
+			},
+			want: &pluginapi.ResourceAllocationResponse{
+				AllocationResult: &pluginapi.ResourceAllocation{
+					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+						"memory": {
+							Annotations: map[string]string{
+								"test-key":                             "test-value",
+								"rdt.resources.beta.kubernetes.io/pod": "shared-50",
+								"rdt.resources.beta.kubernetes.io/need-mon-groups": "false",
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			r := newResctrlHinter(tt.fields.config)
+			r := newResctrlHinter(tt.fields.config, metrics.DummyMetrics{})
+
+			if tt.fields.resctrl != nil {
+				root := t.TempDir()
+				if tt.fields.resctrl.numRmids != "" {
+					os.MkdirAll(path.Join(root, "info/L3_MON"), 0o755)
+					err := os.WriteFile(path.Join(root, "info/L3_MON/num_rmids"), []byte(tt.fields.resctrl.numRmids), 0o644)
+					assert.NoError(t, err)
+				}
+				for _, dir := range tt.fields.resctrl.dirs {
+					err := os.MkdirAll(path.Join(root, dir), 0o755)
+					assert.NoError(t, err)
+				}
+				hinter := r.(*resctrlHinter)
+				hinter.root = root
+				hinter.monGroupsMaxCount = hinter.getMonGroupsMaxCount()
+			}
+
 			meta := state.GenerateMemoryContainerAllocationMeta(tt.args.req, tt.args.qosLevel)
-			r.HintResourceAllocation(meta, tt.args.resp.AllocationResult)
+			if tt.fields.isAllocate {
+				r.Allocate(meta, tt.args.resp.AllocationResult)
+			} else {
+				r.HintResourceAllocation(meta, tt.args.resp.AllocationResult)
+			}
 			assert.Equalf(t, tt.want, tt.args.resp, "HintResourceAllocation(%v, %v, %v)", tt.args.qosLevel, tt.args.req, tt.args.resp)
 		})
 	}

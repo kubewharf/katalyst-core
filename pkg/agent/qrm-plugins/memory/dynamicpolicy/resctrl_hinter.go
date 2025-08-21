@@ -17,7 +17,10 @@ limitations under the License.
 package dynamicpolicy
 
 import (
+	"bytes"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 
 	v1 "k8s.io/api/core/v1"
@@ -28,21 +31,31 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 const (
 	templateSharedSubgroup = "shared-%02d"
 	sharedGroup            = "share"
+	resctrlRoot            = "/sys/fs/resctrl"
+	monGroups              = "mon_groups"
+
+	metricNameResctrlMonGroupsNum       = "resctrl_mon_groups_num"
+	metricNameResctrlMonGroupsOverlimit = "resctrl_mon_groups_over_limit"
 )
 
 type ResctrlHinter interface {
 	HintResourceAllocation(podMeta commonstate.AllocationMeta, resourceAllocation *pluginapi.ResourceAllocation)
+	Allocate(podMeta commonstate.AllocationMeta, resourceAllocation *pluginapi.ResourceAllocation)
 }
 
 type resctrlHinter struct {
+	emitter              metrics.MetricEmitter
 	config               *qrm.ResctrlConfig
 	closidEnablingGroups sets.String
+	monGroupsMaxCount    int
+	root                 string
 }
 
 func getSharedSubgroup(val int) string {
@@ -61,7 +74,7 @@ func (r *resctrlHinter) getSharedSubgroupByPool(pool string) string {
 	return getSharedSubgroup(r.config.DefaultSharedSubgroup)
 }
 
-func ensureToGetMemAllocInfo(resourceAllocation *pluginapi.ResourceAllocation) *pluginapi.ResourceAllocationInfo {
+func injectRespAnnotation(resourceAllocation *pluginapi.ResourceAllocation, k, v string) {
 	if _, ok := resourceAllocation.ResourceAllocation[string(v1.ResourceMemory)]; !ok {
 		resourceAllocation.ResourceAllocation[string(v1.ResourceMemory)] = &pluginapi.ResourceAllocationInfo{}
 	}
@@ -71,12 +84,7 @@ func ensureToGetMemAllocInfo(resourceAllocation *pluginapi.ResourceAllocation) *
 		allocInfo.Annotations = make(map[string]string)
 	}
 
-	return allocInfo
-}
-
-func injectRespAnnotationSharedGroup(resourceAllocation *pluginapi.ResourceAllocation, group string) {
-	allocInfo := ensureToGetMemAllocInfo(resourceAllocation)
-	allocInfo.Annotations[util.AnnotationRdtClosID] = group
+	allocInfo.Annotations[k] = v
 }
 
 func isPodLevelSubgroupDisabled(group string, enablingGroups sets.String) bool {
@@ -88,22 +96,7 @@ func isPodLevelSubgroupDisabled(group string, enablingGroups sets.String) bool {
 	return !enablingGroups.Has(group)
 }
 
-func injectRespAnnotationPodMonGroup(podMeta commonstate.AllocationMeta, resourceAllocation *pluginapi.ResourceAllocation,
-	enablingGroups sets.String, group string,
-) {
-	if isPodLevelSubgroupDisabled(group, enablingGroups) {
-		allocInfo := ensureToGetMemAllocInfo(resourceAllocation)
-		general.InfofV(6, "mbm: pod %s/%s of group %s has no pod level mon subgroups",
-			podMeta.PodNamespace, podMeta.PodName, group)
-		allocInfo.Annotations[util.AnnotationRdtNeedPodMonGroups] = strconv.FormatBool(false)
-		return
-	}
-
-	// by default, or having pod level subgroup, no need to hint explicitly
-	return
-}
-
-func (r *resctrlHinter) HintResourceAllocation(podMeta commonstate.AllocationMeta, resourceAllocation *pluginapi.ResourceAllocation) {
+func (r *resctrlHinter) hintResourceAllocation(podMeta commonstate.AllocationMeta, resourceAllocation *pluginapi.ResourceAllocation, isAllocate bool) {
 	if r.config == nil || !r.config.EnableResctrlHint {
 		return
 	}
@@ -127,23 +120,96 @@ func (r *resctrlHinter) HintResourceAllocation(podMeta commonstate.AllocationMet
 
 	// inject shared subgroup if share pool
 	if podMeta.QoSLevel == apiconsts.PodAnnotationQoSLevelSharedCores {
-		injectRespAnnotationSharedGroup(resourceAllocation, resctrlGroup)
+		injectRespAnnotation(resourceAllocation, util.AnnotationRdtClosID, resctrlGroup)
 	}
 
 	// inject pod mon group (false only) if applicable
-	injectRespAnnotationPodMonGroup(podMeta, resourceAllocation, r.closidEnablingGroups, resctrlGroup)
+	needMonGroups := true
+	if isPodLevelSubgroupDisabled(resctrlGroup, r.closidEnablingGroups) {
+		general.InfofV(6, "mbm: pod %s/%s of group %s has no pod level mon subgroups",
+			podMeta.PodNamespace, podMeta.PodName, resctrlGroup)
+		needMonGroups = false
+
+	} else if isAllocate && r.isMonGroupsOverLimit() {
+		general.Infof("mbm: pod %s/%s mon_groups count has over limit %d, don't create pod level mon group",
+			podMeta.PodNamespace, podMeta.PodName, r.monGroupsMaxCount)
+		needMonGroups = false
+	}
+	if !needMonGroups {
+		injectRespAnnotation(resourceAllocation, util.AnnotationRdtNeedPodMonGroups, strconv.FormatBool(needMonGroups))
+	}
 
 	return
 }
 
-func newResctrlHinter(config *qrm.ResctrlConfig) ResctrlHinter {
+func (r *resctrlHinter) getMonGroupsMaxCount() int {
+	b, err := os.ReadFile(filepath.Join(r.root, "info/L3_MON/num_rmids"))
+	if err != nil {
+		general.Errorf("mbm: max mon_groups count: read num_rmids error: %v", err)
+		return 0
+	}
+	limitStr := string(bytes.TrimSpace(b))
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil {
+		general.Errorf("mbm: max mon_groups count: parse num_rmids %s error: %v", limitStr, err)
+		return 0
+	}
+	if r.config.MonGroupMaxCountRatio > 0 {
+		limit = int(float64(limit) * r.config.MonGroupMaxCountRatio)
+	}
+	general.Infof("mbm: max mon_groups count: %d", limit)
+	return limit
+}
+
+func (r *resctrlHinter) isMonGroupsOverLimit() bool {
+	monGroupsCount := 0
+
+	subdirs, err := os.ReadDir(r.root)
+	if err != nil {
+		general.Errorf("mbm: check mon_groups: read root %s error: %v", r.root, err)
+		return false
+	}
+	for _, subdir := range subdirs {
+		if !subdir.IsDir() || subdir.Name() == "info" || subdir.Name() == "mon_data" || subdir.Name() == monGroups {
+			continue
+		}
+		monGroupPath := filepath.Join(r.root, subdir.Name(), monGroups)
+		monGroupsDirs, err := os.ReadDir(monGroupPath)
+		if err != nil && !os.IsNotExist(err) {
+			general.Errorf("mbm: check mon_groups: read mon_groups dir %s error: %v", monGroupPath, err)
+			continue
+		}
+		monGroupsCount += len(monGroupsDirs)
+	}
+
+	_ = r.emitter.StoreInt64(metricNameResctrlMonGroupsNum, int64(monGroupsCount), metrics.MetricTypeNameRaw)
+	if monGroupsCount >= r.monGroupsMaxCount {
+		_ = r.emitter.StoreInt64(metricNameResctrlMonGroupsOverlimit, 1, metrics.MetricTypeNameRaw)
+		return true
+	}
+	return false
+}
+
+func (r *resctrlHinter) HintResourceAllocation(podMeta commonstate.AllocationMeta, resourceAllocation *pluginapi.ResourceAllocation) {
+	r.hintResourceAllocation(podMeta, resourceAllocation, false)
+}
+
+func (r *resctrlHinter) Allocate(podMeta commonstate.AllocationMeta, resourceAllocation *pluginapi.ResourceAllocation) {
+	r.hintResourceAllocation(podMeta, resourceAllocation, true)
+}
+
+func newResctrlHinter(config *qrm.ResctrlConfig, emitter metrics.MetricEmitter) ResctrlHinter {
 	closidEnablingGroups := make(sets.String)
 	if config != nil && config.MonGroupEnabledClosIDs != nil {
 		closidEnablingGroups = sets.NewString(config.MonGroupEnabledClosIDs...)
 	}
 
-	return &resctrlHinter{
+	r := &resctrlHinter{
+		emitter:              emitter,
 		config:               config,
 		closidEnablingGroups: closidEnablingGroups,
+		root:                 resctrlRoot,
 	}
+	r.monGroupsMaxCount = r.getMonGroupsMaxCount()
+	return r
 }
