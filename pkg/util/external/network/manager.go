@@ -43,7 +43,7 @@ type NetworkManagerStub struct {
 	NetClassMap map[string]map[string]*common.NetClsData
 }
 
-func (n *NetworkManagerStub) ApplyNetClass(podUID, containerId string, data *common.NetClsData) error {
+func (n *NetworkManagerStub) ApplyNetClass(podUID, containerId string, data *common.NetClsData, handlers ...common.OtherAbsoluteCgroupPathHandler) error {
 	n.Lock()
 	defer n.Unlock()
 	if _, ok := n.NetClassMap[podUID]; !ok {
