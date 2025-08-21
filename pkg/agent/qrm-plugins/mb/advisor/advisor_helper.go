@@ -25,16 +25,17 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
 )
 
-func getMinEffectiveCapacity(base int, dynaCaps map[string]int, incomingStats monitor.GroupMBStats) int {
+// getMinEffectiveCapacity identifies the min dynamic capacity required by pre-defined groups,
+// if the specific groups have active MB traffics
+func getMinEffectiveCapacity(base int, groupCaps map[string]int, incomingStats monitor.GroupMBStats) int {
 	min := base
-
-	// identify the min dynamic capacity required by pre-defined groups, if the specific groups do have active MB traffics
 	for group, groupStat := range incomingStats {
+		// ignore the  group having no active traffic
 		if !groupStat.HasTraffic() {
 			continue
 		}
 
-		if groupCapacity, ok := dynaCaps[group]; ok {
+		if groupCapacity, ok := groupCaps[group]; ok {
 			if groupCapacity < min {
 				min = groupCapacity
 			}
@@ -44,7 +45,7 @@ func getMinEffectiveCapacity(base int, dynaCaps map[string]int, incomingStats mo
 	return min
 }
 
-func applyPlanCCDChecks(mbPlan *plan.MBPlan, minCCDMB int, maxCCDMB int) *plan.MBPlan {
+func applyPlanCCDBoundsChecks(mbPlan *plan.MBPlan, minCCDMB int, maxCCDMB int) *plan.MBPlan {
 	if mbPlan == nil || len(mbPlan.MBGroups) == 0 {
 		return mbPlan
 	}
@@ -117,41 +118,43 @@ func getGroupOutgoingTotals(group string, outgoings map[string][]monitor.MBInfo)
 	return results
 }
 
-func distributeCapacityToGroups(capacity int, incomingStats monitor.GroupMBStats) *resource.MBGroupIncomingStat {
+func getGroupIncomingInfo(capacity int, incomingStats monitor.GroupMBStats) *resource.MBGroupIncomingStat {
 	result := &resource.MBGroupIncomingStat{
-		CapacityInMB:   capacity,
-		GroupTotalUses: map[string]int{},
-		GroupLimits:    map[string]int{},
+		CapacityInMB: capacity,
 	}
 
-	// from hi to lo to distribute limits, stripping usage out of the determined capacity
-	balance := capacity
-	groups := maps.Keys(incomingStats)
-	sortedGroups := sortGroups(groups)
-	for _, subGroups := range sortedGroups {
-		// all equivalent groups shared the same available balance
-		for group := range subGroups {
-			result.GroupLimits[group] = balance
-		}
+	result.GroupSorted = sortGroups(maps.Keys(incomingStats))
+	result.GroupTotalUses = getUsedTotalByGroup(incomingStats)
+	result.FreeInMB, result.GroupLimits = getLimitsByGroupSorted(capacity, result.GroupSorted, result.GroupTotalUses)
+	result.ResourceState = resource.GetResourceState(capacity, result.FreeInMB)
+	return result
+}
 
+func getLimitsByGroupSorted(capacity int, groupSorting []sets.String, groupUsages map[string]int) (int, map[string]int) {
+	result := make(map[string]int)
+
+	available := capacity
+	// from high to low to deduct used out of current available
+	for _, groups := range groupSorting {
 		used := 0
-		for group := range subGroups {
-			groupUse := incomingStats[group].SumStat().TotalMB
-			result.GroupTotalUses[group] = groupUse
-			used += groupUse
+		for group := range groups {
+			result[group] = available
+			used += groupUsages[group]
 		}
 
-		if balance < used {
-			balance = 0
-			continue
+		available -= used
+		if available < 0 {
+			available = 0
 		}
-
-		balance -= used
 	}
 
-	result.ResourceState = resource.GetResourceState(capacity, balance)
-	result.FreeInMB = balance
-	result.GroupSorted = sortedGroups
+	return available, result
+}
 
+func getUsedTotalByGroup(stats monitor.GroupMBStats) map[string]int {
+	result := make(map[string]int)
+	for group, stat := range stats {
+		result[group] = stat.SumStat().TotalMB
+	}
 	return result
 }

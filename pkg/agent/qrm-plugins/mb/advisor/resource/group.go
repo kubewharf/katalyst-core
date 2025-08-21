@@ -29,17 +29,3 @@ func GetGroupRepresentative(group sets.String) (string, error) {
 	// typically caller should have ensured the group has at least one element
 	return "", errors.New("invalid empty group")
 }
-
-func GetGroupedDomainSetting(domsGroupSetting map[int]GroupSettings) map[string][]int {
-	numDomain := len(domsGroupSetting)
-	result := make(map[string][]int)
-	for dom, groupSetting := range domsGroupSetting {
-		for group, v := range groupSetting {
-			if _, ok := result[group]; !ok {
-				result[group] = make([]int, numDomain)
-			}
-			result[group][dom] = v
-		}
-	}
-	return result
-}

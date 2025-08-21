@@ -28,6 +28,25 @@ const (
 
 type GroupSettings map[string]int
 
+// DomQuotas represents the quotas for domains
+type DomQuotas map[int]GroupSettings
+
+// GetGroupedDomainSetting transforms group-v by domain into domain-v by group
+// as the latter is mapped to resctrl FS group layout
+func (d DomQuotas) GetGroupedDomainSetting() map[string][]int {
+	numDomain := len(d)
+	result := make(map[string][]int)
+	for dom, groupSetting := range d {
+		for group, v := range groupSetting {
+			if _, ok := result[group]; !ok {
+				result[group] = make([]int, numDomain)
+			}
+			result[group][dom] = v
+		}
+	}
+	return result
+}
+
 // MBGroupIncomingStat represents the incoming bound memory bandwidth statistics
 type MBGroupIncomingStat struct {
 	CapacityInMB   int

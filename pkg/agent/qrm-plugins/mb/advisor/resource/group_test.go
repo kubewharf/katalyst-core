@@ -24,7 +24,7 @@ import (
 func TestGetGroupedDomainSetting(t *testing.T) {
 	t.Parallel()
 	type args struct {
-		domsGroupSetting map[int]GroupSettings
+		domsGroupSetting DomQuotas
 	}
 	tests := []struct {
 		name string
@@ -56,7 +56,7 @@ func TestGetGroupedDomainSetting(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := GetGroupedDomainSetting(tt.args.domsGroupSetting); !reflect.DeepEqual(got, tt.want) {
+			if got := tt.args.domsGroupSetting.GetGroupedDomainSetting(); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("GetGroupedDomainSetting() = %v, want %v", got, tt.want)
 			}
 		})

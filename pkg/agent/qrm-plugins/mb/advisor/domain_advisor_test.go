@@ -270,7 +270,7 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 			name: "happy path of no plan update",
 			fields: fields{
 				domains: domain.Domains{
-					0: domain.NewDomain(0, sets.NewInt(), 88888),
+					0: domain.NewDomain(0, sets.NewInt(0, 1), 88888),
 					1: domain.NewDomain(1, sets.NewInt(2, 3), 88888),
 				},
 				defaultDomainCapacity: 30_000,
@@ -379,7 +379,16 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 					},
 				},
 			},
-			want:    &plan.MBPlan{MBGroups: map[string]plan.GroupCCDPlan{}},
+			want: &plan.MBPlan{MBGroups: map[string]plan.GroupCCDPlan{
+				"shared-60": {
+					0: 20_000, // high group enjoy full capacity bounded by ccd-max 20G
+					2: 20_000,
+				},
+				"shared-50": {
+					1: 18_000, // low group has whatever high ones left behind
+					3: 18_000,
+				},
+			}},
 			wantErr: false,
 		},
 		{

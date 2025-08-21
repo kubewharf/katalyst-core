@@ -58,36 +58,39 @@ type domainAdvisor struct {
 }
 
 func (d *domainAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.DomainStats) (*plan.MBPlan, error) {
-	// get mb incoming usage since the capacity applies to incoming traffic
-	domainStats, err := d.calcIncomingDomainStats(ctx, domainsMon)
+	// identify mb incoming usage etc since the capacity applies to incoming traffic
+	domIncomingInfo, err := d.calcIncomingDomainStats(ctx, domainsMon)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get plan")
 	}
-	d.emitDomIncomingStatMetrics(domainStats)
+	d.emitDomIncomingStatMetrics(domIncomingInfo)
 
-	// based on mb incoming usage, decide incoming quotas (i.e. targets) - by setting aside some buffer
-	domQuotas := d.getIncomingDomainQuotas(ctx, domainStats)
-	groupedDomIncomingTargets := resource.GetGroupedDomainSetting(domQuotas)
+	// based on mb incoming usage info, decide incoming quotas (i.e. targets)
+	domIncomingQuotas := d.getIncomingDomainQuotas(ctx, domIncomingInfo)
+	groupedDomIncomingTargets := domIncomingQuotas.GetGroupedDomainSetting()
 	d.emitIncomingTargets(groupedDomIncomingTargets)
 
 	// for each group, based on incoming targets, decide what the outgoing targets are
-	var groupedDomainOutgoingTargets map[string][]int
-	groupedDomainOutgoingTargets, err = d.deriveOutgoingTargets(domainsMon, groupedDomIncomingTargets)
+	var groupedDomOutgoingTargets map[string][]int
+	groupedDomOutgoingTargets, err = d.deriveOutgoingTargets(ctx, domainsMon.OutgoingGroupSumStat, groupedDomIncomingTargets)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get plan")
 	}
-	d.emitOutgoingTargets(groupedDomainOutgoingTargets)
+	d.emitOutgoingTargets(groupedDomOutgoingTargets)
 
+	// leverage the current observed outgoing stats (and implicit previous outgoing mb)
+	// to adjust th outgoing mb hopeful to reach the desired target
 	groupedDomOutgoings := domainsMon.OutgoingGroupSumStat
-	groupedDomainOutgoingQuotas := d.adjust(groupedDomainOutgoingTargets, groupedDomOutgoings)
+	groupedDomainOutgoingQuotas := d.adjust(ctx, groupedDomOutgoingTargets, groupedDomOutgoings)
 	d.emitAdjustedOutgoingTargets(groupedDomainOutgoingQuotas)
 
-	groupedCCDOutgoingQuotas := d.distribute(groupedDomainOutgoingQuotas, domainsMon.Outgoings)
+	// split outgoing mb to ccd level
+	groupedCCDOutgoingQuotas := d.distributeToCCDs(ctx, groupedDomainOutgoingQuotas, domainsMon.Outgoings)
 	rawPlan := convertToPlan(groupedCCDOutgoingQuotas)
 	d.emitRawPlan(rawPlan)
 
-	// finalize plan in line with never-throttle groups and ccb mb checks
-	checkedPlan := applyPlanCCDChecks(rawPlan, d.ccdMinMB, d.ccdMaxMB)
+	// finalize plan with never-throttle groups and ccb mb checks
+	checkedPlan := applyPlanCCDBoundsChecks(rawPlan, d.ccdMinMB, d.ccdMaxMB)
 	updatePlan := maskPlanWithNoThrottles(checkedPlan, d.groupNeverThrottles, d.getNoThrottleMB())
 	d.emitUpdatePlan(updatePlan)
 
@@ -102,7 +105,9 @@ func (d *domainAdvisor) getNoThrottleMB() int {
 	return d.defaultDomainCapacity
 }
 
-func (d *domainAdvisor) adjust(groupedSettings map[string][]int, observed map[string][]monitor.MBInfo) map[string][]int {
+func (d *domainAdvisor) adjust(_ context.Context,
+	groupedSettings map[string][]int, observed map[string][]monitor.MBInfo,
+) map[string][]int {
 	result := map[string][]int{}
 	activeGroups := sets.String{}
 	for group, values := range groupedSettings {
@@ -127,24 +132,26 @@ func (d *domainAdvisor) adjust(groupedSettings map[string][]int, observed map[st
 	return result
 }
 
-func (d *domainAdvisor) getIncomingDomainQuotas(ctx context.Context, domLimits map[int]*resource.MBGroupIncomingStat) map[int]resource.GroupSettings {
+func (d *domainAdvisor) getIncomingDomainQuotas(_ context.Context, domIncomingInfo map[int]*resource.MBGroupIncomingStat,
+) resource.DomQuotas {
 	domQuotas := map[int]resource.GroupSettings{}
-	for dom, limits := range domLimits {
-		domQuotas[dom] = d.quotaStrategy.GetGroupQuotas(limits)
+	for dom, incomingInfo := range domIncomingInfo {
+		domQuotas[dom] = d.quotaStrategy.GetGroupQuotas(incomingInfo)
 	}
 	return domQuotas
 }
 
-func (d *domainAdvisor) calcIncomingDomainStats(ctx context.Context, mon *monitor.DomainStats) (map[int]*resource.MBGroupIncomingStat, error) {
-	domainQuotas := make(map[int]*resource.MBGroupIncomingStat)
+func (d *domainAdvisor) calcIncomingDomainStats(ctx context.Context, mon *monitor.DomainStats,
+) (map[int]*resource.MBGroupIncomingStat, error) {
+	incomingInfoOfDomains := make(map[int]*resource.MBGroupIncomingStat)
 	var err error
 	for domID, incomingStats := range mon.Incomings {
-		domainQuotas[domID], err = d.calcIncomingStat(domID, incomingStats)
+		incomingInfoOfDomains[domID], err = d.calcIncomingStat(domID, incomingStats)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to calc domain quotas")
 		}
 	}
-	return domainQuotas, nil
+	return incomingInfoOfDomains, nil
 }
 
 func (d *domainAdvisor) calcIncomingStat(domID int, incomingStats monitor.GroupMBStats) (*resource.MBGroupIncomingStat, error) {
@@ -153,8 +160,8 @@ func (d *domainAdvisor) calcIncomingStat(domID int, incomingStats monitor.GroupM
 		return nil, errors.Wrap(err, "failed to calc domain capacity")
 	}
 
-	groupCapacities := distributeCapacityToGroups(capacity, incomingStats)
-	return groupCapacities, nil
+	groupIncomingInfo := getGroupIncomingInfo(capacity, incomingStats)
+	return groupIncomingInfo, nil
 }
 
 // getEffectiveCapacity gets the effective memory bandwidth capacity of specified domain, with its given resource usage
@@ -166,11 +173,12 @@ func (d *domainAdvisor) getEffectiveCapacity(domID int, domIncomingStats monitor
 	return getMinEffectiveCapacity(d.defaultDomainCapacity, d.groupCapacityInMB, domIncomingStats), nil
 }
 
-func (d *domainAdvisor) deriveOutgoingTargets(domainsMon *monitor.DomainStats, incomingTargets map[string][]int,
+func (d *domainAdvisor) deriveOutgoingTargets(_ context.Context,
+	outgoingGroupSumStat map[string][]monitor.MBInfo, incomingTargets map[string][]int,
 ) (map[string][]int, error) {
 	// for each group: based on incoming targets, decide what the outgoing targets are
 	result := make(map[string][]int)
-	for group, domSums := range domainsMon.OutgoingGroupSumStat {
+	for group, domSums := range outgoingGroupSumStat {
 		groupIncomingTargets, ok := incomingTargets[group]
 		if !ok {
 			general.Infof("[mbm] no need to change group %s resource", group)
@@ -194,16 +202,17 @@ func (d *domainAdvisor) deriveOutgoingTargets(domainsMon *monitor.DomainStats, i
 			}
 
 			result[group] = outgoingTargets
-			continue
+		} else {
+			result[group] = groupIncomingTargets
 		}
-
-		result[group] = groupIncomingTargets
 	}
 
 	return result, nil
 }
 
-func (d *domainAdvisor) distribute(quotas map[string][]int, outgoingStat map[int]monitor.GroupMBStats) map[string]map[int]int {
+func (d *domainAdvisor) distributeToCCDs(_ context.Context,
+	quotas map[string][]int, outgoingStat map[int]monitor.GroupMBStats,
+) map[string]map[int]int {
 	result := map[string]map[int]int{}
 	for group, domQuota := range quotas {
 		// each domain is treated independently

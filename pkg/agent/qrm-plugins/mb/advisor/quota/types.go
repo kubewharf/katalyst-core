@@ -34,7 +34,7 @@ func (c phasedDecider) GetGroupQuotas(groupLimits *resource.MBGroupIncomingStat)
 	case resource.ResourceAbundant:
 		return c.easer.GetGroupQuotas(groupLimits)
 	default:
-		return nil // no change if neither stressful nor wasteful
+		return groupLimits.GroupLimits // no change if neither stressful nor wasteful
 	}
 }
 

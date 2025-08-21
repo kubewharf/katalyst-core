@@ -129,8 +129,8 @@ func Test_applyPlanCCDChecks(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := applyPlanCCDChecks(tt.args.updatePlan, tt.args.mb, tt.args.mb2); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("applyPlanCCDChecks() = %v, want %v", got, tt.want)
+			if got := applyPlanCCDBoundsChecks(tt.args.updatePlan, tt.args.mb, tt.args.mb2); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("applyPlanCCDBoundsChecks() = %v, want %v", got, tt.want)
 			}
 		})
 	}
