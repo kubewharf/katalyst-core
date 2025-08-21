@@ -56,14 +56,13 @@ func (p *DynamicPolicy) checkCPUSet(_ *coreconfig.Configuration,
 ) {
 	general.Infof("exec checkCPUSet")
 	var (
-		err           error
+		errList       []error
 		invalidCPUSet = false
 		cpuSetOverlap = false
 	)
 
-	var errList []error
 	defer func() {
-		if err != nil {
+		if len(errList) > 0 {
 			_ = general.UpdateHealthzStateByError(cpuconsts.CheckCPUSet, errors.NewAggregate(errList))
 		} else if invalidCPUSet {
 			_ = general.UpdateHealthzState(cpuconsts.CheckCPUSet, general.HealthzCheckStateNotReady, "invalid cpuset exists")
@@ -100,7 +99,7 @@ func (p *DynamicPolicy) checkCPUSet(_ *coreconfig.Configuration,
 				cpuSetStats *cgroupcm.CPUSetStats
 			)
 
-			containerId, err = p.metaServer.GetContainerID(podUID, containerName)
+			containerId, err := p.metaServer.GetContainerID(podUID, containerName)
 			if err != nil {
 				general.Errorf("get container id of pod: %s container: %s failed with error: %v", podUID, containerName, err)
 				continue
