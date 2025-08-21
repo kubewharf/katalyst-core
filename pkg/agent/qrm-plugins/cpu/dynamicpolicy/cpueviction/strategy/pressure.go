@@ -39,7 +39,7 @@ type CPUPressureEviction interface {
 	Start(context.Context) (err error)
 	Name() string
 	GetEvictPods(context.Context, *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error)
-	ThresholdMet(context.Context, *pluginapi.Empty) (*pluginapi.ThresholdMetResponse, error)
+	ThresholdMet(context.Context, *pluginapi.GetThresholdMetRequest) (*pluginapi.ThresholdMetResponse, error)
 	GetTopEvictionPods(context.Context, *pluginapi.GetTopEvictionPodsRequest) (*pluginapi.GetTopEvictionPodsResponse, error)
 }
 
@@ -59,7 +59,7 @@ func (d *DummyCPUPressureEviction) GetEvictPods(_ context.Context, _ *pluginapi.
 	return &pluginapi.GetEvictPodsResponse{}, nil
 }
 
-func (d *DummyCPUPressureEviction) ThresholdMet(_ context.Context, _ *pluginapi.Empty) (*pluginapi.ThresholdMetResponse, error) {
+func (d *DummyCPUPressureEviction) ThresholdMet(_ context.Context, _ *pluginapi.GetThresholdMetRequest) (*pluginapi.ThresholdMetResponse, error) {
 	return &pluginapi.ThresholdMetResponse{}, nil
 }
 
