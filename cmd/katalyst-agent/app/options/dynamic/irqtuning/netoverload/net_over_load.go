@@ -23,7 +23,7 @@ import (
 )
 
 type IRQCoreNetOverloadThresholdOptions struct {
-	// ratio of softnet_stat 3rd col time_squeeze packets / softnet_stat 1st col processed packets
+	// Ratio of softnet_stat 3rd col time_squeeze packets / softnet_stat 1st col processed packets
 	SoftNetTimeSqueezeRatio float64
 }
 

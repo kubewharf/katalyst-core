@@ -30,21 +30,35 @@ import (
 )
 
 type IRQTuningOptions struct {
-	EnableTuner             bool
-	TuningPolicy            string
-	TuningInterval          int
-	EnableRPS               bool
+	// EnableTuner indicates whether to enable the interrupt tuning function.
+	EnableTuner bool
+	// TuningPolicy represents the interrupt tuning strategy. One of Balance, Exclusive, Auto.
+	TuningPolicy string
+	// TuningInterval is the interval of interrupt tuning.
+	TuningInterval int
+	// EnableRPS indicates whether to enable the RPS function.
+	EnableRPS bool
+	// EnableRPSCPUVSNicsQueue enable rps when (cpus count)/(nics queue count) greater than this config.
 	EnableRPSCPUVSNicsQueue float64
-	NICAffinityPolicy       string
-	ReniceKsoftirqd         bool
-	KsoftirqdNice           int
-	CoresExpectedCPUUtil    int
+	// NICAffinityPolicy represents the NICs's irqs affinity sockets policy.
+	NICAffinityPolicy string
+	// ReniceKsoftirqd indicates whether to renice ksoftirqd process.
+	ReniceKsoftirqd bool
+	// KsoftirqdNice is the nice value of ksoftirqd process.
+	KsoftirqdNice int
+	// CoresExpectedCPUUtil is the expected CPU utilization of cores.
+	CoresExpectedCPUUtil int
 
+	// ThroughputClassSwitchOptions describes the switch configuration for a throughput class.
 	ThroughputClassSwitchOptions *throughputclassswitch.ThroughputClassSwitchOptions
-	CoreNetOverLoadThreshold     *netoverload.IRQCoreNetOverloadThresholdOptions
-	LoadBalanceOptions           *loadbalance.IRQLoadBalanceOptions
-	CoresAdjustOptions           *coresadjust.IRQCoresAdjustOptions
-	CoresExclusionOptions        *coresexclusion.IRQCoresExclusionOptions
+	// Threshold description for interrupting core network overLoad.
+	CoreNetOverLoadThreshold *netoverload.IRQCoreNetOverloadThresholdOptions
+	// Describes the constraints of the balanced configuration.
+	LoadBalanceOptions *loadbalance.IRQLoadBalanceOptions
+	// Configuration that requires interrupt core adjustment.
+	CoresAdjustOptions *coresadjust.IRQCoresAdjustOptions
+	// Need to adjust to interrupt exclusive core requirements.
+	CoresExclusionOptions *coresexclusion.IRQCoresExclusionOptions
 }
 
 func NewIRQTuningOptions() *IRQTuningOptions {

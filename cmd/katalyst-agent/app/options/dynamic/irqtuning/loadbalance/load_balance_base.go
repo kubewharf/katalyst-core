@@ -24,16 +24,16 @@ import (
 )
 
 type IRQLoadBalanceOptions struct {
-	// interval of two successive irq load balance MUST greater-equal this interval
+	// Interval of two successive irq load balance MUST greater-equal this interval
 	SuccessiveTuningInterval int
 	Thresholds               *IRQLoadBalanceTuningThresholdOptions
-	// two successive tunes whose interval is less-equal this threshold will be considered as pingpong tunings
+	// Two successive tunes whose interval is less-equal this threshold will be considered as ping-pong tunings
 	PingPongIntervalThreshold int
-	// ping pong count greater-equal this threshold will trigger increasing irq cores
+	// Ping pong count greater-equal this threshold will trigger increasing irq cores
 	PingPongCountThreshold int
-	// max number of irqs are permitted to be tuned from some irq cores to other cores in each time, allowed value {1, 2}
+	// Max number of irqs are permitted to be tuned from some irq cores to other cores in each time, allowed value {1, 2}
 	IRQTunedNumMaxEachTime int
-	// max number of irq cores whose affinitied irqs are permitted to tuned to other cores in each time, allowed value {1,2}
+	// Max number of irq cores whose affinity irqs are permitted to tuned to other cores in each time, allowed value {1,2}
 	IRQCoresTunedNumMaxEachTime int
 }
 

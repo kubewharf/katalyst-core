@@ -25,10 +25,10 @@ import (
 
 // IRQCoresAdjustOptions is the configuration for IRQCoresAdjustConfig.
 type IRQCoresAdjustOptions struct {
-	// minimum percent of (100 * irq cores/total(or socket) cores), valid value [0,100], default 2
+	// Minimum percent of (100 * irq cores/total(or socket) cores), valid value [0,100], default 2
 	PercentMin int
 
-	// maximum percent of (100 * irq cores/total(or socket) cores), valid value [0,100], default 30
+	// Maximum percent of (100 * irq cores/total(or socket) cores), valid value [0,100], default 30
 	PercentMax int
 
 	IncOptions *IRQCoresIncOptions

@@ -24,7 +24,7 @@ import (
 
 type IRQCoresExclusionOptions struct {
 	Thresholds *IRQCoresExclusionThresholdOptions
-	// interval of successive enable/disable irq cores exclusion MUST >= SuccessiveSwitchInterval
+	// Interval of successive enable/disable irq cores exclusion MUST >= SuccessiveSwitchInterval
 	SuccessiveSwitchInterval float64
 }
 
