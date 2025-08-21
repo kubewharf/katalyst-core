@@ -17,11 +17,13 @@ limitations under the License.
 package types
 
 import (
+	"fmt"
 	"reflect"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -39,6 +41,16 @@ func (ci *ContainerInfo) IsNumaExclusive() bool {
 // IsDedicatedNumaBinding returns true if current container is for dedicated_cores with numa binding
 func (ci *ContainerInfo) IsDedicatedNumaBinding() bool {
 	return ci.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores && ci.IsNumaBinding()
+}
+
+// GetReclaimActualNUMABindingResult returns the actual numa binding result of the container.
+// If the container is not numa binding, it will return -1.
+func (ci *ContainerInfo) GetReclaimActualNUMABindingResult() (int, error) {
+	if ci == nil {
+		return 0, fmt.Errorf("containerInfo is nil")
+	}
+
+	return commonstate.GetSpecifiedNUMABindingNUMAID(ci.Annotations)
 }
 
 func (ci *ContainerInfo) IsDedicatedNumaExclusive() bool {

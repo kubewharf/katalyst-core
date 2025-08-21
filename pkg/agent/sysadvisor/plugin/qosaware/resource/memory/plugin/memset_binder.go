@@ -82,7 +82,7 @@ func (mb *memsetBinder) nonActualNUMABindingFilter(qosConf *generic.QoSConfigura
 func (mb *memsetBinder) Reconcile(status *types.MemoryPressureStatus) error {
 	var errList []error
 
-	actualNUMABindingNUMAs, err := helper.GetActualNUMABindingNUMAsForReclaimedCores(mb.conf, mb.metaServer)
+	actualNUMABindingNUMAs, err := helper.GetActualNUMABindingNUMAsForReclaimedCores(mb.metaReader)
 	if err != nil {
 		return err
 	}
