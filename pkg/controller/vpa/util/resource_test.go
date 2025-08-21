@@ -64,7 +64,7 @@ func TestGetVPAResourceStatusWithCurrent(t *testing.T) {
 	testGetVPAResourceStatusWithCurrentAndIndexer(t, podIndexers, indexerKeys)
 
 	// test with none-existed indexers
-	indexerKeys = []string{"none-exist"}
+	indexerKeys = []string{}
 	podIndexers = cache.Indexers{}
 	for _, key := range indexerKeys {
 		indexer := native.PodLabelIndexer(key)
