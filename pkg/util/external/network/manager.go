@@ -27,7 +27,7 @@ import (
 // NetworkManager provides methods that control network resources.
 type NetworkManager interface {
 	// ApplyNetClass applies the net class config for a container.
-	ApplyNetClass(podUID, containerId string, data *common.NetClsData) error
+	ApplyNetClass(podUID, containerId string, data *common.NetClsData, handlers ...common.OtherAbsoluteCgroupPathHandler) error
 	// ListNetClass lists the net class config for all containers managed by kubernetes.
 	ListNetClass() ([]*common.NetClsData, error)
 	// ClearNetClass clears the net class config for a container.

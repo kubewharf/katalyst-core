@@ -58,7 +58,7 @@ func TestGetContainerAbsCgroupPath(t *testing.T) {
 	t.Parallel()
 
 	as := require.New(t)
-	_, err := GetContainerAbsCgroupPath("cpuset", "", "")
+	_, err := GetContainerAbsCgroupPath("cpuset", "", "", nil)
 	as.NotNil(err)
 }
 
@@ -66,7 +66,7 @@ func TestIsContainerCgroupExist(t *testing.T) {
 	t.Parallel()
 
 	as := require.New(t)
-	_, err := IsContainerCgroupExist("fake-pod-uid", "fake-container-id")
+	_, err := IsContainerCgroupExist("fake-pod-uid", "fake-container-id", nil)
 	as.NotNil(err)
 }
 
@@ -75,6 +75,6 @@ func TestIsContainerCgroupFileExist(t *testing.T) {
 
 	as := require.New(t)
 	// test the case that file doesn't exist
-	_, err := IsContainerCgroupFileExist("cpuset", "fake-pod-uid", "fake-container-id", "nonexistentfile")
+	_, err := IsContainerCgroupFileExist("cpuset", "fake-pod-uid", "fake-container-id", "nonexistentfile", nil)
 	as.NotNil(err)
 }

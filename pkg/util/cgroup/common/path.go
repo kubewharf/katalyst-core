@@ -149,17 +149,35 @@ func GetPodAbsCgroupPath(subsys, podUID string) (string, error) {
 }
 
 // GetContainerAbsCgroupPath returns absolute cgroup path for container level
-func GetContainerAbsCgroupPath(subsys, podUID, containerId string) (string, error) {
-	return GetKubernetesAnyExistAbsCgroupPath(subsys, path.Join(fmt.Sprintf("%s%s", PodCgroupPathPrefix, podUID), containerId))
+func GetContainerAbsCgroupPath(subsys, podUID, containerId string, handlers ...OtherAbsoluteCgroupPathHandler) (string, error) {
+	cgroupPath, err := GetKubernetesAnyExistAbsCgroupPath(subsys, path.Join(fmt.Sprintf("%s%s", PodCgroupPathPrefix, podUID), containerId))
+	// If the cgroup path is not found, the container may be another type of container (e.g. kata container)
+	// We try to get it from other cgroup path getters, and return the first valid result.
+	for _, handler := range handlers {
+		cgroupPath, err = handler(subsys, podUID, containerId)
+		if err == nil {
+			return cgroupPath, nil
+		}
+	}
+	return cgroupPath, err
 }
 
 // GetContainerRelativeCgroupPath returns relative cgroup path for container level
-func GetContainerRelativeCgroupPath(podUID, containerId string) (string, error) {
-	return GetKubernetesAnyExistRelativeCgroupPath(path.Join(fmt.Sprintf("%s%s", PodCgroupPathPrefix, podUID), containerId))
+func GetContainerRelativeCgroupPath(podUID, containerId string, handlers ...OtherRelativeCgroupPathHandler) (string, error) {
+	cgroupPath, err := GetKubernetesAnyExistRelativeCgroupPath(path.Join(fmt.Sprintf("%s%s", PodCgroupPathPrefix, podUID), containerId))
+	// If the cgroup path is not found, the container may be another type of container (e.g. kata container)
+	// We try to get it from other cgroup path getters, and return the first valid result.
+	for _, handler := range handlers {
+		cgroupPath, err = handler(podUID, containerId)
+		if err == nil {
+			return cgroupPath, nil
+		}
+	}
+	return cgroupPath, err
 }
 
-func IsContainerCgroupExist(podUID, containerID string) (bool, error) {
-	containerAbsCGPath, err := GetContainerAbsCgroupPath("", podUID, containerID)
+func IsContainerCgroupExist(podUID, containerID string, handlers ...OtherAbsoluteCgroupPathHandler) (bool, error) {
+	containerAbsCGPath, err := GetContainerAbsCgroupPath("", podUID, containerID, handlers...)
 	if err != nil {
 		return false, fmt.Errorf("GetContainerAbsCgroupPath failed, err: %v", err)
 	}
@@ -167,8 +185,8 @@ func IsContainerCgroupExist(podUID, containerID string) (bool, error) {
 	return general.IsPathExists(containerAbsCGPath), nil
 }
 
-func IsContainerCgroupFileExist(subsys, podUID, containerId, cgroupFileName string) (bool, error) {
-	absCgroupPath, err := GetContainerAbsCgroupPath(subsys, podUID, containerId)
+func IsContainerCgroupFileExist(subsys, podUID, containerId, cgroupFileName string, handlers ...OtherAbsoluteCgroupPathHandler) (bool, error) {
+	absCgroupPath, err := GetContainerAbsCgroupPath(subsys, podUID, containerId, handlers...)
 	if err != nil {
 		return false, fmt.Errorf("GetContainerAbsCgroupPath failed with error: %v", err)
 	}
