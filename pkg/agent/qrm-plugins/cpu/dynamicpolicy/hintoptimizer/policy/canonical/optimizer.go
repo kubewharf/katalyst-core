@@ -130,7 +130,7 @@ func (o *canonicalHintOptimizer) populateHintsByPreferPolicy(numaNodes []int, pr
 
 		curLeft := availableCPUQuantity - request
 
-		general.Infof("NUMA: %d, left cpu quantity: %.3f", nodeID, curLeft)
+		general.Infof("NUMA: %d, request %.3f, left cpu quantity: %.3f, ", nodeID, request, curLeft)
 
 		if preferPolicy == cpuconsts.CPUNUMAHintPreferPolicyPacking {
 			if curLeft < minLeft {
@@ -176,10 +176,12 @@ func (o *canonicalHintOptimizer) filterNUMANodesByHintPreferLowThreshold(request
 			continue
 		}
 
-		availableRatio := availableCPUQuantity / float64(allocatableCPUQuantity)
+		availAfterAllocated := availableCPUQuantity - request
 
-		general.Infof("NUMA: %d, availableCPUQuantity: %.3f, allocatableCPUQuantity: %d, availableRatio: %.3f, cpuNUMAHintPreferLowThreshold:%.3f",
-			nodeID, availableCPUQuantity, allocatableCPUQuantity, availableRatio, o.cpuNUMAHintPreferLowThreshold)
+		availableRatio := availAfterAllocated / float64(allocatableCPUQuantity)
+
+		general.Infof("NUMA: %d, availableCPUQuantity: %.3f, availAfterAllocated: %.3f, allocatableCPUQuantity: %d, availableRatio: %.3f, cpuNUMAHintPreferLowThreshold:%.3f",
+			nodeID, availableCPUQuantity, availAfterAllocated, allocatableCPUQuantity, availableRatio, o.cpuNUMAHintPreferLowThreshold)
 
 		if availableRatio >= o.cpuNUMAHintPreferLowThreshold {
 			filteredNUMANodes = append(filteredNUMANodes, nodeID)
