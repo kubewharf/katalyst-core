@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	"k8s.io/apimachinery/pkg/util/json"
 	"path"
 	"sync"
 	"time"
@@ -45,6 +46,10 @@ const (
 )
 
 type ContextKey string
+
+type ContainerInfo struct {
+	SandboxID string `json:"sandboxID"`
+}
 
 const (
 	BypassCacheKey  ContextKey = "bypass_cache"
@@ -390,16 +395,16 @@ func (w *podFetcherImpl) GetKataContainerRelativeCgroupPath(podUID, containerId 
 }
 
 func (w *podFetcherImpl) getKataCgroupPathSuffix(podUID, containerId string) (string, error) {
-	info, err := w.runtimePodFetcher.GetContainerInfo(containerId)
+	infoRaw, err := w.runtimePodFetcher.GetContainerInfo(containerId)
 	if err != nil {
 		return "", fmt.Errorf("failed to get container info, err: %v", err)
 	}
 
-	klog.Infof("container info is %v", info)
-	sandboxId, ok := info[common.ContainerSandboxIDKey]
-	if !ok {
-		return "", fmt.Errorf("failed to find sandbox id info of container %s", containerId)
+	klog.Infof("container info is %v", infoRaw)
+	var info ContainerInfo
+	if err := json.Unmarshal([]byte(infoRaw["info"]), &info); err != nil {
+		return "", fmt.Errorf("failed to unmarshal info of container into its sandbox id, err: %v", err)
 	}
-	kataPathSuffix := fmt.Sprintf("kata_%s", sandboxId)
+	kataPathSuffix := fmt.Sprintf("kata_%s", info.SandboxID)
 	return path.Join(fmt.Sprintf("%s%s", common.PodCgroupPathPrefix, podUID), kataPathSuffix), nil
 }
