@@ -185,7 +185,7 @@ func TestGetSiblingNumaInfo(t *testing.T) {
 			name: "test for without sibling",
 			args: args{
 				conf: &global.MachineInfoConfiguration{
-					SiblingNumaMemoryBandwidthAllocatableRateMap: map[string]string{"AMD_K19Zen4": "0.7"},
+					SiblingNumaMemoryBandwidthAllocatableRateMap: map[string]float64{"AMD_K19Zen4": 0.7},
 					SiblingNumaMemoryBandwidthCapacity:           10,
 				},
 				numaDistanceMap: map[int][]NumaDistanceInfo{
@@ -229,7 +229,7 @@ func TestGetSiblingNumaInfo(t *testing.T) {
 			name: "test for with sibling",
 			args: args{
 				conf: &global.MachineInfoConfiguration{
-					SiblingNumaMemoryBandwidthAllocatableRateMap: map[string]string{"AMD_K19Zen4": "0.7"},
+					SiblingNumaMemoryBandwidthAllocatableRateMap: map[string]float64{"AMD_K19Zen4": 0.7},
 					SiblingNumaMemoryBandwidthCapacity:           10,
 				},
 				numaDistanceMap: map[int][]NumaDistanceInfo{
@@ -329,7 +329,7 @@ func TestGetSiblingNumaInfo(t *testing.T) {
 			name: "test for with sibling with 3 level distance larger than 10",
 			args: args{
 				conf: &global.MachineInfoConfiguration{
-					SiblingNumaMemoryBandwidthAllocatableRateMap: map[string]string{"AMD_K19Zen4": "0.7"},
+					SiblingNumaMemoryBandwidthAllocatableRateMap: map[string]float64{"AMD_K19Zen4": 0.7},
 					SiblingNumaMaxDistance:                       11,
 					SiblingNumaMemoryBandwidthCapacity:           10,
 				},
@@ -430,7 +430,7 @@ func TestGetSiblingNumaInfo(t *testing.T) {
 			name: "test for with sibling with 4 level distance larger than 10",
 			args: args{
 				conf: &global.MachineInfoConfiguration{
-					SiblingNumaMemoryBandwidthAllocatableRateMap: map[string]string{"AMD_K19Zen4": "0.7"},
+					SiblingNumaMemoryBandwidthAllocatableRateMap: map[string]float64{"AMD_K19Zen4": 0.7},
 					SiblingNumaMaxDistance:                       12,
 					SiblingNumaMemoryBandwidthCapacity:           10,
 				},

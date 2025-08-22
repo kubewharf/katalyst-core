@@ -17,8 +17,11 @@ limitations under the License.
 package global
 
 import (
+	"strconv"
+
 	"k8s.io/apimachinery/pkg/api/resource"
 	cliflag "k8s.io/component-base/cli/flag"
+	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 )
@@ -179,7 +182,7 @@ func (o *BaseOptions) ApplyTo(c *global.BaseConfiguration) error {
 	c.SiblingNumaMaxDistance = o.MachineSiblingNumaMaxDistance
 	c.SiblingNumaMemoryBandwidthCapacity = o.MachineSiblingNumaMemoryBandwidthCapacity.Quantity.Value()
 	c.SiblingNumaMemoryBandwidthAllocatableRate = o.MachineSiblingNumaMemoryBandwidthAllocatableRate
-	c.SiblingNumaMemoryBandwidthAllocatableRateMap = o.MachineSiblingNumaMemoryBandwidthAllocatableRateMap
+	c.SiblingNumaMemoryBandwidthAllocatableRateMap = mapStrToFloat64(o.MachineSiblingNumaMemoryBandwidthAllocatableRateMap)
 
 	c.KubeletReadOnlyPort = o.KubeletReadOnlyPort
 	c.KubeletSecurePortEnabled = o.KubeletSecurePortEnabled
@@ -191,4 +194,22 @@ func (o *BaseOptions) ApplyTo(c *global.BaseConfiguration) error {
 
 	c.RuntimeEndpoint = o.RuntimeEndpoint
 	return nil
+}
+
+func mapStrToFloat64(input map[string]string) map[string]float64 {
+	output := make(map[string]float64)
+	for cpuCodeName, allocatableRateStr := range input {
+		if cpuCodeName == "" || allocatableRateStr == "" {
+			continue
+		}
+
+		allocatableRate, err := strconv.ParseFloat(allocatableRateStr, 64)
+		if err != nil {
+			klog.Warningf("Invalid float value for key %q (%q), skipped: %v", cpuCodeName, allocatableRateStr, err)
+			continue
+		}
+
+		output[cpuCodeName] = allocatableRate
+	}
+	return output
 }

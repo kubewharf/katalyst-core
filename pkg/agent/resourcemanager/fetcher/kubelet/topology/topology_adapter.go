@@ -424,12 +424,14 @@ func (p *topologyAdapterImpl) getZoneResources(allocatableResources *podresv1.Al
 		}
 	}
 
-	zoneCapacity, err = p.addNumaMemoryBandwidthResources(zoneCapacity, helper.GetNumaAvgMBWCapacityMap(p.metaServer.MetricsFetcher, p.metaServer.SiblingNumaAvgMBWCapacityMap))
+	numaMBWCapacityMap := helper.GetNumaAvgMBWCapacityMap(p.metaServer.MetricsFetcher, p.metaServer.SiblingNumaAvgMBWCapacityMap)
+	zoneCapacity, err = p.addNumaMemoryBandwidthResources(zoneCapacity, numaMBWCapacityMap)
 	if err != nil {
 		errList = append(errList, err)
 	}
 
-	zoneAllocatable, err = p.addNumaMemoryBandwidthResources(zoneAllocatable, helper.GetNumaAvgMBWAllocatableMap(p.metaServer.MetricsFetcher, p.metaServer.SiblingNumaAvgMBWCapacityMap, p.metaServer.SiblingNumaAvgMBWAllocatableRateMap, p.metaServer.SiblingNumaDefaultMBWAllocatableRate))
+	numaMBWAllocatableMap := helper.GetNumaAvgMBWAllocatableMap(p.metaServer.MetricsFetcher, p.metaServer.SiblingNumaInfo, numaMBWCapacityMap)
+	zoneAllocatable, err = p.addNumaMemoryBandwidthResources(zoneAllocatable, numaMBWAllocatableMap)
 	if err != nil {
 		errList = append(errList, err)
 	}
@@ -904,21 +906,12 @@ func (p *topologyAdapterImpl) addContainerMemoryBandwidth(zoneAllocated map[util
 		return zoneAllocated, nil
 	}
 
-	numaAvgMBWCapacityMap := helper.GetNumaAvgMBWCapacityMap(p.metaServer.MetricsFetcher, p.metaServer.SiblingNumaAvgMBWCapacityMap)
 	numaAllocated := make(map[util.ZoneNode]*v1.ResourceList)
 	for zoneNode, allocated := range zoneAllocated {
 		// only consider numa which is allocated cpu and memory bandwidth capacity greater than zero
 		if zoneNode.Meta.Type == nodev1alpha1.TopologyTypeNuma && allocated != nil &&
 			(*allocated).Cpu().CmpInt64(0) > 0 {
-			numaID, err := util.GetZoneID(zoneNode)
-			if err != nil {
-				return nil, err
-			}
-
-			// if the numa avg mbw capacity is zero, we will not consider its mbw allocation
-			if numaAvgMBWCapacityMap[numaID] > 0 {
-				numaAllocated[zoneNode] = allocated
-			}
+			numaAllocated[zoneNode] = allocated
 		}
 	}
 
