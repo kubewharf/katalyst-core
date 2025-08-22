@@ -400,7 +400,6 @@ func (w *podFetcherImpl) getKataCgroupPathSuffix(podUID, containerId string) (st
 		return "", fmt.Errorf("failed to get container info, err: %v", err)
 	}
 
-	klog.Infof("container info is %v", infoRaw)
 	var info ContainerInfo
 	if err := json.Unmarshal([]byte(infoRaw["info"]), &info); err != nil {
 		return "", fmt.Errorf("failed to unmarshal info of container into its sandbox id, err: %v", err)
