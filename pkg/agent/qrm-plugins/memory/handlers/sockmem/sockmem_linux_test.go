@@ -299,11 +299,12 @@ func TestSetCg1TCPMem(t *testing.T) {
 		cgroupTCPMemRatio: 100.0,
 	}
 
-	err := setCg1TCPMem(metrics.DummyMetrics{}, podUID, containerID, memLimit, memTCPLimit, &sockMemConfig)
+	metaServer, _ := makeMetaServer()
+	err := setCg1TCPMem(metrics.DummyMetrics{}, podUID, containerID, memLimit, memTCPLimit, &sockMemConfig, metaServer)
 	if err == nil {
 		t.Error("Expected an error, but got none")
 	}
-	err = setCg1TCPMem(metrics.DummyMetrics{}, podUID, containerID, 9223372036854771712, memTCPLimit, &sockMemConfig)
+	err = setCg1TCPMem(metrics.DummyMetrics{}, podUID, containerID, 9223372036854771712, memTCPLimit, &sockMemConfig, metaServer)
 	if err == nil {
 		t.Error("Expected an error, but got none")
 	}
