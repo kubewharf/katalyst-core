@@ -624,11 +624,7 @@ func GetNicQueue2IrqWithQueueFilter(nicInfo *NicBasicInfo, queueFilter string, q
 	return queue2Irq, nil
 }
 
-// nic queue naming in /proc/interrrupts, refer to below files
-// https://bytedance.larkoffice.com/docx/QbVGdhk5LoIRYaxJlficHLZJnHe
-// https://bytedance.larkoffice.com/docx/HN10digxVoviElxy6nXcChBqnJc
-// https://bytedance.larkoffice.com/wiki/ILS7wV43Ji0DMiknRsOcOwZUnwg
-// https://bytedance.larkoffice.com/wiki/wikcnMfA9FDb2V5ZrcHc1GVnL6m
+// GetNicQueue2Irq get nic queue naming in /proc/interrrupts
 func GetNicQueue2Irq(nicInfo *NicBasicInfo) (map[int]int, map[int]int, error) {
 	if nicInfo.IsVirtioNetDev {
 		queueFilter := fmt.Sprintf("%s-input", nicInfo.VirtioNetName)

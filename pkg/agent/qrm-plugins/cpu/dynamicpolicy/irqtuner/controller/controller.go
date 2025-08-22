@@ -38,11 +38,11 @@ import (
 )
 
 const (
-	NicsSyncInterval      = 600 // seconds
-	IrqTuningLogPrefix    = "irq-tuning:"
-	KataRuntimeClassName  = "kata-clh"
-	KataBMAnnotationName  = "bytedance.com/kata-bm"
-	KataBMAnnotationValue = "true"
+	NicsSyncIntervalSeconds = 600
+	IrqTuningLogPrefix      = "irq-tuning:"
+	KataRuntimeClassName    = "kata-clh"
+	KataBMAnnotationName    = "bytedance.com/kata-bm"
+	KataBMAnnotationValue   = "true"
 )
 
 // specific errors
@@ -94,9 +94,6 @@ const (
 	IrqCoresExclusive IrqAffinityPolicy = "irq-cores-exclusive"
 	// this policy considers socket irq balance, and sriov container's irq affinity, and avoid overlapping with exclusive irq cores, etc.
 	IrqBalanceFair IrqAffinityPolicy = "irq-balance-fair"
-	// irq-balance-ng.service supported policy, when irq affinity exceptions happened in a large scale nodes,
-	// we will use kcc to notify each node's katalyst to roll back irq affinity policy to this one.
-	IrqBalanceNG IrqAffinityPolicy = "irq-balance-ng"
 )
 
 type ExclusiveIrqCoresSelectOrder int
@@ -647,7 +644,7 @@ func NewIrqTuningController(agentConf *agent.AgentConfiguration, irqStateAdapter
 		Ksoftirqds:               ksoftirqds,
 		IrqStateAdapter:          irqStateAdapter,
 		Containers:               make(map[string]*ContainerInfoWrapper),
-		NicSyncInterval:          NicsSyncInterval,
+		NicSyncInterval:          NicsSyncIntervalSeconds,
 		BalanceFairLastTunedNics: make(map[int][]*machine.NicBasicInfo),
 		IrqAffinityChanges:       make(map[int]*IrqAffinityChange),
 	}

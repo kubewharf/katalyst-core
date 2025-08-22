@@ -231,6 +231,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		irqTuner, err := irqtuingcontroller.NewIrqTuningController(conf.AgentConfiguration, policyImplement, policyImplement.emitter, policyImplement.machineInfo)
 		if err != nil {
 			general.Errorf("failed to NewIrqTuningController, err %s", err)
+			return false, agent.ComponentStub{}, err
 		} else {
 			policyImplement.irqTuner = irqTuner
 		}

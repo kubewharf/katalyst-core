@@ -19,12 +19,11 @@ package tuner
 import (
 	"time"
 
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
-	"github.com/kubewharf/katalyst-core/pkg/util/procfs/manager"
-
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/irqtuner"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/procfs/manager"
 )
 
 type IRQTunerStub struct {
