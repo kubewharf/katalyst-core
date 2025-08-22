@@ -24,6 +24,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	metricutil "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
@@ -138,25 +139,19 @@ func GetNumaAvgMBWCapacityMap(metricsFetcher types.MetricsFetcher, numaMBWMap ma
 	return numaMBWCapacityMap
 }
 
-func GetNumaAvgMBWAllocatableMap(metricsFetcher types.MetricsFetcher, numaMBWMap map[int]int64, allocatableRateMap map[string]float64, defaultAllocatableRate float64) map[int]int64 {
+func GetNumaAvgMBWAllocatableMap(metricsFetcher types.MetricsFetcher, siblingNumaInfo *machine.SiblingNumaInfo, numaMBWCapacityMap map[int]int64) map[int]int64 {
 	var allocatableRate float64
 	cpuCodeName := GetCpuCodeName(metricsFetcher)
 
-	if val, ok := allocatableRateMap[cpuCodeName]; ok {
+	if val, ok := siblingNumaInfo.SiblingNumaAvgMBWAllocatableRateMap[cpuCodeName]; ok {
 		allocatableRate = val
 	} else {
-		allocatableRate = defaultAllocatableRate
+		allocatableRate = siblingNumaInfo.SiblingNumaDefaultMBWAllocatableRate
 	}
 
 	numaMBWAllocatableMap := make(map[int]int64)
-
-	for numaID, defaultCapacity := range numaMBWMap {
-		metric, err := metricsFetcher.GetNumaMetric(numaID, consts.MetricMemBandwidthTheoryNuma)
-		if err != nil || metric.Value == 0 {
-			numaMBWAllocatableMap[numaID] = int64(float64(defaultCapacity) * allocatableRate)
-			continue
-		}
-		numaMBWAllocatableMap[numaID] = int64(metric.Value * consts.BytesPerGB * allocatableRate)
+	for numaID, capacity := range numaMBWCapacityMap {
+		numaMBWAllocatableMap[numaID] = int64(float64(capacity) * allocatableRate)
 	}
 	return numaMBWAllocatableMap
 }

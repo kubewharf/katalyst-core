@@ -271,7 +271,8 @@ func (o *memoryBandwidthOptimizer) calculateHintMemoryBandwidthAvailability(
 	// for the future, we can gather group statistics of each hint,
 	// and to get the most suitable hint, then set its preferrence to true.
 	visNUMAs := sets.NewInt()
-	numaMBWAllocatableMap := helper.GetNumaAvgMBWAllocatableMap(o.metaServer.MetricsFetcher, machineInfo.ExtraTopologyInfo.SiblingNumaAvgMBWCapacityMap, machineInfo.ExtraTopologyInfo.SiblingNumaAvgMBWAllocatableRateMap, machineInfo.ExtraTopologyInfo.SiblingNumaDefaultMBWAllocatableRate)
+	numaMBWCapacityMap := helper.GetNumaAvgMBWCapacityMap(o.metaServer.MetricsFetcher, machineInfo.ExtraTopologyInfo.SiblingNumaAvgMBWCapacityMap)
+	numaMBWAllocatableMap := helper.GetNumaAvgMBWAllocatableMap(o.metaServer.MetricsFetcher, machineInfo.ExtraTopologyInfo.SiblingNumaInfo, numaMBWCapacityMap)
 	for _, numaID := range targetNUMANodes {
 		if visNUMAs.Has(numaID) {
 			continue

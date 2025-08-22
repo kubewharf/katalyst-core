@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"math"
 	"sort"
-	"strconv"
 
 	info "github.com/google/cadvisor/info/v1"
 	"golang.org/x/sys/unix"
@@ -595,27 +594,11 @@ func GetSiblingNumaInfo(
 	numaDistanceMap map[int][]NumaDistanceInfo,
 ) *SiblingNumaInfo {
 	siblingNumaMap := make(map[int]sets.Int)
-	siblingNumaAvgMBWAllocatableRateMap := make(map[string]float64)
 	siblingNumaAvgMBWCapacityMap := make(map[int]int64)
 
-	siblingNumaMBWAllocatableRateMap := conf.SiblingNumaMemoryBandwidthAllocatableRateMap
 	siblingNumaMBWCapacity := conf.SiblingNumaMemoryBandwidthCapacity
+	siblingNumaMBWAllocatableRateMap := conf.SiblingNumaMemoryBandwidthAllocatableRateMap
 	siblingNumaDefaultMBWAllocatableRate := conf.SiblingNumaMemoryBandwidthAllocatableRate
-
-	// convert allocatable rate from string to float
-	for cpuCodeName, allocatableRateStr := range siblingNumaMBWAllocatableRateMap {
-		if cpuCodeName == "" || allocatableRateStr == "" {
-			continue
-		}
-
-		allocatableRate, err := strconv.ParseFloat(allocatableRateStr, 64)
-		if err != nil {
-			klog.Warningf("warn: invalid float value for key %q (%q), skipped: %v", cpuCodeName, allocatableRateStr, err)
-			continue
-		}
-
-		siblingNumaAvgMBWAllocatableRateMap[cpuCodeName] = allocatableRate
-	}
 
 	for numaID, distanceMap := range numaDistanceMap {
 		var selfNumaDistance int
@@ -653,7 +636,7 @@ func GetSiblingNumaInfo(
 	return &SiblingNumaInfo{
 		SiblingNumaMap:                       siblingNumaMap,
 		SiblingNumaAvgMBWCapacityMap:         siblingNumaAvgMBWCapacityMap,
-		SiblingNumaAvgMBWAllocatableRateMap:  siblingNumaAvgMBWAllocatableRateMap,
+		SiblingNumaAvgMBWAllocatableRateMap:  siblingNumaMBWAllocatableRateMap,
 		SiblingNumaDefaultMBWAllocatableRate: siblingNumaDefaultMBWAllocatableRate,
 	}
 }
