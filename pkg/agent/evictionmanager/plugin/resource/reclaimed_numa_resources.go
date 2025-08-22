@@ -70,6 +70,9 @@ func NewReclaimedNumaResourcesEvictionPlugin(_ *client.GenericClientSet, _ event
 			return &threshold
 		}
 	}
+	reclaimedSoftThresholdGetter := func(resourceName v1.ResourceName) *float64 {
+		return nil
+	}
 
 	deletionGracePeriodGetter := func() int64 {
 		return conf.GetDynamicConfiguration().ReclaimedResourcesEvictionConfiguration.DeletionGracePeriod
@@ -85,6 +88,8 @@ func NewReclaimedNumaResourcesEvictionPlugin(_ *client.GenericClientSet, _ event
 		reclaimedResourcesGetter,
 		podRequestResourcesGetter,
 		reclaimedThresholdGetter,
+		reclaimedSoftThresholdGetter,
+		nil,
 		deletionGracePeriodGetter,
 		thresholdMetToleranceDurationGetter,
 		conf.SkipZeroQuantityResourceNames,
