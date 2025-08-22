@@ -378,7 +378,7 @@ func Test_updateCPUUsageIndicatorOffset(t *testing.T) {
 					},
 				},
 			},
-			want:    0.18,
+			want:    0.15,
 			wantErr: false,
 		},
 		{
@@ -448,7 +448,7 @@ func Test_updateCPUUsageIndicatorOffset(t *testing.T) {
 					},
 				},
 			},
-			want:    -0.15,
+			want:    -0.12,
 			wantErr: false,
 		},
 	}

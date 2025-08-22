@@ -126,15 +126,12 @@ func updateCPUUsageIndicatorOffset(podSet types.PodSet, _ float64, borweinParame
 	targetOffset := latencyregression.MatchSlotOffset(predictAvg, strategy.StrategySlots,
 		string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio), borweinParameter)
 
-	offsetMin := borweinParameter.OffsetMin
 	if specialOffset, match := latencyregression.MatchSpecialTimes(strategy.StrategySpecialTime,
 		string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio)); match {
 		targetOffset = specialOffset
-		// expand min bound
-		offsetMin = specialOffset
 	}
 
-	targetOffset = general.Clamp(targetOffset, offsetMin, borweinParameter.OffsetMax)
+	targetOffset = general.Clamp(targetOffset, borweinParameter.OffsetMin, borweinParameter.OffsetMax)
 	general.InfoS("offset update by borwein",
 		"indicator", string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio),
 		"predictedAvg", predictAvg,

@@ -332,7 +332,7 @@ func TestMatchSlotOffset(t *testing.T) {
 		want float64
 	}{
 		{
-			name: "test1",
+			name: "nodeAvgNet in middle range, matches corresponding slot",
 			args: args{
 				nodeAvgNet: 1.0,
 				clusterStrategy: ClusterStrategy{
@@ -368,7 +368,7 @@ func TestMatchSlotOffset(t *testing.T) {
 			want: 0.18,
 		},
 		{
-			name: "test2",
+			name: "nodeAvgNet less than all slot NET, matches first slot",
 			args: args{
 				nodeAvgNet: -1.3,
 				clusterStrategy: ClusterStrategy{
@@ -404,7 +404,7 @@ func TestMatchSlotOffset(t *testing.T) {
 			want: -0.15,
 		},
 		{
-			name: "test3",
+			name: "indicator not exists, returns 0",
 			args: args{
 				nodeAvgNet: -1.3,
 				clusterStrategy: ClusterStrategy{
@@ -413,21 +413,6 @@ func TestMatchSlotOffset(t *testing.T) {
 							Slot:   5,
 							NET:    -1.1,
 							Offset: -0.15,
-						},
-						{
-							Slot:   20,
-							NET:    -0.5,
-							Offset: -0.08,
-						},
-						{
-							Slot:   50,
-							NET:    0.2,
-							Offset: 0.07,
-						},
-						{
-							Slot:   90,
-							NET:    1.1,
-							Offset: 0.18,
 						},
 					},
 				},
@@ -440,7 +425,7 @@ func TestMatchSlotOffset(t *testing.T) {
 			want: 0,
 		},
 		{
-			name: "test3",
+			name: "nodeAvgNet greater than all slot NET, returns last slot offset",
 			args: args{
 				nodeAvgNet: 2.1,
 				clusterStrategy: ClusterStrategy{
@@ -473,7 +458,22 @@ func TestMatchSlotOffset(t *testing.T) {
 					OffsetMax: 0.2,
 				},
 			},
-			want: 0.2,
+			want: 0.18,
+		},
+		{
+			name: "slots is empty, returns 0",
+			args: args{
+				nodeAvgNet: 1.0,
+				clusterStrategy: ClusterStrategy{
+					"cpu_usage_ratio": StrategySlots{},
+				},
+				indicator: "cpu_usage_ratio",
+				borweinParameter: &borweintypes.BorweinParameter{
+					OffsetMin: -0.2,
+					OffsetMax: 0.2,
+				},
+			},
+			want: 0,
 		},
 	}
 	for _, tt := range tests {

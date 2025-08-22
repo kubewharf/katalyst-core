@@ -141,8 +141,15 @@ func MatchSlotOffset(nodeAvgNet float64, clusterStrategy ClusterStrategy, indica
 			return slot.Offset
 		}
 	}
-	general.Infof("match no slot, use max offset")
-	return borweinParameter.OffsetMax
+
+	if len(slots) > 0 {
+		lastSlot := slots[len(slots)-1]
+		general.Infof("match no slot, use last slot's offset: %v", lastSlot.Offset)
+		return lastSlot.Offset
+	}
+
+	general.Warningf("slots is empty for indicator %v", indicator)
+	return 0
 }
 
 func MatchSpecialTimes(clusterSpecialTimeStrategy ClusterSpecialTimeStrategy, indicator string) (float64, bool) {
