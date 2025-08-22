@@ -394,6 +394,8 @@ func (w *podFetcherImpl) GetKataContainerRelativeCgroupPath(podUID, containerId 
 	return common.GetKubernetesAnyExistRelativeCgroupPath(cgroupPathSuffix)
 }
 
+// getKataCgroupPathSuffix retrieves the sandbox id of the kata container and
+// then constructs the cgroup path suffix.
 func (w *podFetcherImpl) getKataCgroupPathSuffix(podUID, containerId string) (string, error) {
 	infoRaw, err := w.runtimePodFetcher.GetContainerInfo(containerId)
 	if err != nil {
@@ -404,6 +406,11 @@ func (w *podFetcherImpl) getKataCgroupPathSuffix(podUID, containerId string) (st
 	if err := json.Unmarshal([]byte(infoRaw["info"]), &info); err != nil {
 		return "", fmt.Errorf("failed to unmarshal info of container into its sandbox id, err: %v", err)
 	}
-	kataPathSuffix := fmt.Sprintf("kata_%s", info.SandboxID)
+	sandboxId := info.SandboxID
+	if sandboxId == "" {
+		return "", fmt.Errorf("failed to get sandbox id of container")
+	}
+
+	kataPathSuffix := fmt.Sprintf("kata_%s", sandboxId)
 	return path.Join(fmt.Sprintf("%s%s", common.PodCgroupPathPrefix, podUID), kataPathSuffix), nil
 }

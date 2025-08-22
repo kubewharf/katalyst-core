@@ -17,11 +17,13 @@ limitations under the License.
 package pod
 
 import (
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"reflect"
 	"testing"
-
-	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 )
+
+var testJsonInfo1 = `{"sandboxID": "12345678", "pid": 1234}`
+var testJsonInfo2 = `{"pid: 2345"}` // no sandbox id field
 
 func Test_getCgroupRootPaths(t *testing.T) {
 	t.Parallel()
@@ -47,5 +49,98 @@ func Test_getCgroupRootPaths(t *testing.T) {
 
 	if got := common.GetKubernetesCgroupRootPathWithSubSys("cpu"); !reflect.DeepEqual(got, want) {
 		t.Errorf("getAbsCgroupRootPaths() \n got = %v, \n want = %v\n", got, want)
+	}
+}
+
+func TestPodFetcherImpl_getKataCgroupPathSuffix(t *testing.T) {
+	t.Parallel()
+
+	type fields struct {
+		podUid            string
+		containerId       string
+		containerIdToInfo map[string]map[string]string
+	}
+
+	tests := []struct {
+		name                 string
+		fields               fields
+		wantCgroupPathSuffix string
+		wantErr              bool
+	}{
+		{
+			name: "Cannot find container info",
+			fields: fields{
+				podUid:      "12345678",
+				containerId: "invalidContainerId",
+				containerIdToInfo: map[string]map[string]string{
+					"container1234": {
+						"info": testJsonInfo1,
+					},
+				},
+			},
+			wantCgroupPathSuffix: "",
+			wantErr:              true,
+		},
+		{
+			name: "Can find container info but cannot unmarshal json",
+			fields: fields{
+				podUid:      "12345678",
+				containerId: "container1234",
+				containerIdToInfo: map[string]map[string]string{
+					"container1234": {
+						"invalidField": testJsonInfo1,
+					},
+				},
+			},
+			wantCgroupPathSuffix: "",
+			wantErr:              true,
+		},
+		{
+			name: "Empty sandbox id",
+			fields: fields{
+				podUid:      "12345678",
+				containerId: "container1234",
+				containerIdToInfo: map[string]map[string]string{
+					"container1234": {
+						"info": testJsonInfo2,
+					},
+				},
+			},
+			wantCgroupPathSuffix: "",
+			wantErr:              true,
+		},
+		{
+			name: "Can get the kata cgroup path suffix",
+			fields: fields{
+				podUid:      "12345678",
+				containerId: "container1234",
+				containerIdToInfo: map[string]map[string]string{
+					"container1234": {
+						"info": testJsonInfo1,
+					},
+				},
+			},
+			wantCgroupPathSuffix: "pod12345678/kata_12345678",
+			wantErr:              false,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			podFetcher := &podFetcherImpl{
+				runtimePodFetcher: &runtimePodFetcherStub{
+					containerIdToInfo: tt.fields.containerIdToInfo,
+				},
+			}
+			pathSuffix, err := podFetcher.getKataCgroupPathSuffix(tt.fields.podUid, tt.fields.containerId)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("getKataCgroupPathSuffix() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if pathSuffix != tt.wantCgroupPathSuffix {
+				t.Errorf("getKataCgroupPathSuffix() pathSuffix = %v, want %v", pathSuffix, tt.wantCgroupPathSuffix)
+			}
+		})
 	}
 }
