@@ -23,7 +23,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"k8s.io/apimachinery/pkg/util/json"
 
 	"github.com/fsnotify/fsnotify"
@@ -35,6 +34,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
