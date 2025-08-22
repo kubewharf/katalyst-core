@@ -29,7 +29,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/reader"
-	malachitetypes "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/malachite/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
@@ -55,9 +54,9 @@ type mockReader struct {
 	mock.Mock
 }
 
-func (mr *mockReader) GetMBData() (*malachitetypes.MBData, error) {
+func (mr *mockReader) GetMBData() (*reader.MBData, error) {
 	args := mr.Called()
-	return args.Get(0).(*malachitetypes.MBData), args.Error(1)
+	return args.Get(0).(*reader.MBData), args.Error(1)
 }
 
 func TestMBPlugin_run(t *testing.T) {
@@ -66,16 +65,18 @@ func TestMBPlugin_run(t *testing.T) {
 	dummyPlan := &plan.MBPlan{}
 
 	mReader := new(mockReader)
-	mReader.On("GetMBData").Return(&malachitetypes.MBData{
-		MBBody: map[string]malachitetypes.MBGroupData{
+	mReader.On("GetMBData").Return(&reader.MBData{
+		MBBody: monitor.GroupMBStats{
 			"/": {
 				0: {
-					MBLocal:  888.8,
-					MBRemote: 222.2,
+					LocalMB:  888,
+					RemoteMB: 222,
+					TotalMB:  1110,
 				},
 				1: {
-					MBLocal:  777.7,
-					MBRemote: 333.3,
+					LocalMB:  777,
+					RemoteMB: 333,
+					TotalMB:  1110,
 				},
 			},
 		},

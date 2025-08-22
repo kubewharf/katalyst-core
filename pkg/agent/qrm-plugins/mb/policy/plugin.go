@@ -31,7 +31,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/reader"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/malachite/types"
 	metrictypes "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
@@ -74,25 +73,12 @@ func (m *MBPlugin) Stop() error {
 	return nil
 }
 
-func toGroupMonStat(mbData *types.MBData) monitor.GroupMBStats {
+func getGroupMonStat(mbData *reader.MBData) monitor.GroupMBStats {
 	if mbData == nil {
 		return nil
 	}
 
-	result := monitor.GroupMBStats{}
-	for group, ccdStats := range mbData.MBBody {
-		groupCCDStats := monitor.GroupMB{}
-		for ccd, stat := range ccdStats {
-			groupCCDStats[ccd] = monitor.MBInfo{
-				LocalMB:  int(stat.MBLocal),
-				RemoteMB: int(stat.MBRemote),
-				TotalMB:  int(stat.MBLocal) + int(stat.MBRemote),
-			}
-		}
-		result[group] = groupCCDStats
-	}
-
-	return result
+	return mbData.MBBody
 }
 
 func (m *MBPlugin) run() {
@@ -104,7 +90,7 @@ func (m *MBPlugin) run() {
 		return
 	}
 
-	statOutgoing := toGroupMonStat(mbData)
+	statOutgoing := getGroupMonStat(mbData)
 	if mbData == nil {
 		general.Warningf("[mbm] got empty mb data")
 		return
