@@ -395,6 +395,7 @@ func (w *podFetcherImpl) getKataCgroupPathSuffix(podUID, containerId string) (st
 		return "", fmt.Errorf("failed to get container info, err: %v", err)
 	}
 
+	klog.Infof("container info is %v", info)
 	sandboxId, ok := info[common.ContainerSandboxIDKey]
 	if !ok {
 		return "", fmt.Errorf("failed to find sandbox id info of container %s", containerId)
