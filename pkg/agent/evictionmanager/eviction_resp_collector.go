@@ -224,8 +224,6 @@ func (e *evictionRespCollector) collectTopEvictionPods(dryRunPlugins []string, p
 			if deletionOptions != nil && forceEvictPod.EvictPod.DeletionOptions != nil {
 				deletionOptions.GracePeriodSeconds = general.MaxInt64(deletionOptions.GracePeriodSeconds,
 					forceEvictPod.EvictPod.DeletionOptions.GracePeriodSeconds)
-			} else if forceEvictPod.EvictPod.DeletionOptions != nil {
-				deletionOptions.GracePeriodSeconds = forceEvictPod.EvictPod.DeletionOptions.GracePeriodSeconds
 			}
 			reason = fmt.Sprintf("%s; %s", reason, forceEvictPod.EvictPod.Reason)
 		}
