@@ -24,18 +24,24 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
-// CheckNUMABindingSharedCoresAntiAffinity returns true
-// if the AllocationMeta isn't compatible for the annotations of a numa binding shared cores candidate
-func CheckNUMABindingSharedCoresAntiAffinity(meta *AllocationMeta, annotations map[string]string) bool {
+// CheckNUMABindingAntiAffinity returns true
+// if the AllocationMeta isn't compatible for the annotations of a numa binding candidate
+func CheckNUMABindingAntiAffinity(meta *AllocationMeta, annotations map[string]string) bool {
 	if meta == nil {
 		return false
 	} else if len(annotations) == 0 {
 		return false
 	}
 
-	if meta.CheckDedicatedNUMABinding() {
+	if !meta.CheckNUMANotShare() &&
+		!qos.AnnotationsIndicateNUMANotShare(annotations) {
+		return false
+	}
+
+	if meta.GetQoSLevel() != annotations[consts.PodAnnotationQoSLevelKey] {
 		return true
 	}
 

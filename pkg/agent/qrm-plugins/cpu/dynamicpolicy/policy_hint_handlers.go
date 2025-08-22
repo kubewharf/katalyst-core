@@ -131,6 +131,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Conte
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
 
+	podEntries := p.state.GetPodEntries()
 	machineState := p.state.GetMachineState()
 	var hints map[string]*pluginapi.ListOfTopologyHints
 
@@ -140,7 +141,6 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Conte
 
 		// regenerateHints failed. need to clear container record and re-calculate.
 		if hints == nil {
-			podEntries := p.state.GetPodEntries()
 			delete(podEntries[req.PodUid], req.ContainerName)
 			if len(podEntries[req.PodUid]) == 0 {
 				delete(podEntries, req.PodUid)
@@ -159,7 +159,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Conte
 	// if hints exists in extra state-file, prefer to use them
 	if hints == nil {
 		availableNUMAs := machineState.GetFilteredNUMASet(state.WrapAllocationMetaFilter(
-			(*commonstate.AllocationMeta).CheckSharedOrDedicatedNUMABinding))
+			(*commonstate.AllocationMeta).CheckDedicatedNUMABindingNUMAExclusive))
 
 		var extraErr error
 		hints, extraErr = util.GetHintsFromExtraStateFile(req.PodName, string(v1.ResourceCPU), p.extraStateFileAbsPath, availableNUMAs)
@@ -173,7 +173,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Conte
 	if hints == nil {
 		var calculateErr error
 		// calculate hint for container without allocated cpus
-		hints, calculateErr = p.calculateHints(request, machineState, req)
+		hints, calculateErr = p.calculateHints(request, podEntries, machineState, req)
 		if calculateErr != nil {
 			return nil, fmt.Errorf("calculateHints failed with error: %v", calculateErr)
 		}
@@ -191,7 +191,8 @@ func (p *DynamicPolicy) dedicatedCoresWithoutNUMABindingHintHandler(_ context.Co
 
 // calculateHints is a helper function to calculate the topology hints
 // with the given container requests.
-func (p *DynamicPolicy) calculateHints(request float64,
+func (p *DynamicPolicy) calculateHints(
+	request float64, podEntries state.PodEntries,
 	machineState state.NUMANodeMap,
 	req *pluginapi.ResourceRequest,
 ) (map[string]*pluginapi.ListOfTopologyHints, error) {
@@ -226,6 +227,7 @@ func (p *DynamicPolicy) calculateHints(request float64,
 
 	numaToAvailableCPUCount := make(map[int]int, len(numaNodes))
 
+	availableNUMAs := p.filterNUMANodesByNonBinding(request, podEntries, machineState, req)
 	for _, nodeID := range numaNodes {
 		if machineState[nodeID] == nil {
 			general.Warningf("NUMA: %d has nil state", nodeID)
@@ -236,6 +238,10 @@ func (p *DynamicPolicy) calculateHints(request float64,
 		if numaExclusive && machineState[nodeID].AllocatedCPUSet.Size() > 0 {
 			numaToAvailableCPUCount[nodeID] = 0
 			general.Warningf("numa_exclusive container skip NUMA: %d allocated: %d",
+				nodeID, machineState[nodeID].AllocatedCPUSet.Size())
+		} else if numaBinding && !availableNUMAs.Contains(nodeID) {
+			numaToAvailableCPUCount[nodeID] = 0
+			general.Warningf("numa_binding container skip NUMA: %d, allocated: %d",
 				nodeID, machineState[nodeID].AllocatedCPUSet.Size())
 		} else {
 			numaToAvailableCPUCount[nodeID] = machineState[nodeID].GetAvailableCPUSet(p.reservedCPUs).Size()
@@ -518,12 +524,31 @@ func (p *DynamicPolicy) clearContainerAndRegenerateMachineState(podEntries state
 	return machineState, nil
 }
 
+func (p *DynamicPolicy) filterNUMANodesByNonBinding(
+	request float64, podEntries state.PodEntries,
+	machineState state.NUMANodeMap,
+	req *pluginapi.ResourceRequest,
+) machine.CPUSet {
+	if req == nil {
+		return machine.NewCPUSet()
+	}
+
+	nonBindingNUMAsCPUQuantity := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, nil,
+		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedOrDedicatedNUMABinding)).Size()
+	nonBindingNUMAs := machineState.GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedOrDedicatedNUMABinding))
+	nonBindingSharedRequestedQuantity := state.GetNonBindingSharedRequestedQuantityFromPodEntries(podEntries, nil, p.getContainerRequestedCores)
+
+	return p.filterNUMANodesByNonBindingSharedRequestedQuantity(
+		request, nonBindingSharedRequestedQuantity, nonBindingNUMAsCPUQuantity, nonBindingNUMAs, machineState,
+		machineState.GetFilteredNUMASetWithAnnotations(state.WrapAllocationMetaFilterWithAnnotations(commonstate.CheckNUMABindingAntiAffinity), req.Annotations).ToSliceInt())
+}
+
 func (p *DynamicPolicy) filterNUMANodesByNonBindingSharedRequestedQuantity(
 	request float64,
 	nonBindingSharedRequestedQuantity, nonBindingNUMAsCPUQuantity int,
 	nonBindingNUMAs machine.CPUSet,
 	machineState state.NUMANodeMap, numaNodes []int,
-) []int {
+) machine.CPUSet {
 	filteredNUMANodes := make([]int, 0, len(numaNodes))
 
 	for _, nodeID := range numaNodes {
@@ -543,22 +568,14 @@ func (p *DynamicPolicy) filterNUMANodesByNonBindingSharedRequestedQuantity(
 		}
 	}
 
-	return filteredNUMANodes
+	return machine.NewCPUSet(filteredNUMANodes...)
 }
 
 func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(request float64, podEntries state.PodEntries,
 	machineState state.NUMANodeMap,
 	req *pluginapi.ResourceRequest,
 ) (map[string]*pluginapi.ListOfTopologyHints, error) {
-	nonBindingNUMAsCPUQuantity := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, nil,
-		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedOrDedicatedNUMABinding)).Size()
-	nonBindingNUMAs := machineState.GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedOrDedicatedNUMABinding))
-	nonBindingSharedRequestedQuantity := state.GetNonBindingSharedRequestedQuantityFromPodEntries(podEntries, nil, p.getContainerRequestedCores)
-
-	reqAnnotations := req.Annotations
-	numaNodes := p.filterNUMANodesByNonBindingSharedRequestedQuantity(
-		request, nonBindingSharedRequestedQuantity, nonBindingNUMAsCPUQuantity, nonBindingNUMAs, machineState,
-		machineState.GetFilteredNUMASetWithAnnotations(state.WrapAllocationMetaFilterWithAnnotations(commonstate.CheckNUMABindingSharedCoresAntiAffinity), reqAnnotations).ToSliceInt())
+	numaNodes := p.filterNUMANodesByNonBinding(request, podEntries, machineState, req).ToSliceInt()
 
 	hints := &pluginapi.ListOfTopologyHints{}
 

@@ -26,6 +26,7 @@ import (
 
 type ReclaimedResourceConfiguration struct {
 	EnableReclaim                        bool
+	DisableReclaimSharePools             []string
 	ReservedResourceForReport            v1.ResourceList
 	MinReclaimedResourceForReport        v1.ResourceList
 	MinIgnoredReclaimedResourceForReport v1.ResourceList
@@ -48,6 +49,10 @@ func (c *ReclaimedResourceConfiguration) ApplyConfiguration(conf *crd.DynamicCon
 		config := aqc.Spec.Config.ReclaimedResourceConfig
 		if config.EnableReclaim != nil {
 			c.EnableReclaim = *config.EnableReclaim
+		}
+
+		if config.DisableReclaimSharePools != nil {
+			c.DisableReclaimSharePools = config.DisableReclaimSharePools
 		}
 
 		if config.ReservedResourceForReport != nil {

@@ -19,6 +19,7 @@ package region
 import (
 	"math"
 
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/klog/v2"
 
@@ -38,6 +39,8 @@ import (
 
 type QoSRegionShare struct {
 	*QoSRegionBase
+
+	configTranslator *general.CommonSuffixTranslator
 }
 
 // NewQoSRegionShare returns a region instance for shared pool
@@ -56,7 +59,8 @@ func NewQoSRegionShare(ci *types.ContainerInfo, conf *config.Configuration, extr
 	//	When put isolation pods back to share pool, advisor should create a new share region with OriginOwnerPoolName (OriginOwnerPoolName != OwnerPoolName).
 	isNumaBinding := numaID != commonstate.FakedNUMAID
 	r := &QoSRegionShare{
-		QoSRegionBase: NewQoSRegionBase(regionName, ci.OriginOwnerPoolName, configapi.QoSRegionTypeShare, conf, extraConf, isNumaBinding, metaReader, metaServer, emitter),
+		QoSRegionBase:    NewQoSRegionBase(regionName, ci.OriginOwnerPoolName, configapi.QoSRegionTypeShare, conf, extraConf, isNumaBinding, metaReader, metaServer, emitter),
+		configTranslator: general.NewCommonSuffixTranslator(commonstate.NUMAPoolInfix),
 	}
 
 	if isNumaBinding {
@@ -187,4 +191,9 @@ func (r *QoSRegionShare) getPoolCPUUsageRatio() (float64, error) {
 	cpuSet := poolInfo.TopologyAwareAssignments.MergeCPUSet()
 	usageRatio := r.metaServer.AggregateCoreMetric(cpuSet, pkgconsts.MetricCPUUsageRatio, metric.AggregatorAvg)
 	return usageRatio.Value, nil
+}
+
+func (r *QoSRegionShare) EnableReclaim() bool {
+	return r.QoSRegionBase.EnableReclaim() &&
+		!sets.NewString(r.conf.GetDynamicConfiguration().DisableReclaimSharePools...).Has(r.configTranslator.Translate(r.ownerPoolName))
 }
