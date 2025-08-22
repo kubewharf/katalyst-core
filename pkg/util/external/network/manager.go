@@ -27,7 +27,7 @@ import (
 // NetworkManager provides methods that control network resources.
 type NetworkManager interface {
 	// ApplyNetClass applies the net class config for a container.
-	ApplyNetClass(podUID, containerId string, data *common.NetClsData, handlers ...common.OtherAbsoluteCgroupPathHandler) error
+	ApplyNetClass(podUID, containerId string, data *common.NetClsData) error
 	// ListNetClass lists the net class config for all containers managed by kubernetes.
 	ListNetClass() ([]*common.NetClsData, error)
 	// ClearNetClass clears the net class config for a container.
@@ -43,7 +43,7 @@ type NetworkManagerStub struct {
 	NetClassMap map[string]map[string]*common.NetClsData
 }
 
-func (n *NetworkManagerStub) ApplyNetClass(podUID, containerId string, data *common.NetClsData, handlers ...common.OtherAbsoluteCgroupPathHandler) error {
+func (n *NetworkManagerStub) ApplyNetClass(podUID, containerId string, data *common.NetClsData) error {
 	n.Lock()
 	defer n.Unlock()
 	if _, ok := n.NetClassMap[podUID]; !ok {

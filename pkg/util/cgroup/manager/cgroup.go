@@ -85,12 +85,12 @@ func ApplyCPUSetWithAbsolutePath(absCgroupPath string, data *common.CPUSetData) 
 	return GetManager().ApplyCPUSet(absCgroupPath, data)
 }
 
-func ApplyCPUSetForContainer(podUID, containerId string, data *common.CPUSetData, handlers ...common.OtherAbsoluteCgroupPathHandler) error {
+func ApplyCPUSetForContainer(podUID, containerId string, data *common.CPUSetData) error {
 	if data == nil {
 		return fmt.Errorf("ApplyCPUSetForContainer with nil cgroup data")
 	}
 
-	cpusetAbsCGPath, err := common.GetContainerAbsCgroupPath(common.CgroupSubsysCPUSet, podUID, containerId, handlers...)
+	cpusetAbsCGPath, err := common.GetContainerAbsCgroupPath(common.CgroupSubsysCPUSet, podUID, containerId)
 	if err != nil {
 		return fmt.Errorf("GetContainerAbsCgroupPath failed with error: %v", err)
 	}
@@ -116,12 +116,12 @@ func ApplyNetClsWithAbsolutePath(absCgroupPath string, data *common.NetClsData) 
 }
 
 // ApplyNetClsForContainer applies the net_cls config for a container.
-func ApplyNetClsForContainer(podUID, containerId string, data *common.NetClsData, handlers ...common.OtherAbsoluteCgroupPathHandler) error {
+func ApplyNetClsForContainer(podUID, containerId string, data *common.NetClsData) error {
 	if data == nil {
 		return fmt.Errorf("ApplyNetClass with nil cgroup data")
 	}
 
-	netClsAbsCGPath, err := common.GetContainerAbsCgroupPath(common.CgroupSubsysNetCls, podUID, containerId, handlers...)
+	netClsAbsCGPath, err := common.GetContainerAbsCgroupPath(common.CgroupSubsysNetCls, podUID, containerId)
 	if err != nil {
 		return fmt.Errorf("GetContainerAbsCgroupPath failed with error: %v", err)
 	}
@@ -177,8 +177,8 @@ func ApplyUnifiedDataWithAbsolutePath(absCgroupPath, cgroupFileName, data string
 }
 
 // ApplyUnifiedDataForContainer applies the data to cgroupFileName in subsys for a container.
-func ApplyUnifiedDataForContainer(podUID, containerId, subsys, cgroupFileName, data string, handlers ...common.OtherAbsoluteCgroupPathHandler) error {
-	absCgroupPath, err := common.GetContainerAbsCgroupPath(subsys, podUID, containerId, handlers...)
+func ApplyUnifiedDataForContainer(podUID, containerId, subsys, cgroupFileName, data string) error {
+	absCgroupPath, err := common.GetContainerAbsCgroupPath(subsys, podUID, containerId)
 	if err != nil {
 		return fmt.Errorf("GetContainerAbsCgroupPath failed with error: %v", err)
 	}
@@ -310,8 +310,8 @@ func GetTasksWithAbsolutePath(absCgroupPath string) ([]string, error) {
 	return GetManager().GetTasks(absCgroupPath)
 }
 
-func GetCPUSetForContainer(podUID, containerId string, handlers ...common.OtherAbsoluteCgroupPathHandler) (*common.CPUSetStats, error) {
-	cpusetAbsCGPath, err := common.GetContainerAbsCgroupPath(common.CgroupSubsysCPUSet, podUID, containerId, handlers...)
+func GetCPUSetForContainer(podUID, containerId string) (*common.CPUSetStats, error) {
+	cpusetAbsCGPath, err := common.GetContainerAbsCgroupPath(common.CgroupSubsysCPUSet, podUID, containerId)
 	if err != nil {
 		return nil, fmt.Errorf("GetContainerAbsCgroupPath failed with error: %v", err)
 	}
@@ -319,8 +319,8 @@ func GetCPUSetForContainer(podUID, containerId string, handlers ...common.OtherA
 	return GetCPUSetWithAbsolutePath(cpusetAbsCGPath)
 }
 
-func DropCacheWithTimeoutForContainer(ctx context.Context, podUID, containerId string, timeoutSecs int, nbytes int64, handlers ...common.OtherAbsoluteCgroupPathHandler) error {
-	memoryAbsCGPath, err := common.GetContainerAbsCgroupPath(common.CgroupSubsysMemory, podUID, containerId, handlers...)
+func DropCacheWithTimeoutForContainer(ctx context.Context, podUID, containerId string, timeoutSecs int, nbytes int64) error {
+	memoryAbsCGPath, err := common.GetContainerAbsCgroupPath(common.CgroupSubsysMemory, podUID, containerId)
 	if err != nil {
 		return fmt.Errorf("GetContainerAbsCgroupPath failed with error: %v", err)
 	}

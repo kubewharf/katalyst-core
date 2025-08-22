@@ -813,7 +813,7 @@ func (p *DynamicPolicy) doNumaMemoryBalance(ctx context.Context, advice types.Nu
 			continue
 		}
 
-		memoryAbsCGPath, err := cgroupcommon.GetContainerAbsCgroupPath(cgroupcommon.CgroupSubsysMemory, containerInfo.PodUID, containerID, p.metaServer.GetKataContainerAbsoluteCgroupPath)
+		memoryAbsCGPath, err := cgroupcommon.GetContainerAbsCgroupPath(cgroupcommon.CgroupSubsysMemory, containerInfo.PodUID, containerID)
 		if err != nil {
 			general.Errorf("GetContainerAbsCgroupPath of pod: %s container: %s failed with error: %v", containerInfo.PodUID, containerInfo.ContainerName, err)
 			continue
@@ -911,7 +911,7 @@ func (p *DynamicPolicy) handleAdvisorMemoryOffloading(_ *config.Configuration,
 		if err != nil {
 			return fmt.Errorf("GetContainerID failed with error: %v", err)
 		}
-		absCGPath, err = common.GetContainerAbsCgroupPath(common.CgroupSubsysMemory, entryName, containerID, p.metaServer.GetKataContainerAbsoluteCgroupPath)
+		absCGPath, err = common.GetContainerAbsCgroupPath(common.CgroupSubsysMemory, entryName, containerID)
 		if err != nil {
 			return fmt.Errorf("GetContainerAbsCgroupPath failed with error: %v", err)
 		}

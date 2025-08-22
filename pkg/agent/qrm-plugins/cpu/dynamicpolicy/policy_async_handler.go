@@ -105,7 +105,7 @@ func (p *DynamicPolicy) checkCPUSet(_ *coreconfig.Configuration,
 				continue
 			}
 
-			cpuSetStats, err = cgroupcmutils.GetCPUSetForContainer(podUID, containerId, p.metaServer.GetKataContainerAbsoluteCgroupPath)
+			cpuSetStats, err = cgroupcmutils.GetCPUSetForContainer(podUID, containerId)
 			if err != nil {
 				general.Errorf("GetCPUSet of pod: %s container: name(%s), id(%s) failed with error: %v",
 					podUID, containerName, containerId, err)
