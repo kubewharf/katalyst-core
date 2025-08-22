@@ -33,8 +33,11 @@ import (
 	metricUtil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	cgroupm "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/process"
+	procfsm "github.com/kubewharf/katalyst-core/pkg/util/procfs/manager"
 )
 
 const (
@@ -623,7 +626,7 @@ func NewIrqTuningController(agentConf *agent.AgentConfiguration, irqStateAdapter
 		return nil, retErr
 	}
 
-	ksoftirqds, err := general.ListKsoftirqdProcesses()
+	ksoftirqds, err := process.ListKsoftirqdProcesses()
 	if err != nil {
 		retErr = fmt.Errorf("failed to ListKsoftirqdProcesses, err %v", err)
 		return nil, retErr
@@ -1790,7 +1793,7 @@ func (ic *IrqTuningController) collectIndicatorsStats() (*IndicatorsStats, error
 			ksoftirqPids = append(ksoftirqPids, pid)
 		}
 
-		ksoftirqdSchedWait, err := general.GetTaskSchedWait(ksoftirqPids)
+		ksoftirqdSchedWait, err := procfsm.GetTaskSchedWait(ksoftirqPids)
 		if err != nil {
 			return nil, fmt.Errorf("failed to GetTaskSchedWait, err %v", err)
 		}
@@ -3315,7 +3318,7 @@ func (ic *IrqTuningController) balanceNicsIrqsInInitTuning() {
 // bool: if is sriov container
 func (ic *IrqTuningController) getNicsIfSRIOVContainer(cnt *irqtuner.ContainerInfo) (bool, []*NicInfo) {
 	// container maybe exited
-	pids, err := general.GetCgroupPids(cnt.CgroupPath)
+	pids, err := cgroupm.GetCgroupPids(cnt.CgroupPath)
 	if err != nil {
 		general.Errorf("%s failed to GetCgroupPids(%s), err %v", IrqTuningLogPrefix, cnt.CgroupPath, err)
 		return false, nil
@@ -3329,7 +3332,7 @@ func (ic *IrqTuningController) getNicsIfSRIOVContainer(cnt *irqtuner.ContainerIn
 
 	var netnsInode uint64
 	for _, pid := range pids {
-		inode, err := general.GetProcessNameSpaceInode(pid, general.NetNS)
+		inode, err := process.GetProcessNameSpaceInode(pid, process.NetNS)
 		if err == nil {
 			netnsInode = inode
 			break
@@ -5213,7 +5216,7 @@ func (ic *IrqTuningController) nicsRPSCleared() bool {
 func (ic *IrqTuningController) adjustKsoftirqdsNice() error {
 	ksoftirqdsNice := make(map[int]int)
 	for _, pid := range ic.Ksoftirqds {
-		nice, err := general.GetProcessNice(pid)
+		nice, err := process.GetProcessNice(pid)
 		if err != nil {
 			general.Errorf("%s failed to GetProcessNice, err %s", IrqTuningLogPrefix, err)
 			continue
@@ -5228,7 +5231,7 @@ func (ic *IrqTuningController) adjustKsoftirqdsNice() error {
 				continue
 			}
 
-			if err := general.SetProcessNice(pid, 0); err != nil {
+			if err := process.SetProcessNice(pid, 0); err != nil {
 				general.Errorf("%s failed to SetProcessNice(%d, %d), err %s", IrqTuningLogPrefix, pid, ic.conf.IrqCoresKsoftirqdNice, err)
 			}
 		}
@@ -5261,13 +5264,13 @@ func (ic *IrqTuningController) adjustKsoftirqdsNice() error {
 
 		if isExclusiveIrqCore {
 			if nice != ic.conf.IrqCoresKsoftirqdNice {
-				if err := general.SetProcessNice(pid, ic.conf.IrqCoresKsoftirqdNice); err != nil {
+				if err := process.SetProcessNice(pid, ic.conf.IrqCoresKsoftirqdNice); err != nil {
 					general.Errorf("%s failed to SetProcessNice(%d, %d), err %s", IrqTuningLogPrefix, pid, ic.conf.IrqCoresKsoftirqdNice, err)
 				}
 			}
 		} else {
 			if nice != 0 {
-				if err := general.SetProcessNice(pid, 0); err != nil {
+				if err := process.SetProcessNice(pid, 0); err != nil {
 					general.Errorf("%s failed to SetProcessNice(%d, %d), err %s", IrqTuningLogPrefix, pid, ic.conf.IrqCoresKsoftirqdNice, err)
 				}
 			}

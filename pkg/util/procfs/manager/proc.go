@@ -17,7 +17,13 @@ limitations under the License.
 package manager
 
 import (
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+
 	"github.com/prometheus/procfs"
+	"k8s.io/klog/v2"
 )
 
 // GetCPUInfo returns the CPUInfo of the host.
@@ -113,6 +119,39 @@ func GetPSIStatsForResource(resourceName string) (procfs.PSIStats, error) {
 // GetSchedStat returns the sched stat of the host.
 func GetSchedStat() (*procfs.Schedstat, error) {
 	return GetProcFSManager().GetSchedStat()
+}
+
+// https://docs.kernel.org/scheduler/sched-stats.html#proc-pid-schedstat
+// schedwait unit: nanosecond
+func GetTaskSchedWait(pids []int) (map[int]uint64, error) {
+	taskSchedWait := make(map[int]uint64)
+
+	for _, pid := range pids {
+		taskSchedStatFile := fmt.Sprintf("/proc/%d/schedstat", pid)
+		b, err := os.ReadFile(taskSchedStatFile)
+		if err != nil {
+			klog.Warningf("failed to ReadFile(%s), err %s", taskSchedStatFile, err)
+			continue
+		}
+
+		schedStatLine := strings.TrimRight(string(b), "\n")
+
+		cols := strings.Fields(schedStatLine)
+		if len(cols) < 2 {
+			klog.Errorf("invalid %s content with less than 2 cols", schedStatLine)
+			continue
+		}
+
+		schedWait, err := strconv.ParseUint(cols[1], 10, 64)
+		if err != nil {
+			klog.Errorf("failed ParseUint(%s) in %s, err %s", cols[1], schedStatLine, err)
+			continue
+		}
+
+		taskSchedWait[pid] = schedWait
+	}
+
+	return taskSchedWait, nil
 }
 
 // ApplyProcInterrupts applies the given cpuset to the given irq number.

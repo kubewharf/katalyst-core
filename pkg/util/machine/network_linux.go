@@ -41,6 +41,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/process"
 	procm "github.com/kubewharf/katalyst-core/pkg/util/procfs/manager"
 	sysm "github.com/kubewharf/katalyst-core/pkg/util/sysfs/manager"
 )
@@ -967,9 +968,9 @@ func ListBondNetDevSlaves(nicSysPath string) ([]string, error) {
 }
 
 func ListNetNS(netNSDir string) ([]NetNSInfo, error) {
-	hostNetNSInode, err := general.GetProcessNameSpaceInode(1, general.NetNS)
+	hostNetNSInode, err := process.GetProcessNameSpaceInode(1, process.NetNS)
 	if err != nil {
-		return nil, fmt.Errorf("failed to GetProcessNameSpaceInode(1, %s), err %v", general.NetNS, err)
+		return nil, fmt.Errorf("failed to GetProcessNameSpaceInode(1, %s), err %v", process.NetNS, err)
 	}
 
 	if netNSDir == "" {

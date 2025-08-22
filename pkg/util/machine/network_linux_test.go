@@ -46,6 +46,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/process"
 	procm "github.com/kubewharf/katalyst-core/pkg/util/procfs/manager"
 	sysm "github.com/kubewharf/katalyst-core/pkg/util/sysfs/manager"
 )
@@ -2286,7 +2287,7 @@ func TestListNetNS(t *testing.T) {
 	PatchConvey("Test ListNetNS", t, func() {
 		testNetNSDir := "/var/run/test_netns"
 		PatchConvey("Scenario 1: Successfully obtain a list of network namespaces", func() {
-			Mock(general.GetProcessNameSpaceInode).Return(uint64(12345), nil).Build()
+			Mock(process.GetProcessNameSpaceInode).Return(uint64(12345), nil).Build()
 			Mock(os.ReadDir).Return([]os.DirEntry{
 				&mockDirEntry{entryName: "ns1"},
 				&mockDirEntry{entryName: "ns2"},
@@ -2313,7 +2314,7 @@ func TestListNetNS(t *testing.T) {
 		})
 
 		PatchConvey("Scenario 2: Use the default path when netNSDir is empty", func() {
-			Mock(general.GetProcessNameSpaceInode).Return(uint64(12345), nil).Build()
+			Mock(process.GetProcessNameSpaceInode).Return(uint64(12345), nil).Build()
 			Mock(os.ReadDir).Return([]os.DirEntry{}, nil).Build()
 
 			nsList, err := ListNetNS("")
@@ -2325,7 +2326,7 @@ func TestListNetNS(t *testing.T) {
 
 		PatchConvey("Scenario 3: Failing to obtain the host network namespace inode", func() {
 			mockErr := errors.New("failed to get host inode")
-			Mock(general.GetProcessNameSpaceInode).Return(uint64(0), mockErr).Build()
+			Mock(process.GetProcessNameSpaceInode).Return(uint64(0), mockErr).Build()
 
 			nsList, err := ListNetNS(testNetNSDir)
 
@@ -2335,7 +2336,7 @@ func TestListNetNS(t *testing.T) {
 		})
 
 		PatchConvey("Scenario 4: The network namespace directory does not exist", func() {
-			Mock(general.GetProcessNameSpaceInode).Return(uint64(12345), nil).Build()
+			Mock(process.GetProcessNameSpaceInode).Return(uint64(12345), nil).Build()
 			Mock(os.ReadDir).Return(nil, os.ErrNotExist).Build()
 
 			nsList, err := ListNetNS(testNetNSDir)
@@ -2347,7 +2348,7 @@ func TestListNetNS(t *testing.T) {
 
 		PatchConvey("Scenario 5: Failing to read the network namespace directory", func() {
 			mockErr := errors.New("failed to read directory")
-			Mock(general.GetProcessNameSpaceInode).Return(uint64(12345), nil).Build()
+			Mock(process.GetProcessNameSpaceInode).Return(uint64(12345), nil).Build()
 			Mock(os.ReadDir).Return(nil, mockErr).Build()
 
 			nsList, err := ListNetNS(testNetNSDir)
@@ -2359,7 +2360,7 @@ func TestListNetNS(t *testing.T) {
 
 		PatchConvey("Scenario 6: Failed to get file inodes", func() {
 			mockErr := errors.New("failed to get file inode")
-			Mock(general.GetProcessNameSpaceInode).Return(uint64(12345), nil).Build()
+			Mock(process.GetProcessNameSpaceInode).Return(uint64(12345), nil).Build()
 			Mock(os.ReadDir).Return([]os.DirEntry{
 				&mockDirEntry{entryName: "ns1", isDir: false},
 			}, nil).Build()
@@ -2373,7 +2374,7 @@ func TestListNetNS(t *testing.T) {
 		})
 
 		PatchConvey("Scenario 7: Contains subdirectories in a directory should be ignored", func() {
-			Mock(general.GetProcessNameSpaceInode).Return(uint64(12345), nil).Build()
+			Mock(process.GetProcessNameSpaceInode).Return(uint64(12345), nil).Build()
 			Mock(os.ReadDir).Return([]os.DirEntry{
 				&mockDirEntry{entryName: "ns1", isDir: false},
 				&mockDirEntry{entryName: "a_directory", isDir: true},
