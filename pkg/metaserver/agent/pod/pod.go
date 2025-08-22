@@ -19,11 +19,12 @@ package pod
 import (
 	"context"
 	"fmt"
-	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
-	"k8s.io/apimachinery/pkg/util/json"
 	"path"
 	"sync"
 	"time"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	"k8s.io/apimachinery/pkg/util/json"
 
 	"github.com/fsnotify/fsnotify"
 	"golang.org/x/time/rate"

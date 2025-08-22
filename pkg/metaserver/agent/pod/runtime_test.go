@@ -17,10 +17,11 @@ limitations under the License.
 package pod
 
 import (
+	"testing"
+
 	"github.com/stretchr/testify/assert"
 	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1"
 	critesting "k8s.io/cri-api/pkg/apis/testing"
-	"testing"
 )
 
 func TestRuntimePodFetcherImpl_GetContainerInfo(t *testing.T) {
