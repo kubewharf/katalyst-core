@@ -91,12 +91,12 @@ func setHostTCPMem(emitter metrics.MetricEmitter, memTotal uint64, sockMemConfig
 	return nil
 }
 
-func setCg1TCPMem(emitter metrics.MetricEmitter, podUID, containerID string, memLimit, memTCPLimit int64, sockMemConfig *SockMemConfig, metaServer *metaserver.MetaServer) error {
+func setCg1TCPMem(emitter metrics.MetricEmitter, podUID, containerID string, memLimit, memTCPLimit int64, sockMemConfig *SockMemConfig) error {
 	newMemTCPLimit := memLimit / 100 * int64(sockMemConfig.cgroupTCPMemRatio)
 	newMemTCPLimit = alignToPageSize(newMemTCPLimit)
 	newMemTCPLimit = int64(general.Clamp(float64(newMemTCPLimit), cgroupTCPMemMin2G, kernSockMemAccountingOn))
 
-	cgroupPath, err := cgroupcm.GetContainerRelativeCgroupPath(podUID, containerID, metaServer.GetKataContainerRelativeCgroupPath)
+	cgroupPath, err := cgroupcm.GetContainerRelativeCgroupPath(podUID, containerID)
 	if err != nil {
 		return err
 	}
@@ -214,7 +214,7 @@ func SetSockMemLimit(conf *coreconfig.Configuration,
 				continue
 			}
 
-			err = setCg1TCPMem(emitter, podUID, containerID, int64(memLimit), int64(memTCPLimit), &sockMemConfig, metaServer)
+			err = setCg1TCPMem(emitter, podUID, containerID, int64(memLimit), int64(memTCPLimit), &sockMemConfig)
 			if err != nil {
 				errList = append(errList, err)
 			}

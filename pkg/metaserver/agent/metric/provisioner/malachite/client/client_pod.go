@@ -80,7 +80,7 @@ func (c *MalachiteClient) GetPodContainerStats(podUID, containerID string) (*typ
 	if c.relativePathFunc != nil {
 		cgroupPath, err = (*c.relativePathFunc)(podUID, containerID)
 	} else {
-		cgroupPath, err = cgroupcm.GetContainerRelativeCgroupPath(podUID, containerID, c.fetcher.GetKataContainerRelativeCgroupPath)
+		cgroupPath, err = cgroupcm.GetContainerRelativeCgroupPath(podUID, containerID)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("GetPodContainerStats %s/%v get-relative-path err %v", podUID, containerID, err)

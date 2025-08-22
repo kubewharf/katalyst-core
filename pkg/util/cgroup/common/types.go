@@ -247,3 +247,7 @@ type CgroupResources struct {
 type OtherAbsoluteCgroupPathHandler func(subsys, podUID, containerId string) (string, error)
 
 type OtherRelativeCgroupPathHandler func(podUID, containerId string) (string, error)
+
+type AbsoluteCgroupPathHandler func(subsys, podUID, containerId string) (string, error)
+
+type RelativeCgroupPathHandler func(podUID, containerId string) (string, error)

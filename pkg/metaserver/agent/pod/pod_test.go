@@ -17,13 +17,16 @@ limitations under the License.
 package pod
 
 import (
-	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"reflect"
 	"testing"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 )
 
-var testJsonInfo1 = `{"sandboxID": "12345678", "pid": 1234}`
-var testJsonInfo2 = `{"pid: 2345"}` // no sandbox id field
+var (
+	testJsonInfo1 = `{"sandboxID": "12345678", "pid": 1234}`
+	testJsonInfo2 = `{"pid: 2345"}` // no sandbox id field
+)
 
 func Test_getCgroupRootPaths(t *testing.T) {
 	t.Parallel()
