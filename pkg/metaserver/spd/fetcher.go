@@ -169,17 +169,17 @@ func (s *spdFetcher) getSPDByNamespaceName(ctx context.Context, namespace, name 
 	}
 
 	// get current spd from cache
-	currentSPD := s.spdCache.GetSPD(key, true)
+	currentSPD, cached := s.spdCache.GetSPD(key, true)
 	if currentSPD != nil {
 		return currentSPD, nil
-	} else if s.spdGetFromRemote {
+	} else if !cached && s.spdGetFromRemote {
 		klog.Infof("[spd-manager] need to get spd %s from remote", key)
 		err := s.tryUpdateSPDCache(ctx, namespace, name, currentSPD, baseTag, s.spdGetFromRemote)
 		if err != nil {
 			return currentSPD, err
 		}
 
-		currentSPD = s.spdCache.GetSPD(key, true)
+		currentSPD, _ = s.spdCache.GetSPD(key, true)
 		if currentSPD != nil {
 			return currentSPD, nil
 		}
@@ -220,7 +220,7 @@ func (s *spdFetcher) sync(ctx context.Context) {
 		}
 
 		// first get spd origin spd from local cache
-		originSPD := s.spdCache.GetSPD(key, false)
+		originSPD, _ := s.spdCache.GetSPD(key, false)
 
 		_ = s.tryUpdateSPDCache(ctx, namespace, name, originSPD, baseTag, false)
 	}
@@ -289,7 +289,7 @@ func (s *spdFetcher) updateSPDCacheIfNeed(ctx context.Context, originSPD *worklo
 				return fmt.Errorf("delete spd %s from cache failed: %v", key, err)
 			}
 
-			klog.Infof("[spd-manager] spd %s cache has been deleted", key)
+			klog.Infof("[spd-manager] spd %s cache not existed", key)
 			return nil
 		}
 
