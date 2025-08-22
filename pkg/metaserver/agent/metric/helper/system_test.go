@@ -24,6 +24,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
@@ -186,12 +187,10 @@ func TestGetNumaAvgMBWAllocatableMap(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		setup       func(store *metric.FakeMetricsFetcher)
-		numaMBWMap  map[int]int64
-		rateMap     map[string]float64
-		defaultRate float64
-		want        map[int]int64
+		name            string
+		setup           func(store *metric.FakeMetricsFetcher)
+		SiblingNumaInfo *machine.SiblingNumaInfo
+		want            map[int]int64
 	}{
 		{
 			name: "hit allocatableRateMap with valid metrics",
@@ -200,9 +199,16 @@ func TestGetNumaAvgMBWAllocatableMap(t *testing.T) {
 				store.SetNumaMetric(0, consts.MetricMemBandwidthTheoryNuma, utilmetric.MetricData{Value: 100.0})
 				store.SetNumaMetric(1, consts.MetricMemBandwidthTheoryNuma, utilmetric.MetricData{Value: 100.0})
 			},
-			numaMBWMap:  map[int]int64{0: 0, 1: 0},
-			rateMap:     map[string]float64{"AMD_K19Zen4": 0.7},
-			defaultRate: 0.9,
+			SiblingNumaInfo: &machine.SiblingNumaInfo{
+				SiblingNumaAvgMBWAllocatableRateMap: map[string]float64{
+					"AMD_K19Zen4": 0.7,
+				},
+				SiblingNumaAvgMBWCapacityMap: map[int]int64{
+					0: 10,
+					1: 10,
+				},
+				SiblingNumaDefaultMBWAllocatableRate: 0.9,
+			},
 			want: map[int]int64{
 				0: int64(100.0 * consts.BytesPerGB * 0.7),
 				1: int64(100.0 * consts.BytesPerGB * 0.7),
@@ -215,9 +221,16 @@ func TestGetNumaAvgMBWAllocatableMap(t *testing.T) {
 				store.SetNumaMetric(0, consts.MetricMemBandwidthTheoryNuma, utilmetric.MetricData{Value: 100.0})
 				store.SetNumaMetric(1, consts.MetricMemBandwidthTheoryNuma, utilmetric.MetricData{Value: 100.0})
 			},
-			numaMBWMap:  map[int]int64{0: 0, 1: 0},
-			rateMap:     map[string]float64{"AMD_K19Zen4": 0.7},
-			defaultRate: 0.9,
+			SiblingNumaInfo: &machine.SiblingNumaInfo{
+				SiblingNumaAvgMBWAllocatableRateMap: map[string]float64{
+					"AMD_K19Zen4": 0.7,
+				},
+				SiblingNumaAvgMBWCapacityMap: map[int]int64{
+					0: 10,
+					1: 10,
+				},
+				SiblingNumaDefaultMBWAllocatableRate: 0.9,
+			},
 			want: func() map[int]int64 {
 				r := 0.9
 				return map[int]int64{
@@ -236,7 +249,7 @@ func TestGetNumaAvgMBWAllocatableMap(t *testing.T) {
 			store := mf.(*metric.FakeMetricsFetcher)
 			tt.setup(store)
 
-			got := GetNumaAvgMBWAllocatableMap(mf, tt.numaMBWMap, tt.rateMap, tt.defaultRate)
+			got := GetNumaAvgMBWAllocatableMap(mf, tt.SiblingNumaInfo)
 			assert.Equalf(t, tt.want, got, "GetNumaAvgMBWAllocatableMap")
 		})
 	}

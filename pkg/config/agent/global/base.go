@@ -59,7 +59,7 @@ type MachineInfoConfiguration struct {
 	// the allocatable to the capacity
 	SiblingNumaMemoryBandwidthCapacity           int64
 	SiblingNumaMemoryBandwidthAllocatableRate    float64
-	SiblingNumaMemoryBandwidthAllocatableRateMap map[string]string
+	SiblingNumaMemoryBandwidthAllocatableRateMap map[string]float64
 }
 
 type KubeletConfiguration struct {

@@ -429,7 +429,7 @@ func (p *topologyAdapterImpl) getZoneResources(allocatableResources *podresv1.Al
 		errList = append(errList, err)
 	}
 
-	zoneAllocatable, err = p.addNumaMemoryBandwidthResources(zoneAllocatable, helper.GetNumaAvgMBWAllocatableMap(p.metaServer.MetricsFetcher, p.metaServer.SiblingNumaAvgMBWCapacityMap, p.metaServer.SiblingNumaAvgMBWAllocatableRateMap, p.metaServer.SiblingNumaDefaultMBWAllocatableRate))
+	zoneAllocatable, err = p.addNumaMemoryBandwidthResources(zoneAllocatable, helper.GetNumaAvgMBWAllocatableMap(p.metaServer.MetricsFetcher, p.metaServer.SiblingNumaInfo))
 	if err != nil {
 		errList = append(errList, err)
 	}
