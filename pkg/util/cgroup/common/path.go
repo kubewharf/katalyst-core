@@ -18,7 +18,6 @@ package common
 
 import (
 	"fmt"
-	"k8s.io/klog/v2"
 	"os"
 	"path"
 	"path/filepath"
@@ -28,6 +27,7 @@ import (
 
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
