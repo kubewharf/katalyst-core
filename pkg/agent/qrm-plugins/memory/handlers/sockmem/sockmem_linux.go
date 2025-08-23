@@ -96,7 +96,7 @@ func setCg1TCPMem(emitter metrics.MetricEmitter, podUID, containerID string, mem
 	newMemTCPLimit = alignToPageSize(newMemTCPLimit)
 	newMemTCPLimit = int64(general.Clamp(float64(newMemTCPLimit), cgroupTCPMemMin2G, kernSockMemAccountingOn))
 
-	cgroupPath, err := cgroupcm.GetContainerRelativeCgroupPath(podUID, containerID, metaServer.GetKataContainerRelativeCgroupPath)
+	cgroupPath, err := cgroupcm.GetContainerRelativeCgroupPath(podUID, containerID)
 	if err != nil {
 		return err
 	}

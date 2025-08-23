@@ -44,6 +44,8 @@ const (
 	metricsNamePodCacheTotalCount = "pod_cache_total_count"
 	metricsNamePodCacheNotFound   = "pod_cache_not_found"
 	metricsNamePodFetcherHealth   = "pod_fetcher_health"
+
+	kataContainerCgroupPathHandlerName = "kata"
 )
 
 type ContextKey string
@@ -106,14 +108,19 @@ func NewPodFetcher(baseConf *global.BaseConfiguration, podConf *metaserver.PodCo
 		runtimePodFetcher = nil
 	}
 
-	return &podFetcherImpl{
+	podFetcher := &podFetcherImpl{
 		kubeletPodFetcher: NewKubeletPodFetcher(baseConf),
 		runtimePodFetcher: runtimePodFetcher,
 		emitter:           emitter,
 		baseConf:          baseConf,
 		podConf:           podConf,
 		cgroupRootPaths:   cgroupRootPaths,
-	}, nil
+	}
+
+	common.RegisterAbsoluteCgroupPathHandler(kataContainerCgroupPathHandlerName, podFetcher.GetKataContainerAbsoluteCgroupPath)
+	common.RegisterRelativeCgroupPathHandler(kataContainerCgroupPathHandlerName, podFetcher.GetKataContainerRelativeCgroupPath)
+
+	return podFetcher, nil
 }
 
 func (w *podFetcherImpl) GetContainerSpec(podUID, containerName string) (*v1.Container, error) {

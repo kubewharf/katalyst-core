@@ -92,7 +92,7 @@ type StaticPolicy struct {
 
 	CgroupV2Env                                     bool
 	qosLevelToNetClassMap                           map[string]uint32
-	applyNetClassFunc                               func(podUID, containerID string, data *common.NetClsData, handlers ...common.OtherAbsoluteCgroupPathHandler) error
+	applyNetClassFunc                               func(podUID, containerID string, data *common.NetClsData) error
 	applyNetworkGroupsFunc                          func(map[string]*qrmgeneral.NetworkGroup) error
 	podLevelNetClassAnnoKey                         string
 	podLevelNetAttributesAnnoKeys                   []string
@@ -948,7 +948,7 @@ func (p *StaticPolicy) applyNetClass() {
 				continue
 			}
 
-			if exist, err := common.IsContainerCgroupExist(podUID, containerID, p.metaServer.GetKataContainerAbsoluteCgroupPath); err != nil {
+			if exist, err := common.IsContainerCgroupExist(podUID, containerID); err != nil {
 				general.Errorf("check if container cgroup exists failed, pod: %s, container: %s(%s), err: %v",
 					podUID, containerName, containerID, err)
 				continue
@@ -969,7 +969,7 @@ func (p *StaticPolicy) applyNetClass() {
 			}
 
 			go func(podUID, containerName string, netClsData *common.NetClsData) {
-				if err = p.applyNetClassFunc(podUID, containerID, netClsData, p.metaServer.GetKataContainerAbsoluteCgroupPath); err != nil {
+				if err = p.applyNetClassFunc(podUID, containerID, netClsData); err != nil {
 					general.Errorf("apply net class failed, pod: %s, container: %s(%s), netClsData: %+v, err: %v",
 						podUID, containerName, containerID, *netClsData, err)
 					return
