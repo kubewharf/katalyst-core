@@ -46,12 +46,14 @@ const (
 	metricsNamePodFetcherHealth   = "pod_fetcher_health"
 
 	kataContainerCgroupPathHandlerName = "kata"
+	kataRuntimeType                    = "io.containerd.kata.v2"
 )
 
 type ContextKey string
 
 type ContainerInfo struct {
-	SandboxID string `json:"sandboxID"`
+	SandboxID   string `json:"sandboxID"`
+	RuntimeType string `json:"runtimeType"`
 }
 
 const (
@@ -412,8 +414,13 @@ func (w *podFetcherImpl) getKataCgroupPathSuffix(podUID, containerId string) (st
 
 	var info ContainerInfo
 	if err := json.Unmarshal([]byte(infoRaw["info"]), &info); err != nil {
-		return "", fmt.Errorf("failed to unmarshal info of container into its sandbox id, err: %v", err)
+		return "", fmt.Errorf("failed to unmarshal info of container into its sandbox id and runtime type, err: %v", err)
 	}
+	runtimeType := info.RuntimeType
+	if runtimeType != kataRuntimeType {
+		return "", fmt.Errorf("runtime type of container is not kata runtime: %s", runtimeType)
+	}
+
 	sandboxId := info.SandboxID
 	if sandboxId == "" {
 		return "", fmt.Errorf("failed to get sandbox id of container")
