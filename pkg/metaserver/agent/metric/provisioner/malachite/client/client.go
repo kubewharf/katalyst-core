@@ -39,6 +39,7 @@ const (
 
 	RealtimePowerResource   = "realtime/power"
 	RealtimeSysFreqResource = "realtime/freq"
+	RealtimeMBResource      = "realtime/resctrl"
 )
 
 const (
