@@ -138,6 +138,13 @@ const (
 	MetricsNodeFsInodesUsed = "used.inodes.fs.node"
 )
 
+// Node System Prjquota metrics
+const (
+	MetricsNodeFsPrjquotaCapacity  = "capacity.prjquota.fs.node"
+	MetricsNodeFsPrjquotaAvailable = "available.prjquota.fs.node"
+	MetricsNodeFsPrjquotaUsed      = "used.prjquota.fs.node"
+)
+
 // System Power and CPUFreq metrics
 const (
 	MetricTotalPowerUsedWatts = "total.power.used.watts"
