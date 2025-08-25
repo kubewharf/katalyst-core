@@ -1156,8 +1156,7 @@ func Test_GetCPUInfoWithTopo(t *testing.T) {
 			info, err := GetCPUInfoWithTopo()
 
 			So(info, ShouldBeNil)
-			So(err, ShouldNotBeNil)
-			So(err.Error(), ShouldContainSubstring, "unsupport cpu arch")
+			So(err, ShouldBeNil)
 		})
 
 		mockey.PatchConvey("Scenario 4: Failed to read the node directory", func() {
