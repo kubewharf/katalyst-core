@@ -162,6 +162,7 @@ type AMDNuma struct {
 
 type CPUSocket struct {
 	NumaIDs    []int
+	CPUs       []int64
 	IntelNumas map[int]*LLCDomain // numa id as map key
 	AMDNumas   map[int]*AMDNuma   // numa id as map key
 }
@@ -174,7 +175,6 @@ type CPUSocket struct {
 type CPUInfo struct {
 	CPUVendor  cpuid.Vendor
 	Sockets    map[int]*CPUSocket
-	SocketCPUs map[int][]int64
 	CPU2Socket map[int64]int  // cpu id as map key, socket id as map value
 	CPUOnline  map[int64]bool // cpu id as map key, CPUOnline contains all online cpus, but not contains any offline cpu
 }
@@ -460,7 +460,6 @@ func GetCPUInfoWithTopo() (*CPUInfo, error) {
 	cpuInfo := &CPUInfo{
 		CPUVendor:  cpuid.CPU.VendorID,
 		Sockets:    make(map[int]*CPUSocket),
-		SocketCPUs: make(map[int][]int64),
 		CPU2Socket: make(map[int64]int),
 		CPUOnline:  make(map[int64]bool),
 	}
@@ -541,7 +540,7 @@ func GetCPUInfoWithTopo() (*CPUInfo, error) {
 	for socketID, socket := range cpuInfo.Sockets {
 		sort.Ints(socket.NumaIDs)
 		socketCPUList := getSocketCPUList(socket, cpuInfo.CPUVendor)
-		cpuInfo.SocketCPUs[socketID] = socketCPUList
+		socket.CPUs = socketCPUList
 
 		for _, cpuID := range socketCPUList {
 			cpuInfo.CPU2Socket[cpuID] = socketID

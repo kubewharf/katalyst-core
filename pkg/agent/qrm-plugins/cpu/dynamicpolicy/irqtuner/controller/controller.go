@@ -1431,6 +1431,7 @@ func (ic *IrqTuningController) String() string {
 
 			indent = spaces + spaces + spaces
 			msg = fmt.Sprintf("%s%s    NumaIDs: %+v\n", msg, indent, socket.NumaIDs)
+			msg = fmt.Sprintf("%s%s    CPUs: %+v\n", msg, indent, socket.CPUs)
 
 			if ic.CPUInfo.CPUVendor == cpuid.Intel {
 				msg = fmt.Sprintf("%s%s    IntelNumas:\n", msg, indent)
@@ -1465,14 +1466,6 @@ func (ic *IrqTuningController) String() string {
 					}
 				}
 			}
-		}
-
-		indent = spaces
-		msg = fmt.Sprintf("%s%s    SocketCPUs:\n", msg, indent)
-		for i := 0; i < len(ic.CPUInfo.SocketCPUs); i++ {
-			cpus := ic.CPUInfo.SocketCPUs[i]
-			indent = spaces + spaces
-			msg = fmt.Sprintf("%s%s    Sockets[%d]: %+v\n", msg, indent, i, cpus)
 		}
 
 		indent = spaces
@@ -2372,12 +2365,12 @@ func (ic *IrqTuningController) getQualifiedCoresMap(destDomainCoresList []int64,
 func (ic *IrqTuningController) getSocketsQualifiedCoresMapForBalanceFairPolicy(sockets []int) map[int64]interface{} {
 	var cpuList []int64
 	if len(sockets) == 0 {
-		for _, socketCPUList := range ic.CPUInfo.SocketCPUs {
-			cpuList = append(cpuList, socketCPUList...)
+		for _, socket := range ic.CPUInfo.Sockets {
+			cpuList = append(cpuList, socket.CPUs...)
 		}
 	} else {
 		for _, socket := range sockets {
-			cpuList = append(cpuList, ic.CPUInfo.SocketCPUs[socket]...)
+			cpuList = append(cpuList, ic.CPUInfo.Sockets[socket].CPUs...)
 		}
 	}
 
@@ -3675,7 +3668,7 @@ func (ic *IrqTuningController) getNumaQualifiedCoresMapForNicExclusiveIrqCores(n
 func (ic *IrqTuningController) getNicExclusiveIrqCoresMax(nic *NicIrqTuningManager) int {
 	assignedSocketsCoresCount := 0
 	for _, socket := range nic.AssignedSockets {
-		assignedSocketsCoresCount += len(ic.CPUInfo.SocketCPUs[socket])
+		assignedSocketsCoresCount += len(ic.CPUInfo.Sockets[socket].CPUs)
 	}
 
 	exclusiveIrqCoresMax := assignedSocketsCoresCount * ic.conf.IrqCoresAdjustConf.IrqCoresPercentMax / 100
@@ -3685,7 +3678,7 @@ func (ic *IrqTuningController) getNicExclusiveIrqCoresMax(nic *NicIrqTuningManag
 func (ic *IrqTuningController) getNicExclusiveIrqCoresMin(nic *NicIrqTuningManager) int {
 	assignedSocketsCoresCount := 0
 	for _, socket := range nic.AssignedSockets {
-		assignedSocketsCoresCount += len(ic.CPUInfo.SocketCPUs[socket])
+		assignedSocketsCoresCount += len(ic.CPUInfo.Sockets[socket].CPUs)
 	}
 
 	exclusiveIrqCoresMin := assignedSocketsCoresCount * ic.conf.IrqCoresAdjustConf.IrqCoresPercentMin / 100
