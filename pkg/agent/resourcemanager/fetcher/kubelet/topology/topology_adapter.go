@@ -41,6 +41,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/utils"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	metaserverpod "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/util"
@@ -423,12 +424,12 @@ func (p *topologyAdapterImpl) getZoneResources(allocatableResources *podresv1.Al
 		}
 	}
 
-	zoneCapacity, err = p.addNumaMemoryBandwidthResources(zoneCapacity, p.metaServer.SiblingNumaAvgMBWCapacityMap)
+	zoneCapacity, err = p.addNumaMemoryBandwidthResources(zoneCapacity, helper.GetNumaAvgMBWCapacityMap(p.metaServer.MetricsFetcher, p.metaServer.SiblingNumaAvgMBWCapacityMap))
 	if err != nil {
 		errList = append(errList, err)
 	}
 
-	zoneAllocatable, err = p.addNumaMemoryBandwidthResources(zoneAllocatable, p.metaServer.SiblingNumaAvgMBWAllocatableMap)
+	zoneAllocatable, err = p.addNumaMemoryBandwidthResources(zoneAllocatable, helper.GetNumaAvgMBWAllocatableMap(p.metaServer.MetricsFetcher, p.metaServer.SiblingNumaInfo))
 	if err != nil {
 		errList = append(errList, err)
 	}
@@ -903,6 +904,7 @@ func (p *topologyAdapterImpl) addContainerMemoryBandwidth(zoneAllocated map[util
 		return zoneAllocated, nil
 	}
 
+	numaAvgMBWCapacityMap := helper.GetNumaAvgMBWCapacityMap(p.metaServer.MetricsFetcher, p.metaServer.SiblingNumaAvgMBWCapacityMap)
 	numaAllocated := make(map[util.ZoneNode]*v1.ResourceList)
 	for zoneNode, allocated := range zoneAllocated {
 		// only consider numa which is allocated cpu and memory bandwidth capacity greater than zero
@@ -914,7 +916,7 @@ func (p *topologyAdapterImpl) addContainerMemoryBandwidth(zoneAllocated map[util
 			}
 
 			// if the numa avg mbw capacity is zero, we will not consider its mbw allocation
-			if p.metaServer.SiblingNumaAvgMBWCapacityMap[numaID] > 0 {
+			if numaAvgMBWCapacityMap[numaID] > 0 {
 				numaAllocated[zoneNode] = allocated
 			}
 		}
