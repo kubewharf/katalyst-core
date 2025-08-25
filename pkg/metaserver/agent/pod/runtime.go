@@ -57,6 +57,7 @@ type labeledContainerInfo struct {
 
 type RuntimePodFetcher interface {
 	GetPods(all bool) ([]*RuntimePod, error)
+	GetContainerInfo(containerId string) (map[string]string, error)
 }
 
 type runtimePodFetcherImpl struct {
@@ -173,6 +174,22 @@ func (r *runtimePodFetcherImpl) getKubeletContainers(allContainers bool) ([]*run
 	return containers, nil
 }
 
+// GetContainerInfo returns the additional runtime info of a container based on container id
+func (r *runtimePodFetcherImpl) GetContainerInfo(containerId string) (map[string]string, error) {
+	containerStatus, err := r.runtimeService.ContainerStatus(containerId, true)
+	if containerStatus == nil || err != nil {
+		klog.ErrorS(err, "GetContainerStatus failed")
+		return nil, fmt.Errorf("get container status failed, err: %v", err)
+	}
+
+	if containerStatus.Info == nil {
+		klog.ErrorS(err, "ContainerStatus has no info")
+		return nil, fmt.Errorf("containerStatus has no info")
+	}
+
+	return containerStatus.Info, nil
+}
+
 // getContainerInfoFromLabels gets labeledContainerInfo from labels.
 func getContainerInfoFromLabels(labels map[string]string) *labeledContainerInfo {
 	return &labeledContainerInfo{
@@ -181,4 +198,21 @@ func getContainerInfoFromLabels(labels map[string]string) *labeledContainerInfo 
 		PodUID:        kubetypes.UID(general.GetStringValueFromMap(labels, types.KubernetesPodUIDLabel)),
 		ContainerName: general.GetStringValueFromMap(labels, types.KubernetesContainerNameLabel),
 	}
+}
+
+// runtimePodFetcherStub is used as testing implementation of RuntimePodFetcher
+type runtimePodFetcherStub struct {
+	pods              []*RuntimePod
+	containerIdToInfo map[string]map[string]string
+}
+
+func (r *runtimePodFetcherStub) GetPods(all bool) ([]*RuntimePod, error) {
+	return r.pods, nil
+}
+
+func (r *runtimePodFetcherStub) GetContainerInfo(containerId string) (map[string]string, error) {
+	if _, ok := r.containerIdToInfo[containerId]; !ok {
+		return nil, fmt.Errorf("containerId %s not found in pods", containerId)
+	}
+	return r.containerIdToInfo[containerId], nil
 }

@@ -19,8 +19,11 @@ package pod
 import (
 	"context"
 	"fmt"
+	"path"
 	"sync"
 	"time"
+
+	"k8s.io/apimachinery/pkg/util/json"
 
 	"github.com/fsnotify/fsnotify"
 	"golang.org/x/time/rate"
@@ -31,6 +34,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
@@ -40,9 +44,17 @@ const (
 	metricsNamePodCacheTotalCount = "pod_cache_total_count"
 	metricsNamePodCacheNotFound   = "pod_cache_not_found"
 	metricsNamePodFetcherHealth   = "pod_fetcher_health"
+
+	kataContainerCgroupPathHandlerName = "kata"
+	kataRuntimeType                    = "io.containerd.kata.v2"
 )
 
 type ContextKey string
+
+type ContainerInfo struct {
+	SandboxID   string `json:"sandboxID"`
+	RuntimeType string `json:"runtimeType"`
+}
 
 const (
 	BypassCacheKey  ContextKey = "bypass_cache"
@@ -64,6 +76,13 @@ type PodFetcher interface {
 	GetContainerSpec(podUID, containerName string) (*v1.Container, error)
 	// GetPod returns Pod by UID
 	GetPod(ctx context.Context, podUID string) (*v1.Pod, error)
+
+	// GetKataContainerAbsoluteCgroupPath attempts to get the absolute cgroup path of a kata container.
+	// It will return an error if the container is not a kata container.
+	GetKataContainerAbsoluteCgroupPath(subsys, podUID, containerId string) (string, error)
+
+	// GetKataContainerRelativeCgroupPath attempts to get the
+	GetKataContainerRelativeCgroupPath(podUID, containerId string) (string, error)
 }
 
 type podFetcherImpl struct {
@@ -91,14 +110,19 @@ func NewPodFetcher(baseConf *global.BaseConfiguration, podConf *metaserver.PodCo
 		runtimePodFetcher = nil
 	}
 
-	return &podFetcherImpl{
+	podFetcher := &podFetcherImpl{
 		kubeletPodFetcher: NewKubeletPodFetcher(baseConf),
 		runtimePodFetcher: runtimePodFetcher,
 		emitter:           emitter,
 		baseConf:          baseConf,
 		podConf:           podConf,
 		cgroupRootPaths:   cgroupRootPaths,
-	}, nil
+	}
+
+	common.RegisterAbsoluteCgroupPathHandler(kataContainerCgroupPathHandlerName, podFetcher.GetKataContainerAbsoluteCgroupPath)
+	common.RegisterRelativeCgroupPathHandler(kataContainerCgroupPathHandlerName, podFetcher.GetKataContainerRelativeCgroupPath)
+
+	return podFetcher, nil
 }
 
 func (w *podFetcherImpl) GetContainerSpec(podUID, containerName string) (*v1.Container, error) {
@@ -362,4 +386,46 @@ func (w *podFetcherImpl) checkPodCache() {
 		metrics.ConvertMapToTags(map[string]string{
 			"source": "kubelet",
 		})...)
+}
+
+func (w *podFetcherImpl) GetKataContainerAbsoluteCgroupPath(subsys, podUID, containerId string) (string, error) {
+	cgroupPathSuffix, err := w.getKataCgroupPathSuffix(podUID, containerId)
+	if err != nil {
+		return "", fmt.Errorf("failed to get kata cgroup path suffix: %v", err)
+	}
+	return common.GetKubernetesAnyExistAbsCgroupPath(subsys, cgroupPathSuffix)
+}
+
+func (w *podFetcherImpl) GetKataContainerRelativeCgroupPath(podUID, containerId string) (string, error) {
+	cgroupPathSuffix, err := w.getKataCgroupPathSuffix(podUID, containerId)
+	if err != nil {
+		return "", fmt.Errorf("failed to get kata cgroup path suffix: %v", err)
+	}
+	return common.GetKubernetesAnyExistRelativeCgroupPath(cgroupPathSuffix)
+}
+
+// getKataCgroupPathSuffix retrieves the sandbox id of the kata container and
+// then constructs the cgroup path suffix.
+func (w *podFetcherImpl) getKataCgroupPathSuffix(podUID, containerId string) (string, error) {
+	infoRaw, err := w.runtimePodFetcher.GetContainerInfo(containerId)
+	if err != nil {
+		return "", fmt.Errorf("failed to get container info, err: %v", err)
+	}
+
+	var info ContainerInfo
+	if err := json.Unmarshal([]byte(infoRaw["info"]), &info); err != nil {
+		return "", fmt.Errorf("failed to unmarshal info of container into its sandbox id and runtime type, err: %v", err)
+	}
+	runtimeType := info.RuntimeType
+	if runtimeType != kataRuntimeType {
+		return "", fmt.Errorf("runtime type of container is not kata runtime: %s", runtimeType)
+	}
+
+	sandboxId := info.SandboxID
+	if sandboxId == "" {
+		return "", fmt.Errorf("failed to get sandbox id of container")
+	}
+
+	kataPathSuffix := fmt.Sprintf("kata_%s", sandboxId)
+	return path.Join(fmt.Sprintf("%s%s", common.PodCgroupPathPrefix, podUID), kataPathSuffix), nil
 }
