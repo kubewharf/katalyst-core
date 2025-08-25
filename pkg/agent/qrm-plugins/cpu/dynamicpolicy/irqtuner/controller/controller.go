@@ -621,6 +621,15 @@ func NewIrqTuningController(agentConf *agent.AgentConfiguration, irqStateAdapter
 
 	cpuInfo := machineInfo.CPUTopology.CPUInfo
 
+	if cpuInfo == nil {
+		if cpuid.CPU.VendorID != cpuid.Intel && cpuid.CPU.VendorID != cpuid.AMD {
+			general.Infof("%s unsupported cpu arch: %s", IrqTuningLogPrefix, cpuInfo.CPUVendor)
+			return nil, nil
+		}
+		retErr = fmt.Errorf("machineInfo.CPUTopology.CPUInfo is nil")
+		return nil, retErr
+	}
+
 	if len(cpuInfo.Sockets) == 0 {
 		retErr = fmt.Errorf("invalid cpuinfo with 0 socket")
 		return nil, retErr

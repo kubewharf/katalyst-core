@@ -465,8 +465,10 @@ func GetCPUInfoWithTopo() (*CPUInfo, error) {
 		CPUOnline:  make(map[int64]bool),
 	}
 
+	// TODO: arm will be supported in the future
 	if cpuInfo.CPUVendor != cpuid.Intel && cpuInfo.CPUVendor != cpuid.AMD {
-		return nil, fmt.Errorf("unsupport cpu arch: %s", cpuInfo.CPUVendor)
+		general.Infof("unsupported cpu arch: %s", cpuInfo.CPUVendor)
+		return nil, nil
 	}
 
 	dirEnts, err := os.ReadDir(nodeSysDir)
