@@ -24,8 +24,9 @@ import (
 )
 
 var (
-	testJsonInfo1 = `{"sandboxID": "12345678", "pid": 1234}`
-	testJsonInfo2 = `{"pid: 2345"}` // no sandbox id field
+	testKataJsonInfo    = `{"sandboxID": "12345678", "pid": 1234, "runtimeType": "io.containerd.kata.v2"}`
+	testInvalidJsonInfo = `{"pid: 2345"}` // no sandbox id field
+	testNonKataJsonInfo = `{"sandboxID": "234567890", "pid": "2345", "runtimeType": "docker"}`
 )
 
 func Test_getCgroupRootPaths(t *testing.T) {
@@ -77,7 +78,7 @@ func TestPodFetcherImpl_getKataCgroupPathSuffix(t *testing.T) {
 				containerId: "invalidContainerId",
 				containerIdToInfo: map[string]map[string]string{
 					"container1234": {
-						"info": testJsonInfo1,
+						"info": testKataJsonInfo,
 					},
 				},
 			},
@@ -91,7 +92,7 @@ func TestPodFetcherImpl_getKataCgroupPathSuffix(t *testing.T) {
 				containerId: "container1234",
 				containerIdToInfo: map[string]map[string]string{
 					"container1234": {
-						"invalidField": testJsonInfo1,
+						"invalidField": testKataJsonInfo,
 					},
 				},
 			},
@@ -105,7 +106,21 @@ func TestPodFetcherImpl_getKataCgroupPathSuffix(t *testing.T) {
 				containerId: "container1234",
 				containerIdToInfo: map[string]map[string]string{
 					"container1234": {
-						"info": testJsonInfo2,
+						"info": testInvalidJsonInfo,
+					},
+				},
+			},
+			wantCgroupPathSuffix: "",
+			wantErr:              true,
+		},
+		{
+			name: "Not kata container",
+			fields: fields{
+				podUid:      "12345678",
+				containerId: "container1234",
+				containerIdToInfo: map[string]map[string]string{
+					"container1234": {
+						"info": testNonKataJsonInfo,
 					},
 				},
 			},
@@ -119,7 +134,7 @@ func TestPodFetcherImpl_getKataCgroupPathSuffix(t *testing.T) {
 				containerId: "container1234",
 				containerIdToInfo: map[string]map[string]string{
 					"container1234": {
-						"info": testJsonInfo1,
+						"info": testKataJsonInfo,
 					},
 				},
 			},

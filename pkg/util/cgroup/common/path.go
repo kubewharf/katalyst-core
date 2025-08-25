@@ -53,11 +53,11 @@ var k8sCgroupPathSettingOnce = sync.Once{}
 var (
 	absoluteCgroupPathHandlerLock sync.Mutex
 	absoluteCgroupPathHandlerMap  = map[string]AbsoluteCgroupPathHandler{
-		defaultCgroupPathHandlerName: GetContainerDefaultAbsCgroupPath,
+		defaultCgroupPathHandlerName: getContainerDefaultAbsCgroupPath,
 	}
 	relativeCgroupPathHandlerLock sync.Mutex
 	relativeCgroupPathHandlerMap  = map[string]RelativeCgroupPathHandler{
-		defaultCgroupPathHandlerName: GetContainerRelativeAbsCgroupPath,
+		defaultCgroupPathHandlerName: getContainerRelativeAbsCgroupPath,
 	}
 )
 
@@ -173,11 +173,11 @@ func GetPodAbsCgroupPath(subsys, podUID string) (string, error) {
 	return GetKubernetesAnyExistAbsCgroupPath(subsys, fmt.Sprintf("%s%s", PodCgroupPathPrefix, podUID))
 }
 
-func GetContainerDefaultAbsCgroupPath(subsys, podUID, containerId string) (string, error) {
+func getContainerDefaultAbsCgroupPath(subsys, podUID, containerId string) (string, error) {
 	return GetKubernetesAnyExistAbsCgroupPath(subsys, path.Join(fmt.Sprintf("%s%s", PodCgroupPathPrefix, podUID), containerId))
 }
 
-func GetContainerRelativeAbsCgroupPath(podUID, containerId string) (string, error) {
+func getContainerRelativeAbsCgroupPath(podUID, containerId string) (string, error) {
 	return GetKubernetesAnyExistRelativeCgroupPath(path.Join(fmt.Sprintf("%s%s", PodCgroupPathPrefix, podUID), containerId))
 }
 
