@@ -18,16 +18,13 @@ package strategy
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/metricthreshold"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/strategygroup"
+	"github.com/kubewharf/katalyst-core/pkg/util/threshold"
 )
-
-var ThresholdMin = 0.4
 
 func (p *NumaCPUPressureEviction) pullThresholds(_ context.Context) {
 	dynamicConf := p.conf.DynamicAgentConfiguration.GetDynamicConfiguration()
@@ -49,17 +46,15 @@ func (p *NumaCPUPressureEviction) pullThresholds(_ context.Context) {
 	}
 
 	numaPressureConfig := getNumaPressureConfig(dynamicConf)
-	cpuCodeName := helper.GetCpuCodeName(p.metaServer.MetricsFetcher)
-	isVM, _ := helper.GetIsVM(p.metaServer.MetricsFetcher)
 
-	thresholds := getOverLoadThreshold(dynamicConf.MetricThresholdConfiguration, cpuCodeName, isVM)
-	thresholds = convertThreshold(thresholds)
-	expandedThresholds := expandThresholds(thresholds, numaPressureConfig.ExpandFactor)
-	err = validateThresholds(thresholds)
-	if err != nil {
-		general.Warningf("%v", err.Error())
+	thresholds := threshold.GetMetricThresholds(targetMetrics, p.metaServer, dynamicConf.MetricThresholdConfiguration.Threshold)
+	if thresholds == nil {
+		general.Errorf("got no valid threshold")
 		return
 	}
+
+	thresholds = convertThreshold(thresholds)
+	expandedThresholds := threshold.ExpandThresholds(thresholds, numaPressureConfig.ExpandFactor)
 
 	// update
 	p.Lock()
@@ -73,36 +68,6 @@ func (p *NumaCPUPressureEviction) pullThresholds(_ context.Context) {
 		general.Infof("update metricsHistory ring size to %v", numaPressureConfig.MetricRingSize)
 		p.metricsHistory = NewMetricHistory(numaPressureConfig.MetricRingSize)
 	}
-}
-
-func expandThresholds(thresholds map[string]float64, expandFactor float64) map[string]float64 {
-	for key, val := range thresholds {
-		thresholds[key] = val * expandFactor
-	}
-	return thresholds
-}
-
-func validateThresholds(thresholds map[string]float64) error {
-	for key, val := range thresholds {
-		if val < ThresholdMin {
-			return fmt.Errorf("%v threshold %v is lower than threshold %v", key, val, ThresholdMin)
-		}
-	}
-	return nil
-}
-
-func getOverLoadThreshold(globalThresholds *metricthreshold.MetricThresholdConfiguration, cpuCode string, isVM bool) map[string]float64 {
-	modelThresholds, exists := globalThresholds.Threshold[cpuCode]
-	if !exists {
-		general.Warningf("no suitable threshold for cpuCode %v using default", isVM)
-		modelThresholds = globalThresholds.Threshold[metricthreshold.DefaultCPUCodeName]
-	}
-	threshold, exists := modelThresholds[isVM]
-	if !exists {
-		general.Warningf("no suitable threshold for cpuCode %v isVm %v, using default", cpuCode, isVM)
-		return modelThresholds[false]
-	}
-	return threshold
 }
 
 func convertThreshold(origin map[string]float64) map[string]float64 {

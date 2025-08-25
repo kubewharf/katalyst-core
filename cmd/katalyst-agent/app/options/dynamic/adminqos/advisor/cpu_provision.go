@@ -27,17 +27,24 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	workloadapi "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/advisor"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
 
 type CPUProvisionOptions struct {
-	AllowSharedCoresOverlapReclaimedCores bool
-	RegionIndicatorTargetOptions          map[string]string
+	AllowSharedCoresOverlapReclaimedCores       bool
+	RegionIndicatorTargetOptions                map[string]string
+	IndicatorTargetGetters                      map[string]string
+	IndicatorTargetDefaultGetter                string
+	IndicatorTargetMetricThresholdExpandFactors map[string]string
 }
 
 func NewCPUProvisionOptions() *CPUProvisionOptions {
 	return &CPUProvisionOptions{
-		AllowSharedCoresOverlapReclaimedCores: false,
-		RegionIndicatorTargetOptions:          map[string]string{},
+		AllowSharedCoresOverlapReclaimedCores:       false,
+		RegionIndicatorTargetOptions:                map[string]string{},
+		IndicatorTargetGetters:                      map[string]string{},
+		IndicatorTargetDefaultGetter:                string(consts.IndicatorTargetGetterSPDMin),
+		IndicatorTargetMetricThresholdExpandFactors: map[string]string{},
 	}
 }
 
@@ -64,6 +71,24 @@ func (o *CPUProvisionOptions) ApplyTo(c *advisor.CPUProvisionConfiguration) erro
 		}
 		c.RegionIndicatorTargetConfiguration[v1alpha1.QoSRegionType(regionType)] = regionIndicatorTarget
 	}
+	if o.IndicatorTargetGetters != nil && len(o.IndicatorTargetGetters) > 0 {
+		c.IndicatorTargetGetters = o.IndicatorTargetGetters
+	}
+	if o.IndicatorTargetDefaultGetter != "" {
+		c.IndicatorTargetDefaultGetter = o.IndicatorTargetDefaultGetter
+	}
+
+	if len(o.IndicatorTargetMetricThresholdExpandFactors) > 0 {
+		c.IndicatorTargetMetricThresholdExpandFactors = make(map[string]float64)
+		for indicatorName, expandFactor := range o.IndicatorTargetMetricThresholdExpandFactors {
+			factor, err := strconv.ParseFloat(expandFactor, 64)
+			if err != nil {
+				errList = append(errList, err)
+				continue
+			}
+			c.IndicatorTargetMetricThresholdExpandFactors[indicatorName] = factor
+		}
+	}
 
 	return errors.NewAggregate(errList)
 }
@@ -75,4 +100,10 @@ func (o *CPUProvisionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"set true to allow shared_cores overlap reclaimed_cores")
 	fs.StringToStringVar(&o.RegionIndicatorTargetOptions, "region-indicator-targets", o.RegionIndicatorTargetOptions,
 		"indicators targets for each region, in format like cpu_sched_wait=400/cpu_iowait_ratio=0.8")
+	fs.StringToStringVar(&o.IndicatorTargetGetters, "indicator-target-getters", o.IndicatorTargetGetters,
+		"indicators target getters funcs keyed by indicator name, in format like cpu_usage_ratio=spd-avg/cpu_sched_wait=spd-min")
+	fs.StringVar(&o.IndicatorTargetDefaultGetter, "indicator-target-default-getter", o.IndicatorTargetDefaultGetter,
+		"default indicator target getter func like spd-avg")
+	fs.StringToStringVar(&o.IndicatorTargetMetricThresholdExpandFactors, "indicator-target-metric-threshold-expand-factors", o.IndicatorTargetMetricThresholdExpandFactors,
+		"indicator target expand factor, in format like cpu_usage_ratio=1.1,cpi=1.2")
 }

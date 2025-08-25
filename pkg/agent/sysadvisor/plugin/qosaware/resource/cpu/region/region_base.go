@@ -37,17 +37,20 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/provisionpolicy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/regulator"
 	borweinctrl "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper/modelctrl/borwein"
-	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
-	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
-
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/metricthreshold"
+	coreconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
+	"github.com/kubewharf/katalyst-core/pkg/util/strategygroup"
+	"github.com/kubewharf/katalyst-core/pkg/util/threshold"
 )
 
 const (
@@ -56,6 +59,7 @@ const (
 	metricRegionHeadroom                   = "region_headroom"
 	metricCPUProvisionControlKnobRaw       = "cpu_provision_control_knob_raw"
 	metricCPUProvisionControlKnobRegulated = "cpu_provision_control_knob_regulated"
+	metricRegionIndicatorTargetRaw         = "region_indicator_target_raw"
 
 	metricTagKeyPolicyName        = "policy_name"
 	metricTagKeyRegionType        = "region_type"
@@ -64,6 +68,10 @@ const (
 	metricTagKeyControlKnobName   = "control_knob_name"
 	metricTagKeyControlKnobAction = "control_knob_action"
 )
+
+var IndicatorToMetricThreshold = map[string]string{
+	string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): metricthreshold.NUMACPUUsageRatioThreshold,
+}
 
 type internalPolicyState struct {
 	updateStatus types.PolicyUpdateStatus
@@ -155,6 +163,8 @@ func (r *provisionPolicyResult) getControlKnob() types.ControlKnob {
 	return controlKnob
 }
 
+type indicatorTargetGetter func(workloadv1alpha1.ServiceSystemIndicatorName, float64) float64
+
 type QoSRegionBase struct {
 	sync.Mutex
 	conf *config.Configuration
@@ -175,6 +185,8 @@ type QoSRegionBase struct {
 	containerTopologyAwareAssignment types.TopologyAwareAssignment
 	// indicatorCurrentGetters stores metrics getters for indicators interested in
 	indicatorCurrentGetters map[string]types.IndicatorCurrentGetter
+	// indicatorCurrentGetters stores getters for indicators target interested in
+	indicatorTargetGetters map[string]indicatorTargetGetter
 
 	// provisionPolicies for comparing and merging different provision policy results,
 	// the former has higher priority; provisionPolicyNameInUse indicates the provision
@@ -269,6 +281,12 @@ func NewQoSRegionBase(name string, ownerPoolName string, regionType v1alpha1.QoS
 		r.borweinController = borweinctrl.NewBorweinController(name, regionType, ownerPoolName, conf, metaReader, emitter)
 	}
 	r.enableReclaim = r.EnableReclaimFunc
+
+	r.indicatorTargetGetters = map[string]indicatorTargetGetter{
+		string(pkgconsts.IndicatorTargetGetterMetricThreshold): r.getMetricThreshold,
+		string(pkgconsts.IndicatorTargetGetterSPDMin):          r.getMinSPDTarget,
+		string(pkgconsts.IndicatorTargetGetterSPDAvg):          r.getAvgSPDTarget,
+	}
 
 	klog.Infof("[qosaware-cpu] created region [%v/%v/%v]", r.Name(), r.Type(), r.OwnerPoolName())
 
@@ -729,7 +747,6 @@ func (r *QoSRegionBase) regulateProvisionControlKnob(originControlKnob map[types
 
 // getIndicators returns indicator targets from spd and current by region specific indicator getters
 func (r *QoSRegionBase) getIndicators() (types.Indicator, error) {
-	ctx := context.Background()
 	indicatorTargetConfig, ok := r.conf.GetDynamicConfiguration().RegionIndicatorTargetConfiguration[r.regionType]
 	if !ok {
 		return nil, fmt.Errorf("get %v indicators failed", r.regionType)
@@ -752,41 +769,24 @@ func (r *QoSRegionBase) getIndicators() (types.Indicator, error) {
 			return nil, err
 		}
 
-		target := defaultTarget
-		if len(r.podSet) > 0 {
-			minTarget := math.MaxFloat64
-			sumTarget := 0.0
-			for podUID := range r.podSet {
-				indicatorTarget, err := r.getPodIndicatorTarget(ctx, podUID, string(indicatorName), defaultTarget)
-				if err != nil || indicatorTarget == nil {
-					indicatorTarget = &defaultTarget
-					general.Warningf("use default indicator target[%v],because of failed to get indicator %s of poduid[%s] err: %v",
-						defaultTarget, indicatorName, podUID, err)
-				}
-				sumTarget = sumTarget + *indicatorTarget
-				minTarget = math.Min(minTarget, *indicatorTarget)
-			}
-			avgTarget := sumTarget / float64(len(r.podSet))
-			switch indicatorName {
-			case workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio:
-				// get avg target for cpu_usage_ratio
-				target = avgTarget
-			default:
-				// get min target by default
-				target = minTarget
-			}
-		}
+		target := r.getIndicatorTarget(indicatorName, defaultTarget)
+
 		indicatorValue := types.IndicatorValue{
 			Current: current,
 			Target:  target,
 		}
-
 		if indicatorValue.Target <= 0 || indicatorValue.Current <= 0 {
 			klog.ErrorS(nil, "invalid indicator", "indicatorName", indicatorName, "indicatorValue", indicatorValue)
 			continue
 		}
 
 		indicators[string(indicatorName)] = indicatorValue
+
+		_ = r.emitter.StoreFloat64(metricRegionIndicatorTargetRaw, target,
+			metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
+				"indicator_name": string(indicatorName),
+				"binding_numas":  r.bindingNumas.String(),
+			})...)
 	}
 	if r.conf.PolicyRama.EnableBorwein && r.provisionPolicyNameInUse == types.CPUProvisionPolicyRama {
 		general.Infof("try to update indicators by borwein model")
@@ -1011,4 +1011,98 @@ func (r *QoSRegionBase) restrictProvisionControlKnob(originControlKnob map[types
 		}
 	}
 	return restrictedControlKnob
+}
+
+func (r *QoSRegionBase) expandTarget(target float64, indicatorName workloadv1alpha1.ServiceSystemIndicatorName) float64 {
+	expandFactors := r.conf.GetDynamicConfiguration().IndicatorTargetMetricThresholdExpandFactors
+	factor, ok := expandFactors[string(indicatorName)]
+	if !ok {
+		return target
+	}
+	return target * factor
+}
+
+func (r *QoSRegionBase) getIndicatorTarget(indicatorName workloadv1alpha1.ServiceSystemIndicatorName, defaultTarget float64) float64 {
+	getter, getterName := r.fetchGetter(indicatorName)
+	target := getter(indicatorName, defaultTarget)
+	general.Infof("get indicator %v target %.3f by %v", indicatorName, target, getterName)
+	return target
+}
+
+func (r *QoSRegionBase) fetchGetter(indicatorName workloadv1alpha1.ServiceSystemIndicatorName) (indicatorTargetGetter, string) {
+	defaultGetterName := r.conf.GetDynamicConfiguration().IndicatorTargetDefaultGetter
+	getterName, ok := r.conf.GetDynamicConfiguration().IndicatorTargetGetters[string(indicatorName)]
+	// if not specified, use default
+	if !ok || getterName == "" {
+		getterName = defaultGetterName
+	}
+	if indicatorName == workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio {
+		overrideGetterName, err := strategygroup.StrategyPolicyOverrideForNode(
+			map[string]string{coreconsts.StrategyNameMetricThreshold: string(pkgconsts.IndicatorTargetGetterMetricThreshold)},
+			getterName, r.conf)
+		if err != nil {
+			general.Warningf("failed to get strategy policy override for node, err: %v", err)
+		}
+		getterName = overrideGetterName
+	}
+	getter, ok := r.indicatorTargetGetters[getterName]
+	if !ok {
+		getter = r.indicatorTargetGetters[defaultGetterName]
+		getterName = defaultGetterName
+	}
+
+	return getter, getterName
+}
+
+func (r *QoSRegionBase) getMetricThreshold(indicatorName workloadv1alpha1.ServiceSystemIndicatorName, defaultTarget float64) float64 {
+	thresholdMetricName := IndicatorToMetricThreshold[string(indicatorName)]
+	if thresholdMetricName == "" {
+		general.Errorf("got empty indicator threshold for %v", indicatorName)
+		return defaultTarget
+	}
+
+	thresholdVal := threshold.GetMetricThreshold(thresholdMetricName, r.metaServer,
+		r.conf.GetDynamicConfiguration().MetricThresholdConfiguration.Threshold)
+
+	if thresholdVal == nil {
+		general.Errorf("got no valid threshold for %v, fallback to default %v", thresholdMetricName, defaultTarget)
+		return defaultTarget
+	}
+
+	return r.expandTarget(*thresholdVal, indicatorName)
+}
+
+func (r *QoSRegionBase) getMinSPDTarget(indicatorName workloadv1alpha1.ServiceSystemIndicatorName, defaultTarget float64) float64 {
+	if len(r.podSet) == 0 {
+		return defaultTarget
+	}
+	minTarget := math.MaxFloat64
+	for podUID := range r.podSet {
+		indicatorTarget, err := r.getPodIndicatorTarget(context.Background(), podUID, string(indicatorName), defaultTarget)
+		if err != nil || indicatorTarget == nil {
+			indicatorTarget = &defaultTarget
+			general.Warningf("use default indicator target[%v],because of failed to get indicator %s of poduid[%s] err: %v",
+				defaultTarget, indicatorName, podUID, err)
+		}
+		minTarget = math.Min(minTarget, *indicatorTarget)
+	}
+	return minTarget
+}
+
+func (r *QoSRegionBase) getAvgSPDTarget(indicatorName workloadv1alpha1.ServiceSystemIndicatorName, defaultTarget float64) float64 {
+	if len(r.podSet) == 0 {
+		return defaultTarget
+	}
+	sumTarget := 0.0
+	for podUID := range r.podSet {
+		indicatorTarget, err := r.getPodIndicatorTarget(context.Background(), podUID, string(indicatorName), defaultTarget)
+		if err != nil || indicatorTarget == nil {
+			indicatorTarget = &defaultTarget
+			general.Warningf("use default indicator target[%v],because of failed to get indicator %s of poduid[%s] err: %v",
+				defaultTarget, indicatorName, podUID, err)
+		}
+		sumTarget = sumTarget + *indicatorTarget
+	}
+	avgTarget := sumTarget / float64(len(r.podSet))
+	return avgTarget
 }

@@ -53,6 +53,10 @@ func NewNPDFetcher(clientSet *client.GenericClientSet,
 	}
 }
 
+func NewDummyNPDFetcher() *DummyNPDFetcher {
+	return &DummyNPDFetcher{}
+}
+
 func (f *npdFetcher) GetNPD(ctx context.Context) (*v1alpha1.NodeProfileDescriptor, error) {
 	npd := &v1alpha1.NodeProfileDescriptor{}
 	if err := f.configLoader.LoadConfig(ctx, util.NPDGVR, npd); err != nil {

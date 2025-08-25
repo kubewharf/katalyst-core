@@ -20,11 +20,15 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	workloadv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
 
 type CPUProvisionConfiguration struct {
-	AllowSharedCoresOverlapReclaimedCores bool
-	RegionIndicatorTargetConfiguration    map[v1alpha1.QoSRegionType][]v1alpha1.IndicatorTargetConfiguration
+	AllowSharedCoresOverlapReclaimedCores       bool
+	RegionIndicatorTargetConfiguration          map[v1alpha1.QoSRegionType][]v1alpha1.IndicatorTargetConfiguration
+	IndicatorTargetGetters                      map[string]string
+	IndicatorTargetDefaultGetter                string
+	IndicatorTargetMetricThresholdExpandFactors map[string]float64
 }
 
 func NewCPUProvisionConfiguration() *CPUProvisionConfiguration {
@@ -51,6 +55,13 @@ func NewCPUProvisionConfiguration() *CPUProvisionConfiguration {
 					Target: 0.55,
 				},
 			},
+		},
+		IndicatorTargetGetters: map[string]string{
+			string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): string(consts.IndicatorTargetGetterSPDAvg),
+		},
+		IndicatorTargetDefaultGetter: string(consts.IndicatorTargetGetterSPDMin),
+		IndicatorTargetMetricThresholdExpandFactors: map[string]float64{
+			string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): 1,
 		},
 	}
 }

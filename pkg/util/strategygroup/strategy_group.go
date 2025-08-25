@@ -117,6 +117,32 @@ func GetSpecificStrategyParam(strategyName string, defaultEnable bool, conf *con
 	return "", false, nil
 }
 
+func StrategyPolicyOverrideForNode(strategyPolicyMap map[string]string, defaultPolicy string, conf *config.Configuration) (string, error) {
+	strategyGroup, err := validateConf(conf)
+	if err != nil {
+		return defaultPolicy, fmt.Errorf("invalid conf: %v", err)
+	}
+
+	for _, strategy := range strategyPolicyMap {
+		if !isStrategyGroupEnabled(strategyGroup, strategy) {
+			return defaultPolicy, nil
+		}
+	}
+
+	for _, strategy := range strategyGroup.EnabledStrategies {
+		if strategy.Name == nil {
+			continue
+		}
+
+		override, ok := strategyPolicyMap[*strategy.Name]
+		if ok {
+			return override, nil
+		}
+	}
+
+	return defaultPolicy, nil
+}
+
 func isStrategyGroupEnabled(strategyGroup *strategygroup.StrategyGroupConfiguration, strategyName string) bool {
 	return strategyGroup.EnableStrategyGroup || mandatoryEnabledStrategies.Has(strategyName)
 }
