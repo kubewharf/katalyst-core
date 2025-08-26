@@ -171,7 +171,7 @@ func PodIsReady(pod *v1.Pod) bool {
 
 // PodIsActive returns whether the pod is not terminated.
 func PodIsActive(pod *v1.Pod) bool {
-	return !PodIsTerminated(pod)
+	return !PodIsTerminated(pod) && !PodIsPending(pod)
 }
 
 // PodIsPending returns whether the pod is pending.
