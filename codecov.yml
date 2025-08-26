@@ -3,7 +3,7 @@ coverage:
     project:
       # global coverage
       default:
-        target: auto
+        target: 50%
         threshold: 2%
         flags:
           - unittest

@@ -510,7 +510,7 @@ func (p *StaticPolicy) GetTopologyAwareResources(_ context.Context,
 	identifier := allocationInfo.Identifier
 	if identifier == "" {
 		// backup to use ifName and interfaceInfo.NSName as identifier
-		identifier = getResourceIdentifier(interfaceInfo.NSName, interfaceInfo.Iface)
+		identifier = getResourceIdentifier(interfaceInfo.NSName, interfaceInfo.Name)
 	}
 
 	topologyAwareQuantityList := []*pluginapi.TopologyAwareQuantity{
@@ -577,9 +577,9 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 	var aggregatedAllocatableQuantity, aggregatedCapacityQuantity uint32 = 0, 0
 	topologyAwareAllocatableQuantityFunc := func(nics []machine.InterfaceInfo, health bool) error {
 		for _, iface := range nics {
-			nicState := machineState[iface.Iface]
+			nicState := machineState[iface.Name]
 			if nicState == nil {
-				return fmt.Errorf("nil nicState for NIC: %s", iface.Iface)
+				return fmt.Errorf("nil nicState for NIC: %s", iface.Name)
 			}
 
 			topologyNode, err := p.getSocketIDByNIC(iface)
@@ -588,7 +588,7 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 			}
 
 			var allocatable uint32
-			resourceIdentifier := getResourceIdentifier(iface.NSName, iface.Iface)
+			resourceIdentifier := getResourceIdentifier(iface.NSName, iface.Name)
 			if health {
 				allocatable = general.MinUInt32(nicState.EgressState.Allocatable, nicState.IngressState.Allocatable)
 			}
@@ -596,7 +596,7 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 			topologyAwareAllocatableQuantityList = append(topologyAwareAllocatableQuantityList, &pluginapi.TopologyAwareQuantity{
 				ResourceValue: float64(allocatable),
 				Node:          uint64(topologyNode),
-				Name:          iface.Iface,
+				Name:          iface.Name,
 				Type:          string(apinode.TopologyTypeNIC),
 				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 				Annotations: map[string]string{
@@ -607,7 +607,7 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 			topologyAwareCapacityQuantityList = append(topologyAwareCapacityQuantityList, &pluginapi.TopologyAwareQuantity{
 				ResourceValue: float64(capacity),
 				Node:          uint64(topologyNode),
-				Name:          iface.Iface,
+				Name:          iface.Name,
 				Type:          string(apinode.TopologyTypeNIC),
 				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 				Annotations: map[string]string{
@@ -817,11 +817,11 @@ func (p *StaticPolicy) Allocate(ctx context.Context,
 	// we only support one policy and hard code it for now
 	// TODO: make the policy configurable
 	selectedNIC := selectOneNIC(candidateNICs, RandomOne)
-	general.Infof("select NIC %s to allocate bandwidth (%dMbps)", selectedNIC.Iface, reqInt)
+	general.Infof("select NIC %s to allocate bandwidth (%dMbps)", selectedNIC.Name, reqInt)
 
 	allocateNUMAs, err := machine.GetNICAllocateNUMAs(selectedNIC, p.agentCtx.KatalystMachineInfo)
 	if err != nil {
-		general.Errorf("get allocateNUMAs for nic: %s failed with error: %v. Incorrect NumaNodes in machineState allocationInfo", selectedNIC.Iface, err)
+		general.Errorf("get allocateNUMAs for nic: %s failed with error: %v. Incorrect NumaNodes in machineState allocationInfo", selectedNIC.Name, err)
 	}
 
 	// generate allocationInfo and update the checkpoint accordingly
@@ -830,9 +830,9 @@ func (p *StaticPolicy) Allocate(ctx context.Context,
 			commonstate.EmptyOwnerPoolName, qosLevel),
 		Egress:     uint32(reqInt),
 		Ingress:    uint32(reqInt),
-		Identifier: getResourceIdentifier(selectedNIC.NSName, selectedNIC.Iface),
+		Identifier: getResourceIdentifier(selectedNIC.NSName, selectedNIC.Name),
 		NSName:     selectedNIC.NSName,
-		IfName:     selectedNIC.Iface,
+		IfName:     selectedNIC.Name,
 		NumaNodes:  allocateNUMAs,
 		NetClassID: fmt.Sprintf("%d", netClassID),
 	}
@@ -1008,7 +1008,7 @@ func (p *StaticPolicy) filterAvailableNICsByBandwidth(nics []machine.InterfaceIn
 
 	// filter NICs by available bandwidth
 	for _, iface := range nics {
-		if machineState[iface.Iface].EgressState.Free >= uint32(reqInt) && machineState[iface.Iface].IngressState.Free >= uint32(reqInt) {
+		if machineState[iface.Name].EgressState.Free >= uint32(reqInt) && machineState[iface.Name].IngressState.Free >= uint32(reqInt) {
 			filteredNICs = append(filteredNICs, iface)
 		}
 	}
@@ -1057,12 +1057,12 @@ func (p *StaticPolicy) calculateHints(req *pluginapi.ResourceRequest) (map[strin
 	for _, nic := range candidateNICs {
 		allocateNUMAs, err := machine.GetNICAllocateNUMAs(nic, p.agentCtx.KatalystMachineInfo)
 		if err != nil {
-			return nil, fmt.Errorf("get allocateNUMAs for nic: %s failed with error: %v", nic.Iface, err)
+			return nil, fmt.Errorf("get allocateNUMAs for nic: %s failed with error: %v", nic.Name, err)
 		}
 
 		nicPreference, err := checkNICPreferenceOfReq(nic, req.Annotations)
 		if err != nil {
-			return nil, fmt.Errorf("checkNICPreferenceOfReq for nic: %s failed with error: %v", nic.Iface, err)
+			return nil, fmt.Errorf("checkNICPreferenceOfReq for nic: %s failed with error: %v", nic.Name, err)
 		}
 
 		siblingNUMAsStr := allocateNUMAs.String()
@@ -1077,7 +1077,7 @@ func (p *StaticPolicy) calculateHints(req *pluginapi.ResourceRequest) (map[strin
 				"podNamespace", req.PodNamespace,
 				"podName", req.PodName,
 				"containerName", req.ContainerName,
-				"nic", nic.Iface)
+				"nic", nic.Name)
 			numasToHintMap[siblingNUMAsStr].Preferred = nicPreference
 		}
 	}
@@ -1153,7 +1153,7 @@ func (p *StaticPolicy) getResourceAllocationAnnotations(
 	resourceAllocationAnnotations := map[string]string{
 		p.ipv4ResourceAllocationAnnotationKey:             strings.Join(selectedNIC.Addr.GetNICIPs(machine.IPVersionV4), IPsSeparator),
 		p.ipv6ResourceAllocationAnnotationKey:             strings.Join(selectedNIC.Addr.GetNICIPs(machine.IPVersionV6), IPsSeparator),
-		p.netInterfaceNameResourceAllocationAnnotationKey: selectedNIC.Iface,
+		p.netInterfaceNameResourceAllocationAnnotationKey: selectedNIC.Name,
 		p.netClassIDResourceAllocationAnnotationKey:       fmt.Sprintf("%d", netClsID),
 	}
 
@@ -1162,8 +1162,8 @@ func (p *StaticPolicy) getResourceAllocationAnnotations(
 		resourceAllocationAnnotations[p.netBandwidthResourceAllocationAnnotationKey] = strconv.Itoa(int(allocation.Egress))
 	}
 
-	if len(selectedNIC.NSAbsolutePath) > 0 {
-		resourceAllocationAnnotations[p.netNSPathResourceAllocationAnnotationKey] = selectedNIC.NSAbsolutePath
+	if len(selectedNIC.NSName) > 0 {
+		resourceAllocationAnnotations[p.netNSPathResourceAllocationAnnotationKey] = selectedNIC.NetNSInfo.GetNetNSAbsPath()
 	}
 
 	return resourceAllocationAnnotations, nil
@@ -1240,7 +1240,7 @@ func (p *StaticPolicy) getNetClassIDByQoSLevel(qosLevel string) (uint32, error) 
 
 func (p *StaticPolicy) getNICByName(nics []machine.InterfaceInfo, ifName string) machine.InterfaceInfo {
 	for idx := range nics {
-		if nics[idx].Iface == ifName {
+		if nics[idx].Name == ifName {
 			return nics[idx]
 		}
 	}
@@ -1253,7 +1253,7 @@ func (p *StaticPolicy) getSocketIDByNIC(nic machine.InterfaceInfo) (int, error) 
 	socketIDs, ok := p.agentCtx.IfIndex2Sockets[nic.IfIndex]
 	if !ok {
 		return -1, fmt.Errorf("failed to find the associated socket ID for the specified NIC %s - numanode: %d, ifIndex: %d, ifIndex2Sockets: %v",
-			nic.Iface, nic.NumaNode, nic.IfIndex, p.agentCtx.IfIndex2Sockets)
+			nic.Name, nic.NumaNode, nic.IfIndex, p.agentCtx.IfIndex2Sockets)
 	}
 
 	return socketIDs[0], nil

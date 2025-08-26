@@ -52,6 +52,10 @@ func (f *LogBasedAuditSink) GetHandler() eventbus.ConsumeFunc {
 			general.Infof("[audit log] cgroup event: %+v", e)
 		case eventbus.SyscallEvent:
 			general.Infof("[audit log] syscall event: %+v", e)
+		case eventbus.RawProcfsEvent:
+			general.Infof("[audit log] procfs event: %+v", e)
+		case eventbus.RawSysfsEvent:
+			general.Infof("[audit log] sysfs event: %+v", e)
 		default:
 			general.Warningf("unsupported event type:%v", reflect.TypeOf(event))
 		}

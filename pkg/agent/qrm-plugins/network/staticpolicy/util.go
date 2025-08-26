@@ -66,7 +66,7 @@ func checkNICPreferenceOfReq(nic machine.InterfaceInfo, reqAnnotations map[strin
 			return true, nil
 		} else {
 			return false, fmt.Errorf("checkNICPreferenceOfReq got invalid nic: %s with %s: %s, NSName: %s",
-				nic.Iface, consts.PodAnnotationNetworkEnhancementNamespaceType,
+				nic.Name, consts.PodAnnotationNetworkEnhancementNamespaceType,
 				consts.PodAnnotationNetworkEnhancementNamespaceTypeHost, nic.NSName)
 		}
 	case consts.PodAnnotationNetworkEnhancementNamespaceTypeHostPrefer:
@@ -80,7 +80,7 @@ func checkNICPreferenceOfReq(nic machine.InterfaceInfo, reqAnnotations map[strin
 			return true, nil
 		} else {
 			return false, fmt.Errorf("checkNICPreferenceOfReq got invalid nic: %s with %s: %s, NSName: %s",
-				nic.Iface, consts.PodAnnotationNetworkEnhancementNamespaceType,
+				nic.Name, consts.PodAnnotationNetworkEnhancementNamespaceType,
 				consts.PodAnnotationNetworkEnhancementNamespaceTypeHost, nic.NSName)
 		}
 	case consts.PodAnnotationNetworkEnhancementNamespaceTypeNotHostPrefer:
@@ -134,7 +134,7 @@ func filterNICsByNamespaceType(nics []machine.InterfaceInfo, req *pluginapi.Reso
 
 		if filterOut {
 			general.Infof("filter out nic: %s mismatching with enhancement %s: %s",
-				nic.Iface, consts.PodAnnotationNetworkEnhancementNamespaceType, consts.PodAnnotationNetworkEnhancementNamespaceTypeHost)
+				nic.Name, consts.PodAnnotationNetworkEnhancementNamespaceType, consts.PodAnnotationNetworkEnhancementNamespaceTypeHost)
 		}
 	}
 
@@ -170,7 +170,7 @@ func filterNICsByHint(nics []machine.InterfaceInfo, req *pluginapi.ResourceReque
 	for i, nic := range nics {
 		allocateNUMAs, err := machine.GetNICAllocateNUMAs(nic, agentCtx.KatalystMachineInfo)
 		if err != nil {
-			general.Errorf("get allocateNUMAs for nic: %s failed with error: %v, filter out it", nic.Iface, err)
+			general.Errorf("get allocateNUMAs for nic: %s failed with error: %v, filter out it", nic.Name, err)
 			continue
 		}
 
@@ -180,7 +180,7 @@ func filterNICsByHint(nics []machine.InterfaceInfo, req *pluginapi.ResourceReque
 					"podNamespace", req.PodNamespace,
 					"podName", req.PodName,
 					"containerName", req.ContainerName,
-					"nic", nic.Iface,
+					"nic", nic.Name,
 					"allocateNUMAs", allocateNUMAs.String(),
 					"hintNUMASet", hintNUMASet.String())
 				exactlyMatchNIC = &nics[i]
@@ -190,7 +190,7 @@ func filterNICsByHint(nics []machine.InterfaceInfo, req *pluginapi.ResourceReque
 				"podNamespace", req.PodNamespace,
 				"podName", req.PodName,
 				"containerName", req.ContainerName,
-				"nic", nic.Iface,
+				"nic", nic.Name,
 				"allocateNUMAs", allocateNUMAs.String(),
 				"hintNUMASet", hintNUMASet.String())
 			hintMatchedNICs = append(hintMatchedNICs, nic)
@@ -282,10 +282,10 @@ func getReservedBandwidth(nics []machine.InterfaceInfo, reservation uint32, poli
 
 	switch policy {
 	case FirstNIC:
-		reservedBandwidth[nics[0].Iface] = reservation
+		reservedBandwidth[nics[0].Name] = reservation
 	case EvenDistribution:
 		for _, iface := range nics {
-			reservedBandwidth[iface.Iface] = reservation / uint32(nicCount)
+			reservedBandwidth[iface.Name] = reservation / uint32(nicCount)
 		}
 	default:
 		return nil, fmt.Errorf("unsupported network bandwidth reservation policy: %s", policy)

@@ -17,6 +17,7 @@ limitations under the License.
 package general
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -292,4 +293,85 @@ func LoadJsonConfig(configAbsPath string, configObject interface{}) error {
 	}
 
 	return nil
+}
+
+func ReadLines(file string) ([]string, error) {
+	f, err := os.OpenFile(file, os.O_RDONLY, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	lines := make([]string, 0)
+	scanner := bufio.NewScanner(f)
+
+	maxCapacity := 1024 * 1024
+	buf := make([]byte, maxCapacity)
+	scanner.Buffer(buf, maxCapacity)
+
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return lines, nil
+}
+
+func ReadInt64FromFile(file string) (int64, error) {
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return -1, fmt.Errorf("failed to read(%s), err %v", file, err)
+	}
+
+	s := strings.TrimSpace(strings.TrimRight(string(b), "\n"))
+
+	val, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return -1, fmt.Errorf("failed to ParseInt(%s), err %v", s, err)
+	}
+	return val, nil
+}
+
+func ReadUint64FromFile(file string) (uint64, error) {
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read(%s), err %v", file, err)
+	}
+
+	s := strings.TrimSpace(strings.TrimRight(string(b), "\n"))
+
+	val, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("failed to ParseInt(%s), err %v", s, err)
+	}
+	return val, nil
+}
+
+func GetFileInode(file string) (uint64, error) {
+	fileInfo, err := os.Stat(file)
+	if err != nil {
+		return 0, fmt.Errorf("failed to stat(%s), err %v", file, err)
+	}
+
+	// Type assertion to get syscall.Stat_t which contains inode information
+	stat, ok := fileInfo.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 0, fmt.Errorf("unable to get inode information for %s", file)
+	}
+
+	return stat.Ino, nil
+}
+
+func ParseLinuxListFormatFromFile(filePath string) ([]int64, error) {
+	b, err := ioutil.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to ReadFile %s, err %s", filePath, err)
+	}
+
+	s := strings.TrimSpace(strings.TrimRight(string(b), "\n"))
+	if len(s) == 0 {
+		return nil, nil
+	}
+	return ParseLinuxListFormat(s)
 }

@@ -51,6 +51,12 @@ func TestAuditManager_Run(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		err := bus.Publish(consts.TopicNameApplyCGroup, eventbus.RawCGroupEvent{})
 		assert.NoError(t, err)
+		err = bus.Publish(consts.TopicNameApplyProcFS, eventbus.RawCGroupEvent{})
+		assert.NoError(t, err)
+		err = bus.Publish(consts.TopicNameApplySysFS, eventbus.RawCGroupEvent{})
+		assert.NoError(t, err)
+		err = bus.Publish(consts.TopicNameSyscall, eventbus.RawCGroupEvent{})
+		assert.NoError(t, err)
 	}
 
 	time.Sleep(300 * time.Millisecond)

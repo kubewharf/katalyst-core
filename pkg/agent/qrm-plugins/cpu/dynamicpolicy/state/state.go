@@ -238,7 +238,7 @@ func (pe PodEntries) GetCPUSetForPool(poolName string) (machine.CPUSet, error) {
 	}
 
 	if !pe[poolName].IsPoolEntry() {
-		return machine.NewCPUSet(), fmt.Errorf("pool not found")
+		return machine.NewCPUSet(), fmt.Errorf(commonstate.PoolNotFoundErrMsg)
 	}
 	return pe[poolName][commonstate.FakedContainerName].AllocationResult.Clone(), nil
 }

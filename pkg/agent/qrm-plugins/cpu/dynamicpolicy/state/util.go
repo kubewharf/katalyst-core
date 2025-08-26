@@ -19,6 +19,7 @@ package state
 import (
 	"fmt"
 	"math"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
@@ -42,8 +43,30 @@ var (
 	// and they are usually used to ensure stability.
 	ResidentPools = sets.NewString(
 		commonstate.PoolNameReclaim,
-	).Union(StaticPools)
+	).Union(StaticPools).Union(ForbiddenPools)
+
+	// ForbiddenPools forbidden from being allocated to user containers and
+	// is mainly used to perform specific tasks
+	ForbiddenPools = sets.NewString(
+		commonstate.PoolNameInterrupt,
+	)
 )
+
+// GetUnitedPoolsCPUs returns the union of the specified pools' cpus.
+func GetUnitedPoolsCPUs(poolsName sets.String, entries PodEntries) (machine.CPUSet, error) {
+	unitedPoolsCPUs := machine.NewCPUSet()
+	for _, poolName := range poolsName.List() {
+		cpus, err := entries.GetCPUSetForPool(poolName)
+		if err != nil && !strings.Contains(err.Error(), commonstate.PoolNotFoundErrMsg) {
+			return unitedPoolsCPUs, err
+		} else {
+			general.Warningf("the current pool %s does not exist", poolName)
+		}
+
+		unitedPoolsCPUs = unitedPoolsCPUs.Union(cpus)
+	}
+	return unitedPoolsCPUs, nil
+}
 
 // WrapAllocationMetaFilter takes a filter function that operates on
 // AllocationMeta and returns a wrapper function that applies the same filter
