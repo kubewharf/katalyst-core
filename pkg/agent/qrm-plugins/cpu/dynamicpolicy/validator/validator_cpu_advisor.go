@@ -98,6 +98,7 @@ func (c *CPUAdvisorValidator) Validate(resp *advisorapi.ListAndWatchResponse) er
 	for _, validator := range []cpuAdvisorValidationFunc{
 		c.validateEntries,
 		c.validateStaticPools,
+		c.validateForbiddenPools,
 		c.validateBlocks,
 	} {
 		errList = append(errList, validator(resp))
@@ -226,6 +227,26 @@ func (c *CPUAdvisorValidator) validateStaticPools(resp *advisorapi.ListAndWatchR
 		if calculationQuantity != allocationInfo.AllocationResult.Size() {
 			return fmt.Errorf("static pool: %s calculation result: %d and allocation result: %d mismatch",
 				poolName, calculationQuantity, allocationInfo.AllocationResult.Size())
+		}
+	}
+	return nil
+}
+
+func (c *CPUAdvisorValidator) validateForbiddenPools(resp *advisorapi.ListAndWatchResponse) error {
+	entries := c.state.GetPodEntries()
+
+	for _, poolName := range state.ForbiddenPools.List() {
+		var nilStateEntry, nilRespEntry bool
+		if entries[poolName] == nil || entries[poolName][commonstate.FakedContainerName] == nil {
+			nilStateEntry = true
+		}
+		if resp.Entries[poolName] == nil || resp.Entries[poolName].Entries[commonstate.FakedContainerName] == nil {
+			nilRespEntry = true
+		}
+
+		if nilStateEntry != nilRespEntry {
+			return fmt.Errorf("pool: %s nilStateEntry: %v and nilRespEntry: %v mismatch",
+				poolName, nilStateEntry, nilRespEntry)
 		}
 	}
 	return nil

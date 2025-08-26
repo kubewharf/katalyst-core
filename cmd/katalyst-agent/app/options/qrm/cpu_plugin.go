@@ -23,6 +23,7 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/qrm/hintoptimizer"
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/qrm/irqtuner"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 )
@@ -47,6 +48,7 @@ type CPUDynamicPolicyOptions struct {
 	CPUNUMAHintPreferLowThreshold             float64
 	SharedCoresNUMABindingResultAnnotationKey string
 	EnableReserveCPUReversely                 bool
+	*irqtuner.IRQTunerOptions
 	*hintoptimizer.HintOptimizerOptions
 }
 
@@ -74,6 +76,7 @@ func NewCPUOptions() *CPUOptions {
 			},
 			SharedCoresNUMABindingResultAnnotationKey: consts.PodAnnotationNUMABindResultKey,
 			HintOptimizerOptions:                      hintoptimizer.NewHintOptimizerOptions(),
+			IRQTunerOptions:                           irqtuner.NewIRQTunerOptions(),
 		},
 		CPUNativePolicyOptions: CPUNativePolicyOptions{
 			EnableFullPhysicalCPUsOnly: false,
@@ -117,6 +120,7 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.EnableReserveCPUReversely, "by default, the reservation of cpu starts from the cpu with lower id,"+
 			"if set to true, it starts from the cpu with higher id")
 	o.HintOptimizerOptions.AddFlags(fss)
+	o.IRQTunerOptions.AddFlags(fss)
 }
 
 func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
@@ -134,6 +138,9 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 	conf.SharedCoresNUMABindingResultAnnotationKey = o.SharedCoresNUMABindingResultAnnotationKey
 	conf.EnableReserveCPUReversely = o.EnableReserveCPUReversely
 	if err := o.HintOptimizerOptions.ApplyTo(conf.HintOptimizerConfiguration); err != nil {
+		return err
+	}
+	if err := o.IRQTunerOptions.ApplyTo(conf.IRQTunerConfiguration); err != nil {
 		return err
 	}
 	return nil

@@ -1,0 +1,160 @@
+/*
+Copyright 2022 The Katalyst Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package manager
+
+import (
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+
+	"github.com/prometheus/procfs"
+	"k8s.io/klog/v2"
+)
+
+// GetCPUInfo returns the CPUInfo of the host.
+func GetCPUInfo() ([]procfs.CPUInfo, error) {
+	return GetProcFSManager().GetCPUInfo()
+}
+
+// GetProcStat returns the Stat of the host.
+func GetProcStat() (procfs.Stat, error) {
+	return GetProcFSManager().GetProcStat()
+}
+
+// GetPidComm returns the comm of the given pid.
+func GetPidComm(pid int) (string, error) {
+	return GetProcFSManager().GetPidComm(pid)
+}
+
+// GetPidCmdline returns the cmdline of the given pid.
+func GetPidCmdline(pid int) ([]string, error) {
+	return GetProcFSManager().GetPidCmdline(pid)
+}
+
+// GetPidCgroups returns the cgroups of the given pid.
+func GetPidCgroups(pid int) ([]procfs.Cgroup, error) {
+	return GetProcFSManager().GetPidCgroups(pid)
+}
+
+// GetMounts returns the mounts of the host.
+func GetMounts() ([]*procfs.MountInfo, error) {
+	return GetProcFSManager().GetMounts()
+}
+
+// GetProcMounts returns the mounts of the given pid.
+func GetProcMounts(pid int) ([]*procfs.MountInfo, error) {
+	return GetProcFSManager().GetProcMounts(pid)
+}
+
+// GetIPVSStats returns the IPVSStats of the host.
+func GetIPVSStats() (procfs.IPVSStats, error) {
+	return GetProcFSManager().GetIPVSStats()
+}
+
+// GetNetDev returns the net dev of the host.
+func GetNetDev() (map[string]procfs.NetDevLine, error) {
+	return GetProcFSManager().GetNetDev()
+}
+
+// GetNetStat returns the net stat of the host.
+func GetNetStat() ([]procfs.NetStat, error) {
+	return GetProcFSManager().GetNetStat()
+}
+
+// GetNetSoftnetStat returns the net softnet stat of the host.
+func GetNetSoftnetStat() ([]procfs.SoftnetStat, error) {
+	return GetProcFSManager().GetNetSoftnetStat()
+}
+
+// GetNetTCP returns the net TCP of the host.
+func GetNetTCP() (procfs.NetTCP, error) {
+	return GetProcFSManager().GetNetTCP()
+}
+
+// GetNetTCP6 returns the net TCP6 of the host.
+func GetNetTCP6() (procfs.NetTCP, error) {
+	return GetProcFSManager().GetNetTCP6()
+}
+
+// GetNetUDP returns the net UDP of the host.
+func GetNetUDP() (procfs.NetUDP, error) {
+	return GetProcFSManager().GetNetUDP()
+}
+
+// GetNetUDP6 returns the net UDP6 of the host.
+func GetNetUDP6() (procfs.NetUDP, error) {
+	return GetProcFSManager().GetNetUDP6()
+}
+
+// GetSoftirqs returns the softirqs of the host.
+func GetSoftirqs() (procfs.Softirqs, error) {
+	return GetProcFSManager().GetSoftirqs()
+}
+
+// GetProcInterrupts returns the proc interrupts of the host.
+func GetProcInterrupts() (procfs.Interrupts, error) {
+	return GetProcFSManager().GetProcInterrupts()
+}
+
+// GetPSIStatsForResource returns the psi stats for the given resource.
+func GetPSIStatsForResource(resourceName string) (procfs.PSIStats, error) {
+	return GetProcFSManager().GetPSIStatsForResource(resourceName)
+}
+
+// GetSchedStat returns the sched stat of the host.
+func GetSchedStat() (*procfs.Schedstat, error) {
+	return GetProcFSManager().GetSchedStat()
+}
+
+// https://docs.kernel.org/scheduler/sched-stats.html#proc-pid-schedstat
+// schedwait unit: nanosecond
+func GetTaskSchedWait(pids []int) (map[int]uint64, error) {
+	taskSchedWait := make(map[int]uint64)
+
+	for _, pid := range pids {
+		taskSchedStatFile := fmt.Sprintf("/proc/%d/schedstat", pid)
+		b, err := os.ReadFile(taskSchedStatFile)
+		if err != nil {
+			klog.Warningf("failed to ReadFile(%s), err %s", taskSchedStatFile, err)
+			continue
+		}
+
+		schedStatLine := strings.TrimRight(string(b), "\n")
+
+		cols := strings.Fields(schedStatLine)
+		if len(cols) < 2 {
+			klog.Errorf("invalid %s content with less than 2 cols", schedStatLine)
+			continue
+		}
+
+		schedWait, err := strconv.ParseUint(cols[1], 10, 64)
+		if err != nil {
+			klog.Errorf("failed ParseUint(%s) in %s, err %s", cols[1], schedStatLine, err)
+			continue
+		}
+
+		taskSchedWait[pid] = schedWait
+	}
+
+	return taskSchedWait, nil
+}
+
+// ApplyProcInterrupts applies the given cpuset to the given irq number.
+func ApplyProcInterrupts(irqNumber int, cpuset string) error {
+	return GetProcFSManager().ApplyProcInterrupts(irqNumber, cpuset)
+}

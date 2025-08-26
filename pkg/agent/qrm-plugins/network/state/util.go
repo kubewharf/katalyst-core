@@ -29,22 +29,22 @@ import (
 func GenerateMachineState(conf *qrm.QRMPluginsConfiguration, nics []machine.InterfaceInfo, reservation map[string]uint32) (NICMap, error) {
 	defaultMachineState := make(NICMap)
 	for _, iface := range nics {
-		reservedBandwidth := reservation[iface.Iface]
+		reservedBandwidth := reservation[iface.Name]
 		egressCapacity := uint32(float32(iface.Speed) * conf.EgressCapacityRate)
 		ingressCapacity := uint32(float32(iface.Speed) * conf.IngressCapacityRate)
 
 		generalLog := general.LoggerWithPrefix("GenerateMachineState", general.LoggingPKGFull)
-		generalLog.Infof("NIC %s's speed: %d, capacity: [%d/%d], reservation: %d", iface.Iface, iface.Speed, egressCapacity, ingressCapacity, reservedBandwidth)
+		generalLog.Infof("NIC %s's speed: %d, capacity: [%d/%d], reservation: %d", iface.Name, iface.Speed, egressCapacity, ingressCapacity, reservedBandwidth)
 
 		// we do not differentiate egress reservation and ingress reservation for now. That is, they are supposed to be the same.
 		if reservedBandwidth > 0 && (reservedBandwidth >= egressCapacity || reservedBandwidth >= ingressCapacity) {
-			return nil, fmt.Errorf("invalid bandwidth reservation: %d on NIC: %s with capacity: [%d/%d]", reservedBandwidth, iface.Iface, egressCapacity, ingressCapacity)
+			return nil, fmt.Errorf("invalid bandwidth reservation: %d on NIC: %s with capacity: [%d/%d]", reservedBandwidth, iface.Name, egressCapacity, ingressCapacity)
 		}
 
 		allocatableEgress := egressCapacity - reservedBandwidth
 		allocatableIngress := ingressCapacity - reservedBandwidth
 
-		defaultMachineState[iface.Iface] = &NICState{
+		defaultMachineState[iface.Name] = &NICState{
 			EgressState: BandwidthInfo{
 				Capacity:       egressCapacity,
 				SysReservation: 0,

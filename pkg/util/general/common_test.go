@@ -149,3 +149,156 @@ func TestFormatMemoryQutantity(t *testing.T) {
 	as.Equal("1.048576e+06[1Mi]", FormatMemoryQuantity(1<<20))
 	as.Equal("1.073741824e+09[1Gi]", FormatMemoryQuantity(1<<30))
 }
+
+func TestParseLinuxListFormat(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		listStr string
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    []int64
+		wantErr bool
+	}{
+		{
+			name: "empty string",
+			args: args{
+				listStr: "",
+			},
+			want:    nil,
+			wantErr: false,
+		},
+		{
+			name: "single number",
+			args: args{
+				listStr: "5",
+			},
+			want:    []int64{5},
+			wantErr: false,
+		},
+		{
+			name: "multiple numbers",
+			args: args{
+				listStr: "1,3,5",
+			},
+			want:    []int64{1, 3, 5},
+			wantErr: false,
+		},
+		{
+			name: "range",
+			args: args{
+				listStr: "1-3",
+			},
+			want:    []int64{1, 2, 3},
+			wantErr: false,
+		},
+		{
+			name: "mixed",
+			args: args{
+				listStr: "1-3,5,7-9",
+			},
+			want:    []int64{1, 2, 3, 5, 7, 8, 9},
+			wantErr: false,
+		},
+		{
+			name: "invalid format",
+			args: args{
+				listStr: "1-3-5",
+			},
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name: "invalid number",
+			args: args{
+				listStr: "1,a,3",
+			},
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name: "start >= end",
+			args: args{
+				listStr: "3-1",
+			},
+			want:    nil,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := ParseLinuxListFormat(tt.args.listStr)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParseLinuxListFormat() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !equalInt64Slices(got, tt.want) {
+				t.Errorf("ParseLinuxListFormat() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestConvertLinuxListToString(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		numbers []int64
+	}
+	tests := []struct {
+		name string
+		args args
+		want string
+	}{{
+		name: "empty slice",
+		args: args{
+			numbers: []int64{},
+		},
+		want: "",
+	}, {
+		name: "single number",
+		args: args{
+			numbers: []int64{5},
+		},
+		want: "5",
+	}, {
+		name: "multiple numbers",
+		args: args{
+			numbers: []int64{1, 3, 5},
+		},
+		want: "1,3,5",
+	}, {
+		name: "consecutive numbers",
+		args: args{
+			numbers: []int64{1, 2, 3},
+		},
+		want: "1-3",
+	}, {
+		name: "mixed",
+		args: args{
+			numbers: []int64{1, 2, 3, 5, 7, 8, 9},
+		},
+		want: "1-3,5,7-9",
+	}, {
+		name: "unsorted numbers",
+		args: args{
+			numbers: []int64{3, 1, 5, 2, 4},
+		},
+		want: "1-5",
+	}}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := ConvertLinuxListToString(tt.args.numbers); got != tt.want {
+				t.Errorf("ConvertLinuxListToString() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

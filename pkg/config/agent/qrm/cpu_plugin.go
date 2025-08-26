@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/hintoptimizer"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/irqtuner"
 )
 
 type CPUQRMPluginConfig struct {
@@ -56,6 +57,7 @@ type CPUDynamicPolicyConfig struct {
 	EnableReserveCPUReversely bool
 
 	*hintoptimizer.HintOptimizerConfiguration
+	*irqtuner.IRQTunerConfiguration
 }
 
 type CPUNativePolicyConfig struct {
@@ -70,6 +72,7 @@ func NewCPUQRMPluginConfig() *CPUQRMPluginConfig {
 	return &CPUQRMPluginConfig{
 		CPUDynamicPolicyConfig: CPUDynamicPolicyConfig{
 			HintOptimizerConfiguration: hintoptimizer.NewHintOptimizerConfiguration(),
+			IRQTunerConfiguration:      irqtuner.NewIRQTunerConfiguration(),
 		},
 		CPUNativePolicyConfig: CPUNativePolicyConfig{},
 	}

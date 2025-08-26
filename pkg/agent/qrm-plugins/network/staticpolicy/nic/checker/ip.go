@@ -34,13 +34,13 @@ func NewIPChecker() (NICHealthChecker, error) {
 }
 
 func (c *ipChecker) CheckHealth(info machine.InterfaceInfo) (bool, error) {
-	iface, err := net.InterfaceByName(info.Iface)
+	iface, err := net.InterfaceByName(info.Name)
 	if err != nil {
 		return false, err
 	}
 
 	if iface == nil {
-		general.Errorf("IP checker for interface %s not found", info.Iface)
+		general.Errorf("IP checker for interface %s not found", info.Name)
 		return false, nil
 	}
 

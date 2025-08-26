@@ -14,26 +14,24 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package general
+package manager
 
-import "reflect"
+import (
+	"github.com/prometheus/procfs/sysfs"
+)
 
-// SliceContains returns true if an element is present in a slice.
-func SliceContains(list interface{}, elem interface{}) bool {
-	if list == nil || elem == nil {
-		return false
-	}
-	listV := reflect.ValueOf(list)
+func GetSystemCPUs() ([]sysfs.CPU, error) {
+	return GetSysFsManager().GetSystemCPUs()
+}
 
-	if listV.Kind() == reflect.Slice {
-		for i := 0; i < listV.Len(); i++ {
-			item := listV.Index(i).Interface()
+func GetCPUTopology(string string) (*sysfs.CPUTopology, error) {
+	return GetSysFsManager().GetCPUTopology(string)
+}
 
-			target := reflect.ValueOf(elem).Convert(reflect.TypeOf(item)).Interface()
-			if ok := reflect.DeepEqual(item, target); ok {
-				return true
-			}
-		}
-	}
-	return false
+func GetNicRxQueueRPS(sysPath, nic string, queue int) (string, error) {
+	return GetSysFsManager().GetNicRxQueueRPS(sysPath, nic, queue)
+}
+
+func SetNicRxQueueRPS(sysPath, nic string, queue int, rpsConf string) error {
+	return GetSysFsManager().SetNicRxQueueRPS(sysPath, nic, queue, rpsConf)
 }

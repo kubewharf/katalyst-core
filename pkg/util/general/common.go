@@ -434,3 +434,85 @@ func ConvertBytesToPages(bytes int) int {
 	pageSize := GetPageSize()
 	return (bytes + pageSize - 1) / pageSize // Ceiling division to account for partial pages
 }
+
+func ParseLinuxListFormat(listStr string) ([]int64, error) {
+	if strings.TrimSpace(listStr) == "" {
+		return nil, nil
+	}
+
+	sections := strings.Split(listStr, ",")
+	if len(sections) == 0 {
+		return nil, fmt.Errorf("%s content is empty", listStr)
+	}
+
+	var list []int64
+	for _, sec := range sections {
+		boundaries := strings.Split(sec, "-")
+		if len(boundaries) == 1 {
+			val, err := strconv.ParseInt(boundaries[0], 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid section %s in %s", sec, listStr)
+			}
+			list = append(list, val)
+		} else if len(boundaries) == 2 {
+			start, err := strconv.ParseInt(boundaries[0], 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid section %s in %s", sec, listStr)
+			}
+			end, err := strconv.ParseInt(boundaries[1], 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid section %s in %s", sec, listStr)
+			}
+			if start >= end {
+				return nil, fmt.Errorf("invalid section %s in %s", sec, listStr)
+			}
+			for start <= end {
+				list = append(list, start)
+				start++
+			}
+		} else {
+			return nil, fmt.Errorf("%s contains strange section %s", listStr, sec)
+		}
+	}
+
+	SortInt64Slice(list)
+	return list, nil
+}
+
+func ConvertLinuxListToString(numbers []int64) string {
+	if len(numbers) == 0 {
+		return ""
+	}
+
+	sort.Slice(numbers, func(i, j int) bool { return numbers[i] < numbers[j] })
+
+	type rng struct {
+		start int64
+		end   int64
+	}
+
+	ranges := []rng{{numbers[0], numbers[0]}}
+	for i := 1; i < len(numbers); i++ {
+		lastRange := &ranges[len(ranges)-1]
+		// if this element is adjacent to the high end of the last range
+		if numbers[i] == lastRange.end+1 {
+			// then extend the last range to include this element
+			lastRange.end = numbers[i]
+			continue
+		}
+		// otherwise, start a new range beginning with this element
+		ranges = append(ranges, rng{numbers[i], numbers[i]})
+	}
+
+	// construct string from ranges
+	var result bytes.Buffer
+	for _, r := range ranges {
+		if r.start == r.end {
+			result.WriteString(strconv.Itoa(int(r.start)))
+		} else {
+			result.WriteString(fmt.Sprintf("%d-%d", r.start, r.end))
+		}
+		result.WriteString(",")
+	}
+	return strings.TrimRight(result.String(), ",")
+}
