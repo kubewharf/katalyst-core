@@ -43,9 +43,6 @@ import (
 const (
 	NicsSyncIntervalSeconds = 600
 	IrqTuningLogPrefix      = "irq-tuning:"
-	KataRuntimeClassName    = "kata-clh"
-	KataBMAnnotationName    = "bytedance.com/kata-bm"
-	KataBMAnnotationValue   = "true"
 )
 
 // specific errors
@@ -425,7 +422,7 @@ func (c *ContainerInfoWrapper) getContainerCPUs() []int64 {
 	return cpus
 }
 
-func (c *ContainerInfoWrapper) isKataBMContainer() bool {
+func (c *ContainerInfoWrapper) isIrqAffinityForbiddenContainer() bool {
 	if c.RuntimeClassName != KataRuntimeClassName {
 		return false
 	}
@@ -437,16 +434,16 @@ func (c *ContainerInfoWrapper) isKataBMContainer() bool {
 }
 
 type IrqTuningController struct {
-	agentConf            *agent.AgentConfiguration
-	conf                 *config.IrqTuningConfig
-	emitter              metrics.MetricEmitter
-	CPUInfo              *machine.CPUInfo
-	Ksoftirqds           map[int64]int // cpuid as map key, ksoftirqd pid as value
-	IrqStateAdapter      irqtuner.StateAdapter
-	Containers           map[string]*ContainerInfoWrapper // container id as map key
-	SriovContainers      []*ContainerInfoWrapper
-	KataBMContainers     []*ContainerInfoWrapper
-	IrqAffForbiddenCores []int64
+	agentConf                 *agent.AgentConfiguration
+	conf                      *config.IrqTuningConfig
+	emitter                   metrics.MetricEmitter
+	CPUInfo                   *machine.CPUInfo
+	Ksoftirqds                map[int64]int // cpuid as map key, ksoftirqd pid as value
+	IrqStateAdapter           irqtuner.StateAdapter
+	Containers                map[string]*ContainerInfoWrapper // container id as map key
+	SriovContainers           []*ContainerInfoWrapper
+	IrqAffForbiddenContainers []*ContainerInfoWrapper
+	IrqAffForbiddenCores      []int64
 
 	NicSyncInterval   int // interval of sync nic interval, periodic sync for active nics change, like nic number changed, nic queue number changed
 	LastNicSyncTime   time.Time
@@ -2180,22 +2177,22 @@ func (ic *IrqTuningController) syncNics() error {
 	return nil
 }
 
-// katabm container's cpus MUST be excluded from cpu allocation for other nic's balance-fair irq affinity.
-func (ic *IrqTuningController) getKataBMContainerCPUs() []int64 {
-	var katabmCPUs []int64
+// irq affinity forbidden container's cpus MUST be excluded from cpu allocation for other nic's balance-fair irq affinity.
+func (ic *IrqTuningController) getIrqAffinityForbiddenContainerCPUs() []int64 {
+	var irqForbiddenCPUs []int64
 
-	for _, cnt := range ic.KataBMContainers {
+	for _, cnt := range ic.IrqAffForbiddenContainers {
 		for _, cpuset := range cnt.ActualCPUSet {
-			katabmCPUs = append(katabmCPUs, cpuset.ToSliceInt64()...)
+			irqForbiddenCPUs = append(irqForbiddenCPUs, cpuset.ToSliceInt64()...)
 		}
 	}
-	return katabmCPUs
+	return irqForbiddenCPUs
 }
 
-func (ic *IrqTuningController) getKataBMContainerNumas() []int {
+func (ic *IrqTuningController) getIrqAffinityForbiddenContainerNumas() []int {
 	var numas []int
 
-	for _, cnt := range ic.KataBMContainers {
+	for _, cnt := range ic.IrqAffForbiddenContainers {
 		for numaID := range cnt.ActualCPUSet {
 			numas = append(numas, numaID)
 		}
@@ -2282,7 +2279,7 @@ func (ic *IrqTuningController) getSRIOVContainerDedicatedCores() []int64 {
 }
 
 func (ic *IrqTuningController) getUnqualifiedNumasForBalanceFairPolicy() []int {
-	return ic.getKataBMContainerNumas()
+	return ic.getIrqAffinityForbiddenContainerNumas()
 }
 
 func (ic *IrqTuningController) getSocketsQualifiedNumasForBalanceFairPolicy(sockets []int) []int {
@@ -2310,7 +2307,7 @@ func (ic *IrqTuningController) getSocketsQualifiedNumasForBalanceFairPolicy(sock
 
 // get cores which are unqualified for irq affinity
 func (ic *IrqTuningController) getUnqualifiedCoresForIrqAffinity() map[int64]interface{} {
-	unqualifiedCores := ic.getKataBMContainerCPUs()
+	unqualifiedCores := ic.getIrqAffinityForbiddenContainerCPUs()
 
 	// forbidden cores cannot be used as exclusive irq cores,
 	// and also cannot be affinitied by irqs of nics with balance-fair policy,
@@ -3472,21 +3469,21 @@ retry:
 	}
 
 	var sriovContainers []*ContainerInfoWrapper
-	var katabmContainers []*ContainerInfoWrapper
+	var irqAffinityForbiddenContainers []*ContainerInfoWrapper
 	for _, cont := range ic.Containers {
 		if cont.IsSriovContainer {
 			sriovContainers = append(sriovContainers, cont)
 			continue
 		}
 
-		if cont.isKataBMContainer() {
-			katabmContainers = append(katabmContainers, cont)
+		if cont.isIrqAffinityForbiddenContainer() {
+			irqAffinityForbiddenContainers = append(irqAffinityForbiddenContainers, cont)
 		}
 	}
-	ic.KataBMContainers = katabmContainers
+	ic.IrqAffForbiddenContainers = irqAffinityForbiddenContainers
 	ic.SriovContainers = sriovContainers
 	_ = ic.emitter.StoreInt64(metricUtil.MetricNameIrqTuningSriovContainersCount, int64(len(ic.SriovContainers)), metrics.MetricTypeNameRaw)
-	_ = ic.emitter.StoreInt64(metricUtil.MetricNameIrqTuningKataBMContainersCount, int64(len(ic.KataBMContainers)), metrics.MetricTypeNameRaw)
+	_ = ic.emitter.StoreInt64(metricUtil.MetricNameIrqTuningIrqAffForbiddenContainersCount, int64(len(ic.IrqAffForbiddenContainers)), metrics.MetricTypeNameRaw)
 
 	forbiddendCores, err := ic.IrqStateAdapter.GetIRQForbiddenCores()
 	if err != nil {
@@ -3551,9 +3548,9 @@ func (ic *IrqTuningController) adaptIrqAffinityPolicy(oldIndicatorsStats *Indica
 	timeDiff := ic.IndicatorsStats.UpdateTime.Sub(oldIndicatorsStats.UpdateTime).Seconds()
 
 	shouldFallbackToBalanceFairPolicy := false
-	// if there are katabm container or sriov container, then fallback to balance-fair policy,
+	// if there are irq affinity forbidden container or sriov container, then fallback to balance-fair policy,
 	// but needless to set nic.FallbackToBalanceFair = true
-	for len(ic.KataBMContainers) > 0 || len(ic.SriovContainers) > 0 {
+	for len(ic.IrqAffForbiddenContainers) > 0 || len(ic.SriovContainers) > 0 {
 		shouldFallbackToBalanceFairPolicy = true
 		break
 	}
@@ -5475,7 +5472,7 @@ func (ic *IrqTuningController) periodicTuningIrqCoresExclusive() {
 		ic.reAdjustAllNicsExclusiveIrqCores()
 	}
 
-	// If there are changes in the forbidden cores or katabm cores, the exclusive cores of the NICs must be adjusted accordingly.
+	// If there are changes in the forbidden cores or irq affintiy forbidden containers's cores, the exclusive cores of the NICs must be adjusted accordingly.
 	ic.handleUnqualifiedCoresChangeForExclusiveIrqCores()
 
 	// need to balance nics' irqs away from decreased irq cores, because decreased irq cores will be assigend to applications

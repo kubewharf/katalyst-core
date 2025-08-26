@@ -75,7 +75,7 @@ const (
 	MetricNameIrqTuningRPSEnabled                     = "irq_tuning_rps_enabled"
 	MetricNameIrqTuningNicThroughputClass             = "irq_tuning_throughput_class"
 	MetricNameIrqTuningSriovContainersCount           = "irq_tuning_sriov_containers_count"
-	MetricNameIrqTuningKataBMContainersCount          = "irq_tuning_katabm_containers_count"
+	MetricNameIrqTuningIrqAffForbiddenContainersCount = "irq_tuning_irq_aff_forbidden_containers_count"
 	MetricNameIrqTuningNicIrqAffinityPolicy           = "irq_tuning_nic_irq_affinity_policy"
 	MetricNameIrqTuningNicExclusiveIrqCores           = "irq_tuning_nic_exclusive_irq_cores"
 	MetricNameIrqTuningTotalExclusiveIrqCores         = "irq_tuning_total_exclusive_irq_cores"
