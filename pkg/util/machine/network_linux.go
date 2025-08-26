@@ -513,9 +513,8 @@ func GetNicRxQueuesRpsConf(nic *NicBasicInfo) (map[int]string, error) {
 	return rxQueuesRpsConf, nil
 }
 
-// the "same" queue may match multiple irqs, e.g.,
-// nics with the same name from different netns
-// sriov vfs
+// GetNicQueue2IrqWithQueueFilter get the queue to irq map with queue filter
+// the "same" queue may match multiple irqs, e.g., nics with the same name from different netns and sriov vfs
 func GetNicQueue2IrqWithQueueFilter(nicInfo *NicBasicInfo, queueFilter string, queueDelimeter string) (map[int]int, error) {
 	nicAllIrqs := make(map[int]interface{})
 	for _, irq := range nicInfo.Irqs {
@@ -862,7 +861,7 @@ func GetNicVirtioName(nicSysPath string) (string, error) {
 	return filepath.Base(devRealPath), nil
 }
 
-// /sys/class/net/ethX/device/numa_node not exist, or contains negtive value, then return -1 as unknown socket bind
+// GetNicNumaNode get nic's numa node, /sys/class/net/ethX/device/numa_node not exist, or contains negative value, then return -1 as unknown socket bind
 func GetNicNumaNode(nicSysPath string) (int, error) {
 	nicBindNumaPath := filepath.Join(nicSysPath, "device/numa_node")
 	if _, err := os.Stat(nicBindNumaPath); err != nil {
@@ -1268,7 +1267,7 @@ func ListActiveUplinkNicsFromNetNS(netnsInfo NetNSInfo) ([]*NicBasicInfo, error)
 	return nics, nil
 }
 
-// copied from https://github.com/kubewharf/katalyst-core/blob/main/pkg/util/machine/network_linux.go#L248
+// ListInterfacesWithIPAddr list interfaces with ip address
 func ListInterfacesWithIPAddr() ([]string, error) {
 	interfaces, err := net.Interfaces()
 	if err != nil {

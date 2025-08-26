@@ -217,7 +217,6 @@ func ReadFileNoStat(filename string) ([]byte, error) {
 	return io.ReadAll(reader)
 }
 
-// copy from https://github.com/prometheus/procfs/proc_interrupts.go
 func parseInterrupts(r io.Reader) (procfs.Interrupts, error) {
 	var (
 		interrupts = procfs.Interrupts{}

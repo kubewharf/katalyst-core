@@ -120,7 +120,7 @@ func IsKernelThread(pid int) (bool, error) {
 	return true, nil
 }
 
-// return value: cpu id as map key, ksoftirq pid as value
+// ListKsoftirqdProcesses list ksoftirqd processes, return value: cpu id as map key, ksoftirq pid as value
 func ListKsoftirqdProcesses() (map[int64]int, error) {
 	dirEnts, err := os.ReadDir("/proc")
 	if err != nil {
@@ -169,7 +169,7 @@ func ListKsoftirqdProcesses() (map[int64]int, error) {
 	return ksoftirqds, nil
 }
 
-// check if there is a running process with specified proc comm
+// CheckIfProcCommRunning check if there is a running process with specified proc comm
 func CheckIfProcCommRunning(procComm string) (bool, error) {
 	dirEnts, err := os.ReadDir("/proc")
 	if err != nil {

@@ -144,14 +144,14 @@ func SmtActive() bool {
 	return smtActive
 }
 
-// physical core, if contains only one hyper-thread, means another one offlined
+// PhyCore is the physical core, if contains only one hyper-thread, means another one offline
 // threads sorted in ascending order
 // some CPU arch's one physical core may has more than 2 hyper-threads
 type PhyCore struct {
 	CPUs []int64
 }
 
-// last level cache domain, subnuma/numa for Intel, CCD for AMD
+// LLCDomain last level cache domain, subnuma/numa for Intel, CCD for AMD
 type LLCDomain struct {
 	PhyCores []PhyCore
 }
@@ -167,11 +167,11 @@ type CPUSocket struct {
 	AMDNumas   map[int]*AMDNuma   // numa id as map key
 }
 
-// generally all cpus shown in below files are online, i.e. CPUInfo managed all CPUs are online, CPUOnline is needless, keep it temporarily
+// CPUInfo is the cpu info, generally all cpus shown in below files are online, i.e. CPUInfo managed all CPUs are online,
+// CPUOnline is needless, keep it temporarily
 // * /sys/devices/system/node/node{nodeid}/cpulist
 // * /sys/devices/system/cpu/cpu{cpuid}/topology/{thread_siblings_list,core_cpus_list,core_siblings_list,package_cpus_list}
 // * /sys/devices/system/cpu/cpu{cpuid}/cache/index{0,1,2,3}/shared_cpu_list
-
 type CPUInfo struct {
 	CPUVendor  cpuid.Vendor
 	Sockets    map[int]*CPUSocket
@@ -179,6 +179,7 @@ type CPUInfo struct {
 	CPUOnline  map[int64]bool // cpu id as map key, CPUOnline contains all online cpus, but not contains any offline cpu
 }
 
+// CPUStat is the cpu stat info
 // ActiveTime = %user + %nice + %system + %irq + %softirq + %steal + %guest + %guest_nice
 // IrqTime = %irq + %softirq
 // TotalTime = ActiveTime + %idle + %iowait
@@ -455,6 +456,7 @@ func getSocketCPUList(socket *CPUSocket, cpuVendor cpuid.Vendor) []int64 {
 	return cpuList
 }
 
+// GetCPUInfoWithTopo get cpu info with topo
 // https://www.kernel.org/doc/Documentation/ABI/stable/sysfs-devices-system-cpu
 func GetCPUInfoWithTopo() (*CPUInfo, error) {
 	cpuInfo := &CPUInfo{

@@ -245,7 +245,7 @@ func (s CPUSet) ToSliceInt() []int {
 	return result
 }
 
-// ToSliceInt returns an resersely ordered slice of int that contains
+// ToSliceIntReversely returns a reverse ordered slice of int that contains
 // all elements from this set
 func (s CPUSet) ToSliceIntReversely() []int {
 	result := []int{}

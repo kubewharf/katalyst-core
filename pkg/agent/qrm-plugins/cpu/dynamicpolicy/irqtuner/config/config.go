@@ -41,15 +41,15 @@ const (
 type NicAffinitySocketsPolicy string
 
 const (
-	// no matter how many nics, each nic's irqs affinity all sockets balancely
+	// EachNicBalanceAllSockets each nic's irqs affinity all sockets balancely, no matter how many nics
 	EachNicBalanceAllSockets NicAffinitySocketsPolicy = "each-nic-sockets-balance"
-	// according number of nics and nics's physical topo binded numa, decide nic's irqs affinity which socket(s)
+	// OverallNicsBalanceAllSockets according number of nics and nics's physical topo binded numa, decide nic's irqs affinity which socket(s)
 	OverallNicsBalanceAllSockets NicAffinitySocketsPolicy = "overall-nics-sockets-balance"
-	// nic's irqs affitnied socket strictly follow whose physical topology binded socket
+	// NicPhysicalTopoBindNuma nic's irqs affinity socket strictly follow whose physical topology binded socket
 	NicPhysicalTopoBindNuma NicAffinitySocketsPolicy = "physical-topo-bind"
 )
 
-// thresholds of classifying a nic to low throughput class, if a nic's throughput meet LowThroughputThresholds, then
+// LowThroughputThresholds thresholds of classifying a nic to low throughput class, if a nic's throughput meet LowThroughputThresholds, then
 // this nic will be considered as low througput nic, low throughput nic's irq affinity will be dealed separately, doesnot
 // affect normal throughput nic's irq affinity and socket assignments.
 // low throughput nic's irq affinity still need to be balanced, but only consider its own socket assignment, and its
@@ -69,14 +69,14 @@ type ThroughputClassSwitchConfig struct {
 	NormalThroughputThresholds NormalThroughputThresholds
 }
 
-// when there are one or more irq cores's ratio of softnet_stat 3rd col time_squeeze packets / 1st col processed packets
+// IrqCoreNetOverloadThresholds when there are one or more irq cores's ratio of softnet_stat 3rd col time_squeeze packets / 1st col processed packets
 // greater-equal IrqCoreSoftNetTimeSqueezeRatio,
 // then tring to tune irq load balance first, if failed to tune irq load balance, then increase irq cores.
 type IrqCoreNetOverloadThresholds struct {
 	IrqCoreSoftNetTimeSqueezeRatio float64 // ratio of softnet_stat 3rd col time_squeeze packets / softnet_stat 1st col processed packets
 }
 
-// when there are one or more irq cores's cpu util greater-equal IrqCoreCpuUtilThreshold or irq cores's net load greater-equal IrqCoreNetOverloadThresholds,
+// IrqLoadBalanceTuningThresholds when there are one or more irq cores' cpu util greater-equal IrqCoreCpuUtilThreshold or irq cores' net load greater-equal IrqCoreNetOverloadThresholds,
 // then tring to tuning irq load balance, that need to find at least one other irq core with relatively low cpu util, their cpu util gap MUST greater-equal IrqCoreCpuUtilGapThresh,
 // if succeed to find irq cores with eligible cpu util, then start to tuning load balance,
 // or increase irq cores immediately.
@@ -94,22 +94,22 @@ type IrqLoadBalanceConfig struct {
 	IrqCoresTunedNumMaxEachTime int // max number of irq cores whose affinity irqs are permitted to tuned to other cores in each time, allowed value {1,2}
 }
 
-// when irq cores average cpu util greater-equal IrqCoresAvgCpuUtilThresh, then increase irq cores,
+// IrqCoresIncThresholds when irq cores average cpu util greater-equal IrqCoresAvgCpuUtilThresh, then increase irq cores,
 // when there are one or more irq cores's net load greater-equal IrqCoreNetOverloadThresholds, and failed to tune to irq load balance,
 // then increase irq cores.
 type IrqCoresIncThresholds struct {
 	IrqCoresAvgCpuUtilThreshold int // threshold of increasing irq cores, generally this threshold equal to or a litter greater-than IrqCoresExpectedCpuUtil
 }
 
-// when irq cores cpu util nearly full(e.g., greater-equal 85%), in order to reduce the impact time on the applications, it is necessary to immediately
-// fallback to the balance-fair policy first, and later irq tuning manager will auto switch back to IrqCoresExclusive policy based on policies and conditions.
+// IrqCoresIncConfig when irq cores cpu util nearly full(e.g., greater-equal 85%), in order to reduce the impact time on the applications, it is necessary to immediately
+// fall back to the balance-fair policy first, and later irq tuning manager will auto switch back to IrqCoresExclusive policy based on policies and conditions.
 type IrqCoresIncConfig struct {
 	SuccessiveIncInterval    int // interval of two successive irq cores increase MUST greater-equal this interval
 	IrqCoresCpuFullThreshold int // when irq cores cpu util hit this threshold, then fallback to balance-fair policy
 	Thresholds               IrqCoresIncThresholds
 }
 
-// when irq cores average cpu util less-equal IrqCoresDecThresholds, then decrease irq cores.
+// IrqCoresDecThresholds when irq cores average cpu util less-equal IrqCoresDecThresholds, then decrease irq cores.
 type IrqCoresDecThresholds struct {
 	IrqCoresAvgCpuUtilThreshold int // threshold of decreasing irq cores, generally this threshold should be less-than IrqCoresExpectedCpuUtil
 }
@@ -129,13 +129,13 @@ type IrqCoresAdjustConfig struct {
 	IrqCoresDecConf    IrqCoresDecConfig
 }
 
-// when successive count of nic's total PPS >= RxPPSThresh is greater-equal SuccessiveCount,, then enable exclusion of this nic's irq cores.
+// EnableIrqCoresExclusionThresholds when successive count of nic's total PPS >= RxPPSThresh is greater-equal SuccessiveCount,, then enable exclusion of this nic's irq cores.
 type EnableIrqCoresExclusionThresholds struct {
 	RxPPSThreshold  uint64
 	SuccessiveCount int
 }
 
-// when successive count of nic's total PPS <= RxPPSThresh is greater-equal SuccessiveCount, then disable exclusion of this nic's irq cores.
+// DisableIrqCoresExclusionThresholds when successive count of nic's total PPS <= RxPPSThresh is greater-equal SuccessiveCount, then disable exclusion of this nic's irq cores.
 type DisableIrqCoresExclusionThresholds struct {
 	RxPPSThreshold  uint64
 	SuccessiveCount int
@@ -151,7 +151,7 @@ type IrqCoresExclusionConfig struct {
 	SuccessiveSwitchInterval float64 // interval of successive enable/disable irq cores exclusion MUST >= SuccessiveSwitchInterval
 }
 
-// Configuration for irq-tuning
+// IrqTuningConfig is the configuration for irq-tuning
 type IrqTuningConfig struct {
 	Interval                    int
 	EnableIrqTuning             bool
