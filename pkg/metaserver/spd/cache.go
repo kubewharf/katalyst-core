@@ -194,7 +194,7 @@ func (s *Cache) DeleteSPD(key string) error {
 }
 
 // GetSPD gets target spd by namespace/name key
-func (s *Cache) GetSPD(key string, updateLastGetTime bool) *workloadapis.ServiceProfileDescriptor {
+func (s *Cache) GetSPD(key string, updateLastGetTime bool) (*workloadapis.ServiceProfileDescriptor, bool) {
 	s.Lock()
 	defer s.Unlock()
 
@@ -207,10 +207,10 @@ func (s *Cache) GetSPD(key string, updateLastGetTime bool) *workloadapis.Service
 
 	info, ok := s.spdInfo[key]
 	if ok && info != nil {
-		return info.spd
+		return info.spd, !info.lastFetchRemoteTime.IsZero()
 	}
 
-	return nil
+	return nil, false
 }
 
 // Run to clear local unused spd
