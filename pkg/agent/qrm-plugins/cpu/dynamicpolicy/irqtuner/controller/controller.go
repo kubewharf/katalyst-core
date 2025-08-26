@@ -45,6 +45,12 @@ const (
 	IrqTuningLogPrefix      = "irq-tuning:"
 )
 
+var (
+	ForbiddenContainerRuntimeClass          []string
+	ForbiddenContainerRuntimeAnnotationKeys []string
+	ForbiddenContainerRuntimeAnnotationsVal string
+)
+
 // ErrNotFoundProperDestIrqCore is the error that no proper dest irq core found for irq balance
 var ErrNotFoundProperDestIrqCore = errors.New("not found proper dest irq core for irq balance")
 
@@ -423,13 +429,23 @@ func (c *ContainerInfoWrapper) getContainerCPUs() []int64 {
 }
 
 func (c *ContainerInfoWrapper) isIrqAffinityForbiddenContainer() bool {
-	if c.RuntimeClassName != KataRuntimeClassName {
+	forbiddenRuntimeClass := false
+	for _, rc := range ForbiddenContainerRuntimeClass {
+		if c.RuntimeClassName == rc {
+			forbiddenRuntimeClass = true
+			continue
+		}
+	}
+	if !forbiddenRuntimeClass {
 		return false
 	}
 
-	if val, ok := c.Annotations[KataBMAnnotationName]; ok && val == KataBMAnnotationValue {
-		return true
+	for _, key := range ForbiddenContainerRuntimeAnnotationKeys {
+		if val, ok := c.Annotations[key]; ok && val == ForbiddenContainerRuntimeAnnotationsVal {
+			return true
+		}
 	}
+
 	return false
 }
 
@@ -609,6 +625,20 @@ func NewIrqTuningController(agentConf *agent.AgentConfiguration, irqStateAdapter
 				metrics.MetricTag{Key: "reason", Val: irqtuner.NewIrqTuningControllerFailed})
 		}
 	}()
+
+	// get configuration from parameters
+	if agentConf.IRQTunerConfiguration != nil {
+		for _, rc := range agentConf.IRQTunerConfiguration.ForbiddenContainerRuntimeClass {
+			ForbiddenContainerRuntimeClass = append(ForbiddenContainerRuntimeClass, rc)
+		}
+		for _, anno := range agentConf.IRQTunerConfiguration.ForbiddenContainerRuntimeAnnotationKeys {
+			ForbiddenContainerRuntimeAnnotationKeys = append(ForbiddenContainerRuntimeAnnotationKeys, anno)
+		}
+		ForbiddenContainerRuntimeAnnotationsVal = agentConf.IRQTunerConfiguration.ForbiddenContainerRuntimeAnnotationsVal
+	} else {
+		general.Errorf("%s irqtuner configuration is nil", IrqTuningLogPrefix)
+		return nil, fmt.Errorf("invalid agent irqtuner configuration")
+	}
 
 	dynConf := agentConf.DynamicAgentConfiguration.GetDynamicConfiguration()
 	if dynConf == nil {

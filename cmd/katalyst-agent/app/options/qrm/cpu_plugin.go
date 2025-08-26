@@ -23,6 +23,7 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/qrm/hintoptimizer"
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/qrm/irqtuner"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 )
@@ -47,7 +48,7 @@ type CPUDynamicPolicyOptions struct {
 	CPUNUMAHintPreferLowThreshold             float64
 	SharedCoresNUMABindingResultAnnotationKey string
 	EnableReserveCPUReversely                 bool
-	EnableIRQTuner                            bool
+	*irqtuner.IRQTunerOptions
 	*hintoptimizer.HintOptimizerOptions
 }
 
@@ -74,8 +75,8 @@ func NewCPUOptions() *CPUOptions {
 				commonstate.PoolNameReserve,
 			},
 			SharedCoresNUMABindingResultAnnotationKey: consts.PodAnnotationNUMABindResultKey,
-			EnableIRQTuner:       false,
-			HintOptimizerOptions: hintoptimizer.NewHintOptimizerOptions(),
+			HintOptimizerOptions:                      hintoptimizer.NewHintOptimizerOptions(),
+			IRQTunerOptions:                           irqtuner.NewIRQTunerOptions(),
 		},
 		CPUNativePolicyOptions: CPUNativePolicyOptions{
 			EnableFullPhysicalCPUsOnly: false,
@@ -106,8 +107,6 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.BoolVar(&o.EnableCPUIdle, "enable-cpu-idle", o.EnableCPUIdle,
 		"if set true, we will enable cpu idle for "+
 			"specific cgroup paths and it requires --enable-syncing-cpu-idle=true to make effect")
-	fs.BoolVar(&o.EnableIRQTuner, "enable-irq-tuner", o.EnableIRQTuner,
-		"if set true, we will enable irq tuner")
 	fs.StringVar(&o.CPUAllocationOption, "cpu-allocation-option",
 		o.CPUAllocationOption, "The allocation option of cpu (packed/distributed). The default value is packed."+
 			"in cases where more than one NUMA node is required to satisfy the allocation.")
@@ -121,6 +120,7 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.EnableReserveCPUReversely, "by default, the reservation of cpu starts from the cpu with lower id,"+
 			"if set to true, it starts from the cpu with higher id")
 	o.HintOptimizerOptions.AddFlags(fss)
+	o.IRQTunerOptions.AddFlags(fss)
 }
 
 func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
@@ -136,9 +136,11 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 	conf.EnableFullPhysicalCPUsOnly = o.EnableFullPhysicalCPUsOnly
 	conf.CPUAllocationOption = o.CPUAllocationOption
 	conf.SharedCoresNUMABindingResultAnnotationKey = o.SharedCoresNUMABindingResultAnnotationKey
-	conf.EnableIRQTuner = o.EnableIRQTuner
 	conf.EnableReserveCPUReversely = o.EnableReserveCPUReversely
 	if err := o.HintOptimizerOptions.ApplyTo(conf.HintOptimizerConfiguration); err != nil {
+		return err
+	}
+	if err := o.IRQTunerOptions.ApplyTo(conf.IRQTunerConfiguration); err != nil {
 		return err
 	}
 	return nil

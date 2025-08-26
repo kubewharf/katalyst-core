@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/hintoptimizer"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/irqtuner"
 )
 
 type CPUQRMPluginConfig struct {
@@ -48,8 +49,6 @@ type CPUDynamicPolicyConfig struct {
 	EnableSyncingCPUIdle bool
 	// EnableCPUIdle indicates whether enabling cpu idle
 	EnableCPUIdle bool
-	// EnableIRQTuner indicates whether to enable irq tuner
-	EnableIRQTuner bool
 	// SharedCoresNUMABindingResultAnnotationKey is the annotation key for storing NUMA binding results of shared_cores QoS pods.
 	// It enables schedulers to specify NUMA binding results, and the plugin will make best efforts to follow these results.
 	// This key must be included in the pod-annotation-kept-keys configuration.
@@ -58,6 +57,7 @@ type CPUDynamicPolicyConfig struct {
 	EnableReserveCPUReversely bool
 
 	*hintoptimizer.HintOptimizerConfiguration
+	*irqtuner.IRQTunerConfiguration
 }
 
 type CPUNativePolicyConfig struct {
@@ -72,6 +72,7 @@ func NewCPUQRMPluginConfig() *CPUQRMPluginConfig {
 	return &CPUQRMPluginConfig{
 		CPUDynamicPolicyConfig: CPUDynamicPolicyConfig{
 			HintOptimizerConfiguration: hintoptimizer.NewHintOptimizerConfiguration(),
+			IRQTunerConfiguration:      irqtuner.NewIRQTunerConfiguration(),
 		},
 		CPUNativePolicyConfig: CPUNativePolicyConfig{},
 	}
