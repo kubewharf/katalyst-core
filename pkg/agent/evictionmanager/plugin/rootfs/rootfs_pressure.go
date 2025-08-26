@@ -138,6 +138,20 @@ func (r *PodRootfsPressureEvictionPlugin) minimumFreeThresholdMet(rootfsEviction
 		return false
 	}
 
+	// if prjquota is enabled, use prjquota metrics
+	if rootfsEvictionConfig.EnableSystemPrjquotaPressureEviction && rootfsEvictionConfig.SystemPrjquotaUsedThreshold != nil {
+		imageFsFreeBytes, errAvailable = helper.GetNodeMetric(r.metaServer.MetricsFetcher, r.emitter, consts.MetricsNodeFsPrjquotaAvailable)
+		if errAvailable != nil {
+			general.Warningf("Failed to get MetricsNodeFsPrjquotaAvailable: %q", errAvailable)
+			return false
+		}
+		imageFsCapacityBytes, errCapacity = helper.GetNodeMetric(r.metaServer.MetricsFetcher, r.emitter, consts.MetricsNodeFsPrjquotaCapacity)
+		if errCapacity != nil {
+			general.Warningf("Failed to get MetricsNodeFsPrjquotaCapacity: %q", errCapacity)
+			return false
+		}
+	}
+
 	if rootfsEvictionConfig.MinimumImageFsDiskCapacityThreshold != nil && int64(imageFsCapacityBytes) < rootfsEvictionConfig.MinimumImageFsDiskCapacityThreshold.Value() {
 		general.Warningf("Ignore this node for MinimumImageFsDiskCapacityThreshold (size: %d, threshold: %d)", int64(imageFsCapacityBytes), rootfsEvictionConfig.MinimumImageFsDiskCapacityThreshold.Value())
 		return false
