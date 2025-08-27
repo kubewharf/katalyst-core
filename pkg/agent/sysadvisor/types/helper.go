@@ -38,14 +38,18 @@ func (ci *ContainerInfo) IsNumaExclusive() bool {
 	return qosutil.AnnotationsIndicateNUMAExclusive(ci.Annotations)
 }
 
+func (ci *ContainerInfo) IsSharedNumaBinding() bool {
+	return ci.QoSLevel == consts.PodAnnotationQoSLevelSharedCores && ci.IsNumaBinding()
+}
+
 // IsDedicatedNumaBinding returns true if current container is for dedicated_cores with numa binding
 func (ci *ContainerInfo) IsDedicatedNumaBinding() bool {
 	return ci.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores && ci.IsNumaBinding()
 }
 
-// GetReclaimActualNUMABindingResult returns the actual numa binding result of the container.
+// GetActualNUMABindingResult returns the actual numa binding result of the container.
 // If the container is not numa binding, it will return -1.
-func (ci *ContainerInfo) GetReclaimActualNUMABindingResult() (int, error) {
+func (ci *ContainerInfo) GetActualNUMABindingResult() (int, error) {
 	if ci == nil {
 		return 0, fmt.Errorf("containerInfo is nil")
 	}
