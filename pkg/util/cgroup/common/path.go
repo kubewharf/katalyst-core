@@ -182,6 +182,7 @@ func getContainerRelativeAbsCgroupPath(podUID, containerId string) (string, erro
 }
 
 // GetContainerAbsCgroupPath returns absolute cgroup path for container level
+// It uses all the handlers in absoluteCgroupPathHandlerMap and returns the first non-empty path.
 func GetContainerAbsCgroupPath(subsys, podUID, containerId string) (string, error) {
 	var errors []error
 	for name, handler := range absoluteCgroupPathHandlerMap {
@@ -192,13 +193,14 @@ func GetContainerAbsCgroupPath(subsys, podUID, containerId string) (string, erro
 		if err == nil {
 			return cgroupPath, nil
 		}
-		klog.Infof("get cgroup path by handler %s error: %v", name, err)
-		errors = append(errors, fmt.Errorf("get cgroup path by handler %s failed, err: %v", name, err))
+		klog.Infof("get absolute cgroup path by handler %s error: %v", name, err)
+		errors = append(errors, fmt.Errorf("get absolute cgroup path by handler %s failed, err: %v", name, err))
 	}
 	return "", utilerrors.NewAggregate(errors)
 }
 
 // GetContainerRelativeCgroupPath returns relative cgroup path for container level
+// It uses all the handlers in relativeCgroupPathHandlerMap and returns the first non-empty path.
 func GetContainerRelativeCgroupPath(podUID, containerId string) (string, error) {
 	var errors []error
 	for name, handler := range relativeCgroupPathHandlerMap {
@@ -209,8 +211,8 @@ func GetContainerRelativeCgroupPath(podUID, containerId string) (string, error) 
 		if err == nil {
 			return cgroupPath, nil
 		}
-		klog.Infof("get cgroup path by handler %s error: %v", name, err)
-		errors = append(errors, fmt.Errorf("get cgroup path by handler %s failed, err: %v", name, err))
+		klog.Infof("get relative cgroup path by handler %s error: %v", name, err)
+		errors = append(errors, fmt.Errorf("get relative cgroup path by handler %s failed, err: %v", name, err))
 	}
 	return "", utilerrors.NewAggregate(errors)
 }
