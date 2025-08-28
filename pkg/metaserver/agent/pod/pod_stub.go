@@ -88,29 +88,3 @@ func (p *PodFetcherStub) GetContainerSpec(podUID, containerName string) (*v1.Con
 
 	return nil, fmt.Errorf("container: %s isn't found in pod: %s spec", containerName, podUID)
 }
-
-func (p *PodFetcherStub) GetKataContainerAbsoluteCgroupPath(subsys, podUID, containerId string) (string, error) {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
-
-	for _, pod := range p.PodList {
-		if string(pod.UID) == podUID {
-			return "fakeCgroupAbsolutePath", nil
-		}
-	}
-
-	return "", fmt.Errorf("unable to find pod %s in podList", podUID)
-}
-
-func (p *PodFetcherStub) GetKataContainerRelativeCgroupPath(podUID, containerId string) (string, error) {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
-
-	for _, pod := range p.PodList {
-		if string(pod.UID) == podUID {
-			return "fakeCgroupRelativePath", nil
-		}
-	}
-
-	return "", fmt.Errorf("unable to find pod %s in podList", podUID)
-}

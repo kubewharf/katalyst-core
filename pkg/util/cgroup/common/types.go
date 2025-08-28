@@ -45,9 +45,6 @@ const (
 	SystemdRootPath           = "/kubepods.slice"
 	SystemdRootPathBestEffort = "/kubepods.slice/kubepods-besteffort.slice"
 	SystemdRootPathBurstable  = "/kubepods.slice/kubepods-burstable.slice"
-
-	// ContainerSandboxIDKey is the key of sandbox id in container info
-	ContainerSandboxIDKey = "sandboxID"
 )
 
 const (

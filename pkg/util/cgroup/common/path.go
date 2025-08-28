@@ -57,7 +57,7 @@ var (
 	}
 	relativeCgroupPathHandlerLock sync.Mutex
 	relativeCgroupPathHandlerMap  = map[string]RelativeCgroupPathHandler{
-		defaultCgroupPathHandlerName: getContainerRelativeAbsCgroupPath,
+		defaultCgroupPathHandlerName: getContainerDefaultRelativeAbsCgroupPath,
 	}
 )
 
@@ -177,7 +177,7 @@ func getContainerDefaultAbsCgroupPath(subsys, podUID, containerId string) (strin
 	return GetKubernetesAnyExistAbsCgroupPath(subsys, path.Join(fmt.Sprintf("%s%s", PodCgroupPathPrefix, podUID), containerId))
 }
 
-func getContainerRelativeAbsCgroupPath(podUID, containerId string) (string, error) {
+func getContainerDefaultRelativeAbsCgroupPath(podUID, containerId string) (string, error) {
 	return GetKubernetesAnyExistRelativeCgroupPath(path.Join(fmt.Sprintf("%s%s", PodCgroupPathPrefix, podUID), containerId))
 }
 
@@ -187,6 +187,7 @@ func GetContainerAbsCgroupPath(subsys, podUID, containerId string) (string, erro
 	var errors []error
 	for name, handler := range absoluteCgroupPathHandlerMap {
 		if handler == nil {
+			errors = append(errors, fmt.Errorf("absolute cgroup path handler for %s is nil", name))
 			continue
 		}
 		cgroupPath, err := handler(subsys, podUID, containerId)
@@ -205,6 +206,7 @@ func GetContainerRelativeCgroupPath(podUID, containerId string) (string, error) 
 	var errors []error
 	for name, handler := range relativeCgroupPathHandlerMap {
 		if handler == nil {
+			errors = append(errors, fmt.Errorf("relative cgroup path handler for %s is nil", name))
 			continue
 		}
 		cgroupPath, err := handler(podUID, containerId)
