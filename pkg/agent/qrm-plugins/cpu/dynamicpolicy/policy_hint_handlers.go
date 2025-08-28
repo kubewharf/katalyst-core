@@ -257,7 +257,6 @@ func (p *DynamicPolicy) calculateHints(
 		numaBound = minNUMAsCountNeeded + 1
 	}
 
-	preferredHintIndexes := []int{}
 	var availableNumaHints []*pluginapi.TopologyHint
 	machine.IterateBitMasks(numaNodes, numaBound, func(mask machine.BitMask) {
 		maskCount := mask.Count()
@@ -293,10 +292,6 @@ func (p *DynamicPolicy) calculateHints(
 			Nodes:     machine.MaskToUInt64Array(mask),
 			Preferred: preferred,
 		})
-
-		if preferred {
-			preferredHintIndexes = append(preferredHintIndexes, len(availableNumaHints)-1)
-		}
 	})
 
 	// NOTE: because grpc is inability to distinguish between an empty array and nil,
