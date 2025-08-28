@@ -199,20 +199,3 @@ func getContainerInfoFromLabels(labels map[string]string) *labeledContainerInfo 
 		ContainerName: general.GetStringValueFromMap(labels, types.KubernetesContainerNameLabel),
 	}
 }
-
-// runtimePodFetcherStub is used as testing implementation of RuntimePodFetcher
-type runtimePodFetcherStub struct {
-	pods              []*RuntimePod
-	containerIdToInfo map[string]map[string]string
-}
-
-func (r *runtimePodFetcherStub) GetPods(all bool) ([]*RuntimePod, error) {
-	return r.pods, nil
-}
-
-func (r *runtimePodFetcherStub) GetContainerInfo(containerId string) (map[string]string, error) {
-	if _, ok := r.containerIdToInfo[containerId]; !ok {
-		return nil, fmt.Errorf("containerId %s not found in pods", containerId)
-	}
-	return r.containerIdToInfo[containerId], nil
-}
