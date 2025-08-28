@@ -33,11 +33,10 @@ type MBData struct {
 	UpdateTime int64       `json:"update_time"`
 }
 
-type MBGroupData = []MBCCDStat
+type MBGroupData map[string][]MBCCDStat
 
 type MBCCDStat struct {
-	GroupName      string `json:"group_name"`
-	CCDID          int    `json:"id"`
-	MBLocalCounter int64  `json:"mbm_local_bytes"`
-	MBTotalCounter int64  `json:"mbm_total_bytes"`
+	CCDID          int   `json:"id"`
+	MBLocalCounter int64 `json:"mbm_local_bytes"`
+	MBTotalCounter int64 `json:"mbm_total_bytes"`
 }

@@ -81,34 +81,38 @@ func Test_metaServerMBReader_getMBData(t *testing.T) {
 	timestamp := time.Date(2025, 7, 18, 9, 10, 11, 0, time.UTC)
 	rawCounter1 := &malachitetypes.MBData{
 		MBBody: malachitetypes.MBGroupData{
-			{
-				GroupName:      "root",
-				CCDID:          1,
-				MBLocalCounter: 11111 * 1024,
-				MBTotalCounter: 11111 * 1024,
+			"root": {
+				{
+					CCDID:          1,
+					MBLocalCounter: 11111 * 1024,
+					MBTotalCounter: 11111 * 1024,
+				},
 			},
-			{
-				GroupName:      "shared-50",
-				CCDID:          2,
-				MBLocalCounter: 11111 * 1024,
-				MBTotalCounter: 11111 * 1024,
+			"shared-50": {
+				{
+					CCDID:          2,
+					MBLocalCounter: 11111 * 1024,
+					MBTotalCounter: 11111 * 1024,
+				},
 			},
 		},
 		UpdateTime: timestamp.Add(-1 * time.Second).Unix(),
 	}
 	rawCounter2 := &malachitetypes.MBData{
 		MBBody: malachitetypes.MBGroupData{
-			{
-				GroupName:      "root",
-				CCDID:          1,
-				MBLocalCounter: 22222 * 1024,
-				MBTotalCounter: 22222 * 1024,
+			"root": {
+				{
+					CCDID:          1,
+					MBLocalCounter: 22222 * 1024,
+					MBTotalCounter: 22222 * 1024,
+				},
 			},
-			{
-				GroupName:      "shared-50",
-				CCDID:          2,
-				MBLocalCounter: 22222 * 1024,
-				MBTotalCounter: 22222 * 1024,
+			"shared-50": {
+				{
+					CCDID:          2,
+					MBLocalCounter: 22222 * 1024,
+					MBTotalCounter: 22222 * 1024,
+				},
 			},
 		},
 		UpdateTime: timestamp.Unix(),
@@ -198,19 +202,21 @@ func Test_calcRateData(t *testing.T) {
 			name: "happy path",
 			args: args{
 				oldCounter: malachitetypes.MBGroupData{
-					{
-						GroupName:      "dedicated",
-						CCDID:          5,
-						MBLocalCounter: 2 * 1024 * 1024,
-						MBTotalCounter: 3 * 1024 * 1024,
+					"dedicated": {
+						{
+							CCDID:          5,
+							MBLocalCounter: 2 * 1024 * 1024,
+							MBTotalCounter: 3 * 1024 * 1024,
+						},
 					},
 				},
 				newCounter: malachitetypes.MBGroupData{
-					{
-						GroupName:      "dedicated",
-						CCDID:          5,
-						MBLocalCounter: 7 * 1024 * 1024,
-						MBTotalCounter: 10 * 1024 * 1024,
+					"dedicated": {
+						{
+							CCDID:          5,
+							MBLocalCounter: 7 * 1024 * 1024,
+							MBTotalCounter: 10 * 1024 * 1024,
+						},
 					},
 				},
 				elspsed: 1 * time.Second,

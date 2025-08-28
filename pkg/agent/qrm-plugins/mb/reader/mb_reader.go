@@ -108,22 +108,23 @@ func calcMBRate(newCounter, oldCounter malachitetypes.MBGroupData, elapsed time.
 	result := monitor.GroupMBStats{}
 	msElapsed := elapsed.Milliseconds()
 
-	// sort out into group's old/new counters
-	newGroups, newDataGroups, err := getGroupData(newCounter)
+	newGroups, err := getGroupData(newCounter)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get group data out of new data")
 	}
-	oldGroups, oldDataGroups, err := getGroupData(oldCounter)
+	oldGroups, err := getGroupData(oldCounter)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get group data out of old data")
 	}
 
+	// skip data in transit (i.e. groups are different)
 	if !newGroups.Equal(oldGroups) {
-		return nil, fmt.Errorf("inconsistent groups %v", newGroups.Difference(oldGroups))
+		return nil, fmt.Errorf("inconsistent groups %v, %v",
+			newGroups.Difference(oldGroups), oldGroups.Difference(newGroups))
 	}
 
 	for group := range newGroups {
-		mbInfo, err := calcGroupMBRate(newDataGroups[group], oldDataGroups[group], msElapsed)
+		mbInfo, err := calcGroupMBRate(newCounter[group], oldCounter[group], msElapsed)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to calc mb rate of group %s", group)
 		}
@@ -138,26 +139,23 @@ func calcMBRate(newCounter, oldCounter malachitetypes.MBGroupData, elapsed time.
 	return result, nil
 }
 
-func getGroupData(data malachitetypes.MBGroupData) (sets.String, map[string][]*malachitetypes.MBCCDStat, error) {
+func getGroupData(data malachitetypes.MBGroupData) (sets.String, error) {
 	names := sets.String{}
-	dataByNames := make(map[string][]*malachitetypes.MBCCDStat)
-	for _, ccdData := range data {
-		ccdData := ccdData
-		groupName := strings.TrimSpace(ccdData.GroupName)
+	for group := range data {
+		groupName := strings.TrimSpace(group)
 		if len(groupName) == 0 {
-			return nil, nil, errors.New("invalid data with empty group name")
+			return nil, errors.New("invalid data with empty group name")
 		}
 		names.Insert(groupName)
-		dataByNames[groupName] = append(dataByNames[groupName], &ccdData)
 	}
-	return names, dataByNames, nil
+	return names, nil
 }
 
-func calcGroupMBRate(newCounter, oldCounter []*malachitetypes.MBCCDStat, msElapsed int64) (monitor.GroupMB, error) {
+func calcGroupMBRate(newCounter, oldCounter []malachitetypes.MBCCDStat, msElapsed int64) (monitor.GroupMB, error) {
 	result := monitor.GroupMB{}
 	oldCounterLookup := map[int]*malachitetypes.MBCCDStat{}
 	for _, ccdCounter := range oldCounter {
-		oldCounterLookup[ccdCounter.CCDID] = ccdCounter
+		oldCounterLookup[ccdCounter.CCDID] = &ccdCounter
 	}
 
 	for _, ccdCounter := range newCounter {

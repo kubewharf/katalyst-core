@@ -36,36 +36,36 @@ func TestMalachiteClient_GetMBData(t *testing.T) {
     "status": 0,
     "data": {
         "resctrl": {
-			"group_mbm": [
-                {
-                    "group_name": "shared-50",
-                    "id": 21,
-                    "mbm_local_bytes": 115340555748096,
-                    "mbm_total_bytes": 335021042372672,
-                    "mbm_victim_bytes_psec": 0
-                },
-                {
-                    "group_name": "root",
-                    "id": 21,
-                    "mbm_local_bytes": 127109639580672,
-                    "mbm_total_bytes": 335021042372672,
-                    "mbm_victim_bytes_psec": 0
-                },
-                {
-                    "group_name": "root",
-                    "id": 22,
-                    "mbm_local_bytes": 207594313998080,
-                    "mbm_total_bytes": 471015663758976,
-                    "mbm_victim_bytes_psec": 0
-                },
-                {
-                    "group_name": "shared-50",
-                    "id": 22,
-                    "mbm_local_bytes": 17538131215616,
-                    "mbm_total_bytes": 171281952255936,
-                    "mbm_victim_bytes_psec": 0
-                }
-			],
+			"group_mbm": {
+				"root": [
+	                {
+						"id": 21,
+						"mbm_local_bytes": 127109639580672,
+						"mbm_total_bytes": 335021042372672,
+						"mbm_victim_bytes_psec": 0
+					},
+                    {
+                        "id": 22,
+                        "mbm_local_bytes": 121527184609280,
+                        "mbm_total_bytes": 353262632387840,
+                        "mbm_victim_bytes_psec": 0
+                    }
+				],
+				"shared-50": [
+	                {
+	                    "id": 21,
+						"mbm_local_bytes": 115340555748096,
+	                    "mbm_total_bytes": 335021042372672,
+	                    "mbm_victim_bytes_psec": 0
+	                },
+	                {
+						"id": 22,
+	                    "mbm_local_bytes": 17538131215616,
+	                    "mbm_total_bytes": 171281952255936,
+	                    "mbm_victim_bytes_psec": 0
+					}
+				]
+			},
             "path": "/sys/fs/resctrl/",
             "update_time": 1755884558
         }
@@ -94,29 +94,29 @@ func TestMalachiteClient_GetMBData(t *testing.T) {
 			statusCode: 200,
 			want: &types.MBData{
 				MBBody: types.MBGroupData{
-					{
-						GroupName:      "shared-50",
-						CCDID:          21,
-						MBLocalCounter: 115340555748096,
-						MBTotalCounter: 335021042372672,
+					"root": {
+						{
+							CCDID:          21,
+							MBLocalCounter: 127109639580672,
+							MBTotalCounter: 335021042372672,
+						},
+						{
+							CCDID:          22,
+							MBLocalCounter: 121527184609280,
+							MBTotalCounter: 353262632387840,
+						},
 					},
-					{
-						GroupName:      "root",
-						CCDID:          21,
-						MBLocalCounter: 127109639580672,
-						MBTotalCounter: 335021042372672,
-					},
-					{
-						GroupName:      "root",
-						CCDID:          22,
-						MBLocalCounter: 207594313998080,
-						MBTotalCounter: 471015663758976,
-					},
-					{
-						GroupName:      "shared-50",
-						CCDID:          22,
-						MBLocalCounter: 17538131215616,
-						MBTotalCounter: 171281952255936,
+					"shared-50": {
+						{
+							CCDID:          21,
+							MBLocalCounter: 115340555748096,
+							MBTotalCounter: 335021042372672,
+						},
+						{
+							CCDID:          22,
+							MBLocalCounter: 17538131215616,
+							MBTotalCounter: 171281952255936,
+						},
 					},
 				},
 				UpdateTime: 1755884558,
