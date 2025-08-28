@@ -57,7 +57,7 @@ var (
 	}
 	relativeCgroupPathHandlerLock sync.Mutex
 	relativeCgroupPathHandlerMap  = map[string]RelativeCgroupPathHandler{
-		defaultCgroupPathHandlerName: getContainerRelativeAbsCgroupPath,
+		defaultCgroupPathHandlerName: getContainerDefaultRelativeAbsCgroupPath,
 	}
 )
 
@@ -177,7 +177,7 @@ func getContainerDefaultAbsCgroupPath(subsys, podUID, containerId string) (strin
 	return GetKubernetesAnyExistAbsCgroupPath(subsys, path.Join(fmt.Sprintf("%s%s", PodCgroupPathPrefix, podUID), containerId))
 }
 
-func getContainerRelativeAbsCgroupPath(podUID, containerId string) (string, error) {
+func getContainerDefaultRelativeAbsCgroupPath(podUID, containerId string) (string, error) {
 	return GetKubernetesAnyExistRelativeCgroupPath(path.Join(fmt.Sprintf("%s%s", PodCgroupPathPrefix, podUID), containerId))
 }
 
