@@ -41,6 +41,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/utils"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	metaserverpod "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/util"
@@ -423,12 +424,14 @@ func (p *topologyAdapterImpl) getZoneResources(allocatableResources *podresv1.Al
 		}
 	}
 
-	zoneCapacity, err = p.addNumaMemoryBandwidthResources(zoneCapacity, p.metaServer.SiblingNumaAvgMBWCapacityMap)
+	numaMBWCapacityMap := helper.GetNumaAvgMBWCapacityMap(p.metaServer.MetricsFetcher, p.metaServer.SiblingNumaAvgMBWCapacityMap)
+	zoneCapacity, err = p.addNumaMemoryBandwidthResources(zoneCapacity, numaMBWCapacityMap)
 	if err != nil {
 		errList = append(errList, err)
 	}
 
-	zoneAllocatable, err = p.addNumaMemoryBandwidthResources(zoneAllocatable, p.metaServer.SiblingNumaAvgMBWAllocatableMap)
+	numaMBWAllocatableMap := helper.GetNumaAvgMBWAllocatableMap(p.metaServer.MetricsFetcher, p.metaServer.SiblingNumaInfo, numaMBWCapacityMap)
+	zoneAllocatable, err = p.addNumaMemoryBandwidthResources(zoneAllocatable, numaMBWAllocatableMap)
 	if err != nil {
 		errList = append(errList, err)
 	}
@@ -908,15 +911,7 @@ func (p *topologyAdapterImpl) addContainerMemoryBandwidth(zoneAllocated map[util
 		// only consider numa which is allocated cpu and memory bandwidth capacity greater than zero
 		if zoneNode.Meta.Type == nodev1alpha1.TopologyTypeNuma && allocated != nil &&
 			(*allocated).Cpu().CmpInt64(0) > 0 {
-			numaID, err := util.GetZoneID(zoneNode)
-			if err != nil {
-				return nil, err
-			}
-
-			// if the numa avg mbw capacity is zero, we will not consider its mbw allocation
-			if p.metaServer.SiblingNumaAvgMBWCapacityMap[numaID] > 0 {
-				numaAllocated[zoneNode] = allocated
-			}
+			numaAllocated[zoneNode] = allocated
 		}
 	}
 
