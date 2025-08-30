@@ -18,8 +18,11 @@ package monitor
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/pkg/errors"
+	"golang.org/x/exp/maps"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/syntax"
@@ -53,6 +56,69 @@ func NewDomainStats(statOutgoing GroupMBStats, ccdToDomain map[int]int, xDomGrou
 	result.deriveIncomingStats(xDomGroups)
 	result.sumOutgoingByGroup()
 	return result, nil
+}
+
+func (d DomainMonStat) String() string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("{"))
+	groups := maps.Keys(d)
+	sort.Strings(groups)
+	for _, group := range groups {
+		stat := d[group]
+		sb.WriteString(fmt.Sprintf("%q:{", group))
+		ccdIDs := maps.Keys(stat)
+		sort.Ints(ccdIDs)
+		for _, ccd := range ccdIDs {
+			mb := stat[ccd]
+			sb.WriteString(fmt.Sprintf("%d:{l:%d,r:%d,t:%d},",
+				ccd, mb.LocalMB, mb.RemoteMB, mb.TotalMB))
+		}
+		sb.WriteString(fmt.Sprintf("},"))
+	}
+	sb.WriteString(fmt.Sprintf("}"))
+	return sb.String()
+}
+
+func (d *DomainStats) String() string {
+	var sb strings.Builder
+	sb.WriteString("[DomainStats]")
+	if d == nil {
+		sb.WriteString("nil")
+		return sb.String()
+	}
+
+	sb.WriteString("\nIncomings:{\n")
+	domIDs := maps.Keys(d.Incomings)
+	sort.Ints(domIDs)
+	for _, domID := range domIDs {
+		sb.WriteString(fmt.Sprintf("  %d:%s,\n", domID, d.Incomings[domID]))
+	}
+	sb.WriteString("}\n")
+
+	sb.WriteString("Outgoings:{\n")
+	domIDs = maps.Keys(d.Outgoings)
+	sort.Ints(domIDs)
+	for _, domID := range domIDs {
+		sb.WriteString(fmt.Sprintf("  %d:%s,\n", domID, d.Outgoings[domID]))
+	}
+	sb.WriteString("}\n")
+
+	sb.WriteString("OutgoingGroupSumStat:{")
+	groups := maps.Keys(d.OutgoingGroupSumStat)
+	sort.Strings(groups)
+	for _, group := range groups {
+		stat := d.OutgoingGroupSumStat[group]
+		sb.WriteString(group)
+		sb.WriteString(":{")
+		for domID, sum := range stat {
+			sb.WriteString(fmt.Sprintf("%d:{local:%d,remote:%d,total:%d},",
+				domID, sum.LocalMB, sum.RemoteMB, sum.TotalMB))
+		}
+		sb.WriteString("},")
+	}
+	sb.WriteString("}\n")
+
+	return sb.String()
 }
 
 func (d *DomainStats) sumOutgoingByGroup() {

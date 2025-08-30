@@ -18,6 +18,7 @@ package malachite
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/errors"
@@ -68,7 +69,7 @@ func (m *MalachiteRealtimeMBMetricsProvisioner) sample(ctx context.Context) {
 	}
 
 	if !m.checkMalachiteHealthy() {
-		_ = general.UpdateHealthzState(malachiteRealtimeMBProvisionerHealthCheckName, general.HealthzCheckStateNotReady, "malachite realtime is not healthy")
+		_ = general.UpdateHealthzState(malachiteRealtimeMBProvisionerHealthCheckName, general.HealthzCheckStateNotReady, "malachite realtime_mb is not healthy")
 		return
 	}
 
@@ -83,7 +84,7 @@ func (m *MalachiteRealtimeMBMetricsProvisioner) sample(ctx context.Context) {
 func (m *MalachiteRealtimeMBMetricsProvisioner) checkMalachiteHealthy() bool {
 	_, err := m.malachiteClient.GetMBData()
 	if err != nil {
-		klog.Errorf("[malachite_realtime_mb] malachite realtime/mb is unhealthy: %v", err)
+		klog.Errorf("[malachite_realtime_mb] malachite realtime_mb is unhealthy: %v", err)
 		_ = m.emitter.StoreInt64(metricsNamMalachiteRealtimeMBUnHealthy, 1, metrics.MetricTypeNameRaw)
 		return false
 	}
@@ -96,22 +97,27 @@ func (m *MalachiteRealtimeMBMetricsProvisioner) updateMB() error {
 	data, err := m.malachiteClient.GetMBData()
 	if err != nil {
 		errList = append(errList, err)
-		klog.Errorf("[malachite_realtime_mb] get realtime/mb failed, err %v", err)
+		klog.Errorf("[malachite_realtime_mb] get realtime_mb failed, err %v", err)
 		_ = m.emitter.StoreInt64(metricsNameMalachiteGetRealtimeMBFailed, 1, metrics.MetricTypeNameCount,
 			metrics.MetricTag{Key: "kind", Val: "mb"})
 	} else {
-		m.processMBData(data)
+		errList = append(errList, m.processMBData(data))
 	}
 
 	return errors.NewAggregate(errList)
 }
 
-func (m *MalachiteRealtimeMBMetricsProvisioner) processMBData(data *malachitetypes.MBData) {
+func (m *MalachiteRealtimeMBMetricsProvisioner) processMBData(data *malachitetypes.MBData) error {
 	if data == nil {
-		return
+		return fmt.Errorf("invalid nil realtime_mb data")
 	}
+
+	// todo: remove below line
+	general.InfofV(6, "---------realtime_mb raw data: %v", data)
+
 	// data already contains timestamp, no need to put one wrapped in a MetricData
 	m.metricStore.SetByStringIndex(consts.MetricRealtimeMB, data)
+	return nil
 }
 
 func NewMalachiteRealtimeMBMetricsProvisioner(baseConf *global.BaseConfiguration, _ *metaserver.MetricConfiguration,

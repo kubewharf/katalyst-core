@@ -44,7 +44,10 @@ func validatePath(name string) error {
 	case len(name) == 0:
 		return errors.New("invalid empty name")
 	case strings.ContainsRune(name, '/'):
-		return fmt.Errorf("invalid path %s", name)
+		if name == "/" {
+			return nil
+		}
+		return fmt.Errorf("invalid multi-folder path %s", name)
 	default:
 		return nil
 	}

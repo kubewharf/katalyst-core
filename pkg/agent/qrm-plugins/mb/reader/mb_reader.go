@@ -23,11 +23,13 @@ import (
 
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	malachitetypes "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/provisioner/malachite/types"
 	metrictypes "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 const (
@@ -56,7 +58,11 @@ type metaServerMBReader struct {
 
 func isDataFresh(epocElapsed int64, now time.Time) bool {
 	timestamp := time.Unix(epocElapsed, 0)
-	return now.Before(timestamp.Add(tolerationTime))
+	isFresh := now.Before(timestamp.Add(tolerationTime))
+	if isFresh && klog.V(6).Enabled() {
+		general.Infof("[mbm] realtime_mb timestamp %v, current %v", timestamp, now)
+	}
+	return isFresh
 }
 
 func (m *metaServerMBReader) GetMBData() (*MBData, error) {
@@ -100,7 +106,7 @@ func calcRateData(newCounter, oldCounter *malachitetypes.MBData) (*MBData, error
 
 	return &MBData{
 		MBBody:     stats,
-		UpdateTime: newTimeStamp.Unix(),
+		UpdateTime: newCounter.UpdateTime,
 	}, nil
 }
 
@@ -154,8 +160,8 @@ func getGroupData(data malachitetypes.MBGroupData) (sets.String, error) {
 func calcGroupMBRate(newCounter, oldCounter []malachitetypes.MBCCDStat, msElapsed int64) (monitor.GroupMB, error) {
 	result := monitor.GroupMB{}
 	oldCounterLookup := map[int]*malachitetypes.MBCCDStat{}
-	for _, ccdCounter := range oldCounter {
-		oldCounterLookup[ccdCounter.CCDID] = &ccdCounter
+	for i := range oldCounter {
+		oldCounterLookup[oldCounter[i].CCDID] = &oldCounter[i]
 	}
 
 	for _, ccdCounter := range newCounter {
@@ -166,9 +172,13 @@ func calcGroupMBRate(newCounter, oldCounter []malachitetypes.MBCCDStat, msElapse
 		}
 
 		// skip data with overflown, hopefully next round will get valid data
-		if ccdCounter.MBLocalCounter < oldCCDCounter.MBLocalCounter ||
-			ccdCounter.MBTotalCounter < oldCCDCounter.MBTotalCounter {
-			return nil, errors.New("raw counter value started over")
+		if ccdCounter.MBLocalCounter < oldCCDCounter.MBLocalCounter {
+			return nil, fmt.Errorf("raw local counter value started over: ccd %d, new %v, old %v",
+				ccd, ccdCounter.MBLocalCounter, oldCCDCounter.MBLocalCounter)
+		}
+		if ccdCounter.MBTotalCounter < oldCCDCounter.MBTotalCounter {
+			return nil, fmt.Errorf("raw total counter value started over: ccd %v, new %v, old %v",
+				ccd, ccdCounter.MBTotalCounter, oldCCDCounter.MBTotalCounter)
 		}
 
 		rateLocalMB := (ccdCounter.MBLocalCounter - oldCCDCounter.MBLocalCounter) * 1000 / msElapsed / 1024 / 1024

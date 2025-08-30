@@ -434,3 +434,66 @@ func TestDomainsMon_SumOutgoingByGroup(t *testing.T) {
 		})
 	}
 }
+
+func TestDomainStats_String(t *testing.T) {
+	t.Parallel()
+	type fields struct {
+		Incomings            map[int]DomainMonStat
+		Outgoings            map[int]DomainMonStat
+		OutgoingGroupSumStat map[string][]MBInfo
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		want   string
+	}{
+		{
+			name: "happy path",
+			fields: fields{
+				Incomings: map[int]DomainMonStat{
+					3: {
+						"shared-50": map[int]MBInfo{
+							0: {
+								LocalMB:  4,
+								RemoteMB: 5,
+								TotalMB:  9,
+							},
+						},
+					},
+					4: {
+						"/": map[int]MBInfo{
+							2: {
+								LocalMB:  10,
+								RemoteMB: 20,
+								TotalMB:  30,
+							},
+						},
+					},
+				},
+			},
+			want: `[DomainStats]
+Incomings:{
+  3:{"shared-50":{0:{l:4,r:5,t:9},},},
+  4:{"/":{2:{l:10,r:20,t:30},},},
+}
+Outgoings:{
+}
+OutgoingGroupSumStat:{}
+`,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			d := &DomainStats{
+				Incomings:            tt.fields.Incomings,
+				Outgoings:            tt.fields.Outgoings,
+				OutgoingGroupSumStat: tt.fields.OutgoingGroupSumStat,
+			}
+			if got := d.String(); got != tt.want {
+				t.Errorf("String() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

@@ -101,6 +101,7 @@ func (m *MBPlugin) run() {
 		general.Errorf("[mbm] failed to run fetching mb stats: %v", err)
 		return
 	}
+	general.InfofV(6, "[mbm] domain specific group ccd mb stat: %s", monData)
 
 	ctx := context.Background()
 	var mbPlan *plan.MBPlan
@@ -110,7 +111,7 @@ func (m *MBPlugin) run() {
 		return
 	}
 	if klog.V(6).Enabled() {
-		general.Infof("[mbm] mb plan update: %v", mbPlan)
+		general.Infof("[mbm] mb plan update: %s", mbPlan)
 	}
 
 	if err := m.planAllocator.Allocate(ctx, mbPlan); err != nil {
@@ -127,6 +128,7 @@ func newMBPlugin(ccdMinMB, ccdMaxMB int, defaultDomainCapacity int,
 	planAllocator allocator.PlanAllocator, emitPool metricspool.MetricsEmitterPool,
 ) skeleton.GenericPlugin {
 	ccdMappings := domains.GetCCDMapping()
+	general.Infof("[mbm] initialization: ccd-to-domain mapping %v", ccdMappings)
 	emitter := emitPool.GetDefaultMetricsEmitter().WithTags(metricName)
 	return &MBPlugin{
 		emitter:     emitter,
@@ -134,7 +136,7 @@ func newMBPlugin(ccdMinMB, ccdMaxMB int, defaultDomainCapacity int,
 		xDomGroups:  sets.NewString(xDomGroups...),
 		domains:     domains,
 		reader:      reader.New(metricFetcher),
-		advisor: advisor.New(ccdMinMB, ccdMaxMB, defaultDomainCapacity,
+		advisor: advisor.New(emitter, domains, ccdMinMB, ccdMaxMB, defaultDomainCapacity,
 			xDomGroups, groupNeverThrottles, groupCapacities,
 		),
 		planAllocator: planAllocator,
