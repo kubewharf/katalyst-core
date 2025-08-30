@@ -27,8 +27,9 @@ const (
 
 	// MetricProvisionerMalachiteRealtime is for power metric due to historical reason
 	// todo: consider rename it to malachite_realtime_power
-	MetricProvisionerMalachiteRealtime     = "malachite_realtime"
-	MetricProvisionerMalachiteRealtimeFreq = "malachite_realtime_freq"
+	MetricProvisionerMalachiteRealtime      = "malachite_realtime"
+	MetricProvisionerMalachiteRealtimeFreq  = "malachite_realtime_freq"
+	MetricProvisionerMalachiteRealtimeMemBW = "malachite_realtime_mb"
 
 	MetricProvisionerCgroup  = "cgroup"
 	MetricProvisionerKubelet = "kubelet"

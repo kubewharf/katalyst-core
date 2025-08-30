@@ -39,6 +39,7 @@ const (
 
 	RealtimePowerResource   = "realtime/power"
 	RealtimeSysFreqResource = "realtime/freq"
+	RealtimeMBResource      = "realtime/resctrl"
 )
 
 const (
@@ -84,6 +85,7 @@ func NewMalachiteClient(fetcher pod.PodFetcher, emitter metrics.MetricEmitter) *
 		SystemMemoryResource,
 		RealtimePowerResource,
 		RealtimeSysFreqResource,
+		RealtimeMBResource,
 	} {
 		urls[path] = fmt.Sprintf("http://localhost:%d/api/v1/%s", malachiteServicePort, path)
 	}
