@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -192,7 +193,6 @@ func (p *topologyAdapterImpl) GetTopologyZones(parentCtx context.Context) ([]*no
 	listPodResourcesResponseStr, _ := json.Marshal(listPodResourcesResponse)
 	allocatableResourcesResponseStr, _ := json.Marshal(allocatableResources)
 	if klog.V(5).Enabled() {
-
 		klog.Infof("list pod Resources: %s\n allocatable Resources: %s", string(listPodResourcesResponseStr),
 			string(allocatableResourcesResponseStr))
 	}
@@ -252,9 +252,11 @@ func (p *topologyAdapterImpl) GetTopologyZones(parentCtx context.Context) ([]*no
 	}
 
 	// add cache group zone node into topology zone generator by numaCacheGroupZoneNodeMap
-	err = p.addCacheGroupZoneNodes(topologyZoneGenerator)
-	if err != nil {
-		return nil, errors.Wrap(err, "get cache group zone topology failed")
+	if strings.Contains(strings.ToLower(p.metaServer.MachineInfo.CPUVendorID), "amd") {
+		err = p.addCacheGroupZoneNodes(topologyZoneGenerator)
+		if err != nil {
+			return nil, errors.Wrap(err, "get cache group zone topology failed")
+		}
 	}
 
 	return topologyZoneGenerator.GenerateTopologyZoneStatus(zoneAllocations, zoneResources, zoneAttributes, zoneSiblings, nil), nil
@@ -494,28 +496,30 @@ func (p *topologyAdapterImpl) getZoneResources(allocatableResources *podresv1.Al
 		errList = append(errList, err)
 	}
 
-	// process cache group zone node resources
-	reservedCPUs := machine.MustParse(p.reservedCPUs)
-	for cacheID, cpusets := range p.cacheGroupCPUsMap {
-		cacheGroupZone := util.GenerateCacheGroupZoneNode(cacheID)
-		// calculate capacity by the sum of cache group cpus
-		capacity, err := resource.ParseQuantity(fmt.Sprintf("%d", cpusets.Len()))
-		if err != nil {
-			errList = append(errList, err)
-		}
-		// calculate the allocatable amount by deducting the reserved cpus
-		cacheGroupCPUSets := machine.NewCPUSet(cpusets.List()...)
-		allocatableCPUSets := cacheGroupCPUSets.Difference(reservedCPUs)
-		allocatable, err := resource.ParseQuantity(fmt.Sprintf("%d", allocatableCPUSets.Size()))
-		if err != nil {
-			errList = append(errList, err)
-		}
+	if strings.Contains(strings.ToLower(p.metaServer.MachineInfo.CPUVendorID), "amd") {
+		// process cache group zone node resources
+		reservedCPUs := machine.MustParse(p.reservedCPUs)
+		for cacheID, cpusets := range p.cacheGroupCPUsMap {
+			cacheGroupZone := util.GenerateCacheGroupZoneNode(cacheID)
+			// calculate capacity by the sum of cache group cpus
+			capacity, err := resource.ParseQuantity(fmt.Sprintf("%d", cpusets.Len()))
+			if err != nil {
+				errList = append(errList, err)
+			}
+			// calculate the allocatable amount by deducting the reserved cpus
+			cacheGroupCPUSets := machine.NewCPUSet(cpusets.List()...)
+			allocatableCPUSets := cacheGroupCPUSets.Difference(reservedCPUs)
+			allocatable, err := resource.ParseQuantity(fmt.Sprintf("%d", allocatableCPUSets.Size()))
+			if err != nil {
+				errList = append(errList, err)
+			}
 
-		zoneAllocatable[cacheGroupZone] = &v1.ResourceList{
-			"cpu": allocatable,
-		}
-		zoneCapacity[cacheGroupZone] = &v1.ResourceList{
-			"cpu": capacity,
+			zoneAllocatable[cacheGroupZone] = &v1.ResourceList{
+				"cpu": allocatable,
+			}
+			zoneCapacity[cacheGroupZone] = &v1.ResourceList{
+				"cpu": capacity,
+			}
 		}
 	}
 
@@ -708,14 +712,16 @@ func (p *topologyAdapterImpl) getZoneAttributes(allocatableResources *podresv1.A
 	}
 
 	// generate the attributes of cache group zone node.
-	for groupID, cpus := range p.cacheGroupCPUsMap {
-		cacheGroupZoneNode := util.GenerateCacheGroupZoneNode(groupID)
+	if strings.Contains(strings.ToLower(p.metaServer.MachineInfo.CPUVendorID), "amd") {
+		for groupID, cpus := range p.cacheGroupCPUsMap {
+			cacheGroupZoneNode := util.GenerateCacheGroupZoneNode(groupID)
 
-		zoneAttributes[cacheGroupZoneNode] = util.ZoneAttributes{
-			nodev1alpha1.Attribute{
-				Name:  "cpu_lists",
-				Value: machine.NewCPUSet(cpus.List()...).String(),
-			},
+			zoneAttributes[cacheGroupZoneNode] = util.ZoneAttributes{
+				nodev1alpha1.Attribute{
+					Name:  "cpu_lists",
+					Value: machine.NewCPUSet(cpus.List()...).String(),
+				},
+			}
 		}
 	}
 
