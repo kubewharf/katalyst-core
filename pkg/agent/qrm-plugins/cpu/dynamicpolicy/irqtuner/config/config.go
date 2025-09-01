@@ -32,10 +32,11 @@ const (
 )
 
 const (
-	IrqTuningIntervalMin       = 3
-	EnableRPSCPUVSNicsQueueMin = 1
-	ProcessNiceMin             = -20
-	ProcessNiceMax             = 19
+	IrqTuningIntervalMin           = 3
+	EnableRPSCPUVSNicsQueueMin     = 1
+	ProcessNiceMin                 = -20
+	ProcessNiceMax                 = 19
+	RPSExcludeIrqCoresThresholdMin = 3
 )
 
 type NicAffinitySocketsPolicy string
@@ -48,6 +49,13 @@ const (
 	// NicPhysicalTopoBindNuma nic's irqs affinity socket strictly follow whose physical topology binded socket
 	NicPhysicalTopoBindNuma NicAffinitySocketsPolicy = "physical-topo-bind"
 )
+
+// RPSExcludeIrqCoresThreshold determines if excluding irq-cores in rx queue's rps_cpus,
+// if rps qualified cores count versus irq cores count of rps qualified cores is greater-equal RPSCoresVSIrqCoresRatio,
+// then rps_cpus excludes irq cores.
+type RPSExcludeIrqCoresThreshold struct {
+	RPSCoresVSIrqCoresRatio float64
+}
 
 // LowThroughputThresholds thresholds of classifying a nic to low throughput class, if a nic's throughput meet LowThroughputThresholds, then
 // this nic will be considered as low througput nic, low throughput nic's irq affinity will be dealed separately, doesnot
@@ -156,9 +164,10 @@ type IrqTuningConfig struct {
 	Interval                    int
 	EnableIrqTuning             bool
 	IrqTuningPolicy             IrqTuningPolicy
-	EnableRPS                   bool                     // enable rps according to machine specifications configured by kcc, only balance-fair policy support enable rps
-	EnableRPSCPUVSNicsQueue     float64                  // enable rps when (cpus count)/(nics queue count) greater than this config
-	NicAffinitySocketsPolicy    NicAffinitySocketsPolicy // nics's irqs affinity sockets policy
+	EnableRPS                   bool                        // enable rps according to machine specifications configured by kcc, only balance-fair policy support enable rps
+	EnableRPSCPUVSNicsQueue     float64                     // enable rps when (cpus count)/(nics queue count) greater than this config
+	RPSExcludeIrqCoresThreshold RPSExcludeIrqCoresThreshold // threshold of excluding irq cores in rx queue's rps_cpus
+	NicAffinitySocketsPolicy    NicAffinitySocketsPolicy    // nics's irqs affinity sockets policy
 	IrqCoresExpectedCpuUtil     int
 	ThroughputClassSwitchConf   ThroughputClassSwitchConfig
 	ReniceIrqCoresKsoftirqd     bool
@@ -171,11 +180,14 @@ type IrqTuningConfig struct {
 
 func NewConfiguration() *IrqTuningConfig {
 	return &IrqTuningConfig{
-		Interval:                 5,
-		EnableIrqTuning:          false,
-		IrqTuningPolicy:          IrqTuningBalanceFair,
-		EnableRPS:                false,
-		EnableRPSCPUVSNicsQueue:  0,
+		Interval:                5,
+		EnableIrqTuning:         false,
+		IrqTuningPolicy:         IrqTuningBalanceFair,
+		EnableRPS:               false,
+		EnableRPSCPUVSNicsQueue: 0,
+		RPSExcludeIrqCoresThreshold: RPSExcludeIrqCoresThreshold{
+			RPSCoresVSIrqCoresRatio: 4,
+		},
 		NicAffinitySocketsPolicy: EachNicBalanceAllSockets,
 		IrqCoresExpectedCpuUtil:  50,
 		ThroughputClassSwitchConf: ThroughputClassSwitchConfig{
@@ -379,6 +391,12 @@ func ValidateIrqTuningDynamicConfig(dynamicConf *dynconfig.Configuration) error 
 
 	if conf.EnableRPSCPUVSNicsQueue < EnableRPSCPUVSNicsQueueMin && conf.EnableRPSCPUVSNicsQueue != 0 {
 		return fmt.Errorf("invalid EnableRPSCPUVSNicsQueue: %f, less-than EnableRPSCPUVSNicsQueueMin %d", conf.EnableRPSCPUVSNicsQueue, EnableRPSCPUVSNicsQueueMin)
+	}
+
+	if conf.RPSExcludeIrqCoresThreshold != nil {
+		if conf.RPSExcludeIrqCoresThreshold.RPSCoresVSIrqCoresRatio < RPSExcludeIrqCoresThresholdMin {
+			return fmt.Errorf("invalid RPSExcludeIrqCoresThreshold.RPSCoresVSIrqCoresRatio: %f, less-than RPSExcludeIrqCoresThresholdMin %d", conf.RPSExcludeIrqCoresThreshold.RPSCoresVSIrqCoresRatio, RPSExcludeIrqCoresThresholdMin)
+		}
 	}
 
 	if conf.KsoftirqdNice < ProcessNiceMin || conf.KsoftirqdNice > ProcessNiceMax {
@@ -592,6 +610,9 @@ func ConvertDynamicConfigToIrqTuningConfig(dynamicConf *dynconfig.Configuration)
 
 		conf.EnableRPS = dynamicConf.IRQTuningConfiguration.EnableRPS
 		conf.EnableRPSCPUVSNicsQueue = dynamicConf.IRQTuningConfiguration.EnableRPSCPUVSNicsQueue
+		if dynamicConf.RPSExcludeIrqCoresThreshold != nil {
+			conf.RPSExcludeIrqCoresThreshold.RPSCoresVSIrqCoresRatio = dynamicConf.RPSExcludeIrqCoresThreshold.RPSCoresVSIrqCoresRatio
+		}
 
 		switch dynamicConf.IRQTuningConfiguration.NICAffinityPolicy {
 		case v1alpha1.NICAffinityPolicyPhysicalTopo:
