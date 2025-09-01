@@ -2570,13 +2570,13 @@ func (ic *IrqTuningController) selectPhysicalCoreWithLeastOrMostIrqs(coreIrqsCou
 
 		if least {
 			if targetPhyCoreIndex == -1 || irqsCount < targetPhyCoreIrqsCount ||
-				(irqsCount == targetPhyCoreIrqsCount && getMinCPUID(phyCore.CPUs) < getMinCPUID(phyCores[targetPhyCoreIrqsCount].CPUs)) {
+				(irqsCount == targetPhyCoreIrqsCount && getMinCPUID(phyCore.CPUs) < getMinCPUID(phyCores[targetPhyCoreIndex].CPUs)) {
 				targetPhyCoreIndex = phyCoreIndex
 				targetPhyCoreIrqsCount = irqsCount
 			}
 		} else {
 			if targetPhyCoreIndex == -1 || irqsCount > targetPhyCoreIrqsCount ||
-				(irqsCount == targetPhyCoreIrqsCount && getMinCPUID(phyCore.CPUs) < getMinCPUID(phyCores[targetPhyCoreIrqsCount].CPUs)) {
+				(irqsCount == targetPhyCoreIrqsCount && getMinCPUID(phyCore.CPUs) < getMinCPUID(phyCores[targetPhyCoreIndex].CPUs)) {
 				targetPhyCoreIndex = phyCoreIndex
 				targetPhyCoreIrqsCount = irqsCount
 			}
