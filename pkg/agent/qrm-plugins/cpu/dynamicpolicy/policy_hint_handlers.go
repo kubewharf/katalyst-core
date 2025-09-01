@@ -773,30 +773,30 @@ func (p *DynamicPolicy) populateBestEffortHintsByAvailableNUMANodes(
 	var nodeHints []nodeHint
 	// Collect nodes that meet the requirement
 	for nodeID := range candidateLeft {
+		if candidateLeft[nodeID] < 0 {
+			continue
+		}
 		// Collect node and its available left CPU
 		nodeHints = append(nodeHints, nodeHint{nodeID: nodeID, curLeft: candidateLeft[nodeID]})
 	}
 
 	// Sort nodes by available resources (curLeft) in descending order
 	sort.Slice(nodeHints, func(i, j int) bool {
-		return nodeHints[i].curLeft > nodeHints[j].curLeft
+		return nodeHints[i].curLeft < nodeHints[j].curLeft
 	})
 
 	// Pre-size hint list capacity to avoid frequent resizing
 	hintList := make([]*pluginapi.TopologyHint, 0, len(nodeHints))
 	// Add sorted hints to the hint list
 	for _, nh := range nodeHints {
-		if nh.curLeft < 0 {
-			hintList = append(hintList, &pluginapi.TopologyHint{
-				Nodes:     []uint64{uint64(nh.nodeID)},
-				Preferred: false,
-			})
-		} else {
-			hintList = append(hintList, &pluginapi.TopologyHint{
-				Nodes:     []uint64{uint64(nh.nodeID)},
-				Preferred: true,
-			})
-		}
+		hintList = append(hintList, &pluginapi.TopologyHint{
+			Nodes:     []uint64{uint64(nh.nodeID)},
+			Preferred: false,
+		})
+	}
+
+	if len(hintList) > 0 {
+		hintList[0].Preferred = true
 	}
 
 	// Update the hints map
