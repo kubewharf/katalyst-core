@@ -94,7 +94,15 @@ func GetAvailableNUMAsAndReclaimedCores(conf *config.Configuration, metaReader m
 				return true
 			}
 
-			availNUMAs = availNUMAs.Difference(machine.NewCPUSet(bindingResult))
+			// numa node -> socket
+			socketID, ok := metaServer.NUMANodeIDToSocketID[bindingResult]
+			if !ok {
+				errList = append(errList, fmt.Errorf("numa node %v has no socket", bindingResult))
+				return true
+			}
+
+			// disable reclaim for all the numa nodes in the socket which has disabled reclaim numa binding pool
+			availNUMAs = availNUMAs.Difference(metaServer.CPUDetails.NUMANodesInSockets(socketID))
 		}
 
 		return true
