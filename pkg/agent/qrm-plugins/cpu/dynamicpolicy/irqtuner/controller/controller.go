@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1641,7 +1642,8 @@ func (ic *IrqTuningController) emitIrqTuningPolicy() {
 		irqTuningPolicyMetricVal = -1
 	}
 
-	_ = ic.emitter.StoreInt64(metricUtil.MetricNameIrqTuningPolicy, irqTuningPolicyMetricVal, metrics.MetricTypeNameRaw)
+	_ = ic.emitter.StoreInt64(metricUtil.MetricNameIrqTuningPolicy, irqTuningPolicyMetricVal, metrics.MetricTypeNameRaw,
+		metrics.MetricTag{Key: "irq_tuning_policy", Val: string(ic.conf.IrqTuningPolicy)})
 }
 
 func (ic *IrqTuningController) emitNicsIrqAffinityPolicy() {
@@ -1654,7 +1656,8 @@ func (ic *IrqTuningController) emitNicsIrqAffinityPolicy() {
 			val = 1
 		}
 		_ = ic.emitter.StoreInt64(metricUtil.MetricNameIrqTuningNicIrqAffinityPolicy, val, metrics.MetricTypeNameRaw,
-			metrics.MetricTag{Key: "nic", Val: nic.NicInfo.UniqName()})
+			metrics.MetricTag{Key: "nic", Val: nic.NicInfo.UniqName()},
+			metrics.MetricTag{Key: "irq_affinity_policy", Val: string(nic.IrqAffinityPolicy)})
 	}
 }
 
@@ -3515,8 +3518,10 @@ retry:
 	}
 	ic.IrqAffForbiddenContainers = irqAffinityForbiddenContainers
 	ic.SriovContainers = sriovContainers
-	_ = ic.emitter.StoreInt64(metricUtil.MetricNameIrqTuningSriovContainersCount, int64(len(ic.SriovContainers)), metrics.MetricTypeNameRaw)
-	_ = ic.emitter.StoreInt64(metricUtil.MetricNameIrqTuningIrqAffForbiddenContainersCount, int64(len(ic.IrqAffForbiddenContainers)), metrics.MetricTypeNameRaw)
+	_ = ic.emitter.StoreInt64(metricUtil.MetricNameIrqTuningSriovContainersCount, int64(len(ic.SriovContainers)), metrics.MetricTypeNameRaw,
+		metrics.MetricTag{Key: "count", Val: strconv.Itoa(len(ic.SriovContainers))})
+	_ = ic.emitter.StoreInt64(metricUtil.MetricNameIrqTuningIrqAffForbiddenContainersCount, int64(len(ic.IrqAffForbiddenContainers)), metrics.MetricTypeNameRaw,
+		metrics.MetricTag{Key: "count", Val: strconv.Itoa(len(ic.SriovContainers))})
 
 	forbiddendCores, err := ic.IrqStateAdapter.GetIRQForbiddenCores()
 	if err != nil {
@@ -5396,12 +5401,14 @@ func (ic *IrqTuningController) periodicTuningIrqBalanceFair() {
 			}
 		}
 
-		_ = ic.emitter.StoreInt64(metricUtil.MetricNameIrqTuningRPSEnabled, 1, metrics.MetricTypeNameRaw)
+		_ = ic.emitter.StoreInt64(metricUtil.MetricNameIrqTuningRPSEnabled, 1, metrics.MetricTypeNameRaw,
+			metrics.MetricTag{Key: "enabled", Val: "1"})
 	} else {
 		if err := ic.clearRPSForNics(ic.getAllNics()); err != nil {
 			general.Errorf("%s failed to clearRPSForNics, err %s", IrqTuningLogPrefix, err)
 		}
-		_ = ic.emitter.StoreInt64(metricUtil.MetricNameIrqTuningRPSEnabled, 0, metrics.MetricTypeNameRaw)
+		_ = ic.emitter.StoreInt64(metricUtil.MetricNameIrqTuningRPSEnabled, 0, metrics.MetricTypeNameRaw,
+			metrics.MetricTag{Key: "enabled", Val: "0"})
 	}
 
 	// restore ksoftirqd default nice
@@ -5612,10 +5619,12 @@ func (ic *IrqTuningController) periodicTuning() {
 
 	if !ic.conf.EnableIrqTuning {
 		ic.disableIrqTuning()
-		_ = ic.emitter.StoreInt64(metricUtil.MetricNameIrqTuningEnabled, 0, metrics.MetricTypeNameRaw)
+		_ = ic.emitter.StoreInt64(metricUtil.MetricNameIrqTuningEnabled, 0, metrics.MetricTypeNameRaw,
+			metrics.MetricTag{Key: "enabled", Val: "0"})
 		return
 	}
-	_ = ic.emitter.StoreInt64(metricUtil.MetricNameIrqTuningEnabled, 1, metrics.MetricTypeNameRaw)
+	_ = ic.emitter.StoreInt64(metricUtil.MetricNameIrqTuningEnabled, 1, metrics.MetricTypeNameRaw,
+		metrics.MetricTag{Key: "enabled", Val: "1"})
 
 	switch ic.conf.IrqTuningPolicy {
 	case config.IrqTuningIrqCoresExclusive:
