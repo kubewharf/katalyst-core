@@ -260,6 +260,8 @@ func (c *IrqTuningConfig) String() string {
 	msg = fmt.Sprintf("%s    IrqTuningPolicy: %s\n", msg, c.IrqTuningPolicy)
 	msg = fmt.Sprintf("%s    EnableRPS: %t\n", msg, c.EnableRPS)
 	msg = fmt.Sprintf("%s    EnableRPSCPUVSNicsQueue: %f\n", msg, c.EnableRPSCPUVSNicsQueue)
+	msg = fmt.Sprintf("%s    RPSExcludeIrqCoresThreshold:\n", msg)
+	msg = fmt.Sprintf("%s    	RPSCoresVSIrqCoresRatio: %f\n", msg, c.RPSExcludeIrqCoresThreshold.RPSCoresVSIrqCoresRatio)
 	msg = fmt.Sprintf("%s    NicAffinitySocketsPolicy: %s\n", msg, c.NicAffinitySocketsPolicy)
 	msg = fmt.Sprintf("%s    IrqCoresExpectedCpuUtil: %d\n", msg, c.IrqCoresExpectedCpuUtil)
 	msg = fmt.Sprintf("%s    ThroughputClassSwitchConf:\n", msg)
@@ -393,9 +395,9 @@ func ValidateIrqTuningDynamicConfig(dynamicConf *dynconfig.Configuration) error 
 		return fmt.Errorf("invalid EnableRPSCPUVSNicsQueue: %f, less-than EnableRPSCPUVSNicsQueueMin %d", conf.EnableRPSCPUVSNicsQueue, EnableRPSCPUVSNicsQueueMin)
 	}
 
-	if conf.RPSExcludeIrqCoresThreshold != nil {
-		if conf.RPSExcludeIrqCoresThreshold.RPSCoresVSIrqCoresRatio < RPSExcludeIrqCoresThresholdMin {
-			return fmt.Errorf("invalid RPSExcludeIrqCoresThreshold.RPSCoresVSIrqCoresRatio: %f, less-than RPSExcludeIrqCoresThresholdMin %d", conf.RPSExcludeIrqCoresThreshold.RPSCoresVSIrqCoresRatio, RPSExcludeIrqCoresThresholdMin)
+	if conf.RPSExcludeIRQCoresThreshold != nil {
+		if conf.RPSExcludeIRQCoresThreshold.RPSCoresVSIRQCoresRatio < RPSExcludeIrqCoresThresholdMin {
+			return fmt.Errorf("invalid RPSExcludeIrqCoresThreshold.RPSCoresVSIrqCoresRatio: %f, less-than RPSExcludeIrqCoresThresholdMin %d", conf.RPSExcludeIRQCoresThreshold.RPSCoresVSIRQCoresRatio, RPSExcludeIrqCoresThresholdMin)
 		}
 	}
 
@@ -610,8 +612,8 @@ func ConvertDynamicConfigToIrqTuningConfig(dynamicConf *dynconfig.Configuration)
 
 		conf.EnableRPS = dynamicConf.IRQTuningConfiguration.EnableRPS
 		conf.EnableRPSCPUVSNicsQueue = dynamicConf.IRQTuningConfiguration.EnableRPSCPUVSNicsQueue
-		if dynamicConf.RPSExcludeIrqCoresThreshold != nil {
-			conf.RPSExcludeIrqCoresThreshold.RPSCoresVSIrqCoresRatio = dynamicConf.RPSExcludeIrqCoresThreshold.RPSCoresVSIrqCoresRatio
+		if dynamicConf.RPSExcludeIRQCoresThreshold != nil {
+			conf.RPSExcludeIrqCoresThreshold.RPSCoresVSIrqCoresRatio = dynamicConf.RPSExcludeIRQCoresThreshold.RPSCoresVSIRQCoresRatio
 		}
 
 		switch dynamicConf.IRQTuningConfiguration.NICAffinityPolicy {
