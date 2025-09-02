@@ -44,6 +44,11 @@ const (
 
 type ContextKey string
 
+type ContainerInfo struct {
+	SandboxID   string `json:"sandboxID"`
+	RuntimeType string `json:"runtimeType"`
+}
+
 const (
 	BypassCacheKey  ContextKey = "bypass_cache"
 	BypassCacheTrue ContextKey = "true"
@@ -67,8 +72,9 @@ type PodFetcher interface {
 }
 
 type podFetcherImpl struct {
-	kubeletPodFetcher KubeletPodFetcher
-	runtimePodFetcher RuntimePodFetcher
+	kubeletPodFetcher    KubeletPodFetcher
+	runtimePodFetcher    RuntimePodFetcher
+	kataContainerFetcher *KataContainerFetcher
 
 	kubeletPodsCache     map[string]*v1.Pod
 	kubeletPodsCacheLock sync.RWMutex
@@ -92,12 +98,13 @@ func NewPodFetcher(baseConf *global.BaseConfiguration, podConf *metaserver.PodCo
 	}
 
 	return &podFetcherImpl{
-		kubeletPodFetcher: NewKubeletPodFetcher(baseConf),
-		runtimePodFetcher: runtimePodFetcher,
-		emitter:           emitter,
-		baseConf:          baseConf,
-		podConf:           podConf,
-		cgroupRootPaths:   cgroupRootPaths,
+		kubeletPodFetcher:    NewKubeletPodFetcher(baseConf),
+		runtimePodFetcher:    runtimePodFetcher,
+		emitter:              emitter,
+		baseConf:             baseConf,
+		podConf:              podConf,
+		cgroupRootPaths:      cgroupRootPaths,
+		kataContainerFetcher: NewKataContainerFetcher(runtimePodFetcher),
 	}, nil
 }
 
