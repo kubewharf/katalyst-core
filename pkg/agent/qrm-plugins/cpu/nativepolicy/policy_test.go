@@ -43,7 +43,7 @@ const (
 
 func getTestNativePolicy(topology *machine.CPUTopology, stateFileDirectory string) (*NativePolicy, error) {
 	stateImpl, err := state.NewCheckpointState(stateFileDirectory, cpuPluginStateFileName,
-		cpuconsts.CPUResourcePluginPolicyNameNative, topology, false, nativepolicyutil.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
+		cpuconsts.CPUResourcePluginPolicyNameNative, topology, false, nativepolicyutil.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{}, false)
 	if err != nil {
 		return nil, err
 	}

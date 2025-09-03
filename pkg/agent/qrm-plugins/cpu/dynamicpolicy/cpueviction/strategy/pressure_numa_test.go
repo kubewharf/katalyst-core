@@ -96,7 +96,7 @@ func TestNumaCPUPressureEviction_update(t *testing.T) {
 	defer os.RemoveAll(testingDir)
 
 	cpuTopology, _ := machine.GenerateDummyCPUTopology(16, 2, 4)
-	state1, _ := state.NewCheckpointState(testingDir, "test", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
+	state1, _ := state.NewCheckpointState(testingDir, "test", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{}, false)
 
 	podEntry := state.PodEntries{
 		"pod1": state.ContainerEntries{
