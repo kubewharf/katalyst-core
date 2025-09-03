@@ -888,7 +888,7 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 					blockID, err)
 			}
 
-			cpuset, err := calculator.TakeByTopology(machineInfo, numaAvailableCPUs, blockResult)
+			cpuset, err := calculator.TakeByTopology(machineInfo, numaAvailableCPUs, blockResult, false)
 			if err != nil {
 				return nil, fmt.Errorf("allocate cpuset for NUMA Aware block: %s in NUMA: %d failed with error: %v, numaAvailableCPUs: %d(%s), blockResult: %d",
 					blockID, numaID, err, numaAvailableCPUs.Size(), numaAvailableCPUs.String(), blockResult)
