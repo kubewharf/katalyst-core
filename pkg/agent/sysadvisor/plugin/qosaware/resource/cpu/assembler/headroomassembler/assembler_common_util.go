@@ -159,8 +159,8 @@ func (ha *HeadroomAssemblerCommon) getReclaimNUMABindingTopo(reclaimPool *types.
 		case consts.PodAnnotationQoSLevelDedicatedCores:
 			containers, ok := ha.metaReader.GetContainerEntries(string(pod.UID))
 			if !ok {
-				err = fmt.Errorf("get container entries failed: %s, %s, %v", pod.Name, pod.UID, e)
-				return
+				klog.Warningf("get container entries failed: %s, %s, not found", pod.Name, pod.UID)
+				continue
 			}
 
 			for _, ci := range containers {
