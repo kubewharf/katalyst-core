@@ -361,6 +361,15 @@ func (d CPUDetails) Sockets() CPUSet {
 	return b
 }
 
+// L3Caches returns all l3Cache IDs associated with the CPUs in this CPUDetails.
+func (d CPUDetails) L3Caches() CPUSet {
+	b := NewCPUSet()
+	for _, cpuInfo := range d {
+		b.Add(cpuInfo.L3CacheID)
+	}
+	return b
+}
+
 // CPUsInSockets returns all logical CPU IDs associated with the given
 // socket IDs in this CPUDetails.
 func (d CPUDetails) CPUsInSockets(ids ...int) CPUSet {
@@ -442,6 +451,20 @@ func (d CPUDetails) CPUsInNUMANodes(ids ...int) CPUSet {
 	for _, id := range ids {
 		for cpu, cpuInfo := range d {
 			if cpuInfo.NUMANodeID == id {
+				b.Add(cpu)
+			}
+		}
+	}
+	return b
+}
+
+// CPUsInL3Caches returns all logical CPU IDs associated with the given
+// l3Cache IDs in this CPUDetails.
+func (d CPUDetails) CPUsInL3Caches(ids ...int) CPUSet {
+	b := NewCPUSet()
+	for _, id := range ids {
+		for cpu, cpuInfo := range d {
+			if cpuInfo.L3CacheID == id {
 				b.Add(cpu)
 			}
 		}
