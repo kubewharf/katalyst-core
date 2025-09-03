@@ -208,6 +208,17 @@ func (re RegionEntries) Clone() RegionEntries {
 	return clone
 }
 
+func (he HeadroomEntries) Clone() HeadroomEntries {
+	if he == nil {
+		return nil
+	}
+	clone := make(HeadroomEntries)
+	for headroomName, headroomInfo := range he {
+		clone[headroomName] = headroomInfo.Clone()
+	}
+	return clone
+}
+
 func (rs RegionStatus) Clone() RegionStatus {
 	clone := RegionStatus{
 		OvershootStatus: make(map[string]OvershootType),
