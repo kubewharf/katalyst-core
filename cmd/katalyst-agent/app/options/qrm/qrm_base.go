@@ -32,6 +32,7 @@ type GenericQRMPluginOptions struct {
 	PodLabelKeptKeys            []string
 	EnableReclaimNUMABinding    bool
 	EnableSNBHighNumaPreference bool
+	EnableInMemoryState         bool
 }
 
 func NewGenericQRMPluginOptions() *GenericQRMPluginOptions {
@@ -63,6 +64,8 @@ func (o *GenericQRMPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.EnableReclaimNUMABinding, "if set true, reclaim pod will be allocated on a specific NUMA node best-effort, otherwise, reclaim pod will be allocated on multi NUMA nodes")
 	fs.BoolVar(&o.EnableSNBHighNumaPreference, "enable-snb-high-numa-preference",
 		o.EnableSNBHighNumaPreference, "default false,if set true, snb pod will be preferentially allocated on high numa node")
+	fs.BoolVar(&o.EnableInMemoryState, "qrm-enable-in-memory-state",
+		o.EnableInMemoryState, "if set true, the state will be stored in tmpfs")
 }
 
 func (o *GenericQRMPluginOptions) ApplyTo(conf *qrmconfig.GenericQRMPluginConfiguration) error {
@@ -75,6 +78,7 @@ func (o *GenericQRMPluginOptions) ApplyTo(conf *qrmconfig.GenericQRMPluginConfig
 	conf.PodLabelKeptKeys = append(conf.PodLabelKeptKeys, o.PodLabelKeptKeys...)
 	conf.EnableReclaimNUMABinding = o.EnableReclaimNUMABinding
 	conf.EnableSNBHighNumaPreference = o.EnableSNBHighNumaPreference
+	conf.EnableInMemoryState = o.EnableInMemoryState
 
 	return nil
 }

@@ -32,6 +32,7 @@ type GenericSysAdvisorConfiguration struct {
 	ClearStateFileDirectory     bool
 	EnableShareCoresNumaBinding bool
 	SkipStateCorruption         bool
+	EnableInMemoryState         bool
 }
 
 // NewGenericSysAdvisorConfiguration creates a new generic sysadvisor plugin configuration.

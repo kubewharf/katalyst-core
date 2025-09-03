@@ -98,7 +98,7 @@ func NewNativePolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	})
 
 	stateImpl, stateErr := state.NewCheckpointState(conf.GenericQRMPluginConfiguration.StateFileDirectory, cpuPluginStateFileName,
-		cpuconsts.CPUResourcePluginPolicyNameNative, agentCtx.CPUTopology, conf.SkipCPUStateCorruption, nativepolicyutil.GenerateMachineStateFromPodEntries, wrappedEmitter)
+		cpuconsts.CPUResourcePluginPolicyNameNative, agentCtx.CPUTopology, conf.SkipCPUStateCorruption, nativepolicyutil.GenerateMachineStateFromPodEntries, wrappedEmitter, conf.GenericQRMPluginConfiguration.EnableInMemoryState)
 	if stateErr != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("NewCheckpointState failed with error: %v", stateErr)
 	}

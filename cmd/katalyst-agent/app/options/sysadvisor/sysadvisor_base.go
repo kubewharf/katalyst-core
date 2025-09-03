@@ -39,6 +39,7 @@ type GenericSysAdvisorOptions struct {
 	ClearStateFileDirectory     bool
 	EnableShareCoresNumaBinding bool
 	SkipStateCorruption         bool
+	EnableInMemoryState         bool
 }
 
 // NewGenericSysAdvisorOptions creates a new Options with a default config.
@@ -68,6 +69,7 @@ func (o *GenericSysAdvisorOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.BoolVar(&o.ClearStateFileDirectory, "clear-state-dir", o.ClearStateFileDirectory, "clear state file when starting up (only for rollback)")
 	fs.BoolVar(&o.EnableShareCoresNumaBinding, "enable-share-cores-numa-binding", o.EnableShareCoresNumaBinding, "enable share cores with NUMA binding feature")
 	fs.BoolVar(&o.SkipStateCorruption, "skip-state-corruption", o.SkipStateCorruption, "skip meta cache state corruption")
+	fs.BoolVar(&o.EnableInMemoryState, "sysadvisor-enable-in-memory-state", o.EnableInMemoryState, "allow state file to be stored in tmpfs")
 }
 
 // ApplyTo fills up config with options
@@ -77,6 +79,7 @@ func (o *GenericSysAdvisorOptions) ApplyTo(c *sysadvisor.GenericSysAdvisorConfig
 	c.ClearStateFileDirectory = o.ClearStateFileDirectory
 	c.EnableShareCoresNumaBinding = o.EnableShareCoresNumaBinding
 	c.SkipStateCorruption = o.SkipStateCorruption
+	c.EnableInMemoryState = o.EnableInMemoryState
 	return nil
 }
 

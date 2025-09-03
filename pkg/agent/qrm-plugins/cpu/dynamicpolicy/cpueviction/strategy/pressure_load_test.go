@@ -106,7 +106,7 @@ func makeState(topo *machine.CPUTopology) (qrmstate.State, error) {
 	if err != nil {
 		return nil, fmt.Errorf("make tmp dir for checkpoint failed with error: %v", err)
 	}
-	return qrmstate.NewCheckpointState(tmpDir, "test", "test", topo, false, qrmstate.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
+	return qrmstate.NewCheckpointState(tmpDir, "test", "test", topo, false, qrmstate.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{}, false)
 }
 
 func TestNewCPUPressureLoadEviction(t *testing.T) {

@@ -1488,7 +1488,7 @@ func TestNewCheckpointState(t *testing.T) {
 			require.NoError(t, cpm.CreateCheckpoint(cpuPluginStateFileName, checkpoint), "could not create testing checkpoint")
 		}
 
-		restoredState, err := NewCheckpointState(testingDir, cpuPluginStateFileName, policyName, cpuTopology, false, GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
+		restoredState, err := NewCheckpointState(testingDir, cpuPluginStateFileName, policyName, cpuTopology, false, GenerateMachineStateFromPodEntries, metrics.DummyMetrics{}, false)
 		if strings.TrimSpace(tc.expectedError) != "" {
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "could not restore state from checkpoint:")
@@ -1496,7 +1496,7 @@ func TestNewCheckpointState(t *testing.T) {
 
 			// test skip corruption
 			if strings.Contains(err.Error(), "checkpoint is corrupted") {
-				_, err = NewCheckpointState(testingDir, cpuPluginStateFileName, policyName, cpuTopology, true, GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
+				_, err = NewCheckpointState(testingDir, cpuPluginStateFileName, policyName, cpuTopology, true, GenerateMachineStateFromPodEntries, metrics.DummyMetrics{}, false)
 				require.Nil(t, err)
 			}
 		} else {
@@ -2014,7 +2014,7 @@ func TestClearState(t *testing.T) {
 			}
 			defer os.RemoveAll(testingDir)
 
-			state1, err := NewCheckpointState(testingDir, cpuPluginStateFileName, policyName, tc.cpuTopology, false, GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
+			state1, err := NewCheckpointState(testingDir, cpuPluginStateFileName, policyName, tc.cpuTopology, false, GenerateMachineStateFromPodEntries, metrics.DummyMetrics{}, false)
 			as.Nil(err)
 
 			state1.ClearState()
@@ -2022,7 +2022,7 @@ func TestClearState(t *testing.T) {
 			state1.SetMachineState(tc.machineState, true)
 			state1.SetPodEntries(tc.podEntries, true)
 
-			state2, err := NewCheckpointState(testingDir, cpuPluginStateFileName, policyName, tc.cpuTopology, false, GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
+			state2, err := NewCheckpointState(testingDir, cpuPluginStateFileName, policyName, tc.cpuTopology, false, GenerateMachineStateFromPodEntries, metrics.DummyMetrics{}, false)
 			as.Nil(err)
 			assertStateEqual(t, state2, state1)
 		})
@@ -2531,7 +2531,7 @@ func TestCheckpointStateHelpers(t *testing.T) {
 		t.Run(tc.description, func(t *testing.T) {
 			t.Parallel()
 
-			state, err := NewCheckpointState(testingDir, cpuPluginStateFileName, policyName, tc.cpuTopology, false, GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
+			state, err := NewCheckpointState(testingDir, cpuPluginStateFileName, policyName, tc.cpuTopology, false, GenerateMachineStateFromPodEntries, metrics.DummyMetrics{}, false)
 			as.Nil(err)
 
 			state.ClearState()
