@@ -180,7 +180,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		v1.ResourceMemory: reservedMemory,
 	}
 	stateImpl, err := state.NewCheckpointState(conf.GenericQRMPluginConfiguration.StateFileDirectory, memoryPluginStateFileName,
-		memconsts.MemoryResourcePluginPolicyNameDynamic, agentCtx.CPUTopology, agentCtx.MachineInfo, resourcesReservedMemory, conf.SkipMemoryStateCorruption, wrappedEmitter)
+		memconsts.MemoryResourcePluginPolicyNameDynamic, agentCtx.CPUTopology, agentCtx.MachineInfo, resourcesReservedMemory, conf.SkipMemoryStateCorruption, wrappedEmitter, conf.GenericQRMPluginConfiguration.EnableInMemoryState)
 	if err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("NewCheckpointState failed with error: %v", err)
 	}

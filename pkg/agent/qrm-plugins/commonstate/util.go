@@ -19,7 +19,6 @@ package commonstate
 import (
 	"encoding/json"
 	"io/ioutil"
-
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
