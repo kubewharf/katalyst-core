@@ -1654,6 +1654,8 @@ func (ic *IrqTuningController) emitNicsIrqAffinityPolicy() {
 			val = 0
 		} else if nic.IrqAffinityPolicy == IrqCoresExclusive {
 			val = 1
+		} else {
+			general.Errorf("%s nic %s irq affinity policy %s is unexpected", IrqTuningLogPrefix, nic.NicInfo, nic.IrqAffinityPolicy)
 		}
 		_ = ic.emitter.StoreInt64(metricUtil.MetricNameIrqTuningNicIrqAffinityPolicy, val, metrics.MetricTypeNameRaw,
 			metrics.MetricTag{Key: "nic", Val: nic.NicInfo.UniqName()},
@@ -2735,6 +2737,8 @@ func (ic *IrqTuningController) tuneNicIrqsAffinityQualifiedCores(nic *NicInfo, i
 					tunedReason = irqtuner.NormalNicsChanged
 				} else {
 					tunedReason = irqtuner.UnexpectedTuning
+					general.Errorf("%s nic %s unexpected balance-fair irq tuning, irqs: %+v, qualifiedCores: %+v",
+						IrqTuningLogPrefix, nic, irqs, qualifiedCoresMap)
 				}
 			} else {
 				tunedReason = irqtuner.NormalTuning
