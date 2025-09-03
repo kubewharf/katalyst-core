@@ -605,10 +605,18 @@ func (mc *MetaCacheImp) SetHeadroomEntries(resourceName string, headroomInfo *ty
 
 func (mc *MetaCacheImp) storeState() error {
 	checkpoint := NewMetaCacheCheckpoint()
-	checkpoint.PodEntries = mc.podEntries
-	checkpoint.PoolEntries = mc.poolEntries
-	checkpoint.RegionEntries = mc.regionEntries
-	checkpoint.HeadroomEntries = mc.headroomEntries
+	mc.podMutex.RLock()
+	checkpoint.PodEntries = mc.podEntries.Clone()
+	mc.podMutex.RUnlock()
+	mc.poolMutex.RLock()
+	checkpoint.PoolEntries = mc.poolEntries.Clone()
+	mc.poolMutex.RUnlock()
+	mc.regionMutex.RLock()
+	checkpoint.RegionEntries = mc.regionEntries.Clone()
+	mc.regionMutex.RUnlock()
+	mc.headroomMutex.RLock()
+	checkpoint.HeadroomEntries = mc.headroomEntries.Clone()
+	mc.headroomMutex.RUnlock()
 
 	startTime := time.Now()
 	defer func(t time.Time) {
