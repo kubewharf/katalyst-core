@@ -34,10 +34,11 @@ import (
 func Test_cpuResourceAdvisor_updateReservedForReclaim(t *testing.T) {
 	t.Parallel()
 	type fields struct {
-		numaNum                         int
-		socketNum                       int
-		numCPUs                         int
-		minReclaimedResourceForAllocate v1.ResourceList
+		numaNum                                  int
+		socketNum                                int
+		numCPUs                                  int
+		minReclaimedResourceForAllocate          v1.ResourceList
+		numaMinReclaimedResourceRatioForAllocate v1.ResourceList
 	}
 	tests := []struct {
 		name                   string
@@ -95,6 +96,24 @@ func Test_cpuResourceAdvisor_updateReservedForReclaim(t *testing.T) {
 				7: 1,
 			},
 		},
+		{
+			name: "reserved with numa size ratio",
+			fields: fields{
+				numaNum:   2,
+				socketNum: 1,
+				numCPUs:   64,
+				minReclaimedResourceForAllocate: v1.ResourceList{
+					v1.ResourceCPU: resource.MustParse("4"),
+				},
+				numaMinReclaimedResourceRatioForAllocate: v1.ResourceList{
+					v1.ResourceCPU: resource.MustParse("0.05"),
+				},
+			},
+			wantReservedForReclaim: map[int]int{
+				0: 2,
+				1: 2,
+			},
+		},
 	}
 	for _, tt := range tests {
 		tt := tt
@@ -110,8 +129,9 @@ func Test_cpuResourceAdvisor_updateReservedForReclaim(t *testing.T) {
 			defer func() { _ = os.RemoveAll(sfDir) }()
 
 			conf := generateTestConfiguration(t, ckDir, sfDir)
-
+			conf.GetDynamicConfiguration().EnableStrategyGroup = true
 			conf.GetDynamicConfiguration().MinReclaimedResourceForAllocate = tt.fields.minReclaimedResourceForAllocate
+			conf.GetDynamicConfiguration().NumaMinReclaimedResourceRatioForAllocate = tt.fields.numaMinReclaimedResourceRatioForAllocate
 
 			cpuTopology, err := machine.GenerateDummyCPUTopology(tt.fields.numCPUs, tt.fields.socketNum, tt.fields.numaNum)
 			assert.NoError(t, err)
