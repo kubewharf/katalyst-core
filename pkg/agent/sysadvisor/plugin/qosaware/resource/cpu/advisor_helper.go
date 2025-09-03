@@ -18,8 +18,10 @@ package cpu
 
 import (
 	"fmt"
+	"math"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
@@ -31,8 +33,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/assembler/provisionassembler"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/strategygroup"
 )
 
 func RegisterCPUAdvisorHealthCheck() {
@@ -186,6 +190,18 @@ func (cra *cpuResourceAdvisor) updateNumasAvailableResource() {
 }
 
 func (cra *cpuResourceAdvisor) updateReservedForReclaim() {
+	numaReservedRatio := cra.conf.GetDynamicConfiguration().NumaMinReclaimedResourceRatioForAllocate[v1.ResourceCPU]
+	if numaReservedRatio.Value() != 0 {
+		cra.updateReservedForReclaimByNuma(numaReservedRatio)
+		return
+	}
+	numaReclaimReserve, err := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameNumaReclaimReserve, true, cra.conf)
+	if err == nil && numaReclaimReserve {
+		general.Infof("numaReclaimReserve enabled")
+		cra.updateReservedForReclaimByNuma(numaReservedRatio)
+		return
+	}
+
 	coreNumReservedForReclaim := cra.conf.GetDynamicConfiguration().MinReclaimedResourceForAllocate[v1.ResourceCPU]
 	if coreNumReservedForReclaim.Value() > int64(cra.metaServer.NumCPUs) {
 		coreNumReservedForReclaim.Set(int64(cra.metaServer.NumCPUs))
@@ -196,6 +212,16 @@ func (cra *cpuResourceAdvisor) updateReservedForReclaim() {
 		coreNumReservedForReclaim.Set(int64(cra.metaServer.NumNUMANodes))
 	}
 	cra.reservedForReclaim = machine.GetCoreNumReservedForReclaim(int(coreNumReservedForReclaim.Value()), cra.metaServer.NumNUMANodes)
+}
+
+func (cra *cpuResourceAdvisor) updateReservedForReclaimByNuma(numaReservedRatio resource.Quantity) {
+	reservedForReclaim := make(map[int]int)
+	for id := 0; id < cra.metaServer.NumNUMANodes; id++ {
+		size := cra.metaServer.NUMAToCPUs.CPUSizeInNUMAs(id)
+		reservedForReclaim[id] = int(math.Max(1, float64((numaReservedRatio.Value()*int64(size)+500)/1000)))
+	}
+	cra.reservedForReclaim = reservedForReclaim
+	general.Infof("reservedForReclaim: %v, numaReservedRatio %v", reservedForReclaim, numaReservedRatio)
 }
 
 func (cra *cpuResourceAdvisor) getNumasReservedForAllocate(numas machine.CPUSet) float64 {
