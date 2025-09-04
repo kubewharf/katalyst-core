@@ -177,11 +177,6 @@ func (sc *stateCheckpoint) tryMigrateState(topology *machine.CPUTopology, stateD
 		return fmt.Errorf("[cpu_plugin] failed to populate checkpoint state during state migration: %v", err)
 	}
 
-	// Delete the old state file
-	if err = oldCheckpointManager.RemoveCheckpoint(sc.checkpointName); err != nil {
-		return fmt.Errorf("[cpu_plugin] failed to remove old checkpoint file: %v", err)
-	}
-
 	klog.Infof("[cpu_plugin] migrate checkpoint succeeded")
 	return nil
 }

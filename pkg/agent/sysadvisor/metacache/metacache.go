@@ -681,7 +681,7 @@ func (mc *MetaCacheImp) tryMigrateState(stateDir string, checkpoint *MetaCacheCh
 		return fmt.Errorf("[metacache] failed to initialise old checkpoint manager for migration: %v", err)
 	}
 
-	if err = mc.checkpointManager.GetCheckpoint(mc.checkpointName, checkpoint); err != nil {
+	if err = oldCheckpointManager.GetCheckpoint(mc.checkpointName, checkpoint); err != nil {
 		if err == errors.ErrCheckpointNotFound {
 			// create a new store state
 			klog.Infof("[metacache] checkpoint %v doesn't exist, create it", mc.checkpointName, err)
@@ -699,11 +699,6 @@ func (mc *MetaCacheImp) tryMigrateState(stateDir string, checkpoint *MetaCacheCh
 
 	if err = mc.populateCacheAndState(checkpoint, foundAndSkippedStateCorruption); err != nil {
 		return fmt.Errorf("[metacache] populateCacheAndState failed with error: %v", err)
-	}
-
-	// Delete old state file
-	if err = oldCheckpointManager.RemoveCheckpoint(mc.checkpointName); err != nil {
-		return fmt.Errorf("[metacache] failed to remove old checkpoint file: %v", err)
 	}
 
 	return nil
