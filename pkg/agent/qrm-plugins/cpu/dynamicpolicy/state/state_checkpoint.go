@@ -57,8 +57,10 @@ type stateCheckpoint struct {
 
 var _ State = &stateCheckpoint{}
 
-func NewCheckpointState(stateDir, checkpointName, policyName string,
-	topology *machine.CPUTopology, skipStateCorruption bool, generateMachineStateFunc GenerateMachineStateFromPodEntriesFunc,
+func NewCheckpointState(
+	stateDir, checkpointName, policyName string,
+	topology *machine.CPUTopology, skipStateCorruption bool,
+	generateMachineStateFunc GenerateMachineStateFromPodEntriesFunc,
 	emitter metrics.MetricEmitter, isInMemoryState bool,
 ) (State, error) {
 	checkpointManager, err := inmemorystate.CreateCheckpointManager(stateDir, isInMemoryState)
@@ -110,11 +112,9 @@ func (sc *stateCheckpoint) RestoreState(stateDir string, topology *machine.CPUTo
 	return sc.populateCacheAndState(topology, checkpoint, foundAndSkippedStateCorruption)
 }
 
-func (sc *stateCheckpoint) populateCacheAndState(topology *machine.CPUTopology, checkpoint *CPUPluginCheckpoint, foundAndSkippedStateCorruption bool) error {
-	if sc.policyName != checkpoint.PolicyName {
-		return fmt.Errorf("[cpu_plugin] configured policy %q differs from state checkpoint policy %q", sc.policyName, checkpoint.PolicyName)
-	}
-
+func (sc *stateCheckpoint) populateCacheAndState(
+	topology *machine.CPUTopology, checkpoint *CPUPluginCheckpoint, foundAndSkippedStateCorruption bool,
+) error {
 	generatedMachineState, err := sc.GenerateMachineStateFromPodEntries(topology, checkpoint.PodEntries, checkpoint.MachineState)
 	if err != nil {
 		return fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
@@ -138,7 +138,7 @@ func (sc *stateCheckpoint) populateCacheAndState(topology *machine.CPUTopology, 
 		klog.Infof("[cpu_plugin] found and skipped state corruption, we should store to rectify the checksum")
 		err = sc.storeState()
 		if err != nil {
-			return fmt.Errorf("storeState failed with error: %v", err)
+			return fmt.Errorf("storeState failed with error after skipping corruption: %v", err)
 		}
 	}
 
@@ -147,7 +147,9 @@ func (sc *stateCheckpoint) populateCacheAndState(topology *machine.CPUTopology, 
 }
 
 // tryMigrateState tries to migrate state from disk to memory or from memory to disk during initialisation of stateCheckpoint
-func (sc *stateCheckpoint) tryMigrateState(topology *machine.CPUTopology, stateDir string, checkpoint *CPUPluginCheckpoint) error {
+func (sc *stateCheckpoint) tryMigrateState(
+	topology *machine.CPUTopology, stateDir string, checkpoint *CPUPluginCheckpoint,
+) error {
 	var foundAndSkippedStateCorruption bool
 	klog.Infof("[cpu_plugin] trying to migrate state")
 
@@ -175,6 +177,11 @@ func (sc *stateCheckpoint) tryMigrateState(topology *machine.CPUTopology, stateD
 
 	if err = sc.populateCacheAndState(topology, checkpoint, foundAndSkippedStateCorruption); err != nil {
 		return fmt.Errorf("[cpu_plugin] failed to populate checkpoint state during state migration: %v", err)
+	}
+
+	// always store state after migrating to new checkpoint
+	if err = sc.storeState(); err != nil {
+		return fmt.Errorf("[cpu_plugin] failed to store checkpoint state during end of migration: %v", err)
 	}
 
 	klog.Infof("[cpu_plugin] migrate checkpoint succeeded")
@@ -264,7 +271,9 @@ func (sc *stateCheckpoint) SetNUMAHeadroom(m map[int]float64, persist bool) {
 	}
 }
 
-func (sc *stateCheckpoint) SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo, persist bool) {
+func (sc *stateCheckpoint) SetAllocationInfo(
+	podUID string, containerName string, allocationInfo *AllocationInfo, persist bool,
+) {
 	sc.Lock()
 	defer sc.Unlock()
 
