@@ -46,6 +46,8 @@ const (
 	NicDriverUnknown   NicDriver = "unknown"
 )
 
+const UnknownNumaNode = -1
+
 type ExtraNetworkInfo struct {
 	// Interface info list of all network interface.
 	Interface []InterfaceInfo
