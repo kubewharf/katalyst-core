@@ -188,6 +188,11 @@ func (sc *stateCheckpoint) tryMigrateState(conf *qrm.QRMPluginsConfiguration, ni
 		return fmt.Errorf("[network_plugin] failed to populate checkpoint state during state migration: %v", err)
 	}
 
+	// always store state after migrating to new checkpoint
+	if err = sc.storeState(); err != nil {
+		return fmt.Errorf("[network_plugin] failed to store checkpoint state during end of migration: %v", err)
+	}
+
 	klog.Infof("[network_plugin] checkpoint migration succeeded")
 	return nil
 }
