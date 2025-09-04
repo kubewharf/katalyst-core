@@ -64,7 +64,7 @@ func NewCheckpointState(stateDir, checkpointName, policyName string,
 	reservedMemory map[v1.ResourceName]map[int]uint64, skipStateCorruption bool,
 	emitter metrics.MetricEmitter, isInMemoryState bool,
 ) (State, error) {
-	checkpointManager, err := inmemorystate.CreateCheckpointManager(stateDir, isInMemoryState)
+	checkpointManager, err := inmemorystate.CreateCheckpointManager(stateDir, inmemorystate.TmpfsCheckpointPath, isInMemoryState)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize checkpoint manager: %v", err)
 	}
@@ -81,6 +81,7 @@ func NewCheckpointState(stateDir, checkpointName, policyName string,
 		checkpointName:      checkpointName,
 		skipStateCorruption: skipStateCorruption,
 		emitter:             emitter,
+		isInMemoryState:     isInMemoryState,
 	}
 
 	if err := stateCheckpoint.restoreState(stateDir, machineInfo, reservedMemory); err != nil {
@@ -118,7 +119,7 @@ func (sc *stateCheckpoint) restoreState(stateDir string, machineInfo *info.Machi
 }
 
 func (sc *stateCheckpoint) populateCacheAndState(machineInfo *info.MachineInfo, reservedMemory map[v1.ResourceName]map[int]uint64, checkpoint *MemoryPluginCheckpoint, foundAndSkippedStateCorruption bool) error {
-	if sc.policyName != checkpoint.PolicyName {
+	if sc.policyName != checkpoint.PolicyName && !sc.skipStateCorruption {
 		return fmt.Errorf("[memory_plugin] configured policy %q differs from state checkpoint policy %q", sc.policyName, checkpoint.PolicyName)
 	}
 
@@ -160,7 +161,7 @@ func (sc *stateCheckpoint) tryMigrateState(machineInfo *info.MachineInfo, reserv
 	klog.Infof("[memory_plugin] trying to migrate state from disk to memory")
 
 	// Get the old checkpoint using the provided file directory
-	oldCheckpointManager, err := inmemorystate.CreateCheckpointManager(stateDir, !sc.isInMemoryState)
+	oldCheckpointManager, err := inmemorystate.CreateCheckpointManager(stateDir, inmemorystate.TmpfsCheckpointPath, !sc.isInMemoryState)
 	if err != nil {
 		return fmt.Errorf("[memory_plugin] failed to initialize old checkpoint manager for migration: %v", err)
 	}
@@ -168,7 +169,7 @@ func (sc *stateCheckpoint) tryMigrateState(machineInfo *info.MachineInfo, reserv
 	if err = oldCheckpointManager.GetCheckpoint(sc.checkpointName, checkpoint); err != nil {
 		if err == errors.ErrCheckpointNotFound {
 			// Old checkpoint file is not found, so we just store state in new checkpoint
-			general.InfoS("[memory_plugin] checkpoint %v doesn't exist, create it", sc.checkpointName)
+			general.Infof("[memory_plugin] checkpoint %v doesn't exist in dir %v, create it", sc.checkpointName, stateDir)
 			return sc.storeState()
 		} else if err == errors.ErrCorruptCheckpoint {
 			if !sc.skipStateCorruption {
