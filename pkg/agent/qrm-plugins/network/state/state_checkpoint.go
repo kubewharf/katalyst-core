@@ -188,11 +188,6 @@ func (sc *stateCheckpoint) tryMigrateState(conf *qrm.QRMPluginsConfiguration, ni
 		return fmt.Errorf("[network_plugin] failed to populate checkpoint state during state migration: %v", err)
 	}
 
-	// Delete old state file
-	if err = oldCheckpointManager.RemoveCheckpoint(sc.checkpointName); err != nil {
-		return fmt.Errorf("[network_plugin] failed to remove old checkpoint: %v", err)
-	}
-
 	klog.Infof("[network_plugin] checkpoint migration succeeded")
 	return nil
 }
