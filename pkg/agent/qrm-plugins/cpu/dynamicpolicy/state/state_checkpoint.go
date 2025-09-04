@@ -62,7 +62,7 @@ func NewCheckpointState(stateDir, checkpointName, policyName string,
 	topology *machine.CPUTopology, skipStateCorruption bool, generateMachineStateFunc GenerateMachineStateFromPodEntriesFunc,
 	emitter metrics.MetricEmitter, isInMemoryState bool,
 ) (State, error) {
-	checkpointManager, err := inmemorystate.CreateCheckpointManager(stateDir, isInMemoryState)
+	checkpointManager, err := inmemorystate.CreateCheckpointManager(stateDir, inmemorystate.TmpfsCheckpointPath, isInMemoryState)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize checkpoint manager: %v", err)
 	}
@@ -149,7 +149,7 @@ func (sc *stateCheckpoint) tryMigrateState(topology *machine.CPUTopology, stateD
 	klog.Infof("[cpu_plugin] trying to migrate state")
 
 	// Get the old checkpoint using the provided file directory
-	oldCheckpointManager, err := inmemorystate.CreateCheckpointManager(stateDir, !sc.isInMemoryState)
+	oldCheckpointManager, err := inmemorystate.CreateCheckpointManager(stateDir, inmemorystate.TmpfsCheckpointPath, !sc.isInMemoryState)
 	if err != nil {
 		return fmt.Errorf("[cpu_plugin] failed to initialize old checkpoint manager for migration: %v", err)
 	}
@@ -157,7 +157,7 @@ func (sc *stateCheckpoint) tryMigrateState(topology *machine.CPUTopology, stateD
 	if err = oldCheckpointManager.GetCheckpoint(sc.checkpointName, checkpoint); err != nil {
 		if err == errors.ErrCheckpointNotFound {
 			// Old checkpoint file is not found, so we just store state in new checkpoint
-			general.InfoS("[cpu_plugin] checkpoint %v doesn't exist, create it", sc.checkpointName)
+			general.Infof("[cpu_plugin] checkpoint %v doesn't exist in dir %v, create it", sc.checkpointName, stateDir)
 			return sc.storeState()
 		} else if err == errors.ErrCorruptCheckpoint {
 			if !sc.skipStateCorruption {

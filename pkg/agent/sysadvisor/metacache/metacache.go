@@ -194,7 +194,7 @@ func NewMetaCacheImp(conf *config.Configuration, emitterPool metricspool.Metrics
 	}
 	stateFileDir := conf.GenericSysAdvisorConfiguration.StateFileDirectory
 	isInMemoryState := conf.GenericSysAdvisorConfiguration.EnableInMemoryState
-	checkpointManager, err := CreateCheckpointManager(stateFileDir, isInMemoryState)
+	checkpointManager, err := CreateCheckpointManager(stateFileDir, TmpfsCheckpointPath, isInMemoryState)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize checkpoint manager: %v", err)
 	}
@@ -676,7 +676,7 @@ func (mc *MetaCacheImp) tryMigrateState(stateDir string, checkpoint *MetaCacheCh
 	general.InfoS("[metacache] trying to migrate state from disk to memory")
 
 	// Get the old checkpoint using the provided file directory
-	oldCheckpointManager, err := CreateCheckpointManager(stateDir, !mc.isInMemoryState)
+	oldCheckpointManager, err := CreateCheckpointManager(stateDir, TmpfsCheckpointPath, !mc.isInMemoryState)
 	if err != nil {
 		return fmt.Errorf("[metacache] failed to initialize old checkpoint manager for migration: %v", err)
 	}

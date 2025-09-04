@@ -17,9 +17,19 @@ limitations under the License.
 package state
 
 import (
+	"io/ioutil"
+	"os"
+	"path/filepath"
 	"testing"
 
+	info "github.com/google/cadvisor/info/v1"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	v1 "k8s.io/api/core/v1"
+
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/inmemorystate"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 func TestGetReadonlyState(t *testing.T) {
@@ -40,4 +50,65 @@ func TestGetWriteOnlyState(t *testing.T) {
 	if state == nil {
 		as.NotNil(err)
 	}
+}
+
+func TestTryMigrateState(t *testing.T) {
+	t.Parallel()
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-test")
+	assert.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	inMemoryTmpDir, err := ioutil.TempDir("", "checkpoint-memory-test")
+	assert.NoError(t, err)
+	defer os.RemoveAll(inMemoryTmpDir)
+
+	stateDir := filepath.Join(tmpDir, "state")
+	err = os.MkdirAll(stateDir, 0o775)
+	assert.NoError(t, err)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	assert.NoError(t, err)
+
+	machineInfo := &info.MachineInfo{}
+	reservedMemory := make(map[v1.ResourceName]map[int]uint64)
+	defaultCache, err := NewMemoryPluginState(cpuTopology, machineInfo, reservedMemory)
+	assert.NoError(t, err)
+
+	policyName := "test-policy"
+	checkpointName := "test-checkpoint"
+
+	// create old checkpoint manager to save checkpoint
+	oldCheckpointManager, err := inmemorystate.CreateCheckpointManager(stateDir, inMemoryTmpDir, false)
+	assert.NoError(t, err)
+
+	oldCheckpoint := NewMemoryPluginCheckpoint()
+	oldCheckpoint.PolicyName = policyName
+	generatedResourcesMachineState, err := GenerateMachineStateFromPodEntries(machineInfo, make(PodResourceEntries), reservedMemory)
+	assert.NoError(t, err)
+
+	oldCheckpoint.MachineState = generatedResourcesMachineState
+	err = oldCheckpointManager.CreateCheckpoint(checkpointName, oldCheckpoint)
+	assert.NoError(t, err)
+
+	// create a new checkpoint with a new checkpoint manager
+	sc := &stateCheckpoint{
+		policyName:          policyName,
+		checkpointName:      checkpointName,
+		cache:               defaultCache,
+		isInMemoryState:     true,
+		skipStateCorruption: false,
+		emitter:             metrics.DummyMetrics{},
+	}
+	sc.checkpointManager, err = inmemorystate.CreateCheckpointManager(stateDir, inMemoryTmpDir, true)
+	assert.NoError(t, err)
+
+	newCheckpoint := NewMemoryPluginCheckpoint()
+	err = sc.tryMigrateState(machineInfo, reservedMemory, stateDir, newCheckpoint)
+	assert.NoError(t, err)
+
+	// check if new checkpoint is created and verify equality
+	err = sc.checkpointManager.GetCheckpoint(checkpointName, newCheckpoint)
+	assert.NoError(t, err)
+	assert.Equal(t, newCheckpoint, oldCheckpoint)
 }
