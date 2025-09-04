@@ -60,6 +60,7 @@ type RootfsPressureEvictionOptions struct {
 	ReclaimedQoSPodInodesUsedPriorityThreshold string
 	MinimumImageFsDiskCapacityThreshold        string
 	GracePeriod                                int64
+	RootfsPressureEvictionIgnorePaths          []string
 
 	EnableRootfsOveruseEviction             bool
 	RootfsOveruseEvictionSupportedQoSLevels []string
@@ -117,6 +118,7 @@ func (o *RootfsPressureEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"the minimum image fs disk capacity for nodes. the eviction manager will ignore those nodes whose image fs disk capacity is less than this threshold")
 	fs.Int64Var(&o.GracePeriod, "eviction-rootfs-grace-period", 0,
 		"the grace period of pod deletion")
+	fs.StringSliceVar(&o.RootfsPressureEvictionIgnorePaths, "eviction-rootfs-ignore-paths", o.RootfsPressureEvictionIgnorePaths, "paths to exclude when calculating disk pressure usage")
 
 	fs.BoolVar(&o.EnableRootfsOveruseEviction, "eviction-rootfs-overuse-enable", o.EnableRootfsOveruseEviction, "set true to enable rootfs overuse eviction")
 	fs.StringSliceVar(&o.RootfsOveruseEvictionSupportedQoSLevels, "eviction-rootfs-overuse-supported-qos-levels", o.RootfsOveruseEvictionSupportedQoSLevels, "the supported qos levels for rootfs overuse eviction, supported qos levels are: shared, reclaimed")
@@ -184,6 +186,7 @@ func (o *RootfsPressureEvictionOptions) ApplyTo(c *eviction.RootfsPressureEvicti
 		c.MinimumImageFsDiskCapacityThreshold = &value
 	}
 	c.GracePeriod = o.GracePeriod
+	c.RootfsPressureEvictionIgnorePaths = o.RootfsPressureEvictionIgnorePaths
 
 	c.EnableRootfsOveruseEviction = o.EnableRootfsOveruseEviction
 	c.RootfsOveruseEvictionSupportedQoSLevels = o.RootfsOveruseEvictionSupportedQoSLevels

@@ -20,6 +20,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"sync"
 	"time"
@@ -138,18 +140,25 @@ func (r *PodRootfsPressureEvictionPlugin) minimumFreeThresholdMet(rootfsEviction
 		return false
 	}
 
-	// if prjquota is enabled, use prjquota metrics
-	if rootfsEvictionConfig.EnableSystemPrjquotaPressureEviction && rootfsEvictionConfig.SystemPrjquotaUsedThreshold != nil {
-		imageFsFreeBytes, errAvailable = helper.GetNodeMetric(r.metaServer.MetricsFetcher, r.emitter, consts.MetricsNodeFsPrjquotaAvailable)
-		if errAvailable != nil {
-			general.Warningf("Failed to get MetricsNodeFsPrjquotaAvailable: %q", errAvailable)
-			return false
+	general.Infof("imageFsFreeBytes: %d, imageFsCapacityBytes: %d", imageFsFreeBytes, imageFsCapacityBytes)
+
+	// excludeSize is the size of the rootfs pressure eviction ignore paths, such as /data00/local for local storage csi
+	var excludeSize float64
+
+	// mock for test
+	rootfsEvictionConfig.RootfsPressureEvictionIgnorePaths = []string{"/data00/local"}
+	imageFsFreeBytesForTest := imageFsFreeBytes
+
+	if len(rootfsEvictionConfig.RootfsPressureEvictionIgnorePaths) > 0 {
+		for _, path := range rootfsEvictionConfig.RootfsPressureEvictionIgnorePaths {
+			if n, err := getDirUsedBytes(path); err == nil {
+				excludeSize += n
+			} else {
+				general.Errorf("Failed to get dirUsedBytes: %q", err)
+			}
 		}
-		imageFsCapacityBytes, errCapacity = helper.GetNodeMetric(r.metaServer.MetricsFetcher, r.emitter, consts.MetricsNodeFsPrjquotaCapacity)
-		if errCapacity != nil {
-			general.Warningf("Failed to get MetricsNodeFsPrjquotaCapacity: %q", errCapacity)
-			return false
-		}
+		imageFsFreeBytesForTest += excludeSize
+		general.Infof("after considering excludeSize imageFsFreeBytes: %d, imageFsCapacityBytes: %d", imageFsFreeBytesForTest, imageFsCapacityBytes)
 	}
 
 	if rootfsEvictionConfig.MinimumImageFsDiskCapacityThreshold != nil && int64(imageFsCapacityBytes) < rootfsEvictionConfig.MinimumImageFsDiskCapacityThreshold.Value() {
@@ -415,4 +424,35 @@ func (r *PodRootfsPressureEvictionPlugin) getPodRootfsInodesUsed(pod *v1.Pod) (i
 	}
 
 	return int64(podRootfsInodesUsed), int64(rootfsInodes), nil
+}
+
+// getDirUsedBytes returns the used bytes of a directory
+func getDirUsedBytes(dir string) (float64, error) {
+	// check dir exist
+	info, err := os.Stat(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("failed to stat dir %s: %w", dir, err)
+	}
+	if !info.IsDir() {
+		return 0, fmt.Errorf("%s is not a directory", dir)
+	}
+
+	var size uint64
+	walkErr := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			size += uint64(info.Size())
+		}
+		return nil
+	})
+	if walkErr != nil {
+		return 0, fmt.Errorf("walk directory %s failed: %w", dir, walkErr)
+	}
+
+	return float64(size), nil
 }
