@@ -16,18 +16,22 @@ limitations under the License.
 
 package adjuster
 
-// capAdjuster ensures the resultant settings never exceed the targets,
-// as in memory bandwidth case setting a certain target in resctrl FS may lead to a slight larger resultant usage
-// but never the other way around.
+// defaultPortionPercent to limit quota no more than the target value
+// as certain value set in resctrl FS schemata would generally result in slight more mb traffic then the set value and
+// not the other way around
+const defaultPortionPercent = 100
+
+// capAdjuster ensures the resultant settings never exceed the targets by specific portion
 type capAdjuster struct {
-	inner Adjuster
+	percentProportionLimit int
+	inner                  Adjuster
 }
 
-func (c *capAdjuster) AdjustOutgoingTargets(targets []int, currents []int) []int {
-	results := c.inner.AdjustOutgoingTargets(targets, currents)
-	for i, v := range results {
-		if v > targets[i] {
-			results[i] = targets[i]
+func (p *capAdjuster) AdjustOutgoingTargets(targets []int, currents []int) []int {
+	results := p.inner.AdjustOutgoingTargets(targets, currents)
+	for i := range results {
+		if results[i] > targets[i]*p.percentProportionLimit/100 {
+			results[i] = targets[i] * p.percentProportionLimit / 100
 		}
 	}
 	return results

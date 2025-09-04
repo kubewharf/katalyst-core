@@ -17,6 +17,9 @@ limitations under the License.
 package advisor
 
 import (
+	"fmt"
+	"strings"
+
 	"golang.org/x/exp/maps"
 	"k8s.io/apimachinery/pkg/util/sets"
 
@@ -112,8 +115,8 @@ func getGroupOutgoingTotals(group string, outgoings map[string][]monitor.MBInfo)
 		groupOutgoins = nil
 	}
 	results := make([]int, len(groupOutgoins))
-	for i, v := range groupOutgoins {
-		results[i] = v.TotalMB
+	for i := range groupOutgoins {
+		results[i] = groupOutgoins[i].TotalMB
 	}
 	return results
 }
@@ -157,4 +160,30 @@ func getUsedTotalByGroup(stats monitor.GroupMBStats) map[string]int {
 		result[group] = stat.SumStat().TotalMB
 	}
 	return result
+}
+
+func getDomainTotalMBs(domStats map[int]*resource.MBGroupIncomingStat) []int {
+	domainNum := len(domStats)
+	result := make([]int, domainNum)
+	for i := range result {
+		for _, v := range domStats[i].GroupTotalUses {
+			result[i] += v
+		}
+	}
+	return result
+}
+
+func stringify(groupDomValues map[string][]int) string {
+	var sb strings.Builder
+	sb.WriteString("{")
+	for group, values := range groupDomValues {
+		sb.WriteString(group)
+		sb.WriteString(": {")
+		for dom, v := range values {
+			sb.WriteString(fmt.Sprintf("%d=%d,", dom, v))
+		}
+		sb.WriteString("},")
+	}
+	sb.WriteString("}")
+	return sb.String()
 }

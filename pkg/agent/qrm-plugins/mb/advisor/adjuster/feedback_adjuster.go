@@ -34,7 +34,7 @@ func (f *feedbackAdjuster) AdjustOutgoingTargets(targets []int, currents []int) 
 		return nil
 	}
 
-	result := targets
+	result := append([]int{}, targets...)
 	if len(f.prevValues) != 0 && len(f.prevValues) == len(currents) && len(targets) == len(currents) {
 		for i := range targets {
 			v := feedback(f.prevValues[i], currents[i], targets[i])

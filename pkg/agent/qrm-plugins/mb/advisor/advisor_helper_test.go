@@ -22,6 +22,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/resource"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
 )
 
@@ -131,6 +132,49 @@ func Test_applyPlanCCDChecks(t *testing.T) {
 			t.Parallel()
 			if got := applyPlanCCDBoundsChecks(tt.args.updatePlan, tt.args.mb, tt.args.mb2); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("applyPlanCCDBoundsChecks() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_getDomainTotalMBs(t *testing.T) {
+	t.Parallel()
+	type args struct {
+		domStats map[int]*resource.MBGroupIncomingStat
+	}
+	tests := []struct {
+		name string
+		args args
+		want []int
+	}{
+		{
+			name: "happy path",
+			args: args{
+				domStats: map[int]*resource.MBGroupIncomingStat{
+					0: {
+						GroupTotalUses: map[string]int{
+							"/":         1_000,
+							"shared-50": 14_000,
+						},
+					},
+					1: {
+						GroupTotalUses: map[string]int{
+							"/":         1_200,
+							"dedicated": 29_000,
+							"shared-50": 5_000,
+						},
+					},
+				},
+			},
+			want: []int{15_000, 35_200},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := getDomainTotalMBs(tt.args.domStats); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("getDomainTotalMBs() = %v, want %v", got, tt.want)
 			}
 		})
 	}

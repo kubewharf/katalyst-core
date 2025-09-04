@@ -22,6 +22,7 @@ import (
 
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/adjuster"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/distributor"
@@ -63,11 +64,19 @@ func (d *domainAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.DomainS
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get plan")
 	}
+	if klog.V(6).Enabled() {
+		domTotalMBs := getDomainTotalMBs(domIncomingInfo)
+		general.InfofV(6, "[mbm] [advisor] domains incoming total: %v", domTotalMBs)
+	}
 	d.emitDomIncomingStatMetrics(domIncomingInfo)
 
 	// based on mb incoming usage info, decide incoming quotas (i.e. targets)
 	domIncomingQuotas := d.getIncomingDomainQuotas(ctx, domIncomingInfo)
 	groupedDomIncomingTargets := domIncomingQuotas.GetGroupedDomainSetting()
+	if klog.V(6).Enabled() {
+		general.InfofV(6, "[mbm] [advisor] group-domain incoming targets: %s",
+			stringify(groupedDomIncomingTargets))
+	}
 	d.emitIncomingTargets(groupedDomIncomingTargets)
 
 	// for each group, based on incoming targets, decide what the outgoing targets are
@@ -76,12 +85,20 @@ func (d *domainAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.DomainS
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get plan")
 	}
+	if klog.V(6).Enabled() {
+		general.InfofV(6, "[mbm] [advisor] group-domain outgoing targets: %s",
+			stringify(groupedDomOutgoingTargets))
+	}
 	d.emitOutgoingTargets(groupedDomOutgoingTargets)
 
 	// leverage the current observed outgoing stats (and implicit previous outgoing mb)
 	// to adjust th outgoing mb hopeful to reach the desired target
 	groupedDomOutgoings := domainsMon.OutgoingGroupSumStat
 	groupedDomainOutgoingQuotas := d.adjust(ctx, groupedDomOutgoingTargets, groupedDomOutgoings)
+	if klog.V(6).Enabled() {
+		general.InfofV(6, "[mbm] [advisor] group-domain outgoing quotas: %s",
+			stringify(groupedDomainOutgoingQuotas))
+	}
 	d.emitAdjustedOutgoingTargets(groupedDomainOutgoingQuotas)
 
 	// split outgoing mb to ccd level
@@ -253,11 +270,15 @@ func New(emitter metrics.MetricEmitter, domains domain.Domains, ccdMinMB, ccdMax
 	XDomGroups []string, groupNeverThrottles []string,
 	groupCapacity map[string]int,
 ) Advisor {
+	// do not throttle built-in "/" anytime
+	notThrottles := sets.NewString("/")
+	notThrottles.Insert(groupNeverThrottles...)
+
 	return &domainAdvisor{
 		emitter:               emitter,
 		domains:               domains,
 		xDomGroups:            sets.NewString(XDomGroups...),
-		groupNeverThrottles:   sets.NewString(groupNeverThrottles...),
+		groupNeverThrottles:   notThrottles,
 		defaultDomainCapacity: defaultDomainCapacity,
 		groupCapacityInMB:     groupCapacity,
 		quotaStrategy:         quota.New(),

@@ -24,6 +24,7 @@ type Adjuster interface {
 
 func New() Adjuster {
 	return &capAdjuster{
-		inner: &feedbackAdjuster{},
+		percentProportionLimit: defaultPortionPercent,
+		inner:                  &feedbackAdjuster{},
 	}
 }

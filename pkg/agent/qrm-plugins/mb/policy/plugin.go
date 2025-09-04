@@ -101,7 +101,7 @@ func (m *MBPlugin) run() {
 		general.Errorf("[mbm] failed to run fetching mb stats: %v", err)
 		return
 	}
-	general.InfofV(6, "[mbm] domain specific group ccd mb stat: %s", monData)
+	general.InfofV(6, "[mbm] [mon] domain specific group ccd mb stat: %s", monData)
 
 	ctx := context.Background()
 	var mbPlan *plan.MBPlan
