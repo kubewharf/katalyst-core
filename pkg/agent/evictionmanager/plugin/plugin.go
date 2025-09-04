@@ -52,7 +52,7 @@ type DummyEvictionPlugin struct {
 }
 
 func (_ DummyEvictionPlugin) Name() string { return fakePluginName }
-func (_ DummyEvictionPlugin) ThresholdMet(_ context.Context) (*pluginapi.ThresholdMetResponse, error) {
+func (_ DummyEvictionPlugin) ThresholdMet(_ context.Context, _ *pluginapi.GetThresholdMetRequest) (*pluginapi.ThresholdMetResponse, error) {
 	return nil, nil
 }
 

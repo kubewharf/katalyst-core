@@ -103,7 +103,7 @@ func (p *ReclaimedNumaResourcesPlugin) Start() {
 	return
 }
 
-func (p *ReclaimedNumaResourcesPlugin) ThresholdMet(ctx context.Context) (*pluginapi.ThresholdMetResponse, error) {
+func (p *ReclaimedNumaResourcesPlugin) ThresholdMet(ctx context.Context, _ *pluginapi.GetThresholdMetRequest) (*pluginapi.ThresholdMetResponse, error) {
 	activePods, err := p.metaServer.GetPodList(ctx, native.PodIsActive)
 	if err != nil {
 		errMsg := fmt.Sprintf("failed to list pods from metaServer: %v", err)

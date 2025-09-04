@@ -112,7 +112,7 @@ func (n *NumaMemoryPressurePlugin) Name() string {
 	return n.pluginName
 }
 
-func (n *NumaMemoryPressurePlugin) ThresholdMet(_ context.Context) (*pluginapi.ThresholdMetResponse, error) {
+func (n *NumaMemoryPressurePlugin) ThresholdMet(_ context.Context, _ *pluginapi.GetThresholdMetRequest) (*pluginapi.ThresholdMetResponse, error) {
 	var err error
 	defer func() {
 		_ = general.UpdateHealthzStateByError(EvictionPluginNameNumaMemoryPressure, err)

@@ -88,7 +88,7 @@ func (r *PodRootfsPressureEvictionPlugin) Start() {
 	return
 }
 
-func (r *PodRootfsPressureEvictionPlugin) ThresholdMet(_ context.Context) (*pluginapi.ThresholdMetResponse, error) {
+func (r *PodRootfsPressureEvictionPlugin) ThresholdMet(_ context.Context, _ *pluginapi.GetThresholdMetRequest) (*pluginapi.ThresholdMetResponse, error) {
 	resp := &pluginapi.ThresholdMetResponse{
 		MetType:       pluginapi.ThresholdMetType_NOT_MET,
 		EvictionScope: EvictionScopeSystemRootfs,
