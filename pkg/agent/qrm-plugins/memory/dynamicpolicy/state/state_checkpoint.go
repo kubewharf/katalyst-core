@@ -18,7 +18,7 @@ package state
 
 import (
 	"fmt"
-	"github.com/kubewharf/katalyst-core/pkg/util/inmemorystate"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/inmemorystate"
 	"path"
 	"reflect"
 	"sync"
@@ -156,7 +156,7 @@ func (sc *stateCheckpoint) populateCacheAndState(machineInfo *info.MachineInfo, 
 // tryMigrateState tries to migrate state from disk to memory or from memory to disk during initialisation of stateCheckpoint
 func (sc *stateCheckpoint) tryMigrateState(machineInfo *info.MachineInfo, reservedMemory map[v1.ResourceName]map[int]uint64, stateDir string, checkpoint *MemoryPluginCheckpoint) error {
 	var foundAndSkippedStateCorruption bool
-	general.InfoS("[memory_plugin] trying to migrate state from disk to memory")
+	klog.Infof("[memory_plugin] trying to migrate state from disk to memory")
 
 	// Get the old checkpoint using the provided file directory
 	oldCheckpointManager, err := inmemorystate.CreateCheckpointManager(stateDir, !sc.isInMemoryState)
@@ -189,6 +189,7 @@ func (sc *stateCheckpoint) tryMigrateState(machineInfo *info.MachineInfo, reserv
 		return fmt.Errorf("[memory_plugin] failed to remove old checkpoint file: %v", err)
 	}
 
+	klog.Infof("[memory_plugin] migrate checkpoint succeeded")
 	return nil
 }
 
