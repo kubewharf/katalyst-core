@@ -184,6 +184,11 @@ func (sc *stateCheckpoint) tryMigrateState(machineInfo *info.MachineInfo, reserv
 		return fmt.Errorf("[memory_plugin] populateCacheAndState failed with error: %v", err)
 	}
 
+	// always store state after migrating to new checkpoint
+	if err = sc.storeState(); err != nil {
+		return fmt.Errorf("[memory_plugin] failed to store state during end of migration: %v", err)
+	}
+
 	klog.Infof("[memory_plugin] migrate checkpoint succeeded")
 	return nil
 }
