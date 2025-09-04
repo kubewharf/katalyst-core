@@ -701,6 +701,11 @@ func (mc *MetaCacheImp) tryMigrateState(stateDir string, checkpoint *MetaCacheCh
 		return fmt.Errorf("[metacache] populateCacheAndState failed with error: %v", err)
 	}
 
+	// always store state after migrating to new checkpoint
+	if err = mc.storeState(); err != nil {
+		return fmt.Errorf("[network_plugin] failed to store checkpoint state during end of migration: %v", err)
+	}
+
 	return nil
 }
 
