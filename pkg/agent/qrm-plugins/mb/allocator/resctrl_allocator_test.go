@@ -22,6 +22,7 @@ import (
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
 )
@@ -164,6 +165,58 @@ func Test_resctrlAllocator_Allocate(t *testing.T) {
 				t.Logf("content got: %s", string(buff))
 				assert.Equal(t, content, string(buff))
 			}
+		})
+	}
+}
+
+func Test_resctrlAllocator_getResetPlan(t *testing.T) {
+	t.Parallel()
+
+	dummyFS := afero.NewMemMapFs()
+	_ = dummyFS.MkdirAll("/sys/fs/resctrl/", 0o755)
+	_ = afero.WriteFile(dummyFS, "/sys/fs/resctrl/schemata", []byte(`dummy`), 0o644)
+	_ = afero.WriteFile(dummyFS, "/sys/fs/resctrl/shared-50/schemata", []byte(`dummy`), 0o644)
+	_ = afero.WriteFile(dummyFS, "/sys/fs/resctrl/info/last_cmd_status", []byte(`dummy`), 0o644)
+
+	type fields struct {
+		fs afero.Fs
+	}
+	type args struct {
+		ccds sets.Int
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		args    args
+		want    *plan.MBPlan
+		wantErr bool
+	}{
+		{
+			name: "happy path",
+			fields: fields{
+				fs: dummyFS,
+			},
+			args: args{
+				ccds: sets.NewInt(0, 8),
+			},
+			want: &plan.MBPlan{
+				MBGroups: map[string]plan.GroupCCDPlan{
+					"/":         map[int]int{0: 256000, 8: 256000},
+					"shared-50": map[int]int{0: 256000, 8: 256000},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			r := &resctrlAllocator{
+				fs: tt.fields.fs,
+			}
+			got, gotErr := r.getResetPlan(tt.args.ccds)
+			assert.Equal(t, tt.wantErr, gotErr != nil, "getResetPlan() error")
+			assert.Equalf(t, tt.want, got, "getResetPlan() plan")
 		})
 	}
 }

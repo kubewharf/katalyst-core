@@ -19,11 +19,14 @@ package allocator
 import (
 	"context"
 
+	"k8s.io/apimachinery/pkg/util/sets"
+
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
 )
 
 type PlanAllocator interface {
 	Allocate(ctx context.Context, plan *plan.MBPlan) error
+	Reset(ctx context.Context, ccds sets.Int) error
 }
 
 type CCDPlanAllocator interface {

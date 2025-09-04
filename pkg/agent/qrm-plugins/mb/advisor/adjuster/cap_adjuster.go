@@ -16,11 +16,6 @@ limitations under the License.
 
 package adjuster
 
-// defaultPortionPercent to limit quota no more than the target value
-// as certain value set in resctrl FS schemata would generally result in slight more mb traffic then the set value and
-// not the other way around
-const defaultPortionPercent = 100
-
 // capAdjuster ensures the resultant settings never exceed the targets by specific portion
 type capAdjuster struct {
 	percentProportionLimit int

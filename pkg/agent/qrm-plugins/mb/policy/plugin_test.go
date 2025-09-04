@@ -43,6 +43,7 @@ func (ma *mockAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.DomainSt
 
 type mockPlanAlloctor struct {
 	mock.Mock
+	allocator.PlanAllocator
 }
 
 func (mp *mockPlanAlloctor) Allocate(ctx context.Context, plan *plan.MBPlan) error {

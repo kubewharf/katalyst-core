@@ -20,6 +20,7 @@ import (
 	"context"
 	"time"
 
+	"golang.org/x/exp/maps"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
@@ -44,6 +45,8 @@ const (
 )
 
 type MBPlugin struct {
+	resetResctrlOnly bool
+
 	chStop  chan struct{}
 	emitter metrics.MetricEmitter
 
@@ -62,8 +65,28 @@ func (m *MBPlugin) Name() string {
 
 func (m *MBPlugin) Start() error {
 	general.Infof("mbm: plugin started")
+
+	general.Infof("mbm: to reset resctrl FS on start")
+	ccds := sets.NewInt(maps.Keys(m.ccdToDomain)...)
+	if err := m.planAllocator.Reset(context.Background(), ccds); err != nil {
+		general.Errorf("mbm: reset resctrl FS on start failed: %v", err)
+	}
+
+	if m.resetResctrlOnly {
+		general.Infof("mbm: to end after reset resctrl state")
+		return nil
+	}
+
 	m.chStop = make(chan struct{})
-	go wait.Until(m.run, interval, m.chStop)
+	go func() {
+		wait.Until(m.run, interval, m.chStop)
+
+		general.Infof("mbm: plugin timer stopped; to reset resctrl FS on cleanup")
+		if err := m.planAllocator.Reset(context.Background(), ccds); err != nil {
+			general.Errorf("mbm: reset resctrl FS on stop failed: %v", err)
+		}
+	}()
+
 	return nil
 }
 
@@ -122,7 +145,8 @@ func (m *MBPlugin) run() {
 	general.InfofV(6, "[mbm] plugin run end")
 }
 
-func newMBPlugin(ccdMinMB, ccdMaxMB int, defaultDomainCapacity int,
+func newMBPlugin(resetResctrlOnly bool,
+	ccdMinMB, ccdMaxMB int, defaultDomainCapacity int, capPercent int,
 	domains domain.Domains, xDomGroups []string, groupNeverThrottles []string,
 	groupCapacities map[string]int, metricFetcher metrictypes.MetricsFetcher,
 	planAllocator allocator.PlanAllocator, emitPool metricspool.MetricsEmitterPool,
@@ -131,12 +155,13 @@ func newMBPlugin(ccdMinMB, ccdMaxMB int, defaultDomainCapacity int,
 	general.Infof("[mbm] initialization: ccd-to-domain mapping %v", ccdMappings)
 	emitter := emitPool.GetDefaultMetricsEmitter().WithTags(metricName)
 	return &MBPlugin{
-		emitter:     emitter,
-		ccdToDomain: ccdMappings,
-		xDomGroups:  sets.NewString(xDomGroups...),
-		domains:     domains,
-		reader:      reader.New(metricFetcher),
-		advisor: advisor.New(emitter, domains, ccdMinMB, ccdMaxMB, defaultDomainCapacity,
+		resetResctrlOnly: resetResctrlOnly,
+		emitter:          emitter,
+		ccdToDomain:      ccdMappings,
+		xDomGroups:       sets.NewString(xDomGroups...),
+		domains:          domains,
+		reader:           reader.New(metricFetcher),
+		advisor: advisor.New(emitter, domains, ccdMinMB, ccdMaxMB, defaultDomainCapacity, capPercent,
 			xDomGroups, groupNeverThrottles, groupCapacities,
 		),
 		planAllocator: planAllocator,

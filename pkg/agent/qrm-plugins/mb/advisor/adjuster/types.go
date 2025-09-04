@@ -16,15 +16,21 @@ limitations under the License.
 
 package adjuster
 
+const minCapPercent = 25 // at least 25% as mb value cap
+
 type Adjuster interface {
 	// AdjustOutgoingTargets yields the value to set in order to have the target for each domain,
 	// taking into account of the observed usage (i.e. the currents) controlled by previous set values.
 	AdjustOutgoingTargets(targets []int, currents []int) []int
 }
 
-func New() Adjuster {
+func New(capPercent int) Adjuster {
+	if capPercent < minCapPercent {
+		capPercent = minCapPercent
+	}
+
 	return &capAdjuster{
-		percentProportionLimit: defaultPortionPercent,
+		percentProportionLimit: capPercent,
 		inner:                  &feedbackAdjuster{},
 	}
 }

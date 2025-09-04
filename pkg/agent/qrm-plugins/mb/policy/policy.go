@@ -68,12 +68,14 @@ func NewGenericPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	general.Infof("[mbm] config: min ccd mb %d MB", conf.MinCCDMB)
 	general.Infof("[mbm] config: max ccd mb %d MB", conf.MaxCCDMB)
 	general.Infof("[mbm] config: domain alient incoming mb limit %d MB", conf.MaxIncomingRemoteMB)
+	general.Infof("[mbm] config: mb cap limit percent %d %%", conf.MBCapLimitPercent)
 	general.Infof("[mbm] config: no-throtlle groups %v", conf.NoThrottleGroups)
 	general.Infof("[mbm] config: cross-domain groups %v", conf.CrossDomainGroups)
 
 	ccdMinMB := conf.MinCCDMB
 	ccdMaxMB := conf.MaxCCDMB
 	maxIncomingRemoteMB := conf.MaxIncomingRemoteMB
+	mbCapLimitPercent := conf.MBCapLimitPercent
 	groupCapacities := conf.MBQRMPluginConfig.DomainGroupAwareCapacity
 	groupNeverThrottles := conf.MBQRMPluginConfig.NoThrottleGroups
 	xDomGroups := conf.CrossDomainGroups
@@ -86,8 +88,9 @@ func NewGenericPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 
 	metricsFetcher := agentCtx.MetaServer.MetricsFetcher
 	planAllocator := allocator.New()
-	mbPlugin := newMBPlugin(ccdMinMB, ccdMaxMB,
-		defaultMBDomainCapacity, domains,
+	mbPlugin := newMBPlugin(conf.ResetResctrlOnly,
+		ccdMinMB, ccdMaxMB,
+		defaultMBDomainCapacity, mbCapLimitPercent, domains,
 		xDomGroups, groupNeverThrottles, groupCapacities,
 		metricsFetcher, planAllocator, agentCtx.EmitterPool)
 	return true, &agent.PluginWrapper{GenericPlugin: mbPlugin}, nil

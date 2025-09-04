@@ -518,6 +518,7 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 			d := &domainAdvisor{
 				domains:               tt.fields.domains,
 				defaultDomainCapacity: tt.fields.defaultDomainCapacity,
+				capPercent:            100,
 				xDomGroups:            tt.fields.XDomGroups,
 				groupCapacityInMB:     tt.fields.GroupCapacityInMB,
 				quotaStrategy:         tt.fields.quotaStrategy,

@@ -44,6 +44,7 @@ type domainAdvisor struct {
 	defaultDomainCapacity int
 	ccdMinMB              int
 	ccdMaxMB              int
+	capPercent            int
 
 	// xDomGroups are the qos control groups that allow memory access across domains
 	xDomGroups sets.String
@@ -94,7 +95,7 @@ func (d *domainAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.DomainS
 	// leverage the current observed outgoing stats (and implicit previous outgoing mb)
 	// to adjust th outgoing mb hopeful to reach the desired target
 	groupedDomOutgoings := domainsMon.OutgoingGroupSumStat
-	groupedDomainOutgoingQuotas := d.adjust(ctx, groupedDomOutgoingTargets, groupedDomOutgoings)
+	groupedDomainOutgoingQuotas := d.adjust(ctx, groupedDomOutgoingTargets, groupedDomOutgoings, d.capPercent)
 	if klog.V(6).Enabled() {
 		general.InfofV(6, "[mbm] [advisor] group-domain outgoing quotas: %s",
 			stringify(groupedDomainOutgoingQuotas))
@@ -123,14 +124,14 @@ func (d *domainAdvisor) getNoThrottleMB() int {
 }
 
 func (d *domainAdvisor) adjust(_ context.Context,
-	groupedSettings map[string][]int, observed map[string][]monitor.MBInfo,
+	groupedSettings map[string][]int, observed map[string][]monitor.MBInfo, capPercent int,
 ) map[string][]int {
 	result := map[string][]int{}
 	activeGroups := sets.String{}
 	for group, values := range groupedSettings {
 		currents := getGroupOutgoingTotals(group, observed)
 		if _, ok := d.adjusters[group]; !ok {
-			d.adjusters[group] = adjuster.New()
+			d.adjusters[group] = adjuster.New(capPercent)
 		}
 		result[group] = d.adjusters[group].AdjustOutgoingTargets(values, currents)
 		activeGroups.Insert(group)
@@ -267,7 +268,7 @@ func (d *domainAdvisor) domainDistributeGroup(domID int, group string,
 }
 
 func New(emitter metrics.MetricEmitter, domains domain.Domains, ccdMinMB, ccdMaxMB int, defaultDomainCapacity int,
-	XDomGroups []string, groupNeverThrottles []string,
+	capPercent int, XDomGroups []string, groupNeverThrottles []string,
 	groupCapacity map[string]int,
 ) Advisor {
 	// do not throttle built-in "/" anytime
@@ -286,5 +287,6 @@ func New(emitter metrics.MetricEmitter, domains domain.Domains, ccdMinMB, ccdMax
 		adjusters:             map[string]adjuster.Adjuster{},
 		ccdDistribute:         distributor.New(ccdMinMB, ccdMaxMB),
 		ccdMaxMB:              ccdMaxMB,
+		capPercent:            capPercent,
 	}
 }
