@@ -164,7 +164,7 @@ func (sc *stateCheckpoint) tryMigrateState(conf *qrm.QRMPluginsConfiguration, ni
 	klog.Infof("[network_plugin] trying to migrate state")
 
 	// Get the old checkpoint using provided file directory
-	oldCheckpointManager, err := inmemorystate.CreateCheckpointManager(stateDir, !sc.isInMemoryState)
+	oldCheckpointManager, err := inmemorystate.CreateCheckpointManager(stateDir, inmemorystate.TmpfsCheckpointPath, !sc.isInMemoryState)
 	if err != nil {
 		return fmt.Errorf("[network_plugin] failed to initialize old checkpoint manager for migration: %v", err)
 	}

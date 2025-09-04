@@ -22,6 +22,7 @@ import (
 	"io/ioutil"
 	"math"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -38,6 +39,7 @@ import (
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/inmemorystate"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -3259,4 +3261,62 @@ func TestGetWriteOnlyState(t *testing.T) {
 	if state == nil {
 		as.NotNil(err)
 	}
+}
+
+func generateTestMachineStateFromPodEntries(topology *machine.CPUTopology, _ PodEntries) (NUMANodeMap, error) {
+	return GetDefaultMachineState(topology), nil
+}
+
+func TestTryMigrateState(t *testing.T) {
+	t.Parallel()
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-test")
+	assert.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	inMemoryTmpDir, err := ioutil.TempDir("", "checkpoint-memory-test")
+	assert.NoError(t, err)
+	defer os.RemoveAll(inMemoryTmpDir)
+
+	stateDir := filepath.Join(tmpDir, "state")
+	err = os.MkdirAll(stateDir, 0o775)
+	assert.NoError(t, err)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	assert.NoError(t, err)
+
+	policyName := "test-policy"
+	checkpointName := "test-checkpoint"
+
+	// create old checkpoint manager to save the checkpoint
+	oldCheckpointManager, err := inmemorystate.CreateCheckpointManager(stateDir, inMemoryTmpDir, false)
+	assert.NoError(t, err)
+
+	oldCheckpoint := NewCPUPluginCheckpoint()
+	oldCheckpoint.PolicyName = policyName
+	oldCheckpoint.MachineState = GetDefaultMachineState(cpuTopology)
+	err = oldCheckpointManager.CreateCheckpoint(checkpointName, oldCheckpoint)
+	assert.NoError(t, err)
+
+	// create a new state checkpoint with new checkpoint manager
+	sc := &stateCheckpoint{
+		policyName:                         policyName,
+		checkpointName:                     checkpointName,
+		cache:                              NewCPUPluginState(cpuTopology),
+		isInMemoryState:                    true,
+		skipStateCorruption:                false,
+		GenerateMachineStateFromPodEntries: generateTestMachineStateFromPodEntries,
+		emitter:                            metrics.DummyMetrics{},
+	}
+	sc.checkpointManager, err = inmemorystate.CreateCheckpointManager(stateDir, inMemoryTmpDir, true)
+	assert.NoError(t, err)
+
+	newCheckpoint := NewCPUPluginCheckpoint()
+	err = sc.tryMigrateState(cpuTopology, stateDir, newCheckpoint)
+	assert.NoError(t, err)
+
+	// check if new checkpoint is created and verify equality
+	err = sc.checkpointManager.GetCheckpoint(checkpointName, newCheckpoint)
+	assert.NoError(t, err)
+	assert.Equal(t, newCheckpoint, oldCheckpoint)
 }
