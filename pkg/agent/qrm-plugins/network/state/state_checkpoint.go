@@ -18,10 +18,13 @@ package state
 
 import (
 	"fmt"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/inmemorystate"
 	"path"
 	"reflect"
 	"sync"
 	"time"
+
+	"k8s.io/klog/v2"
 
 	info "github.com/google/cadvisor/info/v1"
 
@@ -56,11 +59,13 @@ type stateCheckpoint struct {
 	// it will cause checkpoint corruption and we should skip it
 	skipStateCorruption bool
 	emitter             metrics.MetricEmitter
+	// Determines if we want to store the state in memory (tmpfs) or disk
+	isInMemoryState bool
 }
 
 func NewCheckpointState(conf *qrm.QRMPluginsConfiguration, stateDir, checkpointName, policyName string,
 	machineInfo *info.MachineInfo, nics []machine.InterfaceInfo, reservedBandwidth map[string]uint32,
-	skipStateCorruption bool, emitter metrics.MetricEmitter,
+	skipStateCorruption bool, emitter metrics.MetricEmitter, isInMemoryState bool,
 ) (State, error) {
 	checkpointManager, err := checkpointmanager.NewCheckpointManager(stateDir)
 	if err != nil {
@@ -79,9 +84,10 @@ func NewCheckpointState(conf *qrm.QRMPluginsConfiguration, stateDir, checkpointN
 		checkpointName:      checkpointName,
 		skipStateCorruption: skipStateCorruption,
 		emitter:             emitter,
+		isInMemoryState:     isInMemoryState,
 	}
 
-	if err := stateCheckpoint.restoreState(conf, nics, reservedBandwidth); err != nil {
+	if err := stateCheckpoint.restoreState(stateDir, conf, nics, reservedBandwidth); err != nil {
 		return nil, fmt.Errorf("could not restore state from checkpoint: %v, please drain this node and delete the network plugin checkpoint file %q before restarting Kubelet",
 			err, path.Join(stateDir, checkpointName))
 	}
@@ -89,7 +95,7 @@ func NewCheckpointState(conf *qrm.QRMPluginsConfiguration, stateDir, checkpointN
 	return stateCheckpoint, nil
 }
 
-func (sc *stateCheckpoint) restoreState(conf *qrm.QRMPluginsConfiguration, nics []machine.InterfaceInfo, reservedBandwidth map[string]uint32) error {
+func (sc *stateCheckpoint) restoreState(stateDir string, conf *qrm.QRMPluginsConfiguration, nics []machine.InterfaceInfo, reservedBandwidth map[string]uint32) error {
 	sc.Lock()
 	defer sc.Unlock()
 	var err error
@@ -98,7 +104,7 @@ func (sc *stateCheckpoint) restoreState(conf *qrm.QRMPluginsConfiguration, nics 
 	checkpoint := NewNetworkPluginCheckpoint()
 	if err = sc.checkpointManager.GetCheckpoint(sc.checkpointName, checkpoint); err != nil {
 		if err == errors.ErrCheckpointNotFound {
-			return sc.storeState()
+			return sc.tryMigrateState(conf, nics, reservedBandwidth, stateDir, checkpoint)
 		} else if err == errors.ErrCorruptCheckpoint {
 			if !sc.skipStateCorruption {
 				return err
@@ -111,6 +117,10 @@ func (sc *stateCheckpoint) restoreState(conf *qrm.QRMPluginsConfiguration, nics 
 		}
 	}
 
+	return sc.populateCacheAndState(conf, nics, reservedBandwidth, checkpoint, foundAndSkippedStateCorruption)
+}
+
+func (sc *stateCheckpoint) populateCacheAndState(conf *qrm.QRMPluginsConfiguration, nics []machine.InterfaceInfo, reservedBandwidth map[string]uint32, checkpoint *NetworkPluginCheckpoint, foundAndSkippedStateCorruption bool) error {
 	if sc.policyName != checkpoint.PolicyName && !sc.skipStateCorruption {
 		return fmt.Errorf("[network_plugin] configured policy %q differs from state checkpoint policy %q", sc.policyName, checkpoint.PolicyName)
 	}
@@ -145,6 +155,45 @@ func (sc *stateCheckpoint) restoreState(conf *qrm.QRMPluginsConfiguration, nics 
 
 	generalLog.InfoS("state checkpoint: restored state from checkpoint")
 
+	return nil
+}
+
+func (sc *stateCheckpoint) tryMigrateState(conf *qrm.QRMPluginsConfiguration, nics []machine.InterfaceInfo, reservedBandwidth map[string]uint32, stateDir string, checkpoint *NetworkPluginCheckpoint) error {
+	var foundAndSkippedStateCorruption bool
+	klog.Infof("[network_plugin] trying to migrate state")
+
+	// Get the old checkpoint using provided file directory
+	oldCheckpointManager, err := inmemorystate.CreateCheckpointManager(stateDir, !sc.isInMemoryState)
+	if err != nil {
+		return fmt.Errorf("[network_plugin] failed to initialize old checkpoint manager for migration: %v", err)
+	}
+
+	if err = oldCheckpointManager.GetCheckpoint(sc.checkpointName, checkpoint); err != nil {
+		if err == errors.ErrCheckpointNotFound {
+			// Old checkpoint file is not found, so we just store state in new checkpoint
+			general.InfoS("[network_plugin] checkpoint %v doesn't exist, create it", sc.checkpointName)
+			return sc.storeState()
+		} else if err == errors.ErrCorruptCheckpoint {
+			if !sc.skipStateCorruption {
+				return err
+			}
+			foundAndSkippedStateCorruption = true
+			klog.Warningf("[network_plugin] restore checkpoint failed with err: %s, but we skip it", err)
+		} else {
+			return err
+		}
+	}
+
+	if err = sc.populateCacheAndState(conf, nics, reservedBandwidth, checkpoint, foundAndSkippedStateCorruption); err != nil {
+		return fmt.Errorf("[network_plugin] failed to populate checkpoint state during state migration: %v", err)
+	}
+
+	// Delete old state file
+	if err = oldCheckpointManager.RemoveCheckpoint(sc.checkpointName); err != nil {
+		return fmt.Errorf("[network_plugin] failed to remove old checkpoint: %v", err)
+	}
+
+	klog.Infof("[network_plugin] checkpoint migration succeeded")
 	return nil
 }
 
