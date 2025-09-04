@@ -23,9 +23,9 @@ const TmpfsCheckpointPath = "/dev/shm/qrm/state"
 
 // CreateCheckpointManager creates a checkpoint manager that either stores the state in memory (tmpfs) or disk
 // This is to help relieve poor I/O performance on certain disks
-func CreateCheckpointManager(stateDir string, isInMemoryStore bool) (checkpointmanager.CheckpointManager, error) {
+func CreateCheckpointManager(fileStateDir, inMemoryStateDir string, isInMemoryStore bool) (checkpointmanager.CheckpointManager, error) {
 	if isInMemoryStore {
-		return checkpointmanager.NewCheckpointManager(TmpfsCheckpointPath)
+		return checkpointmanager.NewCheckpointManager(inMemoryStateDir)
 	}
-	return checkpointmanager.NewCheckpointManager(stateDir)
+	return checkpointmanager.NewCheckpointManager(fileStateDir)
 }
