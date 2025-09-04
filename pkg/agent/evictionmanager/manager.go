@@ -440,15 +440,22 @@ func (m *EvictionManger) collectEvictionResult(ctx context.Context, pods []*v1.P
 			general.Errorf(" pluginName points to nil endpoint, can't handle threshold from it")
 		}
 
+		activePods := pods
 		candidateEvictionRecords := make([]*pluginapi.EvictionRecord, 0, len(threshold.CandidatePods))
-		for _, pod := range threshold.CandidatePods {
-			if r, ok := records[string(pod.UID)]; ok {
-				candidateEvictionRecords = append(candidateEvictionRecords, r)
+		if len(threshold.CandidatePods) > 0 {
+			// use candidate pods as active pods if they are not empty
+			activePods = threshold.CandidatePods
+
+			// get eviction records for all candidate pods
+			for _, pod := range threshold.CandidatePods {
+				if r, ok := records[string(pod.UID)]; ok {
+					candidateEvictionRecords = append(candidateEvictionRecords, r)
+				}
 			}
 		}
 
 		resp, err := m.endpoints[pluginName].GetTopEvictionPods(context.Background(), &pluginapi.GetTopEvictionPodsRequest{
-			ActivePods:               pods,
+			ActivePods:               activePods,
 			TopN:                     1,
 			EvictionScope:            threshold.EvictionScope,
 			CandidateEvictionRecords: candidateEvictionRecords,
