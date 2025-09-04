@@ -81,8 +81,6 @@ const (
 	SoftIrqsFile       = "/proc/softirqs"
 )
 
-const UnknownNumaNode = -1
-
 var netnsMutex sync.Mutex
 
 // GetExtraNetworkInfo collects network interface information from /sys/class/net and net.Interfaces.
