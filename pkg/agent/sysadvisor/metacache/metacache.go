@@ -678,7 +678,7 @@ func (mc *MetaCacheImp) tryMigrateState(stateDir string, checkpoint *MetaCacheCh
 	// Get the old checkpoint using the provided file directory
 	oldCheckpointManager, err := CreateCheckpointManager(stateDir, !mc.isInMemoryState)
 	if err != nil {
-		return fmt.Errorf("[metacache] failed to initialise old checkpoint manager for migration: %v", err)
+		return fmt.Errorf("[metacache] failed to initialize old checkpoint manager for migration: %v", err)
 	}
 
 	if err = oldCheckpointManager.GetCheckpoint(mc.checkpointName, checkpoint); err != nil {
