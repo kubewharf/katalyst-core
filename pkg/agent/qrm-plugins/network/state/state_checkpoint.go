@@ -18,11 +18,12 @@ package state
 
 import (
 	"fmt"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/inmemorystate"
 	"path"
 	"reflect"
 	"sync"
 	"time"
+
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/inmemorystate"
 
 	"k8s.io/klog/v2"
 

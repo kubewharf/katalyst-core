@@ -18,11 +18,12 @@ package state
 
 import (
 	"fmt"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/inmemorystate"
 	"path"
 	"reflect"
 	"sync"
 	"time"
+
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/inmemorystate"
 
 	info "github.com/google/cadvisor/info/v1"
 	v1 "k8s.io/api/core/v1"

@@ -69,7 +69,7 @@ func TestNewMetricBasedHintOptimizer(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	stateImpl, err := state.NewCheckpointState(tmpDir, "test", "test", metaServer.CPUTopology, false, state.GenerateMachineStateFromPodEntries, emitter)
+	stateImpl, err := state.NewCheckpointState(tmpDir, "test", "test", metaServer.CPUTopology, false, state.GenerateMachineStateFromPodEntries, emitter, false)
 	require.NoError(t, err)
 
 	options := policy.HintOptimizerFactoryOptions{
@@ -192,7 +192,7 @@ func TestMetricBasedHintOptimizer_OptimizeHints(t *testing.T) {
 					tmpDir, _ := ioutil.TempDir("", "test-state")
 					defer os.RemoveAll(tmpDir)
 					cpuTopology, _ := machine.GenerateDummyCPUTopology(4, 1, 1) // 1 NUMA node
-					st, _ := state.NewCheckpointState(tmpDir, "test", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
+					st, _ := state.NewCheckpointState(tmpDir, "test", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{}, false)
 					return st
 				}(),
 				numaMetrics: func() map[int]cpuUtil.SubEntries {
@@ -259,7 +259,7 @@ func TestMetricBasedHintOptimizer_OptimizeHints(t *testing.T) {
 					tmpDir, _ := ioutil.TempDir("", "test-state-fail")
 					defer os.RemoveAll(tmpDir)
 					cpuTopology, _ := machine.GenerateDummyCPUTopology(16, 1, 1)
-					st, _ := state.NewCheckpointState(tmpDir, "test", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
+					st, _ := state.NewCheckpointState(tmpDir, "test", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{}, false)
 					return st
 				}(),
 			},
@@ -325,7 +325,7 @@ func TestMetricBasedHintOptimizer_OptimizeHints(t *testing.T) {
 					tmpDir, _ := ioutil.TempDir("", "test-state-over")
 					defer os.RemoveAll(tmpDir)
 					cpuTopology, _ := machine.GenerateDummyCPUTopology(4, 1, 2)
-					st, _ := state.NewCheckpointState(tmpDir, "test", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
+					st, _ := state.NewCheckpointState(tmpDir, "test", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{}, false)
 					return st
 				}(),
 				numaMetrics: func() map[int]cpuUtil.SubEntries {
@@ -564,7 +564,7 @@ func TestMetricBasedHintOptimizer_collectNUMAMetrics(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	stateImpl, err := state.NewCheckpointState(tmpDir, "test", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
+	stateImpl, err := state.NewCheckpointState(tmpDir, "test", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{}, false)
 	require.NoError(t, err)
 
 	podUID1 := "pod1"
