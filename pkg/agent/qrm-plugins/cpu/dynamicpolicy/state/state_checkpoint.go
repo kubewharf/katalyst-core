@@ -18,7 +18,7 @@ package state
 
 import (
 	"fmt"
-	"github.com/kubewharf/katalyst-core/pkg/util/inmemorystate"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/inmemorystate"
 	"path"
 	"reflect"
 	"sync"
@@ -149,7 +149,7 @@ func (sc *stateCheckpoint) populateCacheAndState(topology *machine.CPUTopology, 
 // tryMigrateState tries to migrate state from disk to memory or from memory to disk during initialisation of stateCheckpoint
 func (sc *stateCheckpoint) tryMigrateState(topology *machine.CPUTopology, stateDir string, checkpoint *CPUPluginCheckpoint) error {
 	var foundAndSkippedStateCorruption bool
-	general.InfoS("[cpu_plugin] trying to migrate state from disk to memory")
+	klog.Infof("[cpu_plugin] trying to migrate state")
 
 	// Get the old checkpoint using the provided file directory
 	oldCheckpointManager, err := inmemorystate.CreateCheckpointManager(stateDir, !sc.isInMemoryState)
@@ -157,7 +157,7 @@ func (sc *stateCheckpoint) tryMigrateState(topology *machine.CPUTopology, stateD
 		return fmt.Errorf("[cpu_plugin] failed to initialize old checkpoint manager for migration: %v", err)
 	}
 
-	if err := oldCheckpointManager.GetCheckpoint(sc.checkpointName, checkpoint); err != nil {
+	if err = oldCheckpointManager.GetCheckpoint(sc.checkpointName, checkpoint); err != nil {
 		if err == errors.ErrCheckpointNotFound {
 			// Old checkpoint file is not found, so we just store state in new checkpoint
 			general.InfoS("[cpu_plugin] checkpoint %v doesn't exist, create it", sc.checkpointName)
@@ -173,15 +173,16 @@ func (sc *stateCheckpoint) tryMigrateState(topology *machine.CPUTopology, stateD
 		}
 	}
 
-	if err := sc.populateCacheAndState(topology, checkpoint, foundAndSkippedStateCorruption); err != nil {
+	if err = sc.populateCacheAndState(topology, checkpoint, foundAndSkippedStateCorruption); err != nil {
 		return fmt.Errorf("[cpu_plugin] failed to populate checkpoint state during state migration: %v", err)
 	}
 
 	// Delete the old state file
-	if err := oldCheckpointManager.RemoveCheckpoint(sc.checkpointName); err != nil {
+	if err = oldCheckpointManager.RemoveCheckpoint(sc.checkpointName); err != nil {
 		return fmt.Errorf("[cpu_plugin] failed to remove old checkpoint file: %v", err)
 	}
 
+	klog.Infof("[cpu_plugin] migrate checkpoint succeeded")
 	return nil
 }
 
