@@ -120,6 +120,30 @@ func generateTestMetaServer(podList ...*v1.Pod) *metaserver.MetaServer {
 						},
 					},
 				},
+				ExtraTopologyInfo: &machine.ExtraTopologyInfo{
+					NumaDistanceMap: map[int][]machine.NumaDistanceInfo{
+						0: {
+							{
+								Distance: 10,
+								NumaID:   0,
+							},
+							{
+								Distance: 20,
+								NumaID:   1,
+							},
+						},
+						1: {
+							{
+								Distance: 20,
+								NumaID:   0,
+							},
+							{
+								Distance: 10,
+								NumaID:   1,
+							},
+						},
+					},
+				},
 			},
 			KubeletConfigFetcher: kubeletconfig.NewFakeKubeletConfigFetcher(fakeKubeletConfig),
 		},

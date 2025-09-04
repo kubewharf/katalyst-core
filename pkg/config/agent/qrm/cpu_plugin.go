@@ -28,6 +28,8 @@ type CPUQRMPluginConfig struct {
 	PolicyName string
 	// ReservedCPUCores indicates reserved cpus number for system agents
 	ReservedCPUCores int
+	// ReservedCPUList indicates reserved cpu list for system agents
+	ReservedCPUList string
 	// SkipCPUStateCorruption is set to skip cpu state corruption, and it will be used after updating state properties
 	SkipCPUStateCorruption bool
 

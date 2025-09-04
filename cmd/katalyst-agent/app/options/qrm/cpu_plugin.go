@@ -31,6 +31,7 @@ import (
 type CPUOptions struct {
 	PolicyName             string
 	ReservedCPUCores       int
+	ReservedCPUList        string
 	SkipCPUStateCorruption bool
 
 	CPUDynamicPolicyOptions
@@ -96,6 +97,8 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.AdvisorGetAdviceInterval, "If cpu advisor is enabled, this is the interval at which we get advice from sys-advisor")
 	fs.IntVar(&o.ReservedCPUCores, "cpu-resource-plugin-reserved",
 		o.ReservedCPUCores, "The total cores cpu resource plugin should reserve")
+	fs.StringVar(&o.ReservedCPUList, "cpu-resource-plugin-reserved-list",
+		o.ReservedCPUList, "The cpu resource plugin should reserve cpu list")
 	fs.BoolVar(&o.SkipCPUStateCorruption, "skip-cpu-state-corruption",
 		o.SkipCPUStateCorruption, "if set true, we will skip cpu state corruption")
 	fs.BoolVar(&o.EnableCPUPressureEviction, "enable-cpu-pressure-eviction", o.EnableCPUPressureEviction,
@@ -128,6 +131,7 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 	conf.EnableCPUAdvisor = o.EnableCPUAdvisor
 	conf.GetAdviceInterval = o.AdvisorGetAdviceInterval
 	conf.ReservedCPUCores = o.ReservedCPUCores
+	conf.ReservedCPUList = o.ReservedCPUList
 	conf.SkipCPUStateCorruption = o.SkipCPUStateCorruption
 	conf.EnableCPUPressureEviction = o.EnableCPUPressureEviction
 	conf.LoadPressureEvictionSkipPools = o.LoadPressureEvictionSkipPools
