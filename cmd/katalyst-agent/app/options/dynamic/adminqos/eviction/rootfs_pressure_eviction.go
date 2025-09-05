@@ -27,8 +27,10 @@ import (
 
 const (
 	defaultEnableRootfsEviction                       = false
+	defaultEnableSystemPrjquotaPressureEviction       = false
 	defaultMinimumFreeThreshold                       = ""
 	defaultMinimumInodesFreeThreshold                 = ""
+	defaultSystemPrjquotaUsedThreshold                = ""
 	defaultPodMinimumUsedThreshold                    = ""
 	defaultPodMinimumInodesUsedThreshold              = ""
 	defaultReclaimedQoSPodUsedPriorityThreshold       = ""
@@ -48,14 +50,17 @@ var (
 
 type RootfsPressureEvictionOptions struct {
 	EnableRootfsPressureEviction               bool
+	EnableSystemPrjquotaPressureEviction       bool
 	MinimumImageFsFreeThreshold                string
 	MinimumImageFsInodesFreeThreshold          string
+	SystemPrjquotaUsedThreshold                string
 	PodMinimumUsedThreshold                    string
 	PodMinimumInodesUsedThreshold              string
 	ReclaimedQoSPodUsedPriorityThreshold       string
 	ReclaimedQoSPodInodesUsedPriorityThreshold string
 	MinimumImageFsDiskCapacityThreshold        string
 	GracePeriod                                int64
+	RootfsPressureEvictionIgnorePaths          []string
 
 	EnableRootfsOveruseEviction             bool
 	RootfsOveruseEvictionSupportedQoSLevels []string
@@ -70,8 +75,10 @@ type RootfsPressureEvictionOptions struct {
 func NewRootfsPressureEvictionOptions() *RootfsPressureEvictionOptions {
 	return &RootfsPressureEvictionOptions{
 		EnableRootfsPressureEviction:               defaultEnableRootfsEviction,
+		EnableSystemPrjquotaPressureEviction:       defaultEnableSystemPrjquotaPressureEviction,
 		MinimumImageFsFreeThreshold:                defaultMinimumFreeThreshold,
 		MinimumImageFsInodesFreeThreshold:          defaultMinimumInodesFreeThreshold,
+		SystemPrjquotaUsedThreshold:                defaultSystemPrjquotaUsedThreshold,
 		PodMinimumUsedThreshold:                    defaultPodMinimumUsedThreshold,
 		PodMinimumInodesUsedThreshold:              defaultPodMinimumInodesUsedThreshold,
 		ReclaimedQoSPodUsedPriorityThreshold:       defaultReclaimedQoSPodUsedPriorityThreshold,
@@ -91,6 +98,10 @@ func (o *RootfsPressureEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs := fss.FlagSet("eviction-rootfs-pressure")
 	fs.BoolVar(&o.EnableRootfsPressureEviction, "eviction-rootfs-enable", false,
 		"set true to enable rootfs pressure eviction")
+	fs.BoolVar(&o.EnableSystemPrjquotaPressureEviction, "eviction-system-prjquota-enable", false,
+		"set true to enable system prjquota pressure eviction")
+	fs.StringVar(&o.SystemPrjquotaUsedThreshold, "eviction-system-prjquota-used", "",
+		"the system prjquota used threshold for nodes. once the system used of current node is higher than this threshold, the eviction manager will try to evict some pods. example 1T, 60%")
 	fs.StringVar(&o.MinimumImageFsFreeThreshold, "eviction-rootfs-minimum-image-fs-free", "",
 		"the minimum image rootfs free threshold for nodes. once the rootfs free space of current node is lower than this threshold, the eviction manager will try to evict some pods. example 200G, 10%")
 	fs.StringVar(&o.MinimumImageFsInodesFreeThreshold, "eviction-rootfs-minimum-image-fs-inodes-free", "",
@@ -107,6 +118,7 @@ func (o *RootfsPressureEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"the minimum image fs disk capacity for nodes. the eviction manager will ignore those nodes whose image fs disk capacity is less than this threshold")
 	fs.Int64Var(&o.GracePeriod, "eviction-rootfs-grace-period", 0,
 		"the grace period of pod deletion")
+	fs.StringSliceVar(&o.RootfsPressureEvictionIgnorePaths, "eviction-rootfs-ignore-paths", o.RootfsPressureEvictionIgnorePaths, "paths to exclude when calculating disk pressure usage")
 
 	fs.BoolVar(&o.EnableRootfsOveruseEviction, "eviction-rootfs-overuse-enable", o.EnableRootfsOveruseEviction, "set true to enable rootfs overuse eviction")
 	fs.StringSliceVar(&o.RootfsOveruseEvictionSupportedQoSLevels, "eviction-rootfs-overuse-supported-qos-levels", o.RootfsOveruseEvictionSupportedQoSLevels, "the supported qos levels for rootfs overuse eviction, supported qos levels are: shared, reclaimed")
@@ -116,6 +128,7 @@ func (o *RootfsPressureEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 func (o *RootfsPressureEvictionOptions) ApplyTo(c *eviction.RootfsPressureEvictionConfiguration) error {
 	c.EnableRootfsPressureEviction = o.EnableRootfsPressureEviction
+	c.EnableSystemPrjquotaPressureEviction = o.EnableSystemPrjquotaPressureEviction
 	if o.MinimumImageFsFreeThreshold != "" {
 		value, err := eviction.ParseThresholdValue(o.MinimumImageFsFreeThreshold)
 		if err != nil {
@@ -129,6 +142,13 @@ func (o *RootfsPressureEvictionOptions) ApplyTo(c *eviction.RootfsPressureEvicti
 			return errors.Wrapf(err, "failed to parse option: 'eviction-rootfs-minimm-inodes-free'")
 		}
 		c.MinimumImageFsInodesFreeThreshold = value
+	}
+	if o.SystemPrjquotaUsedThreshold != "" {
+		value, err := eviction.ParseThresholdValue(o.SystemPrjquotaUsedThreshold)
+		if err != nil {
+			return errors.Wrapf(err, "failed to parse option: 'eviction-system-prjquota-used'")
+		}
+		c.SystemPrjquotaUsedThreshold = value
 	}
 	if o.PodMinimumUsedThreshold != "" {
 		value, err := eviction.ParseThresholdValue(o.PodMinimumUsedThreshold)
@@ -166,6 +186,7 @@ func (o *RootfsPressureEvictionOptions) ApplyTo(c *eviction.RootfsPressureEvicti
 		c.MinimumImageFsDiskCapacityThreshold = &value
 	}
 	c.GracePeriod = o.GracePeriod
+	c.RootfsPressureEvictionIgnorePaths = o.RootfsPressureEvictionIgnorePaths
 
 	c.EnableRootfsOveruseEviction = o.EnableRootfsOveruseEviction
 	c.RootfsOveruseEvictionSupportedQoSLevels = o.RootfsOveruseEvictionSupportedQoSLevels

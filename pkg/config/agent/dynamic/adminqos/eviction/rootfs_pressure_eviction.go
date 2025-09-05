@@ -30,13 +30,16 @@ import (
 
 type RootfsPressureEvictionConfiguration struct {
 	EnableRootfsPressureEviction               bool
+	EnableSystemPrjquotaPressureEviction       bool
 	MinimumImageFsFreeThreshold                *evictionapi.ThresholdValue
 	MinimumImageFsInodesFreeThreshold          *evictionapi.ThresholdValue
+	SystemPrjquotaUsedThreshold                *evictionapi.ThresholdValue
 	PodMinimumUsedThreshold                    *evictionapi.ThresholdValue
 	PodMinimumInodesUsedThreshold              *evictionapi.ThresholdValue
 	ReclaimedQoSPodUsedPriorityThreshold       *evictionapi.ThresholdValue
 	ReclaimedQoSPodInodesUsedPriorityThreshold *evictionapi.ThresholdValue
 	MinimumImageFsDiskCapacityThreshold        *resource.Quantity
+	RootfsPressureEvictionIgnorePaths          []string
 
 	EnableRootfsOveruseEviction             bool
 	RootfsOveruseEvictionSupportedQoSLevels []string
