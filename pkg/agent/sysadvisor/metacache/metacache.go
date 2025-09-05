@@ -684,7 +684,7 @@ func (mc *MetaCacheImp) tryMigrateState(stateDir string, checkpoint *MetaCacheCh
 	if err = oldCheckpointManager.GetCheckpoint(mc.checkpointName, checkpoint); err != nil {
 		if err == errors.ErrCheckpointNotFound {
 			// create a new store state
-			klog.Infof("[metacache] checkpoint %v doesn't exist, create it", mc.checkpointName, err)
+			klog.Infof("[metacache] checkpoint %v doesn't exist in dir %v, create it", mc.checkpointName, stateDir)
 			return mc.storeState()
 		} else if err == errors.ErrCorruptCheckpoint {
 			if !mc.skipStateCorruption {
@@ -706,6 +706,12 @@ func (mc *MetaCacheImp) tryMigrateState(stateDir string, checkpoint *MetaCacheCh
 		return fmt.Errorf("[network_plugin] failed to store checkpoint state during end of migration: %v", err)
 	}
 
+	// remove old checkpoint file
+	if err = oldCheckpointManager.RemoveCheckpoint(mc.checkpointName); err != nil {
+		return fmt.Errorf("[metacache] failed to remove old checkpoint: %v", err)
+	}
+
+	klog.Infof("[metacache] migrate checkpoint succeeded")
 	return nil
 }
 

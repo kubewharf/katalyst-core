@@ -191,6 +191,11 @@ func (sc *stateCheckpoint) tryMigrateState(machineInfo *info.MachineInfo, reserv
 		return fmt.Errorf("[memory_plugin] failed to store state during end of migration: %v", err)
 	}
 
+	// remove old checkpoint file
+	if err = oldCheckpointManager.RemoveCheckpoint(sc.checkpointName); err != nil {
+		return fmt.Errorf("[memory_plugin] failed to remove old checkpoint: %v", err)
+	}
+
 	klog.Infof("[memory_plugin] migrate checkpoint succeeded")
 	return nil
 }
