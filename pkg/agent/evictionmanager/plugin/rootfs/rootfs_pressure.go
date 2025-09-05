@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"k8s.io/klog/v2"
 	"os"
 	"path/filepath"
 	"sort"
@@ -96,6 +97,7 @@ func (r *PodRootfsPressureEvictionPlugin) ThresholdMet(_ context.Context) (*plug
 		EvictionScope: EvictionScopeSystemRootfs,
 	}
 
+	klog.InfoS("start to check rootfs pressure")
 	rootfsEvictionConfig := r.dynamicConfig.GetDynamicConfiguration().RootfsPressureEvictionConfiguration
 	if !rootfsEvictionConfig.EnableRootfsPressureEviction {
 		return resp, nil
@@ -148,6 +150,7 @@ func (r *PodRootfsPressureEvictionPlugin) minimumFreeThresholdMet(rootfsEviction
 	// mock for test
 	rootfsEvictionConfig.RootfsPressureEvictionIgnorePaths = []string{"/data00/local"}
 	imageFsFreeBytesForTest := imageFsFreeBytes
+	klog.InfoS("start to check rootfs pressure ignore paths", "ignorePaths", rootfsEvictionConfig.RootfsPressureEvictionIgnorePaths)
 
 	if len(rootfsEvictionConfig.RootfsPressureEvictionIgnorePaths) > 0 {
 		for _, path := range rootfsEvictionConfig.RootfsPressureEvictionIgnorePaths {
@@ -158,7 +161,7 @@ func (r *PodRootfsPressureEvictionPlugin) minimumFreeThresholdMet(rootfsEviction
 			}
 		}
 		imageFsFreeBytesForTest += excludeSize
-		general.Infof("after considering excludeSize imageFsFreeBytes: %d, imageFsCapacityBytes: %d", imageFsFreeBytesForTest, imageFsCapacityBytes)
+		klog.InfoS("after considering excludeSize imageFsFreeBytes: %d, imageFsCapacityBytes: %d", imageFsFreeBytesForTest, imageFsCapacityBytes)
 	}
 
 	if rootfsEvictionConfig.MinimumImageFsDiskCapacityThreshold != nil && int64(imageFsCapacityBytes) < rootfsEvictionConfig.MinimumImageFsDiskCapacityThreshold.Value() {
