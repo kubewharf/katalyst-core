@@ -144,6 +144,21 @@ func TestGetAvailableNUMAsAndReclaimedCores(t *testing.T) {
 		types.TopologyAwareAssignment{
 			1: machine.NewCPUSet(0),
 		}, 30<<30)
+	containerInfoSharedCores := makeContainerInfo("pod4", "default",
+		"pod4", "container4",
+		consts.PodAnnotationQoSLevelSharedCores, map[string]string{
+			consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+			cpuconsts.CPUStateAnnotationKeyNUMAHint:          "0",
+		},
+		nil, 20<<30)
+	containerInfoSharedCores2 := makeContainerInfo("pod5", "default",
+		"pod5", "container5",
+		consts.PodAnnotationQoSLevelSharedCores, map[string]string{
+			consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+			cpuconsts.CPUStateAnnotationKeyNUMAHint:          "0",
+		},
+		nil, 20<<30)
+
 	tests := []struct {
 		name           string
 		podList        []*v1.Pod
@@ -384,6 +399,35 @@ func TestGetAvailableNUMAsAndReclaimedCores(t *testing.T) {
 				return conf, metaReader, metaServer
 			},
 			wantNUMAs:      machine.NewCPUSet(),
+			wantContainers: []*types.ContainerInfo{},
+			wantErr:        false,
+		},
+		{
+			name: "Two Shared Containers, one disable reclaim",
+			setup: func(podList []*v1.Pod) (*config.Configuration, metacache.MetaReader, *metaserver.MetaServer) {
+				conf := generateTestConfiguration(t, "/tmp/checkpoint", "/tmp/statefile")
+				conf.GetDynamicConfiguration().DisableReclaimSharePools = []string{"pool1"}
+				metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
+				metaServer := generateTestMetaServer(t, podList, metricsFetcher)
+				metaReader, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metricsFetcher)
+				require.NoError(t, err)
+				err = metaReader.ClearContainers()
+				require.NoError(t, err)
+				c1 := containerInfoSharedCores
+				c2 := containerInfoSharedCores2
+				c2.OriginOwnerPoolName = "pool1"
+				infos := []*types.ContainerInfo{
+					c1,
+					c2,
+				}
+
+				for _, info := range infos {
+					err := metaReader.SetContainerInfo(info.PodUID, info.ContainerName, info)
+					assert.NoError(t, err)
+				}
+				return conf, metaReader, metaServer
+			},
+			wantNUMAs:      machine.NewCPUSet(1),
 			wantContainers: []*types.ContainerInfo{},
 			wantErr:        false,
 		},

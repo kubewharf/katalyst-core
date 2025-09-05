@@ -322,13 +322,14 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 			if quotaCtrlKnobEnabled && numaID != commonstate.FakedNUMAID {
 				reclaimedCoresQuota = float64(general.Max(reservedForReclaim, reclaimedCoresSize))
 				if shareInfo.minReclaimedCoresCPUQuota != -1 {
-					reclaimedCoresQuota = shareInfo.minReclaimedCoresCPUQuota
+					reclaimedCoresQuota = general.MaxFloat64(float64(reservedForReclaim), shareInfo.minReclaimedCoresCPUQuota)
 				}
+
 				// if cpu quota enabled, set all reclaimable share pool size to reclaimableSharePoolSizes
 				for poolName := range sharedOverlapReclaimSize {
 					sharedOverlapReclaimSize[poolName] = general.Max(sharedOverlapReclaimSize[poolName], reclaimableSharePoolSizes[poolName])
 				}
-				reclaimedCoresSize = general.SumUpMapValues(reclaimableSharePoolSizes)
+				reclaimedCoresSize = general.SumUpMapValues(sharedOverlapReclaimSize)
 			}
 
 			for overlapPoolName, size := range sharedOverlapReclaimSize {
@@ -344,6 +345,7 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 	}
 
 	general.InfoS("assemble reclaim pool entry",
+		"reservedForReclaim", reservedForReclaim,
 		"reclaimedCoresSize", reclaimedCoresSize,
 		"reclaimedCoresQuota", reclaimedCoresQuota,
 		"numaID", numaID)
