@@ -49,6 +49,8 @@ const (
 	// StrategyNameMetricThreshold is the name of metric threshold,
 	// it offers metric threshold from trombe
 	StrategyNameMetricThreshold = "metric_threshold"
+
+	StrategyNameNumaReclaimReserve = "numa_reclaim_reserve"
 )
 
 const (
