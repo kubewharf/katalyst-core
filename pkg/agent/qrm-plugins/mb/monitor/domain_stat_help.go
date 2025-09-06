@@ -18,7 +18,7 @@ package monitor
 
 // estimateDomainIncomingRemote calculates incoming remote of a domain based on the formula:
 // given i the domain id, for all j except for i,
-// sum( remote_outgoing[j] * local_outgoing[i] / {local_outgoing[0] + ... + local_outgoing[n], except for i} ),
+// sum( remote_outgoing[j] * remote_outgoing[i] / {remote_outgoing[0] + ... + remote_outgoing[n], except for i} ),
 // i.e. dom-I incoming == for all J<>I, dom-J outgoing * {weight to I wrt all-other-than-J}
 func estimateDomainIncomingRemote(domain int, sumOutgoing int, sumDomainOutgoing map[int]int) int {
 	iOutgoingRemote := sumDomainOutgoing[domain]
