@@ -55,9 +55,8 @@ func NewGenericPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 
 	if klog.V(6).Enabled() {
 		// to print out numa siblings as they are critical to get proper mb domains
-		numaDists := agentCtx.SiblingNumaMap
-		general.Infof("[mbm] numa sibling map len = %d", len(numaDists))
-		for id, siblings := range numaDists {
+		numaSiblings := agentCtx.SiblingNumaMap
+		for id, siblings := range numaSiblings {
 			general.Infof("[mbm] numa %d, siblings %v", id, siblings)
 		}
 	}

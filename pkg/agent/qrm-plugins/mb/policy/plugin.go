@@ -66,6 +66,7 @@ func (m *MBPlugin) Name() string {
 func (m *MBPlugin) Start() error {
 	general.Infof("mbm: plugin started")
 
+	// todo: consider option not to reset resctrl FS on start to avoid hiccup between deployment updates
 	general.Infof("mbm: to reset resctrl FS on start")
 	ccds := sets.NewInt(maps.Keys(m.ccdToDomain)...)
 	if err := m.planAllocator.Reset(context.Background(), ccds); err != nil {
@@ -73,7 +74,7 @@ func (m *MBPlugin) Start() error {
 	}
 
 	if m.resetResctrlOnly {
-		general.Infof("mbm: to end after reset resctrl state")
+		general.Infof("mbm: not intended to manage mem bandwidth; to end immediately after resctrl state reset")
 		return nil
 	}
 
@@ -81,6 +82,7 @@ func (m *MBPlugin) Start() error {
 	go func() {
 		wait.Until(m.run, interval, m.chStop)
 
+		// todo: consider option not to reset resctrl FS on exit to avoid hiccup between deployment updates
 		general.Infof("mbm: plugin timer stopped; to reset resctrl FS on cleanup")
 		if err := m.planAllocator.Reset(context.Background(), ccds); err != nil {
 			general.Errorf("mbm: reset resctrl FS on stop failed: %v", err)
@@ -112,19 +114,21 @@ func (m *MBPlugin) run() {
 		general.Errorf("[mbm] failed to get mb data: %v", err)
 		return
 	}
-
-	statOutgoing := getGroupMonStat(mbData)
 	if mbData == nil {
 		general.Warningf("[mbm] got empty mb data")
 		return
 	}
+
+	statOutgoing := getGroupMonStat(mbData)
 
 	monData, err := monitor.NewDomainStats(statOutgoing, m.ccdToDomain, m.xDomGroups)
 	if err != nil {
 		general.Errorf("[mbm] failed to run fetching mb stats: %v", err)
 		return
 	}
-	general.InfofV(6, "[mbm] [mon] domain specific group ccd mb stat: %s", monData)
+	if klog.V(6).Enabled() {
+		general.Infof("[mbm] [mon] domain specific group ccd mb stat: %s", monData)
+	}
 
 	ctx := context.Background()
 	var mbPlan *plan.MBPlan
