@@ -425,6 +425,7 @@ func (ns *NUMANodeState) GetAvailableReclaimCPUQuantity(allocatableQuantity floa
 }
 
 // GetFilteredDefaultCPUSet returns default cpuset in this numa, along with the filter functions
+// default cpuset equals to allocatable cpuset subtracting original allocation result of dedicated_cores with NUMA binding
 func (ns *NUMANodeState) GetFilteredDefaultCPUSet(excludeEntry, excludeWholeNUMA func(ai *AllocationInfo) bool) machine.CPUSet {
 	if ns == nil {
 		return machine.NewCPUSet()
@@ -503,6 +504,7 @@ func (nm NUMANodeMap) GetAvailableCPUSet(reservedCPUs machine.CPUSet) machine.CP
 }
 
 // GetFilteredDefaultCPUSet returns default cpuset in this node, along with the filter functions
+// default cpuset equals to allocatable cpuset subtracting original allocation result of dedicated_cores with NUMA binding
 func (nm NUMANodeMap) GetFilteredDefaultCPUSet(excludeEntry, excludeWholeNUMA func(ai *AllocationInfo) bool) machine.CPUSet {
 	res := machine.NewCPUSet()
 	for _, numaNodeState := range nm {
@@ -511,7 +513,8 @@ func (nm NUMANodeMap) GetFilteredDefaultCPUSet(excludeEntry, excludeWholeNUMA fu
 	return res
 }
 
-// GetFilteredAvailableCPUSet returns available cpuset in this node, along with the filter functions
+// GetFilteredAvailableCPUSet returns default cpuset in this node, along with the filter functions
+// default cpuset equals to allocatable cpuset subtracting original allocation result of dedicated_cores with NUMA binding
 func (nm NUMANodeMap) GetFilteredAvailableCPUSet(reservedCPUs machine.CPUSet,
 	excludeEntry, excludeWholeNUMA func(ai *AllocationInfo) bool,
 ) machine.CPUSet {
