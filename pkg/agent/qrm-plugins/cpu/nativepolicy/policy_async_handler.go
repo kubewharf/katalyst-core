@@ -85,7 +85,7 @@ func (p *NativePolicy) clearResidualState() {
 			delete(podEntries, podUID)
 		}
 
-		updatedMachineState, err := nativepolicyutil.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+		updatedMachineState, err := nativepolicyutil.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries, nil)
 		if err != nil {
 			general.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 			return

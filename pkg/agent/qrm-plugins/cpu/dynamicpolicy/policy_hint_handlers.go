@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
@@ -30,6 +31,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/preoccupation"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -147,7 +149,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Conte
 			}
 
 			var err error
-			machineState, err = generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+			machineState, err = generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries, machineState)
 			if err != nil {
 				general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
 					req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -298,6 +300,14 @@ func (p *DynamicPolicy) calculateHints(
 			preferredHintIndexes = append(preferredHintIndexes, len(availableNumaHints)-1)
 		}
 	})
+
+	// todo support numa_binding without numa_exclusive in the future
+	if numaBinding && numaExclusive {
+		err = p.preferAvailableNumaHintsByPreOccupation(req, machineState, availableNumaHints)
+		if err != nil {
+			return nil, fmt.Errorf("preferAvailableNumaHintsByPreOccupation failed with error: %v", err)
+		}
+	}
 
 	// NOTE: because grpc is inability to distinguish between an empty array and nil,
 	//       we return an error instead of an empty array.
@@ -516,7 +526,7 @@ func (p *DynamicPolicy) clearContainerAndRegenerateMachineState(podEntries state
 	}
 
 	var err error
-	machineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+	machineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries, p.state.GetMachineState())
 	if err != nil {
 		return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
@@ -801,4 +811,50 @@ func (p *DynamicPolicy) populateBestEffortHintsByAvailableNUMANodes(
 
 	// Update the hints map
 	hints.Hints = hintList
+}
+
+func (p *DynamicPolicy) preferAvailableNumaHintsByPreOccupation(req *pluginapi.ResourceRequest,
+	machineState state.NUMANodeMap, hints []*pluginapi.TopologyHint,
+) error {
+	preOccupationNUMAs := machine.NewCPUSet()
+	withoutPreOccupationNUMAs := machine.NewCPUSet()
+	now := time.Now()
+	for numaID, numaState := range machineState {
+		if numaState == nil {
+			continue
+		}
+
+		occupied := false
+		for uid, podEntries := range numaState.PreOccPodEntries {
+			for _, containerEntries := range podEntries {
+				if containerEntries == nil ||
+					preoccupation.PreOccAllocationExpired(containerEntries.AllocationMeta, now) {
+					continue
+				}
+
+				occupied = true
+				if preoccupation.IsPreOccupiedContainer(req, containerEntries.AllocationMeta) {
+					general.Infof("numa %d is pre occupied by pod %s/%s/%s/%s", numaID, uid, req.PodNamespace, req.PodName, req.ContainerName)
+					preOccupationNUMAs.Add(numaID)
+					break
+				}
+			}
+		}
+
+		if !occupied {
+			withoutPreOccupationNUMAs.Add(numaID)
+		}
+	}
+
+	success, err := preoccupation.PreOccupationTopologyHints(hints, preOccupationNUMAs, withoutPreOccupationNUMAs)
+	if err != nil {
+		return err
+	}
+
+	if success {
+		general.Infof("%s/%s/%s/%s successfully prefer available numa hints by pre occupation: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, req.PodUid, hints)
+	}
+
+	return nil
 }

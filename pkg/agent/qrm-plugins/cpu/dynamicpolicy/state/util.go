@@ -20,12 +20,14 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/preoccupation"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -244,8 +246,54 @@ func GetReclaimedNUMAHeadroom(numaHeadroom map[int]float64, numaSet machine.CPUS
 }
 
 // GenerateMachineStateFromPodEntries for dynamic policy
-func GenerateMachineStateFromPodEntries(topology *machine.CPUTopology, podEntries PodEntries) (NUMANodeMap, error) {
-	return GenerateMachineStateFromPodEntriesByPolicy(topology, podEntries, cpuconsts.CPUResourcePluginPolicyNameDynamic)
+func GenerateMachineStateFromPodEntries(topology *machine.CPUTopology, podEntries PodEntries, originMachineState NUMANodeMap) (NUMANodeMap, error) {
+	currentMachineState, err := GenerateMachineStateFromPodEntriesByPolicy(topology, podEntries, cpuconsts.CPUResourcePluginPolicyNameDynamic)
+	if err != nil {
+		return nil, err
+	}
+
+	overrideMachineStatePreOccPodEntries(currentMachineState, originMachineState)
+	return currentMachineState, nil
+}
+
+// overrideMachineStatePreOccPodEntries override the pre-occupation pod from pod entries and origin machine state
+func overrideMachineStatePreOccPodEntries(currentMachineState, originMachineState NUMANodeMap) {
+	// clone pre-occupation pod from origin machine state
+	currentMachineState.ClonePreOccPodEntries(originMachineState)
+
+	// override pre-occupation pod from pod entries
+	now := time.Now()
+	for _, numaState := range currentMachineState {
+		for podUID, containerEntries := range numaState.PodEntries {
+			for containerName, allocationInfo := range containerEntries {
+				if allocationInfo == nil {
+					general.Warningf("nil allocationInfo in podEntries")
+					continue
+				}
+
+				if preoccupation.PreOccAllocationFilter(allocationInfo.AllocationMeta) {
+					numaState.SetPreOccAllocationInfo(podUID, containerName, allocationInfo)
+				}
+			}
+		}
+
+		for podUID, containerEntries := range numaState.PreOccPodEntries {
+			for containerName, preOccAllocationInfo := range containerEntries {
+				if preOccAllocationInfo == nil {
+					general.Warningf("nil preOccAllocationInfo in podEntries")
+					continue
+				}
+
+				if _, ok := numaState.PodEntries[podUID]; !ok {
+					if preoccupation.PreOccAllocationExpired(preOccAllocationInfo.AllocationMeta, now) {
+						numaState.DeletePreOccAllocationInfo(podUID, containerName)
+					} else {
+						preoccupation.SetPreOccDeleteTimestamp(&preOccAllocationInfo.AllocationMeta, now)
+					}
+				}
+			}
+		}
+	}
 }
 
 func GetCPUIncrRatio(allocationInfo *AllocationInfo) float64 {
