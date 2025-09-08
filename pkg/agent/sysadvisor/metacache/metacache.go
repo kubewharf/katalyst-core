@@ -503,15 +503,16 @@ func (mc *MetaCacheImp) deleteContainer(podUID string, containerName string) boo
 }
 
 func (mc *MetaCacheImp) RemovePod(podUID string) error {
-	mc.podMutex.Lock()
-	containerEntries, ok := mc.podEntries[podUID]
+	podEntries := mc.GetPodEntries()
+	containerEntries, ok := podEntries[podUID]
 	if !ok {
-		mc.podMutex.Unlock()
 		return nil
 	}
 	for _, container := range containerEntries {
 		mc.deleteContainerCreateTimestamp(podUID, container.ContainerName)
 	}
+
+	mc.podMutex.Lock()
 	delete(mc.podEntries, podUID)
 	mc.podMutex.Unlock()
 
@@ -692,13 +693,19 @@ func (mc *MetaCacheImp) restoreState() error {
 }
 
 func (mc *MetaCacheImp) setContainerCreateTimestamp(podUID, containerName string, timestamp int64) {
+	mc.podMutex.Lock()
+	defer mc.podMutex.Unlock()
 	mc.containerCreateTimestamp[fmt.Sprintf("%s/%s", podUID, containerName)] = timestamp
 }
 
 func (mc *MetaCacheImp) getContainerCreateTimestamp(podUID, containerName string) int64 {
+	mc.podMutex.Lock()
+	defer mc.podMutex.Unlock()
 	return mc.containerCreateTimestamp[fmt.Sprintf("%s/%s", podUID, containerName)]
 }
 
 func (mc *MetaCacheImp) deleteContainerCreateTimestamp(podUID, containerName string) {
+	mc.podMutex.Lock()
+	defer mc.podMutex.Unlock()
 	delete(mc.containerCreateTimestamp, fmt.Sprintf("%s/%s", podUID, containerName))
 }
