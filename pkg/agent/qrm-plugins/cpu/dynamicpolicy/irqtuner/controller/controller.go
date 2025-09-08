@@ -3525,7 +3525,7 @@ retry:
 	_ = ic.emitter.StoreInt64(metricUtil.MetricNameIrqTuningSriovContainersCount, int64(len(ic.SriovContainers)), metrics.MetricTypeNameRaw,
 		metrics.MetricTag{Key: "count", Val: strconv.Itoa(len(ic.SriovContainers))})
 	_ = ic.emitter.StoreInt64(metricUtil.MetricNameIrqTuningIrqAffForbiddenContainersCount, int64(len(ic.IrqAffForbiddenContainers)), metrics.MetricTypeNameRaw,
-		metrics.MetricTag{Key: "count", Val: strconv.Itoa(len(ic.SriovContainers))})
+		metrics.MetricTag{Key: "count", Val: strconv.Itoa(len(ic.IrqAffForbiddenContainers))})
 
 	forbiddendCores, err := ic.IrqStateAdapter.GetIRQForbiddenCores()
 	if err != nil {
