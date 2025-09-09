@@ -756,6 +756,31 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 							},
 						},
 					},
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:        "pod2",
+							Namespace:   "default",
+							UID:         "uid2",
+							Annotations: map[string]string{consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores},
+						},
+						Spec: v1.PodSpec{
+							Containers: []v1.Container{
+								{
+									Name: "container2",
+									Resources: v1.ResourceRequirements{
+										Limits: map[v1.ResourceName]resource.Quantity{
+											v1.ResourceCPU:    resource.MustParse("4"),
+											v1.ResourceMemory: resource.MustParse("40Gi"),
+										},
+										Requests: map[v1.ResourceName]resource.Quantity{
+											v1.ResourceCPU:    resource.MustParse("2"),
+											v1.ResourceMemory: resource.MustParse("20Gi"),
+										},
+									},
+								},
+							},
+						},
+					},
 				},
 				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
 					now := time.Now()
