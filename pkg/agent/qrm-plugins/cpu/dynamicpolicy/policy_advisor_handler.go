@@ -570,24 +570,24 @@ func (p *DynamicPolicy) checkAndApplyIfCgroupV1(calculationInfo *advisorsvc.Calc
 
 	// scale down the be group quota
 	if currentParentCgroupCPUStats.CpuQuota < 0 || resources.CpuQuota <= currentParentCgroupCPUStats.CpuQuota {
-		err := p.checkAllPodsQuota(calculationInfo, resources.CpuQuota)
+		err := p.checkAndApplyAllPodsQuota(calculationInfo, resources.CpuQuota)
 		if err != nil {
-			return fmt.Errorf("checkAllPodsQuota failed with error: %v", err)
+			return fmt.Errorf("checkAndApplyAllPodsQuota failed with error: %v", err)
 		}
 	} else {
 		minBGQuota := currentParentCgroupCPUStats.CpuQuota
 		if resources.CpuQuota < minBGQuota {
 			minBGQuota = resources.CpuQuota
 		}
-		err := p.checkAllPodsQuota(calculationInfo, minBGQuota)
+		err := p.checkAndApplyAllPodsQuota(calculationInfo, minBGQuota)
 		if err != nil {
-			return fmt.Errorf("checkAllPodsQuota failed with error: %v", err)
+			return fmt.Errorf("checkAndApplyAllPodsQuota failed with error: %v", err)
 		}
 	}
 	return nil
 }
 
-func (p *DynamicPolicy) checkAllPodsQuota(calculationInfo *advisorsvc.CalculationInfo, bigGroupQuota int64) error {
+func (p *DynamicPolicy) checkAndApplyAllPodsQuota(calculationInfo *advisorsvc.CalculationInfo, bigGroupQuota int64) error {
 	podsPathMap, podDirs, err := p.getCurrentPathAllPodsDirAndMap(calculationInfo.CgroupPath)
 	if err != nil {
 		return err
