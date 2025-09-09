@@ -760,7 +760,11 @@ func (p *DynamicPolicy) applyAllContainersQuota(pod *v1.Pod, setToLimit bool) er
 			if containerCpu.CpuQuota < 0 {
 				continue
 			}
-			err := cgroupmgr.ApplyCPUWithRelativePath(relativePath, &common.CPUData{CpuQuota: -1})
+			err := p.applyAllSubCgroupQuotaToUnLimit(relativePath)
+			if err != nil {
+				return fmt.Errorf("applyAllSubCgroupQuotaToUnLimit %s failed with error: %v", relativePath, err)
+			}
+			err = cgroupmgr.ApplyCPUWithRelativePath(relativePath, &common.CPUData{CpuQuota: -1})
 			if err != nil {
 				return fmt.Errorf("ApplyCPUWithRelativePath %s to -1 failed with error: %v", relativePath, err)
 			}
@@ -768,6 +772,39 @@ func (p *DynamicPolicy) applyAllContainersQuota(pod *v1.Pod, setToLimit bool) er
 	}
 
 	return nil
+}
+
+func (p *DynamicPolicy) applyAllSubCgroupQuotaToUnLimit(containerRelativePath string) error {
+	containerAbsPath := common.GetAbsCgroupPath(common.DefaultSelectedSubsys, containerRelativePath)
+
+	return filepath.WalkDir(containerAbsPath, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		if containerAbsPath == path {
+			return nil
+		}
+
+		subCPU, err := cgroupmgr.GetCPUWithAbsolutePath(path)
+		if err != nil {
+			return fmt.Errorf("GetCPUWithRelativePath %s failed with error: %v", path, err)
+		}
+
+		if subCPU.CpuQuota < 0 {
+			return nil
+		}
+
+		err = cgroupmgr.ApplyCPUWithAbsolutePath(path, &common.CPUData{CpuQuota: -1})
+		if err != nil {
+			general.Errorf("ApplyCPUWithAbsolutePath %s to -1 failed with error: %v", path, err)
+			return fmt.Errorf("ApplyCPUWithAbsolutePath %s to -1 failed with error: %v", path, err)
+		}
+
+		return nil
+	})
 }
 
 // generateBlockCPUSet generates BlockCPUSet from cpu-advisor response
