@@ -18,6 +18,9 @@ package rootfs
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -1022,4 +1025,62 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsMetExpire(t *testing.
 	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, len(resTop.TargetPods))
+}
+
+func writeN(t *testing.T, p string, n int) {
+	t.Helper()
+	assert.NoError(t, os.WriteFile(p, make([]byte, n), 0o644))
+}
+
+func TestPodRootfsPressureEvictionPlugin_getDirUsedBytes(t *testing.T) {
+	t.Parallel()
+
+	// --- Scenario 1: Directory does not exist → return 0,nil ---
+	{
+		dir := filepath.Join(t.TempDir(), "not-exist")
+		got, err := getDirUsedBytes(dir)
+		assert.NoError(t, err)
+		assert.Equal(t, float64(0), got)
+	}
+
+	// --- Scenario 2: Path is a file → return error ---
+	{
+		tmp := t.TempDir()
+		f := filepath.Join(tmp, "a.txt")
+		writeN(t, f, 10)
+
+		_, err := getDirUsedBytes(f)
+		assert.Error(t, err)
+		assert.True(t, strings.Contains(err.Error(), "is not a directory"))
+	}
+
+	// --- Scenario 3: Nested directory summation (empty directory + multi-level file accumulation) ---
+	{
+		root := t.TempDir()
+		writeN(t, filepath.Join(root, "a"), 10)
+		assert.NoError(t, os.MkdirAll(filepath.Join(root, "d1", "d2"), 0o755))
+		writeN(t, filepath.Join(root, "d1", "b"), 100)
+		writeN(t, filepath.Join(root, "d1", "d2", "c"), 7)
+
+		got, err := getDirUsedBytes(root)
+		assert.NoError(t, err)
+		assert.Equal(t, float64(10+100+7), got)
+	}
+
+	// --- Scenario 4: Permission error during Walk → return error ---
+	{
+		root := t.TempDir()
+		deny := filepath.Join(root, "deny")
+		assert.NoError(t, os.MkdirAll(filepath.Join(deny, "sub"), 0o700))
+
+		// Remove read permission to trigger EACCES
+		if err := os.Chmod(deny, 0o300); err != nil {
+			t.Skipf("chmod not supported: %v", err)
+		}
+		defer func() { _ = os.Chmod(deny, 0o700) }()
+
+		_, err := getDirUsedBytes(root)
+		assert.Error(t, err)
+		assert.True(t, strings.Contains(err.Error(), "walk directory"))
+	}
 }

@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"sync"
 	"time"
@@ -28,6 +29,7 @@ import (
 	"k8s.io/client-go/tools/events"
 	evictionapi "k8s.io/kubernetes/pkg/kubelet/eviction/api"
 	"k8s.io/kubernetes/pkg/kubelet/util/format"
+	"path/filepath"
 
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/plugin"
@@ -136,6 +138,24 @@ func (r *PodRootfsPressureEvictionPlugin) minimumFreeThresholdMet(rootfsEviction
 	if errCapacity != nil {
 		general.Warningf("Failed to get MetricsImageFsCapacity: %q", errCapacity)
 		return false
+	}
+
+	// excludeSize is the size of the rootfs pressure eviction ignore paths, such as /data00/local for local storage csi
+	var excludeSize float64
+
+	rootfsEvictionConfig.RootfsPressureEvictionIgnorePaths = []string{"/data00/local"}
+	general.InfoS("start to check rootfs pressure ignore paths", "ignorePaths", rootfsEvictionConfig.RootfsPressureEvictionIgnorePaths)
+
+	if len(rootfsEvictionConfig.RootfsPressureEvictionIgnorePaths) > 0 {
+		for _, path := range rootfsEvictionConfig.RootfsPressureEvictionIgnorePaths {
+			if n, err := getDirUsedBytes(path); err == nil {
+				excludeSize += n
+			} else {
+				general.Errorf("Failed to get dirUsedBytes: %q", err)
+			}
+		}
+		imageFsFreeBytes += excludeSize
+		general.InfoS("after considering excludeSize imageFsFreeBytes", int64(imageFsFreeBytes), "imageFsCapacityBytes", int64(imageFsCapacityBytes))
 	}
 
 	if rootfsEvictionConfig.MinimumImageFsDiskCapacityThreshold != nil && int64(imageFsCapacityBytes) < rootfsEvictionConfig.MinimumImageFsDiskCapacityThreshold.Value() {
@@ -401,4 +421,35 @@ func (r *PodRootfsPressureEvictionPlugin) getPodRootfsInodesUsed(pod *v1.Pod) (i
 	}
 
 	return int64(podRootfsInodesUsed), int64(rootfsInodes), nil
+}
+
+// getDirUsedBytes returns the used bytes of a directory
+func getDirUsedBytes(dir string) (float64, error) {
+	// check dir exist
+	info, err := os.Stat(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("failed to stat dir %s: %w", dir, err)
+	}
+	if !info.IsDir() {
+		return 0, fmt.Errorf("%s is not a directory", dir)
+	}
+
+	var size uint64
+	walkErr := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			size += uint64(info.Size())
+		}
+		return nil
+	})
+	if walkErr != nil {
+		return 0, fmt.Errorf("walk directory %s failed: %w", dir, walkErr)
+	}
+
+	return float64(size), nil
 }
