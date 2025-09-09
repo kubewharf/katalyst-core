@@ -18,9 +18,12 @@ package rootfs
 
 import (
 	"context"
+	"fmt"
+	"syscall"
 	"testing"
 	"time"
 
+	"github.com/prometheus/procfs"
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -1022,4 +1025,91 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsMetExpire(t *testing.
 	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, len(resTop.TargetPods))
+}
+
+func TestPodRootfsPressureEvictionPlugin_GetTotalUsedBytesOfPVProjects(t *testing.T) {
+	t.Parallel()
+
+	// Case 1: multiple projects with non-zero and zero usage
+	fetch := func(projectID uint32) (nextdqblk, error) {
+		switch projectID {
+		case 1:
+			return nextdqblk{dqbCurSpace: 100, dqdID: 1}, nil
+		case 2:
+			return nextdqblk{dqbCurSpace: 50, dqdID: 2}, nil
+		case 3:
+			return nextdqblk{dqbCurSpace: 200, dqdID: 5}, nil
+		default:
+			return nextdqblk{}, syscall.ESRCH
+		}
+	}
+	total, err := sumBytesByFetch(fetch)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(350), total) // 100 + 50 + 200
+
+	// Case 2: syscall returns unexpected error
+	fetch = func(projectID uint32) (nextdqblk, error) {
+		return nextdqblk{}, syscall.EINVAL
+	}
+	total, err = sumBytesByFetch(fetch)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "get project quota information failed")
+	assert.Equal(t, int64(0), total)
+
+	// Case 3: no projects at all
+	fetch = func(projectID uint32) (nextdqblk, error) {
+		return nextdqblk{}, syscall.ESRCH
+	}
+	total, err = sumBytesByFetch(fetch)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(0), total)
+}
+
+func TestPodRootfsPressureEvictionPlugin_TestGetDeviceForPath(t *testing.T) {
+	t.Parallel()
+
+	// Save and restore the original GetMounts function
+	origGetMounts := GetMounts
+	defer func() { GetMounts = origGetMounts }()
+
+	// Case 1: path matches /data00/local, with prjquota enabled
+	GetMounts = func() ([]*procfs.MountInfo, error) {
+		return []*procfs.MountInfo{
+			{MountPoint: "/", Source: "/dev/root", Options: map[string]string{"rw": ""}},
+			{MountPoint: "/data00", Source: "/dev/nvme0n1p3", Options: map[string]string{"rw": "", "prjquota": ""}},
+		}, nil
+	}
+	device, prjquota, err := GetDeviceForPathAndCheckPrjquota("/data00/local")
+	assert.NoError(t, err)
+	assert.Equal(t, "/dev/nvme0n1p3", device)
+	assert.True(t, prjquota, "expected prjquota enabled")
+
+	// Case 2: path matches /data00/local, without prjquota
+	GetMounts = func() ([]*procfs.MountInfo, error) {
+		return []*procfs.MountInfo{
+			{MountPoint: "/data00", Source: "/dev/nvme0n1p3", Options: map[string]string{"rw": ""}},
+		}, nil
+	}
+	device, prjquota, err = GetDeviceForPathAndCheckPrjquota("/data00/local")
+	assert.NoError(t, err)
+	assert.Equal(t, "/dev/nvme0n1p3", device)
+	assert.False(t, prjquota, "expected prjquota disabled")
+
+	// Case 3: GetMounts returns error
+	GetMounts = func() ([]*procfs.MountInfo, error) {
+		return nil, fmt.Errorf("fake error")
+	}
+	_, _, err = GetDeviceForPathAndCheckPrjquota("/data00/local")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to get mounts")
+
+	// Case 4: no matching mount found
+	GetMounts = func() ([]*procfs.MountInfo, error) {
+		return []*procfs.MountInfo{
+			{MountPoint: "/any", Source: "/dev/root", Options: map[string]string{"rw": ""}},
+		}, nil
+	}
+	_, _, err = GetDeviceForPathAndCheckPrjquota("/notexist")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "no matching mount")
 }

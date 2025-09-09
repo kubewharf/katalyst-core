@@ -34,6 +34,8 @@ const (
 	defaultReclaimedQoSPodUsedPriorityThreshold       = ""
 	defaultReclaimedQoSPodInodesUsedPriorityThreshold = ""
 	defaultMinimumImageFsDiskSizeThreshold            = "10Gi"
+	defaultIgnorePrjquotaLocalStoragePath             = ""
+	defaultEnableIgnorePrjquotaLocalStorage           = false
 
 	defaultEnableRootfsOveruseEviction        = false
 	defaultSharedQoSRootfsOveruseThreshold    = ""
@@ -56,6 +58,8 @@ type RootfsPressureEvictionOptions struct {
 	ReclaimedQoSPodInodesUsedPriorityThreshold string
 	MinimumImageFsDiskCapacityThreshold        string
 	GracePeriod                                int64
+	IgnorePrjquotaLocalStoragePath             string
+	EnableIgnorePrjquotaLocalStorage           bool
 
 	EnableRootfsOveruseEviction             bool
 	RootfsOveruseEvictionSupportedQoSLevels []string
@@ -84,6 +88,8 @@ func NewRootfsPressureEvictionOptions() *RootfsPressureEvictionOptions {
 		ReclaimedQoSRootfsOveruseThreshold:         defaultReclaimedQoSRootfsOveruseThreshold,
 		RootfsOveruseEvictionCount:                 defaultRootfsOveruseEvictionCount,
 		SharedQoSNamespaceFilter:                   defaultSharedQoSNamespaceFilter,
+		IgnorePrjquotaLocalStoragePath:             defaultIgnorePrjquotaLocalStoragePath,
+		EnableIgnorePrjquotaLocalStorage:           defaultEnableIgnorePrjquotaLocalStorage,
 	}
 }
 
@@ -107,6 +113,8 @@ func (o *RootfsPressureEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"the minimum image fs disk capacity for nodes. the eviction manager will ignore those nodes whose image fs disk capacity is less than this threshold")
 	fs.Int64Var(&o.GracePeriod, "eviction-rootfs-grace-period", 0,
 		"the grace period of pod deletion")
+	fs.StringVar(&o.IgnorePrjquotaLocalStoragePath, "eviction-rootfs-ignore-path", o.IgnorePrjquotaLocalStoragePath, "path to exclude when calculating disk pressure usage")
+	fs.BoolVar(&o.EnableIgnorePrjquotaLocalStorage, "eviction-rootfs-ignore-path-enable", o.EnableIgnorePrjquotaLocalStorage, "set true to ignore prjquota path when calculating disk pressure usage")
 
 	fs.BoolVar(&o.EnableRootfsOveruseEviction, "eviction-rootfs-overuse-enable", o.EnableRootfsOveruseEviction, "set true to enable rootfs overuse eviction")
 	fs.StringSliceVar(&o.RootfsOveruseEvictionSupportedQoSLevels, "eviction-rootfs-overuse-supported-qos-levels", o.RootfsOveruseEvictionSupportedQoSLevels, "the supported qos levels for rootfs overuse eviction, supported qos levels are: shared, reclaimed")
@@ -166,6 +174,8 @@ func (o *RootfsPressureEvictionOptions) ApplyTo(c *eviction.RootfsPressureEvicti
 		c.MinimumImageFsDiskCapacityThreshold = &value
 	}
 	c.GracePeriod = o.GracePeriod
+	c.IgnorePrjquotaLocalStoragePath = o.IgnorePrjquotaLocalStoragePath
+	c.EnableIgnorePrjquotaLocalStorage = o.EnableIgnorePrjquotaLocalStorage
 
 	c.EnableRootfsOveruseEviction = o.EnableRootfsOveruseEviction
 	c.RootfsOveruseEvictionSupportedQoSLevels = o.RootfsOveruseEvictionSupportedQoSLevels
