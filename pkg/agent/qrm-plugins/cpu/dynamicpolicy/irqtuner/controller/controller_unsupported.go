@@ -17,22 +17,23 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package machine
+package controller
 
 import (
-	"fmt"
-
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/irqtuner"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-func getNUMADistanceMap() (map[int][]NumaDistanceInfo, error) {
-	return nil, fmt.Errorf("not supported")
+type IrqTuningFakeController struct{}
+
+func (ic *IrqTuningFakeController) Run(stopCh <-chan struct{}) {
 }
 
-func GetInterfaceSocketInfo(nics []InterfaceInfo, sockets []int) (*AllocatableInterfaceSocketInfo, error) {
-	return nil, nil
+func (ic *IrqTuningFakeController) Stop() {
 }
 
-func GetExtraTopologyInfo(conf *global.MachineInfoConfiguration, cpuTopology *CPUTopology, extraNetworkInfo *ExtraNetworkInfo) (*ExtraTopologyInfo, error) {
+func NewIrqTuningController(agentConf *agent.AgentConfiguration, irqStateAdapter irqtuner.StateAdapter, emitter metrics.MetricEmitter, machineInfo *machine.KatalystMachineInfo) (*IrqTuningFakeController, error) {
 	return nil, nil
 }

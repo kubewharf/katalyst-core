@@ -1755,33 +1755,6 @@ func Test_getNicDriver(t *testing.T) {
 	})
 }
 
-type mockDirEntry struct {
-	fs.DirEntry
-	entryName string
-	isDir     bool
-	typ       fs.FileMode
-}
-
-// Name return the mock entry name
-func (m *mockDirEntry) Name() string {
-	return m.entryName
-}
-
-// IsDir return if the entry is a directory
-func (m *mockDirEntry) IsDir() bool {
-	return m.isDir
-}
-
-// Type return the mock entry type
-func (m *mockDirEntry) Type() fs.FileMode {
-	return m.typ
-}
-
-// Info return the mock entry info
-func (m *mockDirEntry) Info() (fs.FileInfo, error) {
-	return nil, nil
-}
-
 func Test_GetNicIrqs(t *testing.T) {
 	PatchConvey("Test GetNicIrqs", t, func() {
 		dummyPath := "/sys/class/net/eth0"
