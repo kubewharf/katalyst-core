@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net"
 	"os"
 	"path"
@@ -774,36 +775,40 @@ func (p *DynamicPolicy) applyAllContainersQuota(pod *v1.Pod, setToLimit bool) er
 	return nil
 }
 
+func (p *DynamicPolicy) checkAndApplySubCgroupPath(path string, d os.DirEntry, err error) error {
+	if err != nil {
+		return err
+	}
+	if !d.IsDir() {
+		return nil
+	}
+
+	subCPU, err := cgroupmgr.GetCPUWithAbsolutePath(path)
+	if err != nil {
+		return fmt.Errorf("GetCPUWithRelativePath %s failed with error: %v", path, err)
+	}
+
+	if subCPU.CpuQuota < 0 {
+		return nil
+	}
+
+	err = cgroupmgr.ApplyCPUWithAbsolutePath(path, &common.CPUData{CpuQuota: -1})
+	if err != nil {
+		general.Errorf("ApplyCPUWithAbsolutePath %s to -1 failed with error: %v", path, err)
+		return fmt.Errorf("ApplyCPUWithAbsolutePath %s to -1 failed with error: %v", path, err)
+	}
+
+	return nil
+}
+
 func (p *DynamicPolicy) applyAllSubCgroupQuotaToUnLimit(containerRelativePath string) error {
 	containerAbsPath := common.GetAbsCgroupPath(common.DefaultSelectedSubsys, containerRelativePath)
 
-	return filepath.WalkDir(containerAbsPath, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !d.IsDir() {
+	return filepath.WalkDir(containerAbsPath, func(path string, d fs.DirEntry, err error) error {
+		if path == containerAbsPath {
 			return nil
 		}
-		if containerAbsPath == path {
-			return nil
-		}
-
-		subCPU, err := cgroupmgr.GetCPUWithAbsolutePath(path)
-		if err != nil {
-			return fmt.Errorf("GetCPUWithRelativePath %s failed with error: %v", path, err)
-		}
-
-		if subCPU.CpuQuota < 0 {
-			return nil
-		}
-
-		err = cgroupmgr.ApplyCPUWithAbsolutePath(path, &common.CPUData{CpuQuota: -1})
-		if err != nil {
-			general.Errorf("ApplyCPUWithAbsolutePath %s to -1 failed with error: %v", path, err)
-			return fmt.Errorf("ApplyCPUWithAbsolutePath %s to -1 failed with error: %v", path, err)
-		}
-
-		return nil
+		return p.checkAndApplySubCgroupPath(path, d, err)
 	})
 }
 

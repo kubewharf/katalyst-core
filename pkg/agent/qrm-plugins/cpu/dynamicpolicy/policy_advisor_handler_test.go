@@ -541,3 +541,36 @@ func TestDynamicPolicy_applyAllContainersQuota(t *testing.T) {
 		convey.So(err, convey.ShouldBeNil)
 	})
 }
+
+func TestDynamicPolicy_checkAndApplySubCgroupPath(t *testing.T) {
+	t.Parallel()
+
+	p := &DynamicPolicy{
+		metaServer: &metaserver.MetaServer{
+			MetaAgent: &agent.MetaAgent{
+				PodFetcher: &pod.PodFetcherStub{},
+			},
+		},
+	}
+
+	mockey.PatchConvey("test checkAndApplySubCgroupPath", t, func() {
+		d1 := mockDirEntry{isDir: false}
+		err1 := p.checkAndApplySubCgroupPath("path1", d1, nil)
+		convey.So(err1, convey.ShouldBeNil)
+
+		d2 := mockDirEntry{isDir: true}
+		subCPU2 := &common.CPUStats{CpuQuota: -1}
+		mockey.Mock(cgroupmgr.GetCPUWithAbsolutePath).IncludeCurrentGoRoutine().Return(subCPU2, nil).Build()
+		err2 := p.checkAndApplySubCgroupPath("path2", d2, nil)
+		convey.So(err2, convey.ShouldBeNil)
+	})
+
+	mockey.PatchConvey("test checkAndApplySubCgroupPath", t, func() {
+		d3 := mockDirEntry{isDir: true}
+		subCPU3 := &common.CPUStats{CpuQuota: 1000}
+		mockey.Mock(cgroupmgr.GetCPUWithAbsolutePath).IncludeCurrentGoRoutine().Return(subCPU3, nil).Build()
+		mockey.Mock(cgroupmgr.ApplyCPUWithAbsolutePath).IncludeCurrentGoRoutine().Return(nil).Build()
+		err3 := p.checkAndApplySubCgroupPath("path3", d3, nil)
+		convey.So(err3, convey.ShouldBeNil)
+	})
+}
