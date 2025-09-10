@@ -155,7 +155,7 @@ func (n *MetricSyncerNode) receiveRawNode(ctx context.Context, rChan chan metric
 			}
 
 			klog.V(4).Infof("get metric %v for node", response.Req.MetricName)
-			if tags := n.generateMetricTagNode(ctx); len(tags) > 0 {
+			if tags := n.generateMetricTag(ctx); len(tags) > 0 {
 				_ = n.dataEmitter.StoreFloat64(targetMetricName, response.Value, metrics.MetricTypeNameRaw, append(tags,
 					metrics.MetricTag{
 						Key: fmt.Sprintf("%s", data.CustomMetricLabelKeyTimestamp),
@@ -250,12 +250,7 @@ func (n *MetricSyncerNode) generateMetricTag(ctx context.Context) (tags []metric
 		Key: fmt.Sprintf("%s%s", data.CustomMetricLabelSelectorPrefixKey, "is_vm"),
 		Val: isVmStr,
 	})
-	return tags
-}
 
-// generateMetricTag generates tags that are bounded to current Node object
-func (n *MetricSyncerNode) generateMetricTagNode(ctx context.Context) (tags []metrics.MetricTag) {
-	tags = n.generateMetricTag(ctx)
 	// append node numa bit mask
 	numas := n.metaServer.KatalystMachineInfo.CPUDetails.NUMANodes()
 	numaBitMask := sysadvisortypes.NumaIDBitMask(numas.ToSliceInt())
@@ -269,10 +264,9 @@ func (n *MetricSyncerNode) generateMetricTagNode(ctx context.Context) (tags []me
 // generateMetricTag generates tags that are bounded to current numa node object
 func (n *MetricSyncerNode) generateMetricTagNuma(ctx context.Context, numaID int) (tags []metrics.MetricTag) {
 	tags = n.generateMetricTag(ctx)
-	numaBitMask := sysadvisortypes.NumaIDBitMask([]int{numaID})
 	tags = append(tags, metrics.MetricTag{
-		Key: fmt.Sprintf("%s%s", data.CustomMetricLabelSelectorPrefixKey, "numa_bit_mask"),
-		Val: fmt.Sprintf("%d", numaBitMask),
+		Key: fmt.Sprintf("%s%s", data.CustomMetricLabelSelectorPrefixKey, "numa_id"),
+		Val: fmt.Sprintf("%d", numaID),
 	})
 	return tags
 }
