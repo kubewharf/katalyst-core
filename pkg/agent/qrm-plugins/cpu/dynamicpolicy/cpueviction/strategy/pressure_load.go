@@ -426,8 +426,7 @@ func (p *CPUPressureLoadEviction) checkSharedPressureByPoolSize(pod2Pool PodPool
 // accumulateSharedPoolsLimit calculates the cpu core limit used by shared core pool,
 // and it equals: machine-core - cores-for-dedicated-pods - reserved-cores-reclaim-pods - reserved-cores-system-pods.
 func (p *CPUPressureLoadEviction) accumulateSharedPoolsLimit() int {
-	availableCPUSet := p.state.GetMachineState().GetFilteredAvailableCPUSet(p.systemReservedCPUs, nil,
-		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedOrDedicatedNUMABinding))
+	availableCPUSet := p.state.GetMachineState().GetFilteredAvailableCPUSet(p.systemReservedCPUs, nil, nil)
 
 	coreNumReservedForReclaim := p.dynamicConf.GetDynamicConfiguration().MinReclaimedResourceForAllocate[v1.ResourceCPU]
 	if coreNumReservedForReclaim.Value() > int64(p.metaServer.NumCPUs) {
@@ -436,7 +435,7 @@ func (p *CPUPressureLoadEviction) accumulateSharedPoolsLimit() int {
 	reservedForReclaim := machine.GetCoreNumReservedForReclaim(int(coreNumReservedForReclaim.Value()), p.metaServer.NumNUMANodes)
 
 	reservedForReclaimInSharedNuma := 0
-	sharedCoresNUMAs := p.state.GetMachineState().GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedOrDedicatedNUMABinding))
+	sharedCoresNUMAs := p.state.GetMachineState().GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicatedNUMABindingNUMAExclusive))
 	for _, numaID := range sharedCoresNUMAs.ToSliceInt() {
 		reservedForReclaimInSharedNuma += reservedForReclaim[numaID]
 	}
