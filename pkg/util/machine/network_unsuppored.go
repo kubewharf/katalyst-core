@@ -32,3 +32,23 @@ func GetExtraNetworkInfo(_ *global.MachineInfoConfiguration) (*ExtraNetworkInfo,
 func DoNetNS(nsName, nsAbsPath string, cb func(sysFsDir string, nsAbsPath string) error) error {
 	return cb("", nsAbsPath)
 }
+
+func GetNetDevRxPackets(nic *NicBasicInfo) (uint64, error) {
+	return 0, nil
+}
+
+func GetIrqsAffinityCPUs(irqs []int) (map[int][]int64, error) {
+	return map[int][]int64{}, nil
+}
+
+func CollectSoftNetStats(onlineCpus map[int64]bool) (map[int64]*SoftNetStat, error) {
+	return map[int64]*SoftNetStat{}, nil
+}
+
+func GetNicRxQueuePackets(nic *NicBasicInfo) (map[int]uint64, error) {
+	return map[int]uint64{}, nil
+}
+
+func ListActiveUplinkNics(netNSDir string) ([]*NicBasicInfo, error) {
+	return []*NicBasicInfo{}, nil
+}
