@@ -553,6 +553,8 @@ func TestDynamicPolicy_checkAndApplySubCgroupPath(t *testing.T) {
 		},
 	}
 
+	advisorTestMutex.Lock()
+	defer advisorTestMutex.Unlock()
 	mockey.PatchConvey("test checkAndApplySubCgroupPath", t, func() {
 		d1 := mockDirEntry{isDir: false}
 		err1 := p.checkAndApplySubCgroupPath("path1", d1, nil)
