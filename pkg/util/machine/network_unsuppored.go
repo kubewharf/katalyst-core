@@ -29,8 +29,8 @@ func GetExtraNetworkInfo(_ *global.MachineInfoConfiguration) (*ExtraNetworkInfo,
 	return &ExtraNetworkInfo{}, nil
 }
 
-func DoNetNS(nsName, nsAbsPath string, cb func(sysFsDir string, nsAbsPath string) error) error {
-	return cb("", nsAbsPath)
+func DoNetNS(nsName, netNSDirAbsPath string, cb func(sysFsDir string) error) error {
+	return cb("")
 }
 
 func GetNetDevRxPackets(nic *NicBasicInfo) (uint64, error) {
@@ -51,4 +51,52 @@ func GetNicRxQueuePackets(nic *NicBasicInfo) (map[int]uint64, error) {
 
 func ListActiveUplinkNics(netNSDir string) ([]*NicBasicInfo, error) {
 	return []*NicBasicInfo{}, nil
+}
+
+func TidyUpNicIrqsAffinityCPUs(irq2CPUs map[int][]int64) (map[int]int64, error) {
+	return map[int]int64{}, nil
+}
+
+func CollectNetRxSoftirqStats() (map[int64]uint64, error) {
+	return map[int64]uint64{}, nil
+}
+
+func SetIrqAffinity(irq int, cpu int64) error {
+	return nil
+}
+
+func ListNetNS(netNSDir string) ([]NetNSInfo, error) {
+	return []NetNSInfo{}, nil
+}
+
+func ListActiveUplinkNicsFromNetNS(netnsInfo NetNSInfo) ([]*NicBasicInfo, error) {
+	return []*NicBasicInfo{}, nil
+}
+
+func ComparesHexBitmapStrings(a string, b string) bool {
+	return false
+}
+
+func SetNicRxQueueRPS(nic *NicBasicInfo, queue int, destCpus []int64) error {
+	return nil
+}
+
+func GetNicRxQueuesRpsConf(nic *NicBasicInfo) (map[int]string, error) {
+	return map[int]string{}, nil
+}
+
+func IsZeroBitmap(bitmapStr string) bool {
+	return false
+}
+
+func ClearNicRxQueueRPS(nic *NicBasicInfo, queue int) error {
+	return nil
+}
+
+func CompareNics(a, b []*NicBasicInfo) bool {
+	return false
+}
+
+func (n *NicBasicInfo) Equal(other *NicBasicInfo) bool {
+	return false
 }

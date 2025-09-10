@@ -809,7 +809,7 @@ func GetNicIrqs(nicSysPath string) ([]int, error) {
 	return irqs, nil
 }
 
-// nicSysPath like "/sys/class/net/eth0"
+// IsPCIDevice nicSysPath like "/sys/class/net/eth0"
 // N.B., bnx sriov vf dose not hava corresponding /sys/class/net/ethx_y/device file
 func IsPCIDevice(nicSysPath string) bool {
 	devRealPath, err := filepath.EvalSymlinks(nicSysPath)
@@ -1497,22 +1497,6 @@ func GetNicRxQueuePackets(nic *NicBasicInfo) (map[int]uint64, error) {
 	}
 
 	return rxQueuePackets, nil
-}
-
-func (n *NicBasicInfo) String() string {
-	if n.NSName == "" {
-		return fmt.Sprintf("%s(%d)", n.Name, n.IfIndex)
-	} else {
-		return fmt.Sprintf("%s:%s(%d)", n.NSName, n.Name, n.IfIndex)
-	}
-}
-
-func (n *NicBasicInfo) UniqName() string {
-	if n.NSName == "" {
-		return fmt.Sprintf("%s", n.Name)
-	} else {
-		return fmt.Sprintf("%s/%s", n.NSName, n.Name)
-	}
 }
 
 func (n *NicBasicInfo) Equal(other *NicBasicInfo) bool {
