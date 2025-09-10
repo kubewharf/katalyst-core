@@ -128,6 +128,22 @@ type NicBasicInfo struct {
 	TxIrq2Queue    map[int]int
 }
 
+func (n *NicBasicInfo) UniqName() string {
+	if n.NSName == "" {
+		return fmt.Sprintf("%s", n.Name)
+	} else {
+		return fmt.Sprintf("%s/%s", n.NSName, n.Name)
+	}
+}
+
+func (n *NicBasicInfo) String() string {
+	if n.NSName == "" {
+		return fmt.Sprintf("%s(%d)", n.Name, n.IfIndex)
+	} else {
+		return fmt.Sprintf("%s:%s(%d)", n.NSName, n.Name, n.IfIndex)
+	}
+}
+
 type netnsSwitchContext struct {
 	originalNetNSHdl netns.NsHandle
 	newNetNSName     string

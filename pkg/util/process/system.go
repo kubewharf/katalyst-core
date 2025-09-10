@@ -27,8 +27,6 @@ import (
 	"syscall"
 
 	"k8s.io/apimachinery/pkg/util/sets"
-
-	procfsm "github.com/kubewharf/katalyst-core/pkg/util/procfs/manager"
 )
 
 const PF_KTHREAD = 0x00200000
@@ -167,41 +165,6 @@ func ListKsoftirqdProcesses() (map[int64]int, error) {
 	}
 
 	return ksoftirqds, nil
-}
-
-// CheckIfProcCommRunning check if there is a running process with specified proc comm
-func CheckIfProcCommRunning(procComm string) (bool, error) {
-	dirEnts, err := os.ReadDir("/proc")
-	if err != nil {
-		return false, fmt.Errorf("failed to ReadDir(/proc), err %v", err)
-	}
-
-	for _, de := range dirEnts {
-		if !de.IsDir() {
-			continue
-		}
-
-		pid, err := strconv.Atoi(de.Name())
-		if err != nil || pid < 0 {
-			continue
-		}
-
-		if pid <= 0 {
-			continue
-		}
-
-		pidComm, err := procfsm.GetPidComm(pid)
-		if err != nil {
-			continue
-		}
-		comm := strings.TrimSuffix(pidComm, "\n")
-
-		if comm == procComm {
-			return true, nil
-		}
-	}
-
-	return false, nil
 }
 
 func GetProcessNameSpaceInode(pid int, ns NameSpaceKind) (uint64, error) {
