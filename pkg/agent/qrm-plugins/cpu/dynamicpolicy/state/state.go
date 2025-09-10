@@ -597,18 +597,6 @@ func (nm NUMANodeMap) Clone() NUMANodeMap {
 	return clone
 }
 
-func (nm NUMANodeMap) ClonePreOccPodEntries(m NUMANodeMap) {
-	for k := range nm {
-		if nm[k] == nil {
-			continue
-		}
-
-		if v, ok := m[k]; ok {
-			nm[k].PreOccPodEntries = v.PreOccPodEntries.Clone()
-		}
-	}
-}
-
 func (nm NUMANodeMap) String() string {
 	if nm == nil {
 		return ""

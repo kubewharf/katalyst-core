@@ -2526,40 +2526,6 @@ func TestHandleAdvisorResp(t *testing.T) {
 								},
 							},
 						},
-						PreOccPodEntries: state.PodEntries{
-							pod1UID: {
-								testName: &state.AllocationInfo{
-									AllocationMeta: commonstate.AllocationMeta{
-										PodUid:         pod1UID,
-										PodNamespace:   testName,
-										PodName:        testName,
-										ContainerName:  testName,
-										ContainerType:  pluginapi.ContainerType_MAIN.String(),
-										ContainerIndex: 0,
-										QoSLevel:       consts.PodAnnotationQoSLevelDedicatedCores,
-										Annotations: map[string]string{
-											consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelDedicatedCores,
-											consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
-											consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
-										},
-										Labels: map[string]string{
-											consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
-										},
-									},
-									AggregatedQuantity:   7516192768,
-									NumaAllocationResult: machine.NewCPUSet(0),
-									TopologyAwareAllocations: map[int]uint64{
-										0: 7516192768,
-									},
-									ExtraControlKnobInfo: map[string]commonstate.ControlKnobInfo{
-										string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): {
-											ControlKnobValue: "5516192768",
-											OciPropertyName:  util.OCIPropertyNameMemoryLimitInBytes,
-										},
-									},
-								},
-							},
-						},
 					},
 					1: &state.NUMANodeState{
 						TotalMemSize:   8589934592,

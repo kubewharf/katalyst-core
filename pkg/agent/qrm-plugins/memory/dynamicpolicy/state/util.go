@@ -152,40 +152,61 @@ func GenerateMachineStateFromPodEntries(machineInfo *info.MachineInfo,
 	return currentResourcesMachineState, nil
 }
 
-// overrideMachineStatePreOccPodEntries override the pre-occupation pod from pod entries and origin machine state
-func overrideMachineStatePreOccPodEntries(currentMachineState, originMachineState NUMANodeMap) {
-	// clone pre-occupation pod from origin machine state
-	currentMachineState.ClonePreOccPodEntries(originMachineState)
-
+// updateMachineStatePreOccPodEntries update the pre-occupation pod from pod entries and origin machine state
+func updateMachineStatePreOccPodEntries(currentMachineState, originMachineState NUMANodeMap) {
 	// override pre-occupation pod from pod entries
 	now := time.Now()
-	for _, numaState := range currentMachineState {
-		for podUID, containerEntries := range numaState.PodEntries {
+	for numaID, numaState := range currentMachineState {
+		preOccPodEntries := make(PodEntries)
+		originalPodEntries := make(PodEntries)
+		if originState, ok := originMachineState[numaID]; ok {
+			if originState.PodEntries != nil {
+				originalPodEntries = originState.PodEntries
+			}
+			if originState.PreOccPodEntries != nil {
+				preOccPodEntries = originState.PreOccPodEntries
+			}
+		}
+
+		for podUID, containerEntries := range originalPodEntries {
+			// skip pod that already in current machine state
+			if _, ok := numaState.PodEntries[podUID]; ok {
+				continue
+			}
+
 			for containerName, allocationInfo := range containerEntries {
 				if allocationInfo == nil {
 					general.Warningf("nil allocationInfo in podEntries")
 					continue
 				}
 
-				if preoccupation.PreOccAllocationFilter(allocationInfo.AllocationMeta) {
-					numaState.SetPreOccAllocationInfo(podUID, containerName, allocationInfo)
+				// skip unneeded pre-occupation allocation info
+				if !preoccupation.PreOccAllocationFilter(allocationInfo.AllocationMeta) {
+					continue
+				}
+
+				if _, ok := preOccPodEntries[podUID]; !ok {
+					preOccPodEntries[podUID] = make(ContainerEntries)
+				}
+
+				if _, ok := preOccPodEntries[podUID][containerName]; !ok {
+					preOccPodEntries[podUID][containerName] = allocationInfo
 				}
 			}
 		}
 
-		for podUID, containerEntries := range numaState.PreOccPodEntries {
+		for podUID, containerEntries := range preOccPodEntries {
 			for containerName, preOccAllocationInfo := range containerEntries {
 				if preOccAllocationInfo == nil {
 					general.Warningf("nil preOccAllocationInfo in podEntries")
 					continue
 				}
 
-				if _, ok := numaState.PodEntries[podUID]; !ok {
-					if preoccupation.PreOccAllocationExpired(preOccAllocationInfo.AllocationMeta, now) {
-						numaState.DeletePreOccAllocationInfo(podUID, containerName)
-					} else {
-						preoccupation.SetPreOccDeleteTimestamp(&preOccAllocationInfo.AllocationMeta, now)
-					}
+				if preoccupation.PreOccAllocationExpired(preOccAllocationInfo.AllocationMeta, now) {
+					numaState.DeletePreOccAllocationInfo(podUID, containerName)
+				} else {
+					preoccupation.SetPreOccDeleteTimestamp(&preOccAllocationInfo.AllocationMeta, now)
+					numaState.SetPreOccAllocationInfo(podUID, containerName, preOccAllocationInfo)
 				}
 			}
 		}
@@ -204,7 +225,7 @@ func GenerateResourceStateFromPodEntries(machineInfo *info.MachineInfo,
 			return nil, err
 		}
 
-		overrideMachineStatePreOccPodEntries(currentMachineState, originMachineState)
+		updateMachineStatePreOccPodEntries(currentMachineState, originMachineState)
 		return currentMachineState, nil
 	default:
 		return nil, fmt.Errorf("unsupported resource name: %s", resourceName)

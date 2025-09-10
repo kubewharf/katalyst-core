@@ -384,20 +384,6 @@ func (nm NUMANodeMap) Clone() NUMANodeMap {
 	return clone
 }
 
-func (nm NUMANodeMap) ClonePreOccPodEntries(m NUMANodeMap) {
-	for k, v := range m {
-		if v == nil {
-			continue
-		}
-
-		if v.PreOccPodEntries == nil {
-			continue
-		}
-
-		nm[k].PreOccPodEntries = v.PreOccPodEntries.Clone()
-	}
-}
-
 // BytesPerNUMA is a helper function to parse memory capacity at per numa level
 func (nm NUMANodeMap) BytesPerNUMA() (uint64, error) {
 	if len(nm) == 0 {
