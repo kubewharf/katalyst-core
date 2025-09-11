@@ -33,11 +33,11 @@ import (
 	nodev1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction/strategy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer/policy"
 	optimizerutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
-	cpuUtil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/metricthreshold"
@@ -102,7 +102,7 @@ func TestMetricBasedHintOptimizer_OptimizeHints(t *testing.T) {
 		metaServer  *metaserver.MetaServer
 		emitter     metrics.MetricEmitter
 		state       state.State
-		numaMetrics map[int]cpuUtil.SubEntries
+		numaMetrics map[int]strategy.SubEntries
 	}
 	type args struct {
 		request hintoptimizer.Request
@@ -195,17 +195,17 @@ func TestMetricBasedHintOptimizer_OptimizeHints(t *testing.T) {
 					st, _ := state.NewCheckpointState(tmpDir, "test", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
 					return st
 				}(),
-				numaMetrics: func() map[int]cpuUtil.SubEntries {
-					nm := map[int]cpuUtil.SubEntries{
+				numaMetrics: func() map[int]strategy.SubEntries {
+					nm := map[int]strategy.SubEntries{
 						0: {
-							metricthreshold.ThresholdNameToResourceName[metricthreshold.NUMACPUUsageRatioThreshold]: cpuUtil.CreateMetricRing(1),
-							metricthreshold.ThresholdNameToResourceName[metricthreshold.NUMACPULoadRatioThreshold]:  cpuUtil.CreateMetricRing(1),
+							metricthreshold.ThresholdNameToResourceName[metricthreshold.NUMACPUUsageRatioThreshold]: strategy.CreateMetricRing(1),
+							metricthreshold.ThresholdNameToResourceName[metricthreshold.NUMACPULoadRatioThreshold]:  strategy.CreateMetricRing(1),
 						},
 					}
 					// NUMA 0: current usage 1.0 + request 0.1 = 1.1. Allocatable = 2. Ratio = 1.1/2 = 0.55 (below threshold 0.8)
-					nm[0][metricthreshold.ThresholdNameToResourceName[metricthreshold.NUMACPUUsageRatioThreshold]].Push(&cpuUtil.MetricSnapshot{Info: cpuUtil.MetricInfo{Value: 1.0}, Time: time.Now().UnixNano()})
+					nm[0][metricthreshold.ThresholdNameToResourceName[metricthreshold.NUMACPUUsageRatioThreshold]].Push(&strategy.MetricSnapshot{Info: strategy.MetricInfo{Value: 1.0}, Time: time.Now().UnixNano()})
 					// NUMA 0: current usage 0.1 + request 0.1 = 0.2. Allocatable = 2. Ratio = 0.2/2 = 0.1 (not over threshold 0.8)
-					nm[0][metricthreshold.ThresholdNameToResourceName[metricthreshold.NUMACPULoadRatioThreshold]].Push(&cpuUtil.MetricSnapshot{Info: cpuUtil.MetricInfo{Value: 0.1}, Time: time.Now().UnixNano()})
+					nm[0][metricthreshold.ThresholdNameToResourceName[metricthreshold.NUMACPULoadRatioThreshold]].Push(&strategy.MetricSnapshot{Info: strategy.MetricInfo{Value: 0.1}, Time: time.Now().UnixNano()})
 					return nm
 				}(),
 			},
@@ -328,23 +328,23 @@ func TestMetricBasedHintOptimizer_OptimizeHints(t *testing.T) {
 					st, _ := state.NewCheckpointState(tmpDir, "test", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
 					return st
 				}(),
-				numaMetrics: func() map[int]cpuUtil.SubEntries {
-					nm := map[int]cpuUtil.SubEntries{
+				numaMetrics: func() map[int]strategy.SubEntries {
+					nm := map[int]strategy.SubEntries{
 						0: {
-							metricthreshold.ThresholdNameToResourceName[metricthreshold.NUMACPUUsageRatioThreshold]: cpuUtil.CreateMetricRing(1),
-							metricthreshold.ThresholdNameToResourceName[metricthreshold.NUMACPULoadRatioThreshold]:  cpuUtil.CreateMetricRing(1),
+							metricthreshold.ThresholdNameToResourceName[metricthreshold.NUMACPUUsageRatioThreshold]: strategy.CreateMetricRing(1),
+							metricthreshold.ThresholdNameToResourceName[metricthreshold.NUMACPULoadRatioThreshold]:  strategy.CreateMetricRing(1),
 						},
 						1: {
-							metricthreshold.ThresholdNameToResourceName[metricthreshold.NUMACPUUsageRatioThreshold]: cpuUtil.CreateMetricRing(1),
-							metricthreshold.ThresholdNameToResourceName[metricthreshold.NUMACPULoadRatioThreshold]:  cpuUtil.CreateMetricRing(1),
+							metricthreshold.ThresholdNameToResourceName[metricthreshold.NUMACPUUsageRatioThreshold]: strategy.CreateMetricRing(1),
+							metricthreshold.ThresholdNameToResourceName[metricthreshold.NUMACPULoadRatioThreshold]:  strategy.CreateMetricRing(1),
 						},
 					}
 					// NUMA 0: current usage 1.0 + request 0.5 = 1.5. Allocatable = 2. Ratio = 1.5/2 = 0.75 (over threshold 0.5)
-					nm[0][metricthreshold.ThresholdNameToResourceName[metricthreshold.NUMACPUUsageRatioThreshold]].Push(&cpuUtil.MetricSnapshot{Info: cpuUtil.MetricInfo{Value: 1.0}, Time: time.Now().UnixNano()})
-					nm[0][metricthreshold.ThresholdNameToResourceName[metricthreshold.NUMACPULoadRatioThreshold]].Push(&cpuUtil.MetricSnapshot{Info: cpuUtil.MetricInfo{Value: 1.0}, Time: time.Now().UnixNano()})
+					nm[0][metricthreshold.ThresholdNameToResourceName[metricthreshold.NUMACPUUsageRatioThreshold]].Push(&strategy.MetricSnapshot{Info: strategy.MetricInfo{Value: 1.0}, Time: time.Now().UnixNano()})
+					nm[0][metricthreshold.ThresholdNameToResourceName[metricthreshold.NUMACPULoadRatioThreshold]].Push(&strategy.MetricSnapshot{Info: strategy.MetricInfo{Value: 1.0}, Time: time.Now().UnixNano()})
 					// NUMA 1: current usage 0.1 + request 0.5 = 0.6. Allocatable = 2. Ratio = 0.6/2 = 0.3 (not over threshold 0.5)
-					nm[1][metricthreshold.ThresholdNameToResourceName[metricthreshold.NUMACPUUsageRatioThreshold]].Push(&cpuUtil.MetricSnapshot{Info: cpuUtil.MetricInfo{Value: 0.1}, Time: time.Now().UnixNano()})
-					nm[1][metricthreshold.ThresholdNameToResourceName[metricthreshold.NUMACPULoadRatioThreshold]].Push(&cpuUtil.MetricSnapshot{Info: cpuUtil.MetricInfo{Value: 0.1}, Time: time.Now().UnixNano()})
+					nm[1][metricthreshold.ThresholdNameToResourceName[metricthreshold.NUMACPUUsageRatioThreshold]].Push(&strategy.MetricSnapshot{Info: strategy.MetricInfo{Value: 0.1}, Time: time.Now().UnixNano()})
+					nm[1][metricthreshold.ThresholdNameToResourceName[metricthreshold.NUMACPULoadRatioThreshold]].Push(&strategy.MetricSnapshot{Info: strategy.MetricInfo{Value: 0.1}, Time: time.Now().UnixNano()})
 					return nm
 				}(),
 			},
@@ -409,7 +409,7 @@ func TestMetricBasedHintOptimizer_isNUMAOverThreshold(t *testing.T) {
 	}
 
 	type fields struct {
-		numaMetrics  map[int]cpuUtil.SubEntries
+		numaMetrics  map[int]strategy.SubEntries
 		reservedCPUs machine.CPUSet
 	}
 	type args struct {
@@ -429,11 +429,11 @@ func TestMetricBasedHintOptimizer_isNUMAOverThreshold(t *testing.T) {
 		{
 			name: "over threshold",
 			fields: fields{
-				numaMetrics: map[int]cpuUtil.SubEntries{
+				numaMetrics: map[int]strategy.SubEntries{
 					0: {
-						consts.MetricCPUUsageContainer: func() *cpuUtil.MetricRing {
-							r := cpuUtil.CreateMetricRing(1)
-							r.Push(&cpuUtil.MetricSnapshot{Info: cpuUtil.MetricInfo{Value: 3.0}, Time: time.Now().UnixNano()})
+						consts.MetricCPUUsageContainer: func() *strategy.MetricRing {
+							r := strategy.CreateMetricRing(1)
+							r.Push(&strategy.MetricSnapshot{Info: strategy.MetricInfo{Value: 3.0}, Time: time.Now().UnixNano()})
 							return r
 						}(),
 					},
@@ -453,11 +453,11 @@ func TestMetricBasedHintOptimizer_isNUMAOverThreshold(t *testing.T) {
 		{
 			name: "not over threshold",
 			fields: fields{
-				numaMetrics: map[int]cpuUtil.SubEntries{
+				numaMetrics: map[int]strategy.SubEntries{
 					0: {
-						consts.MetricCPUUsageContainer: func() *cpuUtil.MetricRing {
-							r := cpuUtil.CreateMetricRing(1)
-							r.Push(&cpuUtil.MetricSnapshot{Info: cpuUtil.MetricInfo{Value: 1.0}, Time: time.Now().UnixNano()})
+						consts.MetricCPUUsageContainer: func() *strategy.MetricRing {
+							r := strategy.CreateMetricRing(1)
+							r.Push(&strategy.MetricSnapshot{Info: strategy.MetricInfo{Value: 1.0}, Time: time.Now().UnixNano()})
 							return r
 						}(),
 					},
@@ -477,7 +477,7 @@ func TestMetricBasedHintOptimizer_isNUMAOverThreshold(t *testing.T) {
 		{
 			name: "invalid machine state - nil",
 			fields: fields{
-				numaMetrics: map[int]cpuUtil.SubEntries{},
+				numaMetrics: map[int]strategy.SubEntries{},
 			},
 			args: args{
 				numa:         0,
@@ -489,7 +489,7 @@ func TestMetricBasedHintOptimizer_isNUMAOverThreshold(t *testing.T) {
 		{
 			name: "invalid machine state - numa not found",
 			fields: fields{
-				numaMetrics: map[int]cpuUtil.SubEntries{},
+				numaMetrics: map[int]strategy.SubEntries{},
 			},
 			args: args{
 				numa:         99, // Non-existent NUMA node
@@ -501,7 +501,7 @@ func TestMetricBasedHintOptimizer_isNUMAOverThreshold(t *testing.T) {
 		{
 			name: "invalid numaMetrics - resource not found",
 			fields: fields{
-				numaMetrics: map[int]cpuUtil.SubEntries{
+				numaMetrics: map[int]strategy.SubEntries{
 					0: {},
 				},
 			},
@@ -516,9 +516,9 @@ func TestMetricBasedHintOptimizer_isNUMAOverThreshold(t *testing.T) {
 		{
 			name: "allocatable is zero",
 			fields: fields{
-				numaMetrics: map[int]cpuUtil.SubEntries{
+				numaMetrics: map[int]strategy.SubEntries{
 					0: {
-						consts.MetricCPUUsageContainer: cpuUtil.CreateMetricRing(1),
+						consts.MetricCPUUsageContainer: strategy.CreateMetricRing(1),
 					},
 				},
 				reservedCPUs: machine.NewCPUSet(0, 1, 2, 3), // Reserve all CPUs on NUMA 0
@@ -629,9 +629,9 @@ func TestMetricBasedHintOptimizer_collectNUMAMetrics(t *testing.T) {
 		emitter:    metrics.DummyMetrics{},
 		metaServer: metaServer,
 		state:      stateImpl,
-		numaMetrics: map[int]cpuUtil.SubEntries{
-			0: {consts.MetricCPUUsageContainer: cpuUtil.CreateMetricRing(1)},
-			1: {consts.MetricCPUUsageContainer: cpuUtil.CreateMetricRing(1)},
+		numaMetrics: map[int]strategy.SubEntries{
+			0: {consts.MetricCPUUsageContainer: strategy.CreateMetricRing(1)},
+			1: {consts.MetricCPUUsageContainer: strategy.CreateMetricRing(1)},
 		},
 		metricSampleTime:  10 * time.Minute,
 		metricSampleCount: 1,
