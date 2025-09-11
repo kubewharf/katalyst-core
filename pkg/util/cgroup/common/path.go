@@ -27,12 +27,14 @@ import (
 
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 const (
 	numaBindingReclaimRelativeRootCgroupPathSeparator = "-"
+	defaultCgroupPathHandlerName                      = "default"
 )
 
 // k8sCgroupPathList is used to record cgroup-path related configurations,
@@ -47,6 +49,29 @@ var (
 )
 
 var k8sCgroupPathSettingOnce = sync.Once{}
+
+var (
+	absoluteCgroupPathHandlerLock sync.Mutex
+	absoluteCgroupPathHandlerMap  = map[string]AbsoluteCgroupPathHandler{
+		defaultCgroupPathHandlerName: getContainerDefaultAbsCgroupPath,
+	}
+	relativeCgroupPathHandlerLock sync.Mutex
+	relativeCgroupPathHandlerMap  = map[string]RelativeCgroupPathHandler{
+		defaultCgroupPathHandlerName: getContainerDefaultRelativeAbsCgroupPath,
+	}
+)
+
+func RegisterAbsoluteCgroupPathHandler(name string, handler AbsoluteCgroupPathHandler) {
+	absoluteCgroupPathHandlerLock.Lock()
+	defer absoluteCgroupPathHandlerLock.Unlock()
+	absoluteCgroupPathHandlerMap[name] = handler
+}
+
+func RegisterRelativeCgroupPathHandler(name string, handler RelativeCgroupPathHandler) {
+	relativeCgroupPathHandlerLock.Lock()
+	defer relativeCgroupPathHandlerLock.Unlock()
+	relativeCgroupPathHandlerMap[name] = handler
+}
 
 // InitKubernetesCGroupPath can only be called once to init dynamic cgroup path configurations.
 // additionalCGroupPath is set because we may have legacy cgroup path settings,
@@ -148,14 +173,50 @@ func GetPodAbsCgroupPath(subsys, podUID string) (string, error) {
 	return GetKubernetesAnyExistAbsCgroupPath(subsys, fmt.Sprintf("%s%s", PodCgroupPathPrefix, podUID))
 }
 
-// GetContainerAbsCgroupPath returns absolute cgroup path for container level
-func GetContainerAbsCgroupPath(subsys, podUID, containerId string) (string, error) {
+func getContainerDefaultAbsCgroupPath(subsys, podUID, containerId string) (string, error) {
 	return GetKubernetesAnyExistAbsCgroupPath(subsys, path.Join(fmt.Sprintf("%s%s", PodCgroupPathPrefix, podUID), containerId))
 }
 
-// GetContainerRelativeCgroupPath returns relative cgroup path for container level
-func GetContainerRelativeCgroupPath(podUID, containerId string) (string, error) {
+func getContainerDefaultRelativeAbsCgroupPath(podUID, containerId string) (string, error) {
 	return GetKubernetesAnyExistRelativeCgroupPath(path.Join(fmt.Sprintf("%s%s", PodCgroupPathPrefix, podUID), containerId))
+}
+
+// GetContainerAbsCgroupPath returns absolute cgroup path for container level
+// It uses all the handlers in absoluteCgroupPathHandlerMap and returns the first non-empty path.
+func GetContainerAbsCgroupPath(subsys, podUID, containerId string) (string, error) {
+	var errors []error
+	for name, handler := range absoluteCgroupPathHandlerMap {
+		if handler == nil {
+			errors = append(errors, fmt.Errorf("absolute cgroup path handler for %s is nil", name))
+			continue
+		}
+		cgroupPath, err := handler(subsys, podUID, containerId)
+		if err == nil {
+			return cgroupPath, nil
+		}
+		klog.Infof("get absolute cgroup path by handler %s error: %v", name, err)
+		errors = append(errors, fmt.Errorf("get absolute cgroup path by handler %s failed, err: %v", name, err))
+	}
+	return "", utilerrors.NewAggregate(errors)
+}
+
+// GetContainerRelativeCgroupPath returns relative cgroup path for container level
+// It uses all the handlers in relativeCgroupPathHandlerMap and returns the first non-empty path.
+func GetContainerRelativeCgroupPath(podUID, containerId string) (string, error) {
+	var errors []error
+	for name, handler := range relativeCgroupPathHandlerMap {
+		if handler == nil {
+			errors = append(errors, fmt.Errorf("relative cgroup path handler for %s is nil", name))
+			continue
+		}
+		cgroupPath, err := handler(podUID, containerId)
+		if err == nil {
+			return cgroupPath, nil
+		}
+		klog.Infof("get relative cgroup path by handler %s error: %v", name, err)
+		errors = append(errors, fmt.Errorf("get relative cgroup path by handler %s failed, err: %v", name, err))
+	}
+	return "", utilerrors.NewAggregate(errors)
 }
 
 func IsContainerCgroupExist(podUID, containerID string) (bool, error) {
