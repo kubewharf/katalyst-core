@@ -181,8 +181,8 @@ func calcGroupMBRate(newCounter, oldCounter []malachitetypes.MBCCDStat, msElapse
 				ccd, ccdCounter.MBTotalCounter, oldCCDCounter.MBTotalCounter)
 		}
 
-		rateLocalMB := (ccdCounter.MBLocalCounter - oldCCDCounter.MBLocalCounter) * 1000 / msElapsed / 1024 / 1024
-		rateTotalMB := (ccdCounter.MBTotalCounter - oldCCDCounter.MBTotalCounter) * 1000 / msElapsed / 1024 / 1024
+		rateLocalMB := int64(ccdCounter.MBLocalCounter-oldCCDCounter.MBLocalCounter) * 1000 / msElapsed / 1024 / 1024
+		rateTotalMB := int64(ccdCounter.MBTotalCounter-oldCCDCounter.MBTotalCounter) * 1000 / msElapsed / 1024 / 1024
 		result[ccd] = monitor.MBInfo{
 			LocalMB:  int(rateLocalMB),
 			RemoteMB: int(rateTotalMB - rateLocalMB),

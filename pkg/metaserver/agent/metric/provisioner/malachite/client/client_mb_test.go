@@ -40,7 +40,7 @@ func TestMalachiteClient_GetMBData(t *testing.T) {
 				"root": [
 	                {
 						"id": 21,
-						"mbm_local_bytes": 127109639580672,
+						"mbm_local_bytes": 9840527399946250752,
 						"mbm_total_bytes": 335021042372672,
 						"mbm_victim_bytes_psec": 0
 					},
@@ -97,7 +97,7 @@ func TestMalachiteClient_GetMBData(t *testing.T) {
 					"root": {
 						{
 							CCDID:          21,
-							MBLocalCounter: 127109639580672,
+							MBLocalCounter: 9840527399946250752,
 							MBTotalCounter: 335021042372672,
 						},
 						{
