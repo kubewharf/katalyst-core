@@ -16,7 +16,7 @@ limitations under the License.
 
 package monitor
 
-const minActiveMB = 1_000
+var MinActiveMB int
 
 // GroupMBStats is memory bandwidth statistic info of multiple groups, each of the groups has multiple CCDs,
 // in line with resctrl FS mon-group mon-data structure
@@ -45,5 +45,5 @@ func (g GroupMB) SumStat() MBInfo {
 
 func (g GroupMB) HasTraffic() bool {
 	totalMB := g.SumStat().TotalMB
-	return totalMB >= minActiveMB
+	return totalMB >= MinActiveMB
 }

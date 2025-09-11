@@ -20,10 +20,11 @@ type MBQRMPluginConfig struct {
 	// PolicyName is used to switch between several strategies
 	PolicyName string
 
-	MinCCDMB            int
-	MaxCCDMB            int
-	MaxIncomingRemoteMB int
-	MBCapLimitPercent   int
+	MinCCDMB                 int
+	MaxCCDMB                 int
+	MaxIncomingRemoteMB      int
+	MBCapLimitPercent        int
+	ActiveTrafficMBThreshold int
 
 	// DomainQoSAwareCapacity keeps qos group customized mb upper capacity it allows
 	DomainGroupAwareCapacity map[string]int

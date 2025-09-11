@@ -22,6 +22,7 @@ import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/allocator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/domain"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -67,7 +68,8 @@ func NewGenericPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	general.Infof("[mbm] config: min ccd mb %d MB", conf.MinCCDMB)
 	general.Infof("[mbm] config: max ccd mb %d MB", conf.MaxCCDMB)
 	general.Infof("[mbm] config: domain alient incoming mb limit %d MB", conf.MaxIncomingRemoteMB)
-	general.Infof("[mbm] config: mb cap limit percent %d %%", conf.MBCapLimitPercent)
+	general.Infof("[mbm] config: mb cap limit percent %d%%%%", conf.MBCapLimitPercent)
+	general.Infof("[mbm] config: mb active traffic mb threshold %d MB", conf.ActiveTrafficMBThreshold)
 	general.Infof("[mbm] config: no-throtlle groups %v", conf.NoThrottleGroups)
 	general.Infof("[mbm] config: cross-domain groups %v", conf.CrossDomainGroups)
 
@@ -78,6 +80,9 @@ func NewGenericPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	groupCapacities := conf.MBQRMPluginConfig.DomainGroupAwareCapacity
 	groupNeverThrottles := conf.MBQRMPluginConfig.NoThrottleGroups
 	xDomGroups := conf.CrossDomainGroups
+
+	// todo: avoid package var
+	monitor.MinActiveMB = conf.ActiveTrafficMBThreshold
 
 	domains, err := domain.NewDomainsByMachineInfo(agentCtx.KatalystMachineInfo, maxIncomingRemoteMB)
 	if err != nil {

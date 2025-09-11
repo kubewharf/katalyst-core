@@ -29,6 +29,10 @@ const (
 	// defaultMBCapLimitPercent to limit quota no more than the target value as the value set in resctrl FS schemata
 	// would generally result in slight more mb traffic then the set value and not the other way around
 	defaultMBCapLimitPercent = 100
+
+	// defaultMinActiveMB is the threshold above which is considered as there exists active traffic of the specified group
+	// default value is 1000 MB, i.e. 1GB
+	defaultMinActiveMB = 1_000
 )
 
 type MBOptions struct {
@@ -37,6 +41,7 @@ type MBOptions struct {
 	MaxCCDMB                 int
 	MaxIncomingRemoteMB      int
 	MBCapLimitPercent        int
+	ActiveTrafficMBThreshold int
 	DomainGroupAwareCapacity map[string]int
 	NoThrottleGroups         []string
 	CrossDomainGroups        []string
@@ -45,10 +50,11 @@ type MBOptions struct {
 
 func NewMBOptions() *MBOptions {
 	return &MBOptions{
-		PolicyName:        "generic", // only generic policy is supported right now
-		MinCCDMB:          defaultMinCCDMB,
-		MaxCCDMB:          defaultMaxCCDMB,
-		MBCapLimitPercent: defaultMBCapLimitPercent,
+		PolicyName:               "generic", // only generic policy is supported right now
+		MinCCDMB:                 defaultMinCCDMB,
+		MaxCCDMB:                 defaultMaxCCDMB,
+		MBCapLimitPercent:        defaultMBCapLimitPercent,
+		ActiveTrafficMBThreshold: defaultMinActiveMB,
 	}
 }
 
@@ -64,6 +70,8 @@ func (o *MBOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.MaxIncomingRemoteMB, "max mb allowed from remote domains")
 	fs.IntVar(&o.MBCapLimitPercent, "mb-cap-limit-percent",
 		o.MBCapLimitPercent, "mb cap limit coefficient")
+	fs.IntVar(&o.ActiveTrafficMBThreshold, "mb-active-mb-threshold",
+		o.ActiveTrafficMBThreshold, "threshold of active traffic MB")
 	fs.StringToIntVar(&o.DomainGroupAwareCapacity, "mb-group-aware-capacity",
 		o.DomainGroupAwareCapacity, "customized mb capacities required by groups")
 	fs.StringSliceVar(&o.NoThrottleGroups, "mb-no-throttle-groups",
@@ -80,6 +88,7 @@ func (o *MBOptions) ApplyTo(conf *qrm.MBQRMPluginConfig) error {
 	conf.MaxCCDMB = o.MaxCCDMB
 	conf.MaxIncomingRemoteMB = o.MaxIncomingRemoteMB
 	conf.MBCapLimitPercent = o.MBCapLimitPercent
+	conf.ActiveTrafficMBThreshold = o.ActiveTrafficMBThreshold
 	conf.CrossDomainGroups = o.CrossDomainGroups
 	conf.NoThrottleGroups = o.NoThrottleGroups
 	conf.DomainGroupAwareCapacity = o.DomainGroupAwareCapacity
