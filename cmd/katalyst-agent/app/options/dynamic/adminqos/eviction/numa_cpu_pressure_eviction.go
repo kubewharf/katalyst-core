@@ -23,24 +23,32 @@ import (
 )
 
 type NumaCPUPressureEvictionOptions struct {
-	EnableEviction         bool
-	ThresholdMetPercentage float64
-	MetricRingSize         int
-	GracePeriod            int64
-	ThresholdExpandFactor  float64
-	CandidateCount         int
-	SkippedPodKinds        []string
+	EnableEviction                   bool
+	ThresholdMetPercentage           float64
+	MetricRingSize                   int
+	GracePeriod                      int64
+	ThresholdExpandFactor            float64
+	CandidateCount                   int
+	WorkloadMetricsLabelKeys         []string
+	SkippedPodKinds                  []string
+	EnabledFilters                   []string
+	EnabledScorers                   []string
+	DeploymentEvictionFrequencyLimit []string
 }
 
 func NewNumaCPUPressureEvictionOptions() NumaCPUPressureEvictionOptions {
 	return NumaCPUPressureEvictionOptions{
-		EnableEviction:         false,
-		ThresholdMetPercentage: 0.7,
-		MetricRingSize:         4,
-		GracePeriod:            60,
-		ThresholdExpandFactor:  1.1,
-		CandidateCount:         2,
-		SkippedPodKinds:        []string{},
+		EnableEviction:                   false,
+		ThresholdMetPercentage:           0.7,
+		MetricRingSize:                   4,
+		GracePeriod:                      60,
+		ThresholdExpandFactor:            1.1,
+		CandidateCount:                   2,
+		WorkloadMetricsLabelKeys:         []string{"name"},
+		SkippedPodKinds:                  []string{},
+		EnabledFilters:                   []string{},
+		EnabledScorers:                   []string{},
+		DeploymentEvictionFrequencyLimit: []string{},
 	}
 }
 
@@ -59,8 +67,16 @@ func (o *NumaCPUPressureEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"The factor by which to expand the NUMA CPU pressure threshold")
 	fs.IntVar(&o.CandidateCount, "numa-cpu-pressure-eviction-candidate-count", o.CandidateCount,
 		"The candidate count when pick victim pods")
+	fs.StringSliceVar(&o.WorkloadMetricsLabelKeys, "numa-cpu-pressure-eviction-workload-metrics-label-keys", o.WorkloadMetricsLabelKeys,
+		"The keys of workload metrics label in pod labels")
 	fs.StringSliceVar(&o.SkippedPodKinds, "numa-cpu-pressure-eviction-skipped-pod-kinds", o.SkippedPodKinds,
 		"The pod kind that will be skipped when selecting pods to be evicted")
+	fs.StringSliceVar(&o.EnabledFilters, "numa-cpu-pressure-eviction-enabled-filters", o.EnabledFilters,
+		"The filters that will be enabled when selecting pods to be evicted")
+	fs.StringSliceVar(&o.EnabledScorers, "numa-cpu-pressure-eviction-enabled-scorers", o.EnabledScorers,
+		"The scorers that will be enabled when selecting pods to be evicted")
+	fs.StringSliceVar(&o.DeploymentEvictionFrequencyLimit, "numa-cpu-pressure-eviction-deployment-eviction-frequency-limit", o.DeploymentEvictionFrequencyLimit,
+		"The deployment eviction frequency limit")
 }
 
 func (o *NumaCPUPressureEvictionOptions) ApplyTo(c *eviction.NumaCPUPressureEvictionConfiguration) error {
@@ -70,6 +86,10 @@ func (o *NumaCPUPressureEvictionOptions) ApplyTo(c *eviction.NumaCPUPressureEvic
 	c.GracePeriod = o.GracePeriod
 	c.ThresholdExpandFactor = o.ThresholdExpandFactor
 	c.CandidateCount = o.CandidateCount
+	c.WorkloadMetricsLabelKeys = o.WorkloadMetricsLabelKeys
 	c.SkippedPodKinds = o.SkippedPodKinds
+	c.EnabledFilters = o.EnabledFilters
+	c.EnabledScorers = o.EnabledScorers
+	c.DeploymentEvictionFrequencyLimit = o.DeploymentEvictionFrequencyLimit
 	return nil
 }
