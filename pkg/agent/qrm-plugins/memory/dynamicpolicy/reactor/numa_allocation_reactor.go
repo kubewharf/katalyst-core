@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/samber/lo"
 	v1 "k8s.io/api/core/v1"
@@ -35,19 +36,44 @@ type numaPodAllocationWrapper struct {
 }
 
 func (p numaPodAllocationWrapper) UpdateAllocation(pod *v1.Pod) error {
-	numaID, err := p.AllocationInfo.GetSpecifiedNUMABindingNUMAID()
-	if err != nil {
-		return err
-	}
-
 	annotations := pod.GetAnnotations()
 	if annotations == nil {
 		annotations = make(map[string]string)
 	}
-	annotations[apiconsts.PodAnnotationNUMABindResultKey] = strconv.Itoa(numaID)
+
+	numaBindResult, err := p.getNUMABindResult()
+	if err != nil {
+		return fmt.Errorf("failed to get numa bind result: %v", err)
+	}
+
+	annotations[apiconsts.PodAnnotationNUMABindResultKey] = numaBindResult
 	pod.SetAnnotations(annotations)
 
 	return nil
+}
+
+func (p numaPodAllocationWrapper) getNUMABindResult() (string, error) {
+	if p.CheckDedicatedNUMABindingNUMAExclusive() {
+		// numa binding is exclusive, we can directly use numa allocation result as numa bind result
+		// which is more than one numa
+		numaList := p.AllocationInfo.NumaAllocationResult.ToSliceInt()
+		if len(numaList) == 0 {
+			return "", fmt.Errorf("numa allocation result is empty")
+		}
+
+		intSlice := make([]string, len(numaList))
+		for i, numaID := range numaList {
+			intSlice[i] = strconv.Itoa(numaID)
+		}
+		return strings.Join(intSlice, ","), nil
+	} else {
+		numaID, err := p.AllocationInfo.GetSpecifiedNUMABindingNUMAID()
+		if err != nil {
+			return "", err
+		}
+
+		return strconv.Itoa(numaID), nil
+	}
 }
 
 func (p numaPodAllocationWrapper) NeedUpdateAllocation(pod *v1.Pod) bool {
