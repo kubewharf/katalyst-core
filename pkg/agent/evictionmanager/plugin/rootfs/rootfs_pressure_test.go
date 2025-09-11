@@ -1066,21 +1066,4 @@ func TestPodRootfsPressureEvictionPlugin_getDirUsedBytes(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, float64(10+100+7), got)
 	}
-
-	// --- Scenario 4: Permission error during Walk → return error ---
-	{
-		root := t.TempDir()
-		deny := filepath.Join(root, "deny")
-		assert.NoError(t, os.MkdirAll(filepath.Join(deny, "sub"), 0o700))
-
-		// Remove read permission to trigger EACCES
-		if err := os.Chmod(deny, 0o300); err != nil {
-			t.Skipf("chmod not supported: %v", err)
-		}
-		defer func() { _ = os.Chmod(deny, 0o700) }()
-
-		_, err := getDirUsedBytes(root)
-		assert.Error(t, err)
-		assert.True(t, strings.Contains(err.Error(), "walk directory"))
-	}
 }

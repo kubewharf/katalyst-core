@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"sync"
 	"time"
@@ -29,7 +30,6 @@ import (
 	"k8s.io/client-go/tools/events"
 	evictionapi "k8s.io/kubernetes/pkg/kubelet/eviction/api"
 	"k8s.io/kubernetes/pkg/kubelet/util/format"
-	"path/filepath"
 
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/plugin"
@@ -142,11 +142,8 @@ func (r *PodRootfsPressureEvictionPlugin) minimumFreeThresholdMet(rootfsEviction
 
 	// excludeSize is the size of the rootfs pressure eviction ignore paths, such as /data00/local for local storage csi
 	var excludeSize float64
-
-	rootfsEvictionConfig.RootfsPressureEvictionIgnorePaths = []string{"/data00/local"}
-	general.InfoS("start to check rootfs pressure ignore paths", "ignorePaths", rootfsEvictionConfig.RootfsPressureEvictionIgnorePaths)
-
 	if len(rootfsEvictionConfig.RootfsPressureEvictionIgnorePaths) > 0 {
+		general.InfoS("start to check rootfs pressure ignore paths", "ignorePaths", rootfsEvictionConfig.RootfsPressureEvictionIgnorePaths)
 		for _, path := range rootfsEvictionConfig.RootfsPressureEvictionIgnorePaths {
 			if n, err := getDirUsedBytes(path); err == nil {
 				excludeSize += n
