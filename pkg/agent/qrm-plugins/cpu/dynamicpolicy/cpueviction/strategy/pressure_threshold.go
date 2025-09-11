@@ -19,7 +19,6 @@ package strategy
 import (
 	"context"
 
-	util "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/metricthreshold"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -48,7 +47,7 @@ func (p *NumaCPUPressureEviction) pullThresholds(_ context.Context) {
 
 	numaPressureConfig := getNumaPressureConfig(dynamicConf)
 
-	thresholds := threshold.GetMetricThresholds(targetThresholdNames, p.metaServer, dynamicConf.MetricThresholdConfiguration.Threshold)
+	thresholds := threshold.GetMetricThresholds(targetMetrics, p.metaServer, dynamicConf.MetricThresholdConfiguration.Threshold)
 	if thresholds == nil {
 		general.Errorf("got no valid threshold")
 		return
@@ -67,7 +66,7 @@ func (p *NumaCPUPressureEviction) pullThresholds(_ context.Context) {
 
 	if p.metricsHistory.RingSize != numaPressureConfig.MetricRingSize {
 		general.Infof("update metricsHistory ring size to %v", numaPressureConfig.MetricRingSize)
-		p.metricsHistory = util.NewMetricHistory(numaPressureConfig.MetricRingSize)
+		p.metricsHistory = NewMetricHistory(numaPressureConfig.MetricRingSize)
 	}
 }
 

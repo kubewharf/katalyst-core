@@ -21,17 +21,13 @@ import (
 )
 
 type NumaCPUPressureEvictionConfiguration struct {
-	EnableEviction                   bool
-	ThresholdMetPercentage           float64
-	MetricRingSize                   int
-	GracePeriod                      int64
-	ThresholdExpandFactor            float64
-	CandidateCount                   int
-	WorkloadMetricsLabelKeys         []string
-	SkippedPodKinds                  []string
-	EnabledFilters                   []string
-	EnabledScorers                   []string
-	DeploymentEvictionFrequencyLimit []string
+	EnableEviction         bool
+	ThresholdMetPercentage float64
+	MetricRingSize         int
+	GracePeriod            int64
+	ThresholdExpandFactor  float64
+	CandidateCount         int
+	SkippedPodKinds        []string
 }
 
 func NewNumaCPUPressureEvictionConfiguration() NumaCPUPressureEvictionConfiguration {

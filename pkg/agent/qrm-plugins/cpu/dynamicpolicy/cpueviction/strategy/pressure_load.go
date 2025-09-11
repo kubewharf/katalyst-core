@@ -31,7 +31,6 @@ import (
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
@@ -81,13 +80,13 @@ type CPUPressureLoadEviction struct {
 	dynamicConf *dynamic.DynamicAgentConfiguration
 	skipPools   sets.String
 
-	metricsHistory map[string]util.Entries
+	metricsHistory map[string]Entries
 
 	syncPeriod       time.Duration
 	evictionPoolName string
 	lastEvictionTime time.Time
 
-	poolMetricCollectHandlers map[string]util.PoolMetricCollectHandler
+	poolMetricCollectHandlers map[string]PoolMetricCollectHandler
 
 	systemReservedCPUs machine.CPUSet
 	configTranslator   *general.CommonSuffixTranslator
@@ -100,7 +99,7 @@ func NewCPUPressureLoadEviction(emitter metrics.MetricEmitter, metaServer *metas
 		state:            readonlyState,
 		emitter:          emitter,
 		metaServer:       metaServer,
-		metricsHistory:   make(map[string]util.Entries),
+		metricsHistory:   make(map[string]Entries),
 		qosConf:          conf.QoSConfiguration,
 		dynamicConf:      conf.DynamicAgentConfiguration,
 		skipPools:        sets.NewString(conf.LoadPressureEvictionSkipPools...),
@@ -116,7 +115,7 @@ func NewCPUPressureLoadEviction(emitter metrics.MetricEmitter, metaServer *metas
 	}
 	plugin.systemReservedCPUs = systemReservedCores
 
-	plugin.poolMetricCollectHandlers = map[string]util.PoolMetricCollectHandler{
+	plugin.poolMetricCollectHandlers = map[string]PoolMetricCollectHandler{
 		consts.MetricLoad1MinContainer: plugin.collectPoolLoad,
 	}
 	return plugin, nil
@@ -323,7 +322,7 @@ func (p *CPUPressureLoadEviction) collectMetrics(_ context.Context) {
 	dynamicConfig := p.dynamicConf.GetDynamicConfiguration()
 	// always reset in-memory metric histories if load-eviction is disabled
 	if !dynamicConfig.EnableLoadEviction {
-		p.metricsHistory = make(map[string]util.Entries)
+		p.metricsHistory = make(map[string]Entries)
 		return
 	}
 
@@ -356,8 +355,8 @@ func (p *CPUPressureLoadEviction) collectMetrics(_ context.Context) {
 					continue
 				}
 
-				snapshot := &util.MetricSnapshot{
-					Info: util.MetricInfo{
+				snapshot := &MetricSnapshot{
+					Info: MetricInfo{
 						Name:  metricName,
 						Value: m.Value,
 					},
@@ -453,8 +452,8 @@ func (p *CPUPressureLoadEviction) collectPoolLoad(dynamicConfig *dynamic.Configu
 	metricName string, metricValue float64, poolName string,
 	poolSize int, collectTime int64, allowSharedCoresOverlapReclaimedCores bool,
 ) {
-	snapshot := &util.MetricSnapshot{
-		Info: util.MetricInfo{
+	snapshot := &MetricSnapshot{
+		Info: MetricInfo{
 			Name:       metricName,
 			Value:      metricValue,
 			UpperBound: float64(poolSize) * dynamicConfig.LoadUpperBoundRatio,
@@ -497,8 +496,8 @@ func (p *CPUPressureLoadEviction) collectPoolLoad(dynamicConfig *dynamic.Configu
 func (p *CPUPressureLoadEviction) collectPoolMetricDefault(dynamicConfig *dynamic.Configuration, _ bool,
 	metricName string, metricValue float64, poolName string, _ int, collectTime int64, allowSharedCoresOverlapReclaimedCores bool,
 ) {
-	snapshot := &util.MetricSnapshot{
-		Info: util.MetricInfo{
+	snapshot := &MetricSnapshot{
+		Info: MetricInfo{
 			Name:  metricName,
 			Value: metricValue,
 		},
@@ -511,24 +510,24 @@ func (p *CPUPressureLoadEviction) collectPoolMetricDefault(dynamicConfig *dynami
 
 // pushMetric stores and push-in metric for the given pod
 func (p *CPUPressureLoadEviction) pushMetric(dynamicConfig *dynamic.Configuration,
-	metricName, entryName, subEntryName string, snapshot *util.MetricSnapshot,
+	metricName, entryName, subEntryName string, snapshot *MetricSnapshot,
 ) {
 	if p.metricsHistory[metricName] == nil {
-		p.metricsHistory[metricName] = make(util.Entries)
+		p.metricsHistory[metricName] = make(Entries)
 	}
 
 	if p.metricsHistory[metricName][entryName] == nil {
-		p.metricsHistory[metricName][entryName] = make(util.SubEntries)
+		p.metricsHistory[metricName][entryName] = make(SubEntries)
 	}
 
 	if p.metricsHistory[metricName][entryName][subEntryName] == nil {
-		p.metricsHistory[metricName][entryName][subEntryName] = util.CreateMetricRing(dynamicConfig.LoadMetricRingSize)
+		p.metricsHistory[metricName][entryName][subEntryName] = CreateMetricRing(dynamicConfig.LoadMetricRingSize)
 	}
 
 	p.metricsHistory[metricName][entryName][subEntryName].Push(snapshot)
 }
 
-func (p *CPUPressureLoadEviction) logPoolSnapShot(snapshot *util.MetricSnapshot, poolName string, withBound bool) {
+func (p *CPUPressureLoadEviction) logPoolSnapShot(snapshot *MetricSnapshot, poolName string, withBound bool) {
 	if snapshot == nil {
 		return
 	}
