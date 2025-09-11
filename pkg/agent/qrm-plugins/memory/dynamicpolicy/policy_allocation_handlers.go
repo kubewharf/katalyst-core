@@ -242,14 +242,12 @@ func (p *DynamicPolicy) numaBindingAllocationHandler(ctx context.Context,
 		return nil, fmt.Errorf("packAllocationResponse failed with error: %v", err)
 	}
 
-	// for now, we only support update the numa allocation result for numa binding and non-exclusive pod
-	if !qosutil.AnnotationsIndicateNUMAExclusive(req.Annotations) {
-		err = p.updateSpecifiedNUMAAllocation(ctx, allocationInfo)
-		if err != nil {
-			general.Errorf("pod: %s/%s, container: %s updateSpecifiedNUMAAllocation failed with error: %v",
-				req.PodNamespace, req.PodName, req.ContainerName, err)
-			return nil, fmt.Errorf("updateSpecifiedNUMAAllocation failed with error: %v", err)
-		}
+	// update the numa allocation result for numa binding pod
+	err = p.updateSpecifiedNUMAAllocation(ctx, allocationInfo)
+	if err != nil {
+		general.Errorf("pod: %s/%s, container: %s updateSpecifiedNUMAAllocation failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
+		return nil, fmt.Errorf("updateSpecifiedNUMAAllocation failed with error: %v", err)
 	}
 
 	return resp, nil

@@ -228,6 +228,68 @@ func Test_podNUMAAllocationReactor_UpdateAllocation(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "dedicated_numa_binding_numa_exclusive_pod",
+			fields: fields{
+				podFetcher: &pod.PodFetcherStub{
+					PodList: []*v1.Pod{
+						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      "test-1",
+								Namespace: "test",
+								UID:       "test-1-uid",
+							},
+						},
+					},
+				},
+				client: fake.NewSimpleClientset(
+					&v1.Pod{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "test-1",
+							Namespace: "test",
+							UID:       "test-1-uid",
+						},
+					},
+				),
+			},
+			args: args{
+				allocation: &state.AllocationInfo{
+					AllocationMeta: commonstate.AllocationMeta{
+						PodUid:         "test-1-uid",
+						PodNamespace:   "test",
+						PodName:        "test-1",
+						ContainerName:  "container-1",
+						ContainerType:  pluginapi.ContainerType_MAIN.String(),
+						ContainerIndex: 0,
+						QoSLevel:       consts.PodAnnotationQoSLevelDedicatedCores,
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelDedicatedCores,
+							consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+							consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+						},
+						Labels: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+						},
+					},
+					AggregatedQuantity:   7516192768,
+					NumaAllocationResult: machine.NewCPUSet(0, 1),
+					TopologyAwareAllocations: map[int]uint64{
+						0: 3758096384,
+						1: 3758096384,
+					},
+				},
+			},
+			wantPod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-1",
+					Namespace: "test",
+					UID:       types.UID("test-1-uid"),
+					Annotations: map[string]string{
+						consts.PodAnnotationNUMABindResultKey: "0,1",
+					},
+				},
+			},
+		},
 	}
 	for _, tt := range tests {
 		tt := tt
