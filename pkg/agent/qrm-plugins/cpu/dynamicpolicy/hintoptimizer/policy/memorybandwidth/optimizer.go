@@ -33,6 +33,7 @@ import (
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	qrmutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -270,17 +271,19 @@ func (o *memoryBandwidthOptimizer) calculateHintMemoryBandwidthAvailability(
 	// for the future, we can gather group statistics of each hint,
 	// and to get the most suitable hint, then set its preferrence to true.
 	visNUMAs := sets.NewInt()
+	numaMBWCapacityMap := helper.GetNumaAvgMBWCapacityMap(o.metaServer.MetricsFetcher, machineInfo.ExtraTopologyInfo.SiblingNumaAvgMBWCapacityMap)
+	numaMBWAllocatableMap := helper.GetNumaAvgMBWAllocatableMap(o.metaServer.MetricsFetcher, machineInfo.ExtraTopologyInfo.SiblingNumaInfo, numaMBWCapacityMap)
 	for _, numaID := range targetNUMANodes {
 		if visNUMAs.Has(numaID) {
 			continue
 		}
 
-		groupNUMAsAllocatableMemBW := int(machineInfo.ExtraTopologyInfo.SiblingNumaAvgMBWAllocatableMap[numaID])
+		groupNUMAsAllocatableMemBW := int(numaMBWAllocatableMap[numaID])
 		groupNUMAsAllocatedMemBW := copiedNUMAAllocatedMemBW[numaID]
 		visNUMAs.Insert(numaID)
 		for _, siblingNUMAID := range machineInfo.ExtraTopologyInfo.SiblingNumaMap[numaID].UnsortedList() {
 			groupNUMAsAllocatedMemBW += copiedNUMAAllocatedMemBW[siblingNUMAID]
-			groupNUMAsAllocatableMemBW += int(machineInfo.ExtraTopologyInfo.SiblingNumaAvgMBWAllocatableMap[siblingNUMAID])
+			groupNUMAsAllocatableMemBW += int(numaMBWAllocatableMap[siblingNUMAID])
 			visNUMAs.Insert(siblingNUMAID)
 		}
 
