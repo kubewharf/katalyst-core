@@ -21,8 +21,10 @@ import (
 	"fmt"
 
 	"k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -32,11 +34,15 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
+var configTranslator = general.NewCommonSuffixTranslator(commonstate.NUMAPoolInfix)
+
 func GetAvailableNUMAsAndReclaimedCores(conf *config.Configuration, metaReader metacache.MetaReader, metaServer *metaserver.MetaServer) (machine.CPUSet, []*types.ContainerInfo, error) {
 	var errList []error
 
 	availNUMAs := metaServer.CPUDetails.NUMANodes()
 	reclaimedCoresContainers := make([]*types.ContainerInfo, 0)
+
+	dynamicConf := conf.GetDynamicConfiguration()
 
 	metaReader.RangeContainer(func(podUID string, containerName string, containerInfo *types.ContainerInfo) bool {
 		ctx := context.Background()
@@ -60,7 +66,7 @@ func GetAvailableNUMAsAndReclaimedCores(conf *config.Configuration, metaReader m
 			return true
 		}
 
-		nodeReclaim := conf.GetDynamicConfiguration().EnableReclaim
+		nodeReclaim := dynamicConf.EnableReclaim
 		reclaimEnable, err := PodEnableReclaim(ctx, metaServer, podUID, nodeReclaim)
 		if err != nil {
 			errList = append(errList, err)
@@ -75,6 +81,30 @@ func GetAvailableNUMAsAndReclaimedCores(conf *config.Configuration, metaReader m
 			}
 			availNUMAs = availNUMAs.Difference(memset)
 		}
+
+		if containerInfo.IsSharedNumaBinding() &&
+			sets.NewString(dynamicConf.DisableReclaimSharePools...).Has(configTranslator.Translate(containerInfo.OriginOwnerPoolName)) {
+			bindingResult, err := containerInfo.GetActualNUMABindingResult()
+			if err != nil {
+				errList = append(errList, err)
+				return true
+			}
+
+			if bindingResult == -1 {
+				return true
+			}
+
+			// numa node -> socket
+			socketID, ok := metaServer.NUMANodeIDToSocketID[bindingResult]
+			if !ok {
+				errList = append(errList, fmt.Errorf("numa node %v has no socket", bindingResult))
+				return true
+			}
+
+			// disable reclaim for all the numa nodes in the socket which has disabled reclaim numa binding pool
+			availNUMAs = availNUMAs.Difference(metaServer.CPUDetails.NUMANodesInSockets(socketID))
+		}
+
 		return true
 	})
 
@@ -101,7 +131,7 @@ func GetActualNUMABindingNUMAsForReclaimedCores(metaReader metacache.MetaReader)
 			return true
 		}
 
-		bindingResult, err := ci.GetReclaimActualNUMABindingResult()
+		bindingResult, err := ci.GetActualNUMABindingResult()
 		if err != nil {
 			errList = append(errList, err)
 			return false
