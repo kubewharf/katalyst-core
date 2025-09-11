@@ -5089,8 +5089,7 @@ func (ic *IrqTuningController) setRPSInNumaForNic(nic *NicIrqTuningManager, assi
 			}
 
 			numaIrqCores := nic.NicInfo.filterIrqCores(numaCoresList)
-			// if number of non-irq-cores is more than twice number of irq-cores, then rps dest cpus exclude irq cores
-			if len(qualifiedCoresMap) >= 3*len(numaIrqCores) {
+			if float64(len(qualifiedCoresMap)) >= ic.conf.RPSExcludeIrqCoresThreshold.RPSCoresVSIrqCoresRatio*float64(len(numaIrqCores)) {
 				for _, core := range numaIrqCores {
 					if _, ok := qualifiedCoresMap[core]; ok {
 						delete(qualifiedCoresMap, core)
@@ -5135,8 +5134,7 @@ func (ic *IrqTuningController) setRPSInCCDForNic(nic *NicIrqTuningManager, assig
 				}
 
 				ccdIrqCores := nic.NicInfo.filterIrqCores(ccdCoresList)
-				// if number of non-irq-cores is more than twice number of irq-cores, then rps dest cpus exclude irq cores
-				if len(qualifiedCoresMap) >= 3*len(ccdIrqCores) {
+				if float64(len(qualifiedCoresMap)) >= ic.conf.RPSExcludeIrqCoresThreshold.RPSCoresVSIrqCoresRatio*float64(len(ccdIrqCores)) {
 					for _, core := range ccdIrqCores {
 						if _, ok := qualifiedCoresMap[core]; ok {
 							delete(qualifiedCoresMap, core)

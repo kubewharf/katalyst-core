@@ -23,6 +23,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/irqtuning/coresexclusion"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/irqtuning/loadbalance"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/irqtuning/netoverload"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/irqtuning/rpsexcludeirqcore"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/irqtuning/throughputclassswitch"
 )
 
@@ -38,11 +39,12 @@ type IRQTuningConfiguration struct {
 	KsoftirqdNice           int
 	CoresExpectedCPUUtil    int
 
-	ThroughputClassSwitchConf *throughputclassswitch.ThroughputClassSwitchConfig
-	CoreNetOverLoadThreshold  *netoverload.IRQCoreNetOverloadThresholds
-	LoadBalanceConf           *loadbalance.IRQLoadBalanceConfig
-	CoresAdjustConf           *coresadjust.IRQCoresAdjustConfig
-	CoresExclusionConf        *coresexclusion.IRQCoresExclusionConfig
+	RPSExcludeIRQCoresThreshold *rpsexcludeirqcore.RPSExcludeIRQCoresThreshold
+	ThroughputClassSwitchConf   *throughputclassswitch.ThroughputClassSwitchConfig
+	CoreNetOverLoadThreshold    *netoverload.IRQCoreNetOverloadThresholds
+	LoadBalanceConf             *loadbalance.IRQLoadBalanceConfig
+	CoresAdjustConf             *coresadjust.IRQCoresAdjustConfig
+	CoresExclusionConf          *coresexclusion.IRQCoresExclusionConfig
 }
 
 func NewIRQTuningConfiguration() *IRQTuningConfiguration {
@@ -57,11 +59,12 @@ func NewIRQTuningConfiguration() *IRQTuningConfiguration {
 		KsoftirqdNice:           -20,
 		CoresExpectedCPUUtil:    50,
 
-		ThroughputClassSwitchConf: throughputclassswitch.NewThroughputClassSwitchConfig(),
-		CoreNetOverLoadThreshold:  netoverload.NewIRQCoreNetOverloadThresholds(),
-		LoadBalanceConf:           loadbalance.NewIRQLoadBalanceConfig(),
-		CoresAdjustConf:           coresadjust.NewIRQCoresAdjustConfig(),
-		CoresExclusionConf:        coresexclusion.NewIRQCoresExclusionConfig(),
+		RPSExcludeIRQCoresThreshold: rpsexcludeirqcore.NewRPSExcludeIRQCoresThreshold(),
+		ThroughputClassSwitchConf:   throughputclassswitch.NewThroughputClassSwitchConfig(),
+		CoreNetOverLoadThreshold:    netoverload.NewIRQCoreNetOverloadThresholds(),
+		LoadBalanceConf:             loadbalance.NewIRQLoadBalanceConfig(),
+		CoresAdjustConf:             coresadjust.NewIRQCoresAdjustConfig(),
+		CoresExclusionConf:          coresexclusion.NewIRQCoresExclusionConfig(),
 	}
 }
 
@@ -91,6 +94,7 @@ func (c *IRQTuningConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) 
 			c.CoresExpectedCPUUtil = *itc.Spec.Config.CoresExpectedCPUUtil
 		}
 
+		c.RPSExcludeIRQCoresThreshold.ApplyConfiguration(conf)
 		c.ThroughputClassSwitchConf.ApplyConfiguration(conf)
 		c.CoreNetOverLoadThreshold.ApplyConfiguration(conf)
 		c.LoadBalanceConf.ApplyConfiguration(conf)
