@@ -506,6 +506,40 @@ func GenerateNumaSocketZone(nodes []info.Node) map[ZoneNode]ZoneNode {
 	return numaSocketZoneMap
 }
 
+// GenerateNumaCacheGroupZone parse node info to get the map of numa zone node to cache group zone nodes
+func GenerateNumaCacheGroupZone(nodes []info.Node) map[ZoneNode][]ZoneNode {
+	numaToCacheGroupZoneMap := make(map[ZoneNode][]ZoneNode)
+	for _, node := range nodes {
+		numaZoneNode := GenerateNumaZoneNode(node.Id)
+		numaToCacheGroupZoneMap[numaZoneNode] = GenerateCacheGroupZone(node.Cores)
+	}
+
+	return numaToCacheGroupZoneMap
+}
+
+// GenerateCacheGroupZone get cache group zone nodes from core info.
+func GenerateCacheGroupZone(cores []info.Core) []ZoneNode {
+	cacheGroupZones := make([]ZoneNode, 0)
+
+	// CAUTION: we think all cores in the same index3 ID has the same numa ID.
+	processCaches := func(caches []info.Cache) {
+		for _, cache := range caches {
+			if cache.Level != 3 {
+				continue
+			}
+			cacheGroupZoneNode := GenerateCacheGroupZoneNode(cache.Id)
+			cacheGroupZones = append(cacheGroupZones, cacheGroupZoneNode)
+		}
+	}
+
+	for _, core := range cores {
+		processCaches(core.Caches)
+		processCaches(core.UncoreCaches)
+	}
+
+	return cacheGroupZones
+}
+
 // GenerateNumaZoneNode generates numa zone node by numa id, which must be unique
 func GenerateNumaZoneNode(numaID int) ZoneNode {
 	return ZoneNode{
@@ -532,6 +566,16 @@ func GenerateDeviceZoneNode(deviceId, zoneType string) ZoneNode {
 		Meta: ZoneMeta{
 			Type: nodev1alpha1.TopologyType(zoneType),
 			Name: deviceId,
+		},
+	}
+}
+
+// GenerateCacheGroupZoneNode generates cache group zone node by socket id, which must be unique
+func GenerateCacheGroupZoneNode(groupID int) ZoneNode {
+	return ZoneNode{
+		Meta: ZoneMeta{
+			Type: nodev1alpha1.TopologyTypeCacheGroup,
+			Name: strconv.Itoa(groupID),
 		},
 	}
 }
