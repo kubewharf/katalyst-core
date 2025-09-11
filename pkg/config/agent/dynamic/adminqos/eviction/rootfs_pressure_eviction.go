@@ -37,7 +37,8 @@ type RootfsPressureEvictionConfiguration struct {
 	ReclaimedQoSPodUsedPriorityThreshold       *evictionapi.ThresholdValue
 	ReclaimedQoSPodInodesUsedPriorityThreshold *evictionapi.ThresholdValue
 	MinimumImageFsDiskCapacityThreshold        *resource.Quantity
-	RootfsPressureEvictionIgnorePaths          []string
+	IgnorePrjquotaLocalStoragePath             string
+	EnableIgnorePrjquotaLocalStorage           bool
 
 	EnableRootfsOveruseEviction             bool
 	RootfsOveruseEvictionSupportedQoSLevels []string
