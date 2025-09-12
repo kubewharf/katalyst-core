@@ -47,12 +47,13 @@ const (
 )
 
 const (
-	metricsNameAgentNotReady      = "agent_not_ready"
-	metricsNameAgentNotFound      = "agent_not_found"
-	metricsNameAgentReadyTotal    = "agent_ready_total"
-	metricsNameAgentNotReadyTotal = "agent_not_ready_total"
-	metricsNameAgentNotFoundTotal = "agent_not_found_total"
-	metricsNameAgentReadyRate     = "agent_ready_rate"
+	metricsNameAgentDeployedNodeTotal = "agent_deployed_node_total"
+	metricsNameAgentNotReady          = "agent_not_ready"
+	metricsNameAgentNotFound          = "agent_not_found"
+	metricsNameAgentReadyTotal        = "agent_ready_total"
+	metricsNameAgentNotReadyTotal     = "agent_not_ready_total"
+	metricsNameAgentNotFoundTotal     = "agent_not_found_total"
+	metricsNameAgentReadyRate         = "agent_ready_rate"
 
 	metricsTagKeyAgentName = "agentName"
 	metricsTagKeyNodeName  = "nodeName"
@@ -245,6 +246,7 @@ func (h *HealthzHelper) syncHeartBeatMap() {
 	}
 
 	nodeCount := len(nodes)
+	_ = h.emitter.StoreInt64(metricsNameAgentDeployedNodeTotal, int64(nodeCount), metrics.MetricTypeNameRaw)
 	for agent := range h.agentSelectors {
 		tag := metrics.MetricTag{Key: metricsTagKeyAgentName, Val: agent}
 		_ = h.emitter.StoreInt64(metricsNameAgentReadyTotal, totalReadyNode[agent],
