@@ -18,8 +18,13 @@ package rootfs
 
 import (
 	"context"
+	"fmt"
+	"syscall"
 	"testing"
 	"time"
+	"unsafe"
+
+	"github.com/prometheus/procfs"
 
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
@@ -1022,4 +1027,93 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsMetExpire(t *testing.
 	resTop, err = rootfsPlugin.GetTopEvictionPods(context.TODO(), req)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, len(resTop.TargetPods))
+}
+
+func TestPodRootfsPressureEvictionPlugin_GetTotalUsedBytesOfPVProjects(t *testing.T) {
+	t.Parallel()
+
+	// Save and restore the original syscallImpl
+	origSyscallImpl := syscallImpl
+	defer func() { syscallImpl = origSyscallImpl }()
+
+	// Case 1: multiple projects with non-zero and zero usage
+	var callCount int
+	syscallImpl = func(trap, a1, a2, a3, a4, a5, a6 uintptr) (uintptr, uintptr, syscall.Errno) {
+		callCount++
+		dq := (*nextdqblk)(unsafe.Pointer(a4))
+
+		switch callCount {
+		case 1:
+			dq.dqbCurSpace = 100
+			dq.dqdID = 1
+			return 0, 0, 0
+		case 2:
+			dq.dqbCurSpace = 50
+			dq.dqdID = 2
+			return 0, 0, 0
+		case 3:
+			dq.dqbCurSpace = 200
+			dq.dqdID = 3
+			return 0, 0, 0
+		default:
+			return 0, 0, syscall.ESRCH
+		}
+	}
+	total, err := GetTotalUsedBytesOfPVProjects("/dev/fakedev")
+	assert.NoError(t, err)
+	assert.Equal(t, int64(350), total) // 50 + 200
+
+	// Case 2: syscall returns unexpected error
+	syscallImpl = func(trap, a1, a2, a3, a4, a5, a6 uintptr) (uintptr, uintptr, syscall.Errno) {
+		return 0, 0, syscall.EINVAL
+	}
+	total, err = GetTotalUsedBytesOfPVProjects("/dev/fakedev")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "get project quota information failed")
+	assert.Equal(t, int64(0), total)
+
+	// Case 3: no projects at all
+	syscallImpl = func(trap, a1, a2, a3, a4, a5, a6 uintptr) (uintptr, uintptr, syscall.Errno) {
+		return 0, 0, syscall.ESRCH
+	}
+	total, err = GetTotalUsedBytesOfPVProjects("/dev/fakedev")
+	assert.NoError(t, err)
+	assert.Equal(t, int64(0), total)
+}
+
+func TestPodRootfsPressureEvictionPlugin_TestGetDeviceForPath(t *testing.T) {
+	t.Parallel()
+
+	// Save and restore the original GetMounts function
+	origGetMounts := GetMounts
+	defer func() { GetMounts = origGetMounts }()
+
+	// Case 1: path matches /data00/local
+	GetMounts = func() ([]*procfs.MountInfo, error) {
+		return []*procfs.MountInfo{
+			{MountPoint: "/", Source: "/dev/root"},
+			{MountPoint: "/data00", Source: "/dev/nvme0n1p3"},
+		}, nil
+	}
+	device, err := GetDeviceForPath("/data00/local")
+	assert.NoError(t, err)
+	assert.Equal(t, "/dev/nvme0n1p3", device)
+
+	// Case 2: GetMounts returns error
+	GetMounts = func() ([]*procfs.MountInfo, error) {
+		return nil, fmt.Errorf("fake error")
+	}
+	_, err = GetDeviceForPath("/data00/local")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to get mounts")
+
+	// Case 3: no matching mount found
+	GetMounts = func() ([]*procfs.MountInfo, error) {
+		return []*procfs.MountInfo{
+			{MountPoint: "/any", Source: "/dev/root"},
+		}, nil
+	}
+	_, err = GetDeviceForPath("/notexist")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "no matching mount")
 }

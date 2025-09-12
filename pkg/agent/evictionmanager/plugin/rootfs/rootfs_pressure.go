@@ -138,6 +138,28 @@ func (r *PodRootfsPressureEvictionPlugin) minimumFreeThresholdMet(rootfsEviction
 		return false
 	}
 
+	// excludeSize is the total used size for local storage persistent volumes implemented by prjquota
+	// ignore path is defined in IgnorePrjquotaLocalStoragePath such as /data00/local
+	if rootfsEvictionConfig.EnableIgnorePrjquotaLocalStorage && rootfsEvictionConfig.IgnorePrjquotaLocalStoragePath != "" {
+		ignorePath := rootfsEvictionConfig.IgnorePrjquotaLocalStoragePath
+		general.InfoS("Checking rootfs pressure ignore path", "path", ignorePath)
+
+		device, err := GetDeviceForPath(ignorePath)
+		if err != nil {
+			general.Errorf("Failed to resolve device for path %q: %v", ignorePath, err)
+			return false
+		}
+
+		excludeSize, err := GetTotalUsedBytesOfPVProjects(device)
+		if err != nil {
+			general.Errorf("Failed to get project quota used size for device %q: %v", device, err)
+			return false
+		}
+
+		imageFsFreeBytes += float64(excludeSize)
+		general.Infof("rootfs: after considering excludeSize %d, imageFsFreeBytes %d, imageFsCapacityBytes %d", excludeSize, int64(imageFsFreeBytes), int64(imageFsCapacityBytes))
+	}
+
 	if rootfsEvictionConfig.MinimumImageFsDiskCapacityThreshold != nil && int64(imageFsCapacityBytes) < rootfsEvictionConfig.MinimumImageFsDiskCapacityThreshold.Value() {
 		general.Warningf("Ignore this node for MinimumImageFsDiskCapacityThreshold (size: %d, threshold: %d)", int64(imageFsCapacityBytes), rootfsEvictionConfig.MinimumImageFsDiskCapacityThreshold.Value())
 		return false
