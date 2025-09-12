@@ -22,6 +22,11 @@ type StateDirectoryConfiguration struct {
 	// EnableInMemoryState indicates whether we want to store the state in memory or on disk
 	// if set true, the state will be stored in tmpfs
 	EnableInMemoryState bool
+	// HasPreStop indicates whether there is a pre-stop script in the daemonset manifest of QRM
+	// This is important because if we do not have a pre-stop script, we cannot proceed with migration of state file
+	// because in the case of rollback, we need the pre-stop script to ensure that the StateFileDirectory and InMemoryStateFileDirectory
+	// are synchronized.
+	HasPreStop bool
 }
 
 func NewStateDirectoryConfiguration() *StateDirectoryConfiguration {
@@ -29,6 +34,11 @@ func NewStateDirectoryConfiguration() *StateDirectoryConfiguration {
 }
 
 func (c *StateDirectoryConfiguration) GetCurrentAndOtherStateFileDirectory() (string, string) {
+	if !c.HasPreStop {
+		// At the time of development, we always use StateFileDirectory to store state file.
+		// In case we do not have a pre-stop script, the current directory will always be StateFileDirectory
+		return c.StateFileDirectory, c.InMemoryStateFileDirectory
+	}
 	if c.EnableInMemoryState {
 		return c.InMemoryStateFileDirectory, c.StateFileDirectory
 	}
