@@ -643,7 +643,7 @@ func TestMemoryBandwidthOptimizer_OptimizeHints(t *testing.T) {
 							},
 						},
 					}
-					st, _ := state.NewCheckpointState(tmpDir, "test-state-err", "test", cpuTopology, false, func(_ *machine.CPUTopology, _ state.PodEntries) (state.NUMANodeMap, error) {
+					st, _ := state.NewCheckpointState(tmpDir, "test-state-err", "test", cpuTopology, false, func(_ *machine.CPUTopology, _ state.PodEntries, _ state.NUMANodeMap) (state.NUMANodeMap, error) {
 						return ms, nil
 					}, dummyEmitter)
 					return st

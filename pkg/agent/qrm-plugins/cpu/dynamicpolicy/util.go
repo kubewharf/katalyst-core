@@ -36,8 +36,8 @@ func getProportionalSize(oldPoolSize, oldTotalSize, newTotalSize int, ceil bool)
 	}
 }
 
-func generateMachineStateFromPodEntries(topology *machine.CPUTopology, podEntries state.PodEntries) (state.NUMANodeMap, error) {
-	return state.GenerateMachineStateFromPodEntries(topology, podEntries)
+func generateMachineStateFromPodEntries(topology *machine.CPUTopology, podEntries state.PodEntries, originMachineState state.NUMANodeMap) (state.NUMANodeMap, error) {
+	return state.GenerateMachineStateFromPodEntries(topology, podEntries, originMachineState)
 }
 
 // updateAllocationInfoByReq updates allocationInfo by latest req when admitting active pod,

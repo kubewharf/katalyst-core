@@ -604,7 +604,7 @@ func (p *NativePolicy) removePod(podUID string) error {
 	}
 	delete(podEntries, podUID)
 
-	updatedMachineState, err := nativepolicyutil.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+	updatedMachineState, err := nativepolicyutil.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries, nil)
 	if err != nil {
 		return fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
@@ -621,7 +621,7 @@ func (p *NativePolicy) removeContainer(podUID, containerName string) error {
 	}
 	delete(podEntries[podUID], containerName)
 
-	updatedMachineState, err := nativepolicyutil.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+	updatedMachineState, err := nativepolicyutil.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries, nil)
 	if err != nil {
 		return fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
