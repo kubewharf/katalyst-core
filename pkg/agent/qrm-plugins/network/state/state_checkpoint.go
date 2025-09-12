@@ -19,9 +19,12 @@ package state
 import (
 	"fmt"
 	"path"
+	"path/filepath"
 	"reflect"
 	"sync"
 	"time"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/file"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 
@@ -39,11 +42,13 @@ import (
 )
 
 const (
-	metricMetaCacheStoreStateDuration = "metacache_store_state_duration"
+	metricMetaCacheStoreStateDuration        = "metacache_store_state_duration"
+	qrmNetworkStateCheckpointHealthCheckName = "qrm_network_state_checkpoint"
 )
 
 var (
-	_          State          = &stateCheckpoint{}
+	_          State = &stateCheckpoint{}
+	doOnce     sync.Once
 	generalLog general.Logger = general.LoggerWithPrefix("network_plugin", general.LoggingPKGFull)
 )
 
@@ -62,11 +67,14 @@ type stateCheckpoint struct {
 	emitter             metrics.MetricEmitter
 }
 
-func NewCheckpointState(conf *qrm.QRMPluginsConfiguration, stateDirectoryConfig *statedirectory.StateDirectoryConfiguration, checkpointName, policyName string,
+func NewCheckpointState(
+	conf *qrm.QRMPluginsConfiguration, stateDirectoryConfig *statedirectory.StateDirectoryConfiguration,
+	checkpointName, policyName string,
 	machineInfo *info.MachineInfo, nics []machine.InterfaceInfo, reservedBandwidth map[string]uint32,
 	skipStateCorruption bool, emitter metrics.MetricEmitter,
 ) (State, error) {
 	currentStateDir, otherStateDir := stateDirectoryConfig.GetCurrentAndOtherStateFileDirectory()
+	hasPreStop := stateDirectoryConfig.HasPreStop
 	checkpointManager, err := checkpointmanager.NewCheckpointManager(currentStateDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize checkpoint manager: %v", err)
@@ -86,17 +94,27 @@ func NewCheckpointState(conf *qrm.QRMPluginsConfiguration, stateDirectoryConfig 
 		emitter:             emitter,
 	}
 
-	if err := stateCheckpoint.restoreState(otherStateDir, conf, nics, reservedBandwidth); err != nil {
+	doOnce.Do(func() {
+		general.RegisterHeartbeatCheck(qrmNetworkStateCheckpointHealthCheckName, 90*time.Second, general.HealthzCheckStateNotReady,
+			90*time.Second)
+	})
+
+	if err := stateCheckpoint.restoreState(currentStateDir, otherStateDir, hasPreStop, conf, nics, reservedBandwidth); err != nil {
 		return nil, fmt.Errorf("could not restore state from checkpoint: %v, please drain this node and delete the network plugin checkpoint file %q before restarting Kubelet",
 			err, path.Join(currentStateDir, checkpointName))
 	}
 
+	_ = general.UpdateHealthzStateByError(qrmNetworkStateCheckpointHealthCheckName, err)
 	return stateCheckpoint, nil
 }
 
 // restoreState is first done by searching the current directory for the state file.
 // If it does not exist, we search the other directory for the state file and try to migrate the state file over to the current directory.
-func (sc *stateCheckpoint) restoreState(otherStateDir string, conf *qrm.QRMPluginsConfiguration, nics []machine.InterfaceInfo, reservedBandwidth map[string]uint32) error {
+func (sc *stateCheckpoint) restoreState(
+	currentStateDir, otherStateDir string, hasPreStop bool, conf *qrm.QRMPluginsConfiguration,
+	nics []machine.InterfaceInfo,
+	reservedBandwidth map[string]uint32,
+) error {
 	sc.Lock()
 	defer sc.Unlock()
 	var err error
@@ -105,7 +123,7 @@ func (sc *stateCheckpoint) restoreState(otherStateDir string, conf *qrm.QRMPlugi
 	checkpoint := NewNetworkPluginCheckpoint()
 	if err = sc.checkpointManager.GetCheckpoint(sc.checkpointName, checkpoint); err != nil {
 		if err == errors.ErrCheckpointNotFound {
-			return sc.tryMigrateState(conf, nics, reservedBandwidth, otherStateDir, checkpoint)
+			return sc.tryMigrateState(conf, nics, reservedBandwidth, currentStateDir, otherStateDir, hasPreStop, checkpoint)
 		} else if err == errors.ErrCorruptCheckpoint {
 			if !sc.skipStateCorruption {
 				return err
@@ -121,7 +139,10 @@ func (sc *stateCheckpoint) restoreState(otherStateDir string, conf *qrm.QRMPlugi
 	return sc.populateCacheAndState(conf, nics, reservedBandwidth, checkpoint, foundAndSkippedStateCorruption)
 }
 
-func (sc *stateCheckpoint) populateCacheAndState(conf *qrm.QRMPluginsConfiguration, nics []machine.InterfaceInfo, reservedBandwidth map[string]uint32, checkpoint *NetworkPluginCheckpoint, foundAndSkippedStateCorruption bool) error {
+func (sc *stateCheckpoint) populateCacheAndState(
+	conf *qrm.QRMPluginsConfiguration, nics []machine.InterfaceInfo, reservedBandwidth map[string]uint32,
+	checkpoint *NetworkPluginCheckpoint, foundAndSkippedStateCorruption bool,
+) error {
 	if sc.policyName != checkpoint.PolicyName && !sc.skipStateCorruption {
 		return fmt.Errorf("[network_plugin] configured policy %q differs from state checkpoint policy %q", sc.policyName, checkpoint.PolicyName)
 	}
@@ -161,12 +182,15 @@ func (sc *stateCheckpoint) populateCacheAndState(conf *qrm.QRMPluginsConfigurati
 
 // tryMigrateState tries to migrate the state file from the other directory to current directory.
 // If the other directory does not have a state file, then we build a new checkpoint.
-func (sc *stateCheckpoint) tryMigrateState(conf *qrm.QRMPluginsConfiguration, nics []machine.InterfaceInfo, reservedBandwidth map[string]uint32, otherStateDir string, checkpoint *NetworkPluginCheckpoint) error {
+func (sc *stateCheckpoint) tryMigrateState(
+	conf *qrm.QRMPluginsConfiguration, nics []machine.InterfaceInfo, reservedBandwidth map[string]uint32,
+	currentStateDir, otherStateDir string, hasPreStop bool, checkpoint *NetworkPluginCheckpoint,
+) error {
 	var foundAndSkippedStateCorruption bool
 	klog.Infof("[network_plugin] trying to migrate state")
 
 	// Build new checkpoint if the state directory that we want to migrate from is empty
-	if otherStateDir == "" {
+	if !hasPreStop {
 		return sc.storeState()
 	}
 
@@ -201,7 +225,34 @@ func (sc *stateCheckpoint) tryMigrateState(conf *qrm.QRMPluginsConfiguration, ni
 		return fmt.Errorf("[network_plugin] failed to store checkpoint state during end of migration: %v", err)
 	}
 
+	// validate that the two files are equal
+	equal, err := sc.checkpointFilesEqual(currentStateDir, otherStateDir)
+	if err != nil {
+		return fmt.Errorf("[network_plugin] failed to compare checkpoint files: %v", err)
+	}
+	if !equal {
+		klog.Infof("[network_plugin] checkpoint files are not equal, migration failed, fall back to old checkpoint")
+		return sc.fallbackToOldCheckpoint(oldCheckpointManager)
+	}
+
+	// remove old checkpoint file
+	if err = oldCheckpointManager.RemoveCheckpoint(sc.checkpointName); err != nil {
+		return fmt.Errorf("[network_plugin] failed to remove old checkpoint: %v", err)
+	}
+
 	klog.Infof("[network_plugin] checkpoint migration succeeded")
+	return nil
+}
+
+func (sc *stateCheckpoint) checkpointFilesEqual(currentStateDir, otherStateDir string) (bool, error) {
+	currentFilePath := filepath.Join(currentStateDir, sc.checkpointName)
+	otherFilePath := filepath.Join(otherStateDir, sc.checkpointName)
+	return file.FilesEqual(currentFilePath, otherFilePath)
+}
+
+func (sc *stateCheckpoint) fallbackToOldCheckpoint(oldCheckpointManager checkpointmanager.CheckpointManager) error {
+	sc.checkpointManager = oldCheckpointManager
+	_ = general.UpdateHealthzState(qrmNetworkStateCheckpointHealthCheckName, general.HealthzCheckStateReady, "Migration from old checkpoint to new checkpoint failed")
 	return nil
 }
 
@@ -281,7 +332,9 @@ func (sc *stateCheckpoint) SetMachineState(nicMap NICMap, persist bool) {
 	}
 }
 
-func (sc *stateCheckpoint) SetAllocationInfo(podUID, containerName string, allocationInfo *AllocationInfo, persist bool) {
+func (sc *stateCheckpoint) SetAllocationInfo(
+	podUID, containerName string, allocationInfo *AllocationInfo, persist bool,
+) {
 	sc.Lock()
 	defer sc.Unlock()
 
