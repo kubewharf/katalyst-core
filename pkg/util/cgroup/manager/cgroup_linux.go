@@ -20,8 +20,12 @@ limitations under the License.
 package manager
 
 import (
+	"fmt"
+	"path/filepath"
+	"strings"
 	"syscall"
 
+	"github.com/opencontainers/runc/libcontainer/cgroups"
 	"golang.org/x/sys/unix"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -35,4 +39,24 @@ func IsCgroupPath(path string) bool {
 		return false
 	}
 	return fstat.Type == unix.CGROUP2_SUPER_MAGIC || fstat.Type == unix.CGROUP_SUPER_MAGIC
+}
+
+func GetCgroupPids(cgroupPath string) ([]int, error) {
+	var absCgroupPath string
+	if strings.HasPrefix(cgroupPath, CgroupFSMountPoint) {
+		absCgroupPath = cgroupPath
+	} else {
+		if cgroups.IsCgroup2UnifiedMode() {
+			absCgroupPath = filepath.Join(CgroupFSMountPoint, cgroupPath)
+		} else {
+			absCgroupPath = filepath.Join(CgroupFSMountPoint, "cpuset", cgroupPath)
+		}
+	}
+
+	pids, err := cgroups.GetAllPids(absCgroupPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to GetAllPids(%s), err %v", absCgroupPath, err)
+	}
+
+	return pids, nil
 }

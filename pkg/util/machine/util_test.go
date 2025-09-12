@@ -17,6 +17,7 @@ limitations under the License.
 package machine
 
 import (
+	"io/fs"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -51,4 +52,31 @@ func TestMaskToUInt64Array(t *testing.T) {
 	mask, err := NewBitMask(0, 1, 2, 3)
 	assert.NoError(t, err)
 	assert.Equal(t, []uint64{0, 1, 2, 3}, MaskToUInt64Array(mask))
+}
+
+type mockDirEntry struct {
+	fs.DirEntry
+	entryName string
+	isDir     bool
+	typ       fs.FileMode
+}
+
+// Name return the mock entry name
+func (m *mockDirEntry) Name() string {
+	return m.entryName
+}
+
+// IsDir return if the entry is a directory
+func (m *mockDirEntry) IsDir() bool {
+	return m.isDir
+}
+
+// Type return the mock entry type
+func (m *mockDirEntry) Type() fs.FileMode {
+	return m.typ
+}
+
+// Info return the mock entry info
+func (m *mockDirEntry) Info() (fs.FileInfo, error) {
+	return nil, nil
 }
