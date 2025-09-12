@@ -25,10 +25,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
-
-	"github.com/opencontainers/runc/libcontainer/cgroups"
 
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -279,26 +276,6 @@ func getExistingCgroupPath(relCgroupPath string, subsystems []string) (string, e
 
 func GetPidsWithAbsolutePath(absCgroupPath string) ([]string, error) {
 	return GetManager().GetPids(absCgroupPath)
-}
-
-func GetCgroupPids(cgroupPath string) ([]int, error) {
-	var absCgroupPath string
-	if strings.HasPrefix(cgroupPath, CgroupFSMountPoint) {
-		absCgroupPath = cgroupPath
-	} else {
-		if cgroups.IsCgroup2UnifiedMode() {
-			absCgroupPath = filepath.Join(CgroupFSMountPoint, cgroupPath)
-		} else {
-			absCgroupPath = filepath.Join(CgroupFSMountPoint, "cpuset", cgroupPath)
-		}
-	}
-
-	pids, err := cgroups.GetAllPids(absCgroupPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to GetAllPids(%s), err %v", absCgroupPath, err)
-	}
-
-	return pids, nil
 }
 
 func GetTasksWithRelativePath(cgroupPath, subsys string) ([]string, error) {
