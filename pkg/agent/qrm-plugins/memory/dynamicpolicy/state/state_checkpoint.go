@@ -19,9 +19,12 @@ package state
 import (
 	"fmt"
 	"path"
+	"path/filepath"
 	"reflect"
 	"sync"
 	"time"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/file"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 
@@ -37,8 +40,11 @@ import (
 )
 
 const (
-	metricMetaCacheStoreStateDuration = "metacache_store_state_duration"
+	metricMetaCacheStoreStateDuration       = "metacache_store_state_duration"
+	qrmMemoryStateCheckpointHealthCheckName = "qrm_memory_state_checkpoint"
 )
+
+var doOnce sync.Once
 
 var _ State = &stateCheckpoint{}
 
@@ -57,12 +63,14 @@ type stateCheckpoint struct {
 	emitter             metrics.MetricEmitter
 }
 
-func NewCheckpointState(stateDirectoryConfig *statedirectory.StateDirectoryConfiguration, checkpointName, policyName string,
+func NewCheckpointState(
+	stateDirectoryConfig *statedirectory.StateDirectoryConfiguration, checkpointName, policyName string,
 	topology *machine.CPUTopology, machineInfo *info.MachineInfo,
 	reservedMemory map[v1.ResourceName]map[int]uint64, skipStateCorruption bool,
 	emitter metrics.MetricEmitter,
 ) (State, error) {
 	currentStateDir, otherStateDir := stateDirectoryConfig.GetCurrentAndOtherStateFileDirectory()
+	hasPreStop := stateDirectoryConfig.HasPreStop
 	checkpointManager, err := checkpointmanager.NewCheckpointManager(currentStateDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize checkpoint manager: %v", err)
@@ -82,17 +90,26 @@ func NewCheckpointState(stateDirectoryConfig *statedirectory.StateDirectoryConfi
 		emitter:             emitter,
 	}
 
-	if err := stateCheckpoint.restoreState(otherStateDir, machineInfo, reservedMemory); err != nil {
+	doOnce.Do(func() {
+		general.RegisterHeartbeatCheck(qrmMemoryStateCheckpointHealthCheckName, 90*time.Second, general.HealthzCheckStateNotReady,
+			90*time.Second)
+	})
+
+	if err := stateCheckpoint.restoreState(currentStateDir, otherStateDir, hasPreStop, machineInfo, reservedMemory); err != nil {
 		return nil, fmt.Errorf("could not restore state from checkpoint: %v, please drain this node and delete the memory plugin checkpoint file %q before restarting Kubelet",
 			err, path.Join(currentStateDir, checkpointName))
 	}
 
+	_ = general.UpdateHealthzStateByError(qrmMemoryStateCheckpointHealthCheckName, err)
 	return stateCheckpoint, nil
 }
 
 // restoreState is first done by searching the current directory for the state file.
 // If it does not exist, we search the other directory for the state file and try to migrate the state file over to the current directory.
-func (sc *stateCheckpoint) restoreState(otherStateDir string, machineInfo *info.MachineInfo, reservedMemory map[v1.ResourceName]map[int]uint64) error {
+func (sc *stateCheckpoint) restoreState(
+	currentStateDir, otherStateDir string, hasPreStop bool, machineInfo *info.MachineInfo,
+	reservedMemory map[v1.ResourceName]map[int]uint64,
+) error {
 	sc.Lock()
 	defer sc.Unlock()
 	var err error
@@ -102,7 +119,7 @@ func (sc *stateCheckpoint) restoreState(otherStateDir string, machineInfo *info.
 	if err = sc.checkpointManager.GetCheckpoint(sc.checkpointName, checkpoint); err != nil {
 		if err == errors.ErrCheckpointNotFound {
 			// We cannot find checkpoint, so it is possible that previous checkpoint was stored in either disk or memory
-			return sc.tryMigrateState(machineInfo, reservedMemory, otherStateDir, checkpoint)
+			return sc.tryMigrateState(machineInfo, reservedMemory, currentStateDir, otherStateDir, hasPreStop, checkpoint)
 		} else if err == errors.ErrCorruptCheckpoint {
 			if !sc.skipStateCorruption {
 				return err
@@ -118,7 +135,10 @@ func (sc *stateCheckpoint) restoreState(otherStateDir string, machineInfo *info.
 	return sc.populateCacheAndState(machineInfo, reservedMemory, checkpoint, foundAndSkippedStateCorruption)
 }
 
-func (sc *stateCheckpoint) populateCacheAndState(machineInfo *info.MachineInfo, reservedMemory map[v1.ResourceName]map[int]uint64, checkpoint *MemoryPluginCheckpoint, foundAndSkippedStateCorruption bool) error {
+func (sc *stateCheckpoint) populateCacheAndState(
+	machineInfo *info.MachineInfo, reservedMemory map[v1.ResourceName]map[int]uint64,
+	checkpoint *MemoryPluginCheckpoint, foundAndSkippedStateCorruption bool,
+) error {
 	if sc.policyName != checkpoint.PolicyName && !sc.skipStateCorruption {
 		return fmt.Errorf("[memory_plugin] configured policy %q differs from state checkpoint policy %q", sc.policyName, checkpoint.PolicyName)
 	}
@@ -157,12 +177,16 @@ func (sc *stateCheckpoint) populateCacheAndState(machineInfo *info.MachineInfo, 
 
 // tryMigrateState tries to migrate the state file from the other directory to current directory.
 // If the other directory does not have a state file, then we build a new checkpoint.
-func (sc *stateCheckpoint) tryMigrateState(machineInfo *info.MachineInfo, reservedMemory map[v1.ResourceName]map[int]uint64, otherStateDir string, checkpoint *MemoryPluginCheckpoint) error {
+func (sc *stateCheckpoint) tryMigrateState(
+	machineInfo *info.MachineInfo, reservedMemory map[v1.ResourceName]map[int]uint64,
+	currentStateDir, otherStateDir string,
+	hasPreStop bool, checkpoint *MemoryPluginCheckpoint,
+) error {
 	var foundAndSkippedStateCorruption bool
 	klog.Infof("[memory_plugin] trying to migrate state from disk to memory")
 
 	// Build new checkpoint if the state directory that we want to migrate from is empty
-	if otherStateDir == "" {
+	if !hasPreStop {
 		return sc.storeState()
 	}
 
@@ -197,12 +221,34 @@ func (sc *stateCheckpoint) tryMigrateState(machineInfo *info.MachineInfo, reserv
 		return fmt.Errorf("[memory_plugin] failed to store state during end of migration: %v", err)
 	}
 
+	// validate that the two files are equal
+	equal, err := sc.checkpointFilesEqual(currentStateDir, otherStateDir)
+	if err != nil {
+		return fmt.Errorf("[memory_plugin] failed to compare checkpoint files: %v", err)
+	}
+	if !equal {
+		klog.Infof("[memory_plugin] checkpoint files are not equal, migration failed, fall back to old checkpoint")
+		return sc.fallbackToOldCheckpoint(oldCheckpointManager)
+	}
+
 	// remove old checkpoint file
 	if err = oldCheckpointManager.RemoveCheckpoint(sc.checkpointName); err != nil {
 		return fmt.Errorf("[memory_plugin] failed to remove old checkpoint: %v", err)
 	}
 
 	klog.Infof("[memory_plugin] migrate checkpoint succeeded")
+	return nil
+}
+
+func (sc *stateCheckpoint) checkpointFilesEqual(currentStateDir, otherStateDir string) (bool, error) {
+	currentFilePath := filepath.Join(currentStateDir, sc.checkpointName)
+	otherFilePath := filepath.Join(otherStateDir, sc.checkpointName)
+	return file.FilesEqual(currentFilePath, otherFilePath)
+}
+
+func (sc *stateCheckpoint) fallbackToOldCheckpoint(oldCheckpointManager checkpointmanager.CheckpointManager) error {
+	sc.checkpointManager = oldCheckpointManager
+	_ = general.UpdateHealthzState(qrmMemoryStateCheckpointHealthCheckName, general.HealthzCheckStateReady, "Migration from old checkpoint to new checkpoint failed")
 	return nil
 }
 
@@ -263,7 +309,9 @@ func (sc *stateCheckpoint) GetNUMAHeadroom() map[int]int64 {
 	return sc.cache.GetNUMAHeadroom()
 }
 
-func (sc *stateCheckpoint) GetAllocationInfo(resourceName v1.ResourceName, podUID, containerName string) *AllocationInfo {
+func (sc *stateCheckpoint) GetAllocationInfo(
+	resourceName v1.ResourceName, podUID, containerName string,
+) *AllocationInfo {
 	sc.RLock()
 	defer sc.RUnlock()
 
@@ -303,7 +351,9 @@ func (sc *stateCheckpoint) SetNUMAHeadroom(numaHeadroom map[int]int64, persist b
 	}
 }
 
-func (sc *stateCheckpoint) SetAllocationInfo(resourceName v1.ResourceName, podUID, containerName string, allocationInfo *AllocationInfo, persist bool) {
+func (sc *stateCheckpoint) SetAllocationInfo(
+	resourceName v1.ResourceName, podUID, containerName string, allocationInfo *AllocationInfo, persist bool,
+) {
 	sc.Lock()
 	defer sc.Unlock()
 
