@@ -23,7 +23,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
-	"github.com/kubewharf/katalyst-core/pkg/util/procfs/manager"
 )
 
 type IRQTunerStub struct {
@@ -49,12 +48,6 @@ func (t *IRQTunerStub) run() {
 	err := t.SetExclusiveIRQCPUSet(machine.NewCPUSet(cpuSet...))
 	if err != nil {
 		general.Errorf("set exclusive IRQ CPUSet failed with error: %v", err)
-	}
-
-	// apply irq exclusive cpu set
-	err = manager.ApplyProcInterrupts(38, machine.NewCPUSet(cpuSet...).String())
-	if err != nil {
-		general.Errorf("ApplyProcInterrupts failed with error: %v", err)
 	}
 
 	go t.getDynamicConf()

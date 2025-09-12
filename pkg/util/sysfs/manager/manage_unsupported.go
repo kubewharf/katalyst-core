@@ -1,5 +1,5 @@
-//go:build !linux
-// +build !linux
+//go:build !linux && !windows
+// +build !linux,!windows
 
 /*
 Copyright 2022 The Katalyst Authors.
@@ -19,10 +19,12 @@ limitations under the License.
 
 package manager
 
-func IsCgroupPath(_ string) bool {
-	return false
+type SysFSManager interface {
+	GetNicRxQueueRPS(sysPath, nic string, queue int) (string, error)
+
+	SetNicRxQueueRPS(sysPath, nic string, queue int, rpsConf string) error
 }
 
-func GetCgroupPids(cgroupPath string) ([]int, error) {
-	return []int{}, nil
+func GetSysFsManager() SysFSManager {
+	return nil
 }
