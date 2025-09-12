@@ -37,6 +37,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
@@ -52,7 +53,10 @@ func TestNewMemoryBandwidthHintOptimizer(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	stateImpl, err := state.NewCheckpointState(tmpDir, "test", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
+	stateDirectoryConfig := &statedirectory.StateDirectoryConfiguration{
+		StateFileDirectory: tmpDir,
+	}
+	stateImpl, err := state.NewCheckpointState(stateDirectoryConfig, "test", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
 	require.NoError(t, err)
 
 	type args struct {
@@ -554,7 +558,10 @@ func TestMemoryBandwidthOptimizer_OptimizeHints(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	stateImpl, err := state.NewCheckpointState(tmpDir, "test", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, dummyEmitter)
+	stateDirectoryConfig := &statedirectory.StateDirectoryConfiguration{
+		StateFileDirectory: tmpDir,
+	}
+	stateImpl, err := state.NewCheckpointState(stateDirectoryConfig, "test", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, dummyEmitter)
 	require.NoError(t, err)
 
 	type fields struct {
@@ -643,7 +650,7 @@ func TestMemoryBandwidthOptimizer_OptimizeHints(t *testing.T) {
 							},
 						},
 					}
-					st, _ := state.NewCheckpointState(tmpDir, "test-state-err", "test", cpuTopology, false, func(_ *machine.CPUTopology, _ state.PodEntries) (state.NUMANodeMap, error) {
+					st, _ := state.NewCheckpointState(stateDirectoryConfig, "test-state-err", "test", cpuTopology, false, func(_ *machine.CPUTopology, _ state.PodEntries) (state.NUMANodeMap, error) {
 						return ms, nil
 					}, dummyEmitter)
 					return st
@@ -871,7 +878,7 @@ func TestMemoryBandwidthOptimizer_OptimizeHints(t *testing.T) {
 							},
 						}},
 					}
-					st, _ := state.NewCheckpointState(tmpDir, "test-state-success", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, dummyEmitter)
+					st, _ := state.NewCheckpointState(stateDirectoryConfig, "test-state-success", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, dummyEmitter)
 					st.SetMachineState(ms, false)
 					return st
 				}()
@@ -958,7 +965,7 @@ func TestMemoryBandwidthOptimizer_OptimizeHints(t *testing.T) {
 							},
 						}},
 					}
-					st, _ := state.NewCheckpointState(tmpDir, "test-state-spread", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, dummyEmitter)
+					st, _ := state.NewCheckpointState(stateDirectoryConfig, "test-state-spread", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, dummyEmitter)
 					st.SetMachineState(ms, false)
 					return st
 				}()
@@ -1039,7 +1046,7 @@ func TestMemoryBandwidthOptimizer_OptimizeHints(t *testing.T) {
 						0: &state.NUMANodeState{PodEntries: state.PodEntries{"p0": state.ContainerEntries{"c0": &state.AllocationInfo{AllocationMeta: commonstate.AllocationMeta{PodUid: "p0", ContainerType: pluginapi.ContainerType_MAIN.String(), Labels: map[string]string{apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable}, Annotations: map[string]string{apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable}}, RequestQuantity: 1}}}},
 						1: &state.NUMANodeState{PodEntries: state.PodEntries{"p1": state.ContainerEntries{"c1": &state.AllocationInfo{AllocationMeta: commonstate.AllocationMeta{PodUid: "p1", ContainerType: pluginapi.ContainerType_MAIN.String(), Labels: map[string]string{apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable}, Annotations: map[string]string{apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable}}, RequestQuantity: 1}}}},
 					}
-					st, _ := state.NewCheckpointState(tmpDir, "test-state-ign-neg", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, dummyEmitter)
+					st, _ := state.NewCheckpointState(stateDirectoryConfig, "test-state-ign-neg", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, dummyEmitter)
 					st.SetMachineState(ms, false)
 					return st
 				}()
