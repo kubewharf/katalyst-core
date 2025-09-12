@@ -19,11 +19,12 @@ package rootfs
 import (
 	"context"
 	"fmt"
-	"github.com/prometheus/procfs"
 	"syscall"
 	"testing"
 	"time"
 	"unsafe"
+
+	"github.com/prometheus/procfs"
 
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
@@ -1078,7 +1079,6 @@ func TestPodRootfsPressureEvictionPlugin_GetTotalUsedBytesOfPVProjects(t *testin
 	total, err = GetTotalUsedBytesOfPVProjects("/dev/fakedev")
 	assert.NoError(t, err)
 	assert.Equal(t, int64(0), total)
-
 }
 
 func TestPodRootfsPressureEvictionPlugin_TestGetDeviceForPath(t *testing.T) {

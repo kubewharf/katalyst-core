@@ -2,13 +2,15 @@ package rootfs
 
 import (
 	"fmt"
+	"strings"
+	"syscall"
+	"unsafe"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/procfs/manager"
 	"github.com/pkg/errors"
 	"github.com/prometheus/procfs"
 	"golang.org/x/sys/unix"
-	"strings"
-	"syscall"
-	"unsafe"
 )
 
 // Define constants related to Linux kernel for ext4
@@ -21,7 +23,7 @@ const (
 	SUBCMDSHIFT = 8
 	SUBCMDMASK  = 0x00ff
 
-	SystemDirsProjectID = 0
+	SystemDirectorsProjectID = 0
 )
 
 // nextdqblk structure for getting next quota entry
@@ -55,7 +57,7 @@ func GetTotalUsedBytesOfPVProjects(devicePath string) (int64, error) {
 
 	// Q_GETNEXTQUOTA makes quotactl return the quota info and the project ID ≥ the given number .
 	var totalUsedBytes int64
-	var projectID uint32 = SystemDirsProjectID + 1 // Start iterating from ID 1, which excludes the root project of system directories
+	var projectID uint32 = SystemDirectorsProjectID + 1 // Start iterating from ID 1, which excludes the root project of system directories
 	for {
 		var dq nextdqblk
 		_, _, errno := syscallImpl(
