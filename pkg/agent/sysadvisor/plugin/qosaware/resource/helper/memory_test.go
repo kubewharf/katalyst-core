@@ -150,14 +150,18 @@ func TestGetAvailableNUMAsAndReclaimedCores(t *testing.T) {
 			consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 			cpuconsts.CPUStateAnnotationKeyNUMAHint:          "0",
 		},
-		nil, 20<<30)
+		map[int]machine.CPUSet{
+			0: machine.NewCPUSet(0),
+		}, 20<<30)
 	containerInfoSharedCores2 := makeContainerInfo("pod5", "default",
 		"pod5", "container5",
 		consts.PodAnnotationQoSLevelSharedCores, map[string]string{
 			consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 			cpuconsts.CPUStateAnnotationKeyNUMAHint:          "0",
 		},
-		nil, 20<<30)
+		map[int]machine.CPUSet{
+			0: machine.NewCPUSet(0),
+		}, 20<<30)
 
 	tests := []struct {
 		name           string
