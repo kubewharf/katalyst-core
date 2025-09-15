@@ -58,18 +58,24 @@ const (
 	MetricMemActiveFileSystem   = "mem.active.file.system"
 	MetricMemInactiveFileSystem = "mem.inactive.file.system"
 
-	MetricMemDirtySystem            = "mem.dirty.system"
-	MetricMemWritebackSystem        = "mem.writeback.system"
-	MetricMemKswapdstealSystem      = "mem.kswapdsteal.system"
-	MetricMemKswapdstealDeltaSystem = "mem.kswapdsteal.delta.system"
+	MetricMemDirtySystem     = "mem.dirty.system"
+	MetricMemWritebackSystem = "mem.writeback.system"
+
+	MetricMemKswapdstealSystem              = "mem.kswapdsteal.system"
+	MetricMemKswapdstealDeltaSystem         = "mem.kswapdsteal.delta.system"
+	MetricMemVmStatPgStealDirectSystem      = "mem.direct.pgsteal.system"
+	MetricMemVmStatPgStealDirectDeltaSystem = "mem.direct.pgsteal.delta.system"
+	MetricMemVmStatPgScanKswapdSystem       = "mem.kswapd.pgscan.system"
+	MetricMemVmStatPgScanKswapdDeltaSystem  = "mem.kswapd.pgscan.delta.system"
+	MetricMemVmStatPgScanDirectSystem       = "mem.direct.pgscan.system"
+	MetricMemVmStatPgScanDirectDeltaSystem  = "mem.direct.pgscan.delta.system"
+	MetricMemVmStatCompactStallSystem       = "mem.compact.stall.system"
 
 	MetricMemSwapTotalSystem       = "mem.swap.total.system"
 	MetricMemSwapFreeSystem        = "mem.swap.free.system"
 	MetricMemSlabReclaimableSystem = "mem.slab.reclaimable.system"
 
 	MetricMemScaleFactorSystem = "mem.scale.factor.system"
-
-	MetricMemUpdateTimeSystem = "mem.updatetime.system"
 
 	MetricMemSockTCPSystem      = "mem.sock.tcp.system"
 	MetricMemSockTCPLimitSystem = "mem.sock.tcp_limit.system"
@@ -141,6 +147,10 @@ const (
 // System Power and CPUFreq metrics
 const (
 	MetricTotalPowerUsedWatts = "total.power.used.watts"
+	MetricCPUPowerUsedWatts   = "cpu.power.used.watts"
+	MetricMemPowerUsedWatts   = "mem.power.used.watts"
+	MetricFanPowerUsedWatts   = "fan.power.used.watts"
+	MetricHDDPowerUsedWatts   = "hdd.power.used.watts"
 	MetricScalingCPUFreqKHZ   = "scaling.cur.freq.khz"
 )
 
@@ -175,7 +185,10 @@ const (
 	MetricMemAMDL3MissLatencyNuma = "mem.latency.amd.l3.miss"
 	MetricMemFragScoreNuma        = "mem.frag.score.numa"
 
-	MetricCPUUsageNuma = "cpu.usage.numa"
+	MetricCPUUsageNuma          = "cpu.usage.numa"
+	MetricCPUUsageNumaAvg       = "cpu.usage.numa.avg"
+	MetricCPUSchedwaitNumaAvg   = "cpu.schedwait.numa.avg"
+	MetricCPUIOWaitRatioNumaAvg = "cpu.iowait.ratio.numa.avg"
 
 	MetricL3MonNuma = "resctrl.l3mon.numa"
 
@@ -188,6 +201,7 @@ const (
 	MetricTotalPsMemBandwidthNuma  = "mbm.total.ps.numa"
 	MetricLocalPsMemBandwidthNuma  = "mbm.local.ps.numa"
 	MetricVictimPsMemBandwidthNuma = "mbm.victim.ps.numa"
+	MetricMBMMaxBytesPSNuma        = "mbm.max.ps.numa"
 )
 
 // System info metrics
@@ -245,6 +259,8 @@ const (
 const (
 	MetricMemLimitContainer     = "mem.limit.container"
 	MetricMemTCPLimitContainer  = "mem.tcp.limit.container"
+	MetricMemSwapLimitContainer = "mem.swap.limit.container"
+	MetricMemSwapContainer      = "mem.swap.container"
 	MetricMemUsageContainer     = "mem.usage.container"
 	MetricMemUsageUserContainer = "mem.usage.user.container"
 	MetricMemUsageKernContainer = "mem.usage.kern.container"
@@ -252,12 +268,13 @@ const (
 	MetricMemCacheContainer     = "mem.cache.container"
 	MetricMemShmemContainer     = "mem.shmem.container"
 
-	MetricMemDirtyContainer       = "mem.dirty.container"
-	MetricMemWritebackContainer   = "mem.writeback.container"
-	MetricMemPgfaultContainer     = "mem.pgfault.container"
-	MetricMemPgmajfaultContainer  = "mem.pgmajfault.container"
-	MetricMemAllocstallContainer  = "mem.allocstall.container"
-	MetricMemKswapdstealContainer = "mem.kswapdstall.container"
+	MetricMemDirtyContainer            = "mem.dirty.container"
+	MetricMemWritebackContainer        = "mem.writeback.container"
+	MetricMemProactiveReclaimContainer = "mem.proactive.reclaim.container"
+	MetricMemPgfaultContainer          = "mem.pgfault.container"
+	MetricMemPgmajfaultContainer       = "mem.pgmajfault.container"
+	MetricMemAllocstallContainer       = "mem.allocstall.container"
+	MetricMemKswapdstealContainer      = "mem.kswapdstall.container"
 
 	MetricMemOomContainer         = "mem.oom.container"
 	MetricMemScaleFactorContainer = "mem.scalefactor.container"
@@ -265,19 +282,38 @@ const (
 	MetricMemBandwidthReadContainer  = "mem.bandwidth.read.container"
 	MetricMemBandwidthWriteContainer = "mem.bandwidth.write.container"
 
-	MetricMemPgfaultRateContainer    = MetricMemPgfaultContainer + Rate
-	MetricMemPgmajfaultRateContainer = MetricMemPgmajfaultContainer + Rate
-	MetricMemOomRateContainer        = MetricMemOomContainer + Rate
+	MetricMemPgfaultRateContainer               = MetricMemPgfaultContainer + Rate
+	MetricMemPgmajfaultRateContainer            = MetricMemPgmajfaultContainer + Rate
+	MetricMemOomRateContainer                   = MetricMemOomContainer + Rate
+	MetricMemKswapdstealRateContainer           = MetricMemKswapdstealContainer + Rate
+	MetricMemKswapdScanRateContainer            = MetricMemKswapdScanContainer + Rate
+	MetricMemDirectStealRateContainer           = MetricMemDirectStealContainer + Rate
+	MetricMemDirectScanRateContainer            = MetricMemDirectScanContainer + Rate
+	MetricMemPgstealRateContainer               = MetricMemPgstealContainer + Rate
+	MetricMemPgscanRateContainer                = MetricMemPgscanContainer + Rate
+	MetricMemWorkingsetRefaultRateContainer     = MetricMemWorkingsetRefaultContainer + Rate
+	MetricMemWorkingsetRefaultAnonRateContainer = MetricMemWorkingsetRefaultAnonContainer + Rate
+	MetricMemWorkingsetRefaultFileRateContainer = MetricMemWorkingsetRefaultFileContainer + Rate
+	MetricMemProactiveReclaimRateContainer      = MetricMemProactiveReclaimContainer + Rate
 
-	MetricMemUpdateTimeContainer         = "mem.updatetime.container"
-	MetricMemPgstealContainer            = "mem.pgsteal.container"
-	MetricMemPgscanContainer             = "mem.pgscan.container"
-	MetricMemWorkingsetRefaultContainer  = "mem.workingsetrefault.container"
-	MetricMemWorkingsetActivateContainer = "mem.workingsetactivate.container"
-	MetricMemPsiAvg60Container           = "mem.psiavg60.container"
-	MetricMemInactiveAnonContainer       = "mem.inactiveanon.container"
-	MetricMemInactiveFileContainer       = "mem.inactivefile.container"
-	MetricMemMappedContainer             = "mem.mapped.container"
+	MetricMemUpdateTimeContainer            = "mem.updatetime.container"
+	MetricMemPgstealContainer               = "mem.pgsteal.container"
+	MetricMemPgscanContainer                = "mem.pgscan.container"
+	MetricMemWorkingsetRefaultContainer     = "mem.workingsetrefault.container"
+	MetricMemWorkingsetActivateContainer    = "mem.workingsetactivate.container"
+	MetricMemWorkingsetRefaultAnonContainer = "mem.workingsetrefault.anon.container"
+	MetricMemWorkingsetRefaultFileContainer = "mem.workingsetrefault.file.container"
+	MetricMemPsiAvg60Container              = "mem.psiavg60.container"
+	MetricMemInactiveAnonContainer          = "mem.inactiveanon.container"
+	MetricMemInactiveFileContainer          = "mem.inactivefile.container"
+
+	MetricMemActiveAnonContainer  = "mem.activeanon.container"
+	MetricMemActiveFileContainer  = "mem.activefile.container"
+	MetricMemKswapdScanContainer  = "mem.kswapdscan.container"
+	MetricMemDirectStealContainer = "mem.directsteal.container"
+	MetricMemDirectScanContainer  = "mem.directscan.container"
+
+	MetricMemMappedContainer = "mem.mapped.container"
 
 	MetricMbmTotalContainer  = "mbm.total.container"
 	MetricMbmlocalContainer  = "mbm.local.container"
@@ -322,6 +358,7 @@ const (
 	MetricCPUICacheMissContainer   = "cpu.icachemiss.container"
 	MetricCPUL2CacheMissContainer  = "cpu.l2cachemiss.container"
 	MetricCPUL3CacheMissContainer  = "cpu.l3cachemiss.container"
+	MetricCPULoadRunnableContainer = "cpu.load.runnable.container"
 
 	MetricCPUCyclesRateContainer       = MetricCPUCyclesContainer + Rate
 	MetricCPUInstructionsRateContainer = MetricCPUInstructionsContainer + Rate
@@ -385,6 +422,7 @@ const (
 
 // Cgroup memory metrics
 const (
+	MetricMemSwapCgroup      = "mem.swap.cgroup"
 	MetricMemLimitCgroup     = "mem.limit.cgroup"
 	MetricMemUsageCgroup     = "mem.usage.cgroup"
 	MetricMemUsageUserCgroup = "mem.usage.user.cgroup"
@@ -407,7 +445,9 @@ const (
 	MetricMemWorkingsetRefaultCgroup  = "mem.workingsetrefault.cgroup"
 	MetricMemWorkingsetActivateCgroup = "mem.workingsetactivate.cgroup"
 	MetricMemPsiAvg60Cgroup           = "mem.psiavg60.cgroup"
+	MetricMemActiveAnonCgroup         = "mem.activeanon.cgroup"
 	MetricMemInactiveAnonCgroup       = "mem.inactiveanon.cgroup"
+	MetricMemActiveFileCgroup         = "mem.activefile.cgroup"
 	MetricMemInactiveFileCgroup       = "mem.inactivefile.cgroup"
 	MetricMemMappedCgroup             = "mem.mapped.cgroup"
 )

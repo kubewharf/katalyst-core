@@ -40,6 +40,7 @@ import (
 	internalfake "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/fake"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	inferenceConsts "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/modelresultfetcher"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/inferencesvc"
 	borweininfsvc "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/inferencesvc"
@@ -62,6 +63,8 @@ import (
 	metricutil "github.com/kubewharf/katalyst-core/pkg/util/metric"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
 )
+
+const NodeFeatureNodeName = "node_feature_name"
 
 func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string) *config.Configuration {
 	testConfiguration, err := options.NewOptions().Config()
@@ -88,128 +91,6 @@ func generateTestGenericClientSet(kubeObjects, internalObjects []runtime.Object)
 		KubeClient:     fake.NewSimpleClientset(kubeObjects...),
 		InternalClient: internalfake.NewSimpleClientset(internalObjects...),
 		DynamicClient:  dynamicfake.NewSimpleDynamicClient(runtime.NewScheme(), internalObjects...),
-	}
-}
-
-func TestNativeGetNodeFeatureValue(t *testing.T) {
-	t.Parallel()
-	nodeName := "node1"
-	type args struct {
-		featureName string
-		conf        *config.Configuration
-	}
-	tests := []struct {
-		name    string
-		args    args
-		want    string
-		wantErr bool
-	}{
-		{
-			name: "test with fake node",
-			args: args{
-				featureName: NodeFeatureNodeName,
-				conf:        config.NewConfiguration(),
-			},
-			want:    "node1",
-			wantErr: false,
-		},
-		{
-			name: "test with invalid feature name",
-			args: args{
-				conf: config.NewConfiguration(),
-			},
-			want:    "",
-			wantErr: true,
-		},
-	}
-	nowTimestamp := time.Now().Unix()
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			clientSet := generateTestGenericClientSet([]runtime.Object{&v1.Node{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: nodeName,
-				},
-			}}, nil)
-			metaServer := generateTestMetaServer(clientSet)
-			metaServer.NodeFetcher = node.NewRemoteNodeFetcher(&global.BaseConfiguration{NodeName: nodeName}, &metaconfig.NodeConfiguration{}, clientSet.KubeClient.CoreV1().Nodes())
-			got, err := nativeGetNodeFeatureValue(nowTimestamp, tt.args.featureName, metaServer, nil)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("NativeGetNodeFeatureValue() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if got != tt.want {
-				t.Errorf("NativeGetNodeFeatureValue() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestNativeGetContainerFeatureValue(t *testing.T) {
-	t.Parallel()
-	podUID := "test-pod-uid"
-	containerName := "test-container"
-	fakeCPUUsage := 20.0
-
-	clientSet := generateTestGenericClientSet(nil, nil)
-	metaServer := generateTestMetaServer(clientSet)
-	metaServer.MetricsFetcher.RegisterExternalMetric(func(store *metricutil.MetricStore) {
-		store.SetContainerMetric(podUID, containerName, consts.MetricCPUUsageContainer, metricutil.MetricData{
-			Value: fakeCPUUsage,
-		})
-	})
-	metaServer.MetricsFetcher.Run(context.Background())
-
-	type args struct {
-		podUID        string
-		containerName string
-		featureName   string
-	}
-	tests := []struct {
-		name    string
-		args    args
-		want    string
-		wantErr bool
-	}{
-		{
-			name: "test with fake container",
-			args: args{
-				podUID:        podUID,
-				containerName: containerName,
-				featureName:   consts.MetricCPUUsageContainer,
-			},
-			want:    fmt.Sprintf("%f", fakeCPUUsage),
-			wantErr: false,
-		},
-		{
-			name: "test with invalid feature name",
-			args: args{
-				podUID:        podUID,
-				containerName: containerName,
-			},
-			want:    "",
-			wantErr: true,
-		},
-	}
-	nowTimestamp := time.Now().Unix()
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			got, err := nativeGetContainerFeatureValue(nowTimestamp, tt.args.podUID, tt.args.containerName,
-				tt.args.featureName, metaServer,
-				&metacache.MetaCacheImp{MetricsReader: metaServer.MetricsFetcher})
-			if (err != nil) != tt.wantErr {
-				t.Errorf("NativeGetContainerFeatureValue() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if got != tt.want {
-				t.Errorf("NativeGetContainerFeatureValue() = %v, want %v", got, tt.want)
-			}
-		})
 	}
 }
 
@@ -268,6 +149,23 @@ func TestBorweinModelResultFetcher_FetchModelResult(t *testing.T) {
 		ContainerName: containerName,
 		ContainerType: v1alpha1.ContainerType_MAIN,
 	})
+
+	nodeInput := map[string]interface{}{
+		NodeFeatureNodeName: nodeName,
+	}
+	err = mc.SetModelInput(inferenceConsts.MetricDimensionNode, nodeInput)
+	require.NoError(t, err)
+
+	// Set model input for pod dimension, simulating the result of modelinputfetcher.
+	podInput := map[string]interface{}{
+		podUID: map[string]map[string]interface{}{
+			containerName: {
+				consts.MetricCPUUsageContainer: fakeCPUUsage,
+			},
+		},
+	}
+	err = mc.SetModelInput(inferenceConsts.MetricDimensionContainer, podInput)
+	require.NoError(t, err)
 
 	infSvcClient := borweininfsvc.NewInferenceServiceStubClient()
 	infSvcClient.SetFakeResp(&borweininfsvc.InferenceResponse{
@@ -574,6 +472,23 @@ func TestBorweinModelResultFetcher_getInferenceRequestForPods(t *testing.T) {
 		ContainerType: v1alpha1.ContainerType_MAIN,
 	})
 
+	nodeInput := map[string]interface{}{
+		NodeFeatureNodeName: nodeName,
+	}
+	err = mc.SetModelInput(inferenceConsts.MetricDimensionNode, nodeInput)
+	require.NoError(t, err)
+
+	// Set model input for pod dimension, simulating the result of modelinputfetcher.
+	podInput := map[string]interface{}{
+		podUID: map[string]map[string]interface{}{
+			containerName: {
+				consts.MetricCPUUsageContainer: fakeCPUUsage,
+			},
+		},
+	}
+	err = mc.SetModelInput(inferenceConsts.MetricDimensionContainer, podInput)
+	require.NoError(t, err)
+
 	infSvcClient := borweininfsvc.NewInferenceServiceStubClient()
 	infSvcClient.SetFakeResp(&borweininfsvc.InferenceResponse{
 		PodResponseEntries: map[string]*borweininfsvc.ContainerResponseEntries{
@@ -632,7 +547,7 @@ func TestBorweinModelResultFetcher_getInferenceRequestForPods(t *testing.T) {
 					podUID: {
 						ContainerFeatureValues: map[string]*borweininfsvc.FeatureValues{
 							containerName: {
-								Values: []string{nodeName, fmt.Sprintf("%f", fakeCPUUsage)},
+								Values: []string{nodeName, fmt.Sprintf("%g", fakeCPUUsage)},
 							},
 						},
 					},
