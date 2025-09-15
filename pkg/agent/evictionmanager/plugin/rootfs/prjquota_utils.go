@@ -22,10 +22,11 @@ import (
 	"syscall"
 	"unsafe"
 
-	"github.com/kubewharf/katalyst-core/pkg/util/procfs/manager"
 	"github.com/pkg/errors"
 	"github.com/prometheus/procfs"
 	"golang.org/x/sys/unix"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/procfs/manager"
 )
 
 // Define constants related to Linux kernel for ext4

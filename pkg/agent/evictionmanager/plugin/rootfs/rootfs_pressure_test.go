@@ -1040,20 +1040,18 @@ func TestPodRootfsPressureEvictionPlugin_GetTotalUsedBytesOfPVProjects(t *testin
 	var callCount int
 	syscallImpl = func(trap, a1, a2, a3, a4, a5, a6 uintptr) (uintptr, uintptr, syscall.Errno) {
 		callCount++
+		//nolint:govet // we are intentionally mocking syscall output
 		dq := (*nextdqblk)(unsafe.Pointer(a4))
 
 		switch callCount {
 		case 1:
-			dq.dqbCurSpace = 100
-			dq.dqdID = 1
+			*dq = nextdqblk{dqbCurSpace: 100, dqdID: 1}
 			return 0, 0, 0
 		case 2:
-			dq.dqbCurSpace = 50
-			dq.dqdID = 2
+			*dq = nextdqblk{dqbCurSpace: 50, dqdID: 2}
 			return 0, 0, 0
 		case 3:
-			dq.dqbCurSpace = 200
-			dq.dqdID = 3
+			*dq = nextdqblk{dqbCurSpace: 200, dqdID: 5}
 			return 0, 0, 0
 		default:
 			return 0, 0, syscall.ESRCH
