@@ -773,3 +773,170 @@ func Test_aggregateNUMABytesPS(t *testing.T) {
 		})
 	}
 }
+
+func TestMalachiteMetricsProvisioner_processContainerMemRelevantRate(t *testing.T) {
+	t.Parallel()
+
+	podUID := "pod1"
+	containerName := "container1"
+	now := time.Now()
+	lastUpdateTime := now.Add(-10 * time.Second)
+
+	// Common initial metrics
+	initialMetrics := map[string]float64{
+		consts.MetricMemPgfaultContainer:               1000,
+		consts.MetricMemPgmajfaultContainer:            100,
+		consts.MetricMemOomContainer:                   1,
+		consts.MetricMemKswapdstealContainer:           200,
+		consts.MetricMemKswapdScanContainer:            2000,
+		consts.MetricMemDirectStealContainer:           300,
+		consts.MetricMemDirectScanContainer:            3000,
+		consts.MetricMemPgstealContainer:               500,
+		consts.MetricMemPgscanContainer:                5000,
+		consts.MetricMemWorkingsetRefaultAnonContainer: 50,
+		consts.MetricMemWorkingsetRefaultFileContainer: 60,
+		consts.MetricMemWorkingsetRefaultContainer:     110,
+		consts.MetricMemProactiveReclaimContainer:      400,
+	}
+
+	// Test case for Cgroup V1
+	t.Run("cgroup v1", func(t *testing.T) {
+		t.Parallel()
+		store := utilmetric.NewMetricStore()
+		for name, val := range initialMetrics {
+			store.SetContainerMetric(podUID, containerName, name, utilmetric.MetricData{Value: val, Time: &lastUpdateTime})
+		}
+
+		mmp := &MalachiteMetricsProvisioner{
+			metricStore: store,
+		}
+
+		cgStats := &malachitetypes.MalachiteCgroupInfo{
+			CgroupType: "V1",
+			V1: &malachitetypes.MalachiteCgroupV1Info{
+				Memory: &malachitetypes.MemoryCgDataV1{
+					Pgfault:     1500, // delta 500
+					Pgmajfault:  150,  // delta 50
+					KswapdSteal: 300,  // delta 100
+					BpfMemStat: malachitetypes.BpfMemData{
+						OomCnt: 2, // delta 1
+					},
+					UpdateTime: now.Unix(),
+				},
+			},
+		}
+
+		mmp.processContainerMemRelevantRate(podUID, containerName, cgStats, float64(lastUpdateTime.Unix()))
+
+		// Assertions for V1 metrics
+		pgFaultRate, err := store.GetContainerMetric(podUID, containerName, consts.MetricMemPgfaultRateContainer)
+		assert.NoError(t, err)
+		assert.InDelta(t, 50, pgFaultRate.Value, 1e-6) // 500 / 10s
+
+		pgMajFaultRate, err := store.GetContainerMetric(podUID, containerName, consts.MetricMemPgmajfaultRateContainer)
+		assert.NoError(t, err)
+		assert.InDelta(t, 5, pgMajFaultRate.Value, 1e-6) // 50 / 10s
+
+		oomRate, err := store.GetContainerMetric(podUID, containerName, consts.MetricMemOomRateContainer)
+		assert.NoError(t, err)
+		assert.InDelta(t, 0.1, oomRate.Value, 1e-6) // 1 / 10s
+
+		kswapdStealRate, err := store.GetContainerMetric(podUID, containerName, consts.MetricMemKswapdstealRateContainer)
+		assert.NoError(t, err)
+		assert.InDelta(t, 10, kswapdStealRate.Value, 1e-6) // 100 / 10s
+	})
+
+	// Test case for Cgroup V2
+	t.Run("cgroup v2", func(t *testing.T) {
+		t.Parallel()
+		store := utilmetric.NewMetricStore()
+		for name, val := range initialMetrics {
+			store.SetContainerMetric(podUID, containerName, name, utilmetric.MetricData{Value: val, Time: &lastUpdateTime})
+		}
+
+		mmp := &MalachiteMetricsProvisioner{
+			metricStore: store,
+		}
+
+		cgStats := &malachitetypes.MalachiteCgroupInfo{
+			CgroupType: "V2",
+			V2: &malachitetypes.MalachiteCgroupV2Info{
+				Memory: &malachitetypes.MemoryCgDataV2{
+					MemStats: malachitetypes.MemStatsV2{
+						Pgfault:               1500, // delta 500
+						Pgmajfault:            150,  // delta 50
+						PgstealKswapd:         300,  // delta 100
+						PgscanKswapd:          2500, // delta 500
+						PgstealDirect:         400,  // delta 100
+						PgscanDirect:          3500, // delta 500
+						Pgsteal:               600,  // delta 100
+						Pgscan:                5500, // delta 500
+						WorkingsetRefaultAnon: 70,   // delta 20
+						WorkingsetRefaultFile: 80,   // delta 20
+						WorkingsetRefault:     150,  // delta 40
+					},
+					BpfMemStat: malachitetypes.BpfMemData{
+						OomCnt:               2,   // delta 1
+						MemReclaimSettingSum: 500, // delta 100
+					},
+					UpdateTime: now.Unix(),
+				},
+			},
+		}
+
+		mmp.processContainerMemRelevantRate(podUID, containerName, cgStats, float64(lastUpdateTime.Unix()))
+
+		// Assertions for V2 metrics
+		pgFaultRate, err := store.GetContainerMetric(podUID, containerName, consts.MetricMemPgfaultRateContainer)
+		assert.NoError(t, err)
+		assert.InDelta(t, 50, pgFaultRate.Value, 1e-6)
+
+		pgMajFaultRate, err := store.GetContainerMetric(podUID, containerName, consts.MetricMemPgmajfaultRateContainer)
+		assert.NoError(t, err)
+		assert.InDelta(t, 5, pgMajFaultRate.Value, 1e-6)
+
+		oomRate, err := store.GetContainerMetric(podUID, containerName, consts.MetricMemOomRateContainer)
+		assert.NoError(t, err)
+		assert.InDelta(t, 0.1, oomRate.Value, 1e-6)
+
+		kswapdStealRate, err := store.GetContainerMetric(podUID, containerName, consts.MetricMemKswapdstealRateContainer)
+		assert.NoError(t, err)
+		assert.InDelta(t, 10, kswapdStealRate.Value, 1e-6)
+
+		kswapdScanRate, err := store.GetContainerMetric(podUID, containerName, consts.MetricMemKswapdScanRateContainer)
+		assert.NoError(t, err)
+		assert.InDelta(t, 50, kswapdScanRate.Value, 1e-6)
+
+		directStealRate, err := store.GetContainerMetric(podUID, containerName, consts.MetricMemDirectStealRateContainer)
+		assert.NoError(t, err)
+		assert.InDelta(t, 10, directStealRate.Value, 1e-6)
+
+		directScanRate, err := store.GetContainerMetric(podUID, containerName, consts.MetricMemDirectScanRateContainer)
+		assert.NoError(t, err)
+		assert.InDelta(t, 50, directScanRate.Value, 1e-6)
+
+		pgStealRate, err := store.GetContainerMetric(podUID, containerName, consts.MetricMemPgstealRateContainer)
+		assert.NoError(t, err)
+		assert.InDelta(t, 10, pgStealRate.Value, 1e-6)
+
+		pgScanRate, err := store.GetContainerMetric(podUID, containerName, consts.MetricMemPgscanRateContainer)
+		assert.NoError(t, err)
+		assert.InDelta(t, 50, pgScanRate.Value, 1e-6)
+
+		refaultAnonRate, err := store.GetContainerMetric(podUID, containerName, consts.MetricMemWorkingsetRefaultAnonRateContainer)
+		assert.NoError(t, err)
+		assert.InDelta(t, 2, refaultAnonRate.Value, 1e-6)
+
+		refaultFileRate, err := store.GetContainerMetric(podUID, containerName, consts.MetricMemWorkingsetRefaultFileRateContainer)
+		assert.NoError(t, err)
+		assert.InDelta(t, 2, refaultFileRate.Value, 1e-6)
+
+		refaultRate, err := store.GetContainerMetric(podUID, containerName, consts.MetricMemWorkingsetRefaultRateContainer)
+		assert.NoError(t, err)
+		assert.InDelta(t, 4, refaultRate.Value, 1e-6)
+
+		proactiveReclaimRate, err := store.GetContainerMetric(podUID, containerName, consts.MetricMemProactiveReclaimRateContainer)
+		assert.NoError(t, err)
+		assert.InDelta(t, 10, proactiveReclaimRate.Value, 1e-6)
+	})
+}
