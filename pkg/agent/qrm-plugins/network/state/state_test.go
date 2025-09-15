@@ -26,35 +26,14 @@ import (
 	info "github.com/google/cadvisor/info/v1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	v1 "k8s.io/api/core/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/errors"
 )
-
-func TestGetReadonlyState(t *testing.T) {
-	t.Parallel()
-
-	as := require.New(t)
-	state, err := GetReadonlyState()
-	if state == nil {
-		as.NotNil(err)
-	}
-}
-
-func TestGetWriteOnlyState(t *testing.T) {
-	t.Parallel()
-
-	as := require.New(t)
-	state, err := GetReadWriteState()
-	if state == nil {
-		as.NotNil(err)
-	}
-}
 
 func TestTryMigrateState(t *testing.T) {
 	t.Parallel()
@@ -63,8 +42,8 @@ func TestTryMigrateState(t *testing.T) {
 		name            string
 		preStop         bool
 		expectEqual     bool
-		expectOldExists bool
 		corruptFile     bool
+		expectOldExists bool
 	}{
 		{
 			name:            "successful migration with pre-stop",
@@ -97,25 +76,32 @@ func TestTryMigrateState(t *testing.T) {
 			inMemoryTmpDir := t.TempDir()
 
 			stateDir := filepath.Join(tmpDir, "state")
-			err := os.MkdirAll(stateDir, 0o775)
+			err := os.Mkdir(stateDir, 0o775)
 			assert.NoError(t, err)
 
-			cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
-			assert.NoError(t, err)
-
+			qrmConfig := &qrm.QRMPluginsConfiguration{
+				CPUQRMPluginConfig: &qrm.CPUQRMPluginConfig{
+					ReservedCPUCores: 4,
+					CPUDynamicPolicyConfig: qrm.CPUDynamicPolicyConfig{
+						EnableReserveCPUReversely: true,
+					},
+				},
+			}
 			machineInfo := &info.MachineInfo{}
-			reservedMemory := make(map[v1.ResourceName]map[int]uint64)
-			defaultCache, err := NewMemoryPluginState(cpuTopology, machineInfo, reservedMemory)
+			nics := make([]machine.InterfaceInfo, 0)
+			reservedBandwidth := make(map[string]uint32)
+
+			defaultCache, err := NewNetworkPluginState(qrmConfig, machineInfo, nics, reservedBandwidth)
 			assert.NoError(t, err)
 
 			policyName := "test-policy"
 			checkpointName := "test-checkpoint"
 
-			// create old checkpoint manager to save checkpoint
+			// create old checkpoint manager to save the checkpoint
 			oldCheckpointManager, err := checkpointmanager.NewCheckpointManager(stateDir)
 			assert.NoError(t, err)
 
-			oldCheckpoint := NewMemoryPluginCheckpoint()
+			oldCheckpoint := NewNetworkPluginCheckpoint()
 			if tt.corruptFile {
 				// create a corrupted old checkpoint
 				corruptedFile := filepath.Join(stateDir, fmt.Sprintf("%s", checkpointName))
@@ -123,39 +109,33 @@ func TestTryMigrateState(t *testing.T) {
 				assert.NoError(t, err)
 			} else {
 				oldCheckpoint.PolicyName = policyName
-				podResourceEntries := PodResourceEntries{
-					v1.ResourceMemory: PodEntries{
-						"podUID": ContainerEntries{
-							"testName": &AllocationInfo{
-								AllocationMeta: commonstate.AllocationMeta{
-									PodUid:         "podUID",
-									PodNamespace:   "testName",
-									PodName:        "testName",
-									ContainerName:  "testName",
-									ContainerType:  pluginapi.ContainerType_MAIN.String(),
-									ContainerIndex: 0,
-									QoSLevel:       consts.PodAnnotationQoSLevelDedicatedCores,
-									Annotations: map[string]string{
-										consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
-										consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
-									},
-									Labels: map[string]string{
-										consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
-									},
+				podEntries := PodEntries{
+					"podUID": ContainerEntries{
+						"testName": &AllocationInfo{
+							AllocationMeta: commonstate.AllocationMeta{
+								PodUid:         "podUID",
+								PodNamespace:   "testName",
+								PodName:        "testName",
+								ContainerName:  "testName",
+								ContainerType:  pluginapi.ContainerType_MAIN.String(),
+								ContainerIndex: 0,
+								QoSLevel:       consts.PodAnnotationQoSLevelDedicatedCores,
+								Annotations: map[string]string{
+									consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
+									consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 								},
-								AggregatedQuantity:   9663676416,
-								NumaAllocationResult: machine.NewCPUSet(0),
-								TopologyAwareAllocations: map[int]uint64{
-									0: 9663676416,
+								Labels: map[string]string{
+									consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
 								},
 							},
+							NumaNodes: machine.NewCPUSet(0),
 						},
 					},
 				}
-				oldCheckpoint.PodResourceEntries = podResourceEntries
-				machineState, err := GenerateMachineStateFromPodEntries(machineInfo, podResourceEntries, reservedMemory)
+				oldCheckpoint.PodEntries = podEntries
+				generatedNetworkState, err := GenerateMachineStateFromPodEntries(qrmConfig, nics, podEntries, reservedBandwidth)
 				assert.NoError(t, err)
-				oldCheckpoint.MachineState = machineState
+				oldCheckpoint.MachineState = generatedNetworkState
 				err = oldCheckpointManager.CreateCheckpoint(checkpointName, oldCheckpoint)
 				assert.NoError(t, err)
 			}
@@ -173,8 +153,8 @@ func TestTryMigrateState(t *testing.T) {
 			sc.checkpointManager, err = checkpointmanager.NewCheckpointManager(inMemoryTmpDir)
 			assert.NoError(t, err)
 
-			newCheckpoint := NewMemoryPluginCheckpoint()
-			err = sc.tryMigrateState(machineInfo, reservedMemory, inMemoryTmpDir, stateDir, tt.preStop, newCheckpoint)
+			newCheckpoint := NewNetworkPluginCheckpoint()
+			err = sc.tryMigrateState(qrmConfig, nics, reservedBandwidth, inMemoryTmpDir, stateDir, tt.preStop, newCheckpoint)
 
 			if tt.corruptFile {
 				assert.Error(t, err)
@@ -187,7 +167,7 @@ func TestTryMigrateState(t *testing.T) {
 			assert.NoError(t, err)
 
 			// verify old checkpoint file existence
-			checkpoint := NewMemoryPluginCheckpoint()
+			checkpoint := NewNetworkPluginCheckpoint()
 			err = oldCheckpointManager.GetCheckpoint(checkpointName, checkpoint)
 
 			if tt.expectOldExists {

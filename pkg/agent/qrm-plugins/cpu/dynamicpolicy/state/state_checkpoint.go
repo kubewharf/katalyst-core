@@ -36,11 +36,8 @@ import (
 )
 
 const (
-	metricMetaCacheStoreStateDuration    = "metacache_store_state_duration"
-	qrmCPUStateCheckpointHealthCheckName = "qrm_cpu_state_checkpoint"
+	metricMetaCacheStoreStateDuration = "metacache_store_state_duration"
 )
-
-var doOnce sync.Once
 
 // stateCheckpoint is an in-memory implementation of State;
 // everytime we want to read or write states, those requests will always
@@ -83,17 +80,11 @@ func NewCheckpointState(
 		emitter:                            emitter,
 	}
 
-	doOnce.Do(func() {
-		general.RegisterHeartbeatCheck(qrmCPUStateCheckpointHealthCheckName, 90*time.Second, general.HealthzCheckStateNotReady,
-			90*time.Second)
-	})
-
 	if err := sc.restoreState(currentStateDir, otherStateDir, hasPreStop, topology); err != nil {
 		return nil, fmt.Errorf("could not restore state from checkpoint: %v, please drain this node and delete "+
 			"the cpu plugin checkpoint file %q before restarting Kubelet", err, path.Join(currentStateDir, checkpointName))
 	}
 
-	_ = general.UpdateHealthzStateByError(qrmCPUStateCheckpointHealthCheckName, err)
 	return sc, nil
 }
 
@@ -213,7 +204,8 @@ func (sc *stateCheckpoint) tryMigrateState(
 	}
 	if !equal {
 		klog.Infof("[cpu_plugin] checkpoint files are not equal, migration failed, fall back to old checkpoint")
-		return sc.fallbackToOldCheckpoint(oldCheckpointManager)
+		sc.checkpointManager = oldCheckpointManager
+		return nil
 	}
 
 	// remove old checkpoint file
@@ -229,12 +221,6 @@ func (sc *stateCheckpoint) checkpointFilesEqual(currentStateDir, otherStateDir s
 	currentFilePath := filepath.Join(currentStateDir, sc.checkpointName)
 	otherFilePath := filepath.Join(otherStateDir, sc.checkpointName)
 	return file.FilesEqual(currentFilePath, otherFilePath)
-}
-
-func (sc *stateCheckpoint) fallbackToOldCheckpoint(oldCheckpointManager checkpointmanager.CheckpointManager) error {
-	sc.checkpointManager = oldCheckpointManager
-	_ = general.UpdateHealthzState(qrmCPUStateCheckpointHealthCheckName, general.HealthzCheckStateNotReady, "Migration from old checkpoint to new checkpoint failed")
-	return nil
 }
 
 func (sc *stateCheckpoint) StoreState() error {

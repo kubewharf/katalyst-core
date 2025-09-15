@@ -3277,155 +3277,116 @@ func generateTestMachineStateFromPodEntries(topology *machine.CPUTopology, _ Pod
 	return GetDefaultMachineState(topology), nil
 }
 
-func TestTryMigrateStateSuccessful(t *testing.T) {
+func TestTryMigrateState(t *testing.T) {
 	t.Parallel()
 
-	tmpDir := t.TempDir()
-	inMemoryTmpDir := t.TempDir()
-
-	stateDir := filepath.Join(tmpDir, "state")
-	err := os.MkdirAll(stateDir, 0o775)
-	assert.NoError(t, err)
-
-	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
-	assert.NoError(t, err)
-
-	policyName := "test-policy"
-	checkpointName := "test-checkpoint"
-
-	// create old checkpoint manager to save the checkpoint
-	oldCheckpointManager, err := checkpointmanager.NewCheckpointManager(stateDir)
-	assert.NoError(t, err)
-
-	oldCheckpoint := NewCPUPluginCheckpoint()
-	oldCheckpoint.PolicyName = policyName
-	oldCheckpoint.MachineState = GetDefaultMachineState(cpuTopology)
-	err = oldCheckpointManager.CreateCheckpoint(checkpointName, oldCheckpoint)
-	assert.NoError(t, err)
-
-	// create a new state checkpoint with new checkpoint manager
-	sc := &stateCheckpoint{
-		policyName:                         policyName,
-		checkpointName:                     checkpointName,
-		cache:                              NewCPUPluginState(cpuTopology),
-		skipStateCorruption:                false,
-		GenerateMachineStateFromPodEntries: generateTestMachineStateFromPodEntries,
-		emitter:                            metrics.DummyMetrics{},
+	tests := []struct {
+		name            string
+		preStop         bool
+		corruptFile     bool
+		expectEqual     bool
+		expectOldExists bool
+	}{
+		{
+			name:            "successful migration with pre-stop",
+			preStop:         true,
+			corruptFile:     false,
+			expectEqual:     true,
+			expectOldExists: false,
+		},
+		{
+			name:            "migration without pre-stop",
+			preStop:         false,
+			corruptFile:     false,
+			expectEqual:     false,
+			expectOldExists: true,
+		},
+		{
+			name:            "corrupted checkpoint",
+			preStop:         true,
+			corruptFile:     true,
+			expectEqual:     false,
+			expectOldExists: true,
+		},
 	}
 
-	// current checkpoint is pointing to the in memory directory
-	sc.checkpointManager, err = checkpointmanager.NewCheckpointManager(inMemoryTmpDir)
-	assert.NoError(t, err)
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tmpDir := t.TempDir()
+			inMemoryTmpDir := t.TempDir()
 
-	newCheckpoint := NewCPUPluginCheckpoint()
-	// Able to migrate successfully when there is a pre-stop script
-	err = sc.tryMigrateState(cpuTopology, inMemoryTmpDir, stateDir, true, newCheckpoint)
-	assert.NoError(t, err)
+			stateDir := filepath.Join(tmpDir, "state")
+			err := os.MkdirAll(stateDir, 0o775)
+			assert.NoError(t, err)
 
-	// check if new checkpoint is created and verify equality
-	err = sc.checkpointManager.GetCheckpoint(checkpointName, newCheckpoint)
-	assert.NoError(t, err)
-	assert.Equal(t, newCheckpoint, oldCheckpoint)
+			cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+			assert.NoError(t, err)
 
-	// verify that old checkpoint file no longer exists
-	checkpoint := NewCPUPluginCheckpoint()
-	err = oldCheckpointManager.GetCheckpoint(checkpointName, checkpoint)
-	assert.Error(t, err)
-	assert.Equal(t, err, errors.ErrCheckpointNotFound)
-}
+			policyName := "test-policy"
+			checkpointName := "test-checkpoint"
 
-func TestTryMigrateStateNoPreStop(t *testing.T) {
-	t.Parallel()
+			// create old checkpoint manager to save the checkpoint
+			oldCheckpointManager, err := checkpointmanager.NewCheckpointManager(stateDir)
+			assert.NoError(t, err)
 
-	tmpDir := t.TempDir()
-	inMemoryTmpDir := t.TempDir()
+			oldCheckpoint := NewCPUPluginCheckpoint()
+			if tt.corruptFile {
+				// create a corrupted old checkpoint
+				corruptedFile := filepath.Join(stateDir, fmt.Sprintf("%s", checkpointName))
+				err = ioutil.WriteFile(corruptedFile, []byte("corrupted data"), 0o644)
+				assert.NoError(t, err)
+			} else {
+				oldCheckpoint.PolicyName = policyName
+				oldCheckpoint.MachineState = GetDefaultMachineState(cpuTopology)
+				err = oldCheckpointManager.CreateCheckpoint(checkpointName, oldCheckpoint)
+				assert.NoError(t, err)
+			}
 
-	stateDir := filepath.Join(tmpDir, "state")
-	err := os.MkdirAll(stateDir, 0o775)
-	assert.NoError(t, err)
+			// create a new state checkpoint with new checkpoint manager
+			sc := &stateCheckpoint{
+				policyName:                         policyName,
+				checkpointName:                     checkpointName,
+				cache:                              NewCPUPluginState(cpuTopology),
+				skipStateCorruption:                false,
+				GenerateMachineStateFromPodEntries: generateTestMachineStateFromPodEntries,
+				emitter:                            metrics.DummyMetrics{},
+			}
 
-	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
-	assert.NoError(t, err)
+			// current checkpoint is pointing to the in memory directory
+			sc.checkpointManager, err = checkpointmanager.NewCheckpointManager(inMemoryTmpDir)
+			assert.NoError(t, err)
 
-	policyName := "test-policy"
-	checkpointName := "test-checkpoint"
+			newCheckpoint := NewCPUPluginCheckpoint()
+			err = sc.tryMigrateState(cpuTopology, inMemoryTmpDir, stateDir, tt.preStop, newCheckpoint)
 
-	// create old checkpoint manager to save the checkpoint
-	oldCheckpointManager, err := checkpointmanager.NewCheckpointManager(stateDir)
-	assert.NoError(t, err)
+			if tt.corruptFile {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
 
-	oldCheckpoint := NewCPUPluginCheckpoint()
-	oldCheckpoint.PolicyName = policyName
-	oldCheckpoint.MachineState = GetDefaultMachineState(cpuTopology)
-	err = oldCheckpointManager.CreateCheckpoint(checkpointName, oldCheckpoint)
-	assert.NoError(t, err)
+			// check if new checkpoint is created and verify equality
+			err = sc.checkpointManager.GetCheckpoint(checkpointName, newCheckpoint)
+			assert.NoError(t, err)
 
-	// create a new state checkpoint with new checkpoint manager
-	sc := &stateCheckpoint{
-		policyName:                         policyName,
-		checkpointName:                     checkpointName,
-		cache:                              NewCPUPluginState(cpuTopology),
-		skipStateCorruption:                false,
-		GenerateMachineStateFromPodEntries: generateTestMachineStateFromPodEntries,
-		emitter:                            metrics.DummyMetrics{},
+			// verify old checkpoint file existence
+			checkpoint := NewCPUPluginCheckpoint()
+			err = oldCheckpointManager.GetCheckpoint(checkpointName, checkpoint)
+
+			if tt.expectOldExists {
+				assert.NoError(t, err)
+			} else {
+				assert.Error(t, err)
+				assert.Equal(t, errors.ErrCheckpointNotFound, err)
+			}
+
+			if tt.expectEqual {
+				assert.Equal(t, newCheckpoint, oldCheckpoint)
+			} else {
+				assert.NotEqual(t, newCheckpoint, oldCheckpoint)
+			}
+		})
 	}
-
-	// current checkpoint is pointing to the in memory directory
-	sc.checkpointManager, err = checkpointmanager.NewCheckpointManager(inMemoryTmpDir)
-	assert.NoError(t, err)
-
-	newCheckpoint := NewCPUPluginCheckpoint()
-	// Migration stops prematurely when there is no pre-stop script
-	err = sc.tryMigrateState(cpuTopology, inMemoryTmpDir, stateDir, false, newCheckpoint)
-	assert.NoError(t, err)
-
-	// check if new checkpoint is created and the two checkpoints should not be equal
-	err = sc.checkpointManager.GetCheckpoint(checkpointName, newCheckpoint)
-	assert.NoError(t, err)
-	assert.NotEqual(t, newCheckpoint, oldCheckpoint)
-
-	// verify that old checkpoint file is not deleted
-	checkpoint := NewCPUPluginCheckpoint()
-	err = oldCheckpointManager.GetCheckpoint(checkpointName, checkpoint)
-	assert.NoError(t, err)
-}
-
-func TestTryMigrateStateCorrupted(t *testing.T) {
-	t.Parallel()
-
-	tmpDir := t.TempDir()
-	inMemoryTmpDir := t.TempDir()
-
-	stateDir := filepath.Join(tmpDir, "state")
-	err := os.MkdirAll(stateDir, 0o775)
-	assert.NoError(t, err)
-
-	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
-	assert.NoError(t, err)
-
-	policyName := "test-policy"
-	checkpointName := "test-checkpoint"
-
-	// create a corrupted old checkpoint
-	corruptedFile := filepath.Join(stateDir, fmt.Sprintf("%s", checkpointName))
-	err = ioutil.WriteFile(corruptedFile, []byte("corrupted data"), 0o644)
-	assert.NoError(t, err)
-
-	// create a new state checkpoint with a new checkpoint manager
-	sc := &stateCheckpoint{
-		policyName:                         policyName,
-		checkpointName:                     checkpointName,
-		cache:                              NewCPUPluginState(cpuTopology),
-		skipStateCorruption:                false,
-		GenerateMachineStateFromPodEntries: generateTestMachineStateFromPodEntries,
-		emitter:                            metrics.DummyMetrics{},
-	}
-
-	// current checkpoint is pointing to the in memory directory
-	sc.checkpointManager, err = checkpointmanager.NewCheckpointManager(inMemoryTmpDir)
-	assert.NoError(t, err)
-
-	// call tryMigrateState
-	err = sc.tryMigrateState(cpuTopology, inMemoryTmpDir, stateDir, true, NewCPUPluginCheckpoint())
-	assert.Error(t, err)
 }

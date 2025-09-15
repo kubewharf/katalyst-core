@@ -42,13 +42,11 @@ import (
 )
 
 const (
-	metricMetaCacheStoreStateDuration        = "metacache_store_state_duration"
-	qrmNetworkStateCheckpointHealthCheckName = "qrm_network_state_checkpoint"
+	metricMetaCacheStoreStateDuration = "metacache_store_state_duration"
 )
 
 var (
-	_          State = &stateCheckpoint{}
-	doOnce     sync.Once
+	_          State          = &stateCheckpoint{}
 	generalLog general.Logger = general.LoggerWithPrefix("network_plugin", general.LoggingPKGFull)
 )
 
@@ -94,17 +92,11 @@ func NewCheckpointState(
 		emitter:             emitter,
 	}
 
-	doOnce.Do(func() {
-		general.RegisterHeartbeatCheck(qrmNetworkStateCheckpointHealthCheckName, 90*time.Second, general.HealthzCheckStateNotReady,
-			90*time.Second)
-	})
-
 	if err := stateCheckpoint.restoreState(currentStateDir, otherStateDir, hasPreStop, conf, nics, reservedBandwidth); err != nil {
 		return nil, fmt.Errorf("could not restore state from checkpoint: %v, please drain this node and delete the network plugin checkpoint file %q before restarting Kubelet",
 			err, path.Join(currentStateDir, checkpointName))
 	}
 
-	_ = general.UpdateHealthzStateByError(qrmNetworkStateCheckpointHealthCheckName, err)
 	return stateCheckpoint, nil
 }
 
@@ -123,6 +115,7 @@ func (sc *stateCheckpoint) restoreState(
 	checkpoint := NewNetworkPluginCheckpoint()
 	if err = sc.checkpointManager.GetCheckpoint(sc.checkpointName, checkpoint); err != nil {
 		if err == errors.ErrCheckpointNotFound {
+			// We cannot find checkpoint, so it is possible that previous checkpoint was stored in either disk or memory
 			return sc.tryMigrateState(conf, nics, reservedBandwidth, currentStateDir, otherStateDir, hasPreStop, checkpoint)
 		} else if err == errors.ErrCorruptCheckpoint {
 			if !sc.skipStateCorruption {
@@ -232,7 +225,8 @@ func (sc *stateCheckpoint) tryMigrateState(
 	}
 	if !equal {
 		klog.Infof("[network_plugin] checkpoint files are not equal, migration failed, fall back to old checkpoint")
-		return sc.fallbackToOldCheckpoint(oldCheckpointManager)
+		sc.checkpointManager = oldCheckpointManager
+		return nil
 	}
 
 	// remove old checkpoint file
@@ -248,12 +242,6 @@ func (sc *stateCheckpoint) checkpointFilesEqual(currentStateDir, otherStateDir s
 	currentFilePath := filepath.Join(currentStateDir, sc.checkpointName)
 	otherFilePath := filepath.Join(otherStateDir, sc.checkpointName)
 	return file.FilesEqual(currentFilePath, otherFilePath)
-}
-
-func (sc *stateCheckpoint) fallbackToOldCheckpoint(oldCheckpointManager checkpointmanager.CheckpointManager) error {
-	sc.checkpointManager = oldCheckpointManager
-	_ = general.UpdateHealthzState(qrmNetworkStateCheckpointHealthCheckName, general.HealthzCheckStateReady, "Migration from old checkpoint to new checkpoint failed")
-	return nil
 }
 
 func (sc *stateCheckpoint) storeState() error {
