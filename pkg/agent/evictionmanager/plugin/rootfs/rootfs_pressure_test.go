@@ -22,10 +22,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
-	"unsafe"
 
 	"github.com/prometheus/procfs"
-
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -1032,49 +1030,37 @@ func TestPodRootfsPressureEvictionPlugin_GetTopEvictionPodsMetExpire(t *testing.
 func TestPodRootfsPressureEvictionPlugin_GetTotalUsedBytesOfPVProjects(t *testing.T) {
 	t.Parallel()
 
-	// Save and restore the original syscallImpl
-	origSyscallImpl := syscallImpl
-	defer func() { syscallImpl = origSyscallImpl }()
-
 	// Case 1: multiple projects with non-zero and zero usage
-	var callCount int
-	syscallImpl = func(trap, a1, a2, a3, a4, a5, a6 uintptr) (uintptr, uintptr, syscall.Errno) {
-		callCount++
-		//nolint:govet // we are intentionally mocking syscall output
-		dq := (*nextdqblk)(unsafe.Pointer(a4))
-
-		switch callCount {
+	fetch := func(projectID uint32) (nextdqblk, error) {
+		switch projectID {
 		case 1:
-			*dq = nextdqblk{dqbCurSpace: 100, dqdID: 1}
-			return 0, 0, 0
+			return nextdqblk{dqbCurSpace: 100, dqdID: 1}, nil
 		case 2:
-			*dq = nextdqblk{dqbCurSpace: 50, dqdID: 2}
-			return 0, 0, 0
+			return nextdqblk{dqbCurSpace: 50, dqdID: 2}, nil
 		case 3:
-			*dq = nextdqblk{dqbCurSpace: 200, dqdID: 5}
-			return 0, 0, 0
+			return nextdqblk{dqbCurSpace: 200, dqdID: 5}, nil
 		default:
-			return 0, 0, syscall.ESRCH
+			return nextdqblk{}, syscall.ESRCH
 		}
 	}
-	total, err := GetTotalUsedBytesOfPVProjects("/dev/fakedev")
+	total, err := sumBytesByFetch(fetch)
 	assert.NoError(t, err)
-	assert.Equal(t, int64(350), total) // 50 + 200
+	assert.Equal(t, int64(350), total) // 100 + 50 + 200
 
 	// Case 2: syscall returns unexpected error
-	syscallImpl = func(trap, a1, a2, a3, a4, a5, a6 uintptr) (uintptr, uintptr, syscall.Errno) {
-		return 0, 0, syscall.EINVAL
+	fetch = func(projectID uint32) (nextdqblk, error) {
+		return nextdqblk{}, syscall.EINVAL
 	}
-	total, err = GetTotalUsedBytesOfPVProjects("/dev/fakedev")
+	total, err = sumBytesByFetch(fetch)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "get project quota information failed")
 	assert.Equal(t, int64(0), total)
 
 	// Case 3: no projects at all
-	syscallImpl = func(trap, a1, a2, a3, a4, a5, a6 uintptr) (uintptr, uintptr, syscall.Errno) {
-		return 0, 0, syscall.ESRCH
+	fetch = func(projectID uint32) (nextdqblk, error) {
+		return nextdqblk{}, syscall.ESRCH
 	}
-	total, err = GetTotalUsedBytesOfPVProjects("/dev/fakedev")
+	total, err = sumBytesByFetch(fetch)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(0), total)
 }

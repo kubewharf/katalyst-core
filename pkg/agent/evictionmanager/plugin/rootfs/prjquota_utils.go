@@ -56,48 +56,65 @@ type nextdqblk struct {
 	dqdID         uint32 // the project ID
 }
 
-// syscallImpl is a variable that holds the actual syscall implementation
-var syscallImpl = unix.Syscall6
-
 // qCMD Function to construct the qCMD value for quotactl
 func qCMD(cmd, typ uint32) uint32 {
 	return (cmd << SUBCMDSHIFT) | (typ & SUBCMDMASK)
 }
 
-// GetTotalUsedBytesOfPVProjects Function to get total allocated quota (in bytes) for a device path
+// GetTotalUsedBytesOfPVProjects returns the total used bytes for all projects on the given device path.
 func GetTotalUsedBytesOfPVProjects(devicePath string) (int64, error) {
 	bytePtrFromString, err := syscall.BytePtrFromString(devicePath)
 	if err != nil {
 		return 0, err
 	}
-
-	// Q_GETNEXTQUOTA makes quotactl return the quota info and the project ID ≥ the given number .
-	var totalUsedBytes int64
-	var projectID uint32 = SystemDirectorsProjectID + 1 // Start iterating from ID 1, which excludes the root project of system directories
-	for {
+	// fetch executes a single QUOTACTL syscall to retrieve quota info for the given project ID.
+	fetch := func(projectID uint32) (nextdqblk, error) {
 		var dq nextdqblk
-		_, _, errno := syscallImpl(
+		_, _, errno := unix.Syscall6(
 			unix.SYS_QUOTACTL,
 			uintptr(qCMD(Q_GETNEXTQUOTA, PRJQUOTA)),
 			uintptr(unsafe.Pointer(bytePtrFromString)),
 			uintptr(projectID),
 			uintptr(unsafe.Pointer(&dq)),
-			0, 0)
+			0, 0,
+		)
+
 		if errors.Is(errno, syscall.ESRCH) || errors.Is(errno, syscall.ENOENT) {
-			// No more quota entries, break the loop
-			break
+			// No more quota entries
+			return nextdqblk{}, errno
 		}
 		if errno != 0 {
-			return 0, fmt.Errorf("get project quota information failed (ID %d): %w", projectID, errno)
+			return nextdqblk{}, fmt.Errorf("get project quota information failed (ID %d): %w", projectID, errno)
 		}
 
-		// Calculate used bytes for this project
-		totalUsedBytes += int64(dq.dqbCurSpace)
-		// Next loop will look for the next project id from 'dq.dqdID + 1'
+		return dq, nil
+	}
+
+	// Accumulate total quota usage across all projects.
+	return sumBytesByFetch(fetch)
+}
+
+// sumBytesByFetch repeatedly calls fetch for consecutive project IDs and
+// aggregates their quota usage until no more projects are found.
+func sumBytesByFetch(fetch func(projectID uint32) (nextdqblk, error)) (int64, error) {
+	var total int64
+	projectID := uint32(SystemDirectorsProjectID + 1)
+
+	for {
+		dq, err := fetch(projectID)
+		if errors.Is(err, syscall.ESRCH) || errors.Is(err, syscall.ENOENT) {
+			// No more projects, stop iteration
+			break
+		}
+		if err != nil {
+			return 0, err
+		}
+
+		total += int64(dq.dqbCurSpace)
 		projectID = dq.dqdID + 1
 	}
 
-	return totalUsedBytes, nil
+	return total, nil
 }
 
 var GetMounts = manager.GetMounts
