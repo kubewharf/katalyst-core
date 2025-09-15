@@ -182,7 +182,22 @@ func calcGroupMBRate(newCounter, oldCounter []malachitetypes.MBCCDStat, msElapse
 		}
 
 		rateLocalMB := int64(ccdCounter.MBLocalCounter-oldCCDCounter.MBLocalCounter) * 1000 / msElapsed / 1024 / 1024
+		if rateLocalMB < 0 {
+			return nil, fmt.Errorf("skip local mb cal: ccd %d, new %v, old %v",
+				ccd, ccdCounter.MBLocalCounter, oldCCDCounter.MBLocalCounter)
+		}
+
 		rateTotalMB := int64(ccdCounter.MBTotalCounter-oldCCDCounter.MBTotalCounter) * 1000 / msElapsed / 1024 / 1024
+		if rateTotalMB < 0 {
+			return nil, fmt.Errorf("skip total mb cal: ccd %v, new %v, old %v",
+				ccd, ccdCounter.MBTotalCounter, oldCCDCounter.MBTotalCounter)
+		}
+
+		if rateTotalMB < rateLocalMB {
+			return nil, fmt.Errorf("skip invalid mb cal: ccd %v, total %v, locval %v",
+				ccd, rateTotalMB, rateLocalMB)
+		}
+
 		result[ccd] = monitor.MBInfo{
 			LocalMB:  int(rateLocalMB),
 			RemoteMB: int(rateTotalMB - rateLocalMB),

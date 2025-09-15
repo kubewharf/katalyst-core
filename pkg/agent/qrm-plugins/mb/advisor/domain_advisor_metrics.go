@@ -20,11 +20,14 @@ import (
 	"fmt"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/resource"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
 const (
+	nameMBMIncomingStat           = "mbm_incoming_stat"
+	nameMBMOutgoingStat           = "mbm_outgoing_stat"
 	nameMBMCapacity               = "mbm_capacity"
 	nameMBMFree                   = "mbm_free"
 	nameMBMIncomingTarget         = "mbm_incoming_target"
@@ -34,7 +37,7 @@ const (
 	namePlanUpdate                = "mbm_plan_update"
 )
 
-func (d *domainAdvisor) emitDomIncomingStatMetrics(domLimits map[int]*resource.MBGroupIncomingStat) {
+func (d *domainAdvisor) emitDomIncomingStatSummaryMetrics(domLimits map[int]*resource.MBGroupIncomingStat) {
 	for domID, limit := range domLimits {
 		tags := map[string]string{
 			"domain": fmt.Sprintf("%d", domID),
@@ -42,6 +45,35 @@ func (d *domainAdvisor) emitDomIncomingStatMetrics(domLimits map[int]*resource.M
 		}
 		emitKV(d.emitter, nameMBMCapacity, limit.CapacityInMB, tags)
 		emitKV(d.emitter, nameMBMFree, limit.FreeInMB, tags)
+	}
+}
+
+func (d *domainAdvisor) emitStatsMtrics(domainsMon *monitor.DomainStats) {
+	d.emitOutgoingStats(domainsMon.Outgoings)
+	d.emitIncomingStats(domainsMon.Incomings)
+}
+
+func (d *domainAdvisor) emitIncomingStats(incomings map[int]monitor.DomainMonStat) {
+	d.emitStat(incomings, nameMBMIncomingStat)
+}
+
+func (d *domainAdvisor) emitOutgoingStats(outgoings map[int]monitor.DomainMonStat) {
+	d.emitStat(outgoings, nameMBMOutgoingStat)
+}
+
+func (d *domainAdvisor) emitStat(stats map[int]monitor.DomainMonStat, metricName string) {
+	for domId, monStat := range stats {
+		for group, ccdMBs := range monStat {
+			dom := fmt.Sprintf("%d", domId)
+			for ccd, v := range ccdMBs {
+				tags := map[string]string{
+					"domain": dom,
+					"group":  group,
+					"ccd":    fmt.Sprintf("%d", ccd),
+				}
+				emitKV(d.emitter, metricName, v.TotalMB, tags)
+			}
+		}
 	}
 }
 

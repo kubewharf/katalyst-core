@@ -119,6 +119,10 @@ func (m *MBPlugin) run() {
 		return
 	}
 
+	if klog.V(6).Enabled() {
+		general.Infof("[mbm] [reader] resctrl reported grouped ccd mb stat: %#v", mbData.MBBody)
+	}
+
 	statOutgoing := getGroupMonStat(mbData)
 
 	monData, err := monitor.NewDomainStats(statOutgoing, m.ccdToDomain, m.xDomGroups)
