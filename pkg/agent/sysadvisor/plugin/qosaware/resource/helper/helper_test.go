@@ -17,10 +17,19 @@ limitations under the License.
 package helper
 
 import (
+	"context"
+	"fmt"
 	"testing"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 )
 
 func TestPodMatchKind(t *testing.T) {
@@ -195,6 +204,145 @@ func TestFilterPodsByKind(t *testing.T) {
 				if gotNames[i] != wantName {
 					t.Errorf("FilterPodsByKind()[%d] = %s, want %s", i, gotNames[i], wantName)
 				}
+			}
+		})
+	}
+}
+
+type fakePodFetcher struct {
+	*pod.PodFetcherStub
+	err error
+}
+
+func (p *fakePodFetcher) GetPod(ctx context.Context, podUID string) (*v1.Pod, error) {
+	if p.err != nil {
+		return nil, p.err
+	}
+	return p.PodFetcherStub.GetPod(ctx, podUID)
+}
+
+type fakeServiceProfilingManager struct {
+	*spd.DummyServiceProfilingManager
+	err        error
+	indicators *v1alpha1.ReclaimResourceIndicators
+	baseline   bool
+}
+
+func (p *fakeServiceProfilingManager) ServiceExtendedIndicator(_ context.Context, _ metav1.ObjectMeta, indicators interface{}) (bool, error) {
+	if p.err != nil {
+		return false, p.err
+	}
+
+	if indicators != nil {
+		indicators.(*v1alpha1.ReclaimResourceIndicators).DisableReclaimLevel = p.indicators.DisableReclaimLevel
+	}
+
+	return p.baseline, nil
+}
+
+func TestPodDisableReclaimLevel(t *testing.T) {
+	t.Parallel()
+
+	// Test cases for PodDisableReclaimLevel function
+	tests := []struct {
+		name                          string
+		podUID                        string
+		getPodError                   error
+		serviceExtendedIndicatorError error
+		baseLine                      bool
+		disableReclaimLevel           *v1alpha1.DisableReclaimLevel
+		expectedResult                v1alpha1.DisableReclaimLevel
+	}{
+		{
+			name:           "GetPod error",
+			podUID:         "pod-uid-1",
+			getPodError:    fmt.Errorf("pod not found"),
+			expectedResult: v1alpha1.DisableReclaimLevelPod,
+		},
+		{
+			name:                          "ServiceExtendedIndicator error",
+			podUID:                        "pod-uid-2",
+			serviceExtendedIndicatorError: fmt.Errorf("indicator error"),
+			baseLine:                      false,
+			disableReclaimLevel:           &[]v1alpha1.DisableReclaimLevel{v1alpha1.DisableReclaimLevelNUMA}[0],
+			expectedResult:                v1alpha1.DisableReclaimLevelPod,
+		},
+		{
+			name:                "Pod is baseline",
+			podUID:              "pod-uid-3",
+			baseLine:            true,
+			disableReclaimLevel: &[]v1alpha1.DisableReclaimLevel{v1alpha1.DisableReclaimLevelPod}[0],
+			expectedResult:      v1alpha1.DisableReclaimLevelPod,
+		},
+		{
+			name:                "Pod is not baseline with valid level",
+			podUID:              "pod-uid-4",
+			baseLine:            false,
+			disableReclaimLevel: &[]v1alpha1.DisableReclaimLevel{v1alpha1.DisableReclaimLevelNode}[0],
+			expectedResult:      v1alpha1.DisableReclaimLevelNode,
+		},
+		{
+			name:                "Pod is not baseline with nil level",
+			podUID:              "pod-uid-5",
+			baseLine:            false,
+			disableReclaimLevel: nil,
+			expectedResult:      v1alpha1.DisableReclaimLevelPod,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Create a mock metaServer
+			mockMetaServer := &metaserver.MetaServer{
+				MetaAgent: &agent.MetaAgent{},
+			}
+
+			// Mock GetPod method
+			if tt.getPodError != nil {
+				mockMetaServer.MetaAgent.PodFetcher = &fakePodFetcher{
+					err: tt.getPodError,
+				}
+			} else {
+				mockMetaServer.MetaAgent.PodFetcher = &fakePodFetcher{
+					PodFetcherStub: &pod.PodFetcherStub{
+						PodList: []*v1.Pod{
+							{
+								ObjectMeta: metav1.ObjectMeta{
+									UID: types.UID(tt.podUID),
+								},
+							},
+						},
+					},
+					err: tt.getPodError,
+				}
+			}
+
+			// Mock ServiceExtendedIndicator method
+			if tt.serviceExtendedIndicatorError != nil {
+				mockMetaServer.ServiceProfilingManager = &fakeServiceProfilingManager{
+					err: tt.serviceExtendedIndicatorError,
+				}
+			} else {
+				indicators := &v1alpha1.ReclaimResourceIndicators{}
+				if tt.disableReclaimLevel != nil {
+					indicators.DisableReclaimLevel = tt.disableReclaimLevel
+				}
+				mockMetaServer.ServiceProfilingManager = &fakeServiceProfilingManager{
+					err:        tt.serviceExtendedIndicatorError,
+					indicators: indicators,
+					baseline:   tt.baseLine,
+				}
+			}
+
+			// Call the function
+			result := PodDisableReclaimLevel(context.Background(), mockMetaServer, tt.podUID)
+
+			// Assert the result
+			if result != tt.expectedResult {
+				t.Errorf("PodDisableReclaimLevel() = %v, want %v", result, tt.expectedResult)
 			}
 		})
 	}

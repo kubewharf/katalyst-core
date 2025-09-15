@@ -167,11 +167,11 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 					makeContainerInfo("pod1", "default",
 						"pod1", "container1",
 						consts.PodAnnotationQoSLevelSharedCores, nil,
-						nil, 1),
+						types.TopologyAwareAssignment{0: machine.NewCPUSet(0), 1: machine.NewCPUSet(1)}, 1),
 					makeContainerInfo("pod2", "default",
 						"pod2", "container2",
 						consts.PodAnnotationQoSLevelSystemCores, nil,
-						nil, 1),
+						types.TopologyAwareAssignment{0: machine.NewCPUSet(0), 1: machine.NewCPUSet(1)}, 1),
 				},
 				memoryHeadroomConfiguration: &memoryheadroom.MemoryHeadroomConfiguration{
 					MemoryUtilBasedConfiguration: &memoryheadroom.MemoryUtilBasedConfiguration{
@@ -244,11 +244,11 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 					makeContainerInfo("pod1", "default",
 						"pod1", "container1",
 						consts.PodAnnotationQoSLevelSharedCores, nil,
-						nil, 1),
+						types.TopologyAwareAssignment{0: machine.NewCPUSet(0), 1: machine.NewCPUSet(1)}, 1),
 					makeContainerInfo("pod2", "default",
 						"pod2", "container2",
 						consts.PodAnnotationQoSLevelSystemCores, nil,
-						nil, 1),
+						types.TopologyAwareAssignment{0: machine.NewCPUSet(0), 1: machine.NewCPUSet(1)}, 1),
 				},
 				memoryHeadroomConfiguration: &memoryheadroom.MemoryHeadroomConfiguration{
 					MemoryUtilBasedConfiguration: &memoryheadroom.MemoryUtilBasedConfiguration{
@@ -328,11 +328,11 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 					makeContainerInfo("pod1", "default",
 						"pod1", "container1",
 						consts.PodAnnotationQoSLevelSharedCores, nil,
-						nil, 1),
+						types.TopologyAwareAssignment{0: machine.NewCPUSet(0), 1: machine.NewCPUSet(1)}, 1),
 					makeContainerInfo("pod2", "default",
 						"pod2", "container2",
 						consts.PodAnnotationQoSLevelSystemCores, nil,
-						nil, 1),
+						types.TopologyAwareAssignment{0: machine.NewCPUSet(0), 1: machine.NewCPUSet(1)}, 1),
 				},
 				memoryHeadroomConfiguration: &memoryheadroom.MemoryHeadroomConfiguration{
 					MemoryUtilBasedConfiguration: &memoryheadroom.MemoryUtilBasedConfiguration{
@@ -412,11 +412,11 @@ func TestPolicyCanonical_calculateMemoryBuffer(t *testing.T) {
 					makeContainerInfo("pod1", "default",
 						"pod1", "container1",
 						consts.PodAnnotationQoSLevelSharedCores, nil,
-						nil, 1),
+						types.TopologyAwareAssignment{0: machine.NewCPUSet(0), 1: machine.NewCPUSet(1)}, 1),
 					makeContainerInfo("pod2", "default",
 						"pod2", "container2",
 						consts.PodAnnotationQoSLevelSystemCores, nil,
-						nil, 1),
+						types.TopologyAwareAssignment{0: machine.NewCPUSet(0), 1: machine.NewCPUSet(1)}, 1),
 				},
 				memoryHeadroomConfiguration: &memoryheadroom.MemoryHeadroomConfiguration{
 					MemoryUtilBasedConfiguration: &memoryheadroom.MemoryUtilBasedConfiguration{
