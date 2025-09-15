@@ -169,11 +169,21 @@ func (m *MalachiteMetricsProvisioner) processContainerMemRelevantRate(podUID, co
 	}
 
 	var (
-		lastPGFault    = uint64(lastMetricValueFn(consts.MetricMemPgfaultContainer))
-		lastPGMajFault = uint64(lastMetricValueFn(consts.MetricMemPgmajfaultContainer))
-		lastOOMCnt     = uint64(lastMetricValueFn(consts.MetricMemOomContainer))
+		lastPGFault               = uint64(lastMetricValueFn(consts.MetricMemPgfaultContainer))
+		lastPGMajFault            = uint64(lastMetricValueFn(consts.MetricMemPgmajfaultContainer))
+		lastOOMCnt                = uint64(lastMetricValueFn(consts.MetricMemOomContainer))
+		lastKswapdSteal           = uint64(lastMetricValueFn(consts.MetricMemKswapdstealContainer))
+		lastKswapdScan            = uint64(lastMetricValueFn(consts.MetricMemKswapdScanContainer))
+		lastDirectSteal           = uint64(lastMetricValueFn(consts.MetricMemDirectStealContainer))
+		lastDirectScan            = uint64(lastMetricValueFn(consts.MetricMemDirectScanContainer))
+		lastPgsteal               = uint64(lastMetricValueFn(consts.MetricMemPgstealContainer))
+		lastPgscan                = uint64(lastMetricValueFn(consts.MetricMemPgscanContainer))
+		lastWorkingsetRefaultAnon = uint64(lastMetricValueFn(consts.MetricMemWorkingsetRefaultAnonContainer))
+		lastWorkingsetRefaultFile = uint64(lastMetricValueFn(consts.MetricMemWorkingsetRefaultFileContainer))
+		lastWorkingsetRefault     = uint64(lastMetricValueFn(consts.MetricMemWorkingsetRefaultContainer))
+		lastProactiveReclaim      = uint64(lastMetricValueFn(consts.MetricMemProactiveReclaimContainer))
 
-		curPGFault, curPGMajFault, curOOMCnt uint64
+		curPGFault, curPGMajFault, curOOMCnt, curKswapdsteal, curKswapdscan, curDirectSteal, curDirectScan, curPgsteal, curPgscan, curWorkingsetRefaultAnon, curWorkingsetRefaultFile, curWorkingsetRefault, curProactiveReclaim uint64
 
 		curUpdateTime int64
 	)
@@ -183,11 +193,23 @@ func (m *MalachiteMetricsProvisioner) processContainerMemRelevantRate(podUID, co
 		curPGMajFault = cgStats.V1.Memory.Pgmajfault
 		curOOMCnt = cgStats.V1.Memory.BpfMemStat.OomCnt
 		curUpdateTime = cgStats.V1.Memory.UpdateTime
+		curKswapdsteal = cgStats.V1.Memory.KswapdSteal
+		// mem.KswapdSteal
 	} else if cgStats.CgroupType == "V2" {
-		curPGFault = cgStats.V2.Memory.MemStats.Pgmajfault
+		curPGFault = cgStats.V2.Memory.MemStats.Pgfault
 		curPGMajFault = cgStats.V2.Memory.MemStats.Pgmajfault
 		curOOMCnt = cgStats.V2.Memory.BpfMemStat.OomCnt
 		curUpdateTime = cgStats.V2.Memory.UpdateTime
+		curKswapdsteal = cgStats.V2.Memory.MemStats.PgstealKswapd
+		curKswapdscan = cgStats.V2.Memory.MemStats.PgscanKswapd
+		curDirectSteal = cgStats.V2.Memory.MemStats.PgstealDirect
+		curDirectScan = cgStats.V2.Memory.MemStats.PgscanDirect
+		curPgsteal = cgStats.V2.Memory.MemStats.Pgsteal
+		curPgscan = cgStats.V2.Memory.MemStats.Pgscan
+		curWorkingsetRefaultAnon = cgStats.V2.Memory.MemStats.WorkingsetRefaultAnon
+		curWorkingsetRefaultFile = cgStats.V2.Memory.MemStats.WorkingsetRefaultFile
+		curWorkingsetRefault = cgStats.V2.Memory.MemStats.WorkingsetRefault
+		curProactiveReclaim = cgStats.V2.Memory.BpfMemStat.MemReclaimSettingSum
 	} else {
 		return
 	}
@@ -200,6 +222,37 @@ func (m *MalachiteMetricsProvisioner) processContainerMemRelevantRate(podUID, co
 	}, int64(lastUpdateTimeInSec), curUpdateTime)
 	m.setContainerRateMetric(podUID, containerName, consts.MetricMemOomRateContainer, func() float64 {
 		return float64(uint64CounterDelta(lastOOMCnt, curOOMCnt))
+	}, int64(lastUpdateTimeInSec), curUpdateTime)
+
+	m.setContainerRateMetric(podUID, containerName, consts.MetricMemKswapdstealRateContainer, func() float64 {
+		return float64(uint64CounterDelta(lastKswapdSteal, curKswapdsteal))
+	}, int64(lastUpdateTimeInSec), curUpdateTime)
+	m.setContainerRateMetric(podUID, containerName, consts.MetricMemKswapdScanRateContainer, func() float64 {
+		return float64(uint64CounterDelta(lastKswapdScan, curKswapdscan))
+	}, int64(lastUpdateTimeInSec), curUpdateTime)
+	m.setContainerRateMetric(podUID, containerName, consts.MetricMemDirectStealRateContainer, func() float64 {
+		return float64(uint64CounterDelta(lastDirectSteal, curDirectSteal))
+	}, int64(lastUpdateTimeInSec), curUpdateTime)
+	m.setContainerRateMetric(podUID, containerName, consts.MetricMemDirectScanRateContainer, func() float64 {
+		return float64(uint64CounterDelta(lastDirectScan, curDirectScan))
+	}, int64(lastUpdateTimeInSec), curUpdateTime)
+	m.setContainerRateMetric(podUID, containerName, consts.MetricMemPgstealRateContainer, func() float64 {
+		return float64(uint64CounterDelta(lastPgsteal, curPgsteal))
+	}, int64(lastUpdateTimeInSec), curUpdateTime)
+	m.setContainerRateMetric(podUID, containerName, consts.MetricMemPgscanRateContainer, func() float64 {
+		return float64(uint64CounterDelta(lastPgscan, curPgscan))
+	}, int64(lastUpdateTimeInSec), curUpdateTime)
+	m.setContainerRateMetric(podUID, containerName, consts.MetricMemWorkingsetRefaultRateContainer, func() float64 {
+		return float64(uint64CounterDelta(lastWorkingsetRefault, curWorkingsetRefault))
+	}, int64(lastUpdateTimeInSec), curUpdateTime)
+	m.setContainerRateMetric(podUID, containerName, consts.MetricMemWorkingsetRefaultAnonRateContainer, func() float64 {
+		return float64(uint64CounterDelta(lastWorkingsetRefaultAnon, curWorkingsetRefaultAnon))
+	}, int64(lastUpdateTimeInSec), curUpdateTime)
+	m.setContainerRateMetric(podUID, containerName, consts.MetricMemWorkingsetRefaultFileRateContainer, func() float64 {
+		return float64(uint64CounterDelta(lastWorkingsetRefaultFile, curWorkingsetRefaultFile))
+	}, int64(lastUpdateTimeInSec), curUpdateTime)
+	m.setContainerRateMetric(podUID, containerName, consts.MetricMemProactiveReclaimRateContainer, func() float64 {
+		return float64(uint64CounterDelta(lastProactiveReclaim, curProactiveReclaim))
 	}, int64(lastUpdateTimeInSec), curUpdateTime)
 }
 
@@ -300,6 +353,8 @@ func (m *MalachiteMetricsProvisioner) setContainerMbmTotalMetric(podUID, contain
 		m.metricStore.SetByStringIndex(consts.MetricResctrlDataContainer, resctrlData)
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMbmTotalPsContainer,
 			metric.MetricData{Value: 0, Time: updateTime})
+		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMbmlocalPsContainer,
+			metric.MetricData{Value: 0, Time: updateTime})
 		return
 	}
 	timeInterval := updateTime.Sub(*prevMetric.Time).Seconds()
@@ -307,7 +362,7 @@ func (m *MalachiteMetricsProvisioner) setContainerMbmTotalMetric(podUID, contain
 	if timeInterval <= 0 {
 		return
 	}
-	var totalMbmBytesPS float64
+	var totalMbmBytesPS, totalLocalBytesPS float64
 	for _, l3Mon := range resctrlData.Mbm {
 		l3CacheID := l3Mon.ID
 
@@ -331,10 +386,22 @@ func (m *MalachiteMetricsProvisioner) setContainerMbmTotalMetric(podUID, contain
 			}
 		}
 		totalMbmBytesPS += totalBytesPS
+
+		// Calculate local bandwidth
+		var localBytesPS float64
+		if l3Mon.MBMLocalBytes > oldL3Mon.MBMLocalBytes && oldL3Mon.MBMLocalBytes != 0 {
+			localBytesPS = float64(l3Mon.MBMLocalBytes-oldL3Mon.MBMLocalBytes) / timeInterval
+			if localBytesPS > consts.MaxMBGBps {
+				continue
+			}
+		}
+		totalLocalBytesPS += localBytesPS
 	}
 	m.metricStore.SetByStringIndex(consts.MetricResctrlDataContainer, resctrlData)
 	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMbmTotalPsContainer,
 		metric.MetricData{Value: totalMbmBytesPS, Time: updateTime})
+	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMbmlocalPsContainer,
+		metric.MetricData{Value: totalLocalBytesPS, Time: updateTime})
 }
 
 // uint64CounterDelta calculate the delta between two uint64 counters

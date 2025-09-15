@@ -136,4 +136,12 @@ func (m *RealtimePowerMetricsProvisioner) processSystemPowerData(data *malachite
 	updateTime := time.Unix(data.Sensors.UpdateTime, 0)
 	m.metricStore.SetNodeMetric(consts.MetricTotalPowerUsedWatts,
 		utilmetric.MetricData{Value: data.Sensors.TotalPowerWatt, Time: &updateTime})
+	m.metricStore.SetNodeMetric(consts.MetricCPUPowerUsedWatts,
+		utilmetric.MetricData{Value: data.Sensors.CPUPower, Time: &updateTime})
+	m.metricStore.SetNodeMetric(consts.MetricMemPowerUsedWatts,
+		utilmetric.MetricData{Value: data.Sensors.MemPower, Time: &updateTime})
+	m.metricStore.SetNodeMetric(consts.MetricFanPowerUsedWatts,
+		utilmetric.MetricData{Value: data.Sensors.FanPower, Time: &updateTime})
+	m.metricStore.SetNodeMetric(consts.MetricHDDPowerUsedWatts,
+		utilmetric.MetricData{Value: data.Sensors.HDDPower, Time: &updateTime})
 }

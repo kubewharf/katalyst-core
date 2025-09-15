@@ -31,6 +31,7 @@ import (
 	"github.com/golang/protobuf/proto"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	inferenceConsts "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/modelresultfetcher"
 	borweininfsvc "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/inferencesvc"
 	borweintypes "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/types"
@@ -38,13 +39,24 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
-	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
 )
+
+type ConvertBorweinNodeInputFunc func(map[string]interface{}) map[string]interface{}
+
+var convertBorweinNodeInputFunc ConvertBorweinNodeInputFunc = nativeConvertBorweinNodeInputFunc
+
+func SetConvertBorweinNodeInputFunc(f ConvertBorweinNodeInputFunc) {
+	convertBorweinNodeInputFunc = f
+}
+
+func nativeConvertBorweinNodeInputFunc(nodeInput map[string]interface{}) map[string]interface{} {
+	return nodeInput
+}
 
 const (
 	BorweinModelResultFetcherName = "borwein_model_result_fetcher"
@@ -59,6 +71,8 @@ const (
 
 type BorweinModelResultFetcher struct {
 	name      string
+	conf      *config.Configuration
+	extraConf interface{}
 	qosConfig *generic.QoSConfiguration
 
 	nodeFeatureNames                   []string          // handled by GetNodeFeature
@@ -69,65 +83,6 @@ type BorweinModelResultFetcher struct {
 
 	modelNameToInferenceSvcClient map[string]borweininfsvc.InferenceServiceClient // map modelName to its inference client
 	clientLock                    sync.RWMutex
-}
-
-const (
-	NodeFeatureNodeName = "node_feature_name"
-)
-
-type (
-	GetNodeFeatureValueFunc      func(timestamp int64, featureName string, metaServer *metaserver.MetaServer, metaReader metacache.MetaReader) (string, error)
-	GetContainerFeatureValueFunc func(timestamp int64, podUID string, containerName string, featureName string,
-		metaServer *metaserver.MetaServer, metaReader metacache.MetaReader) (string, error)
-)
-
-var (
-	getNodeFeatureValue      GetNodeFeatureValueFunc      = nativeGetNodeFeatureValue
-	getContainerFeatureValue GetContainerFeatureValueFunc = nativeGetContainerFeatureValue
-)
-
-// RegisterGetNodeFeatureValueFunc allows to register pluggable function providing node features
-func SetGetNodeFeatureValueFunc(f GetNodeFeatureValueFunc) {
-	getNodeFeatureValue = f
-}
-
-// RegisterGetContainerFeatureValueFunc allows to register pluggable function providing container features
-func SetGetContainerFeatureValueFunc(f GetContainerFeatureValueFunc) {
-	getContainerFeatureValue = f
-}
-
-// Registered from adapter
-func nativeGetNodeFeatureValue(timestamp int64, featureName string, metaServer *metaserver.MetaServer, metaReader metacache.MetaReader) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	node, err := metaServer.GetNode(ctx)
-	if err != nil {
-		return "", fmt.Errorf("GetNode failed with error: %v", err)
-	}
-
-	switch featureName {
-	case NodeFeatureNodeName:
-		return node.Name, nil
-	default:
-		return "", fmt.Errorf("unsupported feature: %s", featureName)
-	}
-}
-
-func nativeGetContainerFeatureValue(timestamp int64, podUID string, containerName string, featureName string,
-	metaServer *metaserver.MetaServer, metaReader metacache.MetaReader,
-) (string, error) {
-	switch featureName {
-	case consts.MetricCPUUsageContainer:
-		data, err := metaReader.GetContainerMetric(podUID, containerName, featureName)
-		if err != nil {
-			return "", fmt.Errorf("GetContainerMetric failed with error: %v", err)
-		}
-
-		return fmt.Sprintf("%f", data.Value), nil
-	default:
-		return "", fmt.Errorf("unsupported feature: %s", featureName)
-	}
 }
 
 func (bmrf *BorweinModelResultFetcher) FetchModelResult(ctx context.Context, metaReader metacache.MetaReader,
@@ -297,15 +252,6 @@ func (bmrf *BorweinModelResultFetcher) parseInferenceRespForPods(requestContaine
 func (bmrf *BorweinModelResultFetcher) getInferenceRequestForPods(requestContainers []*types.ContainerInfo, metaReader metacache.MetaReader,
 	metaWriter metacache.MetaWriter, metaServer *metaserver.MetaServer,
 ) (*borweininfsvc.InferenceRequest, error) {
-	if getNodeFeatureValue == nil {
-		return nil, fmt.Errorf("nil getNodeFeatureValue")
-	}
-
-	if getContainerFeatureValue == nil {
-		return nil, fmt.Errorf("nil getContainerFeatureValue")
-	}
-
-	callTimestampInSec := time.Now().Unix()
 	req := &borweininfsvc.InferenceRequest{
 		FeatureNames:      make([]string, 0, len(bmrf.nodeFeatureNames)+len(bmrf.containerFeatureNames)),
 		PodRequestEntries: make(map[string]*borweininfsvc.ContainerRequestEntries),
@@ -314,14 +260,33 @@ func (bmrf *BorweinModelResultFetcher) getInferenceRequestForPods(requestContain
 	req.FeatureNames = append(req.FeatureNames, bmrf.nodeFeatureNames...)
 	req.FeatureNames = append(req.FeatureNames, bmrf.containerFeatureNames...)
 
-	nodeFeatureValues := make([]string, 0, len(bmrf.nodeFeatureNames))
-	for _, nodeFeatureName := range bmrf.nodeFeatureNames {
-		nodeFeatureValue, err := getNodeFeatureValue(callTimestampInSec, nodeFeatureName, metaServer, metaReader)
-		if err != nil {
-			return nil, fmt.Errorf("get node feature: %v failed with error: %v", nodeFeatureName, err)
-		}
+	borweinNodeFeatureValues := make([]string, 0, len(bmrf.nodeFeatureNames))
 
-		nodeFeatureValues = append(nodeFeatureValues, nodeFeatureValue)
+	nodeInfo, err := metaReader.GetModelInput(inferenceConsts.MetricDimensionNode)
+	if err != nil {
+		return nil, fmt.Errorf("get model input failed with error: %v", err)
+	}
+	nodeInfo = convertBorweinNodeInputFunc(nodeInfo)
+
+	for _, nodeFeatureName := range bmrf.nodeFeatureNames {
+		if nodeFeatureValue, ok := nodeInfo[nodeFeatureName]; ok {
+			borweinNodeFeatureValues = append(borweinNodeFeatureValues, fmt.Sprintf("%v", nodeFeatureValue))
+		}
+	}
+
+	podInfo, err := metaReader.GetModelInput(inferenceConsts.MetricDimensionContainer)
+	if err != nil {
+		return nil, fmt.Errorf("get model input failed with error: %v", err)
+	}
+
+	borweinContainerInfo := make(map[string]map[string]map[string]interface{})
+	for podUID, podFeatures := range podInfo {
+		podFeatures, ok := podFeatures.(map[string]map[string]interface{})
+		if !ok {
+			general.Warningf("podFeatures is invalid, podUID: %s", podUID)
+			continue
+		}
+		borweinContainerInfo[podUID] = podFeatures
 	}
 
 	for _, containerInfo := range requestContainers {
@@ -334,21 +299,27 @@ func (bmrf *BorweinModelResultFetcher) getInferenceRequestForPods(requestContain
 			Values: make([]string, 0, len(req.FeatureNames)),
 		}
 
-		unionFeatureValues.Values = append(unionFeatureValues.Values, nodeFeatureValues...)
+		unionFeatureValues.Values = append(unionFeatureValues.Values, borweinNodeFeatureValues...)
+
+		podFeatures, podOK := borweinContainerInfo[containerInfo.PodUID]
+		if !podOK {
+			return nil, fmt.Errorf("missing feature info for pod: %s/%s, uid: %s",
+				containerInfo.PodNamespace, containerInfo.PodName, containerInfo.PodUID)
+		}
+
+		containerFeatures, containerOK := podFeatures[containerInfo.ContainerName]
+		if !containerOK {
+			return nil, fmt.Errorf("missing feature info for container: %s/%s, uid: %s",
+				containerInfo.PodNamespace, containerInfo.ContainerName, containerInfo.PodUID)
+		}
 
 		for _, containerFeatureName := range bmrf.containerFeatureNames {
-			containerFeatureValue, err := getContainerFeatureValue(callTimestampInSec,
-				containerInfo.PodUID,
-				containerInfo.ContainerName,
-				containerFeatureName,
-				metaServer, metaReader)
-			// Let getContainerFeatureValue decide which feature is allowed to return default value.
-			if err != nil {
-				return nil, fmt.Errorf("getContainerFeatureValue for pod: %s/%s, container: %s failed, err: %v",
-					containerInfo.PodNamespace, containerInfo.PodName, containerInfo.ContainerName, err)
+			containerFeatureValue, ok := containerFeatures[containerFeatureName]
+			if !ok {
+				return nil, fmt.Errorf("getContainerFeatureValue %s for pod: %s/%s, container: %s failed, err: %v",
+					containerFeatureName, containerInfo.PodNamespace, containerInfo.PodName, containerInfo.ContainerName, err)
 			}
-
-			unionFeatureValues.Values = append(unionFeatureValues.Values, containerFeatureValue)
+			unionFeatureValues.Values = append(unionFeatureValues.Values, fmt.Sprintf("%v", containerFeatureValue))
 		}
 
 		if req.PodRequestEntries[containerInfo.PodUID] == nil {
@@ -427,6 +398,8 @@ func NewBorweinModelResultFetcher(fetcherName string, conf *config.Configuration
 	bmrf := &BorweinModelResultFetcher{
 		name:                               fetcherName,
 		emitter:                            emitter,
+		conf:                               conf,
+		extraConf:                          extraConf,
 		qosConfig:                          conf.QoSConfiguration,
 		nodeFeatureNames:                   conf.BorweinConfiguration.NodeFeatureNames,
 		containerFeatureNames:              conf.BorweinConfiguration.ContainerFeatureNames,

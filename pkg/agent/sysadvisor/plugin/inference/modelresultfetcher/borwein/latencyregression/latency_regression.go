@@ -119,7 +119,6 @@ func GetLatencyRegressionPredictResult(metaReader metacache.MetaReader, dryRun b
 	default:
 		return nil, 0, fmt.Errorf("invalid model result type: %T", typedResults)
 	}
-
 	return ret, resultTimestamp, nil
 }
 
