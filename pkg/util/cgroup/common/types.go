@@ -37,7 +37,10 @@ const (
 	// CgroupSubsysNetCls is the net_cls sub-system
 	CgroupSubsysNetCls = "net_cls"
 
+	OfflineBECgroupPrefix = "offline-besteffort"
+
 	PodCgroupPathPrefix        = "pod"
+	CgroupCpuacct              = "cpuacct"
 	CgroupFsRootPath           = "/kubepods"
 	CgroupFsRootPathBestEffort = "/kubepods/besteffort"
 	CgroupFsRootPathBurstable  = "/kubepods/burstable"

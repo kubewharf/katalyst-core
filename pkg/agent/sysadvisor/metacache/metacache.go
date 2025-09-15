@@ -82,6 +82,8 @@ type MetaReader interface {
 	GetFilteredInferenceResult(filterFunc func(result interface{}) (interface{}, error), modelName string) (interface{}, error)
 	// GetInferenceResult gets specified model inference result
 	GetInferenceResult(modelName string) (interface{}, error)
+	// GetModelInput gets model input, the dimension of model input is : "container", "numa", "node"
+	GetModelInput(metricDimension string) (metric map[string]interface{}, err error)
 
 	// GetSupportedWantedFeatureGates gets supported and wanted FeatureGates
 	GetSupportedWantedFeatureGates() (map[string]*advisorsvc.FeatureGate, error)
@@ -128,6 +130,9 @@ type MetaWriter interface {
 	// SetInferenceResult sets specified model inference result
 	SetInferenceResult(modelName string, result interface{}) error
 
+	// SetModelInput sets model input, the dimension of model input is : "container", "numa", "node"
+	SetModelInput(metricDimension string, metric map[string]interface{}) error
+
 	// SetSupportedWantedFeatureGates sets supported and wanted FeatureGates
 	SetSupportedWantedFeatureGates(featureGates map[string]*advisorsvc.FeatureGate) error
 	sync.Locker
@@ -169,6 +174,9 @@ type MetaCacheImp struct {
 	modelToResult map[string]interface{}
 	modelMutex    sync.RWMutex
 
+	modelInput      map[string]map[string]interface{}
+	modelInputMutex sync.RWMutex
+
 	featureGates      map[string]*advisorsvc.FeatureGate
 	featureGatesMutex sync.RWMutex
 
@@ -206,6 +214,7 @@ func NewMetaCacheImp(conf *config.Configuration, emitterPool metricspool.Metrics
 		checkpointName:           stateFileName,
 		emitter:                  emitter,
 		modelToResult:            make(map[string]interface{}),
+		modelInput:               make(map[string]map[string]interface{}),
 		featureGates:             make(map[string]*advisorsvc.FeatureGate),
 		containerCreateTimestamp: make(map[string]int64),
 	}
@@ -317,6 +326,17 @@ func (mc *MetaCacheImp) GetFilteredInferenceResult(filterFunc func(result interf
 // notice it doesn't return a deep copied result
 func (mc *MetaCacheImp) GetInferenceResult(modelName string) (interface{}, error) {
 	return mc.GetFilteredInferenceResult(nil, modelName)
+}
+
+// GetModelInput gets model input, the dimension of model input is : "container", "numa", "node"
+func (mc *MetaCacheImp) GetModelInput(metricDimension string) (map[string]interface{}, error) {
+	mc.modelInputMutex.RLock()
+	defer mc.modelInputMutex.RUnlock()
+
+	if mc.modelInput[metricDimension] == nil {
+		return nil, fmt.Errorf("model input for dimension: %s doesn't exist", metricDimension)
+	}
+	return mc.modelInput[metricDimension], nil
 }
 
 // GetSupportedWantedFeatureGates gets supported and wanted FeatureGates
@@ -575,6 +595,18 @@ func (mc *MetaCacheImp) SetInferenceResult(modelName string, result interface{})
 	defer mc.modelMutex.Unlock()
 
 	mc.modelToResult[modelName] = result
+	return nil
+}
+
+// SetModelInput sets model input
+func (mc *MetaCacheImp) SetModelInput(metricDimension string, metric map[string]interface{}) error {
+	mc.modelInputMutex.Lock()
+	defer mc.modelInputMutex.Unlock()
+
+	if metric == nil {
+		return fmt.Errorf("nil model input")
+	}
+	mc.modelInput[metricDimension] = metric
 	return nil
 }
 
