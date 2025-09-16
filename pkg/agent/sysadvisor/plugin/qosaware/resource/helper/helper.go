@@ -22,6 +22,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 
+	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
@@ -73,6 +74,46 @@ func PodEnableReclaim(ctx context.Context, metaServer *metaserver.MetaServer,
 	}
 
 	return true, nil
+}
+
+// PodDisableReclaimLevel returns the disable reclaim level for a pod.
+// The disable reclaim level indicates at which granularity level the reclaim should be disabled.
+// It fetches the ReclaimResourceIndicators from the metaServer to determine the level.
+// If there's an error fetching the pod or the indicators, or if the pod is considered as baseline,
+// it returns DisableReclaimLevelPod as the default level.
+func PodDisableReclaimLevel(
+	ctx context.Context,
+	metaServer *metaserver.MetaServer,
+	podUID string,
+) v1alpha1.DisableReclaimLevel {
+	// Default to DisableReclaimLevelPod if we can't determine a more specific level
+	disableReclaimLevel := v1alpha1.DisableReclaimLevelPod
+
+	// Try to get the pod by its UID
+	pod, err := metaServer.GetPod(ctx, podUID)
+	if err != nil {
+		// If we can't get the pod, return the default level
+		return disableReclaimLevel
+	}
+
+	// Initialize ReclaimResourceIndicators to store the result
+	indicators := v1alpha1.ReclaimResourceIndicators{}
+
+	// Try to get the service extended indicators for the pod
+	// This will tell us if the pod should have reclaim disabled and at what level
+	baseline, err := metaServer.ServiceExtendedIndicator(ctx, pod.ObjectMeta, &indicators)
+	if err != nil {
+		// Log the error but continue with default behavior
+		general.Errorf("failed to fetch indicators: %v", err)
+	}
+
+	// If the pod is not baseline (baseline is false), use the DisableReclaimLevel from indicators
+	if !baseline && indicators.DisableReclaimLevel != nil {
+		disableReclaimLevel = *indicators.DisableReclaimLevel
+	}
+
+	// Return the determined disable reclaim level
+	return disableReclaimLevel
 }
 
 func PodPerformanceScore(ctx context.Context, metaServer *metaserver.MetaServer, podUID string) (float64, error) {
