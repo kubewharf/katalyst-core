@@ -17,61 +17,41 @@ limitations under the License.
 package file
 
 import (
-	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"reflect"
+
+	"github.com/pkg/errors"
 )
 
-const bufSize = 32 * 1024
-
-// FilesEqual compares 2 files by their contents and returns true if they are equal
-func FilesEqual(path1, path2 string) (bool, error) {
-	f1, err := os.Open(path1)
-	if err != nil {
-		return false, fmt.Errorf("failed to open file %s: %w", path1, err)
-	}
-	defer f1.Close()
-
-	f2, err := os.Open(path2)
-	if err != nil {
-		return false, fmt.Errorf("failed to open file %s: %w", path2, err)
-	}
-	defer f2.Close()
-
-	// Compare file sizes first
-	info1, err := f1.Stat()
-	if err != nil {
-		return false, fmt.Errorf("failed to get stat for file %s: %w", path1, err)
-	}
-	info2, err := f2.Stat()
-	if err != nil {
-		return false, fmt.Errorf("failed to get stat for file %s: %w", path2, err)
-	}
-	if info1.Size() != info2.Size() {
-		return false, nil
-	}
-
-	// Read and compare chunks
-	b1 := make([]byte, bufSize)
-	b2 := make([]byte, bufSize)
-
-	for {
-		n1, err1 := f1.Read(b1)
-		n2, err2 := f2.Read(b2)
-
-		if n1 != n2 || !bytes.Equal(b1[:n1], b2[:n2]) {
-			return false, nil
+// JSONFilesEqual unmarshals the contents of JSON files into structs and checks if they are identical
+func JSONFilesEqual(path1, path2 string) (bool, error) {
+	decode := func(path string) (interface{}, error) {
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open file %s: %w", path, err)
 		}
-		if err1 == io.EOF && err2 == io.EOF {
-			break
+		defer f.Close()
+		var obj interface{}
+		if err := json.NewDecoder(f).Decode(&obj); err != nil {
+			if errors.Is(err, io.EOF) {
+				return obj, nil
+			}
+			return nil, fmt.Errorf("failed to decode file %s: %w", path, err)
 		}
-		if err1 != nil && err2 != io.EOF {
-			return false, err1
-		}
-		if err2 != nil && err2 != io.EOF {
-			return false, err2
-		}
+		return obj, nil
 	}
-	return true, nil
+
+	obj1, err := decode(path1)
+	if err != nil {
+		return false, err
+	}
+	obj2, err := decode(path2)
+	if err != nil {
+		return false, err
+	}
+
+	return reflect.DeepEqual(obj1, obj2), nil
 }

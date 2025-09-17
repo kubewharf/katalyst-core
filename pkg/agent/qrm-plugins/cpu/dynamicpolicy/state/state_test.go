@@ -43,6 +43,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/qrmcheckpointmanager"
 )
 
 const (
@@ -3352,14 +3353,15 @@ func TestTryMigrateState(t *testing.T) {
 				skipStateCorruption:                false,
 				GenerateMachineStateFromPodEntries: generateTestMachineStateFromPodEntries,
 				emitter:                            metrics.DummyMetrics{},
+				hasPreStop:                         tt.preStop,
 			}
 
 			// current checkpoint is pointing to the in memory directory
-			sc.checkpointManager, err = checkpointmanager.NewCheckpointManager(inMemoryTmpDir)
+			sc.qrmCheckpointManager, err = qrmcheckpointmanager.NewQRMCheckpointManager(inMemoryTmpDir, stateDir, checkpointName, "cpu_plugin")
 			assert.NoError(t, err)
 
 			newCheckpoint := NewCPUPluginCheckpoint()
-			err = sc.tryMigrateState(cpuTopology, inMemoryTmpDir, stateDir, tt.preStop, newCheckpoint)
+			err = sc.tryMigrateState(cpuTopology, newCheckpoint)
 
 			if tt.corruptFile {
 				assert.Error(t, err)
@@ -3368,7 +3370,7 @@ func TestTryMigrateState(t *testing.T) {
 			assert.NoError(t, err)
 
 			// check if new checkpoint is created and verify equality
-			err = sc.checkpointManager.GetCheckpoint(checkpointName, newCheckpoint)
+			err = sc.qrmCheckpointManager.GetCurrentCheckpoint(checkpointName, newCheckpoint, false)
 			assert.NoError(t, err)
 
 			// verify old checkpoint file existence

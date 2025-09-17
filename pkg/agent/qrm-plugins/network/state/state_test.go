@@ -29,6 +29,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/qrmcheckpointmanager"
 	"github.com/stretchr/testify/assert"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
@@ -78,6 +79,7 @@ func TestTryMigrateState(t *testing.T) {
 			stateDir := filepath.Join(tmpDir, "state")
 			err := os.Mkdir(stateDir, 0o775)
 			assert.NoError(t, err)
+			defer os.RemoveAll(stateDir)
 
 			qrmConfig := &qrm.QRMPluginsConfiguration{
 				CPUQRMPluginConfig: &qrm.CPUQRMPluginConfig{
@@ -147,14 +149,15 @@ func TestTryMigrateState(t *testing.T) {
 				cache:               defaultCache,
 				skipStateCorruption: false,
 				emitter:             metrics.DummyMetrics{},
+				hasPreStop:          tt.preStop,
 			}
 
 			// current checkpoint is pointing to the in memory directory
-			sc.checkpointManager, err = checkpointmanager.NewCheckpointManager(inMemoryTmpDir)
+			sc.qrmCheckpointManager, err = qrmcheckpointmanager.NewQRMCheckpointManager(inMemoryTmpDir, stateDir, checkpointName, "network_plugin")
 			assert.NoError(t, err)
 
 			newCheckpoint := NewNetworkPluginCheckpoint()
-			err = sc.tryMigrateState(qrmConfig, nics, reservedBandwidth, inMemoryTmpDir, stateDir, tt.preStop, newCheckpoint)
+			err = sc.tryMigrateState(qrmConfig, nics, reservedBandwidth, newCheckpoint)
 
 			if tt.corruptFile {
 				assert.Error(t, err)
@@ -163,7 +166,7 @@ func TestTryMigrateState(t *testing.T) {
 			assert.NoError(t, err)
 
 			// check if new checkpoint is created and verify equality
-			err = sc.checkpointManager.GetCheckpoint(checkpointName, newCheckpoint)
+			err = sc.qrmCheckpointManager.GetCurrentCheckpoint(sc.checkpointName, newCheckpoint, false)
 			assert.NoError(t, err)
 
 			// verify old checkpoint file existence

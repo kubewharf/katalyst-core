@@ -40,6 +40,7 @@ func TestFilesEqual(t *testing.T) {
 	jsonContent := `{"key":"value1", "number": 1}`
 	identicalJsonContent := `{"key":"value1", "number": 1}`
 	differentJsonContent := `{"key":"value1", "number": 0}`
+	differentFormatContent := `{"number": 1, "key": "value1"}`
 
 	tests := []struct {
 		name      string
@@ -48,39 +49,29 @@ func TestFilesEqual(t *testing.T) {
 		wantErr   bool
 	}{
 		{
-			name: "identical text files",
+			name: "one of the files is not of JSON format",
+			setup: func() (string, string) {
+				path1 := createTempFile("hello world")
+				path2 := createTempFile(jsonContent)
+				return path1, path2
+			},
+			wantEqual: false,
+			wantErr:   true,
+		},
+		{
+			name: "both files are not of JSON format",
 			setup: func() (string, string) {
 				path1 := createTempFile("hello world")
 				path2 := createTempFile("hello world")
 				return path1, path2
 			},
-			wantEqual: true,
-			wantErr:   false,
-		},
-		{
-			name: "different text files",
-			setup: func() (string, string) {
-				path1 := createTempFile("hello world")
-				path2 := createTempFile("hello there")
-				return path1, path2
-			},
 			wantEqual: false,
-			wantErr:   false,
-		},
-		{
-			name: "different size",
-			setup: func() (string, string) {
-				path1 := createTempFile("hello world")
-				path2 := createTempFile("hello")
-				return path1, path2
-			},
-			wantEqual: false,
-			wantErr:   false,
+			wantErr:   true,
 		},
 		{
 			name: "one file does not exist",
 			setup: func() (string, string) {
-				path1 := createTempFile("hello world")
+				path1 := createTempFile(jsonContent)
 				return path1, "non-existent-file"
 			},
 			wantEqual: false,
@@ -133,6 +124,16 @@ func TestFilesEqual(t *testing.T) {
 			wantEqual: true,
 			wantErr:   false,
 		},
+		{
+			name: "different formatted JSON files should still return true",
+			setup: func() (string, string) {
+				path1 := createTempFile(jsonContent)
+				path2 := createTempFile(differentFormatContent)
+				return path1, path2
+			},
+			wantEqual: true,
+			wantErr:   false,
+		},
 	}
 	for _, tt := range tests {
 		tt := tt
@@ -140,7 +141,7 @@ func TestFilesEqual(t *testing.T) {
 			t.Parallel()
 			path1, path2 := tt.setup()
 
-			equal, err := FilesEqual(path1, path2)
+			equal, err := JSONFilesEqual(path1, path2)
 
 			if tt.wantErr {
 				assert.Error(t, err)
