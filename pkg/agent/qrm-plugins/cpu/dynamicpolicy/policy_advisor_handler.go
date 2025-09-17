@@ -547,6 +547,7 @@ func (p *DynamicPolicy) applyCgroupConfigs(resp *advisorapi.ListAndWatchResponse
 
 		err = p.checkAndApplyIfCgroupV1(calculationInfo, resources)
 		if err != nil {
+			_ = p.emitter.StoreInt64(util.MetricNameCheckApplyV1Error, 1, metrics.MetricTypeNameCount)
 			return fmt.Errorf("checkAndApplyIfCgroupV1 failed with error: %v", err)
 		}
 
