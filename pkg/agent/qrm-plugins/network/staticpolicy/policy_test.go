@@ -26,8 +26,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
-
 	"github.com/bytedance/mockey"
 	info "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/assert"
@@ -49,6 +47,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/reactor"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	metaserveragent "github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"

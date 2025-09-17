@@ -23,17 +23,19 @@ import (
 	"path/filepath"
 	"testing"
 
+	v1 "k8s.io/api/core/v1"
+	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
+	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
+	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/errors"
+
 	info "github.com/google/cadvisor/info/v1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/qrmcheckpointmanager"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	v1 "k8s.io/api/core/v1"
-	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
-	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/errors"
 )
 
 func TestGetReadonlyState(t *testing.T) {
@@ -167,14 +169,15 @@ func TestTryMigrateState(t *testing.T) {
 				cache:               defaultCache,
 				skipStateCorruption: false,
 				emitter:             metrics.DummyMetrics{},
+				hasPreStop:          tt.preStop,
 			}
 
 			// current checkpoint is pointing to the in memory directory
-			sc.checkpointManager, err = checkpointmanager.NewCheckpointManager(inMemoryTmpDir)
+			sc.qrmCheckpointManager, err = qrmcheckpointmanager.NewQRMCheckpointManager(inMemoryTmpDir, stateDir, checkpointName, "memory_plugin")
 			assert.NoError(t, err)
 
 			newCheckpoint := NewMemoryPluginCheckpoint()
-			err = sc.tryMigrateState(machineInfo, reservedMemory, inMemoryTmpDir, stateDir, tt.preStop, newCheckpoint)
+			err = sc.tryMigrateState(machineInfo, reservedMemory, newCheckpoint)
 
 			if tt.corruptFile {
 				assert.Error(t, err)
@@ -183,7 +186,7 @@ func TestTryMigrateState(t *testing.T) {
 			assert.NoError(t, err)
 
 			// check if new checkpoint is created and verify equality
-			err = sc.checkpointManager.GetCheckpoint(checkpointName, newCheckpoint)
+			err = sc.qrmCheckpointManager.GetCurrentCheckpoint(checkpointName, newCheckpoint, false)
 			assert.NoError(t, err)
 
 			// verify old checkpoint file existence
