@@ -607,13 +607,13 @@ func (p *DynamicPolicy) checkAndApplyAllPodsQuota(calculationInfo *advisorsvc.Ca
 			continue
 		}
 
-		podLimit := limit.Cpu().Value()
+		podLimit := limit.Cpu().MilliValue() // Value() will lose precision of data
 		podCpu, err := cgroupmgr.GetCPUWithRelativePath(podRelativePath)
 		if err != nil {
 			return fmt.Errorf("GetCPUWithRelativePath %s failed with error: %v", podRelativePath, err)
 		}
 
-		podRealQuota := podLimit * int64(podCpu.CpuPeriod)
+		podRealQuota := podLimit * int64(podCpu.CpuPeriod) / 1000
 		podCurrentQuota := podCpu.CpuQuota
 
 		if podRealQuota <= bigGroupQuota {
@@ -743,12 +743,12 @@ func (p *DynamicPolicy) applyAllContainersQuota(pod *v1.Pod, setToLimit bool) er
 	allContainersRelativePathMap := p.getAllContainersRelativePathMap(pod)
 
 	for relativePath, container := range allContainersRelativePathMap {
-		limit := container.Resources.Limits.Cpu().Value()
+		limit := container.Resources.Limits.Cpu().MilliValue() // Value() will lose precision of data
 		containerCpu, err := cgroupmgr.GetCPUWithRelativePath(relativePath)
 		if err != nil {
 			return fmt.Errorf("GetCPUWithRelativePath %s failed with error: %v", relativePath, err)
 		}
-		realQuota := limit * int64(containerCpu.CpuPeriod)
+		realQuota := limit * int64(containerCpu.CpuPeriod) / 1000
 		if setToLimit {
 			if realQuota == containerCpu.CpuQuota {
 				continue
