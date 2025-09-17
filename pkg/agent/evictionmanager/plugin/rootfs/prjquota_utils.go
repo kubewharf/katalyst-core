@@ -139,6 +139,9 @@ func GetDeviceForPathAndCheckPrjquota(path string) (string, bool, error) {
 	}
 
 	_, prjquotaEnabled := bestMatch.Options["prjquota"]
+	if !prjquotaEnabled {
+		_, prjquotaEnabled = bestMatch.SuperOptions["prjquota"]
+	}
 
 	return bestMatch.Source, prjquotaEnabled, nil
 }
