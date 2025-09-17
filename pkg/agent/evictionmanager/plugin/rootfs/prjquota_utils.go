@@ -119,11 +119,11 @@ func sumBytesByFetch(fetch func(projectID uint32) (nextdqblk, error)) (int64, er
 
 var GetMounts = manager.GetMounts
 
-// GetDeviceForPath returns the device path for the given path
-func GetDeviceForPath(path string) (string, error) {
+// GetDeviceForPathAndCheckPrjquota returns the device path and whether prjquota is enabled
+func GetDeviceForPathAndCheckPrjquota(path string) (string, bool, error) {
 	mounts, err := GetMounts()
 	if err != nil {
-		return "", fmt.Errorf("failed to get mounts: %w", err)
+		return "", false, fmt.Errorf("failed to get mounts: %w", err)
 	}
 
 	var bestMatch *procfs.MountInfo
@@ -135,7 +135,10 @@ func GetDeviceForPath(path string) (string, error) {
 		}
 	}
 	if bestMatch == nil {
-		return "", fmt.Errorf("no matching mount for path %s", path)
+		return "", false, fmt.Errorf("no matching mount for path %s", path)
 	}
-	return bestMatch.Source, nil
+
+	_, prjquotaEnabled := bestMatch.Options["prjquota"]
+
+	return bestMatch.Source, prjquotaEnabled, nil
 }

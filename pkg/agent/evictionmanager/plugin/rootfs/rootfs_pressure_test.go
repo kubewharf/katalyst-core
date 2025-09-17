@@ -1072,32 +1072,44 @@ func TestPodRootfsPressureEvictionPlugin_TestGetDeviceForPath(t *testing.T) {
 	origGetMounts := GetMounts
 	defer func() { GetMounts = origGetMounts }()
 
-	// Case 1: path matches /data00/local
+	// Case 1: path matches /data00/local, with prjquota enabled
 	GetMounts = func() ([]*procfs.MountInfo, error) {
 		return []*procfs.MountInfo{
-			{MountPoint: "/", Source: "/dev/root"},
-			{MountPoint: "/data00", Source: "/dev/nvme0n1p3"},
+			{MountPoint: "/", Source: "/dev/root", Options: map[string]string{"rw": ""}},
+			{MountPoint: "/data00", Source: "/dev/nvme0n1p3", Options: map[string]string{"rw": "", "prjquota": ""}},
 		}, nil
 	}
-	device, err := GetDeviceForPath("/data00/local")
+	device, prjquota, err := GetDeviceForPathAndCheckPrjquota("/data00/local")
 	assert.NoError(t, err)
 	assert.Equal(t, "/dev/nvme0n1p3", device)
+	assert.True(t, prjquota, "expected prjquota enabled")
 
-	// Case 2: GetMounts returns error
+	// Case 2: path matches /data00/local, without prjquota
+	GetMounts = func() ([]*procfs.MountInfo, error) {
+		return []*procfs.MountInfo{
+			{MountPoint: "/data00", Source: "/dev/nvme0n1p3", Options: map[string]string{"rw": ""}},
+		}, nil
+	}
+	device, prjquota, err = GetDeviceForPathAndCheckPrjquota("/data00/local")
+	assert.NoError(t, err)
+	assert.Equal(t, "/dev/nvme0n1p3", device)
+	assert.False(t, prjquota, "expected prjquota disabled")
+
+	// Case 3: GetMounts returns error
 	GetMounts = func() ([]*procfs.MountInfo, error) {
 		return nil, fmt.Errorf("fake error")
 	}
-	_, err = GetDeviceForPath("/data00/local")
+	_, _, err = GetDeviceForPathAndCheckPrjquota("/data00/local")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to get mounts")
 
-	// Case 3: no matching mount found
+	// Case 4: no matching mount found
 	GetMounts = func() ([]*procfs.MountInfo, error) {
 		return []*procfs.MountInfo{
-			{MountPoint: "/any", Source: "/dev/root"},
+			{MountPoint: "/any", Source: "/dev/root", Options: map[string]string{"rw": ""}},
 		}, nil
 	}
-	_, err = GetDeviceForPath("/notexist")
+	_, _, err = GetDeviceForPathAndCheckPrjquota("/notexist")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no matching mount")
 }

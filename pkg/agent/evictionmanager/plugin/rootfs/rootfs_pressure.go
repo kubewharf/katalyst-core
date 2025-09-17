@@ -143,21 +143,23 @@ func (r *PodRootfsPressureEvictionPlugin) minimumFreeThresholdMet(rootfsEviction
 	if rootfsEvictionConfig.EnableIgnorePrjquotaLocalStorage && rootfsEvictionConfig.IgnorePrjquotaLocalStoragePath != "" {
 		ignorePath := rootfsEvictionConfig.IgnorePrjquotaLocalStoragePath
 		general.InfoS("Checking rootfs pressure ignore path", "path", ignorePath)
+		device, prjquotaEnabled, err := GetDeviceForPathAndCheckPrjquota(ignorePath)
+		if prjquotaEnabled {
+			if err != nil {
+				general.Errorf("Failed to resolve device for path %q: %v", ignorePath, err)
+				return false
+			}
+			excludeSize, err := GetTotalUsedBytesOfPVProjects(device)
+			if err != nil {
+				general.Errorf("Failed to get project quota used size for device %q: %v", device, err)
+				return false
+			}
 
-		device, err := GetDeviceForPath(ignorePath)
-		if err != nil {
-			general.Errorf("Failed to resolve device for path %q: %v", ignorePath, err)
-			return false
+			imageFsFreeBytes += float64(excludeSize)
+			general.Infof("after considering excludeSize %d, imageFsFreeBytes %d, imageFsCapacityBytes %d", excludeSize, int64(imageFsFreeBytes), int64(imageFsCapacityBytes))
+		} else {
+			general.Infof("mount option prjquota not enabled for path %q: %v", ignorePath, err)
 		}
-
-		excludeSize, err := GetTotalUsedBytesOfPVProjects(device)
-		if err != nil {
-			general.Errorf("Failed to get project quota used size for device %q: %v", device, err)
-			return false
-		}
-
-		imageFsFreeBytes += float64(excludeSize)
-		general.Infof("rootfs: after considering excludeSize %d, imageFsFreeBytes %d, imageFsCapacityBytes %d", excludeSize, int64(imageFsFreeBytes), int64(imageFsCapacityBytes))
 	}
 
 	if rootfsEvictionConfig.MinimumImageFsDiskCapacityThreshold != nil && int64(imageFsCapacityBytes) < rootfsEvictionConfig.MinimumImageFsDiskCapacityThreshold.Value() {
