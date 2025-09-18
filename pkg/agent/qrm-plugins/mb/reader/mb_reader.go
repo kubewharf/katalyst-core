@@ -35,7 +35,12 @@ import (
 const (
 	tolerationTime = 3 * time.Second
 	rootGroup      = "root"
+	maxCCDTotalMB  = 60 * 1024
 )
+
+// LocalIsVictimAndTotalIsAllRead indicates special settings of resctrl controlling reg1 & reg2 which yield
+// resctrl mbm_total_bytes having local+remote reads and mbm_local_bytes having victim data
+var LocalIsVictimAndTotalIsAllRead bool
 
 type MBData struct {
 	MBBody     monitor.GroupMBStats
@@ -193,14 +198,28 @@ func calcGroupMBRate(newCounter, oldCounter []malachitetypes.MBCCDStat, msElapse
 				ccd, ccdCounter.MBTotalCounter, oldCCDCounter.MBTotalCounter)
 		}
 
-		if rateTotalMB < rateLocalMB {
-			return nil, fmt.Errorf("skip invalid mb cal: ccd %v, total %v, locval %v",
-				ccd, rateTotalMB, rateLocalMB)
+		rateRemoteMB := 0
+		if !LocalIsVictimAndTotalIsAllRead {
+			if rateTotalMB < rateLocalMB {
+				return nil, fmt.Errorf("skip invalid mb cal: ccd %v, total %v, locval %v",
+					ccd, rateTotalMB, rateLocalMB)
+			}
+			rateRemoteMB = int(rateTotalMB - rateLocalMB)
+		} else {
+			// we know the total including victim; no idea how much the local and remote really are
+			// assuming all is local as this seems fine except for non-SNB
+			rateTotalMB += rateLocalMB
+			rateLocalMB = rateTotalMB
+		}
+
+		if rateTotalMB > maxCCDTotalMB {
+			return nil, fmt.Errorf("skip invalid mb cal for excessive total: ccd %v, total %v",
+				ccd, rateTotalMB)
 		}
 
 		result[ccd] = monitor.MBInfo{
 			LocalMB:  int(rateLocalMB),
-			RemoteMB: int(rateTotalMB - rateLocalMB),
+			RemoteMB: rateRemoteMB,
 			TotalMB:  int(rateTotalMB),
 		}
 	}

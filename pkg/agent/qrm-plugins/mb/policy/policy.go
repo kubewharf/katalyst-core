@@ -23,6 +23,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/allocator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/domain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/reader"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -72,6 +73,7 @@ func NewGenericPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	general.Infof("[mbm] config: mb active traffic mb threshold %d MB", conf.ActiveTrafficMBThreshold)
 	general.Infof("[mbm] config: no-throtlle groups %v", conf.NoThrottleGroups)
 	general.Infof("[mbm] config: cross-domain groups %v", conf.CrossDomainGroups)
+	general.Infof("[mbm] config: local is victim and total is all read %v", conf.LocalIsVictimAndTotalIsAllRead)
 
 	ccdMinMB := conf.MinCCDMB
 	ccdMaxMB := conf.MaxCCDMB
@@ -83,6 +85,7 @@ func NewGenericPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 
 	// todo: avoid package var
 	monitor.MinActiveMB = conf.ActiveTrafficMBThreshold
+	reader.LocalIsVictimAndTotalIsAllRead = conf.LocalIsVictimAndTotalIsAllRead
 
 	domains, err := domain.NewDomainsByMachineInfo(agentCtx.KatalystMachineInfo, maxIncomingRemoteMB)
 	if err != nil {

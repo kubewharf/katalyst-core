@@ -36,6 +36,8 @@ type MBQRMPluginConfig struct {
 	// ResetResctrlOnly to ensure resctrl FS schemata files in default mode and quit,
 	// to guarantee proper cleaned-up state
 	ResetResctrlOnly bool
+
+	LocalIsVictimAndTotalIsAllRead bool
 }
 
 func NewMBQRMPluginConfig() *MBQRMPluginConfig {

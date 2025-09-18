@@ -36,16 +36,17 @@ const (
 )
 
 type MBOptions struct {
-	PolicyName               string
-	MinCCDMB                 int
-	MaxCCDMB                 int
-	MaxIncomingRemoteMB      int
-	MBCapLimitPercent        int
-	ActiveTrafficMBThreshold int
-	DomainGroupAwareCapacity map[string]int
-	NoThrottleGroups         []string
-	CrossDomainGroups        []string
-	ResetResctrlOnly         bool
+	PolicyName                     string
+	MinCCDMB                       int
+	MaxCCDMB                       int
+	MaxIncomingRemoteMB            int
+	MBCapLimitPercent              int
+	ActiveTrafficMBThreshold       int
+	DomainGroupAwareCapacity       map[string]int
+	NoThrottleGroups               []string
+	CrossDomainGroups              []string
+	ResetResctrlOnly               bool
+	LocalIsVictimAndTotalIsAllRead bool
 }
 
 func NewMBOptions() *MBOptions {
@@ -80,6 +81,8 @@ func (o *MBOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.CrossDomainGroups, "groups sharing mb resource across domains")
 	fs.BoolVar(&o.ResetResctrlOnly, "mb-reset-resctrl-only",
 		o.ResetResctrlOnly, "not to run mb plugin really, and only reset to ensure resctrl FS in default status")
+	fs.BoolVar(&o.LocalIsVictimAndTotalIsAllRead, "mb-local-is-victim",
+		o.LocalIsVictimAndTotalIsAllRead, "turn resctrl local as victim")
 }
 
 func (o *MBOptions) ApplyTo(conf *qrm.MBQRMPluginConfig) error {
@@ -93,5 +96,6 @@ func (o *MBOptions) ApplyTo(conf *qrm.MBQRMPluginConfig) error {
 	conf.NoThrottleGroups = o.NoThrottleGroups
 	conf.DomainGroupAwareCapacity = o.DomainGroupAwareCapacity
 	conf.ResetResctrlOnly = o.ResetResctrlOnly
+	conf.LocalIsVictimAndTotalIsAllRead = o.LocalIsVictimAndTotalIsAllRead
 	return nil
 }
