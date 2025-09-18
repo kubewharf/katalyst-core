@@ -66,8 +66,7 @@ type BaseOptions struct {
 	APIAuthTokenFile         string
 
 	// configurations for runtime
-	RuntimeEndpoint    string
-	HaveKataContainers bool
+	RuntimeEndpoint string
 
 	// configurations for machine-info
 	MachineNetMultipleNS                                bool
@@ -144,8 +143,6 @@ func (o *BaseOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	fs.StringVar(&o.RuntimeEndpoint, "remote-runtime-endpoint", o.RuntimeEndpoint,
 		"The endpoint of remote runtime service")
-	fs.BoolVar(&o.HaveKataContainers, "remote-have-kata-containers", o.HaveKataContainers,
-		"if set as true, katalyst will try to find cgroup path for kata containers")
 
 	fs.BoolVar(&o.MachineNetMultipleNS, "machine-net-multi-ns", o.MachineNetMultipleNS,
 		"if set as true, we should collect network interfaces from multiple ns")
@@ -196,7 +193,6 @@ func (o *BaseOptions) ApplyTo(c *global.BaseConfiguration) error {
 	c.APIAuthTokenFile = o.APIAuthTokenFile
 
 	c.RuntimeEndpoint = o.RuntimeEndpoint
-	c.HaveKataContainers = o.HaveKataContainers
 	return nil
 }
 

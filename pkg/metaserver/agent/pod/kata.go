@@ -39,7 +39,7 @@ type KataContainerFetcher struct {
 	runtimePodFetcher RuntimePodFetcher
 }
 
-func NewKataContainerFetcher(runtimePodFetcher RuntimePodFetcher) *KataContainerFetcher {
+func RegisterKataContainerFetcher(runtimePodFetcher RuntimePodFetcher) {
 	kataContainerFetcher := &KataContainerFetcher{
 		runtimePodFetcher: runtimePodFetcher,
 	}
@@ -58,8 +58,6 @@ func NewKataContainerFetcher(runtimePodFetcher RuntimePodFetcher) *KataContainer
 		common.RegisterAbsoluteCgroupPathHandler(kataContainerAbsoluteCgroupPathHandler)
 		common.RegisterRelativeCgroupPathHandler(kataContainerRelativeCgroupPathHandler)
 	})
-
-	return kataContainerFetcher
 }
 
 // getKataContainerAbsoluteCgroupPath attempts to get the absolute cgroup path of a kata container

@@ -98,19 +98,15 @@ func NewPodFetcher(
 		runtimePodFetcher = nil
 	}
 
-	var kataContainerFetcher *KataContainerFetcher
-	if baseConf.HaveKataContainers {
-		kataContainerFetcher = NewKataContainerFetcher(runtimePodFetcher)
-	}
+	RegisterKataContainerFetcher(runtimePodFetcher)
 
 	return &podFetcherImpl{
-		kubeletPodFetcher:    NewKubeletPodFetcher(baseConf),
-		runtimePodFetcher:    runtimePodFetcher,
-		emitter:              emitter,
-		baseConf:             baseConf,
-		podConf:              podConf,
-		cgroupRootPaths:      cgroupRootPaths,
-		kataContainerFetcher: kataContainerFetcher,
+		kubeletPodFetcher: NewKubeletPodFetcher(baseConf),
+		runtimePodFetcher: runtimePodFetcher,
+		emitter:           emitter,
+		baseConf:          baseConf,
+		podConf:           podConf,
+		cgroupRootPaths:   cgroupRootPaths,
 	}, nil
 }
 
