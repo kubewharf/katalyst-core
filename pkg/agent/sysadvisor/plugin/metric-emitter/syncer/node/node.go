@@ -59,6 +59,8 @@ var nodeRawMetricNameMapping = map[string]string{
 // to the standard metricName (used by custom-metric-api-server)
 var nodeNUMARawMetricNameMapping = map[string]string{
 	consts.MetricTotalPsMemBandwidthNuma: apimetricnode.CustomMetricNUMAMemoryBandwidthTotal,
+	consts.MetricCPUUsageNuma:            apimetricnode.CustomMetricNUMACPUUsage,
+	consts.MetricMemUsedNuma:             apimetricnode.CustomMetricNUMAMemoryUsage,
 }
 
 // nodeCachedMetricNameMapping maps the cached metricName (processed by plugin.SysAdvisorPlugin)
