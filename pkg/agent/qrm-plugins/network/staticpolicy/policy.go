@@ -138,8 +138,8 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 		return false, agent.ComponentStub{}, fmt.Errorf("getReservedBandwidth failed with error: %v", err)
 	}
 
-	stateImpl, err := state.NewCheckpointState(conf.QRMPluginsConfiguration, conf.GenericQRMPluginConfiguration.StateFileDirectory, NetworkPluginStateFileName,
-		NetworkResourcePluginPolicyNameStatic, agentCtx.MachineInfo, enabledNICs, reservation, conf.SkipNetworkStateCorruption, wrappedEmitter, conf.GenericQRMPluginConfiguration.EnableInMemoryState)
+	stateImpl, err := state.NewCheckpointState(conf.QRMPluginsConfiguration, conf.StateDirectoryConfiguration, NetworkPluginStateFileName,
+		NetworkResourcePluginPolicyNameStatic, agentCtx.MachineInfo, enabledNICs, reservation, conf.SkipNetworkStateCorruption, wrappedEmitter)
 	if err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("NewCheckpointState failed with error: %v", err)
 	}

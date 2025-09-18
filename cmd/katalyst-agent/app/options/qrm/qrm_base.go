@@ -19,12 +19,12 @@ package qrm
 import (
 	cliflag "k8s.io/component-base/cli/flag"
 
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/qrm/statedirectory"
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 )
 
 type GenericQRMPluginOptions struct {
 	QRMPluginSocketDirs         []string
-	StateFileDirectory          string
 	ExtraStateFileAbsPath       string
 	PodDebugAnnoKeys            []string
 	UseKubeletReservedConfig    bool
@@ -32,16 +32,16 @@ type GenericQRMPluginOptions struct {
 	PodLabelKeptKeys            []string
 	EnableReclaimNUMABinding    bool
 	EnableSNBHighNumaPreference bool
-	EnableInMemoryState         bool
+	*statedirectory.StateDirectoryOptions
 }
 
 func NewGenericQRMPluginOptions() *GenericQRMPluginOptions {
 	return &GenericQRMPluginOptions{
 		QRMPluginSocketDirs:   []string{"/var/lib/kubelet/plugins_registry"},
-		StateFileDirectory:    "/var/lib/katalyst/qrm_advisor",
 		PodDebugAnnoKeys:      []string{},
 		PodAnnotationKeptKeys: []string{},
 		PodLabelKeptKeys:      []string{},
+		StateDirectoryOptions: statedirectory.NewStateDirectoryOptions(),
 	}
 }
 
@@ -50,7 +50,6 @@ func (o *GenericQRMPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	fs.StringSliceVar(&o.QRMPluginSocketDirs, "qrm-socket-dirs",
 		o.QRMPluginSocketDirs, "socket file directories that qrm plugins communicate witch other components")
-	fs.StringVar(&o.StateFileDirectory, "qrm-state-dir", o.StateFileDirectory, "Directory that qrm plugins are using")
 	fs.StringVar(&o.ExtraStateFileAbsPath, "qrm-extra-state-file", o.ExtraStateFileAbsPath, "The absolute path to an extra state file to specify cpuset.mems for specific pods")
 	fs.StringSliceVar(&o.PodDebugAnnoKeys, "qrm-pod-debug-anno-keys",
 		o.PodDebugAnnoKeys, "pod annotations keys to identify the pod is a debug pod, and qrm plugins will apply specific strategy to it")
@@ -64,13 +63,11 @@ func (o *GenericQRMPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.EnableReclaimNUMABinding, "if set true, reclaim pod will be allocated on a specific NUMA node best-effort, otherwise, reclaim pod will be allocated on multi NUMA nodes")
 	fs.BoolVar(&o.EnableSNBHighNumaPreference, "enable-snb-high-numa-preference",
 		o.EnableSNBHighNumaPreference, "default false,if set true, snb pod will be preferentially allocated on high numa node")
-	fs.BoolVar(&o.EnableInMemoryState, "qrm-enable-in-memory-state",
-		o.EnableInMemoryState, "if set true, the state will be stored in tmpfs")
+	o.StateDirectoryOptions.AddFlags(fss)
 }
 
 func (o *GenericQRMPluginOptions) ApplyTo(conf *qrmconfig.GenericQRMPluginConfiguration) error {
 	conf.QRMPluginSocketDirs = o.QRMPluginSocketDirs
-	conf.StateFileDirectory = o.StateFileDirectory
 	conf.ExtraStateFileAbsPath = o.ExtraStateFileAbsPath
 	conf.PodDebugAnnoKeys = o.PodDebugAnnoKeys
 	conf.UseKubeletReservedConfig = o.UseKubeletReservedConfig
@@ -78,7 +75,10 @@ func (o *GenericQRMPluginOptions) ApplyTo(conf *qrmconfig.GenericQRMPluginConfig
 	conf.PodLabelKeptKeys = append(conf.PodLabelKeptKeys, o.PodLabelKeptKeys...)
 	conf.EnableReclaimNUMABinding = o.EnableReclaimNUMABinding
 	conf.EnableSNBHighNumaPreference = o.EnableSNBHighNumaPreference
-	conf.EnableInMemoryState = o.EnableInMemoryState
+
+	if err := o.StateDirectoryOptions.ApplyTo(conf.StateDirectoryConfiguration); err != nil {
+		return err
+	}
 
 	return nil
 }

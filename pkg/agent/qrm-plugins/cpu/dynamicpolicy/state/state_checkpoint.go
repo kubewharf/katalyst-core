@@ -23,7 +23,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/inmemorystate"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
@@ -52,19 +52,17 @@ type stateCheckpoint struct {
 	skipStateCorruption                bool
 	GenerateMachineStateFromPodEntries GenerateMachineStateFromPodEntriesFunc
 	emitter                            metrics.MetricEmitter
-	// Determines if we want to store the state in memory (tmpfs) or disk
-	isInMemoryState bool
 }
 
 var _ State = &stateCheckpoint{}
 
 func NewCheckpointState(
-	stateDir, checkpointName, policyName string,
-	topology *machine.CPUTopology, skipStateCorruption bool,
-	generateMachineStateFunc GenerateMachineStateFromPodEntriesFunc,
-	emitter metrics.MetricEmitter, isInMemoryState bool,
+	stateDirectoryConfig *statedirectory.StateDirectoryConfiguration, checkpointName, policyName string,
+	topology *machine.CPUTopology, skipStateCorruption bool, generateMachineStateFunc GenerateMachineStateFromPodEntriesFunc,
+	emitter metrics.MetricEmitter,
 ) (State, error) {
-	checkpointManager, err := inmemorystate.CreateCheckpointManager(stateDir, inmemorystate.TmpfsCheckpointPath, isInMemoryState)
+	currentStateDir, otherStateDir := stateDirectoryConfig.GetCurrentAndOtherStateFileDirectory()
+	checkpointManager, err := checkpointmanager.NewCheckpointManager(currentStateDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize checkpoint manager: %v", err)
 	}
@@ -77,17 +75,18 @@ func NewCheckpointState(
 		skipStateCorruption:                skipStateCorruption,
 		GenerateMachineStateFromPodEntries: generateMachineStateFunc,
 		emitter:                            emitter,
-		isInMemoryState:                    isInMemoryState,
 	}
 
-	if err := sc.RestoreState(stateDir, topology); err != nil {
+	if err := sc.restoreState(otherStateDir, topology); err != nil {
 		return nil, fmt.Errorf("could not restore state from checkpoint: %v, please drain this node and delete "+
-			"the cpu plugin checkpoint file %q before restarting Kubelet", err, path.Join(stateDir, checkpointName))
+			"the cpu plugin checkpoint file %q before restarting Kubelet", err, path.Join(currentStateDir, checkpointName))
 	}
 	return sc, nil
 }
 
-func (sc *stateCheckpoint) RestoreState(stateDir string, topology *machine.CPUTopology) error {
+// restoreState is first done by searching the current directory for the state file.
+// If it does not exist, we search the other directory for the state file and try to migrate the state file over to the current directory.
+func (sc *stateCheckpoint) restoreState(otherStateDir string, topology *machine.CPUTopology) error {
 	sc.Lock()
 	defer sc.Unlock()
 	var err error
@@ -97,7 +96,7 @@ func (sc *stateCheckpoint) RestoreState(stateDir string, topology *machine.CPUTo
 	if err = sc.checkpointManager.GetCheckpoint(sc.checkpointName, checkpoint); err != nil {
 		if err == errors.ErrCheckpointNotFound {
 			// We cannot find checkpoint, so it is possible that previous checkpoint was stored in either disk or memory
-			return sc.tryMigrateState(topology, stateDir, checkpoint)
+			return sc.tryMigrateState(topology, otherStateDir, checkpoint)
 		} else if err == errors.ErrCorruptCheckpoint {
 			if !sc.skipStateCorruption {
 				return err
@@ -147,15 +146,21 @@ func (sc *stateCheckpoint) populateCacheAndState(
 	return nil
 }
 
-// tryMigrateState tries to migrate state from disk to memory or from memory to disk during initialisation of stateCheckpoint
+// tryMigrateState tries to migrate the state file from the other directory to current directory.
+// If the other directory does not have a state file, then we build a new checkpoint.
 func (sc *stateCheckpoint) tryMigrateState(
-	topology *machine.CPUTopology, stateDir string, checkpoint *CPUPluginCheckpoint,
+	topology *machine.CPUTopology, otherStateDir string, checkpoint *CPUPluginCheckpoint,
 ) error {
 	var foundAndSkippedStateCorruption bool
 	klog.Infof("[cpu_plugin] trying to migrate state")
 
+	// Build new checkpoint if the state directory that we want to migrate from is empty
+	if otherStateDir == "" {
+		return sc.storeState()
+	}
+
 	// Get the old checkpoint using the provided file directory
-	oldCheckpointManager, err := inmemorystate.CreateCheckpointManager(stateDir, inmemorystate.TmpfsCheckpointPath, !sc.isInMemoryState)
+	oldCheckpointManager, err := checkpointmanager.NewCheckpointManager(otherStateDir)
 	if err != nil {
 		return fmt.Errorf("[cpu_plugin] failed to initialize old checkpoint manager for migration: %v", err)
 	}
@@ -163,7 +168,7 @@ func (sc *stateCheckpoint) tryMigrateState(
 	if err = oldCheckpointManager.GetCheckpoint(sc.checkpointName, checkpoint); err != nil {
 		if err == errors.ErrCheckpointNotFound {
 			// Old checkpoint file is not found, so we just store state in new checkpoint
-			general.Infof("[cpu_plugin] checkpoint %v doesn't exist in dir %v, create it", sc.checkpointName, stateDir)
+			general.Infof("[cpu_plugin] checkpoint %v doesn't exist in dir %v, create it", sc.checkpointName, otherStateDir)
 			return sc.storeState()
 		} else if err == errors.ErrCorruptCheckpoint {
 			if !sc.skipStateCorruption {
@@ -183,6 +188,11 @@ func (sc *stateCheckpoint) tryMigrateState(
 	// always store state after migrating to new checkpoint
 	if err = sc.storeState(); err != nil {
 		return fmt.Errorf("[cpu_plugin] failed to store checkpoint state during end of migration: %v", err)
+	}
+
+	// remove old checkpoint file
+	if err = oldCheckpointManager.RemoveCheckpoint(sc.checkpointName); err != nil {
+		return fmt.Errorf("[cpu_plugin] failed to remove old checkpoint: %v", err)
 	}
 
 	klog.Infof("[cpu_plugin] migrate checkpoint succeeded")

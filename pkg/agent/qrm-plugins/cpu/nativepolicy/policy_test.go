@@ -33,6 +33,7 @@ import (
 	nativepolicyutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/nativepolicy/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -42,8 +43,11 @@ const (
 )
 
 func getTestNativePolicy(topology *machine.CPUTopology, stateFileDirectory string) (*NativePolicy, error) {
-	stateImpl, err := state.NewCheckpointState(stateFileDirectory, cpuPluginStateFileName,
-		cpuconsts.CPUResourcePluginPolicyNameNative, topology, false, nativepolicyutil.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{}, false)
+	stateDirectoryConfig := &statedirectory.StateDirectoryConfiguration{
+		StateFileDirectory: stateFileDirectory,
+	}
+	stateImpl, err := state.NewCheckpointState(stateDirectoryConfig, cpuPluginStateFileName,
+		cpuconsts.CPUResourcePluginPolicyNameNative, topology, false, nativepolicyutil.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
 	if err != nil {
 		return nil, err
 	}

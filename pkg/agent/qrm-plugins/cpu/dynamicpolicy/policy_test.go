@@ -27,6 +27,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
+
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -115,7 +117,10 @@ func getTestDynamicPolicyWithInitialization(topology *machine.CPUTopology, state
 }
 
 func getTestDynamicPolicyWithoutInitialization(topology *machine.CPUTopology, stateFileDirectory string) (*DynamicPolicy, error) {
-	stateImpl, err := state.NewCheckpointState(stateFileDirectory, cpuPluginStateFileName, cpuconsts.CPUResourcePluginPolicyNameDynamic, topology, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{}, false)
+	stateDirectoryConfig := &statedirectory.StateDirectoryConfiguration{
+		StateFileDirectory: stateFileDirectory,
+	}
+	stateImpl, err := state.NewCheckpointState(stateDirectoryConfig, cpuPluginStateFileName, cpuconsts.CPUResourcePluginPolicyNameDynamic, topology, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
 	if err != nil {
 		return nil, err
 	}
@@ -6482,7 +6487,9 @@ func TestNewDynamicPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(testingDir)
-	conf.GenericQRMPluginConfiguration.StateFileDirectory = testingDir
+	conf.GenericQRMPluginConfiguration.StateDirectoryConfiguration = &statedirectory.StateDirectoryConfiguration{
+		StateFileDirectory: testingDir,
+	}
 	type args struct {
 		agentCtx  *componentagent.GenericContext
 		conf      *config.Configuration

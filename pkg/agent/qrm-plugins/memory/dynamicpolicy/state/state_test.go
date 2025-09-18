@@ -17,17 +17,17 @@ limitations under the License.
 package state
 
 import (
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 
 	info "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/inmemorystate"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -55,16 +55,11 @@ func TestGetWriteOnlyState(t *testing.T) {
 func TestTryMigrateState(t *testing.T) {
 	t.Parallel()
 
-	tmpDir, err := ioutil.TempDir("", "checkpoint-test")
-	assert.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	inMemoryTmpDir, err := ioutil.TempDir("", "checkpoint-memory-test")
-	assert.NoError(t, err)
-	defer os.RemoveAll(inMemoryTmpDir)
+	tmpDir := t.TempDir()
+	inMemoryTmpDir := t.TempDir()
 
 	stateDir := filepath.Join(tmpDir, "state")
-	err = os.MkdirAll(stateDir, 0o775)
+	err := os.MkdirAll(stateDir, 0o775)
 	assert.NoError(t, err)
 
 	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
@@ -79,7 +74,7 @@ func TestTryMigrateState(t *testing.T) {
 	checkpointName := "test-checkpoint"
 
 	// create old checkpoint manager to save checkpoint
-	oldCheckpointManager, err := inmemorystate.CreateCheckpointManager(stateDir, inMemoryTmpDir, false)
+	oldCheckpointManager, err := checkpointmanager.NewCheckpointManager(stateDir)
 	assert.NoError(t, err)
 
 	oldCheckpoint := NewMemoryPluginCheckpoint()
@@ -96,11 +91,12 @@ func TestTryMigrateState(t *testing.T) {
 		policyName:          policyName,
 		checkpointName:      checkpointName,
 		cache:               defaultCache,
-		isInMemoryState:     true,
 		skipStateCorruption: false,
 		emitter:             metrics.DummyMetrics{},
 	}
-	sc.checkpointManager, err = inmemorystate.CreateCheckpointManager(stateDir, inMemoryTmpDir, true)
+
+	// current checkpoint is pointing to the in memory directory
+	sc.checkpointManager, err = checkpointmanager.NewCheckpointManager(inMemoryTmpDir)
 	assert.NoError(t, err)
 
 	newCheckpoint := NewMemoryPluginCheckpoint()
