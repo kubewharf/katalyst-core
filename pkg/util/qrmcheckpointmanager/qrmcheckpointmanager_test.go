@@ -110,7 +110,50 @@ func TestQRMCheckpointManager_GetCurrentCheckpoint(t *testing.T) {
 	}
 }
 
-func TestQRMCheckpointManager_ValidateCheckpoint(t *testing.T) {
+func TestQRMCheckpointManager_GetPreviousCheckpoint(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name                  string
+		hasPreviousCheckpoint bool
+	}{
+		{
+			name:                  "no previous checkpoint",
+			hasPreviousCheckpoint: false,
+		},
+		{
+			name:                  "has previous checkpoint",
+			hasPreviousCheckpoint: true,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			previousStateDir := t.TempDir()
+			qrmCheckpointManager, err := NewQRMCheckpointManager(t.TempDir(), previousStateDir, "test_checkpoint", "test_plugin")
+			assert.NoError(t, err)
+
+			checkpoint := &mockCheckpoint{Content: "test_content"}
+			if tt.hasPreviousCheckpoint {
+				err := qrmCheckpointManager.previousCheckpointInfo.CreateCheckpoint("test_checkpoint", checkpoint)
+				assert.NoError(t, err)
+			}
+
+			newCheckpoint := &mockCheckpoint{}
+			err = qrmCheckpointManager.GetPreviousCheckpoint("test_checkpoint", newCheckpoint)
+
+			if !tt.hasPreviousCheckpoint {
+				assert.Error(t, err)
+				assert.Equal(t, errors.ErrCheckpointNotFound, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, checkpoint, newCheckpoint)
+			}
+		})
+	}
+}
+
+func TestQRMCheckpointManager_ValidateCheckpointFilesMigration(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name    string

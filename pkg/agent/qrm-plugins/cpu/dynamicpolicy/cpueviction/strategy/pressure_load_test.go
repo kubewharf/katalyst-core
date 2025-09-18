@@ -24,8 +24,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
@@ -43,6 +41,7 @@ import (
 	qrmstate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
@@ -64,7 +63,9 @@ const (
 	defaultReservedForSystem                        = 0
 )
 
-func makeMetaServer(metricsFetcher metrictypes.MetricsFetcher, cpuTopology *machine.CPUTopology) *metaserver.MetaServer {
+func makeMetaServer(
+	metricsFetcher metrictypes.MetricsFetcher, cpuTopology *machine.CPUTopology,
+) *metaserver.MetaServer {
 	metaServer := &metaserver.MetaServer{
 		MetaAgent: &agent.MetaAgent{},
 	}
@@ -77,7 +78,8 @@ func makeMetaServer(metricsFetcher metrictypes.MetricsFetcher, cpuTopology *mach
 	return metaServer
 }
 
-func makeConf(metricRingSize int, gracePeriod int64, loadUpperBoundRatio, loadLowerBoundRatio,
+func makeConf(
+	metricRingSize int, gracePeriod int64, loadUpperBoundRatio, loadLowerBoundRatio,
 	loadThresholdMetPercentage float64, reservedForReclaim, reservedForAllocate string, reservedForSystem int,
 ) *config.Configuration {
 	conf := config.NewConfiguration()
