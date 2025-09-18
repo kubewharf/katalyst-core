@@ -26,6 +26,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
+
 	"github.com/bytedance/mockey"
 	info "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/assert"
@@ -179,8 +181,11 @@ func makeStaticPolicy(t *testing.T, hasNic bool) *StaticPolicy {
 	assert.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	stateImpl, err := state.NewCheckpointState(mockQrmConfig, tmpDir, NetworkPluginStateFileName,
-		NetworkResourcePluginPolicyNameStatic, &info.MachineInfo{}, availableNICs, reservation, false, metrics.DummyMetrics{}, false)
+	stateDirectoryConfig := &statedirectory.StateDirectoryConfiguration{
+		StateFileDirectory: tmpDir,
+	}
+	stateImpl, err := state.NewCheckpointState(mockQrmConfig, stateDirectoryConfig, NetworkPluginStateFileName,
+		NetworkResourcePluginPolicyNameStatic, &info.MachineInfo{}, availableNICs, reservation, false, metrics.DummyMetrics{})
 	assert.NoError(t, err)
 
 	return &StaticPolicy{

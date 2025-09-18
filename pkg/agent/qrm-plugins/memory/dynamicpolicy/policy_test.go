@@ -32,6 +32,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
+
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/rlimit"
 	info "github.com/google/cadvisor/info/v1"
@@ -131,8 +133,11 @@ func getTestDynamicPolicyWithInitialization(topology *machine.CPUTopology, machi
 		consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
 	})
 
-	stateImpl, err := state.NewCheckpointState(stateFileDirectory, memoryPluginStateFileName,
-		memconsts.MemoryResourcePluginPolicyNameDynamic, topology, machineInfo, resourcesReservedMemory, false, metrics.DummyMetrics{}, false)
+	stateDirectoryConfig := &statedirectory.StateDirectoryConfiguration{
+		StateFileDirectory: stateFileDirectory,
+	}
+	stateImpl, err := state.NewCheckpointState(stateDirectoryConfig, memoryPluginStateFileName,
+		memconsts.MemoryResourcePluginPolicyNameDynamic, topology, machineInfo, resourcesReservedMemory, false, metrics.DummyMetrics{})
 	if err != nil {
 		return nil, fmt.Errorf("NewCheckpointState failed with error: %v", err)
 	}
@@ -3222,7 +3227,9 @@ func TestNewAndStartDynamicPolicy(t *testing.T) {
 			GenericAgentConfiguration: &configagent.GenericAgentConfiguration{
 				QRMAdvisorConfiguration: &global.QRMAdvisorConfiguration{},
 				GenericQRMPluginConfiguration: &qrmconfig.GenericQRMPluginConfiguration{
-					StateFileDirectory:  tmpDir,
+					StateDirectoryConfiguration: &statedirectory.StateDirectoryConfiguration{
+						StateFileDirectory: tmpDir,
+					},
 					QRMPluginSocketDirs: []string{path.Join(tmpDir, "test.sock")},
 				},
 			},
