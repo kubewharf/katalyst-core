@@ -26,11 +26,13 @@ type StateDirectoryOptions struct {
 	StateFileDirectory         string
 	InMemoryStateFileDirectory string
 	EnableInMemoryState        bool
+	HasPreStop                 bool
 }
 
 func NewStateDirectoryOptions() *StateDirectoryOptions {
 	return &StateDirectoryOptions{
-		StateFileDirectory: "/var/lib/katalyst/qrm_advisor",
+		StateFileDirectory:         "/var/lib/katalyst/qrm_advisor",
+		InMemoryStateFileDirectory: "/dev/shm/qrm/state",
 	}
 }
 
@@ -42,11 +44,14 @@ func (o *StateDirectoryOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.InMemoryStateFileDirectory, "The in memory directory to store the state file.")
 	fs.BoolVar(&o.EnableInMemoryState, "qrm-enable-in-memory-state",
 		o.EnableInMemoryState, "if set true, the state will be stored in the in-memory directory.")
+	fs.BoolVar(&o.HasPreStop, "qrm-has-pre-stop",
+		o.HasPreStop, "if set true, there is a pre-stop script in place.")
 }
 
 func (o *StateDirectoryOptions) ApplyTo(conf *statedirectory.StateDirectoryConfiguration) error {
 	conf.StateFileDirectory = o.StateFileDirectory
 	conf.InMemoryStateFileDirectory = o.InMemoryStateFileDirectory
 	conf.EnableInMemoryState = o.EnableInMemoryState
+	conf.HasPreStop = o.HasPreStop
 	return nil
 }

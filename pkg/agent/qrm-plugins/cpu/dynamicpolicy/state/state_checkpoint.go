@@ -17,6 +17,7 @@ limitations under the License.
 package state
 
 import (
+	stdErrors "errors"
 	"fmt"
 	"path"
 	"reflect"
@@ -62,9 +63,9 @@ func NewCheckpointState(
 	generateMachineStateFunc GenerateMachineStateFromPodEntriesFunc,
 	emitter metrics.MetricEmitter,
 ) (State, error) {
-	currentStateDir, otherStateDir := stateDirectoryConfig.GetCurrentAndOtherStateFileDirectory()
-	// If there is an empty otherStateDir, this means that there is no pre-stop script in place
-	hasPreStop := otherStateDir != ""
+	currentStateDir, otherStateDir := stateDirectoryConfig.GetCurrentAndPreviousStateFileDirectory()
+	hasPreStop := stateDirectoryConfig.HasPreStop
+
 	qrmCheckpointManager, err := qrmcheckpointmanager.NewQRMCheckpointManager(currentStateDir, otherStateDir, checkpointName, "cpu_plugin")
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize checkpoint manager: %v", err)
@@ -98,10 +99,10 @@ func (sc *stateCheckpoint) restoreState(topology *machine.CPUTopology) error {
 
 	checkpoint := NewCPUPluginCheckpoint()
 	if err = sc.qrmCheckpointManager.GetCurrentCheckpoint(sc.checkpointName, checkpoint, true); err != nil {
-		if err == errors.ErrCheckpointNotFound {
+		if stdErrors.Is(err, errors.ErrCheckpointNotFound) {
 			// We cannot find checkpoint, so it is possible that previous checkpoint was stored in either disk or memory
 			return sc.tryMigrateState(topology, checkpoint)
-		} else if err == errors.ErrCorruptCheckpoint {
+		} else if stdErrors.Is(err, errors.ErrCorruptCheckpoint) {
 			if !sc.skipStateCorruption {
 				return err
 			}
@@ -164,11 +165,11 @@ func (sc *stateCheckpoint) tryMigrateState(
 	}
 
 	if err := sc.qrmCheckpointManager.GetPreviousCheckpoint(sc.checkpointName, checkpoint); err != nil {
-		if err == errors.ErrCheckpointNotFound {
+		if stdErrors.Is(err, errors.ErrCheckpointNotFound) {
 			// Old checkpoint file is not found, so we just store state in new checkpoint
 			general.Infof("[cpu_plugin] checkpoint %v doesn't exist, create it", sc.checkpointName)
 			return sc.storeState()
-		} else if err == errors.ErrCorruptCheckpoint {
+		} else if stdErrors.Is(err, errors.ErrCorruptCheckpoint) {
 			if !sc.skipStateCorruption {
 				return err
 			}
