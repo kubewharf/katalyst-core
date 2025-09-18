@@ -75,8 +75,8 @@ type KubeletConfiguration struct {
 }
 
 type RuntimeConfiguration struct {
-	RuntimeEndpoint    string
-	HaveKataContainers bool
+	RuntimeEndpoint       string
+	SupportKataContainers bool
 }
 
 type MalachiteConfiguration struct {

@@ -54,6 +54,14 @@ func TestGetPodAbsCgroupPath(t *testing.T) {
 	as.NotNil(err)
 }
 
+func TestGetPodRelativeCgroupPath(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+	_, err := GetPodRelativeCgroupPath("")
+	as.NotNil(err)
+}
+
 func TestGetContainerAbsCgroupPath(t *testing.T) {
 	t.Parallel()
 
