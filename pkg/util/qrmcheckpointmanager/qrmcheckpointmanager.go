@@ -98,14 +98,14 @@ func (cm *QRMCheckpointManager) GetPreviousCheckpoint(
 	}
 
 	if err := previousCheckpointManager.GetCheckpoint(checkpointName, checkpoint); err != nil {
-		return fmt.Errorf("[%v] previous checkpoint %v not found: %v", cm.pluginName, checkpointName, err)
+		return err
 	}
 
 	return nil
 }
 
 // ValidateCheckpointFilesMigration checks if the two checkpoint files are equal after migrating from previous checkpoint to current checkpoint
-// If they are not equal, we fall back to the previous checkpoint and continue using it.
+// If they are not equal, we fall back to the previous checkpoint and continue using it, and make sure we remove the current checkpoint
 // If they are equal, we remove the previous checkpoint.
 func (cm *QRMCheckpointManager) ValidateCheckpointFilesMigration() error {
 	equal, err := cm.checkpointFilesEqual()
@@ -114,6 +114,9 @@ func (cm *QRMCheckpointManager) ValidateCheckpointFilesMigration() error {
 	}
 	if !equal {
 		klog.Infof("[%v] checkpoint files are not equal, migration failed, fall back to previous checkpoint", cm.pluginName)
+		if err := cm.currentCheckpointInfo.CheckpointManager.RemoveCheckpoint(cm.checkpointName); err != nil {
+			return fmt.Errorf("[%v] failed to remove current checkpoint %v during fallback: %v", cm.pluginName, cm.checkpointName, err)
+		}
 		cm.currentCheckpointInfo = cm.previousCheckpointInfo
 	} else {
 		klog.Infof("[%v] checkpoint files are equal, try to remove previous checkpoint", cm.pluginName)
