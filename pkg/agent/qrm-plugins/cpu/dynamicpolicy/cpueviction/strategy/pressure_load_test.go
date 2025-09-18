@@ -24,6 +24,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
@@ -103,10 +105,13 @@ func makeConf(metricRingSize int, gracePeriod int64, loadUpperBoundRatio, loadLo
 
 func makeState(topo *machine.CPUTopology) (qrmstate.State, error) {
 	tmpDir, err := os.MkdirTemp("", "checkpoint-makeState")
+	stateDirectoryConfig := &statedirectory.StateDirectoryConfiguration{
+		StateFileDirectory: tmpDir,
+	}
 	if err != nil {
 		return nil, fmt.Errorf("make tmp dir for checkpoint failed with error: %v", err)
 	}
-	return qrmstate.NewCheckpointState(tmpDir, "test", "test", topo, false, qrmstate.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{}, false)
+	return qrmstate.NewCheckpointState(stateDirectoryConfig, "test", "test", topo, false, qrmstate.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
 }
 
 func TestNewCPUPressureLoadEviction(t *testing.T) {

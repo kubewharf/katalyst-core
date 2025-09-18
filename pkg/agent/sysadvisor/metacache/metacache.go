@@ -176,9 +176,6 @@ type MetaCacheImp struct {
 
 	// Lock for the entire MetaCache. Useful when you want to make multiple writes atomically.
 	sync.Mutex
-
-	// Determines if we want to store the state in memory (tmpfs) or disk
-	isInMemoryState bool
 }
 
 var _ MetaCache = &MetaCacheImp{}
@@ -193,8 +190,7 @@ func NewMetaCacheImp(conf *config.Configuration, emitterPool metricspool.Metrics
 		}
 	}
 	stateFileDir := conf.GenericSysAdvisorConfiguration.StateFileDirectory
-	isInMemoryState := conf.GenericSysAdvisorConfiguration.EnableInMemoryState
-	checkpointManager, err := CreateCheckpointManager(stateFileDir, TmpfsCheckpointPath, isInMemoryState)
+	checkpointManager, err := checkpointmanager.NewCheckpointManager(stateFileDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize checkpoint manager: %v", err)
 	}
@@ -215,7 +211,7 @@ func NewMetaCacheImp(conf *config.Configuration, emitterPool metricspool.Metrics
 	}
 
 	// Restore from checkpoint before any function call to metacache api
-	if err := mc.restoreState(stateFileDir); err != nil {
+	if err := mc.restoreState(); err != nil {
 		return mc, err
 	}
 
@@ -632,14 +628,15 @@ func (mc *MetaCacheImp) storeState() error {
 	return nil
 }
 
-func (mc *MetaCacheImp) restoreState(stateDir string) error {
+func (mc *MetaCacheImp) restoreState() error {
 	checkpoint := NewMetaCacheCheckpoint()
 
 	foundAndSkippedStateCorruption := false
 	if err := mc.checkpointManager.GetCheckpoint(mc.checkpointName, checkpoint); err != nil {
 		if err == errors.ErrCheckpointNotFound {
-			// We cannot find checkpoint, so it is possible that previous checkpoint was stored in either disk or memory
-			return mc.tryMigrateState(stateDir, checkpoint)
+			// create a new store state
+			klog.Infof("[metacache] checkpoint %v doesn't exist, create it", mc.checkpointName, err)
+			return mc.storeState()
 		} else if err == errors.ErrCorruptCheckpoint {
 			if !mc.skipStateCorruption {
 				return err
@@ -651,10 +648,6 @@ func (mc *MetaCacheImp) restoreState(stateDir string) error {
 		}
 	}
 
-	return mc.populateCacheAndState(checkpoint, foundAndSkippedStateCorruption)
-}
-
-func (mc *MetaCacheImp) populateCacheAndState(checkpoint *MetaCacheCheckpoint, foundAndSkippedStateCorruption bool) error {
 	mc.podEntries = checkpoint.PodEntries
 	mc.poolEntries = checkpoint.PoolEntries
 	mc.regionEntries = checkpoint.RegionEntries
@@ -666,45 +659,6 @@ func (mc *MetaCacheImp) populateCacheAndState(checkpoint *MetaCacheCheckpoint, f
 	}
 
 	klog.Infof("[metacache] restore state succeeded")
-
-	return nil
-}
-
-// tryMigrateState tries to migrate state from disk to memory or from memory to disk during initialisation of meta cache
-func (mc *MetaCacheImp) tryMigrateState(stateDir string, checkpoint *MetaCacheCheckpoint) error {
-	var foundAndSkippedStateCorruption bool
-	general.InfoS("[metacache] trying to migrate state from disk to memory")
-
-	// Get the old checkpoint using the provided file directory
-	oldCheckpointManager, err := CreateCheckpointManager(stateDir, TmpfsCheckpointPath, !mc.isInMemoryState)
-	if err != nil {
-		return fmt.Errorf("[metacache] failed to initialize old checkpoint manager for migration: %v", err)
-	}
-
-	if err = oldCheckpointManager.GetCheckpoint(mc.checkpointName, checkpoint); err != nil {
-		if err == errors.ErrCheckpointNotFound {
-			// create a new store state
-			klog.Infof("[metacache] checkpoint %v doesn't exist, create it", mc.checkpointName, err)
-			return mc.storeState()
-		} else if err == errors.ErrCorruptCheckpoint {
-			if !mc.skipStateCorruption {
-				return err
-			}
-			foundAndSkippedStateCorruption = true
-			klog.Warningf("[metacache] restore checkpoint failed with err: %s, but we skip it", err)
-		} else {
-			return err
-		}
-	}
-
-	if err = mc.populateCacheAndState(checkpoint, foundAndSkippedStateCorruption); err != nil {
-		return fmt.Errorf("[metacache] populateCacheAndState failed with error: %v", err)
-	}
-
-	// always store state after migrating to new checkpoint
-	if err = mc.storeState(); err != nil {
-		return fmt.Errorf("[network_plugin] failed to store checkpoint state during end of migration: %v", err)
-	}
 
 	return nil
 }
