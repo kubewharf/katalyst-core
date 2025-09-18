@@ -37,12 +37,34 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
+
+func generateTestMetricsFetcher(val0, val1 float64) *metric.FakeMetricsFetcher {
+	m := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
+
+	fm, ok := m.(*metric.FakeMetricsFetcher)
+	if !ok {
+		panic("failed to cast to *FakeMetricsFetcher")
+	}
+
+	fm.SetNumaMetric(0, pkgconsts.MetricMemBandwidthTheoryNuma, utilmetric.MetricData{
+		Value: val0,
+	})
+	fm.SetNumaMetric(1, pkgconsts.MetricMemBandwidthTheoryNuma, utilmetric.MetricData{
+		Value: val1,
+	})
+	fm.SetByStringIndex(pkgconsts.MetricCPUCodeName, "test")
+
+	return fm
+}
 
 func TestNewMemoryBandwidthHintOptimizer(t *testing.T) {
 	t.Parallel()
@@ -354,13 +376,18 @@ func TestMemoryBandwidthOptimizer_calculateHintAvailabilityList(t *testing.T) {
 							0: sets.NewInt(1),
 							1: sets.NewInt(0),
 						},
-						SiblingNumaAvgMBWAllocatableMap: map[int]int64{
-							0: 100,
-							1: 100,
+						SiblingNumaAvgMBWAllocatableRateMap: map[string]float64{
+							"test": 1.0,
 						},
+						SiblingNumaAvgMBWCapacityMap: map[int]int64{
+							0: 10,
+							1: 10,
+						},
+						SiblingNumaDefaultMBWAllocatableRate: 1.0,
 					},
 				},
 			},
+			MetricsFetcher: generateTestMetricsFetcher(100/pkgconsts.BytesPerGB, 100/pkgconsts.BytesPerGB),
 		},
 	}
 
@@ -769,11 +796,19 @@ func TestMemoryBandwidthOptimizer_OptimizeHints(t *testing.T) {
 							CPUTopology: cpuTopology,
 							ExtraTopologyInfo: &machine.ExtraTopologyInfo{
 								SiblingNumaInfo: &machine.SiblingNumaInfo{
-									SiblingNumaAvgMBWAllocatableMap: map[int]int64{0: 1000, 1: 1000},
-									SiblingNumaMap:                  map[int]sets.Int{0: sets.NewInt(), 1: sets.NewInt()},
+									SiblingNumaMap: map[int]sets.Int{0: sets.NewInt(), 1: sets.NewInt()},
+									SiblingNumaAvgMBWAllocatableRateMap: map[string]float64{
+										"test": 1.0,
+									},
+									SiblingNumaAvgMBWCapacityMap: map[int]int64{
+										0: 10,
+										1: 10,
+									},
+									SiblingNumaDefaultMBWAllocatableRate: 1.0,
 								},
 							},
 						},
+						MetricsFetcher: generateTestMetricsFetcher(1000/pkgconsts.BytesPerGB, 1000/pkgconsts.BytesPerGB),
 					},
 				},
 				emitter:                           dummyEmitter,
@@ -818,11 +853,19 @@ func TestMemoryBandwidthOptimizer_OptimizeHints(t *testing.T) {
 							CPUTopology: cpuTopology,
 							ExtraTopologyInfo: &machine.ExtraTopologyInfo{
 								SiblingNumaInfo: &machine.SiblingNumaInfo{
-									SiblingNumaAvgMBWAllocatableMap: map[int]int64{0: 1000, 1: 800},
-									SiblingNumaMap:                  map[int]sets.Int{0: sets.NewInt(), 1: sets.NewInt()},
+									SiblingNumaMap: map[int]sets.Int{0: sets.NewInt(), 1: sets.NewInt()},
+									SiblingNumaAvgMBWAllocatableRateMap: map[string]float64{
+										"test": 1.0,
+									},
+									SiblingNumaAvgMBWCapacityMap: map[int]int64{
+										0: 10,
+										1: 10,
+									},
+									SiblingNumaDefaultMBWAllocatableRate: 1.0,
 								},
 							},
 						},
+						MetricsFetcher: generateTestMetricsFetcher(1000/pkgconsts.BytesPerGB, 800/pkgconsts.BytesPerGB),
 					},
 				},
 				emitter:                           dummyEmitter,
@@ -907,11 +950,19 @@ func TestMemoryBandwidthOptimizer_OptimizeHints(t *testing.T) {
 							CPUTopology: cpuTopology,
 							ExtraTopologyInfo: &machine.ExtraTopologyInfo{
 								SiblingNumaInfo: &machine.SiblingNumaInfo{
-									SiblingNumaAvgMBWAllocatableMap: map[int]int64{0: 1000, 1: 1200},
-									SiblingNumaMap:                  map[int]sets.Int{0: sets.NewInt(), 1: sets.NewInt()},
+									SiblingNumaMap: map[int]sets.Int{0: sets.NewInt(), 1: sets.NewInt()},
+									SiblingNumaAvgMBWAllocatableRateMap: map[string]float64{
+										"test": 1.0,
+									},
+									SiblingNumaAvgMBWCapacityMap: map[int]int64{
+										0: 10,
+										1: 10,
+									},
+									SiblingNumaDefaultMBWAllocatableRate: 1.0,
 								},
 							},
 						},
+						MetricsFetcher: generateTestMetricsFetcher(1000/pkgconsts.BytesPerGB, 1200/pkgconsts.BytesPerGB),
 					},
 				},
 				emitter:                           dummyEmitter,
@@ -1002,11 +1053,19 @@ func TestMemoryBandwidthOptimizer_OptimizeHints(t *testing.T) {
 							CPUTopology: cpuTopology,
 							ExtraTopologyInfo: &machine.ExtraTopologyInfo{
 								SiblingNumaInfo: &machine.SiblingNumaInfo{
-									SiblingNumaAvgMBWAllocatableMap: map[int]int64{0: 1000, 1: 500}, // NUMA 1 has less, will go negative
-									SiblingNumaMap:                  map[int]sets.Int{0: sets.NewInt(), 1: sets.NewInt()},
+									SiblingNumaMap: map[int]sets.Int{0: sets.NewInt(), 1: sets.NewInt()},
+									SiblingNumaAvgMBWAllocatableRateMap: map[string]float64{
+										"test": 1.0,
+									},
+									SiblingNumaAvgMBWCapacityMap: map[int]int64{
+										0: 10,
+										1: 10,
+									},
+									SiblingNumaDefaultMBWAllocatableRate: 1.0,
 								},
 							},
 						},
+						MetricsFetcher: generateTestMetricsFetcher(1000/pkgconsts.BytesPerGB, 500/pkgconsts.BytesPerGB), // NUMA 1 has less, will go negative
 					},
 				},
 				emitter:                           dummyEmitter,
