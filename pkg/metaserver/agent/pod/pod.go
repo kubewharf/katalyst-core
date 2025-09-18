@@ -88,13 +88,19 @@ type podFetcherImpl struct {
 	cgroupRootPaths []string
 }
 
-func NewPodFetcher(baseConf *global.BaseConfiguration, podConf *metaserver.PodConfiguration,
+func NewPodFetcher(
+	baseConf *global.BaseConfiguration, podConf *metaserver.PodConfiguration,
 	emitter metrics.MetricEmitter, cgroupRootPaths []string,
 ) (PodFetcher, error) {
 	runtimePodFetcher, err := NewRuntimePodFetcher(baseConf)
 	if err != nil {
 		klog.Errorf("init runtime pod fetcher failed: %v", err)
 		runtimePodFetcher = nil
+	}
+
+	var kataContainerFetcher *KataContainerFetcher
+	if baseConf.HaveKataContainers {
+		kataContainerFetcher = NewKataContainerFetcher(runtimePodFetcher)
 	}
 
 	return &podFetcherImpl{
@@ -104,7 +110,7 @@ func NewPodFetcher(baseConf *global.BaseConfiguration, podConf *metaserver.PodCo
 		baseConf:             baseConf,
 		podConf:              podConf,
 		cgroupRootPaths:      cgroupRootPaths,
-		kataContainerFetcher: NewKataContainerFetcher(runtimePodFetcher),
+		kataContainerFetcher: kataContainerFetcher,
 	}, nil
 }
 
