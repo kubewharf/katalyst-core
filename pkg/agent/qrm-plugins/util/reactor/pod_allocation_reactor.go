@@ -51,7 +51,7 @@ func (r *podAllocationReactor) UpdateAllocation(ctx context.Context, allocation 
 	}
 
 	var getPod *v1.Pod
-	getPod, err := r.podFetcher.GetPod(ctx, allocation.GetPodUid())
+	getPod, err := r.podFetcher.GetPod(context.WithValue(ctx, pod.BypassCacheKey, pod.BypassCacheTrue), allocation.GetPodUid())
 	if err != nil {
 		getPod, err = r.client.CoreV1().Pods(allocation.GetPodNamespace()).Get(ctx, allocation.GetPodName(), metav1.GetOptions{ResourceVersion: "0"})
 		if err != nil {
