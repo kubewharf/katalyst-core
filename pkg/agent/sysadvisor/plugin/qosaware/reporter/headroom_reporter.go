@@ -400,7 +400,7 @@ func (r *headroomReporterPlugin) getReportNUMAReclaimedResource(reclaimedResourc
 		}
 	}
 
-	topologyZone := topologyZoneGenerator.GenerateTopologyZoneStatus(nil, zoneResources, nil, nil)
+	topologyZone := topologyZoneGenerator.GenerateTopologyZoneStatus(nil, zoneResources, nil, nil, nil)
 	value, err := json.Marshal(&topologyZone)
 	if err != nil {
 		return nil, fmt.Errorf("marshal topology zone failed: %s", err)
