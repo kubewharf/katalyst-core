@@ -20,7 +20,6 @@ import (
 	"fmt"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation/finders/feature_cpu"
-	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 )
 
 func IsQuotaCtrlKnobEnabled(mr MetaReader) (bool, error) {
@@ -34,5 +33,5 @@ func IsQuotaCtrlKnobEnabled(mr MetaReader) (bool, error) {
 		quotaCtrlKnobEnabled = true
 	}
 
-	return quotaCtrlKnobEnabled && common.CheckCgroup2UnifiedMode(), nil
+	return quotaCtrlKnobEnabled, nil
 }
