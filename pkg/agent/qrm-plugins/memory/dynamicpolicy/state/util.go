@@ -18,6 +18,7 @@ package state
 
 import (
 	"fmt"
+	"time"
 
 	info "github.com/google/cadvisor/info/v1"
 	v1 "k8s.io/api/core/v1"
@@ -26,6 +27,8 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/preoccupation"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -124,33 +127,106 @@ func GenerateResourceState(machineInfo *info.MachineInfo, reserved map[v1.Resour
 // GenerateMachineStateFromPodEntries returns NUMANodeResourcesMap based on
 // machine info and reserved resources (along with existed pod entries)
 func GenerateMachineStateFromPodEntries(machineInfo *info.MachineInfo,
-	podResourceEntries PodResourceEntries, reserved map[v1.ResourceName]map[int]uint64,
+	podResourceEntries PodResourceEntries, originResourcesMachineState NUMANodeResourcesMap,
+	reserved map[v1.ResourceName]map[int]uint64,
 ) (NUMANodeResourcesMap, error) {
 	if machineInfo == nil {
 		return nil, fmt.Errorf("GenerateMachineStateFromPodEntries got nil machineInfo")
 	}
 
+	if originResourcesMachineState == nil {
+		originResourcesMachineState = make(NUMANodeResourcesMap)
+	}
+
 	// todo: currently only support memory, we will support huge page later.
-	defaultResourcesMachineState := make(NUMANodeResourcesMap)
+	currentResourcesMachineState := make(NUMANodeResourcesMap)
 	for _, resourceName := range []v1.ResourceName{v1.ResourceMemory} {
-		machineState, err := GenerateResourceStateFromPodEntries(machineInfo, podResourceEntries[resourceName], reserved, resourceName)
+		machineState, err := GenerateResourceStateFromPodEntries(machineInfo, podResourceEntries[resourceName],
+			originResourcesMachineState[resourceName], reserved, resourceName)
 		if err != nil {
 			return nil, fmt.Errorf("GenerateResourceState for resource: %s failed with error: %v", resourceName, err)
 		}
 
-		defaultResourcesMachineState[resourceName] = machineState
+		currentResourcesMachineState[resourceName] = machineState
 	}
-	return defaultResourcesMachineState, nil
+	return currentResourcesMachineState, nil
+}
+
+// updateMachineStatePreOccPodEntries update the pre-occupation pod from pod entries and origin machine state
+func updateMachineStatePreOccPodEntries(currentMachineState, originMachineState NUMANodeMap) {
+	// override pre-occupation pod from pod entries
+	now := time.Now()
+	for numaID, numaState := range currentMachineState {
+		preOccPodEntries := make(PodEntries)
+		originalPodEntries := make(PodEntries)
+		if originState, ok := originMachineState[numaID]; ok {
+			if originState.PodEntries != nil {
+				originalPodEntries = originState.PodEntries
+			}
+			if originState.PreOccPodEntries != nil {
+				preOccPodEntries = originState.PreOccPodEntries
+			}
+		}
+
+		for podUID, containerEntries := range originalPodEntries {
+			// skip pod that already in current machine state
+			if _, ok := numaState.PodEntries[podUID]; ok {
+				continue
+			}
+
+			for containerName, allocationInfo := range containerEntries {
+				if allocationInfo == nil {
+					general.Warningf("nil allocationInfo in podEntries")
+					continue
+				}
+
+				// skip unneeded pre-occupation allocation info
+				if !preoccupation.PreOccAllocationFilter(allocationInfo.AllocationMeta) {
+					continue
+				}
+
+				if _, ok := preOccPodEntries[podUID]; !ok {
+					preOccPodEntries[podUID] = make(ContainerEntries)
+				}
+
+				if _, ok := preOccPodEntries[podUID][containerName]; !ok {
+					preOccPodEntries[podUID][containerName] = allocationInfo
+				}
+			}
+		}
+
+		for podUID, containerEntries := range preOccPodEntries {
+			for containerName, preOccAllocationInfo := range containerEntries {
+				if preOccAllocationInfo == nil {
+					general.Warningf("nil preOccAllocationInfo in podEntries")
+					continue
+				}
+
+				if preoccupation.PreOccAllocationExpired(preOccAllocationInfo.AllocationMeta, now) {
+					numaState.DeletePreOccAllocationInfo(podUID, containerName)
+				} else {
+					preoccupation.SetPreOccDeleteTimestamp(&preOccAllocationInfo.AllocationMeta, now)
+					numaState.SetPreOccAllocationInfo(podUID, containerName, preOccAllocationInfo)
+				}
+			}
+		}
+	}
 }
 
 // GenerateResourceStateFromPodEntries returns NUMANodeMap for given resource based on
 // machine info and reserved resources along with existed pod entries
 func GenerateResourceStateFromPodEntries(machineInfo *info.MachineInfo,
-	podEntries PodEntries, reserved map[v1.ResourceName]map[int]uint64, resourceName v1.ResourceName,
+	podEntries PodEntries, originMachineState NUMANodeMap, reserved map[v1.ResourceName]map[int]uint64, resourceName v1.ResourceName,
 ) (NUMANodeMap, error) {
 	switch resourceName {
 	case v1.ResourceMemory:
-		return GenerateMemoryStateFromPodEntries(machineInfo, podEntries, reserved)
+		currentMachineState, err := GenerateMemoryStateFromPodEntries(machineInfo, podEntries, reserved)
+		if err != nil {
+			return nil, err
+		}
+
+		updateMachineStatePreOccPodEntries(currentMachineState, originMachineState)
+		return currentMachineState, nil
 	default:
 		return nil, fmt.Errorf("unsupported resource name: %s", resourceName)
 	}
