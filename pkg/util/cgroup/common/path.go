@@ -27,7 +27,6 @@ import (
 
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -52,25 +51,32 @@ var k8sCgroupPathSettingOnce = sync.Once{}
 
 var (
 	absoluteCgroupPathHandlerLock sync.Mutex
-	absoluteCgroupPathHandlerMap  = map[string]AbsoluteCgroupPathHandler{
-		defaultCgroupPathHandlerName: getContainerDefaultAbsCgroupPath,
+	// Ensure that we always go through the default handler first to get cgroup path
+	absoluteCgroupPathHandlerList = []AbsoluteCgroupPathHandler{
+		{
+			Name:    defaultCgroupPathHandlerName,
+			Handler: getContainerDefaultAbsCgroupPath,
+		},
 	}
 	relativeCgroupPathHandlerLock sync.Mutex
-	relativeCgroupPathHandlerMap  = map[string]RelativeCgroupPathHandler{
-		defaultCgroupPathHandlerName: getContainerDefaultRelativeAbsCgroupPath,
+	relativeCgroupPathHandlerList = []RelativeCgroupPathHandler{
+		{
+			Name:    defaultCgroupPathHandlerName,
+			Handler: getContainerDefaultRelativeAbsCgroupPath,
+		},
 	}
 )
 
-func RegisterAbsoluteCgroupPathHandler(name string, handler AbsoluteCgroupPathHandler) {
+func RegisterAbsoluteCgroupPathHandler(handler AbsoluteCgroupPathHandler) {
 	absoluteCgroupPathHandlerLock.Lock()
 	defer absoluteCgroupPathHandlerLock.Unlock()
-	absoluteCgroupPathHandlerMap[name] = handler
+	absoluteCgroupPathHandlerList = append(absoluteCgroupPathHandlerList, handler)
 }
 
-func RegisterRelativeCgroupPathHandler(name string, handler RelativeCgroupPathHandler) {
+func RegisterRelativeCgroupPathHandler(handler RelativeCgroupPathHandler) {
 	relativeCgroupPathHandlerLock.Lock()
 	defer relativeCgroupPathHandlerLock.Unlock()
-	relativeCgroupPathHandlerMap[name] = handler
+	relativeCgroupPathHandlerList = append(relativeCgroupPathHandlerList, handler)
 }
 
 // InitKubernetesCGroupPath can only be called once to init dynamic cgroup path configurations.
@@ -173,6 +179,11 @@ func GetPodAbsCgroupPath(subsys, podUID string) (string, error) {
 	return GetKubernetesAnyExistAbsCgroupPath(subsys, fmt.Sprintf("%s%s", PodCgroupPathPrefix, podUID))
 }
 
+// GetPodRelativeCgroupPath returns relative cgroup path for pod level
+func GetPodRelativeCgroupPath(podUID string) (string, error) {
+	return GetKubernetesAnyExistRelativeCgroupPath(fmt.Sprintf("%s%s", PodCgroupPathPrefix, podUID))
+}
+
 func getContainerDefaultAbsCgroupPath(subsys, podUID, containerId string) (string, error) {
 	return GetKubernetesAnyExistAbsCgroupPath(subsys, path.Join(fmt.Sprintf("%s%s", PodCgroupPathPrefix, podUID), containerId))
 }
@@ -185,17 +196,16 @@ func getContainerDefaultRelativeAbsCgroupPath(podUID, containerId string) (strin
 // It uses all the handlers in absoluteCgroupPathHandlerMap and returns the first non-empty path.
 func GetContainerAbsCgroupPath(subsys, podUID, containerId string) (string, error) {
 	var errors []error
-	for name, handler := range absoluteCgroupPathHandlerMap {
-		if handler == nil {
-			errors = append(errors, fmt.Errorf("absolute cgroup path handler for %s is nil", name))
+	for _, handler := range absoluteCgroupPathHandlerList {
+		if handler.Handler == nil {
+			errors = append(errors, fmt.Errorf("absolute cgroup path Handler for %s is nil", handler.Name))
 			continue
 		}
-		cgroupPath, err := handler(subsys, podUID, containerId)
+		cgroupPath, err := handler.Handler(subsys, podUID, containerId)
 		if err == nil {
 			return cgroupPath, nil
 		}
-		klog.Infof("get absolute cgroup path by handler %s error: %v", name, err)
-		errors = append(errors, fmt.Errorf("get absolute cgroup path by handler %s failed, err: %v", name, err))
+		errors = append(errors, fmt.Errorf("get absolute cgroup path by Handler %s failed, err: %v", handler.Name, err))
 	}
 	return "", utilerrors.NewAggregate(errors)
 }
@@ -204,17 +214,16 @@ func GetContainerAbsCgroupPath(subsys, podUID, containerId string) (string, erro
 // It uses all the handlers in relativeCgroupPathHandlerMap and returns the first non-empty path.
 func GetContainerRelativeCgroupPath(podUID, containerId string) (string, error) {
 	var errors []error
-	for name, handler := range relativeCgroupPathHandlerMap {
-		if handler == nil {
-			errors = append(errors, fmt.Errorf("relative cgroup path handler for %s is nil", name))
+	for _, handler := range relativeCgroupPathHandlerList {
+		if handler.Handler == nil {
+			errors = append(errors, fmt.Errorf("relative cgroup path Handler for %s is nil", handler.Name))
 			continue
 		}
-		cgroupPath, err := handler(podUID, containerId)
+		cgroupPath, err := handler.Handler(podUID, containerId)
 		if err == nil {
 			return cgroupPath, nil
 		}
-		klog.Infof("get relative cgroup path by handler %s error: %v", name, err)
-		errors = append(errors, fmt.Errorf("get relative cgroup path by handler %s failed, err: %v", name, err))
+		errors = append(errors, fmt.Errorf("get relative cgroup path by Handler %s failed, err: %v", handler.Name, err))
 	}
 	return "", utilerrors.NewAggregate(errors)
 }
