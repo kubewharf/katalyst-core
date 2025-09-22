@@ -322,6 +322,7 @@ func (c *IrqTuningConfig) Equal(other *IrqTuningConfig) bool {
 		c.IrqTuningPolicy != other.IrqTuningPolicy ||
 		c.EnableRPS != other.EnableRPS ||
 		c.EnableRPSCPUVSNicsQueue != other.EnableRPSCPUVSNicsQueue ||
+		c.RPSExcludeIrqCoresThreshold.RPSCoresVSIrqCoresRatio != other.RPSExcludeIrqCoresThreshold.RPSCoresVSIrqCoresRatio ||
 		c.NicAffinitySocketsPolicy != other.NicAffinitySocketsPolicy ||
 		c.IrqCoresExpectedCpuUtil != other.IrqCoresExpectedCpuUtil {
 		return false

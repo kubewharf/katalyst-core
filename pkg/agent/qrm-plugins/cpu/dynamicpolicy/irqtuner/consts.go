@@ -38,6 +38,7 @@ const (
 	AdjustKsoftirqdsNiceFailed                              string = "AdjustKsoftirqdsNiceFailed"
 	RestoreNicsOriginalIrqCoresExclusivePolicyFailed        string = "RestoreNicsOriginalIrqCoresExclusivePolicyFailed"
 	UpdateIndicatorsStatsFailed                             string = "UpdateIndicatorsStatsFailed"
+	ClassifyNicsByThroughputFailed                          string = "ClassifyNicsByThroughputFailed"
 	CalculateNicExclusiveIrqCoresIncreaseFailed             string = "CalculateNicExclusiveIrqCoresIncreaseFailed"
 	CalculateNicIrqCoresWhenSwitchToIrqCoresExclusiveFailed string = "CalculateNicIrqCoresWhenSwitchToIrqCoresExclusiveFailed"
 	SelectExclusiveIrqCoresForNicFailed                     string = "SelectExclusiveIrqCoresForNicFailed"

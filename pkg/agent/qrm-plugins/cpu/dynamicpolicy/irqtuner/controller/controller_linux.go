@@ -26,6 +26,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/klauspost/cpuid/v2"
@@ -54,6 +55,8 @@ var (
 	ForbiddenContainerRuntimeAnnotationKeys []string
 	ForbiddenContainerRuntimeAnnotationsVal string
 )
+
+var controllerRuningLock sync.Mutex
 
 // ErrNotFoundProperDestIrqCore is the error that no proper dest irq core found for irq balance
 var ErrNotFoundProperDestIrqCore = errors.New("not found proper dest irq core for irq balance")
@@ -1888,12 +1891,16 @@ func (ic *IrqTuningController) updateLatestIndicatorsStats(seconds int) (*Indica
 	return oldIndicatorsStats, nil
 }
 
-func (ic *IrqTuningController) classifyNicsByThroughput(oldIndicatorsStats *IndicatorsStats) {
+func (ic *IrqTuningController) classifyNicsByThroughput(oldIndicatorsStats *IndicatorsStats) error {
 	timeDiff := ic.IndicatorsStats.UpdateTime.Sub(oldIndicatorsStats.UpdateTime).Seconds()
 
 	var normalThroughputNics []*NicIrqTuningManager
 	var lowThroughputNics []*NicIrqTuningManager
 	nicsMoved := false
+
+	if len(ic.Nics) == 0 {
+		return fmt.Errorf("ic.Nics is empty before classifyNicsByThroughput")
+	}
 
 	oldNicStats := oldIndicatorsStats.NicStats
 	for _, nic := range ic.Nics {
@@ -1987,17 +1994,16 @@ func (ic *IrqTuningController) classifyNicsByThroughput(oldIndicatorsStats *Indi
 	}
 
 	if len(ic.LowThroughputNics)+len(ic.Nics) != len(lowThroughputNics)+len(normalThroughputNics) {
-		general.Errorf("%s some nics are dropped by mistake", IrqTuningLogPrefix)
-		return
+		return fmt.Errorf("some nics are dropped by mistake")
 	}
 
 	if !nicsMoved {
-		return
+		return nil
 	}
 
 	// if no normal throughput Nics, don't move nics, because maybe no containers in the machine
 	if len(normalThroughputNics) == 0 {
-		return
+		return nil
 	}
 
 	general.Infof("%s new normal throughput nics:", IrqTuningLogPrefix)
@@ -2021,8 +2027,7 @@ func (ic *IrqTuningController) classifyNicsByThroughput(oldIndicatorsStats *Indi
 
 	nicsAssignedSockets, err := AssignSocketsForNics(normalThroughputBasicNics, ic.CPUInfo, ic.conf.NicAffinitySocketsPolicy)
 	if err != nil {
-		general.Errorf("%s failed to AssignSocketsForNics, err %s", IrqTuningLogPrefix, err)
-		return
+		return fmt.Errorf("failed to AssignSocketsForNics, err %s", err)
 	}
 
 	nicsExclusiveIrqCoresSelectOrder := CalculateNicExclusiveIrqCoresSelectOrdrer(nicsAssignedSockets)
@@ -2087,6 +2092,14 @@ func (ic *IrqTuningController) classifyNicsByThroughput(oldIndicatorsStats *Indi
 		general.Infof("%s [new] normal throughput nic: %s", IrqTuningLogPrefix, nic)
 	}
 
+	if len(ic.Nics) == 0 {
+		return fmt.Errorf("ic.Nics is empty after classifyNicsByThroughput")
+	}
+
+	if len(ic.Nics) != len(normalThroughputNics) {
+		return fmt.Errorf("ic.Nics count: %d is not equal to normalThroughputNics count: %d", len(ic.Nics), len(normalThroughputNics))
+	}
+
 	// clear ic.LowThroughputNics
 	ic.LowThroughputNics = []*NicIrqTuningManager{}
 
@@ -2118,6 +2131,12 @@ func (ic *IrqTuningController) classifyNicsByThroughput(oldIndicatorsStats *Indi
 			general.Infof("%s [new] low throughput nic: %s", IrqTuningLogPrefix, nic)
 		}
 	}
+
+	if len(ic.LowThroughputNics) != len(lowThroughputNics) {
+		return fmt.Errorf("ic.LowThroughputNics count: %d is not equal to lowThroughputNics count: %d", len(ic.LowThroughputNics), len(lowThroughputNics))
+	}
+
+	return nil
 }
 
 func (ic *IrqTuningController) syncNics() error {
@@ -2157,7 +2176,7 @@ func (ic *IrqTuningController) syncNics() error {
 
 	general.Infof("%s old nics:", IrqTuningLogPrefix)
 	for _, nic := range oldNics {
-		general.Infof("%s   %s, queue number %d", IrqTuningLogPrefix, nic, nic.NicInfo.QueueNum)
+		general.Infof("%s   %s, queue number %d", IrqTuningLogPrefix, nic.NicInfo, nic.NicInfo.QueueNum)
 	}
 
 	general.Infof("%s new synced nics:", IrqTuningLogPrefix)
@@ -2212,6 +2231,16 @@ func (ic *IrqTuningController) syncNics() error {
 
 	ic.Nics = nicManagers
 	ic.LowThroughputNics = lowThroughputNicManagers
+
+	general.Infof("%s new synced normal throughput nics:", IrqTuningLogPrefix)
+	for _, nic := range ic.Nics {
+		general.Infof("%s   %s, queue number %d", IrqTuningLogPrefix, nic.NicInfo, nic.NicInfo.QueueNum)
+	}
+
+	general.Infof("%s new synced low throughput nics:", IrqTuningLogPrefix)
+	for _, nic := range ic.LowThroughputNics {
+		general.Infof("%s   %s, queue number %d", IrqTuningLogPrefix, nic.NicInfo, nic.NicInfo.QueueNum)
+	}
 
 	return nil
 }
@@ -5326,10 +5355,6 @@ func (ic *IrqTuningController) adjustKsoftirqdsNice() error {
 func (ic *IrqTuningController) periodicTuningIrqBalanceFair() {
 	general.Infof("%s periodicTuningIrqBalanceFair", IrqTuningLogPrefix)
 
-	if ic.IndicatorsStats != nil {
-		ic.IndicatorsStats = nil
-	}
-
 	oldStats, err := ic.updateIndicatorsStats()
 	if err != nil {
 		general.Errorf("%s failed to updateIndicatorsStats, err %v", IrqTuningLogPrefix, err)
@@ -5337,7 +5362,10 @@ func (ic *IrqTuningController) periodicTuningIrqBalanceFair() {
 		return
 	}
 
-	ic.classifyNicsByThroughput(oldStats)
+	if err := ic.classifyNicsByThroughput(oldStats); err != nil {
+		general.Errorf("%s failed to classifyNicsByThroughput, err %v", IrqTuningLogPrefix, err)
+		ic.emitErrMetric(irqtuner.ClassifyNicsByThroughputFailed, irqtuner.IrqTuningError)
+	}
 
 	if err := ic.syncContainers(); err != nil {
 		general.Errorf("%s failed to syncContainers, err %s", IrqTuningLogPrefix, err)
@@ -5345,7 +5373,8 @@ func (ic *IrqTuningController) periodicTuningIrqBalanceFair() {
 	}
 
 	// set each nic's IrqAffinityPolicy to IrqBalanceFair
-	for _, nic := range ic.Nics {
+	nics := ic.getAllNics()
+	for _, nic := range nics {
 		if nic.IrqAffinityPolicy != IrqBalanceFair {
 			nic.IrqAffinityPolicy = IrqBalanceFair
 		}
@@ -5473,7 +5502,10 @@ func (ic *IrqTuningController) periodicTuningIrqCoresExclusive() {
 	// ic.LowThroughputNics conditionally.
 	// N.B., moving nics to ic.Nics from ic.LowThroughputNics will influence ic.Nics sockets assignments.
 	///////////////////////////////////////////////////////////////////////////////////////
-	ic.classifyNicsByThroughput(oldStats)
+	if err := ic.classifyNicsByThroughput(oldStats); err != nil {
+		general.Errorf("%s failed to classifyNicsByThroughput, err %v", IrqTuningLogPrefix, err)
+		ic.emitErrMetric(irqtuner.ClassifyNicsByThroughputFailed, irqtuner.IrqTuningError)
+	}
 
 	//////////////////////////////////////////
 	// [5] syncContainers for later possible irq cores selection, and specical containers process
@@ -5610,7 +5642,21 @@ func (ic *IrqTuningController) syncDynamicConfig() {
 	if !ic.conf.Equal(conf) {
 		general.Infof("%s new config: %s", IrqTuningLogPrefix, conf)
 	}
+
+	oldConf := ic.conf
 	ic.conf = conf
+
+	if oldConf == nil {
+		return
+	}
+
+	if conf.EnableIrqTuning != oldConf.EnableIrqTuning {
+		ic.IndicatorsStats = nil
+	}
+
+	if conf.IrqTuningPolicy != oldConf.IrqTuningPolicy {
+		ic.IndicatorsStats = nil
+	}
 }
 
 func (ic *IrqTuningController) periodicTuning() {
@@ -5649,6 +5695,9 @@ func (ic *IrqTuningController) periodicTuning() {
 
 func (ic *IrqTuningController) Run(stopCh <-chan struct{}) {
 	general.Infof("%s Irq tuning controller run", IrqTuningLogPrefix)
+
+	controllerRuningLock.Lock()
+	defer controllerRuningLock.Unlock()
 
 	stopped := false
 	for {
