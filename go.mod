@@ -30,6 +30,7 @@ require (
 	github.com/prometheus/common v0.37.0
 	github.com/prometheus/procfs v0.10.0
 	github.com/robfig/cron/v3 v3.0.1
+	github.com/rs/zerolog v1.34.0
 	github.com/safchain/ethtool v0.5.10
 	github.com/samber/lo v1.39.0
 	github.com/slok/kubewebhook v0.11.0
@@ -49,6 +50,7 @@ require (
 	golang.org/x/time v0.0.0-20220210224613-90d013bbcef8
 	gonum.org/v1/gonum v0.8.2
 	google.golang.org/grpc v1.57.1
+	gopkg.in/natefinch/lumberjack.v2 v2.0.0
 	gopkg.in/yaml.v3 v3.0.1
 	gotest.tools/v3 v3.0.3
 	k8s.io/api v0.26.1
@@ -83,7 +85,7 @@ require (
 	github.com/containerd/console v1.0.3 // indirect
 	github.com/containerd/ttrpc v1.2.3-0.20231030150553-baadfd8e7956 // indirect
 	github.com/coreos/go-semver v0.3.0 // indirect
-	github.com/coreos/go-systemd/v22 v22.3.2 // indirect
+	github.com/coreos/go-systemd/v22 v22.5.0 // indirect
 	github.com/cyphar/filepath-securejoin v0.2.3 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/docker/distribution v2.8.1+incompatible // indirect
@@ -159,7 +161,6 @@ require (
 	google.golang.org/protobuf v1.31.0 // indirect
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
-	gopkg.in/natefinch/lumberjack.v2 v2.0.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	k8s.io/apiextensions-apiserver v0.24.2 // indirect
 	k8s.io/cloud-provider v0.24.16 // indirect
