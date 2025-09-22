@@ -19,6 +19,7 @@ package staticpolicy
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
 	"sync"
 	"time"
@@ -430,7 +431,7 @@ func (p *StaticPolicy) GetResourcePluginOptions(context.Context,
 	return &pluginapi.ResourcePluginOptions{
 		PreStartRequired:      false,
 		WithTopologyAlignment: true,
-		NeedReconcile:         true,
+		NeedReconcile:         false,
 		AssociatedDevices:     p.resourceNames.List(),
 	}, nil
 }
@@ -757,6 +758,7 @@ func (p *StaticPolicy) calculateHints(gpuMemory float64, gpuReq float64, machine
 	general.Infof("gpuMemory: %f, gpuReq: %f, perGPUMemory: %f", gpuMemory, gpuReq, perGPUMemory)
 
 	numaToAvailableGPUCount := make(map[int]float64)
+	numaToMostAllocatedGPUMemory := make(map[int]float64)
 	for gpuID, s := range machineState {
 		if s == nil {
 			continue
@@ -770,6 +772,7 @@ func (p *StaticPolicy) calculateHints(gpuMemory float64, gpuReq float64, machine
 
 			for _, numaNode := range info.GetNUMANode() {
 				numaToAvailableGPUCount[numaNode] += 1
+				numaToMostAllocatedGPUMemory[numaNode] = math.Max(s.GetGPUMemoryAllocated(), numaToMostAllocatedGPUMemory[numaNode])
 			}
 		}
 	}
@@ -828,6 +831,9 @@ func (p *StaticPolicy) calculateHints(gpuMemory float64, gpuReq float64, machine
 			Preferred: preferred,
 		})
 	})
+
+	// prefer numa nodes with most allocated gpu memory
+	p.preferGPUMemoryMostAllocatedHints(availableNumaHints, numaToMostAllocatedGPUMemory)
 
 	// NOTE: because grpc is inability to distinguish between an empty array and nil,
 	//       we return an error instead of an empty array.
@@ -1077,6 +1083,10 @@ func (p *StaticPolicy) calculateAssociatedDevices(gpuTopology *machine.GPUTopolo
 		return false
 	}
 
+	sort.SliceStable(availableDevices, func(i, j int) bool {
+		return machineState.GPUMemoryAllocated(availableDevices[i]) > machineState.GPUMemoryAllocated(availableDevices[j])
+	})
+
 	// second allocate available and numa-affinity gpus
 	for _, device := range availableDevices {
 		if allocatedDevices.Has(device) {
@@ -1099,4 +1109,41 @@ func (p *StaticPolicy) calculateAssociatedDevices(gpuTopology *machine.GPUTopolo
 	}
 
 	return nil, nil, fmt.Errorf("no enough available GPUs found in gpuTopology, availableDevices len: %d, allocatedDevices len: %d", len(availableDevices), len(allocatedDevices))
+}
+
+func (p *StaticPolicy) preferGPUMemoryMostAllocatedHints(hints []*pluginapi.TopologyHint, numaToMostAllocatedGPUMemory map[int]float64) {
+	hintGPUMemoryMostAllocated := make(map[int]float64)
+	for index, hint := range hints {
+		if !hint.Preferred {
+			continue
+		}
+
+		gpuMemoryMostAllocated := float64(0)
+		for _, nodeID := range hint.Nodes {
+			gpuMemoryMostAllocated = math.Max(gpuMemoryMostAllocated, numaToMostAllocatedGPUMemory[int(nodeID)])
+		}
+		hintGPUMemoryMostAllocated[index] = gpuMemoryMostAllocated
+	}
+
+	mostAllocatedHintIndex := -1
+	for index, hint := range hints {
+		if !hint.Preferred {
+			continue
+		}
+
+		if mostAllocatedHintIndex == -1 || hintGPUMemoryMostAllocated[index] > hintGPUMemoryMostAllocated[mostAllocatedHintIndex] {
+			mostAllocatedHintIndex = index
+		}
+	}
+
+	if mostAllocatedHintIndex < 0 {
+		return
+	}
+
+	for index, hint := range hints {
+		if !hint.Preferred || mostAllocatedHintIndex == index {
+			continue
+		}
+		hint.Preferred = false
+	}
 }
