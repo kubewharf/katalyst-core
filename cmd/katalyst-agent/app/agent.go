@@ -32,6 +32,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/logging"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
 )
 
@@ -42,10 +43,14 @@ const (
 	metricsNameAgentStarted  = "agent_started"
 )
 
+const defaultLogFileName = "/opt/tiger/toutiao/log/app/agent.log"
+
 // Run starts common and uniformed agent components here, and starts other
 // specific components in other separate repos (with common components as
 // dependencies)
-func Run(conf *config.Configuration, clientSet *client.GenericClientSet, genericOptions ...katalystbase.GenericOptions) error {
+func Run(
+	conf *config.Configuration, clientSet *client.GenericClientSet, genericOptions ...katalystbase.GenericOptions,
+) error {
 	// Set up signals so that we handle the first shutdown signal gracefully.
 	ctx := process.SetupSignalHandler()
 
@@ -58,6 +63,11 @@ func Run(conf *config.Configuration, clientSet *client.GenericClientSet, generic
 	genericCtx, err := agent.NewGenericContext(baseCtx, conf)
 	if err != nil {
 		return err
+	}
+
+	if conf.SupportAsyncLogging {
+		asyncLogger := logging.NewAsyncLogger(genericCtx, defaultLogFileName, conf.LogFileMaxSize, conf.LogBufferSizeMB)
+		defer asyncLogger.Shutdown()
 	}
 
 	for _, genericOption := range genericOptions {
@@ -78,7 +88,8 @@ func Run(conf *config.Configuration, clientSet *client.GenericClientSet, generic
 }
 
 // startAgent is used to initialize and start each component in katalyst-agent
-func startAgent(ctx context.Context, genericCtx *agent.GenericContext,
+func startAgent(
+	ctx context.Context, genericCtx *agent.GenericContext,
 	conf *config.Configuration, agents map[string]AgentStarter,
 ) error {
 	componentMap := make(map[string]agent.Component)
