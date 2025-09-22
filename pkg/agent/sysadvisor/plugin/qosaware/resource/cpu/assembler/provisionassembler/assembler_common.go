@@ -282,14 +282,15 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 			if !nodeEnableReclaim {
 				reclaimedCoresSize = general.Min(reclaimedCoresSize, general.SumUpMapValues(sharePoolSizes))
 				var overlapSharePoolSizes map[string]int
-				if reclaimedCoresSize >= general.SumUpMapValues(reclaimableSharePoolSizes) {
+				if reclaimedCoresSize <= general.SumUpMapValues(reclaimableSharePoolSizes) {
 					overlapSharePoolSizes = reclaimableSharePoolSizes
 				} else {
 					overlapSharePoolSizes = sharePoolSizes
 				}
+
 				reclaimSizes, err := regulateOverlapReclaimPoolSize(overlapSharePoolSizes, reclaimedCoresSize)
 				if err != nil {
-					return fmt.Errorf("failed to calculate sharedOverlapReclaimSize")
+					return fmt.Errorf("failed to regulateOverlapReclaimPoolSize: %w", err)
 				}
 				sharedOverlapReclaimSize = reclaimSizes
 			} else {
@@ -308,7 +309,7 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 					reclaimedCoresSize = reservedForReclaim
 					regulatedOverlapReclaimPoolSize, err := regulateOverlapReclaimPoolSize(sharePoolSizes, reclaimedCoresSize)
 					if err != nil {
-						return fmt.Errorf("failed to regulateOverlapReclaimPoolSize for non-binding NUMAs reserved for reclaim")
+						return fmt.Errorf("failed to regulateOverlapReclaimPoolSize for NUMAs reserved for reclaim: %w", err)
 					}
 					sharedOverlapReclaimSize = regulatedOverlapReclaimPoolSize
 				}
