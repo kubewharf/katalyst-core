@@ -39,28 +39,35 @@ type KataContainerFetcher struct {
 	runtimePodFetcher RuntimePodFetcher
 }
 
-func NewKataContainerFetcher(runtimePodFetcher RuntimePodFetcher) *KataContainerFetcher {
+func RegisterKataContainerFetcher(runtimePodFetcher RuntimePodFetcher) {
 	kataContainerFetcher := &KataContainerFetcher{
 		runtimePodFetcher: runtimePodFetcher,
 	}
 
-	registerOnce.Do(func() {
-		common.RegisterAbsoluteCgroupPathHandler(
-			kataContainerCgroupPathHandlerName,
-			kataContainerFetcher.getKataContainerAbsoluteCgroupPath,
-		)
-		common.RegisterRelativeCgroupPathHandler(
-			kataContainerCgroupPathHandlerName,
-			kataContainerFetcher.getKataContainerRelativeCgroupPath,
-		)
-	})
+	kataContainerAbsoluteCgroupPathHandler := common.AbsoluteCgroupPathHandler{
+		Name:    kataContainerCgroupPathHandlerName,
+		Handler: kataContainerFetcher.getKataContainerAbsoluteCgroupPath,
+	}
 
-	return kataContainerFetcher
+	kataContainerRelativeCgroupPathHandler := common.RelativeCgroupPathHandler{
+		Name:    kataContainerCgroupPathHandlerName,
+		Handler: kataContainerFetcher.getKataContainerRelativeCgroupPath,
+	}
+
+	registerOnce.Do(func() {
+		common.RegisterAbsoluteCgroupPathHandler(kataContainerAbsoluteCgroupPathHandler)
+		common.RegisterRelativeCgroupPathHandler(kataContainerRelativeCgroupPathHandler)
+	})
 }
 
 // getKataContainerAbsoluteCgroupPath attempts to get the absolute cgroup path of a kata container
 // and returns an error if it fails to do so.
 func (k *KataContainerFetcher) getKataContainerAbsoluteCgroupPath(subsys, podUID, containerId string) (string, error) {
+	// First check if the cgroup exists for pod level
+	_, err := common.GetPodAbsCgroupPath(subsys, podUID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get absolute path for pod %s, err: %v", podUID, err)
+	}
 	cgroupPathSuffix, err := k.getKataCgroupPathSuffix(podUID, containerId)
 	if err != nil {
 		return "", fmt.Errorf("failed to get kata cgroup path suffix: %v", err)
@@ -71,6 +78,11 @@ func (k *KataContainerFetcher) getKataContainerAbsoluteCgroupPath(subsys, podUID
 // getKataContainerRelativeCgroupPath attempts to get the relative cgroup path of a kata container
 // and returns an error if it fails to do so.
 func (k *KataContainerFetcher) getKataContainerRelativeCgroupPath(podUID, containerId string) (string, error) {
+	// First check if the cgroup exists for pod level
+	_, err := common.GetPodRelativeCgroupPath(podUID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get relative cgroup path for pod %s, err: %v", podUID, err)
+	}
 	cgroupPathSuffix, err := k.getKataCgroupPathSuffix(podUID, containerId)
 	if err != nil {
 		return "", fmt.Errorf("failed to get kata cgroup path suffix: %v", err)

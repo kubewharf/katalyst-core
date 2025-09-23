@@ -241,6 +241,12 @@ type CgroupResources struct {
 	SkipFreezeOnSet bool `json:"-"`
 }
 
-type AbsoluteCgroupPathHandler func(subsys, podUID, containerId string) (string, error)
+type AbsoluteCgroupPathHandler struct {
+	Name    string
+	Handler func(subsys, podUID, containerId string) (string, error)
+}
 
-type RelativeCgroupPathHandler func(podUID, containerId string) (string, error)
+type RelativeCgroupPathHandler struct {
+	Name    string
+	Handler func(podUID, containerId string) (string, error)
+}

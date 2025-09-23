@@ -88,7 +88,8 @@ type podFetcherImpl struct {
 	cgroupRootPaths []string
 }
 
-func NewPodFetcher(baseConf *global.BaseConfiguration, podConf *metaserver.PodConfiguration,
+func NewPodFetcher(
+	baseConf *global.BaseConfiguration, podConf *metaserver.PodConfiguration,
 	emitter metrics.MetricEmitter, cgroupRootPaths []string,
 ) (PodFetcher, error) {
 	runtimePodFetcher, err := NewRuntimePodFetcher(baseConf)
@@ -97,14 +98,15 @@ func NewPodFetcher(baseConf *global.BaseConfiguration, podConf *metaserver.PodCo
 		runtimePodFetcher = nil
 	}
 
+	RegisterKataContainerFetcher(runtimePodFetcher)
+
 	return &podFetcherImpl{
-		kubeletPodFetcher:    NewKubeletPodFetcher(baseConf),
-		runtimePodFetcher:    runtimePodFetcher,
-		emitter:              emitter,
-		baseConf:             baseConf,
-		podConf:              podConf,
-		cgroupRootPaths:      cgroupRootPaths,
-		kataContainerFetcher: NewKataContainerFetcher(runtimePodFetcher),
+		kubeletPodFetcher: NewKubeletPodFetcher(baseConf),
+		runtimePodFetcher: runtimePodFetcher,
+		emitter:           emitter,
+		baseConf:          baseConf,
+		podConf:           podConf,
+		cgroupRootPaths:   cgroupRootPaths,
 	}, nil
 }
 
