@@ -46,10 +46,11 @@ const (
 )
 
 const (
-	defaultKubeletPodCacheSyncPeriod    = 30 * time.Second
-	defaultKubeletPodCacheSyncMaxRate   = 5
-	defaultKubeletPodCacheSyncBurstBulk = 1
-	defaultRuntimePodCacheSyncPeriod    = 30 * time.Second
+	defaultKubeletPodCacheSyncPeriod         = 30 * time.Second
+	defaultKubeletPodCacheSyncMaxRate        = 5
+	defaultKubeletPodCacheSyncBurstBulk      = 1
+	defaultKubeletPodCacheSyncEmptyThreshold = 5
+	defaultRuntimePodCacheSyncPeriod         = 30 * time.Second
 )
 
 const defaultCustomNodeResourceCacheTTL = 15 * time.Second
@@ -81,10 +82,11 @@ type MetaServerOptions struct {
 	SPDGetFromRemote                  bool
 
 	// configurations for pod-cache
-	KubeletPodCacheSyncPeriod    time.Duration
-	KubeletPodCacheSyncMaxRate   int
-	KubeletPodCacheSyncBurstBulk int
-	RuntimePodCacheSyncPeriod    time.Duration
+	KubeletPodCacheSyncPeriod         time.Duration
+	KubeletPodCacheSyncMaxRate        int
+	KubeletPodCacheSyncBurstBulk      int
+	KubeletPodCacheSyncEmptyThreshold int
+	RuntimePodCacheSyncPeriod         time.Duration
 
 	// configurations for cnr
 	CNRCacheTTL time.Duration
@@ -113,10 +115,11 @@ func NewMetaServerOptions() *MetaServerOptions {
 		ServiceProfileCacheTTL:            defaultServiceProfileCacheTTL,
 		SPDGetFromRemote:                  defaultSPDGetFromRemote,
 
-		KubeletPodCacheSyncPeriod:    defaultKubeletPodCacheSyncPeriod,
-		KubeletPodCacheSyncMaxRate:   defaultKubeletPodCacheSyncMaxRate,
-		KubeletPodCacheSyncBurstBulk: defaultKubeletPodCacheSyncBurstBulk,
-		RuntimePodCacheSyncPeriod:    defaultRuntimePodCacheSyncPeriod,
+		KubeletPodCacheSyncPeriod:         defaultKubeletPodCacheSyncPeriod,
+		KubeletPodCacheSyncMaxRate:        defaultKubeletPodCacheSyncMaxRate,
+		KubeletPodCacheSyncBurstBulk:      defaultKubeletPodCacheSyncBurstBulk,
+		KubeletPodCacheSyncEmptyThreshold: defaultKubeletPodCacheSyncEmptyThreshold,
+		RuntimePodCacheSyncPeriod:         defaultRuntimePodCacheSyncPeriod,
 
 		CNRCacheTTL: defaultCustomNodeResourceCacheTTL,
 
@@ -162,6 +165,8 @@ func (o *MetaServerOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"The max rate for kubelet pod sync")
 	fs.IntVar(&o.KubeletPodCacheSyncBurstBulk, "kubelet-pod-cache-sync-burst-bulk", o.KubeletPodCacheSyncBurstBulk,
 		"The burst bulk for kubelet pod sync")
+	fs.IntVar(&o.KubeletPodCacheSyncEmptyThreshold, "kubelet-pod-cache-sync-empty-threshold", o.KubeletPodCacheSyncEmptyThreshold,
+		"The threshold for kubelet returns empty pod list, so that empty error can be skipped")
 	fs.DurationVar(&o.RuntimePodCacheSyncPeriod, "runtime-pod-cache-sync-period", o.RuntimePodCacheSyncPeriod,
 		"The period of meta server to sync pod from cri")
 
@@ -194,6 +199,7 @@ func (o *MetaServerOptions) ApplyTo(c *metaserver.MetaServerConfiguration) error
 	c.KubeletPodCacheSyncPeriod = o.KubeletPodCacheSyncPeriod
 	c.KubeletPodCacheSyncMaxRate = rate.Limit(o.KubeletPodCacheSyncMaxRate)
 	c.KubeletPodCacheSyncBurstBulk = o.KubeletPodCacheSyncBurstBulk
+	c.KubeletPodCacheSyncEmptyThreshold = o.KubeletPodCacheSyncEmptyThreshold
 	c.RuntimePodCacheSyncPeriod = o.RuntimePodCacheSyncPeriod
 
 	c.CNRCacheTTL = o.CNRCacheTTL

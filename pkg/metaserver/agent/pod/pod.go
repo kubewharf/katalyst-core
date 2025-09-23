@@ -76,8 +76,11 @@ type podFetcherImpl struct {
 	runtimePodFetcher    RuntimePodFetcher
 	kataContainerFetcher *KataContainerFetcher
 
-	kubeletPodsCache     map[string]*v1.Pod
-	kubeletPodsCacheLock sync.RWMutex
+	kubeletPodsCache                    map[string]*v1.Pod
+	kubeletPodsCacheSkipEmptyError      bool
+	kubeletPodsCacheContinuesEmptyCount int
+	kubeletPodsCacheLock                sync.RWMutex
+
 	runtimePodsCache     map[string]*RuntimePod
 	runtimePodsCacheLock sync.RWMutex
 
@@ -234,11 +237,12 @@ func (w *podFetcherImpl) getKubeletPodsCache(ctx context.Context) (map[string]*v
 		w.kubeletPodsCacheLock.RUnlock()
 	}
 
-	// the second time checks if the kubelet pod cache is nil, if it is,
-	// it means the first sync of the kubelet pod failed and returns an error
+	// if kubelet returns empty pod list continuously for specified times of running syncKubeletPod,
+	// which means there is indeed no pod scheduled on node, so we should not return error, otherwise we should return an error,
+	// which means something is wrong with running syncKubeletPod
 	w.kubeletPodsCacheLock.RLock()
 	defer w.kubeletPodsCacheLock.RUnlock()
-	if w.kubeletPodsCache == nil || len(w.kubeletPodsCache) == 0 {
+	if !w.kubeletPodsCacheSkipEmptyError && (w.kubeletPodsCache == nil || len(w.kubeletPodsCache) == 0) {
 		return nil, fmt.Errorf("first sync kubelet pod cache failed")
 	}
 
@@ -303,14 +307,15 @@ func (w *podFetcherImpl) syncKubeletPod(ctx context.Context) {
 				"success": "false",
 				"reason":  "empty",
 			})...)
-		return
+		w.kubeletPodsCacheContinuesEmptyCount++
+	} else {
+		_ = w.emitter.StoreInt64(metricsNamePodCacheSync, 1, metrics.MetricTypeNameCount,
+			metrics.ConvertMapToTags(map[string]string{
+				"source":  "kubelet",
+				"success": "true",
+			})...)
+		w.kubeletPodsCacheContinuesEmptyCount = 0
 	}
-
-	_ = w.emitter.StoreInt64(metricsNamePodCacheSync, 1, metrics.MetricTypeNameCount,
-		metrics.ConvertMapToTags(map[string]string{
-			"source":  "kubelet",
-			"success": "true",
-		})...)
 
 	kubeletPodsCache := make(map[string]*v1.Pod, len(kubeletPods))
 
@@ -320,6 +325,9 @@ func (w *podFetcherImpl) syncKubeletPod(ctx context.Context) {
 
 	w.kubeletPodsCacheLock.Lock()
 	w.kubeletPodsCache = kubeletPodsCache
+	if w.kubeletPodsCacheContinuesEmptyCount >= w.podConf.KubeletPodCacheSyncEmptyThreshold && !w.kubeletPodsCacheSkipEmptyError {
+		w.kubeletPodsCacheSkipEmptyError = true
+	}
 	w.kubeletPodsCacheLock.Unlock()
 }
 
