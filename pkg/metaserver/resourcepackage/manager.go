@@ -35,7 +35,7 @@ type ResourcePackageManager interface {
 	// specified node. The returned map's keys are NUMA IDs (as strings)
 	// and the values are slices of ResourcePackage belonging to that
 	// NUMA node: map[NUMA ID] -> []nodev1alpha1.ResourcePackage.
-	NodeResourcePackages(ctx context.Context, nodeName string) (map[int][]nodev1alpha1.ResourcePackage, error)
+	NodeResourcePackages(ctx context.Context) (map[int][]nodev1alpha1.ResourcePackage, error)
 }
 
 // resourcePackageManager is the default implementation of ResourcePackageManager
@@ -45,8 +45,8 @@ type resourcePackageManager struct {
 	fetcher npd.NPDFetcher
 }
 
-func (m *resourcePackageManager) NodeResourcePackages(ctx context.Context, nodeName string) (map[int][]nodev1alpha1.ResourcePackage, error) {
-	npd, err := m.fetcher.GetNPD(context.Background())
+func (m *resourcePackageManager) NodeResourcePackages(ctx context.Context) (map[int][]nodev1alpha1.ResourcePackage, error) {
+	npd, err := m.fetcher.GetNPD(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "get npd failed")
 	}
