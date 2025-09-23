@@ -26,8 +26,8 @@ type MBQRMPluginConfig struct {
 	MBCapLimitPercent        int
 	ActiveTrafficMBThreshold int
 
-	// DomainQoSAwareCapacity keeps qos group customized mb upper capacity it allows
-	DomainGroupAwareCapacity map[string]int
+	// DomainQoSAwareCapacityPCT keeps qos group customized mb upper capacity percentage it allows
+	DomainGroupAwareCapacityPCT map[string]int
 	// NoThrottleGroups are qos groups that should not be throttled with their mb usage
 	NoThrottleGroups []string
 	// CrossDomainGroups are groups that share resource across resource domains with significant remote usages

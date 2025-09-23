@@ -42,7 +42,7 @@ type MBOptions struct {
 	MaxIncomingRemoteMB            int
 	MBCapLimitPercent              int
 	ActiveTrafficMBThreshold       int
-	DomainGroupAwareCapacity       map[string]int
+	DomainGroupAwareCapacityPCT    map[string]int
 	NoThrottleGroups               []string
 	CrossDomainGroups              []string
 	ResetResctrlOnly               bool
@@ -73,8 +73,8 @@ func (o *MBOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.MBCapLimitPercent, "mb cap limit coefficient")
 	fs.IntVar(&o.ActiveTrafficMBThreshold, "mb-active-mb-threshold",
 		o.ActiveTrafficMBThreshold, "threshold of active traffic MB")
-	fs.StringToIntVar(&o.DomainGroupAwareCapacity, "mb-group-aware-capacity",
-		o.DomainGroupAwareCapacity, "customized mb capacities required by groups")
+	fs.StringToIntVar(&o.DomainGroupAwareCapacityPCT, "mb-group-aware-capacity-percentage",
+		o.DomainGroupAwareCapacityPCT, "customized mb capacities required by groups")
 	fs.StringSliceVar(&o.NoThrottleGroups, "mb-no-throttle-groups",
 		o.NoThrottleGroups, "groups not allowed to throttle mb resource")
 	fs.StringSliceVar(&o.CrossDomainGroups, "mb-cross-domain-groups",
@@ -94,7 +94,7 @@ func (o *MBOptions) ApplyTo(conf *qrm.MBQRMPluginConfig) error {
 	conf.ActiveTrafficMBThreshold = o.ActiveTrafficMBThreshold
 	conf.CrossDomainGroups = o.CrossDomainGroups
 	conf.NoThrottleGroups = o.NoThrottleGroups
-	conf.DomainGroupAwareCapacity = o.DomainGroupAwareCapacity
+	conf.DomainGroupAwareCapacityPCT = o.DomainGroupAwareCapacityPCT
 	conf.ResetResctrlOnly = o.ResetResctrlOnly
 	conf.LocalIsVictimAndTotalIsAllRead = o.LocalIsVictimAndTotalIsAllRead
 	return nil

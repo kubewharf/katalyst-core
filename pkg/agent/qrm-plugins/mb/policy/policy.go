@@ -25,6 +25,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/reader"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
@@ -49,7 +50,23 @@ func NewGenericPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		return false, nil, nil
 	}
 
-	defaultMBDomainCapacity := int(agentCtx.KatalystMachineInfo.SiblingNumaMBWAllocatable) / 1024 / 1024
+	// determine the allocatable capacity of mem bandwidth for one 'physical' numa (i.e. domain)
+	numaMBWCapacityMap := helper.GetNumaAvgMBWCapacityMap(agentCtx.MetricsFetcher, agentCtx.KatalystMachineInfo.ExtraTopologyInfo.SiblingNumaAvgMBWCapacityMap)
+	general.Infof("[mbm] get numa mb capacity map %v", numaMBWCapacityMap)
+	numaMBWAllocatableMap := helper.GetNumaAvgMBWAllocatableMap(agentCtx.MetricsFetcher, agentCtx.KatalystMachineInfo.ExtraTopologyInfo.SiblingNumaInfo, numaMBWCapacityMap)
+	general.Infof("[mbm] get numa mb allocatable map %v", numaMBWAllocatableMap)
+	if len(numaMBWAllocatableMap) == 0 {
+		general.Errorf("[mbm] failed to identify MB allocatable; mb_plugin is disabled")
+		return false, nil, nil
+	}
+
+	var mbAllocatable int64
+	for _, v := range numaMBWAllocatableMap {
+		mbAllocatable = v
+		break
+	}
+	// mb_plugin processes mem bandwidth in MB units
+	defaultMBDomainCapacity := int(mbAllocatable / 1024 / 1024)
 	if defaultMBDomainCapacity < minMBCapacity {
 		general.Infof("[mbm] invalid domain mb capacity %d as configured; not to enable mbm", defaultMBDomainCapacity)
 		return false, nil, nil
@@ -63,9 +80,8 @@ func NewGenericPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		}
 	}
 
-	general.Infof("[mbm] config: default mb domain capacity %d MB (machineInfo SiblingNumaMBWAllocatable)",
-		defaultMBDomainCapacity)
-	general.Infof("[mbm] config: group customized capacities %v", conf.DomainGroupAwareCapacity)
+	general.Infof("[mbm] config: default mb domain allocatable capacity %d MB", defaultMBDomainCapacity)
+	general.Infof("[mbm] config: group customized capacity percentages %v", conf.DomainGroupAwareCapacityPCT)
 	general.Infof("[mbm] config: min ccd mb %d MB", conf.MinCCDMB)
 	general.Infof("[mbm] config: max ccd mb %d MB", conf.MaxCCDMB)
 	general.Infof("[mbm] config: domain alient incoming mb limit %d MB", conf.MaxIncomingRemoteMB)
@@ -79,9 +95,11 @@ func NewGenericPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	ccdMaxMB := conf.MaxCCDMB
 	maxIncomingRemoteMB := conf.MaxIncomingRemoteMB
 	mbCapLimitPercent := conf.MBCapLimitPercent
-	groupCapacities := conf.MBQRMPluginConfig.DomainGroupAwareCapacity
 	groupNeverThrottles := conf.MBQRMPluginConfig.NoThrottleGroups
 	xDomGroups := conf.CrossDomainGroups
+	groupCapacities := getMBGroupAwareCapacities(conf.MBQRMPluginConfig.DomainGroupAwareCapacityPCT, defaultMBDomainCapacity)
+
+	general.Infof("[mbm] group customized capacity %v", groupCapacities)
 
 	// todo: avoid package var
 	monitor.MinActiveMB = conf.ActiveTrafficMBThreshold
@@ -101,4 +119,19 @@ func NewGenericPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		xDomGroups, groupNeverThrottles, groupCapacities,
 		metricsFetcher, planAllocator, agentCtx.EmitterPool)
 	return true, &agent.PluginWrapper{GenericPlugin: mbPlugin}, nil
+}
+
+func getMBGroupAwareCapacities(groupPercentages map[string]int, fullCapacity int) map[string]int {
+	if groupPercentages == nil {
+		return nil
+	}
+
+	result := make(map[string]int)
+	for group, percent := range groupPercentages {
+		if percent == 0 || percent >= 100 {
+			continue
+		}
+		result[group] = fullCapacity * percent / 100
+	}
+	return result
 }

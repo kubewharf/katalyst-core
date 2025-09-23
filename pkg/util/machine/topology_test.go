@@ -223,7 +223,7 @@ func TestGetSiblingNumaInfo(t *testing.T) {
 				SiblingNumaAvgMBWAllocatableRateMap: map[string]float64{
 					"AMD_K19Zen4": 0.7,
 				},
-				SiblingNumaMBWAllocatable: 5,
+				SiblingNumaMBWCapacity: 10,
 			},
 		},
 		{
@@ -324,7 +324,7 @@ func TestGetSiblingNumaInfo(t *testing.T) {
 				SiblingNumaAvgMBWAllocatableRateMap: map[string]float64{
 					"AMD_K19Zen4": 0.7,
 				},
-				SiblingNumaMBWAllocatable: 8,
+				SiblingNumaMBWCapacity: 10,
 			},
 		},
 		{
@@ -426,7 +426,7 @@ func TestGetSiblingNumaInfo(t *testing.T) {
 				SiblingNumaAvgMBWAllocatableRateMap: map[string]float64{
 					"AMD_K19Zen4": 0.7,
 				},
-				SiblingNumaMBWAllocatable: 8,
+				SiblingNumaMBWCapacity: 10,
 			},
 		},
 		{
@@ -736,7 +736,7 @@ func TestGetSiblingNumaInfo(t *testing.T) {
 				SiblingNumaAvgMBWAllocatableRateMap: map[string]float64{
 					"AMD_K19Zen4": 0.7,
 				},
-				SiblingNumaMBWAllocatable: 8,
+				SiblingNumaMBWCapacity: 10,
 			},
 		},
 	}
