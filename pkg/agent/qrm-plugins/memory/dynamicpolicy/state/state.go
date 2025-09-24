@@ -53,12 +53,13 @@ type (
 
 // NUMANodeState records the amount of memory per numa node (in bytes)
 type NUMANodeState struct {
-	TotalMemSize   uint64     `json:"total"`
-	SystemReserved uint64     `json:"systemReserved"`
-	Allocatable    uint64     `json:"allocatable"`
-	Allocated      uint64     `json:"Allocated"`
-	Free           uint64     `json:"free"`
-	PodEntries     PodEntries `json:"pod_entries"`
+	TotalMemSize     uint64     `json:"total"`
+	SystemReserved   uint64     `json:"systemReserved"`
+	Allocatable      uint64     `json:"allocatable"`
+	Allocated        uint64     `json:"Allocated"`
+	Free             uint64     `json:"free"`
+	PodEntries       PodEntries `json:"pod_entries"`
+	PreOccPodEntries PodEntries `json:"pre_occ_pod_entries"` // pre-occupation pod entries which is for pod needs pre-occupation
 }
 
 type (
@@ -221,12 +222,13 @@ func (ns *NUMANodeState) Clone() *NUMANodeState {
 	}
 
 	return &NUMANodeState{
-		TotalMemSize:   ns.TotalMemSize,
-		SystemReserved: ns.SystemReserved,
-		Allocatable:    ns.Allocatable,
-		Allocated:      ns.Allocated,
-		Free:           ns.Free,
-		PodEntries:     ns.PodEntries.Clone(),
+		TotalMemSize:     ns.TotalMemSize,
+		SystemReserved:   ns.SystemReserved,
+		Allocatable:      ns.Allocatable,
+		Allocated:        ns.Allocated,
+		Free:             ns.Free,
+		PodEntries:       ns.PodEntries.Clone(),
+		PreOccPodEntries: ns.PreOccPodEntries.Clone(),
 	}
 }
 
@@ -336,6 +338,42 @@ func (ns *NUMANodeState) SetAllocationInfo(podUID string, containerName string, 
 	}
 
 	ns.PodEntries[podUID][containerName] = allocationInfo.Clone()
+}
+
+func (ns *NUMANodeState) SetPreOccAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo) {
+	if ns == nil {
+		return
+	}
+
+	if ns.PreOccPodEntries == nil {
+		ns.PreOccPodEntries = make(PodEntries)
+	}
+
+	if _, ok := ns.PreOccPodEntries[podUID]; !ok {
+		// if there is pre-occupation pod entry, and the new pod is numa exclusive, clear all pre-occupation pod entries.
+		if len(ns.PreOccPodEntries) > 0 && allocationInfo.CheckNumaExclusive() {
+			ns.PreOccPodEntries = make(PodEntries)
+		}
+		ns.PreOccPodEntries[podUID] = make(ContainerEntries)
+	}
+
+	ns.PreOccPodEntries[podUID][containerName] = allocationInfo.Clone()
+}
+
+func (ns *NUMANodeState) DeletePreOccAllocationInfo(podUID string, containerName string) {
+	if ns == nil {
+		return
+	}
+
+	if _, ok := ns.PreOccPodEntries[podUID]; !ok {
+		return
+	}
+
+	delete(ns.PreOccPodEntries[podUID], containerName)
+
+	if len(ns.PreOccPodEntries[podUID]) == 0 {
+		delete(ns.PreOccPodEntries, podUID)
+	}
 }
 
 func (nm NUMANodeMap) Clone() NUMANodeMap {

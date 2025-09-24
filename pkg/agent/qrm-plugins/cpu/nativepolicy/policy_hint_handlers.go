@@ -59,7 +59,7 @@ func (p *NativePolicy) dedicatedCoresHintHandler(ctx context.Context,
 			}
 
 			var err error
-			machineState, err = nativepolicyutil.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+			machineState, err = nativepolicyutil.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries, nil)
 			if err != nil {
 				general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
 					req.PodNamespace, req.PodName, req.ContainerName, err)

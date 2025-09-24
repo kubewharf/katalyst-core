@@ -566,7 +566,7 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 		// because putAllocationsAndAdjustAllocationEntries will update machine state.
 		general.Infof("GetResourcesAllocation update machine state")
 		podEntries = p.state.GetPodEntries()
-		updatedMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+		updatedMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries, machineState)
 		if err != nil {
 			general.Errorf("GetResourcesAllocation GenerateMachineStateFromPodEntries failed with error: %v", err)
 			return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
@@ -1054,7 +1054,7 @@ func (p *DynamicPolicy) RemovePod(ctx context.Context,
 func (p *DynamicPolicy) removePod(podUID string, podEntries state.PodEntries, persistCheckpoint bool) error {
 	delete(podEntries, podUID)
 
-	updatedMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+	updatedMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries, p.state.GetMachineState())
 	if err != nil {
 		return fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
@@ -1081,7 +1081,7 @@ func (p *DynamicPolicy) removeContainer(podUID, containerName string, persistChe
 		return nil
 	}
 
-	updatedMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+	updatedMachineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries, p.state.GetMachineState())
 	if err != nil {
 		return fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
@@ -1178,7 +1178,7 @@ func (p *DynamicPolicy) cleanPools() error {
 			delete(podEntries, poolName)
 		}
 
-		machineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+		machineState, err := generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries, p.state.GetMachineState())
 		if err != nil {
 			return fmt.Errorf("calculate machineState by podEntries failed with error: %v", err)
 		}

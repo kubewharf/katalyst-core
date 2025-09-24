@@ -67,6 +67,8 @@ type NUMANodeState struct {
 	AllocatedCPUSet machine.CPUSet `json:"allocated_cpuset,omitempty"`
 
 	PodEntries PodEntries `json:"pod_entries"`
+	// pre-occupation pod entries which is for pod needs pre-occupation
+	PreOccPodEntries PodEntries `json:"pre_occ_pod_entries"`
 }
 
 type NUMANodeMap map[int]*NUMANodeState // keyed by numa node id
@@ -332,9 +334,10 @@ func (ns *NUMANodeState) Clone() *NUMANodeState {
 		return nil
 	}
 	return &NUMANodeState{
-		DefaultCPUSet:   ns.DefaultCPUSet.Clone(),
-		AllocatedCPUSet: ns.AllocatedCPUSet.Clone(),
-		PodEntries:      ns.PodEntries.Clone(),
+		DefaultCPUSet:    ns.DefaultCPUSet.Clone(),
+		AllocatedCPUSet:  ns.AllocatedCPUSet.Clone(),
+		PodEntries:       ns.PodEntries.Clone(),
+		PreOccPodEntries: ns.PreOccPodEntries.Clone(),
 	}
 }
 
@@ -489,6 +492,42 @@ func (ns *NUMANodeState) SetAllocationInfo(podUID string, containerName string, 
 	ns.PodEntries[podUID][containerName] = allocationInfo.Clone()
 }
 
+func (ns *NUMANodeState) SetPreOccAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo) {
+	if ns == nil {
+		return
+	}
+
+	if ns.PreOccPodEntries == nil {
+		ns.PreOccPodEntries = make(PodEntries)
+	}
+
+	if _, ok := ns.PreOccPodEntries[podUID]; !ok {
+		// if there is pre-occupation pod entry, and the new pod is numa exclusive, clear all pre-occupation pod entries.
+		if len(ns.PreOccPodEntries) > 0 && allocationInfo.CheckNumaExclusive() {
+			ns.PreOccPodEntries = make(PodEntries)
+		}
+		ns.PreOccPodEntries[podUID] = make(ContainerEntries)
+	}
+
+	ns.PreOccPodEntries[podUID][containerName] = allocationInfo.Clone()
+}
+
+func (ns *NUMANodeState) DeletePreOccAllocationInfo(podUID string, containerName string) {
+	if ns == nil {
+		return
+	}
+
+	if _, ok := ns.PreOccPodEntries[podUID]; !ok {
+		return
+	}
+
+	delete(ns.PreOccPodEntries[podUID], containerName)
+
+	if len(ns.PreOccPodEntries[podUID]) == 0 {
+		delete(ns.PreOccPodEntries, podUID)
+	}
+}
+
 // GetDefaultCPUSet returns default cpuset in this node
 func (nm NUMANodeMap) GetDefaultCPUSet() machine.CPUSet {
 	res := machine.NewCPUSet()
@@ -608,7 +647,7 @@ type ReadonlyState interface {
 	reader
 }
 
-type GenerateMachineStateFromPodEntriesFunc func(topology *machine.CPUTopology, podEntries PodEntries) (NUMANodeMap, error)
+type GenerateMachineStateFromPodEntriesFunc func(topology *machine.CPUTopology, podEntries PodEntries, originMachineState NUMANodeMap) (NUMANodeMap, error)
 
 var (
 	readonlyStateLock sync.RWMutex

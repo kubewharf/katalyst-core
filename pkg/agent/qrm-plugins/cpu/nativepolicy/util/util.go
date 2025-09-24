@@ -23,6 +23,6 @@ import (
 )
 
 // GenerateMachineStateFromPodEntries for native policy
-func GenerateMachineStateFromPodEntries(topology *machine.CPUTopology, podEntries state.PodEntries) (state.NUMANodeMap, error) {
+func GenerateMachineStateFromPodEntries(topology *machine.CPUTopology, podEntries state.PodEntries, _ state.NUMANodeMap) (state.NUMANodeMap, error) {
 	return state.GenerateMachineStateFromPodEntriesByPolicy(topology, podEntries, cpuconsts.CPUResourcePluginPolicyNameNative)
 }
