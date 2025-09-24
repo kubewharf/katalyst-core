@@ -18,7 +18,6 @@ package resourcepackage
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/smartystreets/goconvey/convey"
@@ -83,10 +82,12 @@ func TestNewResourcePackageHintOptimizer(t *testing.T) {
 
 	convey.Convey("Test NewResourcePackageHintOptimizer", t, func() {
 		options := policy.HintOptimizerFactoryOptions{
-			Conf:       &config.Configuration{},
-			MetaServer: &metaserver.MetaServer{},
-			Emitter:    metrics.DummyMetrics{},
-			State:      &MockState{},
+			Conf: &config.Configuration{},
+			MetaServer: &metaserver.MetaServer{
+				ResourcePackageManager: &resourcePackageManagerStub{},
+			},
+			Emitter: metrics.DummyMetrics{},
+			State:   &MockState{},
 		}
 
 		optimizer, err := NewResourcePackageHintOptimizer(options)
@@ -169,29 +170,26 @@ func TestResourcePackageHintOptimizer_OptimizeHints(t *testing.T) {
 			}
 
 			optimizer := &resourcePackageHintOptimizer{
-				metaServer: &metaserver.MetaServer{
-					ResourcePackageManager: &resourcePackageManagerStub{
-						nodeResourcePackagesMap: map[int][]nodev1alpha1.ResourcePackage{
-							0: {
-								{
-									PackageName: "test-package",
-									Allocatable: &v1.ResourceList{
-										"cpu": resource.MustParse("2"),
-									},
-								},
+				metaServer: &metaserver.MetaServer{},
+				state:      mockState,
+				resourcePackageMap: map[int][]nodev1alpha1.ResourcePackage{
+					0: {
+						{
+							PackageName: "test-package",
+							Allocatable: &v1.ResourceList{
+								"cpu": resource.MustParse("2"),
 							},
-							1: {
-								{
-									PackageName: "test-package-1",
-									Allocatable: &v1.ResourceList{
-										"cpu": resource.MustParse("2"),
-									},
-								},
+						},
+					},
+					1: {
+						{
+							PackageName: "test-package-1",
+							Allocatable: &v1.ResourceList{
+								"cpu": resource.MustParse("2"),
 							},
 						},
 					},
 				},
-				state: mockState,
 			}
 
 			hints := &pluginapi.ListOfTopologyHints{
@@ -323,11 +321,9 @@ func TestResourcePackageHintOptimizer_getResourcePackageAllocatable(t *testing.T
 	t.Parallel()
 
 	convey.Convey("Test getResourcePackageAllocatable", t, func() {
-		convey.Convey("when NodeResourcePackages fails", func() {
+		convey.Convey("when resourcePackageMap is nil", func() {
 			mockMetaServer := &metaserver.MetaServer{
-				ResourcePackageManager: &resourcePackageManagerStub{
-					err: fmt.Errorf("test error"),
-				},
+				ResourcePackageManager: &resourcePackageManagerStub{},
 			}
 
 			optimizer := &resourcePackageHintOptimizer{
@@ -336,33 +332,30 @@ func TestResourcePackageHintOptimizer_getResourcePackageAllocatable(t *testing.T
 			result, err := optimizer.getResourcePackageAllocatable("test-package")
 			convey.So(result, convey.ShouldBeNil)
 			convey.So(err, convey.ShouldNotBeNil)
-			convey.So(err.Error(), convey.ShouldContainSubstring, "NodeResourcePackages failed")
+			convey.So(err.Error(), convey.ShouldContainSubstring, "resourcePackageMap is nil")
 		})
 
 		convey.Convey("success case", func() {
-			mockMetaServer := &metaserver.MetaServer{
-				ResourcePackageManager: &resourcePackageManagerStub{
-					nodeResourcePackagesMap: map[int][]nodev1alpha1.ResourcePackage{
-						0: {
-							{
-								PackageName: "test-package",
-								Allocatable: &v1.ResourceList{
-									"cpu": resource.MustParse("2"),
-								},
+			mockMetaServer := &metaserver.MetaServer{}
+
+			optimizer := &resourcePackageHintOptimizer{
+				metaServer: mockMetaServer,
+				resourcePackageMap: map[int][]nodev1alpha1.ResourcePackage{
+					0: {
+						{
+							PackageName: "test-package",
+							Allocatable: &v1.ResourceList{
+								"cpu": resource.MustParse("2"),
 							},
-							{
-								PackageName: "test-package-1",
-								Allocatable: &v1.ResourceList{
-									"cpu": resource.MustParse("2"),
-								},
+						},
+						{
+							PackageName: "test-package-1",
+							Allocatable: &v1.ResourceList{
+								"cpu": resource.MustParse("2"),
 							},
 						},
 					},
 				},
-			}
-
-			optimizer := &resourcePackageHintOptimizer{
-				metaServer: mockMetaServer,
 			}
 			result, err := optimizer.getResourcePackageAllocatable("test-package")
 			convey.So(err, convey.ShouldBeNil)
@@ -371,29 +364,26 @@ func TestResourcePackageHintOptimizer_getResourcePackageAllocatable(t *testing.T
 		})
 
 		convey.Convey("when allocatable or cpu is nil", func() {
-			mockMetaServer := &metaserver.MetaServer{
-				ResourcePackageManager: &resourcePackageManagerStub{
-					nodeResourcePackagesMap: map[int][]nodev1alpha1.ResourcePackage{
-						0: {
-							{
-								PackageName: "test-package",
-								Allocatable: nil,
-							},
+			mockMetaServer := &metaserver.MetaServer{}
+
+			optimizer := &resourcePackageHintOptimizer{
+				metaServer: mockMetaServer,
+				resourcePackageMap: map[int][]nodev1alpha1.ResourcePackage{
+					0: {
+						{
+							PackageName: "test-package",
+							Allocatable: nil,
 						},
-						1: {
-							{
-								PackageName: "test-package",
-								Allocatable: &v1.ResourceList{
-									"memory": resource.MustParse("1Gi"),
-								},
+					},
+					1: {
+						{
+							PackageName: "test-package",
+							Allocatable: &v1.ResourceList{
+								"memory": resource.MustParse("1Gi"),
 							},
 						},
 					},
 				},
-			}
-
-			optimizer := &resourcePackageHintOptimizer{
-				metaServer: mockMetaServer,
 			}
 			result, err := optimizer.getResourcePackageAllocatable("test-package")
 			convey.So(err, convey.ShouldBeNil)
