@@ -226,7 +226,7 @@ func (a *cpuAccumulator) tryAlignL3Caches() {
 		// Cache is larger than remaining need - restrict to this cache for optimal locality
 		// This ensures all allocated CPUs share the same L3 cache, minimizing memory latency
 		klog.V(4).InfoS("tryAlignL3Caches: restricting allocation to L3 cache", "l3Cache", l3Cache, "cacheSize", cpusInL3Cache.Size(), "remainingNeed", a.numCPUsNeeded)
-		a.cpuDetails.KeepOnly(cpusInL3Cache)
+		a.cpuDetails = a.cpuDetails.KeepOnly(cpusInL3Cache)
 	}
 }
 
