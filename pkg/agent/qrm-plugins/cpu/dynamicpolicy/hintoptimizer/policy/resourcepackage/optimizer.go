@@ -19,10 +19,15 @@ package resourcepackage
 import (
 	"context"
 	"fmt"
+	"sync"
+	"time"
 
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer/policy"
 	hintoptimizerutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer/util"
@@ -38,24 +43,33 @@ import (
 
 const HintOptimizerNameResourcePackage = "resource_package"
 
+const (
+	syncResourcePackageUpdatePeriod = 30 * time.Second
+)
+
 // resourcePackageHintOptimizer implements the HintOptimizer interface based on resource package information.
 type resourcePackageHintOptimizer struct {
 	conf       *config.Configuration
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
 	state      state.State
+
+	mux                sync.RWMutex
+	resourcePackageMap map[int][]nodev1alpha1.ResourcePackage
 }
 
 // NewResourcePackageHintOptimizer creates a new resourcePackageHintOptimizer.
 func NewResourcePackageHintOptimizer(
 	options policy.HintOptimizerFactoryOptions,
 ) (hintoptimizer.HintOptimizer, error) {
-	return &resourcePackageHintOptimizer{
+	o := &resourcePackageHintOptimizer{
 		conf:       options.Conf,
 		metaServer: options.MetaServer,
 		emitter:    options.Emitter,
 		state:      options.State,
-	}, nil
+	}
+	o.updateResourcePackageMap()
+	return o, nil
 }
 
 // OptimizeHints optimizes the topology hints based on resource package information.
@@ -93,6 +107,9 @@ func (o *resourcePackageHintOptimizer) OptimizeHints(
 		return err
 	}
 
+	general.Infof("optimize hints for pod %s/%s, container %s, resource package %s, cpu request %.3f, resourcePackageAllocatableMap %+v, resourcePackageAllocatedMap %+v, hints %+v",
+		request.PodNamespace, request.PodName, request.ContainerName, resourcePackage, request.CPURequest, resourcePackageAllocatableMap, resourcePackageAllocatedMap, hints)
+
 	// Optimize hints based on resource package information
 	err = o.populateHintsByResourcePackage(hints, request.CPURequest, resourcePackageAllocatableMap, resourcePackageAllocatedMap)
 	if err != nil {
@@ -100,13 +117,19 @@ func (o *resourcePackageHintOptimizer) OptimizeHints(
 		return err
 	}
 
+	if len(hints.Hints) == 0 {
+		return fmt.Errorf("no hints found for resource package %s", resourcePackage)
+	}
+
+	general.Infof("optimized hints for pod %s/%s, container %s, resource package %s, cpu request %.3f, resourcePackageAllocatableMap %+v, resourcePackageAllocatedMap %+v, hints %+v",
+		request.PodNamespace, request.PodName, request.ContainerName, resourcePackage, request.CPURequest, resourcePackageAllocatableMap, resourcePackageAllocatedMap, hints)
+
 	return nil
 }
 
 // Run starts the resource package hint optimizer.
 func (o *resourcePackageHintOptimizer) Run(stopCh <-chan struct{}) {
-	// Resource package hint optimizer doesn't need to run background tasks
-	<-stopCh
+	wait.Until(o.updateResourcePackageMap, syncResourcePackageUpdatePeriod, stopCh)
 }
 
 // populateHintsByResourcePackage optimizes hints based on resource package information.
@@ -139,10 +162,9 @@ func (o *resourcePackageHintOptimizer) populateHintsByResourcePackage(
 }
 
 func (o *resourcePackageHintOptimizer) getResourcePackageAllocatable(resourcePackage string) (map[int]float64, error) {
-	// Get resource package information from meta server
-	resourcePackageMap, err := o.metaServer.NodeResourcePackages(context.Background())
-	if err != nil {
-		return nil, fmt.Errorf("NodeResourcePackages failed with error: %v", err)
+	resourcePackageMap := o.getResourcePackageMap()
+	if resourcePackageMap == nil {
+		return nil, fmt.Errorf("resourcePackageMap is nil")
 	}
 
 	allocatable := make(map[int]float64)
@@ -185,4 +207,27 @@ func (o *resourcePackageHintOptimizer) getResourcePackageAllocated(resourcePacka
 		}
 	}
 	return allocated, nil
+}
+
+func (o *resourcePackageHintOptimizer) getResourcePackageMap() map[int][]nodev1alpha1.ResourcePackage {
+	o.mux.RLock()
+	defer o.mux.RUnlock()
+	return o.resourcePackageMap
+}
+
+func (o *resourcePackageHintOptimizer) updateResourcePackageMap() {
+	// Get resource package information from meta server
+	resourcePackageMap, err := o.metaServer.NodeResourcePackages(context.Background())
+	if err != nil {
+		general.Errorf("NodeResourcePackages failed with error: %v", err)
+		return
+	}
+
+	o.mux.Lock()
+	defer o.mux.Unlock()
+	if apiequality.Semantic.DeepEqual(resourcePackageMap, o.resourcePackageMap) {
+		return
+	}
+	general.Infof("update resource package map from %+v to %+v", o.resourcePackageMap, resourcePackageMap)
+	o.resourcePackageMap = resourcePackageMap
 }
