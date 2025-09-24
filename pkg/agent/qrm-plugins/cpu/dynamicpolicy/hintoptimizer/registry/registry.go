@@ -21,14 +21,17 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer/policy/canonical"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer/policy/memorybandwidth"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer/policy/metricbased"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer/policy/resourcepackage"
 )
 
 var SharedCoresHintOptimizerRegistry = policy.HintOptimizerRegistry{
 	canonical.HintOptimizerNameCanonical:             canonical.NewCanonicalHintOptimizer,
 	memorybandwidth.HintOptimizerNameMemoryBandwidth: memorybandwidth.NewMemoryBandwidthHintOptimizer,
 	metricbased.HintOptimizerNameMetricBased:         metricbased.NewMetricBasedHintOptimizer,
+	resourcepackage.HintOptimizerNameResourcePackage: resourcepackage.NewResourcePackageHintOptimizer,
 }
 
 var DedicatedCoresHintOptimizerRegistry = policy.HintOptimizerRegistry{
 	memorybandwidth.HintOptimizerNameMemoryBandwidth: memorybandwidth.NewMemoryBandwidthHintOptimizer,
+	resourcepackage.HintOptimizerNameResourcePackage: resourcepackage.NewResourcePackageHintOptimizer,
 }
