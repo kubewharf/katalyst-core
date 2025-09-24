@@ -232,6 +232,29 @@ func TestTakeByTopology(t *testing.T) {
 		}
 	})
 
+	t.Run("L3 cache alignment enabled not enough a L3 cache", func(t *testing.T) {
+		t.Parallel()
+		// Arrange: Test L3 cache alignment when enabled
+		// This scenario tests allocation with L3 cache alignment enabled to optimize cache performance
+		info := createMockMachineInfo(384, 192, 2, 4, 24)
+		availableCPUs := machine.NewCPUSet(120, 144, 168, 192, 312, 336, 360, 1, 25, 49, 73, 97, 121, 145, 169, 193, 217, 241, 265, 289, 313, 337, 361)
+		cpuRequirement := 8
+
+		// Act
+		result, err := TakeByTopology(info, availableCPUs, cpuRequirement, true)
+		// Assert
+		if err != nil {
+			t.Errorf("Expected no error, got %v", err)
+		}
+		if result.Size() != cpuRequirement {
+			t.Errorf("Expected result size %d, got %d", cpuRequirement, result.Size())
+		}
+		wantResult := machine.NewCPUSet(1, 25, 49, 73, 193, 217, 241, 265)
+		if !result.Equals(wantResult) {
+			t.Errorf("Expected result to equal to %v, got %v", wantResult, result)
+		}
+	})
+
 	t.Run("allocation failure - all strategies exhausted", func(t *testing.T) {
 		t.Parallel()
 		// Arrange: Test allocation failure when all allocation strategies are exhausted
