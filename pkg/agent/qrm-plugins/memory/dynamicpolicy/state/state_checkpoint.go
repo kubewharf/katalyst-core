@@ -121,20 +121,23 @@ func (sc *stateCheckpoint) restoreState(
 		}
 	}
 
-	return sc.populateCacheAndState(machineInfo, reservedMemory, checkpoint, foundAndSkippedStateCorruption)
+	_, err = sc.updateCacheAndReturnChanged(machineInfo, reservedMemory, checkpoint, foundAndSkippedStateCorruption)
+	return err
 }
 
-func (sc *stateCheckpoint) populateCacheAndState(
+// updateCacheAndReturnChanged updates the cache and returns whether the state has changed
+func (sc *stateCheckpoint) updateCacheAndReturnChanged(
 	machineInfo *info.MachineInfo, reservedMemory map[v1.ResourceName]map[int]uint64,
 	checkpoint *MemoryPluginCheckpoint, foundAndSkippedStateCorruption bool,
-) error {
+) (bool, error) {
+	var hasStateChanged bool
 	if sc.policyName != checkpoint.PolicyName && !sc.skipStateCorruption {
-		return fmt.Errorf("[memory_plugin] configured policy %q differs from state checkpoint policy %q", sc.policyName, checkpoint.PolicyName)
+		return hasStateChanged, fmt.Errorf("[memory_plugin] configured policy %q differs from state checkpoint policy %q", sc.policyName, checkpoint.PolicyName)
 	}
 
 	generatedResourcesMachineState, err := GenerateMachineStateFromPodEntries(machineInfo, checkpoint.PodResourceEntries, checkpoint.MachineState, reservedMemory)
 	if err != nil {
-		return fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
+		return hasStateChanged, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
 
 	sc.cache.SetMachineState(generatedResourcesMachineState)
@@ -145,9 +148,10 @@ func (sc *stateCheckpoint) populateCacheAndState(
 		klog.Warningf("[memory_plugin] machine state changed: "+
 			"generatedResourcesMachineState: %s; checkpointMachineState: %s",
 			generatedResourcesMachineState.String(), checkpoint.MachineState.String())
+		hasStateChanged = true
 		err = sc.storeState()
 		if err != nil {
-			return fmt.Errorf("storeState when machine state changed failed with error: %v", err)
+			return hasStateChanged, fmt.Errorf("storeState when machine state changed failed with error: %v", err)
 		}
 	}
 
@@ -155,13 +159,13 @@ func (sc *stateCheckpoint) populateCacheAndState(
 		klog.Infof("[memory_plugin] found and skipped state corruption, we shoud store to rectify the checksum")
 		err = sc.storeState()
 		if err != nil {
-			return fmt.Errorf("storeState failed with error: %v", err)
+			return hasStateChanged, fmt.Errorf("storeState failed with error: %v", err)
 		}
 	}
 
 	klog.InfoS("[memory_plugin] state checkpoint: restored state from checkpoint")
 
-	return nil
+	return hasStateChanged, nil
 }
 
 // tryMigrateState tries to migrate the state file from the other directory to current directory.
@@ -194,8 +198,9 @@ func (sc *stateCheckpoint) tryMigrateState(
 		}
 	}
 
-	if err := sc.populateCacheAndState(machineInfo, reservedMemory, checkpoint, foundAndSkippedStateCorruption); err != nil {
-		return fmt.Errorf("[memory_plugin] populateCacheAndState failed with error: %v", err)
+	hasStateChanged, err := sc.updateCacheAndReturnChanged(machineInfo, reservedMemory, checkpoint, foundAndSkippedStateCorruption)
+	if err != nil {
+		return fmt.Errorf("[memory_plugin] updateCacheAndReturnChanged failed with error: %v", err)
 	}
 
 	// always store state after migrating to new checkpoint
@@ -203,7 +208,7 @@ func (sc *stateCheckpoint) tryMigrateState(
 		return fmt.Errorf("[memory_plugin] failed to store state during end of migration: %v", err)
 	}
 
-	if err := sc.qrmCheckpointManager.ValidateCheckpointFilesMigration(); err != nil {
+	if err := sc.qrmCheckpointManager.ValidateCheckpointFilesMigration(hasStateChanged); err != nil {
 		return fmt.Errorf("[memory_plugin] ValidateCheckpointFilesMigration failed with error: %v", err)
 	}
 

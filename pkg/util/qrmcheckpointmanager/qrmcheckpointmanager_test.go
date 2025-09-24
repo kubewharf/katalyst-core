@@ -18,7 +18,9 @@ package qrmcheckpointmanager
 
 import (
 	"encoding/json"
+	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
@@ -56,19 +58,42 @@ func TestQRMCheckpointManager_GetCurrentCheckpoint(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name                string
-		isRemovePrevious    bool
 		hasPreviousStateDir bool
-		wantErr             bool
+		adjustModTime       func(string, string)
+		isNotUpToDate       bool
 	}{
 		{
 			name:                "no previous state directory",
-			isRemovePrevious:    true,
 			hasPreviousStateDir: false,
 		},
 		{
 			name:                "has previous state directory, previous checkpoint should not exist",
-			isRemovePrevious:    true,
 			hasPreviousStateDir: true,
+		},
+		{
+			name:                "has previous state directory and the current file is up to date",
+			hasPreviousStateDir: true,
+			adjustModTime: func(currentFilePath, previousFilePath string) {
+				now := time.Now()
+				err := os.Chtimes(previousFilePath, now, now)
+				assert.NoError(t, err)
+				updatedTime := now.Add(-2 * time.Second) // 2 seconds is the threshold of modification time difference between the two files
+				err = os.Chtimes(currentFilePath, updatedTime, updatedTime)
+				assert.NoError(t, err)
+			},
+		},
+		{
+			name:                "has previous state directory but the current file is not up to date",
+			hasPreviousStateDir: true,
+			adjustModTime: func(currentFilePath, previousFilePath string) {
+				now := time.Now()
+				err := os.Chtimes(previousFilePath, now, now)
+				assert.NoError(t, err)
+				updatedTime := now.Add(-3 * time.Second) // 3 seconds is out of the threshold of modification time difference between the two files
+				err = os.Chtimes(currentFilePath, updatedTime, updatedTime)
+				assert.NoError(t, err)
+			},
+			isNotUpToDate: true,
 		},
 	}
 	for _, tt := range tests {
@@ -93,14 +118,25 @@ func TestQRMCheckpointManager_GetCurrentCheckpoint(t *testing.T) {
 			err = qrmCheckpointManager.currentCheckpointInfo.CreateCheckpoint("test_checkpoint", checkpoint)
 			assert.NoError(t, err)
 
+			if tt.adjustModTime != nil && tt.hasPreviousStateDir {
+				tt.adjustModTime(qrmCheckpointManager.currentCheckpointInfo.checkpointPath, qrmCheckpointManager.previousCheckpointInfo.checkpointPath)
+			}
+
 			newCheckpoint := &mockCheckpoint{}
-			err = qrmCheckpointManager.GetCurrentCheckpoint("test_checkpoint", newCheckpoint, tt.isRemovePrevious)
+			err = qrmCheckpointManager.GetCurrentCheckpoint("test_checkpoint", newCheckpoint, true)
+
+			if tt.isNotUpToDate {
+				assert.Error(t, err)
+				assert.Equal(t, errors.ErrCheckpointNotFound, err)
+				return
+			}
+
 			assert.NoError(t, err)
 
 			// Verify equality of checkpoints
 			assert.Equal(t, checkpoint, newCheckpoint)
 
-			if tt.hasPreviousStateDir && tt.isRemovePrevious {
+			if tt.hasPreviousStateDir {
 				// Ensure previous checkpoint does not exist
 				err = qrmCheckpointManager.previousCheckpointInfo.GetCheckpoint("test_checkpoint", newCheckpoint)
 				assert.Error(t, err)
@@ -156,16 +192,24 @@ func TestQRMCheckpointManager_GetPreviousCheckpoint(t *testing.T) {
 func TestQRMCheckpointManager_ValidateCheckpointFilesMigration(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name    string
-		isEqual bool
+		name            string
+		isEqual         bool
+		hasStateChanged bool
 	}{
 		{
-			name:    "Checkpoints are not equal, fallback to previous checkpoint",
-			isEqual: false,
+			name:            "Checkpoints are not equal, fallback to previous checkpoint",
+			isEqual:         false,
+			hasStateChanged: false,
 		},
 		{
-			name:    "Checkpoints are equal, previous checkpoint should not exist",
-			isEqual: true,
+			name:            "Checkpoints are equal, previous checkpoint should not exist",
+			isEqual:         true,
+			hasStateChanged: false,
+		},
+		{
+			name:            "Checkpoints are not equal but a state change is detected, previous checkpoint should not exist",
+			isEqual:         false,
+			hasStateChanged: true,
 		},
 	}
 	for _, tt := range tests {
@@ -192,11 +236,11 @@ func TestQRMCheckpointManager_ValidateCheckpointFilesMigration(t *testing.T) {
 				assert.NoError(t, err)
 			}
 
-			err = qrmCheckpointManager.ValidateCheckpointFilesMigration()
+			err = qrmCheckpointManager.ValidateCheckpointFilesMigration(tt.hasStateChanged)
 			assert.NoError(t, err)
 			newCheckpoint := &mockCheckpoint{}
 
-			if tt.isEqual {
+			if tt.isEqual || tt.hasStateChanged {
 				// Ensure previous checkpoint does not exist
 				err = qrmCheckpointManager.previousCheckpointInfo.GetCheckpoint("test_checkpoint", newCheckpoint)
 				assert.Error(t, err)

@@ -114,15 +114,22 @@ func (sc *stateCheckpoint) restoreState(topology *machine.CPUTopology) error {
 		}
 	}
 
-	return sc.populateCacheAndState(topology, checkpoint, foundAndSkippedStateCorruption)
+	_, err = sc.updateCacheAndReturnChanged(topology, checkpoint, foundAndSkippedStateCorruption)
+	return err
 }
 
-func (sc *stateCheckpoint) populateCacheAndState(
+// updateCacheAndReturnChanged updates the cache and returns whether the state has changed
+func (sc *stateCheckpoint) updateCacheAndReturnChanged(
 	topology *machine.CPUTopology, checkpoint *CPUPluginCheckpoint, foundAndSkippedStateCorruption bool,
-) error {
+) (bool, error) {
+	var hasStateChanged bool
+	if sc.policyName != checkpoint.PolicyName && !sc.skipStateCorruption {
+		return hasStateChanged, fmt.Errorf("[cpu_plugin] configured policy %q differs from state checkpoint policy %q", sc.policyName, checkpoint.PolicyName)
+	}
+
 	generatedMachineState, err := sc.GenerateMachineStateFromPodEntries(topology, checkpoint.PodEntries, checkpoint.MachineState)
 	if err != nil {
-		return fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
+		return hasStateChanged, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
 
 	sc.cache.SetMachineState(generatedMachineState)
@@ -133,9 +140,10 @@ func (sc *stateCheckpoint) populateCacheAndState(
 	if !reflect.DeepEqual(generatedMachineState, checkpoint.MachineState) {
 		klog.Warningf("[cpu_plugin] machine state changed: generatedMachineState: %s; checkpointMachineState: %s",
 			generatedMachineState.String(), checkpoint.MachineState.String())
+		hasStateChanged = true
 		err = sc.storeState()
 		if err != nil {
-			return fmt.Errorf("storeState when machine state changed failed with error: %v", err)
+			return hasStateChanged, fmt.Errorf("storeState when machine state changed failed with error: %v", err)
 		}
 	}
 
@@ -143,12 +151,12 @@ func (sc *stateCheckpoint) populateCacheAndState(
 		klog.Infof("[cpu_plugin] found and skipped state corruption, we should store to rectify the checksum")
 		err = sc.storeState()
 		if err != nil {
-			return fmt.Errorf("storeState failed with error after skipping corruption: %v", err)
+			return hasStateChanged, fmt.Errorf("storeState failed with error after skipping corruption: %v", err)
 		}
 	}
 
 	klog.InfoS("[cpu_plugin] State checkpoint: restored state from checkpoint")
-	return nil
+	return hasStateChanged, nil
 }
 
 // tryMigrateState tries to migrate the state file from the other directory to current directory.
@@ -180,7 +188,8 @@ func (sc *stateCheckpoint) tryMigrateState(
 		}
 	}
 
-	if err := sc.populateCacheAndState(topology, checkpoint, foundAndSkippedStateCorruption); err != nil {
+	hasStateChanged, err := sc.updateCacheAndReturnChanged(topology, checkpoint, foundAndSkippedStateCorruption)
+	if err != nil {
 		return fmt.Errorf("[cpu_plugin] failed to populate checkpoint state during state migration: %v", err)
 	}
 
@@ -189,7 +198,7 @@ func (sc *stateCheckpoint) tryMigrateState(
 		return fmt.Errorf("[cpu_plugin] failed to store checkpoint state during end of migration: %v", err)
 	}
 
-	if err := sc.qrmCheckpointManager.ValidateCheckpointFilesMigration(); err != nil {
+	if err := sc.qrmCheckpointManager.ValidateCheckpointFilesMigration(hasStateChanged); err != nil {
 		return fmt.Errorf("[cpu_plugin] ValidateCheckpointFilesMigration failed with error: %v", err)
 	}
 

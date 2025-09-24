@@ -3274,7 +3274,9 @@ func TestGetWriteOnlyState(t *testing.T) {
 	}
 }
 
-func generateTestMachineStateFromPodEntries(topology *machine.CPUTopology, _ PodEntries) (NUMANodeMap, error) {
+func generateTestMachineStateFromPodEntries(
+	topology *machine.CPUTopology, _ PodEntries, _ NUMANodeMap,
+) (NUMANodeMap, error) {
 	return GetDefaultMachineState(topology), nil
 }
 

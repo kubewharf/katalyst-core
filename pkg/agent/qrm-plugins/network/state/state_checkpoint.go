@@ -125,20 +125,23 @@ func (sc *stateCheckpoint) restoreState(
 		}
 	}
 
-	return sc.populateCacheAndState(conf, nics, reservedBandwidth, checkpoint, foundAndSkippedStateCorruption)
+	_, err = sc.updateCacheAndReturnChanged(conf, nics, reservedBandwidth, checkpoint, foundAndSkippedStateCorruption)
+	return err
 }
 
-func (sc *stateCheckpoint) populateCacheAndState(
+// updateCacheAndReturnChanged updates the cache and returns whether the state has changed
+func (sc *stateCheckpoint) updateCacheAndReturnChanged(
 	conf *qrm.QRMPluginsConfiguration, nics []machine.InterfaceInfo, reservedBandwidth map[string]uint32,
 	checkpoint *NetworkPluginCheckpoint, foundAndSkippedStateCorruption bool,
-) error {
+) (bool, error) {
+	var hasStateChanged bool
 	if sc.policyName != checkpoint.PolicyName && !sc.skipStateCorruption {
-		return fmt.Errorf("[network_plugin] configured policy %q differs from state checkpoint policy %q", sc.policyName, checkpoint.PolicyName)
+		return hasStateChanged, fmt.Errorf("[network_plugin] configured policy %q differs from state checkpoint policy %q", sc.policyName, checkpoint.PolicyName)
 	}
 
 	generatedNetworkState, err := GenerateMachineStateFromPodEntries(conf, nics, checkpoint.PodEntries, reservedBandwidth)
 	if err != nil {
-		return fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
+		return hasStateChanged, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
 
 	sc.cache.SetMachineState(generatedNetworkState)
@@ -149,9 +152,10 @@ func (sc *stateCheckpoint) populateCacheAndState(
 			"generatedNetworkState: %s; checkpointMachineState: %s",
 			generatedNetworkState.String(), checkpoint.MachineState.String())
 
+		hasStateChanged = true
 		err = sc.storeState()
 		if err != nil {
-			return fmt.Errorf("storeState when machine state changed failed with error: %v", err)
+			return hasStateChanged, fmt.Errorf("storeState when machine state changed failed with error: %v", err)
 		}
 	}
 
@@ -160,13 +164,13 @@ func (sc *stateCheckpoint) populateCacheAndState(
 
 		err = sc.storeState()
 		if err != nil {
-			return fmt.Errorf("storeState failed with error: %v", err)
+			return hasStateChanged, fmt.Errorf("storeState failed with error: %v", err)
 		}
 	}
 
 	generalLog.InfoS("state checkpoint: restored state from checkpoint")
 
-	return nil
+	return hasStateChanged, nil
 }
 
 // tryMigrateState tries to migrate the state file from the other directory to current directory.
@@ -199,7 +203,8 @@ func (sc *stateCheckpoint) tryMigrateState(
 		}
 	}
 
-	if err := sc.populateCacheAndState(conf, nics, reservedBandwidth, checkpoint, foundAndSkippedStateCorruption); err != nil {
+	hasStateChanged, err := sc.updateCacheAndReturnChanged(conf, nics, reservedBandwidth, checkpoint, foundAndSkippedStateCorruption)
+	if err != nil {
 		return fmt.Errorf("[network_plugin] failed to populate checkpoint state during state migration: %v", err)
 	}
 
@@ -208,7 +213,7 @@ func (sc *stateCheckpoint) tryMigrateState(
 		return fmt.Errorf("[network_plugin] failed to store checkpoint state during end of migration: %v", err)
 	}
 
-	if err := sc.qrmCheckpointManager.ValidateCheckpointFilesMigration(); err != nil {
+	if err := sc.qrmCheckpointManager.ValidateCheckpointFilesMigration(hasStateChanged); err != nil {
 		return fmt.Errorf("[network_plugin] ValidateCheckpointFilesMigration failed with error: %v", err)
 	}
 

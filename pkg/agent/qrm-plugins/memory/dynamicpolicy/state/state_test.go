@@ -155,7 +155,7 @@ func TestTryMigrateState(t *testing.T) {
 					},
 				}
 				oldCheckpoint.PodResourceEntries = podResourceEntries
-				machineState, err := GenerateMachineStateFromPodEntries(machineInfo, podResourceEntries, reservedMemory)
+				machineState, err := GenerateMachineStateFromPodEntries(machineInfo, podResourceEntries, nil, reservedMemory)
 				assert.NoError(t, err)
 				oldCheckpoint.MachineState = machineState
 				err = oldCheckpointManager.CreateCheckpoint(checkpointName, oldCheckpoint)
