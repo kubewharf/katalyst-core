@@ -172,7 +172,7 @@ func (p *topologyAdapterImpl) GetTopologyZones(parentCtx context.Context) ([]*no
 
 	podResources := listPodResourcesResponse.GetPodResources()
 	if len(podResources) == 0 {
-		return nil, errors.Errorf("list pod resources response is empty")
+		klog.Warning("list pod resources response is empty")
 	}
 
 	// filter already allocated pods
