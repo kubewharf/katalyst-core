@@ -665,7 +665,6 @@ func GetSiblingNumaInfo(
 		SiblingNumaAvgMBWCapacityMap:         siblingNumaAvgMBWCapacityMap,
 		SiblingNumaAvgMBWAllocatableRateMap:  siblingNumaMBWAllocatableRateMap,
 		SiblingNumaDefaultMBWAllocatableRate: siblingNumaDefaultMBWAllocatableRate,
-		SiblingNumaMBWCapacity:               siblingNumaMBWCapacity,
 	}
 }
 
@@ -738,9 +737,6 @@ type SiblingNumaInfo struct {
 	SiblingNumaAvgMBWAllocatableRateMap  map[string]float64
 	SiblingNumaAvgMBWCapacityMap         map[int]int64
 	SiblingNumaDefaultMBWAllocatableRate float64
-
-	// total capacity mbw for all numa siblings (within one 'physical' numa)
-	SiblingNumaMBWCapacity int64
 }
 
 type AllocatableInterfaceSocketInfo struct {
