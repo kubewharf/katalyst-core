@@ -28,9 +28,6 @@ import (
 )
 
 const (
-	asyncLogger               = "async_logger"
-	logger                    = "log"
-	async                     = "async"
 	metricsNameNumDroppedLogs = "number_of_dropped_logs"
 )
 
@@ -40,10 +37,7 @@ type AsyncLogger struct {
 }
 
 func NewAsyncLogger(agentCtx *agent.GenericContext, logFile string, maxSizeMB int, bufferSizeMB int) *AsyncLogger {
-	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(asyncLogger, metrics.MetricTag{
-		Key: logger,
-		Val: async,
-	})
+	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter()
 	// lumberjackLogger is a logger that rotates log files
 	lumberjackLogger := &lumberjack.Logger{
 		Filename: logFile,
