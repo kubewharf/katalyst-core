@@ -19,9 +19,10 @@ package config
 import (
 	"fmt"
 
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
+
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	dynconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
-	apiequality "k8s.io/apimachinery/pkg/api/equality"
 )
 
 type IrqTuningPolicy string
