@@ -43,8 +43,6 @@ const (
 	metricsNameAgentStarted  = "agent_started"
 )
 
-const defaultLogFileName = "/opt/tiger/toutiao/log/app/agent.log"
-
 // Run starts common and uniformed agent components here, and starts other
 // specific components in other separate repos (with common components as
 // dependencies)
@@ -66,7 +64,7 @@ func Run(
 	}
 
 	if conf.SupportAsyncLogging {
-		asyncLogger := logging.NewAsyncLogger(genericCtx, defaultLogFileName, conf.LogFileMaxSize, conf.LogBufferSizeMB)
+		asyncLogger := logging.NewAsyncLogger(genericCtx, conf.LogFileMaxSize, conf.LogBufferSizeMB)
 		defer asyncLogger.Shutdown()
 	}
 

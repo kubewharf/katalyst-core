@@ -20,7 +20,6 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
-
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
