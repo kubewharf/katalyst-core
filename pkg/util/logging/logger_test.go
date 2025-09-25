@@ -17,8 +17,6 @@ limitations under the License.
 package logging
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -35,29 +33,8 @@ func TestNewAsyncLogger(t *testing.T) {
 			EmitterPool: metrics_pool.DummyMetricsEmitterPool{},
 		},
 	}
-	tempDir := t.TempDir()
-	logFilePath := filepath.Join(tempDir, "test.log")
-	asyncLogger := NewAsyncLogger(agentCtx, logFilePath, 100, 100)
-	assert.NotNil(t, asyncLogger)
-}
-
-func TestAsyncLogger_WriteAndShutdown(t *testing.T) {
-	t.Parallel()
-	agentCtx := &agent.GenericContext{
-		GenericContext: &katalyst_base.GenericContext{
-			EmitterPool: metrics_pool.DummyMetricsEmitterPool{},
-		},
-	}
-	tempDir := t.TempDir()
-	logFilePath := filepath.Join(tempDir, "test.log")
-	asyncLogger := NewAsyncLogger(agentCtx, logFilePath, 100, 100)
+	asyncLogger := NewAsyncLogger(agentCtx, 100, 100)
 	assert.NotNil(t, asyncLogger)
 
-	_, err := asyncLogger.Write([]byte("test"))
-	assert.NoError(t, err, "write log should not fail")
-
-	asyncLogger.Shutdown()
-
-	_, err = os.Stat(logFilePath)
-	assert.NoError(t, err, "log file should be created")
+	assert.Equal(t, len(asyncLogger.diodeWriters), 4)
 }
