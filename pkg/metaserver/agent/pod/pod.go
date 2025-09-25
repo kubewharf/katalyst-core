@@ -76,10 +76,9 @@ type podFetcherImpl struct {
 	runtimePodFetcher    RuntimePodFetcher
 	kataContainerFetcher *KataContainerFetcher
 
-	kubeletPodsCache                    map[string]*v1.Pod
-	kubeletPodsCacheSkipEmptyError      bool
-	kubeletPodsCacheContinuesEmptyCount int
-	kubeletPodsCacheLock                sync.RWMutex
+	kubeletPodsCache               map[string]*v1.Pod
+	kubeletPodsCacheSkipEmptyError bool
+	kubeletPodsCacheLock           sync.RWMutex
 
 	runtimePodsCache     map[string]*RuntimePod
 	runtimePodsCacheLock sync.RWMutex
@@ -290,6 +289,7 @@ func (w *podFetcherImpl) syncRuntimePod(_ context.Context) {
 func (w *podFetcherImpl) syncKubeletPod(ctx context.Context) {
 	kubeletPods, err := w.kubeletPodFetcher.GetPodList(ctx, nil)
 	_ = general.UpdateHealthzStateByError(podFetcherKubeletHealthCheckName, err)
+	var kubeletPodsContinuesEmptyCount int
 	if err != nil {
 		klog.Errorf("sync kubelet pod failed: %s", err)
 		_ = w.emitter.StoreInt64(metricsNamePodCacheSync, 1, metrics.MetricTypeNameCount,
@@ -307,14 +307,14 @@ func (w *podFetcherImpl) syncKubeletPod(ctx context.Context) {
 				"success": "false",
 				"reason":  "empty",
 			})...)
-		w.kubeletPodsCacheContinuesEmptyCount++
+		kubeletPodsContinuesEmptyCount++
 	} else {
 		_ = w.emitter.StoreInt64(metricsNamePodCacheSync, 1, metrics.MetricTypeNameCount,
 			metrics.ConvertMapToTags(map[string]string{
 				"source":  "kubelet",
 				"success": "true",
 			})...)
-		w.kubeletPodsCacheContinuesEmptyCount = 0
+		kubeletPodsContinuesEmptyCount = 0
 	}
 
 	kubeletPodsCache := make(map[string]*v1.Pod, len(kubeletPods))
@@ -325,9 +325,7 @@ func (w *podFetcherImpl) syncKubeletPod(ctx context.Context) {
 
 	w.kubeletPodsCacheLock.Lock()
 	w.kubeletPodsCache = kubeletPodsCache
-	if w.kubeletPodsCacheContinuesEmptyCount >= w.podConf.KubeletPodCacheSyncEmptyThreshold && !w.kubeletPodsCacheSkipEmptyError {
-		w.kubeletPodsCacheSkipEmptyError = true
-	}
+	w.kubeletPodsCacheSkipEmptyError = kubeletPodsContinuesEmptyCount >= w.podConf.KubeletPodCacheSyncEmptyThreshold
 	w.kubeletPodsCacheLock.Unlock()
 }
 
