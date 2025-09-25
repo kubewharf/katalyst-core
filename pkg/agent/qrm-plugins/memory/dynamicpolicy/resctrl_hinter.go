@@ -22,9 +22,12 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
+	"go.uber.org/atomic"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
@@ -46,6 +49,7 @@ const (
 )
 
 type ResctrlHinter interface {
+	Run(stopCh <-chan struct{})
 	HintResourceAllocation(podMeta commonstate.AllocationMeta, resourceAllocation *pluginapi.ResourceAllocation)
 	Allocate(podMeta commonstate.AllocationMeta, resourceAllocation *pluginapi.ResourceAllocation)
 }
@@ -54,7 +58,7 @@ type resctrlHinter struct {
 	emitter              metrics.MetricEmitter
 	config               *qrm.ResctrlConfig
 	closidEnablingGroups sets.String
-	monGroupsMaxCount    int
+	monGroupsMaxCount    *atomic.Int64
 	root                 string
 }
 
@@ -97,7 +101,7 @@ func isPodLevelSubgroupDisabled(group string, enablingGroups sets.String) bool {
 }
 
 func (r *resctrlHinter) hintResourceAllocation(podMeta commonstate.AllocationMeta, resourceAllocation *pluginapi.ResourceAllocation, isAllocate bool) {
-	if r.config == nil || !r.config.EnableResctrlHint {
+	if r.config == nil || resourceAllocation == nil || !r.config.EnableResctrlHint {
 		return
 	}
 
@@ -132,7 +136,7 @@ func (r *resctrlHinter) hintResourceAllocation(podMeta commonstate.AllocationMet
 
 	} else if isAllocate && r.isMonGroupsOverLimit() {
 		general.Infof("mbm: pod %s/%s mon_groups count has over limit %d, don't create pod level mon group",
-			podMeta.PodNamespace, podMeta.PodName, r.monGroupsMaxCount)
+			podMeta.PodNamespace, podMeta.PodName, r.monGroupsMaxCount.Load())
 		needMonGroups = false
 	}
 	if !needMonGroups {
@@ -142,7 +146,7 @@ func (r *resctrlHinter) hintResourceAllocation(podMeta commonstate.AllocationMet
 	return
 }
 
-func (r *resctrlHinter) getMonGroupsMaxCount() int {
+func (r *resctrlHinter) getMonGroupsMaxCount() int64 {
 	if r.config == nil || r.config.MonGroupMaxCountRatio <= 0 {
 		return 0
 	}
@@ -160,15 +164,18 @@ func (r *resctrlHinter) getMonGroupsMaxCount() int {
 	}
 	limit = int(float64(limit) * r.config.MonGroupMaxCountRatio)
 	general.Infof("mbm: max mon_groups count: %d, ratio: %.2f", limit, r.config.MonGroupMaxCountRatio)
-	return limit
+	return int64(limit)
 }
 
 func (r *resctrlHinter) isMonGroupsOverLimit() bool {
-	if r.monGroupsMaxCount == 0 {
+	var (
+		monGroupsMaxCount int64 = r.monGroupsMaxCount.Load()
+		monGroupsCount    int64 = 0
+	)
+
+	if monGroupsMaxCount == 0 {
 		return false
 	}
-
-	monGroupsCount := 0
 
 	subdirs, err := os.ReadDir(r.root)
 	if err != nil {
@@ -185,11 +192,11 @@ func (r *resctrlHinter) isMonGroupsOverLimit() bool {
 			general.Errorf("mbm: check mon_groups: read mon_groups dir %s error: %v", monGroupPath, err)
 			continue
 		}
-		monGroupsCount += len(monGroupsDirs)
+		monGroupsCount += int64(len(monGroupsDirs))
 	}
 
-	_ = r.emitter.StoreInt64(metricNameResctrlMonGroupsNum, int64(monGroupsCount), metrics.MetricTypeNameRaw)
-	if monGroupsCount >= r.monGroupsMaxCount {
+	_ = r.emitter.StoreInt64(metricNameResctrlMonGroupsNum, monGroupsCount, metrics.MetricTypeNameRaw)
+	if monGroupsCount >= monGroupsMaxCount {
 		_ = r.emitter.StoreInt64(metricNameResctrlMonGroupsOverlimit, 1, metrics.MetricTypeNameRaw)
 		return true
 	}
@@ -204,6 +211,14 @@ func (r *resctrlHinter) Allocate(podMeta commonstate.AllocationMeta, resourceAll
 	r.hintResourceAllocation(podMeta, resourceAllocation, true)
 }
 
+func (r *resctrlHinter) Run(stopCh <-chan struct{}) {
+	wait.Until(func() {
+		if count := r.getMonGroupsMaxCount(); count != r.monGroupsMaxCount.Load() {
+			r.monGroupsMaxCount.Store(count)
+		}
+	}, 10*time.Minute, stopCh)
+}
+
 func newResctrlHinter(config *qrm.ResctrlConfig, emitter metrics.MetricEmitter) ResctrlHinter {
 	closidEnablingGroups := make(sets.String)
 	if config != nil && config.MonGroupEnabledClosIDs != nil {
@@ -216,6 +231,6 @@ func newResctrlHinter(config *qrm.ResctrlConfig, emitter metrics.MetricEmitter) 
 		closidEnablingGroups: closidEnablingGroups,
 		root:                 resctrlRoot,
 	}
-	r.monGroupsMaxCount = r.getMonGroupsMaxCount()
+	r.monGroupsMaxCount = atomic.NewInt64(r.getMonGroupsMaxCount())
 	return r
 }

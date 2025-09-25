@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/atomic"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
@@ -239,6 +240,32 @@ func TestResctrlProcessor_HintResp(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "resp is nil",
+			fields: fields{
+				config: &qrm.ResctrlConfig{
+					EnableResctrlHint: true,
+					CPUSetPoolToSharedSubgroup: map[string]int{
+						"batch": 30,
+					},
+					MonGroupEnabledClosIDs: []string{"dedicated", "shared-50"},
+				},
+			},
+			args: args{
+				qosLevel: "shared_cores",
+				req: &pluginapi.ResourceRequest{
+					Annotations: map[string]string{
+						"cpuset_pool": "batch",
+					},
+				},
+				resp: &pluginapi.ResourceAllocationResponse{
+					AllocationResult: nil,
+				},
+			},
+			want: &pluginapi.ResourceAllocationResponse{
+				AllocationResult: nil,
+			},
+		},
 	}
 	for _, tt := range tests {
 		tt := tt
@@ -259,7 +286,7 @@ func TestResctrlProcessor_HintResp(t *testing.T) {
 				}
 				hinter := r.(*resctrlHinter)
 				hinter.root = root
-				hinter.monGroupsMaxCount = hinter.getMonGroupsMaxCount()
+				hinter.monGroupsMaxCount = atomic.NewInt64(hinter.getMonGroupsMaxCount())
 			}
 
 			meta := state.GenerateMemoryContainerAllocationMeta(tt.args.req, tt.args.qosLevel)
