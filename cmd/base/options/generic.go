@@ -115,7 +115,7 @@ func (o *GenericOptions) ApplyTo(c *generic.GenericConfiguration) error {
 	errList := make([]error, 0, 1)
 	errList = append(errList, o.qosOptions.ApplyTo(c.QoSConfiguration))
 	errList = append(errList, o.metricsOptions.ApplyTo(c.MetricsConfiguration))
-	errList = append(errList, o.logsOptions.ApplyTo())
+	errList = append(errList, o.logsOptions.ApplyTo(c.LogConfiguration))
 	errList = append(errList, o.authOptions.ApplyTo(c.AuthConfiguration))
 
 	c.ClientConnection.QPS = o.QPS
