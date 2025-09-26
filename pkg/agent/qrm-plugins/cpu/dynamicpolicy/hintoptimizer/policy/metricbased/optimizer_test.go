@@ -41,6 +41,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/metricthreshold"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
@@ -69,7 +70,11 @@ func TestNewMetricBasedHintOptimizer(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	stateImpl, err := state.NewCheckpointState(tmpDir, "test", "test", metaServer.CPUTopology, false, state.GenerateMachineStateFromPodEntries, emitter)
+	stateDirectoryConfig := &statedirectory.StateDirectoryConfiguration{
+		StateFileDirectory: tmpDir,
+	}
+
+	stateImpl, err := state.NewCheckpointState(stateDirectoryConfig, "test", "test", metaServer.CPUTopology, false, state.GenerateMachineStateFromPodEntries, emitter)
 	require.NoError(t, err)
 
 	options := policy.HintOptimizerFactoryOptions{
@@ -191,8 +196,11 @@ func TestMetricBasedHintOptimizer_OptimizeHints(t *testing.T) {
 				state: func() state.State {
 					tmpDir, _ := ioutil.TempDir("", "test-state")
 					defer os.RemoveAll(tmpDir)
+					stateDirectoryConfig := &statedirectory.StateDirectoryConfiguration{
+						StateFileDirectory: tmpDir,
+					}
 					cpuTopology, _ := machine.GenerateDummyCPUTopology(4, 1, 1) // 1 NUMA node
-					st, _ := state.NewCheckpointState(tmpDir, "test", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
+					st, _ := state.NewCheckpointState(stateDirectoryConfig, "test", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
 					return st
 				}(),
 				numaMetrics: func() map[int]cpuUtil.SubEntries {
@@ -259,7 +267,10 @@ func TestMetricBasedHintOptimizer_OptimizeHints(t *testing.T) {
 					tmpDir, _ := ioutil.TempDir("", "test-state-fail")
 					defer os.RemoveAll(tmpDir)
 					cpuTopology, _ := machine.GenerateDummyCPUTopology(16, 1, 1)
-					st, _ := state.NewCheckpointState(tmpDir, "test", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
+					stateDirectoryConfig := &statedirectory.StateDirectoryConfiguration{
+						StateFileDirectory: tmpDir,
+					}
+					st, _ := state.NewCheckpointState(stateDirectoryConfig, "test", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
 					return st
 				}(),
 			},
@@ -324,8 +335,11 @@ func TestMetricBasedHintOptimizer_OptimizeHints(t *testing.T) {
 				state: func() state.State {
 					tmpDir, _ := ioutil.TempDir("", "test-state-over")
 					defer os.RemoveAll(tmpDir)
+					stateDirectoryConfig := &statedirectory.StateDirectoryConfiguration{
+						StateFileDirectory: tmpDir,
+					}
 					cpuTopology, _ := machine.GenerateDummyCPUTopology(4, 1, 2)
-					st, _ := state.NewCheckpointState(tmpDir, "test", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
+					st, _ := state.NewCheckpointState(stateDirectoryConfig, "test", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
 					return st
 				}(),
 				numaMetrics: func() map[int]cpuUtil.SubEntries {
@@ -563,8 +577,11 @@ func TestMetricBasedHintOptimizer_collectNUMAMetrics(t *testing.T) {
 	tmpDir, err := ioutil.TempDir("", "checkpoint-TestCollectNUMAMetrics")
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
+	stateDirectoryConfig := &statedirectory.StateDirectoryConfiguration{
+		StateFileDirectory: tmpDir,
+	}
 
-	stateImpl, err := state.NewCheckpointState(tmpDir, "test", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
+	stateImpl, err := state.NewCheckpointState(stateDirectoryConfig, "test", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
 	require.NoError(t, err)
 
 	podUID1 := "pod1"
