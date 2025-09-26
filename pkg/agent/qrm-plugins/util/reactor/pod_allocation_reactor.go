@@ -22,8 +22,10 @@ import (
 
 	"github.com/samber/lo"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/util/retry"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/client/control"
@@ -45,18 +47,29 @@ func NewPodAllocationReactor(podFetcher pod.PodFetcher, client kubernetes.Interf
 	return &podAllocationReactor{podFetcher: podFetcher, podUpdater: control.NewRealPodUpdater(client), client: client}
 }
 
+func (r *podAllocationReactor) getPod(ctx context.Context, allocation commonstate.Allocation) (pod *v1.Pod, err error) {
+	if pod, err = r.podFetcher.GetPod(ctx, allocation.GetPodUid()); err == nil {
+		return
+	}
+
+	err = retry.OnError(retry.DefaultBackoff, func(err error) bool {
+		return apierrors.IsNotFound(err)
+	}, func() error {
+		pod, err = r.client.CoreV1().Pods(allocation.GetPodNamespace()).Get(ctx, allocation.GetPodName(), metav1.GetOptions{ResourceVersion: "0"})
+		return err
+	})
+
+	return
+}
+
 func (r *podAllocationReactor) UpdateAllocation(ctx context.Context, allocation commonstate.Allocation) error {
 	if lo.IsNil(allocation) {
 		return fmt.Errorf("allocation is nil")
 	}
 
-	var getPod *v1.Pod
-	getPod, err := r.podFetcher.GetPod(ctx, allocation.GetPodUid())
+	getPod, err := r.getPod(ctx, allocation)
 	if err != nil {
-		getPod, err = r.client.CoreV1().Pods(allocation.GetPodNamespace()).Get(ctx, allocation.GetPodName(), metav1.GetOptions{ResourceVersion: "0"})
-		if err != nil {
-			return err
-		}
+		return err
 	}
 
 	podAllocation, ok := allocation.(PodAllocation)
