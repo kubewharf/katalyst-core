@@ -2641,7 +2641,79 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones(t *testing.T) {
 					util.GenerateNumaZoneNode(1): util.GenerateSocketZoneNode(1),
 				},
 			},
-			wantErr: true,
+			want: []*nodev1alpha1.TopologyZone{
+				{
+					Type: "Socket",
+					Name: "0",
+					Children: []*nodev1alpha1.TopologyZone{
+						{
+							Type: "Numa",
+							Name: "0",
+							Resources: nodev1alpha1.Resources{
+								Allocatable: &v1.ResourceList{
+									"gpu":    resource.MustParse("2"),
+									"cpu":    resource.MustParse("24"),
+									"memory": resource.MustParse("32G"),
+								},
+								Capacity: &v1.ResourceList{
+									"gpu":    resource.MustParse("2"),
+									"cpu":    resource.MustParse("24"),
+									"memory": resource.MustParse("32G"),
+								},
+							},
+							Children: []*nodev1alpha1.TopologyZone{
+								{
+									Type: "NIC",
+									Name: "eth0",
+									Resources: nodev1alpha1.Resources{
+										Allocatable: &v1.ResourceList{
+											"nic": resource.MustParse("10G"),
+										},
+										Capacity: &v1.ResourceList{
+											"nic": resource.MustParse("10G"),
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+				{
+					Type: "Socket",
+					Name: "1",
+					Children: []*nodev1alpha1.TopologyZone{
+						{
+							Type: "Numa",
+							Name: "1",
+							Resources: nodev1alpha1.Resources{
+								Allocatable: &v1.ResourceList{
+									"cpu":    resource.MustParse("24"),
+									"memory": resource.MustParse("32G"),
+								},
+								Capacity: &v1.ResourceList{
+									"cpu":    resource.MustParse("24"),
+									"memory": resource.MustParse("32G"),
+								},
+							},
+							Children: []*nodev1alpha1.TopologyZone{
+								{
+									Type: "NIC",
+									Name: "eth1",
+									Resources: nodev1alpha1.Resources{
+										Allocatable: &v1.ResourceList{
+											"nic": resource.MustParse("10G"),
+										},
+										Capacity: &v1.ResourceList{
+											"nic": resource.MustParse("10G"),
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			wantErr: false,
 		},
 	}
 	for _, tt := range tests {

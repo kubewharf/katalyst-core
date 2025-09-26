@@ -59,9 +59,10 @@ type RodanMetricConfiguration struct {
 }
 
 type PodConfiguration struct {
-	KubeletPodCacheSyncPeriod    time.Duration
-	KubeletPodCacheSyncMaxRate   rate.Limit
-	KubeletPodCacheSyncBurstBulk int
+	KubeletPodCacheSyncPeriod         time.Duration
+	KubeletPodCacheSyncMaxRate        rate.Limit
+	KubeletPodCacheSyncBurstBulk      int
+	KubeletPodCacheSyncEmptyThreshold int
 
 	RuntimePodCacheSyncPeriod time.Duration
 }
