@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strconv"
 	"sync"
 	"time"
@@ -32,6 +33,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 	podresv1 "k8s.io/kubelet/pkg/apis/podresources/v1"
 	resourceutil "k8s.io/kubernetes/pkg/api/v1/resource"
@@ -52,6 +55,8 @@ import (
 
 const (
 	getTopologyZonesTimeout = 10 * time.Second
+
+	syncMemoryBandwidthInterval = 3 * time.Minute
 )
 
 // NumaInfoGetter is to get numa info
@@ -96,6 +101,11 @@ type topologyAdapterImpl struct {
 
 	// needValidationResources is the resources needed to be validated
 	needValidationResources []string
+
+	// numaMBWCapacityMap map numa id => memory bandwidth capacity
+	numaMBWCapacityMap map[int]int64
+	// numaMBWAllocatableMap map numa id => memory bandwidth allocatable
+	numaMBWAllocatableMap map[int]int64
 }
 
 // NewPodResourcesServerTopologyAdapter creates a topology adapter which uses pod resources server
@@ -119,7 +129,8 @@ func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, qos
 	}
 
 	numaSocketZoneNodeMap := util.GenerateNumaSocketZone(numaInfo)
-	return &topologyAdapterImpl{
+
+	adapter := &topologyAdapterImpl{
 		endpoints:                      endpoints,
 		kubeletResourcePluginPaths:     kubeletResourcePluginPaths,
 		kubeletResourcePluginStateFile: kubeletResourcePluginStateFile,
@@ -131,7 +142,9 @@ func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, qos
 		podResourcesFilter:             podResourcesFilter,
 		resourceNameToZoneTypeMap:      resourceNameToZoneTypeMap,
 		needValidationResources:        needValidationResources,
-	}, nil
+	}
+
+	return adapter, nil
 }
 
 func (p *topologyAdapterImpl) GetTopologyZones(parentCtx context.Context) ([]*nodev1alpha1.TopologyZone, error) {
@@ -255,6 +268,11 @@ func (p *topologyAdapterImpl) Run(ctx context.Context, handler func()) error {
 		return fmt.Errorf("register file watcher failed, err: %s", err)
 	}
 
+	// wait for metrics cache sync
+	if !cache.WaitForCacheSync(ctx.Done(), p.metaServer.MetricsFetcher.HasSynced) {
+		return fmt.Errorf("wait for cache sync failed")
+	}
+
 	// start a goroutine to watch qrm checkpoint file change and notify to update topology status,
 	// and when qrm checkpoint file changed, it means that the topology status may be changed
 	go func() {
@@ -278,6 +296,8 @@ func (p *topologyAdapterImpl) Run(ctx context.Context, handler func()) error {
 			}
 		}
 	}()
+
+	go wait.Until(p.syncMemoryBandwidth, syncMemoryBandwidthInterval, ctx.Done())
 
 	return nil
 }
@@ -424,14 +444,7 @@ func (p *topologyAdapterImpl) getZoneResources(allocatableResources *podresv1.Al
 		}
 	}
 
-	numaMBWCapacityMap := helper.GetNumaAvgMBWCapacityMap(p.metaServer.MetricsFetcher, p.metaServer.SiblingNumaAvgMBWCapacityMap)
-	zoneCapacity, err = p.addNumaMemoryBandwidthResources(zoneCapacity, numaMBWCapacityMap)
-	if err != nil {
-		errList = append(errList, err)
-	}
-
-	numaMBWAllocatableMap := helper.GetNumaAvgMBWAllocatableMap(p.metaServer.MetricsFetcher, p.metaServer.SiblingNumaInfo, numaMBWCapacityMap)
-	zoneAllocatable, err = p.addNumaMemoryBandwidthResources(zoneAllocatable, numaMBWAllocatableMap)
+	zoneAllocatable, zoneCapacity, err = p.addNumaMemoryBandwidth(zoneAllocatable, zoneCapacity)
 	if err != nil {
 		errList = append(errList, err)
 	}
@@ -948,6 +961,44 @@ func (p *topologyAdapterImpl) addNumaMemoryBandwidthResources(zoneResources map[
 		(*zoneResources[numaZoneNode])[apiconsts.ResourceMemoryBandwidth] = *resource.NewQuantity(memoryBandwidth, resource.BinarySI)
 	}
 	return zoneResources, nil
+}
+
+func (p *topologyAdapterImpl) addNumaMemoryBandwidth(
+	zoneAllocatable,
+	zoneCapacity map[util.ZoneNode]*v1.ResourceList,
+) (map[util.ZoneNode]*v1.ResourceList, map[util.ZoneNode]*v1.ResourceList, error) {
+	if p.numaMBWCapacityMap == nil || p.numaMBWAllocatableMap == nil {
+		return nil, nil, fmt.Errorf("numaMBWCapacityMap or numaMBWAllocatableMap is nil")
+	}
+
+	var err error
+	zoneCapacity, err = p.addNumaMemoryBandwidthResources(zoneCapacity, p.numaMBWCapacityMap)
+	if err != nil {
+		return nil, nil, fmt.Errorf("add numa memory bandwidth capacity error: %v", err)
+	}
+	zoneAllocatable, err = p.addNumaMemoryBandwidthResources(zoneAllocatable, p.numaMBWAllocatableMap)
+	if err != nil {
+		return nil, nil, fmt.Errorf("add numa memory bandwidth allocatable error: %v", err)
+	}
+	return zoneAllocatable, zoneCapacity, nil
+}
+
+func (p *topologyAdapterImpl) syncMemoryBandwidth() {
+	numaMBWCapacityMap := helper.GetNumaAvgMBWCapacityMap(p.metaServer.MetricsFetcher, p.metaServer.SiblingNumaAvgMBWCapacityMap)
+	numaMBWAllocatableMap := helper.GetNumaAvgMBWAllocatableMap(p.metaServer.MetricsFetcher, p.metaServer.SiblingNumaInfo, numaMBWCapacityMap)
+
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	if !reflect.DeepEqual(p.numaMBWCapacityMap, numaMBWCapacityMap) {
+		general.Infof("numa memory bandwidth capacity map updated from %v to %v", p.numaMBWCapacityMap, numaMBWCapacityMap)
+		p.numaMBWCapacityMap = numaMBWCapacityMap
+	}
+
+	if !reflect.DeepEqual(p.numaMBWAllocatableMap, numaMBWAllocatableMap) {
+		general.Infof("numa memory bandwidth allocatable map updated from %v to %v", p.numaMBWAllocatableMap, numaMBWAllocatableMap)
+		p.numaMBWAllocatableMap = numaMBWAllocatableMap
+	}
 }
 
 // filterAllocatedPodResourcesList is to filter pods that have allocated devices or Resources
