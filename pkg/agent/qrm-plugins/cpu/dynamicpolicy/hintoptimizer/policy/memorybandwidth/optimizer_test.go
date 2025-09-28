@@ -19,8 +19,8 @@ package memorybandwidth
 import (
 	"fmt"
 	"os"
-	"reflect"
 	"testing"
+	"time"
 
 	"github.com/bytedance/mockey"
 	"github.com/stretchr/testify/assert"
@@ -41,6 +41,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -81,18 +82,22 @@ func TestNewMemoryBandwidthHintOptimizer(t *testing.T) {
 		options policy.HintOptimizerFactoryOptions
 	}
 	tests := []struct {
-		name    string
-		args    args
-		want    hintoptimizer.HintOptimizer
-		wantErr bool
+		name       string
+		args       args
+		wantErr    bool
+		wantRunErr bool
 	}{
 		{
 			name: "NewMemoryBandwidthHintOptimizer normal case",
 			args: args{
 				options: policy.HintOptimizerFactoryOptions{
-					MetaServer: &metaserver.MetaServer{},
-					Emitter:    metrics.DummyMetrics{},
-					State:      stateImpl,
+					MetaServer: &metaserver.MetaServer{
+						MetaAgent: &agent.MetaAgent{
+							MetricsFetcher: generateTestMetricsFetcher(100, 200),
+						},
+					},
+					Emitter: metrics.DummyMetrics{},
+					State:   stateImpl,
 					Conf: func() *config.Configuration {
 						conf := config.NewConfiguration()
 						conf.MemoryBandwidthIgnoreNegativeHint = true
@@ -101,14 +106,33 @@ func TestNewMemoryBandwidthHintOptimizer(t *testing.T) {
 					}(),
 				},
 			},
-			want: &memoryBandwidthOptimizer{
-				metaServer:         &metaserver.MetaServer{},
-				emitter:            metrics.DummyMetrics{},
-				state:              stateImpl,
-				ignoreNegativeHint: true,
-				preferSpreading:    false,
-			},
 			wantErr: false,
+		},
+		{
+			name: "NewMemoryBandwidthHintOptimizer cache is not synced",
+			args: args{
+				options: policy.HintOptimizerFactoryOptions{
+					MetaServer: &metaserver.MetaServer{
+						MetaAgent: &agent.MetaAgent{
+							MetricsFetcher: func() types.MetricsFetcher {
+								f := generateTestMetricsFetcher(100, 200)
+								f.SetSynced(false)
+								return f
+							}(),
+						},
+					},
+					Emitter: metrics.DummyMetrics{},
+					State:   stateImpl,
+					Conf: func() *config.Configuration {
+						conf := config.NewConfiguration()
+						conf.MemoryBandwidthIgnoreNegativeHint = true
+						conf.MemoryBandwidthPreferSpreading = false
+						return conf
+					}(),
+				},
+			},
+			wantErr:    false,
+			wantRunErr: true,
 		},
 	}
 	for _, tt := range tests {
@@ -120,11 +144,19 @@ func TestNewMemoryBandwidthHintOptimizer(t *testing.T) {
 				t.Errorf("NewMemoryBandwidthHintOptimizer() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("NewMemoryBandwidthHintOptimizer() = %v, want %v", got, tt.want)
-			}
+
+			ch := make(chan struct{})
+			go func() {
+				time.Sleep(1 * time.Second)
+				close(ch)
+			}()
 			// Test Run method for coverage
-			go got.Run(make(<-chan struct{}))
+			err = got.Run(ch)
+			if tt.wantRunErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err, "optimizer should not return error")
+			}
 			assert.NotNil(t, got, "optimizer should not be nil")
 		})
 	}

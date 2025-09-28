@@ -23,6 +23,7 @@ import (
 
 	pkgerrors "github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/tools/cache"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
@@ -110,8 +111,13 @@ func (o *metricBasedHintOptimizer) enableMetricPreferredNUMAAllocation() bool {
 	return metricPolicyEnabled
 }
 
-func (o *metricBasedHintOptimizer) Run(stopCh <-chan struct{}) {
-	wait.Until(o.collectNUMAMetrics, 30*time.Second, stopCh)
+func (o *metricBasedHintOptimizer) Run(stopCh <-chan struct{}) error {
+	// wait for metrics cache sync
+	if !cache.WaitForCacheSync(stopCh, o.metaServer.MetricsFetcher.HasSynced) {
+		return fmt.Errorf("wait for cache sync failed")
+	}
+	go wait.Until(o.collectNUMAMetrics, 30*time.Second, stopCh)
+	return nil
 }
 
 func (o *metricBasedHintOptimizer) populateHintsByMetricPolicy(

@@ -24,6 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/cache"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer"
@@ -61,7 +62,13 @@ type memoryBandwidthOptimizer struct {
 	preferSpreading    bool                   // preferSpreading influences sorting: if true, hints with more available bandwidth are preferred (spreading); otherwise, hints with less (but non-negative) available bandwidth are preferred (packing).
 }
 
-func (o *memoryBandwidthOptimizer) Run(<-chan struct{}) {}
+func (o *memoryBandwidthOptimizer) Run(stopCh <-chan struct{}) error {
+	// wait for metrics cache sync
+	if !cache.WaitForCacheSync(stopCh, o.metaServer.MetricsFetcher.HasSynced) {
+		return fmt.Errorf("wait for cache sync failed")
+	}
+	return nil
+}
 
 // NewMemoryBandwidthHintOptimizer creates a new instance of memoryBandwidthOptimizer.
 // It initializes the optimizer with the necessary components like MetaServer, KatalystMachineInfo, and MetricEmitter.

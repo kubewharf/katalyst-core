@@ -43,7 +43,9 @@ type canonicalHintOptimizer struct {
 	cpuNUMAHintPreferLowThreshold float64
 }
 
-func (o *canonicalHintOptimizer) Run(<-chan struct{}) {}
+func (o *canonicalHintOptimizer) Run(<-chan struct{}) error {
+	return nil
+}
 
 // NewCanonicalHintOptimizer creates a new canonicalHintOptimizer.
 func NewCanonicalHintOptimizer(
