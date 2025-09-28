@@ -146,7 +146,7 @@ func (r *QoSRegionDedicated) updateProvisionPolicy() {
 
 		// set essentials for policy and regulator
 		internal.policy.SetPodSet(r.podSet)
-		internal.policy.SetBindingNumas(r.bindingNumas, true)
+		internal.policy.SetBindingNumas(r.bindingNumas, r.isNumaBinding)
 		internal.policy.SetEssentials(r.ResourceEssentials, r.ControlEssentials)
 
 		// run an episode of policy update
