@@ -105,6 +105,13 @@ func (pa *ProvisionAssemblerCommon) assembleDedicatedNUMAExclusiveRegion(r regio
 		"available", available, "nonReclaimRequirement", nonReclaimRequirement,
 		"reservedForReclaim", reservedForReclaim, "controlKnob", controlKnob)
 
+	// set pool overlap info for dedicated pool
+	for podUID, containerSet := range r.GetPods() {
+		for containerName := range containerSet {
+			result.SetPoolOverlapPodContainerInfo(commonstate.PoolNameReclaim, regionNuma, podUID, containerName, reclaimedCoresSize)
+		}
+	}
+
 	result.SetPoolEntry(commonstate.PoolNameReclaim, regionNuma, reclaimedCoresSize, reclaimedCoresLimit)
 	return nil
 }
