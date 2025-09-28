@@ -77,7 +77,7 @@ func newTestPolicyNumaExclusive(t *testing.T, checkpointDir string, stateFileDir
 	assert.NoError(t, err)
 	assert.NotNil(t, metaServerNumaExclusive)
 
-	p := NewPolicyNUMAExclusive(regionInfo.RegionName, regionInfo.RegionType, regionInfo.OwnerPoolName, conf, nil, metaCacheNumaExclusive, metaServerNumaExclusive, metrics.DummyMetrics{})
+	p := NewPolicyNUMADedicated(regionInfo.RegionName, regionInfo.RegionType, regionInfo.OwnerPoolName, conf, nil, metaCacheNumaExclusive, metaServerNumaExclusive, metrics.DummyMetrics{})
 	metaCacheNumaExclusive.SetRegionInfo(regionInfo.RegionName, &regionInfo)
 
 	p.SetBindingNumas(regionInfo.BindingNumas)
@@ -183,7 +183,7 @@ func TestPolicyNumaExclusive(t *testing.T) {
 			},
 			regionInfo: types.RegionInfo{
 				RegionName:   "dedicated-numa-exclusive-xxx",
-				RegionType:   configapi.QoSRegionTypeDedicatedNumaExclusive,
+				RegionType:   configapi.QoSRegionTypeDedicated,
 				BindingNumas: machine.NewCPUSet(0),
 			},
 			resourceEssentials: types.ResourceEssentials{
@@ -204,7 +204,7 @@ func TestPolicyNumaExclusive(t *testing.T) {
 			},
 			regionInfo: types.RegionInfo{
 				RegionName:   "dedicated-numa-exclusive-xxx",
-				RegionType:   configapi.QoSRegionTypeDedicatedNumaExclusive,
+				RegionType:   configapi.QoSRegionTypeDedicated,
 				BindingNumas: machine.NewCPUSet(0),
 			},
 			resourceEssentials: types.ResourceEssentials{
@@ -225,7 +225,7 @@ func TestPolicyNumaExclusive(t *testing.T) {
 			},
 			regionInfo: types.RegionInfo{
 				RegionName:   "dedicated-numa-exclusive-xxx",
-				RegionType:   configapi.QoSRegionTypeDedicatedNumaExclusive,
+				RegionType:   configapi.QoSRegionTypeDedicated,
 				BindingNumas: machine.NewCPUSet(0),
 			},
 			resourceEssentials: types.ResourceEssentials{
@@ -252,7 +252,7 @@ func TestPolicyNumaExclusive(t *testing.T) {
 	defer func() { _ = os.RemoveAll(checkpointManagerDir) }()
 
 	for _, tt := range tests {
-		policy := newTestPolicyNumaExclusive(t, checkpointDir, stateFileDir, checkpointManagerDir, tt.regionInfo, tt.podSet).(*PolicyNUMAExclusive)
+		policy := newTestPolicyNumaExclusive(t, checkpointDir, stateFileDir, checkpointManagerDir, tt.regionInfo, tt.podSet).(*PolicyNUMADedicated)
 		assert.NotNil(t, policy)
 
 		podNames := []string{}
