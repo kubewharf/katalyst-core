@@ -734,7 +734,6 @@ func (cs *cpuServer) assemblePoolEntries(advisorResp *types.InternalCPUCalculati
 	if reclaimEntries, ok := advisorResp.PoolEntries[commonstate.PoolNameReclaim]; ok && advisorResp.AllowSharedCoresOverlapReclaimedCores {
 		poolEntry := NewPoolCalculationEntries(commonstate.PoolNameReclaim)
 		for numaID, reclaimCPU := range reclaimEntries {
-
 			overlapSize := advisorResp.GetPoolOverlapInfo(commonstate.PoolNameReclaim, numaID)
 			if len(overlapSize) == 0 {
 				// If share pool not exists, join reclaim pool directly
@@ -757,6 +756,22 @@ func (cs *cpuServer) assemblePoolEntries(advisorResp *types.InternalCPUCalculati
 						innerBlock.join(sharedPoolCalculationResults.Blocks[0].BlockId, bs)
 					}
 					poolEntry.Entries[commonstate.FakedContainerName].CalculationResultsByNumas[int64(numaID)] = numaCalculationResult
+				}
+			}
+
+			overlapPodContainerSize := advisorResp.GetPoolOverlapPodContainerInfo(commonstate.PoolNameReclaim, numaID)
+			if len(overlapPodContainerSize) != 0 {
+				numaCalculationResult := poolEntry.Entries[commonstate.FakedContainerName].CalculationResultsByNumas[int64(numaID)]
+				for podUID, containerSize := range overlapPodContainerSize {
+					for containerName, size := range containerSize {
+						block := NewBlock(uint64(size), "")
+						innerBlock := NewInnerBlock(block, int64(numaID), commonstate.PoolNameReclaim, &ContainerMeta{
+							PodUID:        podUID,
+							ContainerName: containerName,
+						}, numaCalculationResult)
+						numaCalculationResult.Blocks = append(numaCalculationResult.Blocks, block)
+						innerBlock.join(block.BlockId, bs)
+					}
 				}
 			}
 		}
@@ -821,7 +836,10 @@ func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadv
 					if result, ok := containerEntry.CalculationResultsByNumas[int64(numaID)]; ok {
 						for _, block := range result.Blocks {
 							newBlock := NewBlock(block.Result, block.BlockId)
-							newInnerBlock := NewInnerBlock(newBlock, int64(numaID), "", ci, numaCalculationResult)
+							newInnerBlock := NewInnerBlock(newBlock, int64(numaID), "", &ContainerMeta{
+								PodUID:        ci.PodUID,
+								ContainerName: ci.ContainerName,
+							}, numaCalculationResult)
 							numaCalculationResult.Blocks = append(numaCalculationResult.Blocks, newBlock)
 							newInnerBlock.join(block.BlockId, bs)
 						}
@@ -837,20 +855,23 @@ func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadv
 					// if no reclaimed pool exists, return the generated Block
 
 					block := NewBlock(uint64(cpuset.Size()), "")
-					innerBlock := NewInnerBlock(block, int64(numaID), "", ci, numaCalculationResult)
+					innerBlock := NewInnerBlock(block, int64(numaID), "", &ContainerMeta{
+						PodUID:        ci.PodUID,
+						ContainerName: ci.ContainerName,
+					}, numaCalculationResult)
 					numaCalculationResult.Blocks = append(numaCalculationResult.Blocks, block)
 					innerBlock.join(block.BlockId, bs)
 				} else {
 					// if reclaimed pool exists, join the generated Block with Block in reclaimed pool
 
 					for _, block := range reclaimPoolCalculationResults.Blocks {
-						// todo assume only one reclaimed block exists in a certain numa
-						if block.OverlapTargets == nil || len(block.OverlapTargets) == 0 {
-							newBlock := NewBlock(uint64(cpuset.Size()), "")
-							innerBlock := NewInnerBlock(newBlock, int64(numaID), "", ci, numaCalculationResult)
-							numaCalculationResult.Blocks = append(numaCalculationResult.Blocks, newBlock)
-							innerBlock.join(block.BlockId, bs)
-						}
+						newBlock := NewBlock(uint64(cpuset.Size()), "")
+						innerBlock := NewInnerBlock(newBlock, int64(numaID), "", &ContainerMeta{
+							PodUID:        ci.PodUID,
+							ContainerName: ci.ContainerName,
+						}, numaCalculationResult)
+						numaCalculationResult.Blocks = append(numaCalculationResult.Blocks, newBlock)
+						innerBlock.join(block.BlockId, bs)
 					}
 				}
 			}

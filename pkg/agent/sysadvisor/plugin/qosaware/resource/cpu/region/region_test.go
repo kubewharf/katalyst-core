@@ -73,7 +73,7 @@ func TestGetRegionNameFromMetaCache(t *testing.T) {
 			},
 			region: &types.RegionInfo{
 				RegionName:   "dedicated-t",
-				RegionType:   configapi.QoSRegionTypeDedicatedNumaExclusive,
+				RegionType:   configapi.QoSRegionTypeDedicated,
 				BindingNumas: machine.NewCPUSet(1),
 			},
 			numaID:     1,
@@ -90,7 +90,7 @@ func TestGetRegionNameFromMetaCache(t *testing.T) {
 			},
 			region: &types.RegionInfo{
 				RegionName:   "dedicated-t",
-				RegionType:   configapi.QoSRegionTypeDedicatedNumaExclusive,
+				RegionType:   configapi.QoSRegionTypeDedicated,
 				BindingNumas: machine.NewCPUSet(1),
 			},
 			numaID:     2,

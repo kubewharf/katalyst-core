@@ -223,11 +223,13 @@ type QoSRegionBase struct {
 	// idle: true if containers in the region is not running as usual, maybe there is no incoming business traffic
 	idle atomic.Bool
 
-	isNumaBinding bool
+	isNumaBinding   bool
+	isNumaExclusive bool
 }
 
 // NewQoSRegionBase returns a base qos region instance with common region methods
-func NewQoSRegionBase(name string, ownerPoolName string, regionType v1alpha1.QoSRegionType, conf *config.Configuration, extraConf interface{}, isNumaBinding bool,
+func NewQoSRegionBase(name string, ownerPoolName string, regionType v1alpha1.QoSRegionType,
+	conf *config.Configuration, extraConf interface{}, isNumaBinding bool, isNumaExclusive bool,
 	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) *QoSRegionBase {
 	r := &QoSRegionBase{
@@ -267,7 +269,8 @@ func NewQoSRegionBase(name string, ownerPoolName string, regionType v1alpha1.QoS
 		throttled: *atomic.NewBool(false),
 		idle:      *atomic.NewBool(false),
 
-		isNumaBinding: isNumaBinding,
+		isNumaBinding:   isNumaBinding,
+		isNumaExclusive: isNumaExclusive,
 	}
 
 	r.initHeadroomPolicy(conf, extraConf, metaReader, metaServer, emitter)
@@ -389,6 +392,10 @@ func (r *QoSRegionBase) SetThrottled(throttled bool) {
 
 func (r *QoSRegionBase) IsNumaBinding() bool {
 	return r.isNumaBinding
+}
+
+func (r *QoSRegionBase) IsNumaExclusive() bool {
+	return r.isNumaExclusive
 }
 
 func (r *QoSRegionBase) AddContainer(ci *types.ContainerInfo) error {
@@ -590,7 +597,7 @@ func getRegionNameFromMetaCache(ci *types.ContainerInfo, numaID int, metaReader 
 	} else if ci.IsDedicatedNumaBinding() {
 		for regionName := range ci.RegionNames {
 			regionInfo, ok := metaReader.GetRegionInfo(regionName)
-			if ok && regionInfo.RegionType == v1alpha1.QoSRegionTypeDedicatedNumaExclusive {
+			if ok && regionInfo.RegionType == v1alpha1.QoSRegionTypeDedicated {
 				regionNUMAs := regionInfo.BindingNumas.ToSliceInt()
 				if len(regionNUMAs) == 1 && regionNUMAs[0] == numaID {
 					return regionName

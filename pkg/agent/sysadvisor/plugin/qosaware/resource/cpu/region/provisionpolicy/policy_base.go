@@ -74,7 +74,7 @@ func (p *PolicyBase) SetBindingNumas(numas machine.CPUSet, isNUMABinding bool) {
 
 func (p *PolicyBase) GetControlKnobAdjusted() (types.ControlKnob, error) {
 	switch p.regionType {
-	case configapi.QoSRegionTypeShare, configapi.QoSRegionTypeDedicatedNumaExclusive:
+	case configapi.QoSRegionTypeShare, configapi.QoSRegionTypeDedicated:
 		return p.controlKnobAdjusted.Clone(), nil
 
 	case configapi.QoSRegionTypeIsolation:
