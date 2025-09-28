@@ -79,13 +79,15 @@ type PodEntries map[string]ContainerEntries
 // PodSet stores container names keyed by pod uid
 type PodSet map[string]sets.String
 
-// ResourceEssentials defines essential (const) variables, and those variables may be adjusted by KCC
+// ResourceEssentials defines essential variables, and those variables may be adjusted by KCC
 type ResourceEssentials struct {
 	EnableReclaim       bool
 	ResourceUpperBound  float64
 	ResourceLowerBound  float64
 	ReservedForReclaim  float64
 	ReservedForAllocate float64
+
+	ReclaimedCoresSize float64
 
 	AllowSharedCoresOverlapReclaimedCores bool
 }

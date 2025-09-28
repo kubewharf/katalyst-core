@@ -326,6 +326,30 @@ func (r *InternalCPUCalculationResult) GetPoolOverlapInfo(poolName string, numaI
 	return v[numaID]
 }
 
+func (r *InternalCPUCalculationResult) SetPoolOverlapPodContainerInfo(poolName string, numaID int, podUID string, containerName string, poolSize int) {
+	if poolSize <= 0 {
+		return
+	}
+	if r.PoolOverlapPodContainerInfo[poolName] == nil {
+		r.PoolOverlapPodContainerInfo[poolName] = map[int]map[string]map[string]int{}
+	}
+	if r.PoolOverlapPodContainerInfo[poolName][numaID] == nil {
+		r.PoolOverlapPodContainerInfo[poolName][numaID] = map[string]map[string]int{}
+	}
+	if r.PoolOverlapPodContainerInfo[poolName][numaID][podUID] == nil {
+		r.PoolOverlapPodContainerInfo[poolName][numaID][podUID] = map[string]int{}
+	}
+	r.PoolOverlapPodContainerInfo[poolName][numaID][podUID][containerName] = poolSize
+}
+
+func (r *InternalCPUCalculationResult) GetPoolOverlapPodContainerInfo(poolName string, numaID int) map[string]map[string]int {
+	v, ok := r.PoolOverlapPodContainerInfo[poolName]
+	if !ok {
+		return nil
+	}
+	return v[numaID]
+}
+
 func (ck ControlKnob) Clone() ControlKnob {
 	if ck == nil {
 		return nil
@@ -378,4 +402,11 @@ func NumaIDBitMask(numaIDs []int) int {
 		ret += 1 << id
 	}
 	return ret
+}
+
+func CompatibleLegacyCPUHeadroomPolicyName(policy string) CPUHeadroomPolicyName {
+	if CPUHeadroomPolicyName(policy) == CPUHeadroomPolicyNUMAExclusive {
+		return CPUHeadroomPolicyNUMADedicated
+	}
+	return CPUHeadroomPolicyName(policy)
 }
