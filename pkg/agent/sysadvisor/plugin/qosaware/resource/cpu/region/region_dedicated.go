@@ -46,24 +46,35 @@ const (
 // 1. support numa mem bandwidth as indicator
 // 2. get service indicator target from spd
 
-type QoSRegionDedicatedNumaExclusive struct {
+type QoSRegionDedicated struct {
 	*QoSRegionBase
 }
 
-// NewQoSRegionDedicatedNumaExclusive returns a region instance for dedicated cores
+// NewQoSRegionDedicated returns a region instance for dedicated cores
 // with numa binding and numa exclusive container
-func NewQoSRegionDedicatedNumaExclusive(ci *types.ContainerInfo, conf *config.Configuration, numaID int,
+func NewQoSRegionDedicated(ci *types.ContainerInfo, conf *config.Configuration, numaID int,
 	extraConf interface{}, metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) QoSRegion {
 	regionName := getRegionNameFromMetaCache(ci, numaID, metaReader)
 	if regionName == "" {
-		regionName = string(configapi.QoSRegionTypeDedicatedNumaExclusive) + types.RegionNameSeparator + string(uuid.NewUUID())
+		regionName = string(configapi.QoSRegionTypeDedicated) + types.RegionNameSeparator + string(uuid.NewUUID())
 	}
 
-	r := &QoSRegionDedicatedNumaExclusive{
-		QoSRegionBase: NewQoSRegionBase(regionName, ci.OwnerPoolName, configapi.QoSRegionTypeDedicatedNumaExclusive, conf, extraConf, true, metaReader, metaServer, emitter),
+	isNumaBinding := numaID != commonstate.FakedNUMAID
+	r := &QoSRegionDedicated{
+		QoSRegionBase: NewQoSRegionBase(regionName, ci.OwnerPoolName, configapi.QoSRegionTypeDedicated, conf, extraConf,
+			isNumaBinding, ci.IsDedicatedNumaExclusive(), metaReader, metaServer, emitter),
 	}
-	r.bindingNumas = machine.NewCPUSet(numaID)
+
+	if isNumaBinding {
+		r.bindingNumas = machine.NewCPUSet(numaID)
+	} else {
+		r.bindingNumas = machine.NewCPUSet()
+		for numaID := range ci.TopologyAwareAssignments {
+			r.bindingNumas.Add(numaID)
+		}
+	}
+
 	r.indicatorCurrentGetters = map[string]types.IndicatorCurrentGetter{
 		string(workloadapis.ServiceSystemIndicatorNameCPI):           r.getPodCPICurrent,
 		string(workloadapis.ServiceSystemIndicatorNameCPUUsageRatio): r.getCPUUsageRatio,
@@ -73,7 +84,7 @@ func NewQoSRegionDedicatedNumaExclusive(ci *types.ContainerInfo, conf *config.Co
 	return r
 }
 
-func (r *QoSRegionDedicatedNumaExclusive) getPodUID() (string, error) {
+func (r *QoSRegionDedicated) getPodUID() (string, error) {
 	if len(r.podSet) != 1 {
 		return "", fmt.Errorf("more than one pod are assgined to this policy")
 	}
@@ -83,7 +94,7 @@ func (r *QoSRegionDedicatedNumaExclusive) getPodUID() (string, error) {
 	return "", fmt.Errorf("should never get here")
 }
 
-func (r *QoSRegionDedicatedNumaExclusive) EnableReclaim() bool {
+func (r *QoSRegionDedicated) EnableReclaim() bool {
 	podUID, err := r.getPodUID()
 	if err != nil {
 		general.ErrorS(err, "getPodUID failed")
@@ -98,7 +109,7 @@ func (r *QoSRegionDedicatedNumaExclusive) EnableReclaim() bool {
 	return enableReclaim
 }
 
-func (r *QoSRegionDedicatedNumaExclusive) TryUpdateProvision() {
+func (r *QoSRegionDedicated) TryUpdateProvision() {
 	r.Lock()
 	defer r.Unlock()
 
@@ -117,7 +128,7 @@ func (r *QoSRegionDedicatedNumaExclusive) TryUpdateProvision() {
 	r.regulateProvisionControlKnob(restrictedControlKnobs, r.getEffectiveControlKnobs())
 }
 
-func (r *QoSRegionDedicatedNumaExclusive) updateProvisionPolicy() {
+func (r *QoSRegionDedicated) updateProvisionPolicy() {
 	r.ControlEssentials = types.ControlEssentials{
 		ControlKnobs:   r.getEffectiveControlKnobs(),
 		ReclaimOverlap: true,
@@ -147,7 +158,7 @@ func (r *QoSRegionDedicatedNumaExclusive) updateProvisionPolicy() {
 	}
 }
 
-func (r *QoSRegionDedicatedNumaExclusive) updateIdleStatus() {
+func (r *QoSRegionDedicated) updateIdleStatus() {
 	idle := true
 	for podUID, containers := range r.podSet {
 		for containerName := range containers {
@@ -178,7 +189,7 @@ out:
 	r.idle.Store(idle)
 }
 
-func (r *QoSRegionDedicatedNumaExclusive) getEffectiveControlKnobs() types.ControlKnob {
+func (r *QoSRegionDedicated) getEffectiveControlKnobs() types.ControlKnob {
 	quota, _, err := r.getEffectiveReclaimResource()
 	if err != nil {
 		klog.Errorf("[qosaware-cpu] failed to get effective reclaim resource, ignore it: %v", err)
@@ -191,14 +202,7 @@ func (r *QoSRegionDedicatedNumaExclusive) getEffectiveControlKnobs() types.Contr
 		}
 	}
 
-	reclaimedCPUSize := 0
-	if reclaimedInfo, ok := r.metaReader.GetPoolInfo(commonstate.PoolNameReclaim); ok {
-		for _, numaID := range r.bindingNumas.ToSliceInt() {
-			reclaimedCPUSize += reclaimedInfo.TopologyAwareAssignments[numaID].Size()
-		}
-	}
-
-	cpuRequirement := r.ResourceUpperBound + r.ReservedForReclaim - float64(reclaimedCPUSize)
+	cpuRequirement := r.ResourceUpperBound + r.ReservedForReclaim - r.ReclaimedCoresSize
 
 	return types.ControlKnob{
 		configapi.ControlKnobNonReclaimedCPURequirement: {
@@ -208,7 +212,7 @@ func (r *QoSRegionDedicatedNumaExclusive) getEffectiveControlKnobs() types.Contr
 	}
 }
 
-func (r *QoSRegionDedicatedNumaExclusive) getPodCPICurrent() (float64, error) {
+func (r *QoSRegionDedicated) getPodCPICurrent() (float64, error) {
 	var (
 		cpiSum       float64 = 0
 		containerCnt float64 = 0
@@ -236,7 +240,7 @@ func (r *QoSRegionDedicatedNumaExclusive) getPodCPICurrent() (float64, error) {
 	return cpiSum / containerCnt, nil
 }
 
-func (r *QoSRegionDedicatedNumaExclusive) getCPUUsageRatio() (float64, error) {
+func (r *QoSRegionDedicated) getCPUUsageRatio() (float64, error) {
 	usage := 0.0
 	nr := 0
 	for _, numaID := range r.bindingNumas.ToSliceInt() {
