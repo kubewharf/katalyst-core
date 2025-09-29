@@ -1009,6 +1009,19 @@ func ListNetNS(netNSDir string) ([]NetNSInfo, error) {
 	return nsList, nil
 }
 
+func NetNSExist(ns NetNSInfo) bool {
+	if ns.NSName == DefaultNICNamespace {
+		return true
+	}
+
+	netnsPath := filepath.Join(ns.NSAbsDir, ns.NSName)
+	if _, err := os.Stat(netnsPath); err != nil && os.IsNotExist(err) {
+		return false
+	}
+
+	return true
+}
+
 func netnsEnter(netnsInfo NetNSInfo) (*netnsSwitchContext, error) {
 	var (
 		originalNetNSHdl netns.NsHandle
@@ -1323,6 +1336,9 @@ func ListActiveUplinkNics(netNSDir string) ([]*NicBasicInfo, error) {
 	for _, ns := range netnsList {
 		netnsNics, err := ListActiveUplinkNicsFromNetNS(ns)
 		if err != nil {
+			if !NetNSExist(ns) {
+				continue
+			}
 			return nil, fmt.Errorf("failed to ListActiveUplinkNicsFromNetNS(%s), err %v", ns.NSName, err)
 		}
 
