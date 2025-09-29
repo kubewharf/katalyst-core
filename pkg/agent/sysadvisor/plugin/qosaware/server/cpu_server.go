@@ -312,12 +312,22 @@ func (cs *cpuServer) assembleResponse(advisorResp *types.InternalCPUCalculationR
 	calculationEntriesMap := make(map[string]*cpuadvisor.CalculationEntries)
 	blockID2Blocks := NewBlockSet()
 
+	// first assemble NUMABinding pod entries
+	f := func(podUID string, containerName string, ci *types.ContainerInfo) bool {
+		if err := cs.assembleDedicatedNUMABBindingPodEntries(calculationEntriesMap, blockID2Blocks, podUID, ci); err != nil {
+			klog.Errorf("[qosaware-server-cpu] assembleDedicatedNUMABBindingPodEntries for pod %s/%s uid %s err: %v", ci.PodNamespace, ci.PodName, ci.PodUID, err)
+		}
+		return true
+	}
+	cs.metaCache.RangeContainer(f)
+
+	// second, assemble pool entries
 	cs.assemblePoolEntries(advisorResp, calculationEntriesMap, blockID2Blocks)
 
-	// Assemble pod entries
-	f := func(podUID string, containerName string, ci *types.ContainerInfo) bool {
-		if err := cs.assemblePodEntries(calculationEntriesMap, blockID2Blocks, podUID, ci); err != nil {
-			klog.Errorf("[qosaware-server-cpu] assemblePodEntries for pod %s/%s uid %s err: %v", ci.PodNamespace, ci.PodName, ci.PodUID, err)
+	// last, assemble normal pod entries
+	f = func(podUID string, containerName string, ci *types.ContainerInfo) bool {
+		if err := cs.assembleNormalPodEntries(calculationEntriesMap, podUID, ci); err != nil {
+			klog.Errorf("[qosaware-server-cpu] assembleNormalPodEntries for pod %s/%s uid %s err: %v", ci.PodNamespace, ci.PodName, ci.PodUID, err)
 		}
 		return true
 	}
@@ -751,12 +761,15 @@ func (cs *cpuServer) assemblePoolEntries(advisorResp *types.InternalCPUCalculati
 			for podUID, containerSize := range overlapPodContainerSize {
 				for containerName, size := range containerSize {
 					block := NewBlock(uint64(size), "")
-					innerBlock := NewInnerBlock(block, int64(numaID), commonstate.PoolNameReclaim, &ContainerMeta{
-						PodUID:        podUID,
-						ContainerName: containerName,
-					}, numaCalculationResult)
-					numaCalculationResult.Blocks = append(numaCalculationResult.Blocks, block)
-					innerBlock.join(block.BlockId, bs)
+					dedicatedCalculationResults, ok := getNumaCalculationResult(calculationEntriesMap, podUID, containerName, int64(numaID))
+					if ok && len(dedicatedCalculationResults.Blocks) == 1 {
+						innerBlock := NewInnerBlock(block, int64(numaID), commonstate.PoolNameReclaim, &ContainerMeta{
+							PodUID:        podUID,
+							ContainerName: containerName,
+						}, numaCalculationResult)
+						numaCalculationResult.Blocks = append(numaCalculationResult.Blocks, block)
+						innerBlock.join(dedicatedCalculationResults.Blocks[0].BlockId, bs)
+					}
 				}
 			}
 
@@ -798,12 +811,16 @@ func (cs *cpuServer) assemblePoolEntries(advisorResp *types.InternalCPUCalculati
 // assemblePoolEntries fills up calculationEntriesMap and blockSet based on types.ContainerInfo
 //
 // todo this logic should be refined to make sure we will assemble entries from	internalCalculationInfo rather than walking through containerInfo
-func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadvisor.CalculationEntries,
-	bs blockSet, podUID string, ci *types.ContainerInfo,
+func (cs *cpuServer) assembleNormalPodEntries(calculationEntriesMap map[string]*cpuadvisor.CalculationEntries,
+	podUID string, ci *types.ContainerInfo,
 ) error {
 	calculationInfo := &cpuadvisor.CalculationInfo{
 		OwnerPoolName:             ci.OwnerPoolName,
 		CalculationResultsByNumas: nil,
+	}
+
+	if ci.IsDedicatedNumaBinding() {
+		return nil
 	}
 
 	// if isolation is locking in, pass isolation-region name (equals isolation owner-pool) instead of owner pool
@@ -826,6 +843,26 @@ func (cs *cpuServer) assemblePodEntries(calculationEntriesMap map[string]*cpuadv
 			klog.Warningf("container %s/%s refer a non-existed pool: %s", ci.PodUID, ci.ContainerName, ci.OwnerPoolName)
 			return nil
 		}
+	}
+
+	calculationEntries, ok := calculationEntriesMap[podUID]
+	if !ok {
+		calculationEntriesMap[podUID] = &cpuadvisor.CalculationEntries{
+			Entries: make(map[string]*cpuadvisor.CalculationInfo),
+		}
+		calculationEntries = calculationEntriesMap[podUID]
+	}
+	calculationEntries.Entries[ci.ContainerName] = calculationInfo
+
+	return nil
+}
+
+func (cs *cpuServer) assembleDedicatedNUMABBindingPodEntries(calculationEntriesMap map[string]*cpuadvisor.CalculationEntries,
+	bs blockSet, podUID string, ci *types.ContainerInfo,
+) error {
+	calculationInfo := &cpuadvisor.CalculationInfo{
+		OwnerPoolName:             ci.OwnerPoolName,
+		CalculationResultsByNumas: nil,
 	}
 
 	// currently, only pods in "dedicated_nums with numa binding" has topology aware allocations
