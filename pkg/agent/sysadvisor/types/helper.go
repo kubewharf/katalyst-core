@@ -24,7 +24,6 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
@@ -286,19 +285,7 @@ func (ps PodSet) Pods() int {
 	return count
 }
 
-func (r *InternalCPUCalculationResult) GetPoolEntry(poolName string, numaID int) (CPUResource, bool) {
-	v1, ok := r.PoolEntries[poolName]
-	if ok {
-		v2, ok := v1[numaID]
-		return v2, ok
-	}
-	return CPUResource{}, false
-}
-
 func (r *InternalCPUCalculationResult) SetPoolEntry(poolName string, numaID int, poolSize int, cpuLimit float64) {
-	if poolSize <= 0 && !state.StaticPools.Has(poolName) {
-		return
-	}
 	if r.PoolEntries[poolName] == nil {
 		r.PoolEntries[poolName] = make(map[int]CPUResource)
 	}
