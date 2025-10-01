@@ -249,7 +249,7 @@ func (cra *cpuResourceAdvisor) getRegionMaxRequirement(r region.QoSRegion) float
 		} else {
 			cra.metaCache.RangeContainer(func(podUID string, containerName string, ci *types.ContainerInfo) bool {
 				if _, ok := r.GetPods()[podUID]; ok {
-					res += ci.CPURequest
+					res += ci.CPULimit
 				}
 				return true
 			})
@@ -311,20 +311,6 @@ func (cra *cpuResourceAdvisor) getRegionReservedForAllocate(r region.QoSRegion) 
 		res += cra.getNumasReservedForAllocate(machine.NewCPUSet(numaID)) / float64(divider)
 	}
 	return res
-}
-
-func (cra *cpuResourceAdvisor) getRegionReclaimedCoresSize(r region.QoSRegion) float64 {
-	reclaimedCPUSize := 0.0
-	if reclaimedInfo, ok := cra.metaCache.GetPoolInfo(commonstate.PoolNameReclaim); ok {
-		for _, numaID := range r.GetBindingNumas().ToSliceInt() {
-			divider := cra.numRegionsPerNuma[numaID]
-			if divider < 1 {
-				divider = 1
-			}
-			reclaimedCPUSize += float64(reclaimedInfo.TopologyAwareAssignments[numaID].Size()) / float64(divider)
-		}
-	}
-	return reclaimedCPUSize
 }
 
 func (cra *cpuResourceAdvisor) updateRegionEntries() {
