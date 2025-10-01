@@ -750,11 +750,13 @@ func (cs *cpuServer) assemblePoolEntries(advisorResp *types.InternalCPUCalculati
 				poolEntry.Entries[commonstate.FakedContainerName].CalculationResultsByNumas[int64(numaID)] = numaCalculationResult
 			}
 
-			// first join reclaim pool block
-			block := NewBlock(uint64(reclaimCPU.Size), "")
-			innerBlock := NewInnerBlock(block, int64(numaID), commonstate.PoolNameReclaim, nil, numaCalculationResult)
-			numaCalculationResult.Blocks = append(numaCalculationResult.Blocks, block)
-			innerBlock.join(block.BlockId, bs)
+			// first init reclaim pool if reclaim size is greater than 0
+			if reclaimCPU.Size > 0 {
+				block := NewBlock(uint64(reclaimCPU.Size), "")
+				innerBlock := NewInnerBlock(block, int64(numaID), commonstate.PoolNameReclaim, nil, numaCalculationResult)
+				numaCalculationResult.Blocks = append(numaCalculationResult.Blocks, block)
+				innerBlock.join(block.BlockId, bs)
+			}
 
 			// second handle overlap pod container
 			overlapPodContainerSize := advisorResp.GetPoolOverlapPodContainerInfo(commonstate.PoolNameReclaim, numaID)
@@ -773,25 +775,15 @@ func (cs *cpuServer) assemblePoolEntries(advisorResp *types.InternalCPUCalculati
 				}
 			}
 
-			// third handle overlap shared pool if shared pool overlap is allowed
-			if advisorResp.AllowSharedCoresOverlapReclaimedCores {
-				overlapSize := advisorResp.GetPoolOverlapInfo(commonstate.PoolNameReclaim, numaID)
-				if len(overlapSize) == 0 {
-					// If share pool not exists, join reclaim pool directly
-					block := NewBlock(uint64(reclaimCPU.Size), "")
+			// third handle reclaim pool with overlap shared pool if overlap shared pool is existed
+			overlapSize := advisorResp.GetPoolOverlapInfo(commonstate.PoolNameReclaim, numaID)
+			for sharedPoolName, reclaimedSize := range overlapSize {
+				sharedPoolCalculationResults, ok := getNumaCalculationResult(calculationEntriesMap, sharedPoolName, commonstate.FakedContainerName, int64(numaID))
+				if ok && len(sharedPoolCalculationResults.Blocks) == 1 {
+					block := NewBlock(uint64(reclaimedSize), "")
 					innerBlock := NewInnerBlock(block, int64(numaID), commonstate.PoolNameReclaim, nil, numaCalculationResult)
-					innerBlock.join(block.BlockId, bs)
-				} else {
-					for sharedPoolName, reclaimedSize := range overlapSize {
-						block := NewBlock(uint64(reclaimedSize), "")
-
-						sharedPoolCalculationResults, ok := getNumaCalculationResult(calculationEntriesMap, sharedPoolName, commonstate.FakedContainerName, int64(numaID))
-						if ok && len(sharedPoolCalculationResults.Blocks) == 1 {
-							innerBlock := NewInnerBlock(block, int64(numaID), commonstate.PoolNameReclaim, nil, numaCalculationResult)
-							numaCalculationResult.Blocks = append(numaCalculationResult.Blocks, block)
-							innerBlock.join(sharedPoolCalculationResults.Blocks[0].BlockId, bs)
-						}
-					}
+					numaCalculationResult.Blocks = append(numaCalculationResult.Blocks, block)
+					innerBlock.join(sharedPoolCalculationResults.Blocks[0].BlockId, bs)
 				}
 			}
 		}
