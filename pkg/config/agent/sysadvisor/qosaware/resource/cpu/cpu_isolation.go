@@ -53,6 +53,7 @@ type CPUIsolationConfiguration struct {
 	// IsolationIncludeSidecarRequirement indicates whether to include sidecar requirements
 	// when calculating CPU isolation
 	IsolationIncludeSidecarRequirement bool
+	UtilWatermarkSupreme               float64
 	UtilWatermarkHigh                  float64
 	UtilWatermarkLow                   float64
 	MetricSyncPeriod                   time.Duration

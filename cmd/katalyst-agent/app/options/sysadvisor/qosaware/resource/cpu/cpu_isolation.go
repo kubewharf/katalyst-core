@@ -60,6 +60,7 @@ type CPUIsolationOptions struct {
 	IsolationNonExclusivePools []string
 
 	IsolationIncludeSidecarRequirement bool
+	UtilWatermarkSupreme               float64
 	UtilWatermarkHigh                  float64
 	UtilWatermarkLow                   float64
 	MetricSyncPeriod                   time.Duration
@@ -86,6 +87,7 @@ func NewCPUIsolationOptions() *CPUIsolationOptions {
 		IsolationForceEnablePools:  []string{},
 		IsolationNonExclusivePools: []string{},
 
+		UtilWatermarkSupreme:    0.75,
 		UtilWatermarkHigh:       0.55,
 		UtilWatermarkLow:        0.40,
 		MetricSyncPeriod:        time.Second * 20,
@@ -178,6 +180,7 @@ func (o *CPUIsolationOptions) ApplyTo(c *cpu.CPUIsolationConfiguration) error {
 	c.IsolationNonExclusivePools = sets.NewString(o.IsolationNonExclusivePools...)
 
 	c.IsolationIncludeSidecarRequirement = o.IsolationIncludeSidecarRequirement
+	c.UtilWatermarkSupreme = o.UtilWatermarkSupreme
 	c.UtilWatermarkHigh = o.UtilWatermarkHigh
 	c.UtilWatermarkLow = o.UtilWatermarkLow
 	c.MetricSlidingWindowTime = o.MetricSlidingWindowTime

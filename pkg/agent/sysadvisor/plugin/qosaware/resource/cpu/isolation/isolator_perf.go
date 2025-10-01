@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
+	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	resourceutil "k8s.io/kubernetes/pkg/api/v1/resource"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
@@ -42,6 +43,12 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/qos"
+)
+
+const (
+	metricNameToIsolateByUtil   = "to_isolate_by_util"
+	metricNameToIntegrateByUtil = "to_integrate_by_util"
+	metricNameIsolatedByUtil    = "isolated_by_util"
 )
 
 type metricAggregators map[string]general.SmoothWindow
@@ -140,52 +147,71 @@ func (p *PerfIsolator) updatePodMetrics() {
 	})
 }
 
-func (p *PerfIsolator) podIsOverCommited(pod *v1.Pod) bool {
+func getMainContainerInfo(pod *v1.Pod, metaReader metacache.MetaReader) *types.ContainerInfo {
+	for _, container := range pod.Spec.Containers {
+		containerInfo, ok := metaReader.GetContainerInfo(string(pod.UID), container.Name)
+		if ok && containerInfo.ContainerType == pluginapi.ContainerType_MAIN {
+			return containerInfo
+		}
+	}
+	return nil
+}
+
+func (p *PerfIsolator) isCandidatePod(pod *v1.Pod) bool {
 	numaID, err := qos.GetActualNUMABindingResult(p.conf.QoSConfiguration, pod)
 	if err != nil {
-		return true
+		return false
 	}
-
 	general.InfoS("pod info", "pod", pod.Name, "bindNUMA", numaID)
 
-	overCommited := true
+	containerInfo := getMainContainerInfo(pod, p.metaReader)
+	if containerInfo == nil || apiconsts.QoSLevel(containerInfo.QoSLevel) != apiconsts.QoSLevelSharedCores ||
+		containerInfo.RegionNames.Len() != 1 {
+		return false
+	}
 
-	p.metaReader.RangeRegionInfo(func(regionName string, regionInfo *types.RegionInfo) bool {
-		general.InfoS("region info", "regionName", regionName, "regionBindNUMA", regionInfo.BindingNumas)
-		// 极端情况是所有region 都没有shared，因为pod都被隔离了
-		if (regionInfo.RegionType == v1alpha1.QoSRegionTypeShare || regionInfo.RegionType == v1alpha1.QoSRegionTypeIsolation) &&
-			regionInfo.BindingNumas.Size() == 1 && regionInfo.BindingNumas.Contains(numaID) {
-			// check avail CPUs
-			poolSize, ok := p.metaReader.GetPoolSize(regionInfo.OwnerPoolName)
-			if ok {
-				requestsSum := .0
-				for podUID := range regionInfo.Pods {
-					if pod, err := p.metaServer.GetPod(context.TODO(), podUID); err == nil {
-						reqs := native.SumUpPodRequestResources(pod)
-						cpuReq, ok := reqs[v1.ResourceCPU]
-						if ok {
-							requestsSum += float64(cpuReq.MilliValue()) / 1000
-						}
-					}
+	regionName := containerInfo.RegionNames.List()[0]
+	region, ok := p.metaReader.GetRegionInfo(regionName)
+	if !ok {
+		return false
+	}
+
+	general.InfoS("[perfIsolation]region info", "region", region)
+
+	if region.RegionType == v1alpha1.QoSRegionTypeIsolation {
+		return true
+	} else if region.RegionType != v1alpha1.QoSRegionTypeShare {
+		return false
+	}
+
+	if poolSize, ok := p.metaReader.GetPoolSize(region.OwnerPoolName); ok {
+		requestsSum := .0
+		for podUID := range region.Pods {
+			if pod, err := p.metaServer.GetPod(context.TODO(), podUID); err == nil {
+				reqs := native.SumUpPodRequestResources(pod)
+				if cpuReq, ok := reqs[v1.ResourceCPU]; ok {
+					requestsSum += float64(cpuReq.MilliValue()) / 1000
 				}
-
-				// pod.req / region.podsReqs * cpuPoolSize > pod.limit，就可以隔离
-				requests, limits := resourceutil.PodRequestsAndLimits(pod)
-				cpuReq := requests.Cpu()
-				cpuLimit := limits.Cpu()
-
-				if cpuReq != nil && cpuLimit != nil &&
-					cpuReq.AsApproximateFloat64()/requestsSum*float64(poolSize) >= math.Ceil(cpuLimit.AsApproximateFloat64()) {
-					overCommited = false
-				}
-				general.InfoS("checking pod overcommit", "pod", pod.Name, "podUID", pod.UID, "numaID", numaID,
-					"poolSize", poolSize, "requestsSum", requestsSum, "cpuReq", cpuReq, "cpuLimit", cpuLimit, "overCommited", overCommited)
 			}
 		}
-		return true
-	})
 
-	return overCommited
+		// pod.req / region.podsReqs * cpuPoolSize > pod.limit，就可以隔离
+		requests, limits := resourceutil.PodRequestsAndLimits(pod)
+		cpuReq := requests.Cpu()
+		cpuLimit := limits.Cpu()
+
+		isCandidate := false
+
+		if cpuReq != nil && cpuLimit != nil &&
+			cpuReq.AsApproximateFloat64()/requestsSum*float64(poolSize) >= math.Ceil(cpuLimit.AsApproximateFloat64()) && cpuLimit.AsApproximateFloat64() >= 8 {
+			isCandidate = true
+		}
+		general.InfoS("checking isCandidatePod", "pod", pod.Name, "podUID", pod.UID, "numaID", numaID,
+			"poolSize", poolSize, "requestsSum", requestsSum, "cpuReq", cpuReq, "cpuLimit", cpuLimit, "isCandidate", isCandidate)
+		return isCandidate
+	}
+
+	return false
 }
 
 func (p *PerfIsolator) GetIsolatedPods() ([]string, error) {
@@ -203,36 +229,39 @@ func (p *PerfIsolator) GetIsolatedPods() ([]string, error) {
 		return true
 	})
 
-	unOverCommitedPods := make([]*v1.Pod, 0)
-	unOverCommitedpodNames := make([]string, 0)
+	candidatePods := make([]*v1.Pod, 0)
+	candidatePodsNames := make([]string, 0)
 	for podUID := range sharedPods {
 		pod, err := p.metaServer.GetPod(context.TODO(), podUID)
 		if err != nil {
 			return nil, err
 		}
-		if !p.podIsOverCommited(pod) {
-			unOverCommitedPods = append(unOverCommitedPods, pod)
-			unOverCommitedpodNames = append(unOverCommitedpodNames, pod.Name)
+		if p.isCandidatePod(pod) {
+			candidatePods = append(candidatePods, pod)
+			candidatePodsNames = append(candidatePodsNames, pod.Name)
 		}
 	}
 
 	klog.InfoS("shared_cores Pods", "allPodsUIDs", sharedPods.List(), "allPodsSize", len(sharedPods.List()),
-		"unOverCommitedpodNames", unOverCommitedpodNames, "unOverCommitedPodsSize", len(unOverCommitedPods))
+		"candidatePodsNames", candidatePodsNames, "candidatePods nr", len(candidatePods))
 
-	var uids []string
+	var UIDs []string
 	var errList []error
-	for _, pod := range unOverCommitedPods {
+	for _, pod := range candidatePods {
 		isolated, err := p.checkIsolatedByPodUtilization(pod)
 		if err != nil {
 			errList = append(errList, err)
 		}
 		if isolated {
 			klog.InfoS("isolate by util", "pod", pod.Name)
-			uids = append(uids, string(pod.UID))
+			UIDs = append(UIDs, string(pod.UID))
+
+			_ = p.emitter.StoreInt64(metricNameIsolatedByUtil, 1, metrics.MetricTypeNameRaw,
+				metrics.ConvertMapToTags(map[string]string{"pod": pod.Name, "pod_psm": pod.Labels["psm"], "pod_paas_cluster": pod.Labels["paas_cluster"]})...)
 		}
 	}
 
-	return uids, errors.NewAggregate(errList)
+	return UIDs, errors.NewAggregate(errList)
 }
 
 func (p *PerfIsolator) podIsIsolated(pod *v1.Pod) bool {
@@ -256,18 +285,23 @@ func (p *PerfIsolator) checkIsolatedByPodUtilization(pod *v1.Pod) (bool, error) 
 	_, limits := resourceutil.PodRequestsAndLimits(pod)
 	curUtil := podCPUUsage / limits.Cpu().AsApproximateFloat64()
 	podIsIsolated := p.podIsIsolated(pod)
-	klog.InfoS("pod utilization", "pod", pod.Name, "utilization", curUtil,
-		"UtilWatermarkHigh", p.isolationConfiguration.UtilWatermarkHigh, "UtilWatermarkLow", p.isolationConfiguration.UtilWatermarkLow, "podIsIsolated", podIsIsolated)
+	klog.InfoS("pod utilization", "pod", pod.Name, "utilization", curUtil, "UtilWatermarkSupreme", p.isolationConfiguration.UtilWatermarkSupreme,
+		"UtilWatermarkHigh", p.isolationConfiguration.UtilWatermarkHigh, "UtilWatermarkLow", p.isolationConfiguration.UtilWatermarkLow,
+		"podIsIsolated", podIsIsolated)
 
 	if !podIsIsolated {
 		if curUtil > p.isolationConfiguration.UtilWatermarkHigh {
-			klog.InfoS("do isolation", "pod", pod.Name)
+			klog.InfoS("[Isolate]", "pod", pod.Name)
+			_ = p.emitter.StoreInt64(metricNameToIsolateByUtil, 1, metrics.MetricTypeNameRaw,
+				metrics.ConvertMapToTags(map[string]string{"pod": pod.Name, "pod_psm": pod.Labels["psm"], "pod_paas_cluster": pod.Labels["paas_cluster"]})...)
 			return true, nil
 		}
 		return false, nil
 	} else {
 		if curUtil < p.isolationConfiguration.UtilWatermarkLow {
-			klog.InfoS("do disisolation", "pod", pod.Name)
+			klog.InfoS("[Integrate]", "pod", pod.Name)
+			_ = p.emitter.StoreInt64(metricNameToIntegrateByUtil, 1, metrics.MetricTypeNameRaw,
+				metrics.ConvertMapToTags(map[string]string{"pod": pod.Name, "pod_psm": pod.Labels["psm"], "pod_paas_cluster": pod.Labels["paas_cluster"]})...)
 			return false, nil
 		}
 		return true, nil
