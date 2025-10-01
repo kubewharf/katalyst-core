@@ -19,10 +19,21 @@ package consts
 import (
 	"time"
 
-	"github.com/kubewharf/katalyst-api/pkg/consts"
+	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent/qrm"
 )
+
+type AllocatedResource struct {
+	ResourceName string
+	*pluginapi.TopologyAwareResource
+}
+
+type AllocatableResource struct {
+	ResourceName string
+	*pluginapi.AllocatableTopologyAwareResource
+}
 
 const (
 
