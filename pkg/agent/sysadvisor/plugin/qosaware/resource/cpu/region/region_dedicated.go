@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/klog/v2"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
@@ -202,7 +203,39 @@ func (r *QoSRegionDedicated) getEffectiveControlKnobs() types.ControlKnob {
 		}
 	}
 
-	cpuRequirement := r.ResourceUpperBound + r.ReservedForReclaim - r.ReclaimedCoresSize
+	var cpuRequirement float64
+	if r.isNumaExclusive {
+		reclaimedCPUSize := 0
+		if reclaimedInfo, ok := r.metaReader.GetPoolInfo(commonstate.PoolNameReclaim); ok {
+			for _, numaID := range r.bindingNumas.ToSliceInt() {
+				reclaimedCPUSize += reclaimedInfo.TopologyAwareAssignments[numaID].Size()
+			}
+		}
+
+		cpuRequirement = r.ResourceUpperBound + r.ReservedForReclaim - float64(reclaimedCPUSize)
+	} else {
+		existCPURequirementFound := false
+		r.metaReader.RangeRegionInfo(func(regionName string, regionInfo *types.RegionInfo) bool {
+			if regionInfo.RegionType != r.regionType {
+				return true
+			}
+
+			if !apiequality.Semantic.DeepEqual(regionInfo.Pods, r.podSet) ||
+				!r.bindingNumas.Equals(regionInfo.BindingNumas) {
+				return true
+			}
+
+			if _, existed := regionInfo.ControlKnobMap[configapi.ControlKnobNonReclaimedCPURequirement]; existed {
+				cpuRequirement = regionInfo.ControlKnobMap[configapi.ControlKnobNonReclaimedCPURequirement].Value
+				existCPURequirementFound = true
+			}
+			return false
+		})
+
+		if !existCPURequirementFound {
+			cpuRequirement = r.getPodsRequest()
+		}
+	}
 
 	return types.ControlKnob{
 		configapi.ControlKnobNonReclaimedCPURequirement: {
