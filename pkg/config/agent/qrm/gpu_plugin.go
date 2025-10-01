@@ -27,6 +27,8 @@ type GPUQRMPluginConfig struct {
 	GPUMemoryAllocatablePerGPU resource.Quantity
 	// SkipGPUStateCorruption skip gpu state corruption, and it will be used after updating state properties
 	SkipGPUStateCorruption bool
+	// ResourcePluginsNames holds the names of the enabled GPU resource plugins
+	ResourcePluginsNames []string
 }
 
 func NewGPUQRMPluginConfig() *GPUQRMPluginConfig {

@@ -28,6 +28,7 @@ type GPUOptions struct {
 	GPUResourceNames           []string
 	GPUMemoryAllocatablePerGPU string
 	SkipGPUStateCorruption     bool
+	ResourcePluginsNames       []string
 }
 
 func NewGPUOptions() *GPUOptions {
@@ -48,6 +49,7 @@ func (o *GPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.GPUMemoryAllocatablePerGPU, "The total memory allocatable for each GPU, e.g. 100")
 	fs.BoolVar(&o.SkipGPUStateCorruption, "skip-gpu-state-corruption",
 		o.SkipGPUStateCorruption, "skip gpu state corruption, and it will be used after updating state properties")
+	fs.StringSliceVar(&o.ResourcePluginsNames, "gpu-resource-plugins-names", o.ResourcePluginsNames, "The names of the enabled gpu resource plugins")
 }
 
 func (o *GPUOptions) ApplyTo(conf *qrmconfig.GPUQRMPluginConfig) error {
@@ -59,5 +61,6 @@ func (o *GPUOptions) ApplyTo(conf *qrmconfig.GPUQRMPluginConfig) error {
 	}
 	conf.GPUMemoryAllocatablePerGPU = gpuMemory
 	conf.SkipGPUStateCorruption = o.SkipGPUStateCorruption
+	conf.ResourcePluginsNames = o.ResourcePluginsNames
 	return nil
 }
