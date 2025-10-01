@@ -297,6 +297,7 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 	if *pa.allowSharedCoresOverlapReclaimedCores {
 		isolated := 0
 		poolSizes := make(map[string]int)
+		sharePoolSize := make(map[string]int)
 		reclaimablePoolSizes := make(map[string]int)
 		reclaimableRequirements := make(map[string]int)
 		for poolName, size := range shareAndIsolatePoolSizes {
@@ -307,6 +308,7 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 					reclaimableRequirements[poolName] = shareInfo.requirements[poolName]
 				}
 				poolSizes[poolName] = size
+				sharePoolSize[poolName] = size
 			} else {
 				isolated += size
 			}
@@ -321,8 +323,8 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 		}
 
 		overlapReclaimSize := make(map[string]int)
+		shareReclaimCoresSize := shareAndIsolatedPoolAvailable - isolated - general.SumUpMapValues(sharePoolSizeRequirements)
 		if nodeEnableReclaim {
-			shareReclaimCoresSize := shareAndIsolatedPoolAvailable - isolated - general.SumUpMapValues(sharePoolSizeRequirements)
 			reclaimedCoresSize = shareReclaimCoresSize + dedicatedReclaimCoresSize
 			if reclaimedCoresSize < reservedForReclaim {
 				reclaimedCoresSize = reservedForReclaim
@@ -349,7 +351,8 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 			}
 		} else {
 			reclaimedCoresSize = reservedForReclaim
-			if len(poolSizes) > 0 {
+			if len(poolSizes) > 0 && reclaimedCoresSize > shareReclaimCoresSize {
+				// only if reclaimedCoresSize > shareReclaimCoresSize, overlap reclaim pool with both share pool and dedicated pool
 				reclaimedCoresSize = general.Min(reclaimedCoresSize, general.SumUpMapValues(poolSizes))
 				var overlapSharePoolSizes map[string]int
 				if reclaimedCoresSize <= general.SumUpMapValues(reclaimablePoolSizes) {
@@ -359,6 +362,13 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 				}
 
 				reclaimSizes, err := regulateOverlapReclaimPoolSize(overlapSharePoolSizes, reclaimedCoresSize)
+				if err != nil {
+					return fmt.Errorf("failed to regulateOverlapReclaimPoolSize: %w", err)
+				}
+				overlapReclaimSize = reclaimSizes
+			} else if len(sharePoolSize) > 0 && reclaimedCoresSize <= general.SumUpMapValues(sharePoolSize) {
+				// if exit share pool, and reclaimedCoresSize <= sum of share pool size, overlap reclaim pool with share pool
+				reclaimSizes, err := regulateOverlapReclaimPoolSize(sharePoolSize, reclaimedCoresSize)
 				if err != nil {
 					return fmt.Errorf("failed to regulateOverlapReclaimPoolSize: %w", err)
 				}
