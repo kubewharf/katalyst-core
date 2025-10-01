@@ -87,8 +87,6 @@ type ResourceEssentials struct {
 	ReservedForReclaim  float64
 	ReservedForAllocate float64
 
-	ReclaimedCoresSize float64
-
 	AllowSharedCoresOverlapReclaimedCores bool
 }
 
