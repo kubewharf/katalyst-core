@@ -22,7 +22,7 @@ import (
 
 type initFunc func(plugin *baseplugin.BasePlugin) ResourcePlugin
 
-var ResourcePluginsMap map[string]initFunc
+var ResourcePluginsMap = make(map[string]initFunc)
 
 func registerResourcePlugin(pluginName string, initFunc initFunc) {
 	ResourcePluginsMap[pluginName] = initFunc
