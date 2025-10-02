@@ -20,7 +20,7 @@ import "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/baseplugin"
 
 type initFunc func(plugin *baseplugin.BasePlugin) CustomDevicePlugin
 
-var CustomDevicePluginsMap map[string]initFunc
+var CustomDevicePluginsMap = make(map[string]initFunc)
 
 func registerCustomDevicePlugin(pluginName string, initFunc initFunc) {
 	CustomDevicePluginsMap[pluginName] = initFunc
