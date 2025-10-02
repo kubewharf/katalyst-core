@@ -130,3 +130,22 @@ func checkNUMATopologyReady(topology *GPUTopology) bool {
 	}
 	return true
 }
+
+type gpuTopologyProviderStub struct {
+	gpuTopology *GPUTopology
+}
+
+func NewGPUTopologyProviderStub(gpuTopology *GPUTopology) GPUTopologyProvider {
+	return &gpuTopologyProviderStub{
+		gpuTopology: gpuTopology,
+	}
+}
+
+func (g *gpuTopologyProviderStub) GetGPUTopology() (*GPUTopology, bool, error) {
+	return g.gpuTopology, true, nil
+}
+
+func (g *gpuTopologyProviderStub) SetGPUTopology(gpuTopology *GPUTopology) error {
+	g.gpuTopology = gpuTopology
+	return nil
+}

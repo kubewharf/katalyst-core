@@ -19,13 +19,14 @@ package customdeviceplugin
 import (
 	"fmt"
 
+	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
+
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/baseplugin"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
-	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 )
 
 const GPUCustomDevicePluginName = "gpu-custom-device-plugin"
