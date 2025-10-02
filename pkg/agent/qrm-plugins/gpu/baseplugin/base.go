@@ -22,6 +22,10 @@ import (
 	"sort"
 	"sync"
 
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/util/sets"
+	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
+
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
@@ -33,9 +37,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
-	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/util/sets"
-	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 )
 
 const (
@@ -239,5 +240,5 @@ func (p *BasePlugin) CalculateAssociatedDevices(
 		}
 	}
 
-	return nil, nil, fmt.Errorf("no enough available GPUs found in gpuTopology, availableDevices len: %d, allocatedDevices len: %d", len(availableDevices), len(allocatedDevices))
+	return nil, nil, fmt.Errorf("no enough available GPUs found in gpuTopology, number of needed GPUs: %d, availableDevices len: %d, allocatedDevices len: %d", gpuRequest, len(availableDevices), len(allocatedDevices))
 }
