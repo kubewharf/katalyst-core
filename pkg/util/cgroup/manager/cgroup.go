@@ -65,6 +65,14 @@ func ApplyCPUWithRelativePath(relCgroupPath string, data *common.CPUData) error 
 	return GetManager().ApplyCPU(absCgroupPath, data)
 }
 
+func ApplyCPUWithAbsolutePath(absCgroupPath string, data *common.CPUData) error {
+	if data == nil {
+		return fmt.Errorf("ApplyCPUWithAbsolutePath with nil cgroup data")
+	}
+
+	return GetManager().ApplyCPU(absCgroupPath, data)
+}
+
 func ApplyCPUSetWithRelativePath(relCgroupPath string, data *common.CPUSetData) error {
 	if data == nil {
 		return fmt.Errorf("ApplyCPUSetForContainer with nil cgroup data")
@@ -234,6 +242,10 @@ func GetIOStatWithAbsolutePath(absCgroupPath string) (map[string]map[string]stri
 
 func GetCPUWithRelativePath(relCgroupPath string) (*common.CPUStats, error) {
 	absCgroupPath := common.GetAbsCgroupPath("cpu", relCgroupPath)
+	return GetManager().GetCPU(absCgroupPath)
+}
+
+func GetCPUWithAbsolutePath(absCgroupPath string) (*common.CPUStats, error) {
 	return GetManager().GetCPU(absCgroupPath)
 }
 

@@ -28,6 +28,7 @@ const (
 	MetricNameHandleAdvisorRespCalled      = "handle_advisor_resp_called"
 	MetricNameHandleAdvisorRespFailed      = "handle_advisor_resp_failed"
 	MetricNameAdvisorUnhealthy             = "advisor_unhealthy"
+	MetricNameCheckApplyV1Error            = "check_apply_v1_error"
 
 	// metrics for cpu plugin
 	MetricNamePoolSize                    = "pool_size"
