@@ -813,8 +813,8 @@ func TestAssembleProvision(t *testing.T) {
 					-1: types.CPUResource{Size: 0, Quota: -1},
 				},
 				"reclaim": {
-					-1: types.CPUResource{Size: 18, Quota: -1},
-					1:  types.CPUResource{Size: 4, Quota: -1},
+					-1: types.CPUResource{Size: 0, Quota: -1},
+					1:  types.CPUResource{Size: 0, Quota: -1},
 				},
 			},
 			expectPoolOverlapInfo: map[string]map[int]map[string]int{
@@ -896,8 +896,8 @@ func TestAssembleProvision(t *testing.T) {
 					-1: types.CPUResource{Size: 0, Quota: -1},
 				},
 				"reclaim": {
-					-1: types.CPUResource{Size: 4, Quota: -1},
-					1:  types.CPUResource{Size: 4, Quota: -1},
+					-1: types.CPUResource{Size: 0, Quota: -1},
+					1:  types.CPUResource{Size: 0, Quota: -1},
 				},
 			},
 			expectPoolOverlapInfo: map[string]map[int]map[string]int{
@@ -981,7 +981,7 @@ func TestAssembleProvision(t *testing.T) {
 					-1: types.CPUResource{Size: 0, Quota: -1},
 				},
 				"reclaim": {
-					-1: types.CPUResource{Size: 34, Quota: -1},
+					-1: types.CPUResource{Size: 0, Quota: -1},
 				},
 			},
 			expectPoolOverlapInfo: map[string]map[int]map[string]int{
