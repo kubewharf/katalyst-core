@@ -77,6 +77,7 @@ type podFetcherImpl struct {
 	kataContainerFetcher *KataContainerFetcher
 
 	kubeletPodsCache               map[string]*v1.Pod
+	kubeletPodsContinuesEmptyCount int
 	kubeletPodsCacheSkipEmptyError bool
 	kubeletPodsCacheLock           sync.RWMutex
 
@@ -289,7 +290,6 @@ func (w *podFetcherImpl) syncRuntimePod(_ context.Context) {
 func (w *podFetcherImpl) syncKubeletPod(ctx context.Context) {
 	kubeletPods, err := w.kubeletPodFetcher.GetPodList(ctx, nil)
 	_ = general.UpdateHealthzStateByError(podFetcherKubeletHealthCheckName, err)
-	var kubeletPodsContinuesEmptyCount int
 	if err != nil {
 		klog.Errorf("sync kubelet pod failed: %s", err)
 		_ = w.emitter.StoreInt64(metricsNamePodCacheSync, 1, metrics.MetricTypeNameCount,
@@ -307,14 +307,12 @@ func (w *podFetcherImpl) syncKubeletPod(ctx context.Context) {
 				"success": "false",
 				"reason":  "empty",
 			})...)
-		kubeletPodsContinuesEmptyCount++
 	} else {
 		_ = w.emitter.StoreInt64(metricsNamePodCacheSync, 1, metrics.MetricTypeNameCount,
 			metrics.ConvertMapToTags(map[string]string{
 				"source":  "kubelet",
 				"success": "true",
 			})...)
-		kubeletPodsContinuesEmptyCount = 0
 	}
 
 	kubeletPodsCache := make(map[string]*v1.Pod, len(kubeletPods))
@@ -325,7 +323,12 @@ func (w *podFetcherImpl) syncKubeletPod(ctx context.Context) {
 
 	w.kubeletPodsCacheLock.Lock()
 	w.kubeletPodsCache = kubeletPodsCache
-	w.kubeletPodsCacheSkipEmptyError = kubeletPodsContinuesEmptyCount >= w.podConf.KubeletPodCacheSyncEmptyThreshold
+	if len(kubeletPodsCache) == 0 {
+		w.kubeletPodsContinuesEmptyCount++
+	} else {
+		w.kubeletPodsContinuesEmptyCount = 0
+	}
+	w.kubeletPodsCacheSkipEmptyError = w.kubeletPodsContinuesEmptyCount >= w.podConf.KubeletPodCacheSyncEmptyThreshold
 	w.kubeletPodsCacheLock.Unlock()
 }
 
