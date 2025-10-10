@@ -28,4 +28,8 @@ type CustomDevicePlugin interface {
 	UpdateAllocatableAssociatedDevices(*pluginapi.UpdateAllocatableAssociatedDevicesRequest) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error)
 
 	AllocateAssociatedDevice(*pluginapi.AssociatedDeviceRequest) (*pluginapi.AssociatedDeviceAllocationResponse, error)
+
+	RemovePod(podUID string) error
+
+	ClearResidualState()
 }

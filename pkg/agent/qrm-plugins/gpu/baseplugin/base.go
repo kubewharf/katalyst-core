@@ -22,13 +22,13 @@ import (
 	"sort"
 	"sync"
 
+	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
-	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
+	gpumemorystate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state/resourceplugin/gpumemory"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
@@ -45,47 +45,67 @@ const (
 
 // BasePlugin is a shared plugin that provides common functionalities and fields for GPU resource plugins and custom device plugins.
 type BasePlugin struct {
-	sync.Mutex
+	mu sync.RWMutex
+	*config.Configuration
 
-	QosConfig           *generic.QoSConfiguration
-	QrmConfig           *qrm.QRMPluginsConfiguration
-	GpuTopologyProvider machine.GPUTopologyProvider
+	QosConfig *generic.QoSConfiguration
+	QrmConfig *qrm.QRMPluginsConfiguration
 
 	Emitter    metrics.MetricEmitter
 	MetaServer *metaserver.MetaServer
 	AgentCtx   *agent.GenericContext
-	State      state.State
 
 	PodAnnotationKeptKeys []string
 	PodLabelKeptKeys      []string
 	AssociatedDevicesName sets.String
+
+	// Map of checkpoints for each sub-plugin
+	StateCheckpointsMap map[string]interface{}
+	// Registry of device topology providers
+	DeviceTopologyRegistry *machine.DeviceTopologyRegistry
 }
 
 func NewBasePlugin(
 	agentCtx *agent.GenericContext, conf *config.Configuration, wrappedEmitter metrics.MetricEmitter,
 ) (*BasePlugin, error) {
-	gpuTopologyProvider := machine.NewGPUTopologyProvider(conf.GPUResourceNames)
-	stateImpl, err := state.NewCheckpointState(conf.QRMPluginsConfiguration, conf.GenericQRMPluginConfiguration.StateFileDirectory, GPUPluginStateFileName,
-		gpuconsts.GPUResourcePluginPolicyNameStatic, gpuTopologyProvider, conf.SkipGPUStateCorruption, wrappedEmitter)
-
-	if err != nil {
-		return nil, err
-	}
+	deviceTopologyRegistry := machine.NewDeviceTopologyRegistry()
 
 	return &BasePlugin{
-		QosConfig:           conf.QoSConfiguration,
-		QrmConfig:           conf.QRMPluginsConfiguration,
-		GpuTopologyProvider: gpuTopologyProvider,
+		QosConfig: conf.QoSConfiguration,
+		QrmConfig: conf.QRMPluginsConfiguration,
 
 		Emitter:    wrappedEmitter,
 		MetaServer: agentCtx.MetaServer,
 		AgentCtx:   agentCtx,
-		State:      stateImpl,
 
 		PodAnnotationKeptKeys: conf.PodAnnotationKeptKeys,
 		PodLabelKeptKeys:      conf.PodLabelKeptKeys,
 		AssociatedDevicesName: sets.NewString(conf.GPUResourceNames...),
+
+		StateCheckpointsMap:    make(map[string]interface{}),
+		DeviceTopologyRegistry: deviceTopologyRegistry,
 	}, nil
+}
+
+// RegisterCheckpoint is a hook to register a state for a sub-plugin so all other plugins can access it
+func (p *BasePlugin) RegisterCheckpoint(pluginName string, checkpoint interface{}) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.StateCheckpointsMap[pluginName] = checkpoint
+}
+
+// GetCheckpoint gets the checkpoint using the sub-plugin name
+func (p *BasePlugin) GetCheckpoint(pluginName string) (interface{}, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	checkpoint, ok := p.StateCheckpointsMap[pluginName]
+	if !ok {
+		return nil, fmt.Errorf("no checkpoint found for plugin %s", pluginName)
+	}
+
+	return checkpoint, nil
 }
 
 func (p *BasePlugin) GetGPUCount(req *pluginapi.ResourceRequest) (float64, sets.String, error) {
@@ -114,7 +134,7 @@ func (p *BasePlugin) GetResourcePluginOptions(
 }
 
 func (p *BasePlugin) PackAllocationResponse(
-	req *pluginapi.ResourceRequest, allocationInfo *state.AllocationInfo,
+	req *pluginapi.ResourceRequest, allocationInfo *gpumemorystate.AllocationInfo,
 	resourceAllocationAnnotations map[string]string, resourceName string,
 ) (*pluginapi.ResourceAllocationResponse, error) {
 	if allocationInfo == nil {
@@ -154,13 +174,21 @@ func (p *BasePlugin) PackAllocationResponse(
 }
 
 func (p *BasePlugin) CalculateAssociatedDevices(
-	gpuTopology *machine.GPUTopology, gpuMemoryRequest float64, hintNodes machine.CPUSet,
+	gpuTopology *machine.DeviceTopology, gpuMemoryRequest float64, hintNodes machine.CPUSet,
 	request *pluginapi.AssociatedDeviceRequest,
 ) ([]string, map[string]float64, error) {
 	gpuRequest := request.DeviceRequest.GetDeviceRequest()
 	gpuMemoryPerGPU := gpuMemoryRequest / float64(gpuRequest)
 
-	machineState := p.State.GetMachineState()
+	state, err := p.GetCheckpoint(gpuconsts.GPUMemPluginName)
+	if err != nil {
+		return nil, nil, err
+	}
+	gpuMemoryState, ok := state.(gpumemorystate.State)
+	if !ok {
+		return nil, nil, fmt.Errorf("failed to convert state checkpoint to gpumemorystate.State")
+	}
+	machineState := gpuMemoryState.GetMachineState()
 
 	allocatedDevices := sets.NewString()
 	needed := gpuRequest
@@ -201,7 +229,7 @@ func (p *BasePlugin) CalculateAssociatedDevices(
 	}
 
 	isNUMAAffinityDevice := func(device string) bool {
-		info, ok := gpuTopology.GPUs[device]
+		info, ok := gpuTopology.Devices[device]
 		if !ok {
 			general.Errorf("failed to find hint node for device %s", device)
 			return false
