@@ -24,7 +24,6 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
@@ -286,19 +285,7 @@ func (ps PodSet) Pods() int {
 	return count
 }
 
-func (r *InternalCPUCalculationResult) GetPoolEntry(poolName string, numaID int) (CPUResource, bool) {
-	v1, ok := r.PoolEntries[poolName]
-	if ok {
-		v2, ok := v1[numaID]
-		return v2, ok
-	}
-	return CPUResource{}, false
-}
-
 func (r *InternalCPUCalculationResult) SetPoolEntry(poolName string, numaID int, poolSize int, cpuLimit float64) {
-	if poolSize <= 0 && !state.StaticPools.Has(poolName) {
-		return
-	}
 	if r.PoolEntries[poolName] == nil {
 		r.PoolEntries[poolName] = make(map[int]CPUResource)
 	}
@@ -320,6 +307,30 @@ func (r *InternalCPUCalculationResult) SetPoolOverlapInfo(poolName string, numaI
 
 func (r *InternalCPUCalculationResult) GetPoolOverlapInfo(poolName string, numaID int) map[string]int {
 	v, ok := r.PoolOverlapInfo[poolName]
+	if !ok {
+		return nil
+	}
+	return v[numaID]
+}
+
+func (r *InternalCPUCalculationResult) SetPoolOverlapPodContainerInfo(poolName string, numaID int, podUID string, containerName string, poolSize int) {
+	if poolSize <= 0 {
+		return
+	}
+	if r.PoolOverlapPodContainerInfo[poolName] == nil {
+		r.PoolOverlapPodContainerInfo[poolName] = map[int]map[string]map[string]int{}
+	}
+	if r.PoolOverlapPodContainerInfo[poolName][numaID] == nil {
+		r.PoolOverlapPodContainerInfo[poolName][numaID] = map[string]map[string]int{}
+	}
+	if r.PoolOverlapPodContainerInfo[poolName][numaID][podUID] == nil {
+		r.PoolOverlapPodContainerInfo[poolName][numaID][podUID] = map[string]int{}
+	}
+	r.PoolOverlapPodContainerInfo[poolName][numaID][podUID][containerName] = poolSize
+}
+
+func (r *InternalCPUCalculationResult) GetPoolOverlapPodContainerInfo(poolName string, numaID int) map[string]map[string]int {
+	v, ok := r.PoolOverlapPodContainerInfo[poolName]
 	if !ok {
 		return nil
 	}
@@ -378,4 +389,11 @@ func NumaIDBitMask(numaIDs []int) int {
 		ret += 1 << id
 	}
 	return ret
+}
+
+func CompatibleLegacyCPUHeadroomPolicyName(policy string) CPUHeadroomPolicyName {
+	if CPUHeadroomPolicyName(policy) == CPUHeadroomPolicyNUMAExclusive {
+		return CPUHeadroomPolicyNUMADedicated
+	}
+	return CPUHeadroomPolicyName(policy)
 }

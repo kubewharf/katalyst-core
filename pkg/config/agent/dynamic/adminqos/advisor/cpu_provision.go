@@ -19,6 +19,7 @@ package advisor
 import (
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	workloadv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
+	"github.com/kubewharf/katalyst-api/pkg/utils"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
@@ -45,7 +46,7 @@ func NewCPUProvisionConfiguration() *CPUProvisionConfiguration {
 					Target: 0.8,
 				},
 			},
-			v1alpha1.QoSRegionTypeDedicatedNumaExclusive: {
+			v1alpha1.QoSRegionTypeDedicated: {
 				{
 					Name:   workloadv1alpha1.ServiceSystemIndicatorNameCPI,
 					Target: 1.4,
@@ -72,7 +73,7 @@ func (c *CPUProvisionConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCR
 		aqc.Spec.Config.AdvisorConfig.CPUAdvisorConfig != nil {
 		if aqc.Spec.Config.AdvisorConfig.CPUAdvisorConfig.CPUProvisionConfig != nil {
 			for _, regionIndicator := range aqc.Spec.Config.AdvisorConfig.CPUAdvisorConfig.CPUProvisionConfig.RegionIndicators {
-				c.RegionIndicatorTargetConfiguration[regionIndicator.RegionType] = regionIndicator.Targets
+				c.RegionIndicatorTargetConfiguration[utils.CompatibleLegacyRegionType(regionIndicator.RegionType)] = regionIndicator.Targets
 			}
 		}
 		if aqc.Spec.Config.AdvisorConfig.CPUAdvisorConfig.AllowSharedCoresOverlapReclaimedCores != nil {
