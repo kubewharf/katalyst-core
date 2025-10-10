@@ -22,7 +22,8 @@ import (
 	"sync"
 	"time"
 
-	v1 "k8s.io/api/core/v1"
+	devicepluginregistry "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/customdeviceplugin/registry"
+	resourcepluginregistry "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/resourceplugin/registry"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
@@ -35,7 +36,6 @@ import (
 	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/customdeviceplugin"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/resourceplugin"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -92,8 +92,12 @@ func NewStaticPolicy(
 		customDevicePlugins:   make(map[string]customdeviceplugin.CustomDevicePlugin),
 	}
 
-	policyImplement.registerResourcePlugins()
-	policyImplement.registerCustomDevicePlugins()
+	if err = policyImplement.registerResourcePlugins(wrappedEmitter); err != nil {
+		return false, agent.ComponentStub{}, fmt.Errorf("failed to register resource plugins: %w", err)
+	}
+	if err = policyImplement.registerCustomDevicePlugins(wrappedEmitter); err != nil {
+		return false, agent.ComponentStub{}, fmt.Errorf("failed to register custom device plugins: %w", err)
+	}
 
 	pluginWrapper, err := skeleton.NewRegistrationPluginWrapper(policyImplement, conf.QRMPluginSocketDirs,
 		func(key string, value int64) {
@@ -211,6 +215,7 @@ func (p *StaticPolicy) RemovePod(
 	p.Lock()
 	defer p.Unlock()
 
+	// For every resource plugin and custom resource plugin, remove pod from their state
 	if err := p.removePod(req.PodUid); err != nil {
 		general.ErrorS(err, "remove pod failed with error", "podUID", req.PodUid)
 		return nil, err
@@ -238,29 +243,71 @@ func (p *StaticPolicy) GetTopologyAwareResources(
 		return nil, fmt.Errorf("GetTopologyAwareResources got nil req")
 	}
 
-	allocationInfo := p.State.GetAllocationInfo(req.PodUid, req.ContainerName)
-	if allocationInfo == nil {
-		return &pluginapi.GetTopologyAwareResourcesResponse{}, nil
-	}
-
 	// Get topology aware resources for all resource plugins
-	allocatedResources := make(map[string]*pluginapi.TopologyAwareResource)
+	allocatedResourcesList := make([]*pluginapi.GetTopologyAwareResourcesResponse, 0)
 	for _, resourcePlugin := range p.resourcePlugins {
-		allocatedResource := resourcePlugin.GetTopologyAwareResources(allocationInfo)
-		allocatedResources[allocatedResource.ResourceName] = allocatedResource.TopologyAwareResource
+		allocatedResource, err := resourcePlugin.GetTopologyAwareResources(req.PodUid, req.ContainerName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get topology aware resources for plugin %s: %w", resourcePlugin.ResourceName(), err)
+		}
+
+		if allocatedResource == nil {
+			continue
+		}
+		allocatedResourcesList = append(allocatedResourcesList, allocatedResource)
 	}
 
-	resp := &pluginapi.GetTopologyAwareResourcesResponse{
-		PodUid:       allocationInfo.PodUid,
-		PodName:      allocationInfo.PodName,
-		PodNamespace: allocationInfo.PodNamespace,
-		ContainerTopologyAwareResources: &pluginapi.ContainerTopologyAwareResources{
-			ContainerName:      allocationInfo.ContainerName,
-			AllocatedResources: allocatedResources,
-		},
+	// Merge the respective response into one response
+	resp, err := p.mergeTopologyAwareResourcesResponse(req.PodUid, req.ContainerName, allocatedResourcesList)
+	if err != nil {
+		return nil, fmt.Errorf("failed to merge topology aware resources: %w", err)
 	}
 
 	return resp, nil
+}
+
+// mergeTopologyAwareResourcesResponse takes the separate topology aware resources response from the different sub-plugins and
+// merge them into one response.
+func (p *StaticPolicy) mergeTopologyAwareResourcesResponse(
+	podUID, containerName string, respList []*pluginapi.GetTopologyAwareResourcesResponse,
+) (*pluginapi.GetTopologyAwareResourcesResponse, error) {
+	result := &pluginapi.GetTopologyAwareResourcesResponse{
+		PodUid: podUID,
+		ContainerTopologyAwareResources: &pluginapi.ContainerTopologyAwareResources{
+			ContainerName: containerName,
+		},
+	}
+
+	allocatedResources := make(map[string]*pluginapi.TopologyAwareResource)
+	for _, resp := range respList {
+		if resp == nil {
+			continue
+		}
+
+		if result.PodName != "" && result.PodName != resp.PodName {
+			general.Errorf("pod name %s not match, expect %s", resp.PodName, result.PodName)
+			return nil, fmt.Errorf("pod name %s not match, expect %s", resp.PodName, result.PodName)
+		}
+
+		if result.PodNamespace != "" && result.PodNamespace != resp.PodNamespace {
+			general.Errorf("pod namespace %s not match, expect %s", resp.PodNamespace, result.PodNamespace)
+			return nil, fmt.Errorf("pod namespace %s not match, expect %s", resp.PodNamespace, result.PodNamespace)
+		}
+
+		if result.PodName == "" {
+			result.PodName = resp.PodName
+		}
+		if result.PodNamespace == "" {
+			result.PodNamespace = resp.PodNamespace
+		}
+
+		for resourceName, resource := range resp.ContainerTopologyAwareResources.AllocatedResources {
+			allocatedResources[resourceName] = resource
+		}
+	}
+
+	result.ContainerTopologyAwareResources.AllocatedResources = allocatedResources
+	return result, nil
 }
 
 // GetTopologyAwareAllocatableResources returns corresponding allocatable resources as topology aware format
@@ -276,12 +323,13 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(
 	p.Lock()
 	defer p.Unlock()
 
-	machineState := p.State.GetMachineState()
-
 	// Get topology aware allocatable resources for all resource plugins
 	allocatableResources := make(map[string]*pluginapi.AllocatableTopologyAwareResource)
 	for _, resourcePlugin := range p.resourcePlugins {
-		allocatableResource := resourcePlugin.GetTopologyAwareAllocatableResources(machineState)
+		allocatableResource, err := resourcePlugin.GetTopologyAwareAllocatableResources()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get topology aware allocatable resources for plugin %s: %w", resourcePlugin.ResourceName(), err)
+		}
 		allocatableResources[allocatableResource.ResourceName] = allocatableResource.AllocatableTopologyAwareResource
 	}
 
@@ -343,24 +391,18 @@ func (p *StaticPolicy) PreStartContainer(
 }
 
 func (p *StaticPolicy) removePod(podUID string) error {
-	// update state cache
-	podEntries := p.State.GetPodEntries()
-	delete(podEntries, podUID)
-
-	machineState, err := state.GenerateMachineStateFromPodEntries(p.QrmConfig, podEntries, p.GpuTopologyProvider)
-	if err != nil {
-		general.Errorf("pod: %s, GenerateMachineStateFromPodEntries failed with error: %v", podUID, err)
-		return fmt.Errorf("calculate machineState by updated pod entries failed with error: %v", err)
+	for _, resourcePlugin := range p.resourcePlugins {
+		if err := resourcePlugin.RemovePod(podUID); err != nil {
+			return err
+		}
 	}
 
-	p.State.SetPodEntries(podEntries, false)
-	p.State.SetMachineState(machineState, false)
-
-	err = p.State.StoreState()
-	if err != nil {
-		general.Errorf("store state failed with error: %v", err)
-		return err
+	for _, customDevicePlugin := range p.customDevicePlugins {
+		if err := customDevicePlugin.RemovePod(podUID); err != nil {
+			return err
+		}
 	}
+
 	return nil
 }
 
@@ -373,83 +415,12 @@ func (p *StaticPolicy) clearResidualState(
 	_ *metaserver.MetaServer,
 ) {
 	general.Infof("exec")
-	var (
-		err     error
-		podList []*v1.Pod
-	)
-	residualSet := make(map[string]bool)
-
-	defer func() {
-		_ = general.UpdateHealthzStateByError(gpuconsts.ClearResidualState, err)
-	}()
-
-	if p.MetaServer == nil {
-		general.Errorf("nil metaServer")
-		return
+	for _, resourcePlugin := range p.resourcePlugins {
+		resourcePlugin.ClearResidualState()
 	}
 
-	ctx := context.Background()
-	podList, err = p.MetaServer.GetPodList(ctx, nil)
-	if err != nil {
-		general.Errorf("get pod list failed: %v", err)
-		return
-	}
-
-	podSet := sets.NewString()
-	for _, pod := range podList {
-		podSet.Insert(fmt.Sprintf("%v", pod.UID))
-	}
-
-	p.Lock()
-	defer p.Unlock()
-
-	podEntries := p.State.GetPodEntries()
-	for podUID := range podEntries {
-		if !podSet.Has(podUID) {
-			residualSet[podUID] = true
-			p.residualHitMap[podUID] += 1
-			general.Infof("found pod: %s with state but doesn't show up in pod watcher, hit count: %d", podUID, p.residualHitMap[podUID])
-		}
-	}
-
-	podsToDelete := sets.NewString()
-	for podUID, hitCount := range p.residualHitMap {
-		if !residualSet[podUID] {
-			general.Infof("already found pod: %s in pod watcher or its state is cleared, delete it from residualHitMap", podUID)
-			delete(p.residualHitMap, podUID)
-			continue
-		}
-
-		if time.Duration(hitCount)*gpuconsts.StateCheckPeriod >= gpuconsts.MaxResidualTime {
-			podsToDelete.Insert(podUID)
-		}
-	}
-
-	if podsToDelete.Len() > 0 {
-		for {
-			podUID, found := podsToDelete.PopAny()
-			if !found {
-				break
-			}
-
-			general.Infof("clear residual pod: %s in state", podUID)
-			delete(podEntries, podUID)
-		}
-
-		machineState, err := state.GenerateMachineStateFromPodEntries(p.QrmConfig, podEntries, p.GpuTopologyProvider)
-		if err != nil {
-			general.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
-			return
-		}
-
-		p.State.SetPodEntries(podEntries, false)
-		p.State.SetMachineState(machineState, false)
-
-		err = p.State.StoreState()
-		if err != nil {
-			general.Errorf("store state failed: %v", err)
-			return
-		}
+	for _, customDevicePlugin := range p.customDevicePlugins {
+		customDevicePlugin.ClearResidualState()
 	}
 }
 
@@ -501,28 +472,46 @@ func (p *StaticPolicy) AllocateAssociatedDevice(
 	return customDevicePlugin.AllocateAssociatedDevice(req)
 }
 
-func (p *StaticPolicy) registerResourcePlugins() {
+func (p *StaticPolicy) registerResourcePlugins(wrappedEmitter metrics.MetricEmitter) error {
+	p.Lock()
+	defer p.Unlock()
 	for name := range p.resourcePluginsNames {
-		initFunc := resourceplugin.ResourcePluginsMap[name]
-		resourcePlugin := initFunc(p.BasePlugin)
+		initFunc := resourcepluginregistry.ResourcePluginsMap[name]
+		resourcePlugin, err := initFunc(p.BasePlugin, wrappedEmitter)
+		if err != nil {
+			general.Errorf("register resource plugin %s failed with error: %w", name, err)
+			return fmt.Errorf("register resource plugin %s failed with error: %w", name, err)
+		}
 		p.resourcePlugins[resourcePlugin.ResourceName()] = resourcePlugin
 	}
+	return nil
 }
 
-func (p *StaticPolicy) registerCustomDevicePlugins() {
+func (p *StaticPolicy) registerCustomDevicePlugins(wrappedEmitter metrics.MetricEmitter) error {
+	p.Lock()
+	defer p.Unlock()
 	for name := range p.associatedDeviceNames {
-		initFunc := customdeviceplugin.CustomDevicePluginsMap[name]
-		customDevicePlugin := initFunc(p.BasePlugin)
+		initFunc := devicepluginregistry.CustomDevicePluginsMap[name]
+		customDevicePlugin, err := initFunc(p.BasePlugin, wrappedEmitter)
+		if err != nil {
+			general.Errorf("register custom device plugin %s failed with error: %w", name, err)
+			return fmt.Errorf("register custom device plugin %s failed with error: %w", name, err)
+		}
 		p.customDevicePlugins[customDevicePlugin.DeviceName()] = customDevicePlugin
 	}
+	return nil
 }
 
 func (p *StaticPolicy) getResourcePlugin(resourceName string) resourceplugin.ResourcePlugin {
+	p.Lock()
+	defer p.Unlock()
 	resourcePlugin := p.resourcePlugins[resourceName]
 	return resourcePlugin
 }
 
 func (p *StaticPolicy) getCustomDevicePlugin(deviceName string) customdeviceplugin.CustomDevicePlugin {
+	p.Lock()
+	defer p.Unlock()
 	customDevicePlugin := p.customDevicePlugins[deviceName]
 	return customDevicePlugin
 }
