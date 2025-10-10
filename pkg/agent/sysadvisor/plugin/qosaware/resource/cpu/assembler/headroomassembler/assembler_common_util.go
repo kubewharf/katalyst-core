@@ -19,7 +19,6 @@ package headroomassembler
 import (
 	"context"
 	"fmt"
-	"math"
 	"strconv"
 
 	v1 "k8s.io/api/core/v1"
@@ -52,26 +51,23 @@ func (ha *HeadroomAssemblerCommon) getUtilBasedHeadroom(options helper.UtilBased
 		return *resource.NewQuantity(0, resource.DecimalSI), nil
 	}
 
-	util := reclaimMetrics.CgroupCPUUsage / reclaimMetrics.ReclaimedCoresSupply
 	lastReclaimedCPU := 0.0
 	for _, cpu := range lastReclaimedCPUPerNumaForCalculate {
 		lastReclaimedCPU += cpu
 	}
 
-	headroom, err := helper.EstimateUtilBasedCapacity(
-		options,
-		reclaimMetrics.ReclaimedCoresSupply,
-		util,
-		lastReclaimedCPU,
-	)
+	lastOverload := ha.overloadState[reclaimMetrics.CgroupPath]
+
+	headroom, overload, err := helper.EstimateUtilBasedCapacity(options, reclaimMetrics, lastReclaimedCPU, lastOverload)
 	if err != nil {
 		return resource.Quantity{}, err
 	}
+	ha.overloadState[reclaimMetrics.CgroupPath] = overload
 
 	general.InfoS("getUtilBasedHeadroom", "reclaimMetrics", reclaimMetrics,
-		"util", util, "lastReclaimedCPUPerNumaForCalculate", lastReclaimedCPUPerNumaForCalculate, "headroom", headroom)
+		"lastReclaimedCPUPerNumaForCalculate", lastReclaimedCPUPerNumaForCalculate, "headroom", headroom)
 
-	return *resource.NewQuantity(int64(math.Ceil(headroom)), resource.DecimalSI), nil
+	return *resource.NewMilliQuantity(int64(headroom*1000), resource.DecimalSI), nil
 }
 
 func (ha *HeadroomAssemblerCommon) getLastReclaimedCPUPerNUMA() (map[int]float64, error) {

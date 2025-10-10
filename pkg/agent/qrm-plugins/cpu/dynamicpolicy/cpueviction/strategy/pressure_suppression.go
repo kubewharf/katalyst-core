@@ -226,6 +226,7 @@ func (p *CPUPressureSuppression) evictPodsByReclaimMetrics(now time.Time, filter
 		} else {
 			poolSuppressionRate = float64(totalCPURequest.Value()) / reclaimMetrics.ReclaimedCoresSupply
 		}
+		// TODO: consider the case that this Pod is throttled by other Pods
 
 		if podToleranceRate := p.getPodToleranceRate(pod, evictionConfiguration.MaxSuppressionToleranceRate); podToleranceRate < poolSuppressionRate {
 			last, _ := p.lastToleranceTime.LoadOrStore(key, now)

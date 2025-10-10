@@ -276,7 +276,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 					require.NoError(t, err)
 				},
 			},
-			want: *resource.NewQuantity(13, resource.DecimalSI),
+			want: *resource.NewMilliQuantity(13000, resource.DecimalSI),
 		},
 		{
 			name: "limited by quota",
@@ -398,6 +398,8 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 							TargetReclaimedCoreUtilization: 0.6,
 							MaxReclaimedCoreUtilization:    0,
 							MaxOversoldRate:                1.5,
+							NonReclaimUtilizationHigh:      0.7,
+							NonReclaimUtilizationLow:       0.5,
 						},
 					},
 				},
@@ -593,6 +595,8 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 							TargetReclaimedCoreUtilization: 0.6,
 							MaxReclaimedCoreUtilization:    0.8,
 							MaxOversoldRate:                1.5,
+							NonReclaimUtilizationHigh:      0.7,
+							NonReclaimUtilizationLow:       0.5,
 						},
 					},
 				},
@@ -615,6 +619,75 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 				},
 			},
 			want: *resource.NewQuantity(14, resource.DecimalSI),
+		},
+		{
+			name: "reclaim pool overload",
+			fields: fields{
+				entries: map[string]*types.RegionInfo{
+					"share": {
+						RegionType:    configapi.QoSRegionTypeShare,
+						OwnerPoolName: "share",
+						BindingNumas:  machine.NewCPUSet(0, 1),
+					},
+				},
+				cnr: &v1alpha1.CustomNodeResource{
+					Status: v1alpha1.CustomNodeResourceStatus{
+						Resources: v1alpha1.Resources{
+							Allocatable: &v1.ResourceList{
+								consts.ReclaimedResourceMilliCPU: resource.MustParse("15000"),
+							},
+						},
+						TopologyZone: []*v1alpha1.TopologyZone{
+							{
+								Type: "Socket",
+								Name: "0",
+								Children: []*v1alpha1.TopologyZone{
+									{
+										Type: "Numa",
+										Name: "0",
+										Resources: v1alpha1.Resources{
+											Allocatable: &v1.ResourceList{
+												consts.ReclaimedResourceMilliCPU: resource.MustParse("15000"),
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+				reclaimedResourceConfiguration: &reclaimedresource.ReclaimedResourceConfiguration{
+					EnableReclaim: true,
+					CPUHeadroomConfiguration: &cpuheadroom.CPUHeadroomConfiguration{
+						CPUUtilBasedConfiguration: &cpuheadroom.CPUUtilBasedConfiguration{
+							Enable:                         true,
+							TargetReclaimedCoreUtilization: 0.6,
+							MaxReclaimedCoreUtilization:    0.8,
+							MaxOversoldRate:                1.5,
+							NonReclaimUtilizationHigh:      0,
+							NonReclaimUtilizationLow:       0,
+						},
+					},
+				},
+				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
+					for i := 0; i < 96; i++ {
+						store.SetCPUMetric(i, pkgconsts.MetricCPUUsageRatio, utilmetric.MetricData{Value: 0.9, Time: &now})
+					}
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUUsageCgroup, utilmetric.MetricData{Value: 9, Time: &now})
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUQuotaCgroup, utilmetric.MetricData{Value: -1, Time: &now})
+					store.SetCgroupMetric("/kubepods/besteffort", pkgconsts.MetricCPUPeriodCgroup, utilmetric.MetricData{Value: 1000, Time: &now})
+				},
+				setMetaCache: func(cache *metacache.MetaCacheImp) {
+					err := cache.SetPoolInfo(commonstate.PoolNameReclaim, &types.PoolInfo{
+						PoolName: commonstate.PoolNameReclaim,
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.MustParse("0-9"),
+						},
+					})
+					require.NoError(t, err)
+				},
+			},
+			want: *resource.NewQuantity(0, resource.DecimalSI),
 		},
 		{
 			name: "limited by capacity",
