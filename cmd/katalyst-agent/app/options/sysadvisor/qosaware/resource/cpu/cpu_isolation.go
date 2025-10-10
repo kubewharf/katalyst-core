@@ -19,6 +19,7 @@ package cpu
 import (
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/spf13/pflag"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -59,6 +60,10 @@ type CPUIsolationOptions struct {
 	IsolationNonExclusivePools []string
 
 	IsolationIncludeSidecarRequirement bool
+	UtilWatermarkHigh                  float64
+	UtilWatermarkLow                   float64
+	MetricSyncPeriod                   time.Duration
+	MetricSlidingWindowTime            time.Duration
 }
 
 // NewCPUIsolationOptions creates a new Options with a default config
@@ -80,6 +85,11 @@ func NewCPUIsolationOptions() *CPUIsolationOptions {
 		IsolationDisabledPools:     []string{},
 		IsolationForceEnablePools:  []string{},
 		IsolationNonExclusivePools: []string{},
+
+		UtilWatermarkHigh:       0.55,
+		UtilWatermarkLow:        0.40,
+		MetricSyncPeriod:        time.Second * 20,
+		MetricSlidingWindowTime: 2 * time.Minute,
 	}
 }
 
@@ -119,6 +129,11 @@ func (o *CPUIsolationOptions) AddFlags(fs *pflag.FlagSet) {
 		"isolation is non-exclusive for get given pool")
 	fs.BoolVar(&o.IsolationIncludeSidecarRequirement, "isolation-include-sidecar-requirement", o.IsolationIncludeSidecarRequirement,
 		"isolation include sidecar requirement")
+
+	fs.Float64Var(&o.UtilWatermarkLow, "isolation-util-watermark-low", o.UtilWatermarkLow, "cpu utilization watermark low for isolation")
+	fs.Float64Var(&o.UtilWatermarkHigh, "isolation-util-watermark-high", o.UtilWatermarkHigh, "cpu utilization watermark high for isolation")
+	fs.DurationVar(&o.MetricSlidingWindowTime, "isolation-metric-sliding-window-time", o.MetricSlidingWindowTime, "metric sliding window time for isolation")
+	fs.DurationVar(&o.MetricSyncPeriod, "isolation-metric-sync-period", o.MetricSyncPeriod, "metric sync period for isolation")
 }
 
 // ApplyTo fills up config with options
@@ -163,6 +178,10 @@ func (o *CPUIsolationOptions) ApplyTo(c *cpu.CPUIsolationConfiguration) error {
 	c.IsolationNonExclusivePools = sets.NewString(o.IsolationNonExclusivePools...)
 
 	c.IsolationIncludeSidecarRequirement = o.IsolationIncludeSidecarRequirement
+	c.UtilWatermarkHigh = o.UtilWatermarkHigh
+	c.UtilWatermarkLow = o.UtilWatermarkLow
+	c.MetricSlidingWindowTime = o.MetricSlidingWindowTime
+	c.MetricSyncPeriod = o.MetricSyncPeriod
 
 	return nil
 }
