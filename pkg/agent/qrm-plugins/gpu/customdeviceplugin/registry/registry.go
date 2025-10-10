@@ -14,11 +14,17 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package customdeviceplugin
+package registry
 
-import "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/baseplugin"
+import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/baseplugin"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/customdeviceplugin"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
+)
 
-type initFunc func(plugin *baseplugin.BasePlugin) CustomDevicePlugin
+type initFunc func(
+	plugin *baseplugin.BasePlugin, emitter metrics.MetricEmitter,
+) (customdeviceplugin.CustomDevicePlugin, error)
 
 var CustomDevicePluginsMap = make(map[string]initFunc)
 
@@ -27,5 +33,5 @@ func registerCustomDevicePlugin(pluginName string, initFunc initFunc) {
 }
 
 func init() {
-	registerCustomDevicePlugin(GPUCustomDevicePluginName, NewGPUDevicePlugin)
+	registerCustomDevicePlugin(customdeviceplugin.GPUCustomDevicePluginName, customdeviceplugin.NewGPUDevicePlugin)
 }

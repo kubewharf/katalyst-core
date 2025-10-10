@@ -27,6 +27,8 @@ import (
 
 type AllocatedResource struct {
 	ResourceName string
+	PodName      string
+	PodNamespace string
 	*pluginapi.TopologyAwareResource
 }
 
@@ -36,12 +38,16 @@ type AllocatableResource struct {
 }
 
 const (
+	GPUDeviceName  = "gpu_device"
+	RDMADeviceName = "rdma_device"
 
 	// GPUResourcePluginPolicyNameStatic is the policy name of static gpu resource plugin
 	GPUResourcePluginPolicyNameStatic = string(consts.ResourcePluginPolicyNameStatic)
 
 	GPUPluginDynamicPolicyName = qrm.QRMPluginNameGPU + "_" + GPUResourcePluginPolicyNameStatic
 	ClearResidualState         = GPUPluginDynamicPolicyName + "_clear_residual_state"
+
+	GPUMemPluginName = "gpu_mem_resource_plugin"
 
 	StateCheckPeriod          = 30 * time.Second
 	StateCheckTolerationTimes = 3

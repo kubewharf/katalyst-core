@@ -19,11 +19,13 @@ package customdeviceplugin
 import (
 	"fmt"
 
+	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/baseplugin"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
+	gpumemorystate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state/resourceplugin/gpumemory"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -35,10 +37,13 @@ type GPUDevicePlugin struct {
 	*baseplugin.BasePlugin
 }
 
-func NewGPUDevicePlugin(base *baseplugin.BasePlugin) CustomDevicePlugin {
+func NewGPUDevicePlugin(base *baseplugin.BasePlugin, _ metrics.MetricEmitter) (CustomDevicePlugin, error) {
+	gpuTopologyProvider := machine.NewDeviceTopologyProvider(base.GPUResourceNames)
+	base.DeviceTopologyRegistry.RegisterDeviceTopologyProvider(gpuconsts.GPUDeviceName, gpuTopologyProvider)
+
 	return &GPUDevicePlugin{
 		BasePlugin: base,
-	}
+	}, nil
 }
 
 func (p *GPUDevicePlugin) DeviceName() string {
@@ -46,8 +51,8 @@ func (p *GPUDevicePlugin) DeviceName() string {
 }
 
 func (p *GPUDevicePlugin) UpdateAllocatableAssociatedDevices(request *pluginapi.UpdateAllocatableAssociatedDevicesRequest) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error) {
-	gpuTopology := &machine.GPUTopology{
-		GPUs: make(map[string]machine.GPUInfo, len(request.Devices)),
+	gpuTopology := &machine.DeviceTopology{
+		Devices: make(map[string]machine.DeviceInfo, len(request.Devices)),
 	}
 
 	for _, device := range request.Devices {
@@ -63,13 +68,13 @@ func (p *GPUDevicePlugin) UpdateAllocatableAssociatedDevices(request *pluginapi.
 			}
 		}
 
-		gpuTopology.GPUs[device.ID] = machine.GPUInfo{
-			Health:   device.Health,
-			NUMANode: numaNode,
+		gpuTopology.Devices[device.ID] = machine.DeviceInfo{
+			Health:    device.Health,
+			NumaNodes: numaNode,
 		}
 	}
 
-	err := p.GpuTopologyProvider.SetGPUTopology(gpuTopology)
+	err := p.DeviceTopologyRegistry.SetDeviceTopology(gpuconsts.GPUDeviceName, gpuTopology)
 	if err != nil {
 		general.Errorf("set gpu topology failed with error: %v", err)
 		return nil, fmt.Errorf("set gpu topology failed with error: %v", err)
@@ -108,7 +113,13 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(req *pluginapi.AssociatedDevi
 		"deviceRequest", req.DeviceRequest.DeviceRequest,
 	)
 
-	allocationInfo := p.State.GetAllocationInfo(req.ResourceRequest.PodUid, req.ResourceRequest.ContainerName)
+	gpuMemoryState, ok := p.StateCheckpointsMap[gpuconsts.GPUMemPluginName].(gpumemorystate.State)
+	if !ok {
+		return nil, fmt.Errorf("failed to convert state checkpoint to gpumemorystate.State")
+	}
+	machineState := gpuMemoryState.GetMachineState()
+
+	allocationInfo := gpuMemoryState.GetAllocationInfo(req.ResourceRequest.PodUid, req.ResourceRequest.ContainerName)
 	if allocationInfo != nil && allocationInfo.TopologyAwareAllocations != nil {
 		allocatedDevices := make([]string, 0, len(allocationInfo.TopologyAwareAllocations))
 		for gpuID := range allocationInfo.TopologyAwareAllocations {
@@ -133,7 +144,7 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(req *pluginapi.AssociatedDevi
 		return nil, err
 	}
 
-	gpuTopology, numaTopologyReady, err := p.GpuTopologyProvider.GetGPUTopology()
+	gpuTopology, numaTopologyReady, err := p.DeviceTopologyRegistry.GetDeviceTopology(gpuconsts.GPUDeviceName)
 	if err != nil {
 		general.Warningf("failed to get gpu topology: %v", err)
 		return nil, err
@@ -150,23 +161,23 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(req *pluginapi.AssociatedDevi
 		return nil, err
 	}
 
-	topologyAwareAllocations := make(map[string]state.GPUAllocation)
+	topologyAwareAllocations := make(map[string]gpumemorystate.GPUAllocation)
 	for _, device := range allocatedDevices {
-		info, ok := gpuTopology.GPUs[device]
+		info, ok := gpuTopology.Devices[device]
 		if !ok {
 			return nil, fmt.Errorf("failed to get gpu topology for device: %s", device)
 		}
 
-		topologyAwareAllocations[device] = state.GPUAllocation{
+		topologyAwareAllocations[device] = gpumemorystate.GPUAllocation{
 			GPUMemoryQuantity: allocatedGPUMemory[device],
 			NUMANodes:         info.GetNUMANode(),
 		}
 	}
 
 	if allocationInfo == nil {
-		allocationInfo = &state.AllocationInfo{
+		allocationInfo = &gpumemorystate.AllocationInfo{
 			AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(req.ResourceRequest, commonstate.EmptyOwnerPoolName, qosLevel),
-			AllocatedAllocation: state.GPUAllocation{
+			AllocatedAllocation: gpumemorystate.GPUAllocation{
 				GPUMemoryQuantity: gpuMemoryRequest,
 				NUMANodes:         hintNodes.ToSliceInt(),
 			},
@@ -174,13 +185,13 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(req *pluginapi.AssociatedDevi
 	}
 
 	allocationInfo.TopologyAwareAllocations = topologyAwareAllocations
-	p.State.SetAllocationInfo(req.ResourceRequest.PodUid, req.ResourceRequest.ContainerName, allocationInfo, false)
-	machineState, err := state.GenerateMachineStateFromPodEntries(p.QrmConfig, p.State.GetPodEntries(), p.GpuTopologyProvider)
+	gpuMemoryState.SetAllocationInfo(req.ResourceRequest.PodUid, req.ResourceRequest.ContainerName, allocationInfo, false)
+	machineState, err = gpumemorystate.GenerateMachineStateFromPodEntries(p.QrmConfig, gpuMemoryState.GetPodEntries(), p.DeviceTopologyRegistry)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate machine state from pod entries: %v", err)
 	}
 
-	p.State.SetMachineState(machineState, true)
+	gpuMemoryState.SetMachineState(machineState, true)
 
 	general.InfoS("allocated devices",
 		"podNamespace", req.ResourceRequest.PodNamespace,
@@ -195,3 +206,10 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(req *pluginapi.AssociatedDevi
 		},
 	}, nil
 }
+
+func (p *GPUDevicePlugin) RemovePod(_ string) error {
+	// nothing to do
+	return nil
+}
+
+func (p *GPUDevicePlugin) ClearResidualState() {} // Nothing to do

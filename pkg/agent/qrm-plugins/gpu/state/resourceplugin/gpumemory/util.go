@@ -14,29 +14,34 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package state
+package gpumemory
 
 import (
 	"fmt"
 
+	"github.com/kubewharf/katalyst-api/pkg/consts"
+	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 )
 
-func GenerateMachineState(conf *qrm.QRMPluginsConfiguration, gpuTopologyProvider machine.GPUTopologyProvider) (GPUMap, error) {
-	if gpuTopologyProvider == nil {
-		return nil, fmt.Errorf("gpu topology provider must not be nil")
+func GenerateMachineState(
+	conf *qrm.QRMPluginsConfiguration, topologyRegistry *machine.DeviceTopologyRegistry,
+) (GPUMap, error) {
+	if topologyRegistry == nil {
+		return nil, fmt.Errorf("topology provider registry must not be nil")
 	}
 
-	gpuTopology, _, err := gpuTopologyProvider.GetGPUTopology()
+	gpuTopology, _, err := topologyRegistry.GetDeviceTopology(gpuconsts.GPUDeviceName)
 	if err != nil {
 		return nil, fmt.Errorf("gpu topology provider failed with error: %v", err)
 	}
 
 	gpuMap := make(GPUMap)
-	for deviceID := range gpuTopology.GPUs {
-		gpuMap[deviceID] = &GPUState{
+	for deviceID := range gpuTopology.Devices {
+		gpuMap[deviceID] = &GPUMemoryState{
 			GPUMemoryAllocatable: float64(conf.GPUQRMPluginConfig.GPUMemoryAllocatablePerGPU.Value()),
 			GPUMemoryAllocated:   0,
 		}
@@ -50,9 +55,9 @@ func GenerateMachineState(conf *qrm.QRMPluginsConfiguration, gpuTopologyProvider
 func GenerateMachineStateFromPodEntries(
 	conf *qrm.QRMPluginsConfiguration,
 	podEntries PodEntries,
-	gpuTopologyProvider machine.GPUTopologyProvider,
+	topologyRegistry *machine.DeviceTopologyRegistry,
 ) (GPUMap, error) {
-	machineState, err := GenerateMachineState(conf, gpuTopologyProvider)
+	machineState, err := GenerateMachineState(conf, topologyRegistry)
 	if err != nil {
 		return nil, fmt.Errorf("GenerateMachineState failed with error: %v", err)
 	}
@@ -85,4 +90,44 @@ func GenerateMachineStateFromPodEntries(
 	}
 
 	return machineState, nil
+}
+
+// RegenerateGPUMemoryHints regenerates hints for container that'd already been allocated gpu memory,
+// and regenerateHints will assemble hints based on already-existed AllocationInfo,
+// without any calculation logics at all
+func RegenerateGPUMemoryHints(
+	allocationInfo *AllocationInfo, regenerate bool,
+) map[string]*pluginapi.ListOfTopologyHints {
+	if allocationInfo == nil {
+		general.Errorf("RegenerateHints got nil allocationInfo")
+		return nil
+	}
+
+	hints := map[string]*pluginapi.ListOfTopologyHints{}
+	if regenerate {
+		general.ErrorS(nil, "need to regenerate hints",
+			"podNamespace", allocationInfo.PodNamespace,
+			"podName", allocationInfo.PodName,
+			"podUID", allocationInfo.PodUid,
+			"containerName", allocationInfo.ContainerName)
+
+		return nil
+	}
+
+	allocatedNumaNodes := machine.NewCPUSet(allocationInfo.AllocatedAllocation.NUMANodes...)
+
+	general.InfoS("regenerating machineInfo hints, gpu memory was already allocated to pod",
+		"podNamespace", allocationInfo.PodNamespace,
+		"podName", allocationInfo.PodName,
+		"containerName", allocationInfo.ContainerName,
+		"hint", allocatedNumaNodes)
+	hints[string(consts.ResourceGPUMemory)] = &pluginapi.ListOfTopologyHints{
+		Hints: []*pluginapi.TopologyHint{
+			{
+				Nodes:     allocatedNumaNodes.ToSliceUInt64(),
+				Preferred: true,
+			},
+		},
+	}
+	return hints
 }
