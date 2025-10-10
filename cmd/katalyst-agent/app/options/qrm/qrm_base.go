@@ -84,6 +84,7 @@ type QRMPluginsOptions struct {
 	MemoryOptions  *MemoryOptions
 	NetworkOptions *NetworkOptions
 	IOOptions      *IOOptions
+	GPUOptions     *GPUOptions
 }
 
 func NewQRMPluginsOptions() *QRMPluginsOptions {
@@ -92,6 +93,7 @@ func NewQRMPluginsOptions() *QRMPluginsOptions {
 		MemoryOptions:  NewMemoryOptions(),
 		NetworkOptions: NewNetworkOptions(),
 		IOOptions:      NewIOOptions(),
+		GPUOptions:     NewGPUOptions(),
 	}
 }
 
@@ -100,6 +102,7 @@ func (o *QRMPluginsOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	o.MemoryOptions.AddFlags(fss)
 	o.NetworkOptions.AddFlags(fss)
 	o.IOOptions.AddFlags(fss)
+	o.GPUOptions.AddFlags(fss)
 }
 
 func (o *QRMPluginsOptions) ApplyTo(conf *qrmconfig.QRMPluginsConfiguration) error {
@@ -113,6 +116,9 @@ func (o *QRMPluginsOptions) ApplyTo(conf *qrmconfig.QRMPluginsConfiguration) err
 		return err
 	}
 	if err := o.IOOptions.ApplyTo(conf.IOQRMPluginConfig); err != nil {
+		return err
+	}
+	if err := o.GPUOptions.ApplyTo(conf.GPUQRMPluginConfig); err != nil {
 		return err
 	}
 	return nil

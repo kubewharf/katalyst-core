@@ -78,6 +78,7 @@ const (
 // StaticPolicy is the static network policy
 type StaticPolicy struct {
 	sync.Mutex
+	pluginapi.UnimplementedResourcePluginServer
 
 	name           string
 	stopCh         chan struct{}
