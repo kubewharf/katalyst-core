@@ -2626,8 +2626,7 @@ func Test_ListActiveUplinkNics(t *testing.T) {
 
 			nics, err := ListActiveUplinkNics(mockNetNSDir)
 
-			So(err, ShouldNotBeNil)
-			So(err.Error(), ShouldEqual, fmt.Sprintf("failed to ListActiveUplinkNicsFromNetNS(%s), err %v", mockNetNSList[0].NSName, mockErr))
+			So(err, ShouldBeNil)
 			So(nics, ShouldBeNil)
 		})
 

@@ -3453,7 +3453,9 @@ func (ic *IrqTuningController) getNicsIfSRIOVContainer(cnt *irqtuner.ContainerIn
 
 	activeUplinkNics, err := machine.ListActiveUplinkNicsFromNetNS(containerNetNSInfo)
 	if err != nil {
-		general.Errorf("%s failed to ListActiveUplinkNicsFromNetNS for netns %s, err %v", IrqTuningLogPrefix, containerNetNSInfo.NSName, err)
+		if machine.NetNSExist(containerNetNSInfo) {
+			general.Errorf("%s failed to ListActiveUplinkNicsFromNetNS for netns %s, err %v", IrqTuningLogPrefix, containerNetNSInfo.NSName, err)
+		}
 		return false, nil
 	}
 
