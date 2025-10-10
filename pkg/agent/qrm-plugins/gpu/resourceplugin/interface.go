@@ -20,7 +20,6 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
 )
 
 // ResourcePlugin knows how to handle resource requests for a specific resource type.
@@ -29,9 +28,13 @@ type ResourcePlugin interface {
 
 	GetTopologyHints(*pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error)
 
-	GetTopologyAwareResources(*state.AllocationInfo) *gpuconsts.AllocatedResource
+	GetTopologyAwareResources(podUID, containerName string) (*pluginapi.GetTopologyAwareResourcesResponse, error)
 
-	GetTopologyAwareAllocatableResources(state.GPUMap) *gpuconsts.AllocatableResource
+	GetTopologyAwareAllocatableResources() (*gpuconsts.AllocatableResource, error)
 
 	Allocate(*pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error)
+
+	RemovePod(podUID string) error
+
+	ClearResidualState()
 }
