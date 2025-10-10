@@ -14,13 +14,19 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package resourceplugin
+package registry
 
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/baseplugin"
+	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/resourceplugin"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/resourceplugin/gpumemory"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
-type initFunc func(plugin *baseplugin.BasePlugin) ResourcePlugin
+type initFunc func(
+	plugin *baseplugin.BasePlugin, wrappedEmitter metrics.MetricEmitter,
+) (resourceplugin.ResourcePlugin, error)
 
 var ResourcePluginsMap = make(map[string]initFunc)
 
@@ -29,5 +35,5 @@ func registerResourcePlugin(pluginName string, initFunc initFunc) {
 }
 
 func init() {
-	registerResourcePlugin(GPUMemPluginName, NewGPUMemPlugin)
+	registerResourcePlugin(gpuconsts.GPUMemPluginName, gpumemory.NewGPUMemPlugin)
 }

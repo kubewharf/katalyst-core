@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package state
+package gpumemory
 
 import (
 	"errors"
@@ -39,7 +39,7 @@ const (
 
 var (
 	_          State = &stateCheckpoint{}
-	generalLog       = general.LoggerWithPrefix("gpu_plugin", general.LoggingPKGFull)
+	generalLog       = general.LoggerWithPrefix("gpu_mem_plugin", general.LoggingPKGFull)
 )
 
 // stateCheckpoint is an in-memory implementation of State;
@@ -83,7 +83,9 @@ func (s *stateCheckpoint) SetPodEntries(podEntries PodEntries, persist bool) {
 	}
 }
 
-func (s *stateCheckpoint) SetAllocationInfo(podUID, containerName string, allocationInfo *AllocationInfo, persist bool) {
+func (s *stateCheckpoint) SetAllocationInfo(
+	podUID, containerName string, allocationInfo *AllocationInfo, persist bool,
+) {
 	s.Lock()
 	defer s.Unlock()
 
@@ -168,7 +170,9 @@ func (s *stateCheckpoint) storeState() error {
 	return nil
 }
 
-func (s *stateCheckpoint) restoreState(conf *qrm.QRMPluginsConfiguration, gpuTopologyProvider machine.GPUTopologyProvider) error {
+func (s *stateCheckpoint) restoreState(
+	conf *qrm.QRMPluginsConfiguration, topologyRegistry *machine.DeviceTopologyRegistry,
+) error {
 	s.Lock()
 	defer s.Unlock()
 	var err error
@@ -194,7 +198,7 @@ func (s *stateCheckpoint) restoreState(conf *qrm.QRMPluginsConfiguration, gpuTop
 		return fmt.Errorf("configured policy %q differs from state checkpoint policy %q", s.policyName, checkpoint.PolicyName)
 	}
 
-	machineState, err := GenerateMachineStateFromPodEntries(conf, checkpoint.PodEntries, gpuTopologyProvider)
+	machineState, err := GenerateMachineStateFromPodEntries(conf, checkpoint.PodEntries, topologyRegistry)
 	if err != nil {
 		return fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
@@ -227,15 +231,16 @@ func (s *stateCheckpoint) restoreState(conf *qrm.QRMPluginsConfiguration, gpuTop
 	return nil
 }
 
-func NewCheckpointState(conf *qrm.QRMPluginsConfiguration, stateDir, checkpointName, policyName string,
-	gpuTopologyProvider machine.GPUTopologyProvider, skipStateCorruption bool, emitter metrics.MetricEmitter,
+func NewCheckpointState(
+	conf *qrm.QRMPluginsConfiguration, stateDir, checkpointName, policyName string,
+	topologyRegistry *machine.DeviceTopologyRegistry, skipStateCorruption bool, emitter metrics.MetricEmitter,
 ) (State, error) {
 	checkpointManager, err := checkpointmanager.NewCheckpointManager(stateDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize checkpoint manager: %v", err)
 	}
 
-	defaultCache, err := NewGPUPluginState(conf, gpuTopologyProvider)
+	defaultCache, err := NewGPUPluginState(conf, topologyRegistry)
 	if err != nil {
 		return nil, fmt.Errorf("NewGPUPluginState failed with error: %v", err)
 	}
@@ -249,7 +254,7 @@ func NewCheckpointState(conf *qrm.QRMPluginsConfiguration, stateDir, checkpointN
 		emitter:             emitter,
 	}
 
-	if err := sc.restoreState(conf, gpuTopologyProvider); err != nil {
+	if err := sc.restoreState(conf, topologyRegistry); err != nil {
 		return nil, fmt.Errorf("could not restore state from checkpoint: %v, please drain this node and delete "+
 			"the gpu plugin checkpoint file %q before restarting Kubelet",
 			err, path.Join(stateDir, checkpointName))
