@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package state
+package gpumemory
 
 import (
 	"encoding/json"
@@ -53,13 +53,13 @@ type (
 	PodEntries       map[string]ContainerEntries // Keyed by pod UID
 )
 
-type GPUState struct {
+type GPUMemoryState struct {
 	GPUMemoryAllocatable float64    `json:"gpu_memory_allocatable"`
 	GPUMemoryAllocated   float64    `json:"gpu_memory_allocated"`
 	PodEntries           PodEntries `json:"pod_entries"`
 }
 
-type GPUMap map[string]*GPUState // GPUMap keyed by gpu device name i.e. GPU-fef8089b-4820-abfc-e83e-94318197576e
+type GPUMap map[string]*GPUMemoryState // GPUMap keyed by gpu device name i.e. GPU-fef8089b-4820-abfc-e83e-94318197576e
 
 func (i *AllocationInfo) String() string {
 	if i == nil {
@@ -143,67 +143,67 @@ func (e PodEntries) SetAllocationInfo(podUID string, containerName string, alloc
 	e[podUID][containerName] = allocationInfo.Clone()
 }
 
-func (ns *GPUState) String() string {
-	if ns == nil {
+func (ms *GPUMemoryState) String() string {
+	if ms == nil {
 		return ""
 	}
 
-	contentBytes, err := json.Marshal(ns)
+	contentBytes, err := json.Marshal(ms)
 	if err != nil {
-		general.LoggerWithPrefix("GPUState.String", general.LoggingPKGFull).Errorf("marshal GPUState failed with error: %v", err)
+		general.LoggerWithPrefix("GPUMemoryState.String", general.LoggingPKGFull).Errorf("marshal GPUMemoryState failed with error: %v", err)
 		return ""
 	}
 	return string(contentBytes)
 }
 
-func (ns *GPUState) Clone() *GPUState {
-	if ns == nil {
+func (ms *GPUMemoryState) Clone() *GPUMemoryState {
+	if ms == nil {
 		return nil
 	}
 
-	return &GPUState{
-		GPUMemoryAllocatable: ns.GPUMemoryAllocatable,
-		GPUMemoryAllocated:   ns.GPUMemoryAllocated,
-		PodEntries:           ns.PodEntries.Clone(),
+	return &GPUMemoryState{
+		GPUMemoryAllocatable: ms.GPUMemoryAllocatable,
+		GPUMemoryAllocated:   ms.GPUMemoryAllocated,
+		PodEntries:           ms.PodEntries.Clone(),
 	}
 }
 
-func (ns *GPUState) GetGPUMemoryAllocatable() float64 {
-	if ns == nil {
+func (ms *GPUMemoryState) GetGPUMemoryAllocatable() float64 {
+	if ms == nil {
 		return 0
 	}
 
-	return ns.GPUMemoryAllocatable
+	return ms.GPUMemoryAllocatable
 }
 
-func (ns *GPUState) GetGPUMemoryAllocated() float64 {
-	if ns == nil {
+func (ms *GPUMemoryState) GetGPUMemoryAllocated() float64 {
+	if ms == nil {
 		return 0
 	}
 
-	return ns.GPUMemoryAllocated
+	return ms.GPUMemoryAllocated
 }
 
-// SetAllocationInfo adds a new AllocationInfo (for pod/container pairs) into the given NICState
-func (ns *GPUState) SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo) {
-	if ns == nil {
+// SetAllocationInfo adds a new AllocationInfo (for pod/container pairs) into the given GPUMemoryState
+func (ms *GPUMemoryState) SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo) {
+	if ms == nil {
 		return
 	}
 
 	if allocationInfo == nil {
-		general.LoggerWithPrefix("GPUState.SetAllocationInfo", general.LoggingPKGFull).Errorf("passed allocationInfo is nil")
+		general.LoggerWithPrefix("GPUMemoryState.SetAllocationInfo", general.LoggingPKGFull).Errorf("passed allocationInfo is nil")
 		return
 	}
 
-	if ns.PodEntries == nil {
-		ns.PodEntries = make(PodEntries)
+	if ms.PodEntries == nil {
+		ms.PodEntries = make(PodEntries)
 	}
 
-	if _, ok := ns.PodEntries[podUID]; !ok {
-		ns.PodEntries[podUID] = make(ContainerEntries)
+	if _, ok := ms.PodEntries[podUID]; !ok {
+		ms.PodEntries[podUID] = make(ContainerEntries)
 	}
 
-	ns.PodEntries[podUID][containerName] = allocationInfo.Clone()
+	ms.PodEntries[podUID][containerName] = allocationInfo.Clone()
 }
 
 func (m GPUMap) Clone() GPUMap {

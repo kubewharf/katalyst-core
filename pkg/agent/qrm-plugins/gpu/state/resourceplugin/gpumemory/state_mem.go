@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package state
+package gpumemory
 
 import (
 	"fmt"
@@ -30,8 +30,8 @@ import (
 type gpuPluginState struct {
 	sync.RWMutex
 
-	qrmConf             *qrm.QRMPluginsConfiguration
-	gpuTopologyProvider machine.GPUTopologyProvider
+	qrmConf          *qrm.QRMPluginsConfiguration
+	topologyRegistry *machine.DeviceTopologyRegistry
 
 	machineState GPUMap
 	podEntries   PodEntries
@@ -39,20 +39,20 @@ type gpuPluginState struct {
 
 func NewGPUPluginState(
 	conf *qrm.QRMPluginsConfiguration,
-	gpuTopologyProvider machine.GPUTopologyProvider,
+	topologyRegistry *machine.DeviceTopologyRegistry,
 ) (State, error) {
 	generalLog.InfoS("initializing new gpu plugin in-memory state store")
 
-	defaultMachineState, err := GenerateMachineState(conf, gpuTopologyProvider)
+	defaultMachineState, err := GenerateMachineState(conf, topologyRegistry)
 	if err != nil {
-		return nil, fmt.Errorf("GenerateMachineState failed with error: %v", err)
+		return nil, fmt.Errorf("GenerateMachineState failed with error: %w", err)
 	}
 
 	return &gpuPluginState{
-		qrmConf:             conf,
-		machineState:        defaultMachineState,
-		gpuTopologyProvider: gpuTopologyProvider,
-		podEntries:          make(PodEntries),
+		qrmConf:          conf,
+		machineState:     defaultMachineState,
+		topologyRegistry: topologyRegistry,
+		podEntries:       make(PodEntries),
 	}, nil
 }
 
@@ -100,7 +100,7 @@ func (s *gpuPluginState) ClearState() {
 	s.Lock()
 	defer s.Unlock()
 
-	machineState, err := GenerateMachineState(s.qrmConf, s.gpuTopologyProvider)
+	machineState, err := GenerateMachineState(s.qrmConf, s.topologyRegistry)
 	if err != nil {
 		generalLog.ErrorS(err, "failed to generate machine state")
 	}
