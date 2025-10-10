@@ -186,8 +186,22 @@ func TestCPUServerUpdate(t *testing.T) {
 				TimeStamp: time.Now(),
 				PoolEntries: map[string]map[int]types.CPUResource{
 					commonstate.PoolNameReclaim: {
-						0: {Size: 4, Quota: -1},
-						1: {Size: 8, Quota: -1},
+						0: {Size: 0, Quota: -1},
+						1: {Size: 0, Quota: -1},
+					},
+				},
+				PoolOverlapPodContainerInfo: map[string]map[int]map[string]map[string]int{
+					commonstate.PoolNameReclaim: {
+						0: {
+							"pod1": {
+								"c1": 4,
+							},
+						},
+						1: {
+							"pod1": {
+								"c1": 8,
+							},
+						},
 					},
 				},
 			},
@@ -197,7 +211,8 @@ func TestCPUServerUpdate(t *testing.T) {
 						PodUid:        "pod1",
 						ContainerName: "c1",
 						Annotations: map[string]string{
-							consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+							consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+							consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
 						},
 						QosLevel: consts.PodAnnotationQoSLevelDedicatedCores,
 					},
@@ -334,8 +349,24 @@ func TestCPUServerUpdate(t *testing.T) {
 				TimeStamp: time.Now(),
 				PoolEntries: map[string]map[int]types.CPUResource{
 					commonstate.PoolNameReclaim: {
-						0: {Size: 4, Quota: common.CPUQuotaUnlimit},
-						1: {Size: 8, Quota: common.CPUQuotaUnlimit},
+						0: {Size: 0, Quota: common.CPUQuotaUnlimit},
+						1: {Size: 0, Quota: common.CPUQuotaUnlimit},
+					},
+				},
+				PoolOverlapPodContainerInfo: map[string]map[int]map[string]map[string]int{
+					commonstate.PoolNameReclaim: {
+						0: {
+							"pod1": {
+								"c1": 4,
+								"c2": 4,
+							},
+						},
+						1: {
+							"pod1": {
+								"c1": 8,
+								"c2": 8,
+							},
+						},
 					},
 				},
 			},
@@ -345,7 +376,8 @@ func TestCPUServerUpdate(t *testing.T) {
 						PodUid:        "pod1",
 						ContainerName: "c1",
 						Annotations: map[string]string{
-							consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+							consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+							consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
 						},
 						QosLevel: consts.PodAnnotationQoSLevelDedicatedCores,
 					},
@@ -594,8 +626,26 @@ func TestCPUServerUpdate(t *testing.T) {
 				TimeStamp: time.Now(),
 				PoolEntries: map[string]map[int]types.CPUResource{
 					commonstate.PoolNameReclaim: {
-						0: {Size: 4, Quota: common.CPUQuotaUnlimit},
-						1: {Size: 8, Quota: common.CPUQuotaUnlimit},
+						0: {Size: 0, Quota: common.CPUQuotaUnlimit},
+						1: {Size: 0, Quota: common.CPUQuotaUnlimit},
+					},
+				},
+				PoolOverlapPodContainerInfo: map[string]map[int]map[string]map[string]int{
+					commonstate.PoolNameReclaim: {
+						0: {
+							"pod1": {
+								"c1": 4,
+								"c2": 4,
+								"c3": 4,
+							},
+						},
+						1: {
+							"pod1": {
+								"c1": 8,
+								"c2": 8,
+								"c3": 8,
+							},
+						},
 					},
 				},
 			},
@@ -997,7 +1047,7 @@ func TestCPUServerUpdate(t *testing.T) {
 				PoolEntries: map[string]map[int]types.CPUResource{
 					strings.Join([]string{commonstate.PoolNameShare, "1"}, "-"): {-1: {Size: 2, Quota: common.CPUQuotaUnlimit}},
 					strings.Join([]string{commonstate.PoolNameShare, "2"}, "-"): {-1: {Size: 2, Quota: common.CPUQuotaUnlimit}},
-					commonstate.PoolNameReclaim:                                 {-1: {Size: 4, Quota: common.CPUQuotaUnlimit}},
+					commonstate.PoolNameReclaim:                                 {-1: {Size: 0, Quota: common.CPUQuotaUnlimit}},
 					commonstate.PoolNamePrefixIsolation + "-test-1":             {-1: {Size: 4, Quota: common.CPUQuotaUnlimit}},
 				},
 				PoolOverlapInfo: map[string]map[int]map[string]int{
