@@ -93,6 +93,9 @@ type topologyAdapterImpl struct {
 	// cacheGroupCPUsMap records the CPU list in the cache group.
 	cacheGroupCPUsMap map[int]sets.Int
 
+	// threadSiblingMap  records the mapping relationship between threads belonging to the same physical CPU.
+	threadSiblingMap map[int]int
+
 	// skipDeviceNames name of devices which will be skipped in getting numa allocatable and allocation
 	skipDeviceNames sets.String
 
@@ -155,6 +158,7 @@ func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, qos
 		numaCacheGroupZoneNodeMap:      numaCacheGroupZoneNodeMap,
 		numaDistanceMap:                metaServer.NumaDistanceMap,
 		cacheGroupCPUsMap:              machine.GetCacheGroupCPUs(metaServer.MachineInfo),
+		threadSiblingMap:               machine.GetThreadSiblingInfo(metaServer.MachineInfo),
 		skipDeviceNames:                skipDeviceNames,
 		getClientFunc:                  getClientFunc,
 		podResourcesFilter:             podResourcesFilter,
@@ -708,7 +712,7 @@ func (p *topologyAdapterImpl) getZoneAttributes(allocatableResources *podresv1.A
 
 	// generate the attributes of numa zone node
 	for numaNode := range p.numaSocketZoneNodeMap {
-		zoneAttributes[numaNode] = p.generateNodeDistanceAttr(numaNode)
+		zoneAttributes[numaNode] = p.generateNumaNodeAttr(numaNode)
 	}
 
 	// generate the attributes of cache group zone node.
@@ -730,6 +734,60 @@ func (p *topologyAdapterImpl) getZoneAttributes(allocatableResources *podresv1.A
 	}
 
 	return zoneAttributes, nil
+}
+
+func (p *topologyAdapterImpl) generateNumaNodeAttr(node util.ZoneNode) []nodev1alpha1.Attribute {
+	var attrs []nodev1alpha1.Attribute
+
+	attrs = append(attrs, p.generateNodeDistanceAttr(node)...)
+	attrs = append(attrs, p.generateNumaNodeThreadTopologyAttr(node)...)
+	attrs = append(attrs, p.generateNumaNodeResourceReservedAttr(node)...)
+
+	return attrs
+}
+
+func (p *topologyAdapterImpl) generateNumaNodeThreadTopologyAttr(node util.ZoneNode) []nodev1alpha1.Attribute {
+	var attrs []nodev1alpha1.Attribute
+
+	numaID, err := strconv.Atoi(node.Meta.Name)
+	if err != nil {
+		klog.Warningf("convert numaID to int failed: %v", err)
+		return attrs
+	}
+	numaCPUSets := p.metaServer.KatalystMachineInfo.NUMAToCPUs[numaID]
+
+	var threadTopology string
+	for _, cpuID := range numaCPUSets.ToSliceInt() {
+		threadTopology += fmt.Sprintf("%d:%d,", cpuID, p.threadSiblingMap[cpuID])
+	}
+	threadTopology = strings.TrimSuffix(threadTopology, ",")
+
+	attrs = append(attrs, nodev1alpha1.Attribute{
+		Name:  "thread_topology_info",
+		Value: threadTopology,
+	})
+
+	return attrs
+}
+
+func (p *topologyAdapterImpl) generateNumaNodeResourceReservedAttr(node util.ZoneNode) []nodev1alpha1.Attribute {
+	var attrs []nodev1alpha1.Attribute
+
+	numaID, err := strconv.Atoi(node.Meta.Name)
+	if err != nil {
+		klog.Warningf("convert numaID to int failed: %v", err)
+		return attrs
+	}
+
+	numaCapacity := p.metaServer.KatalystMachineInfo.NUMAToCPUs[numaID]
+	numaReserved := numaCapacity.Intersection(machine.MustParse(p.reservedCPUs))
+
+	attrs = append(attrs, nodev1alpha1.Attribute{
+		Name:  "reserved_list",
+		Value: numaReserved.String(),
+	})
+
+	return attrs
 }
 
 func (p *topologyAdapterImpl) generateNodeDistanceAttr(node util.ZoneNode) []nodev1alpha1.Attribute {
@@ -955,6 +1013,9 @@ func addZoneQuantity(zoneResourceList map[util.ZoneNode]*v1.ResourceList, zoneNo
 	}
 
 	quantity.Add(value)
+	if strings.HasPrefix(string(resourceName), v1.ResourceHugePagesPrefix) {
+		quantity.Format = resource.BinarySI
+	}
 	resourceList[resourceName] = quantity
 
 	return zoneResourceList

@@ -652,6 +652,25 @@ func GetCacheGroupCPUs(machineInfo *info.MachineInfo) map[int]sets.Int {
 	return cacheGroupMap
 }
 
+func GetThreadSiblingInfo(machineInfo *info.MachineInfo) map[int]int {
+	threadSiblingMap := make(map[int]int)
+	if machineInfo == nil {
+		klog.Errorf("GetThreadSiblingInfo got nil machineInfo")
+		return threadSiblingMap
+	}
+
+	for _, node := range machineInfo.Topology {
+		for _, core := range node.Cores {
+			if len(core.Threads) == 2 {
+				threadSiblingMap[core.Threads[0]] = core.Threads[1]
+				threadSiblingMap[core.Threads[1]] = core.Threads[0]
+			}
+		}
+	}
+
+	return threadSiblingMap
+}
+
 type NumaDistanceInfo struct {
 	NumaID   int
 	Distance int
