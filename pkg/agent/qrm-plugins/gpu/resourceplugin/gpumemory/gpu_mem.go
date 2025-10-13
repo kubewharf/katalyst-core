@@ -34,7 +34,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/baseplugin"
 	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
-	gpumemorystate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state/resourceplugin/gpumemory"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
 	gpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -43,35 +43,18 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
-const (
-	GPUMemPluginStateFileName = "gpu_mem_plugin_state"
-)
-
 type GPUMemPlugin struct {
 	sync.Mutex
 	*baseplugin.BasePlugin
-	state gpumemorystate.State
+	state state.State
 
 	residualHitMap map[string]int64
 }
 
-func NewGPUMemPlugin(
-	base *baseplugin.BasePlugin, wrappedEmitter metrics.MetricEmitter,
-) (resourceplugin.ResourcePlugin, error) {
-	stateImpl, err := gpumemorystate.NewCheckpointState(base.QRMPluginsConfiguration, base.GenericQRMPluginConfiguration.StateFileDirectory, GPUMemPluginStateFileName,
-		gpuconsts.GPUResourcePluginPolicyNameStatic, base.DeviceTopologyRegistry, base.SkipGPUStateCorruption, wrappedEmitter)
-
-	if err != nil {
-		return nil, fmt.Errorf("NewCheckpointState failed with error: %v", err)
-	}
-
-	base.RegisterCheckpoint(gpuconsts.GPUMemPluginName, stateImpl)
-
+func NewGPUMemPlugin(base *baseplugin.BasePlugin) resourceplugin.ResourcePlugin {
 	return &GPUMemPlugin{
-		BasePlugin:     base,
-		state:          stateImpl,
-		residualHitMap: make(map[string]int64),
-	}, nil
+		BasePlugin: base,
+	}
 }
 
 func (p *GPUMemPlugin) ResourceName() string {
@@ -133,21 +116,22 @@ func (p *GPUMemPlugin) GetTopologyHints(req *pluginapi.ResourceRequest) (resp *p
 	}()
 
 	var hints map[string]*pluginapi.ListOfTopologyHints
-	machineState := p.state.GetMachineState()
-	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
+	machineState := p.state.GetMachineState()[consts.ResourceGPUMemory]
+	allocationInfo := p.state.GetAllocationInfo(consts.ResourceGPUMemory, req.PodUid, req.ContainerName)
+
 	if allocationInfo != nil {
-		hints = gpumemorystate.RegenerateGPUMemoryHints(allocationInfo, false)
+		hints = state.RegenerateGPUMemoryHints(allocationInfo, false)
 
 		// regenerateHints failed. need to clear container record and re-calculate.
 		if hints == nil {
-			podEntries := p.state.GetPodEntries()
+			podEntries := p.state.GetPodEntries(consts.ResourceGPUMemory)
 			delete(podEntries[req.PodUid], req.ContainerName)
 			if len(podEntries[req.PodUid]) == 0 {
 				delete(podEntries, req.PodUid)
 			}
 
 			var err error
-			machineState, err = gpumemorystate.GenerateMachineStateFromPodEntries(p.QrmConfig, p.state.GetPodEntries(), p.DeviceTopologyRegistry)
+			machineState, err = state.GenerateResourceStateFromPodEntries(podEntries, p.DeviceTopologyRegistry, consts.ResourceGPUMemory)
 			if err != nil {
 				general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
 					req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -170,7 +154,7 @@ func (p *GPUMemPlugin) GetTopologyHints(req *pluginapi.ResourceRequest) (resp *p
 }
 
 func (p *GPUMemPlugin) calculateHints(
-	gpuMemory float64, gpuReq float64, machineState gpumemorystate.GPUMap, req *pluginapi.ResourceRequest,
+	gpuMemory float64, gpuReq float64, machineState state.AllocationMap, req *pluginapi.ResourceRequest,
 ) (map[string]*pluginapi.ListOfTopologyHints, error) {
 	gpuTopology, numaTopologyReady, err := p.DeviceTopologyRegistry.GetDeviceTopology(gpuconsts.GPUDeviceName)
 	if err != nil {
@@ -191,7 +175,7 @@ func (p *GPUMemPlugin) calculateHints(
 			continue
 		}
 
-		if s.GetGPUMemoryAllocated()+perGPUMemory <= s.GetGPUMemoryAllocatable() {
+		if s.GetQuantityAllocated()+perGPUMemory <= float64(p.GPUMemoryAllocatablePerGPU.Value()) {
 			info, ok := gpuTopology.Devices[gpuID]
 			if !ok {
 				return nil, fmt.Errorf("gpu %s not found in gpuTopology", gpuID)
@@ -199,7 +183,7 @@ func (p *GPUMemPlugin) calculateHints(
 
 			for _, numaNode := range info.GetNUMANode() {
 				numaToAvailableGPUCount[numaNode] += 1
-				numaToMostAllocatedGPUMemory[numaNode] = math.Max(s.GetGPUMemoryAllocated(), numaToMostAllocatedGPUMemory[numaNode])
+				numaToMostAllocatedGPUMemory[numaNode] = math.Max(s.GetQuantityAllocated(), numaToMostAllocatedGPUMemory[numaNode])
 			}
 		}
 	}
@@ -320,7 +304,7 @@ func (p *GPUMemPlugin) preferGPUMemoryMostAllocatedHints(
 func (p *GPUMemPlugin) GetTopologyAwareResources(podUID, containerName string) (*pluginapi.GetTopologyAwareResourcesResponse, error) {
 	general.InfofV(4, "called")
 
-	allocationInfo := p.state.GetAllocationInfo(podUID, containerName)
+	allocationInfo := p.state.GetAllocationInfo(consts.ResourceGPUMemory, podUID, containerName)
 	if allocationInfo == nil {
 		return nil, nil
 	}
@@ -328,7 +312,7 @@ func (p *GPUMemPlugin) GetTopologyAwareResources(podUID, containerName string) (
 	topologyAwareQuantityList := make([]*pluginapi.TopologyAwareQuantity, 0, len(allocationInfo.TopologyAwareAllocations))
 	for deviceID, alloc := range allocationInfo.TopologyAwareAllocations {
 		topologyAwareQuantityList = append(topologyAwareQuantityList, &pluginapi.TopologyAwareQuantity{
-			ResourceValue: alloc.GPUMemoryQuantity,
+			ResourceValue: alloc.Quantity,
 			Name:          deviceID,
 			Type:          string(v1alpha1.TopologyTypeGPU),
 			Annotations: map[string]string{
@@ -347,8 +331,8 @@ func (p *GPUMemPlugin) GetTopologyAwareResources(podUID, containerName string) (
 				p.ResourceName(): {
 					IsNodeResource:                    true,
 					IsScalarResource:                  true,
-					AggregatedQuantity:                allocationInfo.AllocatedAllocation.GPUMemoryQuantity,
-					OriginalAggregatedQuantity:        allocationInfo.AllocatedAllocation.GPUMemoryQuantity,
+					AggregatedQuantity:                allocationInfo.AllocatedAllocation.Quantity,
+					OriginalAggregatedQuantity:        allocationInfo.AllocatedAllocation.Quantity,
 					TopologyAwareQuantityList:         topologyAwareQuantityList,
 					OriginalTopologyAwareQuantityList: topologyAwareQuantityList,
 				},
@@ -365,16 +349,16 @@ func (p *GPUMemPlugin) GetTopologyAwareAllocatableResources() (*gpuconsts.Alloca
 	p.Lock()
 	defer p.Unlock()
 
-	machineState := p.state.GetMachineState()
+	machineState := p.state.GetMachineState()[consts.ResourceGPUMemory]
 
 	topologyAwareAllocatableQuantityList := make([]*pluginapi.TopologyAwareQuantity, 0, len(machineState))
 	topologyAwareCapacityQuantityList := make([]*pluginapi.TopologyAwareQuantity, 0, len(machineState))
 	var aggregatedAllocatableQuantity, aggregatedCapacityQuantity float64
-	for deviceID, gpuState := range machineState {
-		aggregatedAllocatableQuantity += gpuState.GetGPUMemoryAllocatable()
-		aggregatedCapacityQuantity += gpuState.GetGPUMemoryAllocatable()
+	for deviceID := range machineState {
+		aggregatedAllocatableQuantity += float64(p.GPUMemoryAllocatablePerGPU.Value())
+		aggregatedCapacityQuantity += float64(p.GPUMemoryAllocatablePerGPU.Value())
 		topologyAwareAllocatableQuantityList = append(topologyAwareAllocatableQuantityList, &pluginapi.TopologyAwareQuantity{
-			ResourceValue: gpuState.GetGPUMemoryAllocatable(),
+			ResourceValue: float64(p.GPUMemoryAllocatablePerGPU.Value()),
 			Name:          deviceID,
 			Type:          string(v1alpha1.TopologyTypeGPU),
 			Annotations: map[string]string{
@@ -382,7 +366,7 @@ func (p *GPUMemPlugin) GetTopologyAwareAllocatableResources() (*gpuconsts.Alloca
 			},
 		})
 		topologyAwareCapacityQuantityList = append(topologyAwareCapacityQuantityList, &pluginapi.TopologyAwareQuantity{
-			ResourceValue: gpuState.GetGPUMemoryAllocatable(),
+			ResourceValue: float64(p.GPUMemoryAllocatablePerGPU.Value()),
 			Name:          deviceID,
 			Type:          string(v1alpha1.TopologyTypeGPU),
 			Annotations: map[string]string{
@@ -472,10 +456,10 @@ func (p *GPUMemPlugin) Allocate(req *pluginapi.ResourceRequest) (*pluginapi.Reso
 		return emptyResponse, nil
 	} else if req.ContainerType == pluginapi.ContainerType_SIDECAR {
 		// not to deal with sidecars, and return a trivial allocationResult to avoid re-allocating
-		return p.PackAllocationResponse(req, &gpumemorystate.AllocationInfo{}, nil, p.ResourceName())
+		return p.PackAllocationResponse(req, &state.AllocationInfo{}, nil, p.ResourceName())
 	}
 
-	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
+	allocationInfo := p.state.GetAllocationInfo(consts.ResourceGPUMemory, req.PodUid, req.ContainerName)
 	if allocationInfo != nil {
 		resp, packErr := p.PackAllocationResponse(req, allocationInfo, nil, p.ResourceName())
 		if packErr != nil {
@@ -493,17 +477,17 @@ func (p *GPUMemPlugin) Allocate(req *pluginapi.ResourceRequest) (*pluginapi.Reso
 		return nil, fmt.Errorf("failed to get hint nodes: %v", err)
 	}
 
-	newAllocation := &gpumemorystate.AllocationInfo{
+	newAllocation := &state.AllocationInfo{
 		AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(req, commonstate.EmptyOwnerPoolName, qosLevel),
-		AllocatedAllocation: gpumemorystate.GPUAllocation{
-			GPUMemoryQuantity: gpuMemory,
-			NUMANodes:         hintNodes.ToSliceInt(),
+		AllocatedAllocation: state.Allocation{
+			Quantity:  gpuMemory,
+			NUMANodes: hintNodes.ToSliceInt(),
 		},
 	}
 
-	p.state.SetAllocationInfo(req.PodUid, req.ContainerName, newAllocation, false)
+	p.state.SetAllocationInfo(consts.ResourceGPUMemory, req.PodUid, req.ContainerName, newAllocation, false)
 
-	machineState, stateErr := gpumemorystate.GenerateMachineStateFromPodEntries(p.QrmConfig, p.state.GetPodEntries(), p.DeviceTopologyRegistry)
+	machineState, stateErr := state.GenerateMachineStateFromPodEntries(p.state.GetPodResourceEntries(), p.DeviceTopologyRegistry)
 	if stateErr != nil {
 		general.ErrorS(stateErr, "GenerateMachineStateFromPodEntries failed",
 			"podNamespace", req.PodNamespace,
@@ -520,16 +504,16 @@ func (p *GPUMemPlugin) Allocate(req *pluginapi.ResourceRequest) (*pluginapi.Reso
 }
 
 func (p *GPUMemPlugin) RemovePod(podUID string) error {
-	podEntries := p.state.GetPodEntries()
-	delete(podEntries, podUID)
+	podResourceEntries := p.state.GetPodResourceEntries()
+	delete(podResourceEntries[consts.ResourceGPUMemory], podUID)
 
-	machineState, err := gpumemorystate.GenerateMachineStateFromPodEntries(p.QrmConfig, podEntries, p.DeviceTopologyRegistry)
+	machineState, err := state.GenerateMachineStateFromPodEntries(podResourceEntries, p.DeviceTopologyRegistry)
 	if err != nil {
 		general.Errorf("pod: %s, GenerateMachineStateFromPodEntries failed with error: %v", podUID, err)
 		return fmt.Errorf("calculate machineState by updated pod entries failed with error: %v", err)
 	}
 
-	p.state.SetPodEntries(podEntries, false)
+	p.state.SetPodResourceEntries(podResourceEntries, false)
 	p.state.SetMachineState(machineState, false)
 
 	err = p.state.StoreState()
@@ -572,12 +556,14 @@ func (p *GPUMemPlugin) ClearResidualState() {
 	p.Lock()
 	defer p.Unlock()
 
-	podEntries := p.state.GetPodEntries()
-	for podUID := range podEntries {
-		if !podSet.Has(podUID) {
-			residualSet[podUID] = true
-			p.residualHitMap[podUID] += 1
-			general.Infof("found pod: %s with state but doesn't show up in pod watcher, hit count: %d", podUID, p.residualHitMap[podUID])
+	podResourceEntries := p.state.GetPodResourceEntries()
+	for _, podEntries := range podResourceEntries {
+		for podUID := range podEntries {
+			if !podSet.Has(podUID) {
+				residualSet[podUID] = true
+				p.residualHitMap[podUID] += 1
+				general.Infof("found pod: %s with state but doesn't show up in pod watcher, hit count: %d", podUID, p.residualHitMap[podUID])
+			}
 		}
 	}
 
@@ -602,16 +588,16 @@ func (p *GPUMemPlugin) ClearResidualState() {
 			}
 
 			general.Infof("clear residual pod: %s in state", podUID)
-			delete(podEntries, podUID)
+			podResourceEntries.RemovePod(podUID)
 		}
 
-		machineState, err := gpumemorystate.GenerateMachineStateFromPodEntries(p.QrmConfig, podEntries, p.DeviceTopologyRegistry)
+		machineState, err := state.GenerateMachineStateFromPodEntries(podResourceEntries, p.DeviceTopologyRegistry)
 		if err != nil {
 			general.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 			return
 		}
 
-		p.state.SetPodEntries(podEntries, false)
+		p.state.SetPodResourceEntries(podResourceEntries, false)
 		p.state.SetMachineState(machineState, false)
 
 		err = p.state.StoreState()

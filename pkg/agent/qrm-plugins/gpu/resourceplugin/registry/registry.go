@@ -21,12 +21,9 @@ import (
 	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/resourceplugin"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/resourceplugin/gpumemory"
-	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
-type initFunc func(
-	plugin *baseplugin.BasePlugin, wrappedEmitter metrics.MetricEmitter,
-) (resourceplugin.ResourcePlugin, error)
+type initFunc func(plugin *baseplugin.BasePlugin) resourceplugin.ResourcePlugin
 
 var ResourcePluginsMap = make(map[string]initFunc)
 

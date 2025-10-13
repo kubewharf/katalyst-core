@@ -19,13 +19,13 @@ package customdeviceplugin
 import (
 	"fmt"
 
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
-	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/baseplugin"
-	gpumemorystate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state/resourceplugin/gpumemory"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -37,13 +37,13 @@ type GPUDevicePlugin struct {
 	*baseplugin.BasePlugin
 }
 
-func NewGPUDevicePlugin(base *baseplugin.BasePlugin, _ metrics.MetricEmitter) (CustomDevicePlugin, error) {
+func NewGPUDevicePlugin(base *baseplugin.BasePlugin) CustomDevicePlugin {
 	gpuTopologyProvider := machine.NewDeviceTopologyProvider(base.GPUResourceNames)
 	base.DeviceTopologyRegistry.RegisterDeviceTopologyProvider(gpuconsts.GPUDeviceName, gpuTopologyProvider)
 
 	return &GPUDevicePlugin{
 		BasePlugin: base,
-	}, nil
+	}
 }
 
 func (p *GPUDevicePlugin) DeviceName() string {
@@ -113,13 +113,7 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(req *pluginapi.AssociatedDevi
 		"deviceRequest", req.DeviceRequest.DeviceRequest,
 	)
 
-	gpuMemoryState, ok := p.StateCheckpointsMap[gpuconsts.GPUMemPluginName].(gpumemorystate.State)
-	if !ok {
-		return nil, fmt.Errorf("failed to convert state checkpoint to gpumemorystate.State")
-	}
-	machineState := gpuMemoryState.GetMachineState()
-
-	allocationInfo := gpuMemoryState.GetAllocationInfo(req.ResourceRequest.PodUid, req.ResourceRequest.ContainerName)
+	allocationInfo := p.State.GetAllocationInfo(consts.ResourceGPUMemory, req.ResourceRequest.PodUid, req.ResourceRequest.ContainerName)
 	if allocationInfo != nil && allocationInfo.TopologyAwareAllocations != nil {
 		allocatedDevices := make([]string, 0, len(allocationInfo.TopologyAwareAllocations))
 		for gpuID := range allocationInfo.TopologyAwareAllocations {
@@ -155,43 +149,43 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(req *pluginapi.AssociatedDevi
 		return nil, fmt.Errorf("numa topology is not ready")
 	}
 
-	allocatedDevices, allocatedGPUMemory, err := p.CalculateAssociatedDevices(gpuTopology, gpuMemoryRequest, hintNodes, req)
+	allocatedDevices, allocatedGPUMemory, err := p.CalculateAssociatedDevices(gpuTopology, gpuMemoryRequest, hintNodes, req, consts.ResourceGPUMemory)
 	if err != nil {
 		general.Warningf("failed to allocate associated devices: %v", err)
 		return nil, err
 	}
 
-	topologyAwareAllocations := make(map[string]gpumemorystate.GPUAllocation)
+	topologyAwareAllocations := make(map[string]state.Allocation)
 	for _, device := range allocatedDevices {
 		info, ok := gpuTopology.Devices[device]
 		if !ok {
 			return nil, fmt.Errorf("failed to get gpu topology for device: %s", device)
 		}
 
-		topologyAwareAllocations[device] = gpumemorystate.GPUAllocation{
-			GPUMemoryQuantity: allocatedGPUMemory[device],
-			NUMANodes:         info.GetNUMANode(),
+		topologyAwareAllocations[device] = state.Allocation{
+			Quantity:  allocatedGPUMemory[device],
+			NUMANodes: info.GetNUMANode(),
 		}
 	}
 
 	if allocationInfo == nil {
-		allocationInfo = &gpumemorystate.AllocationInfo{
+		allocationInfo = &state.AllocationInfo{
 			AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(req.ResourceRequest, commonstate.EmptyOwnerPoolName, qosLevel),
-			AllocatedAllocation: gpumemorystate.GPUAllocation{
-				GPUMemoryQuantity: gpuMemoryRequest,
-				NUMANodes:         hintNodes.ToSliceInt(),
+			AllocatedAllocation: state.Allocation{
+				Quantity:  gpuMemoryRequest,
+				NUMANodes: hintNodes.ToSliceInt(),
 			},
 		}
 	}
 
 	allocationInfo.TopologyAwareAllocations = topologyAwareAllocations
-	gpuMemoryState.SetAllocationInfo(req.ResourceRequest.PodUid, req.ResourceRequest.ContainerName, allocationInfo, false)
-	machineState, err = gpumemorystate.GenerateMachineStateFromPodEntries(p.QrmConfig, gpuMemoryState.GetPodEntries(), p.DeviceTopologyRegistry)
+	p.State.SetAllocationInfo(consts.ResourceGPUMemory, req.ResourceRequest.PodUid, req.ResourceRequest.ContainerName, allocationInfo, false)
+	machineState, err := state.GenerateMachineStateFromPodEntries(p.State.GetPodResourceEntries(), p.DeviceTopologyRegistry)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate machine state from pod entries: %v", err)
 	}
 
-	gpuMemoryState.SetMachineState(machineState, true)
+	p.State.SetMachineState(machineState, true)
 
 	general.InfoS("allocated devices",
 		"podNamespace", req.ResourceRequest.PodNamespace,
