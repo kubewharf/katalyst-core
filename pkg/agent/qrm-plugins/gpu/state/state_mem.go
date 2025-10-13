@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package gpumemory
+package state
 
 import (
 	"fmt"
@@ -22,6 +22,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	v1 "k8s.io/api/core/v1"
 )
 
 // gpuPluginState is an in-memory implementation of State;
@@ -33,8 +34,8 @@ type gpuPluginState struct {
 	qrmConf          *qrm.QRMPluginsConfiguration
 	topologyRegistry *machine.DeviceTopologyRegistry
 
-	machineState GPUMap
-	podEntries   PodEntries
+	machineState       AllocationResourcesMap
+	podResourceEntries PodResourceEntries
 }
 
 func NewGPUPluginState(
@@ -43,56 +44,71 @@ func NewGPUPluginState(
 ) (State, error) {
 	generalLog.InfoS("initializing new gpu plugin in-memory state store")
 
-	defaultMachineState, err := GenerateMachineState(conf, topologyRegistry)
+	defaultMachineState, err := GenerateMachineState(topologyRegistry)
 	if err != nil {
 		return nil, fmt.Errorf("GenerateMachineState failed with error: %w", err)
 	}
 
 	return &gpuPluginState{
-		qrmConf:          conf,
-		machineState:     defaultMachineState,
-		topologyRegistry: topologyRegistry,
-		podEntries:       make(PodEntries),
+		qrmConf:            conf,
+		machineState:       defaultMachineState,
+		topologyRegistry:   topologyRegistry,
+		podResourceEntries: make(PodResourceEntries),
 	}, nil
 }
 
-func (s *gpuPluginState) SetMachineState(gpuMap GPUMap, _ bool) {
+func (s *gpuPluginState) SetMachineState(allocationResourcesMap AllocationResourcesMap, _ bool) {
 	s.Lock()
 	defer s.Unlock()
-	s.machineState = gpuMap.Clone()
+	s.machineState = allocationResourcesMap.Clone()
 	generalLog.InfoS("updated gpu plugin machine state",
-		"GPUMap", gpuMap.String())
+		"GPUMap", allocationResourcesMap.String())
 }
 
-func (s *gpuPluginState) SetPodEntries(podEntries PodEntries, _ bool) {
+func (s *gpuPluginState) SetPodResourceEntries(podResourceEntries PodResourceEntries, _ bool) {
 	s.Lock()
 	defer s.Unlock()
-	s.podEntries = podEntries.Clone()
+	s.podResourceEntries = podResourceEntries.Clone()
 }
 
-func (s *gpuPluginState) SetAllocationInfo(podUID, containerName string, allocationInfo *AllocationInfo, _ bool) {
+func (s *gpuPluginState) SetAllocationInfo(
+	resourceName v1.ResourceName, podUID, containerName string, allocationInfo *AllocationInfo, _ bool,
+) {
 	s.Lock()
 	defer s.Unlock()
 
-	s.podEntries.SetAllocationInfo(podUID, containerName, allocationInfo)
+	if _, ok := s.podResourceEntries[resourceName]; !ok {
+		s.podResourceEntries[resourceName] = make(PodEntries)
+	}
+
+	if _, ok := s.podResourceEntries[resourceName][podUID]; !ok {
+		s.podResourceEntries[resourceName][podUID] = make(ContainerEntries)
+	}
+
+	s.podResourceEntries[resourceName][podUID][containerName] = allocationInfo.Clone()
 	generalLog.InfoS("updated gpu plugin pod resource entries",
 		"podUID", podUID,
 		"containerName", containerName,
 		"allocationInfo", allocationInfo.String())
 }
 
-func (s *gpuPluginState) Delete(podUID, containerName string, _ bool) {
+func (s *gpuPluginState) Delete(resourceName v1.ResourceName, podUID, containerName string, _ bool) {
 	s.Lock()
 	defer s.Unlock()
 
-	if _, ok := s.podEntries[podUID]; !ok {
+	if _, ok := s.podResourceEntries[resourceName]; !ok {
 		return
 	}
 
-	delete(s.podEntries[podUID], containerName)
-	if len(s.podEntries[podUID]) == 0 {
-		delete(s.podEntries, podUID)
+	if _, ok := s.podResourceEntries[resourceName][podUID]; !ok {
+		return
 	}
+
+	delete(s.podResourceEntries[resourceName][podUID], containerName)
+	if len(s.podResourceEntries[resourceName][podUID]) == 0 {
+		delete(s.podResourceEntries[resourceName], podUID)
+	}
+
 	generalLog.InfoS("deleted container entry", "podUID", podUID, "containerName", containerName)
 }
 
@@ -100,12 +116,12 @@ func (s *gpuPluginState) ClearState() {
 	s.Lock()
 	defer s.Unlock()
 
-	machineState, err := GenerateMachineState(s.qrmConf, s.topologyRegistry)
+	machineState, err := GenerateMachineState(s.topologyRegistry)
 	if err != nil {
 		generalLog.ErrorS(err, "failed to generate machine state")
 	}
 	s.machineState = machineState
-	s.podEntries = make(PodEntries)
+	s.podResourceEntries = make(PodResourceEntries)
 
 	generalLog.InfoS("cleared state")
 }
@@ -115,23 +131,34 @@ func (s *gpuPluginState) StoreState() error {
 	return nil
 }
 
-func (s *gpuPluginState) GetMachineState() GPUMap {
+func (s *gpuPluginState) GetMachineState() AllocationResourcesMap {
 	s.RLock()
 	defer s.RUnlock()
 
 	return s.machineState.Clone()
 }
 
-func (s *gpuPluginState) GetPodEntries() PodEntries {
+func (s *gpuPluginState) GetPodResourceEntries() PodResourceEntries {
 	s.RLock()
 	defer s.RUnlock()
 
-	return s.podEntries.Clone()
+	return s.podResourceEntries.Clone()
 }
 
-func (s *gpuPluginState) GetAllocationInfo(podUID, containerName string) *AllocationInfo {
+func (s *gpuPluginState) GetPodEntries(resourceName v1.ResourceName) PodEntries {
 	s.RLock()
 	defer s.RUnlock()
 
-	return s.podEntries.GetAllocationInfo(podUID, containerName)
+	return s.podResourceEntries[resourceName].Clone()
+}
+
+func (s *gpuPluginState) GetAllocationInfo(resourceName v1.ResourceName, podUID, containerName string) *AllocationInfo {
+	s.RLock()
+	defer s.RUnlock()
+
+	if res, ok := s.podResourceEntries[resourceName][podUID][containerName]; ok {
+		return res.Clone()
+	}
+
+	return nil
 }

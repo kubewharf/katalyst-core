@@ -9,8 +9,8 @@ import (
 )
 
 type DeviceTopologyProvider interface {
-	getDeviceTopology() (*DeviceTopology, bool, error)
-	setDeviceTopology(*DeviceTopology) error
+	GetDeviceTopology() (*DeviceTopology, bool, error)
+	SetDeviceTopology(*DeviceTopology) error
 }
 
 type DeviceTopologyRegistry struct {
@@ -38,7 +38,7 @@ func (r *DeviceTopologyRegistry) SetDeviceTopology(deviceName string, deviceTopo
 		return fmt.Errorf("no device topology provider found for device %s", deviceName)
 	}
 
-	return provider.setDeviceTopology(deviceTopology)
+	return provider.SetDeviceTopology(deviceTopology)
 }
 
 // GetDeviceTopology gets the device topology for the specified device name.
@@ -47,7 +47,7 @@ func (r *DeviceTopologyRegistry) GetDeviceTopology(deviceName string) (*DeviceTo
 	if !ok {
 		return nil, false, fmt.Errorf("no device topology provider found for device %s", deviceName)
 	}
-	return provider.getDeviceTopology()
+	return provider.GetDeviceTopology()
 }
 
 type DeviceTopology struct {
@@ -89,7 +89,7 @@ func NewDeviceTopologyProvider(resourceNames []string) DeviceTopologyProvider {
 	}
 }
 
-func (p *deviceTopologyProviderImpl) setDeviceTopology(deviceTopology *DeviceTopology) error {
+func (p *deviceTopologyProviderImpl) SetDeviceTopology(deviceTopology *DeviceTopology) error {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 	if deviceTopology == nil {
@@ -101,7 +101,7 @@ func (p *deviceTopologyProviderImpl) setDeviceTopology(deviceTopology *DeviceTop
 	return nil
 }
 
-func (p *deviceTopologyProviderImpl) getDeviceTopology() (*DeviceTopology, bool, error) {
+func (p *deviceTopologyProviderImpl) GetDeviceTopology() (*DeviceTopology, bool, error) {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
 

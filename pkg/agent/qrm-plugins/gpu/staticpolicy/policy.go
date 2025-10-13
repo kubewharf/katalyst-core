@@ -24,6 +24,8 @@ import (
 
 	devicepluginregistry "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/customdeviceplugin/registry"
 	resourcepluginregistry "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/resourceplugin/registry"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
@@ -92,10 +94,10 @@ func NewStaticPolicy(
 		customDevicePlugins:   make(map[string]customdeviceplugin.CustomDevicePlugin),
 	}
 
-	if err = policyImplement.registerResourcePlugins(wrappedEmitter); err != nil {
+	if err = policyImplement.registerResourcePlugins(); err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("failed to register resource plugins: %w", err)
 	}
-	if err = policyImplement.registerCustomDevicePlugins(wrappedEmitter); err != nil {
+	if err = policyImplement.registerCustomDevicePlugins(); err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("failed to register custom device plugins: %w", err)
 	}
 
@@ -415,12 +417,85 @@ func (p *StaticPolicy) clearResidualState(
 	_ *metaserver.MetaServer,
 ) {
 	general.Infof("exec")
-	for _, resourcePlugin := range p.resourcePlugins {
-		resourcePlugin.ClearResidualState()
+	var (
+		err     error
+		podList []*v1.Pod
+	)
+	residualSet := make(map[string]bool)
+
+	defer func() {
+		_ = general.UpdateHealthzStateByError(gpuconsts.ClearResidualState, err)
+	}()
+
+	if p.MetaServer == nil {
+		general.Errorf("nil metaServer")
+		return
 	}
 
-	for _, customDevicePlugin := range p.customDevicePlugins {
-		customDevicePlugin.ClearResidualState()
+	ctx := context.Background()
+	podList, err = p.MetaServer.GetPodList(ctx, nil)
+	if err != nil {
+		general.Errorf("get pod list failed: %v", err)
+		return
+	}
+
+	podSet := sets.NewString()
+	for _, pod := range podList {
+		podSet.Insert(fmt.Sprintf("%v", pod.UID))
+	}
+
+	p.Lock()
+	defer p.Unlock()
+
+	podResourceEntries := p.State.GetPodResourceEntries()
+	for _, podEntries := range podResourceEntries {
+		for podUID := range podEntries {
+			if !podSet.Has(podUID) {
+				residualSet[podUID] = true
+				p.residualHitMap[podUID] += 1
+				general.Infof("found pod: %s with state but doesn't show up in pod watcher, hit count: %d", podUID, p.residualHitMap[podUID])
+			}
+		}
+	}
+
+	podsToDelete := sets.NewString()
+	for podUID, hitCount := range p.residualHitMap {
+		if !residualSet[podUID] {
+			general.Infof("already found pod: %s in pod watcher or its state is cleared, delete it from residualHitMap", podUID)
+			delete(p.residualHitMap, podUID)
+			continue
+		}
+
+		if time.Duration(hitCount)*gpuconsts.StateCheckPeriod >= gpuconsts.MaxResidualTime {
+			podsToDelete.Insert(podUID)
+		}
+	}
+
+	if podsToDelete.Len() > 0 {
+		for {
+			podUID, found := podsToDelete.PopAny()
+			if !found {
+				break
+			}
+
+			general.Infof("clear residual pod: %s in state", podUID)
+			podResourceEntries.RemovePod(podUID)
+		}
+
+		machineState, err := state.GenerateMachineStateFromPodEntries(podResourceEntries, p.DeviceTopologyRegistry)
+		if err != nil {
+			general.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
+			return
+		}
+
+		p.State.SetPodResourceEntries(podResourceEntries, false)
+		p.State.SetMachineState(machineState, false)
+
+		err = p.State.StoreState()
+		if err != nil {
+			general.Errorf("store state failed: %v", err)
+			return
+		}
 	}
 }
 
@@ -472,31 +547,23 @@ func (p *StaticPolicy) AllocateAssociatedDevice(
 	return customDevicePlugin.AllocateAssociatedDevice(req)
 }
 
-func (p *StaticPolicy) registerResourcePlugins(wrappedEmitter metrics.MetricEmitter) error {
+func (p *StaticPolicy) registerResourcePlugins() error {
 	p.Lock()
 	defer p.Unlock()
 	for name := range p.resourcePluginsNames {
 		initFunc := resourcepluginregistry.ResourcePluginsMap[name]
-		resourcePlugin, err := initFunc(p.BasePlugin, wrappedEmitter)
-		if err != nil {
-			general.Errorf("register resource plugin %s failed with error: %w", name, err)
-			return fmt.Errorf("register resource plugin %s failed with error: %w", name, err)
-		}
+		resourcePlugin := initFunc(p.BasePlugin)
 		p.resourcePlugins[resourcePlugin.ResourceName()] = resourcePlugin
 	}
 	return nil
 }
 
-func (p *StaticPolicy) registerCustomDevicePlugins(wrappedEmitter metrics.MetricEmitter) error {
+func (p *StaticPolicy) registerCustomDevicePlugins() error {
 	p.Lock()
 	defer p.Unlock()
 	for name := range p.associatedDeviceNames {
 		initFunc := devicepluginregistry.CustomDevicePluginsMap[name]
-		customDevicePlugin, err := initFunc(p.BasePlugin, wrappedEmitter)
-		if err != nil {
-			general.Errorf("register custom device plugin %s failed with error: %w", name, err)
-			return fmt.Errorf("register custom device plugin %s failed with error: %w", name, err)
-		}
+		customDevicePlugin := initFunc(p.BasePlugin)
 		p.customDevicePlugins[customDevicePlugin.DeviceName()] = customDevicePlugin
 	}
 	return nil
