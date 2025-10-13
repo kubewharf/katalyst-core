@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package gpumemory
+package state
 
 import (
 	"encoding/json"
@@ -26,16 +26,16 @@ import (
 var _ checkpointmanager.Checkpoint = &GPUPluginCheckpoint{}
 
 type GPUPluginCheckpoint struct {
-	PolicyName   string            `json:"policyName"`
-	MachineState GPUMap            `json:"machineState"`
-	PodEntries   PodEntries        `json:"pod_entries"`
-	Checksum     checksum.Checksum `json:"checksum"`
+	PolicyName         string                 `json:"policyName"`
+	MachineState       AllocationResourcesMap `json:"machineState"`
+	PodResourceEntries PodResourceEntries     `json:"pod_entries"`
+	Checksum           checksum.Checksum      `json:"checksum"`
 }
 
 func NewGPUPluginCheckpoint() *GPUPluginCheckpoint {
 	return &GPUPluginCheckpoint{
-		PodEntries:   make(PodEntries),
-		MachineState: make(GPUMap),
+		PodResourceEntries: make(PodResourceEntries),
+		MachineState:       make(AllocationResourcesMap),
 	}
 }
 

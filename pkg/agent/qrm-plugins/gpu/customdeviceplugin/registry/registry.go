@@ -19,12 +19,9 @@ package registry
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/baseplugin"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/customdeviceplugin"
-	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
-type initFunc func(
-	plugin *baseplugin.BasePlugin, emitter metrics.MetricEmitter,
-) (customdeviceplugin.CustomDevicePlugin, error)
+type initFunc func(plugin *baseplugin.BasePlugin) customdeviceplugin.CustomDevicePlugin
 
 var CustomDevicePluginsMap = make(map[string]initFunc)
 
