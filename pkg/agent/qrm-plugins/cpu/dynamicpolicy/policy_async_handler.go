@@ -36,6 +36,7 @@ import (
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupcm "github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupcmutils "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -105,7 +106,14 @@ func (p *DynamicPolicy) checkCPUSet(_ *coreconfig.Configuration,
 				continue
 			}
 
-			cpuSetStats, err = cgroupcmutils.GetCPUSetForContainer(podUID, containerId)
+			cpusetAbsCGPath, err := common.GetContainerAbsCgroupPath(common.CgroupSubsysCPUSet, podUID, containerId)
+			if err != nil {
+				general.Errorf("get container abs cgroup path of pod: %s container: %s failed with error: %v", podUID, containerName, err)
+				_ = p.emitter.StoreInt64(util.MetricNameCgroupPathNotFound, 1, metrics.MetricTypeNameRaw, tags...)
+				continue
+			}
+
+			cpuSetStats, err = cgroupcmutils.GetCPUSetWithAbsolutePath(cpusetAbsCGPath)
 			if err != nil {
 				general.Errorf("GetCPUSet of pod: %s container: name(%s), id(%s) failed with error: %v",
 					podUID, containerName, containerId, err)
