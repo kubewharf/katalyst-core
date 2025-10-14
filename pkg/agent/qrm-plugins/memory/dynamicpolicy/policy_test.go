@@ -3672,6 +3672,8 @@ func TestClearResidualOOMPriority(t *testing.T) {
 func TestSyncOOMPriority(t *testing.T) {
 	t.Parallel()
 
+	klog.Infof("test")
+
 	as := require.New(t)
 
 	once.Do(bpfTestInit)
