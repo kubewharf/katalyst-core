@@ -24,23 +24,20 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
-	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
-
-	"github.com/kubewharf/katalyst-core/pkg/util/native"
-
-	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
-	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
-
 	"github.com/bytedance/mockey"
 	"github.com/smartystreets/goconvey/convey"
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	resource2 "k8s.io/apimachinery/pkg/api/resource"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
+	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 var advisorTestMutex = &sync.Mutex{}
