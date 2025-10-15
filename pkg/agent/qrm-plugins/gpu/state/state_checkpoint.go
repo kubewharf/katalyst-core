@@ -40,7 +40,7 @@ const (
 
 var (
 	_          State = &stateCheckpoint{}
-	generalLog       = general.LoggerWithPrefix("gpu_mem_plugin", general.LoggingPKGFull)
+	generalLog       = general.LoggerWithPrefix("gpu_plugin", general.LoggingPKGFull)
 )
 
 // stateCheckpoint is an in-memory implementation of State;

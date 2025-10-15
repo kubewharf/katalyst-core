@@ -1,8 +1,26 @@
+/*
+Copyright 2022 The Katalyst Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package machine
 
 import (
 	"fmt"
 	"sync"
+
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
@@ -48,6 +66,57 @@ func (r *DeviceTopologyRegistry) GetDeviceTopology(deviceName string) (*DeviceTo
 		return nil, false, fmt.Errorf("no device topology provider found for device %s", deviceName)
 	}
 	return provider.GetDeviceTopology()
+}
+
+// GetDeviceAffinity retrieves a map of a certain device to the list of devices that it has an affinity with
+// A device is considered to have an affinity with another device if they are on the exact same NUMA node(s)
+func (r *DeviceTopologyRegistry) GetDeviceAffinity(key, value string) (map[string][]string, error) {
+	deviceTopologyKey, numaReady, err := r.GetDeviceTopology(key)
+	if err != nil {
+		return nil, fmt.Errorf("error getting device topology for device %s: %v", key, err)
+	}
+	if !numaReady {
+		return nil, fmt.Errorf("device topology for device %s is not ready", key)
+	}
+
+	deviceTopologyValue, numaReady, err := r.GetDeviceTopology(value)
+	if err != nil {
+		return nil, fmt.Errorf("error getting device topology for device %s: %v", value, err)
+	}
+	if !numaReady {
+		return nil, fmt.Errorf("device topology for device %s is not ready", value)
+	}
+
+	deviceAffinity := make(map[string][]string)
+	for keyName, keyInfo := range deviceTopologyKey.Devices {
+		devicesWithAffinity := make([]string, 0)
+		for valueName, valueInfo := range deviceTopologyValue.Devices {
+			if sets.NewInt(keyInfo.GetNUMANode()...).Equal(sets.NewInt(valueInfo.GetNUMANode()...)) {
+				devicesWithAffinity = append(devicesWithAffinity, valueName)
+			}
+		}
+		deviceAffinity[keyName] = devicesWithAffinity
+	}
+
+	return deviceAffinity, nil
+}
+
+// IsNumaNodeAffinity checks if the device with the specified device ID resides in numa nodes that are a subset of the hint nodes.
+func (r *DeviceTopologyRegistry) IsNumaNodeAffinity(deviceName, deviceID string, hintNodes CPUSet) (bool, error) {
+	deviceTopologyKey, numaReady, err := r.GetDeviceTopology(deviceName)
+	if err != nil {
+		return false, fmt.Errorf("error getting device topology for device %s: %v", deviceName, err)
+	}
+	if !numaReady {
+		return false, fmt.Errorf("device topology for device %s is not ready", deviceName)
+	}
+
+	info, ok := deviceTopologyKey.Devices[deviceID]
+	if !ok {
+		return false, fmt.Errorf("failed to find device %s in device topology", deviceID)
+	}
+
+	return NewCPUSet(info.GetNUMANode()...).IsSubsetOf(hintNodes), nil
 }
 
 type DeviceTopology struct {
@@ -125,12 +194,12 @@ func initDeviceTopology(resourceNames []string) (*DeviceTopology, error) {
 
 	_, registeredDevs := kubeletCheckpoint.GetDataInLatestFormat()
 	for _, resourceName := range resourceNames {
-		gpuDevice, ok := registeredDevs[resourceName]
+		devices, ok := registeredDevs[resourceName]
 		if !ok {
 			continue
 		}
 
-		for _, id := range gpuDevice {
+		for _, id := range devices {
 			// get NUMA node from UpdateAllocatableAssociatedDevices
 			deviceTopology.Devices[id] = DeviceInfo{}
 		}

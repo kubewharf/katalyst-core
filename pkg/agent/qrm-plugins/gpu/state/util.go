@@ -19,11 +19,12 @@ package state
 import (
 	"fmt"
 
+	v1 "k8s.io/api/core/v1"
+	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
+
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
-	v1 "k8s.io/api/core/v1"
-	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 )
 
 // GenerateMachineState returns an empty AllocationResourcesMap for all resource names.
