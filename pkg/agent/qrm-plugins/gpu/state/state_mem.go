@@ -20,9 +20,10 @@ import (
 	"fmt"
 	"sync"
 
+	v1 "k8s.io/api/core/v1"
+
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
-	v1 "k8s.io/api/core/v1"
 )
 
 // gpuPluginState is an in-memory implementation of State;

@@ -19,16 +19,19 @@ package registry
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/baseplugin"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/customdeviceplugin"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/customdeviceplugin/gpu"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/customdeviceplugin/rdma"
 )
 
 type initFunc func(plugin *baseplugin.BasePlugin) customdeviceplugin.CustomDevicePlugin
 
 var CustomDevicePluginsMap = make(map[string]initFunc)
 
-func registerCustomDevicePlugin(pluginName string, initFunc initFunc) {
-	CustomDevicePluginsMap[pluginName] = initFunc
+func registerCustomDevicePlugin(deviceName string, initFunc initFunc) {
+	CustomDevicePluginsMap[deviceName] = initFunc
 }
 
 func init() {
-	registerCustomDevicePlugin(customdeviceplugin.GPUCustomDevicePluginName, customdeviceplugin.NewGPUDevicePlugin)
+	registerCustomDevicePlugin(gpu.GPUCustomDevicePluginName, gpu.NewGPUDevicePlugin)
+	registerCustomDevicePlugin(rdma.RDMACustomDevicePluginName, rdma.NewRDMADevicePlugin)
 }

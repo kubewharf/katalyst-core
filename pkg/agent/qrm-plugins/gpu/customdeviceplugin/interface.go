@@ -21,15 +21,14 @@ import (
 )
 
 type CustomDevicePlugin interface {
-	DeviceName() string
+	// DeviceNames returns a list of all possible names for this device
+	DeviceNames() []string
 
 	GetAssociatedDeviceTopologyHints(*pluginapi.AssociatedDeviceRequest) (*pluginapi.AssociatedDeviceHintsResponse, error)
 
 	UpdateAllocatableAssociatedDevices(*pluginapi.UpdateAllocatableAssociatedDevicesRequest) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error)
 
-	AllocateAssociatedDevice(*pluginapi.AssociatedDeviceRequest) (*pluginapi.AssociatedDeviceAllocationResponse, error)
-
-	RemovePod(podUID string) error
-
-	ClearResidualState()
+	AllocateAssociatedDevice(
+		resReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest,
+	) (*pluginapi.AssociatedDeviceAllocationResponse, error)
 }
