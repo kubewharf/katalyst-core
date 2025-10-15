@@ -38,8 +38,8 @@ type AllocatableResource struct {
 }
 
 const (
-	GPUDeviceName  = "gpu_device"
-	RDMADeviceName = "rdma_device"
+	GPUDeviceType  = "gpu_device"
+	RDMADeviceType = "rdma_device"
 
 	// GPUResourcePluginPolicyNameStatic is the policy name of static gpu resource plugin
 	GPUResourcePluginPolicyNameStatic = string(consts.ResourcePluginPolicyNameStatic)

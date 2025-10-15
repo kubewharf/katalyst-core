@@ -21,12 +21,14 @@ import "k8s.io/apimachinery/pkg/api/resource"
 type GPUQRMPluginConfig struct {
 	// PolicyName is used to switch between several strategies
 	PolicyName string
-	// GPUResourceName is the name of the GPU resource
-	GPUResourceNames []string
+	// GPUDeviceNames is the names of the GPU device
+	GPUDeviceNames []string
 	// GPUMemoryAllocatablePerGPU is the total memory allocatable for each GPU
 	GPUMemoryAllocatablePerGPU resource.Quantity
 	// SkipGPUStateCorruption skip gpu state corruption, and it will be used after updating state properties
 	SkipGPUStateCorruption bool
+	// RDMADeviceNames is the names of the RDMA device
+	RDMADeviceNames []string
 	// ResourcePluginsNames holds the names of the enabled GPU resource plugins
 	ResourcePluginsNames []string
 }

@@ -583,10 +583,10 @@ github.com/lightstep/lightstep-tracer-go v0.18.1/go.mod h1:jlF1pusYV4pidLvZ+XD0U
 github.com/lithammer/dedent v1.1.0/go.mod h1:jrXYCQtgg0nJiN+StA2KgR7w6CiQNv9Fd/Z9BP0jIOc=
 github.com/logrusorgru/aurora v0.0.0-20181002194514-a7b3b318ed4e/go.mod h1:7rIyQOR62GCctdiQpZ/zOJlFyk6y+94wXzv6RNZgaR4=
 github.com/lpabon/godbc v0.1.1/go.mod h1:Jo9QV0cf3U6jZABgiJ2skINAXb9j8m51r07g4KI92ZA=
-github.com/luomingmeng/katalyst-api v0.0.0-20250725114827-eaad320cf0d6 h1:4AOW5GQJ9NxsN9hVMrQYCxMdjgbF/rqDgvCeHvnmo8Q=
-github.com/luomingmeng/katalyst-api v0.0.0-20250725114827-eaad320cf0d6/go.mod h1:76Qriw/zHXLGhunpskZpJ9zJI3Dwf2hWnz9z8kkjR64=
-github.com/luomingmeng/kubelet v0.0.0-20250715133526-b1ac20d8dc99 h1:9QEucppxPGGOKoJShUBGlSIDT/w49zZU6gjit546N1I=
-github.com/luomingmeng/kubelet v0.0.0-20250715133526-b1ac20d8dc99/go.mod h1:MxbSZUx3wXztFneeelwWWlX7NAAStJ6expqq7gY2J3c=
+github.com/luomingmeng/katalyst-api v0.0.0-20250828035512-fee878e49ce4 h1:x3xNQhK02NrLrxz+g5Rvs3Su1wl+bYtP+JwPmPjRUvE=
+github.com/luomingmeng/katalyst-api v0.0.0-20250828035512-fee878e49ce4/go.mod h1:76Qriw/zHXLGhunpskZpJ9zJI3Dwf2hWnz9z8kkjR64=
+github.com/luomingmeng/kubelet v0.0.0-20250731182916-1e7f011d1c15 h1:QFm2/NiJscpQyVm8ejkuGiWVd7dUVL+WooTN5OxuG6A=
+github.com/luomingmeng/kubelet v0.0.0-20250731182916-1e7f011d1c15/go.mod h1:MxbSZUx3wXztFneeelwWWlX7NAAStJ6expqq7gY2J3c=
 github.com/lyft/protoc-gen-validate v0.0.13/go.mod h1:XbGvPuh87YZc5TdIa2/I4pLk0QoUACkjt2znoq26NVQ=
 github.com/magiconair/properties v1.8.0/go.mod h1:PppfXfuXeibc/6YijjN8zIbojt8czPbwD3XqdrwzmxQ=
 github.com/magiconair/properties v1.8.1/go.mod h1:PppfXfuXeibc/6YijjN8zIbojt8czPbwD3XqdrwzmxQ=

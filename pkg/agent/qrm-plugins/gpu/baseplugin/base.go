@@ -17,20 +17,17 @@ limitations under the License.
 package baseplugin
 
 import (
-	"context"
 	"fmt"
 	"sort"
 	"sync"
 
-	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
@@ -58,7 +55,6 @@ type BasePlugin struct {
 
 	PodAnnotationKeptKeys []string
 	PodLabelKeptKeys      []string
-	AssociatedDevicesName sets.String
 
 	// Map of checkpoints for each sub-plugin
 	State state.State
@@ -88,35 +84,9 @@ func NewBasePlugin(
 
 		PodAnnotationKeptKeys: conf.PodAnnotationKeptKeys,
 		PodLabelKeptKeys:      conf.PodLabelKeptKeys,
-		AssociatedDevicesName: sets.NewString(conf.GPUResourceNames...),
 
 		State:                  stateImpl,
 		DeviceTopologyRegistry: deviceTopologyRegistry,
-	}, nil
-}
-
-func (p *BasePlugin) GetGPUCount(req *pluginapi.ResourceRequest) (float64, sets.String, error) {
-	gpuCount := float64(0)
-	gpuNames := sets.NewString()
-	for resourceName := range p.AssociatedDevicesName {
-		_, request, err := util.GetQuantityFromResourceRequests(req.ResourceRequests, resourceName, false)
-		if err != nil && !errors.IsNotFound(err) {
-			return 0, nil, err
-		}
-		gpuCount += request
-		gpuNames.Insert(resourceName)
-	}
-	return gpuCount, gpuNames, nil
-}
-
-func (p *BasePlugin) GetResourcePluginOptions(
-	context.Context, *pluginapi.Empty,
-) (*pluginapi.ResourcePluginOptions, error) {
-	return &pluginapi.ResourcePluginOptions{
-		PreStartRequired:      false,
-		WithTopologyAlignment: true,
-		NeedReconcile:         false,
-		AssociatedDevices:     p.AssociatedDevicesName.List(),
 	}, nil
 }
 
@@ -162,9 +132,9 @@ func (p *BasePlugin) PackAllocationResponse(
 
 func (p *BasePlugin) CalculateAssociatedDevices(
 	gpuTopology *machine.DeviceTopology, gpuMemoryRequest float64, hintNodes machine.CPUSet,
-	request *pluginapi.AssociatedDeviceRequest, resourceName v1.ResourceName,
+	request *pluginapi.DeviceRequest, resourceName v1.ResourceName,
 ) ([]string, map[string]float64, error) {
-	gpuRequest := request.DeviceRequest.GetDeviceRequest()
+	gpuRequest := request.GetDeviceRequest()
 	gpuMemoryPerGPU := gpuMemoryRequest / float64(gpuRequest)
 
 	machineState, ok := p.State.GetMachineState()[resourceName]
@@ -193,8 +163,8 @@ func (p *BasePlugin) CalculateAssociatedDevices(
 		return memory
 	}
 
-	availableDevices := request.DeviceRequest.GetAvailableDevices()
-	reusableDevices := request.DeviceRequest.GetReusableDevices()
+	availableDevices := request.GetAvailableDevices()
+	reusableDevices := request.GetReusableDevices()
 
 	// allocate must include devices first
 	for _, device := range reusableDevices {
@@ -251,4 +221,43 @@ func (p *BasePlugin) CalculateAssociatedDevices(
 	}
 
 	return nil, nil, fmt.Errorf("no enough available GPUs found in gpuTopology, number of needed GPUs: %d, availableDevices len: %d, allocatedDevices len: %d", gpuRequest, len(availableDevices), len(allocatedDevices))
+}
+
+// UpdateAllocatableAssociatedDevicesByDeviceType updates the topology provider with topology information of the
+// given device type.
+func (p *BasePlugin) UpdateAllocatableAssociatedDevicesByDeviceType(
+	request *pluginapi.UpdateAllocatableAssociatedDevicesRequest, deviceType string,
+) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error) {
+	deviceTopology := &machine.DeviceTopology{
+		Devices: make(map[string]machine.DeviceInfo, len(request.Devices)),
+	}
+
+	for _, device := range request.Devices {
+		var numaNode []int
+		if device.Topology != nil {
+			numaNode = make([]int, 0, len(device.Topology.Nodes))
+
+			for _, node := range device.Topology.Nodes {
+				if node == nil {
+					continue
+				}
+				numaNode = append(numaNode, int(node.ID))
+			}
+		}
+
+		deviceTopology.Devices[device.ID] = machine.DeviceInfo{
+			Health:    device.Health,
+			NumaNodes: numaNode,
+		}
+	}
+
+	err := p.DeviceTopologyRegistry.SetDeviceTopology(deviceType, deviceTopology)
+	if err != nil {
+		general.Errorf("set device topology failed with error: %v", err)
+		return nil, fmt.Errorf("set device topology failed with error: %v", err)
+	}
+
+	general.Infof("got device %s topology success: %v", request.DeviceName, deviceTopology)
+
+	return &pluginapi.UpdateAllocatableAssociatedDevicesResponse{}, nil
 }
