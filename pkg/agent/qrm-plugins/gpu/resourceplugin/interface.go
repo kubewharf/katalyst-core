@@ -33,8 +33,4 @@ type ResourcePlugin interface {
 	GetTopologyAwareAllocatableResources() (*gpuconsts.AllocatableResource, error)
 
 	Allocate(*pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error)
-
-	RemovePod(podUID string) error
-
-	ClearResidualState()
 }

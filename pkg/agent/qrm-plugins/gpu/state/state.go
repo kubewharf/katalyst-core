@@ -19,10 +19,11 @@ package state
 import (
 	"encoding/json"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
+
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 type AllocationInfo struct {
