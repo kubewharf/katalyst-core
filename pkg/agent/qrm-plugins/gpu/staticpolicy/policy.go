@@ -22,9 +22,6 @@ import (
 	"sync"
 	"time"
 
-	devicepluginregistry "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/customdeviceplugin/registry"
-	resourcepluginregistry "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/resourceplugin/registry"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -37,7 +34,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/baseplugin"
 	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/customdeviceplugin"
+	devicepluginregistry "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/customdeviceplugin/registry"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/resourceplugin"
+	resourcepluginregistry "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/resourceplugin/registry"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -87,7 +87,7 @@ func NewStaticPolicy(
 		stopCh:                make(chan struct{}),
 		name:                  fmt.Sprintf("%s_%s", agentName, gpuconsts.GPUResourcePluginPolicyNameStatic),
 		residualHitMap:        make(map[string]int64),
-		associatedDeviceNames: sets.NewString(conf.GPUResourceNames...),
+		associatedDeviceNames: sets.NewString(conf.GPUDeviceNames...),
 		resourcePluginsNames:  sets.NewString(conf.ResourcePluginsNames...),
 		BasePlugin:            basePlugin,
 		resourcePlugins:       make(map[string]resourceplugin.ResourcePlugin),
@@ -393,18 +393,23 @@ func (p *StaticPolicy) PreStartContainer(
 }
 
 func (p *StaticPolicy) removePod(podUID string) error {
-	for _, resourcePlugin := range p.resourcePlugins {
-		if err := resourcePlugin.RemovePod(podUID); err != nil {
-			return err
-		}
+	podResourceEntries := p.State.GetPodResourceEntries()
+	delete(podResourceEntries[consts.ResourceGPUMemory], podUID)
+
+	machineState, err := state.GenerateMachineStateFromPodEntries(podResourceEntries, p.DeviceTopologyRegistry)
+	if err != nil {
+		general.Errorf("pod: %s, GenerateMachineStateFromPodEntries failed with error: %v", podUID, err)
+		return fmt.Errorf("calculate machineState by updated pod entries failed with error: %v", err)
 	}
 
-	for _, customDevicePlugin := range p.customDevicePlugins {
-		if err := customDevicePlugin.RemovePod(podUID); err != nil {
-			return err
-		}
-	}
+	p.State.SetPodResourceEntries(podResourceEntries, false)
+	p.State.SetMachineState(machineState, false)
 
+	err = p.State.StoreState()
+	if err != nil {
+		general.Errorf("store state failed with error: %v", err)
+		return err
+	}
 	return nil
 }
 
@@ -518,6 +523,9 @@ func (*StaticPolicy) GetAssociatedDeviceTopologyHints(
 	return &pluginapi.AssociatedDeviceHintsResponse{}, nil
 }
 
+// AllocateAssociatedDevice allocates a device in this sequence:
+// 1. Find the resource plugin that corresponds to the accompanyResourceName and allocate
+// 2. Find the custom device plugin that corresponds to the deviceName and allocate
 func (p *StaticPolicy) AllocateAssociatedDevice(
 	_ context.Context, req *pluginapi.AssociatedDeviceRequest,
 ) (*pluginapi.AssociatedDeviceAllocationResponse, error) {
@@ -532,19 +540,55 @@ func (p *StaticPolicy) AllocateAssociatedDevice(
 		}, nil
 	}
 
-	if req.DeviceRequest.Hint == nil || req.DeviceRequest.Hint.Nodes == nil {
-		general.Warningf("got nil device hint")
-		return &pluginapi.AssociatedDeviceAllocationResponse{
-			AllocationResult: nil,
-		}, nil
+	// Allocate accompany resource
+	// Check if resource plugin for the resource exists; if it does, allocate it first
+	accompanyResourcePlugin := p.getResourcePlugin(req.AccompanyResourceName)
+	if accompanyResourcePlugin != nil {
+		_, err := accompanyResourcePlugin.Allocate(req.ResourceRequest)
+		if err != nil {
+			return nil, fmt.Errorf("allocate accompany resource %s failed with error: %v", req.AccompanyResourceName, err)
+		}
+	} else {
+		// Allocate for custom device plugin
+		accompanyCustomDevicePlugin := p.getCustomDevicePlugin(req.AccompanyResourceName)
+		if accompanyCustomDevicePlugin != nil {
+			// Get device request for accompany device
+			var accompanyDeviceReq *pluginapi.DeviceRequest
+			for _, deviceRequest := range req.DeviceRequest {
+				if deviceRequest.DeviceName == req.AccompanyResourceName {
+					accompanyDeviceReq = deviceRequest
+				}
+			}
+
+			if accompanyDeviceReq == nil {
+				return nil, fmt.Errorf("nil accompany device request")
+			}
+
+			_, err := accompanyCustomDevicePlugin.AllocateAssociatedDevice(req.ResourceRequest, accompanyDeviceReq)
+			if err != nil {
+				return nil, fmt.Errorf("AllocateAssociatedDevice accompany resource %s failed with error: %v", req.AccompanyResourceName, err)
+			}
+		}
 	}
 
-	customDevicePlugin := p.getCustomDevicePlugin(req.DeviceRequest.DeviceName)
-	if customDevicePlugin == nil {
-		return nil, fmt.Errorf("no custom device plugin found for device %s", req.DeviceRequest.DeviceName)
+	// Allocate target custom device
+	targetCustomDevicePlugin := p.getCustomDevicePlugin(req.DeviceName)
+	if targetCustomDevicePlugin == nil {
+		return nil, fmt.Errorf("no custom device plugin found for target device %s", req.DeviceName)
 	}
 
-	return customDevicePlugin.AllocateAssociatedDevice(req)
+	var targetDeviceReq *pluginapi.DeviceRequest
+	for _, deviceRequest := range req.DeviceRequest {
+		if deviceRequest.DeviceName == req.DeviceName {
+			targetDeviceReq = deviceRequest
+		}
+	}
+
+	if targetDeviceReq == nil {
+		return nil, fmt.Errorf("no target device plugin found for target device %s", req.DeviceName)
+	}
+
+	return targetCustomDevicePlugin.AllocateAssociatedDevice(req.ResourceRequest, targetDeviceReq)
 }
 
 func (p *StaticPolicy) registerResourcePlugins() error {
@@ -564,7 +608,10 @@ func (p *StaticPolicy) registerCustomDevicePlugins() error {
 	for name := range p.associatedDeviceNames {
 		initFunc := devicepluginregistry.CustomDevicePluginsMap[name]
 		customDevicePlugin := initFunc(p.BasePlugin)
-		p.customDevicePlugins[customDevicePlugin.DeviceName()] = customDevicePlugin
+		deviceNames := customDevicePlugin.DeviceNames()
+		for _, deviceName := range deviceNames {
+			p.customDevicePlugins[deviceName] = customDevicePlugin
+		}
 	}
 	return nil
 }
