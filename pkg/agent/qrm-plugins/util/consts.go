@@ -33,6 +33,7 @@ const (
 	// metrics for cpu plugin
 	MetricNamePoolSize                    = "pool_size"
 	MetricNameRealStateInvalid            = "real_state_invalid"
+	MetricNameCgroupPathNotFound          = "cgroup_path_not_found"
 	MetricNameCPUSetInvalid               = "cpuset_invalid"
 	MetricNameCPUSetOverlap               = "cpuset_overlap"
 	MetricNameOrphanContainer             = "orphan_container"
