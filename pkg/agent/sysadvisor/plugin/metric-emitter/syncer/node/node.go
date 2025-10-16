@@ -51,7 +51,7 @@ var nodeRawMetricNameMapping = map[string]string{
 	consts.MetricCPUUsageRatioSystem: apimetricnode.CustomMetricNodeCPUUsageRatio,
 	consts.MetricLoad1MinSystem:      apimetricnode.CustomMetricNodeCPULoad1Min,
 
-	consts.MetricMemTotalSystem:     "node_system_memory_total", // TODO: change to apimetricnode.CustomMetricNodeMemoryTotal after adding it
+	consts.MetricMemTotalSystem:     apimetricnode.CustomMetricNodeMemoryTotal,
 	consts.MetricMemFreeSystem:      apimetricnode.CustomMetricNodeMemoryFree,
 	consts.MetricMemAvailableSystem: apimetricnode.CustomMetricNodeMemoryAvailable,
 }
