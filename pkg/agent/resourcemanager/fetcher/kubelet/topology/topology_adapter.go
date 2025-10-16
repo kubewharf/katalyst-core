@@ -122,6 +122,9 @@ type topologyAdapterImpl struct {
 	// numaMBWAllocatableMap map numa id => memory bandwidth allocatable
 	numaMBWAllocatableMap map[int]int64
 
+	// needAggregateReportingDevices is the devices needed to be aggregated reporting
+	needAggregateReportingDevices []string
+
 	// reservedCPUs is the cpus reserved
 	reservedCPUs string
 }
@@ -164,6 +167,7 @@ func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, qos
 		podResourcesFilter:             podResourcesFilter,
 		resourceNameToZoneTypeMap:      resourceNameToZoneTypeMap,
 		needValidationResources:        needValidationResources,
+		needAggregateReportingDevices:  agentConf.NeedAggregateReportingDevices,
 		reservedCPUs:                   agentConf.ReservedCPUList,
 	}
 
@@ -475,6 +479,18 @@ func (p *topologyAdapterImpl) getZoneResources(allocatableResources *podresv1.Al
 		return nil, err
 	}
 
+	if len(p.needAggregateReportingDevices) > 0 {
+		zoneAllocatable, err = p.aggregateReportDevicesToSocket(zoneAllocatable)
+		if err != nil {
+			return nil, err
+		}
+
+		zoneCapacity, err = p.aggregateReportDevicesToSocket(zoneCapacity)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// calculate Resources capacity and allocatable
 	for _, resources := range allocatableResources.Resources {
 		if resources == nil {
@@ -783,7 +799,7 @@ func (p *topologyAdapterImpl) generateNumaNodeResourceReservedAttr(node util.Zon
 	numaReserved := numaCapacity.Intersection(machine.MustParse(p.reservedCPUs))
 
 	attrs = append(attrs, nodev1alpha1.Attribute{
-		Name:  "reserved_list",
+		Name:  "reserved_cpu_list",
 		Value: numaReserved.String(),
 	})
 
@@ -884,17 +900,14 @@ func (p *topologyAdapterImpl) addContainerDevices(zoneResources map[util.ZoneNod
 		if device == nil || device.Topology == nil {
 			continue
 		}
-
 		if p.skipDeviceNames != nil && p.skipDeviceNames.Has(device.ResourceName) {
 			continue
 		}
-
 		resourceName := v1.ResourceName(device.ResourceName)
 		for _, node := range device.Topology.Nodes {
 			if node == nil {
 				continue
 			}
-
 			zoneNode := util.GenerateNumaZoneNode(int(node.ID))
 			zoneResources = addZoneQuantity(zoneResources, zoneNode, resourceName, oneQuantity)
 
@@ -909,6 +922,54 @@ func (p *topologyAdapterImpl) addContainerDevices(zoneResources map[util.ZoneNod
 
 	if len(errList) > 0 {
 		return nil, utilerrors.NewAggregate(errList)
+	}
+
+	return zoneResources, nil
+}
+
+func (p *topologyAdapterImpl) aggregateReportDevicesToSocket(zoneResources map[util.ZoneNode]*v1.ResourceList) (map[util.ZoneNode]*v1.ResourceList, error) {
+	if zoneResources == nil {
+		zoneResources = make(map[util.ZoneNode]*v1.ResourceList)
+	}
+	deviceSocketLevelQuantity := make(map[string]map[int]*resource.Quantity)
+
+	for zoneNode, resourceList := range zoneResources {
+		if resourceList == nil || zoneNode.Meta.Type != nodev1alpha1.TopologyTypeNuma {
+			continue
+		}
+
+		nodeID, err := strconv.Atoi(zoneNode.Meta.Name)
+		if err != nil {
+			klog.Warningf("failed to convert numa %s to int: %v", zoneNode.Meta.Name, err)
+			continue
+		}
+
+		socketID, ok := p.metaServer.NUMANodeIDToSocketID[nodeID]
+		if !ok {
+			klog.Warningf("failed to get socketID for numa %d", nodeID)
+			continue
+		}
+
+		for resourceName, quantity := range *resourceList {
+			if _, ok := deviceSocketLevelQuantity[string(resourceName)]; !ok {
+				deviceSocketLevelQuantity[string(resourceName)] = make(map[int]*resource.Quantity)
+			}
+			if _, ok := deviceSocketLevelQuantity[string(resourceName)][socketID]; !ok {
+				deviceSocketLevelQuantity[string(resourceName)][socketID] = &resource.Quantity{}
+			}
+			deviceSocketLevelQuantity[string(resourceName)][socketID].Add(quantity)
+		}
+	}
+
+	for _, resourceName := range p.needAggregateReportingDevices {
+		socketQuantity, ok := deviceSocketLevelQuantity[resourceName]
+		if !ok {
+			continue
+		}
+		for socketID, quantity := range socketQuantity {
+			zoneNode := util.GenerateSocketZoneNode(socketID)
+			zoneResources = addZoneQuantity(zoneResources, zoneNode, v1.ResourceName(resourceName), *quantity)
+		}
 	}
 
 	return zoneResources, nil

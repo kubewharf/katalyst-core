@@ -23,6 +23,7 @@ type KubeletPluginConfiguration struct {
 	EnableReportTopologyPolicy     bool
 	ResourceNameToZoneTypeMap      map[string]string
 	NeedValidationResources        []string
+	NeedAggregateReportingDevices  []string
 	EnablePodResourcesFilter       bool
 }
 
