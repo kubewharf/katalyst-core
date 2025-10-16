@@ -108,6 +108,7 @@ func (m *MetaServer) Run(ctx context.Context) {
 	go m.ConfigurationManager.Run(ctx)
 	go m.ServiceProfilingManager.Run(ctx)
 	go m.ExternalManager.Run(ctx)
+	go m.ResourcePackageManager.Run(ctx)
 
 	m.Unlock()
 	<-ctx.Done()
