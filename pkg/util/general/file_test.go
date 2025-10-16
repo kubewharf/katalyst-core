@@ -457,3 +457,293 @@ func TestParseLinuxListFormatFromFile(t *testing.T) {
 		})
 	}
 }
+
+func TestFilesEqual(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+
+	createTempFile := func(content string) string {
+		f, err := os.CreateTemp(tmpDir, "testfile-")
+		assert.NoError(t, err)
+		_, err = f.WriteString(content)
+		assert.NoError(t, err)
+		err = f.Close()
+		assert.NoError(t, err)
+		return f.Name()
+	}
+
+	jsonContent := `{"key":"value1", "number": 1}`
+	identicalJsonContent := `{"key":"value1", "number": 1}`
+	differentJsonContent := `{"key":"value1", "number": 0}`
+	differentFormatContent := `{"number": 1, "key": "value1"}`
+
+	tests := []struct {
+		name      string
+		setup     func() (path1, path2 string)
+		wantEqual bool
+		wantErr   bool
+	}{
+		{
+			name: "one of the files is not of JSON format",
+			setup: func() (string, string) {
+				path1 := createTempFile("hello world")
+				path2 := createTempFile(jsonContent)
+				return path1, path2
+			},
+			wantEqual: false,
+			wantErr:   true,
+		},
+		{
+			name: "both files are not of JSON format",
+			setup: func() (string, string) {
+				path1 := createTempFile("hello world")
+				path2 := createTempFile("hello world")
+				return path1, path2
+			},
+			wantEqual: false,
+			wantErr:   true,
+		},
+		{
+			name: "one file does not exist",
+			setup: func() (string, string) {
+				path1 := createTempFile(jsonContent)
+				return path1, "non-existent-file"
+			},
+			wantEqual: false,
+			wantErr:   true,
+		},
+		{
+			name: "empty files",
+			setup: func() (string, string) {
+				path1 := createTempFile("")
+				path2 := createTempFile("")
+				return path1, path2
+			},
+			wantEqual: true,
+			wantErr:   false,
+		},
+		{
+			name: "identical json files",
+			setup: func() (string, string) {
+				path1 := createTempFile(jsonContent)
+				path2 := createTempFile(identicalJsonContent)
+				return path1, path2
+			},
+			wantEqual: true,
+			wantErr:   false,
+		},
+		{
+			name: "different json files",
+			setup: func() (string, string) {
+				path1 := createTempFile(jsonContent)
+				path2 := createTempFile(differentJsonContent)
+				return path1, path2
+			},
+			wantEqual: false,
+			wantErr:   false,
+		},
+		{
+			name: "copied files should be equal",
+			setup: func() (string, string) {
+				path1 := createTempFile(jsonContent)
+				path2 := path1 + ".copy"
+
+				input, err := os.ReadFile(path1)
+				assert.NoError(t, err)
+
+				err = os.WriteFile(path2, input, 0o644)
+				assert.NoError(t, err)
+
+				return path1, path2
+			},
+			wantEqual: true,
+			wantErr:   false,
+		},
+		{
+			name: "different formatted JSON files should still return true",
+			setup: func() (string, string) {
+				path1 := createTempFile(jsonContent)
+				path2 := createTempFile(differentFormatContent)
+				return path1, path2
+			},
+			wantEqual: true,
+			wantErr:   false,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			path1, path2 := tt.setup()
+
+			equal, err := JSONFilesEqual(path1, path2)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.Equal(t, tt.wantEqual, equal)
+		})
+	}
+}
+
+func TestIsFileUpToDate(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+
+	createTempFile := func(name string, content string) (string, error) {
+		filePath := filepath.Join(tmpDir, name)
+		err := os.WriteFile(filePath, []byte(content), 0o644)
+		return filePath, err
+	}
+
+	tests := []struct {
+		name          string
+		setup         func() (string, string)
+		wantUpToDate  bool
+		wantErr       bool
+		cleanup       func(string, string)
+		adjustModTime func(string, string)
+	}{
+		{
+			name: "target file does not exist",
+			setup: func() (string, string) {
+				otherFile, err := createTempFile("other.txt", "test")
+				assert.NoError(t, err)
+				return "non-existent-file", otherFile
+			},
+			wantErr: true,
+			cleanup: func(targetFilePath, otherFilePath string) {
+				os.Remove(otherFilePath)
+			},
+		},
+		{
+			name: "other file does not exist",
+			setup: func() (string, string) {
+				targetFile, err := createTempFile("target.txt", "test")
+				assert.NoError(t, err)
+				return targetFile, "non-existent-file"
+			},
+			wantErr: true,
+			cleanup: func(targetFilePath, otherFilePath string) {
+				os.Remove(targetFilePath)
+			},
+		},
+		{
+			name: "target file is up to date",
+			setup: func() (string, string) {
+				targetFile, err := createTempFile("target_updated_1.txt", "test")
+				assert.NoError(t, err)
+				otherFile, err := createTempFile("other_updated_1.txt", "test")
+				assert.NoError(t, err)
+				return targetFile, otherFile
+			},
+			wantUpToDate: true,
+			adjustModTime: func(targetFilePath, otherFilePath string) {
+				now := time.Now()
+				err := os.Chtimes(otherFilePath, now, now)
+				assert.NoError(t, err)
+				updatedTime := now.Add(-(ModificationTimeDifferenceThreshold - time.Second))
+				err = os.Chtimes(targetFilePath, updatedTime, updatedTime)
+				assert.NoError(t, err)
+			},
+			cleanup: func(targetFilePath, otherFilePath string) {
+				os.Remove(targetFilePath)
+				os.Remove(otherFilePath)
+			},
+		},
+		{
+			name: "target file is up to date as it is more recently updated",
+			setup: func() (string, string) {
+				targetFile, err := createTempFile("target_updated_2.txt", "test")
+				assert.NoError(t, err)
+				otherFile, err := createTempFile("other_updated_2.txt", "test")
+				assert.NoError(t, err)
+				return targetFile, otherFile
+			},
+			wantUpToDate: true,
+			adjustModTime: func(targetFilePath, otherFilePath string) {
+				now := time.Now()
+				err := os.Chtimes(otherFilePath, now, now)
+				assert.NoError(t, err)
+				updatedTime := now.Add(ModificationTimeDifferenceThreshold + time.Second)
+				err = os.Chtimes(targetFilePath, updatedTime, updatedTime)
+				assert.NoError(t, err)
+			},
+			cleanup: func(targetFilePath, otherFilePath string) {
+				os.Remove(targetFilePath)
+				os.Remove(otherFilePath)
+			},
+		},
+		{
+			name: "files modification time difference equals threshold",
+			setup: func() (string, string) {
+				targetFile, err := createTempFile("target_updated_3.txt", "test")
+				assert.NoError(t, err)
+				otherFile, err := createTempFile("other_updated_3.txt", "test")
+				assert.NoError(t, err)
+				return targetFile, otherFile
+			},
+			wantUpToDate: true,
+			adjustModTime: func(targetFilePath, otherFilePath string) {
+				now := time.Now()
+				err := os.Chtimes(otherFilePath, now, now)
+				assert.NoError(t, err)
+				updatedTime := now.Add(-ModificationTimeDifferenceThreshold)
+				err = os.Chtimes(targetFilePath, updatedTime, updatedTime)
+				assert.NoError(t, err)
+			},
+			cleanup: func(targetFilePath, otherFilePath string) {
+				os.Remove(targetFilePath)
+				os.Remove(otherFilePath)
+			},
+		},
+		{
+			name: "target file is updated earlier and files modification time difference is more than threshold",
+			setup: func() (string, string) {
+				targetFile, err := createTempFile("target_not_updated.txt", "test")
+				assert.NoError(t, err)
+				otherFile, err := createTempFile("other_not_updated.txt", "test")
+				assert.NoError(t, err)
+				return targetFile, otherFile
+			},
+			wantUpToDate: false,
+			adjustModTime: func(targetFilePath, otherFilePath string) {
+				now := time.Now()
+				err := os.Chtimes(otherFilePath, now, now)
+				assert.NoError(t, err)
+				updatedTime := now.Add(-(ModificationTimeDifferenceThreshold + time.Second))
+				err = os.Chtimes(targetFilePath, updatedTime, updatedTime)
+				assert.NoError(t, err)
+			},
+			cleanup: func(targetFilePath, otherFilePath string) {
+				os.Remove(targetFilePath)
+				os.Remove(otherFilePath)
+			},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			targetFile, otherFile := tt.setup()
+			if tt.cleanup != nil {
+				defer tt.cleanup(targetFile, otherFile)
+			}
+
+			if tt.adjustModTime != nil {
+				tt.adjustModTime(targetFile, otherFile)
+			}
+
+			isUpToDate, err := IsFileUpToDate(targetFile, otherFile)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.Equal(t, tt.wantUpToDate, isUpToDate)
+		})
+	}
+}

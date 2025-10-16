@@ -68,6 +68,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	coreconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -110,7 +111,9 @@ var fakeConf = &config.Configuration{
 	},
 }
 
-func getTestDynamicPolicyWithInitialization(topology *machine.CPUTopology, machineInfo *info.MachineInfo, stateFileDirectory string) (*DynamicPolicy, error) {
+func getTestDynamicPolicyWithInitialization(
+	topology *machine.CPUTopology, machineInfo *info.MachineInfo, stateFileDirectory string,
+) (*DynamicPolicy, error) {
 	reservedMemory, err := getReservedMemory(fakeConf, &metaserver.MetaServer{}, machineInfo)
 	if err != nil {
 		return nil, err
@@ -131,7 +134,10 @@ func getTestDynamicPolicyWithInitialization(topology *machine.CPUTopology, machi
 		consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
 	})
 
-	stateImpl, err := state.NewCheckpointState(stateFileDirectory, memoryPluginStateFileName,
+	stateDirectoryConfig := &statedirectory.StateDirectoryConfiguration{
+		StateFileDirectory: stateFileDirectory,
+	}
+	stateImpl, err := state.NewCheckpointState(stateDirectoryConfig, memoryPluginStateFileName,
 		memconsts.MemoryResourcePluginPolicyNameDynamic, topology, machineInfo, resourcesReservedMemory, false, metrics.DummyMetrics{})
 	if err != nil {
 		return nil, fmt.Errorf("NewCheckpointState failed with error: %v", err)
@@ -3222,7 +3228,9 @@ func TestNewAndStartDynamicPolicy(t *testing.T) {
 			GenericAgentConfiguration: &configagent.GenericAgentConfiguration{
 				QRMAdvisorConfiguration: &global.QRMAdvisorConfiguration{},
 				GenericQRMPluginConfiguration: &qrmconfig.GenericQRMPluginConfiguration{
-					StateFileDirectory:  tmpDir,
+					StateDirectoryConfiguration: &statedirectory.StateDirectoryConfiguration{
+						StateFileDirectory: tmpDir,
+					},
 					QRMPluginSocketDirs: []string{path.Join(tmpDir, "test.sock")},
 				},
 			},
@@ -4864,7 +4872,9 @@ type mockMemoryAdvisor struct {
 	advisorsvc.AdvisorServiceServer
 }
 
-func (m *mockMemoryAdvisor) GetAdvice(ctx context.Context, in *advisorsvc.GetAdviceRequest) (*advisorsvc.GetAdviceResponse, error) {
+func (m *mockMemoryAdvisor) GetAdvice(
+	ctx context.Context, in *advisorsvc.GetAdviceRequest,
+) (*advisorsvc.GetAdviceResponse, error) {
 	args := m.Called(ctx, in)
 	return args.Get(0).(*advisorsvc.GetAdviceResponse), args.Error(1)
 }

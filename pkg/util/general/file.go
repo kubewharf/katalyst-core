@@ -22,10 +22,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"syscall"
@@ -37,8 +39,9 @@ import (
 )
 
 const (
-	FlockCoolingInterval = 6 * time.Second
-	FlockTryLockMaxTimes = 10
+	FlockCoolingInterval                = 6 * time.Second
+	FlockTryLockMaxTimes                = 10
+	ModificationTimeDifferenceThreshold = 2 * time.Second
 )
 
 type FileWatcherInfo struct {
@@ -115,7 +118,8 @@ func GetOneExistPath(paths []string) string {
 }
 
 // GetOneExistPathUntilExist returns a path until one provided path exists
-func GetOneExistPathUntilExist(paths []string, checkInterval,
+func GetOneExistPathUntilExist(
+	paths []string, checkInterval,
 	timeoutDuration time.Duration,
 ) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutDuration)
@@ -374,4 +378,62 @@ func ParseLinuxListFormatFromFile(filePath string) ([]int64, error) {
 		return nil, nil
 	}
 	return ParseLinuxListFormat(s)
+}
+
+// JSONFilesEqual unmarshals the contents of JSON files into structs and checks if they are identical
+func JSONFilesEqual(path1, path2 string) (bool, error) {
+	decode := func(path string) (interface{}, error) {
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open file %s: %w", path, err)
+		}
+		defer f.Close()
+		var obj interface{}
+		if err := json.NewDecoder(f).Decode(&obj); err != nil {
+			if errors.Is(err, io.EOF) {
+				return obj, nil
+			}
+			return nil, fmt.Errorf("failed to decode file %s: %w", path, err)
+		}
+		return obj, nil
+	}
+
+	obj1, err := decode(path1)
+	if err != nil {
+		return false, err
+	}
+	obj2, err := decode(path2)
+	if err != nil {
+		return false, err
+	}
+
+	return reflect.DeepEqual(obj1, obj2), nil
+}
+
+// IsFileUpToDate checks if the target file is updated by comparing its last modification time with the other file
+// The modification time of the target file has to fulfill any of the following conditions to be considered up to date:
+// 1. Be updated more recently than the other file
+// 2. Fall within a threshold difference of the other file's modification time
+func IsFileUpToDate(targetFilePath string, otherFilePath string) (bool, error) {
+	targetInfo, err := os.Stat(targetFilePath)
+	if err != nil {
+		return false, fmt.Errorf("failed to stat target file %s, err %v", targetFilePath, err)
+	}
+	otherInfo, err := os.Stat(otherFilePath)
+	if err != nil {
+		return false, fmt.Errorf("failed to stat other file %s, err %v", otherFilePath, err)
+	}
+	targetModTime := targetInfo.ModTime()
+	otherModTime := otherInfo.ModTime()
+
+	// Target file is updated more recently than the other file
+	if targetModTime.After(otherModTime) {
+		return true, nil
+	}
+
+	// Check if the modification time of the target file is within the threshold difference of the other file's modification time
+	if otherModTime.Sub(targetModTime).Seconds() <= ModificationTimeDifferenceThreshold.Seconds() {
+		return true, nil
+	}
+	return false, nil
 }
