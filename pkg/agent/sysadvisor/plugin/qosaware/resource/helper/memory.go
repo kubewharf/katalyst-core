@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
@@ -73,13 +74,40 @@ func GetAvailableNUMAsAndReclaimedCores(conf *config.Configuration, metaReader m
 			return true
 		}
 
-		if containerInfo.IsDedicatedNumaExclusive() && !reclaimEnable {
+		if !reclaimEnable {
 			memset := machine.GetCPUAssignmentNUMAs(containerInfo.TopologyAwareAssignments)
 			if memset.IsEmpty() {
 				errList = append(errList, fmt.Errorf("container(%v/%v) TopologyAwareAssignments is empty", containerInfo.PodName, containerName))
 				return true
 			}
-			availNUMAs = availNUMAs.Difference(memset)
+
+			level := PodDisableReclaimLevel(ctx, metaServer, podUID)
+			switch level {
+			case v1alpha1.DisableReclaimLevelNUMA:
+				availNUMAs = availNUMAs.Difference(memset)
+			case v1alpha1.DisableReclaimLevelSocket:
+				var sockets []int
+				for _, numa := range memset.ToSliceNoSortInt() {
+					sockets = append(sockets, metaServer.NUMANodeIDToSocketID[numa])
+				}
+				availNUMAs = availNUMAs.Difference(metaServer.CPUDetails.NUMANodesInSockets(sockets...))
+			case v1alpha1.DisableReclaimLevelNode:
+				availNUMAs = machine.NewCPUSet()
+			case v1alpha1.DisableReclaimLevelPod:
+				if containerInfo.IsDedicatedNumaExclusive() {
+					availNUMAs = availNUMAs.Difference(memset)
+				}
+				// todo support pod level disable reclaim for other qos levels in the feature
+			}
+			general.InfoS("disable reclaim",
+				"podUID", podUID,
+				"name", containerInfo.PodName,
+				"namespace", containerInfo.PodNamespace,
+				"container", containerInfo.ContainerName,
+				"qosLevel", containerInfo.QoSLevel,
+				"memset", memset,
+				"nodeReclaim", nodeReclaim,
+				"disableReclaimLevel", level)
 		}
 
 		if containerInfo.IsSharedNumaBinding() &&
