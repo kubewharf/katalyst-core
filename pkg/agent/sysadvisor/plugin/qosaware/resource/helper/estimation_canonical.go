@@ -25,6 +25,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
+	metaserverHelper "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
@@ -188,52 +189,69 @@ func EstimateContainerMemoryUsage(ci *types.ContainerInfo, metaReader metacache.
 
 // UtilBasedCapacityOptions are options for estimate util based resource capacity
 type UtilBasedCapacityOptions struct {
-	TargetUtilization float64
-	MaxUtilization    float64
-	MaxOversoldRate   float64
-	MaxCapacity       float64
+	TargetUtilization         float64
+	MaxUtilization            float64
+	MaxOversoldRate           float64
+	MaxCapacity               float64
+	NonReclaimUtilizationHigh float64
+	NonReclaimUtilizationLow  float64
 }
 
 func GenerateUtilBasedCapacityOptions(dynamicConfig *dynamic.Configuration, capacity float64) UtilBasedCapacityOptions {
 	return UtilBasedCapacityOptions{
-		TargetUtilization: dynamicConfig.TargetReclaimedCoreUtilization,
-		MaxUtilization:    dynamicConfig.MaxReclaimedCoreUtilization,
-		MaxOversoldRate:   dynamicConfig.CPUUtilBasedConfiguration.MaxOversoldRate,
-		MaxCapacity:       dynamicConfig.MaxHeadroomCapacityRate * capacity,
+		TargetUtilization:         dynamicConfig.TargetReclaimedCoreUtilization,
+		MaxUtilization:            dynamicConfig.MaxReclaimedCoreUtilization,
+		MaxOversoldRate:           dynamicConfig.CPUUtilBasedConfiguration.MaxOversoldRate,
+		MaxCapacity:               dynamicConfig.MaxHeadroomCapacityRate * capacity,
+		NonReclaimUtilizationHigh: dynamicConfig.NonReclaimUtilizationHigh,
+		NonReclaimUtilizationLow:  dynamicConfig.NonReclaimUtilizationLow,
 	}
 }
 
 // EstimateUtilBasedCapacity capacity by taking into account the difference between the current
 // and target resource utilization of the workload pool
-func EstimateUtilBasedCapacity(options UtilBasedCapacityOptions, resourceSupply,
-	currentUtilization, lastCapacityResult float64,
-) (float64, error) {
+func EstimateUtilBasedCapacity(options UtilBasedCapacityOptions, reclaimMetrics *metaserverHelper.ReclaimMetrics,
+	lastCapacityResult float64, lastOverload bool,
+) (float64, bool, error) {
+	if reclaimMetrics == nil {
+		return 0, false, fmt.Errorf("reclaimMetrics is nil")
+	}
 	var oversold, result float64
+	overload := false
+
+	currentReclaimUtilization := reclaimMetrics.CgroupCPUUsage / reclaimMetrics.ReclaimedCoresSupply
+	currentNonReclaimUtilization := (reclaimMetrics.PoolCPUUsage - reclaimMetrics.CgroupCPUUsage) / float64(reclaimMetrics.Size)
 
 	defer func() {
-		general.Infof("resource supply %.2f, current utilization: %.2f (target: %.2f, max: %.2f), "+
-			"last result: %.2f, oversold: %.2f, max oversold ratio: %.2f, final result: %.2f (max capacity: %.2f)",
-			resourceSupply, currentUtilization, options.TargetUtilization, options.MaxUtilization, lastCapacityResult,
-			oversold, options.MaxOversoldRate, result, options.MaxCapacity)
+		general.InfoS("[EstimateUtilBasedCapacity]", "reclaimMetrics", reclaimMetrics, "options", options,
+			"currentReclaimUtilization", currentReclaimUtilization, "oversold", oversold, "lastCapacityResult", lastCapacityResult, "result", result)
 	}()
 
 	// calculate the resource that can be oversold to the workloads, and consider that the resource
 	// utilization of the workload is proportional to its capacity.
 	// if the maximum resource utilization is greater than zero, the oversold can be negative to reduce
 	// reporting capacity to avoid too many workloads being scheduled to that machine.
-	if options.TargetUtilization > currentUtilization {
-		oversold = resourceSupply * (options.TargetUtilization - currentUtilization)
-	} else if options.MaxUtilization > 0 && currentUtilization > options.MaxUtilization {
-		oversold = resourceSupply * (options.MaxUtilization - currentUtilization)
+	if options.TargetUtilization > currentReclaimUtilization {
+		oversold = reclaimMetrics.ReclaimedCoresSupply * (options.TargetUtilization - currentReclaimUtilization)
+	} else if options.MaxUtilization > 0 && currentReclaimUtilization > options.MaxUtilization {
+		oversold = reclaimMetrics.ReclaimedCoresSupply * (options.MaxUtilization - currentReclaimUtilization)
 	}
 
 	// TODO: consider cpu PSI
 
-	result = math.Max(lastCapacityResult+oversold, resourceSupply)
-	result = math.Min(result, resourceSupply*options.MaxOversoldRate)
+	result = math.Max(lastCapacityResult+oversold, reclaimMetrics.ReclaimedCoresSupply)
+	result = math.Min(result, reclaimMetrics.ReclaimedCoresSupply*options.MaxOversoldRate)
 	if options.MaxCapacity > 0 {
 		result = math.Min(result, options.MaxCapacity)
 	}
+	if currentNonReclaimUtilization > options.NonReclaimUtilizationHigh && !lastOverload ||
+		currentNonReclaimUtilization > options.NonReclaimUtilizationLow && lastOverload {
+		general.InfoS("overload", "currentNonReclaimUtilization", currentNonReclaimUtilization,
+			"NonReclaimUtilizationHigh", options.NonReclaimUtilizationHigh, "NonReclaimUtilizationLow", options.NonReclaimUtilizationLow,
+			"lastOverload", lastOverload)
+		result = 0
+		overload = true
+	}
 
-	return result, nil
+	return result, overload, nil
 }

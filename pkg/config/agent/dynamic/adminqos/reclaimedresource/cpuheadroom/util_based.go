@@ -24,6 +24,8 @@ type CPUUtilBasedConfiguration struct {
 	MaxReclaimedCoreUtilization    float64
 	MaxOversoldRate                float64
 	MaxHeadroomCapacityRate        float64
+	NonReclaimUtilizationHigh      float64
+	NonReclaimUtilizationLow       float64
 }
 
 func NewCPUUtilBasedConfiguration() *CPUUtilBasedConfiguration {
@@ -54,6 +56,14 @@ func (c *CPUUtilBasedConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCR
 
 		if config.MaxHeadroomCapacityRate != nil {
 			c.MaxHeadroomCapacityRate = *config.MaxHeadroomCapacityRate
+		}
+
+		if config.NonReclaimUtilizationHigh != nil {
+			c.NonReclaimUtilizationHigh = *config.NonReclaimUtilizationHigh
+		}
+
+		if config.NonReclaimUtilizationLow != nil {
+			c.NonReclaimUtilizationLow = *config.NonReclaimUtilizationLow
 		}
 	}
 }
