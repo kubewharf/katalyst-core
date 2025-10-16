@@ -1062,6 +1062,8 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 		allocatableResources  *podresv1.AllocatableResourcesResponse
 		numaSocketZoneNodeMap map[util.ZoneNode]util.ZoneNode
 		metaServer            *metaserver.MetaServer
+		numaMBWCapacityMap    map[int]int64
+		numaMBWAllocatableMap map[int]int64
 	}
 	tests := []struct {
 		name              string
@@ -1185,7 +1187,9 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 					util.GenerateNumaZoneNode(0): util.GenerateSocketZoneNode(0),
 					util.GenerateNumaZoneNode(1): util.GenerateSocketZoneNode(1),
 				},
-				metaServer: generateTestMetaServer(),
+				metaServer:            generateTestMetaServer(),
+				numaMBWCapacityMap:    map[int]int64{},
+				numaMBWAllocatableMap: map[int]int64{},
 			},
 			wantZoneResources: map[util.ZoneNode]nodev1alpha1.Resources{
 				{
@@ -1329,7 +1333,9 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 					util.GenerateNumaZoneNode(0): util.GenerateSocketZoneNode(0),
 					util.GenerateNumaZoneNode(1): util.GenerateSocketZoneNode(1),
 				},
-				metaServer: generateTestMetaServer(),
+				metaServer:            generateTestMetaServer(),
+				numaMBWCapacityMap:    map[int]int64{},
+				numaMBWAllocatableMap: map[int]int64{},
 			},
 			wantZoneResources: map[util.ZoneNode]nodev1alpha1.Resources{
 				{
@@ -1501,6 +1507,8 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 					}
 					return m
 				}(),
+				numaMBWCapacityMap:    map[int]int64{0: 10 << 30, 1: 10 << 30, 2: 10 << 30, 3: 10 << 30},
+				numaMBWAllocatableMap: map[int]int64{0: 8 << 30, 1: 8 << 30, 2: 8 << 30, 3: 8 << 30},
 			},
 			wantZoneResources: map[util.ZoneNode]nodev1alpha1.Resources{
 				{
@@ -1513,13 +1521,13 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 						"gpu":                          resource.MustParse("2"),
 						"cpu":                          resource.MustParse("24"),
 						"memory":                       resource.MustParse("32G"),
-						consts.ResourceMemoryBandwidth: resource.MustParse("10G"),
+						consts.ResourceMemoryBandwidth: resource.MustParse("10Gi"),
 					},
 					Allocatable: &v1.ResourceList{
 						"gpu":                          resource.MustParse("2"),
 						"cpu":                          resource.MustParse("22"),
 						"memory":                       resource.MustParse("30G"),
-						consts.ResourceMemoryBandwidth: resource.MustParse("8G"),
+						consts.ResourceMemoryBandwidth: resource.MustParse("8Gi"),
 					},
 				},
 				{
@@ -1531,12 +1539,12 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 					Capacity: &v1.ResourceList{
 						"cpu":                          resource.MustParse("24"),
 						"memory":                       resource.MustParse("32G"),
-						consts.ResourceMemoryBandwidth: resource.MustParse("10G"),
+						consts.ResourceMemoryBandwidth: resource.MustParse("10Gi"),
 					},
 					Allocatable: &v1.ResourceList{
 						"cpu":                          resource.MustParse("22"),
 						"memory":                       resource.MustParse("30G"),
-						consts.ResourceMemoryBandwidth: resource.MustParse("8G"),
+						consts.ResourceMemoryBandwidth: resource.MustParse("8Gi"),
 					},
 				},
 				{
@@ -1548,12 +1556,12 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 					Capacity: &v1.ResourceList{
 						"cpu":                          resource.MustParse("24"),
 						"memory":                       resource.MustParse("32G"),
-						consts.ResourceMemoryBandwidth: resource.MustParse("10G"),
+						consts.ResourceMemoryBandwidth: resource.MustParse("10Gi"),
 					},
 					Allocatable: &v1.ResourceList{
 						"cpu":                          resource.MustParse("22"),
 						"memory":                       resource.MustParse("30G"),
-						consts.ResourceMemoryBandwidth: resource.MustParse("8G"),
+						consts.ResourceMemoryBandwidth: resource.MustParse("8Gi"),
 					},
 				},
 				{
@@ -1565,12 +1573,12 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 					Capacity: &v1.ResourceList{
 						"cpu":                          resource.MustParse("24"),
 						"memory":                       resource.MustParse("32G"),
-						consts.ResourceMemoryBandwidth: resource.MustParse("10G"),
+						consts.ResourceMemoryBandwidth: resource.MustParse("10Gi"),
 					},
 					Allocatable: &v1.ResourceList{
 						"cpu":                          resource.MustParse("22"),
 						"memory":                       resource.MustParse("30G"),
-						consts.ResourceMemoryBandwidth: resource.MustParse("8G"),
+						consts.ResourceMemoryBandwidth: resource.MustParse("8Gi"),
 					},
 				},
 			},
@@ -1584,7 +1592,10 @@ func Test_getZoneResourcesByAllocatableResources(t *testing.T) {
 			p := &topologyAdapterImpl{
 				metaServer:            tt.args.metaServer,
 				numaSocketZoneNodeMap: tt.args.numaSocketZoneNodeMap,
+				numaMBWCapacityMap:    tt.args.numaMBWCapacityMap,
+				numaMBWAllocatableMap: tt.args.numaMBWAllocatableMap,
 			}
+
 			zoneResourcesMap, err := p.getZoneResources(tt.args.allocatableResources)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("getZoneResources() error = %v, wantErr %v", err, tt.wantErr)
@@ -1842,6 +1853,8 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones_ReportRDMATopol
 				resourceNameToZoneTypeMap: map[string]string{
 					"resource.katalyst.kubewharf.io/rdma": "NIC",
 				},
+				numaMBWCapacityMap:    map[int]int64{},
+				numaMBWAllocatableMap: map[int]int64{},
 			}
 			got, err := p.GetTopologyZones(context.TODO())
 			if (err != nil) != tt.wantErr {
@@ -2729,6 +2742,8 @@ func Test_podResourcesServerTopologyAdapterImpl_GetTopologyZones(t *testing.T) {
 				metaServer:            generateTestMetaServer(tt.fields.podList...),
 				qosConf:               generic.NewQoSConfiguration(),
 				numaSocketZoneNodeMap: tt.fields.numaSocketZoneNodeMap,
+				numaMBWAllocatableMap: map[int]int64{},
+				numaMBWCapacityMap:    map[int]int64{},
 			}
 			got, err := p.GetTopologyZones(context.TODO())
 			if (err != nil) != tt.wantErr {
@@ -2815,4 +2830,261 @@ func Test_podResourcesServerTopologyAdapterImpl_Run(t *testing.T) {
 	cancel()
 	close(notifier)
 	time.Sleep(10 * time.Millisecond)
+}
+
+// generateTestMetricsFetcherForMBW creates a test metrics fetcher with memory bandwidth metrics
+func generateTestMetricsFetcherForMBW() *metric.FakeMetricsFetcher {
+	m := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
+
+	fm, ok := m.(*metric.FakeMetricsFetcher)
+	if !ok {
+		panic("failed to cast to *FakeMetricsFetcher")
+	}
+
+	// Set memory bandwidth theory metrics for each NUMA node
+	fm.SetNumaMetric(0, pkgconsts.MetricMemBandwidthTheoryNuma, utilmetric.MetricData{
+		Value: 10, // 10 GB/s
+	})
+	fm.SetNumaMetric(1, pkgconsts.MetricMemBandwidthTheoryNuma, utilmetric.MetricData{
+		Value: 10, // 10 GB/s
+	})
+	fm.SetNumaMetric(2, pkgconsts.MetricMemBandwidthTheoryNuma, utilmetric.MetricData{
+		Value: 10, // 10 GB/s
+	})
+	fm.SetNumaMetric(3, pkgconsts.MetricMemBandwidthTheoryNuma, utilmetric.MetricData{
+		Value: 10, // 10 GB/s
+	})
+
+	// Set CPU code name
+	fm.SetByStringIndex(pkgconsts.MetricCPUCodeName, "test_cpu")
+
+	return fm
+}
+
+// generateTestMetaServerForMBW creates a test meta server with memory bandwidth configuration
+func generateTestMetaServerForMBW() *metaserver.MetaServer {
+	m := &metaserver.MetaServer{
+		MetaAgent: &agent.MetaAgent{
+			PodFetcher:          &pod.PodFetcherStub{},
+			KatalystMachineInfo: &machine.KatalystMachineInfo{},
+		},
+	}
+
+	// Generate dummy extra topology with 4 NUMA nodes
+	m.ExtraTopologyInfo, _ = machine.GenerateDummyExtraTopology(4)
+
+	// Configure sibling NUMA info for memory bandwidth
+	m.SiblingNumaInfo = &machine.SiblingNumaInfo{
+		SiblingNumaMap: map[int]sets.Int{
+			0: sets.NewInt(1),
+			1: sets.NewInt(0),
+			2: sets.NewInt(3),
+			3: sets.NewInt(2),
+		},
+		SiblingNumaAvgMBWAllocatableRateMap: map[string]float64{
+			"test_cpu": 0.8, // 80% allocatable rate
+		},
+		SiblingNumaAvgMBWCapacityMap: map[int]int64{
+			0: 10 * pkgconsts.BytesPerGB, // 10 GB capacity
+			1: 10 * pkgconsts.BytesPerGB, // 10 GB capacity
+			2: 10 * pkgconsts.BytesPerGB, // 10 GB capacity
+			3: 10 * pkgconsts.BytesPerGB, // 10 GB capacity
+		},
+		SiblingNumaDefaultMBWAllocatableRate: 0.7, // Default 70% allocatable rate
+	}
+
+	// Set metrics fetcher
+	m.MetaAgent.MetricsFetcher = generateTestMetricsFetcherForMBW()
+
+	return m
+}
+
+func Test_topologyAdapterImpl_syncMemoryBandwidth(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                   string
+		initialCapacityMap     map[int]int64
+		initialAllocatableMap  map[int]int64
+		expectedCapacityMap    map[int]int64
+		expectedAllocatableMap map[int]int64
+	}{
+		{
+			name:                  "test initial sync with empty maps",
+			initialCapacityMap:    map[int]int64{},
+			initialAllocatableMap: map[int]int64{},
+			expectedCapacityMap: map[int]int64{
+				0: 10 * pkgconsts.BytesPerGB, // 10 GB from metric
+				1: 10 * pkgconsts.BytesPerGB, // 10 GB from metric
+				2: 10 * pkgconsts.BytesPerGB, // 10 GB from metric
+				3: 10 * pkgconsts.BytesPerGB, // 10 GB from metric
+			},
+			expectedAllocatableMap: map[int]int64{
+				0: 8 * pkgconsts.BytesPerGB, // 10 GB * 0.8 allocatable rate
+				1: 8 * pkgconsts.BytesPerGB, // 10 GB * 0.8 allocatable rate
+				2: 8 * pkgconsts.BytesPerGB, // 10 GB * 0.8 allocatable rate
+				3: 8 * pkgconsts.BytesPerGB, // 10 GB * 0.8 allocatable rate
+			},
+		},
+		{
+			name: "test sync with no changes",
+			initialCapacityMap: map[int]int64{
+				0: 10 * pkgconsts.BytesPerGB,
+				1: 10 * pkgconsts.BytesPerGB,
+				2: 10 * pkgconsts.BytesPerGB,
+				3: 10 * pkgconsts.BytesPerGB,
+			},
+			initialAllocatableMap: map[int]int64{
+				0: 8 * pkgconsts.BytesPerGB,
+				1: 8 * pkgconsts.BytesPerGB,
+				2: 8 * pkgconsts.BytesPerGB,
+				3: 8 * pkgconsts.BytesPerGB,
+			},
+			expectedCapacityMap: map[int]int64{
+				0: 10 * pkgconsts.BytesPerGB,
+				1: 10 * pkgconsts.BytesPerGB,
+				2: 10 * pkgconsts.BytesPerGB,
+				3: 10 * pkgconsts.BytesPerGB,
+			},
+			expectedAllocatableMap: map[int]int64{
+				0: 8 * pkgconsts.BytesPerGB,
+				1: 8 * pkgconsts.BytesPerGB,
+				2: 8 * pkgconsts.BytesPerGB,
+				3: 8 * pkgconsts.BytesPerGB,
+			},
+		},
+		{
+			name: "test sync with capacity map changes",
+			initialCapacityMap: map[int]int64{
+				0: 5 * pkgconsts.BytesPerGB, // Changed from 10 to 5
+				1: 10 * pkgconsts.BytesPerGB,
+				2: 10 * pkgconsts.BytesPerGB,
+				3: 10 * pkgconsts.BytesPerGB,
+			},
+			initialAllocatableMap: map[int]int64{
+				0: 4 * pkgconsts.BytesPerGB, // Changed from 8 to 4
+				1: 8 * pkgconsts.BytesPerGB,
+				2: 8 * pkgconsts.BytesPerGB,
+				3: 8 * pkgconsts.BytesPerGB,
+			},
+			expectedCapacityMap: map[int]int64{
+				0: 10 * pkgconsts.BytesPerGB, // Updated to 10
+				1: 10 * pkgconsts.BytesPerGB,
+				2: 10 * pkgconsts.BytesPerGB,
+				3: 10 * pkgconsts.BytesPerGB,
+			},
+			expectedAllocatableMap: map[int]int64{
+				0: 8 * pkgconsts.BytesPerGB, // Updated to 8
+				1: 8 * pkgconsts.BytesPerGB,
+				2: 8 * pkgconsts.BytesPerGB,
+				3: 8 * pkgconsts.BytesPerGB,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Create test meta server
+			metaServer := generateTestMetaServerForMBW()
+
+			// Create topology adapter
+			adapter := &topologyAdapterImpl{
+				metaServer:            metaServer,
+				numaMBWCapacityMap:    tt.initialCapacityMap,
+				numaMBWAllocatableMap: tt.initialAllocatableMap,
+			}
+
+			// Call syncMemoryBandwidth
+			adapter.syncMemoryBandwidth()
+
+			// Verify the results
+			assert.Equal(t, tt.expectedCapacityMap, adapter.numaMBWCapacityMap, "numaMBWCapacityMap mismatch")
+			assert.Equal(t, tt.expectedAllocatableMap, adapter.numaMBWAllocatableMap, "numaMBWAllocatableMap mismatch")
+		})
+	}
+}
+
+func Test_topologyAdapterImpl_syncMemoryBandwidthWithMissingMetrics(t *testing.T) {
+	t.Parallel()
+
+	// Create test meta server
+	metaServer := generateTestMetaServerForMBW()
+
+	// Create a metrics fetcher with missing metrics for NUMA 1
+	fm := metaServer.MetricsFetcher.(*metric.FakeMetricsFetcher)
+	fm.SetNumaMetric(1, pkgconsts.MetricMemBandwidthTheoryNuma, utilmetric.MetricData{
+		Value: 0, // Zero value means missing metric
+	})
+
+	// Create topology adapter with initial empty maps
+	adapter := &topologyAdapterImpl{
+		metaServer:            metaServer,
+		numaMBWCapacityMap:    map[int]int64{},
+		numaMBWAllocatableMap: map[int]int64{},
+	}
+
+	// Call syncMemoryBandwidth
+	adapter.syncMemoryBandwidth()
+
+	// Verify the results
+	// NUMA 0 should use metric value (10 GB)
+	// NUMA 1 should use default capacity from SiblingNumaAvgMBWCapacityMap (10 GB)
+	// Both should have 80% allocatable rate
+	expectedCapacityMap := map[int]int64{
+		0: 10 * pkgconsts.BytesPerGB,
+		1: 10 * pkgconsts.BytesPerGB,
+		2: 10 * pkgconsts.BytesPerGB,
+		3: 10 * pkgconsts.BytesPerGB,
+	}
+	expectedAllocatableMap := map[int]int64{
+		0: 8 * pkgconsts.BytesPerGB,
+		1: 8 * pkgconsts.BytesPerGB,
+		2: 8 * pkgconsts.BytesPerGB,
+		3: 8 * pkgconsts.BytesPerGB,
+	}
+
+	assert.Equal(t, expectedCapacityMap, adapter.numaMBWCapacityMap, "numaMBWCapacityMap mismatch")
+	assert.Equal(t, expectedAllocatableMap, adapter.numaMBWAllocatableMap, "numaMBWAllocatableMap mismatch")
+}
+
+func Test_topologyAdapterImpl_syncMemoryBandwidthWithUnknownCPUCodeName(t *testing.T) {
+	t.Parallel()
+
+	// Create test meta server
+	metaServer := generateTestMetaServerForMBW()
+
+	// Set unknown CPU code name
+	fm := metaServer.MetricsFetcher.(*metric.FakeMetricsFetcher)
+	fm.SetByStringIndex(pkgconsts.MetricCPUCodeName, "unknown_cpu")
+
+	// Create topology adapter with initial empty maps
+	adapter := &topologyAdapterImpl{
+		metaServer:            metaServer,
+		numaMBWCapacityMap:    map[int]int64{},
+		numaMBWAllocatableMap: map[int]int64{},
+	}
+
+	// Call syncMemoryBandwidth
+	adapter.syncMemoryBandwidth()
+
+	// Verify the results
+	// Should use default allocatable rate (0.7) instead of the one for "test_cpu" (0.8)
+	expectedCapacityMap := map[int]int64{
+		0: 10 * pkgconsts.BytesPerGB,
+		1: 10 * pkgconsts.BytesPerGB,
+		2: 10 * pkgconsts.BytesPerGB,
+		3: 10 * pkgconsts.BytesPerGB,
+	}
+	expectedAllocatableMap := map[int]int64{
+		0: 7 * pkgconsts.BytesPerGB, // 10 GB * 0.7 default allocatable rate
+		1: 7 * pkgconsts.BytesPerGB, // 10 GB * 0.7 default allocatable rate
+		2: 7 * pkgconsts.BytesPerGB, // 10 GB * 0.7 default allocatable rate
+		3: 7 * pkgconsts.BytesPerGB, // 10 GB * 0.7 default allocatable rate
+	}
+
+	assert.Equal(t, expectedCapacityMap, adapter.numaMBWCapacityMap, "numaMBWCapacityMap mismatch")
+	assert.Equal(t, expectedAllocatableMap, adapter.numaMBWAllocatableMap, "numaMBWAllocatableMap mismatch")
 }

@@ -60,6 +60,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/kcc"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
@@ -173,6 +174,7 @@ func getTestDynamicPolicyWithoutInitialization(topology *machine.CPUTopology, st
 		MetaAgent: &agent.MetaAgent{
 			PodFetcher:          &pod.PodFetcherStub{},
 			KatalystMachineInfo: machineInfo,
+			MetricsFetcher:      metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}),
 		},
 		ServiceProfilingManager: &spd.DummyServiceProfilingManager{},
 	}

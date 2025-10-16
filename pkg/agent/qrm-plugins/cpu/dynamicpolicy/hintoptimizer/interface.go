@@ -31,7 +31,7 @@ type HintOptimizer interface {
 	// OptimizeHints optimizes the given list of topology hints based on the current state and request.
 	OptimizeHints(Request, *pluginapi.ListOfTopologyHints) error
 	// Run starts the hint optimizer.
-	Run(stopCh <-chan struct{})
+	Run(stopCh <-chan struct{}) error
 }
 
 // DummyHintOptimizer is a no-op implementation of HintOptimizer.
@@ -45,4 +45,6 @@ func (d *DummyHintOptimizer) OptimizeHints(Request, *pluginapi.ListOfTopologyHin
 }
 
 // Run for DummyHintOptimizer does nothing.
-func (d *DummyHintOptimizer) Run(<-chan struct{}) {}
+func (d *DummyHintOptimizer) Run(_ <-chan struct{}) error {
+	return nil
+}

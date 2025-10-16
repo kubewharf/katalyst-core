@@ -19,6 +19,7 @@ package policy
 import (
 	"fmt"
 
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer"
@@ -96,9 +97,13 @@ func (m multiHintOptimizer) OptimizeHints(request hintoptimizer.Request, hints *
 	return nil
 }
 
-func (m multiHintOptimizer) Run(stopCh <-chan struct{}) {
+func (m multiHintOptimizer) Run(stopCh <-chan struct{}) error {
+	var errList []error
 	for _, optimizer := range m.optimizers {
-		go optimizer.hintOptimizer.Run(stopCh)
+		err := optimizer.hintOptimizer.Run(stopCh)
+		if err != nil {
+			errList = append(errList, err)
+		}
 	}
-	<-stopCh
+	return utilerrors.NewAggregate(errList)
 }

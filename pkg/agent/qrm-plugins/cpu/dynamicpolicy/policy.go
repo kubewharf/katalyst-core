@@ -438,8 +438,15 @@ func (p *DynamicPolicy) Start() (err error) {
 	go wait.BackoffUntil(communicateWithCPUAdvisorServer, wait.NewExponentialBackoffManager(800*time.Millisecond,
 		30*time.Second, 2*time.Minute, 2.0, 0, &clock.RealClock{}), true, p.stopCh)
 
-	go p.sharedCoresNUMABindingHintOptimizer.Run(p.stopCh)
-	go p.dedicatedCoresNUMABindingHintOptimizer.Run(p.stopCh)
+	err = p.sharedCoresNUMABindingHintOptimizer.Run(p.stopCh)
+	if err != nil {
+		return fmt.Errorf("sharedCoresNUMABindingHintOptimizer.Run failed with error: %v", err)
+	}
+
+	err = p.dedicatedCoresNUMABindingHintOptimizer.Run(p.stopCh)
+	if err != nil {
+		return fmt.Errorf("dedicatedCoresNUMABindingHintOptimizer.Run failed with error: %v", err)
+	}
 
 	return nil
 }

@@ -45,6 +45,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/kubeletconfig"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -96,7 +97,8 @@ func generateTestMetaServer(podList ...*v1.Pod) *metaserver.MetaServer {
 
 	return &metaserver.MetaServer{
 		MetaAgent: &agent.MetaAgent{
-			PodFetcher: &pod.PodFetcherStub{PodList: podList},
+			PodFetcher:     &pod.PodFetcherStub{PodList: podList},
+			MetricsFetcher: metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}),
 			KatalystMachineInfo: &machine.KatalystMachineInfo{
 				MachineInfo: &info.MachineInfo{
 					Topology: []info.Node{
@@ -119,6 +121,9 @@ func generateTestMetaServer(podList ...*v1.Pod) *metaserver.MetaServer {
 							},
 						},
 					},
+				},
+				ExtraTopologyInfo: &machine.ExtraTopologyInfo{
+					SiblingNumaInfo: &machine.SiblingNumaInfo{},
 				},
 			},
 			KubeletConfigFetcher: kubeletconfig.NewFakeKubeletConfigFetcher(fakeKubeletConfig),
