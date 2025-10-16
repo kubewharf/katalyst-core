@@ -2206,7 +2206,7 @@ func TestGenerateResourcesMachineStateFromPodEntries(t *testing.T) {
 		v1.ResourceMemory: reservedMemory,
 	}
 
-	resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(machineInfo, podResourceEntries, reserved)
+	resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(machineInfo, podResourceEntries, nil, reserved)
 	as.Nil(err)
 
 	as.NotNil(resourcesMachineState[v1.ResourceMemory][0])
@@ -2759,7 +2759,7 @@ func TestHandleAdvisorResp(t *testing.T) {
 		memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyMemoryNUMAHeadroom,
 			memoryadvisor.ControlKnobHandlerWithChecker(dynamicPolicy.handleAdvisorMemoryNUMAHeadroom))
 
-		machineState, err := state.GenerateMachineStateFromPodEntries(machineInfo, tc.podResourceEntries, resourcesReservedMemory)
+		machineState, err := state.GenerateMachineStateFromPodEntries(machineInfo, tc.podResourceEntries, nil, resourcesReservedMemory)
 		as.Nil(err)
 
 		if tc.podResourceEntries != nil {
@@ -3137,7 +3137,7 @@ func TestSetExtraControlKnobByConfigs(t *testing.T) {
 		v1.ResourceMemory: reservedMemory,
 	}
 
-	resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(machineInfo, podResourceEntries, reserved)
+	resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(machineInfo, podResourceEntries, dynamicPolicy.state.GetMachineState(), reserved)
 	as.Nil(err)
 
 	dynamicPolicy.state.SetPodResourceEntries(podResourceEntries, true)
@@ -4079,7 +4079,7 @@ func TestDynamicPolicy_adjustAllocationEntries(t *testing.T) {
 			resourcesReservedMemory := map[v1.ResourceName]map[int]uint64{
 				v1.ResourceMemory: reservedMemory,
 			}
-			machineState, err := state.GenerateMachineStateFromPodEntries(machineInfo, podResourceEntries, resourcesReservedMemory)
+			machineState, err := state.GenerateMachineStateFromPodEntries(machineInfo, podResourceEntries, dynamicPolicy.state.GetMachineState(), resourcesReservedMemory)
 			assert.NoError(t, err)
 			dynamicPolicy.state.SetMachineState(machineState, true)
 
@@ -4828,7 +4828,7 @@ func Test_adjustAllocationEntries(t *testing.T) {
 	dynamicPolicy.state.SetAllocationInfo(v1.ResourceMemory, "test-pod-4-uid", "test-container-1", pod4Container1Allocation, true)
 
 	podResourceEntries := dynamicPolicy.state.GetPodResourceEntries()
-	machineState, err := state.GenerateMachineStateFromPodEntries(dynamicPolicy.state.GetMachineInfo(), podResourceEntries, dynamicPolicy.state.GetReservedMemory())
+	machineState, err := state.GenerateMachineStateFromPodEntries(dynamicPolicy.state.GetMachineInfo(), podResourceEntries, dynamicPolicy.state.GetMachineState(), dynamicPolicy.state.GetReservedMemory())
 	as.NoError(err)
 	dynamicPolicy.state.SetMachineState(machineState, true)
 

@@ -131,7 +131,7 @@ func (p *NativePolicy) dedicatedCoresAllocationHandler(_ context.Context,
 	p.state.SetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, allocationInfo, true)
 	podEntries := p.state.GetPodEntries()
 
-	updatedMachineState, err := nativepolicyutil.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+	updatedMachineState, err := nativepolicyutil.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries, nil)
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -198,7 +198,7 @@ func (p *NativePolicy) sharedPoolAllocationHandler(ctx context.Context,
 	p.state.SetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, allocationInfo, true)
 	podEntries := p.state.GetPodEntries()
 
-	updatedMachineState, err := nativepolicyutil.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+	updatedMachineState, err := nativepolicyutil.GenerateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries, nil)
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)

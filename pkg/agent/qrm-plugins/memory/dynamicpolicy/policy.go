@@ -749,7 +749,7 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 	if needUpdateMachineState {
 		general.Infof("GetResourcesAllocation update machine state")
 		podResourceEntries := p.state.GetPodResourceEntries()
-		resourcesState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetReservedMemory())
+		resourcesState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetMachineState(), p.state.GetReservedMemory())
 		if err != nil {
 			general.Infof("GetResourcesAllocation GenerateMachineStateFromPodEntries failed with error: %v", err)
 			return nil, fmt.Errorf("calculate machineState by updated pod entries failed with error: %v", err)
@@ -1090,7 +1090,7 @@ func (p *DynamicPolicy) removePod(podUID string, persistCheckpoint bool) error {
 		delete(podEntries, podUID)
 	}
 
-	resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetReservedMemory())
+	resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetMachineState(), p.state.GetReservedMemory())
 	if err != nil {
 		general.Errorf("pod: %s, GenerateMachineStateFromPodEntries failed with error: %v", podUID, err)
 		return fmt.Errorf("calculate machineState by updated pod entries failed with error: %v", err)
@@ -1120,7 +1120,7 @@ func (p *DynamicPolicy) removeContainer(podUID, containerName string, persistChe
 		return nil
 	}
 
-	resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetReservedMemory())
+	resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetMachineState(), p.state.GetReservedMemory())
 	if err != nil {
 		general.Errorf("pod: %s, container: %s GenerateMachineStateFromPodEntries failed with error: %v", podUID, containerName, err)
 		return fmt.Errorf("calculate machineState by updated pod entries failed with error: %v", err)

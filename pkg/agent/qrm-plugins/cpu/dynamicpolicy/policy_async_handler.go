@@ -414,7 +414,7 @@ func (p *DynamicPolicy) clearResidualState(_ *coreconfig.Configuration,
 		}
 
 		var updatedMachineState state.NUMANodeMap
-		updatedMachineState, err = generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries)
+		updatedMachineState, err = generateMachineStateFromPodEntries(p.machineInfo.CPUTopology, podEntries, p.state.GetMachineState())
 		if err != nil {
 			general.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 			return

@@ -3556,7 +3556,7 @@ func TestGetTopologyHints(t *testing.T) {
 			}
 
 			if tc.podEntries != nil {
-				machineState, err := generateMachineStateFromPodEntries(tc.cpuTopology, tc.podEntries)
+				machineState, err := generateMachineStateFromPodEntries(tc.cpuTopology, tc.podEntries, nil)
 				as.Nil(err)
 
 				dynamicPolicy.state.SetPodEntries(tc.podEntries, true)
@@ -5490,7 +5490,7 @@ func TestAllocateByQoSAwareServerListAndWatchResp(t *testing.T) {
 
 			dynamicPolicy.dynamicConfig.GetDynamicConfiguration().EnableReclaim = true
 
-			machineState, err := generateMachineStateFromPodEntries(tc.cpuTopology, tc.podEntries)
+			machineState, err := generateMachineStateFromPodEntries(tc.cpuTopology, tc.podEntries, nil)
 			as.Nil(err)
 
 			dynamicPolicy.state.SetPodEntries(tc.podEntries, true)
@@ -6429,7 +6429,7 @@ func TestSwitchBetweenAPIs(t *testing.T) {
 					},
 				},
 			}
-			machineState, err := generateMachineStateFromPodEntries(cpuTopology, podEntries)
+			machineState, err := generateMachineStateFromPodEntries(cpuTopology, podEntries, nil)
 			as.Nil(err)
 
 			dynamicPolicy.state.SetPodEntries(podEntries, true)
