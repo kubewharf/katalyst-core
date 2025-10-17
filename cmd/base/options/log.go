@@ -29,14 +29,17 @@ type LogsOptions struct {
 	SupportAsyncLogging bool
 	LogDir              string
 	LogBufferSizeMB     int
+	LogFileMaxAge       int
+	LogFileMaxBackups   int
 }
 
 func NewLogsOptions() *LogsOptions {
 	return &LogsOptions{
 		LogPackageLevel:    general.LoggingPKGFull,
 		LogFileMaxSizeInMB: 1800,
-		LogDir:             "/opt/tiger/toutiao/log/app",
 		LogBufferSizeMB:    10000,
+		LogFileMaxAge:      7,
+		LogFileMaxBackups:  10,
 	}
 }
 
@@ -47,6 +50,8 @@ func (o *LogsOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.BoolVar(&o.SupportAsyncLogging, "support-async-logging", o.SupportAsyncLogging, "whether to support async logging")
 	fs.StringVar(&o.LogDir, "log-dir", o.LogDir, "directory of log file")
 	fs.IntVar(&o.LogBufferSizeMB, "log-buffer-size", o.LogBufferSizeMB, "size of the ring buffer to store async logs")
+	fs.IntVar(&o.LogFileMaxAge, "log-file-max-age", o.LogFileMaxAge, "max age of klog log file in days")
+	fs.IntVar(&o.LogFileMaxBackups, "log-file-max-backups", o.LogFileMaxBackups, "max number of klog log file backups")
 }
 
 func (o *LogsOptions) ApplyTo(c *generic.LogConfiguration) error {
@@ -56,5 +61,7 @@ func (o *LogsOptions) ApplyTo(c *generic.LogConfiguration) error {
 	c.LogDir = o.LogDir
 	c.LogFileMaxSize = int(o.LogFileMaxSizeInMB)
 	c.LogBufferSizeMB = o.LogBufferSizeMB
+	c.LogFileMaxAge = o.LogFileMaxAge
+	c.LogFileMaxBackups = o.LogFileMaxBackups
 	return nil
 }

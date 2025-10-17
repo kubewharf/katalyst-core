@@ -33,7 +33,7 @@ func TestNewAsyncLogger(t *testing.T) {
 			EmitterPool: metrics_pool.DummyMetricsEmitterPool{},
 		},
 	}
-	asyncLogger := NewAsyncLogger(agentCtx, 100, 100)
+	asyncLogger := NewAsyncLogger(agentCtx, "testDir", 100, 100, 100, 100)
 	assert.NotNil(t, asyncLogger)
 
 	assert.Equal(t, len(asyncLogger.diodeWriters), 4)
