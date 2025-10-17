@@ -17,6 +17,7 @@ limitations under the License.
 package logging
 
 import (
+	"path"
 	"time"
 
 	"github.com/rs/zerolog/diode"
@@ -44,10 +45,10 @@ const (
 )
 
 const (
-	defaultInfoLogFileName    = "/opt/tiger/toutiao/log/app/agent.info.log"
-	defaultWarningLogFileName = "/opt/tiger/toutiao/log/app/agent.warning.log"
-	defaultErrorLogFileName   = "/opt/tiger/toutiao/log/app/agent.error.log"
-	defaultFatalLogFileName   = "/opt/tiger/toutiao/log/app/agent.fatal.log"
+	defaultInfoLogFileName    = "agent.info.log"
+	defaultWarningLogFileName = "agent.warning.log"
+	defaultErrorLogFileName   = "agent.error.log"
+	defaultFatalLogFileName   = "agent.fatal.log"
 )
 
 type logInfo struct {
@@ -64,20 +65,23 @@ var logInfoMap = map[SeverityName]*logInfo{
 
 type AsyncLogger struct {
 	diodeWriters []diode.Writer
-	logFile      string
 }
 
 // NewAsyncLogger creates an async logger that produces an async writer for each of the severity levels.
 // The async writer spins up a goroutine that periodically flushes the buffered logs to disk.
-func NewAsyncLogger(agentCtx *agent.GenericContext, maxSizeMB int, bufferSizeMB int) *AsyncLogger {
+func NewAsyncLogger(
+	agentCtx *agent.GenericContext, logDir string, maxSizeMB, maxAge, maxBackups, bufferSizeMB int,
+) *AsyncLogger {
 	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter()
 
 	asyncLogger := &AsyncLogger{}
 	for severity, logInfo := range logInfoMap {
 		// lumberjackLogger is a logger that rotates log files
 		lumberjackLogger := &lumberjack.Logger{
-			Filename: logInfo.fileName,
-			MaxSize:  maxSizeMB,
+			Filename:   path.Join(logDir, logInfo.fileName),
+			MaxSize:    maxSizeMB,
+			MaxAge:     maxAge,
+			MaxBackups: maxBackups,
 		}
 
 		// diodeWriter is a writer that stores logs in a ring buffer and asynchronously flushes them

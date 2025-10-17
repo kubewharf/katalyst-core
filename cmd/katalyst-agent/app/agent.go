@@ -64,7 +64,7 @@ func Run(
 	}
 
 	if conf.SupportAsyncLogging {
-		asyncLogger := logging.NewAsyncLogger(genericCtx, conf.LogFileMaxSize, conf.LogBufferSizeMB)
+		asyncLogger := logging.NewAsyncLogger(genericCtx, conf.LogDir, conf.LogFileMaxSize, conf.LogFileMaxAge, conf.LogFileMaxBackups, conf.LogBufferSizeMB)
 		defer asyncLogger.Shutdown()
 	}
 

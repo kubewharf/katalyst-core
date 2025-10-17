@@ -21,6 +21,8 @@ type LogConfiguration struct {
 	LogDir              string
 	LogFileMaxSize      int
 	LogBufferSizeMB     int
+	LogFileMaxAge       int
+	LogFileMaxBackups   int
 }
 
 func NewLogConfiguration() *LogConfiguration {
