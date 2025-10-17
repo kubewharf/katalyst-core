@@ -232,7 +232,7 @@ func (p *topologyAdapterImpl) GetTopologyZones(parentCtx context.Context) ([]*no
 		return nil, errors.Wrap(err, "get device zone topology failed")
 	}
 
-	return topologyZoneGenerator.GenerateTopologyZoneStatus(zoneAllocations, zoneResources, zoneAttributes, zoneSiblings), nil
+	return topologyZoneGenerator.GenerateTopologyZoneStatus(zoneAllocations, zoneResources, zoneAttributes, zoneSiblings, nil), nil
 }
 
 // GetTopologyPolicy return newest topology policy status
