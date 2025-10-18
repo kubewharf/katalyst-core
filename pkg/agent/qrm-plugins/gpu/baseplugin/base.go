@@ -18,11 +18,8 @@ package baseplugin
 
 import (
 	"fmt"
-	"sort"
 	"sync"
 
-	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/util/sets"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
@@ -60,6 +57,9 @@ type BasePlugin struct {
 	State state.State
 	// Registry of device topology providers
 	DeviceTopologyRegistry *machine.DeviceTopologyRegistry
+
+	// Map of specific device name to device type
+	DeviceNameToTypeMap map[string]string
 }
 
 func NewBasePlugin(
@@ -69,7 +69,6 @@ func NewBasePlugin(
 
 	stateImpl, err := state.NewCheckpointState(conf.QRMPluginsConfiguration, conf.GenericQRMPluginConfiguration.StateFileDirectory, GPUPluginStateFileName,
 		gpuconsts.GPUResourcePluginPolicyNameStatic, deviceTopologyRegistry, conf.SkipGPUStateCorruption, wrappedEmitter)
-
 	if err != nil {
 		return nil, fmt.Errorf("NewCheckpointState failed with error: %v", err)
 	}
@@ -87,6 +86,7 @@ func NewBasePlugin(
 
 		State:                  stateImpl,
 		DeviceTopologyRegistry: deviceTopologyRegistry,
+		DeviceNameToTypeMap:    make(map[string]string),
 	}, nil
 }
 
@@ -130,99 +130,6 @@ func (p *BasePlugin) PackAllocationResponse(
 	}, nil
 }
 
-func (p *BasePlugin) CalculateAssociatedDevices(
-	gpuTopology *machine.DeviceTopology, gpuMemoryRequest float64, hintNodes machine.CPUSet,
-	request *pluginapi.DeviceRequest, resourceName v1.ResourceName,
-) ([]string, map[string]float64, error) {
-	gpuRequest := request.GetDeviceRequest()
-	gpuMemoryPerGPU := gpuMemoryRequest / float64(gpuRequest)
-
-	machineState, ok := p.State.GetMachineState()[resourceName]
-	if !ok {
-		return nil, nil, fmt.Errorf("no machine state for resource %s", resourceName)
-	}
-
-	allocatedDevices := sets.NewString()
-	needed := gpuRequest
-	allocateDevices := func(devices ...string) bool {
-		for _, device := range devices {
-			allocatedDevices.Insert(device)
-			needed--
-			if needed == 0 {
-				return true
-			}
-		}
-		return false
-	}
-
-	allocatedGPUMemory := func(devices ...string) map[string]float64 {
-		memory := make(map[string]float64)
-		for _, device := range devices {
-			memory[device] = gpuMemoryPerGPU
-		}
-		return memory
-	}
-
-	availableDevices := request.GetAvailableDevices()
-	reusableDevices := request.GetReusableDevices()
-
-	// allocate must include devices first
-	for _, device := range reusableDevices {
-		if machineState.IsGPURequestSatisfied(device, gpuMemoryPerGPU, float64(p.GPUMemoryAllocatablePerGPU.Value())) {
-			general.Warningf("must include gpu %s has enough memory to allocate, gpuMemoryAllocatable: %f, gpuMemoryAllocated: %f, gpuMemoryPerGPU: %f",
-				device, float64(p.GPUMemoryAllocatablePerGPU.Value()), machineState.GetQuantityAllocated(device), gpuMemoryPerGPU)
-		}
-		allocateDevices(device)
-	}
-
-	// if allocated devices is enough, return immediately
-	if allocatedDevices.Len() >= int(gpuRequest) {
-		return allocatedDevices.UnsortedList(), allocatedGPUMemory(allocatedDevices.UnsortedList()...), nil
-	}
-
-	isNUMAAffinityDevice := func(device string) bool {
-		info, ok := gpuTopology.Devices[device]
-		if !ok {
-			general.Errorf("failed to find hint node for device %s", device)
-			return false
-		}
-
-		// check if gpu's numa node is the subset of hint nodes
-		// todo support multi numa node
-		if machine.NewCPUSet(info.GetNUMANode()...).IsSubsetOf(hintNodes) {
-			return true
-		}
-		return false
-	}
-
-	sort.SliceStable(availableDevices, func(i, j int) bool {
-		return machineState.GetQuantityAllocated(availableDevices[i]) > machineState.GetQuantityAllocated(availableDevices[j])
-	})
-
-	// second allocate available and numa-affinity gpus
-	for _, device := range availableDevices {
-		if allocatedDevices.Has(device) {
-			continue
-		}
-
-		if !isNUMAAffinityDevice(device) {
-			continue
-		}
-
-		if !machineState.IsGPURequestSatisfied(device, gpuMemoryPerGPU, float64(p.GPUMemoryAllocatablePerGPU.Value())) {
-			general.Infof("available numa affinity gpu %s has not enough memory to allocate, gpuMemoryAllocatable: %f, gpuMemoryAllocated: %f, gpuMemoryPerGPU: %f",
-				device, float64(p.GPUMemoryAllocatablePerGPU.Value()), machineState.GetQuantityAllocated(device), gpuMemoryPerGPU)
-			continue
-		}
-
-		if allocateDevices(device) {
-			return allocatedDevices.UnsortedList(), allocatedGPUMemory(allocatedDevices.UnsortedList()...), nil
-		}
-	}
-
-	return nil, nil, fmt.Errorf("no enough available GPUs found in gpuTopology, number of needed GPUs: %d, availableDevices len: %d, allocatedDevices len: %d", gpuRequest, len(availableDevices), len(allocatedDevices))
-}
-
 // UpdateAllocatableAssociatedDevicesByDeviceType updates the topology provider with topology information of the
 // given device type.
 func (p *BasePlugin) UpdateAllocatableAssociatedDevicesByDeviceType(
@@ -260,4 +167,21 @@ func (p *BasePlugin) UpdateAllocatableAssociatedDevicesByDeviceType(
 	general.Infof("got device %s topology success: %v", request.DeviceName, deviceTopology)
 
 	return &pluginapi.UpdateAllocatableAssociatedDevicesResponse{}, nil
+}
+
+// RegisterDeviceNameToType is used to map device name to device type.
+// For example, we may have multiple device names for a same device type, e.g. "nvidia.com/gpu" and "nvidia.com/be-gpu",
+// so we map them to the same device type, which allows us to allocate them interchangeably.
+func (p *BasePlugin) RegisterDeviceNameToType(resourceNames []string, deviceType string) {
+	for _, resourceName := range resourceNames {
+		p.DeviceNameToTypeMap[resourceName] = deviceType
+	}
+}
+
+func (p *BasePlugin) GetResourceTypeFromDeviceName(deviceName string) (string, error) {
+	deviceType, ok := p.DeviceNameToTypeMap[deviceName]
+	if !ok {
+		return "", fmt.Errorf("no device type found for device name %s", deviceName)
+	}
+	return deviceType, nil
 }
