@@ -27,5 +27,13 @@ type PowerData struct {
 
 type SensorData struct {
 	TotalPowerWatt float64 `json:"total_power"`
+	CPUPower       float64 `json:"cpu_power"`
+	MemPower       float64 `json:"mem_power"`
+	FanPower       float64 `json:"fan_power"`
+	HDDPower       float64 `json:"hdd_power"`
+	PSU0POut       float64 `json:"psu0_pout"`
+	PSU1POut       float64 `json:"psu1_pout"`
+	PSU0PIn        float64 `json:"psu0_pin"`
+	PSU1PIn        float64 `json:"psu1_pin"`
 	UpdateTime     int64   `json:"update_time"`
 }
