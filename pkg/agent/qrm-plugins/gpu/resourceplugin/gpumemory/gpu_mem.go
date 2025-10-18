@@ -386,34 +386,36 @@ func (p *GPUMemPlugin) GetTopologyAwareAllocatableResources() (*gpuconsts.Alloca
 	}, nil
 }
 
-func (p *GPUMemPlugin) Allocate(req *pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error) {
-	existReallocAnno, isReallocation := util.IsReallocation(req.Annotations)
+func (p *GPUMemPlugin) Allocate(
+	resourceReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest,
+) (*pluginapi.ResourceAllocationResponse, error) {
+	existReallocAnno, isReallocation := util.IsReallocation(resourceReq.Annotations)
 
-	qosLevel, err := util.GetKatalystQoSLevelFromResourceReq(p.QosConfig, req, p.PodAnnotationKeptKeys, p.PodLabelKeptKeys)
+	qosLevel, err := util.GetKatalystQoSLevelFromResourceReq(p.QosConfig, resourceReq, p.PodAnnotationKeptKeys, p.PodLabelKeptKeys)
 	if err != nil {
 		err = fmt.Errorf("GetKatalystQoSLevelFromResourceReq for pod: %s/%s, container: %s failed with error: %v",
-			req.PodNamespace, req.PodName, req.ContainerName, err)
+			resourceReq.PodNamespace, resourceReq.PodName, resourceReq.ContainerName, err)
 		general.Errorf("%s", err.Error())
 		return nil, err
 	}
 
-	_, gpuMemory, err := util.GetQuantityFromResourceRequests(req.ResourceRequests, p.ResourceName(), false)
+	_, gpuMemory, err := util.GetQuantityFromResourceRequests(resourceReq.ResourceRequests, p.ResourceName(), false)
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
 
-	gpuCount, gpuNames, err := p.getGPUCount(req)
+	gpuCount, gpuNames, err := p.getGPUCount(resourceReq)
 	if err != nil {
-		general.Errorf("getGPUCount failed from req %v with error: %v", req, err)
+		general.Errorf("getGPUCount failed from req %v with error: %v", resourceReq, err)
 		return nil, fmt.Errorf("getGPUCount failed with error: %v", err)
 	}
 
 	general.InfoS("called",
-		"podNamespace", req.PodNamespace,
-		"podName", req.PodName,
-		"containerName", req.ContainerName,
+		"podNamespace", resourceReq.PodNamespace,
+		"podName", resourceReq.PodName,
+		"containerName", resourceReq.ContainerName,
 		"qosLevel", qosLevel,
-		"reqAnnotations", req.Annotations,
+		"reqAnnotations", resourceReq.Annotations,
 		"gpuMemory", gpuMemory,
 		"gpuNames", gpuNames.List(),
 		"gpuCount", gpuCount)
@@ -421,7 +423,7 @@ func (p *GPUMemPlugin) Allocate(req *pluginapi.ResourceRequest) (*pluginapi.Reso
 	p.Lock()
 	defer func() {
 		if err := p.State.StoreState(); err != nil {
-			general.ErrorS(err, "store state failed", "podName", req.PodName, "containerName", req.ContainerName)
+			general.ErrorS(err, "store state failed", "podName", resourceReq.PodName, "containerName", resourceReq.ContainerName)
 		}
 		p.Unlock()
 		if err != nil {
@@ -436,61 +438,68 @@ func (p *GPUMemPlugin) Allocate(req *pluginapi.ResourceRequest) (*pluginapi.Reso
 	}()
 
 	emptyResponse := &pluginapi.ResourceAllocationResponse{
-		PodUid:         req.PodUid,
-		PodNamespace:   req.PodNamespace,
-		PodName:        req.PodName,
-		ContainerName:  req.ContainerName,
-		ContainerType:  req.ContainerType,
-		ContainerIndex: req.ContainerIndex,
-		PodRole:        req.PodRole,
-		PodType:        req.PodType,
+		PodUid:         resourceReq.PodUid,
+		PodNamespace:   resourceReq.PodNamespace,
+		PodName:        resourceReq.PodName,
+		ContainerName:  resourceReq.ContainerName,
+		ContainerType:  resourceReq.ContainerType,
+		ContainerIndex: resourceReq.ContainerIndex,
+		PodRole:        resourceReq.PodRole,
+		PodType:        resourceReq.PodType,
 		ResourceName:   p.ResourceName(),
-		Labels:         general.DeepCopyMap(req.Labels),
-		Annotations:    general.DeepCopyMap(req.Annotations),
+		Labels:         general.DeepCopyMap(resourceReq.Labels),
+		Annotations:    general.DeepCopyMap(resourceReq.Annotations),
 	}
 
 	// currently, not to deal with init containers
-	if req.ContainerType == pluginapi.ContainerType_INIT {
+	if resourceReq.ContainerType == pluginapi.ContainerType_INIT {
 		return emptyResponse, nil
-	} else if req.ContainerType == pluginapi.ContainerType_SIDECAR {
+	} else if resourceReq.ContainerType == pluginapi.ContainerType_SIDECAR {
 		// not to deal with sidecars, and return a trivial allocationResult to avoid re-allocating
-		return p.PackAllocationResponse(req, &state.AllocationInfo{}, nil, p.ResourceName())
+		return p.PackAllocationResponse(resourceReq, &state.AllocationInfo{}, nil, p.ResourceName())
 	}
 
-	allocationInfo := p.State.GetAllocationInfo(consts.ResourceGPUMemory, req.PodUid, req.ContainerName)
+	allocationInfo := p.State.GetAllocationInfo(consts.ResourceGPUMemory, resourceReq.PodUid, resourceReq.ContainerName)
 	if allocationInfo != nil {
-		resp, packErr := p.PackAllocationResponse(req, allocationInfo, nil, p.ResourceName())
+		resp, packErr := p.PackAllocationResponse(resourceReq, allocationInfo, nil, p.ResourceName())
 		if packErr != nil {
 			general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
-				req.PodNamespace, req.PodName, req.ContainerName, packErr)
-			return nil, fmt.Errorf("packAllocationResponse failed with error: %v", packErr)
+				resourceReq.PodNamespace, resourceReq.PodName, resourceReq.ContainerName, packErr)
+			return nil, fmt.Errorf("packAllocationResponse failed with error: %w", packErr)
 		}
 		return resp, nil
 	}
 
 	// get hint nodes from request
-	hintNodes, err := machine.NewCPUSetUint64(req.GetHint().GetNodes()...)
+	hintNodes, err := machine.NewCPUSetUint64(resourceReq.GetHint().GetNodes()...)
 	if err != nil {
 		general.Warningf("failed to get hint nodes: %v", err)
-		return nil, fmt.Errorf("failed to get hint nodes: %v", err)
+		return nil, fmt.Errorf("failed to get hint nodes: %w", err)
 	}
 
 	newAllocation := &state.AllocationInfo{
-		AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(req, commonstate.EmptyOwnerPoolName, qosLevel),
+		AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(resourceReq, commonstate.EmptyOwnerPoolName, qosLevel),
 		AllocatedAllocation: state.Allocation{
 			Quantity:  gpuMemory,
 			NUMANodes: hintNodes.ToSliceInt(),
 		},
 	}
 
-	p.State.SetAllocationInfo(consts.ResourceGPUMemory, req.PodUid, req.ContainerName, newAllocation, false)
+	// Allocate for gpu devices
+	if deviceReq != nil {
+		if err = p.allocateForGPUDevice(newAllocation, deviceReq, gpuMemory); err != nil {
+			return nil, fmt.Errorf("allocateForGPUDevice failed with error: %w", err)
+		}
+	}
+
+	p.State.SetAllocationInfo(consts.ResourceGPUMemory, resourceReq.PodUid, resourceReq.ContainerName, newAllocation, false)
 
 	machineState, stateErr := state.GenerateMachineStateFromPodEntries(p.State.GetPodResourceEntries(), p.DeviceTopologyRegistry)
 	if stateErr != nil {
 		general.ErrorS(stateErr, "GenerateMachineStateFromPodEntries failed",
-			"podNamespace", req.PodNamespace,
-			"podName", req.PodName,
-			"containerName", req.ContainerName,
+			"podNamespace", resourceReq.PodNamespace,
+			"podName", resourceReq.PodName,
+			"containerName", resourceReq.ContainerName,
 			"gpuMemory", gpuMemory)
 		return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", stateErr)
 	}
@@ -498,7 +507,49 @@ func (p *GPUMemPlugin) Allocate(req *pluginapi.ResourceRequest) (*pluginapi.Reso
 	// update state cache
 	p.State.SetMachineState(machineState, true)
 
-	return p.PackAllocationResponse(req, newAllocation, nil, p.ResourceName())
+	return p.PackAllocationResponse(resourceReq, newAllocation, nil, p.ResourceName())
+}
+
+// allocateForGPUDevice is called when there is a GPU device request, which means we need to allocate for GPUs as well,
+// so we modify the topologyAwareAllocations to include the GPU devices.
+func (p *GPUMemPlugin) allocateForGPUDevice(
+	allocationInfo *state.AllocationInfo, deviceReq *pluginapi.DeviceRequest, memoryRequest float64,
+) error {
+	hintNodes, err := machine.NewCPUSetUint64(deviceReq.GetHint().GetNodes()...)
+	if err != nil {
+		general.Warningf("failed to get hint nodes: %v", err)
+		return fmt.Errorf("failed to get hint nodes: %v", err)
+	}
+
+	gpuTopology, numaTopologyReady, err := p.DeviceTopologyRegistry.GetDeviceTopology(gpuconsts.GPUDeviceType)
+	if err != nil {
+		return fmt.Errorf("failed to get gpu topology: %v", err)
+	}
+
+	if !numaTopologyReady {
+		return fmt.Errorf("numa topology is not ready")
+	}
+
+	allocatedDevices, allocatedGPUMemory, err := p.calculateAssociatedGPUDevices(gpuTopology, memoryRequest, hintNodes, deviceReq)
+	if err != nil {
+		general.Warningf("failed to allocate associated devices: %v", err)
+		return err
+	}
+
+	memoryTopologyAwareAllocations := make(map[string]state.Allocation)
+	for _, device := range allocatedDevices {
+		info, ok := gpuTopology.Devices[device]
+		if !ok {
+			return fmt.Errorf("failed to get gpu info for device: %s", device)
+		}
+
+		memoryTopologyAwareAllocations[device] = state.Allocation{
+			Quantity:  allocatedGPUMemory[device],
+			NUMANodes: info.GetNUMANode(),
+		}
+	}
+	allocationInfo.TopologyAwareAllocations = memoryTopologyAwareAllocations
+	return nil
 }
 
 func (p *GPUMemPlugin) getGPUCount(req *pluginapi.ResourceRequest) (float64, sets.String, error) {
@@ -513,4 +564,85 @@ func (p *GPUMemPlugin) getGPUCount(req *pluginapi.ResourceRequest) (float64, set
 		gpuNames.Insert(resourceName)
 	}
 	return gpuCount, gpuNames, nil
+}
+
+func (p *GPUMemPlugin) calculateAssociatedGPUDevices(
+	gpuTopology *machine.DeviceTopology, gpuMemoryRequest float64, hintNodes machine.CPUSet,
+	request *pluginapi.DeviceRequest,
+) ([]string, map[string]float64, error) {
+	gpuRequest := request.GetDeviceRequest()
+	gpuMemoryPerGPU := gpuMemoryRequest / float64(gpuRequest)
+
+	machineState, ok := p.State.GetMachineState()[consts.ResourceGPUMemory]
+	if !ok {
+		return nil, nil, fmt.Errorf("no machine state for resource %s", consts.ResourceGPUMemory)
+	}
+
+	allocatedDevices := sets.NewString()
+	needed := gpuRequest
+	allocateDevices := func(devices ...string) bool {
+		for _, device := range devices {
+			allocatedDevices.Insert(device)
+			needed--
+			if needed == 0 {
+				return true
+			}
+		}
+		return false
+	}
+
+	allocatedGPUMemory := func(devices ...string) map[string]float64 {
+		memory := make(map[string]float64)
+		for _, device := range devices {
+			memory[device] = gpuMemoryPerGPU
+		}
+		return memory
+	}
+
+	availableDevices := request.GetAvailableDevices()
+	reusableDevices := request.GetReusableDevices()
+
+	// allocate must include devices first
+	for _, device := range reusableDevices {
+		if allocatedDevices.Has(device) {
+			continue
+		}
+		if machineState.IsRequestSatisfied(device, gpuMemoryPerGPU, float64(p.GPUMemoryAllocatablePerGPU.Value())) {
+			general.Warningf("must include gpu %s has enough memory to allocate, gpuMemoryAllocatable: %f, gpuMemoryAllocated: %f, gpuMemoryPerGPU: %f",
+				device, float64(p.GPUMemoryAllocatablePerGPU.Value()), machineState.GetQuantityAllocated(device), gpuMemoryPerGPU)
+		}
+		allocateDevices(device)
+	}
+
+	// if allocated devices is enough, return immediately
+	if allocatedDevices.Len() >= int(gpuRequest) {
+		return allocatedDevices.UnsortedList(), allocatedGPUMemory(allocatedDevices.UnsortedList()...), nil
+	}
+
+	sort.SliceStable(availableDevices, func(i, j int) bool {
+		return machineState.GetQuantityAllocated(availableDevices[i]) > machineState.GetQuantityAllocated(availableDevices[j])
+	})
+
+	// second allocate available and numa-affinity gpus
+	for _, device := range availableDevices {
+		if allocatedDevices.Has(device) {
+			continue
+		}
+
+		if !gpuutil.IsNUMAAffinityDevice(device, gpuTopology, hintNodes) {
+			continue
+		}
+
+		if !machineState.IsRequestSatisfied(device, gpuMemoryPerGPU, float64(p.GPUMemoryAllocatablePerGPU.Value())) {
+			general.Infof("available numa affinity gpu %s has not enough memory to allocate, gpuMemoryAllocatable: %f, gpuMemoryAllocated: %f, gpuMemoryPerGPU: %f",
+				device, float64(p.GPUMemoryAllocatablePerGPU.Value()), machineState.GetQuantityAllocated(device), gpuMemoryPerGPU)
+			continue
+		}
+
+		if allocateDevices(device) {
+			return allocatedDevices.UnsortedList(), allocatedGPUMemory(allocatedDevices.UnsortedList()...), nil
+		}
+	}
+
+	return nil, nil, fmt.Errorf("no enough available GPUs found in gpuTopology, number of needed GPUs: %d, availableDevices len: %d, allocatedDevices len: %d", gpuRequest, len(availableDevices), len(allocatedDevices))
 }

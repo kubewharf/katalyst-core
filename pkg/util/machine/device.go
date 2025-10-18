@@ -31,6 +31,7 @@ type DeviceTopologyProvider interface {
 	SetDeviceTopology(*DeviceTopology) error
 }
 
+// DeviceTopologyRegistry is a registry of all topology providers that knows how to provide topology information of machine devices
 type DeviceTopologyRegistry struct {
 	// DeviceNameToProvider is a mapping of device name to their respective topology provider
 	DeviceNameToProvider map[string]DeviceTopologyProvider
@@ -68,7 +69,7 @@ func (r *DeviceTopologyRegistry) GetDeviceTopology(deviceName string) (*DeviceTo
 	return provider.GetDeviceTopology()
 }
 
-// GetDeviceAffinity retrieves a map of a certain device to the list of devices that it has an affinity with
+// GetDeviceAffinity retrieves a map of a certain device to the list of devices that it has an affinity with.
 // A device is considered to have an affinity with another device if they are on the exact same NUMA node(s)
 func (r *DeviceTopologyRegistry) GetDeviceAffinity(key, value string) (map[string][]string, error) {
 	deviceTopologyKey, numaReady, err := r.GetDeviceTopology(key)
@@ -183,6 +184,7 @@ func getEmptyDeviceTopology() *DeviceTopology {
 	}
 }
 
+// TODO: change to return map[resourceName]DeviceTopology
 func initDeviceTopology(resourceNames []string) (*DeviceTopology, error) {
 	deviceTopology := getEmptyDeviceTopology()
 
