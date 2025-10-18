@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
@@ -183,6 +184,24 @@ func (pre PodResourceEntries) RemovePod(podUID string) {
 	}
 }
 
+// GetTotalAllocatedResourceOfContainer returns the total allocated resource quantity of a container together with
+// the specific resource IDs that are allocated.
+func (pre PodResourceEntries) GetTotalAllocatedResourceOfContainer(
+	resourceName v1.ResourceName, podUID, containerName string,
+) (int, sets.String) {
+	if podEntries, ok := pre[resourceName]; ok {
+		if allocationInfo := podEntries.GetAllocationInfo(podUID, containerName); allocationInfo != nil {
+			totalAllocationQuantity := int(allocationInfo.AllocatedAllocation.Quantity)
+			allocationIDs := sets.NewString()
+			for id := range allocationInfo.TopologyAwareAllocations {
+				allocationIDs.Insert(id)
+			}
+			return totalAllocationQuantity, allocationIDs
+		}
+	}
+	return 0, nil
+}
+
 func (as *AllocationState) String() string {
 	if as == nil {
 		return ""
@@ -255,6 +274,24 @@ func (arm AllocationResourcesMap) Clone() AllocationResourcesMap {
 	return clone
 }
 
+// GetRatioOfAccompanyResourceToTargetResource returns the ratio of total accompany resource to total target resource.
+// For example, if the total number of accompany resource is 4 and the total number of target resource is 2,
+// the ratio is 2.
+func (arm AllocationResourcesMap) GetRatioOfAccompanyResourceToTargetResource(accompanyResourceName, targetResourceName string) float64 {
+	// Find the ratio of the total number of accompany resource to the total number of target resource
+	accompanyResourceMap := arm[v1.ResourceName(accompanyResourceName)].Clone()
+	accompanyResourceNumber := accompanyResourceMap.getNumberDevices()
+
+	targetResourceMap := arm[v1.ResourceName(targetResourceName)].Clone()
+	targetResourceNumber := targetResourceMap.getNumberDevices()
+
+	if targetResourceNumber == 0 {
+		return 0
+	}
+
+	return float64(accompanyResourceNumber) / float64(targetResourceNumber)
+}
+
 func (as *AllocationState) GetQuantityAllocated() float64 {
 	if as == nil {
 		return 0
@@ -277,13 +314,21 @@ func (am AllocationMap) GetQuantityAllocated(id string) float64 {
 	return am[id].GetQuantityAllocated()
 }
 
-func (am AllocationMap) IsGPURequestSatisfied(id string, request float64, allocatable float64) bool {
+func (am AllocationMap) IsRequestSatisfied(id string, request float64, allocatable float64) bool {
 	if am == nil {
 		return false
 	}
 
 	allocated := am.GetQuantityAllocated(id)
 	return allocatable-allocated >= request
+}
+
+func (am AllocationMap) getNumberDevices() int {
+	if am == nil {
+		return 0
+	}
+
+	return len(am)
 }
 
 // reader is used to get information from local states
