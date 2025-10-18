@@ -56,3 +56,15 @@ func GetNUMANodesCountToFitGPUReq(
 	gpusCountNeededPerNUMA := int(math.Ceil(gpuReq / float64(numaCountNeeded)))
 	return numaCountNeeded, gpusCountNeededPerNUMA, nil
 }
+
+func IsNUMAAffinityDevice(
+	device string, deviceTopology *machine.DeviceTopology, hintNodes machine.CPUSet,
+) bool {
+	info, ok := deviceTopology.Devices[device]
+	if !ok {
+		general.Errorf("failed to find device info for device %s", device)
+		return false
+	}
+
+	return machine.NewCPUSet(info.GetNUMANode()...).IsSubsetOf(hintNodes)
+}
