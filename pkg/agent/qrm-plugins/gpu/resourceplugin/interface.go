@@ -32,5 +32,7 @@ type ResourcePlugin interface {
 
 	GetTopologyAwareAllocatableResources() (*gpuconsts.AllocatableResource, error)
 
-	Allocate(*pluginapi.ResourceRequest) (*pluginapi.ResourceAllocationResponse, error)
+	Allocate(
+		resourceReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest,
+	) (*pluginapi.ResourceAllocationResponse, error)
 }
