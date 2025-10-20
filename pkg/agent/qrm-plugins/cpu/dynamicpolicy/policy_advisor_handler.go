@@ -598,13 +598,13 @@ func (p *DynamicPolicy) checkAndApplyAllPodsQuota(calculationInfo *advisorsvc.Ca
 	for _, podDir := range podDirs {
 		pod, podRelativePath, err := p.getPodAndRelativePath(calculationInfo.CgroupPath, podDir, podsPathMap)
 		if err != nil {
-			general.Warningf("getPodAndRelativePath error for pod %s: %v", pod.Name, err)
+			general.Warningf("getPodAndRelativePath error for pod dir %s: %v", podDir, err)
 			continue
 		}
 
 		_, limit := resource.PodRequestsAndLimits(pod)
 		if _, ok := limit[v1.ResourceCPU]; !ok {
-			general.Warningf("no cpu limit for pod %s: %v", pod.Name, err)
+			general.Warningf("no cpu limit for pod dir %s: %v", podDir, err)
 			continue
 		}
 
