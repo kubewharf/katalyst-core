@@ -604,7 +604,7 @@ func (p *DynamicPolicy) checkAndApplyAllPodsQuota(calculationInfo *advisorsvc.Ca
 
 		_, limit := resource.PodRequestsAndLimits(pod)
 		if _, ok := limit[v1.ResourceCPU]; !ok {
-			general.Warningf("no cpu limit for pod dir %s: %v", podDir, err)
+			general.Warningf("no cpu limit for pod %s: %v", pod.Name, err)
 			continue
 		}
 
