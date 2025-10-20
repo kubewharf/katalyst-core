@@ -59,7 +59,7 @@ type BasePlugin struct {
 	DeviceTopologyRegistry *machine.DeviceTopologyRegistry
 
 	// Map of specific device name to device type
-	DeviceNameToTypeMap map[string]string
+	deviceNameToTypeMap map[string]string
 }
 
 func NewBasePlugin(
@@ -86,7 +86,7 @@ func NewBasePlugin(
 
 		State:                  stateImpl,
 		DeviceTopologyRegistry: deviceTopologyRegistry,
-		DeviceNameToTypeMap:    make(map[string]string),
+		deviceNameToTypeMap:    make(map[string]string),
 	}, nil
 }
 
@@ -174,12 +174,12 @@ func (p *BasePlugin) UpdateAllocatableAssociatedDevicesByDeviceType(
 // so we map them to the same device type, which allows us to allocate them interchangeably.
 func (p *BasePlugin) RegisterDeviceNameToType(resourceNames []string, deviceType string) {
 	for _, resourceName := range resourceNames {
-		p.DeviceNameToTypeMap[resourceName] = deviceType
+		p.deviceNameToTypeMap[resourceName] = deviceType
 	}
 }
 
 func (p *BasePlugin) GetResourceTypeFromDeviceName(deviceName string) (string, error) {
-	deviceType, ok := p.DeviceNameToTypeMap[deviceName]
+	deviceType, ok := p.deviceNameToTypeMap[deviceName]
 	if !ok {
 		return "", fmt.Errorf("no device type found for device name %s", deviceName)
 	}
