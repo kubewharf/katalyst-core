@@ -28,6 +28,8 @@ type CustomDevicePlugin interface {
 
 	UpdateAllocatableAssociatedDevices(*pluginapi.UpdateAllocatableAssociatedDevicesRequest) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error)
 
+	DefaultAccompanyResourceName() string
+
 	AllocateAssociatedDevice(
 		resReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest, accompanyResourceName string,
 	) (*pluginapi.AssociatedDeviceAllocationResponse, error)
