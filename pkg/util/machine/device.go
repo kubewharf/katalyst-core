@@ -184,7 +184,6 @@ func getEmptyDeviceTopology() *DeviceTopology {
 	}
 }
 
-// TODO: change to return map[resourceName]DeviceTopology
 func initDeviceTopology(resourceNames []string) (*DeviceTopology, error) {
 	deviceTopology := getEmptyDeviceTopology()
 

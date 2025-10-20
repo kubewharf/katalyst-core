@@ -25,13 +25,17 @@ import (
 
 type initFunc func(plugin *baseplugin.BasePlugin) customdeviceplugin.CustomDevicePlugin
 
-var CustomDevicePluginsMap = make(map[string]initFunc)
+var customDevicePluginsMap = make(map[string]initFunc)
 
-func registerCustomDevicePlugin(deviceName string, initFunc initFunc) {
-	CustomDevicePluginsMap[deviceName] = initFunc
+func RegisterCustomDevicePlugin(deviceName string, initFunc initFunc) {
+	customDevicePluginsMap[deviceName] = initFunc
+}
+
+func GetRegisteredCustomDevicePlugin() map[string]initFunc {
+	return customDevicePluginsMap
 }
 
 func init() {
-	registerCustomDevicePlugin(gpu.GPUCustomDevicePluginName, gpu.NewGPUDevicePlugin)
-	registerCustomDevicePlugin(rdma.RDMACustomDevicePluginName, rdma.NewRDMADevicePlugin)
+	RegisterCustomDevicePlugin(gpu.GPUCustomDevicePluginName, gpu.NewGPUDevicePlugin)
+	RegisterCustomDevicePlugin(rdma.RDMACustomDevicePluginName, rdma.NewRDMADevicePlugin)
 }
