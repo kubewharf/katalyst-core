@@ -53,6 +53,10 @@ func NewRDMADevicePlugin(base *baseplugin.BasePlugin) customdeviceplugin.CustomD
 	}
 }
 
+func (p *RDMADevicePlugin) DefaultAccompanyResourceName() string {
+	return ""
+}
+
 func (p *RDMADevicePlugin) DeviceNames() []string {
 	return p.deviceNames
 }
