@@ -59,7 +59,6 @@ type StaticPolicy struct {
 
 	emitter               metrics.MetricEmitter
 	associatedDeviceNames sets.String
-	resourcePluginsNames  sets.String
 
 	residualHitMap map[string]int64
 
@@ -83,15 +82,13 @@ func NewStaticPolicy(
 	}
 
 	policyImplement := &StaticPolicy{
-		emitter:               wrappedEmitter,
-		stopCh:                make(chan struct{}),
-		name:                  fmt.Sprintf("%s_%s", agentName, gpuconsts.GPUResourcePluginPolicyNameStatic),
-		residualHitMap:        make(map[string]int64),
-		associatedDeviceNames: sets.NewString(conf.GPUDeviceNames...),
-		resourcePluginsNames:  sets.NewString(conf.ResourcePluginsNames...),
-		BasePlugin:            basePlugin,
-		resourcePlugins:       make(map[string]resourceplugin.ResourcePlugin),
-		customDevicePlugins:   make(map[string]customdeviceplugin.CustomDevicePlugin),
+		emitter:             wrappedEmitter,
+		stopCh:              make(chan struct{}),
+		name:                fmt.Sprintf("%s_%s", agentName, gpuconsts.GPUResourcePluginPolicyNameStatic),
+		residualHitMap:      make(map[string]int64),
+		BasePlugin:          basePlugin,
+		resourcePlugins:     make(map[string]resourceplugin.ResourcePlugin),
+		customDevicePlugins: make(map[string]customdeviceplugin.CustomDevicePlugin),
 	}
 
 	if err = policyImplement.registerResourcePlugins(); err != nil {
@@ -362,7 +359,6 @@ func (p *StaticPolicy) GetResourcePluginOptions(
 // Allocate is called during pod admit so that the resource
 // plugin can allocate corresponding resource for the container
 // according to resource request
-// TODO: Clean state if fail
 func (p *StaticPolicy) Allocate(
 	_ context.Context,
 	req *pluginapi.ResourceRequest,
@@ -375,8 +371,8 @@ func (p *StaticPolicy) Allocate(
 	defer func() {
 		if err != nil {
 			_ = p.removeContainer(req.PodUid, req.ContainerName, v1.ResourceName(req.ResourceName))
-			p.Unlock()
 		}
+		p.Unlock()
 	}()
 
 	resourcePlugin := p.getResourcePlugin(req.ResourceName)
@@ -426,10 +422,15 @@ func (p *StaticPolicy) removeContainer(podUID, containerName string, resourceNam
 	return p.removeWithUpdate(podUID, func(podResourceEntries state.PodResourceEntries) bool {
 		found := false
 		for resource, podEntries := range podResourceEntries {
-			if resourceName == resource {
+			if resourceName != resource {
 				continue
 			}
-			if podEntries[podUID][containerName] != nil {
+
+			if _, ok := podEntries[podUID]; !ok {
+				continue
+			}
+
+			if _, ok := podEntries[podUID][containerName]; ok {
 				found = true
 			}
 			delete(podEntries[podUID], containerName)
@@ -652,7 +653,7 @@ func (p *StaticPolicy) AllocateAssociatedDevice(
 				return nil, fmt.Errorf("nil accompany device request")
 			}
 
-			_, err := accompanyCustomDevicePlugin.AllocateAssociatedDevice(req.ResourceRequest, accompanyDeviceReq, "")
+			_, err := p.allocateAssociatedDevice(accompanyCustomDevicePlugin, req.ResourceRequest, accompanyDeviceReq, "")
 			if err != nil {
 				return nil, fmt.Errorf("AllocateAssociatedDevice accompany resource %s failed with error: %v", req.AccompanyResourceName, err)
 			}
@@ -666,26 +667,45 @@ func (p *StaticPolicy) AllocateAssociatedDevice(
 		return nil, fmt.Errorf("no custom device plugin found for target device %s", req.DeviceName)
 	}
 
-	resp, respErr = targetCustomDevicePlugin.AllocateAssociatedDevice(req.ResourceRequest, targetDeviceReq, req.AccompanyResourceName)
-	return resp, respErr
+	return p.allocateAssociatedDevice(targetCustomDevicePlugin, req.ResourceRequest, targetDeviceReq, req.AccompanyResourceName)
+}
+
+func (p *StaticPolicy) allocateAssociatedDevice(devicePlugin customdeviceplugin.CustomDevicePlugin,
+	resReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest, accompanyResourceName string) (*pluginapi.AssociatedDeviceAllocationResponse, error) {
+	defaultAccompanyResourceName := devicePlugin.DefaultAccompanyResourceName()
+	if defaultAccompanyResourceName != "" && accompanyResourceName != defaultAccompanyResourceName {
+		accompanyResourcePlugin := p.getResourcePlugin(defaultAccompanyResourceName)
+		if accompanyResourcePlugin != nil {
+			_, err := accompanyResourcePlugin.Allocate(resReq, deviceReq)
+			if err != nil {
+				_ = p.removeContainer(resReq.PodUid, resReq.ContainerName, v1.ResourceName(defaultAccompanyResourceName))
+				return nil, fmt.Errorf("allocate accompany resource %s failed with error: %v", defaultAccompanyResourceName, err)
+			}
+		}
+	}
+
+	return devicePlugin.AllocateAssociatedDevice(resReq, deviceReq, accompanyResourceName)
 }
 
 func (p *StaticPolicy) registerResourcePlugins() error {
-	for name := range p.resourcePluginsNames {
-		initFunc := resourcepluginregistry.ResourcePluginsMap[name]
+	allInitFuncs := resourcepluginregistry.GetRegisteredResourcePlugin()
+	for _, initFunc := range allInitFuncs {
 		resourcePlugin := initFunc(p.BasePlugin)
 		p.resourcePlugins[resourcePlugin.ResourceName()] = resourcePlugin
+		general.Infof("Registered resource plugin: %s", resourcePlugin.ResourceName())
 	}
 	return nil
 }
 
 func (p *StaticPolicy) registerCustomDevicePlugins() error {
-	for name := range p.associatedDeviceNames {
-		initFunc := devicepluginregistry.CustomDevicePluginsMap[name]
+	allInitFuncs := devicepluginregistry.GetRegisteredCustomDevicePlugin()
+	for name := range allInitFuncs {
+		initFunc := allInitFuncs[name]
 		customDevicePlugin := initFunc(p.BasePlugin)
 		deviceNames := customDevicePlugin.DeviceNames()
 		for _, deviceName := range deviceNames {
 			p.customDevicePlugins[deviceName] = customDevicePlugin
+			p.associatedDeviceNames.Insert(deviceName)
 		}
 	}
 	return nil

@@ -60,8 +60,6 @@ func (p *GPUMemPlugin) ResourceName() string {
 }
 
 func (p *GPUMemPlugin) GetTopologyHints(req *pluginapi.ResourceRequest) (resp *pluginapi.ResourceHintsResponse, err error) {
-	existReallocAnno, isReallocation := util.IsReallocation(req.Annotations)
-
 	qosLevel, err := util.GetKatalystQoSLevelFromResourceReq(p.QosConfig, req, p.PodAnnotationKeptKeys, p.PodLabelKeptKeys)
 	if err != nil {
 		err = fmt.Errorf("GetKatalystQoSLevelFromResourceReq for pod: %s/%s, container: %s failed with error: %v",
@@ -105,9 +103,6 @@ func (p *GPUMemPlugin) GetTopologyHints(req *pluginapi.ResourceRequest) (resp *p
 		if err != nil {
 			metricTags := []metrics.MetricTag{
 				{Key: "error_message", Val: metric.MetricTagValueFormat(err)},
-			}
-			if existReallocAnno {
-				metricTags = append(metricTags, metrics.MetricTag{Key: "reallocation", Val: isReallocation})
 			}
 			_ = p.Emitter.StoreInt64(util.MetricNameGetTopologyHintsFailed, 1, metrics.MetricTypeNameRaw, metricTags...)
 		}
@@ -173,7 +168,8 @@ func (p *GPUMemPlugin) calculateHints(
 			continue
 		}
 
-		if s.GetQuantityAllocated()+perGPUMemory <= float64(p.GPUMemoryAllocatablePerGPU.Value()) {
+		allocated := s.GetQuantityAllocated()
+		if allocated+perGPUMemory <= float64(p.GPUMemoryAllocatablePerGPU.Value()) {
 			info, ok := gpuTopology.Devices[gpuID]
 			if !ok {
 				return nil, fmt.Errorf("gpu %s not found in gpuTopology", gpuID)
@@ -181,7 +177,7 @@ func (p *GPUMemPlugin) calculateHints(
 
 			for _, numaNode := range info.GetNUMANode() {
 				numaToAvailableGPUCount[numaNode] += 1
-				numaToMostAllocatedGPUMemory[numaNode] = math.Max(s.GetQuantityAllocated(), numaToMostAllocatedGPUMemory[numaNode])
+				numaToMostAllocatedGPUMemory[numaNode] = math.Max(allocated, numaToMostAllocatedGPUMemory[numaNode])
 			}
 		}
 	}
@@ -389,8 +385,6 @@ func (p *GPUMemPlugin) GetTopologyAwareAllocatableResources() (*gpuconsts.Alloca
 func (p *GPUMemPlugin) Allocate(
 	resourceReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest,
 ) (*pluginapi.ResourceAllocationResponse, error) {
-	existReallocAnno, isReallocation := util.IsReallocation(resourceReq.Annotations)
-
 	qosLevel, err := util.GetKatalystQoSLevelFromResourceReq(p.QosConfig, resourceReq, p.PodAnnotationKeptKeys, p.PodLabelKeptKeys)
 	if err != nil {
 		err = fmt.Errorf("GetKatalystQoSLevelFromResourceReq for pod: %s/%s, container: %s failed with error: %v",
@@ -429,9 +423,6 @@ func (p *GPUMemPlugin) Allocate(
 		if err != nil {
 			metricTags := []metrics.MetricTag{
 				{Key: "error_message", Val: metric.MetricTagValueFormat(err)},
-			}
-			if existReallocAnno {
-				metricTags = append(metricTags, metrics.MetricTag{Key: "reallocation", Val: isReallocation})
 			}
 			_ = p.Emitter.StoreInt64(util.MetricNameAllocateFailed, 1, metrics.MetricTypeNameRaw, metricTags...)
 		}
@@ -486,10 +477,13 @@ func (p *GPUMemPlugin) Allocate(
 	}
 
 	// Allocate for gpu devices
-	if deviceReq != nil {
+	if deviceReq != nil && p.associatedDevicesName.Has(deviceReq.DeviceName) {
 		if err = p.allocateForGPUDevice(newAllocation, deviceReq, gpuMemory); err != nil {
 			return nil, fmt.Errorf("allocateForGPUDevice failed with error: %w", err)
 		}
+	} else {
+		// return a trivial allocationResult if no device request is provided
+		return p.PackAllocationResponse(resourceReq, newAllocation, nil, p.ResourceName())
 	}
 
 	p.State.SetAllocationInfo(consts.ResourceGPUMemory, resourceReq.PodUid, resourceReq.ContainerName, newAllocation, false)

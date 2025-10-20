@@ -19,6 +19,7 @@ package gpu
 import (
 	"fmt"
 
+	v1 "k8s.io/api/core/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -34,6 +35,10 @@ import (
 
 const GPUCustomDevicePluginName = "gpu-custom-device-plugin"
 
+const (
+	defaultAccompanyResourceName = string(consts.ResourceGPUMemory)
+)
+
 type GPUDevicePlugin struct {
 	*baseplugin.BasePlugin
 	deviceNames []string
@@ -48,6 +53,10 @@ func NewGPUDevicePlugin(base *baseplugin.BasePlugin) customdeviceplugin.CustomDe
 		BasePlugin:  base,
 		deviceNames: base.GPUDeviceNames,
 	}
+}
+
+func (p *GPUDevicePlugin) DefaultAccompanyResourceName() string {
+	return defaultAccompanyResourceName
 }
 
 func (p *GPUDevicePlugin) DeviceNames() []string {
@@ -88,7 +97,7 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 		"deviceRequest", deviceReq.DeviceRequest,
 	)
 
-	memoryAllocationInfo := p.State.GetAllocationInfo(consts.ResourceGPUMemory, resReq.PodUid, resReq.ContainerName)
+	memoryAllocationInfo := p.State.GetAllocationInfo(v1.ResourceName(defaultAccompanyResourceName), resReq.PodUid, resReq.ContainerName)
 	// GPU memory should have been allocated at this stage.
 	// We anticipate that gpu devices have also been allocated, so we can directly use the allocated devices from the gpu memory state.
 	if memoryAllocationInfo == nil || memoryAllocationInfo.TopologyAwareAllocations == nil {
