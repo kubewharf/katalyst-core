@@ -29,8 +29,6 @@ type GPUQRMPluginConfig struct {
 	SkipGPUStateCorruption bool
 	// RDMADeviceNames is the names of the RDMA device
 	RDMADeviceNames []string
-	// ResourcePluginsNames holds the names of the enabled GPU resource plugins
-	ResourcePluginsNames []string
 }
 
 func NewGPUQRMPluginConfig() *GPUQRMPluginConfig {
