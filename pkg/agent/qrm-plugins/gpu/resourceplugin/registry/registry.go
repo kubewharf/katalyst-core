@@ -23,14 +23,18 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/resourceplugin/gpumemory"
 )
 
-type initFunc func(plugin *baseplugin.BasePlugin) resourceplugin.ResourcePlugin
+type InitFunc func(plugin *baseplugin.BasePlugin) resourceplugin.ResourcePlugin
 
-var ResourcePluginsMap = make(map[string]initFunc)
+var resourcePluginsMap = make(map[string]InitFunc)
 
-func registerResourcePlugin(pluginName string, initFunc initFunc) {
-	ResourcePluginsMap[pluginName] = initFunc
+func RegisterResourcePlugin(pluginName string, initFunc InitFunc) {
+	resourcePluginsMap[pluginName] = initFunc
+}
+
+func GetRegisteredResourcePlugin() map[string]InitFunc {
+	return resourcePluginsMap
 }
 
 func init() {
-	registerResourcePlugin(gpuconsts.GPUMemPluginName, gpumemory.NewGPUMemPlugin)
+	RegisterResourcePlugin(gpuconsts.GPUMemPluginName, gpumemory.NewGPUMemPlugin)
 }
