@@ -37,7 +37,7 @@ func NewGPUOptions() *GPUOptions {
 		PolicyName:                 "static",
 		GPUDeviceNames:             []string{"nvidia.com/gpu"},
 		GPUMemoryAllocatablePerGPU: "100",
-		RDMADeviceNames:            []string{"bytedance.com/rdma"},
+		RDMADeviceNames:            []string{},
 	}
 }
 
