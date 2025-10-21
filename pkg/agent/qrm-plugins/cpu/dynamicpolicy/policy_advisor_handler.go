@@ -759,9 +759,6 @@ func (p *DynamicPolicy) applyAllContainersQuota(pod *v1.Pod, setToLimit bool) er
 				return fmt.Errorf("ApplyCPUWithRelativePath %s to %v failed with error: %v", relativePath, realQuota, err)
 			}
 		} else {
-			if containerCpu.CpuQuota < 0 {
-				continue
-			}
 			err := p.applyAllSubCgroupQuotaToUnLimit(relativePath)
 			if err != nil {
 				return fmt.Errorf("applyAllSubCgroupQuotaToUnLimit %s failed with error: %v", relativePath, err)
