@@ -28,7 +28,8 @@ import (
 	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/customdeviceplugin"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/manager"
+	qrmutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -74,7 +75,7 @@ func (p *GPUDevicePlugin) GetAssociatedDeviceTopologyHints(_ *pluginapi.Associat
 func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 	resReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest, _ string,
 ) (*pluginapi.AssociatedDeviceAllocationResponse, error) {
-	qosLevel, err := util.GetKatalystQoSLevelFromResourceReq(p.QosConfig, resReq, p.PodAnnotationKeptKeys, p.PodLabelKeptKeys)
+	qosLevel, err := qrmutil.GetKatalystQoSLevelFromResourceReq(p.QosConfig, resReq, p.PodAnnotationKeptKeys, p.PodLabelKeptKeys)
 	if err != nil {
 		err = fmt.Errorf("GetKatalystQoSLevelFromResourceReq for pod: %s/%s, container: %s failed with error: %v",
 			resReq.PodNamespace, resReq.PodName, resReq.ContainerName, err)
@@ -97,16 +98,71 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 		"deviceRequest", deviceReq.DeviceRequest,
 	)
 
+	gpuAllocationInfo := p.State.GetAllocationInfo(gpuconsts.GPUDeviceType, resReq.PodUid, resReq.ContainerName)
+	if gpuAllocationInfo != nil {
+		if gpuAllocationInfo.TopologyAwareAllocations == nil {
+			return nil, fmt.Errorf("GPU topology aware allocation info is nil")
+		}
+		allocatedDevices := make([]string, 0, len(gpuAllocationInfo.TopologyAwareAllocations))
+		for gpuID := range gpuAllocationInfo.TopologyAwareAllocations {
+			allocatedDevices = append(allocatedDevices, gpuID)
+		}
+		return &pluginapi.AssociatedDeviceAllocationResponse{
+			AllocationResult: &pluginapi.AssociatedDeviceAllocation{
+				AllocatedDevices: allocatedDevices,
+			},
+		}, nil
+	}
+
+	var allocatedDevices []string
 	memoryAllocationInfo := p.State.GetAllocationInfo(v1.ResourceName(defaultAccompanyResourceName), resReq.PodUid, resReq.ContainerName)
 	// GPU memory should have been allocated at this stage.
 	// We anticipate that gpu devices have also been allocated, so we can directly use the allocated devices from the gpu memory state.
 	if memoryAllocationInfo == nil || memoryAllocationInfo.TopologyAwareAllocations == nil {
-		return nil, fmt.Errorf("gpu memory allocation info is nil, which is unexpected")
-	}
+		// When GPU memory allocation info is nil, invoke the GPU allocate strategy to perform GPU allocation
+		general.InfoS("GPU memory allocation info is nil, invoking GPU allocate strategy",
+			"podNamespace", resReq.PodNamespace,
+			"podName", resReq.PodName,
+			"containerName", resReq.ContainerName)
 
-	allocatedDevices := make([]string, 0, len(memoryAllocationInfo.TopologyAwareAllocations))
-	for gpuID := range memoryAllocationInfo.TopologyAwareAllocations {
-		allocatedDevices = append(allocatedDevices, gpuID)
+		// Get GPU topology
+		gpuTopology, numaTopologyReady, err := p.DeviceTopologyRegistry.GetDeviceTopology(gpuconsts.GPUDeviceType)
+		if err != nil {
+			general.Warningf("failed to get gpu topology: %w", err)
+			return nil, fmt.Errorf("failed to get gpu topology: %w", err)
+		}
+
+		if !numaTopologyReady {
+			general.Warningf("numa topology is not ready")
+			return nil, fmt.Errorf("numa topology is not ready")
+		}
+
+		// Use the strategy framework to allocate GPU devices
+		result, err := manager.AllocateGPUUsingStrategy(
+			resReq,
+			deviceReq,
+			gpuTopology,
+			p.GPUQRMPluginConfig,
+			p.Emitter,
+			p.MetaServer,
+			p.State.GetMachineState(),
+			qosLevel,
+		)
+
+		if err != nil {
+			return nil, fmt.Errorf("GPU allocation using strategy failed: %v", err)
+		}
+
+		if !result.Success {
+			return nil, fmt.Errorf("GPU allocation failed: %s", result.ErrorMessage)
+		}
+
+		allocatedDevices = result.AllocatedDevices
+	} else {
+		// when GPU memory allocation info exists
+		for gpuID := range memoryAllocationInfo.TopologyAwareAllocations {
+			allocatedDevices = append(allocatedDevices, gpuID)
+		}
 	}
 
 	gpuTopology, numaTopologyReady, err := p.DeviceTopologyRegistry.GetDeviceTopology(gpuconsts.GPUDeviceType)
@@ -121,6 +177,7 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 	}
 
 	// Save gpu device allocations in state
+	numaNodes := machine.NewCPUSet()
 	gpuDeviceTopologyAwareAllocations := make(map[string]state.Allocation)
 	for _, deviceID := range allocatedDevices {
 		info, ok := gpuTopology.Devices[deviceID]
@@ -132,13 +189,14 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 			Quantity:  1,
 			NUMANodes: info.NumaNodes,
 		}
+		numaNodes.Add(info.NumaNodes...)
 	}
 
 	gpuDeviceAllocationInfo := &state.AllocationInfo{
 		AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(resReq, commonstate.EmptyOwnerPoolName, qosLevel),
 		AllocatedAllocation: state.Allocation{
 			Quantity:  float64(len(allocatedDevices)),
-			NUMANodes: memoryAllocationInfo.AllocatedAllocation.NUMANodes,
+			NUMANodes: numaNodes.ToSliceInt(),
 		},
 	}
 	gpuDeviceAllocationInfo.TopologyAwareAllocations = gpuDeviceTopologyAwareAllocations
