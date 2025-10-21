@@ -797,6 +797,9 @@ func (p *topologyAdapterImpl) generateNumaNodeResourceReservedAttr(node util.Zon
 
 	numaCapacity := p.metaServer.KatalystMachineInfo.NUMAToCPUs[numaID]
 	numaReserved := numaCapacity.Intersection(machine.MustParse(p.reservedCPUs))
+	if numaReserved.IsEmpty() {
+		return attrs
+	}
 
 	attrs = append(attrs, nodev1alpha1.Attribute{
 		Name:  "reserved_cpu_list",
