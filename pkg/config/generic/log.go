@@ -20,7 +20,7 @@ type LogConfiguration struct {
 	SupportAsyncLogging bool
 	LogDir              string
 	LogFileMaxSize      int
-	LogBufferSizeMB     int
+	LogBufferSize       int
 	LogFileMaxAge       int
 	LogFileMaxBackups   int
 }

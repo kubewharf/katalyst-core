@@ -17,7 +17,10 @@ limitations under the License.
 package logging
 
 import (
+	"fmt"
+	"os"
 	"path"
+	"path/filepath"
 	"time"
 
 	"github.com/rs/zerolog/diode"
@@ -44,11 +47,12 @@ const (
 	metricsNameNumDroppedFatalLogs   = "number_of_dropped_fatal_logs"
 )
 
-const (
-	defaultInfoLogFileName    = "agent.info.log"
-	defaultWarningLogFileName = "agent.warning.log"
-	defaultErrorLogFileName   = "agent.error.log"
-	defaultFatalLogFileName   = "agent.fatal.log"
+var (
+	basePath                  = filepath.Base(os.Args[0])
+	defaultInfoLogFileName    = fmt.Sprintf("%s.%s.log", basePath, InfoSeverity)
+	defaultWarningLogFileName = fmt.Sprintf("%s.%s.log", basePath, WarningSeverity)
+	defaultErrorLogFileName   = fmt.Sprintf("%s.%s.log", basePath, ErrorSeverity)
+	defaultFatalLogFileName   = fmt.Sprintf("%s.%s.log", basePath, FatalSeverity)
 )
 
 type logInfo struct {
@@ -70,7 +74,7 @@ type AsyncLogger struct {
 // NewAsyncLogger creates an async logger that produces an async writer for each of the severity levels.
 // The async writer spins up a goroutine that periodically flushes the buffered logs to disk.
 func NewAsyncLogger(
-	agentCtx *agent.GenericContext, logDir string, maxSizeMB, maxAge, maxBackups, bufferSizeMB int,
+	agentCtx *agent.GenericContext, logDir string, maxSizeMB, maxAge, maxBackups, bufferSize int,
 ) *AsyncLogger {
 	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter()
 
@@ -85,7 +89,7 @@ func NewAsyncLogger(
 		}
 
 		// diodeWriter is a writer that stores logs in a ring buffer and asynchronously flushes them
-		diodeWriter := diode.NewWriter(lumberjackLogger, bufferSizeMB, 10*time.Millisecond, func(missed int) {
+		diodeWriter := diode.NewWriter(lumberjackLogger, bufferSize, 10*time.Millisecond, func(missed int) {
 			_ = wrappedEmitter.StoreInt64(logInfo.metricsName, int64(missed), metrics.MetricTypeNameRaw)
 		})
 		// Overrides the default synchronous writer with the diode writer

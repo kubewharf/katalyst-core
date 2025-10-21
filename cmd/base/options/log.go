@@ -28,7 +28,7 @@ type LogsOptions struct {
 	LogFileMaxSizeInMB  uint64
 	SupportAsyncLogging bool
 	LogDir              string
-	LogBufferSizeMB     int
+	LogBufferSize       int
 	LogFileMaxAge       int
 	LogFileMaxBackups   int
 }
@@ -37,7 +37,7 @@ func NewLogsOptions() *LogsOptions {
 	return &LogsOptions{
 		LogPackageLevel:    general.LoggingPKGFull,
 		LogFileMaxSizeInMB: 1800,
-		LogBufferSizeMB:    10000,
+		LogBufferSize:      10000,
 		LogFileMaxAge:      7,
 		LogFileMaxBackups:  10,
 	}
@@ -45,11 +45,11 @@ func NewLogsOptions() *LogsOptions {
 
 // AddFlags adds flags  to the specified FlagSet.
 func (o *LogsOptions) AddFlags(fs *pflag.FlagSet) {
+	fs.BoolVar(&o.SupportAsyncLogging, "support-async-logging", o.SupportAsyncLogging, "whether to support async logging")
+	fs.StringVar(&o.LogDir, "async_log_dir", o.LogDir, "directory to store logs")
 	fs.Var(&o.LogPackageLevel, "logs-package-level", "the default package level for logging")
 	fs.Uint64Var(&o.LogFileMaxSizeInMB, "log-file-max-size", o.LogFileMaxSizeInMB, "Max size of klog file in MB.")
-	fs.BoolVar(&o.SupportAsyncLogging, "support-async-logging", o.SupportAsyncLogging, "whether to support async logging")
-	fs.StringVar(&o.LogDir, "log-dir", o.LogDir, "directory of log file")
-	fs.IntVar(&o.LogBufferSizeMB, "log-buffer-size", o.LogBufferSizeMB, "size of the ring buffer to store async logs")
+	fs.IntVar(&o.LogBufferSize, "log-buffer-size", o.LogBufferSize, "size of the ring buffer to store async logs")
 	fs.IntVar(&o.LogFileMaxAge, "log-file-max-age", o.LogFileMaxAge, "max age of klog log file in days")
 	fs.IntVar(&o.LogFileMaxBackups, "log-file-max-backups", o.LogFileMaxBackups, "max number of klog log file backups")
 }
@@ -59,8 +59,8 @@ func (o *LogsOptions) ApplyTo(c *generic.LogConfiguration) error {
 	general.SetLogFileMaxSize(o.LogFileMaxSizeInMB)
 	c.SupportAsyncLogging = o.SupportAsyncLogging
 	c.LogDir = o.LogDir
+	c.LogBufferSize = o.LogBufferSize
 	c.LogFileMaxSize = int(o.LogFileMaxSizeInMB)
-	c.LogBufferSizeMB = o.LogBufferSizeMB
 	c.LogFileMaxAge = o.LogFileMaxAge
 	c.LogFileMaxBackups = o.LogFileMaxBackups
 	return nil
