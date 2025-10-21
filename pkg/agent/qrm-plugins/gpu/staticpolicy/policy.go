@@ -588,13 +588,6 @@ func (p *StaticPolicy) AllocateAssociatedDevice(
 		return nil, fmt.Errorf("req is nil")
 	}
 
-	if req.ResourceRequest.Hint == nil || req.ResourceRequest.Hint.Nodes == nil {
-		general.Warningf("got nil resource hint")
-		return &pluginapi.AssociatedDeviceAllocationResponse{
-			AllocationResult: nil,
-		}, nil
-	}
-
 	p.Lock()
 	defer func() {
 		// Reset state for accompany resource and target resource if there is an error
