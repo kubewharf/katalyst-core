@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
+	"syscall"
 
 	"github.com/vishvananda/netns"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -45,6 +46,31 @@ const (
 	NicDriverIXGBE     NicDriver = "ixgbe"
 	NicDriverUnknown   NicDriver = "unknown"
 )
+
+// ioctl constants from <linux/sockios.h>, <linux/ethtool.h>
+const (
+	SIOCETHTOOL       = 0x8946
+	ETHTOOL_GCHANNELS = 0x0000003c
+)
+
+// Equivalent to kernel struct ethtool_channels
+type EthtoolChannels struct {
+	Cmd           uint32
+	MaxRx         uint32
+	MaxTx         uint32
+	MaxOther      uint32
+	MaxCombined   uint32
+	RxCount       uint32
+	TxCount       uint32
+	OtherCount    uint32
+	CombinedCount uint32
+}
+
+// Equivalent to kernel struct ifreq
+type Ifreq struct {
+	Name [syscall.IFNAMSIZ]byte
+	Data uintptr
+}
 
 const UnknownNumaNode = -1
 

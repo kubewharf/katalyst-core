@@ -1244,6 +1244,7 @@ func Test_GetNicQueue2IrqWithQueueFilter(t *testing.T) {
 
 	PatchConvey("Test GetNicQueue2IrqWithQueueFilter", t, func() {
 		PatchConvey("Scenario 1: Successfully obtain the universal NIC queue and IRQ mapping", func() {
+			nicInfo.QueueNum = 2
 			interruptsContent := `
 			           CPU0       CPU1
 			 28:         10         20   IO-APIC-fasteoi   eth0-rx-0
@@ -1252,7 +1253,7 @@ func Test_GetNicQueue2IrqWithQueueFilter(t *testing.T) {
 			`
 			Mock(os.ReadFile).Return([]byte(interruptsContent), nil).Build()
 
-			result, err := GetNicQueue2IrqWithQueueFilter(nicInfo, "eth0", "-")
+			result, err := GetNicQueue2IrqWithQueueFilter(nicInfo, []string{"eth0"}, "-")
 
 			So(err, ShouldBeNil)
 			So(result, ShouldNotBeNil)
@@ -1261,6 +1262,7 @@ func Test_GetNicQueue2IrqWithQueueFilter(t *testing.T) {
 		})
 
 		PatchConvey("Scenario 2: The Mellanox NIC queue and IRQ mapping are successfully obtained", func() {
+			nicInfo.QueueNum = 2
 			interruptsContent := `
 			           CPU0       CPU1
 			105:        100        200   IR-PCI-MSI-edge   eth0-0
@@ -1269,7 +1271,7 @@ func Test_GetNicQueue2IrqWithQueueFilter(t *testing.T) {
 			`
 			Mock(os.ReadFile).Return([]byte(interruptsContent), nil).Build()
 
-			result, err := GetNicQueue2IrqWithQueueFilter(nicInfo, nicInfo.Name, "-")
+			result, err := GetNicQueue2IrqWithQueueFilter(nicInfo, []string{nicInfo.Name}, "-")
 
 			So(err, ShouldBeNil)
 			So(result, ShouldNotBeNil)
@@ -1281,7 +1283,7 @@ func Test_GetNicQueue2IrqWithQueueFilter(t *testing.T) {
 			mockErr := errors.New("read file error")
 			Mock(os.ReadFile).Return(nil, mockErr).Build()
 
-			result, err := GetNicQueue2IrqWithQueueFilter(nicInfo, "eth0", "-")
+			result, err := GetNicQueue2IrqWithQueueFilter(nicInfo, []string{"eth0"}, "-")
 
 			So(result, ShouldBeNil)
 			So(err, ShouldNotBeNil)
@@ -1289,6 +1291,7 @@ func Test_GetNicQueue2IrqWithQueueFilter(t *testing.T) {
 		})
 
 		PatchConvey("Scenario 4: The resolved queue number is greater than or equal to the total number of queues", func() {
+			nicInfo.QueueNum = 2
 			interruptsContent := `
 			           CPU0       CPU1
 			 28:         10         20   IO-APIC-fasteoi   eth0-rx-0
@@ -1296,21 +1299,22 @@ func Test_GetNicQueue2IrqWithQueueFilter(t *testing.T) {
 			`
 			Mock(os.ReadFile).Return([]byte(interruptsContent), nil).Build()
 
-			result, err := GetNicQueue2IrqWithQueueFilter(nicInfo, "eth0", "-")
+			result, err := GetNicQueue2IrqWithQueueFilter(nicInfo, []string{"eth0"}, "-")
 
 			So(result, ShouldBeNil)
 			So(err, ShouldNotBeNil)
-			So(err.Error(), ShouldEqual, fmt.Sprintf("%s: %d: %s queue %d greater-equal queue count %d", nicInfo.NSName, nicInfo.IfIndex, nicInfo.Name, 99, 2))
+			So(err.Error(), ShouldEqual, fmt.Sprintf("%s: %d: %s queue2Irq length %d is NOT equal to queue num %d", nicInfo.NSName, nicInfo.IfIndex, nicInfo.Name, 1, 2))
 		})
 
 		PatchConvey("Scenario 5: Failed to resolve the interrupt number (IRQ).", func() {
+			nicInfo.QueueNum = 1
 			interruptsContent := `
 			           CPU0       CPU1
 			 28:         10         20   IO-APIC-fasteoi   eth0-rx-0
 			bad:         30         40   IO-APIC-fasteoi   eth0-tx-1
 			`
 			Mock(os.ReadFile).Return([]byte(interruptsContent), nil).Build()
-			result, err := GetNicQueue2IrqWithQueueFilter(nicInfo, "eth0", "-")
+			result, err := GetNicQueue2IrqWithQueueFilter(nicInfo, []string{"eth0"}, "-")
 
 			So(err, ShouldBeNil)
 			So(result, ShouldNotBeNil)
@@ -1319,13 +1323,14 @@ func Test_GetNicQueue2IrqWithQueueFilter(t *testing.T) {
 		})
 
 		PatchConvey("Scenario 6: The same queue is mapped to multiple break numbers", func() {
+			nicInfo.QueueNum = 1
 			interruptsContent := `
 			           CPU0       CPU1
 			 28:         10         20   IO-APIC-fasteoi   eth0-rx-0
 			 29:         30         40   IO-APIC-fasteoi   eth0-tx-0
 			`
 			Mock(os.ReadFile).Return([]byte(interruptsContent), nil).Build()
-			result, err := GetNicQueue2IrqWithQueueFilter(nicInfo, "eth0", "-")
+			result, err := GetNicQueue2IrqWithQueueFilter(nicInfo, []string{"eth0"}, "-")
 
 			So(err, ShouldBeNil)
 			So(result, ShouldNotBeNil)
@@ -1337,6 +1342,7 @@ func Test_GetNicQueue2IrqWithQueueFilter(t *testing.T) {
 			nicInfoWithIrqs := &NicBasicInfo{
 				InterfaceInfo: InterfaceInfo{Name: "eth0"},
 				Irqs:          []int{28},
+				QueueNum:      1,
 			}
 			interruptsContent := `
 			           CPU0       CPU1
@@ -1345,7 +1351,7 @@ func Test_GetNicQueue2IrqWithQueueFilter(t *testing.T) {
 			`
 			Mock(os.ReadFile).Return([]byte(interruptsContent), nil).Build()
 
-			result, err := GetNicQueue2IrqWithQueueFilter(nicInfoWithIrqs, "eth0", "-")
+			result, err := GetNicQueue2IrqWithQueueFilter(nicInfoWithIrqs, []string{"eth0"}, "-")
 
 			So(err, ShouldBeNil)
 			So(result, ShouldNotBeNil)
@@ -1365,19 +1371,20 @@ func Test_GetNicQueue2Irq(t *testing.T) {
 					IfIndex: 1,
 					Name:    "eth0",
 				},
+				QueueNum: 2,
 			}
 
 			PatchConvey("Successfully get input and output queues", func() {
 				mockInputQueue := map[int]int{0: 100, 1: 101}
 				mockOutputQueue := map[int]int{0: 200, 1: 201}
-				Mock(GetNicQueue2IrqWithQueueFilter).To(func(_ *NicBasicInfo, queueFilter string, _ string) (map[int]int, error) {
-					if queueFilter == "virtio-net-p0-input" {
+				Mock(GetNicQueue2IrqWithQueueFilter).To(func(_ *NicBasicInfo, queueFilters []string, _ string) (map[int]int, error) {
+					if len(queueFilters) == 1 && queueFilters[0] == "virtio-net-p0-input" {
 						return mockInputQueue, nil
 					}
-					if queueFilter == "virtio-net-p0-output" {
+					if len(queueFilters) == 1 && queueFilters[0] == "virtio-net-p0-output" {
 						return mockOutputQueue, nil
 					}
-					return nil, fmt.Errorf("unexpected filter: %s", queueFilter)
+					return nil, fmt.Errorf("unexpected filter: %+v", queueFilters)
 				}).Build()
 
 				q2i, txq2i, err := GetNicQueue2Irq(nicInfo)
@@ -1389,8 +1396,8 @@ func Test_GetNicQueue2Irq(t *testing.T) {
 
 			PatchConvey("Gets input queue returns an error", func() {
 				mockErr := errors.New("input queue error")
-				Mock(GetNicQueue2IrqWithQueueFilter).To(func(_ *NicBasicInfo, queueFilter string, _ string) (map[int]int, error) {
-					if queueFilter == "virtio-net-p0-input" {
+				Mock(GetNicQueue2IrqWithQueueFilter).To(func(_ *NicBasicInfo, queueFilters []string, _ string) (map[int]int, error) {
+					if len(queueFilters) == 1 && queueFilters[0] == "virtio-net-p0-input" {
 						return nil, mockErr
 					}
 					return nil, nil
@@ -1405,11 +1412,11 @@ func Test_GetNicQueue2Irq(t *testing.T) {
 			PatchConvey("Error is returned when getting the output queue", func() {
 				mockInputQueue := map[int]int{0: 100, 1: 101}
 				mockErr := errors.New("output queue error")
-				Mock(GetNicQueue2IrqWithQueueFilter).To(func(_ *NicBasicInfo, queueFilter string, _ string) (map[int]int, error) {
-					if queueFilter == "virtio-net-p0-input" {
+				Mock(GetNicQueue2IrqWithQueueFilter).To(func(_ *NicBasicInfo, queueFilters []string, _ string) (map[int]int, error) {
+					if len(queueFilters) == 1 && queueFilters[0] == "virtio-net-p0-input" {
 						return mockInputQueue, nil
 					}
-					if queueFilter == "virtio-net-p0-output" {
+					if len(queueFilters) == 1 && queueFilters[0] == "virtio-net-p0-output" {
 						return nil, mockErr
 					}
 					return nil, nil
@@ -1422,8 +1429,8 @@ func Test_GetNicQueue2Irq(t *testing.T) {
 			})
 
 			PatchConvey("No matching input queue found (returns empty map)", func() {
-				Mock(GetNicQueue2IrqWithQueueFilter).To(func(_ *NicBasicInfo, queueFilter string, _ string) (map[int]int, error) {
-					if queueFilter == "virtio-net-p0-input" {
+				Mock(GetNicQueue2IrqWithQueueFilter).To(func(_ *NicBasicInfo, queueFilters []string, _ string) (map[int]int, error) {
+					if len(queueFilters) == 1 && queueFilters[0] == "virtio-net-p0-input" {
 						return make(map[int]int), nil
 					}
 					return nil, nil
@@ -1444,13 +1451,14 @@ func Test_GetNicQueue2Irq(t *testing.T) {
 					Name:    "eth_bond0",
 					PCIAddr: "0000:81:00.0",
 				},
+				QueueNum: 2,
 			}
 			expectedTxQueue := make(map[int]int)
 
 			PatchConvey("Successfully matched by the NIC name", func() {
 				mockQueue := map[int]int{0: 10, 1: 11}
-				Mock(GetNicQueue2IrqWithQueueFilter).To(func(_ *NicBasicInfo, queueFilter string, _ string) (map[int]int, error) {
-					if queueFilter == "eth_bond0" {
+				Mock(GetNicQueue2IrqWithQueueFilter).To(func(_ *NicBasicInfo, queueFilters []string, _ string) (map[int]int, error) {
+					if len(queueFilters) == 1 && queueFilters[0] == "eth_bond0" {
 						return mockQueue, nil
 					}
 					return make(map[int]int), nil
@@ -1465,11 +1473,11 @@ func Test_GetNicQueue2Irq(t *testing.T) {
 
 			PatchConvey("Successfully matched via PCI address", func() {
 				mockQueue := map[int]int{0: 20, 1: 21}
-				Mock(GetNicQueue2IrqWithQueueFilter).To(func(_ *NicBasicInfo, queueFilter string, _ string) (map[int]int, error) {
-					if queueFilter == "eth_bond0" {
+				Mock(GetNicQueue2IrqWithQueueFilter).To(func(_ *NicBasicInfo, queueFilters []string, _ string) (map[int]int, error) {
+					if len(queueFilters) == 1 && queueFilters[0] == "eth_bond0" {
 						return make(map[int]int), nil
 					}
-					if queueFilter == "0000:81:00.0" {
+					if len(queueFilters) == 2 && queueFilters[0] == "0000:81:00.0" {
 						return mockQueue, nil
 					}
 					return make(map[int]int), nil
@@ -1484,14 +1492,14 @@ func Test_GetNicQueue2Irq(t *testing.T) {
 
 			PatchConvey("The split NIC name is successfully matched", func() {
 				mockQueue := map[int]int{0: 30, 1: 31}
-				Mock(GetNicQueue2IrqWithQueueFilter).To(func(_ *NicBasicInfo, queueFilter string, _ string) (map[int]int, error) {
-					if queueFilter == "eth_bond0" {
+				Mock(GetNicQueue2IrqWithQueueFilter).To(func(_ *NicBasicInfo, queueFilters []string, _ string) (map[int]int, error) {
+					if len(queueFilters) == 1 && queueFilters[0] == "eth_bond0" {
 						return make(map[int]int), nil
 					}
-					if queueFilter == "0000:81:00.0" {
+					if len(queueFilters) == 2 && queueFilters[0] == "0000:81:00.0" {
 						return make(map[int]int), nil
 					}
-					if queueFilter == "eth" {
+					if len(queueFilters) == 1 && queueFilters[0] == "eth" {
 						return mockQueue, nil
 					}
 					return make(map[int]int), nil
@@ -2400,6 +2408,7 @@ func Test_ListActiveUplinkNicsFromNetNS(t *testing.T) {
 			Mock(GetNicNumaNode).Return(0, nil).Build()
 			Mock(IsVirtioNetDevice).Return(false).Build()
 			Mock(GetNicIrqs).Return([]int{10, 11}, nil).Build()
+			Mock(GetNicQueuesCount).Return(32, nil).Build()
 
 			// --- Act ---
 			nics, err := ListActiveUplinkNicsFromNetNS(netnsInfo)
@@ -2439,6 +2448,7 @@ func Test_ListActiveUplinkNicsFromNetNS(t *testing.T) {
 			Mock(GetNicNumaNode).Return(1, nil).Build()
 			Mock(IsVirtioNetDevice).Return(false).Build()
 			Mock(GetNicIrqs).Return([]int{20, 21}, nil).Build()
+			Mock(GetNicQueuesCount).Return(32, nil).Build()
 
 			// --- Act ---
 			nics, err := ListActiveUplinkNicsFromNetNS(netnsInfo)
@@ -2469,6 +2479,7 @@ func Test_ListActiveUplinkNicsFromNetNS(t *testing.T) {
 			Mock(IsVirtioNetDevice).Return(true).Build()
 			Mock(GetNicVirtioName).Return("virtio-net-pci-0000:00:05.0", nil).Build()
 			Mock(GetNicIrqs).Return(nil, errors.New("no msi_irqs for virtio")).Build()
+			Mock(GetNicQueuesCount).Return(32, nil).Build()
 
 			// --- Act ---
 			nics, err := ListActiveUplinkNicsFromNetNS(netnsInfo)
@@ -2563,15 +2574,15 @@ func Test_ListActiveUplinkNics(t *testing.T) {
 				{NSName: "ns1", NSInode: 1002},
 			}
 			mockNicsFromDefaultNS := []*NicBasicInfo{
-				{InterfaceInfo: InterfaceInfo{Name: "eth0", IfIndex: 1}},
+				{InterfaceInfo: InterfaceInfo{Name: "eth0", IfIndex: 1}, QueueNum: 2},
 			}
 			mockNicsFromNs1 := []*NicBasicInfo{
-				{InterfaceInfo: InterfaceInfo{Name: "eth1", IfIndex: 2}},
+				{InterfaceInfo: InterfaceInfo{Name: "eth1", IfIndex: 2}, QueueNum: 2},
 			}
 			mockQueue2Irq := map[int]int{0: 100, 1: 101}
 			mockTxQueue2Irq := map[int]int{0: 200, 1: 201}
 			expectedIrq2Queue := map[int]int{100: 0, 101: 1}
-			expectedTxIrq2Queue := map[int]int{100: 0, 101: 1}
+			expectedTxIrq2Queue := map[int]int{200: 0, 201: 1}
 
 			Mock(ListNetNS).Return(mockNetNSList, nil).Build()
 			Mock(ListActiveUplinkNicsFromNetNS).
