@@ -296,29 +296,6 @@ func GenerateDummyExtraTopology(numaNum int) (*ExtraTopologyInfo, error) {
 	return extraTopology, nil
 }
 
-// GenerateDummyGPUTopology generates a dummy GPU topology such that a gpu has affinity to a single NUMA node
-// and the gpus are evenly distributed across all NUMA nodes.
-func GenerateDummyGPUTopology(gpuNum, numaNum int) (*GPUTopology, error) {
-	if gpuNum%numaNum != 0 {
-		return nil, fmt.Errorf("invalid gpu number: %d and NUMA number: %d", gpuNum, numaNum)
-	} else if gpuNum%2 != 0 {
-		return nil, fmt.Errorf("invalid gpu number as it should be even: %d", gpuNum)
-	}
-	gpuTopology := new(GPUTopology)
-	gpuTopology.GPUs = make(map[string]GPUInfo, gpuNum)
-	perNumaGPU := gpuNum / numaNum
-	for i := 0; i < numaNum; i++ {
-		for j := 0; j < perNumaGPU; j++ {
-			gpuID := fmt.Sprintf("%d", i*perNumaGPU+j)
-			gpuTopology.GPUs[gpuID] = GPUInfo{
-				Health:   "healthy",
-				NUMANode: []int{i},
-			}
-		}
-	}
-	return gpuTopology, nil
-}
-
 // CPUTopoInfo contains the NUMA, socket, and core IDs associated with a CPU.
 type CPUTopoInfo struct {
 	NUMANodeID int
