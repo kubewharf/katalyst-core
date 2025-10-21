@@ -21,7 +21,11 @@ import (
 	"math"
 
 	pkgerrors "github.com/pkg/errors"
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/util/sets"
+	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	qrmutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -67,4 +71,25 @@ func IsNUMAAffinityDevice(
 	}
 
 	return machine.NewCPUSet(info.GetNUMANode()...).IsSubsetOf(hintNodes)
+}
+
+// GetGPUCount extracts GPU count from resource request
+func GetGPUCount(req *pluginapi.ResourceRequest, deviceNames []string) (float64, sets.String, error) {
+	gpuCount := float64(0)
+	gpuNames := sets.NewString()
+
+	for _, resourceName := range deviceNames {
+		_, request, err := qrmutil.GetQuantityFromResourceRequests(req.ResourceRequests, resourceName, false)
+		if err != nil && !errors.IsNotFound(err) {
+			return 0, nil, err
+		}
+		gpuCount += request
+		gpuNames.Insert(resourceName)
+	}
+
+	if gpuCount == 0 {
+		return 0, gpuNames, fmt.Errorf("no available GPU count")
+	}
+
+	return gpuCount, gpuNames, nil
 }

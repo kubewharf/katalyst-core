@@ -378,3 +378,20 @@ func GetPodAggregatedRequestResource(req *pluginapi.ResourceRequest) (int, float
 		return 0, 0, fmt.Errorf("not support resource name: %s", req.ResourceName)
 	}
 }
+
+// CreateEmptyAllocationResponse creates an empty allocation response
+func CreateEmptyAllocationResponse(resourceReq *pluginapi.ResourceRequest, resourceName string) *pluginapi.ResourceAllocationResponse {
+	return &pluginapi.ResourceAllocationResponse{
+		PodUid:         resourceReq.PodUid,
+		PodNamespace:   resourceReq.PodNamespace,
+		PodName:        resourceReq.PodName,
+		ContainerName:  resourceReq.ContainerName,
+		ContainerType:  resourceReq.ContainerType,
+		ContainerIndex: resourceReq.ContainerIndex,
+		PodRole:        resourceReq.PodRole,
+		PodType:        resourceReq.PodType,
+		ResourceName:   resourceName,
+		Labels:         general.DeepCopyMap(resourceReq.Labels),
+		Annotations:    general.DeepCopyMap(resourceReq.Annotations),
+	}
+}

@@ -315,10 +315,6 @@ func (am AllocationMap) GetQuantityAllocated(id string) float64 {
 }
 
 func (am AllocationMap) IsRequestSatisfied(id string, request float64, allocatable float64) bool {
-	if am == nil {
-		return false
-	}
-
 	allocated := am.GetQuantityAllocated(id)
 	return allocatable-allocated >= request
 }
