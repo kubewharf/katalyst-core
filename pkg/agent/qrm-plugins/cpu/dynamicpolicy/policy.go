@@ -229,7 +229,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		),
 	}
 
-	policyImplement.subCgroupCache.Start()
+	go policyImplement.subCgroupCache.Start()
 
 	// initialize hint optimizer
 	err = policyImplement.initHintOptimizers()

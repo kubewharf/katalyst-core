@@ -551,6 +551,9 @@ func TestDynamicPolicy_checkAndApplySubCgroupPath(t *testing.T) {
 				PodFetcher: &pod.PodFetcherStub{},
 			},
 		},
+		subCgroupCache: ttlcache.New[string, int64](
+			ttlcache.WithTTL[string, int64](time.Minute),
+		),
 	}
 
 	advisorTestMutex.Lock()
@@ -587,13 +590,13 @@ func TestDynamicPolicy_checkAndApplySubCgroupPathWithTTLCache(t *testing.T) {
 			},
 		},
 		subCgroupCache: ttlcache.New[string, int64](
-			ttlcache.WithTTL[string, int64](10 * time.Second),
+			ttlcache.WithTTL[string, int64](time.Second),
 		),
 	}
 
 	advisorTestMutex.Lock()
 	defer advisorTestMutex.Unlock()
-	mockey.PatchConvey("test checkAndApplySubCgroupPath", t, func() {
+	mockey.PatchConvey("test checkAndApplySubCgroupPath with TTL cache", t, func() {
 		d1 := mockDirEntry{isDir: true}
 		subCPU1 := &common.CPUStats{CpuQuota: 1000}
 		mockGet := mockey.Mock(cgroupmgr.GetCPUWithAbsolutePath).IncludeCurrentGoRoutine().Return(subCPU1, nil).Build()
@@ -610,7 +613,7 @@ func TestDynamicPolicy_checkAndApplySubCgroupPathWithTTLCache(t *testing.T) {
 		convey.So(mockSet.MockTimes(), convey.ShouldEqual, 1)
 
 		// cache miss
-		time.Sleep(11 * time.Second)
+		time.Sleep(2 * time.Second)
 		err3 := p.checkAndApplySubCgroupPath("path", d1, nil)
 		convey.So(err3, convey.ShouldBeNil)
 		convey.So(mockGet.MockTimes(), convey.ShouldEqual, 2)
