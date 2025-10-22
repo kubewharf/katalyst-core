@@ -31,7 +31,7 @@ func NewGenericAllocationStrategy(name string,
 	filtering []allocate.FilteringStrategy,
 	sorting allocate.SortingStrategy,
 	binding allocate.BindingStrategy,
-) allocate.AllocationStrategy {
+) *GenericAllocationStrategy {
 	return &GenericAllocationStrategy{
 		name:              name,
 		FilteringStrategy: filtering,
@@ -39,6 +39,8 @@ func NewGenericAllocationStrategy(name string,
 		BindingStrategy:   binding,
 	}
 }
+
+var _ allocate.AllocationStrategy = &GenericAllocationStrategy{}
 
 func (s *GenericAllocationStrategy) Name() string {
 	return s.name

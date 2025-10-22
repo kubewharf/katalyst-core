@@ -21,7 +21,7 @@ import (
 	"sync"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/allocation"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/allocation"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
