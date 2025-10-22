@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package bind
+package canonical
 
 import (
 	"fmt"
@@ -26,25 +26,27 @@ import (
 )
 
 const (
-	BindingStrategyNameDefault = "default"
+	StrategyNameCanonical = "canonical"
 )
 
-// DefaultBindingStrategy binds GPU devices to the allocation context
-type DefaultBindingStrategy struct{}
+// CanonicalStrategy binds GPU devices to the allocation context
+type CanonicalStrategy struct{}
 
-// NewDefaultBindingStrategy creates a new default binding strategy
-func NewDefaultBindingStrategy() *DefaultBindingStrategy {
-	return &DefaultBindingStrategy{}
+// NewCanonicalStrategy creates a new default binding strategy
+func NewCanonicalStrategy() *CanonicalStrategy {
+	return &CanonicalStrategy{}
 }
 
+var _ allocate.BindingStrategy = &CanonicalStrategy{}
+
 // Name returns the name of the binding strategy
-func (s *DefaultBindingStrategy) Name() string {
-	return BindingStrategyNameDefault
+func (s *CanonicalStrategy) Name() string {
+	return StrategyNameCanonical
 }
 
 // Bind binds the sorted GPU devices to the allocation context
 // It creates allocation info for the selected devices
-func (s *DefaultBindingStrategy) Bind(ctx *allocate.AllocationContext, sortedDevices []string) (*allocate.AllocationResult, error) {
+func (s *CanonicalStrategy) Bind(ctx *allocate.AllocationContext, sortedDevices []string) (*allocate.AllocationResult, error) {
 	if ctx.GPUTopology == nil {
 		return &allocate.AllocationResult{
 			Success:      false,

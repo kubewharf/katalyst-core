@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package sort
+package gpu_memory
 
 import (
 	"fmt"
@@ -27,26 +27,9 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
-const (
-	SortingStrategyNameGPUMemory = "gpu-memory"
-)
-
-// GPUMemorySortingStrategy sorts GPU devices based on available GPU memory
-type GPUMemorySortingStrategy struct{}
-
-// NewGPUMemorySortingStrategy creates a new GPU memory sorting strategy
-func NewGPUMemorySortingStrategy() *GPUMemorySortingStrategy {
-	return &GPUMemorySortingStrategy{}
-}
-
-// Name returns the name of the sorting strategy
-func (s *GPUMemorySortingStrategy) Name() string {
-	return SortingStrategyNameGPUMemory
-}
-
 // Sort sorts the filtered GPU devices based on available GPU memory
 // It prioritizes devices with more available memory and considers NUMA affinity
-func (s *GPUMemorySortingStrategy) Sort(ctx *allocate.AllocationContext, filteredDevices []string) ([]string, error) {
+func (s *GPUMemoryStrategy) Sort(ctx *allocate.AllocationContext, filteredDevices []string) ([]string, error) {
 	if ctx.GPUTopology == nil {
 		return nil, fmt.Errorf("GPU topology is nil")
 	}

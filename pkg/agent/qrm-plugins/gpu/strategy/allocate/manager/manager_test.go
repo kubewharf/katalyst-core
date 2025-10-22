@@ -21,18 +21,42 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/allocation"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/bind"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/filter"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/sort"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/allocation"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/canonical"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/gpu_memory"
 )
+
+type dummyStrategy struct {
+	name string
+}
+
+func (s *dummyStrategy) Name() string {
+	return s.name
+}
+
+func (s *dummyStrategy) Filter(_ *allocate.AllocationContext, allAvailableDevices []string) ([]string, error) {
+	return allAvailableDevices, nil
+}
+
+func (s *dummyStrategy) Sort(_ *allocate.AllocationContext, allAvailableDevices []string) ([]string, error) {
+	return allAvailableDevices, nil
+}
+
+func (s *dummyStrategy) Bind(_ *allocate.AllocationContext, _ []string) (*allocate.AllocationResult, error) {
+	return &allocate.AllocationResult{}, nil
+}
+
+func (s *dummyStrategy) Allocate(_ *allocate.AllocationContext) (*allocate.AllocationResult, error) {
+	return &allocate.AllocationResult{}, nil
+}
 
 func TestStrategyRegistry(t *testing.T) {
 	t.Parallel()
 
 	registry := NewStrategyRegistry()
 	// Test filtering strategy registration
-	filteringStrategy := filter.NewGPUMemoryFilteringStrategy()
+	filteringStrategy := &dummyStrategy{name: "test-filtering"}
 	err := registry.RegisterFilteringStrategy(filteringStrategy)
 	assert.NoError(t, err)
 
@@ -41,35 +65,35 @@ func TestStrategyRegistry(t *testing.T) {
 	assert.Error(t, err)
 
 	// Test strategy retrieval
-	retrievedStrategy, err := registry.GetFilteringStrategy(filter.FilteringStrategyNameGPUMemory)
+	retrievedStrategy, err := registry.GetFilteringStrategy("test-filtering")
 	assert.NoError(t, err)
-	assert.Equal(t, filter.FilteringStrategyNameGPUMemory, retrievedStrategy.Name())
+	assert.Equal(t, "test-filtering", retrievedStrategy.Name())
 
 	// Test non-existent strategy
 	_, err = registry.GetFilteringStrategy("non-existent")
 	assert.Error(t, err)
 
 	// Test sorting strategy registration
-	sortingStrategy := sort.NewGPUMemorySortingStrategy()
+	sortingStrategy := &dummyStrategy{name: "test-sorting"}
 	err = registry.RegisterSortingStrategy(sortingStrategy)
 	assert.NoError(t, err)
 
 	// Test binding strategy registration
-	bindingStrategy := bind.NewDefaultBindingStrategy()
+	bindingStrategy := &dummyStrategy{name: "test-binding"}
 	err = registry.RegisterBindingStrategy(bindingStrategy)
 	assert.NoError(t, err)
 
 	// Test allocation strategy registration
-	err = registry.RegisterGenericAllocationStrategy("test-allocation", []string{filter.FilteringStrategyNameGPUMemory},
-		sort.SortingStrategyNameGPUMemory, bind.BindingStrategyNameDefault)
+	err = registry.RegisterGenericAllocationStrategy("test-allocation", []string{"test-filtering"},
+		"test-sorting", "test-binding")
 	assert.NoError(t, err)
 
 	// Test allocation strategy retrieval
 	allocationStrategy, err := registry.GetAllocationStrategy("test-allocation")
 	assert.NoError(t, err)
-	assert.Equal(t, filter.FilteringStrategyNameGPUMemory, allocationStrategy.(*allocation.GenericAllocationStrategy).FilteringStrategy[0].Name())
-	assert.Equal(t, sort.SortingStrategyNameGPUMemory, allocationStrategy.(*allocation.GenericAllocationStrategy).SortingStrategy.Name())
-	assert.Equal(t, bind.BindingStrategyNameDefault, allocationStrategy.(*allocation.GenericAllocationStrategy).BindingStrategy.Name())
+	assert.Equal(t, "test-filtering", allocationStrategy.(*allocation.GenericAllocationStrategy).FilteringStrategy[0].Name())
+	assert.Equal(t, "test-sorting", allocationStrategy.(*allocation.GenericAllocationStrategy).SortingStrategy.Name())
+	assert.Equal(t, "test-binding", allocationStrategy.(*allocation.GenericAllocationStrategy).BindingStrategy.Name())
 }
 
 func TestStrategyManager(t *testing.T) {
@@ -90,8 +114,8 @@ func TestStrategyManager(t *testing.T) {
 	err = manager.RegisterStrategyForResource("test-resource", "test-allocation")
 	assert.Error(t, err) // Should fail because test-allocation is not registered yet
 
-	err = manager.RegisterGenericAllocationStrategy("test-allocation", []string{filter.FilteringStrategyNameGPUMemory},
-		sort.SortingStrategyNameGPUMemory, bind.BindingStrategyNameDefault)
+	err = manager.RegisterGenericAllocationStrategy("test-allocation", []string{gpu_memory.StrategyNameGPUMemory},
+		gpu_memory.StrategyNameGPUMemory, canonical.StrategyNameCanonical)
 	assert.NoError(t, err)
 
 	// Now test registering strategy for resource
