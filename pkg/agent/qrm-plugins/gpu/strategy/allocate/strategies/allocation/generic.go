@@ -21,9 +21,9 @@ import "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/al
 // GenericAllocationStrategy combines filtering, sorting, and binding strategies
 type GenericAllocationStrategy struct {
 	name              string
-	FilteringStrategy []allocate.FilteringStrategy
-	SortingStrategy   allocate.SortingStrategy
-	BindingStrategy   allocate.BindingStrategy
+	filteringStrategy []allocate.FilteringStrategy
+	sortingStrategy   allocate.SortingStrategy
+	bindingStrategy   allocate.BindingStrategy
 }
 
 // NewGenericAllocationStrategy creates a new allocation strategy with the given components
@@ -34,9 +34,9 @@ func NewGenericAllocationStrategy(name string,
 ) *GenericAllocationStrategy {
 	return &GenericAllocationStrategy{
 		name:              name,
-		FilteringStrategy: filtering,
-		SortingStrategy:   sorting,
-		BindingStrategy:   binding,
+		filteringStrategy: filtering,
+		sortingStrategy:   sorting,
+		bindingStrategy:   binding,
 	}
 }
 
@@ -51,7 +51,7 @@ func (s *GenericAllocationStrategy) Allocate(ctx *allocate.AllocationContext) (*
 	var err error
 	allAvailableDevices := append(ctx.DeviceReq.ReusableDevices, ctx.DeviceReq.AvailableDevices...)
 	// Apply filtering strategy
-	for _, fs := range s.FilteringStrategy {
+	for _, fs := range s.filteringStrategy {
 		allAvailableDevices, err = fs.Filter(ctx, allAvailableDevices)
 		if err != nil {
 			return &allocate.AllocationResult{
@@ -62,7 +62,7 @@ func (s *GenericAllocationStrategy) Allocate(ctx *allocate.AllocationContext) (*
 	}
 
 	// Apply sorting strategy
-	sortedDevices, err := s.SortingStrategy.Sort(ctx, allAvailableDevices)
+	sortedDevices, err := s.sortingStrategy.Sort(ctx, allAvailableDevices)
 	if err != nil {
 		return &allocate.AllocationResult{
 			Success:      false,
@@ -71,7 +71,7 @@ func (s *GenericAllocationStrategy) Allocate(ctx *allocate.AllocationContext) (*
 	}
 
 	// Apply binding strategy
-	result, err := s.BindingStrategy.Bind(ctx, sortedDevices)
+	result, err := s.bindingStrategy.Bind(ctx, sortedDevices)
 	if err != nil {
 		return &allocate.AllocationResult{
 			Success:      false,
@@ -80,4 +80,34 @@ func (s *GenericAllocationStrategy) Allocate(ctx *allocate.AllocationContext) (*
 	}
 
 	return result, nil
+}
+
+// GetFilteringStrategy returns the filtering strategy
+func (s *GenericAllocationStrategy) GetFilteringStrategy() []allocate.FilteringStrategy {
+	return s.filteringStrategy
+}
+
+// SetFilteringStrategy sets the filtering strategy
+func (s *GenericAllocationStrategy) SetFilteringStrategy(filteringStrategy []allocate.FilteringStrategy) {
+	s.filteringStrategy = filteringStrategy
+}
+
+// GetSortingStrategy returns the sorting strategy
+func (s *GenericAllocationStrategy) GetSortingStrategy() allocate.SortingStrategy {
+	return s.sortingStrategy
+}
+
+// SetSortingStrategy sets the sorting strategy
+func (s *GenericAllocationStrategy) SetSortingStrategy(sortingStrategy allocate.SortingStrategy) {
+	s.sortingStrategy = sortingStrategy
+}
+
+// GetBindingStrategy returns the binding strategy
+func (s *GenericAllocationStrategy) GetBindingStrategy() allocate.BindingStrategy {
+	return s.bindingStrategy
+}
+
+// SetBindingStrategy sets the binding strategy
+func (s *GenericAllocationStrategy) SetBindingStrategy(bindingStrategy allocate.BindingStrategy) {
+	s.bindingStrategy = bindingStrategy
 }
