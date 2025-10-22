@@ -188,7 +188,7 @@ func (p *PolicyRama) sanityCheck() error {
 
 		if !ok1 && !ok2 {
 			isLegal = false
-		} else if ok1 && v1.Value <= 0 {
+		} else if ok1 && v1.Value < 0 {
 			isLegal = false
 		} else if ok2 && v2.Value <= 0 {
 			isLegal = false
