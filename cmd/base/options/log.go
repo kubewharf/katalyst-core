@@ -24,29 +24,24 @@ import (
 )
 
 type LogsOptions struct {
-	LogPackageLevel     general.LoggingPKG
-	LogFileMaxSizeInMB  uint64
-	SupportAsyncLogging bool
-	LogDir              string
-	LogBufferSize       int
-	LogFileMaxAge       int
-	LogFileMaxBackups   int
+	LogPackageLevel    general.LoggingPKG
+	LogFileMaxSizeInMB uint64
+	CustomLogDir       string
+	LogBufferSize      int
+	LogFileMaxAge      int
+	LogFileMaxBackups  int
 }
 
 func NewLogsOptions() *LogsOptions {
 	return &LogsOptions{
 		LogPackageLevel:    general.LoggingPKGFull,
 		LogFileMaxSizeInMB: 1800,
-		LogBufferSize:      10000,
-		LogFileMaxAge:      7,
-		LogFileMaxBackups:  10,
 	}
 }
 
 // AddFlags adds flags  to the specified FlagSet.
 func (o *LogsOptions) AddFlags(fs *pflag.FlagSet) {
-	fs.BoolVar(&o.SupportAsyncLogging, "support-async-logging", o.SupportAsyncLogging, "whether to support async logging")
-	fs.StringVar(&o.LogDir, "async_log_dir", o.LogDir, "directory to store logs")
+	fs.StringVar(&o.CustomLogDir, "custom_log_dir", o.CustomLogDir, "directory to store logs for custom logger")
 	fs.Var(&o.LogPackageLevel, "logs-package-level", "the default package level for logging")
 	fs.Uint64Var(&o.LogFileMaxSizeInMB, "log-file-max-size", o.LogFileMaxSizeInMB, "Max size of klog file in MB.")
 	fs.IntVar(&o.LogBufferSize, "log-buffer-size", o.LogBufferSize, "size of the ring buffer to store async logs")
@@ -57,8 +52,7 @@ func (o *LogsOptions) AddFlags(fs *pflag.FlagSet) {
 func (o *LogsOptions) ApplyTo(c *generic.LogConfiguration) error {
 	general.SetDefaultLoggingPackage(o.LogPackageLevel)
 	general.SetLogFileMaxSize(o.LogFileMaxSizeInMB)
-	c.SupportAsyncLogging = o.SupportAsyncLogging
-	c.LogDir = o.LogDir
+	c.CustomLogDir = o.CustomLogDir
 	c.LogBufferSize = o.LogBufferSize
 	c.LogFileMaxSize = int(o.LogFileMaxSizeInMB)
 	c.LogFileMaxAge = o.LogFileMaxAge

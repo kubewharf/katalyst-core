@@ -67,40 +67,53 @@ var logInfoMap = map[SeverityName]*logInfo{
 	FatalSeverity:   {fileName: defaultFatalLogFileName, metricsName: metricsNameNumDroppedFatalLogs},
 }
 
-type AsyncLogger struct {
+type CustomLogger struct {
 	diodeWriters []diode.Writer
 }
 
-// NewAsyncLogger creates an async logger that produces an async writer for each of the severity levels.
-// The async writer spins up a goroutine that periodically flushes the buffered logs to disk.
-func NewAsyncLogger(
+// NewCustomLogger creates a custom logger that can either be asynchronous or synchronous, depending on configuration.
+func NewCustomLogger(
 	agentCtx *agent.GenericContext, logDir string, maxSizeMB, maxAge, maxBackups, bufferSize int,
-) *AsyncLogger {
+) *CustomLogger {
 	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter()
 
-	asyncLogger := &AsyncLogger{}
+	// If logDir is not set, we are still using klog's native logger, so we just return an empty logger without calling SetOutput()
+	if logDir == "" {
+		return &CustomLogger{}
+	}
+
+	customLogger := &CustomLogger{}
 	for severity, logInfo := range logInfoMap {
+		filePath := path.Join(logDir, logInfo.fileName)
+
 		// lumberjackLogger is a logger that rotates log files
 		lumberjackLogger := &lumberjack.Logger{
-			Filename:   path.Join(logDir, logInfo.fileName),
+			Filename:   filePath,
 			MaxSize:    maxSizeMB,
 			MaxAge:     maxAge,
 			MaxBackups: maxBackups,
 		}
 
-		// diodeWriter is a writer that stores logs in a ring buffer and asynchronously flushes them
-		diodeWriter := diode.NewWriter(lumberjackLogger, bufferSize, 10*time.Millisecond, func(missed int) {
-			_ = wrappedEmitter.StoreInt64(logInfo.metricsName, int64(missed), metrics.MetricTypeNameRaw)
-		})
-		// Overrides the default synchronous writer with the diode writer
-		klog.SetOutputBySeverity(string(severity), diodeWriter)
-		asyncLogger.diodeWriters = append(asyncLogger.diodeWriters, diodeWriter)
+		// Enable async logger if buffer size is more than 0; otherwise, use synchronous lumberjack logger
+		if bufferSize > 0 {
+			// diodeWriter is a writer that stores logs in a ring buffer and asynchronously flushes them to disk
+			diodeWriter := diode.NewWriter(lumberjackLogger, bufferSize, 10*time.Millisecond, func(missed int) {
+				_ = wrappedEmitter.StoreInt64(logInfo.metricsName, int64(missed), metrics.MetricTypeNameRaw)
+			})
+			// Overrides the default synchronous writer with the diode writer
+			klog.SetOutputBySeverity(string(severity), diodeWriter)
+			customLogger.diodeWriters = append(customLogger.diodeWriters, diodeWriter)
+			klog.Infof("custom async logger is enabled for the severity %s", severity)
+		} else {
+			klog.SetOutputBySeverity(string(severity), lumberjackLogger)
+			klog.Infof("custom sync logger is enabled for the severity %s", severity)
+		}
 	}
 
-	return asyncLogger
+	return customLogger
 }
 
-func (a *AsyncLogger) Shutdown() {
+func (a *CustomLogger) Shutdown() {
 	klog.Info("[Shutdown] async writer is shutting down...")
 	klog.Flush()
 	for _, writer := range a.diodeWriters {

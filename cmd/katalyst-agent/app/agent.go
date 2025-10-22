@@ -63,10 +63,8 @@ func Run(
 		return err
 	}
 
-	if conf.SupportAsyncLogging {
-		asyncLogger := logging.NewAsyncLogger(genericCtx, conf.LogDir, conf.LogFileMaxSize, conf.LogFileMaxAge, conf.LogFileMaxBackups, conf.LogBufferSize)
-		defer asyncLogger.Shutdown()
-	}
+	asyncLogger := logging.NewCustomLogger(genericCtx, conf.CustomLogDir, conf.LogFileMaxSize, conf.LogFileMaxAge, conf.LogFileMaxBackups, conf.LogBufferSize)
+	defer asyncLogger.Shutdown()
 
 	for _, genericOption := range genericOptions {
 		genericOption(genericCtx)

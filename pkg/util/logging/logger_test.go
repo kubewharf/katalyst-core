@@ -26,15 +26,63 @@ import (
 	metrics_pool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 )
 
-func TestNewAsyncLogger(t *testing.T) {
+func TestNewCustomLogger(t *testing.T) {
 	t.Parallel()
-	agentCtx := &agent.GenericContext{
-		GenericContext: &katalyst_base.GenericContext{
-			EmitterPool: metrics_pool.DummyMetricsEmitterPool{},
+	testCases := []struct {
+		name                      string
+		logDir                    string
+		maxSizeMB                 int
+		maxAge                    int
+		maxBackups                int
+		bufferSize                int
+		expectedDiodeWritersCount int
+	}{
+		{
+			name:                      "Disabled logger (logDir is empty), logger is nil",
+			logDir:                    "",
+			maxSizeMB:                 10,
+			maxAge:                    0,
+			maxBackups:                10,
+			bufferSize:                1024,
+			expectedDiodeWritersCount: 0,
+		},
+		{
+			name:                      "Synchronous logger (bufferSize=0)",
+			logDir:                    t.TempDir(),
+			maxSizeMB:                 1,
+			maxAge:                    1,
+			maxBackups:                1,
+			bufferSize:                0,
+			expectedDiodeWritersCount: 0,
+		},
+		{
+			name:                      "Asynchronous logger",
+			logDir:                    t.TempDir(),
+			maxSizeMB:                 1,
+			maxAge:                    1,
+			maxBackups:                1,
+			bufferSize:                1024,
+			expectedDiodeWritersCount: 4,
 		},
 	}
-	asyncLogger := NewAsyncLogger(agentCtx, "testDir", 100, 100, 100, 100)
-	assert.NotNil(t, asyncLogger)
 
-	assert.Equal(t, len(asyncLogger.diodeWriters), 4)
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			agentCtx := &agent.GenericContext{
+				GenericContext: &katalyst_base.GenericContext{
+					EmitterPool: metrics_pool.DummyMetricsEmitterPool{},
+				},
+			}
+
+			logger := NewCustomLogger(agentCtx, tc.logDir, tc.maxSizeMB, tc.maxAge, tc.maxBackups, tc.bufferSize)
+
+			assert.NotNil(t, logger)
+			assert.Len(t, logger.diodeWriters, tc.expectedDiodeWritersCount)
+			assert.NotPanics(t, func() {
+				logger.Shutdown()
+			})
+		})
+	}
 }
