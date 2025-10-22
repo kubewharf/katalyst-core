@@ -18,6 +18,7 @@ require (
 	github.com/google/cadvisor v0.44.2
 	github.com/google/uuid v1.3.0
 	github.com/h2non/gock v1.2.0
+	github.com/jellydator/ttlcache/v3 v3.4.0
 	github.com/klauspost/cpuid/v2 v2.2.6
 	github.com/kubewharf/katalyst-api v0.5.7-0.20251016031722-46e3de932add
 	github.com/moby/sys/mountinfo v0.6.2
@@ -106,7 +107,6 @@ require (
 	github.com/h2non/parth v0.0.0-20190131123155-b4df798d6542 // indirect
 	github.com/imdario/mergo v0.3.12 // indirect
 	github.com/inconshreveable/mousetrap v1.0.1 // indirect
-	github.com/jellydator/ttlcache/v3 v3.4.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/jpillora/backoff v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
