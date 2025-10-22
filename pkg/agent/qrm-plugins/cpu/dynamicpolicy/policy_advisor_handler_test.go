@@ -23,6 +23,9 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
+
+	"github.com/jellydator/ttlcache/v3"
 
 	"github.com/bytedance/mockey"
 	"github.com/smartystreets/goconvey/convey"
@@ -571,5 +574,46 @@ func TestDynamicPolicy_checkAndApplySubCgroupPath(t *testing.T) {
 		mockey.Mock(cgroupmgr.ApplyCPUWithAbsolutePath).IncludeCurrentGoRoutine().Return(nil).Build()
 		err3 := p.checkAndApplySubCgroupPath("path3", d3, nil)
 		convey.So(err3, convey.ShouldBeNil)
+	})
+}
+
+func TestDynamicPolicy_checkAndApplySubCgroupPathWithTTLCache(t *testing.T) {
+	t.Parallel()
+
+	p := &DynamicPolicy{
+		metaServer: &metaserver.MetaServer{
+			MetaAgent: &agent.MetaAgent{
+				PodFetcher: &pod.PodFetcherStub{},
+			},
+		},
+		subCgroupCache: ttlcache.New[string, int64](
+			ttlcache.WithTTL[string, int64](10 * time.Second),
+		),
+	}
+
+	advisorTestMutex.Lock()
+	defer advisorTestMutex.Unlock()
+	mockey.PatchConvey("test checkAndApplySubCgroupPath", t, func() {
+		d1 := mockDirEntry{isDir: true}
+		subCPU1 := &common.CPUStats{CpuQuota: 1000}
+		mockGet := mockey.Mock(cgroupmgr.GetCPUWithAbsolutePath).IncludeCurrentGoRoutine().Return(subCPU1, nil).Build()
+		mockSet := mockey.Mock(cgroupmgr.ApplyCPUWithAbsolutePath).IncludeCurrentGoRoutine().Return(nil).Build()
+		err1 := p.checkAndApplySubCgroupPath("path", d1, nil)
+		convey.So(err1, convey.ShouldBeNil)
+		convey.So(mockGet.MockTimes(), convey.ShouldEqual, 1)
+		convey.So(mockSet.MockTimes(), convey.ShouldEqual, 1)
+
+		// cache hit
+		err2 := p.checkAndApplySubCgroupPath("path", d1, nil)
+		convey.So(err2, convey.ShouldBeNil)
+		convey.So(mockGet.MockTimes(), convey.ShouldEqual, 1)
+		convey.So(mockSet.MockTimes(), convey.ShouldEqual, 1)
+
+		// cache miss
+		time.Sleep(11 * time.Second)
+		err3 := p.checkAndApplySubCgroupPath("path", d1, nil)
+		convey.So(err3, convey.ShouldBeNil)
+		convey.So(mockGet.MockTimes(), convey.ShouldEqual, 2)
+		convey.So(mockSet.MockTimes(), convey.ShouldEqual, 2)
 	})
 }
