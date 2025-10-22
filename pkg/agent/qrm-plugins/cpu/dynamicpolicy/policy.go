@@ -23,6 +23,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jellydator/ttlcache/v3"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	v1 "k8s.io/api/core/v1"
@@ -139,6 +141,8 @@ type DynamicPolicy struct {
 
 	sharedCoresNUMABindingHintOptimizer    hintoptimizer.HintOptimizer
 	dedicatedCoresNUMABindingHintOptimizer hintoptimizer.HintOptimizer
+
+	subCgroupCache *ttlcache.Cache[string, int64]
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -219,7 +223,13 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		sharedCoresNUMABindingResultAnnotationKey: conf.SharedCoresNUMABindingResultAnnotationKey,
 		transitionPeriod:                          30 * time.Second,
 		reservedReclaimedCPUsSize:                 general.Max(reservedReclaimedCPUsSize, agentCtx.KatalystMachineInfo.NumNUMANodes),
+
+		subCgroupCache: ttlcache.New[string, int64](
+			ttlcache.WithTTL[string, int64](30 * time.Minute),
+		),
 	}
+
+	policyImplement.subCgroupCache.Start()
 
 	// initialize hint optimizer
 	err = policyImplement.initHintOptimizers()
