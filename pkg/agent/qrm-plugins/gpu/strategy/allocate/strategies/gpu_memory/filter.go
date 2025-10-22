@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package filter
+package gpu_memory
 
 import (
 	"fmt"
@@ -28,26 +28,9 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
-const (
-	FilteringStrategyNameGPUMemory = "gpu-memory"
-)
-
-// GPUMemoryFilteringStrategy filters GPU devices based on available GPU memory
-type GPUMemoryFilteringStrategy struct{}
-
-// NewGPUMemoryFilteringStrategy creates a new GPU memory filtering strategy
-func NewGPUMemoryFilteringStrategy() allocate.FilteringStrategy {
-	return &GPUMemoryFilteringStrategy{}
-}
-
-// Name returns the name of the filtering strategy
-func (s *GPUMemoryFilteringStrategy) Name() string {
-	return FilteringStrategyNameGPUMemory
-}
-
 // Filter filters the available GPU devices based on available GPU memory
 // It returns devices that have enough available memory for the request
-func (s *GPUMemoryFilteringStrategy) Filter(ctx *allocate.AllocationContext, allAvailableDevices []string) ([]string, error) {
+func (s *GPUMemoryStrategy) Filter(ctx *allocate.AllocationContext, allAvailableDevices []string) ([]string, error) {
 	if ctx.GPUTopology == nil {
 		return nil, fmt.Errorf("GPU topology is nil")
 	}
@@ -65,7 +48,8 @@ func (s *GPUMemoryFilteringStrategy) Filter(ctx *allocate.AllocationContext, all
 
 	return filteredDevices, nil
 }
-func (s *GPUMemoryFilteringStrategy) filterGPUDevices(
+
+func (s *GPUMemoryStrategy) filterGPUDevices(
 	ctx *allocate.AllocationContext,
 	gpuMemoryRequest float64,
 	allAvailableDevices []string,
