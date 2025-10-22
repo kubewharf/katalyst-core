@@ -125,8 +125,15 @@ type DeviceTopology struct {
 }
 
 type DeviceInfo struct {
-	Health    string
-	NumaNodes []int
+	Health              string
+	NumaNodes           []int
+	DeviceAffinityGroup map[AffinityPriority]AffinityGroupInfo
+}
+
+type AffinityPriority int
+
+type AffinityGroupInfo struct {
+	GroupID int
 }
 
 func (i DeviceInfo) GetNUMANode() []int {
