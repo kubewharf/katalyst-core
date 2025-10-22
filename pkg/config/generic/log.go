@@ -17,12 +17,11 @@ limitations under the License.
 package generic
 
 type LogConfiguration struct {
-	SupportAsyncLogging bool
-	LogDir              string
-	LogFileMaxSize      int
-	LogBufferSize       int
-	LogFileMaxAge       int
-	LogFileMaxBackups   int
+	CustomLogDir      string
+	LogFileMaxSize    int
+	LogBufferSize     int
+	LogFileMaxAge     int
+	LogFileMaxBackups int
 }
 
 func NewLogConfiguration() *LogConfiguration {
