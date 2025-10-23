@@ -53,7 +53,7 @@ func AllocateGPUUsingStrategy(
 	ctx := &allocate.AllocationContext{
 		ResourceReq:        resourceReq,
 		DeviceReq:          deviceReq,
-		GPUTopology:        gpuTopology,
+		DeviceTopology:     gpuTopology,
 		GPUQRMPluginConfig: gpuConfig,
 		Emitter:            emitter,
 		MetaServer:         metaServer,
