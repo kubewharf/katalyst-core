@@ -435,49 +435,15 @@ func IsZeroBitmap(bitmapStr string) bool {
 }
 
 func ComparesHexBitmapStrings(a string, b string) bool {
-	bitmapAFields := strings.Split(a, ",")
-	bitmapBFields := strings.Split(b, ",")
+	a = strings.TrimSpace(a)
+	a = strings.ReplaceAll(a, ",", "")
+	a = strings.TrimLeft(a, "0")
 
-	cmpLen := len(bitmapAFields)
-	if len(bitmapBFields) < cmpLen {
-		cmpLen = len(bitmapBFields)
-	}
+	b = strings.TrimSpace(b)
+	b = strings.ReplaceAll(b, ",", "")
+	b = strings.TrimLeft(b, "0")
 
-	aLastIndex := len(bitmapAFields) - 1
-	bLastIndex := len(bitmapBFields) - 1
-	for i := 0; i < cmpLen; i++ {
-		if bitmapAFields[aLastIndex-i] != bitmapBFields[bLastIndex-i] {
-			return false
-		}
-	}
-
-	if len(bitmapAFields) > cmpLen {
-		remainder := len(bitmapAFields) - cmpLen
-		for i := 0; i < remainder; i++ {
-			val, err := strconv.ParseInt(bitmapAFields[i], 16, 64)
-			if err != nil {
-				return false
-			}
-			if val != 0 {
-				return false
-			}
-		}
-	}
-
-	if len(bitmapBFields) > cmpLen {
-		remainder := len(bitmapBFields) - cmpLen
-		for i := 0; i < remainder; i++ {
-			val, err := strconv.ParseInt(bitmapBFields[i], 16, 64)
-			if err != nil {
-				return false
-			}
-			if val != 0 {
-				return false
-			}
-		}
-	}
-
-	return true
+	return a == b
 }
 
 func GetNicRxQueueRpsConf(nic *NicBasicInfo, queue int) (string, error) {
