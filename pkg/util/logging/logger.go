@@ -1,0 +1,122 @@
+/*
+Copyright 2022 The Katalyst Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package logging
+
+import (
+	"fmt"
+	"os"
+	"path"
+	"path/filepath"
+	"time"
+
+	"github.com/rs/zerolog/diode"
+	"gopkg.in/natefinch/lumberjack.v2"
+	"k8s.io/klog/v2"
+
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
+)
+
+type SeverityName string
+
+const (
+	InfoSeverity    SeverityName = "INFO"
+	WarningSeverity SeverityName = "WARNING"
+	ErrorSeverity   SeverityName = "ERROR"
+	FatalSeverity   SeverityName = "FATAL"
+)
+
+const (
+	metricsNameNumDroppedInfoLogs    = "number_of_dropped_info_logs"
+	metricsNameNumDroppedWarningLogs = "number_of_dropped_warning_logs"
+	metricsNameNumDroppedErrorLogs   = "number_of_dropped_error_logs"
+	metricsNameNumDroppedFatalLogs   = "number_of_dropped_fatal_logs"
+)
+
+var (
+	basePath                  = filepath.Base(os.Args[0])
+	defaultInfoLogFileName    = fmt.Sprintf("%s.%s.log", basePath, InfoSeverity)
+	defaultWarningLogFileName = fmt.Sprintf("%s.%s.log", basePath, WarningSeverity)
+	defaultErrorLogFileName   = fmt.Sprintf("%s.%s.log", basePath, ErrorSeverity)
+	defaultFatalLogFileName   = fmt.Sprintf("%s.%s.log", basePath, FatalSeverity)
+)
+
+type logInfo struct {
+	fileName    string
+	metricsName string
+}
+
+var logInfoMap = map[SeverityName]*logInfo{
+	InfoSeverity:    {fileName: defaultInfoLogFileName, metricsName: metricsNameNumDroppedInfoLogs},
+	WarningSeverity: {fileName: defaultWarningLogFileName, metricsName: metricsNameNumDroppedWarningLogs},
+	ErrorSeverity:   {fileName: defaultErrorLogFileName, metricsName: metricsNameNumDroppedErrorLogs},
+	FatalSeverity:   {fileName: defaultFatalLogFileName, metricsName: metricsNameNumDroppedFatalLogs},
+}
+
+type CustomLogger struct {
+	diodeWriters []diode.Writer
+}
+
+// NewCustomLogger creates a custom logger that can either be asynchronous or synchronous, depending on configuration.
+func NewCustomLogger(
+	agentCtx *agent.GenericContext, logDir string, maxSizeMB, maxAge, maxBackups, bufferSize int,
+) *CustomLogger {
+	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter()
+
+	// If logDir is not set, we are still using klog's native logger, so we just return an empty logger without calling SetOutput()
+	if logDir == "" {
+		return &CustomLogger{}
+	}
+
+	customLogger := &CustomLogger{}
+	for severity, logInfo := range logInfoMap {
+		filePath := path.Join(logDir, logInfo.fileName)
+
+		// lumberjackLogger is a logger that rotates log files
+		lumberjackLogger := &lumberjack.Logger{
+			Filename:   filePath,
+			MaxSize:    maxSizeMB,
+			MaxAge:     maxAge,
+			MaxBackups: maxBackups,
+		}
+
+		// Enable async logger if buffer size is more than 0; otherwise, use synchronous lumberjack logger
+		if bufferSize > 0 {
+			// diodeWriter is a writer that stores logs in a ring buffer and asynchronously flushes them to disk
+			diodeWriter := diode.NewWriter(lumberjackLogger, bufferSize, 10*time.Millisecond, func(missed int) {
+				_ = wrappedEmitter.StoreInt64(logInfo.metricsName, int64(missed), metrics.MetricTypeNameRaw)
+			})
+			// Overrides the default synchronous writer with the diode writer
+			klog.SetOutputBySeverity(string(severity), diodeWriter)
+			customLogger.diodeWriters = append(customLogger.diodeWriters, diodeWriter)
+			klog.Infof("custom async logger is enabled for the severity %s", severity)
+		} else {
+			klog.SetOutputBySeverity(string(severity), lumberjackLogger)
+			klog.Infof("custom sync logger is enabled for the severity %s", severity)
+		}
+	}
+
+	return customLogger
+}
+
+func (a *CustomLogger) Shutdown() {
+	klog.Info("[Shutdown] async writer is shutting down...")
+	klog.Flush()
+	for _, writer := range a.diodeWriters {
+		writer.Close()
+	}
+}
