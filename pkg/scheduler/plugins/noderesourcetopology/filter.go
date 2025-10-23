@@ -67,7 +67,7 @@ func (tm *TopologyMatch) Filter(ctx context.Context, cycleState *framework.Cycle
 		return nil
 	}
 
-	handler := tm.filterHanlder(pod, nodeResourceTopologycache)
+	handler := tm.filterHandler(pod, nodeResourceTopologycache)
 	if handler == nil {
 		return nil
 	}
@@ -75,7 +75,7 @@ func (tm *TopologyMatch) Filter(ctx context.Context, cycleState *framework.Cycle
 	return handler(pod, nodeResourceTopologycache.TopologyZone, nodeInfo)
 }
 
-func (tm *TopologyMatch) filterHanlder(pod *v1.Pod, nodeResourceTopology *cache.ResourceTopology) filterFn {
+func (tm *TopologyMatch) filterHandler(pod *v1.Pod, nodeResourceTopology *cache.ResourceTopology) filterFn {
 	if tm.resourcePolicy == consts.ResourcePluginPolicyNameNative {
 		// only single-numa-node supported
 		if qos.GetPodQOS(pod) == v1.PodQOSGuaranteed && util.IsRequestFullCPU(pod) {
