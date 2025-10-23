@@ -148,7 +148,6 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 			p.State.GetMachineState(),
 			qosLevel,
 		)
-
 		if err != nil {
 			return nil, fmt.Errorf("GPU allocation using strategy failed: %v", err)
 		}
@@ -201,6 +200,7 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 	}
 	gpuDeviceAllocationInfo.TopologyAwareAllocations = gpuDeviceTopologyAwareAllocations
 
+	// TODO：State can be updated using the actual resource name
 	p.State.SetAllocationInfo(gpuconsts.GPUDeviceType, resReq.PodUid, resReq.ContainerName, gpuDeviceAllocationInfo, false)
 	gpuDeviceMachineState, err := state.GenerateMachineStateFromPodEntries(p.State.GetPodResourceEntries(), p.DeviceTopologyRegistry)
 	if err != nil {

@@ -14,28 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package gpu_memory
+package deviceaffinity
 
 import "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate"
 
-const (
-	StrategyNameGPUMemory = "gpu-memory"
-)
-
-// GPUMemoryStrategy filters GPU devices based on available GPU memory
-type GPUMemoryStrategy struct{}
-
-var (
-	_ allocate.FilteringStrategy = &GPUMemoryStrategy{}
-	_ allocate.SortingStrategy   = &GPUMemoryStrategy{}
-)
-
-// NewGPUMemoryStrategy creates a new GPU memory filtering strategy
-func NewGPUMemoryStrategy() *GPUMemoryStrategy {
-	return &GPUMemoryStrategy{}
-}
-
-// Name returns the name of the filtering strategy
-func (s *GPUMemoryStrategy) Name() string {
-	return StrategyNameGPUMemory
+// Sort does nothing for device affinity strategy
+func (s *DeviceAffinityStrategy) Sort(_ *allocate.AllocationContext, filteredDevices []string) ([]string, error) {
+	return filteredDevices, nil
 }

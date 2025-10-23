@@ -109,6 +109,8 @@ func NewStaticPolicy(
 	return true, &agent.PluginWrapper{GenericPlugin: pluginWrapper}, nil
 }
 
+var _ skeleton.QRMPlugin = (*StaticPolicy)(nil)
+
 // Start starts this plugin
 func (p *StaticPolicy) Start() (err error) {
 	general.Infof("called")
@@ -557,7 +559,9 @@ func (p *StaticPolicy) clearResidualState(
 	}
 }
 
-func (p *StaticPolicy) UpdateAllocatableAssociatedDevices(request *pluginapi.UpdateAllocatableAssociatedDevicesRequest) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error) {
+func (p *StaticPolicy) UpdateAllocatableAssociatedDevices(
+	_ context.Context, request *pluginapi.UpdateAllocatableAssociatedDevicesRequest,
+) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error) {
 	if request == nil || len(request.Devices) == 0 {
 		return nil, fmt.Errorf("request is nil")
 	}
@@ -663,8 +667,10 @@ func (p *StaticPolicy) AllocateAssociatedDevice(
 	return p.allocateAssociatedDevice(targetCustomDevicePlugin, req.ResourceRequest, targetDeviceReq, req.AccompanyResourceName)
 }
 
-func (p *StaticPolicy) allocateAssociatedDevice(devicePlugin customdeviceplugin.CustomDevicePlugin,
-	resReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest, accompanyResourceName string) (*pluginapi.AssociatedDeviceAllocationResponse, error) {
+func (p *StaticPolicy) allocateAssociatedDevice(
+	devicePlugin customdeviceplugin.CustomDevicePlugin,
+	resReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest, accompanyResourceName string,
+) (*pluginapi.AssociatedDeviceAllocationResponse, error) {
 	defaultAccompanyResourceName := devicePlugin.DefaultAccompanyResourceName()
 	if defaultAccompanyResourceName != "" && accompanyResourceName != defaultAccompanyResourceName {
 		accompanyResourcePlugin := p.getResourcePlugin(defaultAccompanyResourceName)

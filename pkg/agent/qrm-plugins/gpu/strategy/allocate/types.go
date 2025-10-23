@@ -30,7 +30,7 @@ import (
 type AllocationContext struct {
 	ResourceReq        *pluginapi.ResourceRequest
 	DeviceReq          *pluginapi.DeviceRequest
-	GPUTopology        *machine.DeviceTopology
+	DeviceTopology     *machine.DeviceTopology
 	GPUQRMPluginConfig *qrm.GPUQRMPluginConfig
 	Emitter            metrics.MetricEmitter
 	MetaServer         *metaserver.MetaServer
