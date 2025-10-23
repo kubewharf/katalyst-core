@@ -81,15 +81,12 @@ func NewMetaServer(clientSet *client.GenericClientSet, emitter metrics.MetricEmi
 
 	var npdFetcher npd.NPDFetcher
 	if conf.EnableNPDFetcher {
-		npdFetcher = npd.NewNPDFetcher(clientSet, metaAgent.CNCFetcher, conf.KCCConfiguration)
+		npdFetcher, err = npd.NewNPDFetcher(clientSet, metaAgent.CNCFetcher, conf, emitter)
+		if err != nil {
+			return nil, fmt.Errorf("initializes npd fetcher failed: %s", err)
+		}
 	} else {
 		npdFetcher = npd.NewDummyNPDFetcher()
-	}
-
-	var resourcePackageManager resourcepackage.ResourcePackageManager
-	resourcePackageManager, err = resourcepackage.NewResourcePackageManager(npdFetcher, conf, emitter)
-	if err != nil {
-		return nil, fmt.Errorf("initializes resource package manager failed: %s", err)
 	}
 
 	return &MetaServer{
@@ -97,7 +94,7 @@ func NewMetaServer(clientSet *client.GenericClientSet, emitter metrics.MetricEmi
 		ConfigurationManager:    configurationManager,
 		ServiceProfilingManager: spd.NewServiceProfilingManager(spdFetcher),
 		ExternalManager:         external.InitExternalManager(metaAgent.PodFetcher),
-		ResourcePackageManager:  resourcePackageManager,
+		ResourcePackageManager:  resourcepackage.NewResourcePackageManager(npdFetcher),
 		NPDFetcher:              npdFetcher,
 	}, nil
 }
@@ -114,7 +111,6 @@ func (m *MetaServer) Run(ctx context.Context) {
 	go m.ConfigurationManager.Run(ctx)
 	go m.ServiceProfilingManager.Run(ctx)
 	go m.ExternalManager.Run(ctx)
-	go m.ResourcePackageManager.Run(ctx)
 
 	m.Unlock()
 	<-ctx.Done()
