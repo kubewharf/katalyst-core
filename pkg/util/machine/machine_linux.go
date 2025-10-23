@@ -43,6 +43,11 @@ func GetKatalystMachineInfo(conf *global.MachineInfoConfiguration) (*KatalystMac
 		return nil, err
 	}
 
+	dieTopology, err := GetDieTopology(cpuTopology.NumCPUs)
+	if err != nil {
+		return nil, err
+	}
+
 	extraCPUInfo, err := GetExtraCPUInfo()
 	if err != nil {
 		return nil, err
@@ -61,6 +66,7 @@ func GetKatalystMachineInfo(conf *global.MachineInfoConfiguration) (*KatalystMac
 	return &KatalystMachineInfo{
 		MachineInfo:       machineInfo,
 		CPUTopology:       cpuTopology,
+		DieTopology:       dieTopology,
 		MemoryTopology:    memoryTopology,
 		ExtraCPUInfo:      extraCPUInfo,
 		ExtraNetworkInfo:  extraNetworkInfo,
