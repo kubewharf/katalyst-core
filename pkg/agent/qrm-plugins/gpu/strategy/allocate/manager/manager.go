@@ -22,12 +22,14 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/canonical"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/deviceaffinity"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/gpu_memory"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 const (
-	allocationStrategyNameDefault = "default"
+	allocationStrategyNameDefault        = "default"
+	allocationStrategyNameDeviceAffinity = "deviceAffinity"
 )
 
 // StrategyManager manages the selection of allocation strategies based on resource names
@@ -136,8 +138,10 @@ func (m *StrategyManager) AllocateUsingStrategy(ctx *allocate.AllocationContext)
 }
 
 // Global strategy manager instance
-var globalStrategyManager *StrategyManager
-var once sync.Once
+var (
+	globalStrategyManager *StrategyManager
+	once                  sync.Once
+)
 
 // GetGlobalStrategyManager returns the global strategy manager instance
 func GetGlobalStrategyManager() *StrategyManager {
@@ -157,8 +161,16 @@ func registerDefaultStrategies(manager *StrategyManager) {
 		general.Errorf("Failed to register filtering strategy: %v", err)
 	}
 
+	if err := manager.RegisterFilteringStrategy(canonical.NewCanonicalStrategy()); err != nil {
+		general.Errorf("Failed to register sorting strategy: %v", err)
+	}
+
 	// Register sorting strategies
 	if err := manager.RegisterSortingStrategy(gpu_memory.NewGPUMemoryStrategy()); err != nil {
+		general.Errorf("Failed to register sorting strategy: %v", err)
+	}
+
+	if err := manager.RegisterSortingStrategy(deviceaffinity.NewDeviceAffinityStrategy()); err != nil {
 		general.Errorf("Failed to register sorting strategy: %v", err)
 	}
 
@@ -167,9 +179,18 @@ func registerDefaultStrategies(manager *StrategyManager) {
 		general.Errorf("Failed to register binding strategy: %v", err)
 	}
 
+	if err := manager.RegisterBindingStrategy(deviceaffinity.NewDeviceAffinityStrategy()); err != nil {
+		general.Errorf("Failed to register binding strategy: %v", err)
+	}
+
 	// Register allocation strategies
 	if err := manager.RegisterGenericAllocationStrategy(allocationStrategyNameDefault, []string{gpu_memory.StrategyNameGPUMemory},
 		gpu_memory.StrategyNameGPUMemory, canonical.StrategyNameCanonical); err != nil {
 		general.Errorf("Failed to register gpu-memory-default strategy: %v", err)
+	}
+
+	if err := manager.RegisterGenericAllocationStrategy(allocationStrategyNameDeviceAffinity, []string{deviceaffinity.StrategyNameDeviceAffinity},
+		deviceaffinity.StrategyNameDeviceAffinity, canonical.StrategyNameCanonical); err != nil {
+		general.Errorf("Failed to register deviceAffinity strategy: %v", err)
 	}
 }

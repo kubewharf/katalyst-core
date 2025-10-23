@@ -460,6 +460,7 @@ func (p *GPUMemPlugin) Allocate(
 	}
 
 	// Use the strategy framework to allocate GPU memory
+	// TODO: What happens when deviceReq is nil?
 	result, err := manager.AllocateGPUUsingStrategy(
 		resourceReq,
 		deviceReq,
@@ -470,7 +471,6 @@ func (p *GPUMemPlugin) Allocate(
 		p.State.GetMachineState(),
 		qosLevel,
 	)
-
 	if err != nil {
 		return nil, fmt.Errorf("GPU allocation using strategy failed: %v", err)
 	}

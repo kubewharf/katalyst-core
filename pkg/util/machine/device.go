@@ -69,23 +69,42 @@ func (r *DeviceTopologyRegistry) GetDeviceTopology(deviceName string) (*DeviceTo
 	return provider.GetDeviceTopology()
 }
 
-// GetDeviceAffinity retrieves a map of a certain device to the list of devices that it has an affinity with.
-// A device is considered to have an affinity with another device if they are on the exact same NUMA node(s)
-func (r *DeviceTopologyRegistry) GetDeviceAffinity(key, value string) (map[string][]string, error) {
-	deviceTopologyKey, numaReady, err := r.GetDeviceTopology(key)
+// SetDeviceAffinity establishes customised logic of affinity between devices
+func (r *DeviceTopologyRegistry) SetDeviceAffinity(
+	deviceName string, deviceAffinityProvider DeviceAffinityProvider,
+) error {
+	deviceTopologyProvider, ok := r.DeviceNameToProvider[deviceName]
+	if !ok {
+		return fmt.Errorf("no device topology provider found for device %s", deviceName)
+	}
+	deviceTopology, numaReady, err := deviceTopologyProvider.GetDeviceTopology()
 	if err != nil {
-		return nil, fmt.Errorf("error getting device topology for device %s: %v", key, err)
+		return fmt.Errorf("could not get device topology provider for device %s, err: %v", deviceName, err)
+	}
+	if !numaReady || deviceTopology == nil {
+		return fmt.Errorf("device topology provider for device %s is not ready", deviceName)
+	}
+	deviceAffinityProvider.SetDeviceAffinity(deviceTopology)
+	return deviceTopologyProvider.SetDeviceTopology(deviceTopology)
+}
+
+// GetDeviceNUMAAffinity retrieves a map of a certain device to the list of devices that it has an affinity with.
+// A device is considered to have an affinity with another device if they are on the exact same NUMA node(s)
+func (r *DeviceTopologyRegistry) GetDeviceNUMAAffinity(deviceA, deviceB string) (map[string][]string, error) {
+	deviceTopologyKey, numaReady, err := r.GetDeviceTopology(deviceA)
+	if err != nil {
+		return nil, fmt.Errorf("error getting device topology for device %s: %v", deviceA, err)
 	}
 	if !numaReady {
-		return nil, fmt.Errorf("device topology for device %s is not ready", key)
+		return nil, fmt.Errorf("device topology for device %s is not ready", deviceA)
 	}
 
-	deviceTopologyValue, numaReady, err := r.GetDeviceTopology(value)
+	deviceTopologyValue, numaReady, err := r.GetDeviceTopology(deviceB)
 	if err != nil {
-		return nil, fmt.Errorf("error getting device topology for device %s: %v", value, err)
+		return nil, fmt.Errorf("error getting device topology for device %s: %v", deviceB, err)
 	}
 	if !numaReady {
-		return nil, fmt.Errorf("device topology for device %s is not ready", value)
+		return nil, fmt.Errorf("device topology for device %s is not ready", deviceB)
 	}
 
 	deviceAffinity := make(map[string][]string)
@@ -102,39 +121,33 @@ func (r *DeviceTopologyRegistry) GetDeviceAffinity(key, value string) (map[strin
 	return deviceAffinity, nil
 }
 
-// IsNumaNodeAffinity checks if the device with the specified device ID resides in numa nodes that are a subset of the hint nodes.
-func (r *DeviceTopologyRegistry) IsNumaNodeAffinity(deviceName, deviceID string, hintNodes CPUSet) (bool, error) {
-	deviceTopologyKey, numaReady, err := r.GetDeviceTopology(deviceName)
-	if err != nil {
-		return false, fmt.Errorf("error getting device topology for device %s: %v", deviceName, err)
-	}
-	if !numaReady {
-		return false, fmt.Errorf("device topology for device %s is not ready", deviceName)
-	}
-
-	info, ok := deviceTopologyKey.Devices[deviceID]
-	if !ok {
-		return false, fmt.Errorf("failed to find device %s in device topology", deviceID)
-	}
-
-	return NewCPUSet(info.GetNUMANode()...).IsSubsetOf(hintNodes), nil
-}
-
 type DeviceTopology struct {
 	Devices map[string]DeviceInfo
 }
 
-type DeviceInfo struct {
-	Health              string
-	NumaNodes           []int
-	DeviceAffinityGroup map[AffinityPriority]AffinityGroupInfo
+func (t *DeviceTopology) GetDeviceAffinityMap(deviceId string) (map[AffinityPriority]DeviceIDs, error) {
+	info, ok := t.Devices[deviceId]
+	if !ok {
+		return nil, fmt.Errorf("failed to find device %s in device topology", deviceId)
+	}
+	return info.DeviceAffinityMap, nil
 }
 
+type DeviceInfo struct {
+	Health    string
+	NumaNodes []int
+	// DeviceAffinityMap is the map of priority level to the other deviceIds that a particular deviceId has an affinity with
+	DeviceAffinityMap map[AffinityPriority]DeviceIDs
+}
+
+// AffinityPriority is the level of affinity that a deviceId has with another deviceId.
+// The lowest affinityPriority value is 0, and in this level, devices have the most affinity with one another,
+// so it is of highest priority to try to allocate these devices together.
+// As the affinityPriority value increases, devices do not have as much affinity with each other,
+// so it is of lower priority to try to allocate these devices together.
 type AffinityPriority int
 
-type AffinityGroupInfo struct {
-	GroupID int
-}
+type DeviceIDs []string
 
 func (i DeviceInfo) GetNUMANode() []int {
 	if i.NumaNodes == nil {
@@ -212,7 +225,6 @@ func initDeviceTopology(resourceNames []string) (*DeviceTopology, error) {
 			deviceTopology.Devices[id] = DeviceInfo{}
 		}
 	}
-
 	return deviceTopology, nil
 }
 

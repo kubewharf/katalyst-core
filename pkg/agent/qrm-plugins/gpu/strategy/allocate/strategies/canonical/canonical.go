@@ -19,7 +19,10 @@ package canonical
 import (
 	"fmt"
 
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -37,7 +40,10 @@ func NewCanonicalStrategy() *CanonicalStrategy {
 	return &CanonicalStrategy{}
 }
 
-var _ allocate.BindingStrategy = &CanonicalStrategy{}
+var (
+	_ allocate.BindingStrategy   = &CanonicalStrategy{}
+	_ allocate.FilteringStrategy = &CanonicalStrategy{}
+)
 
 // Name returns the name of the binding strategy
 func (s *CanonicalStrategy) Name() string {
@@ -46,30 +52,18 @@ func (s *CanonicalStrategy) Name() string {
 
 // Bind binds the sorted GPU devices to the allocation context
 // It creates allocation info for the selected devices
-func (s *CanonicalStrategy) Bind(ctx *allocate.AllocationContext, sortedDevices []string) (*allocate.AllocationResult, error) {
-	if ctx.GPUTopology == nil {
+func (s *CanonicalStrategy) Bind(
+	ctx *allocate.AllocationContext, sortedDevices []string,
+) (*allocate.AllocationResult, error) {
+	valid, errMsg := strategies.IsBindingContextValid(ctx, sortedDevices)
+	if !valid {
 		return &allocate.AllocationResult{
 			Success:      false,
-			ErrorMessage: "GPU topology is nil",
-		}, fmt.Errorf("GPU topology is nil")
+			ErrorMessage: errMsg,
+		}, fmt.Errorf(errMsg)
 	}
 
-	if len(sortedDevices) == 0 && ctx.DeviceReq.DeviceRequest > 0 {
-		return &allocate.AllocationResult{
-			Success:      false,
-			ErrorMessage: "no devices to bind",
-		}, fmt.Errorf("no devices to bind")
-	}
-
-	// Determine how many devices to allocate
 	devicesToAllocate := int(ctx.DeviceReq.DeviceRequest)
-	if devicesToAllocate > len(sortedDevices) {
-		return &allocate.AllocationResult{
-			Success:      false,
-			ErrorMessage: fmt.Sprintf("not enough devices: need %d, have %d", devicesToAllocate, len(sortedDevices)),
-		}, fmt.Errorf("not enough devices: need %d, have %d", devicesToAllocate, len(sortedDevices))
-	}
-
 	allocatedDevices := sets.NewString()
 	allocateDevices := func(devices ...string) bool {
 		for _, device := range devices {
@@ -107,4 +101,25 @@ func (s *CanonicalStrategy) Bind(ctx *allocate.AllocationContext, sortedDevices 
 		Success:      false,
 		ErrorMessage: fmt.Sprintf("not enough devices: need %d, have %d", devicesToAllocate, len(sortedDevices)),
 	}, fmt.Errorf("not enough devices: need %d, have %d", devicesToAllocate, len(sortedDevices))
+}
+
+// Filter filters the available devices based on whether they are already occupied.
+// The assumption is that each device can only be allocated to one container at most.
+// It only returns devices that are not occupied yet.
+func (s *CanonicalStrategy) Filter(
+	ctx *allocate.AllocationContext, allAvailableDevices []string,
+) ([]string, error) {
+	machineState, ok := ctx.MachineState[v1.ResourceName(ctx.DeviceReq.DeviceName)]
+	if !ok {
+		return nil, fmt.Errorf("machine state for %s is not available", ctx.DeviceReq.DeviceName)
+	}
+
+	filteredDevices := sets.NewString()
+	for _, device := range allAvailableDevices {
+		if machineState.IsRequestSatisfied(device, 1, 1) {
+			filteredDevices.Insert(device)
+		}
+	}
+
+	return filteredDevices.UnsortedList(), nil
 }

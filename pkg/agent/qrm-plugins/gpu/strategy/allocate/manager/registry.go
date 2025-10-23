@@ -100,7 +100,9 @@ func (r *StrategyRegistry) RegisterAllocationStrategy(strategy allocate.Allocati
 }
 
 // RegisterGenericAllocationStrategy registers a complete generic allocation strategy with the given name
-func (r *StrategyRegistry) RegisterGenericAllocationStrategy(name string, filteringNames []string, sortingName, bindingName string) error {
+func (r *StrategyRegistry) RegisterGenericAllocationStrategy(
+	name string, filteringNames []string, sortingName, bindingName string,
+) error {
 	r.registryMutex.Lock()
 	defer r.registryMutex.Unlock()
 

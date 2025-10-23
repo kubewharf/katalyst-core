@@ -30,7 +30,7 @@ import (
 // Sort sorts the filtered GPU devices based on available GPU memory
 // It prioritizes devices with more available memory and considers NUMA affinity
 func (s *GPUMemoryStrategy) Sort(ctx *allocate.AllocationContext, filteredDevices []string) ([]string, error) {
-	if ctx.GPUTopology == nil {
+	if ctx.DeviceTopology == nil {
 		return nil, fmt.Errorf("GPU topology is nil")
 	}
 
@@ -57,7 +57,7 @@ func (s *GPUMemoryStrategy) Sort(ctx *allocate.AllocationContext, filteredDevice
 		devices = append(devices, deviceInfo{
 			ID:              deviceID,
 			AvailableMemory: availableMemory,
-			NUMAAffinity:    util.IsNUMAAffinityDevice(deviceID, ctx.GPUTopology, ctx.HintNodes),
+			NUMAAffinity:    util.IsNUMAAffinityDevice(deviceID, ctx.DeviceTopology, ctx.HintNodes),
 		})
 	}
 
