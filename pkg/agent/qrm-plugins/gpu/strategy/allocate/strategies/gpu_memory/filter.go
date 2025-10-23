@@ -31,7 +31,7 @@ import (
 // Filter filters the available GPU devices based on available GPU memory
 // It returns devices that have enough available memory for the request
 func (s *GPUMemoryStrategy) Filter(ctx *allocate.AllocationContext, allAvailableDevices []string) ([]string, error) {
-	if ctx.GPUTopology == nil {
+	if ctx.DeviceTopology == nil {
 		return nil, fmt.Errorf("GPU topology is nil")
 	}
 
@@ -58,10 +58,13 @@ func (s *GPUMemoryStrategy) filterGPUDevices(
 	gpuMemoryPerGPU := gpuMemoryRequest / float64(gpuRequest)
 	gpuMemoryAllocatablePerGPU := float64(ctx.GPUQRMPluginConfig.GPUMemoryAllocatablePerGPU.Value())
 
-	machineState := ctx.MachineState[consts.ResourceGPUMemory]
+	machineState, ok := ctx.MachineState[consts.ResourceGPUMemory]
+	if !ok {
+		return nil, fmt.Errorf("machine state for %s is not available", consts.ResourceGPUMemory)
+	}
 	filteredDevices := sets.NewString()
 	for _, device := range allAvailableDevices {
-		if !ctx.HintNodes.IsEmpty() && !gpuutil.IsNUMAAffinityDevice(device, ctx.GPUTopology, ctx.HintNodes) {
+		if !ctx.HintNodes.IsEmpty() && !gpuutil.IsNUMAAffinityDevice(device, ctx.DeviceTopology, ctx.HintNodes) {
 			continue
 		}
 

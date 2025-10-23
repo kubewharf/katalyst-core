@@ -90,6 +90,11 @@ func NewBasePlugin(
 	}, nil
 }
 
+// SetDeviceAffinity is a hook to set device affinity for a certain device type
+func (p *BasePlugin) SetDeviceAffinity(deviceType string, deviceAffinityProvider machine.DeviceAffinityProvider) error {
+	return p.DeviceTopologyRegistry.SetDeviceAffinity(deviceType, deviceAffinityProvider)
+}
+
 func (p *BasePlugin) PackAllocationResponse(
 	req *pluginapi.ResourceRequest, allocationInfo *state.AllocationInfo,
 	resourceAllocationAnnotations map[string]string, resourceName string,
@@ -153,8 +158,9 @@ func (p *BasePlugin) UpdateAllocatableAssociatedDevicesByDeviceType(
 		}
 
 		deviceTopology.Devices[device.ID] = machine.DeviceInfo{
-			Health:    device.Health,
-			NumaNodes: numaNode,
+			Health:            device.Health,
+			NumaNodes:         numaNode,
+			DeviceAffinityMap: make(map[machine.AffinityPriority]machine.DeviceIDs),
 		}
 	}
 
