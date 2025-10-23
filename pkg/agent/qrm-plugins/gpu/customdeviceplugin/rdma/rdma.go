@@ -268,7 +268,7 @@ func (p *RDMADevicePlugin) allocateWithAccompanyResource(
 
 	// For every gpu that is allocated to the container, find out the rdma devices that have affinity to the same
 	// numa nodes as the gpu and allocate them
-	accompanyResourceToRdmaAffinityMap, err := p.DeviceTopologyRegistry.GetDeviceAffinity(accompanyResourceName, deviceReq.DeviceName)
+	accompanyResourceToRdmaAffinityMap, err := p.DeviceTopologyRegistry.GetDeviceNUMAAffinity(accompanyResourceName, deviceReq.DeviceName)
 	if err != nil {
 		general.Warningf("failed to get gpu to rdma affinity map: %v", err)
 		return nil, err
