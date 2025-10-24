@@ -32,6 +32,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/moby/sys/mountinfo"
@@ -369,7 +370,45 @@ func SetIrqAffinity(irq int, cpu int64) error {
 		return fmt.Errorf("failed to apply proc interrupts, err %v", err)
 	}
 
-	return nil
+	// After setting the IRQ affinity for the kernel, the kernel cannot
+	// guarantee that an immediate subsequent read will return the latest
+	// value; in some cases, it may return an old value. This is because if
+	// irq_do_set_affinity returns EBUSY, the kernel may call
+	// irqd_set_move_pending to set the IRQD_SETAFFINITY_PENDING flag.
+	// Subsequently, the next IRQ affinity write operation will set the newly
+	// affinitized CPU mask into irq_desc->pending_mask.
+	// At a later point, irq_move_masked_irq will clear the
+	// IRQD_SETAFFINITY_PENDING flag within the interrupt context. The IRQ
+	// affinity read function show_irq_affinity first reads
+	// irq_desc->desc->irq_common_data.affinity and then checks whether the
+	// IRQD_SETAFFINITY_PENDING flag is set. If the flag is set, it retrieves
+	// irq_desc->pending_mask.
+	// If the QRM read IRQ affinity syscall has already read
+	// irq_desc->desc->irq_common_data.affinity but not yet read
+	// irq_desc->pending_mask, and the interrupt context's irq_move_masked_irq
+	// clears the IRQD_SETAFFINITY_PENDING flag at this point, QRM will end up
+	// reading an old value.
+	//
+	// Therefore, we can retry reading the IRQ affinity several times, with a 5 secs sleep before each retry.
+
+	retriesCount := 0
+retry:
+	affinityCPUList, err := GetIrqAffinityCPUs(irq)
+	if err == nil && len(affinityCPUList) == 1 && affinityCPUList[0] == cpu {
+		return nil
+	}
+
+	if retriesCount < 5 {
+		retriesCount++
+		time.Sleep(3 * time.Second)
+		goto retry
+	}
+
+	if err != nil {
+		return err
+	} else {
+		return fmt.Errorf("set irq %d affinity cpu %d, but actually affinity cpus %+v", irq, cpu, affinityCPUList)
+	}
 }
 
 func GetIrqAffinityCPUs(irq int) ([]int64, error) {
