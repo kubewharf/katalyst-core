@@ -221,6 +221,25 @@ func MatchCNRTaint(taintToMatch apis.Taint, taint *apis.Taint) bool {
 func MergeResources(dst, src apis.Resources) apis.Resources {
 	dst.Capacity = native.MergeResources(dst.Capacity, src.Capacity)
 	dst.Allocatable = native.MergeResources(dst.Allocatable, src.Allocatable)
+	dst.ResourcePackages = MergeResourcePackages(dst.ResourcePackages, src.ResourcePackages)
+	return dst
+}
+
+// MergeResourcePackages merge two resource packages, returns the merged result.
+func MergeResourcePackages(dst, src []apis.ResourcePackage) []apis.ResourcePackage {
+	dstPkgIdx := make(map[string]int, len(dst))
+	for i, pkg := range dst {
+		dstPkgIdx[pkg.PackageName] = i
+	}
+
+	for _, srcPkg := range src {
+		if idx, ok := dstPkgIdx[srcPkg.PackageName]; ok {
+			dst[idx].Allocatable = native.MergeResources(dst[idx].Allocatable, srcPkg.Allocatable)
+		} else {
+			dst = append(dst, srcPkg)
+			dstPkgIdx[srcPkg.PackageName] = len(dst) - 1
+		}
+	}
 	return dst
 }
 

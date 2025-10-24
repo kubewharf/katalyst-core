@@ -37,6 +37,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/external"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/metaserver/kcc"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/npd"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/resourcepackage"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -60,9 +62,11 @@ func generateTestMetaServer(clientSet *client.GenericClientSet, conf *config.Con
 				metrics.DummyMetrics{}, &pod.PodFetcherStub{}, &machine.KatalystMachineInfo{}),
 			AgentConf: conf.MetaServerConfiguration.AgentConfiguration,
 		},
+		NPDFetcher:              npd.NewDummyNPDFetcher(),
 		ConfigurationManager:    &dynamicconfig.DummyConfigurationManager{},
 		ServiceProfilingManager: &spd.DummyServiceProfilingManager{},
 		ExternalManager:         &external.DummyExternalManager{},
+		ResourcePackageManager:  resourcepackage.NewResourcePackageManager(npd.NewDummyNPDFetcher()),
 	}
 }
 
