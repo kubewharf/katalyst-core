@@ -34,7 +34,7 @@ type NodeProfileCheckpoint interface {
 }
 
 type NodeProfileData struct {
-	// Value only store spec of dynamic config crd
+	// Value store the actual NodeProfileDescriptor
 	Value     *nodev1alpha1.NodeProfileDescriptor
 	Timestamp int64
 }

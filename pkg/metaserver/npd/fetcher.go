@@ -149,22 +149,10 @@ func (f *npdFetcher) readCheckpoint() (NodeProfileCheckpoint, error) {
 
 // writeCheckpoint writes the checkpoint to disk
 func (f *npdFetcher) writeCheckpoint(npd *v1alpha1.NodeProfileDescriptor) {
-	data, err := f.readCheckpoint()
-	if err != nil {
-		klog.Errorf("[npd-fetcher] load checkpoint from %q failed: %v, try to overwrite it", npdFetcherCheckpoint, err)
-		_ = f.emitter.StoreInt64(metricsNameLoadNPDCheckpoint, 1, metrics.MetricTypeNameRaw, []metrics.MetricTag{
-			{Key: "status", Val: metricsValueStatusCheckpointNotFoundOrCorrupted},
-			{Key: "node", Val: npd.Name},
-		}...)
-	}
-	// checkpoint doesn't exist or became corrupted, make a new checkpoint
-	if data == nil {
-		data = NewCheckpoint(NodeProfileData{})
-	}
-
+	data := NewCheckpoint(NodeProfileData{})
 	// set config value and timestamp for kind
 	data.SetProfile(npd, metav1.Now())
-	err = f.checkpointManager.CreateCheckpoint(npdFetcherCheckpoint, data)
+	err := f.checkpointManager.CreateCheckpoint(npdFetcherCheckpoint, data)
 	if err != nil {
 		klog.Errorf("[npd-fetcher] failed to write checkpoint file %q: %v", npdFetcherCheckpoint, err)
 	}
