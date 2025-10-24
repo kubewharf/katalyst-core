@@ -105,11 +105,16 @@ type MemoryCgDataV1 struct {
 	TotalRss                  uint64        `json:"total_rss"`
 	TotalShmem                uint64        `json:"total_shmem"`
 	TotalDirty                uint64        `json:"total_dirty"`
+	TotalSwap                 uint64        `json:"total_swap"`
 	TotalKswapdSteal          uint64        `json:"total_kswapd_steal"`
 	TotalWriteback            uint64        `json:"total_writeback"`
 	TotalPgfault              uint64        `json:"total_pgfault"`
 	TotalPgmajfault           uint64        `json:"total_pgmajfault"`
 	TotalAllocstall           uint64        `json:"total_allocstall"`
+	TotalInactiveAnon         uint64        `json:"total_inactive_anon"`
+	TotalActiveAnon           uint64        `json:"total_active_anon"`
+	TotalInactiveFile         uint64        `json:"total_inactive_file"`
+	TotalActiveFile           uint64        `json:"total_active_file"`
 	WatermarkScaleFactor      interface{}   `json:"watermark_scale_factor"`
 	BpfMemStat                BpfMemData    `json:"bpf_mem_data"`
 	NumaStats                 []NumaStatsV1 `json:"numa_stat"`

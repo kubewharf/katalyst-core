@@ -30,6 +30,12 @@ type DiskIo struct {
 	IoBusy            uint64 `json:"io_busy"`
 	DiskType          string `json:"disk_type"`
 	WBTValue          int64  `json:"wbt_lat_usec"`
+	IoReadLat95       uint64 `json:"io_r_lat_95"`
+	IoWriteLat95      uint64 `json:"io_w_lat_95"`
+	IoReadLat90       uint64 `json:"io_r_lat_90"`
+	IoWriteLat90      uint64 `json:"io_w_lat_90"`
+	IoReadLat80       uint64 `json:"io_r_lat_80"`
+	IoWriteLat80      uint64 `json:"io_w_lat_80"`
 }
 
 type SystemDiskIoData struct {
@@ -50,6 +56,8 @@ type SystemNetworkData struct {
 
 type NetworkCard struct {
 	Name               string  `json:"name"`
+	Duplex             string  `json:"duplex"`
+	UpdateTimeSec      int64   `json:"update_time"`
 	ReceiveBytes       uint64  `json:"receive_bytes"`
 	ReceivePackets     uint64  `json:"receive_packets"`
 	ReceiveErrs        uint64  `json:"receive_errs"`
@@ -70,17 +78,22 @@ type NetworkCard struct {
 }
 
 type TCP struct {
-	TCPDelayAcks       uint64  `json:"tcp_delay_acks"`
-	TCPListenOverflows uint64  `json:"tcp_listen_overflows"`
-	TCPListenDrops     uint64  `json:"tcp_listen_drops"`
-	TCPAbortOnMemory   uint64  `json:"tcp_abort_on_memory"`
-	TCPReqQFullDrop    uint64  `json:"tcp_req_q_full_drop"`
-	TCPRetran          float64 `json:"tcp_retran"`
-	TCPRetransSegs     uint64  `json:"tcp_retrans_segs"`
-	TCPOldRetransSegs  uint64  `json:"tcp_old_retrans_segs"`
-	TCPOutSegs         uint64  `json:"tcp_out_segs"`
-	TCPOldOutSegs      uint64  `json:"tcp_old_out_segs"`
-	TCPCloseWait       uint64  `json:"tcp_close_wait"`
+	TCPDelayAcks          uint64  `json:"tcp_delay_acks"`
+	TCPListenOverflows    uint64  `json:"tcp_listen_overflows"`
+	TCPListenDrops        uint64  `json:"tcp_listen_drops"`
+	TCPAbortOnMemory      uint64  `json:"tcp_abort_on_memory"`
+	TCPReqQFullDrop       uint64  `json:"tcp_req_q_full_drop"`
+	TCPRetran             float64 `json:"tcp_retran"`
+	TCPRetransSegs        uint64  `json:"tcp_retrans_segs"`
+	TCPOldRetransSegs     uint64  `json:"tcp_old_retrans_segs"`
+	TCPOutSegs            uint64  `json:"tcp_out_segs"`
+	TCPOldOutSegs         uint64  `json:"tcp_old_out_segs"`
+	TCPCloseWait          uint64  `json:"tcp_close_wait"`
+	TCPTimeouts           uint64  `json:"tcp_timeouts"`
+	TCPMemPressures       uint64  `json:"tcp_mem_press"`
+	TCPMemPressuresTimeMS uint64  `json:"tcp_mem_press_chrono"`
+	TCPInPressure         uint64  `json:"tcp_in_pressure"`
+	TCPV6InPressure       uint64  `json:"tcpv6_in_pressure"`
 }
 
 type MalachiteSystemInfoResponse struct {
@@ -99,13 +112,28 @@ type MalachiteSystemComputeResponse struct {
 }
 
 type SystemComputeData struct {
-	Load         Load         `json:"load"`
-	CPUCodeName  string       `json:"cpu_codename"`
-	CPU          []CPU        `json:"cpu"`
-	GlobalCPU    CPU          `json:"global_cpu"`
-	ProcessStats ProcessStats `json:"process_stats"`
-	L3Mon        L3Monitor    `json:"l3_mon"`
-	UpdateTime   int64        `json:"update_time"`
+	Load          Load           `json:"load"`
+	CPUCodeName   string         `json:"cpu_codename"`
+	CPU           []CPU          `json:"cpu"`
+	GlobalCPU     CPU            `json:"global_cpu"`
+	ProcessStats  ProcessStats   `json:"process_stats"`
+	L3Mon         L3Monitor      `json:"l3_mon"`
+	CpuPressure   *Pressure      `json:"pressure"`
+	BpfProgsStats *BpfProgsStats `json:"bpf_prog_stats"`
+	UpdateTime    int64          `json:"update_time"`
+}
+
+type BpfProgStats struct {
+	ID        uint32 `json:"id"`
+	Name      []byte `json:"name"`
+	RunTimeNS uint64 `json:"run_time_ns"`
+	RunCount  uint64 `json:"run_cnt"`
+	LoadTime  uint64 `json:"load_time"`
+}
+
+type BpfProgsStats struct {
+	Stats      []BpfProgStats `json:"stats"`
+	UpdateTime int64          `json:"update_time"`
 }
 
 type ProcessStats struct {
@@ -136,9 +164,12 @@ type L3CacheBytesPS struct {
 }
 
 type Load struct {
-	One     float64 `json:"one"`
-	Five    float64 `json:"five"`
-	Fifteen float64 `json:"fifteen"`
+	One             float64 `json:"one"`
+	Five            float64 `json:"five"`
+	Fifteen         float64 `json:"fifteen"`
+	RunnableOne     float64 `json:"runnable_one"`
+	RunnableFive    float64 `json:"runnable_five"`
+	RunnableFifteen float64 `json:"runnable_fifteen"`
 }
 
 type CPU struct {
@@ -148,6 +179,9 @@ type CPU struct {
 	CPUIowaitRatio float64  `json:"cpu_iowait_ratio"`
 	CPUSchedWait   float64  `json:"cpu_sched_wait"`
 	CpiData        *CpiData `json:"cpi_data"`
+	CPUStealRatio  float64  `json:"cpu_steal_ratio"`
+	CPUUsrRatio    float64  `json:"cpu_usr_ratio"`
+	CPUIrqRatio    float64  `json:"cpu_irq_ratio"`
 }
 
 type CpiData struct {
@@ -190,6 +224,10 @@ type System struct {
 	MemInactiveFile        uint64  `json:"mem_inactive_file"`
 	VMWatermarkScaleFactor uint64  `json:"vm_watermark_scale_factor"`
 	VmstatPgstealKswapd    uint64  `json:"vmstat_pgsteal_kswapd"`
+	VMStatPgStealDirect    uint64  `json:"vmstat_pgsteal_direct"`
+	VMStatPgScanKswapd     uint64  `json:"vmstat_pgscan_kswapd"`
+	VMStatPgScanDirect     uint64  `json:"vmstat_pgscan_direct"`
+	VMStatCompactStall     uint64  `json:"vmstat_compact_stall"`
 	MemSockTcp             uint64  `json:"mem_sock_tcp"`
 	MemSockUdp             uint64  `json:"mem_sock_udp"`
 	MemSockTcpLimit        uint64  `json:"mem_sock_tcp_limit"`
@@ -202,23 +240,37 @@ type CPUList struct {
 }
 
 type Numa struct {
-	ID                      int     `json:"id"`
-	Path                    string  `json:"path"`
-	CPUList                 CPUList `json:"cpu_list"`
-	MemFree                 uint64  `json:"mem_free"`
-	MemUsed                 uint64  `json:"mem_used"`
-	MemTotal                uint64  `json:"mem_total"`
-	MemShmem                uint64  `json:"mem_shmem"`
-	MemAvailable            uint64  `json:"mem_available"`
-	MemFilePages            uint64  `json:"mem_file_pages"`
-	MemInactiveFile         uint64  `json:"mem_inactive_file"`
-	MemMaxBandwidthMB       float64 `json:"mem_mx_bandwidth_mb"`
-	MemReadBandwidthMB      float64 `json:"mem_read_bandwidth_mb"`
-	MemReadLatency          float64 `json:"mem_read_latency"`
-	MemTheoryMaxBandwidthMB float64 `json:"mem_theory_mx_bandwidth_mb"`
-	MemWriteBandwidthMB     float64 `json:"mem_write_bandwidth_mb"`
-	MemWriteLatency         float64 `json:"mem_write_latency"`
-	AMDL3MissLatencyMax     float64 `json:"amd_l3_miss_latency_max"`
+	ID                      int              `json:"id"`
+	Path                    string           `json:"path"`
+	CPUList                 CPUList          `json:"cpu_list"`
+	MemFree                 uint64           `json:"mem_free"`
+	MemUsed                 uint64           `json:"mem_used"`
+	MemTotal                uint64           `json:"mem_total"`
+	MemShmem                uint64           `json:"mem_shmem"`
+	MemAvailable            uint64           `json:"mem_available"`
+	MemFilePages            uint64           `json:"mem_file_pages"`
+	MemInactiveFile         uint64           `json:"mem_inactive_file"`
+	MemMaxBandwidthMB       float64          `json:"mem_mx_bandwidth_mb"`
+	MemReadBandwidthMB      float64          `json:"mem_read_bandwidth_mb"`
+	MemReadLatency          float64          `json:"mem_read_latency"`
+	MemTheoryMaxBandwidthMB float64          `json:"mem_theory_mx_bandwidth_mb"`
+	MemWriteBandwidthMB     float64          `json:"mem_write_bandwidth_mb"`
+	MemWriteLatency         float64          `json:"mem_write_latency"`
+	AMDL3MissLatencyMax     float64          `json:"amd_l3_miss_latency_max"`
+	MemActiveAnon           uint64           `json:"mem_active_anon"`
+	MemInactiveAnon         uint64           `json:"mem_inactive_anon"`
+	MemActiveFile           uint64           `json:"mem_active_file"`
+	IcmChannels             []IcmChannelInfo `json:"channels"`
+}
+
+type IcmChannelInfo struct {
+	ChannelName     string  `json:"channel_name"`
+	MemReadBw       float64 `json:"mem_read_bandwidth"`
+	MemWriteBw      float64 `json:"mem_write_bandwidth"`
+	MemIdleBw       float64 `json:"mem_idle_bandwidth"`
+	MemBwUtil       float64 `json:"mem_bandwidth_util"`
+	MemReadLatency  float64 `json:"mem_read_latency"`
+	MemWriteLatency float64 `json:"mem_write_latency"`
 }
 
 type ExtFrag struct {
