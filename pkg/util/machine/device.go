@@ -18,9 +18,11 @@ package machine
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/utils/strings/slices"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
@@ -125,19 +127,50 @@ type DeviceTopology struct {
 	Devices map[string]DeviceInfo
 }
 
+// GroupDeviceAffinity forms a topology graph such that all groups of DeviceIDs within a certain affinity priority level
+func (t *DeviceTopology) GroupDeviceAffinity() map[AffinityPriority][]DeviceIDs {
+	deviceAffinityGroup := make(map[AffinityPriority][]DeviceIDs)
+	for deviceId, deviceInfo := range t.Devices {
+		for priority, affinityDeviceIDs := range deviceInfo.DeviceAffinity {
+			affinityDeviceIDs = append(affinityDeviceIDs, deviceId)
+			// Sort the strings for easier deduplication
+			sort.Strings(affinityDeviceIDs)
+			if _, ok := deviceAffinityGroup[priority]; !ok {
+				deviceAffinityGroup[priority] = make([]DeviceIDs, 0)
+			}
+
+			// Add the affinityDeviceIDs to the priority level if it is not already there
+			if !containsGroup(deviceAffinityGroup[priority], affinityDeviceIDs) {
+				deviceAffinityGroup[priority] = append(deviceAffinityGroup[priority], affinityDeviceIDs)
+			}
+
+		}
+	}
+	return deviceAffinityGroup
+}
+
+func containsGroup(groups []DeviceIDs, candidate DeviceIDs) bool {
+	for _, g := range groups {
+		if slices.Equal(g, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
 func (t *DeviceTopology) GetDeviceAffinityMap(deviceId string) (map[AffinityPriority]DeviceIDs, error) {
 	info, ok := t.Devices[deviceId]
 	if !ok {
 		return nil, fmt.Errorf("failed to find device %s in device topology", deviceId)
 	}
-	return info.DeviceAffinityMap, nil
+	return info.DeviceAffinity, nil
 }
 
 type DeviceInfo struct {
 	Health    string
 	NumaNodes []int
-	// DeviceAffinityMap is the map of priority level to the other deviceIds that a particular deviceId has an affinity with
-	DeviceAffinityMap map[AffinityPriority]DeviceIDs
+	// DeviceAffinity is the map of priority level to the other deviceIds that a particular deviceId has an affinity with
+	DeviceAffinity map[AffinityPriority]DeviceIDs
 }
 
 // AffinityPriority is the level of affinity that a deviceId has with another deviceId.
