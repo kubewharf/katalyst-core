@@ -2171,6 +2171,32 @@ func (ic *IrqTuningController) syncNics() error {
 
 	if !nicsChanged {
 		general.Infof("%s no nic changed", IrqTuningLogPrefix)
+
+		for _, nic := range oldNics {
+			oldIrq2Core := nic.NicInfo.Irq2Core
+			if err := nic.NicInfo.sync(); err != nil {
+				general.Errorf("%s nic %s failed to sync, err %s", IrqTuningLogPrefix, nic.NicInfo, err)
+			}
+
+			for irq, oldCore := range oldIrq2Core {
+				newCore := nic.NicInfo.Irq2Core[irq]
+				if newCore != oldCore {
+					throughputClass := "normal"
+					if ic.isLowThroughputNic(nic.NicInfo) {
+						throughputClass = "low"
+					}
+
+					general.Errorf("%s %s throughput nic %s irq %d expectly affinity cpu %d, but actually affinity cpu %d",
+						IrqTuningLogPrefix, throughputClass, nic.NicInfo, irq, oldCore, newCore)
+
+					_ = ic.emitter.StoreInt64(metricUtil.MetricNameIrqTuningIrqAffintityInconsistent, 1, metrics.MetricTypeNameRaw,
+						metrics.MetricTag{Key: "nic", Val: nic.NicInfo.UniqName()},
+						metrics.MetricTag{Key: "irq", Val: strconv.Itoa(irq)},
+						metrics.MetricTag{Key: "throughput", Val: throughputClass})
+				}
+			}
+		}
+
 		return nil
 	}
 
