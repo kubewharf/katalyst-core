@@ -28,7 +28,7 @@ import (
 )
 
 // Sort sorts the filtered GPU devices based on available GPU memory
-// It prioritizes devices with more available memory and considers NUMA affinity
+// It prioritizes devices with less available memory and considers NUMA affinity
 func (s *GPUMemoryStrategy) Sort(ctx *allocate.AllocationContext, filteredDevices []string) ([]string, error) {
 	if ctx.DeviceTopology == nil {
 		return nil, fmt.Errorf("GPU topology is nil")
