@@ -2345,6 +2345,7 @@ func TestListNetNS(t *testing.T) {
 			Mock(os.ReadDir).Return([]os.DirEntry{
 				&mockDirEntry{entryName: "ns1", isDir: false},
 			}, nil).Build()
+			Mock(os.Stat).Return(nil, nil).Build()
 			Mock(general.GetFileInode).Return(uint64(0), mockErr).Build()
 
 			nsList, err := ListNetNS(testNetNSDir)

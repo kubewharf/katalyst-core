@@ -1023,6 +1023,9 @@ func ListNetNS(netNSDir string) ([]NetNSInfo, error) {
 			netnsPath := filepath.Join(netNSDir, d.Name())
 			inode, err := general.GetFileInode(netnsPath)
 			if err != nil {
+				if _, e := os.Stat(netnsPath); e != nil && os.IsNotExist(e) {
+					continue
+				}
 				return nil, fmt.Errorf("failed to GetFileInode(%s), err %v", netnsPath, err)
 			}
 
