@@ -736,6 +736,7 @@ func TestSetIrqAffinity(t *testing.T) {
 				capturedCpuset = cpuset
 				return nil
 			}).Build()
+			Mock(GetIrqAffinityCPUs).Return([]int64{4}, nil).Build()
 
 			err := SetIrqAffinity(validIrq, validCpu)
 
@@ -743,6 +744,20 @@ func TestSetIrqAffinity(t *testing.T) {
 			So(mock.MockTimes(), ShouldEqual, 1)
 			So(capturedIrq, ShouldEqual, validIrq)
 			So(capturedCpuset, ShouldEqual, expectedCpusetStr)
+		})
+
+		PatchConvey("Scenario: failed set irq affinity", func() {
+			irq := 10
+			cpu := int64(4)
+			affinityCPUList := []int64{2}
+
+			Mock(procm.ApplyProcInterrupts).Return(nil).Build()
+			Mock(GetIrqAffinityCPUs).Return(affinityCPUList, nil).Build()
+
+			err := SetIrqAffinity(irq, cpu)
+
+			So(err, ShouldNotBeNil)
+			So(err.Error(), ShouldEqual, fmt.Sprintf("set irq %d affinity cpu %d, but actually affinity cpus %+v", irq, cpu, affinityCPUList))
 		})
 	})
 }
@@ -2345,6 +2360,7 @@ func TestListNetNS(t *testing.T) {
 			Mock(os.ReadDir).Return([]os.DirEntry{
 				&mockDirEntry{entryName: "ns1", isDir: false},
 			}, nil).Build()
+			Mock(os.Stat).Return(nil, nil).Build()
 			Mock(general.GetFileInode).Return(uint64(0), mockErr).Build()
 
 			nsList, err := ListNetNS(testNetNSDir)
