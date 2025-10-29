@@ -119,7 +119,7 @@ func TestBind(t *testing.T) {
 					},
 				},
 			},
-			sortedDevices: []string{"gpu-1", "gpu-3", "gpu-4", "gpu-5"},
+			sortedDevices: []string{"gpu-1", "gpu-3", "gpu-4"},
 			expectedResult: &allocate.AllocationResult{
 				AllocatedDevices: []string{"gpu-3", "gpu-4"},
 				Success:          true,
@@ -165,6 +165,70 @@ func TestBind(t *testing.T) {
 			},
 			sortedDevices: []string{"gpu-1", "gpu-2", "gpu-3"},
 			// gpu-4 is already allocated, so we allocate gpu-3 for bin-packing
+			expectedResult: &allocate.AllocationResult{
+				AllocatedDevices: []string{"gpu-3"},
+				Success:          true,
+			},
+		},
+		{
+			name: "supports bin-packing of 1 request with only available devices",
+			ctx: &allocate.AllocationContext{
+				ResourceReq: &pluginapi.ResourceRequest{
+					PodUid:        "pod-1",
+					ContainerName: "container-1",
+				},
+				DeviceReq: &pluginapi.DeviceRequest{
+					DeviceName:      "gpu",
+					ReusableDevices: nil,
+					DeviceRequest:   1,
+				},
+				// Level 0: [gpu-1, gpu-2], [gpu-3, gpu-4]
+				DeviceTopology: &machine.DeviceTopology{
+					Devices: map[string]machine.DeviceInfo{
+						"gpu-1": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-2"},
+							},
+						},
+						"gpu-2": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-1"},
+							},
+						},
+						"gpu-3": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-4"},
+							},
+						},
+						"gpu-4": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-3"},
+							},
+						},
+						"gpu-5": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-6"},
+							},
+						},
+						"gpu-6": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-5"},
+							},
+						},
+						"gpu-7": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-8"},
+							},
+						},
+						"gpu-8": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-7"},
+							},
+						},
+					},
+				},
+			},
+			sortedDevices: []string{"gpu1", "gpu2", "gpu-3", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
 			expectedResult: &allocate.AllocationResult{
 				AllocatedDevices: []string{"gpu-3"},
 				Success:          true,
@@ -387,9 +451,11 @@ func TestBind(t *testing.T) {
 					},
 				},
 			},
-			sortedDevices: []string{"gpu-1", "gpu-2", "gpu-3", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
+			// Allocate gpu-1, gpu-2 in first level, then allocate gpu-3 as it has affinity with gpu-1 and gpu-2
+			// Then allocate gpu-5 as gpu-6 is already allocated
+			sortedDevices: []string{"gpu-1", "gpu-2", "gpu-3", "gpu-5", "gpu-7", "gpu-8"},
 			expectedResult: &allocate.AllocationResult{
-				AllocatedDevices: []string{"gpu-1", "gpu-2", "gpu-5", "gpu-7"},
+				AllocatedDevices: []string{"gpu-1", "gpu-2", "gpu-3", "gpu-5"},
 				Success:          true,
 			},
 		},
