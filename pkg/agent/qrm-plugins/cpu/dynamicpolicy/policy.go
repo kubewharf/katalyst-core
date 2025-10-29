@@ -1339,7 +1339,7 @@ func (p *DynamicPolicy) checkNonBindingShareCoresCpuResource(req *pluginapi.Reso
 		return false, nil
 	}
 
-	general.InfoS("checkNonBindingShareCoresCpuResource memory successfully",
+	general.InfoS("checkNonBindingShareCoresCpuResource cpu successfully",
 		"podNamespace", req.PodNamespace,
 		"podName", req.PodName,
 		"containerName", req.ContainerName,
