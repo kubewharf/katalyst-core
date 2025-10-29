@@ -31,7 +31,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 const (
@@ -67,6 +66,19 @@ func (s *stateCheckpoint) SetMachineState(allocationResourcesMap AllocationResou
 		err := s.storeState()
 		if err != nil {
 			generalLog.ErrorS(err, "store machineState to checkpoint error")
+		}
+	}
+}
+
+func (s *stateCheckpoint) SetResourceState(resourceName v1.ResourceName, allocationMap AllocationMap, persist bool) {
+	s.Lock()
+	defer s.Unlock()
+
+	s.cache.SetResourceState(resourceName, allocationMap, persist)
+	if persist {
+		err := s.storeState()
+		if err != nil {
+			generalLog.ErrorS(err, "store resource state to checkpoint error")
 		}
 	}
 }
@@ -180,7 +192,7 @@ func (s *stateCheckpoint) storeState() error {
 	return nil
 }
 
-func (s *stateCheckpoint) restoreState(topologyRegistry *machine.DeviceTopologyRegistry) error {
+func (s *stateCheckpoint) restoreState(defaultResourceStateGenerators *DefaultResourceStateGeneratorRegistry) error {
 	s.Lock()
 	defer s.Unlock()
 	var err error
@@ -206,7 +218,7 @@ func (s *stateCheckpoint) restoreState(topologyRegistry *machine.DeviceTopologyR
 		return fmt.Errorf("configured policy %q differs from state checkpoint policy %q", s.policyName, checkpoint.PolicyName)
 	}
 
-	machineState, err := GenerateMachineStateFromPodEntries(checkpoint.PodResourceEntries, topologyRegistry)
+	machineState, err := GenerateMachineStateFromPodEntries(checkpoint.PodResourceEntries, defaultResourceStateGenerators)
 	if err != nil {
 		return fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
@@ -241,14 +253,15 @@ func (s *stateCheckpoint) restoreState(topologyRegistry *machine.DeviceTopologyR
 
 func NewCheckpointState(
 	conf *qrm.QRMPluginsConfiguration, stateDir, checkpointName, policyName string,
-	topologyRegistry *machine.DeviceTopologyRegistry, skipStateCorruption bool, emitter metrics.MetricEmitter,
+	defaultResourceStateGenerators *DefaultResourceStateGeneratorRegistry,
+	skipStateCorruption bool, emitter metrics.MetricEmitter,
 ) (State, error) {
 	checkpointManager, err := checkpointmanager.NewCheckpointManager(stateDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize checkpoint manager: %v", err)
 	}
 
-	defaultCache, err := NewGPUPluginState(conf, topologyRegistry)
+	defaultCache, err := NewGPUPluginState(conf, defaultResourceStateGenerators)
 	if err != nil {
 		return nil, fmt.Errorf("NewGPUPluginState failed with error: %v", err)
 	}
@@ -262,7 +275,7 @@ func NewCheckpointState(
 		emitter:             emitter,
 	}
 
-	if err := sc.restoreState(topologyRegistry); err != nil {
+	if err := sc.restoreState(defaultResourceStateGenerators); err != nil {
 		return nil, fmt.Errorf("could not restore state from checkpoint: %v, please drain this node and delete "+
 			"the gpu plugin checkpoint file %q before restarting Kubelet",
 			err, path.Join(stateDir, checkpointName))
