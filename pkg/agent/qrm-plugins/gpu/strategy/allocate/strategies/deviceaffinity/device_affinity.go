@@ -32,9 +32,7 @@ func NewDeviceAffinityStrategy() *DeviceAffinityStrategy {
 	return &DeviceAffinityStrategy{}
 }
 
-var (
-	_ allocate.BindingStrategy = &DeviceAffinityStrategy{}
-)
+var _ allocate.BindingStrategy = &DeviceAffinityStrategy{}
 
 // Name returns the name of the binding strategy
 func (s *DeviceAffinityStrategy) Name() string {
