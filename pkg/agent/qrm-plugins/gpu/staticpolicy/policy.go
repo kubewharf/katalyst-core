@@ -57,13 +57,13 @@ type StaticPolicy struct {
 	stopCh  chan struct{}
 	started bool
 
-	emitter               metrics.MetricEmitter
-	associatedDeviceNames sets.String
+	emitter metrics.MetricEmitter
 
 	residualHitMap map[string]int64
 
-	resourcePlugins     map[string]resourceplugin.ResourcePlugin
-	customDevicePlugins map[string]customdeviceplugin.CustomDevicePlugin
+	associatedDeviceNames sets.String
+	resourcePlugins       map[string]resourceplugin.ResourcePlugin
+	customDevicePlugins   map[string]customdeviceplugin.CustomDevicePlugin
 }
 
 // NewStaticPolicy returns a static gpu policy
@@ -82,13 +82,14 @@ func NewStaticPolicy(
 	}
 
 	policyImplement := &StaticPolicy{
-		emitter:             wrappedEmitter,
-		stopCh:              make(chan struct{}),
-		name:                fmt.Sprintf("%s_%s", agentName, gpuconsts.GPUResourcePluginPolicyNameStatic),
-		residualHitMap:      make(map[string]int64),
-		BasePlugin:          basePlugin,
-		resourcePlugins:     make(map[string]resourceplugin.ResourcePlugin),
-		customDevicePlugins: make(map[string]customdeviceplugin.CustomDevicePlugin),
+		emitter:               wrappedEmitter,
+		stopCh:                make(chan struct{}),
+		name:                  fmt.Sprintf("%s_%s", agentName, gpuconsts.GPUResourcePluginPolicyNameStatic),
+		residualHitMap:        make(map[string]int64),
+		BasePlugin:            basePlugin,
+		resourcePlugins:       make(map[string]resourceplugin.ResourcePlugin),
+		associatedDeviceNames: sets.NewString(),
+		customDevicePlugins:   make(map[string]customdeviceplugin.CustomDevicePlugin),
 	}
 
 	if err = policyImplement.registerResourcePlugins(); err != nil {
@@ -96,6 +97,12 @@ func NewStaticPolicy(
 	}
 	if err = policyImplement.registerCustomDevicePlugins(); err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("failed to register custom device plugins: %w", err)
+	}
+
+	// init state must be done after resource plugins and custom device plugins are registered
+	err = policyImplement.InitState()
+	if err != nil {
+		return false, agent.ComponentStub{}, fmt.Errorf("failed to init state: %w", err)
 	}
 
 	pluginWrapper, err := skeleton.NewRegistrationPluginWrapper(policyImplement, conf.QRMPluginSocketDirs,
@@ -139,7 +146,7 @@ func (p *StaticPolicy) Start() (err error) {
 	}, time.Second*30, p.stopCh)
 
 	err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(gpuconsts.ClearResidualState, general.HealthzCheckStateNotReady,
-		appqrm.QRMNetworkPluginPeriodicalHandlerGroupName, p.clearResidualState, gpuconsts.StateCheckPeriod, gpuconsts.StateCheckTolerationTimes)
+		appqrm.QRMGPUPluginPeriodicalHandlerGroupName, p.clearResidualState, gpuconsts.StateCheckPeriod, gpuconsts.StateCheckTolerationTimes)
 	if err != nil {
 		general.Errorf("start %v failed, err: %v", gpuconsts.ClearResidualState, err)
 	}
@@ -451,7 +458,7 @@ func (p *StaticPolicy) removeWithUpdate(
 		return nil
 	}
 
-	machineState, err := state.GenerateMachineStateFromPodEntries(podResourceEntries, p.DeviceTopologyRegistry)
+	machineState, err := p.GenerateMachineStateFromPodEntries(podResourceEntries)
 	if err != nil {
 		general.Errorf("pod: %s, GenerateMachineStateFromPodEntries failed with error: %v", podUID, err)
 		return fmt.Errorf("calculate machineState by updated pod entries failed with error: %v", err)
@@ -542,7 +549,7 @@ func (p *StaticPolicy) clearResidualState(
 			podResourceEntries.RemovePod(podUID)
 		}
 
-		machineState, err := state.GenerateMachineStateFromPodEntries(podResourceEntries, p.DeviceTopologyRegistry)
+		machineState, err := p.GenerateMachineStateFromPodEntries(podResourceEntries)
 		if err != nil {
 			general.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 			return

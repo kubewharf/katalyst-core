@@ -14,14 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package manager
+package registry
 
 import (
 	"fmt"
 	"sync"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/allocation"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
@@ -96,42 +95,6 @@ func (r *StrategyRegistry) RegisterAllocationStrategy(strategy allocate.Allocati
 
 	r.allocationStrategies[strategy.Name()] = strategy
 	general.Infof("Registered allocation strategy: %s", strategy.Name())
-	return nil
-}
-
-// RegisterGenericAllocationStrategy registers a complete generic allocation strategy with the given name
-func (r *StrategyRegistry) RegisterGenericAllocationStrategy(
-	name string, filteringNames []string, sortingName, bindingName string,
-) error {
-	r.registryMutex.Lock()
-	defer r.registryMutex.Unlock()
-
-	if _, exists := r.allocationStrategies[name]; exists {
-		return fmt.Errorf("allocation strategy with name %s already registered", name)
-	}
-
-	var filteringList []allocate.FilteringStrategy
-	for _, fn := range filteringNames {
-		filtering, exists := r.filteringStrategies[fn]
-		if !exists {
-			return fmt.Errorf("filtering strategy %s not found", fn)
-		}
-		filteringList = append(filteringList, filtering)
-	}
-
-	sorting, exists := r.sortingStrategies[sortingName]
-	if !exists {
-		return fmt.Errorf("sorting strategy %s not found", sortingName)
-	}
-
-	binding, exists := r.bindingStrategies[bindingName]
-	if !exists {
-		return fmt.Errorf("binding strategy %s not found", bindingName)
-	}
-
-	r.allocationStrategies[name] = allocation.NewGenericAllocationStrategy(name, filteringList, sorting, binding)
-	general.Infof("Registered allocation strategy: %s (filtering: %s, sorting: %s, binding: %s)",
-		name, filteringNames, sortingName, bindingName)
 	return nil
 }
 

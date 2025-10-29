@@ -20,14 +20,13 @@ import (
 	"fmt"
 	"sync"
 
+	v1 "k8s.io/api/core/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
 	"github.com/kubewharf/katalyst-core/pkg/config"
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
-	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -40,11 +39,8 @@ const (
 
 // BasePlugin is a shared plugin that provides common functionalities and fields for GPU resource plugins and custom device plugins.
 type BasePlugin struct {
-	mu sync.RWMutex
-	*config.Configuration
-
-	QosConfig *generic.QoSConfiguration
-	QrmConfig *qrm.QRMPluginsConfiguration
+	mu   sync.RWMutex
+	Conf *config.Configuration
 
 	Emitter    metrics.MetricEmitter
 	MetaServer *metaserver.MetaServer
@@ -58,6 +54,9 @@ type BasePlugin struct {
 	// Registry of device topology providers
 	DeviceTopologyRegistry *machine.DeviceTopologyRegistry
 
+	// Registry of default resource state generators
+	DefaultResourceStateGeneratorRegistry *state.DefaultResourceStateGeneratorRegistry
+
 	// Map of specific device name to device type
 	deviceNameToTypeMap map[string]string
 }
@@ -65,17 +64,8 @@ type BasePlugin struct {
 func NewBasePlugin(
 	agentCtx *agent.GenericContext, conf *config.Configuration, wrappedEmitter metrics.MetricEmitter,
 ) (*BasePlugin, error) {
-	deviceTopologyRegistry := machine.NewDeviceTopologyRegistry()
-
-	stateImpl, err := state.NewCheckpointState(conf.QRMPluginsConfiguration, conf.GenericQRMPluginConfiguration.StateFileDirectory, GPUPluginStateFileName,
-		gpuconsts.GPUResourcePluginPolicyNameStatic, deviceTopologyRegistry, conf.SkipGPUStateCorruption, wrappedEmitter)
-	if err != nil {
-		return nil, fmt.Errorf("NewCheckpointState failed with error: %v", err)
-	}
-
 	return &BasePlugin{
-		QosConfig: conf.QoSConfiguration,
-		QrmConfig: conf.QRMPluginsConfiguration,
+		Conf: conf,
 
 		Emitter:    wrappedEmitter,
 		MetaServer: agentCtx.MetaServer,
@@ -84,15 +74,23 @@ func NewBasePlugin(
 		PodAnnotationKeptKeys: conf.PodAnnotationKeptKeys,
 		PodLabelKeptKeys:      conf.PodLabelKeptKeys,
 
-		State:                  stateImpl,
-		DeviceTopologyRegistry: deviceTopologyRegistry,
-		deviceNameToTypeMap:    make(map[string]string),
+		DeviceTopologyRegistry:                machine.NewDeviceTopologyRegistry(),
+		DefaultResourceStateGeneratorRegistry: state.NewDefaultResourceStateGeneratorRegistry(),
+
+		deviceNameToTypeMap: make(map[string]string),
 	}, nil
 }
 
-// SetDeviceAffinity is a hook to set device affinity for a certain device type
-func (p *BasePlugin) SetDeviceAffinity(deviceType string, deviceAffinityProvider machine.DeviceAffinityProvider) error {
-	return p.DeviceTopologyRegistry.SetDeviceAffinity(deviceType, deviceAffinityProvider)
+// InitState initializes the state of the plugin.
+func (p *BasePlugin) InitState() error {
+	stateImpl, err := state.NewCheckpointState(p.Conf.QRMPluginsConfiguration, p.Conf.GenericQRMPluginConfiguration.StateFileDirectory, GPUPluginStateFileName,
+		gpuconsts.GPUResourcePluginPolicyNameStatic, p.DefaultResourceStateGeneratorRegistry, p.Conf.SkipGPUStateCorruption, p.Emitter)
+	if err != nil {
+		return fmt.Errorf("NewCheckpointState failed with error: %v", err)
+	}
+
+	p.State = stateImpl
+	return nil
 }
 
 func (p *BasePlugin) PackAllocationResponse(
@@ -175,6 +173,31 @@ func (p *BasePlugin) UpdateAllocatableAssociatedDevicesByDeviceType(
 	return &pluginapi.UpdateAllocatableAssociatedDevicesResponse{}, nil
 }
 
+// GenerateResourceStateFromPodEntries returns an AllocationMap of a certain resource based on pod entries
+// 1. If podEntries is nil, it will get pod entries from state
+// 2. If the generator is not found, it will return an error
+func (p *BasePlugin) GenerateResourceStateFromPodEntries(
+	resourceName string,
+	podEntries state.PodEntries,
+) (state.AllocationMap, error) {
+	if podEntries == nil {
+		podEntries = p.State.GetPodEntries(v1.ResourceName(resourceName))
+	}
+
+	generator, ok := p.DefaultResourceStateGeneratorRegistry.GetGenerator(resourceName)
+	if !ok {
+		return nil, fmt.Errorf("could not find generator for resource %s", resourceName)
+	}
+
+	return state.GenerateResourceStateFromPodEntries(podEntries, generator)
+}
+
+func (p *BasePlugin) GenerateMachineStateFromPodEntries(
+	podResourceEntries state.PodResourceEntries,
+) (state.AllocationResourcesMap, error) {
+	return state.GenerateMachineStateFromPodEntries(podResourceEntries, p.DefaultResourceStateGeneratorRegistry)
+}
+
 // RegisterDeviceNameToType is used to map device name to device type.
 // For example, we may have multiple device names for a same device type, e.g. "nvidia.com/gpu" and "nvidia.com/be-gpu",
 // so we map them to the same device type, which allows us to allocate them interchangeably.
@@ -190,4 +213,9 @@ func (p *BasePlugin) GetResourceTypeFromDeviceName(deviceName string) (string, e
 		return "", fmt.Errorf("no device type found for device name %s", deviceName)
 	}
 	return deviceType, nil
+}
+
+// RegisterTopologyAffinityProvider is a hook to set device affinity for a certain device type
+func (p *BasePlugin) RegisterTopologyAffinityProvider(deviceType string, deviceAffinityProvider machine.DeviceAffinityProvider) {
+	p.DeviceTopologyRegistry.RegisterTopologyAffinityProvider(deviceType, deviceAffinityProvider)
 }
