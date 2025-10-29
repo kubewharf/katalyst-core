@@ -35,13 +35,19 @@ type DeviceTopologyProvider interface {
 
 // DeviceTopologyRegistry is a registry of all topology providers that knows how to provide topology information of machine devices
 type DeviceTopologyRegistry struct {
-	// DeviceNameToProvider is a mapping of device name to their respective topology provider
-	DeviceNameToProvider map[string]DeviceTopologyProvider
+	mux sync.RWMutex
+
+	// deviceTopologyProviders is a mapping of device name to their respective topology provider
+	deviceTopologyProviders map[string]DeviceTopologyProvider
+
+	// deviceTopologyAffinityProviders is a mapping of device name to their respective affinity provider
+	deviceTopologyAffinityProviders map[string]DeviceAffinityProvider
 }
 
 func NewDeviceTopologyRegistry() *DeviceTopologyRegistry {
 	return &DeviceTopologyRegistry{
-		DeviceNameToProvider: make(map[string]DeviceTopologyProvider),
+		deviceTopologyProviders:         make(map[string]DeviceTopologyProvider),
+		deviceTopologyAffinityProviders: make(map[string]DeviceAffinityProvider),
 	}
 }
 
@@ -49,45 +55,58 @@ func NewDeviceTopologyRegistry() *DeviceTopologyRegistry {
 func (r *DeviceTopologyRegistry) RegisterDeviceTopologyProvider(
 	deviceName string, deviceTopologyProvider DeviceTopologyProvider,
 ) {
-	r.DeviceNameToProvider[deviceName] = deviceTopologyProvider
+	r.mux.Lock()
+	defer r.mux.Unlock()
+
+	r.deviceTopologyProviders[deviceName] = deviceTopologyProvider
+}
+
+func (r *DeviceTopologyRegistry) RegisterTopologyAffinityProvider(
+	deviceName string, deviceAffinityProvider DeviceAffinityProvider,
+) {
+	r.mux.Lock()
+	defer r.mux.Unlock()
+
+	r.deviceTopologyAffinityProviders[deviceName] = deviceAffinityProvider
 }
 
 // SetDeviceTopology sets the device topology for the specified device name.
 func (r *DeviceTopologyRegistry) SetDeviceTopology(deviceName string, deviceTopology *DeviceTopology) error {
-	provider, ok := r.DeviceNameToProvider[deviceName]
+	r.mux.Lock()
+	defer r.mux.Unlock()
+
+	topologyProvider, ok := r.deviceTopologyProviders[deviceName]
 	if !ok {
 		return fmt.Errorf("no device topology provider found for device %s", deviceName)
 	}
 
-	return provider.SetDeviceTopology(deviceTopology)
+	topologyAffinityProvider, ok := r.deviceTopologyAffinityProviders[deviceName]
+	if ok {
+		topologyAffinityProvider.SetDeviceAffinity(deviceTopology)
+		general.Infof("set device affinity provider for device %s, %v", deviceName, deviceTopology)
+	}
+
+	return topologyProvider.SetDeviceTopology(deviceTopology)
+}
+
+// GetAllDeviceTopologyProviders returns all registered device topology providers.
+func (r *DeviceTopologyRegistry) GetAllDeviceTopologyProviders() map[string]DeviceTopologyProvider {
+	r.mux.RLock()
+	defer r.mux.RUnlock()
+
+	return r.deviceTopologyProviders
 }
 
 // GetDeviceTopology gets the device topology for the specified device name.
 func (r *DeviceTopologyRegistry) GetDeviceTopology(deviceName string) (*DeviceTopology, bool, error) {
-	provider, ok := r.DeviceNameToProvider[deviceName]
+	r.mux.RLock()
+	defer r.mux.RUnlock()
+
+	provider, ok := r.deviceTopologyProviders[deviceName]
 	if !ok {
 		return nil, false, fmt.Errorf("no device topology provider found for device %s", deviceName)
 	}
 	return provider.GetDeviceTopology()
-}
-
-// SetDeviceAffinity establishes customised logic of affinity between devices
-func (r *DeviceTopologyRegistry) SetDeviceAffinity(
-	deviceName string, deviceAffinityProvider DeviceAffinityProvider,
-) error {
-	deviceTopologyProvider, ok := r.DeviceNameToProvider[deviceName]
-	if !ok {
-		return fmt.Errorf("no device topology provider found for device %s", deviceName)
-	}
-	deviceTopology, numaReady, err := deviceTopologyProvider.GetDeviceTopology()
-	if err != nil {
-		return fmt.Errorf("could not get device topology provider for device %s, err: %v", deviceName, err)
-	}
-	if !numaReady || deviceTopology == nil {
-		return fmt.Errorf("device topology provider for device %s is not ready", deviceName)
-	}
-	deviceAffinityProvider.SetDeviceAffinity(deviceTopology)
-	return deviceTopologyProvider.SetDeviceTopology(deviceTopology)
 }
 
 // GetDeviceNUMAAffinity retrieves a map of a certain device to the list of devices that it has an affinity with.
