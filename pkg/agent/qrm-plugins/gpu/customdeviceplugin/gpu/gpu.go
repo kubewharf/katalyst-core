@@ -130,7 +130,7 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 		// Get GPU topology
 		gpuTopology, numaTopologyReady, err := p.DeviceTopologyRegistry.GetDeviceTopology(gpuconsts.GPUDeviceType)
 		if err != nil {
-			general.Warningf("failed to get gpu topology: %w", err)
+			general.Warningf("failed to get gpu topology: %v", err)
 			return nil, fmt.Errorf("failed to get gpu topology: %w", err)
 		}
 
@@ -168,7 +168,7 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 
 	gpuTopology, numaTopologyReady, err := p.DeviceTopologyRegistry.GetDeviceTopology(gpuconsts.GPUDeviceType)
 	if err != nil {
-		general.Warningf("failed to get gpu topology: %w", err)
+		general.Warningf("failed to get gpu topology: %v", err)
 		return nil, fmt.Errorf("failed to get gpu topology: %w", err)
 	}
 

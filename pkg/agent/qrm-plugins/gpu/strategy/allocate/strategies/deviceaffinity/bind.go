@@ -22,9 +22,11 @@ import (
 
 	"github.com/google/uuid"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -39,22 +41,23 @@ type affinityGroup struct {
 // and candidateDevices refer to a set of devices that we can potentially allocate in an affinity group.
 type possibleAllocation struct {
 	unallocatedSize  int
-	candidateDevices sets.String
+	candidateDevices []string
 }
 
-// allocationByIntersectionResult is the result of allocating devices by maximising intersection size of possible allocations
+// allocationByIntersectionResult is the result of allocating devices by maximizing intersection size of possible allocations
 // with an affinity group.
 type allocationByIntersectionResult struct {
-	allocatedDevices sets.String
-	availableDevices sets.String
-	finished         bool
-	err              error
+	finished bool
+	err      error
 }
 
 // Bind binds the sorted devices to the allocation context by searching for the devices that have affinity to each other.
 func (s *DeviceAffinityStrategy) Bind(
 	ctx *allocate.AllocationContext, sortedDevices []string,
 ) (*allocate.AllocationResult, error) {
+	general.InfoS("device affinity strategy binding called",
+		"available devices", sortedDevices)
+
 	valid, errMsg := strategies.IsBindingContextValid(ctx, sortedDevices)
 	if !valid {
 		return &allocate.AllocationResult{
@@ -102,8 +105,6 @@ func (s *DeviceAffinityStrategy) Bind(
 			ErrorMessage: fmt.Sprintf("failed to allocate available devices with affinity: %v", err),
 		}, fmt.Errorf("failed to allocate available devices with affinity: %v", err)
 	}
-
-	fmt.Println("allocated devices:", allocatedDevices.UnsortedList())
 
 	// Return result once we have allocated all the devices
 	if len(allocatedDevices) == devicesToAllocate {
@@ -204,17 +205,14 @@ func (s *DeviceAffinityStrategy) allocateCandidateDevices(
 
 		intersectionToPossibleAllocationsMap := s.makeIntersectionToPossibleAllocationsMap(groups, availableDevicesSet, allocatedDevices)
 
-		allocateByIntersectionRes := s.allocateByIntersection(intersectionToPossibleAllocationsMap, allocatedDevices, availableDevicesSet, devicesToAllocate, priority == len(affinityMap)-1)
+		allocateByIntersectionRes := s.allocateByIntersection(intersectionToPossibleAllocationsMap, allocatedDevices, devicesToAllocate, priority == len(affinityMap)-1)
 		if allocateByIntersectionRes.err != nil {
 			return nil, allocateByIntersectionRes.err
 		}
 
 		if allocateByIntersectionRes.finished {
-			return allocateByIntersectionRes.allocatedDevices, nil
+			return allocatedDevices, nil
 		}
-
-		allocatedDevices = allocateByIntersectionRes.allocatedDevices
-		availableDevicesSet = allocateByIntersectionRes.availableDevices
 	}
 
 	return allocatedDevices, nil
@@ -255,21 +253,18 @@ func (s *DeviceAffinityStrategy) allocateAvailableDevicesWithAffinity(
 				// The number of unallocated devices in the group is retrieved by taking a difference between
 				// the unallocated devices in the group and the already allocated devices
 				unallocatedSize:  group.unallocatedDevices.Difference(allocatedDevices).Len(),
-				candidateDevices: deviceIntersection,
+				candidateDevices: deviceIntersection.UnsortedList(),
 			})
 		}
 
-		allocateByIntersectionRes := s.allocateByIntersection(intersectionToPossibleAllocationsMap, allocatedDevices, unallocatedAvailableDevices, devicesToAllocate, priority == len(allocatedAffinityGroupIds)-1)
+		allocateByIntersectionRes := s.allocateByIntersection(intersectionToPossibleAllocationsMap, allocatedDevices, devicesToAllocate, priority == len(allocatedAffinityGroupIds)-1)
 		if allocateByIntersectionRes.err != nil {
 			return nil, allocateByIntersectionRes.err
 		}
 
 		if allocateByIntersectionRes.finished {
-			return allocateByIntersectionRes.allocatedDevices, nil
+			return allocatedDevices, nil
 		}
-
-		allocatedDevices = allocateByIntersectionRes.allocatedDevices
-		unallocatedAvailableDevices = allocateByIntersectionRes.availableDevices
 	}
 
 	return allocatedDevices, nil
@@ -277,12 +272,12 @@ func (s *DeviceAffinityStrategy) allocateAvailableDevicesWithAffinity(
 
 // mergePossibleAllocationsAndSort merges the possible allocations by their unallocated size and sorts them in ascending order of their unallocated size.
 func (s *DeviceAffinityStrategy) mergePossibleAllocationsAndSort(possibleAllocations []possibleAllocation) []possibleAllocation {
-	merged := make(map[int]sets.String)
+	merged := make(map[int][]string)
 	for _, alloc := range possibleAllocations {
 		if _, ok := merged[alloc.unallocatedSize]; !ok {
-			merged[alloc.unallocatedSize] = sets.NewString()
+			merged[alloc.unallocatedSize] = make([]string, 0)
 		}
-		merged[alloc.unallocatedSize].Insert(alloc.candidateDevices.UnsortedList()...)
+		merged[alloc.unallocatedSize] = append(merged[alloc.unallocatedSize], alloc.candidateDevices...)
 	}
 
 	mergedAllocations := make([]possibleAllocation, 0, len(merged))
@@ -316,7 +311,7 @@ func (s *DeviceAffinityStrategy) makeIntersectionToPossibleAllocationsMap(
 			// The number of unallocated devices in the group is retrieved by taking a difference between
 			// the unallocated devices in the group and the already allocated devices
 			unallocatedSize:  group.unallocatedDevices.Difference(allocatedDevices).Len(),
-			candidateDevices: deviceIntersection,
+			candidateDevices: deviceIntersection.UnsortedList(),
 		})
 	}
 
@@ -325,7 +320,7 @@ func (s *DeviceAffinityStrategy) makeIntersectionToPossibleAllocationsMap(
 
 // allocateByIntersection allocates devices by the following algorithm
 //  1. Sort the intersection sizes of possible allocations in descending order, we want to allocate devices with larger intersection size with an affinity group.
-//  2. For each intersection size, merge and sort the possible allocations by their unallocated size in ascending order, this is to maximise
+//  2. For each intersection size, merge and sort the possible allocations by their unallocated size in ascending order, this is to maximize
 //     bin-packing (try to fill up an affinity group that is already allocated with other devices.
 //  3. For each intersection size, allocate devices in the order of the sorted possible allocations.
 //  4. If a possible allocation has a number of intersected devices larger than the devices needed for allocation, we go to the next priority and try to find an allocation from there.
@@ -333,7 +328,7 @@ func (s *DeviceAffinityStrategy) makeIntersectionToPossibleAllocationsMap(
 //     to fill up the remaining devices.
 func (s *DeviceAffinityStrategy) allocateByIntersection(
 	intersectionToPossibleAllocationsMap map[int][]possibleAllocation, allocatedDevices sets.String,
-	unallocatedAvailableDevices sets.String, devicesToAllocate int, isLastPriority bool,
+	devicesToAllocate int, isLastPriority bool,
 ) allocationByIntersectionResult {
 	// Sort the intersection sizes of possible allocations in descending order
 	intersectionSizes := make([]int, 0, len(intersectionToPossibleAllocationsMap))
@@ -345,8 +340,16 @@ func (s *DeviceAffinityStrategy) allocateByIntersection(
 		return intersectionSizes[i] > intersectionSizes[j]
 	})
 
-	if len(intersectionToPossibleAllocationsMap) > 0 {
+	if len(intersectionSizes) > 0 {
+		// Find the first intersection size that is larger than or equal to the devices needed for allocation
 		maxIntersection := intersectionSizes[0]
+		for _, intersectionSize := range intersectionSizes {
+			if intersectionSize <= devicesToAllocate {
+				maxIntersection = intersectionSize
+				break
+			}
+		}
+
 		possibleAllocations, ok := intersectionToPossibleAllocationsMap[maxIntersection]
 		if !ok {
 			return allocationByIntersectionResult{
@@ -355,29 +358,27 @@ func (s *DeviceAffinityStrategy) allocateByIntersection(
 			}
 		}
 
+		// TODO: Dont need to merge if last priority
 		mergedPossibleAllocations := s.mergePossibleAllocationsAndSort(possibleAllocations)
+
+		klog.Infof("possible allocations: %v", mergedPossibleAllocations)
 
 		for _, possibleAlloc := range mergedPossibleAllocations {
 			// If devices of possible allocation size is larger than the devices needed, and it is not the last priority level,
 			// go to the next priority and try to allocate
-			if !isLastPriority && possibleAlloc.candidateDevices.Len() > devicesToAllocate-allocatedDevices.Len() {
+			if !isLastPriority && len(possibleAlloc.candidateDevices) > devicesToAllocate-allocatedDevices.Len() {
 				return allocationByIntersectionResult{
-					finished:         false,
-					err:              nil,
-					allocatedDevices: allocatedDevices,
-					availableDevices: unallocatedAvailableDevices,
+					finished: false,
+					err:      nil,
 				}
 			}
 
-			for device := range possibleAlloc.candidateDevices {
+			for _, device := range possibleAlloc.candidateDevices {
 				allocatedDevices.Insert(device)
-				unallocatedAvailableDevices.Delete(device)
 				if allocatedDevices.Len() == devicesToAllocate {
 					return allocationByIntersectionResult{
-						finished:         true,
-						err:              nil,
-						allocatedDevices: allocatedDevices,
-						availableDevices: unallocatedAvailableDevices,
+						finished: true,
+						err:      nil,
 					}
 				}
 			}
@@ -385,7 +386,7 @@ func (s *DeviceAffinityStrategy) allocateByIntersection(
 
 		// At the last priority, we just go through the other possible allocations of the other intersection sizes if we have not allocated finish the candidate devices
 		if isLastPriority {
-			for _, intersectionSize := range intersectionSizes[1:] {
+			for _, intersectionSize := range intersectionSizes {
 				possibleAllocations, ok = intersectionToPossibleAllocationsMap[intersectionSize]
 				if !ok {
 					return allocationByIntersectionResult{
@@ -400,15 +401,12 @@ func (s *DeviceAffinityStrategy) allocateByIntersection(
 				})
 
 				for _, possibleAlloc := range possibleAllocations {
-					for device := range possibleAlloc.candidateDevices {
+					for _, device := range possibleAlloc.candidateDevices {
 						allocatedDevices.Insert(device)
-						unallocatedAvailableDevices.Delete(device)
 						if allocatedDevices.Len() == devicesToAllocate {
 							return allocationByIntersectionResult{
-								finished:         true,
-								err:              nil,
-								allocatedDevices: allocatedDevices,
-								availableDevices: unallocatedAvailableDevices,
+								finished: true,
+								err:      nil,
 							}
 						}
 					}
@@ -417,10 +415,8 @@ func (s *DeviceAffinityStrategy) allocateByIntersection(
 		}
 	}
 	return allocationByIntersectionResult{
-		finished:         false,
-		err:              nil,
-		allocatedDevices: allocatedDevices,
-		availableDevices: unallocatedAvailableDevices,
+		finished: false,
+		err:      nil,
 	}
 }
 
