@@ -19,27 +19,23 @@ package state
 import (
 	"fmt"
 
-	v1 "k8s.io/api/core/v1"
-	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-
-	"github.com/kubewharf/katalyst-api/pkg/consts"
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	v1 "k8s.io/api/core/v1"
 )
 
 // GenerateMachineState returns an empty AllocationResourcesMap for all resource names.
-func GenerateMachineState(topologyRegistry *machine.DeviceTopologyRegistry) (AllocationResourcesMap, error) {
-	if topologyRegistry == nil {
-		return nil, fmt.Errorf("topology provider registry must not be nil")
+func GenerateMachineState(
+	defaultMachineStateGenerators *DefaultResourceStateGeneratorRegistry,
+) (AllocationResourcesMap, error) {
+	if defaultMachineStateGenerators == nil {
+		return nil, fmt.Errorf("cannot generate machine state from nil defaultMachineStateGenerators")
 	}
 
-	deviceNameToProvider := topologyRegistry.DeviceNameToProvider
 	allocationResourcesMap := make(AllocationResourcesMap)
-
-	for resourceName := range deviceNameToProvider {
-		allocationMap, err := GenerateResourceState(topologyRegistry, v1.ResourceName(resourceName))
+	for resourceName, generator := range defaultMachineStateGenerators.GetGenerators() {
+		allocationMap, err := generator.GenerateDefaultResourceState()
 		if err != nil {
-			return nil, fmt.Errorf("GenerateResourceState for resource %s failed with error: %v", resourceName, err)
+			return nil, fmt.Errorf("GenerateDefaultResourceState for resource %s failed with error: %v", resourceName, err)
 		}
 		allocationResourcesMap[v1.ResourceName(resourceName)] = allocationMap
 	}
@@ -51,15 +47,20 @@ func GenerateMachineState(topologyRegistry *machine.DeviceTopologyRegistry) (All
 // resource name along with existed pod resource entries.
 func GenerateMachineStateFromPodEntries(
 	podResourceEntries PodResourceEntries,
-	topologyRegistry *machine.DeviceTopologyRegistry,
+	defaultMachineStateGenerators *DefaultResourceStateGeneratorRegistry,
 ) (AllocationResourcesMap, error) {
-	machineState, err := GenerateMachineState(topologyRegistry)
-	if err != nil {
-		return nil, fmt.Errorf("GenerateMachineState failed with error: %v", err)
+	if defaultMachineStateGenerators == nil {
+		return nil, fmt.Errorf("cannot generate machine state from nil resourceStateGeneratorRegistry")
 	}
 
+	machineState := make(AllocationResourcesMap)
 	for resourceName, podEntries := range podResourceEntries {
-		allocationMap, err := GenerateResourceStateFromPodEntries(podEntries, topologyRegistry, resourceName)
+		generator, ok := defaultMachineStateGenerators.GetGenerator(string(resourceName))
+		if !ok {
+			return nil, fmt.Errorf("GetGenerator for resource %s failed", resourceName)
+		}
+
+		allocationMap, err := GenerateResourceStateFromPodEntries(podEntries, generator)
 		if err != nil {
 			return nil, fmt.Errorf("GenerateResourceStateFromPodEntries for resource %s failed with error: %v", resourceName, err)
 		}
@@ -71,11 +72,12 @@ func GenerateMachineStateFromPodEntries(
 
 // GenerateResourceStateFromPodEntries returns an AllocationMap of a certain resource based on pod entries
 func GenerateResourceStateFromPodEntries(
-	podEntries PodEntries, topologyRegistry *machine.DeviceTopologyRegistry, resourceName v1.ResourceName,
+	podEntries PodEntries,
+	generator DefaultResourceStateGenerator,
 ) (AllocationMap, error) {
-	machineState, err := GenerateResourceState(topologyRegistry, resourceName)
+	machineState, err := generator.GenerateDefaultResourceState()
 	if err != nil {
-		return nil, fmt.Errorf("GenerateResourceState failed with error: %v", err)
+		return nil, fmt.Errorf("GenerateDefaultResourceState failed with error: %v", err)
 	}
 
 	for deviceID, allocationState := range machineState {
@@ -99,15 +101,29 @@ func GenerateResourceStateFromPodEntries(
 	return machineState, nil
 }
 
-// GenerateResourceState returns an empty AllocationMap for a certain resource.
-func GenerateResourceState(
-	topologyProviderRegistry *machine.DeviceTopologyRegistry, resourceName v1.ResourceName,
-) (AllocationMap, error) {
-	if topologyProviderRegistry == nil {
+type genericDefaultResourceStateGenerator struct {
+	resourceName     string
+	topologyRegistry *machine.DeviceTopologyRegistry
+}
+
+func NewGenericDefaultResourceStateGenerator(
+	resourceName string,
+	topologyRegistry *machine.DeviceTopologyRegistry,
+) DefaultResourceStateGenerator {
+	return &genericDefaultResourceStateGenerator{resourceName: resourceName, topologyRegistry: topologyRegistry}
+}
+
+// GenerateDefaultResourceState return a default resource state by topology
+func (g *genericDefaultResourceStateGenerator) GenerateDefaultResourceState() (AllocationMap, error) {
+	if g == nil {
+		return nil, fmt.Errorf("nil DefaultResourceStateGenerator")
+	}
+
+	if g.topologyRegistry == nil {
 		return nil, fmt.Errorf("topology provider registry must not be nil")
 	}
 
-	topology, _, err := topologyProviderRegistry.GetDeviceTopology(string(resourceName))
+	topology, _, err := g.topologyRegistry.GetDeviceTopology(g.resourceName)
 	if err != nil {
 		return nil, fmt.Errorf("topology provider registry failed with error: %v", err)
 	}
@@ -118,45 +134,6 @@ func GenerateResourceState(
 			PodEntries: make(PodEntries),
 		}
 	}
+
 	return resourceState, nil
-}
-
-// RegenerateGPUMemoryHints regenerates hints for container that'd already been allocated gpu memory,
-// and regenerateHints will assemble hints based on already-existed AllocationInfo,
-// without any calculation logics at all
-func RegenerateGPUMemoryHints(
-	allocationInfo *AllocationInfo, regenerate bool,
-) map[string]*pluginapi.ListOfTopologyHints {
-	if allocationInfo == nil {
-		general.Errorf("RegenerateHints got nil allocationInfo")
-		return nil
-	}
-
-	hints := map[string]*pluginapi.ListOfTopologyHints{}
-	if regenerate {
-		general.ErrorS(nil, "need to regenerate hints",
-			"podNamespace", allocationInfo.PodNamespace,
-			"podName", allocationInfo.PodName,
-			"podUID", allocationInfo.PodUid,
-			"containerName", allocationInfo.ContainerName)
-
-		return nil
-	}
-
-	allocatedNumaNodes := machine.NewCPUSet(allocationInfo.AllocatedAllocation.NUMANodes...)
-
-	general.InfoS("regenerating machineInfo hints, gpu memory was already allocated to pod",
-		"podNamespace", allocationInfo.PodNamespace,
-		"podName", allocationInfo.PodName,
-		"containerName", allocationInfo.ContainerName,
-		"hint", allocatedNumaNodes)
-	hints[string(consts.ResourceGPUMemory)] = &pluginapi.ListOfTopologyHints{
-		Hints: []*pluginapi.TopologyHint{
-			{
-				Nodes:     allocatedNumaNodes.ToSliceUInt64(),
-				Preferred: true,
-			},
-		},
-	}
-	return hints
 }

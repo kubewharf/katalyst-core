@@ -34,7 +34,6 @@ func NewDeviceAffinityStrategy() *DeviceAffinityStrategy {
 
 var (
 	_ allocate.BindingStrategy = &DeviceAffinityStrategy{}
-	_ allocate.SortingStrategy = &DeviceAffinityStrategy{}
 )
 
 // Name returns the name of the binding strategy

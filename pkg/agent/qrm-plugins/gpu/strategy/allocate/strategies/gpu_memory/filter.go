@@ -41,6 +41,11 @@ func (s *GPUMemoryStrategy) Filter(ctx *allocate.AllocationContext, allAvailable
 		return allAvailableDevices, nil
 	}
 
+	if gpuMemory == 0 {
+		general.Infof("GPU Memory is 0, use default available devices")
+		return allAvailableDevices, nil
+	}
+
 	filteredDevices, err := s.filterGPUDevices(ctx, gpuMemory, allAvailableDevices)
 	if err != nil {
 		return nil, err
