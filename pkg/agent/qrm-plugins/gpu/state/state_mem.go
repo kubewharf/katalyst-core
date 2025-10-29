@@ -23,7 +23,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 // gpuPluginState is an in-memory implementation of State;
@@ -32,8 +31,8 @@ import (
 type gpuPluginState struct {
 	sync.RWMutex
 
-	qrmConf          *qrm.QRMPluginsConfiguration
-	topologyRegistry *machine.DeviceTopologyRegistry
+	qrmConf                        *qrm.QRMPluginsConfiguration
+	defaultResourceStateGenerators *DefaultResourceStateGeneratorRegistry
 
 	machineState       AllocationResourcesMap
 	podResourceEntries PodResourceEntries
@@ -41,20 +40,20 @@ type gpuPluginState struct {
 
 func NewGPUPluginState(
 	conf *qrm.QRMPluginsConfiguration,
-	topologyRegistry *machine.DeviceTopologyRegistry,
+	resourceStateGeneratorRegistry *DefaultResourceStateGeneratorRegistry,
 ) (State, error) {
 	generalLog.InfoS("initializing new gpu plugin in-memory state store")
 
-	defaultMachineState, err := GenerateMachineState(topologyRegistry)
+	defaultMachineState, err := GenerateMachineState(resourceStateGeneratorRegistry)
 	if err != nil {
 		return nil, fmt.Errorf("GenerateMachineState failed with error: %w", err)
 	}
 
 	return &gpuPluginState{
-		qrmConf:            conf,
-		machineState:       defaultMachineState,
-		topologyRegistry:   topologyRegistry,
-		podResourceEntries: make(PodResourceEntries),
+		qrmConf:                        conf,
+		machineState:                   defaultMachineState,
+		defaultResourceStateGenerators: resourceStateGeneratorRegistry,
+		podResourceEntries:             make(PodResourceEntries),
 	}, nil
 }
 
@@ -64,6 +63,15 @@ func (s *gpuPluginState) SetMachineState(allocationResourcesMap AllocationResour
 	s.machineState = allocationResourcesMap.Clone()
 	generalLog.InfoS("updated gpu plugin machine state",
 		"GPUMap", allocationResourcesMap.String())
+}
+
+func (s *gpuPluginState) SetResourceState(resourceName v1.ResourceName, allocationMap AllocationMap, _ bool) {
+	s.Lock()
+	defer s.Unlock()
+	s.machineState[resourceName] = allocationMap.Clone()
+	generalLog.InfoS("updated gpu plugin resource state",
+		"resourceName", resourceName,
+		"allocationMap", allocationMap.String())
 }
 
 func (s *gpuPluginState) SetPodResourceEntries(podResourceEntries PodResourceEntries, _ bool) {
@@ -117,7 +125,7 @@ func (s *gpuPluginState) ClearState() {
 	s.Lock()
 	defer s.Unlock()
 
-	machineState, err := GenerateMachineState(s.topologyRegistry)
+	machineState, err := GenerateMachineState(s.defaultResourceStateGenerators)
 	if err != nil {
 		generalLog.ErrorS(err, "failed to generate machine state")
 	}

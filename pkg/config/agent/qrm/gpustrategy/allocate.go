@@ -14,11 +14,15 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package deviceaffinity
+package gpustrategy
 
-import "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate"
+type AllocateStrategyConfig struct {
+	CustomFilteringStrategies map[string][]string
+	CustomSortingStrategy     map[string]string
+	CustomBindingStrategy     map[string]string
+	CustomAllocationStrategy  map[string]string
+}
 
-// Sort does nothing for device affinity strategy
-func (s *DeviceAffinityStrategy) Sort(_ *allocate.AllocationContext, filteredDevices []string) ([]string, error) {
-	return filteredDevices, nil
+func NewGPUAllocateStrategyConfig() *AllocateStrategyConfig {
+	return &AllocateStrategyConfig{}
 }

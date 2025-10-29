@@ -43,13 +43,15 @@ type RDMADevicePlugin struct {
 }
 
 func NewRDMADevicePlugin(base *baseplugin.BasePlugin) customdeviceplugin.CustomDevicePlugin {
-	rdmaTopologyProvider := machine.NewDeviceTopologyProvider(base.RDMADeviceNames)
+	rdmaTopologyProvider := machine.NewDeviceTopologyProvider(base.Conf.RDMADeviceNames)
 	base.DeviceTopologyRegistry.RegisterDeviceTopologyProvider(gpuconsts.RDMADeviceType, rdmaTopologyProvider)
-	base.RegisterDeviceNameToType(base.RDMADeviceNames, gpuconsts.RDMADeviceType)
+	base.DefaultResourceStateGeneratorRegistry.RegisterResourceStateGenerator(gpuconsts.RDMADeviceType,
+		state.NewGenericDefaultResourceStateGenerator(gpuconsts.RDMADeviceType, base.DeviceTopologyRegistry))
+	base.RegisterDeviceNameToType(base.Conf.RDMADeviceNames, gpuconsts.RDMADeviceType)
 
 	return &RDMADevicePlugin{
 		BasePlugin:  base,
-		deviceNames: base.RDMADeviceNames,
+		deviceNames: base.Conf.RDMADeviceNames,
 	}
 }
 
@@ -69,12 +71,11 @@ func (p *RDMADevicePlugin) GetAssociatedDeviceTopologyHints(_ *pluginapi.Associa
 	return &pluginapi.AssociatedDeviceHintsResponse{}, nil
 }
 
-// TODO：accompany resource name == ""
-// check if rdma is allocated to other containers, make sure they do not share rdma
+// AllocateAssociatedDevice check if rdma is allocated to other containers, make sure they do not share rdma
 func (p *RDMADevicePlugin) AllocateAssociatedDevice(
 	resReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest, accompanyResourceName string,
 ) (*pluginapi.AssociatedDeviceAllocationResponse, error) {
-	qosLevel, err := util.GetKatalystQoSLevelFromResourceReq(p.QosConfig, resReq, p.PodAnnotationKeptKeys, p.PodLabelKeptKeys)
+	qosLevel, err := util.GetKatalystQoSLevelFromResourceReq(p.Conf.QoSConfiguration, resReq, p.PodAnnotationKeptKeys, p.PodLabelKeptKeys)
 	if err != nil {
 		err = fmt.Errorf("GetKatalystQoSLevelFromResourceReq for pod: %s/%s, container: %s failed with error: %v",
 			resReq.PodNamespace, resReq.PodName, resReq.ContainerName, err)
@@ -96,8 +97,6 @@ func (p *RDMADevicePlugin) AllocateAssociatedDevice(
 		"reusableDevices", deviceReq.ReusableDevices,
 		"deviceRequest", deviceReq.DeviceRequest,
 	)
-	p.Lock()
-	defer p.Unlock()
 
 	// Check if there is state for the device name
 	rdmaAllocationInfo := p.State.GetAllocationInfo(gpuconsts.RDMADeviceType, resReq.PodUid, resReq.ContainerName)
@@ -166,12 +165,12 @@ func (p *RDMADevicePlugin) AllocateAssociatedDevice(
 
 	allocationInfo.TopologyAwareAllocations = topologyAwareAllocations
 	p.State.SetAllocationInfo(gpuconsts.RDMADeviceType, resReq.PodUid, resReq.ContainerName, allocationInfo, false)
-	machineState, err := state.GenerateMachineStateFromPodEntries(p.State.GetPodResourceEntries(), p.DeviceTopologyRegistry)
+	resourceState, err := p.GenerateResourceStateFromPodEntries(gpuconsts.RDMADeviceType, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate machine state from pod entries: %v", err)
+		return nil, fmt.Errorf("failed to generate rdma device state from pod entries: %v", err)
 	}
 
-	p.State.SetMachineState(machineState, true)
+	p.State.SetResourceState(gpuconsts.RDMADeviceType, resourceState, true)
 
 	general.InfoS("allocated rdma devices",
 		"podNamespace", resReq.PodNamespace,

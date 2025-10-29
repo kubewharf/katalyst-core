@@ -18,6 +18,7 @@ package state
 
 import (
 	"encoding/json"
+	"sync"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -241,6 +242,19 @@ func (as *AllocationState) SetAllocationInfo(podUID string, containerName string
 	as.PodEntries[podUID][containerName] = allocationInfo.Clone()
 }
 
+func (am AllocationMap) String() string {
+	if am == nil {
+		return ""
+	}
+
+	contentBytes, err := json.Marshal(am)
+	if err != nil {
+		general.LoggerWithPrefix("AllocationMap.String", general.LoggingPKGFull).Errorf("[AllocationMap.String]marshal AllocationMap failed with error: %v", err)
+		return ""
+	}
+	return string(contentBytes)
+}
+
 func (am AllocationMap) Clone() AllocationMap {
 	if am == nil {
 		return nil
@@ -327,35 +341,35 @@ func (am AllocationMap) getNumberDevices() int {
 	return len(am)
 }
 
-// reader is used to get information from local states
-type reader interface {
-	GetMachineState() AllocationResourcesMap
-	GetPodResourceEntries() PodResourceEntries
-	GetPodEntries(resourceName v1.ResourceName) PodEntries
-	GetAllocationInfo(resourceName v1.ResourceName, podUID, containerName string) *AllocationInfo
+type DefaultResourceStateGeneratorRegistry struct {
+	mutex      sync.RWMutex
+	generators map[string]DefaultResourceStateGenerator
 }
 
-// writer is used to store information into local states,
-// and it also provides functionality to maintain the local files
-type writer interface {
-	SetMachineState(allocationResourcesMap AllocationResourcesMap, persist bool)
-	SetPodResourceEntries(podResourceEntries PodResourceEntries, persist bool)
-	SetAllocationInfo(
-		resourceName v1.ResourceName, podUID, containerName string, allocationInfo *AllocationInfo, persist bool,
-	)
-
-	Delete(resourceName v1.ResourceName, podUID, containerName string, persist bool)
-	ClearState()
-	StoreState() error
+func NewDefaultResourceStateGeneratorRegistry() *DefaultResourceStateGeneratorRegistry {
+	return &DefaultResourceStateGeneratorRegistry{
+		generators: make(map[string]DefaultResourceStateGenerator),
+	}
 }
 
-// ReadonlyState interface only provides methods for tracking pod assignments
-type ReadonlyState interface {
-	reader
+func (r *DefaultResourceStateGeneratorRegistry) RegisterResourceStateGenerator(resourceName string, generator DefaultResourceStateGenerator) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	r.generators[resourceName] = generator
 }
 
-// State interface provides methods for tracking and setting pod assignments
-type State interface {
-	writer
-	ReadonlyState
+func (r *DefaultResourceStateGeneratorRegistry) GetGenerators() map[string]DefaultResourceStateGenerator {
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+
+	return r.generators
+}
+
+func (r *DefaultResourceStateGeneratorRegistry) GetGenerator(resourceName string) (DefaultResourceStateGenerator, bool) {
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+
+	generator, ok := r.generators[resourceName]
+	return generator, ok
 }

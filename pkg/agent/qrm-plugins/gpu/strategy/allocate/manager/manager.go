@@ -21,20 +21,18 @@ import (
 	"sync"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/canonical"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/deviceaffinity"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/gpu_memory"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/registry"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/allocation"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 const (
-	allocationStrategyNameDefault        = "default"
-	allocationStrategyNameDeviceAffinity = "deviceAffinity"
+	allocationStrategyNameDefault = "default"
 )
 
 // StrategyManager manages the selection of allocation strategies based on resource names
 type StrategyManager struct {
-	*StrategyRegistry
+	*registry.StrategyRegistry
 
 	// Mapping from resource name to strategy name
 	resourceToStrategy map[string]string
@@ -49,7 +47,7 @@ type StrategyManager struct {
 // NewStrategyManager creates a new strategy manager
 func NewStrategyManager() *StrategyManager {
 	return &StrategyManager{
-		StrategyRegistry:   NewStrategyRegistry(),
+		StrategyRegistry:   registry.NewStrategyRegistry(),
 		resourceToStrategy: make(map[string]string),
 		defaultStrategy:    allocationStrategyNameDefault,
 	}
@@ -106,9 +104,15 @@ func (m *StrategyManager) GetStrategyForResource(resourceName string) string {
 	return m.defaultStrategy
 }
 
-// GetAllocationStrategyForResource returns the allocation strategy for a given resource
-func (m *StrategyManager) GetAllocationStrategyForResource(resourceName string) (allocate.AllocationStrategy, error) {
-	strategyName := m.GetStrategyForResource(resourceName)
+// getAllocationStrategyForResource returns the allocation strategy for a given resource
+func (m *StrategyManager) getAllocationStrategyForResource(customAllocationStrategy map[string]string, resourceName string) (allocate.AllocationStrategy, error) {
+	var strategyName string
+	if customStrategy, exists := customAllocationStrategy[resourceName]; exists {
+		strategyName = customStrategy
+	} else {
+		strategyName = m.GetStrategyForResource(resourceName)
+	}
+
 	return m.GetAllocationStrategy(strategyName)
 }
 
@@ -116,9 +120,10 @@ func (m *StrategyManager) GetAllocationStrategyForResource(resourceName string) 
 func (m *StrategyManager) AllocateUsingStrategy(ctx *allocate.AllocationContext) (*allocate.AllocationResult, error) {
 	// Determine the device name
 	resourceName := ctx.DeviceReq.DeviceName
+	customAllocationStrategy := ctx.GPUQRMPluginConfig.CustomAllocationStrategy
 
 	// Get the strategy for this resource
-	strategy, err := m.GetAllocationStrategyForResource(resourceName)
+	strategy, err := m.getAllocationStrategyForResource(customAllocationStrategy, resourceName)
 	if err != nil {
 		return &allocate.AllocationResult{
 			Success:      false,
@@ -137,6 +142,39 @@ func (m *StrategyManager) AllocateUsingStrategy(ctx *allocate.AllocationContext)
 	return strategy.Allocate(ctx)
 }
 
+// RegisterGenericAllocationStrategy registers a complete generic allocation strategy with the given name
+func (m *StrategyManager) RegisterGenericAllocationStrategy(
+	name string, filteringNames []string, sortingName, bindingName string,
+) error {
+	var filteringList []allocate.FilteringStrategy
+	for _, fn := range filteringNames {
+		filtering, err := m.StrategyRegistry.GetFilteringStrategy(fn)
+		if err != nil {
+			return fmt.Errorf("filtering strategy %s not found: %v", fn, err)
+		}
+		filteringList = append(filteringList, filtering)
+	}
+
+	sorting, err := m.StrategyRegistry.GetSortingStrategy(sortingName)
+	if err != nil {
+		return fmt.Errorf("sorting strategy %s not found: %v", sortingName, err)
+	}
+
+	binding, err := m.StrategyRegistry.GetBindingStrategy(bindingName)
+	if err != nil {
+		return fmt.Errorf("binding strategy %s not found: %v", bindingName, err)
+	}
+
+	err = m.StrategyRegistry.RegisterAllocationStrategy(allocation.NewGenericAllocationStrategy(name, m.StrategyRegistry, filteringList, sorting, binding))
+	if err != nil {
+		return fmt.Errorf("register allocation strategy %s failed: %v", name, err)
+	}
+
+	general.Infof("Registered allocation strategy: %s (filtering: %s, sorting: %s, binding: %s)",
+		name, filteringNames, sortingName, bindingName)
+	return nil
+}
+
 // Global strategy manager instance
 var (
 	globalStrategyManager *StrategyManager
@@ -152,45 +190,4 @@ func GetGlobalStrategyManager() *StrategyManager {
 		registerDefaultStrategies(globalStrategyManager)
 	})
 	return globalStrategyManager
-}
-
-// registerDefaultStrategies registers the default strategies
-func registerDefaultStrategies(manager *StrategyManager) {
-	// Register filtering strategies
-	if err := manager.RegisterFilteringStrategy(gpu_memory.NewGPUMemoryStrategy()); err != nil {
-		general.Errorf("Failed to register filtering strategy: %v", err)
-	}
-
-	if err := manager.RegisterFilteringStrategy(canonical.NewCanonicalStrategy()); err != nil {
-		general.Errorf("Failed to register sorting strategy: %v", err)
-	}
-
-	// Register sorting strategies
-	if err := manager.RegisterSortingStrategy(gpu_memory.NewGPUMemoryStrategy()); err != nil {
-		general.Errorf("Failed to register sorting strategy: %v", err)
-	}
-
-	if err := manager.RegisterSortingStrategy(deviceaffinity.NewDeviceAffinityStrategy()); err != nil {
-		general.Errorf("Failed to register sorting strategy: %v", err)
-	}
-
-	// Register binding strategies
-	if err := manager.RegisterBindingStrategy(canonical.NewCanonicalStrategy()); err != nil {
-		general.Errorf("Failed to register binding strategy: %v", err)
-	}
-
-	if err := manager.RegisterBindingStrategy(deviceaffinity.NewDeviceAffinityStrategy()); err != nil {
-		general.Errorf("Failed to register binding strategy: %v", err)
-	}
-
-	// Register allocation strategies
-	if err := manager.RegisterGenericAllocationStrategy(allocationStrategyNameDefault, []string{gpu_memory.StrategyNameGPUMemory},
-		gpu_memory.StrategyNameGPUMemory, canonical.StrategyNameCanonical); err != nil {
-		general.Errorf("Failed to register gpu-memory-default strategy: %v", err)
-	}
-
-	if err := manager.RegisterGenericAllocationStrategy(allocationStrategyNameDeviceAffinity, []string{deviceaffinity.StrategyNameDeviceAffinity},
-		deviceaffinity.StrategyNameDeviceAffinity, canonical.StrategyNameCanonical); err != nil {
-		general.Errorf("Failed to register deviceAffinity strategy: %v", err)
-	}
 }
