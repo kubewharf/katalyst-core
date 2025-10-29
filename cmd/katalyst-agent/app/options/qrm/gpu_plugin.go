@@ -20,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	cliflag "k8s.io/component-base/cli/flag"
 
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/qrm/gpustrategy"
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 )
 
@@ -29,6 +30,8 @@ type GPUOptions struct {
 	GPUMemoryAllocatablePerGPU string
 	SkipGPUStateCorruption     bool
 	RDMADeviceNames            []string
+
+	GPUStrategyOptions *gpustrategy.GPUStrategyOptions
 }
 
 func NewGPUOptions() *GPUOptions {
@@ -37,6 +40,7 @@ func NewGPUOptions() *GPUOptions {
 		GPUDeviceNames:             []string{"nvidia.com/gpu"},
 		GPUMemoryAllocatablePerGPU: "100",
 		RDMADeviceNames:            []string{},
+		GPUStrategyOptions:         gpustrategy.NewGPUStrategyOptions(),
 	}
 }
 
@@ -50,6 +54,8 @@ func (o *GPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.GPUMemoryAllocatablePerGPU, "The total memory allocatable for each GPU, e.g. 100")
 	fs.BoolVar(&o.SkipGPUStateCorruption, "skip-gpu-state-corruption",
 		o.SkipGPUStateCorruption, "skip gpu state corruption, and it will be used after updating state properties")
+	fs.StringSliceVar(&o.RDMADeviceNames, "rdma-resource-names", o.RDMADeviceNames, "The name of the RDMA resource")
+	o.GPUStrategyOptions.AddFlags(fss)
 }
 
 func (o *GPUOptions) ApplyTo(conf *qrmconfig.GPUQRMPluginConfig) error {
@@ -62,5 +68,8 @@ func (o *GPUOptions) ApplyTo(conf *qrmconfig.GPUQRMPluginConfig) error {
 	conf.GPUMemoryAllocatablePerGPU = gpuMemory
 	conf.SkipGPUStateCorruption = o.SkipGPUStateCorruption
 	conf.RDMADeviceNames = o.RDMADeviceNames
+	if err := o.GPUStrategyOptions.ApplyTo(conf.GPUStrategyConfig); err != nil {
+		return err
+	}
 	return nil
 }

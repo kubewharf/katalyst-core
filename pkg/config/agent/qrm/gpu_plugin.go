@@ -16,21 +16,29 @@ limitations under the License.
 
 package qrm
 
-import "k8s.io/apimachinery/pkg/api/resource"
+import (
+	"k8s.io/apimachinery/pkg/api/resource"
+
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/gpustrategy"
+)
 
 type GPUQRMPluginConfig struct {
 	// PolicyName is used to switch between several strategies
 	PolicyName string
 	// GPUDeviceNames is the names of the GPU device
 	GPUDeviceNames []string
+	// RDMADeviceNames is the names of the RDMA device
+	RDMADeviceNames []string
 	// GPUMemoryAllocatablePerGPU is the total memory allocatable for each GPU
 	GPUMemoryAllocatablePerGPU resource.Quantity
 	// SkipGPUStateCorruption skip gpu state corruption, and it will be used after updating state properties
 	SkipGPUStateCorruption bool
-	// RDMADeviceNames is the names of the RDMA device
-	RDMADeviceNames []string
+
+	*gpustrategy.GPUStrategyConfig
 }
 
 func NewGPUQRMPluginConfig() *GPUQRMPluginConfig {
-	return &GPUQRMPluginConfig{}
+	return &GPUQRMPluginConfig{
+		GPUStrategyConfig: gpustrategy.NewGPUStrategyConfig(),
+	}
 }

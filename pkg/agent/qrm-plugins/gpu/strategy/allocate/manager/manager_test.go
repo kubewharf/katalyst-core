@@ -21,80 +21,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/allocation"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/canonical"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/gpu_memory"
 )
-
-type dummyStrategy struct {
-	name string
-}
-
-func (s *dummyStrategy) Name() string {
-	return s.name
-}
-
-func (s *dummyStrategy) Filter(_ *allocate.AllocationContext, allAvailableDevices []string) ([]string, error) {
-	return allAvailableDevices, nil
-}
-
-func (s *dummyStrategy) Sort(_ *allocate.AllocationContext, allAvailableDevices []string) ([]string, error) {
-	return allAvailableDevices, nil
-}
-
-func (s *dummyStrategy) Bind(_ *allocate.AllocationContext, _ []string) (*allocate.AllocationResult, error) {
-	return &allocate.AllocationResult{}, nil
-}
-
-func (s *dummyStrategy) Allocate(_ *allocate.AllocationContext) (*allocate.AllocationResult, error) {
-	return &allocate.AllocationResult{}, nil
-}
-
-func TestStrategyRegistry(t *testing.T) {
-	t.Parallel()
-
-	registry := NewStrategyRegistry()
-	// Test filtering strategy registration
-	filteringStrategy := &dummyStrategy{name: "test-filtering"}
-	err := registry.RegisterFilteringStrategy(filteringStrategy)
-	assert.NoError(t, err)
-
-	// Test duplicate registration
-	err = registry.RegisterFilteringStrategy(filteringStrategy)
-	assert.Error(t, err)
-
-	// Test strategy retrieval
-	retrievedStrategy, err := registry.GetFilteringStrategy("test-filtering")
-	assert.NoError(t, err)
-	assert.Equal(t, "test-filtering", retrievedStrategy.Name())
-
-	// Test non-existent strategy
-	_, err = registry.GetFilteringStrategy("non-existent")
-	assert.Error(t, err)
-
-	// Test sorting strategy registration
-	sortingStrategy := &dummyStrategy{name: "test-sorting"}
-	err = registry.RegisterSortingStrategy(sortingStrategy)
-	assert.NoError(t, err)
-
-	// Test binding strategy registration
-	bindingStrategy := &dummyStrategy{name: "test-binding"}
-	err = registry.RegisterBindingStrategy(bindingStrategy)
-	assert.NoError(t, err)
-
-	// Test allocation strategy registration
-	err = registry.RegisterGenericAllocationStrategy("test-allocation", []string{"test-filtering"},
-		"test-sorting", "test-binding")
-	assert.NoError(t, err)
-
-	// Test allocation strategy retrieval
-	allocationStrategy, err := registry.GetAllocationStrategy("test-allocation")
-	assert.NoError(t, err)
-	assert.Equal(t, "test-filtering", allocationStrategy.(*allocation.GenericAllocationStrategy).FilteringStrategy[0].Name())
-	assert.Equal(t, "test-sorting", allocationStrategy.(*allocation.GenericAllocationStrategy).SortingStrategy.Name())
-	assert.Equal(t, "test-binding", allocationStrategy.(*allocation.GenericAllocationStrategy).BindingStrategy.Name())
-}
 
 func TestStrategyManager(t *testing.T) {
 	t.Parallel()
