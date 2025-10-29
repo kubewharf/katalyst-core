@@ -19,8 +19,9 @@ package state
 import (
 	"fmt"
 
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	v1 "k8s.io/api/core/v1"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 // GenerateMachineState returns an empty AllocationResourcesMap for all resource names.
