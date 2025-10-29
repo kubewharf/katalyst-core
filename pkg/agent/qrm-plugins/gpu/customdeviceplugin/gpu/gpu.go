@@ -46,13 +46,15 @@ type GPUDevicePlugin struct {
 }
 
 func NewGPUDevicePlugin(base *baseplugin.BasePlugin) customdeviceplugin.CustomDevicePlugin {
-	gpuTopologyProvider := machine.NewDeviceTopologyProvider(base.GPUDeviceNames)
+	gpuTopologyProvider := machine.NewDeviceTopologyProvider(base.Conf.GPUDeviceNames)
 	base.DeviceTopologyRegistry.RegisterDeviceTopologyProvider(gpuconsts.GPUDeviceType, gpuTopologyProvider)
-	base.RegisterDeviceNameToType(base.GPUDeviceNames, gpuconsts.GPUDeviceType)
+	base.DefaultResourceStateGeneratorRegistry.RegisterResourceStateGenerator(gpuconsts.GPUDeviceType,
+		state.NewGenericDefaultResourceStateGenerator(gpuconsts.GPUDeviceType, base.DeviceTopologyRegistry))
+	base.RegisterDeviceNameToType(base.Conf.GPUDeviceNames, gpuconsts.GPUDeviceType)
 
 	return &GPUDevicePlugin{
 		BasePlugin:  base,
-		deviceNames: base.GPUDeviceNames,
+		deviceNames: base.Conf.GPUDeviceNames,
 	}
 }
 
@@ -75,7 +77,7 @@ func (p *GPUDevicePlugin) GetAssociatedDeviceTopologyHints(_ *pluginapi.Associat
 func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 	resReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest, _ string,
 ) (*pluginapi.AssociatedDeviceAllocationResponse, error) {
-	qosLevel, err := qrmutil.GetKatalystQoSLevelFromResourceReq(p.QosConfig, resReq, p.PodAnnotationKeptKeys, p.PodLabelKeptKeys)
+	qosLevel, err := qrmutil.GetKatalystQoSLevelFromResourceReq(p.Conf.QoSConfiguration, resReq, p.PodAnnotationKeptKeys, p.PodLabelKeptKeys)
 	if err != nil {
 		err = fmt.Errorf("GetKatalystQoSLevelFromResourceReq for pod: %s/%s, container: %s failed with error: %v",
 			resReq.PodNamespace, resReq.PodName, resReq.ContainerName, err)
@@ -142,7 +144,7 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 			resReq,
 			deviceReq,
 			gpuTopology,
-			p.GPUQRMPluginConfig,
+			p.Conf.GPUQRMPluginConfig,
 			p.Emitter,
 			p.MetaServer,
 			p.State.GetMachineState(),
@@ -202,11 +204,11 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 
 	// TODO：State can be updated using the actual resource name
 	p.State.SetAllocationInfo(gpuconsts.GPUDeviceType, resReq.PodUid, resReq.ContainerName, gpuDeviceAllocationInfo, false)
-	gpuDeviceMachineState, err := state.GenerateMachineStateFromPodEntries(p.State.GetPodResourceEntries(), p.DeviceTopologyRegistry)
+	resourceState, err := p.GenerateResourceStateFromPodEntries(gpuconsts.GPUDeviceType, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate gpu device machine state from pod entries: %v", err)
+		return nil, fmt.Errorf("failed to generate gpu device state from pod entries: %v", err)
 	}
-	p.State.SetMachineState(gpuDeviceMachineState, true)
+	p.State.SetResourceState(gpuconsts.GPUDeviceType, resourceState, true)
 
 	general.InfoS("allocated gpu devices",
 		"podNamespace", resReq.PodNamespace,
