@@ -24,6 +24,8 @@ type CPUProvisionPolicyConfiguration struct {
 	PolicyRama *PolicyRamaConfiguration
 	// enable to use control knob cpu quota when cgroup2 available
 	EnableControlKnobCPUQuota bool
+	// enable to use control knob cpu quota when cgroup1 available
+	EnableControlKnobCPUQuotaForV1 bool
 }
 
 func NewCPUProvisionPolicyConfiguration() *CPUProvisionPolicyConfiguration {
