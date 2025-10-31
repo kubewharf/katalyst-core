@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/vishvananda/netns"
@@ -34,6 +35,8 @@ const (
 
 	IPVersionV4 = 4
 	IPVersionV6 = 6
+
+	ContainerNetNSPrefix = "cni-"
 )
 
 type NicDriver string
@@ -237,4 +240,8 @@ func GetInterfaceAddr(iface net.Interface) (*IfaceAddr, error) {
 		return ia, nil
 	}
 	return nil, fmt.Errorf("interface %v has no IP addresses", iface.Name)
+}
+
+func IsContainerNetNS(netnsName string) bool {
+	return strings.HasPrefix(netnsName, ContainerNetNSPrefix)
 }

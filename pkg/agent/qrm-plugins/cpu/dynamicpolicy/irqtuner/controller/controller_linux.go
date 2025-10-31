@@ -1054,25 +1054,16 @@ func (n *NicInfo) syncIrqAffinityFromKernel() error {
 	return nil
 }
 
-func listActiveUplinkNicsExcludeSriovVFs(netNSDir string) ([]*machine.NicBasicInfo, error) {
-	nics, err := machine.ListActiveUplinkNics(netNSDir)
+func listHostActiveUplinkNics(netNSDir string) ([]*machine.NicBasicInfo, error) {
+	// names of container network namespaces (including those of SRIOV containers) are prefixed with "cni-",
+	// additionally, the NICs of SRIOV containers will be required during the periodic ListContainers process.
+	nics, err := machine.ListActiveUplinkNics(netNSDir, []string{machine.ContainerNetNSPrefix})
 	if err != nil {
 		return nil, err
 	}
 
-	// filter out nics which are dedicated to sriov dedicated-cores containers from nics
-	// sriov dedicated-cores container's nic's irq affinity will be tuned in initialize tuning and periodic tuning
-	var tmpNics []*machine.NicBasicInfo
-	for _, nic := range nics {
-		// all sriov netns's names hava prefix "cni-", sriov netns is managed by cni plugin
-		if !strings.HasPrefix(nic.NSName, "cni-") {
-			tmpNics = append(tmpNics, nic)
-		}
-	}
-	nics = tmpNics
-
 	if len(nics) == 0 {
-		return nil, fmt.Errorf("no active uplink nics after filtering out sriov nics, it's impossible")
+		return nil, fmt.Errorf("no active uplink nics, it's impossible")
 	}
 
 	// sort nics by ifindex
@@ -2168,7 +2159,7 @@ func (ic *IrqTuningController) classifyNicsByThroughput(oldIndicatorsStats *Indi
 func (ic *IrqTuningController) syncNics() error {
 	general.Infof("%s sync nics", IrqTuningLogPrefix)
 
-	nics, err := listActiveUplinkNicsExcludeSriovVFs(ic.agentConf.MachineInfoConfiguration.NetNSDirAbsPath)
+	nics, err := listHostActiveUplinkNics(ic.agentConf.MachineInfoConfiguration.NetNSDirAbsPath)
 	if err != nil {
 		return err
 	}
@@ -2186,7 +2177,7 @@ func (ic *IrqTuningController) syncNics() error {
 	}
 
 	if !nicsChanged {
-		// nics has been sorted by ifindex in listActiveUplinkNicsExcludeSriovVFs
+		// nics has been sorted by ifindex in listHostActiveUplinkNics
 		for i := range oldNics {
 			if !nics[i].Equal(oldNics[i].NicInfo.NicBasicInfo) {
 				nicsChanged = true
@@ -3521,7 +3512,7 @@ func (ic *IrqTuningController) getNicsIfSRIOVContainer(cnt *irqtuner.ContainerIn
 	}
 
 	// all sriov netns's names hava prefix "cni-", sriov netns is managed by cni plugin
-	if !strings.HasPrefix(containerNetNSInfo.NSName, "cni-") {
+	if !machine.IsContainerNetNS(containerNetNSInfo.NSName) {
 		return false, nil
 	}
 

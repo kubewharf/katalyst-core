@@ -1363,7 +1363,7 @@ func ListInterfacesWithIPAddr() ([]string, error) {
 	return intfs, nil
 }
 
-func ListActiveUplinkNics(netNSDir string) ([]*NicBasicInfo, error) {
+func ListActiveUplinkNics(netNSDir string, ignoredNetNSNamePrefixes []string) ([]*NicBasicInfo, error) {
 	netnsList, err := ListNetNS(netNSDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to ListNetNS, err %v", err)
@@ -1371,6 +1371,17 @@ func ListActiveUplinkNics(netNSDir string) ([]*NicBasicInfo, error) {
 
 	var nics []*NicBasicInfo
 	for _, ns := range netnsList {
+		isIgnoredNetNS := false
+		for _, prefix := range ignoredNetNSNamePrefixes {
+			if strings.HasPrefix(ns.NSName, prefix) {
+				isIgnoredNetNS = true
+				break
+			}
+		}
+		if isIgnoredNetNS {
+			continue
+		}
+
 		netnsNics, err := ListActiveUplinkNicsFromNetNS(ns)
 		if err != nil {
 			if !NetNSExist(ns) {

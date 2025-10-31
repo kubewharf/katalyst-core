@@ -2598,7 +2598,7 @@ func Test_ListActiveUplinkNics(t *testing.T) {
 				}).Build()
 			Mock(GetNicQueue2Irq).Return(mockQueue2Irq, mockTxQueue2Irq, nil).Build()
 
-			nics, err := ListActiveUplinkNics(mockNetNSDir)
+			nics, err := ListActiveUplinkNics(mockNetNSDir, []string{ContainerNetNSPrefix})
 
 			So(err, ShouldBeNil)
 			So(nics, ShouldNotBeNil)
@@ -2623,7 +2623,7 @@ func Test_ListActiveUplinkNics(t *testing.T) {
 			mockErr := errors.New("failed to list netns")
 			Mock(ListNetNS).Return(nil, mockErr).Build()
 
-			nics, err := ListActiveUplinkNics(mockNetNSDir)
+			nics, err := ListActiveUplinkNics(mockNetNSDir, []string{ContainerNetNSPrefix})
 
 			So(err, ShouldNotBeNil)
 			So(err.Error(), ShouldEqual, fmt.Sprintf("failed to ListNetNS, err %v", mockErr))
@@ -2636,7 +2636,7 @@ func Test_ListActiveUplinkNics(t *testing.T) {
 			Mock(ListNetNS).Return(mockNetNSList, nil).Build()
 			Mock(ListActiveUplinkNicsFromNetNS).Return(nil, mockErr).Build()
 
-			nics, err := ListActiveUplinkNics(mockNetNSDir)
+			nics, err := ListActiveUplinkNics(mockNetNSDir, []string{ContainerNetNSPrefix})
 
 			So(err, ShouldBeNil)
 			So(nics, ShouldBeNil)
@@ -2651,7 +2651,7 @@ func Test_ListActiveUplinkNics(t *testing.T) {
 			Mock(ListActiveUplinkNicsFromNetNS).Return(mockNicsFromNS, nil).Build()
 			Mock(GetNicQueue2Irq).Return(nil, nil, mockErr).Build()
 
-			nics, err := ListActiveUplinkNics(mockNetNSDir)
+			nics, err := ListActiveUplinkNics(mockNetNSDir, []string{ContainerNetNSPrefix})
 
 			So(err, ShouldNotBeNil)
 			So(err.Error(), ShouldEqual, fmt.Sprintf("failed to GetNicQueue2Irq for %d: %s, err %v", mockNicsFromNS[0].IfIndex, mockNicsFromNS[0].Name, mockErr))
@@ -2663,7 +2663,7 @@ func Test_ListActiveUplinkNics(t *testing.T) {
 			Mock(ListNetNS).Return(mockNetNSList, nil).Build()
 			Mock(ListActiveUplinkNicsFromNetNS).Return([]*NicBasicInfo{}, nil).Build()
 
-			nics, err := ListActiveUplinkNics(mockNetNSDir)
+			nics, err := ListActiveUplinkNics(mockNetNSDir, []string{ContainerNetNSPrefix})
 
 			So(err, ShouldBeNil)
 			So(nics, ShouldBeEmpty)
