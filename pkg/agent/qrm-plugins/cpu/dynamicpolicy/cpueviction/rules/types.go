@@ -50,6 +50,17 @@ type NumaOverStat struct {
 	Gap            float64
 }
 
+type NumaSysOverStat struct {
+	NumaID             int
+	NumaCPUUsageAvg    float64
+	NumaSysCPUUsageAvg float64
+
+	IsNumaCPUUsageSoftOver    bool
+	IsNumaCPUUsageHardOver    bool
+	IsNumaSysCPUUsageSoftOver bool
+	IsNumaSysCPUUsageHardOver bool
+}
+
 type EvictOptions struct {
 	NumaPressureConfig *NumaPressureConfig
 	State              State
