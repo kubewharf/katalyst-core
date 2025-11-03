@@ -813,7 +813,7 @@ func (p *DynamicPolicy) applyAllSubCgroupQuotaToUnLimit(containerRelativePath st
 // generateBlockCPUSet generates BlockCPUSet from cpu-advisor response.
 // The logic contains the following main steps:
 //  1. Handle blocks for static pools and forbidden pools
-//  2. Handle blocks with specified NUMA IDs (for NUMA-bound dedicated_cores containers
+//  2. Handle blocks with specified NUMA IDs (for NUMA-bound dedicated_cores/shared_cores containers
 //     and reclaimed_cores containers colocated with them)
 //  3. Handle blocks without specified NUMA ID (for non-NUMA-bound containers including
 //     dedicated_cores, shared_cores and reclaimed_cores containers)
@@ -973,9 +973,11 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 			numaAvailableCPUs = numaAvailableCPUs.Difference(cpuset)
 			availableCPUs = availableCPUs.Difference(cpuset)
 
-			_, ok = block.OwnerPoolEntryMap[commonstate.PoolNameShare]
-			if ok {
-				withNUMABindingShareOrDedicatedPod = true
+			for poolName := range block.OwnerPoolEntryMap {
+				if commonstate.IsIsolationPool(poolName) || commonstate.IsShareNUMABindingPool(poolName) {
+					withNUMABindingShareOrDedicatedPod = true
+					break
+				}
 			}
 		}
 
