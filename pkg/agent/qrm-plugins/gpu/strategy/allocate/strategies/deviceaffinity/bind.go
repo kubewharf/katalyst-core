@@ -74,13 +74,12 @@ func (s *DeviceAffinityStrategy) Bind(
 
 	// Get a map of affinity groups that is grouped by priority
 	affinityMap := ctx.DeviceTopology.GroupDeviceAffinity()
-	klog.Infof("affinity map: %v", affinityMap)
 	affinityGroupByPriority := s.getAffinityGroupsByPriority(affinityMap, unallocatedDevicesSet)
 
 	idToAffinityGroupMap := s.getAffinityGroupById(affinityGroupByPriority)
 
 	// Allocate reusable devices first
-	allocatedDevices, err := s.allocateCandidateDevices(reusableDevicesSet, devicesToAllocate, unallocatedDevicesSet, affinityGroupByPriority, sets.NewString())
+	allocatedDevices, err := s.allocateAvailableDevicesWithAffinity(sets.NewString(), reusableDevicesSet, devicesToAllocate, idToAffinityGroupMap, affinityGroupByPriority)
 	if err != nil {
 		return &allocate.AllocationResult{
 			Success:      false,
@@ -95,32 +94,12 @@ func (s *DeviceAffinityStrategy) Bind(
 		}, nil
 	}
 
-	// Find all the affinity group ids that the allocated devices belong to and their respective priorities
-	allocatedAffinityGroupIds := s.findAllAffinityGroupIdsByPriority(allocatedDevices.UnsortedList(), affinityGroupByPriority)
-
-	availableDevicesSet := sets.NewString(sortedDevices...)
-	// Next, allocate from available devices, but try to allocate from same affinity group as the allocated reusable devices
-	if allocatedDevices, err = s.allocateAvailableDevicesWithAffinity(allocatedDevices, availableDevicesSet, unallocatedDevicesSet, devicesToAllocate, allocatedAffinityGroupIds, idToAffinityGroupMap); err != nil {
+	// Next, allocate available devices
+	if allocatedDevices, err = s.allocateAvailableDevicesWithAffinity(allocatedDevices, unallocatedDevicesSet, devicesToAllocate, idToAffinityGroupMap, affinityGroupByPriority); err != nil {
 		return &allocate.AllocationResult{
 			Success:      false,
 			ErrorMessage: fmt.Sprintf("failed to allocate available devices with affinity: %v", err),
 		}, fmt.Errorf("failed to allocate available devices with affinity: %v", err)
-	}
-
-	// Return result once we have allocated all the devices
-	if len(allocatedDevices) == devicesToAllocate {
-		return &allocate.AllocationResult{
-			Success:          true,
-			AllocatedDevices: allocatedDevices.UnsortedList(),
-		}, nil
-	}
-
-	// Lastly, allocate the rest of the devices from available devices
-	if allocatedDevices, err = s.allocateCandidateDevices(availableDevicesSet, devicesToAllocate, unallocatedDevicesSet, affinityGroupByPriority, allocatedDevices); err != nil {
-		return &allocate.AllocationResult{
-			Success:      false,
-			ErrorMessage: fmt.Sprintf("failed to allocate available devices: %v", err),
-		}, fmt.Errorf("failed to allocate available devices: %v", err)
 	}
 
 	// Return result once we have allocated all the devices
@@ -184,12 +163,12 @@ func (s *DeviceAffinityStrategy) getAffinityGroupById(affinityGroupByPriority ma
 
 // allocateCandidateDevices finds the best allocation given some candidate devices by finding those devices with the best affinity to each other.
 func (s *DeviceAffinityStrategy) allocateCandidateDevices(
-	candidateDevicesSet sets.String, devicesToAllocate int, unallocatedDevices sets.String,
-	affinityMap map[machine.AffinityPriority][]affinityGroup, allocatedDevices sets.String,
+	candidateDevicesSet sets.String, devicesToAllocate int,
+	affinityGroupsByPriority map[machine.AffinityPriority][]affinityGroup, allocatedDevices sets.String,
 ) (sets.String, error) {
 	// Retrieve all unallocated devices by getting the intersection of reusable devices and unallocated devices.
 	// Devices that are already allocated should be excluded.
-	availableDevicesSet := unallocatedDevices.Intersection(candidateDevicesSet).Difference(allocatedDevices)
+	availableDevicesSet := candidateDevicesSet.Difference(allocatedDevices)
 
 	// If the available reusable devices is less than or equal to request, we need to allocate all of them
 	remainingQuantity := devicesToAllocate - len(allocatedDevices)
@@ -200,15 +179,15 @@ func (s *DeviceAffinityStrategy) allocateCandidateDevices(
 
 	for allocatedDevices.Len() < devicesToAllocate {
 		// Otherwise, we need to allocate these devices by their affinity
-		for priority := 0; priority < len(affinityMap); priority++ {
-			groups, ok := affinityMap[machine.AffinityPriority(priority)]
+		for priority := 0; priority < len(affinityGroupsByPriority); priority++ {
+			groups, ok := affinityGroupsByPriority[machine.AffinityPriority(priority)]
 			if !ok {
 				return nil, fmt.Errorf("affinity priority %v not found", priority)
 			}
 
-			intersectionToPossibleAllocationsMap := s.makeIntersectionToPossibleAllocationsMap(groups, availableDevicesSet, allocatedDevices)
+			intersectionToPossibleAllocationsMap := s.getIntersectionToPossibleAllocations(groups, availableDevicesSet, allocatedDevices)
 
-			allocateByIntersectionRes := s.allocateByIntersection(intersectionToPossibleAllocationsMap, allocatedDevices, devicesToAllocate, priority == len(affinityMap)-1)
+			allocateByIntersectionRes := s.allocateByIntersection(intersectionToPossibleAllocationsMap, allocatedDevices, devicesToAllocate, priority == len(affinityGroupsByPriority)-1)
 			if allocateByIntersectionRes.err != nil {
 				return nil, allocateByIntersectionRes.err
 			}
@@ -223,13 +202,15 @@ func (s *DeviceAffinityStrategy) allocateCandidateDevices(
 }
 
 // allocateAvailableDevicesWithAffinity allocates devices from a set of available devices by trying to find the best device affinity
-// to some already allocated reusable devices.
+// to some already allocated reusable devices. Then, if there are still devices needed to be allocated, we continue to find the
+// most optimal allocation for them.
 func (s *DeviceAffinityStrategy) allocateAvailableDevicesWithAffinity(
-	allocatedDevices, availableDevices, unallocatedDevices sets.String, devicesToAllocate int,
-	allocatedAffinityGroupIds map[machine.AffinityPriority]sets.String, idToAffinityGroupMap map[string]affinityGroup,
+	allocatedDevices, availableDevices sets.String, devicesToAllocate int,
+	idToAffinityGroupMap map[string]affinityGroup,
+	affinityGroupsByPriority map[machine.AffinityPriority][]affinityGroup,
 ) (sets.String, error) {
-	// Unallocated available devices are retrieved by getting an intersection of total unallocated devices and the available devices to be allocated.
-	unallocatedAvailableDevices := unallocatedDevices.Intersection(availableDevices)
+	// Find all the affinity group ids that the allocated devices belong to and their respective priorities
+	allocatedAffinityGroupIds := s.findAllAffinityGroupIdsByPriority(allocatedDevices.UnsortedList(), affinityGroupsByPriority)
 
 	// From the highest priority to the lowest priority, get the group IDs of the devices that are already allocated
 	// and try to allocate from those groups.
@@ -248,7 +229,7 @@ func (s *DeviceAffinityStrategy) allocateAvailableDevicesWithAffinity(
 				return nil, fmt.Errorf("affinity group %v not found", groupID)
 			}
 
-			deviceIntersection := sets.NewString(group.unallocatedDevices...).Intersection(unallocatedAvailableDevices)
+			deviceIntersection := sets.NewString(group.unallocatedDevices...).Intersection(availableDevices)
 			if _, ok = intersectionToPossibleAllocationsMap[deviceIntersection.Len()]; !ok {
 				intersectionToPossibleAllocationsMap[deviceIntersection.Len()] = make([]possibleAllocation, 0)
 			}
@@ -269,6 +250,12 @@ func (s *DeviceAffinityStrategy) allocateAvailableDevicesWithAffinity(
 		if allocateByIntersectionRes.finished {
 			return allocatedDevices, nil
 		}
+	}
+
+	// After allocating devices that have affinity to the allocated devices, find an optimal allocation for the rest of the available devices
+	allocatedDevices, err := s.allocateCandidateDevices(availableDevices, devicesToAllocate, affinityGroupsByPriority, allocatedDevices)
+	if err != nil {
+		return nil, err
 	}
 
 	return allocatedDevices, nil
@@ -301,13 +288,14 @@ func (s *DeviceAffinityStrategy) mergePossibleAllocationsAndSort(possibleAllocat
 	return mergedAllocations
 }
 
-func (s *DeviceAffinityStrategy) makeIntersectionToPossibleAllocationsMap(
+func (s *DeviceAffinityStrategy) getIntersectionToPossibleAllocations(
 	groups []affinityGroup, availableDevicesSet, allocatedDevices sets.String,
 ) map[int][]possibleAllocation {
 	intersectionToPossibleAllocationsMap := make(map[int][]possibleAllocation)
 	for _, group := range groups {
 		// Find intersection of affinity group and the available reusable devices
 		deviceIntersection := getDeviceIntersection(group.unallocatedDevices, availableDevicesSet)
+		// Ignore groups with no intersection as there is no affinity to the group
 		if len(deviceIntersection) == 0 {
 			continue
 		}
