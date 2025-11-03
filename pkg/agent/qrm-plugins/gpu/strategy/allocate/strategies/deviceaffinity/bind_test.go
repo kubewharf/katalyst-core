@@ -17,6 +17,8 @@ limitations under the License.
 package deviceaffinity
 
 import (
+	"reflect"
+	"sort"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -29,16 +31,265 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-func TestBind(t *testing.T) {
+func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		ctx            *allocate.AllocationContext
-		sortedDevices  []string
-		expectedResult *allocate.AllocationResult
-		expectedErr    bool
+		name               string
+		ctx                *allocate.AllocationContext
+		sortedDevices      []string
+		expectedResult     *allocate.AllocationResult
+		expectedErr        bool
+		isRandom           bool
+		expectedResultSize int
 	}{
+		{
+			name: "able to allocate 1 device in affinity group of size 2",
+			ctx: &allocate.AllocationContext{
+				ResourceReq: &pluginapi.ResourceRequest{
+					PodUid:        "pod-1",
+					ContainerName: "container-1",
+				},
+				DeviceReq: &pluginapi.DeviceRequest{
+					DeviceName:      "gpu",
+					ReusableDevices: nil,
+					DeviceRequest:   1,
+				},
+				DeviceTopology: &machine.DeviceTopology{
+					Devices: map[string]machine.DeviceInfo{
+						"gpu-1": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-2"},
+							},
+						},
+						"gpu-2": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-1"},
+							},
+						},
+						"gpu-3": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-4"},
+							},
+						},
+						"gpu-4": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-3"},
+							},
+						},
+						"gpu-5": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-6"},
+							},
+						},
+						"gpu-6": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-5"},
+							},
+						},
+						"gpu-7": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-8"},
+							},
+						},
+						"gpu-8": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-7"},
+							},
+						},
+					},
+				},
+			},
+			sortedDevices:      []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
+			isRandom:           true,
+			expectedResultSize: 1,
+		},
+		{
+			name: "able to allocate 2 devices in affinity group of size 2",
+			ctx: &allocate.AllocationContext{
+				ResourceReq: &pluginapi.ResourceRequest{
+					PodUid:        "pod-1",
+					ContainerName: "container-1",
+				},
+				DeviceReq: &pluginapi.DeviceRequest{
+					DeviceName:      "gpu",
+					ReusableDevices: nil,
+					DeviceRequest:   2,
+				},
+				DeviceTopology: &machine.DeviceTopology{
+					Devices: map[string]machine.DeviceInfo{
+						"gpu-1": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-2"},
+							},
+						},
+						"gpu-2": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-1"},
+							},
+						},
+						"gpu-3": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-4"},
+							},
+						},
+						"gpu-4": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-3"},
+							},
+						},
+						"gpu-5": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-6"},
+							},
+						},
+						"gpu-6": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-5"},
+							},
+						},
+						"gpu-7": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-8"},
+							},
+						},
+						"gpu-8": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-7"},
+							},
+						},
+					},
+				},
+			},
+			sortedDevices:      []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
+			isRandom:           true,
+			expectedResultSize: 2,
+		},
+		{
+			name: "able to allocate 3 devices in affinity size of group 2",
+			ctx: &allocate.AllocationContext{
+				ResourceReq: &pluginapi.ResourceRequest{
+					PodUid:        "pod-1",
+					ContainerName: "container-1",
+				},
+				DeviceReq: &pluginapi.DeviceRequest{
+					DeviceName:      "gpu",
+					ReusableDevices: nil,
+					DeviceRequest:   3,
+				},
+				DeviceTopology: &machine.DeviceTopology{
+					Devices: map[string]machine.DeviceInfo{
+						"gpu-1": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-2"},
+							},
+						},
+						"gpu-2": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-1"},
+							},
+						},
+						"gpu-3": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-4"},
+							},
+						},
+						"gpu-4": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-3"},
+							},
+						},
+					},
+				},
+			},
+			sortedDevices:      []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4"},
+			isRandom:           true,
+			expectedResultSize: 3,
+		},
+		{
+			name: "able to allocate 4 devices in affinity size of group 2",
+			ctx: &allocate.AllocationContext{
+				ResourceReq: &pluginapi.ResourceRequest{
+					PodUid:        "pod-1",
+					ContainerName: "container-1",
+				},
+				DeviceReq: &pluginapi.DeviceRequest{
+					DeviceName:      "gpu",
+					ReusableDevices: nil,
+					DeviceRequest:   4,
+				},
+				DeviceTopology: &machine.DeviceTopology{
+					Devices: map[string]machine.DeviceInfo{
+						"gpu-1": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-2"},
+							},
+						},
+						"gpu-2": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-1"},
+							},
+						},
+						"gpu-3": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-4"},
+							},
+						},
+						"gpu-4": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-3"},
+							},
+						},
+					},
+				},
+			},
+			sortedDevices: []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4"},
+			expectedResult: &allocate.AllocationResult{
+				AllocatedDevices: []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4"},
+				Success:          true,
+			},
+		},
+		{
+			name: "able to allocate 2 devices in affinity size of group 4",
+			ctx: &allocate.AllocationContext{
+				ResourceReq: &pluginapi.ResourceRequest{
+					PodUid:        "pod-1",
+					ContainerName: "container-1",
+				},
+				DeviceReq: &pluginapi.DeviceRequest{
+					DeviceName:      "gpu",
+					ReusableDevices: nil,
+					DeviceRequest:   2,
+				},
+				DeviceTopology: &machine.DeviceTopology{
+					Devices: map[string]machine.DeviceInfo{
+						"gpu-1": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-2", "gpu-3", "gpu-4"},
+							},
+						},
+						"gpu-2": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-1", "gpu-3", "gpu-4"},
+							},
+						},
+						"gpu-3": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-1", "gpu-2", "gpu-4"},
+							},
+						},
+						"gpu-4": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-1", "gpu-2", "gpu-3"},
+							},
+						},
+					},
+				},
+			},
+			sortedDevices:      []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4"},
+			isRandom:           true,
+			expectedResultSize: 2,
+		},
 		{
 			name: "allocate all reusable devices first",
 			ctx: &allocate.AllocationContext{
@@ -1286,6 +1537,123 @@ func TestBind(t *testing.T) {
 				Success:          true,
 			},
 		},
+		{
+			name: "4 devices in affinity priority 0, 8 devices in affinity priority 1, allocate 8 devices",
+			ctx: &allocate.AllocationContext{
+				ResourceReq: &pluginapi.ResourceRequest{
+					PodUid:        "pod-1",
+					ContainerName: "container-1",
+				},
+				DeviceReq: &pluginapi.DeviceRequest{
+					DeviceName:      "gpu",
+					ReusableDevices: nil,
+					DeviceRequest:   2,
+				},
+				DeviceTopology: &machine.DeviceTopology{
+					Devices: map[string]machine.DeviceInfo{
+						"0": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-1", "gpu-2", "gpu-3", "gpu-4"},
+								1: {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
+							},
+						},
+						"gpu-2": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-1", "gpu-2", "gpu-3", "gpu-4"},
+								1: {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
+							},
+						},
+						"gpu-3": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-1", "gpu-2", "gpu-3", "gpu-4"},
+								1: {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
+							},
+						},
+						"gpu-4": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-1", "gpu-2", "gpu-3", "gpu-4"},
+								1: {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
+							},
+						},
+						"gpu-5": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-5", "gpu-6", "gpu-7", "gpu-8"},
+								1: {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
+							},
+						},
+						"gpu-6": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-5", "gpu-6", "gpu-7", "gpu-8"},
+								1: {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
+							},
+						},
+						"gpu-7": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-5", "gpu-6", "gpu-7", "gpu-8"},
+								1: {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
+							},
+						},
+						"gpu-8": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-5", "gpu-6", "gpu-7", "gpu-8"},
+								1: {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
+							},
+						},
+						"gpu-9": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-9", "gpu-10", "gpu-11", "gpu-12"},
+								1: {"gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
+							},
+						},
+						"gpu-10": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-9", "gpu-10", "gpu-11", "gpu-12"},
+								1: {"gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
+							},
+						},
+						"gpu-11": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-9", "gpu-10", "gpu-11", "gpu-12"},
+								1: {"gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
+							},
+						},
+						"gpu-12": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-9", "gpu-10", "gpu-11", "gpu-12"},
+								1: {"gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
+							},
+						},
+						"gpu-13": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-13", "gpu-14", "gpu-15", "gpu-16"},
+								1: {"gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
+							},
+						},
+						"gpu-14": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-13", "gpu-14", "gpu-15", "gpu-16"},
+								1: {"gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
+							},
+						},
+						"gpu-15": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-13", "gpu-14", "gpu-15", "gpu-16"},
+								1: {"gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
+							},
+						},
+						"gpu-16": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-13", "gpu-14", "gpu-15", "gpu-16"},
+								1: {"gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
+							},
+						},
+					},
+				},
+			},
+			sortedDevices:      []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
+			isRandom:           true,
+			expectedResultSize: 2,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1297,14 +1665,408 @@ func TestBind(t *testing.T) {
 			if (err != nil) != tt.expectedErr {
 				t.Errorf("Bind() error = %v, expectedErr %v", err, tt.expectedErr)
 			}
-			verifyAllocationResult(t, result, tt.expectedResult)
+			verifyAllocationResult(t, result, tt.expectedResult, tt.isRandom, tt.expectedResultSize)
+		})
+	}
+}
+
+func TestBind_DeviceAffinity(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                          string
+		ctx                           *allocate.AllocationContext
+		sortedDevices                 []string
+		expectedErr                   bool
+		expectedAffinityPriorityLevel int
+	}{
+		{
+			name: "1 level of device affinity, 2 devices in a group",
+			ctx: &allocate.AllocationContext{
+				ResourceReq: &pluginapi.ResourceRequest{
+					PodUid:        "pod-1",
+					ContainerName: "container-1",
+				},
+				DeviceReq: &pluginapi.DeviceRequest{
+					DeviceName:      "gpu",
+					ReusableDevices: nil,
+					DeviceRequest:   2,
+				},
+				DeviceTopology: &machine.DeviceTopology{
+					Devices: map[string]machine.DeviceInfo{
+						"gpu-1": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-2"},
+							},
+						},
+						"gpu-2": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-1"},
+							},
+						},
+						"gpu-3": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-4"},
+							},
+						},
+						"gpu-4": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-3"},
+							},
+						},
+						"gpu-5": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-6"},
+							},
+						},
+						"gpu-6": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-5"},
+							},
+						},
+						"gpu-7": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-8"},
+							},
+						},
+						"gpu-8": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-7"},
+							},
+						},
+					},
+				},
+			},
+			sortedDevices:                 []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
+			expectedAffinityPriorityLevel: 0,
+		},
+		{
+			name: "2 devices in affinity priority 0, 4 devices in affinity priority 1",
+			ctx: &allocate.AllocationContext{
+				ResourceReq: &pluginapi.ResourceRequest{
+					PodUid:        "pod-1",
+					ContainerName: "container-1",
+				},
+				DeviceReq: &pluginapi.DeviceRequest{
+					DeviceName:      "gpu",
+					ReusableDevices: nil,
+					DeviceRequest:   4,
+				},
+				DeviceTopology: &machine.DeviceTopology{
+					Devices: map[string]machine.DeviceInfo{
+						"gpu-1": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-2"},
+								1: {"gpu-2", "gpu-3", "gpu-4"},
+							},
+						},
+						"gpu-2": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-1"},
+								1: {"gpu-1", "gpu-3", "gpu-4"},
+							},
+						},
+						"gpu-3": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-4"},
+								1: {"gpu-1", "gpu-2", "gpu-4"},
+							},
+						},
+						"gpu-4": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-3"},
+								1: {"gpu-1", "gpu-2", "gpu-3"},
+							},
+						},
+						"gpu-5": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-6"},
+								1: {"gpu-6", "gpu-7", "gpu-8"},
+							},
+						},
+						"gpu-6": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-5"},
+								1: {"gpu-5", "gpu-7", "gpu-8"},
+							},
+						},
+						"gpu-7": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-8"},
+								1: {"gpu-5", "gpu-6", "gpu-8"},
+							},
+						},
+						"gpu-8": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-7"},
+								1: {"gpu-5", "gpu-6", "gpu-7"},
+							},
+						},
+					},
+				},
+			},
+			sortedDevices:                 []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
+			expectedAffinityPriorityLevel: 1,
+		},
+		{
+			name: "4 devices in affinity priority 0, 8 devices in affinity priority 1, allocate 4 devices",
+			ctx: &allocate.AllocationContext{
+				ResourceReq: &pluginapi.ResourceRequest{
+					PodUid:        "pod-1",
+					ContainerName: "container-1",
+				},
+				DeviceReq: &pluginapi.DeviceRequest{
+					DeviceName:      "gpu",
+					ReusableDevices: []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8", "gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
+					DeviceRequest:   4,
+				},
+				DeviceTopology: &machine.DeviceTopology{
+					Devices: map[string]machine.DeviceInfo{
+						"gpu-1": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-2", "gpu-3", "gpu-4"},
+								1: {"gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
+							},
+						},
+						"gpu-2": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-1", "gpu-3", "gpu-4"},
+								1: {"gpu-1", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
+							},
+						},
+						"gpu-3": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-1", "gpu-2", "gpu-4"},
+								1: {"gpu-1", "gpu-2", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
+							},
+						},
+						"gpu-4": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-1", "gpu-2", "gpu-3"},
+								1: {"gpu-1", "gpu-2", "gpu-3", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
+							},
+						},
+						"gpu-5": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-6", "gpu-7", "gpu-8"},
+								1: {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-6", "gpu-7", "gpu-8"},
+							},
+						},
+						"gpu-6": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-5", "gpu-7", "gpu-8"},
+								1: {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-7", "gpu-8"},
+							},
+						},
+						"gpu-7": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-5", "gpu-6", "gpu-8"},
+								1: {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-8"},
+							},
+						},
+						"gpu-8": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-5", "gpu-6", "gpu-7"},
+								1: {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7"},
+							},
+						},
+						"gpu-9": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-10", "gpu-11", "gpu-12"},
+								1: {"gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
+							},
+						},
+						"gpu-10": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-9", "gpu-11", "gpu-12"},
+								1: {"gpu-9", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
+							},
+						},
+						"gpu-11": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-9", "gpu-10", "gpu-12"},
+								1: {"gpu-9", "gpu-10", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
+							},
+						},
+						"gpu-12": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-9", "gpu-10", "gpu-11"},
+								1: {"gpu-9", "gpu-10", "gpu-11", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
+							},
+						},
+						"gpu-13": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-14", "gpu-15", "gpu-16"},
+								1: {"gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-14", "gpu-15", "gpu-16"},
+							},
+						},
+						"gpu-14": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-13", "gpu-15", "gpu-16"},
+								1: {"gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-15", "gpu-16"},
+							},
+						},
+						"gpu-15": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-13", "gpu-14", "gpu-16"},
+								1: {"gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-16"},
+							},
+						},
+						"gpu-16": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-13", "gpu-14", "gpu-15"},
+								1: {"gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15"},
+							},
+						},
+					},
+				},
+			},
+			sortedDevices:                 []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8", "gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
+			expectedAffinityPriorityLevel: 0,
+		},
+		{
+			name: "4 devices in affinity priority 0, 8 devices in affinity priority 1, allocate 8 devices",
+			ctx: &allocate.AllocationContext{
+				ResourceReq: &pluginapi.ResourceRequest{
+					PodUid:        "pod-1",
+					ContainerName: "container-1",
+				},
+				DeviceReq: &pluginapi.DeviceRequest{
+					DeviceName:      "gpu",
+					ReusableDevices: []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8", "gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
+					DeviceRequest:   8,
+				},
+				DeviceTopology: &machine.DeviceTopology{
+					Devices: map[string]machine.DeviceInfo{
+						"gpu-1": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-2", "gpu-3", "gpu-4"},
+								1: {"gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
+							},
+						},
+						"gpu-2": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-1", "gpu-3", "gpu-4"},
+								1: {"gpu-1", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
+							},
+						},
+						"gpu-3": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-1", "gpu-2", "gpu-4"},
+								1: {"gpu-1", "gpu-2", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
+							},
+						},
+						"gpu-4": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-1", "gpu-2", "gpu-3"},
+								1: {"gpu-1", "gpu-2", "gpu-3", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
+							},
+						},
+						"gpu-5": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-6", "gpu-7", "gpu-8"},
+								1: {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-6", "gpu-7", "gpu-8"},
+							},
+						},
+						"gpu-6": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-5", "gpu-7", "gpu-8"},
+								1: {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-7", "gpu-8"},
+							},
+						},
+						"gpu-7": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-5", "gpu-6", "gpu-8"},
+								1: {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-8"},
+							},
+						},
+						"gpu-8": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-5", "gpu-6", "gpu-7"},
+								1: {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7"},
+							},
+						},
+						"gpu-9": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-10", "gpu-11", "gpu-12"},
+								1: {"gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
+							},
+						},
+						"gpu-10": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-9", "gpu-11", "gpu-12"},
+								1: {"gpu-9", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
+							},
+						},
+						"gpu-11": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-9", "gpu-10", "gpu-12"},
+								1: {"gpu-9", "gpu-10", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
+							},
+						},
+						"gpu-12": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-9", "gpu-10", "gpu-11"},
+								1: {"gpu-9", "gpu-10", "gpu-11", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
+							},
+						},
+						"gpu-13": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-14", "gpu-15", "gpu-16"},
+								1: {"gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-14", "gpu-15", "gpu-16"},
+							},
+						},
+						"gpu-14": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-13", "gpu-15", "gpu-16"},
+								1: {"gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-15", "gpu-16"},
+							},
+						},
+						"gpu-15": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-13", "gpu-14", "gpu-16"},
+								1: {"gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-16"},
+							},
+						},
+						"gpu-16": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-13", "gpu-14", "gpu-15"},
+								1: {"gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15"},
+							},
+						},
+					},
+				},
+			},
+			sortedDevices:                 []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8", "gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
+			expectedAffinityPriorityLevel: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			deviceBindingStrategy := NewDeviceAffinityStrategy()
+			result, err := deviceBindingStrategy.Bind(tt.ctx, tt.sortedDevices)
+			if (err != nil) != tt.expectedErr {
+				t.Errorf("Bind() error = %v, expectedErr %v", err, tt.expectedErr)
+			}
+
+			verifyResultIsAffinity(t, result, tt.ctx.DeviceTopology, tt.expectedAffinityPriorityLevel)
 		})
 	}
 }
 
 func verifyAllocationResult(
-	t *testing.T, result *allocate.AllocationResult, expectedResult *allocate.AllocationResult,
+	t *testing.T, result *allocate.AllocationResult, expectedResult *allocate.AllocationResult, isRandom bool,
+	expectedResultSize int,
 ) {
+	if isRandom {
+		if len(result.AllocatedDevices) != expectedResultSize {
+			t.Errorf("result.AllocatedDevices = %v, expectedResultSize = %v", result.AllocatedDevices, expectedResultSize)
+		}
+		return
+	}
 	if (result == nil) != (expectedResult == nil) {
 		t.Errorf("result = %v, expectedResult = %v", result, expectedResult)
 		return
@@ -1322,4 +2084,25 @@ func verifyAllocationResult(
 	); diff != "" {
 		t.Errorf("Bind() mismatch (-got +want):\n%s", diff)
 	}
+}
+
+func verifyResultIsAffinity(
+	t *testing.T, result *allocate.AllocationResult, topology *machine.DeviceTopology,
+	expectedAffinityPriorityLevel int,
+) {
+	affinityMap := topology.GroupDeviceAffinity()
+	priorityLevelDevices := affinityMap[machine.AffinityPriority(expectedAffinityPriorityLevel)]
+
+	sort.Slice(result.AllocatedDevices, func(i, j int) bool {
+		return result.AllocatedDevices[i] < result.AllocatedDevices[j]
+	})
+
+	for _, deviceIDs := range priorityLevelDevices {
+		sort.Slice(deviceIDs, func(i, j int) bool { return deviceIDs[i] < deviceIDs[j] })
+		if reflect.DeepEqual(deviceIDs, machine.DeviceIDs(result.AllocatedDevices)) {
+			return
+		}
+	}
+
+	t.Errorf("result = %v, did not find it within an affinity group", result.AllocatedDevices)
 }
