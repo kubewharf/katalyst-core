@@ -19,6 +19,7 @@ package machine
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -146,35 +147,96 @@ type DeviceTopology struct {
 	Devices map[string]DeviceInfo
 }
 
-// GroupDeviceAffinity forms a topology graph such that all groups of DeviceIDs within a certain affinity priority level
+// GroupDeviceAffinity forms a topology graph such that all groups of DeviceIDs are within a certain affinity priority level
+// It preserves sub-group boundaries and eliminates duplicates
+// E.g. if priority 0 has groups [1, 3, 5, 6] and [0, 2, 4, 7], priority 1 will be either [1, 3, 5, 6, 0, 2, 4, 7] or [0, 2, 4, 7, 1, 3, 5, 6] and not any other permutation
+// This is to ensure that the higher priority affinity groups keep its permutation when it is in lower priority affinity group.
 func (t *DeviceTopology) GroupDeviceAffinity() map[AffinityPriority][]DeviceIDs {
 	deviceAffinityGroup := make(map[AffinityPriority][]DeviceIDs)
-	for deviceId, deviceInfo := range t.Devices {
-		for priority, affinityDeviceIDs := range deviceInfo.DeviceAffinity {
-			affinityDeviceIDs = append(affinityDeviceIDs, deviceId)
-			// Sort the strings for easier deduplication
-			sort.Strings(affinityDeviceIDs)
-			if _, ok := deviceAffinityGroup[priority]; !ok {
-				deviceAffinityGroup[priority] = make([]DeviceIDs, 0)
+
+	// Collect unique groups per priority
+	uniqueGroups := make(map[AffinityPriority]map[string]DeviceIDs)
+
+	for id, deviceInfo := range t.Devices {
+		for priority, group := range deviceInfo.DeviceAffinity {
+			// Ensure the device itself is included
+			if !slices.Contains(group, id) {
+				group = append(group, id)
 			}
 
-			// Add the affinityDeviceIDs to the priority level if it is not already there
-			if !containsGroup(deviceAffinityGroup[priority], affinityDeviceIDs) {
-				deviceAffinityGroup[priority] = append(deviceAffinityGroup[priority], affinityDeviceIDs)
-			}
+			// Sort for consistent deduplication key
+			sortedGroup := make([]string, len(group))
+			copy(sortedGroup, group)
+			sort.Strings(sortedGroup)
 
+			key := strings.Join(sortedGroup, ",")
+			if _, ok := uniqueGroups[priority]; !ok {
+				uniqueGroups[priority] = make(map[string]DeviceIDs)
+			}
+			uniqueGroups[priority][key] = group
 		}
 	}
+
+	// Iterate priorities in order
+	for priority := 0; ; priority++ {
+		groupsMap, ok := uniqueGroups[AffinityPriority(priority)]
+		if !ok || len(groupsMap) == 0 {
+			break // no more groups at this priority
+		}
+
+		// Build lower-group map for merging (priority > 0)
+		lowerGroupMap := make(map[string]int)
+		if priority > 0 {
+			for idx, g := range deviceAffinityGroup[AffinityPriority(priority-1)] {
+				for _, d := range g {
+					lowerGroupMap[d] = idx
+				}
+			}
+		}
+
+		for _, group := range groupsMap {
+			if priority > 0 {
+				// Merge according to lower-priority group boundaries
+				lowerGroups := make(map[int][]string)
+				for _, d := range group {
+					if idx, ok := lowerGroupMap[d]; ok {
+						lowerGroups[idx] = append(lowerGroups[idx], d)
+					} else {
+						lowerGroups[-1] = append(lowerGroups[-1], d)
+					}
+				}
+
+				merged := []string{}
+				for idx := 0; idx < len(deviceAffinityGroup[AffinityPriority(priority-1)]); idx++ {
+					if devs, ok := lowerGroups[idx]; ok {
+						merged = append(merged, devs...)
+					}
+				}
+				if devs, ok := lowerGroups[-1]; ok {
+					merged = append(merged, devs...)
+				}
+				group = merged
+			}
+
+			// Deduplicate final groups
+			key := strings.Join(group, ",")
+			if _, ok := deviceAffinityGroup[AffinityPriority(priority)]; !ok {
+				deviceAffinityGroup[AffinityPriority(priority)] = []DeviceIDs{}
+			}
+			alreadyExists := false
+			for _, g := range deviceAffinityGroup[AffinityPriority(priority)] {
+				if strings.Join(g, ",") == key {
+					alreadyExists = true
+					break
+				}
+			}
+			if !alreadyExists {
+				deviceAffinityGroup[AffinityPriority(priority)] = append(deviceAffinityGroup[AffinityPriority(priority)], group)
+			}
+		}
+	}
+
 	return deviceAffinityGroup
-}
-
-func containsGroup(groups []DeviceIDs, candidate DeviceIDs) bool {
-	for _, g := range groups {
-		if slices.Equal(g, candidate) {
-			return true
-		}
-	}
-	return false
 }
 
 func (t *DeviceTopology) GetDeviceAffinityMap(deviceId string) (map[AffinityPriority]DeviceIDs, error) {
