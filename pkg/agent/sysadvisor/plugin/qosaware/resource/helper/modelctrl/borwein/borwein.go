@@ -82,24 +82,49 @@ func NewBorweinController(regionName string, regionType configapi.QoSRegionType,
 func updateCPUUsageIndicatorOffset(podSet types.PodSet, _ float64, borweinParameter *borweintypes.BorweinParameter,
 	metaReader metacache.MetaReader, conf *config.Configuration, emitter metrics.MetricEmitter, regionName string,
 ) (float64, error) {
-	strategy, err := fetchBorweinV2Strategy(conf)
-	if err != nil {
-		general.Warningf("%v strategy is not enabled %v", consts.StrategyNameBorweinV2, err)
-		return 0, err
+	borweinV2Enabled, v2Err := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameBorweinV2, conf.EnableBorweinV2, conf)
+	if v2Err != nil {
+		borweinV2Enabled = false
+	}
+	borweinV3Enabled, v3Err := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameBorweinV3, conf.EnableBorweinV3, conf)
+	if v3Err != nil {
+		borweinV3Enabled = false
+	}
+	if !borweinV2Enabled && !borweinV3Enabled {
+		return 0, fmt.Errorf("neither %v nor %v strategy is enabled", consts.StrategyNameBorweinV2, consts.StrategyNameBorweinV3)
 	}
 
-	ret, resultTimestamp, err := latencyregression.GetLatencyRegressionPredictResult(metaReader, borweinconsts.ModelNameBorweinLatencyRegression, conf.BorweinConfiguration.DryRun, podSet)
+	var (
+		modelName string
+		strategy  *latencyregression.BorweinStrategy
+	)
+	if borweinV3Enabled {
+		modelName = borweinconsts.ModelNameBorweinV3LatencyRegression
+	} else {
+		modelName = borweinconsts.ModelNameBorweinLatencyRegression
+
+		var err error
+		strategy, err = fetchBorweinV2Strategy(conf)
+		if err != nil {
+			general.Warningf("%v strategy is not enabled %v", consts.StrategyNameBorweinV2, err)
+			return 0, err
+		}
+	}
+
+	ret, resultTimestamp, err := latencyregression.GetLatencyRegressionPredictResult(metaReader, modelName, false, podSet)
 	if err != nil {
-		general.Errorf("failed to get inference results of model(%s), error: %v", borweinconsts.ModelNameBorweinLatencyRegression, err)
+		general.Errorf("failed to get inference results of model(%s), error: %v", modelName, err)
 		return 0, err
 	}
 
 	predictSum := 0.0
+	actionSum := 0.0
 	containerCnt := 0.0
 	// avg by node
 	for _, containerData := range ret {
 		for _, res := range containerData {
 			predictSum += res.PredictValue
+			actionSum += res.ActionValue
 			containerCnt++
 		}
 	}
@@ -109,6 +134,7 @@ func updateCPUUsageIndicatorOffset(podSet types.PodSet, _ float64, borweinParame
 		return 0, nil
 	}
 	predictAvg := predictSum / containerCnt
+	actionAvg := actionSum / containerCnt
 
 	_ = emitter.StoreFloat64(metricBorweinInferenceResultRegion,
 		predictAvg,
@@ -122,6 +148,15 @@ func updateCPUUsageIndicatorOffset(podSet types.PodSet, _ float64, borweinParame
 			Val: fmt.Sprintf("%s", getBindingNumas(metaReader, regionName)),
 		},
 	)
+
+	if borweinV3Enabled {
+		general.InfoS("offset update by borwein",
+			"indicator", string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio),
+			"predictedAvg", predictAvg,
+			"actionAvg", actionAvg,
+		)
+		return actionAvg, nil
+	}
 
 	targetOffset := latencyregression.MatchSlotOffset(predictAvg, strategy.StrategySlots,
 		string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio), borweinParameter)
@@ -187,6 +222,11 @@ func (bc *BorweinController) updateBorweinParameters() types.Indicator {
 }
 
 func (bc *BorweinController) getUpdatedIndicators(indicators types.Indicator) types.Indicator {
+	borweinV3Enabled, err := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameBorweinV3, bc.conf.EnableBorweinV3, bc.conf)
+	if err != nil {
+		borweinV3Enabled = false
+	}
+
 	finalIndicators := make(types.Indicator, len(indicators))
 
 	for indicatorName, indicatorValue := range indicators {
@@ -196,7 +236,13 @@ func (bc *BorweinController) getUpdatedIndicators(indicators types.Indicator) ty
 		} else {
 			general.Infof("update indicator: %s target: %.2f by offset: %.2f",
 				indicatorName, indicatorValue.Target, bc.indicatorOffsets[indicatorName])
-			indicatorValue.Target += bc.indicatorOffsets[indicatorName]
+			if borweinV3Enabled {
+				if bc.indicatorOffsets[indicatorName] != 0 {
+					indicatorValue.Target = bc.indicatorOffsets[indicatorName]
+				}
+			} else {
+				indicatorValue.Target += bc.indicatorOffsets[indicatorName]
+			}
 		}
 
 		if bc.conf.RestrictIndicator {
@@ -215,13 +261,15 @@ func (bc *BorweinController) getUpdatedIndicators(indicators types.Indicator) ty
 }
 
 func (bc *BorweinController) GetUpdatedIndicators(indicators types.Indicator, podSet types.PodSet) types.Indicator {
-	borweinV2Enabled, err := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameBorweinV2, bc.conf.EnableBorweinV2, bc.conf)
-	if err != nil {
-		general.Warningf("Failed to get %v strategy %v", consts.StrategyNameBorweinV2, err)
-		return indicators
+	borweinV2Enabled, v2Err := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameBorweinV2, bc.conf.EnableBorweinV2, bc.conf)
+	if v2Err != nil {
+		borweinV2Enabled = false
 	}
-	if !borweinV2Enabled {
-		general.Warningf("%v strategy is not enabled", consts.StrategyNameBorweinV2)
+	borweinV3Enabled, v3Err := strategygroup.IsStrategyEnabledForNode(consts.StrategyNameBorweinV3, bc.conf.EnableBorweinV3, bc.conf)
+	if v3Err != nil {
+		borweinV3Enabled = false
+	}
+	if !borweinV2Enabled && !borweinV3Enabled {
 		return indicators
 	}
 

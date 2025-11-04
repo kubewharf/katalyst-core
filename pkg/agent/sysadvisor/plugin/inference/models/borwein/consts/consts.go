@@ -17,7 +17,8 @@ limitations under the License.
 package consts
 
 const (
-	BorweinPrefix                      = "borwein"
-	ModelNameBorweinTrainingThroughput = "borwein_training_throughput"
-	ModelNameBorweinLatencyRegression  = "borwein_latency_regression"
+	BorweinPrefix                       = "borwein"
+	ModelNameBorweinTrainingThroughput  = "borwein_training_throughput"
+	ModelNameBorweinLatencyRegression   = "borwein_latency_regression"
+	ModelNameBorweinV3LatencyRegression = "borwein_v3_latency_regression"
 )
