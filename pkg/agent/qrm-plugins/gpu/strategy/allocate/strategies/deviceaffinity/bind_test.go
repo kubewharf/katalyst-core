@@ -1654,6 +1654,77 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 			isRandom:           true,
 			expectedResultSize: 2,
 		},
+		{
+			name: "allocate first level of affinity priority devices first, then second level of affinity priority, both have affinity to reusable devices",
+			ctx: &allocate.AllocationContext{
+				ResourceReq: &pluginapi.ResourceRequest{
+					PodUid:        "pod-1",
+					ContainerName: "container-1",
+				},
+				DeviceReq: &pluginapi.DeviceRequest{
+					DeviceName:      "gpu",
+					ReusableDevices: []string{"gpu-0"},
+					DeviceRequest:   3,
+				},
+				DeviceTopology: &machine.DeviceTopology{
+					Devices: map[string]machine.DeviceInfo{
+						"gpu-0": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-1"},
+								1: {"gpu-1", "gpu-4", "gpu-5"},
+							},
+						},
+						"gpu-1": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-0"},
+								1: {"gpu-0", "gpu-4", "gpu-5"},
+							},
+						},
+						"gpu-2": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-3"},
+								1: {"gpu-3", "gpu-6", "gpu-7"},
+							},
+						},
+						"gpu-3": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-2"},
+								1: {"gpu-2", "gpu-6", "gpu-7"},
+							},
+						},
+						"gpu-4": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-5"},
+								1: {"gpu-0", "gpu-1", "gpu-5"},
+							},
+						},
+						"gpu-5": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-4"},
+								1: {"gpu-0", "gpu-1", "gpu-4"},
+							},
+						},
+						"gpu-6": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-7"},
+								1: {"gpu-2", "gpu-3", "gpu-7"},
+							},
+						},
+						"gpu-7": {
+							DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+								0: {"gpu-6"},
+								1: {"gpu-2", "gpu-3", "gpu-6"},
+							},
+						},
+					},
+				},
+			},
+			sortedDevices: []string{"gpu-0", "gpu-1", "gpu-2", "gpu-4", "gpu-6", "gpu-7"},
+			expectedResult: &allocate.AllocationResult{
+				AllocatedDevices: []string{"gpu-0", "gpu-1", "gpu-4"},
+				Success:          true,
+			},
+		},
 	}
 
 	for _, tt := range tests {
