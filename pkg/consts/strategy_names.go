@@ -22,6 +22,9 @@ const (
 	// StrategyNameBorweinV2 is the name of borwein_v2 strategy,
 	// it adjusts the amount of be headroom on node in real time based on model inference results
 	StrategyNameBorweinV2 = "borwein_v2"
+	// StrategyNameBorweinV3 is the name of borwein_v3 strategy,
+	// it adjusts the amount of be headroom on node in real time based on model inference results
+	StrategyNameBorweinV3 = "borwein_v3"
 	// StrategyNameBalanceSchedV1 is the name of balance_sched_v1 strategy,
 	// it scatters the overloaded nodes by pre-set node utilization and load thresholds
 	StrategyNameBalanceSchedV1 = "balance_sched_v1"

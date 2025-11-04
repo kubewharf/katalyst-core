@@ -32,6 +32,7 @@ import (
 
 type LatencyRegression struct {
 	PredictValue float64 `json:"predict_value"`
+	ActionValue  float64 `json:"action_value"`
 	// Ignore is used to ignore the result of this container
 	Ignore bool `json:"ignore"`
 }
