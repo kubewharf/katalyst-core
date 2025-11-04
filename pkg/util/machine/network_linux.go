@@ -32,10 +32,12 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"unsafe"
 
 	"github.com/moby/sys/mountinfo"
 	"github.com/safchain/ethtool"
 	"github.com/vishvananda/netns"
+	"golang.org/x/sys/unix"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
@@ -433,49 +435,15 @@ func IsZeroBitmap(bitmapStr string) bool {
 }
 
 func ComparesHexBitmapStrings(a string, b string) bool {
-	bitmapAFields := strings.Split(a, ",")
-	bitmapBFields := strings.Split(b, ",")
+	a = strings.TrimSpace(a)
+	a = strings.ReplaceAll(a, ",", "")
+	a = strings.TrimLeft(a, "0")
 
-	cmpLen := len(bitmapAFields)
-	if len(bitmapBFields) < cmpLen {
-		cmpLen = len(bitmapBFields)
-	}
+	b = strings.TrimSpace(b)
+	b = strings.ReplaceAll(b, ",", "")
+	b = strings.TrimLeft(b, "0")
 
-	aLastIndex := len(bitmapAFields) - 1
-	bLastIndex := len(bitmapBFields) - 1
-	for i := 0; i < cmpLen; i++ {
-		if bitmapAFields[aLastIndex-i] != bitmapBFields[bLastIndex-i] {
-			return false
-		}
-	}
-
-	if len(bitmapAFields) > cmpLen {
-		remainder := len(bitmapAFields) - cmpLen
-		for i := 0; i < remainder; i++ {
-			val, err := strconv.ParseInt(bitmapAFields[i], 16, 64)
-			if err != nil {
-				return false
-			}
-			if val != 0 {
-				return false
-			}
-		}
-	}
-
-	if len(bitmapBFields) > cmpLen {
-		remainder := len(bitmapBFields) - cmpLen
-		for i := 0; i < remainder; i++ {
-			val, err := strconv.ParseInt(bitmapBFields[i], 16, 64)
-			if err != nil {
-				return false
-			}
-			if val != 0 {
-				return false
-			}
-		}
-	}
-
-	return true
+	return a == b
 }
 
 func GetNicRxQueueRpsConf(nic *NicBasicInfo, queue int) (string, error) {
@@ -513,10 +481,19 @@ func GetNicRxQueuesRpsConf(nic *NicBasicInfo) (map[int]string, error) {
 
 // GetNicQueue2IrqWithQueueFilter get the queue to irq map with queue filter
 // the "same" queue may match multiple irqs, e.g., nics with the same name from different netns and sriov vfs
-func GetNicQueue2IrqWithQueueFilter(nicInfo *NicBasicInfo, queueFilter string, queueDelimeter string) (map[int]int, error) {
+// queueFilters can not be empty.
+func GetNicQueue2IrqWithQueueFilter(nicInfo *NicBasicInfo, queueFilters []string, queueDelimeter string) (map[int]int, error) {
 	nicAllIrqs := make(map[int]interface{})
 	for _, irq := range nicInfo.Irqs {
 		nicAllIrqs[irq] = nil
+	}
+
+	pciAddrIsFilter := false
+	for _, filter := range queueFilters {
+		if filter == nicInfo.PCIAddr {
+			pciAddrIsFilter = true
+			break
+		}
 	}
 
 	b, err := os.ReadFile(InterruptsFile)
@@ -539,7 +516,14 @@ func GetNicQueue2IrqWithQueueFilter(nicInfo *NicBasicInfo, queueFilter string, q
 
 		queueStr := cols[len(cols)-1]
 
-		if !strings.Contains(queueStr, queueFilter) {
+		containsAllFilters := true
+		for _, filter := range queueFilters {
+			if !strings.Contains(queueStr, filter) {
+				containsAllFilters = false
+				break
+			}
+		}
+		if !containsAllFilters {
 			continue
 		}
 
@@ -563,6 +547,18 @@ func GetNicQueue2IrqWithQueueFilter(nicInfo *NicBasicInfo, queueFilter string, q
 
 		findQueue := -1
 		for _, col := range queueCols {
+			isFilter := false
+			for _, filter := range queueFilters {
+				if col == filter {
+					isFilter = true
+					break
+				}
+			}
+
+			if isFilter {
+				continue
+			}
+
 			queue, err := strconv.Atoi(col)
 			if err == nil {
 				findQueue = queue
@@ -570,6 +566,11 @@ func GetNicQueue2IrqWithQueueFilter(nicInfo *NicBasicInfo, queueFilter string, q
 			}
 		}
 		if findQueue >= 0 {
+			if findQueue >= nicInfo.QueueNum {
+				klog.Errorf("%s: %d: %s queue %d greater than queue num %d", nicInfo.NSName, nicInfo.IfIndex, nicInfo.Name, findQueue, nicInfo.QueueNum)
+				continue
+			}
+
 			if i, ok := queue2Irq[findQueue]; ok {
 				klog.Errorf("%s: %d: %s queue %d has multiple irqs {%d, %d}", nicInfo.NSName, nicInfo.IfIndex, nicInfo.Name, findQueue, i, irq)
 				continue
@@ -578,11 +579,7 @@ func GetNicQueue2IrqWithQueueFilter(nicInfo *NicBasicInfo, queueFilter string, q
 			continue
 		}
 
-		if queueFilter == nicInfo.PCIAddr {
-			if !strings.HasPrefix(queueCols[0], "mlx5_comp") {
-				continue
-			}
-
+		if pciAddrIsFilter {
 			var numArray []byte
 			byteArray := []byte(queueCols[0])
 
@@ -604,6 +601,11 @@ func GetNicQueue2IrqWithQueueFilter(nicInfo *NicBasicInfo, queueFilter string, q
 				continue
 			}
 
+			if queue >= nicInfo.QueueNum {
+				klog.Errorf("%s: %d: %s queue %d greater than queue num %d", nicInfo.NSName, nicInfo.IfIndex, nicInfo.Name, queue, nicInfo.QueueNum)
+				continue
+			}
+
 			if i, ok := queue2Irq[queue]; ok {
 				klog.Errorf("%s: %d: %s queue %d has multiple irqs {%d, %d}", nicInfo.NSName, nicInfo.IfIndex, nicInfo.Name, queue, i, irq)
 				continue
@@ -612,11 +614,8 @@ func GetNicQueue2IrqWithQueueFilter(nicInfo *NicBasicInfo, queueFilter string, q
 		}
 	}
 
-	queueCount := len(queue2Irq)
-	for queue := range queue2Irq {
-		if queue >= queueCount {
-			return nil, fmt.Errorf("%s: %d: %s queue %d greater-equal queue count %d", nicInfo.NSName, nicInfo.IfIndex, nicInfo.Name, queue, queueCount)
-		}
+	if len(queue2Irq) > 0 && len(queue2Irq) != nicInfo.QueueNum {
+		return nil, fmt.Errorf("%s: %d: %s queue2Irq length %d is NOT equal to queue num %d", nicInfo.NSName, nicInfo.IfIndex, nicInfo.Name, len(queue2Irq), nicInfo.QueueNum)
 	}
 
 	return queue2Irq, nil
@@ -628,22 +627,22 @@ func GetNicQueue2Irq(nicInfo *NicBasicInfo) (map[int]int, map[int]int, error) {
 		queueFilter := fmt.Sprintf("%s-input", nicInfo.VirtioNetName)
 		queueDelimeter := "."
 
-		queue2Irq, err := GetNicQueue2IrqWithQueueFilter(nicInfo, queueFilter, queueDelimeter)
+		queue2Irq, err := GetNicQueue2IrqWithQueueFilter(nicInfo, []string{queueFilter}, queueDelimeter)
 		if err != nil {
-			return nil, nil, fmt.Errorf("GetNicQueue2Irqs(%s, %s), err %v", queueFilter, queueDelimeter, err)
+			return nil, nil, fmt.Errorf("failed to GetNicQueue2IrqWithQueueFilter(%s, %s), err %v", queueFilter, queueDelimeter, err)
 		}
 
-		if len(queue2Irq) <= 0 {
+		if len(queue2Irq) != nicInfo.QueueNum {
 			return nil, nil, fmt.Errorf("failed to find matched input queue in %s for virtio nic %d: %s, virtio name: %s", InterruptsFile, nicInfo.IfIndex, nicInfo.Name, nicInfo.VirtioNetName)
 		}
 
 		queueFilter = fmt.Sprintf("%s-output", nicInfo.VirtioNetName)
-		txQueue2Irq, err := GetNicQueue2IrqWithQueueFilter(nicInfo, queueFilter, queueDelimeter)
+		txQueue2Irq, err := GetNicQueue2IrqWithQueueFilter(nicInfo, []string{queueFilter}, queueDelimeter)
 		if err != nil {
-			return nil, nil, fmt.Errorf("GetNicQueue2Irqs(%s, %s), err %v", queueFilter, queueDelimeter, err)
+			return nil, nil, fmt.Errorf("failed to GetNicQueue2IrqWithQueueFilter(%s, %s), err %v", queueFilter, queueDelimeter, err)
 		}
 
-		if len(txQueue2Irq) <= 0 {
+		if len(txQueue2Irq) != nicInfo.QueueNum {
 			return nil, nil, fmt.Errorf("failed to find matched output queue in %s for virtio nic %d: %s, virtio name: %s", InterruptsFile, nicInfo.IfIndex, nicInfo.Name, nicInfo.VirtioNetName)
 		}
 
@@ -654,26 +653,27 @@ func GetNicQueue2Irq(nicInfo *NicBasicInfo) (map[int]int, map[int]int, error) {
 	queueFilter := nicInfo.Name
 	queueDelimeter := "-"
 
-	queue2Irq, err := GetNicQueue2IrqWithQueueFilter(nicInfo, queueFilter, queueDelimeter)
+	queue2Irq, err := GetNicQueue2IrqWithQueueFilter(nicInfo, []string{queueFilter}, queueDelimeter)
 	if err != nil {
-		return nil, nil, fmt.Errorf("GetNicQueue2Irqs(%s, %s), err %v", queueFilter, queueDelimeter, err)
+		return nil, nil, fmt.Errorf("failed to GetNicQueue2IrqWithQueueFilter(%s, %s), err %v", queueFilter, queueDelimeter, err)
 	}
 
-	if len(queue2Irq) > 0 {
+	if len(queue2Irq) == nicInfo.QueueNum {
 		return queue2Irq, txQueue2Irq, nil
 	}
 
 	// some mlx driver version naming queue in /proc/interrupts as format mlx5_comp<queue number>@pci:<pci addr>, like mlx5_comp52@pci:0000:5e:00.0
+	// xsc nic naming queue in /proc/interrupts as format xsc_comp<queue number>@pci:<pci addr>, like xsc_comp52@pci:0000:41:00.0
 	if nicInfo.PCIAddr != "" {
-		queueFilter = nicInfo.PCIAddr
+		queueFilters := []string{nicInfo.PCIAddr, "comp"}
 		queueDelimeter = "@"
 
-		queue2Irq, err := GetNicQueue2IrqWithQueueFilter(nicInfo, queueFilter, queueDelimeter)
+		queue2Irq, err := GetNicQueue2IrqWithQueueFilter(nicInfo, queueFilters, queueDelimeter)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to GetNicQueue2IrqWithQueueFilter(%s, %s), err %v", queueFilter, queueDelimeter, err)
+			return nil, nil, fmt.Errorf("failed to GetNicQueue2IrqWithQueueFilter(%s, %+v), err %v", queueFilters, queueDelimeter, err)
 		}
 
-		if len(queue2Irq) > 0 {
+		if len(queue2Irq) == nicInfo.QueueNum {
 			return queue2Irq, txQueue2Irq, nil
 		}
 	}
@@ -684,12 +684,12 @@ func GetNicQueue2Irq(nicInfo *NicBasicInfo) (map[int]int, map[int]int, error) {
 		queueFilter = cols[0]
 		queueDelimeter = "-"
 
-		queue2Irq, err := GetNicQueue2IrqWithQueueFilter(nicInfo, queueFilter, queueDelimeter)
+		queue2Irq, err := GetNicQueue2IrqWithQueueFilter(nicInfo, []string{queueFilter}, queueDelimeter)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to GetNicQueue2IrqWithQueueFilter(%s, %s), err %v", queueFilter, queueDelimeter, err)
 		}
 
-		if len(queue2Irq) > 0 {
+		if len(queue2Irq) == nicInfo.QueueNum {
 			return queue2Irq, txQueue2Irq, nil
 		}
 	}
@@ -807,6 +807,34 @@ func GetNicIrqs(nicSysPath string) ([]int, error) {
 	}
 	sort.Ints(irqs)
 	return irqs, nil
+}
+
+func GetNicQueuesCount(nicName string) (int, error) {
+	ec := &EthtoolChannels{
+		Cmd: ETHTOOL_GCHANNELS,
+	}
+
+	var ifr Ifreq
+	copy(ifr.Name[:], nicName)
+	ifr.Data = uintptr(unsafe.Pointer(ec))
+
+	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, 0)
+	if err != nil {
+		return -1, err
+	}
+	defer unix.Close(fd)
+
+	_, _, errno := unix.Syscall(
+		unix.SYS_IOCTL,
+		uintptr(fd),
+		uintptr(SIOCETHTOOL),
+		uintptr(unsafe.Pointer(&ifr)),
+	)
+	if errno != 0 {
+		return -1, fmt.Errorf("ioctl SIOCETHTOOL failed: %v", errno)
+	}
+
+	return int(ec.CombinedCount), nil
 }
 
 // nicSysPath like "/sys/class/net/eth0"
@@ -995,6 +1023,9 @@ func ListNetNS(netNSDir string) ([]NetNSInfo, error) {
 			netnsPath := filepath.Join(netNSDir, d.Name())
 			inode, err := general.GetFileInode(netnsPath)
 			if err != nil {
+				if _, e := os.Stat(netnsPath); e != nil && os.IsNotExist(e) {
+					continue
+				}
 				return nil, fmt.Errorf("failed to GetFileInode(%s), err %v", netnsPath, err)
 			}
 
@@ -1259,6 +1290,11 @@ func ListActiveUplinkNicsFromNetNS(netnsInfo NetNSInfo) ([]*NicBasicInfo, error)
 			}
 		}
 
+		queueNum, err := GetNicQueuesCount(n)
+		if err != nil {
+			return nil, fmt.Errorf("failed to GetNicQueuesCount(%s), err %v", n, err)
+		}
+
 		nicInfo := &NicBasicInfo{
 			InterfaceInfo: InterfaceInfo{
 				NetNSInfo: netnsInfo,
@@ -1271,6 +1307,7 @@ func ListActiveUplinkNicsFromNetNS(netnsInfo NetNSInfo) ([]*NicBasicInfo, error)
 			IsVirtioNetDev: isVirtioNetDev,
 			VirtioNetName:  virtioNetDevName,
 			Irqs:           irqs,
+			QueueNum:       queueNum,
 		}
 		nics = append(nics, nicInfo)
 	}
@@ -1326,7 +1363,7 @@ func ListInterfacesWithIPAddr() ([]string, error) {
 	return intfs, nil
 }
 
-func ListActiveUplinkNics(netNSDir string) ([]*NicBasicInfo, error) {
+func ListActiveUplinkNics(netNSDir string, ignoredNetNSNamePrefixes []string) ([]*NicBasicInfo, error) {
 	netnsList, err := ListNetNS(netNSDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to ListNetNS, err %v", err)
@@ -1334,6 +1371,17 @@ func ListActiveUplinkNics(netNSDir string) ([]*NicBasicInfo, error) {
 
 	var nics []*NicBasicInfo
 	for _, ns := range netnsList {
+		isIgnoredNetNS := false
+		for _, prefix := range ignoredNetNSNamePrefixes {
+			if strings.HasPrefix(ns.NSName, prefix) {
+				isIgnoredNetNS = true
+				break
+			}
+		}
+		if isIgnoredNetNS {
+			continue
+		}
+
 		netnsNics, err := ListActiveUplinkNicsFromNetNS(ns)
 		if err != nil {
 			if !NetNSExist(ns) {
@@ -1343,7 +1391,7 @@ func ListActiveUplinkNics(netNSDir string) ([]*NicBasicInfo, error) {
 		}
 
 		for _, n := range netnsNics {
-			queue2Irq, txQueue2irq, err := GetNicQueue2Irq(n)
+			queue2Irq, txQueue2Irq, err := GetNicQueue2Irq(n)
 			if err != nil {
 				return nil, fmt.Errorf("failed to GetNicQueue2Irq for %d: %s, err %v", n.IfIndex, n.Name, err)
 			}
@@ -1354,14 +1402,13 @@ func ListActiveUplinkNics(netNSDir string) ([]*NicBasicInfo, error) {
 			}
 
 			txIrq2Queue := make(map[int]int)
-			for queue, irq := range queue2Irq {
+			for queue, irq := range txQueue2Irq {
 				txIrq2Queue[irq] = queue
 			}
 
-			n.QueueNum = len(queue2Irq)
 			n.Queue2Irq = queue2Irq
 			n.Irq2Queue = irq2Queue
-			n.TxQueue2Irq = txQueue2irq
+			n.TxQueue2Irq = txQueue2Irq
 			n.TxIrq2Queue = txIrq2Queue
 			nics = append(nics, n)
 		}
