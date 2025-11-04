@@ -813,6 +813,7 @@ func Test_setNicRxQueueRPS(t *testing.T) {
 				},
 				Name: "eth0",
 			},
+			QueueNum: 2,
 		}
 		queue := 1
 		rpsConf := "f"
@@ -840,7 +841,16 @@ func Test_setNicRxQueueRPS(t *testing.T) {
 			So(err.Error(), ShouldEqual, fmt.Sprintf("invalid rx queue %d", invalidQueue))
 		})
 
-		PatchConvey("Scene 3: netnsEnter failed", func() {
+		PatchConvey("Scenario 3: The queue number is invalid", func() {
+			invalidQueue := 2
+
+			err := setNicRxQueueRPS(nicInfo, invalidQueue, rpsConf)
+
+			So(err, ShouldNotBeNil)
+			So(err.Error(), ShouldEqual, fmt.Sprintf("invalid rx queue %d", invalidQueue))
+		})
+
+		PatchConvey("Scene 4: netnsEnter failed", func() {
 			mockErr := errors.New("failed to enter netns")
 			Mock(netnsEnter).Return(nil, mockErr).Build()
 
@@ -850,7 +860,7 @@ func Test_setNicRxQueueRPS(t *testing.T) {
 			So(err.Error(), ShouldContainSubstring, mockErr.Error())
 		})
 
-		PatchConvey("Scenario 4: SetNicRxQueueRPS failed", func() {
+		PatchConvey("Scenario 5: SetNicRxQueueRPS failed", func() {
 			mockErr := errors.New("failed to set rps")
 			Mock(sysm.SetNicRxQueueRPS).Return(mockErr).Build()
 			Mock(netnsEnter).Return(&netnsSwitchContext{
@@ -1111,6 +1121,7 @@ func TestGetNicRxQueueRpsConf(t *testing.T) {
 				NSName: "test-ns",
 			},
 		},
+		QueueNum: 1,
 	}
 	queue := 0
 
@@ -1143,7 +1154,25 @@ func TestGetNicRxQueueRpsConf(t *testing.T) {
 			So(mockExit.MockTimes(), ShouldEqual, 1)
 		})
 
-		PatchConvey("Scenario 3: Successfully obtaining RPS configuration", func() {
+		PatchConvey("Scenario 3: The queue number is invalid", func() {
+			invalidQueue := -1
+
+			_, err := GetNicRxQueueRpsConf(nic, invalidQueue)
+
+			So(err, ShouldNotBeNil)
+			So(err.Error(), ShouldEqual, fmt.Sprintf("invalid rx queue %d", invalidQueue))
+		})
+
+		PatchConvey("Scenario 4: The queue number is invalid", func() {
+			invalidQueue := 2
+
+			_, err := GetNicRxQueueRpsConf(nic, invalidQueue)
+
+			So(err, ShouldNotBeNil)
+			So(err.Error(), ShouldEqual, fmt.Sprintf("invalid rx queue %d", invalidQueue))
+		})
+
+		PatchConvey("Scenario 5: Successfully obtaining RPS configuration", func() {
 			mockNsc := &netnsSwitchContext{
 				sysMountDir: "/tmp/sys",
 			}
@@ -1224,6 +1253,239 @@ func TestGetNicRxQueuesRpsConf(t *testing.T) {
 			Mock(sysm.GetNicRxQueueRPS).Return("", mockErr).Build()
 
 			conf, err := GetNicRxQueuesRpsConf(nicInfo)
+
+			So(err, ShouldNotBeNil)
+			So(err, ShouldEqual, mockErr)
+			So(conf, ShouldBeNil)
+			So(exitMock.MockTimes(), ShouldEqual, 1)
+		})
+	})
+}
+
+func Test_setNicTxQueueXPS(t *testing.T) {
+	PatchConvey("Test_setNicTxQueueXPS", t, func() {
+		nicInfo := &NicBasicInfo{
+			InterfaceInfo: InterfaceInfo{
+				NetNSInfo: NetNSInfo{
+					NSName: "test-ns",
+				},
+				Name: "eth0",
+			},
+			QueueNum: 2,
+		}
+		queue := 1
+		xpsConf := "f"
+
+		PatchConvey("Scenario 1: Set XPS successfully", func() {
+			Mock(netnsEnter).Return(&netnsSwitchContext{
+				sysMountDir: "/tmp/sys",
+			}, nil).Build()
+
+			mockExit := Mock((*netnsSwitchContext).netnsExit).Return().Build()
+			Mock(sysm.SetNicTxQueueXPS).Return(nil).Build()
+
+			err := setNicTxQueueXPS(nicInfo, queue, xpsConf)
+
+			So(err, ShouldBeNil)
+			So(mockExit.MockTimes(), ShouldEqual, 1)
+		})
+
+		PatchConvey("Scenario 2: The queue number is invalid", func() {
+			invalidQueue := -1
+
+			err := setNicTxQueueXPS(nicInfo, invalidQueue, xpsConf)
+
+			So(err, ShouldNotBeNil)
+			So(err.Error(), ShouldEqual, fmt.Sprintf("invalid tx queue %d", invalidQueue))
+		})
+
+		PatchConvey("Scenario 3: The queue number is invalid", func() {
+			invalidQueue := 2
+
+			err := setNicTxQueueXPS(nicInfo, invalidQueue, xpsConf)
+
+			So(err, ShouldNotBeNil)
+			So(err.Error(), ShouldEqual, fmt.Sprintf("invalid tx queue %d", invalidQueue))
+		})
+
+		PatchConvey("Scene 4: netnsEnter failed", func() {
+			mockErr := errors.New("failed to enter netns")
+			Mock(netnsEnter).Return(nil, mockErr).Build()
+
+			err := setNicTxQueueXPS(nicInfo, queue, xpsConf)
+
+			So(err, ShouldNotBeNil)
+			So(err.Error(), ShouldContainSubstring, mockErr.Error())
+		})
+
+		PatchConvey("Scenario 5: SetNicTxQueueXPS failed", func() {
+			mockErr := errors.New("failed to set xps")
+			Mock(sysm.SetNicTxQueueXPS).Return(mockErr).Build()
+			Mock(netnsEnter).Return(&netnsSwitchContext{
+				sysMountDir: "/tmp/sys",
+			}, nil).Build()
+
+			mockExit := Mock((*netnsSwitchContext).netnsExit).Return().Build()
+
+			err := setNicTxQueueXPS(nicInfo, queue, xpsConf)
+
+			So(err, ShouldNotBeNil)
+			So(err.Error(), ShouldContainSubstring, mockErr.Error())
+			So(mockExit.MockTimes(), ShouldEqual, 1) // 验证defer的netnsExit仍然被调用
+		})
+	})
+}
+
+func TestSetNicTxQueueXPS(t *testing.T) {
+	PatchConvey("Test SetNicTxQueueXPS", t, func() {
+		nic := &NicBasicInfo{
+			InterfaceInfo: InterfaceInfo{
+				Name: "eth0",
+			},
+			QueueNum: 1,
+		}
+		queue := 0
+		destCpus := []int64{1, 2, 33}
+
+		PatchConvey("Scenario 1: XPS is successfully set", func() {
+			mockedBitmap := "00000002,00000006"
+			Mock(general.ConvertIntSliceToBitmapString).Return(mockedBitmap, nil).Build()
+			mockSetXPS := Mock(setNicTxQueueXPS).To(func(n *NicBasicInfo, q int, xpsConf string) error {
+				So(n, ShouldResemble, nic)
+				So(q, ShouldEqual, queue)
+				So(xpsConf, ShouldEqual, mockedBitmap)
+				return nil
+			}).Build()
+
+			err := SetNicTxQueueXPS(nic, queue, destCpus)
+
+			So(err, ShouldBeNil)
+			So(mockSetXPS.MockTimes(), ShouldEqual, 1)
+		})
+
+		PatchConvey("Scenario 2: The underlying XPS failed", func() {
+			expectedErr := errors.New("failed to set xps")
+			Mock(general.ConvertIntSliceToBitmapString).Return("some-bitmap", nil).Build()
+			Mock(setNicTxQueueXPS).Return(expectedErr).Build()
+
+			err := SetNicTxQueueXPS(nic, queue, destCpus)
+
+			So(err, ShouldNotBeNil)
+			So(err, ShouldEqual, expectedErr)
+		})
+
+		PatchConvey("Scenario 3: CPU list conversion bitmap failed", func() {
+			Mock(general.ConvertIntSliceToBitmapString).Return("", errors.New("conversion error")).Build()
+			mockSetXPS := Mock(setNicTxQueueXPS).To(func(_ *NicBasicInfo, _ int, xpsConf string) error {
+				So(xpsConf, ShouldBeEmpty)
+				return nil
+			}).Build()
+
+			err := SetNicTxQueueXPS(nic, queue, destCpus)
+
+			So(err, ShouldBeNil)
+			So(mockSetXPS.MockTimes(), ShouldEqual, 1)
+		})
+	})
+}
+
+func Test_ClearNicTxQueueXPS(t *testing.T) {
+	PatchConvey("Test ClearNicTxQueueXPS", t, func() {
+		nic := &NicBasicInfo{
+			InterfaceInfo: InterfaceInfo{
+				Name: "eth0",
+				NetNSInfo: NetNSInfo{
+					NSName: "test-ns",
+				},
+			},
+			QueueNum: 2,
+		}
+		queue := 1
+
+		PatchConvey("Scenario 1: The XPS configuration was successfully cleared", func() {
+			mock := Mock(setNicTxQueueXPS).Return(nil).Build()
+
+			err := ClearNicTxQueueXPS(nic, queue)
+
+			So(err, ShouldBeNil)
+			So(mock.MockTimes(), ShouldEqual, 1)
+		})
+
+		PatchConvey("Scenario 2: Internal call to setNicTxQueueXPS fails", func() {
+			expectedErr := errors.New("internal error from setNicTxQueueXPS")
+			Mock(setNicTxQueueXPS).Return(expectedErr).Build()
+
+			// Act: execute the function under test
+			err := ClearNicTxQueueXPS(nic, queue)
+
+			So(err, ShouldNotBeNil)
+			So(err, ShouldEqual, expectedErr)
+		})
+	})
+}
+
+func TestGetNicTxQueuesXpsConf(t *testing.T) {
+	PatchConvey("TestGetNicTxQueuesXpsConf", t, func() {
+		nicInfo := &NicBasicInfo{
+			InterfaceInfo: InterfaceInfo{
+				NetNSInfo: NetNSInfo{
+					NSName: "test-ns",
+				},
+				Name: "eth0",
+			},
+			QueueNum: 2,
+		}
+
+		PatchConvey("Scenario 1: Successfully obtaining XPS configuration", func() {
+			Mock(netnsEnter).Return(&netnsSwitchContext{
+				sysMountDir: "/tmp/sys",
+			}, nil).Build()
+			Mock((*netnsSwitchContext).netnsExit).Return().Build()
+			Mock(sysm.GetNicTxQueueXPS).To(func(sysPath, nic string, queue int) (string, error) {
+				return fmt.Sprintf("conf-for-queue-%d", queue), nil
+			}).Build()
+
+			conf, err := GetNicTxQueuesXpsConf(nicInfo)
+
+			So(err, ShouldBeNil)
+			So(conf, ShouldNotBeNil)
+			So(len(conf), ShouldEqual, 2)
+			So(conf[0], ShouldEqual, "conf-for-queue-0")
+			So(conf[1], ShouldEqual, "conf-for-queue-1")
+		})
+
+		PatchConvey("Scenario 2: The queue number is 0 and causes failure", func() {
+			invalidNicInfo := &NicBasicInfo{
+				QueueNum: 0,
+			}
+
+			conf, err := GetNicTxQueuesXpsConf(invalidNicInfo)
+
+			So(err, ShouldNotBeNil)
+			So(err.Error(), ShouldEqual, "invalid queue number 0")
+			So(conf, ShouldBeNil)
+		})
+
+		PatchConvey("Scenario 3: Failed to enter the network namespace", func() {
+			mockErr := errors.New("failed to enter netns")
+			Mock(netnsEnter).Return(nil, mockErr).Build()
+
+			conf, err := GetNicTxQueuesXpsConf(nicInfo)
+
+			So(err, ShouldNotBeNil)
+			So(err.Error(), ShouldContainSubstring, mockErr.Error())
+			So(conf, ShouldBeNil)
+		})
+
+		PatchConvey("Scenario 4: Failed to obtain XPS configuration", func() {
+			mockErr := errors.New("failed to read xps_cpus")
+			Mock(netnsEnter).Return(&netnsSwitchContext{
+				sysMountDir: "/tmp/sys",
+			}, nil).Build()
+			exitMock := Mock((*netnsSwitchContext).netnsExit).Return().Build()
+			Mock(sysm.GetNicTxQueueXPS).Return("", mockErr).Build()
+
+			conf, err := GetNicTxQueuesXpsConf(nicInfo)
 
 			So(err, ShouldNotBeNil)
 			So(err, ShouldEqual, mockErr)

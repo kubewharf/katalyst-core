@@ -169,6 +169,7 @@ type IrqTuningConfig struct {
 	EnableRPS                   bool                        // enable rps according to machine specifications configured by kcc, only balance-fair policy support enable rps
 	EnableRPSCPUVSNicsQueue     float64                     // enable rps when (cpus count)/(nics queue count) greater than this config
 	RPSExcludeIrqCoresThreshold RPSExcludeIrqCoresThreshold // threshold of excluding irq cores in rx queue's rps_cpus
+	DisableXPS                  bool                        // disable xps according to machine specification
 	NicAffinitySocketsPolicy    NicAffinitySocketsPolicy    // nics's irqs affinity sockets policy
 	IrqCoresExpectedCpuUtil     int
 	ThroughputClassSwitchConf   ThroughputClassSwitchConfig
@@ -190,6 +191,7 @@ func NewConfiguration() *IrqTuningConfig {
 		RPSExcludeIrqCoresThreshold: RPSExcludeIrqCoresThreshold{
 			RPSCoresVSIrqCoresRatio: 4,
 		},
+		DisableXPS:               false,
 		NicAffinitySocketsPolicy: EachNicBalanceAllSockets,
 		IrqCoresExpectedCpuUtil:  50,
 		ThroughputClassSwitchConf: ThroughputClassSwitchConfig{
@@ -264,6 +266,7 @@ func (c *IrqTuningConfig) String() string {
 	msg = fmt.Sprintf("%s    EnableRPSCPUVSNicsQueue: %f\n", msg, c.EnableRPSCPUVSNicsQueue)
 	msg = fmt.Sprintf("%s    RPSExcludeIrqCoresThreshold:\n", msg)
 	msg = fmt.Sprintf("%s    	RPSCoresVSIrqCoresRatio: %f\n", msg, c.RPSExcludeIrqCoresThreshold.RPSCoresVSIrqCoresRatio)
+	msg = fmt.Sprintf("%s    DisableXPS: %t\n", msg, c.DisableXPS)
 	msg = fmt.Sprintf("%s    NicAffinitySocketsPolicy: %s\n", msg, c.NicAffinitySocketsPolicy)
 	msg = fmt.Sprintf("%s    IrqCoresExpectedCpuUtil: %d\n", msg, c.IrqCoresExpectedCpuUtil)
 	msg = fmt.Sprintf("%s    ThroughputClassSwitchConf:\n", msg)
@@ -556,6 +559,7 @@ func ConvertDynamicConfigToIrqTuningConfig(dynamicConf *dynconfig.Configuration)
 		if dynamicConf.RPSExcludeIRQCoresThreshold != nil {
 			conf.RPSExcludeIrqCoresThreshold.RPSCoresVSIrqCoresRatio = dynamicConf.RPSExcludeIRQCoresThreshold.RPSCoresVSIRQCoresRatio
 		}
+		conf.DisableXPS = dynamicConf.IRQTuningConfiguration.DisableXPS
 
 		switch dynamicConf.IRQTuningConfiguration.NICAffinityPolicy {
 		case v1alpha1.NICAffinityPolicyPhysicalTopo:

@@ -38,3 +38,11 @@ func GetNicRxQueueRPS(sysPath, nic string, queue int) (string, error) {
 func SetNicRxQueueRPS(sysPath, nic string, queue int, rpsConf string) error {
 	return GetSysFsManager().SetNicRxQueueRPS(sysPath, nic, queue, rpsConf)
 }
+
+func GetNicTxQueueXPS(sysPath, nic string, queue int) (string, error) {
+	return GetSysFsManager().GetNicTxQueueXPS(sysPath, nic, queue)
+}
+
+func SetNicTxQueueXPS(sysPath, nic string, queue int, xpsConf string) error {
+	return GetSysFsManager().SetNicTxQueueXPS(sysPath, nic, queue, xpsConf)
+}

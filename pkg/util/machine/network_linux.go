@@ -391,7 +391,7 @@ func GetIrqAffinityCPUs(irq int) ([]int64, error) {
 }
 
 func setNicRxQueueRPS(nic *NicBasicInfo, queue int, rpsConf string) error {
-	if queue < 0 {
+	if queue < 0 || queue >= nic.QueueNum {
 		return fmt.Errorf("invalid rx queue %d", queue)
 	}
 
@@ -447,6 +447,10 @@ func ComparesHexBitmapStrings(a string, b string) bool {
 }
 
 func GetNicRxQueueRpsConf(nic *NicBasicInfo, queue int) (string, error) {
+	if queue < 0 || queue >= nic.QueueNum {
+		return "", fmt.Errorf("invalid rx queue %d", queue)
+	}
+
 	nsc, err := netnsEnter(nic.NetNSInfo)
 	if err != nil {
 		return "", fmt.Errorf("failed to netnsEnter(%s), err %v", nic.NSName, err)
@@ -477,6 +481,58 @@ func GetNicRxQueuesRpsConf(nic *NicBasicInfo) (map[int]string, error) {
 	}
 
 	return rxQueuesRpsConf, nil
+}
+
+func setNicTxQueueXPS(nic *NicBasicInfo, queue int, xpsConf string) error {
+	if queue < 0 || queue >= nic.QueueNum {
+		return fmt.Errorf("invalid tx queue %d", queue)
+	}
+
+	nsc, err := netnsEnter(nic.NetNSInfo)
+	if err != nil {
+		return fmt.Errorf("failed to netnsEnter(%s), err %v", nic.NSName, err)
+	}
+	defer nsc.netnsExit()
+
+	if err = sysm.SetNicTxQueueXPS(nsc.sysMountDir, nic.Name, queue, xpsConf); err != nil {
+		return fmt.Errorf("failed to set nic %s tx queue %d xps to %v, sys mount dir: %v, err %v", nic.Name, queue, xpsConf, nsc.sysMountDir, err)
+	}
+
+	return nil
+}
+
+func SetNicTxQueueXPS(nic *NicBasicInfo, queue int, destCpus []int64) error {
+	// calculate xps
+	xpsConf, _ := general.ConvertIntSliceToBitmapString(destCpus)
+
+	return setNicTxQueueXPS(nic, queue, xpsConf)
+}
+
+func ClearNicTxQueueXPS(nic *NicBasicInfo, queue int) error {
+	return setNicTxQueueXPS(nic, queue, "0")
+}
+
+func GetNicTxQueuesXpsConf(nic *NicBasicInfo) (map[int]string, error) {
+	if nic.QueueNum <= 0 {
+		return nil, fmt.Errorf("invalid queue number %d", nic.QueueNum)
+	}
+
+	nsc, err := netnsEnter(nic.NetNSInfo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to netnsEnter(%s), err %v", nic.NSName, err)
+	}
+	defer nsc.netnsExit()
+
+	txQueuesXpsConf := make(map[int]string)
+	for i := 0; i < nic.QueueNum; i++ {
+		conf, err := sysm.GetNicTxQueueXPS(nsc.sysMountDir, nic.Name, i)
+		if err != nil {
+			return nil, err
+		}
+		txQueuesXpsConf[i] = conf
+	}
+
+	return txQueuesXpsConf, nil
 }
 
 // GetNicQueue2IrqWithQueueFilter get the queue to irq map with queue filter
