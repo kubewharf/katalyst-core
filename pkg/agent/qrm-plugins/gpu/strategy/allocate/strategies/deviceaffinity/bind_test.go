@@ -1129,7 +1129,7 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					},
 				},
 			},
-			sortedDevices: []string{"gpu-1", "gpu-2", "gpu-5", "gpu-6", "gpu-7", "gpu-8", "gpu-9", "gpu-10", "gpu-11", "gpu-12"},
+			sortedDevices: []string{"gpu-1", "gpu-2", "gpu-3", "gpu-5", "gpu-6", "gpu-7", "gpu-8", "gpu-9", "gpu-10", "gpu-11", "gpu-12"},
 			// Allocate gpu-1 and gpu-5 first because they are reusable devices
 			// Allocate gpu-2 next because they have affinity with gpu-1 at the highest affinity priority (level 0)
 			// Allocate gpu-6 and gpu-8 next because they have affinity with gpu-5 at the next highest affinity priority (level 1)
