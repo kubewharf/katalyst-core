@@ -54,7 +54,8 @@ func registerDefaultBindingStrategies(manager *StrategyManager) {
 
 // registerDefaultAllocationStrategies register allocation strategies
 func registerDefaultAllocationStrategies(manager *StrategyManager) {
-	if err := manager.RegisterGenericAllocationStrategy(allocationStrategyNameDefault, []string{gpu_memory.StrategyNameGPUMemory},
+	if err := manager.RegisterGenericAllocationStrategy(allocationStrategyNameDefault,
+		[]string{canonical.StrategyNameCanonical, gpu_memory.StrategyNameGPUMemory},
 		gpu_memory.StrategyNameGPUMemory, canonical.StrategyNameCanonical); err != nil {
 		general.Errorf("Failed to register gpu-memory-default strategy: %v", err)
 	}
