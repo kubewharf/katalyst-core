@@ -149,6 +149,7 @@ func (sc *stateCheckpoint) updateCacheAndReturnChanged(
 
 	if foundAndSkippedStateCorruption {
 		klog.Infof("[cpu_plugin] found and skipped state corruption, we should store to rectify the checksum")
+		hasStateChanged = true
 		err = sc.storeState()
 		if err != nil {
 			return hasStateChanged, fmt.Errorf("storeState failed with error after skipping corruption: %v", err)

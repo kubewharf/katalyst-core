@@ -162,6 +162,7 @@ func (sc *stateCheckpoint) updateCacheAndReturnChanged(
 	if foundAndSkippedStateCorruption {
 		generalLog.Infof("found and skipped state corruption, we shoud store to rectify the checksum")
 
+		hasStateChanged = true
 		err = sc.storeState()
 		if err != nil {
 			return hasStateChanged, fmt.Errorf("storeState failed with error: %v", err)
