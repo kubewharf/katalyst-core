@@ -49,6 +49,7 @@ type CPUDynamicPolicyOptions struct {
 	CPUNUMAHintPreferLowThreshold             float64
 	SharedCoresNUMABindingResultAnnotationKey string
 	EnableReserveCPUReversely                 bool
+	EnableCPUBurst                            bool
 	*irqtuner.IRQTunerOptions
 	*hintoptimizer.HintOptimizerOptions
 }
@@ -69,6 +70,7 @@ func NewCPUOptions() *CPUOptions {
 			EnableCPUPressureEviction: false,
 			EnableSyncingCPUIdle:      false,
 			EnableCPUIdle:             false,
+			EnableCPUBurst:            false,
 			LoadPressureEvictionSkipPools: []string{
 				commonstate.PoolNameReclaim,
 				commonstate.PoolNameDedicated,
@@ -122,6 +124,7 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.BoolVar(&o.EnableReserveCPUReversely, "enable-reserve-cpu-reversely",
 		o.EnableReserveCPUReversely, "by default, the reservation of cpu starts from the cpu with lower id,"+
 			"if set to true, it starts from the cpu with higher id")
+	fs.BoolVar(&o.EnableCPUBurst, "enable-cpu-burst", o.EnableCPUBurst, "if set true, will enable setting of cpu burst")
 	o.HintOptimizerOptions.AddFlags(fss)
 	o.IRQTunerOptions.AddFlags(fss)
 }
@@ -141,6 +144,7 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 	conf.CPUAllocationOption = o.CPUAllocationOption
 	conf.SharedCoresNUMABindingResultAnnotationKey = o.SharedCoresNUMABindingResultAnnotationKey
 	conf.EnableReserveCPUReversely = o.EnableReserveCPUReversely
+	conf.EnableCPUBurst = o.EnableCPUBurst
 	if err := o.HintOptimizerOptions.ApplyTo(conf.HintOptimizerConfiguration); err != nil {
 		return err
 	}

@@ -53,3 +53,46 @@ func GetPodCPUSuppressionToleranceRate(qosConf *generic.QoSConfiguration, pod *v
 
 	return math.MaxFloat64, nil
 }
+
+// GetPodCPUBurstPolicy gets the cpu burst policy for the given pod by parsing the cpu enhancement keys. If the given pod is
+// dedicated, the default policy is static. If cpu burst policy key does not exist, the policy is none.
+func GetPodCPUBurstPolicy(qosConf *generic.QoSConfiguration, pod *v1.Pod) string {
+	qosLevel, _ := qosConf.GetQoSLevel(pod, map[string]string{})
+	cpuEnhancement := qosConf.GetQoSEnhancementKVs(pod, map[string]string{}, consts.PodAnnotationCPUEnhancementKey)
+	cpuBurstPolicy, ok := cpuEnhancement[consts.PodAnnotationCPUEnhancementCPUBurstPolicy]
+
+	// Dedicated pods have cpu burst policy that is defaulted to static
+	if qosLevel == consts.PodAnnotationQoSLevelDedicatedCores && (cpuBurstPolicy == consts.PodAnnotationCPUEnhancementCPUBurstPolicyNone || !ok) {
+		return consts.PodAnnotationCPUEnhancementCPUBurstPolicyStatic
+	}
+
+	if !ok {
+		return consts.PodAnnotationCPUEnhancementCPUBurstPolicyNone
+	}
+
+	return cpuBurstPolicy
+}
+
+// GetPodCPUBurstPercent parses cpu burst percent for the given pod by parsing the cpu enhancement keys.
+// If the cpu burst percent key does not exist, the default percent is 100.
+func GetPodCPUBurstPercent(qosConf *generic.QoSConfiguration, pod *v1.Pod) (float64, error) {
+	cpuEnhancement := qosConf.GetQoSEnhancementKVs(pod, map[string]string{}, consts.PodAnnotationCPUEnhancementKey)
+	cpuBurstPercentStr, ok := cpuEnhancement[consts.PodAnnotationCPUEnhancementCPUBurstPercent]
+
+	// Default cpu burst percent is 100
+	if !ok {
+		return 100, nil
+	}
+
+	cpuBurstPercent, err := strconv.ParseFloat(cpuBurstPercentStr, 64)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse cpuBurstPercent: %v", err)
+	}
+
+	// cpu burst percent should be in range [0, 100]
+	if cpuBurstPercent > 100 {
+		return 100, nil
+	}
+
+	return cpuBurstPercent, nil
+}
