@@ -41,7 +41,7 @@ func AllocateGPUUsingStrategy(
 	qosLevel string,
 ) (*allocate.AllocationResult, error) {
 	// Get hint nodes
-	hintNodes, err := machine.NewCPUSetUint64(resourceReq.GetHint().GetNodes()...)
+	hintNodes, err := machine.NewCPUSetUint64(deviceReq.GetHint().GetNodes()...)
 	if err != nil {
 		return &allocate.AllocationResult{
 			Success:      false,
