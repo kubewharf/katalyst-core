@@ -3005,20 +3005,20 @@ func TestGetTopologyHints(t *testing.T) {
 					string(v1.ResourceCPU): {
 						Hints: []*pluginapi.TopologyHint{
 							{
-								Nodes:     []uint64{3},
-								Preferred: true,
-							},
-							{
-								Nodes:     []uint64{2},
+								Nodes:     []uint64{1},
 								Preferred: true,
 							},
 							{
 								Nodes:     []uint64{0},
-								Preferred: true,
+								Preferred: false,
 							},
 							{
-								Nodes:     []uint64{1},
-								Preferred: true,
+								Nodes:     []uint64{2},
+								Preferred: false,
+							},
+							{
+								Nodes:     []uint64{3},
+								Preferred: false,
 							},
 						},
 					},
@@ -3039,7 +3039,7 @@ func TestGetTopologyHints(t *testing.T) {
 				0: 2,
 				1: 1,
 				2: 2.5,
-				3: 3,
+				3: 4,
 			},
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
@@ -3261,19 +3261,7 @@ func TestGetTopologyHints(t *testing.T) {
 						Hints: []*pluginapi.TopologyHint{
 							{
 								Nodes:     []uint64{3},
-								Preferred: false,
-							},
-							{
-								Nodes:     []uint64{2},
-								Preferred: false,
-							},
-							{
-								Nodes:     []uint64{0},
-								Preferred: false,
-							},
-							{
-								Nodes:     []uint64{1},
-								Preferred: false,
+								Preferred: true,
 							},
 						},
 					},
@@ -3305,7 +3293,7 @@ func TestGetTopologyHints(t *testing.T) {
 				ContainerIndex: 0,
 				ResourceName:   string(v1.ResourceCPU),
 				ResourceRequests: map[string]float64{
-					string(v1.ResourceCPU): 1,
+					string(v1.ResourceCPU): 2,
 				},
 				Labels: map[string]string{
 					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
@@ -3511,19 +3499,11 @@ func TestGetTopologyHints(t *testing.T) {
 					string(v1.ResourceCPU): {
 						Hints: []*pluginapi.TopologyHint{
 							{
-								Nodes:     []uint64{3},
-								Preferred: true,
-							},
-							{
 								Nodes:     []uint64{2},
 								Preferred: true,
 							},
 							{
-								Nodes:     []uint64{1},
-								Preferred: true,
-							},
-							{
-								Nodes:     []uint64{0},
+								Nodes:     []uint64{3},
 								Preferred: false,
 							},
 						},
