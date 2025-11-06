@@ -41,6 +41,7 @@ import (
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuburst"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer/policy"
@@ -122,6 +123,7 @@ type DynamicPolicy struct {
 	enableSNBHighNumaPreference               bool
 	enableCPUIdle                             bool
 	enableSyncingCPUIdle                      bool
+	enableCPUBurst                            bool
 	reclaimRelativeRootCgroupPath             string
 	numaBindingReclaimRelativeRootCgroupPaths map[int]string
 	qosConfig                                 *generic.QoSConfiguration
@@ -139,6 +141,8 @@ type DynamicPolicy struct {
 
 	sharedCoresNUMABindingHintOptimizer    hintoptimizer.HintOptimizer
 	dedicatedCoresNUMABindingHintOptimizer hintoptimizer.HintOptimizer
+
+	cpuBurstManager cpuburst.Manager
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -208,6 +212,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		getAdviceInterval:             conf.CPUQRMPluginConfig.GetAdviceInterval,
 		reservedCPUs:                  reservedCPUs,
 		extraStateFileAbsPath:         conf.ExtraStateFileAbsPath,
+		enableCPUBurst:                conf.CPUQRMPluginConfig.EnableCPUBurst,
 		enableSyncingCPUIdle:          conf.CPUQRMPluginConfig.EnableSyncingCPUIdle,
 		enableCPUIdle:                 conf.CPUQRMPluginConfig.EnableCPUIdle,
 		reclaimRelativeRootCgroupPath: conf.ReclaimRelativeRootCgroupPath,
@@ -357,6 +362,17 @@ func (p *DynamicPolicy) Start() (err error) {
 			qrm.QRMCPUPluginPeriodicalHandlerGroupName, p.syncCPUIdle, syncCPUIdlePeriod, healthCheckTolerationTimes)
 		if err != nil {
 			general.Errorf("start %v failed,err:%v", cpuconsts.SyncCPUIdle, err)
+		}
+	}
+
+	// start cpu burst support if needed
+	if p.enableCPUBurst {
+		general.Infof("cpu burst is enabled")
+
+		err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(cpuconsts.SyncCPUBurst, general.HealthzCheckStateNotReady,
+			qrm.QRMCPUPluginPeriodicalHandlerGroupName, p.syncCPUBurst, syncCPUIdlePeriod, healthCheckTolerationTimes)
+		if err != nil {
+			general.Errorf("start %v failed,err:%v", cpuconsts.SyncCPUBurst, err)
 		}
 	}
 

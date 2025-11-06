@@ -32,11 +32,10 @@ import (
 	"time"
 
 	"github.com/google/cadvisor/container/libcontainer"
-	"github.com/opencontainers/runc/libcontainer/cgroups"
-	"github.com/opencontainers/runc/libcontainer/configs"
-
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/eventbus"
+	"github.com/opencontainers/runc/libcontainer/cgroups"
+	"github.com/opencontainers/runc/libcontainer/configs"
 )
 
 // CheckCgroup2UnifiedMode return whether it is in cgroupv2 env
