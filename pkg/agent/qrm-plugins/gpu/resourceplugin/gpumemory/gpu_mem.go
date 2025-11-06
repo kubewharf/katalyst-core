@@ -434,6 +434,14 @@ func (p *GPUMemPlugin) Allocate(
 		return util.CreateEmptyAllocationResponse(resourceReq, p.ResourceName()), nil
 	}
 
+	if deviceReq == nil {
+		general.InfoS("Nil device request, returning empty response",
+			"podNamespace", resourceReq.PodNamespace,
+			"podName", resourceReq.PodName,
+			"containerName", resourceReq.ContainerName)
+		return util.CreateEmptyAllocationResponse(resourceReq, p.ResourceName()), nil
+	}
+
 	qosLevel, err := util.GetKatalystQoSLevelFromResourceReq(p.Conf.QoSConfiguration, resourceReq, p.PodAnnotationKeptKeys, p.PodLabelKeptKeys)
 	if err != nil {
 		err = fmt.Errorf("GetKatalystQoSLevelFromResourceReq for pod: %s/%s, container: %s failed with error: %v",
