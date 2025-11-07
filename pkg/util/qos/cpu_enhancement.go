@@ -61,6 +61,11 @@ func GetPodCPUBurstPolicy(qosConf *generic.QoSConfiguration, pod *v1.Pod) string
 	cpuEnhancement := qosConf.GetQoSEnhancementKVs(pod, map[string]string{}, consts.PodAnnotationCPUEnhancementKey)
 	cpuBurstPolicy, ok := cpuEnhancement[consts.PodAnnotationCPUEnhancementCPUBurstPolicy]
 
+	// Reclaimed cores pods do not have cpu burst enabled
+	if qosLevel == consts.PodAnnotationQoSLevelReclaimedCores {
+		return consts.PodAnnotationCPUEnhancementCPUBurstPolicyNone
+	}
+
 	// Dedicated pods have cpu burst policy that is defaulted to static
 	if qosLevel == consts.PodAnnotationQoSLevelDedicatedCores && (cpuBurstPolicy == consts.PodAnnotationCPUEnhancementCPUBurstPolicyNone || !ok) {
 		return consts.PodAnnotationCPUEnhancementCPUBurstPolicyStatic

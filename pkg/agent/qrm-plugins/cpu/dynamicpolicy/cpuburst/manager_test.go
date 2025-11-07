@@ -17,6 +17,7 @@ limitations under the License.
 package cpuburst
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/bytedance/mockey"
@@ -242,12 +243,128 @@ func TestManagerImpl_UpdateCPUBurst(t *testing.T) {
 				"/sys/fs/cgroup/cpu/test-pod-2/test-container-2-id": 50,
 			},
 		},
+		{
+			name: "get container ID fails returns error",
+			pods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						UID: "test-pod",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey:       consts.PodAnnotationQoSLevelDedicatedCores,
+							consts.PodAnnotationCPUEnhancementKey: `{"cpu_burst_policy":"static", "cpu_burst_percent":"50"}`,
+						},
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name: "test-container-1",
+							},
+							{
+								Name: "test-container-2",
+							},
+						},
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "Checking container cgroup exists fails, returns error",
+			pods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						UID: "test-pod-1",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey:       consts.PodAnnotationQoSLevelDedicatedCores,
+							consts.PodAnnotationCPUEnhancementKey: `{"cpu_burst_policy":"static", "cpu_burst_percent":"50"}`,
+						},
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name: "test-container-1",
+							},
+							{
+								Name: "test-container-2",
+							},
+						},
+					},
+					Status: v1.PodStatus{
+						ContainerStatuses: []v1.ContainerStatus{
+							{
+								Name:        "test-container-1",
+								ContainerID: "test-container-1-id",
+							},
+							{
+								Name:        "test-container-2",
+								ContainerID: "test-container-2-id",
+							},
+						},
+					},
+				},
+			},
+			mocks: func(s resultState) {
+				mockey.Mock(common.IsContainerCgroupExist).Return(false, fmt.Errorf("test error")).Build()
+			},
+			wantErr: true,
+		},
+		{
+			name: "Container cgroup path does not exist, just skip",
+			pods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						UID: "test-pod-1",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey:       consts.PodAnnotationQoSLevelDedicatedCores,
+							consts.PodAnnotationCPUEnhancementKey: `{"cpu_burst_policy":"static", "cpu_burst_percent":"50"}`,
+						},
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name: "test-container-1",
+							},
+							{
+								Name: "test-container-2",
+							},
+						},
+					},
+					Status: v1.PodStatus{
+						ContainerStatuses: []v1.ContainerStatus{
+							{
+								Name:        "test-container-1",
+								ContainerID: "test-container-1-id",
+							},
+							{
+								Name:        "test-container-2",
+								ContainerID: "test-container-2-id",
+							},
+						},
+					},
+				},
+			},
+			mocks: func(s resultState) {
+				mockey.Mock(common.IsContainerCgroupExist).Return(false, nil).Build()
+				mockey.Mock(common.GetContainerAbsCgroupPath).To(func(_, podUID, containerID string) (string, error) {
+					return "/sys/fs/cgroup/cpu/" + podUID + "/" + containerID, nil
+				}).Build()
+				mockey.Mock(manager.GetCPUWithAbsolutePath).Return(&common.CPUStats{CpuQuota: 200}, nil).Build()
+				mockey.Mock(manager.ApplyCPUWithAbsolutePath).
+					To(func(absPath string, cpuData *common.CPUData) error {
+						s[absPath] = cpuData.CpuBurst
+						return nil
+					}).Build()
+			},
+			wantResults: make(resultState),
+		},
 	}
 
 	for _, tt := range tests {
 		mockey.PatchConvey(tt.name, t, func() {
 			results := make(resultState)
-			tt.mocks(results)
+			if tt.mocks != nil {
+				tt.mocks(results)
+			}
 
 			cpuBurstManager := NewManager(generateTestMetaServer(tt.pods))
 
@@ -257,7 +374,9 @@ func TestManagerImpl_UpdateCPUBurst(t *testing.T) {
 				return
 			}
 
-			assert.Equal(t, tt.wantResults, results)
+			if !tt.wantErr {
+				assert.Equal(t, tt.wantResults, results)
+			}
 		})
 	}
 }
