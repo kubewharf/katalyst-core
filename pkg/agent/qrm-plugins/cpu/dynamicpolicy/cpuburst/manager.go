@@ -20,6 +20,9 @@ import (
 	"context"
 	"fmt"
 
+	v1 "k8s.io/api/core/v1"
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
@@ -29,8 +32,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
-	v1 "k8s.io/api/core/v1"
-	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 )
 
 type Manager interface {
@@ -104,7 +105,6 @@ func (m *managerImpl) updateCPUBurstForStaticPolicy(percent float64, pod *v1.Pod
 			continue
 		} else if !exist {
 			general.Infof("container cgroup does not exist, pod: %s, container: %s(%s)", podUID, containerName, containerID)
-			errList = append(errList, err)
 			continue
 		}
 
