@@ -35,6 +35,7 @@ const (
 	SetExclusiveIRQCPUSetFailed                             string = "SetExclusiveIRQCPUSetFailed"
 	SetRPSForNicFailed                                      string = "SetRPSForNicFailed"
 	ClearRPSForNicFailed                                    string = "ClearRPSForNicFailed"
+	ClearNicXPSFailed                                       string = "ClearNicXPSFailed"
 	AdjustKsoftirqdsNiceFailed                              string = "AdjustKsoftirqdsNiceFailed"
 	RestoreNicsOriginalIrqCoresExclusivePolicyFailed        string = "RestoreNicsOriginalIrqCoresExclusivePolicyFailed"
 	UpdateIndicatorsStatsFailed                             string = "UpdateIndicatorsStatsFailed"

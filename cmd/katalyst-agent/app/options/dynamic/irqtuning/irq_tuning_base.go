@@ -41,6 +41,8 @@ type IRQTuningOptions struct {
 	EnableRPS bool
 	// EnableRPSCPUVSNicsQueue enable rps when (cpus count)/(nics queue count) greater than this config.
 	EnableRPSCPUVSNicsQueue float64
+	// DisableXPS indicated whether to disable tx queue XPS
+	DisableXPS bool
 	// NICAffinityPolicy represents the NICs's irqs affinity sockets policy.
 	NICAffinityPolicy string
 	// ReniceKsoftirqd indicates whether to renice ksoftirqd process.
@@ -71,6 +73,7 @@ func NewIRQTuningOptions() *IRQTuningOptions {
 		TuningInterval:          5,
 		EnableRPS:               false,
 		EnableRPSCPUVSNicsQueue: 0,
+		DisableXPS:              false,
 		NICAffinityPolicy:       string(v1alpha1.NICAffinityPolicyCompleteMap),
 		ReniceKsoftirqd:         false,
 		KsoftirqdNice:           -20,
@@ -92,6 +95,7 @@ func (o *IRQTuningOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.IntVar(&o.TuningInterval, "tuning-interval", o.TuningInterval, "irq tuning periodic interval")
 	fs.BoolVar(&o.EnableRPS, "enable-rps", o.EnableRPS, "enable irq rps")
 	fs.Float64Var(&o.EnableRPSCPUVSNicsQueue, "enable-rps-cpu-vs-nics-queue", o.EnableRPSCPUVSNicsQueue, "enable rps cpu vs nics queue")
+	fs.BoolVar(&o.DisableXPS, "disable-xps", o.DisableXPS, "disable tx queue xps")
 	fs.StringVar(&o.NICAffinityPolicy, "nic-affinity-policy", o.NICAffinityPolicy, "irq nic affinity policy")
 	fs.BoolVar(&o.ReniceKsoftirqd, "renice-ksoftirqd", o.ReniceKsoftirqd, "renice ksoftirqd")
 	fs.IntVar(&o.KsoftirqdNice, "ksoftirqd-nice", o.KsoftirqdNice, "ksoftirqd nice")
@@ -113,6 +117,7 @@ func (o *IRQTuningOptions) ApplyTo(c *irqdynamicconf.IRQTuningConfiguration) err
 
 	c.EnableRPS = o.EnableRPS
 	c.EnableRPSCPUVSNicsQueue = o.EnableRPSCPUVSNicsQueue
+	c.DisableXPS = o.DisableXPS
 	c.NICAffinityPolicy = v1alpha1.NICAffinityPolicy(o.NICAffinityPolicy)
 
 	c.ReniceKsoftirqd = o.ReniceKsoftirqd

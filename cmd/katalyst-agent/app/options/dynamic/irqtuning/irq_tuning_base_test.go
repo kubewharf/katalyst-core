@@ -42,6 +42,7 @@ func TestNewIRQTuningOptions(t *testing.T) {
 	assert.Equal(t, 5, options.TuningInterval)
 	assert.False(t, options.EnableRPS)
 	assert.Equal(t, 0.0, options.EnableRPSCPUVSNicsQueue)
+	assert.False(t, options.DisableXPS)
 	assert.Equal(t, string(v1alpha1.NICAffinityPolicyCompleteMap), options.NICAffinityPolicy)
 	assert.False(t, options.ReniceKsoftirqd)
 	assert.Equal(t, -20, options.KsoftirqdNice)
@@ -92,6 +93,7 @@ func TestIRQTuningOptions_ApplyTo(t *testing.T) {
 				TuningInterval:          5,
 				EnableRPS:               false,
 				EnableRPSCPUVSNicsQueue: 0,
+				DisableXPS:              false,
 				NICAffinityPolicy:       v1alpha1.NICAffinityPolicyCompleteMap,
 				ReniceKsoftirqd:         false,
 				KsoftirqdNice:           -20,
@@ -107,6 +109,7 @@ func TestIRQTuningOptions_ApplyTo(t *testing.T) {
 				TuningInterval:               10,
 				EnableRPS:                    true,
 				EnableRPSCPUVSNicsQueue:      2.5,
+				DisableXPS:                   true,
 				NICAffinityPolicy:            string(v1alpha1.NICAffinityPolicyOverallBalance),
 				ReniceKsoftirqd:              true,
 				KsoftirqdNice:                -10,
@@ -124,6 +127,7 @@ func TestIRQTuningOptions_ApplyTo(t *testing.T) {
 				TuningInterval:          10,
 				EnableRPS:               true,
 				EnableRPSCPUVSNicsQueue: 2.5,
+				DisableXPS:              true,
 				NICAffinityPolicy:       v1alpha1.NICAffinityPolicyOverallBalance,
 				ReniceKsoftirqd:         true,
 				KsoftirqdNice:           -10,
@@ -146,6 +150,7 @@ func TestIRQTuningOptions_ApplyTo(t *testing.T) {
 			assert.Equal(t, tc.expected.TuningInterval, c.TuningInterval, tc.name)
 			assert.Equal(t, tc.expected.EnableRPS, c.EnableRPS, tc.name)
 			assert.Equal(t, tc.expected.EnableRPSCPUVSNicsQueue, c.EnableRPSCPUVSNicsQueue, tc.name)
+			assert.Equal(t, tc.expected.DisableXPS, c.DisableXPS, tc.name)
 			assert.Equal(t, tc.expected.NICAffinityPolicy, c.NICAffinityPolicy, tc.name)
 			assert.Equal(t, tc.expected.ReniceKsoftirqd, c.ReniceKsoftirqd, tc.name)
 			assert.Equal(t, tc.expected.KsoftirqdNice, c.KsoftirqdNice, tc.name)

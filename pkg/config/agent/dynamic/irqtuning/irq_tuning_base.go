@@ -34,6 +34,7 @@ type IRQTuningConfiguration struct {
 	TuningInterval          int
 	EnableRPS               bool
 	EnableRPSCPUVSNicsQueue float64
+	DisableXPS              bool
 	NICAffinityPolicy       v1alpha1.NICAffinityPolicy
 	ReniceKsoftirqd         bool
 	KsoftirqdNice           int
@@ -54,6 +55,7 @@ func NewIRQTuningConfiguration() *IRQTuningConfiguration {
 		TuningInterval:          5,
 		EnableRPS:               false,
 		EnableRPSCPUVSNicsQueue: 0,
+		DisableXPS:              false,
 		NICAffinityPolicy:       v1alpha1.NICAffinityPolicyCompleteMap,
 		ReniceKsoftirqd:         false,
 		KsoftirqdNice:           -20,
@@ -82,6 +84,9 @@ func (c *IRQTuningConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) 
 		}
 		if itc.Spec.Config.EnableRPSCPUVSNicsQueue != nil {
 			c.EnableRPSCPUVSNicsQueue = *itc.Spec.Config.EnableRPSCPUVSNicsQueue
+		}
+		if itc.Spec.Config.DisableXPS != nil {
+			c.DisableXPS = *itc.Spec.Config.DisableXPS
 		}
 		c.NICAffinityPolicy = itc.Spec.Config.NICAffinityPolicy
 		if itc.Spec.Config.ReniceKsoftirqd != nil {

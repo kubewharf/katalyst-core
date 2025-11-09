@@ -34,8 +34,9 @@ type SysFSManager interface {
 	GetSystemCPUs() ([]sysfs.CPU, error)
 	GetCPUTopology(cpuID string) (*sysfs.CPUTopology, error)
 	GetNicRxQueueRPS(sysPath, nic string, queue int) (string, error)
-
 	SetNicRxQueueRPS(sysPath, nic string, queue int, rpsConf string) error
+	GetNicTxQueueXPS(sysPath, nic string, queue int) (string, error)
+	SetNicTxQueueXPS(sysPath, nic string, queue int, xpsConf string) error
 }
 
 func GetSysFsManager() SysFSManager {

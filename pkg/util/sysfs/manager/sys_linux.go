@@ -95,3 +95,30 @@ func (m *manager) SetNicRxQueueRPS(sysPath, nic string, queue int, rpsConf strin
 
 	return nil
 }
+
+func (m *manager) GetNicTxQueueXPS(sysPath, nic string, queue int) (string, error) {
+	nicSysDir := filepath.Join(sysPath, ClassNetBasePath, nic)
+	queueXPSPath := fmt.Sprintf("%s/queues/tx-%d/xps_cpus", nicSysDir, queue)
+	if _, err := os.Stat(queueXPSPath); err != nil && os.IsNotExist(err) {
+		return "", fmt.Errorf("%s is not exist in nic %s", queueXPSPath, nicSysDir)
+	}
+
+	b, err := os.ReadFile(queueXPSPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to ReadFile(%s), err %s", queueXPSPath, err)
+	}
+	return strings.TrimRight(string(b), "\n"), nil
+}
+
+func (m *manager) SetNicTxQueueXPS(sysPath, nic string, queue int, xpsConf string) error {
+	nicSysDir := filepath.Join(sysPath, ClassNetBasePath, nic)
+	queuePath := fmt.Sprintf("%s/queues/tx-%d", nicSysDir, queue)
+
+	if err, applied, oldData := common.InstrumentedWriteFileIfChange(queuePath, "xps_cpus", xpsConf); err != nil {
+		return err
+	} else if applied {
+		general.Infof("[Sysfs] set nic tx queue XPS successfully, nic: %v, queue: %v, data:%v, old data: %v\n", nic, queue, xpsConf, oldData)
+	}
+
+	return nil
+}
