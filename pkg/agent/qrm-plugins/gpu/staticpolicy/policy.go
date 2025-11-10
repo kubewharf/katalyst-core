@@ -92,10 +92,10 @@ func NewStaticPolicy(
 		customDevicePlugins:   make(map[string]customdeviceplugin.CustomDevicePlugin),
 	}
 
-	if err = policyImplement.registerResourcePlugins(); err != nil {
+	if err = policyImplement.registerDefaultResourcePlugins(); err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("failed to register resource plugins: %w", err)
 	}
-	if err = policyImplement.registerCustomDevicePlugins(); err != nil {
+	if err = policyImplement.registerDefaultCustomDevicePlugins(); err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("failed to register custom device plugins: %w", err)
 	}
 
@@ -313,6 +313,11 @@ func (p *StaticPolicy) mergeTopologyAwareResourcesResponse(
 		}
 		if result.PodNamespace == "" {
 			result.PodNamespace = resp.PodNamespace
+		}
+
+		if resp.ContainerTopologyAwareResources == nil {
+			general.Errorf("container topology aware resources is nil for pod %s/%s, namespace %s", podUID, containerName, result.PodNamespace)
+			return nil, fmt.Errorf("container topology aware resources is nil for pod %s/%s, namespace %s", podUID, containerName, result.PodNamespace)
 		}
 
 		for resourceName, resource := range resp.ContainerTopologyAwareResources.AllocatedResources {
@@ -693,7 +698,7 @@ func (p *StaticPolicy) allocateAssociatedDevice(
 	return devicePlugin.AllocateAssociatedDevice(resReq, deviceReq, accompanyResourceName)
 }
 
-func (p *StaticPolicy) registerResourcePlugins() error {
+func (p *StaticPolicy) registerDefaultResourcePlugins() error {
 	allInitFuncs := resourcepluginregistry.GetRegisteredResourcePlugin()
 	for _, initFunc := range allInitFuncs {
 		resourcePlugin := initFunc(p.BasePlugin)
@@ -703,7 +708,7 @@ func (p *StaticPolicy) registerResourcePlugins() error {
 	return nil
 }
 
-func (p *StaticPolicy) registerCustomDevicePlugins() error {
+func (p *StaticPolicy) registerDefaultCustomDevicePlugins() error {
 	allInitFuncs := devicepluginregistry.GetRegisteredCustomDevicePlugin()
 	for name := range allInitFuncs {
 		initFunc := allInitFuncs[name]
@@ -725,4 +730,16 @@ func (p *StaticPolicy) getResourcePlugin(resourceName string) resourceplugin.Res
 func (p *StaticPolicy) getCustomDevicePlugin(deviceName string) customdeviceplugin.CustomDevicePlugin {
 	customDevicePlugin := p.customDevicePlugins[deviceName]
 	return customDevicePlugin
+}
+
+func (p *StaticPolicy) RegisterResourcePlugin(resourcePlugin resourceplugin.ResourcePlugin) {
+	p.resourcePlugins[resourcePlugin.ResourceName()] = resourcePlugin
+}
+
+func (p *StaticPolicy) RegisterCustomDevicePlugin(plugin customdeviceplugin.CustomDevicePlugin) {
+	deviceNames := plugin.DeviceNames()
+	for _, deviceName := range deviceNames {
+		p.customDevicePlugins[deviceName] = plugin
+		p.associatedDeviceNames.Insert(deviceName)
+	}
 }

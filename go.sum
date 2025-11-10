@@ -583,8 +583,8 @@ github.com/lightstep/lightstep-tracer-go v0.18.1/go.mod h1:jlF1pusYV4pidLvZ+XD0U
 github.com/lithammer/dedent v1.1.0/go.mod h1:jrXYCQtgg0nJiN+StA2KgR7w6CiQNv9Fd/Z9BP0jIOc=
 github.com/logrusorgru/aurora v0.0.0-20181002194514-a7b3b318ed4e/go.mod h1:7rIyQOR62GCctdiQpZ/zOJlFyk6y+94wXzv6RNZgaR4=
 github.com/lpabon/godbc v0.1.1/go.mod h1:Jo9QV0cf3U6jZABgiJ2skINAXb9j8m51r07g4KI92ZA=
-github.com/luomingmeng/katalyst-api v0.0.0-20250922112104-28800baae7c1 h1:GZ9+zAV1u5pP5xTqcshvNpr0qRIkl/Gu6/YFd2RFT9A=
-github.com/luomingmeng/katalyst-api v0.0.0-20250922112104-28800baae7c1/go.mod h1:76Qriw/zHXLGhunpskZpJ9zJI3Dwf2hWnz9z8kkjR64=
+github.com/luomingmeng/katalyst-api v0.0.0-20251114092935-4d2194badf1b h1:CJnM7Ow3Wm+QzvUrrqmGlId8UXOWNGAKi09mTnU/QQs=
+github.com/luomingmeng/katalyst-api v0.0.0-20251114092935-4d2194badf1b/go.mod h1:76Qriw/zHXLGhunpskZpJ9zJI3Dwf2hWnz9z8kkjR64=
 github.com/lyft/protoc-gen-validate v0.0.13/go.mod h1:XbGvPuh87YZc5TdIa2/I4pLk0QoUACkjt2znoq26NVQ=
 github.com/magiconair/properties v1.8.0/go.mod h1:PppfXfuXeibc/6YijjN8zIbojt8czPbwD3XqdrwzmxQ=
 github.com/magiconair/properties v1.8.1/go.mod h1:PppfXfuXeibc/6YijjN8zIbojt8czPbwD3XqdrwzmxQ=
