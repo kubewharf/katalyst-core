@@ -70,7 +70,7 @@ func IsNUMAAffinityDevice(
 		return false
 	}
 
-	return machine.NewCPUSet(info.GetNUMANode()...).IsSubsetOf(hintNodes)
+	return machine.NewCPUSet(info.GetNUMANodes()...).IsSubsetOf(hintNodes)
 }
 
 // GetGPUCount extracts GPU count from resource request

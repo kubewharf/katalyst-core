@@ -151,7 +151,7 @@ func (p *RDMADevicePlugin) AllocateAssociatedDevice(
 
 		topologyAwareAllocations[deviceID] = state.Allocation{
 			Quantity:  1,
-			NUMANodes: info.GetNUMANode(),
+			NUMANodes: info.GetNUMANodes(),
 		}
 	}
 
@@ -236,7 +236,8 @@ func (p *RDMADevicePlugin) allocateWithNoAccompanyResource(
 	return nil, fmt.Errorf("not enough available RDMAs found in rdmaTopology, number of needed RDMAs: %d, availableDevices len: %d, allocatedDevices len: %d", reqQuantity, len(availableDevices), len(allocatedDevices))
 }
 
-// TODO: first allocate to reusable devices, then allocate to available devices proportionally based on numa affinity
+// allocateWithAccompanyResource allocates the rdma devices by first allocating the reusable devices, then allocating the
+// available devices proportionally by ensuring NUMA affinity with the accompany resource
 func (p *RDMADevicePlugin) allocateWithAccompanyResource(
 	deviceReq *pluginapi.DeviceRequest, resReq *pluginapi.ResourceRequest, accompanyResourceName string,
 ) ([]string, error) {
@@ -248,26 +249,21 @@ func (p *RDMADevicePlugin) allocateWithAccompanyResource(
 		return nil, fmt.Errorf("failed to get device type for accompany resource %s: %v", accompanyResourceName, err)
 	}
 
-	accompanyAllocationInfo := p.State.GetAllocationInfo(v1.ResourceName(accompanyDeviceType), resReq.PodUid, resReq.ContainerName)
-	if accompanyAllocationInfo == nil || accompanyAllocationInfo.TopologyAwareAllocations == nil {
-		err = fmt.Errorf("get allocation info of the resource %s for pod %s/%s, container: %s failed with error: %v",
-			resReq.ResourceName, resReq.PodNamespace, resReq.PodName, resReq.ContainerName, err)
-		general.Errorf("%s", err.Error())
-		return nil, err
-	}
+	// Allocate all the reusable devices first
+	allocatedDevices := sets.NewString(deviceReq.ReusableDevices...)
 
 	// Get ratio of accompany resource to target device
-	accompanyResourceToTargetDeviceRatio := p.State.GetMachineState().GetRatioOfAccompanyResourceToTargetResource(accompanyResourceName, deviceReq.DeviceName)
+	accompanyResourceToTargetDeviceRatio := p.State.GetMachineState().GetRatioOfAccompanyResourceToTargetResource(accompanyDeviceType, gpuconsts.RDMADeviceType)
 
 	// Allocate target device according to ratio of accompany resource to target device
 	podResourceEntries := p.State.GetPodResourceEntries()
-	totalAllocated, accompanyResourceIds := podResourceEntries.GetTotalAllocatedResourceOfContainer(v1.ResourceName(accompanyResourceName), resReq.PodUid, resReq.ContainerName)
+	totalAllocated, accompanyResourceIds := podResourceEntries.GetTotalAllocatedResourceOfContainer(v1.ResourceName(accompanyDeviceType), resReq.PodUid, resReq.ContainerName)
 
 	rdmaToBeAllocated := int(math.Ceil(float64(totalAllocated) * accompanyResourceToTargetDeviceRatio))
 
 	// For every gpu that is allocated to the container, find out the rdma devices that have affinity to the same
 	// numa nodes as the gpu and allocate them
-	accompanyResourceToRdmaAffinityMap, err := p.DeviceTopologyRegistry.GetDeviceNUMAAffinity(accompanyResourceName, deviceReq.DeviceName)
+	accompanyResourceToRdmaAffinityMap, err := p.DeviceTopologyRegistry.GetDeviceNUMAAffinity(accompanyDeviceType, gpuconsts.RDMADeviceType)
 	if err != nil {
 		general.Warningf("failed to get gpu to rdma affinity map: %v", err)
 		return nil, err
@@ -275,13 +271,15 @@ func (p *RDMADevicePlugin) allocateWithAccompanyResource(
 
 	machineState := p.State.GetMachineState()[v1.ResourceName(gpuconsts.RDMADeviceType)]
 
-	allocatedDevices := sets.NewString()
 	allocateDevices := func(devices ...string) bool {
 		for _, device := range devices {
-			allocatedDevices.Insert(device)
 			if allocatedDevices.Len() >= rdmaToBeAllocated {
 				return true
 			}
+			allocatedDevices.Insert(device)
+		}
+		if allocatedDevices.Len() >= rdmaToBeAllocated {
+			return true
 		}
 		return false
 	}

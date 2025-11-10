@@ -160,7 +160,7 @@ func (p *GPUMemPlugin) calculateHints(
 		s := machineState[gpuID]
 		allocated := s.GetQuantityAllocated()
 		if allocated+perGPUMemory <= float64(p.Conf.GPUMemoryAllocatablePerGPU.Value()) {
-			for _, numaNode := range info.GetNUMANode() {
+			for _, numaNode := range info.GetNUMANodes() {
 				numaToAvailableGPUCount[numaNode] += 1
 				numaToMostAllocatedGPUMemory[numaNode] = math.Max(allocated, numaToMostAllocatedGPUMemory[numaNode])
 			}
@@ -517,7 +517,6 @@ func (p *GPUMemPlugin) Allocate(
 	}
 
 	// Use the strategy framework to allocate GPU memory
-	// TODO: What happens when deviceReq is nil?
 	result, err := manager.AllocateGPUUsingStrategy(
 		resourceReq,
 		deviceReq,
