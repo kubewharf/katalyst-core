@@ -32,6 +32,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/moby/sys/mountinfo"
@@ -46,11 +47,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
 	procm "github.com/kubewharf/katalyst-core/pkg/util/procfs/manager"
 	sysm "github.com/kubewharf/katalyst-core/pkg/util/sysfs/manager"
-)
-
-const (
-	sysFSDirNormal   = "/sys"
-	sysFSDirNetNSTmp = "/tmp/net_ns_sysfs"
 )
 
 const (
@@ -72,7 +68,7 @@ const (
 const (
 	DefaultNetNSDir    = "/var/run/netns"
 	DefaultNetNSSysDir = "/sys"
-	TmpNetNSSysDir     = "/tmp/net_ns_sysfs"
+	TmpNetNSSysDir     = "/qrm_tmp_sys/net_ns_sysfs"
 	ClassNetBasePath   = "class/net"
 	ClassNetFulPath    = "/sys/class/net"
 	VirtioNetDriver    = "virtio_net"
@@ -1234,8 +1230,28 @@ func (nsc *netnsSwitchContext) netnsExit() {
 
 	// umount tmp sysfs in the new netns
 	if nsc.sysDirRemounted && nsc.sysMountDir != "" {
+		unmountTried := 0
+	retry:
 		if err := syscall.Unmount(nsc.sysMountDir, 0); err != nil {
-			klog.Fatalf("failed to Unmount(%s), err %v", nsc.sysMountDir, err)
+			mounted, e := mountinfo.Mounted(nsc.sysMountDir)
+			if e == nil && !mounted {
+				klog.Warningf("%s has been unmountd, maybe unexpected unmount happened", nsc.sysMountDir)
+			} else {
+				if e != nil {
+					klog.Errorf("check mounted dir: %s failed with error: %v", nsc.sysMountDir, e)
+				}
+
+				if unmountTried < 3 {
+					unmountTried++
+					// generally, the reason of unmount failure is that some files in the mountpoint are
+					// being accessed by other processes.
+					// Wait a while for other processes to finish accessing the files in the mountpoint (nsc.sysMountDir).
+					time.Sleep(10 * time.Second)
+					goto retry
+				}
+
+				klog.Errorf("failed to Unmount(%s), err %v", nsc.sysMountDir, err)
+			}
 		}
 	}
 
