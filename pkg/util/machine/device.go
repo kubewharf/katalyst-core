@@ -111,7 +111,7 @@ func (r *DeviceTopologyRegistry) GetDeviceTopology(deviceName string) (*DeviceTo
 	return provider.GetDeviceTopology()
 }
 
-// GetDeviceNUMAAffinity retrieves a map of a certain device to the list of devices that it has an affinity with.
+// GetDeviceNUMAAffinity retrieves a map of a certain device A to the list of devices in device B that it has an affinity with.
 // A device is considered to have an affinity with another device if they are on the exact same NUMA node(s)
 func (r *DeviceTopologyRegistry) GetDeviceNUMAAffinity(deviceA, deviceB string) (map[string][]string, error) {
 	deviceTopologyKey, numaReady, err := r.GetDeviceTopology(deviceA)
@@ -134,7 +134,10 @@ func (r *DeviceTopologyRegistry) GetDeviceNUMAAffinity(deviceA, deviceB string) 
 	for keyName, keyInfo := range deviceTopologyKey.Devices {
 		devicesWithAffinity := make([]string, 0)
 		for valueName, valueInfo := range deviceTopologyValue.Devices {
-			if sets.NewInt(keyInfo.GetNUMANode()...).Equal(sets.NewInt(valueInfo.GetNUMANode()...)) {
+			deviceKeyNUMANodes := keyInfo.GetNUMANodes()
+			deviceValueNUMANodes := valueInfo.GetNUMANodes()
+
+			if len(deviceKeyNUMANodes) != 0 && sets.NewInt(deviceKeyNUMANodes...).Equal(sets.NewInt(deviceValueNUMANodes...)) {
 				devicesWithAffinity = append(devicesWithAffinity, valueName)
 			}
 		}
@@ -148,7 +151,17 @@ type DeviceTopology struct {
 	Devices map[string]DeviceInfo
 }
 
-// GroupDeviceAffinity forms a topology graph such that all groups of DeviceIDs within a certain affinity priority level
+// GroupDeviceAffinity forms a topology graph such that all devices within a DeviceIDs group have an affinity with each other.
+// They are differentiated by their affinity priority level.
+// E.g. Output:
+//
+//	{
+//		0: {{"gpu-0", "gpu-1"}, {"gpu-2", "gpu-3"}},
+//		1: {{"gpu-0", "gpu-1", "gpu-2", "gpu-3"}}
+//	}
+//
+// means that gpu-0 and gpu-1 have an affinity with each other, gpu-2 and gpu-3 have an affinity with each other in affinity priority 0.
+// and gpu-0, gpu-1, gpu-2, and gpu-3 have an affinity with each other in affinity priority 1.
 func (t *DeviceTopology) GroupDeviceAffinity() map[AffinityPriority][]DeviceIDs {
 	deviceAffinityGroup := make(map[AffinityPriority][]DeviceIDs)
 	for deviceId, deviceInfo := range t.Devices {
@@ -182,14 +195,6 @@ func containsGroup(groups []DeviceIDs, candidate DeviceIDs) bool {
 	return false
 }
 
-func (t *DeviceTopology) GetDeviceAffinityMap(deviceId string) (map[AffinityPriority]DeviceIDs, error) {
-	info, ok := t.Devices[deviceId]
-	if !ok {
-		return nil, fmt.Errorf("failed to find device %s in device topology", deviceId)
-	}
-	return info.DeviceAffinity, nil
-}
-
 type DeviceInfo struct {
 	Health    string
 	NumaNodes []int
@@ -206,7 +211,7 @@ type AffinityPriority int
 
 type DeviceIDs []string
 
-func (i DeviceInfo) GetNUMANode() []int {
+func (i DeviceInfo) GetNUMANodes() []int {
 	if i.NumaNodes == nil {
 		return []int{}
 	}
@@ -240,7 +245,7 @@ func (p *deviceTopologyProviderImpl) SetDeviceTopology(deviceTopology *DeviceTop
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 	if deviceTopology == nil {
-		return fmt.Errorf("deviceTopology is nil")
+		return fmt.Errorf("deviceTopology is nil when setting device topology")
 	}
 
 	p.deviceTopology = deviceTopology
@@ -251,6 +256,10 @@ func (p *deviceTopologyProviderImpl) SetDeviceTopology(deviceTopology *DeviceTop
 func (p *deviceTopologyProviderImpl) GetDeviceTopology() (*DeviceTopology, bool, error) {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
+
+	if p.deviceTopology == nil {
+		return nil, false, fmt.Errorf("deviceTopology is nil when getting device topology")
+	}
 
 	return p.deviceTopology, p.numaTopologyReady, nil
 }

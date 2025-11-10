@@ -28,10 +28,6 @@ func IsBindingContextValid(ctx *allocate.AllocationContext, sortedDevices []stri
 		return false, "GPU topology is nil"
 	}
 
-	if len(sortedDevices) == 0 && ctx.DeviceReq.DeviceRequest > 0 {
-		return false, "no devices to bind"
-	}
-
 	// Determine how many devices to allocate
 	devicesToAllocate := int(ctx.DeviceReq.DeviceRequest)
 	if devicesToAllocate > len(sortedDevices) {
