@@ -83,6 +83,11 @@ func GetGPUCount(req *pluginapi.ResourceRequest, deviceNames []string) (float64,
 		if err != nil && !errors.IsNotFound(err) {
 			return 0, nil, err
 		}
+
+		if request == 0 {
+			continue
+		}
+
 		gpuCount += request
 		gpuNames.Insert(resourceName)
 	}
