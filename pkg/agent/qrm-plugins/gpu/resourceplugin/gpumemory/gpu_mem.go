@@ -71,21 +71,13 @@ func (p *GPUMemPlugin) GetTopologyHints(req *pluginapi.ResourceRequest) (resp *p
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
 
-	gpuCount, gpuNames, err := gpuutil.GetGPUCount(req, p.Conf.GPUDeviceNames)
-	if err != nil {
-		general.Errorf("getGPUCount failed from req %v with error: %v", req, err)
-		return nil, fmt.Errorf("getGPUCount failed with error: %v", err)
-	}
-
 	general.InfoS("called",
 		"podNamespace", req.PodNamespace,
 		"podName", req.PodName,
 		"containerName", req.ContainerName,
 		"qosLevel", qosLevel,
 		"reqAnnotations", req.Annotations,
-		"gpuMemory", gpuMemory,
-		"gpuNames", gpuNames.List(),
-		"gpuCount", gpuCount)
+		"gpuMemory", gpuMemory)
 
 	p.Lock()
 	defer func() {
@@ -125,6 +117,14 @@ func (p *GPUMemPlugin) GetTopologyHints(req *pluginapi.ResourceRequest) (resp *p
 			}
 		}
 	}
+
+	gpuCount, gpuNames, err := gpuutil.GetGPUCount(req, p.Conf.GPUDeviceNames)
+	if err != nil {
+		general.Errorf("getGPUCount failed from req %v with error: %v", req, err)
+		return nil, fmt.Errorf("getGPUCount failed with error: %v", err)
+	}
+
+	general.Infof("gpuCount: %f, gpuNames: %v", gpuCount, gpuNames.List())
 
 	// otherwise, calculate hint for container without allocated memory
 	if hints == nil {
@@ -447,12 +447,6 @@ func (p *GPUMemPlugin) Allocate(
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
 
-	gpuCount, gpuNames, err := gpuutil.GetGPUCount(resourceReq, p.Conf.GPUDeviceNames)
-	if err != nil {
-		general.Errorf("getGPUCount failed from req %v with error: %v", resourceReq, err)
-		return nil, fmt.Errorf("getGPUCount failed with error: %v", err)
-	}
-
 	general.InfoS("called",
 		"podNamespace", resourceReq.PodNamespace,
 		"podName", resourceReq.PodName,
@@ -460,8 +454,7 @@ func (p *GPUMemPlugin) Allocate(
 		"qosLevel", qosLevel,
 		"reqAnnotations", resourceReq.Annotations,
 		"gpuMemory", gpuMemory,
-		"gpuNames", gpuNames.List(),
-		"gpuCount", gpuCount)
+		"deviceReq", deviceReq.String())
 
 	p.Lock()
 	defer func() {
@@ -504,6 +497,8 @@ func (p *GPUMemPlugin) Allocate(
 		// if deviceReq is nil, return empty response to re-allocate after device allocation
 		return util.CreateEmptyAllocationResponse(resourceReq, p.ResourceName()), nil
 	}
+
+	general.Infof("deviceReq: %v", deviceReq.String())
 
 	// Get GPU topology
 	gpuTopology, numaTopologyReady, err := p.DeviceTopologyRegistry.GetDeviceTopology(gpuconsts.GPUDeviceType)
@@ -552,7 +547,7 @@ func (p *GPUMemPlugin) Allocate(
 		TopologyAwareAllocations: make(map[string]state.Allocation),
 	}
 
-	gpuMemoryPerGPU := gpuMemory / gpuCount
+	gpuMemoryPerGPU := gpuMemory / float64(deviceReq.DeviceRequest)
 	for _, deviceID := range result.AllocatedDevices {
 		info, ok := gpuTopology.Devices[deviceID]
 		if !ok {
