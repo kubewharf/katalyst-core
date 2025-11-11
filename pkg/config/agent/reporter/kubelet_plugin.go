@@ -25,6 +25,9 @@ type KubeletPluginConfiguration struct {
 	NeedValidationResources        []string
 	NeedAggregateReportingDevices  []string
 	EnablePodResourcesFilter       bool
+	EnableReportCPUFlags           bool
+	EnableReportL3CacheGroup       bool
+	EnableReportThreadTopology     bool
 }
 
 func NewKubeletPluginConfiguration() *KubeletPluginConfiguration {

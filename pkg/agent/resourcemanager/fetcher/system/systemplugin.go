@@ -24,8 +24,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
-
 	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -40,6 +38,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
 )
 
@@ -214,6 +213,10 @@ func (p *systemPlugin) getCISProperty() *nodev1alpha1.Property {
 
 // getCPUFlagsProperty get cpu flags of this machine.
 func (p *systemPlugin) getCPUFlagsProperty() *nodev1alpha1.Property {
+	if !p.conf.EnableReportCPUFlags {
+		return &nodev1alpha1.Property{}
+	}
+
 	cpuFlags, err := machine.GetCPUFlags()
 	if err != nil {
 		klog.Errorf("get cpu flags failed: %s", err)

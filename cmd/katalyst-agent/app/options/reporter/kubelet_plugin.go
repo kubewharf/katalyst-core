@@ -34,6 +34,9 @@ type KubeletPluginOptions struct {
 	NeedValidationResources        []string
 	NeedAggregateReportingDevices  []string
 	EnablePodResourcesFilter       bool
+	EnableReportCPUFlags           bool
+	EnableReportL3CacheGroup       bool
+	EnableReportThreadTopology     bool
 }
 
 func NewKubeletPluginOptions() *KubeletPluginOptions {
@@ -75,6 +78,12 @@ func (o *KubeletPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"devices need to be aggregated reporting")
 	fs.BoolVar(&o.EnablePodResourcesFilter, "enable-pod-resources-filter", o.EnablePodResourcesFilter,
 		"whether to filter pod resources response")
+	fs.BoolVar(&o.EnableReportCPUFlags, "enable-report-cpu-flags", o.EnableReportCPUFlags,
+		"whether to report cpu flags")
+	fs.BoolVar(&o.EnableReportL3CacheGroup, "enable-report-l3-cache-group", o.EnableReportL3CacheGroup,
+		"whether to report l3 cache group")
+	fs.BoolVar(&o.EnableReportThreadTopology, "enable-report-thread-topology", o.EnableReportThreadTopology,
+		"whether to report thread topology")
 }
 
 func (o *KubeletPluginOptions) ApplyTo(c *reporter.KubeletPluginConfiguration) error {
@@ -86,6 +95,9 @@ func (o *KubeletPluginOptions) ApplyTo(c *reporter.KubeletPluginConfiguration) e
 	c.NeedValidationResources = o.NeedValidationResources
 	c.NeedAggregateReportingDevices = o.NeedAggregateReportingDevices
 	c.EnablePodResourcesFilter = o.EnablePodResourcesFilter
+	c.EnableReportCPUFlags = o.EnableReportCPUFlags
+	c.EnableReportL3CacheGroup = o.EnableReportL3CacheGroup
+	c.EnableReportThreadTopology = o.EnableReportThreadTopology
 
 	return nil
 }

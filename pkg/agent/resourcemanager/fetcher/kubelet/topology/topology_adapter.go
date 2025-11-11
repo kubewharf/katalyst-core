@@ -62,6 +62,12 @@ const (
 	syncMemoryBandwidthInterval = 3 * time.Minute
 )
 
+type CPUVendor string
+
+const (
+	CPUVendorAMD CPUVendor = "amd"
+)
+
 // NumaInfoGetter is to get numa info
 type NumaInfoGetter func() ([]info.Node, error)
 
@@ -77,6 +83,9 @@ type topologyAdapterImpl struct {
 
 	// qosConf is used to get pod qos configuration
 	qosConf *generic.QoSConfiguration
+
+	// agentConf is used to get reporter configuration
+	agentConf *agent.AgentConfiguration
 
 	// metaServer is used to fetch pod list to calculate numa allocation
 	metaServer *metaserver.MetaServer
@@ -156,6 +165,7 @@ func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, qos
 		kubeletResourcePluginPaths:     kubeletResourcePluginPaths,
 		kubeletResourcePluginStateFile: kubeletResourcePluginStateFile,
 		qosConf:                        qosConf,
+		agentConf:                      agentConf,
 		metaServer:                     metaServer,
 		numaSocketZoneNodeMap:          numaSocketZoneNodeMap,
 		numaCacheGroupZoneNodeMap:      numaCacheGroupZoneNodeMap,
@@ -260,7 +270,7 @@ func (p *topologyAdapterImpl) GetTopologyZones(parentCtx context.Context) ([]*no
 	}
 
 	// add cache group zone node into topology zone generator by numaCacheGroupZoneNodeMap
-	if strings.Contains(strings.ToLower(p.metaServer.MachineInfo.CPUVendorID), "amd") {
+	if p.agentConf.EnableReportL3CacheGroup && strings.Contains(strings.ToLower(p.metaServer.MachineInfo.CPUVendorID), string(CPUVendorAMD)) {
 		err = p.addCacheGroupZoneNodes(topologyZoneGenerator)
 		if err != nil {
 			return nil, errors.Wrap(err, "get cache group zone topology failed")
@@ -516,7 +526,7 @@ func (p *topologyAdapterImpl) getZoneResources(allocatableResources *podresv1.Al
 		errList = append(errList, err)
 	}
 
-	if strings.Contains(strings.ToLower(p.metaServer.MachineInfo.CPUVendorID), "amd") {
+	if p.agentConf.EnableReportL3CacheGroup && strings.Contains(strings.ToLower(p.metaServer.MachineInfo.CPUVendorID), string(CPUVendorAMD)) {
 		// process cache group zone node resources
 		reservedCPUs := machine.MustParse(p.reservedCPUs)
 		for cacheID, cpusets := range p.cacheGroupCPUsMap {
@@ -732,7 +742,7 @@ func (p *topologyAdapterImpl) getZoneAttributes(allocatableResources *podresv1.A
 	}
 
 	// generate the attributes of cache group zone node.
-	if strings.Contains(strings.ToLower(p.metaServer.MachineInfo.CPUVendorID), "amd") {
+	if p.agentConf.EnableReportL3CacheGroup && strings.Contains(strings.ToLower(p.metaServer.MachineInfo.CPUVendorID), string(CPUVendorAMD)) {
 		for groupID, cpus := range p.cacheGroupCPUsMap {
 			cacheGroupZoneNode := util.GenerateCacheGroupZoneNode(groupID)
 
@@ -756,7 +766,9 @@ func (p *topologyAdapterImpl) generateNumaNodeAttr(node util.ZoneNode) []nodev1a
 	var attrs []nodev1alpha1.Attribute
 
 	attrs = append(attrs, p.generateNodeDistanceAttr(node)...)
-	attrs = append(attrs, p.generateNumaNodeThreadTopologyAttr(node)...)
+	if p.agentConf.EnableReportThreadTopology {
+		attrs = append(attrs, p.generateNumaNodeThreadTopologyAttr(node)...)
+	}
 	attrs = append(attrs, p.generateNumaNodeResourceReservedAttr(node)...)
 
 	return attrs
