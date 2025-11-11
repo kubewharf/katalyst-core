@@ -19,12 +19,17 @@ package options
 import (
 	"github.com/spf13/pflag"
 
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 type LogsOptions struct {
 	LogPackageLevel    general.LoggingPKG
 	LogFileMaxSizeInMB uint64
+	CustomLogDir       string
+	LogBufferSize      int
+	LogFileMaxAge      int
+	LogFileMaxBackups  int
 }
 
 func NewLogsOptions() *LogsOptions {
@@ -36,12 +41,21 @@ func NewLogsOptions() *LogsOptions {
 
 // AddFlags adds flags  to the specified FlagSet.
 func (o *LogsOptions) AddFlags(fs *pflag.FlagSet) {
+	fs.StringVar(&o.CustomLogDir, "custom_log_dir", o.CustomLogDir, "directory to store logs for custom logger")
 	fs.Var(&o.LogPackageLevel, "logs-package-level", "the default package level for logging")
 	fs.Uint64Var(&o.LogFileMaxSizeInMB, "log-file-max-size", o.LogFileMaxSizeInMB, "Max size of klog file in MB.")
+	fs.IntVar(&o.LogBufferSize, "log-buffer-size", o.LogBufferSize, "size of the ring buffer to store async logs")
+	fs.IntVar(&o.LogFileMaxAge, "log-file-max-age", o.LogFileMaxAge, "max age of klog log file in days")
+	fs.IntVar(&o.LogFileMaxBackups, "log-file-max-backups", o.LogFileMaxBackups, "max number of klog log file backups")
 }
 
-func (o *LogsOptions) ApplyTo() error {
+func (o *LogsOptions) ApplyTo(c *generic.LogConfiguration) error {
 	general.SetDefaultLoggingPackage(o.LogPackageLevel)
 	general.SetLogFileMaxSize(o.LogFileMaxSizeInMB)
+	c.CustomLogDir = o.CustomLogDir
+	c.LogBufferSize = o.LogBufferSize
+	c.LogFileMaxSize = int(o.LogFileMaxSizeInMB)
+	c.LogFileMaxAge = o.LogFileMaxAge
+	c.LogFileMaxBackups = o.LogFileMaxBackups
 	return nil
 }
