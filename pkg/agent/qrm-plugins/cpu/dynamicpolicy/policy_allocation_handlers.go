@@ -736,6 +736,9 @@ func (p *DynamicPolicy) putAllocationsAndAdjustAllocationEntriesResizeAware(orig
 			if err != nil {
 				return fmt.Errorf("calcPoolResizeRequest cannot calc pool resize request: %q", err)
 			}
+			if _, ok := poolsQuantityMap[poolName]; !ok {
+				poolsQuantityMap[poolName] = make(map[int]int)
+			}
 
 			// update the pool size
 			poolsQuantityMap[poolName][targetNumaID] += int(math.Ceil(resizeReqFloat64))
