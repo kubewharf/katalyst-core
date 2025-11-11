@@ -434,14 +434,6 @@ func (p *GPUMemPlugin) Allocate(
 		return util.CreateEmptyAllocationResponse(resourceReq, p.ResourceName()), nil
 	}
 
-	if deviceReq == nil {
-		general.InfoS("Nil device request, returning empty response",
-			"podNamespace", resourceReq.PodNamespace,
-			"podName", resourceReq.PodName,
-			"containerName", resourceReq.ContainerName)
-		return util.CreateEmptyAllocationResponse(resourceReq, p.ResourceName()), nil
-	}
-
 	qosLevel, err := util.GetKatalystQoSLevelFromResourceReq(p.Conf.QoSConfiguration, resourceReq, p.PodAnnotationKeptKeys, p.PodLabelKeptKeys)
 	if err != nil {
 		err = fmt.Errorf("GetKatalystQoSLevelFromResourceReq for pod: %s/%s, container: %s failed with error: %v",
@@ -502,6 +494,15 @@ func (p *GPUMemPlugin) Allocate(
 			return nil, fmt.Errorf("packAllocationResponse failed with error: %w", packErr)
 		}
 		return resp, nil
+	}
+
+	if deviceReq == nil {
+		general.InfoS("Nil device request, returning empty response",
+			"podNamespace", resourceReq.PodNamespace,
+			"podName", resourceReq.PodName,
+			"containerName", resourceReq.ContainerName)
+		// if deviceReq is nil, return empty response to re-allocate after device allocation
+		return util.CreateEmptyAllocationResponse(resourceReq, p.ResourceName()), nil
 	}
 
 	// Get GPU topology
