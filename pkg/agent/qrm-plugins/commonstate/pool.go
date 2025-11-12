@@ -64,6 +64,10 @@ func IsSystemPool(poolName string) bool {
 	return strings.HasPrefix(poolName, PoolNamePrefixSystem)
 }
 
+func IsShareNUMABindingPool(poolName string) bool {
+	return strings.Contains(poolName, NUMAPoolInfix)
+}
+
 func GetPoolType(poolName string) string {
 	if IsIsolationPool(poolName) {
 		return PoolNamePrefixIsolation

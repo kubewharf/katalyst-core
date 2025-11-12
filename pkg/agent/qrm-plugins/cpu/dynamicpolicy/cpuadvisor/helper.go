@@ -85,15 +85,25 @@ func (lwr *ListAndWatchResponse) GetSharedBindingNUMAs() (sets.Int, error) {
 	return sharedBindingNUMAs, nil
 }
 
-// GetBlocks parses ListAndWatchResponse and returns map[int][]*Block,
+type BlockInfo struct {
+	Block
+	OwnerPoolEntryMap map[string]BlockEntry
+}
+
+type BlockEntry struct {
+	EntryName    string
+	SubEntryName string
+}
+
+// GetBlocks parses ListAndWatchResponse and returns map[int][]*BlockInfo,
 // the map is keyed as numa id -> blocks slice (which has been sorted and deduped)
-func (lwr *ListAndWatchResponse) GetBlocks() (map[int][]*Block, error) {
+func (lwr *ListAndWatchResponse) GetBlocks() (map[int][]*BlockInfo, error) {
 	if lwr == nil {
 		return nil, fmt.Errorf("got nil ListAndWatchResponse")
 	}
 
-	numaToBlocks := make(map[int]map[string]*Block)
-	numaToSortedBlocks := make(map[int][]*Block)
+	numaToBlocks := make(map[int]map[string]*BlockInfo)
+	numaToSortedBlocks := make(map[int][]*BlockInfo)
 	blocksEntryNames := make(map[string][][]string)
 	visBlocksToNUMA := make(map[string]int)
 
@@ -119,7 +129,7 @@ func (lwr *ListAndWatchResponse) GetBlocks() (map[int][]*Block, error) {
 				}
 
 				if numaToBlocks[numaIdInt] == nil {
-					numaToBlocks[numaIdInt] = make(map[string]*Block)
+					numaToBlocks[numaIdInt] = make(map[string]*BlockInfo)
 				}
 
 				for _, block := range calculationResult.Blocks {
@@ -140,7 +150,19 @@ func (lwr *ListAndWatchResponse) GetBlocks() (map[int][]*Block, error) {
 						}
 					}
 
-					numaToBlocks[numaIdInt][blockId] = block
+					bi, ok := numaToBlocks[numaIdInt][blockId]
+					if !ok {
+						bi = &BlockInfo{
+							Block:             *block,
+							OwnerPoolEntryMap: make(map[string]BlockEntry),
+						}
+						numaToBlocks[numaIdInt][blockId] = bi
+					}
+
+					bi.OwnerPoolEntryMap[calculationInfo.OwnerPoolName] = BlockEntry{
+						EntryName:    entryName,
+						SubEntryName: subEntryName,
+					}
 					visBlocksToNUMA[blockId] = numaIdInt
 					blocksEntryNames[blockId] = append(blocksEntryNames[blockId], []string{entryName, subEntryName})
 				}
@@ -149,7 +171,7 @@ func (lwr *ListAndWatchResponse) GetBlocks() (map[int][]*Block, error) {
 	}
 
 	for numaId, blocksMap := range numaToBlocks {
-		blocks := make([]*Block, 0, len(blocksMap))
+		blocks := make([]*BlockInfo, 0, len(blocksMap))
 
 		for _, block := range blocksMap {
 			blocks = append(blocks, block)
@@ -170,7 +192,7 @@ func (lwr *ListAndWatchResponse) GetBlocks() (map[int][]*Block, error) {
 }
 
 // getBlocksLessFunc judges if a block is less than another by entryNames of them
-func getBlocksLessFunc(blocksEntryNames map[string][][]string, blocks []*Block) func(i, j int) bool {
+func getBlocksLessFunc(blocksEntryNames map[string][][]string, blocks []*BlockInfo) func(i, j int) bool {
 	return func(i, j int) bool {
 		blockId1 := blocks[i].BlockId
 		blockId2 := blocks[j].BlockId
@@ -231,10 +253,11 @@ func getBlocksLessFunc(blocksEntryNames map[string][][]string, blocks []*Block) 
 	}
 }
 
-func logNUMAToBlocksSeq(numaToSortedBlocks map[int][]*Block, blocksEntryNames map[string][][]string) {
+func logNUMAToBlocksSeq(numaToSortedBlocks map[int][]*BlockInfo, blocksEntryNames map[string][][]string) {
 	for numaId, blocks := range numaToSortedBlocks {
 		for i, block := range blocks {
-			general.InfoS("logNUMAToBlocksSeq", "numaId", numaId, "seq", i, "blockId", block.BlockId, "entryNames", blocksEntryNames[block.BlockId])
+			general.InfoS("logNUMAToBlocksSeq", "numaId", numaId, "seq", i, "blockId",
+				block.BlockId, "OwnerPoolEntryMap", block.OwnerPoolEntryMap, "entryNames", blocksEntryNames[block.BlockId])
 		}
 	}
 }
