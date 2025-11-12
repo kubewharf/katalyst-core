@@ -18,8 +18,10 @@ package cpu
 
 import (
 	"fmt"
+	"math"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
@@ -186,6 +188,13 @@ func (cra *cpuResourceAdvisor) updateNumasAvailableResource() {
 }
 
 func (cra *cpuResourceAdvisor) updateReservedForReclaim() {
+	numaReservedRatio := cra.conf.GetDynamicConfiguration().NumaMinReclaimedResourceRatioForAllocate[v1.ResourceCPU]
+	if numaReservedRatio.Value() != 0 {
+		numaReserved := cra.conf.GetDynamicConfiguration().NumaMinReclaimedResourceForAllocate[v1.ResourceCPU]
+		cra.updateReservedForReclaimByNuma(numaReservedRatio, numaReserved)
+		return
+	}
+
 	coreNumReservedForReclaim := cra.conf.GetDynamicConfiguration().MinReclaimedResourceForAllocate[v1.ResourceCPU]
 	if coreNumReservedForReclaim.Value() > int64(cra.metaServer.NumCPUs) {
 		coreNumReservedForReclaim.Set(int64(cra.metaServer.NumCPUs))
@@ -196,6 +205,21 @@ func (cra *cpuResourceAdvisor) updateReservedForReclaim() {
 		coreNumReservedForReclaim.Set(int64(cra.metaServer.NumNUMANodes))
 	}
 	cra.reservedForReclaim = machine.GetCoreNumReservedForReclaim(int(coreNumReservedForReclaim.Value()), cra.metaServer.NumNUMANodes)
+	general.Infof("reservedForReclaim: %v, coreNumReservedForReclaim %v", cra.reservedForReclaim, coreNumReservedForReclaim.Value())
+}
+
+func (cra *cpuResourceAdvisor) updateReservedForReclaimByNuma(numaReservedRatio resource.Quantity,
+	numaReserved resource.Quantity,
+) {
+	reservedForReclaim := make(map[int]int)
+	for id := 0; id < cra.metaServer.NumNUMANodes; id++ {
+		size := cra.metaServer.NUMAToCPUs.CPUSizeInNUMAs(id)
+		reserved := math.Ceil(numaReservedRatio.AsApproximateFloat64() * float64(size))
+		reservedForReclaim[id] = int(math.Max(numaReserved.AsApproximateFloat64(), reserved))
+	}
+	cra.reservedForReclaim = reservedForReclaim
+	general.Infof("reservedForReclaim: %v, numaReservedRatio %v, numaReserved %v",
+		reservedForReclaim, numaReservedRatio.AsApproximateFloat64(), numaReserved.AsApproximateFloat64())
 }
 
 func (cra *cpuResourceAdvisor) getNumasReservedForAllocate(numas machine.CPUSet) float64 {

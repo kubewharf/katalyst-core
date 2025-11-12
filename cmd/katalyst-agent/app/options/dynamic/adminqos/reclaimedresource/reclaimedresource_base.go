@@ -29,14 +29,15 @@ import (
 )
 
 type ReclaimedResourceOptions struct {
-	EnableReclaim                        bool
-	DisableReclaimSharePools             []string
-	ReservedResourceForReport            general.ResourceList
-	MinReclaimedResourceForReport        general.ResourceList
-	MinIgnoredReclaimedResourceForReport general.ResourceList
-	ReservedResourceForAllocate          general.ResourceList
-	ReservedResourceForReclaimedCores    general.ResourceList
-
+	EnableReclaim                           bool
+	DisableReclaimSharePools                []string
+	ReservedResourceForReport               general.ResourceList
+	MinReclaimedResourceForReport           general.ResourceList
+	MinIgnoredReclaimedResourceForReport    general.ResourceList
+	ReservedResourceForAllocate             general.ResourceList
+	ReservedResourceForReclaimedCores       general.ResourceList
+	NumaMinReservedResourceRatioForAllocate general.ResourceList
+	NumaMinReservedResourceForAllocate      general.ResourceList
 	*cpuheadroom.CPUHeadroomOptions
 	*memoryheadroom.MemoryHeadroomOptions
 }
@@ -64,6 +65,14 @@ func NewReclaimedResourceOptions() *ReclaimedResourceOptions {
 			v1.ResourceCPU:    resource.MustParse("4"),
 			v1.ResourceMemory: resource.MustParse("0"),
 		},
+		NumaMinReservedResourceRatioForAllocate: map[v1.ResourceName]resource.Quantity{
+			v1.ResourceCPU:    resource.MustParse("0"),
+			v1.ResourceMemory: resource.MustParse("0"),
+		},
+		NumaMinReservedResourceForAllocate: map[v1.ResourceName]resource.Quantity{
+			v1.ResourceCPU:    resource.MustParse("2"),
+			v1.ResourceMemory: resource.MustParse("0"),
+		},
 		CPUHeadroomOptions:    cpuheadroom.NewCPUHeadroomOptions(),
 		MemoryHeadroomOptions: memoryheadroom.NewMemoryHeadroomOptions(),
 	}
@@ -87,6 +96,10 @@ func (o *ReclaimedResourceOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"reserved reclaimed resource actually not allocate to reclaimed resource")
 	fs.Var(&o.ReservedResourceForReclaimedCores, "reserved-resource-for-reclaimed-cores",
 		"reserved resources for reclaimed_cores pods")
+	fs.Var(&o.NumaMinReservedResourceRatioForAllocate, "numa-min-reserved-resource-ratio-for-reclaimed-cores",
+		"min NUMA level reserved resources ratio for reclaimed_cores pods")
+	fs.Var(&o.NumaMinReservedResourceForAllocate, "numa-min-reserved-resource-for-reclaimed-cores",
+		"min NUMA level reserved resources for reclaimed_cores pods")
 
 	o.CPUHeadroomOptions.AddFlags(fss)
 	o.MemoryHeadroomOptions.AddFlags(fss)
@@ -102,6 +115,8 @@ func (o *ReclaimedResourceOptions) ApplyTo(c *reclaimedresource.ReclaimedResourc
 	c.MinIgnoredReclaimedResourceForReport = v1.ResourceList(o.MinIgnoredReclaimedResourceForReport)
 	c.ReservedResourceForAllocate = v1.ResourceList(o.ReservedResourceForAllocate)
 	c.MinReclaimedResourceForAllocate = v1.ResourceList(o.ReservedResourceForReclaimedCores)
+	c.NumaMinReclaimedResourceRatioForAllocate = v1.ResourceList(o.NumaMinReservedResourceRatioForAllocate)
+	c.NumaMinReclaimedResourceForAllocate = v1.ResourceList(o.NumaMinReservedResourceForAllocate)
 
 	errList = append(errList, o.CPUHeadroomOptions.ApplyTo(c.CPUHeadroomConfiguration))
 	errList = append(errList, o.MemoryHeadroomOptions.ApplyTo(c.MemoryHeadroomConfiguration))
