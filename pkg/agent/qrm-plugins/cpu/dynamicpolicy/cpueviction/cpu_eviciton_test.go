@@ -27,6 +27,7 @@ import (
 
 	qrmstate "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
@@ -50,10 +51,13 @@ func makeMetaServer(metricsFetcher types.MetricsFetcher, cpuTopology *machine.CP
 
 func makeState(topo *machine.CPUTopology) (qrmstate.State, error) {
 	tmpDir, err := os.MkdirTemp("", "checkpoint-makeState")
+	stateDirectoryConfig := &statedirectory.StateDirectoryConfiguration{
+		StateFileDirectory: tmpDir,
+	}
 	if err != nil {
 		return nil, fmt.Errorf("make tmp dir for checkpoint failed with error: %v", err)
 	}
-	return qrmstate.NewCheckpointState(tmpDir, "test", "test", topo, false, qrmstate.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
+	return qrmstate.NewCheckpointState(stateDirectoryConfig, "test", "test", topo, false, qrmstate.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
 }
 
 func TestNewCPUPressureEviction(t *testing.T) {

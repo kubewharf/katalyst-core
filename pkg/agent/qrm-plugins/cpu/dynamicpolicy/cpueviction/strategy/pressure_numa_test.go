@@ -25,6 +25,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
+
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -96,7 +98,10 @@ func TestNumaCPUPressureEviction_update(t *testing.T) {
 	defer os.RemoveAll(testingDir)
 
 	cpuTopology, _ := machine.GenerateDummyCPUTopology(16, 2, 4)
-	state1, _ := state.NewCheckpointState(testingDir, "test", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
+	stateDirectoryConfig := &statedirectory.StateDirectoryConfiguration{
+		StateFileDirectory: testingDir,
+	}
+	state1, _ := state.NewCheckpointState(stateDirectoryConfig, "test", "test", cpuTopology, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
 
 	podEntry := state.PodEntries{
 		"pod1": state.ContainerEntries{
