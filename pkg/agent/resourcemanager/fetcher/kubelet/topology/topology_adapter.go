@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -42,6 +43,7 @@ import (
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-api/pkg/utils"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
@@ -50,6 +52,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/kubelet/podresources"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
@@ -57,6 +60,12 @@ const (
 	getTopologyZonesTimeout = 10 * time.Second
 
 	syncMemoryBandwidthInterval = 3 * time.Minute
+)
+
+type CPUVendor string
+
+const (
+	CPUVendorAMD CPUVendor = "amd"
 )
 
 // NumaInfoGetter is to get numa info
@@ -75,11 +84,26 @@ type topologyAdapterImpl struct {
 	// qosConf is used to get pod qos configuration
 	qosConf *generic.QoSConfiguration
 
+	// agentConf is used to get reporter configuration
+	agentConf *agent.AgentConfiguration
+
 	// metaServer is used to fetch pod list to calculate numa allocation
 	metaServer *metaserver.MetaServer
 
 	// numaSocketZoneNodeMap map numa zone node => socket zone node
 	numaSocketZoneNodeMap map[util.ZoneNode]util.ZoneNode
+
+	// numaCacheGroupZoneNodeMap map numa zone node => cache group zone nodes
+	numaCacheGroupZoneNodeMap map[util.ZoneNode][]util.ZoneNode
+
+	// numaDistanceMap map the distance between a specified numa and other numa.
+	numaDistanceMap map[int][]machine.NumaDistanceInfo
+
+	// cacheGroupCPUsMap records the CPU list in the cache group.
+	cacheGroupCPUsMap map[int]sets.Int
+
+	// threadSiblingMap  records the mapping relationship between threads belonging to the same physical CPU.
+	threadSiblingMap map[int]int
 
 	// skipDeviceNames name of devices which will be skipped in getting numa allocatable and allocation
 	skipDeviceNames sets.String
@@ -106,10 +130,16 @@ type topologyAdapterImpl struct {
 	numaMBWCapacityMap map[int]int64
 	// numaMBWAllocatableMap map numa id => memory bandwidth allocatable
 	numaMBWAllocatableMap map[int]int64
+
+	// needAggregateReportingDevices is the devices needed to be aggregated reporting
+	needAggregateReportingDevices []string
+
+	// reservedCPUs is the cpus reserved
+	reservedCPUs string
 }
 
 // NewPodResourcesServerTopologyAdapter creates a topology adapter which uses pod resources server
-func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, qosConf *generic.QoSConfiguration,
+func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, qosConf *generic.QoSConfiguration, agentConf *agent.AgentConfiguration,
 	endpoints []string, kubeletResourcePluginPaths []string, kubeletResourcePluginStateFile string, resourceNameToZoneTypeMap map[string]string,
 	skipDeviceNames sets.String, numaInfoGetter NumaInfoGetter, podResourcesFilter PodResourcesFilter,
 	getClientFunc podresources.GetClientFunc, needValidationResources []string,
@@ -129,19 +159,26 @@ func NewPodResourcesServerTopologyAdapter(metaServer *metaserver.MetaServer, qos
 	}
 
 	numaSocketZoneNodeMap := util.GenerateNumaSocketZone(numaInfo)
-
+	numaCacheGroupZoneNodeMap := util.GenerateNumaCacheGroupZone(numaInfo)
 	adapter := &topologyAdapterImpl{
 		endpoints:                      endpoints,
 		kubeletResourcePluginPaths:     kubeletResourcePluginPaths,
 		kubeletResourcePluginStateFile: kubeletResourcePluginStateFile,
 		qosConf:                        qosConf,
+		agentConf:                      agentConf,
 		metaServer:                     metaServer,
 		numaSocketZoneNodeMap:          numaSocketZoneNodeMap,
+		numaCacheGroupZoneNodeMap:      numaCacheGroupZoneNodeMap,
+		numaDistanceMap:                metaServer.NumaDistanceMap,
+		cacheGroupCPUsMap:              machine.GetCacheGroupCPUs(metaServer.MachineInfo),
+		threadSiblingMap:               machine.GetThreadSiblingInfo(metaServer.MachineInfo),
 		skipDeviceNames:                skipDeviceNames,
 		getClientFunc:                  getClientFunc,
 		podResourcesFilter:             podResourcesFilter,
 		resourceNameToZoneTypeMap:      resourceNameToZoneTypeMap,
 		needValidationResources:        needValidationResources,
+		needAggregateReportingDevices:  agentConf.NeedAggregateReportingDevices,
+		reservedCPUs:                   agentConf.ReservedCPUList,
 	}
 
 	return adapter, nil
@@ -171,9 +208,9 @@ func (p *topologyAdapterImpl) GetTopologyZones(parentCtx context.Context) ([]*no
 		return nil, errors.Wrap(err, "get allocatable Resources from pod resource server failed")
 	}
 
+	listPodResourcesResponseStr, _ := json.Marshal(listPodResourcesResponse)
+	allocatableResourcesResponseStr, _ := json.Marshal(allocatableResources)
 	if klog.V(5).Enabled() {
-		listPodResourcesResponseStr, _ := json.Marshal(listPodResourcesResponse)
-		allocatableResourcesResponseStr, _ := json.Marshal(allocatableResources)
 		klog.Infof("list pod Resources: %s\n allocatable Resources: %s", string(listPodResourcesResponseStr),
 			string(allocatableResourcesResponseStr))
 	}
@@ -230,6 +267,14 @@ func (p *topologyAdapterImpl) GetTopologyZones(parentCtx context.Context) ([]*no
 	err = p.addDeviceZoneNodes(topologyZoneGenerator, allocatableResources)
 	if err != nil {
 		return nil, errors.Wrap(err, "get device zone topology failed")
+	}
+
+	// add cache group zone node into topology zone generator by numaCacheGroupZoneNodeMap
+	if p.agentConf.EnableReportL3CacheGroup && strings.Contains(strings.ToLower(p.metaServer.MachineInfo.CPUVendorID), string(CPUVendorAMD)) {
+		err = p.addCacheGroupZoneNodes(topologyZoneGenerator)
+		if err != nil {
+			return nil, errors.Wrap(err, "get cache group zone topology failed")
+		}
 	}
 
 	return topologyZoneGenerator.GenerateTopologyZoneStatus(zoneAllocations, zoneResources, zoneAttributes, zoneSiblings, nil), nil
@@ -397,6 +442,26 @@ func (p *topologyAdapterImpl) addDeviceZoneNodes(generator *util.TopologyZoneGen
 	return nil
 }
 
+// addCacheGroupZoneNodes add the cache group zone nodes to the generator.
+func (p *topologyAdapterImpl) addCacheGroupZoneNodes(generator *util.TopologyZoneGenerator) error {
+	var errList []error
+	for parent, cacheGroups := range p.numaCacheGroupZoneNodeMap {
+		for _, cacheGroup := range cacheGroups {
+			err := generator.AddNode(&parent, cacheGroup)
+			if err != nil {
+				errList = append(errList, err)
+				continue
+			}
+		}
+	}
+
+	if len(errList) > 0 {
+		return utilerrors.NewAggregate(errList)
+	}
+
+	return nil
+}
+
 // getZoneResources gets a map of zone node to zone Resources. The zone node Resources is combined by allocatable
 // device and allocatable resources from pod resources server
 func (p *topologyAdapterImpl) getZoneResources(allocatableResources *podresv1.AllocatableResourcesResponse) (map[util.ZoneNode]nodev1alpha1.Resources, error) {
@@ -424,6 +489,18 @@ func (p *topologyAdapterImpl) getZoneResources(allocatableResources *podresv1.Al
 		return nil, err
 	}
 
+	if len(p.needAggregateReportingDevices) > 0 {
+		zoneAllocatable, err = p.aggregateReportDevicesToSocket(zoneAllocatable)
+		if err != nil {
+			return nil, err
+		}
+
+		zoneCapacity, err = p.aggregateReportDevicesToSocket(zoneCapacity)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// calculate Resources capacity and allocatable
 	for _, resources := range allocatableResources.Resources {
 		if resources == nil {
@@ -447,6 +524,33 @@ func (p *topologyAdapterImpl) getZoneResources(allocatableResources *podresv1.Al
 	zoneAllocatable, zoneCapacity, err = p.addNumaMemoryBandwidth(zoneAllocatable, zoneCapacity)
 	if err != nil {
 		errList = append(errList, err)
+	}
+
+	if p.agentConf.EnableReportL3CacheGroup && strings.Contains(strings.ToLower(p.metaServer.MachineInfo.CPUVendorID), string(CPUVendorAMD)) {
+		// process cache group zone node resources
+		reservedCPUs := machine.MustParse(p.reservedCPUs)
+		for cacheID, cpusets := range p.cacheGroupCPUsMap {
+			cacheGroupZone := util.GenerateCacheGroupZoneNode(cacheID)
+			// calculate capacity by the sum of cache group cpus
+			capacity, err := resource.ParseQuantity(fmt.Sprintf("%d", cpusets.Len()))
+			if err != nil {
+				errList = append(errList, err)
+			}
+			// calculate the allocatable amount by deducting the reserved cpus
+			cacheGroupCPUSets := machine.NewCPUSet(cpusets.List()...)
+			allocatableCPUSets := cacheGroupCPUSets.Difference(reservedCPUs)
+			allocatable, err := resource.ParseQuantity(fmt.Sprintf("%d", allocatableCPUSets.Size()))
+			if err != nil {
+				errList = append(errList, err)
+			}
+
+			zoneAllocatable[cacheGroupZone] = &v1.ResourceList{
+				"cpu": allocatable,
+			}
+			zoneCapacity[cacheGroupZone] = &v1.ResourceList{
+				"cpu": capacity,
+			}
+		}
 	}
 
 	if len(errList) > 0 {
@@ -632,11 +736,114 @@ func (p *topologyAdapterImpl) getZoneAttributes(allocatableResources *podresv1.A
 		}
 	}
 
+	// generate the attributes of numa zone node
+	for numaNode := range p.numaSocketZoneNodeMap {
+		zoneAttributes[numaNode] = p.generateNumaNodeAttr(numaNode)
+	}
+
+	// generate the attributes of cache group zone node.
+	if p.agentConf.EnableReportL3CacheGroup && strings.Contains(strings.ToLower(p.metaServer.MachineInfo.CPUVendorID), string(CPUVendorAMD)) {
+		for groupID, cpus := range p.cacheGroupCPUsMap {
+			cacheGroupZoneNode := util.GenerateCacheGroupZoneNode(groupID)
+
+			zoneAttributes[cacheGroupZoneNode] = util.ZoneAttributes{
+				nodev1alpha1.Attribute{
+					Name:  "cpu_lists",
+					Value: machine.NewCPUSet(cpus.List()...).String(),
+				},
+			}
+		}
+	}
+
 	if len(errList) > 0 {
 		return nil, utilerrors.NewAggregate(errList)
 	}
 
 	return zoneAttributes, nil
+}
+
+func (p *topologyAdapterImpl) generateNumaNodeAttr(node util.ZoneNode) []nodev1alpha1.Attribute {
+	var attrs []nodev1alpha1.Attribute
+
+	attrs = append(attrs, p.generateNodeDistanceAttr(node)...)
+	if p.agentConf.EnableReportThreadTopology {
+		attrs = append(attrs, p.generateNumaNodeThreadTopologyAttr(node)...)
+	}
+	attrs = append(attrs, p.generateNumaNodeResourceReservedAttr(node)...)
+
+	return attrs
+}
+
+func (p *topologyAdapterImpl) generateNumaNodeThreadTopologyAttr(node util.ZoneNode) []nodev1alpha1.Attribute {
+	var attrs []nodev1alpha1.Attribute
+
+	numaID, err := strconv.Atoi(node.Meta.Name)
+	if err != nil {
+		klog.Warningf("convert numaID to int failed: %v", err)
+		return attrs
+	}
+	numaCPUSets := p.metaServer.KatalystMachineInfo.NUMAToCPUs[numaID]
+
+	var threadTopology string
+	for _, cpuID := range numaCPUSets.ToSliceInt() {
+		threadTopology += fmt.Sprintf("%d:%d,", cpuID, p.threadSiblingMap[cpuID])
+	}
+	threadTopology = strings.TrimSuffix(threadTopology, ",")
+
+	attrs = append(attrs, nodev1alpha1.Attribute{
+		Name:  "thread_topology_info",
+		Value: threadTopology,
+	})
+
+	return attrs
+}
+
+func (p *topologyAdapterImpl) generateNumaNodeResourceReservedAttr(node util.ZoneNode) []nodev1alpha1.Attribute {
+	var attrs []nodev1alpha1.Attribute
+
+	numaID, err := strconv.Atoi(node.Meta.Name)
+	if err != nil {
+		klog.Warningf("convert numaID to int failed: %v", err)
+		return attrs
+	}
+
+	numaCapacity := p.metaServer.KatalystMachineInfo.NUMAToCPUs[numaID]
+	numaReserved := numaCapacity.Intersection(machine.MustParse(p.reservedCPUs))
+	if numaReserved.IsEmpty() {
+		return attrs
+	}
+
+	attrs = append(attrs, nodev1alpha1.Attribute{
+		Name:  "reserved_cpu_list",
+		Value: numaReserved.String(),
+	})
+
+	return attrs
+}
+
+func (p *topologyAdapterImpl) generateNodeDistanceAttr(node util.ZoneNode) []nodev1alpha1.Attribute {
+	var (
+		distances []int
+		attrs     []nodev1alpha1.Attribute
+	)
+
+	numaID, err := strconv.Atoi(node.Meta.Name)
+	if err != nil {
+		klog.Warningf("convert numaID to int failed: %v", err)
+		return attrs
+	}
+
+	distanceInfos := p.numaDistanceMap[numaID]
+	for _, distanceInfo := range distanceInfos {
+		distances = append(distances, distanceInfo.Distance)
+	}
+
+	attrs = append(attrs, nodev1alpha1.Attribute{
+		Name:  "numa_distance",
+		Value: general.IntSliceToString(distances),
+	})
+
+	return attrs
 }
 
 // aggregateContainerAllocated aggregates resources in each zone used by all containers of a pod and returns a map of zone node to
@@ -708,17 +915,14 @@ func (p *topologyAdapterImpl) addContainerDevices(zoneResources map[util.ZoneNod
 		if device == nil || device.Topology == nil {
 			continue
 		}
-
 		if p.skipDeviceNames != nil && p.skipDeviceNames.Has(device.ResourceName) {
 			continue
 		}
-
 		resourceName := v1.ResourceName(device.ResourceName)
 		for _, node := range device.Topology.Nodes {
 			if node == nil {
 				continue
 			}
-
 			zoneNode := util.GenerateNumaZoneNode(int(node.ID))
 			zoneResources = addZoneQuantity(zoneResources, zoneNode, resourceName, oneQuantity)
 
@@ -733,6 +937,54 @@ func (p *topologyAdapterImpl) addContainerDevices(zoneResources map[util.ZoneNod
 
 	if len(errList) > 0 {
 		return nil, utilerrors.NewAggregate(errList)
+	}
+
+	return zoneResources, nil
+}
+
+func (p *topologyAdapterImpl) aggregateReportDevicesToSocket(zoneResources map[util.ZoneNode]*v1.ResourceList) (map[util.ZoneNode]*v1.ResourceList, error) {
+	if zoneResources == nil {
+		zoneResources = make(map[util.ZoneNode]*v1.ResourceList)
+	}
+	deviceSocketLevelQuantity := make(map[string]map[int]*resource.Quantity)
+
+	for zoneNode, resourceList := range zoneResources {
+		if resourceList == nil || zoneNode.Meta.Type != nodev1alpha1.TopologyTypeNuma {
+			continue
+		}
+
+		nodeID, err := strconv.Atoi(zoneNode.Meta.Name)
+		if err != nil {
+			klog.Warningf("failed to convert numa %s to int: %v", zoneNode.Meta.Name, err)
+			continue
+		}
+
+		socketID, ok := p.metaServer.NUMANodeIDToSocketID[nodeID]
+		if !ok {
+			klog.Warningf("failed to get socketID for numa %d", nodeID)
+			continue
+		}
+
+		for resourceName, quantity := range *resourceList {
+			if _, ok := deviceSocketLevelQuantity[string(resourceName)]; !ok {
+				deviceSocketLevelQuantity[string(resourceName)] = make(map[int]*resource.Quantity)
+			}
+			if _, ok := deviceSocketLevelQuantity[string(resourceName)][socketID]; !ok {
+				deviceSocketLevelQuantity[string(resourceName)][socketID] = &resource.Quantity{}
+			}
+			deviceSocketLevelQuantity[string(resourceName)][socketID].Add(quantity)
+		}
+	}
+
+	for _, resourceName := range p.needAggregateReportingDevices {
+		socketQuantity, ok := deviceSocketLevelQuantity[resourceName]
+		if !ok {
+			continue
+		}
+		for socketID, quantity := range socketQuantity {
+			zoneNode := util.GenerateSocketZoneNode(socketID)
+			zoneResources = addZoneQuantity(zoneResources, zoneNode, v1.ResourceName(resourceName), *quantity)
+		}
 	}
 
 	return zoneResources, nil
@@ -837,6 +1089,9 @@ func addZoneQuantity(zoneResourceList map[util.ZoneNode]*v1.ResourceList, zoneNo
 	}
 
 	quantity.Add(value)
+	if strings.HasPrefix(string(resourceName), v1.ResourceHugePagesPrefix) {
+		quantity.Format = resource.BinarySI
+	}
 	resourceList[resourceName] = quantity
 
 	return zoneResourceList

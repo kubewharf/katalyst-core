@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -37,6 +38,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
 )
 
@@ -46,6 +48,7 @@ const (
 	ResourceNameNBW v1.ResourceName = "nbw"
 
 	PropertyNameCIS         = "cis"
+	PropertyNameCPUFlags    = "cpu_flags"
 	PropertyNameNUMA        = "numa"
 	PropertyNameTopology    = "topology"
 	PropertyNameCPUCodename = "cpu_codename"
@@ -136,6 +139,7 @@ func (p *systemPlugin) getResourceProperties() ([]*v1alpha1.ReportContent, error
 		p.getCPUCount(),
 		p.getMemoryCapacity(),
 		p.getCISProperty(),
+		p.getCPUFlagsProperty(),
 		p.getNetworkTopologyProperty(),
 		p.getCPUCodenameProperty(),
 		p.getIsVMProperty(),
@@ -204,6 +208,24 @@ func (p *systemPlugin) getCISProperty() *nodev1alpha1.Property {
 	return &nodev1alpha1.Property{
 		PropertyName:   PropertyNameCIS,
 		PropertyValues: p.metaServer.SupportInstructionSet.List(),
+	}
+}
+
+// getCPUFlagsProperty get cpu flags of this machine.
+func (p *systemPlugin) getCPUFlagsProperty() *nodev1alpha1.Property {
+	if !p.conf.EnableReportCPUFlags {
+		return &nodev1alpha1.Property{}
+	}
+
+	cpuFlags, err := machine.GetCPUFlags()
+	if err != nil {
+		klog.Errorf("get cpu flags failed: %s", err)
+		return &nodev1alpha1.Property{}
+	}
+
+	return &nodev1alpha1.Property{
+		PropertyName:   PropertyNameCPUFlags,
+		PropertyValues: []string{strings.Join(cpuFlags, ",")},
 	}
 }
 

@@ -22,6 +22,7 @@ package machine
 import (
 	"fmt"
 	"io/fs"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -1074,6 +1075,81 @@ func TestCollectCpuStats(t *testing.T) {
 			So(err, ShouldBeNil)
 			So(stats, ShouldNotBeNil)
 			So(stats, ShouldBeEmpty)
+		})
+	})
+}
+
+func Test_GetCPUFlags(t *testing.T) {
+	mockey.PatchConvey("Test GetCPUFlags", t, func() {
+		// Scenario 1: Successfully obtain the cpu flag
+		mockey.PatchConvey("successfully obtain the cpu flag", func() {
+			// Analog ReadFile successfully reads the contents of the file containing flags.
+			mockCPUInfo := "processor\t: 0\n" +
+				"vendor_id\t: GenuineIntel\n" +
+				"flags\t\t: fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov"
+			mockey.Mock(ioutil.ReadFile).Return([]byte(mockCPUInfo), nil).Build()
+
+			flags, err := GetCPUFlags()
+			So(err, ShouldBeNil)
+			expectedFlags := []string{"fpu", "vme", "de", "pse", "tsc", "msr", "pae", "mce", "cx8", "apic", "sep", "mtrr", "pge", "mca", "cmov"}
+			So(flags, ShouldResemble, expectedFlags)
+		})
+
+		// Scenario 2: Failed to read the file
+		mockey.PatchConvey("Failed to read the file", func() {
+			// Analog ReadFile returns an error.
+			mockErr := errors.New("permission denied")
+			mockey.Mock(ioutil.ReadFile).Return(nil, mockErr).Build()
+
+			flags, err := GetCPUFlags()
+			So(flags, ShouldBeNil)
+			So(err, ShouldNotBeNil)
+			expectedErrMsg := fmt.Sprintf("could not read file %s", cpuInfoPath)
+			So(err.Error(), ShouldContainSubstring, expectedErrMsg)
+			So(err.Error(), ShouldContainSubstring, mockErr.Error())
+		})
+
+		// Scenario 3: The flags line is not found in the file
+		mockey.PatchConvey("The flags line is not found in the file", func() {
+			// Analog ReadFile successfully reads the contents of the file containing no flags line.
+			mockCPUInfo := "processor\t: 0\n" +
+				"vendor_id\t: GenuineIntel\n" +
+				"model name\t: Intel(R) Core(TM) i9-9900K CPU @ 3.60GHz"
+			mockey.Mock(ioutil.ReadFile).Return([]byte(mockCPUInfo), nil).Build()
+
+			flags, err := GetCPUFlags()
+			So(flags, ShouldBeNil)
+			So(err, ShouldNotBeNil)
+			So(err.Error(), ShouldEqual, "unable to find cpu flag info")
+		})
+
+		// Scenario 4: The flags line content in the file is empty
+		mockey.PatchConvey("The flags line content in the file is empty", func() {
+			// Analog ReadFile successfully reads the contents of the file containing empty flags line.
+			mockCPUInfo := "processor\t: 0\n" +
+				"vendor_id\t: GenuineIntel\n" +
+				"flags\t\t: "
+			mockey.Mock(ioutil.ReadFile).Return([]byte(mockCPUInfo), nil).Build()
+
+			flags, err := GetCPUFlags()
+			So(flags, ShouldBeNil)
+			So(err, ShouldNotBeNil)
+			So(err.Error(), ShouldEqual, "unable to find cpu flag info")
+		})
+
+		// Scenario 5: The flags line in the file is incorrectly formatted (no colon)
+		mockey.PatchConvey("The flags line in the file is not formatted correctly", func() {
+			// Analog ReadFile successfully reads the contents of the file containing flags line not formatted correctly.
+			mockCPUInfo := "processor\t: 0\n" +
+				"vendor_id\t: GenuineIntel\n" +
+				"flags fpu vme de"
+			mockey.Mock(ioutil.ReadFile).Return([]byte(mockCPUInfo), nil).Build()
+
+			flags, err := GetCPUFlags()
+
+			So(flags, ShouldBeNil)
+			So(err, ShouldNotBeNil)
+			So(err.Error(), ShouldEqual, "unable to find cpu flag info")
 		})
 	})
 }

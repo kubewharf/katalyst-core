@@ -67,6 +67,38 @@ func GetExtraCPUInfo() (*ExtraCPUInfo, error) {
 	}, nil
 }
 
+// GetCPUFlags get cpu flags from proc fs.
+func GetCPUFlags() ([]string, error) {
+	cpuInfo, err := ioutil.ReadFile(cpuInfoPath)
+	if err != nil {
+		return nil, errors.Wrapf(err, "could not read file %s", cpuInfoPath)
+	}
+
+	// split content by row
+	lines := strings.Split(string(cpuInfo), "\n")
+	// look for the flags row
+	var cpuFlags string
+	for _, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmedLine, "flags") {
+			// split "flags :..." format, extract the flag section
+			parts := strings.SplitN(trimmedLine, ":", 2)
+			if len(parts) == 2 {
+				cpuFlags = strings.TrimSpace(parts[1])
+				break
+			}
+		}
+	}
+	if cpuFlags == "" {
+		return nil, fmt.Errorf("unable to find cpu flag info")
+	}
+
+	// split the flag string into a list of flags
+	flags := strings.Fields(cpuFlags)
+
+	return flags, nil
+}
+
 // getCPUInstructionInfo get cpu instruction info by parsing flags with "avx2", "avx512".
 func getCPUInstructionInfo(cpuInfo string) sets.String {
 	supportInstructionSet := make(sets.String)
