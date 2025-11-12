@@ -1170,24 +1170,9 @@ func (p *StaticPolicy) getResourceAllocationAnnotations(
 }
 
 func (p *StaticPolicy) removePod(podUID string) error {
-	if p.CgroupV2Env {
-		cgIDList, err := p.metaServer.ExternalManager.ListCgroupIDsForPod(podUID)
-		if err != nil {
-			if general.IsErrNotFound(err) {
-				general.Warningf("cgroup ids for pod not found")
-				return nil
-			}
-			return fmt.Errorf("[NetworkStaticPolicy.removePod] list cgroup ids of pod: %s failed with error: %v", podUID, err)
-		}
-
-		for _, cgID := range cgIDList {
-			go func(cgID uint64) {
-				if err := p.metaServer.ExternalManager.ClearNetClass(cgID); err != nil {
-					general.Errorf("delete net class failed, cgID: %v, err: %v", cgID, err)
-					return
-				}
-			}(cgID)
-		}
+	err := p.clearNetClassIfNeed(podUID)
+	if err != nil {
+		return fmt.Errorf("clearNetClassIfNeed failed with error: %v", err)
 	}
 
 	// update state cache
@@ -1367,6 +1352,29 @@ func (p *StaticPolicy) generateAndApplyGroups() error {
 		}
 	}
 
+	return nil
+}
+
+func (p *StaticPolicy) clearNetClassIfNeed(podUID string) error {
+	if p.CgroupV2Env {
+		cgIDList, err := p.metaServer.ExternalManager.ListCgroupIDsForPod(podUID)
+		if err != nil {
+			if general.IsErrNotFound(err) {
+				general.Warningf("cgroup ids for pod %s not found", podUID)
+				return nil
+			}
+			return fmt.Errorf("list cgroup ids of pod: %s failed with error: %v", podUID, err)
+		}
+
+		for _, cgID := range cgIDList {
+			go func(cgID uint64) {
+				if err := p.metaServer.ExternalManager.ClearNetClass(cgID); err != nil {
+					general.Errorf("delete net class failed, cgID: %v, err: %v", cgID, err)
+					return
+				}
+			}(cgID)
+		}
+	}
 	return nil
 }
 
