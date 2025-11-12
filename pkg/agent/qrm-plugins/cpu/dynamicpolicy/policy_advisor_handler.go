@@ -26,6 +26,7 @@ import (
 	"path"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/samber/lo"
@@ -810,13 +811,19 @@ func (p *DynamicPolicy) applyAllSubCgroupQuotaToUnLimit(containerRelativePath st
 	})
 }
 
-// generateBlockCPUSet generates BlockCPUSet from cpu-advisor response
-// and the logic contains three main steps
-//  1. handle blocks for static pools
-//  2. handle blocks with specified NUMA ids (probably be blocks for
-//     numa_binding dedicated_cores containers and reclaimed_cores containers colocated with them)
-//  3. handle blocks without specified NUMA id (probably be blocks for
-//     not numa_binding dedicated_cores containers and pools of shared_cores and reclaimed_cores containers)
+// generateBlockCPUSet generates BlockCPUSet from cpu-advisor response.
+// The logic contains the following main steps:
+//  1. Handle blocks for static pools and forbidden pools
+//  2. Handle blocks with specified NUMA IDs (for NUMA-bound dedicated_cores containers
+//     and reclaimed_cores containers colocated with them)
+//  3. Handle blocks without specified NUMA ID (for non-NUMA-bound containers including
+//     dedicated_cores, shared_cores and reclaimed_cores containers)
+//
+// For each block, the function allocates CPU sets based on:
+//   - Already allocated CPUs for dedicated cores
+//   - Available CPUs considering already allocated static/forbidden pools
+//   - NUMA topology awareness for better performance
+//   - CPU allocation strategies that minimize CPU migrations
 func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchResponse) (advisorapi.BlockCPUSet, error) {
 	if resp == nil {
 		return nil, fmt.Errorf("got nil resp")
@@ -831,8 +838,9 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 	topology := machineInfo.CPUTopology
 	availableCPUs := topology.CPUDetails.CPUs()
 
-	// walk through static pools to construct blockCPUSet (for static pool),
-	// and calculate availableCPUs after deducting static pools
+	// Walk through static pools to construct blockCPUSet (for static pool),
+	// and calculate availableCPUs after deducting static pools.
+	// Static pools are predefined pools that should not be changed during runtime.
 	blockCPUSet := advisorapi.NewBlockCPUSet()
 	for _, poolName := range state.StaticPools.List() {
 		allocationInfo := p.state.GetAllocationInfo(poolName, commonstate.FakedContainerName)
@@ -850,8 +858,8 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 		availableCPUs = availableCPUs.Difference(blockCPUSet[blockID])
 	}
 
-	// walk through forbidden pools to construct blockCPUSet (for forbidden pool),
-	// and calculate availableCPUs after deducting forbidden pools
+	// Walk through forbidden pools and deduct their CPUs from availableCPUs.
+	// Forbidden pools are reserved pools that should not be allocated to any containers.
 	for _, poolName := range state.ForbiddenPools.List() {
 		allocationInfo := p.state.GetAllocationInfo(poolName, commonstate.FakedContainerName)
 		if allocationInfo == nil {
@@ -861,17 +869,23 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 		availableCPUs = availableCPUs.Difference(allocationInfo.AllocationResult.Clone())
 	}
 
-	// walk through all blocks with specified NUMA ids
-	// for each block, add them into blockCPUSet (if not exist) and renew availableCPUs
+	// Process blocks with specified NUMA IDs (for NUMA-bound containers)
+	// These are typically dedicated_cores containers with NUMA binding and
+	// reclaimed_cores containers colocated with them
 	for numaID, blocks := range numaToBlocks {
 		if numaID == commonstate.FakedNUMAID {
 			continue
 		}
 
+		withNUMABindingShareOrDedicatedPod := false
 		numaAvailableCPUs := availableCPUs.Intersection(topology.CPUDetails.CPUsInNUMANodes(numaID))
-		for _, block := range blocks {
-			if block == nil {
-				general.Warningf("got nil block")
+
+		// First handle blocks for NUMA-bound dedicated_cores containers
+		// Reuse already allocated CPU sets when possible to minimize CPU migration
+		dedicatedBlocks := advisorapi.GetBlocksByPoolName(blocks, commonstate.PoolNameDedicated)
+		for _, block := range dedicatedBlocks {
+			entry, ok := block.OwnerPoolEntryMap[commonstate.PoolNameDedicated]
+			if !ok {
 				continue
 			}
 
@@ -888,20 +902,109 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 					blockID, err)
 			}
 
-			cpuset, err := calculator.TakeByTopology(machineInfo, numaAvailableCPUs, blockResult)
-			if err != nil {
-				return nil, fmt.Errorf("allocate cpuset for NUMA Aware block: %s in NUMA: %d failed with error: %v, numaAvailableCPUs: %d(%s), blockResult: %d",
-					blockID, numaID, err, numaAvailableCPUs.Size(), numaAvailableCPUs.String(), blockResult)
+			allocationInfo := p.state.GetAllocationInfo(entry.EntryName, entry.SubEntryName)
+			if allocationInfo == nil {
+				continue
+			}
+
+			alreadyAllocatedCPUs, ok := allocationInfo.TopologyAwareAssignments[numaID]
+			if !ok {
+				continue
+			}
+
+			var cpuset machine.CPUSet
+			alreadyAllocatedCPUs = alreadyAllocatedCPUs.Intersection(numaAvailableCPUs)
+
+			// shrink cpuSet
+			if alreadyAllocatedCPUs.Size() >= blockResult {
+				cpuset, err = calculator.TakeByTopology(machineInfo, alreadyAllocatedCPUs, blockResult, true)
+				if err != nil {
+					return nil, fmt.Errorf("allocate cpuset for NUMA Aware block: %s in NUMA: %d failed with error: %v, numaAvailableCPUs: %d(%s), blockResult: %d",
+						blockID, numaID, err, numaAvailableCPUs.Size(), numaAvailableCPUs.String(), blockResult)
+				}
+			} else {
+				cpuset, err = calculator.TakeByTopology(machineInfo, numaAvailableCPUs.Difference(alreadyAllocatedCPUs), blockResult-alreadyAllocatedCPUs.Size(), true)
+				if err != nil {
+					return nil, fmt.Errorf("allocate cpuset for NUMA Aware block: %s in NUMA: %d failed with error: %v, numaAvailableCPUs: %d(%s), blockResult: %d",
+						blockID, numaID, err, numaAvailableCPUs.Size(), numaAvailableCPUs.String(), blockResult)
+				}
+				cpuset = cpuset.Union(alreadyAllocatedCPUs)
 			}
 
 			blockCPUSet[blockID] = cpuset
 			numaAvailableCPUs = numaAvailableCPUs.Difference(cpuset)
 			availableCPUs = availableCPUs.Difference(cpuset)
+			withNUMABindingShareOrDedicatedPod = true
+		}
+
+		// Then handle blocks for NUMA-bound shared_cores containers and reclaimed_cores containers colocated with them
+		// These containers can share NUMA nodes with dedicated_cores containers
+		f := func(blocks []*advisorapi.BlockInfo, alignedByL3 bool) error {
+			for _, block := range blocks {
+				if block == nil {
+					general.Warningf("got nil block")
+					continue
+				}
+
+				blockID := block.BlockId
+				if _, found := blockCPUSet[blockID]; found {
+					general.Warningf("block: %v already allocated", blockID)
+					continue
+				}
+
+				blockResult, err := general.CovertUInt64ToInt(block.Result)
+				if err != nil {
+					return fmt.Errorf("parse block: %s result failed with error: %v",
+						blockID, err)
+				}
+
+				cpuset, err := calculator.TakeByTopology(machineInfo, numaAvailableCPUs, blockResult, alignedByL3)
+				if err != nil {
+					return fmt.Errorf("allocate cpuset for NUMA Aware block: %s in NUMA: %d failed with error: %v, numaAvailableCPUs: %d(%s), blockResult: %d",
+						blockID, numaID, err, numaAvailableCPUs.Size(), numaAvailableCPUs.String(), blockResult)
+				}
+
+				blockCPUSet[blockID] = cpuset
+				numaAvailableCPUs = numaAvailableCPUs.Difference(cpuset)
+				availableCPUs = availableCPUs.Difference(cpuset)
+
+				for poolName := range block.OwnerPoolEntryMap {
+					if strings.HasPrefix(poolName, commonstate.PoolNameShare) ||
+						strings.HasPrefix(poolName, commonstate.PoolNamePrefixIsolation) {
+						withNUMABindingShareOrDedicatedPod = true
+						break
+					}
+				}
+			}
+
+			// Finally, if there are NUMA-bound containers on this NUMA node,
+			// deduct all numaAvailableCPUs from availableCPUs to ensure that
+			// NUMA-bound pods don't share the same NUMA node with non-NUMA-bound pods
+			if withNUMABindingShareOrDedicatedPod {
+				// Because numaAvailableCPUs is a subset of availableCPUs,
+				// we need to deduct all numaAvailableCPUs from availableCPUs
+				availableCPUs = availableCPUs.Difference(numaAvailableCPUs)
+			}
+			return nil
+		}
+
+		isolationBlocks := advisorapi.GetBlocksByPoolName(blocks, commonstate.PoolNamePrefixIsolation)
+		if err := f(isolationBlocks, true); err != nil {
+			return nil, err
+		}
+		shareBlocks := advisorapi.GetBlocksByPoolName(blocks, commonstate.PoolNameShare)
+		if err := f(shareBlocks, false); err != nil {
+			return nil, err
+		}
+		reclaimBlocks := advisorapi.GetBlocksByPoolName(blocks, commonstate.PoolNameReclaim)
+		if err := f(reclaimBlocks, false); err != nil {
+			return nil, err
 		}
 	}
 
-	// walk through all blocks without specified NUMA id
-	// for each block, add them into blockCPUSet (if not exist) and renew availableCPUs
+	// Walk through all blocks without specified NUMA ID (non-NUMA-bound containers)
+	// For each block, allocate CPUs using NUMA balance strategy to minimize
+	// memory access latency and CPU migrations
 	for _, block := range numaToBlocks[commonstate.FakedNUMAID] {
 		if block == nil {
 			general.Warningf("got nil block")
@@ -921,17 +1024,16 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 				blockID, err)
 		}
 
-		// use NUMA balance strategy to aviod changing memset as much as possible
-		// for blocks with faked NUMA id
-		var cpuset machine.CPUSet
-		cpuset, availableCPUs, err = calculator.TakeByNUMABalance(machineInfo, availableCPUs, blockResult)
+		// Use NUMA balance strategy to avoid changing memory affinity (memset) as much as possible
+		// for blocks with faked NUMA ID (non-NUMA-bound containers)
+		resultCPUSet, _, err := calculator.TakeByNUMABalance(machineInfo, availableCPUs, blockResult)
 		if err != nil {
 			return nil, fmt.Errorf("allocate cpuset for non NUMA Aware block: %s failed with error: %v, availableCPUs: %d(%s), blockResult: %d",
 				blockID, err, availableCPUs.Size(), availableCPUs.String(), blockResult)
 		}
 
-		blockCPUSet[blockID] = cpuset
-		availableCPUs = availableCPUs.Difference(cpuset)
+		blockCPUSet[blockID] = resultCPUSet
+		availableCPUs = availableCPUs.Difference(resultCPUSet)
 	}
 
 	return blockCPUSet, nil
