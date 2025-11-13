@@ -26,6 +26,10 @@ import (
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
+	"github.com/kubewharf/katalyst-core/pkg/util/qos"
+
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
@@ -271,6 +275,73 @@ func PopulateHintsByAvailableNUMANodes(
 			Preferred: preferred,
 		})
 	}
+}
+
+// GetPodCPUBurstPolicy gets the cpu burst policy of a given pod.
+func GetPodCPUBurstPolicy(qosConf *generic.QoSConfiguration, pod *v1.Pod, dynamicConfig *dynamic.DynamicAgentConfiguration) (string, error) {
+	if pod == nil {
+		return "", fmt.Errorf("got nil pod")
+	}
+
+	if qosConf == nil {
+		return "", fmt.Errorf("got nil QoSConfiguration")
+	}
+
+	cpuBurstPolicy := qos.GetPodCPUBurstPolicyFromCPUEnhancement(qosConf, pod)
+
+	// We may override policy of dedicated cores pods with default values in dynamic config.
+	qosLevel, _ := qosConf.GetQoSLevel(pod, map[string]string{})
+	if qosLevel == consts.PodAnnotationQoSLevelDedicatedCores {
+		cpuBurstPolicy = getDedicatedCoresPodBurstPolicy(dynamicConfig, cpuBurstPolicy)
+	}
+
+	return cpuBurstPolicy, nil
+}
+
+// getDedicatedCoresPodBurstPolicy returns the cpu burst policy for the given dedicated cores pod.
+// Refer to dynamic config to check if static policy is enabled by default. If the config indicates that static policy is
+// enabled by default, return static policy. Otherwise, return the original burst policy.
+func getDedicatedCoresPodBurstPolicy(dynamicConfig *dynamic.DynamicAgentConfiguration, originalBurstPolicy string) string {
+	// return original burst policy if it is not none
+	if originalBurstPolicy != consts.PodAnnotationCPUEnhancementCPUBurstPolicyNone {
+		return originalBurstPolicy
+	}
+
+	if dynamicConfig != nil && dynamicConfig.GetDynamicConfiguration().EnableDedicatedCoresDefaultCPUBurst {
+		return consts.PodAnnotationCPUEnhancementCPUBurstPolicyStatic
+	}
+
+	return consts.PodAnnotationCPUEnhancementCPUBurstPolicyNone
+}
+
+// GetPodCPUBurstPercent gets the cpu burst percent of a given pod.
+func GetPodCPUBurstPercent(qosConf *generic.QoSConfiguration, pod *v1.Pod, dynamicConfig *dynamic.DynamicAgentConfiguration) (float64, error) {
+	if pod == nil {
+		return 0, fmt.Errorf("got nil pod")
+	}
+
+	if qosConf == nil {
+		return 0, fmt.Errorf("got nil QoSConfiguration")
+	}
+	percent, found, err := qos.GetPodCPUBurstPercentFromCPUEnhancement(qosConf, pod)
+	if err != nil {
+		return 0.0, fmt.Errorf("failed to get pod CPUBurstPercent from cpu enhancement: %v", err)
+	}
+
+	// if not found, return default percent
+	if !found {
+		return getDefaultCPUBurstPercent(dynamicConfig), nil
+	}
+
+	return percent, nil
+}
+
+func getDefaultCPUBurstPercent(dynamicConfig *dynamic.DynamicAgentConfiguration) float64 {
+	if dynamicConfig != nil {
+		return float64(dynamicConfig.GetDynamicConfiguration().DefaultCPUBurstPercent)
+	}
+
+	return 0
 }
 
 func CalculateCPUBurstFromPercent(percent float64, cpuQuota int64) int64 {

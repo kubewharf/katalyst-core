@@ -488,7 +488,7 @@ func (p *DynamicPolicy) syncCPUBurst(_ *coreconfig.Configuration,
 	}()
 
 	cpuBurstManager := p.getCPUBurstManager()
-	err = cpuBurstManager.UpdateCPUBurst(p.qosConfig)
+	err = cpuBurstManager.UpdateCPUBurst(p.qosConfig, p.dynamicConfig)
 }
 
 // getCPUBurstManager returns a single global instance of the cpu burst manager
