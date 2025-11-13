@@ -63,28 +63,18 @@ func TestTryMigrateState(t *testing.T) {
 
 	tests := []struct {
 		name            string
-		preStop         bool
 		expectEqual     bool
 		expectOldExists bool
 		corruptFile     bool
 	}{
 		{
 			name:            "successful migration with pre-stop",
-			preStop:         true,
 			expectEqual:     true,
 			expectOldExists: false,
 			corruptFile:     false,
 		},
 		{
-			name:            "migration without pre-stop",
-			preStop:         false,
-			expectEqual:     false,
-			expectOldExists: true,
-			corruptFile:     false,
-		},
-		{
 			name:            "corrupted checkpoint",
-			preStop:         true,
 			expectEqual:     false,
 			corruptFile:     true,
 			expectOldExists: true,
@@ -169,7 +159,6 @@ func TestTryMigrateState(t *testing.T) {
 				cache:               defaultCache,
 				skipStateCorruption: false,
 				emitter:             metrics.DummyMetrics{},
-				hasPreStop:          tt.preStop,
 			}
 
 			// current checkpoint is pointing to the in memory directory

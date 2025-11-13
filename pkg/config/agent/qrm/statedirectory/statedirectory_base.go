@@ -22,8 +22,6 @@ type StateDirectoryConfiguration struct {
 	// EnableInMemoryState indicates whether we want to store the state in memory or on disk
 	// if set true, the state will be stored in tmpfs
 	EnableInMemoryState bool
-	// HasPreStop indicates whether we have pre-stop script in place
-	HasPreStop bool
 }
 
 func NewStateDirectoryConfiguration() *StateDirectoryConfiguration {
@@ -31,9 +29,6 @@ func NewStateDirectoryConfiguration() *StateDirectoryConfiguration {
 }
 
 func (c *StateDirectoryConfiguration) GetCurrentAndPreviousStateFileDirectory() (string, string) {
-	if !c.HasPreStop {
-		return c.StateFileDirectory, c.InMemoryStateFileDirectory
-	}
 	if c.EnableInMemoryState {
 		return c.InMemoryStateFileDirectory, c.StateFileDirectory
 	}

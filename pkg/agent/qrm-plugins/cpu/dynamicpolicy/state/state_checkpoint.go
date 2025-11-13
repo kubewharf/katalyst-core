@@ -52,7 +52,6 @@ type stateCheckpoint struct {
 	skipStateCorruption                bool
 	GenerateMachineStateFromPodEntries GenerateMachineStateFromPodEntriesFunc
 	emitter                            metrics.MetricEmitter
-	hasPreStop                         bool
 }
 
 var _ State = &stateCheckpoint{}
@@ -64,7 +63,6 @@ func NewCheckpointState(
 	emitter metrics.MetricEmitter,
 ) (State, error) {
 	currentStateDir, otherStateDir := stateDirectoryConfig.GetCurrentAndPreviousStateFileDirectory()
-	hasPreStop := stateDirectoryConfig.HasPreStop
 
 	qrmCheckpointManager, err := qrmcheckpointmanager.NewQRMCheckpointManager(currentStateDir, otherStateDir, checkpointName, "cpu_plugin")
 	if err != nil {
@@ -78,7 +76,6 @@ func NewCheckpointState(
 		skipStateCorruption:                skipStateCorruption,
 		GenerateMachineStateFromPodEntries: generateMachineStateFunc,
 		emitter:                            emitter,
-		hasPreStop:                         hasPreStop,
 	}
 
 	if err := sc.restoreState(topology); err != nil {
@@ -169,10 +166,6 @@ func (sc *stateCheckpoint) tryMigrateState(
 	klog.Infof("[cpu_plugin] trying to migrate state")
 
 	// Do not migrate and build new checkpoint if there is no pre-stop script
-	if !sc.hasPreStop {
-		return sc.storeState()
-	}
-
 	if err := sc.qrmCheckpointManager.GetPreviousCheckpoint(sc.checkpointName, checkpoint); err != nil {
 		if stdErrors.Is(err, errors.ErrCheckpointNotFound) {
 			// Old checkpoint file is not found, so we just store state in new checkpoint

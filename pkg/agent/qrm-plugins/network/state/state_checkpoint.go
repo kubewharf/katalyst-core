@@ -58,7 +58,6 @@ type stateCheckpoint struct {
 	// it will cause checkpoint corruption and we should skip it
 	skipStateCorruption bool
 	emitter             metrics.MetricEmitter
-	hasPreStop          bool
 }
 
 func NewCheckpointState(
@@ -68,7 +67,6 @@ func NewCheckpointState(
 	skipStateCorruption bool, emitter metrics.MetricEmitter,
 ) (State, error) {
 	currentStateDir, otherStateDir := stateDirectoryConfig.GetCurrentAndPreviousStateFileDirectory()
-	hasPreStop := stateDirectoryConfig.HasPreStop
 
 	qrmCheckpointManager, err := qrmcheckpointmanager.NewQRMCheckpointManager(currentStateDir, otherStateDir, checkpointName, "network_plugin")
 	if err != nil {
@@ -87,7 +85,6 @@ func NewCheckpointState(
 		checkpointName:       checkpointName,
 		skipStateCorruption:  skipStateCorruption,
 		emitter:              emitter,
-		hasPreStop:           hasPreStop,
 	}
 
 	if err := stateCheckpoint.restoreState(conf, nics, reservedBandwidth); err != nil {
@@ -184,10 +181,6 @@ func (sc *stateCheckpoint) tryMigrateState(
 	klog.Infof("[network_plugin] trying to migrate state")
 
 	// Build new checkpoint if the state directory that we want to migrate from is empty
-	if !sc.hasPreStop {
-		return sc.storeState()
-	}
-
 	if err := sc.qrmCheckpointManager.GetPreviousCheckpoint(sc.checkpointName, checkpoint); err != nil {
 		if stdErrors.Is(err, errors.ErrCheckpointNotFound) {
 			// Old checkpoint file is not found, so we just store state in new checkpoint
