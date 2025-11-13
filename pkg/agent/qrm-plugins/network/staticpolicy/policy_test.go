@@ -56,6 +56,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/external/network"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -390,6 +391,8 @@ func TestRemovePod(t *testing.T) {
 		PodUid: podID,
 	}
 
+	//---verify cgroup id not found
+	policy.CgroupV2Env = true
 	_, err = policy.RemovePod(context.TODO(), delReq)
 	assert.NoError(t, err)
 
@@ -1804,4 +1807,129 @@ func TestStaticPolicy_applyNetClass(t *testing.T) {
 	}).Build()
 
 	policy.applyNetClass()
+}
+
+type errCgroupIDManager struct {
+	cgroupid.CgroupIDManagerStub
+	errListCgroupIDsForPod error
+}
+
+func (f *errCgroupIDManager) ListCgroupIDsForPod(_ string) ([]uint64, error) {
+	return nil, f.errListCgroupIDsForPod
+}
+
+type errNetworkManager struct {
+	network.NetworkManagerStub
+	errClearNetClass error
+}
+
+func (n *errNetworkManager) ClearNetClass(_ uint64) error {
+	return n.errClearNetClass
+}
+
+func TestStaticPolicy_clearNetClassIfNeed(t *testing.T) {
+	t.Parallel()
+	type fields struct {
+		cgroupIDManager cgroupid.CgroupIDManager
+		networkManager  network.NetworkManager
+	}
+	type args struct {
+		podUID string
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		args    args
+		wantErr assert.ErrorAssertionFunc
+	}{
+		{
+			name: "clear net class success",
+			fields: fields{
+				cgroupIDManager: &cgroupid.CgroupIDManagerStub{
+					ContainerCGroupIDMap: map[string]map[string]uint64{
+						"test-pod-uid": {
+							"test-container-id": 314125,
+						},
+					},
+				},
+				networkManager: &network.NetworkManagerStub{
+					NetClassMap: map[string]map[string]*common.NetClsData{
+						"test-pod-uid": {
+							"test-container-id": {
+								ClassID:  0,
+								CgroupID: 314125,
+								Attributes: map[string]string{
+									testNetClassIDResourceAllocationAnnotationKey: testSharedNetClsId,
+								},
+							},
+						},
+					},
+				},
+			},
+			args: args{
+				podUID: "test-pod-uid",
+			},
+			wantErr: assert.NoError,
+		},
+		{
+			name: "list cgroup id for pod not found",
+			fields: fields{
+				cgroupIDManager: &errCgroupIDManager{
+					errListCgroupIDsForPod: general.ErrNotFound,
+				},
+			},
+			args:    args{podUID: "test-pod-uid"},
+			wantErr: assert.NoError,
+		},
+		{
+			name: "list cgroup id for pod failed",
+			fields: fields{
+				cgroupIDManager: &errCgroupIDManager{
+					errListCgroupIDsForPod: fmt.Errorf("ListCgroupIDsForPod"),
+				},
+			},
+			args: args{
+				podUID: "test-pod-uid",
+			},
+			wantErr: assert.Error,
+		},
+		{
+			name: "clear net class fail",
+			fields: fields{
+				cgroupIDManager: &cgroupid.CgroupIDManagerStub{
+					ContainerCGroupIDMap: map[string]map[string]uint64{
+						"test-pod-uid": {
+							"test-container-id": 314125,
+						},
+					},
+				},
+				networkManager: &errNetworkManager{
+					errClearNetClass: fmt.Errorf("ClearNetClass"),
+				},
+			},
+			args: args{
+				podUID: "test-pod-uid",
+			},
+			wantErr: assert.NoError,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			metaServer := makeMetaServer()
+			p := &StaticPolicy{
+				CgroupV2Env: true,
+				metaServer:  metaServer,
+			}
+
+			p.metaServer.ExternalManager = &external.DummyExternalManager{
+				CgroupIDManager: tt.fields.cgroupIDManager,
+				NetworkManager:  tt.fields.networkManager,
+			}
+			time.Sleep(1 * time.Second)
+			tt.wantErr(t, p.clearNetClassIfNeed(tt.args.podUID), fmt.Sprintf("clearNetClassIfNeed(%v)", tt.args.podUID))
+		})
+	}
 }
