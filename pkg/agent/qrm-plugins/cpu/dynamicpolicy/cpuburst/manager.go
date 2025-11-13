@@ -25,17 +25,17 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
-	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
 type Manager interface {
-	UpdateCPUBurst(qosConf *generic.QoSConfiguration) error
+	UpdateCPUBurst(qosConf *generic.QoSConfiguration, dynamicConfig *dynamic.DynamicAgentConfiguration) error
 }
 
 type managerImpl struct {
@@ -47,7 +47,7 @@ func NewManager(metaServer *metaserver.MetaServer) Manager {
 }
 
 // UpdateCPUBurst calculates the value of cpu burst and sets it to the cgroup.
-func (m *managerImpl) UpdateCPUBurst(qosConf *generic.QoSConfiguration) error {
+func (m *managerImpl) UpdateCPUBurst(qosConf *generic.QoSConfiguration, dynamicConfig *dynamic.DynamicAgentConfiguration) error {
 	if m.metaServer == nil {
 		return fmt.Errorf("nil metaServer")
 	}
@@ -61,11 +61,16 @@ func (m *managerImpl) UpdateCPUBurst(qosConf *generic.QoSConfiguration) error {
 	var errList []error
 
 	for _, pod := range podList {
-		cpuBurstPolicy := qosutil.GetPodCPUBurstPolicy(qosConf, pod)
-
-		cpuBurstPercent, err := qosutil.GetPodCPUBurstPercent(qosConf, pod)
+		cpuBurstPolicy, err := util.GetPodCPUBurstPolicy(qosConf, pod, dynamicConfig)
 		if err != nil {
-			return err
+			errList = append(errList, fmt.Errorf("error getting cpu burst policy for pod %s: %v", pod.Name, err))
+			continue
+		}
+
+		cpuBurstPercent, err := util.GetPodCPUBurstPercent(qosConf, pod, dynamicConfig)
+		if err != nil {
+			errList = append(errList, fmt.Errorf("error getting cpu burst percent for pod %s: %v", pod.Name, err))
+			continue
 		}
 
 		switch cpuBurstPolicy {

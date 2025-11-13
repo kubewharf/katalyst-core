@@ -26,6 +26,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/finegrainedresource"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
@@ -53,14 +56,15 @@ func TestManagerImpl_UpdateCPUBurst(t *testing.T) {
 	type resultState map[string]int64
 
 	tests := []struct {
-		name        string
-		pods        []*v1.Pod
-		mocks       func(s resultState)
-		wantErr     bool
-		wantResults resultState
+		name           string
+		pods           []*v1.Pod
+		mocks          func(s resultState)
+		wantErr        bool
+		adminQoSConfig *adminqos.AdminQoSConfiguration
+		wantResults    resultState
 	}{
 		{
-			name: "dedicated cores pods with no cpu burst policy",
+			name: "dedicated cores pods with no cpu burst policy but no admin qos config",
 			pods: []*v1.Pod{
 				{
 					ObjectMeta: metav1.ObjectMeta{
@@ -104,6 +108,62 @@ func TestManagerImpl_UpdateCPUBurst(t *testing.T) {
 						s[absPath] = cpuData.CpuBurst
 						return nil
 					}).Build()
+			},
+			wantResults: resultState{},
+		},
+		{
+			name: "dedicated cores pods with no cpu burst policy but admin qos config",
+			pods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						UID: "test-pod",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+						},
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name: "test-container-1",
+							},
+							{
+								Name: "test-container-2",
+							},
+						},
+					},
+					Status: v1.PodStatus{
+						ContainerStatuses: []v1.ContainerStatus{
+							{
+								Name:        "test-container-1",
+								ContainerID: "test-container-1-id",
+							},
+							{
+								Name:        "test-container-2",
+								ContainerID: "test-container-2-id",
+							},
+						},
+					},
+				},
+			},
+			mocks: func(s resultState) {
+				mockey.Mock(common.IsContainerCgroupExist).Return(true, nil).Build()
+				mockey.Mock(common.GetContainerAbsCgroupPath).To(func(_, podUID, containerID string) (string, error) {
+					return "/sys/fs/cgroup/cpu/" + podUID + "/" + containerID, nil
+				}).Build()
+				mockey.Mock(manager.GetCPUWithAbsolutePath).Return(&common.CPUStats{CpuQuota: 200}, nil).Build()
+				mockey.Mock(manager.ApplyCPUWithAbsolutePath).
+					To(func(absPath string, cpuData *common.CPUData) error {
+						s[absPath] = cpuData.CpuBurst
+						return nil
+					}).Build()
+			},
+			adminQoSConfig: &adminqos.AdminQoSConfiguration{
+				FineGrainedResourceConfiguration: &finegrainedresource.FineGrainedResourceConfiguration{
+					CPUBurstConfiguration: &finegrainedresource.CPUBurstConfiguration{
+						EnableDedicatedCoresDefaultCPUBurst: true,
+						DefaultCPUBurstPercent:              100,
+					},
+				},
 			},
 			wantResults: resultState{
 				"/sys/fs/cgroup/cpu/test-pod/test-container-1-id": 200,
@@ -368,7 +428,14 @@ func TestManagerImpl_UpdateCPUBurst(t *testing.T) {
 
 			cpuBurstManager := NewManager(generateTestMetaServer(tt.pods))
 
-			err := cpuBurstManager.UpdateCPUBurst(qosConfig)
+			dynamicConfig := dynamic.NewDynamicAgentConfiguration()
+			if tt.adminQoSConfig != nil {
+				dynamicConfig.SetDynamicConfiguration(&dynamic.Configuration{
+					AdminQoSConfiguration: tt.adminQoSConfig,
+				})
+			}
+
+			err := cpuBurstManager.UpdateCPUBurst(qosConfig, dynamicConfig)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("UpdateCPUBurst() error = %v, wantErr %v", err, tt.wantErr)
 				return
