@@ -205,6 +205,9 @@ func (w *podFetcherImpl) GetPodList(ctx context.Context, podFilter func(*v1.Pod)
 		return nil, fmt.Errorf("getKubeletPodsCache failed with error: %v", err)
 	}
 
+	w.kubeletPodsCacheLock.RLock()
+	defer w.kubeletPodsCacheLock.RUnlock()
+
 	res := make([]*v1.Pod, 0, len(kubeletPodsCache))
 	for _, p := range kubeletPodsCache {
 		if podFilter != nil && !podFilter(p) {

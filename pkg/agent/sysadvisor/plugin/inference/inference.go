@@ -26,8 +26,10 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/modelinputfetcher"
+	genericinput "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/modelinputfetcher/generic"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/modelresultfetcher"
-	borweinfetcher "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/modelresultfetcher/borwein"
+	borweinresult "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/modelresultfetcher/borwein"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	metricemitter "github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/metric-emitter"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
@@ -38,15 +40,19 @@ import (
 )
 
 func init() {
-	modelresultfetcher.RegisterModelResultFetcherInitFunc(borweinfetcher.BorweinModelResultFetcherName,
-		borweinfetcher.NewBorweinModelResultFetcher)
+	modelinputfetcher.RegisterModelInputFetcherInitFunc(genericinput.GenericModelInputFetcherName,
+		genericinput.NewGenericModelInputFetcher)
+	modelresultfetcher.RegisterModelResultFetcherInitFunc(borweinresult.BorweinModelResultFetcherName,
+		borweinresult.NewBorweinModelResultFetcher)
 }
 
 type InferencePlugin struct {
 	name string
 	// conf config.Configuration
 
-	period               time.Duration
+	period time.Duration
+
+	modelsInputFetchers  map[string]modelinputfetcher.ModelInputFetcher
 	modelsResultFetchers map[string]modelresultfetcher.ModelResultFetcher
 
 	metaServer    *metaserver.MetaServer
@@ -78,6 +84,7 @@ func NewInferencePlugin(pluginName string, conf *config.Configuration, extraConf
 	inferencePlugin := InferencePlugin{
 		name:                 pluginName,
 		period:               conf.InferencePluginConfiguration.SyncPeriod,
+		modelsInputFetchers:  make(map[string]modelinputfetcher.ModelInputFetcher),
 		modelsResultFetchers: make(map[string]modelresultfetcher.ModelResultFetcher),
 		metaServer:           metaServer,
 		metricEmitter:        metricEmitter,
@@ -85,6 +92,20 @@ func NewInferencePlugin(pluginName string, conf *config.Configuration, extraConf
 		qosConf:              conf.GenericConfiguration.QoSConfiguration,
 		metaReader:           metaCache,
 		metaWriter:           metaCache,
+	}
+
+	for fetcherName, initFn := range modelinputfetcher.GetRegisteredModelInputFetcherInitFuncs() {
+		// todo: support only enabling part of fetchers
+		general.Infof("try init fetcher: %s", fetcherName)
+		fetcher, err := initFn(fetcherName, conf, extraConf, emitterPool, metaServer, metaCache)
+		if err != nil {
+			return nil, fmt.Errorf("failed to start sysadvisor plugin %v: %v", pluginName, err)
+		} else if fetcher == nil {
+			general.Infof("fetcher: %s isn't enabled", fetcherName)
+			continue
+		}
+
+		inferencePlugin.modelsInputFetchers[fetcherName] = fetcher
 	}
 
 	for fetcherName, initFn := range modelresultfetcher.GetRegisteredModelResultFetcherInitFuncs() {
@@ -105,7 +126,7 @@ func NewInferencePlugin(pluginName string, conf *config.Configuration, extraConf
 }
 
 func (infp *InferencePlugin) Run(ctx context.Context) {
-	wait.UntilWithContext(ctx, infp.fetchModelResult, infp.period)
+	wait.UntilWithContext(ctx, infp.inference, infp.period)
 }
 
 // Name returns the name of inference plugin
@@ -116,6 +137,23 @@ func (infp *InferencePlugin) Name() string {
 // Init initializes the inference plugin
 func (infp *InferencePlugin) Init() error {
 	return nil
+}
+
+func (infp *InferencePlugin) fetchModelInput(ctx context.Context) {
+	var wg sync.WaitGroup
+	for modelName, fetcher := range infp.modelsInputFetchers {
+		wg.Add(1)
+		go func(modelName string, fetcher modelinputfetcher.ModelInputFetcher) {
+			defer wg.Done()
+			general.Infof("FetchModelInput for model: %s start", modelName)
+			err := fetcher.FetchModelInput(ctx, infp.metaReader, infp.metaWriter, infp.metaServer)
+			if err != nil {
+				general.Errorf("FetchModelInput for model: %s failed with error: %v", modelName, err)
+			}
+		}(modelName, fetcher)
+	}
+
+	wg.Wait()
 }
 
 func (infp *InferencePlugin) fetchModelResult(ctx context.Context) {
@@ -134,4 +172,9 @@ func (infp *InferencePlugin) fetchModelResult(ctx context.Context) {
 	}
 
 	wg.Wait()
+}
+
+func (infp *InferencePlugin) inference(ctx context.Context) {
+	infp.fetchModelInput(ctx)
+	infp.fetchModelResult(ctx)
 }

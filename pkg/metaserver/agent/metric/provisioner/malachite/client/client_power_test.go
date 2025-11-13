@@ -65,6 +65,9 @@ func TestMalachiteClient_GetPower(t *testing.T) {
 			want: &types.PowerData{
 				Sensors: types.SensorData{
 					TotalPowerWatt: 384.0,
+					CPUPower:       196.0,
+					MemPower:       132.0,
+					FanPower:       16.0,
 					UpdateTime:     1731430097,
 				},
 			},

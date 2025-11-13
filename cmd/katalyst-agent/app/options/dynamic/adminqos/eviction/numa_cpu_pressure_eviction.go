@@ -41,7 +41,7 @@ func NewNumaCPUPressureEvictionOptions() NumaCPUPressureEvictionOptions {
 		EnableEviction:                 false,
 		ThresholdMetPercentage:         0.7,
 		MetricRingSize:                 4,
-		GracePeriod:                    60,
+		GracePeriod:                    0,
 		ThresholdExpandFactor:          1.1,
 		CandidateCount:                 2,
 		WorkloadMetricsLabelKeys:       []string{},

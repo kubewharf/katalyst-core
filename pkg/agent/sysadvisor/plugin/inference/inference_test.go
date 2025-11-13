@@ -22,6 +22,8 @@ import (
 	"time"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/modelinputfetcher"
+	genericinput "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/modelinputfetcher/generic"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/modelresultfetcher"
 	borweinfetcher "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/modelresultfetcher/borwein"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
@@ -30,6 +32,13 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 )
+
+func NewNilModelInputFetcher(fetcherName string, conf *config.Configuration, extraConf interface{},
+	emitterPool metricspool.MetricsEmitterPool, metaServer *metaserver.MetaServer,
+	metaCache metacache.MetaCache,
+) (modelinputfetcher.ModelInputFetcher, error) {
+	return nil, nil
+}
 
 func NewNilModelResultFetcher(fetcherName string, conf *config.Configuration, extraConf interface{},
 	emitterPool metricspool.MetricsEmitterPool, metaServer *metaserver.MetaServer,
@@ -68,6 +77,10 @@ func TestNewInferencePlugin(t *testing.T) {
 		},
 	}
 
+	modelinputfetcher.RegisterModelInputFetcherInitFunc(genericinput.GenericModelInputFetcherName,
+		modelinputfetcher.NewDummyModelInputFetcher)
+	modelinputfetcher.RegisterModelInputFetcherInitFunc("test-nil-fetcher",
+		NewNilModelInputFetcher)
 	modelresultfetcher.RegisterModelResultFetcherInitFunc(borweinfetcher.BorweinModelResultFetcherName,
 		modelresultfetcher.NewDummyModelResultFetcher)
 	modelresultfetcher.RegisterModelResultFetcherInitFunc("test-nil-fetcher",
@@ -91,6 +104,7 @@ func TestInferencePlugin_Run(t *testing.T) {
 	type fields struct {
 		name                 string
 		period               time.Duration
+		modelsInputFetchers  map[string]modelinputfetcher.ModelInputFetcher
 		modelsResultFetchers map[string]modelresultfetcher.ModelResultFetcher
 		metaServer           *metaserver.MetaServer
 		emitter              metrics.MetricEmitter
@@ -110,6 +124,9 @@ func TestInferencePlugin_Run(t *testing.T) {
 			fields: fields{
 				name:   types.AdvisorPluginNameInference,
 				period: 5 * time.Second,
+				modelsInputFetchers: map[string]modelinputfetcher.ModelInputFetcher{
+					"test": modelinputfetcher.DummyModelInputFetcher{},
+				},
 				modelsResultFetchers: map[string]modelresultfetcher.ModelResultFetcher{
 					"test": modelresultfetcher.DummyModelResultFetcher{},
 				},
@@ -128,6 +145,7 @@ func TestInferencePlugin_Run(t *testing.T) {
 			infp := &InferencePlugin{
 				name:                 tt.fields.name,
 				period:               tt.fields.period,
+				modelsInputFetchers:  tt.fields.modelsInputFetchers,
 				modelsResultFetchers: tt.fields.modelsResultFetchers,
 				metaServer:           tt.fields.metaServer,
 				metricEmitter:        tt.fields.emitter,
@@ -145,6 +163,7 @@ func TestInferencePlugin_Name(t *testing.T) {
 	type fields struct {
 		name                 string
 		period               time.Duration
+		modelsInputFetchers  map[string]modelinputfetcher.ModelInputFetcher
 		modelsResultFetchers map[string]modelresultfetcher.ModelResultFetcher
 		metaServer           *metaserver.MetaServer
 		emitter              metrics.MetricEmitter
@@ -161,6 +180,9 @@ func TestInferencePlugin_Name(t *testing.T) {
 			fields: fields{
 				name:   types.AdvisorPluginNameInference,
 				period: 5 * time.Second,
+				modelsInputFetchers: map[string]modelinputfetcher.ModelInputFetcher{
+					"test": modelinputfetcher.DummyModelInputFetcher{},
+				},
 				modelsResultFetchers: map[string]modelresultfetcher.ModelResultFetcher{
 					"test": modelresultfetcher.DummyModelResultFetcher{},
 				},
@@ -178,6 +200,7 @@ func TestInferencePlugin_Name(t *testing.T) {
 			infp := &InferencePlugin{
 				name:                 tt.fields.name,
 				period:               tt.fields.period,
+				modelsInputFetchers:  tt.fields.modelsInputFetchers,
 				modelsResultFetchers: tt.fields.modelsResultFetchers,
 				metaServer:           tt.fields.metaServer,
 				metricEmitter:        tt.fields.emitter,
@@ -196,6 +219,7 @@ func TestInferencePlugin_Init(t *testing.T) {
 	type fields struct {
 		name                 string
 		period               time.Duration
+		modelsInputFetchers  map[string]modelinputfetcher.ModelInputFetcher
 		modelsResultFetchers map[string]modelresultfetcher.ModelResultFetcher
 		metaServer           *metaserver.MetaServer
 		emitter              metrics.MetricEmitter
@@ -212,6 +236,9 @@ func TestInferencePlugin_Init(t *testing.T) {
 			fields: fields{
 				name:   types.AdvisorPluginNameInference,
 				period: 5 * time.Second,
+				modelsInputFetchers: map[string]modelinputfetcher.ModelInputFetcher{
+					"test": modelinputfetcher.DummyModelInputFetcher{},
+				},
 				modelsResultFetchers: map[string]modelresultfetcher.ModelResultFetcher{
 					"test": modelresultfetcher.DummyModelResultFetcher{},
 				},
@@ -229,6 +256,7 @@ func TestInferencePlugin_Init(t *testing.T) {
 			infp := &InferencePlugin{
 				name:                 tt.fields.name,
 				period:               tt.fields.period,
+				modelsInputFetchers:  tt.fields.modelsInputFetchers,
 				modelsResultFetchers: tt.fields.modelsResultFetchers,
 				metaServer:           tt.fields.metaServer,
 				metricEmitter:        tt.fields.emitter,
@@ -288,6 +316,56 @@ func TestInferencePlugin_fetchModelResult(t *testing.T) {
 				metaWriter:           tt.fields.metaWriter,
 			}
 			infp.fetchModelResult(tt.args.ctx)
+		})
+	}
+}
+
+func TestInferencePlugin_fetchModelInput(t *testing.T) {
+	t.Parallel()
+	type fields struct {
+		name                string
+		period              time.Duration
+		modelsInputFetchers map[string]modelinputfetcher.ModelInputFetcher
+		metaServer          *metaserver.MetaServer
+		emitter             metrics.MetricEmitter
+		metaReader          metacache.MetaReader
+		metaWriter          metacache.MetaWriter
+	}
+	type args struct {
+		ctx context.Context
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		args   args
+	}{
+		{
+			name: "test inference plugin fetching model input",
+			fields: fields{
+				name:   types.AdvisorPluginNameInference,
+				period: 5 * time.Second,
+				modelsInputFetchers: map[string]modelinputfetcher.ModelInputFetcher{
+					"test": modelinputfetcher.DummyModelInputFetcher{},
+				},
+				metaServer: &metaserver.MetaServer{},
+				emitter:    metrics.DummyMetrics{},
+			},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			infp := &InferencePlugin{
+				name:                tt.fields.name,
+				period:              tt.fields.period,
+				modelsInputFetchers: tt.fields.modelsInputFetchers,
+				metaServer:          tt.fields.metaServer,
+				metricEmitter:       tt.fields.emitter,
+				metaReader:          tt.fields.metaReader,
+				metaWriter:          tt.fields.metaWriter,
+			}
+			infp.fetchModelInput(tt.args.ctx)
 		})
 	}
 }
