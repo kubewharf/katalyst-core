@@ -27,7 +27,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 )
 
-func TestGetPodCPUBurstPolicy(t *testing.T) {
+func TestGetPodCPUBurstPolicyFromCPUEnhancement(t *testing.T) {
 	t.Parallel()
 
 	qosConfig := generic.NewQoSConfiguration()
@@ -37,17 +37,6 @@ func TestGetPodCPUBurstPolicy(t *testing.T) {
 		pod  *v1.Pod
 		want string
 	}{
-		{
-			name: "dedicated cores pod with no burst policy returns default static policy",
-			pod: &v1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
-					},
-				},
-			},
-			want: consts.PodAnnotationCPUEnhancementCPUBurstPolicyStatic,
-		},
 		{
 			name: "dedicated cores pod with dynamic burst policy",
 			pod: &v1.Pod{
@@ -101,7 +90,7 @@ func TestGetPodCPUBurstPolicy(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := GetPodCPUBurstPolicy(qosConfig, tt.pod)
+			got := GetPodCPUBurstPolicyFromCPUEnhancement(qosConfig, tt.pod)
 			assert.Equal(t, tt.want, got)
 		})
 	}
@@ -113,10 +102,11 @@ func TestGetPodCPUBurstPercent(t *testing.T) {
 	qosConfig := generic.NewQoSConfiguration()
 
 	tests := []struct {
-		name    string
-		pod     *v1.Pod
-		want    float64
-		wantErr bool
+		name      string
+		pod       *v1.Pod
+		want      float64
+		wantFound bool
+		wantErr   bool
 	}{
 		{
 			name: "pod with no cpu burst percent returns default 100",
@@ -125,7 +115,8 @@ func TestGetPodCPUBurstPercent(t *testing.T) {
 					Annotations: map[string]string{},
 				},
 			},
-			want: 100,
+			want:      100,
+			wantFound: false,
 		},
 		{
 			name: "pod with cpu burst percent returns parsed value",
@@ -136,7 +127,8 @@ func TestGetPodCPUBurstPercent(t *testing.T) {
 					},
 				},
 			},
-			want: 50,
+			want:      50,
+			wantFound: true,
 		},
 		{
 			name: "pod with cpu burst percent exceeding 100 returns 100",
@@ -147,7 +139,8 @@ func TestGetPodCPUBurstPercent(t *testing.T) {
 					},
 				},
 			},
-			want: 100,
+			want:      100,
+			wantFound: true,
 		},
 		{
 			name: "pod with invalid cpu burst percent",
@@ -166,11 +159,12 @@ func TestGetPodCPUBurstPercent(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := GetPodCPUBurstPercent(qosConfig, tt.pod)
+			got, found, err := GetPodCPUBurstPercentFromCPUEnhancement(qosConfig, tt.pod)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("GetPodCPUBurstPercent() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("GetPodCPUBurstPercentFromCPUEnhancement() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			assert.Equal(t, tt.want, got)
+			assert.Equal(t, tt.wantFound, found)
 		})
 	}
 }
