@@ -106,7 +106,7 @@ func (cm *QRMCheckpointManager) GetPreviousCheckpoint(
 ) error {
 	previousCheckpointManager := cm.previousCheckpointInfo.CheckpointManager
 	if previousCheckpointManager == nil {
-		return fmt.Errorf("[%v] previous checkpoint manager is nil, which is unexpected", cm.pluginName)
+		return errors.ErrCheckpointNotFound
 	}
 
 	if err := previousCheckpointManager.GetCheckpoint(checkpointName, checkpoint); err != nil {
