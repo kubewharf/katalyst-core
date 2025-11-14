@@ -76,7 +76,7 @@ func GetAvailableNUMAsAndReclaimedCores(conf *config.Configuration, metaReader m
 
 		if !reclaimEnable {
 			memset := machine.GetCPUAssignmentNUMAs(containerInfo.TopologyAwareAssignments)
-			if memset.IsEmpty() {
+			if memset.IsEmpty() && !containerInfo.RampUp {
 				errList = append(errList, fmt.Errorf("container(%v/%v) TopologyAwareAssignments is empty", containerInfo.PodName, containerName))
 				return true
 			}
