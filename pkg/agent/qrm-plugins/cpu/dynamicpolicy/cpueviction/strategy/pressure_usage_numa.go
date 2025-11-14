@@ -320,11 +320,11 @@ func (p *NumaCPUPressureEviction) update(_ context.Context) {
 							numaID, podUID, metricName, err)
 					}
 					valRatio := val.Value / float64(numaSize)
-					p.metricsHistory.Push(numaID, podUID, metricName, valRatio)
+					p.metricsHistory.Push(numaID, podUID, metricName, valRatio, 0, 0)
 					sum += valRatio
 				}
 			}
-			p.metricsHistory.PushNuma(numaID, metricName, sum)
+			p.metricsHistory.PushNuma(numaID, metricName, sum, 0, 0)
 			general.InfoS("Push numa metric", "metric", metricName, "numa", numaID, "value", sum)
 			_ = p.emitter.StoreFloat64(metricsNameNumaRaw, sum, metrics.MetricTypeNameRaw,
 				metrics.ConvertMapToTags(map[string]string{
