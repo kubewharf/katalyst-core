@@ -27,10 +27,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 )
 
-const (
-	defaultCPUBurstPercent = 100
-)
-
 func AnnotationsIndicateNUMANotShare(annotations map[string]string) bool {
 	return annotations[consts.PodAnnotationCPUEnhancementNUMAShare] ==
 		consts.PodAnnotationCPUEnhancementNUMAShareDisable
@@ -83,7 +79,7 @@ func GetPodCPUBurstPercentFromCPUEnhancement(qosConf *generic.QoSConfiguration, 
 	cpuBurstPercentStr, ok := cpuEnhancement[consts.PodAnnotationCPUEnhancementCPUBurstPercent]
 
 	if !ok {
-		return defaultCPUBurstPercent, false, nil
+		return 0, false, nil
 	}
 
 	cpuBurstPercent, err := strconv.ParseFloat(cpuBurstPercentStr, 64)
