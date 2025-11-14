@@ -64,7 +64,7 @@ func TestManagerImpl_UpdateCPUBurst(t *testing.T) {
 		wantResults    resultState
 	}{
 		{
-			name: "dedicated cores pods with no cpu burst policy but no admin qos config",
+			name: "dedicated cores pods with no cpu burst policy but no admin qos config will still set cpu burst to 0",
 			pods: []*v1.Pod{
 				{
 					ObjectMeta: metav1.ObjectMeta{
@@ -109,7 +109,10 @@ func TestManagerImpl_UpdateCPUBurst(t *testing.T) {
 						return nil
 					}).Build()
 			},
-			wantResults: resultState{},
+			wantResults: resultState{
+				"/sys/fs/cgroup/cpu/test-pod/test-container-1-id": 0,
+				"/sys/fs/cgroup/cpu/test-pod/test-container-2-id": 0,
+			},
 		},
 		{
 			name: "dedicated cores pods with no cpu burst policy but admin qos config",
@@ -171,7 +174,7 @@ func TestManagerImpl_UpdateCPUBurst(t *testing.T) {
 			},
 		},
 		{
-			name: "shared cores pods with no cpu burst policy",
+			name: "shared cores pods with no cpu burst policy does nothing",
 			pods: []*v1.Pod{
 				{
 					ObjectMeta: metav1.ObjectMeta{

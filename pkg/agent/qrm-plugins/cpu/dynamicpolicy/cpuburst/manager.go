@@ -43,7 +43,9 @@ type managerImpl struct {
 }
 
 func NewManager(metaServer *metaserver.MetaServer) Manager {
-	return &managerImpl{metaServer: metaServer}
+	return &managerImpl{
+		metaServer: metaServer,
+	}
 }
 
 // UpdateCPUBurst calculates the value of cpu burst and sets it to the cgroup.
@@ -61,7 +63,7 @@ func (m *managerImpl) UpdateCPUBurst(qosConf *generic.QoSConfiguration, dynamicC
 	var errList []error
 
 	for _, pod := range podList {
-		cpuBurstPolicy, err := util.GetPodCPUBurstPolicy(qosConf, pod, dynamicConfig)
+		cpuBurstPolicy, isDedicatedPod, err := util.GetPodCPUBurstPolicy(qosConf, pod, dynamicConfig)
 		if err != nil {
 			errList = append(errList, fmt.Errorf("error getting cpu burst policy for pod %s: %v", pod.Name, err))
 			continue
@@ -74,12 +76,20 @@ func (m *managerImpl) UpdateCPUBurst(qosConf *generic.QoSConfiguration, dynamicC
 		}
 
 		switch cpuBurstPolicy {
-		case consts.PodAnnotationCPUEnhancementCPUBurstPolicyNone, consts.PodAnnotationCPUEnhancementCPUBurstPolicyDynamic:
-			continue
+		case consts.PodAnnotationCPUEnhancementCPUBurstPolicyNone:
+			// If pod is a dedicated pod, we need to set the cpu burst percent to 0 as it might currently be at a non-zero value
+			if isDedicatedPod {
+				if err = m.updateCPUBurstByPercent(0, pod); err != nil {
+					errList = append(errList, err)
+				}
+			}
 		case consts.PodAnnotationCPUEnhancementCPUBurstPolicyStatic:
-			if err = m.updateCPUBurstForStaticPolicy(cpuBurstPercent, pod); err != nil {
+			if err = m.updateCPUBurstByPercent(cpuBurstPercent, pod); err != nil {
 				errList = append(errList, err)
 			}
+		case consts.PodAnnotationCPUEnhancementCPUBurstPolicyDynamic:
+			// TODO: Implement dynamic policy
+			continue
 		default:
 			errList = append(errList, fmt.Errorf("cpu burst policy %s is not supported", cpuBurstPolicy))
 		}
@@ -88,9 +98,9 @@ func (m *managerImpl) UpdateCPUBurst(qosConf *generic.QoSConfiguration, dynamicC
 	return utilerrors.NewAggregate(errList)
 }
 
-// updateCPUBurstForStaticPolicy updates the value of cpu burst for static policy by taking the
+// updateCPUBurstByPercent updates the value of cpu burst for static policy by taking the
 // cpu quota from cgroup and calculating the cpu burst value by taking cpu quota * percent / 100.
-func (m *managerImpl) updateCPUBurstForStaticPolicy(percent float64, pod *v1.Pod) error {
+func (m *managerImpl) updateCPUBurstByPercent(percent float64, pod *v1.Pod) error {
 	var errList []error
 	podUID := string(pod.GetUID())
 
