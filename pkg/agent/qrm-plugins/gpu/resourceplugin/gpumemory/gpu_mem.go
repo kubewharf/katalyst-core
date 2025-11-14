@@ -22,6 +22,7 @@ import (
 	"sort"
 	"sync"
 
+	deviceplugin "k8s.io/kubelet/pkg/apis/deviceplugin/v1alpha"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
@@ -38,6 +39,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
+	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
 type GPUMemPlugin struct {
@@ -58,6 +60,14 @@ func (p *GPUMemPlugin) ResourceName() string {
 }
 
 func (p *GPUMemPlugin) GetTopologyHints(req *pluginapi.ResourceRequest) (resp *pluginapi.ResourceHintsResponse, err error) {
+	// if not numa binding, return nil hints to let kubelet choose numa node randomly
+	if !qosutil.AnnotationsIndicateNUMABinding(req.Annotations) {
+		return util.PackResourceHintsResponse(req, string(consts.ResourceGPUMemory),
+			map[string]*pluginapi.ListOfTopologyHints{
+				string(consts.ResourceGPUMemory): nil, // indicates that there is no numa preference
+			})
+	}
+
 	qosLevel, err := util.GetKatalystQoSLevelFromResourceReq(p.Conf.QoSConfiguration, req, p.PodAnnotationKeptKeys, p.PodLabelKeptKeys)
 	if err != nil {
 		err = fmt.Errorf("GetKatalystQoSLevelFromResourceReq for pod: %s/%s, container: %s failed with error: %v",
@@ -157,7 +167,12 @@ func (p *GPUMemPlugin) calculateHints(
 	numaToAvailableGPUCount := make(map[int]float64)
 	numaToMostAllocatedGPUMemory := make(map[int]float64)
 	for gpuID, info := range gpuTopology.Devices {
+		if info.Health != deviceplugin.Healthy {
+			continue
+		}
+
 		s := machineState[gpuID]
+		// todo: get allocated quantity according to qos level
 		allocated := s.GetQuantityAllocated()
 		if allocated+perGPUMemory <= float64(p.Conf.GPUMemoryAllocatablePerGPU.Value()) {
 			for _, numaNode := range info.GetNUMANodes() {
