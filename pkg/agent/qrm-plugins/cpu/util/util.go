@@ -274,25 +274,27 @@ func PopulateHintsByAvailableNUMANodes(
 	}
 }
 
-// GetPodCPUBurstPolicy gets the cpu burst policy of a given pod.
-func GetPodCPUBurstPolicy(qosConf *generic.QoSConfiguration, pod *v1.Pod, dynamicConfig *dynamic.DynamicAgentConfiguration) (string, error) {
+// GetPodCPUBurstPolicy gets the cpu burst policy of a given pod and whether it is a dedicated cores pod.
+func GetPodCPUBurstPolicy(qosConf *generic.QoSConfiguration, pod *v1.Pod, dynamicConfig *dynamic.DynamicAgentConfiguration) (string, bool, error) {
 	if pod == nil {
-		return "", fmt.Errorf("got nil pod")
+		return "", false, fmt.Errorf("got nil pod")
 	}
 
 	if qosConf == nil {
-		return "", fmt.Errorf("got nil QoSConfiguration")
+		return "", false, fmt.Errorf("got nil QoSConfiguration")
 	}
+	var isDedicatedPod bool
 
 	cpuBurstPolicy := qos.GetPodCPUBurstPolicyFromCPUEnhancement(qosConf, pod)
 
 	// We may override policy of dedicated cores pods with default values in dynamic config.
 	qosLevel, _ := qosConf.GetQoSLevel(pod, map[string]string{})
 	if qosLevel == consts.PodAnnotationQoSLevelDedicatedCores {
+		isDedicatedPod = true
 		cpuBurstPolicy = getDedicatedCoresPodBurstPolicy(dynamicConfig, cpuBurstPolicy)
 	}
 
-	return cpuBurstPolicy, nil
+	return cpuBurstPolicy, isDedicatedPod, nil
 }
 
 // getDedicatedCoresPodBurstPolicy returns the cpu burst policy for the given dedicated cores pod.
