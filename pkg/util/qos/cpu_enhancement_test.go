@@ -96,7 +96,7 @@ func TestGetPodCPUBurstPolicyFromCPUEnhancement(t *testing.T) {
 	}
 }
 
-func TestGetPodCPUBurstPercent(t *testing.T) {
+func TestGetPodCPUBurstPercentFromCPUEnhancement(t *testing.T) {
 	t.Parallel()
 
 	qosConfig := generic.NewQoSConfiguration()
@@ -109,13 +109,13 @@ func TestGetPodCPUBurstPercent(t *testing.T) {
 		wantErr   bool
 	}{
 		{
-			name: "pod with no cpu burst percent returns default 100",
+			name: "pod with no cpu burst percent",
 			pod: &v1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{},
 				},
 			},
-			want:      100,
+			want:      0,
 			wantFound: false,
 		},
 		{

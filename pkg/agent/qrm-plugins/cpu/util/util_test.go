@@ -369,6 +369,7 @@ func TestGetPodCPUBurstPolicy(t *testing.T) {
 		qosConfig      *generic.QoSConfiguration
 		adminQoSConfig *adminqos.AdminQoSConfiguration
 		wantPolicy     string
+		wantDedicated  bool
 		wantErr        bool
 	}{
 		{
@@ -456,7 +457,8 @@ func TestGetPodCPUBurstPolicy(t *testing.T) {
 					},
 				},
 			},
-			wantPolicy: consts.PodAnnotationCPUEnhancementCPUBurstPolicyStatic,
+			wantPolicy:    consts.PodAnnotationCPUEnhancementCPUBurstPolicyStatic,
+			wantDedicated: true,
 		},
 	}
 
@@ -472,12 +474,13 @@ func TestGetPodCPUBurstPolicy(t *testing.T) {
 				})
 			}
 
-			gotPolicy, err := GetPodCPUBurstPolicy(tt.qosConfig, tt.pod, dynamicConfig)
+			gotPolicy, isDedicated, err := GetPodCPUBurstPolicy(tt.qosConfig, tt.pod, dynamicConfig)
 
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
+				assert.Equal(t, tt.wantDedicated, isDedicated)
 				assert.Equal(t, tt.wantPolicy, gotPolicy)
 			}
 		})
