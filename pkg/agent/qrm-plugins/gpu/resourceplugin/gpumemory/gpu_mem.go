@@ -378,8 +378,13 @@ func (p *GPUMemPlugin) GetTopologyAwareAllocatableResources() (*gpuconsts.Alloca
 		aggregatedAllocatableQuantity += float64(p.Conf.GPUMemoryAllocatablePerGPU.Value())
 		aggregatedCapacityQuantity += float64(p.Conf.GPUMemoryAllocatablePerGPU.Value())
 		gpuMemoryAllocatablePerGPUNUMA := float64(p.Conf.GPUMemoryAllocatablePerGPU.Value())
+		gpuMemoryCapacityPerGPUNUMA := float64(p.Conf.GPUMemoryAllocatablePerGPU.Value())
+		if deviceInfo.Health != deviceplugin.Healthy {
+			gpuMemoryAllocatablePerGPUNUMA = 0
+		}
 		if len(deviceInfo.NumaNodes) > 0 {
 			gpuMemoryAllocatablePerGPUNUMA = gpuMemoryAllocatablePerGPUNUMA / float64(len(deviceInfo.NumaNodes))
+			gpuMemoryCapacityPerGPUNUMA = gpuMemoryCapacityPerGPUNUMA / float64(len(deviceInfo.NumaNodes))
 			for _, numaID := range deviceInfo.NumaNodes {
 				if numaID < 0 {
 					numaID = 0
@@ -394,7 +399,7 @@ func (p *GPUMemPlugin) GetTopologyAwareAllocatableResources() (*gpuconsts.Alloca
 					},
 				})
 				topologyAwareCapacityQuantityList = append(topologyAwareCapacityQuantityList, &pluginapi.TopologyAwareQuantity{
-					ResourceValue: gpuMemoryAllocatablePerGPUNUMA,
+					ResourceValue: gpuMemoryCapacityPerGPUNUMA,
 					Name:          deviceID,
 					Node:          uint64(numaID),
 					Type:          string(v1alpha1.TopologyTypeGPU),
@@ -414,7 +419,7 @@ func (p *GPUMemPlugin) GetTopologyAwareAllocatableResources() (*gpuconsts.Alloca
 				},
 			})
 			topologyAwareCapacityQuantityList = append(topologyAwareCapacityQuantityList, &pluginapi.TopologyAwareQuantity{
-				ResourceValue: gpuMemoryAllocatablePerGPUNUMA,
+				ResourceValue: gpuMemoryCapacityPerGPUNUMA,
 				Name:          deviceID,
 				Type:          string(v1alpha1.TopologyTypeGPU),
 				Annotations: map[string]string{
