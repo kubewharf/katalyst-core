@@ -28,6 +28,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/jellydator/ttlcache/v3"
+
 	"github.com/samber/lo"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
@@ -781,6 +783,12 @@ func (p *DynamicPolicy) checkAndApplySubCgroupPath(path string, d os.DirEntry, e
 		return nil
 	}
 
+	// If the sub cgroup has been set to -1, will not get and set again
+	cacheItem := p.subCgroupCache.Get(path)
+	if cacheItem != nil && cacheItem.Value() < 0 {
+		return nil
+	}
+
 	subCPU, err := cgroupmgr.GetCPUWithAbsolutePath(path)
 	if err != nil {
 		return fmt.Errorf("GetCPUWithRelativePath %s failed with error: %v", path, err)
@@ -795,6 +803,8 @@ func (p *DynamicPolicy) checkAndApplySubCgroupPath(path string, d os.DirEntry, e
 		general.Errorf("ApplyCPUWithAbsolutePath %s to -1 failed with error: %v", path, err)
 		return fmt.Errorf("ApplyCPUWithAbsolutePath %s to -1 failed with error: %v", path, err)
 	}
+
+	p.subCgroupCache.Set(path, -1, ttlcache.DefaultTTL)
 
 	return nil
 }
