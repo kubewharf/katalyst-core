@@ -41,7 +41,6 @@ import (
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuburst"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpueviction"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer/policy"
@@ -142,8 +141,6 @@ type DynamicPolicy struct {
 
 	sharedCoresNUMABindingHintOptimizer    hintoptimizer.HintOptimizer
 	dedicatedCoresNUMABindingHintOptimizer hintoptimizer.HintOptimizer
-
-	cpuBurstManager cpuburst.Manager
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -366,7 +363,7 @@ func (p *DynamicPolicy) Start() (err error) {
 		}
 	}
 
-	// start cpu burst support if needed
+	// start cpu burst sync if needed
 	if p.enableCPUBurst {
 		general.Infof("cpu burst is enabled")
 

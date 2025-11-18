@@ -487,14 +487,6 @@ func (p *DynamicPolicy) syncCPUBurst(_ *coreconfig.Configuration,
 		_ = general.UpdateHealthzStateByError(cpuconsts.SyncCPUBurst, err)
 	}()
 
-	cpuBurstManager := p.getCPUBurstManager()
+	cpuBurstManager := cpuburst.GetManager(p.metaServer)
 	err = cpuBurstManager.UpdateCPUBurst(p.qosConfig, p.dynamicConfig)
-}
-
-// getCPUBurstManager returns a single global instance of the cpu burst manager
-func (p *DynamicPolicy) getCPUBurstManager() cpuburst.Manager {
-	if p.cpuBurstManager == nil {
-		p.cpuBurstManager = cpuburst.NewManager(p.metaServer)
-	}
-	return p.cpuBurstManager
 }
