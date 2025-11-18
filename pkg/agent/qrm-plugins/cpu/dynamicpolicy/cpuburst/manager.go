@@ -19,6 +19,7 @@ package cpuburst
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	v1 "k8s.io/api/core/v1"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
@@ -42,7 +43,20 @@ type managerImpl struct {
 	metaServer *metaserver.MetaServer
 }
 
-func NewManager(metaServer *metaserver.MetaServer) Manager {
+var (
+	instance *managerImpl
+	once     sync.Once
+)
+
+// GetManager returns a single global instance of the cpu burst manager
+func GetManager(metaServer *metaserver.MetaServer) Manager {
+	once.Do(func() {
+		instance = newManager(metaServer)
+	})
+	return instance
+}
+
+func newManager(metaServer *metaserver.MetaServer) *managerImpl {
 	return &managerImpl{
 		metaServer: metaServer,
 	}
@@ -88,8 +102,7 @@ func (m *managerImpl) UpdateCPUBurst(qosConf *generic.QoSConfiguration, dynamicC
 				errList = append(errList, err)
 			}
 		case consts.PodAnnotationCPUEnhancementCPUBurstPolicyDynamic:
-			// TODO: Implement dynamic policy
-			continue
+			errList = append(errList, fmt.Errorf("dynamic cpu burst policy is not supported yet"))
 		default:
 			errList = append(errList, fmt.Errorf("cpu burst policy %s is not supported", cpuBurstPolicy))
 		}
@@ -109,14 +122,12 @@ func (m *managerImpl) updateCPUBurstByPercent(percent float64, pod *v1.Pod) erro
 		containerID, err := m.metaServer.GetContainerID(podUID, containerName)
 		if err != nil {
 			general.Errorf("get container id failed, pod: %s, container: %s(%s), err: %v", podUID, containerName, containerID, err)
-			errList = append(errList, err)
 			continue
 		}
 
 		if exist, err := common.IsContainerCgroupExist(podUID, containerID); err != nil {
 			general.Errorf("check if container cgroup exists failed, pod: %s, container: %s(%s), err: %v",
 				podUID, containerName, containerID, err)
-			errList = append(errList, err)
 			continue
 		} else if !exist {
 			general.Infof("container cgroup does not exist, pod: %s, container: %s(%s)", podUID, containerName, containerID)

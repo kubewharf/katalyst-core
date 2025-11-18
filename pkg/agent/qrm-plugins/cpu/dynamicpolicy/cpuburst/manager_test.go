@@ -25,16 +25,17 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/finegrainedresource"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
+
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos"
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/finegrainedresource"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
-	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
-	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
 )
 
 func generateTestMetaServer(pods []*v1.Pod) *metaserver.MetaServer {
@@ -53,7 +54,7 @@ func TestManagerImpl_UpdateCPUBurst(t *testing.T) {
 	t.Parallel()
 
 	qosConfig := generic.NewQoSConfiguration()
-	type resultState map[string]int64
+	type resultState map[string]uint64
 
 	tests := []struct {
 		name           string
@@ -307,7 +308,7 @@ func TestManagerImpl_UpdateCPUBurst(t *testing.T) {
 			},
 		},
 		{
-			name: "get container ID fails returns error",
+			name: "get container ID fails does not return error",
 			pods: []*v1.Pod{
 				{
 					ObjectMeta: metav1.ObjectMeta{
@@ -329,7 +330,7 @@ func TestManagerImpl_UpdateCPUBurst(t *testing.T) {
 					},
 				},
 			},
-			wantErr: true,
+			wantResults: resultState{},
 		},
 		{
 			name: "Checking container cgroup exists fails, returns error",
@@ -369,7 +370,7 @@ func TestManagerImpl_UpdateCPUBurst(t *testing.T) {
 			mocks: func(s resultState) {
 				mockey.Mock(common.IsContainerCgroupExist).Return(false, fmt.Errorf("test error")).Build()
 			},
-			wantErr: true,
+			wantResults: resultState{},
 		},
 		{
 			name: "Container cgroup path does not exist, just skip",
@@ -429,7 +430,7 @@ func TestManagerImpl_UpdateCPUBurst(t *testing.T) {
 				tt.mocks(results)
 			}
 
-			cpuBurstManager := NewManager(generateTestMetaServer(tt.pods))
+			cpuBurstManager := newManager(generateTestMetaServer(tt.pods))
 
 			dynamicConfig := dynamic.NewDynamicAgentConfiguration()
 			if tt.adminQoSConfig != nil {

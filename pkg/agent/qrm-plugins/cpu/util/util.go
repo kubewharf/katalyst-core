@@ -351,6 +351,6 @@ func getDefaultCPUBurstPercent(dynamicConfig *dynamic.DynamicAgentConfiguration)
 	return defaultCPUBurstPercent
 }
 
-func CalculateCPUBurstFromPercent(percent float64, cpuQuota int64) int64 {
-	return int64(float64(cpuQuota) * percent / 100)
+func CalculateCPUBurstFromPercent(percent float64, cpuQuota int64) uint64 {
+	return uint64(float64(cpuQuota) * percent / 100)
 }
