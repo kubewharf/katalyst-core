@@ -23,6 +23,8 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
+
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 )
@@ -61,8 +63,9 @@ func GetPodCPUBurstPolicyFromCPUEnhancement(qosConf *generic.QoSConfiguration, p
 	cpuEnhancement := qosConf.GetQoSEnhancementKVs(pod, map[string]string{}, consts.PodAnnotationCPUEnhancementKey)
 	cpuBurstPolicy, ok := cpuEnhancement[consts.PodAnnotationCPUEnhancementCPUBurstPolicy]
 
-	// Do not enable cpu burst for reclaimed cores pods
-	if qosLevel == consts.PodAnnotationQoSLevelReclaimedCores {
+	// Do not enable cpu burst for reclaimed cores pods even when the annotation is set
+	if qosLevel == consts.PodAnnotationQoSLevelReclaimedCores && ok && cpuBurstPolicy != consts.PodAnnotationCPUEnhancementCPUBurstPolicyNone {
+		general.Warningf("Reclaimed cores should not have cpu burst enabled")
 		return consts.PodAnnotationCPUEnhancementCPUBurstPolicyNone
 	}
 

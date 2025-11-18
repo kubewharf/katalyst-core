@@ -98,7 +98,7 @@ type CPUData struct {
 	CpuPeriod  uint64
 	CpuQuota   int64
 	CpuIdlePtr *bool
-	CpuBurst   int64
+	CpuBurst   uint64
 }
 
 // CPUSetData set cgroup cpuset data
