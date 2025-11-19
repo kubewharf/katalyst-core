@@ -193,11 +193,16 @@ func TestNewDomainsByMachineInfo(t *testing.T) {
 			name: "happy path of real numa",
 			args: args{
 				info: &machine.KatalystMachineInfo{
-					CPUTopology: nil,
-					DieTopology: &machine.DieTopology{
-						NUMAToDie: map[int]sets.Int{
-							0: sets.NewInt(0, 1, 16, 17),
-							1: sets.NewInt(2, 3, 18, 19),
+					CPUTopology: &machine.CPUTopology{
+						CPUDetails: map[int]machine.CPUTopoInfo{
+							0: {NUMANodeID: 0, SocketID: 0, CoreID: 0, L3CacheID: 0},
+							1: {NUMANodeID: 0, SocketID: 0, CoreID: 1, L3CacheID: 1},
+							2: {NUMANodeID: 0, SocketID: 0, CoreID: 2, L3CacheID: 16},
+							3: {NUMANodeID: 0, SocketID: 0, CoreID: 3, L3CacheID: 17},
+							4: {NUMANodeID: 1, SocketID: 0, CoreID: 4, L3CacheID: 2},
+							5: {NUMANodeID: 1, SocketID: 0, CoreID: 5, L3CacheID: 3},
+							6: {NUMANodeID: 1, SocketID: 0, CoreID: 6, L3CacheID: 18},
+							7: {NUMANodeID: 1, SocketID: 0, CoreID: 7, L3CacheID: 19},
 						},
 					},
 					ExtraTopologyInfo: &machine.ExtraTopologyInfo{
@@ -229,17 +234,40 @@ func TestNewDomainsByMachineInfo(t *testing.T) {
 			name: "happy path of fake numa",
 			args: args{
 				info: &machine.KatalystMachineInfo{
-					CPUTopology: nil,
-					DieTopology: &machine.DieTopology{
-						NUMAToDie: map[int]sets.Int{
-							0: sets.NewInt(0, 1, 16, 17),
-							1: sets.NewInt(2, 3, 18, 19),
-							2: sets.NewInt(4, 5, 20, 21),
-							3: sets.NewInt(6, 7, 22, 23),
-							4: sets.NewInt(8, 9, 24, 25),
-							5: sets.NewInt(10, 11, 26, 27),
-							6: sets.NewInt(12, 13, 28, 29),
-							7: sets.NewInt(14, 15, 30, 31),
+					CPUTopology: &machine.CPUTopology{
+						CPUDetails: map[int]machine.CPUTopoInfo{
+							0:  {NUMANodeID: 0, SocketID: 0, CoreID: 0, L3CacheID: 0},
+							1:  {NUMANodeID: 0, SocketID: 0, CoreID: 1, L3CacheID: 1},
+							2:  {NUMANodeID: 1, SocketID: 0, CoreID: 2, L3CacheID: 2},
+							3:  {NUMANodeID: 1, SocketID: 0, CoreID: 3, L3CacheID: 3},
+							4:  {NUMANodeID: 2, SocketID: 0, CoreID: 4, L3CacheID: 4},
+							5:  {NUMANodeID: 2, SocketID: 0, CoreID: 5, L3CacheID: 5},
+							6:  {NUMANodeID: 3, SocketID: 0, CoreID: 6, L3CacheID: 6},
+							7:  {NUMANodeID: 3, SocketID: 0, CoreID: 7, L3CacheID: 7},
+							8:  {NUMANodeID: 4, SocketID: 0, CoreID: 8, L3CacheID: 8},
+							9:  {NUMANodeID: 4, SocketID: 0, CoreID: 9, L3CacheID: 9},
+							10: {NUMANodeID: 5, SocketID: 0, CoreID: 10, L3CacheID: 10},
+							11: {NUMANodeID: 5, SocketID: 0, CoreID: 11, L3CacheID: 11},
+							12: {NUMANodeID: 6, SocketID: 0, CoreID: 12, L3CacheID: 12},
+							13: {NUMANodeID: 6, SocketID: 0, CoreID: 13, L3CacheID: 13},
+							14: {NUMANodeID: 7, SocketID: 0, CoreID: 14, L3CacheID: 14},
+							15: {NUMANodeID: 7, SocketID: 0, CoreID: 15, L3CacheID: 15},
+							16: {NUMANodeID: 0, SocketID: 1, CoreID: 16, L3CacheID: 16},
+							17: {NUMANodeID: 0, SocketID: 1, CoreID: 17, L3CacheID: 17},
+							18: {NUMANodeID: 1, SocketID: 1, CoreID: 18, L3CacheID: 18},
+							19: {NUMANodeID: 1, SocketID: 1, CoreID: 19, L3CacheID: 19},
+							20: {NUMANodeID: 2, SocketID: 1, CoreID: 20, L3CacheID: 20},
+							21: {NUMANodeID: 2, SocketID: 1, CoreID: 21, L3CacheID: 21},
+							22: {NUMANodeID: 3, SocketID: 1, CoreID: 22, L3CacheID: 22},
+							23: {NUMANodeID: 3, SocketID: 1, CoreID: 23, L3CacheID: 23},
+							24: {NUMANodeID: 4, SocketID: 1, CoreID: 24, L3CacheID: 24},
+							25: {NUMANodeID: 4, SocketID: 1, CoreID: 25, L3CacheID: 25},
+							26: {NUMANodeID: 5, SocketID: 1, CoreID: 26, L3CacheID: 26},
+							27: {NUMANodeID: 5, SocketID: 1, CoreID: 27, L3CacheID: 27},
+							28: {NUMANodeID: 6, SocketID: 1, CoreID: 28, L3CacheID: 28},
+							29: {NUMANodeID: 6, SocketID: 1, CoreID: 29, L3CacheID: 29},
+							30: {NUMANodeID: 7, SocketID: 1, CoreID: 30, L3CacheID: 30},
+							31: {NUMANodeID: 7, SocketID: 1, CoreID: 31, L3CacheID: 31},
 						},
 					},
 					ExtraTopologyInfo: &machine.ExtraTopologyInfo{
@@ -327,6 +355,75 @@ func Test_identifyDomainByNumas(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("identifyDomainByNumas() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_getL3CacheIDsByNUMAs(t *testing.T) {
+	t.Parallel()
+	type args struct {
+		numas      sets.Int
+		cpuDetails machine.CPUDetails
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    sets.Int
+		wantErr bool
+	}{
+		{
+			name: "happy path",
+			args: args{
+				numas: sets.NewInt(2, 3),
+				cpuDetails: map[int]machine.CPUTopoInfo{
+					0: {
+						NUMANodeID: 0,
+						SocketID:   0,
+						CoreID:     0,
+						L3CacheID:  0,
+					},
+					48: {
+						NUMANodeID: 2,
+						SocketID:   0,
+						CoreID:     48,
+						L3CacheID:  3,
+					},
+					49: {
+						NUMANodeID: 2,
+						SocketID:   0,
+						CoreID:     49,
+						L3CacheID:  3,
+					},
+					72: {
+						NUMANodeID: 3,
+						SocketID:   0,
+						CoreID:     72,
+						L3CacheID:  1,
+					},
+					73: {
+						NUMANodeID: 3,
+						SocketID:   0,
+						CoreID:     73,
+						L3CacheID:  1,
+					},
+				},
+			},
+			want:    sets.NewInt(1, 3),
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := getL3CacheIDsByNUMAs(tt.args.numas, tt.args.cpuDetails)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("getL3CacheIDsByNUMAs() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("getL3CacheIDsByNUMAs() got = %v, want %v", got, tt.want)
 			}
 		})
 	}

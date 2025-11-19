@@ -148,14 +148,19 @@ func identifyDomainByNumas(numaMap map[int]sets.Int) (map[int]sets.Int, error) {
 	return result, nil
 }
 
-func getDiesByNUMAs(numas sets.Int, dieTopology *machine.DieTopology) (sets.Int, error) {
+func getL3CacheIDsByNUMAs(numas sets.Int, cpuDetails machine.CPUDetails) (sets.Int, error) {
+	knownNumas := cpuDetails.NUMANodes()
 	result := sets.Int{}
 	for numa := range numas {
-		dies, ok := dieTopology.NUMAToDie[numa]
-		if !ok {
+		if !knownNumas.Contains(numa) {
 			return nil, fmt.Errorf("unknown numa id %d", numa)
 		}
-		result.Insert(dies.List()...)
+
+		for _, info := range cpuDetails {
+			if info.NUMANodeID == numa {
+				result.Insert(info.L3CacheID)
+			}
+		}
 	}
 	return result, nil
 }
@@ -178,7 +183,7 @@ func NewDomainsByMachineInfo(info *machine.KatalystMachineInfo, maxRemoteMB int)
 
 	result := Domains{}
 	for domainID, numas := range domainToNumas {
-		dies, errCurr := getDiesByNUMAs(numas, info.DieTopology)
+		dies, errCurr := getL3CacheIDsByNUMAs(numas, info.CPUDetails)
 		if errCurr != nil {
 			return nil, errors.Wrapf(err, "failed to locate numa ccds for domain %d", domainID)
 		}
