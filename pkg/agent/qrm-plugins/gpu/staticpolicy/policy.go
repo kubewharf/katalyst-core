@@ -262,7 +262,8 @@ func (p *StaticPolicy) GetTopologyAwareResources(
 	for _, resourcePlugin := range p.resourcePlugins {
 		allocatedResource, err := resourcePlugin.GetTopologyAwareResources(req.PodUid, req.ContainerName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get topology aware resources for plugin %s: %w", resourcePlugin.ResourceName(), err)
+			general.Errorf("failed to get topology aware resources for plugin %s: %v", resourcePlugin.ResourceName(), err)
+			continue
 		}
 
 		if allocatedResource == nil {
@@ -347,8 +348,14 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(
 	for _, resourcePlugin := range p.resourcePlugins {
 		allocatableResource, err := resourcePlugin.GetTopologyAwareAllocatableResources()
 		if err != nil {
-			return nil, fmt.Errorf("failed to get topology aware allocatable resources for plugin %s: %w", resourcePlugin.ResourceName(), err)
+			general.Errorf("failed to get topology aware allocatable resources for plugin %s: %v", resourcePlugin.ResourceName(), err)
+			continue
 		}
+
+		if allocatableResource == nil {
+			continue
+		}
+
 		allocatableResources[allocatableResource.ResourceName] = allocatableResource.AllocatableTopologyAwareResource
 	}
 

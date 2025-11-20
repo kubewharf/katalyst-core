@@ -326,14 +326,15 @@ func TestStaticPolicy_GetTopologyAwareResources(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
 
-	// Test error handling
+	// Invalid request does not return error
 	invalidReq := &pluginapi.GetTopologyAwareResourcesRequest{
 		PodUid:        podUID,
 		ContainerName: "invalid-container",
 	}
 
-	_, err = policy.GetTopologyAwareResources(context.Background(), invalidReq)
-	assert.Error(t, err)
+	resp, err = policy.GetTopologyAwareResources(context.Background(), invalidReq)
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
 }
 
 func TestStaticPolicy_mergeTopologyAwareResourcesResponse(t *testing.T) {
@@ -522,8 +523,8 @@ func TestStaticPolicy_GetTopologyAwareAllocatableResources(t *testing.T) {
 
 	getTopologyAwareAllocatableResourcesReq := &pluginapi.GetTopologyAwareAllocatableResourcesRequest{}
 	resp, err := policy.GetTopologyAwareAllocatableResources(context.Background(), getTopologyAwareAllocatableResourcesReq)
-	assert.Error(t, err)
-	assert.Nil(t, resp)
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
 }
 
 func TestStaticPolicy_UpdateAllocatableAssociatedDevices(t *testing.T) {
