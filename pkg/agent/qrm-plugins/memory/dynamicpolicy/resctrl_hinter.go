@@ -58,6 +58,7 @@ type resctrlHinter struct {
 	emitter              metrics.MetricEmitter
 	config               *qrm.ResctrlConfig
 	closidEnablingGroups sets.String
+	enabledQoS           sets.String
 	monGroupsMaxCount    *atomic.Int64
 	root                 string
 }
@@ -123,7 +124,7 @@ func (r *resctrlHinter) hintResourceAllocation(podMeta commonstate.AllocationMet
 	}
 
 	// inject shared subgroup if share pool
-	if podMeta.QoSLevel == apiconsts.PodAnnotationQoSLevelSharedCores {
+	if r.enabledQoS.Has(podMeta.QoSLevel) {
 		injectRespAnnotation(resourceAllocation, util.AnnotationRdtClosID, resctrlGroup)
 	}
 
@@ -220,16 +221,15 @@ func (r *resctrlHinter) Run(stopCh <-chan struct{}) {
 }
 
 func newResctrlHinter(config *qrm.ResctrlConfig, emitter metrics.MetricEmitter) ResctrlHinter {
-	closidEnablingGroups := make(sets.String)
-	if config != nil && config.MonGroupEnabledClosIDs != nil {
-		closidEnablingGroups = sets.NewString(config.MonGroupEnabledClosIDs...)
+	r := &resctrlHinter{
+		emitter: emitter,
+		config:  config,
+		root:    resctrlRoot,
 	}
 
-	r := &resctrlHinter{
-		emitter:              emitter,
-		config:               config,
-		closidEnablingGroups: closidEnablingGroups,
-		root:                 resctrlRoot,
+	if config != nil {
+		r.closidEnablingGroups = sets.NewString(config.MonGroupEnabledClosIDs...)
+		r.enabledQoS = sets.NewString(config.EnabledQoS...)
 	}
 	r.monGroupsMaxCount = atomic.NewInt64(r.getMonGroupsMaxCount())
 	return r
