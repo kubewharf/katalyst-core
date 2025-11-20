@@ -191,15 +191,15 @@ func (e *evictionRespCollector) collectTopEvictionPods(dryRunPlugins []string, p
 
 	for _, pod := range targetPods {
 		deletionOptions := resp.DeletionOptions
-		if deletionOptions == nil {
-			deletionOptions = &pluginapi.DeletionOptions{}
-		}
 		reason := fmt.Sprintf("plugin %s met threshold in scope %s, target %v, observed %v",
 			pluginName, threshold.EvictionScope, threshold.ThresholdValue, threshold.ObservedValue)
 
 		forceEvictPod := e.getForceEvictPods()[string(pod.UID)]
 		if forceEvictPod != nil && forceEvictPod.EvictPod != nil {
 			if forceEvictPod.EvictPod.DeletionOptions != nil {
+				if deletionOptions == nil {
+					deletionOptions = &pluginapi.DeletionOptions{}
+				}
 				deletionOptions.GracePeriodSeconds = general.MaxInt64(deletionOptions.GracePeriodSeconds,
 					forceEvictPod.EvictPod.DeletionOptions.GracePeriodSeconds)
 			}
