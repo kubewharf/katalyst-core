@@ -86,6 +86,7 @@ func TestResctrlProcessor_HintResp(t *testing.T) {
 					EnableResctrlHint:          false,
 					CPUSetPoolToSharedSubgroup: map[string]int{"batch": 30},
 					DefaultSharedSubgroup:      50,
+					EnabledQoS:                 []string{"shared_cores"},
 				},
 			},
 			args: args{
@@ -107,6 +108,7 @@ func TestResctrlProcessor_HintResp(t *testing.T) {
 					CPUSetPoolToSharedSubgroup: map[string]int{
 						"batch": 30,
 					},
+					EnabledQoS:             []string{"shared_cores"},
 					MonGroupEnabledClosIDs: []string{"dedicated", "shared-50"},
 				},
 			},
@@ -141,6 +143,7 @@ func TestResctrlProcessor_HintResp(t *testing.T) {
 					CPUSetPoolToSharedSubgroup: map[string]int{
 						"batch": 30,
 					},
+					EnabledQoS:             []string{"shared_cores"},
 					MonGroupEnabledClosIDs: []string{"dedicated", "shared-30"},
 				},
 			},
@@ -172,6 +175,7 @@ func TestResctrlProcessor_HintResp(t *testing.T) {
 				config: &qrm.ResctrlConfig{
 					EnableResctrlHint:     true,
 					DefaultSharedSubgroup: 50,
+					EnabledQoS:            []string{"shared_cores"},
 					MonGroupMaxCountRatio: 0.6, // monGroupsMaxCount = 3
 				},
 				resctrl: &fsResctrl{
@@ -208,6 +212,7 @@ func TestResctrlProcessor_HintResp(t *testing.T) {
 				config: &qrm.ResctrlConfig{
 					EnableResctrlHint:     true,
 					DefaultSharedSubgroup: 50,
+					EnabledQoS:            []string{"shared_cores"},
 					MonGroupMaxCountRatio: 0.6, // monGroupsMaxCount = 3
 				},
 				resctrl: &fsResctrl{
@@ -248,6 +253,7 @@ func TestResctrlProcessor_HintResp(t *testing.T) {
 					CPUSetPoolToSharedSubgroup: map[string]int{
 						"batch": 30,
 					},
+					EnabledQoS:             []string{"shared_cores"},
 					MonGroupEnabledClosIDs: []string{"dedicated", "shared-50"},
 				},
 			},
