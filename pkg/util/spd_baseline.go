@@ -174,7 +174,10 @@ func GetSPDBaselineSentinel(spd *v1alpha1.ServiceProfileDescriptor) (SPDBaseline
 	if !ok {
 		return nil, nil
 	}
+	return unmarshalBaselinePodMeta(s)
+}
 
+func unmarshalBaselinePodMeta(s string) (SPDBaselinePodMeta, error) {
 	var raw map[string]interface{}
 	err := json.Unmarshal([]byte(s), &raw)
 	if err != nil {
@@ -221,13 +224,23 @@ func GetSPDExtendedBaselineSentinel(spd *v1alpha1.ServiceProfileDescriptor) (map
 		return nil, nil
 	}
 
-	bs := map[string]SPDBaselinePodMeta{}
-	err := json.Unmarshal([]byte(s), &bs)
+	rawMap := map[string]json.RawMessage{}
+	err := json.Unmarshal([]byte(s), &rawMap)
 	if err != nil {
 		return nil, err
 	}
 
-	return bs, err
+	bs := map[string]SPDBaselinePodMeta{}
+	for key, raw := range rawMap {
+		meta, err := unmarshalBaselinePodMeta(string(raw))
+		if err != nil {
+			return nil, fmt.Errorf("failed to unmarshal key %s: %v", key, err)
+		}
+		bs[key] = meta
+	}
+
+	return bs, nil
+
 }
 
 // SetSPDExtendedBaselineSentinel set the extended baseline sentinel of this spd, if percentile is nil means delete it
