@@ -19,6 +19,7 @@ package config
 import (
 	"fmt"
 
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/features"
@@ -69,6 +70,28 @@ func GetReservedQuantity(kubeletConfig *native.KubeletConfiguration, resourceNam
 	}
 
 	return *reservedQuantity, found, nil
+}
+
+// GetReservedSystemCPUList the list for reserved system cpu defined in KubeletConfiguration
+func GetReservedSystemCPUList(kubeletConfig *native.KubeletConfiguration) (string, error) {
+	if kubeletConfig == nil {
+		return "", fmt.Errorf("nil KubeletConfiguration")
+	}
+
+	return kubeletConfig.ReservedSystemCPUs, nil
+}
+
+func GetReservedMemoryInfo(kubeletConfig *native.KubeletConfiguration) (map[int32]v1.ResourceList, error) {
+	if kubeletConfig == nil {
+		return map[int32]v1.ResourceList{}, fmt.Errorf("nil KubeletConfiguration")
+	}
+
+	memoryReservation := make(map[int32]v1.ResourceList)
+	for _, reservation := range kubeletConfig.ReservedMemory {
+		memoryReservation[reservation.NumaNode] = reservation.Limits
+	}
+
+	return memoryReservation, nil
 }
 
 // GetInTreeProviderPolicies returns a map containing the policy for in-tree

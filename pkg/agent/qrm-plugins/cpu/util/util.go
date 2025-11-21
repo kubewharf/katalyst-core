@@ -58,6 +58,17 @@ func GetCoresReservedForSystem(conf *config.Configuration, metaServer *metaserve
 			return machine.NewCPUSet(), fmt.Errorf("failed to get kubelet config: %v", err)
 		}
 
+		// Parse the reserved cpu list from the kubelet configuration.
+		reservedCPUList, _ := utilkubeconfig.GetReservedSystemCPUList(klConfig)
+		if reservedCPUList != "" {
+			conf.ReservedCPUList = reservedCPUList
+			klog.Infof("get reservedCPUs: %s from kubelet config", reservedCPUList)
+
+			reservedCPUSet := machine.MustParse(reservedCPUList)
+			conf.ReservedCPUCores = reservedCPUSet.Size()
+			return reservedCPUSet, nil
+		}
+
 		// If the reserved cpu list conf is not found, the reservation quantity is parsed from the kubelet configuration.
 		reservedQuantity, found, err := utilkubeconfig.GetReservedQuantity(klConfig, string(v1.ResourceCPU))
 		if err != nil {
@@ -75,6 +86,7 @@ func GetCoresReservedForSystem(conf *config.Configuration, metaServer *metaserve
 			reservedCPUSet := machine.MustParse(reservedCPUList)
 			klog.Infof("get reservedCPUs: %s from ReservedCPUList configuration %s", reservedCPUSet.String(), reservedCPUList)
 
+			conf.ReservedCPUCores = reservedCPUSet.Size()
 			return reservedCPUSet, nil
 		}
 

@@ -18,6 +18,8 @@ package qrm
 
 import (
 	"time"
+
+	v1 "k8s.io/api/core/v1"
 )
 
 type MemoryQRMPluginConfig struct {
@@ -25,6 +27,8 @@ type MemoryQRMPluginConfig struct {
 	PolicyName string
 	// ReservedMemoryGB: the total reserved memories in GB
 	ReservedMemoryGB uint64
+	// ReservedNumaMemory describes the memory reservation status of numa nodes
+	ReservedNumaMemory map[int32]v1.ResourceList
 	// SkipMemoryStateCorruption is ued to skip memory state corruption and it will be used after updating state properties
 	SkipMemoryStateCorruption bool
 	// EnableSettingMemoryMigrate is used to enable cpuset.memory_migrate for containers not numa_binding
@@ -105,5 +109,5 @@ type ResctrlConfig struct {
 }
 
 func NewMemoryQRMPluginConfig() *MemoryQRMPluginConfig {
-	return &MemoryQRMPluginConfig{}
+	return &MemoryQRMPluginConfig{ReservedNumaMemory: map[int32]v1.ResourceList{}}
 }
