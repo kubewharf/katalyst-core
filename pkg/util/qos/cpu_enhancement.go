@@ -64,9 +64,9 @@ func GetPodCPUBurstPolicyFromCPUEnhancement(qosConf *generic.QoSConfiguration, p
 	cpuBurstPolicy, ok := cpuEnhancement[consts.PodAnnotationCPUEnhancementCPUBurstPolicy]
 
 	// Do not enable cpu burst for reclaimed cores pods even when the annotation is set
-	if qosLevel == consts.PodAnnotationQoSLevelReclaimedCores && ok && cpuBurstPolicy != consts.PodAnnotationCPUEnhancementCPUBurstPolicyNone {
+	if qosLevel == consts.PodAnnotationQoSLevelReclaimedCores && ok && cpuBurstPolicy != consts.PodAnnotationCPUEnhancementCPUBurstPolicyClosed {
 		general.Warningf("Reclaimed cores should not have cpu burst enabled")
-		return consts.PodAnnotationCPUEnhancementCPUBurstPolicyNone
+		return consts.PodAnnotationCPUEnhancementCPUBurstPolicyClosed
 	}
 
 	if !ok {

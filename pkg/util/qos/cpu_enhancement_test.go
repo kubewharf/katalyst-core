@@ -61,6 +61,17 @@ func TestGetPodCPUBurstPolicyFromCPUEnhancement(t *testing.T) {
 			want: consts.PodAnnotationCPUEnhancementCPUBurstPolicyNone,
 		},
 		{
+			name: "dedicated cores pod with no burst policy returns none burst policy",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+					},
+				},
+			},
+			want: consts.PodAnnotationCPUEnhancementCPUBurstPolicyNone,
+		},
+		{
 			name: "shared cores pod with static burst policy",
 			pod: &v1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
@@ -83,6 +94,18 @@ func TestGetPodCPUBurstPolicyFromCPUEnhancement(t *testing.T) {
 				},
 			},
 			want: consts.PodAnnotationCPUEnhancementCPUBurstPolicyDynamic,
+		},
+		{
+			name: "reclaimed cores pod should have closed burst policy",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey:       consts.PodAnnotationQoSLevelReclaimedCores,
+						consts.PodAnnotationCPUEnhancementKey: `{"cpu_burst_policy":"static"}`,
+					},
+				},
+			},
+			want: consts.PodAnnotationCPUEnhancementCPUBurstPolicyClosed,
 		},
 	}
 

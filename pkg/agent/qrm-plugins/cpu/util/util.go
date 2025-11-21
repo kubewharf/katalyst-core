@@ -280,42 +280,42 @@ func PopulateHintsByAvailableNUMANodes(
 	}
 }
 
-// GetPodCPUBurstPolicy gets the cpu burst policy of a given pod and whether it is a dedicated cores pod.
-func GetPodCPUBurstPolicy(qosConf *generic.QoSConfiguration, pod *v1.Pod, dynamicConfig *dynamic.DynamicAgentConfiguration) (string, bool, error) {
+// GetPodCPUBurstPolicy gets the cpu burst policy of a given pod.
+func GetPodCPUBurstPolicy(qosConf *generic.QoSConfiguration, pod *v1.Pod, dynamicConfig *dynamic.DynamicAgentConfiguration) (string, error) {
 	if pod == nil {
-		return "", false, fmt.Errorf("got nil pod")
+		return "", fmt.Errorf("got nil pod")
 	}
 
 	if qosConf == nil {
-		return "", false, fmt.Errorf("got nil QoSConfiguration")
+		return "", fmt.Errorf("got nil QoSConfiguration")
 	}
-	var isDedicatedPod bool
 
 	cpuBurstPolicy := qos.GetPodCPUBurstPolicyFromCPUEnhancement(qosConf, pod)
 
-	// We may override policy of dedicated cores pods with default values in dynamic config.
+	// We may override cpu burst policy of dedicated cores pods with default values in dynamic config.
 	qosLevel, _ := qosConf.GetQoSLevel(pod, map[string]string{})
 	if qosLevel == consts.PodAnnotationQoSLevelDedicatedCores {
-		isDedicatedPod = true
-		cpuBurstPolicy = getDedicatedCoresPodBurstPolicy(dynamicConfig, cpuBurstPolicy)
+		cpuBurstPolicy = getOverriddenPodBurstPolicy(dynamicConfig, cpuBurstPolicy)
 	}
 
-	general.Infof("cpu burst policy: %s, isDedicatedPod: %v", cpuBurstPolicy, isDedicatedPod)
-
-	return cpuBurstPolicy, isDedicatedPod, nil
+	return cpuBurstPolicy, nil
 }
 
-// getDedicatedCoresPodBurstPolicy returns the cpu burst policy for the given dedicated cores pod.
-// Refer to dynamic config to check if static policy is enabled by default. If the config indicates that static policy is
-// enabled by default, return static policy. Otherwise, return the original burst policy.
-func getDedicatedCoresPodBurstPolicy(dynamicConfig *dynamic.DynamicAgentConfiguration, originalBurstPolicy string) string {
+// getOverriddenPodBurstPolicy returns the cpu burst policy for a given pod by checking with dynamic config.
+// Only pods with cpu burst policy none from their annotations will be overridden.
+func getOverriddenPodBurstPolicy(dynamicConfig *dynamic.DynamicAgentConfiguration, originalBurstPolicy string) string {
 	// return original burst policy if it is not none
 	if originalBurstPolicy != consts.PodAnnotationCPUEnhancementCPUBurstPolicyNone {
 		return originalBurstPolicy
 	}
 
-	if dynamicConfig != nil && dynamicConfig.GetDynamicConfiguration().EnableDedicatedCoresDefaultCPUBurst {
-		return consts.PodAnnotationCPUEnhancementCPUBurstPolicyStatic
+	if dynamicConfig != nil && dynamicConfig.GetDynamicConfiguration().EnableDedicatedCoresDefaultCPUBurst != nil {
+		if *dynamicConfig.GetDynamicConfiguration().EnableDedicatedCoresDefaultCPUBurst {
+			return consts.PodAnnotationCPUEnhancementCPUBurstPolicyStatic
+		} else {
+			// If EnableDedicatedCoresDefaultCPUBurst is explicitly false, we will close the cpu burst policy.
+			return consts.PodAnnotationCPUEnhancementCPUBurstPolicyClosed
+		}
 	}
 
 	return consts.PodAnnotationCPUEnhancementCPUBurstPolicyNone
