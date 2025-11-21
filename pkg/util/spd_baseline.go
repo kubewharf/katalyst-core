@@ -240,7 +240,6 @@ func GetSPDExtendedBaselineSentinel(spd *v1alpha1.ServiceProfileDescriptor) (map
 	}
 
 	return bs, nil
-
 }
 
 // SetSPDExtendedBaselineSentinel set the extended baseline sentinel of this spd, if percentile is nil means delete it
