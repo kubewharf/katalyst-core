@@ -67,7 +67,7 @@ require (
 	k8s.io/kubelet v0.24.6
 	k8s.io/kubernetes v1.24.16
 	k8s.io/metrics v0.25.0
-	k8s.io/utils v0.0.0-20221108210102-8e77b1f39fe2
+	k8s.io/utils v0.0.0-20240711033017-18e509b52bc8
 	sigs.k8s.io/controller-runtime v0.11.2
 	sigs.k8s.io/custom-metrics-apiserver v1.24.0
 	sigs.k8s.io/descheduler v0.24.0
@@ -175,7 +175,7 @@ require (
 )
 
 replace (
-	github.com/kubewharf/katalyst-api => github.com/JustinChengLZ/katalyst-api v0.0.0-20251113114243-925c7b614e7a
+	github.com/kubewharf/katalyst-api => github.com/JustinChengLZ/katalyst-api v0.0.0-20251121091015-7c40b287edbb
 	k8s.io/api => k8s.io/api v0.24.6
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.24.6
 	k8s.io/apimachinery => k8s.io/apimachinery v0.24.6

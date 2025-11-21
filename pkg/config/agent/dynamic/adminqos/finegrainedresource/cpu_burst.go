@@ -16,15 +16,21 @@ limitations under the License.
 
 package finegrainedresource
 
-import "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
+import (
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
+)
 
 const (
 	defaultCPUBurstPercent = 100
 )
 
 type CPUBurstConfiguration struct {
-	// EnableDedicatedCoresDefaultCPUBurst indicates whether to enable cpu burst for dedicated cores by default
-	EnableDedicatedCoresDefaultCPUBurst bool
+	// EnableDedicatedCoresDefaultCPUBurst indicates whether to enable cpu burst for dedicated cores by default.
+	// If set to true, we enable cpu burst for dedicated cores by default (cpu burst value is calculated and set).
+	// If set to false, we disable cpu burst for dedicated cores by default (cpu burst value is set to 0).
+	// If set to nil, there will be no operation on cpu burst value.
+	// It is set to nil by default
+	EnableDedicatedCoresDefaultCPUBurst *bool
 
 	// DefaultCPUBurstPercent indicates the default cpu burst percent for dedicated cores
 	DefaultCPUBurstPercent int64
@@ -32,8 +38,7 @@ type CPUBurstConfiguration struct {
 
 func NewCPUBurstConfiguration() *CPUBurstConfiguration {
 	return &CPUBurstConfiguration{
-		EnableDedicatedCoresDefaultCPUBurst: false,
-		DefaultCPUBurstPercent:              defaultCPUBurstPercent,
+		DefaultCPUBurstPercent: defaultCPUBurstPercent,
 	}
 }
 
@@ -41,9 +46,7 @@ func (c *CPUBurstConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 	if aqc := conf.AdminQoSConfiguration; aqc != nil &&
 		aqc.Spec.Config.FineGrainedResourceConfig != nil && aqc.Spec.Config.FineGrainedResourceConfig.CPUBurstConfig != nil {
 		config := aqc.Spec.Config.FineGrainedResourceConfig.CPUBurstConfig
-		if config.EnableDedicatedCoresDefaultCPUBurst != nil {
-			c.EnableDedicatedCoresDefaultCPUBurst = *config.EnableDedicatedCoresDefaultCPUBurst
-		}
+		c.EnableDedicatedCoresDefaultCPUBurst = config.EnableDedicatedCoresDefaultCPUBurst
 
 		if config.DefaultCPUBurstPercent != nil {
 			c.DefaultCPUBurstPercent = *config.DefaultCPUBurstPercent
