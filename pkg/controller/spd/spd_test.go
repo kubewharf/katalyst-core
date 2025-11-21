@@ -49,6 +49,7 @@ import (
 var (
 	stsGVK = schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "StatefulSet"}
 	stsGVR = schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "statefulsets"}
+	dpGVK  = schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"}
 )
 
 func TestSPDController_Run(t *testing.T) {
