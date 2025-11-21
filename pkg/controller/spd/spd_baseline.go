@@ -60,7 +60,11 @@ func (sc *SPDController) updateBaselineSentinel(spd *v1alpha1.ServiceProfileDesc
 		extendedBaselineSentinel[indicator.Name] = *sentinel
 	}
 
-	util.SetSPDBaselineSentinel(spd, baselineSentinel)
+	if baselineSentinel == nil {
+		delete(spd.Annotations, consts.SPDAnnotationBaselineSentinelKey)
+	} else {
+		util.SetSPDBaselineSentinel(spd, *baselineSentinel)
+	}
 	util.SetSPDExtendedBaselineSentinel(spd, extendedBaselineSentinel)
 	return nil
 }
@@ -81,7 +85,11 @@ func (sc *SPDController) getSPDPodMetaList(spd *v1alpha1.ServiceProfileDescripto
 
 	podMetaList := make([]util.SPDBaselinePodMeta, 0, len(podList))
 	for _, p := range podList {
-		podMetaList = append(podMetaList, util.GetSPDBaselinePodMeta(p.ObjectMeta))
+		podMeta, err := util.GetSPDBaselinePodMeta(p.ObjectMeta)
+		if err != nil {
+			return nil, err
+		}
+		podMetaList = append(podMetaList, podMeta)
 	}
 	sort.SliceStable(podMetaList, func(i, j int) bool {
 		return podMetaList[i].Cmp(podMetaList[j]) < 0
@@ -102,6 +110,12 @@ func calculateBaselineSentinel(podMetaList []util.SPDBaselinePodMeta, baselinePe
 		return nil
 	}
 
-	baselineIndex := int(math.Floor(float64(len(podMetaList)-1) * float64(*baselinePercent) / 100))
+	var baselineIndex int
+	if solarSPD, _ := podMetaList[len(podMetaList)-1].(*util.SolarSPDBaselinePodMeta); solarSPD != nil {
+		baselineShard := int(math.Max(math.Floor(float64(solarSPD.ShardID-1)*float64(*baselinePercent)/100), 0))
+		baselineIndex = baselineShard*(solarSPD.ReplicaID+1) + solarSPD.ReplicaID
+	} else {
+		baselineIndex = int(math.Floor(float64(len(podMetaList)-1) * float64(*baselinePercent) / 100))
+	}
 	return &podMetaList[baselineIndex]
 }
