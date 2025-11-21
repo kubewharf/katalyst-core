@@ -77,29 +77,32 @@ func (m *managerImpl) UpdateCPUBurst(qosConf *generic.QoSConfiguration, dynamicC
 	var errList []error
 
 	for _, pod := range podList {
-		cpuBurstPolicy, isDedicatedPod, err := util.GetPodCPUBurstPolicy(qosConf, pod, dynamicConfig)
+		cpuBurstPolicy, err := util.GetPodCPUBurstPolicy(qosConf, pod, dynamicConfig)
 		if err != nil {
 			errList = append(errList, fmt.Errorf("error getting cpu burst policy for pod %s: %v", pod.Name, err))
 			continue
 		}
 
-		cpuBurstPercent, err := util.GetPodCPUBurstPercent(qosConf, pod, dynamicConfig)
-		if err != nil {
-			errList = append(errList, fmt.Errorf("error getting cpu burst percent for pod %s: %v", pod.Name, err))
-			continue
-		}
-
 		switch cpuBurstPolicy {
-		case consts.PodAnnotationCPUEnhancementCPUBurstPolicyNone:
-			// If pod is a dedicated pod, we need to set the cpu burst percent to 0 as it might currently be at a non-zero value
-			if isDedicatedPod {
-				if err = m.updateCPUBurstByPercent(0, pod); err != nil {
-					errList = append(errList, err)
-				}
+		case consts.PodAnnotationCPUEnhancementCPUBurstPolicyClosed:
+			// For closed policy, we just set the cpu burst value to be 0.
+			if err = m.updateCPUBurstByPercent(0, pod); err != nil {
+				errList = append(errList, fmt.Errorf("error setting cpu burst for policy %s for pod %s: %v",
+					consts.PodAnnotationCPUEnhancementCPUBurstPolicyClosed, pod.Name, err))
 			}
+		case consts.PodAnnotationCPUEnhancementCPUBurstPolicyNone:
+			continue
 		case consts.PodAnnotationCPUEnhancementCPUBurstPolicyStatic:
+			// For static policy, calculate the cpu burst value that we need to set.
+			cpuBurstPercent, err := util.GetPodCPUBurstPercent(qosConf, pod, dynamicConfig)
+			if err != nil {
+				errList = append(errList, fmt.Errorf("error getting cpu burst percent for pod %s: %v", pod.Name, err))
+				continue
+			}
+
 			if err = m.updateCPUBurstByPercent(cpuBurstPercent, pod); err != nil {
-				errList = append(errList, err)
+				errList = append(errList, fmt.Errorf("error setting cpu burst for policy %s for pod %s: %v",
+					consts.PodAnnotationCPUEnhancementCPUBurstPolicyStatic, pod.Name, err))
 			}
 		case consts.PodAnnotationCPUEnhancementCPUBurstPolicyDynamic:
 			errList = append(errList, fmt.Errorf("dynamic cpu burst policy is not supported yet"))
