@@ -49,6 +49,7 @@ type CPUDynamicPolicyOptions struct {
 	CPUNUMAHintPreferLowThreshold             float64
 	SharedCoresNUMABindingResultAnnotationKey string
 	EnableReserveCPUReversely                 bool
+	EnableCPUBurst                            bool
 	*irqtuner.IRQTunerOptions
 	*hintoptimizer.HintOptimizerOptions
 }
@@ -69,6 +70,7 @@ func NewCPUOptions() *CPUOptions {
 			EnableCPUPressureEviction: false,
 			EnableSyncingCPUIdle:      false,
 			EnableCPUIdle:             false,
+			EnableCPUBurst:            false,
 			LoadPressureEvictionSkipPools: []string{
 				commonstate.PoolNameReclaim,
 				commonstate.PoolNameDedicated,
@@ -122,6 +124,9 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.BoolVar(&o.EnableReserveCPUReversely, "enable-reserve-cpu-reversely",
 		o.EnableReserveCPUReversely, "by default, the reservation of cpu starts from the cpu with lower id,"+
 			"if set to true, it starts from the cpu with higher id")
+	fs.BoolVar(&o.EnableCPUBurst, "enable-cpu-burst", o.EnableCPUBurst, "This is a flag that enables the cpu burst handler to sync periodically."+
+		"However, actually setting cpu burst on a pod must be done through 2 enabling methods, via annotations and via kcc. Shared_cores only "+
+		"supports enabling via annotations, while dedicated_cores supports enabling via annotations and kcc.")
 	o.HintOptimizerOptions.AddFlags(fss)
 	o.IRQTunerOptions.AddFlags(fss)
 }
@@ -141,6 +146,7 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 	conf.CPUAllocationOption = o.CPUAllocationOption
 	conf.SharedCoresNUMABindingResultAnnotationKey = o.SharedCoresNUMABindingResultAnnotationKey
 	conf.EnableReserveCPUReversely = o.EnableReserveCPUReversely
+	conf.EnableCPUBurst = o.EnableCPUBurst
 	if err := o.HintOptimizerOptions.ApplyTo(conf.HintOptimizerConfiguration); err != nil {
 		return err
 	}
