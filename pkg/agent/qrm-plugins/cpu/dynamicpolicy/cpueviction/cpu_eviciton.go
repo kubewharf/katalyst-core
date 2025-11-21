@@ -36,6 +36,7 @@ func init() {
 	RegisterCPUEvictionInitializer(strategy.EvictionNameLoad, strategy.NewCPUPressureLoadEviction)
 	RegisterCPUEvictionInitializer(strategy.EvictionNameSuppression, strategy.NewCPUPressureSuppressionEviction)
 	RegisterCPUEvictionInitializer(strategy.EvictionNameNumaCpuPressure, strategy.NewCPUPressureUsageEviction)
+	RegisterCPUEvictionInitializer(strategy.EvictionNameNumaSysCpuPressure, strategy.NewSysCPUPressureUsageEviction)
 }
 
 var cpuEvictionInitializers sync.Map
