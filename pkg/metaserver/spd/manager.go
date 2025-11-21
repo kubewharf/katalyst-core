@@ -203,7 +203,10 @@ func (m *serviceProfilingManager) ServiceExtendedIndicator(ctx context.Context, 
 	if err != nil {
 		return false, err
 	}
-	return util.IsExtendedBaselinePod(podMeta, baselinePercent, extendedBaselineSentinel, name)
+
+	spdCustomCompareKey := util.GetSPDCustomCompareKeys(spd)
+
+	return util.IsExtendedBaselinePod(podMeta, baselinePercent, extendedBaselineSentinel, name, spdCustomCompareKey)
 }
 
 func (m *serviceProfilingManager) ServiceBaseline(ctx context.Context, podMeta metav1.ObjectMeta) (bool, error) {
@@ -217,7 +220,8 @@ func (m *serviceProfilingManager) ServiceBaseline(ctx context.Context, podMeta m
 		return false, err
 	}
 
-	isBaseline, err := util.IsBaselinePod(podMeta, spd.Spec.BaselinePercent, baselineSentinel)
+	spdCustomCompareKey := util.GetSPDCustomCompareKeys(spd)
+	isBaseline, err := util.IsBaselinePod(podMeta, spd.Spec.BaselinePercent, baselineSentinel, spdCustomCompareKey)
 	if err != nil {
 		return false, err
 	}
