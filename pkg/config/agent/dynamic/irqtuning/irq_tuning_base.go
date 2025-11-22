@@ -41,6 +41,7 @@ type IRQTuningConfiguration struct {
 	CoresExpectedCPUUtil    int
 
 	RPSExcludeIRQCoresThreshold *rpsexcludeirqcore.RPSExcludeIRQCoresThreshold
+	NormalThroughputNics        []string // each nic format is [netns/]nicName, like eth0, ns2/eth2
 	ThroughputClassSwitchConf   *throughputclassswitch.ThroughputClassSwitchConfig
 	CoreNetOverLoadThreshold    *netoverload.IRQCoreNetOverloadThresholds
 	LoadBalanceConf             *loadbalance.IRQLoadBalanceConfig
