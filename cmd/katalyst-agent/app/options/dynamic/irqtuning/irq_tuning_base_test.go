@@ -48,6 +48,7 @@ func TestNewIRQTuningOptions(t *testing.T) {
 	assert.Equal(t, -20, options.KsoftirqdNice)
 	assert.Equal(t, 50, options.CoresExpectedCPUUtil)
 	assert.NotNil(t, options.RPSExcludeIRQCoresThreshold)
+	assert.Empty(t, options.NormalThroughputNics)
 	assert.NotNil(t, options.ThroughputClassSwitchOptions)
 	assert.NotNil(t, options.CoreNetOverLoadThreshold)
 	assert.NotNil(t, options.LoadBalanceOptions)
@@ -98,6 +99,7 @@ func TestIRQTuningOptions_ApplyTo(t *testing.T) {
 				ReniceKsoftirqd:         false,
 				KsoftirqdNice:           -20,
 				CoresExpectedCPUUtil:    50,
+				NormalThroughputNics:    []string{},
 			},
 			wantErr: false,
 		},
@@ -114,6 +116,7 @@ func TestIRQTuningOptions_ApplyTo(t *testing.T) {
 				ReniceKsoftirqd:              true,
 				KsoftirqdNice:                -10,
 				CoresExpectedCPUUtil:         70,
+				NormalThroughputNics:         []string{"eth0", "ns2/eth2"},
 				RPSExcludeIRQCoresThreshold:  rpsexcludeirqcore.NewRPSExcludeIRQCoresThreshold(),
 				ThroughputClassSwitchOptions: throughputclassswitch.NewThroughputClassSwitchOptions(),
 				CoreNetOverLoadThreshold:     netoverload.NewIRQCoreNetOverloadThresholdOptions(),
@@ -132,6 +135,7 @@ func TestIRQTuningOptions_ApplyTo(t *testing.T) {
 				ReniceKsoftirqd:         true,
 				KsoftirqdNice:           -10,
 				CoresExpectedCPUUtil:    70,
+				NormalThroughputNics:    []string{"eth0", "ns2/eth2"},
 			},
 			wantErr: false,
 		},
@@ -155,6 +159,7 @@ func TestIRQTuningOptions_ApplyTo(t *testing.T) {
 			assert.Equal(t, tc.expected.ReniceKsoftirqd, c.ReniceKsoftirqd, tc.name)
 			assert.Equal(t, tc.expected.KsoftirqdNice, c.KsoftirqdNice, tc.name)
 			assert.Equal(t, tc.expected.CoresExpectedCPUUtil, c.CoresExpectedCPUUtil, tc.name)
+			assert.Equal(t, tc.expected.NormalThroughputNics, c.NormalThroughputNics, tc.name)
 		}
 	}
 }

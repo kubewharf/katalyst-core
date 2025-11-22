@@ -41,6 +41,7 @@ type IRQTuningConfiguration struct {
 	CoresExpectedCPUUtil    int
 
 	RPSExcludeIRQCoresThreshold *rpsexcludeirqcore.RPSExcludeIRQCoresThreshold
+	NormalThroughputNics        []string // each nic format is [netns/]nicName, like eth0, ns2/eth2
 	ThroughputClassSwitchConf   *throughputclassswitch.ThroughputClassSwitchConfig
 	CoreNetOverLoadThreshold    *netoverload.IRQCoreNetOverloadThresholds
 	LoadBalanceConf             *loadbalance.IRQLoadBalanceConfig
@@ -62,6 +63,7 @@ func NewIRQTuningConfiguration() *IRQTuningConfiguration {
 		CoresExpectedCPUUtil:    50,
 
 		RPSExcludeIRQCoresThreshold: rpsexcludeirqcore.NewRPSExcludeIRQCoresThreshold(),
+		NormalThroughputNics:        []string{},
 		ThroughputClassSwitchConf:   throughputclassswitch.NewThroughputClassSwitchConfig(),
 		CoreNetOverLoadThreshold:    netoverload.NewIRQCoreNetOverloadThresholds(),
 		LoadBalanceConf:             loadbalance.NewIRQLoadBalanceConfig(),
@@ -98,6 +100,8 @@ func (c *IRQTuningConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) 
 		if itc.Spec.Config.CoresExpectedCPUUtil != nil {
 			c.CoresExpectedCPUUtil = *itc.Spec.Config.CoresExpectedCPUUtil
 		}
+
+		c.NormalThroughputNics = itc.Spec.Config.NormalThroughputNics
 
 		c.RPSExcludeIRQCoresThreshold.ApplyConfiguration(conf)
 		c.ThroughputClassSwitchConf.ApplyConfiguration(conf)

@@ -27,10 +27,12 @@ import (
 	. "github.com/bytedance/mockey"
 	. "github.com/smartystreets/goconvey/convey"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/irqtuner/config"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-func Test_clearNicXPS(t *testing.T) {
+func Test_controller_linux(t *testing.T) {
 	t.Parallel()
 	PatchConvey("Test_clearNicXPS", t, func() {
 		ic := &IrqTuningController{}
@@ -105,6 +107,232 @@ func Test_clearNicXPS(t *testing.T) {
 			err := ic.clearNicXPS(nic)
 
 			So(err, ShouldBeNil)
+		})
+	})
+
+	PatchConvey("Test_classifyNicsByThroughputFirstTime", t, func() {
+		ic := &IrqTuningController{
+			conf: &config.IrqTuningConfig{
+				NormalThroughputNics: []config.NicInfo{
+					{
+						NicName: "eth0",
+					},
+					{
+						NicName:   "eth2",
+						NetNSName: "ns2",
+					},
+				},
+				ThroughputClassSwitchConf: config.ThroughputClassSwitchConfig{
+					LowThroughputThresholds: config.LowThroughputThresholds{
+						RxPPSThreshold:  3000,
+						SuccessiveCount: 30,
+					},
+					NormalThroughputThresholds: config.NormalThroughputThresholds{
+						RxPPSThreshold:  6000,
+						SuccessiveCount: 10,
+					},
+				},
+			},
+		}
+
+		PatchConvey("Scenario 1: succeed to classify nics by static configured normal throughput nics", func() {
+			nics := []*machine.NicBasicInfo{
+				{
+					InterfaceInfo: machine.InterfaceInfo{
+						Name: "eth0",
+					},
+				},
+				{
+					InterfaceInfo: machine.InterfaceInfo{
+						Name: "eth5",
+					},
+				},
+			}
+
+			Mock((*IrqTuningController).emitErrMetric).To(func(reason string, level int64, tags ...metrics.MetricTag) {
+			}).Build()
+
+			normalThroughtputNics, lowThroughputBasicNics := ic.classifyNicsByThroughputFirstTime(nics, 1)
+
+			So(normalThroughtputNics, ShouldResemble, []*machine.NicBasicInfo{
+				{
+					InterfaceInfo: machine.InterfaceInfo{
+						Name: "eth0",
+					},
+				},
+			})
+			So(lowThroughputBasicNics, ShouldResemble, []*machine.NicBasicInfo{
+				{
+					InterfaceInfo: machine.InterfaceInfo{
+						Name: "eth5",
+					},
+				},
+			})
+		})
+
+		PatchConvey("Scenario 2: no nic classified to normal throughput nic according to static configured normal throughput nics", func() {
+			nics := []*machine.NicBasicInfo{
+				{
+					InterfaceInfo: machine.InterfaceInfo{
+						Name: "eth1",
+					},
+				},
+				{
+					InterfaceInfo: machine.InterfaceInfo{
+						Name: "eth5",
+					},
+				},
+			}
+
+			Mock((*IrqTuningController).emitErrMetric).To(func(reason string, level int64, tags ...metrics.MetricTag) {
+			}).Build()
+
+			normalThroughtputNics, lowThroughputBasicNics := ic.classifyNicsByThroughputFirstTime(nics, 1)
+
+			So(normalThroughtputNics, ShouldResemble, []*machine.NicBasicInfo{
+				{
+					InterfaceInfo: machine.InterfaceInfo{
+						Name: "eth1",
+					},
+				},
+			})
+			So(lowThroughputBasicNics, ShouldResemble, []*machine.NicBasicInfo{
+				{
+					InterfaceInfo: machine.InterfaceInfo{
+						Name: "eth5",
+					},
+				},
+			})
+		})
+
+		PatchConvey("Scenario 3: succeed to classify nics by dynamic check nic rx pps", func() {
+			ic.conf.NormalThroughputNics = []config.NicInfo{}
+
+			nics := []*machine.NicBasicInfo{
+				{
+					InterfaceInfo: machine.InterfaceInfo{
+						Name:    "eth0",
+						IfIndex: 2,
+					},
+				},
+				{
+					InterfaceInfo: machine.InterfaceInfo{
+						Name:    "eth2",
+						IfIndex: 11,
+					},
+				},
+			}
+
+			First := true
+
+			Mock(machine.GetNetDevRxPackets).To(func(nic *machine.NicBasicInfo) (uint64, error) {
+				if First {
+					if nic.Name == "eth0" {
+						return 10000, nil
+					}
+
+					if nic.Name == "eth2" {
+						return 10000, nil
+					}
+					First = false
+				} else {
+					if nic.Name == "eth0" {
+						return 1000000, nil
+					}
+
+					if nic.Name == "eth2" {
+						return 11000, nil
+					}
+				}
+				return 0, nil
+			}).Build()
+
+			normalThroughtputNics, lowThroughputBasicNics := ic.classifyNicsByThroughputFirstTime(nics, 2)
+
+			So(normalThroughtputNics, ShouldResemble, []*machine.NicBasicInfo{
+				{
+					InterfaceInfo: machine.InterfaceInfo{
+						Name:    "eth0",
+						IfIndex: 2,
+					},
+				},
+			})
+			So(lowThroughputBasicNics, ShouldResemble, []*machine.NicBasicInfo{
+				{
+					InterfaceInfo: machine.InterfaceInfo{
+						Name:    "eth2",
+						IfIndex: 11,
+					},
+				},
+			})
+		})
+	})
+
+	PatchConvey("Test_periodicTuning", t, func() {
+		ic := &IrqTuningController{
+			conf: &config.IrqTuningConfig{
+				NormalThroughputNics: []config.NicInfo{
+					{
+						NicName: "eth0",
+					},
+					{
+						NicName:   "eth2",
+						NetNSName: "ns2",
+					},
+				},
+				ThroughputClassSwitchConf: config.ThroughputClassSwitchConfig{
+					LowThroughputThresholds: config.LowThroughputThresholds{
+						RxPPSThreshold:  3000,
+						SuccessiveCount: 30,
+					},
+					NormalThroughputThresholds: config.NormalThroughputThresholds{
+						RxPPSThreshold:  6000,
+						SuccessiveCount: 10,
+					},
+				},
+			},
+		}
+
+		PatchConvey("Scenario 1: failed to syncNics", func() {
+			Mock((*IrqTuningController).syncNics).Return(nil, false, fmt.Errorf("sync nic failed")).Build()
+			Mock((*IrqTuningController).emitErrMetric).To(func(reason string, level int64, tags ...metrics.MetricTag) {
+			}).Build()
+
+			ic.periodicTuning(nil)
+
+			So(ic.Nics, ShouldResemble, []*NicIrqTuningManager(nil))
+			So(ic.LowThroughputNics, ShouldResemble, []*NicIrqTuningManager(nil))
+		})
+
+		PatchConvey("Scenario 1: static normal throughput nics changed", func() {
+			ic.Nics = append(ic.Nics, &NicIrqTuningManager{
+				NicInfo: &NicInfo{
+					NicBasicInfo: &machine.NicBasicInfo{
+						InterfaceInfo: machine.InterfaceInfo{
+							Name: "eth0",
+						},
+					},
+				},
+			})
+			oldConf := &config.IrqTuningConfig{}
+
+			Mock((*IrqTuningController).syncNics).Return(nil, false, nil).Build()
+			Mock((*IrqTuningController).updateNicIrqTuningManagers).Return(fmt.Errorf("updateNicIrqTuningManagers failed")).Build()
+			Mock((*IrqTuningController).emitErrMetric).To(func(reason string, level int64, tags ...metrics.MetricTag) {
+			}).Build()
+
+			ic.periodicTuning(oldConf)
+
+			So(ic.Nics, ShouldResemble, []*NicIrqTuningManager{{
+				NicInfo: &NicInfo{
+					NicBasicInfo: &machine.NicBasicInfo{
+						InterfaceInfo: machine.InterfaceInfo{
+							Name: "eth0",
+						},
+					},
+				},
+			}})
+			So(ic.LowThroughputNics, ShouldResemble, []*NicIrqTuningManager(nil))
 		})
 	})
 }
