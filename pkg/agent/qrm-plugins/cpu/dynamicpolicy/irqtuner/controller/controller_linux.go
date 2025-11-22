@@ -46,8 +46,9 @@ import (
 )
 
 const (
-	NicsSyncIntervalSeconds = 600
-	IrqTuningLogPrefix      = "irq-tuning:"
+	NicsSyncIntervalSeconds    = 600
+	NicThroughputCheckInterval = 30
+	IrqTuningLogPrefix         = "irq-tuning:"
 )
 
 var (
@@ -508,76 +509,7 @@ func NewNicIrqTuningManager(conf *config.IrqTuningConfig, nic *machine.NicBasicI
 // return value:
 // first: normal throughput nic managers
 // second: low throughput nic managers
-func NewNicIrqTuningManagers(conf *config.IrqTuningConfig, nics []*machine.NicBasicInfo, cpuInfo *machine.CPUInfo) ([]*NicIrqTuningManager, []*NicIrqTuningManager, error) {
-	start := time.Now()
-	prevNicRxPackets := make(map[int]uint64)
-	for _, nic := range nics {
-		rxPackets, err := machine.GetNetDevRxPackets(nic)
-		if err != nil {
-			general.Errorf("%s failed to GetNetDevRxPackets for nic %s, err %v", IrqTuningLogPrefix, nic, err)
-			continue
-		}
-		prevNicRxPackets[nic.IfIndex] = rxPackets
-	}
-
-	time.Sleep(30 * time.Second)
-	timeDiff := time.Since(start).Seconds()
-
-	var normalThroughputNics []*machine.NicBasicInfo
-	var lowThroughputNics []*machine.NicBasicInfo
-
-	var ppsMaxNic *machine.NicBasicInfo
-	var ppsMax uint64
-	for _, nic := range nics {
-		rxPackets, err := machine.GetNetDevRxPackets(nic)
-		if err != nil {
-			general.Errorf("%s failed to GetNetDevRxPackets for nic %s, err %v", IrqTuningLogPrefix, nic, err)
-			normalThroughputNics = append(normalThroughputNics, nic)
-			continue
-		}
-
-		oldRxPPS, ok := prevNicRxPackets[nic.IfIndex]
-		if !ok {
-			general.Errorf("%s failed to find nic %s in prev nic stats", IrqTuningLogPrefix, nic)
-			normalThroughputNics = append(normalThroughputNics, nic)
-			continue
-		}
-
-		pps := (rxPackets - oldRxPPS) / uint64(timeDiff)
-
-		if pps >= conf.ThroughputClassSwitchConf.NormalThroughputThresholds.RxPPSThreshold {
-			normalThroughputNics = append(normalThroughputNics, nic)
-		} else {
-			lowThroughputNics = append(lowThroughputNics, nic)
-		}
-
-		if ppsMaxNic == nil || pps > ppsMax {
-			ppsMaxNic = nic
-			ppsMax = pps
-		}
-	}
-
-	if len(normalThroughputNics) == 0 {
-		normalThroughputNics = append(normalThroughputNics, ppsMaxNic)
-
-		lowThroughputNics = []*machine.NicBasicInfo{}
-		for _, nic := range nics {
-			if ppsMaxNic != nil && nic.IfIndex != ppsMaxNic.IfIndex {
-				lowThroughputNics = append(lowThroughputNics, nic)
-			}
-		}
-	}
-
-	general.Infof("%s normal throughput nics:", IrqTuningLogPrefix)
-	for _, nic := range normalThroughputNics {
-		general.Infof("%s   %s", IrqTuningLogPrefix, nic)
-	}
-
-	general.Infof("%s low throughput nics:", IrqTuningLogPrefix)
-	for _, nic := range lowThroughputNics {
-		general.Infof("%s   %s", IrqTuningLogPrefix, nic)
-	}
-
+func NewNicIrqTuningManagers(conf *config.IrqTuningConfig, normalThroughputNics []*machine.NicBasicInfo, lowThroughputNics []*machine.NicBasicInfo, cpuInfo *machine.CPUInfo) ([]*NicIrqTuningManager, []*NicIrqTuningManager, error) {
 	nicsAssignedSockets, err := AssignSocketsForNics(normalThroughputNics, cpuInfo, conf.NicAffinitySocketsPolicy)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to AssignSocketsForNicIrqs, err %v", err)
@@ -1908,6 +1840,19 @@ func (ic *IrqTuningController) updateLatestIndicatorsStats(seconds int) (*Indica
 	return oldIndicatorsStats, nil
 }
 
+func (ic *IrqTuningController) configuredStaticNormalThroughputNics() bool {
+	return len(ic.conf.NormalThroughputNics) > 0
+}
+
+func (ic *IrqTuningController) isStaticConfiguredNormalThroughputNic(nic *machine.NicBasicInfo) bool {
+	for _, normalThroughputNic := range ic.conf.NormalThroughputNics {
+		if nic.NSName == normalThroughputNic.NetNSName && nic.Name == normalThroughputNic.NicName {
+			return true
+		}
+	}
+	return false
+}
+
 func (ic *IrqTuningController) classifyNicsByThroughput(oldIndicatorsStats *IndicatorsStats) error {
 	timeDiff := ic.IndicatorsStats.UpdateTime.Sub(oldIndicatorsStats.UpdateTime).Seconds()
 
@@ -1921,6 +1866,22 @@ func (ic *IrqTuningController) classifyNicsByThroughput(oldIndicatorsStats *Indi
 
 	oldNicStats := oldIndicatorsStats.NicStats
 	for _, nic := range ic.Nics {
+		// static configured normal throughput nic
+		if ic.configuredStaticNormalThroughputNics() {
+			// only static configured normal throughput nic can be added to ic.Nics if configured static normal throughput nics,
+			// so if nic already in ic.Nics, it MUST be static configured normal throughput nic.
+			normalThroughputNics = append(normalThroughputNics, nic)
+
+			// check if this nic is static configured normal throughput nic to catch unexpected normal throughput nic
+			// only check, donot change
+			if !ic.isStaticConfiguredNormalThroughputNic(nic.NicInfo.NicBasicInfo) {
+				general.Infof("%s unexpected normal throughput nic: %s", IrqTuningLogPrefix, nic.NicInfo)
+				ic.emitErrMetric(irqtuner.UnexpectedNormalThroughputNic, irqtuner.IrqTuningError,
+					metrics.MetricTag{Key: "nic", Val: nic.NicInfo.UniqName()})
+			}
+			continue
+		}
+
 		// nic with IrqCoresExclusive affinity policy cannot be directly moved to ic.LowThroughputNics
 		if nic.IrqAffinityPolicy == IrqCoresExclusive {
 			normalThroughputNics = append(normalThroughputNics, nic)
@@ -1994,6 +1955,28 @@ func (ic *IrqTuningController) classifyNicsByThroughput(oldIndicatorsStats *Indi
 		if pps >= ic.conf.ThroughputClassSwitchConf.NormalThroughputThresholds.RxPPSThreshold {
 			nic.NormalThroughputSuccCount++
 			if nic.NormalThroughputSuccCount >= ic.conf.ThroughputClassSwitchConf.NormalThroughputThresholds.SuccessiveCount {
+				if ic.configuredStaticNormalThroughputNics() {
+					// only static configured normal throughput nic can be added to ic.Nics if configured static normal throughput nics,
+					// so if nic NOT in ic.Nics, it's MUST NOT static configured normal throughput nic.
+					lowThroughputNics = append(lowThroughputNics, nic)
+					nic.NormalThroughputSuccCount = 0
+
+					general.Errorf("%s low throughput nic: %s with high pps %d, greater than normal throughput nic rx pps threshold %d successive %d times",
+						IrqTuningLogPrefix, nic.NicInfo, pps, ic.conf.ThroughputClassSwitchConf.NormalThroughputThresholds.RxPPSThreshold, ic.conf.ThroughputClassSwitchConf.NormalThroughputThresholds.SuccessiveCount)
+					ic.emitErrMetric(irqtuner.LowThroughputNicWithHighThroughput, irqtuner.IrqTuningWarning,
+						metrics.MetricTag{Key: "nic", Val: nic.NicInfo.UniqName()})
+
+					// check if this nic is static configured normal throughput nic to catch unexpected low throughput nic
+					// only check, donot change
+					if ic.isStaticConfiguredNormalThroughputNic(nic.NicInfo.NicBasicInfo) {
+						general.Errorf("%s unexpected low throughput nic: %s", IrqTuningLogPrefix, nic.NicInfo)
+						ic.emitErrMetric(irqtuner.UnexpectedLowThroughputNic, irqtuner.IrqTuningError,
+							metrics.MetricTag{Key: "nic", Val: nic.NicInfo.UniqName()})
+					}
+
+					continue
+				}
+
 				// move nic to ic.Nics from ic.LowThroughputNics
 				normalThroughputNics = append(normalThroughputNics, nic)
 				nic.LowThroughputSuccCount = 0
@@ -2156,6 +2139,109 @@ func (ic *IrqTuningController) classifyNicsByThroughput(oldIndicatorsStats *Indi
 	return nil
 }
 
+func (ic *IrqTuningController) classifyNicsByThroughputFirstTime(nics []*machine.NicBasicInfo, checkInterval int) ([]*machine.NicBasicInfo, []*machine.NicBasicInfo) {
+	var normalThroughputNics []*machine.NicBasicInfo
+	var lowThroughputNics []*machine.NicBasicInfo
+
+	if ic.configuredStaticNormalThroughputNics() {
+		for _, nic := range nics {
+			if ic.isStaticConfiguredNormalThroughputNic(nic) {
+				normalThroughputNics = append(normalThroughputNics, nic)
+			} else {
+				lowThroughputNics = append(lowThroughputNics, nic)
+			}
+		}
+
+		if len(normalThroughputNics) != len(ic.conf.NormalThroughputNics) {
+			general.Errorf("%s synced normal throughput nics:", IrqTuningLogPrefix)
+			for _, nic := range normalThroughputNics {
+				general.Errorf("%s   %s", IrqTuningLogPrefix, nic)
+			}
+
+			general.Errorf("%s static configured normal throughput nics:", IrqTuningLogPrefix)
+			for _, nic := range ic.conf.NormalThroughputNics {
+				if nic.NicName == "" {
+					general.Errorf("%s   %s", IrqTuningLogPrefix, nic.NicName)
+				} else {
+					general.Errorf("%s   %s/%s", IrqTuningLogPrefix, nic.NetNSName, nic.NicName)
+				}
+			}
+
+			ic.emitErrMetric(irqtuner.NormalThroughputNicsInconsistent, irqtuner.IrqTuningInfo)
+		}
+
+		return normalThroughputNics, lowThroughputNics
+	}
+
+	start := time.Now()
+	prevNicRxPackets := make(map[int]uint64)
+	for _, nic := range nics {
+		rxPackets, err := machine.GetNetDevRxPackets(nic)
+		if err != nil {
+			general.Errorf("%s failed to GetNetDevRxPackets for nic %s, err %v", IrqTuningLogPrefix, nic, err)
+			continue
+		}
+		prevNicRxPackets[nic.IfIndex] = rxPackets
+	}
+
+	time.Sleep(time.Duration(checkInterval) * time.Second)
+	timeDiff := time.Since(start).Seconds()
+
+	var ppsMaxNic *machine.NicBasicInfo
+	var ppsMax uint64
+	for _, nic := range nics {
+		rxPackets, err := machine.GetNetDevRxPackets(nic)
+		if err != nil {
+			general.Errorf("%s failed to GetNetDevRxPackets for nic %s, err %v", IrqTuningLogPrefix, nic, err)
+			normalThroughputNics = append(normalThroughputNics, nic)
+			continue
+		}
+
+		oldRxPPS, ok := prevNicRxPackets[nic.IfIndex]
+		if !ok {
+			general.Errorf("%s failed to find nic %s in prev nic stats", IrqTuningLogPrefix, nic)
+			normalThroughputNics = append(normalThroughputNics, nic)
+			continue
+		}
+
+		pps := (rxPackets - oldRxPPS) / uint64(timeDiff)
+
+		if pps >= ic.conf.ThroughputClassSwitchConf.NormalThroughputThresholds.RxPPSThreshold {
+			normalThroughputNics = append(normalThroughputNics, nic)
+		} else {
+			lowThroughputNics = append(lowThroughputNics, nic)
+		}
+
+		if ppsMaxNic == nil || pps > ppsMax {
+			ppsMaxNic = nic
+			ppsMax = pps
+		}
+	}
+
+	if len(normalThroughputNics) == 0 {
+		normalThroughputNics = append(normalThroughputNics, ppsMaxNic)
+
+		lowThroughputNics = []*machine.NicBasicInfo{}
+		for _, nic := range nics {
+			if ppsMaxNic != nil && nic.IfIndex != ppsMaxNic.IfIndex {
+				lowThroughputNics = append(lowThroughputNics, nic)
+			}
+		}
+	}
+
+	general.Infof("%s normal throughput nics:", IrqTuningLogPrefix)
+	for _, nic := range normalThroughputNics {
+		general.Infof("%s   %s", IrqTuningLogPrefix, nic)
+	}
+
+	general.Infof("%s low throughput nics:", IrqTuningLogPrefix)
+	for _, nic := range lowThroughputNics {
+		general.Infof("%s   %s", IrqTuningLogPrefix, nic)
+	}
+
+	return normalThroughputNics, lowThroughputNics
+}
+
 func (ic *IrqTuningController) syncNics() error {
 	general.Infof("%s sync nics", IrqTuningLogPrefix)
 
@@ -2262,7 +2348,9 @@ func (ic *IrqTuningController) syncNics() error {
 		}
 	}
 
-	nicManagers, lowThroughputNicManagers, err := NewNicIrqTuningManagers(ic.conf, nics, ic.CPUInfo)
+	normalThroughputNics, lowThroughputNics := ic.classifyNicsByThroughputFirstTime(nics, NicThroughputCheckInterval)
+
+	nicManagers, lowThroughputNicManagers, err := NewNicIrqTuningManagers(ic.conf, normalThroughputNics, lowThroughputNics, ic.CPUInfo)
 	if err != nil {
 		return fmt.Errorf("%s failed to NewNicIrqTuningManagers, err %v", IrqTuningLogPrefix, err)
 	}

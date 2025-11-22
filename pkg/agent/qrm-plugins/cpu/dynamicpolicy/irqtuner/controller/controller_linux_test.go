@@ -27,6 +27,8 @@ import (
 	. "github.com/bytedance/mockey"
 	. "github.com/smartystreets/goconvey/convey"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/irqtuner/config"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -105,6 +107,132 @@ func Test_clearNicXPS(t *testing.T) {
 			err := ic.clearNicXPS(nic)
 
 			So(err, ShouldBeNil)
+		})
+	})
+}
+
+func Test_classifyNicsByThroughputFirstTime(t *testing.T) {
+	t.Parallel()
+	PatchConvey("Test_classifyNicsByThroughputFirstTime", t, func() {
+		ic := &IrqTuningController{
+			conf: &config.IrqTuningConfig{
+				NormalThroughputNics: []config.NicInfo{
+					{
+						NicName: "eth0",
+					},
+					{
+						NicName:   "eth2",
+						NetNSName: "ns2",
+					},
+				},
+				ThroughputClassSwitchConf: config.ThroughputClassSwitchConfig{
+					LowThroughputThresholds: config.LowThroughputThresholds{
+						RxPPSThreshold:  3000,
+						SuccessiveCount: 30,
+					},
+					NormalThroughputThresholds: config.NormalThroughputThresholds{
+						RxPPSThreshold:  6000,
+						SuccessiveCount: 10,
+					},
+				},
+			},
+		}
+
+		PatchConvey("Scenario 1: succeed to classfy nics by static configured normal throughput nics", func() {
+			nics := []*machine.NicBasicInfo{
+				{
+					InterfaceInfo: machine.InterfaceInfo{
+						Name: "eth0",
+					},
+				},
+				{
+					InterfaceInfo: machine.InterfaceInfo{
+						Name: "eth5",
+					},
+				},
+			}
+
+			Mock((*IrqTuningController).emitErrMetric).To(func(reason string, level int64, tags ...metrics.MetricTag) {
+			}).Build()
+
+			normalThroughtputNics, lowThroughputBasicNics := ic.classifyNicsByThroughputFirstTime(nics, 1)
+
+			So(normalThroughtputNics, ShouldResemble, []*machine.NicBasicInfo{
+				{
+					InterfaceInfo: machine.InterfaceInfo{
+						Name: "eth0",
+					},
+				},
+			})
+			So(lowThroughputBasicNics, ShouldResemble, []*machine.NicBasicInfo{
+				{
+					InterfaceInfo: machine.InterfaceInfo{
+						Name: "eth5",
+					},
+				},
+			})
+		})
+
+		PatchConvey("Scenario 2: succeed to classify nics by dynamic check nic rx pps", func() {
+			ic.conf.NormalThroughputNics = []config.NicInfo{}
+
+			nics := []*machine.NicBasicInfo{
+				{
+					InterfaceInfo: machine.InterfaceInfo{
+						Name:    "eth0",
+						IfIndex: 2,
+					},
+				},
+				{
+					InterfaceInfo: machine.InterfaceInfo{
+						Name:    "eth2",
+						IfIndex: 11,
+					},
+				},
+			}
+
+			First := true
+
+			Mock(machine.GetNetDevRxPackets).To(func(nic *machine.NicBasicInfo) (uint64, error) {
+				if First {
+					if nic.Name == "eth0" {
+						return 10000, nil
+					}
+
+					if nic.Name == "eth2" {
+						return 10000, nil
+					}
+					First = false
+				} else {
+					if nic.Name == "eth0" {
+						return 1000000, nil
+					}
+
+					if nic.Name == "eth2" {
+						return 11000, nil
+					}
+				}
+				return 0, nil
+			}).Build()
+
+			normalThroughtputNics, lowThroughputBasicNics := ic.classifyNicsByThroughputFirstTime(nics, 2)
+
+			So(normalThroughtputNics, ShouldResemble, []*machine.NicBasicInfo{
+				{
+					InterfaceInfo: machine.InterfaceInfo{
+						Name:    "eth0",
+						IfIndex: 2,
+					},
+				},
+			})
+			So(lowThroughputBasicNics, ShouldResemble, []*machine.NicBasicInfo{
+				{
+					InterfaceInfo: machine.InterfaceInfo{
+						Name:    "eth2",
+						IfIndex: 11,
+					},
+				},
+			})
 		})
 	})
 }
