@@ -17,6 +17,7 @@ limitations under the License.
 package resourceplugin
 
 import (
+	"context"
 	"fmt"
 
 	v1 "k8s.io/api/core/v1"
@@ -39,11 +40,11 @@ func (r ResourcePluginStub) ResourceName() string {
 	return "resource-plugin-stub"
 }
 
-func (r ResourcePluginStub) GetTopologyHints(_ *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error) {
+func (r ResourcePluginStub) GetTopologyHints(context.Context, *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error) {
 	return &pluginapi.ResourceHintsResponse{}, nil
 }
 
-func (r ResourcePluginStub) GetTopologyAwareResources(podUID, containerName string) (*pluginapi.GetTopologyAwareResourcesResponse, error) {
+func (r ResourcePluginStub) GetTopologyAwareResources(_ context.Context, podUID, containerName string) (*pluginapi.GetTopologyAwareResourcesResponse, error) {
 	// Simply returns a fixed response if the podUID and containerName is found in the state, otherwise return an error
 	allocationInfo := r.State.GetAllocationInfo(v1.ResourceName(r.ResourceName()), podUID, containerName)
 	if allocationInfo == nil {
@@ -60,14 +61,14 @@ func (r ResourcePluginStub) GetTopologyAwareResources(podUID, containerName stri
 	}, nil
 }
 
-func (r ResourcePluginStub) GetTopologyAwareAllocatableResources() (*gpuconsts.AllocatableResource, error) {
+func (r ResourcePluginStub) GetTopologyAwareAllocatableResources(context.Context) (*gpuconsts.AllocatableResource, error) {
 	// Simply return a fixed response
 	return &gpuconsts.AllocatableResource{
 		ResourceName: r.ResourceName(),
 	}, nil
 }
 
-func (r ResourcePluginStub) Allocate(resourceReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest) (*pluginapi.ResourceAllocationResponse, error) {
+func (r ResourcePluginStub) Allocate(_ context.Context, resourceReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest) (*pluginapi.ResourceAllocationResponse, error) {
 	// Simply save resource request and device request in state
 	if resourceReq.ResourceName == r.ResourceName() {
 		r.State.SetAllocationInfo(v1.ResourceName(r.ResourceName()), resourceReq.PodUid, resourceReq.ContainerName, &state.AllocationInfo{}, false)

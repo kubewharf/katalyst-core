@@ -17,6 +17,7 @@ limitations under the License.
 package gpu
 
 import (
+	"context"
 	"fmt"
 
 	v1 "k8s.io/api/core/v1"
@@ -66,16 +67,16 @@ func (p *GPUDevicePlugin) DeviceNames() []string {
 	return p.deviceNames
 }
 
-func (p *GPUDevicePlugin) UpdateAllocatableAssociatedDevices(request *pluginapi.UpdateAllocatableAssociatedDevicesRequest) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error) {
+func (p *GPUDevicePlugin) UpdateAllocatableAssociatedDevices(ctx context.Context, request *pluginapi.UpdateAllocatableAssociatedDevicesRequest) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error) {
 	return p.UpdateAllocatableAssociatedDevicesByDeviceType(request, gpuconsts.GPUDeviceType)
 }
 
-func (p *GPUDevicePlugin) GetAssociatedDeviceTopologyHints(_ *pluginapi.AssociatedDeviceRequest) (*pluginapi.AssociatedDeviceHintsResponse, error) {
+func (p *GPUDevicePlugin) GetAssociatedDeviceTopologyHints(context.Context, *pluginapi.AssociatedDeviceRequest) (*pluginapi.AssociatedDeviceHintsResponse, error) {
 	return &pluginapi.AssociatedDeviceHintsResponse{}, nil
 }
 
 func (p *GPUDevicePlugin) AllocateAssociatedDevice(
-	resReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest, _ string,
+	ctx context.Context, resReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest, _ string,
 ) (*pluginapi.AssociatedDeviceAllocationResponse, error) {
 	qosLevel, err := qrmutil.GetKatalystQoSLevelFromResourceReq(p.Conf.QoSConfiguration, resReq, p.PodAnnotationKeptKeys, p.PodLabelKeptKeys)
 	if err != nil {

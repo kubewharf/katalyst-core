@@ -17,6 +17,7 @@ limitations under the License.
 package gpu
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -118,7 +119,7 @@ func TestGPUDevicePlugin_UpdateAllocatableAssociatedDevices(t *testing.T) {
 		},
 	}
 
-	resp, err := devicePlugin.UpdateAllocatableAssociatedDevices(req)
+	resp, err := devicePlugin.UpdateAllocatableAssociatedDevices(context.Background(), req)
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
 
@@ -295,7 +296,7 @@ func TestGPUDevicePlugin_AllocateAssociatedDevice(t *testing.T) {
 				ContainerName: tt.containerName,
 			}
 
-			resp, err := devicePlugin.AllocateAssociatedDevice(resourceReq, tt.deviceReq, "test")
+			resp, err := devicePlugin.AllocateAssociatedDevice(context.Background(), resourceReq, tt.deviceReq, "test")
 			if tt.expectedErr {
 				assert.Error(t, err)
 			} else {
