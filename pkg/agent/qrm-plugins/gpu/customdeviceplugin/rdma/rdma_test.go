@@ -17,6 +17,7 @@ limitations under the License.
 package rdma
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -123,7 +124,7 @@ func TestRDMADevicePlugin_UpdateAllocatableAssociatedDevices(t *testing.T) {
 		},
 	}
 
-	resp, err := devicePlugin.UpdateAllocatableAssociatedDevices(req)
+	resp, err := devicePlugin.UpdateAllocatableAssociatedDevices(context.Background(), req)
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
 
@@ -528,7 +529,7 @@ func TestRDMADevicePlugin_AllocateAssociatedDevices(t *testing.T) {
 				ContainerName: tt.containerName,
 			}
 
-			resp, err := devicePlugin.AllocateAssociatedDevice(resourceReq, tt.deviceReq, tt.accompanyResourceName)
+			resp, err := devicePlugin.AllocateAssociatedDevice(context.Background(), resourceReq, tt.deviceReq, tt.accompanyResourceName)
 			if tt.expectedErr {
 				assert.Error(t, err)
 			} else {

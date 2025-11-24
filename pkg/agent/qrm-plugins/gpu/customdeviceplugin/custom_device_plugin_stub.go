@@ -17,6 +17,7 @@ limitations under the License.
 package customdeviceplugin
 
 import (
+	"context"
 	"fmt"
 
 	v1 "k8s.io/api/core/v1"
@@ -40,11 +41,11 @@ func (c CustomDevicePluginStub) DeviceNames() []string {
 	return []string{"custom-device-plugin-stub"}
 }
 
-func (c CustomDevicePluginStub) GetAssociatedDeviceTopologyHints(_ *pluginapi.AssociatedDeviceRequest) (*pluginapi.AssociatedDeviceHintsResponse, error) {
+func (c CustomDevicePluginStub) GetAssociatedDeviceTopologyHints(context.Context, *pluginapi.AssociatedDeviceRequest) (*pluginapi.AssociatedDeviceHintsResponse, error) {
 	return &pluginapi.AssociatedDeviceHintsResponse{}, nil
 }
 
-func (c CustomDevicePluginStub) UpdateAllocatableAssociatedDevices(_ *pluginapi.UpdateAllocatableAssociatedDevicesRequest) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error) {
+func (c CustomDevicePluginStub) UpdateAllocatableAssociatedDevices(context.Context, *pluginapi.UpdateAllocatableAssociatedDevicesRequest) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error) {
 	return &pluginapi.UpdateAllocatableAssociatedDevicesResponse{}, nil
 }
 
@@ -52,7 +53,7 @@ func (c CustomDevicePluginStub) DefaultAccompanyResourceName() string {
 	return "resource-plugin-stub"
 }
 
-func (c CustomDevicePluginStub) AllocateAssociatedDevice(resReq *pluginapi.ResourceRequest, _ *pluginapi.DeviceRequest, accompanyResourceName string) (*pluginapi.AssociatedDeviceAllocationResponse, error) {
+func (c CustomDevicePluginStub) AllocateAssociatedDevice(_ context.Context, resReq *pluginapi.ResourceRequest, _ *pluginapi.DeviceRequest, accompanyResourceName string) (*pluginapi.AssociatedDeviceAllocationResponse, error) {
 	// Simply check if the accompany resource has been allocated
 	// If it has been allocated, allocate the associated device
 	accompanyResourceAllocation := c.State.GetAllocationInfo(v1.ResourceName(accompanyResourceName), resReq.PodUid, resReq.ContainerName)
@@ -78,11 +79,11 @@ func (c CustomDevicePluginStub2) DeviceNames() []string {
 	return []string{"custom-device-plugin-stub-2"}
 }
 
-func (c CustomDevicePluginStub2) GetAssociatedDeviceTopologyHints(_ *pluginapi.AssociatedDeviceRequest) (*pluginapi.AssociatedDeviceHintsResponse, error) {
+func (c CustomDevicePluginStub2) GetAssociatedDeviceTopologyHints(context.Context, *pluginapi.AssociatedDeviceRequest) (*pluginapi.AssociatedDeviceHintsResponse, error) {
 	return &pluginapi.AssociatedDeviceHintsResponse{}, nil
 }
 
-func (c CustomDevicePluginStub2) UpdateAllocatableAssociatedDevices(_ *pluginapi.UpdateAllocatableAssociatedDevicesRequest) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error) {
+func (c CustomDevicePluginStub2) UpdateAllocatableAssociatedDevices(context.Context, *pluginapi.UpdateAllocatableAssociatedDevicesRequest) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error) {
 	return &pluginapi.UpdateAllocatableAssociatedDevicesResponse{}, nil
 }
 
@@ -90,7 +91,7 @@ func (c CustomDevicePluginStub2) DefaultAccompanyResourceName() string {
 	return "resource-plugin-stub"
 }
 
-func (c CustomDevicePluginStub2) AllocateAssociatedDevice(resReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest, _ string) (*pluginapi.AssociatedDeviceAllocationResponse, error) {
+func (c CustomDevicePluginStub2) AllocateAssociatedDevice(_ context.Context, resReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest, _ string) (*pluginapi.AssociatedDeviceAllocationResponse, error) {
 	// Simply allocate the associated device
 	c.State.SetAllocationInfo(v1.ResourceName(deviceReq.DeviceName), resReq.PodUid, resReq.ContainerName, &state.AllocationInfo{}, false)
 	return &pluginapi.AssociatedDeviceAllocationResponse{}, nil

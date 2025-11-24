@@ -17,6 +17,7 @@ limitations under the License.
 package rdma
 
 import (
+	"context"
 	"fmt"
 	"math"
 
@@ -63,17 +64,17 @@ func (p *RDMADevicePlugin) DeviceNames() []string {
 	return p.deviceNames
 }
 
-func (p *RDMADevicePlugin) UpdateAllocatableAssociatedDevices(request *pluginapi.UpdateAllocatableAssociatedDevicesRequest) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error) {
+func (p *RDMADevicePlugin) UpdateAllocatableAssociatedDevices(ctx context.Context, request *pluginapi.UpdateAllocatableAssociatedDevicesRequest) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error) {
 	return p.UpdateAllocatableAssociatedDevicesByDeviceType(request, gpuconsts.RDMADeviceType)
 }
 
-func (p *RDMADevicePlugin) GetAssociatedDeviceTopologyHints(_ *pluginapi.AssociatedDeviceRequest) (*pluginapi.AssociatedDeviceHintsResponse, error) {
+func (p *RDMADevicePlugin) GetAssociatedDeviceTopologyHints(context.Context, *pluginapi.AssociatedDeviceRequest) (*pluginapi.AssociatedDeviceHintsResponse, error) {
 	return &pluginapi.AssociatedDeviceHintsResponse{}, nil
 }
 
 // AllocateAssociatedDevice check if rdma is allocated to other containers, make sure they do not share rdma
 func (p *RDMADevicePlugin) AllocateAssociatedDevice(
-	resReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest, accompanyResourceName string,
+	ctx context.Context, resReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest, accompanyResourceName string,
 ) (*pluginapi.AssociatedDeviceAllocationResponse, error) {
 	qosLevel, err := util.GetKatalystQoSLevelFromResourceReq(p.Conf.QoSConfiguration, resReq, p.PodAnnotationKeptKeys, p.PodLabelKeptKeys)
 	if err != nil {
