@@ -17,6 +17,8 @@ limitations under the License.
 package resourceplugin
 
 import (
+	"context"
+
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
@@ -26,13 +28,13 @@ import (
 type ResourcePlugin interface {
 	ResourceName() string
 
-	GetTopologyHints(*pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error)
+	GetTopologyHints(ctx context.Context, request *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error)
 
-	GetTopologyAwareResources(podUID, containerName string) (*pluginapi.GetTopologyAwareResourcesResponse, error)
+	GetTopologyAwareResources(ctx context.Context, podUID, containerName string) (*pluginapi.GetTopologyAwareResourcesResponse, error)
 
-	GetTopologyAwareAllocatableResources() (*gpuconsts.AllocatableResource, error)
+	GetTopologyAwareAllocatableResources(ctx context.Context) (*gpuconsts.AllocatableResource, error)
 
 	Allocate(
-		resourceReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest,
+		ctx context.Context, resourceReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest,
 	) (*pluginapi.ResourceAllocationResponse, error)
 }

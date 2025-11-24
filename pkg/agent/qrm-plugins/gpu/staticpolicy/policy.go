@@ -189,7 +189,7 @@ func (p *StaticPolicy) ResourceName() string {
 
 // GetTopologyHints returns hints of corresponding resources
 func (p *StaticPolicy) GetTopologyHints(
-	_ context.Context,
+	ctx context.Context,
 	req *pluginapi.ResourceRequest,
 ) (resp *pluginapi.ResourceHintsResponse, err error) {
 	general.InfofV(4, "called")
@@ -204,7 +204,7 @@ func (p *StaticPolicy) GetTopologyHints(
 	if resourcePlugin == nil {
 		return nil, fmt.Errorf("failed to find resource plugin by name %s", req.ResourceName)
 	}
-	return resourcePlugin.GetTopologyHints(req)
+	return resourcePlugin.GetTopologyHints(ctx, req)
 }
 
 // GetPodTopologyHints returns hints of corresponding resources
@@ -216,7 +216,7 @@ func (p *StaticPolicy) GetPodTopologyHints(
 }
 
 func (p *StaticPolicy) RemovePod(
-	_ context.Context,
+	ctx context.Context,
 	req *pluginapi.RemovePodRequest,
 ) (*pluginapi.RemovePodResponse, error) {
 	if req == nil {
@@ -246,7 +246,7 @@ func (p *StaticPolicy) GetResourcesAllocation(
 
 // GetTopologyAwareResources returns allocation results of corresponding resources as topology aware format
 func (p *StaticPolicy) GetTopologyAwareResources(
-	_ context.Context,
+	ctx context.Context,
 	req *pluginapi.GetTopologyAwareResourcesRequest,
 ) (*pluginapi.GetTopologyAwareResourcesResponse, error) {
 	general.InfofV(4, "called")
@@ -260,7 +260,7 @@ func (p *StaticPolicy) GetTopologyAwareResources(
 	// Get topology aware resources for all resource plugins
 	allocatedResourcesList := make([]*pluginapi.GetTopologyAwareResourcesResponse, 0)
 	for _, resourcePlugin := range p.resourcePlugins {
-		allocatedResource, err := resourcePlugin.GetTopologyAwareResources(req.PodUid, req.ContainerName)
+		allocatedResource, err := resourcePlugin.GetTopologyAwareResources(ctx, req.PodUid, req.ContainerName)
 		if err != nil {
 			general.Errorf("failed to get topology aware resources for plugin %s: %v", resourcePlugin.ResourceName(), err)
 			continue
@@ -332,7 +332,7 @@ func (p *StaticPolicy) mergeTopologyAwareResourcesResponse(
 
 // GetTopologyAwareAllocatableResources returns corresponding allocatable resources as topology aware format
 func (p *StaticPolicy) GetTopologyAwareAllocatableResources(
-	_ context.Context,
+	ctx context.Context,
 	req *pluginapi.GetTopologyAwareAllocatableResourcesRequest,
 ) (*pluginapi.GetTopologyAwareAllocatableResourcesResponse, error) {
 	general.InfofV(4, "called")
@@ -346,7 +346,7 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(
 	// Get topology aware allocatable resources for all resource plugins
 	allocatableResources := make(map[string]*pluginapi.AllocatableTopologyAwareResource)
 	for _, resourcePlugin := range p.resourcePlugins {
-		allocatableResource, err := resourcePlugin.GetTopologyAwareAllocatableResources()
+		allocatableResource, err := resourcePlugin.GetTopologyAwareAllocatableResources(ctx)
 		if err != nil {
 			general.Errorf("failed to get topology aware allocatable resources for plugin %s: %v", resourcePlugin.ResourceName(), err)
 			continue
@@ -381,7 +381,7 @@ func (p *StaticPolicy) GetResourcePluginOptions(
 // plugin can allocate corresponding resource for the container
 // according to resource request
 func (p *StaticPolicy) Allocate(
-	_ context.Context,
+	ctx context.Context,
 	req *pluginapi.ResourceRequest,
 ) (resp *pluginapi.ResourceAllocationResponse, err error) {
 	if req == nil {
@@ -401,7 +401,7 @@ func (p *StaticPolicy) Allocate(
 		return nil, fmt.Errorf("failed to get resource plugin by name %s", req.ResourceName)
 	}
 
-	resp, err = resourcePlugin.Allocate(req, nil)
+	resp, err = resourcePlugin.Allocate(ctx, req, nil)
 	return resp, err
 }
 
@@ -579,7 +579,7 @@ func (p *StaticPolicy) clearResidualState(
 }
 
 func (p *StaticPolicy) UpdateAllocatableAssociatedDevices(
-	_ context.Context, request *pluginapi.UpdateAllocatableAssociatedDevicesRequest,
+	ctx context.Context, request *pluginapi.UpdateAllocatableAssociatedDevicesRequest,
 ) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error) {
 	if request == nil || len(request.Devices) == 0 {
 		return nil, fmt.Errorf("request is nil")
@@ -590,7 +590,7 @@ func (p *StaticPolicy) UpdateAllocatableAssociatedDevices(
 		return nil, fmt.Errorf("no custom device plugin found for device %s", request.DeviceName)
 	}
 
-	return customDevicePlugin.UpdateAllocatableAssociatedDevices(request)
+	return customDevicePlugin.UpdateAllocatableAssociatedDevices(ctx, request)
 }
 
 func (*StaticPolicy) GetAssociatedDeviceTopologyHints(
@@ -603,7 +603,7 @@ func (*StaticPolicy) GetAssociatedDeviceTopologyHints(
 // 1. Find the resource plugin that corresponds to the accompanyResourceName and allocate
 // 2. Find the custom device plugin that corresponds to the deviceName and allocate
 func (p *StaticPolicy) AllocateAssociatedDevice(
-	_ context.Context, req *pluginapi.AssociatedDeviceRequest,
+	ctx context.Context, req *pluginapi.AssociatedDeviceRequest,
 ) (resp *pluginapi.AssociatedDeviceAllocationResponse, respErr error) {
 	var isAccompanyResourcePlugin bool
 	var isAccompanyCustomDevicePlugin bool
@@ -648,7 +648,7 @@ func (p *StaticPolicy) AllocateAssociatedDevice(
 	// Check if accompany resource maps to a resource plugin; if it does, allocate it first
 	accompanyResourcePlugin := p.getResourcePlugin(req.AccompanyResourceName)
 	if accompanyResourcePlugin != nil {
-		_, err := accompanyResourcePlugin.Allocate(req.ResourceRequest, targetDeviceReq)
+		_, err := accompanyResourcePlugin.Allocate(ctx, req.ResourceRequest, targetDeviceReq)
 		if err != nil {
 			return nil, fmt.Errorf("allocate accompany resource %s failed with error: %v", req.AccompanyResourceName, err)
 		}
@@ -669,7 +669,7 @@ func (p *StaticPolicy) AllocateAssociatedDevice(
 				return nil, fmt.Errorf("nil accompany device request")
 			}
 
-			_, err := p.allocateAssociatedDevice(accompanyCustomDevicePlugin, req.ResourceRequest, accompanyDeviceReq, "")
+			_, err := p.allocateAssociatedDevice(ctx, accompanyCustomDevicePlugin, req.ResourceRequest, accompanyDeviceReq, "")
 			if err != nil {
 				return nil, fmt.Errorf("AllocateAssociatedDevice accompany resource %s failed with error: %v", req.AccompanyResourceName, err)
 			}
@@ -683,18 +683,18 @@ func (p *StaticPolicy) AllocateAssociatedDevice(
 		return nil, fmt.Errorf("no custom device plugin found for target device %s", req.DeviceName)
 	}
 
-	return p.allocateAssociatedDevice(targetCustomDevicePlugin, req.ResourceRequest, targetDeviceReq, req.AccompanyResourceName)
+	return p.allocateAssociatedDevice(ctx, targetCustomDevicePlugin, req.ResourceRequest, targetDeviceReq, req.AccompanyResourceName)
 }
 
 func (p *StaticPolicy) allocateAssociatedDevice(
-	devicePlugin customdeviceplugin.CustomDevicePlugin,
+	ctx context.Context, devicePlugin customdeviceplugin.CustomDevicePlugin,
 	resReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest, accompanyResourceName string,
 ) (*pluginapi.AssociatedDeviceAllocationResponse, error) {
 	defaultAccompanyResourceName := devicePlugin.DefaultAccompanyResourceName()
 	if defaultAccompanyResourceName != "" && accompanyResourceName != defaultAccompanyResourceName {
 		accompanyResourcePlugin := p.getResourcePlugin(defaultAccompanyResourceName)
 		if accompanyResourcePlugin != nil {
-			_, err := accompanyResourcePlugin.Allocate(resReq, deviceReq)
+			_, err := accompanyResourcePlugin.Allocate(ctx, resReq, deviceReq)
 			if err != nil {
 				_ = p.removeContainer(resReq.PodUid, resReq.ContainerName, v1.ResourceName(defaultAccompanyResourceName))
 				return nil, fmt.Errorf("allocate accompany resource %s failed with error: %v", defaultAccompanyResourceName, err)
@@ -702,7 +702,7 @@ func (p *StaticPolicy) allocateAssociatedDevice(
 		}
 	}
 
-	return devicePlugin.AllocateAssociatedDevice(resReq, deviceReq, accompanyResourceName)
+	return devicePlugin.AllocateAssociatedDevice(ctx, resReq, deviceReq, accompanyResourceName)
 }
 
 func (p *StaticPolicy) registerDefaultResourcePlugins() error {

@@ -17,6 +17,7 @@ limitations under the License.
 package gpumemory
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"sort"
@@ -59,7 +60,7 @@ func (p *GPUMemPlugin) ResourceName() string {
 	return string(consts.ResourceGPUMemory)
 }
 
-func (p *GPUMemPlugin) GetTopologyHints(req *pluginapi.ResourceRequest) (resp *pluginapi.ResourceHintsResponse, err error) {
+func (p *GPUMemPlugin) GetTopologyHints(ctx context.Context, req *pluginapi.ResourceRequest) (resp *pluginapi.ResourceHintsResponse, err error) {
 	// if not numa binding, return nil hints to let kubelet choose numa node randomly
 	if !qosutil.AnnotationsIndicateNUMABinding(req.Annotations) {
 		return util.PackResourceHintsResponse(req, string(consts.ResourceGPUMemory),
@@ -295,7 +296,7 @@ func (p *GPUMemPlugin) preferGPUMemoryMostAllocatedHints(
 	}
 }
 
-func (p *GPUMemPlugin) GetTopologyAwareResources(podUID, containerName string) (*pluginapi.GetTopologyAwareResourcesResponse, error) {
+func (p *GPUMemPlugin) GetTopologyAwareResources(ctx context.Context, podUID, containerName string) (*pluginapi.GetTopologyAwareResourcesResponse, error) {
 	general.InfofV(4, "called")
 
 	allocationInfo := p.State.GetAllocationInfo(consts.ResourceGPUMemory, podUID, containerName)
@@ -356,7 +357,7 @@ func (p *GPUMemPlugin) GetTopologyAwareResources(podUID, containerName string) (
 	return resp, nil
 }
 
-func (p *GPUMemPlugin) GetTopologyAwareAllocatableResources() (*gpuconsts.AllocatableResource, error) {
+func (p *GPUMemPlugin) GetTopologyAwareAllocatableResources(ctx context.Context) (*gpuconsts.AllocatableResource, error) {
 	general.InfofV(4, "called")
 
 	p.Lock()
@@ -443,7 +444,7 @@ func (p *GPUMemPlugin) GetTopologyAwareAllocatableResources() (*gpuconsts.Alloca
 }
 
 func (p *GPUMemPlugin) Allocate(
-	resourceReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest,
+	ctx context.Context, resourceReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest,
 ) (*pluginapi.ResourceAllocationResponse, error) {
 	quantity, exists := resourceReq.ResourceRequests[p.ResourceName()]
 	if !exists || quantity == 0 {
