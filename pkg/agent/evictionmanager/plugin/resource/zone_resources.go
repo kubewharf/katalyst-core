@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -110,15 +111,21 @@ func (p *ZoneResourcesPlugin) GetEvictPods(_ context.Context, request *pluginapi
 
 func (p *ZoneResourcesPlugin) Start() {
 	general.RegisterHeartbeatCheck(p.pluginName, defaultHealthCheckTimeout, general.HealthzCheckStateNotReady, defaultHealthCheckTimeout)
-	return
 }
 
+// ThresholdMet evaluates per-zone resource pressure against configured thresholds.
+// It aggregates per-pod zone requests (used) vs zone allocatable (total),
+// applies a resource-specific threshold rate, and short-circuits on first exceed.
+// Notes:
+// - Uses requests as usage to avoid limit-induced overestimation.
+// - Skips resources with zero total when configured in skip list.
+// - Returns HARD_MET with GREATER_THAN semantics when used > threshold(total).
 func (p *ZoneResourcesPlugin) ThresholdMet(ctx context.Context, _ *pluginapi.GetThresholdMetRequest) (*pluginapi.ThresholdMetResponse, error) {
 	activePods, err := p.metaServer.GetPodList(ctx, native.PodIsActive)
 	if err != nil {
-		errMsg := fmt.Sprintf("failed to list pods from metaServer: %v", err)
-		klog.Errorf("[%s] %s", p.pluginName, errMsg)
-		return nil, fmt.Errorf(errMsg)
+		errWrapped := fmt.Errorf("list pods from metaServer: %w", err)
+		klog.Errorf("[%s] %v", p.pluginName, errWrapped)
+		return nil, errWrapped
 	}
 
 	filteredPods := native.FilterPods(activePods, p.podFilter)
@@ -133,21 +140,21 @@ func (p *ZoneResourcesPlugin) ThresholdMet(ctx context.Context, _ *pluginapi.Get
 
 	cnr, err := p.metaServer.GetCNR(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get cnr from metaServer: %v", err)
+		return nil, fmt.Errorf("get cnr from metaServer: %w", err)
 	}
 
 	allocatable, err := p.getZoneAllocatable(cnr)
 	if err != nil {
-		errMsg := fmt.Sprintf("failed to get resources: %v", err)
-		klog.Errorf("[%s] %s", p.pluginName, errMsg)
-		return nil, fmt.Errorf(errMsg)
+		errWrapped := fmt.Errorf("get allocatable resources: %w", err)
+		klog.Errorf("[%s] %v", p.pluginName, errWrapped)
+		return nil, errWrapped
 	}
 
 	zoneAllocations, err := p.getZoneAllocation(cnr)
 	if err != nil {
-		errMsg := fmt.Sprintf("failed to get resources: %v", err)
-		klog.Errorf("[%s] %s", p.pluginName, errMsg)
-		return nil, fmt.Errorf(errMsg)
+		errWrapped := fmt.Errorf("get zone allocations: %w", err)
+		klog.Errorf("[%s] %v", p.pluginName, errWrapped)
+		return nil, errWrapped
 	}
 
 	emitZoneResourceMetrics(MetricsNamePodResource, allocatable, map[string]string{
@@ -168,13 +175,17 @@ func (p *ZoneResourcesPlugin) ThresholdMet(ctx context.Context, _ *pluginapi.Get
 	}
 
 	// use requests (rather than limits) as used resource
-	usedZoneResources := make(map[string]v1.ResourceList)
-	for zoneID := range allocatable {
-		for _, pod := range filteredPods {
+	usedZoneResources := make(map[string]v1.ResourceList, len(allocatable))
+	for _, pod := range filteredPods {
+		if pod == nil {
+			continue
+		}
+		for zoneID := range allocatable {
 			resources := p.podZoneRequestResourcesGetter(pod, zoneID, zoneAllocations)
-			usedResources := native.AddResources(usedZoneResources[zoneID], resources)
-			usedZoneResources[zoneID] = usedResources
-
+			if resources == nil {
+				continue
+			}
+			usedZoneResources[zoneID] = native.AddResources(usedZoneResources[zoneID], resources)
 			native.EmitResourceMetrics(MetricsNamePodResource, resources, map[string]string{
 				"pluginName": p.pluginName,
 				"namespace":  pod.Namespace,
@@ -211,17 +222,17 @@ func (p *ZoneResourcesPlugin) ThresholdMet(ctx context.Context, _ *pluginapi.Get
 			// if nil, eviction will not be triggered.
 			thresholdRate := p.thresholdGetter(resourceName)
 			if thresholdRate == nil {
-				klog.Warningf("[%s] skip %s resource eviction because its resource threshold is empty", p.pluginName, resourceName)
+				klog.Warningf("[%s] skip %s resource eviction because threshold is empty", p.pluginName, resourceName)
 				continue
 			}
 
 			thresholdValue := *thresholdRate * total
-			klog.Infof("[%s] numa %s resources %v: total %v, used %v, thresholdRate %v, thresholdValue: %v", p.pluginName, zoneID,
+			klog.V(4).Infof("[%s] zone %s resource %v: total %v, used %v, thresholdRate %v, thresholdValue %v", p.pluginName, zoneID,
 				resourceName, total, used, *thresholdRate, thresholdValue)
 
 			exceededValue := thresholdValue - used
 			if exceededValue < 0 {
-				klog.Infof("[%s] numa %s resources %v exceeded: total %v, used %v, thresholdRate %v, thresholdValue: %v", p.pluginName, zoneID,
+				klog.Infof("[%s] zone %s resource %v exceeded: total %v, used %v, thresholdRate %v, thresholdValue %v", p.pluginName, zoneID,
 					resourceName, total, used, *thresholdRate, thresholdValue)
 
 				return &pluginapi.ThresholdMetResponse{
@@ -241,6 +252,10 @@ func (p *ZoneResourcesPlugin) ThresholdMet(ctx context.Context, _ *pluginapi.Get
 	}, nil
 }
 
+// GetTopEvictionPods selects the top-N candidate pods for eviction within a zone scope.
+// The scope format is "zone<zoneID>|<resourceName>".
+// Candidates are filtered by having non-zero requests for the target resource in the zone,
+// then sorted by descending resource request value with stable tie handling.
 func (p *ZoneResourcesPlugin) GetTopEvictionPods(ctx context.Context, request *pluginapi.GetTopEvictionPodsRequest) (*pluginapi.GetTopEvictionPodsResponse, error) {
 	if request == nil {
 		return nil, fmt.Errorf("GetTopEvictionPods got nil request")
@@ -251,6 +266,11 @@ func (p *ZoneResourcesPlugin) GetTopEvictionPods(ctx context.Context, request *p
 		return &pluginapi.GetTopEvictionPodsResponse{}, nil
 	}
 	activeFilteredPods := native.FilterPods(request.ActivePods, p.podFilter)
+
+	// empty eviction scope indicates threshold not met; return empty without error
+	if request.EvictionScope == "" {
+		return &pluginapi.GetTopEvictionPodsResponse{}, nil
+	}
 
 	cnr, err := p.metaServer.GetCNR(ctx)
 	if err != nil {
@@ -266,11 +286,14 @@ func (p *ZoneResourcesPlugin) GetTopEvictionPods(ctx context.Context, request *p
 
 	parseZoneScope := func(evictionScope string) (string, string, error) {
 		fields := strings.Split(evictionScope, evictionScopeSplitter)
-		if len(fields) < 1 {
+		if len(fields) < 2 {
 			return "", "", fmt.Errorf("invalid eviction scope: %s", evictionScope)
 		}
-
-		zoneID := strings.TrimPrefix(fields[0], "zone")
+		zoneField := fields[0]
+		if !strings.HasPrefix(zoneField, "zone") {
+			return "", "", fmt.Errorf("invalid eviction scope zone prefix: %s", evictionScope)
+		}
+		zoneID := strings.TrimPrefix(zoneField, "zone")
 		return zoneID, fields[1], nil
 	}
 
@@ -289,17 +312,37 @@ func (p *ZoneResourcesPlugin) GetTopEvictionPods(ctx context.Context, request *p
 		}
 	}
 
+	// precompute resource values to avoid repeated map lookups in comparator
+	values := make(map[string]int64, len(candidateEvictionPods))
+	// build values with limited concurrency to avoid hotspots on getter
+	var mu sync.Mutex
+	worker := func(pod *v1.Pod) {
+		res := p.podZoneRequestResourcesGetter(pod, evictionZoneID, zoneAllocations)
+		if quantity, ok := res[v1.ResourceName(resourceName)]; ok {
+			mu.Lock()
+			values[string(pod.UID)] = (&quantity).Value()
+			mu.Unlock()
+		}
+	}
+	// simple bounded parallelism
+	const maxWorkers = 8
+	sem := make(chan struct{}, maxWorkers)
+	var wg sync.WaitGroup
+	for _, pod := range candidateEvictionPods {
+		if pod == nil {
+			continue
+		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(p *v1.Pod) {
+			defer wg.Done()
+			worker(p)
+			<-sem
+		}(pod)
+	}
+	wg.Wait()
 	sort.Slice(candidateEvictionPods, func(i, j int) bool {
-		valueI, valueJ := int64(0), int64(0)
-
-		resourceI, resourceJ := p.podZoneRequestResourcesGetter(candidateEvictionPods[i], evictionZoneID, zoneAllocations), p.podZoneRequestResourcesGetter(candidateEvictionPods[j], evictionZoneID, zoneAllocations)
-		if quantity, ok := resourceI[v1.ResourceName(resourceName)]; ok {
-			valueI = (&quantity).Value()
-		}
-		if quantity, ok := resourceJ[v1.ResourceName(resourceName)]; ok {
-			valueJ = (&quantity).Value()
-		}
-		return valueI > valueJ
+		return values[string(candidateEvictionPods[i].UID)] > values[string(candidateEvictionPods[j].UID)]
 	})
 
 	retLen := general.MinUInt64(request.TopN, uint64(len(candidateEvictionPods)))
@@ -317,6 +360,8 @@ func (p *ZoneResourcesPlugin) GetTopEvictionPods(ctx context.Context, request *p
 	}, nil
 }
 
+// getZoneAllocatable traverses the topology tree and collects allocatable resources
+// for zones matching the plugin's zoneType. Children are recursively visited.
 func (p *ZoneResourcesPlugin) getZoneAllocatable(
 	cnr *v1alpha1.CustomNodeResource,
 ) (map[string]v1.ResourceList, error) {
@@ -332,6 +377,7 @@ func (p *ZoneResourcesPlugin) getZoneAllocatable(
 	return allocatable, nil
 }
 
+// getZoneResourceAllocatableFromTopologyZone helper for DFS traversal to collect allocatable.
 func (p *ZoneResourcesPlugin) getZoneResourceAllocatableFromTopologyZone(
 	zone *v1alpha1.TopologyZone,
 	allocatable map[string]v1.ResourceList,
@@ -350,6 +396,8 @@ func (p *ZoneResourcesPlugin) getZoneResourceAllocatableFromTopologyZone(
 	}
 }
 
+// getZoneAllocation builds per-pod zone requests map from CNR allocations.
+// Keyed by pod UID, then zoneID -> ResourceList for requests.
 func (p *ZoneResourcesPlugin) getZoneAllocation(
 	cnr *v1alpha1.CustomNodeResource,
 ) (map[string]ZoneAllocation, error) {
@@ -365,6 +413,7 @@ func (p *ZoneResourcesPlugin) getZoneAllocation(
 	return zoneAllocations, nil
 }
 
+// getZoneAllocationFromTopologyZone helper for DFS traversal to collect requests per zone.
 func (p *ZoneResourcesPlugin) getZoneAllocationFromTopologyZone(
 	zone *v1alpha1.TopologyZone,
 	zoneAllocations map[string]ZoneAllocation,
