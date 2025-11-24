@@ -17,6 +17,8 @@ limitations under the License.
 package customdeviceplugin
 
 import (
+	"context"
+
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 )
 
@@ -24,13 +26,13 @@ type CustomDevicePlugin interface {
 	// DeviceNames returns a list of all possible names for this device
 	DeviceNames() []string
 
-	GetAssociatedDeviceTopologyHints(*pluginapi.AssociatedDeviceRequest) (*pluginapi.AssociatedDeviceHintsResponse, error)
+	GetAssociatedDeviceTopologyHints(ctx context.Context, request *pluginapi.AssociatedDeviceRequest) (*pluginapi.AssociatedDeviceHintsResponse, error)
 
-	UpdateAllocatableAssociatedDevices(*pluginapi.UpdateAllocatableAssociatedDevicesRequest) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error)
+	UpdateAllocatableAssociatedDevices(ctx context.Context, request *pluginapi.UpdateAllocatableAssociatedDevicesRequest) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error)
 
 	DefaultAccompanyResourceName() string
 
 	AllocateAssociatedDevice(
-		resReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest, accompanyResourceName string,
+		ctx context.Context, resReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest, accompanyResourceName string,
 	) (*pluginapi.AssociatedDeviceAllocationResponse, error)
 }
