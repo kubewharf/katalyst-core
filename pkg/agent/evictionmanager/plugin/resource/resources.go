@@ -101,7 +101,7 @@ func (b *ResourcesEvictionPlugin) Name() string {
 }
 
 func (b *ResourcesEvictionPlugin) Start() {
-	general.RegisterHeartbeatCheck(ReclaimedResourcesEvictionPluginName, defaultHealthCheckTimeout, general.HealthzCheckStateNotReady, defaultHealthCheckTimeout)
+	general.RegisterHeartbeatCheck(b.pluginName, defaultHealthCheckTimeout, general.HealthzCheckStateNotReady, defaultHealthCheckTimeout)
 	return
 }
 
