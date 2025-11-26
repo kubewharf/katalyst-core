@@ -109,11 +109,11 @@ func (cm *customCheckpointManager) GetCheckpoint(checkpointKey string, checkpoin
 }
 
 func (cm *customCheckpointManager) RemoveCheckpoint(checkpointKey string) error {
-	return fmt.Errorf("remove checkpoint not supported")
+	return cm.currentCheckpointManager.RemoveCheckpoint(checkpointKey)
 }
 
 func (cm *customCheckpointManager) ListCheckpoints() ([]string, error) {
-	return nil, fmt.Errorf("list checkpoints not supported")
+	return cm.currentCheckpointManager.ListCheckpoints()
 }
 
 // getCurrentCheckpoint retrieves the current checkpoint and removes the previous checkpoint file if needed
@@ -186,12 +186,13 @@ func (cm *customCheckpointManager) tryMigrateState(checkpoint checkpointmanager.
 
 	hasStateChanged, err := cm.updateCacheAndReturnChanged(checkpoint, foundAndSkippedStateCorruption)
 	if err != nil {
-		return fmt.Errorf("[%v] failed to populate checkpoint state during state state: %w", cm.pluginName, err)
+		return fmt.Errorf("[%v] failed to populate checkpoint state during state migration: %w", cm.pluginName, err)
 	}
 
-	// always store state after migrating to new checkpoint
-	if err = cm.storeState(); err != nil {
-		return fmt.Errorf("[%v] failed to store checkpoint state during end of state: %w", cm.pluginName, err)
+	if !hasStateChanged {
+		if err = cm.storeState(); err != nil {
+			return fmt.Errorf("[%v] failed to store checkpoint state during end of migration: %w", cm.pluginName, err)
+		}
 	}
 
 	if err = cm.validateCheckpointFilesMigration(hasStateChanged); err != nil {
@@ -220,6 +221,8 @@ func (cm *customCheckpointManager) storeState() error {
 	return nil
 }
 
+// updateCacheAndReturnChanged restores the cache using restoreFunc, stores the updated cache in checkpoint using storeState,
+// and returns if the checkpoint state has changed.
 func (cm *customCheckpointManager) updateCacheAndReturnChanged(
 	cp checkpointmanager.Checkpoint, foundAndSkippedStateCorruption bool,
 ) (bool, error) {
@@ -272,7 +275,7 @@ func (cm *customCheckpointManager) validateCheckpointFilesMigration(hasStateChan
 	return nil
 }
 
-// CheckpointFilesEqual checks if the checkpoints are identical by comparing the 2 files' contents
+// checkpointFilesEqual checks if the checkpoints are identical by comparing the 2 files' contents
 func (cm *customCheckpointManager) checkpointFilesEqual(hasStateChanged bool) (bool, error) {
 	// A change in machine state is already detected, so we do not need to actually check if the files are identical
 	if hasStateChanged {
