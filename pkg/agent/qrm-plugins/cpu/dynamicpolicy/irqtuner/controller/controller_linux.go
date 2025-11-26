@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/klauspost/cpuid/v2"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 
@@ -2242,7 +2243,7 @@ func (ic *IrqTuningController) classifyNicsByThroughputFirstTime(nics []*machine
 	return normalThroughputNics, lowThroughputNics
 }
 
-func (ic *IrqTuningController) syncNics() error {
+func (ic *IrqTuningController) syncNics(staticNormalThroughputNicsChanged bool) error {
 	general.Infof("%s sync nics", IrqTuningLogPrefix)
 
 	nics, err := listHostActiveUplinkNics(ic.agentConf.MachineInfoConfiguration.NetNSDirAbsPath)
@@ -2272,7 +2273,7 @@ func (ic *IrqTuningController) syncNics() error {
 		}
 	}
 
-	if !nicsChanged {
+	if !nicsChanged && !staticNormalThroughputNicsChanged {
 		general.Infof("%s no nic changed", IrqTuningLogPrefix)
 
 		for _, nic := range oldNics {
@@ -5864,9 +5865,34 @@ func (ic *IrqTuningController) tuneNicsXPS() {
 	}
 }
 
-func (ic *IrqTuningController) periodicTuning() {
-	if (len(ic.Nics) == 0 && len(ic.LowThroughputNics) == 0) || time.Since(ic.LastNicSyncTime).Seconds() >= float64(ic.NicSyncInterval) {
-		if err := ic.syncNics(); err != nil {
+func (ic *IrqTuningController) periodicTuning(oldConf *config.IrqTuningConfig) {
+	staticNormalThroughputNicsChanged := false
+	if oldConf != nil && !apiequality.Semantic.DeepEqual(ic.conf.NormalThroughputNics, oldConf.NormalThroughputNics) {
+		staticNormalThroughputNicsChanged = true
+
+		general.Infof("%s static configured normal throughput nics changed", IrqTuningLogPrefix)
+		general.Infof("%s old static configured normal throughput nics:", IrqTuningLogPrefix)
+		for _, nic := range oldConf.NormalThroughputNics {
+			if nic.NetNSName == "" {
+				general.Infof("%s   %s", IrqTuningLogPrefix, nic.NicName)
+			} else {
+				general.Infof("%s   %s/%s", IrqTuningLogPrefix, nic.NetNSName, nic.NicName)
+			}
+		}
+
+		general.Infof("%s new static configured normal throughput nics:", IrqTuningLogPrefix)
+		for _, nic := range ic.conf.NormalThroughputNics {
+			if nic.NetNSName == "" {
+				general.Infof("%s   %s", IrqTuningLogPrefix, nic.NicName)
+			} else {
+				general.Infof("%s   %s/%s", IrqTuningLogPrefix, nic.NetNSName, nic.NicName)
+			}
+		}
+	}
+
+	if (len(ic.Nics) == 0 && len(ic.LowThroughputNics) == 0) || time.Since(ic.LastNicSyncTime).Seconds() >= float64(ic.NicSyncInterval) ||
+		staticNormalThroughputNicsChanged {
+		if err := ic.syncNics(staticNormalThroughputNicsChanged); err != nil {
 			general.Errorf("%s failed to syncNics, err %v", IrqTuningLogPrefix, err)
 			ic.emitErrMetric(irqtuner.SyncNicFailed, irqtuner.IrqTuningFatal)
 			return
@@ -5932,7 +5958,7 @@ func (ic *IrqTuningController) Run(stopCh <-chan struct{}) {
 				return
 			}
 
-			ic.periodicTuning()
+			ic.periodicTuning(oldConf)
 		}, time.Second*time.Duration(ic.conf.Interval), localStopCh)
 	}
 }
