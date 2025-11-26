@@ -20,12 +20,11 @@ import (
 	"math"
 	"sort"
 
-	core "k8s.io/api/core/v1"
-
 	"github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
+	core "k8s.io/api/core/v1"
 )
 
 // updateBaselineSentinel update baseline sentinel annotation for spd
@@ -63,7 +62,7 @@ func (sc *SPDController) updateBaselineSentinel(spd *v1alpha1.ServiceProfileDesc
 	if baselineSentinel == nil {
 		delete(spd.Annotations, consts.SPDAnnotationBaselineSentinelKey)
 	} else {
-		util.SetSPDBaselineSentinel(spd, *baselineSentinel)
+		util.SetSPDBaselineSentinel(spd, baselineSentinel)
 	}
 	util.SetSPDExtendedBaselineSentinel(spd, extendedBaselineSentinel)
 	return nil
@@ -83,16 +82,18 @@ func (sc *SPDController) getSPDPodMetaList(spd *v1alpha1.ServiceProfileDescripto
 		return nil, nil
 	}
 
+	spdCustomCompareKey := util.GetSPDCustomCompareKeys(spd)
+
 	podMetaList := make([]util.SPDBaselinePodMeta, 0, len(podList))
 	for _, p := range podList {
-		podMeta, err := util.GetSPDBaselinePodMeta(p.ObjectMeta)
+		podMeta, err := util.GetSPDBaselinePodMeta(p.ObjectMeta, spdCustomCompareKey)
 		if err != nil {
 			return nil, err
 		}
-		podMetaList = append(podMetaList, podMeta)
+		podMetaList = append(podMetaList, *podMeta)
 	}
 	sort.SliceStable(podMetaList, func(i, j int) bool {
-		return podMetaList[i].Cmp(podMetaList[j]) < 0
+		return podMetaList[i].Cmp(&podMetaList[j]) < 0
 	})
 
 	return podMetaList, nil
@@ -110,12 +111,14 @@ func calculateBaselineSentinel(podMetaList []util.SPDBaselinePodMeta, baselinePe
 		return nil
 	}
 
-	var baselineIndex int
-	if solarSPD, _ := podMetaList[len(podMetaList)-1].(*util.SolarSPDBaselinePodMeta); solarSPD != nil {
-		baselineShard := int(math.Max(math.Floor(float64(solarSPD.ShardID-1)*float64(*baselinePercent)/100), 0))
-		baselineIndex = baselineShard*(solarSPD.ReplicaID+1) + solarSPD.ReplicaID
-	} else {
-		baselineIndex = int(math.Floor(float64(len(podMetaList)-1) * float64(*baselinePercent) / 100))
+	baselineIndex := int(math.Floor(float64(len(podMetaList)-1) * float64(*baselinePercent) / 100))
+
+	customCompareKey := podMetaList[0].CustomCompareKey
+	if customCompareKey != nil {
+		if customSentinelFunc, ok := util.PodMetaCustomSentinelKeyProcessorMap[*customCompareKey]; ok {
+			return customSentinelFunc(podMetaList, baselinePercent)
+		}
 	}
+
 	return &podMetaList[baselineIndex]
 }
