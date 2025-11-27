@@ -163,6 +163,7 @@ func (bc *BorweinController) updateIndicatorOffsets(podSet types.PodSet) {
 			bc.emitter,
 			bc.regionName)
 		if err != nil {
+			bc.indicatorOffsets[indicatorName] = 0
 			general.Errorf("update indicator: %s offset failed with error: %v", indicatorName, err)
 			continue
 		}
