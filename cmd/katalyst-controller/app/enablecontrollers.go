@@ -25,6 +25,7 @@ import (
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-controller/app/controller"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/util"
 )
 
 // StartFunc is used to launch a particular controller.
@@ -72,4 +73,8 @@ func GetControllerInitializers() map[string]ControllerStarter {
 		return true
 	})
 	return controllers
+}
+
+func RegisterControllerSPDPodMetaCustomProcess(key util.CustomCompareKey, processor util.PodMetaCustomProcessor) {
+	util.RegisterSPDPodMetaCustomProcessor(key, processor)
 }

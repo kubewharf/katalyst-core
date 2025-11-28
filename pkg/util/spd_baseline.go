@@ -19,19 +19,13 @@ package util
 import (
 	"encoding/json"
 	"fmt"
-	"math"
-	"sort"
-	"strconv"
-	"strings"
+	"sync"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
-)
-
-const (
-	LabelStatefulSetExtensionName = "statefulset_extension_name"
 )
 
 type (
@@ -40,18 +34,14 @@ type (
 		PodMetaCustomKeyProcessor      func(podMeta metav1.ObjectMeta, spdBaselinePodMeta *SPDBaselinePodMeta) error
 		PodMetaCustomSentinelProcessor func(podMetaList []SPDBaselinePodMeta, baselinePercent *int32) *SPDBaselinePodMeta
 	}
-	PodMetaCustomProcessorMap map[CustomCompareKey]PodMetaCustomProcessor
 )
 
-var (
-	SPDBaselinePodMetaCustomCompareKeyShardID CustomCompareKey = "shard_id"
-	SPDPodMetaCustomProcessor                                  = map[CustomCompareKey]PodMetaCustomProcessor{
-		SPDBaselinePodMetaCustomCompareKeyShardID: {
-			PodMetaCustomKeyProcessor:      GetStseCustomSPDBaselinePodMeta,
-			PodMetaCustomSentinelProcessor: GetStseCustomSPDBaselinePodMetaSentinel,
-		},
-	}
-)
+var SPDPodMetaCustomProcessor sync.Map
+
+func RegisterSPDPodMetaCustomProcessor(key CustomCompareKey, processor PodMetaCustomProcessor) {
+	SPDPodMetaCustomProcessor.Store(key, processor)
+	klog.Infof("[spd] registered SPD pod meta custom processor: %v", key)
+}
 
 type SPDBaselinePodMeta struct {
 	TimeStamp          metav1.Time       `json:"timeStamp"`
@@ -134,58 +124,24 @@ func GetSPDBaselinePodMeta(podMeta metav1.ObjectMeta, spdCustomCompareKey *Custo
 		TimeStamp: podMeta.CreationTimestamp,
 		PodName:   podMeta.Name,
 	}
-	if spdCustomCompareKey != nil {
-		if customKeyProcessor, ok := SPDPodMetaCustomProcessor[*spdCustomCompareKey]; ok {
-			customKeyFunc := customKeyProcessor.PodMetaCustomKeyProcessor
-			err := customKeyFunc(podMeta, &baselinePodMeta)
-			if err != nil {
-				return nil, err
-			}
-			baselinePodMeta.CustomCompareKey = spdCustomCompareKey
-		}
-	}
-	return &baselinePodMeta, nil
-}
-
-func GetStseCustomSPDBaselinePodMeta(podMeta metav1.ObjectMeta, spdBaselinePodMeta *SPDBaselinePodMeta) error {
-	statefulsetExtensionName := podMeta.Labels[LabelStatefulSetExtensionName]
-	parts := strings.Split(podMeta.Labels[LabelStatefulSetExtensionName], "-")
-	if len(parts) != 3 {
-		return fmt.Errorf("invalid statefulsetextension format: expected dp-{name}-{shard}, got %s", statefulsetExtensionName)
+	if spdCustomCompareKey == nil {
+		return &baselinePodMeta, nil
 	}
 
-	shardStr := parts[len(parts)-1]
-	shardID, err := strconv.ParseFloat(shardStr, 64)
-	if err != nil {
-		return fmt.Errorf("invalid shard segment: %w", err)
-	}
-
-	spdBaselinePodMeta.CustomCompareValue = shardID
-	return nil
-}
-
-func GetStseCustomSPDBaselinePodMetaSentinel(podMetaList []SPDBaselinePodMeta, baselinePercent *int32) *SPDBaselinePodMeta {
-	sort.SliceStable(podMetaList, func(i, j int) bool {
-		c, c1 := podMetaList[i], podMetaList[j]
-		if c.CustomCompareKey != nil && c.CustomCompareKey == c1.CustomCompareKey {
-			v1 := c.CustomCompareValue.(float64)
-			v2 := c1.CustomCompareValue.(float64)
-			if v1 < v2 {
-				return true
-			}
-		}
-		return false
-	})
-	lastPodMeta := podMetaList[len(podMetaList)-1]
-	shardID, ok := lastPodMeta.CustomCompareValue.(float64)
+	value, ok := SPDPodMetaCustomProcessor.Load(*spdCustomCompareKey)
 	if !ok {
-		return nil
+		return nil, fmt.Errorf("invalid spdCustomCompareKey %s", *spdCustomCompareKey)
 	}
-	baselineShard := int(math.Max(math.Floor((shardID+1.0)*float64(*baselinePercent)/100)-1.0, 0))
-	parts := strings.Split(lastPodMeta.PodName, "-")
-	replicaCount, _ := strconv.Atoi(parts[len(parts)-1])
-	baselineIndex := baselineShard * (replicaCount + 1)
-	return &podMetaList[baselineIndex]
+
+	customKeyProcessor, _ := value.(*PodMetaCustomProcessor)
+	customKeyFunc := customKeyProcessor.PodMetaCustomKeyProcessor
+	err := customKeyFunc(podMeta, &baselinePodMeta)
+	if err != nil {
+		return nil, err
+	}
+	baselinePodMeta.CustomCompareKey = spdCustomCompareKey
+
+	return &baselinePodMeta, nil
 }
 
 func GetSPDCustomCompareKeys(spd *v1alpha1.ServiceProfileDescriptor) *CustomCompareKey {

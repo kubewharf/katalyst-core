@@ -17,7 +17,6 @@ limitations under the License.
 package util
 
 import (
-	"strings"
 	"testing"
 	"time"
 
@@ -98,15 +97,6 @@ func TestBaselineCoefficient_String(t *testing.T) {
 			},
 			want: "{\"timeStamp\":\"1970-01-01T00:00:00Z\",\"podName\":\"pod2\",\"customCompareKey\":null,\"customCompareValue\":null}",
 		},
-		{
-			name: "solar SPD",
-			c: SPDBaselinePodMeta{
-				PodName:            "dp-foo-9-4",
-				CustomCompareKey:   &SPDBaselinePodMetaCustomCompareKeyShardID,
-				CustomCompareValue: 9.0,
-			},
-			want: "{\"timeStamp\":null,\"podName\":\"dp-foo-9-4\",\"customCompareKey\":\"shard_id\",\"customCompareValue\":9}",
-		},
 	}
 	for _, tt := range tests {
 		tt := tt
@@ -144,25 +134,6 @@ func TestGetPodBaselineCoefficient(t *testing.T) {
 			want: &SPDBaselinePodMeta{
 				TimeStamp: metav1.NewTime(time.Date(2023, time.August, 1, 0, 0, 0, 0, time.Local)),
 				PodName:   "test-pod",
-			},
-		},
-		{
-			name: "solar spd normal",
-			args: args{
-				pod: &v1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "dp-foo-0-1",
-						Labels: map[string]string{
-							LabelStatefulSetExtensionName: "dp-foo-0",
-						},
-					},
-				},
-				customCompareKey: &SPDBaselinePodMetaCustomCompareKeyShardID,
-			},
-			want: &SPDBaselinePodMeta{
-				PodName:            "dp-foo-0-1",
-				CustomCompareKey:   &SPDBaselinePodMetaCustomCompareKeyShardID,
-				CustomCompareValue: 0.0,
 			},
 		},
 	}
@@ -222,56 +193,6 @@ func TestGetDeploySPDBaselinePercentile(t *testing.T) {
 			}
 			assert.Equal(t, tt.want.PodName, got.PodName)
 			assert.True(t, tt.want.TimeStamp.Equal(&got.TimeStamp))
-		})
-	}
-}
-
-func TestGetSolarSPDBaselinePercentile(t *testing.T) {
-	t.Parallel()
-	type args struct {
-		spd *v1alpha1.ServiceProfileDescriptor
-	}
-	tests := []struct {
-		name    string
-		args    args
-		want    *SPDBaselinePodMeta
-		wantErr bool
-	}{
-		{
-			name: "normal",
-			args: args{
-				spd: &v1alpha1.ServiceProfileDescriptor{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "dp-foo",
-						Annotations: map[string]string{
-							consts.SPDAnnotationBaselineSentinelKey: SPDBaselinePodMeta{
-								PodName:            "dp-foo-0-1",
-								CustomCompareKey:   &SPDBaselinePodMetaCustomCompareKeyShardID,
-								CustomCompareValue: 0.0,
-							}.String(),
-						},
-					},
-				},
-			},
-			want: &SPDBaselinePodMeta{
-				PodName:            "dp-foo-0-1",
-				CustomCompareKey:   &SPDBaselinePodMetaCustomCompareKeyShardID,
-				CustomCompareValue: 0.0,
-			},
-		},
-	}
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got, err := GetSPDBaselineSentinel(tt.args.spd)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("GetSPDBaselineSentinel() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			assert.Equal(t, tt.want.PodName, got.PodName)
-			assert.Equal(t, tt.want.CustomCompareKey, got.CustomCompareKey)
-			assert.Equal(t, tt.want.CustomCompareValue, got.CustomCompareValue)
 		})
 	}
 }
@@ -367,103 +288,6 @@ func TestIsBaselinePod(t *testing.T) {
 			},
 			wantIsBaselinePod: false,
 		},
-		{
-			name: "solar shard baseline pod",
-			args: args{
-				customCompareKey: &SPDBaselinePodMetaCustomCompareKeyShardID,
-				pod: &v1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "dp-foo-1-2",
-						Labels: map[string]string{
-							LabelStatefulSetExtensionName: "dp-foo-1",
-						},
-					},
-				},
-				baselinePercent: pointer.Int32(10),
-				baselineSentinel: &SPDBaselinePodMeta{
-					PodName:            "dp-foo-2-3",
-					CustomCompareKey:   &SPDBaselinePodMetaCustomCompareKeyShardID,
-					CustomCompareValue: 2.0,
-				},
-			},
-			wantIsBaselinePod: true,
-		},
-		{
-			name: "solar replica baseline pod",
-			args: args{
-				customCompareKey: &SPDBaselinePodMetaCustomCompareKeyShardID,
-				pod: &v1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "dp-foo-2-2",
-						Labels: map[string]string{
-							LabelStatefulSetExtensionName: "dp-foo-2",
-						},
-					},
-				},
-				baselinePercent: pointer.Int32(10),
-				baselineSentinel: &SPDBaselinePodMeta{
-					PodName:            "dp-foo-2-3",
-					CustomCompareKey:   &SPDBaselinePodMetaCustomCompareKeyShardID,
-					CustomCompareValue: 2.0,
-				},
-			},
-			wantIsBaselinePod: true,
-		},
-		{
-			name: "solar not baseline pod",
-			args: args{
-				customCompareKey: &SPDBaselinePodMetaCustomCompareKeyShardID,
-				pod: &v1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "dp-foo-3-2",
-						Labels: map[string]string{
-							LabelStatefulSetExtensionName: "dp-foo-3",
-						},
-					},
-				},
-				baselinePercent: pointer.Int32(10),
-				baselineSentinel: &SPDBaselinePodMeta{
-					PodName:            "dp-foo-2-3",
-					CustomCompareKey:   &SPDBaselinePodMetaCustomCompareKeyShardID,
-					CustomCompareValue: 2.0,
-				},
-			},
-			wantIsBaselinePod: false,
-		},
-		{
-			name: "solar baseline disabled",
-			args: args{
-				customCompareKey: &SPDBaselinePodMetaCustomCompareKeyShardID,
-				pod: &v1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "dp-foo-3-2",
-						Labels: map[string]string{
-							LabelStatefulSetExtensionName: "dp-foo-3",
-						},
-					},
-				},
-				baselinePercent:  nil,
-				baselineSentinel: nil,
-			},
-			wantIsBaselinePod: false,
-		},
-		{
-			name: "solar baseline 100%",
-			args: args{
-				customCompareKey: &SPDBaselinePodMetaCustomCompareKeyShardID,
-				pod: &v1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "dp-foo-3-2",
-						Labels: map[string]string{
-							LabelStatefulSetExtensionName: "dp-foo-3",
-						},
-					},
-				},
-				baselinePercent:  pointer.Int32(100),
-				baselineSentinel: nil,
-			},
-			wantIsBaselinePod: true,
-		},
 	}
 	for _, tt := range tests {
 		tt := tt
@@ -536,49 +360,6 @@ func TestSetSPDBaselinePercentile(t *testing.T) {
 				},
 			},
 		},
-		{
-			name: "solar add",
-			args: args{
-				spd: &v1alpha1.ServiceProfileDescriptor{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "dp-foo",
-					},
-				},
-				c: &SPDBaselinePodMeta{
-					PodName:            "dp-foo-9-4",
-					CustomCompareKey:   &SPDBaselinePodMetaCustomCompareKeyShardID,
-					CustomCompareValue: 9.0,
-				},
-			},
-			wantSPD: &v1alpha1.ServiceProfileDescriptor{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "dp-foo",
-					Annotations: map[string]string{
-						consts.SPDAnnotationBaselineSentinelKey: "{\"timeStamp\":null,\"podName\":\"dp-foo-9-4\",\"customCompareKey\":\"shard_id\",\"customCompareValue\":9}",
-					},
-				},
-			},
-		},
-		{
-			name: "solar delete",
-			args: args{
-				spd: &v1alpha1.ServiceProfileDescriptor{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "dp-foo",
-						Annotations: map[string]string{
-							consts.SPDAnnotationBaselineSentinelKey: "{\"podName\":\"dp-foo-9-4\",\"shardID\":9,\"replicaID\":4}",
-						},
-					},
-				},
-				c: nil,
-			},
-			wantSPD: &v1alpha1.ServiceProfileDescriptor{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:        "dp-foo",
-					Annotations: map[string]string{},
-				},
-			},
-		},
 	}
 	for _, tt := range tests {
 		tt := tt
@@ -587,81 +368,6 @@ func TestSetSPDBaselinePercentile(t *testing.T) {
 
 			SetSPDBaselineSentinel(tt.args.spd, tt.args.c)
 			assert.Equal(t, tt.wantSPD, tt.args.spd)
-		})
-	}
-}
-
-func TestGetStseCustomSPDBaselinePodMeta(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name        string
-		podName     string
-		labels      map[string]string
-		initialVal  interface{}
-		wantErr     bool
-		errContains string
-		wantValue   float64
-	}{
-		{
-			name:       "success_parses_shard_3",
-			podName:    "dp-foo-3-4",
-			labels:     map[string]string{LabelStatefulSetExtensionName: "dp-foo-3"},
-			initialVal: nil,
-			wantErr:    false,
-			wantValue:  3.0,
-		},
-		{
-			name:        "invalid_format_two_parts",
-			podName:     "dp-foo",
-			labels:      map[string]string{LabelStatefulSetExtensionName: "dp-foo"},
-			wantErr:     true,
-			errContains: "invalid statefulsetextension format",
-		},
-		{
-			name:        "non_numeric_shard",
-			podName:     "dp-foo-abc",
-			labels:      map[string]string{LabelStatefulSetExtensionName: "dp-foo-abc"},
-			wantErr:     true,
-			errContains: "invalid shard segment",
-		},
-		{
-			name:        "missing_label_nil_map",
-			labels:      nil,
-			wantErr:     true,
-			errContains: "invalid statefulsetextension format",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			podMeta := metav1.ObjectMeta{Labels: tc.labels}
-			spdBaselinePodMeta := &SPDBaselinePodMeta{}
-
-			err := GetStseCustomSPDBaselinePodMeta(podMeta, spdBaselinePodMeta)
-
-			if tc.wantErr {
-				if err == nil {
-					t.Fatalf("expected error, got nil")
-				}
-				if !strings.Contains(err.Error(), tc.errContains) {
-					t.Fatalf("expected error to contain %q, got %v", tc.errContains, err)
-				}
-				return
-			}
-
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-
-			val, ok := spdBaselinePodMeta.CustomCompareValue.(float64)
-			if !ok {
-				t.Fatalf("CustomCompareValue type = %T, want float64", spdBaselinePodMeta.CustomCompareValue)
-			}
-			if val != tc.wantValue {
-				t.Fatalf("CustomCompareValue = %v, want %v", val, tc.wantValue)
-			}
 		})
 	}
 }

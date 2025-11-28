@@ -20,11 +20,12 @@ import (
 	"math"
 	"sort"
 
+	core "k8s.io/api/core/v1"
+
 	"github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
-	core "k8s.io/api/core/v1"
 )
 
 // updateBaselineSentinel update baseline sentinel annotation for spd
@@ -114,12 +115,16 @@ func calculateBaselineSentinel(podMetaList []util.SPDBaselinePodMeta, baselinePe
 	baselineIndex := int(math.Floor(float64(len(podMetaList)-1) * float64(*baselinePercent) / 100))
 
 	customCompareKey := podMetaList[0].CustomCompareKey
-	if customCompareKey != nil {
-		if customKeyProcessor, ok := util.SPDPodMetaCustomProcessor[*customCompareKey]; ok {
-			customSentinelFunc := customKeyProcessor.PodMetaCustomSentinelProcessor
-			return customSentinelFunc(podMetaList, baselinePercent)
-		}
+	if customCompareKey == nil {
+		return &podMetaList[baselineIndex]
 	}
 
-	return &podMetaList[baselineIndex]
+	value, ok := util.SPDPodMetaCustomProcessor.Load(*customCompareKey)
+	if !ok {
+		return nil
+	}
+
+	customKeyProcessor, _ := value.(*util.PodMetaCustomProcessor)
+	customSentinelFunc := customKeyProcessor.PodMetaCustomSentinelProcessor
+	return customSentinelFunc(podMetaList, baselinePercent)
 }
