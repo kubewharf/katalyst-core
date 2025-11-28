@@ -26,6 +26,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/spec"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/assembler/headroomassembler"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
 func Test_applyDiscount(t *testing.T) {
@@ -149,6 +150,7 @@ func Test_discountDecorator_GetHeadroom(t *testing.T) {
 			d := &discountDecorator{
 				inner:      tt.fields.inner,
 				discounter: tt.fields.discounter,
+				emitter:    metrics.DummyMetrics{},
 			}
 			got, got1, err := d.GetHeadroom()
 			if (err != nil) != tt.wantErr {

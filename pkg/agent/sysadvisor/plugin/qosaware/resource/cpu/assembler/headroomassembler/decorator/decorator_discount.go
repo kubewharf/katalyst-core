@@ -18,6 +18,7 @@ package decorator
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -26,6 +27,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/spec"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/assembler/headroomassembler"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -58,8 +60,7 @@ type DiscountGetter interface {
 type nodeAnnotationDiscountGetter struct {
 	specFetcher spec.SpecFetcher
 	conf        *config.Configuration
-
-	discounts map[spec.PowerAlert]float64
+	discounts   map[spec.PowerAlert]float64
 }
 
 func getDiscountByLevel(level spec.PowerAlert, discounts map[spec.PowerAlert]float64) float64 {
@@ -92,6 +93,7 @@ func (d *nodeAnnotationDiscountGetter) GetDiscount() (float64, error) {
 type discountDecorator struct {
 	inner      headroomassembler.HeadroomAssembler
 	discounter DiscountGetter
+	emitter    metrics.MetricEmitter
 }
 
 func applyDiscount(cpuQuantity resource.Quantity, discount float64) resource.Quantity {
@@ -109,11 +111,26 @@ func (d *discountDecorator) GetHeadroom() (resource.Quantity, map[int]resource.Q
 	}
 
 	headroom, numaHeadrooms, err := d.inner.GetHeadroom()
-	if err == nil && currentDiscount < 1.0 {
-		headroom = applyDiscount(headroom, currentDiscount)
-		for numa := range numaHeadrooms {
-			numaHeadrooms[numa] = applyDiscount(numaHeadrooms[numa], currentDiscount)
-		}
+	if err != nil || currentDiscount >= 1.0 {
+		return headroom, numaHeadrooms, err
 	}
-	return headroom, numaHeadrooms, err
+
+	discountHeadroom := applyDiscount(headroom, currentDiscount)
+	discountNumaHeadrooms := make(map[int]resource.Quantity)
+	for numa, numaHeadroom := range numaHeadrooms {
+		discountNumaHeadrooms[numa] = applyDiscount(numaHeadroom, currentDiscount)
+	}
+
+	// calc headroom loss and emit metrics
+	lossHeadroomMilli := headroom.MilliValue() - discountHeadroom.MilliValue()
+	_ = d.emitter.StoreInt64(consts.MetricsNodeCPUHeadroomLoss, lossHeadroomMilli, metrics.MetricTypeNameRaw)
+	for numa, numaHeadroom := range numaHeadrooms {
+		discountNumaHeadroom := discountNumaHeadrooms[numa]
+		lossNumaHeadroomMilli := numaHeadroom.MilliValue() - discountNumaHeadroom.MilliValue()
+		_ = d.emitter.StoreInt64(consts.MetricsNumaCPUHeadroomLoss, lossNumaHeadroomMilli, metrics.MetricTypeNameRaw,
+			metrics.MetricTag{Key: "numa", Val: strconv.Itoa(numa)},
+		)
+	}
+
+	return discountHeadroom, discountNumaHeadrooms, err
 }
