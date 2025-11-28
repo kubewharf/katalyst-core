@@ -58,6 +58,9 @@ type GenericEvictionOptions struct {
 
 	// RecordManager specifies the eviction record manager to use
 	RecordManager string
+
+	// HostPathNotifierPathRoot is the root path for host-path notifier
+	HostPathNotifierRootPath string
 }
 
 // NewGenericEvictionOptions creates a new Options with a default config.
@@ -69,6 +72,7 @@ func NewGenericEvictionOptions() *GenericEvictionOptions {
 		EvictionSkippedAnnotationKeys: []string{},
 		EvictionSkippedLabelKeys:      []string{},
 		EvictionBurst:                 3,
+		HostPathNotifierRootPath:      "/opt/katalyst",
 		PodKiller:                     consts.KillerNameEvictionKiller,
 		StrictAuthentication:          false,
 	}
@@ -111,6 +115,9 @@ func (o *GenericEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	fs.StringVar(&o.RecordManager, "eviction-record-manager", o.RecordManager,
 		"the eviction record manager to use")
+
+	fs.StringVar(&o.HostPathNotifierRootPath, "pod-notifier-root-path", o.HostPathNotifierRootPath,
+		"root path of host-path notifier")
 }
 
 // ApplyTo fills up config with options
@@ -126,6 +133,7 @@ func (o *GenericEvictionOptions) ApplyTo(c *evictionconfig.GenericEvictionConfig
 	c.StrictAuthentication = o.StrictAuthentication
 	c.PodMetricLabels.Insert(o.PodMetricLabels...)
 	c.RecordManager = o.RecordManager
+	c.HostPathNotifierRootPath = o.HostPathNotifierRootPath
 	return nil
 }
 
