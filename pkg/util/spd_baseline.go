@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -31,24 +32,25 @@ import (
 )
 
 const (
-	LabelStatefulSetExtensionName    = "statefulset_extension_name"
-	LabelStatefulSetExtensionReplica = "replica_id"
+	LabelStatefulSetExtensionName = "statefulset_extension_name"
 )
 
 type (
-	PodMetaCustomProcessor            func(podMeta metav1.ObjectMeta, spdBaselinePodMeta *SPDBaselinePodMeta) error
-	PodMetaCustomSentinelKeyProcessor func(podMetaList []SPDBaselinePodMeta, baselinePercent *int32) *SPDBaselinePodMeta
+	CustomCompareKey       string
+	PodMetaCustomProcessor struct {
+		PodMetaCustomKeyProcessor      func(podMeta metav1.ObjectMeta, spdBaselinePodMeta *SPDBaselinePodMeta) error
+		PodMetaCustomSentinelProcessor func(podMetaList []SPDBaselinePodMeta, baselinePercent *int32) *SPDBaselinePodMeta
+	}
+	PodMetaCustomProcessorMap map[CustomCompareKey]PodMetaCustomProcessor
 )
-
-type CustomCompareKey string
 
 var (
 	SPDBaselinePodMetaCustomCompareKeyShardID CustomCompareKey = "shard_id"
-	PodMetaCustomCompareKeyProcessorMap                        = map[CustomCompareKey]PodMetaCustomProcessor{
-		SPDBaselinePodMetaCustomCompareKeyShardID: GetStseCustomSPDBaselinePodMeta,
-	}
-	PodMetaCustomSentinelKeyProcessorMap = map[CustomCompareKey]PodMetaCustomSentinelKeyProcessor{
-		SPDBaselinePodMetaCustomCompareKeyShardID: GetStseCustomSPDBaselinePodMetaSentinel,
+	SPDPodMetaCustomProcessor                                  = map[CustomCompareKey]PodMetaCustomProcessor{
+		SPDBaselinePodMetaCustomCompareKeyShardID: {
+			PodMetaCustomKeyProcessor:      GetStseCustomSPDBaselinePodMeta,
+			PodMetaCustomSentinelProcessor: GetStseCustomSPDBaselinePodMetaSentinel,
+		},
 	}
 )
 
@@ -60,26 +62,6 @@ type SPDBaselinePodMeta struct {
 }
 
 func (c SPDBaselinePodMeta) Cmp(c1 *SPDBaselinePodMeta) int {
-	if c.CustomCompareKey != nil && c.CustomCompareKey == c1.CustomCompareKey {
-		v1 := c.CustomCompareValue
-		v2 := c1.CustomCompareValue
-		switch val := v1.(type) {
-		case float64:
-			val2 := v2.(float64)
-			if val < val2 {
-				return -1
-			} else if val > val2 {
-				return 1
-			}
-		case string:
-			val2 := v2.(string)
-			cmp := strings.Compare(val, val2)
-			if cmp != 0 {
-				return cmp
-			}
-		}
-	}
-
 	if c.TimeStamp.Time.Before(c1.TimeStamp.Time) {
 		return -1
 	}
@@ -154,7 +136,8 @@ func GetSPDBaselinePodMeta(podMeta metav1.ObjectMeta, spdCustomCompareKey *Custo
 		PodName:   podMeta.Name,
 	}
 	if spdCustomCompareKey != nil {
-		if customKeyFunc, ok := PodMetaCustomCompareKeyProcessorMap[*spdCustomCompareKey]; ok {
+		if customKeyProcessor, ok := SPDPodMetaCustomProcessor[*spdCustomCompareKey]; ok {
+			customKeyFunc := customKeyProcessor.PodMetaCustomKeyProcessor
 			err := customKeyFunc(podMeta, &baselinePodMeta)
 			if err != nil {
 				return nil, err
@@ -183,6 +166,17 @@ func GetStseCustomSPDBaselinePodMeta(podMeta metav1.ObjectMeta, spdBaselinePodMe
 }
 
 func GetStseCustomSPDBaselinePodMetaSentinel(podMetaList []SPDBaselinePodMeta, baselinePercent *int32) *SPDBaselinePodMeta {
+	sort.SliceStable(podMetaList, func(i, j int) bool {
+		c, c1 := podMetaList[i], podMetaList[j]
+		if c.CustomCompareKey != nil && c.CustomCompareKey == c1.CustomCompareKey {
+			v1 := c.CustomCompareValue.(float64)
+			v2 := c1.CustomCompareValue.(float64)
+			if v1 < v2 {
+				return true
+			}
+		}
+		return false
+	})
 	lastPodMeta := podMetaList[len(podMetaList)-1]
 	shardID, ok := lastPodMeta.CustomCompareValue.(float64)
 	if !ok {

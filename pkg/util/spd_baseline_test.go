@@ -82,110 +82,6 @@ func TestDeploySPDBaselineCoefficient_Cmp(t *testing.T) {
 	}
 }
 
-func TestSolarSPDBaselineCoefficient_Cmp(t *testing.T) {
-	t.Parallel()
-
-	type args struct {
-		c1 *SPDBaselinePodMeta
-	}
-	tests := []struct {
-		name string
-		c    *SPDBaselinePodMeta
-		args args
-		want int
-	}{
-		{
-			name: "shard less",
-			c: &SPDBaselinePodMeta{
-				PodName:            "dp-foo-4-0",
-				CustomCompareKey:   &SPDBaselinePodMetaCustomCompareKeyShardID,
-				CustomCompareValue: 4.0,
-			},
-			args: args{
-				c1: &SPDBaselinePodMeta{
-					PodName:            "dp-foo-11-1",
-					CustomCompareKey:   &SPDBaselinePodMetaCustomCompareKeyShardID,
-					CustomCompareValue: 11.0,
-				},
-			},
-			want: -1,
-		},
-		{
-			name: "replica less",
-			c: &SPDBaselinePodMeta{
-				PodName:            "dp-foo-4-0",
-				CustomCompareKey:   &SPDBaselinePodMetaCustomCompareKeyShardID,
-				CustomCompareValue: 4.0,
-			},
-			args: args{
-				c1: &SPDBaselinePodMeta{
-					PodName:            "dp-foo-4-1",
-					CustomCompareKey:   &SPDBaselinePodMetaCustomCompareKeyShardID,
-					CustomCompareValue: 4.0,
-				},
-			},
-			want: -1,
-		},
-		{
-			name: "shard greater",
-			c: &SPDBaselinePodMeta{
-				PodName:            "dp-foo-9-0",
-				CustomCompareKey:   &SPDBaselinePodMetaCustomCompareKeyShardID,
-				CustomCompareValue: 9.0,
-			},
-			args: args{
-				c1: &SPDBaselinePodMeta{
-					PodName:            "dp-foo-4-0",
-					CustomCompareKey:   &SPDBaselinePodMetaCustomCompareKeyShardID,
-					CustomCompareValue: 4.0,
-				},
-			},
-			want: 1,
-		},
-		{
-			name: "replica greater",
-			c: &SPDBaselinePodMeta{
-				PodName:            "dp-foo-9-11",
-				CustomCompareKey:   &SPDBaselinePodMetaCustomCompareKeyShardID,
-				CustomCompareValue: 9.0,
-			},
-			args: args{
-				c1: &SPDBaselinePodMeta{
-					PodName:            "dp-foo-9-4",
-					CustomCompareKey:   &SPDBaselinePodMetaCustomCompareKeyShardID,
-					CustomCompareValue: 9.0,
-				},
-			},
-			want: -1,
-		},
-		{
-			name: "equal",
-			c: &SPDBaselinePodMeta{
-				PodName:            "dp-foo-9-4",
-				CustomCompareKey:   &SPDBaselinePodMetaCustomCompareKeyShardID,
-				CustomCompareValue: 9.0,
-			},
-			args: args{
-				c1: &SPDBaselinePodMeta{
-					PodName:            "dp-foo-9-4",
-					CustomCompareKey:   &SPDBaselinePodMetaCustomCompareKeyShardID,
-					CustomCompareValue: 9.0,
-				},
-			},
-			want: 0,
-		},
-	}
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			if got := tt.c.Cmp(tt.args.c1); got != tt.want {
-				t.Errorf("Cmp() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestBaselineCoefficient_String(t *testing.T) {
 	t.Parallel()
 
@@ -479,8 +375,7 @@ func TestIsBaselinePod(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "dp-foo-1-2",
 						Labels: map[string]string{
-							LabelStatefulSetExtensionName:    "dp-foo-1",
-							LabelStatefulSetExtensionReplica: "2",
+							LabelStatefulSetExtensionName: "dp-foo-1",
 						},
 					},
 				},
@@ -501,8 +396,7 @@ func TestIsBaselinePod(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "dp-foo-2-2",
 						Labels: map[string]string{
-							LabelStatefulSetExtensionName:    "dp-foo-2",
-							LabelStatefulSetExtensionReplica: "2",
+							LabelStatefulSetExtensionName: "dp-foo-2",
 						},
 					},
 				},
@@ -523,8 +417,7 @@ func TestIsBaselinePod(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "dp-foo-3-2",
 						Labels: map[string]string{
-							LabelStatefulSetExtensionName:    "dp-foo-3",
-							LabelStatefulSetExtensionReplica: "2",
+							LabelStatefulSetExtensionName: "dp-foo-3",
 						},
 					},
 				},
@@ -545,8 +438,7 @@ func TestIsBaselinePod(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "dp-foo-3-2",
 						Labels: map[string]string{
-							LabelStatefulSetExtensionName:    "dp-foo-3",
-							LabelStatefulSetExtensionReplica: "2",
+							LabelStatefulSetExtensionName: "dp-foo-3",
 						},
 					},
 				},
@@ -563,8 +455,7 @@ func TestIsBaselinePod(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "dp-foo-3-2",
 						Labels: map[string]string{
-							LabelStatefulSetExtensionName:    "dp-foo-3",
-							LabelStatefulSetExtensionReplica: "2",
+							LabelStatefulSetExtensionName: "dp-foo-3",
 						},
 					},
 				},
@@ -744,6 +635,7 @@ func TestGetStseCustomSPDBaselinePodMeta(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			podMeta := metav1.ObjectMeta{Labels: tc.labels}
 			spdBaselinePodMeta := &SPDBaselinePodMeta{}
 

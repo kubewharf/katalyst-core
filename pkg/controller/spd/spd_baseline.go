@@ -115,7 +115,8 @@ func calculateBaselineSentinel(podMetaList []util.SPDBaselinePodMeta, baselinePe
 
 	customCompareKey := podMetaList[0].CustomCompareKey
 	if customCompareKey != nil {
-		if customSentinelFunc, ok := util.PodMetaCustomSentinelKeyProcessorMap[*customCompareKey]; ok {
+		if customKeyProcessor, ok := util.SPDPodMetaCustomProcessor[*customCompareKey]; ok {
+			customSentinelFunc := customKeyProcessor.PodMetaCustomSentinelProcessor
 			return customSentinelFunc(podMetaList, baselinePercent)
 		}
 	}

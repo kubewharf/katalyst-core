@@ -1072,7 +1072,6 @@ func testStatefulPod(name, shard, replica string) *v1.Pod {
 			Labels: map[string]string{
 				"workload":                   name,
 				"statefulset_extension_name": name + "-" + shard,
-				"replica_id":                 replica,
 			},
 		},
 	}
