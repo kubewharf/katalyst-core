@@ -33,9 +33,9 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
-	"github.com/kubewharf/katalyst-core/pkg/util/qrmcheckpointmanager"
 )
 
 func TestGetReadonlyState(t *testing.T) {
@@ -58,26 +58,23 @@ func TestGetWriteOnlyState(t *testing.T) {
 	}
 }
 
-func TestTryMigrateState(t *testing.T) {
+func TestNewMemoryPluginCheckpoint(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
-		expectEqual     bool
-		expectOldExists bool
-		corruptFile     bool
+		name        string
+		expectEqual bool
+		corruptFile bool
 	}{
 		{
-			name:            "successful migration with pre-stop",
-			expectEqual:     true,
-			expectOldExists: false,
-			corruptFile:     false,
+			name:        "successful migration with pre-stop",
+			expectEqual: true,
+			corruptFile: false,
 		},
 		{
-			name:            "corrupted checkpoint",
-			expectEqual:     false,
-			corruptFile:     true,
-			expectOldExists: true,
+			name:        "corrupted checkpoint",
+			expectEqual: false,
+			corruptFile: true,
 		},
 	}
 
@@ -97,8 +94,6 @@ func TestTryMigrateState(t *testing.T) {
 
 			machineInfo := &info.MachineInfo{}
 			reservedMemory := make(map[v1.ResourceName]map[int]uint64)
-			defaultCache, err := NewMemoryPluginState(cpuTopology, machineInfo, reservedMemory)
-			assert.NoError(t, err)
 
 			policyName := "test-policy"
 			checkpointName := "test-checkpoint"
@@ -152,21 +147,14 @@ func TestTryMigrateState(t *testing.T) {
 				assert.NoError(t, err)
 			}
 
-			// create a new checkpoint with a new checkpoint manager
-			sc := &stateCheckpoint{
-				policyName:          policyName,
-				checkpointName:      checkpointName,
-				cache:               defaultCache,
-				skipStateCorruption: false,
-				emitter:             metrics.DummyMetrics{},
+			stateDirectoryConfig := &statedirectory.StateDirectoryConfiguration{
+				StateFileDirectory:         stateDir,
+				InMemoryStateFileDirectory: inMemoryTmpDir,
+				EnableInMemoryState:        true,
 			}
 
-			// current checkpoint is pointing to the in memory directory
-			sc.qrmCheckpointManager, err = qrmcheckpointmanager.NewQRMCheckpointManager(inMemoryTmpDir, stateDir, checkpointName, "memory_plugin")
-			assert.NoError(t, err)
-
-			newCheckpoint := NewMemoryPluginCheckpoint()
-			err = sc.tryMigrateState(machineInfo, reservedMemory, newCheckpoint)
+			state, err := NewCheckpointState(stateDirectoryConfig, checkpointName, policyName, cpuTopology, machineInfo,
+				reservedMemory, false, metrics.DummyMetrics{})
 
 			if tt.corruptFile {
 				assert.Error(t, err)
@@ -174,20 +162,21 @@ func TestTryMigrateState(t *testing.T) {
 			}
 			assert.NoError(t, err)
 
+			sc, ok := state.(*stateCheckpoint)
+			assert.True(t, ok)
+
+			newCheckpoint := NewMemoryPluginCheckpoint()
+
 			// check if new checkpoint is created and verify equality
-			err = sc.qrmCheckpointManager.GetCurrentCheckpoint(checkpointName, newCheckpoint, false)
+			err = sc.checkpointManager.GetCheckpoint(checkpointName, newCheckpoint)
 			assert.NoError(t, err)
 
 			// verify old checkpoint file existence
 			checkpoint := NewMemoryPluginCheckpoint()
 			err = oldCheckpointManager.GetCheckpoint(checkpointName, checkpoint)
 
-			if tt.expectOldExists {
-				assert.NoError(t, err)
-			} else {
-				assert.Error(t, err)
-				assert.Equal(t, errors.ErrCheckpointNotFound, err)
-			}
+			assert.Error(t, err)
+			assert.Equal(t, err, errors.ErrCheckpointNotFound)
 
 			if tt.expectEqual {
 				assert.Equal(t, newCheckpoint, oldCheckpoint)
