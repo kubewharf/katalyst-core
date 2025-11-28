@@ -17,11 +17,20 @@ limitations under the License.
 package state
 
 import (
+	"fmt"
+	"io/ioutil"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
+	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/errors"
+
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
 func TestAllocationResourcesMap_GetRatioOfAccompanyResourceToTargetResource(t *testing.T) {
@@ -194,6 +203,119 @@ func TestPodResourceEntries_GetTotalAllocatedResourceOfContainer(t *testing.T) {
 			assert.Equal(t, tt.wantTotalAllocationQuantity, gotTotalAllocationQuantity)
 
 			assert.ElementsMatch(t, tt.wantAllocationIDs.UnsortedList(), gotAllocationIDs.UnsortedList())
+		})
+	}
+}
+
+func TestNewGPUPLuginCheckpoint(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		corruptFile bool
+		expectEqual bool
+	}{
+		{
+			name:        "successful migration with pre-stop",
+			corruptFile: false,
+			expectEqual: true,
+		},
+		{
+			name:        "corrupted checkpoint",
+			corruptFile: true,
+			expectEqual: false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tmpDir := t.TempDir()
+			inMemoryTmpDir := t.TempDir()
+
+			stateDir := filepath.Join(tmpDir, "state")
+			err := os.MkdirAll(stateDir, 0o775)
+			assert.NoError(t, err)
+
+			stateGenerator := NewDefaultResourceStateGeneratorStub()
+
+			policyName := "test-policy"
+			checkpointName := "test-checkpoint"
+
+			// create old checkpoint manager to save the checkpoint
+			oldCheckpointManager, err := checkpointmanager.NewCheckpointManager(stateDir)
+			assert.NoError(t, err)
+
+			oldCheckpoint := NewGPUPluginCheckpoint()
+			if tt.corruptFile {
+				// create a corrupted old checkpoint
+				corruptedFile := filepath.Join(stateDir, fmt.Sprintf("%s", checkpointName))
+				err = ioutil.WriteFile(corruptedFile, []byte("corrupted data"), 0o644)
+				assert.NoError(t, err)
+			} else {
+				oldCheckpoint.PolicyName = policyName
+				am, err := stateGenerator.GenerateDefaultResourceState()
+				assert.NoError(t, err)
+
+				oldCheckpoint.MachineState = map[v1.ResourceName]AllocationMap{
+					"gpu": am,
+				}
+				oldCheckpoint.PodResourceEntries = PodResourceEntries{
+					"gpu": {
+						"pod0": {
+							"container0": {
+								AllocatedAllocation: Allocation{
+									Quantity:  10,
+									NUMANodes: []int{0},
+								},
+							},
+						},
+					},
+				}
+				err = oldCheckpointManager.CreateCheckpoint(checkpointName, oldCheckpoint)
+				assert.NoError(t, err)
+			}
+
+			stateDirectoryConfig := &statedirectory.StateDirectoryConfiguration{
+				StateFileDirectory:         stateDir,
+				InMemoryStateFileDirectory: inMemoryTmpDir,
+				EnableInMemoryState:        true,
+			}
+
+			registry := NewDefaultResourceStateGeneratorRegistry()
+			registry.RegisterResourceStateGenerator("gpu", stateGenerator)
+
+			state, err := NewCheckpointState(stateDirectoryConfig, nil, checkpointName, policyName, registry, false, metrics.DummyMetrics{})
+
+			if tt.corruptFile {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+
+			sc, ok := state.(*stateCheckpoint)
+			assert.True(t, ok)
+
+			newCheckpoint := NewGPUPluginCheckpoint()
+
+			// check if new checkpoint is created and verify equality
+			err = sc.checkpointManager.GetCheckpoint(checkpointName, newCheckpoint)
+			assert.NoError(t, err)
+
+			// verify old checkpoint file existence
+			checkpoint := NewGPUPluginCheckpoint()
+			err = oldCheckpointManager.GetCheckpoint(checkpointName, checkpoint)
+
+			assert.Error(t, err)
+			assert.Equal(t, err, errors.ErrCheckpointNotFound)
+
+			if tt.expectEqual {
+				assert.Equal(t, newCheckpoint, oldCheckpoint)
+			} else {
+				assert.NotEqual(t, newCheckpoint, oldCheckpoint)
+			}
 		})
 	}
 }
