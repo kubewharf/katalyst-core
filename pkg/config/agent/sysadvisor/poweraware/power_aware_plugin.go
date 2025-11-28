@@ -28,6 +28,10 @@ type PowerAwarePluginConfiguration struct {
 	PowerCappingAdvisorSocketAbsPath string
 	AnnotationKeyPrefix              string
 	DVFSIndication                   string
+
+	CPUHeadroomPowerDiscountP1 float64
+	CPUHeadroomPowerDiscountP2 float64
+	CPUHeadroomPowerDiscountP3 float64
 }
 
 // NewPowerAwarePluginConfiguration creates a default config

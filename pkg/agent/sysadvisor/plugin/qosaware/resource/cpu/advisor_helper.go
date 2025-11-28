@@ -30,6 +30,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/assembler/headroomassembler"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/assembler/headroomassembler/decorator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/assembler/provisionassembler"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
@@ -151,6 +152,18 @@ func (cra *cpuResourceAdvisor) initializeHeadroomAssembler() error {
 		return fmt.Errorf("unsupported headroom assembler %v", assemblerName)
 	}
 	cra.headroomAssembler = initializer(cra.conf, cra.extraConf, &cra.regionMap, &cra.reservedForReclaim, &cra.numaAvailable, &cra.nonBindingNumas, cra.metaCache, cra.metaServer, cra.emitter)
+
+	decorateName := decorator.GetEnabledPlugin()
+	if len(decorateName) > 0 {
+		initializers := decorator.GetRegisteredInitializers()
+		decoratorInitializer, ok := initializers[decorateName]
+		if !ok {
+			return fmt.Errorf("unsupported headroom assembler decorator %v", decorateName)
+		}
+
+		general.InfoS("cpu headroom assembler: decorated by %q", decorateName)
+		cra.headroomAssembler = decoratorInitializer(cra.headroomAssembler, cra.conf, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter)
+	}
 
 	return nil
 }

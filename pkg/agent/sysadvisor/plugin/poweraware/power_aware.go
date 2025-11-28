@@ -32,6 +32,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/evictor"
 	evictserver "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/evictor/server"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/reader"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/assembler/headroomassembler/decorator"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/sysadvisor/poweraware"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -125,6 +127,9 @@ func NewPowerAwarePlugin(
 }
 
 func newPluginWithAdvisor(pluginName string, conf *config.Configuration, advisor advisor.PowerAwareAdvisor) (plugin.SysAdvisorPlugin, error) {
+	general.Infof("enable cpu headroom assembler discount decorator")
+	decorator.EnablePlugin(types.CPUHeadroomAssemblerDecoratorDiscount)
+
 	return &powerAwarePlugin{
 		name:    pluginName,
 		dryRun:  conf.PowerAwarePluginConfiguration.DryRun,
