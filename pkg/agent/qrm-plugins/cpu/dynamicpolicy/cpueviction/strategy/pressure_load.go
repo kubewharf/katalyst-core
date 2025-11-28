@@ -110,8 +110,8 @@ func NewCPUPressureLoadEviction(emitter metrics.MetricEmitter, metaServer *metas
 
 	systemReservedCores, reserveErr := cpuutil.GetCoresReservedForSystem(conf, metaServer, metaServer.KatalystMachineInfo, metaServer.CPUDetails.CPUs().Clone())
 	if reserveErr != nil {
-		general.Errorf("GetCoresReservedForSystem for reservedCPUsNum: %d failed with error: %v",
-			conf.ReservedCPUCores, reserveErr)
+		general.Errorf("GetCoresReservedForSystem for reservedCPUsNum: %d, reservedCPUList: %s failed with error: %v",
+			conf.ReservedCPUCores, conf.ReservedCPUList, reserveErr)
 		return plugin, reserveErr
 	}
 	plugin.systemReservedCPUs = systemReservedCores
