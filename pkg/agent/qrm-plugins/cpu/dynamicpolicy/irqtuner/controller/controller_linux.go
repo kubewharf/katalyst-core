@@ -2380,6 +2380,70 @@ func (ic *IrqTuningController) syncNics(staticNormalThroughputNicsChanged bool) 
 	return nil
 }
 
+func (ic *IrqTuningController) updateNicIrqTuningManagers(nics []*machine.NicBasicInfo) error {
+	ic.IndicatorsStats = nil
+
+	// only handle old nics in ic.Nics, ignore ic.LowThrouputNics
+	if len(ic.Nics) != 0 {
+		// if any nics changes happened, it's the simplest way to recalculate sockets assignment for nics's irq affinity and re-new
+		// all nics's controller, regardless of unchanged nics's current configuration about irq affinity and assigned sockets,
+		// just like katalyst restart.
+		// There are the following reasons for handling it in this way,
+		// 1) it's very simple and can keep consistent with irq-tuning manager plugin init
+		// 2) the sockets assignments of nics's irq affinity is consistent, it's very important that sockets assignments result is consistent,
+		//    because qrm use the same policy to assign nic for container in 2-nics machine to align with irq-tuning manager for best performance.
+		// 3) there is an extremely low probability that any nic will change during node running.
+
+		// regardless of whether the original nics exists or not, tune original nics irq affinity to balance-fair
+		for _, nic := range ic.Nics {
+			if nic.IrqAffinityPolicy != IrqBalanceFair {
+				nic.IrqAffinityPolicy = IrqBalanceFair
+			}
+		}
+
+		if err := ic.TuneIrqAffinityForAllNicsWithBalanceFairPolicy(); err != nil {
+			general.Errorf("%s failed to TuneIrqAffinityForAllNicsWithBalanceFairPolicy, err %v", IrqTuningLogPrefix, err)
+		}
+
+		totalIrqCores, err := ic.getCurrentTotalExclusiveIrqCores()
+		if err != nil || len(totalIrqCores) > 0 {
+			if err := ic.IrqStateAdapter.SetExclusiveIRQCPUSet(machine.NewCPUSet()); err != nil {
+				general.Errorf("%s failed to SetExclusiveIRQCPUSet, err %s", IrqTuningLogPrefix, err)
+			}
+		}
+	}
+
+	normalThroughputNics, lowThroughputNics := ic.classifyNicsByThroughputFirstTime(nics, NicThroughputCheckInterval)
+
+	nicManagers, lowThroughputNicManagers, err := NewNicIrqTuningManagers(ic.conf, normalThroughputNics, lowThroughputNics, ic.CPUInfo)
+	if err != nil {
+		return fmt.Errorf("%s failed to NewNicIrqTuningManagers, err %v", IrqTuningLogPrefix, err)
+	}
+
+	sort.Slice(nicManagers, func(i, j int) bool {
+		return nicManagers[i].NicInfo.IfIndex < nicManagers[j].NicInfo.IfIndex
+	})
+
+	sort.Slice(lowThroughputNicManagers, func(i, j int) bool {
+		return lowThroughputNicManagers[i].NicInfo.IfIndex < lowThroughputNicManagers[j].NicInfo.IfIndex
+	})
+
+	ic.Nics = nicManagers
+	ic.LowThroughputNics = lowThroughputNicManagers
+
+	general.Infof("%s new synced normal throughput nics:", IrqTuningLogPrefix)
+	for _, nic := range ic.Nics {
+		general.Infof("%s   %s, queue number %d", IrqTuningLogPrefix, nic.NicInfo, nic.NicInfo.QueueNum)
+	}
+
+	general.Infof("%s new synced low throughput nics:", IrqTuningLogPrefix)
+	for _, nic := range ic.LowThroughputNics {
+		general.Infof("%s   %s, queue number %d", IrqTuningLogPrefix, nic.NicInfo, nic.NicInfo.QueueNum)
+	}
+
+	return nil
+}
+
 // irq affinity forbidden container's cpus MUST be excluded from cpu allocation for other nic's balance-fair irq affinity.
 func (ic *IrqTuningController) getIrqAffinityForbiddenContainerCPUs() []int64 {
 	var irqForbiddenCPUs []int64
