@@ -22,7 +22,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/uuid"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 )
 
 // NewPoolCalculationEntries returns CalculationEntries,
@@ -49,6 +48,11 @@ func NewBlock(size uint64, blockID string) *cpuadvisor.Block {
 	}
 }
 
+type ContainerMeta struct {
+	PodUID        string
+	ContainerName string
+}
+
 // internalBlock works as a packed structure for Block;
 // aside for Block, it also stores some extra info to speed up efficiency.
 type internalBlock struct {
@@ -62,17 +66,16 @@ type internalBlock struct {
 	// PoolName stores pool that owns this block
 	// - it may be nil if this block belongs to pod rather than pool
 	PoolName string
-	// ContainerInfo stores container that own this block
+	// ContainerMeta stores container that own this block
 	// - it may be nil if this block belongs to pool rather than pod
-	// - it is thread-safe since it is deep-copied when constructed internalBlock
-	ContainerInfo *types.ContainerInfo
+	ContainerMeta *ContainerMeta
 
 	// NumaCalculationResult stores
 	// - it is thread-safe since it is referred only by this internalBlock
 	NumaCalculationResult *cpuadvisor.NumaCalculationResult
 }
 
-func NewInnerBlock(block *cpuadvisor.Block, numaID int64, poolName string, containerInfo *types.ContainerInfo,
+func NewInnerBlock(block *cpuadvisor.Block, numaID int64, poolName string, containerMeta *ContainerMeta,
 	numaCalculationResult *cpuadvisor.NumaCalculationResult,
 ) *internalBlock {
 	ib := &internalBlock{
@@ -82,8 +85,8 @@ func NewInnerBlock(block *cpuadvisor.Block, numaID int64, poolName string, conta
 		NumaCalculationResult: numaCalculationResult,
 	}
 
-	if containerInfo != nil {
-		ib.ContainerInfo = containerInfo.Clone()
+	if containerMeta != nil {
+		ib.ContainerMeta = containerMeta
 	}
 	return ib
 }
@@ -92,12 +95,12 @@ func NewInnerBlock(block *cpuadvisor.Block, numaID int64, poolName string, conta
 func (ib *internalBlock) initialOverlapTarget() *cpuadvisor.OverlapTarget {
 	target := &cpuadvisor.OverlapTarget{}
 
-	if ib.ContainerInfo == nil {
+	if ib.ContainerMeta == nil {
 		target.OverlapTargetPoolName = ib.PoolName
 		target.OverlapType = cpuadvisor.OverlapType_OverlapWithPool
 	} else {
-		target.OverlapTargetPodUid = ib.ContainerInfo.PodUID
-		target.OverlapTargetContainerName = ib.ContainerInfo.ContainerName
+		target.OverlapTargetPodUid = ib.ContainerMeta.PodUID
+		target.OverlapTargetContainerName = ib.ContainerMeta.ContainerName
 		target.OverlapType = cpuadvisor.OverlapType_OverlapWithPod
 	}
 
@@ -137,7 +140,7 @@ func (ib *internalBlock) join(blockID string, set blockSet) {
 		// i.e. one to match with cpu size for existing blockSet, one to add as a new blockSet
 
 		newBlock := NewBlock(ibList[0].Block.Result, blockID)
-		newInnerBlock := NewInnerBlock(newBlock, ib.NumaID, ib.PoolName, ib.ContainerInfo, ib.NumaCalculationResult)
+		newInnerBlock := NewInnerBlock(newBlock, ib.NumaID, ib.PoolName, ib.ContainerMeta, ib.NumaCalculationResult)
 		newInnerBlock.join(blockID, set)
 
 		ib.NumaCalculationResult.Blocks = append(ib.NumaCalculationResult.Blocks, newBlock)
@@ -155,7 +158,7 @@ func (ib *internalBlock) join(blockID string, set blockSet) {
 			innerBlock.Block.Result = oldSize - ib.Block.Result
 			// make new block as size of (ib size)
 			newBlock := NewBlock(ib.Block.Result, newBlockID)
-			newInnerBlock := NewInnerBlock(newBlock, innerBlock.NumaID, innerBlock.PoolName, innerBlock.ContainerInfo, innerBlock.NumaCalculationResult)
+			newInnerBlock := NewInnerBlock(newBlock, innerBlock.NumaID, innerBlock.PoolName, innerBlock.ContainerMeta, innerBlock.NumaCalculationResult)
 			innerBlock.NumaCalculationResult.Blocks = append(innerBlock.NumaCalculationResult.Blocks, newBlock)
 			newInnerBlock.join(newBlock.BlockId, set)
 		}

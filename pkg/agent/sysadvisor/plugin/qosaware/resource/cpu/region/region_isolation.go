@@ -56,7 +56,7 @@ func NewQoSRegionIsolation(ci *types.ContainerInfo, customRegionName string, con
 		ownerPoolName = isolationRegionNUMAOwnerPoolName
 	}
 	r := &QoSRegionIsolation{
-		QoSRegionBase: NewQoSRegionBase(regionName, ownerPoolName, configapi.QoSRegionTypeIsolation, conf, extraConf, isNumaBinding, metaReader, metaServer, emitter),
+		QoSRegionBase: NewQoSRegionBase(regionName, ownerPoolName, configapi.QoSRegionTypeIsolation, conf, extraConf, isNumaBinding, false, metaReader, metaServer, emitter),
 	}
 	if isNumaBinding {
 		r.bindingNumas = machine.NewCPUSet(numaID)
