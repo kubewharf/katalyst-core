@@ -24,6 +24,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/irqtuner/config"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -136,4 +137,81 @@ func TestSortQueuePPSSliceInDecOrder(t *testing.T) {
 	assert.Equal(t, uint64(300), queuePPS[0].PPS)
 	assert.Equal(t, uint64(200), queuePPS[1].PPS)
 	assert.Equal(t, uint64(100), queuePPS[2].PPS)
+}
+
+func Test_configuredStaticNormalThroughputNics(t *testing.T) {
+	t.Parallel()
+	ic := &IrqTuningController{}
+	cases := []struct {
+		name        string
+		conf        *config.IrqTuningConfig
+		expectedRet bool
+	}{{
+		name: "Scenario 1: configured static normal throughput nics",
+		conf: &config.IrqTuningConfig{
+			NormalThroughputNics: []config.NicInfo{
+				{
+					NicName: "eth0",
+				},
+			},
+		},
+		expectedRet: true,
+	}, {
+		name:        "Scenario 2: not configured static normal throughput nics",
+		conf:        &config.IrqTuningConfig{},
+		expectedRet: false,
+	}}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ic.conf = tc.conf
+			b := ic.configuredStaticNormalThroughputNics()
+			assert.Equal(t, b, tc.expectedRet)
+		})
+	}
+}
+
+func Test_isStaticConfiguredNormalThroughputNic(t *testing.T) {
+	t.Parallel()
+	ic := &IrqTuningController{
+		conf: &config.IrqTuningConfig{
+			NormalThroughputNics: []config.NicInfo{
+				{
+					NicName: "eth0",
+				},
+			},
+		},
+	}
+	cases := []struct {
+		name        string
+		nic         *machine.NicBasicInfo
+		expectedRet bool
+	}{{
+		name: "Scenario 1: is static normal throughput nics",
+		nic: &machine.NicBasicInfo{
+			InterfaceInfo: machine.InterfaceInfo{
+				Name: "eth0",
+			},
+		},
+		expectedRet: true,
+	}, {
+		name: "Scenario 2: not static normal throughput nics",
+		nic: &machine.NicBasicInfo{
+			InterfaceInfo: machine.InterfaceInfo{
+				Name: "eth2",
+			},
+		},
+		expectedRet: false,
+	}}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			b := ic.isStaticConfiguredNormalThroughputNic(tc.nic)
+			assert.Equal(t, b, tc.expectedRet)
+		})
+	}
 }
