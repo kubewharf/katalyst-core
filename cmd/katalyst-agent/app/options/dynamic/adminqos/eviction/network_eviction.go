@@ -32,7 +32,7 @@ type NetworkEvictionOptions struct {
 
 func NewNetworkEvictionOptions() *NetworkEvictionOptions {
 	return &NetworkEvictionOptions{
-		NICUnhealthyToleranceDuration: 1 * time.Minute,
+		NICUnhealthyToleranceDuration: 5 * time.Minute,
 	}
 }
 
