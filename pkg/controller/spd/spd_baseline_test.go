@@ -22,7 +22,6 @@ import (
 	"testing"
 	"time"
 
-	consts2 "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/stretchr/testify/assert"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
@@ -654,7 +653,7 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace:   "default",
 						Name:        "dp-foo",
-						Annotations: map[string]string{consts2.ServiceProfileDescriptorAnnotationKeyCustomCompareKey: "shard_id"},
+						Annotations: map[string]string{consts.SPDAnnotationKeyCustomCompareKey: "shard_id"},
 					},
 					Spec: apiworkload.ServiceProfileDescriptorSpec{
 						TargetRef: apis.CrossVersionObjectReference{
@@ -680,7 +679,7 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace:   "default",
 					Name:        "dp-foo",
-					Annotations: map[string]string{consts2.ServiceProfileDescriptorAnnotationKeyCustomCompareKey: "shard_id"},
+					Annotations: map[string]string{consts.SPDAnnotationKeyCustomCompareKey: "shard_id"},
 				},
 				Spec: apiworkload.ServiceProfileDescriptorSpec{
 					TargetRef: apis.CrossVersionObjectReference{
@@ -719,7 +718,7 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace:   "default",
 						Name:        "dp-foo",
-						Annotations: map[string]string{consts2.ServiceProfileDescriptorAnnotationKeyCustomCompareKey: "shard_id"},
+						Annotations: map[string]string{consts.SPDAnnotationKeyCustomCompareKey: "shard_id"},
 					},
 					Spec: apiworkload.ServiceProfileDescriptorSpec{
 						TargetRef: apis.CrossVersionObjectReference{
@@ -746,7 +745,7 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 					Namespace: "default",
 					Name:      "dp-foo",
 					Annotations: map[string]string{
-						consts2.ServiceProfileDescriptorAnnotationKeyCustomCompareKey: "shard_id",
+						consts.SPDAnnotationKeyCustomCompareKey: "shard_id",
 						consts.SPDAnnotationBaselineSentinelKey: util.SPDBaselinePodMeta{
 							PodName:            "dp-foo-0-0",
 							CustomCompareKey:   &util.SPDBaselinePodMetaCustomCompareKeyShardID,
@@ -796,7 +795,7 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace:   "default",
 						Name:        "dp-foo",
-						Annotations: map[string]string{consts2.ServiceProfileDescriptorAnnotationKeyCustomCompareKey: "shard_id"},
+						Annotations: map[string]string{consts.SPDAnnotationKeyCustomCompareKey: "shard_id"},
 					},
 					Spec: apiworkload.ServiceProfileDescriptorSpec{
 						TargetRef: apis.CrossVersionObjectReference{
@@ -823,7 +822,7 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 					Namespace: "default",
 					Name:      "dp-foo",
 					Annotations: map[string]string{
-						consts2.ServiceProfileDescriptorAnnotationKeyCustomCompareKey: "shard_id",
+						consts.SPDAnnotationKeyCustomCompareKey: "shard_id",
 						consts.SPDAnnotationBaselineSentinelKey: util.SPDBaselinePodMeta{
 							PodName:            "dp-foo-0-0",
 							CustomCompareKey:   &util.SPDBaselinePodMetaCustomCompareKeyShardID,
@@ -875,7 +874,7 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace:   "default",
 						Name:        "dp-foo",
-						Annotations: map[string]string{consts2.ServiceProfileDescriptorAnnotationKeyCustomCompareKey: "shard_id"},
+						Annotations: map[string]string{consts.SPDAnnotationKeyCustomCompareKey: "shard_id"},
 					},
 					Spec: apiworkload.ServiceProfileDescriptorSpec{
 						TargetRef: apis.CrossVersionObjectReference{
@@ -902,7 +901,7 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 					Namespace: "default",
 					Name:      "dp-foo",
 					Annotations: map[string]string{
-						consts2.ServiceProfileDescriptorAnnotationKeyCustomCompareKey: "shard_id",
+						consts.SPDAnnotationKeyCustomCompareKey: "shard_id",
 						consts.SPDAnnotationBaselineSentinelKey: util.SPDBaselinePodMeta{
 							PodName:            "dp-foo-1-0",
 							CustomCompareKey:   &util.SPDBaselinePodMetaCustomCompareKeyShardID,
@@ -1081,7 +1080,7 @@ func testSolarSPD(name string, baseline int32, apiversion string, kind string, a
 	if annotation == nil {
 		annotation = make(map[string]string)
 	}
-	annotation[consts2.ServiceProfileDescriptorAnnotationKeyCustomCompareKey] = "shard_id"
+	annotation[consts.SPDAnnotationKeyCustomCompareKey] = "shard_id"
 
 	return &apiworkload.ServiceProfileDescriptor{
 		ObjectMeta: metav1.ObjectMeta{

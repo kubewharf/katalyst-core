@@ -18,7 +18,6 @@ package consts
 
 // ServiceProfileDescriptorAnnotationKeyConfigHash defines const variables for spd annotations about config hash.
 const (
-	ServiceProfileDescriptorAnnotationKeyConfigHash       = "spd.katalyst.kubewharf.io/config.hash"
-	ServiceProfileDescriptorAnnotationKeyLastFetchTime    = "spd.katalyst.kubewharf.io/lastFetchTime"
-	ServiceProfileDescriptorAnnotationKeyCustomCompareKey = "spd.katalyst.kubewharf.io/customCompareKey"
+	ServiceProfileDescriptorAnnotationKeyConfigHash    = "spd.katalyst.kubewharf.io/config.hash"
+	ServiceProfileDescriptorAnnotationKeyLastFetchTime = "spd.katalyst.kubewharf.io/lastFetchTime"
 )

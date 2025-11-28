@@ -28,7 +28,6 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
-	core_consts "github.com/kubewharf/katalyst-core/pkg/consts"
 )
 
 const (
@@ -191,7 +190,7 @@ func GetStseCustomSPDBaselinePodMetaSentinel(podMetaList []SPDBaselinePodMeta, b
 
 func GetSPDCustomCompareKeys(spd *v1alpha1.ServiceProfileDescriptor) *CustomCompareKey {
 	var spdCustomCompareKey CustomCompareKey
-	key, ok := spd.Annotations[core_consts.ServiceProfileDescriptorAnnotationKeyCustomCompareKey]
+	key, ok := spd.Annotations[consts.SPDAnnotationKeyCustomCompareKey]
 	if !ok {
 		return nil
 	}
