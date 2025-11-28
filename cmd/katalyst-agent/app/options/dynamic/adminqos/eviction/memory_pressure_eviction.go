@@ -17,6 +17,8 @@ limitations under the License.
 package eviction
 
 import (
+	"time"
+
 	"k8s.io/apimachinery/pkg/api/resource"
 	cliflag "k8s.io/component-base/cli/flag"
 
@@ -27,6 +29,8 @@ import (
 type MemoryPressureEvictionOptions struct {
 	EnableNumaLevelEviction                 bool
 	EnableSystemLevelEviction               bool
+	EnableEnhancedNumaLevelEviction         bool
+	MemoryPressureEvictionInterval          time.Duration
 	NumaVictimMinimumUtilizationThreshold   float64
 	NumaFreeBelowWatermarkTimesThreshold    int
 	SystemFreeMemoryThresholdMinimum        string
@@ -45,6 +49,8 @@ func NewMemoryPressureEvictionOptions() *MemoryPressureEvictionOptions {
 	return &MemoryPressureEvictionOptions{
 		EnableNumaLevelEviction:                 eviction.DefaultEnableNumaLevelEviction,
 		EnableSystemLevelEviction:               eviction.DefaultEnableSystemLevelEviction,
+		EnableEnhancedNumaLevelEviction:         eviction.DefaultEnableEnhancedNumaLevelEviction,
+		MemoryPressureEvictionInterval:          eviction.DefaultMemoryPressureEvictionInterval,
 		NumaVictimMinimumUtilizationThreshold:   eviction.DefaultNumaVictimMinimumUtilizationThreshold,
 		NumaFreeBelowWatermarkTimesThreshold:    eviction.DefaultNumaFreeBelowWatermarkTimesThreshold,
 		SystemFreeMemoryThresholdMinimum:        eviction.DefaultSystemFreeMemoryThresholdMinimum,
@@ -67,6 +73,10 @@ func (o *MemoryPressureEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"whether to enable numa-level eviction")
 	fs.BoolVar(&o.EnableSystemLevelEviction, "eviction-enable-system-level", o.EnableSystemLevelEviction,
 		"whether to enable system-level eviction")
+	fs.BoolVar(&o.EnableEnhancedNumaLevelEviction, "eviction-enable-enhanced-numa-level", o.EnableEnhancedNumaLevelEviction,
+		"whether to enable enhanced numa-level eviction")
+	fs.DurationVar(&o.MemoryPressureEvictionInterval, "memory-pressure-eviction-interval", o.MemoryPressureEvictionInterval,
+		"the minimum interval between two memory evictions")
 	fs.Float64Var(&o.NumaVictimMinimumUtilizationThreshold, "eviction-numa-victim-minimum-utilization-threshold", o.NumaVictimMinimumUtilizationThreshold,
 		"the threshold for the victim's minimum memory utilization on a NUMA node")
 	fs.IntVar(&o.NumaFreeBelowWatermarkTimesThreshold, "eviction-numa-free-below-watermark-times-threshold", o.NumaFreeBelowWatermarkTimesThreshold,
@@ -95,6 +105,8 @@ func (o *MemoryPressureEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 func (o *MemoryPressureEvictionOptions) ApplyTo(c *eviction.MemoryPressureEvictionConfiguration) error {
 	c.EnableNumaLevelEviction = o.EnableNumaLevelEviction
 	c.EnableSystemLevelEviction = o.EnableSystemLevelEviction
+	c.EnableEnhancedNumaLevelEviction = o.EnableEnhancedNumaLevelEviction
+	c.MemoryPressureEvictionInterval = o.MemoryPressureEvictionInterval
 	c.NumaVictimMinimumUtilizationThreshold = o.NumaVictimMinimumUtilizationThreshold
 	c.NumaFreeBelowWatermarkTimesThreshold = o.NumaFreeBelowWatermarkTimesThreshold
 	quantity, err := resource.ParseQuantity(o.SystemFreeMemoryThresholdMinimum)
