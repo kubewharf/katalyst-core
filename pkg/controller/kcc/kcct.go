@@ -226,6 +226,7 @@ func (k *KatalystCustomConfigTargetController) handleCNCStatusUpdate() {
 	// enqueue all kcct gvr
 	k.targetHandler.RangeGVRTargetAccessor(func(gvr metav1.GroupVersionResource, accessor kcctarget.KatalystCustomConfigTargetAccessor) bool {
 		// enqueue gvr with delay to frequent reconciles caused by many CNC events
+		general.InfofV(4, "handleCNCStatusUpdate: enqueue %s", gvr.String())
 		k.queue.AddAfter(gvr, k.cncEnqueueDelay)
 		return true
 	})

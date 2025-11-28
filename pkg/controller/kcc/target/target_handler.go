@@ -42,6 +42,7 @@ type KatalystCustomConfigTargetHandler struct {
 
 	ctx    context.Context
 	client *kcclient.GenericClientSet
+	config *controller.KCCConfig
 
 	syncedFunc []cache.InformerSynced
 
@@ -66,6 +67,7 @@ func NewKatalystCustomConfigTargetHandler(ctx context.Context, client *kcclient.
 	k := &KatalystCustomConfigTargetHandler{
 		ctx:    ctx,
 		client: client,
+		config: kccConfig,
 		syncedFunc: []cache.InformerSynced{
 			katalystCustomConfigInformer.Informer().HasSynced,
 		},
@@ -82,12 +84,6 @@ func NewKatalystCustomConfigTargetHandler(ctx context.Context, client *kcclient.
 		DeleteFunc: k.deleteKatalystCustomConfigEventHandle,
 	})
 
-	for _, gvrStr := range kccConfig.DefaultGVRs {
-		if err := k.registerDefaultGVR(gvrStr); err != nil {
-			klog.Fatalf("cannot register default gvr %s: %v", gvrStr, err)
-		}
-	}
-
 	return k
 }
 
@@ -103,6 +99,13 @@ func (k *KatalystCustomConfigTargetHandler) HasSynced() bool {
 
 func (k *KatalystCustomConfigTargetHandler) Run() {
 	defer k.shutDown()
+
+	for _, gvrStr := range k.config.DefaultGVRs {
+		if err := k.registerDefaultGVR(gvrStr); err != nil {
+			klog.Fatalf("cannot register default gvr %s: %v", gvrStr, err)
+		}
+	}
+
 	<-k.ctx.Done()
 }
 
