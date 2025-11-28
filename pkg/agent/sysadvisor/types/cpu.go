@@ -74,6 +74,10 @@ const (
 	CPUHeadroomAssemblerDedicated CPUHeadroomAssemblerName = "dedicated"
 )
 
+const (
+	CPUHeadroomAssemblerDecoratorDiscount string = "discount"
+)
+
 // ControlKnob holds tunable system entries affecting indicator metrics
 type ControlKnob map[v1alpha1.ControlKnobName]ControlKnobItem
 
