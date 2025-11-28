@@ -881,12 +881,8 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 
 		// First handle blocks for NUMA-bound dedicated_cores containers
 		// Reuse already allocated CPU sets when possible to minimize CPU migration
-		for _, block := range blocks {
-			if block == nil {
-				general.Warningf("got nil block")
-				continue
-			}
-
+		dedicatedBlocks := advisorapi.GetBlocksByPoolName(blocks, commonstate.PoolNameDedicated)
+		for _, block := range dedicatedBlocks {
 			entry, ok := block.OwnerPoolEntryMap[commonstate.PoolNameDedicated]
 			if !ok {
 				continue
@@ -917,6 +913,8 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 
 			var cpuset machine.CPUSet
 			alreadyAllocatedCPUs = alreadyAllocatedCPUs.Intersection(numaAvailableCPUs)
+
+			// shrink cpuSet
 			if alreadyAllocatedCPUs.Size() >= blockResult {
 				cpuset, err = calculator.TakeByTopology(machineInfo, alreadyAllocatedCPUs, blockResult, true)
 				if err != nil {
@@ -940,45 +938,56 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 
 		// Then handle blocks for NUMA-bound shared_cores containers and reclaimed_cores containers colocated with them
 		// These containers can share NUMA nodes with dedicated_cores containers
-		for _, block := range blocks {
-			if block == nil {
-				general.Warningf("got nil block")
-				continue
-			}
+		f := func(blocks []*advisorapi.BlockInfo, alignedByL3 bool) error {
+			for _, block := range blocks {
+				if block == nil {
+					general.Warningf("got nil block")
+					continue
+				}
 
-			_, ok := block.OwnerPoolEntryMap[commonstate.PoolNameDedicated]
-			if ok {
-				continue
-			}
+				blockID := block.BlockId
+				if _, found := blockCPUSet[blockID]; found {
+					general.Warningf("block: %v already allocated", blockID)
+					continue
+				}
 
-			blockID := block.BlockId
-			if _, found := blockCPUSet[blockID]; found {
-				general.Warningf("block: %v already allocated", blockID)
-				continue
-			}
+				blockResult, err := general.CovertUInt64ToInt(block.Result)
+				if err != nil {
+					return fmt.Errorf("parse block: %s result failed with error: %v",
+						blockID, err)
+				}
 
-			blockResult, err := general.CovertUInt64ToInt(block.Result)
-			if err != nil {
-				return nil, fmt.Errorf("parse block: %s result failed with error: %v",
-					blockID, err)
-			}
+				cpuset, err := calculator.TakeByTopology(machineInfo, numaAvailableCPUs, blockResult, alignedByL3)
+				if err != nil {
+					return fmt.Errorf("allocate cpuset for NUMA Aware block: %s in NUMA: %d failed with error: %v, numaAvailableCPUs: %d(%s), blockResult: %d",
+						blockID, numaID, err, numaAvailableCPUs.Size(), numaAvailableCPUs.String(), blockResult)
+				}
 
-			cpuset, err := calculator.TakeByTopology(machineInfo, numaAvailableCPUs, blockResult, false)
-			if err != nil {
-				return nil, fmt.Errorf("allocate cpuset for NUMA Aware block: %s in NUMA: %d failed with error: %v, numaAvailableCPUs: %d(%s), blockResult: %d",
-					blockID, numaID, err, numaAvailableCPUs.Size(), numaAvailableCPUs.String(), blockResult)
-			}
+				blockCPUSet[blockID] = cpuset
+				numaAvailableCPUs = numaAvailableCPUs.Difference(cpuset)
+				availableCPUs = availableCPUs.Difference(cpuset)
 
-			blockCPUSet[blockID] = cpuset
-			numaAvailableCPUs = numaAvailableCPUs.Difference(cpuset)
-			availableCPUs = availableCPUs.Difference(cpuset)
-
-			for poolName := range block.OwnerPoolEntryMap {
-				if commonstate.IsIsolationPool(poolName) || commonstate.IsShareNUMABindingPool(poolName) {
-					withNUMABindingShareOrDedicatedPod = true
-					break
+				for poolName := range block.OwnerPoolEntryMap {
+					if commonstate.IsIsolationPool(poolName) || commonstate.IsShareNUMABindingPool(poolName) {
+						withNUMABindingShareOrDedicatedPod = true
+						break
+					}
 				}
 			}
+			return nil
+		}
+
+		isolationBlocks := advisorapi.GetBlocksByPoolName(blocks, commonstate.PoolNamePrefixIsolation)
+		if err := f(isolationBlocks, true); err != nil {
+			return nil, err
+		}
+		shareBlocks := advisorapi.GetBlocksByPoolName(blocks, commonstate.PoolNameShare)
+		if err := f(shareBlocks, false); err != nil {
+			return nil, err
+		}
+		reclaimBlocks := advisorapi.GetBlocksByPoolName(blocks, commonstate.PoolNameReclaim)
+		if err := f(reclaimBlocks, false); err != nil {
+			return nil, err
 		}
 
 		// Finally, if there are NUMA-bound containers on this NUMA node,

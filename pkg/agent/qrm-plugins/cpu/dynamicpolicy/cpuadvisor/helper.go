@@ -95,6 +95,21 @@ type BlockEntry struct {
 	SubEntryName string
 }
 
+func GetBlocksByPoolName(blockInfos []*BlockInfo, poolNamePrefix string) []*BlockInfo {
+	result := make([]*BlockInfo, 0)
+	for _, blockInfo := range blockInfos {
+		if blockInfo == nil {
+			continue
+		}
+		for ownerPoolName := range blockInfo.OwnerPoolEntryMap {
+			if strings.HasPrefix(ownerPoolName, poolNamePrefix) {
+				result = append(result, blockInfo)
+			}
+		}
+	}
+	return result
+}
+
 // GetBlocks parses ListAndWatchResponse and returns map[int][]*BlockInfo,
 // the map is keyed as numa id -> blocks slice (which has been sorted and deduped)
 func (lwr *ListAndWatchResponse) GetBlocks() (map[int][]*BlockInfo, error) {
