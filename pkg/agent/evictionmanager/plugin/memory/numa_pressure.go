@@ -212,21 +212,19 @@ func (n *NumaMemoryPressurePlugin) detectNumaWatermarkPressure(numaID, free, min
 		})...)
 
 	// Notice:
-	// numaFreeBelowWatermarkTimes > NumaFreeBelowWatermarkTimesThreshold/2, trigger actionReclaimedEviction
+	// numaFreeBelowWatermarkTimes > NumaFreeBelowWatermarkTimesReclaimedThreshold, trigger actionReclaimedEviction
 	// numaFreeBelowWatermarkTimes > NumaFreeBelowWatermarkTimesThreshold, trigger actionEviction
-	actionReclaimedThreshold := (dynamicConfig.NumaFreeBelowWatermarkTimesThreshold / 2)
-	if actionReclaimedThreshold <= 0 {
-		actionReclaimedThreshold = dynamicConfig.NumaFreeBelowWatermarkTimesThreshold
-	}
+	// By default, the reclaimed threshold is half online.
+	actionReclaimedThreshold := dynamicConfig.NumaFreeBelowWatermarkTimesReclaimedThreshold
+	actionOnlineThreshold := dynamicConfig.NumaFreeBelowWatermarkTimesThreshold
 
 	if free < min {
 		// We are under a DANGEROUS situation, NEED A EVICTION NOW! IMMEDIATELY!
 		n.isUnderNumaPressure = true
 		n.numaActionMap[numaID] = actionReclaimedEviction
-		if n.numaFreeBelowWatermarkTimesMap[numaID] < actionReclaimedThreshold {
-			n.numaFreeBelowWatermarkTimesMap[numaID] = actionReclaimedThreshold
+		if n.numaFreeBelowWatermarkTimesMap[numaID] < actionOnlineThreshold {
+			n.numaFreeBelowWatermarkTimesMap[numaID] = actionOnlineThreshold - dynamicConfig.NumaFreeConstraintFastEvictionWaitCycle
 		}
-		n.numaFreeBelowWatermarkTimesMap[numaID]++
 	} else if free < low {
 		n.numaFreeBelowWatermarkTimesMap[numaID]++
 
@@ -243,7 +241,6 @@ func (n *NumaMemoryPressurePlugin) detectNumaWatermarkPressure(numaID, free, min
 			n.isUnderNumaPressure = true
 			n.numaActionMap[numaID] = actionReclaimedEviction
 		}
-
 	} else {
 		// added cooling mechanism to avoid kswapd ping-pong
 		if n.numaFreeBelowWatermarkTimesMap[numaID] > 0 {
@@ -253,14 +250,14 @@ func (n *NumaMemoryPressurePlugin) detectNumaWatermarkPressure(numaID, free, min
 			}
 		}
 	}
-	if n.numaFreeBelowWatermarkTimesMap[numaID] >= dynamicConfig.NumaFreeBelowWatermarkTimesThreshold {
+	if n.numaFreeBelowWatermarkTimesMap[numaID] >= actionOnlineThreshold {
 		n.numaActionMap[numaID] = actionEviction
 	}
 
 	general.Infof("numa ID: %d, "+
-		"free pages: %+v, min: %+v, low: %+v, belowTimes: %+v, numaThreshold: %+v",
+		"free pages: %+v, min: %+v, low: %+v, belowTimes: %+v, numaReclaimedThreshold: %+v, numaOnlineThreshold: %+v",
 		numaID, free, min, low, n.numaFreeBelowWatermarkTimesMap[numaID],
-		dynamicConfig.NumaFreeBelowWatermarkTimesThreshold)
+		actionReclaimedThreshold, actionOnlineThreshold)
 
 	switch n.numaActionMap[numaID] {
 	case actionReclaimedEviction:

@@ -47,14 +47,15 @@ func makeMetaServer() *metaserver.MetaServer {
 }
 
 var (
-	evictionManagerSyncPeriod               = 10 * time.Second
-	numaFreeBelowWatermarkTimesThreshold    = 3
-	numaVictimMinimumUsageThreshold         = 0.001
-	systemFreeMemoryThresholdMinimum        = int64(5 * 1024 * 1024 * 1024)
-	systemKswapdRateThreshold               = 1000
-	systemKswapdRateExceedDurationThreshold = 90
-	systemPluginSyncPeriod                  = 30
-	systemPluginCoolDownPeriod              = 40
+	evictionManagerSyncPeriod                     = 10 * time.Second
+	numaFreeBelowWatermarkTimesThreshold          = 3
+	numaFreeBelowWatermarkTimesReclaimedThreshold = 2
+	numaVictimMinimumUsageThreshold               = 0.001
+	systemFreeMemoryThresholdMinimum              = int64(5 * 1024 * 1024 * 1024)
+	systemKswapdRateThreshold                     = 1000
+	systemKswapdRateExceedDurationThreshold       = 90
+	systemPluginSyncPeriod                        = 30
+	systemPluginCoolDownPeriod                    = 40
 
 	scaleFactor = 100
 	systemTotal = 100 * 1024 * 1024 * 1024
@@ -73,6 +74,7 @@ func makeConf() *config.Configuration {
 	conf.GetDynamicConfiguration().EnableNumaLevelEviction = evictionconfig.DefaultEnableNumaLevelEviction
 	conf.GetDynamicConfiguration().EnableSystemLevelEviction = evictionconfig.DefaultEnableSystemLevelEviction
 	conf.GetDynamicConfiguration().NumaFreeBelowWatermarkTimesThreshold = numaFreeBelowWatermarkTimesThreshold
+	conf.GetDynamicConfiguration().NumaFreeBelowWatermarkTimesReclaimedThreshold = numaFreeBelowWatermarkTimesReclaimedThreshold
 	conf.GetDynamicConfiguration().NumaVictimMinimumUtilizationThreshold = numaVictimMinimumUsageThreshold
 	conf.GetDynamicConfiguration().SystemKswapdRateThreshold = systemKswapdRateThreshold
 	conf.GetDynamicConfiguration().SystemKswapdRateExceedDurationThreshold = systemKswapdRateExceedDurationThreshold
@@ -112,6 +114,7 @@ func TestNewSystemPressureEvictionPlugin(t *testing.T) {
 	assert.Equal(t, evictionManagerSyncPeriod, plugin.evictionManagerSyncPeriod)
 	assert.Equal(t, time.Duration(systemPluginSyncPeriod)*time.Second, plugin.syncPeriod)
 	assert.Equal(t, numaFreeBelowWatermarkTimesThreshold, plugin.dynamicConfig.GetDynamicConfiguration().NumaFreeBelowWatermarkTimesThreshold)
+	assert.Equal(t, numaFreeBelowWatermarkTimesReclaimedThreshold, plugin.dynamicConfig.GetDynamicConfiguration().NumaFreeBelowWatermarkTimesReclaimedThreshold)
 	assert.Equal(t, systemKswapdRateThreshold, plugin.dynamicConfig.GetDynamicConfiguration().SystemKswapdRateThreshold)
 	assert.Equal(t, systemKswapdRateExceedDurationThreshold, plugin.dynamicConfig.GetDynamicConfiguration().SystemKswapdRateExceedDurationThreshold)
 	assert.Equal(t, evictionconfig.DefaultNumaEvictionRankingMetrics, plugin.dynamicConfig.GetDynamicConfiguration().NumaEvictionRankingMetrics)
