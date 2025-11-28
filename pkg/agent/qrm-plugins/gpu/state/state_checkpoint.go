@@ -17,7 +17,6 @@ limitations under the License.
 package state
 
 import (
-	"errors"
 	"fmt"
 	"path"
 	"reflect"
@@ -26,11 +25,13 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
-	cmerrors "k8s.io/kubernetes/pkg/kubelet/checkpointmanager/errors"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/customcheckpointmanager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/state"
 )
 
 const (
@@ -38,8 +39,9 @@ const (
 )
 
 var (
-	_          State = &stateCheckpoint{}
-	generalLog       = general.LoggerWithPrefix("gpu_plugin", general.LoggingPKGFull)
+	_          State          = &stateCheckpoint{}
+	_          state.Storable = &stateCheckpoint{}
+	generalLog                = general.LoggerWithPrefix("gpu_plugin", general.LoggingPKGFull)
 )
 
 // stateCheckpoint is an in-memory implementation of State;
@@ -53,8 +55,9 @@ type stateCheckpoint struct {
 	checkpointName    string
 	// when we add new properties to checkpoint,
 	// it will cause checkpoint corruption and we should skip it
-	skipStateCorruption bool
-	emitter             metrics.MetricEmitter
+	skipStateCorruption            bool
+	defaultResourceStateGenerators *DefaultResourceStateGeneratorRegistry
+	emitter                        metrics.MetricEmitter
 }
 
 func (s *stateCheckpoint) SetMachineState(allocationResourcesMap AllocationResourcesMap, persist bool) {
@@ -179,10 +182,8 @@ func (s *stateCheckpoint) storeState() error {
 		general.InfoS("finished", "duration", elapsed)
 		_ = s.emitter.StoreFloat64(metricMetaCacheStoreStateDuration, float64(elapsed/time.Millisecond), metrics.MetricTypeNameRaw)
 	}()
-	checkpoint := NewGPUPluginCheckpoint()
-	checkpoint.PolicyName = s.policyName
-	checkpoint.MachineState = s.cache.GetMachineState()
-	checkpoint.PodResourceEntries = s.cache.GetPodResourceEntries()
+
+	checkpoint := s.InitNewCheckpoint(false)
 
 	err := s.checkpointManager.CreateCheckpoint(s.checkpointName, checkpoint)
 	if err != nil {
@@ -192,35 +193,32 @@ func (s *stateCheckpoint) storeState() error {
 	return nil
 }
 
-func (s *stateCheckpoint) restoreState(defaultResourceStateGenerators *DefaultResourceStateGeneratorRegistry) error {
-	s.Lock()
-	defer s.Unlock()
-	var err error
-	var foundAndSkippedStateCorruption bool
-
+// InitNewCheckpoint implements Storable interface and initializes an empty or non-empty new checkpoint.
+func (s *stateCheckpoint) InitNewCheckpoint(empty bool) checkpointmanager.Checkpoint {
 	checkpoint := NewGPUPluginCheckpoint()
-	if err = s.checkpointManager.GetCheckpoint(s.checkpointName, checkpoint); err != nil {
-		if errors.Is(err, cmerrors.ErrCheckpointNotFound) {
-			return s.storeState()
-		} else if errors.Is(err, cmerrors.ErrCorruptCheckpoint) {
-			if !s.skipStateCorruption {
-				return err
-			}
+	if empty {
+		return checkpoint
+	}
+	checkpoint.PolicyName = s.policyName
+	checkpoint.MachineState = s.cache.GetMachineState()
+	checkpoint.PodResourceEntries = s.cache.GetPodResourceEntries()
+	return checkpoint
+}
 
-			foundAndSkippedStateCorruption = true
-			generalLog.Infof("restore checkpoint failed with err: %s, but we skip it", err)
-		} else {
-			return err
-		}
+// RestoreState implements Storable interface and restores the cache from checkpoint and returns if the state has changed.
+func (s *stateCheckpoint) RestoreState(cp checkpointmanager.Checkpoint) (bool, error) {
+	checkpoint, ok := cp.(*GPUPluginCheckpoint)
+	if !ok {
+		return false, fmt.Errorf("checkpoint type assertion failed, expected *GPUPluginCheckpoint, got %T instead", cp)
 	}
 
 	if s.policyName != checkpoint.PolicyName && !s.skipStateCorruption {
-		return fmt.Errorf("configured policy %q differs from state checkpoint policy %q", s.policyName, checkpoint.PolicyName)
+		return false, fmt.Errorf("[gpu_plugin] configured policy %q differs from state checkpoint policy %q", s.policyName, checkpoint.PolicyName)
 	}
 
-	machineState, err := GenerateMachineStateFromPodEntries(checkpoint.PodResourceEntries, defaultResourceStateGenerators)
+	machineState, err := GenerateMachineStateFromPodEntries(checkpoint.PodResourceEntries, s.defaultResourceStateGenerators)
 	if err != nil {
-		return fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
+		return false, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
 
 	s.cache.SetMachineState(machineState, false)
@@ -231,35 +229,19 @@ func (s *stateCheckpoint) restoreState(defaultResourceStateGenerators *DefaultRe
 			"machineState: %s; checkpointMachineState: %s",
 			machineState.String(), checkpoint.MachineState.String())
 
-		err = s.storeState()
-		if err != nil {
-			return fmt.Errorf("storeState when machine state changed failed with error: %v", err)
-		}
+		return true, nil
 	}
 
-	if foundAndSkippedStateCorruption {
-		generalLog.Infof("found and skipped state corruption, we shoud store to rectify the checksum")
-
-		err = s.storeState()
-		if err != nil {
-			return fmt.Errorf("storeState failed with error: %v", err)
-		}
-	}
-
-	generalLog.InfoS("state checkpoint: restored state from checkpoint")
-
-	return nil
+	return false, nil
 }
 
 func NewCheckpointState(
-	conf *qrm.QRMPluginsConfiguration, stateDir, checkpointName, policyName string,
+	stateDirectoryConfig *statedirectory.StateDirectoryConfiguration,
+	conf *qrm.QRMPluginsConfiguration, checkpointName, policyName string,
 	defaultResourceStateGenerators *DefaultResourceStateGeneratorRegistry,
 	skipStateCorruption bool, emitter metrics.MetricEmitter,
 ) (State, error) {
-	checkpointManager, err := checkpointmanager.NewCheckpointManager(stateDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize checkpoint manager: %v", err)
-	}
+	currentStateDir, otherStateDir := stateDirectoryConfig.GetCurrentAndPreviousStateFileDirectory()
 
 	defaultCache, err := NewGPUPluginState(conf, defaultResourceStateGenerators)
 	if err != nil {
@@ -267,19 +249,23 @@ func NewCheckpointState(
 	}
 
 	sc := &stateCheckpoint{
-		cache:               defaultCache,
-		policyName:          policyName,
-		checkpointManager:   checkpointManager,
-		checkpointName:      checkpointName,
-		skipStateCorruption: skipStateCorruption,
-		emitter:             emitter,
+		cache:                          defaultCache,
+		policyName:                     policyName,
+		checkpointName:                 checkpointName,
+		skipStateCorruption:            skipStateCorruption,
+		emitter:                        emitter,
+		defaultResourceStateGenerators: defaultResourceStateGenerators,
 	}
 
-	if err := sc.restoreState(defaultResourceStateGenerators); err != nil {
+	cm, err := customcheckpointmanager.NewCustomCheckpointManager(currentStateDir, otherStateDir, checkpointName,
+		"gpu_plugin", sc, skipStateCorruption)
+	if err != nil {
 		return nil, fmt.Errorf("could not restore state from checkpoint: %v, please drain this node and delete "+
 			"the gpu plugin checkpoint file %q before restarting Kubelet",
-			err, path.Join(stateDir, checkpointName))
+			err, path.Join(currentStateDir, checkpointName))
 	}
+
+	sc.checkpointManager = cm
 
 	return sc, nil
 }

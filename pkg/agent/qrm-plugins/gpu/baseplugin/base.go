@@ -83,7 +83,7 @@ func NewBasePlugin(
 
 // InitState initializes the state of the plugin.
 func (p *BasePlugin) InitState() error {
-	stateImpl, err := state.NewCheckpointState(p.Conf.QRMPluginsConfiguration, p.Conf.GenericQRMPluginConfiguration.StateFileDirectory, GPUPluginStateFileName,
+	stateImpl, err := state.NewCheckpointState(p.Conf.StateDirectoryConfiguration, p.Conf.QRMPluginsConfiguration, GPUPluginStateFileName,
 		gpuconsts.GPUResourcePluginPolicyNameStatic, p.DefaultResourceStateGeneratorRegistry, p.Conf.SkipGPUStateCorruption, p.Emitter)
 	if err != nil {
 		return fmt.Errorf("NewCheckpointState failed with error: %v", err)

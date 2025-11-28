@@ -34,6 +34,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/resourceplugin"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -94,9 +95,11 @@ func makeTestStaticPolicy(t *testing.T) *StaticPolicy {
 	agentCtx := generateTestGenericContext(t, conf)
 
 	tmpDir := t.TempDir()
-	conf.GenericQRMPluginConfiguration.StateFileDirectory = tmpDir
+	conf.StateDirectoryConfiguration = &statedirectory.StateDirectoryConfiguration{
+		StateFileDirectory: tmpDir,
+	}
 
-	stateImpl, err := state.NewCheckpointState(conf.QRMPluginsConfiguration, tmpDir, "test", "test-policy", state.NewDefaultResourceStateGeneratorRegistry(), true, metrics.DummyMetrics{})
+	stateImpl, err := state.NewCheckpointState(conf.StateDirectoryConfiguration, conf.QRMPluginsConfiguration, "test", "test-policy", state.NewDefaultResourceStateGeneratorRegistry(), true, metrics.DummyMetrics{})
 	assert.NoError(t, err)
 
 	deviceTopologyRegistry := machine.NewDeviceTopologyRegistry()
