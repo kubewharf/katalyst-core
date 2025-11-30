@@ -33,6 +33,7 @@ type (
 	PodMetaCustomProcessor struct {
 		PodMetaCustomKeyProcessor      func(podMeta metav1.ObjectMeta, spdBaselinePodMeta *SPDBaselinePodMeta) error
 		PodMetaCustomSentinelProcessor func(podMetaList []SPDBaselinePodMeta, baselinePercent *int32) *SPDBaselinePodMeta
+		PodMetaCustomCmp               func(c1 *SPDBaselinePodMeta, c2 *SPDBaselinePodMeta) int
 	}
 )
 
@@ -51,6 +52,14 @@ type SPDBaselinePodMeta struct {
 }
 
 func (c SPDBaselinePodMeta) Cmp(c1 *SPDBaselinePodMeta) int {
+	if c.CustomCompareKey != nil && c.CustomCompareKey == c1.CustomCompareKey {
+		value, ok := SPDPodMetaCustomProcessor.Load(*c.CustomCompareKey)
+		if ok {
+			customKeyProcessor, _ := value.(*PodMetaCustomProcessor)
+			customCmpFunc := customKeyProcessor.PodMetaCustomCmp
+			return customCmpFunc(&c, c1)
+		}
+	}
 	if c.TimeStamp.Time.Before(c1.TimeStamp.Time) {
 		return -1
 	}
