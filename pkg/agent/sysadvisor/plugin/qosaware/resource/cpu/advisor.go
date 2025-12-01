@@ -117,6 +117,11 @@ type cpuResourceAdvisor struct {
 	emitter    metrics.MetricEmitter
 }
 
+func (cra *cpuResourceAdvisor) Init() error {
+	// to decorate headroom assembler if applicable decorator is enabled
+	return cra.decorateHeadroomAssembler()
+}
+
 // NewCPUResourceAdvisor returns a cpuResourceAdvisor instance
 func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, metaCache metacache.MetaCache,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
@@ -146,6 +151,7 @@ func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, me
 	if err := cra.initializeProvisionAssembler(); err != nil {
 		klog.Errorf("[qosaware-cpu] initialize provision assembler failed: %v", err)
 	}
+
 	if err := cra.initializeHeadroomAssembler(); err != nil {
 		klog.Errorf("[qosaware-cpu] initialize headroom assembler failed: %v", err)
 	}

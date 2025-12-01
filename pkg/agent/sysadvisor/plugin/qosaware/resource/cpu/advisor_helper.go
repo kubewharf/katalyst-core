@@ -143,16 +143,7 @@ func (cra *cpuResourceAdvisor) initializeProvisionAssembler() error {
 	return nil
 }
 
-func (cra *cpuResourceAdvisor) initializeHeadroomAssembler() error {
-	assemblerName := cra.conf.CPUAdvisorConfiguration.HeadroomAssembler
-	initializers := headroomassembler.GetRegisteredInitializers()
-
-	initializer, ok := initializers[assemblerName]
-	if !ok {
-		return fmt.Errorf("unsupported headroom assembler %v", assemblerName)
-	}
-	cra.headroomAssembler = initializer(cra.conf, cra.extraConf, &cra.regionMap, &cra.reservedForReclaim, &cra.numaAvailable, &cra.nonBindingNumas, cra.metaCache, cra.metaServer, cra.emitter)
-
+func (cra *cpuResourceAdvisor) decorateHeadroomAssembler() error {
 	decorateName := decorator.GetEnabledPlugin()
 	if len(decorateName) > 0 {
 		initializers := decorator.GetRegisteredInitializers()
@@ -164,6 +155,19 @@ func (cra *cpuResourceAdvisor) initializeHeadroomAssembler() error {
 		general.InfoS("cpu headroom assembler: decorated by %q", decorateName)
 		cra.headroomAssembler = decoratorInitializer(cra.headroomAssembler, cra.conf, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter)
 	}
+
+	return nil
+}
+
+func (cra *cpuResourceAdvisor) initializeHeadroomAssembler() error {
+	assemblerName := cra.conf.CPUAdvisorConfiguration.HeadroomAssembler
+	initializers := headroomassembler.GetRegisteredInitializers()
+
+	initializer, ok := initializers[assemblerName]
+	if !ok {
+		return fmt.Errorf("unsupported headroom assembler %v", assemblerName)
+	}
+	cra.headroomAssembler = initializer(cra.conf, cra.extraConf, &cra.regionMap, &cra.reservedForReclaim, &cra.numaAvailable, &cra.nonBindingNumas, cra.metaCache, cra.metaServer, cra.emitter)
 
 	return nil
 }

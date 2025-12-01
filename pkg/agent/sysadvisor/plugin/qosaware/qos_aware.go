@@ -148,7 +148,7 @@ func (qap *QoSAwarePlugin) Name() string {
 
 // Init initializes the qos aware plugin
 func (qap *QoSAwarePlugin) Init() error {
-	return nil
+	return qap.resourceAdvisor.Init()
 }
 
 func (qap *QoSAwarePlugin) periodicWork(_ context.Context) {
