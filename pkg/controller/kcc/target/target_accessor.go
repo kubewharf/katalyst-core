@@ -127,6 +127,7 @@ func NewRealKatalystCustomConfigTargetAccessor(
 	})
 
 	for name, info := range handlerInfos {
+		klog.Infof("target accessor of %s has handler %s", gvr.String(), name)
 		k.targetHandlerFuncWithSyncQueueMap[name] = targetHandlerFuncWithSyncQueue{
 			targetHandlerFunc: info,
 			syncQueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(),
