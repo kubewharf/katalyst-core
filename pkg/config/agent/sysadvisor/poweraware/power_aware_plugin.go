@@ -29,9 +29,10 @@ type PowerAwarePluginConfiguration struct {
 	AnnotationKeyPrefix              string
 	DVFSIndication                   string
 
-	CPUHeadroomPowerDiscountP1 float64
-	CPUHeadroomPowerDiscountP2 float64
-	CPUHeadroomPowerDiscountP3 float64
+	CPUHeadroomPowerDiscountEnabled bool
+	CPUHeadroomPowerDiscountP1      float64
+	CPUHeadroomPowerDiscountP2      float64
+	CPUHeadroomPowerDiscountP3      float64
 }
 
 // NewPowerAwarePluginConfiguration creates a default config

@@ -152,7 +152,7 @@ func (cra *cpuResourceAdvisor) decorateHeadroomAssembler() error {
 			return fmt.Errorf("unsupported headroom assembler decorator %v", decorateName)
 		}
 
-		general.InfoS("cpu headroom assembler: decorated by %q", decorateName)
+		general.Infof("cpu headroom assembler: decorated by %q", decorateName)
 		cra.headroomAssembler = decoratorInitializer(cra.headroomAssembler, cra.conf, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter)
 	}
 

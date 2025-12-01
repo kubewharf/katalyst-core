@@ -30,9 +30,10 @@ type PowerAwarePluginOptions struct {
 	AnnotationKeyPrefix              string
 	DVFSIndication                   string
 
-	CPUHeadroomPowerDiscountP1 float64
-	CPUHeadroomPowerDiscountP2 float64
-	CPUHeadroomPowerDiscountP3 float64
+	CPUHeadroomPowerDiscountEnabled bool
+	CPUHeadroomPowerDiscountP1      float64
+	CPUHeadroomPowerDiscountP2      float64
+	CPUHeadroomPowerDiscountP3      float64
 }
 
 func (p *PowerAwarePluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
@@ -43,6 +44,7 @@ func (p *PowerAwarePluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringVar(&p.PowerCappingAdvisorSocketAbsPath, "power-capping-advisor-sock-abs-path", p.PowerCappingAdvisorSocketAbsPath, "absolute path of unix socket file for power capping advisor served in sys-advisor")
 	fs.StringVar(&p.AnnotationKeyPrefix, "power-aware-annotation-key-prefix", p.AnnotationKeyPrefix, "prefix of node annotation keys used by power aware plugin")
 	fs.StringVar(&p.DVFSIndication, "power-aware-dvfs-indication", p.DVFSIndication, "indication metric name of dvfs effect")
+	fs.BoolVar(&p.CPUHeadroomPowerDiscountEnabled, "cpu-headroom-power-discount-enable", p.CPUHeadroomPowerDiscountEnabled, "to enable cpu headroom discount when power level is present")
 	fs.Float64Var(&p.CPUHeadroomPowerDiscountP1, "cpu-headroom-power-discount-p1", p.CPUHeadroomPowerDiscountP1, "discount rate of cpu headroom when power level is p1")
 	fs.Float64Var(&p.CPUHeadroomPowerDiscountP2, "cpu-headroom-power-discount-p2", p.CPUHeadroomPowerDiscountP2, "discount rate of cpu headroom when power level is p2")
 	fs.Float64Var(&p.CPUHeadroomPowerDiscountP3, "cpu-headroom-power-discount-p3", p.CPUHeadroomPowerDiscountP3, "discount rate of cpu headroom when power level is p3")
@@ -56,6 +58,7 @@ func (p *PowerAwarePluginOptions) ApplyTo(o *poweraware.PowerAwarePluginConfigur
 	o.AnnotationKeyPrefix = p.AnnotationKeyPrefix
 	o.DVFSIndication = p.DVFSIndication
 
+	o.CPUHeadroomPowerDiscountEnabled = p.CPUHeadroomPowerDiscountEnabled
 	o.CPUHeadroomPowerDiscountP1 = p.CPUHeadroomPowerDiscountP1
 	o.CPUHeadroomPowerDiscountP2 = p.CPUHeadroomPowerDiscountP2
 	o.CPUHeadroomPowerDiscountP3 = p.CPUHeadroomPowerDiscountP3
@@ -66,9 +69,10 @@ func (p *PowerAwarePluginOptions) ApplyTo(o *poweraware.PowerAwarePluginConfigur
 // NewPowerAwarePluginOptions creates a new Options with a default config.
 func NewPowerAwarePluginOptions() *PowerAwarePluginOptions {
 	return &PowerAwarePluginOptions{
-		DVFSIndication:             poweraware.DVFSIndicationPower,
-		CPUHeadroomPowerDiscountP1: 0.2,
-		CPUHeadroomPowerDiscountP2: 0.4,
-		CPUHeadroomPowerDiscountP3: 0.6,
+		DVFSIndication:                  poweraware.DVFSIndicationPower,
+		CPUHeadroomPowerDiscountEnabled: true,
+		CPUHeadroomPowerDiscountP1:      0.2,
+		CPUHeadroomPowerDiscountP2:      0.4,
+		CPUHeadroomPowerDiscountP3:      0.6,
 	}
 }

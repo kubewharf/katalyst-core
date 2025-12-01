@@ -127,8 +127,10 @@ func NewPowerAwarePlugin(
 }
 
 func newPluginWithAdvisor(pluginName string, conf *config.Configuration, advisor advisor.PowerAwareAdvisor) (plugin.SysAdvisorPlugin, error) {
-	general.Infof("enable cpu headroom assembler discount decorator")
-	decorator.EnablePlugin(types.CPUHeadroomAssemblerDecoratorDiscount)
+	if conf.CPUHeadroomPowerDiscountEnabled {
+		general.Infof("enable cpu headroom assembler discount decorator")
+		decorator.EnablePlugin(types.CPUHeadroomAssemblerDecoratorDiscount)
+	}
 
 	return &powerAwarePlugin{
 		name:    pluginName,

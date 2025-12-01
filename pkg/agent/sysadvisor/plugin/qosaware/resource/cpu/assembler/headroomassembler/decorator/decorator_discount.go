@@ -22,6 +22,7 @@ import (
 
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/poweraware/spec"
@@ -50,6 +51,7 @@ func NewAssemblerDiscountDecorator(inner headroomassembler.HeadroomAssembler,
 			conf:        conf,
 			discounts:   discounts,
 		},
+		emitter: emitter,
 	}
 }
 
@@ -106,7 +108,7 @@ func applyDiscount(cpuQuantity resource.Quantity, discount float64) resource.Qua
 func (d *discountDecorator) GetHeadroom() (resource.Quantity, map[int]resource.Quantity, error) {
 	currentDiscount, err := d.discounter.GetDiscount()
 	if err != nil {
-		general.Warningf("unable to determine current discount; apply no discount instead")
+		general.Warningf("unable to determine current discount; apply no discount instead: %s", err)
 		return d.inner.GetHeadroom()
 	}
 
@@ -119,6 +121,12 @@ func (d *discountDecorator) GetHeadroom() (resource.Quantity, map[int]resource.Q
 	discountNumaHeadrooms := make(map[int]resource.Quantity)
 	for numa, numaHeadroom := range numaHeadrooms {
 		discountNumaHeadrooms[numa] = applyDiscount(numaHeadroom, currentDiscount)
+	}
+
+	if klog.V(6).Enabled() {
+		general.Infof("headroom discount=%f", currentDiscount)
+		general.Infof("headroom original %v, %v", headroom, numaHeadrooms)
+		general.Infof("headroom discount %v, %v", discountHeadroom, discountNumaHeadrooms)
 	}
 
 	// calc headroom loss and emit metrics
