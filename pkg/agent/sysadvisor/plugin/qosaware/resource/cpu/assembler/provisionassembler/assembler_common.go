@@ -233,12 +233,9 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 	}
 
 	reservedForReclaim := getNUMAsResource(*pa.reservedForReclaim, numaSet)
-	shareAndIsolatedPoolAvailable := getNUMAsResource(*pa.numaAvailable, numaSet)
-	for _, req := range dedicatedInfo.requests {
-		shareAndIsolatedPoolAvailable -= req
-	}
+	shareAndIsolatedDedicatedPoolAvailable := getNUMAsResource(*pa.numaAvailable, numaSet)
 	if !*pa.allowSharedCoresOverlapReclaimedCores {
-		shareAndIsolatedPoolAvailable -= reservedForReclaim
+		shareAndIsolatedDedicatedPoolAvailable -= reservedForReclaim
 	}
 	sharePoolSizeRequirements := getPoolSizeRequirements(shareInfo)
 
@@ -246,7 +243,8 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 	isolationPoolSizes := isolationInfo.isolationUpperSizes
 	// if the maximum of share sharePoolSizeRequirements and share requests adds up with isolation upper sizes is larger than
 	// the available cores of share and isolated pool, we should shrink the isolation pool sizes to lower sizes
-	if general.Max(general.SumUpMapValues(shareInfo.requests), general.SumUpMapValues(shareInfo.requirements))+isolationUppers > shareAndIsolatedPoolAvailable {
+	if general.Max(general.SumUpMapValues(shareInfo.requests), general.SumUpMapValues(shareInfo.requirements))+isolationUppers >
+		shareAndIsolatedDedicatedPoolAvailable-general.SumUpMapValues(dedicatedInfo.requests) {
 		isolationPoolSizes = isolationInfo.isolationLowerSizes
 	}
 
@@ -257,12 +255,19 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 	} else {
 		regulateSharePoolSizes = sharePoolSizeRequirements
 	}
-	shareAndIsolatePoolSizes, poolThrottled := regulatePoolSizes(regulateSharePoolSizes, isolationPoolSizes, shareAndIsolatedPoolAvailable, allowExpand)
+	unexpandableRequirements := general.MergeMapInt(isolationPoolSizes, dedicatedInfo.requests)
+	shareAndIsolateDedicatedPoolSizes, poolThrottled := regulatePoolSizes(regulateSharePoolSizes, unexpandableRequirements, shareAndIsolatedDedicatedPoolAvailable, allowExpand)
 	for _, r := range shareRegions {
 		r.SetThrottled(poolThrottled)
 	}
 
-	dedicatedPoolAvailable := general.SumUpMapValues(dedicatedInfo.requests)
+	dedicatedPoolSizes := make(map[string]int)
+	for poolName := range dedicatedInfo.requests {
+		if size, ok := shareAndIsolateDedicatedPoolSizes[poolName]; ok {
+			dedicatedPoolSizes[poolName] = size
+		}
+	}
+	dedicatedPoolAvailable := general.SumUpMapValues(dedicatedPoolSizes)
 	dedicatedPoolSizeRequirements := getPoolSizeRequirements(dedicatedInfo)
 	dedicatedReclaimCoresSize := dedicatedPoolAvailable - general.SumUpMapValues(dedicatedPoolSizeRequirements)
 
@@ -283,11 +288,11 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 		"sharePoolSizeRequirements", sharePoolSizeRequirements,
 		"isolationUpperSizes", isolationInfo.isolationUpperSizes,
 		"isolationLowerSizes", isolationInfo.isolationLowerSizes,
-		"shareAndIsolatePoolSizes", shareAndIsolatePoolSizes,
-		"shareAndIsolatedPoolAvailable", shareAndIsolatedPoolAvailable)
+		"shareAndIsolateDedicatedPoolSizes", shareAndIsolateDedicatedPoolSizes,
+		"shareAndIsolatedDedicatedPoolAvailable", shareAndIsolatedDedicatedPoolAvailable)
 
 	// fill in regulated share-and-isolated pool entries
-	for poolName, poolSize := range shareAndIsolatePoolSizes {
+	for poolName, poolSize := range shareAndIsolateDedicatedPoolSizes {
 		result.SetPoolEntry(poolName, numaID, poolSize, -1)
 	}
 
@@ -297,10 +302,10 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 	if *pa.allowSharedCoresOverlapReclaimedCores {
 		isolated := 0
 		poolSizes := make(map[string]int)
-		sharePoolSize := make(map[string]int)
+		sharePoolSizes := make(map[string]int)
 		reclaimablePoolSizes := make(map[string]int)
 		reclaimableRequirements := make(map[string]int)
-		for poolName, size := range shareAndIsolatePoolSizes {
+		for poolName, size := range shareAndIsolateDedicatedPoolSizes {
 			_, ok := sharePoolSizeRequirements[poolName]
 			if ok {
 				if shareInfo.reclaimEnable[poolName] {
@@ -308,22 +313,27 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 					reclaimableRequirements[poolName] = shareInfo.requirements[poolName]
 				}
 				poolSizes[poolName] = size
-				sharePoolSize[poolName] = size
-			} else {
+				sharePoolSizes[poolName] = size
+			}
+
+			_, ok = isolationPoolSizes[poolName]
+			if ok {
 				isolated += size
 			}
-		}
 
-		for poolName, size := range dedicatedInfo.requests {
-			if dedicatedInfo.reclaimEnable[poolName] {
-				reclaimablePoolSizes[poolName] = size
-				reclaimableRequirements[poolName] = dedicatedInfo.requirements[poolName]
+			_, ok = dedicatedInfo.requests[poolName]
+			if ok {
+				if dedicatedInfo.reclaimEnable[poolName] {
+					reclaimablePoolSizes[poolName] = size
+					reclaimableRequirements[poolName] = dedicatedInfo.requirements[poolName]
+				}
+				poolSizes[poolName] = size
 			}
-			poolSizes[poolName] = size
 		}
 
 		overlapReclaimSize := make(map[string]int)
-		shareReclaimCoresSize := shareAndIsolatedPoolAvailable - isolated - general.SumUpMapValues(sharePoolSizeRequirements)
+		shareReclaimCoresSize := shareAndIsolatedDedicatedPoolAvailable - isolated -
+			general.SumUpMapValues(sharePoolSizeRequirements) - general.SumUpMapValues(dedicatedPoolSizes)
 		if nodeEnableReclaim {
 			reclaimedCoresSize = shareReclaimCoresSize + dedicatedReclaimCoresSize
 			if reclaimedCoresSize < reservedForReclaim {
@@ -366,9 +376,9 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 					return fmt.Errorf("failed to regulateOverlapReclaimPoolSize: %w", err)
 				}
 				overlapReclaimSize = reclaimSizes
-			} else if len(sharePoolSize) > 0 && reclaimedCoresSize <= general.SumUpMapValues(sharePoolSize) {
+			} else if len(sharePoolSizes) > 0 && reclaimedCoresSize <= general.SumUpMapValues(sharePoolSizes) {
 				// if exit share pool, and reclaimedCoresSize <= sum of share pool size, overlap reclaim pool with share pool
-				reclaimSizes, err := regulateOverlapReclaimPoolSize(sharePoolSize, reclaimedCoresSize)
+				reclaimSizes, err := regulateOverlapReclaimPoolSize(sharePoolSizes, reclaimedCoresSize)
 				if err != nil {
 					return fmt.Errorf("failed to regulateOverlapReclaimPoolSize: %w", err)
 				}
@@ -450,7 +460,7 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 				}
 			}
 
-			shareReclaimedCoresSize := shareAndIsolatedPoolAvailable - general.SumUpMapValues(shareAndIsolatePoolSizes)
+			shareReclaimedCoresSize := shareAndIsolatedDedicatedPoolAvailable - general.SumUpMapValues(shareAndIsolateDedicatedPoolSizes)
 			reclaimedCoresSize = shareReclaimedCoresSize + dedicatedReclaimCoresSize + reservedForReclaim
 		} else {
 			reclaimedCoresSize = reservedForReclaim
