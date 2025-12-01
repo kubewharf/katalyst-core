@@ -19,4 +19,5 @@ package types
 const (
 	HeadroomReporter   = "headroom_reporter"
 	NodeMetricReporter = "node_metric_reporter"
+	StrategyReporter   = "strategy_reporter"
 )
