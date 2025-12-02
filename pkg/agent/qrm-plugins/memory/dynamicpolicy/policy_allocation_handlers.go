@@ -189,8 +189,7 @@ func (p *DynamicPolicy) numaBindingAllocationHandler(ctx context.Context,
 	result := machine.NewCPUSet()
 	var aggregatedQuantity uint64 = 0
 	for numaNode, numaNodeState := range memoryState {
-		if numaNodeState.PodEntries[req.PodUid][req.ContainerName] != nil &&
-			numaNodeState.PodEntries[req.PodUid][req.ContainerName].AggregatedQuantity > 0 {
+		if numaNodeState.PodEntries[req.PodUid][req.ContainerName] != nil {
 			result = result.Union(machine.NewCPUSet(numaNode))
 			aggregatedQuantity += numaNodeState.PodEntries[req.PodUid][req.ContainerName].AggregatedQuantity
 			topologyAwareAllocations[numaNode] = numaNodeState.PodEntries[req.PodUid][req.ContainerName].AggregatedQuantity
@@ -677,7 +676,7 @@ func calculateMemoryInNumaNodes(req *pluginapi.ResourceRequest,
 	reqQuantity uint64, qosLevel string,
 ) (leftQuantity uint64, err error) {
 	for _, numaNode := range numaNodes {
-		var curNumaNodeAllocated uint64 = 0
+		var curNumaNodeAllocated uint64
 
 		numaNodeState := machineState[numaNode]
 		if numaNodeState == nil {
@@ -694,9 +693,7 @@ func calculateMemoryInNumaNodes(req *pluginapi.ResourceRequest,
 			}
 			numaNodeState.Free -= curNumaNodeAllocated
 			numaNodeState.Allocated += curNumaNodeAllocated
-		}
-
-		if curNumaNodeAllocated == 0 {
+		} else {
 			continue
 		}
 

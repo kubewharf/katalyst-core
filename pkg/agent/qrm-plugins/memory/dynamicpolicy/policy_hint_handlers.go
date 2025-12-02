@@ -675,10 +675,8 @@ func regenerateHints(allocationInfo *state.AllocationInfo, regenerate bool) map[
 	}
 
 	allocatedNumaNodes := make([]uint64, 0, len(allocationInfo.TopologyAwareAllocations))
-	for numaNode, quantity := range allocationInfo.TopologyAwareAllocations {
-		if quantity > 0 {
-			allocatedNumaNodes = append(allocatedNumaNodes, uint64(numaNode))
-		}
+	for numaNode := range allocationInfo.TopologyAwareAllocations {
+		allocatedNumaNodes = append(allocatedNumaNodes, uint64(numaNode))
 	}
 
 	general.InfoS("regenerating topology hints, memory was already allocated to pod",

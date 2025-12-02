@@ -200,6 +200,152 @@ func TestSNBMemoryVPA(t *testing.T) {
 	as.NotNil(err)
 }
 
+func TestSNBMemoryVPAWithZeroRequest(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestSNBMemoryVPAWithZeroRequest")
+	as.Nil(err)
+	defer os.RemoveAll(tmpDir)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	machineInfo, err := machine.GenerateDummyMachineInfo(4, 32)
+	as.Nil(err)
+
+	dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
+	as.Nil(err)
+	dynamicPolicy.podAnnotationKeptKeys = []string{
+		consts.PodAnnotationInplaceUpdateResizingKey,
+		consts.PodAnnotationAggregatedRequestsKey,
+	}
+
+	testName := "test"
+	podUID := string(uuid.NewUUID())
+	// first init dynamic policy with pod zero mem request
+	req := &pluginapi.ResourceRequest{
+		PodUid:         podUID,
+		PodNamespace:   testName,
+		PodName:        testName,
+		ContainerName:  testName,
+		ContainerType:  pluginapi.ContainerType_MAIN,
+		ContainerIndex: 0,
+		ResourceName:   string(v1.ResourceMemory),
+		ResourceRequests: map[string]float64{
+			string(v1.ResourceMemory): 0,
+		},
+		Annotations: map[string]string{
+			consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelSharedCores,
+			consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true", "numa_exclusive": "false"}`,
+		},
+		Labels: map[string]string{
+			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+		},
+	}
+
+	res, err := dynamicPolicy.GetTopologyHints(context.Background(), req)
+	as.Nil(err)
+	as.NotNil(res)
+	as.NotNil(res.ResourceHints[string(v1.ResourceMemory)])
+	as.NotZero(len(res.ResourceHints[string(v1.ResourceMemory)].Hints))
+
+	req = &pluginapi.ResourceRequest{
+		PodUid:         podUID,
+		PodNamespace:   testName,
+		PodName:        testName,
+		ContainerName:  testName,
+		ContainerType:  pluginapi.ContainerType_MAIN,
+		ContainerIndex: 0,
+		ResourceName:   string(v1.ResourceMemory),
+		ResourceRequests: map[string]float64{
+			string(v1.ResourceMemory): 0,
+		},
+		Annotations: map[string]string{
+			consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelSharedCores,
+			consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true", "numa_exclusive": "false"}`,
+		},
+		Labels: map[string]string{
+			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+		},
+		Hint: res.ResourceHints[string(v1.ResourceMemory)].Hints[0],
+	}
+	_, err = dynamicPolicy.Allocate(context.Background(), req)
+	as.Nil(err)
+
+	allocation, err := dynamicPolicy.GetResourcesAllocation(context.Background(), &pluginapi.GetResourcesAllocationRequest{})
+	as.Nil(err)
+	as.NotNil(allocation)
+	as.NotNil(allocation.PodResources)
+	as.NotNil(allocation.PodResources[req.PodUid])
+	as.NotNil(allocation.PodResources[req.PodUid].ContainerResources)
+	as.NotNil(allocation.PodResources[req.PodUid].ContainerResources[req.ContainerName])
+	as.Equal(float64(0), allocation.PodResources[req.PodUid].ContainerResources[req.ContainerName].ResourceAllocation[string(v1.ResourceMemory)].AllocatedQuantity)
+
+	// resize to 2G
+	resizeReq := &pluginapi.ResourceRequest{
+		PodUid:         podUID,
+		PodNamespace:   testName,
+		PodName:        testName,
+		ContainerName:  testName,
+		ContainerType:  pluginapi.ContainerType_MAIN,
+		ContainerIndex: 0,
+		ResourceName:   string(v1.ResourceMemory),
+		ResourceRequests: map[string]float64{
+			string(v1.ResourceMemory): 2147483648,
+		},
+		Annotations: map[string]string{
+			consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelSharedCores,
+			consts.PodAnnotationInplaceUpdateResizingKey: "true",
+			consts.PodAnnotationMemoryEnhancementKey:     `{"numa_binding": "true", "numa_exclusive": "false"}`,
+		},
+		Labels: map[string]string{
+			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+		},
+	}
+
+	resizeRes, err := dynamicPolicy.GetTopologyHints(context.Background(), resizeReq)
+	as.Nil(err)
+	as.NotNil(resizeRes)
+	as.NotNil(resizeRes.ResourceHints[string(v1.ResourceMemory)])
+	as.NotZero(len(resizeRes.ResourceHints[string(v1.ResourceMemory)].Hints))
+
+	// allocate
+	resizeReq = &pluginapi.ResourceRequest{
+		PodUid:         podUID,
+		PodNamespace:   testName,
+		PodName:        testName,
+		ContainerName:  testName,
+		ContainerType:  pluginapi.ContainerType_MAIN,
+		ContainerIndex: 0,
+		ResourceName:   string(v1.ResourceMemory),
+		ResourceRequests: map[string]float64{
+			string(v1.ResourceMemory): 2147483648,
+		},
+		Annotations: map[string]string{
+			consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelSharedCores,
+			consts.PodAnnotationInplaceUpdateResizingKey: "true",
+			consts.PodAnnotationMemoryEnhancementKey:     `{"numa_binding": "true", "numa_exclusive": "false"}`,
+		},
+		Labels: map[string]string{
+			consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+		},
+		Hint: resizeRes.ResourceHints[string(v1.ResourceMemory)].Hints[0],
+	}
+	_, err = dynamicPolicy.Allocate(context.Background(), resizeReq)
+	as.Nil(err)
+
+	resizeAllocation, err := dynamicPolicy.GetResourcesAllocation(context.Background(), &pluginapi.GetResourcesAllocationRequest{})
+	as.Nil(err)
+	as.NotNil(resizeAllocation)
+	as.NotNil(resizeAllocation.PodResources)
+	as.NotNil(resizeAllocation.PodResources[req.PodUid])
+	as.NotNil(resizeAllocation.PodResources[req.PodUid].ContainerResources)
+	as.NotNil(resizeAllocation.PodResources[req.PodUid].ContainerResources[req.ContainerName])
+	as.Equal(float64(2147483648), resizeAllocation.PodResources[req.PodUid].ContainerResources[req.ContainerName].ResourceAllocation[string(v1.ResourceMemory)].AllocatedQuantity)
+}
+
 func TestSNBMemoryVPAWithSidecar(t *testing.T) {
 	t.Parallel()
 
