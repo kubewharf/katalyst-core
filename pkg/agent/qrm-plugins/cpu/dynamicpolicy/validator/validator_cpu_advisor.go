@@ -147,13 +147,18 @@ func (c *CPUAdvisorValidator) validateEntries(resp *advisorapi.ListAndWatchRespo
 					}
 				}
 			} else {
+				// skip if not numa_exclusive which is support adjust cpuset
+				if !allocationInfo.CheckNumaExclusive() {
+					continue
+				}
+
 				calculationQuantity, err := calculationInfo.GetTotalQuantity()
 				if err != nil {
 					return fmt.Errorf("GetTotalQuantity failed with error: %v, pod: %s container: %s",
 						err, podUID, containerName)
 				}
 
-				// currently, we don't support strategy to adjust cpuset of dedicated_cores containers.
+				// currently, we don't support strategy to adjust cpuset of dedicated_cores numa_binding and numa_exclusive containers.
 				// for stability if the dedicated_cores container calculation result and allocation result, we will return error.
 				if calculationQuantity != allocationInfo.AllocationResult.Size() {
 					return fmt.Errorf("pod: %s container: %s calculation result: %d and allocation result: %d mismatch",
