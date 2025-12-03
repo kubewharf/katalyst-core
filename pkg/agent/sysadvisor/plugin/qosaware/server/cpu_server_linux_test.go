@@ -223,7 +223,7 @@ func TestCPUServerUpdate(t *testing.T) {
 							UID:       "pod1",
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
-								consts.PodAnnotationMemoryEnhancementKey: "{\"numa_exclusive\":true}",
+								consts.PodAnnotationMemoryEnhancementKey: "{\"numa_exclusive\":true,\"numa_binding\":true}",
 							},
 						},
 						Spec: v1.PodSpec{
@@ -312,8 +312,9 @@ func TestCPUServerUpdate(t *testing.T) {
 												Result: 4,
 												OverlapTargets: []*cpuadvisor.OverlapTarget{
 													{
-														OverlapTargetPoolName: commonstate.PoolNameReclaim,
-														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c1",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
 													},
 												},
 											},
@@ -329,8 +330,9 @@ func TestCPUServerUpdate(t *testing.T) {
 												Result: 8,
 												OverlapTargets: []*cpuadvisor.OverlapTarget{
 													{
-														OverlapTargetPoolName: commonstate.PoolNameReclaim,
-														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c1",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
 													},
 												},
 											},
@@ -412,7 +414,8 @@ func TestCPUServerUpdate(t *testing.T) {
 						PodUid:        "pod1",
 						ContainerName: "c2",
 						Annotations: map[string]string{
-							consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+							consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+							consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
 						},
 						QosLevel: consts.PodAnnotationQoSLevelDedicatedCores,
 					},
@@ -523,12 +526,13 @@ func TestCPUServerUpdate(t *testing.T) {
 												OverlapTargets: []*cpuadvisor.OverlapTarget{
 													{
 														OverlapTargetPodUid:        "pod1",
-														OverlapTargetContainerName: "c2",
+														OverlapTargetContainerName: "c1",
 														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
 													},
 													{
-														OverlapTargetPoolName: commonstate.PoolNameReclaim,
-														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c2",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
 													},
 												},
 											},
@@ -541,6 +545,11 @@ func TestCPUServerUpdate(t *testing.T) {
 												OverlapTargets: []*cpuadvisor.OverlapTarget{
 													{
 														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c1",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+													{
+														OverlapTargetPodUid:        "pod1",
 														OverlapTargetContainerName: "c2",
 														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
 													},
@@ -551,12 +560,13 @@ func TestCPUServerUpdate(t *testing.T) {
 												OverlapTargets: []*cpuadvisor.OverlapTarget{
 													{
 														OverlapTargetPodUid:        "pod1",
-														OverlapTargetContainerName: "c2",
+														OverlapTargetContainerName: "c1",
 														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
 													},
 													{
-														OverlapTargetPoolName: commonstate.PoolNameReclaim,
-														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c2",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
 													},
 												},
 											},
@@ -578,8 +588,9 @@ func TestCPUServerUpdate(t *testing.T) {
 														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
 													},
 													{
-														OverlapTargetPoolName: commonstate.PoolNameReclaim,
-														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c2",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
 													},
 												},
 											},
@@ -595,6 +606,11 @@ func TestCPUServerUpdate(t *testing.T) {
 														OverlapTargetContainerName: "c1",
 														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
 													},
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c2",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
 												},
 											},
 											{
@@ -606,8 +622,9 @@ func TestCPUServerUpdate(t *testing.T) {
 														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
 													},
 													{
-														OverlapTargetPoolName: commonstate.PoolNameReclaim,
-														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c2",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
 													},
 												},
 											},
@@ -846,6 +863,11 @@ func TestCPUServerUpdate(t *testing.T) {
 												OverlapTargets: []*cpuadvisor.OverlapTarget{
 													{
 														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c1",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+													{
+														OverlapTargetPodUid:        "pod1",
 														OverlapTargetContainerName: "c2",
 														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
 													},
@@ -853,10 +875,6 @@ func TestCPUServerUpdate(t *testing.T) {
 														OverlapTargetPodUid:        "pod1",
 														OverlapTargetContainerName: "c3",
 														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
-													},
-													{
-														OverlapTargetPoolName: commonstate.PoolNameReclaim,
-														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
 													},
 												},
 											},
@@ -867,6 +885,11 @@ func TestCPUServerUpdate(t *testing.T) {
 											{
 												Result: 16,
 												OverlapTargets: []*cpuadvisor.OverlapTarget{
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c1",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
 													{
 														OverlapTargetPodUid:        "pod1",
 														OverlapTargetContainerName: "c2",
@@ -884,6 +907,11 @@ func TestCPUServerUpdate(t *testing.T) {
 												OverlapTargets: []*cpuadvisor.OverlapTarget{
 													{
 														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c1",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+													{
+														OverlapTargetPodUid:        "pod1",
 														OverlapTargetContainerName: "c2",
 														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
 													},
@@ -891,10 +919,6 @@ func TestCPUServerUpdate(t *testing.T) {
 														OverlapTargetPodUid:        "pod1",
 														OverlapTargetContainerName: "c3",
 														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
-													},
-													{
-														OverlapTargetPoolName: commonstate.PoolNameReclaim,
-														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
 													},
 												},
 											},
@@ -917,12 +941,13 @@ func TestCPUServerUpdate(t *testing.T) {
 													},
 													{
 														OverlapTargetPodUid:        "pod1",
-														OverlapTargetContainerName: "c3",
+														OverlapTargetContainerName: "c2",
 														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
 													},
 													{
-														OverlapTargetPoolName: commonstate.PoolNameReclaim,
-														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c3",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
 													},
 												},
 											},
@@ -936,6 +961,11 @@ func TestCPUServerUpdate(t *testing.T) {
 													{
 														OverlapTargetPodUid:        "pod1",
 														OverlapTargetContainerName: "c1",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c2",
 														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
 													},
 													{
@@ -955,12 +985,13 @@ func TestCPUServerUpdate(t *testing.T) {
 													},
 													{
 														OverlapTargetPodUid:        "pod1",
-														OverlapTargetContainerName: "c3",
+														OverlapTargetContainerName: "c2",
 														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
 													},
 													{
-														OverlapTargetPoolName: commonstate.PoolNameReclaim,
-														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c3",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
 													},
 												},
 											},
@@ -987,8 +1018,9 @@ func TestCPUServerUpdate(t *testing.T) {
 														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
 													},
 													{
-														OverlapTargetPoolName: commonstate.PoolNameReclaim,
-														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c3",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
 													},
 												},
 											},
@@ -1009,6 +1041,11 @@ func TestCPUServerUpdate(t *testing.T) {
 														OverlapTargetContainerName: "c2",
 														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
 													},
+													{
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c3",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
+													},
 												},
 											},
 											{
@@ -1025,8 +1062,9 @@ func TestCPUServerUpdate(t *testing.T) {
 														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
 													},
 													{
-														OverlapTargetPoolName: commonstate.PoolNameReclaim,
-														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
+														OverlapTargetPodUid:        "pod1",
+														OverlapTargetContainerName: "c3",
+														OverlapType:                cpuadvisor.OverlapType_OverlapWithPod,
 													},
 												},
 											},
@@ -1089,6 +1127,10 @@ func TestCPUServerUpdate(t *testing.T) {
 														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
 														OverlapTargetPoolName: "reclaim",
 													},
+													{
+														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
+														OverlapTargetPoolName: "share-1",
+													},
 												},
 											},
 										},
@@ -1111,6 +1153,10 @@ func TestCPUServerUpdate(t *testing.T) {
 														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
 														OverlapTargetPoolName: "reclaim",
 													},
+													{
+														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
+														OverlapTargetPoolName: "share-2",
+													},
 												},
 											},
 										},
@@ -1131,6 +1177,10 @@ func TestCPUServerUpdate(t *testing.T) {
 												OverlapTargets: []*cpuadvisor.OverlapTarget{
 													{
 														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
+														OverlapTargetPoolName: "reclaim",
+													},
+													{
+														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
 														OverlapTargetPoolName: "share-1",
 													},
 												},
@@ -1138,6 +1188,10 @@ func TestCPUServerUpdate(t *testing.T) {
 											{
 												Result: 2,
 												OverlapTargets: []*cpuadvisor.OverlapTarget{
+													{
+														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
+														OverlapTargetPoolName: "reclaim",
+													},
 													{
 														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
 														OverlapTargetPoolName: "share-2",
@@ -1219,6 +1273,10 @@ func TestCPUServerUpdate(t *testing.T) {
 														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
 														OverlapTargetPoolName: "reclaim",
 													},
+													{
+														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
+														OverlapTargetPoolName: "share-1",
+													},
 												},
 											},
 											{
@@ -1244,6 +1302,10 @@ func TestCPUServerUpdate(t *testing.T) {
 														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
 														OverlapTargetPoolName: "reclaim",
 													},
+													{
+														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
+														OverlapTargetPoolName: "share-2",
+													},
 												},
 											},
 											{
@@ -1267,6 +1329,10 @@ func TestCPUServerUpdate(t *testing.T) {
 												OverlapTargets: []*cpuadvisor.OverlapTarget{
 													{
 														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
+														OverlapTargetPoolName: "reclaim",
+													},
+													{
+														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
 														OverlapTargetPoolName: "share-1",
 													},
 												},
@@ -1276,9 +1342,16 @@ func TestCPUServerUpdate(t *testing.T) {
 												OverlapTargets: []*cpuadvisor.OverlapTarget{
 													{
 														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
+														OverlapTargetPoolName: "reclaim",
+													},
+													{
+														OverlapType:           cpuadvisor.OverlapType_OverlapWithPool,
 														OverlapTargetPoolName: "share-2",
 													},
 												},
+											},
+											{
+												Result: 2,
 											},
 										},
 									},

@@ -107,6 +107,23 @@ func (ib *internalBlock) initialOverlapTarget() *cpuadvisor.OverlapTarget {
 	return target
 }
 
+func (ib *internalBlock) insertOverlapTarget(targets ...*cpuadvisor.OverlapTarget) {
+	for _, target := range targets {
+		found := false
+		for _, overlapTarget := range ib.Block.OverlapTargets {
+			if target.OverlapType == overlapTarget.OverlapType &&
+				target.OverlapTargetContainerName == overlapTarget.OverlapTargetContainerName &&
+				target.OverlapTargetPoolName == overlapTarget.OverlapTargetPoolName &&
+				target.OverlapTargetPodUid == overlapTarget.OverlapTargetPodUid {
+				found = true
+			}
+		}
+		if !found {
+			ib.Block.OverlapTargets = append(ib.Block.OverlapTargets, target)
+		}
+	}
+}
+
 // for multiple Block in one single NUMA node, join tries to
 // split the existed Block into more Block to ensure we must
 // aggregate different Block according to the size of them.
@@ -128,10 +145,10 @@ func (ib *internalBlock) join(blockID string, set blockSet) {
 		// otherwise, a split Block must be generated to ensure size aggregation
 
 		for _, innerBlock := range ibList {
-			innerBlock.Block.OverlapTargets = append(innerBlock.Block.OverlapTargets, thisTarget)
+			innerBlock.insertOverlapTarget(thisTarget)
 
 			target := innerBlock.initialOverlapTarget()
-			ib.Block.OverlapTargets = append(ib.Block.OverlapTargets, target)
+			ib.insertOverlapTarget(target)
 			ib.Block.BlockId = blockID
 		}
 		_ = set.add(ib)
@@ -189,6 +206,11 @@ func (bs blockSet) add(ib *internalBlock) error {
 		internalBlocks = make([]*internalBlock, 0)
 	}
 
+	for _, i := range internalBlocks {
+		i.insertOverlapTarget(ib.Block.GetOverlapTargets()...)
+		ib.insertOverlapTarget(i.Block.GetOverlapTargets()...)
+	}
+
 	internalBlocks = append(internalBlocks, ib)
 	bs[ib.Block.BlockId] = internalBlocks
 	return nil
@@ -212,4 +234,13 @@ func getNumaCalculationResult(calculationEntriesMap map[string]*cpuadvisor.Calcu
 	}
 
 	return entries.GetNUMACalculationResult(containerName, numa)
+}
+
+func appendBlock(blocks []*cpuadvisor.Block, block *cpuadvisor.Block) []*cpuadvisor.Block {
+	for _, b := range blocks {
+		if b.BlockId == block.BlockId {
+			return blocks
+		}
+	}
+	return append(blocks, block)
 }
