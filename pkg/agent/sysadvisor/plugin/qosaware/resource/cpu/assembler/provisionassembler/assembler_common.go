@@ -293,7 +293,15 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 
 	// fill in regulated share-and-isolated pool entries
 	for poolName, poolSize := range shareAndIsolateDedicatedPoolSizes {
-		result.SetPoolEntry(poolName, numaID, poolSize, -1)
+		if podSet, ok := dedicatedInfo.podSet[poolName]; ok {
+			// fill in dedicated pool entries with pod uid for each pod
+			for uid := range podSet {
+				result.SetPoolEntry(uid, numaID, poolSize, -1)
+			}
+		} else {
+			// fill in share pool or isolation pool entries with pool name for each pod
+			result.SetPoolEntry(poolName, numaID, poolSize, -1)
+		}
 	}
 
 	// assemble reclaim pool
