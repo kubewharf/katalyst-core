@@ -314,8 +314,8 @@ func (cs *cpuServer) assembleResponse(advisorResp *types.InternalCPUCalculationR
 
 	// first assemble NUMABinding pod entries
 	f := func(podUID string, containerName string, ci *types.ContainerInfo) bool {
-		if err := cs.assembleDedicatedNUMABBindingPodEntries(calculationEntriesMap, blockID2Blocks, podUID, ci); err != nil {
-			klog.Errorf("[qosaware-server-cpu] assembleDedicatedNUMABBindingPodEntries for pod %s/%s uid %s err: %v", ci.PodNamespace, ci.PodName, ci.PodUID, err)
+		if err := cs.assembleDedicatedNUMABindingPodEntries(advisorResp, calculationEntriesMap, blockID2Blocks, podUID, ci); err != nil {
+			klog.Errorf("[qosaware-server-cpu] assembleDedicatedNUMABindingPodEntries for pod %s/%s uid %s err: %v", ci.PodNamespace, ci.PodName, ci.PodUID, err)
 		}
 		return true
 	}
@@ -728,6 +728,13 @@ func (cs *cpuServer) assemblePoolEntries(advisorResp *types.InternalCPUCalculati
 		if poolName == commonstate.PoolNameReclaim {
 			continue
 		}
+
+		// skip if pool entry has been processed
+		_, ok := calculationEntriesMap[poolName]
+		if ok {
+			continue
+		}
+
 		poolEntry := NewPoolCalculationEntries(poolName)
 		for numaID, cpu := range entries {
 			block := NewBlock(uint64(cpu.Size), "")
@@ -849,7 +856,9 @@ func (cs *cpuServer) assembleNormalPodEntries(calculationEntriesMap map[string]*
 	return nil
 }
 
-func (cs *cpuServer) assembleDedicatedNUMABBindingPodEntries(calculationEntriesMap map[string]*cpuadvisor.CalculationEntries,
+func (cs *cpuServer) assembleDedicatedNUMABindingPodEntries(
+	advisorResp *types.InternalCPUCalculationResult,
+	calculationEntriesMap map[string]*cpuadvisor.CalculationEntries,
 	bs blockSet, podUID string, ci *types.ContainerInfo,
 ) error {
 	calculationInfo := &cpuadvisor.CalculationInfo{
@@ -862,6 +871,18 @@ func (cs *cpuServer) assembleDedicatedNUMABBindingPodEntries(calculationEntriesM
 		calculationResultsByNumas := make(map[int64]*cpuadvisor.NumaCalculationResult)
 
 		for numaID, cpuset := range ci.TopologyAwareAssignments {
+			// use cpuset size as default size
+			size := uint64(cpuset.Size())
+
+			// if pod pool entry exists, use the size from it
+			pe, ok := advisorResp.PoolEntries[podUID]
+			if ok {
+				cpuResource, ok := pe[numaID]
+				if ok {
+					size = uint64(cpuResource.Size)
+				}
+			}
+
 			numaCalculationResult := &cpuadvisor.NumaCalculationResult{Blocks: []*cpuadvisor.Block{}}
 
 			// the same podUID appears twice iff there exists multiple containers in one pod;
@@ -884,7 +905,7 @@ func (cs *cpuServer) assembleDedicatedNUMABBindingPodEntries(calculationEntriesM
 				}
 			} else {
 				// if this podUID appears firstly, we should generate a new Block
-				block := NewBlock(uint64(cpuset.Size()), "")
+				block := NewBlock(size, "")
 				innerBlock := NewInnerBlock(block, int64(numaID), "", &ContainerMeta{
 					PodUID:        ci.PodUID,
 					ContainerName: ci.ContainerName,
