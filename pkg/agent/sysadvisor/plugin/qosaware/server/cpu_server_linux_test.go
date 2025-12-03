@@ -223,7 +223,7 @@ func TestCPUServerUpdate(t *testing.T) {
 							UID:       "pod1",
 							Annotations: map[string]string{
 								consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
-								consts.PodAnnotationMemoryEnhancementKey: "{\"numa_exclusive\":true}",
+								consts.PodAnnotationMemoryEnhancementKey: "{\"numa_exclusive\":true,\"numa_binding\":true}",
 							},
 						},
 						Spec: v1.PodSpec{
