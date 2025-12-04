@@ -1,0 +1,169 @@
+/*
+Copyright 2022 The Katalyst Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package flag
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/spf13/pflag"
+	v1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/api/resource"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
+)
+
+func TestReservedMemoryVar(t *testing.T) {
+	t.Parallel()
+
+	resourceNameHugepages1Gi := v1.ResourceName(fmt.Sprintf("%s1Gi", v1.ResourceHugePagesPrefix))
+	memory1Gi := resource.MustParse("1Gi")
+	testCases := []struct {
+		desc      string
+		argc      string
+		expectErr bool
+		expectVal []native.MemoryReservation
+	}{
+		{
+			desc: "valid input",
+			argc: "blah --reserved-memory=0:memory=1Gi",
+			expectVal: []native.MemoryReservation{
+				{
+					NumaNode: 0,
+					Limits: v1.ResourceList{
+						v1.ResourceMemory: memory1Gi,
+					},
+				},
+			},
+		},
+		{
+			desc: "valid input with multiple memory types",
+			argc: "blah --reserved-memory=0:memory=1Gi,hugepages-1Gi=1Gi",
+			expectVal: []native.MemoryReservation{
+				{
+					NumaNode: 0,
+					Limits: v1.ResourceList{
+						v1.ResourceMemory:        memory1Gi,
+						resourceNameHugepages1Gi: memory1Gi,
+					},
+				},
+			},
+		},
+		{
+			desc: "valid input with multiple reserved-memory arguments",
+			argc: "blah --reserved-memory=0:memory=1Gi,hugepages-1Gi=1Gi --reserved-memory=1:memory=1Gi",
+			expectVal: []native.MemoryReservation{
+				{
+					NumaNode: 0,
+					Limits: v1.ResourceList{
+						v1.ResourceMemory:        memory1Gi,
+						resourceNameHugepages1Gi: memory1Gi,
+					},
+				},
+				{
+					NumaNode: 1,
+					Limits: v1.ResourceList{
+						v1.ResourceMemory: memory1Gi,
+					},
+				},
+			},
+		},
+		{
+			desc: "valid input with '/' as separator for multiple reserved-memory arguments",
+			argc: "blah --reserved-memory=0:memory=1Gi,hugepages-1Gi=1Gi/1:memory=1Gi",
+			expectVal: []native.MemoryReservation{
+				{
+					NumaNode: 0,
+					Limits: v1.ResourceList{
+						v1.ResourceMemory:        memory1Gi,
+						resourceNameHugepages1Gi: memory1Gi,
+					},
+				},
+				{
+					NumaNode: 1,
+					Limits: v1.ResourceList{
+						v1.ResourceMemory: memory1Gi,
+					},
+				},
+			},
+		},
+		{
+			desc:      "invalid input",
+			argc:      "blah --reserved-memory=bad-input",
+			expectVal: nil,
+			expectErr: true,
+		},
+		{
+			desc:      "invalid input without memory types",
+			argc:      "blah --reserved-memory=0:",
+			expectVal: nil,
+			expectErr: true,
+		},
+		{
+			desc:      "invalid input with non-integer NUMA node",
+			argc:      "blah --reserved-memory=a:memory=1Gi",
+			expectVal: nil,
+			expectErr: true,
+		},
+		{
+			desc:      "invalid input with invalid limit",
+			argc:      "blah --reserved-memory=0:memory=",
+			expectVal: nil,
+			expectErr: true,
+		},
+		{
+			desc:      "invalid input with invalid memory type",
+			argc:      "blah --reserved-memory=0:type=1Gi",
+			expectVal: nil,
+			expectErr: true,
+		},
+		{
+			desc:      "invalid input with invalid quantity",
+			argc:      "blah --reserved-memory=0:memory=1Be",
+			expectVal: nil,
+			expectErr: true,
+		},
+	}
+	for _, tc := range testCases {
+		fs := pflag.NewFlagSet("blah", pflag.PanicOnError)
+
+		var reservedMemory []native.MemoryReservation
+		fs.Var(&ReservedMemoryVar{Value: &reservedMemory}, "reserved-memory", "--reserved-memory 0:memory=1Gi,hugepages-1M=2Gi")
+
+		var err error
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					err = r.(error)
+				}
+			}()
+			fs.Parse(strings.Split(tc.argc, " "))
+		}()
+
+		if tc.expectErr && err == nil {
+			t.Fatalf("%q: Did not observe an expected error", tc.desc)
+		}
+		if !tc.expectErr && err != nil {
+			t.Fatalf("%q: Observed an unexpected error: %v", tc.desc, err)
+		}
+		if !apiequality.Semantic.DeepEqual(reservedMemory, tc.expectVal) {
+			t.Fatalf("%q: Unexpected reserved-error: expected %v, saw %v", tc.desc, tc.expectVal, reservedMemory)
+		}
+	}
+}

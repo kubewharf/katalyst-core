@@ -26,6 +26,7 @@ import (
 	"strconv"
 	"time"
 
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
 )
@@ -33,6 +34,12 @@ import (
 const (
 	defaultTimeout = time.Second * 10
 )
+
+// MemoryReservation specifies the memory reservation of different types for each NUMA node
+type MemoryReservation struct {
+	NumaNode int32
+	Limits   v1.ResourceList
+}
 
 // KubeletConfiguration contains the configuration for the Kubelet
 // This struct is a simplification of the definition in the kubelet api repo, holding only the fields used by katalyst.
@@ -90,7 +97,7 @@ type KubeletConfiguration struct {
 	SystemReserved map[string]string `json:"systemReserved,omitempty"`
 	// kubeReserved is a set of ResourceName=ResourceQuantity (e.g. cpu=200m,memory=150G) pairs
 	// that describe resources reserved for kubernetes system components.
-	// Currently cpu, memory and local storage for root file system are supported.
+	// Currently, cpu, memory and local storage for root file system are supported.
 	// See https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
 	// for more details.
 	// Default: nil
@@ -101,6 +108,20 @@ type KubeletConfiguration struct {
 	// CPU list rather than the "dynamic" list by systemReserved and kubeReserved.
 	// This option does not support systemReservedCgroup or kubeReservedCgroup.
 	ReservedSystemCPUs string `json:"reservedSystemCPUs,omitempty"`
+	// ReservedMemory specifies a comma-separated list of memory reservations for NUMA nodes.
+	// The parameter makes sense only in the context of the memory manager feature. The memory manager will not allocate reserved memory for container workloads.
+	// For example, if you have a NUMA0 with 10Gi of memory and the ReservedMemory was specified to reserve 1Gi of memory at NUMA0,
+	// the memory manager will assume that only 9Gi is available for allocation.
+	// You can specify a different amount of NUMA node and memory types.
+	// You can omit this parameter at all, but you should be aware that the amount of reserved memory from all NUMA nodes
+	// should be equal to the amount of memory specified by the node allocatable features(https://kubernetes.io/docs/tasks/administer-cluster/reserve-compute-resources/#node-allocatable).
+	// If at least one node allocatable parameter has a non-zero value, you will need to specify at least one NUMA node.
+	// Also, avoid specifying:
+	// 1. Duplicates, the same NUMA node, and memory type, but with a different value.
+	// 2. zero limits for any memory type.
+	// 3. NUMAs nodes IDs that do not exist under the machine.
+	// 4. memory types except for memory and hugepages-<size>
+	ReservedMemory []MemoryReservation `json:"reservedMemory,omitempty"`
 
 	/* the following fields are introduced for compatibility with KubeWharf Kubernetes distro */
 
