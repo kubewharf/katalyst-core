@@ -57,6 +57,8 @@ type CPUDynamicPolicyConfig struct {
 	SharedCoresNUMABindingResultAnnotationKey string
 	// EnableReserveCPUReversely indicates whether to reserve cpu reversely
 	EnableReserveCPUReversely bool
+	// EnableCPUBurst indicates whether cpu burst is enabled
+	EnableCPUBurst bool
 
 	*hintoptimizer.HintOptimizerConfiguration
 	*irqtuner.IRQTunerConfiguration
