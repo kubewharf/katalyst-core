@@ -18,7 +18,7 @@ require (
 	github.com/google/cadvisor v0.44.2
 	github.com/google/uuid v1.3.0
 	github.com/h2non/gock v1.2.0
-	github.com/jellydator/ttlcache/v3 v3.4.0
+	github.com/jellydator/ttlcache/v3 v3.3.0
 	github.com/klauspost/cpuid/v2 v2.2.6
 	github.com/kubewharf/katalyst-api v0.5.7-0.20251112070927-442dee3bec62
 	github.com/moby/sys/mountinfo v0.6.2
