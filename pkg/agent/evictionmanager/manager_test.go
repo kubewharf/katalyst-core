@@ -108,6 +108,7 @@ func makeConf() *config.Configuration {
 	conf.PodKiller = consts.KillerNameEvictionKiller
 	conf.GenericConfiguration.AuthConfiguration.AuthType = credential.AuthTypeInsecure
 	conf.GenericConfiguration.AuthConfiguration.AccessControlType = authorization.AccessControlTypeInsecure
+	conf.HostPathNotifierRootPath = "/opt/katalyst"
 
 	return conf
 }
@@ -232,12 +233,46 @@ func (p plugin2) GetEvictPods(_ context.Context, _ *pluginapi.GetEvictPodsReques
 	return &pluginapi.GetEvictPodsResponse{EvictPods: []*pluginapi.EvictPod{}}, nil
 }
 
+type plugin3 struct {
+	pluginSkeleton
+}
+
+func (p plugin3) ThresholdMet(_ context.Context, _ *pluginapi.GetThresholdMetRequest) (*pluginapi.ThresholdMetResponse, error) {
+	return &pluginapi.ThresholdMetResponse{
+		MetType:            pluginapi.ThresholdMetType_SOFT_MET,
+		ThresholdValue:     0.8,
+		ObservedValue:      0.9,
+		ThresholdOperator:  pluginapi.ThresholdOperator_GREATER_THAN,
+		EvictionScope:      "plugin3_scope",
+		GracePeriodSeconds: -1,
+	}, nil
+}
+
+func (p plugin3) GetTopEvictionPods(_ context.Context, _ *pluginapi.GetTopEvictionPodsRequest) (*pluginapi.GetTopEvictionPodsResponse, error) {
+	return &pluginapi.GetTopEvictionPodsResponse{TargetPods: []*v1.Pod{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "pod-3",
+				UID:  "pod-3",
+			},
+			Status: v1.PodStatus{
+				Phase: v1.PodRunning,
+			},
+		},
+	}}, nil
+}
+
+func (p plugin3) GetEvictPods(_ context.Context, _ *pluginapi.GetEvictPodsRequest) (*pluginapi.GetEvictPodsResponse, error) {
+	return &pluginapi.GetEvictPodsResponse{EvictPods: []*pluginapi.EvictPod{}}, nil
+}
+
 func makeEvictionManager(t *testing.T) *EvictionManger {
 	mgr, err := NewEvictionManager(&client.GenericClientSet{}, nil, makeMetaServer(), metrics.DummyMetrics{}, makeConf())
 	assert.NoError(t, err)
 	mgr.endpoints = map[string]endpointpkg.Endpoint{
 		"plugin1": &plugin1{},
 		"plugin2": &plugin2{},
+		"plugin3": &plugin3{},
 	}
 
 	return mgr
@@ -258,6 +293,7 @@ func TestEvictionManger_collectEvictionResult(t *testing.T) {
 			dryrun: []string{},
 			wantSoftEvictPods: sets.String{
 				"pod-1": sets.Empty{},
+				"pod-3": sets.Empty{},
 				"pod-5": sets.Empty{},
 			},
 			wantForceEvictPods: sets.String{
@@ -269,9 +305,11 @@ func TestEvictionManger_collectEvictionResult(t *testing.T) {
 			},
 		},
 		{
-			name:              "dryrun plugin1",
-			dryrun:            []string{"plugin1"},
-			wantSoftEvictPods: sets.String{},
+			name:   "dryrun plugin1",
+			dryrun: []string{"plugin1"},
+			wantSoftEvictPods: sets.String{
+				"pod-3": sets.Empty{},
+			},
 			wantForceEvictPods: sets.String{
 				"pod-3": sets.Empty{},
 			},
@@ -284,6 +322,7 @@ func TestEvictionManger_collectEvictionResult(t *testing.T) {
 			dryrun: []string{"plugin2"},
 			wantSoftEvictPods: sets.String{
 				"pod-1": sets.Empty{},
+				"pod-3": sets.Empty{},
 				"pod-5": sets.Empty{},
 			},
 			wantForceEvictPods: sets.String{
@@ -292,9 +331,11 @@ func TestEvictionManger_collectEvictionResult(t *testing.T) {
 			wantConditions: sets.String{},
 		},
 		{
-			name:               "dryrun plugin1 & plugin2",
-			dryrun:             []string{"plugin1", "plugin2"},
-			wantSoftEvictPods:  sets.String{},
+			name:   "dryrun plugin1 & plugin2",
+			dryrun: []string{"plugin1", "plugin2"},
+			wantSoftEvictPods: sets.String{
+				"pod-3": sets.Empty{},
+			},
 			wantForceEvictPods: sets.String{},
 			wantConditions:     sets.String{},
 		},

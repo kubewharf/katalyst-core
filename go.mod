@@ -175,6 +175,8 @@ require (
 )
 
 replace (
+	// FIXME
+	github.com/kubewharf/katalyst-api => github.com/funnydreamwinz/katalyst-api v0.0.0-20251127095537-2554d5fa74a4
 	k8s.io/api => k8s.io/api v0.24.6
 	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.24.6
 	k8s.io/apimachinery => k8s.io/apimachinery v0.24.6
