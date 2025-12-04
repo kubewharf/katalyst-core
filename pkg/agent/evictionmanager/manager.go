@@ -453,7 +453,6 @@ func (m *EvictionManger) collectEvictionResult(ctx context.Context, pods []*v1.P
 				}
 			}
 		}
-
 		resp, err := m.endpoints[pluginName].GetTopEvictionPods(context.Background(), &pluginapi.GetTopEvictionPodsRequest{
 			ActivePods:               activePods,
 			TopN:                     1,

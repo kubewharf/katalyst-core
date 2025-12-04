@@ -39,33 +39,35 @@ const (
 
 // CPUPressureEvictionOptions is the options of cpu pressure eviction
 type CPUPressureEvictionOptions struct {
-	EnableLoadEviction              bool
-	LoadUpperBoundRatio             float64
-	LoadLowerBoundRatio             float64
-	LoadThresholdMetPercentage      float64
-	LoadMetricRingSize              int
-	LoadEvictionCoolDownTime        time.Duration
-	EnableSuppressionEviction       bool
-	MaxSuppressionToleranceRate     float64
-	MinSuppressionToleranceDuration time.Duration
-	GracePeriod                     int64
-	NumaCPUPressureEvictionOptions  NumaCPUPressureEvictionOptions
+	EnableLoadEviction                bool
+	LoadUpperBoundRatio               float64
+	LoadLowerBoundRatio               float64
+	LoadThresholdMetPercentage        float64
+	LoadMetricRingSize                int
+	LoadEvictionCoolDownTime          time.Duration
+	EnableSuppressionEviction         bool
+	MaxSuppressionToleranceRate       float64
+	MinSuppressionToleranceDuration   time.Duration
+	GracePeriod                       int64
+	NumaCPUPressureEvictionOptions    NumaCPUPressureEvictionOptions
+	NumaSysCPUPressureEvictionOptions NumaSysCPUPressureEvictionOptions
 }
 
 // NewCPUPressureEvictionOptions returns a new CPUPressureEvictionOptions
 func NewCPUPressureEvictionOptions() *CPUPressureEvictionOptions {
 	return &CPUPressureEvictionOptions{
-		EnableLoadEviction:              defaultEnableLoadEviction,
-		LoadUpperBoundRatio:             defaultLoadUpperBoundRatio,
-		LoadLowerBoundRatio:             defaultLoadLowerBoundRatio,
-		LoadThresholdMetPercentage:      defaultLoadThresholdMetPercentage,
-		LoadMetricRingSize:              defaultLoadMetricSize,
-		LoadEvictionCoolDownTime:        defaultLoadEvictionCoolDownTime,
-		EnableSuppressionEviction:       defaultEnableSuppressionEviction,
-		MaxSuppressionToleranceRate:     defaultMaxSuppressionToleranceRate,
-		MinSuppressionToleranceDuration: defaultMinSuppressionToleranceDuration,
-		GracePeriod:                     defaultGracePeriod,
-		NumaCPUPressureEvictionOptions:  NewNumaCPUPressureEvictionOptions(),
+		EnableLoadEviction:                defaultEnableLoadEviction,
+		LoadUpperBoundRatio:               defaultLoadUpperBoundRatio,
+		LoadLowerBoundRatio:               defaultLoadLowerBoundRatio,
+		LoadThresholdMetPercentage:        defaultLoadThresholdMetPercentage,
+		LoadMetricRingSize:                defaultLoadMetricSize,
+		LoadEvictionCoolDownTime:          defaultLoadEvictionCoolDownTime,
+		EnableSuppressionEviction:         defaultEnableSuppressionEviction,
+		MaxSuppressionToleranceRate:       defaultMaxSuppressionToleranceRate,
+		MinSuppressionToleranceDuration:   defaultMinSuppressionToleranceDuration,
+		GracePeriod:                       defaultGracePeriod,
+		NumaCPUPressureEvictionOptions:    NewNumaCPUPressureEvictionOptions(),
+		NumaSysCPUPressureEvictionOptions: NewNumaSysCPUPressureEvictionOptions(),
 	}
 }
 
@@ -99,6 +101,7 @@ func (o *CPUPressureEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"the ratio between the times metric value over the bound value and the metric ring size is greater than this percentage "+
 			", the eviction or node taint will be triggered")
 	o.NumaCPUPressureEvictionOptions.AddFlags(fss)
+	o.NumaSysCPUPressureEvictionOptions.AddFlags(fss)
 }
 
 func (o *CPUPressureEvictionOptions) ApplyTo(c *eviction.CPUPressureEvictionConfiguration) error {
@@ -116,6 +119,8 @@ func (o *CPUPressureEvictionOptions) ApplyTo(c *eviction.CPUPressureEvictionConf
 	if err := o.NumaCPUPressureEvictionOptions.ApplyTo(&c.NumaCPUPressureEvictionConfiguration); err != nil {
 		return err
 	}
-
+	if err := o.NumaSysCPUPressureEvictionOptions.ApplyTo(&c.NumaSysCPUPressureEvictionConfiguration); err != nil {
+		return err
+	}
 	return nil
 }
