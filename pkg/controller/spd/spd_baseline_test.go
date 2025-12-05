@@ -39,12 +39,12 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util"
 )
 
-func TestSPDController_updateBaselinePercentile(t *testing.T) {
+func TestSPDController_updateDeployBaselinePercentile(t *testing.T) {
 	t.Parallel()
 
 	type fields struct {
 		podList  []runtime.Object
-		workload *appsv1.StatefulSet
+		workload *appsv1.Deployment
 		spd      *apiworkload.ServiceProfileDescriptor
 	}
 	tests := []struct {
@@ -64,34 +64,34 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 							OwnerReferences: []metav1.OwnerReference{
 								{
 									APIVersion: "apps/v1",
-									Kind:       "StatefulSet",
-									Name:       "sts1",
+									Kind:       "Deployment",
+									Name:       "dp1",
 								},
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationSPDNameKey: "spd1",
 							},
 							Labels: map[string]string{
-								"workload": "sts1",
+								"workload": "dp1",
 							},
 							CreationTimestamp: metav1.NewTime(time.Date(2023, time.August, 1, 0, 0, 0, 0, time.UTC)),
 						},
 					},
 				},
-				workload: &appsv1.StatefulSet{
+				workload: &appsv1.Deployment{
 					TypeMeta: metav1.TypeMeta{
-						Kind:       "StatefulSet",
+						Kind:       "Deployment",
 						APIVersion: "apps/v1",
 					},
 					ObjectMeta: metav1.ObjectMeta{
-						Name:        "sts1",
+						Name:        "dp1",
 						Namespace:   "default",
 						Annotations: map[string]string{},
 					},
-					Spec: appsv1.StatefulSetSpec{
+					Spec: appsv1.DeploymentSpec{
 						Selector: &metav1.LabelSelector{
 							MatchLabels: map[string]string{
-								"workload": "sts1",
+								"workload": "dp1",
 							},
 						},
 					},
@@ -103,9 +103,9 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 					},
 					Spec: apiworkload.ServiceProfileDescriptorSpec{
 						TargetRef: apis.CrossVersionObjectReference{
-							Kind:       stsGVK.Kind,
-							Name:       "sts1",
-							APIVersion: stsGVK.GroupVersion().String(),
+							Kind:       dpGVK.Kind,
+							Name:       "dp1",
+							APIVersion: dpGVK.GroupVersion().String(),
 						},
 						BaselinePercent: pointer.Int32(50),
 					},
@@ -125,9 +125,9 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 				},
 				Spec: apiworkload.ServiceProfileDescriptorSpec{
 					TargetRef: apis.CrossVersionObjectReference{
-						Kind:       stsGVK.Kind,
-						Name:       "sts1",
-						APIVersion: stsGVK.GroupVersion().String(),
+						Kind:       dpGVK.Kind,
+						Name:       "dp1",
+						APIVersion: dpGVK.GroupVersion().String(),
 					},
 					BaselinePercent: pointer.Int32(50),
 				},
@@ -139,20 +139,20 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 			name: "none pod",
 			fields: fields{
 				podList: []runtime.Object{},
-				workload: &appsv1.StatefulSet{
+				workload: &appsv1.Deployment{
 					TypeMeta: metav1.TypeMeta{
-						Kind:       "StatefulSet",
+						Kind:       "Deployment",
 						APIVersion: "apps/v1",
 					},
 					ObjectMeta: metav1.ObjectMeta{
-						Name:        "sts1",
+						Name:        "dp1",
 						Namespace:   "default",
 						Annotations: map[string]string{},
 					},
-					Spec: appsv1.StatefulSetSpec{
+					Spec: appsv1.DeploymentSpec{
 						Selector: &metav1.LabelSelector{
 							MatchLabels: map[string]string{
-								"workload": "sts1",
+								"workload": "dp1",
 							},
 						},
 					},
@@ -164,9 +164,9 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 					},
 					Spec: apiworkload.ServiceProfileDescriptorSpec{
 						TargetRef: apis.CrossVersionObjectReference{
-							Kind:       stsGVK.Kind,
-							Name:       "sts1",
-							APIVersion: stsGVK.GroupVersion().String(),
+							Kind:       dpGVK.Kind,
+							Name:       "dp1",
+							APIVersion: dpGVK.GroupVersion().String(),
 						},
 						BaselinePercent: pointer.Int32(50),
 					},
@@ -180,9 +180,9 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 				},
 				Spec: apiworkload.ServiceProfileDescriptorSpec{
 					TargetRef: apis.CrossVersionObjectReference{
-						Kind:       stsGVK.Kind,
-						Name:       "sts1",
-						APIVersion: stsGVK.GroupVersion().String(),
+						Kind:       dpGVK.Kind,
+						Name:       "dp1",
+						APIVersion: dpGVK.GroupVersion().String(),
 					},
 					BaselinePercent: pointer.Int32(50),
 				},
@@ -201,15 +201,15 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 							OwnerReferences: []metav1.OwnerReference{
 								{
 									APIVersion: "apps/v1",
-									Kind:       "StatefulSet",
-									Name:       "sts1",
+									Kind:       "Deployment",
+									Name:       "dp1",
 								},
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationSPDNameKey: "spd1",
 							},
 							Labels: map[string]string{
-								"workload": "sts1",
+								"workload": "dp1",
 							},
 							CreationTimestamp: metav1.NewTime(time.Date(2023, time.August, 1, 0, 0, 0, 0, time.UTC)),
 						},
@@ -221,15 +221,15 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 							OwnerReferences: []metav1.OwnerReference{
 								{
 									APIVersion: "apps/v1",
-									Kind:       "StatefulSet",
-									Name:       "sts1",
+									Kind:       "Deployment",
+									Name:       "dp1",
 								},
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationSPDNameKey: "spd1",
 							},
 							Labels: map[string]string{
-								"workload": "sts1",
+								"workload": "dp1",
 							},
 							CreationTimestamp: metav1.NewTime(time.Date(2023, time.August, 1, 0, 0, 1, 0, time.UTC)),
 						},
@@ -241,34 +241,34 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 							OwnerReferences: []metav1.OwnerReference{
 								{
 									APIVersion: "apps/v1",
-									Kind:       "StatefulSet",
-									Name:       "sts1",
+									Kind:       "Deployment",
+									Name:       "dp1",
 								},
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationSPDNameKey: "spd1",
 							},
 							Labels: map[string]string{
-								"workload": "sts1",
+								"workload": "dp1",
 							},
 							CreationTimestamp: metav1.NewTime(time.Date(2023, time.August, 1, 0, 0, 2, 0, time.UTC)),
 						},
 					},
 				},
-				workload: &appsv1.StatefulSet{
+				workload: &appsv1.Deployment{
 					TypeMeta: metav1.TypeMeta{
-						Kind:       "StatefulSet",
+						Kind:       "Deployment",
 						APIVersion: "apps/v1",
 					},
 					ObjectMeta: metav1.ObjectMeta{
-						Name:        "sts1",
+						Name:        "dp1",
 						Namespace:   "default",
 						Annotations: map[string]string{},
 					},
-					Spec: appsv1.StatefulSetSpec{
+					Spec: appsv1.DeploymentSpec{
 						Selector: &metav1.LabelSelector{
 							MatchLabels: map[string]string{
-								"workload": "sts1",
+								"workload": "dp1",
 							},
 						},
 					},
@@ -280,9 +280,9 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 					},
 					Spec: apiworkload.ServiceProfileDescriptorSpec{
 						TargetRef: apis.CrossVersionObjectReference{
-							Kind:       stsGVK.Kind,
-							Name:       "sts1",
-							APIVersion: stsGVK.GroupVersion().String(),
+							Kind:       dpGVK.Kind,
+							Name:       "dp1",
+							APIVersion: dpGVK.GroupVersion().String(),
 						},
 						BaselinePercent: pointer.Int32(50),
 						ExtendedIndicator: []apiworkload.ServiceExtendedIndicatorSpec{
@@ -303,15 +303,15 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 					Namespace: "default",
 					Name:      "spd1",
 					Annotations: map[string]string{
-						consts.SPDAnnotationBaselineSentinelKey:         "{\"timeStamp\":\"2023-08-01T00:00:01Z\",\"podName\":\"pod2\"}",
-						consts.SPDAnnotationExtendedBaselineSentinelKey: "{\"TestExtended\":{\"timeStamp\":\"2023-08-01T00:00:01Z\",\"podName\":\"pod2\"}}",
+						consts.SPDAnnotationBaselineSentinelKey:         "{\"timeStamp\":\"2023-08-01T00:00:01Z\",\"podName\":\"pod2\",\"customCompareKey\":\"\",\"customCompareValue\":null}",
+						consts.SPDAnnotationExtendedBaselineSentinelKey: "{\"TestExtended\":{\"timeStamp\":\"2023-08-01T00:00:01Z\",\"podName\":\"pod2\",\"customCompareKey\":\"\",\"customCompareValue\":null}}",
 					},
 				},
 				Spec: apiworkload.ServiceProfileDescriptorSpec{
 					TargetRef: apis.CrossVersionObjectReference{
-						Kind:       stsGVK.Kind,
-						Name:       "sts1",
-						APIVersion: stsGVK.GroupVersion().String(),
+						Kind:       dpGVK.Kind,
+						Name:       "dp1",
+						APIVersion: dpGVK.GroupVersion().String(),
 					},
 					BaselinePercent: pointer.Int32(50),
 					ExtendedIndicator: []apiworkload.ServiceExtendedIndicatorSpec{
@@ -339,15 +339,15 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 							OwnerReferences: []metav1.OwnerReference{
 								{
 									APIVersion: "apps/v1",
-									Kind:       "StatefulSet",
-									Name:       "sts1",
+									Kind:       "Deployment",
+									Name:       "dp1",
 								},
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationSPDNameKey: "spd1",
 							},
 							Labels: map[string]string{
-								"workload": "sts1",
+								"workload": "dp1",
 							},
 							CreationTimestamp: metav1.NewTime(time.Date(2023, time.August, 1, 0, 0, 0, 0, time.UTC)),
 						},
@@ -359,15 +359,15 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 							OwnerReferences: []metav1.OwnerReference{
 								{
 									APIVersion: "apps/v1",
-									Kind:       "StatefulSet",
-									Name:       "sts1",
+									Kind:       "Deployment",
+									Name:       "dp1",
 								},
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationSPDNameKey: "spd1",
 							},
 							Labels: map[string]string{
-								"workload": "sts1",
+								"workload": "dp1",
 							},
 							CreationTimestamp: metav1.NewTime(time.Date(2023, time.August, 1, 0, 0, 1, 0, time.UTC)),
 						},
@@ -379,34 +379,34 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 							OwnerReferences: []metav1.OwnerReference{
 								{
 									APIVersion: "apps/v1",
-									Kind:       "StatefulSet",
-									Name:       "sts1",
+									Kind:       "Deployment",
+									Name:       "dp1",
 								},
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationSPDNameKey: "spd1",
 							},
 							Labels: map[string]string{
-								"workload": "sts1",
+								"workload": "dp1",
 							},
 							CreationTimestamp: metav1.NewTime(time.Date(2023, time.August, 1, 0, 0, 2, 0, time.UTC)),
 						},
 					},
 				},
-				workload: &appsv1.StatefulSet{
+				workload: &appsv1.Deployment{
 					TypeMeta: metav1.TypeMeta{
-						Kind:       "StatefulSet",
+						Kind:       "Deployment",
 						APIVersion: "apps/v1",
 					},
 					ObjectMeta: metav1.ObjectMeta{
-						Name:        "sts1",
+						Name:        "dp1",
 						Namespace:   "default",
 						Annotations: map[string]string{},
 					},
-					Spec: appsv1.StatefulSetSpec{
+					Spec: appsv1.DeploymentSpec{
 						Selector: &metav1.LabelSelector{
 							MatchLabels: map[string]string{
-								"workload": "sts1",
+								"workload": "dp1",
 							},
 						},
 					},
@@ -418,9 +418,9 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 					},
 					Spec: apiworkload.ServiceProfileDescriptorSpec{
 						TargetRef: apis.CrossVersionObjectReference{
-							Kind:       stsGVK.Kind,
-							Name:       "sts1",
-							APIVersion: stsGVK.GroupVersion().String(),
+							Kind:       dpGVK.Kind,
+							Name:       "dp1",
+							APIVersion: dpGVK.GroupVersion().String(),
 						},
 						BaselinePercent: pointer.Int32(100),
 					},
@@ -434,9 +434,9 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 				},
 				Spec: apiworkload.ServiceProfileDescriptorSpec{
 					TargetRef: apis.CrossVersionObjectReference{
-						Kind:       stsGVK.Kind,
-						Name:       "sts1",
-						APIVersion: stsGVK.GroupVersion().String(),
+						Kind:       dpGVK.Kind,
+						Name:       "dp1",
+						APIVersion: dpGVK.GroupVersion().String(),
 					},
 					BaselinePercent: pointer.Int32(100),
 				},
@@ -455,15 +455,15 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 							OwnerReferences: []metav1.OwnerReference{
 								{
 									APIVersion: "apps/v1",
-									Kind:       "StatefulSet",
-									Name:       "sts1",
+									Kind:       "Deployment",
+									Name:       "dp1",
 								},
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationSPDNameKey: "spd1",
 							},
 							Labels: map[string]string{
-								"workload": "sts1",
+								"workload": "dp1",
 							},
 							CreationTimestamp: metav1.NewTime(time.Date(2023, time.August, 1, 0, 0, 0, 0, time.UTC)),
 						},
@@ -475,15 +475,15 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 							OwnerReferences: []metav1.OwnerReference{
 								{
 									APIVersion: "apps/v1",
-									Kind:       "StatefulSet",
-									Name:       "sts1",
+									Kind:       "Deployment",
+									Name:       "dp1",
 								},
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationSPDNameKey: "spd1",
 							},
 							Labels: map[string]string{
-								"workload": "sts1",
+								"workload": "dp1",
 							},
 							CreationTimestamp: metav1.NewTime(time.Date(2023, time.August, 1, 0, 0, 1, 0, time.UTC)),
 						},
@@ -495,34 +495,34 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 							OwnerReferences: []metav1.OwnerReference{
 								{
 									APIVersion: "apps/v1",
-									Kind:       "StatefulSet",
-									Name:       "sts1",
+									Kind:       "Deployment",
+									Name:       "dp1",
 								},
 							},
 							Annotations: map[string]string{
 								consts.PodAnnotationSPDNameKey: "spd1",
 							},
 							Labels: map[string]string{
-								"workload": "sts1",
+								"workload": "dp1",
 							},
 							CreationTimestamp: metav1.NewTime(time.Date(2023, time.August, 1, 0, 0, 2, 0, time.UTC)),
 						},
 					},
 				},
-				workload: &appsv1.StatefulSet{
+				workload: &appsv1.Deployment{
 					TypeMeta: metav1.TypeMeta{
-						Kind:       "StatefulSet",
+						Kind:       "Deployment",
 						APIVersion: "apps/v1",
 					},
 					ObjectMeta: metav1.ObjectMeta{
-						Name:        "sts1",
+						Name:        "dp1",
 						Namespace:   "default",
 						Annotations: map[string]string{},
 					},
-					Spec: appsv1.StatefulSetSpec{
+					Spec: appsv1.DeploymentSpec{
 						Selector: &metav1.LabelSelector{
 							MatchLabels: map[string]string{
-								"workload": "sts1",
+								"workload": "dp1",
 							},
 						},
 					},
@@ -534,9 +534,9 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 					},
 					Spec: apiworkload.ServiceProfileDescriptorSpec{
 						TargetRef: apis.CrossVersionObjectReference{
-							Kind:       stsGVK.Kind,
-							Name:       "sts1",
-							APIVersion: stsGVK.GroupVersion().String(),
+							Kind:       dpGVK.Kind,
+							Name:       "dp1",
+							APIVersion: dpGVK.GroupVersion().String(),
 						},
 						BaselinePercent: pointer.Int32(0),
 					},
@@ -550,9 +550,9 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 				},
 				Spec: apiworkload.ServiceProfileDescriptorSpec{
 					TargetRef: apis.CrossVersionObjectReference{
-						Kind:       stsGVK.Kind,
-						Name:       "sts1",
-						APIVersion: stsGVK.GroupVersion().String(),
+						Kind:       dpGVK.Kind,
+						Name:       "dp1",
+						APIVersion: dpGVK.GroupVersion().String(),
 					},
 					BaselinePercent: pointer.Int32(0),
 				},
@@ -567,11 +567,11 @@ func TestSPDController_updateBaselinePercentile(t *testing.T) {
 			t.Parallel()
 
 			spdConfig := &controller.SPDConfig{
-				SPDWorkloadGVResources: []string{"statefulsets.v1.apps"},
+				SPDWorkloadGVResources: []string{"deployments.v1.apps"},
 			}
 			genericConfig := &generic.GenericConfiguration{}
 			controllerConf := &controller.GenericControllerConfiguration{
-				DynamicGVResources: []string{"statefulsets.v1.apps"},
+				DynamicGVResources: []string{"deployments.v1.apps"},
 			}
 
 			ctx := context.TODO()

@@ -376,6 +376,10 @@ func CalculateSPDHash(spd *apiworkload.ServiceProfileDescriptor) (string, error)
 		spdCopy.Annotations[apiconsts.SPDAnnotationExtendedBaselineSentinelKey] = sentinel
 	}
 
+	if customKey, ok := spd.Annotations[apiconsts.SPDAnnotationKeyCustomCompareKey]; ok {
+		spdCopy.Annotations[apiconsts.SPDAnnotationKeyCustomCompareKey] = customKey
+	}
+
 	spdCopy.Spec = spd.Spec
 	spdCopy.Status = spd.Status
 	data, err := json.Marshal(spdCopy)

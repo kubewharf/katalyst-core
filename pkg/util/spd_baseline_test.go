@@ -29,7 +29,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 )
 
-func TestBaselineCoefficient_Cmp(t *testing.T) {
+func TestDeploySPDBaselineCoefficient_Cmp(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
@@ -44,13 +44,13 @@ func TestBaselineCoefficient_Cmp(t *testing.T) {
 		{
 			name: "less",
 			c: SPDBaselinePodMeta{
-				metav1.NewTime(time.UnixMilli(0)),
-				"pod2",
+				TimeStamp: metav1.NewTime(time.UnixMilli(0)),
+				PodName:   "pod2",
 			},
 			args: args{
 				c1: SPDBaselinePodMeta{
-					metav1.NewTime(time.UnixMilli(1)),
-					"pod3",
+					TimeStamp: metav1.NewTime(time.UnixMilli(1)),
+					PodName:   "pod3",
 				},
 			},
 			want: -1,
@@ -58,13 +58,13 @@ func TestBaselineCoefficient_Cmp(t *testing.T) {
 		{
 			name: "greater",
 			c: SPDBaselinePodMeta{
-				metav1.NewTime(time.UnixMilli(1)),
-				"pod3",
+				TimeStamp: metav1.NewTime(time.UnixMilli(1)),
+				PodName:   "pod3",
 			},
 			args: args{
 				c1: SPDBaselinePodMeta{
-					metav1.NewTime(time.UnixMilli(1)),
-					"pod2",
+					TimeStamp: metav1.NewTime(time.UnixMilli(1)),
+					PodName:   "pod2",
 				},
 			},
 			want: 1,
@@ -90,9 +90,12 @@ func TestBaselineCoefficient_String(t *testing.T) {
 		want string
 	}{
 		{
-			name: "normal",
-			c:    SPDBaselinePodMeta{metav1.NewTime(time.UnixMilli(1)), "pod2"},
-			want: "{\"timeStamp\":\"1970-01-01T00:00:00Z\",\"podName\":\"pod2\"}",
+			name: "deploy SPD",
+			c: SPDBaselinePodMeta{
+				TimeStamp: metav1.NewTime(time.UnixMilli(1)),
+				PodName:   "pod2",
+			},
+			want: "{\"timeStamp\":\"1970-01-01T00:00:00Z\",\"podName\":\"pod2\",\"customCompareKey\":\"\",\"customCompareValue\":null}",
 		},
 	}
 	for _, tt := range tests {
@@ -110,15 +113,16 @@ func TestGetPodBaselineCoefficient(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
-		pod *v1.Pod
+		pod              *v1.Pod
+		customCompareKey CustomCompareKey
 	}
 	tests := []struct {
 		name string
 		args args
-		want SPDBaselinePodMeta
+		want *SPDBaselinePodMeta
 	}{
 		{
-			name: "normal",
+			name: "deploy spd normal",
 			args: args{
 				pod: &v1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
@@ -127,9 +131,9 @@ func TestGetPodBaselineCoefficient(t *testing.T) {
 					},
 				},
 			},
-			want: SPDBaselinePodMeta{
-				metav1.NewTime(time.Date(2023, time.August, 1, 0, 0, 0, 0, time.Local)),
-				"test-pod",
+			want: &SPDBaselinePodMeta{
+				TimeStamp: metav1.NewTime(time.Date(2023, time.August, 1, 0, 0, 0, 0, time.Local)),
+				PodName:   "test-pod",
 			},
 		},
 	}
@@ -138,12 +142,17 @@ func TestGetPodBaselineCoefficient(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			assert.Equal(t, tt.want, GetSPDBaselinePodMeta(tt.args.pod.ObjectMeta))
+			got, err := GetSPDBaselinePodMeta(tt.args.pod.ObjectMeta, tt.args.customCompareKey)
+			if err != nil {
+				t.Errorf("getSPDBaselinePodMeta() error = %v", err)
+				return
+			}
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
 
-func TestGetSPDBaselinePercentile(t *testing.T) {
+func TestGetDeploySPDBaselinePercentile(t *testing.T) {
 	t.Parallel()
 
 	type args struct {
@@ -195,6 +204,7 @@ func TestIsBaselinePod(t *testing.T) {
 		pod              *v1.Pod
 		baselinePercent  *int32
 		baselineSentinel *SPDBaselinePodMeta
+		customCompareKey CustomCompareKey
 	}
 	tests := []struct {
 		name              string
@@ -203,7 +213,7 @@ func TestIsBaselinePod(t *testing.T) {
 		wantErr           bool
 	}{
 		{
-			name: "baseline pod",
+			name: "deploy baseline pod",
 			args: args{
 				pod: &v1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
@@ -220,7 +230,7 @@ func TestIsBaselinePod(t *testing.T) {
 			wantIsBaselinePod: true,
 		},
 		{
-			name: "not baseline pod",
+			name: "deploy not baseline pod",
 			args: args{
 				pod: &v1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
@@ -237,7 +247,7 @@ func TestIsBaselinePod(t *testing.T) {
 			wantIsBaselinePod: false,
 		},
 		{
-			name: "baseline disabled",
+			name: "deploy baseline disabled",
 			args: args{
 				pod: &v1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
@@ -251,7 +261,7 @@ func TestIsBaselinePod(t *testing.T) {
 			wantIsBaselinePod: false,
 		},
 		{
-			name: "baseline 100%",
+			name: "deploy baseline 100%",
 			args: args{
 				pod: &v1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
@@ -265,7 +275,7 @@ func TestIsBaselinePod(t *testing.T) {
 			wantIsBaselinePod: true,
 		},
 		{
-			name: "baseline 0%",
+			name: "deploy baseline 0%",
 			args: args{
 				pod: &v1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
@@ -284,7 +294,7 @@ func TestIsBaselinePod(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := IsBaselinePod(tt.args.pod.ObjectMeta, tt.args.baselinePercent, tt.args.baselineSentinel)
+			got, err := IsBaselinePod(tt.args.pod.ObjectMeta, tt.args.baselinePercent, tt.args.baselineSentinel, tt.args.customCompareKey)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("IsBaselinePod() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -309,7 +319,7 @@ func TestSetSPDBaselinePercentile(t *testing.T) {
 		wantSPD *v1alpha1.ServiceProfileDescriptor
 	}{
 		{
-			name: "add",
+			name: "deploy add",
 			args: args{
 				spd: &v1alpha1.ServiceProfileDescriptor{
 					ObjectMeta: metav1.ObjectMeta{
@@ -317,21 +327,21 @@ func TestSetSPDBaselinePercentile(t *testing.T) {
 					},
 				},
 				c: &SPDBaselinePodMeta{
-					metav1.NewTime(time.UnixMilli(1690848000)),
-					"test-spd",
+					TimeStamp: metav1.NewTime(time.UnixMilli(1690848000)),
+					PodName:   "test-spd",
 				},
 			},
 			wantSPD: &v1alpha1.ServiceProfileDescriptor{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-spd",
 					Annotations: map[string]string{
-						consts.SPDAnnotationBaselineSentinelKey: "{\"timeStamp\":\"1970-01-20T13:40:48Z\",\"podName\":\"test-spd\"}",
+						consts.SPDAnnotationBaselineSentinelKey: "{\"timeStamp\":\"1970-01-20T13:40:48Z\",\"podName\":\"test-spd\",\"customCompareKey\":\"\",\"customCompareValue\":null}",
 					},
 				},
 			},
 		},
 		{
-			name: "delete",
+			name: "deploy delete",
 			args: args{
 				spd: &v1alpha1.ServiceProfileDescriptor{
 					ObjectMeta: metav1.ObjectMeta{
@@ -357,7 +367,7 @@ func TestSetSPDBaselinePercentile(t *testing.T) {
 			t.Parallel()
 
 			SetSPDBaselineSentinel(tt.args.spd, tt.args.c)
-			assert.Equal(t, tt.args.spd, tt.wantSPD)
+			assert.Equal(t, tt.wantSPD, tt.args.spd)
 		})
 	}
 }

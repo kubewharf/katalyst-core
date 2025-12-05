@@ -17,6 +17,7 @@ limitations under the License.
 package spd
 
 import (
+	"fmt"
 	"math"
 	"sort"
 
@@ -47,12 +48,18 @@ func (sc *SPDController) updateBaselineSentinel(spd *v1alpha1.ServiceProfileDesc
 	}
 
 	// calculate baseline sentinel
-	baselineSentinel := calculateBaselineSentinel(podMetaList, spd.Spec.BaselinePercent)
+	baselineSentinel, err := calculateBaselineSentinel(podMetaList, spd.Spec.BaselinePercent)
+	if err != nil {
+		return err
+	}
 
 	// calculate extended baseline sentinel for each extended indicator
 	extendedBaselineSentinel := make(map[string]util.SPDBaselinePodMeta)
 	for _, indicator := range spd.Spec.ExtendedIndicator {
-		sentinel := calculateBaselineSentinel(podMetaList, indicator.BaselinePercent)
+		sentinel, err := calculateBaselineSentinel(podMetaList, indicator.BaselinePercent)
+		if err != nil {
+			return err
+		}
 		if sentinel == nil {
 			continue
 		}
@@ -79,9 +86,15 @@ func (sc *SPDController) getSPDPodMetaList(spd *v1alpha1.ServiceProfileDescripto
 		return nil, nil
 	}
 
+	spdCustomCompareKey := util.GetSPDCustomCompareKeys(spd)
+
 	podMetaList := make([]util.SPDBaselinePodMeta, 0, len(podList))
 	for _, p := range podList {
-		podMetaList = append(podMetaList, util.GetSPDBaselinePodMeta(p.ObjectMeta))
+		podMeta, err := util.GetSPDBaselinePodMeta(p.ObjectMeta, spdCustomCompareKey)
+		if err != nil {
+			return nil, err
+		}
+		podMetaList = append(podMetaList, *podMeta)
 	}
 	sort.SliceStable(podMetaList, func(i, j int) bool {
 		return podMetaList[i].Cmp(podMetaList[j]) < 0
@@ -92,16 +105,28 @@ func (sc *SPDController) getSPDPodMetaList(spd *v1alpha1.ServiceProfileDescripto
 
 // calculateBaselineSentinel returns the sentinel one for a list of pods
 // referenced by the SPD. If one pod's createTime is less than the sentinel pod
-func calculateBaselineSentinel(podMetaList []util.SPDBaselinePodMeta, baselinePercent *int32) *util.SPDBaselinePodMeta {
+func calculateBaselineSentinel(podMetaList []util.SPDBaselinePodMeta, baselinePercent *int32) (*util.SPDBaselinePodMeta, error) {
 	if baselinePercent == nil || *baselinePercent >= consts.SPDBaselinePercentMax ||
 		*baselinePercent <= consts.SPDBaselinePercentMin {
-		return nil
+		return nil, nil
 	}
 
 	if len(podMetaList) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	baselineIndex := int(math.Floor(float64(len(podMetaList)-1) * float64(*baselinePercent) / 100))
-	return &podMetaList[baselineIndex]
+
+	customCompareKey := podMetaList[0].CustomCompareKey
+	if customCompareKey == "" {
+		return &podMetaList[baselineIndex], nil
+	}
+
+	customKeyProcessor, err := util.GetSPDPodMetaCustomProcessor(customCompareKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get custom processor for %s: %v", customCompareKey, err)
+	}
+
+	customSentinelFunc := customKeyProcessor.PodMetaCustomSentinelProcessor
+	return customSentinelFunc(podMetaList, baselinePercent), nil
 }
