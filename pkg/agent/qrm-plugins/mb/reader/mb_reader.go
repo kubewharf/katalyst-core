@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"go.uber.org/atomic"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
@@ -38,9 +39,17 @@ const (
 	maxCCDTotalMB  = 60 * 1024
 )
 
-// LocalIsVictimAndTotalIsAllRead indicates special settings of resctrl controlling reg1 & reg2 which yield
+// localIsVictimAndTotalIsAllRead indicates special settings of resctrl controlling reg1 & reg2 which yield
 // resctrl mbm_total_bytes having local+remote reads and mbm_local_bytes having victim data
-var LocalIsVictimAndTotalIsAllRead bool
+var localIsVictimAndTotalIsAllRead atomic.Bool
+
+func SetLocalIsVictimAndTotalIsAllRead(value bool) {
+	localIsVictimAndTotalIsAllRead.Store(value)
+}
+
+func getLocalIsVictimAndTotalIsAllRead() bool {
+	return localIsVictimAndTotalIsAllRead.Load()
+}
 
 type MBData struct {
 	MBBody     monitor.GroupMBStats
@@ -199,7 +208,7 @@ func calcGroupMBRate(newCounter, oldCounter []malachitetypes.MBCCDStat, msElapse
 		}
 
 		rateRemoteMB := 0
-		if !LocalIsVictimAndTotalIsAllRead {
+		if !getLocalIsVictimAndTotalIsAllRead() {
 			if rateTotalMB < rateLocalMB {
 				return nil, fmt.Errorf("skip invalid mb cal: ccd %v, total %v, locval %v",
 					ccd, rateTotalMB, rateLocalMB)

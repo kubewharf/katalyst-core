@@ -17,6 +17,12 @@ limitations under the License.
 package quota
 
 import (
+	"fmt"
+
+	"github.com/pkg/errors"
+
+	"k8s.io/apimachinery/pkg/util/sets"
+
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/resource"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -53,12 +59,11 @@ func (r ratioCapacityReserver) GetGroupQuotas(groupLimits *resource.MBGroupIncom
 		}
 
 		// reserve the needed buffer from this group, as much as it can
-		oneGroup, err := resource.GetGroupRepresentative(groupLimits.GroupSorted[i])
+		available, err := getAvailableOfEquivGroups(groupLimits.GroupSorted[i], groupLimits)
 		if err != nil {
-			general.Warningf("[mbm] failed to get rep of group %d: %v", i, err)
+			general.Warningf("[mbm] failed to get available mb of group %d: %v", i, err)
 			continue
 		}
-		available := groupLimits.GroupLimits[oneGroup]
 		available, bufferNeeded = reserveFrom(available, bufferNeeded)
 		for group := range groupLimits.GroupSorted[i] {
 			quotas[group] = available
@@ -66,6 +71,17 @@ func (r ratioCapacityReserver) GetGroupQuotas(groupLimits *resource.MBGroupIncom
 	}
 
 	return quotas
+}
+
+func getAvailableOfEquivGroups(equivGroups sets.String, groupLimits *resource.MBGroupIncomingStat) (int, error) {
+	// all elements of equivGroups have identical GroupLimits value; suffice to get any
+	oneGroup, err := resource.GetGroupRepresentative(equivGroups)
+	if err != nil {
+		return 0, errors.Wrap(err, fmt.Sprintf("failed to get representative of equivalent groups %v", equivGroups))
+	}
+
+	available := groupLimits.GroupLimits[oneGroup]
+	return available, nil
 }
 
 var _ Decider = &ratioCapacityReserver{}

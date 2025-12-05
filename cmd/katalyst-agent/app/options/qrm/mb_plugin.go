@@ -19,6 +19,7 @@ package qrm
 import (
 	cliflag "k8s.io/component-base/cli/flag"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/policy/consts"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 )
 
@@ -51,7 +52,7 @@ type MBOptions struct {
 
 func NewMBOptions() *MBOptions {
 	return &MBOptions{
-		PolicyName:               "generic", // only generic policy is supported right now
+		PolicyName:               consts.MBPluginPolicyNameGeneric, // only generic policy is supported right now
 		MinCCDMB:                 defaultMinCCDMB,
 		MaxCCDMB:                 defaultMaxCCDMB,
 		MBCapLimitPercent:        defaultMBCapLimitPercent,

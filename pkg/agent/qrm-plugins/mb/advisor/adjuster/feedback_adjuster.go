@@ -21,7 +21,7 @@ type feedbackAdjuster struct {
 }
 
 func feedback(x0, x1, y1 int) (y0 int) {
-	// assuming x0:y0 == x1:y1 to calculate x1 = x0/y0*y1
+	// assuming x0:y0 == x1:y1 to calculate y0 = (y1/x1) * x0
 	// where x[i] is the effective value to set, and y[i] the resultant usage being controlled by x[i]
 	if x1 == 0 || x0 == 0 {
 		return y1

@@ -16,7 +16,17 @@ limitations under the License.
 
 package monitor
 
-var MinActiveMB int
+import "go.uber.org/atomic"
+
+var minActiveMB atomic.Int64
+
+func SetMinActiveMB(value int) {
+	minActiveMB.Store(int64(value))
+}
+
+func getMinActiveMB() int {
+	return int(minActiveMB.Load())
+}
 
 // GroupMBStats is memory bandwidth statistic info of multiple groups, each of the groups has multiple CCDs,
 // in line with resctrl FS mon-group mon-data structure
@@ -45,5 +55,5 @@ func (g GroupMB) SumStat() MBInfo {
 
 func (g GroupMB) HasTraffic() bool {
 	totalMB := g.SumStat().TotalMB
-	return totalMB >= MinActiveMB
+	return totalMB >= getMinActiveMB()
 }

@@ -14,14 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package mb
+package consts
 
-import (
-	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent/qrm"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/policy"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/policy/consts"
-)
-
-func init() {
-	qrm.RegisterMBPolicyInitializer(consts.MBPluginPolicyNameGeneric, policy.NewGenericPolicy)
-}
+const MBPluginPolicyNameGeneric = "generic"

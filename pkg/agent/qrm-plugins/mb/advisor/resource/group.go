@@ -21,8 +21,10 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
-func GetGroupRepresentative(group sets.String) (string, error) {
-	for element := range group {
+// GetGroupRepresentative return any one in the set, as all in the set are equivalent
+// in terms of mem bandwidth allocation (specifically allocation weight and available quota)
+func GetGroupRepresentative(equivGroup sets.String) (string, error) {
+	for element := range equivGroup {
 		return element, nil
 	}
 

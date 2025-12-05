@@ -23,15 +23,19 @@ import (
 	"golang.org/x/exp/maps"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
+
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/allocator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/domain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/reader"
+	"github.com/kubewharf/katalyst-core/pkg/config"
 	metrictypes "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
@@ -45,8 +49,6 @@ const (
 )
 
 type MBPlugin struct {
-	resetResctrlOnly bool
-
 	chStop  chan struct{}
 	emitter metrics.MetricEmitter
 
@@ -57,6 +59,10 @@ type MBPlugin struct {
 	reader        reader.MBReader
 	advisor       advisor.Advisor
 	planAllocator allocator.PlanAllocator
+
+	metricFetcher metrictypes.MetricsFetcher
+	conf          *config.Configuration
+	agentCtx      *agent.GenericContext
 }
 
 func (m *MBPlugin) Name() string {
@@ -71,14 +77,39 @@ func (m *MBPlugin) Start() error {
 	ccds := sets.NewInt(maps.Keys(m.ccdToDomain)...)
 	if err := m.planAllocator.Reset(context.Background(), ccds); err != nil {
 		general.Errorf("mbm: reset resctrl FS on start failed: %v", err)
+		return nil
 	}
 
-	if m.resetResctrlOnly {
+	if m.conf.ResetResctrlOnly {
 		general.Infof("mbm: not intended to manage mem bandwidth; to end immediately after resctrl state reset")
 		return nil
 	}
 
 	m.chStop = make(chan struct{})
+	if !cache.WaitForCacheSync(m.chStop, m.metricFetcher.HasSynced) {
+		general.Errorf("mbm: wait for metric fetcher cache sync failed")
+		return nil
+	}
+
+	// determine mb capacities of qos groups after metric fetch has been fully synced
+	groupCapacities, defaultMBDomainCapacity, err := initGroupCapacities(m.metricFetcher,
+		m.agentCtx.KatalystMachineInfo.ExtraTopologyInfo.SiblingNumaAvgMBWCapacityMap,
+		m.agentCtx.KatalystMachineInfo.ExtraTopologyInfo.SiblingNumaInfo,
+		m.conf.MBQRMPluginConfig.DomainGroupAwareCapacityPCT,
+	)
+	if err != nil {
+		general.Errorf("mbm: failed to determine group capacities: %v; not to enable mbm", err)
+		return nil
+	}
+
+	// initializing advisor field is deferred as qos group mb capacities is known now
+	m.advisor = advisor.New(m.emitter, m.domains,
+		m.conf.MinCCDMB, m.conf.MaxCCDMB,
+		defaultMBDomainCapacity, m.conf.MBCapLimitPercent,
+		m.conf.CrossDomainGroups, m.conf.MBQRMPluginConfig.NoThrottleGroups,
+		groupCapacities,
+	)
+
 	go func() {
 		wait.Until(m.run, interval, m.chStop)
 
@@ -153,25 +184,24 @@ func (m *MBPlugin) run() {
 	general.InfofV(6, "[mbm] plugin run end")
 }
 
-func newMBPlugin(resetResctrlOnly bool,
-	ccdMinMB, ccdMaxMB int, defaultDomainCapacity int, capPercent int,
-	domains domain.Domains, xDomGroups []string, groupNeverThrottles []string,
-	groupCapacities map[string]int, metricFetcher metrictypes.MetricsFetcher,
+func newMBPlugin(agentCtx *agent.GenericContext, conf *config.Configuration,
+	domains domain.Domains, metricFetcher metrictypes.MetricsFetcher,
 	planAllocator allocator.PlanAllocator, emitPool metricspool.MetricsEmitterPool,
 ) skeleton.GenericPlugin {
 	ccdMappings := domains.GetCCDMapping()
 	general.Infof("[mbm] initialization: ccd-to-domain mapping %v", ccdMappings)
 	emitter := emitPool.GetDefaultMetricsEmitter().WithTags(metricName)
+
+	// note: advisor not initialed yet until later at runtime
 	return &MBPlugin{
-		resetResctrlOnly: resetResctrlOnly,
-		emitter:          emitter,
-		ccdToDomain:      ccdMappings,
-		xDomGroups:       sets.NewString(xDomGroups...),
-		domains:          domains,
-		reader:           reader.New(metricFetcher),
-		advisor: advisor.New(emitter, domains, ccdMinMB, ccdMaxMB, defaultDomainCapacity, capPercent,
-			xDomGroups, groupNeverThrottles, groupCapacities,
-		),
+		emitter:       emitter,
+		ccdToDomain:   ccdMappings,
+		xDomGroups:    sets.NewString(conf.CrossDomainGroups...),
+		domains:       domains,
+		reader:        reader.New(metricFetcher),
 		planAllocator: planAllocator,
+		metricFetcher: metricFetcher,
+		conf:          conf,
+		agentCtx:      agentCtx,
 	}
 }

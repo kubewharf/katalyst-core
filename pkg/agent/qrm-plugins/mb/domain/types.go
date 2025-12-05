@@ -96,11 +96,11 @@ func getMinNumaID(numaIDs sets.Int) (int, error) {
 	return result, nil
 }
 
-func getMinSiblingNumaID(numaMap map[int]sets.Int) ([]int, error) {
+func getMinSiblingNumaID(numaSiblingMap map[int]sets.Int) ([]int, error) {
 	result := []int{}
 
 	knownNumas := sets.NewInt()
-	for numaID, siblings := range numaMap {
+	for numaID, siblings := range numaSiblingMap {
 		if knownNumas.Has(numaID) {
 			continue
 		}
@@ -128,12 +128,14 @@ func getMinSiblingNumaID(numaMap map[int]sets.Int) ([]int, error) {
 	return result, nil
 }
 
-func identifyDomainByNumas(numaMap map[int]sets.Int) (map[int]sets.Int, error) {
-	if len(numaMap) == 0 {
-		return nil, errors.New("invalid empty machine sibling numa info")
+// identifyNumaFellowships gets the fellowship groups of numas,
+// each fellowship contains one numa plus its all siblings
+func identifyNumaFellowships(numaSiblingMap map[int]sets.Int) (map[int]sets.Int, error) {
+	if len(numaSiblingMap) == 0 {
+		return nil, errors.New("invalid empty sibling numa info")
 	}
 
-	minNumaIDs, err := getMinSiblingNumaID(numaMap)
+	minNumaIDs, err := getMinSiblingNumaID(numaSiblingMap)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to identify domain by numas")
 	}
@@ -143,7 +145,7 @@ func identifyDomainByNumas(numaMap map[int]sets.Int) (map[int]sets.Int, error) {
 	result := map[int]sets.Int{}
 	for id, minNumaID := range minNumaIDs {
 		result[id] = sets.NewInt(minNumaID)
-		result[id].Insert(numaMap[minNumaID].List()...)
+		result[id].Insert(numaSiblingMap[minNumaID].List()...)
 	}
 	return result, nil
 }
@@ -170,19 +172,19 @@ func NewDomainsByMachineInfo(info *machine.KatalystMachineInfo, maxRemoteMB int)
 		return nil, errors.New("invalid nil machine sibling numa info")
 	}
 
-	domainToNumas, err := identifyDomainByNumas(info.SiblingNumaMap)
+	numaMBDomains, err := identifyNumaFellowships(info.SiblingNumaMap)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get domains out of machine info")
 	}
 
 	if klog.V(6).Enabled() {
-		for domainID, numas := range domainToNumas {
+		for domainID, numas := range numaMBDomains {
 			klog.Infof("[mbm] mb domain %d, numas = %v", domainID, numas)
 		}
 	}
 
 	result := Domains{}
-	for domainID, numas := range domainToNumas {
+	for domainID, numas := range numaMBDomains {
 		dies, errCurr := getL3CacheIDsByNUMAs(numas, info.CPUDetails)
 		if errCurr != nil {
 			return nil, errors.Wrapf(err, "failed to locate numa ccds for domain %d", domainID)

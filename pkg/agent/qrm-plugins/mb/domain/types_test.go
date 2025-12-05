@@ -318,7 +318,7 @@ func TestNewDomainsByMachineInfo(t *testing.T) {
 	}
 }
 
-func Test_identifyDomainByNumas(t *testing.T) {
+func Test_identifyNumaFellowships(t *testing.T) {
 	t.Parallel()
 	type args struct {
 		numaMap map[int]sets.Int
@@ -348,13 +348,13 @@ func Test_identifyDomainByNumas(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := identifyDomainByNumas(tt.args.numaMap)
+			got, err := identifyNumaFellowships(tt.args.numaMap)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("identifyDomainByNumas() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("identifyNumaFellowships() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("identifyDomainByNumas() got = %v, want %v", got, tt.want)
+				t.Errorf("identifyNumaFellowships() got = %v, want %v", got, tt.want)
 			}
 		})
 	}

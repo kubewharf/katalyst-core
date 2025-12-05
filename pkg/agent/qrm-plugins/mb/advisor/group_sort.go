@@ -17,13 +17,16 @@ limitations under the License.
 package advisor
 
 import (
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/resource"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 const defaultWeight = 5_000
@@ -93,8 +96,13 @@ func mergeGroupsByWeight(groups []string) []sets.String {
 		}
 
 		lastGroup := mergedGroups[len(mergedGroups)-1]
-		lastGroupRep, err := resource.GetGroupRepresentative(lastGroup)
-		if err == nil && getWeight(group) == getWeight(lastGroupRep) {
+		weightLastGroup, err := getWeightOfEquivGroup(lastGroup)
+		if err != nil {
+			general.Warningf("[mbm] failed to get allocation weight of group %v: %v", lastGroup, err)
+			continue
+		}
+
+		if getWeight(group) == weightLastGroup {
 			lastGroup.Insert(group)
 			continue
 		}
@@ -102,4 +110,13 @@ func mergeGroupsByWeight(groups []string) []sets.String {
 		mergedGroups = append(mergedGroups, sets.NewString(group))
 	}
 	return mergedGroups
+}
+
+func getWeightOfEquivGroup(equivGroups sets.String) (int, error) {
+	repGroup, err := resource.GetGroupRepresentative(equivGroups)
+	if err != nil {
+		return 0, errors.Wrap(err, fmt.Sprintf("failed to get representative of groups %v", equivGroups))
+	}
+
+	return getWeight(repGroup), nil
 }
