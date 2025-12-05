@@ -196,14 +196,15 @@ func (bc *BorweinController) getUpdatedIndicators(indicators types.Indicator) ty
 			general.Infof("update indicator: %s target: %.2f by offset: %.2f",
 				indicatorName, indicatorValue.Target, bc.indicatorOffsets[indicatorName])
 			indicatorValue.Target += bc.indicatorOffsets[indicatorName]
-			print()
 		}
 
-		// restrict target in specific range
-		bp := bc.borweinParameters[indicatorName]
-		if bp != nil && bp.IndicatorMin != 0 && bp.IndicatorMax != 0 {
-			indicatorValue.Target = general.Clamp(indicatorValue.Target, bp.IndicatorMin, bp.IndicatorMax)
-			general.Infof("restricted indicator: %s target: %.2f ", indicatorName, indicatorValue.Target)
+		if bc.conf.RestrictIndicator {
+			// restrict target indicator in specific range
+			bp := bc.borweinParameters[indicatorName]
+			if bp != nil && bp.IndicatorMin != 0 && bp.IndicatorMax != 0 {
+				indicatorValue.Target = general.Clamp(indicatorValue.Target, bp.IndicatorMin, bp.IndicatorMax)
+				general.Infof("restricted indicator: %s target: %.2f ", indicatorName, indicatorValue.Target)
+			}
 		}
 
 		finalIndicators[indicatorName] = indicatorValue
