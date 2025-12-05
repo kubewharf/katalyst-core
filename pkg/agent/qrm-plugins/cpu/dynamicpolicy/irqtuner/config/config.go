@@ -178,7 +178,7 @@ type IrqTuningConfig struct {
 	DisableXPS                  bool                        // disable xps according to machine specification
 	NicAffinitySocketsPolicy    NicAffinitySocketsPolicy    // nics's irqs affinity sockets policy
 	IrqCoresExpectedCpuUtil     int
-	NormalThroughputNics        []NicInfo // if NormalThroughputNics length is zero, then dynmamically classify nics according to ThroughputClassSwitchConf
+	NormalThroughputNics        []NicInfo // if NormalThroughputNics length is zero, then dynamically classify nics according to ThroughputClassSwitchConf
 	ThroughputClassSwitchConf   ThroughputClassSwitchConfig
 	ReniceIrqCoresKsoftirqd     bool
 	IrqCoresKsoftirqdNice       int
