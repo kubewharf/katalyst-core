@@ -966,12 +966,6 @@ func (n *NicInfo) updateIrqAffinity(changedIrq2Core map[int]int64) error {
 	}
 	n.SocketIrqCores = socketIrqCores
 
-	irqs := n.getIrqs()
-	general.Infof("%s after updateIrqAffinity, nic %s irq affinity (irq -> cpu):", IrqTuningLogPrefix, n)
-	for _, irq := range irqs {
-		general.Infof("%s   %d -> %d", IrqTuningLogPrefix, irq, n.Irq2Core[irq])
-	}
-
 	return nil
 }
 
@@ -2389,12 +2383,12 @@ func (ic *IrqTuningController) updateNicIrqTuningManagers(nics []*machine.NicBas
 	ic.Nics = nicManagers
 	ic.LowThroughputNics = lowThroughputNicManagers
 
-	general.Infof("%s new synced normal throughput nics:", IrqTuningLogPrefix)
+	general.Infof("%s new normal throughput nic managers:", IrqTuningLogPrefix)
 	for _, nic := range ic.Nics {
 		general.Infof("%s   %s, queue number %d", IrqTuningLogPrefix, nic.NicInfo, nic.NicInfo.QueueNum)
 	}
 
-	general.Infof("%s new synced low throughput nics:", IrqTuningLogPrefix)
+	general.Infof("%s new low throughput nic managers:", IrqTuningLogPrefix)
 	for _, nic := range ic.LowThroughputNics {
 		general.Infof("%s   %s, queue number %d", IrqTuningLogPrefix, nic.NicInfo, nic.NicInfo.QueueNum)
 	}
