@@ -54,6 +54,8 @@ type IRQTuningOptions struct {
 
 	// RPSExcludeIRQCoresThreshold describes the threshold of excluding irq cores for rps.
 	RPSExcludeIRQCoresThreshold *rpsexcludeirqcore.RPSExcludeIRQCoresThreshold
+	// NormalTroughputNics describes static configured normal throughput Nics
+	NormalThroughputNics []string
 	// ThroughputClassSwitchOptions describes the switch configuration for a throughput class.
 	ThroughputClassSwitchOptions *throughputclassswitch.ThroughputClassSwitchOptions
 	// Threshold description for interrupting core network overLoad.
@@ -80,6 +82,7 @@ func NewIRQTuningOptions() *IRQTuningOptions {
 		CoresExpectedCPUUtil:    50,
 
 		RPSExcludeIRQCoresThreshold:  rpsexcludeirqcore.NewRPSExcludeIRQCoresThreshold(),
+		NormalThroughputNics:         []string{},
 		ThroughputClassSwitchOptions: throughputclassswitch.NewThroughputClassSwitchOptions(),
 		CoreNetOverLoadThreshold:     netoverload.NewIRQCoreNetOverloadThresholdOptions(),
 		LoadBalanceOptions:           loadbalance.NewIRQLoadBalanceOptions(),
@@ -100,6 +103,7 @@ func (o *IRQTuningOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.BoolVar(&o.ReniceKsoftirqd, "renice-ksoftirqd", o.ReniceKsoftirqd, "renice ksoftirqd")
 	fs.IntVar(&o.KsoftirqdNice, "ksoftirqd-nice", o.KsoftirqdNice, "ksoftirqd nice")
 	fs.IntVar(&o.CoresExpectedCPUUtil, "cores-expected-cpu-util", o.CoresExpectedCPUUtil, "irq cores expected cpu util")
+	fs.StringSliceVar(&o.NormalThroughputNics, "normal-throughput-nics", o.NormalThroughputNics, "static configured normal throughput nics")
 
 	o.RPSExcludeIRQCoresThreshold.AddFlags(fss)
 	o.ThroughputClassSwitchOptions.AddFlags(fss)
@@ -124,6 +128,8 @@ func (o *IRQTuningOptions) ApplyTo(c *irqdynamicconf.IRQTuningConfiguration) err
 	c.KsoftirqdNice = o.KsoftirqdNice
 
 	c.CoresExpectedCPUUtil = o.CoresExpectedCPUUtil
+
+	c.NormalThroughputNics = o.NormalThroughputNics
 
 	errList = append(errList, o.RPSExcludeIRQCoresThreshold.ApplyTo(c.RPSExcludeIRQCoresThreshold))
 	errList = append(errList, o.ThroughputClassSwitchOptions.ApplyTo(c.ThroughputClassSwitchConf))
