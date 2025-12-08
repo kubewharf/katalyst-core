@@ -249,17 +249,18 @@ func (p *ReclaimedNumaResourcesPlugin) GetTopEvictionPods(ctx context.Context, r
 		numaPodsMap[numaID] = append(numaPodsMap[numaID], pod)
 	}
 
-	parseNumaScope := func(evictionScope string) (string, error) {
+	parseNumaScope := func(evictionScope string) (string, string, error) {
 		fields := strings.Split(evictionScope, "_")
-		if len(fields) < 1 {
-			return "", fmt.Errorf("invalid eviction scope: %s", evictionScope)
+		if len(fields) != 2 {
+			return "", "", fmt.Errorf("invalid eviction scope: %s", evictionScope)
 		}
 
 		numa := strings.TrimPrefix(fields[0], "numa")
-		return numa, nil
+		resourceName := fields[1]
+		return numa, resourceName, nil
 	}
 
-	evictionNumaID, err := parseNumaScope(request.EvictionScope)
+	evictionNumaID, resourceName, err := parseNumaScope(request.EvictionScope)
 	klog.Infof("[%s]GetTopEvictionPods parse evictionNumaID: %+v", p.pluginName, evictionNumaID)
 	if err != nil {
 		klog.Errorf("[%s] failed to parse eviction scope: %v", p.pluginName, err)
@@ -271,10 +272,10 @@ func (p *ReclaimedNumaResourcesPlugin) GetTopEvictionPods(ctx context.Context, r
 		valueI, valueJ := int64(0), int64(0)
 
 		resourceI, resourceJ := p.podRequestResourcesGetter(candidateEvictionPods[i]), p.podRequestResourcesGetter(candidateEvictionPods[j])
-		if quantity, ok := resourceI[v1.ResourceName(request.EvictionScope)]; ok {
+		if quantity, ok := resourceI[v1.ResourceName(resourceName)]; ok {
 			valueI = (&quantity).Value()
 		}
-		if quantity, ok := resourceJ[v1.ResourceName(request.EvictionScope)]; ok {
+		if quantity, ok := resourceJ[v1.ResourceName(resourceName)]; ok {
 			valueJ = (&quantity).Value()
 		}
 		return valueI > valueJ
