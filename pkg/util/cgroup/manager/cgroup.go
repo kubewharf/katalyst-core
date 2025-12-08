@@ -527,28 +527,51 @@ func DisableSwapMaxWithAbsolutePathRecursive(absCgroupPath string) error {
 func MemoryOffloadingWithAbsolutePath(ctx context.Context, absCgroupPath string, nbytes int64, mems machine.CPUSet) error {
 	startTime := time.Now()
 
-	var cmd string
+	var (
+		cmd string
+		err error
+	)
 	if common.CheckCgroup2UnifiedMode() {
 		if nbytes <= 0 {
 			general.Infof("[MemoryOffloadingWithAbsolutePath] skip memory reclaim on %s since nbytes is not valid", absCgroupPath)
 			return nil
 		}
 		// cgv2
-		cmd = fmt.Sprintf("echo %d > %s", nbytes, filepath.Join(absCgroupPath, "memory.reclaim"))
+		const reclaimChunkSize int64 = 1 << 30 // 1GiB
+		memReclaimPath := filepath.Join(absCgroupPath, "memory.reclaim")
+
+		remaining := nbytes
+		for remaining > 0 {
+			chunk := reclaimChunkSize
+			if remaining < chunk {
+				chunk = remaining
+			}
+
+			cmd = fmt.Sprintf("echo %d > %s", chunk, memReclaimPath)
+
+			if e := doReclaimMemory(cmd, mems); e != nil {
+				err = e
+				break
+			}
+
+			remaining -= chunk
+			if remaining > 0 {
+				time.Sleep(5 * time.Millisecond)
+			}
+		}
+
 	} else {
 		// cgv1
 		general.Infof("[MemoryOffloadingWithAbsolutePath] is not supported on cgroupv1")
 		return nil
 	}
 
-	err := doReclaimMemory(cmd, mems)
-
 	_ = asyncworker.EmitAsyncedMetrics(ctx, metrics.ConvertMapToTags(map[string]string{
 		"absCGPath": absCgroupPath,
 		"succeeded": fmt.Sprintf("%v", err == nil),
 	})...)
 	delta := time.Since(startTime).Seconds()
-	general.Infof("[MemoryOffloadingWithAbsolutePath] it takes %v to do \"%s\" on cgroup: %s", delta, cmd, absCgroupPath)
+	general.Infof("[MemoryOffloadingWithAbsolutePath] it takes %v to do \"%v\" on cgroup: %s", delta, nbytes, absCgroupPath)
 
 	return err
 }
