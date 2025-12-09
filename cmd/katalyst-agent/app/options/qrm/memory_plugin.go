@@ -21,6 +21,7 @@ import (
 
 	cliflag "k8s.io/component-base/cli/flag"
 
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
@@ -83,6 +84,7 @@ type ResctrlOptions struct {
 	// based on its cpu set pool annotation
 	CPUSetPoolToSharedSubgroup map[string]int
 	DefaultSharedSubgroup      int
+	EnabledQoS                 []string
 
 	// MonGroupEnabledClosIDs specifies mon_groups layout policy of kubelet
 	// by default no special mon_groups layout, which allows kubelet to decide by itself, suitable for scenarios
@@ -125,6 +127,7 @@ func NewMemoryOptions() *MemoryOptions {
 		ResctrlOptions: ResctrlOptions{
 			CPUSetPoolToSharedSubgroup: make(map[string]int),
 			DefaultSharedSubgroup:      -1,
+			EnabledQoS:                 []string{apiconsts.PodAnnotationQoSLevelSharedCores},
 			MonGroupEnabledClosIDs:     []string{},
 		},
 	}
@@ -187,6 +190,8 @@ func (o *MemoryOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.CPUSetPoolToSharedSubgroup, "customize shared-xx subgroup if present")
 	fs.IntVar(&o.DefaultSharedSubgroup, "resctrl-default-shared-subgroup",
 		o.DefaultSharedSubgroup, "default subgroup for shared qos")
+	fs.StringSliceVar(&o.EnabledQoS, "resctrl-enabled-qos",
+		o.EnabledQoS, "enabled qos levels to create resctrl closID")
 	fs.StringSliceVar(&o.MonGroupEnabledClosIDs, "resctrl-mon-groups-enabled-closids",
 		o.MonGroupEnabledClosIDs, "enabled-closid mon-groups")
 	fs.Float64Var(&o.MonGroupMaxCountRatio, "resctrl-mon-groups-max-count-ratio",
@@ -221,6 +226,7 @@ func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
 	conf.EnableResctrlHint = o.EnableResctrlHint
 	conf.CPUSetPoolToSharedSubgroup = o.CPUSetPoolToSharedSubgroup
 	conf.DefaultSharedSubgroup = o.DefaultSharedSubgroup
+	conf.EnabledQoS = o.EnabledQoS
 	conf.MonGroupEnabledClosIDs = o.MonGroupEnabledClosIDs
 	conf.MonGroupMaxCountRatio = o.MonGroupMaxCountRatio
 

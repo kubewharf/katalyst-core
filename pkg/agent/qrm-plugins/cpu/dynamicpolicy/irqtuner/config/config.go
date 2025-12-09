@@ -18,6 +18,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 
@@ -57,6 +58,11 @@ const (
 // then rps_cpus excludes irq cores.
 type RPSExcludeIrqCoresThreshold struct {
 	RPSCoresVSIrqCoresRatio float64
+}
+
+type NicInfo struct {
+	NicName   string
+	NetNSName string // host netns name is empty
 }
 
 // LowThroughputThresholds thresholds of classifying a nic to low throughput class, if a nic's throughput meet LowThroughputThresholds, then
@@ -172,6 +178,7 @@ type IrqTuningConfig struct {
 	DisableXPS                  bool                        // disable xps according to machine specification
 	NicAffinitySocketsPolicy    NicAffinitySocketsPolicy    // nics's irqs affinity sockets policy
 	IrqCoresExpectedCpuUtil     int
+	NormalThroughputNics        []NicInfo // if NormalThroughputNics length is zero, then dynamically classify nics according to ThroughputClassSwitchConf
 	ThroughputClassSwitchConf   ThroughputClassSwitchConfig
 	ReniceIrqCoresKsoftirqd     bool
 	IrqCoresKsoftirqdNice       int
@@ -269,6 +276,11 @@ func (c *IrqTuningConfig) String() string {
 	msg = fmt.Sprintf("%s    DisableXPS: %t\n", msg, c.DisableXPS)
 	msg = fmt.Sprintf("%s    NicAffinitySocketsPolicy: %s\n", msg, c.NicAffinitySocketsPolicy)
 	msg = fmt.Sprintf("%s    IrqCoresExpectedCpuUtil: %d\n", msg, c.IrqCoresExpectedCpuUtil)
+	msg = fmt.Sprintf("%s    NormalThroughputNics:\n", msg)
+	for _, nic := range c.NormalThroughputNics {
+		msg = fmt.Sprintf("%s        NicName: %s\n", msg, nic.NicName)
+		msg = fmt.Sprintf("%s        NetNSName: %s\n", msg, nic.NetNSName)
+	}
 	msg = fmt.Sprintf("%s    ThroughputClassSwitchConf:\n", msg)
 	msg = fmt.Sprintf("%s        LowThroughputThresholds:\n", msg)
 	msg = fmt.Sprintf("%s            RxPPSThreshold: %d\n", msg, c.ThroughputClassSwitchConf.LowThroughputThresholds.RxPPSThreshold)
@@ -351,6 +363,12 @@ func ValidateIrqTuningDynamicConfig(dynamicConf *dynconfig.Configuration) error 
 
 	if conf.CoresExpectedCPUUtil <= 0 || conf.CoresExpectedCPUUtil >= 100 {
 		return fmt.Errorf("invalid CoresExpectedCPUUtil: %d", conf.CoresExpectedCPUUtil)
+	}
+
+	for _, nic := range conf.NormalThroughputNics {
+		if len(strings.Split(nic, "/")) > 2 {
+			return fmt.Errorf("invalid nic: %s", nic)
+		}
 	}
 
 	if conf.ThroughputClassSwitchConf != nil {
@@ -573,6 +591,21 @@ func ConvertDynamicConfigToIrqTuningConfig(dynamicConf *dynconfig.Configuration)
 		}
 
 		conf.IrqCoresExpectedCpuUtil = dynamicConf.IRQTuningConfiguration.CoresExpectedCPUUtil
+
+		for _, nic := range dynamicConf.IRQTuningConfiguration.NormalThroughputNics {
+			var n NicInfo
+			fields := strings.Split(nic, "/")
+			if len(fields) == 1 {
+				n.NicName = fields[0]
+			} else if len(fields) == 2 {
+				n.NetNSName = fields[0]
+				n.NicName = fields[1]
+			} else {
+				continue
+			}
+
+			conf.NormalThroughputNics = append(conf.NormalThroughputNics, n)
+		}
 
 		if dynamicConf.IRQTuningConfiguration.ThroughputClassSwitchConf != nil {
 			throughputClassSwitchConf := dynamicConf.IRQTuningConfiguration.ThroughputClassSwitchConf
