@@ -23,7 +23,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	metrics "k8s.io/metrics/pkg/apis/metrics/v1beta1"
 
 	apis "github.com/kubewharf/katalyst-api/pkg/apis/autoscaling/v1alpha1"
 	workload "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
@@ -84,7 +83,7 @@ type ContainerStatistic struct {
 	TimeSum       metav1.Duration
 }
 
-func (r *SimpleCPURecommender) computeAVGPodMetrics(podMetrics []metrics.PodMetrics, resourceName corev1.ResourceName) map[string]*resource.Quantity {
+func (r *SimpleCPURecommender) computeAVGPodMetrics(podMetrics []workload.PodMetrics, resourceName corev1.ResourceName) map[string]*resource.Quantity {
 	containerResources := make(map[string]*resource.Quantity)
 	statistics := make(map[string]*ContainerStatistic)
 

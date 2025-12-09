@@ -1074,7 +1074,7 @@ func TestIndicatorUpdater(t *testing.T) {
 			AggMetrics: []apiworkload.AggPodMetrics{
 				{
 					Aggregator: apiworkload.Avg,
-					Items: []metrics.PodMetrics{
+					Items: []apiworkload.PodMetrics{
 						{
 							Timestamp: metav1.NewTime(time.Date(2022, 1, 1, 1, 0, 0, 0, time.Local)),
 							Window:    metav1.Duration{Duration: time.Hour},
@@ -1258,7 +1258,7 @@ func TestIndicatorUpdater(t *testing.T) {
 	sc.indicatorManager.UpdateAggMetrics(nn, []apiworkload.AggPodMetrics{
 		{
 			Aggregator: apiworkload.Avg,
-			Items: []metrics.PodMetrics{
+			Items: []apiworkload.PodMetrics{
 				{
 					Timestamp: metav1.NewTime(time.Date(2022, 1, 1, 1, 0, 0, 0, time.Local)),
 					Window:    metav1.Duration{Duration: time.Hour},
