@@ -25,39 +25,55 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
-	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	appqrm "github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent/qrm"
 	sriovconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 )
 
-const (
-	SriovResourcePluginPolicyNameStatic = string(consts.ResourcePluginPolicyNameNative)
-)
-
 type StaticPolicy struct {
 	sync.Mutex
 
-	name    string
-	stopCh  chan struct{}
-	started bool
-	emitter metrics.MetricEmitter
+	name       string
+	stopCh     chan struct{}
+	started    bool
+	emitter    metrics.MetricEmitter
+	metaServer *metaserver.MetaServer
+	agentCtx   *agent.GenericContext
+	state      state.State
 }
 
 func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	_ interface{}, agentName string,
 ) (bool, agent.Component, error) {
 
+	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(agentName, metrics.MetricTag{
+		Key: util.QRMPluginPolicyTagName,
+		Val: sriovconsts.SriovResourcePluginPolicyNameStatic,
+	})
+
+	stateImpl, err := state.NewCheckpointState(conf.QRMPluginsConfiguration, conf.StateDirectoryConfiguration,
+		sriovconsts.SriovPluginStateFileName, sriovconsts.SriovResourcePluginPolicyNameStatic,
+		agentCtx.MachineInfo, conf.SkipSriovStateCorruption, wrappedEmitter)
+	if err != nil {
+		return false, agent.ComponentStub{}, fmt.Errorf("NewCheckpointState failed with error: %v", err)
+	}
+
 	policy := &StaticPolicy{
-		name: fmt.Sprintf("%s_%s", agentName, sriovconsts.SriovResourcePluginPolicyNameStatic),
+		name:       fmt.Sprintf("%s_%s", agentName, sriovconsts.SriovResourcePluginPolicyNameStatic),
+		emitter:    wrappedEmitter,
+		agentCtx:   agentCtx,
+		metaServer: agentCtx.MetaServer,
+		state:      stateImpl,
 	}
 
 	pluginWrapper, err := skeleton.NewRegistrationPluginWrapper(policy, conf.QRMPluginSocketDirs, nil)
@@ -120,6 +136,7 @@ func (p *StaticPolicy) Start() (err error) {
 func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 	req *pluginapi.ResourceRequest,
 ) (resp *pluginapi.ResourceHintsResponse, err error) {
+
 	// todo: implement me
 	panic("not implemented")
 }

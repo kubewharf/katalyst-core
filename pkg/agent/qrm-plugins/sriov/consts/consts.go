@@ -19,4 +19,6 @@ package consts
 const (
 	// SriovResourcePluginPolicyNameStatic is the name of static policy for sriov resource plugin
 	SriovResourcePluginPolicyNameStatic = "static"
+
+	SriovPluginStateFileName = "sriov_plugin_state"
 )

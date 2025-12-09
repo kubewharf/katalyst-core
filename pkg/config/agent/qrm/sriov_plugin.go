@@ -19,6 +19,8 @@ package qrm
 type SriovQRMPluginConfig struct {
 	// PolicyName is used to switch between several strategies
 	PolicyName string
+	// skip sriov state corruption and it will be used after updating state properties
+	SkipSriovStateCorruption bool
 }
 
 func NewSriovQRMPluginConfig() *SriovQRMPluginConfig {
