@@ -988,7 +988,7 @@ func (p *DynamicPolicy) handleAdvisorMemoryOffloading(_ *config.Configuration,
 		return fmt.Errorf("GetEffectiveCPUSetWithAbsolutePath failed with error: %v", err)
 	}
 
-	// start a asynchronous work to execute memory offloading
+	// start an asynchronous work to execute memory offloading
 	err = p.defaultAsyncLimitedWorkers.AddWork(
 		&asyncworker.Work{
 			Name:        memoryOffloadingWorkName,
@@ -1000,7 +1000,6 @@ func (p *DynamicPolicy) handleAdvisorMemoryOffloading(_ *config.Configuration,
 	if err != nil {
 		return fmt.Errorf("add work: %s pod: %s container: %s cgroup: %s failed with error: %v", memoryOffloadingWorkName, entryName, subEntryName, absCGPath, err)
 	}
-
 	_ = emitter.StoreInt64(util.MetricNameMemoryHandlerAdvisorMemoryOffload, memoryOffloadingSizeInBytesInt64,
 		metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
 			"entryName":    entryName,
