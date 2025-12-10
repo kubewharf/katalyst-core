@@ -24,11 +24,14 @@ import (
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
+	utilflag "github.com/kubewharf/katalyst-core/pkg/util/flags"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 type MemoryOptions struct {
 	PolicyName                                    string
 	ReservedMemoryGB                              uint64
+	ReservedNumaMemory                            []native.MemoryReservation
 	SkipMemoryStateCorruption                     bool
 	EnableSettingMemoryMigrate                    bool
 	EnableMemoryAdvisor                           bool
@@ -140,6 +143,8 @@ func (o *MemoryOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.PolicyName, "The policy memory resource plugin should use")
 	fs.Uint64Var(&o.ReservedMemoryGB, "memory-resource-plugin-reserved",
 		o.ReservedMemoryGB, "reserved memory(GB) for system agents")
+	fs.Var(&utilflag.ReservedMemoryVar{Value: &o.ReservedNumaMemory}, "memory-resource-plugin-numa-reserved",
+		"reserved numa memory for system agents. (e.g. --reserved-memory 0:memory=1Gi,hugepages-1M=2Gi/1:memory=2Gi). ")
 	fs.BoolVar(&o.SkipMemoryStateCorruption, "skip-memory-state-corruption",
 		o.SkipMemoryStateCorruption, "if set true, we will skip memory state corruption")
 	fs.BoolVar(&o.EnableSettingMemoryMigrate, "enable-setting-memory-migrate",
@@ -229,6 +234,10 @@ func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
 	conf.EnabledQoS = o.EnabledQoS
 	conf.MonGroupEnabledClosIDs = o.MonGroupEnabledClosIDs
 	conf.MonGroupMaxCountRatio = o.MonGroupMaxCountRatio
+
+	for _, reservation := range o.ReservedNumaMemory {
+		conf.ReservedNumaMemory[reservation.NumaNode] = reservation.Limits
+	}
 
 	return nil
 }

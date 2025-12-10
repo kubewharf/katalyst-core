@@ -147,8 +147,8 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	// add watcher for general gvrs needed in most cases
 	reservedCPUs, reserveErr := cpuutil.GetCoresReservedForSystem(conf, agentCtx.MetaServer, agentCtx.KatalystMachineInfo, agentCtx.CPUDetails.CPUs().Clone())
 	if reserveErr != nil {
-		return false, agent.ComponentStub{}, fmt.Errorf("GetCoresReservedForSystem for reservedCPUsNum: %d failed with error: %v",
-			conf.ReservedCPUCores, reserveErr)
+		return false, agent.ComponentStub{}, fmt.Errorf("GetCoresReservedForSystem for reservedCPUsNum: %d, reservedCPUList: %s failed with error: %v",
+			conf.ReservedCPUCores, conf.ReservedCPUList, reserveErr)
 	}
 
 	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(agentName, metrics.MetricTag{
