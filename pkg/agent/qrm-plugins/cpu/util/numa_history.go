@@ -37,7 +37,7 @@ func NewMetricHistory(ringSize int) *NumaMetricHistory {
 	}
 }
 
-func (m *NumaMetricHistory) Push(numaID int, podUID string, metricName string, podMetric float64) {
+func (m *NumaMetricHistory) Push(numaID int, podUID string, metricName string, podMetric, lowerBound, upperBound float64) {
 	collectTime := time.Now().UnixNano()
 
 	if m.Inner[numaID] == nil {
@@ -51,14 +51,16 @@ func (m *NumaMetricHistory) Push(numaID int, podUID string, metricName string, p
 	}
 	snapshot := &MetricSnapshot{
 		Info: MetricInfo{
-			Name:  metricName,
-			Value: podMetric,
+			Name:       metricName,
+			Value:      podMetric,
+			UpperBound: upperBound,
+			LowerBound: lowerBound,
 		},
 		Time: collectTime,
 	}
 	m.Inner[numaID][podUID][metricName].Push(snapshot)
 }
 
-func (m *NumaMetricHistory) PushNuma(numaID int, metricName string, podMetric float64) {
-	m.Push(numaID, FakePodUID, metricName, podMetric)
+func (m *NumaMetricHistory) PushNuma(numaID int, metricName string, podMetric, lowerBound, upperBound float64) {
+	m.Push(numaID, FakePodUID, metricName, podMetric, lowerBound, upperBound)
 }
