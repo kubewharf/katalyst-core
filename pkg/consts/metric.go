@@ -154,6 +154,11 @@ const (
 	MetricScalingCPUFreqKHZ   = "scaling.cur.freq.khz"
 )
 
+// memory bandwidth metrics
+const (
+	MetricRealtimeMB = "realtime.mb"
+)
+
 // Image filesystem metrics
 const (
 	MetricsImageFsAvailable  = "available.rootfs.system"
