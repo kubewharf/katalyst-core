@@ -250,6 +250,12 @@ func (p *ZoneResourcesPlugin) ThresholdMet(ctx context.Context, _ *pluginapi.Get
 					MetType:            pluginapi.ThresholdMetType_HARD_MET,
 					EvictionScope:      fmt.Sprintf("zone%s%s%s", zoneID, evictionScopeSplitter, string(resourceName)),
 					GracePeriodSeconds: p.thresholdMetToleranceDurationGetter(),
+					Condition: &pluginapi.Condition{
+						ConditionType: pluginapi.ConditionType_CNR_CONDITION,
+						Effects:       []string{string(v1.TaintEffectNoSchedule)},
+						ConditionName: fmt.Sprintf("%s-zone%s-pressure", resourceName, zoneID),
+						MetCondition:  true,
+					},
 				}, nil
 			}
 
