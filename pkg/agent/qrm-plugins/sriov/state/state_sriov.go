@@ -30,8 +30,10 @@ type sriovPluginState struct {
 	podEntries   PodEntries
 }
 
-func NewSriovPluginState() (*sriovPluginState, error) {
-	return &sriovPluginState{}, nil
+func NewSriovPluginState(machineInfo *info.MachineInfo) (*sriovPluginState, error) {
+	return &sriovPluginState{
+		machineInfo: machineInfo,
+	}, nil
 }
 
 func (s *sriovPluginState) SetMachineState(state VfState) {
@@ -57,24 +59,7 @@ func (s *sriovPluginState) SetAllocationInfo(podUID, containerName string, alloc
 
 	s.podEntries[podUID][containerName] = allocationInfo.Clone()
 	generalLog.InfoS("updated network plugin pod resource entries",
-		"podUID", podUID,
-		"containerName", containerName,
-		"allocationInfo", allocationInfo.String())
-}
-
-func (s *sriovPluginState) Delete(podUID, containerName string) {
-	s.Lock()
-	defer s.Unlock()
-
-	if _, ok := s.podEntries[podUID]; !ok {
-		return
-	}
-
-	delete(s.podEntries[podUID], containerName)
-	if len(s.podEntries[podUID]) == 0 {
-		delete(s.podEntries, podUID)
-	}
-	generalLog.InfoS("deleted container entry", "podUID", podUID, "containerName", containerName)
+		"podUID", podUID, "allocationInfo", allocationInfo.String())
 }
 
 func (s *sriovPluginState) ClearState() {
@@ -91,24 +76,14 @@ func (s *sriovPluginState) GetMachineState() VfState {
 	s.RLock()
 	defer s.RUnlock()
 
-	return s.machineState
+	return s.machineState.Clone()
 }
 
 func (s *sriovPluginState) GetPodEntries() PodEntries {
 	s.RLock()
 	defer s.RUnlock()
 
-	return s.podEntries
-}
-
-func (s *sriovPluginState) GetAllocationInfo(podUID, containerName string) *AllocationInfo {
-	s.RLock()
-	defer s.RUnlock()
-
-	if res, ok := s.podEntries[podUID][containerName]; ok {
-		return res.Clone()
-	}
-	return nil
+	return s.podEntries.Clone()
 }
 
 func (s *sriovPluginState) GetMachineInfo() *info.MachineInfo {

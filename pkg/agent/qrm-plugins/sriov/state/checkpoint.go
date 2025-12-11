@@ -18,25 +18,95 @@ package state
 
 import (
 	"encoding/json"
+	"sort"
 
+	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/checksum"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-// VFInfo is the information of a single VF
-// todo: adjust fileds lately
-type VFInfo struct {
-	Index          int
-	PciAddress     string
-	PfName         string
-	NetNS          string
-	NumaID         int
-	IbVerbsDevName string
+// VfInfo is the information of a single VF
+// todo: adjust fields lately
+type VfInfo struct {
+	Name        string                 `json:"name"`
+	RepName     string                 `json:"repName"`
+	PfName      string                 `json:"pfName"`
+	Index       int                    `json:"index"`
+	NetNS       string                 `json:"netNS"`
+	NumaID      int                    `json:"numaID"`
+	QueueCount  int                    `json:"queueCount"`
+	PciAddress  string                 `json:"pciAddress"`
+	RdmaDevices []pluginapi.DeviceSpec `json:"rdmaDevices"`
+}
+
+type VfState map[string]VfInfo // keyed by vf rep name
+
+func (s VfState) Clone() VfState {
+	clone := make(VfState)
+	for k, v := range s {
+		clone[k] = v
+	}
+
+	return clone
+}
+
+type VfFilter func(VfInfo) bool
+
+func (s VfState) Filter(filters ...VfFilter) VfState {
+	filtered := make(VfState)
+	for k, v := range s {
+		keep := true
+		for _, filter := range filters {
+			if !filter(v) {
+				keep = false
+				break
+			}
+		}
+		if keep {
+			filtered[k] = v
+		}
+	}
+	return filtered
+}
+
+func (s VfState) SortByIndex() []VfInfo {
+	sorted := make([]VfInfo, 0, len(s))
+
+	vfList := make([]string, 0, len(s))
+	for k := range s {
+		vfList = append(vfList, k)
+	}
+	sort.Slice(vfList, func(i, j int) bool {
+		return s[vfList[i]].Index < s[vfList[j]].Index
+	})
+	for _, vfName := range vfList {
+		sorted = append(sorted, s[vfName])
+	}
+
+	return sorted
+}
+
+func FilterByQueueCount(min int, max int) VfFilter {
+	return func(v VfInfo) bool {
+		return v.QueueCount >= min && v.QueueCount <= max
+	}
+}
+
+func FilterByName(name string) VfFilter {
+	return func(v VfInfo) bool {
+		return v.Name == name
+	}
+}
+
+func FilterByNumaID(numaSet machine.CPUSet) VfFilter {
+	return func(v VfInfo) bool {
+		return numaSet.Contains(v.NumaID)
+	}
 }
 
 var _ checkpointmanager.Checkpoint = &SriovPluginCheckpoint{}
-
-type VfState map[string]*VFInfo // keyed by vf rep name
 
 type SriovPluginCheckpoint struct {
 	PolicyName   string            `json:"policyName"`

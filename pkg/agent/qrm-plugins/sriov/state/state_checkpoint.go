@@ -61,7 +61,7 @@ func NewCheckpointState(
 ) (State, error) {
 	currentStateDir, otherStateDir := stateDirectoryConfig.GetCurrentAndPreviousStateFileDirectory()
 
-	cache, err := NewSriovPluginState()
+	cache, err := NewSriovPluginState(machineInfo)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize sriov plugin state: %v", err)
 	}
@@ -94,10 +94,13 @@ func (sc *stateCheckpoint) RestoreState(cp checkpointmanager.Checkpoint) (bool, 
 	}
 
 	if sc.policyName != checkpoint.PolicyName && !sc.skipStateCorruption {
-		return false, fmt.Errorf("[sriov_plugin] configured policy %q differs from state checkpoint policy %q", sc.policyName, checkpoint.PolicyName)
+		return false, fmt.Errorf("[sriov_plugin] configured policy %q differs from state checkpoint policy %q",
+			sc.policyName, checkpoint.PolicyName)
 	}
 
-	// todo: implement
+	sc.cache.SetMachineState(checkpoint.MachineState)
+	sc.cache.SetPodEntries(checkpoint.PodEntries)
+
 	return false, nil
 }
 
@@ -157,32 +160,6 @@ func (sc *stateCheckpoint) SetPodEntries(podEntries PodEntries, persist bool) {
 	}
 }
 
-func (sc *stateCheckpoint) SetAllocationInfo(podUID, containerName string, allocationInfo *AllocationInfo, persist bool) {
-	sc.Lock()
-	defer sc.Unlock()
-
-	sc.cache.SetAllocationInfo(podUID, containerName, allocationInfo)
-	if persist {
-		err := sc.storeState()
-		if err != nil {
-			generalLog.ErrorS(err, "store allocationInfo to checkpoint error")
-		}
-	}
-}
-
-func (sc *stateCheckpoint) Delete(podUID, containerName string, persist bool) {
-	sc.Lock()
-	defer sc.Unlock()
-
-	sc.cache.Delete(podUID, containerName)
-	if persist {
-		err := sc.storeState()
-		if err != nil {
-			generalLog.ErrorS(err, "store state after delete operation to checkpoint error")
-		}
-	}
-}
-
 func (sc *stateCheckpoint) ClearState() {
 	sc.Lock()
 	defer sc.Unlock()
@@ -212,13 +189,6 @@ func (sc *stateCheckpoint) GetPodEntries() PodEntries {
 	defer sc.RUnlock()
 
 	return sc.cache.GetPodEntries()
-}
-
-func (sc *stateCheckpoint) GetAllocationInfo(podUID, containerName string) *AllocationInfo {
-	sc.RLock()
-	defer sc.RUnlock()
-
-	return sc.cache.GetAllocationInfo(podUID, containerName)
 }
 
 func (sc *stateCheckpoint) GetMachineInfo() *info.MachineInfo {

@@ -21,6 +21,13 @@ type SriovQRMPluginConfig struct {
 	PolicyName string
 	// skip sriov state corruption and it will be used after updating state properties
 	SkipSriovStateCorruption bool
+
+	SriovStaticPolicyConfig
+}
+
+type SriovStaticPolicyConfig struct {
+	MinBondingVfQueueCount int
+	MaxBondingVfQueueCount int
 }
 
 func NewSriovQRMPluginConfig() *SriovQRMPluginConfig {

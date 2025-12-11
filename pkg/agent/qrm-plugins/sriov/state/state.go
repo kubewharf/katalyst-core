@@ -20,21 +20,24 @@ import (
 	"encoding/json"
 
 	info "github.com/google/cadvisor/info/v1"
+	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
+type PCIDevice struct {
+	Address string `json:"address"`
+	RepName string `json:"repName"`
+	VfName  string `json:"vfName"`
+}
+
 type AllocationInfo struct {
 	commonstate.AllocationMeta `json:",inline"`
 
-	VfName string `json:"vf_name,omitempty"`
+	PCIDevice    PCIDevice              `json:"pciDevice"`
+	MountDevices []pluginapi.DeviceSpec `json:"mountDevices"`
 }
-
-type (
-	ContainerEntries map[string]*AllocationInfo  // Keyed by container name
-	PodEntries       map[string]ContainerEntries // Keyed by pod UID
-)
 
 func (ai *AllocationInfo) String() string {
 	if ai == nil {
@@ -50,21 +53,35 @@ func (ai *AllocationInfo) String() string {
 }
 
 func (ai *AllocationInfo) Clone() *AllocationInfo {
-	if ai == nil {
-		return nil
-	}
-
 	clone := &AllocationInfo{
 		AllocationMeta: *ai.AllocationMeta.Clone(),
-		VfName:         ai.VfName,
+		PCIDevice: PCIDevice{
+			Address: ai.PCIDevice.Address,
+			RepName: ai.PCIDevice.RepName,
+			VfName:  ai.PCIDevice.VfName,
+		},
+		MountDevices: make([]pluginapi.DeviceSpec, 0, len(ai.MountDevices)),
+	}
+
+	for _, mountDevice := range ai.MountDevices {
+		clone.MountDevices = append(clone.MountDevices, pluginapi.DeviceSpec{
+			ContainerPath: mountDevice.ContainerPath,
+			HostPath:      mountDevice.HostPath,
+			Permissions:   mountDevice.Permissions,
+		})
 	}
 
 	return clone
 }
 
-func (pe PodEntries) Clone() PodEntries {
+type (
+	ContainerEntries map[string]*AllocationInfo  // keyed by container name
+	PodEntries       map[string]ContainerEntries // Keyed by pod UID
+)
+
+func (pe *PodEntries) Clone() PodEntries {
 	clone := make(PodEntries)
-	for podUID, containerEntries := range pe {
+	for podUID, containerEntries := range *pe {
 		clone[podUID] = make(ContainerEntries)
 		for containerName, allocationInfo := range containerEntries {
 			clone[podUID][containerName] = allocationInfo.Clone()
@@ -73,21 +90,35 @@ func (pe PodEntries) Clone() PodEntries {
 	return clone
 }
 
+func (pe *PodEntries) FilterByAllocated(expected bool) VfFilter {
+	return func(info VfInfo) bool {
+		allocated := false
+		for _, containerEntries := range *pe {
+			for _, allocationInfo := range containerEntries {
+				if info.Name == allocationInfo.PCIDevice.VfName {
+					allocated = true
+					break
+				}
+			}
+		}
+
+		return allocated == expected
+	}
+}
+
 // reader is used to get information from local states
 type reader interface {
 	GetMachineState() VfState
 	GetPodEntries() PodEntries
-	GetAllocationInfo(podUID, containerName string) *AllocationInfo
 }
 
 // writer is used to store information into local states,
 // and it also provides functionality to maintain the local files
+// todo: optimize me according to actual needs
 type writer interface {
 	SetMachineState(state VfState, persist bool)
 	SetPodEntries(podEntries PodEntries, persist bool)
-	SetAllocationInfo(podUID, containerName string, allocationInfo *AllocationInfo, persist bool)
 
-	Delete(podUID, containerName string, persist bool)
 	ClearState()
 	StoreState() error
 }

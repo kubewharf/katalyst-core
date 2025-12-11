@@ -23,21 +23,42 @@ import (
 )
 
 type SriovOptions struct {
-	PolicyName string
+	PolicyName               string
+	SkipSriovStateCorruption bool
+
+	SriovStaticPolicyOptions
+}
+
+type SriovStaticPolicyOptions struct {
+	MinBondingVfQueueCount int
+	MaxBondingVfQueueCount int
 }
 
 func NewSriovOptions() *SriovOptions {
-	return &SriovOptions{}
+	return &SriovOptions{
+		PolicyName:               "static",
+		SkipSriovStateCorruption: true,
+		SriovStaticPolicyOptions: SriovStaticPolicyOptions{
+			MinBondingVfQueueCount: 32,
+			MaxBondingVfQueueCount: 32,
+		},
+	}
 }
 
 func (o *SriovOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs := fss.FlagSet("sriov")
 
 	fs.StringVar(&o.PolicyName, "sriov-policy-name", o.PolicyName, "Policy name for sriov qrm plugin")
+	fs.BoolVar(&o.SkipSriovStateCorruption, "skip-sriov-state-corruption", o.SkipSriovStateCorruption, "Skip sriov state corruption")
+	fs.IntVar(&o.MinBondingVfQueueCount, "min-bonding-vf-queue-count", o.MinBondingVfQueueCount, "Min bonding vf queue count")
+	fs.IntVar(&o.MaxBondingVfQueueCount, "max-bonding-vf-queue-count", o.MaxBondingVfQueueCount, "Max bonding vf queue count")
 }
 
 func (s *SriovOptions) ApplyTo(config *qrmconfig.SriovQRMPluginConfig) error {
 	config.PolicyName = s.PolicyName
+	config.SkipSriovStateCorruption = s.SkipSriovStateCorruption
+	config.MinBondingVfQueueCount = s.MinBondingVfQueueCount
+	config.MaxBondingVfQueueCount = s.MaxBondingVfQueueCount
 
 	return nil
 }

@@ -25,23 +25,28 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	apinode "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	appqrm "github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent/qrm"
 	sriovconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/state"
+	sriovutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 )
 
 type StaticPolicy struct {
-	sync.Mutex
+	sync.RWMutex
 
 	name       string
 	stopCh     chan struct{}
@@ -50,6 +55,13 @@ type StaticPolicy struct {
 	metaServer *metaserver.MetaServer
 	agentCtx   *agent.GenericContext
 	state      state.State
+
+	qosConfig             *generic.QoSConfiguration
+	podAnnotationKeptKeys []string
+	podLabelKeptKeys      []string
+
+	minBondingVfQueueCount int
+	maxBondingVfQueueCount int
 }
 
 func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -69,11 +81,16 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	}
 
 	policy := &StaticPolicy{
-		name:       fmt.Sprintf("%s_%s", agentName, sriovconsts.SriovResourcePluginPolicyNameStatic),
-		emitter:    wrappedEmitter,
-		agentCtx:   agentCtx,
-		metaServer: agentCtx.MetaServer,
-		state:      stateImpl,
+		name:                   fmt.Sprintf("%s_%s", agentName, sriovconsts.SriovResourcePluginPolicyNameStatic),
+		emitter:                wrappedEmitter,
+		agentCtx:               agentCtx,
+		metaServer:             agentCtx.MetaServer,
+		state:                  stateImpl,
+		qosConfig:              conf.QoSConfiguration,
+		podAnnotationKeptKeys:  conf.PodAnnotationKeptKeys,
+		podLabelKeptKeys:       conf.PodLabelKeptKeys,
+		minBondingVfQueueCount: conf.MinBondingVfQueueCount,
+		maxBondingVfQueueCount: conf.MaxBondingVfQueueCount,
 	}
 
 	pluginWrapper, err := skeleton.NewRegistrationPluginWrapper(policy, conf.QRMPluginSocketDirs, nil)
@@ -136,9 +153,80 @@ func (p *StaticPolicy) Start() (err error) {
 func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 	req *pluginapi.ResourceRequest,
 ) (resp *pluginapi.ResourceHintsResponse, err error) {
+	if req == nil {
+		return nil, fmt.Errorf("GetTopologyHints got nil req")
+	}
 
-	// todo: implement me
-	panic("not implemented")
+	if err := sriovutil.ValidateRequestQuantity(req); err != nil {
+		return nil, fmt.Errorf("ValidateRequestQuantity failed with error: %v", err)
+	}
+
+	general.InfoS("called",
+		"podNamespace", req.PodNamespace,
+		"podName", req.PodName,
+		"containerName", req.ContainerName,
+		"resourceRequests", req.ResourceRequests,
+		"reqAnnotations", req.Annotations)
+
+	p.RLock()
+	defer func() {
+		p.RUnlock()
+		if err != nil {
+			general.ErrorS(err, "GetTopologyHints failed",
+				"podNamespace", req.PodNamespace,
+				"podName", req.PodName,
+				"containerName", req.ContainerName,
+				"resourceRequests", req.ResourceRequests,
+				"reqAnnotations", req.Annotations)
+			_ = p.emitter.StoreInt64(util.MetricNameGetTopologyHintsFailed, 1, metrics.MetricTypeNameRaw,
+				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)})
+		}
+	}()
+
+	podEntries := p.state.GetPodEntries()
+	machineState := p.state.GetMachineState()
+
+	var candidateVfs state.VfState
+
+	// reuse allocation info allocated by same pod and container
+	containerEntries, exists := podEntries[req.PodNamespace]
+	if exists {
+		allocationInfo := containerEntries[req.ContainerName]
+		if allocationInfo == nil {
+			return nil, fmt.Errorf("not support allocate more than 1 vf in single pod")
+		}
+		candidateVfs = machineState.Filter(state.FilterByName(allocationInfo.PCIDevice.VfName))
+	} else {
+		candidateVfs = machineState.Filter(
+			podEntries.FilterByAllocated(true),
+			state.FilterByQueueCount(p.minBondingVfQueueCount, p.maxBondingVfQueueCount),
+		)
+	}
+
+	if len(candidateVfs) == 0 {
+		return nil, fmt.Errorf("no available VFs")
+	}
+
+	numaSet := machine.CPUSet{}
+	for _, vf := range candidateVfs {
+		numaSet.Add(vf.NumaID)
+	}
+	socketSet := p.agentCtx.CPUDetails.SocketsInNUMANodes(numaSet.ToSliceInt()...)
+	numaNodesInSocketSet := p.agentCtx.CPUDetails.NUMANodesInSockets(socketSet.ToSliceInt()...).ToSliceUInt64()
+
+	topologyHints := map[string]*pluginapi.ListOfTopologyHints{
+		p.ResourceName(): {
+			Hints: []*pluginapi.TopologyHint{
+				{
+					Nodes: numaNodesInSocketSet,
+					// as well as there has available vfs, the preferred is true
+					Preferred: true,
+				},
+			},
+		},
+	}
+
+	return util.PackResourceHintsResponse(req, p.ResourceName(), topologyHints)
 }
 
 // GetPodTopologyHints returns hints of corresponding resources for pod
@@ -150,17 +238,34 @@ func (p *StaticPolicy) GetPodTopologyHints(_ context.Context,
 
 func (p *StaticPolicy) RemovePod(_ context.Context,
 	req *pluginapi.RemovePodRequest,
-) (*pluginapi.RemovePodResponse, error) {
-	// todo: implement me
-	panic("not implemented")
+) (resp *pluginapi.RemovePodResponse, err error) {
+	if req == nil {
+		return nil, fmt.Errorf("RemovePod got nil req")
+	}
+
+	p.Lock()
+	defer func() {
+		p.Unlock()
+		if err != nil {
+			general.ErrorS(err, "RemovePod failed", "podUid", req.PodUid)
+			_ = p.emitter.StoreInt64(util.MetricNameRemovePodFailed, 1, metrics.MetricTypeNameRaw,
+				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)})
+		}
+	}()
+
+	podEntries := p.state.GetPodEntries()
+	delete(podEntries, req.PodUid)
+	p.state.SetPodEntries(podEntries, true)
+
+	return &pluginapi.RemovePodResponse{}, nil
+
 }
 
 // GetResourcesAllocation returns allocation results of corresponding resources
 func (p *StaticPolicy) GetResourcesAllocation(_ context.Context,
 	_ *pluginapi.GetResourcesAllocationRequest,
 ) (*pluginapi.GetResourcesAllocationResponse, error) {
-	// todo: implement me
-	panic("not implemented")
+	return &pluginapi.GetResourcesAllocationResponse{}, nil
 }
 
 // GetTopologyAwareResources returns allocation results of corresponding resources as topology aware format
@@ -175,8 +280,41 @@ func (p *StaticPolicy) GetTopologyAwareResources(_ context.Context,
 func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 	_ *pluginapi.GetTopologyAwareAllocatableResourcesRequest,
 ) (*pluginapi.GetTopologyAwareAllocatableResourcesResponse, error) {
-	// todo: implement me
-	panic("not implemented")
+	p.RLock()
+	defer p.RUnlock()
+
+	var (
+		machineState = p.state.GetMachineState()
+
+		aggregatedQuantity float64
+
+		topologyAwareQuantityList = make([]*pluginapi.TopologyAwareQuantity, 0, len(machineState))
+	)
+
+	for _, vf := range machineState {
+		aggregatedQuantity += 1
+		topologyAwareQuantityList = append(topologyAwareQuantityList, &pluginapi.TopologyAwareQuantity{
+			ResourceValue: 1,
+			Node:          p.agentCtx.CPUDetails.SocketsInNUMANodes(vf.NumaID).ToSliceUInt64()[0],
+			Name:          vf.Name,
+			Type:          string(apinode.TopologyTypeNIC),
+			TopologyLevel: pluginapi.TopologyLevel_SOCKET,
+		})
+	}
+
+	return &pluginapi.GetTopologyAwareAllocatableResourcesResponse{
+		AllocatableResources: map[string]*pluginapi.AllocatableTopologyAwareResource{
+			p.ResourceName(): {
+				IsNodeResource:                       true,
+				IsScalarResource:                     true,
+				AggregatedAllocatableQuantity:        aggregatedQuantity,
+				TopologyAwareAllocatableQuantityList: topologyAwareQuantityList,
+				AggregatedCapacityQuantity:           aggregatedQuantity,
+				TopologyAwareCapacityQuantityList:    topologyAwareQuantityList,
+			},
+		},
+	}, nil
+
 }
 
 // GetResourcePluginOptions returns options to be communicated with Resource Manager
@@ -196,8 +334,74 @@ func (p *StaticPolicy) GetResourcePluginOptions(context.Context,
 func (p *StaticPolicy) Allocate(ctx context.Context,
 	req *pluginapi.ResourceRequest,
 ) (resp *pluginapi.ResourceAllocationResponse, err error) {
-	// todo: implement me
-	panic("not implemented")
+	if req == nil {
+		return nil, fmt.Errorf("Allocate got nil req")
+	}
+
+	if err := sriovutil.ValidateRequestQuantity(req); err != nil {
+		return nil, fmt.Errorf("ValidateRequestQuantity failed with error: %v", err)
+	}
+
+	qosLevel, err := util.GetKatalystQoSLevelFromResourceReq(p.qosConfig, req, p.podAnnotationKeptKeys, p.podLabelKeptKeys)
+	if err != nil {
+		err = fmt.Errorf("GetKatalystQoSLevelFromResourceReq for pod: %s/%s, container: %s failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
+		general.Errorf("%s", err.Error())
+		return nil, err
+	}
+
+	general.InfoS("called",
+		"podNamespace", req.PodNamespace,
+		"podName", req.PodName,
+		"containerName", req.ContainerName,
+		"resourceRequests", req.ResourceRequests,
+		"reqAnnotations", req.Annotations)
+
+	p.Lock()
+	defer func() {
+		p.Unlock()
+		if err != nil {
+			general.ErrorS(err, "Allocate failed",
+				"podNamespace", req.PodNamespace,
+				"podName", req.PodName,
+				"containerName", req.ContainerName,
+				"resourceRequests", req.ResourceRequests,
+				"reqAnnotations", req.Annotations)
+			_ = p.emitter.StoreInt64(util.MetricNameAllocateFailed, 1, metrics.MetricTypeNameRaw,
+				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)})
+		}
+	}()
+
+	// reuse allocation info allocated by same pod and container
+	podEntries := p.state.GetPodEntries()
+	containerEntries, exists := podEntries[req.PodNamespace]
+	if exists {
+		allocationInfo := containerEntries[req.ContainerName]
+		if allocationInfo == nil {
+			return nil, fmt.Errorf("not support allocate more than 1 vf in single pod")
+		}
+		return sriovutil.PackAllocationResponse(req, allocationInfo), nil
+	}
+
+	hintNUMASet, err := machine.NewCPUSetUint64(req.Hint.Nodes...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse hint numa nodes: %v", err)
+	}
+
+	machineState := p.state.GetMachineState()
+	candidateVfs := machineState.Filter(state.FilterByNumaID(hintNUMASet))
+	if len(candidateVfs) == 0 {
+		return nil, fmt.Errorf("no available VFs")
+	}
+	target := candidateVfs.SortByIndex()[0]
+
+	allocationInfo := sriovutil.PackAllocationInfo(req, target, qosLevel)
+	podEntries[req.PodUid] = map[string]*state.AllocationInfo{
+		req.ContainerName: allocationInfo,
+	}
+	p.state.SetPodEntries(podEntries, true)
+
+	return sriovutil.PackAllocationResponse(req, allocationInfo), nil
 }
 
 // AllocateForPod is called during pod admit so that the resource
