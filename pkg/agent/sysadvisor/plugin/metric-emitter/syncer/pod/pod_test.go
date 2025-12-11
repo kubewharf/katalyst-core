@@ -146,6 +146,24 @@ func TestPodAddAndRemoved(t *testing.T) {
 		},
 	})
 
+	res3 := &latencyregression.LatencyRegression{
+		PredictValue: -1.1,
+		ActionValue:  0.7,
+	}
+	bs3, _ := json.Marshal(res3)
+	reader.SetInferenceResult(borweinutils.GetInferenceResultKey(borweinconsts.ModelNameBorweinV3LatencyRegression), &borweintypes.BorweinInferenceResults{
+		Timestamp: timeNow,
+		Results: map[string]map[string][]*borweininfsvc.InferenceResult{
+			"000002": {
+				"c-1": []*borweininfsvc.InferenceResult{
+					{
+						GenericOutput: string(bs3),
+					},
+				},
+			},
+		},
+	})
+
 	si, err := NewMetricSyncerPod(conf, struct{}{}, metrics.DummyMetrics{}, metricspool.DummyMetricsEmitterPool{}, meta, reader)
 	assert.NoError(t, err)
 
@@ -157,6 +175,7 @@ func TestPodAddAndRemoved(t *testing.T) {
 	s.modelMetric()
 	s.emitBorweinTrainingThroughput()
 	s.emitBorweinLatencyRegression()
+	s.emitBorweinV3LatencyRegression()
 	assert.Equal(t, len(s.rawNotifier), 1)
 
 	metaEmpty := &metaserver.MetaServer{
