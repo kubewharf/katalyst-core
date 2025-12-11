@@ -88,7 +88,7 @@ func updateCPUUsageIndicatorOffset(podSet types.PodSet, _ float64, borweinParame
 		return 0, err
 	}
 
-	ret, resultTimestamp, err := latencyregression.GetLatencyRegressionPredictResult(metaReader, conf.BorweinConfiguration.DryRun, podSet)
+	ret, resultTimestamp, err := latencyregression.GetLatencyRegressionPredictResult(metaReader, borweinconsts.ModelNameBorweinLatencyRegression, conf.BorweinConfiguration.DryRun, podSet)
 	if err != nil {
 		general.Errorf("failed to get inference results of model(%s), error: %v", borweinconsts.ModelNameBorweinLatencyRegression, err)
 		return 0, err

@@ -79,7 +79,7 @@ func (p *MetricSyncerPod) emitBorweinTrainingThroughput() {
 
 func (p *MetricSyncerPod) emitBorweinLatencyRegression() {
 	latencyRegressionData, resultTimestamp, err := latencyregression.GetLatencyRegressionPredictResult(
-		p.metaReader, p.borweinConf.DryRun, nil)
+		p.metaReader, borweinconsts.ModelNameBorweinLatencyRegression, p.borweinConf.DryRun, nil)
 	if err != nil {
 		klog.Errorf("failed to get inference results of model(%s) error: %v\n", borweinconsts.ModelNameBorweinLatencyRegression, err)
 		return
