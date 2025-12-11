@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
-	borweinconsts "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/consts"
 	borweininfsvc "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/inferencesvc"
 	borweintypes "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/types"
 	borweinutils "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/utils"
@@ -72,12 +71,12 @@ type StrategySpecialTimeSlot struct {
 	Offset float64 `json:"offset"`
 }
 
-func GetLatencyRegressionPredictResult(metaReader metacache.MetaReader, dryRun bool, podSet types.PodSet) (map[string]map[string]*LatencyRegression, int64, error) {
+func GetLatencyRegressionPredictResult(metaReader metacache.MetaReader, modelName string, dryRun bool, podSet types.PodSet) (map[string]map[string]*LatencyRegression, int64, error) {
 	if metaReader == nil {
 		return nil, 0, fmt.Errorf("nil metaReader")
 	}
 
-	inferenceResultKey := borweinutils.GetInferenceResultKey(borweinconsts.ModelNameBorweinLatencyRegression)
+	inferenceResultKey := borweinutils.GetInferenceResultKey(modelName)
 	results, err := metaReader.GetInferenceResult(inferenceResultKey)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to get inference results for %s, error: %v", inferenceResultKey, err)
