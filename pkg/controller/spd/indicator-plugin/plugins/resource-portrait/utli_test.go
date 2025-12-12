@@ -234,7 +234,7 @@ func TestConvertAlgorithmResultToAggMetrics(t *testing.T) {
 				timeseries: nil,
 				groupData:  nil,
 			},
-			want: &apiworkload.AggPodMetrics{Aggregator: apiworkload.Aggregator("avg"), Items: []v1beta1.PodMetrics{}},
+			want: &apiworkload.AggPodMetrics{Aggregator: apiworkload.Aggregator("avg"), Items: []apiworkload.PodMetrics{}},
 		},
 	}
 	for _, tt := range tests {
@@ -260,7 +260,7 @@ func TestGeneratePodMetrics(t *testing.T) {
 	tests := []struct {
 		name string
 		args args
-		want []v1beta1.PodMetrics
+		want []apiworkload.PodMetrics
 	}{
 		{
 			name: "nil",
@@ -281,13 +281,13 @@ func TestGeneratePodMetrics(t *testing.T) {
 				timeseries: nil,
 				groupData:  nil,
 			},
-			want: []v1beta1.PodMetrics{},
+			want: []apiworkload.PodMetrics{},
 		},
 		{
 			name: "normal",
 			args: args{
 				aggMetrics: &apiworkload.AggPodMetrics{
-					Items: []v1beta1.PodMetrics{
+					Items: []apiworkload.PodMetrics{
 						{
 							Timestamp: metav1.Time{Time: time.Unix(1, 0)},
 							Containers: []v1beta1.ContainerMetrics{
@@ -316,7 +316,7 @@ func TestGeneratePodMetrics(t *testing.T) {
 				},
 				groupData: map[string]float64{"resourceY": 1},
 			},
-			want: []v1beta1.PodMetrics{},
+			want: []apiworkload.PodMetrics{},
 		},
 	}
 	for _, tt := range tests {
@@ -341,7 +341,7 @@ func TestGenerateMetricsRefreshRecord(t *testing.T) {
 			args: &apiworkload.AggPodMetrics{
 				Aggregator: "",
 				Scope:      "",
-				Items: []v1beta1.PodMetrics{
+				Items: []apiworkload.PodMetrics{
 					{
 						Timestamp: metav1.Time{Time: time.Unix(1, 0)},
 						Containers: []v1beta1.ContainerMetrics{

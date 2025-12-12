@@ -348,7 +348,7 @@ func Test_updateStatus(t *testing.T) {
 					},
 					{
 						Scope: resourceportrait.ResourcePortraitPluginName,
-						Items: []v1beta1.PodMetrics{
+						Items: []apiworkload.PodMetrics{
 							{
 								Timestamp: metav1.Time{Time: time.Now().Add(-time.Minute)},
 								Containers: []v1beta1.ContainerMetrics{

@@ -53,7 +53,7 @@ func TestGetContainerMemoryBandwidthRequest(t *testing.T) {
 							AggMetrics: []workloadapi.AggPodMetrics{
 								{
 									Aggregator: workloadapi.Avg,
-									Items: []v1beta1.PodMetrics{
+									Items: []workloadapi.PodMetrics{
 										{
 											Timestamp: metav1.NewTime(time.Date(1970, 0, 0, 0, 0, 0, 0, time.UTC)),
 											Window:    metav1.Duration{Duration: time.Hour},
@@ -142,7 +142,7 @@ func TestGetContainerServiceProfileRequest(t *testing.T) {
 							AggMetrics: []workloadapi.AggPodMetrics{
 								{
 									Aggregator: workloadapi.Avg,
-									Items: []v1beta1.PodMetrics{
+									Items: []workloadapi.PodMetrics{
 										{
 											Timestamp: metav1.NewTime(time.Date(1970, 0, 0, 0, 0, 0, 0, time.UTC)),
 											Window:    metav1.Duration{Duration: time.Hour},

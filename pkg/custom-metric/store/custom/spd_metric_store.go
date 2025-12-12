@@ -24,8 +24,8 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	metrics "k8s.io/metrics/pkg/apis/metrics/v1beta1"
 
+	apiworkload "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/client/listers/workload/v1alpha1"
 	katalystmetric "github.com/kubewharf/katalyst-api/pkg/metric"
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
@@ -93,7 +93,7 @@ func (s *SPDMetricStore) GetMetric(_ context.Context, namespace, metricName, _ s
 	}
 
 	// TODO: Add adaptation to indicators at different time steps to the metric extraction loop and functionalists the loop for extracting specific metric value.
-	var currentMetric *metrics.PodMetrics
+	var currentMetric *apiworkload.PodMetrics
 	for _, aggMetrics := range spd.Status.AggMetrics {
 		if aggMetrics.Scope != resourceportrait.ResourcePortraitPluginName {
 			continue

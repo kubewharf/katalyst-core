@@ -84,7 +84,7 @@ func TestIHPAMetricStore(t *testing.T) {
 				AggMetrics: []v1alpha1.AggPodMetrics{
 					{
 						Scope: resourceportrait.ResourcePortraitPluginName,
-						Items: []v1beta1.PodMetrics{
+						Items: []v1alpha1.PodMetrics{
 							{
 								Containers: []v1beta1.ContainerMetrics{
 									{
@@ -117,7 +117,7 @@ func TestIHPAMetricStore(t *testing.T) {
 					},
 					{
 						Scope: resourceportrait.ResourcePortraitPluginName + "test",
-						Items: []v1beta1.PodMetrics{
+						Items: []v1alpha1.PodMetrics{
 							{
 								Containers: []v1beta1.ContainerMetrics{
 									{
