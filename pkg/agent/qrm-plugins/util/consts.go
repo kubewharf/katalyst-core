@@ -18,17 +18,20 @@ package util
 
 const (
 	// common metrics for all types of qrm plugins
-	MetricNameHeartBeat                    = "heartbeat"
-	MetricNameAllocateFailed               = "alloc_failed"
-	MetricNameGetTopologyHintsFailed       = "get_topology_hints_failed"
-	MetricNameRemovePodFailed              = "remove_pod_failed"
-	MetricNameLWAdvisorServerFailed        = "lw_advisor_server_failed"
-	MetricNameGetAdviceFailed              = "get_advice_failed"
-	MetricNameGetAdviceFeatureNotSupported = "get_advice_feature_not_supported"
-	MetricNameHandleAdvisorRespCalled      = "handle_advisor_resp_called"
-	MetricNameHandleAdvisorRespFailed      = "handle_advisor_resp_failed"
-	MetricNameAdvisorUnhealthy             = "advisor_unhealthy"
-	MetricNameCheckApplyV1Error            = "check_apply_v1_error"
+	MetricNameHeartBeat                               = "heartbeat"
+	MetricNameAllocateFailed                          = "alloc_failed"
+	MetricNameGetTopologyHintsFailed                  = "get_topology_hints_failed"
+	MetricNameRemovePodFailed                         = "remove_pod_failed"
+	MetricNameLWAdvisorServerFailed                   = "lw_advisor_server_failed"
+	MetricNameGetAdviceFailed                         = "get_advice_failed"
+	MetricNameGetAdviceFeatureNotSupported            = "get_advice_feature_not_supported"
+	MetricNameHandleAdvisorRespCalled                 = "handle_advisor_resp_called"
+	MetricNameHandleAdvisorRespFailed                 = "handle_advisor_resp_failed"
+	MetricNameAdvisorUnhealthy                        = "advisor_unhealthy"
+	MetricNameCheckApplyV1Error                       = "check_apply_v1_error"
+	MetricNameGetAccompanyResourceTopologyHintsFailed = "get_accompany_resource_topology_hints_failed"
+	MetricNameAllocateAccompanyResourceFailed         = "allocate_accompany_resource_failed"
+	MetricNameReleaseAccompanyResourceFailed          = "release_accompany_resource_failed"
 
 	// metrics for cpu plugin
 	MetricNamePoolSize                    = "pool_size"

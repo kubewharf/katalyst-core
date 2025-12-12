@@ -89,6 +89,7 @@ type QRMPluginsOptions struct {
 	NetworkOptions *NetworkOptions
 	IOOptions      *IOOptions
 	GPUOptions     *GPUOptions
+	SriovOptions   *SriovOptions
 }
 
 func NewQRMPluginsOptions() *QRMPluginsOptions {
@@ -98,6 +99,7 @@ func NewQRMPluginsOptions() *QRMPluginsOptions {
 		NetworkOptions: NewNetworkOptions(),
 		IOOptions:      NewIOOptions(),
 		GPUOptions:     NewGPUOptions(),
+		SriovOptions:   NewSriovOptions(),
 	}
 }
 
@@ -107,6 +109,7 @@ func (o *QRMPluginsOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	o.NetworkOptions.AddFlags(fss)
 	o.IOOptions.AddFlags(fss)
 	o.GPUOptions.AddFlags(fss)
+	o.SriovOptions.AddFlags(fss)
 }
 
 func (o *QRMPluginsOptions) ApplyTo(conf *qrmconfig.QRMPluginsConfiguration) error {
@@ -123,6 +126,9 @@ func (o *QRMPluginsOptions) ApplyTo(conf *qrmconfig.QRMPluginsConfiguration) err
 		return err
 	}
 	if err := o.GPUOptions.ApplyTo(conf.GPUQRMPluginConfig); err != nil {
+		return err
+	}
+	if err := o.SriovOptions.ApplyTo(conf.SriovQRMPluginConfig); err != nil {
 		return err
 	}
 	return nil
