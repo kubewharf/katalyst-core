@@ -181,6 +181,10 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Conte
 		}
 	}
 
+	if err := AccompanyResourceRegistry.GetAccompanyResourceTopologyHints(req, hints[string(v1.ResourceCPU)]); err != nil {
+		return nil, fmt.Errorf("accompany resource AugmentTopologyHints failed with error: %v", err)
+	}
+
 	return util.PackResourceHintsResponse(req, string(v1.ResourceCPU), hints)
 }
 
@@ -388,6 +392,10 @@ func (p *DynamicPolicy) reclaimedCoresWithNUMABindingHintHandler(_ context.Conte
 	general.Infof("cpu hints for pod:%s/%s, container: %s success, hints: %v",
 		req.PodNamespace, req.PodName, req.ContainerName, hints)
 
+	if err := AccompanyResourceRegistry.GetAccompanyResourceTopologyHints(req, hints[string(v1.ResourceCPU)]); err != nil {
+		return nil, fmt.Errorf("accompany resource AugmentTopologyHints failed with error: %v", err)
+	}
+
 	return util.PackResourceHintsResponse(req, string(v1.ResourceCPU), hints)
 }
 
@@ -528,6 +536,10 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 		if calculateErr != nil {
 			return nil, fmt.Errorf("calculateHintsForNUMABindingSharedCores failed with error: %v", calculateErr)
 		}
+	}
+
+	if err := AccompanyResourceRegistry.GetAccompanyResourceTopologyHints(req, hints[string(v1.ResourceCPU)]); err != nil {
+		return nil, fmt.Errorf("accompany resource AugmentTopologyHints failed with error: %v", err)
 	}
 
 	return util.PackResourceHintsResponse(req, string(v1.ResourceCPU), hints)

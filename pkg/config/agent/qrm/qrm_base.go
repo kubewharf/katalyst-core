@@ -49,6 +49,7 @@ type QRMPluginsConfiguration struct {
 	*NetworkQRMPluginConfig
 	*IOQRMPluginConfig
 	*GPUQRMPluginConfig
+	*SriovQRMPluginConfig
 }
 
 func NewGenericQRMPluginConfiguration() *GenericQRMPluginConfiguration {
@@ -69,5 +70,6 @@ func NewQRMPluginsConfiguration() *QRMPluginsConfiguration {
 		NetworkQRMPluginConfig: NewNetworkQRMPluginConfig(),
 		IOQRMPluginConfig:      NewIOQRMPluginConfig(),
 		GPUQRMPluginConfig:     NewGPUQRMPluginConfig(),
+		SriovQRMPluginConfig:   NewSriovQRMPluginConfig(),
 	}
 }
