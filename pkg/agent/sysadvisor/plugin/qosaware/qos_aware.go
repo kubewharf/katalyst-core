@@ -86,6 +86,12 @@ func NewQoSAwarePlugin(pluginName string, conf *config.Configuration, extraConf 
 				return nil, err
 			}
 			reporters = append(reporters, nodeMetricsReporter)
+		case types.StrategyReporter:
+			strategyReporter, err := reporter.NewStrategyReporter(emitter, metaServer, metaCache, conf)
+			if err != nil {
+				return nil, err
+			}
+			reporters = append(reporters, strategyReporter)
 		}
 	}
 
