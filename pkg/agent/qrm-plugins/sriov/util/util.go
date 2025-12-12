@@ -19,16 +19,20 @@ package util
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+)
+
+const (
+	rdmaDevicePrefix = "/dev/infiniband"
+	rdmaCmPath       = "/dev/infiniband/rdma_cm"
 )
 
 func ValidateRequestQuantity(req *pluginapi.ResourceRequest) error {
@@ -45,28 +49,44 @@ func ValidateRequestQuantity(req *pluginapi.ResourceRequest) error {
 	return nil
 }
 
-func PackAllocationInfo(req *pluginapi.ResourceRequest, vf machine.VFInterfaceInfo, qosLevel string) *state.AllocationInfo {
-	return &state.AllocationInfo{
-		AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(req,
-			commonstate.EmptyOwnerPoolName, qosLevel),
-		PCIDevice: state.PCIDevice{
-			Address: vf.PCIAddr,
-			RepName: vf.RepName,
-			VfName:  vf.Name,
-		},
-		MountDevices: vf.RdmaDevices,
-	}
+type PCIDevice struct {
+	Address string `json:"address"`
+	RepName string `json:"repName"`
+	VFName  string `json:"vfName"`
 }
 
 func PackAllocationResponse(conf qrm.SriovAllocationConfig,
 	req *pluginapi.ResourceRequest,
 	allocationInfo *state.AllocationInfo) (*pluginapi.ResourceAllocationResponse, error) {
 	annotations := general.DeepCopyMap(conf.ExtraAnnotations)
-	pciAnnotationValue, err := json.Marshal([]state.PCIDevice{allocationInfo.PCIDevice})
+	pciAnnotationValue, err := json.Marshal([]PCIDevice{
+		{
+			Address: allocationInfo.VFInfo.PCIAddr,
+			RepName: allocationInfo.VFInfo.RepName,
+			VFName:  allocationInfo.VFInfo.Name,
+		},
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal pci device: %v", err)
 	}
 	annotations[conf.PCIAnnotation] = string(pciAnnotationValue)
+
+	var devices []*pluginapi.DeviceSpec
+	if ibDevName := allocationInfo.VFInfo.IBDevName; ibDevName != "" {
+		rdmaPath := filepath.Join(rdmaDevicePrefix, allocationInfo.VFInfo.IBDevName)
+		devices = []*pluginapi.DeviceSpec{
+			{
+				HostPath:      rdmaPath,
+				ContainerPath: rdmaPath,
+				Permissions:   "rwm",
+			},
+			{
+				HostPath:      rdmaCmPath,
+				ContainerPath: rdmaCmPath,
+				Permissions:   "rw",
+			},
+		}
+	}
 
 	return &pluginapi.ResourceAllocationResponse{
 		PodUid:         req.PodUid,
@@ -91,7 +111,7 @@ func PackAllocationResponse(conf qrm.SriovAllocationConfig,
 							req.Hint,
 						},
 					},
-					Devices: allocationInfo.MountDevices,
+					Devices: devices,
 				},
 			},
 		},

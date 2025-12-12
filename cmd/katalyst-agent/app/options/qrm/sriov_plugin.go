@@ -36,8 +36,8 @@ type SriovAllocationOptions struct {
 }
 
 type SriovStaticPolicyOptions struct {
-	MinBondingVfQueueCount int
-	MaxBondingVfQueueCount int
+	MinBondingVFQueueCount int
+	MaxBondingVFQueueCount int
 }
 
 func NewSriovOptions() *SriovOptions {
@@ -49,8 +49,8 @@ func NewSriovOptions() *SriovOptions {
 			ExtraAnnotations: map[string]string{},
 		},
 		SriovStaticPolicyOptions: SriovStaticPolicyOptions{
-			MinBondingVfQueueCount: 32,
-			MaxBondingVfQueueCount: 32,
+			MinBondingVFQueueCount: 32,
+			MaxBondingVFQueueCount: 32,
 		},
 	}
 }
@@ -62,8 +62,8 @@ func (o *SriovOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.BoolVar(&o.SkipSriovStateCorruption, "skip-sriov-state-corruption", o.SkipSriovStateCorruption, "Skip sriov state corruption")
 	fs.StringVar(&o.PCIAnnotationKey, "pci-annotation-key", o.PCIAnnotationKey, "Pci annotation key for sriov qrm plugin")
 	fs.StringToStringVar(&o.ExtraAnnotations, "sriov-vf-extra-annotations", o.ExtraAnnotations, "Extra annotations for sriov vf")
-	fs.IntVar(&o.MinBondingVfQueueCount, "min-bonding-vf-queue-count", o.MinBondingVfQueueCount, "Min bonding vf queue count")
-	fs.IntVar(&o.MaxBondingVfQueueCount, "max-bonding-vf-queue-count", o.MaxBondingVfQueueCount, "Max bonding vf queue count")
+	fs.IntVar(&o.MinBondingVFQueueCount, "min-bonding-vf-queue-count", o.MinBondingVFQueueCount, "Min bonding vf queue count")
+	fs.IntVar(&o.MaxBondingVFQueueCount, "max-bonding-vf-queue-count", o.MaxBondingVFQueueCount, "Max bonding vf queue count")
 }
 
 func (s *SriovOptions) ApplyTo(config *qrmconfig.SriovQRMPluginConfig) error {
@@ -73,8 +73,8 @@ func (s *SriovOptions) ApplyTo(config *qrmconfig.SriovQRMPluginConfig) error {
 		PCIAnnotation:    s.PCIAnnotationKey,
 		ExtraAnnotations: s.ExtraAnnotations,
 	}
-	config.MinBondingVfQueueCount = s.MinBondingVfQueueCount
-	config.MaxBondingVfQueueCount = s.MaxBondingVfQueueCount
+	config.MinBondingVFQueueCount = s.MinBondingVFQueueCount
+	config.MaxBondingVFQueueCount = s.MaxBondingVFQueueCount
 
 	return nil
 }

@@ -134,7 +134,7 @@ func (sc *stateCheckpoint) InitNewCheckpoint(empty bool) checkpointmanager.Check
 	return checkpoint
 }
 
-func (sc *stateCheckpoint) SetMachineState(state VfState, persist bool) {
+func (sc *stateCheckpoint) SetMachineState(state VFState, persist bool) {
 	sc.Lock()
 	defer sc.Unlock()
 
@@ -177,7 +177,7 @@ func (sc *stateCheckpoint) StoreState() error {
 	return sc.storeState()
 }
 
-func (sc *stateCheckpoint) GetMachineState() VfState {
+func (sc *stateCheckpoint) GetMachineState() VFState {
 	sc.RLock()
 	defer sc.RUnlock()
 

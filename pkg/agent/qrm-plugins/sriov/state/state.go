@@ -20,24 +20,16 @@ import (
 	"encoding/json"
 
 	info "github.com/google/cadvisor/info/v1"
-	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-type PCIDevice struct {
-	Address string `json:"address"`
-	RepName string `json:"repName"`
-	VfName  string `json:"vfName"`
-}
-
 type AllocationInfo struct {
 	commonstate.AllocationMeta `json:",inline"`
 
-	PCIDevice    PCIDevice               `json:"pciDevice"`
-	MountDevices []*pluginapi.DeviceSpec `json:"mountDevices"`
+	VFInfo machine.VFInterfaceInfo `json:"vfInfo"`
 }
 
 func (ai *AllocationInfo) String() string {
@@ -56,20 +48,14 @@ func (ai *AllocationInfo) String() string {
 func (ai *AllocationInfo) Clone() *AllocationInfo {
 	clone := &AllocationInfo{
 		AllocationMeta: *ai.AllocationMeta.Clone(),
-		PCIDevice: PCIDevice{
-			Address: ai.PCIDevice.Address,
-			RepName: ai.PCIDevice.RepName,
-			VfName:  ai.PCIDevice.VfName,
+		VFInfo: machine.VFInterfaceInfo{
+			InterfaceInfo: ai.VFInfo.InterfaceInfo,
+			PFName:        ai.VFInfo.PFName,
+			RepName:       ai.VFInfo.RepName,
+			VfID:          ai.VFInfo.VfID,
+			CombinedCount: ai.VFInfo.CombinedCount,
+			IBDevName:     ai.VFInfo.IBDevName,
 		},
-		MountDevices: make([]*pluginapi.DeviceSpec, 0, len(ai.MountDevices)),
-	}
-
-	for _, mountDevice := range ai.MountDevices {
-		clone.MountDevices = append(clone.MountDevices, &pluginapi.DeviceSpec{
-			ContainerPath: mountDevice.ContainerPath,
-			HostPath:      mountDevice.HostPath,
-			Permissions:   mountDevice.Permissions,
-		})
 	}
 
 	return clone
@@ -91,12 +77,12 @@ func (pe *PodEntries) Clone() PodEntries {
 	return clone
 }
 
-func (pe *PodEntries) FilterByAllocated(expected bool) VfFilter {
+func (pe *PodEntries) FilterByAllocated(expected bool) VFilter {
 	return func(info machine.VFInterfaceInfo) bool {
 		allocated := false
 		for _, containerEntries := range *pe {
 			for _, allocationInfo := range containerEntries {
-				if info.Name == allocationInfo.PCIDevice.VfName {
+				if info.Name == allocationInfo.VFInfo.Name {
 					allocated = true
 					break
 				}
@@ -109,7 +95,7 @@ func (pe *PodEntries) FilterByAllocated(expected bool) VfFilter {
 
 // reader is used to get information from local states
 type reader interface {
-	GetMachineState() VfState
+	GetMachineState() VFState
 	GetPodEntries() PodEntries
 }
 
@@ -117,7 +103,7 @@ type reader interface {
 // and it also provides functionality to maintain the local files
 // todo: optimize me according to actual needs
 type writer interface {
-	SetMachineState(state VfState, persist bool)
+	SetMachineState(state VFState, persist bool)
 	SetPodEntries(podEntries PodEntries, persist bool)
 
 	ClearState()

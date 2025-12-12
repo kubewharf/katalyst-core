@@ -26,7 +26,7 @@ type sriovPluginState struct {
 	sync.RWMutex
 
 	machineInfo  *info.MachineInfo
-	machineState VfState
+	machineState VFState
 	podEntries   PodEntries
 }
 
@@ -36,7 +36,7 @@ func NewSriovPluginState(machineInfo *info.MachineInfo) (*sriovPluginState, erro
 	}, nil
 }
 
-func (s *sriovPluginState) SetMachineState(state VfState) {
+func (s *sriovPluginState) SetMachineState(state VFState) {
 	s.Lock()
 	defer s.Unlock()
 
@@ -66,13 +66,13 @@ func (s *sriovPluginState) ClearState() {
 	s.Lock()
 	defer s.Unlock()
 
-	s.machineState = make(VfState, 0)
+	s.machineState = make(VFState, 0)
 	s.podEntries = make(PodEntries)
 
 	generalLog.InfoS("cleared state")
 }
 
-func (s *sriovPluginState) GetMachineState() VfState {
+func (s *sriovPluginState) GetMachineState() VFState {
 	s.RLock()
 	defer s.RUnlock()
 

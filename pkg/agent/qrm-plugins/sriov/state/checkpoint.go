@@ -26,10 +26,10 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-type VfState []machine.VFInterfaceInfo
+type VFState []machine.VFInterfaceInfo
 
-func (s VfState) Clone() VfState {
-	clone := make(VfState, 0, len(s))
+func (s VFState) Clone() VFState {
+	clone := make(VFState, 0, len(s))
 	for _, vf := range s {
 		clone = append(clone, vf)
 	}
@@ -37,10 +37,10 @@ func (s VfState) Clone() VfState {
 	return clone
 }
 
-type VfFilter func(machine.VFInterfaceInfo) bool
+type VFilter func(machine.VFInterfaceInfo) bool
 
-func (s VfState) Filter(filters ...VfFilter) VfState {
-	filtered := make(VfState, 0)
+func (s VFState) Filter(filters ...VFilter) VFState {
+	filtered := make(VFState, 0)
 	for _, v := range s {
 		keep := true
 		for _, filter := range filters {
@@ -56,27 +56,33 @@ func (s VfState) Filter(filters ...VfFilter) VfState {
 	return filtered
 }
 
-func (s VfState) SortByIndex() {
+func (s VFState) SortByIndex() {
 	sort.Slice(s, func(i, j int) bool {
 		return s[i].IfIndex < s[j].IfIndex
 	})
 }
 
-func FilterByQueueCount(min int, max int) VfFilter {
+func FilterByQueueCount(min int, max int) VFilter {
 	return func(v machine.VFInterfaceInfo) bool {
-		return v.QueueCount >= min && v.QueueCount <= max
+		return v.CombinedCount >= min && v.CombinedCount <= max
 	}
 }
 
-func FilterByName(name string) VfFilter {
+func FilterByName(name string) VFilter {
 	return func(vf machine.VFInterfaceInfo) bool {
 		return vf.Name == name
 	}
 }
 
-func FilterByNumaID(numaSet machine.CPUSet) VfFilter {
+func FilterByNumaID(numaSet machine.CPUSet) VFilter {
 	return func(vf machine.VFInterfaceInfo) bool {
 		return numaSet.Contains(vf.NumaNode)
+	}
+}
+
+func FilterByIbDevice(supported bool) VFilter {
+	return func(vf machine.VFInterfaceInfo) bool {
+		return vf.IBDevName != "" == supported
 	}
 }
 
@@ -84,7 +90,7 @@ var _ checkpointmanager.Checkpoint = &SriovPluginCheckpoint{}
 
 type SriovPluginCheckpoint struct {
 	PolicyName   string            `json:"policyName"`
-	MachineState VfState           `json:"machineState"`
+	MachineState VFState           `json:"machineState"`
 	PodEntries   PodEntries        `json:"pod_entries"`
 	Checksum     checksum.Checksum `json:"checksum"`
 }

@@ -32,8 +32,8 @@ type SriovAllocationConfig struct {
 }
 
 type SriovStaticPolicyConfig struct {
-	MinBondingVfQueueCount int
-	MaxBondingVfQueueCount int
+	MinBondingVFQueueCount int
+	MaxBondingVFQueueCount int
 }
 
 func NewSriovQRMPluginConfig() *SriovQRMPluginConfig {

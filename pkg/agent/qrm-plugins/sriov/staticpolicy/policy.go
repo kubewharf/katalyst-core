@@ -29,6 +29,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	appqrm "github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent/qrm"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	sriovconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/state"
 	sriovutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/util"
@@ -187,7 +188,7 @@ func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 	podEntries := p.state.GetPodEntries()
 	machineState := p.state.GetMachineState()
 
-	var candidateVfs state.VfState
+	var candidates state.VFState
 
 	// reuse allocation info allocated by same pod and container
 	containerEntries, exists := podEntries[req.PodNamespace]
@@ -196,20 +197,22 @@ func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 		if allocationInfo == nil {
 			return nil, fmt.Errorf("not support allocate more than 1 vf in single pod")
 		}
-		candidateVfs = machineState.Filter(state.FilterByName(allocationInfo.PCIDevice.VfName))
+		candidates = machineState.Filter(state.FilterByName(allocationInfo.VFInfo.Name))
 	} else {
-		candidateVfs = machineState.Filter(
-			podEntries.FilterByAllocated(true),
-			state.FilterByQueueCount(p.MaxBondingVfQueueCount, p.MaxBondingVfQueueCount),
+		candidates = machineState.Filter(
+			podEntries.FilterByAllocated(false),
+			// todo: only filter in bonding
+			state.FilterByQueueCount(p.MaxBondingVFQueueCount, p.MaxBondingVFQueueCount),
+			state.FilterByIbDevice(true),
 		)
 	}
 
-	if len(candidateVfs) == 0 {
+	if len(candidates) == 0 {
 		return nil, fmt.Errorf("no available VFs")
 	}
 
 	numaSet := machine.CPUSet{}
-	for _, vf := range candidateVfs {
+	for _, vf := range candidates {
 		numaSet.Add(vf.NumaNode)
 	}
 	socketSet := p.agentCtx.CPUDetails.SocketsInNUMANodes(numaSet.ToSliceInt()...)
@@ -292,12 +295,15 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 		topologyAwareQuantityList = make([]*pluginapi.TopologyAwareQuantity, 0, len(machineState))
 	)
 
-	for _, vf := range machineState {
+	// todo: filter according to whether bonding
+	availableVFs := machineState.Filter(state.FilterByIbDevice(true))
+
+	for _, vfInfo := range availableVFs {
 		aggregatedQuantity += 1
 		topologyAwareQuantityList = append(topologyAwareQuantityList, &pluginapi.TopologyAwareQuantity{
 			ResourceValue: 1,
-			Node:          p.agentCtx.CPUDetails.SocketsInNUMANodes(vf.NumaNode).ToSliceUInt64()[0],
-			Name:          vf.Name,
+			Node:          p.agentCtx.CPUDetails.SocketsInNUMANodes(vfInfo.NumaNode).ToSliceUInt64()[0],
+			Name:          vfInfo.Name,
 			Type:          string(apinode.TopologyTypeNIC),
 			TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 		})
@@ -390,14 +396,23 @@ func (p *StaticPolicy) Allocate(ctx context.Context,
 	}
 
 	machineState := p.state.GetMachineState()
-	candidateVfs := machineState.Filter(state.FilterByNumaID(hintNUMASet))
-	if len(candidateVfs) == 0 {
+	candidates := machineState.Filter(
+		podEntries.FilterByAllocated(false),
+		state.FilterByNumaID(hintNUMASet),
+		state.FilterByIbDevice(true),
+	)
+	if len(candidates) == 0 {
 		return nil, fmt.Errorf("no available VFs")
 	}
-	candidateVfs.SortByIndex()
-	target := candidateVfs[0]
+	candidates.SortByIndex()
 
-	allocationInfo := sriovutil.PackAllocationInfo(req, target, qosLevel)
+	allocationInfo := &state.AllocationInfo{
+		AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(req,
+			commonstate.EmptyOwnerPoolName, qosLevel),
+		// return the VF with the lowest index
+		VFInfo: candidates[0],
+	}
+
 	podEntries[req.PodUid] = map[string]*state.AllocationInfo{
 		req.ContainerName: allocationInfo,
 	}
