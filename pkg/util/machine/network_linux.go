@@ -52,12 +52,17 @@ import (
 const (
 	nicPathNameDeviceFormatPCI = "devices/pci"
 	nicPathNAMEBaseDir         = "class/net"
+	pciPathNameBaseDir         = "bus/pci/devices"
 	bondingMasterPath          = "bonding_masters"
 )
 
 const (
 	netFileNameSpeed    = "speed"
 	netFileNameNUMANode = "device/numa_node"
+	netDevPhysSwitchID  = "phys_switch_id"
+	netDevPhysPortName  = "phys_port_name"
+	netFileNamePhysfn   = "device/physfn"
+	netFileNameNumVFS   = "device/sriov_numvfs"
 	netFileNameEnable   = "device/enable"
 	nicFileNameIfindex  = "ifindex"
 	netOperstate        = "operstate"
