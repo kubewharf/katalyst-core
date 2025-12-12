@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 )
 
 type VFInterfaceInfo struct {
@@ -15,6 +17,9 @@ type VFInterfaceInfo struct {
 	RepName string
 	// VfID The ID of the VF (e.g., 0, 1, 2...)
 	VfID int
+	// todo: replace me
+	RdmaDevices []pluginapi.DeviceSpec
+	QueueCount  int
 }
 
 var physPortRe = regexp.MustCompile(`pf(\d+)vf(\d+)`)

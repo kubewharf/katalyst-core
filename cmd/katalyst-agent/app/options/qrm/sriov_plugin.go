@@ -26,7 +26,13 @@ type SriovOptions struct {
 	PolicyName               string
 	SkipSriovStateCorruption bool
 
+	SriovAllocationOptions
 	SriovStaticPolicyOptions
+}
+
+type SriovAllocationOptions struct {
+	PCIAnnotationKey string
+	ExtraAnnotations map[string]string
 }
 
 type SriovStaticPolicyOptions struct {
@@ -38,6 +44,10 @@ func NewSriovOptions() *SriovOptions {
 	return &SriovOptions{
 		PolicyName:               "static",
 		SkipSriovStateCorruption: true,
+		SriovAllocationOptions: SriovAllocationOptions{
+			PCIAnnotationKey: "pci-devices",
+			ExtraAnnotations: map[string]string{},
+		},
 		SriovStaticPolicyOptions: SriovStaticPolicyOptions{
 			MinBondingVfQueueCount: 32,
 			MaxBondingVfQueueCount: 32,
@@ -50,6 +60,8 @@ func (o *SriovOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	fs.StringVar(&o.PolicyName, "sriov-policy-name", o.PolicyName, "Policy name for sriov qrm plugin")
 	fs.BoolVar(&o.SkipSriovStateCorruption, "skip-sriov-state-corruption", o.SkipSriovStateCorruption, "Skip sriov state corruption")
+	fs.StringVar(&o.PCIAnnotationKey, "pci-annotation-key", o.PCIAnnotationKey, "Pci annotation key for sriov qrm plugin")
+	fs.StringToStringVar(&o.ExtraAnnotations, "sriov-vf-extra-annotations", o.ExtraAnnotations, "Extra annotations for sriov vf")
 	fs.IntVar(&o.MinBondingVfQueueCount, "min-bonding-vf-queue-count", o.MinBondingVfQueueCount, "Min bonding vf queue count")
 	fs.IntVar(&o.MaxBondingVfQueueCount, "max-bonding-vf-queue-count", o.MaxBondingVfQueueCount, "Max bonding vf queue count")
 }
@@ -57,6 +69,10 @@ func (o *SriovOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 func (s *SriovOptions) ApplyTo(config *qrmconfig.SriovQRMPluginConfig) error {
 	config.PolicyName = s.PolicyName
 	config.SkipSriovStateCorruption = s.SkipSriovStateCorruption
+	config.SriovAllocationConfig = qrmconfig.SriovAllocationConfig{
+		PCIAnnotation:    s.PCIAnnotationKey,
+		ExtraAnnotations: s.ExtraAnnotations,
+	}
 	config.MinBondingVfQueueCount = s.MinBondingVfQueueCount
 	config.MaxBondingVfQueueCount = s.MaxBondingVfQueueCount
 

@@ -35,6 +35,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -60,8 +61,8 @@ type StaticPolicy struct {
 	podAnnotationKeptKeys []string
 	podLabelKeptKeys      []string
 
-	minBondingVfQueueCount int
-	maxBondingVfQueueCount int
+	qrmconfig.SriovAllocationConfig
+	qrmconfig.SriovStaticPolicyConfig
 }
 
 func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -81,16 +82,16 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	}
 
 	policy := &StaticPolicy{
-		name:                   fmt.Sprintf("%s_%s", agentName, sriovconsts.SriovResourcePluginPolicyNameStatic),
-		emitter:                wrappedEmitter,
-		agentCtx:               agentCtx,
-		metaServer:             agentCtx.MetaServer,
-		state:                  stateImpl,
-		qosConfig:              conf.QoSConfiguration,
-		podAnnotationKeptKeys:  conf.PodAnnotationKeptKeys,
-		podLabelKeptKeys:       conf.PodLabelKeptKeys,
-		minBondingVfQueueCount: conf.MinBondingVfQueueCount,
-		maxBondingVfQueueCount: conf.MaxBondingVfQueueCount,
+		name:                    fmt.Sprintf("%s_%s", agentName, sriovconsts.SriovResourcePluginPolicyNameStatic),
+		emitter:                 wrappedEmitter,
+		agentCtx:                agentCtx,
+		metaServer:              agentCtx.MetaServer,
+		state:                   stateImpl,
+		qosConfig:               conf.QoSConfiguration,
+		podAnnotationKeptKeys:   conf.PodAnnotationKeptKeys,
+		podLabelKeptKeys:        conf.PodLabelKeptKeys,
+		SriovAllocationConfig:   conf.SriovAllocationConfig,
+		SriovStaticPolicyConfig: conf.SriovStaticPolicyConfig,
 	}
 
 	pluginWrapper, err := skeleton.NewRegistrationPluginWrapper(policy, conf.QRMPluginSocketDirs, nil)
@@ -199,7 +200,7 @@ func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 	} else {
 		candidateVfs = machineState.Filter(
 			podEntries.FilterByAllocated(true),
-			state.FilterByQueueCount(p.minBondingVfQueueCount, p.maxBondingVfQueueCount),
+			state.FilterByQueueCount(p.MaxBondingVfQueueCount, p.MaxBondingVfQueueCount),
 		)
 	}
 
@@ -209,7 +210,7 @@ func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 
 	numaSet := machine.CPUSet{}
 	for _, vf := range candidateVfs {
-		numaSet.Add(vf.NumaID)
+		numaSet.Add(vf.NumaNode)
 	}
 	socketSet := p.agentCtx.CPUDetails.SocketsInNUMANodes(numaSet.ToSliceInt()...)
 	numaNodesInSocketSet := p.agentCtx.CPUDetails.NUMANodesInSockets(socketSet.ToSliceInt()...).ToSliceUInt64()
@@ -295,7 +296,7 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 		aggregatedQuantity += 1
 		topologyAwareQuantityList = append(topologyAwareQuantityList, &pluginapi.TopologyAwareQuantity{
 			ResourceValue: 1,
-			Node:          p.agentCtx.CPUDetails.SocketsInNUMANodes(vf.NumaID).ToSliceUInt64()[0],
+			Node:          p.agentCtx.CPUDetails.SocketsInNUMANodes(vf.NumaNode).ToSliceUInt64()[0],
 			Name:          vf.Name,
 			Type:          string(apinode.TopologyTypeNIC),
 			TopologyLevel: pluginapi.TopologyLevel_SOCKET,
@@ -380,7 +381,7 @@ func (p *StaticPolicy) Allocate(ctx context.Context,
 		if allocationInfo == nil {
 			return nil, fmt.Errorf("not support allocate more than 1 vf in single pod")
 		}
-		return sriovutil.PackAllocationResponse(req, allocationInfo), nil
+		return sriovutil.PackAllocationResponse(p.SriovAllocationConfig, req, allocationInfo)
 	}
 
 	hintNUMASet, err := machine.NewCPUSetUint64(req.Hint.Nodes...)
@@ -393,7 +394,8 @@ func (p *StaticPolicy) Allocate(ctx context.Context,
 	if len(candidateVfs) == 0 {
 		return nil, fmt.Errorf("no available VFs")
 	}
-	target := candidateVfs.SortByIndex()[0]
+	candidateVfs.SortByIndex()
+	target := candidateVfs[0]
 
 	allocationInfo := sriovutil.PackAllocationInfo(req, target, qosLevel)
 	podEntries[req.PodUid] = map[string]*state.AllocationInfo{
@@ -401,7 +403,7 @@ func (p *StaticPolicy) Allocate(ctx context.Context,
 	}
 	p.state.SetPodEntries(podEntries, true)
 
-	return sriovutil.PackAllocationResponse(req, allocationInfo), nil
+	return sriovutil.PackAllocationResponse(p.SriovAllocationConfig, req, allocationInfo)
 }
 
 // AllocateForPod is called during pod admit so that the resource

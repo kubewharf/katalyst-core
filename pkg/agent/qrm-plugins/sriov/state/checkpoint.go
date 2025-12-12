@@ -20,43 +20,28 @@ import (
 	"encoding/json"
 	"sort"
 
-	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/checksum"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-// VfInfo is the information of a single VF
-// todo: adjust fields lately
-type VfInfo struct {
-	Name        string                 `json:"name"`
-	RepName     string                 `json:"repName"`
-	PfName      string                 `json:"pfName"`
-	Index       int                    `json:"index"`
-	NetNS       string                 `json:"netNS"`
-	NumaID      int                    `json:"numaID"`
-	QueueCount  int                    `json:"queueCount"`
-	PciAddress  string                 `json:"pciAddress"`
-	RdmaDevices []pluginapi.DeviceSpec `json:"rdmaDevices"`
-}
-
-type VfState map[string]VfInfo // keyed by vf rep name
+type VfState []machine.VFInterfaceInfo
 
 func (s VfState) Clone() VfState {
-	clone := make(VfState)
-	for k, v := range s {
-		clone[k] = v
+	clone := make(VfState, 0, len(s))
+	for _, vf := range s {
+		clone = append(clone, vf)
 	}
 
 	return clone
 }
 
-type VfFilter func(VfInfo) bool
+type VfFilter func(machine.VFInterfaceInfo) bool
 
 func (s VfState) Filter(filters ...VfFilter) VfState {
-	filtered := make(VfState)
-	for k, v := range s {
+	filtered := make(VfState, 0)
+	for _, v := range s {
 		keep := true
 		for _, filter := range filters {
 			if !filter(v) {
@@ -65,44 +50,33 @@ func (s VfState) Filter(filters ...VfFilter) VfState {
 			}
 		}
 		if keep {
-			filtered[k] = v
+			filtered = append(filtered, v)
 		}
 	}
 	return filtered
 }
 
-func (s VfState) SortByIndex() []VfInfo {
-	sorted := make([]VfInfo, 0, len(s))
-
-	vfList := make([]string, 0, len(s))
-	for k := range s {
-		vfList = append(vfList, k)
-	}
-	sort.Slice(vfList, func(i, j int) bool {
-		return s[vfList[i]].Index < s[vfList[j]].Index
+func (s VfState) SortByIndex() {
+	sort.Slice(s, func(i, j int) bool {
+		return s[i].IfIndex < s[j].IfIndex
 	})
-	for _, vfName := range vfList {
-		sorted = append(sorted, s[vfName])
-	}
-
-	return sorted
 }
 
 func FilterByQueueCount(min int, max int) VfFilter {
-	return func(v VfInfo) bool {
+	return func(v machine.VFInterfaceInfo) bool {
 		return v.QueueCount >= min && v.QueueCount <= max
 	}
 }
 
 func FilterByName(name string) VfFilter {
-	return func(v VfInfo) bool {
-		return v.Name == name
+	return func(vf machine.VFInterfaceInfo) bool {
+		return vf.Name == name
 	}
 }
 
 func FilterByNumaID(numaSet machine.CPUSet) VfFilter {
-	return func(v VfInfo) bool {
-		return numaSet.Contains(v.NumaID)
+	return func(vf machine.VFInterfaceInfo) bool {
+		return numaSet.Contains(vf.NumaNode)
 	}
 }
 

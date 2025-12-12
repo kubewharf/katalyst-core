@@ -22,7 +22,13 @@ type SriovQRMPluginConfig struct {
 	// skip sriov state corruption and it will be used after updating state properties
 	SkipSriovStateCorruption bool
 
+	SriovAllocationConfig
 	SriovStaticPolicyConfig
+}
+
+type SriovAllocationConfig struct {
+	PCIAnnotation    string
+	ExtraAnnotations map[string]string
 }
 
 type SriovStaticPolicyConfig struct {

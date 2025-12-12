@@ -17,6 +17,7 @@ limitations under the License.
 package util
 
 import (
+	"encoding/json"
 	"fmt"
 
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
@@ -25,7 +26,9 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 func ValidateRequestQuantity(req *pluginapi.ResourceRequest) error {
@@ -42,12 +45,12 @@ func ValidateRequestQuantity(req *pluginapi.ResourceRequest) error {
 	return nil
 }
 
-func PackAllocationInfo(req *pluginapi.ResourceRequest, vf state.VfInfo, qosLevel string) *state.AllocationInfo {
+func PackAllocationInfo(req *pluginapi.ResourceRequest, vf machine.VFInterfaceInfo, qosLevel string) *state.AllocationInfo {
 	return &state.AllocationInfo{
 		AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(req,
 			commonstate.EmptyOwnerPoolName, qosLevel),
 		PCIDevice: state.PCIDevice{
-			Address: vf.PciAddress,
+			Address: vf.PCIAddr,
 			RepName: vf.RepName,
 			VfName:  vf.Name,
 		},
@@ -55,9 +58,15 @@ func PackAllocationInfo(req *pluginapi.ResourceRequest, vf state.VfInfo, qosLeve
 	}
 }
 
-func PackAllocationResponse(req *pluginapi.ResourceRequest, allocationInfo *state.AllocationInfo) *pluginapi.ResourceAllocationResponse {
-	// todo: add pci device as annotations
-	annotations := map[string]string{}
+func PackAllocationResponse(conf qrm.SriovAllocationConfig,
+	req *pluginapi.ResourceRequest,
+	allocationInfo *state.AllocationInfo) (*pluginapi.ResourceAllocationResponse, error) {
+	annotations := general.DeepCopyMap(conf.ExtraAnnotations)
+	pciAnnotationValue, err := json.Marshal([]state.PCIDevice{allocationInfo.PCIDevice})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal pci device: %v", err)
+	}
+	annotations[conf.PCIAnnotation] = string(pciAnnotationValue)
 
 	return &pluginapi.ResourceAllocationResponse{
 		PodUid:         req.PodUid,
@@ -87,5 +96,5 @@ func PackAllocationResponse(req *pluginapi.ResourceRequest, allocationInfo *stat
 		},
 		Labels:      general.DeepCopyMap(req.Labels),
 		Annotations: general.DeepCopyMap(req.Annotations),
-	}
+	}, nil
 }

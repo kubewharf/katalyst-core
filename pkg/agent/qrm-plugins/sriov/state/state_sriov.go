@@ -66,7 +66,7 @@ func (s *sriovPluginState) ClearState() {
 	s.Lock()
 	defer s.Unlock()
 
-	s.machineState = make(VfState)
+	s.machineState = make(VfState, 0)
 	s.podEntries = make(PodEntries)
 
 	generalLog.InfoS("cleared state")

@@ -24,6 +24,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 type PCIDevice struct {
@@ -91,7 +92,7 @@ func (pe *PodEntries) Clone() PodEntries {
 }
 
 func (pe *PodEntries) FilterByAllocated(expected bool) VfFilter {
-	return func(info VfInfo) bool {
+	return func(info machine.VFInterfaceInfo) bool {
 		allocated := false
 		for _, containerEntries := range *pe {
 			for _, allocationInfo := range containerEntries {
