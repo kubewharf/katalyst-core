@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
+	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 )
 
 type VFInterfaceInfo struct {
@@ -18,7 +18,7 @@ type VFInterfaceInfo struct {
 	// VfID The ID of the VF (e.g., 0, 1, 2...)
 	VfID int
 	// todo: replace me
-	RdmaDevices []pluginapi.DeviceSpec
+	RdmaDevices []*pluginapi.DeviceSpec
 	QueueCount  int
 }
 

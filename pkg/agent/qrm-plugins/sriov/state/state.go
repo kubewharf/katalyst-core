@@ -20,7 +20,7 @@ import (
 	"encoding/json"
 
 	info "github.com/google/cadvisor/info/v1"
-	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
+	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -36,8 +36,8 @@ type PCIDevice struct {
 type AllocationInfo struct {
 	commonstate.AllocationMeta `json:",inline"`
 
-	PCIDevice    PCIDevice              `json:"pciDevice"`
-	MountDevices []pluginapi.DeviceSpec `json:"mountDevices"`
+	PCIDevice    PCIDevice               `json:"pciDevice"`
+	MountDevices []*pluginapi.DeviceSpec `json:"mountDevices"`
 }
 
 func (ai *AllocationInfo) String() string {
@@ -61,11 +61,11 @@ func (ai *AllocationInfo) Clone() *AllocationInfo {
 			RepName: ai.PCIDevice.RepName,
 			VfName:  ai.PCIDevice.VfName,
 		},
-		MountDevices: make([]pluginapi.DeviceSpec, 0, len(ai.MountDevices)),
+		MountDevices: make([]*pluginapi.DeviceSpec, 0, len(ai.MountDevices)),
 	}
 
 	for _, mountDevice := range ai.MountDevices {
-		clone.MountDevices = append(clone.MountDevices, pluginapi.DeviceSpec{
+		clone.MountDevices = append(clone.MountDevices, &pluginapi.DeviceSpec{
 			ContainerPath: mountDevice.ContainerPath,
 			HostPath:      mountDevice.HostPath,
 			Permissions:   mountDevice.Permissions,
