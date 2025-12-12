@@ -59,7 +59,9 @@ const (
 const (
 	netFileNameSpeed    = "speed"
 	netFileNameNUMANode = "device/numa_node"
+	netFileNameIBDev    = "device/infiniband"
 	netDevPhysSwitchID  = "phys_switch_id"
+	netDevNameQueues    = "queues"
 	netDevPhysPortName  = "phys_port_name"
 	netFileNamePhysfn   = "device/physfn"
 	netFileNameNumVFS   = "device/sriov_numvfs"

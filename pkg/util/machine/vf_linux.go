@@ -1,6 +1,7 @@
 package machine
 
 import (
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
@@ -70,6 +71,46 @@ func chechVfTrustOn(pfName string, vfIndex int) bool {
 	return true
 }
 
+func GetVfIBDevName(sysFsDir string, vfName string) (ibDevName string, err error) {
+	ibDirPath := path.Join(sysFsDir, nicPathNAMEBaseDir, vfName, netFileNameIBDev)
+
+	info, err := os.Stat(ibDirPath)
+	if os.IsNotExist(err) || !info.IsDir() {
+		return "", fmt.Errorf("device %s does not have an associated InfiniBand/RDMA device", vfName)
+	}
+
+	entries, err := os.ReadDir(ibDirPath)
+	if err != nil {
+		return "", err
+	}
+
+	if len(entries) == 0 {
+		return "", fmt.Errorf("infiniband directory is empty")
+	}
+
+	// 返回第一个找到的目录名
+	return entries[0].Name(), nil
+}
+
+func GetCombinedChannels(ifName string) (int, error) {
+	// 1. 初始化 Ethtool 句柄
+	ethHandle, err := ethtool.NewEthtool()
+	if err != nil {
+		return 0, fmt.Errorf("ethtool init failed: %v", err)
+	}
+	defer ethHandle.Close()
+
+	// 2. 发送 ETHTOOL_GCHANNELS 命令
+	channels, err := ethHandle.GetChannels(ifName)
+	if err != nil {
+		return 0, fmt.Errorf("ethtool get channels failed: %v", err)
+	}
+
+	// CombinedCount 是当前配置的值 (Current)
+	// MaxCombined 是硬件支持的最大值 (Pre-set maximums)
+	return int(channels.CombinedCount), nil
+}
+
 func GetNSNetworkVFs(nsName, netNSDirAbsPath string) ([]VFInterfaceInfo, error) {
 	nics, err := getNSNetworkHardwareTopology(nsName, netNSDirAbsPath)
 	if err != nil {
@@ -115,6 +156,14 @@ func GetNSNetworkVFs(nsName, netNSDirAbsPath string) ([]VFInterfaceInfo, error) 
 			if chechVfTrustOn(vf.PFName, vf.VfID) {
 				continue
 			}
+
+			vf.CombinedCount, err = GetCombinedChannels(vf.Name)
+			if err != nil {
+				continue
+			}
+
+			// 获取 VF 的 InfiniBand 设备名，这个不是所有vf设备都有，所以这里不检查错误
+			vf.IBDevName, _ = GetVfIBDevName(sysFsDir, vf.Name)
 
 			vfs = append(vfs, vf)
 		}
