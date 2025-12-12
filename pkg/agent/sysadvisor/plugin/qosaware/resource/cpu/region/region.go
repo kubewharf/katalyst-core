@@ -53,6 +53,7 @@ type QoSRegion interface {
 	SetEssentials(essentials types.ResourceEssentials)
 
 	IsNumaBinding() bool
+	IsNumaExclusive() bool
 	SetThrottled(throttled bool)
 
 	// AddContainer stores a container keyed by pod uid and container name to region
