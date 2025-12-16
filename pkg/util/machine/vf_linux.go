@@ -175,6 +175,23 @@ func GetNSNetworkVFs(nsName, netNSDirAbsPath string) ([]VFInterfaceInfo, error) 
 
 	return vfs, err
 }
+func GetNSNetworkVFName(sysFsDir string, vfPciAddress string) (string, error) {
+	pciBaseDirPath := path.Join(sysFsDir, pciPathNameBaseDir)
+	vfPath := filepath.Join(pciBaseDirPath, vfPciAddress, "net")
+	if _, err := os.Stat(vfPath); os.IsNotExist(err) {
+		return "", fmt.Errorf("vf net path %s does not exist", vfPath)
+	}
+
+	entries, err := os.ReadDir(vfPath)
+	if err != nil {
+		return "", err
+	}
+	if len(entries) == 0 {
+		return "", fmt.Errorf("vf net path %s is empty", vfPath)
+	}
+
+	return entries[0].Name(), nil
+}
 
 func getNSNetworkPFs(nsName, netNSDirAbsPath string) ([]InterfaceInfo, error) {
 	var pfs []InterfaceInfo
