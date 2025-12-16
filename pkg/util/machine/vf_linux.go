@@ -72,25 +72,28 @@ func chechVfTrustOn(pfName string, vfIndex int) bool {
 	return true
 }
 
-func GetVfIBDevName(sysFsDir string, vfName string) (ibDevName string, err error) {
-	ibDirPath := path.Join(sysFsDir, nicPathNAMEBaseDir, vfName, netFileNameIBDev)
+func GetVfIBDevName(sysFsDir string, vfName string) (ibDevList []string, err error) {
+	ibVerbDirPath := path.Join(sysFsDir, nicPathNAMEBaseDir, vfName, netFileNameIBVerbs)
+	ibCMDirPath := path.Join(sysFsDir, nicPathNAMEBaseDir, vfName, netFileNameIBCM)
+	ibMadDirPath := path.Join(sysFsDir, nicPathNAMEBaseDir, vfName, netFileNameIBMad)
+	paths := []string{ibVerbDirPath, ibCMDirPath, ibMadDirPath}
 
-	info, err := os.Stat(ibDirPath)
-	if os.IsNotExist(err) || !info.IsDir() {
-		return "", fmt.Errorf("device %s does not have an associated InfiniBand/RDMA device", vfName)
+	for _, path := range paths {
+		entries, err := os.ReadDir(path)
+		if err != nil {
+			continue
+		}
+
+		if len(entries) == 0 {
+			continue
+		}
+
+		for _, entry := range entries {
+			ibDevList = append(ibDevList, entry.Name())
+		}
 	}
 
-	entries, err := os.ReadDir(ibDirPath)
-	if err != nil {
-		return "", err
-	}
-
-	if len(entries) == 0 {
-		return "", fmt.Errorf("infiniband directory is empty")
-	}
-
-	// 返回第一个找到的目录名
-	return entries[0].Name(), nil
+	return ibDevList, nil
 }
 
 func GetCombinedChannels(ifName string) (int, error) {
