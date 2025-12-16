@@ -8,17 +8,13 @@ import (
 )
 
 type VFInterfaceInfo struct {
-	InterfaceInfo
-	// PFName is the name of the parent PF device for this VF. (e.g., eth0)
-	PFName string
+	PFInfo *InterfaceInfo
 	// RepName is the name of the representor device for this VF. (e.g., eth0_1)
 	RepName string
 	// VfID The ID of the VF (e.g., 0, 1, 2...)
 	VfID int
-	// CombinedCount is the number of combined rx/tx queues for this VF.
-	CombinedCount int
-	// IBDevName is the name of the InfiniBand device for this VF. (e.g., mlx5_0)
-	IBDevName string
+	// PCIAddr is the PCI address of the VF. (e.g., 0000:3b:00.1)
+	PCIAddr string
 }
 
 var physPortRe = regexp.MustCompile(`pf(\d+)vf(\d+)`)

@@ -16,6 +16,37 @@ import (
 
 var virtFnRe = regexp.MustCompile(`virtfn(\d+)`)
 
+// GetVfMapFromPF returns a map of vf index to vf pci address
+func GetVfMapFromPF(sysFsDir string, pfPciAddress string) (map[int]string, error) {
+	vfMap := make(map[int]string)
+	pciBaseDirPath := path.Join(sysFsDir, pciPathNameBaseDir)
+	vfPath := filepath.Join(pciBaseDirPath, pfPciAddress, "virtfn*")
+	matches, err := filepath.Glob(vfPath)
+	if err != nil {
+		klog.Errorf("Failed to glob %s, err %s", vfPath, err)
+		return nil, err
+	}
+	for _, matchPath := range matches {
+		realPath, err := filepath.EvalSymlinks(matchPath)
+		if err != nil {
+			fmt.Printf("Warning: cannot resolve symlink %s\n", matchPath)
+			continue
+		}
+		// realPath 类似于 /sys/devices/pci0000:16/.../0000:18:00.1
+		vfPci := filepath.Base(realPath)
+
+		result := virtFnRe.FindStringSubmatch(matchPath)
+		vfIndex, err := strconv.Atoi(result[1])
+		if err != nil {
+			klog.Errorf("Failed to parse virtfn index %s\n", matchPath)
+			continue
+		}
+		vfMap[vfIndex] = vfPci
+	}
+
+	return vfMap, nil
+}
+
 func GetVfIndexByPciAddress(sysFsDir string, vfPciAddress string) (int, error) {
 	pciBaseDirPath := path.Join(sysFsDir, pciPathNameBaseDir)
 	vfPath := filepath.Join(pciBaseDirPath, vfPciAddress, "physfn", "virtfn*")

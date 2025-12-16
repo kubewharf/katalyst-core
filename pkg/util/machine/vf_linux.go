@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/safchain/ethtool"
 	"github.com/vishvananda/netlink"
 	"k8s.io/klog/v2"
@@ -118,54 +119,55 @@ func GetNSNetworkVFs(nsName, netNSDirAbsPath string) ([]VFInterfaceInfo, error) 
 	}
 
 	var vfs []VFInterfaceInfo
+	var pfMap = map[string]*InterfaceInfo{}
 
 	err = DoNetNS(nsName, netNSDirAbsPath, func(sysFsDir string) error {
 		nicsBaseDirPath := path.Join(sysFsDir, nicPathNAMEBaseDir)
 		for _, nic := range nics {
 			physfnPath := filepath.Join(nicsBaseDirPath, nic.Name, netFileNamePhysfn)
-			// 如果 physfn 不存在，说明它是 PF，跳过
-			if _, err = os.Stat(physfnPath); os.IsNotExist(err) {
+			// physfnPath不存在且sriovPath存在，说明这是 PF
+			if _, err = os.Stat(physfnPath); err == nil {
+				klog.Infof("physfn %s already exists", physfnPath)
 				continue
 			}
 
-			sriovFile := filepath.Join(nicsBaseDirPath, nic.Name, netFileNameNumVFS)
-			if _, err = os.Stat(sriovFile); err == nil {
-				// 文件不存在，不是 PF
+			sriovPath := filepath.Join(nicsBaseDirPath, nic.Name, netFileNameNumVFS)
+			if _, err = os.Stat(sriovPath); err == nil {
+				klog.Infof("sriov %s already exists", sriovPath)
 				continue
 			}
 
-			vf := VFInterfaceInfo{
-				InterfaceInfo: nic,
-			}
+			pfMap[nic.Name] = &nic
+			klog.Infof("pf nic %s detected", nic.Name)
+		}
 
-			vf.PFName, err = GetUplinkRepresentor(sysFsDir, vf.PCIAddr)
+		for _, pf := range pfMap {
+			vfMap, err := GetVfMapFromPF(sysFsDir, pf.Name)
 			if err != nil {
+				klog.Errorf("get vf map from pf %s failed, error: %s", pf.Name, err.Error())
 				continue
 			}
 
-			vf.VfID, err = GetVfIndexByPciAddress(sysFsDir, vf.PCIAddr)
-			if err != nil {
-				continue
+			for vfIndex, vfPci := range vfMap {
+				vf := VFInterfaceInfo{
+					PCIAddr: vfPci,
+					PFInfo:  pf,
+					VfID:    vfIndex,
+				}
+
+				vf.RepName, err = GetVfRepresentor(sysFsDir, pf.Name, vf.VfID)
+				if err != nil {
+					klog.Errorf("get vf representor failed, error: %s", err.Error())
+					continue
+				}
+
+				if chechVfTrustOn(pf.Name, vf.VfID) {
+					continue
+				}
+
+				vfs = append(vfs, vf)
+				klog.Infof("vf %s detected, pf %s", vfPci, pf.Name)
 			}
-
-			vf.RepName, err = GetVfRepresentor(sysFsDir, vf.PFName, vf.VfID)
-			if err != nil {
-				continue
-			}
-
-			if chechVfTrustOn(vf.PFName, vf.VfID) {
-				continue
-			}
-
-			vf.CombinedCount, err = GetCombinedChannels(vf.Name)
-			if err != nil {
-				continue
-			}
-
-			// 获取 VF 的 InfiniBand 设备名，这个不是所有vf设备都有，所以这里不检查错误
-			vf.IBDevName, _ = GetVfIBDevName(sysFsDir, vf.Name)
-
-			vfs = append(vfs, vf)
 		}
 
 		return nil
@@ -208,4 +210,25 @@ func getNSNetworkPFs(nsName, netNSDirAbsPath string) ([]InterfaceInfo, error) {
 	}
 
 	return pfs, nil
+}
+
+func GetNetworkVFs(conf *global.MachineInfoConfiguration) ([]VFInterfaceInfo, error) {
+	nsList := []string{DefaultNICNamespace}
+
+	nsList = append(nsList, conf.NetAllocatableNS...)
+	if conf.NetNSDirAbsPath == "" {
+		return nil, fmt.Errorf("GetNetworkVFs got nil netNSDirAbsPath")
+	}
+	vfNics := []VFInterfaceInfo{}
+	for _, ns := range nsList {
+		vfs, err := GetNSNetworkVFs(ns, conf.NetNSDirAbsPath)
+		if err != nil {
+			klog.Errorf("GetNSNetworkVFs %s failed, error: %s", ns, err.Error())
+			continue
+		}
+
+		vfNics = append(vfNics, vfs...)
+	}
+
+	return vfNics, nil
 }
