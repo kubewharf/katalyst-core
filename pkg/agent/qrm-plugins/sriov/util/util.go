@@ -50,14 +50,14 @@ func ValidateRequestQuantity(req *pluginapi.ResourceRequest) error {
 }
 
 type PCIDevice struct {
-	Address string `json:"address"`
-	RepName string `json:"repName"`
-	VFName  string `json:"vfName"`
+	Address   string `json:"address"`
+	RepName   string `json:"repName"`
+	VFName    string `json:"vfName"`
+	Container string `json:"container"`
 }
 
 func PackAllocationResponse(conf qrm.SriovAllocationConfig,
-	req *pluginapi.ResourceRequest,
-	allocationInfo *state.AllocationInfo) (*pluginapi.ResourceAllocationResponse, error) {
+	req *pluginapi.ResourceRequest, allocationInfo *state.AllocationInfo) (*pluginapi.ResourceAllocationResponse, error) {
 	annotations := general.DeepCopyMap(conf.ExtraAnnotations)
 	pciAnnotationValue, err := json.Marshal([]PCIDevice{
 		{
@@ -72,20 +72,20 @@ func PackAllocationResponse(conf qrm.SriovAllocationConfig,
 	annotations[conf.PCIAnnotation] = string(pciAnnotationValue)
 
 	var devices []*pluginapi.DeviceSpec
-	if ibDevName := allocationInfo.VFInfo.IBDevName; ibDevName != "" {
-		rdmaPath := filepath.Join(rdmaDevicePrefix, allocationInfo.VFInfo.IBDevName)
-		devices = []*pluginapi.DeviceSpec{
-			{
+	if ibDevices := allocationInfo.VFInfo.IBDevices; len(ibDevices) > 0 {
+		for _, device := range ibDevices {
+			rdmaPath := filepath.Join(rdmaDevicePrefix, device)
+			devices = append(devices, &pluginapi.DeviceSpec{
 				HostPath:      rdmaPath,
 				ContainerPath: rdmaPath,
 				Permissions:   "rwm",
-			},
-			{
-				HostPath:      rdmaCmPath,
-				ContainerPath: rdmaCmPath,
-				Permissions:   "rw",
-			},
+			})
 		}
+		devices = append(devices, &pluginapi.DeviceSpec{
+			HostPath:      rdmaCmPath,
+			ContainerPath: rdmaCmPath,
+			Permissions:   "rw",
+		})
 	}
 
 	return &pluginapi.ResourceAllocationResponse{
@@ -104,8 +104,7 @@ func PackAllocationResponse(conf qrm.SriovAllocationConfig,
 					IsNodeResource:    true,
 					IsScalarResource:  true, // to avoid re-allocating
 					AllocatedQuantity: 1,
-					// todo: add RDMA devices
-					Annotations: annotations,
+					Annotations:       annotations,
 					ResourceHints: &pluginapi.ListOfTopologyHints{
 						Hints: []*pluginapi.TopologyHint{
 							req.Hint,

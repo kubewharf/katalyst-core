@@ -16,9 +16,18 @@ limitations under the License.
 
 package consts
 
+import "time"
+
 const (
 	// SriovResourcePluginPolicyNameStatic is the name of static policy for sriov resource plugin
 	SriovResourcePluginPolicyNameStatic = "static"
+
+	ReconcileState        = "reconcile_state"
+	HealthzReconcileState = "qrm_sriov_plugin_" + ReconcileState
+
+	ReconcileStatePeriod          = 30 * time.Second
+	ReconcileStateTolerationTimes = 3
+	MaxResidualTime               = 5 * time.Minute
 
 	SriovPluginStateFileName = "sriov_plugin_state"
 )

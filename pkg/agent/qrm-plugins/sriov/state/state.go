@@ -19,17 +19,14 @@ package state
 import (
 	"encoding/json"
 
-	info "github.com/google/cadvisor/info/v1"
-
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 type AllocationInfo struct {
 	commonstate.AllocationMeta `json:",inline"`
 
-	VFInfo machine.VFInterfaceInfo `json:"vfInfo"`
+	VFInfo VFInfo `json:"vfInfo"`
 }
 
 func (ai *AllocationInfo) String() string {
@@ -39,7 +36,8 @@ func (ai *AllocationInfo) String() string {
 
 	contentBytes, err := json.Marshal(ai)
 	if err != nil {
-		general.LoggerWithPrefix("AllocationInfo.String", general.LoggingPKGFull).Errorf("marshal AllocationInfo failed with error: %v", err)
+		general.LoggerWithPrefix("AllocationInfo.String", general.LoggingPKGFull).
+			Errorf("marshal AllocationInfo failed with error: %v", err)
 		return ""
 	}
 	return string(contentBytes)
@@ -48,14 +46,7 @@ func (ai *AllocationInfo) String() string {
 func (ai *AllocationInfo) Clone() *AllocationInfo {
 	clone := &AllocationInfo{
 		AllocationMeta: *ai.AllocationMeta.Clone(),
-		VFInfo: machine.VFInterfaceInfo{
-			InterfaceInfo: ai.VFInfo.InterfaceInfo,
-			PFName:        ai.VFInfo.PFName,
-			RepName:       ai.VFInfo.RepName,
-			VfID:          ai.VFInfo.VfID,
-			CombinedCount: ai.VFInfo.CombinedCount,
-			IBDevName:     ai.VFInfo.IBDevName,
-		},
+		VFInfo:         VFInfo{},
 	}
 
 	return clone
@@ -77,26 +68,11 @@ func (pe *PodEntries) Clone() PodEntries {
 	return clone
 }
 
-func (pe *PodEntries) FilterByAllocated(expected bool) VFilter {
-	return func(info machine.VFInterfaceInfo) bool {
-		allocated := false
-		for _, containerEntries := range *pe {
-			for _, allocationInfo := range containerEntries {
-				if info.Name == allocationInfo.VFInfo.Name {
-					allocated = true
-					break
-				}
-			}
-		}
-
-		return allocated == expected
-	}
-}
-
 // reader is used to get information from local states
 type reader interface {
 	GetMachineState() VFState
 	GetPodEntries() PodEntries
+	GetAllocationInfo(podUID, containerName string) *AllocationInfo
 }
 
 // writer is used to store information into local states,
@@ -105,6 +81,8 @@ type reader interface {
 type writer interface {
 	SetMachineState(state VFState, persist bool)
 	SetPodEntries(podEntries PodEntries, persist bool)
+	SetAllocationInfo(podUID, containerName string, allocationInfo *AllocationInfo, persist bool)
+	Delete(podUID string, persist bool)
 
 	ClearState()
 	StoreState() error
@@ -113,8 +91,6 @@ type writer interface {
 // ReadonlyState interface only provides methods for tracking pod assignments
 type ReadonlyState interface {
 	reader
-
-	GetMachineInfo() *info.MachineInfo
 }
 
 // State interface provides methods for tracking and setting pod assignments

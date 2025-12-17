@@ -21,9 +21,9 @@ import (
 	"sync"
 	"time"
 
-	info "github.com/google/cadvisor/info/v1"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -52,16 +52,17 @@ type stateCheckpoint struct {
 	skipStateCorruption bool
 	emitter             metrics.MetricEmitter
 	conf                *qrm.QRMPluginsConfiguration
+	machineConf         *global.MachineInfoConfiguration
 }
 
 func NewCheckpointState(
-	conf *qrm.QRMPluginsConfiguration, stateDirectoryConfig *statedirectory.StateDirectoryConfiguration,
-	checkpointName, policyName string, machineInfo *info.MachineInfo,
-	skipStateCorruption bool, emitter metrics.MetricEmitter,
+	conf *qrm.QRMPluginsConfiguration, machineInfoConf *global.MachineInfoConfiguration,
+	stateDirectoryConfig *statedirectory.StateDirectoryConfiguration,
+	checkpointName, policyName string, skipStateCorruption bool, emitter metrics.MetricEmitter,
 ) (State, error) {
 	currentStateDir, otherStateDir := stateDirectoryConfig.GetCurrentAndPreviousStateFileDirectory()
 
-	cache, err := NewSriovPluginState(machineInfo)
+	cache, err := NewSriovPluginState(machineInfoConf)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize sriov plugin state: %v", err)
 	}
@@ -78,7 +79,7 @@ func NewCheckpointState(
 	cm, err := customcheckpointmanager.NewCustomCheckpointManager(currentStateDir, otherStateDir, checkpointName,
 		"sriov_plugin", sc, skipStateCorruption)
 	if err != nil {
-		return nil, fmt.Errorf("[sriov_plugin] failed to initialize custom checkpoint manager: %v", err)
+		return nil, fmt.Errorf("failed to initialize custom checkpoint manager: %v", err)
 	}
 
 	sc.checkpointManager = cm
@@ -94,14 +95,40 @@ func (sc *stateCheckpoint) RestoreState(cp checkpointmanager.Checkpoint) (bool, 
 	}
 
 	if sc.policyName != checkpoint.PolicyName && !sc.skipStateCorruption {
-		return false, fmt.Errorf("[sriov_plugin] configured policy %q differs from state checkpoint policy %q",
+		return false, fmt.Errorf("configured policy %q differs from state checkpoint policy %q",
 			sc.policyName, checkpoint.PolicyName)
 	}
 
-	sc.cache.SetMachineState(checkpoint.MachineState)
+	checkpointStateMap := checkpoint.MachineState.ToMap()
+	cacheStateMap := sc.cache.GetMachineState().ToMap()
+
+	changed := false
+
+	// add newly found vf into state
+	machineState := checkpoint.MachineState
+	for pciAddr, vfInfo := range cacheStateMap {
+		if _, exists := checkpointStateMap[pciAddr]; exists {
+			continue
+		}
+		changed = true
+		machineState = append(machineState, vfInfo)
+	}
+
+	for _, vfInfo := range machineState {
+		if vfInfo.ExtraVFInfo != nil {
+			continue
+		}
+		if err := vfInfo.InitExtraInfo(sc.machineConf.NetNSDirAbsPath); err != nil {
+			generalLog.Warningf("failed to get vf extra info: %v", err)
+			continue
+		}
+		changed = true
+	}
+
+	sc.cache.SetMachineState(machineState)
 	sc.cache.SetPodEntries(checkpoint.PodEntries)
 
-	return false, nil
+	return changed, nil
 }
 
 func (sc *stateCheckpoint) storeState() error {
@@ -160,6 +187,32 @@ func (sc *stateCheckpoint) SetPodEntries(podEntries PodEntries, persist bool) {
 	}
 }
 
+func (sc *stateCheckpoint) SetAllocationInfo(podUID, containerName string, allocationInfo *AllocationInfo, persist bool) {
+	sc.Lock()
+	defer sc.Unlock()
+
+	sc.cache.SetAllocationInfo(podUID, containerName, allocationInfo)
+	if persist {
+		err := sc.storeState()
+		if err != nil {
+			generalLog.ErrorS(err, "store allocation info to checkpoint error")
+		}
+	}
+}
+
+func (sc *stateCheckpoint) Delete(podUID string, persist bool) {
+	sc.Lock()
+	defer sc.Unlock()
+
+	sc.cache.Delete(podUID)
+	if persist {
+		err := sc.storeState()
+		if err != nil {
+			generalLog.ErrorS(err, "store state after delete operation to checkpoint error")
+		}
+	}
+}
+
 func (sc *stateCheckpoint) ClearState() {
 	sc.Lock()
 	defer sc.Unlock()
@@ -191,9 +244,9 @@ func (sc *stateCheckpoint) GetPodEntries() PodEntries {
 	return sc.cache.GetPodEntries()
 }
 
-func (sc *stateCheckpoint) GetMachineInfo() *info.MachineInfo {
+func (sc *stateCheckpoint) GetAllocationInfo(podUID, containerName string) *AllocationInfo {
 	sc.RLock()
 	defer sc.RUnlock()
 
-	return sc.cache.GetMachineInfo()
+	return sc.cache.GetAllocationInfo(podUID, containerName)
 }

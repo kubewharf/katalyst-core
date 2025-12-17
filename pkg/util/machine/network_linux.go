@@ -1780,3 +1780,22 @@ func CollectNetRxSoftirqStats() (map[int64]uint64, error) {
 
 	return cpuSoftirqCount, nil
 }
+
+func IsHostNetworkBonding() (bool, error) {
+	netSysDir := filepath.Join(DefaultNetNSSysDir, ClassNetBasePath)
+	dirEnts, err := os.ReadDir(netSysDir)
+	if err != nil {
+		return false, fmt.Errorf("failed to ReadDir(%s), err %v", netSysDir, err)
+	}
+
+	for _, d := range dirEnts {
+		nicName := d.Name()
+		nicSysPath := filepath.Join(netSysDir, nicName)
+
+		if IsBondingNetDevice(nicSysPath) {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}

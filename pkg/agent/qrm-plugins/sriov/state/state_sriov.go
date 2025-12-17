@@ -17,23 +17,37 @@ limitations under the License.
 package state
 
 import (
+	"fmt"
 	"sync"
 
-	info "github.com/google/cadvisor/info/v1"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 type sriovPluginState struct {
 	sync.RWMutex
 
-	machineInfo  *info.MachineInfo
 	machineState VFState
 	podEntries   PodEntries
 }
 
-func NewSriovPluginState(machineInfo *info.MachineInfo) (*sriovPluginState, error) {
-	return &sriovPluginState{
-		machineInfo: machineInfo,
-	}, nil
+func NewSriovPluginState(conf *global.MachineInfoConfiguration) (*sriovPluginState, error) {
+	vfList, err := machine.GetNetworkVFs(conf)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get network vf list: %v", err)
+	}
+	state := &sriovPluginState{}
+	for _, vf := range vfList {
+		state.machineState = append(state.machineState, VFInfo{
+			RepName:  vf.RepName,
+			Index:    vf.VfID,
+			PCIAddr:  vf.PCIAddr,
+			PFName:   vf.PFInfo.Name,
+			NumaNode: vf.PFInfo.NumaNode,
+			NSName:   vf.PFInfo.NSName,
+		})
+	}
+	return state, nil
 }
 
 func (s *sriovPluginState) SetMachineState(state VFState) {
@@ -86,9 +100,24 @@ func (s *sriovPluginState) GetPodEntries() PodEntries {
 	return s.podEntries.Clone()
 }
 
-func (s *sriovPluginState) GetMachineInfo() *info.MachineInfo {
+func (s *sriovPluginState) GetAllocationInfo(podUID, containerName string) *AllocationInfo {
 	s.RLock()
 	defer s.RUnlock()
 
-	return s.machineInfo.Clone()
+	if res, ok := s.podEntries[podUID][containerName]; ok {
+		return res.Clone()
+	}
+	return nil
+}
+
+func (s *sriovPluginState) Delete(podUID string) {
+	s.Lock()
+	defer s.Unlock()
+
+	if _, ok := s.podEntries[podUID]; !ok {
+		return
+	}
+
+	delete(s.podEntries, podUID)
+	generalLog.InfoS("deleted container entry", "podUID", podUID)
 }
