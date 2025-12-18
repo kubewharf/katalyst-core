@@ -196,6 +196,7 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 
 	gpuDeviceAllocationInfo := &state.AllocationInfo{
 		AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(resReq, commonstate.EmptyOwnerPoolName, qosLevel),
+		DeviceName:     deviceReq.DeviceName,
 		AllocatedAllocation: state.Allocation{
 			Quantity:  float64(len(allocatedDevices)),
 			NUMANodes: numaNodes.ToSliceInt(),
