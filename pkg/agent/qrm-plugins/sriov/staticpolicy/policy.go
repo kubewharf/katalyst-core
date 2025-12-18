@@ -95,6 +95,7 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	if err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("IsHostNetworkBonding failed with error: %v", err)
 	}
+	general.InfoS("detect host network bonding=%t", hostNetworkBonding)
 
 	policy := &StaticPolicy{
 		name:                    fmt.Sprintf("%s_%s", agentName, consts.SriovResourcePluginPolicyNameStatic),
@@ -279,12 +280,9 @@ func (p *StaticPolicy) RemovePod(_ context.Context,
 		}
 	}()
 
-	podEntries := p.state.GetPodEntries()
-	delete(podEntries, req.PodUid)
-	p.state.SetPodEntries(podEntries, true)
+	p.state.Delete(req.PodUid, true)
 
 	return &pluginapi.RemovePodResponse{}, nil
-
 }
 
 // GetResourcesAllocation returns allocation results of corresponding resources
@@ -440,13 +438,8 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 	}()
 
 	// reuse allocation info allocated by same pod and container
-	podEntries := p.state.GetPodEntries()
-	containerEntries, exists := podEntries[req.PodNamespace]
-	if exists {
-		allocationInfo := containerEntries[req.ContainerName]
-		if allocationInfo == nil {
-			return nil, fmt.Errorf("not support allocate more than 1 vf in single pod")
-		}
+	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
+	if allocationInfo != nil {
 		return util.PackAllocationResponse(p.SriovAllocationConfig, req, allocationInfo)
 	}
 
@@ -455,6 +448,7 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 		return nil, fmt.Errorf("failed to parse hint numa nodes: %v", err)
 	}
 
+	podEntries := p.state.GetPodEntries()
 	machineState := p.state.GetMachineState()
 	candidates := machineState.Filter(
 		state.FilterByPodAllocated(podEntries, false),
@@ -466,17 +460,14 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 	}
 
 	candidates.SortByIndex()
-	allocationInfo := &state.AllocationInfo{
+	allocationInfo = &state.AllocationInfo{
 		AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(req,
 			commonstate.EmptyOwnerPoolName, qosLevel),
 		// return the VF with the lowest index
 		VFInfo: candidates[0],
 	}
 
-	podEntries[req.PodUid] = map[string]*state.AllocationInfo{
-		req.ContainerName: allocationInfo,
-	}
-	p.state.SetPodEntries(podEntries, true)
+	p.state.SetAllocationInfo(req.PodUid, req.ContainerName, allocationInfo, true)
 
 	return util.PackAllocationResponse(p.SriovAllocationConfig, req, allocationInfo)
 }
