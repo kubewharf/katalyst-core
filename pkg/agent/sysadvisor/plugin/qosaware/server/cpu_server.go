@@ -607,7 +607,7 @@ func (cs *cpuServer) setContainerInfoBasedOnContainerAllocationInfo(
 
 	if info.Metadata.QosLevel == consts.PodAnnotationQoSLevelSharedCores &&
 		info.Metadata.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable {
-		originOwnerPoolName, err := commonstate.GetSpecifiedNUMABindingPoolName(info.Metadata.QosLevel, info.Metadata.Annotations)
+		originOwnerPoolName, err := commonstate.GetSpecifiedNUMAPoolName(info.Metadata.QosLevel, info.Metadata.Annotations)
 		if err != nil {
 			return fmt.Errorf("get specified numa binding pool name failed: %w", err)
 		}

@@ -136,17 +136,17 @@ func (am *AllocationMeta) GetSpecifiedPoolName() string {
 	return GetSpecifiedPoolName(am.QoSLevel, am.Annotations[consts.PodAnnotationCPUEnhancementCPUSet])
 }
 
-// GetSpecifiedNUMABindingNUMAID parses the numa id for AllocationInfo
-func (am *AllocationMeta) GetSpecifiedNUMABindingNUMAID() (int, error) {
+// GetSpecifiedNUMAID parses the numa id for AllocationInfo
+func (am *AllocationMeta) GetSpecifiedNUMAID() (int, error) {
 	if am == nil {
 		return FakedNUMAID, fmt.Errorf("empty am")
 	}
 
-	return GetSpecifiedNUMABindingNUMAID(am.Annotations)
+	return GetSpecifiedNUMAID(am.Annotations)
 }
 
-// SetSpecifiedNUMABindingNUMAID set the numa id for AllocationInfo
-func (am *AllocationMeta) SetSpecifiedNUMABindingNUMAID(numaID uint64) {
+// SetSpecifiedNUMAID set the numa id for AllocationInfo
+func (am *AllocationMeta) SetSpecifiedNUMAID(numaID uint64) {
 	if am == nil {
 		return
 	}
@@ -158,14 +158,14 @@ func (am *AllocationMeta) SetSpecifiedNUMABindingNUMAID(numaID uint64) {
 	am.Annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint] = machine.NewCPUSet(int(numaID)).String()
 }
 
-// GetSpecifiedNUMABindingPoolName get numa_binding pool name
-// for numa_binding shared_cores according to enhancements and NUMA hint
-func (am *AllocationMeta) GetSpecifiedNUMABindingPoolName() (string, error) {
-	return GetSpecifiedNUMABindingPoolName(am.QoSLevel, am.Annotations)
+// GetSpecifiedNUMAPoolName get numa pool name
+// for numa_binding or numa_affinity shared_cores according to enhancements and NUMA hint
+func (am *AllocationMeta) GetSpecifiedNUMAPoolName() (string, error) {
+	return GetSpecifiedNUMAPoolName(am.QoSLevel, am.Annotations)
 }
 
-func GetNUMAPoolName(candidateSpecifiedPoolName string, targetNUMANode int) string {
-	return fmt.Sprintf("%s%s%d", candidateSpecifiedPoolName, NUMAPoolInfix, targetNUMANode)
+func GetNUMAPoolName(candidateSpecifiedPoolName, poolInfix string, targetNUMANode int) string {
+	return fmt.Sprintf("%s%s%d", candidateSpecifiedPoolName, poolInfix, targetNUMANode)
 }
 
 // CheckMainContainer returns true if the AllocationInfo is for main container
@@ -315,4 +315,65 @@ func (am *AllocationMeta) CheckDedicatedPool() bool {
 		return false
 	}
 	return am.OwnerPoolName == PoolNameDedicated
+}
+
+// CheckNUMAAffinity returns true if the AllocationInfo is for pod with numa-affinity enhancement
+func (am *AllocationMeta) CheckNUMAAffinity() bool {
+	if am == nil {
+		return false
+	}
+	return am.Annotations[consts.PodAnnotationCPUEnhancementNumaAffinity] ==
+		consts.PodAnnotationCPUEnhancementNumaAffinityEnable || am.CheckNUMABinding()
+}
+
+// CheckDedicatedNUMAAffinity returns true if the AllocationInfo is for pod with
+// dedicated-qos and numa-affinity enhancement
+func (am *AllocationMeta) CheckDedicatedNUMAAffinity() bool {
+	return am.CheckDedicated() && am.CheckNUMAAffinity()
+}
+
+// CheckSharedNUMAAffinity returns true if the AllocationInfo is for pod with
+// shared-qos and numa-affinity enhancement
+func (am *AllocationMeta) CheckSharedNUMAAffinity() bool {
+	return am.CheckShared() && am.CheckNUMAAffinity()
+}
+
+// CheckSharedOrDedicatedNUMAAffinity returns true if the AllocationInfo is for pod with
+// shared-qos or dedicated-qos and numa-affinity enhancement
+func (am *AllocationMeta) CheckSharedOrDedicatedNUMAAffinity() bool {
+	return am.CheckSharedNUMAAffinity() || am.CheckDedicatedNUMAAffinity()
+}
+
+// CheckNonBindingNUMAAffinity returns true if the AllocationInfo is for pod with
+// numa-affinity enhancement and without numa-binding enhancement
+func (am *AllocationMeta) CheckNonBindingNUMAAffinity() bool {
+	if am == nil {
+		return false
+	}
+	return am.Annotations[consts.PodAnnotationCPUEnhancementNumaAffinity] ==
+		consts.PodAnnotationCPUEnhancementNumaAffinityEnable && !am.CheckNUMABinding()
+}
+
+// CheckNonBindingSharedNUMAAffinity returns true if the AllocationInfo is for pod with
+// shared-qos and numa-affinity enhancement and without numa-binding enhancement
+func (am *AllocationMeta) CheckNonBindingSharedNUMAAffinity() bool {
+	return am.CheckShared() && am.CheckNonBindingNUMAAffinity()
+}
+
+// CheckNonBindingDedicatedNUMAAffinity returns true if the AllocationInfo is for pod with
+// dedicated-qos and numa-affinity enhancement and without numa-binding enhancement
+func (am *AllocationMeta) CheckNonBindingDedicatedNUMAAffinity() bool {
+	return am.CheckDedicated() && am.CheckNonBindingNUMAAffinity()
+}
+
+// CheckNonBindingSharedOrDedicatedNUMAAffinity returns true if the AllocationInfo is for pod with
+// shared-qos or dedicated-qos and numa-affinity enhancement and without numa-binding enhancement
+func (am *AllocationMeta) CheckNonBindingSharedOrDedicatedNUMAAffinity() bool {
+	return am.CheckNonBindingSharedNUMAAffinity() || am.CheckNonBindingDedicatedNUMAAffinity()
+}
+
+// CheckSharedNumaBindingOrDedicatedNUMAAffinity returns true if the AllocationInfo is for pod with
+// shared numa-bind or dedicated numa-affinity.
+func (am *AllocationMeta) CheckSharedNumaBindingOrDedicatedNUMAAffinity() bool {
+	return am.CheckSharedNUMABinding() || am.CheckDedicatedNUMAAffinity()
 }

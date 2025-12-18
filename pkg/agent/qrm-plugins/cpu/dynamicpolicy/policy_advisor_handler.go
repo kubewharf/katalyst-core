@@ -974,7 +974,7 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 			availableCPUs = availableCPUs.Difference(cpuset)
 
 			for poolName := range block.OwnerPoolEntryMap {
-				if commonstate.IsIsolationPool(poolName) || commonstate.IsShareNUMABindingPool(poolName) {
+				if commonstate.IsIsolationPool(poolName) || commonstate.IsShareNUMABindingPool(poolName) || commonstate.IsShareNUMAAffinityPool(poolName) {
 					withNUMABindingShareOrDedicatedPod = true
 					break
 				}
@@ -1233,6 +1233,11 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 						// in order to differentiate them from non-binding share cores pools during GetFilteredPoolsCPUSetMap.
 						poolEntry.Annotations = general.MergeMap(poolEntry.Annotations, map[string]string{
 							apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						})
+					} else if allocationInfo.CheckSharedNUMAAffinity() {
+						poolEntry.QoSLevel = apiconsts.PodAnnotationQoSLevelSharedCores
+						poolEntry.Annotations = general.MergeMap(poolEntry.Annotations, map[string]string{
+							apiconsts.PodAnnotationCPUEnhancementNumaAffinity: apiconsts.PodAnnotationCPUEnhancementNumaAffinityEnable,
 						})
 					}
 

@@ -719,7 +719,7 @@ func TestPopulateHintsByAlreadyExistedNUMABindingResult(t *testing.T) {
 				sharedCoresNUMABindingResultAnnotationKey: "numa_binding",
 			}
 
-			err := p.populateHintsByAlreadyExistedNUMABindingResult(tt.req, tt.hints)
+			err := p.populateHintsByAlreadyExistedNUMAAffinityResult(tt.req, tt.hints)
 			if tt.expectedError {
 				assert.Error(t, err)
 			} else {

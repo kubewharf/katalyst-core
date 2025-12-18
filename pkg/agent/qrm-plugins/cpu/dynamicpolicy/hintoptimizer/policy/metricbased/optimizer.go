@@ -231,7 +231,7 @@ func (o *metricBasedHintOptimizer) getNUMAMetric(numa int, resourceName string, 
 		return 0.0, fmt.Errorf("invalid machineState")
 	}
 
-	snbEntries := machineState[numa].PodEntries.GetFilteredPodEntries(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedNUMABinding))
+	snbEntries := machineState[numa].PodEntries.GetFilteredPodEntries(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedNUMAAffinity))
 
 	sum := 0.0
 	for podUID, containerEntries := range snbEntries {

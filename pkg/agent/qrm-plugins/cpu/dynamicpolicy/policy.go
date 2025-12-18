@@ -47,10 +47,12 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer/registry"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/irqtuner"
 	irqtuingcontroller "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/irqtuner/controller"
+	cpureactor "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/reactor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/validator"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/reactor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/featuregatenegotiation"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -141,6 +143,8 @@ type DynamicPolicy struct {
 
 	sharedCoresNUMABindingHintOptimizer    hintoptimizer.HintOptimizer
 	dedicatedCoresNUMABindingHintOptimizer hintoptimizer.HintOptimizer
+
+	numaAllocationReactor reactor.AllocationReactor
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -293,6 +297,14 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	})
 	if err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("dynamic policy new plugin wrapper failed with error: %v", err)
+	}
+
+	if conf.EnableNUMAAllocationReactor {
+		policyImplement.numaAllocationReactor = cpureactor.NewNUMAPodAllocationReactor(
+			reactor.NewPodAllocationReactor(
+				agentCtx.MetaServer.PodFetcher,
+				agentCtx.Client.KubeClient,
+			))
 	}
 
 	return true, &agent.PluginWrapper{GenericPlugin: pluginWrapper}, nil
@@ -511,7 +523,7 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 	// rumpUpPooledCPUs is the total available cpu cores minus those that are reserved
 	rumpUpPooledCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs,
 		func(ai *state.AllocationInfo) bool {
-			return ai.CheckDedicated() || ai.CheckSharedNUMABinding()
+			return ai.CheckDedicated() || ai.CheckSharedNUMAAffinity()
 		},
 		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicatedNUMABinding))
 	rumpUpPooledCPUsTopologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, rumpUpPooledCPUs)
@@ -1333,27 +1345,27 @@ func (p *DynamicPolicy) getContainerRequestedCores(allocationInfo *state.Allocat
 	return cpuutil.GetContainerRequestedCores(p.metaServer, allocationInfo)
 }
 
-func (p *DynamicPolicy) checkNonBindingShareCoresCpuResource(req *pluginapi.ResourceRequest) (bool, error) {
+func (p *DynamicPolicy) checkNonCPUAffinityShareCoresCpuResource(req *pluginapi.ResourceRequest) (bool, error) {
 	_, reqFloat64, err := util.GetPodAggregatedRequestResource(req)
 	if err != nil {
 		return false, fmt.Errorf("GetQuantityFromResourceReq failed with error: %v", err)
 	}
 
-	shareCoresAllocatedInt := state.GetNonBindingSharedRequestedQuantityFromPodEntries(p.state.GetPodEntries(), map[string]float64{req.PodUid: reqFloat64}, p.getContainerRequestedCores)
+	shareCoresAllocatedInt := state.GetNonCPUAffinitySharedRequestedQuantityFromPodEntries(p.state.GetPodEntries(), map[string]float64{req.PodUid: reqFloat64}, p.getContainerRequestedCores)
 
 	machineState := p.state.GetMachineState()
 	pooledCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs,
 		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicated),
-		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedOrDedicatedNUMABinding))
+		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedOrDedicatedNUMAAffinity))
 
-	general.Infof("[checkNonBindingShareCoresCpuResource] node cpu allocated: %d, allocatable: %d", shareCoresAllocatedInt, pooledCPUs.Size())
+	general.Infof("[checkNonCPUAffinityShareCoresCpuResource] node cpu allocated: %d, allocatable: %d", shareCoresAllocatedInt, pooledCPUs.Size())
 	if shareCoresAllocatedInt > pooledCPUs.Size() {
-		general.Warningf("[checkNonBindingShareCoresCpuResource] no enough cpu resource for non-binding share cores pod: %s/%s, container: %s (request: %.02f, node allocated: %d, node allocatable: %d)",
+		general.Warningf("[checkNonCPUAffinityShareCoresCpuResource] no enough cpu resource for non-binding share cores pod: %s/%s, container: %s (request: %.02f, node allocated: %d, node allocatable: %d)",
 			req.PodNamespace, req.PodName, req.ContainerName, reqFloat64, shareCoresAllocatedInt, pooledCPUs.Size())
 		return false, nil
 	}
 
-	general.InfoS("checkNonBindingShareCoresCpuResource cpu successfully",
+	general.InfoS("checkNonCPUAffinityShareCoresCpuResource cpu successfully",
 		"podNamespace", req.PodNamespace,
 		"podName", req.PodName,
 		"containerName", req.ContainerName,

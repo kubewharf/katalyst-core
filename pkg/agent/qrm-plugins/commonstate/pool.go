@@ -23,6 +23,7 @@ import (
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
 // notice that pool-name may not have direct mapping relations with qos-level, for instance
@@ -46,10 +47,11 @@ const (
 // FakedContainerName represents a placeholder since pool entry has no container-level
 // FakedNUMAID represents a placeholder since pools like shared/reclaimed will not contain a specific numa
 const (
-	FakedContainerName = ""
-	FakedNUMAID        = -1
-	NameSeparator      = "#"
-	NUMAPoolInfix      = "-NUMA"
+	FakedContainerName    = ""
+	FakedNUMAID           = -1
+	NameSeparator         = "#"
+	NUMAPoolInfix         = "-NUMA"
+	NUMAAffinityPoolInfix = "-Affinity"
 )
 
 const (
@@ -66,6 +68,11 @@ func IsSystemPool(poolName string) bool {
 
 func IsShareNUMABindingPool(poolName string) bool {
 	return strings.Contains(poolName, NUMAPoolInfix)
+}
+
+// IsShareNUMAAffinityPool checks whether the pool is numa affinity pool
+func IsShareNUMAAffinityPool(poolName string) bool {
+	return strings.Contains(poolName, NUMAAffinityPoolInfix)
 }
 
 func GetPoolType(poolName string) string {
@@ -101,8 +108,8 @@ func GetSpecifiedPoolName(qosLevel, cpusetEnhancementValue string) string {
 	}
 }
 
-// GetSpecifiedNUMABindingNUMAID parses the numa id for AllocationInfo
-func GetSpecifiedNUMABindingNUMAID(annotations map[string]string) (int, error) {
+// GetSpecifiedNUMAID parses the numa id for AllocationInfo
+func GetSpecifiedNUMAID(annotations map[string]string) (int, error) {
 	if _, ok := annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint]; !ok {
 		return FakedNUMAID, nil
 	}
@@ -118,15 +125,17 @@ func GetSpecifiedNUMABindingNUMAID(annotations map[string]string) (int, error) {
 	return numaSet.ToSliceNoSortInt()[0], nil
 }
 
-// GetSpecifiedNUMABindingPoolName get numa_binding pool name
-// for numa_binding shared_cores according to enhancements and NUMA hint
-func GetSpecifiedNUMABindingPoolName(qosLevel string, annotations map[string]string) (string, error) {
+// GetSpecifiedNUMAPoolName get numa pool name:
+// - NUMAPoolInfix for numa_binding shared_cores, e.g. share-NUMA0
+// - NUMAAffinityPoolInfix for numa_affinity shared_cores, e.g. share-Affinity0
+func GetSpecifiedNUMAPoolName(qosLevel string, annotations map[string]string) (string, error) {
 	if qosLevel != apiconsts.PodAnnotationQoSLevelSharedCores ||
-		annotations[apiconsts.PodAnnotationMemoryEnhancementNumaBinding] != apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable {
-		return EmptyOwnerPoolName, fmt.Errorf("GetSpecifiedNUMABindingPoolName is only for numa_binding shared_cores")
+		(annotations[apiconsts.PodAnnotationMemoryEnhancementNumaBinding] != apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable &&
+			annotations[apiconsts.PodAnnotationCPUEnhancementNumaAffinity] != apiconsts.PodAnnotationCPUEnhancementNumaAffinityEnable) {
+		return EmptyOwnerPoolName, fmt.Errorf("GetSpecifiedNUMAPoolName is only for numa_binding or numa_affinity shared_cores")
 	}
 
-	numaID, err := GetSpecifiedNUMABindingNUMAID(annotations)
+	numaID, err := GetSpecifiedNUMAID(annotations)
 	if err != nil {
 		return EmptyOwnerPoolName, err
 	}
@@ -141,5 +150,10 @@ func GetSpecifiedNUMABindingPoolName(qosLevel string, annotations map[string]str
 		return EmptyOwnerPoolName, fmt.Errorf("empty specifiedPoolName")
 	}
 
-	return GetNUMAPoolName(specifiedPoolName, numaID), nil
+	numaPoolInfix := NUMAPoolInfix
+	if qosutil.AnnotationsIndicateNUMAAffinity(annotations) {
+		numaPoolInfix = NUMAAffinityPoolInfix
+	}
+
+	return GetNUMAPoolName(specifiedPoolName, numaPoolInfix, numaID), nil
 }

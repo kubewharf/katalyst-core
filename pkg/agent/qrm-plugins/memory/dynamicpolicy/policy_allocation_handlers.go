@@ -215,7 +215,7 @@ func (p *DynamicPolicy) numaBindingAllocationHandler(ctx context.Context,
 			return nil, fmt.Errorf("numa binding without numa exclusive allocation result numa node size is %d, "+
 				"not equal to 1", len(req.Hint.Nodes))
 		}
-		allocationInfo.SetSpecifiedNUMABindingNUMAID(req.Hint.Nodes[0])
+		allocationInfo.SetSpecifiedNUMAID(req.Hint.Nodes[0])
 	}
 
 	p.state.SetAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName, allocationInfo, persistCheckpoint)
@@ -321,7 +321,7 @@ func (p *DynamicPolicy) reclaimedCoresBestEffortNUMABindingAllocationHandler(ctx
 	if req.Hint != nil && len(req.Hint.Nodes) == 1 &&
 		(reclaimActualBindingNUMAs.Contains(int(req.Hint.Nodes[0])) ||
 			!nonReclaimActualBindingNUMAs.Equals(machine.NewCPUSet(int(req.Hint.Nodes[0])))) {
-		allocationInfo.SetSpecifiedNUMABindingNUMAID(req.Hint.Nodes[0])
+		allocationInfo.SetSpecifiedNUMAID(req.Hint.Nodes[0])
 		numaAllocationResult = machine.NewCPUSet(int(req.Hint.Nodes[0]))
 	} else {
 		numaAllocationResult = nonReclaimActualBindingNUMAs
@@ -375,11 +375,10 @@ func (p *DynamicPolicy) reclaimedCoresBestEffortNUMABindingAllocationHandler(ctx
 	return resp, nil
 }
 
-func (p *DynamicPolicy) dedicatedCoresWithoutNUMABindingAllocationHandler(_ context.Context,
-	_ *pluginapi.ResourceRequest, persistCheckpoint bool,
+func (p *DynamicPolicy) dedicatedCoresWithoutNUMABindingAllocationHandler(ctx context.Context,
+	req *pluginapi.ResourceRequest, persistCheckpoint bool,
 ) (*pluginapi.ResourceAllocationResponse, error) {
-	// todo: support dedicated_cores without NUMA binding
-	return nil, fmt.Errorf("not support dedicated_cores without NUMA binding")
+	return p.allocateNUMAsWithoutNUMABindingPods(ctx, req, apiconsts.PodAnnotationQoSLevelDedicatedCores, persistCheckpoint)
 }
 
 // numaBindingAllocationSidecarHandler allocates for sidecar
@@ -823,7 +822,7 @@ func (p *DynamicPolicy) adjustAllocationEntriesForDedicatedCores(numaSetChangedC
 
 			if !allocationInfo.CheckNUMABinding() {
 				// not to adjust NUMA binding containers
-				// update container to target numa set for non-binding share cores
+				// update container to target numa set for non-binding dedicated cores
 				p.updateNUMASetChangedContainers(numaSetChangedContainers, allocationInfo, numaWithoutNUMABindingPods)
 			}
 		}

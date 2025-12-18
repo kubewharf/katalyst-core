@@ -180,8 +180,8 @@ func GetSharedQuantityMapFromPodEntries(podEntries PodEntries, ignoreAllocationI
 	return poolsQuantityMap, nil
 }
 
-// GetNonBindingSharedRequestedQuantityFromPodEntries returns total quantity shared_cores without numa_binding requested
-func GetNonBindingSharedRequestedQuantityFromPodEntries(podEntries PodEntries, newNonBindingSharedRequestedQuantity map[string]float64, getContainerRequestedCores GetContainerRequestedCoresFunc) int {
+// GetNonCPUAffinitySharedRequestedQuantityFromPodEntries returns total quantity shared_cores without numa_binding and cpu_affinity requested
+func GetNonCPUAffinitySharedRequestedQuantityFromPodEntries(podEntries PodEntries, newNonBindingSharedRequestedQuantity map[string]float64, getContainerRequestedCores GetContainerRequestedCoresFunc) int {
 	var reqFloat64 float64 = 0
 
 	for podUid, entries := range podEntries {
@@ -197,7 +197,7 @@ func GetNonBindingSharedRequestedQuantityFromPodEntries(podEntries PodEntries, n
 		}
 
 		for _, allocationInfo := range entries {
-			if allocationInfo == nil || !allocationInfo.CheckShared() || allocationInfo.CheckNUMABinding() {
+			if allocationInfo == nil || !allocationInfo.CheckShared() || allocationInfo.CheckNUMABinding() || allocationInfo.CheckNUMAAffinity() {
 				continue
 			}
 
@@ -318,7 +318,7 @@ func updateMachineStatePreOccPodEntries(currentMachineState, originMachineState 
 }
 
 func GetCPUIncrRatio(allocationInfo *AllocationInfo) float64 {
-	if allocationInfo.CheckSharedNUMABinding() {
+	if allocationInfo.CheckSharedNUMAAffinity() {
 		// multiply incrRatio for numa_binding shared_cores to allow it burst
 		return cpuconsts.CPUIncrRatioSharedCoresNUMABinding
 	}
@@ -326,7 +326,7 @@ func GetCPUIncrRatio(allocationInfo *AllocationInfo) float64 {
 	return cpuconsts.CPUIncrRatioDefault
 }
 
-func GetSharedBindingNUMAsFromQuantityMap(poolsQuantityMap map[string]map[int]int) sets.Int {
+func GetSharedAffinityNUMAsFromQuantityMap(poolsQuantityMap map[string]map[int]int) sets.Int {
 	res := sets.NewInt()
 
 	for _, quantityMap := range poolsQuantityMap {
@@ -360,13 +360,13 @@ func CountAllocationInfosToPoolsQuantityMap(allocationInfos []*AllocationInfo,
 		var targetNUMAID int
 		var poolName string
 
-		if allocationInfo.CheckSharedNUMABinding() {
+		if allocationInfo.CheckSharedNUMAAffinity() {
 			var numaSet machine.CPUSet
 			poolName = allocationInfo.GetOwnerPoolName()
 
 			if poolName == commonstate.EmptyOwnerPoolName {
 				var pErr error
-				poolName, pErr = allocationInfo.GetSpecifiedNUMABindingPoolName()
+				poolName, pErr = allocationInfo.GetSpecifiedNUMAPoolName()
 				if pErr != nil {
 					return fmt.Errorf("GetSpecifiedNUMABindingPoolName for %s/%s/%s failed with error: %v",
 						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, pErr)
@@ -446,13 +446,13 @@ func CountAllocationInfosToPoolsQuantityMap(allocationInfos []*AllocationInfo,
 	return nil
 }
 
-func GetSharedNUMABindingTargetNuma(allocationInfo *AllocationInfo) (int, error) {
+func GetSharedNUMAAffinityTargetNuma(allocationInfo *AllocationInfo) (int, error) {
 	var numaSet machine.CPUSet
 	poolName := allocationInfo.GetOwnerPoolName()
 
 	if poolName == commonstate.EmptyOwnerPoolName {
 		var pErr error
-		poolName, pErr = allocationInfo.GetSpecifiedNUMABindingPoolName()
+		poolName, pErr = allocationInfo.GetSpecifiedNUMAPoolName()
 		if pErr != nil {
 			return commonstate.FakedNUMAID, fmt.Errorf("GetSpecifiedNUMABindingPoolName for %s/%s/%s failed with error: %v",
 				allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, pErr)

@@ -22,10 +22,10 @@ import (
 	"sort"
 	"time"
 
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	v1 "k8s.io/api/core/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
-	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
@@ -45,13 +45,13 @@ func (p *DynamicPolicy) sharedCoresHintHandler(ctx context.Context,
 		return nil, fmt.Errorf("got nil request")
 	}
 
-	if qosutil.AnnotationsIndicateNUMABinding(req.Annotations) {
-		return p.sharedCoresWithNUMABindingHintHandler(ctx, req)
+	if qosutil.AnnotationsIndicateNUMABinding(req.Annotations) || qosutil.AnnotationsIndicateNUMAAffinity(req.Annotations) {
+		return p.sharedCoresWithNUMAAffinityHintHandler(ctx, req)
 	}
 
 	// TODO: support sidecar follow main container for non-binding share cores in future
 	if req.ContainerType == pluginapi.ContainerType_MAIN {
-		ok, err := p.checkNonBindingShareCoresCpuResource(req)
+		ok, err := p.checkNonCPUAffinityShareCoresCpuResource(req)
 		if err != nil {
 			general.Errorf("failed to check share cores cpu resource for pod: %s/%s, container: %s",
 				req.PodNamespace, req.PodName, req.ContainerName)
@@ -59,7 +59,7 @@ func (p *DynamicPolicy) sharedCoresHintHandler(ctx context.Context,
 		}
 
 		if !ok {
-			_ = p.emitter.StoreInt64(util.MetricNameShareCoresNoEnoughResourceFailed, 1, metrics.MetricTypeNameCount, metrics.ConvertMapToTags(map[string]string{
+			_ = p.emitter.StoreInt64(util.MetricNameNonNumaBindingNoEnoughResourceFailed, 1, metrics.MetricTypeNameCount, metrics.ConvertMapToTags(map[string]string{
 				"resource":      v1.ResourceCPU.String(),
 				"podNamespace":  req.PodNamespace,
 				"podName":       req.PodName,
@@ -108,12 +108,11 @@ func (p *DynamicPolicy) dedicatedCoresHintHandler(ctx context.Context,
 		return nil, fmt.Errorf("not support inplace update resize for dedicated cores")
 	}
 
-	switch req.Annotations[apiconsts.PodAnnotationMemoryEnhancementNumaBinding] {
-	case apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable:
+	if qosutil.AnnotationsIndicateNUMAAffinity(req.Annotations) ||
+		qosutil.AnnotationsIndicateNUMABinding(req.Annotations) {
 		return p.dedicatedCoresWithNUMABindingHintHandler(ctx, req)
-	default:
-		return p.dedicatedCoresWithoutNUMABindingHintHandler(ctx, req)
 	}
+	return p.dedicatedCoresWithoutNUMABindingHintHandler(ctx, req)
 }
 
 func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Context,
@@ -215,6 +214,7 @@ func (p *DynamicPolicy) calculateHints(
 
 	numaBinding := qosutil.AnnotationsIndicateNUMABinding(req.Annotations)
 	numaExclusive := qosutil.AnnotationsIndicateNUMAExclusive(req.Annotations)
+	numaAffinity := qosutil.AnnotationsIndicateNUMAAffinity(req.Annotations)
 
 	// because it's hard to control memory allocation accurately,
 	// we only support numa_binding but not exclusive container with request smaller than 1 NUMA
@@ -229,7 +229,7 @@ func (p *DynamicPolicy) calculateHints(
 
 	numaToAvailableCPUCount := make(map[int]int, len(numaNodes))
 
-	availableNUMAs := p.filterNUMANodesByNonBinding(request, podEntries, machineState, req)
+	availableNUMAs := p.filterNUMANodesByCPUAffinity(request, podEntries, machineState, req)
 	for _, nodeID := range numaNodes {
 		if machineState[nodeID] == nil {
 			general.Warningf("NUMA: %d has nil state", nodeID)
@@ -241,7 +241,8 @@ func (p *DynamicPolicy) calculateHints(
 			numaToAvailableCPUCount[nodeID] = 0
 			general.Warningf("numa_exclusive container skip NUMA: %d allocated: %d",
 				nodeID, machineState[nodeID].AllocatedCPUSet.Size())
-		} else if numaBinding && !availableNUMAs.Contains(nodeID) {
+		} else if (numaAffinity || numaBinding) && !availableNUMAs.Contains(nodeID) {
+			// if numaAffinity or numaBinding is true, we should not filter out the numa node
 			numaToAvailableCPUCount[nodeID] = 0
 			general.Warningf("numa_binding container skip NUMA: %d, allocated: %d",
 				nodeID, machineState[nodeID].AllocatedCPUSet.Size())
@@ -431,7 +432,7 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingReclaimedCores(reqFloat floa
 	}, nil
 }
 
-func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
+func (p *DynamicPolicy) sharedCoresWithNUMAAffinityHintHandler(_ context.Context,
 	req *pluginapi.ResourceRequest,
 ) (*pluginapi.ResourceHintsResponse, error) {
 	// currently, we set cpuset of sidecar to the cpuset of its main container,
@@ -475,7 +476,7 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 			if numaSet.Size() != 1 {
 				general.Errorf("pod: %s/%s, container: %s is snb, but its numa set size is %d",
 					req.PodNamespace, req.PodName, req.ContainerName, numaSet.Size())
-				return nil, fmt.Errorf("snb port not support cross numa")
+				return nil, fmt.Errorf("snb pod not support cross numa")
 			}
 			nodeID := numaSet.ToSliceInt()[0]
 			availableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(p.reservedCPUs)
@@ -491,11 +492,11 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 					general.Infof("pod: %s/%s, container: %s request inplace update resize and no enough resource in current NUMA, try to migrate it to new NUMA",
 						req.PodNamespace, req.PodName, req.ContainerName)
 					var calculateErr error
-					hints, calculateErr = p.calculateHintsForNUMABindingSharedCores(request, podEntries, machineState, req)
+					hints, calculateErr = p.calculateHintsForCPUAffinitySharedCores(request, podEntries, machineState, req)
 					if calculateErr != nil {
 						general.Errorf("pod: %s/%s, container: %s request inplace update resize and no enough resource in current NUMA, failed to migrate it to new NUMA",
 							req.PodNamespace, req.PodName, req.ContainerName)
-						return nil, fmt.Errorf("calculateHintsForNUMABindingSharedCores failed in inplace update resize mode with error: %v", calculateErr)
+						return nil, fmt.Errorf("calculateHintsForNUMAAffinitySharedCores failed in inplace update resize mode with error: %v", calculateErr)
 					}
 				} else {
 					general.Errorf("pod: %s/%s, container: %s request inplace update resize, but no enough resource for it in current NUMA",
@@ -510,9 +511,9 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 		}
 	} else {
 		var calculateErr error
-		hints, calculateErr = p.calculateHintsForNUMABindingSharedCores(request, podEntries, machineState, req)
+		hints, calculateErr = p.calculateHintsForCPUAffinitySharedCores(request, podEntries, machineState, req)
 		if calculateErr != nil {
-			return nil, fmt.Errorf("calculateHintsForNUMABindingSharedCores failed with error: %v", calculateErr)
+			return nil, fmt.Errorf("calculateHintsForNUMAAffinitySharedCores failed with error: %v", calculateErr)
 		}
 	}
 
@@ -534,7 +535,7 @@ func (p *DynamicPolicy) clearContainerAndRegenerateMachineState(podEntries state
 	return machineState, nil
 }
 
-func (p *DynamicPolicy) filterNUMANodesByNonBinding(
+func (p *DynamicPolicy) filterNUMANodesByCPUAffinity(
 	request float64, podEntries state.PodEntries,
 	machineState state.NUMANodeMap,
 	req *pluginapi.ResourceRequest,
@@ -543,49 +544,60 @@ func (p *DynamicPolicy) filterNUMANodesByNonBinding(
 		return machine.NewCPUSet()
 	}
 
-	nonBindingNUMAsCPUQuantity := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, nil,
-		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedOrDedicatedNUMABinding)).Size()
-	nonBindingNUMAs := machineState.GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedOrDedicatedNUMABinding))
-	nonBindingSharedRequestedQuantity := state.GetNonBindingSharedRequestedQuantityFromPodEntries(podEntries, nil, p.getContainerRequestedCores)
+	// 1. filter cpu quantity on non-affinity numa nodes
+	nonCPUAffinityNUMAsCPUQuantity := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, nil,
+		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedOrDedicatedNUMAAffinity)).Size()
+	// 2. filter cpu quantity requested  by non-cpu-affinity pod
+	nonCPUAffinitySharedRequestedQuantity := state.GetNonCPUAffinitySharedRequestedQuantityFromPodEntries(podEntries, nil, p.getContainerRequestedCores)
 
-	return p.filterNUMANodesByNonBindingSharedRequestedQuantity(
-		request, nonBindingSharedRequestedQuantity, nonBindingNUMAsCPUQuantity, nonBindingNUMAs, machineState,
-		machineState.GetFilteredNUMASetWithAnnotations(state.WrapAllocationMetaFilterWithAnnotations(commonstate.CheckNUMABindingAntiAffinity), req.Annotations).ToSliceInt())
-}
-
-func (p *DynamicPolicy) filterNUMANodesByNonBindingSharedRequestedQuantity(
-	request float64,
-	nonBindingSharedRequestedQuantity, nonBindingNUMAsCPUQuantity int,
-	nonBindingNUMAs machine.CPUSet,
-	machineState state.NUMANodeMap, numaNodes []int,
-) machine.CPUSet {
-	filteredNUMANodes := make([]int, 0, len(numaNodes))
-
-	for _, nodeID := range numaNodes {
-		allocatableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(p.reservedCPUs)
-		if nonBindingNUMAs.Contains(nodeID) {
-			// take this non-binding NUMA for candidate shared_cores with numa_binding,
-			// won't cause non-binding shared_cores in short supply
-			if cpuutil.CPUIsSufficient(float64(nonBindingSharedRequestedQuantity), float64(nonBindingNUMAsCPUQuantity)-allocatableCPUQuantity) {
+	filteredNUMANodes := make([]int, 0, len(machineState))
+	// 3.1. if pod with memory-binding enhancement, filter binding numa for pod with memory-binding enhancement
+	if qosutil.AnnotationsIndicateNUMABinding(req.Annotations) {
+		bindingNUMAs := machineState.GetMatchedNUMASetWithAnnotations(state.WrapAllocationMetaFilterWithAnnotations(commonstate.CheckNUMABindingWithAffinity), req.Annotations).ToSliceInt()
+		for _, nodeID := range bindingNUMAs {
+			allocatableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(p.reservedCPUs)
+			if cpuutil.CPUIsSufficient(request, allocatableCPUQuantity) {
 				filteredNUMANodes = append(filteredNUMANodes, nodeID)
-			} else {
-				general.Infof("filter out NUMA: %d since taking it will cause non-binding shared_cores in short supply;"+
-					" nonBindingNUMAsCPUQuantity: %d, targetNUMAAllocatableCPUQuantity: %f, nonBindingSharedRequestedQuantity: %d, request: %f",
-					nodeID, nonBindingNUMAsCPUQuantity, allocatableCPUQuantity, nonBindingSharedRequestedQuantity, request)
 			}
-		} else if cpuutil.CPUIsSufficient(request, allocatableCPUQuantity) {
+		}
+	} else if qosutil.AnnotationsIndicateNUMAAffinity(req.Annotations) {
+		// 3.2. if pod with cpu affinity enhancement, filter numa nodes for cpu affinity pod
+		cpuAffinityNUMAs := machineState.GetMatchedNUMASetWithAnnotations(state.WrapAllocationMetaFilterWithAnnotations(commonstate.CheckNonBindingCPUAffinityNUMA), req.GetAnnotations()).ToSliceInt()
+		for _, nodeID := range cpuAffinityNUMAs {
+			allocatableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(p.reservedCPUs)
+			qosLevel := req.GetAnnotations()[apiconsts.PodAnnotationQoSLevelKey]
+			// if qosLevel is shared_cores, check if the numa node has enough cpu quantity
+			// shared_cores with cpu affinity pod can only use one numa node
+			if qosLevel == apiconsts.PodAnnotationQoSLevelSharedCores && !cpuutil.CPUIsSufficient(request, allocatableCPUQuantity) {
+				continue
+			}
 			filteredNUMANodes = append(filteredNUMANodes, nodeID)
+		}
+	}
+
+	// 4. check if non affinity numa nodes can be allocated to the pod
+	nonCPUAffinityNUMAs := machineState.GetFilteredNUMASet(state.WrapAllocationMetaFilter(commonstate.CheckNonCPUAffinityNUMA)).ToSliceInt()
+	for _, nodeID := range nonCPUAffinityNUMAs {
+		allocatableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(p.reservedCPUs)
+		// take this non-binding NUMA for candidate shared_cores with numa_binding,
+		// won't cause non-binding shared_cores in short supply
+		if cpuutil.CPUIsSufficient(float64(nonCPUAffinitySharedRequestedQuantity), float64(nonCPUAffinityNUMAsCPUQuantity)-allocatableCPUQuantity) {
+			filteredNUMANodes = append(filteredNUMANodes, nodeID)
+		} else {
+			general.Infof("filter out NUMA: %d since taking it will cause non-affinity shared_cores in short supply;"+
+				" nonAffinityNUMAsCPUQuantity: %d, targetNUMAAllocatableCPUQuantity: %f, nonAffinitySharedRequestedQuantity: %d, request: %f",
+				nodeID, nonCPUAffinityNUMAsCPUQuantity, allocatableCPUQuantity, nonCPUAffinitySharedRequestedQuantity, request)
 		}
 	}
 
 	return machine.NewCPUSet(filteredNUMANodes...)
 }
 
-func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(request float64, podEntries state.PodEntries,
+func (p *DynamicPolicy) calculateHintsForCPUAffinitySharedCores(request float64, podEntries state.PodEntries,
 	machineState state.NUMANodeMap,
 	req *pluginapi.ResourceRequest,
 ) (map[string]*pluginapi.ListOfTopologyHints, error) {
-	numaNodes := p.filterNUMANodesByNonBinding(request, podEntries, machineState, req).ToSliceInt()
+	numaNodes := p.filterNUMANodesByCPUAffinity(request, podEntries, machineState, req).ToSliceInt()
 
 	hints := &pluginapi.ListOfTopologyHints{}
 
@@ -594,10 +606,10 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(request float64,
 		return nil, fmt.Errorf("GetNUMANodesCountToFitCPUReq failed with error: %v", err)
 	}
 
-	// if a numa_binding shared_cores has request larger than 1 NUMA,
-	// its performance may degrade to be like non-binding shared_cores
+	// if a numa_affinity shared_cores has request larger than 1 NUMA,
+	// its performance may degrade to be like non-affinity shared_cores
 	if minNUMAsCountNeeded > 1 {
-		return nil, fmt.Errorf("numa_binding shared_cores container has request larger than 1 NUMA")
+		return nil, fmt.Errorf("numa_affinity shared_cores container has request larger than 1 NUMA")
 	}
 
 	if p.enableSNBHighNumaPreference {
@@ -631,9 +643,9 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(request float64,
 
 	// populate hints by already existed numa binding result
 	if p.dynamicConfig.GetDynamicConfiguration().PreferUseExistNUMAHintResult {
-		err = p.populateHintsByAlreadyExistedNUMABindingResult(req, hints)
+		err = p.populateHintsByAlreadyExistedNUMAAffinityResult(req, hints)
 		if err != nil {
-			general.Warningf("populateHintsByAlreadyExistedNUMABindingResult failed with error: %v", err)
+			general.Warningf("populateHintsByAlreadyExistedNUMAAffinityResult failed with error: %v", err)
 			return nil, err
 		}
 	}
@@ -643,8 +655,8 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(request float64,
 	}, nil
 }
 
-func (p *DynamicPolicy) populateHintsByAlreadyExistedNUMABindingResult(req *pluginapi.ResourceRequest, hints *pluginapi.ListOfTopologyHints) error {
-	result, err := p.getSharedCoresNUMABindingResultFromAnnotation(req)
+func (p *DynamicPolicy) populateHintsByAlreadyExistedNUMAAffinityResult(req *pluginapi.ResourceRequest, hints *pluginapi.ListOfTopologyHints) error {
+	result, err := p.getSharedCoresNUMAAffinityResultFromAnnotation(req)
 	if err != nil {
 		return err
 	}
@@ -685,7 +697,7 @@ func (p *DynamicPolicy) populateHintsByAlreadyExistedNUMABindingResult(req *plug
 	return nil
 }
 
-func (p *DynamicPolicy) getSharedCoresNUMABindingResultFromAnnotation(req *pluginapi.ResourceRequest) (machine.CPUSet, error) {
+func (p *DynamicPolicy) getSharedCoresNUMAAffinityResultFromAnnotation(req *pluginapi.ResourceRequest) (machine.CPUSet, error) {
 	result, ok := req.Annotations[p.sharedCoresNUMABindingResultAnnotationKey]
 	if !ok {
 		return machine.CPUSet{}, nil
@@ -746,6 +758,7 @@ func (p *DynamicPolicy) sortCandidateNUMANodesForReclaimed(numaNodes []int,
 	// sort candidate NUMAs by the following rules:
 	// 1. NUMAs with numa binding shared or dedicated pods binding to it will be placed ahead of NUMAs without numa binding shared or dedicated pods binding to it.
 	// 2. NUMAs with higher headroom will be placed ahead of NUMAs with lower headroom.
+	// todo: cpu affinity pod not bind numa, do we need to filter cpu affinity numas
 	nonSharedOrDedicatedNUMABindingNUMAs := machineState.GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedOrDedicatedNUMABinding))
 	sort.SliceStable(numaNodes, func(i, j int) bool {
 		hasNUMABindingPodI := !nonSharedOrDedicatedNUMABindingNUMAs.Contains(numaNodes[i])
