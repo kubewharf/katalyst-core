@@ -29,8 +29,13 @@ const NegotiationFeatureGateQuotaCtrlKnob = "feature_gate_quota_ctrl_knob"
 type QuotaCtrlKnob struct{}
 
 func (e *QuotaCtrlKnob) GetFeatureGate(conf *config.Configuration) *advisorsvc.FeatureGate {
-	if conf.EnableControlKnobCPUQuota == false || !common.CheckCgroup2UnifiedMode() {
+	if conf.EnableControlKnobCPUQuota == false {
 		general.Infof("feature_gate_quota_ctrl_knob is not supported: %v", conf.EnableControlKnobCPUQuota)
+		return nil
+	}
+
+	if conf.EnableControlKnobCPUQuotaForV1 == false && !common.CheckCgroup2UnifiedMode() {
+		general.Infof("feature_gate_quota_ctrl_knob for v1 is not supported: %v", conf.EnableControlKnobCPUQuotaForV1)
 		return nil
 	}
 
