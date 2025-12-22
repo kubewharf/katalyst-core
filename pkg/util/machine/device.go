@@ -21,6 +21,7 @@ import (
 	"sort"
 	"sync"
 
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/strings/slices"
 
@@ -148,7 +149,13 @@ func (r *DeviceTopologyRegistry) GetDeviceNUMAAffinity(deviceA, deviceB string) 
 }
 
 type DeviceTopology struct {
-	Devices map[string]DeviceInfo
+	DeviceName v1.ResourceName
+	Devices    map[string]DeviceInfo
+	// PriorityDimensions distinguishes the different dimensions of device affinity and their priority level.
+	// The priority level is determined by the order of the dimensions in the slice.
+	// For example, if devices have affinity based on the NUMA and SOCKET, and NUMA has higher priority than SOCKET,
+	// the priority dimensions are ["NUMA", "SOCKET"].
+	PriorityDimensions []string
 }
 
 // GroupDeviceAffinity forms a topology graph such that all devices within a DeviceIDs group have an affinity with each other.
@@ -202,12 +209,50 @@ type DeviceInfo struct {
 	DeviceAffinity map[AffinityPriority]DeviceIDs
 }
 
-// AffinityPriority is the level of affinity that a deviceId has with another deviceId.
-// The lowest affinityPriority value is 0, and in this level, devices have the most affinity with one another,
-// so it is of highest priority to try to allocate these devices together.
-// As the affinityPriority value increases, devices do not have as much affinity with each other,
-// so it is of lower priority to try to allocate these devices together.
-type AffinityPriority int
+func (i DeviceInfo) GetDimensions() []Dimension {
+	dimensions := make([]Dimension, 0)
+	for priority := range i.DeviceAffinity {
+		dimensions = append(dimensions, priority.Dimension)
+	}
+
+	sort.Slice(dimensions, func(i, j int) bool {
+		return dimensions[i].Name < dimensions[j].Name
+	})
+
+	return dimensions
+}
+
+// AffinityPriority represents the level of affinity that a deviceID has with another deviceID.
+// It contains the actual priority level and the dimension of the affinity.
+// The priority level is the value of the priority. The lower the value, the higher the priority.
+type AffinityPriority struct {
+	PriorityLevel int
+	Dimension     Dimension
+}
+
+func (a *AffinityPriority) GetPriorityLevel() int {
+	return a.PriorityLevel
+}
+
+func (a *AffinityPriority) GetDimension() Dimension {
+	return a.Dimension
+}
+
+// Dimension represents the dimension of the affinity.
+// Name is the name of the dimension. E.g. NUMA, SOCKET, etc.
+// Value is the id of the dimension. E.g. numa-0, numa-1, socket-0, socket-1, etc.
+type Dimension struct {
+	Name  string
+	Value string
+}
+
+func (d *Dimension) GetName() string {
+	return d.Name
+}
+
+func (d *Dimension) GetValue() string {
+	return d.Value
+}
 
 type DeviceIDs []string
 

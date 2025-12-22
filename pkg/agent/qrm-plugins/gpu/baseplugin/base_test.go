@@ -19,6 +19,7 @@ package baseplugin
 import (
 	"testing"
 
+	cadvisorapi "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/uuid"
@@ -50,6 +51,29 @@ func generateTestGenericContext(t *testing.T, conf *config.Configuration) *agent
 	metaServer, err := metaserver.NewMetaServer(genericCtx.Client, metrics.DummyMetrics{}, conf)
 	if err != nil {
 		t.Fatalf("unable to generate test meta server: %v", err)
+	}
+
+	metaServer.MachineInfo = &cadvisorapi.MachineInfo{
+		Topology: []cadvisorapi.Node{
+			{
+				Id: 0,
+				Cores: []cadvisorapi.Core{
+					{SocketID: 0, Id: 0, Threads: []int{0, 4}},
+					{SocketID: 0, Id: 1, Threads: []int{1, 5}},
+					{SocketID: 0, Id: 2, Threads: []int{2, 6}},
+					{SocketID: 0, Id: 3, Threads: []int{3, 7}},
+				},
+			},
+			{
+				Id: 1,
+				Cores: []cadvisorapi.Core{
+					{SocketID: 1, Id: 4, Threads: []int{8, 12}},
+					{SocketID: 1, Id: 5, Threads: []int{9, 13}},
+					{SocketID: 1, Id: 6, Threads: []int{10, 14}},
+					{SocketID: 1, Id: 7, Threads: []int{11, 15}},
+				},
+			},
+		},
 	}
 
 	agentCtx := &agent.GenericContext{
