@@ -26,11 +26,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/errors"
+	podresv1 "k8s.io/kubelet/pkg/apis/podresources/v1"
 	"k8s.io/kubernetes/pkg/apis/core/helper"
 
 	apis "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
@@ -607,4 +609,61 @@ func GetZoneID(node ZoneNode) (int, error) {
 		return 0, fmt.Errorf("failed to get id for zone %v: %v", node, err)
 	}
 	return id, nil
+}
+
+// GenerateZoneNode get zone node and its parent zone node from quantity according to quantity type and topology level
+//   - if Type is empty, it means that the zone is socket or numa according to TopologyLevel
+//   - if Type is not empty, it means that the zone is a child of socket or a child of numa determined by TopologyLevel,
+//     and the zone name is determined by the quantity name or its resource identifier if existed.
+func GenerateZoneNode(quantity podresv1.TopologyAwareQuantity, numaSocketZoneNodeMap map[ZoneNode]ZoneNode) (ZoneNode, *ZoneNode, error) {
+	nodeID := int(quantity.Node)
+	if len(quantity.Type) == 0 {
+		switch quantity.TopologyLevel {
+		case podresv1.TopologyLevel_NUMA:
+			zoneNode := GenerateNumaZoneNode(nodeID)
+			parentZoneNode, ok := numaSocketZoneNodeMap[zoneNode]
+			if !ok {
+				return ZoneNode{}, nil, fmt.Errorf("numa zone node %v parent not found", zoneNode)
+			}
+			return zoneNode, &parentZoneNode, nil
+		case podresv1.TopologyLevel_SOCKET:
+			zoneNode := GenerateSocketZoneNode(nodeID)
+			return zoneNode, nil, nil
+		default:
+			return ZoneNode{}, nil, fmt.Errorf("quantity %v unsupport topology level: %s", quantity, quantity.TopologyLevel)
+		}
+	} else {
+		// if quantity has type, the zone's type is quantity type and name is quantity name by default,
+		// and if it has resource identifier annotation use it instead
+		zoneName := quantity.Name
+		if identifier, ok := quantity.Annotations[apiconsts.ResourceAnnotationKeyResourceIdentifier]; ok && len(identifier) != 0 {
+			zoneName = identifier
+		}
+
+		zoneNode := ZoneNode{
+			Meta: ZoneMeta{
+				Type: nodev1alpha1.TopologyType(quantity.Type),
+				Name: zoneName,
+			},
+		}
+
+		if identifier, ok := quantity.Annotations[apiconsts.ResourceAnnotationKeyResourceIdentifier]; ok && len(identifier) == 0 {
+			// if quantity has resource identifier annotation, but it is empty, it means it is unique and the parent zone node
+			// already exists, we can just return the zone node and nil parent zone node
+			return zoneNode, nil, nil
+		}
+
+		switch quantity.TopologyLevel {
+		case podresv1.TopologyLevel_NUMA:
+			parentZoneNode := GenerateNumaZoneNode(nodeID)
+			return zoneNode, &parentZoneNode, nil
+		case podresv1.TopologyLevel_SOCKET:
+			parentZoneNode := GenerateSocketZoneNode(nodeID)
+			return zoneNode, &parentZoneNode, nil
+		default:
+			// if quantity topology level is not numa or socket, it means that the zone is a child of socket or numa,
+			// and the zone node is determined by the quantity name or its resource identifier if existed.
+			return zoneNode, nil, nil
+		}
+	}
 }

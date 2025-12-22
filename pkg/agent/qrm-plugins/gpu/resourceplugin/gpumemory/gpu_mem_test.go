@@ -20,6 +20,7 @@ import (
 	"context"
 	"testing"
 
+	cadvisorapi "github.com/google/cadvisor/info/v1"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/stretchr/testify/assert"
@@ -75,6 +76,29 @@ func generateTestGenericContext(t *testing.T, conf *config.Configuration) *agent
 			1: {NUMANodeID: 0},
 			2: {NUMANodeID: 1},
 			3: {NUMANodeID: 1},
+		},
+	}
+
+	metaServer.MachineInfo = &cadvisorapi.MachineInfo{
+		Topology: []cadvisorapi.Node{
+			{
+				Id: 0,
+				Cores: []cadvisorapi.Core{
+					{SocketID: 0, Id: 0, Threads: []int{0, 4}},
+					{SocketID: 0, Id: 1, Threads: []int{1, 5}},
+					{SocketID: 0, Id: 2, Threads: []int{2, 6}},
+					{SocketID: 0, Id: 3, Threads: []int{3, 7}},
+				},
+			},
+			{
+				Id: 1,
+				Cores: []cadvisorapi.Core{
+					{SocketID: 1, Id: 4, Threads: []int{8, 12}},
+					{SocketID: 1, Id: 5, Threads: []int{9, 13}},
+					{SocketID: 1, Id: 6, Threads: []int{10, 14}},
+					{SocketID: 1, Id: 7, Threads: []int{11, 15}},
+				},
+			},
 		},
 	}
 

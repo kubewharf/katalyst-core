@@ -105,13 +105,18 @@ func (s *DeviceAffinityStrategy) Bind(
 	}, fmt.Errorf("not enough devices to allocate: need %d, have %d", devicesToAllocate, len(allocatedDevices))
 }
 
-// getAffinityGroupsByPriority forms a map of affinityGroup by priority.
+// getAffinityGroupsByPriority forms a map of affinityGroup by priority level.
 func (s *DeviceAffinityStrategy) getAffinityGroupsByPriority(
 	affinityMap map[machine.AffinityPriority][]machine.DeviceIDs, unallocatedDevicesSet sets.String,
-) map[machine.AffinityPriority][]affinityGroup {
-	affinityGroupsMap := make(map[machine.AffinityPriority][]affinityGroup)
+) map[int][]affinityGroup {
+	affinityGroupsMap := make(map[int][]affinityGroup)
 	for priority, affinityDevices := range affinityMap {
-		affinityGroupsMap[priority] = s.getAffinityGroups(affinityDevices, unallocatedDevicesSet)
+		priorityLevel := priority.GetPriorityLevel()
+		if affinityGroupsMap[priorityLevel] == nil {
+			affinityGroupsMap[priorityLevel] = make([]affinityGroup, 0)
+		}
+		affinityGroupsMap[priorityLevel] = append(affinityGroupsMap[priorityLevel],
+			s.getAffinityGroups(affinityDevices, unallocatedDevicesSet)...)
 	}
 
 	return affinityGroupsMap
@@ -156,7 +161,7 @@ func (s *DeviceAffinityStrategy) getAffinityGroups(
 //   - sets.String: The complete set of allocated devices after this allocation round
 //   - error: Any error encountered during the allocation process
 func (s *DeviceAffinityStrategy) allocateCandidateDevices(
-	affinityGroupsMap map[machine.AffinityPriority][]affinityGroup,
+	affinityGroupsMap map[int][]affinityGroup,
 	candidateDevicesSet sets.String,
 	devicesToAllocate int,
 	allocatedDevices sets.String,
@@ -177,8 +182,7 @@ func (s *DeviceAffinityStrategy) allocateCandidateDevices(
 
 	// Process affinity groups from highest to lowest priority
 	for priority := 0; priority < len(affinityGroupsMap); priority++ {
-		affinityPriority := machine.AffinityPriority(priority)
-		affinityGroups, exists := affinityGroupsMap[affinityPriority]
+		affinityGroups, exists := affinityGroupsMap[priority]
 		if !exists || len(affinityGroups) == 0 {
 			continue
 		}
@@ -313,7 +317,7 @@ func (s *DeviceAffinityStrategy) tryAllocateFromGroups(
 // This method is more permissive in its allocation strategy to ensure device requirements are met.
 func (s *DeviceAffinityStrategy) handleLowestPriorityAllocation(
 	groupInfos []groupInfo,
-	affinityGroupsMap map[machine.AffinityPriority][]affinityGroup,
+	affinityGroupsMap map[int][]affinityGroup,
 	candidateDevicesSet sets.String,
 	devicesToAllocate int,
 	allocatedDevices sets.String,
