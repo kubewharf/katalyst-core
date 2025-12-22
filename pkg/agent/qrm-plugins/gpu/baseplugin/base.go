@@ -21,7 +21,11 @@ import (
 	"sync"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
+
+	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/baseplugin/reporter"
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
@@ -39,6 +43,7 @@ const (
 
 // BasePlugin is a shared plugin that provides common functionalities and fields for GPU resource plugins and custom device plugins.
 type BasePlugin struct {
+	skeleton.GenericPlugin
 	mu   sync.RWMutex
 	Conf *config.Configuration
 
@@ -64,8 +69,16 @@ type BasePlugin struct {
 func NewBasePlugin(
 	agentCtx *agent.GenericContext, conf *config.Configuration, wrappedEmitter metrics.MetricEmitter,
 ) (*BasePlugin, error) {
+	deviceTopologyRegistry := machine.NewDeviceTopologyRegistry()
+
+	gpuReporter, _, err := reporter.NewGPUReporterPlugin(wrappedEmitter, agentCtx.MetaServer, conf, deviceTopologyRegistry)
+	if err != nil {
+		return nil, fmt.Errorf("NewGPUReporterPlugin failed with error: %v", err)
+	}
+
 	return &BasePlugin{
-		Conf: conf,
+		Conf:          conf,
+		GenericPlugin: gpuReporter,
 
 		Emitter:    wrappedEmitter,
 		MetaServer: agentCtx.MetaServer,
@@ -74,11 +87,28 @@ func NewBasePlugin(
 		PodAnnotationKeptKeys: conf.PodAnnotationKeptKeys,
 		PodLabelKeptKeys:      conf.PodLabelKeptKeys,
 
-		DeviceTopologyRegistry:                machine.NewDeviceTopologyRegistry(),
+		DeviceTopologyRegistry:                deviceTopologyRegistry,
 		DefaultResourceStateGeneratorRegistry: state.NewDefaultResourceStateGeneratorRegistry(),
 
 		deviceNameToTypeMap: make(map[string]string),
 	}, nil
+}
+
+// Run starts the gpu reporter plugin.
+func (p *BasePlugin) Run(stopCh <-chan struct{}) {
+	if err := p.Start(); err != nil {
+		klog.Errorf("[gpu-reporter] failed to start with error: %v", err)
+		return
+	}
+	klog.Infof("[gpu-reporter] plugin wrapper %s started", p.Name())
+
+	defer func() {
+		if err := p.Stop(); err != nil {
+			klog.Errorf("[gpu-reporter] stop %v failed with error: %v", p.Name(), err)
+		}
+	}()
+
+	<-stopCh
 }
 
 // InitState initializes the state of the plugin.
