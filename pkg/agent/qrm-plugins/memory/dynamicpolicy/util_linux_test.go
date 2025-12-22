@@ -1,5 +1,5 @@
-//go:build amd64 && linux
-// +build amd64,linux
+//go:build linux
+// +build linux
 
 /*
 Copyright 2022 The Katalyst Authors.
@@ -41,7 +41,7 @@ nr_zone_active_anon 51417730
 nr_zone_inactive_file 55674772
 `
 
-func TestGetNumaNodeFreeMemMB(t *testing.T) {
+func Test_getNumasFreePageRatio(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -62,7 +62,7 @@ func TestGetNumaNodeFreeMemMB(t *testing.T) {
 				0: 10000,
 			},
 			want: map[int]int{
-				0: 9,
+				0: 10,
 			},
 			wantErr: false,
 		},
@@ -117,9 +117,9 @@ func TestGetNumaNodeFreeMemMB(t *testing.T) {
 				numas = append(numas, numa)
 			}
 
-			result, err := getNumasFreeMemRatio(tmpDir, numas)
+			result, err := getNumasFreePageRatio(tmpDir, numas)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("test name: %s for getNumasFreeMemRatio error = %v, wantErr %v", tt.name, err, tt.wantErr)
+				t.Errorf("test name: %s for getNumasFreePageRatio error = %v, wantErr %v", tt.name, err, tt.wantErr)
 				return
 			}
 			assert.DeepEqual(t, tt.want, result)
@@ -127,7 +127,7 @@ func TestGetNumaNodeFreeMemMB(t *testing.T) {
 	}
 }
 
-func TestGetNumaNodeFreeMemMB_VMStatFileNotFound(t *testing.T) {
+func TestGetNumaNodeFreePageRatio_VMStatFileNotFound(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -148,9 +148,9 @@ func TestGetNumaNodeFreeMemMB_VMStatFileNotFound(t *testing.T) {
 			t.Parallel()
 
 			tmpDir := t.TempDir()
-			_, err := getNumasFreeMemRatio(tmpDir, []int{0})
+			_, err := getNumasFreePageRatio(tmpDir, []int{0})
 			if (err != nil) != tt.wantErr {
-				t.Errorf("test name: %s for getNumasFreeMemRatio error = %v, wantErr %v", tt.name, err, tt.wantErr)
+				t.Errorf("test name: %s for getNumasFreePageRatio error = %v, wantErr %v", tt.name, err, tt.wantErr)
 				return
 			}
 
@@ -159,7 +159,7 @@ func TestGetNumaNodeFreeMemMB_VMStatFileNotFound(t *testing.T) {
 	}
 }
 
-func TestGetNumaNodeFreeMemMB_GetFreePagesFailed(t *testing.T) {
+func Test_getNumasFreePageRatio_GetFreePagesFailed(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -201,9 +201,9 @@ func TestGetNumaNodeFreeMemMB_GetFreePagesFailed(t *testing.T) {
 
 			tmpDir := t.TempDir()
 			generateNodeVMStatFile(t, tmpDir, 0, tt.content)
-			_, err := getNumasFreeMemRatio(tmpDir, []int{0})
+			_, err := getNumasFreePageRatio(tmpDir, []int{0})
 			if (err != nil) != tt.wantErr {
-				t.Errorf("test name: %s for getNumasFreeMemRatio error = %v, wantErr %v", tt.name, err, tt.wantErr)
+				t.Errorf("test name: %s for getNumasFreePageRatio error = %v, wantErr %v", tt.name, err, tt.wantErr)
 				return
 			}
 
