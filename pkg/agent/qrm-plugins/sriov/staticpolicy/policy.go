@@ -215,7 +215,7 @@ func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 	var candidates state.VFState
 
 	// reuse allocation info allocated by same pod and container
-	containerEntries, exists := podEntries[req.PodNamespace]
+	containerEntries, exists := podEntries[req.PodUid]
 	if exists {
 		allocationInfo := containerEntries[req.ContainerName]
 		if allocationInfo == nil {
@@ -450,11 +450,15 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 
 	podEntries := p.state.GetPodEntries()
 	machineState := p.state.GetMachineState()
-	candidates := machineState.Filter(
+	filters := []state.VFFilter{
 		state.FilterByPodAllocated(podEntries, false),
 		state.FilterByNumaID(hintNUMASet),
 		state.FilterByRDMA(true),
-	)
+	}
+	if p.hostNetworkBonding {
+		filters = append(filters, state.FilterByQueueCount(p.MinBondingVFQueueCount, p.MaxBondingVFQueueCount))
+	}
+	candidates := machineState.Filter(filters...)
 	if len(candidates) == 0 {
 		return nil, fmt.Errorf("no available VFs")
 	}
