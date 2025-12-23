@@ -17,6 +17,8 @@ limitations under the License.
 package qrm
 
 import (
+	"math"
+
 	cliflag "k8s.io/component-base/cli/flag"
 
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
@@ -28,6 +30,7 @@ type SriovOptions struct {
 
 	SriovAllocationOptions
 	SriovStaticPolicyOptions
+	SriovDynamicPolicyOptions
 }
 
 type SriovAllocationOptions struct {
@@ -40,6 +43,15 @@ type SriovStaticPolicyOptions struct {
 	MaxBondingVFQueueCount int
 }
 
+type SriovDynamicPolicyOptions struct {
+	LargeSizeVFQueueCount       int
+	LargeSizeVFCPUThreshold     int
+	LargeSizeVFFailOnExhaustion bool
+	SmallSizeVFQueueCount       int
+	SmallSizeVFCPUThreshold     int
+	SmallSizeVFFailOnExhaustion bool
+}
+
 func NewSriovOptions() *SriovOptions {
 	return &SriovOptions{
 		PolicyName:               "static",
@@ -50,7 +62,15 @@ func NewSriovOptions() *SriovOptions {
 		},
 		SriovStaticPolicyOptions: SriovStaticPolicyOptions{
 			MinBondingVFQueueCount: 32,
-			MaxBondingVFQueueCount: 32,
+			MaxBondingVFQueueCount: math.MaxInt32,
+		},
+		SriovDynamicPolicyOptions: SriovDynamicPolicyOptions{
+			LargeSizeVFQueueCount:       32,
+			LargeSizeVFCPUThreshold:     24,
+			LargeSizeVFFailOnExhaustion: true,
+			SmallSizeVFQueueCount:       8,
+			SmallSizeVFCPUThreshold:     8,
+			SmallSizeVFFailOnExhaustion: false,
 		},
 	}
 }
@@ -60,10 +80,16 @@ func (o *SriovOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	fs.StringVar(&o.PolicyName, "sriov-policy-name", o.PolicyName, "Policy name for sriov qrm plugin")
 	fs.BoolVar(&o.SkipSriovStateCorruption, "skip-sriov-state-corruption", o.SkipSriovStateCorruption, "Skip sriov state corruption")
-	fs.StringVar(&o.PCIAnnotationKey, "pci-annotation-key", o.PCIAnnotationKey, "Pci annotation key for sriov qrm plugin")
+	fs.StringVar(&o.PCIAnnotationKey, "sriov-vf-pci-annotation-key", o.PCIAnnotationKey, "PCI annotation key for sriov vf")
 	fs.StringToStringVar(&o.ExtraAnnotations, "sriov-vf-extra-annotations", o.ExtraAnnotations, "Extra annotations for sriov vf")
-	fs.IntVar(&o.MinBondingVFQueueCount, "min-bonding-vf-queue-count", o.MinBondingVFQueueCount, "Min bonding vf queue count")
-	fs.IntVar(&o.MaxBondingVFQueueCount, "max-bonding-vf-queue-count", o.MaxBondingVFQueueCount, "Max bonding vf queue count")
+	fs.IntVar(&o.MinBondingVFQueueCount, "static-min-bonding-vf-queue-count", o.MinBondingVFQueueCount, "Min queue count of bonding VF can be allocated in static policy")
+	fs.IntVar(&o.MaxBondingVFQueueCount, "static-max-bonding-vf-queue-count", o.MaxBondingVFQueueCount, "Max queue count of bonding VF can be allocated in static policy")
+	fs.IntVar(&o.LargeSizeVFQueueCount, "dynamic-large-size-vf-queue-count", o.LargeSizeVFQueueCount, "Queue count for VF to be identified as large size VF in dynamic policy")
+	fs.IntVar(&o.LargeSizeVFCPUThreshold, "dynamic-large-size-vf-cpu-threshold", o.LargeSizeVFCPUThreshold, "Threshold of cpu quantity to allocate large size VF in dynamic policy")
+	fs.BoolVar(&o.LargeSizeVFFailOnExhaustion, "dynamic-large-size-vf-fail-on-exhaustion", o.LargeSizeVFFailOnExhaustion, "Should fail or not when large size VF is exhausted in dynamic policy")
+	fs.IntVar(&o.SmallSizeVFQueueCount, "dynamic-small-size-vf-queue-count", o.SmallSizeVFQueueCount, "Queue count for VF to be identified as small size VF in dynamic policy")
+	fs.IntVar(&o.SmallSizeVFCPUThreshold, "dynamic-small-size-vf-cpu-threshold", o.SmallSizeVFCPUThreshold, "Threshold of cpu quantity to allocate small size VF in dynamic policy")
+	fs.BoolVar(&o.SmallSizeVFFailOnExhaustion, "dynamic-small-size-vf-fail-on-exhaustion", o.SmallSizeVFFailOnExhaustion, "Should fail or not when small size VF is exhausted in dynamic policy")
 }
 
 func (s *SriovOptions) ApplyTo(config *qrmconfig.SriovQRMPluginConfig) error {
@@ -75,6 +101,12 @@ func (s *SriovOptions) ApplyTo(config *qrmconfig.SriovQRMPluginConfig) error {
 	}
 	config.MinBondingVFQueueCount = s.MinBondingVFQueueCount
 	config.MaxBondingVFQueueCount = s.MaxBondingVFQueueCount
+	config.LargeSizeVFQueueCount = s.LargeSizeVFQueueCount
+	config.LargeSizeVFCPUThreshold = s.LargeSizeVFCPUThreshold
+	config.LargeSizeVFFailOnExhaustion = s.LargeSizeVFFailOnExhaustion
+	config.SmallSizeVFQueueCount = s.SmallSizeVFQueueCount
+	config.SmallSizeVFCPUThreshold = s.SmallSizeVFCPUThreshold
+	config.SmallSizeVFFailOnExhaustion = s.SmallSizeVFFailOnExhaustion
 
 	return nil
 }

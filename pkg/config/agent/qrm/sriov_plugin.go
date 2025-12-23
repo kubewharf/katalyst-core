@@ -24,6 +24,7 @@ type SriovQRMPluginConfig struct {
 
 	SriovAllocationConfig
 	SriovStaticPolicyConfig
+	SriovDynamicPolicyConfig
 }
 
 type SriovAllocationConfig struct {
@@ -34,6 +35,15 @@ type SriovAllocationConfig struct {
 type SriovStaticPolicyConfig struct {
 	MinBondingVFQueueCount int
 	MaxBondingVFQueueCount int
+}
+
+type SriovDynamicPolicyConfig struct {
+	LargeSizeVFQueueCount       int
+	LargeSizeVFCPUThreshold     int
+	LargeSizeVFFailOnExhaustion bool
+	SmallSizeVFQueueCount       int
+	SmallSizeVFCPUThreshold     int
+	SmallSizeVFFailOnExhaustion bool
 }
 
 func NewSriovQRMPluginConfig() *SriovQRMPluginConfig {

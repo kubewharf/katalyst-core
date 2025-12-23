@@ -19,9 +19,11 @@ package sriov
 import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/dynamicpolicy"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/staticpolicy"
 )
 
 func init() {
 	qrm.RegisterSriovPolicyInitializer(consts.SriovResourcePluginPolicyNameStatic, staticpolicy.NewStaticPolicy)
+	qrm.RegisterSriovPolicyInitializer(consts.SriovResourcePluginPolicyNameDynamic, dynamicpolicy.NewDynamicPolicy)
 }

@@ -179,10 +179,6 @@ func (p *StaticPolicy) Start() (err error) {
 func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 	req *pluginapi.ResourceRequest,
 ) (resp *pluginapi.ResourceHintsResponse, err error) {
-	if req == nil {
-		return nil, fmt.Errorf("GetTopologyHints got nil req")
-	}
-
 	if err := util.ValidateRequestQuantity(req); err != nil {
 		return nil, fmt.Errorf("ValidateRequestQuantity failed with error: %v", err)
 	}
@@ -239,21 +235,23 @@ func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 		numaSet.Add(vf.NumaNode)
 	}
 	socketSet := p.agentCtx.CPUDetails.SocketsInNUMANodes(numaSet.ToSliceInt()...)
-	numaNodesInSocketSet := p.agentCtx.CPUDetails.NUMANodesInSockets(socketSet.ToSliceInt()...).ToSliceUInt64()
 
-	topologyHints := map[string]*pluginapi.ListOfTopologyHints{
-		p.ResourceName(): {
-			Hints: []*pluginapi.TopologyHint{
-				{
-					Nodes: numaNodesInSocketSet,
-					// as well as there has available vfs, the preferred is true
-					Preferred: true,
-				},
-			},
-		},
+	hints := make([]*pluginapi.TopologyHint, 0, socketSet.Size())
+	for _, socket := range socketSet.ToSliceInt() {
+		hints = append(hints, &pluginapi.TopologyHint{
+			Nodes: p.agentCtx.CPUDetails.NUMANodesInSockets(socket).ToSliceUInt64(),
+			// as well as there has available vfs, the preferred is true
+			Preferred: true,
+		})
 	}
 
-	return qrmutil.PackResourceHintsResponse(req, p.ResourceName(), topologyHints)
+	return qrmutil.PackResourceHintsResponse(req, p.ResourceName(),
+		map[string]*pluginapi.ListOfTopologyHints{
+			p.ResourceName(): {
+				Hints: hints,
+			},
+		},
+	)
 }
 
 // GetPodTopologyHints returns hints of corresponding resources for pod
@@ -399,10 +397,6 @@ func (p *StaticPolicy) GetResourcePluginOptions(context.Context,
 func (p *StaticPolicy) Allocate(_ context.Context,
 	req *pluginapi.ResourceRequest,
 ) (resp *pluginapi.ResourceAllocationResponse, err error) {
-	if req == nil {
-		return nil, fmt.Errorf("Allocate got nil req")
-	}
-
 	if err := util.ValidateRequestQuantity(req); err != nil {
 		return nil, fmt.Errorf("ValidateRequestQuantity failed with error: %v", err)
 	}
@@ -452,7 +446,7 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 	machineState := p.state.GetMachineState()
 	filters := []state.VFFilter{
 		state.FilterByPodAllocated(podEntries, false),
-		state.FilterByNumaID(hintNUMASet),
+		state.FilterByNumaSet(hintNUMASet),
 		state.FilterByRDMA(true),
 	}
 	if p.hostNetworkBonding {

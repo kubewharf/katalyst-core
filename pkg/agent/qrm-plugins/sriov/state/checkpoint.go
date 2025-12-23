@@ -153,7 +153,7 @@ func FilterByPCIAddr(pciAddr string) VFFilter {
 	}
 }
 
-func FilterByNumaID(numaSet machine.CPUSet) VFFilter {
+func FilterByNumaSet(numaSet machine.CPUSet) VFFilter {
 	return func(vf VFInfo) bool {
 		return numaSet.Contains(vf.NumaNode)
 	}

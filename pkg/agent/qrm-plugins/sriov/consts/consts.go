@@ -21,6 +21,8 @@ import "time"
 const (
 	// SriovResourcePluginPolicyNameStatic is the name of static policy for sriov resource plugin
 	SriovResourcePluginPolicyNameStatic = "static"
+	// SriovResourcePluginPolicyNameDynamic is the name of dynamic policy for sriov resource plugin
+	SriovResourcePluginPolicyNameDynamic = "dynamic"
 
 	ReconcileState        = "reconcile_state"
 	HealthzReconcileState = "qrm_sriov_plugin_" + ReconcileState

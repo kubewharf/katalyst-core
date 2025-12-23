@@ -36,6 +36,10 @@ const (
 )
 
 func ValidateRequestQuantity(req *pluginapi.ResourceRequest) error {
+	if req == nil {
+		return fmt.Errorf("got nil req")
+	}
+
 	reqInt, _, err := util.GetQuantityFromResourceReq(req)
 
 	if err != nil {
@@ -56,8 +60,8 @@ type PCIDevice struct {
 	Container string `json:"container"`
 }
 
-func PackAllocationResponse(conf qrm.SriovAllocationConfig,
-	req *pluginapi.ResourceRequest, allocationInfo *state.AllocationInfo) (*pluginapi.ResourceAllocationResponse, error) {
+func PackResourceAllocationInfo(conf qrm.SriovAllocationConfig,
+	allocationInfo *state.AllocationInfo) (*pluginapi.ResourceAllocationInfo, error) {
 	annotations := general.DeepCopyMap(conf.ExtraAnnotations)
 	pciAnnotationValue, err := json.Marshal([]PCIDevice{
 		{
@@ -88,6 +92,22 @@ func PackAllocationResponse(conf qrm.SriovAllocationConfig,
 		})
 	}
 
+	return &pluginapi.ResourceAllocationInfo{
+		IsNodeResource:    true,
+		IsScalarResource:  true, // to avoid re-allocating
+		AllocatedQuantity: 1,
+		Annotations:       annotations,
+		Devices:           devices,
+	}, nil
+}
+
+func PackAllocationResponse(conf qrm.SriovAllocationConfig,
+	req *pluginapi.ResourceRequest, allocationInfo *state.AllocationInfo) (*pluginapi.ResourceAllocationResponse, error) {
+	resourceAllocationInfo, err := PackResourceAllocationInfo(conf, allocationInfo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to pack resource allocation info: %v", err)
+	}
+
 	return &pluginapi.ResourceAllocationResponse{
 		PodUid:         req.PodUid,
 		PodNamespace:   req.PodNamespace,
@@ -100,18 +120,7 @@ func PackAllocationResponse(conf qrm.SriovAllocationConfig,
 		ResourceName:   req.ResourceName,
 		AllocationResult: &pluginapi.ResourceAllocation{
 			ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
-				string(consts.ResourceSriovNic): {
-					IsNodeResource:    true,
-					IsScalarResource:  true, // to avoid re-allocating
-					AllocatedQuantity: 1,
-					Annotations:       annotations,
-					ResourceHints: &pluginapi.ListOfTopologyHints{
-						Hints: []*pluginapi.TopologyHint{
-							req.Hint,
-						},
-					},
-					Devices: devices,
-				},
+				string(consts.ResourceSriovNic): resourceAllocationInfo,
 			},
 		},
 		Labels:      general.DeepCopyMap(req.Labels),
