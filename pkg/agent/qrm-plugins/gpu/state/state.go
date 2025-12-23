@@ -33,6 +33,7 @@ type AllocationInfo struct {
 
 	AllocatedAllocation      Allocation            `json:"allocated_allocation"`
 	TopologyAwareAllocations map[string]Allocation `json:"topology_aware_allocations"`
+	DeviceName               string                `json:"device_name"`
 }
 
 type Allocation struct {
@@ -88,6 +89,7 @@ func (i *AllocationInfo) Clone() *AllocationInfo {
 
 	clone := &AllocationInfo{
 		AllocationMeta:      *i.AllocationMeta.Clone(),
+		DeviceName:          i.DeviceName,
 		AllocatedAllocation: i.AllocatedAllocation.Clone(),
 	}
 
@@ -307,6 +309,10 @@ func (arm AllocationResourcesMap) GetRatioOfAccompanyResourceToTargetResource(ac
 }
 
 func (as *AllocationState) GetQuantityAllocated() float64 {
+	return as.GetQuantityAllocatedWithFilter(nil)
+}
+
+func (as *AllocationState) GetQuantityAllocatedWithFilter(filter func(ai *AllocationInfo) bool) float64 {
 	if as == nil {
 		return 0
 	}
@@ -314,6 +320,13 @@ func (as *AllocationState) GetQuantityAllocated() float64 {
 	quantityAllocated := float64(0)
 	for _, podEntries := range as.PodEntries {
 		for _, allocationInfo := range podEntries {
+			if allocationInfo == nil {
+				continue
+			}
+
+			if filter != nil && !filter(allocationInfo) {
+				continue
+			}
 			quantityAllocated += allocationInfo.AllocatedAllocation.Quantity
 		}
 	}
