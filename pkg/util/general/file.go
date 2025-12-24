@@ -152,6 +152,31 @@ func IsPathExists(path string) bool {
 	return true
 }
 
+// IsRegularFileExists is to check whether a regular file specified by the path exists.
+// If there is an entry that is not a regular file, remove the entry if delete equals true
+func IsRegularFileExists(path string, delete bool) (bool, error) {
+	pathExists := IsPathExists(path)
+	if pathExists {
+		// Path exists, check if the file is a regular file
+		fileInfo, err := os.Stat(path)
+		if err != nil {
+			return false, fmt.Errorf("failed to get file info: %w", err)
+		}
+
+		isRegular := fileInfo.Mode().IsRegular()
+		if !isRegular && delete {
+			err = os.RemoveAll(path)
+			if err != nil {
+				return false, fmt.Errorf("failed to remove directory %s: %w", path, err)
+			}
+		}
+
+		return isRegular, nil
+	}
+
+	return false, nil
+}
+
 // ReadFileIntoLines read contents from the given file, and parse them into string slice;
 // each string indicates a line in the file
 func ReadFileIntoLines(filepath string) ([]string, error) {

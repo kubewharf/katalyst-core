@@ -297,14 +297,24 @@ func (cm *customCheckpointManager) isCheckpointUpToDate() (bool, error) {
 	currentCheckpointFilePath := filepath.Join(cm.currStateDir, cm.checkpointName)
 
 	// Current checkpoint is not up to date as it does not exist
-	if !general.IsPathExists(currentCheckpointFilePath) {
+	currFileExists, err := general.IsRegularFileExists(currentCheckpointFilePath, true)
+	if err != nil {
+		return false, fmt.Errorf("[%v] failed to check if current file exists: %w", cm.pluginName, err)
+	}
+
+	if !currFileExists {
 		return false, nil
 	}
 
 	previousCheckpointFilePath := filepath.Join(cm.prevStateDir, cm.checkpointName)
 
 	// When there is no previous checkpoint, we consider the current checkpoint is up to date
-	if !general.IsPathExists(previousCheckpointFilePath) {
+	prevFileExists, err := general.IsRegularFileExists(previousCheckpointFilePath, true)
+	if err != nil {
+		return false, fmt.Errorf("[%v] failed to check if previous file exists: %w", cm.pluginName, err)
+	}
+
+	if !prevFileExists {
 		return true, nil
 	}
 
