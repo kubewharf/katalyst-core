@@ -379,17 +379,23 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 		}
 	}
 
+	podAggregatedRequest, _, err := util.GetPodAggregatedRequestResource(req)
+	if err != nil {
+		return nil, fmt.Errorf("GetPodAggregatedRequestResource failed with error: %v", err)
+	}
+
 	reqInt, reqFloat64, err := util.GetQuantityFromResourceReq(req)
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
 
-	result, err := p.allocateNumaBindingCPUs(reqInt, req.Hint, machineState, req.Annotations)
+	result, err := p.allocateNumaBindingCPUs(podAggregatedRequest, req.Hint, machineState, req.Annotations)
 	if err != nil {
 		general.ErrorS(err, "unable to allocate CPUs",
 			"podNamespace", req.PodNamespace,
 			"podName", req.PodName,
 			"containerName", req.ContainerName,
+			"podAggregatedRequest", podAggregatedRequest,
 			"numCPUsInt", reqInt,
 			"numCPUsFloat64", reqFloat64)
 		return nil, err
@@ -406,6 +412,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 		"podNamespace", req.PodNamespace,
 		"podName", req.PodName,
 		"containerName", req.ContainerName,
+		"podAggregatedRequest", podAggregatedRequest,
 		"numCPUsInt", reqInt,
 		"numCPUsFloat64", reqFloat64,
 		"result", result.String())
@@ -416,6 +423,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 			"podNamespace", req.PodNamespace,
 			"podName", req.PodName,
 			"containerName", req.ContainerName,
+			"podAggregatedRequest", podAggregatedRequest,
 			"numCPUsInt", reqInt,
 			"numCPUsFloat64", reqFloat64,
 			"result cpuset", result.String())
