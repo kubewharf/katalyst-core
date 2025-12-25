@@ -105,7 +105,7 @@ type cpuResourceAdvisor struct {
 	provisionAssembler provisionassembler.ProvisionAssembler
 	headroomAssembler  headroomassembler.HeadroomAssembler
 
-	isolator        isolation.Isolator
+	isolators       []isolation.Isolator
 	isolationSafety bool
 
 	mutex      sync.RWMutex
@@ -131,7 +131,10 @@ func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, me
 		numRegionsPerNuma:  make(map[int]int),
 		nonBindingNumas:    machine.NewCPUSet(),
 
-		isolator: isolation.NewLoadIsolator(conf, extraConf, emitter, metaCache, metaServer),
+		isolators: []isolation.Isolator{
+			isolation.NewLoadIsolator(conf, extraConf, emitter, metaCache, metaServer),
+			isolation.NewPerfIsolator(conf, extraConf, emitter, metaCache, metaServer),
+		},
 
 		metaCache:  metaCache,
 		metaServer: metaServer,
@@ -151,6 +154,11 @@ func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, me
 }
 
 func (cra *cpuResourceAdvisor) Run(ctx context.Context) {
+	for _, isolator := range cra.isolators {
+		if err := isolator.Start(ctx); err != nil {
+			klog.Fatalf("[qosaware-cpu] start isolator failed: %v", err)
+		}
+	}
 	<-ctx.Done()
 }
 
@@ -234,7 +242,7 @@ func (cra *cpuResourceAdvisor) updateWithIsolationGuardian(tryIsolation bool) (
 	}
 
 	cra.updateNumasAvailableResource()
-	isolationExists := cra.setIsolatedContainers(tryIsolation)
+	cra.setIsolatedContainers(tryIsolation)
 
 	// assign containers to regions
 	if err := cra.assignContainersToRegions(); err != nil {
@@ -244,7 +252,7 @@ func (cra *cpuResourceAdvisor) updateWithIsolationGuardian(tryIsolation bool) (
 
 	cra.gcRegionMap()
 	cra.updateAdvisorEssentials()
-	if tryIsolation && isolationExists && !cra.checkIsolationSafety() {
+	if tryIsolation && cra.hasIsolatedPods() && !cra.checkIsolationSafety() {
 		klog.Errorf("[qosaware-cpu] failed to check isolation")
 		return nil, errIsolationSafetyCheckFailed
 	}
@@ -284,57 +292,81 @@ func (cra *cpuResourceAdvisor) updateWithIsolationGuardian(tryIsolation bool) (
 	return &calculationResult, nil
 }
 
-// setIsolatedContainers get isolation status from isolator and update into containers
-func (cra *cpuResourceAdvisor) setIsolatedContainers(enableIsolated bool) bool {
+func (cra *cpuResourceAdvisor) getTargetIsolatedPods() (sets.String, error) {
 	isolatedPods := sets.NewString()
-	if enableIsolated {
-		isolatedPods = sets.NewString(cra.isolator.GetIsolatedPods()...)
+	general.InfoS("try to getTargetIsolatedPods", "isolators", general.ToString(cra.isolators))
+	for _, isolator := range cra.isolators {
+		pods, err := isolator.GetIsolatedPods()
+		if err != nil {
+			return nil, err
+		}
+		isolatedPods.Insert(pods...)
 	}
-	if len(isolatedPods) > 0 {
-		klog.Infof("[qosaware-cpu] current isolated pod: %v", isolatedPods.List())
-	}
+	return isolatedPods, nil
+}
 
-	_ = cra.metaCache.RangeAndUpdateContainer(func(podUID string, _ string, ci *types.ContainerInfo) bool {
-		ci.Isolated = false
-		if isolatedPods.Has(podUID) {
-			ci.Isolated = true
+func (cra *cpuResourceAdvisor) hasIsolatedPods() bool {
+	ret := false
+	cra.metaCache.RangeContainer(func(podUID string, containerName string, ci *types.ContainerInfo) bool {
+		if ci.Isolated {
+			ret = true
+			return false
 		}
 		return true
 	})
-	return len(isolatedPods) > 0
+	return ret
+}
+
+// setIsolatedContainers get isolation status from isolator and update into containers
+func (cra *cpuResourceAdvisor) setIsolatedContainers(enableIsolation bool) {
+	isolatedPods := sets.NewString()
+	if enableIsolation {
+		pods, err := cra.getTargetIsolatedPods()
+		if err != nil {
+			klog.Errorf("[qosaware-cpu] get isolated pods failed: %v", err)
+			return
+		}
+		isolatedPods = pods
+	}
+
+	klog.InfoS("[qosaware-cpu]", "current isolated pod", isolatedPods.List(), "enableIsolation", enableIsolation)
+	_ = cra.metaCache.RangeAndUpdateContainer(func(podUID string, containerName string, ci *types.ContainerInfo) bool {
+		ci.Isolated = isolatedPods.Has(podUID)
+		return true
+	})
 }
 
 // checkIsolationSafety returns true iff the isolated-limit-sum and share-pool-size exceed total capacity
 // todo: this logic contains a lot of assumptions and should be refined in the future
 func (cra *cpuResourceAdvisor) checkIsolationSafety() bool {
-	shareAndIsolationPoolSize := 0
-	nonBindingNumas := cra.metaServer.CPUDetails.NUMANodes()
-	for _, r := range cra.regionMap {
-		if r.Type() == configapi.QoSRegionTypeShare {
-			controlKnob, err := r.GetProvision()
-			if err != nil {
-				klog.Errorf("[qosaware-cpu] get controlKnob for %v err: %v", r.Name(), err)
-				return false
-			}
-			shareAndIsolationPoolSize += int(controlKnob[configapi.ControlKnobNonReclaimedCPURequirement].Value)
-		} else if r.Type() == configapi.QoSRegionTypeIsolation {
-			pods := r.GetPods()
-			cra.metaCache.RangeContainer(func(podUID string, _ string, containerInfo *types.ContainerInfo) bool {
-				if _, ok := pods[podUID]; ok {
-					shareAndIsolationPoolSize += int(containerInfo.CPULimit)
-				}
-				return true
-			})
-		} else if r.Type() == configapi.QoSRegionTypeDedicatedNumaExclusive {
-			nonBindingNumas = nonBindingNumas.Difference(r.GetBindingNumas())
-		}
-	}
-
-	nonBindingSize := cra.metaServer.NUMAToCPUs.CPUSizeInNUMAs(cra.nonBindingNumas.ToSliceNoSortInt()...)
-	klog.Infof("[qosaware-cpu] shareAndIsolationPoolSize %v, nonBindingSize %v", shareAndIsolationPoolSize, nonBindingSize)
-	if shareAndIsolationPoolSize > nonBindingSize {
-		return false
-	}
+	//shareAndIsolationPoolSize := 0
+	//nonBindingNumas := cra.metaServer.CPUDetails.NUMANodes()
+	//for _, r := range cra.regionMap {
+	//	if r.Type() == configapi.QoSRegionTypeShare {
+	//		controlKnob, err := r.GetProvision()
+	//		if err != nil {
+	//			klog.Errorf("[qosaware-cpu] get controlKnob for %v err: %v", r.Name(), err)
+	//			return false
+	//		}
+	//		shareAndIsolationPoolSize += int(controlKnob[configapi.ControlKnobNonReclaimedCPURequirement].Value)
+	//	} else if r.Type() == configapi.QoSRegionTypeIsolation {
+	//		pods := r.GetPods()
+	//		cra.metaCache.RangeContainer(func(podUID string, _ string, containerInfo *types.ContainerInfo) bool {
+	//			if _, ok := pods[podUID]; ok {
+	//				shareAndIsolationPoolSize += int(containerInfo.CPULimit)
+	//			}
+	//			return true
+	//		})
+	//	} else if r.Type() == configapi.QoSRegionTypeDedicatedNumaExclusive {
+	//		nonBindingNumas = nonBindingNumas.Difference(r.GetBindingNumas())
+	//	}
+	//}
+	//
+	//nonBindingSize := cra.metaServer.NUMAToCPUs.CPUSizeInNUMAs(cra.nonBindingNumas.ToSliceNoSortInt()...)
+	//klog.Infof("[qosaware-cpu] shareAndIsolationPoolSize %v, nonBindingSize %v", shareAndIsolationPoolSize, nonBindingSize)
+	//if shareAndIsolationPoolSize > nonBindingSize {
+	//	return false
+	//}
 	return true
 }
 
