@@ -1158,12 +1158,6 @@ func (m *MalachiteMetricsProvisioner) processContainerCPUData(podUID, containerN
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUPeriodContainer,
 			utilmetric.MetricData{Value: float64(cpu.MaxPeriod), Time: &updateTime})
 
-		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrRunnableContainer,
-			utilmetric.MetricData{Value: float64(cpu.TaskNrRunning), Time: &updateTime})
-		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrUninterruptibleContainer,
-			utilmetric.MetricData{Value: float64(cpu.TaskNrUninterruptible), Time: &updateTime})
-		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrIOWaitContainer,
-			utilmetric.MetricData{Value: float64(cpu.TaskNrIoWait), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUThrottledTimeContainer,
 			utilmetric.MetricData{Value: float64(cpu.CPUStats.ThrottledUsec), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrThrottledContainer,
@@ -1171,12 +1165,23 @@ func (m *MalachiteMetricsProvisioner) processContainerCPUData(podUID, containerN
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrPeriodContainer,
 			utilmetric.MetricData{Value: float64(cpu.CPUStats.NrPeriods), Time: &updateTime})
 
-		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricLoad1MinContainer,
-			utilmetric.MetricData{Value: cpu.Load.One, Time: &updateTime})
-		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricLoad5MinContainer,
-			utilmetric.MetricData{Value: cpu.Load.Five, Time: &updateTime})
-		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricLoad15MinContainer,
-			utilmetric.MetricData{Value: cpu.Load.Fifteen, Time: &updateTime})
+		// todo: Currently, in cgroup v2, we cannot get cgroup-level runnable tasks directly from Malachite.
+		//  This is because Malachite only provides container-level runnable tasks, which do not include the tasks in sub-cgroups.
+		//  So we now only enable reporting cgroup-level runnable tasks metrics in cgroup v2 when all containers have no sub-cgroups.
+		if !m.baseConf.DisableCGroupV2TaskLoadMetrics {
+			m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrRunnableContainer,
+				utilmetric.MetricData{Value: float64(cpu.TaskNrRunning), Time: &updateTime})
+			m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrUninterruptibleContainer,
+				utilmetric.MetricData{Value: float64(cpu.TaskNrUninterruptible), Time: &updateTime})
+			m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrIOWaitContainer,
+				utilmetric.MetricData{Value: float64(cpu.TaskNrIoWait), Time: &updateTime})
+			m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricLoad1MinContainer,
+				utilmetric.MetricData{Value: cpu.Load.One, Time: &updateTime})
+			m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricLoad5MinContainer,
+				utilmetric.MetricData{Value: cpu.Load.Five, Time: &updateTime})
+			m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricLoad15MinContainer,
+				utilmetric.MetricData{Value: cpu.Load.Fifteen, Time: &updateTime})
+		}
 
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricOCRReadDRAMsContainer,
 			utilmetric.MetricData{Value: float64(cpu.OcrReadDrams), Time: &updateTime})

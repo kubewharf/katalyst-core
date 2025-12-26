@@ -52,9 +52,10 @@ type BaseOptions struct {
 	CgroupType            string
 	AdditionalCgroupPaths []string
 
-	ReclaimRelativeRootCgroupPath string
-	GeneralRelativeCgroupPaths    []string
-	OptionalRelativeCgroupPaths   []string
+	ReclaimRelativeRootCgroupPath  string
+	GeneralRelativeCgroupPaths     []string
+	OptionalRelativeCgroupPaths    []string
+	DisableCGroupV2TaskLoadMetrics bool
 
 	// configurations for kubelet
 	KubeletReadOnlyPort      int
@@ -118,6 +119,8 @@ func (o *BaseOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringVar(&o.CgroupType, "cgroup-type", o.CgroupType, "The cgroup type")
 	fs.StringSliceVar(&o.AdditionalCgroupPaths, "addition-cgroup-paths", o.AdditionalCgroupPaths,
 		"The additional cgroup paths to be added for legacy configurations")
+	fs.BoolVar(&o.DisableCGroupV2TaskLoadMetrics, "disable-cgroup-v2-task-load-metrics", o.DisableCGroupV2TaskLoadMetrics,
+		"Whether to disable cgroup v2 task load related metrics")
 
 	fs.StringVar(&o.ReclaimRelativeRootCgroupPath, "reclaim-relative-root-cgroup-path", o.ReclaimRelativeRootCgroupPath,
 		"top level cgroup path for reclaimed_cores qos level")
@@ -175,6 +178,7 @@ func (o *BaseOptions) ApplyTo(c *global.BaseConfiguration) error {
 	c.OptionalRelativeCgroupPaths = o.OptionalRelativeCgroupPaths
 	c.CgroupType = o.CgroupType
 	c.AdditionalK8sCgroupPaths = o.AdditionalCgroupPaths
+	c.DisableCGroupV2TaskLoadMetrics = o.DisableCGroupV2TaskLoadMetrics
 
 	c.NetMultipleNS = o.MachineNetMultipleNS
 	c.NetNSDirAbsPath = o.MachineNetNSDirAbsPath
