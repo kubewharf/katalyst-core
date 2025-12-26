@@ -273,11 +273,11 @@ func (b *ResourcesEvictionPlugin) getTopHardEvictionPods(ctx context.Context, re
 	sort.Slice(activeFilteredPods, func(i, j int) bool {
 		// sort by score first
 		valueI, valueJ := math.MaxFloat64, math.MaxFloat64
-		if s := b.evictScoreGetter(activeFilteredPods[i]); s != nil {
-			valueI = *s
+		if s, ok := scores[string(activeFilteredPods[i].UID)]; ok {
+			valueI = s
 		}
-		if s := b.evictScoreGetter(activeFilteredPods[j]); s != nil {
-			valueJ = *s
+		if s, ok := scores[string(activeFilteredPods[j].UID)]; ok {
+			valueJ = s
 		}
 		if valueI != valueJ {
 			return valueI < valueJ
@@ -373,15 +373,12 @@ func (b *ResourcesEvictionPlugin) getTopSoftEvictionPods(ctx context.Context, re
 	sort.Slice(activeFilteredPods, func(i, j int) bool {
 		// sort by score first
 		valueI, valueJ := math.MaxFloat64, math.MaxFloat64
-
-		if s := b.evictScoreGetter(activeFilteredPods[i]); s != nil {
-			valueI = *s
+		if s, ok := scores[string(activeFilteredPods[i].UID)]; ok {
+			valueI = s
 		}
-
-		if s := b.evictScoreGetter(activeFilteredPods[j]); s != nil {
-			valueJ = *s
+		if s, ok := scores[string(activeFilteredPods[j].UID)]; ok {
+			valueJ = s
 		}
-
 		if valueI != valueJ {
 			return valueI > valueJ
 		}
