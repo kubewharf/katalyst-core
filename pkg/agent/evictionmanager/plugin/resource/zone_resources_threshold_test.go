@@ -76,7 +76,7 @@ func TestZoneResourcesPlugin_ThresholdMet_GPU(t *testing.T) {
 			ctx.Client.InternalClient.NodeV1alpha1().CustomNodeResources()),
 	}}
 	p := NewZoneResourcesPlugin("test", nodev1alpha1.TopologyTypeGPU, ms, metrics.DummyMetrics{}, nil,
-		func(corev1.ResourceName) *float64 { r := 0.5; return &r }, func() int64 { return 0 }, func() int64 { return 0 },
+		func(corev1.ResourceName) *float64 { r := 0.5; return &r }, func(corev1.ResourceName) *float64 { return nil }, nil, func() int64 { return 0 }, func() int64 { return 0 },
 		nil, func(*corev1.Pod) (bool, error) { return true, nil })
 	met, err := p.ThresholdMet(context.TODO(), nil)
 	if err != nil {
@@ -125,7 +125,9 @@ func TestZoneResourcesPlugin_ThresholdMet_SkipZero(t *testing.T) {
 	}}
 	skip := sets.NewString("nvidia.com/gpu")
 	p := NewZoneResourcesPlugin("test", nodev1alpha1.TopologyTypeGPU, ms, metrics.DummyMetrics{}, nil,
-		func(corev1.ResourceName) *float64 { r := 0.5; return &r }, func() int64 { return 0 }, func() int64 { return 0 },
+		func(corev1.ResourceName) *float64 { r := 0.5; return &r },
+		func(corev1.ResourceName) *float64 { return nil }, nil,
+		func() int64 { return 0 }, func() int64 { return 0 },
 		skip, func(*corev1.Pod) (bool, error) { return true, nil })
 	met, err := p.ThresholdMet(context.TODO(), nil)
 	if err != nil {

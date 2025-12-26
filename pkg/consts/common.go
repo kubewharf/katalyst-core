@@ -41,12 +41,16 @@ const (
 	EventReasonEvictExceededGracePeriod = "EvictExceededGracePeriod"
 	EventReasonEvictSucceeded           = "EvictSucceeded"
 
+	EventReasonNotifyFailed  = "NotifyFailed"
+	EventReasonNotifySuccess = "NotifySuccess"
+
 	EventReasonContainerStopped = "ContainerStopped"
 )
 
 // const variable for pod eviction action identifier in event.
 const (
 	EventActionEvicting          = "Evicting"
+	EventActionNotifying         = "Notifying"
 	EventActionContainerStopping = "ContainerStopping"
 )
 

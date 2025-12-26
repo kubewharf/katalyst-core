@@ -22,7 +22,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 )
 
 func TestFilterPodAnnotations(t *testing.T) {
@@ -328,4 +331,62 @@ func TestPodIsPending(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGetPodRequestResources(t *testing.T) {
+	t.Parallel()
+
+	pods := []*v1.Pod{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "test-pod-1",
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelReclaimedCores,
+					consts.PodAnnotationSoftEvictNotificationKey: "hostpath",
+				},
+			},
+			Spec: v1.PodSpec{
+				Containers: []v1.Container{
+					{
+						Name: "test-container-1",
+						Resources: v1.ResourceRequirements{
+							Requests: v1.ResourceList{
+								consts.ReclaimedResourceMilliCPU: resource.MustParse("100"),
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "test-pod-2",
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelReclaimedCores,
+					consts.PodAnnotationSoftEvictNotificationKey: "hostpath",
+				},
+			},
+			Spec: v1.PodSpec{
+				Containers: []v1.Container{
+					{
+						Name: "test-container-2",
+						Resources: v1.ResourceRequirements{
+							Requests: v1.ResourceList{
+								consts.ReclaimedResourceMilliCPU: resource.MustParse("50"),
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "test-pod-2",
+			},
+		},
+	}
+
+	res := GetPodRequestResources(pods[0], consts.ReclaimedResourceMilliCPU)
+	assert.NotEqual(t, res, (*resource.Quantity)(nil))
+	assert.Equal(t, res.Value(), int64(100))
 }

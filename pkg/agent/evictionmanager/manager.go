@@ -37,6 +37,7 @@ import (
 	clocks "k8s.io/utils/clock"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/registration"
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	endpointpkg "github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/endpoint"
@@ -46,6 +47,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/plugin/resource"
 	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/plugin/rootfs"
 	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/podkiller"
+	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/podnotifier"
 	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/record"
 	"github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/rule"
 	"github.com/kubewharf/katalyst-core/pkg/client"
@@ -109,7 +111,8 @@ type EvictionManger struct {
 	// easy to test the code.
 	clock clocks.WithTickerAndDelayedExecution
 
-	podKiller podkiller.PodKiller
+	podNotifier podnotifier.PodNotifier
+	podKiller   podkiller.PodKiller
 
 	killQueue    rule.EvictionQueue
 	killStrategy rule.EvictionStrategy
@@ -236,6 +239,12 @@ func NewEvictionManager(genericClient *client.GenericClientSet, recorder events.
 
 	podKiller := podkiller.NewAsynchronizedPodKiller(killer, metaServer.PodFetcher, genericClient.KubeClient)
 
+	notifier, err := podnotifier.NewHostPathPodNotifier(conf, genericClient.KubeClient, metaServer, recorder, emitter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create pod notifier: %v", err)
+	}
+	podNotifier := podnotifier.NewSynchronizedPodNotifier(notifier)
+
 	cnrTaintReporter, err := control.NewGenericReporterPlugin(cnrTaintReporterPluginName, conf, emitter)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize cnr taint reporter plugin: %v", err)
@@ -264,6 +273,7 @@ func NewEvictionManager(genericClient *client.GenericClientSet, recorder events.
 		metaGetter:                metaServer,
 		emitter:                   emitter,
 		podKiller:                 podKiller,
+		podNotifier:               podNotifier,
 		cnrTaintReporter:          cnrTaintReporter,
 		endpoints:                 make(map[string]endpointpkg.Endpoint),
 		conf:                      conf,
@@ -317,6 +327,7 @@ func (m *EvictionManger) Run(ctx context.Context) {
 	general.RegisterHeartbeatCheck(reportTaintHealthCheckName, reportTaintToleration,
 		general.HealthzCheckStateNotReady, reportTaintToleration)
 	m.podKiller.Start(ctx)
+	m.podNotifier.Start(ctx)
 	for _, endpoint := range m.endpoints {
 		endpoint.Start()
 	}
@@ -360,6 +371,11 @@ func (m *EvictionManger) sync(ctx context.Context) {
 	}
 
 	errList := make([]error, 0)
+	notifyErr := m.doNotify(collector.getSoftEvictPods())
+	if notifyErr != nil {
+		errList = append(errList, notifyErr)
+	}
+
 	evictErr := m.doEvict(collector.getSoftEvictPods(), collector.getForceEvictPods())
 	if evictErr != nil {
 		errList = append(errList, evictErr)
@@ -430,8 +446,8 @@ func (m *EvictionManger) collectEvictionResult(ctx context.Context, pods []*v1.P
 	records := m.getEvictionRecords(ctx, collector.currentCandidatePods)
 
 	for pluginName, threshold := range thresholdsMet {
-		if threshold.MetType != pluginapi.ThresholdMetType_HARD_MET {
-			general.Infof(" the type: %s of met threshold from plugin: %s isn't  %s", threshold.MetType.String(), pluginName, pluginapi.ThresholdMetType_HARD_MET.String())
+		if threshold.MetType == pluginapi.ThresholdMetType_NOT_MET {
+			general.Infof("resp from plugin: %s not met threshold", pluginName)
 			continue
 		}
 
@@ -453,13 +469,20 @@ func (m *EvictionManger) collectEvictionResult(ctx context.Context, pods []*v1.P
 				}
 			}
 		}
+
+		topN := uint64(0)
+		forceEvict := false
+		if threshold.MetType == pluginapi.ThresholdMetType_HARD_MET {
+			topN = 1
+			forceEvict = true
+		}
+
 		resp, err := m.endpoints[pluginName].GetTopEvictionPods(context.Background(), &pluginapi.GetTopEvictionPodsRequest{
 			ActivePods:               activePods,
-			TopN:                     1,
+			TopN:                     topN,
 			EvictionScope:            threshold.EvictionScope,
 			CandidateEvictionRecords: candidateEvictionRecords,
 		})
-
 		m.endpointLock.RUnlock()
 		if err != nil {
 			general.Errorf(" calling GetTopEvictionPods of plugin: %s failed with error: %v", pluginName, err)
@@ -473,10 +496,36 @@ func (m *EvictionManger) collectEvictionResult(ctx context.Context, pods []*v1.P
 			continue
 		}
 
-		collector.collectTopEvictionPods(dynamicConfig.DryRun, pluginName, threshold, resp)
+		if forceEvict {
+			collector.collectTopEvictionPods(dynamicConfig.DryRun, pluginName, threshold, resp)
+		} else {
+			collector.collectTopSoftEvictionPods(dynamicConfig.DryRun, pluginName, threshold, resp)
+		}
+
 	}
 
 	return collector, errors.NewAggregate(errList)
+}
+
+func (m *EvictionManger) doNotify(softEvictPods map[string]*rule.RuledEvictPod) error {
+	errList := make([]error, 0)
+
+	for _, pod := range softEvictPods {
+		if pod == nil || pod.EvictPod.Pod == nil {
+			continue
+		}
+
+		if v, ok := pod.EvictPod.Pod.Annotations[apiconsts.PodAnnotationSoftEvictNotificationKey]; !ok || strings.ToLower(v) != "true" {
+			continue
+		}
+
+		err := m.podNotifier.NotifyPod(pod)
+		if err != nil {
+			errList = append(errList, err)
+		}
+	}
+
+	return errors.NewAggregate(errList)
 }
 
 func (m *EvictionManger) doEvict(softEvictPods, forceEvictPods map[string]*rule.RuledEvictPod) error {
@@ -637,6 +686,10 @@ func (m *EvictionManger) getEvictPodFromCandidates(candidateEvictPods map[string
 	for _, rp := range candidateEvictPods {
 		// only killing pods that pass candidate validation
 		if rp != nil && rp.Pod != nil && m.killStrategy.CandidateValidate(rp) {
+			// do NOT select soft evict pod with notification-enable as candidate
+			if v, ok := rp.Pod.Annotations[apiconsts.PodAnnotationSoftEvictNotificationKey]; ok && strings.ToLower(v) == "true" {
+				continue
+			}
 			rpList = append(rpList, rp)
 		}
 	}

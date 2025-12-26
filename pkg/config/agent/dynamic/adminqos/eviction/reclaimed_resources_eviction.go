@@ -23,13 +23,15 @@ import (
 
 type ReclaimedResourcesEvictionConfiguration struct {
 	EvictionThreshold             native.ResourceThreshold
+	SoftEvictionThreshold         native.ResourceThreshold
 	DeletionGracePeriod           int64
 	ThresholdMetToleranceDuration int64
 }
 
 func NewReclaimedResourcesEvictionConfiguration() *ReclaimedResourcesEvictionConfiguration {
 	return &ReclaimedResourcesEvictionConfiguration{
-		EvictionThreshold: native.ResourceThreshold{},
+		EvictionThreshold:     native.ResourceThreshold{},
+		SoftEvictionThreshold: native.ResourceThreshold{},
 	}
 }
 
@@ -39,6 +41,10 @@ func (c *ReclaimedResourcesEvictionConfiguration) ApplyConfiguration(conf *crd.D
 		config := aqc.Spec.Config.EvictionConfig.ReclaimedResourcesEvictionConfig
 		for resourceName, value := range config.EvictionThreshold {
 			c.EvictionThreshold[resourceName] = value
+		}
+
+		for resourceName, value := range config.SoftEvictionThreshold {
+			c.SoftEvictionThreshold[resourceName] = value
 		}
 
 		if config.GracePeriod != nil {

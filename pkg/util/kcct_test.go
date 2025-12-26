@@ -918,6 +918,9 @@ func Test_kccTargetResource_GenerateConfigHash(t *testing.T) {
 									EvictionThreshold: map[v1.ResourceName]float64{
 										"aa": 11,
 									},
+									SoftEvictionThreshold: map[v1.ResourceName]float64{
+										"bb": 22,
+									},
 								},
 								MemoryPressureEvictionConfig: &v1alpha1.MemoryPressureEvictionConfig{
 									NumaFreeBelowWatermarkTimesThreshold:    &nonDefaultNumaFreeBelowWatermarkTimesThreshold,
@@ -931,7 +934,7 @@ func Test_kccTargetResource_GenerateConfigHash(t *testing.T) {
 					},
 				}),
 			},
-			want: "c16ed236c692",
+			want: "07f339db4d03",
 		},
 		{
 			name: "test-2",
