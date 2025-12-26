@@ -107,15 +107,14 @@ func (s *DeviceAffinityStrategy) Bind(
 
 // getAffinityGroupsByPriority forms a map of affinityGroup by priority level.
 func (s *DeviceAffinityStrategy) getAffinityGroupsByPriority(
-	affinityMap map[machine.AffinityPriority][]machine.DeviceIDs, unallocatedDevicesSet sets.String,
+	affinityMap map[int][]machine.DeviceIDs, unallocatedDevicesSet sets.String,
 ) map[int][]affinityGroup {
 	affinityGroupsMap := make(map[int][]affinityGroup)
 	for priority, affinityDevices := range affinityMap {
-		priorityLevel := priority.GetPriorityLevel()
-		if affinityGroupsMap[priorityLevel] == nil {
-			affinityGroupsMap[priorityLevel] = make([]affinityGroup, 0)
+		if affinityGroupsMap[priority] == nil {
+			affinityGroupsMap[priority] = make([]affinityGroup, 0)
 		}
-		affinityGroupsMap[priorityLevel] = append(affinityGroupsMap[priorityLevel],
+		affinityGroupsMap[priority] = append(affinityGroupsMap[priority],
 			s.getAffinityGroups(affinityDevices, unallocatedDevicesSet)...)
 	}
 

@@ -151,21 +151,51 @@ func TestGPUMemPlugin_GetTopologyHints(t *testing.T) {
 		expectedResp           *pluginapi.ResourceHintsResponse
 	}{
 		{
-			name:          "no numa binding returns nil hints",
+			name:          "cannot allocate to the same device name",
 			podUID:        "test-pod",
 			containerName: "test-container",
 			req: &pluginapi.ResourceRequest{
 				PodUid:        "test-pod",
 				ContainerName: "test-container",
 				ResourceRequests: map[string]float64{
-					string(consts.ResourceGPUMemory): 10,
+					string(consts.ResourceGPUMemory): 8,
 					"test-gpu":                       2,
 				},
 			},
-			allocationInfo: &state.AllocationInfo{
-				AllocatedAllocation: state.Allocation{
-					Quantity:  100,
-					NUMANodes: []int{0, 1},
+			allocationResourcesMap: &state.AllocationResourcesMap{
+				"gpu_device": {
+					"gpu-0": {
+						PodEntries: map[string]state.ContainerEntries{
+							"pod1": {
+								"container1": {
+									DeviceName: "test-gpu",
+									AllocatedAllocation: state.Allocation{
+										Quantity: 1,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			deviceTopology: &machine.DeviceTopology{
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-0": {
+						NumaNodes: []int{0},
+						Health:    deviceplugin.Healthy,
+					},
+					"gpu-1": {
+						NumaNodes: []int{1},
+						Health:    deviceplugin.Healthy,
+					},
+					"gpu-2": {
+						NumaNodes: []int{0},
+						Health:    deviceplugin.Healthy,
+					},
+					"gpu-3": {
+						NumaNodes: []int{1},
+						Health:    deviceplugin.Healthy,
+					},
 				},
 			},
 			expectedResp: &pluginapi.ResourceHintsResponse{
@@ -173,7 +203,20 @@ func TestGPUMemPlugin_GetTopologyHints(t *testing.T) {
 				ContainerName: "test-container",
 				ResourceName:  string(consts.ResourceGPUMemory),
 				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
-					string(consts.ResourceGPUMemory): nil,
+					string(consts.ResourceGPUMemory): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{1}, // numa node 1 is preferred as numa node 0 has same device that is already occupied
+								Preferred: true,
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					"katalyst.kubewharf.io/qos_level": "shared_cores",
+				},
+				Annotations: map[string]string{
+					"katalyst.kubewharf.io/qos_level": "shared_cores",
 				},
 			},
 		},
@@ -241,6 +284,7 @@ func TestGPUMemPlugin_GetTopologyHints(t *testing.T) {
 						PodEntries: map[string]state.ContainerEntries{
 							"pod-3": {
 								"container-3": {
+									DeviceName: "another-gpu", // can be in the same gpu if the gpu is of a different device name
 									AllocatedAllocation: state.Allocation{
 										Quantity: 2,
 									},
@@ -825,7 +869,13 @@ func TestGPUMemPlugin_GetTopologyAwareAllocatableResources(t *testing.T) {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
-				assert.Equal(t, tt.expectedResp, resp)
+				assert.Empty(t,
+					cmp.Diff(tt.expectedResp, resp,
+						cmpopts.SortSlices(func(a, b *pluginapi.TopologyAwareQuantity) bool {
+							return a.Name < b.Name
+						}),
+					),
+				)
 			}
 		})
 	}

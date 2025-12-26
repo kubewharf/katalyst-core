@@ -318,8 +318,8 @@ func (as *AllocationState) GetQuantityAllocatedWithFilter(filter func(ai *Alloca
 	}
 
 	quantityAllocated := float64(0)
-	for _, podEntries := range as.PodEntries {
-		for _, allocationInfo := range podEntries {
+	for _, containerEntries := range as.PodEntries {
+		for _, allocationInfo := range containerEntries {
 			if allocationInfo == nil {
 				continue
 			}

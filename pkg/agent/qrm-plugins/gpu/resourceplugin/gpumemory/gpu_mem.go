@@ -84,9 +84,6 @@ func (p *GPUMemPlugin) GetTopologyHints(ctx context.Context, req *pluginapi.Reso
 
 	p.Lock()
 	defer func() {
-		if err := p.State.StoreState(); err != nil {
-			general.ErrorS(err, "store state failed", "podName", req.PodName, "containerName", req.ContainerName)
-		}
 		p.Unlock()
 		if err != nil {
 			metricTags := []metrics.MetricTag{
