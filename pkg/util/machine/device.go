@@ -159,7 +159,7 @@ type DeviceTopology struct {
 }
 
 // GroupDeviceAffinity forms a topology graph such that all devices within a DeviceIDs group have an affinity with each other.
-// They are differentiated by their affinity priority level.
+// They are differentiated by their affinity priority value.
 // E.g. Output:
 //
 //	{
@@ -169,8 +169,8 @@ type DeviceTopology struct {
 //
 // means that gpu-0 and gpu-1 have an affinity with each other, gpu-2 and gpu-3 have an affinity with each other in affinity priority 0.
 // and gpu-0, gpu-1, gpu-2, and gpu-3 have an affinity with each other in affinity priority 1.
-func (t *DeviceTopology) GroupDeviceAffinity() map[AffinityPriority][]DeviceIDs {
-	deviceAffinityGroup := make(map[AffinityPriority][]DeviceIDs)
+func (t *DeviceTopology) GroupDeviceAffinity() map[int][]DeviceIDs {
+	deviceAffinityGroup := make(map[int][]DeviceIDs)
 	for deviceId, deviceInfo := range t.Devices {
 		for priority, affinityDeviceIDs := range deviceInfo.DeviceAffinity {
 			// Add itself in the group if it is not already included
@@ -179,13 +179,15 @@ func (t *DeviceTopology) GroupDeviceAffinity() map[AffinityPriority][]DeviceIDs 
 			}
 			// Sort the strings for easier deduplication
 			sort.Strings(affinityDeviceIDs)
-			if _, ok := deviceAffinityGroup[priority]; !ok {
-				deviceAffinityGroup[priority] = make([]DeviceIDs, 0)
+
+			priorityLevel := priority.GetPriorityLevel()
+			if _, ok := deviceAffinityGroup[priorityLevel]; !ok {
+				deviceAffinityGroup[priorityLevel] = make([]DeviceIDs, 0)
 			}
 
 			// Add the affinityDeviceIDs to the priority level if it is not already there
-			if !containsGroup(deviceAffinityGroup[priority], affinityDeviceIDs) {
-				deviceAffinityGroup[priority] = append(deviceAffinityGroup[priority], affinityDeviceIDs)
+			if !containsGroup(deviceAffinityGroup[priorityLevel], affinityDeviceIDs) {
+				deviceAffinityGroup[priorityLevel] = append(deviceAffinityGroup[priorityLevel], affinityDeviceIDs)
 			}
 
 		}
