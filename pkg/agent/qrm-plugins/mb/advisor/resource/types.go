@@ -22,7 +22,7 @@ type State string
 
 const (
 	ResourceStressful State = "underStress"
-	ResourceAbundant  State = "abundance"
+	ResourceAbundant  State = "abundant"
 	ResourceFit       State = "fit"
 )
 

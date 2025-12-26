@@ -46,15 +46,15 @@ func Test_getSortedGroups(t *testing.T) {
 			},
 		},
 		{
-			name: "with shared sub groups",
+			name: "with share sub groups",
 			args: args{
-				groups: []string{"shared-45", "dedicated", "shared-50", "shared-30"},
+				groups: []string{"share-45", "dedicated", "share-50", "share-30"},
 			},
 			want: []sets.String{
 				sets.NewString("dedicated"),
-				sets.NewString("shared-50"),
-				sets.NewString("shared-45"),
-				sets.NewString("shared-30"),
+				sets.NewString("share-50"),
+				sets.NewString("share-45"),
+				sets.NewString("share-30"),
 			},
 		},
 	}

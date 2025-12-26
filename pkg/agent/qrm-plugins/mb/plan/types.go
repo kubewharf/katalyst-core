@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
 
 const mbUnitAMD = 1_000 / 8 // AMD schemata value in unit of 1/8 GB
@@ -31,6 +33,17 @@ type GroupCCDPlan map[int]int
 // MBPlan is the memory bandwidth allocation plan
 type MBPlan struct {
 	MBGroups map[string]GroupCCDPlan
+}
+
+func (m *MBPlan) GetPlanInSharedSubgroupForm() *MBPlan {
+	mbGroups := make(map[string]GroupCCDPlan)
+	for group, ccdPlan := range m.MBGroups {
+		if strings.HasPrefix(group, consts.ResctrlShareSubgroupPrefix) {
+			group = consts.ResctrlObsoleteSharedSubgroupPrefix + strings.TrimPrefix(group, consts.ResctrlShareSubgroupPrefix)
+		}
+		mbGroups[group] = ccdPlan
+	}
+	return &MBPlan{MBGroups: mbGroups}
 }
 
 func (m *MBPlan) String() string {

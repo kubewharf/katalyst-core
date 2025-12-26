@@ -96,24 +96,24 @@ func TestMalachiteClient_GetMBData(t *testing.T) {
 				MBBody: types.MBGroupData{
 					"root": {
 						{
-							CCDID:          21,
+							ID:             21,
 							MBLocalCounter: 9840527399946250752,
 							MBTotalCounter: 335021042372672,
 						},
 						{
-							CCDID:          22,
+							ID:             22,
 							MBLocalCounter: 121527184609280,
 							MBTotalCounter: 353262632387840,
 						},
 					},
 					"shared-50": {
 						{
-							CCDID:          21,
+							ID:             21,
 							MBLocalCounter: 115340555748096,
 							MBTotalCounter: 335021042372672,
 						},
 						{
-							CCDID:          22,
+							ID:             22,
 							MBLocalCounter: 17538131215616,
 							MBTotalCounter: 171281952255936,
 						},

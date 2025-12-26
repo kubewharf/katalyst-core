@@ -83,14 +83,14 @@ func Test_metaServerMBReader_getMBData(t *testing.T) {
 		MBBody: malachitetypes.MBGroupData{
 			"root": {
 				{
-					CCDID:          1,
+					ID:             1,
 					MBLocalCounter: 11111 * 1024,
 					MBTotalCounter: 11111 * 1024,
 				},
 			},
 			"shared-50": {
 				{
-					CCDID:          2,
+					ID:             2,
 					MBLocalCounter: 11111 * 1024,
 					MBTotalCounter: 11111 * 1024,
 				},
@@ -102,14 +102,14 @@ func Test_metaServerMBReader_getMBData(t *testing.T) {
 		MBBody: malachitetypes.MBGroupData{
 			"root": {
 				{
-					CCDID:          1,
+					ID:             1,
 					MBLocalCounter: 22222 * 1024,
 					MBTotalCounter: 22222 * 1024,
 				},
 			},
 			"shared-50": {
 				{
-					CCDID:          2,
+					ID:             2,
 					MBLocalCounter: 22222 * 1024,
 					MBTotalCounter: 22222 * 1024,
 				},
@@ -204,7 +204,7 @@ func Test_calcRateData(t *testing.T) {
 				oldCounter: malachitetypes.MBGroupData{
 					"dedicated": {
 						{
-							CCDID:          5,
+							ID:             5,
 							MBLocalCounter: 2 * 1024 * 1024,
 							MBTotalCounter: 3 * 1024 * 1024,
 						},
@@ -213,7 +213,7 @@ func Test_calcRateData(t *testing.T) {
 				newCounter: malachitetypes.MBGroupData{
 					"dedicated": {
 						{
-							CCDID:          5,
+							ID:             5,
 							MBLocalCounter: 7 * 1024 * 1024,
 							MBTotalCounter: 10 * 1024 * 1024,
 						},

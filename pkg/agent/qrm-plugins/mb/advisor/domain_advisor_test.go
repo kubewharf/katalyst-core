@@ -74,14 +74,14 @@ func Test_domainAdvisor_getEffectiveCapacity(t *testing.T) {
 				domains: domain.Domains{
 					0: domain.NewDomain(0, nil, 88888),
 				},
-				groupCapacityInMB:     map[string]int{"shared-60": 9_999, "shared-50": 11_111},
+				groupCapacityInMB:     map[string]int{"share-60": 9_999, "share-50": 11_111},
 				defaultDomainCapacity: 12_345,
 			},
 			args: args{
 				domID: 0,
 				incomingStats: monitor.GroupMBStats{
-					"shared-50": monitor.GroupMB{0: {TotalMB: 5_555}},
-					"shared-60": monitor.GroupMB{1: {TotalMB: 2_222}},
+					"share-50": monitor.GroupMB{0: {TotalMB: 5_555}},
+					"share-60": monitor.GroupMB{1: {TotalMB: 2_222}},
 				},
 			},
 			want:    9_999,
@@ -142,10 +142,10 @@ func Test_domainAdvisor_calcIncomingQuotas(t *testing.T) {
 				mon: &monitor.DomainStats{
 					Incomings: map[int]monitor.GroupMBStats{
 						0: {
-							"shared-60": map[int]monitor.MBInfo{
+							"share-60": map[int]monitor.MBInfo{
 								1: {TotalMB: 2_200},
 							},
-							"shared-50": map[int]monitor.MBInfo{
+							"share-50": map[int]monitor.MBInfo{
 								0: {TotalMB: 5_500},
 								1: {TotalMB: 1_100},
 							},
@@ -158,16 +158,16 @@ func Test_domainAdvisor_calcIncomingQuotas(t *testing.T) {
 					CapacityInMB: 10_000,
 					FreeInMB:     10_000 - 2_200 - 6_600,
 					GroupSorted: []sets.String{
-						sets.NewString("shared-60"),
-						sets.NewString("shared-50"),
+						sets.NewString("share-60"),
+						sets.NewString("share-50"),
 					},
 					GroupTotalUses: map[string]int{
-						"shared-60": 2_200,
-						"shared-50": 5_500 + 1_100,
+						"share-60": 2_200,
+						"share-50": 5_500 + 1_100,
 					},
 					GroupLimits: map[string]int{
-						"shared-60": 10_000,
-						"shared-50": 10_000 - 2_200,
+						"share-60": 10_000,
+						"share-50": 10_000 - 2_200,
 					},
 					ResourceState: resource.State("fit"),
 				},
@@ -181,7 +181,7 @@ func Test_domainAdvisor_calcIncomingQuotas(t *testing.T) {
 					0: domain.NewDomain(0, sets.NewInt(0, 1), 88888),
 				},
 				GroupCapacityInMB: map[string]int{
-					"shared-60": 6_000,
+					"share-60": 6_000,
 				}, defaultDomainCapacity: 10_000,
 			},
 			args: args{
@@ -189,10 +189,10 @@ func Test_domainAdvisor_calcIncomingQuotas(t *testing.T) {
 				mon: &monitor.DomainStats{
 					Incomings: map[int]monitor.GroupMBStats{
 						0: {
-							"shared-60": map[int]monitor.MBInfo{
+							"share-60": map[int]monitor.MBInfo{
 								1: {TotalMB: 2_200},
 							},
-							"shared-50": map[int]monitor.MBInfo{
+							"share-50": map[int]monitor.MBInfo{
 								0: {TotalMB: 5_500},
 								1: {TotalMB: 1_100},
 							},
@@ -205,16 +205,16 @@ func Test_domainAdvisor_calcIncomingQuotas(t *testing.T) {
 					CapacityInMB: 6_000,
 					FreeInMB:     0,
 					GroupSorted: []sets.String{
-						sets.NewString("shared-60"),
-						sets.NewString("shared-50"),
+						sets.NewString("share-60"),
+						sets.NewString("share-50"),
 					},
 					GroupTotalUses: map[string]int{
-						"shared-60": 2_200,
-						"shared-50": 5_500 + 1_100,
+						"share-60": 2_200,
+						"share-50": 5_500 + 1_100,
 					},
 					GroupLimits: map[string]int{
-						"shared-60": 6_000,
-						"shared-50": 6_000 - 2_200,
+						"share-60": 6_000,
+						"share-50": 6_000 - 2_200,
 					},
 					ResourceState: resource.State("underStress"),
 				},
@@ -285,14 +285,14 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 				domainsMon: &monitor.DomainStats{
 					Incomings: map[int]monitor.GroupMBStats{
 						0: {
-							"shared-60": map[int]monitor.MBInfo{
+							"share-60": map[int]monitor.MBInfo{
 								0: {
 									LocalMB:  10_000,
 									RemoteMB: 2_000,
 									TotalMB:  12_000,
 								},
 							},
-							"shared-50": map[int]monitor.MBInfo{
+							"share-50": map[int]monitor.MBInfo{
 								1: {
 									LocalMB:  11_000,
 									RemoteMB: 2_500,
@@ -301,14 +301,14 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 							},
 						},
 						1: {
-							"shared-60": map[int]monitor.MBInfo{
+							"share-60": map[int]monitor.MBInfo{
 								2: {
 									LocalMB:  10_000,
 									RemoteMB: 2_000,
 									TotalMB:  12_000,
 								},
 							},
-							"shared-50": map[int]monitor.MBInfo{
+							"share-50": map[int]monitor.MBInfo{
 								3: {
 									LocalMB:  11_000,
 									RemoteMB: 2_500,
@@ -319,14 +319,14 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 					},
 					Outgoings: map[int]monitor.GroupMBStats{
 						0: {
-							"shared-60": map[int]monitor.MBInfo{
+							"share-60": map[int]monitor.MBInfo{
 								0: {
 									LocalMB:  10_000,
 									RemoteMB: 2_000,
 									TotalMB:  12_000,
 								},
 							},
-							"shared-50": map[int]monitor.MBInfo{
+							"share-50": map[int]monitor.MBInfo{
 								1: {
 									LocalMB:  11_000,
 									RemoteMB: 2_500,
@@ -335,14 +335,14 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 							},
 						},
 						1: {
-							"shared-60": map[int]monitor.MBInfo{
+							"share-60": map[int]monitor.MBInfo{
 								2: {
 									LocalMB:  10_000,
 									RemoteMB: 2_000,
 									TotalMB:  12_000,
 								},
 							},
-							"shared-50": map[int]monitor.MBInfo{
+							"share-50": map[int]monitor.MBInfo{
 								3: {
 									LocalMB:  11_000,
 									RemoteMB: 2_500,
@@ -352,7 +352,7 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 						},
 					},
 					OutgoingGroupSumStat: map[string][]monitor.MBInfo{
-						"shared-60": {
+						"share-60": {
 							0: {
 								LocalMB:  10_000,
 								RemoteMB: 2_000,
@@ -364,7 +364,7 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 								TotalMB:  12_000,
 							},
 						},
-						"shared-50": {
+						"share-50": {
 							0: {
 								LocalMB:  11_000,
 								RemoteMB: 2_500,
@@ -380,11 +380,11 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 				},
 			},
 			want: &plan.MBPlan{MBGroups: map[string]plan.GroupCCDPlan{
-				"shared-60": {
+				"share-60": {
 					0: 20_000, // high group enjoy full capacity bounded by ccd-max 20G
 					2: 20_000,
 				},
-				"shared-50": {
+				"share-50": {
 					1: 18_000, // low group has whatever high ones left behind
 					3: 18_000,
 				},
@@ -410,14 +410,14 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 				domainsMon: &monitor.DomainStats{
 					Incomings: map[int]monitor.GroupMBStats{
 						0: {
-							"shared-60": map[int]monitor.MBInfo{
+							"share-60": map[int]monitor.MBInfo{
 								0: {
 									LocalMB:  10_000,
 									RemoteMB: 5_000,
 									TotalMB:  15_000,
 								},
 							},
-							"shared-50": map[int]monitor.MBInfo{
+							"share-50": map[int]monitor.MBInfo{
 								1: {
 									LocalMB:  11_000,
 									RemoteMB: 4_500,
@@ -426,14 +426,14 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 							},
 						},
 						1: {
-							"shared-60": map[int]monitor.MBInfo{
+							"share-60": map[int]monitor.MBInfo{
 								2: {
 									LocalMB:  10_000,
 									RemoteMB: 5_000,
 									TotalMB:  15_000,
 								},
 							},
-							"shared-50": map[int]monitor.MBInfo{
+							"share-50": map[int]monitor.MBInfo{
 								3: {
 									LocalMB:  11_000,
 									RemoteMB: 4_500,
@@ -444,14 +444,14 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 					},
 					Outgoings: map[int]monitor.GroupMBStats{
 						0: {
-							"shared-60": map[int]monitor.MBInfo{
+							"share-60": map[int]monitor.MBInfo{
 								0: {
 									LocalMB:  10_000,
 									RemoteMB: 5_000,
 									TotalMB:  15_000,
 								},
 							},
-							"shared-50": map[int]monitor.MBInfo{
+							"share-50": map[int]monitor.MBInfo{
 								1: {
 									LocalMB:  11_000,
 									RemoteMB: 4_500,
@@ -460,14 +460,14 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 							},
 						},
 						1: {
-							"shared-60": map[int]monitor.MBInfo{
+							"share-60": map[int]monitor.MBInfo{
 								2: {
 									LocalMB:  10_000,
 									RemoteMB: 5_000,
 									TotalMB:  15_000,
 								},
 							},
-							"shared-50": map[int]monitor.MBInfo{
+							"share-50": map[int]monitor.MBInfo{
 								3: {
 									LocalMB:  11_000,
 									RemoteMB: 4_500,
@@ -477,7 +477,7 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 						},
 					},
 					OutgoingGroupSumStat: map[string][]monitor.MBInfo{
-						"shared-60": {
+						"share-60": {
 							0: {
 								LocalMB:  10_000,
 								RemoteMB: 5_000,
@@ -489,7 +489,7 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 								TotalMB:  15_000,
 							},
 						},
-						"shared-50": {
+						"share-50": {
 							0: {
 								LocalMB:  11_000,
 								RemoteMB: 4_000,
@@ -505,8 +505,8 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 				},
 			},
 			want: &plan.MBPlan{MBGroups: map[string]plan.GroupCCDPlan{
-				"shared-60": {0: 20_000, 2: 20_000},
-				"shared-50": {1: 13_500, 3: 13_500},
+				"share-60": {0: 20_000, 2: 20_000},
+				"share-50": {1: 13_500, 3: 13_500},
 			}},
 			wantErr: false,
 		},

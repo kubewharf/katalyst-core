@@ -27,6 +27,10 @@ const (
 	defaultMinCCDMB = 4_000  // 4GB
 	defaultMaxCCDMB = 40_000 // 40GB
 
+	// defaultMaxIncomingRemoteMB is that each mb domain is allowed to have traffic from other domains by default;
+	// 15GB is the heuristic value based on prior experiences
+	defaultMaxIncomingRemoteMB = 15_000 // 15GB
+
 	// defaultMBCapLimitPercent to limit quota no more than the target value as the value set in resctrl FS schemata
 	// would generally result in slight more mb traffic then the set value and not the other way around
 	defaultMBCapLimitPercent = 100
@@ -57,6 +61,7 @@ func NewMBOptions() *MBOptions {
 		MaxCCDMB:                 defaultMaxCCDMB,
 		MBCapLimitPercent:        defaultMBCapLimitPercent,
 		ActiveTrafficMBThreshold: defaultMinActiveMB,
+		MaxIncomingRemoteMB:      defaultMaxIncomingRemoteMB,
 	}
 }
 

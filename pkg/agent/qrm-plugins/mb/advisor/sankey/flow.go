@@ -17,6 +17,8 @@ limitations under the License.
 package sankey
 
 import (
+	"fmt"
+
 	"github.com/pkg/errors"
 	"gonum.org/v1/gonum/mat"
 )
@@ -46,7 +48,7 @@ func fillUpMatrixSlice(outgoingLocalRatio []float64) []float64 {
 	return m
 }
 
-func get_matrix_inv(data []float64, dim int) (mat.Matrix, error) {
+func getMatrixInv(data []float64, dim int) (mat.Matrix, error) {
 	M := mat.NewDense(dim, dim, data)
 	var MInv mat.Dense
 	if err := MInv.Inverse(M); err != nil {
@@ -55,10 +57,10 @@ func get_matrix_inv(data []float64, dim int) (mat.Matrix, error) {
 	return &MInv, nil
 }
 
-func get_coefficient_inv(outgoingLocalRatio []float64) (mat.Matrix, error) {
+func getCoefficientInv(outgoingLocalRatio []float64) (mat.Matrix, error) {
 	dim := len(outgoingLocalRatio)
 	data := fillUpMatrixSlice(outgoingLocalRatio)
-	return get_matrix_inv(data, dim)
+	return getMatrixInv(data, dim)
 }
 
 func to1DMatrix(v []int) mat.Matrix {
@@ -82,10 +84,14 @@ func from1DMatrix(m *mat.Dense) []int {
 type domainFlower struct{}
 
 func (d domainFlower) InvertFlow(localRatio []float64, incoming []int) (outgoing []int, err error) {
+	if len(localRatio) != len(incoming) {
+		return nil, fmt.Errorf("unable to calculate with mismatched dimensions")
+	}
+
 	// given A*M=B, to get A = B*invM
-	invM, err := get_coefficient_inv(localRatio)
+	invM, err := getCoefficientInv(localRatio)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to invert flow")
+		return nil, errors.Wrap(err, "failed to invert coefficient matrix")
 	}
 
 	B := to1DMatrix(incoming)

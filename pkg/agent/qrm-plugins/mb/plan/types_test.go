@@ -89,3 +89,43 @@ func TestMBPlan_String(t *testing.T) {
 		})
 	}
 }
+
+func TestMBPlan_GetPlanInSharedSubgroupForm(t *testing.T) {
+	t.Parallel()
+	type fields struct {
+		MBGroups map[string]GroupCCDPlan
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		want   *MBPlan
+	}{
+		{
+			name: "happy path converting",
+			fields: fields{
+				MBGroups: map[string]GroupCCDPlan{
+					"/":        map[int]int{1: 1_000},
+					"share-30": map[int]int{3: 3_000},
+				},
+			},
+			want: &MBPlan{
+				MBGroups: map[string]GroupCCDPlan{
+					"/":         map[int]int{1: 1_000},
+					"shared-30": map[int]int{3: 3_000},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			m := &MBPlan{
+				MBGroups: tt.fields.MBGroups,
+			}
+			if got := m.GetPlanInSharedSubgroupForm(); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("GetPlanInSharedSubgroupForm() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

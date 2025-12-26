@@ -16,7 +16,11 @@ limitations under the License.
 
 package monitor
 
-import "go.uber.org/atomic"
+import (
+	"strings"
+
+	"go.uber.org/atomic"
+)
 
 var minActiveMB atomic.Int64
 
@@ -31,6 +35,31 @@ func getMinActiveMB() int {
 // GroupMBStats is memory bandwidth statistic info of multiple groups, each of the groups has multiple CCDs,
 // in line with resctrl FS mon-group mon-data structure
 type GroupMBStats map[string]GroupMB
+
+// NormalizeShare change subgroup names shared-xx to share-xx
+// some resctrl FS may present share subgroup in "shared-xx" form; this conversion replaces with the desired form "share-xx"
+func (gms GroupMBStats) NormalizeShareSubgroups() (stats GroupMBStats, isSharedSubgroup bool) {
+	for name := range gms {
+		if strings.HasPrefix(name, "shared-") {
+			isSharedSubgroup = true
+			break
+		}
+	}
+
+	if !isSharedSubgroup {
+		return gms, false
+	}
+
+	stats = make(GroupMBStats)
+	for name, groupMB := range gms {
+		if strings.HasPrefix(name, "shared-") {
+			name = "share-" + strings.TrimPrefix(name, "shared-")
+		}
+		stats[name] = groupMB
+	}
+
+	return stats, true
+}
 
 // GroupMB keeps one group mb info, each group may have multiple ccds
 type GroupMB map[int]MBInfo

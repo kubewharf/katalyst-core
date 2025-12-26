@@ -110,13 +110,13 @@ func convertToPlan(quotas map[string]map[int]int) *plan.MBPlan {
 }
 
 func getGroupOutgoingTotals(group string, outgoings map[string][]monitor.MBInfo) []int {
-	groupOutgoins, ok := outgoings[group]
+	groupOutgoings, ok := outgoings[group]
 	if !ok {
-		groupOutgoins = nil
+		groupOutgoings = nil
 	}
-	results := make([]int, len(groupOutgoins))
-	for i := range groupOutgoins {
-		results[i] = groupOutgoins[i].TotalMB
+	results := make([]int, len(groupOutgoings))
+	for i := range groupOutgoings {
+		results[i] = groupOutgoings[i].TotalMB
 	}
 	return results
 }

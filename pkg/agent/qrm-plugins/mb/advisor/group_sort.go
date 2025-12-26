@@ -26,31 +26,31 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/resource"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 const defaultWeight = 5_000
 
-var resctrlGroupWeights = map[string]int{
-	"/":         10_000, // intrinsic root the highest
-	"dedicated": 9_000,
-	"system":    9_000,
-	"share":     1_050, // identical to shared-50
-	"shared":    1_000,
-	"reclaim":   100,
+var resctrlMajorGroupWeights = map[string]int{
+	consts.ResctrlGroupRoot:      10_000, // intrinsic root the highest
+	consts.ResctrlGroupDedicated: 9_000,
+	consts.ResctrlGroupSystem:    9_000,
+	consts.ResctrlGroupShare:     1_000, // there are 2 forms: "share-xx", and "share" which equals to "share-50"
+	consts.ResctrlGroupReclaim:   100,
 }
 
 func getMajor(name string) string {
-	parts := strings.Split(name, "-")
+	parts := strings.Split(name, consts.ResctrlSubgroupSeparator)
 	return parts[0]
 }
 
-func isSharedGroup(name string) bool {
-	return strings.HasPrefix(name, "shared")
+func hasShareSubgroup(name string) bool {
+	return strings.HasPrefix(name, consts.ResctrlShareSubgroupPrefix)
 }
 
 func extractNumberSplit(s string) (int, bool) {
-	parts := strings.Split(s, "-")
+	parts := strings.Split(s, consts.ResctrlSubgroupSeparator)
 	if len(parts) < 2 {
 		return 0, false
 	}
@@ -59,17 +59,22 @@ func extractNumberSplit(s string) (int, bool) {
 }
 
 func getSubWeight(name string) int {
-	if isSharedGroup(name) {
+	if hasShareSubgroup(name) {
 		if subWeight, ok := extractNumberSplit(name); ok {
 			return subWeight
 		}
+	}
+
+	// "share" is "share-50"
+	if name == consts.ResctrlGroupShare {
+		return 50
 	}
 
 	return 0
 }
 
 func getWeight(name string) int {
-	baseWeight, ok := resctrlGroupWeights[getMajor(name)]
+	baseWeight, ok := resctrlMajorGroupWeights[getMajor(name)]
 	if !ok {
 		return defaultWeight
 	}

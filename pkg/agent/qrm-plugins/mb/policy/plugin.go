@@ -18,6 +18,8 @@ package policy
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"time"
 
 	"golang.org/x/exp/maps"
@@ -49,6 +51,9 @@ const (
 )
 
 type MBPlugin struct {
+	sync.Mutex
+	started bool
+
 	chStop  chan struct{}
 	emitter metrics.MetricEmitter
 
@@ -69,15 +74,27 @@ func (m *MBPlugin) Name() string {
 	return name
 }
 
-func (m *MBPlugin) Start() error {
+func (m *MBPlugin) Start() (err error) {
+	m.Lock()
+	defer func() {
+		if err == nil {
+			m.started = true
+		}
+		m.Unlock()
+	}()
+
+	if m.started {
+		return
+	}
+
 	general.Infof("mbm: plugin started")
 
 	// todo: consider option not to reset resctrl FS on start to avoid hiccup between deployment updates
 	general.Infof("mbm: to reset resctrl FS on start")
 	ccds := sets.NewInt(maps.Keys(m.ccdToDomain)...)
-	if err := m.planAllocator.Reset(context.Background(), ccds); err != nil {
+	if err = m.planAllocator.Reset(context.Background(), ccds); err != nil {
 		general.Errorf("mbm: reset resctrl FS on start failed: %v", err)
-		return nil
+		return err
 	}
 
 	if m.conf.ResetResctrlOnly {
@@ -88,7 +105,7 @@ func (m *MBPlugin) Start() error {
 	m.chStop = make(chan struct{})
 	if !cache.WaitForCacheSync(m.chStop, m.metricFetcher.HasSynced) {
 		general.Errorf("mbm: wait for metric fetcher cache sync failed")
-		return nil
+		return fmt.Errorf("mbm plugin failed to wait for metric fetcher cache sync")
 	}
 
 	// determine mb capacities of qos groups after metric fetch has been fully synced
@@ -124,8 +141,23 @@ func (m *MBPlugin) Start() error {
 }
 
 func (m *MBPlugin) Stop() error {
+	m.Lock()
+	defer func() {
+		m.started = false
+		m.Unlock()
+	}()
+
+	// plugin.Stop may be called before plugin.Start or multiple times,
+	// we should ensure cancel function exist
+	if !m.started {
+		return nil
+	}
+
 	general.Infof("mbm: plugin stopped")
-	close(m.chStop)
+	if m.chStop != nil {
+		close(m.chStop)
+		m.chStop = nil
+	}
 	return nil
 }
 
@@ -148,6 +180,13 @@ func (m *MBPlugin) run() {
 	if mbData == nil {
 		general.Warningf("[mbm] got empty mb data")
 		return
+	}
+
+	// some resctrl FS may present share subgroup in "shared-xx" form
+	// need to normalize to the desired form "share-xx"
+	groupMB, isObsoleteSharedSubgroup := mbData.MBBody.NormalizeShareSubgroups()
+	if isObsoleteSharedSubgroup {
+		mbData.MBBody = groupMB
 	}
 
 	if klog.V(6).Enabled() {
@@ -174,6 +213,11 @@ func (m *MBPlugin) run() {
 	}
 	if klog.V(6).Enabled() {
 		general.Infof("[mbm] mb plan update: %s", mbPlan)
+	}
+
+	// ensure shared-xx subgroups kept as is if it is the obsolete shared-xx form
+	if isObsoleteSharedSubgroup {
+		mbPlan = mbPlan.GetPlanInSharedSubgroupForm()
 	}
 
 	if err := m.planAllocator.Allocate(ctx, mbPlan); err != nil {
