@@ -449,7 +449,7 @@ func TestGetPodCPUBurstPolicy(t *testing.T) {
 				},
 			},
 			qosConfig:  generic.NewQoSConfiguration(),
-			wantPolicy: consts.PodAnnotationCPUEnhancementCPUBurstPolicyNone,
+			wantPolicy: consts.PodAnnotationCPUEnhancementCPUBurstPolicyDefault,
 		},
 		{
 			name: "test GetPodCPUBurstPolicy for dedicated pod with no policy but aqc enabled returns static",

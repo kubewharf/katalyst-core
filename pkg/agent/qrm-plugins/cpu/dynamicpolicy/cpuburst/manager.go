@@ -90,7 +90,7 @@ func (m *managerImpl) UpdateCPUBurst(qosConf *generic.QoSConfiguration, dynamicC
 				errList = append(errList, fmt.Errorf("error setting cpu burst for policy %s for pod %s: %v",
 					consts.PodAnnotationCPUEnhancementCPUBurstPolicyClosed, pod.Name, err))
 			}
-		case consts.PodAnnotationCPUEnhancementCPUBurstPolicyNone:
+		case consts.PodAnnotationCPUEnhancementCPUBurstPolicyDefault:
 			continue
 		case consts.PodAnnotationCPUEnhancementCPUBurstPolicyStatic:
 			// For static policy, calculate the cpu burst value that we need to set.
@@ -119,46 +119,47 @@ func (m *managerImpl) UpdateCPUBurst(qosConf *generic.QoSConfiguration, dynamicC
 func (m *managerImpl) updateCPUBurstByPercent(percent float64, pod *v1.Pod) error {
 	var errList []error
 	podUID := string(pod.GetUID())
+	podName := pod.Name
 
 	for _, container := range pod.Spec.Containers {
 		containerName := container.Name
 		containerID, err := m.metaServer.GetContainerID(podUID, containerName)
 		if err != nil {
-			general.Errorf("get container id failed, pod: %s, container: %s(%s), err: %v", podUID, containerName, containerID, err)
+			general.Errorf("get container id failed, pod: %s, podName: %s, container: %s(%s), err: %v", podUID, podName, containerName, containerID, err)
 			continue
 		}
 
 		if exist, err := common.IsContainerCgroupExist(podUID, containerID); err != nil {
-			general.Errorf("check if container cgroup exists failed, pod: %s, container: %s(%s), err: %v",
-				podUID, containerName, containerID, err)
+			general.Errorf("check if container cgroup exists failed, pod: %s, podName: %s, container: %s(%s), err: %v",
+				podUID, podName, containerName, containerID, err)
 			continue
 		} else if !exist {
-			general.Infof("container cgroup does not exist, pod: %s, container: %s(%s)", podUID, containerName, containerID)
+			general.Infof("container cgroup does not exist, pod: %s, podName: %s, container: %s(%s)", podUID, podName, containerName, containerID)
 			continue
 		}
 
 		containerAbsoluteCgroupPath, err := common.GetContainerAbsCgroupPath(common.CgroupSubsysCPU, podUID, containerID)
 		if err != nil {
-			general.Errorf("get container absolute cgroup path failed, pod: %s, container: %s(%s), err: %v", podUID, containerName, containerID, err)
+			general.Errorf("get container absolute cgroup path failed, pod: %s, podName: %s, container: %s(%s), err: %v", podUID, podName, containerName, containerID, err)
 			errList = append(errList, err)
 			continue
 		}
 
 		cpuStats, err := manager.GetCPUWithAbsolutePath(containerAbsoluteCgroupPath)
 		if err != nil {
-			general.Errorf("get container cpu stats failed, pod: %s, container: %s(%s), err: %v", podUID, containerName, containerID, err)
+			general.Errorf("get container cpu stats failed, pod: %s, podName: %s, container: %s(%s), err: %v", podUID, podName, containerName, containerID, err)
 			errList = append(errList, err)
 			continue
 		}
 
 		cpuBurstValue := util.CalculateCPUBurstFromPercent(percent, cpuStats.CpuQuota)
 		if err = manager.ApplyCPUWithAbsolutePath(containerAbsoluteCgroupPath, &common.CPUData{CpuBurst: cpuBurstValue}); err != nil {
-			general.Errorf("apply container cpu burst failed, pod: %s, container: %s(%s), err: %v", podUID, containerName, containerID, err)
+			general.Errorf("apply container cpu burst failed, pod: %s, podName: %s, container: %s(%s), err: %v", podUID, podName, containerName, containerID, err)
 			errList = append(errList, err)
 			continue
 		}
 
-		general.Infof("apply container cpu burst successfully, pod: %s, container: %s(%s), cpu burst: %d", podUID, containerName, containerID, cpuBurstValue)
+		general.Infof("apply container cpu burst successfully, pod: %s, podName: %s, container: %s(%s), cpu burst: %d", podUID, podName, containerName, containerID, cpuBurstValue)
 	}
 
 	return utilerrors.NewAggregate(errList)

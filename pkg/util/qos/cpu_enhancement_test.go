@@ -58,7 +58,7 @@ func TestGetPodCPUBurstPolicyFromCPUEnhancement(t *testing.T) {
 					},
 				},
 			},
-			want: consts.PodAnnotationCPUEnhancementCPUBurstPolicyNone,
+			want: consts.PodAnnotationCPUEnhancementCPUBurstPolicyDefault,
 		},
 		{
 			name: "dedicated cores pod with no burst policy returns none burst policy",
@@ -69,7 +69,7 @@ func TestGetPodCPUBurstPolicyFromCPUEnhancement(t *testing.T) {
 					},
 				},
 			},
-			want: consts.PodAnnotationCPUEnhancementCPUBurstPolicyNone,
+			want: consts.PodAnnotationCPUEnhancementCPUBurstPolicyDefault,
 		},
 		{
 			name: "shared cores pod with static burst policy",

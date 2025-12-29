@@ -304,8 +304,8 @@ func GetPodCPUBurstPolicy(qosConf *generic.QoSConfiguration, pod *v1.Pod, dynami
 // getOverriddenPodBurstPolicy returns the cpu burst policy for a given pod by checking with dynamic config.
 // Only pods with cpu burst policy none from their annotations will be overridden.
 func getOverriddenPodBurstPolicy(dynamicConfig *dynamic.DynamicAgentConfiguration, originalBurstPolicy string) string {
-	// return original burst policy if it is not none
-	if originalBurstPolicy != consts.PodAnnotationCPUEnhancementCPUBurstPolicyNone {
+	// return original burst policy if it is not default
+	if originalBurstPolicy != consts.PodAnnotationCPUEnhancementCPUBurstPolicyDefault {
 		return originalBurstPolicy
 	}
 
@@ -318,7 +318,7 @@ func getOverriddenPodBurstPolicy(dynamicConfig *dynamic.DynamicAgentConfiguratio
 		}
 	}
 
-	return consts.PodAnnotationCPUEnhancementCPUBurstPolicyNone
+	return consts.PodAnnotationCPUEnhancementCPUBurstPolicyDefault
 }
 
 // GetPodCPUBurstPercent gets the cpu burst percent of a given pod.

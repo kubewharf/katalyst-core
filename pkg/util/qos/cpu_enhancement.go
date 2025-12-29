@@ -70,7 +70,7 @@ func GetPodCPUBurstPolicyFromCPUEnhancement(qosConf *generic.QoSConfiguration, p
 	}
 
 	if !ok {
-		return consts.PodAnnotationCPUEnhancementCPUBurstPolicyNone
+		return consts.PodAnnotationCPUEnhancementCPUBurstPolicyDefault
 	}
 
 	return cpuBurstPolicy
