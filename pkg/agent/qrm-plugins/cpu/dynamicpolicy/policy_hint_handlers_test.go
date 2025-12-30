@@ -615,12 +615,12 @@ func TestCalculateHintsForNUMABindingSharedCores1(t *testing.T) {
 					CPUTopology: cpuTopology,
 				},
 				sharedCoresNUMABindingResultAnnotationKey: "katalyst-test/nume-bind-result",
-				sharedCoresNUMABindingHintOptimizer:       &hintoptimizer.DummyHintOptimizer{},
+				sharedCoresNUMAAffinityHintOptimizer:      &hintoptimizer.DummyHintOptimizer{},
 				dynamicConfig:                             dynamic.NewDynamicAgentConfiguration(),
 			}
 			p.dynamicConfig.GetDynamicConfiguration().PreferUseExistNUMAHintResult = tt.preferUseExistNUMAHintResult
 
-			result, err := p.calculateHintsForNUMABindingSharedCores(tt.request, podEntries, machineState, tt.req)
+			result, err := p.calculateHintsForNUMAAffinitySharedCores(tt.request, podEntries, machineState, tt.req)
 
 			if tt.expectedError {
 				assert.Error(t, err)

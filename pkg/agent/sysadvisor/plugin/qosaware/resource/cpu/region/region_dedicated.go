@@ -61,18 +61,18 @@ func NewQoSRegionDedicated(ci *types.ContainerInfo, conf *config.Configuration, 
 		regionName = string(configapi.QoSRegionTypeDedicated) + types.RegionNameSeparator + string(uuid.NewUUID())
 	}
 
-	isNumaBinding := numaID != commonstate.FakedNUMAID
+	isNumaAffinity := numaID != commonstate.FakedNUMAID
 	r := &QoSRegionDedicated{
 		QoSRegionBase: NewQoSRegionBase(regionName, ci.OwnerPoolName, configapi.QoSRegionTypeDedicated, conf, extraConf,
-			isNumaBinding, ci.IsDedicatedNumaExclusive(), metaReader, metaServer, emitter),
+			isNumaAffinity, ci.IsDedicatedNumaExclusive(), metaReader, metaServer, emitter),
 	}
 
-	if isNumaBinding {
-		r.bindingNumas = machine.NewCPUSet(numaID)
+	if isNumaAffinity {
+		r.cpuAffinityNUMAs = machine.NewCPUSet(numaID)
 	} else {
-		r.bindingNumas = machine.NewCPUSet()
+		r.cpuAffinityNUMAs = machine.NewCPUSet()
 		for numaID := range ci.TopologyAwareAssignments {
-			r.bindingNumas.Add(numaID)
+			r.cpuAffinityNUMAs.Add(numaID)
 		}
 	}
 
@@ -147,7 +147,8 @@ func (r *QoSRegionDedicated) updateProvisionPolicy() {
 
 		// set essentials for policy and regulator
 		internal.policy.SetPodSet(r.podSet)
-		internal.policy.SetBindingNumas(r.bindingNumas, r.isNumaBinding)
+		internal.policy.SetCPUAffinityNUMAs(r.cpuAffinityNUMAs, r.isNUMAAffinity)
+
 		internal.policy.SetEssentials(r.ResourceEssentials, r.ControlEssentials)
 
 		// run an episode of policy update
@@ -207,7 +208,7 @@ func (r *QoSRegionDedicated) getEffectiveControlKnobs() types.ControlKnob {
 	if r.isNumaExclusive {
 		reclaimedCPUSize := 0
 		if reclaimedInfo, ok := r.metaReader.GetPoolInfo(commonstate.PoolNameReclaim); ok {
-			for _, numaID := range r.bindingNumas.ToSliceInt() {
+			for _, numaID := range r.cpuAffinityNUMAs.ToSliceInt() {
 				reclaimedCPUSize += reclaimedInfo.TopologyAwareAssignments[numaID].Size()
 			}
 		}
@@ -221,7 +222,7 @@ func (r *QoSRegionDedicated) getEffectiveControlKnobs() types.ControlKnob {
 			}
 
 			if !apiequality.Semantic.DeepEqual(regionInfo.Pods, r.podSet) ||
-				!r.bindingNumas.Equals(regionInfo.BindingNumas) {
+				!r.cpuAffinityNUMAs.Equals(regionInfo.BindingNumas) {
 				return true
 			}
 
@@ -276,7 +277,7 @@ func (r *QoSRegionDedicated) getPodCPICurrent() (float64, error) {
 func (r *QoSRegionDedicated) getCPUUsageRatio() (float64, error) {
 	usage := 0.0
 	nr := 0
-	for _, numaID := range r.bindingNumas.ToSliceInt() {
+	for _, numaID := range r.cpuAffinityNUMAs.ToSliceInt() {
 		data, err := r.metaReader.GetNumaMetric(numaID, consts.MetricCPUUsageNuma)
 		if err != nil {
 			return 0, err

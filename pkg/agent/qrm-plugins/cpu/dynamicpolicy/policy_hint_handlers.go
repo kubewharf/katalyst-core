@@ -49,7 +49,7 @@ func (p *DynamicPolicy) sharedCoresHintHandler(ctx context.Context,
 		return p.sharedCoresWithNUMAAffinityHintHandler(ctx, req)
 	}
 
-	// TODO: support sidecar follow main container for non-binding share cores in future
+	// TODO: support sidecar follow main container for non-affinity share cores in future
 	if req.ContainerType == pluginapi.ContainerType_MAIN {
 		ok, err := p.checkNonCPUAffinityShareCoresCpuResource(req)
 		if err != nil {
@@ -59,11 +59,12 @@ func (p *DynamicPolicy) sharedCoresHintHandler(ctx context.Context,
 		}
 
 		if !ok {
-			_ = p.emitter.StoreInt64(util.MetricNameNonNumaBindingNoEnoughResourceFailed, 1, metrics.MetricTypeNameCount, metrics.ConvertMapToTags(map[string]string{
+			_ = p.emitter.StoreInt64(util.MetricNameNoEnoughNUMAResourceFailed, 1, metrics.MetricTypeNameCount, metrics.ConvertMapToTags(map[string]string{
 				"resource":      v1.ResourceCPU.String(),
 				"podNamespace":  req.PodNamespace,
 				"podName":       req.PodName,
 				"containerName": req.ContainerName,
+				"qosLevel":      req.Annotations[apiconsts.PodAnnotationQoSLevelKey],
 			})...)
 			return nil, cpuutil.ErrNoAvailableCPUHints
 		}
@@ -86,9 +87,9 @@ func (p *DynamicPolicy) reclaimedCoresHintHandler(ctx context.Context,
 		return nil, fmt.Errorf("not support inplace update resize for reclaimed cores")
 	}
 
-	if qosutil.AnnotationsIndicateNUMABinding(req.Annotations) &&
+	if (qosutil.AnnotationsIndicateNUMABinding(req.GetAnnotations()) || qosutil.AnnotationsIndicateNUMAAffinity(req.GetAnnotations())) &&
 		p.enableReclaimNUMABinding {
-		return p.reclaimedCoresWithNUMABindingHintHandler(ctx, req)
+		return p.reclaimedCoresWithNUMAAffinityHintHandler(ctx, req)
 	}
 
 	return util.PackResourceHintsResponse(req, string(v1.ResourceCPU),
@@ -110,12 +111,12 @@ func (p *DynamicPolicy) dedicatedCoresHintHandler(ctx context.Context,
 
 	if qosutil.AnnotationsIndicateNUMAAffinity(req.Annotations) ||
 		qosutil.AnnotationsIndicateNUMABinding(req.Annotations) {
-		return p.dedicatedCoresWithNUMABindingHintHandler(ctx, req)
+		return p.dedicatedCoresWithNUMAAffinityHintHandler(ctx, req)
 	}
-	return p.dedicatedCoresWithoutNUMABindingHintHandler(ctx, req)
+	return p.dedicatedCoresWithoutNUMAAffinityHintHandler(ctx, req)
 }
 
-func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Context,
+func (p *DynamicPolicy) dedicatedCoresWithNUMAAffinityHintHandler(_ context.Context,
 	req *pluginapi.ResourceRequest,
 ) (*pluginapi.ResourceHintsResponse, error) {
 	// currently, we set cpuset of sidecar to the cpuset of its main container,
@@ -183,11 +184,11 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Conte
 	return util.PackResourceHintsResponse(req, string(v1.ResourceCPU), hints)
 }
 
-func (p *DynamicPolicy) dedicatedCoresWithoutNUMABindingHintHandler(_ context.Context,
+func (p *DynamicPolicy) dedicatedCoresWithoutNUMAAffinityHintHandler(_ context.Context,
 	_ *pluginapi.ResourceRequest,
 ) (*pluginapi.ResourceHintsResponse, error) {
-	// todo: support dedicated_cores without NUMA binding
-	return nil, fmt.Errorf("not support dedicated_cores without NUMA binding")
+	// todo: support dedicated_cores without NUMA affinity
+	return nil, fmt.Errorf("not support dedicated_cores without NUMA affinity")
 }
 
 // calculateHints is a helper function to calculate the topology hints
@@ -244,7 +245,7 @@ func (p *DynamicPolicy) calculateHints(
 		} else if (numaAffinity || numaBinding) && !availableNUMAs.Contains(nodeID) {
 			// if numaAffinity or numaBinding is true, we should not filter out the numa node
 			numaToAvailableCPUCount[nodeID] = 0
-			general.Warningf("numa_binding container skip NUMA: %d, allocated: %d",
+			general.Warningf("numa_affinity container skip NUMA: %d, allocated: %d",
 				nodeID, machineState[nodeID].AllocatedCPUSet.Size())
 		} else {
 			numaToAvailableCPUCount[nodeID] = machineState[nodeID].GetAvailableCPUSet(p.reservedCPUs).Size()
@@ -323,7 +324,7 @@ func (p *DynamicPolicy) calculateHints(
 		Hints: availableNumaHints,
 	}
 
-	err = p.dedicatedCoresNUMABindingHintOptimizer.OptimizeHints(
+	err = p.dedicatedCoresNUMAAffinityHintOptimizer.OptimizeHints(
 		hintoptimizer.Request{
 			ResourceRequest: req,
 			CPURequest:      request,
@@ -337,7 +338,7 @@ func (p *DynamicPolicy) calculateHints(
 	}, nil
 }
 
-func (p *DynamicPolicy) reclaimedCoresWithNUMABindingHintHandler(_ context.Context,
+func (p *DynamicPolicy) reclaimedCoresWithNUMAAffinityHintHandler(_ context.Context,
 	req *pluginapi.ResourceRequest,
 ) (*pluginapi.ResourceHintsResponse, error) {
 	// currently, we set cpuset of sidecar to the cpuset of its main container,
@@ -376,9 +377,9 @@ func (p *DynamicPolicy) reclaimedCoresWithNUMABindingHintHandler(_ context.Conte
 
 	if hints == nil {
 		var calculateErr error
-		hints, calculateErr = p.calculateHintsForNUMABindingReclaimedCores(request, podEntries, machineState, numaHeadroomState)
+		hints, calculateErr = p.calculateHintsForNUMAAffinityReclaimedCores(request, podEntries, machineState, numaHeadroomState)
 		if calculateErr != nil {
-			return nil, fmt.Errorf("calculateHintsForNUMABindingReclaimedCores failed with error: %v", calculateErr)
+			return nil, fmt.Errorf("calculateHintsForNUMAAffinityReclaimedCores failed with error: %v", calculateErr)
 		}
 	}
 
@@ -388,25 +389,25 @@ func (p *DynamicPolicy) reclaimedCoresWithNUMABindingHintHandler(_ context.Conte
 	return util.PackResourceHintsResponse(req, string(v1.ResourceCPU), hints)
 }
 
-func (p *DynamicPolicy) calculateHintsForNUMABindingReclaimedCores(reqFloat float64, podEntries state.PodEntries,
+func (p *DynamicPolicy) calculateHintsForNUMAAffinityReclaimedCores(reqFloat float64, podEntries state.PodEntries,
 	machineState state.NUMANodeMap,
 	numaHeadroomState map[int]float64,
 ) (map[string]*pluginapi.ListOfTopologyHints, error) {
 	// Determine the set of NUMA nodes currently hosting non-RNB pods
-	nonActualBindingNUMAs := machineState.GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMABinding))
+	nonActualAffinityNUMAs := machineState.GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMAAffinity))
 
 	// Calculate the total requested resources for non-RNB reclaimed pods
-	nonActualBindingReclaimedRequestedQuantity := state.GetRequestedQuantityFromPodEntries(podEntries,
-		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedNonActualNUMABinding),
+	nonActualAffinityReclaimedRequestedQuantity := state.GetRequestedQuantityFromPodEntries(podEntries,
+		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedNonActualNUMAAffinity),
 		p.getContainerRequestedCores)
 
 	// Compute the total available headroom for non-RNB NUMA nodes
-	nonActualBindingReclaimedNUMAHeadroom := state.GetReclaimedNUMAHeadroom(numaHeadroomState, nonActualBindingNUMAs)
+	nonActualAffinityReclaimedNUMAHeadroom := state.GetReclaimedNUMAHeadroom(numaHeadroomState, nonActualAffinityNUMAs)
 
-	// Identify candidate NUMA nodes for RNB (Reclaimed NUMA Binding) cores
+	// Identify candidate NUMA nodes for RNB (Reclaimed NUMA Affinity) cores
 	// This includes both RNB NUMA nodes and NUMA nodes that can shrink from the non-RNB set
-	candidateNUMANodes := p.filterNUMANodesByNonBindingReclaimedRequestedQuantity(nonActualBindingReclaimedRequestedQuantity,
-		nonActualBindingReclaimedNUMAHeadroom, nonActualBindingNUMAs, machineState, numaHeadroomState)
+	candidateNUMANodes := p.filterNUMANodesByNonAffinityReclaimedRequestedQuantity(nonActualAffinityReclaimedRequestedQuantity,
+		nonActualAffinityReclaimedNUMAHeadroom, nonActualAffinityNUMAs, machineState, numaHeadroomState)
 
 	candidateLeft := p.calculateNUMANodesLeft(candidateNUMANodes, machineState, numaHeadroomState, reqFloat)
 
@@ -415,14 +416,14 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingReclaimedCores(reqFloat floa
 	p.populateBestEffortHintsByAvailableNUMANodes(hints, candidateLeft)
 
 	// If no valid hints are generated and this is not a single-NUMA scenario, return an error
-	if len(hints.Hints) == 0 && !(p.metaServer.NumNUMANodes == 1 && nonActualBindingNUMAs.Size() > 0) {
+	if len(hints.Hints) == 0 && !(p.metaServer.NumNUMANodes == 1 && nonActualAffinityNUMAs.Size() > 0) {
 		return nil, cpuutil.ErrNoAvailableCPUHints
 	}
 
 	general.InfoS("calculate numa hints for reclaimed cores success",
-		"nonActualBindingNUMAs", nonActualBindingNUMAs.String(),
-		"nonActualBindingReclaimedRequestedQuantity", nonActualBindingReclaimedRequestedQuantity,
-		"nonActualBindingReclaimedNUMAHeadroom", nonActualBindingReclaimedNUMAHeadroom,
+		"nonActualAffinityNUMAs", nonActualAffinityNUMAs.String(),
+		"nonActualAffinityReclaimedRequestedQuantity", nonActualAffinityReclaimedRequestedQuantity,
+		"nonActualAffinityReclaimedNUMAHeadroom", nonActualAffinityReclaimedNUMAHeadroom,
 		"numaHeadroomState", numaHeadroomState,
 		"candidateNUMANodes", candidateNUMANodes,
 		"candidateLeft", candidateLeft)
@@ -492,7 +493,7 @@ func (p *DynamicPolicy) sharedCoresWithNUMAAffinityHintHandler(_ context.Context
 					general.Infof("pod: %s/%s, container: %s request inplace update resize and no enough resource in current NUMA, try to migrate it to new NUMA",
 						req.PodNamespace, req.PodName, req.ContainerName)
 					var calculateErr error
-					hints, calculateErr = p.calculateHintsForCPUAffinitySharedCores(request, podEntries, machineState, req)
+					hints, calculateErr = p.calculateHintsForNUMAAffinitySharedCores(request, podEntries, machineState, req)
 					if calculateErr != nil {
 						general.Errorf("pod: %s/%s, container: %s request inplace update resize and no enough resource in current NUMA, failed to migrate it to new NUMA",
 							req.PodNamespace, req.PodName, req.ContainerName)
@@ -511,7 +512,7 @@ func (p *DynamicPolicy) sharedCoresWithNUMAAffinityHintHandler(_ context.Context
 		}
 	} else {
 		var calculateErr error
-		hints, calculateErr = p.calculateHintsForCPUAffinitySharedCores(request, podEntries, machineState, req)
+		hints, calculateErr = p.calculateHintsForNUMAAffinitySharedCores(request, podEntries, machineState, req)
 		if calculateErr != nil {
 			return nil, fmt.Errorf("calculateHintsForNUMAAffinitySharedCores failed with error: %v", calculateErr)
 		}
@@ -593,7 +594,7 @@ func (p *DynamicPolicy) filterNUMANodesByCPUAffinity(
 	return machine.NewCPUSet(filteredNUMANodes...)
 }
 
-func (p *DynamicPolicy) calculateHintsForCPUAffinitySharedCores(request float64, podEntries state.PodEntries,
+func (p *DynamicPolicy) calculateHintsForNUMAAffinitySharedCores(request float64, podEntries state.PodEntries,
 	machineState state.NUMANodeMap,
 	req *pluginapi.ResourceRequest,
 ) (map[string]*pluginapi.ListOfTopologyHints, error) {
@@ -622,8 +623,8 @@ func (p *DynamicPolicy) calculateHintsForCPUAffinitySharedCores(request float64,
 	// populate hints by available numa nodes
 	cpuutil.PopulateHintsByAvailableNUMANodes(numaNodes, hints, true)
 
-	// optimize hints by shared_cores numa_binding hint optimizer
-	err = p.sharedCoresNUMABindingHintOptimizer.OptimizeHints(
+	// optimize hints by shared_cores numa_affinity hint optimizer
+	err = p.sharedCoresNUMAAffinityHintOptimizer.OptimizeHints(
 		hintoptimizer.Request{
 			ResourceRequest: req,
 			CPURequest:      request,
@@ -680,10 +681,10 @@ func (p *DynamicPolicy) populateHintsByAlreadyExistedNUMAAffinityResult(req *plu
 	}
 
 	if index == -1 {
-		general.Warningf("failed to find already existed numa binding result %s from hints %v for pod: %s/%s, container: %s",
+		general.Warningf("failed to find already existed numa affinity result %s from hints %v for pod: %s/%s, container: %s",
 			result, hints.Hints, req.PodNamespace, req.PodName, req.ContainerName)
 	} else {
-		general.Infof("found already existed numa binding result %s from hints %v for pod: %s/%s, container: %s",
+		general.Infof("found already existed numa affinity result %s from hints %v for pod: %s/%s, container: %s",
 			result, hints.Hints, req.PodNamespace, req.PodName, req.ContainerName)
 		for i, hint := range hints.Hints {
 			if i == index {
@@ -711,9 +712,9 @@ func (p *DynamicPolicy) getSharedCoresNUMAAffinityResultFromAnnotation(req *plug
 	return numaSet, nil
 }
 
-func (p *DynamicPolicy) filterNUMANodesByNonBindingReclaimedRequestedQuantity(nonBindingReclaimedRequestedQuantity,
-	nonBindingNUMAsCPUQuantity float64,
-	nonBindingNUMAs machine.CPUSet,
+func (p *DynamicPolicy) filterNUMANodesByNonAffinityReclaimedRequestedQuantity(nonAffinityReclaimedRequestedQuantity,
+	nonAffinityNUMAsCPUQuantity float64,
+	nonAffinityNUMAs machine.CPUSet,
 	machineState state.NUMANodeMap,
 	numaHeadroomState map[int]float64,
 ) []int {
@@ -724,23 +725,23 @@ func (p *DynamicPolicy) filterNUMANodesByNonBindingReclaimedRequestedQuantity(no
 		}
 	}
 
-	// Sort candidate NUMA nodes based on the other qos numa binding pods and their headroom
+	// Sort candidate NUMA nodes based on the other qos numa affinity pods and their headroom
 	p.sortCandidateNUMANodesForReclaimed(candidateNUMANodes, machineState, numaHeadroomState)
 
-	nonBindingNUMAs = nonBindingNUMAs.Clone()
+	nonAffinityNUMAs = nonAffinityNUMAs.Clone()
 	filteredNUMANodes := make([]int, 0, len(candidateNUMANodes))
 	for _, nodeID := range candidateNUMANodes {
-		if nonBindingNUMAs.Contains(nodeID) {
+		if nonAffinityNUMAs.Contains(nodeID) {
 			allocatableCPUQuantity := numaHeadroomState[nodeID]
-			// take this non-binding NUMA for candidate reclaimed_cores with numa_binding,
-			// won't cause non-actual numa binding reclaimed_cores in short supply
-			if cpuutil.CPUIsSufficient(nonBindingReclaimedRequestedQuantity, nonBindingNUMAsCPUQuantity-allocatableCPUQuantity) || nonBindingNUMAs.Size() > 1 {
+			// take this non-affinity NUMA for candidate reclaimed_cores with numa_affinity,
+			// won't cause non-actual numa affinity reclaimed_cores in short supply
+			if cpuutil.CPUIsSufficient(nonAffinityReclaimedRequestedQuantity, nonAffinityNUMAsCPUQuantity-allocatableCPUQuantity) || nonAffinityNUMAs.Size() > 1 {
 				filteredNUMANodes = append(filteredNUMANodes, nodeID)
-				nonBindingNUMAs = nonBindingNUMAs.Difference(machine.NewCPUSet(nodeID))
+				nonAffinityNUMAs = nonAffinityNUMAs.Difference(machine.NewCPUSet(nodeID))
 			} else {
 				general.Infof("filter out NUMA: %d since taking it will cause normal reclaimed_cores in short supply;"+
-					" nonBindingNUMAsCPUQuantity: %.3f, targetNUMAAllocatableCPUQuantity: %.3f, nonBindingReclaimedRequestedQuantity: %.3f",
-					nodeID, nonBindingNUMAsCPUQuantity, allocatableCPUQuantity, nonBindingReclaimedRequestedQuantity)
+					" nonAffinityNUMAsCPUQuantity: %.3f, targetNUMAAllocatableCPUQuantity: %.3f, nonAffinityReclaimedRequestedQuantity: %.3f",
+					nodeID, nonAffinityNUMAsCPUQuantity, allocatableCPUQuantity, nonAffinityReclaimedRequestedQuantity)
 			}
 		} else {
 			filteredNUMANodes = append(filteredNUMANodes, nodeID)
@@ -756,15 +757,15 @@ func (p *DynamicPolicy) sortCandidateNUMANodesForReclaimed(numaNodes []int,
 	numaHeadroomState map[int]float64,
 ) {
 	// sort candidate NUMAs by the following rules:
-	// 1. NUMAs with numa binding shared or dedicated pods binding to it will be placed ahead of NUMAs without numa binding shared or dedicated pods binding to it.
+	// 1. NUMAs with numa affinity shared or dedicated pods affinity to it will be placed ahead of NUMAs without numa affinity shared or dedicated pods affinity to it.
 	// 2. NUMAs with higher headroom will be placed ahead of NUMAs with lower headroom.
 	// todo: cpu affinity pod not bind numa, do we need to filter cpu affinity numas
-	nonSharedOrDedicatedNUMABindingNUMAs := machineState.GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedOrDedicatedNUMABinding))
+	nonSharedOrDedicatedNUMAAffinityNUMAs := machineState.GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedOrDedicatedNUMAAffinity))
 	sort.SliceStable(numaNodes, func(i, j int) bool {
-		hasNUMABindingPodI := !nonSharedOrDedicatedNUMABindingNUMAs.Contains(numaNodes[i])
-		hasNUMABindingPodJ := !nonSharedOrDedicatedNUMABindingNUMAs.Contains(numaNodes[j])
-		if hasNUMABindingPodI != hasNUMABindingPodJ {
-			return hasNUMABindingPodI && !hasNUMABindingPodJ
+		hasNUMAAffinityPodI := !nonSharedOrDedicatedNUMAAffinityNUMAs.Contains(numaNodes[i])
+		hasNUMAAffinityPodJ := !nonSharedOrDedicatedNUMAAffinityNUMAs.Contains(numaNodes[j])
+		if hasNUMAAffinityPodI != hasNUMAAffinityPodJ {
+			return hasNUMAAffinityPodI && !hasNUMAAffinityPodJ
 		} else {
 			return numaHeadroomState[numaNodes[i]] > numaHeadroomState[numaNodes[j]]
 		}
@@ -778,7 +779,7 @@ func (p *DynamicPolicy) calculateNUMANodesLeft(numaNodes []int,
 	numaNodesCPULeft := make(map[int]float64, len(numaNodes))
 	for _, nodeID := range numaNodes {
 		allocatedQuantity := state.GetRequestedQuantityFromPodEntries(machineState[nodeID].PodEntries,
-			state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMABinding),
+			state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMAAffinity),
 			p.getContainerRequestedCores)
 		availableCPUQuantity := numaHeadroomState[nodeID] - allocatedQuantity
 		numaNodesCPULeft[nodeID] = availableCPUQuantity - reqFloat

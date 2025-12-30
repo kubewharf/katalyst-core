@@ -108,7 +108,7 @@ func GetIsolatedQuantityMapFromPodEntries(podEntries PodEntries, ignoreAllocatio
 	containerLoop:
 		for containerName, allocationInfo := range entries {
 			// only filter dedicated_cores without numa_binding
-			if allocationInfo == nil || allocationInfo.CheckDedicatedNUMABinding() || !allocationInfo.CheckDedicated() {
+			if allocationInfo == nil || allocationInfo.CheckDedicatedNUMAAffinity() || !allocationInfo.CheckDedicated() {
 				continue
 			}
 

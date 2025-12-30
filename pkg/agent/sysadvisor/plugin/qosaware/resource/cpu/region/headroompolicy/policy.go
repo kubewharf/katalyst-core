@@ -34,8 +34,8 @@ import (
 type HeadroomPolicy interface {
 	// SetPodSet overwrites policy's pod/container record
 	SetPodSet(types.PodSet)
-	// SetBindingNumas overwrites the numa ids this policy interested in
-	SetBindingNumas(machine.CPUSet)
+	// SetCPUAffinityNUMAs overwrites the numa ids this policy interested in
+	SetCPUAffinityNUMAs(machine.CPUSet)
 	// SetEssentials updates essential values for policy update
 	SetEssentials(essentials types.ResourceEssentials)
 

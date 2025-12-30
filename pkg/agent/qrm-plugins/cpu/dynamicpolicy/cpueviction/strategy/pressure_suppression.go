@@ -114,17 +114,17 @@ func (p *CPUPressureSuppression) GetEvictPods(_ context.Context, request *plugin
 
 	now := time.Now()
 	evictPods := make([]*v1alpha1.EvictPod, 0)
-	nonActualNUMABindingPods, err := p.evictNonActualNUMABindingPods(now, filteredPods, poolCPUSet, dynamicConfig.CPUPressureEvictionConfiguration)
+	nonActualNUMAAffinityPods, err := p.evictNonActualNUMAAffinityPods(now, filteredPods, poolCPUSet, dynamicConfig.CPUPressureEvictionConfiguration)
 	if err != nil {
 		return nil, err
 	}
-	evictPods = append(evictPods, nonActualNUMABindingPods...)
+	evictPods = append(evictPods, nonActualNUMAAffinityPods...)
 
-	actualNUMABindingPods, err := p.evictActualNUMABindingPods(now, filteredPods, poolCPUSet, dynamicConfig.CPUPressureEvictionConfiguration)
+	actualNUMAAffinityPods, err := p.evictActualNUMAAffinityPods(now, filteredPods, poolCPUSet, dynamicConfig.CPUPressureEvictionConfiguration)
 	if err != nil {
 		return nil, err
 	}
-	evictPods = append(evictPods, actualNUMABindingPods...)
+	evictPods = append(evictPods, actualNUMAAffinityPods...)
 
 	// clear inactive filtered pod from lastToleranceTime
 	filteredPodsMap := native.GetPodKeyMap(filteredPods, native.GenerateUniqObjectNameKey)
@@ -138,17 +138,17 @@ func (p *CPUPressureSuppression) GetEvictPods(_ context.Context, request *plugin
 	return &pluginapi.GetEvictPodsResponse{EvictPods: evictPods}, nil
 }
 
-func (p *CPUPressureSuppression) evictNonActualNUMABindingPods(now time.Time, filteredPods []*v1.Pod, poolCPUSet machine.CPUSet,
+func (p *CPUPressureSuppression) evictNonActualNUMAAffinityPods(now time.Time, filteredPods []*v1.Pod, poolCPUSet machine.CPUSet,
 	evictionConfiguration *eviction.CPUPressureEvictionConfiguration,
 ) ([]*v1alpha1.EvictPod, error) {
-	nonActualNUMABindingCPUSet := machine.NewCPUSet()
-	nonActualNUMABindingNUMAs := p.state.GetMachineState().GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMABinding))
-	for _, numaID := range nonActualNUMABindingNUMAs.ToSliceNoSortInt() {
-		nonActualNUMABindingCPUSet = nonActualNUMABindingCPUSet.Union(poolCPUSet.Intersection(p.metaServer.CPUDetails.CPUsInNUMANodes(numaID)))
+	nonActualNUMAAffinityCPUSet := machine.NewCPUSet()
+	nonActualNUMAAffinityNUMAs := p.state.GetMachineState().GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMAAffinity))
+	for _, numaID := range nonActualNUMAAffinityNUMAs.ToSliceNoSortInt() {
+		nonActualNUMAAffinityCPUSet = nonActualNUMAAffinityCPUSet.Union(poolCPUSet.Intersection(p.metaServer.CPUDetails.CPUsInNUMANodes(numaID)))
 	}
 
 	// get reclaim metrics
-	reclaimMetrics, err := helper.GetReclaimMetrics(nonActualNUMABindingCPUSet, p.conf.ReclaimRelativeRootCgroupPath, p.metaServer.MetricsFetcher)
+	reclaimMetrics, err := helper.GetReclaimMetrics(nonActualNUMAAffinityCPUSet, p.conf.ReclaimRelativeRootCgroupPath, p.metaServer.MetricsFetcher)
 	if err != nil {
 		return nil, fmt.Errorf("get reclaim metrics failed: %s", err)
 	}
@@ -163,11 +163,11 @@ func (p *CPUPressureSuppression) evictNonActualNUMABindingPods(now time.Time, fi
 	})
 
 	general.InfoS("filterPods", "cpuSet",
-		nonActualNUMABindingCPUSet.String(), "podCount", len(filterPods))
+		nonActualNUMAAffinityCPUSet.String(), "podCount", len(filterPods))
 	return p.evictPodsByReclaimMetrics(now, filterPods, reclaimMetrics, evictionConfiguration)
 }
 
-func (p *CPUPressureSuppression) evictActualNUMABindingPods(now time.Time, filteredPods []*v1.Pod, poolCPUSet machine.CPUSet,
+func (p *CPUPressureSuppression) evictActualNUMAAffinityPods(now time.Time, filteredPods []*v1.Pod, poolCPUSet machine.CPUSet,
 	evictionConfiguration *eviction.CPUPressureEvictionConfiguration,
 ) ([]*v1alpha1.EvictPod, error) {
 	var evictPods []*v1alpha1.EvictPod
@@ -176,10 +176,10 @@ func (p *CPUPressureSuppression) evictActualNUMABindingPods(now time.Time, filte
 			continue
 		}
 
-		actualNUMABindingCPUSet := poolCPUSet.Intersection(p.metaServer.CPUDetails.CPUsInNUMANodes(numaID))
+		actualNUMAAffinityCPUSet := poolCPUSet.Intersection(p.metaServer.CPUDetails.CPUsInNUMANodes(numaID))
 
 		// get reclaim metrics
-		reclaimMetrics, err := helper.GetReclaimMetrics(actualNUMABindingCPUSet,
+		reclaimMetrics, err := helper.GetReclaimMetrics(actualNUMAAffinityCPUSet,
 			reclaimRelativeRootCgroupPath, p.metaServer.MetricsFetcher)
 		if err != nil {
 			return nil, fmt.Errorf("get reclaim metrics failed: %s", err)
@@ -195,7 +195,7 @@ func (p *CPUPressureSuppression) evictActualNUMABindingPods(now time.Time, filte
 		})
 
 		general.InfoS("filterPods", "numaID", numaID, "cpuSet",
-			actualNUMABindingCPUSet.String(), "podCount", len(filterPods))
+			actualNUMAAffinityCPUSet.String(), "podCount", len(filterPods))
 		pods, err := p.evictPodsByReclaimMetrics(now, filterPods, reclaimMetrics, evictionConfiguration)
 		if err != nil {
 			return nil, err

@@ -25,6 +25,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
 	"github.com/samber/lo"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
@@ -312,10 +313,10 @@ func (cs *cpuServer) assembleResponse(advisorResp *types.InternalCPUCalculationR
 	calculationEntriesMap := make(map[string]*cpuadvisor.CalculationEntries)
 	blockID2Blocks := NewBlockSet()
 
-	// first assemble NUMABinding pod entries
+	// first assemble NUMAAffinity pod entries
 	f := func(podUID string, containerName string, ci *types.ContainerInfo) bool {
-		if err := cs.assembleDedicatedNUMABindingPodEntries(advisorResp, calculationEntriesMap, blockID2Blocks, podUID, ci); err != nil {
-			klog.Errorf("[qosaware-server-cpu] assembleDedicatedNUMABindingPodEntries for pod %s/%s uid %s err: %v", ci.PodNamespace, ci.PodName, ci.PodUID, err)
+		if err := cs.assembleDedicatedNUMAAffinityPodEntries(advisorResp, calculationEntriesMap, blockID2Blocks, podUID, ci); err != nil {
+			klog.Errorf("[qosaware-server-cpu] assembleDedicatedNUMAAffinityPodEntries for pod %s/%s uid %s err: %v", ci.PodNamespace, ci.PodName, ci.PodUID, err)
 		}
 		return true
 	}
@@ -606,10 +607,11 @@ func (cs *cpuServer) setContainerInfoBasedOnContainerAllocationInfo(
 	}
 
 	if info.Metadata.QosLevel == consts.PodAnnotationQoSLevelSharedCores &&
-		info.Metadata.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable {
+		(qosutil.AnnotationsIndicateNUMAAffinity(info.Metadata.Annotations) ||
+			qosutil.AnnotationsIndicateNUMABinding(info.Metadata.Annotations)) {
 		originOwnerPoolName, err := commonstate.GetSpecifiedNUMAPoolName(info.Metadata.QosLevel, info.Metadata.Annotations)
 		if err != nil {
-			return fmt.Errorf("get specified numa binding pool name failed: %w", err)
+			return fmt.Errorf("get specified numa binding or affinity pool name failed: %w", err)
 		}
 		ci.OriginOwnerPoolName = originOwnerPoolName
 	} else {
@@ -818,7 +820,7 @@ func (cs *cpuServer) assembleNormalPodEntries(calculationEntriesMap map[string]*
 		CalculationResultsByNumas: nil,
 	}
 
-	if ci.IsDedicatedNumaBinding() {
+	if ci.IsDedicatedNUMAAffinity() {
 		return nil
 	}
 
@@ -856,12 +858,12 @@ func (cs *cpuServer) assembleNormalPodEntries(calculationEntriesMap map[string]*
 	return nil
 }
 
-func (cs *cpuServer) assembleDedicatedNUMABindingPodEntries(
+func (cs *cpuServer) assembleDedicatedNUMAAffinityPodEntries(
 	advisorResp *types.InternalCPUCalculationResult,
 	calculationEntriesMap map[string]*cpuadvisor.CalculationEntries,
 	bs blockSet, podUID string, ci *types.ContainerInfo,
 ) error {
-	if !ci.IsDedicatedNumaBinding() {
+	if !ci.IsDedicatedNUMAAffinity() {
 		return nil
 	}
 

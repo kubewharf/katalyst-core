@@ -188,8 +188,8 @@ func (rm *RegionMapHelper) GetRegions(numaID int, regionType configapi.QoSRegion
 
 func (rm *RegionMapHelper) preProcessRegions(regions map[string]region.QoSRegion) {
 	for _, r := range regions {
-		if r.IsNumaBinding() {
-			for _, numaID := range r.GetBindingNumas().ToSliceInt() {
+		if r.IsNUMAAffinity() {
+			for _, numaID := range r.GetCPUAffinityNUMAs().ToSliceInt() {
 				numaRecords, ok := rm.regions[numaID]
 				if !ok {
 					numaRecords = map[configapi.QoSRegionType][]region.QoSRegion{}

@@ -37,7 +37,7 @@ func NewPolicyNone(_ string, _ configapi.QoSRegionType, _ string,
 
 func (p *PolicyNone) SetEssentials(types.ResourceEssentials, types.ControlEssentials) {}
 func (p *PolicyNone) SetPodSet(types.PodSet)                                          {}
-func (p *PolicyNone) SetBindingNumas(machine.CPUSet, bool)                            {}
+func (p *PolicyNone) SetCPUAffinityNUMAs(machine.CPUSet, bool)                        {}
 func (p *PolicyNone) Update() error                                                   { return nil }
 func (p *PolicyNone) GetControlKnobAdjusted() (types.ControlKnob, error) {
 	return types.InvalidControlKnob, nil

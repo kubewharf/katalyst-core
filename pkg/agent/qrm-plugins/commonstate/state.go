@@ -377,3 +377,23 @@ func (am *AllocationMeta) CheckNonBindingSharedOrDedicatedNUMAAffinity() bool {
 func (am *AllocationMeta) CheckSharedNumaBindingOrDedicatedNUMAAffinity() bool {
 	return am.CheckSharedNUMABinding() || am.CheckDedicatedNUMAAffinity()
 }
+
+// CheckReclaimedNUMAAffinity returns true if the AllocationInfo is for pod with
+// reclaimed numa-bind or dedicated numa-affinity.
+func (am *AllocationMeta) CheckReclaimedNUMAAffinity() bool {
+	return am.CheckReclaimed() && am.CheckNUMAAffinity()
+}
+
+// CheckReclaimedActualNUMAAffinity returns true if the AllocationInfo is for pod with
+// reclaimed-qos and numa-affinity enhancement and numa hint is not empty, which means
+// the container is allocated on a specific NUMA node
+func (am *AllocationMeta) CheckReclaimedActualNUMAAffinity() bool {
+	return am.CheckReclaimedNUMAAffinity() && am.CheckActualNUMABinding()
+}
+
+// CheckReclaimedNonActualNUMAAffinity returns true if the AllocationInfo is for pod with
+// reclaimed-qos and numa-affinity enhancement and numa hint is empty, which means
+// the container can be allocated on multi NUMA nodes
+func (am *AllocationMeta) CheckReclaimedNonActualNUMAAffinity() bool {
+	return am.CheckReclaimed() && !am.CheckActualNUMABinding()
+}

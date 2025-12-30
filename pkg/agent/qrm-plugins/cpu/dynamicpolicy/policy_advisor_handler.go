@@ -869,14 +869,14 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 	}
 
 	// Process blocks with specified NUMA IDs (for NUMA-bound containers)
-	// These are typically dedicated_cores containers with NUMA binding and
+	// These are typically dedicated_cores containers with NUMA affinity and
 	// reclaimed_cores containers colocated with them
 	for numaID, blocks := range numaToBlocks {
 		if numaID == commonstate.FakedNUMAID {
 			continue
 		}
 
-		withNUMABindingShareOrDedicatedPod := false
+		withNUMAAffinityShareOrDedicatedPod := false
 		numaAvailableCPUs := availableCPUs.Intersection(topology.CPUDetails.CPUsInNUMANodes(numaID))
 
 		// First handle blocks for NUMA-bound dedicated_cores containers
@@ -935,7 +935,7 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 			blockCPUSet[blockID] = cpuset
 			numaAvailableCPUs = numaAvailableCPUs.Difference(cpuset)
 			availableCPUs = availableCPUs.Difference(cpuset)
-			withNUMABindingShareOrDedicatedPod = true
+			withNUMAAffinityShareOrDedicatedPod = true
 		}
 
 		// Then handle blocks for NUMA-bound shared_cores containers and reclaimed_cores containers colocated with them
@@ -974,8 +974,8 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 			availableCPUs = availableCPUs.Difference(cpuset)
 
 			for poolName := range block.OwnerPoolEntryMap {
-				if commonstate.IsIsolationPool(poolName) || commonstate.IsShareNUMABindingPool(poolName) || commonstate.IsShareNUMAAffinityPool(poolName) {
-					withNUMABindingShareOrDedicatedPod = true
+				if commonstate.IsIsolationPool(poolName) || commonstate.IsShareNUMAAffinityPool(poolName) {
+					withNUMAAffinityShareOrDedicatedPod = true
 					break
 				}
 			}
@@ -984,7 +984,7 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 		// Finally, if there are NUMA-bound containers on this NUMA node,
 		// deduct all numaAvailableCPUs from availableCPUs to ensure that
 		// NUMA-bound pods don't share the same NUMA node with non-NUMA-bound pods
-		if withNUMABindingShareOrDedicatedPod {
+		if withNUMAAffinityShareOrDedicatedPod {
 			// Because numaAvailableCPUs is a subset of availableCPUs,
 			// we need to deduct all numaAvailableCPUs from availableCPUs
 			availableCPUs = availableCPUs.Difference(numaAvailableCPUs)
@@ -1043,8 +1043,8 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 	dedicatedCPUSet := machine.NewCPUSet()
 	pooledUnionDedicatedCPUSet := machine.NewCPUSet()
 
-	// calculate NUMAs without actual numa_binding reclaimed pods
-	nonReclaimActualBindingNUMAs := p.state.GetMachineState().GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMABinding))
+	// calculate NUMAs without actual numa_affinity reclaimed pods
+	nonReclaimActualAffinityNUMAs := p.state.GetMachineState().GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMAAffinity))
 
 	// deal with blocks of dedicated_cores and pools
 	for entryName, entry := range resp.Entries {
@@ -1137,23 +1137,23 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 	}
 
 	// revise reclaim pool size to avoid reclaimed_cores and numa_binding dedicated_cores containers
-	// in NUMAs without cpuset actual binding
-	err := p.reviseReclaimPool(newEntries, nonReclaimActualBindingNUMAs, pooledUnionDedicatedCPUSet)
+	// in NUMAs without cpuset actual affinity
+	err := p.reviseReclaimPool(newEntries, nonReclaimActualAffinityNUMAs, pooledUnionDedicatedCPUSet)
 	if err != nil {
 		return err
 	}
 
 	// calculate rampUpCPUs
-	sharedBindingNUMAs, err := resp.GetSharedBindingNUMAs()
+	sharedNUMAAffinityNUMAs, err := resp.GetSharedNUMAAffinityNUMAs()
 	if err != nil {
-		return fmt.Errorf("GetSharedBindingNUMAs failed with error: %v", err)
+		return fmt.Errorf("GetSharedNUMAAffinityNUMAs failed with error: %v", err)
 	}
-	sharedBindingNUMACPUs := p.machineInfo.CPUDetails.CPUsInNUMANodes(sharedBindingNUMAs.UnsortedList()...)
+	sharedNUMAAffinityNUMACPUs := p.machineInfo.CPUDetails.CPUsInNUMANodes(sharedNUMAAffinityNUMAs.UnsortedList()...)
 	// rampUpCPUs include reclaim pool in NUMAs without NUMA_binding cpus
 	rampUpCPUs := p.machineInfo.CPUDetails.CPUs().
 		Difference(p.reservedCPUs).
 		Difference(dedicatedCPUSet).
-		Difference(sharedBindingNUMACPUs)
+		Difference(sharedNUMAAffinityNUMACPUs)
 
 	rampUpCPUsTopologyAwareAssignments, err := machine.GetNumaAwareAssignments(p.machineInfo.CPUTopology, rampUpCPUs)
 	if err != nil {
@@ -1227,6 +1227,8 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 						return err
 					}
 
+					// since share cores with numa-binding and share cores with numa-affinity are put into different pools,
+					// we need to check which type it is and set corresponding qosLevel and annotations.
 					if allocationInfo.CheckSharedNUMABinding() {
 						poolEntry.QoSLevel = apiconsts.PodAnnotationQoSLevelSharedCores
 						// set SharedNUMABinding declarations to pool entry containing SharedNUMABinding containers,
@@ -1235,6 +1237,8 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 							apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 						})
 					} else if allocationInfo.CheckSharedNUMAAffinity() {
+						// set SharedNUMAAffinity declarations to pool entry containing SharedNUMAAffinity containers,
+						// in order to differentiate them from non-affinity share cores pools during GetFilteredPoolsCPUSetMap.
 						poolEntry.QoSLevel = apiconsts.PodAnnotationQoSLevelSharedCores
 						poolEntry.Annotations = general.MergeMap(poolEntry.Annotations, map[string]string{
 							apiconsts.PodAnnotationCPUEnhancementNumaAffinity: apiconsts.PodAnnotationCPUEnhancementNumaAffinityEnable,
@@ -1257,7 +1261,7 @@ func (p *DynamicPolicy) applyBlocks(blockCPUSet advisorapi.BlockCPUSet, resp *ad
 					return err
 				}
 
-				err = p.updateReclaimAllocationResultByPoolEntry(newEntries[podUID][containerName], poolEntry, nonReclaimActualBindingNUMAs)
+				err = p.updateReclaimAllocationResultByPoolEntry(newEntries[podUID][containerName], poolEntry, nonReclaimActualAffinityNUMAs)
 				if err != nil {
 					return err
 				}
@@ -1338,7 +1342,7 @@ func (p *DynamicPolicy) applyNUMAHeadroom(resp *advisorapi.ListAndWatchResponse)
 	return nil
 }
 
-func (p *DynamicPolicy) reviseReclaimPool(newEntries state.PodEntries, nonReclaimActualBindingNUMAs, pooledUnionDedicatedCPUSet machine.CPUSet) error {
+func (p *DynamicPolicy) reviseReclaimPool(newEntries state.PodEntries, nonReclaimActualAffinityNUMAs, pooledUnionDedicatedCPUSet machine.CPUSet) error {
 	forbiddenCPUs, err := state.GetUnitedPoolsCPUs(state.ForbiddenPools, p.state.GetPodEntries())
 	if err != nil {
 		return fmt.Errorf("GetUnitedPoolsCPUs for forbidden pools failed with error: %v", err)
@@ -1386,7 +1390,7 @@ func (p *DynamicPolicy) reviseReclaimPool(newEntries state.PodEntries, nonReclai
 
 	// revise reclaim pool for RNB NUMAs
 	for _, numaID := range p.machineInfo.CPUDetails.NUMANodes().ToSliceInt() {
-		if nonReclaimActualBindingNUMAs.Contains(numaID) {
+		if nonReclaimActualAffinityNUMAs.Contains(numaID) {
 			continue
 		}
 
@@ -1399,15 +1403,15 @@ func (p *DynamicPolicy) reviseReclaimPool(newEntries state.PodEntries, nonReclai
 	}
 
 	// revise reclaim pool for non-RNB NUMAs
-	nonReclaimActualBindingNUMAsAllocation := machine.NewCPUSet()
+	nonReclaimActualAffinityNUMAsAllocation := machine.NewCPUSet()
 	for _, numaID := range p.machineInfo.CPUDetails.NUMANodes().ToSliceInt() {
-		if nonReclaimActualBindingNUMAs.Contains(numaID) {
-			nonReclaimActualBindingNUMAsAllocation = nonReclaimActualBindingNUMAsAllocation.Union(reclaimPool.TopologyAwareAssignments[numaID])
+		if nonReclaimActualAffinityNUMAs.Contains(numaID) {
+			nonReclaimActualAffinityNUMAsAllocation = nonReclaimActualAffinityNUMAsAllocation.Union(reclaimPool.TopologyAwareAssignments[numaID])
 		}
 	}
 
-	if nonReclaimActualBindingNUMAsAllocation.IsEmpty() {
-		for _, numaID := range nonReclaimActualBindingNUMAsAllocation.ToSliceInt() {
+	if nonReclaimActualAffinityNUMAsAllocation.IsEmpty() {
+		for _, numaID := range nonReclaimActualAffinityNUMAsAllocation.ToSliceInt() {
 			reclaimPool.AllocationResult = reclaimPool.AllocationResult.Union(p.reservedReclaimedTopologyAwareAssignments[numaID])
 			reclaimPool.OriginalAllocationResult = reclaimPool.OriginalAllocationResult.Union(p.reservedReclaimedTopologyAwareAssignments[numaID])
 			reclaimPool.TopologyAwareAssignments[numaID] = p.reservedReclaimedTopologyAwareAssignments[numaID].Clone()

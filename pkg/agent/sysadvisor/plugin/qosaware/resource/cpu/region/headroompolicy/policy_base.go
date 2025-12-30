@@ -28,11 +28,11 @@ import (
 type PolicyBase struct {
 	types.ResourceEssentials
 
-	regionName    string
-	regionType    configapi.QoSRegionType
-	ownerPoolName string
-	podSet        types.PodSet
-	bindingNumas  machine.CPUSet
+	regionName       string
+	regionType       configapi.QoSRegionType
+	ownerPoolName    string
+	podSet           types.PodSet
+	cpuAffinityNUMAs machine.CPUSet
 
 	metaReader metacache.MetaReader
 	metaServer *metaserver.MetaServer
@@ -59,8 +59,8 @@ func (p *PolicyBase) SetPodSet(podSet types.PodSet) {
 	p.podSet = podSet.Clone()
 }
 
-func (p *PolicyBase) SetBindingNumas(numas machine.CPUSet) {
-	p.bindingNumas = numas
+func (p *PolicyBase) SetCPUAffinityNUMAs(numas machine.CPUSet) {
+	p.cpuAffinityNUMAs = numas
 }
 
 func (p *PolicyBase) SetEssentials(essentials types.ResourceEssentials) {

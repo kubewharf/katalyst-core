@@ -72,7 +72,7 @@ func IsShareNUMABindingPool(poolName string) bool {
 
 // IsShareNUMAAffinityPool checks whether the pool is numa affinity pool
 func IsShareNUMAAffinityPool(poolName string) bool {
-	return strings.Contains(poolName, NUMAAffinityPoolInfix)
+	return strings.Contains(poolName, NUMAAffinityPoolInfix) || IsShareNUMABindingPool(poolName)
 }
 
 func GetPoolType(poolName string) string {
@@ -150,9 +150,9 @@ func GetSpecifiedNUMAPoolName(qosLevel string, annotations map[string]string) (s
 		return EmptyOwnerPoolName, fmt.Errorf("empty specifiedPoolName")
 	}
 
-	numaPoolInfix := NUMAPoolInfix
-	if qosutil.AnnotationsIndicateNUMAAffinity(annotations) {
-		numaPoolInfix = NUMAAffinityPoolInfix
+	numaPoolInfix := NUMAAffinityPoolInfix
+	if qosutil.AnnotationsIndicateNUMABinding(annotations) {
+		numaPoolInfix = NUMAPoolInfix
 	}
 
 	return GetNUMAPoolName(specifiedPoolName, numaPoolInfix, numaID), nil

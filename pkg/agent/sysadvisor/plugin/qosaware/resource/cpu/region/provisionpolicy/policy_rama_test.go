@@ -134,7 +134,7 @@ func newTestPolicyRama(t *testing.T, checkpointDir string, stateFileDir string,
 	err = metaCacheTmp.SetRegionInfo(regionInfo.RegionName, &regionInfo)
 	assert.NoError(t, err)
 
-	p.SetBindingNumas(regionInfo.BindingNumas, false)
+	p.SetCPUAffinityNUMAs(regionInfo.BindingNumas, false)
 	p.SetPodSet(podSet)
 
 	return p

@@ -40,7 +40,7 @@ type ProvisionAssemblerCommon struct {
 	regionMap                             *map[string]region.QoSRegion
 	reservedForReclaim                    *map[int]int
 	numaAvailable                         *map[int]int
-	nonBindingNumas                       *machine.CPUSet
+	nonCPUAffinityNUMAs                   *machine.CPUSet
 	allowSharedCoresOverlapReclaimedCores *bool
 
 	metaReader metacache.MetaReader
@@ -49,7 +49,7 @@ type ProvisionAssemblerCommon struct {
 }
 
 func NewProvisionAssemblerCommon(conf *config.Configuration, _ interface{}, regionMap *map[string]region.QoSRegion,
-	reservedForReclaim *map[int]int, numaAvailable *map[int]int, nonBindingNumas *machine.CPUSet, allowSharedCoresOverlapReclaimedCores *bool,
+	reservedForReclaim *map[int]int, numaAvailable *map[int]int, nonCPUAffinityNUMAs *machine.CPUSet, allowSharedCoresOverlapReclaimedCores *bool,
 	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) ProvisionAssembler {
 	return &ProvisionAssemblerCommon{
@@ -57,7 +57,7 @@ func NewProvisionAssemblerCommon(conf *config.Configuration, _ interface{}, regi
 		regionMap:                             regionMap,
 		reservedForReclaim:                    reservedForReclaim,
 		numaAvailable:                         numaAvailable,
-		nonBindingNumas:                       nonBindingNumas,
+		nonCPUAffinityNUMAs:                   nonCPUAffinityNUMAs,
 		allowSharedCoresOverlapReclaimedCores: allowSharedCoresOverlapReclaimedCores,
 
 		metaReader: metaReader,
@@ -72,9 +72,9 @@ func (pa *ProvisionAssemblerCommon) assembleDedicatedNUMAExclusiveRegion(r regio
 		return err
 	}
 
-	regionNuma := r.GetBindingNumas().ToSliceInt()[0] // always one binding numa for this type of region
-	reservedForReclaim := getNUMAsResource(*pa.reservedForReclaim, r.GetBindingNumas())
-	available := getNUMAsResource(*pa.numaAvailable, r.GetBindingNumas())
+	regionNuma := r.GetCPUAffinityNUMAs().ToSliceInt()[0] // always one cpu affinity numa for this type of region
+	reservedForReclaim := getNUMAsResource(*pa.reservedForReclaim, r.GetCPUAffinityNUMAs())
+	available := getNUMAsResource(*pa.numaAvailable, r.GetCPUAffinityNUMAs())
 	var reclaimedCoresSize int
 	reclaimedCoresLimit := float64(-1)
 
@@ -182,7 +182,7 @@ func (pa *ProvisionAssemblerCommon) assembleNUMABindingNUMAExclusive(regionHelpe
 	for numaID := range *pa.numaAvailable {
 		dedicatedNUMAExclusiveRegions := regionHelper.GetRegions(numaID, configapi.QoSRegionTypeDedicated)
 		for _, r := range dedicatedNUMAExclusiveRegions {
-			if !r.IsNumaBinding() || !r.IsNumaExclusive() {
+			if !r.IsNUMAAffinity() || !r.IsNumaExclusive() {
 				continue
 			}
 
@@ -227,7 +227,7 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 
 	var numaSet machine.CPUSet
 	if numaID == commonstate.FakedNUMAID {
-		numaSet = *pa.nonBindingNumas
+		numaSet = *pa.nonCPUAffinityNUMAs
 	} else {
 		numaSet = machine.NewCPUSet(numaID)
 	}
@@ -599,12 +599,12 @@ func extractDedicatedRegionInfo(regions []region.QoSRegion) (regionInfo, error) 
 
 		regionName := r.Name()
 		dedicatedRequirements[regionName] = general.Max(1, int(controlKnob[configapi.ControlKnobNonReclaimedCPURequirement].Value))
-		if r.IsNumaBinding() {
-			numaBindingSize := r.GetBindingNumas().Size()
-			if numaBindingSize == 0 {
-				return regionInfo{}, fmt.Errorf("numa binding size is zero, region name: %s", r.Name())
+		if r.IsNUMAAffinity() {
+			cpuAffinityNUMASize := r.GetCPUAffinityNUMAs().Size()
+			if cpuAffinityNUMASize == 0 {
+				return regionInfo{}, fmt.Errorf("cpu affinity numa size is zero, region name: %s", r.Name())
 			}
-			dedicatedRequests[regionName] = int(math.Ceil(r.GetPodsRequest() / float64(numaBindingSize)))
+			dedicatedRequests[regionName] = int(math.Ceil(r.GetPodsRequest() / float64(cpuAffinityNUMASize)))
 		} else {
 			dedicatedRequests[regionName] = int(math.Ceil(r.GetPodsRequest()))
 		}

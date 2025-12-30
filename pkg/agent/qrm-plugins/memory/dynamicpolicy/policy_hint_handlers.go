@@ -127,7 +127,7 @@ func (p *DynamicPolicy) nonNUMABindingHintHandler(_ context.Context, req *plugin
 		}
 
 		if !ok {
-			_ = p.emitter.StoreInt64(util.MetricNameNonNumaBindingNoEnoughResourceFailed, 1, metrics.MetricTypeNameCount, metrics.ConvertMapToTags(map[string]string{
+			_ = p.emitter.StoreInt64(util.MetricNameNoEnoughNUMAResourceFailed, 1, metrics.MetricTypeNameCount, metrics.ConvertMapToTags(map[string]string{
 				"resource":      v1.ResourceMemory.String(),
 				"podNamespace":  req.PodNamespace,
 				"podName":       req.PodName,
@@ -542,7 +542,7 @@ func (p *DynamicPolicy) calculateNUMANodesLeft(numaNodes []int,
 	numaNodesCPULeft := make(map[int]int64, len(numaNodes))
 	for _, nodeID := range numaNodes {
 		allocatedQuantity := state.GetRequestedQuantityFromPodEntries(machineState[nodeID].PodEntries,
-			state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMABinding))
+			state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMAAffinity))
 		availableCPUQuantity := numaHeadroomState[nodeID] - allocatedQuantity
 		numaNodesCPULeft[nodeID] = availableCPUQuantity - req
 	}

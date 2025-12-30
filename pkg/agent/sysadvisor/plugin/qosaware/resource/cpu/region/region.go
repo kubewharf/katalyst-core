@@ -39,21 +39,23 @@ type QoSRegion interface {
 	// Clear clears all topology and container info in region
 	Clear()
 
-	// GetBindingNumas returns numa ids assigned to this region
-	GetBindingNumas() machine.CPUSet
+	// GetCPUAffinityNUMAs returns numa ids assigned to this region
+	GetCPUAffinityNUMAs() machine.CPUSet
 	// GetPods return the latest pod set of this region
 	GetPods() types.PodSet
 
 	// GetPodsRequest returns the total CPU requests of this region
 	GetPodsRequest() float64
 
-	// SetBindingNumas overwrites numa ids assigned to this region
-	SetBindingNumas(machine.CPUSet)
+	// SetCPUAffinityNUMAs overwrites numa ids assigned to this region
+	SetCPUAffinityNUMAs(machine.CPUSet)
 	// SetEssentials updates essential region values for policy update
 	SetEssentials(essentials types.ResourceEssentials)
 
-	IsNumaBinding() bool
 	IsNumaExclusive() bool
+	// IsNUMAAffinity returns true if this region is numa affinity
+	IsNUMAAffinity() bool
+	// SetThrottled overwrites region's throttled status
 	SetThrottled(throttled bool)
 
 	// AddContainer stores a container keyed by pod uid and container name to region
@@ -100,7 +102,7 @@ func GetRegionBasicMetricTags(r QoSRegion) []metrics.MetricTag {
 		{Key: "region_type", Val: string(r.Type())},
 		{Key: "owner_pool_name", Val: r.OwnerPoolName()},
 		{Key: "pool_type", Val: commonstate.GetPoolType(r.OwnerPoolName())},
-		{Key: "binding_numas", Val: r.GetBindingNumas().String()},
+		{Key: "cpu_affinity_numas", Val: r.GetCPUAffinityNUMAs().String()},
 		{Key: "provision_policy_prior", Val: string(provisionPolicyPrior)},
 		{Key: "provision_policy_in_use", Val: string(provisionPolicyInUse)},
 		{Key: "headroom_policy_prior", Val: string(headroomPolicyPrior)},

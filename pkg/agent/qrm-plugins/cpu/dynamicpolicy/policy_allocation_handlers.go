@@ -244,8 +244,8 @@ func (p *DynamicPolicy) reclaimedCoresAllocationHandler(ctx context.Context,
 	}
 
 	machineState := p.state.GetMachineState()
-	// calculate NUMAs without actual numa_binding reclaimed pods
-	nonReclaimActualBindingNUMAs := machineState.GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMABinding))
+	// calculate NUMAs without actual numa_affinity reclaimed pods
+	nonReclaimActualAffinityNUMAs := machineState.GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMAAffinity))
 
 	if allocationInfo != nil {
 		general.Infof("pod: %s/%s, container: %s with old allocation result: %s, allocate by reclaimedCPUSet: %s",
@@ -261,17 +261,17 @@ func (p *DynamicPolicy) reclaimedCoresAllocationHandler(ctx context.Context,
 			RequestQuantity: reqFloat64,
 		}
 
-		// calculate NUMAs without non-actual numa_binding reclaimed pods
-		reclaimActualBindingNUMAs := machineState.GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedNonActualNUMABinding))
-		// set reclaimed numa_binding NUMA ID to allocationInfo
-		if req.Hint != nil && len(req.Hint.Nodes) == 1 && (reclaimActualBindingNUMAs.Contains(int(req.Hint.Nodes[0])) ||
-			!nonReclaimActualBindingNUMAs.Equals(machine.NewCPUSet(int(req.Hint.Nodes[0])))) {
+		// calculate NUMAs without non-actual numa_affinity reclaimed pods
+		reclaimActualAffinityNUMAs := machineState.GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedNonActualNUMAAffinity))
+		// set reclaimed numa_affinity NUMA ID to allocationInfo
+		if req.Hint != nil && len(req.Hint.Nodes) == 1 && (reclaimActualAffinityNUMAs.Contains(int(req.Hint.Nodes[0])) ||
+			!nonReclaimActualAffinityNUMAs.Equals(machine.NewCPUSet(int(req.Hint.Nodes[0])))) {
 			allocationInfo.SetSpecifiedNUMAID(req.Hint.Nodes[0])
 		}
 	}
 
 	// update reclaimed allocation result by pool entry
-	err = p.updateReclaimAllocationResultByPoolEntry(allocationInfo, reclaimedAllocationInfo, nonReclaimActualBindingNUMAs)
+	err = p.updateReclaimAllocationResultByPoolEntry(allocationInfo, reclaimedAllocationInfo, nonReclaimActualAffinityNUMAs)
 	if err != nil {
 		return nil, err
 	}
@@ -280,14 +280,14 @@ func (p *DynamicPolicy) reclaimedCoresAllocationHandler(ctx context.Context,
 	// if one of subsequent steps is failed, we will delete current allocationInfo from podEntries in defer function of allocation function.
 	p.state.SetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, allocationInfo, persistCheckpoint)
 
-	// update reclaim non-actual numa_binding reclaim cores allocations if it needs to transfer a non-RNB numa to RNB numa
+	// update reclaim non-actual numa_affinity reclaim cores allocations if it needs to transfer a non-RNB numa to RNB numa
 	podEntries := p.state.GetPodEntries()
 	if allocationInfo.CheckActualNUMABinding() &&
-		nonReclaimActualBindingNUMAs.Intersection(allocationInfo.AllocationResult).Size() > 0 {
-		updatedNonReclaimActualBindingNUMAs := nonReclaimActualBindingNUMAs.Difference(allocationInfo.AllocationResult)
-		err := p.updateNonActualNUMABindingReclaimCoresAllocations(podEntries, updatedNonReclaimActualBindingNUMAs, reclaimedAllocationInfo)
+		nonReclaimActualAffinityNUMAs.Intersection(allocationInfo.AllocationResult).Size() > 0 {
+		updatedNonReclaimActualAffinityNUMAs := nonReclaimActualAffinityNUMAs.Difference(allocationInfo.AllocationResult)
+		err := p.updateNonActualNUMAAffinityReclaimCoresAllocations(podEntries, updatedNonReclaimActualAffinityNUMAs, reclaimedAllocationInfo)
 		if err != nil {
-			general.Errorf("pod: %s/%s, container: %s updateNonActualNUMABindingReclaimCoresAllocations failed with error: %v",
+			general.Errorf("pod: %s/%s, container: %s updateNonActualNUMAAffinityReclaimCoresAllocations failed with error: %v",
 				req.PodNamespace, req.PodName, req.ContainerName, err)
 			return nil, err
 		}
@@ -311,14 +311,14 @@ func (p *DynamicPolicy) reclaimedCoresAllocationHandler(ctx context.Context,
 	return resp, nil
 }
 
-// updateReclaimAllocationResultByPoolEntry updates non-actual numa binding reclaimed allocation result by pool entry
-func (p *DynamicPolicy) updateNonActualNUMABindingReclaimCoresAllocations(podEntries state.PodEntries,
-	nonReclaimActualBindingNUMAs machine.CPUSet, poolEntry *state.AllocationInfo,
+// updateReclaimAllocationResultByPoolEntry updates non-actual numa affinity reclaimed allocation result by pool entry
+func (p *DynamicPolicy) updateNonActualNUMAAffinityReclaimCoresAllocations(podEntries state.PodEntries,
+	nonReclaimActualAffinityNUMAs machine.CPUSet, poolEntry *state.AllocationInfo,
 ) error {
-	nonActualNUMABindingAllocations := podEntries.GetFilteredPodEntries(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedNonActualNUMABinding))
-	for _, containerEntries := range nonActualNUMABindingAllocations {
+	nonActualNUMAAffinityAllocations := podEntries.GetFilteredPodEntries(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedNonActualNUMAAffinity))
+	for _, containerEntries := range nonActualNUMAAffinityAllocations {
 		for _, allocationInfo := range containerEntries {
-			err := p.updateReclaimAllocationResultByPoolEntry(allocationInfo, poolEntry, nonReclaimActualBindingNUMAs)
+			err := p.updateReclaimAllocationResultByPoolEntry(allocationInfo, poolEntry, nonReclaimActualAffinityNUMAs)
 			if err != nil {
 				return fmt.Errorf("updateReclaimAllocationResultByPoolEntry with error: %v", err)
 			}
@@ -349,8 +349,8 @@ func (p *DynamicPolicy) dedicatedCoresAllocationHandler(ctx context.Context,
 func (p *DynamicPolicy) dedicatedCoresWithoutNUMAAffinityAllocationHandler(_ context.Context,
 	_ *pluginapi.ResourceRequest, persistCheckpoint bool,
 ) (*pluginapi.ResourceAllocationResponse, error) {
-	// todo: support dedicated_cores without NUMA binding
-	return nil, fmt.Errorf("not support dedicated_cores without NUMA binding")
+	// todo: support dedicated_cores without NUMA affinity
+	return nil, fmt.Errorf("not support dedicated_cores without NUMA affinity")
 }
 
 func (p *DynamicPolicy) dedicatedCoresWithNUMAAffinityAllocationHandler(ctx context.Context,
@@ -880,7 +880,7 @@ func (p *DynamicPolicy) calcPoolResizeRequest(originAllocation, allocation *stat
 			allocation.PodNamespace, allocation.PodName, allocation.ContainerName, originPodAggregatedRequest, podAggregatedRequest)
 	}
 
-	// only support share cores inplace update resize now (include non-binding share cores and share cores with NUMA affinity)
+	// only support share cores inplace update resize now
 	if allocation.CheckSharedNUMAAffinity() {
 		// check snb numa migrate for inplace update resize
 		originTargetNumaID, err := state.GetSharedNUMAAffinityTargetNuma(originAllocation)
@@ -958,7 +958,7 @@ func (p *DynamicPolicy) adjustAllocationEntries(persistCheckpoint bool) error {
 
 // adjustPoolsAndIsolatedEntries works for the following steps
 // 1. calculate pools and isolated cpusets according to expectant quantities
-// 2. make reclaimed overlap with numa-binding
+// 2. make reclaimed overlap with numa-affinity
 // 3. apply them to local state
 // 4. clean pools
 func (p *DynamicPolicy) adjustPoolsAndIsolatedEntries(
@@ -990,9 +990,9 @@ func (p *DynamicPolicy) adjustPoolsAndIsolatedEntries(
 		return fmt.Errorf("generatePoolsAndIsolation failed with error: %v", err)
 	}
 
-	err = p.reclaimOverlapNUMABinding(poolsCPUSet, entries)
+	err = p.reclaimOverlapNUMAAffinity(poolsCPUSet, entries)
 	if err != nil {
-		return fmt.Errorf("reclaimOverlapNUMABinding failed with error: %v", err)
+		return fmt.Errorf("reclaimOverlapNUMAAffinity failed with error: %v", err)
 	}
 
 	err = p.applyPoolsAndIsolatedInfo(poolsCPUSet, isolatedCPUSet, entries,
@@ -1009,10 +1009,10 @@ func (p *DynamicPolicy) adjustPoolsAndIsolatedEntries(
 	return nil
 }
 
-// reclaimOverlapNUMABinding unions calculated reclaim pool in empty NUMAs
-// with the intersection of previous reclaim pool and non-ramp-up dedicated_cores numa_binding containers
-func (p *DynamicPolicy) reclaimOverlapNUMABinding(poolsCPUSet map[string]machine.CPUSet, entries state.PodEntries) error {
-	// reclaimOverlapNUMABinding only works with cpu advisor and reclaim enabled
+// reclaimOverlapNUMAAffinity unions calculated reclaim pool in empty NUMAs
+// with the intersection of previous reclaim pool and non-ramp-up dedicated_cores numa_affinity containers
+func (p *DynamicPolicy) reclaimOverlapNUMAAffinity(poolsCPUSet map[string]machine.CPUSet, entries state.PodEntries) error {
+	// reclaimOverlapNUMAAffinity only works with cpu advisor and reclaim enabled
 	if !(p.enableCPUAdvisor && p.dynamicConfig.GetDynamicConfiguration().EnableReclaim) {
 		return nil
 	}
@@ -1062,8 +1062,8 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 	newPodEntries := make(state.PodEntries)
 	unionDedicatedIsolatedCPUSet := machine.NewCPUSet()
 
-	// calculate NUMAs without actual numa_binding reclaimed pods
-	nonReclaimActualBindingNUMAs := p.state.GetMachineState().GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMABinding))
+	// calculate NUMAs without actual numa_affinity reclaimed pods
+	nonReclaimActualAffinityNUMAs := p.state.GetMachineState().GetFilteredNUMASet(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMAAffinity))
 	// 1. construct entries for isolated containers (probably be dedicated_cores not numa_affinity )
 	for podUID, containerEntries := range isolatedCPUSet {
 		for containerName, isolatedCPUs := range containerEntries {
@@ -1148,15 +1148,15 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 		}
 	}
 
-	// revise reclaim pool size to avoid reclaimed_cores and numa_binding containers
-	// in NUMAs without cpuset actual binding
-	err := p.reviseReclaimPool(newPodEntries, nonReclaimActualBindingNUMAs, unionDedicatedIsolatedCPUSet)
+	// revise reclaim pool size to avoid reclaimed_cores and numa_affinity containers
+	// in NUMAs without cpuset actual affinity
+	err := p.reviseReclaimPool(newPodEntries, nonReclaimActualAffinityNUMAs, unionDedicatedIsolatedCPUSet)
 	if err != nil {
 		return err
 	}
 
 	sharedAffinityNUMACPUs := p.machineInfo.CPUDetails.CPUsInNUMANodes(sharedAffinityNUMAs.UnsortedList()...)
-	// rampUpCPUs include reclaim pool in NUMAs without NUMA_binding cpus
+	// rampUpCPUs include reclaim pool in NUMAs without NUMA_affinity cpus
 	rampUpCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs,
 		nil,
 		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicatedNUMABindingNUMAExclusive)).
@@ -1276,6 +1276,9 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 						allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName,
 						ownerPoolName, allocationInfo.AllocationResult.String(), poolEntry.AllocationResult.String())
 
+					// Notice: we assume that SharedNUMAAffinity and SharedNUMABinding pod cannot run in the same pool,
+					// so need to distinguish SharedNUMAAffinity and SharedNUMABinding pool name here to enable
+					// differentiate SharedNUMAAffinity and SharedNUMABinding containers in GetFilteredPoolsCPUSetMap.
 					if allocationInfo.CheckSharedNUMABinding() {
 						poolEntry.QoSLevel = apiconsts.PodAnnotationQoSLevelSharedCores
 						// set SharedNUMABinding declarations to pool entry containing SharedNUMABinding containers,
@@ -1304,7 +1307,7 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 					return err
 				}
 
-				err = p.updateReclaimAllocationResultByPoolEntry(newPodEntries[podUID][containerName], poolEntry, nonReclaimActualBindingNUMAs)
+				err = p.updateReclaimAllocationResultByPoolEntry(newPodEntries[podUID][containerName], poolEntry, nonReclaimActualAffinityNUMAs)
 				if err != nil {
 					return err
 				}
@@ -2054,14 +2057,14 @@ func (p *DynamicPolicy) getAllocationPoolEntry(allocationInfo *state.AllocationI
 }
 
 func (p *DynamicPolicy) updateReclaimAllocationResultByPoolEntry(allocationInfo *state.AllocationInfo,
-	poolEntry *state.AllocationInfo, nonReclaimActualBindingNUMAs machine.CPUSet,
+	poolEntry *state.AllocationInfo, nonReclaimActualAffinityNUMAs machine.CPUSet,
 ) error {
 	numaID, err := allocationInfo.GetSpecifiedNUMAID()
 	if err != nil {
 		return err
 	}
 
-	getActualNUMABindingResult := func(topologyAwareAssignments map[int]machine.CPUSet) (machine.CPUSet, map[int]machine.CPUSet, error) {
+	getActualNUMAAffinityResult := func(topologyAwareAssignments map[int]machine.CPUSet) (machine.CPUSet, map[int]machine.CPUSet, error) {
 		var (
 			actualTopologyAwareAssignments map[int]machine.CPUSet
 			actualAllocationResult         machine.CPUSet
@@ -2069,7 +2072,7 @@ func (p *DynamicPolicy) updateReclaimAllocationResultByPoolEntry(allocationInfo 
 		if numaID != commonstate.FakedNUMAID {
 			cpuSet, ok := topologyAwareAssignments[numaID]
 			if !ok {
-				return machine.CPUSet{}, nil, fmt.Errorf("pod: %s/%s container: %s is reclaimed_cores with numa_binding specified numa: %d not found in topologyAwareAssignments: %v",
+				return machine.CPUSet{}, nil, fmt.Errorf("pod: %s/%s container: %s is reclaimed_cores with numa_affinity specified numa: %d not found in topologyAwareAssignments: %v",
 					allocationInfo.PodNamespace, allocationInfo.PodName, allocationInfo.ContainerName, numaID, topologyAwareAssignments)
 			}
 			actualAllocationResult = cpuSet.Clone()
@@ -2081,7 +2084,7 @@ func (p *DynamicPolicy) updateReclaimAllocationResultByPoolEntry(allocationInfo 
 			numaSet := machine.NewCPUSet()
 			newTopologyAwareAssignments := make(map[int]machine.CPUSet)
 			for numaNode, cpuSet := range topologyAwareAssignments {
-				if !nonReclaimActualBindingNUMAs.Contains(numaNode) {
+				if !nonReclaimActualAffinityNUMAs.Contains(numaNode) {
 					continue
 				}
 
@@ -2097,14 +2100,14 @@ func (p *DynamicPolicy) updateReclaimAllocationResultByPoolEntry(allocationInfo 
 		return actualAllocationResult, actualTopologyAwareAssignments, nil
 	}
 
-	actualAllocationResult, actualTopologyAwareAssignments, err := getActualNUMABindingResult(machine.DeepcopyCPUAssignment(poolEntry.TopologyAwareAssignments))
+	actualAllocationResult, actualTopologyAwareAssignments, err := getActualNUMAAffinityResult(machine.DeepcopyCPUAssignment(poolEntry.TopologyAwareAssignments))
 	if err != nil {
-		return fmt.Errorf("get actual NUMA binding result: %v", err)
+		return fmt.Errorf("get actual NUMA affinity result: %v", err)
 	}
 
-	actualOriginalAllocationResult, actualOriginalTopologyAwareAssignments, err := getActualNUMABindingResult(machine.DeepcopyCPUAssignment(poolEntry.OriginalTopologyAwareAssignments))
+	actualOriginalAllocationResult, actualOriginalTopologyAwareAssignments, err := getActualNUMAAffinityResult(machine.DeepcopyCPUAssignment(poolEntry.OriginalTopologyAwareAssignments))
 	if err != nil {
-		return fmt.Errorf("get original actual NUMA binding result: %v", err)
+		return fmt.Errorf("get original actual NUMA affinity result: %v", err)
 	}
 
 	general.Infof("put pod: %s/%s container: %s to pool: %s, set its allocation result from %s to %s",

@@ -173,7 +173,7 @@ func (o *memoryBandwidthOptimizer) getNUMAAllocatedMemBW(machineState state.NUMA
 
 	numaAllocatedMemBW := make(map[int]int)
 	podUIDToMemBWReq := make(map[string]int)
-	podUIDToBindingNUMAs := make(map[string]sets.Int)
+	podUIDToAffinityNUMAs := make(map[string]sets.Int)
 
 	for numaID, numaState := range machineState {
 		if numaState == nil {
@@ -186,7 +186,7 @@ func (o *memoryBandwidthOptimizer) getNUMAAllocatedMemBW(machineState state.NUMA
 					continue
 				}
 
-				if !(allocationInfo.CheckNUMABinding() && allocationInfo.CheckMainContainer()) {
+				if !(allocationInfo.CheckNUMAAffinity() && allocationInfo.CheckMainContainer()) {
 					continue
 				}
 
@@ -205,19 +205,19 @@ func (o *memoryBandwidthOptimizer) getNUMAAllocatedMemBW(machineState state.NUMA
 					podUIDToMemBWReq[allocationInfo.PodUid] = containerMemoryBandwidthRequest
 				}
 
-				if podUIDToBindingNUMAs[podUID] == nil { // Use podUID from outer loop key
-					podUIDToBindingNUMAs[podUID] = sets.NewInt()
+				if podUIDToAffinityNUMAs[podUID] == nil { // Use podUID from outer loop key
+					podUIDToAffinityNUMAs[podUID] = sets.NewInt()
 				}
-				podUIDToBindingNUMAs[podUID].Insert(numaID)
+				podUIDToAffinityNUMAs[podUID].Insert(numaID)
 			}
 		}
 	}
 
-	for podUID, numaSet := range podUIDToBindingNUMAs {
+	for podUID, numaSet := range podUIDToAffinityNUMAs {
 		podMemBWReq, found := podUIDToMemBWReq[podUID]
 		if !found {
 			// This might happen if we couldn't get fullPodAllocationInfo earlier
-			general.Warningf("pod: %s is found in podUIDToBindingNUMAs, but not found in podUIDToMemBWReq, skipping", podUID)
+			general.Warningf("pod: %s is found in podUIDToAffinityNUMAs, but not found in podUIDToMemBWReq, skipping", podUID)
 			continue
 		}
 
