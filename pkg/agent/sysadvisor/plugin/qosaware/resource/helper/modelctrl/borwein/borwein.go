@@ -95,20 +95,24 @@ func updateCPUUsageIndicatorOffset(podSet types.PodSet, _ float64, borweinParame
 	}
 
 	var (
-		modelName string
-		strategy  *latencyregression.BorweinStrategy
+		modelName             string
+		strategyName          string
+		strategyDefaultEnable bool
 	)
 	if borweinV3Enabled {
 		modelName = borweinconsts.ModelNameBorweinV3LatencyRegression
+		strategyName = consts.StrategyNameBorweinV3
+		strategyDefaultEnable = conf.EnableBorweinV3
 	} else {
 		modelName = borweinconsts.ModelNameBorweinLatencyRegression
+		strategyName = consts.StrategyNameBorweinV2
+		strategyDefaultEnable = conf.EnableBorweinV2
+	}
 
-		var err error
-		strategy, err = fetchBorweinV2Strategy(conf)
-		if err != nil {
-			general.Warningf("%v strategy is not enabled %v", consts.StrategyNameBorweinV2, err)
-			return 0, err
-		}
+	strategy, err := fetchBorweinStrategy(conf, strategyName, strategyDefaultEnable)
+	if err != nil {
+		general.Warningf("%v strategy is not enabled %v", strategyName, err)
+		return 0, err
 	}
 
 	ret, resultTimestamp, err := latencyregression.GetLatencyRegressionPredictResult(metaReader, modelName, false, podSet)
@@ -150,6 +154,10 @@ func updateCPUUsageIndicatorOffset(podSet types.PodSet, _ float64, borweinParame
 	)
 
 	if borweinV3Enabled {
+		if specialAction, match := latencyregression.MatchSpecialTimes(strategy.StrategySpecialTime,
+			string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio)); match {
+			actionAvg = specialAction
+		}
 		general.InfoS("offset update by borwein",
 			"indicator", string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio),
 			"predictedAvg", predictAvg,
@@ -286,10 +294,9 @@ func (bc *BorweinController) ResetIndicatorOffsets() {
 	}
 }
 
-func fetchBorweinV2Strategy(conf *config.Configuration) (*latencyregression.BorweinStrategy, error) {
+func fetchBorweinStrategy(conf *config.Configuration, strategyName string, defaultEnable bool) (*latencyregression.BorweinStrategy, error) {
 	// get strategy
-	strategyName := consts.StrategyNameBorweinV2
-	strategyContent, enabled, err := strategygroup.GetSpecificStrategyParam(strategyName, conf.EnableBorweinV2, conf)
+	strategyContent, enabled, err := strategygroup.GetSpecificStrategyParam(strategyName, defaultEnable, conf)
 	if err != nil {
 		return nil, fmt.Errorf("get %v grep param error: %v", strategyName, err)
 	}
@@ -302,7 +309,7 @@ func fetchBorweinV2Strategy(conf *config.Configuration) (*latencyregression.Borw
 		return nil, fmt.Errorf("parse %v strategy error: %v", strategyName, err)
 	}
 	// validate
-	if len(strategy.StrategySlots) == 0 {
+	if strategyName == consts.StrategyNameBorweinV2 && len(strategy.StrategySlots) == 0 {
 		return nil, fmt.Errorf("strategy slots is empty")
 	}
 	general.Infof("%v strategy: %+v", strategyName, strategy)
