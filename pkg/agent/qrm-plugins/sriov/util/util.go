@@ -17,10 +17,15 @@ limitations under the License.
 package util
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/util/retry"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -28,6 +33,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 )
 
 const (
@@ -126,4 +133,17 @@ func PackAllocationResponse(conf qrm.SriovAllocationConfig,
 		Labels:      general.DeepCopyMap(req.Labels),
 		Annotations: general.DeepCopyMap(req.Annotations),
 	}, nil
+}
+
+func UpdateSriovVFResultAnnotation(client kubernetes.Interface, allocationInfo *state.AllocationInfo) error {
+	annotationPatch := fmt.Sprintf(`[{"op": "add", "path": "/metadata/annotations/%s", "value": "%s"}]`,
+		apiconsts.PodAnnotationSriovVFResultKey, allocationInfo.VFInfo.PCIAddr)
+
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		_, err := client.CoreV1().Pods(allocationInfo.PodNamespace).Patch(context.Background(), allocationInfo.PodName,
+			types.JSONPatchType, []byte(annotationPatch), metav1.PatchOptions{})
+		return err
+	})
+
+	return err
 }

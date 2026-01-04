@@ -98,12 +98,13 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	general.InfoS("detect host network bonding=%t", hostNetworkBonding)
 
 	policy := &StaticPolicy{
-		name:                    fmt.Sprintf("%s_%s", agentName, consts.SriovResourcePluginPolicyNameStatic),
-		emitter:                 wrappedEmitter,
-		agentCtx:                agentCtx,
-		metaServer:              agentCtx.MetaServer,
-		state:                   stateImpl,
-		stateReconciler:         util.NewStateReconciler(stateImpl, conf.SriovAllocationConfig.PCIAnnotation, runtimeClient),
+		name:       fmt.Sprintf("%s_%s", agentName, consts.SriovResourcePluginPolicyNameStatic),
+		emitter:    wrappedEmitter,
+		agentCtx:   agentCtx,
+		metaServer: agentCtx.MetaServer,
+		state:      stateImpl,
+		stateReconciler: util.NewStateReconciler(stateImpl, conf.SriovAllocationConfig.PCIAnnotation,
+			agentCtx.Client.KubeClient, runtimeClient),
 		qosConfig:               conf.QoSConfiguration,
 		podAnnotationKeptKeys:   conf.PodAnnotationKeptKeys,
 		podLabelKeptKeys:        conf.PodLabelKeptKeys,
@@ -466,6 +467,11 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 	}
 
 	p.state.SetAllocationInfo(req.PodUid, req.ContainerName, allocationInfo, true)
+
+	// try to update sriov vf result annotation, if failed, leave it to state_reconciler to update
+	if err := util.UpdateSriovVFResultAnnotation(p.agentCtx.Client.KubeClient, allocationInfo); err != nil {
+		general.ErrorS(err, "UpdateSriovVFResultAnnotation failed")
+	}
 
 	return util.PackAllocationResponse(p.SriovAllocationConfig, req, allocationInfo)
 }

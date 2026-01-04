@@ -24,8 +24,10 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/kubernetes"
 	cri "k8s.io/cri-api/pkg/apis"
 
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/state"
@@ -39,15 +41,19 @@ import (
 type StateReconciler struct {
 	state          state.State
 	pciAnnotation  string
+	kubeClient     kubernetes.Interface
 	runtimeClient  cri.RuntimeService
 	metaServer     *metaserver.MetaServer
 	residualHitMap map[string]int64
 }
 
-func NewStateReconciler(state state.State, pciAnnotation string, runtimeClient cri.RuntimeService) *StateReconciler {
+func NewStateReconciler(state state.State, pciAnnotation string,
+	kubeClient kubernetes.Interface, runtimeClient cri.RuntimeService,
+) *StateReconciler {
 	return &StateReconciler{
 		state:          state,
 		pciAnnotation:  pciAnnotation,
+		kubeClient:     kubeClient,
 		runtimeClient:  runtimeClient,
 		residualHitMap: make(map[string]int64),
 	}
@@ -80,17 +86,22 @@ func (r *StateReconciler) Reconcile(_ *config.Configuration,
 		errList = append(errList, fmt.Errorf("failed to sync machine state: %w", err))
 	}
 
-	allocationInfoAdded, err := r.addMissingAllocationInfo(runtimePodPCIDevice, metaServer)
-	if err != nil {
-		errList = append(errList, fmt.Errorf("failed to add missing allocation info: %w", err))
-	}
-
 	allocationInfoUpdated, err := r.deleteAbsentAllocationInfo(metaServer)
 	if err != nil {
 		errList = append(errList, fmt.Errorf("failed to delete absent allocation info: %w", err))
 	}
 
-	if !(machineStateUpdated && allocationInfoAdded && allocationInfoUpdated) {
+	allocationInfoAdded, err := r.addMissingAllocationInfo(runtimePodPCIDevice, metaServer)
+	if err != nil {
+		errList = append(errList, fmt.Errorf("failed to add missing allocation info: %w", err))
+	}
+
+	if err := r.updatePodSriovVFResultAnnotation(metaServer); err != nil {
+		errList = append(errList, fmt.Errorf("failed to update pod sriov vf result annotation: %w", err))
+		return
+	}
+
+	if !(machineStateUpdated && allocationInfoUpdated && allocationInfoAdded) {
 		return
 	}
 
@@ -161,47 +172,6 @@ func (r *StateReconciler) syncMachineState(allocatedVFSet sets.String) (bool, er
 	return needStore, nil
 }
 
-func (r *StateReconciler) addMissingAllocationInfo(
-	runtimePodPCIDevice map[string]PCIDevice, metaServer *metaserver.MetaServer,
-) (bool, error) {
-	needStore := false
-	errList := make([]error, 0)
-	machineState := r.state.GetMachineState()
-	for podUID, pciDevice := range runtimePodPCIDevice {
-		allocationInfo := r.state.GetAllocationInfo(podUID, pciDevice.Container)
-		if allocationInfo != nil {
-			continue
-		}
-
-		pod, err := metaServer.GetPod(context.Background(), podUID)
-		if err != nil {
-			errList = append(errList, fmt.Errorf("failed to get pod %s: %w", podUID, err))
-			continue
-		}
-
-		vfState := machineState.Filter(state.FilterByPCIAddr(pciDevice.Address))
-		if len(vfState) != 1 {
-			errList = append(errList, fmt.Errorf("invalid result of filter by PCI address %T", vfState))
-			continue
-		}
-
-		allocationInfo = &state.AllocationInfo{
-			AllocationMeta: commonstate.AllocationMeta{
-				PodUid:        string(pod.UID),
-				PodNamespace:  pod.Namespace,
-				PodName:       pod.Name,
-				ContainerName: pciDevice.Container,
-			},
-			VFInfo: vfState[0],
-		}
-		general.Infof("set allocation info of %s: %v", pciDevice.Container, allocationInfo)
-		r.state.SetAllocationInfo(podUID, pciDevice.Container, allocationInfo, false)
-		needStore = true
-	}
-
-	return needStore, nil
-}
-
 func (r *StateReconciler) deleteAbsentAllocationInfo(metaServer *metaserver.MetaServer) (bool, error) {
 	podList, err := metaServer.GetPodList(context.Background(), nil)
 	if err != nil {
@@ -240,4 +210,70 @@ func (r *StateReconciler) deleteAbsentAllocationInfo(metaServer *metaserver.Meta
 	}
 
 	return len(podsToDelete) > 0, nil
+}
+
+func (r *StateReconciler) addMissingAllocationInfo(
+	runtimePodPCIDevice map[string]PCIDevice, metaServer *metaserver.MetaServer,
+) (bool, error) {
+	needStore := false
+	errList := make([]error, 0)
+	machineState := r.state.GetMachineState()
+	for podUID, pciDevice := range runtimePodPCIDevice {
+		allocationInfo := r.state.GetAllocationInfo(podUID, pciDevice.Container)
+		if allocationInfo != nil {
+			continue
+		}
+
+		pod, err := metaServer.GetPod(context.Background(), podUID)
+		if err != nil {
+			errList = append(errList, fmt.Errorf("failed to get pod %s: %w", podUID, err))
+			continue
+		}
+
+		vfState := machineState.Filter(state.FilterByPCIAddr(pciDevice.Address))
+		if len(vfState) != 1 {
+			errList = append(errList, fmt.Errorf("failed to get vf by PCI address %T for pod %s", vfState, podUID))
+			continue
+		}
+
+		allocationInfo = &state.AllocationInfo{
+			AllocationMeta: commonstate.AllocationMeta{
+				PodUid:        string(pod.UID),
+				PodNamespace:  pod.Namespace,
+				PodName:       pod.Name,
+				ContainerName: pciDevice.Container,
+			},
+			VFInfo: vfState[0],
+		}
+		general.Infof("set allocation info of %s: %v", pciDevice.Container, allocationInfo)
+		r.state.SetAllocationInfo(podUID, pciDevice.Container, allocationInfo, false)
+		needStore = true
+	}
+
+	return needStore, nil
+}
+
+func (r *StateReconciler) updatePodSriovVFResultAnnotation(metaServer *metaserver.MetaServer) error {
+	errList := make([]error, 0)
+	podEntries := r.state.GetPodEntries()
+	for podUID, podEntry := range podEntries {
+		pod, err := metaServer.GetPod(context.Background(), podUID)
+		if err != nil {
+			errList = append(errList, fmt.Errorf("failed to get pod %s: %w", podUID, err))
+			continue
+		}
+		if pod.Annotations[apiconsts.PodAnnotationSriovVFResultKey] != "" {
+			continue
+		}
+
+		for _, allocationInfo := range podEntry {
+			if err := UpdateSriovVFResultAnnotation(r.kubeClient, allocationInfo); err != nil {
+				errList = append(errList, fmt.Errorf(""))
+				return fmt.Errorf("failed to update sriov vf result annotation of %s: %w", podUID, err)
+			}
+			break
+		}
+	}
+
+	return nil
 }
