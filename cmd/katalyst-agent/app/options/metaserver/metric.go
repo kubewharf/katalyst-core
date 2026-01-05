@@ -57,8 +57,9 @@ func NewMetricFetcherOptions() *MetricFetcherOptions {
 
 		DefaultInterval: time.Second * 5,
 		ProvisionerIntervalSecs: map[string]int{
-			metaserver.MetricProvisionerMalachiteRealtime:     1,
-			metaserver.MetricProvisionerMalachiteRealtimeFreq: 1,
+			metaserver.MetricProvisionerMalachiteRealtime:      1,
+			metaserver.MetricProvisionerMalachiteRealtimeFreq:  1,
+			metaserver.MetricProvisionerMalachiteRealtimeMemBW: 1,
 		},
 
 		MalachiteOptions: &MalachiteOptions{},
