@@ -1,5 +1,5 @@
-//go:build amd64 && linux
-// +build amd64,linux
+//go:build linux
+// +build linux
 
 /*
 Copyright 2022 The Katalyst Authors.
@@ -61,6 +61,9 @@ const (
 
 	// MovePagesAcceptableTimeCost is acceptable time cost of each move pages is 20ms
 	MovePagesAcceptableTimeCost = 20
+
+	// MovePagesMinPages is the minimum pages that need to be moved by move pages syscall
+	MovePagesMinPages = 256
 
 	SystemNodeDir = "/sys/devices/system/node/"
 	ProcDir       = "/proc"
@@ -308,9 +311,9 @@ func MovePagesForProcess(ctx context.Context, procDir string, pid int, srcNumas 
 		return nil
 	}
 
-	// needless get getNumasFreeMemRatio after each move_pages,
-	// only call getNumasFreeMemRatio here is enough.
-	dstNumasFreeMemRatio, err := getNumasFreeMemRatio(SystemNodeDir, dstNumas)
+	// needless get getNumasFreePageRatio after each move_pages,
+	// only call getNumasFreePageRatio here is enough.
+	dstNumasFreeMemRatio, err := getNumasFreePageRatio(SystemNodeDir, dstNumas)
 	if err != nil {
 		return err
 	}
@@ -427,7 +430,7 @@ pagesLoop:
 	return utilerrors.NewAggregate(errList)
 }
 
-func getNumaNodeFreeMemMB(systemNodeDir string, nodeID int) (uint64, error) {
+func getNumaNodeFreePages(systemNodeDir string, nodeID int) (uint64, error) {
 	nodeVmstatFile := filepath.Join(systemNodeDir, fmt.Sprintf("node%d/vmstat", nodeID))
 	lines, err := general.ReadFileIntoLines(nodeVmstatFile)
 	if err != nil {
@@ -458,42 +461,41 @@ func getNumaNodeFreeMemMB(systemNodeDir string, nodeID int) (uint64, error) {
 			return 0, fmt.Errorf("invalid line %s in vmstat file %s, err %s", line, nodeVmstatFile, err)
 		}
 
-		return val * 4 / 1024, nil
+		return val, nil
 	}
 
 	return 0, fmt.Errorf("failed to find nr_free_pages in %s", nodeVmstatFile)
 }
 
 // ratio range [1, 10], so return value is an approximate value
-func getNumasFreeMemRatio(systemNodeDir string, numas []int) (map[int]int, error) {
+func getNumasFreePageRatio(systemNodeDir string, numas []int) (map[int]int, error) {
 	var totalSize uint64
-	numaFreeMem := make(map[int]uint64)
+	numaFreePages := make(map[int]uint64)
 	for _, n := range numas {
-		freeMemSize, err := getNumaNodeFreeMemMB(systemNodeDir, n)
+		freePages, err := getNumaNodeFreePages(systemNodeDir, n)
 		if err != nil {
 			return nil, fmt.Errorf("failed to getNumaNodeFreeMem for node %d, err %s", n, err)
 		}
 
-		numaFreeMem[n] = freeMemSize
-		totalSize += freeMemSize
+		if freePages < MovePagesMinPages {
+			continue
+		}
+
+		numaFreePages[n] = freePages
+		totalSize += freePages
 	}
 
-	// convert numa free memory ratio to a approximate value which is in the range [1, 10]
-	var fraction uint64 = 1
-	if totalSize > 10 {
-		fraction = (totalSize + 10) / 10
-	}
-
-	numaFreeMemRatio := make(map[int]int)
-	for numaID, freeMemSize := range numaFreeMem {
-		val := freeMemSize / fraction
+	// convert numa free page ratio to a approximate value which is in the range [1, 10]
+	numaFreePageRatio := make(map[int]int)
+	for numaID, freePages := range numaFreePages {
+		val := freePages * 10 / totalSize
 		if val == 0 {
 			continue
 		}
-		numaFreeMemRatio[numaID] = int(val)
+		numaFreePageRatio[numaID] = int(val)
 	}
 
-	return numaFreeMemRatio, nil
+	return numaFreePageRatio, nil
 }
 
 func getProcessPageStats(procDir string, pid int) (*smapsInfo, error) {

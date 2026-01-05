@@ -1,5 +1,5 @@
-//go:build !amd64 || !linux
-// +build !amd64 !linux
+//go:build !linux
+// +build !linux
 
 /*
 Copyright 2022 The Katalyst Authors.
