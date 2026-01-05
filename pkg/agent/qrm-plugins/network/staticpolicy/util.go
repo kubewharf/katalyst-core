@@ -197,6 +197,14 @@ func filterNICsByHint(nics []machine.InterfaceInfo, req *pluginapi.ResourceReque
 		}
 	}
 
+	if len(hintMatchedNICs) == 0 {
+		general.InfoS("nic list returned by filterNICsByHint is empty",
+			"hint", req.Hint,
+			"podNamespace", req.PodNamespace,
+			"podName", req.PodName,
+			"containerName", req.ContainerName)
+	}
+
 	if exactlyMatchNIC != nil {
 		return []machine.InterfaceInfo{*exactlyMatchNIC}
 	} else {
