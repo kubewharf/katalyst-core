@@ -166,7 +166,7 @@ func (r *StateReconciler) syncMachineState(allocatedVFSet sets.String) (bool, er
 		needStore = true
 	}
 	if needStore {
-		r.state.SetMachineState(machineState, false)
+		r.state.SetMachineState(machineState, true)
 	}
 
 	return needStore, nil

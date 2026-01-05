@@ -28,6 +28,7 @@ type SriovQRMPluginConfig struct {
 }
 
 type SriovAllocationConfig struct {
+	DryRun           bool
 	PCIAnnotation    string
 	ExtraAnnotations map[string]string
 }

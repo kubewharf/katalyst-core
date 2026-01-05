@@ -72,7 +72,7 @@ func (s *sriovPluginState) SetAllocationInfo(podUID, containerName string, alloc
 	}
 
 	s.podEntries[podUID][containerName] = allocationInfo.Clone()
-	generalLog.InfoS("updated network plugin pod resource entries",
+	generalLog.InfoS("updated sriov plugin pod resource entries",
 		"podUID", podUID, "allocationInfo", allocationInfo.String())
 }
 

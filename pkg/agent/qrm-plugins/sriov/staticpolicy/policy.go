@@ -184,23 +184,13 @@ func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 		return nil, fmt.Errorf("ValidateRequestQuantity failed with error: %v", err)
 	}
 
-	general.InfoS("called",
-		"podNamespace", req.PodNamespace,
-		"podName", req.PodName,
-		"containerName", req.ContainerName,
-		"resourceRequests", req.ResourceRequests,
-		"reqAnnotations", req.Annotations)
+	general.InfoS("called", "request", req)
 
 	p.RLock()
 	defer func() {
 		p.RUnlock()
 		if err != nil {
-			general.ErrorS(err, "GetTopologyHints failed",
-				"podNamespace", req.PodNamespace,
-				"podName", req.PodName,
-				"containerName", req.ContainerName,
-				"resourceRequests", req.ResourceRequests,
-				"reqAnnotations", req.Annotations)
+			general.ErrorS(err, "GetTopologyHints failed", "request", req)
 			_ = p.emitter.StoreInt64(qrmutil.MetricNameGetTopologyHintsFailed, 1, metrics.MetricTypeNameRaw,
 				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)})
 		}
@@ -246,13 +236,24 @@ func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 		})
 	}
 
-	return qrmutil.PackResourceHintsResponse(req, p.ResourceName(),
+	resp, err = qrmutil.PackResourceHintsResponse(req, p.ResourceName(),
 		map[string]*pluginapi.ListOfTopologyHints{
 			p.ResourceName(): {
 				Hints: hints,
 			},
 		},
 	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to pack resource hints response: %v", err)
+	}
+
+	general.InfoS("finished", "response", resp)
+
+	if p.DryRun {
+		resp.ResourceHints = nil
+	}
+
+	return resp, nil
 }
 
 // GetPodTopologyHints returns hints of corresponding resources for pod
@@ -279,7 +280,9 @@ func (p *StaticPolicy) RemovePod(_ context.Context,
 		}
 	}()
 
-	p.state.Delete(req.PodUid, true)
+	if !p.DryRun {
+		p.state.Delete(req.PodUid, true)
+	}
 
 	return &pluginapi.RemovePodResponse{}, nil
 }
@@ -410,23 +413,13 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 		return nil, err
 	}
 
-	general.InfoS("called",
-		"podNamespace", req.PodNamespace,
-		"podName", req.PodName,
-		"containerName", req.ContainerName,
-		"resourceRequests", req.ResourceRequests,
-		"reqAnnotations", req.Annotations)
+	general.InfoS("called", "request", req)
 
 	p.Lock()
 	defer func() {
 		p.Unlock()
 		if err != nil {
-			general.ErrorS(err, "Allocate failed",
-				"podNamespace", req.PodNamespace,
-				"podName", req.PodName,
-				"containerName", req.ContainerName,
-				"resourceRequests", req.ResourceRequests,
-				"reqAnnotations", req.Annotations)
+			general.ErrorS(err, "Allocate failed", "request", req)
 			_ = p.emitter.StoreInt64(qrmutil.MetricNameAllocateFailed, 1, metrics.MetricTypeNameRaw,
 				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)})
 		}
@@ -473,7 +466,18 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 		general.ErrorS(err, "UpdateSriovVFResultAnnotation failed")
 	}
 
-	return util.PackAllocationResponse(p.SriovAllocationConfig, req, allocationInfo)
+	resp, err = util.PackAllocationResponse(p.SriovAllocationConfig, req, allocationInfo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to pack allocation response: %v", err)
+	}
+
+	general.InfoS("finished", "response", resp)
+
+	if p.DryRun {
+		resp.AllocationResult = nil
+	}
+
+	return resp, nil
 }
 
 // AllocateForPod is called during pod admit so that the resource

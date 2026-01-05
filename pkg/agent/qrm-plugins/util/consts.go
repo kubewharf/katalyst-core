@@ -58,6 +58,10 @@ const (
 	MetricNameMemoryNumaBalanceCost                   = "memory_numa_balance_cost"
 	MetricNameMemoryNumaBalanceResult                 = "memory_numa_balance_result"
 
+	// metrics for sriov plugin
+	MetricNameSriovDynamicPolicyAugmentTopologyHintsFailed    = "sriov_dynamic_policy_augment_topology_hints_failed"
+	MetricNameSriovDynamicPolicyAugmentAllocationResultFailed = "sriov_dynamic_policy_augment_allocation_result_failed"
+
 	// metrics for some cases
 	MetricNameShareCoresNoEnoughResourceFailed = "share_cores_no_enough_resource"
 

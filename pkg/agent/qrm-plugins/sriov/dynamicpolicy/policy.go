@@ -143,23 +143,15 @@ func (p *DynamicPolicy) AugmentTopologyHints(req *pluginapi.ResourceRequest, hin
 		return fmt.Errorf("AugmentTopologyHints got nil req")
 	}
 
-	general.InfoS("called",
-		"podNamespace", req.PodNamespace,
-		"podName", req.PodName,
-		"containerName", req.ContainerName,
-		"resourceRequests", req.ResourceRequests,
-		"reqAnnotations", req.Annotations)
+	general.InfoS("called", "request", req, "hints", hints)
 
 	p.RLock()
 	defer func() {
 		p.RUnlock()
 		if err != nil {
-			general.ErrorS(err, "AugmentTopologyHints failed",
-				"podNamespace", req.PodNamespace,
-				"podName", req.PodName,
-				"containerName", req.ContainerName,
-				"resourceRequests", req.ResourceRequests,
-				"reqAnnotations", req.Annotations)
+			general.ErrorS(err, "AugmentTopologyHints failed", "request", req, "hints", hints)
+			_ = p.emitter.StoreInt64(qrmutil.MetricNameSriovDynamicPolicyAugmentTopologyHintsFailed, 1, metrics.MetricTypeNameRaw,
+				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)})
 		}
 	}()
 
@@ -204,12 +196,23 @@ func (p *DynamicPolicy) AugmentTopologyHints(req *pluginapi.ResourceRequest, hin
 	socketSet := p.agentCtx.CPUDetails.SocketsInNUMANodes(numaSet.ToSliceInt()...)
 	numaNodesInSocketSet := p.agentCtx.CPUDetails.NUMANodesInSockets(socketSet.ToSliceInt()...)
 
+	augmentedHints := make([]*pluginapi.TopologyHint, 0, len(hints.Hints))
+
 	for _, hint := range hints.Hints {
 		if hint == nil {
 			continue
 		}
 		hintNumaSet, _ := machine.NewCPUSetUint64(hint.Nodes...)
-		hint.Preferred = hint.Preferred && hintNumaSet.IsSubsetOf(numaNodesInSocketSet)
+		augmentedHints = append(augmentedHints, &pluginapi.TopologyHint{
+			Nodes:     hint.Nodes,
+			Preferred: hint.Preferred && hintNumaSet.IsSubsetOf(numaNodesInSocketSet),
+		})
+	}
+
+	general.InfoS("finished", "request", req, "originHints", hints, "augmentedHints", augmentedHints)
+
+	if !p.DryRun {
+		hints.Hints = augmentedHints
 	}
 
 	return nil
@@ -221,12 +224,7 @@ func (p *DynamicPolicy) AugmentAllocationResult(req *pluginapi.ResourceRequest, 
 		return fmt.Errorf("Allocate got nil req")
 	}
 
-	general.InfoS("called",
-		"podNamespace", req.PodNamespace,
-		"podName", req.PodName,
-		"containerName", req.ContainerName,
-		"resourceRequests", req.ResourceRequests,
-		"reqAnnotations", req.Annotations)
+	general.InfoS("called", "request", req)
 
 	qosLevel, err := qrmutil.GetKatalystQoSLevelFromResourceReq(p.qosConfig, req, p.podAnnotationKeptKeys, p.podLabelKeptKeys)
 	if err != nil {
@@ -240,18 +238,18 @@ func (p *DynamicPolicy) AugmentAllocationResult(req *pluginapi.ResourceRequest, 
 	defer func() {
 		p.Unlock()
 		if err != nil {
-			general.ErrorS(err, "Allocate failed",
-				"podNamespace", req.PodNamespace,
-				"podName", req.PodName,
-				"containerName", req.ContainerName,
-				"resourceRequests", req.ResourceRequests,
-				"reqAnnotations", req.Annotations)
+			general.ErrorS(err, "AugmentAllocationResult failed", "request", req)
+			_ = p.emitter.StoreInt64(qrmutil.MetricNameSriovDynamicPolicyAugmentAllocationResultFailed, 1, metrics.MetricTypeNameRaw,
+				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)})
 		}
 	}()
 
 	// reuse allocation info allocated by same pod and container
 	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
 	if allocationInfo != nil {
+		if p.DryRun {
+			return nil
+		}
 		return addAllocationInfoToResponse(p.SriovAllocationConfig, allocationInfo, resp)
 	}
 
@@ -294,11 +292,13 @@ func (p *DynamicPolicy) AugmentAllocationResult(req *pluginapi.ResourceRequest, 
 		VFInfo: candidates[0],
 	}
 
-	if err := addAllocationInfoToResponse(p.SriovAllocationConfig, allocationInfo, resp); err != nil {
-		return fmt.Errorf("addAllocationInfoToResponse failed with error: %v", err)
-	}
+	general.InfoS("augment allocation result", "request", req, "allocationInfo", allocationInfo)
 
 	p.state.SetAllocationInfo(req.PodUid, req.ContainerName, allocationInfo, true)
+
+	if p.DryRun {
+		return nil
+	}
 
 	// try to update sriov vf result annotation, if failed, leave it to state_reconciler to update
 	if err := util.UpdateSriovVFResultAnnotation(p.agentCtx.Client.KubeClient, allocationInfo); err != nil {
