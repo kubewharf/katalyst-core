@@ -19,7 +19,7 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/h2non/gock v1.2.0
 	github.com/klauspost/cpuid/v2 v2.2.6
-	github.com/kubewharf/katalyst-api v0.5.9-0.20251226033202-b56ae9d0382b
+	github.com/kubewharf/katalyst-api v0.5.9-0.20260105114159-f6b016ef885e
 	github.com/moby/sys/mountinfo v0.6.2
 	github.com/montanaflynn/stats v0.7.1
 	github.com/opencontainers/runc v1.1.6
@@ -67,7 +67,7 @@ require (
 	k8s.io/kubelet v0.24.6
 	k8s.io/kubernetes v1.24.16
 	k8s.io/metrics v0.25.0
-	k8s.io/utils v0.0.0-20221108210102-8e77b1f39fe2
+	k8s.io/utils v0.0.0-20240711033017-18e509b52bc8
 	sigs.k8s.io/controller-runtime v0.11.2
 	sigs.k8s.io/custom-metrics-apiserver v1.24.0
 	sigs.k8s.io/descheduler v0.24.0
