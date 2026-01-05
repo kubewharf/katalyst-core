@@ -131,7 +131,7 @@ func (p *gpuReporterPlugin) GetReportContent(_ context.Context, _ *v1alpha1.Empt
 	}
 	if !ready {
 		general.Infof("device topology is not ready yet")
-		return nil, nil
+		return nil, fmt.Errorf("device topology is not ready yet")
 	}
 
 	resourceProperty := p.getGPUResourceProperty(deviceTopology)
