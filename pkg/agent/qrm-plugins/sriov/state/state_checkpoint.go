@@ -74,6 +74,7 @@ func NewCheckpointState(
 		skipStateCorruption: skipStateCorruption,
 		emitter:             emitter,
 		conf:                conf,
+		machineConf:         machineInfoConf,
 	}
 
 	cm, err := customcheckpointmanager.NewCustomCheckpointManager(currentStateDir, otherStateDir, checkpointName,

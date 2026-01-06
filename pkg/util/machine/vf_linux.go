@@ -161,7 +161,7 @@ func GetNSNetworkVFs(nsName, netNSDirAbsPath string) ([]VFInterfaceInfo, error) 
 
 				vf.RepName, err = GetVfRepresentor(sysFsDir, pf.Name, vf.VfID)
 				if err != nil {
-					klog.Errorf("get vf representor failed, error: %s", err.Error())
+					klog.Errorf("get vf %d representor failed of %s, error: %s", pf.Name, err.Error())
 					continue
 				}
 
