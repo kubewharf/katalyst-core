@@ -95,7 +95,7 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	if err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("IsHostNetworkBonding failed with error: %v", err)
 	}
-	general.InfoS("detect host network bonding=%t", hostNetworkBonding)
+	general.Infof("detect host network bonding=%t", hostNetworkBonding)
 
 	policy := &StaticPolicy{
 		name:       fmt.Sprintf("%s_%s", agentName, consts.SriovResourcePluginPolicyNameStatic),
