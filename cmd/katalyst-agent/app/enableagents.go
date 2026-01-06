@@ -27,6 +27,7 @@ import (
 	_ "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/io"
 	_ "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory"
 	_ "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network"
+	_ "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler"
 	phconsts "github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler/consts"
 )
