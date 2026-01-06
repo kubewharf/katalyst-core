@@ -7,10 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/safchain/ethtool"
 	"github.com/vishvananda/netlink"
 	"k8s.io/klog/v2"
+
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 )
 
 type DriverType string
@@ -122,7 +123,7 @@ func GetNSNetworkVFs(nsName, netNSDirAbsPath string) ([]VFInterfaceInfo, error) 
 	}
 
 	var vfs []VFInterfaceInfo
-	var pfMap = map[string]*InterfaceInfo{}
+	var pfMap = map[string]InterfaceInfo{}
 
 	err = DoNetNS(nsName, netNSDirAbsPath, func(sysFsDir string) error {
 		nicsBaseDirPath := path.Join(sysFsDir, nicPathNAMEBaseDir)
@@ -140,7 +141,7 @@ func GetNSNetworkVFs(nsName, netNSDirAbsPath string) ([]VFInterfaceInfo, error) 
 				continue
 			}
 
-			pfMap[nic.Name] = &nic
+			pfMap[nic.Name] = nic
 			klog.Infof("pf nic %s detected", nic.Name)
 		}
 

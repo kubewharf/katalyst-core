@@ -8,7 +8,7 @@ import (
 )
 
 type VFInterfaceInfo struct {
-	PFInfo *InterfaceInfo
+	PFInfo InterfaceInfo
 	// RepName is the name of the representor device for this VF. (e.g., eth0_1)
 	RepName string
 	// VfID The ID of the VF (e.g., 0, 1, 2...)
