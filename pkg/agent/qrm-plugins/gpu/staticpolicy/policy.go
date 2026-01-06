@@ -57,6 +57,10 @@ type StaticPolicy struct {
 	stopCh  chan struct{}
 	started bool
 
+	// stateReady is a flag that determines if the state is ready.
+	// state is only ready after UpdateAllocatableAssociatedDevices is called.
+	stateReady bool
+
 	emitter metrics.MetricEmitter
 
 	residualHitMap map[string]int64
@@ -97,12 +101,6 @@ func NewStaticPolicy(
 	}
 	if err = policyImplement.registerDefaultCustomDevicePlugins(); err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("failed to register custom device plugins: %w", err)
-	}
-
-	// init state must be done after resource plugins and custom device plugins are registered
-	err = policyImplement.InitState()
-	if err != nil {
-		return false, agent.ComponentStub{}, fmt.Errorf("failed to init state: %w", err)
 	}
 
 	pluginWrapper, err := skeleton.NewRegistrationPluginWrapper(policyImplement, conf.QRMPluginSocketDirs,
@@ -196,6 +194,10 @@ func (p *StaticPolicy) GetTopologyHints(
 	req *pluginapi.ResourceRequest,
 ) (resp *pluginapi.ResourceHintsResponse, err error) {
 	general.InfofV(4, "called")
+	if !p.stateReady {
+		return nil, fmt.Errorf("state is not ready")
+	}
+
 	if req == nil {
 		return nil, fmt.Errorf("GetTopologyHints got nil req")
 	}
@@ -222,6 +224,10 @@ func (p *StaticPolicy) RemovePod(
 	ctx context.Context,
 	req *pluginapi.RemovePodRequest,
 ) (*pluginapi.RemovePodResponse, error) {
+	if !p.stateReady {
+		return nil, fmt.Errorf("state is not ready")
+	}
+
 	if req == nil {
 		return nil, fmt.Errorf("RemovePod got nil req")
 	}
@@ -255,6 +261,9 @@ func (p *StaticPolicy) GetTopologyAwareResources(
 	general.InfofV(4, "called")
 	if req == nil {
 		return nil, fmt.Errorf("GetTopologyAwareResources got nil req")
+	}
+	if !p.stateReady {
+		return nil, fmt.Errorf("state is not ready")
 	}
 
 	p.RLock()
@@ -339,6 +348,10 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(
 	req *pluginapi.GetTopologyAwareAllocatableResourcesRequest,
 ) (*pluginapi.GetTopologyAwareAllocatableResourcesResponse, error) {
 	general.InfofV(4, "called")
+	if !p.stateReady {
+		return nil, fmt.Errorf("state is not ready")
+	}
+
 	if req == nil {
 		return nil, fmt.Errorf("GetTopologyAwareAllocatableResources got nil req")
 	}
@@ -387,6 +400,10 @@ func (p *StaticPolicy) Allocate(
 	ctx context.Context,
 	req *pluginapi.ResourceRequest,
 ) (resp *pluginapi.ResourceAllocationResponse, err error) {
+	if !p.stateReady {
+		return nil, fmt.Errorf("state is not ready")
+	}
+
 	if req == nil {
 		return nil, fmt.Errorf("GetTopologyHints got nil req")
 	}
@@ -498,6 +515,10 @@ func (p *StaticPolicy) clearResidualState(
 	_ metrics.MetricEmitter,
 	_ *metaserver.MetaServer,
 ) {
+	if !p.stateReady {
+		return
+	}
+
 	general.Infof("exec")
 	var (
 		err     error
@@ -593,7 +614,19 @@ func (p *StaticPolicy) UpdateAllocatableAssociatedDevices(
 		return nil, fmt.Errorf("no custom device plugin found for device %s", request.DeviceName)
 	}
 
-	return customDevicePlugin.UpdateAllocatableAssociatedDevices(ctx, request)
+	resp, err := customDevicePlugin.UpdateAllocatableAssociatedDevices(ctx, request)
+	if err != nil {
+		return nil, fmt.Errorf("custom device plugin UpdateAllocatableAssociatedDevices failed with error: %v", err)
+	}
+
+	// init state only after topology has been updated
+	if err = p.InitState(); err != nil {
+		return nil, fmt.Errorf("init state failed: %v", err)
+	}
+
+	p.stateReady = true
+
+	return resp, nil
 }
 
 func (*StaticPolicy) GetAssociatedDeviceTopologyHints(
@@ -608,6 +641,10 @@ func (*StaticPolicy) GetAssociatedDeviceTopologyHints(
 func (p *StaticPolicy) AllocateAssociatedDevice(
 	ctx context.Context, req *pluginapi.AssociatedDeviceRequest,
 ) (resp *pluginapi.AssociatedDeviceAllocationResponse, respErr error) {
+	if !p.stateReady {
+		return nil, fmt.Errorf("state is not ready")
+	}
+
 	var isAccompanyResourcePlugin bool
 	var isAccompanyCustomDevicePlugin bool
 	if req == nil || req.ResourceRequest == nil || req.DeviceRequest == nil {
