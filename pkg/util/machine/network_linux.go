@@ -277,6 +277,13 @@ func getInterfaceAttr(info *InterfaceInfo, nicPath string) {
 	} else {
 		info.Speed = nicSpeed
 	}
+
+	pciAddr, err := GetNicPCIAddr(nicPath)
+	if err != nil {
+		general.Errorf("failed to get pci addr from ns %v name %v, err: %v", info.NSName, info.Name, err)
+	} else {
+		info.PCIAddr = pciAddr
+	}
 }
 
 func getIfIndexFromSys(nicsBaseDirPath, nicName string) (int, error) {
