@@ -247,7 +247,7 @@ func (cm *customCheckpointManager) updateCacheAndReturnChanged(
 		}
 	}
 
-	klog.InfoS("[%v] State checkpoint: restored state from checkpoint", cm.pluginName)
+	klog.Infof("[%v] State checkpoint: restored state from checkpoint", cm.pluginName)
 	return hasStateChanged, nil
 }
 

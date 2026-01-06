@@ -26,7 +26,6 @@ import (
 	"k8s.io/utils/strings/slices"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
-	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 type DeviceTopologyProvider interface {
@@ -274,17 +273,13 @@ type deviceTopologyProviderImpl struct {
 }
 
 func NewDeviceTopologyProvider(resourceNames []string) DeviceTopologyProvider {
-	deviceTopology, err := initDeviceTopology(resourceNames)
-	if err != nil {
-		deviceTopology = getEmptyDeviceTopology()
-		general.Warningf("initDeviceTopology failed with error: %v", err)
-	} else {
-		general.Infof("initDeviceTopology success: %v", deviceTopology)
+	deviceTopology := &DeviceTopology{
+		Devices: make(map[string]DeviceInfo),
 	}
 
 	return &deviceTopologyProviderImpl{
-		resourceNames:  resourceNames,
 		deviceTopology: deviceTopology,
+		resourceNames:  resourceNames,
 	}
 }
 
@@ -309,36 +304,6 @@ func (p *deviceTopologyProviderImpl) GetDeviceTopology() (*DeviceTopology, bool,
 	}
 
 	return p.deviceTopology, p.numaTopologyReady, nil
-}
-
-func getEmptyDeviceTopology() *DeviceTopology {
-	return &DeviceTopology{
-		Devices: make(map[string]DeviceInfo),
-	}
-}
-
-func initDeviceTopology(resourceNames []string) (*DeviceTopology, error) {
-	deviceTopology := getEmptyDeviceTopology()
-
-	kubeletCheckpoint, err := native.GetKubeletCheckpoint()
-	if err != nil {
-		general.Errorf("Failed to get kubelet checkpoint: %v", err)
-		return deviceTopology, nil
-	}
-
-	_, registeredDevs := kubeletCheckpoint.GetDataInLatestFormat()
-	for _, resourceName := range resourceNames {
-		devices, ok := registeredDevs[resourceName]
-		if !ok {
-			continue
-		}
-
-		for _, id := range devices {
-			// get NUMA node from UpdateAllocatableAssociatedDevices
-			deviceTopology.Devices[id] = DeviceInfo{}
-		}
-	}
-	return deviceTopology, nil
 }
 
 func checkDeviceNUMATopologyReady(topology *DeviceTopology) bool {

@@ -246,6 +246,8 @@ func (p *BasePlugin) GetResourceTypeFromDeviceName(deviceName string) (string, e
 }
 
 // RegisterTopologyAffinityProvider is a hook to set device affinity for a certain device type
-func (p *BasePlugin) RegisterTopologyAffinityProvider(deviceType string, deviceAffinityProvider machine.DeviceAffinityProvider) {
+func (p *BasePlugin) RegisterTopologyAffinityProvider(
+	deviceType string, deviceAffinityProvider machine.DeviceAffinityProvider,
+) {
 	p.DeviceTopologyRegistry.RegisterTopologyAffinityProvider(deviceType, deviceAffinityProvider)
 }
