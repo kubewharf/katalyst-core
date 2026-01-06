@@ -135,8 +135,8 @@ func GetNSNetworkVFs(nsName, netNSDirAbsPath string) ([]VFInterfaceInfo, error) 
 			}
 
 			sriovPath := filepath.Join(nicsBaseDirPath, nic.Name, netFileNameNumVFS)
-			if _, err = os.Stat(sriovPath); err == nil {
-				klog.Infof("sriov %s already exists", sriovPath)
+			if _, err = os.Stat(sriovPath); err != nil {
+				klog.Infof("sriov %s not exists", sriovPath)
 				continue
 			}
 
