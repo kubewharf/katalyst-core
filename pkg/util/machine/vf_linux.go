@@ -146,7 +146,7 @@ func GetNSNetworkVFs(nsName, netNSDirAbsPath string) ([]VFInterfaceInfo, error) 
 		}
 
 		for _, pf := range pfMap {
-			vfMap, err := GetVfMapFromPF(sysFsDir, pf.Name)
+			vfMap, err := GetVfMapFromPF(sysFsDir, pf.PCIAddr)
 			if err != nil {
 				klog.Errorf("get vf map from pf %s failed, error: %s", pf.Name, err.Error())
 				continue
