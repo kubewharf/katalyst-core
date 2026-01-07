@@ -59,7 +59,7 @@ func NewGPUDevicePlugin(base *baseplugin.BasePlugin) customdeviceplugin.CustomDe
 	}
 }
 
-func (p *GPUDevicePlugin) DefaultAccompanyResourceName() string {
+func (p *GPUDevicePlugin) DefaultPreAllocateResourceName() string {
 	return defaultAccompanyResourceName
 }
 
@@ -67,11 +67,15 @@ func (p *GPUDevicePlugin) DeviceNames() []string {
 	return p.deviceNames
 }
 
-func (p *GPUDevicePlugin) UpdateAllocatableAssociatedDevices(ctx context.Context, request *pluginapi.UpdateAllocatableAssociatedDevicesRequest) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error) {
+func (p *GPUDevicePlugin) UpdateAllocatableAssociatedDevices(
+	ctx context.Context, request *pluginapi.UpdateAllocatableAssociatedDevicesRequest,
+) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error) {
 	return p.UpdateAllocatableAssociatedDevicesByDeviceType(request, gpuconsts.GPUDeviceType)
 }
 
-func (p *GPUDevicePlugin) GetAssociatedDeviceTopologyHints(context.Context, *pluginapi.AssociatedDeviceRequest) (*pluginapi.AssociatedDeviceHintsResponse, error) {
+func (p *GPUDevicePlugin) GetAssociatedDeviceTopologyHints(
+	context.Context, *pluginapi.AssociatedDeviceRequest,
+) (*pluginapi.AssociatedDeviceHintsResponse, error) {
 	return &pluginapi.AssociatedDeviceHintsResponse{}, nil
 }
 
@@ -101,7 +105,7 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 		"deviceRequest", deviceReq.DeviceRequest,
 	)
 
-	gpuAllocationInfo := p.State.GetAllocationInfo(gpuconsts.GPUDeviceType, resReq.PodUid, resReq.ContainerName)
+	gpuAllocationInfo := p.GetState().GetAllocationInfo(gpuconsts.GPUDeviceType, resReq.PodUid, resReq.ContainerName)
 	if gpuAllocationInfo != nil {
 		if gpuAllocationInfo.TopologyAwareAllocations == nil {
 			return nil, fmt.Errorf("GPU topology aware allocation info is nil")
@@ -118,7 +122,7 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 	}
 
 	var allocatedDevices []string
-	memoryAllocationInfo := p.State.GetAllocationInfo(v1.ResourceName(defaultAccompanyResourceName), resReq.PodUid, resReq.ContainerName)
+	memoryAllocationInfo := p.GetState().GetAllocationInfo(v1.ResourceName(defaultAccompanyResourceName), resReq.PodUid, resReq.ContainerName)
 	// GPU memory should have been allocated at this stage.
 	// We anticipate that gpu devices have also been allocated, so we can directly use the allocated devices from the gpu memory state.
 	if memoryAllocationInfo == nil || memoryAllocationInfo.TopologyAwareAllocations == nil {
@@ -148,7 +152,7 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 			p.Conf.GPUQRMPluginConfig,
 			p.Emitter,
 			p.MetaServer,
-			p.State.GetMachineState(),
+			p.GetState().GetMachineState(),
 			qosLevel,
 		)
 		if err != nil {
@@ -205,12 +209,12 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 	gpuDeviceAllocationInfo.TopologyAwareAllocations = gpuDeviceTopologyAwareAllocations
 
 	// TODO：State can be updated using the actual resource name
-	p.State.SetAllocationInfo(gpuconsts.GPUDeviceType, resReq.PodUid, resReq.ContainerName, gpuDeviceAllocationInfo, false)
+	p.GetState().SetAllocationInfo(gpuconsts.GPUDeviceType, resReq.PodUid, resReq.ContainerName, gpuDeviceAllocationInfo, false)
 	resourceState, err := p.GenerateResourceStateFromPodEntries(gpuconsts.GPUDeviceType, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate gpu device state from pod entries: %v", err)
 	}
-	p.State.SetResourceState(gpuconsts.GPUDeviceType, resourceState, true)
+	p.GetState().SetResourceState(gpuconsts.GPUDeviceType, resourceState, true)
 
 	general.InfoS("allocated gpu devices",
 		"podNamespace", resReq.PodNamespace,

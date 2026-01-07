@@ -61,6 +61,10 @@ type stateCheckpoint struct {
 }
 
 func (s *stateCheckpoint) SetMachineState(allocationResourcesMap AllocationResourcesMap, persist bool) {
+	if s == nil {
+		return
+	}
+
 	s.Lock()
 	defer s.Unlock()
 
@@ -74,6 +78,10 @@ func (s *stateCheckpoint) SetMachineState(allocationResourcesMap AllocationResou
 }
 
 func (s *stateCheckpoint) SetResourceState(resourceName v1.ResourceName, allocationMap AllocationMap, persist bool) {
+	if s == nil {
+		return
+	}
+
 	s.Lock()
 	defer s.Unlock()
 
@@ -87,6 +95,10 @@ func (s *stateCheckpoint) SetResourceState(resourceName v1.ResourceName, allocat
 }
 
 func (s *stateCheckpoint) SetPodResourceEntries(podResourceEntries PodResourceEntries, persist bool) {
+	if s == nil {
+		return
+	}
+
 	s.Lock()
 	defer s.Unlock()
 
@@ -102,6 +114,10 @@ func (s *stateCheckpoint) SetPodResourceEntries(podResourceEntries PodResourceEn
 func (s *stateCheckpoint) SetAllocationInfo(
 	resourceName v1.ResourceName, podUID, containerName string, allocationInfo *AllocationInfo, persist bool,
 ) {
+	if s == nil {
+		return
+	}
+
 	s.Lock()
 	defer s.Unlock()
 
@@ -115,6 +131,10 @@ func (s *stateCheckpoint) SetAllocationInfo(
 }
 
 func (s *stateCheckpoint) Delete(resourceName v1.ResourceName, podUID, containerName string, persist bool) {
+	if s == nil {
+		return
+	}
+
 	s.Lock()
 	defer s.Unlock()
 
@@ -128,6 +148,10 @@ func (s *stateCheckpoint) Delete(resourceName v1.ResourceName, podUID, container
 }
 
 func (s *stateCheckpoint) ClearState() {
+	if s == nil {
+		return
+	}
+
 	s.Lock()
 	defer s.Unlock()
 
@@ -139,12 +163,21 @@ func (s *stateCheckpoint) ClearState() {
 }
 
 func (s *stateCheckpoint) StoreState() error {
+	if s == nil {
+		return nil
+	}
+
 	s.Lock()
 	defer s.Unlock()
+
 	return s.storeState()
 }
 
 func (s *stateCheckpoint) GetMachineState() AllocationResourcesMap {
+	if s == nil {
+		return nil
+	}
+
 	s.RLock()
 	defer s.RUnlock()
 
@@ -152,6 +185,10 @@ func (s *stateCheckpoint) GetMachineState() AllocationResourcesMap {
 }
 
 func (s *stateCheckpoint) GetPodResourceEntries() PodResourceEntries {
+	if s == nil {
+		return nil
+	}
+
 	s.RLock()
 	defer s.RUnlock()
 
@@ -159,6 +196,10 @@ func (s *stateCheckpoint) GetPodResourceEntries() PodResourceEntries {
 }
 
 func (s *stateCheckpoint) GetPodEntries(resourceName v1.ResourceName) PodEntries {
+	if s == nil {
+		return nil
+	}
+
 	s.RLock()
 	defer s.RUnlock()
 
@@ -168,6 +209,10 @@ func (s *stateCheckpoint) GetPodEntries(resourceName v1.ResourceName) PodEntries
 func (s *stateCheckpoint) GetAllocationInfo(
 	resourceName v1.ResourceName, podUID, containerName string,
 ) *AllocationInfo {
+	if s == nil {
+		return nil
+	}
+
 	s.RLock()
 	defer s.RUnlock()
 

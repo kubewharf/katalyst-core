@@ -135,17 +135,17 @@ func makeTestStaticPolicy(t *testing.T) *StaticPolicy {
 		AgentCtx:                              agentCtx,
 		PodAnnotationKeptKeys:                 []string{},
 		PodLabelKeptKeys:                      []string{},
-		State:                                 stateImpl,
 		DeviceTopologyRegistry:                deviceTopologyRegistry,
 		DefaultResourceStateGeneratorRegistry: state.NewDefaultResourceStateGeneratorRegistry(),
 	}
+
+	basePlugin.SetState(stateImpl)
 
 	staticPolicy := &StaticPolicy{
 		BasePlugin:            basePlugin,
 		resourcePlugins:       make(map[string]resourceplugin.ResourcePlugin),
 		customDevicePlugins:   make(map[string]customdeviceplugin.CustomDevicePlugin),
 		associatedDeviceNames: sets.NewString(),
-		stateReady:            true,
 	}
 
 	err = staticPolicy.registerDefaultResourcePlugins()
@@ -187,7 +187,7 @@ func TestStaticPolicy_Allocate(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Check state
-	stateImpl := policy.State
+	stateImpl := policy.GetState()
 	allocationInfo := stateImpl.GetAllocationInfo(testResourcePluginName, podUID, testName)
 	fmt.Println(allocationInfo)
 	assert.NotNil(t, allocationInfo)
@@ -209,6 +209,27 @@ func TestStaticPolicy_Allocate(t *testing.T) {
 	}
 
 	_, err = policy.Allocate(context.Background(), invalidReq)
+	assert.Error(t, err)
+
+	// Allocate pod when state is nil should return error
+	policy.SetState(nil)
+
+	newReq := &pluginapi.ResourceRequest{
+		PodUid:         string(uuid.NewUUID()),
+		PodNamespace:   testName,
+		PodName:        testName,
+		ContainerName:  testName,
+		ContainerType:  pluginapi.ContainerType_MAIN,
+		ContainerIndex: 0,
+		ResourceName:   testResourcePluginName,
+		ResourceRequests: map[string]float64{
+			testResourcePluginName: 2,
+		},
+		Labels:      map[string]string{},
+		Annotations: map[string]string{},
+	}
+
+	_, err = policy.Allocate(context.Background(), newReq)
 	assert.Error(t, err)
 }
 
@@ -262,9 +283,17 @@ func TestStaticPolicy_RemovePod(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Check state
-	stateImpl := policy.State
+	stateImpl := policy.GetState()
 	allocationInfo := stateImpl.GetAllocationInfo(testResourcePluginName, podUID, testName)
 	assert.Nil(t, allocationInfo)
+
+	// Remove pod when state is nil should return error
+	policy.SetState(nil)
+
+	_, err = policy.RemovePod(context.Background(), &pluginapi.RemovePodRequest{
+		PodUid: "test",
+	})
+	assert.Error(t, err)
 }
 
 func TestStaticPolicy_GetTopologyHints(t *testing.T) {
@@ -313,6 +342,26 @@ func TestStaticPolicy_GetTopologyHints(t *testing.T) {
 	}
 
 	_, err = policy.GetTopologyHints(context.Background(), invalidReq)
+	assert.Error(t, err)
+
+	// Get topology hints when state is nil should return error
+	policy.SetState(nil)
+	newReq := &pluginapi.ResourceRequest{
+		PodUid:         string(uuid.NewUUID()),
+		PodNamespace:   testName,
+		PodName:        testName,
+		ContainerName:  testName,
+		ContainerType:  pluginapi.ContainerType_MAIN,
+		ContainerIndex: 0,
+		ResourceName:   testResourcePluginName,
+		ResourceRequests: map[string]float64{
+			testResourcePluginName: 2,
+		},
+		Labels:      map[string]string{},
+		Annotations: map[string]string{},
+	}
+
+	_, err = policy.GetTopologyHints(context.Background(), newReq)
 	assert.Error(t, err)
 }
 
@@ -363,6 +412,16 @@ func TestStaticPolicy_GetTopologyAwareResources(t *testing.T) {
 	resp, err = policy.GetTopologyAwareResources(context.Background(), invalidReq)
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
+
+	// Get topology aware resources when state is nil should return error
+	policy.SetState(nil)
+
+	resp, err = policy.GetTopologyAwareResources(context.Background(), &pluginapi.GetTopologyAwareResourcesRequest{
+		PodUid:        "test-pod",
+		ContainerName: "test-container",
+	})
+	assert.Error(t, err)
+	assert.Nil(t, resp)
 }
 
 func TestStaticPolicy_mergeTopologyAwareResourcesResponse(t *testing.T) {
@@ -553,6 +612,13 @@ func TestStaticPolicy_GetTopologyAwareAllocatableResources(t *testing.T) {
 	resp, err := policy.GetTopologyAwareAllocatableResources(context.Background(), getTopologyAwareAllocatableResourcesReq)
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
+
+	// Get topology aware allocatable resources when state is nil should return error
+	policy.SetState(nil)
+
+	resp, err = policy.GetTopologyAwareAllocatableResources(context.Background(), getTopologyAwareAllocatableResourcesReq)
+	assert.Error(t, err)
+	assert.Nil(t, resp)
 }
 
 func TestStaticPolicy_UpdateAllocatableAssociatedDevices(t *testing.T) {
@@ -593,6 +659,22 @@ func TestStaticPolicy_UpdateAllocatableAssociatedDevices(t *testing.T) {
 	resp, err = policy.UpdateAllocatableAssociatedDevices(context.Background(), invalidReq)
 	assert.Error(t, err)
 	assert.Nil(t, resp)
+
+	// Update allocatable associated devices when state is nil should not return error as it is expected that state is nil at this point
+	policy.SetState(nil)
+
+	newReq := &pluginapi.UpdateAllocatableAssociatedDevicesRequest{
+		DeviceName: testCustomDevicePluginName,
+		Devices: []*pluginapi.AssociatedDevice{
+			{
+				ID: "test-device-2",
+			},
+		},
+	}
+
+	resp, err = policy.UpdateAllocatableAssociatedDevices(context.Background(), newReq)
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
 }
 
 func TestStaticPolicy_AllocateAssociatedDevices(t *testing.T) {
@@ -637,7 +719,7 @@ func TestStaticPolicy_AllocateAssociatedDevices(t *testing.T) {
 	assert.NotNil(t, resp)
 
 	// Verify in state
-	stateImpl := policy.State
+	stateImpl := policy.GetState()
 	allocationInfo := stateImpl.GetAllocationInfo(testCustomDevicePluginName, podUID, testName)
 	assert.NotNil(t, allocationInfo)
 
@@ -708,4 +790,11 @@ func TestStaticPolicy_AllocateAssociatedDevices(t *testing.T) {
 
 	allocationInfo = stateImpl.GetAllocationInfo(testCustomDevicePluginName2, podUID, testName)
 	assert.NotNil(t, allocationInfo)
+
+	// Allocate associated devices when state is nil should return error
+	policy.SetState(nil)
+
+	resp, err = policy.AllocateAssociatedDevice(context.Background(), req)
+	assert.Error(t, err)
+	assert.Nil(t, resp)
 }

@@ -108,7 +108,7 @@ func makeTestBasePlugin(t *testing.T) *baseplugin.BasePlugin {
 	stateImpl, err := state.NewCheckpointState(conf.StateDirectoryConfiguration, conf.QRMPluginsConfiguration, "test", "test-policy", state.NewDefaultResourceStateGeneratorRegistry(), true, metrics.DummyMetrics{})
 	assert.NoError(t, err)
 
-	basePlugin.State = stateImpl
+	basePlugin.SetState(stateImpl)
 
 	return basePlugin
 }
@@ -306,11 +306,11 @@ func TestGPUDevicePlugin_AllocateAssociatedDevice(t *testing.T) {
 			devicePlugin := NewGPUDevicePlugin(basePlugin)
 
 			if tt.allocationInfo != nil {
-				basePlugin.State.SetAllocationInfo(gpuconsts.GPUDeviceType, tt.podUID, tt.containerName, tt.allocationInfo, false)
+				basePlugin.GetState().SetAllocationInfo(gpuconsts.GPUDeviceType, tt.podUID, tt.containerName, tt.allocationInfo, false)
 			}
 
 			if tt.accompanyResourceAllocationInfo != nil {
-				basePlugin.State.SetAllocationInfo(v1.ResourceName(defaultAccompanyResourceName), tt.podUID, tt.containerName, tt.accompanyResourceAllocationInfo, false)
+				basePlugin.GetState().SetAllocationInfo(v1.ResourceName(defaultAccompanyResourceName), tt.podUID, tt.containerName, tt.accompanyResourceAllocationInfo, false)
 			}
 
 			if tt.deviceTopology != nil {
@@ -331,7 +331,7 @@ func TestGPUDevicePlugin_AllocateAssociatedDevice(t *testing.T) {
 				evaluateAllocatedDevicesResult(t, tt.expectedResp, resp)
 
 				// Verify state is updated
-				allocationInfo := basePlugin.State.GetAllocationInfo(gpuconsts.GPUDeviceType, tt.podUID, tt.containerName)
+				allocationInfo := basePlugin.GetState().GetAllocationInfo(gpuconsts.GPUDeviceType, tt.podUID, tt.containerName)
 				assert.NotNil(t, allocationInfo)
 			}
 		})

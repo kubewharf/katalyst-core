@@ -94,16 +94,16 @@ func (p *GPUMemPlugin) GetTopologyHints(ctx context.Context, req *pluginapi.Reso
 	}()
 
 	var hints map[string]*pluginapi.ListOfTopologyHints
-	gpuState := p.State.GetMachineState()[gpuconsts.GPUDeviceType]
-	machineState := p.State.GetMachineState()[consts.ResourceGPUMemory]
-	allocationInfo := p.State.GetAllocationInfo(consts.ResourceGPUMemory, req.PodUid, req.ContainerName)
+	gpuState := p.GetState().GetMachineState()[gpuconsts.GPUDeviceType]
+	machineState := p.GetState().GetMachineState()[consts.ResourceGPUMemory]
+	allocationInfo := p.GetState().GetAllocationInfo(consts.ResourceGPUMemory, req.PodUid, req.ContainerName)
 
 	if allocationInfo != nil {
 		hints = regenerateGPUMemoryHints(allocationInfo, false)
 
 		// regenerateHints failed. need to clear container record and re-calculate.
 		if hints == nil {
-			podEntries := p.State.GetPodEntries(consts.ResourceGPUMemory)
+			podEntries := p.GetState().GetPodEntries(consts.ResourceGPUMemory)
 			delete(podEntries[req.PodUid], req.ContainerName)
 			if len(podEntries[req.PodUid]) == 0 {
 				delete(podEntries, req.PodUid)
@@ -298,7 +298,7 @@ func (p *GPUMemPlugin) preferGPUMemoryMostAllocatedHints(
 func (p *GPUMemPlugin) GetTopologyAwareResources(ctx context.Context, podUID, containerName string) (*pluginapi.GetTopologyAwareResourcesResponse, error) {
 	general.InfofV(4, "called")
 
-	allocationInfo := p.State.GetAllocationInfo(consts.ResourceGPUMemory, podUID, containerName)
+	allocationInfo := p.GetState().GetAllocationInfo(consts.ResourceGPUMemory, podUID, containerName)
 	if allocationInfo == nil {
 		return nil, nil
 	}
@@ -478,7 +478,7 @@ func (p *GPUMemPlugin) Allocate(
 
 	p.Lock()
 	defer func() {
-		if err := p.State.StoreState(); err != nil {
+		if err := p.GetState().StoreState(); err != nil {
 			general.ErrorS(err, "store state failed", "podName", resourceReq.PodName, "containerName", resourceReq.ContainerName)
 		}
 		p.Unlock()
@@ -498,7 +498,7 @@ func (p *GPUMemPlugin) Allocate(
 		return p.PackAllocationResponse(resourceReq, &state.AllocationInfo{}, nil, p.ResourceName())
 	}
 
-	allocationInfo := p.State.GetAllocationInfo(consts.ResourceGPUMemory, resourceReq.PodUid, resourceReq.ContainerName)
+	allocationInfo := p.GetState().GetAllocationInfo(consts.ResourceGPUMemory, resourceReq.PodUid, resourceReq.ContainerName)
 	if allocationInfo != nil {
 		resp, packErr := p.PackAllocationResponse(resourceReq, allocationInfo, nil, p.ResourceName())
 		if packErr != nil {
@@ -540,7 +540,7 @@ func (p *GPUMemPlugin) Allocate(
 		p.Conf.GPUQRMPluginConfig,
 		p.Emitter,
 		p.MetaServer,
-		p.State.GetMachineState(),
+		p.GetState().GetMachineState(),
 		qosLevel,
 	)
 	if err != nil {
@@ -581,7 +581,7 @@ func (p *GPUMemPlugin) Allocate(
 	}
 
 	// Set allocation info in state
-	p.State.SetAllocationInfo(consts.ResourceGPUMemory, resourceReq.PodUid, resourceReq.ContainerName, newAllocation, false)
+	p.GetState().SetAllocationInfo(consts.ResourceGPUMemory, resourceReq.PodUid, resourceReq.ContainerName, newAllocation, false)
 
 	machineState, stateErr := p.GenerateResourceStateFromPodEntries(string(consts.ResourceGPUMemory), nil)
 	if stateErr != nil {
@@ -594,7 +594,7 @@ func (p *GPUMemPlugin) Allocate(
 	}
 
 	// update state cache
-	p.State.SetResourceState(consts.ResourceGPUMemory, machineState, true)
+	p.GetState().SetResourceState(consts.ResourceGPUMemory, machineState, true)
 
 	return p.PackAllocationResponse(resourceReq, newAllocation, nil, p.ResourceName())
 }

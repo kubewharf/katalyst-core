@@ -30,7 +30,8 @@ type CustomDevicePlugin interface {
 
 	UpdateAllocatableAssociatedDevices(ctx context.Context, request *pluginapi.UpdateAllocatableAssociatedDevicesRequest) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error)
 
-	DefaultAccompanyResourceName() string
+	// DefaultPreAllocateResourceName returns the default resource name that must be allocated first before this device is allocated
+	DefaultPreAllocateResourceName() string
 
 	AllocateAssociatedDevice(
 		ctx context.Context, resReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest, accompanyResourceName string,
