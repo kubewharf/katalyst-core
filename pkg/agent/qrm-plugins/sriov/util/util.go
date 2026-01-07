@@ -134,7 +134,7 @@ func PackAllocationResponse(conf qrm.SriovAllocationConfig,
 
 func UpdateSriovVFResultAnnotation(client kubernetes.Interface, allocationInfo *state.AllocationInfo) error {
 	annotationPatch := fmt.Sprintf(`{"metadata":{"annotations":{"%s":"%s"}}}`,
-		apiconsts.PodAnnotationSriovVFResultKey, allocationInfo.VFInfo.PCIAddr)
+		apiconsts.PodAnnotationSriovVFResultKey, allocationInfo.VFInfo.RepName)
 
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		_, err := client.CoreV1().Pods(allocationInfo.PodNamespace).Patch(context.Background(), allocationInfo.PodName,

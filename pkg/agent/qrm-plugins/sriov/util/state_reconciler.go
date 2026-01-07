@@ -102,7 +102,7 @@ func (r *StateReconciler) Reconcile(_ *config.Configuration,
 		return
 	}
 
-	if !(machineStateUpdated && allocationInfoDeleted && allocationInfoAdded) {
+	if !(machineStateUpdated || allocationInfoDeleted || allocationInfoAdded) {
 		return
 	}
 
@@ -219,8 +219,8 @@ func (r *StateReconciler) addMissingAllocationInfo(
 	needStore := false
 	errList := make([]error, 0)
 	machineState := r.state.GetMachineState()
+	podEntries := r.state.GetPodEntries()
 	for podUID, pciDevice := range runtimePodPCIDevice {
-		podEntries := r.state.GetPodEntries()
 		if podEntries[podUID] != nil {
 			continue
 		}
@@ -259,10 +259,8 @@ func (r *StateReconciler) addMissingAllocationInfo(
 func getContainerWithSriovRequestOrFirst(pod *corev1.Pod) string {
 	var firstMainContainerName string
 	for _, container := range pod.Spec.Containers {
-		for resourceName := range container.Resources.Requests {
-			if resourceName == apiconsts.ResourceSriovNic {
-				return container.Name
-			}
+		if _, ok := container.Resources.Requests[apiconsts.ResourceSriovNic]; ok {
+			return container.Name
 		}
 
 		if firstMainContainerName == "" {
