@@ -20,12 +20,14 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/advisor"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/eviction"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/finegrainedresource"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/reclaimedresource"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 )
 
 type AdminQoSConfiguration struct {
 	*reclaimedresource.ReclaimedResourceConfiguration
+	*qrm.QRMPluginConfiguration
 	*eviction.EvictionConfiguration
 	*advisor.AdvisorConfiguration
 	*finegrainedresource.FineGrainedResourceConfiguration
@@ -34,6 +36,7 @@ type AdminQoSConfiguration struct {
 func NewAdminQoSConfiguration() *AdminQoSConfiguration {
 	return &AdminQoSConfiguration{
 		ReclaimedResourceConfiguration:   reclaimedresource.NewReclaimedResourceConfiguration(),
+		QRMPluginConfiguration:           qrm.NewQRMPluginConfiguration(),
 		EvictionConfiguration:            eviction.NewEvictionConfiguration(),
 		AdvisorConfiguration:             advisor.NewAdvisorConfiguration(),
 		FineGrainedResourceConfiguration: finegrainedresource.NewFineGrainedResourceConfiguration(),
@@ -42,6 +45,7 @@ func NewAdminQoSConfiguration() *AdminQoSConfiguration {
 
 func (c *AdminQoSConfiguration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 	c.ReclaimedResourceConfiguration.ApplyConfiguration(conf)
+	c.QRMPluginConfiguration.ApplyConfiguration(conf)
 	c.EvictionConfiguration.ApplyConfiguration(conf)
 	c.AdvisorConfiguration.ApplyConfiguration(conf)
 	c.FineGrainedResourceConfiguration.ApplyConfiguration(conf)

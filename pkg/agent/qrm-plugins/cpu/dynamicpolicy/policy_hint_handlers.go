@@ -630,10 +630,12 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(request float64,
 	}
 
 	// populate hints by already existed numa binding result
-	err = p.populateHintsByAlreadyExistedNUMABindingResult(req, hints)
-	if err != nil {
-		general.Warningf("populateHintsByAlreadyExistedNUMABindingResult failed with error: %v", err)
-		return nil, err
+	if p.dynamicConfig.GetDynamicConfiguration().PreferUseExistNUMAHintResult {
+		err = p.populateHintsByAlreadyExistedNUMABindingResult(req, hints)
+		if err != nil {
+			general.Warningf("populateHintsByAlreadyExistedNUMABindingResult failed with error: %v", err)
+			return nil, err
+		}
 	}
 
 	return map[string]*pluginapi.ListOfTopologyHints{

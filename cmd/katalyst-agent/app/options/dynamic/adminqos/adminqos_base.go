@@ -22,12 +22,14 @@ import (
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/dynamic/adminqos/advisor"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/dynamic/adminqos/eviction"
+	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/dynamic/adminqos/qrm"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/dynamic/adminqos/reclaimedresource"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos"
 )
 
 type AdminQoSOptions struct {
 	*reclaimedresource.ReclaimedResourceOptions
+	*qrm.QRMPluginOptions
 	*eviction.EvictionOptions
 	*advisor.AdvisorOptions
 }
@@ -35,6 +37,7 @@ type AdminQoSOptions struct {
 func NewAdminQoSOptions() *AdminQoSOptions {
 	return &AdminQoSOptions{
 		ReclaimedResourceOptions: reclaimedresource.NewReclaimedResourceOptions(),
+		QRMPluginOptions:         qrm.NewQRMPluginOptions(),
 		EvictionOptions:          eviction.NewEvictionOptions(),
 		AdvisorOptions:           advisor.NewAdvisorOptions(),
 	}
@@ -42,6 +45,7 @@ func NewAdminQoSOptions() *AdminQoSOptions {
 
 func (o *AdminQoSOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	o.ReclaimedResourceOptions.AddFlags(fss)
+	o.QRMPluginOptions.AddFlags(fss)
 	o.EvictionOptions.AddFlags(fss)
 	o.AdvisorOptions.AddFlags(fss)
 }
@@ -49,6 +53,7 @@ func (o *AdminQoSOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 func (o *AdminQoSOptions) ApplyTo(c *adminqos.AdminQoSConfiguration) error {
 	var errList []error
 	errList = append(errList, o.ReclaimedResourceOptions.ApplyTo(c.ReclaimedResourceConfiguration))
+	errList = append(errList, o.QRMPluginOptions.ApplyTo(c.QRMPluginConfiguration))
 	errList = append(errList, o.EvictionOptions.ApplyTo(c.EvictionConfiguration))
 	errList = append(errList, o.AdvisorOptions.ApplyTo(c.AdvisorConfiguration))
 	return errors.NewAggregate(errList)
