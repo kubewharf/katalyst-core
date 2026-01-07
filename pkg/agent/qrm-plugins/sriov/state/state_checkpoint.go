@@ -115,11 +115,11 @@ func (sc *stateCheckpoint) RestoreState(cp checkpointmanager.Checkpoint) (bool, 
 		machineState = append(machineState, vfInfo)
 	}
 
-	for _, vfInfo := range machineState {
-		if vfInfo.ExtraVFInfo != nil {
+	for i := range machineState {
+		if machineState[i].ExtraVFInfo != nil {
 			continue
 		}
-		if err := vfInfo.InitExtraInfo(sc.machineConf.NetNSDirAbsPath); err != nil {
+		if err := machineState[i].InitExtraInfo(sc.machineConf.NetNSDirAbsPath); err != nil {
 			generalLog.Warningf("failed to get vf extra info: %v", err)
 			continue
 		}
