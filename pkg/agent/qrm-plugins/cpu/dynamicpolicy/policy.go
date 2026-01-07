@@ -1064,7 +1064,7 @@ func (p *DynamicPolicy) RemovePod(ctx context.Context,
 		return nil, err
 	}
 
-	if err := AccompanyResource.ReleaseAccompanyResources(req); err != nil {
+	if err := AccompanyResource.ReleaseAccompanyResource(req); err != nil {
 		general.ErrorS(err, "failed to release accompany resource", "podUID", req.PodUid)
 		return nil, fmt.Errorf("failed to release accompany resource %v", err)
 	}

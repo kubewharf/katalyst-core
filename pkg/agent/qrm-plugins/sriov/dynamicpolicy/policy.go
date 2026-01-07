@@ -138,9 +138,9 @@ func (p *DynamicPolicy) Run(ctx context.Context) {
 }
 
 // AugmentTopologyHints augments hints of accompany resources
-func (p *DynamicPolicy) AugmentTopologyHints(req *pluginapi.ResourceRequest, hints *pluginapi.ListOfTopologyHints) (err error) {
+func (p *DynamicPolicy) GetAccompanyResourceTopologyHints(req *pluginapi.ResourceRequest, hints *pluginapi.ListOfTopologyHints) (err error) {
 	if req == nil {
-		return fmt.Errorf("AugmentTopologyHints got nil req")
+		return fmt.Errorf("GetAccompanyResourceTopologyHints got nil req")
 	}
 
 	general.InfoS("called", "request", req, "hints", hints)
@@ -149,8 +149,8 @@ func (p *DynamicPolicy) AugmentTopologyHints(req *pluginapi.ResourceRequest, hin
 	defer func() {
 		p.RUnlock()
 		if err != nil {
-			general.ErrorS(err, "AugmentTopologyHints failed", "request", req, "hints", hints)
-			_ = p.emitter.StoreInt64(qrmutil.MetricNameSriovDynamicPolicyAugmentTopologyHintsFailed, 1, metrics.MetricTypeNameRaw,
+			general.ErrorS(err, "GetAccompanyResourceTopologyHints failed", "request", req, "hints", hints)
+			_ = p.emitter.StoreInt64(qrmutil.MetricNameGetAccompanyResourceTopologyHintsFailed, 1, metrics.MetricTypeNameRaw,
 				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)})
 		}
 	}()
@@ -219,7 +219,7 @@ func (p *DynamicPolicy) AugmentTopologyHints(req *pluginapi.ResourceRequest, hin
 }
 
 // AugmentAllocationResult augments allocation result of accompany resources
-func (p *DynamicPolicy) AugmentAllocationResult(req *pluginapi.ResourceRequest, resp *pluginapi.ResourceAllocationResponse) (err error) {
+func (p *DynamicPolicy) AllocateAccompanyResource(req *pluginapi.ResourceRequest, resp *pluginapi.ResourceAllocationResponse) (err error) {
 	if req == nil {
 		return fmt.Errorf("Allocate got nil req")
 	}
@@ -238,8 +238,8 @@ func (p *DynamicPolicy) AugmentAllocationResult(req *pluginapi.ResourceRequest, 
 	defer func() {
 		p.Unlock()
 		if err != nil {
-			general.ErrorS(err, "AugmentAllocationResult failed", "request", req)
-			_ = p.emitter.StoreInt64(qrmutil.MetricNameSriovDynamicPolicyAugmentAllocationResultFailed, 1, metrics.MetricTypeNameRaw,
+			general.ErrorS(err, "AllocateAccompanyResource failed", "request", req)
+			_ = p.emitter.StoreInt64(qrmutil.MetricNameAllocateAccompanyResourceFailed, 1, metrics.MetricTypeNameRaw,
 				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)})
 		}
 	}()
@@ -308,17 +308,17 @@ func (p *DynamicPolicy) AugmentAllocationResult(req *pluginapi.ResourceRequest, 
 	return nil
 }
 
-func (p *DynamicPolicy) ReleaseAccompanyResources(req *pluginapi.RemovePodRequest) (err error) {
+func (p *DynamicPolicy) ReleaseAccompanyResource(req *pluginapi.RemovePodRequest) (err error) {
 	if req == nil {
-		return fmt.Errorf("ReleaseAccompanyResources got nil req")
+		return fmt.Errorf("ReleaseAccompanyResource got nil req")
 	}
 
 	p.Lock()
 	defer func() {
 		p.Unlock()
 		if err != nil {
-			general.ErrorS(err, "ReleaseAccompanyResources failed", "podUid", req.PodUid)
-			_ = p.emitter.StoreInt64(qrmutil.MetricNameRemovePodFailed, 1, metrics.MetricTypeNameRaw,
+			general.ErrorS(err, "ReleaseAccompanyResource failed", "podUid", req.PodUid)
+			_ = p.emitter.StoreInt64(qrmutil.MetricNameReleaseAccompanyResourceFailed, 1, metrics.MetricTypeNameRaw,
 				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)})
 		}
 	}()

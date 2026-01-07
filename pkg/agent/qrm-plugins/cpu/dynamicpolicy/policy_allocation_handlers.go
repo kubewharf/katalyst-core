@@ -477,7 +477,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
 	}
 
-	if err := AccompanyResource.AugmentAllocationResult(req, resp); err != nil {
+	if err := AccompanyResource.AllocateAccompanyResource(req, resp); err != nil {
 		return nil, fmt.Errorf("accompany resource AugmentAllocationResult failed with error: %v", err)
 	}
 
@@ -574,7 +574,7 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingAllocationHandler(ctx context.
 		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
 	}
 
-	if err := AccompanyResource.AugmentAllocationResult(req, resp); err != nil {
+	if err := AccompanyResource.AllocateAccompanyResource(req, resp); err != nil {
 		return nil, fmt.Errorf("accompany resource AugmentAllocationResult failed with error: %v", err)
 	}
 

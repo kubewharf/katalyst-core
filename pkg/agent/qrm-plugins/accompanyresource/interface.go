@@ -24,9 +24,9 @@ import (
 )
 
 type Plugin interface {
-	AugmentTopologyHints(req *pluginapi.ResourceRequest, hints *pluginapi.ListOfTopologyHints) error
-	AugmentAllocationResult(req *pluginapi.ResourceRequest, resp *pluginapi.ResourceAllocationResponse) error
-	ReleaseAccompanyResources(req *pluginapi.RemovePodRequest) error
+	GetAccompanyResourceTopologyHints(req *pluginapi.ResourceRequest, hints *pluginapi.ListOfTopologyHints) error
+	AllocateAccompanyResource(req *pluginapi.ResourceRequest, resp *pluginapi.ResourceAllocationResponse) error
+	ReleaseAccompanyResource(req *pluginapi.RemovePodRequest) error
 }
 
 type Registry struct {
@@ -50,39 +50,39 @@ func (r *Registry) RegisterPlugin(name string, plugin Plugin) error {
 	return nil
 }
 
-func (r *Registry) AugmentTopologyHints(req *pluginapi.ResourceRequest, hints *pluginapi.ListOfTopologyHints) (err error) {
+func (r *Registry) GetAccompanyResourceTopologyHints(req *pluginapi.ResourceRequest, hints *pluginapi.ListOfTopologyHints) (err error) {
 	r.RLock()
 	defer r.RUnlock()
 
 	for name, plugin := range r.Plugins {
-		if err = plugin.AugmentTopologyHints(req, hints); err != nil {
-			return fmt.Errorf("accompany resource %s AugmentTopologyHints failed with error: %v", name, err)
+		if err = plugin.GetAccompanyResourceTopologyHints(req, hints); err != nil {
+			return fmt.Errorf("GetAccompanyResourceTopologyHints %s failed with error: %v", name, err)
 		}
 	}
 
 	return nil
 }
 
-func (r *Registry) AugmentAllocationResult(req *pluginapi.ResourceRequest, resp *pluginapi.ResourceAllocationResponse) (err error) {
+func (r *Registry) AllocateAccompanyResource(req *pluginapi.ResourceRequest, resp *pluginapi.ResourceAllocationResponse) (err error) {
 	r.RLock()
 	defer r.RUnlock()
 
 	for name, plugin := range r.Plugins {
-		if err = plugin.AugmentAllocationResult(req, resp); err != nil {
-			return fmt.Errorf("accompany resource %s AugmentAllocationResult failed with error: %v", name, err)
+		if err = plugin.AllocateAccompanyResource(req, resp); err != nil {
+			return fmt.Errorf("AllocateAccompanyResource %s  failed with error: %v", name, err)
 		}
 	}
 
 	return nil
 }
 
-func (r *Registry) ReleaseAccompanyResources(req *pluginapi.RemovePodRequest) (err error) {
+func (r *Registry) ReleaseAccompanyResource(req *pluginapi.RemovePodRequest) (err error) {
 	r.RLock()
 	defer r.RUnlock()
 
 	for name, plugin := range r.Plugins {
-		if err = plugin.ReleaseAccompanyResources(req); err != nil {
-			return fmt.Errorf("accompany resource %s ReleaseAccompanyResources failed with error: %v", name, err)
+		if err = plugin.ReleaseAccompanyResource(req); err != nil {
+			return fmt.Errorf("ReleaseAccompanyResource %s failed with error: %v", name, err)
 		}
 	}
 
