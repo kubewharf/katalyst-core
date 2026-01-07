@@ -289,7 +289,7 @@ func (r *StateReconciler) updatePodSriovVFResultAnnotation(metaServer *metaserve
 		for _, allocationInfo := range podEntry {
 			if err := UpdateSriovVFResultAnnotation(r.kubeClient, allocationInfo); err != nil {
 				errList = append(errList, fmt.Errorf(""))
-				return fmt.Errorf("failed to update sriov vf result annotation of %s: %w", podUID, err)
+				return fmt.Errorf("failed to update sriov vf result annotation of %s/%s: %w", podUID, pod.Name, err)
 			}
 			general.Infof("updated sriov vf result annotation of %s/%s", podUID, pod.Name)
 			break
