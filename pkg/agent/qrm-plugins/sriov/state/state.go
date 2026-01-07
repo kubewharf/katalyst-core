@@ -46,7 +46,22 @@ func (ai *AllocationInfo) String() string {
 func (ai *AllocationInfo) Clone() *AllocationInfo {
 	clone := &AllocationInfo{
 		AllocationMeta: *ai.AllocationMeta.Clone(),
-		VFInfo:         VFInfo{},
+		VFInfo: VFInfo{
+			RepName:  ai.VFInfo.RepName,
+			Index:    ai.VFInfo.Index,
+			PCIAddr:  ai.VFInfo.PCIAddr,
+			PFName:   ai.VFInfo.PFName,
+			NumaNode: ai.VFInfo.NumaNode,
+			NSName:   ai.VFInfo.NSName,
+		},
+	}
+
+	if ai.VFInfo.ExtraVFInfo != nil {
+		clone.VFInfo.ExtraVFInfo = &ExtraVFInfo{
+			Name:       ai.VFInfo.ExtraVFInfo.Name,
+			QueueCount: ai.VFInfo.ExtraVFInfo.QueueCount,
+			IBDevices:  append([]string(nil), ai.VFInfo.ExtraVFInfo.IBDevices...),
+		}
 	}
 
 	return clone
