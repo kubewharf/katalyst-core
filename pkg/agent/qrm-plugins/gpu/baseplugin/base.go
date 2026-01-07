@@ -54,8 +54,7 @@ type BasePlugin struct {
 	PodAnnotationKeptKeys []string
 	PodLabelKeptKeys      []string
 
-	// Map of checkpoints for each sub-plugin
-	State state.State
+	state state.State
 	// Registry of device topology providers
 	DeviceTopologyRegistry *machine.DeviceTopologyRegistry
 
@@ -111,6 +110,21 @@ func (p *BasePlugin) Run(stopCh <-chan struct{}) {
 	<-stopCh
 }
 
+// GetState may return a nil state because the state is only initialized when InitState is called.
+func (p *BasePlugin) GetState() state.State {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	return p.state
+}
+
+// SetState sets the state only for unit testing purposes.
+func (p *BasePlugin) SetState(s state.State) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.state = s
+}
+
 // InitState initializes the state of the plugin.
 func (p *BasePlugin) InitState() error {
 	stateImpl, err := state.NewCheckpointState(p.Conf.StateDirectoryConfiguration, p.Conf.QRMPluginsConfiguration, GPUPluginStateFileName,
@@ -119,7 +133,7 @@ func (p *BasePlugin) InitState() error {
 		return fmt.Errorf("NewCheckpointState failed with error: %v", err)
 	}
 
-	p.State = stateImpl
+	p.state = stateImpl
 	return nil
 }
 
@@ -211,7 +225,7 @@ func (p *BasePlugin) GenerateResourceStateFromPodEntries(
 	podEntries state.PodEntries,
 ) (state.AllocationMap, error) {
 	if podEntries == nil {
-		podEntries = p.State.GetPodEntries(v1.ResourceName(resourceName))
+		podEntries = p.state.GetPodEntries(v1.ResourceName(resourceName))
 	}
 
 	generator, ok := p.DefaultResourceStateGeneratorRegistry.GetGenerator(resourceName)

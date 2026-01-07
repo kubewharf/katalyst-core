@@ -57,10 +57,6 @@ type StaticPolicy struct {
 	stopCh  chan struct{}
 	started bool
 
-	// stateReady is a flag that determines if the state is ready.
-	// state is only ready after UpdateAllocatableAssociatedDevices is called.
-	stateReady bool
-
 	emitter metrics.MetricEmitter
 
 	residualHitMap map[string]int64
@@ -194,7 +190,7 @@ func (p *StaticPolicy) GetTopologyHints(
 	req *pluginapi.ResourceRequest,
 ) (resp *pluginapi.ResourceHintsResponse, err error) {
 	general.InfofV(4, "called")
-	if !p.stateReady {
+	if p.GetState() == nil {
 		return nil, fmt.Errorf("state is not ready")
 	}
 
@@ -224,7 +220,7 @@ func (p *StaticPolicy) RemovePod(
 	ctx context.Context,
 	req *pluginapi.RemovePodRequest,
 ) (*pluginapi.RemovePodResponse, error) {
-	if !p.stateReady {
+	if p.GetState() == nil {
 		return nil, fmt.Errorf("state is not ready")
 	}
 
@@ -259,11 +255,12 @@ func (p *StaticPolicy) GetTopologyAwareResources(
 	req *pluginapi.GetTopologyAwareResourcesRequest,
 ) (*pluginapi.GetTopologyAwareResourcesResponse, error) {
 	general.InfofV(4, "called")
+	if p.GetState() == nil {
+		return nil, fmt.Errorf("state is not ready")
+	}
+
 	if req == nil {
 		return nil, fmt.Errorf("GetTopologyAwareResources got nil req")
-	}
-	if !p.stateReady {
-		return nil, fmt.Errorf("state is not ready")
 	}
 
 	p.RLock()
@@ -348,7 +345,7 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(
 	req *pluginapi.GetTopologyAwareAllocatableResourcesRequest,
 ) (*pluginapi.GetTopologyAwareAllocatableResourcesResponse, error) {
 	general.InfofV(4, "called")
-	if !p.stateReady {
+	if p.GetState() == nil {
 		return nil, fmt.Errorf("state is not ready")
 	}
 
@@ -400,7 +397,8 @@ func (p *StaticPolicy) Allocate(
 	ctx context.Context,
 	req *pluginapi.ResourceRequest,
 ) (resp *pluginapi.ResourceAllocationResponse, err error) {
-	if !p.stateReady {
+	general.InfofV(4, "called")
+	if p.GetState() == nil {
 		return nil, fmt.Errorf("state is not ready")
 	}
 
@@ -483,7 +481,7 @@ func (p *StaticPolicy) removeContainer(podUID, containerName string, resourceNam
 func (p *StaticPolicy) removeWithUpdate(
 	podUID string, removeFn func(podResourceEntries state.PodResourceEntries) bool,
 ) error {
-	podResourceEntries := p.State.GetPodResourceEntries()
+	podResourceEntries := p.GetState().GetPodResourceEntries()
 
 	found := removeFn(podResourceEntries)
 	if !found {
@@ -496,10 +494,10 @@ func (p *StaticPolicy) removeWithUpdate(
 		return fmt.Errorf("calculate machineState by updated pod entries failed with error: %v", err)
 	}
 
-	p.State.SetPodResourceEntries(podResourceEntries, false)
-	p.State.SetMachineState(machineState, false)
+	p.GetState().SetPodResourceEntries(podResourceEntries, false)
+	p.GetState().SetMachineState(machineState, false)
 
-	if err := p.State.StoreState(); err != nil {
+	if err := p.GetState().StoreState(); err != nil {
 		general.Errorf("store state failed with error: %v", err)
 		return err
 	}
@@ -515,7 +513,7 @@ func (p *StaticPolicy) clearResidualState(
 	_ metrics.MetricEmitter,
 	_ *metaserver.MetaServer,
 ) {
-	if !p.stateReady {
+	if p.GetState() == nil {
 		return
 	}
 
@@ -550,7 +548,7 @@ func (p *StaticPolicy) clearResidualState(
 	p.Lock()
 	defer p.Unlock()
 
-	podResourceEntries := p.State.GetPodResourceEntries()
+	podResourceEntries := p.GetState().GetPodResourceEntries()
 	for _, podEntries := range podResourceEntries {
 		for podUID := range podEntries {
 			if !podSet.Has(podUID) {
@@ -591,10 +589,10 @@ func (p *StaticPolicy) clearResidualState(
 			return
 		}
 
-		p.State.SetPodResourceEntries(podResourceEntries, false)
-		p.State.SetMachineState(machineState, false)
+		p.GetState().SetPodResourceEntries(podResourceEntries, false)
+		p.GetState().SetMachineState(machineState, false)
 
-		err = p.State.StoreState()
+		err = p.GetState().StoreState()
 		if err != nil {
 			general.Errorf("store state failed: %v", err)
 			return
@@ -605,6 +603,7 @@ func (p *StaticPolicy) clearResidualState(
 func (p *StaticPolicy) UpdateAllocatableAssociatedDevices(
 	ctx context.Context, request *pluginapi.UpdateAllocatableAssociatedDevicesRequest,
 ) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error) {
+	general.InfofV(4, "called")
 	if request == nil || len(request.Devices) == 0 {
 		return nil, fmt.Errorf("request is nil")
 	}
@@ -624,8 +623,6 @@ func (p *StaticPolicy) UpdateAllocatableAssociatedDevices(
 		return nil, fmt.Errorf("init state failed: %v", err)
 	}
 
-	p.stateReady = true
-
 	return resp, nil
 }
 
@@ -641,12 +638,13 @@ func (*StaticPolicy) GetAssociatedDeviceTopologyHints(
 func (p *StaticPolicy) AllocateAssociatedDevice(
 	ctx context.Context, req *pluginapi.AssociatedDeviceRequest,
 ) (resp *pluginapi.AssociatedDeviceAllocationResponse, respErr error) {
-	if !p.stateReady {
+	general.InfofV(4, "called")
+	if p.GetState() == nil {
 		return nil, fmt.Errorf("state is not ready")
 	}
 
-	var isAccompanyResourcePlugin bool
-	var isAccompanyCustomDevicePlugin bool
+	var isPreAllocateResourcePlugin bool
+	var isPreAllocateCustomDevicePlugin bool
 	if req == nil || req.ResourceRequest == nil || req.DeviceRequest == nil {
 		return nil, fmt.Errorf("req is nil")
 	}
@@ -655,13 +653,13 @@ func (p *StaticPolicy) AllocateAssociatedDevice(
 	defer func() {
 		// Reset state for accompany resource and target resource if there is an error
 		if respErr != nil {
-			if isAccompanyResourcePlugin {
+			if isPreAllocateResourcePlugin {
 				_ = p.removeContainer(req.ResourceRequest.PodUid, req.ResourceRequest.ContainerName, v1.ResourceName(req.AccompanyResourceName))
 			}
-			if isAccompanyCustomDevicePlugin {
-				accompanyDeviceType, _ := p.GetResourceTypeFromDeviceName(req.AccompanyResourceName)
-				if accompanyDeviceType != "" {
-					_ = p.removeContainer(req.ResourceRequest.PodUid, req.ResourceRequest.ContainerName, v1.ResourceName(accompanyDeviceType))
+			if isPreAllocateCustomDevicePlugin {
+				preAllocateDeviceType, _ := p.GetResourceTypeFromDeviceName(req.AccompanyResourceName)
+				if preAllocateDeviceType != "" {
+					_ = p.removeContainer(req.ResourceRequest.PodUid, req.ResourceRequest.ContainerName, v1.ResourceName(preAllocateDeviceType))
 				}
 			}
 			deviceType, _ := p.GetResourceTypeFromDeviceName(req.DeviceName)
@@ -684,36 +682,39 @@ func (p *StaticPolicy) AllocateAssociatedDevice(
 		return nil, fmt.Errorf("no target device plugin found for target device %s", req.DeviceName)
 	}
 
-	// Allocate accompany resource
-	// Check if accompany resource maps to a resource plugin; if it does, allocate it first
-	accompanyResourcePlugin := p.getResourcePlugin(req.AccompanyResourceName)
-	if accompanyResourcePlugin != nil {
-		_, err := accompanyResourcePlugin.Allocate(ctx, req.ResourceRequest, targetDeviceReq)
+	// TODO: Currently AccompanyResourceName refers to the resource name that must be allocated first before this device is allocated.
+	// TODO: Change the name of AccompanyResourceName to PreAllocateResourceName in the future.
+	// Allocate pre-allocate resource first
+	// Check if pre-allocate resource maps to a resource plugin; if it does, allocate it first
+	preAllocateResourcePlugin := p.getResourcePlugin(req.AccompanyResourceName)
+	if preAllocateResourcePlugin != nil {
+		_, err := preAllocateResourcePlugin.Allocate(ctx, req.ResourceRequest, targetDeviceReq)
 		if err != nil {
-			return nil, fmt.Errorf("allocate accompany resource %s failed with error: %v", req.AccompanyResourceName, err)
+			return nil, fmt.Errorf("allocate pre-allocate resource %s failed with error: %v", req.AccompanyResourceName, err)
 		}
-		isAccompanyResourcePlugin = true
+		isPreAllocateResourcePlugin = true
 	} else {
-		// Accompany resource maps to a custom device plugin; allocate for it
-		accompanyCustomDevicePlugin := p.getCustomDevicePlugin(req.AccompanyResourceName)
-		if accompanyCustomDevicePlugin != nil {
-			// Get device request for accompany device
-			var accompanyDeviceReq *pluginapi.DeviceRequest
+		// Pre-allocate resource maps to a custom device plugin; allocate for it
+		preAllocateCustomDevicePlugin := p.getCustomDevicePlugin(req.AccompanyResourceName)
+		if preAllocateCustomDevicePlugin != nil {
+			// Get device request for pre-allocate device
+			var preAllocateDeviceReq *pluginapi.DeviceRequest
 			for _, deviceRequest := range req.DeviceRequest {
 				if deviceRequest.DeviceName == req.AccompanyResourceName {
-					accompanyDeviceReq = deviceRequest
+					preAllocateDeviceReq = deviceRequest
 				}
 			}
 
-			if accompanyDeviceReq == nil {
+			if preAllocateDeviceReq == nil {
 				return nil, fmt.Errorf("nil accompany device request")
 			}
 
-			_, err := p.allocateAssociatedDevice(ctx, accompanyCustomDevicePlugin, req.ResourceRequest, accompanyDeviceReq, "")
+			// Allocate the accompany device first
+			_, err := p.allocateAssociatedDevice(ctx, preAllocateCustomDevicePlugin, req.ResourceRequest, preAllocateDeviceReq, "")
 			if err != nil {
 				return nil, fmt.Errorf("AllocateAssociatedDevice accompany resource %s failed with error: %v", req.AccompanyResourceName, err)
 			}
-			isAccompanyCustomDevicePlugin = true
+			isPreAllocateCustomDevicePlugin = true
 		}
 	}
 
@@ -726,23 +727,24 @@ func (p *StaticPolicy) AllocateAssociatedDevice(
 	return p.allocateAssociatedDevice(ctx, targetCustomDevicePlugin, req.ResourceRequest, targetDeviceReq, req.AccompanyResourceName)
 }
 
+// allocateAssociatedDevice does preallocation of the associated resource before allocating the device itself.
 func (p *StaticPolicy) allocateAssociatedDevice(
 	ctx context.Context, devicePlugin customdeviceplugin.CustomDevicePlugin,
-	resReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest, accompanyResourceName string,
+	resReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest, preAllocateResourceName string,
 ) (*pluginapi.AssociatedDeviceAllocationResponse, error) {
-	defaultAccompanyResourceName := devicePlugin.DefaultAccompanyResourceName()
-	if defaultAccompanyResourceName != "" && accompanyResourceName != defaultAccompanyResourceName {
-		accompanyResourcePlugin := p.getResourcePlugin(defaultAccompanyResourceName)
-		if accompanyResourcePlugin != nil {
-			_, err := accompanyResourcePlugin.Allocate(ctx, resReq, deviceReq)
+	defaultPreAllocateResourceName := devicePlugin.DefaultPreAllocateResourceName()
+	if defaultPreAllocateResourceName != "" && preAllocateResourceName != defaultPreAllocateResourceName {
+		preAllocateResourcePlugin := p.getResourcePlugin(defaultPreAllocateResourceName)
+		if preAllocateResourcePlugin != nil {
+			_, err := preAllocateResourcePlugin.Allocate(ctx, resReq, deviceReq)
 			if err != nil {
-				_ = p.removeContainer(resReq.PodUid, resReq.ContainerName, v1.ResourceName(defaultAccompanyResourceName))
-				return nil, fmt.Errorf("allocate accompany resource %s failed with error: %v", defaultAccompanyResourceName, err)
+				_ = p.removeContainer(resReq.PodUid, resReq.ContainerName, v1.ResourceName(defaultPreAllocateResourceName))
+				return nil, fmt.Errorf("allocate accompany resource %s failed with error: %v", defaultPreAllocateResourceName, err)
 			}
 		}
 	}
 
-	return devicePlugin.AllocateAssociatedDevice(ctx, resReq, deviceReq, accompanyResourceName)
+	return devicePlugin.AllocateAssociatedDevice(ctx, resReq, deviceReq, preAllocateResourceName)
 }
 
 func (p *StaticPolicy) registerDefaultResourcePlugins() error {

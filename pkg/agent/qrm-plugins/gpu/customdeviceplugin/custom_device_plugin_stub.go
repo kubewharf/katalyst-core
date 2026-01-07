@@ -49,16 +49,16 @@ func (c CustomDevicePluginStub) UpdateAllocatableAssociatedDevices(context.Conte
 	return &pluginapi.UpdateAllocatableAssociatedDevicesResponse{}, nil
 }
 
-func (c CustomDevicePluginStub) DefaultAccompanyResourceName() string {
+func (c CustomDevicePluginStub) DefaultPreAllocateResourceName() string {
 	return "resource-plugin-stub"
 }
 
 func (c CustomDevicePluginStub) AllocateAssociatedDevice(_ context.Context, resReq *pluginapi.ResourceRequest, _ *pluginapi.DeviceRequest, accompanyResourceName string) (*pluginapi.AssociatedDeviceAllocationResponse, error) {
 	// Simply check if the accompany resource has been allocated
 	// If it has been allocated, allocate the associated device
-	accompanyResourceAllocation := c.State.GetAllocationInfo(v1.ResourceName(accompanyResourceName), resReq.PodUid, resReq.ContainerName)
+	accompanyResourceAllocation := c.GetState().GetAllocationInfo(v1.ResourceName(accompanyResourceName), resReq.PodUid, resReq.ContainerName)
 	if accompanyResourceAllocation != nil {
-		c.State.SetAllocationInfo(v1.ResourceName(accompanyResourceName), resReq.PodUid, resReq.ContainerName, &state.AllocationInfo{}, false)
+		c.GetState().SetAllocationInfo(v1.ResourceName(accompanyResourceName), resReq.PodUid, resReq.ContainerName, &state.AllocationInfo{}, false)
 		return &pluginapi.AssociatedDeviceAllocationResponse{}, nil
 	} else {
 		return nil, fmt.Errorf("accompany resource %s has not been allocated", accompanyResourceName)
@@ -87,12 +87,12 @@ func (c CustomDevicePluginStub2) UpdateAllocatableAssociatedDevices(context.Cont
 	return &pluginapi.UpdateAllocatableAssociatedDevicesResponse{}, nil
 }
 
-func (c CustomDevicePluginStub2) DefaultAccompanyResourceName() string {
+func (c CustomDevicePluginStub2) DefaultPreAllocateResourceName() string {
 	return "resource-plugin-stub"
 }
 
 func (c CustomDevicePluginStub2) AllocateAssociatedDevice(_ context.Context, resReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest, _ string) (*pluginapi.AssociatedDeviceAllocationResponse, error) {
 	// Simply allocate the associated device
-	c.State.SetAllocationInfo(v1.ResourceName(deviceReq.DeviceName), resReq.PodUid, resReq.ContainerName, &state.AllocationInfo{}, false)
+	c.GetState().SetAllocationInfo(v1.ResourceName(deviceReq.DeviceName), resReq.PodUid, resReq.ContainerName, &state.AllocationInfo{}, false)
 	return &pluginapi.AssociatedDeviceAllocationResponse{}, nil
 }

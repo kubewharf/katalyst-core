@@ -131,7 +131,7 @@ func makeTestBasePlugin(t *testing.T) *baseplugin.BasePlugin {
 	stateImpl, err := state.NewCheckpointState(conf.StateDirectoryConfiguration, conf.QRMPluginsConfiguration, "test", "test-policy", state.NewDefaultResourceStateGeneratorRegistry(), true, metrics.DummyMetrics{})
 	assert.NoError(t, err)
 
-	basePlugin.State = stateImpl
+	basePlugin.SetState(stateImpl)
 
 	return basePlugin
 }
@@ -439,11 +439,11 @@ func TestGPUMemPlugin_GetTopologyHints(t *testing.T) {
 			assert.True(t, ok)
 
 			if tt.allocationInfo != nil {
-				basePlugin.State.SetAllocationInfo(consts.ResourceGPUMemory, tt.podUID, tt.containerName, tt.allocationInfo, false)
+				basePlugin.GetState().SetAllocationInfo(consts.ResourceGPUMemory, tt.podUID, tt.containerName, tt.allocationInfo, false)
 			}
 
 			if tt.allocationResourcesMap != nil {
-				basePlugin.State.SetMachineState(*tt.allocationResourcesMap, false)
+				basePlugin.GetState().SetMachineState(*tt.allocationResourcesMap, false)
 			}
 
 			if tt.deviceTopology != nil {
@@ -574,7 +574,7 @@ func TestGPUMemPlugin_Allocate(t *testing.T) {
 			assert.True(t, ok)
 
 			if tt.allocationInfo != nil {
-				basePlugin.State.SetAllocationInfo(consts.ResourceGPUMemory, tt.resourceReq.PodUid, tt.resourceReq.ContainerName, tt.allocationInfo, false)
+				basePlugin.GetState().SetAllocationInfo(consts.ResourceGPUMemory, tt.resourceReq.PodUid, tt.resourceReq.ContainerName, tt.allocationInfo, false)
 			}
 
 			resp, err := gpuMemPlugin.Allocate(context.Background(), tt.resourceReq, tt.deviceReq)
@@ -693,7 +693,7 @@ func TestGPUMemPlugin_GetTopologyAwareResources(t *testing.T) {
 			assert.True(t, ok)
 
 			if tt.allocationInfo != nil {
-				basePlugin.State.SetAllocationInfo(consts.ResourceGPUMemory, tt.podUID, tt.containerName, tt.allocationInfo, false)
+				basePlugin.GetState().SetAllocationInfo(consts.ResourceGPUMemory, tt.podUID, tt.containerName, tt.allocationInfo, false)
 			}
 
 			resp, err := gpuMemPlugin.GetTopologyAwareResources(context.Background(), tt.podUID, tt.containerName)
