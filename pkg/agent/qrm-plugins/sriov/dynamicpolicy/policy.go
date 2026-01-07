@@ -166,9 +166,9 @@ func (p *DynamicPolicy) GetAccompanyResourceTopologyHints(req *pluginapi.Resourc
 		return nil
 	}
 
-	request, _, err := qrmutil.GetQuantityFromResourceReq(req)
+	request, _, err := qrmutil.GetPodAggregatedRequestResource(req)
 	if err != nil {
-		return fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
+		return fmt.Errorf("GetPodAggregatedRequestResource failed with error: %v", err)
 	}
 
 	queueCount, failOnExhaustion := getVFQueueCountAndExhaustionStrategy(p.SriovDynamicPolicyConfig, request)
@@ -254,9 +254,9 @@ func (p *DynamicPolicy) AllocateAccompanyResource(req *pluginapi.ResourceRequest
 	}
 
 	// get request quantity of main resource: cpu
-	request, _, err := qrmutil.GetQuantityFromResourceReq(req)
+	request, _, err := qrmutil.GetPodAggregatedRequestResource(req)
 	if err != nil {
-		return fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
+		return fmt.Errorf("GetPodAggregatedRequestResource failed with error: %v", err)
 	}
 
 	queueCount, failOnExhaustion := getVFQueueCountAndExhaustionStrategy(p.SriovDynamicPolicyConfig, request)

@@ -341,6 +341,10 @@ func (p *StaticPolicy) GetTopologyAwareResources(_ context.Context,
 func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 	_ *pluginapi.GetTopologyAwareAllocatableResourcesRequest,
 ) (*pluginapi.GetTopologyAwareAllocatableResourcesResponse, error) {
+	if p.DryRun {
+		return &pluginapi.GetTopologyAwareAllocatableResourcesResponse{}, nil
+	}
+
 	p.RLock()
 	defer p.RUnlock()
 

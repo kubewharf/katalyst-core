@@ -28,13 +28,11 @@ import (
 	"k8s.io/client-go/util/retry"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
-	"github.com/kubewharf/katalyst-api/pkg/consts"
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
-
-	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 )
 
 const (
@@ -61,10 +59,9 @@ func ValidateRequestQuantity(req *pluginapi.ResourceRequest) error {
 }
 
 type PCIDevice struct {
-	Address   string `json:"address"`
-	RepName   string `json:"repName"`
-	VFName    string `json:"vfName"`
-	Container string `json:"container"`
+	Address string `json:"address"`
+	RepName string `json:"repName"`
+	VFName  string `json:"vfName"`
 }
 
 func PackResourceAllocationInfo(conf qrm.SriovAllocationConfig,
@@ -127,7 +124,7 @@ func PackAllocationResponse(conf qrm.SriovAllocationConfig,
 		ResourceName:   req.ResourceName,
 		AllocationResult: &pluginapi.ResourceAllocation{
 			ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
-				string(consts.ResourceSriovNic): resourceAllocationInfo,
+				string(apiconsts.ResourceSriovNic): resourceAllocationInfo,
 			},
 		},
 		Labels:      general.DeepCopyMap(req.Labels),

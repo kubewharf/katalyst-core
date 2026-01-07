@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/kubernetes"
@@ -86,7 +87,7 @@ func (r *StateReconciler) Reconcile(_ *config.Configuration,
 		errList = append(errList, fmt.Errorf("failed to sync machine state: %w", err))
 	}
 
-	allocationInfoUpdated, err := r.deleteAbsentAllocationInfo(metaServer)
+	allocationInfoDeleted, err := r.deleteAbsentAllocationInfo(metaServer)
 	if err != nil {
 		errList = append(errList, fmt.Errorf("failed to delete absent allocation info: %w", err))
 	}
@@ -101,7 +102,7 @@ func (r *StateReconciler) Reconcile(_ *config.Configuration,
 		return
 	}
 
-	if !(machineStateUpdated && allocationInfoUpdated && allocationInfoAdded) {
+	if !(machineStateUpdated && allocationInfoDeleted && allocationInfoAdded) {
 		return
 	}
 
@@ -219,8 +220,8 @@ func (r *StateReconciler) addMissingAllocationInfo(
 	errList := make([]error, 0)
 	machineState := r.state.GetMachineState()
 	for podUID, pciDevice := range runtimePodPCIDevice {
-		allocationInfo := r.state.GetAllocationInfo(podUID, pciDevice.Container)
-		if allocationInfo != nil {
+		podEntries := r.state.GetPodEntries()
+		if podEntries[podUID] != nil {
 			continue
 		}
 
@@ -230,27 +231,46 @@ func (r *StateReconciler) addMissingAllocationInfo(
 			continue
 		}
 
+		containerName := getContainerWithSriovRequestOrFirst(pod)
+
 		vfState := machineState.Filter(state.FilterByPCIAddr(pciDevice.Address))
 		if len(vfState) != 1 {
 			errList = append(errList, fmt.Errorf("failed to get vf by PCI address %T for pod %s", vfState, podUID))
 			continue
 		}
 
-		allocationInfo = &state.AllocationInfo{
+		allocationInfo := &state.AllocationInfo{
 			AllocationMeta: commonstate.AllocationMeta{
 				PodUid:        string(pod.UID),
 				PodNamespace:  pod.Namespace,
 				PodName:       pod.Name,
-				ContainerName: pciDevice.Container,
+				ContainerName: containerName,
 			},
 			VFInfo: vfState[0],
 		}
-		general.Infof("set allocation info of %s: %v", pciDevice.Container, allocationInfo)
-		r.state.SetAllocationInfo(podUID, pciDevice.Container, allocationInfo, false)
+		general.Infof("set allocation info of %s: %v", containerName, allocationInfo)
+		r.state.SetAllocationInfo(podUID, containerName, allocationInfo, false)
 		needStore = true
 	}
 
 	return needStore, nil
+}
+
+func getContainerWithSriovRequestOrFirst(pod *corev1.Pod) string {
+	var firstMainContainerName string
+	for _, container := range pod.Spec.Containers {
+		for resourceName := range container.Resources.Requests {
+			if resourceName == apiconsts.ResourceSriovNic {
+				return container.Name
+			}
+		}
+
+		if firstMainContainerName == "" {
+			firstMainContainerName = container.Name
+		}
+	}
+
+	return firstMainContainerName
 }
 
 func (r *StateReconciler) updatePodSriovVFResultAnnotation(metaServer *metaserver.MetaServer) error {
@@ -271,6 +291,7 @@ func (r *StateReconciler) updatePodSriovVFResultAnnotation(metaServer *metaserve
 				errList = append(errList, fmt.Errorf(""))
 				return fmt.Errorf("failed to update sriov vf result annotation of %s: %w", podUID, err)
 			}
+			general.Infof("updated sriov vf result annotation of %s/%s", podUID, pod.Name)
 			break
 		}
 	}
