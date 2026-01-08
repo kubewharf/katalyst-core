@@ -1463,6 +1463,10 @@ func ListActiveUplinkNics(netNSDir string, ignoredNetNSNamePrefixes []string) ([
 		}
 
 		for _, n := range netnsNics {
+			if strings.Contains(n.Name, "mgmt") {
+				continue
+			}
+
 			queue2Irq, txQueue2Irq, err := GetNicQueue2Irq(n)
 			if err != nil {
 				return nil, fmt.Errorf("failed to GetNicQueue2Irq for %d: %s, err %v", n.IfIndex, n.Name, err)
