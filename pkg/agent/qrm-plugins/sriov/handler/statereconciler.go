@@ -1,20 +1,20 @@
 /*
- Copyright 2022 The Katalyst Authors.
+copyright 2022 The Katalyst Authors.
 
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
 
-     http://www.apache.org/licenses/LICENSE-2.0
+    http://www.apache.org/licenses/LICENSE-2.0
 
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 */
 
-package util
+package handler
 
 import (
 	"context"
@@ -32,6 +32,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/types"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/utils"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -113,13 +115,13 @@ func (r *StateReconciler) Reconcile(_ *config.Configuration,
 	}
 }
 
-func (r *StateReconciler) getRuntimePodPCIDevice() (map[string]PCIDevice, sets.String, error) {
+func (r *StateReconciler) getRuntimePodPCIDevice() (map[string]types.PCIDevice, sets.String, error) {
 	sandboxes, err := r.runtimeClient.ListPodSandbox(nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to list pod sandboxes: %w", err)
 	}
 
-	podVF := make(map[string]PCIDevice)
+	podVF := make(map[string]types.PCIDevice)
 	vfSet := sets.NewString()
 	for _, sandbox := range sandboxes {
 		pciDeviceStr, ok := sandbox.Annotations[r.pciAnnotation]
@@ -127,7 +129,7 @@ func (r *StateReconciler) getRuntimePodPCIDevice() (map[string]PCIDevice, sets.S
 			continue
 		}
 
-		pciDevices := make([]PCIDevice, 0)
+		pciDevices := make([]types.PCIDevice, 0)
 		if err := json.Unmarshal([]byte(pciDeviceStr), &pciDevices); err != nil {
 			general.Warningf("failed to unmarshal pci device from pod sandbox %s: %v", sandbox.Metadata.Uid, err)
 			continue
@@ -214,7 +216,7 @@ func (r *StateReconciler) deleteAbsentAllocationInfo(metaServer *metaserver.Meta
 }
 
 func (r *StateReconciler) addMissingAllocationInfo(
-	runtimePodPCIDevice map[string]PCIDevice, metaServer *metaserver.MetaServer,
+	runtimePodPCIDevice map[string]types.PCIDevice, metaServer *metaserver.MetaServer,
 ) (bool, error) {
 	needStore := false
 	errList := make([]error, 0)
@@ -285,7 +287,7 @@ func (r *StateReconciler) updatePodSriovVFResultAnnotation(metaServer *metaserve
 		}
 
 		for _, allocationInfo := range podEntry {
-			if err := UpdateSriovVFResultAnnotation(r.kubeClient, allocationInfo); err != nil {
+			if err := utils.UpdateSriovVFResultAnnotation(r.kubeClient, allocationInfo); err != nil {
 				errList = append(errList, fmt.Errorf(""))
 				return fmt.Errorf("failed to update sriov vf result annotation of %s/%s: %w", podUID, pod.Name, err)
 			}

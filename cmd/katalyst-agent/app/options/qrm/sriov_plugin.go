@@ -27,6 +27,7 @@ import (
 type SriovOptions struct {
 	PolicyName               string
 	SkipSriovStateCorruption bool
+	SriovDryRun              bool
 
 	SriovAllocationOptions
 	SriovStaticPolicyOptions
@@ -57,6 +58,7 @@ func NewSriovOptions() *SriovOptions {
 	return &SriovOptions{
 		PolicyName:               "static",
 		SkipSriovStateCorruption: true,
+		SriovDryRun:              false,
 		SriovAllocationOptions: SriovAllocationOptions{
 			PCIAnnotationKey: "pci-devices",
 			ExtraAnnotations: map[string]string{},
@@ -81,7 +83,7 @@ func (o *SriovOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	fs.StringVar(&o.PolicyName, "sriov-policy-name", o.PolicyName, "Policy name for sriov qrm plugin")
 	fs.BoolVar(&o.SkipSriovStateCorruption, "skip-sriov-state-corruption", o.SkipSriovStateCorruption, "Skip sriov state corruption")
-	fs.BoolVar(&o.DryRun, "sriov-plugin-dry-run", o.DryRun, "Dry run the sriov plugin")
+	fs.BoolVar(&o.SriovDryRun, "sriov-plugin-dry-run", o.SriovDryRun, "Dry run the sriov plugin")
 	fs.StringVar(&o.PCIAnnotationKey, "sriov-vf-pci-annotation-key", o.PCIAnnotationKey, "PCI annotation key for sriov vf")
 	fs.StringToStringVar(&o.ExtraAnnotations, "sriov-vf-extra-annotations", o.ExtraAnnotations, "Extra annotations for sriov vf")
 	fs.IntVar(&o.MinBondingVFQueueCount, "static-min-bonding-vf-queue-count", o.MinBondingVFQueueCount, "Min queue count of bonding VF can be allocated in static policy")
@@ -97,8 +99,8 @@ func (o *SriovOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 func (s *SriovOptions) ApplyTo(config *qrmconfig.SriovQRMPluginConfig) error {
 	config.PolicyName = s.PolicyName
 	config.SkipSriovStateCorruption = s.SkipSriovStateCorruption
+	config.SriovDryRun = s.SriovDryRun
 	config.SriovAllocationConfig = qrmconfig.SriovAllocationConfig{
-		DryRun:           s.DryRun,
 		PCIAnnotation:    s.PCIAnnotationKey,
 		ExtraAnnotations: s.ExtraAnnotations,
 	}

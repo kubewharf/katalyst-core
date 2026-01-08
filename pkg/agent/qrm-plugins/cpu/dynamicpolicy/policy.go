@@ -82,7 +82,7 @@ const (
 	healthCheckTolerationTimes = 3
 )
 
-var AccompanyResource = accompanyresource.NewRegistry()
+var AccompanyResourceRegistry = accompanyresource.NewRegistry()
 
 // DynamicPolicy is the policy that's used by default;
 // it will consider the dynamic running information to calculate
@@ -1064,7 +1064,7 @@ func (p *DynamicPolicy) RemovePod(ctx context.Context,
 		return nil, err
 	}
 
-	if err := AccompanyResource.ReleaseAccompanyResource(req); err != nil {
+	if err := AccompanyResourceRegistry.ReleaseAccompanyResource(req); err != nil {
 		general.ErrorS(err, "failed to release accompany resource", "podUID", req.PodUid)
 		return nil, fmt.Errorf("failed to release accompany resource %v", err)
 	}

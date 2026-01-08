@@ -14,15 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package sriov
+package types
 
-import (
-	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent/qrm"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/consts"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/policy"
-)
-
-func init() {
-	qrm.RegisterSriovPolicyInitializer(consts.SriovResourcePluginPolicyNameStatic, policy.NewStaticPolicy)
-	qrm.RegisterSriovPolicyInitializer(consts.SriovResourcePluginPolicyNameDynamic, policy.NewDynamicPolicy)
+type PCIDevice struct {
+	Address string `json:"address"`
+	RepName string `json:"repName"`
+	VFName  string `json:"vfName"`
 }

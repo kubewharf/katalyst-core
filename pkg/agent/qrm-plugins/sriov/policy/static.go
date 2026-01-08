@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package staticpolicy
+package policy
 
 import (
 	"context"
@@ -24,7 +24,6 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/wait"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-	"k8s.io/kubernetes/pkg/kubelet/cri/remote"
 
 	apinode "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
@@ -33,13 +32,11 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/state"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/util"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/utils"
 	qrmutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
-	"github.com/kubewharf/katalyst-core/pkg/config/generic"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -50,24 +47,14 @@ import (
 
 type StaticPolicy struct {
 	sync.RWMutex
+	*basePolicy
 
-	name            string
-	stopCh          chan struct{}
-	started         bool
-	emitter         metrics.MetricEmitter
-	metaServer      *metaserver.MetaServer
-	agentCtx        *agent.GenericContext
-	state           state.State
-	stateReconciler *util.StateReconciler
+	name    string
+	stopCh  chan struct{}
+	started bool
+	emitter metrics.MetricEmitter
 
-	qosConfig             *generic.QoSConfiguration
-	podAnnotationKeptKeys []string
-	podLabelKeptKeys      []string
-
-	hostNetworkBonding bool
-
-	qrmconfig.SriovAllocationConfig
-	qrmconfig.SriovStaticPolicyConfig
+	policyConfig qrmconfig.SriovStaticPolicyConfig
 }
 
 func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -79,16 +66,9 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 		Val: consts.SriovResourcePluginPolicyNameStatic,
 	})
 
-	stateImpl, err := state.NewCheckpointState(conf.QRMPluginsConfiguration, conf.MachineInfoConfiguration,
-		conf.StateDirectoryConfiguration, consts.SriovPluginStateFileName, consts.SriovResourcePluginPolicyNameStatic,
-		conf.SkipSriovStateCorruption, wrappedEmitter)
+	basePolicy, err := newBasePolicy(agentCtx, conf, wrappedEmitter)
 	if err != nil {
-		return false, agent.ComponentStub{}, fmt.Errorf("NewCheckpointState failed with error: %v", err)
-	}
-
-	runtimeClient, err := remote.NewRemoteRuntimeService(conf.BaseConfiguration.RuntimeEndpoint, 2*time.Minute)
-	if err != nil {
-		return false, nil, fmt.Errorf("create remote runtime service failed %s", err)
+		return false, agent.ComponentStub{}, fmt.Errorf("failed to create base policy: %w", err)
 	}
 
 	hostNetworkBonding, err := machine.IsHostNetworkBonding()
@@ -97,23 +77,14 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	}
 	general.Infof("detect host network bonding=%t", hostNetworkBonding)
 
-	policy := &StaticPolicy{
-		name:       fmt.Sprintf("%s_%s", agentName, consts.SriovResourcePluginPolicyNameStatic),
-		emitter:    wrappedEmitter,
-		agentCtx:   agentCtx,
-		metaServer: agentCtx.MetaServer,
-		state:      stateImpl,
-		stateReconciler: util.NewStateReconciler(stateImpl, conf.SriovAllocationConfig.PCIAnnotation,
-			agentCtx.Client.KubeClient, runtimeClient),
-		qosConfig:               conf.QoSConfiguration,
-		podAnnotationKeptKeys:   conf.PodAnnotationKeptKeys,
-		podLabelKeptKeys:        conf.PodLabelKeptKeys,
-		hostNetworkBonding:      hostNetworkBonding,
-		SriovAllocationConfig:   conf.SriovAllocationConfig,
-		SriovStaticPolicyConfig: conf.SriovStaticPolicyConfig,
+	staticPolicy := &StaticPolicy{
+		name:         fmt.Sprintf("%s_%s", agentName, consts.SriovResourcePluginPolicyNameStatic),
+		emitter:      wrappedEmitter,
+		basePolicy:   basePolicy,
+		policyConfig: conf.SriovStaticPolicyConfig,
 	}
 
-	pluginWrapper, err := skeleton.NewRegistrationPluginWrapper(policy, conf.QRMPluginSocketDirs, nil)
+	pluginWrapper, err := skeleton.NewRegistrationPluginWrapper(staticPolicy, conf.QRMPluginSocketDirs, nil)
 	if err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("static policy new plugin wrapper failed with error: %v", err)
 	}
@@ -128,7 +99,7 @@ func (p *StaticPolicy) Name() string {
 
 // ResourceName returns resource names managed by this plugin
 func (p *StaticPolicy) ResourceName() string {
-	return string(apiconsts.ResourceSriovNic)
+	return ResourceName
 }
 
 // Start starts this plugin
@@ -154,20 +125,20 @@ func (p *StaticPolicy) Start() (err error) {
 
 	p.stopCh = make(chan struct{})
 
-	go wait.Until(func() {
-		_ = p.emitter.StoreInt64(qrmutil.MetricNameHeartBeat, 1, metrics.MetricTypeNameRaw)
-	}, time.Second*30, p.stopCh)
-
 	err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(consts.HealthzReconcileState, general.HealthzCheckStateNotReady,
 		appqrm.QRMSriovPluginPeriodicalHandlerGroupName, p.stateReconciler.Reconcile,
 		consts.ReconcileStatePeriod, consts.ReconcileStateTolerationTimes)
 	if err != nil {
-		general.Errorf("start %v failed, err: %v", consts.ReconcileState, err)
+		return fmt.Errorf("register periodical handler %s failed with error: %v", consts.ReconcileState, err)
 	}
 
 	go wait.Until(func() {
 		periodicalhandler.ReadyToStartHandlersByGroup(appqrm.QRMSriovPluginPeriodicalHandlerGroupName)
 	}, 5*time.Second, p.stopCh)
+
+	go wait.Until(func() {
+		_ = p.emitter.StoreInt64(qrmutil.MetricNameHeartBeat, 1, metrics.MetricTypeNameRaw)
+	}, time.Second*30, p.stopCh)
 
 	go func(stopCh <-chan struct{}) {
 		<-stopCh
@@ -180,7 +151,7 @@ func (p *StaticPolicy) Start() (err error) {
 func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 	req *pluginapi.ResourceRequest,
 ) (resp *pluginapi.ResourceHintsResponse, err error) {
-	if err := util.ValidateRequestQuantity(req); err != nil {
+	if err := p.validateRequestQuantity(req); err != nil {
 		return nil, fmt.Errorf("ValidateRequestQuantity failed with error: %v", err)
 	}
 
@@ -211,8 +182,8 @@ func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 		candidates = machineState.Filter(state.FilterByPCIAddr(allocationInfo.VFInfo.PCIAddr))
 	} else {
 		filters := []state.VFFilter{state.FilterByPodAllocated(podEntries, false), state.FilterByRDMA(true)}
-		if p.hostNetworkBonding {
-			filters = append(filters, state.FilterByQueueCount(p.MaxBondingVFQueueCount, p.MaxBondingVFQueueCount))
+		if p.bondingHostNetwork {
+			filters = append(filters, state.FilterByQueueCount(p.policyConfig.MinBondingVFQueueCount, p.policyConfig.MaxBondingVFQueueCount))
 		}
 		candidates = machineState.Filter(filters...)
 	}
@@ -249,7 +220,7 @@ func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 
 	general.InfoS("finished", "response", resp)
 
-	if p.DryRun {
+	if p.dryRun {
 		resp.ResourceHints = nil
 	}
 
@@ -280,7 +251,7 @@ func (p *StaticPolicy) RemovePod(_ context.Context,
 		}
 	}()
 
-	if !p.DryRun {
+	if !p.dryRun {
 		p.state.Delete(req.PodUid, true)
 	}
 
@@ -341,7 +312,7 @@ func (p *StaticPolicy) GetTopologyAwareResources(_ context.Context,
 func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 	_ *pluginapi.GetTopologyAwareAllocatableResourcesRequest,
 ) (*pluginapi.GetTopologyAwareAllocatableResourcesResponse, error) {
-	if p.DryRun {
+	if p.dryRun {
 		return &pluginapi.GetTopologyAwareAllocatableResourcesResponse{}, nil
 	}
 
@@ -357,8 +328,8 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 	)
 
 	filters := []state.VFFilter{state.FilterByRDMA(true)}
-	if p.hostNetworkBonding {
-		filters = append(filters, state.FilterByQueueCount(p.MinBondingVFQueueCount, p.MaxBondingVFQueueCount))
+	if p.bondingHostNetwork {
+		filters = append(filters, state.FilterByQueueCount(p.policyConfig.MinBondingVFQueueCount, p.policyConfig.MaxBondingVFQueueCount))
 	}
 	availableVFs := machineState.Filter(filters...)
 
@@ -405,7 +376,7 @@ func (p *StaticPolicy) GetResourcePluginOptions(context.Context,
 func (p *StaticPolicy) Allocate(_ context.Context,
 	req *pluginapi.ResourceRequest,
 ) (resp *pluginapi.ResourceAllocationResponse, err error) {
-	if err := util.ValidateRequestQuantity(req); err != nil {
+	if err := p.validateRequestQuantity(req); err != nil {
 		return nil, fmt.Errorf("ValidateRequestQuantity failed with error: %v", err)
 	}
 
@@ -432,7 +403,7 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 	// reuse allocation info allocated by same pod and container
 	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
 	if allocationInfo != nil {
-		return util.PackAllocationResponse(p.SriovAllocationConfig, req, allocationInfo)
+		return p.packAllocationResponse(req, allocationInfo)
 	}
 
 	hintNUMASet, err := machine.NewCPUSetUint64(req.Hint.Nodes...)
@@ -447,8 +418,8 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 		state.FilterByNumaSet(hintNUMASet),
 		state.FilterByRDMA(true),
 	}
-	if p.hostNetworkBonding {
-		filters = append(filters, state.FilterByQueueCount(p.MinBondingVFQueueCount, p.MaxBondingVFQueueCount))
+	if p.bondingHostNetwork {
+		filters = append(filters, state.FilterByQueueCount(p.policyConfig.MinBondingVFQueueCount, p.policyConfig.MaxBondingVFQueueCount))
 	}
 	candidates := machineState.Filter(filters...)
 	if len(candidates) == 0 {
@@ -466,18 +437,18 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 	p.state.SetAllocationInfo(req.PodUid, req.ContainerName, allocationInfo, true)
 
 	// try to update sriov vf result annotation, if failed, leave it to state_reconciler to update
-	if err := util.UpdateSriovVFResultAnnotation(p.agentCtx.Client.KubeClient, allocationInfo); err != nil {
+	if err := utils.UpdateSriovVFResultAnnotation(p.agentCtx.Client.KubeClient, allocationInfo); err != nil {
 		general.ErrorS(err, "UpdateSriovVFResultAnnotation failed")
 	}
 
-	resp, err = util.PackAllocationResponse(p.SriovAllocationConfig, req, allocationInfo)
+	resp, err = p.packAllocationResponse(req, allocationInfo)
 	if err != nil {
 		return nil, fmt.Errorf("failed to pack allocation response: %v", err)
 	}
 
 	general.InfoS("finished", "response", resp)
 
-	if p.DryRun {
+	if p.dryRun {
 		resp.AllocationResult = nil
 	}
 

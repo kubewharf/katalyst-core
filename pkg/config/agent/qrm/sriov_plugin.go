@@ -21,6 +21,8 @@ type SriovQRMPluginConfig struct {
 	PolicyName string
 	// skip sriov state corruption and it will be used after updating state properties
 	SkipSriovStateCorruption bool
+	// SriovDryRun is used to dry run the sriov policy
+	SriovDryRun bool
 
 	SriovAllocationConfig
 	SriovStaticPolicyConfig
@@ -28,7 +30,6 @@ type SriovQRMPluginConfig struct {
 }
 
 type SriovAllocationConfig struct {
-	DryRun           bool
 	PCIAnnotation    string
 	ExtraAnnotations map[string]string
 }

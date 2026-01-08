@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package dynamicpolicy
+package policy
 
 import (
 	"context"
@@ -25,7 +25,6 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/wait"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-	"k8s.io/kubernetes/pkg/kubelet/cri/remote"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
@@ -33,13 +32,11 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/state"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/util"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/utils"
 	qrmutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
-	"github.com/kubewharf/katalyst-core/pkg/config/generic"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -50,21 +47,13 @@ import (
 
 type DynamicPolicy struct {
 	sync.RWMutex
+	*basePolicy
 
-	name            string
-	started         bool
-	emitter         metrics.MetricEmitter
-	metaServer      *metaserver.MetaServer
-	agentCtx        *agent.GenericContext
-	state           state.State
-	stateReconciler *util.StateReconciler
+	name    string
+	started bool
+	emitter metrics.MetricEmitter
 
-	qosConfig             *generic.QoSConfiguration
-	podAnnotationKeptKeys []string
-	podLabelKeptKeys      []string
-
-	qrmconfig.SriovAllocationConfig
-	qrmconfig.SriovDynamicPolicyConfig
+	policyConfig qrmconfig.SriovDynamicPolicyConfig
 }
 
 func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
@@ -75,67 +64,45 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		Val: consts.SriovResourcePluginPolicyNameDynamic,
 	})
 
-	stateImpl, err := state.NewCheckpointState(conf.QRMPluginsConfiguration, conf.MachineInfoConfiguration,
-		conf.StateDirectoryConfiguration, consts.SriovPluginStateFileName, consts.SriovResourcePluginPolicyNameStatic,
-		conf.SkipSriovStateCorruption, wrappedEmitter)
+	basePolicy, err := newBasePolicy(agentCtx, conf, wrappedEmitter)
 	if err != nil {
-		return false, agent.ComponentStub{}, fmt.Errorf("NewCheckpointState failed with error: %v", err)
+		return false, agent.ComponentStub{}, fmt.Errorf("failed to create base policy: %w", err)
 	}
 
-	runtimeClient, err := remote.NewRemoteRuntimeService(conf.BaseConfiguration.RuntimeEndpoint, 2*time.Minute)
-	if err != nil {
-		return false, nil, fmt.Errorf("create remote runtime service failed %s", err)
+	dynamicPolicy := &DynamicPolicy{
+		name:         fmt.Sprintf("%s_%s", agentName, consts.SriovResourcePluginPolicyNameDynamic),
+		emitter:      wrappedEmitter,
+		basePolicy:   basePolicy,
+		policyConfig: conf.SriovDynamicPolicyConfig,
 	}
 
-	hostNetworkBonding, err := machine.IsHostNetworkBonding()
-	if !hostNetworkBonding {
-		general.InfoS("skip running sriov dynamic policy plugin on host without bonding network")
-		return false, agent.ComponentStub{}, nil
-	}
-
-	policy := &DynamicPolicy{
-		name:       fmt.Sprintf("%s_%s", agentName, consts.SriovResourcePluginPolicyNameDynamic),
-		emitter:    wrappedEmitter,
-		agentCtx:   agentCtx,
-		metaServer: agentCtx.MetaServer,
-		state:      stateImpl,
-		stateReconciler: util.NewStateReconciler(stateImpl, conf.SriovAllocationConfig.PCIAnnotation,
-			agentCtx.Client.KubeClient, runtimeClient),
-		qosConfig:                conf.QoSConfiguration,
-		podAnnotationKeptKeys:    conf.PodAnnotationKeptKeys,
-		podLabelKeptKeys:         conf.PodLabelKeptKeys,
-		SriovAllocationConfig:    conf.SriovAllocationConfig,
-		SriovDynamicPolicyConfig: conf.SriovDynamicPolicyConfig,
-	}
-
-	if err := cpudynamicpolicy.AccompanyResource.RegisterPlugin(policy); err != nil {
+	if err := cpudynamicpolicy.AccompanyResourceRegistry.RegisterPlugin(dynamicPolicy); err != nil {
 		return false, nil, fmt.Errorf("RegisterPlugin failed with error: %v", err)
 	}
 
-	return true, policy, nil
+	return true, dynamicPolicy, nil
 }
 
 func (d *DynamicPolicy) ResourceName() string {
-	return string(apiconsts.ResourceSriovNic)
+	return ResourceName
 }
 
 // Run runs this plugin
 func (p *DynamicPolicy) Run(ctx context.Context) {
-	general.Infof("called")
-
-	go wait.Until(func() {
-		_ = p.emitter.StoreInt64(qrmutil.MetricNameHeartBeat, 1, metrics.MetricTypeNameRaw)
-	}, time.Second*30, ctx.Done())
 
 	if err := periodicalhandler.RegisterPeriodicalHandlerWithHealthz(consts.HealthzReconcileState, general.HealthzCheckStateNotReady,
 		appqrm.QRMSriovPluginPeriodicalHandlerGroupName, p.stateReconciler.Reconcile,
 		consts.ReconcileStatePeriod, consts.ReconcileStateTolerationTimes); err != nil {
-		general.Errorf("start %v failed, err: %v", consts.ReconcileState, err)
+		general.ErrorS(err, "register periodical handler %s failed", consts.ReconcileState)
 	}
 
 	go wait.Until(func() {
 		periodicalhandler.ReadyToStartHandlersByGroup(appqrm.QRMSriovPluginPeriodicalHandlerGroupName)
 	}, 5*time.Second, ctx.Done())
+
+	go wait.Until(func() {
+		_ = p.emitter.StoreInt64(qrmutil.MetricNameHeartBeat, 1, metrics.MetricTypeNameRaw)
+	}, time.Second*30, ctx.Done())
 
 	<-ctx.Done()
 	general.Infof("stopped")
@@ -177,7 +144,7 @@ func (p *DynamicPolicy) GetAccompanyResourceTopologyHints(req *pluginapi.Resourc
 		return fmt.Errorf("GetPodAggregatedRequestResource failed with error: %v", err)
 	}
 
-	queueCount, failOnExhaustion := getVFQueueCountAndExhaustionStrategy(p.SriovDynamicPolicyConfig, request)
+	queueCount, failOnExhaustion := p.getVFQueueCountAndExhaustionStrategy(request)
 	if queueCount < 0 {
 		return nil
 	}
@@ -217,7 +184,7 @@ func (p *DynamicPolicy) GetAccompanyResourceTopologyHints(req *pluginapi.Resourc
 
 	general.InfoS("finished", "request", req, "originHints", hints, "augmentedHints", augmentedHints)
 
-	if !p.DryRun {
+	if !p.dryRun {
 		hints.Hints = augmentedHints
 	}
 
@@ -253,10 +220,10 @@ func (p *DynamicPolicy) AllocateAccompanyResource(req *pluginapi.ResourceRequest
 	// reuse allocation info allocated by same pod and container
 	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
 	if allocationInfo != nil {
-		if p.DryRun {
+		if p.dryRun {
 			return nil
 		}
-		return addAllocationInfoToResponse(p.SriovAllocationConfig, allocationInfo, resp)
+		return p.addAllocationInfoToResponse(allocationInfo, resp)
 	}
 
 	// get request quantity of main resource: cpu
@@ -265,7 +232,7 @@ func (p *DynamicPolicy) AllocateAccompanyResource(req *pluginapi.ResourceRequest
 		return fmt.Errorf("GetPodAggregatedRequestResource failed with error: %v", err)
 	}
 
-	queueCount, failOnExhaustion := getVFQueueCountAndExhaustionStrategy(p.SriovDynamicPolicyConfig, request)
+	queueCount, failOnExhaustion := p.getVFQueueCountAndExhaustionStrategy(request)
 	if queueCount < 0 {
 		return nil
 	}
@@ -302,12 +269,12 @@ func (p *DynamicPolicy) AllocateAccompanyResource(req *pluginapi.ResourceRequest
 
 	p.state.SetAllocationInfo(req.PodUid, req.ContainerName, allocationInfo, true)
 
-	if p.DryRun {
+	if p.dryRun {
 		return nil
 	}
 
 	// try to update sriov vf result annotation, if failed, leave it to state_reconciler to update
-	if err := util.UpdateSriovVFResultAnnotation(p.agentCtx.Client.KubeClient, allocationInfo); err != nil {
+	if err := utils.UpdateSriovVFResultAnnotation(p.agentCtx.Client.KubeClient, allocationInfo); err != nil {
 		general.ErrorS(err, "UpdateSriovVFResultAnnotation failed")
 	}
 
@@ -332,4 +299,23 @@ func (p *DynamicPolicy) ReleaseAccompanyResource(req *pluginapi.RemovePodRequest
 	p.state.Delete(req.PodUid, true)
 
 	return nil
+}
+
+func (p *DynamicPolicy) addAllocationInfoToResponse(allocationInfo *state.AllocationInfo, resp *pluginapi.ResourceAllocationResponse) error {
+	resourceAllocationInfo, err := p.packResourceAllocationInfo(allocationInfo)
+	if err != nil {
+		return fmt.Errorf("packResourceAllocationInfo failed with error: %v", err)
+	}
+	resp.AllocationResult.ResourceAllocation[string(apiconsts.ResourceSriovNic)] = resourceAllocationInfo
+	return nil
+}
+
+func (p *DynamicPolicy) getVFQueueCountAndExhaustionStrategy(request int) (queueCount int, failOnExhaustion bool) {
+	switch {
+	case request >= p.policyConfig.LargeSizeVFCPUThreshold:
+		return p.policyConfig.LargeSizeVFQueueCount, p.policyConfig.LargeSizeVFFailOnExhaustion
+	case request >= p.policyConfig.SmallSizeVFCPUThreshold:
+		return p.policyConfig.SmallSizeVFQueueCount, p.policyConfig.SmallSizeVFFailOnExhaustion
+	}
+	return -1, false
 }
