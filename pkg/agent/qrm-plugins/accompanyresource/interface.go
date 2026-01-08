@@ -24,6 +24,7 @@ import (
 )
 
 type Plugin interface {
+	ResourceName() string
 	GetAccompanyResourceTopologyHints(req *pluginapi.ResourceRequest, hints *pluginapi.ListOfTopologyHints) error
 	AllocateAccompanyResource(req *pluginapi.ResourceRequest, resp *pluginapi.ResourceAllocationResponse) error
 	ReleaseAccompanyResource(req *pluginapi.RemovePodRequest) error
@@ -38,15 +39,16 @@ func NewRegistry() *Registry {
 	return &Registry{Plugins: make(map[string]Plugin)}
 }
 
-func (r *Registry) RegisterPlugin(name string, plugin Plugin) error {
+func (r *Registry) RegisterPlugin(plugin Plugin) error {
 	r.Lock()
 	defer r.Unlock()
 
-	_, ok := r.Plugins[name]
+	resourceName := plugin.ResourceName()
+	_, ok := r.Plugins[resourceName]
 	if ok {
-		return fmt.Errorf("associated resource plugin %v already registered", name)
+		return fmt.Errorf("accompany resource plugin %v already registered", resourceName)
 	}
-	r.Plugins[name] = plugin
+	r.Plugins[resourceName] = plugin
 	return nil
 }
 

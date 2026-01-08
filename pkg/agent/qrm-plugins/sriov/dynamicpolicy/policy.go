@@ -101,16 +101,22 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		state:      stateImpl,
 		stateReconciler: util.NewStateReconciler(stateImpl, conf.SriovAllocationConfig.PCIAnnotation,
 			agentCtx.Client.KubeClient, runtimeClient),
-		qosConfig:             conf.QoSConfiguration,
-		podAnnotationKeptKeys: conf.PodAnnotationKeptKeys,
-		podLabelKeptKeys:      conf.PodLabelKeptKeys,
+		qosConfig:                conf.QoSConfiguration,
+		podAnnotationKeptKeys:    conf.PodAnnotationKeptKeys,
+		podLabelKeptKeys:         conf.PodLabelKeptKeys,
+		SriovAllocationConfig:    conf.SriovAllocationConfig,
+		SriovDynamicPolicyConfig: conf.SriovDynamicPolicyConfig,
 	}
 
-	if err := cpudynamicpolicy.AccompanyResource.RegisterPlugin(string(apiconsts.ResourceSriovNic), policy); err != nil {
+	if err := cpudynamicpolicy.AccompanyResource.RegisterPlugin(policy); err != nil {
 		return false, nil, fmt.Errorf("RegisterPlugin failed with error: %v", err)
 	}
 
 	return true, policy, nil
+}
+
+func (d *DynamicPolicy) ResourceName() string {
+	return string(apiconsts.ResourceSriovNic)
 }
 
 // Run runs this plugin
