@@ -61,7 +61,7 @@ func generateCanonicalTestConfiguration(t *testing.T, checkpointDir, stateFileDi
 				Name: consts.MetricCPUSchedwait,
 			},
 		},
-		v1alpha1.QoSRegionTypeDedicatedNumaExclusive: {
+		v1alpha1.QoSRegionTypeDedicated: {
 			{
 				Name: consts.MetricCPUCPIContainer,
 			},
@@ -293,7 +293,7 @@ func TestPolicyCanonical(t *testing.T) {
 			},
 			regionInfo: types.RegionInfo{
 				RegionName:   "dedicated-numa-exclusive-xxx",
-				RegionType:   v1alpha1.QoSRegionTypeDedicatedNumaExclusive,
+				RegionType:   v1alpha1.QoSRegionTypeDedicated,
 				BindingNumas: machine.NewCPUSet(0),
 			},
 			resourceEssentials: types.ResourceEssentials{
@@ -528,7 +528,7 @@ func TestInvalidPolicyCanonical(t *testing.T) {
 			},
 			regionInfo: types.RegionInfo{
 				RegionName:   "dedicated-numa-exclusive-xxx",
-				RegionType:   v1alpha1.QoSRegionTypeDedicatedNumaExclusive,
+				RegionType:   v1alpha1.QoSRegionTypeDedicated,
 				BindingNumas: machine.NewCPUSet(0),
 			},
 			resourceEssentials: types.ResourceEssentials{

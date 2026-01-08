@@ -63,7 +63,7 @@ func generateRamaTestConfiguration(t *testing.T, checkpointDir, stateFileDir, ch
 				Name: workloadv1alpha1.ServiceSystemIndicatorNameCPUSchedWait,
 			},
 		},
-		configapi.QoSRegionTypeDedicatedNumaExclusive: {
+		configapi.QoSRegionTypeDedicated: {
 			{
 				Name: workloadv1alpha1.ServiceSystemIndicatorNameCPI,
 			},
@@ -351,7 +351,7 @@ func TestPolicyRama(t *testing.T) {
 			},
 			regionInfo: types.RegionInfo{
 				RegionName:   "dedicated-numa-exclusive-xxx",
-				RegionType:   configapi.QoSRegionTypeDedicatedNumaExclusive,
+				RegionType:   configapi.QoSRegionTypeDedicated,
 				BindingNumas: machine.NewCPUSet(0),
 			},
 			resourceEssentials: types.ResourceEssentials{

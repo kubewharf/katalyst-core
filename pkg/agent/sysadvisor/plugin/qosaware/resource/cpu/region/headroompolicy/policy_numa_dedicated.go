@@ -35,24 +35,24 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-type PolicyNUMAExclusive struct {
+type PolicyNUMADedicated struct {
 	*PolicyBase
 	headroom float64
 }
 
-// NOTE: NewPolicyNUMAExclusive can only for dedicated_cores with numa exclusive region
+// NOTE: NewPolicyNUMADedicated can only for dedicated_cores with numa exclusive region
 
-func NewPolicyNUMAExclusive(regionName string, regionType configapi.QoSRegionType, ownerPoolName string,
+func NewPolicyNUMADedicated(regionName string, regionType configapi.QoSRegionType, ownerPoolName string,
 	_ *config.Configuration, _ interface{}, metaReader metacache.MetaReader,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) HeadroomPolicy {
-	p := &PolicyNUMAExclusive{
+	p := &PolicyNUMADedicated{
 		PolicyBase: NewPolicyBase(regionName, regionType, ownerPoolName, metaReader, metaServer, emitter),
 	}
 	return p
 }
 
-func (p *PolicyNUMAExclusive) getContainerInfos() (string, []*types.ContainerInfo, error) {
+func (p *PolicyNUMADedicated) getContainerInfos() (string, []*types.ContainerInfo, error) {
 	if len(p.podSet) != 1 {
 		return "", nil, fmt.Errorf("more than one pod are assgined to this policy")
 	}
@@ -70,7 +70,7 @@ func (p *PolicyNUMAExclusive) getContainerInfos() (string, []*types.ContainerInf
 	return "", nil, fmt.Errorf("should never get here")
 }
 
-func (p *PolicyNUMAExclusive) Update() error {
+func (p *PolicyNUMADedicated) Update() error {
 	cpuEstimation := 0.0
 	containerCnt := 0
 
@@ -88,6 +88,7 @@ func (p *PolicyNUMAExclusive) Update() error {
 		return nil
 	}
 
+	totalRequest := 0.0
 	for _, ci := range containers {
 		containerEstimation, err := helper.EstimateContainerCPUUsage(ci, p.metaReader, enableReclaim)
 		if err != nil {
@@ -113,6 +114,7 @@ func (p *PolicyNUMAExclusive) Update() error {
 		}
 
 		cpuEstimation += containerEstimation
+		totalRequest += ci.CPURequest
 		containerCnt += 1
 	}
 	cpuEstimation += p.ReservedForAllocate
@@ -132,6 +134,6 @@ func (p *PolicyNUMAExclusive) Update() error {
 	return nil
 }
 
-func (p *PolicyNUMAExclusive) GetHeadroom() (float64, error) {
+func (p *PolicyNUMADedicated) GetHeadroom() (float64, error) {
 	return p.headroom, nil
 }

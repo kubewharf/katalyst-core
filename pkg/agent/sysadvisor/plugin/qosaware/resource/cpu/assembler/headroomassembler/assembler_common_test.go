@@ -773,7 +773,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 			fields: fields{
 				entries: map[string]*types.RegionInfo{
 					"dedicated": {
-						RegionType:    configapi.QoSRegionTypeDedicatedNumaExclusive,
+						RegionType:    configapi.QoSRegionTypeDedicated,
 						OwnerPoolName: "dedicated",
 						BindingNumas:  machine.NewCPUSet(0),
 						Headroom:      10,
@@ -889,7 +889,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 			fields: fields{
 				entries: map[string]*types.RegionInfo{
 					"dedicated": {
-						RegionType:    configapi.QoSRegionTypeDedicatedNumaExclusive,
+						RegionType:    configapi.QoSRegionTypeDedicated,
 						OwnerPoolName: "dedicated",
 						BindingNumas:  machine.NewCPUSet(0),
 						Headroom:      10,
@@ -980,7 +980,7 @@ func TestHeadroomAssemblerCommon_GetHeadroom(t *testing.T) {
 			metaServer := generateTestMetaServer(t, tt.fields.cnr, tt.fields.podList, metricsFetcher)
 
 			for name, regionInfo := range tt.fields.entries {
-				r := region.NewQoSRegionBase(name, regionInfo.OwnerPoolName, regionInfo.RegionType, conf, nil, false, metaCache, metaServer, metrics.DummyMetrics{})
+				r := region.NewQoSRegionBase(name, regionInfo.OwnerPoolName, regionInfo.RegionType, conf, nil, false, false, metaCache, metaServer, metrics.DummyMetrics{})
 				r.SetBindingNumas(regionInfo.BindingNumas)
 				r.SetEssentials(types.ResourceEssentials{
 					EnableReclaim: tt.fields.reclaimedResourceConfiguration.EnableReclaim,

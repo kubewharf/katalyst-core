@@ -241,6 +241,20 @@ func (cra *cpuResourceAdvisor) getRegionMaxRequirement(r region.QoSRegion) float
 			return true
 		})
 		res = general.MaxFloat64(1, res)
+	case configapi.QoSRegionTypeDedicated:
+		if r.IsNumaExclusive() {
+			for _, numaID := range r.GetBindingNumas().ToSliceInt() {
+				res += float64(cra.numaAvailable[numaID] - cra.reservedForReclaim[numaID])
+			}
+		} else {
+			cra.metaCache.RangeContainer(func(podUID string, containerName string, ci *types.ContainerInfo) bool {
+				if _, ok := r.GetPods()[podUID]; ok {
+					res += ci.CPULimit
+				}
+				return true
+			})
+			res = general.MaxFloat64(1, res)
+		}
 	default:
 		for _, numaID := range r.GetBindingNumas().ToSliceInt() {
 			res += float64(cra.numaAvailable[numaID] - cra.reservedForReclaim[numaID])
@@ -267,7 +281,7 @@ func (cra *cpuResourceAdvisor) getRegionMinRequirement(r region.QoSRegion) float
 		})
 		res = general.MaxFloat64(1, res)
 		return res
-	case configapi.QoSRegionTypeDedicatedNumaExclusive:
+	case configapi.QoSRegionTypeDedicated:
 		return types.MinDedicatedCPURequirement
 	default:
 		klog.Errorf("[qosaware-cpu] unknown region type %v", r.Type())
@@ -278,7 +292,11 @@ func (cra *cpuResourceAdvisor) getRegionMinRequirement(r region.QoSRegion) float
 func (cra *cpuResourceAdvisor) getRegionReservedForReclaim(r region.QoSRegion) float64 {
 	res := 0.0
 	for _, numaID := range r.GetBindingNumas().ToSliceInt() {
-		res += float64(cra.reservedForReclaim[numaID])
+		divider := cra.numRegionsPerNuma[numaID]
+		if divider < 1 {
+			divider = 1
+		}
+		res += float64(cra.reservedForReclaim[numaID]) / float64(divider)
 	}
 	return res
 }
@@ -306,7 +324,7 @@ func (cra *cpuResourceAdvisor) updateRegionEntries() {
 			Pods:          r.GetPods(),
 		}
 
-		if r.Type() == configapi.QoSRegionTypeShare || r.Type() == configapi.QoSRegionTypeDedicatedNumaExclusive {
+		if r.Type() == configapi.QoSRegionTypeShare || r.Type() == configapi.QoSRegionTypeDedicated {
 			headroom, err := r.GetHeadroom()
 			if err != nil {
 				general.ErrorS(err, "failed to get region headroom", "regionName", r.Name())
