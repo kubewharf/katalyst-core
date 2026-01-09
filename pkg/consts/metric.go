@@ -220,6 +220,13 @@ const (
 	MetricCPUCodeName = "cpu.code.name"
 )
 
+// System zram metrics
+const (
+	MetricZramUsedTotal      = "zram.used.total.system"
+	MetricZramComprDataSize  = "zram.compr.usage.system"
+	MetricZramOriginDataSize = "zram.origin.usage.system"
+)
+
 // container cpu metrics
 const (
 	MetricCPULimitContainer      = "cpu.limit.container"
