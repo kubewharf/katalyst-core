@@ -16,9 +16,9 @@ limitations under the License.
 
 package types
 
-type MalachiteSystemDiskIoResponse struct {
-	Status int              `json:"status"`
-	Data   SystemDiskIoData `json:"data"`
+type MalachiteSystemIoResponse struct {
+	Status int                `json:"status"`
+	Data   SystemSystemIoData `json:"data"`
 }
 
 type DiskIo struct {
@@ -32,9 +32,17 @@ type DiskIo struct {
 	WBTValue          int64  `json:"wbt_lat_usec"`
 }
 
-type SystemDiskIoData struct {
-	DiskIo     []DiskIo `json:"disk_io"`
-	UpdateTime int64    `json:"update_time"`
+type SystemSystemIoData struct {
+	DiskIo     []DiskIo   `json:"disk_io"`
+	ZramStat   []ZramStat `json:"zram_stat"`
+	UpdateTime int64      `json:"update_time"`
+}
+
+type ZramStat struct {
+	Name          string `json:"name"`
+	OrigDataSize  uint64 `json:"orig_data_size"`
+	ComprDataSize uint64 `json:"compr_data_size"`
+	MemUsedTotal  uint64 `json:"mem_used_total"`
 }
 
 type MalachiteSystemNetworkResponse struct {
