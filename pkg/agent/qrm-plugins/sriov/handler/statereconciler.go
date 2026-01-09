@@ -44,18 +44,20 @@ import (
 type StateReconciler struct {
 	state          state.State
 	pciAnnotation  string
+	resourceName   string
 	kubeClient     kubernetes.Interface
 	runtimeClient  cri.RuntimeService
 	metaServer     *metaserver.MetaServer
 	residualHitMap map[string]int64
 }
 
-func NewStateReconciler(state state.State, pciAnnotation string,
+func NewStateReconciler(state state.State, pciAnnotation string, resourceName string,
 	kubeClient kubernetes.Interface, runtimeClient cri.RuntimeService,
 ) *StateReconciler {
 	return &StateReconciler{
 		state:          state,
 		pciAnnotation:  pciAnnotation,
+		resourceName:   resourceName,
 		kubeClient:     kubeClient,
 		runtimeClient:  runtimeClient,
 		residualHitMap: make(map[string]int64),
@@ -233,7 +235,7 @@ func (r *StateReconciler) addMissingAllocationInfo(
 			continue
 		}
 
-		containerName := getContainerWithSriovRequestOrFirst(pod)
+		containerName := r.getContainerWithSriovRequestOrFirst(pod)
 
 		vfState := machineState.Filter(state.FilterByPCIAddr(pciDevice.Address))
 		if len(vfState) != 1 {
@@ -258,10 +260,10 @@ func (r *StateReconciler) addMissingAllocationInfo(
 	return needStore, nil
 }
 
-func getContainerWithSriovRequestOrFirst(pod *corev1.Pod) string {
+func (r *StateReconciler) getContainerWithSriovRequestOrFirst(pod *corev1.Pod) string {
 	var firstMainContainerName string
 	for _, container := range pod.Spec.Containers {
-		if _, ok := container.Resources.Requests[apiconsts.ResourceSriovNic]; ok {
+		if _, ok := container.Resources.Requests[corev1.ResourceName(r.resourceName)]; ok {
 			return container.Name
 		}
 

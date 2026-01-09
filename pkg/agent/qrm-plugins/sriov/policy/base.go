@@ -74,7 +74,7 @@ func newBasePolicy(agentCtx *agent.GenericContext, conf *config.Configuration, e
 	}
 
 	stateReconciler := handler.NewStateReconciler(stateImpl, conf.SriovAllocationConfig.PCIAnnotation,
-		agentCtx.Client.KubeClient, runtimeClient)
+		ResourceName, agentCtx.Client.KubeClient, runtimeClient)
 
 	bondingHostNetwork, err := machine.IsHostNetworkBonding()
 	if err != nil {

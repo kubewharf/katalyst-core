@@ -41,8 +41,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
-
-	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 )
 
 type StaticPolicy struct {
@@ -290,7 +288,7 @@ func (p *StaticPolicy) GetTopologyAwareResources(_ context.Context,
 		ContainerTopologyAwareResources: &pluginapi.ContainerTopologyAwareResources{
 			ContainerName: allocationInfo.ContainerName,
 			AllocatedResources: map[string]*pluginapi.TopologyAwareResource{
-				string(apiconsts.ResourceSriovNic): {
+				p.ResourceName(): {
 					TopologyAwareQuantityList: []*pluginapi.TopologyAwareQuantity{
 						{
 							ResourceValue: 1,

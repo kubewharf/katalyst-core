@@ -26,7 +26,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
-	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	appqrm "github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
@@ -267,11 +266,11 @@ func (p *DynamicPolicy) AllocateAccompanyResource(req *pluginapi.ResourceRequest
 
 	general.InfoS("augment allocation result", "request", req, "allocationInfo", allocationInfo)
 
-	p.state.SetAllocationInfo(req.PodUid, req.ContainerName, allocationInfo, true)
-
 	if p.dryRun {
 		return nil
 	}
+
+	p.state.SetAllocationInfo(req.PodUid, req.ContainerName, allocationInfo, true)
 
 	// try to update sriov vf result annotation, if failed, leave it to state_reconciler to update
 	if err := utils.UpdateSriovVFResultAnnotation(p.agentCtx.Client.KubeClient, allocationInfo); err != nil {
@@ -306,7 +305,7 @@ func (p *DynamicPolicy) addAllocationInfoToResponse(allocationInfo *state.Alloca
 	if err != nil {
 		return fmt.Errorf("packResourceAllocationInfo failed with error: %v", err)
 	}
-	resp.AllocationResult.ResourceAllocation[string(apiconsts.ResourceSriovNic)] = resourceAllocationInfo
+	resp.AllocationResult.ResourceAllocation[ResourceName] = resourceAllocationInfo
 	return nil
 }
 
