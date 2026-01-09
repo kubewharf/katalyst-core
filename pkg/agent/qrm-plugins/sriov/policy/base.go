@@ -114,13 +114,15 @@ func (p *basePolicy) validateRequestQuantity(req *pluginapi.ResourceRequest) err
 
 func (p *basePolicy) packResourceAllocationInfo(allocationInfo *state.AllocationInfo) (*pluginapi.ResourceAllocationInfo, error) {
 	annotations := general.DeepCopyMap(p.allocationConfig.ExtraAnnotations)
-	pciAnnotationValue, err := json.Marshal([]types.PCIDevice{
-		{
-			Address: allocationInfo.VFInfo.PCIAddr,
-			RepName: allocationInfo.VFInfo.RepName,
-			VFName:  allocationInfo.VFInfo.Name,
-		},
-	})
+
+	pciDevice := types.PCIDevice{
+		Address: allocationInfo.VFInfo.PCIAddr,
+		RepName: allocationInfo.VFInfo.RepName,
+	}
+	if allocationInfo.VFInfo.ExtraVFInfo != nil {
+		pciDevice.VFName = allocationInfo.VFInfo.ExtraVFInfo.Name
+	}
+	pciAnnotationValue, err := json.Marshal([]types.PCIDevice{pciDevice})
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal pci device: %v", err)
 	}
