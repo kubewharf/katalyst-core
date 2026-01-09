@@ -382,7 +382,7 @@ func (m *MalachiteMetricsProvisioner) processSystemMemoryData(systemMemoryData *
 		utilmetric.MetricData{Value: float64(mem.MemSockUdpLimit), Time: &updateTime})
 }
 
-func (m *MalachiteMetricsProvisioner) processSystemIOData(systemIOData *malachitetypes.SystemDiskIoData) {
+func (m *MalachiteMetricsProvisioner) processSystemIOData(systemIOData *malachitetypes.SystemIoData) {
 	if systemIOData == nil {
 		return
 	}
@@ -443,6 +443,17 @@ func (m *MalachiteMetricsProvisioner) processSystemIOData(systemIOData *malachit
 		m.metricStore.SetDeviceMetric(device.DeviceName, consts.MetricIODiskWBTValue,
 			utilmetric.MetricData{Value: float64(device.WBTValue), Time: &updateTime})
 	}
+
+	var zramOrigin, zramUsedTotal, zramCompr uint64
+	for _, stat := range systemIOData.ZramStat {
+		zramOrigin += stat.OrigDataSize
+		zramUsedTotal += stat.MemUsedTotal
+		zramCompr += stat.ComprDataSize
+	}
+
+	m.metricStore.SetNodeMetric(consts.MetricZramOriginDataSize, utilmetric.MetricData{Value: float64(zramOrigin), Time: &updateTime})
+	m.metricStore.SetNodeMetric(consts.MetricZramUsedTotal, utilmetric.MetricData{Value: float64(zramUsedTotal), Time: &updateTime})
+	m.metricStore.SetNodeMetric(consts.MetricZramComprDataSize, utilmetric.MetricData{Value: float64(zramCompr), Time: &updateTime})
 }
 
 func (m *MalachiteMetricsProvisioner) processSystemNetData(systemNetData *malachitetypes.SystemNetworkData) {
