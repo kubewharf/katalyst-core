@@ -1966,7 +1966,7 @@ func Test_getNicDriver(t *testing.T) {
 
 			So(err, ShouldNotBeNil)
 			So(err.Error(), ShouldContainSubstring, "failed to read symlink")
-			So(driver, ShouldEqual, NicDriverUnknown)
+			So(driver, ShouldEqual, "")
 		})
 
 		PatchConvey("Scenario 2: When the driver is of type MLX, the NicDriverMLX should be returned correctly", func() {
@@ -1975,7 +1975,7 @@ func Test_getNicDriver(t *testing.T) {
 			driver, err := getNicDriver(dummyNicSysPath)
 
 			So(err, ShouldBeNil)
-			So(driver, ShouldEqual, NicDriverMLX)
+			So(driver, ShouldEqual, "mlx5_core")
 		})
 
 		PatchConvey("Scenario 3: When the driver is BNX type, NicDriverBNX should be returned correctly", func() {
@@ -1984,7 +1984,7 @@ func Test_getNicDriver(t *testing.T) {
 			driver, err := getNicDriver(dummyNicSysPath)
 
 			So(err, ShouldBeNil)
-			So(driver, ShouldEqual, NicDriverBNX)
+			So(driver, ShouldEqual, "bnxt_en")
 		})
 
 		PatchConvey("Scenario 4: When the driver is of type VirtioNet, NicDriverVirtioNet should be returned correctly", func() {
@@ -1993,7 +1993,7 @@ func Test_getNicDriver(t *testing.T) {
 			driver, err := getNicDriver(dummyNicSysPath)
 
 			So(err, ShouldBeNil)
-			So(driver, ShouldEqual, NicDriverVirtioNet)
+			So(driver, ShouldEqual, "virtio_net")
 		})
 
 		PatchConvey("Scenario 5: When the driver is of type I40E, the NicDriverI40E should be returned correctly", func() {
@@ -2002,7 +2002,7 @@ func Test_getNicDriver(t *testing.T) {
 			driver, err := getNicDriver(dummyNicSysPath)
 
 			So(err, ShouldBeNil)
-			So(driver, ShouldEqual, NicDriverI40E)
+			So(driver, ShouldEqual, "i40e")
 		})
 
 		PatchConvey("Scenario 6: When the driver is of type IXGBE, NicDriverIXGBE should be returned correctly", func() {
@@ -2011,7 +2011,7 @@ func Test_getNicDriver(t *testing.T) {
 			driver, err := getNicDriver(dummyNicSysPath)
 
 			So(err, ShouldBeNil)
-			So(driver, ShouldEqual, NicDriverIXGBE)
+			So(driver, ShouldEqual, "ixgbe")
 		})
 
 		PatchConvey("Scenario 7: When the driver is of an unrecognized type, an unknown driver should be returned", func() {
@@ -2020,7 +2020,7 @@ func Test_getNicDriver(t *testing.T) {
 			driver, err := getNicDriver(dummyNicSysPath)
 
 			So(err, ShouldBeNil)
-			So(driver, ShouldEqual, NicDriverUnknown)
+			So(driver, ShouldEqual, "some_other_driver")
 		})
 	})
 }
@@ -3018,7 +3018,7 @@ func Test_ListInterfacesWithIPAddr(t *testing.T) {
 	})
 }
 
-func newTestNicBasicInfo(driver NicDriver) *NicBasicInfo {
+func newTestNicBasicInfo(driver string) *NicBasicInfo {
 	return &NicBasicInfo{
 		InterfaceInfo: InterfaceInfo{
 			NetNSInfo: NetNSInfo{
@@ -3040,12 +3040,12 @@ func Test_GetNicRxQueuePackets(t *testing.T) {
 		errEthtoolStats := errors.New("ethtool stats failed")
 
 		PatchConvey("When the driver type is not supported", func() {
-			nic := newTestNicBasicInfo(NicDriverUnknown)
+			nic := newTestNicBasicInfo("xxx")
 
 			result, err := GetNicRxQueuePackets(nic)
 
 			So(err, ShouldNotBeNil)
-			So(err.Error(), ShouldEqual, fmt.Sprintf("unknow driver: %s", NicDriverUnknown))
+			So(err, ShouldResemble, fmt.Errorf("unsupported driver: xxx"))
 			So(result, ShouldBeNil)
 		})
 
@@ -3089,7 +3089,7 @@ func Test_GetNicRxQueuePackets(t *testing.T) {
 		})
 
 		driverTestCases := []struct {
-			driver      NicDriver
+			driver      string
 			stats       map[string]uint64
 			expected    map[int]uint64
 			description string

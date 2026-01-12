@@ -155,7 +155,7 @@ func isSriovPf(sysFsDir string, ifName string) bool {
 // detectSriovPFDriver returns the sriov supported driver name of PF.
 // We use ethtool as the standard way to get the driver name, other than reading file or link under /sys because
 // it might have different behaviors between nic vendors.
-func detectSriovPFDriver(ifName string) (NicDriver, error) {
+func detectSriovPFDriver(ifName string) (string, error) {
 	driverName, err := ethtool.DriverName(ifName)
 	if err != nil {
 		return NicDriverUnknown, fmt.Errorf("failed to get driver name, err %w", err)
