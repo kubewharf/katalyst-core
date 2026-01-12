@@ -40,6 +40,8 @@ import (
 )
 
 const (
+	metricTagDryRunTagKey = "dryRun"
+
 	rdmaDevicePrefix = "/dev/infiniband"
 	rdmaCmPath       = "/dev/infiniband/rdma_cm"
 )

@@ -61,6 +61,9 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(agentName, metrics.MetricTag{
 		Key: qrmutil.QRMPluginPolicyTagName,
 		Val: consts.SriovResourcePluginPolicyNameDynamic,
+	}, metrics.MetricTag{
+		Key: metricTagDryRunTagKey,
+		Val: fmt.Sprintf("%v", conf.SriovDryRun),
 	})
 
 	basePolicy, err := newBasePolicy(agentCtx, conf, wrappedEmitter)
@@ -124,6 +127,10 @@ func (p *DynamicPolicy) GetAccompanyResourceTopologyHints(req *pluginapi.Resourc
 			general.ErrorS(err, "GetAccompanyResourceTopologyHints failed", "request", req, "hints", hints)
 			_ = p.emitter.StoreInt64(qrmutil.MetricNameGetAccompanyResourceTopologyHintsFailed, 1, metrics.MetricTypeNameRaw,
 				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)})
+			// set err to nil if dryRun is true, to avoid affecting pod admission
+			if p.dryRun {
+				err = nil
+			}
 		}
 	}()
 
@@ -198,14 +205,6 @@ func (p *DynamicPolicy) AllocateAccompanyResource(req *pluginapi.ResourceRequest
 
 	general.InfoS("called", "request", req)
 
-	qosLevel, err := qrmutil.GetKatalystQoSLevelFromResourceReq(p.qosConfig, req, p.podAnnotationKeptKeys, p.podLabelKeptKeys)
-	if err != nil {
-		err = fmt.Errorf("GetKatalystQoSLevelFromResourceReq for pod: %s/%s, container: %s failed with error: %v",
-			req.PodNamespace, req.PodName, req.ContainerName, err)
-		general.Errorf("%s", err.Error())
-		return err
-	}
-
 	p.Lock()
 	defer func() {
 		p.Unlock()
@@ -213,8 +212,20 @@ func (p *DynamicPolicy) AllocateAccompanyResource(req *pluginapi.ResourceRequest
 			general.ErrorS(err, "AllocateAccompanyResource failed", "request", req)
 			_ = p.emitter.StoreInt64(qrmutil.MetricNameAllocateAccompanyResourceFailed, 1, metrics.MetricTypeNameRaw,
 				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)})
+			// set err to nil if dryRun is true, to avoid affecting pod admission
+			if p.dryRun {
+				err = nil
+			}
 		}
 	}()
+
+	qosLevel, err := qrmutil.GetKatalystQoSLevelFromResourceReq(p.qosConfig, req, p.podAnnotationKeptKeys, p.podLabelKeptKeys)
+	if err != nil {
+		err = fmt.Errorf("GetKatalystQoSLevelFromResourceReq for pod: %s/%s, container: %s failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
+		general.Errorf("%s", err.Error())
+		return err
+	}
 
 	// reuse allocation info allocated by same pod and container
 	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
@@ -295,6 +306,7 @@ func (p *DynamicPolicy) ReleaseAccompanyResource(req *pluginapi.RemovePodRequest
 		}
 	}()
 
+	// delete is safe, no need to check dryRun
 	p.state.Delete(req.PodUid, true)
 
 	return nil

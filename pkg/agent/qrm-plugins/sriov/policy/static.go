@@ -63,6 +63,9 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(agentName, metrics.MetricTag{
 		Key: qrmutil.QRMPluginPolicyTagName,
 		Val: consts.SriovResourcePluginPolicyNameStatic,
+	}, metrics.MetricTag{
+		Key: metricTagDryRunTagKey,
+		Val: fmt.Sprintf("%v", conf.SriovDryRun),
 	})
 
 	basePolicy, err := newBasePolicy(agentCtx, conf, wrappedEmitter)
@@ -150,10 +153,6 @@ func (p *StaticPolicy) Start() (err error) {
 func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 	req *pluginapi.ResourceRequest,
 ) (resp *pluginapi.ResourceHintsResponse, err error) {
-	if err := p.validateRequestQuantity(req); err != nil {
-		return nil, fmt.Errorf("ValidateRequestQuantity failed with error: %v", err)
-	}
-
 	general.InfoS("called", "request", req)
 
 	p.RLock()
@@ -163,8 +162,16 @@ func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 			general.ErrorS(err, "GetTopologyHints failed", "request", req)
 			_ = p.emitter.StoreInt64(qrmutil.MetricNameGetTopologyHintsFailed, 1, metrics.MetricTypeNameRaw,
 				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)})
+			// set err to nil if dryRun is true, to avoid affecting pod admission
+			if p.dryRun {
+				err = nil
+			}
 		}
 	}()
+
+	if err := p.validateRequestQuantity(req); err != nil {
+		return nil, fmt.Errorf("ValidateRequestQuantity failed with error: %v", err)
+	}
 
 	podEntries := p.state.GetPodEntries()
 	machineState := p.state.GetMachineState()
@@ -180,9 +187,14 @@ func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 		}
 		candidates = machineState.Filter(state.FilterByPCIAddr(allocationInfo.VFInfo.PCIAddr))
 	} else {
-		filters := []state.VFFilter{state.FilterByPodAllocated(podEntries, false), state.FilterByRDMA(true)}
+		filters := []state.VFFilter{
+			state.FilterByPodAllocated(podEntries, false),
+			state.FilterByRDMA(true),
+		}
 		if p.bondingHostNetwork {
-			filters = append(filters, state.FilterByQueueCount(p.policyConfig.MinBondingVFQueueCount, p.policyConfig.MaxBondingVFQueueCount))
+			filters = append(filters,
+				state.FilterByQueueCount(p.policyConfig.MinBondingVFQueueCount, p.policyConfig.MaxBondingVFQueueCount),
+			)
 		}
 		candidates = machineState.Filter(filters...)
 	}
@@ -250,9 +262,8 @@ func (p *StaticPolicy) RemovePod(_ context.Context,
 		}
 	}()
 
-	if !p.dryRun {
-		p.state.Delete(req.PodUid, true)
-	}
+	// delete is safe, no need to check dryRun
+	p.state.Delete(req.PodUid, true)
 
 	return &pluginapi.RemovePodResponse{}, nil
 }
@@ -392,6 +403,22 @@ func (p *StaticPolicy) GetResourcePluginOptions(context.Context,
 func (p *StaticPolicy) Allocate(_ context.Context,
 	req *pluginapi.ResourceRequest,
 ) (resp *pluginapi.ResourceAllocationResponse, err error) {
+	general.InfoS("called", "request", req)
+
+	p.Lock()
+	defer func() {
+		p.Unlock()
+		if err != nil {
+			general.ErrorS(err, "Allocate failed", "request", req)
+			_ = p.emitter.StoreInt64(qrmutil.MetricNameAllocateFailed, 1, metrics.MetricTypeNameRaw,
+				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)})
+			// set err to nil if dryRun is true, to avoid affecting pod admission
+			if p.dryRun {
+				err = nil
+			}
+		}
+	}()
+
 	if err := p.validateRequestQuantity(req); err != nil {
 		return nil, fmt.Errorf("ValidateRequestQuantity failed with error: %v", err)
 	}
@@ -403,18 +430,6 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 		general.Errorf("%s", err.Error())
 		return nil, err
 	}
-
-	general.InfoS("called", "request", req)
-
-	p.Lock()
-	defer func() {
-		p.Unlock()
-		if err != nil {
-			general.ErrorS(err, "Allocate failed", "request", req)
-			_ = p.emitter.StoreInt64(qrmutil.MetricNameAllocateFailed, 1, metrics.MetricTypeNameRaw,
-				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)})
-		}
-	}()
 
 	// reuse allocation info allocated by same pod and container
 	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
