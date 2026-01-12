@@ -456,13 +456,6 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 		VFInfo: candidates[0],
 	}
 
-	p.state.SetAllocationInfo(req.PodUid, req.ContainerName, allocationInfo, true)
-
-	// try to update sriov vf result annotation, if failed, leave it to state_reconciler to update
-	if err := utils.UpdateSriovVFResultAnnotation(p.agentCtx.Client.KubeClient, allocationInfo); err != nil {
-		general.ErrorS(err, "UpdateSriovVFResultAnnotation failed")
-	}
-
 	resp, err = p.packAllocationResponse(req, allocationInfo)
 	if err != nil {
 		return nil, fmt.Errorf("failed to pack allocation response: %v", err)
@@ -472,6 +465,14 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 
 	if p.dryRun {
 		resp.AllocationResult = nil
+		return resp, nil
+	}
+
+	p.state.SetAllocationInfo(req.PodUid, req.ContainerName, allocationInfo, true)
+
+	// try to update sriov vf result annotation, if failed, leave it to state_reconciler to update
+	if err := utils.UpdateSriovVFResultAnnotation(p.agentCtx.Client.KubeClient, allocationInfo); err != nil {
+		general.ErrorS(err, "UpdateSriovVFResultAnnotation failed")
 	}
 
 	return resp, nil
