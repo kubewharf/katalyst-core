@@ -217,7 +217,7 @@ func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 		return nil, fmt.Errorf("failed to pack resource hints response: %v", err)
 	}
 
-	general.InfoS("finished", "response", resp)
+	general.InfoS("finished", "response", resp, "dryRun", p.dryRun)
 
 	if p.dryRun {
 		resp.ResourceHints = nil
@@ -422,18 +422,24 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 		return p.packAllocationResponse(req, allocationInfo)
 	}
 
+	podEntries := p.state.GetPodEntries()
+	machineState := p.state.GetMachineState()
+
+	filters := []state.VFFilter{
+		state.FilterByPodAllocated(podEntries, false),
+		state.FilterByRDMA(true),
+	}
+
 	hintNUMASet, err := machine.NewCPUSetUint64(req.Hint.Nodes...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse hint numa nodes: %v", err)
 	}
-
-	podEntries := p.state.GetPodEntries()
-	machineState := p.state.GetMachineState()
-	filters := []state.VFFilter{
-		state.FilterByPodAllocated(podEntries, false),
-		state.FilterByNumaSet(hintNUMASet),
-		state.FilterByRDMA(true),
+	if hintNUMASet.Size() > 0 {
+		socketSet := p.agentCtx.CPUDetails.SocketsInNUMANodes(hintNUMASet.ToSliceInt()...)
+		numaSet := p.agentCtx.CPUDetails.NUMANodesInSockets(socketSet.ToSliceInt()...)
+		filters = append(filters, state.FilterByNumaSet(numaSet))
 	}
+
 	if p.bondingHostNetwork {
 		filters = append(filters, state.FilterByQueueCount(p.policyConfig.MinBondingVFQueueCount, p.policyConfig.MaxBondingVFQueueCount))
 	}
@@ -462,7 +468,7 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 		return nil, fmt.Errorf("failed to pack allocation response: %v", err)
 	}
 
-	general.InfoS("finished", "response", resp)
+	general.InfoS("finished", "response", resp, "dryRun", p.dryRun)
 
 	if p.dryRun {
 		resp.AllocationResult = nil
