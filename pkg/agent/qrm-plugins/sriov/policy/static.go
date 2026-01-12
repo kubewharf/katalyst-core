@@ -191,7 +191,7 @@ func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 		return nil, fmt.Errorf("no available VFs")
 	}
 
-	numaSet := machine.CPUSet{}
+	numaSet := machine.NewCPUSet()
 	for _, vf := range candidates {
 		numaSet.Add(vf.NumaNode)
 	}

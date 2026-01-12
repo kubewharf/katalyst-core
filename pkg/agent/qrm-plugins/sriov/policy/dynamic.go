@@ -161,7 +161,7 @@ func (p *DynamicPolicy) GetAccompanyResourceTopologyHints(req *pluginapi.Resourc
 		return nil
 	}
 
-	numaSet := machine.CPUSet{}
+	numaSet := machine.NewCPUSet()
 	for _, vf := range candidates {
 		numaSet.Add(vf.NumaNode)
 	}
