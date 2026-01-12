@@ -60,9 +60,9 @@ var (
 		},
 	}
 
-	fakeSystemIO = &types.MalachiteSystemDiskIoResponse{
+	fakeSystemIO = &types.MalachiteSystemIoResponse{
 		Status: 0,
-		Data: types.SystemDiskIoData{
+		Data: types.SystemIoData{
 			DiskIo: []types.DiskIo{
 				{},
 			},

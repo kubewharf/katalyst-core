@@ -85,13 +85,13 @@ func (c *MalachiteClient) GetSystemMemoryStats() (*types.SystemMemoryData, error
 	return &rsp.Data, nil
 }
 
-func (c *MalachiteClient) GetSystemIOStats() (*types.SystemDiskIoData, error) {
+func (c *MalachiteClient) GetSystemIOStats() (*types.SystemIoData, error) {
 	statsData, err := c.getSystemStats(IO)
 	if err != nil {
 		return nil, err
 	}
 
-	rsp := &types.MalachiteSystemDiskIoResponse{}
+	rsp := &types.MalachiteSystemIoResponse{}
 	if err := json.Unmarshal(statsData, rsp); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal system io stats raw data, err %s", err)
 	}
