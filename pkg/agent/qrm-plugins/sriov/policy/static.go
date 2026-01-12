@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
@@ -293,7 +294,7 @@ func (p *StaticPolicy) GetTopologyAwareResources(_ context.Context,
 						{
 							ResourceValue: 1,
 							Node:          socket,
-							Name:          allocationInfo.VFInfo.PCIAddr,
+							Name:          allocationInfo.VFInfo.RepName,
 							Type:          string(apinode.TopologyTypeNIC),
 							TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 						},
@@ -315,6 +316,7 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 
 	var (
 		machineState = p.state.GetMachineState()
+		podEntries   = p.state.GetPodEntries()
 
 		aggregatedQuantity float64
 
@@ -325,17 +327,38 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 	if p.bondingHostNetwork {
 		filters = append(filters, state.FilterByQueueCount(p.policyConfig.MinBondingVFQueueCount, p.policyConfig.MaxBondingVFQueueCount))
 	}
-	availableVFs := machineState.Filter(filters...)
+	allocatableVFs := machineState.Filter(filters...)
 
-	for _, vfInfo := range availableVFs {
+	vfSet := sets.NewString()
+	for _, vfInfo := range allocatableVFs {
 		aggregatedQuantity += 1
 		topologyAwareQuantityList = append(topologyAwareQuantityList, &pluginapi.TopologyAwareQuantity{
 			ResourceValue: 1,
 			Node:          p.agentCtx.CPUDetails.SocketsInNUMANodes(vfInfo.NumaNode).ToSliceUInt64()[0],
-			Name:          vfInfo.Name,
+			Name:          vfInfo.RepName,
 			Type:          string(apinode.TopologyTypeNIC),
 			TopologyLevel: pluginapi.TopologyLevel_SOCKET,
 		})
+		vfSet.Insert(vfInfo.RepName)
+	}
+
+	// the VFs that are allocated by pod could be filtered by (RDMA) filters, so we need to
+	// include them from the podEntries
+	for _, containerEntries := range podEntries {
+		for _, allocationInfo := range containerEntries {
+			if vfSet.Has(allocationInfo.VFInfo.RepName) {
+				continue
+			}
+			aggregatedQuantity += 1
+			topologyAwareQuantityList = append(topologyAwareQuantityList, &pluginapi.TopologyAwareQuantity{
+				ResourceValue: 1,
+				Node:          p.agentCtx.CPUDetails.SocketsInNUMANodes(allocationInfo.VFInfo.NumaNode).ToSliceUInt64()[0],
+				Name:          allocationInfo.VFInfo.RepName,
+				Type:          string(apinode.TopologyTypeNIC),
+				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
+			})
+			vfSet.Insert(allocationInfo.VFInfo.RepName)
+		}
 	}
 
 	return &pluginapi.GetTopologyAwareAllocatableResourcesResponse{
@@ -350,7 +373,6 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(_ context.Context,
 			},
 		},
 	}, nil
-
 }
 
 // GetResourcePluginOptions returns options to be communicated with Resource Manager
