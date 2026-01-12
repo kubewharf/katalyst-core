@@ -119,31 +119,32 @@ func (p *basePolicy) packResourceAllocationInfo(allocationInfo *state.Allocation
 		Address: allocationInfo.VFInfo.PCIAddr,
 		RepName: allocationInfo.VFInfo.RepName,
 	}
+
+	var devices []*pluginapi.DeviceSpec
 	if allocationInfo.VFInfo.ExtraVFInfo != nil {
 		pciDevice.VFName = allocationInfo.VFInfo.ExtraVFInfo.Name
+		if ibDevices := allocationInfo.VFInfo.IBDevices; len(ibDevices) > 0 {
+			for _, device := range ibDevices {
+				rdmaPath := filepath.Join(rdmaDevicePrefix, device)
+				devices = append(devices, &pluginapi.DeviceSpec{
+					HostPath:      rdmaPath,
+					ContainerPath: rdmaPath,
+					Permissions:   "rwm",
+				})
+			}
+			devices = append(devices, &pluginapi.DeviceSpec{
+				HostPath:      rdmaCmPath,
+				ContainerPath: rdmaCmPath,
+				Permissions:   "rw",
+			})
+		}
 	}
+
 	pciAnnotationValue, err := json.Marshal([]types.PCIDevice{pciDevice})
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal pci device: %v", err)
 	}
 	annotations[p.allocationConfig.PCIAnnotation] = string(pciAnnotationValue)
-
-	var devices []*pluginapi.DeviceSpec
-	if ibDevices := allocationInfo.VFInfo.IBDevices; len(ibDevices) > 0 {
-		for _, device := range ibDevices {
-			rdmaPath := filepath.Join(rdmaDevicePrefix, device)
-			devices = append(devices, &pluginapi.DeviceSpec{
-				HostPath:      rdmaPath,
-				ContainerPath: rdmaPath,
-				Permissions:   "rwm",
-			})
-		}
-		devices = append(devices, &pluginapi.DeviceSpec{
-			HostPath:      rdmaCmPath,
-			ContainerPath: rdmaCmPath,
-			Permissions:   "rw",
-		})
-	}
 
 	return &pluginapi.ResourceAllocationInfo{
 		IsNodeResource:    true,
