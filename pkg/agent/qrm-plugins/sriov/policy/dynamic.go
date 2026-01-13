@@ -267,11 +267,11 @@ func (p *DynamicPolicy) AllocateAccompanyResource(req *pluginapi.ResourceRequest
 		return nil
 	}
 
-	candidates.SortByIndex()
+	candidates.SortByNumaNodeAndIndex()
 	allocationInfo = &state.AllocationInfo{
 		AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(req,
 			commonstate.EmptyOwnerPoolName, qosLevel),
-		// return the VF with the lowest index
+		// return the VF with the lowest numa id and index
 		VFInfo: candidates[0],
 	}
 

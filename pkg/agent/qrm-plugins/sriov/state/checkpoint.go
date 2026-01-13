@@ -119,8 +119,11 @@ func (s VFState) Filter(filters ...VFFilter) VFState {
 	return filtered
 }
 
-func (s VFState) SortByIndex() {
+func (s VFState) SortByNumaNodeAndIndex() {
 	sort.Slice(s, func(i, j int) bool {
+		if s[i].NumaNode != s[j].NumaNode {
+			return s[i].NumaNode < s[j].NumaNode
+		}
 		return s[i].Index < s[j].Index
 	})
 }

@@ -44,6 +44,8 @@ const (
 
 	rdmaDevicePrefix = "/dev/infiniband"
 	rdmaCmPath       = "/dev/infiniband/rdma_cm"
+
+	netNsPathPrefix = "/var/run/netns"
 )
 
 // ResourceName is the resource name for sriov nic,
@@ -75,7 +77,7 @@ func newBasePolicy(agentCtx *agent.GenericContext, conf *config.Configuration, e
 		return nil, fmt.Errorf("create remote runtime service failed %s", err)
 	}
 
-	stateReconciler := handler.NewStateReconciler(stateImpl, conf.SriovAllocationConfig.PCIAnnotation,
+	stateReconciler := handler.NewStateReconciler(stateImpl, conf.SriovAllocationConfig.PCIAnnotationKey,
 		ResourceName, agentCtx.Client.KubeClient, runtimeClient)
 
 	bondingHostNetwork, err := machine.IsHostNetworkBonding()
@@ -166,7 +168,11 @@ func (p *basePolicy) generateResourceAllocationInfo(allocationInfo *state.Alloca
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal pci device: %v", err)
 	}
-	annotations[p.allocationConfig.PCIAnnotation] = string(pciAnnotationValue)
+	annotations[p.allocationConfig.PCIAnnotationKey] = string(pciAnnotationValue)
+
+	if allocationInfo.VFInfo.NSName != "" {
+		annotations[p.allocationConfig.NetNsAnnotationKey] = filepath.Join(netNsPathPrefix, allocationInfo.VFInfo.NSName)
+	}
 
 	return &pluginapi.ResourceAllocationInfo{
 		IsNodeResource:    true,

@@ -35,9 +35,9 @@ type SriovOptions struct {
 }
 
 type SriovAllocationOptions struct {
-	DryRun           bool
-	PCIAnnotationKey string
-	ExtraAnnotations map[string]string
+	PCIAnnotationKey   string
+	NetNsAnnotationKey string
+	ExtraAnnotations   map[string]string
 }
 
 type SriovStaticPolicyOptions struct {
@@ -60,8 +60,9 @@ func NewSriovOptions() *SriovOptions {
 		SkipSriovStateCorruption: true,
 		SriovDryRun:              false,
 		SriovAllocationOptions: SriovAllocationOptions{
-			PCIAnnotationKey: "pci-devices",
-			ExtraAnnotations: map[string]string{},
+			PCIAnnotationKey:   "pci-devices",
+			NetNsAnnotationKey: "netns",
+			ExtraAnnotations:   map[string]string{},
 		},
 		SriovStaticPolicyOptions: SriovStaticPolicyOptions{
 			MinBondingVFQueueCount: 32,
@@ -84,7 +85,8 @@ func (o *SriovOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringVar(&o.PolicyName, "sriov-policy-name", o.PolicyName, "Policy name for sriov qrm plugin")
 	fs.BoolVar(&o.SkipSriovStateCorruption, "skip-sriov-state-corruption", o.SkipSriovStateCorruption, "Skip sriov state corruption")
 	fs.BoolVar(&o.SriovDryRun, "sriov-plugin-dry-run", o.SriovDryRun, "Dry run the sriov plugin")
-	fs.StringVar(&o.PCIAnnotationKey, "sriov-vf-pci-annotation-key", o.PCIAnnotationKey, "PCI annotation key for sriov vf")
+	fs.StringVar(&o.PCIAnnotationKey, "sriov-vf-pci-annotation-key", o.PCIAnnotationKey, "PCI annotation key for sriov vf passing to container")
+	fs.StringVar(&o.NetNsAnnotationKey, "sriov-vf-netns-annotation-key", "", "Netns annotation key for sriov vf passing to container")
 	fs.StringToStringVar(&o.ExtraAnnotations, "sriov-vf-extra-annotations", o.ExtraAnnotations, "Extra annotations for sriov vf")
 	fs.IntVar(&o.MinBondingVFQueueCount, "static-min-bonding-vf-queue-count", o.MinBondingVFQueueCount, "Min queue count of bonding VF can be allocated in static policy")
 	fs.IntVar(&o.MaxBondingVFQueueCount, "static-max-bonding-vf-queue-count", o.MaxBondingVFQueueCount, "Max queue count of bonding VF can be allocated in static policy")
@@ -101,8 +103,9 @@ func (s *SriovOptions) ApplyTo(config *qrmconfig.SriovQRMPluginConfig) error {
 	config.SkipSriovStateCorruption = s.SkipSriovStateCorruption
 	config.SriovDryRun = s.SriovDryRun
 	config.SriovAllocationConfig = qrmconfig.SriovAllocationConfig{
-		PCIAnnotation:    s.PCIAnnotationKey,
-		ExtraAnnotations: s.ExtraAnnotations,
+		PCIAnnotationKey:   s.PCIAnnotationKey,
+		NetNsAnnotationKey: s.NetNsAnnotationKey,
+		ExtraAnnotations:   s.ExtraAnnotations,
 	}
 	config.MinBondingVFQueueCount = s.MinBondingVFQueueCount
 	config.MaxBondingVFQueueCount = s.MaxBondingVFQueueCount

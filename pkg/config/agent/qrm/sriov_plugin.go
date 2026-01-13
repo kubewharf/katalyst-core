@@ -30,8 +30,9 @@ type SriovQRMPluginConfig struct {
 }
 
 type SriovAllocationConfig struct {
-	PCIAnnotation    string
-	ExtraAnnotations map[string]string
+	PCIAnnotationKey   string
+	NetNsAnnotationKey string
+	ExtraAnnotations   map[string]string
 }
 
 type SriovStaticPolicyConfig struct {
