@@ -252,7 +252,7 @@ func (r *StateReconciler) addMissingAllocationInfo(
 			},
 			VFInfo: vfState[0],
 		}
-		general.Infof("set allocation info of %s: %v", containerName, allocationInfo)
+		general.Infof("add missing allocation info of %s: %v", containerName, allocationInfo)
 		r.state.SetAllocationInfo(podUID, containerName, allocationInfo, false)
 		needStore = true
 	}

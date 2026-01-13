@@ -248,6 +248,8 @@ func (p *StaticPolicy) GetPodTopologyHints(_ context.Context,
 func (p *StaticPolicy) RemovePod(_ context.Context,
 	req *pluginapi.RemovePodRequest,
 ) (resp *pluginapi.RemovePodResponse, err error) {
+	general.InfoS("called", "request", req)
+
 	if req == nil {
 		return nil, fmt.Errorf("RemovePod got nil req")
 	}
