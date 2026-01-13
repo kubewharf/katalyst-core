@@ -188,7 +188,7 @@ func (p *DynamicPolicy) GetAccompanyResourceTopologyHints(req *pluginapi.Resourc
 		})
 	}
 
-	general.InfoS("finished", "request", req, "originHints", hints, "augmentedHints", augmentedHints)
+	general.InfoS("get accompany resource topology hints", "request", req, "originHints", hints, "augmentedHints", augmentedHints)
 
 	if !p.dryRun {
 		hints.Hints = augmentedHints
@@ -275,12 +275,15 @@ func (p *DynamicPolicy) AllocateAccompanyResource(req *pluginapi.ResourceRequest
 		VFInfo: candidates[0],
 	}
 
-	general.InfoS("augment allocation result", "request", req, "allocationInfo", allocationInfo)
+	general.InfoS("allocate accompany resource result", "request", req, "allocationInfo", allocationInfo)
 
 	if p.dryRun {
 		return nil
 	}
 
+	if err := p.addAllocationInfoToResponse(allocationInfo, resp); err != nil {
+		return fmt.Errorf("addAllocationInfoToResponse failed with error: %v", err)
+	}
 	p.state.SetAllocationInfo(req.PodUid, req.ContainerName, allocationInfo, true)
 
 	// try to update sriov vf result annotation, if failed, leave it to state_reconciler to update
@@ -313,9 +316,9 @@ func (p *DynamicPolicy) ReleaseAccompanyResource(req *pluginapi.RemovePodRequest
 }
 
 func (p *DynamicPolicy) addAllocationInfoToResponse(allocationInfo *state.AllocationInfo, resp *pluginapi.ResourceAllocationResponse) error {
-	resourceAllocationInfo, err := p.packResourceAllocationInfo(allocationInfo)
+	resourceAllocationInfo, err := p.generateResourceAllocationInfo(allocationInfo)
 	if err != nil {
-		return fmt.Errorf("packResourceAllocationInfo failed with error: %v", err)
+		return fmt.Errorf("generateResourceAllocationInfo failed with error: %v", err)
 	}
 	resp.AllocationResult.ResourceAllocation[ResourceName] = resourceAllocationInfo
 	return nil

@@ -114,7 +114,27 @@ func (p *basePolicy) validateRequestQuantity(req *pluginapi.ResourceRequest) err
 	return nil
 }
 
-func (p *basePolicy) packResourceAllocationInfo(allocationInfo *state.AllocationInfo) (*pluginapi.ResourceAllocationInfo, error) {
+func (p *basePolicy) packResourceHintsResponse(req *pluginapi.ResourceRequest, resourceName string,
+	resourceHints map[string]*pluginapi.ListOfTopologyHints,
+) *pluginapi.ResourceHintsResponse {
+	return &pluginapi.ResourceHintsResponse{
+		PodUid:         req.PodUid,
+		PodNamespace:   req.PodNamespace,
+		PodName:        req.PodName,
+		ContainerName:  req.ContainerName,
+		ContainerType:  req.ContainerType,
+		ContainerIndex: req.ContainerIndex,
+		PodRole:        req.PodRole,
+		PodType:        req.PodType,
+		ResourceName:   resourceName,
+		ResourceHints:  resourceHints,
+		Labels:         general.DeepCopyMap(req.Labels),
+		Annotations:    general.DeepCopyMap(req.Annotations),
+		NativeQosClass: req.NativeQosClass,
+	}
+}
+
+func (p *basePolicy) generateResourceAllocationInfo(allocationInfo *state.AllocationInfo) (*pluginapi.ResourceAllocationInfo, error) {
 	annotations := general.DeepCopyMap(p.allocationConfig.ExtraAnnotations)
 
 	pciDevice := types.PCIDevice{
@@ -158,13 +178,8 @@ func (p *basePolicy) packResourceAllocationInfo(allocationInfo *state.Allocation
 }
 
 func (p *basePolicy) packAllocationResponse(req *pluginapi.ResourceRequest,
-	allocationInfo *state.AllocationInfo) (*pluginapi.ResourceAllocationResponse, error) {
-	resourceAllocationInfo, err := p.packResourceAllocationInfo(allocationInfo)
-	if err != nil {
-		return nil, fmt.Errorf("failed to pack resource allocation info: %v", err)
-	}
-
-	return &pluginapi.ResourceAllocationResponse{
+	resourceAllocationInfo *pluginapi.ResourceAllocationInfo) *pluginapi.ResourceAllocationResponse {
+	resp := &pluginapi.ResourceAllocationResponse{
 		PodUid:         req.PodUid,
 		PodNamespace:   req.PodNamespace,
 		PodName:        req.PodName,
@@ -174,12 +189,17 @@ func (p *basePolicy) packAllocationResponse(req *pluginapi.ResourceRequest,
 		PodRole:        req.PodRole,
 		PodType:        req.PodType,
 		ResourceName:   req.ResourceName,
-		AllocationResult: &pluginapi.ResourceAllocation{
+		Labels:         general.DeepCopyMap(req.Labels),
+		Annotations:    general.DeepCopyMap(req.Annotations),
+	}
+
+	if resourceAllocationInfo != nil {
+		resp.AllocationResult = &pluginapi.ResourceAllocation{
 			ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
 				ResourceName: resourceAllocationInfo,
 			},
-		},
-		Labels:      general.DeepCopyMap(req.Labels),
-		Annotations: general.DeepCopyMap(req.Annotations),
-	}, nil
+		}
+	}
+
+	return resp
 }

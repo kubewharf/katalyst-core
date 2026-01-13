@@ -162,10 +162,12 @@ func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 			general.ErrorS(err, "GetTopologyHints failed", "request", req)
 			_ = p.emitter.StoreInt64(qrmutil.MetricNameGetTopologyHintsFailed, 1, metrics.MetricTypeNameRaw,
 				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)})
-			// set err to nil if dryRun is true, to avoid affecting pod admission
-			if p.dryRun {
-				err = nil
-			}
+		}
+
+		// always return "empty" response when dryRun is enabled, to avoid affecting pod admission
+		if p.dryRun {
+			resp = p.packResourceHintsResponse(req, p.ResourceName(), nil)
+			err = nil
 		}
 	}()
 
@@ -218,22 +220,15 @@ func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 		})
 	}
 
-	resp, err = qrmutil.PackResourceHintsResponse(req, p.ResourceName(),
+	resp = p.packResourceHintsResponse(req, p.ResourceName(),
 		map[string]*pluginapi.ListOfTopologyHints{
 			p.ResourceName(): {
 				Hints: hints,
 			},
 		},
 	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to pack resource hints response: %v", err)
-	}
 
 	general.InfoS("finished", "response", resp, "dryRun", p.dryRun)
-
-	if p.dryRun {
-		resp.ResourceHints = nil
-	}
 
 	return resp, nil
 }
@@ -407,6 +402,8 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 ) (resp *pluginapi.ResourceAllocationResponse, err error) {
 	general.InfoS("called", "request", req)
 
+	var reuseAllocationInfo bool
+
 	p.Lock()
 	defer func() {
 		p.Unlock()
@@ -414,10 +411,17 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 			general.ErrorS(err, "Allocate failed", "request", req)
 			_ = p.emitter.StoreInt64(qrmutil.MetricNameAllocateFailed, 1, metrics.MetricTypeNameRaw,
 				metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)})
-			// set err to nil if dryRun is true, to avoid affecting pod admission
-			if p.dryRun {
-				err = nil
+		}
+
+		if p.dryRun {
+			// if reuseAllocationInfo is set to true, which means the pod is already set in state,
+			// we should not set resourceAllocationInfo to nil, so the kubelet(qrm) could stop trying to re-allocate.
+			// when dryRun is enabled, the state of pod is often set by stateReconciler.addMissingAllocationInfo
+			if !reuseAllocationInfo {
+				resp = p.packAllocationResponse(req, nil)
 			}
+			// set err to nil, to avoid affecting pod admission
+			err = nil
 		}
 	}()
 
@@ -436,7 +440,12 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 	// reuse allocation info allocated by same pod and container
 	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
 	if allocationInfo != nil {
-		return p.packAllocationResponse(req, allocationInfo)
+		resourceAllocationInfo, err := p.generateResourceAllocationInfo(allocationInfo)
+		if err != nil {
+			return nil, fmt.Errorf("generateResourceAllocationInfo for pod: %s/%s, container: %s failed with error: %v")
+		}
+		reuseAllocationInfo = true
+		return p.packAllocationResponse(req, resourceAllocationInfo), nil
 	}
 
 	podEntries := p.state.GetPodEntries()
@@ -473,16 +482,17 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 		VFInfo: candidates[0],
 	}
 
-	resp, err = p.packAllocationResponse(req, allocationInfo)
+	resourceAllocationInfo, err := p.generateResourceAllocationInfo(allocationInfo)
 	if err != nil {
-		return nil, fmt.Errorf("failed to pack allocation response: %v", err)
+		return nil, fmt.Errorf("generateResourceAllocationInfo for pod: %s/%s, container: %s failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
 	}
+	resp = p.packAllocationResponse(req, resourceAllocationInfo)
 
 	general.InfoS("finished", "response", resp, "dryRun", p.dryRun)
 
 	if p.dryRun {
-		resp.AllocationResult = nil
-		return resp, nil
+		return
 	}
 
 	p.state.SetAllocationInfo(req.PodUid, req.ContainerName, allocationInfo, true)
