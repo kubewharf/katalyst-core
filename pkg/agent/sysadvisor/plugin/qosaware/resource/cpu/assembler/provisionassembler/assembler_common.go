@@ -312,13 +312,18 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 		poolSizes := make(map[string]int)
 		sharePoolSizes := make(map[string]int)
 		reclaimablePoolSizes := make(map[string]int)
+		nonReclaimableSharePoolSizes := make(map[string]int)
+		reclaimableShareRequirements := make(map[string]int)
 		reclaimableRequirements := make(map[string]int)
 		for poolName, size := range shareAndIsolateDedicatedPoolSizes {
 			_, ok := sharePoolSizeRequirements[poolName]
 			if ok {
 				if shareInfo.reclaimEnable[poolName] {
 					reclaimablePoolSizes[poolName] = size
+					reclaimableShareRequirements[poolName] = shareInfo.requirements[poolName]
 					reclaimableRequirements[poolName] = shareInfo.requirements[poolName]
+				} else {
+					nonReclaimableSharePoolSizes[poolName] = size
 				}
 				poolSizes[poolName] = size
 				sharePoolSizes[poolName] = size
@@ -340,8 +345,10 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 		}
 
 		overlapReclaimSize := make(map[string]int)
+		// shareReclaimCoresSize is the size of cores that can be reclaimed from share pools
 		shareReclaimCoresSize := shareAndIsolatedDedicatedPoolAvailable - isolated -
-			general.SumUpMapValues(sharePoolSizeRequirements) - general.SumUpMapValues(dedicatedPoolSizes)
+			general.SumUpMapValues(nonReclaimableSharePoolSizes) - general.SumUpMapValues(reclaimableShareRequirements) -
+			general.SumUpMapValues(dedicatedPoolSizes)
 		if nodeEnableReclaim {
 			reclaimedCoresSize = shareReclaimCoresSize + dedicatedReclaimCoresSize
 			if reclaimedCoresSize < reservedForReclaim {
@@ -482,7 +489,8 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 		}
 	}
 
-	nonOverlapReclaimedCoresSize := reclaimedCoresSize - overlapReclaimedCoresSize
+	// nonOverlapReclaimedCoresSize should be non-negative
+	nonOverlapReclaimedCoresSize := general.Max(reclaimedCoresSize-overlapReclaimedCoresSize, 0)
 	result.SetPoolEntry(commonstate.PoolNameReclaim, numaID, nonOverlapReclaimedCoresSize, reclaimedCoresQuota)
 
 	general.InfoS("assemble reclaim pool entry",

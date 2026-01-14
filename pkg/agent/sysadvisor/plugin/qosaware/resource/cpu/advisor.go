@@ -606,11 +606,40 @@ func (cra *cpuResourceAdvisor) emitMetrics(calculationResult types.InternalCPUCa
 			_ = cra.emitter.StoreInt64(metricCPUAdvisorPoolSize, int64(cpuResource.Size), metrics.MetricTypeNameRaw,
 				metrics.MetricTag{Key: "name", Val: poolName},
 				metrics.MetricTag{Key: "numa_id", Val: strconv.Itoa(numaID)},
-				metrics.MetricTag{Key: "pool_type", Val: commonstate.GetPoolType(poolName)})
+				metrics.MetricTag{Key: "pool_type", Val: commonstate.GetPoolType(poolName)},
+				metrics.MetricTag{Key: "overlap", Val: "none"})
 			_ = cra.emitter.StoreFloat64(metricCPUAdvisorPoolQuota, cpuResource.Quota, metrics.MetricTypeNameRaw,
 				metrics.MetricTag{Key: "name", Val: poolName},
 				metrics.MetricTag{Key: "numa_id", Val: strconv.Itoa(numaID)},
 				metrics.MetricTag{Key: "pool_type", Val: commonstate.GetPoolType(poolName)})
+		}
+	}
+
+	for poolName, overlapInfo := range calculationResult.PoolOverlapInfo {
+		for numaID, poolOverlapInfo := range overlapInfo {
+			for target, overlap := range poolOverlapInfo {
+				_ = cra.emitter.StoreInt64(metricCPUAdvisorPoolSize, int64(overlap), metrics.MetricTypeNameRaw,
+					metrics.MetricTag{Key: "name", Val: poolName},
+					metrics.MetricTag{Key: "numa_id", Val: strconv.Itoa(numaID)},
+					metrics.MetricTag{Key: "pool_type", Val: commonstate.GetPoolType(poolName)},
+					metrics.MetricTag{Key: "overlap", Val: target})
+			}
+		}
+	}
+
+	for poolName, overlapInfo := range calculationResult.PoolOverlapPodContainerInfo {
+		for numaID, poolOverlapInfo := range overlapInfo {
+			for podUID, overlapContainer := range poolOverlapInfo {
+				// todo: current only emit first container overlap, because other containers' overlap is same now
+				for _, overlap := range overlapContainer {
+					_ = cra.emitter.StoreInt64(metricCPUAdvisorPoolSize, int64(overlap), metrics.MetricTypeNameRaw,
+						metrics.MetricTag{Key: "name", Val: poolName},
+						metrics.MetricTag{Key: "numa_id", Val: strconv.Itoa(numaID)},
+						metrics.MetricTag{Key: "pool_type", Val: commonstate.GetPoolType(poolName)},
+						metrics.MetricTag{Key: "overlap", Val: podUID})
+					break
+				}
+			}
 		}
 	}
 }
