@@ -32,6 +32,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -44,8 +45,6 @@ const (
 
 	rdmaDevicePrefix = "/dev/infiniband"
 	rdmaCmPath       = "/dev/infiniband/rdma_cm"
-
-	netNsPathPrefix = "/var/run/netns"
 )
 
 // ResourceName is the resource name for sriov nic,
@@ -57,6 +56,7 @@ type basePolicy struct {
 	stateReconciler       *handler.StateReconciler
 	agentCtx              *agent.GenericContext
 	dryRun                bool
+	machineInfoConf       *global.MachineInfoConfiguration
 	qosConfig             *generic.QoSConfiguration
 	podAnnotationKeptKeys []string
 	podLabelKeptKeys      []string
@@ -91,6 +91,7 @@ func newBasePolicy(agentCtx *agent.GenericContext, conf *config.Configuration, e
 		stateReconciler:       stateReconciler,
 		agentCtx:              agentCtx,
 		dryRun:                conf.SriovDryRun,
+		machineInfoConf:       conf.MachineInfoConfiguration,
 		allocationConfig:      conf.SriovAllocationConfig,
 		qosConfig:             conf.QoSConfiguration,
 		podAnnotationKeptKeys: conf.PodAnnotationKeptKeys,
@@ -170,8 +171,10 @@ func (p *basePolicy) generateResourceAllocationInfo(allocationInfo *state.Alloca
 	}
 	annotations[p.allocationConfig.PCIAnnotationKey] = string(pciAnnotationValue)
 
-	if allocationInfo.VFInfo.NSName != "" {
-		annotations[p.allocationConfig.NetNsAnnotationKey] = filepath.Join(netNsPathPrefix, allocationInfo.VFInfo.NSName)
+	if allocationInfo.VFInfo.NSName != machine.DefaultNICNamespace {
+		annotations[p.allocationConfig.NetNsAnnotationKey] = filepath.Join(
+			p.machineInfoConf.NetNSDirAbsPath, allocationInfo.VFInfo.NSName,
+		)
 	}
 
 	return &pluginapi.ResourceAllocationInfo{
