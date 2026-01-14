@@ -402,8 +402,15 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 		if quotaCtrlKnobEnabled && numaID != commonstate.FakedNUMAID && len(poolSizes) > 0 {
 			reclaimedCoresQuota = float64(general.Max(reservedForReclaim, reclaimedCoresSize))
 			if shareInfo.minReclaimedCoresCPUQuota != -1 || dedicatedInfo.minReclaimedCoresCPUQuota != -1 {
-				reclaimedCoresQuota = general.MaxFloat64(float64(reservedForReclaim),
-					general.MinFloat64(shareInfo.minReclaimedCoresCPUQuota, dedicatedInfo.minReclaimedCoresCPUQuota))
+				if shareInfo.minReclaimedCoresCPUQuota != -1 {
+					reclaimedCoresQuota = shareInfo.minReclaimedCoresCPUQuota
+				}
+
+				if dedicatedInfo.minReclaimedCoresCPUQuota != -1 {
+					reclaimedCoresQuota = general.MinFloat64(reclaimedCoresQuota, dedicatedInfo.minReclaimedCoresCPUQuota)
+				}
+
+				reclaimedCoresQuota = general.MaxFloat64(reclaimedCoresQuota, float64(reservedForReclaim))
 			}
 
 			// if cpu quota enabled, set all reclaimable share pool size to reclaimablePoolSizes
