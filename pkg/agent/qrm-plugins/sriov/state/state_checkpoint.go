@@ -29,6 +29,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/customcheckpointmanager"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/state"
 )
 
@@ -56,13 +57,13 @@ type stateCheckpoint struct {
 }
 
 func NewCheckpointState(
-	conf *qrm.QRMPluginsConfiguration, machineInfoConf *global.MachineInfoConfiguration,
-	stateDirectoryConfig *statedirectory.StateDirectoryConfiguration,
+	allNics []machine.InterfaceInfo, conf *qrm.QRMPluginsConfiguration,
+	machineInfoConf *global.MachineInfoConfiguration, stateDirectoryConfig *statedirectory.StateDirectoryConfiguration,
 	checkpointName, policyName string, skipStateCorruption bool, emitter metrics.MetricEmitter,
 ) (State, error) {
 	currentStateDir, otherStateDir := stateDirectoryConfig.GetCurrentAndPreviousStateFileDirectory()
 
-	cache, err := NewSriovPluginState(machineInfoConf)
+	cache, err := NewSriovPluginState(machineInfoConf, allNics)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize sriov plugin state: %v", err)
 	}

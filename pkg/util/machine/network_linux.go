@@ -1806,3 +1806,18 @@ func IsHostNetworkBonding() (bool, error) {
 
 	return false, nil
 }
+
+func GetInterfaceChannelsCombinedCount(name string) (int, error) {
+	ethHandle, err := ethtool.NewEthtool()
+	if err != nil {
+		return -1, fmt.Errorf("failed to init ethtool: %v", err)
+	}
+	defer ethHandle.Close()
+
+	channels, err := ethHandle.GetChannels(name)
+	if err != nil {
+		return -1, err
+	}
+
+	return int(channels.CombinedCount), nil
+}
