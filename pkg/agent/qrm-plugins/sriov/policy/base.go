@@ -65,9 +65,9 @@ type basePolicy struct {
 }
 
 func newBasePolicy(agentCtx *agent.GenericContext, conf *config.Configuration, emitter metrics.MetricEmitter) (*basePolicy, error) {
-	stateImpl, err := state.NewCheckpointState(conf.QRMPluginsConfiguration, conf.MachineInfoConfiguration,
-		conf.StateDirectoryConfiguration, consts.SriovPluginStateFileName, consts.SriovResourcePluginPolicyNameStatic,
-		conf.SkipSriovStateCorruption, emitter)
+	stateImpl, err := state.NewCheckpointState(agentCtx.ExtraNetworkInfo.Interface, conf.QRMPluginsConfiguration,
+		conf.MachineInfoConfiguration, conf.StateDirectoryConfiguration, consts.SriovPluginStateFileName,
+		consts.SriovResourcePluginPolicyNameStatic, conf.SkipSriovStateCorruption, emitter)
 	if err != nil {
 		return nil, fmt.Errorf("NewCheckpointState failed with error: %v", err)
 	}

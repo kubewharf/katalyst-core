@@ -54,12 +54,12 @@ func (vf *VFInfo) InitExtraInfo(netNSDirAbsPath string) error {
 	info := &ExtraVFInfo{}
 
 	if err := machine.DoNetNS(vf.NSName, netNSDirAbsPath, func(sysFsDir string) error {
-		name, err := machine.GetNSNetworkVFName(sysFsDir, vf.PCIAddr)
+		name, err := machine.GetVFName(sysFsDir, vf.PCIAddr)
 		if err != nil {
 			return fmt.Errorf("failed to get network vf name: %v", err)
 		}
 		info.Name = name
-		ibDevices, err := machine.GetVfIBDevName(sysFsDir, name)
+		ibDevices, err := machine.GetVfIBDevices(sysFsDir, name)
 		if err != nil {
 			return fmt.Errorf("failed to get vf ib devices: %v", err)
 		}
@@ -69,11 +69,11 @@ func (vf *VFInfo) InitExtraInfo(netNSDirAbsPath string) error {
 		return err
 	}
 
-	queueCount, err := machine.GetCombinedChannels(info.Name)
+	combinedCount, err := machine.GetInterfaceChannelsCombinedCount(info.Name)
 	if err != nil {
-		return fmt.Errorf("failed to get vf queue count: %v", err)
+		return fmt.Errorf("failed to get vf channels: %v", err)
 	}
-	info.QueueCount = queueCount
+	info.QueueCount = combinedCount
 
 	vf.ExtraVFInfo = info
 
@@ -119,12 +119,17 @@ func (s VFState) Filter(filters ...VFFilter) VFState {
 	return filtered
 }
 
-func (s VFState) SortByNumaNodeAndIndex() {
+func (s VFState) Sort() {
 	sort.Slice(s, func(i, j int) bool {
+		if s[i].Index != s[j].Index {
+			return s[i].Index < s[j].Index
+		}
+
 		if s[i].NumaNode != s[j].NumaNode {
 			return s[i].NumaNode < s[j].NumaNode
 		}
-		return s[i].Index < s[j].Index
+
+		return s[i].PFName < s[j].PFName
 	})
 }
 

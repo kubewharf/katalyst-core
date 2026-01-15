@@ -267,7 +267,7 @@ func (p *DynamicPolicy) AllocateAccompanyResource(req *pluginapi.ResourceRequest
 		return nil
 	}
 
-	candidates.SortByNumaNodeAndIndex()
+	candidates.Sort()
 	allocationInfo = &state.AllocationInfo{
 		AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(req,
 			commonstate.EmptyOwnerPoolName, qosLevel),

@@ -474,7 +474,7 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 		return nil, fmt.Errorf("no available VFs")
 	}
 
-	candidates.SortByNumaNodeAndIndex()
+	candidates.Sort()
 	allocationInfo = &state.AllocationInfo{
 		AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(req,
 			commonstate.EmptyOwnerPoolName, qosLevel),
