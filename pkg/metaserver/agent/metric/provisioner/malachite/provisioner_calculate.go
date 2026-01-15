@@ -567,6 +567,7 @@ func aggregateNUMABytesPS(l3BytesPS map[int]types.L3CacheBytesPS, cpuCodeName st
 			numaBandwidthStats.MbmTotalBytesPS += mbmStat.MbmVictimBytesPS
 		}
 		if strings.Contains(cpuCodeName, consts.AMDGenoaArch) {
+			// Notice: data adjustments needed due to genoa hardware bug
 			numaBandwidthStats.MbmTotalBytesPS += mbmStat.MbmLocalBytesPS / 3 * 2
 		}
 		numaBytesPS[mbmStat.NumaID] = numaBandwidthStats
