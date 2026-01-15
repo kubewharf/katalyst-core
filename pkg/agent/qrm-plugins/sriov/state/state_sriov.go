@@ -31,8 +31,8 @@ type sriovPluginState struct {
 	podEntries   PodEntries
 }
 
-func NewSriovPluginState(conf *global.MachineInfoConfiguration) (*sriovPluginState, error) {
-	vfList, err := machine.GetNetworkVFs(conf)
+func NewSriovPluginState(conf *global.MachineInfoConfiguration, allNics []machine.InterfaceInfo) (*sriovPluginState, error) {
+	vfList, err := machine.GetSriovVFList(conf, allNics)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get network vf list: %v", err)
 	}
@@ -40,13 +40,14 @@ func NewSriovPluginState(conf *global.MachineInfoConfiguration) (*sriovPluginSta
 	for _, vf := range vfList {
 		state.machineState = append(state.machineState, VFInfo{
 			RepName:  vf.RepName,
-			Index:    vf.VfID,
+			Index:    vf.Index,
 			PCIAddr:  vf.PCIAddr,
 			PFName:   vf.PFInfo.Name,
 			NumaNode: vf.PFInfo.NumaNode,
 			NSName:   vf.PFInfo.NSName,
 		})
 	}
+	state.machineState.Sort()
 	return state, nil
 }
 

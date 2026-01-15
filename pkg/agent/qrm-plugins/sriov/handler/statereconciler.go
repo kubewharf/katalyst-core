@@ -163,6 +163,7 @@ func (r *StateReconciler) syncMachineState(allocatedVFSet sets.String) (bool, er
 		if allocatedVFSet.Has(vfInfo.PCIAddr) {
 			continue
 		}
+		// todo: maybe we can enter pod ns to init extra info of allocated vf
 		if err := vfInfo.InitExtraInfo(vfInfo.PCIAddr); err != nil {
 			errList = append(errList, fmt.Errorf("failed to init extra info of %s: %w", vfInfo.RepName, err))
 			continue
