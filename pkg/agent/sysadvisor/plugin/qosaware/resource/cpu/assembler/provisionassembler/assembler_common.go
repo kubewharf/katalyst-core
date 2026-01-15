@@ -312,13 +312,18 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 		poolSizes := make(map[string]int)
 		sharePoolSizes := make(map[string]int)
 		reclaimablePoolSizes := make(map[string]int)
+		nonReclaimableSharePoolSizes := make(map[string]int)
+		reclaimableShareRequirements := make(map[string]int)
 		reclaimableRequirements := make(map[string]int)
 		for poolName, size := range shareAndIsolateDedicatedPoolSizes {
 			_, ok := sharePoolSizeRequirements[poolName]
 			if ok {
 				if shareInfo.reclaimEnable[poolName] {
 					reclaimablePoolSizes[poolName] = size
+					reclaimableShareRequirements[poolName] = shareInfo.requirements[poolName]
 					reclaimableRequirements[poolName] = shareInfo.requirements[poolName]
+				} else {
+					nonReclaimableSharePoolSizes[poolName] = size
 				}
 				poolSizes[poolName] = size
 				sharePoolSizes[poolName] = size
@@ -340,8 +345,10 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 		}
 
 		overlapReclaimSize := make(map[string]int)
+		// shareReclaimCoresSize is the size of cores that can be reclaimed from share pools
 		shareReclaimCoresSize := shareAndIsolatedDedicatedPoolAvailable - isolated -
-			general.SumUpMapValues(sharePoolSizeRequirements) - general.SumUpMapValues(dedicatedPoolSizes)
+			general.SumUpMapValues(nonReclaimableSharePoolSizes) - general.SumUpMapValues(reclaimableShareRequirements) -
+			general.SumUpMapValues(dedicatedPoolSizes)
 		if nodeEnableReclaim {
 			reclaimedCoresSize = shareReclaimCoresSize + dedicatedReclaimCoresSize
 			if reclaimedCoresSize < reservedForReclaim {
@@ -402,8 +409,15 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 		if quotaCtrlKnobEnabled && numaID != commonstate.FakedNUMAID && len(poolSizes) > 0 {
 			reclaimedCoresQuota = float64(general.Max(reservedForReclaim, reclaimedCoresSize))
 			if shareInfo.minReclaimedCoresCPUQuota != -1 || dedicatedInfo.minReclaimedCoresCPUQuota != -1 {
-				reclaimedCoresQuota = general.MaxFloat64(float64(reservedForReclaim),
-					general.MinFloat64(shareInfo.minReclaimedCoresCPUQuota, dedicatedInfo.minReclaimedCoresCPUQuota))
+				if shareInfo.minReclaimedCoresCPUQuota != -1 {
+					reclaimedCoresQuota = shareInfo.minReclaimedCoresCPUQuota
+				}
+
+				if dedicatedInfo.minReclaimedCoresCPUQuota != -1 {
+					reclaimedCoresQuota = general.MinFloat64(reclaimedCoresQuota, dedicatedInfo.minReclaimedCoresCPUQuota)
+				}
+
+				reclaimedCoresQuota = general.MaxFloat64(reclaimedCoresQuota, float64(reservedForReclaim))
 			}
 
 			// if cpu quota enabled, set all reclaimable share pool size to reclaimablePoolSizes
@@ -475,7 +489,8 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 		}
 	}
 
-	nonOverlapReclaimedCoresSize := reclaimedCoresSize - overlapReclaimedCoresSize
+	// nonOverlapReclaimedCoresSize should be non-negative
+	nonOverlapReclaimedCoresSize := general.Max(reclaimedCoresSize-overlapReclaimedCoresSize, 0)
 	result.SetPoolEntry(commonstate.PoolNameReclaim, numaID, nonOverlapReclaimedCoresSize, reclaimedCoresQuota)
 
 	general.InfoS("assemble reclaim pool entry",
