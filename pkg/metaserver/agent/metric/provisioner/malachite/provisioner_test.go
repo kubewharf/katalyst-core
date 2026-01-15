@@ -767,7 +767,7 @@ func Test_aggregateNUMABytesPS(t *testing.T) {
 			"AMD Genoa aggregation",
 			l3BytesPS,
 			consts.AMDGenoaArch,
-			map[int]float64{0: 30 + 5 + 10, 1: 30 + 15},
+			map[int]float64{0: 30 + 5/3*2 + 10/3*2, 1: 30 + 15/3*2},
 		},
 	}
 	for _, tc := range tests {
