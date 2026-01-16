@@ -1,5 +1,5 @@
 /*
-copyright 2022 The Katalyst Authors.
+Copyright 2022 The Katalyst Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -187,7 +187,8 @@ func (p *basePolicy) generateResourceAllocationInfo(allocationInfo *state.Alloca
 }
 
 func (p *basePolicy) packAllocationResponse(req *pluginapi.ResourceRequest,
-	resourceAllocationInfo *pluginapi.ResourceAllocationInfo) *pluginapi.ResourceAllocationResponse {
+	resourceAllocationInfo *pluginapi.ResourceAllocationInfo,
+) *pluginapi.ResourceAllocationResponse {
 	resp := &pluginapi.ResourceAllocationResponse{
 		PodUid:         req.PodUid,
 		PodNamespace:   req.PodNamespace,

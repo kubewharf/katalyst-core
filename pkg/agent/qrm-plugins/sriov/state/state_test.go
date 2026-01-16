@@ -23,6 +23,8 @@ import (
 )
 
 func TestVFState_Sort(t *testing.T) {
+	t.Parallel()
+
 	vfState := VFState{
 		{RepName: "eth0_0", Index: 0, NumaNode: 0},
 		{RepName: "eth0_1", Index: 1, NumaNode: 0},

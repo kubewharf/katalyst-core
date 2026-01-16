@@ -1,5 +1,5 @@
 /*
-copyright 2022 The Katalyst Authors.
+Copyright 2022 The Katalyst Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -168,6 +168,7 @@ func (r *StateReconciler) syncMachineState(allocatedVFSet sets.String) (bool, er
 			errList = append(errList, fmt.Errorf("failed to init extra info of %s: %w", vfInfo.RepName, err))
 			continue
 		}
+
 		general.Infof("init extra info of %s: %v", vfInfo.RepName, vfInfo.ExtraVFInfo)
 		needStore = true
 	}
@@ -175,7 +176,7 @@ func (r *StateReconciler) syncMachineState(allocatedVFSet sets.String) (bool, er
 		r.state.SetMachineState(machineState, true)
 	}
 
-	return needStore, nil
+	return needStore, errors.NewAggregate(errList)
 }
 
 func (r *StateReconciler) deleteAbsentAllocationInfo(metaServer *metaserver.MetaServer) (bool, error) {
@@ -258,7 +259,7 @@ func (r *StateReconciler) addMissingAllocationInfo(
 		needStore = true
 	}
 
-	return needStore, nil
+	return needStore, errors.NewAggregate(errList)
 }
 
 func (r *StateReconciler) getContainerWithSriovRequestOrFirst(pod *corev1.Pod) string {
@@ -285,19 +286,21 @@ func (r *StateReconciler) updatePodSriovVFResultAnnotation(metaServer *metaserve
 			errList = append(errList, fmt.Errorf("failed to get pod %s: %w", podUID, err))
 			continue
 		}
+
 		if pod.Annotations[apiconsts.PodAnnotationSriovVFResultKey] != "" {
 			continue
 		}
 
 		for _, allocationInfo := range podEntry {
 			if err := utils.UpdateSriovVFResultAnnotation(r.kubeClient, allocationInfo); err != nil {
-				errList = append(errList, fmt.Errorf(""))
-				return fmt.Errorf("failed to update sriov vf result annotation of %s/%s: %w", podUID, pod.Name, err)
+				errList = append(errList, fmt.Errorf("failed to update sriov vf result annotation of %s/%s: %w", podUID, pod.Name, err))
+				continue
 			}
 			general.Infof("updated sriov vf result annotation of %s/%s", podUID, pod.Name)
+			// only need to update once for each pod
 			break
 		}
 	}
 
-	return nil
+	return errors.NewAggregate(errList)
 }

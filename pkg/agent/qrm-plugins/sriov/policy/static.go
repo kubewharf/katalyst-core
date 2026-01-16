@@ -1,5 +1,5 @@
 /*
-copyright 2022 The Katalyst Authors.
+Copyright 2022 The Katalyst Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -59,7 +59,6 @@ type StaticPolicy struct {
 func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	_ interface{}, agentName string,
 ) (bool, agent.Component, error) {
-
 	wrappedEmitter := agentCtx.EmitterPool.GetDefaultMetricsEmitter().WithTags(agentName, metrics.MetricTag{
 		Key: qrmutil.QRMPluginPolicyTagName,
 		Val: consts.SriovResourcePluginPolicyNameStatic,
@@ -442,7 +441,8 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 	if allocationInfo != nil {
 		resourceAllocationInfo, err := p.generateResourceAllocationInfo(allocationInfo)
 		if err != nil {
-			return nil, fmt.Errorf("generateResourceAllocationInfo for pod: %s/%s, container: %s failed with error: %v")
+			return nil, fmt.Errorf("failed to generateResourceAllocationInfo for pod: %s/%s, container: %s failed with error: %v",
+				req.PodNamespace, req.PodName, req.ContainerName, err)
 		}
 		reuseAllocationInfo = true
 		return p.packAllocationResponse(req, resourceAllocationInfo), nil

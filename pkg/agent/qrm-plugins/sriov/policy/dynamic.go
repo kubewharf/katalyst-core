@@ -91,7 +91,6 @@ func (d *DynamicPolicy) ResourceName() string {
 
 // Run runs this plugin
 func (p *DynamicPolicy) Run(ctx context.Context) {
-
 	if err := periodicalhandler.RegisterPeriodicalHandlerWithHealthz(consts.HealthzReconcileState, general.HealthzCheckStateNotReady,
 		appqrm.QRMSriovPluginPeriodicalHandlerGroupName, p.stateReconciler.Reconcile,
 		consts.ReconcileStatePeriod, consts.ReconcileStateTolerationTimes); err != nil {

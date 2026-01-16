@@ -64,26 +64,27 @@ func GetSriovVFList(conf *global.MachineInfoConfiguration, allNics []InterfaceIn
 
 				driver, err := detectSriovPFDriver(pf.Name)
 				if err != nil {
-					general.Warningf("cannot detect sriov pf driver for %s, err %w, skip", pf.Name, err)
+					general.Warningf("cannot detect sriov pf driver for %s, err %v, skip", pf.Name, err)
 					continue
 				}
 
 				var vfRepresenterMap map[int]string
+				var vfRepresenterErr error
 				switch driver {
 				case NicDriverMLX:
-					vfRepresenterMap, err = getVfRepresenterMap(sysFsDir, pf.Name, "device/net")
+					vfRepresenterMap, vfRepresenterErr = getVfRepresenterMap(sysFsDir, pf.Name, "device/net")
 				case NicDriverBNX:
 					pfIndex, err := getBrcmPfIndex(sysFsDir, pf.PCIAddr)
 					if err != nil {
 						return fmt.Errorf("cannot get brcm pf index, err %w", err)
 					}
-					vfRepresenterMap, err = getVfRepresenterMap(sysFsDir, pf.Name, "subsystem", brcmVfRepresenterFilter(pfIndex))
+					vfRepresenterMap, vfRepresenterErr = getVfRepresenterMap(sysFsDir, pf.Name, "subsystem", brcmVfRepresenterFilter(pfIndex))
 				default:
 					general.Warningf("not support driver type for pf %s, skip", pf.Name)
 					continue
 				}
-				if err != nil {
-					return fmt.Errorf("failed to get vf representer map, err %w", err)
+				if vfRepresenterErr != nil {
+					return fmt.Errorf("failed to get vf representer map, err %w", vfRepresenterErr)
 				}
 
 				vfLinkMap, err := getVfLinkMap(pf.Name)
@@ -207,13 +208,13 @@ func getVfPCIMap(sysFsDir string, pfPCIAddr string) (map[int]string, error) {
 		vfIndexStr := strings.TrimPrefix(vfFileName, vfFilePrefix)
 		vfIndex, err := strconv.Atoi(vfIndexStr)
 		if err != nil {
-			general.Warningf("cannot parse virtfn index %s, err %w", vfIndexStr, err)
+			general.Warningf("cannot parse virtfn index %s, err %v", vfIndexStr, err)
 			continue
 		}
 
 		realPath, err := filepath.EvalSymlinks(vfPath)
 		if err != nil {
-			general.Warningf("cannot resolve symlink %s, err %w", vfPath, err)
+			general.Warningf("cannot resolve symlink %s, err %v", vfPath, err)
 			continue
 		}
 		vfPci := filepath.Base(realPath)
