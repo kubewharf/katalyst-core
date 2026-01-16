@@ -241,8 +241,8 @@ func testDoNetNS(t *testing.T) {
 			nsName:          "custom-ns",
 			netNSDirAbsPath: "/test/path",
 			mockSetup: func() {
-				Mock(runtime.LockOSThread).Build()
-				Mock(runtime.UnlockOSThread).Build()
+				Mock(runtime.LockOSThread).Return().Build()
+				Mock(runtime.UnlockOSThread).Return().Build()
 				Mock(netns.Get).Return(netns.NsHandle(1), nil).Build()
 				Mock((*netns.NsHandle).Close).Return(nil).Build()
 				Mock(netns.GetFromPath).Return(netns.NsHandle(2), nil).Build()
@@ -263,8 +263,8 @@ func testDoNetNS(t *testing.T) {
 			nsName:          "custom-ns",
 			netNSDirAbsPath: "/test/path",
 			mockSetup: func() {
-				Mock(runtime.LockOSThread).Build()
-				Mock(runtime.UnlockOSThread).Build()
+				Mock(runtime.LockOSThread).Return().Build()
+				Mock(runtime.UnlockOSThread).Return().Build()
 				Mock(netns.Get).Return(netns.NsHandle(0), fmt.Errorf("get error")).Build()
 			},
 			expectError:            true,
@@ -276,8 +276,8 @@ func testDoNetNS(t *testing.T) {
 			nsName:          "custom-ns",
 			netNSDirAbsPath: "/test/path",
 			mockSetup: func() {
-				Mock(runtime.LockOSThread).Build()
-				Mock(runtime.UnlockOSThread).Build()
+				Mock(runtime.LockOSThread).Return().Build()
+				Mock(runtime.UnlockOSThread).Return().Build()
 				Mock(netns.Get).Return(netns.NsHandle(1), nil).Build()
 				Mock((*netns.NsHandle).Close).Return(nil).Build()
 				Mock(netns.GetFromPath).Return(netns.NsHandle(0), fmt.Errorf("get from path error")).Build()
@@ -292,8 +292,8 @@ func testDoNetNS(t *testing.T) {
 			nsName:          "custom-ns",
 			netNSDirAbsPath: "/test/path",
 			mockSetup: func() {
-				Mock(runtime.LockOSThread).Build()
-				Mock(runtime.UnlockOSThread).Build()
+				Mock(runtime.LockOSThread).Return().Build()
+				Mock(runtime.UnlockOSThread).Return().Build()
 				Mock(netns.Get).Return(netns.NsHandle(1), nil).Build()
 				Mock((*netns.NsHandle).Close).Return(nil).Build()
 				Mock(netns.GetFromPath).Return(netns.NsHandle(2), nil).Build()
@@ -314,8 +314,8 @@ func testDoNetNS(t *testing.T) {
 			nsName:          "custom-ns",
 			netNSDirAbsPath: "/test/path",
 			mockSetup: func() {
-				Mock(runtime.LockOSThread).Build()
-				Mock(runtime.UnlockOSThread).Build()
+				Mock(runtime.LockOSThread).Return().Build()
+				Mock(runtime.UnlockOSThread).Return().Build()
 				Mock(netns.Get).Return(netns.NsHandle(1), nil).Build()
 				Mock((*netns.NsHandle).Close).Return(nil).Build()
 				Mock(netns.GetFromPath).Return(netns.NsHandle(2), nil).Build()
@@ -331,8 +331,8 @@ func testDoNetNS(t *testing.T) {
 			nsName:          "custom-ns",
 			netNSDirAbsPath: "/test/path",
 			mockSetup: func() {
-				Mock(runtime.LockOSThread).Build()
-				Mock(runtime.UnlockOSThread).Build()
+				Mock(runtime.LockOSThread).Return().Build()
+				Mock(runtime.UnlockOSThread).Return().Build()
 				Mock(netns.Get).Return(netns.NsHandle(1), nil).Build()
 				Mock((*netns.NsHandle).Close).Return(nil).Build()
 				Mock(netns.GetFromPath).Return(netns.NsHandle(2), nil).Build()
@@ -349,8 +349,8 @@ func testDoNetNS(t *testing.T) {
 			nsName:          "custom-ns",
 			netNSDirAbsPath: "/test/path",
 			mockSetup: func() {
-				Mock(runtime.LockOSThread).Build()
-				Mock(runtime.UnlockOSThread).Build()
+				Mock(runtime.LockOSThread).Return().Build()
+				Mock(runtime.UnlockOSThread).Return().Build()
 				Mock(netns.Get).Return(netns.NsHandle(1), nil).Build()
 				Mock((*netns.NsHandle).Close).Return(nil).Build()
 				Mock(netns.GetFromPath).Return(netns.NsHandle(2), nil).Build()
@@ -367,8 +367,8 @@ func testDoNetNS(t *testing.T) {
 			nsName:          "custom-ns",
 			netNSDirAbsPath: "/test/path",
 			mockSetup: func() {
-				Mock(runtime.LockOSThread).Build()
-				Mock(runtime.UnlockOSThread).Build()
+				Mock(runtime.LockOSThread).Return().Build()
+				Mock(runtime.UnlockOSThread).Return().Build()
 				Mock(netns.Get).Return(netns.NsHandle(1), nil).Build()
 				Mock((*netns.NsHandle).Close).Return(nil).Build()
 				Mock(netns.GetFromPath).Return(netns.NsHandle(2), nil).Build()
@@ -386,8 +386,8 @@ func testDoNetNS(t *testing.T) {
 			nsName:          "custom-ns",
 			netNSDirAbsPath: "/test/path",
 			mockSetup: func() {
-				Mock(runtime.LockOSThread).Build()
-				Mock(runtime.UnlockOSThread).Build()
+				Mock(runtime.LockOSThread).Return().Build()
+				Mock(runtime.UnlockOSThread).Return().Build()
 				Mock(netns.Get).Return(netns.NsHandle(1), nil).Build()
 				Mock((*netns.NsHandle).Close).Return(nil).Build()
 				Mock(netns.GetFromPath).Return(netns.NsHandle(2), nil).Build()
@@ -408,8 +408,8 @@ func testDoNetNS(t *testing.T) {
 			nsName:          "custom-ns",
 			netNSDirAbsPath: "/test/path",
 			mockSetup: func() {
-				Mock(runtime.LockOSThread).Build()
-				Mock(runtime.UnlockOSThread).Build()
+				Mock(runtime.LockOSThread).Return().Build()
+				Mock(runtime.UnlockOSThread).Return().Build()
 				Mock(netns.Get).Return(netns.NsHandle(1), nil).Build()
 				Mock((*netns.NsHandle).Close).Return(nil).Build()
 				Mock(netns.GetFromPath).Return(netns.NsHandle(2), nil).Build()
@@ -430,8 +430,8 @@ func testDoNetNS(t *testing.T) {
 			nsName:          "custom-ns",
 			netNSDirAbsPath: "/test/path",
 			mockSetup: func() {
-				Mock(runtime.LockOSThread).Build()
-				Mock(runtime.UnlockOSThread).Build()
+				Mock(runtime.LockOSThread).Return().Build()
+				Mock(runtime.UnlockOSThread).Return().Build()
 				Mock(netns.Get).Return(netns.NsHandle(1), nil).Build()
 				Mock((*netns.NsHandle).Close).Return(nil).Build()
 				Mock(netns.GetFromPath).Return(netns.NsHandle(2), nil).Build()

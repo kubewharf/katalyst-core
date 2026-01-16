@@ -19,7 +19,11 @@ limitations under the License.
 
 package machine
 
-func GetSriovVFList(netNSDirAbsPath string, allNics []InterfaceInfo) ([]SriovVFInfo, error) {
+import (
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
+)
+
+func GetSriovVFList(conf *global.MachineInfoConfiguration, allNics []InterfaceInfo) (SriovVFList, error) {
 	return nil, nil
 }
 
