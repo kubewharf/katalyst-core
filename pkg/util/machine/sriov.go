@@ -16,6 +16,8 @@ limitations under the License.
 
 package machine
 
+import "sort"
+
 type SriovVFInfo struct {
 	PFInfo InterfaceInfo
 	// RepName is the name of the representer device for this VF. (e.g., eth0_1)
@@ -24,4 +26,15 @@ type SriovVFInfo struct {
 	Index int
 	// PCIAddr is the PCI address of the VF. (e.g., 0000:3b:00.1)
 	PCIAddr string
+}
+
+type SriovVFList []SriovVFInfo
+
+func (vfList SriovVFList) Sort() {
+	sort.Slice(vfList, func(i, j int) bool {
+		if vfList[i].PFInfo.Name != vfList[j].PFInfo.Name {
+			return vfList[i].PFInfo.Name < vfList[j].PFInfo.Name
+		}
+		return vfList[i].Index < vfList[j].Index
+	})
 }

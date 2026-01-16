@@ -1,5 +1,5 @@
 /*
-copyright 2022 The Katalyst Authors.
+Copyright 2022 The Katalyst Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -64,10 +64,12 @@ type basePolicy struct {
 	bondingHostNetwork    bool
 }
 
-func newBasePolicy(agentCtx *agent.GenericContext, conf *config.Configuration, emitter metrics.MetricEmitter) (*basePolicy, error) {
-	stateImpl, err := state.NewCheckpointState(agentCtx.ExtraNetworkInfo.Interface, conf.QRMPluginsConfiguration,
+func newBasePolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
+	emitter metrics.MetricEmitter, policyName string,
+) (*basePolicy, error) {
+	stateImpl, err := state.NewCheckpointState(agentCtx.ExtraNetworkInfo.Interface,
 		conf.MachineInfoConfiguration, conf.StateDirectoryConfiguration, consts.SriovPluginStateFileName,
-		consts.SriovResourcePluginPolicyNameStatic, conf.SkipSriovStateCorruption, emitter)
+		policyName, conf.SkipSriovStateCorruption, emitter)
 	if err != nil {
 		return nil, fmt.Errorf("NewCheckpointState failed with error: %v", err)
 	}
@@ -77,7 +79,7 @@ func newBasePolicy(agentCtx *agent.GenericContext, conf *config.Configuration, e
 		return nil, fmt.Errorf("create remote runtime service failed %s", err)
 	}
 
-	stateReconciler := handler.NewStateReconciler(stateImpl, conf.SriovAllocationConfig.PCIAnnotationKey,
+	stateReconciler := handler.NewStateReconciler(stateImpl, conf,
 		ResourceName, agentCtx.Client.KubeClient, runtimeClient)
 
 	bondingHostNetwork, err := machine.IsHostNetworkBonding()
@@ -139,6 +141,9 @@ func (p *basePolicy) packResourceHintsResponse(req *pluginapi.ResourceRequest, r
 
 func (p *basePolicy) generateResourceAllocationInfo(allocationInfo *state.AllocationInfo) (*pluginapi.ResourceAllocationInfo, error) {
 	annotations := general.DeepCopyMap(p.allocationConfig.ExtraAnnotations)
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
 
 	pciDevice := types.PCIDevice{
 		Address: allocationInfo.VFInfo.PCIAddr,
@@ -187,7 +192,8 @@ func (p *basePolicy) generateResourceAllocationInfo(allocationInfo *state.Alloca
 }
 
 func (p *basePolicy) packAllocationResponse(req *pluginapi.ResourceRequest,
-	resourceAllocationInfo *pluginapi.ResourceAllocationInfo) *pluginapi.ResourceAllocationResponse {
+	resourceAllocationInfo *pluginapi.ResourceAllocationInfo,
+) *pluginapi.ResourceAllocationResponse {
 	resp := &pluginapi.ResourceAllocationResponse{
 		PodUid:         req.PodUid,
 		PodNamespace:   req.PodNamespace,

@@ -44,19 +44,13 @@ const (
 	vfFilePattern = vfFilePrefix + "*"
 )
 
-func GetSriovVFList(conf *global.MachineInfoConfiguration, allNics []InterfaceInfo) ([]SriovVFInfo, error) {
-	nicMap, err := getNsNicMap(conf.NetAllocatableNS, allNics)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get pf map, err %w", err)
-	}
+func GetSriovVFList(conf *global.MachineInfoConfiguration, allNics []InterfaceInfo) (SriovVFList, error) {
+	var vfList SriovVFList
 
-	var vfList []SriovVFInfo
+	nicMap := getAllocatableNsNicMap(conf.NetAllocatableNS, allNics)
 
-	for ns, nicList := range nicMap {
-		if len(nicList) == 0 {
-			continue
-		}
-		err := DoNetNS(ns, conf.NetNSDirAbsPath, func(sysFsDir string) error {
+	detectVF := func(vfList *SriovVFList, nicList []InterfaceInfo) func(sysFsDir string) error {
+		return func(sysFsDir string) error {
 			for _, pf := range nicList {
 				if !isSriovPf(sysFsDir, pf.Name) {
 					continue
@@ -64,26 +58,27 @@ func GetSriovVFList(conf *global.MachineInfoConfiguration, allNics []InterfaceIn
 
 				driver, err := detectSriovPFDriver(pf.Name)
 				if err != nil {
-					general.Warningf("cannot detect sriov pf driver for %s, err %w, skip", pf.Name, err)
+					general.Warningf("cannot detect sriov pf driver for %s, err %v, skip", pf.Name, err)
 					continue
 				}
 
 				var vfRepresenterMap map[int]string
+				var vfRepresenterErr error
 				switch driver {
 				case NicDriverMLX:
-					vfRepresenterMap, err = getVfRepresenterMap(sysFsDir, pf.Name, "device/net")
+					vfRepresenterMap, vfRepresenterErr = getVfRepresenterMap(sysFsDir, pf.Name, "device/net")
 				case NicDriverBNX:
 					pfIndex, err := getBrcmPfIndex(sysFsDir, pf.PCIAddr)
 					if err != nil {
 						return fmt.Errorf("cannot get brcm pf index, err %w", err)
 					}
-					vfRepresenterMap, err = getVfRepresenterMap(sysFsDir, pf.Name, "subsystem", brcmVfRepresenterFilter(pfIndex))
+					vfRepresenterMap, vfRepresenterErr = getVfRepresenterMap(sysFsDir, pf.Name, "subsystem", brcmVfRepresenterFilter(pfIndex))
 				default:
 					general.Warningf("not support driver type for pf %s, skip", pf.Name)
 					continue
 				}
-				if err != nil {
-					return fmt.Errorf("failed to get vf representer map, err %w", err)
+				if vfRepresenterErr != nil {
+					return fmt.Errorf("failed to get vf representer map, err %w", vfRepresenterErr)
 				}
 
 				vfLinkMap, err := getVfLinkMap(pf.Name)
@@ -108,7 +103,9 @@ func GetSriovVFList(conf *global.MachineInfoConfiguration, allNics []InterfaceIn
 						continue
 					}
 
-					vfList = append(vfList, SriovVFInfo{
+					general.Infof("found vf %s of pf %s with index %d, pciAddr %s", representer, pf.Name, index, pciAddr)
+
+					*vfList = append(*vfList, SriovVFInfo{
 						PFInfo:  pf,
 						Index:   index,
 						PCIAddr: pciAddr,
@@ -118,11 +115,25 @@ func GetSriovVFList(conf *global.MachineInfoConfiguration, allNics []InterfaceIn
 			}
 
 			return nil
-		})
+		}
+	}
+
+	for ns := range nicMap {
+		nicList := nicMap[ns]
+
+		if len(nicList) == 0 {
+			continue
+		}
+
+		cb := detectVF(&vfList, nicList)
+
+		err := DoNetNS(ns, conf.NetNSDirAbsPath, cb)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get vf list of ns %s, err %w", ns, err)
 		}
 	}
+
+	vfList.Sort()
 
 	return vfList, nil
 }
@@ -159,20 +170,20 @@ func detectSriovPFDriver(ifName string) (NicDriver, error) {
 	return NicDriverUnknown, nil
 }
 
-// getNsNicMap returns a map of net ns name to interface list
-func getNsNicMap(netAllocatableNS []string, allNics []InterfaceInfo) (map[string][]InterfaceInfo, error) {
-	allowedNS := sets.NewString(netAllocatableNS...)
-	allowedNS.Insert(DefaultNICNamespace)
+// getAllocatableNsNicMap returns a map of allocatable net ns name to interface list
+func getAllocatableNsNicMap(netAllocatableNS []string, allNics []InterfaceInfo) map[string][]InterfaceInfo {
+	allocatableNS := sets.NewString(netAllocatableNS...)
+	allocatableNS.Insert(DefaultNICNamespace)
 
-	pfMap := map[string][]InterfaceInfo{}
+	nicMap := map[string][]InterfaceInfo{}
 	for _, nic := range allNics {
-		if !allowedNS.Has(nic.NetNSInfo.NSName) {
+		if !allocatableNS.Has(nic.NetNSInfo.NSName) {
 			continue
 		}
-		pfMap[nic.NetNSInfo.NSName] = append(pfMap[nic.NetNSInfo.NSName], nic)
+		nicMap[nic.NetNSInfo.NSName] = append(nicMap[nic.NetNSInfo.NSName], nic)
 	}
 
-	return pfMap, nil
+	return nicMap
 }
 
 // getVfLinkMap returns a map of vf index to netlink.VfInfo
@@ -207,13 +218,13 @@ func getVfPCIMap(sysFsDir string, pfPCIAddr string) (map[int]string, error) {
 		vfIndexStr := strings.TrimPrefix(vfFileName, vfFilePrefix)
 		vfIndex, err := strconv.Atoi(vfIndexStr)
 		if err != nil {
-			general.Warningf("cannot parse virtfn index %s, err %w", vfIndexStr, err)
+			general.Warningf("cannot parse virtfn index %s, err %v", vfIndexStr, err)
 			continue
 		}
 
 		realPath, err := filepath.EvalSymlinks(vfPath)
 		if err != nil {
-			general.Warningf("cannot resolve symlink %s, err %w", vfPath, err)
+			general.Warningf("cannot resolve symlink %s, err %v", vfPath, err)
 			continue
 		}
 		vfPci := filepath.Base(realPath)
@@ -258,13 +269,17 @@ func getVfRepresenterMap(sysFsDir string, pfName string, devicePath string, filt
 		}
 		physPortNameStr := string(physPortName)
 		pfRepIndex, vfRepIndex, _ := parsePortName(physPortNameStr)
+		vfMatch := true
 		for _, filter := range filters {
 			if !filter(pfRepIndex, vfRepIndex) {
-				continue
+				vfMatch = false
+				break
 			}
 		}
-		// At this point we're confident we have a representer.
-		vfRepresenterMap[vfRepIndex] = device.Name()
+
+		if vfMatch {
+			vfRepresenterMap[vfRepIndex] = device.Name()
+		}
 	}
 
 	return vfRepresenterMap, nil
@@ -327,7 +342,7 @@ func getBrcmPfIndex(sysFsDir string, pfPCIAddr string) (int, error) {
 
 	var matchingDevices []string
 	for _, device := range devices {
-		if !device.IsDir() {
+		if device.Type()&os.ModeSymlink == 0 {
 			continue
 		}
 
@@ -357,31 +372,6 @@ func getBrcmPfIndex(sysFsDir string, pfPCIAddr string) (int, error) {
 	return -1, fmt.Errorf("failed to find PF index for uplink %s, device id %s", pfPCIAddr, deviceID)
 }
 
-// GetVfIBDevices returns the ib devices of the given vf name
-func GetVfIBDevices(sysFsDir string, vfName string) (ibDevices []string, err error) {
-	ibVerbDirPath := filepath.Join(sysFsDir, nicPathNAMEBaseDir, vfName, netFileNameIBVerbs)
-	ibCMDirPath := filepath.Join(sysFsDir, nicPathNAMEBaseDir, vfName, netFileNameIBCM)
-	ibMadDirPath := filepath.Join(sysFsDir, nicPathNAMEBaseDir, vfName, netFileNameIBMad)
-	paths := []string{ibVerbDirPath, ibCMDirPath, ibMadDirPath}
-
-	for _, path := range paths {
-		entries, err := os.ReadDir(path)
-		if err != nil {
-			continue
-		}
-
-		if len(entries) == 0 {
-			continue
-		}
-
-		for _, entry := range entries {
-			ibDevices = append(ibDevices, entry.Name())
-		}
-	}
-
-	return ibDevices, nil
-}
-
 // GetVFName returns the vf name of the given vf pci address
 func GetVFName(sysFsDir string, vfPciAddress string) (string, error) {
 	pciBaseDirPath := filepath.Join(sysFsDir, pciPathNameBaseDir)
@@ -399,4 +389,28 @@ func GetVFName(sysFsDir string, vfPciAddress string) (string, error) {
 	}
 
 	return entries[0].Name(), nil
+}
+
+// GetVfIBDevices returns the ib devices of the given vf name
+func GetVfIBDevices(sysFsDir string, vfName string) (ibDevices []string, err error) {
+	basePath := filepath.Join(sysFsDir, nicPathNAMEBaseDir, vfName)
+	files := []string{netFileNameIBVerbs, netFileNameIBCM, netFileNameIBMad}
+
+	for _, file := range files {
+		path := filepath.Join(basePath, file)
+		entries, err := os.ReadDir(path)
+		if err != nil {
+			continue
+		}
+
+		if len(entries) == 0 {
+			continue
+		}
+
+		for _, entry := range entries {
+			ibDevices = append(ibDevices, entry.Name())
+		}
+	}
+
+	return ibDevices, nil
 }

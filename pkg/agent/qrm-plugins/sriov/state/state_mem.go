@@ -24,19 +24,24 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-type sriovPluginState struct {
+type stateMemory struct {
 	sync.RWMutex
 
 	machineState VFState
 	podEntries   PodEntries
 }
 
-func NewSriovPluginState(conf *global.MachineInfoConfiguration, allNics []machine.InterfaceInfo) (*sriovPluginState, error) {
+func NewStateMemory(conf *global.MachineInfoConfiguration, allNics []machine.InterfaceInfo) (*stateMemory, error) {
 	vfList, err := machine.GetSriovVFList(conf, allNics)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get network vf list: %v", err)
 	}
-	state := &sriovPluginState{}
+
+	state := &stateMemory{
+		machineState: make(VFState, 0, len(vfList)),
+		podEntries:   make(PodEntries),
+	}
+
 	for _, vf := range vfList {
 		state.machineState = append(state.machineState, VFInfo{
 			RepName:  vf.RepName,
@@ -47,25 +52,27 @@ func NewSriovPluginState(conf *global.MachineInfoConfiguration, allNics []machin
 			NSName:   vf.PFInfo.NSName,
 		})
 	}
+
 	state.machineState.Sort()
+
 	return state, nil
 }
 
-func (s *sriovPluginState) SetMachineState(state VFState) {
+func (s *stateMemory) SetMachineState(state VFState) {
 	s.Lock()
 	defer s.Unlock()
 
 	s.machineState = state
 }
 
-func (s *sriovPluginState) SetPodEntries(podEntries PodEntries) {
+func (s *stateMemory) SetPodEntries(podEntries PodEntries) {
 	s.Lock()
 	defer s.Unlock()
 
 	s.podEntries = podEntries
 }
 
-func (s *sriovPluginState) SetAllocationInfo(podUID, containerName string, allocationInfo *AllocationInfo) {
+func (s *stateMemory) SetAllocationInfo(podUID, containerName string, allocationInfo *AllocationInfo) {
 	s.Lock()
 	defer s.Unlock()
 	if _, ok := s.podEntries[podUID]; !ok {
@@ -77,41 +84,7 @@ func (s *sriovPluginState) SetAllocationInfo(podUID, containerName string, alloc
 		"podUID", podUID, "containerName", containerName, "allocationInfo", allocationInfo.String())
 }
 
-func (s *sriovPluginState) ClearState() {
-	s.Lock()
-	defer s.Unlock()
-
-	s.machineState = make(VFState, 0)
-	s.podEntries = make(PodEntries)
-
-	generalLog.InfoS("cleared state")
-}
-
-func (s *sriovPluginState) GetMachineState() VFState {
-	s.RLock()
-	defer s.RUnlock()
-
-	return s.machineState.Clone()
-}
-
-func (s *sriovPluginState) GetPodEntries() PodEntries {
-	s.RLock()
-	defer s.RUnlock()
-
-	return s.podEntries.Clone()
-}
-
-func (s *sriovPluginState) GetAllocationInfo(podUID, containerName string) *AllocationInfo {
-	s.RLock()
-	defer s.RUnlock()
-
-	if res, ok := s.podEntries[podUID][containerName]; ok {
-		return res.Clone()
-	}
-	return nil
-}
-
-func (s *sriovPluginState) Delete(podUID string) {
+func (s *stateMemory) Delete(podUID string) {
 	s.Lock()
 	defer s.Unlock()
 
@@ -121,4 +94,38 @@ func (s *sriovPluginState) Delete(podUID string) {
 
 	delete(s.podEntries, podUID)
 	generalLog.InfoS("deleted container entry", "podUID", podUID)
+}
+
+func (s *stateMemory) ClearState() {
+	s.Lock()
+	defer s.Unlock()
+
+	s.machineState = make(VFState, 0)
+	s.podEntries = make(PodEntries)
+
+	generalLog.InfoS("cleared state")
+}
+
+func (s *stateMemory) GetMachineState() VFState {
+	s.RLock()
+	defer s.RUnlock()
+
+	return s.machineState.Clone()
+}
+
+func (s *stateMemory) GetPodEntries() PodEntries {
+	s.RLock()
+	defer s.RUnlock()
+
+	return s.podEntries.Clone()
+}
+
+func (s *stateMemory) GetAllocationInfo(podUID, containerName string) *AllocationInfo {
+	s.RLock()
+	defer s.RUnlock()
+
+	if res, ok := s.podEntries[podUID][containerName]; ok {
+		return res.Clone()
+	}
+	return nil
 }
