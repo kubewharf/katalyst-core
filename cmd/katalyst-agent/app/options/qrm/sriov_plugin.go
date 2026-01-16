@@ -57,7 +57,7 @@ type SriovDynamicPolicyOptions struct {
 func NewSriovOptions() *SriovOptions {
 	return &SriovOptions{
 		PolicyName:               "static",
-		SkipSriovStateCorruption: true,
+		SkipSriovStateCorruption: false,
 		SriovDryRun:              false,
 		SriovAllocationOptions: SriovAllocationOptions{
 			PCIAnnotationKey:   "pci-devices",

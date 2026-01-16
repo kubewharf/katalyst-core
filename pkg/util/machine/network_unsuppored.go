@@ -36,3 +36,7 @@ func DoNetNS(nsName, netNSDirAbsPath string, cb func(sysFsDir string) error) err
 func GetInterfaceChannelsCombinedCount(name string) (int, error) {
 	return 0, nil
 }
+
+func IsHostNetworkBonding() (bool, error) {
+	return false, nil
+}

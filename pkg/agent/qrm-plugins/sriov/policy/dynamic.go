@@ -66,9 +66,14 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		Val: fmt.Sprintf("%v", conf.SriovDryRun),
 	})
 
-	basePolicy, err := newBasePolicy(agentCtx, conf, wrappedEmitter)
+	basePolicy, err := newBasePolicy(agentCtx, conf, wrappedEmitter, consts.SriovResourcePluginPolicyNameDynamic)
 	if err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("failed to create base policy: %w", err)
+	}
+
+	if !basePolicy.bondingHostNetwork {
+		general.Warningf("not support running sriov dynamic policy on non-bonding host network")
+		return false, agent.ComponentStub{}, nil
 	}
 
 	dynamicPolicy := &DynamicPolicy{
@@ -91,7 +96,6 @@ func (d *DynamicPolicy) ResourceName() string {
 
 // Run runs this plugin
 func (p *DynamicPolicy) Run(ctx context.Context) {
-
 	if err := periodicalhandler.RegisterPeriodicalHandlerWithHealthz(consts.HealthzReconcileState, general.HealthzCheckStateNotReady,
 		appqrm.QRMSriovPluginPeriodicalHandlerGroupName, p.stateReconciler.Reconcile,
 		consts.ReconcileStatePeriod, consts.ReconcileStateTolerationTimes); err != nil {
@@ -112,13 +116,13 @@ func (p *DynamicPolicy) Run(ctx context.Context) {
 	return
 }
 
-// AugmentTopologyHints augments hints of accompany resources
+// GetAccompanyResourceTopologyHints get topology hints of accompany resources
 func (p *DynamicPolicy) GetAccompanyResourceTopologyHints(req *pluginapi.ResourceRequest, hints *pluginapi.ListOfTopologyHints) (err error) {
 	if req == nil {
 		return fmt.Errorf("GetAccompanyResourceTopologyHints got nil req")
 	}
 
-	general.InfoS("called", "request", req, "hints", hints)
+	general.InfoS("called", "request", req, "hints", hints, "dryRun", p.dryRun)
 
 	p.RLock()
 	defer func() {
@@ -165,6 +169,7 @@ func (p *DynamicPolicy) GetAccompanyResourceTopologyHints(req *pluginapi.Resourc
 		if failOnExhaustion {
 			return fmt.Errorf("no available VFs")
 		}
+		general.Warningf("no available VFs for request %s/%s, but skipped because failOnExhaustion is false", req.PodName, req.ContainerName)
 		return nil
 	}
 
@@ -175,35 +180,45 @@ func (p *DynamicPolicy) GetAccompanyResourceTopologyHints(req *pluginapi.Resourc
 	socketSet := p.agentCtx.CPUDetails.SocketsInNUMANodes(numaSet.ToSliceInt()...)
 	numaNodesInSocketSet := p.agentCtx.CPUDetails.NUMANodesInSockets(socketSet.ToSliceInt()...)
 
-	augmentedHints := make([]*pluginapi.TopologyHint, 0, len(hints.Hints))
+	accompaniedHints := make([]*pluginapi.TopologyHint, 0, len(hints.Hints))
 
+	// modify hint according to accompany resource
+	modified := false
 	for _, hint := range hints.Hints {
 		if hint == nil {
 			continue
 		}
 		hintNumaSet, _ := machine.NewCPUSetUint64(hint.Nodes...)
-		augmentedHints = append(augmentedHints, &pluginapi.TopologyHint{
+		preferred := hint.Preferred && hintNumaSet.IsSubsetOf(numaNodesInSocketSet)
+		if preferred != hint.Preferred {
+			modified = true
+		}
+		accompaniedHints = append(accompaniedHints, &pluginapi.TopologyHint{
 			Nodes:     hint.Nodes,
-			Preferred: hint.Preferred && hintNumaSet.IsSubsetOf(numaNodesInSocketSet),
+			Preferred: preferred,
 		})
 	}
 
-	general.InfoS("get accompany resource topology hints", "request", req, "originHints", hints, "augmentedHints", augmentedHints)
+	if modified {
+		general.InfoS("finished with hints modified", "request", req, "originHints", hints, "accompaniedHints", accompaniedHints, "dryRun", p.dryRun)
+	} else {
+		general.InfoS("finished without hint modified", "request", req, "hints", hints, "dryRun", p.dryRun)
+	}
 
 	if !p.dryRun {
-		hints.Hints = augmentedHints
+		hints.Hints = accompaniedHints
 	}
 
 	return nil
 }
 
-// AugmentAllocationResult augments allocation result of accompany resources
+// AllocateAccompanyResource allocate accompany resources
 func (p *DynamicPolicy) AllocateAccompanyResource(req *pluginapi.ResourceRequest, resp *pluginapi.ResourceAllocationResponse) (err error) {
 	if req == nil {
-		return fmt.Errorf("Allocate got nil req")
+		return fmt.Errorf("AllocateAccompanyResource got nil req")
 	}
 
-	general.InfoS("called", "request", req)
+	general.InfoS("called", "request", req, "dryRun", p.dryRun)
 
 	p.Lock()
 	defer func() {
@@ -236,6 +251,11 @@ func (p *DynamicPolicy) AllocateAccompanyResource(req *pluginapi.ResourceRequest
 		return p.addAllocationInfoToResponse(allocationInfo, resp)
 	}
 
+	if req.Hint == nil || len(req.Hint.Nodes) == 0 {
+		general.Warningf("request %s/%s/%s has no hint, skip allocate accompany resource", req.PodNamespace, req.PodName, req.ContainerName)
+		return nil
+	}
+
 	// get request quantity of main resource: cpu
 	request, _, err := qrmutil.GetPodAggregatedRequestResource(req)
 	if err != nil {
@@ -247,23 +267,31 @@ func (p *DynamicPolicy) AllocateAccompanyResource(req *pluginapi.ResourceRequest
 		return nil
 	}
 
+	podEntries := p.state.GetPodEntries()
+	machineState := p.state.GetMachineState()
+
+	filters := []state.VFFilter{
+		state.FilterByPodAllocated(podEntries, false),
+		state.FilterByRDMA(true),
+		state.FilterByQueueCount(queueCount, queueCount),
+	}
+
 	hintNUMASet, err := machine.NewCPUSetUint64(req.Hint.Nodes...)
 	if err != nil {
 		return fmt.Errorf("failed to parse hint numa nodes: %v", err)
 	}
+	if hintNUMASet.Size() > 0 {
+		socketSet := p.agentCtx.CPUDetails.SocketsInNUMANodes(hintNUMASet.ToSliceInt()...)
+		numaSet := p.agentCtx.CPUDetails.NUMANodesInSockets(socketSet.ToSliceInt()...)
+		filters = append(filters, state.FilterByNumaSet(numaSet))
+	}
 
-	podEntries := p.state.GetPodEntries()
-	machineState := p.state.GetMachineState()
-	candidates := machineState.Filter(
-		state.FilterByPodAllocated(podEntries, false),
-		state.FilterByNumaSet(hintNUMASet),
-		state.FilterByRDMA(true),
-		state.FilterByQueueCount(queueCount, queueCount),
-	)
+	candidates := machineState.Filter(filters...)
 	if len(candidates) == 0 {
 		if failOnExhaustion {
 			return fmt.Errorf("no available VFs")
 		}
+		general.Warningf("no available VFs for request %s/%s, but skipped because failOnExhaustion is false", req.PodName, req.ContainerName)
 		return nil
 	}
 
@@ -275,7 +303,7 @@ func (p *DynamicPolicy) AllocateAccompanyResource(req *pluginapi.ResourceRequest
 		VFInfo: candidates[0],
 	}
 
-	general.InfoS("allocate accompany resource result", "request", req, "allocationInfo", allocationInfo)
+	general.InfoS("finished", "request", req, "allocatedVF", allocationInfo.VFInfo.RepName, "dryRun", p.dryRun)
 
 	if p.dryRun {
 		return nil
@@ -294,6 +322,7 @@ func (p *DynamicPolicy) AllocateAccompanyResource(req *pluginapi.ResourceRequest
 	return nil
 }
 
+// ReleaseAccompanyResource release accompany resources
 func (p *DynamicPolicy) ReleaseAccompanyResource(req *pluginapi.RemovePodRequest) (err error) {
 	if req == nil {
 		return fmt.Errorf("ReleaseAccompanyResource got nil req")
@@ -309,7 +338,7 @@ func (p *DynamicPolicy) ReleaseAccompanyResource(req *pluginapi.RemovePodRequest
 		}
 	}()
 
-	// delete is safe, no need to check dryRun
+	// no need to check dryRun
 	p.state.Delete(req.PodUid, true)
 
 	return nil
