@@ -25,6 +25,7 @@ import (
 	"testing"
 
 	. "github.com/bytedance/mockey"
+	"github.com/safchain/ethtool"
 	. "github.com/smartystreets/goconvey/convey"
 )
 
@@ -46,3 +47,51 @@ func TestIsSriovPf(t *testing.T) {
 		})
 	})
 }
+
+func TestDetectSriovPFDriver(t *testing.T) {
+	PatchConvey("TestDetectSriovPFDriver", t, func() {
+		PatchConvey("mlx", func() {
+			Mock(ethtool.DriverName).Return(MellanoxPFDriverName, nil).Build()
+			driver, err := detectSriovPFDriver("eth0")
+			So(err, ShouldBeNil)
+			So(driver, ShouldEqual, NicDriverMLX)
+		})
+
+		PatchConvey("bnx", func() {
+			Mock(ethtool.DriverName).Return(BroadComPFDriverName, nil).Build()
+			driver, err := detectSriovPFDriver("eth0")
+			So(err, ShouldBeNil)
+			So(driver, ShouldEqual, NicDriverBNX)
+		})
+
+		PatchConvey("unknown", func() {
+			Mock(ethtool.DriverName).Return("mlx5e_rep", nil).Build()
+			driver, err := detectSriovPFDriver("eth0_0")
+			So(err, ShouldBeNil)
+			So(driver, ShouldEqual, NicDriverUnknown)
+		})
+	})
+}
+
+//func TestGetVfRepresenterMap(t *testing.T) {
+//	PatchConvey("TestGetVfRepresenterMap", t, func() {
+//		PatchConvey("mlx", func() {
+//			Mock(os.ReadFile).
+//				When(func(s string) {}).Return().
+//				When(func(s string) {}).Return().
+//				Build()
+//			Mock(os.ReadDir).Return([]mockDirEntry{
+//				mockDirEntry{entryName: "0", isDir: true},
+//				mockDirEntry{entryName: "1", isDir: true},
+//			}, nil).Build()
+//
+//			res, err := getVfRepresenterMap("/sys", "eth0", "device/net")
+//
+//			So(err, ShouldBeNil)
+//			So(res, ShouldResemble, map[int]string{
+//				0: "eth0",
+//				1: "eth0",
+//			})
+//		})
+//	})
+//}
