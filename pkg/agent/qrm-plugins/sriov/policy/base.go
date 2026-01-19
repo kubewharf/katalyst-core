@@ -77,7 +77,7 @@ func newBasePolicy(agentCtx *agent.GenericContext, conf *config.Configuration, e
 		return nil, fmt.Errorf("create remote runtime service failed %s", err)
 	}
 
-	stateReconciler := handler.NewStateReconciler(stateImpl, conf.SriovAllocationConfig.PCIAnnotationKey,
+	stateReconciler := handler.NewStateReconciler(stateImpl, conf,
 		ResourceName, agentCtx.Client.KubeClient, runtimeClient)
 
 	bondingHostNetwork, err := machine.IsHostNetworkBonding()

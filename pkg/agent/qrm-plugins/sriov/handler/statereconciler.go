@@ -42,25 +42,27 @@ import (
 )
 
 type StateReconciler struct {
-	state          state.State
-	pciAnnotation  string
-	resourceName   string
-	kubeClient     kubernetes.Interface
-	runtimeClient  cri.RuntimeService
-	metaServer     *metaserver.MetaServer
-	residualHitMap map[string]int64
+	state           state.State
+	netnsDirAbsPath string
+	pciAnnotation   string
+	resourceName    string
+	kubeClient      kubernetes.Interface
+	runtimeClient   cri.RuntimeService
+	metaServer      *metaserver.MetaServer
+	residualHitMap  map[string]int64
 }
 
-func NewStateReconciler(state state.State, pciAnnotation string, resourceName string,
+func NewStateReconciler(state state.State, conf *config.Configuration, resourceName string,
 	kubeClient kubernetes.Interface, runtimeClient cri.RuntimeService,
 ) *StateReconciler {
 	return &StateReconciler{
-		state:          state,
-		pciAnnotation:  pciAnnotation,
-		resourceName:   resourceName,
-		kubeClient:     kubeClient,
-		runtimeClient:  runtimeClient,
-		residualHitMap: make(map[string]int64),
+		state:           state,
+		netnsDirAbsPath: conf.NetNSDirAbsPath,
+		pciAnnotation:   conf.PCIAnnotationKey,
+		resourceName:    resourceName,
+		kubeClient:      kubeClient,
+		runtimeClient:   runtimeClient,
+		residualHitMap:  make(map[string]int64),
 	}
 }
 
@@ -163,8 +165,7 @@ func (r *StateReconciler) syncMachineState(allocatedVFSet sets.String) (bool, er
 		if allocatedVFSet.Has(vfInfo.PCIAddr) {
 			continue
 		}
-		// todo: maybe we can enter pod ns to init extra info of allocated vf
-		if err := vfInfo.InitExtraInfo(vfInfo.PCIAddr); err != nil {
+		if err := vfInfo.InitExtraInfo(r.netnsDirAbsPath); err != nil {
 			errList = append(errList, fmt.Errorf("failed to init extra info of %s: %w", vfInfo.RepName, err))
 			continue
 		}

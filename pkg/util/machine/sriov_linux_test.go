@@ -126,7 +126,7 @@ func TestGetVfRepresenterMap(t *testing.T) {
 
 		PatchConvey("brcm", func() {
 			Mock(os.ReadFile).
-				When(func(s string) bool { return strings.HasSuffix(s, netFileNamePhysfn) }).Return(switchID, nil).
+				When(func(s string) bool { return strings.HasSuffix(s, netDevPhysSwitchID) }).Return(switchID, nil).
 				When(func(s string) bool { return strings.Contains(s, filepath.Join("eth0_0", netDevPhysPortName)) }).Return([]byte("pf0vf0"), nil).
 				When(func(s string) bool { return strings.Contains(s, filepath.Join("eth0_1", netDevPhysPortName)) }).Return([]byte("pf0vf1"), nil).
 				When(func(s string) bool { return strings.Contains(s, filepath.Join("eth1_0", netDevPhysPortName)) }).Return([]byte("pf1vf0"), nil).
@@ -143,8 +143,8 @@ func TestGetVfRepresenterMap(t *testing.T) {
 
 			So(err, ShouldBeNil)
 			So(res, ShouldResemble, map[int]string{
-				0: "eth0",
-				1: "eth0",
+				0: "eth0_0",
+				1: "eth0_1",
 			})
 		})
 	})
@@ -152,6 +152,8 @@ func TestGetVfRepresenterMap(t *testing.T) {
 
 func TestGetSriovVFList(t *testing.T) {
 	PatchConvey("TestGetSriovVFList", t, func() {
+		Mock(DoNetNS).Return(nil).Build()
+
 		Mock(isSriovPf).To(func(sysFsDir string, ifName string) bool { return ifName == "eth0" || ifName == "eth1" }).Build()
 
 		Mock(ethtool.DriverName).To(func(ifName string) (string, error) {
