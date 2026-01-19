@@ -110,6 +110,7 @@ func TestGetVfRepresenterMap(t *testing.T) {
 				When(func(s string) bool { return strings.Contains(s, filepath.Join("eth0_0", netDevPhysPortName)) }).Return([]byte("pf0vf0"), nil).
 				When(func(s string) bool { return strings.Contains(s, filepath.Join("eth0_1", netDevPhysPortName)) }).Return([]byte("pf0vf1"), nil).
 				Build()
+			Mock(os.Stat).Return(nil, nil).Build()
 			Mock(os.ReadDir).Return([]os.DirEntry{
 				&mockDirEntry{entryName: "eth0_0", isDir: true},
 				&mockDirEntry{entryName: "eth0_1", isDir: true},
@@ -132,6 +133,7 @@ func TestGetVfRepresenterMap(t *testing.T) {
 				When(func(s string) bool { return strings.Contains(s, filepath.Join("eth1_0", netDevPhysPortName)) }).Return([]byte("pf1vf0"), nil).
 				When(func(s string) bool { return strings.Contains(s, filepath.Join("eth1_1", netDevPhysPortName)) }).Return([]byte("pf1vf1"), nil).
 				Build()
+			Mock(os.Stat).Return(nil, nil).Build()
 			Mock(os.ReadDir).Return([]os.DirEntry{
 				&mockDirEntry{entryName: "eth0_0", isDir: true},
 				&mockDirEntry{entryName: "eth0_1", isDir: true},
@@ -165,11 +167,6 @@ func TestGetSriovVFList(t *testing.T) {
 			}
 			return "", nil
 		}).Build()
-
-		Mock(os.ReadDir).Return([]os.DirEntry{
-			&mockDirEntry{entryName: "eth0_0", isDir: true},
-			&mockDirEntry{entryName: "eth0_1", isDir: true},
-		}, nil).Build()
 
 		Mock(getVfRepresenterMap).To(func(sysFsDir string, pfName string, devicePath string, filters ...vfRepresenterFilter) (map[int]string, error) {
 			result := map[int]string{}
@@ -205,7 +202,7 @@ func TestGetSriovVFList(t *testing.T) {
 		vfList, err := GetSriovVFList(&global.MachineInfoConfiguration{
 			NetMultipleNS:    true,
 			NetAllocatableNS: []string{"ns2"},
-			NetNSDirAbsPath:  "/var/run/netns/",
+			NetNSDirAbsPath:  DefaultNetNSDir,
 		}, []InterfaceInfo{
 			{Name: "eth0", PCIAddr: "0000:41:00.0", NumaNode: 0},
 			{Name: "eth0_0", PCIAddr: "0000:41:00.0", NumaNode: 0},
