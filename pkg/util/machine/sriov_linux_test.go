@@ -83,11 +83,11 @@ func TestGetBrcmPfIndex(t *testing.T) {
 
 	PatchConvey("TestGetBrcmPfIndex", t, func() {
 		Mock(os.ReadFile).Return(deviceID, nil).Build()
-		Mock(os.ReadDir).Return([]*mockDirEntry{
-			{entryName: "0000:41:00.0", isDir: true},
-			{entryName: "0000:41:00.1", isDir: true},
-			{entryName: "0000:c1:00.0", isDir: true},
-			{entryName: "0000:c1:00.1", isDir: true},
+		Mock(os.ReadDir).Return([]os.DirEntry{
+			&mockDirEntry{entryName: "0000:41:00.0", isDir: true},
+			&mockDirEntry{entryName: "0000:41:00.1", isDir: true},
+			&mockDirEntry{entryName: "0000:c1:00.0", isDir: true},
+			&mockDirEntry{entryName: "0000:c1:00.1", isDir: true},
 		}, nil).Build()
 
 		index0, err := getBrcmPfIndex("/sys", "0000:41:00.0")
@@ -110,9 +110,9 @@ func TestGetVfRepresenterMap(t *testing.T) {
 				When(func(s string) bool { return strings.Contains(s, filepath.Join("eth0_0", netDevPhysPortName)) }).Return([]byte("pf0vf0"), nil).
 				When(func(s string) bool { return strings.Contains(s, filepath.Join("eth0_1", netDevPhysPortName)) }).Return([]byte("pf0vf1"), nil).
 				Build()
-			Mock(os.ReadDir).Return([]*mockDirEntry{
-				{entryName: "eth0_0", isDir: true},
-				{entryName: "eth0_1", isDir: true},
+			Mock(os.ReadDir).Return([]os.DirEntry{
+				&mockDirEntry{entryName: "eth0_0", isDir: true},
+				&mockDirEntry{entryName: "eth0_1", isDir: true},
 			}, nil).Build()
 
 			res, err := getVfRepresenterMap("/sys", "eth0", "device/net")
@@ -132,11 +132,11 @@ func TestGetVfRepresenterMap(t *testing.T) {
 				When(func(s string) bool { return strings.Contains(s, filepath.Join("eth1_0", netDevPhysPortName)) }).Return([]byte("pf1vf0"), nil).
 				When(func(s string) bool { return strings.Contains(s, filepath.Join("eth1_1", netDevPhysPortName)) }).Return([]byte("pf1vf1"), nil).
 				Build()
-			Mock(os.ReadDir).Return([]*mockDirEntry{
-				{entryName: "eth0_0", isDir: true},
-				{entryName: "eth0_1", isDir: true},
-				{entryName: "eth1_0", isDir: true},
-				{entryName: "eth1_1", isDir: true},
+			Mock(os.ReadDir).Return([]os.DirEntry{
+				&mockDirEntry{entryName: "eth0_0", isDir: true},
+				&mockDirEntry{entryName: "eth0_1", isDir: true},
+				&mockDirEntry{entryName: "eth1_0", isDir: true},
+				&mockDirEntry{entryName: "eth1_1", isDir: true},
 			}, nil).Build()
 
 			res, err := getVfRepresenterMap("/sys", "eth0", "subsystem", brcmVfRepresenterFilter(0))
@@ -154,19 +154,19 @@ func TestGetSriovVFList(t *testing.T) {
 	PatchConvey("TestGetSriovVFList", t, func() {
 		Mock(isSriovPf).To(func(sysFsDir string, ifName string) bool { return ifName == "eth0" || ifName == "eth1" }).Build()
 
-		Mock(ethtool.DriverName).To(func(ifName string) string {
+		Mock(ethtool.DriverName).To(func(ifName string) (string, error) {
 			switch ifName {
 			case "eth0", "eth1":
-				return "eth0"
+				return MellanoxPFDriverName, nil
 			case "eth0_0":
-				return "eth0_1"
+				return "mlx5e_rep", nil
 			}
-			return ""
+			return "", nil
 		}).Build()
 
-		Mock(os.ReadDir).Return([]*mockDirEntry{
-			{entryName: "eth0_0", isDir: true},
-			{entryName: "eth0_1", isDir: true},
+		Mock(os.ReadDir).Return([]os.DirEntry{
+			&mockDirEntry{entryName: "eth0_0", isDir: true},
+			&mockDirEntry{entryName: "eth0_1", isDir: true},
 		}, nil).Build()
 
 		Mock(getVfRepresenterMap).To(func(sysFsDir string, pfName string, devicePath string, filters ...vfRepresenterFilter) (map[int]string, error) {
@@ -262,7 +262,7 @@ func TestGetSriovVFList(t *testing.T) {
 func TestGetVFName(t *testing.T) {
 	PatchConvey("TestGetVFName", t, func() {
 		Mock(os.Stat).Return(nil, nil).Build()
-		Mock(os.ReadDir).Return([]*mockDirEntry{{entryName: "enp65s0v0", isDir: true}}).Build()
+		Mock(os.ReadDir).Return([]os.DirEntry{&mockDirEntry{entryName: "enp65s0v0", isDir: true}}).Build()
 
 		res, err := GetVFName("/sys", "0000:41:00.1")
 
@@ -278,9 +278,9 @@ func TestGetVfIBDevices(t *testing.T) {
 
 		Mock(os.ReadDir).
 			When(func(s string) bool { return strings.Contains(s, netFileNameIBVerbs) }).
-			Return([]*mockDirEntry{{entryName: ibVerbs, isDir: true}}, nil).
+			Return([]os.DirEntry{&mockDirEntry{entryName: ibVerbs, isDir: true}}, nil).
 			When(func(s string) bool { return strings.Contains(s, netFileNameIBMad) }).
-			Return([]*mockDirEntry{{entryName: ibMad, isDir: true}}, nil).
+			Return([]os.DirEntry{&mockDirEntry{entryName: ibMad, isDir: true}}, nil).
 			Build()
 
 		res, err := GetVfIBDevices("/sys", "eth0")
