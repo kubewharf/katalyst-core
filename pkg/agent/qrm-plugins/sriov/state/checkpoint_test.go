@@ -26,6 +26,8 @@ import (
 )
 
 func TestVFState(t *testing.T) {
+	t.Parallel()
+
 	var (
 		eth0_0 = VFInfo{
 			RepName:  "eth0_0",
@@ -90,7 +92,6 @@ func TestVFState(t *testing.T) {
 	)
 
 	Convey("sort", t, func() {
-
 		vfStateToSort := vfState.Clone()
 
 		vfStateToSort.Sort()
