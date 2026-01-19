@@ -262,7 +262,7 @@ func TestGetSriovVFList(t *testing.T) {
 func TestGetVFName(t *testing.T) {
 	PatchConvey("TestGetVFName", t, func() {
 		Mock(os.Stat).Return(nil, nil).Build()
-		Mock(os.ReadDir).Return([]os.DirEntry{&mockDirEntry{entryName: "enp65s0v0", isDir: true}}).Build()
+		Mock(os.ReadDir).Return([]os.DirEntry{&mockDirEntry{entryName: "enp65s0v0", isDir: true}}, nil).Build()
 
 		res, err := GetVFName("/sys", "0000:41:00.1")
 
