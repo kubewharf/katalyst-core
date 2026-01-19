@@ -358,31 +358,6 @@ func getBrcmPfIndex(sysFsDir string, pfPCIAddr string) (int, error) {
 	return -1, fmt.Errorf("failed to find PF index for uplink %s, device id %s", pfPCIAddr, deviceID)
 }
 
-// GetVfIBDevices returns the ib devices of the given vf name
-func GetVfIBDevices(sysFsDir string, vfName string) (ibDevices []string, err error) {
-	ibVerbDirPath := filepath.Join(sysFsDir, nicPathNAMEBaseDir, vfName, netFileNameIBVerbs)
-	ibCMDirPath := filepath.Join(sysFsDir, nicPathNAMEBaseDir, vfName, netFileNameIBCM)
-	ibMadDirPath := filepath.Join(sysFsDir, nicPathNAMEBaseDir, vfName, netFileNameIBMad)
-	paths := []string{ibVerbDirPath, ibCMDirPath, ibMadDirPath}
-
-	for _, path := range paths {
-		entries, err := os.ReadDir(path)
-		if err != nil {
-			continue
-		}
-
-		if len(entries) == 0 {
-			continue
-		}
-
-		for _, entry := range entries {
-			ibDevices = append(ibDevices, entry.Name())
-		}
-	}
-
-	return ibDevices, nil
-}
-
 // GetVFName returns the vf name of the given vf pci address
 func GetVFName(sysFsDir string, vfPciAddress string) (string, error) {
 	pciBaseDirPath := filepath.Join(sysFsDir, pciPathNameBaseDir)
@@ -400,4 +375,28 @@ func GetVFName(sysFsDir string, vfPciAddress string) (string, error) {
 	}
 
 	return entries[0].Name(), nil
+}
+
+// GetVfIBDevices returns the ib devices of the given vf name
+func GetVfIBDevices(sysFsDir string, vfName string) (ibDevices []string, err error) {
+	basePath := filepath.Join(sysFsDir, nicPathNAMEBaseDir, vfName)
+	files := []string{netFileNameIBVerbs, netFileNameIBCM, netFileNameIBMad}
+
+	for _, file := range files {
+		path := filepath.Join(basePath, file)
+		entries, err := os.ReadDir(path)
+		if err != nil {
+			continue
+		}
+
+		if len(entries) == 0 {
+			continue
+		}
+
+		for _, entry := range entries {
+			ibDevices = append(ibDevices, entry.Name())
+		}
+	}
+
+	return ibDevices, nil
 }
