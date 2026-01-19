@@ -82,11 +82,8 @@ func TestGetBrcmPfIndex(t *testing.T) {
 	deviceID := []byte("0x1750")
 
 	PatchConvey("TestGetBrcmPfIndex", t, func() {
-		Mock(os.ReadFile).
-			When(func(s string) bool { return true }).Return(deviceID, nil).
-			When(func(s string) bool { return true }).Return(deviceID, nil).
-			Build()
-		Mock(os.ReadDir).Return([]mockDirEntry{
+		Mock(os.ReadFile).Return(deviceID, nil).Build()
+		Mock(os.ReadDir).Return([]*mockDirEntry{
 			{entryName: "0000:41:00.0", isDir: true},
 			{entryName: "0000:41:00.1", isDir: true},
 			{entryName: "0000:c1:00.0", isDir: true},
@@ -113,7 +110,7 @@ func TestGetVfRepresenterMap(t *testing.T) {
 				When(func(s string) bool { return strings.Contains(s, filepath.Join("eth0_0", netDevPhysPortName)) }).Return([]byte("pf0vf0"), nil).
 				When(func(s string) bool { return strings.Contains(s, filepath.Join("eth0_1", netDevPhysPortName)) }).Return([]byte("pf0vf1"), nil).
 				Build()
-			Mock(os.ReadDir).Return([]mockDirEntry{
+			Mock(os.ReadDir).Return([]*mockDirEntry{
 				{entryName: "eth0_0", isDir: true},
 				{entryName: "eth0_1", isDir: true},
 			}, nil).Build()
@@ -135,7 +132,7 @@ func TestGetVfRepresenterMap(t *testing.T) {
 				When(func(s string) bool { return strings.Contains(s, filepath.Join("eth1_0", netDevPhysPortName)) }).Return([]byte("pf1vf0"), nil).
 				When(func(s string) bool { return strings.Contains(s, filepath.Join("eth1_1", netDevPhysPortName)) }).Return([]byte("pf1vf1"), nil).
 				Build()
-			Mock(os.ReadDir).Return([]mockDirEntry{
+			Mock(os.ReadDir).Return([]*mockDirEntry{
 				{entryName: "eth0_0", isDir: true},
 				{entryName: "eth0_1", isDir: true},
 				{entryName: "eth1_0", isDir: true},
@@ -167,15 +164,15 @@ func TestGetSriovVFList(t *testing.T) {
 			return ""
 		}).Build()
 
-		Mock(os.ReadDir).Return([]mockDirEntry{
+		Mock(os.ReadDir).Return([]*mockDirEntry{
 			{entryName: "eth0_0", isDir: true},
 			{entryName: "eth0_1", isDir: true},
 		}, nil).Build()
 
-		Mock(getVfRepresenterMap).To(func(sysFsDir string, ifName string, dirName string, filter func(string) bool) (map[int]string, error) {
+		Mock(getVfRepresenterMap).To(func(sysFsDir string, pfName string, devicePath string, filters ...vfRepresenterFilter) (map[int]string, error) {
 			result := map[int]string{}
 			for i := 0; i < 3; i++ {
-				result[i] = fmt.Sprintf("%s_%d", ifName, i)
+				result[i] = fmt.Sprintf("%s_%d", pfName, i)
 			}
 			return result, nil
 		}).Build()
@@ -264,9 +261,8 @@ func TestGetSriovVFList(t *testing.T) {
 
 func TestGetVFName(t *testing.T) {
 	PatchConvey("TestGetVFName", t, func() {
-		Mock(os.ReadDir).Return([]mockDirEntry{
-			{entryName: "enp65s0v0", isDir: true},
-		}).Build()
+		Mock(os.Stat).Return(nil, nil).Build()
+		Mock(os.ReadDir).Return([]*mockDirEntry{{entryName: "enp65s0v0", isDir: true}}).Build()
 
 		res, err := GetVFName("/sys", "0000:41:00.1")
 
@@ -282,9 +278,9 @@ func TestGetVfIBDevices(t *testing.T) {
 
 		Mock(os.ReadDir).
 			When(func(s string) bool { return strings.Contains(s, netFileNameIBVerbs) }).
-			Return([]mockDirEntry{{entryName: ibVerbs, isDir: true}}, nil).
+			Return([]*mockDirEntry{{entryName: ibVerbs, isDir: true}}, nil).
 			When(func(s string) bool { return strings.Contains(s, netFileNameIBMad) }).
-			Return([]mockDirEntry{{entryName: ibMad, isDir: true}}, nil).
+			Return([]*mockDirEntry{{entryName: ibMad, isDir: true}}, nil).
 			Build()
 
 		res, err := GetVfIBDevices("/sys", "eth0")
