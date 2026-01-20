@@ -35,7 +35,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
-	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -130,11 +129,13 @@ func (p *gpuReporterPlugin) GetReportContent(_ context.Context, _ *v1alpha1.Empt
 		return nil, fmt.Errorf("failed to get device topology: %w", err)
 	}
 	if !ready {
-		general.Infof("device topology is not ready yet")
 		return nil, fmt.Errorf("device topology is not ready yet")
 	}
 
 	resourceProperty := p.getGPUResourceProperty(deviceTopology)
+	if resourceProperty == nil {
+		return nil, fmt.Errorf("no resource property found for device topology")
+	}
 
 	// generate the zones for numa and socket in machine
 	topologyZoneGenerator, err := util.NewNumaSocketTopologyZoneGenerator(p.numaSocketZoneNodeMap)
@@ -147,8 +148,18 @@ func (p *gpuReporterPlugin) GetReportContent(_ context.Context, _ *v1alpha1.Empt
 		return nil, err
 	}
 
-	generatedTopologyZones := topologyZoneGenerator.GenerateTopologyZoneStatus(nil, p.getZoneResources(deviceTopology),
-		p.getGPUZoneAttributes(deviceTopology), nil, nil)
+	zoneResources := p.getZoneResources(deviceTopology)
+	if zoneResources == nil {
+		return nil, fmt.Errorf("no zone resources found for device topology")
+	}
+
+	zoneAttributes := p.getGPUZoneAttributes(deviceTopology)
+	if zoneAttributes == nil {
+		return nil, fmt.Errorf("no zone attributes found for device topology")
+	}
+
+	generatedTopologyZones := topologyZoneGenerator.GenerateTopologyZoneStatus(nil, zoneResources,
+		zoneAttributes, nil, nil)
 
 	propertyValues, err := json.Marshal(&resourceProperty)
 	if err != nil {
@@ -183,7 +194,7 @@ func (p *gpuReporterPlugin) GetReportContent(_ context.Context, _ *v1alpha1.Empt
 
 // getGPUResourceProperty returns the different dimensions to differentiate affinity priority of gpu devices.
 func (p *gpuReporterPlugin) getGPUResourceProperty(deviceTopology *machine.DeviceTopology) []*nodev1alpha1.Property {
-	if deviceTopology == nil {
+	if deviceTopology == nil || deviceTopology.PriorityDimensions == nil {
 		return nil
 	}
 
@@ -209,9 +220,16 @@ func (p *gpuReporterPlugin) getGPUZoneAttributes(deviceTopology *machine.DeviceT
 
 		var attributes []nodev1alpha1.Attribute
 		for _, dimension := range dimensions {
+			// If dimension name or value is empty, there is no need to report topology so we return nil
+			dimensionName := dimension.GetName()
+			dimensionValue := dimension.GetValue()
+			if dimensionName == "" || dimensionValue == "" {
+				return nil
+			}
+
 			attributes = append(attributes, nodev1alpha1.Attribute{
-				Name:  dimension.GetName(),
-				Value: dimension.GetValue(),
+				Name:  dimensionName,
+				Value: dimensionValue,
 			})
 		}
 
@@ -251,6 +269,10 @@ func (p *gpuReporterPlugin) getZoneResources(deviceTopology *machine.DeviceTopol
 
 	zoneResources := make(map[util.ZoneNode]nodev1alpha1.Resources)
 	deviceName := deviceTopology.DeviceName
+	// If there is no device name, there is no need to report topology so we return nil
+	if deviceName == "" {
+		return nil
+	}
 	for id := range deviceTopology.Devices {
 		zoneNode := util.GenerateDeviceZoneNode(id, string(nodev1alpha1.TopologyTypeGPU))
 
