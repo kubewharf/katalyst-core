@@ -19,6 +19,8 @@ package plugin
 import (
 	"context"
 	"math"
+	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -201,6 +203,8 @@ type transparentMemoryOffloading struct {
 	emitter             metrics.MetricEmitter
 	containerTmoEngines map[katalystcoreconsts.PodContainerName]TmoEngine
 	cgpathTmoEngines    map[string]TmoEngine
+
+	lastDyingCGReclaimTime time.Time
 }
 
 type TmoEngine interface {
@@ -524,6 +528,9 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 						tmo.containerTmoEngines[podContainerName].GetConf().PolicyName)
 				}
 			}
+
+			// PoolName Overrice QosLevel Config
+
 			// load SPD conf if exists
 			tmoIndicator := &v1alpha1.TransparentMemoryOffloadingIndicators{}
 			isBaseline, err := tmo.metaServer.ServiceProfilingManager.ServiceExtendedIndicator(context.Background(), pod.ObjectMeta, tmoIndicator)
@@ -656,6 +663,45 @@ func (tmo *transparentMemoryOffloading) GetAdvices() types.InternalMemoryCalcula
 			},
 		}
 		result.ExtraEntries = append(result.ExtraEntries, entry)
+	}
+
+	cgroupPaths := make([]string, 0)
+	onlineBurstableCgroupPath := path.Join(common.CgroupFSMountPoint, memoryadvisor.OnlineBurstableCgroupPath)
+	cgroupPaths = append(cgroupPaths, onlineBurstableCgroupPath)
+
+	// add offline-besteffort-* cgroup paths
+	// traverse all paths
+	directory := path.Join(common.CgroupFSMountPoint, memoryadvisor.KubePodsCgroupPath)
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		general.Infof("Failed to read directory %s: %v", directory, err)
+		return result
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), memoryadvisor.OfflineBestEffortPrefix) {
+			cgroupPaths = append(cgroupPaths, path.Join(directory, entry.Name()))
+		}
+	}
+
+	general.Infof("DyingMemcg paths to be processed: %v", cgroupPaths)
+
+	currentTime := time.Now()
+	// TODO: magic number (300s), needs to be tuned
+	if tmo.lastDyingCGReclaimTime.IsZero() || currentTime.Sub(tmo.lastDyingCGReclaimTime) >= 300 {
+		tmo.lastDyingCGReclaimTime = currentTime
+
+		// Note: trigger qrm-plugin
+		for _, cgroupPath := range cgroupPaths {
+			// cgroupPath here uses absolute path
+			entry := types.ExtraMemoryAdvices{
+				CgroupPath: cgroupPath,
+				Values: map[string]string{
+					string(memoryadvisor.ControlKnowKeyDyingMemcgReclaim): consts.ControlKnobON,
+				},
+			}
+			result.ExtraEntries = append(result.ExtraEntries, entry)
+		}
 	}
 
 	return result

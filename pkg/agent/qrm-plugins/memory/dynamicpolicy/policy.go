@@ -73,6 +73,7 @@ const (
 	memoryPluginAsyncWorkTopicSetExtraCGMemLimit = "qrm_memory_plugin_set_extra_mem_limit"
 	memoryPluginAsyncWorkTopicMovePage           = "qrm_memory_plugin_move_page"
 	memoryPluginAsyncWorkTopicMemoryOffloading   = "qrm_memory_plugin_mem_offload"
+	memoryPluginAsyncWorkTopicDyingMemcgReclaim  = "qrm_memory_plugin_dying_memcg_reclaim"
 
 	dropCacheTimeoutSeconds          = 30
 	setExtraCGMemLimitTimeoutSeconds = 60

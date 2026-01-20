@@ -971,3 +971,59 @@ func (p *DynamicPolicy) handleAdvisorMemoryOffloading(_ *config.Configuration,
 		})...)
 	return nil
 }
+
+// handleAdvisorDyingMemcgReclaim handles dying memcg reclaim from memory-advisor
+// translates from tce/tmo: https://code.byted.org/tce/tmo/commit/58506d1d168f75deedb543c442053b8fbbda3c8e
+func (p *DynamicPolicy) handleAdvisorDyingMemcgReclaim(_ *config.Configuration,
+	_ interface{},
+	_ *dynamicconfig.DynamicAgentConfiguration,
+	emitter metrics.MetricEmitter,
+	metaServer *metaserver.MetaServer,
+	entryName, subEntryName string,
+	calculationInfo *advisorsvc.CalculationInfo, podResourceEntries state.PodResourceEntries,
+) error {
+	var absCGPath string
+	var dyingMemcgReclaimWorkName string
+
+	if calculationInfo.CgroupPath != "" {
+		dyingMemcgReclaimWorkName = util.GetCgroupAsyncWorkName(calculationInfo.CgroupPath, memoryPluginAsyncWorkTopicMemoryOffloading)
+		absCGPath = common.GetAbsCgroupPath(common.CgroupSubsysMemory, calculationInfo.CgroupPath)
+	} else {
+		return fmt.Errorf("cgroup path is empty")
+	}
+
+	// set swap max before trigger memory offloading
+	swapMax := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnobKeySwapMax)]
+	if swapMax == consts.ControlKnobON {
+		err := cgroupmgr.SetSwapMaxWithAbsolutePathRecursive(absCGPath)
+		if err != nil {
+			general.Infof("Failed to set swap max, err: %v", err)
+		}
+	} else {
+		err := cgroupmgr.DisableSwapMaxWithAbsolutePathRecursive(absCGPath)
+		if err != nil {
+			general.Infof("Failed to disable swap, err: %v", err)
+		}
+	}
+
+	isEnableDyingMemcgReclaim := calculationInfo.CalculationResult.Values[string(memoryadvisor.ControlKnowKeyDyingMemcgReclaim)] == consts.ControlKnobON
+	if !isEnableDyingMemcgReclaim {
+		return nil
+	}
+
+	// start an asynchronous work to execute dying memcg reclaim
+	err := p.defaultAsyncLimitedWorkers.AddWork(
+		&asyncworker.Work{
+			Name:        dyingMemcgReclaimWorkName,
+			UID:         uuid.NewUUID(),
+			Fn:          cgroupmgr.DyingMemcgReclaimWithAbsolutePath,
+			Params:      []interface{}{absCGPath, emitter, entryName, subEntryName},
+			DeliveredAt: time.Now(),
+		}, asyncworker.DuplicateWorkPolicyOverride,
+	)
+	if err != nil {
+		return fmt.Errorf("add work: %s pod: %s container: %s cgroup: %s failed with error: %v", dyingMemcgReclaimWorkName, entryName, subEntryName, absCGPath, err)
+	}
+
+	return nil
+}
