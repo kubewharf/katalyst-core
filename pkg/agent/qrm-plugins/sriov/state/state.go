@@ -18,10 +18,163 @@ package state
 
 import (
 	"encoding/json"
+	"fmt"
+	"sort"
+
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
+
+type VFInfo struct {
+	RepName  string `json:"repName"`
+	Index    int    `json:"index"`
+	PCIAddr  string `json:"pciAddr"`
+	PFName   string `json:"pfName"`
+	NumaNode int    `json:"numaNode"`
+	NSName   string `json:"nsName"`
+
+	*ExtraVFInfo
+}
+
+// ExtraVFInfo is the extra vf info that cannot be retrieved directly from machine.GetNetworkVFs,
+type ExtraVFInfo struct {
+	Name       string   `json:"name"`
+	QueueCount int      `json:"queueCount"`
+	IBDevices  []string `json:"ibDevices"`
+}
+
+func (vf *VFInfo) InitExtraInfo(netNSDirAbsPath string) error {
+	if vf.ExtraVFInfo != nil {
+		return nil
+	}
+
+	info := &ExtraVFInfo{}
+
+	if err := machine.DoNetNS(vf.NSName, netNSDirAbsPath, func(sysFsDir string) error {
+		name, err := machine.GetVFName(sysFsDir, vf.PCIAddr)
+		if err != nil {
+			return fmt.Errorf("failed to get network vf name: %v", err)
+		}
+		info.Name = name
+		ibDevices, err := machine.GetVfIBDevices(sysFsDir, name)
+		if err != nil {
+			return fmt.Errorf("failed to get vf ib devices: %v", err)
+		}
+		info.IBDevices = ibDevices
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	combinedCount, err := machine.GetInterfaceChannelsCombinedCount(info.Name)
+	if err != nil {
+		return fmt.Errorf("failed to get vf channels: %v", err)
+	}
+	info.QueueCount = combinedCount
+
+	vf.ExtraVFInfo = info
+
+	return nil
+}
+
+type VFState []VFInfo
+
+func (s VFState) Clone() VFState {
+	clone := make(VFState, 0, len(s))
+	for _, vf := range s {
+		clone = append(clone, vf)
+	}
+
+	return clone
+}
+
+// ToMap converts VFState to map[PCIAddr]VFInfo
+func (s VFState) ToMap() map[string]VFInfo {
+	vfMap := make(map[string]VFInfo)
+	for _, vf := range s {
+		vfMap[vf.PCIAddr] = vf
+	}
+	return vfMap
+}
+
+type VFFilter func(info VFInfo) bool
+
+func (s VFState) Filter(filters ...VFFilter) VFState {
+	filtered := make(VFState, 0)
+	for _, v := range s {
+		keep := true
+		for _, filter := range filters {
+			if !filter(v) {
+				keep = false
+				break
+			}
+		}
+		if keep {
+			filtered = append(filtered, v)
+		}
+	}
+	return filtered
+}
+
+func (s VFState) Sort() {
+	sort.Slice(s, func(i, j int) bool {
+		if s[i].Index != s[j].Index {
+			return s[i].Index < s[j].Index
+		}
+
+		if s[i].NumaNode != s[j].NumaNode {
+			return s[i].NumaNode < s[j].NumaNode
+		}
+
+		return s[i].PFName < s[j].PFName
+	})
+}
+
+func FilterByPodAllocated(podEntries PodEntries, allocated bool) VFFilter {
+	vfSet := sets.NewString()
+	for _, containerEntries := range podEntries {
+		for _, allocationInfo := range containerEntries {
+			vfSet.Insert(allocationInfo.VFInfo.PCIAddr)
+		}
+	}
+
+	return func(vfInfo VFInfo) bool {
+		return vfSet.Has(vfInfo.PCIAddr) == allocated
+	}
+}
+
+func FilterByQueueCount(min int, max int) VFFilter {
+	return func(vf VFInfo) bool {
+		if vf.ExtraVFInfo == nil {
+			return false
+		}
+		return vf.QueueCount >= min && vf.QueueCount <= max
+	}
+}
+
+func FilterByPCIAddr(pciAddr string) VFFilter {
+	return func(vf VFInfo) bool {
+		return vf.PCIAddr == pciAddr
+	}
+}
+
+func FilterByNumaSet(numaSet machine.CPUSet) VFFilter {
+	return func(vf VFInfo) bool {
+		return numaSet.Contains(vf.NumaNode)
+	}
+}
+
+func FilterByRDMA(supported bool) VFFilter {
+	return func(vf VFInfo) bool {
+		if vf.ExtraVFInfo == nil {
+			return false
+		}
+		return len(vf.IBDevices) > 0 == supported
+	}
+}
 
 type AllocationInfo struct {
 	commonstate.AllocationMeta `json:",inline"`

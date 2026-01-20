@@ -66,7 +66,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		Val: fmt.Sprintf("%v", conf.SriovDryRun),
 	})
 
-	basePolicy, err := newBasePolicy(agentCtx, conf, wrappedEmitter)
+	basePolicy, err := newBasePolicy(agentCtx, conf, wrappedEmitter, consts.SriovResourcePluginPolicyNameDynamic)
 	if err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("failed to create base policy: %w", err)
 	}

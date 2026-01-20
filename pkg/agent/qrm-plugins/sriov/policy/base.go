@@ -64,10 +64,11 @@ type basePolicy struct {
 	bondingHostNetwork    bool
 }
 
-func newBasePolicy(agentCtx *agent.GenericContext, conf *config.Configuration, emitter metrics.MetricEmitter) (*basePolicy, error) {
-	stateImpl, err := state.NewCheckpointState(agentCtx.ExtraNetworkInfo.Interface, conf.QRMPluginsConfiguration,
+func newBasePolicy(agentCtx *agent.GenericContext, conf *config.Configuration, emitter metrics.MetricEmitter,
+	policyName string) (*basePolicy, error) {
+	stateImpl, err := state.NewCheckpointState(agentCtx.ExtraNetworkInfo.Interface,
 		conf.MachineInfoConfiguration, conf.StateDirectoryConfiguration, consts.SriovPluginStateFileName,
-		consts.SriovResourcePluginPolicyNameStatic, conf.SkipSriovStateCorruption, emitter)
+		policyName, conf.SkipSriovStateCorruption, emitter)
 	if err != nil {
 		return nil, fmt.Errorf("NewCheckpointState failed with error: %v", err)
 	}
@@ -139,6 +140,9 @@ func (p *basePolicy) packResourceHintsResponse(req *pluginapi.ResourceRequest, r
 
 func (p *basePolicy) generateResourceAllocationInfo(allocationInfo *state.AllocationInfo) (*pluginapi.ResourceAllocationInfo, error) {
 	annotations := general.DeepCopyMap(p.allocationConfig.ExtraAnnotations)
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
 
 	pciDevice := types.PCIDevice{
 		Address: allocationInfo.VFInfo.PCIAddr,

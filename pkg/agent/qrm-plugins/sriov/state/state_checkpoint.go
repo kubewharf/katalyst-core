@@ -24,7 +24,6 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/customcheckpointmanager"
@@ -46,24 +45,22 @@ var (
 
 type stateCheckpoint struct {
 	sync.RWMutex
-	cache               *sriovPluginState
+	cache               *stateMemory
 	policyName          string
 	checkpointManager   checkpointmanager.CheckpointManager
 	checkpointName      string
 	skipStateCorruption bool
 	emitter             metrics.MetricEmitter
-	conf                *qrm.QRMPluginsConfiguration
-	machineConf         *global.MachineInfoConfiguration
+	netNSDirAbsPath     string
 }
 
-func NewCheckpointState(
-	allNics []machine.InterfaceInfo, conf *qrm.QRMPluginsConfiguration,
-	machineInfoConf *global.MachineInfoConfiguration, stateDirectoryConfig *statedirectory.StateDirectoryConfiguration,
-	checkpointName, policyName string, skipStateCorruption bool, emitter metrics.MetricEmitter,
+func NewCheckpointState(allNics []machine.InterfaceInfo, machineInfoConf *global.MachineInfoConfiguration,
+	stateDirectoryConfig *statedirectory.StateDirectoryConfiguration, checkpointName, policyName string,
+	skipStateCorruption bool, emitter metrics.MetricEmitter,
 ) (State, error) {
 	currentStateDir, otherStateDir := stateDirectoryConfig.GetCurrentAndPreviousStateFileDirectory()
 
-	cache, err := NewSriovPluginState(machineInfoConf, allNics)
+	cache, err := NewStateMemory(machineInfoConf, allNics)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize sriov plugin state: %v", err)
 	}
@@ -74,8 +71,7 @@ func NewCheckpointState(
 		checkpointName:      checkpointName,
 		skipStateCorruption: skipStateCorruption,
 		emitter:             emitter,
-		conf:                conf,
-		machineConf:         machineInfoConf,
+		netNSDirAbsPath:     machineInfoConf.NetNSDirAbsPath,
 	}
 
 	cm, err := customcheckpointmanager.NewCustomCheckpointManager(currentStateDir, otherStateDir, checkpointName,
@@ -120,7 +116,7 @@ func (sc *stateCheckpoint) RestoreState(cp checkpointmanager.Checkpoint) (bool, 
 		if machineState[i].ExtraVFInfo != nil {
 			continue
 		}
-		if err := machineState[i].InitExtraInfo(sc.machineConf.NetNSDirAbsPath); err != nil {
+		if err := machineState[i].InitExtraInfo(sc.netNSDirAbsPath); err != nil {
 			generalLog.Warningf("failed to get vf extra info: %v", err)
 			continue
 		}

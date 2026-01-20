@@ -67,16 +67,10 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 		Val: fmt.Sprintf("%v", conf.SriovDryRun),
 	})
 
-	basePolicy, err := newBasePolicy(agentCtx, conf, wrappedEmitter)
+	basePolicy, err := newBasePolicy(agentCtx, conf, wrappedEmitter, consts.SriovResourcePluginPolicyNameStatic)
 	if err != nil {
 		return false, agent.ComponentStub{}, fmt.Errorf("failed to create base policy: %w", err)
 	}
-
-	hostNetworkBonding, err := machine.IsHostNetworkBonding()
-	if err != nil {
-		return false, agent.ComponentStub{}, fmt.Errorf("IsHostNetworkBonding failed with error: %v", err)
-	}
-	general.Infof("detect host network bonding=%t", hostNetworkBonding)
 
 	staticPolicy := &StaticPolicy{
 		name:         fmt.Sprintf("%s_%s", agentName, consts.SriovResourcePluginPolicyNameStatic),
