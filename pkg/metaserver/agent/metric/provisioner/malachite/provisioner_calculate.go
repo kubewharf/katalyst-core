@@ -398,7 +398,6 @@ func (m *MalachiteMetricsProvisioner) setContainerMbmTotalMetric(podUID, contain
 		totalLocalBytesPS += localBytesPS
 		cpuCodeName := m.metricStore.GetByStringIndex(consts.MetricCPUCodeName)
 		if codeName, ok := cpuCodeName.(string); ok {
-			cpuCodeName = codeName
 			if strings.Contains(codeName, "Zen4") {
 				// Notice: data adjustments needed due to genoa hardware bug
 				totalLocalBytesPS += localBytesPS / 3 * 2
