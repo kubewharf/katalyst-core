@@ -986,7 +986,7 @@ func (p *DynamicPolicy) handleAdvisorDyingMemcgReclaim(_ *config.Configuration,
 	var dyingMemcgReclaimWorkName string
 
 	if calculationInfo.CgroupPath != "" {
-		dyingMemcgReclaimWorkName = util.GetCgroupAsyncWorkName(calculationInfo.CgroupPath, memoryPluginAsyncWorkTopicMemoryOffloading)
+		dyingMemcgReclaimWorkName = util.GetCgroupAsyncWorkName(calculationInfo.CgroupPath, memoryPluginAsyncWorkTopicDyingMemcgReclaim)
 		absCGPath = common.GetAbsCgroupPath(common.CgroupSubsysMemory, calculationInfo.CgroupPath)
 	} else {
 		return fmt.Errorf("cgroup path is empty")

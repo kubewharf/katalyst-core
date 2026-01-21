@@ -588,6 +588,8 @@ func DyingMemcgReclaimWithAbsolutePath(ctx context.Context, absCGPath string, em
 	general.Infof("Enable dying memcg reclaim for global Cgroup: %s", absCGPath)
 	// absCGPath is like "/sys/fs/cgroup/kubepods/burstable/pod-1234-5678"
 
+	startTime := time.Now()
+
 	statFile := path.Join(absCGPath, "cgroup.stat")
 	// check whether file exists
 	if _, err := os.Stat(statFile); os.IsNotExist(err) {
@@ -642,6 +644,9 @@ func DyingMemcgReclaimWithAbsolutePath(ctx context.Context, absCGPath string, em
 			"subEntryName": subEntryName,
 			"cgroupPath":   absCGPath,
 		})...)
+
+	delta := time.Since(startTime).Seconds()
+	general.Infof("[DyingMemcgReclaimWithAbsolutePath] it takes %v to do \"%s\" on cgroup: %s", delta, "memory.reclaim", absCGPath)
 
 	return nil
 }
