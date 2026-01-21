@@ -153,7 +153,7 @@ func (m *managerImpl) updateCPUBurstByPercent(percent float64, pod *v1.Pod) erro
 		}
 
 		cpuBurstValue := util.CalculateCPUBurstFromPercent(percent, cpuStats.CpuQuota)
-		if err = manager.ApplyCPUWithAbsolutePath(containerAbsoluteCgroupPath, &common.CPUData{CpuBurst: cpuBurstValue}); err != nil {
+		if err = manager.ApplyCPUWithAbsolutePath(containerAbsoluteCgroupPath, &common.CPUData{CpuBurst: &cpuBurstValue}); err != nil {
 			general.Errorf("apply container cpu burst failed, pod: %s, podName: %s, container: %s(%s), err: %v", podUID, podName, containerName, containerID, err)
 			errList = append(errList, err)
 			continue
