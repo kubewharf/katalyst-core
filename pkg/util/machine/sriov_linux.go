@@ -259,7 +259,7 @@ func getVfRepresenterMap(sysFsDir string, pfName string, devicePath string, filt
 		}
 		physPortNameStr := string(physPortName)
 		pfRepIndex, vfRepIndex, _ := parsePortName(physPortNameStr)
-		var vfMatch = true
+		vfMatch := true
 		for _, filter := range filters {
 			if !filter(pfRepIndex, vfRepIndex) {
 				vfMatch = false
