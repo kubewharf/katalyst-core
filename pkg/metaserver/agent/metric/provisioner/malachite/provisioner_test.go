@@ -414,7 +414,8 @@ func Test_setContainerMbmTotalMetric(t *testing.T) {
 			wantData:  utilmetric.MetricData{Value: 0, Time: &now},
 			expectSet: true,
 		},
-		{name: "handles Zen4, data adjustments for local MBM",
+		{
+			name: "handles Zen4, data adjustments for local MBM",
 			args: args{
 				podUID:        "pod6",
 				containerName: "container6",
@@ -440,7 +441,8 @@ func Test_setContainerMbmTotalMetric(t *testing.T) {
 			wantLocalData: &utilmetric.MetricData{Value: float64(mbLocal2-mbLocal1) / 10 * 5 / 3, Time: &now},
 			expectSet:     true,
 		},
-		{name: "no data adjustments for local MBM",
+		{
+			name: "no data adjustments for local MBM",
 			args: args{
 				podUID:        "pod7",
 				containerName: "container7",
