@@ -169,6 +169,7 @@ func (p *DynamicPolicy) GetAccompanyResourceTopologyHints(req *pluginapi.Resourc
 		if failOnExhaustion {
 			return fmt.Errorf("no available VFs")
 		}
+		general.Warningf("no available VFs for request %s/%s, but skipped because failOnExhaustion is false", req.PodName, req.ContainerName)
 		return nil
 	}
 
@@ -241,6 +242,11 @@ func (p *DynamicPolicy) AllocateAccompanyResource(req *pluginapi.ResourceRequest
 		return p.addAllocationInfoToResponse(allocationInfo, resp)
 	}
 
+	if req.Hint == nil || len(req.Hint.Nodes) == 0 {
+		general.Warningf("request %s/%s/%s has no hint, skip allocate accompany resource", req.PodNamespace, req.PodName, req.ContainerName)
+		return nil
+	}
+
 	// get request quantity of main resource: cpu
 	request, _, err := qrmutil.GetPodAggregatedRequestResource(req)
 	if err != nil {
@@ -269,6 +275,7 @@ func (p *DynamicPolicy) AllocateAccompanyResource(req *pluginapi.ResourceRequest
 		if failOnExhaustion {
 			return fmt.Errorf("no available VFs")
 		}
+		general.Warningf("no available VFs for request %s/%s, but skipped because failOnExhaustion is false", req.PodName, req.ContainerName)
 		return nil
 	}
 

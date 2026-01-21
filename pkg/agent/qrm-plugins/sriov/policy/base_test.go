@@ -198,7 +198,7 @@ func generateBasePolicy(t *testing.T, dryRun bool, bondingHostNetwork bool, vfSt
 	err = stateImpl.StoreState()
 	require.NoError(t, err)
 
-	cpuTopology, err := machine.GenerateDummyCPUTopology(8, 2, 4)
+	cpuTopology, err := machine.GenerateDummyCPUTopology(256, 2, 4)
 	require.NoError(t, err)
 
 	agentCtx := &agent.GenericContext{
