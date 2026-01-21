@@ -36,4 +36,8 @@ const (
 	OnlineBurstableCgroupPath = "kubepods/burstable"
 )
 
+const (
+	MemCgReclaimDefaultIntervalSeconds = 300
+)
+
 type MemoryNUMAHeadroom map[int]int64
