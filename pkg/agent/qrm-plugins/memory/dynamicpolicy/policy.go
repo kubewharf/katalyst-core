@@ -281,6 +281,8 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorMemoryOffloading))
 	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyMemoryNUMAHeadroom,
 		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorMemoryNUMAHeadroom))
+	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnowKeyDyingMemcgReclaim,
+		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorDyingMemcgReclaim))
 
 	if policyImplement.enableEvictingLogCache {
 		policyImplement.logCacheEvictionManager = logcache.NewManager(conf, agentCtx.MetaServer)
