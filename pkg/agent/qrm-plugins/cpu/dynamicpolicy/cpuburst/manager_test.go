@@ -106,7 +106,7 @@ func TestManagerImpl_UpdateCPUBurst(t *testing.T) {
 				mockey.Mock(manager.GetCPUWithAbsolutePath).Return(&common.CPUStats{CpuQuota: 200}, nil).Build()
 				mockey.Mock(manager.ApplyCPUWithAbsolutePath).
 					To(func(absPath string, cpuData *common.CPUData) error {
-						s[absPath] = cpuData.CpuBurst
+						s[absPath] = *cpuData.CpuBurst
 						return nil
 					}).Build()
 			},
@@ -154,7 +154,7 @@ func TestManagerImpl_UpdateCPUBurst(t *testing.T) {
 				mockey.Mock(manager.GetCPUWithAbsolutePath).Return(&common.CPUStats{CpuQuota: 200}, nil).Build()
 				mockey.Mock(manager.ApplyCPUWithAbsolutePath).
 					To(func(absPath string, cpuData *common.CPUData) error {
-						s[absPath] = cpuData.CpuBurst
+						s[absPath] = *cpuData.CpuBurst
 						return nil
 					}).Build()
 			},
@@ -202,7 +202,7 @@ func TestManagerImpl_UpdateCPUBurst(t *testing.T) {
 				mockey.Mock(manager.GetCPUWithAbsolutePath).Return(&common.CPUStats{CpuQuota: 200}, nil).Build()
 				mockey.Mock(manager.ApplyCPUWithAbsolutePath).
 					To(func(absPath string, cpuData *common.CPUData) error {
-						s[absPath] = cpuData.CpuBurst
+						s[absPath] = *cpuData.CpuBurst
 						return nil
 					}).Build()
 			},
@@ -261,7 +261,7 @@ func TestManagerImpl_UpdateCPUBurst(t *testing.T) {
 				mockey.Mock(manager.GetCPUWithAbsolutePath).Return(&common.CPUStats{CpuQuota: 200}, nil).Build()
 				mockey.Mock(manager.ApplyCPUWithAbsolutePath).
 					To(func(absPath string, cpuData *common.CPUData) error {
-						s[absPath] = cpuData.CpuBurst
+						s[absPath] = *cpuData.CpuBurst
 						return nil
 					}).Build()
 			},
@@ -320,7 +320,7 @@ func TestManagerImpl_UpdateCPUBurst(t *testing.T) {
 				mockey.Mock(manager.GetCPUWithAbsolutePath).Return(&common.CPUStats{CpuQuota: 200}, nil).Build()
 				mockey.Mock(manager.ApplyCPUWithAbsolutePath).
 					To(func(absPath string, cpuData *common.CPUData) error {
-						s[absPath] = cpuData.CpuBurst
+						s[absPath] = *cpuData.CpuBurst
 						return nil
 					}).Build()
 			},
@@ -369,7 +369,7 @@ func TestManagerImpl_UpdateCPUBurst(t *testing.T) {
 				mockey.Mock(manager.GetCPUWithAbsolutePath).Return(&common.CPUStats{CpuQuota: 200}, nil).Build()
 				mockey.Mock(manager.ApplyCPUWithAbsolutePath).
 					To(func(absPath string, cpuData *common.CPUData) error {
-						s[absPath] = cpuData.CpuBurst
+						s[absPath] = *cpuData.CpuBurst
 						return nil
 					}).Build()
 			},
@@ -421,7 +421,7 @@ func TestManagerImpl_UpdateCPUBurst(t *testing.T) {
 				mockey.Mock(manager.GetCPUWithAbsolutePath).Return(&common.CPUStats{CpuQuota: 200}, nil).Build()
 				mockey.Mock(manager.ApplyCPUWithAbsolutePath).
 					To(func(absPath string, cpuData *common.CPUData) error {
-						s[absPath] = cpuData.CpuBurst
+						s[absPath] = *cpuData.CpuBurst
 						return nil
 					}).Build()
 			},
@@ -504,7 +504,7 @@ func TestManagerImpl_UpdateCPUBurst(t *testing.T) {
 				mockey.Mock(manager.GetCPUWithAbsolutePath).Return(&common.CPUStats{CpuQuota: 200}, nil).Build()
 				mockey.Mock(manager.ApplyCPUWithAbsolutePath).
 					To(func(absPath string, cpuData *common.CPUData) error {
-						s[absPath] = cpuData.CpuBurst
+						s[absPath] = *cpuData.CpuBurst
 						return nil
 					}).Build()
 			},
@@ -623,7 +623,7 @@ func TestManagerImpl_UpdateCPUBurst(t *testing.T) {
 				mockey.Mock(manager.GetCPUWithAbsolutePath).Return(&common.CPUStats{CpuQuota: 200}, nil).Build()
 				mockey.Mock(manager.ApplyCPUWithAbsolutePath).
 					To(func(absPath string, cpuData *common.CPUData) error {
-						s[absPath] = cpuData.CpuBurst
+						s[absPath] = *cpuData.CpuBurst
 						return nil
 					}).Build()
 			},
