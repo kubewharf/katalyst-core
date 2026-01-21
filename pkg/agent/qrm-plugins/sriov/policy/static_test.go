@@ -556,6 +556,5 @@ func TestStaticPolicy_Allocate(t *testing.T) {
 		So(resp, ShouldBeNil)
 		So(err, ShouldNotBeNil)
 		So(err.Error(), ShouldContainSubstring, "no available VFs")
-
 	})
 }

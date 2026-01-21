@@ -154,7 +154,9 @@ func TestGetVfRepresenterMap(t *testing.T) {
 
 func TestGetSriovVFList(t *testing.T) {
 	PatchConvey("TestGetSriovVFList", t, func() {
-		Mock(DoNetNS).Return(nil).Build()
+		Mock(DoNetNS).To(func(nsName, netNSDirAbsPath string, cb func(sysFsDir string) error) error {
+			return cb(netNSDirAbsPath)
+		}).Build()
 
 		Mock(isSriovPf).To(func(sysFsDir string, ifName string) bool { return ifName == "eth0" || ifName == "eth1" }).Build()
 
