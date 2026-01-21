@@ -529,7 +529,7 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 				}
 			}
 
-			// PoolName Overrice QosLevel Config
+			// PoolName Override QosLevel Config
 
 			// load SPD conf if exists
 			tmoIndicator := &v1alpha1.TransparentMemoryOffloadingIndicators{}
@@ -687,15 +687,21 @@ func (tmo *transparentMemoryOffloading) GetAdvices() types.InternalMemoryCalcula
 	general.Infof("DyingMemcg paths to be processed: %v", cgroupPaths)
 
 	currentTime := time.Now()
-	// TODO: magic number (300s), needs to be tuned
-	if tmo.lastDyingCGReclaimTime.IsZero() || currentTime.Sub(tmo.lastDyingCGReclaimTime) >= 300 {
-		tmo.lastDyingCGReclaimTime = currentTime
+	if tmo.lastDyingCGReclaimTime.IsZero() || currentTime.Sub(tmo.lastDyingCGReclaimTime) >= memoryadvisor.MemCgReclaimDefaultIntervalSeconds*time.Second {
+		general.Infof("Trigger dying memcg reclaim for cgroup paths: %v after %v seconds", cgroupPaths, memoryadvisor.MemCgReclaimDefaultIntervalSeconds)
 
+		tmo.lastDyingCGReclaimTime = currentTime
 		// Note: trigger qrm-plugin
 		for _, cgroupPath := range cgroupPaths {
 			// cgroupPath here uses absolute path
+			relativeCgroupPath, err := filepath.Rel(common.CgroupFSMountPoint, cgroupPath)
+			if err != nil {
+				continue
+			}
+			relativeCgroupPath = "/" + relativeCgroupPath
+
 			entry := types.ExtraMemoryAdvices{
-				CgroupPath: cgroupPath,
+				CgroupPath: relativeCgroupPath,
 				Values: map[string]string{
 					string(memoryadvisor.ControlKnowKeyDyingMemcgReclaim): consts.ControlKnobON,
 				},
