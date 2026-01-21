@@ -111,9 +111,13 @@ func (d *discountDecorator) GetHeadroom() (resource.Quantity, map[int]resource.Q
 		general.Warningf("unable to determine current discount; apply no discount instead: %s", err)
 		return d.inner.GetHeadroom()
 	}
+	if currentDiscount >= 1.0 || currentDiscount < 0 {
+		general.Warningf("discount %f apply no discount", currentDiscount)
+		return d.inner.GetHeadroom()
+	}
 
 	headroom, numaHeadrooms, err := d.inner.GetHeadroom()
-	if err != nil || currentDiscount >= 1.0 {
+	if err != nil {
 		return headroom, numaHeadrooms, err
 	}
 
@@ -140,5 +144,5 @@ func (d *discountDecorator) GetHeadroom() (resource.Quantity, map[int]resource.Q
 		)
 	}
 
-	return discountHeadroom, discountNumaHeadrooms, err
+	return discountHeadroom, discountNumaHeadrooms, nil
 }
