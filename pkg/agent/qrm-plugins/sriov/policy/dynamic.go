@@ -71,6 +71,11 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		return false, agent.ComponentStub{}, fmt.Errorf("failed to create base policy: %w", err)
 	}
 
+	if !basePolicy.bondingHostNetwork {
+		general.Warningf("not support running sriov dynamic policy on non-bonding host network")
+		return false, agent.ComponentStub{}, nil
+	}
+
 	dynamicPolicy := &DynamicPolicy{
 		name:         fmt.Sprintf("%s_%s", agentName, consts.SriovResourcePluginPolicyNameDynamic),
 		emitter:      wrappedEmitter,
@@ -182,7 +187,8 @@ func (p *DynamicPolicy) GetAccompanyResourceTopologyHints(req *pluginapi.Resourc
 		}
 		hintNumaSet, _ := machine.NewCPUSetUint64(hint.Nodes...)
 		augmentedHints = append(augmentedHints, &pluginapi.TopologyHint{
-			Nodes:     hint.Nodes,
+			Nodes: hint.Nodes,
+			// todo: check what will happen if Preferred is set to false
 			Preferred: hint.Preferred && hintNumaSet.IsSubsetOf(numaNodesInSocketSet),
 		})
 	}

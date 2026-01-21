@@ -17,13 +17,12 @@ limitations under the License.
 package policy
 
 import (
-	"fmt"
+	rawContext "context"
 	"math"
 	"path/filepath"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/kubernetes/fake"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
@@ -32,15 +31,11 @@ import (
 	apinode "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/utils"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config"
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
-	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
-	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	metaserveragent "github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -55,119 +50,8 @@ const (
 	netNsAnnotationKey = "net-ns"
 )
 
-func generateState(pfCount int, vfPerPF int, allocatedVFSet map[int]sets.Int) (state.VFState, state.PodEntries) {
-	machineState := make(state.VFState, 0, pfCount*pfCount)
-	podEntries := make(state.PodEntries)
-
-	pfNumaNode := []int{0, 2}
-
-	fullIdx := 0
-
-	for i := 0; i < pfCount; i++ {
-		pfName := fmt.Sprintf("eth%d", i)
-
-		nsName := ""
-		if i%2 == 0 {
-			nsName = "ns2"
-		}
-
-		for j := 0; j < vfPerPF; j++ {
-			vfName := fmt.Sprintf("%s_%d", pfName, j)
-
-			ibDevices := []string{fmt.Sprintf("umad%d", fullIdx), fmt.Sprintf("uverbs%d", fullIdx)}
-
-			queueCount := 8
-			if j >= pfCount/2 {
-				queueCount = 32
-			}
-
-			vf := state.VFInfo{
-				RepName:  vfName,
-				Index:    j,
-				PCIAddr:  fmt.Sprintf("0000:%02d:00.%d", 40+i, j),
-				PFName:   pfName,
-				NumaNode: pfNumaNode[i%len(pfNumaNode)],
-				NSName:   nsName,
-				ExtraVFInfo: &state.ExtraVFInfo{
-					Name:       vfName,
-					QueueCount: queueCount,
-					IBDevices:  ibDevices,
-				},
-			}
-
-			machineState = append(machineState, vf)
-
-			if allocatedVFSet[i].Has(j) {
-				containerName := fmt.Sprintf("container%d", fullIdx)
-				pod := fmt.Sprintf("pod%d", fullIdx)
-				containerEntries := state.ContainerEntries{
-					containerName: &state.AllocationInfo{
-						AllocationMeta: commonstate.AllocationMeta{
-							PodUid:        pod,
-							PodName:       pod,
-							ContainerName: containerName,
-						},
-						VFInfo: vf,
-					},
-				}
-				podEntries[pod] = containerEntries
-			}
-
-			fullIdx++
-		}
-	}
-
-	machineState.Sort()
-
-	return machineState, podEntries
-}
-
 func generateStaticPolicy(t *testing.T, dryRun bool, bondingHostNetwork bool, vfState state.VFState, podEntries state.PodEntries) *StaticPolicy {
-	tmpDir := t.TempDir()
-	stateImpl, err := state.NewCheckpointState(nil, &global.MachineInfoConfiguration{}, &statedirectory.StateDirectoryConfiguration{
-		StateFileDirectory:         filepath.Join(tmpDir, "state_file"),
-		InMemoryStateFileDirectory: filepath.Join(tmpDir, "state_memory"),
-		EnableInMemoryState:        false,
-	}, "checkpoint", "sriov", true, metrics.DummyMetrics{})
-	require.NoError(t, err)
-	stateImpl.SetMachineState(vfState, false)
-	stateImpl.SetPodEntries(podEntries, false)
-	err = stateImpl.StoreState()
-	require.NoError(t, err)
-
-	cpuTopology, err := machine.GenerateDummyCPUTopology(8, 2, 4)
-	require.NoError(t, err)
-
-	agentCtx := &agent.GenericContext{
-		GenericContext: &katalystbase.GenericContext{
-			EmitterPool: metricspool.DummyMetricsEmitterPool{},
-			Client: &client.GenericClientSet{
-				KubeClient: fake.NewSimpleClientset(),
-			},
-		},
-		MetaServer: &metaserver.MetaServer{
-			MetaAgent: &metaserveragent.MetaAgent{
-				KatalystMachineInfo: &machine.KatalystMachineInfo{
-					ExtraNetworkInfo: &machine.ExtraNetworkInfo{},
-					CPUTopology:      cpuTopology,
-				},
-			},
-		},
-		PluginManager: nil,
-	}
-
-	basePolicy := &basePolicy{
-		state:           stateImpl,
-		agentCtx:        agentCtx,
-		dryRun:          dryRun,
-		machineInfoConf: &global.MachineInfoConfiguration{NetNSDirAbsPath: "/var/run/netns"},
-		qosConfig:       &generic.QoSConfiguration{},
-		allocationConfig: qrmconfig.SriovAllocationConfig{
-			PCIAnnotationKey:   pciAnnotationKey,
-			NetNsAnnotationKey: netNsAnnotationKey,
-		},
-		bondingHostNetwork: bondingHostNetwork,
-	}
+	basePolicy := generateBasePolicy(t, dryRun, bondingHostNetwork, vfState, podEntries)
 
 	return &StaticPolicy{
 		name:       "sriov",
@@ -181,8 +65,6 @@ func generateStaticPolicy(t *testing.T, dryRun bool, bondingHostNetwork bool, vf
 }
 
 func TestStaticPolicy_New(t *testing.T) {
-	t.Parallel()
-
 	PatchConvey("NewStaticPolicy", t, func() {
 		conf := config.NewConfiguration()
 
@@ -227,7 +109,7 @@ func TestStaticPolicy_GetTopologyHints(t *testing.T) {
 
 		Mock(utils.UpdateSriovVFResultAnnotation).Return(nil).Build()
 
-		resp, err := policy.GetTopologyHints(nil,
+		resp, err := policy.GetTopologyHints(rawContext.Background(),
 			&pluginapi.ResourceRequest{
 				PodUid:        "pod",
 				PodName:       "pod",
@@ -268,7 +150,7 @@ func TestStaticPolicy_GetTopologyHints(t *testing.T) {
 		})
 		policy := generateStaticPolicy(t, false, false, vfState, podEntries)
 
-		resp, err := policy.GetTopologyHints(nil,
+		resp, err := policy.GetTopologyHints(rawContext.Background(),
 			&pluginapi.ResourceRequest{
 				PodUid:        "pod",
 				PodName:       "pod",
@@ -306,7 +188,7 @@ func TestStaticPolicy_GetTopologyHints(t *testing.T) {
 
 		policy := generateStaticPolicy(t, false, false, vfState, podEntries)
 
-		resp, err := policy.GetTopologyHints(nil,
+		resp, err := policy.GetTopologyHints(rawContext.Background(),
 			&pluginapi.ResourceRequest{
 				PodUid:        "pod",
 				PodName:       "pod",
@@ -327,7 +209,7 @@ func TestStaticPolicy_GetTopologyHints(t *testing.T) {
 
 		policy := generateStaticPolicy(t, true, false, vfState, podEntries)
 
-		resp, err := policy.GetTopologyHints(nil,
+		resp, err := policy.GetTopologyHints(rawContext.Background(),
 			&pluginapi.ResourceRequest{
 				PodUid:        "pod",
 				PodName:       "pod",
@@ -358,10 +240,12 @@ func TestStaticPolicy_GetTopologyAwareResources(t *testing.T) {
 		})
 		policy := generateStaticPolicy(t, false, false, vfState, podEntries)
 
-		resp, err := policy.GetTopologyAwareResources(nil, &pluginapi.GetTopologyAwareResourcesRequest{
-			PodUid:        "pod2",
-			ContainerName: "container2",
-		})
+		resp, err := policy.GetTopologyAwareResources(rawContext.Background(),
+			&pluginapi.GetTopologyAwareResourcesRequest{
+				PodUid:        "pod2",
+				ContainerName: "container2",
+			},
+		)
 
 		So(err, ShouldBeNil)
 		So(resp, ShouldResemble, &pluginapi.GetTopologyAwareResourcesResponse{
@@ -390,10 +274,12 @@ func TestStaticPolicy_GetTopologyAwareResources(t *testing.T) {
 		vfState, podEntries := generateState(2, 2, nil)
 		policy := generateStaticPolicy(t, false, false, vfState, podEntries)
 
-		resp, err := policy.GetTopologyAwareResources(nil, &pluginapi.GetTopologyAwareResourcesRequest{
-			PodUid:        "pod2",
-			ContainerName: "container2",
-		})
+		resp, err := policy.GetTopologyAwareResources(rawContext.Background(),
+			&pluginapi.GetTopologyAwareResourcesRequest{
+				PodUid:        "pod2",
+				ContainerName: "container2",
+			},
+		)
 
 		So(err, ShouldBeNil)
 		So(resp, ShouldResemble, &pluginapi.GetTopologyAwareResourcesResponse{})
@@ -407,7 +293,7 @@ func TestStaticPolicy_GetTopologyAwareAllocatableResources(t *testing.T) {
 		vfState, podEntries := generateState(2, 2, nil)
 		policy := generateStaticPolicy(t, false, true, vfState, podEntries)
 
-		resp, err := policy.GetTopologyAwareAllocatableResources(nil, &pluginapi.GetTopologyAwareAllocatableResourcesRequest{})
+		resp, err := policy.GetTopologyAwareAllocatableResources(rawContext.Background(), &pluginapi.GetTopologyAwareAllocatableResourcesRequest{})
 
 		expectedTopologyAwareQuantityList := []*pluginapi.TopologyAwareQuantity{
 			{
@@ -445,7 +331,7 @@ func TestStaticPolicy_GetTopologyAwareAllocatableResources(t *testing.T) {
 		vfState, podEntries := generateState(2, 2, nil)
 		policy := generateStaticPolicy(t, false, false, vfState, podEntries)
 
-		resp, err := policy.GetTopologyAwareAllocatableResources(nil, &pluginapi.GetTopologyAwareAllocatableResourcesRequest{})
+		resp, err := policy.GetTopologyAwareAllocatableResources(rawContext.Background(), &pluginapi.GetTopologyAwareAllocatableResourcesRequest{})
 
 		expectedTopologyAwareQuantityList := []*pluginapi.TopologyAwareQuantity{
 			{
@@ -501,19 +387,21 @@ func TestStaticPolicy_Allocate(t *testing.T) {
 		vfState, podEntries := generateState(2, 2, nil)
 		policy := generateStaticPolicy(t, false, false, vfState, podEntries)
 
-		resp, err := policy.Allocate(nil, &pluginapi.ResourceRequest{
-			PodUid:        "pod",
-			PodName:       "pod",
-			ContainerName: "container",
-			ResourceName:  policy.ResourceName(),
-			Hint: &pluginapi.TopologyHint{
-				Nodes:     []uint64{0, 1},
-				Preferred: true,
+		resp, err := policy.Allocate(rawContext.Background(),
+			&pluginapi.ResourceRequest{
+				PodUid:        "pod",
+				PodName:       "pod",
+				ContainerName: "container",
+				ResourceName:  policy.ResourceName(),
+				Hint: &pluginapi.TopologyHint{
+					Nodes:     []uint64{0, 1},
+					Preferred: true,
+				},
+				ResourceRequests: map[string]float64{
+					policy.ResourceName(): 1,
+				},
 			},
-			ResourceRequests: map[string]float64{
-				policy.ResourceName(): 1,
-			},
-		})
+		)
 
 		So(err, ShouldBeNil)
 		So(resp, ShouldResemble, &pluginapi.ResourceAllocationResponse{
@@ -560,19 +448,21 @@ func TestStaticPolicy_Allocate(t *testing.T) {
 		vfState, podEntries := generateState(2, 2, nil)
 		policy := generateStaticPolicy(t, false, true, vfState, podEntries)
 
-		resp, err := policy.Allocate(nil, &pluginapi.ResourceRequest{
-			PodUid:        "pod",
-			PodName:       "pod",
-			ContainerName: "container",
-			ResourceName:  policy.ResourceName(),
-			Hint: &pluginapi.TopologyHint{
-				Nodes:     []uint64{0, 1},
-				Preferred: true,
+		resp, err := policy.Allocate(rawContext.Background(),
+			&pluginapi.ResourceRequest{
+				PodUid:        "pod",
+				PodName:       "pod",
+				ContainerName: "container",
+				ResourceName:  policy.ResourceName(),
+				Hint: &pluginapi.TopologyHint{
+					Nodes:     []uint64{0, 1},
+					Preferred: true,
+				},
+				ResourceRequests: map[string]float64{
+					policy.ResourceName(): 1,
+				},
 			},
-			ResourceRequests: map[string]float64{
-				policy.ResourceName(): 1,
-			},
-		})
+		)
 
 		So(err, ShouldBeNil)
 		So(resp, ShouldResemble, &pluginapi.ResourceAllocationResponse{
@@ -615,20 +505,22 @@ func TestStaticPolicy_Allocate(t *testing.T) {
 		})
 	})
 
-	Convey("dryRun is true", t, func() {
+	Convey("dryRun", t, func() {
 		vfState, podEntries := generateState(2, 2, nil)
 		policy := generateStaticPolicy(t, true, false, vfState, podEntries)
 
-		resp, err := policy.Allocate(nil, &pluginapi.ResourceRequest{
-			PodUid:        "pod",
-			PodName:       "pod",
-			ContainerName: "container",
-			ResourceName:  policy.ResourceName(),
-			Hint:          &pluginapi.TopologyHint{},
-			ResourceRequests: map[string]float64{
-				policy.ResourceName(): 1,
+		resp, err := policy.Allocate(rawContext.Background(),
+			&pluginapi.ResourceRequest{
+				PodUid:        "pod",
+				PodName:       "pod",
+				ContainerName: "container",
+				ResourceName:  policy.ResourceName(),
+				Hint:          &pluginapi.TopologyHint{},
+				ResourceRequests: map[string]float64{
+					policy.ResourceName(): 1,
+				},
 			},
-		})
+		)
 
 		So(err, ShouldBeNil)
 		So(resp, ShouldResemble, &pluginapi.ResourceAllocationResponse{
@@ -648,16 +540,18 @@ func TestStaticPolicy_Allocate(t *testing.T) {
 		})
 		policy := generateStaticPolicy(t, false, false, vfState, podEntries)
 
-		resp, err := policy.Allocate(nil, &pluginapi.ResourceRequest{
-			PodUid:        "pod",
-			PodName:       "pod",
-			ContainerName: "container",
-			ResourceName:  policy.ResourceName(),
-			Hint:          &pluginapi.TopologyHint{},
-			ResourceRequests: map[string]float64{
-				policy.ResourceName(): 1,
+		resp, err := policy.Allocate(rawContext.Background(),
+			&pluginapi.ResourceRequest{
+				PodUid:        "pod",
+				PodName:       "pod",
+				ContainerName: "container",
+				ResourceName:  policy.ResourceName(),
+				Hint:          &pluginapi.TopologyHint{},
+				ResourceRequests: map[string]float64{
+					policy.ResourceName(): 1,
+				},
 			},
-		})
+		)
 
 		So(resp, ShouldBeNil)
 		So(err, ShouldNotBeNil)

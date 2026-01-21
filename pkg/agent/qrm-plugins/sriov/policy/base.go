@@ -64,8 +64,9 @@ type basePolicy struct {
 	bondingHostNetwork    bool
 }
 
-func newBasePolicy(agentCtx *agent.GenericContext, conf *config.Configuration, emitter metrics.MetricEmitter,
-	policyName string) (*basePolicy, error) {
+func newBasePolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
+	emitter metrics.MetricEmitter, policyName string,
+) (*basePolicy, error) {
 	stateImpl, err := state.NewCheckpointState(agentCtx.ExtraNetworkInfo.Interface,
 		conf.MachineInfoConfiguration, conf.StateDirectoryConfiguration, consts.SriovPluginStateFileName,
 		policyName, conf.SkipSriovStateCorruption, emitter)
