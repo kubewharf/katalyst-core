@@ -26,14 +26,29 @@ import (
 )
 
 const (
-	MetricScope            = "resource-package"
-	metricLabelPackageName = "package-name"
-	metricLabelNumaID      = "numa-id"
+	MetricScope                 = "resource-package"
+	metricLabelPackageName      = "package-name"
+	metricLabelNumaID           = "numa-id"
+	metricLabelPinnedCPUSetPool = "pinned-cpuset-pool"
 )
 
+// ResourcePackageConfig holds the configuration of a resource package.
+type ResourcePackageConfig struct {
+	// PinnedCPUSetPool indicates the name of the cpuset pool to which the resource package is pinned.
+	PinnedCPUSetPool *string `json:"pinnedCPUSetPool,omitempty"`
+}
+
+// ResourcePackageItem wraps the ResourcePackage and its configuration.
+type ResourcePackageItem struct {
+	nodev1alpha1.ResourcePackage `json:",inline"`
+	// Config is the configuration of the resource package.
+	Config *ResourcePackageConfig `json:"config,omitempty"`
+}
+
+// ResourcePackageMetric is the intermediate structure for resource package metrics.
 type ResourcePackageMetric struct {
-	NumaID           string                         `json:"numaID"`
-	ResourcePackages []nodev1alpha1.ResourcePackage `json:"resourcePackages"`
+	NumaID           string                `json:"numaID"`
+	ResourcePackages []ResourcePackageItem `json:"resourcePackages"`
 }
 
 // ConvertResourcePackagesToNPDMetrics example:
@@ -67,12 +82,14 @@ status:
             metricLabels:
               package-name: "x8"
               numa-id: "0"
+              pinned-cpuset-pool: "share"
             aggregator: "min"
             value: "64"
           - metricName: "memory"
             metricLabels:
               package-name: "x8"
               numa-id: "0"
+              pinned-cpuset-pool: "share"
             aggregator: "min"
             value: "512Gi"
           - metricName: "cpu"
@@ -103,15 +120,19 @@ func ConvertResourcePackagesToNPDMetrics(resourcePackageMetrics []ResourcePackag
 			}
 			var metrics []nodev1alpha1.MetricValue
 			for r, q := range *pkg.Allocatable {
+				labels := map[string]string{
+					metricLabelPackageName: pkg.PackageName,
+					metricLabelNumaID:      pkgMetric.NumaID,
+				}
+				if pkg.Config != nil && pkg.Config.PinnedCPUSetPool != nil {
+					labels[metricLabelPinnedCPUSetPool] = *pkg.Config.PinnedCPUSetPool
+				}
 				metrics = append(metrics, nodev1alpha1.MetricValue{
-					MetricName: r.String(),
-					Value:      q.DeepCopy(),
-					Aggregator: &minAggregator,
-					Timestamp:  timestamp,
-					MetricLabels: map[string]string{
-						metricLabelPackageName: pkg.PackageName,
-						metricLabelNumaID:      pkgMetric.NumaID,
-					},
+					MetricName:   r.String(),
+					Value:        q.DeepCopy(),
+					Aggregator:   &minAggregator,
+					Timestamp:    timestamp,
+					MetricLabels: labels,
 				})
 			}
 			m.Metrics = append(m.Metrics, metrics...)
@@ -139,7 +160,7 @@ func ConvertResourcePackagesToNPDMetrics(resourcePackageMetrics []ResourcePackag
 	return []nodev1alpha1.ScopedNodeMetrics{m}
 }
 
-func updatePkgMapFromMetrics(metrics []nodev1alpha1.MetricValue, pkgMap map[string]map[string]nodev1alpha1.ResourcePackage) {
+func updatePkgMapFromMetrics(metrics []nodev1alpha1.MetricValue, pkgMap map[string]map[string]ResourcePackageItem) {
 	for _, v := range metrics {
 		numaID := v.MetricLabels[metricLabelNumaID]
 		packageName := v.MetricLabels[metricLabelPackageName]
@@ -150,20 +171,30 @@ func updatePkgMapFromMetrics(metrics []nodev1alpha1.MetricValue, pkgMap map[stri
 			continue
 		}
 		if _, ok := pkgMap[numaID]; !ok {
-			pkgMap[numaID] = make(map[string]nodev1alpha1.ResourcePackage)
+			pkgMap[numaID] = make(map[string]ResourcePackageItem)
 		}
 		resourcePkgs := pkgMap[numaID]
 		metric, ok := resourcePkgs[packageName]
 		if !ok {
-			metric = nodev1alpha1.ResourcePackage{
-				PackageName: packageName,
-				Allocatable: &v1.ResourceList{},
+			metric = ResourcePackageItem{
+				ResourcePackage: nodev1alpha1.ResourcePackage{
+					PackageName: packageName,
+					Allocatable: &v1.ResourceList{},
+				},
 			}
 		}
 		if metric.Allocatable == nil {
 			metric.Allocatable = &v1.ResourceList{}
 		}
 		(*metric.Allocatable)[v1.ResourceName(v.MetricName)] = v.Value.DeepCopy()
+
+		if pinnedPool, ok := v.MetricLabels[metricLabelPinnedCPUSetPool]; ok && pinnedPool != "" {
+			if metric.Config == nil {
+				metric.Config = &ResourcePackageConfig{}
+			}
+			metric.Config.PinnedCPUSetPool = &pinnedPool
+		}
+
 		resourcePkgs[packageName] = metric
 	}
 }
@@ -172,7 +203,7 @@ func updatePkgMapFromMetrics(metrics []nodev1alpha1.MetricValue, pkgMap map[stri
 // converted resource packages are sorted by packageName and numaID
 func ConvertNPDMetricsToResourcePackages(metrics []nodev1alpha1.ScopedNodeMetrics) []ResourcePackageMetric {
 	// numa id -> package name -> resource package metric
-	pkgMap := make(map[string]map[string]nodev1alpha1.ResourcePackage)
+	pkgMap := make(map[string]map[string]ResourcePackageItem)
 
 	for _, m := range metrics {
 		if m.Scope != MetricScope {
@@ -190,7 +221,7 @@ func ConvertNPDMetricsToResourcePackages(metrics []nodev1alpha1.ScopedNodeMetric
 	for _, numaID := range numaIDs {
 		pkgMetric := ResourcePackageMetric{
 			NumaID:           numaID,
-			ResourcePackages: []nodev1alpha1.ResourcePackage{},
+			ResourcePackages: []ResourcePackageItem{},
 		}
 		resourcePkgs := pkgMap[numaID]
 		// sort package names within this numa
