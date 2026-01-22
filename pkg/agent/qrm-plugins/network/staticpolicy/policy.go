@@ -745,7 +745,8 @@ func (p *StaticPolicy) Allocate(ctx context.Context,
 	// check allocationInfo is nil or not
 	podEntries := p.state.GetPodEntries()
 	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
-	nics := getAllNICs(p.nicManager)
+	nicState := p.nicManager.GetNICs()
+	nics := append(nicState.HealthyNICs, nicState.UnhealthyNICs...)
 
 	// if allocationInfo is not nil, assume that this container has already been allocated,
 	// and check whether the current allocation meets the requirement, if not, clear the record and re-allocate,
@@ -811,7 +812,8 @@ func (p *StaticPolicy) Allocate(ctx context.Context,
 			"containerName", req.ContainerName,
 			"netBandwidthReq(Mbps)", reqInt,
 			"nicState", p.state.GetMachineState().String())
-		return nil, fmt.Errorf("failed to meet the bandwidth requirement of %d Mbps", reqInt)
+		return nil, fmt.Errorf("no healthy NICs to meet the bandwidth requirement of %d Mbps, unhealthy reason: %s",
+			reqInt, strings.Join(nicState.UnhealthyReasons, ", "))
 	}
 
 	// we only support one policy and hard code it for now
