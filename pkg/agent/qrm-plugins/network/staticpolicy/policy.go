@@ -1033,13 +1033,23 @@ func (p *StaticPolicy) calculateHints(req *pluginapi.ResourceRequest) (map[strin
 		},
 	}
 
+	reqInt, _, err := util.GetQuantityFromResourceReq(req)
+	if err != nil {
+		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
+	}
+
 	nics := p.nicManager.GetNICs()
 	// return empty hints immediately if no healthy nics on this node
-	if len(nics.HealthyNICs) == 0 {
+	if len(nics.HealthyNICs) == 0 && reqInt > 0 {
 		return hints, nil
 	}
 
-	candidateNICs, err := p.selectNICsByReq(nics.HealthyNICs, req)
+	candidateNICs := nics.HealthyNICs
+	if reqInt <= 0 {
+		candidateNICs = append(candidateNICs, nics.UnhealthyNICs...)
+	}
+
+	candidateNICs, err = p.selectNICsByReq(candidateNICs, req)
 	if err != nil {
 		return hints, fmt.Errorf("failed to select available NICs: %v", err)
 	}
