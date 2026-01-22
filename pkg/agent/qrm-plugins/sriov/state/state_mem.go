@@ -36,7 +36,12 @@ func NewStateMemory(conf *global.MachineInfoConfiguration, allNics []machine.Int
 	if err != nil {
 		return nil, fmt.Errorf("failed to get network vf list: %v", err)
 	}
-	state := &stateMemory{}
+
+	state := &stateMemory{
+		machineState: make(VFState, 0, len(vfList)),
+		podEntries:   make(PodEntries),
+	}
+
 	for _, vf := range vfList {
 		state.machineState = append(state.machineState, VFInfo{
 			RepName:  vf.RepName,
