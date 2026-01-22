@@ -252,7 +252,7 @@ func (p *StaticPolicy) RemovePod(_ context.Context,
 		}
 	}()
 
-	// delete is safe, no need to check dryRun
+	// no need to check dryRun
 	p.state.Delete(req.PodUid, true)
 
 	return &pluginapi.RemovePodResponse{}, nil
