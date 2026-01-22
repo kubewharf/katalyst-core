@@ -50,6 +50,8 @@ const (
 
 const CgroupFSMountPoint = "/sys/fs/cgroup"
 
+const DyingMemcgThreshold int = 2000
+
 func ApplyMemoryWithRelativePath(relCgroupPath string, data *common.MemoryData) error {
 	if data == nil {
 		return fmt.Errorf("ApplyMemoryWithRelativePath with nil cgroup data")
@@ -554,7 +556,7 @@ func MemoryOffloadingWithAbsolutePath(ctx context.Context, absCgroupPath string,
 
 func invokeMemoryReclaim(reclaimFile string, memSize string) error {
 	// write memSize to reclaimFile
-	err := os.WriteFile(reclaimFile, []byte(memSize), 0644)
+	err := os.WriteFile(reclaimFile, []byte(memSize), 0o644)
 	if err != nil {
 		return fmt.Errorf("write %s failed with error: %v", reclaimFile, err)
 	}
@@ -613,10 +615,12 @@ func DyingMemcgReclaimWithAbsolutePath(ctx context.Context, absCGPath string, em
 	nrDyingDescendants := initialDyingDescendants
 
 	for i := 0; i < 10; i++ {
-		if nrDyingDescendants <= 2000 {
-			general.Infof("nr_dying_descendants: %d < 2000, no need to reclaim", nrDyingDescendants)
+		if nrDyingDescendants <= DyingMemcgThreshold {
+			general.Infof("nr_dying_descendants: %d <= %d, no need to reclaim", nrDyingDescendants, DyingMemcgThreshold)
 			break
 		}
+
+		general.Infof("nr_dying_descendants: %d > %d, reclaim memory", nrDyingDescendants, DyingMemcgThreshold)
 
 		// invoke memory reclaim
 		err = invokeMemoryReclaim(reclaimFile, "30m")
@@ -633,6 +637,8 @@ func DyingMemcgReclaimWithAbsolutePath(ctx context.Context, absCGPath string, em
 			general.Warningf("read nr_dying_descendants failed: %v", err)
 			return nil
 		}
+
+		general.Infof("After reclaim, nr_dying_descendants: %d", nrDyingDescendants)
 	}
 
 	totalReleaseDyingMemcgCnt := initialDyingDescendants - nrDyingDescendants
@@ -647,6 +653,7 @@ func DyingMemcgReclaimWithAbsolutePath(ctx context.Context, absCGPath string, em
 
 	delta := time.Since(startTime).Seconds()
 	general.Infof("[DyingMemcgReclaimWithAbsolutePath] it takes %v to do \"%s\" on cgroup: %s", delta, "memory.reclaim", absCGPath)
+	general.Infof("[DyingMemcgReclaimWithAbsolutePath] After reclaim, nr_dying_descendants: %d -> %d", initialDyingDescendants, nrDyingDescendants)
 
 	return nil
 }
