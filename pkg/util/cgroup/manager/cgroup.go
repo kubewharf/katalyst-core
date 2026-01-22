@@ -647,6 +647,7 @@ func DyingMemcgReclaimWithAbsolutePath(ctx context.Context, absCGPath string, em
 
 	delta := time.Since(startTime).Seconds()
 	general.Infof("[DyingMemcgReclaimWithAbsolutePath] it takes %v to do \"%s\" on cgroup: %s", delta, "memory.reclaim", absCGPath)
+	general.Infof("[DyingMemcgReclaimWithAbsolutePath] After reclaim, nr_dying_descendants: %d -> %d", initialDyingDescendants, nrDyingDescendants)
 
 	return nil
 }
