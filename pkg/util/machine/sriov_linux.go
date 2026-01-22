@@ -44,14 +44,10 @@ const (
 	vfFilePattern = vfFilePrefix + "*"
 )
 
-func GetSriovVFList(conf *global.MachineInfoConfiguration, allNics []InterfaceInfo) ([]SriovVFInfo, error) {
-	nicMap, err := getNsNicMap(conf.NetAllocatableNS, allNics)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get pf map, err %w", err)
-	}
+func GetSriovVFList(conf *global.MachineInfoConfiguration, allNics []InterfaceInfo) (SriovVFList, error) {
+	var vfList SriovVFList
 
-	var vfList []SriovVFInfo
-
+	nicMap := getAllocatableNsNicMap(conf.NetAllocatableNS, allNics)
 	for ns, nicList := range nicMap {
 		if len(nicList) == 0 {
 			continue
@@ -125,6 +121,8 @@ func GetSriovVFList(conf *global.MachineInfoConfiguration, allNics []InterfaceIn
 		}
 	}
 
+	vfList.Sort()
+
 	return vfList, nil
 }
 
@@ -160,20 +158,20 @@ func detectSriovPFDriver(ifName string) (NicDriver, error) {
 	return NicDriverUnknown, nil
 }
 
-// getNsNicMap returns a map of net ns name to interface list
-func getNsNicMap(netAllocatableNS []string, allNics []InterfaceInfo) (map[string][]InterfaceInfo, error) {
-	allowedNS := sets.NewString(netAllocatableNS...)
-	allowedNS.Insert(DefaultNICNamespace)
+// getAllocatableNsNicMap returns a map of allocatable net ns name to interface list
+func getAllocatableNsNicMap(netAllocatableNS []string, allNics []InterfaceInfo) map[string][]InterfaceInfo {
+	allocatableNS := sets.NewString(netAllocatableNS...)
+	allocatableNS.Insert(DefaultNICNamespace)
 
-	pfMap := map[string][]InterfaceInfo{}
+	nicMap := map[string][]InterfaceInfo{}
 	for _, nic := range allNics {
-		if !allowedNS.Has(nic.NetNSInfo.NSName) {
+		if !allocatableNS.Has(nic.NetNSInfo.NSName) {
 			continue
 		}
-		pfMap[nic.NetNSInfo.NSName] = append(pfMap[nic.NetNSInfo.NSName], nic)
+		nicMap[nic.NetNSInfo.NSName] = append(nicMap[nic.NetNSInfo.NSName], nic)
 	}
 
-	return pfMap, nil
+	return nicMap
 }
 
 // getVfLinkMap returns a map of vf index to netlink.VfInfo

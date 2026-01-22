@@ -213,7 +213,7 @@ func TestGetSriovVFList(t *testing.T) {
 		})
 
 		So(err, ShouldBeNil)
-		So(vfList, ShouldResemble, []SriovVFInfo{
+		So(vfList, ShouldResemble, SriovVFList{
 			{
 				PFInfo: InterfaceInfo{
 					Name:     "eth0",

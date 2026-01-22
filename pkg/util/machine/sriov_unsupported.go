@@ -23,7 +23,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 )
 
-func GetSriovVFList(conf *global.MachineInfoConfiguration, allNics []InterfaceInfo) ([]SriovVFInfo, error) {
+func GetSriovVFList(conf *global.MachineInfoConfiguration, allNics []InterfaceInfo) (SriovVFList, error) {
 	return nil, nil
 }
 
