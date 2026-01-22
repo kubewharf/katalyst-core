@@ -25,15 +25,8 @@ import (
 )
 
 type ReclaimMetrics struct {
-	CgroupPath string
-	// total cpu usage of cpus in reclaim pool
-	PoolCPUUsage float64
 	// cpu usage of root cgroup for reclaim pods
 	CgroupCPUUsage float64
-	// cpu quota of root cgroup for reclaim pods, -1 means no limit
-	CgroupCPUQuota float64
-	// reclaim pool size
-	Size int
 	// reclaimedCoresSupply is the actual CPU resource can be supplied to reclaimed cores
 	ReclaimedCoresSupply float64
 }
@@ -72,11 +65,7 @@ func GetReclaimMetrics(cpus machine.CPUSet, cgroupPath string, metricsFetcher ty
 	}
 
 	return &ReclaimMetrics{
-		CgroupPath:           cgroupPath,
-		PoolCPUUsage:         poolCPUUsage,
 		CgroupCPUUsage:       cgroupCPUUsage,
-		CgroupCPUQuota:       cfsQuota,
-		Size:                 cpus.Size(),
 		ReclaimedCoresSupply: reclaimedCoresSupply,
 	}, nil
 }

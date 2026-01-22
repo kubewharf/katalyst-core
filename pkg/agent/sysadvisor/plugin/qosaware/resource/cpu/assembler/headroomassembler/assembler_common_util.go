@@ -56,13 +56,10 @@ func (ha *HeadroomAssemblerCommon) getUtilBasedHeadroom(options helper.UtilBased
 		lastReclaimedCPU += cpu
 	}
 
-	lastOverload := ha.overloadState[reclaimMetrics.CgroupPath]
-
-	headroom, overload, err := helper.EstimateUtilBasedCapacity(options, reclaimMetrics, lastReclaimedCPU, lastOverload)
+	headroom, err := helper.EstimateUtilBasedCapacity(options, reclaimMetrics, lastReclaimedCPU)
 	if err != nil {
 		return resource.Quantity{}, err
 	}
-	ha.overloadState[reclaimMetrics.CgroupPath] = overload
 
 	general.InfoS("getUtilBasedHeadroom", "reclaimMetrics", reclaimMetrics,
 		"lastReclaimedCPUPerNumaForCalculate", lastReclaimedCPUPerNumaForCalculate, "headroom", headroom)
