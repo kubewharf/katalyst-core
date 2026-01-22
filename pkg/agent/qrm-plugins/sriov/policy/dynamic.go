@@ -267,19 +267,26 @@ func (p *DynamicPolicy) AllocateAccompanyResource(req *pluginapi.ResourceRequest
 		return nil
 	}
 
+	podEntries := p.state.GetPodEntries()
+	machineState := p.state.GetMachineState()
+
+	filters := []state.VFFilter{
+		state.FilterByPodAllocated(podEntries, false),
+		state.FilterByRDMA(true),
+		state.FilterByQueueCount(queueCount, queueCount),
+	}
+
 	hintNUMASet, err := machine.NewCPUSetUint64(req.Hint.Nodes...)
 	if err != nil {
 		return fmt.Errorf("failed to parse hint numa nodes: %v", err)
 	}
+	if hintNUMASet.Size() > 0 {
+		socketSet := p.agentCtx.CPUDetails.SocketsInNUMANodes(hintNUMASet.ToSliceInt()...)
+		numaSet := p.agentCtx.CPUDetails.NUMANodesInSockets(socketSet.ToSliceInt()...)
+		filters = append(filters, state.FilterByNumaSet(numaSet))
+	}
 
-	podEntries := p.state.GetPodEntries()
-	machineState := p.state.GetMachineState()
-	candidates := machineState.Filter(
-		state.FilterByPodAllocated(podEntries, false),
-		state.FilterByNumaSet(hintNUMASet),
-		state.FilterByRDMA(true),
-		state.FilterByQueueCount(queueCount, queueCount),
-	)
+	candidates := machineState.Filter(filters...)
 	if len(candidates) == 0 {
 		if failOnExhaustion {
 			return fmt.Errorf("no available VFs")
