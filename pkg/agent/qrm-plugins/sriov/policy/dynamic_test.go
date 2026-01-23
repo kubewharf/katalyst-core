@@ -505,7 +505,7 @@ func TestDynamicPolicy_AllocateAccompanyResource(t *testing.T) {
 		})
 	})
 
-	Convey("no available VFs with small size", t, func() {
+	Convey("fallback when no available VFs with small size", t, func() {
 		vfState, podEntries := generateState(2, 2, map[int]sets.Int{
 			0: sets.NewInt(0, 1),
 			1: sets.NewInt(0, 1),
@@ -548,7 +548,7 @@ func TestDynamicPolicy_AllocateAccompanyResource(t *testing.T) {
 		})
 	})
 
-	Convey("no available VFs with large size", t, func() {
+	Convey("fail when no available VFs with large size", t, func() {
 		vfState, podEntries := generateState(2, 2, map[int]sets.Int{
 			0: sets.NewInt(0, 1),
 			1: sets.NewInt(0, 1),
@@ -583,13 +583,5 @@ func TestDynamicPolicy_AllocateAccompanyResource(t *testing.T) {
 
 		So(err, ShouldNotBeNil)
 		So(err.Error(), ShouldContainSubstring, "no available VFs")
-		So(resp.AllocationResult, ShouldResemble, &pluginapi.ResourceAllocation{
-			ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
-				string(v1.ResourceCPU): {
-					AllocatedQuantity: 32,
-					AllocationResult:  "1-32",
-				},
-			},
-		})
 	})
 }

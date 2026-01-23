@@ -84,17 +84,15 @@ func TestGetBrcmPfIndex(t *testing.T) {
 	PatchConvey("TestGetBrcmPfIndex", t, func() {
 		Mock(os.ReadFile).Return(deviceID, nil).Build()
 		Mock(os.ReadDir).Return([]os.DirEntry{
-			&mockDirEntry{entryName: "0000:41:00.0", isDir: true},
-			&mockDirEntry{entryName: "0000:41:00.1", isDir: true},
-			&mockDirEntry{entryName: "0000:c1:00.0", isDir: true},
-			&mockDirEntry{entryName: "0000:c1:00.1", isDir: true},
+			&mockDirEntry{entryName: "0000:41:00.0", isDir: false, typ: os.ModeSymlink},
+			&mockDirEntry{entryName: "0000:c1:00.0", isDir: false, typ: os.ModeSymlink},
 		}, nil).Build()
 
 		index0, err := getBrcmPfIndex("/sys", "0000:41:00.0")
 		So(err, ShouldBeNil)
 		So(index0, ShouldEqual, 0)
 
-		index1, err := getBrcmPfIndex("/sys", "0000:41:00.1")
+		index1, err := getBrcmPfIndex("/sys", "0000:c1:00.0")
 		So(err, ShouldBeNil)
 		So(index1, ShouldEqual, 1)
 	})

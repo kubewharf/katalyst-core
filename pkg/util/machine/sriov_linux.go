@@ -330,7 +330,7 @@ func getBrcmPfIndex(sysFsDir string, pfPCIAddr string) (int, error) {
 
 	var matchingDevices []string
 	for _, device := range devices {
-		if !device.IsDir() {
+		if device.Type()&os.ModeSymlink == 0 {
 			continue
 		}
 
