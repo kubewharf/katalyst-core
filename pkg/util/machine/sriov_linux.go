@@ -52,6 +52,7 @@ func GetSriovVFList(conf *global.MachineInfoConfiguration, allNics []InterfaceIn
 		if len(nicList) == 0 {
 			continue
 		}
+
 		err := DoNetNS(ns, conf.NetNSDirAbsPath, func(sysFsDir string) error {
 			for _, pf := range nicList {
 				if !isSriovPf(sysFsDir, pf.Name) {
@@ -113,15 +114,20 @@ func GetSriovVFList(conf *global.MachineInfoConfiguration, allNics []InterfaceIn
 						PCIAddr: pciAddr,
 						RepName: representer,
 					})
+
+					general.Infof("got vfList %v", vfList)
 				}
 			}
 
 			return nil
 		})
+
 		if err != nil {
 			return nil, fmt.Errorf("failed to get vf list of ns %s, err %w", ns, err)
 		}
 	}
+
+	general.Infof("return vfList %v", vfList)
 
 	vfList.Sort()
 
