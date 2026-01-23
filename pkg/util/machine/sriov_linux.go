@@ -48,6 +48,7 @@ func GetSriovVFList(conf *global.MachineInfoConfiguration, allNics []InterfaceIn
 	var vfList SriovVFList
 
 	nicMap := getAllocatableNsNicMap(conf.NetAllocatableNS, allNics)
+
 	for ns, nicList := range nicMap {
 		if len(nicList) == 0 {
 			continue
@@ -115,7 +116,7 @@ func GetSriovVFList(conf *global.MachineInfoConfiguration, allNics []InterfaceIn
 						RepName: representer,
 					})
 
-					general.Infof("got vfList %v", vfList)
+					general.Infof("got vfList %v, addr: %p, len: %d, cap: %d", vfList, &vfList, len(vfList), cap(vfList))
 				}
 			}
 
