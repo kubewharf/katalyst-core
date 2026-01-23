@@ -105,6 +105,8 @@ func GetSriovVFList(conf *global.MachineInfoConfiguration, allNics []InterfaceIn
 						continue
 					}
 
+					general.Infof("found vf %s of pf %s with index %d, pciAddr %s", representer, pf.Name, index, pciAddr)
+
 					vfList = append(vfList, SriovVFInfo{
 						PFInfo:  pf,
 						Index:   index,
