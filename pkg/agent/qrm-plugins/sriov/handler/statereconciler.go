@@ -158,7 +158,8 @@ func (r *StateReconciler) syncMachineState(allocatedVFSet sets.String) (bool, er
 	needStore := false
 
 	machineState := r.state.GetMachineState()
-	for _, vfInfo := range machineState {
+	for i := range machineState {
+		vfInfo := &machineState[i]
 		if vfInfo.ExtraVFInfo != nil {
 			continue
 		}
