@@ -192,7 +192,7 @@ func (mg *memoryGuard) calculateReclaimedMemoryLimitFor(numaID int, reclaimedCgr
 	criticalWatermarkScaleFactor := mg.conf.GetDynamicConfiguration().CriticalWatermarkScaleFactor
 	criticalWatermark *= criticalWatermarkScaleFactor
 
-	criticalWatermark = math.Max(float64(mg.minCriticalWatermark), criticalWatermark)
+	//criticalWatermark = math.Max(float64(mg.minCriticalWatermark), criticalWatermark)
 	reclaimMemoryLimit := reclaimedCoresUsed.Value +
 		math.Max(numaReclaimable-criticalWatermark, 0)
 
