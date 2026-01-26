@@ -91,6 +91,18 @@ type FragMemOptions struct {
 	// SetMemFragScoreAsync sets the threashold of frag score for async memory compaction.
 	// The async compaction behavior will be triggered while exceeding this score.
 	SetMemFragScoreAsync int
+	// THPDefaultConfig is the default host THP config we try to recover to when
+	// fragmentation is not severe. Valid values: "madvise", "always", "never".
+	//
+	// Default: "madvise".
+	THPDefaultConfig string
+	// THPHighOrderScoreThreshold sets the threshold of highOrderScore for THP tuning.
+	// - If max(highOrderScore) > threshold, then disable THP (set to "never").
+	// - If max(highOrderScore) < threshold*0.9, then recover THP to THPDefaultConfig.
+	//   (Using 0.9 hysteresis to avoid THP toggling when score fluctuates around the threshold.)
+	//
+	// Default: 85.
+	THPHighOrderScoreThreshold int
 }
 
 type ResctrlConfig struct {
