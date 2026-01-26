@@ -138,6 +138,8 @@ type DynamicPolicy struct {
 	podAnnotationKeptKeys                     []string
 	podLabelKeptKeys                          []string
 	NUMABindingResultAnnotationKey            string
+	numaNumberAnnotationKey                   string
+	numaIDsAnnotationKey                      string
 	transitionPeriod                          time.Duration
 
 	reservedReclaimedCPUsSize                 int
@@ -225,6 +227,8 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		podAnnotationKeptKeys:          conf.PodAnnotationKeptKeys,
 		podLabelKeptKeys:               conf.PodLabelKeptKeys,
 		NUMABindingResultAnnotationKey: conf.NUMABindingResultAnnotationKey,
+		numaNumberAnnotationKey:                   conf.NUMANumberAnnotationKey,
+		numaIDsAnnotationKey:                      conf.NUMAIDsAnnotationKey,
 		transitionPeriod:               30 * time.Second,
 		reservedReclaimedCPUsSize:      general.Max(reservedReclaimedCPUsSize, agentCtx.KatalystMachineInfo.NumNUMANodes),
 	}
