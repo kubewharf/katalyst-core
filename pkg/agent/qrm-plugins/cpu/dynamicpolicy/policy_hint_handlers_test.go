@@ -29,6 +29,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -614,9 +615,9 @@ func TestCalculateHintsForNUMABindingSharedCores1(t *testing.T) {
 				machineInfo: &machine.KatalystMachineInfo{
 					CPUTopology: cpuTopology,
 				},
-				sharedCoresNUMABindingResultAnnotationKey: "katalyst-test/nume-bind-result",
-				sharedCoresNUMABindingHintOptimizer:       &hintoptimizer.DummyHintOptimizer{},
-				dynamicConfig:                             dynamic.NewDynamicAgentConfiguration(),
+				NUMABindingResultAnnotationKey:      "katalyst-test/nume-bind-result",
+				sharedCoresNUMABindingHintOptimizer: &hintoptimizer.DummyHintOptimizer{},
+				dynamicConfig:                       dynamic.NewDynamicAgentConfiguration(),
 			}
 			p.dynamicConfig.GetDynamicConfiguration().PreferUseExistNUMAHintResult = tt.preferUseExistNUMAHintResult
 
@@ -716,7 +717,8 @@ func TestPopulateHintsByAlreadyExistedNUMABindingResult(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			p := &DynamicPolicy{
-				sharedCoresNUMABindingResultAnnotationKey: "numa_binding",
+				NUMABindingResultAnnotationKey: "numa_binding",
+				emitter:                        &metrics.DummyMetrics{},
 			}
 
 			err := p.populateHintsByAlreadyExistedNUMABindingResult(tt.req, tt.hints)
