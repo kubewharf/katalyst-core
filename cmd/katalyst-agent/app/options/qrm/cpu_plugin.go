@@ -39,17 +39,20 @@ type CPUOptions struct {
 }
 
 type CPUDynamicPolicyOptions struct {
-	EnableCPUAdvisor               bool
-	AdvisorGetAdviceInterval       time.Duration
-	EnableCPUPressureEviction      bool
-	LoadPressureEvictionSkipPools  []string
-	EnableSyncingCPUIdle           bool
-	EnableCPUIdle                  bool
-	CPUNUMAHintPreferPolicy        string
-	CPUNUMAHintPreferLowThreshold  float64
-	NUMABindingResultAnnotationKey string
-	EnableReserveCPUReversely      bool
-	EnableCPUBurst                 bool
+	EnableCPUAdvisor                          bool
+	AdvisorGetAdviceInterval                  time.Duration
+	EnableCPUPressureEviction                 bool
+	LoadPressureEvictionSkipPools             []string
+	EnableSyncingCPUIdle                      bool
+	EnableCPUIdle                             bool
+	CPUNUMAHintPreferPolicy                   string
+	CPUNUMAHintPreferLowThreshold             float64
+	NUMABindingResultAnnotationKey            string
+	SharedCoresNUMABindingResultAnnotationKey string
+	NUMANumberAnnotationKey                   string
+	NUMAIDsAnnotationKey                      string
+	EnableReserveCPUReversely                 bool
+	EnableCPUBurst                            bool
 	*irqtuner.IRQTunerOptions
 	*hintoptimizer.HintOptimizerOptions
 }
@@ -77,9 +80,9 @@ func NewCPUOptions() *CPUOptions {
 				commonstate.PoolNameFallback,
 				commonstate.PoolNameReserve,
 			},
-			NUMABindingResultAnnotationKey: consts.PodAnnotationNUMABindResultKey,
-			HintOptimizerOptions:           hintoptimizer.NewHintOptimizerOptions(),
-			IRQTunerOptions:                irqtuner.NewIRQTunerOptions(),
+			SharedCoresNUMABindingResultAnnotationKey: consts.PodAnnotationNUMABindResultKey,
+			HintOptimizerOptions:                      hintoptimizer.NewHintOptimizerOptions(),
+			IRQTunerOptions:                           irqtuner.NewIRQTunerOptions(),
 		},
 		CPUNativePolicyOptions: CPUNativePolicyOptions{
 			EnableFullPhysicalCPUsOnly: false,
@@ -121,6 +124,10 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringVar(&o.NUMABindingResultAnnotationKey, "numa-binding-result-annotation-key",
 		o.NUMABindingResultAnnotationKey, "the key of numa binding result annotation, "+
 			"default is katalyst.kubewharf.io/numa_bind_result")
+	fs.StringVar(&o.NUMANumberAnnotationKey, "numa-number-annotation-key", o.NUMANumberAnnotationKey,
+		"the key of numa number annotation, default is katalyst.kubewharf.io/numa_number")
+	fs.StringVar(&o.NUMAIDsAnnotationKey, "numa-ids-annotation-key", o.NUMAIDsAnnotationKey,
+		"they key of numa ids annotation, default is katalyst.kubewharf.io/numa_ids")
 	fs.BoolVar(&o.EnableReserveCPUReversely, "enable-reserve-cpu-reversely",
 		o.EnableReserveCPUReversely, "by default, the reservation of cpu starts from the cpu with lower id,"+
 			"if set to true, it starts from the cpu with higher id")
@@ -145,6 +152,9 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 	conf.EnableFullPhysicalCPUsOnly = o.EnableFullPhysicalCPUsOnly
 	conf.CPUAllocationOption = o.CPUAllocationOption
 	conf.NUMABindingResultAnnotationKey = o.NUMABindingResultAnnotationKey
+	conf.SharedCoresNUMABindingResultAnnotationKey = o.SharedCoresNUMABindingResultAnnotationKey
+	conf.NUMANumberAnnotationKey = o.NUMANumberAnnotationKey
+	conf.NUMAIDsAnnotationKey = o.NUMAIDsAnnotationKey
 	conf.EnableReserveCPUReversely = o.EnableReserveCPUReversely
 	conf.EnableCPUBurst = o.EnableCPUBurst
 	if err := o.HintOptimizerOptions.ApplyTo(conf.HintOptimizerConfiguration); err != nil {

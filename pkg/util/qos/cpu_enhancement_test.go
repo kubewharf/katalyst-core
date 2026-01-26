@@ -25,6 +25,7 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 func TestGetPodCPUBurstPolicyFromCPUEnhancement(t *testing.T) {
@@ -188,6 +189,74 @@ func TestGetPodCPUBurstPercentFromCPUEnhancement(t *testing.T) {
 			}
 			assert.Equal(t, tt.want, got)
 			assert.Equal(t, tt.wantFound, found)
+		})
+	}
+}
+
+func TestAnnotationsGetNUMAIDs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		annotations map[string]string
+		numaNodes   []int
+		wantResult  []int
+		wantErr     bool
+	}{
+		{
+			name:        "empty annotations",
+			annotations: map[string]string{},
+			numaNodes:   []int{0, 1, 2, 3},
+			wantResult:  []int{},
+		},
+		{
+			name: "valid annotations and numa IDs are subset of machine",
+			annotations: map[string]string{
+				consts.PodAnnotationCPUEnhancementNumaIDs: "0,2,3",
+			},
+			numaNodes:  []int{0, 1, 2, 3},
+			wantResult: []int{0, 2, 3},
+		},
+		{
+			name: "valid annotations in another format and numa IDs are subset of machine",
+			annotations: map[string]string{
+				consts.PodAnnotationCPUEnhancementNumaIDs: "1-3",
+			},
+			numaNodes:  []int{0, 1, 2, 3},
+			wantResult: []int{1, 2, 3},
+		},
+		{
+			name: "valid annotations but numa IDs are not subset of machine",
+			annotations: map[string]string{
+				consts.PodAnnotationCPUEnhancementNumaIDs: "0,2,4",
+			},
+			numaNodes: []int{0, 1, 2, 3},
+			wantErr:   true,
+		},
+		{
+			name: "invalid annotations",
+			annotations: map[string]string{
+				consts.PodAnnotationCPUEnhancementNumaIDs: "invalid",
+			},
+			numaNodes: []int{0, 1, 2, 3},
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			result, err := AnnotationsGetNUMAIDs(tt.annotations, tt.numaNodes, consts.PodAnnotationCPUEnhancementNumaIDs)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				expectedMask, err := machine.NewBitMask(tt.wantResult...)
+				assert.NoError(t, err)
+				assert.Equal(t, expectedMask, result)
+			}
 		})
 	}
 }
