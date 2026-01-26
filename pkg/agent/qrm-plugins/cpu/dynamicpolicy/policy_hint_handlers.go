@@ -22,12 +22,12 @@ import (
 	"sort"
 	"time"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	v1 "k8s.io/api/core/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
@@ -221,6 +221,21 @@ func (p *DynamicPolicy) calculateHints(
 	distributeEvenlyAcrossNumaAnnotation := qosutil.AnnotationsIndicateDistributeEvenlyAcrossNuma(req.Annotations)
 	fullPCPUsPairingAnnotation := qosutil.AnnotationsIndicateFullPCPUsPairing(req.Annotations)
 
+	var numaNumber int
+	numaIDs, err := qosutil.AnnotationsGetNUMAIDs(req.Annotations, numaNodes, p.numaIDsAnnotationKey)
+	if err != nil {
+		return nil, fmt.Errorf("get NUMA IDs from annotations failed with error: %v", err)
+	}
+
+	if !numaIDs.IsEmpty() {
+		numaNumber = numaIDs.Count()
+	} else {
+		numaNumber, err = qosutil.AnnotationsGetNUMANumber(req.Annotations, len(numaNodes), p.numaNumberAnnotationKey)
+		if err != nil {
+			return nil, fmt.Errorf("get NUMA number from annotations failed with error: %v", err)
+		}
+	}
+
 	cpusPerCore := p.machineInfo.CPUsPerCore()
 	if cpusPerCore == 0 {
 		return nil, fmt.Errorf("0 cpus per core, which is unexpected")
@@ -296,7 +311,6 @@ func (p *DynamicPolicy) calculateHints(
 		}
 
 		maskBits := mask.GetBits()
-		numaCountNeeded := mask.Count()
 
 		allAvailableCPUsCountInMask := 0
 		for _, nodeID := range maskBits {
@@ -307,14 +321,14 @@ func (p *DynamicPolicy) calculateHints(
 			return
 		}
 
-		if numaCountNeeded < minAffinitySize {
-			minAffinitySize = numaCountNeeded
+		if maskCount < minAffinitySize {
+			minAffinitySize = maskCount
 		}
 
 		crossSockets, err := machine.CheckNUMACrossSockets(maskBits, p.machineInfo.CPUTopology)
 		if err != nil {
 			return
-		} else if numaCountNeeded <= numasPerSocket && crossSockets {
+		} else if maskCount <= numasPerSocket && crossSockets {
 			return
 		}
 
@@ -337,12 +351,26 @@ func (p *DynamicPolicy) calculateHints(
 			}
 		}
 
+		// Filter out hints that do not satisfy NUMA IDs and NUMA number
+		if !numaIDs.IsEmpty() {
+			if !numaIDs.IsEqual(mask) {
+				return
+			}
+		} else if numaNumber != 0 && maskCount != numaNumber {
+			return
+		}
+
 		// For first pass, set all the preferred fields to "false". We will update the preferred fields on the second pass.
 		availableNumaHints = append(availableNumaHints, &pluginapi.TopologyHint{
 			Nodes:     machine.MaskToUInt64Array(mask),
 			Preferred: false,
 		})
 	})
+
+	// Override minAffinitySize to be numa number if non-zero
+	if numaNumber != 0 {
+		minAffinitySize = numaNumber
+	}
 
 	// Update hint to be preferred if they have minimum number of NUMA nodes
 	for _, hint := range availableNumaHints {
@@ -447,6 +475,7 @@ func (p *DynamicPolicy) canFullPCPUsPairing(request, cpusPerCore int, availableC
 	// Check if the available CPUs satisfy the CPU request
 	if availableCPUs.Size() < request {
 		general.Infof("Available cpus %v size is smaller than cpu request per numa %v", availableCPUs, request)
+		return false
 	}
 
 	return true

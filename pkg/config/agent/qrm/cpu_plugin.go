@@ -55,6 +55,12 @@ type CPUDynamicPolicyConfig struct {
 	// It enables schedulers to specify NUMA binding results, and the plugin will make best efforts to follow these results.
 	// This key must be included in the pod-annotation-kept-keys configuration.
 	SharedCoresNUMABindingResultAnnotationKey string
+	// NUMANumberAnnotationKey is the annotation key for storing the NUMA number that dedicated_cores QoS pods have to satisfy.
+	// Hints have to contain this number of NUMA nodes.
+	NUMANumberAnnotationKey string
+	// NUMAIDsAnnotationKey is the annotation key for storing the NUMA IDs that dedicated_cores QoS pods have to satisfy.
+	// Hints have to contain these specific NUMA nodes IDs.
+	NUMAIDsAnnotationKey string
 	// EnableReserveCPUReversely indicates whether to reserve cpu reversely
 	EnableReserveCPUReversely bool
 	// EnableCPUBurst indicates whether cpu burst is enabled
