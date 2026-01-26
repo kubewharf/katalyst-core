@@ -167,3 +167,9 @@ func ApplyProcInterrupts(irqNumber int, cpuset string) error {
 func ApplyVMWatermarkScaleFactorAtPath(path string, scaleFactor int64) error {
 	return GetProcFSManager().ApplyVMWatermarkScaleFactorAtPath(path, scaleFactor)
 }
+
+// ApplyTransparentHugepageEnabledAtPath writes the given THP mode into the given path.
+// Typical path is TransparentHugepageEnabledPath.
+func ApplyTransparentHugepageEnabledAtPath(path, mode string) error {
+	return GetProcFSManager().ApplyTransparentHugepageEnabledAtPath(path, mode)
+}
