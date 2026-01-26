@@ -45,16 +45,12 @@ const (
 )
 
 func GetSriovVFList(conf *global.MachineInfoConfiguration, allNics []InterfaceInfo) (SriovVFList, error) {
-	vfList := make(SriovVFList, 0)
+	var vfList SriovVFList
 
 	nicMap := getAllocatableNsNicMap(conf.NetAllocatableNS, allNics)
 
-	for ns, nicList := range nicMap {
-		if len(nicList) == 0 {
-			continue
-		}
-
-		err := DoNetNS(ns, conf.NetNSDirAbsPath, func(sysFsDir string) error {
+	detectVF := func(vfList *SriovVFList, nicList []InterfaceInfo) func(sysFsDir string) error {
+		return func(sysFsDir string) error {
 			for _, pf := range nicList {
 				if !isSriovPf(sysFsDir, pf.Name) {
 					continue
@@ -109,7 +105,7 @@ func GetSriovVFList(conf *global.MachineInfoConfiguration, allNics []InterfaceIn
 
 					general.Infof("found vf %s of pf %s with index %d, pciAddr %s", representer, pf.Name, index, pciAddr)
 
-					vfList = append(vfList, SriovVFInfo{
+					*vfList = append(*vfList, SriovVFInfo{
 						PFInfo:  pf,
 						Index:   index,
 						PCIAddr: pciAddr,
@@ -119,7 +115,19 @@ func GetSriovVFList(conf *global.MachineInfoConfiguration, allNics []InterfaceIn
 			}
 
 			return nil
-		})
+		}
+	}
+
+	for ns := range nicMap {
+		nicList := nicMap[ns]
+
+		if len(nicList) == 0 {
+			continue
+		}
+
+		cb := detectVF(&vfList, nicList)
+
+		err := DoNetNS(ns, conf.NetNSDirAbsPath, cb)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get vf list of ns %s, err %w", ns, err)
 		}
