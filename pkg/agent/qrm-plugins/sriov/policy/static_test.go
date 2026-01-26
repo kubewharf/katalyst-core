@@ -45,11 +45,6 @@ import (
 	. "github.com/bytedance/mockey"
 )
 
-const (
-	pciAnnotationKey   = "pci-devices"
-	netNsAnnotationKey = "net-ns"
-)
-
 func generateStaticPolicy(t *testing.T, dryRun bool, bondingHostNetwork bool, vfState state.VFState, podEntries state.PodEntries) *StaticPolicy {
 	basePolicy := generateBasePolicy(t, dryRun, bondingHostNetwork, vfState, podEntries)
 
@@ -104,7 +99,7 @@ func TestStaticPolicy_GetTopologyHints(t *testing.T) {
 	t.Parallel()
 
 	Convey("both socket has available VFs", t, func() {
-		vfState, podEntries := generateState(2, 2, nil)
+		vfState, podEntries := state.GenerateDummyState(2, 2, nil)
 		policy := generateStaticPolicy(t, false, false, vfState, podEntries)
 
 		Mock(utils.UpdateSriovVFResultAnnotation).Return(nil).Build()
@@ -145,7 +140,7 @@ func TestStaticPolicy_GetTopologyHints(t *testing.T) {
 	})
 
 	Convey("only one socket has available VFs", t, func() {
-		vfState, podEntries := generateState(2, 2, map[int]sets.Int{
+		vfState, podEntries := state.GenerateDummyState(2, 2, map[int]sets.Int{
 			1: sets.NewInt(0, 1),
 		})
 		policy := generateStaticPolicy(t, false, false, vfState, podEntries)
@@ -181,7 +176,7 @@ func TestStaticPolicy_GetTopologyHints(t *testing.T) {
 	})
 
 	Convey("no available VFs", t, func() {
-		vfState, podEntries := generateState(2, 2, map[int]sets.Int{
+		vfState, podEntries := state.GenerateDummyState(2, 2, map[int]sets.Int{
 			0: sets.NewInt(0, 1),
 			1: sets.NewInt(0, 1),
 		})
@@ -205,7 +200,7 @@ func TestStaticPolicy_GetTopologyHints(t *testing.T) {
 	})
 
 	Convey("dryRun", t, func() {
-		vfState, podEntries := generateState(2, 2, nil)
+		vfState, podEntries := state.GenerateDummyState(2, 2, nil)
 
 		policy := generateStaticPolicy(t, true, false, vfState, podEntries)
 
@@ -234,7 +229,7 @@ func TestStaticPolicy_GetTopologyAwareResources(t *testing.T) {
 	t.Parallel()
 
 	Convey("pod exists", t, func() {
-		vfState, podEntries := generateState(2, 2, map[int]sets.Int{
+		vfState, podEntries := state.GenerateDummyState(2, 2, map[int]sets.Int{
 			0: sets.NewInt(0, 1),
 			1: sets.NewInt(0, 1),
 		})
@@ -271,7 +266,7 @@ func TestStaticPolicy_GetTopologyAwareResources(t *testing.T) {
 	})
 
 	Convey("pod not exists", t, func() {
-		vfState, podEntries := generateState(2, 2, nil)
+		vfState, podEntries := state.GenerateDummyState(2, 2, nil)
 		policy := generateStaticPolicy(t, false, false, vfState, podEntries)
 
 		resp, err := policy.GetTopologyAwareResources(rawContext.Background(),
@@ -290,7 +285,7 @@ func TestStaticPolicy_GetTopologyAwareAllocatableResources(t *testing.T) {
 	t.Parallel()
 
 	Convey("bondingHostNetwork is true", t, func() {
-		vfState, podEntries := generateState(2, 2, nil)
+		vfState, podEntries := state.GenerateDummyState(2, 2, nil)
 		policy := generateStaticPolicy(t, false, true, vfState, podEntries)
 
 		resp, err := policy.GetTopologyAwareAllocatableResources(rawContext.Background(), &pluginapi.GetTopologyAwareAllocatableResourcesRequest{})
@@ -328,7 +323,7 @@ func TestStaticPolicy_GetTopologyAwareAllocatableResources(t *testing.T) {
 	})
 
 	Convey("bondingHostNetwork is false", t, func() {
-		vfState, podEntries := generateState(2, 2, nil)
+		vfState, podEntries := state.GenerateDummyState(2, 2, nil)
 		policy := generateStaticPolicy(t, false, false, vfState, podEntries)
 
 		resp, err := policy.GetTopologyAwareAllocatableResources(rawContext.Background(), &pluginapi.GetTopologyAwareAllocatableResourcesRequest{})
@@ -384,7 +379,7 @@ func TestStaticPolicy_Allocate(t *testing.T) {
 	t.Parallel()
 
 	Convey("bondingHostNetwork is false", t, func() {
-		vfState, podEntries := generateState(2, 2, nil)
+		vfState, podEntries := state.GenerateDummyState(2, 2, nil)
 		policy := generateStaticPolicy(t, false, false, vfState, podEntries)
 
 		resp, err := policy.Allocate(rawContext.Background(),
@@ -445,7 +440,7 @@ func TestStaticPolicy_Allocate(t *testing.T) {
 	})
 
 	Convey("bondingHostNetwork is true", t, func() {
-		vfState, podEntries := generateState(2, 2, nil)
+		vfState, podEntries := state.GenerateDummyState(2, 2, nil)
 		policy := generateStaticPolicy(t, false, true, vfState, podEntries)
 
 		resp, err := policy.Allocate(rawContext.Background(),
@@ -506,7 +501,7 @@ func TestStaticPolicy_Allocate(t *testing.T) {
 	})
 
 	Convey("dryRun", t, func() {
-		vfState, podEntries := generateState(2, 2, nil)
+		vfState, podEntries := state.GenerateDummyState(2, 2, nil)
 		policy := generateStaticPolicy(t, true, false, vfState, podEntries)
 
 		resp, err := policy.Allocate(rawContext.Background(),
@@ -534,7 +529,7 @@ func TestStaticPolicy_Allocate(t *testing.T) {
 	})
 
 	Convey("no available VFs", t, func() {
-		vfState, podEntries := generateState(2, 2, map[int]sets.Int{
+		vfState, podEntries := state.GenerateDummyState(2, 2, map[int]sets.Int{
 			0: sets.NewInt(0, 1),
 			1: sets.NewInt(0, 1),
 		})

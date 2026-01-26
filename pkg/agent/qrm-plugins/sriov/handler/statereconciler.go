@@ -48,7 +48,6 @@ type StateReconciler struct {
 	resourceName    string
 	kubeClient      kubernetes.Interface
 	runtimeClient   cri.RuntimeService
-	metaServer      *metaserver.MetaServer
 	residualHitMap  map[string]int64
 }
 

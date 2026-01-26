@@ -135,7 +135,7 @@ func TestDynamicPolicy_GetAccompanyResourceTopologyHints(t *testing.T) {
 	t.Parallel()
 
 	Convey("dryRun", t, func() {
-		vfState, podEntries := generateState(2, 2, map[int]sets.Int{
+		vfState, podEntries := state.GenerateDummyState(2, 2, map[int]sets.Int{
 			0: sets.NewInt(0, 1),
 			1: sets.NewInt(0, 1),
 		})
@@ -160,7 +160,7 @@ func TestDynamicPolicy_GetAccompanyResourceTopologyHints(t *testing.T) {
 	})
 
 	Convey("hints for aligned vf", t, func() {
-		vfState, podEntries := generateState(2, 2, nil)
+		vfState, podEntries := state.GenerateDummyState(2, 2, nil)
 		policy := generateDynamicPolicy(t, false, true, vfState, podEntries)
 
 		req := &pluginapi.ResourceRequest{
@@ -195,7 +195,7 @@ func TestDynamicPolicy_GetAccompanyResourceTopologyHints(t *testing.T) {
 	})
 
 	Convey("hints for not-aligned vf", t, func() {
-		vfState, podEntries := generateState(2, 2, map[int]sets.Int{
+		vfState, podEntries := state.GenerateDummyState(2, 2, map[int]sets.Int{
 			0: sets.NewInt(0, 1),
 		})
 		policy := generateDynamicPolicy(t, false, true, vfState, podEntries)
@@ -233,7 +233,7 @@ func TestDynamicPolicy_GetAccompanyResourceTopologyHints(t *testing.T) {
 	})
 
 	Convey("no available VFs with small size", t, func() {
-		vfState, podEntries := generateState(2, 2, map[int]sets.Int{
+		vfState, podEntries := state.GenerateDummyState(2, 2, map[int]sets.Int{
 			0: sets.NewInt(0, 1),
 			1: sets.NewInt(0, 1),
 		})
@@ -272,7 +272,7 @@ func TestDynamicPolicy_GetAccompanyResourceTopologyHints(t *testing.T) {
 	})
 
 	Convey("no available VFs with large size", t, func() {
-		vfState, podEntries := generateState(2, 2, map[int]sets.Int{
+		vfState, podEntries := state.GenerateDummyState(2, 2, map[int]sets.Int{
 			0: sets.NewInt(0, 1),
 			1: sets.NewInt(0, 1),
 		})
@@ -308,7 +308,7 @@ func TestDynamicPolicy_AllocateAccompanyResource(t *testing.T) {
 	t.Parallel()
 
 	Convey("dryRun", t, func() {
-		vfState, podEntries := generateState(2, 2, nil)
+		vfState, podEntries := state.GenerateDummyState(2, 2, nil)
 		policy := generateDynamicPolicy(t, false, true, vfState, podEntries)
 
 		req := &pluginapi.ResourceRequest{
@@ -374,7 +374,7 @@ func TestDynamicPolicy_AllocateAccompanyResource(t *testing.T) {
 	})
 
 	Convey("allocate small size vf", t, func() {
-		vfState, podEntries := generateState(2, 2, nil)
+		vfState, podEntries := state.GenerateDummyState(2, 2, nil)
 		policy := generateDynamicPolicy(t, false, true, vfState, podEntries)
 
 		req := &pluginapi.ResourceRequest{
@@ -440,7 +440,7 @@ func TestDynamicPolicy_AllocateAccompanyResource(t *testing.T) {
 	})
 
 	Convey("allocate large size vf", t, func() {
-		vfState, podEntries := generateState(2, 2, nil)
+		vfState, podEntries := state.GenerateDummyState(2, 2, nil)
 		policy := generateDynamicPolicy(t, false, true, vfState, podEntries)
 
 		req := &pluginapi.ResourceRequest{
@@ -506,7 +506,7 @@ func TestDynamicPolicy_AllocateAccompanyResource(t *testing.T) {
 	})
 
 	Convey("fallback when no available VFs with small size", t, func() {
-		vfState, podEntries := generateState(2, 2, map[int]sets.Int{
+		vfState, podEntries := state.GenerateDummyState(2, 2, map[int]sets.Int{
 			0: sets.NewInt(0, 1),
 			1: sets.NewInt(0, 1),
 		})
@@ -549,7 +549,7 @@ func TestDynamicPolicy_AllocateAccompanyResource(t *testing.T) {
 	})
 
 	Convey("fail when no available VFs with large size", t, func() {
-		vfState, podEntries := generateState(2, 2, map[int]sets.Int{
+		vfState, podEntries := state.GenerateDummyState(2, 2, map[int]sets.Int{
 			0: sets.NewInt(0, 1),
 			1: sets.NewInt(0, 1),
 		})

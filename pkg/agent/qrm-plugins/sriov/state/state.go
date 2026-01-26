@@ -266,3 +266,70 @@ type State interface {
 	writer
 	ReadonlyState
 }
+
+func GenerateDummyState(pfCount int, vfPerPF int, allocatedVFSet map[int]sets.Int) (VFState, PodEntries) {
+	machineState := make(VFState, 0, pfCount*pfCount)
+	podEntries := make(PodEntries)
+
+	pfNumaNode := []int{0, 2}
+
+	fullIdx := 0
+
+	for i := 0; i < pfCount; i++ {
+		pfName := fmt.Sprintf("eth%d", i)
+
+		nsName := ""
+		if i%2 == 0 {
+			nsName = "ns2"
+		}
+
+		for j := 0; j < vfPerPF; j++ {
+			vfName := fmt.Sprintf("%s_%d", pfName, j)
+
+			ibDevices := []string{fmt.Sprintf("umad%d", fullIdx), fmt.Sprintf("uverbs%d", fullIdx)}
+
+			queueCount := 8
+			if j >= pfCount/2 {
+				queueCount = 32
+			}
+
+			vf := VFInfo{
+				RepName:  vfName,
+				Index:    j,
+				PCIAddr:  fmt.Sprintf("0000:%02d:00.%d", 40+i, j),
+				PFName:   pfName,
+				NumaNode: pfNumaNode[i%len(pfNumaNode)],
+				NSName:   nsName,
+				ExtraVFInfo: &ExtraVFInfo{
+					Name:       vfName,
+					QueueCount: queueCount,
+					IBDevices:  ibDevices,
+				},
+			}
+
+			machineState = append(machineState, vf)
+
+			if allocatedVFSet[i].Has(j) {
+				containerName := fmt.Sprintf("container%d", fullIdx)
+				pod := fmt.Sprintf("pod%d", fullIdx)
+				containerEntries := ContainerEntries{
+					containerName: &AllocationInfo{
+						AllocationMeta: commonstate.AllocationMeta{
+							PodUid:        pod,
+							PodName:       pod,
+							ContainerName: containerName,
+						},
+						VFInfo: vf,
+					},
+				}
+				podEntries[pod] = containerEntries
+			}
+
+			fullIdx++
+		}
+	}
+
+	machineState.Sort()
+
+	return machineState, podEntries
+}
