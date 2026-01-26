@@ -396,6 +396,13 @@ func (m *MalachiteMetricsProvisioner) setContainerMbmTotalMetric(podUID, contain
 			}
 		}
 		totalLocalBytesPS += localBytesPS
+		cpuCodeName := m.metricStore.GetByStringIndex(consts.MetricCPUCodeName)
+		if codeName, ok := cpuCodeName.(string); ok {
+			if strings.Contains(codeName, consts.AMDGenoaArch) {
+				// Notice: data adjustments needed due to genoa hardware bug
+				totalLocalBytesPS += localBytesPS / 3 * 2
+			}
+		}
 	}
 	m.metricStore.SetByStringIndex(consts.MetricResctrlDataContainer, resctrlData)
 	m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricMbmTotalPsContainer,
@@ -567,7 +574,8 @@ func aggregateNUMABytesPS(l3BytesPS map[int]types.L3CacheBytesPS, cpuCodeName st
 			numaBandwidthStats.MbmTotalBytesPS += mbmStat.MbmVictimBytesPS
 		}
 		if strings.Contains(cpuCodeName, consts.AMDGenoaArch) {
-			numaBandwidthStats.MbmTotalBytesPS += mbmStat.MbmLocalBytesPS
+			// Notice: data adjustments needed due to genoa hardware bug
+			numaBandwidthStats.MbmTotalBytesPS += mbmStat.MbmLocalBytesPS / 3 * 2
 		}
 		numaBytesPS[mbmStat.NumaID] = numaBandwidthStats
 	}
