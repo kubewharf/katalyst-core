@@ -66,6 +66,11 @@ func AnnotationsIndicateNUMAExclusive(annotations map[string]string) bool {
 			apiconsts.PodAnnotationMemoryEnhancementNumaExclusiveEnable
 }
 
+func AnnotationsIndicateSharedCores(annotations map[string]string) bool {
+	return annotations[apiconsts.PodAnnotationQoSLevelKey] ==
+		apiconsts.PodAnnotationQoSLevelSharedCores
+}
+
 // GetRSSOverUseEvictThreshold parse the user specified threshold and checks if it's valid
 func GetRSSOverUseEvictThreshold(qosConf *generic.QoSConfiguration, pod *v1.Pod) (threshold *float64, invalid bool) {
 	memoryEnhancement := ParseMemoryEnhancement(qosConf, pod)
