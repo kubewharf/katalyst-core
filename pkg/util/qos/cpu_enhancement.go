@@ -97,3 +97,32 @@ func GetPodCPUBurstPercentFromCPUEnhancement(qosConf *generic.QoSConfiguration, 
 
 	return cpuBurstPercent, true, nil
 }
+
+// AnnotationsIndicateAlignBySocket returns true if the given annotations indicate that the pod should be aligned by socket.
+func AnnotationsIndicateAlignBySocket(annotations map[string]string) bool {
+	if len(annotations) == 0 {
+		return false
+	}
+
+	return annotations[consts.PodAnnotationCPUEnhancementAlignBySocket] == consts.PodAnnotationCPUEnhancementAlignBySocketEnable
+}
+
+// AnnotationsIndicateDistributeEvenlyAcrossNuma returns true if the given annotations indicate that the pod's cpu request
+// should be evenly distributed across NUMA nodes.
+func AnnotationsIndicateDistributeEvenlyAcrossNuma(annotations map[string]string) bool {
+	if len(annotations) == 0 {
+		return false
+	}
+
+	return annotations[consts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNuma] == consts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNumaEnable
+}
+
+// AnnotationsIndicateFullPCPUsPairing returns true if the given annotations indicate that the pod should be allocated to
+// full physical cores only.
+func AnnotationsIndicateFullPCPUsPairing(annotations map[string]string) bool {
+	if len(annotations) == 0 {
+		return false
+	}
+
+	return annotations[consts.PodAnnotationCPUEnhancementFullPCPUsPairing] == consts.PodAnnotationCPUEnhancementFullPCPUsPairingEnable
+}
