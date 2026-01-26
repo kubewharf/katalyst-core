@@ -18,6 +18,7 @@ package plugin
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"path/filepath"
 	"strconv"
@@ -26,7 +27,9 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	katalystapiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
@@ -473,6 +476,31 @@ func NewTransparentMemoryOffloading(conf *config.Configuration, extraConfig inte
 	}
 }
 
+func (tmo *transparentMemoryOffloading) GetPoolNameForPod(pod *v1.Pod) (string, error) {
+	podUID := string(pod.UID)
+
+	entries, ok := tmo.metaReader.GetContainerEntries(podUID)
+	if !ok {
+		return "", fmt.Errorf("failed to get container entries for pod uid: %s", podUID)
+	}
+
+	poolName := ""
+	for _, containerInfo := range entries {
+		if containerInfo == nil {
+			continue
+		}
+		if containerInfo.ContainerType == pluginapi.ContainerType_MAIN {
+			poolName = containerInfo.OwnerPoolName
+			break
+		}
+	}
+
+	if poolName == "" {
+		return "", fmt.Errorf("failed to get pool name for pod uid: %s", podUID)
+	}
+	return poolName, nil
+}
+
 func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureStatus) error {
 	if tmo.conf.GetDynamicConfiguration().BlockConfig != nil {
 		RegisterTMOBlockFunc(FromDynamicConfigTMOBlockFnName, TMOBlockFnFromDynamicConfig)
@@ -497,6 +525,13 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 				general.Infof("DaemonSet pod %s is considered as system_cores qos level", pod.UID)
 			}
 		}
+
+		poolName, err := tmo.GetPoolNameForPod(pod)
+		if err != nil {
+			general.Warningf("Failed to get pool name for pod uid: %s, err: %v", pod.UID, err)
+		}
+		general.Infof("Get pool name %s for pod uid: %s", poolName, pod.UID)
+
 		for _, containerStatus := range pod.Status.ContainerStatuses {
 			containerInfo := &types.ContainerInfo{
 				PodUID:        string(pod.UID),
@@ -524,6 +559,18 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 						tmo.containerTmoEngines[podContainerName].GetConf().PolicyName)
 				}
 			}
+
+			// PoolName Override QosLevel Config
+			if tmoConfigDetail, exist := tmo.conf.GetDynamicConfiguration().PoolNameConfigs[poolName]; exist {
+				tmo.containerTmoEngines[podContainerName].LoadConf(tmoConfigDetail)
+				general.Infof("Load Pool %s TMO config for podContainerName %s, enableTMO: %v, enableSwap: %v, interval: %v, policy: %v",
+					poolName, podContainerName,
+					tmo.containerTmoEngines[podContainerName].GetConf().EnableTMO,
+					tmo.containerTmoEngines[podContainerName].GetConf().EnableSwap,
+					tmo.containerTmoEngines[podContainerName].GetConf().Interval,
+					tmo.containerTmoEngines[podContainerName].GetConf().PolicyName)
+			}
+
 			// load SPD conf if exists
 			tmoIndicator := &v1alpha1.TransparentMemoryOffloadingIndicators{}
 			isBaseline, err := tmo.metaServer.ServiceProfilingManager.ServiceExtendedIndicator(context.Background(), pod.ObjectMeta, tmoIndicator)
