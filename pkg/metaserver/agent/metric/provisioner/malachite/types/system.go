@@ -282,8 +282,14 @@ type IcmChannelInfo struct {
 }
 
 type ExtFrag struct {
-	ID           int    `json:"id"`
-	MemFragScore uint64 `json:"mem_frag_score"`
+	ID             int             `json:"id"`
+	MemFragScore   uint64          `json:"mem_frag_score"`
+	MemOrderScores []MemOrderScore `json:"mem_order_scores,omitempty"`
+}
+
+type MemOrderScore struct {
+	Order uint32 `json:"order"`
+	Score uint64 `json:"score"`
 }
 
 type Some struct {
