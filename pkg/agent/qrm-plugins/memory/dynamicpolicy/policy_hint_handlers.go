@@ -190,7 +190,7 @@ func (p *DynamicPolicy) numaBindingHintHandler(_ context.Context,
 		general.Infof("pod: %s/%s, main container: %s request to memory inplace update resize (%d->%d)",
 			req.PodNamespace, req.PodName, req.ContainerName, originPodAggregatedRequest, podAggregatedRequest)
 
-		if uint64(podAggregatedRequest) > nodeMemoryState.Free { // no left resource to scale out
+		if uint64(podAggregatedRequest) > nodeMemoryState.Free && uint64(podAggregatedRequest) > originPodAggregatedRequest { // scaling up and no left resource to scale out
 			// TODO maybe support snb NUMA migrate inplace update resize later
 			isInplaceUpdateResizeNumaMigration := false
 			if isInplaceUpdateResizeNumaMigration {
