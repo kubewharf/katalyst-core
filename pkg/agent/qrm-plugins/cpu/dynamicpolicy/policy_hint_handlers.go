@@ -22,12 +22,12 @@ import (
     	"sort"
     	"time"
 
-    	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
     	v1 "k8s.io/api/core/v1"
     	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
     	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
     	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+    	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
     	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer"
     	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
     	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
@@ -227,14 +227,14 @@ func (p *DynamicPolicy) calculateHints(
         return nil, fmt.Errorf("get NUMA IDs from annotations failed with error: %v", err)
     }
 
-    if !numaIDs.IsEmpty() {
-        numaNumber = numaIDs.Count()
-    } else {
-        numaNumber, err = qosutil.AnnotationsGetNUMANumber(req.Annotations, len(numaNodes), p.numaNumberAnnotationKey)
-        if err != nil {
-            return nil, fmt.Errorf("get NUMA number from annotations failed with error: %v", err)
-        }
-    }
+	if !numaIDs.IsEmpty() {
+		numaNumber = numaIDs.Count()
+	} else {
+		numaNumber, err = qosutil.AnnotationsGetNUMANumber(req.Annotations, len(numaNodes), p.numaNumberAnnotationKey)
+		if err != nil {
+			return nil, fmt.Errorf("get NUMA number from annotations failed with error: %v", err)
+		}
+	}
 
 	cpusPerCore := p.machineInfo.CPUsPerCore()
 	if cpusPerCore == 0 {
