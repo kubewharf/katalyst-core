@@ -115,20 +115,15 @@ func GetSriovVFList(conf *global.MachineInfoConfiguration, allNics []InterfaceIn
 						PCIAddr: pciAddr,
 						RepName: representer,
 					})
-
-					general.Infof("got vfList %v, addr: %p, len: %d, cap: %d", vfList, &vfList, len(vfList), cap(vfList))
 				}
 			}
 
 			return nil
 		})
-
 		if err != nil {
 			return nil, fmt.Errorf("failed to get vf list of ns %s, err %w", ns, err)
 		}
 	}
-
-	general.Infof("return vfList %v", vfList)
 
 	vfList.Sort()
 
