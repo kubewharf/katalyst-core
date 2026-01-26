@@ -36,6 +36,7 @@ var resctrlMajorGroupWeights = map[string]int{
 	consts.ResctrlGroupRoot:      10_000, // intrinsic root the highest
 	consts.ResctrlGroupDedicated: 9_000,
 	consts.ResctrlGroupSystem:    9_000,
+	consts.ResctrlGroupMachine:   9_000,
 	consts.ResctrlGroupShare:     1_000, // there are 2 forms: "share-xx", and "share" which equals to "share-50"
 	consts.ResctrlGroupReclaim:   100,
 }

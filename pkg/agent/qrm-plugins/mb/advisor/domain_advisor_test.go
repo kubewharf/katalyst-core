@@ -510,6 +510,296 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 			}},
 			wantErr: false,
 		},
+		{
+			name: "same priority with not enough capacity",
+			fields: fields{
+				domains: domain.Domains{
+					0: domain.NewDomain(0, sets.NewInt(0, 1), 88888),
+					1: domain.NewDomain(1, sets.NewInt(2, 3), 88888),
+				},
+				defaultDomainCapacity: 30_000,
+				XDomGroups:            nil,
+				GroupCapacityInMB:     nil,
+				quotaStrategy:         quota.New(),
+				flower:                sankey.New(),
+				adjusters:             map[string]adjuster.Adjuster{},
+			},
+			args: args{
+				ctx: context.TODO(),
+				domainsMon: &monitor.DomainStats{
+					Incomings: map[int]monitor.GroupMBStats{
+						0: {
+							"dedicated-60": map[int]monitor.MBInfo{
+								0: {
+									LocalMB:  10_000,
+									RemoteMB: 10_000,
+									TotalMB:  20_000,
+								},
+							},
+							"machine-60": map[int]monitor.MBInfo{
+								1: {
+									LocalMB:  10_000,
+									RemoteMB: 10_000,
+									TotalMB:  20_000,
+								},
+							},
+							"share-50": map[int]monitor.MBInfo{
+								2: {
+									LocalMB:  10_000,
+									RemoteMB: 0,
+									TotalMB:  10_000,
+								},
+							},
+						},
+						1: {
+							"dedicated-60": map[int]monitor.MBInfo{
+								3: {
+									LocalMB:  10_000,
+									RemoteMB: 10_000,
+									TotalMB:  20_000,
+								},
+							},
+							"machine-60": map[int]monitor.MBInfo{
+								4: {
+									LocalMB:  10_000,
+									RemoteMB: 10_000,
+									TotalMB:  20_000,
+								},
+							},
+							"share-50": map[int]monitor.MBInfo{
+								5: {
+									LocalMB:  10_000,
+									RemoteMB: 0,
+									TotalMB:  10_000,
+								},
+							},
+						},
+					},
+					Outgoings: map[int]monitor.GroupMBStats{
+						0: {
+							"dedicated-60": map[int]monitor.MBInfo{
+								0: {
+									LocalMB:  10_000,
+									RemoteMB: 10_000,
+									TotalMB:  20_000,
+								},
+							},
+							"machine-60": map[int]monitor.MBInfo{
+								1: {
+									LocalMB:  10_000,
+									RemoteMB: 10_000,
+									TotalMB:  20_000,
+								},
+							},
+							"share-50": map[int]monitor.MBInfo{
+								2: {
+									LocalMB:  10_000,
+									RemoteMB: 0,
+									TotalMB:  10_000,
+								},
+							},
+						},
+						1: {
+							"dedicated-60": map[int]monitor.MBInfo{
+								0: {
+									LocalMB:  10_000,
+									RemoteMB: 10_000,
+									TotalMB:  20_000,
+								},
+							},
+							"machine-60": map[int]monitor.MBInfo{
+								1: {
+									LocalMB:  10_000,
+									RemoteMB: 10_000,
+									TotalMB:  20_000,
+								},
+							},
+							"share-50": map[int]monitor.MBInfo{
+								2: {
+									LocalMB:  10_000,
+									RemoteMB: 0,
+									TotalMB:  10_000,
+								},
+							},
+						},
+					},
+					OutgoingGroupSumStat: map[string][]monitor.MBInfo{
+						"dedicated-60": {
+							0: {
+								LocalMB:  10_000,
+								RemoteMB: 10_000,
+								TotalMB:  20_000,
+							},
+						},
+						"machine-60": {
+							1: {
+								LocalMB:  10_000,
+								RemoteMB: 10_000,
+								TotalMB:  20_000,
+							},
+						},
+						"share-50": {
+							2: {
+								LocalMB:  10_000,
+								RemoteMB: 0,
+								TotalMB:  10_000,
+							},
+						},
+					},
+				},
+			},
+			want: &plan.MBPlan{MBGroups: map[string]plan.GroupCCDPlan{
+				"dedicated-60": {0: 15_000, 3: 15_000},
+				"machine-60":   {1: 15_000, 4: 15_000},
+				"share-50":     {2: 0, 5: 0},
+			}},
+			wantErr: false,
+		},
+		{
+			name: "same priority with enough capacity",
+			fields: fields{
+				domains: domain.Domains{
+					0: domain.NewDomain(0, sets.NewInt(0, 1), 88888),
+					1: domain.NewDomain(1, sets.NewInt(2, 3), 88888),
+				},
+				defaultDomainCapacity: 30_000,
+				XDomGroups:            nil,
+				GroupCapacityInMB:     nil,
+				quotaStrategy:         quota.New(),
+				flower:                sankey.New(),
+				adjusters:             map[string]adjuster.Adjuster{},
+			},
+			args: args{
+				ctx: context.TODO(),
+				domainsMon: &monitor.DomainStats{
+					Incomings: map[int]monitor.GroupMBStats{
+						0: {
+							"dedicated-60": map[int]monitor.MBInfo{
+								0: {
+									LocalMB:  5_000,
+									RemoteMB: 5_000,
+									TotalMB:  10_000,
+								},
+							},
+							"machine-60": map[int]monitor.MBInfo{
+								1: {
+									LocalMB:  5_000,
+									RemoteMB: 5_000,
+									TotalMB:  10_000,
+								},
+							},
+							"share-50": map[int]monitor.MBInfo{
+								2: {
+									LocalMB:  10_000,
+									RemoteMB: 5_000,
+									TotalMB:  15_000,
+								},
+							},
+						},
+						1: {
+							"dedicated-60": map[int]monitor.MBInfo{
+								3: {
+									LocalMB:  5_000,
+									RemoteMB: 5_000,
+									TotalMB:  10_000,
+								},
+							},
+							"machine-60": map[int]monitor.MBInfo{
+								4: {
+									LocalMB:  5_000,
+									RemoteMB: 5_000,
+									TotalMB:  10_000,
+								},
+							},
+							"share-50": map[int]monitor.MBInfo{
+								5: {
+									LocalMB:  10_000,
+									RemoteMB: 5_000,
+									TotalMB:  15_000,
+								},
+							},
+						},
+					},
+					Outgoings: map[int]monitor.GroupMBStats{
+						0: {
+							"dedicated-60": map[int]monitor.MBInfo{
+								0: {
+									LocalMB:  5_000,
+									RemoteMB: 5_000,
+									TotalMB:  10_000,
+								},
+							},
+							"machine-60": map[int]monitor.MBInfo{
+								1: {
+									LocalMB:  5_000,
+									RemoteMB: 5_000,
+									TotalMB:  10_000,
+								},
+							},
+							"share-50": map[int]monitor.MBInfo{
+								2: {
+									LocalMB:  10_000,
+									RemoteMB: 5_000,
+									TotalMB:  15_000,
+								},
+							},
+						},
+						1: {
+							"dedicated-60": map[int]monitor.MBInfo{
+								0: {
+									LocalMB:  5_000,
+									RemoteMB: 5_000,
+									TotalMB:  10_000,
+								},
+							},
+							"machine-60": map[int]monitor.MBInfo{
+								1: {
+									LocalMB:  5_000,
+									RemoteMB: 5_000,
+									TotalMB:  10_000,
+								},
+							},
+							"share-50": map[int]monitor.MBInfo{
+								2: {
+									LocalMB:  10_000,
+									RemoteMB: 5_000,
+									TotalMB:  15_000,
+								},
+							},
+						},
+					},
+					OutgoingGroupSumStat: map[string][]monitor.MBInfo{
+						"dedicated-60": {
+							0: {
+								LocalMB:  5_000,
+								RemoteMB: 5_000,
+								TotalMB:  10_000,
+							},
+						},
+						"machine-60": {
+							1: {
+								LocalMB:  5_000,
+								RemoteMB: 5_000,
+								TotalMB:  10_000,
+							},
+						},
+						"share-50": {
+							2: {
+								LocalMB:  10_000,
+								RemoteMB: 5_000,
+								TotalMB:  15_000,
+							},
+						},
+					},
+				},
+			},
+			want: &plan.MBPlan{MBGroups: map[string]plan.GroupCCDPlan{
+				"dedicated-60": {0: 20_000, 3: 20_000},
+				"machine-60":   {1: 20_000, 4: 20_000},
+				"share-50":     {2: 8500, 5: 8500},
+			}},
+			wantErr: false,
+		},
 	}
 	for _, tt := range tests {
 		tt := tt
