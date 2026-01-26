@@ -79,6 +79,11 @@ type FragMemOptions struct {
 	// SetMemFragScoreAsync sets the threashold of frag score for async memory compaction.
 	// The async compaction behavior will be triggered while exceeding this score.
 	SetMemFragScoreAsync int
+	// THPDefaultConfig is the default host THP config we try to recover to.
+	// Valid values: "madvise", "always", "never".
+	THPDefaultConfig string
+	// THPHighOrderScoreThreshold sets the threshold of highOrderScore for THP tuning.
+	THPHighOrderScoreThreshold int
 }
 
 type ResctrlOptions struct {
@@ -124,8 +129,10 @@ func NewMemoryOptions() *MemoryOptions {
 			FileFilters:            []string{".*\\.log.*"},
 		},
 		FragMemOptions: FragMemOptions{
-			EnableSettingFragMem: false,
-			SetMemFragScoreAsync: 80,
+			EnableSettingFragMem:       false,
+			SetMemFragScoreAsync:       80,
+			THPDefaultConfig:           "madvise",
+			THPHighOrderScoreThreshold: 85,
 		},
 		ResctrlOptions: ResctrlOptions{
 			CPUSetPoolToSharedSubgroup: make(map[string]int),
@@ -189,6 +196,10 @@ func (o *MemoryOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.EnableSettingFragMem, "if set true, we will enable memory compaction related features")
 	fs.IntVar(&o.SetMemFragScoreAsync, "qrm-memory-frag-score-async",
 		o.SetMemFragScoreAsync, "set the threshold of frag score for async memory compaction")
+	fs.StringVar(&o.THPDefaultConfig, "qrm-memory-thp-default-config",
+		o.THPDefaultConfig, "default host THP config to recover to (madvise/always/never)")
+	fs.IntVar(&o.THPHighOrderScoreThreshold, "qrm-memory-thp-high-order-score-threshold",
+		o.THPHighOrderScoreThreshold, "disable THP when max highOrderScore > threshold")
 	fs.BoolVar(&o.EnableResctrlHint, "pod-admit-resctrl-layout-hint",
 		o.EnableResctrlHint, "if set true, we will enable resctrl hint on pod admission")
 	fs.StringToIntVar(&o.CPUSetPoolToSharedSubgroup, "resctrl-cpuset-pool-to-shared-subgroup",
@@ -228,6 +239,8 @@ func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
 	conf.FileFilters = o.FileFilters
 	conf.EnableSettingFragMem = o.EnableSettingFragMem
 	conf.SetMemFragScoreAsync = o.SetMemFragScoreAsync
+	conf.THPDefaultConfig = o.THPDefaultConfig
+	conf.THPHighOrderScoreThreshold = o.THPHighOrderScoreThreshold
 	conf.EnableResctrlHint = o.EnableResctrlHint
 	conf.CPUSetPoolToSharedSubgroup = o.CPUSetPoolToSharedSubgroup
 	conf.DefaultSharedSubgroup = o.DefaultSharedSubgroup
