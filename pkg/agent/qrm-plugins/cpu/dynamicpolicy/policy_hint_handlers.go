@@ -479,10 +479,11 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 			}
 			nodeID := numaSet.ToSliceInt()[0]
 			availableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(p.reservedCPUs)
+			originRequest, _ := allocationInfo.GetPodAggregatedRequest()
 
-			general.Infof("pod: %s/%s, container: %s request cpu inplace update resize on numa %d (available: %.3f, request: %.3f)",
-				req.PodNamespace, req.PodName, req.ContainerName, nodeID, availableCPUQuantity, request)
-			if !cpuutil.CPUIsSufficient(request, availableCPUQuantity) { // no left resource to scale out
+			general.Infof("pod: %s/%s, container: %s request cpu inplace update resize on numa %d (available: %.3f, request:%.3f->%.3f)",
+				req.PodNamespace, req.PodName, req.ContainerName, nodeID, availableCPUQuantity, originRequest, request)
+			if !cpuutil.CPUIsSufficient(request, availableCPUQuantity) && request > originRequest { // scaling up and no left resource to scale out
 				general.Infof("pod: %s/%s, container: %s request cpu inplace update resize, but no enough resource for it in current NUMA, checking migratable",
 					req.PodNamespace, req.PodName, req.ContainerName)
 				// TODO move this var to config
