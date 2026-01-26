@@ -45,7 +45,7 @@ const (
 )
 
 func GetSriovVFList(conf *global.MachineInfoConfiguration, allNics []InterfaceInfo) (SriovVFList, error) {
-	var vfList SriovVFList
+	vfList := make(SriovVFList, 0)
 
 	nicMap := getAllocatableNsNicMap(conf.NetAllocatableNS, allNics)
 
