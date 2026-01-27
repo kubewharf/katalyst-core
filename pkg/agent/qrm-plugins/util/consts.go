@@ -60,6 +60,8 @@ const (
 
 	// metrics for some cases
 	MetricNameShareCoresNoEnoughResourceFailed = "share_cores_no_enough_resource"
+	MetricNameHintAnnotationInconsistent       = "hint_annotation_inconsistent"
+	MetricNameHintAnnotationMismatch           = "hint_annotation_mismatch"
 
 	// metrics for numa allocation
 	MetricNameMetricBasedNUMAAllocationEnabled = "metric_based_numa_allocation_enabled"

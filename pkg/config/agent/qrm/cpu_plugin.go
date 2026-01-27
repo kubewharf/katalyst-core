@@ -51,10 +51,10 @@ type CPUDynamicPolicyConfig struct {
 	EnableSyncingCPUIdle bool
 	// EnableCPUIdle indicates whether enabling cpu idle
 	EnableCPUIdle bool
-	// SharedCoresNUMABindingResultAnnotationKey is the annotation key for storing NUMA binding results of shared_cores QoS pods.
+	// NUMABindingResultAnnotationKey is the annotation key for storing NUMA binding results of pods.
 	// It enables schedulers to specify NUMA binding results, and the plugin will make best efforts to follow these results.
 	// This key must be included in the pod-annotation-kept-keys configuration.
-	SharedCoresNUMABindingResultAnnotationKey string
+	NUMABindingResultAnnotationKey string
 	// EnableReserveCPUReversely indicates whether to reserve cpu reversely
 	EnableReserveCPUReversely bool
 	// EnableCPUBurst indicates whether cpu burst is enabled

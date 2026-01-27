@@ -132,7 +132,7 @@ type DynamicPolicy struct {
 	podDebugAnnoKeys                          []string
 	podAnnotationKeptKeys                     []string
 	podLabelKeptKeys                          []string
-	sharedCoresNUMABindingResultAnnotationKey string
+	NUMABindingResultAnnotationKey            string
 	transitionPeriod                          time.Duration
 
 	reservedReclaimedCPUsSize                 int
@@ -216,12 +216,12 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		reclaimRelativeRootCgroupPath: conf.ReclaimRelativeRootCgroupPath,
 		numaBindingReclaimRelativeRootCgroupPaths: common.GetNUMABindingReclaimRelativeRootCgroupPaths(conf.ReclaimRelativeRootCgroupPath,
 			agentCtx.CPUDetails.NUMANodes().ToSliceNoSortInt()),
-		podDebugAnnoKeys:                          conf.PodDebugAnnoKeys,
-		podAnnotationKeptKeys:                     conf.PodAnnotationKeptKeys,
-		podLabelKeptKeys:                          conf.PodLabelKeptKeys,
-		sharedCoresNUMABindingResultAnnotationKey: conf.SharedCoresNUMABindingResultAnnotationKey,
-		transitionPeriod:                          30 * time.Second,
-		reservedReclaimedCPUsSize:                 general.Max(reservedReclaimedCPUsSize, agentCtx.KatalystMachineInfo.NumNUMANodes),
+		podDebugAnnoKeys:               conf.PodDebugAnnoKeys,
+		podAnnotationKeptKeys:          conf.PodAnnotationKeptKeys,
+		podLabelKeptKeys:               conf.PodLabelKeptKeys,
+		NUMABindingResultAnnotationKey: conf.NUMABindingResultAnnotationKey,
+		transitionPeriod:               30 * time.Second,
+		reservedReclaimedCPUsSize:      general.Max(reservedReclaimedCPUsSize, agentCtx.KatalystMachineInfo.NumNUMANodes),
 	}
 
 	// initialize hint optimizer
