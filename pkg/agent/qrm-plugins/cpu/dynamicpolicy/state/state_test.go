@@ -2838,7 +2838,7 @@ func TestAllocationInfo_GetSpecifiedNUMABindingPoolName(t *testing.T) {
 				InitTimestamp:                    tt.fields.InitTimestamp,
 				RequestQuantity:                  tt.fields.RequestQuantity,
 			}
-			got, err := ai.GetSpecifiedNUMABindingPoolName()
+			got, err := ai.GetSpecifiedNUMAPoolName()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("AllocationInfo.GetSpecifiedNUMABindingPoolName() error = %v, wantErr %v", err, tt.wantErr)
 				return

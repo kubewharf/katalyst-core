@@ -368,7 +368,7 @@ func (ns *NUMANodeState) GetAvailableCPUQuantity(reservedCPUs machine.CPUSet) fl
 
 		// if there is pod aggregated resource key in main container annotations, use pod aggregated resource instead.
 		mainContainerEntry := containerEntries.GetMainContainerEntry()
-		if mainContainerEntry == nil || !mainContainerEntry.CheckSharedNUMABinding() {
+		if mainContainerEntry == nil || !mainContainerEntry.CheckSharedNUMAAffinity() {
 			continue
 		}
 
@@ -380,7 +380,7 @@ func (ns *NUMANodeState) GetAvailableCPUQuantity(reservedCPUs machine.CPUSet) fl
 
 		// calc pod aggregated resource request by container entries.
 		for _, allocationInfo := range containerEntries {
-			if allocationInfo == nil || !allocationInfo.CheckSharedNUMABinding() {
+			if allocationInfo == nil || !allocationInfo.CheckSharedNUMAAffinity() {
 				continue
 			}
 
@@ -588,6 +588,33 @@ func (nm NUMANodeMap) GetFilteredNUMASetWithAnnotations(
 	return res
 }
 
+// GetMatchedNUMASet return numa set matched by the predicate.
+func (nm NUMANodeMap) GetMatchedNUMASet(
+	includeNUMAPredicate func(ai *AllocationInfo) bool,
+) machine.CPUSet {
+	res := machine.NewCPUSet()
+	for numaID, numaNodeState := range nm {
+		if numaNodeState.ExistMatchedAllocationInfo(includeNUMAPredicate) {
+			res.Add(numaID)
+		}
+	}
+	return res
+}
+
+// GetMatchedNUMASetWithAnnotations return numa set matched by the predicate accepting AllocationInfo in the target NUMA and input annotations of candidate.
+func (nm NUMANodeMap) GetMatchedNUMASetWithAnnotations(
+	includeNUMAPredicate func(ai *AllocationInfo, annotations map[string]string) bool,
+	annotations map[string]string,
+) machine.CPUSet {
+	res := machine.NewCPUSet()
+	for numaID, numaNodeState := range nm {
+		if numaNodeState.ExistMatchedAllocationInfoWithAnnotations(includeNUMAPredicate, annotations) {
+			res.Add(numaID)
+		}
+	}
+	return res
+}
+
 func (nm NUMANodeMap) Clone() NUMANodeMap {
 	if nm == nil {
 		return nil
@@ -627,7 +654,7 @@ type reader interface {
 type writer interface {
 	SetMachineState(numaNodeMap NUMANodeMap, persist bool)
 	SetNUMAHeadroom(numaHeadroom map[int]float64, persist bool)
-	SetPodEntries(podEntries PodEntries, writeThrough bool)
+	SetPodEntries(podEntries PodEntries, persist bool)
 	SetAllocationInfo(podUID string, containerName string, allocationInfo *AllocationInfo, persist bool)
 	SetAllowSharedCoresOverlapReclaimedCores(allowSharedCoresOverlapReclaimedCores, persist bool)
 

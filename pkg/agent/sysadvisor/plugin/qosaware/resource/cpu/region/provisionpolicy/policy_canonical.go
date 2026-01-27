@@ -114,10 +114,10 @@ func (p *PolicyCanonical) estimateCPUUsage() (float64, error) {
 			}
 
 			var containerEstimation float64
-			if ci.IsDedicatedNumaBinding() && !enableReclaim {
+			if ci.IsDedicatedNUMAAffinity() && !enableReclaim {
 				if ci.ContainerType == v1alpha1.ContainerType_MAIN {
-					bindingNumas := machine.GetCPUAssignmentNUMAs(ci.TopologyAwareAssignments)
-					containerEstimation = float64(p.metaServer.NUMAToCPUs.CPUSizeInNUMAs(bindingNumas.ToSliceNoSortInt()...))
+					cpuAffinityNUMAs := machine.GetCPUAssignmentNUMAs(ci.TopologyAwareAssignments)
+					containerEstimation = float64(p.metaServer.NUMAToCPUs.CPUSizeInNUMAs(cpuAffinityNUMAs.ToSliceNoSortInt()...))
 					klog.Infof("[qosaware-cpu-canonical] container %s/%s occupied cpu %v", ci.PodName, ci.ContainerName, containerEstimation)
 				} else {
 					containerEstimation = 0
@@ -131,10 +131,10 @@ func (p *PolicyCanonical) estimateCPUUsage() (float64, error) {
 			}
 
 			// FIXME: metric server doesn't support to report cpu usage in numa granularity,
-			// so we split cpu usage evenly across the binding numas of container.
-			if p.bindingNumas.Size() > 0 {
+			// so we split cpu usage evenly across the cpu affinity numas of container.
+			if p.cpuAffinityNUMAs.Size() > 0 {
 				cpuSize := 0
-				for _, numaID := range p.bindingNumas.ToSliceInt() {
+				for _, numaID := range p.cpuAffinityNUMAs.ToSliceInt() {
 					cpuSize += ci.TopologyAwareAssignments[numaID].Size()
 				}
 				cpuAssignmentCPUs := machine.CountCPUAssignmentCPUs(ci.TopologyAwareAssignments)

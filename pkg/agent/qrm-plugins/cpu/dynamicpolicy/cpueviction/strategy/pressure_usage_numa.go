@@ -309,10 +309,10 @@ func (p *NumaCPUPressureEviction) update(_ context.Context) {
 		// numa -> pod -> ring
 		for numaID := 0; numaID < p.metaServer.NumNUMANodes; numaID++ {
 			numaSize := p.metaServer.NUMAToCPUs.CPUSizeInNUMAs(numaID)
-			snbEntries := machineState[numaID].PodEntries.GetFilteredPodEntries(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedNUMABinding))
+			podEntries := machineState[numaID].PodEntries.GetFilteredPodEntries(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedNUMAAffinity))
 
 			sum := 0.0
-			for podUID, containerEntries := range snbEntries {
+			for podUID, containerEntries := range podEntries {
 				for containerName := range containerEntries {
 					val, err := p.metaServer.GetContainerMetric(podUID, containerName, metricName)
 					if err != nil {

@@ -53,9 +53,9 @@ func (c *CPUAdvisorValidator) ValidateRequest(req *advisorapi.GetAdviceRequest) 
 	entries := c.state.GetPodEntries()
 
 	// validate shared_cores with numa_binding entries
-	sharedNUMABindingAllocationInfos := entries.GetFilteredPodEntries(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedNUMABinding))
+	sharedNUMAAffinityAllocationInfos := entries.GetFilteredPodEntries(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedNUMAAffinity))
 
-	for podUID, containerEntries := range sharedNUMABindingAllocationInfos {
+	for podUID, containerEntries := range sharedNUMAAffinityAllocationInfos {
 		for containerName, containerInfo := range containerEntries {
 			if req.Entries[podUID] == nil || req.Entries[podUID].Entries[containerName] == nil {
 				return fmt.Errorf("missing request entry for shared_cores with numa_binding pod: %s container: %s", podUID, containerName)
@@ -64,7 +64,8 @@ func (c *CPUAdvisorValidator) ValidateRequest(req *advisorapi.GetAdviceRequest) 
 			// This container may have been changed from shared_cores without numa_binding to shared_cores with numa_binding.
 			// Verify if we have included this information in the request.
 			// If we have, sys-advisor must have observed it.
-			if requestInfo.Metadata.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] != consts.PodAnnotationMemoryEnhancementNumaBindingEnable {
+			if requestInfo.Metadata.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] != consts.PodAnnotationMemoryEnhancementNumaBindingEnable ||
+				requestInfo.Metadata.Annotations[consts.PodAnnotationCPUEnhancementNumaAffinity] != consts.PodAnnotationCPUEnhancementNumaAffinityEnable {
 				return fmt.Errorf(
 					"shared_cores with numa_binding pod: %s container: %s has invalid owner pool name: %s in request, expected %s",
 					podUID, containerName, requestInfo.AllocationInfo.OwnerPoolName, containerInfo.OwnerPoolName)
@@ -78,7 +79,8 @@ func (c *CPUAdvisorValidator) ValidateRequest(req *advisorapi.GetAdviceRequest) 
 		}
 		for containerName, requestInfo := range containerEntries.Entries {
 			if requestInfo.Metadata.QosLevel == consts.PodAnnotationQoSLevelSharedCores &&
-				requestInfo.Metadata.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable {
+				(requestInfo.Metadata.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable ||
+					requestInfo.Metadata.Annotations[consts.PodAnnotationCPUEnhancementNumaAffinity] == consts.PodAnnotationCPUEnhancementNumaAffinityEnable) {
 				if entries[podUID][containerName] == nil {
 					return fmt.Errorf("missing state entry for shared_cores with numa_binding pod: %s container: %s", podUID, containerName)
 				}
@@ -124,7 +126,7 @@ func (c *CPUAdvisorValidator) validateEntries(resp *advisorapi.ListAndWatchRespo
 				return fmt.Errorf("missing CalculationInfo for pod: %s container: %s", podUID, containerName)
 			}
 
-			if !allocationInfo.CheckDedicatedNUMABinding() {
+			if !allocationInfo.CheckDedicatedNUMAAffinity() {
 				numaCalculationQuantities, err := calculationInfo.GetNUMAQuantities()
 				if err != nil {
 					return fmt.Errorf("GetNUMAQuantities failed with error: %v, pod: %s container: %s",
@@ -169,9 +171,9 @@ func (c *CPUAdvisorValidator) validateEntries(resp *advisorapi.ListAndWatchRespo
 	}
 
 	// validate shared_cores with numa_binding entries
-	sharedNUMABindingAllocationInfos := entries.GetFilteredPodEntries(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedNUMABinding))
+	sharedNUMAAffinityAllocationInfos := entries.GetFilteredPodEntries(state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckSharedNUMAAffinity))
 
-	for podUID, containerEntries := range sharedNUMABindingAllocationInfos {
+	for podUID, containerEntries := range sharedNUMAAffinityAllocationInfos {
 		for containerName := range containerEntries {
 			calculationInfo, ok := resp.GetCalculationInfo(podUID, containerName)
 

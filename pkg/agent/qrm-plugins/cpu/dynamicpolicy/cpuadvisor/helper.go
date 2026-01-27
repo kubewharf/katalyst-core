@@ -34,7 +34,7 @@ func NewBlockCPUSet() BlockCPUSet {
 	return make(BlockCPUSet)
 }
 
-func (ci *CalculationInfo) IsSharedNUMABindingPool() bool {
+func (ci *CalculationInfo) IsSharedNUMAAffinityPool() bool {
 	if ci == nil {
 		return false
 	}
@@ -50,7 +50,7 @@ func (ce *CalculationEntries) IsPoolEntry() bool {
 	return len(ce.Entries) == 1 && ce.Entries[commonstate.FakedContainerName] != nil
 }
 
-func (ce *CalculationEntries) IsSharedNUMABindingPoolEntry() bool {
+func (ce *CalculationEntries) IsSharedNUMAAffinityPoolEntry() bool {
 	if !ce.IsPoolEntry() {
 		return false
 	}
@@ -59,7 +59,7 @@ func (ce *CalculationEntries) IsSharedNUMABindingPoolEntry() bool {
 		ce.Entries[commonstate.FakedContainerName].CalculationResultsByNumas[commonstate.FakedNUMAID] == nil
 }
 
-func (lwr *ListAndWatchResponse) GetSharedBindingNUMAs() (sets.Int, error) {
+func (lwr *ListAndWatchResponse) GetSharedNUMAAffinityNUMAs() (sets.Int, error) {
 	if lwr == nil {
 		return sets.NewInt(), fmt.Errorf("got nil ListAndWatchResponse")
 	}
@@ -68,7 +68,7 @@ func (lwr *ListAndWatchResponse) GetSharedBindingNUMAs() (sets.Int, error) {
 
 	for _, entry := range lwr.Entries {
 
-		if !entry.IsSharedNUMABindingPoolEntry() {
+		if !entry.IsSharedNUMAAffinityPoolEntry() {
 			continue
 		}
 

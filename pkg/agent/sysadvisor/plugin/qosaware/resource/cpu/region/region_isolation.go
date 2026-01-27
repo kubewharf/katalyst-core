@@ -50,16 +50,16 @@ func NewQoSRegionIsolation(ci *types.ContainerInfo, customRegionName string, con
 		}
 	}
 
-	isNumaBinding := numaID != commonstate.FakedNUMAID
+	isNUMAAffinity := numaID != commonstate.FakedNUMAID
 	ownerPoolName := isolationRegionDefaultOwnerPoolName
-	if isNumaBinding {
+	if isNUMAAffinity {
 		ownerPoolName = isolationRegionNUMAOwnerPoolName
 	}
 	r := &QoSRegionIsolation{
-		QoSRegionBase: NewQoSRegionBase(regionName, ownerPoolName, configapi.QoSRegionTypeIsolation, conf, extraConf, isNumaBinding, false, metaReader, metaServer, emitter),
+		QoSRegionBase: NewQoSRegionBase(regionName, ownerPoolName, configapi.QoSRegionTypeIsolation, conf, extraConf, isNUMAAffinity, false, metaReader, metaServer, emitter),
 	}
-	if isNumaBinding {
-		r.bindingNumas = machine.NewCPUSet(numaID)
+	if isNUMAAffinity {
+		r.cpuAffinityNUMAs = machine.NewCPUSet(numaID)
 	}
 	return r
 }

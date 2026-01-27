@@ -80,7 +80,7 @@ func newTestPolicyCanonical(t *testing.T, checkpointDir string, stateFileDir str
 	p := NewPolicyCanonical(regionInfo.RegionName, regionInfo.RegionType, regionInfo.OwnerPoolName, conf, nil, metaCacheCanonical, metaServerCanonical, metrics.DummyMetrics{})
 	metaCacheCanonical.SetRegionInfo(regionInfo.RegionName, &regionInfo)
 
-	p.SetBindingNumas(regionInfo.BindingNumas)
+	p.SetCPUAffinityNUMAs(regionInfo.BindingNumas)
 	p.SetPodSet(podSet)
 
 	return p

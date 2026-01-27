@@ -80,7 +80,7 @@ func newTestPolicyNumaExclusive(t *testing.T, checkpointDir string, stateFileDir
 	p := NewPolicyNUMADedicated(regionInfo.RegionName, regionInfo.RegionType, regionInfo.OwnerPoolName, conf, nil, metaCacheNumaExclusive, metaServerNumaExclusive, metrics.DummyMetrics{})
 	metaCacheNumaExclusive.SetRegionInfo(regionInfo.RegionName, &regionInfo)
 
-	p.SetBindingNumas(regionInfo.BindingNumas)
+	p.SetCPUAffinityNUMAs(regionInfo.BindingNumas)
 	p.SetPodSet(podSet)
 
 	return p

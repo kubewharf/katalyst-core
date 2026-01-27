@@ -52,21 +52,7 @@ func (p *DynamicPolicy) sharedCoresHintHandler(ctx context.Context,
 	// TODO: support sidecar follow main container for non-binding share cores in future
 	if req.ContainerType == pluginapi.ContainerType_MAIN {
 		if p.enableNonBindingShareCoresMemoryResourceCheck {
-			ok, err := p.checkNonBindingShareCoresMemoryResource(req)
-			if err != nil {
-				general.Errorf("failed to check share cores resource: %q", err)
-				return nil, fmt.Errorf("failed to check share cores resource: %q", err)
-			}
-
-			if !ok {
-				_ = p.emitter.StoreInt64(util.MetricNameShareCoresNoEnoughResourceFailed, 1, metrics.MetricTypeNameCount, metrics.ConvertMapToTags(map[string]string{
-					"resource":      v1.ResourceMemory.String(),
-					"podNamespace":  req.PodNamespace,
-					"podName":       req.PodName,
-					"containerName": req.ContainerName,
-				})...)
-				return nil, errNoAvailableMemoryHints
-			}
+			return p.nonNUMABindingHintHandler(ctx, req)
 		}
 	}
 
@@ -128,8 +114,34 @@ func (p *DynamicPolicy) dedicatedCoresHintHandler(ctx context.Context,
 	case apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable:
 		return p.numaBindingHintHandler(ctx, req)
 	default:
-		return p.dedicatedCoresWithoutNUMABindingHintHandler(ctx, req)
+		return p.nonNUMABindingHintHandler(ctx, req)
 	}
+}
+
+func (p *DynamicPolicy) nonNUMABindingHintHandler(_ context.Context, req *pluginapi.ResourceRequest) (*pluginapi.ResourceHintsResponse, error) {
+	if req.ContainerType == pluginapi.ContainerType_MAIN {
+		ok, err := p.checkNonBindingMemoryResource(req)
+		if err != nil {
+			general.Errorf("failed to check share cores resource: %q", err)
+			return nil, fmt.Errorf("failed to check share cores resource: %q", err)
+		}
+
+		if !ok {
+			_ = p.emitter.StoreInt64(util.MetricNameNoEnoughNUMAResourceFailed, 1, metrics.MetricTypeNameCount, metrics.ConvertMapToTags(map[string]string{
+				"resource":      v1.ResourceMemory.String(),
+				"podNamespace":  req.PodNamespace,
+				"podName":       req.PodName,
+				"containerName": req.ContainerName,
+				"qosClass":      req.Annotations[apiconsts.PodAnnotationQoSLevelKey],
+			})...)
+			return nil, errNoAvailableMemoryHints
+		}
+	}
+
+	return util.PackResourceHintsResponse(req, string(v1.ResourceMemory),
+		map[string]*pluginapi.ListOfTopologyHints{
+			string(v1.ResourceMemory): nil, // indicates that there is no numa preference
+		})
 }
 
 func (p *DynamicPolicy) numaBindingHintHandler(_ context.Context,
@@ -328,11 +340,10 @@ func (p *DynamicPolicy) clearContainerAndRegenerateMachineState(req *pluginapi.R
 	return resourcesMachineState, nil
 }
 
-func (p *DynamicPolicy) dedicatedCoresWithoutNUMABindingHintHandler(_ context.Context,
-	_ *pluginapi.ResourceRequest,
+func (p *DynamicPolicy) dedicatedCoresWithoutNUMABindingHintHandler(ctx context.Context,
+	req *pluginapi.ResourceRequest,
 ) (*pluginapi.ResourceHintsResponse, error) {
-	// todo: support dedicated_cores without NUMA binding
-	return nil, fmt.Errorf("not support dedicated_cores without NUMA binding")
+	return p.nonNUMABindingHintHandler(ctx, req)
 }
 
 // calculateHints is a helper function to calculate the topology hints
@@ -531,7 +542,7 @@ func (p *DynamicPolicy) calculateNUMANodesLeft(numaNodes []int,
 	numaNodesCPULeft := make(map[int]int64, len(numaNodes))
 	for _, nodeID := range numaNodes {
 		allocatedQuantity := state.GetRequestedQuantityFromPodEntries(machineState[nodeID].PodEntries,
-			state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMABinding))
+			state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimedActualNUMAAffinity))
 		availableCPUQuantity := numaHeadroomState[nodeID] - allocatedQuantity
 		numaNodesCPULeft[nodeID] = availableCPUQuantity - req
 	}

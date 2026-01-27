@@ -59,7 +59,7 @@ const (
 	MetricNameMemoryNumaBalanceResult                 = "memory_numa_balance_result"
 
 	// metrics for some cases
-	MetricNameShareCoresNoEnoughResourceFailed = "share_cores_no_enough_resource"
+	MetricNameNoEnoughNUMAResourceFailed = "no_enough_numa_resource"
 
 	// metrics for numa allocation
 	MetricNameMetricBasedNUMAAllocationEnabled = "metric_based_numa_allocation_enabled"

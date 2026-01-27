@@ -35,8 +35,8 @@ type PolicyBase struct {
 	regionType          configapi.QoSRegionType
 	ownerPoolName       string
 	podSet              types.PodSet
-	bindingNumas        machine.CPUSet
-	isNUMABinding       bool
+	cpuAffinityNUMAs    machine.CPUSet
+	isNUMAAffinity      bool
 	controlKnobAdjusted types.ControlKnob
 
 	metaReader metacache.MetaReader
@@ -67,9 +67,9 @@ func (p *PolicyBase) SetPodSet(podSet types.PodSet) {
 	p.podSet = podSet.Clone()
 }
 
-func (p *PolicyBase) SetBindingNumas(numas machine.CPUSet, isNUMABinding bool) {
-	p.bindingNumas = numas
-	p.isNUMABinding = isNUMABinding
+func (p *PolicyBase) SetCPUAffinityNUMAs(numas machine.CPUSet, isNUMAAffinity bool) {
+	p.cpuAffinityNUMAs = numas
+	p.isNUMAAffinity = isNUMAAffinity
 }
 
 func (p *PolicyBase) GetControlKnobAdjusted() (types.ControlKnob, error) {
@@ -95,5 +95,5 @@ func (p *PolicyBase) GetControlKnobAdjusted() (types.ControlKnob, error) {
 }
 
 func (p *PolicyBase) GetMetaInfo() string {
-	return fmt.Sprintf("[regionName: %s, regionType: %s, ownerPoolName: %s, NUMAs: %v]", p.regionName, p.regionType, p.ownerPoolName, p.bindingNumas.String())
+	return fmt.Sprintf("[regionName: %s, regionType: %s, ownerPoolName: %s, NUMAs: %v]", p.regionName, p.regionType, p.ownerPoolName, p.cpuAffinityNUMAs.String())
 }
