@@ -17,6 +17,7 @@ limitations under the License.
 package handler
 
 import (
+	rawContext "context"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -171,5 +172,37 @@ func TestStateReconciler_deleteAbsentAllocationInfo(t *testing.T) {
 		So(err, ShouldBeNil)
 		So(needStore, ShouldBeFalse)
 		So(reconciler.residualHitMap, ShouldResemble, map[string]int64{"pod0": 1})
+	})
+}
+
+func TestStateReconciler_updatePodSriovVFResultAnnotation(t *testing.T) {
+	t.Parallel()
+
+	Convey("updatePodSriovVFResultAnnotation", t, func() {
+		vfState, podEntries := state.GenerateDummyState(2, 2, map[int]sets.Int{
+			0: sets.NewInt(0),
+		})
+
+		reconciler := generateStateReconciler(t, vfState, podEntries)
+
+		mockPod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				UID:  apitypes.UID("pod0"),
+				Name: "pod0",
+			},
+		}
+
+		podFetcher := &pod.PodFetcherStub{
+			PodList: []*corev1.Pod{mockPod},
+		}
+
+		reconciler.kubeClient = fake.NewSimpleClientset(mockPod)
+
+		err := reconciler.updatePodSriovVFResultAnnotation(&metaserver.MetaServer{MetaAgent: &agent.MetaAgent{PodFetcher: podFetcher}})
+		So(err, ShouldBeNil)
+
+		updatedPod, err := reconciler.kubeClient.CoreV1().Pods(mockPod.Namespace).Get(rawContext.Background(), mockPod.Name, metav1.GetOptions{})
+		So(err, ShouldBeNil)
+		So(updatedPod.Annotations[apiconsts.PodAnnotationSriovVFResultKey], ShouldEqual, "eth0_0")
 	})
 }

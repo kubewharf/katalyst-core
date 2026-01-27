@@ -553,3 +553,97 @@ func TestStaticPolicy_Allocate(t *testing.T) {
 		So(err.Error(), ShouldContainSubstring, "no available VFs")
 	})
 }
+
+func TestNewStaticPolicy_GetTopologyAwareAllocatableResources(t *testing.T) {
+	t.Parallel()
+
+	Convey("bondingHostNetwork is false", t, func() {
+		vfState, podEntries := state.GenerateDummyState(2, 2, nil)
+		policy := generateStaticPolicy(t, false, false, vfState, podEntries)
+
+		resp, err := policy.GetTopologyAwareAllocatableResources(rawContext.Background(), nil)
+		So(err, ShouldBeNil)
+
+		expectedTopologyAwareQuantityList := []*pluginapi.TopologyAwareQuantity{
+			{
+				ResourceValue: 1,
+				Node:          0,
+				Name:          "eth0_0",
+				Type:          string(apinode.TopologyTypeNIC),
+				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
+			},
+			{
+				ResourceValue: 1,
+				Node:          1,
+				Name:          "eth1_0",
+				Type:          string(apinode.TopologyTypeNIC),
+				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
+			},
+			{
+				ResourceValue: 1,
+				Node:          0,
+				Name:          "eth0_1",
+				Type:          string(apinode.TopologyTypeNIC),
+				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
+			},
+			{
+				ResourceValue: 1,
+				Node:          1,
+				Name:          "eth1_1",
+				Type:          string(apinode.TopologyTypeNIC),
+				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
+			},
+		}
+
+		So(resp, ShouldResemble, &pluginapi.GetTopologyAwareAllocatableResourcesResponse{
+			AllocatableResources: map[string]*pluginapi.AllocatableTopologyAwareResource{
+				policy.ResourceName(): {
+					IsNodeResource:                       true,
+					IsScalarResource:                     true,
+					AggregatedAllocatableQuantity:        4,
+					TopologyAwareAllocatableQuantityList: expectedTopologyAwareQuantityList,
+					AggregatedCapacityQuantity:           4,
+					TopologyAwareCapacityQuantityList:    expectedTopologyAwareQuantityList,
+				},
+			},
+		})
+	})
+
+	Convey("bondingHostNetwork is true", t, func() {
+		vfState, podEntries := state.GenerateDummyState(2, 2, nil)
+		policy := generateStaticPolicy(t, false, true, vfState, podEntries)
+
+		resp, err := policy.GetTopologyAwareAllocatableResources(rawContext.Background(), nil)
+		So(err, ShouldBeNil)
+
+		expectedTopologyAwareQuantityList := []*pluginapi.TopologyAwareQuantity{
+			{
+				ResourceValue: 1,
+				Node:          0,
+				Name:          "eth0_1",
+				Type:          string(apinode.TopologyTypeNIC),
+				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
+			},
+			{
+				ResourceValue: 1,
+				Node:          1,
+				Name:          "eth1_1",
+				Type:          string(apinode.TopologyTypeNIC),
+				TopologyLevel: pluginapi.TopologyLevel_SOCKET,
+			},
+		}
+
+		So(resp, ShouldResemble, &pluginapi.GetTopologyAwareAllocatableResourcesResponse{
+			AllocatableResources: map[string]*pluginapi.AllocatableTopologyAwareResource{
+				policy.ResourceName(): {
+					IsNodeResource:                       true,
+					IsScalarResource:                     true,
+					AggregatedAllocatableQuantity:        2,
+					TopologyAwareAllocatableQuantityList: expectedTopologyAwareQuantityList,
+					AggregatedCapacityQuantity:           2,
+					TopologyAwareCapacityQuantityList:    expectedTopologyAwareQuantityList,
+				},
+			},
+		})
+	})
+}
