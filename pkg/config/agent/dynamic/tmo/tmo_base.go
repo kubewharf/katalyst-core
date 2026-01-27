@@ -52,6 +52,7 @@ func NewTransparentMemoryOffloadingConfiguration() *TransparentMemoryOffloadingC
 	return &TransparentMemoryOffloadingConfiguration{
 		DefaultConfigurations: NewTMODefaultConfigurations(),
 		QoSLevelConfigs:       map[consts.QoSLevel]*TMOConfigDetail{},
+		PoolNameConfigs:       map[string]*TMOConfigDetail{},
 		CgroupConfigs:         map[string]*TMOConfigDetail{},
 		BlockConfig:           &TMOBlockConfig{},
 	}
