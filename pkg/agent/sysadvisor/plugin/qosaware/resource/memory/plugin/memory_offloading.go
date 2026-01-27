@@ -499,8 +499,15 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 			}
 		}
 
-		poolName := commonstate.GetSpecifiedPoolName(qos, pod.Annotations[katalystapiconsts.PodAnnotationCPUEnhancementCPUSet])
-		general.Infof("Get pool name %s for pod uid: %s", poolName, pod.UID)
+		cpuEnhancement := tmo.conf.QoSConfiguration.GetQoSEnhancementKVs(pod, map[string]string{}, katalystapiconsts.PodAnnotationCPUEnhancementKey)
+		poolName := ""
+		cpuSetPool, ok := cpuEnhancement[katalystapiconsts.PodAnnotationCPUEnhancementCPUSet]
+		if !ok {
+			general.Infof("CPU set is empty for pod %s, skip load pool name config", pod.UID)
+		} else {
+			poolName = commonstate.GetSpecifiedPoolName(qos, cpuSetPool)
+			general.Infof("Get pool name %s for pod uid: %s", poolName, pod.UID)
+		}
 
 		for _, containerStatus := range pod.Status.ContainerStatuses {
 			containerInfo := &types.ContainerInfo{
