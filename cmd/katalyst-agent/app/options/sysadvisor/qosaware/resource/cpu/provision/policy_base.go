@@ -40,6 +40,9 @@ type CPUProvisionPolicyOptions struct {
 
 	// enable to use control knob cpu quota when cgroup2 available
 	EnableControlKnobCPUQuota bool
+
+	// enable to use control knob cpu quota when cgroup1 available
+	EnableControlKnobCPUQuotaForV1 bool
 }
 
 func NewCPUProvisionPolicyOptions() *CPUProvisionPolicyOptions {
@@ -60,6 +63,7 @@ func (o *CPUProvisionPolicyOptions) ApplyTo(c *provisionconfig.CPUProvisionPolic
 	c.MinRampDownPeriod = o.MinRampDownPeriod
 
 	c.EnableControlKnobCPUQuota = o.EnableControlKnobCPUQuota
+	c.EnableControlKnobCPUQuotaForV1 = o.EnableControlKnobCPUQuotaForV1
 
 	var errList []error
 	errList = append(errList, o.PolicyRama.ApplyTo(c.PolicyRama))
@@ -74,4 +78,5 @@ func (o *CPUProvisionPolicyOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.DurationVar(&o.MinRampDownPeriod, "cpu-regulator-min-ramp-down-period", o.MinRampDownPeriod, "min ramp down period for cpu provision policy")
 	o.PolicyRama.AddFlags(fs)
 	fs.BoolVar(&o.EnableControlKnobCPUQuota, "cpu-provision-enable-control-knob-cpu-quota", o.EnableControlKnobCPUQuota, "enable control knob cpu quota for cpu provision policy")
+	fs.BoolVar(&o.EnableControlKnobCPUQuotaForV1, "cpu-provision-enable-control-knob-cpu-quota-v1", o.EnableControlKnobCPUQuotaForV1, "enable control knob cpu quota for cpu provision policy for cgroup1")
 }
