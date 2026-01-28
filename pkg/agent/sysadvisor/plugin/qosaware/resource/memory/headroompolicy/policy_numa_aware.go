@@ -19,6 +19,8 @@ package headroompolicy
 import (
 	"fmt"
 	"math"
+	"os"
+	"strconv"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 
@@ -203,32 +205,58 @@ func (p *PolicyNUMAAware) GetHeadroom() (resource.Quantity, map[int]resource.Qua
 	return p.memoryHeadroom, p.numaMemoryHeadroom, nil
 }
 
-func (p *PolicyNUMAAware) getReclaimMemoryLimit(actualNUMABindingNUMAs, nonActualNUMABindingNUMAs machine.CPUSet) (map[int]float64, error) {
+func (p *PolicyNUMAAware) getReclaimMemoryLimitAndUtil(actualNUMABindingNUMAs, nonActualNUMABindingNUMAs machine.CPUSet) (map[int]float64, map[int]float64, error) {
 	numaReclaimMemoryLimit := make(map[int]float64, actualNUMABindingNUMAs.Size()+nonActualNUMABindingNUMAs.Size())
+	numaUtil := make(map[int]float64, actualNUMABindingNUMAs.Size()+nonActualNUMABindingNUMAs.Size())
 	for _, numaID := range actualNUMABindingNUMAs.ToSliceNoSortInt() {
 		cgroupPath := p.numaBindingReclaimRelativeRootCgroupPaths[numaID]
 		data, err := p.metaServer.GetCgroupMetric(cgroupPath, consts.MetricMemLimitCgroup)
 		if err != nil {
-			return nil, fmt.Errorf("get cgroup %s metric failed: %v", cgroupPath, err)
+			return nil, nil, fmt.Errorf("get cgroup %s metric failed: %v", cgroupPath, err)
 		}
+		limit := data.Value
 
-		numaReclaimMemoryLimit[numaID] = data.Value
+		numaReclaimMemoryLimit[numaID] = limit
+
+		data, err = p.metaServer.GetCgroupMetric(cgroupPath, consts.MetricMemUsageCgroup)
+		if err != nil {
+			return nil, nil, fmt.Errorf("get cgroup %s metric failed: %v", cgroupPath, err)
+		}
+		util := data.Value / limit
+		if util > 1 {
+			util = 1
+		} else if util < 0 {
+			util = 0
+		}
+		numaUtil[numaID] = util
 	}
 
 	cgroupMetric, err := p.metaServer.GetCgroupMetric(p.conf.ReclaimRelativeRootCgroupPath, consts.MetricMemLimitCgroup)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	reclaimMemoryLimit := cgroupMetric.Value
+
+	cgroupMetric, err = p.metaServer.GetCgroupMetric(p.conf.ReclaimRelativeRootCgroupPath, consts.MetricMemUsageCgroup)
+	if err != nil {
+		return nil, nil, err
+	}
+	reclaimMemoryUtil := cgroupMetric.Value / reclaimMemoryLimit
+	if reclaimMemoryUtil > 1 {
+		reclaimMemoryUtil = 1
+	} else if reclaimMemoryUtil < 0 {
+		reclaimMemoryUtil = 0
+	}
 
 	if !nonActualNUMABindingNUMAs.IsEmpty() {
 		reclaimMemoryLimitPerNUMA := reclaimMemoryLimit / float64(nonActualNUMABindingNUMAs.Size())
 		for _, numaID := range nonActualNUMABindingNUMAs.ToSliceNoSortInt() {
 			numaReclaimMemoryLimit[numaID] = reclaimMemoryLimitPerNUMA
+			numaUtil[numaID] = reclaimMemoryUtil
 		}
 	}
 
-	return numaReclaimMemoryLimit, nil
+	return numaReclaimMemoryLimit, numaUtil, nil
 }
 
 // reviseNUMAHeadroomMemory adjusts reclaimable memory based on NUMA configuration and oversold rate settings
@@ -256,17 +284,57 @@ func (p *PolicyNUMAAware) reviseNUMAHeadroomMemory(
 	}
 
 	nonActualNUMABindingNUMAs := availNUMAs.Difference(actualNUMABindingNUMAs)
-	numaReclaimMemoryLimit, err := p.getReclaimMemoryLimit(actualNUMABindingNUMAs, nonActualNUMABindingNUMAs)
+	numaReclaimMemoryLimit, numaReclaimMemoryUtil, err := p.getReclaimMemoryLimitAndUtil(actualNUMABindingNUMAs, nonActualNUMABindingNUMAs)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	general.InfoS("NUMA memory headroom raw data", "numaReclaimMemoryLimit", numaReclaimMemoryLimit, "maxOversoldRate", maxOversoldRate)
+	general.InfoS("NUMA memory headroom raw data", "numaReclaimMemoryLimit", numaReclaimMemoryLimit, "maxOversoldRate", maxOversoldRate, "numaReclaimMemoryUtil", numaReclaimMemoryUtil)
 
 	revisedNUMAHeadroom := make(map[int]float64, len(numaHeadroom))
 	revisedTotalNUMAHeadroom := 0.
 	for numaID, memory := range numaHeadroom {
-		revisedNUMAHeadroom[numaID] = math.Min(memory, numaReclaimMemoryLimit[numaID]*maxOversoldRate)
+
+		/*
+			 oversold rate  ^
+							|-----
+							|     \
+							|      \
+							|       \
+							|        \
+							|         \
+							|          \
+							|           \
+							|            \
+							|             \
+							|              \
+							|               \-------
+							|----------------------> util
+							0          0.5          1
+		*/
+		// FIXME: configurable
+		scaleFactor, err := strconv.ParseFloat(os.Getenv("scaleFactor"), 64)
+		if err != nil {
+			scaleFactor = 5
+		}
+		maxOversoldRate, err = strconv.ParseFloat(os.Getenv("maxOversoldRate"), 64)
+		if err != nil {
+			maxOversoldRate = 4
+		}
+
+		overSoldRate := (maxOversoldRate-1)/2*(1-math.Tanh((numaReclaimMemoryUtil[numaID]-0.5)*scaleFactor)) + 1
+		if maxOversoldRate < 1 {
+			overSoldRate = maxOversoldRate
+		}
+
+		//revisedNUMAHeadroom[numaID] = math.Min(memory, numaReclaimMemoryLimit[numaID]*overSoldRate)
+		revisedNUMAHeadroom[numaID] = numaReclaimMemoryLimit[numaID] * overSoldRate
+
+		general.InfoS("revised detail", "raw headroom", general.FormatMemoryQuantity(memory),
+			"memoryLimit", general.FormatMemoryQuantity(numaReclaimMemoryLimit[numaID]),
+			"revisedNUMAHeadroom", general.FormatMemoryQuantity(revisedNUMAHeadroom[numaID]),
+			"overSoldRate", overSoldRate, "maxOversoldRate", maxOversoldRate, "numaID", numaID)
+
 		revisedTotalNUMAHeadroom += revisedNUMAHeadroom[numaID]
 	}
 
