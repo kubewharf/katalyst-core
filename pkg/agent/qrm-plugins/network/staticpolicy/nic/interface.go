@@ -23,8 +23,9 @@ import (
 )
 
 type NICs struct {
-	HealthyNICs   []machine.InterfaceInfo
-	UnhealthyNICs []machine.InterfaceInfo
+	HealthyNICs      []machine.InterfaceInfo
+	UnhealthyNICs    []machine.InterfaceInfo
+	UnhealthyReasons []string
 }
 
 type NICManager interface {
