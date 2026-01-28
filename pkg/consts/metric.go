@@ -491,3 +491,9 @@ const (
 	MetricsPodVolumeInodesFree = "free.inodes.volume.pod.container"
 	MetricsPodVolumeInodesUsed = "used.inodes.volume.pod.container"
 )
+
+// reclaimed cpu headroom metrics
+const (
+	MetricsNodeCPUHeadroomLoss = "reduced.node.cpu.headroom"
+	MetricsNumaCPUHeadroomLoss = "reduced.numa.cpu.headroom"
+)
