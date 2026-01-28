@@ -298,7 +298,7 @@ func (p *DynamicPolicy) reclaimedCoresWithNUMABindingHintHandler(_ context.Conte
 		if calculateErr != nil {
 			general.Errorf("failed to calculate hints for pod: %s/%s, container: %s, error: %v",
 				req.PodNamespace, req.PodName, req.ContainerName, calculateErr)
-			return nil, fmt.Errorf("calculateHints failed with error: %v", calculateErr)
+			return nil, fmt.Errorf("calculateHintsForNUMABindingReclaimedCores failed with error: %v", calculateErr)
 		}
 	}
 
@@ -550,6 +550,9 @@ func (p *DynamicPolicy) populateBestEffortHintsByAvailableNUMANodes(
 	var nodeHints []nodeHint
 	// Collect nodes that meet the requirement
 	for nodeID := range candidateLeft {
+		if candidateLeft[nodeID] < 0 {
+			continue
+		}
 		// Collect node and its available left memory
 		nodeHints = append(nodeHints, nodeHint{nodeID: nodeID, curLeft: candidateLeft[nodeID]})
 	}
@@ -563,17 +566,10 @@ func (p *DynamicPolicy) populateBestEffortHintsByAvailableNUMANodes(
 	hintList := make([]*pluginapi.TopologyHint, 0, len(nodeHints))
 	// Add sorted hints to the hint list
 	for _, nh := range nodeHints {
-		if nh.curLeft < 0 {
-			hintList = append(hintList, &pluginapi.TopologyHint{
-				Nodes:     []uint64{uint64(nh.nodeID)},
-				Preferred: false,
-			})
-		} else {
-			hintList = append(hintList, &pluginapi.TopologyHint{
-				Nodes:     []uint64{uint64(nh.nodeID)},
-				Preferred: true,
-			})
-		}
+		hintList = append(hintList, &pluginapi.TopologyHint{
+			Nodes:     []uint64{uint64(nh.nodeID)},
+			Preferred: true,
+		})
 	}
 
 	// Update the hints map
