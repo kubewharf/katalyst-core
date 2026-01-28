@@ -36,6 +36,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent/qrm"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/accompanyresource"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
@@ -80,6 +81,8 @@ const (
 
 	healthCheckTolerationTimes = 3
 )
+
+var AccompanyResourceRegistry = accompanyresource.NewRegistry()
 
 // DynamicPolicy is the policy that's used by default;
 // it will consider the dynamic running information to calculate
@@ -1059,6 +1062,11 @@ func (p *DynamicPolicy) RemovePod(ctx context.Context,
 	if err != nil {
 		general.ErrorS(err, "remove pod failed with error", "podUID", req.PodUid)
 		return nil, err
+	}
+
+	if err := AccompanyResourceRegistry.ReleaseAccompanyResource(req); err != nil {
+		general.ErrorS(err, "failed to release accompany resource", "podUID", req.PodUid)
+		return nil, fmt.Errorf("failed to release accompany resource %v", err)
 	}
 
 	aErr := p.adjustAllocationEntries(false)
