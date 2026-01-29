@@ -21,6 +21,7 @@ import "math"
 type Distributor interface {
 	// Distribute distributes total mb into ccds by their relative weights
 	Distribute(total int, weights map[int]int) map[int]int
+	GetMax() int
 }
 
 func New(min, max int) Distributor {
@@ -65,6 +66,10 @@ func (l *linearBoundedDistributor) adjust(value int) int {
 	return value
 }
 
+func (l *linearBoundedDistributor) GetMax() int {
+	return l.max
+}
+
 func getPortion(total int, weight int, totalWeight int) int {
 	if weight <= 0 || totalWeight <= 0 {
 		return 0
@@ -87,4 +92,8 @@ func (l logarithmicBoundedDistributor) Distribute(total int, weights map[int]int
 		logarithmicWeights[k] = int(math.Log2(float64(v)))
 	}
 	return l.inner.Distribute(total, logarithmicWeights)
+}
+
+func (l logarithmicBoundedDistributor) GetMax() int {
+	return l.inner.max
 }
