@@ -502,6 +502,7 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 		cpuEnhancement := tmo.conf.QoSConfiguration.GetQoSEnhancementKVs(pod, map[string]string{}, katalystapiconsts.PodAnnotationCPUEnhancementKey)
 		poolName := ""
 		cpuSetPool, ok := cpuEnhancement[katalystapiconsts.PodAnnotationCPUEnhancementCPUSet]
+
 		if !ok {
 			general.Infof("CPU set is empty for pod %s, skip load pool name config", pod.UID)
 		} else {
@@ -524,6 +525,7 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 			if !exist {
 				tmo.containerTmoEngines[podContainerName] = NewTmoEngineInstance(containerInfo, tmo.metaServer, tmo.emitter, tmo.conf.GetDynamicConfiguration().TransparentMemoryOffloadingConfiguration)
 			}
+
 			// load QoSLevelConfig
 			if helper.IsValidQosLevel(containerInfo.QoSLevel) {
 				if tmoConfigDetail, exist := tmo.conf.GetDynamicConfiguration().QoSLevelConfigs[katalystapiconsts.QoSLevel(containerInfo.QoSLevel)]; exist {
