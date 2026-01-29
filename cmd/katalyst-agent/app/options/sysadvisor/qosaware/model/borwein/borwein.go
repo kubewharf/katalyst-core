@@ -33,6 +33,7 @@ type BorweinOptions struct {
 	TargetIndicators                   []string
 	DryRun                             bool
 	EnableBorweinV2                    bool
+	EnableBorweinV3                    bool
 	RestrictIndicator                  bool
 }
 
@@ -58,6 +59,7 @@ func (o *BorweinOptions) AddFlags(fs *pflag.FlagSet) {
 		"borwein target indicator name list")
 	fs.BoolVar(&o.DryRun, "borwein-dry-run", o.DryRun, "A bool to enable and disable borwein dry-run")
 	fs.BoolVar(&o.EnableBorweinV2, "enable-borwein-v2", o.EnableBorweinV2, "A bool to enable and disable borwein v2")
+	fs.BoolVar(&o.EnableBorweinV3, "enable-borwein-v3", o.EnableBorweinV3, "A bool to enable and disable borwein v3, v3 has higher priority than v2")
 	fs.BoolVar(&o.RestrictIndicator, "borwein-restrict-indicator", o.RestrictIndicator, "A bool to enable indicator restriction")
 }
 
@@ -73,6 +75,7 @@ func (o *BorweinOptions) ApplyTo(c *borwein.BorweinConfiguration) error {
 	c.TargetIndicators = o.TargetIndicators
 	c.DryRun = o.DryRun
 	c.EnableBorweinV2 = o.EnableBorweinV2
+	c.EnableBorweinV3 = o.EnableBorweinV3
 	c.RestrictIndicator = o.RestrictIndicator
 
 	if len(o.NodeFeatureNames)+len(o.ContainerFeatureNames) > 0 {
