@@ -81,12 +81,15 @@ func doReclaimMemory(cmd string, mems machine.CPUSet) error {
 	newMask := bitmask.NewEmptyBitMask()
 	newMask.Add(mems.ToSliceInt()...)
 
+	klog.InfoS("bit mask", "new", newMask.String(), "old", mask.String(), "cmd", cmd)
+
 	if err := SetMemPolicy(MPOL_BIND, newMask); err != nil {
 		return err
 	}
 
-	_, err = exec.Command("bash", "-c", cmd).Output()
-	klog.ErrorS(err, "failed to exec", "cmd", cmd)
+	if _, err = exec.Command("bash", "-c", cmd).Output(); err != nil {
+		klog.ErrorS(err, "failed to exec", "cmd", cmd)
+	}
 
 	// restore original memory policy
 	if err := SetMemPolicy(mode, mask); err != nil {
