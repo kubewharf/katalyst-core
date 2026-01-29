@@ -41,14 +41,18 @@ const (
 type TransparentMemoryOffloadingConfiguration struct {
 	DefaultConfigurations *TMODefaultConfigurations
 	QoSLevelConfigs       map[consts.QoSLevel]*TMOConfigDetail
-	CgroupConfigs         map[string]*TMOConfigDetail
-	BlockConfig           *TMOBlockConfig
+	// PoolName is the name of the cgroup pool where transparent memory offloading is enabled
+	//   we will apply different config for different cgroup pool
+	PoolNameConfigs map[string]*TMOConfigDetail
+	CgroupConfigs   map[string]*TMOConfigDetail
+	BlockConfig     *TMOBlockConfig
 }
 
 func NewTransparentMemoryOffloadingConfiguration() *TransparentMemoryOffloadingConfiguration {
 	return &TransparentMemoryOffloadingConfiguration{
 		DefaultConfigurations: NewTMODefaultConfigurations(),
 		QoSLevelConfigs:       map[consts.QoSLevel]*TMOConfigDetail{},
+		PoolNameConfigs:       map[string]*TMOConfigDetail{},
 		CgroupConfigs:         map[string]*TMOConfigDetail{},
 		BlockConfig:           &TMOBlockConfig{},
 	}
@@ -163,6 +167,13 @@ func (c *TransparentMemoryOffloadingConfiguration) ApplyConfiguration(conf *crd.
 				ApplyTMOConfigDetail(tmoConfigDetail, qosLevelConfig.ConfigDetail)
 				c.QoSLevelConfigs[qosLevelConfig.QoSLevel] = tmoConfigDetail
 
+			}
+		}
+		if tmoConf.Spec.Config.PoolNameConfig != nil {
+			for _, poolNameConfig := range tmoConf.Spec.Config.PoolNameConfig {
+				tmoConfigDetail := NewTMOConfigDetail(c.DefaultConfigurations)
+				ApplyTMOConfigDetail(tmoConfigDetail, poolNameConfig.ConfigDetail)
+				c.PoolNameConfigs[poolNameConfig.PoolName] = tmoConfigDetail
 			}
 		}
 		if tmoConf.Spec.Config.CgroupConfig != nil {
