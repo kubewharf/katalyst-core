@@ -55,4 +55,5 @@ type MBGroupIncomingStat struct {
 	ResourceState  State
 	GroupLimits    GroupSettings
 	GroupSorted    []sets.String
+	SubGroups      map[string][]string
 }

@@ -126,10 +126,77 @@ func getGroupIncomingInfo(capacity int, incomingStats monitor.GroupMBStats) *res
 		CapacityInMB: capacity,
 	}
 
-	result.GroupSorted = sortGroups(maps.Keys(incomingStats))
-	result.GroupTotalUses = getUsedTotalByGroup(incomingStats)
+	groups, subGroups := preProcessGroupInfo(incomingStats)
+	result.GroupSorted = sortGroups(maps.Keys(groups))
+	result.GroupTotalUses = getUsedTotalByGroup(groups)
 	result.FreeInMB, result.GroupLimits = getLimitsByGroupSorted(capacity, result.GroupSorted, result.GroupTotalUses)
 	result.ResourceState = resource.GetResourceState(capacity, result.FreeInMB)
+	result.SubGroups = subGroups
+	return result
+}
+
+// groupByWeight extracts the common logic of grouping by weight
+func groupByWeight[T any](stats map[string]T) map[int][]string {
+	groups := make(map[int][]string, len(stats))
+	for group := range stats {
+		weight := getWeight(group)
+		groups[weight] = append(groups[weight], group)
+	}
+	return groups
+}
+
+// preProcessGroupInfo combines groups with same priority together
+func preProcessGroupInfo(stats monitor.GroupMBStats) (monitor.GroupMBStats, map[string][]string) {
+	groups := groupByWeight(stats)
+
+	result := make(monitor.GroupMBStats)
+	subGroupsMap := make(map[string][]string)
+
+	for weight, equivGroups := range groups {
+		if len(equivGroups) == 1 {
+			result[equivGroups[0]] = stats[equivGroups[0]]
+			continue
+		}
+
+		newKey := fmt.Sprintf("combined-%d", weight)
+		subGroupsMap[newKey] = equivGroups
+
+		combined := make(monitor.GroupMB)
+		for _, group := range equivGroups {
+			for id, stat := range stats[group] {
+				combined[id] = stat
+			}
+		}
+		result[newKey] = combined
+	}
+
+	return result, subGroupsMap
+}
+
+func preProcessGroupSumStat(sumStats map[string][]monitor.MBInfo) map[string][]monitor.MBInfo {
+	groups := groupByWeight(sumStats)
+
+	result := make(map[string][]monitor.MBInfo)
+
+	for weight, equivGroups := range groups {
+		if len(equivGroups) == 1 {
+			result[equivGroups[0]] = sumStats[equivGroups[0]]
+			continue
+		}
+
+		newKey := fmt.Sprintf("combined-%d", weight)
+		sumList := make([]monitor.MBInfo, len(sumStats[equivGroups[0]]))
+
+		for _, group := range equivGroups {
+			for id, stat := range sumStats[group] {
+				sumList[id].LocalMB += stat.LocalMB
+				sumList[id].RemoteMB += stat.RemoteMB
+				sumList[id].TotalMB += stat.TotalMB
+			}
+		}
+		result[newKey] = sumList
+	}
+
 	return result
 }
 
