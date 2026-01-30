@@ -65,6 +65,9 @@ var qosLevel2PoolName = map[string]string{
 	consts.PodAnnotationQoSLevelDedicatedCores: commonstate.PoolNameDedicated,
 }
 
+const testPoolName1 = "test_pool_1"
+const testPoolName2 = "test_pool_2"
+
 func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel string, annotations map[string]string,
 	topologyAwareAssignments types.TopologyAwareAssignment, memoryRequest float64,
 ) *types.ContainerInfo {
@@ -507,6 +510,71 @@ func TestUpdate(t *testing.T) {
 			reclaimedEnable:  true,
 			wantErr:          false,
 			wantHeadroom:     *resource.NewQuantity(996<<30, resource.DecimalSI),
+			nodeMetrics:      defaultNodeMetrics,
+			numaMetrics:      defaultNumaMetrics,
+			wantAdviceResult: &types.InternalMemoryCalculationResult{},
+		},
+		{
+			name: "normal case",
+			pools: map[string]*types.PoolInfo{
+				commonstate.PoolNameReserve: {
+					PoolName: commonstate.PoolNameReserve,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+				},
+				commonstate.PoolNameShare: {
+					PoolName: commonstate.PoolNameShare,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("25"),
+					},
+					OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("25"),
+					},
+				},
+			},
+			reclaimedEnable: true,
+			wantErr:         false,
+			containers: []*types.ContainerInfo{
+				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelSharedCores, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("25"),
+					}, 0),
+			},
+			pods: []*v1.Pod{
+				// specify cpuset_pool for each pod, to test pool name associated config
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod1",
+						Namespace: "default",
+						UID:       "uid1",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey:       consts.PodAnnotationQoSLevelSharedCores,
+							consts.PodAnnotationCPUEnhancementKey: fmt.Sprintf("{\"%s\": \"%s\"}", consts.PodAnnotationCPUEnhancementCPUSet, testPoolName1),
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod2",
+						Namespace: "default",
+						UID:       "uid2",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey:       consts.PodAnnotationQoSLevelSharedCores,
+							consts.PodAnnotationCPUEnhancementKey: fmt.Sprintf("{\"%s\": \"%s\"}", consts.PodAnnotationCPUEnhancementCPUSet, testPoolName2),
+						},
+					},
+				},
+			},
+			wantHeadroom:     *resource.NewQuantity(988<<30, resource.DecimalSI),
 			nodeMetrics:      defaultNodeMetrics,
 			numaMetrics:      defaultNumaMetrics,
 			wantAdviceResult: &types.InternalMemoryCalculationResult{},
@@ -4375,6 +4443,14 @@ func TestUpdate(t *testing.T) {
 			transparentMemoryOffloadingConfiguration.CgroupConfigs["/sys/fs/cgroup/hdfs"] = tmo.NewTMOConfigDetail(transparentMemoryOffloadingConfiguration.DefaultConfigurations)
 			transparentMemoryOffloadingConfiguration.CgroupConfigs["/sys/fs/cgroup/hdfs"].EnableTMO = true
 			transparentMemoryOffloadingConfiguration.CgroupConfigs["/sys/fs/cgroup/hdfs"].EnableSwap = false
+
+			// pool Name level
+			transparentMemoryOffloadingConfiguration.PoolNameConfigs[testPoolName1] = tmo.NewTMOConfigDetail(transparentMemoryOffloadingConfiguration.DefaultConfigurations)
+			transparentMemoryOffloadingConfiguration.PoolNameConfigs[testPoolName1].EnableTMO = true
+			transparentMemoryOffloadingConfiguration.PoolNameConfigs[testPoolName1].EnableSwap = false
+			transparentMemoryOffloadingConfiguration.PoolNameConfigs[testPoolName2] = tmo.NewTMOConfigDetail(transparentMemoryOffloadingConfiguration.DefaultConfigurations)
+			transparentMemoryOffloadingConfiguration.PoolNameConfigs[testPoolName2].EnableTMO = true
+			transparentMemoryOffloadingConfiguration.PoolNameConfigs[testPoolName2].EnableSwap = true
 
 			advisor.conf.GetDynamicConfiguration().TransparentMemoryOffloadingConfiguration = transparentMemoryOffloadingConfiguration
 
