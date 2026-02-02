@@ -130,7 +130,9 @@ func (p *DynamicPolicy) numaBindingAllocationHandler(ctx context.Context,
 				"memoryReq(bytes)", podAggregatedRequest,
 				"currentResult(bytes)", allocationInfo.AggregatedQuantity)
 
-			resp, packErr := packAllocationResponse(allocationInfo, req, nil)
+			canCrossNuma := allocationInfo.CheckDedicatedNUMABinding() || allocationInfo.CheckDedicatedNUMABindingNUMAExclusive()
+			topologyAllocationAnnotations := getMemoryTopologyAllocationsAnnotations(allocationInfo, canCrossNuma)
+			resp, packErr := packAllocationResponse(allocationInfo, req, topologyAllocationAnnotations)
 			if packErr != nil {
 				general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
 					req.PodNamespace, req.PodName, req.ContainerName, packErr)
@@ -234,7 +236,9 @@ func (p *DynamicPolicy) numaBindingAllocationHandler(ctx context.Context,
 		return nil, fmt.Errorf("adjustAllocationEntries failed with error: %v", err)
 	}
 
-	resp, err := packAllocationResponse(allocationInfo, req, nil)
+	canCrossNuma := allocationInfo.CheckDedicatedNUMABinding() || allocationInfo.CheckDedicatedNUMABindingNUMAExclusive()
+	topologyAllocationAnnotations := getMemoryTopologyAllocationsAnnotations(allocationInfo, canCrossNuma)
+	resp, err := packAllocationResponse(allocationInfo, req, topologyAllocationAnnotations)
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -370,13 +374,7 @@ func (p *DynamicPolicy) reclaimedCoresBestEffortNUMABindingAllocationHandler(ctx
 		}
 	}
 
-	resp, err := packAllocationResponse(allocationInfo, req, p.getReclaimedResourceAllocationAnnotations(allocationInfo))
-	if err != nil {
-		general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
-			req.PodNamespace, req.PodName, req.ContainerName, err)
-		return nil, fmt.Errorf("packAllocationResponse failed with error: %v", err)
-	}
-
+	var topologyAllocationsAnnotations map[string]string
 	// we only support updating the NUMA allocation results for pods with explicit NUMA binding annotation
 	if qosutil.AnnotationsIndicateNUMABinding(req.Annotations) {
 		err = p.updateSpecifiedNUMAAllocation(ctx, allocationInfo)
@@ -385,6 +383,15 @@ func (p *DynamicPolicy) reclaimedCoresBestEffortNUMABindingAllocationHandler(ctx
 				req.PodNamespace, req.PodName, req.ContainerName, err)
 			return nil, fmt.Errorf("updateSpecifiedNUMAAllocation failed with error: %v", err)
 		}
+		topologyAllocationsAnnotations = getMemoryTopologyAllocationsAnnotations(allocationInfo, false)
+	}
+
+	resp, err := packAllocationResponse(allocationInfo, req, p.getReclaimedResourceAllocationAnnotations(allocationInfo),
+		topologyAllocationsAnnotations)
+	if err != nil {
+		general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
+		return nil, fmt.Errorf("packAllocationResponse failed with error: %v", err)
 	}
 
 	general.InfoS("allocate memory successfully",
@@ -737,7 +744,7 @@ func calculateMemoryInNumaNodes(req *pluginapi.ResourceRequest,
 }
 
 // packAllocationResponse fills pluginapi.ResourceAllocationResponse with information from AllocationInfo and pluginapi.ResourceRequest
-func packAllocationResponse(allocationInfo *state.AllocationInfo, req *pluginapi.ResourceRequest, resourceAllocationAnnotations map[string]string) (*pluginapi.ResourceAllocationResponse, error) {
+func packAllocationResponse(allocationInfo *state.AllocationInfo, req *pluginapi.ResourceRequest, resourceAllocationAnnotations ...map[string]string) (*pluginapi.ResourceAllocationResponse, error) {
 	if allocationInfo == nil {
 		return nil, fmt.Errorf("packAllocationResponse got nil allocationInfo")
 	} else if req == nil {
@@ -760,7 +767,7 @@ func packAllocationResponse(allocationInfo *state.AllocationInfo, req *pluginapi
 					OciPropertyName:   util.OCIPropertyNameCPUSetMems,
 					IsNodeResource:    false,
 					IsScalarResource:  true,
-					Annotations:       resourceAllocationAnnotations,
+					Annotations:       general.MergeAnnotations(resourceAllocationAnnotations...),
 					AllocatedQuantity: float64(allocationInfo.AggregatedQuantity),
 					AllocationResult:  allocationInfo.NumaAllocationResult.String(),
 					ResourceHints: &pluginapi.ListOfTopologyHints{
