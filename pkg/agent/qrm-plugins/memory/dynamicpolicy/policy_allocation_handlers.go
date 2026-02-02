@@ -394,6 +394,15 @@ func (p *DynamicPolicy) reclaimedCoresBestEffortNUMABindingAllocationHandler(ctx
 				req.PodNamespace, req.PodName, req.ContainerName, err)
 			return nil, fmt.Errorf("updateSpecifiedNUMAAllocation failed with error: %v", err)
 		}
+		topologyAllocationsAnnotations = getMemoryTopologyAllocationsAnnotations(allocationInfo, p.topologyAllocationAnnotationKey)
+	}
+
+	resp, err := packAllocationResponse(allocationInfo, req, p.getReclaimedResourceAllocationAnnotations(allocationInfo),
+		topologyAllocationsAnnotations)
+	if err != nil {
+		general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
+		return nil, fmt.Errorf("packAllocationResponse failed with error: %v", err)
 	}
 
 	general.InfoS("allocate memory successfully",
@@ -802,7 +811,7 @@ func calculateMemoryInNumaNodes(req *pluginapi.ResourceRequest,
 
 // packAllocationResponse fills pluginapi.ResourceAllocationResponse with information from map of resource to AllocationInfo and pluginapi.ResourceRequest
 func packAllocationResponse(resourceAllocationInfo map[v1.ResourceName]*state.AllocationInfo, req *pluginapi.ResourceRequest,
-	resourceAllocationAnnotations map[string]string,
+	resourceAllocationAnnotations ...map[string]string,
 ) (*pluginapi.ResourceAllocationResponse, error) {
 	if resourceAllocationInfo == nil {
 		return nil, fmt.Errorf("packAllocationResponse got nil resourceAllocationInfo")
@@ -836,7 +845,7 @@ func packAllocationResponse(resourceAllocationInfo map[v1.ResourceName]*state.Al
 			OciPropertyName:   util.OCIPropertyNameCPUSetMems,
 			IsNodeResource:    false,
 			IsScalarResource:  true,
-			Annotations:       resourceAllocationAnnotations,
+			Annotations:       general.MergeAnnotations(resourceAllocationAnnotations...),
 			AllocatedQuantity: float64(allocationInfo.AggregatedQuantity),
 			AllocationResult:  allocationInfo.NumaAllocationResult.String(),
 			ResourceHints: &pluginapi.ListOfTopologyHints{

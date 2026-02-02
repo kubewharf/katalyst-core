@@ -17,10 +17,17 @@ limitations under the License.
 package dynamicpolicy
 
 import (
+	"encoding/json"
+	"reflect"
 	"testing"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+
+	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
+	coreconsts "github.com/kubewharf/katalyst-core/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 func TestGetFullyDropCacheBytes(t *testing.T) {
@@ -77,6 +84,125 @@ func TestGetFullyDropCacheBytes(t *testing.T) {
 			t.Parallel()
 			if got := GetFullyDropCacheBytes(tt.args.container); got != tt.want {
 				t.Errorf("GetFullyDropCacheBytes() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// helper to extract topology allocation from annotations JSON
+func parseTopologyAllocationFromAnno(t *testing.T, annos map[string]string) v1alpha1.TopologyAllocation {
+	t.Helper()
+	if annos == nil {
+		return nil
+	}
+	raw, ok := annos[coreconsts.QRMPodAnnotationTopologyAllocationKey]
+	if !ok {
+		return nil
+	}
+	var ta v1alpha1.TopologyAllocation
+	if err := json.Unmarshal([]byte(raw), &ta); err != nil {
+		t.Fatalf("failed to unmarshal topology allocation: %v", err)
+	}
+	return ta
+}
+
+func TestGetMemoryTopologyAllocationsAnnotations(t *testing.T) {
+	t.Parallel()
+
+	giB := func(n int) uint64 { return uint64(n) << 30 }
+
+	tests := []struct {
+		name         string
+		ai           *state.AllocationInfo
+		wantNilAnno  bool
+		wantTopology v1alpha1.TopologyAllocation
+	}{
+		{
+			name:        "nil allocation info returns nil",
+			ai:          nil,
+			wantNilAnno: true,
+		},
+		{
+			name:        "no topology allocations and empty NUMA result returns nil",
+			ai:          &state.AllocationInfo{},
+			wantNilAnno: true,
+		},
+		{
+			name: "no topology allocations but with NUMA result lists zones only",
+			ai: &state.AllocationInfo{
+				NumaAllocationResult: machine.NewCPUSet(0, 1),
+			},
+			wantTopology: v1alpha1.TopologyAllocation{
+				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
+					"0": {},
+					"1": {},
+				},
+			},
+		},
+		{
+			name: "with topology allocations includes allocated quantities",
+			ai: &state.AllocationInfo{
+				TopologyAwareAllocations: map[int]uint64{
+					0: giB(1),
+					1: giB(2),
+				},
+			},
+			wantTopology: v1alpha1.TopologyAllocation{
+				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
+					"0": {
+						Allocated: map[v1.ResourceName]resource.Quantity{
+							v1.ResourceMemory: resource.MustParse("1Gi"),
+						},
+					},
+					"1": {
+						Allocated: map[v1.ResourceName]resource.Quantity{
+							v1.ResourceMemory: resource.MustParse("2Gi"),
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "with topology allocations includes allocated quantities (including zero)",
+			ai: &state.AllocationInfo{
+				TopologyAwareAllocations: map[int]uint64{
+					0: giB(3),
+					2: 0,
+				},
+			},
+			wantTopology: v1alpha1.TopologyAllocation{
+				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
+					"0": {
+						Allocated: map[v1.ResourceName]resource.Quantity{
+							v1.ResourceMemory: resource.MustParse("3Gi"),
+						},
+					},
+					"2": {
+						Allocated: map[v1.ResourceName]resource.Quantity{
+							v1.ResourceMemory: resource.MustParse("0"),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := getMemoryTopologyAllocationsAnnotations(tt.ai, coreconsts.QRMPodAnnotationTopologyAllocationKey)
+			if tt.wantNilAnno {
+				if got != nil {
+					t.Fatalf("expected nil annotations, got: %#v", got)
+				}
+				return
+			}
+
+			ta := parseTopologyAllocationFromAnno(t, got)
+			if !reflect.DeepEqual(ta, tt.wantTopology) {
+				t.Fatalf("unexpected topology allocation. got=%v, want=%v", ta, tt.wantTopology)
 			}
 		})
 	}
