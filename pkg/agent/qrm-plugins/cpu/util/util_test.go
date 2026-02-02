@@ -17,15 +17,18 @@ limitations under the License.
 package util
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	"k8s.io/utils/ptr"
 
+	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
@@ -610,6 +613,114 @@ func TestGetPodCPUBurstPercent(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				assert.Equal(t, tt.wantPercent, gotPercent)
+			}
+		})
+	}
+}
+
+// helper to extract topology allocation from annotations JSON
+func parseCPUTopologyAllocationFromAnno(t *testing.T, annos map[string]string) v1alpha1.TopologyAllocation {
+	t.Helper()
+	if annos == nil {
+		return nil
+	}
+	raw, ok := annos[consts.PodAnnotationTopologyAllocationKey]
+	if !ok {
+		return nil
+	}
+	var ta v1alpha1.TopologyAllocation
+	if err := json.Unmarshal([]byte(raw), &ta); err != nil {
+		t.Fatalf("failed to unmarshal topology allocation: %v", err)
+	}
+	return ta
+}
+
+func TestGetCPUTopologyAllocationsAnnotations_Table(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		ai           *state.AllocationInfo
+		canCrossNuma bool
+		wantNilAnno  bool
+		wantTopology v1alpha1.TopologyAllocation
+	}{
+		{
+			name:         "nil allocation info returns nil",
+			ai:           nil,
+			canCrossNuma: false,
+			wantNilAnno:  true,
+		},
+		{
+			name:         "empty assignments produce empty NUMA map",
+			ai:           &state.AllocationInfo{TopologyAwareAssignments: map[int]machine.CPUSet{}},
+			canCrossNuma: false,
+			wantTopology: v1alpha1.TopologyAllocation{
+				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{},
+			},
+		},
+		{
+			name: "non-empty assignments with canCrossNuma=false lists only zones",
+			ai: &state.AllocationInfo{
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(0, 1),
+					2: machine.NewCPUSet(4),
+				},
+			},
+			canCrossNuma: false,
+			wantTopology: v1alpha1.TopologyAllocation{
+				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
+					"0": {},
+					"2": {},
+				},
+			},
+		},
+		{
+			name: "non-empty assignments with canCrossNuma=true adds quantities and attributes",
+			ai: &state.AllocationInfo{
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(0, 1),       // size 2 => "2"
+					1: machine.NewCPUSet(3, 5, 6, 7), // size 4 => "4"
+				},
+			},
+			canCrossNuma: true,
+			wantTopology: v1alpha1.TopologyAllocation{
+				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
+					"0": {
+						Allocated: map[v1.ResourceName]resource.Quantity{
+							v1.ResourceCPU: resource.MustParse("2"),
+						},
+						Attributes: map[string]string{
+							"CpusetCpus": "0-1",
+						},
+					},
+					"1": {
+						Allocated: map[v1.ResourceName]resource.Quantity{
+							v1.ResourceCPU: resource.MustParse("4"),
+						},
+						Attributes: map[string]string{
+							"CpusetCpus": "3,5-7",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := GetCPUTopologyAllocationsAnnotations(tt.ai, tt.canCrossNuma)
+			if tt.wantNilAnno {
+				if got != nil {
+					t.Fatalf("expected nil annotations, got: %#v", got)
+				}
+				return
+			}
+			ta := parseCPUTopologyAllocationFromAnno(t, got)
+			if !reflect.DeepEqual(ta, tt.wantTopology) {
+				t.Fatalf("unexpected topology allocation. got=%v, want=%v", ta, tt.wantTopology)
 			}
 		})
 	}

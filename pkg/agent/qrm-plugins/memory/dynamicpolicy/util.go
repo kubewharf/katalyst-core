@@ -20,12 +20,15 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strconv"
 
 	info "github.com/google/cadvisor/info/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
+	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -112,4 +115,39 @@ func applySidecarAllocationInfoFromMainContainer(sidecarAllocationInfo, mainAllo
 	}
 
 	return changed
+}
+
+// getMemoryTopologyAllocationsAnnotations gets the memory topology allocation in the form of annotations.
+func getMemoryTopologyAllocationsAnnotations(allocationInfo *state.AllocationInfo, canCrossNuma bool) map[string]string {
+	if allocationInfo == nil {
+		return nil
+	}
+
+	topologyAllocation := make(v1alpha1.TopologyAllocation)
+	topologyAllocation[v1alpha1.TopologyTypeNuma] = make(map[string]v1alpha1.ZoneAllocation)
+
+	// In the case where there are no topology aware allocations, we just report the numa nodes.
+	if allocationInfo.TopologyAwareAllocations == nil {
+		if allocationInfo.NumaAllocationResult.IsEmpty() {
+			return nil
+		}
+
+		numaNodes := allocationInfo.NumaAllocationResult.ToSliceNoSortInt()
+		for _, numaNode := range numaNodes {
+			topologyAllocation[v1alpha1.TopologyTypeNuma][strconv.Itoa(numaNode)] = v1alpha1.ZoneAllocation{}
+		}
+	}
+
+	for numaNode, allocated := range allocationInfo.TopologyAwareAllocations {
+		topologyAllocation[v1alpha1.TopologyTypeNuma][strconv.Itoa(numaNode)] = v1alpha1.ZoneAllocation{}
+		if canCrossNuma {
+			zone := topologyAllocation[v1alpha1.TopologyTypeNuma][strconv.Itoa(numaNode)]
+			zone.Allocated = map[v1.ResourceName]resource.Quantity{
+				v1.ResourceMemory: *resource.NewQuantity(int64(allocated), resource.BinarySI),
+			}
+			topologyAllocation[v1alpha1.TopologyTypeNuma][strconv.Itoa(numaNode)] = zone
+		}
+	}
+
+	return util.MakeTopologyAllocationResourceAllocationAnnotations(topologyAllocation)
 }
