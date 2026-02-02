@@ -502,6 +502,7 @@ func TestAllocate(t *testing.T) {
 								testNetInterfaceNameResourceAllocationAnnotationKey: testEth0Name,
 								testNetClassIDResourceAllocationAnnotationKey:       testSharedNetClsId,
 								testNetBandwidthResourceAllocationAnnotationKey:     "5000",
+								consts.PodAnnotationTopologyBindResultKey:           `{"NIC":{"eth0":{}}}`,
 							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
@@ -571,6 +572,7 @@ func TestAllocate(t *testing.T) {
 								testNetInterfaceNameResourceAllocationAnnotationKey: testEth2Name,
 								testNetClassIDResourceAllocationAnnotationKey:       testReclaimedNetClsId,
 								testNetBandwidthResourceAllocationAnnotationKey:     "5000",
+								consts.PodAnnotationTopologyBindResultKey:           `{"NIC":{"ns2-eth2":{}}}`,
 							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
@@ -638,6 +640,7 @@ func TestAllocate(t *testing.T) {
 								testNetInterfaceNameResourceAllocationAnnotationKey: testEth0Name,
 								testNetClassIDResourceAllocationAnnotationKey:       fmt.Sprintf("%d", testDefaultDedicatedNetClsId),
 								testNetBandwidthResourceAllocationAnnotationKey:     "5000",
+								consts.PodAnnotationTopologyBindResultKey:           `{"NIC":{"eth0":{}}}`,
 							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
@@ -733,6 +736,7 @@ func TestAllocate(t *testing.T) {
 								testNetInterfaceNameResourceAllocationAnnotationKey: testEth2Name,
 								testNetClassIDResourceAllocationAnnotationKey:       fmt.Sprintf("%d", testDefaultDedicatedNetClsId),
 								testNetBandwidthResourceAllocationAnnotationKey:     "20000",
+								consts.PodAnnotationTopologyBindResultKey:           `{"NIC":{"ns2-eth2":{}}}`,
 							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{

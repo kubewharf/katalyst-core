@@ -20,15 +20,19 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strconv"
 
 	pkgerrors "github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
@@ -157,7 +161,7 @@ func RegenerateHints(allocationInfo *state.AllocationInfo, regenerate bool) map[
 
 // PackAllocationResponse fills pluginapi.ResourceAllocationResponse with information from AllocationInfo and pluginapi.ResourceRequest
 func PackAllocationResponse(allocationInfo *state.AllocationInfo, resourceName, ociPropertyName string,
-	isNodeResource, isScalarResource bool, req *pluginapi.ResourceRequest,
+	isNodeResource, isScalarResource bool, req *pluginapi.ResourceRequest, resourceAllocationAnnotations ...map[string]string,
 ) (*pluginapi.ResourceAllocationResponse, error) {
 	if allocationInfo == nil {
 		return nil, fmt.Errorf("packAllocationResponse got nil allocationInfo")
@@ -188,6 +192,7 @@ func PackAllocationResponse(allocationInfo *state.AllocationInfo, resourceName, 
 							req.Hint,
 						},
 					},
+					Annotations: general.MergeAnnotations(resourceAllocationAnnotations...),
 				},
 			},
 		},
@@ -195,6 +200,35 @@ func PackAllocationResponse(allocationInfo *state.AllocationInfo, resourceName, 
 		Annotations:    general.DeepCopyMap(req.Annotations),
 		NativeQosClass: req.NativeQosClass,
 	}, nil
+}
+
+// GetCPUTopologyAllocationsAnnotations gets the cpu topology allocation in the form of annotations.
+func GetCPUTopologyAllocationsAnnotations(allocationInfo *state.AllocationInfo, canCrossNuma bool) map[string]string {
+	if allocationInfo == nil {
+		return nil
+	}
+
+	topologyAllocation := make(v1alpha1.TopologyAllocation)
+	topologyAllocation[v1alpha1.TopologyTypeNuma] = make(map[string]v1alpha1.ZoneAllocation)
+
+	for numaNode, assignment := range allocationInfo.TopologyAwareAssignments {
+		cpusetsSize := assignment.Size()
+		topologyAllocation[v1alpha1.TopologyTypeNuma][strconv.Itoa(numaNode)] = v1alpha1.ZoneAllocation{}
+		// Report detailed cpu allocation information if the pod can be allocated across numa nodes
+		if canCrossNuma {
+			zone := topologyAllocation[v1alpha1.TopologyTypeNuma][strconv.Itoa(numaNode)]
+			zone.Allocated = map[v1.ResourceName]resource.Quantity{
+				v1.ResourceCPU: *resource.NewQuantity(int64(cpusetsSize), resource.DecimalSI),
+			}
+			zone.Attributes = map[string]string{
+				util.OCIPropertyNameCPUSetCPUs: assignment.String(),
+			}
+			topologyAllocation[v1alpha1.TopologyTypeNuma][strconv.Itoa(numaNode)] = zone
+
+		}
+	}
+
+	return util.GetTopologyAllocationResourceAllocationAnnotations(topologyAllocation)
 }
 
 func AdvisorDegradation(advisorHealth, enableReclaim bool) bool {
