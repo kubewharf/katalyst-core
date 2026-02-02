@@ -554,7 +554,7 @@ func MemoryOffloadingWithAbsolutePath(ctx context.Context, absCgroupPath string,
 
 func invokeMemoryReclaim(reclaimFile string, memSize string) error {
 	// write memSize to reclaimFile
-	err := os.WriteFile(reclaimFile, []byte(memSize), 0644)
+	err := os.WriteFile(reclaimFile, []byte(memSize), 0o644)
 	if err != nil {
 		return fmt.Errorf("write %s failed with error: %v", reclaimFile, err)
 	}
