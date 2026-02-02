@@ -34,6 +34,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	coreconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -1284,6 +1285,9 @@ func TestReclaimedCoresVPA(t *testing.T) {
 									},
 								},
 							},
+							Annotations: map[string]string{
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"3"},"attributes":{"CpusetCpus":"0-2"}}}}`,
+							},
 						},
 					},
 				},
@@ -1405,6 +1409,9 @@ func TestReclaimedCoresVPA(t *testing.T) {
 										Preferred: true,
 									},
 								},
+							},
+							Annotations: map[string]string{
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"3"},"attributes":{"CpusetCpus":"0-2"}}}}`,
 							},
 						},
 					},

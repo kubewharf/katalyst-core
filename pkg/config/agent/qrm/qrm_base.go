@@ -42,6 +42,8 @@ type GenericQRMPluginConfiguration struct {
 	// IsInMemoryStore indicates whether we want to store the state in memory or on disk
 	// if set true, the state will be stored in tmpfs
 	EnableInMemoryState bool
+	// TopologyAllocationAnnotationKey is the annotation key that indicates the topology-aware allocations of containers.
+	TopologyAllocationAnnotationKey string
 	*statedirectory.StateDirectoryConfiguration
 }
 

@@ -171,6 +171,7 @@ func getTestDynamicPolicyWithInitialization(
 		podDebugAnnoKeys:         []string{podDebugAnnoKey},
 		enableReclaimNUMABinding: true,
 		enableNonBindingShareCoresMemoryResourceCheck: true,
+		topologyAllocationAnnotationKey:               coreconsts.QRMPodAnnotationTopologyAllocationKey,
 		numaBindResultResourceAllocationAnnotationKey: coreconsts.QRMResourceAnnotationKeyNUMABindResult,
 		extraResourceNames:                            fakeConf.ExtraMemoryResources,
 	}
@@ -772,6 +773,9 @@ func TestAllocate(t *testing.T) {
 									},
 								},
 							},
+							Annotations: map[string]string{
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"memory":"7Gi"}}}}`,
+							},
 						},
 					},
 				},
@@ -833,6 +837,9 @@ func TestAllocate(t *testing.T) {
 									},
 								},
 							},
+							Annotations: map[string]string{
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"memory":"2Gi"}}}}`,
+							},
 						},
 					},
 				},
@@ -893,6 +900,9 @@ func TestAllocate(t *testing.T) {
 										Preferred: true,
 									},
 								},
+							},
+							Annotations: map[string]string{
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"memory":"7Gi"}}}}`,
 							},
 						},
 					},
@@ -958,6 +968,9 @@ func TestAllocate(t *testing.T) {
 									},
 								},
 							},
+							Annotations: map[string]string{
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"memory":"2Gi"}}}}`,
+							},
 						},
 					},
 				},
@@ -1017,6 +1030,9 @@ func TestAllocate(t *testing.T) {
 										Preferred: true,
 									},
 								},
+							},
+							Annotations: map[string]string{
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"memory":"2Gi"}}}}`,
 							},
 						},
 					},
@@ -1131,6 +1147,7 @@ func TestAllocate(t *testing.T) {
 							AllocatedQuantity: 2147483648,
 							Annotations: map[string]string{
 								coreconsts.QRMResourceAnnotationKeyNUMABindResult: "0",
+								coreconsts.QRMPodAnnotationTopologyAllocationKey:  `{"Numa":{"0":{}}}`,
 							},
 							AllocationResult: machine.NewCPUSet(0).String(),
 							ResourceHints: &pluginapi.ListOfTopologyHints{
