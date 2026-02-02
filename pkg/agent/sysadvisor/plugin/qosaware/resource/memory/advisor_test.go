@@ -54,6 +54,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	metricutil "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
@@ -65,8 +66,10 @@ var qosLevel2PoolName = map[string]string{
 	consts.PodAnnotationQoSLevelDedicatedCores: commonstate.PoolNameDedicated,
 }
 
-const testPoolName1 = "test_pool_1"
-const testPoolName2 = "test_pool_2"
+const (
+	testPoolName1 = "test_pool_1"
+	testPoolName2 = "test_pool_2"
+)
 
 func makeContainerInfo(podUID, namespace, podName, containerName, qoSLevel string, annotations map[string]string,
 	topologyAwareAssignments types.TopologyAwareAssignment, memoryRequest float64,
@@ -515,7 +518,7 @@ func TestUpdate(t *testing.T) {
 			wantAdviceResult: &types.InternalMemoryCalculationResult{},
 		},
 		{
-			name: "normal case",
+			name: "pool_name config case",
 			pools: map[string]*types.PoolInfo{
 				commonstate.PoolNameReserve: {
 					PoolName: commonstate.PoolNameReserve,
@@ -548,6 +551,11 @@ func TestUpdate(t *testing.T) {
 						0: machine.MustParse("1"),
 						1: machine.MustParse("25"),
 					}, 0),
+				makeContainerInfo("uid2", "default", "pod2", "c2", consts.PodAnnotationQoSLevelSharedCores, nil,
+					map[int]machine.CPUSet{
+						0: machine.MustParse("1"),
+						1: machine.MustParse("25"),
+					}, 0),
 			},
 			pods: []*v1.Pod{
 				// specify cpuset_pool for each pod, to test pool name associated config
@@ -561,6 +569,23 @@ func TestUpdate(t *testing.T) {
 							consts.PodAnnotationCPUEnhancementKey: fmt.Sprintf("{\"%s\": \"%s\"}", consts.PodAnnotationCPUEnhancementCPUSet, testPoolName1),
 						},
 					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name: "c1",
+							},
+						},
+					},
+					// only pods in running status will be reconciled
+					Status: v1.PodStatus{
+						Phase: v1.PodRunning,
+						ContainerStatuses: []v1.ContainerStatus{
+							{
+								Name:        "c1",
+								ContainerID: "c1",
+							},
+						},
+					},
 				},
 				{
 					ObjectMeta: metav1.ObjectMeta{
@@ -572,12 +597,59 @@ func TestUpdate(t *testing.T) {
 							consts.PodAnnotationCPUEnhancementKey: fmt.Sprintf("{\"%s\": \"%s\"}", consts.PodAnnotationCPUEnhancementCPUSet, testPoolName2),
 						},
 					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{
+								Name: "c2",
+							},
+						},
+					},
+					// only pods in running status will be reconciled
+					Status: v1.PodStatus{
+						Phase: v1.PodRunning,
+						ContainerStatuses: []v1.ContainerStatus{
+							{
+								Name:        "c2",
+								ContainerID: "c2",
+							},
+						},
+					},
 				},
 			},
-			wantHeadroom:     *resource.NewQuantity(988<<30, resource.DecimalSI),
-			nodeMetrics:      defaultNodeMetrics,
-			numaMetrics:      defaultNumaMetrics,
-			wantAdviceResult: &types.InternalMemoryCalculationResult{},
+			// need to enable transparent memory offloading plugin
+			plugins:      []types.MemoryAdvisorPluginName{memadvisorplugin.TransparentMemoryOffloading},
+			wantHeadroom: *resource.NewQuantity(980<<30, resource.BinarySI),
+			nodeMetrics:  defaultNodeMetrics,
+			numaMetrics:  defaultNumaMetrics,
+			wantAdviceResult: &types.InternalMemoryCalculationResult{
+				ExtraEntries: []types.ExtraMemoryAdvices{
+					{
+						CgroupPath: "/hdfs",
+						Values: map[string]string{
+							"memory_offloading": "0",
+							"swap_max":          "false",
+						},
+					},
+				},
+				ContainerEntries: []types.ContainerMemoryAdvices{
+					{
+						PodUID:        "uid1",
+						ContainerName: "c1",
+						Values: map[string]string{
+							"memory_offloading": "0",
+							"swap_max":          "false",
+						},
+					},
+					{
+						PodUID:        "uid2",
+						ContainerName: "c2",
+						Values: map[string]string{
+							"memory_offloading": "0",
+							"swap_max":          "true",
+						},
+					},
+				},
+			},
 		},
 		{
 			name: "normal case",
@@ -4380,6 +4452,7 @@ func TestUpdate(t *testing.T) {
 	mockmu := sync.Mutex{}
 
 	for _, tt := range tests {
+		general.Infof("test case: %s", tt.name)
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
