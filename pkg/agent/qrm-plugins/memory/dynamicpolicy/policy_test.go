@@ -654,6 +654,9 @@ func TestAllocate(t *testing.T) {
 									},
 								},
 							},
+							Annotations: map[string]string{
+								consts.PodAnnotationTopologyBindResultKey: `{"Numa":{"0":{"allocated":{"memory":"7Gi"}}}}`,
+							},
 						},
 					},
 				},
@@ -715,6 +718,9 @@ func TestAllocate(t *testing.T) {
 									},
 								},
 							},
+							Annotations: map[string]string{
+								consts.PodAnnotationTopologyBindResultKey: `{"Numa":{"0":{"allocated":{"memory":"2Gi"}}}}`,
+							},
 						},
 					},
 				},
@@ -775,6 +781,9 @@ func TestAllocate(t *testing.T) {
 										Preferred: true,
 									},
 								},
+							},
+							Annotations: map[string]string{
+								consts.PodAnnotationTopologyBindResultKey: `{"Numa":{"0":{"allocated":{"memory":"7Gi"}}}}`,
 							},
 						},
 					},
@@ -840,6 +849,9 @@ func TestAllocate(t *testing.T) {
 									},
 								},
 							},
+							Annotations: map[string]string{
+								consts.PodAnnotationTopologyBindResultKey: `{"Numa":{"0":{"allocated":{"memory":"2Gi"}}}}`,
+							},
 						},
 					},
 				},
@@ -900,6 +912,9 @@ func TestAllocate(t *testing.T) {
 									},
 								},
 							},
+							Annotations: map[string]string{
+								consts.PodAnnotationTopologyBindResultKey: `{"Numa":{"0":{}}}`,
+							},
 						},
 					},
 				},
@@ -953,6 +968,7 @@ func TestAllocate(t *testing.T) {
 							AllocatedQuantity: 2147483648,
 							Annotations: map[string]string{
 								coreconsts.QRMResourceAnnotationKeyNUMABindResult: "0",
+								consts.PodAnnotationTopologyBindResultKey:         `{"Numa":{"0":{}}}`,
 							},
 							AllocationResult: machine.NewCPUSet(0).String(),
 							ResourceHints: &pluginapi.ListOfTopologyHints{

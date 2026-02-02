@@ -1166,7 +1166,7 @@ func (p *StaticPolicy) getResourceAllocationAnnotations(
 		resourceAllocationAnnotations[p.netNSPathResourceAllocationAnnotationKey] = selectedNIC.NetNSInfo.GetNetNSAbsPath()
 	}
 
-	return resourceAllocationAnnotations, nil
+	return getNetworkTopologyAllocationsAnnotations(allocation, resourceAllocationAnnotations), nil
 }
 
 func (p *StaticPolicy) removePod(podUID string) error {

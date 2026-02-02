@@ -19,12 +19,15 @@ package dynamicpolicy
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
@@ -136,7 +139,9 @@ func (p *DynamicPolicy) numaBindingAllocationHandler(ctx context.Context,
 				"memoryReq(bytes)", podAggregatedRequest,
 				"currentResult(bytes)", allocationInfo.AggregatedQuantity)
 
-			resp, packErr := packAllocationResponse(allocationInfo, req, nil)
+			canCrossNuma := allocationInfo.CheckDedicatedNUMABinding() || allocationInfo.CheckDedicatedNUMABindingNUMAExclusive()
+			topologyAllocationAnnotations := getMemoryTopologyAllocationsAnnotations(allocationInfo, canCrossNuma)
+			resp, packErr := packAllocationResponse(allocationInfo, req, topologyAllocationAnnotations)
 			if packErr != nil {
 				general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
 					req.PodNamespace, req.PodName, req.ContainerName, packErr)
@@ -234,7 +239,9 @@ func (p *DynamicPolicy) numaBindingAllocationHandler(ctx context.Context,
 		return nil, fmt.Errorf("adjustAllocationEntries failed with error: %v", err)
 	}
 
-	resp, err := packAllocationResponse(allocationInfo, req, nil)
+	canCrossNuma := allocationInfo.CheckDedicatedNUMABinding() || allocationInfo.CheckDedicatedNUMABindingNUMAExclusive()
+	topologyAllocationAnnotations := getMemoryTopologyAllocationsAnnotations(allocationInfo, canCrossNuma)
+	resp, err := packAllocationResponse(allocationInfo, req, topologyAllocationAnnotations)
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -348,13 +355,7 @@ func (p *DynamicPolicy) reclaimedCoresBestEffortNUMABindingAllocationHandler(ctx
 		return nil, fmt.Errorf("adjustAllocationEntries failed with error: %v", err)
 	}
 
-	resp, err := packAllocationResponse(allocationInfo, req, p.getReclaimedResourceAllocationAnnotations(allocationInfo))
-	if err != nil {
-		general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
-			req.PodNamespace, req.PodName, req.ContainerName, err)
-		return nil, fmt.Errorf("packAllocationResponse failed with error: %v", err)
-	}
-
+	var topologyAllocationsAnnotations map[string]string
 	// we only support updating the NUMA allocation results for pods with explicit NUMA binding annotation
 	if qosutil.AnnotationsIndicateNUMABinding(req.Annotations) {
 		err = p.updateSpecifiedNUMAAllocation(ctx, allocationInfo)
@@ -363,6 +364,15 @@ func (p *DynamicPolicy) reclaimedCoresBestEffortNUMABindingAllocationHandler(ctx
 				req.PodNamespace, req.PodName, req.ContainerName, err)
 			return nil, fmt.Errorf("updateSpecifiedNUMAAllocation failed with error: %v", err)
 		}
+		topologyAllocationsAnnotations = getMemoryTopologyAllocationsAnnotations(allocationInfo, false)
+	}
+
+	resp, err := packAllocationResponse(allocationInfo, req, p.getReclaimedResourceAllocationAnnotations(allocationInfo),
+		topologyAllocationsAnnotations)
+	if err != nil {
+		general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
+		return nil, fmt.Errorf("packAllocationResponse failed with error: %v", err)
 	}
 
 	general.InfoS("allocate memory successfully",
@@ -715,7 +725,7 @@ func calculateMemoryInNumaNodes(req *pluginapi.ResourceRequest,
 }
 
 // packAllocationResponse fills pluginapi.ResourceAllocationResponse with information from AllocationInfo and pluginapi.ResourceRequest
-func packAllocationResponse(allocationInfo *state.AllocationInfo, req *pluginapi.ResourceRequest, resourceAllocationAnnotations map[string]string) (*pluginapi.ResourceAllocationResponse, error) {
+func packAllocationResponse(allocationInfo *state.AllocationInfo, req *pluginapi.ResourceRequest, resourceAllocationAnnotations ...map[string]string) (*pluginapi.ResourceAllocationResponse, error) {
 	if allocationInfo == nil {
 		return nil, fmt.Errorf("packAllocationResponse got nil allocationInfo")
 	} else if req == nil {
@@ -738,7 +748,7 @@ func packAllocationResponse(allocationInfo *state.AllocationInfo, req *pluginapi
 					OciPropertyName:   util.OCIPropertyNameCPUSetMems,
 					IsNodeResource:    false,
 					IsScalarResource:  true,
-					Annotations:       resourceAllocationAnnotations,
+					Annotations:       general.MergeAnnotations(resourceAllocationAnnotations...),
 					AllocatedQuantity: float64(allocationInfo.AggregatedQuantity),
 					AllocationResult:  allocationInfo.NumaAllocationResult.String(),
 					ResourceHints: &pluginapi.ListOfTopologyHints{
@@ -752,6 +762,41 @@ func packAllocationResponse(allocationInfo *state.AllocationInfo, req *pluginapi
 		Labels:      general.DeepCopyMap(req.Labels),
 		Annotations: general.DeepCopyMap(req.Annotations),
 	}, nil
+}
+
+// getMemoryTopologyAllocationsAnnotations gets the memory topology allocation in the form of annotations.
+func getMemoryTopologyAllocationsAnnotations(allocationInfo *state.AllocationInfo, canCrossNuma bool) map[string]string {
+	if allocationInfo == nil {
+		return nil
+	}
+
+	topologyAllocation := make(v1alpha1.TopologyAllocation)
+	topologyAllocation[v1alpha1.TopologyTypeNuma] = make(map[string]v1alpha1.ZoneAllocation)
+
+	// In the case where there are no topology aware allocations, we just report the numa nodes.
+	if allocationInfo.TopologyAwareAllocations == nil {
+		if allocationInfo.NumaAllocationResult.IsEmpty() {
+			return nil
+		}
+
+		numaNodes := allocationInfo.NumaAllocationResult.ToSliceNoSortInt()
+		for _, numaNode := range numaNodes {
+			topologyAllocation[v1alpha1.TopologyTypeNuma][strconv.Itoa(numaNode)] = v1alpha1.ZoneAllocation{}
+		}
+	}
+
+	for numaNode, allocated := range allocationInfo.TopologyAwareAllocations {
+		topologyAllocation[v1alpha1.TopologyTypeNuma][strconv.Itoa(numaNode)] = v1alpha1.ZoneAllocation{}
+		if canCrossNuma {
+			zone := topologyAllocation[v1alpha1.TopologyTypeNuma][strconv.Itoa(numaNode)]
+			zone.Allocated = map[v1.ResourceName]resource.Quantity{
+				v1.ResourceMemory: *resource.NewQuantity(int64(allocated), resource.BinarySI),
+			}
+			topologyAllocation[v1alpha1.TopologyTypeNuma][strconv.Itoa(numaNode)] = zone
+		}
+	}
+
+	return util.GetTopologyAllocationResourceAllocationAnnotations(topologyAllocation)
 }
 
 func (p *DynamicPolicy) adjustAllocationEntriesForSharedCores(numaSetChangedContainers map[string]map[string]*state.AllocationInfo,
