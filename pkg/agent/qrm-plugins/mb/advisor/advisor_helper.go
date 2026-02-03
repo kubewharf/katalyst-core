@@ -126,12 +126,10 @@ func getGroupIncomingInfo(capacity int, incomingStats monitor.GroupMBStats) *res
 		CapacityInMB: capacity,
 	}
 
-	groups, subGroups := preProcessGroupInfo(incomingStats)
-	result.GroupSorted = sortGroups(maps.Keys(groups))
-	result.GroupTotalUses = getUsedTotalByGroup(groups)
+	result.GroupSorted = sortGroups(maps.Keys(incomingStats))
+	result.GroupTotalUses = getUsedTotalByGroup(incomingStats)
 	result.FreeInMB, result.GroupLimits = getLimitsByGroupSorted(capacity, result.GroupSorted, result.GroupTotalUses)
 	result.ResourceState = resource.GetResourceState(capacity, result.FreeInMB)
-	result.SubGroups = subGroups
 	return result
 }
 
@@ -146,11 +144,10 @@ func groupByWeight[T any](stats map[string]T) map[int][]string {
 }
 
 // preProcessGroupInfo combines groups with same priority together
-func preProcessGroupInfo(stats monitor.GroupMBStats) (monitor.GroupMBStats, map[string][]string) {
+func preProcessGroupInfo(stats monitor.GroupMBStats) monitor.GroupMBStats {
 	groups := groupByWeight(stats)
 
 	result := make(monitor.GroupMBStats)
-	subGroupsMap := make(map[string][]string)
 
 	for weight, equivGroups := range groups {
 		if len(equivGroups) == 1 {
@@ -159,7 +156,6 @@ func preProcessGroupInfo(stats monitor.GroupMBStats) (monitor.GroupMBStats, map[
 		}
 
 		newKey := fmt.Sprintf("combined-%d", weight)
-		subGroupsMap[newKey] = equivGroups
 
 		combined := make(monitor.GroupMB)
 		for _, group := range equivGroups {
@@ -170,7 +166,7 @@ func preProcessGroupInfo(stats monitor.GroupMBStats) (monitor.GroupMBStats, map[
 		result[newKey] = combined
 	}
 
-	return result, subGroupsMap
+	return result
 }
 
 func preProcessGroupSumStat(sumStats map[string][]monitor.MBInfo) map[string][]monitor.MBInfo {
