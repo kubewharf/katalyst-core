@@ -23,6 +23,7 @@ import (
 
 	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	workloadv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -31,6 +32,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 type PolicyDynamicQuota struct {
@@ -67,13 +69,29 @@ func (p *PolicyDynamicQuota) updateForCPUQuota() error {
 	}
 	reclaimCoresCPUUsage := data.Value
 
-	totalNUMACPUSize := p.metaServer.NUMAToCPUs.CPUSizeInNUMAs(p.bindingNumas.ToSliceNoSortInt()...)
-	if totalNUMACPUSize == 0 {
-		return fmt.Errorf("invalid cpu count per numa: %d, %d", p.metaServer.NumNUMANodes, p.metaServer.NumCPUs)
+	var reclaimNUMACPUSize int
+	// get reclaim cpu size instead of numa cpuset size if reclaim pool exist to avoid unavailable cpu
+	reclaimPoolInfo, reclaimPoolExist := p.metaReader.GetPoolInfo(commonstate.PoolNameReclaim)
+	if reclaimPoolExist && reclaimPoolInfo != nil {
+		reclaimCPUSet := machine.NewCPUSet()
+		for numaID, numaCPUSet := range reclaimPoolInfo.TopologyAwareAssignments {
+			if !p.bindingNumas.Contains(numaID) {
+				continue
+			}
+			reclaimCPUSet = reclaimCPUSet.Union(numaCPUSet)
+		}
+		reclaimNUMACPUSize = reclaimCPUSet.Size()
+	} else {
+		// fallback to numa cpuset size if reclaim pool not exist
+		reclaimNUMACPUSize = p.metaServer.NUMAToCPUs.CPUSizeInNUMAs(p.bindingNumas.ToSliceNoSortInt()...)
+		if reclaimNUMACPUSize == 0 {
+			return fmt.Errorf("invalid cpu count per numa: %d, %d", p.metaServer.NumNUMANodes, p.metaServer.NumCPUs)
+		}
 	}
-	quota := general.MaxFloat64(float64(totalNUMACPUSize)*(indicator.Target-indicator.Current)+reclaimCoresCPUUsage, p.ReservedForReclaim)
 
-	general.InfoS("metrics", "cpuUsage", reclaimCoresCPUUsage, "totalNUMACPUSize", totalNUMACPUSize, "target", indicator.Target, "current", indicator.Current, "quota", quota, "numas", p.bindingNumas.String())
+	quota := general.MaxFloat64(float64(reclaimNUMACPUSize)*(indicator.Target-indicator.Current)+reclaimCoresCPUUsage, p.ReservedForReclaim)
+
+	general.InfoS("metrics", "cpuUsage", reclaimCoresCPUUsage, "reclaimNUMACPUSize", reclaimNUMACPUSize, "target", indicator.Target, "current", indicator.Current, "quota", quota, "numas", p.bindingNumas.String())
 
 	p.controlKnobAdjusted = types.ControlKnob{
 		configapi.ControlKnobReclaimedCoresCPUQuota: types.ControlKnobItem{

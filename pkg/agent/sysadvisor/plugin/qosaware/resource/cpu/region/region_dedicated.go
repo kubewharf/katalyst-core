@@ -37,6 +37,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
 const (
@@ -274,18 +275,23 @@ func (r *QoSRegionDedicated) getPodCPICurrent() (float64, error) {
 }
 
 func (r *QoSRegionDedicated) getCPUUsageRatio() (float64, error) {
-	usage := 0.0
-	nr := 0
-	for _, numaID := range r.bindingNumas.ToSliceInt() {
-		data, err := r.metaReader.GetNumaMetric(numaID, consts.MetricCPUUsageNuma)
-		if err != nil {
-			return 0, err
+	cpuSet := machine.NewCPUSet()
+	for podUID, containerSet := range r.podSet {
+		for containerName := range containerSet {
+			ci, ok := r.metaReader.GetContainerInfo(podUID, containerName)
+			if !ok || ci == nil {
+				klog.Errorf("[qosaware-cpu] illegal container info of %v/%v", podUID, containerName)
+				return 0, nil
+			}
+
+			for numaID := range ci.TopologyAwareAssignments {
+				if r.bindingNumas.Contains(numaID) {
+					cpuSet = cpuSet.Union(ci.TopologyAwareAssignments[numaID])
+				}
+			}
 		}
-		usage += data.Value
-		nr += r.metaServer.CPUDetails.CPUsInNUMANodes(numaID).Size()
 	}
-	if nr == 0 {
-		return 0, fmt.Errorf("invalid cpu nr")
-	}
-	return usage / float64(nr), nil
+
+	usageRatio := r.metaServer.AggregateCoreMetric(cpuSet, consts.MetricCPUUsageRatio, metric.AggregatorAvg)
+	return usageRatio.Value, nil
 }
