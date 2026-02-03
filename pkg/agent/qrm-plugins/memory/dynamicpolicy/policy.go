@@ -73,6 +73,7 @@ const (
 	memoryPluginAsyncWorkTopicSetExtraCGMemLimit = "qrm_memory_plugin_set_extra_mem_limit"
 	memoryPluginAsyncWorkTopicMovePage           = "qrm_memory_plugin_move_page"
 	memoryPluginAsyncWorkTopicMemoryOffloading   = "qrm_memory_plugin_mem_offload"
+	memoryPluginAsyncWorkTopicDyingMemcgReclaim  = "qrm_memory_plugin_dying_memcg_reclaim"
 
 	dropCacheTimeoutSeconds          = 30
 	setExtraCGMemLimitTimeoutSeconds = 60
@@ -280,6 +281,8 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorMemoryOffloading))
 	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyMemoryNUMAHeadroom,
 		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorMemoryNUMAHeadroom))
+	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnowKeyDyingMemcgReclaim,
+		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorDyingMemcgReclaim))
 
 	if policyImplement.enableEvictingLogCache {
 		policyImplement.logCacheEvictionManager = logcache.NewManager(conf, agentCtx.MetaServer)
