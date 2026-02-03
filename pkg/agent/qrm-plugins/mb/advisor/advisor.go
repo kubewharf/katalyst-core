@@ -15,58 +15,49 @@ type EnhancedAdvisor struct {
 }
 
 func (d *EnhancedAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.DomainStats) (*plan.MBPlan, error) {
-	domainStats, subGroups := d.combinedDomainStats(domainsMon)
+	domainStats := d.combinedDomainStats(domainsMon)
 	mbPlan, err := d.inner.GetPlan(ctx, domainStats)
 	if err != nil {
 		return nil, err
 	}
-	splitPlan := d.splitPlan(mbPlan, subGroups, domainsMon)
+	splitPlan := d.splitPlan(mbPlan, domainsMon)
 	return splitPlan, nil
 }
 
-func (d *EnhancedAdvisor) combinedDomainStats(domainsMon *monitor.DomainStats) (*monitor.DomainStats, map[string][]string) {
+func (d *EnhancedAdvisor) combinedDomainStats(domainsMon *monitor.DomainStats) *monitor.DomainStats {
 	domainStats := &monitor.DomainStats{
 		Incomings:            make(map[int]monitor.DomainMonStat),
 		Outgoings:            make(map[int]monitor.DomainMonStat),
 		OutgoingGroupSumStat: make(map[string][]monitor.MBInfo),
 	}
-	subGroups := make(map[string][]string)
 	for id, domainMon := range domainsMon.Incomings {
-		domainStats.Incomings[id], subGroups = preProcessGroupInfo(domainMon)
+		domainStats.Incomings[id] = preProcessGroupInfo(domainMon)
 	}
 	for id, domainMon := range domainsMon.Outgoings {
-		domainStats.Outgoings[id], subGroups = preProcessGroupInfo(domainMon)
+		domainStats.Outgoings[id] = preProcessGroupInfo(domainMon)
 	}
 	domainStats.OutgoingGroupSumStat = preProcessGroupSumStat(domainsMon.OutgoingGroupSumStat)
-	return domainStats, subGroups
+	return domainStats
 }
 
-func (d *EnhancedAdvisor) splitPlan(mbPlan *plan.MBPlan, subGroups map[string][]string, domainsMon *monitor.DomainStats) *plan.MBPlan {
+func (d *EnhancedAdvisor) splitPlan(mbPlan *plan.MBPlan, domainsMon *monitor.DomainStats) *plan.MBPlan {
 	for groupKey, ccdPlan := range mbPlan.MBGroups {
 		if !strings.Contains(groupKey, "combined-") {
 			continue
 		}
-		for _, stats := range domainsMon.Incomings {
-			subGroupMap := make(map[string][]int)
-			sumMB := 0
-			for group, stat := range stats {
-				for _, subGroup := range subGroups[groupKey] {
-					maxMB := 0
-					for id, mbInfo := range stat {
-						sumMB += mbInfo.TotalMB
-						if group == subGroup {
-							if mbInfo.TotalMB > maxMB {
-								subGroupMap[group][0] = id
+		for ccd, quota := range ccdPlan {
+			for _, stats := range domainsMon.Incomings {
+				for group, stat := range stats {
+					for id := range stat {
+						if id == ccd {
+							if mbPlan.MBGroups[group] == nil {
+								mbPlan.MBGroups[group] = make(plan.GroupCCDPlan)
 							}
-							subGroupMap[group][1] += mbInfo.TotalMB
+							mbPlan.MBGroups[group][ccd] = quota
+							break
 						}
 					}
 				}
-			}
-			for _, subGroup := range subGroups[groupKey] {
-				ccd := subGroupMap[subGroup][0]
-				mb := subGroupMap[subGroup][1]
-				mbPlan.MBGroups[subGroup][ccd] = mb / sumMB * ccdPlan[0]
 			}
 		}
 		delete(mbPlan.MBGroups, groupKey)
