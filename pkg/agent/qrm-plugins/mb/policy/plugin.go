@@ -120,7 +120,7 @@ func (m *MBPlugin) Start() (err error) {
 	}
 
 	// initializing advisor field is deferred as qos group mb capacities is known now
-	m.advisor = advisor.New(m.emitter, m.domains,
+	m.advisor = advisor.NewEnhancedAdvisor(m.emitter, m.domains,
 		m.conf.MinCCDMB, m.conf.MaxCCDMB,
 		defaultMBDomainCapacity, m.conf.MBCapLimitPercent,
 		m.conf.CrossDomainGroups, m.conf.MBQRMPluginConfig.NoThrottleGroups,

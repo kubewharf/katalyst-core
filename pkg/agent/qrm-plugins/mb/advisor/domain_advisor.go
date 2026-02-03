@@ -19,7 +19,6 @@ package advisor
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -85,8 +84,7 @@ func (d *domainAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.DomainS
 
 	// for each group, based on incoming targets, decide what the outgoing targets are
 	var groupedDomOutgoingTargets map[string][]int
-	outgoingGroupSumStat := preProcessGroupSumStat(domainsMon.OutgoingGroupSumStat)
-	groupedDomOutgoingTargets, err = d.deriveOutgoingTargets(ctx, outgoingGroupSumStat, groupedDomIncomingTargets)
+	groupedDomOutgoingTargets, err = d.deriveOutgoingTargets(ctx, domainsMon.OutgoingGroupSumStat, groupedDomIncomingTargets)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get plan")
 	}
@@ -98,7 +96,8 @@ func (d *domainAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.DomainS
 
 	// leverage the current observed outgoing stats (and implicit previous outgoing mb)
 	// to adjust th outgoing mb hopeful to reach the desired target
-	groupedDomainOutgoingQuotas := d.adjust(ctx, groupedDomOutgoingTargets, outgoingGroupSumStat, d.capPercent)
+	groupedDomOutgoings := domainsMon.OutgoingGroupSumStat
+	groupedDomainOutgoingQuotas := d.adjust(ctx, groupedDomOutgoingTargets, groupedDomOutgoings, d.capPercent)
 	if klog.V(6).Enabled() {
 		general.InfofV(6, "[mbm] [advisor] group-domain outgoing quotas: %s",
 			stringify(groupedDomainOutgoingQuotas))
@@ -235,68 +234,42 @@ func (d *domainAdvisor) distributeToCCDs(_ context.Context,
 	quotas map[string][]int, outgoingStat map[int]monitor.GroupMBStats,
 ) map[string]map[int]int {
 	result := map[string]map[int]int{}
-
 	for group, domQuota := range quotas {
+		// each domain is treated independently
 		for domID, domTotal := range domQuota {
-			outgoings, subGroups := preProcessGroupInfo(outgoingStat[domID])
-
-			// Determine which groups to distribute
-			var groupsToDistribute []string
-			if strings.Contains(group, "combined-") {
-				groupsToDistribute = subGroups[group]
-			} else {
-				groupsToDistribute = []string{group}
+			ccdDistributions := d.domainDistributeGroup(domID, group, domTotal, outgoingStat)
+			if len(ccdDistributions) == 0 {
+				continue
 			}
 
-			// Distribute for each group
-			for _, targetGroup := range groupsToDistribute {
-				ccdDistributions := d.domainDistributeGroup(domID, group, targetGroup, domTotal, outgoingStat, outgoings)
-				if len(ccdDistributions) == 0 {
-					continue
-				}
-
-				// Accumulate results
-				if _, ok := result[targetGroup]; !ok {
-					result[targetGroup] = make(map[int]int)
-				}
-				for ccd, v := range ccdDistributions {
-					result[targetGroup][ccd] = v
-				}
+			if _, ok := result[group]; !ok {
+				result[group] = make(map[int]int)
+			}
+			for ccd, v := range ccdDistributions {
+				result[group][ccd] = v
 			}
 		}
 	}
-
 	return result
 }
 
-func (d *domainAdvisor) domainDistributeGroup(domID int, group string, subGroup string,
-	domTotal int, outgoingStat map[int]monitor.GroupMBStats, outgoings monitor.GroupMBStats,
+func (d *domainAdvisor) domainDistributeGroup(domID int, group string,
+	domTotal int, outgoingStat map[int]monitor.GroupMBStats,
 ) map[int]int {
 	weights := map[int]int{}
-	groupStat := outgoingStat[domID][subGroup]
-	if group != subGroup {
-		groupStat = outgoings[group]
-	}
-	totalMBSum := 0
+	groupStat := outgoingStat[domID][group]
 	for ccd, stat := range groupStat {
 		weights[ccd] = stat.TotalMB
-		totalMBSum += stat.TotalMB
 	}
 	domCCDQuotas := d.ccdDistribute.Distribute(domTotal, weights)
 	result := map[int]int{}
 	for ccd, v := range domCCDQuotas {
-		if _, ok := outgoingStat[domID][subGroup][ccd]; ok {
-			if totalMBSum < domTotal && group != subGroup {
-				result[ccd] = d.ccdDistribute.GetMax()
-				continue
-			}
-			result[ccd] = v
-		}
+		result[ccd] = v
 	}
 	return result
 }
 
-func New(emitter metrics.MetricEmitter, domains domain.Domains, ccdMinMB, ccdMaxMB int, defaultDomainCapacity int,
+func NewDomainAdvisor(emitter metrics.MetricEmitter, domains domain.Domains, ccdMinMB, ccdMaxMB int, defaultDomainCapacity int,
 	capPercent int, XDomGroups []string, groupNeverThrottles []string,
 	groupCapacity map[string]int,
 ) Advisor {
