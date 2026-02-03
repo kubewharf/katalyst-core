@@ -516,8 +516,8 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 			name: "same priority with not enough capacity for two and a higher priority",
 			fields: fields{
 				domains: domain.Domains{
-					0: domain.NewDomain(0, sets.NewInt(0, 1), 88888),
-					1: domain.NewDomain(1, sets.NewInt(2, 3), 88888),
+					0: domain.NewDomain(0, sets.NewInt(0, 1, 2), 88888),
+					1: domain.NewDomain(1, sets.NewInt(3, 4, 5), 88888),
 				},
 				defaultDomainCapacity: 30_000,
 				XDomGroups:            nil,
@@ -676,8 +676,8 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 			name: "same priority with not enough capacity for two and a lower priority",
 			fields: fields{
 				domains: domain.Domains{
-					0: domain.NewDomain(0, sets.NewInt(0, 1), 88888),
-					1: domain.NewDomain(1, sets.NewInt(2, 3), 88888),
+					0: domain.NewDomain(0, sets.NewInt(0, 1, 2), 88888),
+					1: domain.NewDomain(1, sets.NewInt(3, 4, 5), 88888),
 				},
 				defaultDomainCapacity: 30_000,
 				XDomGroups:            nil,
@@ -836,8 +836,8 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 			name: "same priority with not enough capacity for one and a lower priority",
 			fields: fields{
 				domains: domain.Domains{
-					0: domain.NewDomain(0, sets.NewInt(0, 1), 88888),
-					1: domain.NewDomain(1, sets.NewInt(2, 3), 88888),
+					0: domain.NewDomain(0, sets.NewInt(0, 1, 2), 88888),
+					1: domain.NewDomain(1, sets.NewInt(3, 4, 5), 88888),
 				},
 				defaultDomainCapacity: 30_000,
 				XDomGroups:            nil,
@@ -996,8 +996,8 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 			name: "same priority with partial enough capacity and a lower priority",
 			fields: fields{
 				domains: domain.Domains{
-					0: domain.NewDomain(0, sets.NewInt(0, 1), 88888),
-					1: domain.NewDomain(1, sets.NewInt(2, 3), 88888),
+					0: domain.NewDomain(0, sets.NewInt(0, 1, 2), 88888),
+					1: domain.NewDomain(1, sets.NewInt(3, 4, 5), 88888),
 				},
 				defaultDomainCapacity: 30_000,
 				XDomGroups:            nil,
@@ -1146,8 +1146,8 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 				},
 			},
 			want: &plan.MBPlan{MBGroups: map[string]plan.GroupCCDPlan{
-				"dedicated-60": {0: 20_000, 3: 20_000},
-				"machine-60":   {1: 20_000, 4: 20_000},
+				"dedicated-60": {0: 15_000, 3: 15_000},
+				"machine-60":   {1: 15_000, 4: 15_000},
 				"share-50":     {2: 8500, 5: 8500},
 			}},
 			wantErr: false,
@@ -1156,8 +1156,8 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 			name: "same priority with fully enough capacity and a lower priority",
 			fields: fields{
 				domains: domain.Domains{
-					0: domain.NewDomain(0, sets.NewInt(0, 1), 88888),
-					1: domain.NewDomain(1, sets.NewInt(2, 3), 88888),
+					0: domain.NewDomain(0, sets.NewInt(0, 1, 2), 88888),
+					1: domain.NewDomain(1, sets.NewInt(3, 4, 5), 88888),
 				},
 				defaultDomainCapacity: 30_000,
 				XDomGroups:            nil,
@@ -1306,8 +1306,8 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 				},
 			},
 			want: &plan.MBPlan{MBGroups: map[string]plan.GroupCCDPlan{
-				"dedicated-60": {0: 20_000, 3: 20_000},
-				"machine-60":   {1: 20_000, 4: 20_000},
+				"dedicated-60": {0: 15_000, 3: 15_000},
+				"machine-60":   {1: 15_000, 4: 15_000},
 				"share-50":     {2: 10_000, 5: 10_000},
 			}},
 			wantErr: false,
@@ -1329,7 +1329,8 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 				ccdDistribute:         distributor.New(0, 20_000),
 				emitter:               &metrics.DummyMetrics{},
 			}
-			got, err := d.GetPlan(tt.args.ctx, tt.args.domainsMon)
+			advisor := &EnhancedAdvisor{inner: *d}
+			got, err := advisor.GetPlan(tt.args.ctx, tt.args.domainsMon)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetPlan() error = %v, wantErr %v", err, tt.wantErr)
 				return
