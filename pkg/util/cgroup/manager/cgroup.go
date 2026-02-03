@@ -618,6 +618,8 @@ func DyingMemcgReclaimWithAbsolutePath(ctx context.Context, absCGPath string, em
 			break
 		}
 
+		general.Infof("nr_dying_descendants: %d > 2000, reclaim memory", nrDyingDescendants)
+
 		// invoke memory reclaim
 		err = invokeMemoryReclaim(reclaimFile, "30m")
 		if err != nil {
@@ -633,6 +635,8 @@ func DyingMemcgReclaimWithAbsolutePath(ctx context.Context, absCGPath string, em
 			general.Warningf("read nr_dying_descendants failed: %v", err)
 			return nil
 		}
+
+		general.Infof("After reclaim, nr_dying_descendants: %d", nrDyingDescendants)
 	}
 
 	totalReleaseDyingMemcgCnt := initialDyingDescendants - nrDyingDescendants
