@@ -151,6 +151,12 @@ func (p *DynamicPolicy) numaBindingAllocationHandler(ctx context.Context,
 			"memoryReq(bytes)", podAggregatedRequest,
 			"currentResult(bytes)", allocationInfo.AggregatedQuantity)
 
+		if !allocationInfo.CheckNUMABinding() {
+			general.Errorf("pod: %s/%s, container: %s request to memory inplace update resize allocation, but origin allocation info is not numa_binding, reject it",
+				req.PodNamespace, req.PodName, req.ContainerName)
+			return nil, fmt.Errorf("cannot change from non-numa_binding to numa_binding during inplace update")
+		}
+
 		// remove the main container of this pod (the main container involve the whole pod requests), and the
 		// sidecar container request in state is zero.
 		containerEntries := podEntries[req.PodUid]
