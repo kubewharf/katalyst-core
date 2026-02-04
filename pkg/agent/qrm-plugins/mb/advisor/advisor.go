@@ -2,6 +2,7 @@ package advisor
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/domain"
@@ -20,8 +21,7 @@ func (d *EnhancedAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.Domai
 	if err != nil {
 		return nil, err
 	}
-	splitPlan := d.splitPlan(mbPlan, domainsMon)
-	return splitPlan, nil
+	return d.splitPlan(mbPlan, domainsMon)
 }
 
 func (d *EnhancedAdvisor) combinedDomainStats(domainsMon *monitor.DomainStats) *monitor.DomainStats {
@@ -40,11 +40,12 @@ func (d *EnhancedAdvisor) combinedDomainStats(domainsMon *monitor.DomainStats) *
 	return domainStats
 }
 
-func (d *EnhancedAdvisor) splitPlan(mbPlan *plan.MBPlan, domainsMon *monitor.DomainStats) *plan.MBPlan {
+func (d *EnhancedAdvisor) splitPlan(mbPlan *plan.MBPlan, domainsMon *monitor.DomainStats) (*plan.MBPlan, error) {
 	for groupKey, ccdPlan := range mbPlan.MBGroups {
 		if !strings.Contains(groupKey, "combined-") {
 			continue
 		}
+		maxMap := make(map[int]int)
 		for ccd, quota := range ccdPlan {
 			for _, stats := range domainsMon.Incomings {
 				for group, stat := range stats {
@@ -54,15 +55,29 @@ func (d *EnhancedAdvisor) splitPlan(mbPlan *plan.MBPlan, domainsMon *monitor.Dom
 								mbPlan.MBGroups[group] = make(plan.GroupCCDPlan)
 							}
 							mbPlan.MBGroups[group][ccd] = quota
-							break
+						}
+						if stat[id].TotalMB > maxMap[id] {
+							maxMap[id] = stat[id].TotalMB
 						}
 					}
 				}
 			}
 		}
 		delete(mbPlan.MBGroups, groupKey)
+		for _, stats := range domainsMon.Incomings {
+			for group, stat := range stats {
+				for id, mbStat := range stat {
+					if mbStat.TotalMB > maxMap[id]/2 && mbStat.TotalMB < maxMap[id] {
+						return nil, errors.New("invalid incoming inputs")
+					}
+					if mbStat.TotalMB <= maxMap[id]/2 {
+						delete(mbPlan.MBGroups[group], id)
+					}
+				}
+			}
+		}
 	}
-	return mbPlan
+	return mbPlan, nil
 }
 
 func NewEnhancedAdvisor(emitter metrics.MetricEmitter, domains domain.Domains, ccdMinMB, ccdMaxMB int, defaultDomainCapacity int,

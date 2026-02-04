@@ -160,7 +160,9 @@ func preProcessGroupInfo(stats monitor.GroupMBStats) monitor.GroupMBStats {
 		combined := make(monitor.GroupMB)
 		for _, group := range equivGroups {
 			for id, stat := range stats[group] {
-				combined[id] = stat
+				if stat.TotalMB > combined[id].TotalMB {
+					combined[id] = stat
+				}
 			}
 		}
 		result[newKey] = combined
