@@ -18,6 +18,7 @@ package state
 
 import (
 	"fmt"
+	"reflect"
 	"sync"
 	"time"
 
@@ -97,36 +98,34 @@ func (sc *stateCheckpoint) RestoreState(cp checkpointmanager.Checkpoint) (bool, 
 			sc.policyName, checkpoint.PolicyName)
 	}
 
-	checkpointStateMap := checkpoint.MachineState.ToMap()
-	cacheStateMap := sc.cache.GetMachineState().ToMap()
+	machineState := sc.cache.GetMachineState()
+	checkpointState := checkpoint.MachineState
+	checkpointStateMap := checkpointState.ToMap()
 
-	changed := false
-
-	// add newly found vf into state
-	machineState := checkpoint.MachineState
-	for pciAddr, vfInfo := range cacheStateMap {
-		if _, exists := checkpointStateMap[pciAddr]; exists {
-			continue
-		}
-		changed = true
-		machineState = append(machineState, vfInfo)
-	}
-
+	// init vf extra info
 	for i := range machineState {
-		if machineState[i].ExtraVFInfo != nil {
+		vf := &machineState[i]
+		if vf.ExtraVFInfo != nil {
 			continue
 		}
+
+		// reuse extra info from checkpoint if available
+		if checkpointVF, exists := checkpointStateMap[vf.PCIAddr]; exists {
+			vf.ExtraVFInfo = checkpointVF.ExtraVFInfo
+			continue
+		}
+
+		// try to init extra info, will retry by handler.StateReconciler if failed
 		if err := machineState[i].InitExtraInfo(sc.netNSDirAbsPath); err != nil {
 			generalLog.Warningf("failed to get vf extra info: %v", err)
 			continue
 		}
-		changed = true
 	}
 
 	sc.cache.SetMachineState(machineState)
 	sc.cache.SetPodEntries(checkpoint.PodEntries)
 
-	return changed, nil
+	return !reflect.DeepEqual(machineState, checkpointState), nil
 }
 
 func (sc *stateCheckpoint) storeState() error {
