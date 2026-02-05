@@ -328,6 +328,8 @@ func (p *DynamicPolicy) ReleaseAccompanyResource(req *pluginapi.RemovePodRequest
 		return fmt.Errorf("ReleaseAccompanyResource got nil req")
 	}
 
+	general.InfoS("called", "request", req, "dryRun", p.dryRun)
+
 	p.Lock()
 	defer func() {
 		p.Unlock()

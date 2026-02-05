@@ -147,7 +147,7 @@ func (p *StaticPolicy) Start() (err error) {
 func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 	req *pluginapi.ResourceRequest,
 ) (resp *pluginapi.ResourceHintsResponse, err error) {
-	general.InfoS("called", "request", req)
+	general.InfoS("called", "request", req, "dryRun", p.dryRun)
 
 	p.RLock()
 	defer func() {
@@ -245,11 +245,11 @@ func (p *StaticPolicy) GetPodTopologyHints(_ context.Context,
 func (p *StaticPolicy) RemovePod(_ context.Context,
 	req *pluginapi.RemovePodRequest,
 ) (resp *pluginapi.RemovePodResponse, err error) {
-	general.InfoS("called", "request", req)
-
 	if req == nil {
 		return nil, fmt.Errorf("RemovePod got nil req")
 	}
+
+	general.InfoS("called", "request", req, "dryRun", p.dryRun)
 
 	p.Lock()
 	defer func() {
@@ -402,7 +402,7 @@ func (p *StaticPolicy) GetResourcePluginOptions(context.Context,
 func (p *StaticPolicy) Allocate(_ context.Context,
 	req *pluginapi.ResourceRequest,
 ) (resp *pluginapi.ResourceAllocationResponse, err error) {
-	general.InfoS("called", "request", req)
+	general.InfoS("called", "request", req, "dryRun", p.dryRun)
 
 	var reuseAllocationInfo bool
 
@@ -492,7 +492,7 @@ func (p *StaticPolicy) Allocate(_ context.Context,
 	}
 	resp = p.packAllocationResponse(req, resourceAllocationInfo)
 
-	general.InfoS("finished", "response", resp, "dryRun", p.dryRun)
+	general.InfoS("finished", "response", resp, "allocatedVF", allocationInfo.VFInfo.RepName, "dryRun", p.dryRun)
 
 	if p.dryRun {
 		return
