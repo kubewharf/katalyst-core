@@ -42,6 +42,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
+	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
 type StaticPolicy struct {
@@ -203,6 +204,14 @@ func (p *StaticPolicy) GetTopologyHints(_ context.Context,
 		numaSet.Add(vf.NumaNode)
 	}
 	socketSet := p.agentCtx.CPUDetails.SocketsInNUMANodes(numaSet.ToSliceInt()...)
+
+	// indicates that there is no numa preference if vf is available on all sockets for non-numa binding pod
+	if !qosutil.AnnotationsIndicateNUMABinding(req.Annotations) &&
+		socketSet.Size() == p.agentCtx.CPUDetails.Sockets().Size() {
+		return p.packResourceHintsResponse(req, p.ResourceName(), map[string]*pluginapi.ListOfTopologyHints{
+			p.ResourceName(): nil,
+		}), nil
+	}
 
 	hints := make([]*pluginapi.TopologyHint, 0, socketSet.Size())
 	for _, socket := range socketSet.ToSliceInt() {
