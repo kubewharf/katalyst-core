@@ -17,6 +17,7 @@ limitations under the License.
 package advisor
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -144,10 +145,11 @@ func groupByWeight[T any](stats map[string]T) map[int][]string {
 }
 
 // preProcessGroupInfo combines groups with same priority together
-func preProcessGroupInfo(stats monitor.GroupMBStats) monitor.GroupMBStats {
+func preProcessGroupInfo(stats monitor.GroupMBStats) (monitor.GroupMBStats, monitor.DomainGroupMapping, error) {
 	groups := groupByWeight(stats)
 
 	result := make(monitor.GroupMBStats)
+	groupInfos := monitor.DomainGroupMapping{}
 
 	for weight, equivGroups := range groups {
 		if len(equivGroups) == 1 {
@@ -156,19 +158,40 @@ func preProcessGroupInfo(stats monitor.GroupMBStats) monitor.GroupMBStats {
 		}
 
 		newKey := fmt.Sprintf("combined-%d", weight)
-
+		groupInfo := monitor.CombinedGroupMapping{}
 		combined := make(monitor.GroupMB)
+		maxMap := make(map[int]int)
+
+		// First pass: find max TotalMB for each CCD and build combined stats
 		for _, group := range equivGroups {
 			for id, stat := range stats[group] {
 				if stat.TotalMB > combined[id].TotalMB {
 					combined[id] = stat
+					maxMap[id] = stat.TotalMB
 				}
 			}
 		}
+
+		// Second pass: validate and build CCD sets for each group (only within equivGroups)
+		for _, group := range equivGroups {
+			ccdSet := monitor.CCDSet{}
+			for id, mbStat := range stats[group] {
+				// skip shared ccd with similar incoming data
+				if mbStat.TotalMB > maxMap[id]/2 && mbStat.TotalMB < maxMap[id] {
+					return nil, nil, errors.New("invalid incoming inputs")
+				}
+				if mbStat.TotalMB == maxMap[id] {
+					ccdSet[id] = struct{}{}
+				}
+			}
+			groupInfo[group] = ccdSet
+		}
+
 		result[newKey] = combined
+		groupInfos[newKey] = groupInfo
 	}
 
-	return result
+	return result, groupInfos, nil
 }
 
 func preProcessGroupSumStat(sumStats map[string][]monitor.MBInfo) map[string][]monitor.MBInfo {
