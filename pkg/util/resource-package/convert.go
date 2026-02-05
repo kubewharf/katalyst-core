@@ -21,8 +21,10 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
+	"github.com/kubewharf/katalyst-core/pkg/util"
 )
 
 const (
@@ -31,6 +33,8 @@ const (
 	metricLabelNumaID           = "numa-id"
 	metricLabelPinnedCPUSetPool = "pinned-cpuset-pool"
 )
+
+var defaultMetricLabels = sets.NewString(MetricScope, metricLabelPackageName, metricLabelNumaID, metricLabelPinnedCPUSetPool)
 
 // ResourcePackageConfig holds the configuration of a resource package.
 type ResourcePackageConfig struct {
@@ -127,6 +131,16 @@ func ConvertResourcePackagesToNPDMetrics(resourcePackageMetrics []ResourcePackag
 				if pkg.Config != nil && pkg.Config.PinnedCPUSetPool != nil {
 					labels[metricLabelPinnedCPUSetPool] = *pkg.Config.PinnedCPUSetPool
 				}
+
+				// add attributes to labels of cpu metric only
+				if r.String() == string(v1.ResourceCPU) {
+					for _, attr := range pkg.Attributes {
+						if _, ok := labels[attr.Name]; !ok {
+							labels[attr.Name] = attr.Value
+						}
+					}
+				}
+
 				metrics = append(metrics, nodev1alpha1.MetricValue{
 					MetricName:   r.String(),
 					Value:        q.DeepCopy(),
@@ -180,6 +194,7 @@ func updatePkgMapFromMetrics(metrics []nodev1alpha1.MetricValue, pkgMap map[stri
 				ResourcePackage: nodev1alpha1.ResourcePackage{
 					PackageName: packageName,
 					Allocatable: &v1.ResourceList{},
+					Attributes:  make([]nodev1alpha1.Attribute, 0),
 				},
 			}
 		}
@@ -194,6 +209,18 @@ func updatePkgMapFromMetrics(metrics []nodev1alpha1.MetricValue, pkgMap map[stri
 			}
 			metric.Config.PinnedCPUSetPool = &pinnedPool
 		}
+
+		// add attributes to metric which are not in defaultMetricLabels
+		for k, v := range v.MetricLabels {
+			if !defaultMetricLabels.Has(k) {
+				metric.Attributes = append(metric.Attributes, nodev1alpha1.Attribute{
+					Name:  k,
+					Value: v,
+				})
+			}
+		}
+		// merge attributes to avoid duplicate
+		metric.Attributes = util.MergeAttributes(nil, metric.Attributes)
 
 		resourcePkgs[packageName] = metric
 	}
