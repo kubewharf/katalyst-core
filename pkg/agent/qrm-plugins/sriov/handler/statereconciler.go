@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/kubernetes"
 	cri "k8s.io/cri-api/pkg/apis"
+	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
@@ -127,6 +128,11 @@ func (r *StateReconciler) getRuntimePodPCIDevice() (map[string]types.PCIDevice, 
 	podVF := make(map[string]types.PCIDevice)
 	vfSet := sets.NewString()
 	for _, sandbox := range sandboxes {
+		if sandbox.State != runtimeapi.PodSandboxState_SANDBOX_READY {
+			general.Infof("pod sandbox %s is not ready, skip", sandbox.Metadata.Uid)
+			continue
+		}
+
 		pciDeviceStr, ok := sandbox.Annotations[r.pciAnnotation]
 		if !ok {
 			continue
@@ -284,7 +290,7 @@ func (r *StateReconciler) updatePodSriovVFResultAnnotation(metaServer *metaserve
 	for podUID, podEntry := range podEntries {
 		pod, err := metaServer.GetPod(context.Background(), podUID)
 		if err != nil {
-			errList = append(errList, fmt.Errorf("failed to get pod %s: %w", podUID, err))
+			general.Warningf("failed to get pod %s: %v, skip", podUID, err)
 			continue
 		}
 
