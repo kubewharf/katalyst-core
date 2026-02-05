@@ -248,3 +248,40 @@ func Test_calcRateData(t *testing.T) {
 		})
 	}
 }
+
+func Test_calcVictimTotalLocalMB(t *testing.T) {
+	t.Parallel()
+	type args struct {
+		statTotal int64
+		statLocal int64
+	}
+	tests := []struct {
+		name      string
+		args      args
+		wantTotal int64
+		wantLocal int64
+	}{
+		{
+			name: "happy path",
+			args: args{
+				statTotal: 5000,
+				statLocal: 1500,
+			},
+			wantTotal: 6000,
+			wantLocal: 6000,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			gotTotal, gotLocal := calcVictimTotalLocalMB(tt.args.statTotal, tt.args.statLocal)
+			if gotTotal != tt.wantTotal {
+				t.Errorf("calcVictimTotalLocalMB() gotTotal = %v, want %v", gotTotal, tt.wantTotal)
+			}
+			if gotLocal != tt.wantLocal {
+				t.Errorf("calcVictimTotalLocalMB() gotLocal = %v, want %v", gotLocal, tt.wantLocal)
+			}
+		})
+	}
+}

@@ -207,18 +207,14 @@ func calcGroupMBRate(newCounter, oldCounter []malachitetypes.MBCCDStat, msElapse
 				ccd, ccdCounter.MBTotalCounter, oldCCDCounter.MBTotalCounter)
 		}
 
-		rateRemoteMB := 0
 		if !getLocalIsVictimAndTotalIsAllRead() {
 			if rateTotalMB < rateLocalMB {
 				return nil, fmt.Errorf("skip invalid mb cal: ccd %v, total %v, locval %v",
 					ccd, rateTotalMB, rateLocalMB)
 			}
-			rateRemoteMB = int(rateTotalMB - rateLocalMB)
 		} else {
-			// we know the total including victim; no idea how much the local and remote really are
-			// assuming all is local as this seems fine except for non-SNB
-			rateTotalMB += rateLocalMB
-			rateLocalMB = rateTotalMB
+			// assuming all is local as only SNB is supported now with victim being enabled
+			rateTotalMB, rateLocalMB = calcVictimTotalLocalMB(rateTotalMB, rateLocalMB)
 		}
 
 		if rateTotalMB > maxCCDTotalMB {
@@ -228,12 +224,24 @@ func calcGroupMBRate(newCounter, oldCounter []malachitetypes.MBCCDStat, msElapse
 
 		result[ccd] = monitor.MBInfo{
 			LocalMB:  int(rateLocalMB),
-			RemoteMB: rateRemoteMB,
+			RemoteMB: int(rateTotalMB - rateLocalMB),
 			TotalMB:  int(rateTotalMB),
 		}
 	}
 
 	return result, nil
+}
+
+func calcVictimTotalLocalMB(statTotal, statLocal int64) (total, local int64) {
+	// statTotal and statLocal have very special meaning
+	// when the local is victim writes, and total is all reads + write-back writes
+
+	// real total MB == statTotal + statLocal/1.5
+	total = statTotal + statLocal*2/3
+
+	// remote stat (assuming 0) collection is sacrificed for MB accuracy, when applied to AMD SNB scenarios
+	local = total // remote == 0
+	return total, local
 }
 
 func (m *metaServerMBReader) getCounterData(now time.Time) (*malachitetypes.MBData, error) {
