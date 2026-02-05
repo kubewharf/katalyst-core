@@ -2,7 +2,6 @@ package advisor
 
 import (
 	"context"
-	"errors"
 	"strings"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/domain"
@@ -16,68 +15,63 @@ type EnhancedAdvisor struct {
 }
 
 func (d *EnhancedAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.DomainStats) (*plan.MBPlan, error) {
-	domainStats := d.combinedDomainStats(domainsMon)
+	domainStats, groupInfos, err := d.combinedDomainStats(domainsMon)
+	if err != nil {
+		return nil, err
+	}
 	mbPlan, err := d.inner.GetPlan(ctx, domainStats)
 	if err != nil {
 		return nil, err
 	}
-	return d.splitPlan(mbPlan, domainsMon)
+	return d.splitPlan(mbPlan, groupInfos), nil
 }
 
-func (d *EnhancedAdvisor) combinedDomainStats(domainsMon *monitor.DomainStats) *monitor.DomainStats {
+func (d *EnhancedAdvisor) combinedDomainStats(domainsMon *monitor.DomainStats) (*monitor.DomainStats, *monitor.GroupInfo, error) {
 	domainStats := &monitor.DomainStats{
 		Incomings:            make(map[int]monitor.DomainMonStat),
 		Outgoings:            make(map[int]monitor.DomainMonStat),
 		OutgoingGroupSumStat: make(map[string][]monitor.MBInfo),
 	}
+	groupInfos := &monitor.GroupInfo{
+		DomainGroups: make(map[int]monitor.DomainGroupMapping),
+	}
+	var err error
 	for id, domainMon := range domainsMon.Incomings {
-		domainStats.Incomings[id] = preProcessGroupInfo(domainMon)
+		domainStats.Incomings[id], groupInfos.DomainGroups[id], err = preProcessGroupInfo(domainMon)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 	for id, domainMon := range domainsMon.Outgoings {
-		domainStats.Outgoings[id] = preProcessGroupInfo(domainMon)
+		domainStats.Outgoings[id], _, err = preProcessGroupInfo(domainMon)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 	domainStats.OutgoingGroupSumStat = preProcessGroupSumStat(domainsMon.OutgoingGroupSumStat)
-	return domainStats
+	return domainStats, groupInfos, nil
 }
 
-func (d *EnhancedAdvisor) splitPlan(mbPlan *plan.MBPlan, domainsMon *monitor.DomainStats) (*plan.MBPlan, error) {
+func (d *EnhancedAdvisor) splitPlan(mbPlan *plan.MBPlan, groupInfos *monitor.GroupInfo) *plan.MBPlan {
 	for groupKey, ccdPlan := range mbPlan.MBGroups {
 		if !strings.Contains(groupKey, "combined-") {
 			continue
 		}
-		maxMap := make(map[int]int)
-		for ccd, quota := range ccdPlan {
-			for _, stats := range domainsMon.Incomings {
-				for group, stat := range stats {
-					for id := range stat {
-						if id == ccd {
-							if mbPlan.MBGroups[group] == nil {
-								mbPlan.MBGroups[group] = make(plan.GroupCCDPlan)
-							}
-							mbPlan.MBGroups[group][ccd] = quota
+		for _, domainGroupInfos := range groupInfos.DomainGroups {
+			for group, groupInfo := range domainGroupInfos[groupKey] {
+				for ccd := range groupInfo {
+					if _, exists := ccdPlan[ccd]; exists {
+						if mbPlan.MBGroups[group] == nil {
+							mbPlan.MBGroups[group] = make(plan.GroupCCDPlan)
 						}
-						if stat[id].TotalMB > maxMap[id] {
-							maxMap[id] = stat[id].TotalMB
-						}
+						mbPlan.MBGroups[group][ccd] = ccdPlan[ccd]
 					}
 				}
 			}
 		}
 		delete(mbPlan.MBGroups, groupKey)
-		for _, stats := range domainsMon.Incomings {
-			for group, stat := range stats {
-				for id, mbStat := range stat {
-					if mbStat.TotalMB > maxMap[id]/2 && mbStat.TotalMB < maxMap[id] {
-						return nil, errors.New("invalid incoming inputs")
-					}
-					if mbStat.TotalMB <= maxMap[id]/2 {
-						delete(mbPlan.MBGroups[group], id)
-					}
-				}
-			}
-		}
 	}
-	return mbPlan, nil
+	return mbPlan
 }
 
 func NewEnhancedAdvisor(emitter metrics.MetricEmitter, domains domain.Domains, ccdMinMB, ccdMaxMB int, defaultDomainCapacity int,

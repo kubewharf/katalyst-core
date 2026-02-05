@@ -1263,3 +1263,587 @@ func Test_EnhancedAdvisor_GetPlan(t *testing.T) {
 		})
 	}
 }
+
+func Test_EnhancedAdvisor_combinedDomainStats(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name          string
+		domainsMon    *monitor.DomainStats
+		wantStats     *monitor.DomainStats
+		wantGroupInfo *monitor.GroupInfo
+		wantErr       bool
+	}{
+		{
+			name: "single group per weight - no combination",
+			domainsMon: &monitor.DomainStats{
+				Incomings: map[int]monitor.GroupMBStats{
+					0: {
+						"dedicated-60": map[int]monitor.MBInfo{
+							0: {LocalMB: 5_000, RemoteMB: 5_000, TotalMB: 10_000},
+							1: {LocalMB: 3_000, RemoteMB: 2_000, TotalMB: 5_000},
+						},
+					},
+					1: {
+						"share-50": map[int]monitor.MBInfo{
+							2: {LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
+						},
+					},
+				},
+				Outgoings: map[int]monitor.GroupMBStats{
+					0: {
+						"dedicated-60": map[int]monitor.MBInfo{
+							0: {LocalMB: 5_000, RemoteMB: 5_000, TotalMB: 10_000},
+							1: {LocalMB: 3_000, RemoteMB: 2_000, TotalMB: 5_000},
+						},
+					},
+					1: {
+						"share-50": map[int]monitor.MBInfo{
+							2: {LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
+						},
+					},
+				},
+				OutgoingGroupSumStat: map[string][]monitor.MBInfo{
+					"dedicated-60": {
+						{LocalMB: 5_000, RemoteMB: 5_000, TotalMB: 10_000},
+						{LocalMB: 0, RemoteMB: 0, TotalMB: 0},
+					},
+					"share-50": {
+						{LocalMB: 0, RemoteMB: 0, TotalMB: 0},
+						{LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
+					},
+				},
+			},
+			wantStats: &monitor.DomainStats{
+				Incomings: map[int]monitor.GroupMBStats{
+					0: {
+						"dedicated-60": map[int]monitor.MBInfo{
+							0: {LocalMB: 5_000, RemoteMB: 5_000, TotalMB: 10_000},
+							1: {LocalMB: 3_000, RemoteMB: 2_000, TotalMB: 5_000},
+						},
+					},
+					1: {
+						"share-50": map[int]monitor.MBInfo{
+							2: {LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
+						},
+					},
+				},
+				Outgoings: map[int]monitor.GroupMBStats{
+					0: {
+						"dedicated-60": map[int]monitor.MBInfo{
+							0: {LocalMB: 5_000, RemoteMB: 5_000, TotalMB: 10_000},
+							1: {LocalMB: 3_000, RemoteMB: 2_000, TotalMB: 5_000},
+						},
+					},
+					1: {
+						"share-50": map[int]monitor.MBInfo{
+							2: {LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
+						},
+					},
+				},
+				OutgoingGroupSumStat: map[string][]monitor.MBInfo{
+					"dedicated-60": {
+						{LocalMB: 5_000, RemoteMB: 5_000, TotalMB: 10_000},
+						{LocalMB: 0, RemoteMB: 0, TotalMB: 0},
+					},
+					"share-50": {
+						{LocalMB: 0, RemoteMB: 0, TotalMB: 0},
+						{LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
+					},
+				},
+			},
+			wantGroupInfo: &monitor.GroupInfo{
+				DomainGroups: map[int]monitor.DomainGroupMapping{
+					0: {},
+					1: {},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "multiple groups with same weight - combine groups",
+			domainsMon: &monitor.DomainStats{
+				Incomings: map[int]monitor.GroupMBStats{
+					0: {
+						"dedicated-60": map[int]monitor.MBInfo{
+							0: {LocalMB: 10_000, RemoteMB: 5_000, TotalMB: 15_000},
+						},
+						"machine-60": map[int]monitor.MBInfo{
+							1: {LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
+						},
+					},
+				},
+				Outgoings: map[int]monitor.GroupMBStats{
+					0: {
+						"dedicated-60": map[int]monitor.MBInfo{
+							0: {LocalMB: 10_000, RemoteMB: 5_000, TotalMB: 15_000},
+						},
+						"machine-60": map[int]monitor.MBInfo{
+							1: {LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
+						},
+					},
+				},
+				OutgoingGroupSumStat: map[string][]monitor.MBInfo{
+					"dedicated-60": {
+						{LocalMB: 10_000, RemoteMB: 5_000, TotalMB: 15_000},
+					},
+					"machine-60": {
+						{LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
+					},
+				},
+			},
+			wantStats: &monitor.DomainStats{
+				Incomings: map[int]monitor.GroupMBStats{
+					0: {
+						"combined-9000": map[int]monitor.MBInfo{
+							0: {LocalMB: 10_000, RemoteMB: 5_000, TotalMB: 15_000},
+							1: {LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
+						},
+					},
+				},
+				Outgoings: map[int]monitor.GroupMBStats{
+					0: {
+						"combined-9000": map[int]monitor.MBInfo{
+							0: {LocalMB: 10_000, RemoteMB: 5_000, TotalMB: 15_000},
+							1: {LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
+						},
+					},
+				},
+				OutgoingGroupSumStat: map[string][]monitor.MBInfo{
+					"combined-9000": {
+						{LocalMB: 18_000, RemoteMB: 9_000, TotalMB: 27_000},
+					},
+				},
+			},
+			wantGroupInfo: &monitor.GroupInfo{
+				DomainGroups: map[int]monitor.DomainGroupMapping{
+					0: {
+						"combined-9000": {
+							"dedicated-60": {0: struct{}{}},
+							"machine-60":   {1: struct{}{}},
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "multiple domains with same weight groups",
+			domainsMon: &monitor.DomainStats{
+				Incomings: map[int]monitor.GroupMBStats{
+					0: {
+						"dedicated-60": map[int]monitor.MBInfo{
+							0: {LocalMB: 10_000, RemoteMB: 5_000, TotalMB: 15_000},
+						},
+						"machine-60": map[int]monitor.MBInfo{
+							1: {LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
+						},
+					},
+					1: {
+						"dedicated-60": map[int]monitor.MBInfo{
+							2: {LocalMB: 12_000, RemoteMB: 6_000, TotalMB: 18_000},
+						},
+						"machine-60": map[int]monitor.MBInfo{
+							3: {LocalMB: 7_000, RemoteMB: 3_000, TotalMB: 10_000},
+						},
+					},
+				},
+				Outgoings: map[int]monitor.GroupMBStats{
+					0: {
+						"dedicated-60": map[int]monitor.MBInfo{
+							0: {LocalMB: 10_000, RemoteMB: 5_000, TotalMB: 15_000},
+						},
+						"machine-60": map[int]monitor.MBInfo{
+							1: {LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
+						},
+					},
+					1: {
+						"dedicated-60": map[int]monitor.MBInfo{
+							2: {LocalMB: 12_000, RemoteMB: 6_000, TotalMB: 18_000},
+						},
+						"machine-60": map[int]monitor.MBInfo{
+							3: {LocalMB: 7_000, RemoteMB: 3_000, TotalMB: 10_000},
+						},
+					},
+				},
+				OutgoingGroupSumStat: map[string][]monitor.MBInfo{
+					"dedicated-60": {
+						{LocalMB: 10_000, RemoteMB: 5_000, TotalMB: 15_000},
+						{LocalMB: 12_000, RemoteMB: 6_000, TotalMB: 18_000},
+					},
+					"machine-60": {
+						{LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
+						{LocalMB: 7_000, RemoteMB: 3_000, TotalMB: 10_000},
+					},
+				},
+			},
+			wantStats: &monitor.DomainStats{
+				Incomings: map[int]monitor.GroupMBStats{
+					0: {
+						"combined-9000": map[int]monitor.MBInfo{
+							0: {LocalMB: 10_000, RemoteMB: 5_000, TotalMB: 15_000},
+							1: {LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
+						},
+					},
+					1: {
+						"combined-9000": map[int]monitor.MBInfo{
+							2: {LocalMB: 12_000, RemoteMB: 6_000, TotalMB: 18_000},
+							3: {LocalMB: 7_000, RemoteMB: 3_000, TotalMB: 10_000},
+						},
+					},
+				},
+				Outgoings: map[int]monitor.GroupMBStats{
+					0: {
+						"combined-9000": map[int]monitor.MBInfo{
+							0: {LocalMB: 10_000, RemoteMB: 5_000, TotalMB: 15_000},
+							1: {LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
+						},
+					},
+					1: {
+						"combined-9000": map[int]monitor.MBInfo{
+							2: {LocalMB: 12_000, RemoteMB: 6_000, TotalMB: 18_000},
+							3: {LocalMB: 7_000, RemoteMB: 3_000, TotalMB: 10_000},
+						},
+					},
+				},
+				OutgoingGroupSumStat: map[string][]monitor.MBInfo{
+					"combined-9000": {
+						{LocalMB: 18_000, RemoteMB: 9_000, TotalMB: 27_000},
+						{LocalMB: 19_000, RemoteMB: 9_000, TotalMB: 28_000},
+					},
+				},
+			},
+			wantGroupInfo: &monitor.GroupInfo{
+				DomainGroups: map[int]monitor.DomainGroupMapping{
+					0: {
+						"combined-9000": {
+							"dedicated-60": {0: struct{}{}},
+							"machine-60":   {1: struct{}{}},
+						},
+					},
+					1: {
+						"combined-9000": {
+							"dedicated-60": {2: struct{}{}},
+							"machine-60":   {3: struct{}{}},
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "three groups with same weight",
+			domainsMon: &monitor.DomainStats{
+				Incomings: map[int]monitor.GroupMBStats{
+					0: {
+						"dedicated-60": map[int]monitor.MBInfo{
+							0: {LocalMB: 10_000, RemoteMB: 5_000, TotalMB: 15_000},
+						},
+						"machine-60": map[int]monitor.MBInfo{
+							1: {LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
+						},
+						"system-60": map[int]monitor.MBInfo{
+							2: {LocalMB: 6_000, RemoteMB: 3_000, TotalMB: 9_000},
+						},
+					},
+				},
+				Outgoings: map[int]monitor.GroupMBStats{
+					0: {
+						"dedicated-60": map[int]monitor.MBInfo{
+							0: {LocalMB: 10_000, RemoteMB: 5_000, TotalMB: 15_000},
+						},
+						"machine-60": map[int]monitor.MBInfo{
+							1: {LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
+						},
+						"system-60": map[int]monitor.MBInfo{
+							2: {LocalMB: 6_000, RemoteMB: 3_000, TotalMB: 9_000},
+						},
+					},
+				},
+				OutgoingGroupSumStat: map[string][]monitor.MBInfo{
+					"dedicated-60": {
+						{LocalMB: 10_000, RemoteMB: 5_000, TotalMB: 15_000},
+					},
+					"machine-60": {
+						{LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
+					},
+					"system-60": {
+						{LocalMB: 6_000, RemoteMB: 3_000, TotalMB: 9_000},
+					},
+				},
+			},
+			wantStats: &monitor.DomainStats{
+				Incomings: map[int]monitor.GroupMBStats{
+					0: {
+						"combined-9000": map[int]monitor.MBInfo{
+							0: {LocalMB: 10_000, RemoteMB: 5_000, TotalMB: 15_000},
+							1: {LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
+							2: {LocalMB: 6_000, RemoteMB: 3_000, TotalMB: 9_000},
+						},
+					},
+				},
+				Outgoings: map[int]monitor.GroupMBStats{
+					0: {
+						"combined-9000": map[int]monitor.MBInfo{
+							0: {LocalMB: 10_000, RemoteMB: 5_000, TotalMB: 15_000},
+							1: {LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
+							2: {LocalMB: 6_000, RemoteMB: 3_000, TotalMB: 9_000},
+						},
+					},
+				},
+				OutgoingGroupSumStat: map[string][]monitor.MBInfo{
+					"combined-9000": {
+						{LocalMB: 24_000, RemoteMB: 12_000, TotalMB: 36_000},
+					},
+				},
+			},
+			wantGroupInfo: &monitor.GroupInfo{
+				DomainGroups: map[int]monitor.DomainGroupMapping{
+					0: {
+						"combined-9000": {
+							"dedicated-60": {0: struct{}{}},
+							"machine-60":   {1: struct{}{}},
+							"system-60":    {2: struct{}{}},
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			d := &EnhancedAdvisor{}
+			gotStats, gotGroupInfo, err := d.combinedDomainStats(tt.domainsMon)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("combinedDomainStats() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(gotStats, tt.wantStats) {
+				t.Errorf("combinedDomainStats() gotStats = %v, want %v", gotStats, tt.wantStats)
+			}
+			if !reflect.DeepEqual(gotGroupInfo, tt.wantGroupInfo) {
+				t.Errorf("combinedDomainStats() gotGroupInfo = %v, want %v", gotGroupInfo, tt.wantGroupInfo)
+			}
+		})
+	}
+}
+
+func Test_EnhancedAdvisor_splitPlan(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		mbPlan     *plan.MBPlan
+		groupInfos *monitor.GroupInfo
+		want       *plan.MBPlan
+	}{
+		{
+			name: "no combined groups - no change",
+			mbPlan: &plan.MBPlan{
+				MBGroups: map[string]plan.GroupCCDPlan{
+					"dedicated-60": {0: 5_000, 1: 4_000},
+					"machine-60":   {2: 6_000, 3: 5_500},
+				},
+			},
+			groupInfos: &monitor.GroupInfo{
+				DomainGroups: map[int]monitor.DomainGroupMapping{
+					0: {},
+					1: {},
+				},
+			},
+			want: &plan.MBPlan{
+				MBGroups: map[string]plan.GroupCCDPlan{
+					"dedicated-60": {0: 5_000, 1: 4_000},
+					"machine-60":   {2: 6_000, 3: 5_500},
+				},
+			},
+		},
+		{
+			name: "single combined group - split to original groups",
+			mbPlan: &plan.MBPlan{
+				MBGroups: map[string]plan.GroupCCDPlan{
+					"combined-9000": {0: 5_000, 1: 4_000},
+				},
+			},
+			groupInfos: &monitor.GroupInfo{
+				DomainGroups: map[int]monitor.DomainGroupMapping{
+					0: {
+						"combined-9000": {
+							"dedicated-60": {0: struct{}{}},
+							"machine-60":   {1: struct{}{}},
+						},
+					},
+				},
+			},
+			want: &plan.MBPlan{
+				MBGroups: map[string]plan.GroupCCDPlan{
+					"dedicated-60": {0: 5_000},
+					"machine-60":   {1: 4_000},
+				},
+			},
+		},
+		{
+			name: "mixed combined and non-combined groups",
+			mbPlan: &plan.MBPlan{
+				MBGroups: map[string]plan.GroupCCDPlan{
+					"combined-9000": {0: 5_000, 1: 4_000},
+					"share-50":      {2: 8_000, 3: 7_000},
+				},
+			},
+			groupInfos: &monitor.GroupInfo{
+				DomainGroups: map[int]monitor.DomainGroupMapping{
+					0: {
+						"combined-9000": {
+							"dedicated-60": {0: struct{}{}},
+							"machine-60":   {1: struct{}{}},
+						},
+					},
+				},
+			},
+			want: &plan.MBPlan{
+				MBGroups: map[string]plan.GroupCCDPlan{
+					"dedicated-60": {0: 5_000},
+					"machine-60":   {1: 4_000},
+					"share-50":     {2: 8_000, 3: 7_000},
+				},
+			},
+		},
+		{
+			name: "multiple combined groups in different domains",
+			mbPlan: &plan.MBPlan{
+				MBGroups: map[string]plan.GroupCCDPlan{
+					"combined-9000": {0: 5_000, 1: 4_000, 2: 6_000, 3: 5_500},
+				},
+			},
+			groupInfos: &monitor.GroupInfo{
+				DomainGroups: map[int]monitor.DomainGroupMapping{
+					0: {
+						"combined-9000": {
+							"dedicated-60": {0: struct{}{}},
+							"machine-60":   {1: struct{}{}},
+						},
+					},
+					1: {
+						"combined-9000": {
+							"dedicated-60": {2: struct{}{}},
+							"machine-60":   {3: struct{}{}},
+						},
+					},
+				},
+			},
+			want: &plan.MBPlan{
+				MBGroups: map[string]plan.GroupCCDPlan{
+					"dedicated-60": {0: 5_000, 2: 6_000},
+					"machine-60":   {1: 4_000, 3: 5_500},
+				},
+			},
+		},
+		{
+			name: "combined group with partial CCD match",
+			mbPlan: &plan.MBPlan{
+				MBGroups: map[string]plan.GroupCCDPlan{
+					"combined-9000": {0: 5_000, 1: 4_000, 2: 3_000},
+				},
+			},
+			groupInfos: &monitor.GroupInfo{
+				DomainGroups: map[int]monitor.DomainGroupMapping{
+					0: {
+						"combined-9000": {
+							"dedicated-60": {0: struct{}{}},
+							"machine-60":   {1: struct{}{}},
+						},
+					},
+				},
+			},
+			want: &plan.MBPlan{
+				MBGroups: map[string]plan.GroupCCDPlan{
+					"dedicated-60": {0: 5_000},
+					"machine-60":   {1: 4_000},
+				},
+			},
+		},
+		{
+			name: "multiple combined groups with different priorities",
+			mbPlan: &plan.MBPlan{
+				MBGroups: map[string]plan.GroupCCDPlan{
+					"combined-9000": {0: 5_000, 1: 4_000},
+					"combined-1050": {2: 8_000, 3: 7_000},
+				},
+			},
+			groupInfos: &monitor.GroupInfo{
+				DomainGroups: map[int]monitor.DomainGroupMapping{
+					0: {
+						"combined-9000": {
+							"dedicated-60": {0: struct{}{}},
+							"machine-60":   {1: struct{}{}},
+						},
+						"combined-1050": {
+							"share-50":     {2: struct{}{}},
+							"share-alt-50": {3: struct{}{}},
+						},
+					},
+				},
+			},
+			want: &plan.MBPlan{
+				MBGroups: map[string]plan.GroupCCDPlan{
+					"dedicated-60": {0: 5_000},
+					"machine-60":   {1: 4_000},
+					"share-50":     {2: 8_000},
+					"share-alt-50": {3: 7_000},
+				},
+			},
+		},
+		{
+			name: "empty group info - remove combined groups",
+			mbPlan: &plan.MBPlan{
+				MBGroups: map[string]plan.GroupCCDPlan{
+					"combined-9000": {0: 5_000, 1: 4_000},
+				},
+			},
+			groupInfos: &monitor.GroupInfo{
+				DomainGroups: map[int]monitor.DomainGroupMapping{},
+			},
+			want: &plan.MBPlan{
+				MBGroups: map[string]plan.GroupCCDPlan{},
+			},
+		},
+		{
+			name: "three groups combined and split",
+			mbPlan: &plan.MBPlan{
+				MBGroups: map[string]plan.GroupCCDPlan{
+					"combined-9000": {0: 5_000, 1: 4_000, 2: 3_500},
+				},
+			},
+			groupInfos: &monitor.GroupInfo{
+				DomainGroups: map[int]monitor.DomainGroupMapping{
+					0: {
+						"combined-9000": {
+							"dedicated-60": {0: struct{}{}},
+							"machine-60":   {1: struct{}{}},
+							"system-60":    {2: struct{}{}},
+						},
+					},
+				},
+			},
+			want: &plan.MBPlan{
+				MBGroups: map[string]plan.GroupCCDPlan{
+					"dedicated-60": {0: 5_000},
+					"machine-60":   {1: 4_000},
+					"system-60":    {2: 3_500},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			d := &EnhancedAdvisor{}
+			got := d.splitPlan(tt.mbPlan, tt.groupInfos)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("splitPlan() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
