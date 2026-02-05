@@ -39,7 +39,8 @@ func Test_getSortedGroups(t *testing.T) {
 				groups: []string{"reclaim", "dedicated", "unknown", "system", "share"},
 			},
 			want: []sets.String{
-				sets.NewString("dedicated", "system"),
+				sets.NewString("dedicated"),
+				sets.NewString("system"),
 				sets.NewString("unknown"),
 				sets.NewString("share"),
 				sets.NewString("reclaim"),
