@@ -235,6 +235,7 @@ func MergeResourcePackages(dst, src []apis.ResourcePackage) []apis.ResourcePacka
 	for _, srcPkg := range src {
 		if idx, ok := dstPkgIdx[srcPkg.PackageName]; ok {
 			dst[idx].Allocatable = native.MergeResources(dst[idx].Allocatable, srcPkg.Allocatable)
+			dst[idx].Attributes = MergeAttributes(dst[idx].Attributes, srcPkg.Attributes)
 		} else {
 			dst = append(dst, srcPkg)
 			dstPkgIdx[srcPkg.PackageName] = len(dst) - 1
