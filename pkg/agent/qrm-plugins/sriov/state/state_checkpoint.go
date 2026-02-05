@@ -1,0 +1,249 @@
+/*
+Copyright 2022 The Katalyst Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package state
+
+import (
+	"fmt"
+	"reflect"
+	"sync"
+	"time"
+
+	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
+
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/customcheckpointmanager"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/state"
+)
+
+const (
+	metricMetaCacheStoreStateDuration = "metacache_store_state_duration"
+)
+
+var (
+	_ State          = &stateCheckpoint{}
+	_ state.Storable = &stateCheckpoint{}
+
+	generalLog = general.LoggerWithPrefix("sriov_plugin", general.LoggingPKGFull)
+)
+
+type stateCheckpoint struct {
+	sync.RWMutex
+	cache               *stateMemory
+	policyName          string
+	checkpointManager   checkpointmanager.CheckpointManager
+	checkpointName      string
+	skipStateCorruption bool
+	emitter             metrics.MetricEmitter
+	netNSDirAbsPath     string
+}
+
+func NewCheckpointState(allNics []machine.InterfaceInfo, machineInfoConf *global.MachineInfoConfiguration,
+	stateDirectoryConfig *statedirectory.StateDirectoryConfiguration, checkpointName, policyName string,
+	skipStateCorruption bool, emitter metrics.MetricEmitter,
+) (State, error) {
+	currentStateDir, otherStateDir := stateDirectoryConfig.GetCurrentAndPreviousStateFileDirectory()
+
+	cache, err := NewStateMemory(machineInfoConf, allNics)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize sriov plugin state: %v", err)
+	}
+
+	sc := &stateCheckpoint{
+		cache:               cache,
+		policyName:          policyName,
+		checkpointName:      checkpointName,
+		skipStateCorruption: skipStateCorruption,
+		emitter:             emitter,
+		netNSDirAbsPath:     machineInfoConf.NetNSDirAbsPath,
+	}
+
+	cm, err := customcheckpointmanager.NewCustomCheckpointManager(currentStateDir, otherStateDir, checkpointName,
+		"sriov_plugin", sc, skipStateCorruption)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize custom checkpoint manager: %v", err)
+	}
+
+	sc.checkpointManager = cm
+
+	return sc, nil
+}
+
+// RestoreState implements Storable interface and restores the cache from checkpoint and returns if the state has changed.
+func (sc *stateCheckpoint) RestoreState(cp checkpointmanager.Checkpoint) (bool, error) {
+	checkpoint, ok := cp.(*SriovPluginCheckpoint)
+	if !ok {
+		return false, fmt.Errorf("checkpoint type assertion failed, expect *SriovPluginCheckpoint, got %T", cp)
+	}
+
+	if sc.policyName != checkpoint.PolicyName && !sc.skipStateCorruption {
+		return false, fmt.Errorf("configured policy %q differs from state checkpoint policy %q",
+			sc.policyName, checkpoint.PolicyName)
+	}
+
+	machineState := sc.cache.GetMachineState()
+	checkpointState := checkpoint.MachineState
+	checkpointStateMap := checkpointState.ToMap()
+
+	// init vf extra info
+	for i := range machineState {
+		vf := &machineState[i]
+		if vf.ExtraVFInfo != nil {
+			continue
+		}
+
+		// reuse extra info from checkpoint if available
+		if checkpointVF, exists := checkpointStateMap[vf.PCIAddr]; exists {
+			vf.ExtraVFInfo = checkpointVF.ExtraVFInfo
+			continue
+		}
+
+		// try to init extra info, will retry by handler.StateReconciler if failed
+		if err := machineState[i].InitExtraInfo(sc.netNSDirAbsPath); err != nil {
+			generalLog.Warningf("failed to get vf extra info: %v", err)
+			continue
+		}
+	}
+
+	sc.cache.SetMachineState(machineState)
+	sc.cache.SetPodEntries(checkpoint.PodEntries)
+
+	return !reflect.DeepEqual(machineState, checkpointState), nil
+}
+
+func (sc *stateCheckpoint) storeState() error {
+	startTime := time.Now()
+	general.InfoS("called")
+	defer func() {
+		elapsed := time.Since(startTime)
+		general.InfoS("finished", "duration", elapsed)
+		_ = sc.emitter.StoreFloat64(metricMetaCacheStoreStateDuration, float64(elapsed/time.Millisecond), metrics.MetricTypeNameRaw)
+	}()
+	checkpoint := sc.InitNewCheckpoint(false)
+
+	err := sc.checkpointManager.CreateCheckpoint(sc.checkpointName, checkpoint)
+	if err != nil {
+		generalLog.ErrorS(err, "could not save checkpoint")
+		return err
+	}
+	return nil
+}
+
+// InitNewCheckpoint implements Storable interface and initializes an empty or non-empty new checkpoint.
+func (sc *stateCheckpoint) InitNewCheckpoint(empty bool) checkpointmanager.Checkpoint {
+	checkpoint := NewSriovPluginCheckpoint()
+	if empty {
+		return checkpoint
+	}
+	checkpoint.PolicyName = sc.policyName
+	checkpoint.MachineState = sc.cache.GetMachineState()
+	checkpoint.PodEntries = sc.cache.GetPodEntries()
+	return checkpoint
+}
+
+func (sc *stateCheckpoint) SetMachineState(state VFState, persist bool) {
+	sc.Lock()
+	defer sc.Unlock()
+
+	sc.cache.SetMachineState(state)
+	if persist {
+		err := sc.storeState()
+		if err != nil {
+			generalLog.ErrorS(err, "store machineState to checkpoint error")
+		}
+	}
+}
+
+func (sc *stateCheckpoint) SetPodEntries(podEntries PodEntries, persist bool) {
+	sc.Lock()
+	defer sc.Unlock()
+
+	sc.cache.SetPodEntries(podEntries)
+	if persist {
+		err := sc.storeState()
+		if err != nil {
+			generalLog.ErrorS(err, "store pod entries to checkpoint error", "err")
+		}
+	}
+}
+
+func (sc *stateCheckpoint) SetAllocationInfo(podUID, containerName string, allocationInfo *AllocationInfo, persist bool) {
+	sc.Lock()
+	defer sc.Unlock()
+
+	sc.cache.SetAllocationInfo(podUID, containerName, allocationInfo)
+	if persist {
+		err := sc.storeState()
+		if err != nil {
+			generalLog.ErrorS(err, "store allocation info to checkpoint error")
+		}
+	}
+}
+
+func (sc *stateCheckpoint) Delete(podUID string, persist bool) {
+	sc.Lock()
+	defer sc.Unlock()
+
+	sc.cache.Delete(podUID)
+	if persist {
+		err := sc.storeState()
+		if err != nil {
+			generalLog.ErrorS(err, "store state after delete operation to checkpoint error")
+		}
+	}
+}
+
+func (sc *stateCheckpoint) ClearState() {
+	sc.Lock()
+	defer sc.Unlock()
+
+	sc.cache.ClearState()
+	err := sc.storeState()
+	if err != nil {
+		generalLog.ErrorS(err, "store state after clear operation to checkpoint error")
+	}
+}
+
+func (sc *stateCheckpoint) StoreState() error {
+	sc.Lock()
+	defer sc.Unlock()
+	return sc.storeState()
+}
+
+func (sc *stateCheckpoint) GetMachineState() VFState {
+	sc.RLock()
+	defer sc.RUnlock()
+
+	return sc.cache.GetMachineState()
+}
+
+func (sc *stateCheckpoint) GetPodEntries() PodEntries {
+	sc.RLock()
+	defer sc.RUnlock()
+
+	return sc.cache.GetPodEntries()
+}
+
+func (sc *stateCheckpoint) GetAllocationInfo(podUID, containerName string) *AllocationInfo {
+	sc.RLock()
+	defer sc.RUnlock()
+
+	return sc.cache.GetAllocationInfo(podUID, containerName)
+}

@@ -52,12 +52,20 @@ import (
 const (
 	nicPathNameDeviceFormatPCI = "devices/pci"
 	nicPathNAMEBaseDir         = "class/net"
+	pciPathNameBaseDir         = "bus/pci/devices"
 	bondingMasterPath          = "bonding_masters"
 )
 
 const (
 	netFileNameSpeed    = "speed"
 	netFileNameNUMANode = "device/numa_node"
+	netFileNameIBVerbs  = "device/infiniband_verbs"
+	netFileNameIBCM     = "device/infiniband_cm"
+	netFileNameIBMad    = "device/infiniband_mad"
+	netDevPhysSwitchID  = "phys_switch_id"
+	netDevPhysPortName  = "phys_port_name"
+	netFileNamePhysfn   = "device/physfn"
+	netFileNameNumVFS   = "device/sriov_numvfs"
 	netFileNameEnable   = "device/enable"
 	nicFileNameIfindex  = "ifindex"
 	netOperstate        = "operstate"
@@ -266,6 +274,13 @@ func getInterfaceAttr(info *InterfaceInfo, nicPath string) {
 		info.Speed = -1
 	} else {
 		info.Speed = nicSpeed
+	}
+
+	pciAddr, err := GetNicPCIAddr(nicPath)
+	if err != nil {
+		general.Errorf("failed to get pci addr from ns %v name %v, err: %v", info.NSName, info.Name, err)
+	} else {
+		info.PCIAddr = pciAddr
 	}
 }
 
@@ -1769,4 +1784,38 @@ func CollectNetRxSoftirqStats() (map[int64]uint64, error) {
 	}
 
 	return cpuSoftirqCount, nil
+}
+
+func IsHostNetworkBonding() (bool, error) {
+	netSysDir := filepath.Join(DefaultNetNSSysDir, ClassNetBasePath)
+	dirEnts, err := os.ReadDir(netSysDir)
+	if err != nil {
+		return false, fmt.Errorf("failed to ReadDir(%s), err %v", netSysDir, err)
+	}
+
+	for _, d := range dirEnts {
+		nicName := d.Name()
+		nicSysPath := filepath.Join(netSysDir, nicName)
+
+		if IsBondingNetDevice(nicSysPath) {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+func GetInterfaceChannelsCombinedCount(name string) (int, error) {
+	ethHandle, err := ethtool.NewEthtool()
+	if err != nil {
+		return -1, fmt.Errorf("failed to init ethtool: %v", err)
+	}
+	defer ethHandle.Close()
+
+	channels, err := ethHandle.GetChannels(name)
+	if err != nil {
+		return -1, err
+	}
+
+	return int(channels.CombinedCount), nil
 }
