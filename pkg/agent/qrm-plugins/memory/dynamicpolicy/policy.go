@@ -440,6 +440,14 @@ func (p *DynamicPolicy) Start() (err error) {
 		if err != nil {
 			general.Infof("setFragMem failed, err=%v", err)
 		}
+
+		// THP related handler, runs more frequently.
+		err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(memconsts.SetMemTHP,
+			general.HealthzCheckStateNotReady, qrm.QRMMemoryPluginPeriodicalHandlerGroupName,
+			fragmem.SetMemTHP, 60*time.Second, healthCheckTolerationTimes)
+		if err != nil {
+			general.Infof("setMemTHP failed, err=%v", err)
+		}
 	}
 
 	go wait.Until(func() {
