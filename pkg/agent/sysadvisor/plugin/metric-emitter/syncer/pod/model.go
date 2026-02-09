@@ -79,7 +79,7 @@ func (p *MetricSyncerPod) emitBorweinTrainingThroughput() {
 
 func (p *MetricSyncerPod) emitBorweinLatencyRegression() {
 	latencyRegressionData, resultTimestamp, err := latencyregression.GetLatencyRegressionPredictResult(
-		p.metaReader, p.borweinConf.DryRun, nil)
+		p.metaReader, borweinconsts.ModelNameBorweinLatencyRegression, p.borweinConf.DryRun, nil)
 	if err != nil {
 		klog.Errorf("failed to get inference results of model(%s) error: %v\n", borweinconsts.ModelNameBorweinLatencyRegression, err)
 		return
@@ -178,4 +178,125 @@ func (p *MetricSyncerPod) emitBorweinLatencyRegression() {
 			Val: fmt.Sprintf("%v", borweinconsts.ModelNameBorweinLatencyRegression),
 		},
 	)
+}
+
+func (p *MetricSyncerPod) emitBorweinV3LatencyRegression() {
+	latencyRegressionData, resultTimestamp, err := latencyregression.GetLatencyRegressionPredictResult(
+		p.metaReader, borweinconsts.ModelNameBorweinV3LatencyRegression, p.borweinConf.DryRun, nil)
+	if err != nil {
+		klog.Errorf("failed to get inference results of model(%s) error: %v\n", borweinconsts.ModelNameBorweinV3LatencyRegression, err)
+		return
+	}
+
+	klog.Infof("Start to emit pod latency regression result")
+
+	predictSum := 0.0
+	actionSum := 0.0
+	containerCnt := 0.0
+	nodeName := ""
+
+	for podUID, containerData := range latencyRegressionData {
+		pod, err := p.metaServer.GetPod(context.Background(), podUID)
+		if err != nil || !p.metricPod(pod) {
+			return
+		}
+
+		if nodeName == "" {
+			nodeName = pod.Spec.NodeName
+		}
+
+		tags := p.generateMetricTag(pod)
+
+		numaBitMask := 0
+
+		for containerName, latencyRegression := range containerData {
+			predictSum += latencyRegression.PredictValue
+			actionSum += latencyRegression.ActionValue
+			containerCnt += 1
+
+			if ci, exist := p.metaReader.GetContainerInfo(podUID, containerName); exist {
+				if ci.ContainerType == v1alpha1.ContainerType_MAIN {
+					cpuset := machine.GetCPUAssignmentNUMAs(ci.TopologyAwareAssignments)
+					numaBitMask = sysadvisortypes.NumaIDBitMask(cpuset.ToSliceInt())
+				}
+			}
+
+			klog.Infof("Emit latency regression result, pod %v, container %v, predict value %v",
+				podUID, containerName, latencyRegression.PredictValue)
+			_ = p.dataEmitter.StoreFloat64(podLatencyRegressionInferenceResultBorwein,
+				latencyRegression.PredictValue,
+				metrics.MetricTypeNameRaw,
+				append(tags,
+					metrics.MetricTag{
+						Key: string(data.CustomMetricLabelKeyTimestamp),
+						Val: fmt.Sprintf("%v", resultTimestamp),
+					},
+					metrics.MetricTag{
+						Key: fmt.Sprintf("%scontainer", data.CustomMetricLabelSelectorPrefixKey),
+						Val: containerName,
+					},
+					metrics.MetricTag{
+						Key: fmt.Sprintf("%s%s", data.CustomMetricLabelSelectorPrefixKey, "numa_bit_mask"),
+						Val: fmt.Sprintf("%d", numaBitMask),
+					},
+					metrics.MetricTag{
+						Key: string("action_value"),
+						Val: fmt.Sprintf("%v", latencyRegression.ActionValue),
+					},
+				)...)
+			_ = p.metricEmitter.StoreFloat64(podLatencyRegressionInferenceResultBorwein,
+				latencyRegression.PredictValue,
+				metrics.MetricTypeNameRaw,
+				append(tags,
+					metrics.MetricTag{
+						Key: string(data.CustomMetricLabelKeyTimestamp),
+						Val: fmt.Sprintf("%v", resultTimestamp),
+					},
+					metrics.MetricTag{
+						Key: fmt.Sprintf("%s%s", data.CustomMetricLabelSelectorPrefixKey, "numa_bit_mask"),
+						Val: fmt.Sprintf("%d", numaBitMask),
+					},
+					metrics.MetricTag{
+						Key: string("action_value"),
+						Val: fmt.Sprintf("%v", latencyRegression.ActionValue),
+					},
+				)...)
+		}
+	}
+
+	if containerCnt == 0 {
+		klog.Errorf("Found no valid containers, emit node-level latency regression result error")
+		return
+	}
+
+	predictAvg := predictSum / containerCnt
+	actionAvg := actionSum / containerCnt
+
+	klog.Infof("Emit node-level latency regression result, node %v, predict value %v, action value %v", nodeName, predictAvg, actionAvg)
+	_ = p.dataEmitter.StoreFloat64(nodeLatencyRegressionInferenceResultBorwein,
+		predictAvg,
+		metrics.MetricTypeNameRaw,
+		metrics.MetricTag{
+			Key: string(data.CustomMetricLabelKeyTimestamp),
+			Val: fmt.Sprintf("%v", resultTimestamp),
+		},
+		metrics.MetricTag{
+			Key: string(podMetricLabelSelectorNodeName),
+			Val: nodeName,
+		},
+		metrics.MetricTag{
+			Key: string("action_avg"),
+			Val: fmt.Sprintf("%v", actionAvg),
+		})
+	_ = p.metricEmitter.StoreFloat64(metricBorweinInferenceResult,
+		predictAvg,
+		metrics.MetricTypeNameRaw,
+		metrics.MetricTag{
+			Key: string("model_name"),
+			Val: string(borweinconsts.ModelNameBorweinV3LatencyRegression),
+		},
+		metrics.MetricTag{
+			Key: string("action_avg"),
+			Val: fmt.Sprintf("%v", actionAvg),
+		})
 }

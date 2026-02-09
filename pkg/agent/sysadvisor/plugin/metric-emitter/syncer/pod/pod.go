@@ -132,8 +132,9 @@ func NewMetricSyncerPod(conf *config.Configuration, _ interface{},
 	}
 
 	metricSyncerPod.modelToCustomizedEmitterFunc = map[string]func(){
-		borweinconsts.ModelNameBorweinTrainingThroughput: metricSyncerPod.emitBorweinTrainingThroughput,
-		borweinconsts.ModelNameBorweinLatencyRegression:  metricSyncerPod.emitBorweinLatencyRegression,
+		borweinconsts.ModelNameBorweinTrainingThroughput:  metricSyncerPod.emitBorweinTrainingThroughput,
+		borweinconsts.ModelNameBorweinLatencyRegression:   metricSyncerPod.emitBorweinLatencyRegression,
+		borweinconsts.ModelNameBorweinV3LatencyRegression: metricSyncerPod.emitBorweinV3LatencyRegression,
 	}
 
 	return metricSyncerPod, nil
