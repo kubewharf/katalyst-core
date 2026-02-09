@@ -297,7 +297,7 @@ type mockCPUResourceAdvisor struct {
 	err       error
 }
 
-func (m *mockCPUResourceAdvisor) UpdateAndGetAdvice() (interface{}, error) {
+func (m *mockCPUResourceAdvisor) UpdateAndGetAdvice(_ context.Context) (interface{}, error) {
 	if m.onUpdate != nil {
 		m.onUpdate()
 	}

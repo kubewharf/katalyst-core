@@ -157,7 +157,7 @@ func (ra *memoryResourceAdvisor) GetHeadroom() (resource.Quantity, map[int]resou
 	return resource.Quantity{}, nil, fmt.Errorf("failed to get valid headroom")
 }
 
-func (ra *memoryResourceAdvisor) UpdateAndGetAdvice() (interface{}, error) {
+func (ra *memoryResourceAdvisor) UpdateAndGetAdvice(ctx context.Context) (interface{}, error) {
 	startTime := time.Now()
 	defer func() {
 		general.InfoS("finished", "duration", time.Since(startTime))
