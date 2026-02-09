@@ -31,6 +31,7 @@ import (
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
@@ -40,6 +41,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
+	rputil "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
 
 func (p *DynamicPolicy) sharedCoresAllocationHandler(ctx context.Context,
@@ -463,7 +465,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 	}
 	p.state.SetMachineState(updatedMachineState, persistCheckpoint)
 
-	err = p.adjustAllocationEntries(persistCheckpoint)
+	err = p.adjustAllocationEntries(podEntries, updatedMachineState, persistCheckpoint)
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s putContainersAndAdjustAllocationEntriesWithoutAllocation failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -571,6 +573,14 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingAllocationHandler(ctx context.
 	return resp, nil
 }
 
+// allocateNumaBindingCPUs allocates CPUs for NUMA binding containers.
+// It considers NUMA affinity, exclusive requirements, and resource package pinning.
+// Steps:
+//  1. Calculate the initial available CPUSet based on the TopologyHint (NUMA nodes).
+//  2. If a Resource Package is specified in annotations:
+//     a. If the package has pinned CPUs, restrict the available CPUs to the intersection of NUMA CPUs and Pinned CPUs.
+//     b. If the package is not pinned but others are, exclude other packages' pinned CPUs.
+//  3. Allocate CPUs from the calculated available set using the topology calculator.
 func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.TopologyHint,
 	machineState state.NUMANodeMap, reqAnnotations map[string]string,
 ) (machine.CPUSet, error) {
@@ -588,6 +598,23 @@ func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.Top
 	alignedAvailableCPUs := machine.CPUSet{}
 	for _, numaNode := range hint.Nodes {
 		alignedAvailableCPUs = alignedAvailableCPUs.Union(machineState[int(numaNode)].GetAvailableCPUSet(p.reservedCPUs))
+	}
+
+	// if the resource package is specified and the resource package is pinned,
+	// then only the pinned CPUs are available for allocation
+	// pkgName represents the name of the resource package requested by the container
+	pkgName := rputil.GetResourcePackageName(reqAnnotations)
+	if pkgName != "" {
+		rpPinnedCPUSet := machineState.GetResourcePackagePinnedCPUSet()
+		if !rpPinnedCPUSet[pkgName].IsEmpty() {
+			// If the package has pinned CPUs, restrict allocation to those CPUs
+			alignedAvailableCPUs = alignedAvailableCPUs.Intersection(rpPinnedCPUSet[pkgName])
+		} else if len(rpPinnedCPUSet) > 0 {
+			// If the package is not pinned but other packages are, exclude pinned CPUs of other packages
+			for _, pinnedCPUs := range rpPinnedCPUSet {
+				alignedAvailableCPUs = alignedAvailableCPUs.Difference(pinnedCPUs)
+			}
+		}
 	}
 
 	var alignedCPUs machine.CPUSet
@@ -696,11 +723,23 @@ func (p *DynamicPolicy) allocateSharedNumaBindingCPUs(req *pluginapi.ResourceReq
 
 // putAllocationsAndAdjustAllocationEntries calculates and generates the latest checkpoint
 // - unlike adjustAllocationEntries, it will also consider AllocationInfo
-func (p *DynamicPolicy) putAllocationsAndAdjustAllocationEntries(allocationInfos []*state.AllocationInfo, incrByReq bool, persistCheckpoint bool) error {
+func (p *DynamicPolicy) putAllocationsAndAdjustAllocationEntries(
+	allocationInfos []*state.AllocationInfo,
+	incrByReq bool,
+	persistCheckpoint bool,
+) error {
 	return p.putAllocationsAndAdjustAllocationEntriesResizeAware(nil, allocationInfos, incrByReq, false, persistCheckpoint)
 }
 
-func (p *DynamicPolicy) putAllocationsAndAdjustAllocationEntriesResizeAware(originAllocationInfos, allocationInfos []*state.AllocationInfo, incrByReq, podInplaceUpdateResizing, persistCheckpoint bool) error {
+// putAllocationsAndAdjustAllocationEntriesResizeAware adjusts the allocation entries based on the given allocation infos,
+// considering resize requests and resource package information.
+func (p *DynamicPolicy) putAllocationsAndAdjustAllocationEntriesResizeAware(
+	originAllocationInfos,
+	allocationInfos []*state.AllocationInfo,
+	incrByReq,
+	podInplaceUpdateResizing,
+	persistCheckpoint bool,
+) error {
 	if len(allocationInfos) == 0 {
 		return nil
 	}
@@ -730,6 +769,7 @@ func (p *DynamicPolicy) putAllocationsAndAdjustAllocationEntriesResizeAware(orig
 	}
 
 	machineState := p.state.GetMachineState()
+	numaResourcePackagePinnedCPUSet := machineState.GetNUMAResourcePackagePinnedCPUSet()
 
 	var poolsQuantityMap map[string]map[int]int
 	if p.enableCPUAdvisor &&
@@ -762,7 +802,7 @@ func (p *DynamicPolicy) putAllocationsAndAdjustAllocationEntriesResizeAware(orig
 				return fmt.Errorf("pool %s cross NUMA: %+v", poolName, poolsQuantityMap[poolName])
 			}
 		} else if incrByReq {
-			err := state.CountAllocationInfosToPoolsQuantityMap(allocationInfos, poolsQuantityMap, p.getContainerRequestedCores)
+			err := state.CountAllocationInfosToPoolsQuantityMap(numaResourcePackagePinnedCPUSet, allocationInfos, poolsQuantityMap, p.getContainerRequestedCores)
 			if err != nil {
 				return fmt.Errorf("CountAllocationInfosToPoolsQuantityMap failed with error: %v", err)
 			}
@@ -770,7 +810,7 @@ func (p *DynamicPolicy) putAllocationsAndAdjustAllocationEntriesResizeAware(orig
 	} else {
 		// else we do sum(containers req) for each pool to get pools ratio
 		var err error
-		poolsQuantityMap, err = state.GetSharedQuantityMapFromPodEntries(entries, allocationInfos, p.getContainerRequestedCores)
+		poolsQuantityMap, err = state.GetSharedQuantityMapFromPodEntries(numaResourcePackagePinnedCPUSet, entries, allocationInfos, p.getContainerRequestedCores)
 		if err != nil {
 			return fmt.Errorf("GetSharedQuantityMapFromPodEntries failed with error: %v", err)
 		}
@@ -781,9 +821,9 @@ func (p *DynamicPolicy) putAllocationsAndAdjustAllocationEntriesResizeAware(orig
 					allocationInfos[0].PodNamespace, allocationInfos[0].PodName, allocationInfos[0].ContainerName)
 			}
 			// if advisor is disabled, qrm can re-calc the pool size exactly. we don't need to adjust the pool size.
-			err := state.CountAllocationInfosToPoolsQuantityMap(allocationInfos, poolsQuantityMap, p.getContainerRequestedCores)
-			if err != nil {
-				return fmt.Errorf("CountAllocationInfosToPoolsQuantityMap failed with error: %v", err)
+			cErr := state.CountAllocationInfosToPoolsQuantityMap(numaResourcePackagePinnedCPUSet, allocationInfos, poolsQuantityMap, p.getContainerRequestedCores)
+			if cErr != nil {
+				return fmt.Errorf("CountAllocationInfosToPoolsQuantityMap failed with error: %v", cErr)
 			}
 		}
 	}
@@ -886,15 +926,17 @@ func (p *DynamicPolicy) calcPoolResizeRequest(originAllocation, allocation *stat
 }
 
 // adjustAllocationEntries calculates and generates the latest checkpoint
-func (p *DynamicPolicy) adjustAllocationEntries(persistCheckpoint bool) error {
+// It fetches resource package items and updates the allocation entries accordingly.
+func (p *DynamicPolicy) adjustAllocationEntries(
+	entries state.PodEntries,
+	machineState state.NUMANodeMap,
+	persistCheckpoint bool,
+) error {
 	startTime := time.Now()
 	general.Infof("called")
 	defer func() {
 		general.InfoS("finished", "duration", time.Since(startTime))
 	}()
-
-	entries := p.state.GetPodEntries()
-	machineState := p.state.GetMachineState()
 
 	// since adjustAllocationEntries will cause re-generate pools,
 	// if sys advisor is enabled, we believe the pools' ratio that sys advisor indicates,
@@ -909,7 +951,7 @@ func (p *DynamicPolicy) adjustAllocationEntries(persistCheckpoint bool) error {
 		poolsQuantityMap = machine.ParseCPUAssignmentQuantityMap(poolsCPUSetMap)
 	} else {
 		var err error
-		poolsQuantityMap, err = state.GetSharedQuantityMapFromPodEntries(entries, nil, p.getContainerRequestedCores)
+		poolsQuantityMap, err = state.GetSharedQuantityMapFromPodEntries(machineState.GetNUMAResourcePackagePinnedCPUSet(), entries, nil, p.getContainerRequestedCores)
 		if err != nil {
 			return fmt.Errorf("GetSharedQuantityMapFromPodEntries failed with error: %v", err)
 		}
@@ -939,6 +981,9 @@ func (p *DynamicPolicy) adjustPoolsAndIsolatedEntries(
 	availableCPUs := machineState.GetFilteredAvailableCPUSet(p.reservedCPUs, nil,
 		state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckDedicatedNUMABindingNUMAExclusive))
 
+	// rpPinnedCPUSet contains the pinned CPU sets for resource packages
+	rpPinnedCPUSet := machineState.GetResourcePackagePinnedCPUSet()
+
 	// deduct the cpus that is forbidden from being used by user containers.
 	forbiddenPoolCPUs, err := state.GetUnitedPoolsCPUs(state.ForbiddenPools, entries)
 	if err != nil {
@@ -953,7 +998,8 @@ func (p *DynamicPolicy) adjustPoolsAndIsolatedEntries(
 
 	general.Infof("poolsQuantityMap: %#v, availableCPUs: %v, reclaimOverlapShareRatio: %#v", poolsQuantityMap, availableCPUs, reclaimOverlapShareRatio)
 
-	poolsCPUSet, isolatedCPUSet, err := p.generatePoolsAndIsolation(poolsQuantityMap, isolatedQuantityMap, availableCPUs, reclaimOverlapShareRatio)
+	// Pass rpPinnedCPUSet to generatePoolsAndIsolation to handle pinned resources
+	poolsCPUSet, isolatedCPUSet, err := p.generatePoolsAndIsolation(rpPinnedCPUSet, poolsQuantityMap, isolatedQuantityMap, availableCPUs, reclaimOverlapShareRatio)
 	if err != nil {
 		return fmt.Errorf("generatePoolsAndIsolation failed with error: %v", err)
 	}
@@ -1219,6 +1265,24 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 								allocationInfo.PodNamespace, allocationInfo.PodName,
 								allocationInfo.ContainerName, err)
 						}
+
+						pkgName := allocationInfo.GetResourcePackageName()
+						if pkgName != "" {
+							numaSet, err := machine.Parse(allocationInfo.Annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint])
+							if err != nil {
+								return fmt.Errorf("parse numaHintStr: %s failed with error: %v",
+									allocationInfo.Annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint], err)
+							}
+
+							if numaSet.Size() == 1 {
+								targetNUMAID := numaSet.ToSliceNoSortInt()[0]
+								if pinnedSets, ok := machineState.GetNUMAResourcePackagePinnedCPUSet()[targetNUMAID]; ok {
+									if _, exists := pinnedSets[pkgName]; exists {
+										ownerPoolName = rputil.WrapOwnerPoolName(ownerPoolName, pkgName)
+									}
+								}
+							}
+						}
 					} // else already in a numa_binding share pool or isolated
 				} else {
 					ownerPoolName = allocationInfo.GetPoolName()
@@ -1293,7 +1357,19 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 	return nil
 }
 
-func (p *DynamicPolicy) generateNUMABindingPoolsCPUSetInPlace(poolsCPUSet map[string]machine.CPUSet,
+// generateNUMABindingPoolsCPUSetInPlace generates CPU sets for NUMA binding pools.
+// It modifies poolsCPUSet in place and returns the remaining available CPUs.
+// Key Logic:
+//  1. Groups pools by NUMA node based on poolsQuantityMap.
+//  2. For each NUMA node:
+//     a. Identifies available CPUs in that NUMA node.
+//     b. Separates pools into "Pinned" (belonging to a Resource Package with pinned CPUs) and "Unpinned".
+//     c. Allocates CPUs for Pinned pools first, strictly from their pinned CPUSet.
+//     d. Allocates CPUs for Unpinned pools from the remaining CPUs in that NUMA node.
+//     e. Updates the global availableCPUs by replacing the NUMA's CPUs with the leftovers.
+func (p *DynamicPolicy) generateNUMABindingPoolsCPUSetInPlace(
+	rpPinnedCPUSet map[string]machine.CPUSet,
+	poolsCPUSet map[string]machine.CPUSet,
 	poolsQuantityMap map[string]map[int]int, availableCPUs machine.CPUSet,
 ) (machine.CPUSet, error) {
 	numaToPoolQuantityMap := make(map[int]map[string]int)
@@ -1315,10 +1391,9 @@ func (p *DynamicPolicy) generateNUMABindingPoolsCPUSetInPlace(poolsCPUSet map[st
 		}
 	}
 
-	for numaID, numaPoolsToQuantityMap := range numaToPoolQuantityMap {
+	// generateNUMABindingPoolsCPUSetFunc is a helper function to allocate CPUs for pools in a specific NUMA node
+	generateNUMABindingPoolsCPUSetFunc := func(numaID int, numaAvailableCPUs machine.CPUSet, numaPoolsToQuantityMap map[string]int) (machine.CPUSet, error) {
 		numaPoolsTotalQuantity := general.SumUpMapValues(numaPoolsToQuantityMap)
-		numaCPUs := p.machineInfo.CPUDetails.CPUsInNUMANodes(numaID).Difference(p.reservedCPUs)
-		numaAvailableCPUs := numaCPUs.Intersection(availableCPUs)
 		availableSize := numaAvailableCPUs.Size()
 
 		general.Infof("numaID: %d, numaPoolsTotalQuantity: %d, availableSize: %d, enableReclaim: %v",
@@ -1343,6 +1418,56 @@ func (p *DynamicPolicy) generateNUMABindingPoolsCPUSetInPlace(poolsCPUSet map[st
 			}
 		}
 
+		return leftCPUs, nil
+	}
+
+	// getPinnedPoolsToQuantityMapFunc separates pools into pinned and unpinned categories
+	getPinnedPoolsToQuantityMapFunc := func(numaPoolsToQuantityMap map[string]int) (map[string]map[string]int, map[string]int) {
+		pinnedPoolsToQuantityMap := make(map[string]map[string]int)
+		unpinnedPoolsToQuantityMap := make(map[string]int)
+
+		for poolName, quantity := range numaPoolsToQuantityMap {
+			_, pkg := rputil.UnwrapOwnerPoolName(poolName)
+			if pkg != "" && rpPinnedCPUSet[pkg].Size() > 0 {
+				if pinnedPoolsToQuantityMap[pkg] == nil {
+					pinnedPoolsToQuantityMap[pkg] = make(map[string]int)
+				}
+				pinnedPoolsToQuantityMap[pkg][poolName] = quantity
+			} else {
+				unpinnedPoolsToQuantityMap[poolName] = quantity
+			}
+		}
+		return pinnedPoolsToQuantityMap, unpinnedPoolsToQuantityMap
+	}
+
+	var tErr error
+	var leftCPUs machine.CPUSet
+	for numaID, numaPoolsToQuantityMap := range numaToPoolQuantityMap {
+		numaCPUs := p.machineInfo.CPUDetails.CPUsInNUMANodes(numaID).Difference(p.reservedCPUs)
+		numaAvailableCPUs := numaCPUs.Intersection(availableCPUs)
+
+		// generate pinnedPoolsToQuantityMap and unpinnedPoolsToQuantityMap
+		pinnedPoolsToQuantityMap, unpinnedPoolsToQuantityMap := getPinnedPoolsToQuantityMapFunc(numaPoolsToQuantityMap)
+
+		// generate pinned pools cpuset first
+		if len(pinnedPoolsToQuantityMap) > 0 {
+			for pkg, poolsToQuantityMap := range pinnedPoolsToQuantityMap {
+				pinnedNUMAAvailableCPUs := rpPinnedCPUSet[pkg].Intersection(numaAvailableCPUs)
+				_, tErr = generateNUMABindingPoolsCPUSetFunc(numaID, pinnedNUMAAvailableCPUs, poolsToQuantityMap)
+				if tErr != nil {
+					return originalAvailableCPUSet, fmt.Errorf("generateNUMABindingPoolsCPUSetFunc for numa_binding pools in NUMA: %d failed with error: %v",
+						numaID, tErr)
+				}
+				numaAvailableCPUs = numaAvailableCPUs.Difference(rpPinnedCPUSet[pkg])
+			}
+		}
+
+		// generate unpinned pools cpuset second
+		leftCPUs, tErr = generateNUMABindingPoolsCPUSetFunc(numaID, numaAvailableCPUs, unpinnedPoolsToQuantityMap)
+		if tErr != nil {
+			return originalAvailableCPUSet, fmt.Errorf("generateNUMABindingPoolsCPUSetFunc for numa_binding pools in NUMA: %d failed with error: %v",
+				numaID, tErr)
+		}
 		availableCPUs = availableCPUs.Difference(numaCPUs).Union(leftCPUs)
 	}
 
@@ -1353,7 +1478,9 @@ func (p *DynamicPolicy) generateNUMABindingPoolsCPUSetInPlace(poolsCPUSet map[st
 // 1. allocate isolated cpuset for pod/containers, and divide total cores evenly if not possible to allocate
 // 2. use the left cores to allocate among different pools
 // 3. apportion to other pools if reclaimed is disabled
-func (p *DynamicPolicy) generatePoolsAndIsolation(poolsQuantityMap map[string]map[int]int,
+func (p *DynamicPolicy) generatePoolsAndIsolation(
+	rpPinnedCPUSet map[string]machine.CPUSet,
+	poolsQuantityMap map[string]map[int]int,
 	isolatedQuantityMap map[string]map[string]int, availableCPUs machine.CPUSet,
 	reclaimOverlapShareRatio map[string]float64) (poolsCPUSet map[string]machine.CPUSet,
 	isolatedCPUSet map[string]map[string]machine.CPUSet, err error,
@@ -1403,7 +1530,7 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(poolsQuantityMap map[string]ma
 
 	poolsCPUSet = make(map[string]machine.CPUSet)
 	var nbpErr error
-	availableCPUs, nbpErr = p.generateNUMABindingPoolsCPUSetInPlace(poolsCPUSet, poolsQuantityMap, availableCPUs)
+	availableCPUs, nbpErr = p.generateNUMABindingPoolsCPUSetInPlace(rpPinnedCPUSet, poolsCPUSet, poolsQuantityMap, availableCPUs)
 	if nbpErr != nil {
 		err = fmt.Errorf("generateNUMABindingPoolsCPUSetInPlace failed with error: %v", nbpErr)
 		return

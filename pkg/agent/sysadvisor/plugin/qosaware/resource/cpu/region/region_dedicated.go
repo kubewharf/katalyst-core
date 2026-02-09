@@ -56,6 +56,7 @@ type QoSRegionDedicated struct {
 // with numa binding and numa exclusive container
 func NewQoSRegionDedicated(ci *types.ContainerInfo, conf *config.Configuration, numaID int,
 	extraConf interface{}, metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
+	pinnedCPUSetInfo *PinnedCPUSetInfo,
 ) QoSRegion {
 	regionName := getRegionNameFromMetaCache(ci, numaID, metaReader)
 	if regionName == "" {
@@ -65,7 +66,7 @@ func NewQoSRegionDedicated(ci *types.ContainerInfo, conf *config.Configuration, 
 	isNumaBinding := numaID != commonstate.FakedNUMAID
 	r := &QoSRegionDedicated{
 		QoSRegionBase: NewQoSRegionBase(regionName, ci.OwnerPoolName, configapi.QoSRegionTypeDedicated, conf, extraConf,
-			isNumaBinding, ci.IsDedicatedNumaExclusive(), metaReader, metaServer, emitter),
+			isNumaBinding, ci.IsDedicatedNumaExclusive(), metaReader, metaServer, emitter, pinnedCPUSetInfo),
 	}
 
 	if isNumaBinding {

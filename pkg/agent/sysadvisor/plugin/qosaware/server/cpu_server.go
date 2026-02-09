@@ -130,7 +130,7 @@ func (cs *cpuServer) GetAdvice(ctx context.Context, request *cpuadvisor.GetAdvic
 	}
 
 	general.InfofV(6, "QRM CPU Plugin wanted feature gates: %v, among them sysadvisor supported feature gates: %v", lo.Keys(request.WantedFeatureGates), lo.Keys(supportedWantedFeatureGates))
-	result, err := cs.updateAdvisor(supportedWantedFeatureGates)
+	result, err := cs.updateAdvisor(ctx, supportedWantedFeatureGates)
 	if err != nil {
 		general.Errorf("update advisor failed: %v", err)
 		return nil, fmt.Errorf("update advisor failed: %w", err)
@@ -251,7 +251,7 @@ func (cs *cpuServer) getAndPushAdvice(client cpuadvisor.CPUPluginClient, server 
 
 	// old asynchronous communication interface does not support feature gate negotiation. If necessary, upgrade to the synchronization interface.
 	emptyMap := map[string]*advisorsvc.FeatureGate{}
-	result, err := cs.updateAdvisor(emptyMap)
+	result, err := cs.updateAdvisor(server.Context(), emptyMap)
 	if err != nil {
 		return err
 	}
@@ -273,7 +273,7 @@ func (cs *cpuServer) getAndPushAdvice(client cpuadvisor.CPUPluginClient, server 
 	return nil
 }
 
-func (cs *cpuServer) updateAdvisor(featureGates map[string]*advisorsvc.FeatureGate) (*cpuInternalResult, error) {
+func (cs *cpuServer) updateAdvisor(ctx context.Context, featureGates map[string]*advisorsvc.FeatureGate) (*cpuInternalResult, error) {
 	// update feature gates in meta cache
 	err := cs.metaCache.SetSupportedWantedFeatureGates(featureGates)
 	if err != nil {
@@ -282,7 +282,7 @@ func (cs *cpuServer) updateAdvisor(featureGates map[string]*advisorsvc.FeatureGa
 	}
 
 	// trigger advisor update and get latest advice
-	advisorRespRaw, err := cs.resourceAdvisor.UpdateAndGetAdvice()
+	advisorRespRaw, err := cs.resourceAdvisor.UpdateAndGetAdvice(ctx)
 	if err != nil {
 		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerAdvisorUpdateFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 		return nil, fmt.Errorf("get advice failed: %w", err)
