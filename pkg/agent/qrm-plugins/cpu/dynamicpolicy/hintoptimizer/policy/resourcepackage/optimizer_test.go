@@ -35,6 +35,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	pkgutil "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
+	resourcepackage "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
 
 // MockState is a mock implementation of the state.State interface for testing purposes
@@ -69,15 +71,15 @@ func (m *MockState) ClearState()                                              {}
 func (m *MockState) StoreState() error                                        { return nil }
 
 type resourcePackageManagerStub struct {
-	nodeResourcePackagesMap map[int][]nodev1alpha1.ResourcePackage
+	nodeResourcePackagesMap map[int][]pkgutil.ResourcePackageItem
 	err                     error
 }
 
-func (s *resourcePackageManagerStub) ConvertNPDResourcePackages(_ *nodev1alpha1.NodeProfileDescriptor) (map[int][]nodev1alpha1.ResourcePackage, error) {
+func (s *resourcePackageManagerStub) ConvertNPDResourcePackages(_ *nodev1alpha1.NodeProfileDescriptor) (map[int][]pkgutil.ResourcePackageItem, error) {
 	return s.nodeResourcePackagesMap, nil
 }
 
-func (s *resourcePackageManagerStub) NodeResourcePackages(_ context.Context) (map[int][]nodev1alpha1.ResourcePackage, error) {
+func (s *resourcePackageManagerStub) NodeResourcePackages(_ context.Context) (map[int][]pkgutil.ResourcePackageItem, error) {
 	return s.nodeResourcePackagesMap, s.err
 }
 
@@ -176,20 +178,24 @@ func TestResourcePackageHintOptimizer_OptimizeHints(t *testing.T) {
 			optimizer := &resourcePackageHintOptimizer{
 				metaServer: &metaserver.MetaServer{},
 				state:      mockState,
-				resourcePackageMap: map[int][]nodev1alpha1.ResourcePackage{
+				resourcePackageMap: map[int][]pkgutil.ResourcePackageItem{
 					0: {
 						{
-							PackageName: "test-package",
-							Allocatable: &v1.ResourceList{
-								"cpu": resource.MustParse("2"),
+							ResourcePackage: nodev1alpha1.ResourcePackage{
+								PackageName: "test-package",
+								Allocatable: &v1.ResourceList{
+									"cpu": resource.MustParse("2"),
+								},
 							},
 						},
 					},
 					1: {
 						{
-							PackageName: "test-package-1",
-							Allocatable: &v1.ResourceList{
-								"cpu": resource.MustParse("2"),
+							ResourcePackage: nodev1alpha1.ResourcePackage{
+								PackageName: "test-package-1",
+								Allocatable: &v1.ResourceList{
+									"cpu": resource.MustParse("2"),
+								},
 							},
 						},
 					},
@@ -344,18 +350,22 @@ func TestResourcePackageHintOptimizer_getResourcePackageAllocatable(t *testing.T
 
 			optimizer := &resourcePackageHintOptimizer{
 				metaServer: mockMetaServer,
-				resourcePackageMap: map[int][]nodev1alpha1.ResourcePackage{
+				resourcePackageMap: map[int][]pkgutil.ResourcePackageItem{
 					0: {
 						{
-							PackageName: "test-package",
-							Allocatable: &v1.ResourceList{
-								"cpu": resource.MustParse("2"),
+							ResourcePackage: nodev1alpha1.ResourcePackage{
+								PackageName: "test-package",
+								Allocatable: &v1.ResourceList{
+									"cpu": resource.MustParse("2"),
+								},
 							},
 						},
 						{
-							PackageName: "test-package-1",
-							Allocatable: &v1.ResourceList{
-								"cpu": resource.MustParse("2"),
+							ResourcePackage: nodev1alpha1.ResourcePackage{
+								PackageName: "test-package-1",
+								Allocatable: &v1.ResourceList{
+									"cpu": resource.MustParse("2"),
+								},
 							},
 						},
 					},
@@ -372,18 +382,22 @@ func TestResourcePackageHintOptimizer_getResourcePackageAllocatable(t *testing.T
 
 			optimizer := &resourcePackageHintOptimizer{
 				metaServer: mockMetaServer,
-				resourcePackageMap: map[int][]nodev1alpha1.ResourcePackage{
+				resourcePackageMap: map[int][]resourcepackage.ResourcePackageItem{
 					0: {
 						{
-							PackageName: "test-package",
-							Allocatable: nil,
+							ResourcePackage: nodev1alpha1.ResourcePackage{
+								PackageName: "test-package",
+								Allocatable: nil,
+							},
 						},
 					},
 					1: {
 						{
-							PackageName: "test-package",
-							Allocatable: &v1.ResourceList{
-								"memory": resource.MustParse("1Gi"),
+							ResourcePackage: nodev1alpha1.ResourcePackage{
+								PackageName: "test-package",
+								Allocatable: &v1.ResourceList{
+									"memory": resource.MustParse("1Gi"),
+								},
 							},
 						},
 					},
