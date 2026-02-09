@@ -57,6 +57,16 @@ var (
 			Numa: []types.Numa{
 				{},
 			},
+			ExtFrag: []types.ExtFrag{
+				{
+					ID:           0,
+					MemFragScore: 80,
+					MemOrderScores: []types.MemOrderScore{
+						{Order: 9, Score: 99},
+						{Order: 10, Score: 100},
+					},
+				},
+			},
 		},
 	}
 
@@ -162,13 +172,19 @@ func TestGetSystemMemoryStats(t *testing.T) {
 	malachiteClient.SetURL(map[string]string{
 		SystemMemoryResource: server.URL,
 	})
-	_, err := malachiteClient.GetSystemMemoryStats()
+	stats, err := malachiteClient.GetSystemMemoryStats()
 	assert.NoError(t, err)
+
+	assert.Equal(t, 1, len(stats.ExtFrag))
+	assert.Equal(t, uint64(80), stats.ExtFrag[0].MemFragScore)
+	assert.Equal(t, 2, len(stats.ExtFrag[0].MemOrderScores))
+	assert.Equal(t, uint32(9), stats.ExtFrag[0].MemOrderScores[0].Order)
+	assert.Equal(t, uint64(99), stats.ExtFrag[0].MemOrderScores[0].Score)
 
 	malachiteClient.SetURL(map[string]string{
 		SystemMemoryResource: "none",
 	})
-	_, err = malachiteClient.GetSystemComputeStats()
+	_, err = malachiteClient.GetSystemMemoryStats()
 	assert.NotNil(t, err)
 }
 
