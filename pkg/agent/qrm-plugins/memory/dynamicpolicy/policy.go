@@ -44,6 +44,7 @@ import (
 	memoryreactor "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/reactor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/handlers/fragmem"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/handlers/hostwatermark"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/handlers/logcache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/handlers/sockmem"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
@@ -143,6 +144,7 @@ type DynamicPolicy struct {
 	enableSettingMemoryMigrate bool
 	enableSettingSockMem       bool
 	enableSettingFragMem       bool
+	enableSettingHostWatermark bool
 	enableMemoryAdvisor        bool
 	getAdviceInterval          time.Duration
 	memoryAdvisorSocketAbsPath string
@@ -220,6 +222,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		enableSettingMemoryMigrate:  conf.EnableSettingMemoryMigrate,
 		enableSettingSockMem:        conf.EnableSettingSockMem,
 		enableSettingFragMem:        conf.EnableSettingFragMem,
+		enableSettingHostWatermark:  conf.EnableSettingHostWatermark,
 		enableMemoryAdvisor:         conf.EnableMemoryAdvisor,
 		getAdviceInterval:           conf.GetAdviceInterval,
 		memoryAdvisorSocketAbsPath:  conf.MemoryAdvisorSocketAbsPath,
@@ -439,6 +442,16 @@ func (p *DynamicPolicy) Start() (err error) {
 			fragmem.SetMemCompact, 1800*time.Second, healthCheckTolerationTimes)
 		if err != nil {
 			general.Infof("setFragMem failed, err=%v", err)
+		}
+	}
+
+	if p.enableSettingHostWatermark {
+		general.Infof("setHostWatermark enabled")
+		err := periodicalhandler.RegisterPeriodicalHandlerWithHealthz(memconsts.SetHostWatermark,
+			general.HealthzCheckStateNotReady, qrm.QRMMemoryPluginPeriodicalHandlerGroupName,
+			hostwatermark.SetHostWatermark, 300*time.Second, healthCheckTolerationTimes)
+		if err != nil {
+			general.Infof("setHostWatermark failed, err=%v", err)
 		}
 	}
 

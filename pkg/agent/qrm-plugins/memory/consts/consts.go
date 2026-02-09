@@ -31,6 +31,7 @@ const (
 	SetExtraControlKnob           = MemoryPluginDynamicPolicyName + "_set_extra_control_knob"
 	OOMPriority                   = MemoryPluginDynamicPolicyName + "_oom_priority"
 	SetSockMem                    = MemoryPluginDynamicPolicyName + "_set_sock_mem"
+	SetHostWatermark              = MemoryPluginDynamicPolicyName + "_set_host_watermark"
 	CommunicateWithAdvisor        = MemoryPluginDynamicPolicyName + "_communicate_with_advisor"
 	DropCache                     = MemoryPluginDynamicPolicyName + "_drop_cache"
 	EvictLogCache                 = MemoryPluginDynamicPolicyName + "_evict_log_cache"

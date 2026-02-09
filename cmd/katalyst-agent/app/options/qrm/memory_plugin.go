@@ -46,6 +46,7 @@ type MemoryOptions struct {
 	SockMemOptions
 	LogCacheOptions
 	FragMemOptions
+	HostWatermarkOptions
 	ResctrlOptions
 }
 
@@ -79,6 +80,17 @@ type FragMemOptions struct {
 	// SetMemFragScoreAsync sets the threashold of frag score for async memory compaction.
 	// The async compaction behavior will be triggered while exceeding this score.
 	SetMemFragScoreAsync int
+}
+
+type HostWatermarkOptions struct {
+	// EnableSettingHostWatermark is used to tune vm.* watermark sysctls on host.
+	EnableSettingHostWatermark bool
+	// SetVMWatermarkScaleFactor sets /proc/sys/vm/watermark_scale_factor.
+	// The unit is per ten thousand (i.e. 10000 means 100%). 0 means do not change.
+	SetVMWatermarkScaleFactor int
+	// ReservedKswapdWatermarkGB is used to calculate watermark_scale_factor automatically.
+	// It only takes effect when SetVMWatermarkScaleFactor is 0.
+	ReservedKswapdWatermarkGB uint64
 }
 
 type ResctrlOptions struct {
@@ -126,6 +138,11 @@ func NewMemoryOptions() *MemoryOptions {
 		FragMemOptions: FragMemOptions{
 			EnableSettingFragMem: false,
 			SetMemFragScoreAsync: 80,
+		},
+		HostWatermarkOptions: HostWatermarkOptions{
+			EnableSettingHostWatermark: false,
+			SetVMWatermarkScaleFactor:  0,
+			ReservedKswapdWatermarkGB:  0,
 		},
 		ResctrlOptions: ResctrlOptions{
 			CPUSetPoolToSharedSubgroup: make(map[string]int),
@@ -189,6 +206,12 @@ func (o *MemoryOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.EnableSettingFragMem, "if set true, we will enable memory compaction related features")
 	fs.IntVar(&o.SetMemFragScoreAsync, "qrm-memory-frag-score-async",
 		o.SetMemFragScoreAsync, "set the threshold of frag score for async memory compaction")
+	fs.BoolVar(&o.EnableSettingHostWatermark, "enable-setting-host-watermark",
+		o.EnableSettingHostWatermark, "if set true, we will tune host vm.* watermark sysctls")
+	fs.IntVar(&o.SetVMWatermarkScaleFactor, "qrm-memory-vm-watermark-scale-factor",
+		o.SetVMWatermarkScaleFactor, "set /proc/sys/vm/watermark_scale_factor (per 10000, 0 means do not change)")
+	fs.Uint64Var(&o.ReservedKswapdWatermarkGB, "qrm-memory-kswapd-watermark-reserved-gb",
+		o.ReservedKswapdWatermarkGB, "auto-calculate vm.watermark_scale_factor by reserving this many GB on a single NUMA (only when qrm-memory-vm-watermark-scale-factor=0)")
 	fs.BoolVar(&o.EnableResctrlHint, "pod-admit-resctrl-layout-hint",
 		o.EnableResctrlHint, "if set true, we will enable resctrl hint on pod admission")
 	fs.StringToIntVar(&o.CPUSetPoolToSharedSubgroup, "resctrl-cpuset-pool-to-shared-subgroup",
@@ -228,6 +251,9 @@ func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
 	conf.FileFilters = o.FileFilters
 	conf.EnableSettingFragMem = o.EnableSettingFragMem
 	conf.SetMemFragScoreAsync = o.SetMemFragScoreAsync
+	conf.EnableSettingHostWatermark = o.EnableSettingHostWatermark
+	conf.SetVMWatermarkScaleFactor = o.SetVMWatermarkScaleFactor
+	conf.ReservedKswapdWatermarkGB = o.ReservedKswapdWatermarkGB
 	conf.EnableResctrlHint = o.EnableResctrlHint
 	conf.CPUSetPoolToSharedSubgroup = o.CPUSetPoolToSharedSubgroup
 	conf.DefaultSharedSubgroup = o.DefaultSharedSubgroup
