@@ -18,6 +18,7 @@ package resourcepackage
 
 import (
 	"sort"
+	"strconv"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,18 +29,19 @@ import (
 )
 
 const (
-	MetricScope                 = "resource-package"
-	metricLabelPackageName      = "package-name"
-	metricLabelNumaID           = "numa-id"
-	metricLabelPinnedCPUSetPool = "pinned-cpuset-pool"
+	MetricScope            = "resource-package"
+	metricLabelPackageName = "package-name"
+	metricLabelNumaID      = "numa-id"
+	// metricLabelPinnedCPUSet indicates whether the resource package is pinned to cpuset.
+	metricLabelPinnedCPUSet = "pinned-cpuset"
 )
 
-var defaultMetricLabels = sets.NewString(MetricScope, metricLabelPackageName, metricLabelNumaID, metricLabelPinnedCPUSetPool)
+var defaultMetricLabels = sets.NewString(MetricScope, metricLabelPackageName, metricLabelNumaID, metricLabelPinnedCPUSet)
 
 // ResourcePackageConfig holds the configuration of a resource package.
 type ResourcePackageConfig struct {
-	// PinnedCPUSetPool indicates the name of the cpuset pool to which the resource package is pinned.
-	PinnedCPUSetPool *string `json:"pinnedCPUSetPool,omitempty"`
+	// PinnedCPUSet indicates whether the resource package is pinned to cpuset.
+	PinnedCPUSet *bool `json:"pinnedCPUSet,omitempty"`
 }
 
 // ResourcePackageItem wraps the ResourcePackage and its configuration.
@@ -48,6 +50,8 @@ type ResourcePackageItem struct {
 	// Config is the configuration of the resource package.
 	Config *ResourcePackageConfig `json:"config,omitempty"`
 }
+
+type NUMAResourcePackageItems map[int]map[string]ResourcePackageItem
 
 // ResourcePackageMetric is the intermediate structure for resource package metrics.
 type ResourcePackageMetric struct {
@@ -86,14 +90,14 @@ status:
             metricLabels:
               package-name: "x8"
               numa-id: "0"
-              pinned-cpuset-pool: "share"
+              pinned-cpuset: "true"
             aggregator: "min"
             value: "64"
           - metricName: "memory"
             metricLabels:
               package-name: "x8"
               numa-id: "0"
-              pinned-cpuset-pool: "share"
+              pinned-cpuset: "true"
             aggregator: "min"
             value: "512Gi"
           - metricName: "cpu"
@@ -128,8 +132,8 @@ func ConvertResourcePackagesToNPDMetrics(resourcePackageMetrics []ResourcePackag
 					metricLabelPackageName: pkg.PackageName,
 					metricLabelNumaID:      pkgMetric.NumaID,
 				}
-				if pkg.Config != nil && pkg.Config.PinnedCPUSetPool != nil {
-					labels[metricLabelPinnedCPUSetPool] = *pkg.Config.PinnedCPUSetPool
+				if pkg.Config != nil && pkg.Config.PinnedCPUSet != nil {
+					labels[metricLabelPinnedCPUSet] = strconv.FormatBool(*pkg.Config.PinnedCPUSet)
 				}
 
 				// add attributes to labels of cpu metric only
@@ -203,11 +207,14 @@ func updatePkgMapFromMetrics(metrics []nodev1alpha1.MetricValue, pkgMap map[stri
 		}
 		(*metric.Allocatable)[v1.ResourceName(v.MetricName)] = v.Value.DeepCopy()
 
-		if pinnedPool, ok := v.MetricLabels[metricLabelPinnedCPUSetPool]; ok && pinnedPool != "" {
-			if metric.Config == nil {
-				metric.Config = &ResourcePackageConfig{}
+		if pinnedCPUSetValue, ok := v.MetricLabels[metricLabelPinnedCPUSet]; ok {
+			parsedPinnedCPUSet, err := strconv.ParseBool(pinnedCPUSetValue)
+			if err == nil {
+				if metric.Config == nil {
+					metric.Config = &ResourcePackageConfig{}
+				}
+				metric.Config.PinnedCPUSet = &parsedPinnedCPUSet
 			}
-			metric.Config.PinnedCPUSetPool = &pinnedPool
 		}
 
 		// add attributes to metric which are not in defaultMetricLabels
