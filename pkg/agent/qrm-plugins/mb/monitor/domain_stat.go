@@ -40,6 +40,20 @@ type DomainStats struct {
 // DomainMonStat is memory bandwidth statistic info of one domain, each has multiple groups
 type DomainMonStat = GroupMBStats
 
+// GroupInfo stores the mapping of groups and their CCDs for each domain
+type GroupInfo struct { // DomainGroups maps domain ID -> combined group key -> original group key -> CCD IDs
+	DomainGroups map[int]DomainGroupMapping
+}
+
+// DomainGroupMapping maps combined group keys to their original groups
+type DomainGroupMapping map[string]CombinedGroupMapping
+
+// CombinedGroupMapping maps original group keys to their CCD IDs
+type CombinedGroupMapping map[string]CCDSet
+
+// CCDSet represents a set of CCD IDs
+type CCDSet map[int]struct{}
+
 // NewDomainStats splits group-style outgoing mb stat (as from resctrl mon-data) into corresponding domains,
 // and attributes incoming traffic from outgoings for the cross-domain groups
 func NewDomainStats(statOutgoing GroupMBStats, ccdToDomain map[int]int, xDomGroups sets.String) (*DomainStats, error) {
