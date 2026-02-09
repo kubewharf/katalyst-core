@@ -25,6 +25,7 @@ import (
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	resourcepackage "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
 
 type AllocationMeta struct {
@@ -125,6 +126,14 @@ func (am *AllocationMeta) GetOwnerPoolName() string {
 		return EmptyOwnerPoolName
 	}
 	return am.OwnerPoolName
+}
+
+func (am *AllocationMeta) GetResourcePackageName() string {
+	if am == nil {
+		return ""
+	}
+
+	return resourcepackage.GetResourcePackageName(am.Annotations)
 }
 
 // GetSpecifiedPoolName parses the owner pool name for AllocationInfo from qos-level
