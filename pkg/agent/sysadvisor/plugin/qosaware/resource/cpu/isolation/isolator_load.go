@@ -69,7 +69,7 @@ type LoadIsolator struct {
 	// map from pod/container pair to containerIsolationState
 	states sync.Map
 
-	configTranslator *general.CommonSuffixTranslator
+	configTranslator general.SuffixTranslator
 }
 
 func NewLoadIsolator(conf *config.Configuration, _ interface{}, emitter metrics.MetricEmitter,
@@ -82,7 +82,7 @@ func NewLoadIsolator(conf *config.Configuration, _ interface{}, emitter metrics.
 		metaReader: metaCache,
 		metaServer: metaServer,
 
-		configTranslator: general.NewCommonSuffixTranslator(commonstate.NUMAPoolInfix),
+		configTranslator: commonstate.OwnerPoolNameTranslator,
 	}
 }
 

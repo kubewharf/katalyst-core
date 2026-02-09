@@ -91,7 +91,7 @@ func (s *SubResourceAdvisorStub) Name() string {
 func (s *SubResourceAdvisorStub) Run(ctx context.Context) {
 }
 
-func (s *SubResourceAdvisorStub) UpdateAndGetAdvice() (interface{}, error) {
+func (s *SubResourceAdvisorStub) UpdateAndGetAdvice(_ context.Context) (interface{}, error) {
 	return nil, nil
 }
 
