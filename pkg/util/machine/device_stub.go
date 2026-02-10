@@ -41,3 +41,45 @@ func (d *deviceTopologyProviderStub) GetDeviceTopology() (*DeviceTopology, bool,
 
 	return d.deviceTopology, true, nil
 }
+
+type deviceAffinityProviderStub struct {
+	mutex     sync.Mutex
+	setCalled bool
+	// changeCh is a channel that mocks the behavior of detecting
+	changeCh chan struct{}
+}
+
+func newAffinityProviderStub() DeviceAffinityProvider {
+	return &deviceAffinityProviderStub{
+		changeCh: make(chan struct{}, 1),
+	}
+}
+
+func (d *deviceAffinityProviderStub) SetDeviceAffinity(topology *DeviceTopology) {
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+	d.setCalled = true
+}
+
+func (d *deviceAffinityProviderStub) WatchTopologyChanged(stopCh <-chan struct{},
+	topologyChangedCh chan<- string, id string,
+) {
+	for {
+		select {
+		case <-stopCh:
+			return
+		case <-d.changeCh:
+			topologyChangedCh <- id
+		}
+	}
+}
+
+func (d *deviceAffinityProviderStub) TriggerChange() {
+	d.changeCh <- struct{}{}
+}
+
+func (d *deviceAffinityProviderStub) WasSetCalled() bool {
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+	return d.setCalled
+}

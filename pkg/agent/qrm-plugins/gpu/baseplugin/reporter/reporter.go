@@ -22,9 +22,8 @@ import (
 	"fmt"
 	"sync"
 
-	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/klog/v2"
 
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/registration"
@@ -43,7 +42,42 @@ const (
 	propertyNameGPUTopology = "gpu_topology_attribute_key"
 )
 
-var oneQuantity = *resource.NewQuantity(1, resource.DecimalSI)
+// GPUReporter reports gpu information to CNR
+type GPUReporter interface {
+	Run(stopCh <-chan struct{})
+}
+
+type gpuReporterImpl struct {
+	skeleton.GenericPlugin
+}
+
+var _ GPUReporter = (*gpuReporterImpl)(nil)
+
+func NewGPUReporter(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
+	conf *config.Configuration, topologyRegistry *machine.DeviceTopologyRegistry,
+) (GPUReporter, error) {
+	plugin, err := newGPUReporterPlugin(emitter, metaServer, conf, topologyRegistry)
+	if err != nil {
+		return nil, fmt.Errorf("[gpu-reporter] create reporter failed: %v", err)
+	}
+
+	return &gpuReporterImpl{plugin}, nil
+}
+
+func (r *gpuReporterImpl) Run(stopCh <-chan struct{}) {
+	if err := r.Start(); err != nil {
+		klog.Fatalf("[gpu reporter] start %v failed with error: %v", r.Name(), err)
+	}
+	klog.Infof("[gpu-reporter] plugin wrapper %v started", r.Name())
+
+	defer func() {
+		if err := r.Stop(); err != nil {
+			klog.Errorf("[gpu-reporter] stop %v failed with error: %v", r.Name(), err)
+		}
+	}()
+
+	<-stopCh
+}
 
 // gpuReporterPlugin is the plugin that reports gpu device topology information
 type gpuReporterPlugin struct {
@@ -63,9 +97,9 @@ var (
 	_ v1alpha1.ReporterPluginServer = (*gpuReporterPlugin)(nil)
 )
 
-func NewGPUReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
+func newGPUReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
 	conf *config.Configuration, topologyRegistry *machine.DeviceTopologyRegistry,
-) (skeleton.GenericPlugin, v1alpha1.ReporterPluginServer, error) {
+) (skeleton.GenericPlugin, error) {
 	reporter := &gpuReporterPlugin{
 		numaSocketZoneNodeMap:  util.GenerateNumaSocketZone(metaServer.MachineInfo.Topology),
 		emitter:                emitter,
@@ -79,10 +113,10 @@ func NewGPUReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.
 			})...)
 		})
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to register %s plugin: %w", gpuReporterPluginName, err)
+		return nil, fmt.Errorf("failed to register %s plugin: %w", gpuReporterPluginName, err)
 	}
 
-	return pluginWrapper, reporter, nil
+	return pluginWrapper, nil
 }
 
 func (p *gpuReporterPlugin) Name() string {
@@ -148,17 +182,12 @@ func (p *gpuReporterPlugin) GetReportContent(_ context.Context, _ *v1alpha1.Empt
 		return nil, err
 	}
 
-	zoneResources := p.getZoneResources(deviceTopology)
-	if zoneResources == nil {
-		return nil, fmt.Errorf("no zone resources found for device topology")
-	}
-
 	zoneAttributes := p.getGPUZoneAttributes(deviceTopology)
 	if zoneAttributes == nil {
 		return nil, fmt.Errorf("no zone attributes found for device topology")
 	}
 
-	generatedTopologyZones := topologyZoneGenerator.GenerateTopologyZoneStatus(nil, zoneResources,
+	generatedTopologyZones := topologyZoneGenerator.GenerateTopologyZoneStatus(nil, nil,
 		zoneAttributes, nil, nil)
 
 	propertyValues, err := json.Marshal(&resourceProperty)
@@ -259,36 +288,6 @@ func (p *gpuReporterPlugin) addGPUZoneNodes(deviceTopology *machine.DeviceTopolo
 	}
 
 	return utilerrors.NewAggregate(errList)
-}
-
-// getZoneResources returns the map of gpu zone nodes to their resources
-func (p *gpuReporterPlugin) getZoneResources(deviceTopology *machine.DeviceTopology) map[util.ZoneNode]nodev1alpha1.Resources {
-	if deviceTopology == nil {
-		return nil
-	}
-
-	zoneResources := make(map[util.ZoneNode]nodev1alpha1.Resources)
-	deviceName := deviceTopology.DeviceName
-	// If there is no device name, there is no need to report topology so we return nil
-	if deviceName == "" {
-		return nil
-	}
-	for id := range deviceTopology.Devices {
-		zoneNode := util.GenerateDeviceZoneNode(id, string(nodev1alpha1.TopologyTypeGPU))
-
-		resources := nodev1alpha1.Resources{
-			Allocatable: &v1.ResourceList{
-				deviceName: oneQuantity,
-			},
-			Capacity: &v1.ResourceList{
-				deviceName: oneQuantity,
-			},
-		}
-
-		zoneResources[zoneNode] = resources
-	}
-
-	return zoneResources
 }
 
 // ListAndWatchReportContent implements ReporterPluginServer to list and watch report content.

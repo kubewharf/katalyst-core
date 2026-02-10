@@ -21,17 +21,11 @@ import (
 	"sort"
 	"sync"
 
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/strings/slices"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
-
-type DeviceTopologyProvider interface {
-	GetDeviceTopology() (*DeviceTopology, bool, error)
-	SetDeviceTopology(*DeviceTopology) error
-}
 
 // DeviceTopologyRegistry is a registry of all topology providers that knows how to provide topology information of machine devices
 type DeviceTopologyRegistry struct {
@@ -42,12 +36,63 @@ type DeviceTopologyRegistry struct {
 
 	// deviceTopologyAffinityProviders is a mapping of device name to their respective affinity provider
 	deviceTopologyAffinityProviders map[string]DeviceAffinityProvider
+
+	// lastDeviceTopologies is a mapping of device name to their respective last device topology
+	lastDeviceTopologies map[string]*DeviceTopology
 }
 
 func NewDeviceTopologyRegistry() *DeviceTopologyRegistry {
 	return &DeviceTopologyRegistry{
 		deviceTopologyProviders:         make(map[string]DeviceTopologyProvider),
 		deviceTopologyAffinityProviders: make(map[string]DeviceAffinityProvider),
+		lastDeviceTopologies:            make(map[string]*DeviceTopology),
+	}
+}
+
+func (r *DeviceTopologyRegistry) Run(stopCh <-chan struct{}, initializedCh <-chan struct{}) {
+	r.runAffinityProviders(stopCh, initializedCh)
+}
+
+// runAffinityProviders monitors all registered device affinity providers and applies topology updates when changes occur.
+// It first waits until all the affinity providers are initialized.
+// Then, it launches a goroutine per provider to watch for changes. When a provider reports a change, the corresponding
+// DeviceTopology is updated via SetDeviceAffinity. The function blocks until stopCh is closed.
+func (r *DeviceTopologyRegistry) runAffinityProviders(stopCh <-chan struct{}, initializedCh <-chan struct{}) {
+	// wait until all affinity providers are initialized
+	general.Infof("waiting for initializedCh...")
+	select {
+	case <-initializedCh:
+		// proceed
+	case <-stopCh:
+		return
+	}
+
+	general.Infof("initialization done, starting watchers...")
+
+	topologyChangedCh := make(chan string, len(r.deviceTopologyProviders))
+	for deviceName, affinityProvider := range r.deviceTopologyAffinityProviders {
+		general.Infof("watching topology change for %s", deviceName)
+		go affinityProvider.WatchTopologyChanged(stopCh, topologyChangedCh, deviceName)
+	}
+
+	for {
+		select {
+		case <-stopCh:
+			return
+		case name := <-topologyChangedCh:
+			general.Infof("topology change is detected for device %s", name)
+
+			// Get the recent device topology and update it
+			lastDeviceTopology, ok := r.lastDeviceTopologies[name]
+			if !ok {
+				general.Errorf("no last device topology for device %q when running affinity providers", name)
+				continue
+			}
+
+			if err := r.SetDeviceTopology(name, lastDeviceTopology); err != nil {
+				general.Errorf("failed to set new device topology for device %q: %v", name, err)
+			}
+		}
 	}
 }
 
@@ -87,6 +132,9 @@ func (r *DeviceTopologyRegistry) SetDeviceTopology(deviceName string, deviceTopo
 	} else {
 		general.Infof("no device affinity provider found for device %s", deviceName)
 	}
+
+	// Cache the device topology
+	r.lastDeviceTopologies[deviceName] = deviceTopology
 
 	return topologyProvider.SetDeviceTopology(deviceTopology)
 }
@@ -148,8 +196,7 @@ func (r *DeviceTopologyRegistry) GetDeviceNUMAAffinity(deviceA, deviceB string) 
 }
 
 type DeviceTopology struct {
-	DeviceName v1.ResourceName
-	Devices    map[string]DeviceInfo
+	Devices map[string]DeviceInfo
 	// PriorityDimensions distinguishes the different dimensions of device affinity and their priority level.
 	// The priority level is determined by the order of the dimensions in the slice.
 	// For example, if devices have affinity based on the NUMA and SOCKET, and NUMA has higher priority than SOCKET,
@@ -188,7 +235,6 @@ func (t *DeviceTopology) GroupDeviceAffinity() map[int][]DeviceIDs {
 			if !containsGroup(deviceAffinityGroup[priorityLevel], affinityDeviceIDs) {
 				deviceAffinityGroup[priorityLevel] = append(deviceAffinityGroup[priorityLevel], affinityDeviceIDs)
 			}
-
 		}
 	}
 	return deviceAffinityGroup
@@ -203,11 +249,13 @@ func containsGroup(groups []DeviceIDs, candidate DeviceIDs) bool {
 	return false
 }
 
+// DeviceAffinity is the map of priority level to the other deviceIds that a particular deviceId has an affinity with
+type DeviceAffinity map[AffinityPriority]DeviceIDs
+
 type DeviceInfo struct {
-	Health    string
-	NumaNodes []int
-	// DeviceAffinity is the map of priority level to the other deviceIds that a particular deviceId has an affinity with
-	DeviceAffinity map[AffinityPriority]DeviceIDs
+	Health         string
+	NumaNodes      []int
+	DeviceAffinity DeviceAffinity
 }
 
 func (i DeviceInfo) GetDimensions() []Dimension {
@@ -264,6 +312,11 @@ func (i DeviceInfo) GetNUMANodes() []int {
 	return i.NumaNodes
 }
 
+type DeviceTopologyProvider interface {
+	GetDeviceTopology() (*DeviceTopology, bool, error)
+	SetDeviceTopology(*DeviceTopology) error
+}
+
 type deviceTopologyProviderImpl struct {
 	mutex         sync.RWMutex
 	resourceNames []string
@@ -271,6 +324,8 @@ type deviceTopologyProviderImpl struct {
 	deviceTopology    *DeviceTopology
 	numaTopologyReady bool
 }
+
+var _ DeviceTopologyProvider = (*deviceTopologyProviderImpl)(nil)
 
 func NewDeviceTopologyProvider(resourceNames []string) DeviceTopologyProvider {
 	deviceTopology := &DeviceTopology{

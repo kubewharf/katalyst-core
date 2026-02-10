@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -701,4 +702,36 @@ func equalDeviceIDsGroupsIgnoreOrder(t *testing.T, expected, actual []DeviceIDs)
 	}
 
 	return true
+}
+
+func TestDeviceTopologyRegistry_runAffinityProviders(t *testing.T) {
+	t.Parallel()
+
+	stopCh := make(chan struct{})
+	initializedCh := make(chan struct{})
+
+	// Set up the device topology registry and register the affinity provider stub
+	registry := NewDeviceTopologyRegistry()
+	affinityProvider := newAffinityProviderStub()
+	registry.RegisterDeviceTopologyProvider("test", NewDeviceTopologyProviderStub())
+	registry.RegisterTopologyAffinityProvider("test", affinityProvider)
+	registry.lastDeviceTopologies["test"] = &DeviceTopology{}
+
+	go registry.runAffinityProviders(stopCh, initializedCh)
+
+	close(initializedCh)
+
+	time.Sleep(50 * time.Millisecond) // small delay to ensure watcher is ready
+
+	providerStub, ok := affinityProvider.(*deviceAffinityProviderStub)
+	assert.True(t, ok)
+
+	// Trigger change
+	providerStub.TriggerChange()
+
+	time.Sleep(100 * time.Millisecond)
+
+	assert.True(t, providerStub.WasSetCalled())
+
+	close(stopCh)
 }
