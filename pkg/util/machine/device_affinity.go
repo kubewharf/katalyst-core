@@ -20,4 +20,9 @@ package machine
 type DeviceAffinityProvider interface {
 	// SetDeviceAffinity modifies DeviceTopology by retrieving each device's affinity to other devices
 	SetDeviceAffinity(*DeviceTopology)
+
+	// WatchTopologyChanged monitors topology and notifies changes via topologyChangedCh.
+	// The caller provides "id" to identify this provider externally.
+	// Stops when stopCh is closed.
+	WatchTopologyChanged(stopCh <-chan struct{}, topologyChangedCh chan<- string, id string)
 }

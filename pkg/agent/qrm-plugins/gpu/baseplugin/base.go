@@ -21,10 +21,8 @@ import (
 	"sync"
 
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
-	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/baseplugin/reporter"
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
@@ -43,9 +41,9 @@ const (
 
 // BasePlugin is a shared plugin that provides common functionalities and fields for GPU resource plugins and custom device plugins.
 type BasePlugin struct {
-	skeleton.GenericPlugin
-	mu   sync.RWMutex
-	Conf *config.Configuration
+	reporter reporter.GPUReporter
+	mu       sync.RWMutex
+	Conf     *config.Configuration
 
 	Emitter    metrics.MetricEmitter
 	MetaServer *metaserver.MetaServer
@@ -63,6 +61,8 @@ type BasePlugin struct {
 
 	// Map of specific device name to device type
 	deviceNameToTypeMap map[string]string
+
+	initializedCh chan struct{}
 }
 
 func NewBasePlugin(
@@ -70,14 +70,14 @@ func NewBasePlugin(
 ) (*BasePlugin, error) {
 	deviceTopologyRegistry := machine.NewDeviceTopologyRegistry()
 
-	gpuReporter, _, err := reporter.NewGPUReporterPlugin(wrappedEmitter, agentCtx.MetaServer, conf, deviceTopologyRegistry)
+	gpuReporter, err := reporter.NewGPUReporter(wrappedEmitter, agentCtx.MetaServer, conf, deviceTopologyRegistry)
 	if err != nil {
-		return nil, fmt.Errorf("NewGPUReporterPlugin failed with error: %v", err)
+		return nil, fmt.Errorf("newGPUReporterPlugin failed with error: %v", err)
 	}
 
 	return &BasePlugin{
-		Conf:          conf,
-		GenericPlugin: gpuReporter,
+		Conf:     conf,
+		reporter: gpuReporter,
 
 		Emitter:    wrappedEmitter,
 		MetaServer: agentCtx.MetaServer,
@@ -90,24 +90,19 @@ func NewBasePlugin(
 		DefaultResourceStateGeneratorRegistry: state.NewDefaultResourceStateGeneratorRegistry(),
 
 		deviceNameToTypeMap: make(map[string]string),
+		initializedCh:       make(chan struct{}),
 	}, nil
 }
 
-// Run starts the gpu reporter plugin.
+// Run starts the asynchronous tasks of the plugin
 func (p *BasePlugin) Run(stopCh <-chan struct{}) {
-	if err := p.Start(); err != nil {
-		klog.Errorf("[gpu-reporter] failed to start with error: %v", err)
-		return
-	}
-	klog.Infof("[gpu-reporter] plugin wrapper %s started", p.Name())
+	go p.reporter.Run(stopCh)
+	go p.DeviceTopologyRegistry.Run(stopCh, p.initializedCh)
+}
 
-	defer func() {
-		if err := p.Stop(); err != nil {
-			klog.Errorf("[gpu-reporter] stop %v failed with error: %v", p.Name(), err)
-		}
-	}()
-
-	<-stopCh
+// SetInitialized sends a signal through initializedCh when we have finished initializing all dependencies.
+func (p *BasePlugin) SetInitialized() {
+	close(p.initializedCh)
 }
 
 // GetState may return a nil state because the state is only initialized when InitState is called.

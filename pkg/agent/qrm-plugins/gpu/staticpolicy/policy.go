@@ -149,7 +149,7 @@ func (p *StaticPolicy) Start() (err error) {
 		periodicalhandler.ReadyToStartHandlersByGroup(appqrm.QRMGPUPluginPeriodicalHandlerGroupName)
 	}, 5*time.Second, p.stopCh)
 
-	// Start the reporter plugin
+	// Run the asynchronous tasks of the base plugin
 	go p.Run(p.stopCh)
 
 	return nil
