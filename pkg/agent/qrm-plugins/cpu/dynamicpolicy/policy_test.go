@@ -160,6 +160,8 @@ func getTestDynamicPolicyWithoutInitialization(
 		enableReclaimNUMABinding:  true,
 		emitter:                   metrics.DummyMetrics{},
 		podDebugAnnoKeys:          []string{podDebugAnnoKey},
+		numaNumberAnnotationKey:   consts.PodAnnotationCPUEnhancementNumaNumber,
+		numaIDsAnnotationKey:      consts.PodAnnotationCPUEnhancementNumaIDs,
 	}
 
 	// register allocation behaviors for pods with different QoS level
@@ -1178,6 +1180,228 @@ func TestAllocate(t *testing.T) {
 			},
 			cpuTopology: cpuTopology,
 		},
+		{
+			name: "req for dedicated cores numa binding with distribute evenly across numa enabled",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 4,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true"}`,
+					consts.PodAnnotationCPUEnhancementKey:    `{"distribute_evenly_across_numa": "true"}`,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Hint: &pluginapi.TopologyHint{
+					Nodes:     []uint64{2, 3},
+					Preferred: true,
+				},
+			},
+			expectedResp: &pluginapi.ResourceAllocationResponse{
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				AllocationResult: &pluginapi.ResourceAllocation{
+					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+						string(v1.ResourceCPU): {
+							OciPropertyName:   util.OCIPropertyNameCPUSetCPUs,
+							IsNodeResource:    false,
+							IsScalarResource:  true,
+							AllocatedQuantity: 4,
+							// CPUs 4 and 12 are from NUMA 2 and CPUs 6 and 14 are from NUMA 3
+							AllocationResult: machine.NewCPUSet(4, 6, 12, 14).String(),
+							ResourceHints: &pluginapi.ListOfTopologyHints{
+								Hints: []*pluginapi.TopologyHint{
+									{
+										Nodes:     []uint64{2, 3},
+										Preferred: true,
+									},
+								},
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                              consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementNumaBinding:             consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					consts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNuma: consts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNumaEnable,
+				},
+			},
+			cpuTopology: cpuTopology,
+		},
+		{
+			name: "req for dedicated cores numa binding with full pcpus pairing enabled",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 2,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true"}`,
+					consts.PodAnnotationCPUEnhancementKey:    `{"full_pcpus_pairing": "true"}`,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Hint: &pluginapi.TopologyHint{
+					Nodes:     []uint64{2},
+					Preferred: true,
+				},
+			},
+			expectedResp: &pluginapi.ResourceAllocationResponse{
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				AllocationResult: &pluginapi.ResourceAllocation{
+					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+						string(v1.ResourceCPU): {
+							OciPropertyName:   util.OCIPropertyNameCPUSetCPUs,
+							IsNodeResource:    false,
+							IsScalarResource:  true,
+							AllocatedQuantity: 2,
+							// Allocate full physical core of CPUs 4 and 12
+							AllocationResult: machine.NewCPUSet(4, 12).String(),
+							ResourceHints: &pluginapi.ListOfTopologyHints{
+								Hints: []*pluginapi.TopologyHint{
+									{
+										Nodes:     []uint64{2},
+										Preferred: true,
+									},
+								},
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					consts.PodAnnotationCPUEnhancementFullPCPUsPairing: consts.PodAnnotationCPUEnhancementFullPCPUsPairingEnable,
+				},
+			},
+			cpuTopology: cpuTopology,
+		},
+		{
+			name: "req for dedicated cores numa binding with full pcpus pairing enabled returns error if there are not enough physical cores",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 4,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true"}`,
+					consts.PodAnnotationCPUEnhancementKey:    `{"full_pcpus_pairing": "true"}`,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Hint: &pluginapi.TopologyHint{
+					Nodes:     []uint64{0},
+					Preferred: true,
+				},
+			},
+			// Not able to take 2 physical cores from NUMA 0 because of one reserved CPU
+			wantError:   true,
+			cpuTopology: cpuTopology,
+		},
+		{
+			name: "req for dedicated cores numa binding with full pcpus pairing enabled can allocate HT after physical cores are allocated",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 6,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true"}`,
+					consts.PodAnnotationCPUEnhancementKey:    `{"distribute_evenly_across_numa": "true", "full_pcpus_pairing": "true"}`,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Hint: &pluginapi.TopologyHint{
+					Nodes:     []uint64{2, 3},
+					Preferred: true,
+				},
+			},
+			expectedResp: &pluginapi.ResourceAllocationResponse{
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				AllocationResult: &pluginapi.ResourceAllocation{
+					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+						string(v1.ResourceCPU): {
+							OciPropertyName:   util.OCIPropertyNameCPUSetCPUs,
+							IsNodeResource:    false,
+							IsScalarResource:  true,
+							AllocatedQuantity: 6,
+							AllocationResult:  machine.NewCPUSet(4, 5, 6, 7, 12, 14).String(),
+							ResourceHints: &pluginapi.ListOfTopologyHints{
+								Hints: []*pluginapi.TopologyHint{
+									{
+										Nodes:     []uint64{2, 3},
+										Preferred: true,
+									},
+								},
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                              consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementNumaBinding:             consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					consts.PodAnnotationCPUEnhancementFullPCPUsPairing:           consts.PodAnnotationCPUEnhancementFullPCPUsPairingEnable,
+					consts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNuma: consts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNumaEnable,
+				},
+			},
+			cpuTopology: cpuTopology,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -1269,9 +1493,12 @@ func TestGetTopologyHints(t *testing.T) {
 		podEntries               state.PodEntries
 		cpuNUMAHintPreferPolicy  string
 		expectedResp             *pluginapi.ResourceHintsResponse
+		expectErr                bool
 		cpuTopology              *machine.CPUTopology
 		numaHeadroom             map[int]float64
 		enhancementDefaultValues map[string]string
+		numaNumberAnnotationKey  string
+		numaIDsAnnotationKey     string
 	}{
 		{
 			name: "req for container of debug pod",
@@ -3547,6 +3774,875 @@ func TestGetTopologyHints(t *testing.T) {
 			},
 			cpuTopology: cpuTopology,
 		},
+		{
+			name: "req for dedicated numa binding container with align by socket enabled for empty machine",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 7,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true", "numa_exclusive": "true"}`,
+					consts.PodAnnotationCPUEnhancementKey:    `{"align_by_socket": "true"}`,
+				},
+			},
+			expectedResp: &pluginapi.ResourceHintsResponse{
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				// 2 reserved CPU will be occupied: 1 from NUMA 0 and 1 from NUMA 1, so only NUMA 2 and NUMA 3 can satisfy the
+				// align by socket requirement.
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(v1.ResourceCPU): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{2, 3},
+								Preferred: true,
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationCPUEnhancementAlignBySocket:    consts.PodAnnotationCPUEnhancementAlignBySocketEnable,
+					consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+				},
+			},
+			cpuTopology: cpuTopology,
+		},
+		{
+			name: "req for dedicated numa binding container with align by socket enabled for machine with existing allocations",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 7,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true", "numa_exclusive": "true"}`,
+					consts.PodAnnotationCPUEnhancementKey:    `{"align_by_socket": "true"}`,
+				},
+			},
+			podEntries: state.PodEntries{
+				"373d08e4-7a6b-4293-aaaf-b135ff812ooo": state.ContainerEntries{
+					testName: &state.AllocationInfo{
+						AllocationMeta: commonstate.AllocationMeta{
+							PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff812ooo",
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  commonstate.PoolNameDedicated,
+							Labels: map[string]string{
+								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+							},
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelSharedCores,
+								consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+								consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+							},
+							QoSLevel: consts.PodAnnotationQoSLevelDedicatedCores,
+						},
+						RampUp:                   false,
+						AllocationResult:         machine.MustParse("4,5"),
+						OriginalAllocationResult: machine.MustParse("4,5"),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							2: machine.NewCPUSet(4, 5),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							2: machine.NewCPUSet(4, 5),
+						},
+						RequestQuantity: 2,
+					},
+				},
+			},
+			// No hints because the container should be allocated within 1 socket.
+			// Socket 1: NUMA 0 and 1 have 2 reserved CPUs and is not sufficient.
+			// Socket 2: NUMA 2 and 3 have 2 allocated CPUs and is not sufficient.
+			expectedResp: nil,
+			expectErr:    true,
+			cpuTopology:  cpuTopology,
+		},
+		{
+			name: "req for dedicated numa binding container with align by socket enabled for across 2 sockets",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 9, // Each socket has 8 CPUs
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true", "numa_exclusive": "true"}`,
+					consts.PodAnnotationCPUEnhancementKey:    `{"align_by_socket": "true"}`,
+				},
+			},
+			expectedResp: &pluginapi.ResourceHintsResponse{
+				PodName:        testName,
+				PodNamespace:   testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(v1.ResourceCPU): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{0, 1, 2},
+								Preferred: true,
+							},
+							{
+								Nodes:     []uint64{0, 1, 3},
+								Preferred: true,
+							},
+							{
+								Nodes:     []uint64{0, 2, 3},
+								Preferred: true,
+							},
+							{
+								Nodes:     []uint64{1, 2, 3},
+								Preferred: true,
+							},
+							{
+								Nodes:     []uint64{0, 1, 2, 3},
+								Preferred: false,
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationCPUEnhancementAlignBySocket:    consts.PodAnnotationCPUEnhancementAlignBySocketEnable,
+					consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+				},
+			},
+			cpuTopology: cpuTopology,
+		},
+		{
+			name: "req for full pcpus pairing enabled for dedicated numa binding container with existing allocations",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 3, // needs 1 physical cores
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true"}`,
+					consts.PodAnnotationCPUEnhancementKey:    `{"full_pcpus_pairing": "true"}`,
+				},
+			},
+			podEntries: state.PodEntries{
+				"373d08e4-7a6b-4293-aaaf-b135ff812ooo": state.ContainerEntries{
+					testName: &state.AllocationInfo{
+						AllocationMeta: commonstate.AllocationMeta{
+							PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff812ooo",
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  commonstate.PoolNameDedicated,
+							Labels: map[string]string{
+								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+							},
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
+								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+							},
+							QoSLevel: consts.PodAnnotationQoSLevelDedicatedCores,
+						},
+						RampUp:                   false,
+						AllocationResult:         machine.MustParse("8,9"), // 2 physical cores from NUMA 0 is occupied
+						OriginalAllocationResult: machine.MustParse("8,9"),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(8, 9),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(8, 9),
+						},
+						RequestQuantity: 2,
+					},
+				},
+			},
+			expectedResp: &pluginapi.ResourceHintsResponse{
+				PodName:        testName,
+				PodNamespace:   testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(v1.ResourceCPU): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{1},
+								Preferred: true,
+							},
+							{
+								Nodes:     []uint64{2},
+								Preferred: true,
+							},
+							{
+								Nodes:     []uint64{3},
+								Preferred: true,
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationCPUEnhancementFullPCPUsPairing: consts.PodAnnotationCPUEnhancementFullPCPUsPairingEnable,
+					consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+				},
+			},
+			cpuTopology: cpuTopology,
+		},
+		{
+			name: "full pcpus pairing for dedicated numa binding with numa exclusive container returns error",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 6,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true", "numa_exclusive": "true"}`,
+					consts.PodAnnotationCPUEnhancementKey:    `{"full_pcpus_pairing": "true"}`,
+				},
+			},
+			expectErr:   true,
+			cpuTopology: cpuTopology,
+		},
+		{
+			name: "Not enough physical CPUs when full PCPUs pairing is enabled returns error",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 13, // needs 7 physical cores
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true", "numa_exclusive": "true"}`,
+					consts.PodAnnotationCPUEnhancementKey:    `{"full_pcpus_pairing": "true"}`,
+				},
+			},
+			// No hints as there are only 6 available physical cores in this case
+			expectedResp: nil,
+			expectErr:    true,
+			cpuTopology:  cpuTopology,
+		},
+		{
+			name: "distribute evenly across numa with numa binding without numa exclusive can split across NUMAs",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 12,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true"}`,
+					consts.PodAnnotationCPUEnhancementKey:    `{"distribute_evenly_across_numa": "true"}`,
+				},
+			},
+			expectedResp: &pluginapi.ResourceHintsResponse{
+				PodName:        testName,
+				PodNamespace:   testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(v1.ResourceCPU): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{0, 1, 2, 3},
+								Preferred: true,
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                              consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNuma: consts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNumaEnable,
+					consts.PodAnnotationMemoryEnhancementNumaBinding:             consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+				},
+			},
+			cpuTopology: cpuTopology,
+		},
+		{
+			name: "distribute evenly across numa with full pcpus pairing makes sure that physical cores can evenly spread across NUMAs",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 8, // 4 physical cores can be spread across either 2 or 4 NUMA nodes
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true"}`,
+					consts.PodAnnotationCPUEnhancementKey:    `{"distribute_evenly_across_numa": "true", "full_pcpus_pairing": "true"}`,
+				},
+			},
+			expectedResp: &pluginapi.ResourceHintsResponse{
+				PodName:        testName,
+				PodNamespace:   testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(v1.ResourceCPU): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{2, 3},
+								Preferred: true,
+							},
+							{
+								Nodes:     []uint64{0, 1, 2, 3},
+								Preferred: false,
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                              consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNuma: consts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNumaEnable,
+					consts.PodAnnotationCPUEnhancementFullPCPUsPairing:           consts.PodAnnotationCPUEnhancementFullPCPUsPairingEnable,
+					consts.PodAnnotationMemoryEnhancementNumaBinding:             consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+				},
+			},
+			cpuTopology: cpuTopology,
+		},
+		{
+			name: "distribute evenly across numa with numa exclusive returns error",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 6,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true", "numa_exclusive": "true"}`,
+					consts.PodAnnotationCPUEnhancementKey:    `{"distribute_evenly_across_numa": "true"}`,
+				},
+			},
+			expectErr:   true,
+			cpuTopology: cpuTopology,
+		},
+		{
+			name: "req with full pcpus pairing with odd number of cpu request can still allocate full physical cores in single NUMA node",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 3, // 3 CPUs result in 1 physical cores
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true"}`,
+					consts.PodAnnotationCPUEnhancementKey:    `{"full_pcpus_pairing": "true"}`,
+				},
+			},
+			expectedResp: &pluginapi.ResourceHintsResponse{
+				PodName:        testName,
+				PodNamespace:   testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(v1.ResourceCPU): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{0},
+								Preferred: true,
+							},
+							{
+								Nodes:     []uint64{1},
+								Preferred: true,
+							},
+							{
+								Nodes:     []uint64{2},
+								Preferred: true,
+							},
+							{
+								Nodes:     []uint64{3},
+								Preferred: true,
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationCPUEnhancementFullPCPUsPairing: consts.PodAnnotationCPUEnhancementFullPCPUsPairingEnable,
+					consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+				},
+			},
+			cpuTopology: cpuTopology,
+		},
+		{
+			name: "req with full pcpus pairing with odd number of cores request can still allocate full physical cores across multiple NUMA nodes",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 6, // 6 CPUs result in 3 physical cores
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true"}`,
+					consts.PodAnnotationCPUEnhancementKey:    `{"distribute_evenly_across_numa": "true", "full_pcpus_pairing": "true"}`,
+				},
+			},
+			podEntries: state.PodEntries{
+				"373d08e4-7a6b-4293-aaaf-b135ff812ooo": state.ContainerEntries{
+					testName: &state.AllocationInfo{
+						AllocationMeta: commonstate.AllocationMeta{
+							PodUid:         "373d08e4-7a6b-4293-aaaf-b135ff812ooo",
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							OwnerPoolName:  commonstate.PoolNameDedicated,
+							Labels: map[string]string{
+								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+							},
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
+								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+							},
+							QoSLevel: consts.PodAnnotationQoSLevelDedicatedCores,
+						},
+						RampUp:                   false,
+						AllocationResult:         machine.MustParse("8"), // 0 and 8 from NUMA 0 are allocated
+						OriginalAllocationResult: machine.MustParse("8"),
+						TopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(8),
+						},
+						OriginalTopologyAwareAssignments: map[int]machine.CPUSet{
+							0: machine.NewCPUSet(8),
+						},
+						RequestQuantity: 2,
+					},
+				},
+			},
+			expectedResp: &pluginapi.ResourceHintsResponse{
+				PodName:        testName,
+				PodNamespace:   testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(v1.ResourceCPU): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{2, 3},
+								Preferred: true,
+							},
+							{
+								Nodes:     []uint64{1, 2, 3},
+								Preferred: false,
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                              consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNuma: consts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNumaEnable,
+					consts.PodAnnotationCPUEnhancementFullPCPUsPairing:           consts.PodAnnotationCPUEnhancementFullPCPUsPairingEnable,
+					consts.PodAnnotationMemoryEnhancementNumaBinding:             consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+				},
+			},
+			cpuTopology: cpuTopology,
+		},
+		{
+			name: "req with numa number makes sure that the hints only belong to those numa nodes",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 2,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true", "numa_exclusive": "true"}`,
+					consts.PodAnnotationCPUEnhancementKey:    `{"katalyst.kubewharf.io/numa_number": "2"}`,
+				},
+			},
+			expectedResp: &pluginapi.ResourceHintsResponse{
+				PodName:        testName,
+				PodNamespace:   testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(v1.ResourceCPU): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{0, 1},
+								Preferred: true,
+							},
+							{
+								Nodes:     []uint64{2, 3},
+								Preferred: true,
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+					consts.PodAnnotationCPUEnhancementNumaNumber:       "2",
+				},
+			},
+			cpuTopology: cpuTopology,
+		},
+		{
+			name: "req with numa ID for one numa node only",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 1,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true", "numa_exclusive": "true"}`,
+					consts.PodAnnotationCPUEnhancementKey:    `{"katalyst.kubewharf.io/numa_ids": "1"}`,
+				},
+			},
+			expectedResp: &pluginapi.ResourceHintsResponse{
+				PodName:        testName,
+				PodNamespace:   testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(v1.ResourceCPU): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{1},
+								Preferred: true,
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+					consts.PodAnnotationCPUEnhancementNumaIDs:          "1",
+				},
+			},
+			cpuTopology: cpuTopology,
+		},
+		{
+			name: "req with numa ID for multiple numa nodes",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 4,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true", "numa_exclusive": "true"}`,
+					consts.PodAnnotationCPUEnhancementKey:    `{"katalyst.kubewharf.io/numa_ids": "1-3"}`,
+				},
+			},
+			expectedResp: &pluginapi.ResourceHintsResponse{
+				PodName:        testName,
+				PodNamespace:   testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(v1.ResourceCPU): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{1, 2, 3},
+								Preferred: true,
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+					consts.PodAnnotationCPUEnhancementNumaIDs:          "1-3",
+				},
+			},
+			cpuTopology: cpuTopology,
+		},
+		{
+			name: "numa IDs will override numa number",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 4,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true", "numa_exclusive": "true"}`,
+					consts.PodAnnotationCPUEnhancementKey:    `{"katalyst.kubewharf.io/numa_number": "2", "katalyst.kubewharf.io/numa_ids": "0-2"}`,
+				},
+			},
+			expectedResp: &pluginapi.ResourceHintsResponse{
+				PodName:        testName,
+				PodNamespace:   testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(v1.ResourceCPU): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{0, 1, 2},
+								Preferred: true,
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+					consts.PodAnnotationCPUEnhancementNumaIDs:          "0-2",
+					consts.PodAnnotationCPUEnhancementNumaNumber:       "2",
+				},
+			},
+			cpuTopology: cpuTopology,
+		},
+		{
+			name:                    "custom numa number and numa ids annotation are supported",
+			numaNumberAnnotationKey: "custom_numa_number_annotation",
+			numaIDsAnnotationKey:    "custom_numa_ids_annotation",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 4,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true", "numa_exclusive": "true"}`,
+					consts.PodAnnotationCPUEnhancementKey:    `{"custom_numa_number_annotation": "2", "custom_numa_ids_annotation": "0-2"}`,
+				},
+			},
+			expectedResp: &pluginapi.ResourceHintsResponse{
+				PodName:        testName,
+				PodNamespace:   testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(v1.ResourceCPU): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{0, 1, 2},
+								Preferred: true,
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+					"custom_numa_number_annotation":                    "2",
+					"custom_numa_ids_annotation":                       "0-2",
+				},
+			},
+			cpuTopology: cpuTopology,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -3585,13 +4681,26 @@ func TestGetTopologyHints(t *testing.T) {
 				}
 			}
 
+			if tc.numaNumberAnnotationKey != "" {
+				dynamicPolicy.numaNumberAnnotationKey = tc.numaNumberAnnotationKey
+			}
+
+			if tc.numaIDsAnnotationKey != "" {
+				dynamicPolicy.numaIDsAnnotationKey = tc.numaIDsAnnotationKey
+			}
+
 			dynamicPolicy.sharedCoresNUMABindingHintOptimizer, err = canonical.NewCanonicalHintOptimizer(dynamicPolicy.generateHintOptimizerFactoryOptions())
 			as.NoError(err)
 
 			dynamicPolicy.dedicatedCoresNUMABindingHintOptimizer = &hintoptimizer.DummyHintOptimizer{}
 
 			resp, err := dynamicPolicy.GetTopologyHints(context.Background(), tc.req)
-			as.Nil(err)
+			if tc.expectErr {
+				as.NotNil(err)
+				return
+			} else {
+				as.Nil(err)
+			}
 
 			tc.expectedResp.PodUid = tc.req.PodUid
 			as.Equalf(tc.expectedResp, resp, "failed in test case: %s", tc.name)
