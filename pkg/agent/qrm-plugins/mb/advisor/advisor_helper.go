@@ -24,6 +24,7 @@ import (
 	"golang.org/x/exp/maps"
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/priority"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/resource"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
@@ -127,7 +128,7 @@ func getGroupIncomingInfo(capacity int, incomingStats monitor.GroupMBStats) *res
 		CapacityInMB: capacity,
 	}
 
-	result.GroupSorted = sortGroups(maps.Keys(incomingStats))
+	result.GroupSorted = priority.GetInstance().SortGroups(maps.Keys(incomingStats))
 	result.GroupTotalUses = getUsedTotalByGroup(incomingStats)
 	result.FreeInMB, result.GroupLimits = getLimitsByGroupSorted(capacity, result.GroupSorted, result.GroupTotalUses)
 	result.ResourceState = resource.GetResourceState(capacity, result.FreeInMB)
@@ -138,7 +139,7 @@ func getGroupIncomingInfo(capacity int, incomingStats monitor.GroupMBStats) *res
 func groupByWeight[T any](stats map[string]T) map[int][]string {
 	groups := make(map[int][]string, len(stats))
 	for group := range stats {
-		weight := getWeight(group)
+		weight := priority.GetInstance().GetWeight(group)
 		groups[weight] = append(groups[weight], group)
 	}
 	return groups

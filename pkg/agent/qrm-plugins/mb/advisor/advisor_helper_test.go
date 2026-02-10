@@ -22,6 +22,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/priority"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/resource"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
@@ -183,6 +184,9 @@ func Test_getDomainTotalMBs(t *testing.T) {
 
 func Test_preProcessGroupInfo(t *testing.T) {
 	t.Parallel()
+
+	priority.GetInstance().AddWeight("machine", 9_000)
+
 	tests := []struct {
 		name           string
 		stats          monitor.GroupMBStats

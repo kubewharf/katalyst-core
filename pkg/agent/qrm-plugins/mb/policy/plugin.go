@@ -32,6 +32,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/priority"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/allocator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/domain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
@@ -119,8 +120,23 @@ func (m *MBPlugin) Start() (err error) {
 		return nil
 	}
 
+	// ensure the extra resctrl groups registered with their priorities
+	for group, weight := range m.conf.ExtraGroupPriorities {
+		general.Infof("mbm: registering extra group %s, priority %d", group, weight)
+		priority.GetInstance().AddWeight(group, weight)
+	}
+
 	// initializing advisor field is deferred as qos group mb capacities is known now
-	m.advisor = advisor.NewEnhancedAdvisor(m.emitter, m.domains,
+	var advisorBuilder advisor.Builder
+	if m.conf.EqGroupsEnhancedAdvisor {
+		advisorBuilder = advisor.NewEnhancedAdvisor
+		general.Infof("mbm: use enhanced advior")
+	} else {
+		advisorBuilder = advisor.NewDomainAdvisor
+		general.Infof("mbm: use traditional advior")
+	}
+
+	m.advisor = advisorBuilder(m.emitter, m.domains,
 		m.conf.MinCCDMB, m.conf.MaxCCDMB,
 		defaultMBDomainCapacity, m.conf.MBCapLimitPercent,
 		m.conf.CrossDomainGroups, m.conf.MBQRMPluginConfig.NoThrottleGroups,

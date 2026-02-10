@@ -1,3 +1,19 @@
+/*
+Copyright 2022 The Katalyst Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package advisor
 
 import (
@@ -1251,7 +1267,7 @@ func Test_EnhancedAdvisor_GetPlan(t *testing.T) {
 				ccdDistribute:         distributor.New(0, 20_000),
 				emitter:               &metrics.DummyMetrics{},
 			}
-			advisor := &EnhancedAdvisor{inner: *d}
+			advisor := &EnhancedAdvisor{inner: d}
 			got, err := advisor.GetPlan(tt.args.ctx, tt.args.domainsMon)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetPlan() error = %v, wantErr %v", err, tt.wantErr)
@@ -1364,29 +1380,29 @@ func Test_EnhancedAdvisor_combinedDomainStats(t *testing.T) {
 			domainsMon: &monitor.DomainStats{
 				Incomings: map[int]monitor.GroupMBStats{
 					0: {
-						"dedicated-60": map[int]monitor.MBInfo{
+						"dedicated": map[int]monitor.MBInfo{
 							0: {LocalMB: 10_000, RemoteMB: 5_000, TotalMB: 15_000},
 						},
-						"machine-60": map[int]monitor.MBInfo{
+						"machine": map[int]monitor.MBInfo{
 							1: {LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
 						},
 					},
 				},
 				Outgoings: map[int]monitor.GroupMBStats{
 					0: {
-						"dedicated-60": map[int]monitor.MBInfo{
+						"dedicated": map[int]monitor.MBInfo{
 							0: {LocalMB: 10_000, RemoteMB: 5_000, TotalMB: 15_000},
 						},
-						"machine-60": map[int]monitor.MBInfo{
+						"machine": map[int]monitor.MBInfo{
 							1: {LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
 						},
 					},
 				},
 				OutgoingGroupSumStat: map[string][]monitor.MBInfo{
-					"dedicated-60": {
+					"dedicated": {
 						{LocalMB: 10_000, RemoteMB: 5_000, TotalMB: 15_000},
 					},
-					"machine-60": {
+					"machine": {
 						{LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
 					},
 				},
@@ -1418,8 +1434,8 @@ func Test_EnhancedAdvisor_combinedDomainStats(t *testing.T) {
 				DomainGroups: map[int]monitor.DomainGroupMapping{
 					0: {
 						"combined-9000": {
-							"dedicated-60": {0: struct{}{}},
-							"machine-60":   {1: struct{}{}},
+							"dedicated": {0: struct{}{}},
+							"machine":   {1: struct{}{}},
 						},
 					},
 				},
