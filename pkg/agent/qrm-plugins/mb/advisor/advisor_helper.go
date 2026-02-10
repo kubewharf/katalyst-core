@@ -24,6 +24,7 @@ import (
 	"golang.org/x/exp/maps"
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/priority"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/resource"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
@@ -127,7 +128,7 @@ func getGroupIncomingInfo(capacity int, incomingStats monitor.GroupMBStats) *res
 		CapacityInMB: capacity,
 	}
 
-	result.GroupSorted = sortGroups(maps.Keys(incomingStats))
+	result.GroupSorted = priority.GetInstance().SortGroups(maps.Keys(incomingStats))
 	result.GroupTotalUses = getUsedTotalByGroup(incomingStats)
 	result.FreeInMB, result.GroupLimits = getLimitsByGroupSorted(capacity, result.GroupSorted, result.GroupTotalUses)
 	result.ResourceState = resource.GetResourceState(capacity, result.FreeInMB)
@@ -138,18 +139,18 @@ func getGroupIncomingInfo(capacity int, incomingStats monitor.GroupMBStats) *res
 func groupByWeight[T any](stats map[string]T) map[int][]string {
 	groups := make(map[int][]string, len(stats))
 	for group := range stats {
-		weight := getWeight(group)
+		weight := priority.GetInstance().GetWeight(group)
 		groups[weight] = append(groups[weight], group)
 	}
 	return groups
 }
 
 // preProcessGroupInfo combines groups with same priority together
-func preProcessGroupInfo(stats monitor.GroupMBStats) (monitor.GroupMBStats, monitor.DomainGroupMapping, error) {
+func preProcessGroupInfo(stats monitor.GroupMBStats) (monitor.GroupMBStats, domainGroupMapping, error) {
 	groups := groupByWeight(stats)
 
 	result := make(monitor.GroupMBStats)
-	groupInfos := monitor.DomainGroupMapping{}
+	groupInfos := domainGroupMapping{}
 
 	for weight, equivGroups := range groups {
 		if len(equivGroups) == 1 {
@@ -158,7 +159,7 @@ func preProcessGroupInfo(stats monitor.GroupMBStats) (monitor.GroupMBStats, moni
 		}
 
 		newKey := fmt.Sprintf("combined-%d", weight)
-		groupInfo := monitor.CombinedGroupMapping{}
+		groupInfo := combinedGroupMapping{}
 		combined := make(monitor.GroupMB)
 		maxMap := make(map[int]int)
 
@@ -174,7 +175,7 @@ func preProcessGroupInfo(stats monitor.GroupMBStats) (monitor.GroupMBStats, moni
 
 		// Second pass: validate and build CCD sets for each group (only within equivGroups)
 		for _, group := range equivGroups {
-			ccdSet := monitor.CCDSet{}
+			ccdSet := ccdSet{}
 			for id, mbStat := range stats[group] {
 				// skip shared ccd with similar incoming data
 				if mbStat.TotalMB > maxMap[id]/2 && mbStat.TotalMB < maxMap[id] {

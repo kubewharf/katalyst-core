@@ -99,19 +99,28 @@ func (d *domainAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.DomainS
 	groupedDomOutgoings := domainsMon.OutgoingGroupSumStat
 	groupedDomainOutgoingQuotas := d.adjust(ctx, groupedDomOutgoingTargets, groupedDomOutgoings, d.capPercent)
 	if klog.V(6).Enabled() {
-		general.InfofV(6, "[mbm] [advisor] group-domain outgoing quotas: %s",
+		general.InfofV(6, "[mbm] [advisor] group-domain outgoing quotas adjusted: %s",
 			stringify(groupedDomainOutgoingQuotas))
 	}
 	d.emitAdjustedOutgoingTargets(groupedDomainOutgoingQuotas)
 
 	// split outgoing mb to ccd level
 	groupedCCDOutgoingQuotas := d.distributeToCCDs(ctx, groupedDomainOutgoingQuotas, domainsMon.Outgoings)
+	if klog.V(6).Enabled() {
+		general.InfofV(6, "[mbm] [advisor] group-ccd outgoing quotas: %v", groupedCCDOutgoingQuotas)
+	}
 	rawPlan := convertToPlan(groupedCCDOutgoingQuotas)
+	if klog.V(6).Enabled() {
+		general.InfofV(6, "[mbm] [advisor] raw plan: %s", rawPlan)
+	}
 	d.emitRawPlan(rawPlan)
 
 	// finalize plan with never-throttle groups and ccb mb checks
 	checkedPlan := applyPlanCCDBoundsChecks(rawPlan, d.ccdMinMB, d.ccdMaxMB)
 	updatePlan := maskPlanWithNoThrottles(checkedPlan, d.groupNeverThrottles, d.getNoThrottleMB())
+	if klog.V(6).Enabled() {
+		general.InfofV(6, "[mbm] [advisor] mb plan update: %s", updatePlan)
+	}
 	d.emitUpdatePlan(updatePlan)
 
 	return updatePlan, nil
@@ -262,6 +271,10 @@ func (d *domainAdvisor) domainDistributeGroup(domID int, group string,
 		weights[ccd] = stat.TotalMB
 	}
 	domCCDQuotas := d.ccdDistribute.Distribute(domTotal, weights)
+	if klog.V(6).Enabled() {
+		general.InfofV(6, "[mbm] [advisor] domain %d, group %s, total %v, weights %v, distribute to ccd quotas: %v",
+			domID, group, domTotal, weights, domCCDQuotas)
+	}
 	result := map[int]int{}
 	for ccd, v := range domCCDQuotas {
 		result[ccd] = v

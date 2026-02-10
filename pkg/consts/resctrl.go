@@ -22,7 +22,6 @@ const (
 	ResctrlGroupRoot      = "/"
 	ResctrlGroupDedicated = "dedicated"
 	ResctrlGroupSystem    = "system"
-	ResctrlGroupMachine   = "machine"
 	ResctrlGroupShare     = "share"
 	ResctrlGroupReclaim   = "reclaim"
 

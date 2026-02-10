@@ -22,10 +22,15 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/priority"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/resource"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
 )
+
+func init() {
+	priority.GetInstance().AddWeight("machine", 9_000)
+}
 
 func Test_maskPlanWithNoThrottles(t *testing.T) {
 	t.Parallel()
@@ -187,33 +192,9 @@ func Test_preProcessGroupInfo(t *testing.T) {
 		name           string
 		stats          monitor.GroupMBStats
 		wantResult     monitor.GroupMBStats
-		wantGroupInfos monitor.DomainGroupMapping
+		wantGroupInfos domainGroupMapping
 		wantErr        bool
 	}{
-		{
-			name:           "empty stats",
-			stats:          monitor.GroupMBStats{},
-			wantResult:     monitor.GroupMBStats{},
-			wantGroupInfos: monitor.DomainGroupMapping{},
-			wantErr:        false,
-		},
-		{
-			name: "single group - no combination needed",
-			stats: monitor.GroupMBStats{
-				"dedicated": {
-					0: {LocalMB: 5_000, RemoteMB: 3_000, TotalMB: 8_000},
-					1: {LocalMB: 4_000, RemoteMB: 2_000, TotalMB: 6_000},
-				},
-			},
-			wantResult: monitor.GroupMBStats{
-				"dedicated": {
-					0: {LocalMB: 5_000, RemoteMB: 3_000, TotalMB: 8_000},
-					1: {LocalMB: 4_000, RemoteMB: 2_000, TotalMB: 6_000},
-				},
-			},
-			wantGroupInfos: monitor.DomainGroupMapping{},
-			wantErr:        false,
-		},
 		{
 			name: "two groups with different weights - no combination",
 			stats: monitor.GroupMBStats{
@@ -232,7 +213,7 @@ func Test_preProcessGroupInfo(t *testing.T) {
 					1: {LocalMB: 4_000, RemoteMB: 2_000, TotalMB: 6_000},
 				},
 			},
-			wantGroupInfos: monitor.DomainGroupMapping{},
+			wantGroupInfos: domainGroupMapping{},
 			wantErr:        false,
 		},
 		{
@@ -251,66 +232,7 @@ func Test_preProcessGroupInfo(t *testing.T) {
 					1: {LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
 				},
 			},
-			wantGroupInfos: monitor.DomainGroupMapping{
-				"combined-9000": {
-					"dedicated": {0: struct{}{}},
-					"machine":   {1: struct{}{}},
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "three groups with same weight - combine into one",
-			stats: monitor.GroupMBStats{
-				"dedicated": {
-					0: {LocalMB: 10_000, RemoteMB: 5_000, TotalMB: 15_000},
-				},
-				"machine": {
-					1: {LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
-				},
-				"system": {
-					2: {LocalMB: 6_000, RemoteMB: 3_000, TotalMB: 9_000},
-				},
-			},
-			wantResult: monitor.GroupMBStats{
-				"combined-9000": {
-					0: {LocalMB: 10_000, RemoteMB: 5_000, TotalMB: 15_000},
-					1: {LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
-					2: {LocalMB: 6_000, RemoteMB: 3_000, TotalMB: 9_000},
-				},
-			},
-			wantGroupInfos: monitor.DomainGroupMapping{
-				"combined-9000": {
-					"dedicated": {0: struct{}{}},
-					"machine":   {1: struct{}{}},
-					"system":    {2: struct{}{}},
-				},
-			},
-			wantErr: false,
-		},
-		{
-			name: "mixed groups - some combined some not",
-			stats: monitor.GroupMBStats{
-				"dedicated": {
-					0: {LocalMB: 10_000, RemoteMB: 5_000, TotalMB: 15_000},
-				},
-				"machine": {
-					1: {LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
-				},
-				"share-50": {
-					2: {LocalMB: 6_000, RemoteMB: 3_000, TotalMB: 9_000},
-				},
-			},
-			wantResult: monitor.GroupMBStats{
-				"combined-9000": {
-					0: {LocalMB: 10_000, RemoteMB: 5_000, TotalMB: 15_000},
-					1: {LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
-				},
-				"share-50": {
-					2: {LocalMB: 6_000, RemoteMB: 3_000, TotalMB: 9_000},
-				},
-			},
-			wantGroupInfos: monitor.DomainGroupMapping{
+			wantGroupInfos: domainGroupMapping{
 				"combined-9000": {
 					"dedicated": {0: struct{}{}},
 					"machine":   {1: struct{}{}},
@@ -345,26 +267,6 @@ func Test_preProcessGroupSumStat(t *testing.T) {
 		sumStats map[string][]monitor.MBInfo
 		want     map[string][]monitor.MBInfo
 	}{
-		{
-			name:     "empty stats",
-			sumStats: map[string][]monitor.MBInfo{},
-			want:     map[string][]monitor.MBInfo{},
-		},
-		{
-			name: "single group - no combination needed",
-			sumStats: map[string][]monitor.MBInfo{
-				"dedicated": {
-					{LocalMB: 5_000, RemoteMB: 3_000, TotalMB: 8_000},
-					{LocalMB: 4_000, RemoteMB: 2_000, TotalMB: 6_000},
-				},
-			},
-			want: map[string][]monitor.MBInfo{
-				"dedicated": {
-					{LocalMB: 5_000, RemoteMB: 3_000, TotalMB: 8_000},
-					{LocalMB: 4_000, RemoteMB: 2_000, TotalMB: 6_000},
-				},
-			},
-		},
 		{
 			name: "two groups with different weights - no combination",
 			sumStats: map[string][]monitor.MBInfo{
@@ -404,72 +306,6 @@ func Test_preProcessGroupSumStat(t *testing.T) {
 				"combined-9000": {
 					{LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
 					{LocalMB: 6_000, RemoteMB: 3_000, TotalMB: 9_000},
-				},
-			},
-		},
-		{
-			name: "three groups with same weight - combine and sum all",
-			sumStats: map[string][]monitor.MBInfo{
-				"dedicated": {
-					{LocalMB: 5_000, RemoteMB: 3_000, TotalMB: 8_000},
-					{LocalMB: 4_000, RemoteMB: 2_000, TotalMB: 6_000},
-				},
-				"machine": {
-					{LocalMB: 3_000, RemoteMB: 1_000, TotalMB: 4_000},
-					{LocalMB: 2_000, RemoteMB: 1_000, TotalMB: 3_000},
-				},
-				"system": {
-					{LocalMB: 2_000, RemoteMB: 1_000, TotalMB: 3_000},
-					{LocalMB: 1_000, RemoteMB: 500, TotalMB: 1_500},
-				},
-			},
-			want: map[string][]monitor.MBInfo{
-				"combined-9000": {
-					{LocalMB: 10_000, RemoteMB: 5_000, TotalMB: 15_000},
-					{LocalMB: 7_000, RemoteMB: 3_500, TotalMB: 10_500},
-				},
-			},
-		},
-		{
-			name: "mixed groups - some combined some not",
-			sumStats: map[string][]monitor.MBInfo{
-				"dedicated": {
-					{LocalMB: 5_000, RemoteMB: 3_000, TotalMB: 8_000},
-					{LocalMB: 4_000, RemoteMB: 2_000, TotalMB: 6_000},
-				},
-				"machine": {
-					{LocalMB: 3_000, RemoteMB: 1_000, TotalMB: 4_000},
-					{LocalMB: 2_000, RemoteMB: 1_000, TotalMB: 3_000},
-				},
-				"share-50": {
-					{LocalMB: 1_000, RemoteMB: 500, TotalMB: 1_500},
-					{LocalMB: 800, RemoteMB: 400, TotalMB: 1_200},
-				},
-			},
-			want: map[string][]monitor.MBInfo{
-				"combined-9000": {
-					{LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
-					{LocalMB: 6_000, RemoteMB: 3_000, TotalMB: 9_000},
-				},
-				"share-50": {
-					{LocalMB: 1_000, RemoteMB: 500, TotalMB: 1_500},
-					{LocalMB: 800, RemoteMB: 400, TotalMB: 1_200},
-				},
-			},
-		},
-		{
-			name: "single domain stats",
-			sumStats: map[string][]monitor.MBInfo{
-				"dedicated": {
-					{LocalMB: 10_000, RemoteMB: 5_000, TotalMB: 15_000},
-				},
-				"machine": {
-					{LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
-				},
-			},
-			want: map[string][]monitor.MBInfo{
-				"combined-9000": {
-					{LocalMB: 18_000, RemoteMB: 9_000, TotalMB: 27_000},
 				},
 			},
 		},

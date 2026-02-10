@@ -216,7 +216,7 @@ func Test_domainAdvisor_calcIncomingQuotas(t *testing.T) {
 						"share-60": 6_000,
 						"share-50": 6_000 - 2_200,
 					},
-					ResourceState: resource.State("underStress"),
+					ResourceState: resource.State("stressful"),
 				},
 			},
 			wantErr: false,
