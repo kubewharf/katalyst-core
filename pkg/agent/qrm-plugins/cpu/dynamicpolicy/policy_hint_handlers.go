@@ -82,10 +82,6 @@ func (p *DynamicPolicy) reclaimedCoresHintHandler(ctx context.Context,
 		return nil, fmt.Errorf("got nil request")
 	}
 
-	if util.PodInplaceUpdateResizing(req) {
-		return nil, fmt.Errorf("not support inplace update resize for reclaimed cores")
-	}
-
 	if qosutil.AnnotationsIndicateNUMABinding(req.Annotations) &&
 		p.enableReclaimNUMABinding {
 		return p.reclaimedCoresWithNUMABindingHintHandler(ctx, req)
@@ -362,14 +358,36 @@ func (p *DynamicPolicy) reclaimedCoresWithNUMABindingHintHandler(_ context.Conte
 
 	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
 	if allocationInfo != nil {
-		hints = cpuutil.RegenerateHints(allocationInfo, false)
+		hints = cpuutil.RegenerateHints(allocationInfo, util.PodInplaceUpdateResizing(req))
 		if hints == nil {
-			machineState, err = p.clearContainerAndRegenerateMachineState(podEntries, req)
-			if err != nil {
-				general.Errorf("pod: %s/%s, container: %s clearContainerAndRegenerateMachineState failed with error: %v",
-					req.PodNamespace, req.PodName, req.ContainerName, err)
-				return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
+			if request > allocationInfo.RequestQuantity {
+				machineState, err = p.clearContainerAndRegenerateMachineState(podEntries, req)
+				if err != nil {
+					general.Errorf("pod: %s/%s, container: %s clearContainerAndRegenerateMachineState failed with error: %v",
+						req.PodNamespace, req.PodName, req.ContainerName, err)
+					return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
+				}
+
+				var numaAvailable, numaAllocatedQuantity float64
+				for nodeId := range allocationInfo.TopologyAwareAssignments {
+					numaAvailable += numaHeadroomState[nodeId]
+					numaAllocatedQuantity += state.GetRequestedQuantityFromPodEntries(machineState[nodeId].PodEntries,
+						state.WrapAllocationMetaFilter((*commonstate.AllocationMeta).CheckReclaimed),
+						p.getContainerRequestedCores)
+				}
+
+				if !cpuutil.CPUIsSufficient(request, numaAvailable-numaAllocatedQuantity) {
+					general.Errorf("pod: %s/%s, container: %s request cpu inplace update resize and no enough resource in current NUMA, "+
+						"numa: %s, request: %.2f, available: %.2f, allocated: %.2f",
+						req.PodNamespace, req.PodName, req.ContainerName, allocationInfo.GetAllocationResultNUMASet(),
+						request, numaAvailable, numaAllocatedQuantity)
+					return nil, fmt.Errorf("cpu inplace update resize scale out failed with no enough resource")
+				}
 			}
+
+			general.Infof("pod: %s/%s, container: %s request cpu inplace update resize, there is enough resource for it in current NUMA",
+				req.PodNamespace, req.PodName, req.ContainerName)
+			hints = cpuutil.RegenerateHints(allocationInfo, false)
 		}
 	}
 
@@ -484,30 +502,13 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 			general.Infof("pod: %s/%s, container: %s request cpu inplace update resize on numa %d (available: %.3f, request:%.3f->%.3f)",
 				req.PodNamespace, req.PodName, req.ContainerName, nodeID, availableCPUQuantity, originRequest, request)
 			if !cpuutil.CPUIsSufficient(request, availableCPUQuantity) && request > originRequest { // scaling up and no left resource to scale out
-				general.Infof("pod: %s/%s, container: %s request cpu inplace update resize, but no enough resource for it in current NUMA, checking migratable",
+				general.Errorf("pod: %s/%s, container: %s request cpu inplace update resize, but no enough resource for it in current NUMA",
 					req.PodNamespace, req.PodName, req.ContainerName)
-				// TODO move this var to config
-				isInplaceUpdateResizeNumaMigration := false
-				if isInplaceUpdateResizeNumaMigration {
-					general.Infof("pod: %s/%s, container: %s request inplace update resize and no enough resource in current NUMA, try to migrate it to new NUMA",
-						req.PodNamespace, req.PodName, req.ContainerName)
-					var calculateErr error
-					hints, calculateErr = p.calculateHintsForNUMABindingSharedCores(request, podEntries, machineState, req)
-					if calculateErr != nil {
-						general.Errorf("pod: %s/%s, container: %s request inplace update resize and no enough resource in current NUMA, failed to migrate it to new NUMA",
-							req.PodNamespace, req.PodName, req.ContainerName)
-						return nil, fmt.Errorf("calculateHintsForNUMABindingSharedCores failed in inplace update resize mode with error: %v", calculateErr)
-					}
-				} else {
-					general.Errorf("pod: %s/%s, container: %s request inplace update resize, but no enough resource for it in current NUMA",
-						req.PodNamespace, req.PodName, req.ContainerName)
-					return nil, cpuutil.ErrNoAvailableCPUHints
-				}
-			} else {
-				general.Infof("pod: %s/%s, container: %s request inplace update resize, there is enough resource for it in current NUMA",
-					req.PodNamespace, req.PodName, req.ContainerName)
-				hints = cpuutil.RegenerateHints(allocationInfo, false)
+				return nil, cpuutil.ErrNoAvailableCPUHints
 			}
+			general.Infof("pod: %s/%s, container: %s request inplace update resize, there is enough resource for it in current NUMA",
+				req.PodNamespace, req.PodName, req.ContainerName)
+			hints = cpuutil.RegenerateHints(allocationInfo, false)
 		}
 	} else {
 		var calculateErr error
