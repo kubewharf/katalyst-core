@@ -16,6 +16,7 @@ require (
 	github.com/golang/mock v1.6.0
 	github.com/golang/protobuf v1.5.3
 	github.com/google/cadvisor v0.44.2
+	github.com/google/go-cmp v0.5.9
 	github.com/google/uuid v1.3.0
 	github.com/h2non/gock v1.2.0
 	github.com/klauspost/cpuid/v2 v2.2.6
@@ -100,7 +101,6 @@ require (
 	github.com/godbus/dbus/v5 v5.0.6 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/google/gnostic v0.6.9 // indirect
-	github.com/google/go-cmp v0.5.9 // indirect
 	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/gopherjs/gopherjs v0.0.0-20200217142428-fce0ec30dd00 // indirect
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0 // indirect
@@ -196,7 +196,7 @@ replace (
 	k8s.io/kube-proxy => k8s.io/kube-proxy v0.24.6
 	k8s.io/kube-scheduler => k8s.io/kube-scheduler v0.24.6
 	k8s.io/kubectl => k8s.io/kubectl v0.24.6
-	k8s.io/kubelet => github.com/kubewharf/kubelet v1.24.6-kubewharf.9
+	k8s.io/kubelet => github.com/yehlemias/kubelet v0.0.0-20250929105636-c5bb000496f2
 	k8s.io/kubernetes => k8s.io/kubernetes v1.24.6
 	k8s.io/legacy-cloud-providers => k8s.io/legacy-cloud-providers v0.24.6
 	k8s.io/metrics => k8s.io/metrics v0.24.6

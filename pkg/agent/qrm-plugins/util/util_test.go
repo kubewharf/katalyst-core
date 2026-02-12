@@ -17,12 +17,13 @@ limitations under the License.
 package util
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -41,6 +42,7 @@ func TestGetQuantityFromResourceReq(t *testing.T) {
 	}{
 		{
 			req: &pluginapi.ResourceRequest{
+				ResourceName: string(v1.ResourceCPU),
 				ResourceRequests: map[string]float64{
 					string(v1.ResourceCPU): 123,
 				},
@@ -49,6 +51,7 @@ func TestGetQuantityFromResourceReq(t *testing.T) {
 		},
 		{
 			req: &pluginapi.ResourceRequest{
+				ResourceName: string(consts.ReclaimedResourceMilliCPU),
 				ResourceRequests: map[string]float64{
 					string(consts.ReclaimedResourceMilliCPU): 234001,
 				},
@@ -57,6 +60,7 @@ func TestGetQuantityFromResourceReq(t *testing.T) {
 		},
 		{
 			req: &pluginapi.ResourceRequest{
+				ResourceName: string(v1.ResourceMemory),
 				ResourceRequests: map[string]float64{
 					string(v1.ResourceMemory): 256,
 				},
@@ -65,6 +69,7 @@ func TestGetQuantityFromResourceReq(t *testing.T) {
 		},
 		{
 			req: &pluginapi.ResourceRequest{
+				ResourceName: string(consts.ReclaimedResourceMemory),
 				ResourceRequests: map[string]float64{
 					string(consts.ReclaimedResourceMemory): 1345,
 				},
@@ -73,18 +78,19 @@ func TestGetQuantityFromResourceReq(t *testing.T) {
 		},
 		{
 			req: &pluginapi.ResourceRequest{
+				ResourceName: string(v1.ResourceCPU),
 				ResourceRequests: map[string]float64{
 					"test": 1345,
 				},
 			},
-			err: fmt.Errorf("invalid request resource name: %s", "test"),
+			err: errors.NewNotFound(schema.GroupResource{}, string(v1.ResourceCPU)),
 		},
 	}
 
 	for _, tc := range testCases {
 		res, _, err := GetQuantityFromResourceReq(tc.req)
 		if tc.err != nil {
-			as.NotNil(err)
+			as.Equal(tc.err, err)
 		} else {
 			as.EqualValues(tc.result, res)
 		}

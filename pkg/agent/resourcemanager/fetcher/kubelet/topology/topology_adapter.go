@@ -349,8 +349,8 @@ func (p *topologyAdapterImpl) Run(ctx context.Context, handler func()) error {
 
 // validatePodResourcesServerResponse validate pod resources server response, if the resource is empty,
 // maybe the kubelet or qrm plugin is restarting
-func (p *topologyAdapterImpl) validatePodResourcesServerResponse(allocatableResourcesResponse *podresv1.
-	AllocatableResourcesResponse, listPodResourcesResponse *podresv1.ListPodResourcesResponse,
+func (p *topologyAdapterImpl) validatePodResourcesServerResponse(allocatableResourcesResponse *podresv1.AllocatableResourcesResponse,
+	listPodResourcesResponse *podresv1.ListPodResourcesResponse,
 ) error {
 	if len(p.needValidationResources) > 0 {
 		if allocatableResourcesResponse == nil {
@@ -393,6 +393,11 @@ func (p *topologyAdapterImpl) addNumaSocketChildrenZoneNodes(generator *util.Top
 			zoneNode, parentZoneNode, err := p.generateZoneNode(*quantity)
 			if err != nil {
 				errList = append(errList, fmt.Errorf("get zone key from quantity %v failed: %v", quantity, err))
+				continue
+			}
+
+			if parentZoneNode == nil {
+				// skip the resource which doesn't have parent zone node
 				continue
 			}
 
@@ -1133,6 +1138,12 @@ func (p *topologyAdapterImpl) generateZoneNode(quantity podresv1.TopologyAwareQu
 			},
 		}
 
+		if identifier, ok := quantity.Annotations[apiconsts.ResourceAnnotationKeyResourceIdentifier]; ok && len(identifier) == 0 {
+			// if quantity has resource identifier annotation, but it is empty, it means it is unique and the parent zone node
+			// already exists, we can just return the zone node and nil parent zone node
+			return zoneNode, nil, nil
+		}
+
 		switch quantity.TopologyLevel {
 		case podresv1.TopologyLevel_NUMA:
 			parentZoneNode := util.GenerateNumaZoneNode(nodeID)
@@ -1141,7 +1152,9 @@ func (p *topologyAdapterImpl) generateZoneNode(quantity podresv1.TopologyAwareQu
 			parentZoneNode := util.GenerateSocketZoneNode(nodeID)
 			return zoneNode, &parentZoneNode, nil
 		default:
-			return zoneNode, nil, fmt.Errorf("quantity %v unsupport topology level: %s", quantity, quantity.TopologyLevel)
+			// if quantity topology level is not numa or socket, it means that the zone is a child of socket or numa,
+			// and the zone node is determined by the quantity name or its resource identifier if existed.
+			return zoneNode, nil, nil
 		}
 	}
 }

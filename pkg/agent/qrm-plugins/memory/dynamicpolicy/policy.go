@@ -96,6 +96,7 @@ const (
 
 type DynamicPolicy struct {
 	sync.RWMutex
+	pluginapi.UnimplementedResourcePluginServer
 
 	stopCh                  chan struct{}
 	started                 bool
