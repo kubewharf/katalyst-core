@@ -146,7 +146,7 @@ func (ms *memoryServer) GetAdvice(ctx context.Context, request *advisorsvc.GetAd
 
 	general.InfofV(6, "QRM Memory Plugin wanted feature gates: %v, among them sysadvisor supported feature gates: %v", lo.Keys(request.WantedFeatureGates), lo.Keys(supportedWantedFeatureGates))
 
-	result, err := ms.updateAdvisor(supportedWantedFeatureGates)
+	result, err := ms.updateAdvisor(ctx, supportedWantedFeatureGates)
 	if err != nil {
 		general.Errorf("update advisor failed: %v", err)
 		return nil, fmt.Errorf("update advisor failed: %w", err)
@@ -254,8 +254,8 @@ type memoryInternalResult struct {
 	ExtraEntries []*advisorsvc.CalculationInfo
 }
 
-func (ms *memoryServer) updateAdvisor(supportedWantedFeatureGates map[string]*advisorsvc.FeatureGate) (*memoryInternalResult, error) {
-	advisorRespRaw, err := ms.resourceAdvisor.UpdateAndGetAdvice()
+func (ms *memoryServer) updateAdvisor(ctx context.Context, supportedWantedFeatureGates map[string]*advisorsvc.FeatureGate) (*memoryInternalResult, error) {
+	advisorRespRaw, err := ms.resourceAdvisor.UpdateAndGetAdvice(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get memory advice failed: %w", err)
 	}
@@ -271,7 +271,7 @@ func (ms *memoryServer) updateAdvisor(supportedWantedFeatureGates map[string]*ad
 func (ms *memoryServer) getAndPushAdvice(server advisorsvc.AdvisorService_ListAndWatchServer) error {
 	// old asynchronous communication interface does not support feature gate negotiation. If necessary, upgrade to the synchronization interface.
 	emptyMap := map[string]*advisorsvc.FeatureGate{}
-	result, err := ms.updateAdvisor(emptyMap)
+	result, err := ms.updateAdvisor(server.Context(), emptyMap)
 	if err != nil {
 		_ = ms.emitter.StoreInt64(ms.genMetricsName(metricServerAdvisorUpdateFailed), int64(ms.period.Seconds()), metrics.MetricTypeNameCount)
 		return fmt.Errorf("update advisor failed: %w", err)

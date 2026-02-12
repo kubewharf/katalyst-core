@@ -21,7 +21,6 @@ import (
 	"strconv"
 
 	"github.com/pkg/errors"
-
 	apierrors "k8s.io/apimachinery/pkg/util/errors"
 
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
@@ -34,14 +33,14 @@ type ResourcePackageManager interface {
 	// NodeResourcePackages returns the resource package division for the
 	// specified node. The returned map's keys are NUMA IDs (as int)
 	// and the values are slices of ResourcePackageItem (containing ResourcePackage and Config)
-	// belonging to that NUMA node: map[NUMA ID] -> []resourcepackage.ResourcePackageItem.
-	NodeResourcePackages(ctx context.Context) (map[int][]resourcepackage.ResourcePackageItem, error)
+	// belonging to that NUMA node: map[NUMA ID] -> map[package name]ResourcePackageItem.
+	NodeResourcePackages(ctx context.Context) (resourcepackage.NUMAResourcePackageItems, error)
 
 	// ConvertNPDResourcePackages converts a given NodeProfileDescriptor to
 	// resource packages. The returned map's keys are NUMA IDs (as int)
 	// and the values are slices of ResourcePackageItem (containing ResourcePackage and Config)
-	// belonging to that NUMA node: map[NUMA ID] -> []resourcepackage.ResourcePackageItem.
-	ConvertNPDResourcePackages(npd *nodev1alpha1.NodeProfileDescriptor) (map[int][]resourcepackage.ResourcePackageItem, error)
+	// belonging to that NUMA node: map[NUMA ID] -> map[package name]ResourcePackageItem.
+	ConvertNPDResourcePackages(npd *nodev1alpha1.NodeProfileDescriptor) (resourcepackage.NUMAResourcePackageItems, error)
 }
 
 // resourcePackageManager is the default implementation of ResourcePackageManager
@@ -53,7 +52,7 @@ type resourcePackageManager struct {
 // specified node. The returned map's keys are NUMA IDs (as int)
 // and the values are slices of ResourcePackageItem (containing ResourcePackage and Config)
 // belonging to that NUMA node: map[NUMA ID] -> []resourcepackage.ResourcePackageItem.
-func (m *resourcePackageManager) NodeResourcePackages(ctx context.Context) (map[int][]resourcepackage.ResourcePackageItem, error) {
+func (m *resourcePackageManager) NodeResourcePackages(ctx context.Context) (resourcepackage.NUMAResourcePackageItems, error) {
 	npd, err := m.fetcher.GetNPD(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get NPD from fetcher")
@@ -65,9 +64,13 @@ func (m *resourcePackageManager) NodeResourcePackages(ctx context.Context) (map[
 // resource packages. The returned map's keys are NUMA IDs (as int)
 // and the values are slices of ResourcePackageItem (containing ResourcePackage and Config)
 // belonging to that NUMA node: map[NUMA ID] -> []resourcepackage.ResourcePackageItem
-func (m *resourcePackageManager) ConvertNPDResourcePackages(npd *nodev1alpha1.NodeProfileDescriptor) (map[int][]resourcepackage.ResourcePackageItem, error) {
+func (m *resourcePackageManager) ConvertNPDResourcePackages(npd *nodev1alpha1.NodeProfileDescriptor) (resourcepackage.NUMAResourcePackageItems, error) {
+	if npd == nil || npd.Status.NodeMetrics == nil {
+		return nil, errors.New("npd or npd.Status.NodeMetrics is nil")
+	}
+
 	resourcePackageMetrics := resourcepackage.ConvertNPDMetricsToResourcePackages(npd.Status.NodeMetrics)
-	resourcePackageMap := make(map[int][]resourcepackage.ResourcePackageItem)
+	resourcePackageMap := make(resourcepackage.NUMAResourcePackageItems)
 
 	var errList []error
 	for _, metric := range resourcePackageMetrics {
@@ -76,7 +79,11 @@ func (m *resourcePackageManager) ConvertNPDResourcePackages(npd *nodev1alpha1.No
 			errList = append(errList, errors.Wrap(err, "numa ID invalid"))
 			continue
 		}
-		resourcePackageMap[numaID] = metric.ResourcePackages
+
+		resourcePackageMap[numaID] = make(map[string]resourcepackage.ResourcePackageItem)
+		for _, item := range metric.ResourcePackages {
+			resourcePackageMap[numaID][item.PackageName] = item
+		}
 	}
 	return resourcePackageMap, apierrors.NewAggregate(errList)
 }

@@ -58,6 +58,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/resourcepackage"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -108,6 +109,8 @@ type DynamicPolicy struct {
 
 	cpuPressureEviction       agent.Component
 	cpuPressureEvictionCancel context.CancelFunc
+
+	resourcePackageManager *resourcepackage.CachedResourcePackageManager
 
 	irqTuner irqtuner.Tuner
 
@@ -190,6 +193,8 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		machineInfo: agentCtx.KatalystMachineInfo,
 		emitter:     wrappedEmitter,
 		metaServer:  agentCtx.MetaServer,
+
+		resourcePackageManager: resourcepackage.NewCachedResourcePackageManager(agentCtx.MetaServer.ResourcePackageManager),
 
 		state:          stateImpl,
 		residualHitMap: make(map[string]int64),
@@ -451,6 +456,14 @@ func (p *DynamicPolicy) Start() (err error) {
 
 	go wait.BackoffUntil(communicateWithCPUAdvisorServer, wait.NewExponentialBackoffManager(800*time.Millisecond,
 		30*time.Second, 2*time.Minute, 2.0, 0, &clock.RealClock{}), true, p.stopCh)
+
+	err = p.resourcePackageManager.Run(p.stopCh)
+	if err != nil {
+		return fmt.Errorf("resourcePackageManager.Run failed with error: %v", err)
+	}
+
+	p.syncResourcePackagePinnedCPUSet()
+	go wait.Until(p.syncResourcePackagePinnedCPUSet, 30*time.Second, p.stopCh)
 
 	err = p.sharedCoresNUMABindingHintOptimizer.Run(p.stopCh)
 	if err != nil {
@@ -1061,7 +1074,7 @@ func (p *DynamicPolicy) RemovePod(ctx context.Context,
 		return nil, err
 	}
 
-	aErr := p.adjustAllocationEntries(false)
+	aErr := p.adjustAllocationEntries(podEntries, p.state.GetMachineState(), false)
 	if aErr != nil {
 		general.ErrorS(aErr, "adjustAllocationEntries failed", "podUID", req.PodUid)
 	}
@@ -1156,11 +1169,12 @@ func (p *DynamicPolicy) initHintOptimizers() error {
 
 func (p *DynamicPolicy) generateHintOptimizerFactoryOptions() policy.HintOptimizerFactoryOptions {
 	return policy.HintOptimizerFactoryOptions{
-		Conf:         p.conf,
-		Emitter:      p.emitter,
-		MetaServer:   p.metaServer,
-		State:        p.state,
-		ReservedCPUs: p.reservedCPUs,
+		Conf:                   p.conf,
+		Emitter:                p.emitter,
+		MetaServer:             p.metaServer,
+		ResourcePackageManager: p.resourcePackageManager,
+		State:                  p.state,
+		ReservedCPUs:           p.reservedCPUs,
 	}
 }
 

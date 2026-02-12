@@ -173,6 +173,8 @@ type QoSRegionBase struct {
 	ownerPoolName string
 	regionType    v1alpha1.QoSRegionType
 	regionStatus  types.RegionStatus
+	// pinnedCPUSetInfo records the pinned cpu set info of this region
+	pinnedCPUSetInfo *PinnedCPUSetInfo
 
 	types.ResourceEssentials
 	types.ControlEssentials
@@ -231,12 +233,14 @@ type QoSRegionBase struct {
 func NewQoSRegionBase(name string, ownerPoolName string, regionType v1alpha1.QoSRegionType,
 	conf *config.Configuration, extraConf interface{}, isNumaBinding bool, isNumaExclusive bool,
 	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
+	pinnedCPUSetInfo *PinnedCPUSetInfo,
 ) *QoSRegionBase {
 	r := &QoSRegionBase{
-		conf:          conf,
-		name:          name,
-		ownerPoolName: ownerPoolName,
-		regionType:    regionType,
+		conf:             conf,
+		name:             name,
+		ownerPoolName:    ownerPoolName,
+		regionType:       regionType,
+		pinnedCPUSetInfo: pinnedCPUSetInfo,
 
 		bindingNumas:                     machine.NewCPUSet(),
 		podSet:                           make(types.PodSet),
@@ -348,6 +352,13 @@ func (r *QoSRegionBase) GetPods() types.PodSet {
 	defer r.Unlock()
 
 	return r.podSet.Clone()
+}
+
+func (r *QoSRegionBase) GetPinnedCPUSetInfo() *PinnedCPUSetInfo {
+	r.Lock()
+	defer r.Unlock()
+
+	return r.pinnedCPUSetInfo
 }
 
 func (r *QoSRegionBase) GetPodsRequest() float64 {

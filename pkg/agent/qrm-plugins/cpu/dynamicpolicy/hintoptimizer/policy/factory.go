@@ -27,17 +27,19 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/resourcepackage"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 type HintOptimizerFactoryOptions struct {
-	Conf         *config.Configuration
-	MetaServer   *metaserver.MetaServer
-	Emitter      metrics.MetricEmitter
-	State        state.State
-	ReservedCPUs machine.CPUSet
+	Conf                   *config.Configuration
+	MetaServer             *metaserver.MetaServer
+	ResourcePackageManager resourcepackage.ResourcePackageManager
+	Emitter                metrics.MetricEmitter
+	State                  state.State
+	ReservedCPUs           machine.CPUSet
 }
 
 type HintOptimizerFactory func(options HintOptimizerFactoryOptions) (hintoptimizer.HintOptimizer, error)

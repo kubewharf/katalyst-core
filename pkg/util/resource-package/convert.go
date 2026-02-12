@@ -51,6 +51,8 @@ type ResourcePackageItem struct {
 	Config *ResourcePackageConfig `json:"config,omitempty"`
 }
 
+type NUMAResourcePackageItems map[int]map[string]ResourcePackageItem
+
 // ResourcePackageMetric is the intermediate structure for resource package metrics.
 type ResourcePackageMetric struct {
 	NumaID           string                `json:"numaID"`

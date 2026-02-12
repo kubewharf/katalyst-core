@@ -27,6 +27,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
+	resourcepackage "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
 
 func (ci *ContainerInfo) IsNumaBinding() bool {
@@ -54,6 +55,17 @@ func (ci *ContainerInfo) GetActualNUMABindingResult() (int, error) {
 	}
 
 	return commonstate.GetSpecifiedNUMABindingNUMAID(ci.Annotations)
+}
+
+// GetResourcePackageName returns the resource package name of the container.
+// It retrieves the package name from the container's annotations.
+// If the container info is nil or the annotation is missing, it returns an empty string.
+func (ci *ContainerInfo) GetResourcePackageName() string {
+	if ci == nil {
+		return ""
+	}
+
+	return resourcepackage.GetResourcePackageName(ci.Annotations)
 }
 
 func (ci *ContainerInfo) IsDedicatedNumaExclusive() bool {

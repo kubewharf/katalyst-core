@@ -201,19 +201,19 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 	result *types.InternalCPUCalculationResult,
 ) error {
 	shareRegions := regionHelper.GetRegions(numaID, configapi.QoSRegionTypeShare)
-	shareInfo, err := extractShareRegionInfo(shareRegions)
+	unpinnedShareRegionInfo, pinnedShareRegionInfos, err := extractShareRegionInfo(shareRegions)
 	if err != nil {
 		return err
 	}
 
 	isolationRegions := regionHelper.GetRegions(numaID, configapi.QoSRegionTypeIsolation)
-	isolationInfo, err := extractIsolationRegionInfo(isolationRegions)
+	unpinnedIsolationInfo, pinnedIsolationInfo, err := extractIsolationRegionInfo(isolationRegions)
 	if err != nil {
 		return err
 	}
 
 	dedicatedRegions := regionHelper.GetRegions(numaID, configapi.QoSRegionTypeDedicated)
-	dedicatedInfo, err := extractDedicatedRegionInfo(dedicatedRegions)
+	unpinnedDedicatedInfo, pinnedDedicatedInfo, err := extractDedicatedRegionInfo(dedicatedRegions)
 	if err != nil {
 		return err
 	}
@@ -237,29 +237,84 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 	if !*pa.allowSharedCoresOverlapReclaimedCores {
 		shareAndIsolatedDedicatedPoolAvailable -= reservedForReclaim
 	}
-	sharePoolSizeRequirements := getPoolSizeRequirements(shareInfo)
 
-	isolationUppers := general.SumUpMapValues(isolationInfo.isolationUpperSizes)
-	isolationPoolSizes := isolationInfo.isolationUpperSizes
-	// if the maximum of share sharePoolSizeRequirements and share requests adds up with isolation upper sizes is larger than
-	// the available cores of share and isolated pool, we should shrink the isolation pool sizes to lower sizes
-	if general.Max(general.SumUpMapValues(shareInfo.requests), general.SumUpMapValues(shareInfo.requirements))+isolationUppers >
-		shareAndIsolatedDedicatedPoolAvailable-general.SumUpMapValues(dedicatedInfo.requests) {
-		isolationPoolSizes = isolationInfo.isolationLowerSizes
+	getShareAndIsolateDedicatedPoolSizesFunc := func(
+		shareAndIsolatedDedicatedPoolAvailable int,
+		shareRegionInfo, dedicatedRegionInfo regionInfo,
+		isolationRegionInfo isolationRegionInfo,
+	) map[string]int {
+		sharePoolSizeRequirements := getPoolSizeRequirements(shareRegionInfo)
+
+		isolationUppers := general.SumUpMapValues(isolationRegionInfo.isolationUpperSizes)
+		isolationPoolSizes := isolationRegionInfo.isolationUpperSizes
+		// if the maximum of share sharePoolSizeRequirements and share requests adds up with isolation upper sizes is larger than
+		// the available cores of share and isolated pool, we should shrink the isolation pool sizes to lower sizes
+		if general.Max(general.SumUpMapValues(shareRegionInfo.requests), general.SumUpMapValues(shareRegionInfo.requirements))+isolationUppers >
+			shareAndIsolatedDedicatedPoolAvailable-general.SumUpMapValues(dedicatedRegionInfo.requests) {
+			isolationPoolSizes = isolationRegionInfo.isolationLowerSizes
+		}
+
+		allowExpand := !nodeEnableReclaim || *pa.allowSharedCoresOverlapReclaimedCores
+		var regulateSharePoolSizes map[string]int
+		if allowExpand {
+			regulateSharePoolSizes = shareRegionInfo.requests
+		} else {
+			regulateSharePoolSizes = sharePoolSizeRequirements
+		}
+		unexpandableRequirements := general.MergeMapInt(isolationPoolSizes, dedicatedRegionInfo.requests)
+		shareAndIsolateDedicatedPoolSizes, poolThrottled := regulatePoolSizes(regulateSharePoolSizes, unexpandableRequirements, shareAndIsolatedDedicatedPoolAvailable, allowExpand)
+		for _, r := range shareRegionInfo.regionMap {
+			r.SetThrottled(poolThrottled)
+		}
+
+		return shareAndIsolateDedicatedPoolSizes
 	}
 
-	allowExpand := !nodeEnableReclaim || *pa.allowSharedCoresOverlapReclaimedCores
-	var regulateSharePoolSizes map[string]int
-	if allowExpand {
-		regulateSharePoolSizes = shareInfo.requests
-	} else {
-		regulateSharePoolSizes = sharePoolSizeRequirements
+	shareInfo := initRegionInfo()
+	isolationInfo := initIsolationRegionInfo()
+	dedicatedInfo := initRegionInfo()
+	shareAndIsolateDedicatedPoolSizes := make(map[string]int)
+	unpinnedShareAndIsolatedDedicatedPoolAvailable := shareAndIsolatedDedicatedPoolAvailable
+	pinnedCPUSetAllInfo := getPinnedCPUSetAllRegionInfo(pinnedShareRegionInfos, pinnedIsolationInfo, pinnedDedicatedInfo)
+
+	// first calculate share and isolate dedicated pool sizes for each pinned region
+	for pkgName, allInfo := range pinnedCPUSetAllInfo {
+		poolSizes := getShareAndIsolateDedicatedPoolSizesFunc(allInfo.pinnedCPUSize, allInfo.shareRegionInfo, allInfo.dedicatedRegionInfos, allInfo.isolationRegionInfo)
+		for poolName, size := range poolSizes {
+			shareAndIsolateDedicatedPoolSizes[poolName] = size
+		}
+
+		shareInfo.merge(allInfo.shareRegionInfo)
+		isolationInfo.merge(allInfo.isolationRegionInfo)
+		dedicatedInfo.merge(allInfo.dedicatedRegionInfos)
+		unpinnedShareAndIsolatedDedicatedPoolAvailable -= allInfo.pinnedCPUSize
+
+		general.InfoS("pinned pool info",
+			"numaID", numaID,
+			"pkgName", pkgName,
+			"shareRegionInfo", allInfo.shareRegionInfo,
+			"isolationRegionInfo", allInfo.isolationRegionInfo,
+			"dedicatedRegionInfos", allInfo.dedicatedRegionInfos,
+			"pinnedCPUSize", allInfo.pinnedCPUSize,
+			"poolSizes", poolSizes)
 	}
-	unexpandableRequirements := general.MergeMapInt(isolationPoolSizes, dedicatedInfo.requests)
-	shareAndIsolateDedicatedPoolSizes, poolThrottled := regulatePoolSizes(regulateSharePoolSizes, unexpandableRequirements, shareAndIsolatedDedicatedPoolAvailable, allowExpand)
-	for _, r := range shareRegions {
-		r.SetThrottled(poolThrottled)
+
+	unpinnedPoolSizes := getShareAndIsolateDedicatedPoolSizesFunc(unpinnedShareAndIsolatedDedicatedPoolAvailable, unpinnedShareRegionInfo, unpinnedDedicatedInfo, unpinnedIsolationInfo)
+	for poolName, size := range unpinnedPoolSizes {
+		shareAndIsolateDedicatedPoolSizes[poolName] = size
 	}
+
+	shareInfo.merge(unpinnedShareRegionInfo)
+	isolationInfo.merge(unpinnedIsolationInfo)
+	dedicatedInfo.merge(unpinnedDedicatedInfo)
+
+	general.InfoS("unpinned pool info",
+		"numaID", numaID,
+		"unpinnedShareRegionInfo", unpinnedShareRegionInfo,
+		"unpinnedIsolationRegionInfo", unpinnedIsolationInfo,
+		"unpinnedDedicatedRegionInfos", unpinnedDedicatedInfo,
+		"unpinnedShareAndIsolatedDedicatedPoolAvailable", unpinnedShareAndIsolatedDedicatedPoolAvailable,
+		"poolSizes", unpinnedPoolSizes)
 
 	dedicatedPoolSizes := make(map[string]int)
 	for poolName := range dedicatedInfo.requests {
@@ -285,7 +340,7 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 		"dedicatedPoolAvailable", dedicatedPoolAvailable,
 		"dedicatedPoolSizeRequirements", dedicatedPoolSizeRequirements,
 		"dedicatedReclaimCoresSize", dedicatedReclaimCoresSize,
-		"sharePoolSizeRequirements", sharePoolSizeRequirements,
+		"sharePoolSizeRequirements", getPoolSizeRequirements(shareInfo),
 		"isolationUpperSizes", isolationInfo.isolationUpperSizes,
 		"isolationLowerSizes", isolationInfo.isolationLowerSizes,
 		"shareAndIsolateDedicatedPoolSizes", shareAndIsolateDedicatedPoolSizes,
@@ -316,7 +371,7 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 		reclaimableShareRequirements := make(map[string]int)
 		reclaimableRequirements := make(map[string]int)
 		for poolName, size := range shareAndIsolateDedicatedPoolSizes {
-			_, ok := sharePoolSizeRequirements[poolName]
+			_, ok := shareInfo.requirements[poolName]
 			if ok {
 				if shareInfo.reclaimEnable[poolName] {
 					reclaimablePoolSizes[poolName] = size
@@ -329,7 +384,7 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 				sharePoolSizes[poolName] = size
 			}
 
-			_, ok = isolationPoolSizes[poolName]
+			_, ok = isolationInfo.isolationUpperSizes[poolName]
 			if ok {
 				isolated += size
 			}
@@ -513,35 +568,89 @@ type regionInfo struct {
 	reclaimEnable             map[string]bool
 	podSet                    map[string]types.PodSet
 	minReclaimedCoresCPUQuota float64
+	regionMap                 map[string]region.QoSRegion
 }
 
-func extractShareRegionInfo(shareRegions []region.QoSRegion) (regionInfo, error) {
-	shareRequirements := make(map[string]int)
-	shareRequests := make(map[string]int)
-	shareReclaimEnable := make(map[string]bool)
-	minReclaimedCoresCPUQuota := float64(-1)
+func (r *regionInfo) merge(other regionInfo) {
+	for poolName, size := range other.requirements {
+		r.requirements[poolName] = size
+	}
+
+	for poolName, size := range other.requests {
+		r.requests[poolName] = size
+	}
+
+	for poolName, enable := range other.reclaimEnable {
+		r.reclaimEnable[poolName] = enable
+	}
+
+	for poolName, podSet := range other.podSet {
+		r.podSet[poolName] = podSet
+	}
+
+	if r.minReclaimedCoresCPUQuota == -1 || other.minReclaimedCoresCPUQuota < r.minReclaimedCoresCPUQuota {
+		r.minReclaimedCoresCPUQuota = other.minReclaimedCoresCPUQuota
+	}
+
+	for poolName, reg := range other.regionMap {
+		r.regionMap[poolName] = reg
+	}
+}
+
+func initRegionInfo() regionInfo {
+	return regionInfo{
+		requirements:              make(map[string]int),
+		requests:                  make(map[string]int),
+		reclaimEnable:             make(map[string]bool),
+		podSet:                    make(map[string]types.PodSet),
+		minReclaimedCoresCPUQuota: -1,
+		regionMap:                 make(map[string]region.QoSRegion),
+	}
+}
+
+type pinnedCPUSetRegionInfo struct {
+	regionInfo
+	pinnedCPUSize int
+}
+
+func extractShareRegionInfo(shareRegions []region.QoSRegion) (regionInfo, map[string]*pinnedCPUSetRegionInfo, error) {
+	unpinnedRegionInfo := initRegionInfo()
+	pinnedRegionInfos := make(map[string]*pinnedCPUSetRegionInfo)
 
 	for _, r := range shareRegions {
 		controlKnob, err := r.GetProvision()
 		if err != nil {
-			return regionInfo{}, err
+			return regionInfo{}, nil, err
 		}
-		shareRequirements[r.OwnerPoolName()] = general.Max(1, int(controlKnob[configapi.ControlKnobNonReclaimedCPURequirement].Value))
-		shareRequests[r.OwnerPoolName()] = general.Max(1, int(math.Ceil(r.GetPodsRequest())))
-		shareReclaimEnable[r.OwnerPoolName()] = r.EnableReclaim()
+
+		ri := &unpinnedRegionInfo
+		if pinnedCPUSetInfo := r.GetPinnedCPUSetInfo(); pinnedCPUSetInfo != nil {
+			pinnedCPUSize := 0
+			for _, size := range pinnedCPUSetInfo.NUMASize {
+				pinnedCPUSize += size
+			}
+
+			if _, ok := pinnedRegionInfos[pinnedCPUSetInfo.PackageName]; !ok {
+				pinnedRegionInfos[pinnedCPUSetInfo.PackageName] = &pinnedCPUSetRegionInfo{
+					regionInfo:    initRegionInfo(),
+					pinnedCPUSize: pinnedCPUSize,
+				}
+			}
+			ri = &pinnedRegionInfos[pinnedCPUSetInfo.PackageName].regionInfo
+		}
+
+		ri.requirements[r.OwnerPoolName()] = general.Max(1, int(controlKnob[configapi.ControlKnobNonReclaimedCPURequirement].Value))
+		ri.requests[r.OwnerPoolName()] = general.Max(1, int(math.Ceil(r.GetPodsRequest())))
+		ri.reclaimEnable[r.OwnerPoolName()] = r.EnableReclaim()
 		if quota, ok := controlKnob[configapi.ControlKnobReclaimedCoresCPUQuota]; ok {
-			if minReclaimedCoresCPUQuota == -1 || quota.Value < minReclaimedCoresCPUQuota {
-				minReclaimedCoresCPUQuota = quota.Value
+			if ri.minReclaimedCoresCPUQuota == -1 || quota.Value < ri.minReclaimedCoresCPUQuota {
+				ri.minReclaimedCoresCPUQuota = quota.Value
 			}
 		}
+		ri.regionMap[r.OwnerPoolName()] = r
 	}
 
-	return regionInfo{
-		requirements:              shareRequirements,
-		requests:                  shareRequests,
-		reclaimEnable:             shareReclaimEnable,
-		minReclaimedCoresCPUQuota: minReclaimedCoresCPUQuota,
-	}, nil
+	return unpinnedRegionInfo, pinnedRegionInfos, nil
 }
 
 func getPoolSizeRequirements(info regionInfo) map[string]int {
@@ -561,32 +670,66 @@ type isolationRegionInfo struct {
 	isolationLowerSizes map[string]int
 }
 
-func extractIsolationRegionInfo(isolationRegions []region.QoSRegion) (isolationRegionInfo, error) {
-	isolationUpperSizes := make(map[string]int)
-	isolationLowerSizes := make(map[string]int)
+func (r *isolationRegionInfo) merge(other isolationRegionInfo) {
+	for poolName, size := range other.isolationUpperSizes {
+		r.isolationUpperSizes[poolName] = size
+	}
+
+	for poolName, size := range other.isolationLowerSizes {
+		r.isolationLowerSizes[poolName] = size
+	}
+}
+
+func initIsolationRegionInfo() isolationRegionInfo {
+	return isolationRegionInfo{
+		isolationUpperSizes: make(map[string]int),
+		isolationLowerSizes: make(map[string]int),
+	}
+}
+
+type pinnedCPUSetIsolationRegionInfo struct {
+	isolationRegionInfo
+	pinnedCPUSize int
+}
+
+func extractIsolationRegionInfo(isolationRegions []region.QoSRegion) (isolationRegionInfo, map[string]*pinnedCPUSetIsolationRegionInfo, error) {
+	unpinnedRegionInfo := initIsolationRegionInfo()
+	pinnedRegionInfos := make(map[string]*pinnedCPUSetIsolationRegionInfo)
 
 	for _, r := range isolationRegions {
 		controlKnob, err := r.GetProvision()
 		if err != nil {
-			return isolationRegionInfo{}, err
+			return isolationRegionInfo{}, nil, err
 		}
+
+		ri := &unpinnedRegionInfo
+		if pinnedCPUSetInfo := r.GetPinnedCPUSetInfo(); pinnedCPUSetInfo != nil {
+			pinnedCPUSize := 0
+			for _, size := range pinnedCPUSetInfo.NUMASize {
+				pinnedCPUSize += size
+			}
+
+			if _, ok := pinnedRegionInfos[pinnedCPUSetInfo.PackageName]; !ok {
+				pinnedRegionInfos[pinnedCPUSetInfo.PackageName] = &pinnedCPUSetIsolationRegionInfo{
+					isolationRegionInfo: initIsolationRegionInfo(),
+					pinnedCPUSize:       pinnedCPUSize,
+				}
+			}
+			ri = &pinnedRegionInfos[pinnedCPUSetInfo.PackageName].isolationRegionInfo
+		}
+
 		// save limits and requests for isolated region
-		isolationUpperSizes[r.Name()] = int(controlKnob[configapi.ControlKnobNonIsolatedUpperCPUSize].Value)
-		isolationLowerSizes[r.Name()] = int(controlKnob[configapi.ControlKnobNonIsolatedLowerCPUSize].Value)
+		ri.isolationUpperSizes[r.Name()] = int(controlKnob[configapi.ControlKnobNonIsolatedUpperCPUSize].Value)
+		ri.isolationLowerSizes[r.Name()] = int(controlKnob[configapi.ControlKnobNonIsolatedLowerCPUSize].Value)
 	}
 
-	return isolationRegionInfo{
-		isolationUpperSizes: isolationUpperSizes,
-		isolationLowerSizes: isolationLowerSizes,
-	}, nil
+	return unpinnedRegionInfo, pinnedRegionInfos, nil
 }
 
-func extractDedicatedRegionInfo(regions []region.QoSRegion) (regionInfo, error) {
-	dedicatedRequirements := make(map[string]int)
-	dedicatedRequests := make(map[string]int)
-	dedicatedEnable := make(map[string]bool)
-	dedicatedPodSet := make(map[string]types.PodSet)
-	minReclaimedCoresCPUQuota := float64(-1)
+func extractDedicatedRegionInfo(regions []region.QoSRegion) (regionInfo, map[string]*pinnedCPUSetRegionInfo, error) {
+	unpinnedRegionInfo := initRegionInfo()
+	pinnedRegionInfos := make(map[string]*pinnedCPUSetRegionInfo)
+
 	for _, r := range regions {
 		if r.IsNumaExclusive() {
 			continue
@@ -594,34 +737,96 @@ func extractDedicatedRegionInfo(regions []region.QoSRegion) (regionInfo, error) 
 
 		controlKnob, err := r.GetProvision()
 		if err != nil {
-			return regionInfo{}, err
+			return regionInfo{}, nil, err
+		}
+
+		ri := &unpinnedRegionInfo
+		if pinnedCPUSetInfo := r.GetPinnedCPUSetInfo(); pinnedCPUSetInfo != nil {
+			pinnedCPUSize := 0
+			for _, size := range pinnedCPUSetInfo.NUMASize {
+				pinnedCPUSize += size
+			}
+
+			if _, ok := pinnedRegionInfos[pinnedCPUSetInfo.PackageName]; !ok {
+				pinnedRegionInfos[pinnedCPUSetInfo.PackageName] = &pinnedCPUSetRegionInfo{
+					regionInfo:    initRegionInfo(),
+					pinnedCPUSize: pinnedCPUSize,
+				}
+			}
+			ri = &pinnedRegionInfos[pinnedCPUSetInfo.PackageName].regionInfo
 		}
 
 		regionName := r.Name()
-		dedicatedRequirements[regionName] = general.Max(1, int(controlKnob[configapi.ControlKnobNonReclaimedCPURequirement].Value))
+		ri.requirements[regionName] = general.Max(1, int(controlKnob[configapi.ControlKnobNonReclaimedCPURequirement].Value))
 		if r.IsNumaBinding() {
 			numaBindingSize := r.GetBindingNumas().Size()
 			if numaBindingSize == 0 {
-				return regionInfo{}, fmt.Errorf("numa binding size is zero, region name: %s", r.Name())
+				return regionInfo{}, nil, fmt.Errorf("numa binding size is zero, region name: %s", r.Name())
 			}
-			dedicatedRequests[regionName] = int(math.Ceil(r.GetPodsRequest() / float64(numaBindingSize)))
+			ri.requests[regionName] = int(math.Ceil(r.GetPodsRequest() / float64(numaBindingSize)))
 		} else {
-			dedicatedRequests[regionName] = int(math.Ceil(r.GetPodsRequest()))
+			ri.requests[regionName] = int(math.Ceil(r.GetPodsRequest()))
 		}
-		dedicatedEnable[regionName] = r.EnableReclaim()
-		dedicatedPodSet[regionName] = r.GetPods()
+		ri.reclaimEnable[regionName] = r.EnableReclaim()
+		ri.podSet[regionName] = r.GetPods()
 		if quota, ok := controlKnob[configapi.ControlKnobReclaimedCoresCPUQuota]; ok {
-			if minReclaimedCoresCPUQuota == -1 || quota.Value < minReclaimedCoresCPUQuota {
-				minReclaimedCoresCPUQuota = quota.Value
+			if ri.minReclaimedCoresCPUQuota == -1 || quota.Value < ri.minReclaimedCoresCPUQuota {
+				ri.minReclaimedCoresCPUQuota = quota.Value
 			}
 		}
+		ri.regionMap[regionName] = r
 	}
 
-	return regionInfo{
-		requirements:              dedicatedRequirements,
-		requests:                  dedicatedRequests,
-		reclaimEnable:             dedicatedEnable,
-		podSet:                    dedicatedPodSet,
-		minReclaimedCoresCPUQuota: minReclaimedCoresCPUQuota,
-	}, nil
+	return unpinnedRegionInfo, pinnedRegionInfos, nil
+}
+
+type pinnedCPUSetAllRegionInfo struct {
+	shareRegionInfo      regionInfo
+	isolationRegionInfo  isolationRegionInfo
+	dedicatedRegionInfos regionInfo
+	pinnedCPUSize        int
+}
+
+func initPinnedCPUSetAllRegionInfo() *pinnedCPUSetAllRegionInfo {
+	return &pinnedCPUSetAllRegionInfo{
+		shareRegionInfo:      initRegionInfo(),
+		isolationRegionInfo:  initIsolationRegionInfo(),
+		dedicatedRegionInfos: initRegionInfo(),
+	}
+}
+
+func getPinnedCPUSetAllRegionInfo(
+	shareRegionInfo map[string]*pinnedCPUSetRegionInfo,
+	isolationRegionInfo map[string]*pinnedCPUSetIsolationRegionInfo,
+	dedicatedRegionInfos map[string]*pinnedCPUSetRegionInfo,
+) map[string]*pinnedCPUSetAllRegionInfo {
+	res := make(map[string]*pinnedCPUSetAllRegionInfo)
+	for pkgName, info := range shareRegionInfo {
+		_, ok := res[pkgName]
+		if !ok {
+			res[pkgName] = initPinnedCPUSetAllRegionInfo()
+		}
+		res[pkgName].shareRegionInfo = info.regionInfo
+		res[pkgName].pinnedCPUSize = general.Max(res[pkgName].pinnedCPUSize, info.pinnedCPUSize)
+	}
+
+	for regionName, info := range isolationRegionInfo {
+		_, ok := res[regionName]
+		if !ok {
+			res[regionName] = initPinnedCPUSetAllRegionInfo()
+		}
+		res[regionName].isolationRegionInfo = info.isolationRegionInfo
+		res[regionName].pinnedCPUSize = general.Max(res[regionName].pinnedCPUSize, info.pinnedCPUSize)
+	}
+
+	for regionName, info := range dedicatedRegionInfos {
+		_, ok := res[regionName]
+		if !ok {
+			res[regionName] = initPinnedCPUSetAllRegionInfo()
+		}
+		res[regionName].dedicatedRegionInfos = info.regionInfo
+		res[regionName].pinnedCPUSize = general.Max(res[regionName].pinnedCPUSize, info.pinnedCPUSize)
+	}
+
+	return res
 }

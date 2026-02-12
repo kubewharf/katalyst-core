@@ -18,17 +18,21 @@ package general
 
 import "strings"
 
-type CommonSuffixTranslator struct {
+type SuffixTranslator interface {
+	Translate(s string) string
+}
+
+type commonSuffixTranslator struct {
 	suffix string
 }
 
-func NewCommonSuffixTranslator(suffix string) *CommonSuffixTranslator {
-	return &CommonSuffixTranslator{
+func NewCommonSuffixTranslator(suffix string) SuffixTranslator {
+	return &commonSuffixTranslator{
 		suffix: suffix,
 	}
 }
 
-func (cs *CommonSuffixTranslator) Translate(s string) string {
+func (cs *commonSuffixTranslator) Translate(s string) string {
 	if strings.Contains(s, cs.suffix) {
 		return strings.SplitN(s, cs.suffix, 2)[0] + cs.suffix
 	}
