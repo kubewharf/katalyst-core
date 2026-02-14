@@ -128,6 +128,8 @@ func (p *BasePlugin) InitState() error {
 		return fmt.Errorf("NewCheckpointState failed with error: %v", err)
 	}
 
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.state = stateImpl
 	return nil
 }

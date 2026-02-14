@@ -184,18 +184,53 @@ func (p *StaticPolicy) ResourceName() string {
 	return string(consts.ResourceGPUMemory)
 }
 
+func (p *StaticPolicy) ensureState(resourceName string) error {
+	p.Lock()
+	defer p.Unlock()
+
+	if p.GetState() == nil {
+		if err := p.InitState(); err != nil {
+			return fmt.Errorf("init state failed: %v", err)
+		}
+	}
+
+	if resourceName == "" {
+		return nil
+	}
+
+	// Check if resource exists in state
+	machineState := p.GetState().GetMachineState()
+	if _, ok := machineState[v1.ResourceName(resourceName)]; !ok {
+		// Initialize state for this resource
+		generator, ok := p.DefaultResourceStateGeneratorRegistry.GetGenerator(resourceName)
+		if !ok {
+			return fmt.Errorf("no state generator found for resource %s", resourceName)
+		}
+
+		allocMap, err := generator.GenerateDefaultResourceState()
+		if err != nil {
+			return fmt.Errorf("generate default state for %s failed: %v", resourceName, err)
+		}
+
+		p.GetState().SetResourceState(v1.ResourceName(resourceName), allocMap, false)
+		general.Infof("initialized state for resource %s", resourceName)
+	}
+
+	return nil
+}
+
 // GetTopologyHints returns hints of corresponding resources
 func (p *StaticPolicy) GetTopologyHints(
 	ctx context.Context,
 	req *pluginapi.ResourceRequest,
 ) (resp *pluginapi.ResourceHintsResponse, err error) {
 	general.InfofV(4, "called")
-	if p.GetState() == nil {
-		return nil, fmt.Errorf("state is not ready")
-	}
-
 	if req == nil {
 		return nil, fmt.Errorf("GetTopologyHints got nil req")
+	}
+
+	if err := p.ensureState(req.ResourceName); err != nil {
+		return nil, fmt.Errorf("ensure state failed: %v", err)
 	}
 
 	p.RLock()
@@ -220,12 +255,12 @@ func (p *StaticPolicy) RemovePod(
 	ctx context.Context,
 	req *pluginapi.RemovePodRequest,
 ) (*pluginapi.RemovePodResponse, error) {
-	if p.GetState() == nil {
-		return nil, fmt.Errorf("state is not ready")
-	}
-
 	if req == nil {
 		return nil, fmt.Errorf("RemovePod got nil req")
+	}
+
+	if err := p.ensureState(""); err != nil {
+		return nil, fmt.Errorf("ensure state failed: %v", err)
 	}
 
 	p.Lock()
@@ -255,12 +290,12 @@ func (p *StaticPolicy) GetTopologyAwareResources(
 	req *pluginapi.GetTopologyAwareResourcesRequest,
 ) (*pluginapi.GetTopologyAwareResourcesResponse, error) {
 	general.InfofV(4, "called")
-	if p.GetState() == nil {
-		return nil, fmt.Errorf("state is not ready")
-	}
-
 	if req == nil {
 		return nil, fmt.Errorf("GetTopologyAwareResources got nil req")
+	}
+
+	if err := p.ensureState(""); err != nil {
+		return nil, fmt.Errorf("ensure state failed: %v", err)
 	}
 
 	p.RLock()
@@ -345,12 +380,12 @@ func (p *StaticPolicy) GetTopologyAwareAllocatableResources(
 	req *pluginapi.GetTopologyAwareAllocatableResourcesRequest,
 ) (*pluginapi.GetTopologyAwareAllocatableResourcesResponse, error) {
 	general.InfofV(4, "called")
-	if p.GetState() == nil {
-		return nil, fmt.Errorf("state is not ready")
-	}
-
 	if req == nil {
 		return nil, fmt.Errorf("GetTopologyAwareAllocatableResources got nil req")
+	}
+
+	if err := p.ensureState(""); err != nil {
+		return nil, fmt.Errorf("ensure state failed: %v", err)
 	}
 
 	p.RLock()
@@ -398,12 +433,12 @@ func (p *StaticPolicy) Allocate(
 	req *pluginapi.ResourceRequest,
 ) (resp *pluginapi.ResourceAllocationResponse, err error) {
 	general.InfofV(4, "called")
-	if p.GetState() == nil {
-		return nil, fmt.Errorf("state is not ready")
+	if req == nil {
+		return nil, fmt.Errorf("Allocate got nil req")
 	}
 
-	if req == nil {
-		return nil, fmt.Errorf("GetTopologyHints got nil req")
+	if err := p.ensureState(req.ResourceName); err != nil {
+		return nil, fmt.Errorf("ensure state failed: %v", err)
 	}
 
 	p.Lock()
@@ -618,11 +653,6 @@ func (p *StaticPolicy) UpdateAllocatableAssociatedDevices(
 		return nil, fmt.Errorf("custom device plugin UpdateAllocatableAssociatedDevices failed with error: %v", err)
 	}
 
-	// init state only after topology has been updated
-	if err = p.InitState(); err != nil {
-		return nil, fmt.Errorf("init state failed: %v", err)
-	}
-
 	return resp, nil
 }
 
@@ -639,14 +669,20 @@ func (p *StaticPolicy) AllocateAssociatedDevice(
 	ctx context.Context, req *pluginapi.AssociatedDeviceRequest,
 ) (resp *pluginapi.AssociatedDeviceAllocationResponse, respErr error) {
 	general.InfofV(4, "called")
-	if p.GetState() == nil {
-		return nil, fmt.Errorf("state is not ready")
-	}
 
 	var isPreAllocateResourcePlugin bool
 	var isPreAllocateCustomDevicePlugin bool
 	if req == nil || req.ResourceRequest == nil || req.DeviceRequest == nil {
 		return nil, fmt.Errorf("req is nil")
+	}
+
+	if err := p.ensureState(req.DeviceName); err != nil {
+		return nil, fmt.Errorf("ensure state failed: %v", err)
+	}
+	if req.AccompanyResourceName != "" {
+		if err := p.ensureState(req.AccompanyResourceName); err != nil {
+			return nil, fmt.Errorf("ensure state for accompany resource failed: %v", err)
+		}
 	}
 
 	p.Lock()

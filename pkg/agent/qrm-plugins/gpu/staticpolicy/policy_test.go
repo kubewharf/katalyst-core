@@ -164,6 +164,7 @@ func TestStaticPolicy_Allocate(t *testing.T) {
 
 	// Register stubbed resource plugin
 	policy.RegisterResourcePlugin(resourceplugin.NewResourcePluginStub(policy.BasePlugin))
+	registerGeneratorWithTopology(t, policy, testResourcePluginName)
 
 	testName := "test"
 	podUID := string(uuid.NewUUID())
@@ -211,7 +212,7 @@ func TestStaticPolicy_Allocate(t *testing.T) {
 	_, err = policy.Allocate(context.Background(), invalidReq)
 	assert.Error(t, err)
 
-	// Allocate pod when state is nil should return error
+	// Allocate pod when state is nil should succeed (lazy init)
 	policy.SetState(nil)
 
 	newReq := &pluginapi.ResourceRequest{
@@ -230,7 +231,7 @@ func TestStaticPolicy_Allocate(t *testing.T) {
 	}
 
 	_, err = policy.Allocate(context.Background(), newReq)
-	assert.Error(t, err)
+	assert.NoError(t, err)
 }
 
 func TestStaticPolicy_RemovePod(t *testing.T) {
@@ -287,13 +288,13 @@ func TestStaticPolicy_RemovePod(t *testing.T) {
 	allocationInfo := stateImpl.GetAllocationInfo(testResourcePluginName, podUID, testName)
 	assert.Nil(t, allocationInfo)
 
-	// Remove pod when state is nil should return error
+	// Remove pod when state is nil should succeed (lazy init)
 	policy.SetState(nil)
 
 	_, err = policy.RemovePod(context.Background(), &pluginapi.RemovePodRequest{
 		PodUid: "test",
 	})
-	assert.Error(t, err)
+	assert.NoError(t, err)
 }
 
 func TestStaticPolicy_GetTopologyHints(t *testing.T) {
@@ -302,6 +303,7 @@ func TestStaticPolicy_GetTopologyHints(t *testing.T) {
 	policy := makeTestStaticPolicy(t)
 
 	policy.RegisterResourcePlugin(resourceplugin.NewResourcePluginStub(policy.BasePlugin))
+	registerGeneratorWithTopology(t, policy, testResourcePluginName)
 
 	testName := "test"
 	podUID := string(uuid.NewUUID())
@@ -344,7 +346,7 @@ func TestStaticPolicy_GetTopologyHints(t *testing.T) {
 	_, err = policy.GetTopologyHints(context.Background(), invalidReq)
 	assert.Error(t, err)
 
-	// Get topology hints when state is nil should return error
+	// Get topology hints when state is nil should succeed (lazy init)
 	policy.SetState(nil)
 	newReq := &pluginapi.ResourceRequest{
 		PodUid:         string(uuid.NewUUID()),
@@ -362,7 +364,7 @@ func TestStaticPolicy_GetTopologyHints(t *testing.T) {
 	}
 
 	_, err = policy.GetTopologyHints(context.Background(), newReq)
-	assert.Error(t, err)
+	assert.NoError(t, err)
 }
 
 func TestStaticPolicy_GetTopologyAwareResources(t *testing.T) {
@@ -371,6 +373,7 @@ func TestStaticPolicy_GetTopologyAwareResources(t *testing.T) {
 	policy := makeTestStaticPolicy(t)
 
 	policy.RegisterResourcePlugin(resourceplugin.NewResourcePluginStub(policy.BasePlugin))
+	registerGeneratorWithTopology(t, policy, testResourcePluginName)
 	testName := "test"
 	podUID := string(uuid.NewUUID())
 
@@ -413,15 +416,15 @@ func TestStaticPolicy_GetTopologyAwareResources(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
 
-	// Get topology aware resources when state is nil should return error
+	// Get topology aware resources when state is nil should succeed (lazy init)
 	policy.SetState(nil)
 
 	resp, err = policy.GetTopologyAwareResources(context.Background(), &pluginapi.GetTopologyAwareResourcesRequest{
 		PodUid:        "test-pod",
 		ContainerName: "test-container",
 	})
-	assert.Error(t, err)
-	assert.Nil(t, resp)
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
 }
 
 func TestStaticPolicy_mergeTopologyAwareResourcesResponse(t *testing.T) {
@@ -586,6 +589,7 @@ func TestStaticPolicy_GetTopologyAwareAllocatableResources(t *testing.T) {
 	policy := makeTestStaticPolicy(t)
 
 	policy.RegisterResourcePlugin(resourceplugin.NewResourcePluginStub(policy.BasePlugin))
+	registerGeneratorWithTopology(t, policy, testResourcePluginName)
 	testName := "test"
 	podUID := string(uuid.NewUUID())
 
@@ -613,12 +617,12 @@ func TestStaticPolicy_GetTopologyAwareAllocatableResources(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
 
-	// Get topology aware allocatable resources when state is nil should return error
+	// Get topology aware allocatable resources when state is nil should succeed (lazy init)
 	policy.SetState(nil)
 
 	resp, err = policy.GetTopologyAwareAllocatableResources(context.Background(), getTopologyAwareAllocatableResourcesReq)
-	assert.Error(t, err)
-	assert.Nil(t, resp)
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
 }
 
 func TestStaticPolicy_UpdateAllocatableAssociatedDevices(t *testing.T) {
@@ -684,6 +688,10 @@ func TestStaticPolicy_AllocateAssociatedDevices(t *testing.T) {
 	policy.RegisterResourcePlugin(resourceplugin.NewResourcePluginStub(policy.BasePlugin))
 	policy.RegisterCustomDevicePlugin(customdeviceplugin.NewCustomDevicePluginStub(policy.BasePlugin))
 	policy.RegisterCustomDevicePlugin(customdeviceplugin.NewCustomDevicePluginStub2(policy.BasePlugin))
+
+	registerGeneratorWithTopology(t, policy, testResourcePluginName)
+	registerGeneratorWithTopology(t, policy, testCustomDevicePluginName)
+	registerGeneratorWithTopology(t, policy, testCustomDevicePluginName2)
 
 	podUID := string(uuid.NewUUID())
 
@@ -791,10 +799,26 @@ func TestStaticPolicy_AllocateAssociatedDevices(t *testing.T) {
 	allocationInfo = stateImpl.GetAllocationInfo(testCustomDevicePluginName2, podUID, testName)
 	assert.NotNil(t, allocationInfo)
 
-	// Allocate associated devices when state is nil should return error
+	// Allocate associated devices when state is nil should succeed (lazy init)
 	policy.SetState(nil)
 
 	resp, err = policy.AllocateAssociatedDevice(context.Background(), req)
-	assert.Error(t, err)
-	assert.Nil(t, resp)
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
+}
+
+func registerGeneratorWithTopology(t *testing.T, policy *StaticPolicy, resourceName string) {
+	deviceTopologyProviderStub := machine.NewDeviceTopologyProviderStub()
+	testDeviceTopology := &machine.DeviceTopology{
+		Devices: map[string]machine.DeviceInfo{
+			"test-1": {},
+		},
+	}
+	err := deviceTopologyProviderStub.SetDeviceTopology(testDeviceTopology)
+	assert.NoError(t, err)
+
+	policy.DeviceTopologyRegistry.RegisterDeviceTopologyProvider(resourceName, deviceTopologyProviderStub)
+
+	policy.DefaultResourceStateGeneratorRegistry.RegisterResourceStateGenerator(resourceName,
+		state.NewGenericDefaultResourceStateGenerator(resourceName, policy.DeviceTopologyRegistry))
 }
