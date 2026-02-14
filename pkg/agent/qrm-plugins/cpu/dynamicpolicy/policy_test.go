@@ -6273,13 +6273,17 @@ func TestSwitchBetweenAPIs(t *testing.T) {
 				as := require.New(t)
 
 				lwEndedChan := make(chan time.Time)
+				lwStartedChan := make(chan struct{})
 				unimplementedGetAdviceCall := cpuAdvisorServer.
 					On("GetAdvice", mock.Anything, mock.Anything).
 					Once().
 					Return((*advisorapi.GetAdviceResponse)(nil), status.Error(codes.Unimplemented, "GetAdvice not implemented"))
 				cpuAdvisorServer.On("ListAndWatch", mock.Anything, mock.Anything).
 					Once().
-					WaitUntil(lwEndedChan).
+					Run(func(args mock.Arguments) {
+						close(lwStartedChan)
+						<-lwEndedChan
+					}).
 					Return(nil).
 					NotBefore(unimplementedGetAdviceCall)
 
@@ -6288,7 +6292,11 @@ func TestSwitchBetweenAPIs(t *testing.T) {
 				defer dynamicPolicy.Stop()
 
 				// Wait for the plugin to call advisor
-				time.Sleep(3 * time.Second)
+				select {
+				case <-lwStartedChan:
+				case <-time.After(10 * time.Second):
+					t.Fatalf("ListAndWatch not called")
+				}
 				cpuAdvisorServer.AssertExpectations(t)
 
 				// ListAndWatch in progress, simulate an upgrade
