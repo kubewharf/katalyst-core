@@ -315,23 +315,25 @@ func (p *DynamicPolicy) Start() (err error) {
 	general.Infof("called")
 
 	p.Lock()
-	defer func() {
-		if !p.started {
-			if err == nil {
-				p.started = true
-			} else {
-				close(p.stopCh)
-			}
-		}
-		p.Unlock()
-	}()
-
 	if p.started {
 		general.Infof("is already started")
+		p.Unlock()
 		return nil
 	}
-
+	p.started = true
 	p.stopCh = make(chan struct{})
+	p.Unlock()
+
+	defer func() {
+		if err != nil {
+			p.Lock()
+			if p.started {
+				p.started = false
+				close(p.stopCh)
+			}
+			p.Unlock()
+		}
+	}()
 
 	if p.irqTuner != nil {
 		go p.irqTuner.Run(p.stopCh)
@@ -381,9 +383,13 @@ func (p *DynamicPolicy) Start() (err error) {
 
 	// start cpu-pressure eviction plugin if needed
 	if p.cpuPressureEviction != nil {
-		var ctx context.Context
-		ctx, p.cpuPressureEvictionCancel = context.WithCancel(context.Background())
-		go p.cpuPressureEviction.Run(ctx)
+		p.Lock()
+		if p.started {
+			var ctx context.Context
+			ctx, p.cpuPressureEvictionCancel = context.WithCancel(context.Background())
+			go p.cpuPressureEviction.Run(ctx)
+		}
+		p.Unlock()
 	}
 
 	go wait.Until(func() {
