@@ -45,6 +45,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	resourcepackage "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
 
 // todo:
@@ -185,9 +186,9 @@ func (cra *cpuResourceAdvisor) GetHeadroom() (resource.Quantity, map[int]resourc
 	return headroom, numaHeadroom, err
 }
 
-func (cra *cpuResourceAdvisor) UpdateAndGetAdvice() (interface{}, error) {
+func (cra *cpuResourceAdvisor) UpdateAndGetAdvice(ctx context.Context) (interface{}, error) {
 	startTime := time.Now()
-	result, err := cra.update()
+	result, err := cra.update(ctx)
 	_ = general.UpdateHealthzStateByError(cpuAdvisorHealthCheckName, err)
 	general.InfoS("finished", "duration", time.Since(startTime))
 	return result, err
@@ -195,17 +196,17 @@ func (cra *cpuResourceAdvisor) UpdateAndGetAdvice() (interface{}, error) {
 
 // update works in a monolithic way to maintain lifecycle and triggers update actions for all regions;
 // todo: re-consider whether it's efficient or we should make start individual goroutine for each region
-func (cra *cpuResourceAdvisor) update() (*types.InternalCPUCalculationResult, error) {
+func (cra *cpuResourceAdvisor) update(ctx context.Context) (*types.InternalCPUCalculationResult, error) {
 	startTime := time.Now()
 	cra.mutex.Lock()
 	general.InfoS("acquired lock", "duration", time.Since(startTime))
 	defer cra.mutex.Unlock()
 
-	result, err := cra.updateWithIsolationGuardian(true)
+	result, err := cra.updateWithIsolationGuardian(ctx, true)
 	if err != nil {
 		if err == errIsolationSafetyCheckFailed {
 			klog.Warningf("[qosaware-cpu] failed to updateWithIsolationGuardian(true): %q", err)
-			return cra.updateWithIsolationGuardian(false)
+			return cra.updateWithIsolationGuardian(ctx, false)
 		}
 		return nil, err
 	}
@@ -215,7 +216,7 @@ func (cra *cpuResourceAdvisor) update() (*types.InternalCPUCalculationResult, er
 
 // If updateWithIsolationGuardian fails with isolation enabled, we should try again with isolation disabled.
 // todo: we should re-design the mechanism of isolation instead of disabling this functionality
-func (cra *cpuResourceAdvisor) updateWithIsolationGuardian(tryIsolation bool) (
+func (cra *cpuResourceAdvisor) updateWithIsolationGuardian(ctx context.Context, tryIsolation bool) (
 	*types.InternalCPUCalculationResult,
 	error,
 ) {
@@ -236,8 +237,14 @@ func (cra *cpuResourceAdvisor) updateWithIsolationGuardian(tryIsolation bool) (
 	cra.updateNumasAvailableResource()
 	isolationExists := cra.setIsolatedContainers(tryIsolation)
 
+	numaResourcePackageItems, err := cra.metaServer.ResourcePackageManager.NodeResourcePackages(ctx)
+	if err != nil {
+		klog.Errorf("[qosaware-cpu] failed to get numa resource package items: %v", err)
+		return nil, err
+	}
+
 	// assign containers to regions
-	if err := cra.assignContainersToRegions(); err != nil {
+	if err := cra.assignContainersToRegions(numaResourcePackageItems); err != nil {
 		klog.Errorf("[qosaware-cpu] assign containers to regions failed: %q", err)
 		return nil, fmt.Errorf("failed to assign containers to regions: %q", err)
 	}
@@ -249,11 +256,17 @@ func (cra *cpuResourceAdvisor) updateWithIsolationGuardian(tryIsolation bool) (
 		return nil, errIsolationSafetyCheckFailed
 	}
 
+	allPinnedCPUSets, err := numaResourcePackageItems.GetAllPinnedCPUSetSizeSum()
+	if err != nil {
+		klog.Errorf("[qosaware-cpu] failed to get all pinned cpuset size: %v", err)
+		return nil, err
+	}
+
 	// run an episode of provision and headroom policy update for each region
 	for _, r := range cra.regionMap {
 		r.SetEssentials(types.ResourceEssentials{
 			EnableReclaim:       cra.conf.GetDynamicConfiguration().EnableReclaim,
-			ResourceUpperBound:  cra.getRegionMaxRequirement(r),
+			ResourceUpperBound:  cra.getRegionMaxRequirement(r, allPinnedCPUSets),
 			ResourceLowerBound:  cra.getRegionMinRequirement(r),
 			ReservedForReclaim:  cra.getRegionReservedForReclaim(r),
 			ReservedForAllocate: cra.getRegionReservedForAllocate(r),
@@ -350,7 +363,7 @@ func (cra *cpuResourceAdvisor) checkIsolationSafety() bool {
 
 // assignContainersToRegions re-construct regions every time (instead of an incremental way),
 // and this requires metaCache to ensure data integrity
-func (cra *cpuResourceAdvisor) assignContainersToRegions() error {
+func (cra *cpuResourceAdvisor) assignContainersToRegions(numaResourcePackages resourcepackage.NUMAResourcePackageItems) error {
 	var errList []error
 
 	// clear containers for all regions
@@ -360,7 +373,7 @@ func (cra *cpuResourceAdvisor) assignContainersToRegions() error {
 
 	// sync containers
 	f := func(podUID string, containerName string, ci *types.ContainerInfo) bool {
-		regions, err := cra.assignToRegions(ci)
+		regions, err := cra.assignToRegions(ci, numaResourcePackages)
 		if err != nil {
 			errList = append(errList, err)
 		}
@@ -406,22 +419,23 @@ func (cra *cpuResourceAdvisor) assignContainersToRegions() error {
 
 // assignToRegions returns the region list for the given container;
 // may need to construct region structures if they don't exist.
-func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]region.QoSRegion, error) {
+func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo, numaResourcePackages resourcepackage.NUMAResourcePackageItems) ([]region.QoSRegion, error) {
 	if ci == nil {
 		return nil, fmt.Errorf("container info is nil")
 	}
 
 	switch ci.QoSLevel {
 	case consts.PodAnnotationQoSLevelSharedCores:
-		return cra.assignShareContainerToRegions(ci)
+		return cra.assignShareContainerToRegions(ci, numaResourcePackages)
 	case consts.PodAnnotationQoSLevelDedicatedCores:
-		return cra.assignDedicatedContainerToRegions(ci)
+		return cra.assignDedicatedContainerToRegions(ci, numaResourcePackages)
 	default:
 		return nil, nil
 	}
 }
 
-func (cra *cpuResourceAdvisor) assignShareContainerToRegions(ci *types.ContainerInfo) ([]region.QoSRegion, error) {
+func (cra *cpuResourceAdvisor) assignShareContainerToRegions(ci *types.ContainerInfo, numaResourcePackages resourcepackage.NUMAResourcePackageItems) ([]region.QoSRegion, error) {
+	var pinnedCPUSetInfo *region.PinnedCPUSetInfo
 	numaID := commonstate.FakedNUMAID
 	if cra.conf.GenericSysAdvisorConfiguration.EnableShareCoresNumaBinding && ci.IsNumaBinding() {
 		if ci.OwnerPoolName == "" {
@@ -434,6 +448,23 @@ func (cra *cpuResourceAdvisor) assignShareContainerToRegions(ci *types.Container
 
 		for key := range ci.TopologyAwareAssignments {
 			numaID = key
+		}
+
+		pkgName := ci.GetResourcePackageName()
+		if pkgName != "" {
+			cpuSize, err := numaResourcePackages.GetPinnedCPUSetSize(numaID, pkgName)
+			if err != nil {
+				return nil, err
+			}
+
+			if cpuSize != nil {
+				pinnedCPUSetInfo = &region.PinnedCPUSetInfo{
+					PackageName: pkgName,
+					NUMASize: map[int]int{
+						numaID: *cpuSize,
+					},
+				}
+			}
 		}
 	} else {
 		// do not assign shared container to region when ramping up because its owner pool name is empty
@@ -481,7 +512,7 @@ func (cra *cpuResourceAdvisor) assignShareContainerToRegions(ci *types.Container
 			}
 		}
 
-		r := region.NewQoSRegionIsolation(ci, regionName, cra.conf, cra.extraConf, numaID, cra.metaCache, cra.metaServer, cra.emitter)
+		r := region.NewQoSRegionIsolation(ci, regionName, cra.conf, cra.extraConf, numaID, cra.metaCache, cra.metaServer, cra.emitter, pinnedCPUSetInfo)
 		klog.Infof("create a new isolation region (%s/%s) for container %s/%s", r.OwnerPoolName(), r.Name(), ci.PodUID, ci.ContainerName)
 		return []region.QoSRegion{r}, nil
 	}
@@ -500,12 +531,12 @@ func (cra *cpuResourceAdvisor) assignShareContainerToRegions(ci *types.Container
 	}
 
 	// create one region by owner pool name
-	r := region.NewQoSRegionShare(ci, cra.conf, cra.extraConf, numaID, cra.metaCache, cra.metaServer, cra.emitter)
+	r := region.NewQoSRegionShare(ci, cra.conf, cra.extraConf, numaID, cra.metaCache, cra.metaServer, cra.emitter, pinnedCPUSetInfo)
 	klog.Infof("create a new share region (%s/%s) for container %s/%s", r.OwnerPoolName(), r.Name(), ci.PodUID, ci.ContainerName)
 	return []region.QoSRegion{r}, nil
 }
 
-func (cra *cpuResourceAdvisor) assignDedicatedContainerToRegions(ci *types.ContainerInfo) ([]region.QoSRegion, error) {
+func (cra *cpuResourceAdvisor) assignDedicatedContainerToRegions(ci *types.ContainerInfo, numaResourcePackages resourcepackage.NUMAResourcePackageItems) ([]region.QoSRegion, error) {
 	// assign dedicated cores numa exclusive containers. focus on container.
 	regions, err := cra.getContainerRegions(ci, configapi.QoSRegionTypeDedicated)
 	if err != nil {
@@ -514,14 +545,31 @@ func (cra *cpuResourceAdvisor) assignDedicatedContainerToRegions(ci *types.Conta
 		return regions, nil
 	}
 
+	var pinnedCPUSetInfo *region.PinnedCPUSetInfo
+	pkgName := ci.GetResourcePackageName()
 	if ci.IsNumaBinding() {
 		// create regions by numa node
 		for numaID := range ci.TopologyAwareAssignments {
-			r := region.NewQoSRegionDedicated(ci, cra.conf, numaID, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter)
+			if pkgName != "" {
+				cpuSize, err := numaResourcePackages.GetPinnedCPUSetSize(numaID, pkgName)
+				if err != nil {
+					return nil, err
+				}
+
+				if cpuSize != nil {
+					pinnedCPUSetInfo = &region.PinnedCPUSetInfo{
+						PackageName: pkgName,
+						NUMASize: map[int]int{
+							numaID: *cpuSize,
+						},
+					}
+				}
+			}
+			r := region.NewQoSRegionDedicated(ci, cra.conf, numaID, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter, pinnedCPUSetInfo)
 			regions = append(regions, r)
 		}
 	} else {
-		r := region.NewQoSRegionDedicated(ci, cra.conf, commonstate.FakedNUMAID, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter)
+		r := region.NewQoSRegionDedicated(ci, cra.conf, commonstate.FakedNUMAID, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter, pinnedCPUSetInfo)
 		regions = append(regions, r)
 	}
 	return regions, nil

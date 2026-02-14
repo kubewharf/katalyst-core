@@ -31,6 +31,8 @@ func Test_ConvertResourcePackagesToNPDMetrics(t *testing.T) {
 	t.Parallel()
 
 	var min v1alpha1.Aggregator = "min"
+	pinnedTrue := true
+	pinnedFalse := false
 
 	cases := []struct {
 		name            string
@@ -42,38 +44,46 @@ func Test_ConvertResourcePackagesToNPDMetrics(t *testing.T) {
 			resourcePackage: []ResourcePackageMetric{
 				{
 					NumaID: "0",
-					ResourcePackages: []v1alpha1.ResourcePackage{
+					ResourcePackages: []ResourcePackageItem{
 						{
-							PackageName: "x2",
-							Allocatable: &v1.ResourceList{
-								v1.ResourceCPU:    resource.MustParse("32"),
-								v1.ResourceMemory: resource.MustParse("64Gi"),
+							ResourcePackage: v1alpha1.ResourcePackage{
+								PackageName: "x2",
+								Allocatable: &v1.ResourceList{
+									v1.ResourceCPU:    resource.MustParse("32"),
+									v1.ResourceMemory: resource.MustParse("64Gi"),
+								},
 							},
 						},
 						{
-							PackageName: "x8",
-							Allocatable: &v1.ResourceList{
-								v1.ResourceCPU:    resource.MustParse("64"),
-								v1.ResourceMemory: resource.MustParse("512Gi"),
+							ResourcePackage: v1alpha1.ResourcePackage{
+								PackageName: "x8",
+								Allocatable: &v1.ResourceList{
+									v1.ResourceCPU:    resource.MustParse("64"),
+									v1.ResourceMemory: resource.MustParse("512Gi"),
+								},
 							},
 						},
 					},
 				},
 				{
 					NumaID: "1",
-					ResourcePackages: []v1alpha1.ResourcePackage{
+					ResourcePackages: []ResourcePackageItem{
 						{
-							PackageName: "x4",
-							Allocatable: &v1.ResourceList{
-								v1.ResourceCPU:    resource.MustParse("8"),
-								v1.ResourceMemory: resource.MustParse("32Gi"),
+							ResourcePackage: v1alpha1.ResourcePackage{
+								PackageName: "x4",
+								Allocatable: &v1.ResourceList{
+									v1.ResourceCPU:    resource.MustParse("8"),
+									v1.ResourceMemory: resource.MustParse("32Gi"),
+								},
 							},
 						},
 						{
-							PackageName: "x6",
-							Allocatable: &v1.ResourceList{
-								v1.ResourceCPU:    resource.MustParse("8"),
-								v1.ResourceMemory: resource.MustParse("48Gi"),
+							ResourcePackage: v1alpha1.ResourcePackage{
+								PackageName: "x6",
+								Allocatable: &v1.ResourceList{
+									v1.ResourceCPU:    resource.MustParse("8"),
+									v1.ResourceMemory: resource.MustParse("48Gi"),
+								},
 							},
 						},
 					},
@@ -165,6 +175,65 @@ func Test_ConvertResourcePackagesToNPDMetrics(t *testing.T) {
 			want: []v1alpha1.ScopedNodeMetrics{
 				{
 					Scope: "resource-package",
+				},
+			},
+		},
+		{
+			name: "pinned-cpuset",
+			resourcePackage: []ResourcePackageMetric{
+				{
+					NumaID: "0",
+					ResourcePackages: []ResourcePackageItem{
+						{
+							ResourcePackage: v1alpha1.ResourcePackage{
+								PackageName: "x1",
+								Allocatable: &v1.ResourceList{
+									v1.ResourceCPU: resource.MustParse("4"),
+								},
+							},
+							Config: &ResourcePackageConfig{
+								PinnedCPUSet: &pinnedTrue,
+							},
+						},
+						{
+							ResourcePackage: v1alpha1.ResourcePackage{
+								PackageName: "x2",
+								Allocatable: &v1.ResourceList{
+									v1.ResourceCPU: resource.MustParse("8"),
+								},
+							},
+							Config: &ResourcePackageConfig{
+								PinnedCPUSet: &pinnedFalse,
+							},
+						},
+					},
+				},
+			},
+			want: []v1alpha1.ScopedNodeMetrics{
+				{
+					Scope: "resource-package",
+					Metrics: []v1alpha1.MetricValue{
+						{
+							MetricName: "cpu",
+							MetricLabels: map[string]string{
+								"package-name":  "x1",
+								"numa-id":       "0",
+								"pinned-cpuset": "true",
+							},
+							Aggregator: &min,
+							Value:      resource.MustParse("4"),
+						},
+						{
+							MetricName: "cpu",
+							MetricLabels: map[string]string{
+								"package-name":  "x2",
+								"numa-id":       "0",
+								"pinned-cpuset": "false",
+							},
+							Aggregator: &min,
+							Value:      resource.MustParse("8"),
+						},
+					},
 				},
 			},
 		},

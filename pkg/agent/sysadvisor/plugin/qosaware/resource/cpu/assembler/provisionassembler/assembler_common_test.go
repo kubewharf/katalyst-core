@@ -175,6 +175,10 @@ func (fake *FakeRegion) GetControlEssentials() types.ControlEssentials {
 	return fake.controlEssentials
 }
 
+func (fake *FakeRegion) GetPinnedCPUSetInfo() *region.PinnedCPUSetInfo {
+	return nil
+}
+
 type testCasePoolConfig struct {
 	poolName      string
 	poolType      configapi.QoSRegionType

@@ -49,7 +49,7 @@ type SubResourceAdvisor interface {
 	Run(ctx context.Context)
 
 	// UpdateAndGetAdvice triggers resource provision update and returns the latest advice
-	UpdateAndGetAdvice() (interface{}, error)
+	UpdateAndGetAdvice(ctx context.Context) (interface{}, error)
 
 	// GetHeadroom returns the latest resource headroom quantity for resource reporter
 	GetHeadroom() (resource.Quantity, map[int]resource.Quantity, error)

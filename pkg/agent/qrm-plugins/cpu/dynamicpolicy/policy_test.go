@@ -39,6 +39,7 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	utilfs "k8s.io/kubernetes/pkg/util/filesystem"
 
+	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	componentagent "github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
@@ -64,6 +65,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/kcc"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/npd"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/resourcepackage"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/spd"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
@@ -160,6 +163,7 @@ func getTestDynamicPolicyWithoutInitialization(
 		enableReclaimNUMABinding:  true,
 		emitter:                   metrics.DummyMetrics{},
 		podDebugAnnoKeys:          []string{podDebugAnnoKey},
+		resourcePackageManager:    resourcepackage.NewCachedResourcePackageManager(resourcepackage.NewResourcePackageManager(&npd.DummyNPDFetcher{NPD: &nodev1alpha1.NodeProfileDescriptor{}})),
 	}
 
 	// register allocation behaviors for pods with different QoS level
@@ -1215,7 +1219,7 @@ func TestAllocate(t *testing.T) {
 			as.Equalf(tc.expectedResp, resp, "failed in test case: %s", tc.name)
 
 			if tc.allowSharedCoresOverlapReclaimedCores {
-				err := dynamicPolicy.adjustAllocationEntries(true)
+				err := dynamicPolicy.adjustAllocationEntries(dynamicPolicy.state.GetPodEntries(), dynamicPolicy.state.GetMachineState(), true)
 				as.NotNil(err)
 			}
 
@@ -6269,13 +6273,17 @@ func TestSwitchBetweenAPIs(t *testing.T) {
 				as := require.New(t)
 
 				lwEndedChan := make(chan time.Time)
+				lwStartedChan := make(chan struct{})
 				unimplementedGetAdviceCall := cpuAdvisorServer.
 					On("GetAdvice", mock.Anything, mock.Anything).
 					Once().
 					Return((*advisorapi.GetAdviceResponse)(nil), status.Error(codes.Unimplemented, "GetAdvice not implemented"))
 				cpuAdvisorServer.On("ListAndWatch", mock.Anything, mock.Anything).
 					Once().
-					WaitUntil(lwEndedChan).
+					Run(func(args mock.Arguments) {
+						close(lwStartedChan)
+						<-lwEndedChan
+					}).
 					Return(nil).
 					NotBefore(unimplementedGetAdviceCall)
 
@@ -6284,7 +6292,11 @@ func TestSwitchBetweenAPIs(t *testing.T) {
 				defer dynamicPolicy.Stop()
 
 				// Wait for the plugin to call advisor
-				time.Sleep(3 * time.Second)
+				select {
+				case <-lwStartedChan:
+				case <-time.After(10 * time.Second):
+					t.Fatalf("ListAndWatch not called")
+				}
 				cpuAdvisorServer.AssertExpectations(t)
 
 				// ListAndWatch in progress, simulate an upgrade

@@ -39,6 +39,7 @@ import (
 
 	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	configv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
+	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	workloadapis "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
@@ -58,6 +59,7 @@ import (
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
+	resourcepkg "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
 
 func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string) *config.Configuration {
@@ -70,6 +72,17 @@ func generateTestConfiguration(t *testing.T, checkpointDir, stateFileDir string)
 	conf.RestrictRefPolicy = nil
 
 	return conf
+}
+
+// testResourcePackageManager provides deterministic empty resource packages for unit tests.
+type testResourcePackageManager struct{}
+
+func (m *testResourcePackageManager) NodeResourcePackages(ctx context.Context) (resourcepkg.NUMAResourcePackageItems, error) {
+	return resourcepkg.NUMAResourcePackageItems{}, nil
+}
+
+func (m *testResourcePackageManager) ConvertNPDResourcePackages(npd *nodev1alpha1.NodeProfileDescriptor) (resourcepkg.NUMAResourcePackageItems, error) {
+	return resourcepkg.NUMAResourcePackageItems{}, nil
 }
 
 func newTestCPUResourceAdvisor(t *testing.T, pods []*v1.Pod, conf *config.Configuration, mf *metric.FakeMetricsFetcher, profiles map[k8stypes.UID]spd.DummyPodServiceProfile) (*cpuResourceAdvisor, metacache.MetaCache) {
@@ -105,6 +118,9 @@ func newTestCPUResourceAdvisor(t *testing.T, pods []*v1.Pod, conf *config.Config
 	}
 
 	err = metaServer.SetServiceProfilingManager(spd.NewDummyServiceProfilingManager(profiles))
+	require.NoError(t, err)
+
+	err = metaServer.SetResourcePackageManager(&testResourcePackageManager{})
 	require.NoError(t, err)
 
 	cra := NewCPUResourceAdvisor(conf, struct{}{}, metaCache, metaServer, metrics.DummyMetrics{})
@@ -1523,7 +1539,7 @@ func TestAdvisorUpdate(t *testing.T) {
 
 			// if preUpdate is enabled, trigger an empty update firstly
 			if tt.preUpdate {
-				_, err := advisor.UpdateAndGetAdvice()
+				_, err := advisor.UpdateAndGetAdvice(ctx)
 				if tt.wantErr {
 					assert.Error(t, err)
 				} else {
@@ -1532,7 +1548,7 @@ func TestAdvisorUpdate(t *testing.T) {
 			}
 
 			// trigger advisor update
-			advisorRespRaw, err := advisor.UpdateAndGetAdvice()
+			advisorRespRaw, err := advisor.UpdateAndGetAdvice(ctx)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -1587,20 +1603,20 @@ func TestGetIsolatedContainerRegions(t *testing.T) {
 
 	r1 := &region.QoSRegionShare{
 		QoSRegionBase: region.NewQoSRegionBase("r1", "", configapi.QoSRegionTypeIsolation,
-			conf, struct{}{}, false, false, nil, nil, nil),
+			conf, struct{}{}, false, false, nil, nil, nil, nil),
 	}
 	_ = r1.AddContainer(c1_1)
 	_ = r1.AddContainer(c1_2)
 
 	r2 := &region.QoSRegionShare{
 		QoSRegionBase: region.NewQoSRegionBase("r2", "", configapi.QoSRegionTypeShare,
-			conf, struct{}{}, false, false, nil, nil, nil),
+			conf, struct{}{}, false, false, nil, nil, nil, nil),
 	}
 	_ = r2.AddContainer(c2)
 
 	r3 := &region.QoSRegionShare{
 		QoSRegionBase: region.NewQoSRegionBase("r3", "", configapi.QoSRegionTypeDedicated,
-			conf, struct{}{}, false, true, nil, nil, nil),
+			conf, struct{}{}, false, true, nil, nil, nil, nil),
 	}
 	_ = r3.AddContainer(c3_1)
 	_ = r3.AddContainer(c3_2)

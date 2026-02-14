@@ -35,6 +35,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	pkgutil "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
 
 // MockState is a mock implementation of the state.State interface for testing purposes
@@ -69,15 +70,15 @@ func (m *MockState) ClearState()                                              {}
 func (m *MockState) StoreState() error                                        { return nil }
 
 type resourcePackageManagerStub struct {
-	nodeResourcePackagesMap map[int][]nodev1alpha1.ResourcePackage
+	nodeResourcePackagesMap pkgutil.NUMAResourcePackageItems
 	err                     error
 }
 
-func (s *resourcePackageManagerStub) ConvertNPDResourcePackages(_ *nodev1alpha1.NodeProfileDescriptor) (map[int][]nodev1alpha1.ResourcePackage, error) {
+func (s *resourcePackageManagerStub) ConvertNPDResourcePackages(_ *nodev1alpha1.NodeProfileDescriptor) (pkgutil.NUMAResourcePackageItems, error) {
 	return s.nodeResourcePackagesMap, nil
 }
 
-func (s *resourcePackageManagerStub) NodeResourcePackages(_ context.Context) (map[int][]nodev1alpha1.ResourcePackage, error) {
+func (s *resourcePackageManagerStub) NodeResourcePackages(_ context.Context) (pkgutil.NUMAResourcePackageItems, error) {
 	return s.nodeResourcePackagesMap, s.err
 }
 
@@ -86,12 +87,11 @@ func TestNewResourcePackageHintOptimizer(t *testing.T) {
 
 	convey.Convey("Test NewResourcePackageHintOptimizer", t, func() {
 		options := policy.HintOptimizerFactoryOptions{
-			Conf: &config.Configuration{},
-			MetaServer: &metaserver.MetaServer{
-				ResourcePackageManager: &resourcePackageManagerStub{},
-			},
-			Emitter: metrics.DummyMetrics{},
-			State:   &MockState{},
+			Conf:                   &config.Configuration{},
+			MetaServer:             &metaserver.MetaServer{},
+			ResourcePackageManager: &resourcePackageManagerStub{},
+			Emitter:                metrics.DummyMetrics{},
+			State:                  &MockState{},
 		}
 
 		optimizer, err := NewResourcePackageHintOptimizer(options)
@@ -106,9 +106,7 @@ func TestResourcePackageHintOptimizer_OptimizeHints(t *testing.T) {
 	convey.Convey("Test OptimizeHints", t, func() {
 		convey.Convey("when request is nil", func() {
 			optimizer := &resourcePackageHintOptimizer{
-				metaServer: &metaserver.MetaServer{
-					ResourcePackageManager: &resourcePackageManagerStub{},
-				},
+				rpm: &resourcePackageManagerStub{},
 			}
 			err := optimizer.OptimizeHints(hintoptimizer.Request{}, &pluginapi.ListOfTopologyHints{})
 			convey.So(err, convey.ShouldNotBeNil)
@@ -117,9 +115,7 @@ func TestResourcePackageHintOptimizer_OptimizeHints(t *testing.T) {
 
 		convey.Convey("when hints is nil", func() {
 			optimizer := &resourcePackageHintOptimizer{
-				metaServer: &metaserver.MetaServer{
-					ResourcePackageManager: &resourcePackageManagerStub{},
-				},
+				rpm: &resourcePackageManagerStub{},
 			}
 			err := optimizer.OptimizeHints(hintoptimizer.Request{
 				ResourceRequest: &pluginapi.ResourceRequest{},
@@ -129,9 +125,7 @@ func TestResourcePackageHintOptimizer_OptimizeHints(t *testing.T) {
 		})
 
 		convey.Convey("when pod is NUMA exclusive", func() {
-			optimizer := &resourcePackageHintOptimizer{
-				metaServer: &metaserver.MetaServer{},
-			}
+			optimizer := &resourcePackageHintOptimizer{}
 			err := optimizer.OptimizeHints(hintoptimizer.Request{
 				ResourceRequest: &pluginapi.ResourceRequest{
 					Annotations: map[string]string{
@@ -144,9 +138,7 @@ func TestResourcePackageHintOptimizer_OptimizeHints(t *testing.T) {
 		})
 
 		convey.Convey("when resource package not found in annotation", func() {
-			optimizer := &resourcePackageHintOptimizer{
-				metaServer: &metaserver.MetaServer{},
-			}
+			optimizer := &resourcePackageHintOptimizer{}
 			err := optimizer.OptimizeHints(hintoptimizer.Request{
 				ResourceRequest: &pluginapi.ResourceRequest{
 					Annotations: map[string]string{
@@ -173,27 +165,34 @@ func TestResourcePackageHintOptimizer_OptimizeHints(t *testing.T) {
 				},
 			}
 
-			optimizer := &resourcePackageHintOptimizer{
-				metaServer: &metaserver.MetaServer{},
-				state:      mockState,
-				resourcePackageMap: map[int][]nodev1alpha1.ResourcePackage{
+			mockRPM := &resourcePackageManagerStub{
+				nodeResourcePackagesMap: pkgutil.NUMAResourcePackageItems{
 					0: {
-						{
-							PackageName: "test-package",
-							Allocatable: &v1.ResourceList{
-								"cpu": resource.MustParse("2"),
+						"test-package": {
+							ResourcePackage: nodev1alpha1.ResourcePackage{
+								PackageName: "test-package",
+								Allocatable: &v1.ResourceList{
+									"cpu": resource.MustParse("2"),
+								},
 							},
 						},
 					},
 					1: {
-						{
-							PackageName: "test-package-1",
-							Allocatable: &v1.ResourceList{
-								"cpu": resource.MustParse("2"),
+						"test-package-1": {
+							ResourcePackage: nodev1alpha1.ResourcePackage{
+								PackageName: "test-package-1",
+								Allocatable: &v1.ResourceList{
+									"cpu": resource.MustParse("2"),
+								},
 							},
 						},
 					},
 				},
+			}
+
+			optimizer := &resourcePackageHintOptimizer{
+				rpm:   mockRPM,
+				state: mockState,
 			}
 
 			hints := &pluginapi.ListOfTopologyHints{
@@ -227,9 +226,7 @@ func TestResourcePackageHintOptimizer_Run(t *testing.T) {
 	t.Parallel()
 
 	convey.Convey("Test Run", t, func() {
-		optimizer := &resourcePackageHintOptimizer{
-			metaServer: &metaserver.MetaServer{},
-		}
+		optimizer := &resourcePackageHintOptimizer{}
 		stopCh := make(chan struct{})
 		close(stopCh)
 		optimizer.Run(stopCh)
@@ -240,9 +237,7 @@ func TestResourcePackageHintOptimizer_populateHintsByResourcePackage(t *testing.
 	t.Parallel()
 
 	convey.Convey("Test populateHintsByResourcePackage", t, func() {
-		optimizer := &resourcePackageHintOptimizer{
-			metaServer: &metaserver.MetaServer{},
-		}
+		optimizer := &resourcePackageHintOptimizer{}
 
 		testCases := []struct {
 			name           string
@@ -326,12 +321,10 @@ func TestResourcePackageHintOptimizer_getResourcePackageAllocatable(t *testing.T
 
 	convey.Convey("Test getResourcePackageAllocatable", t, func() {
 		convey.Convey("when resourcePackageMap is nil", func() {
-			mockMetaServer := &metaserver.MetaServer{
-				ResourcePackageManager: &resourcePackageManagerStub{},
-			}
+			mockRPM := &resourcePackageManagerStub{}
 
 			optimizer := &resourcePackageHintOptimizer{
-				metaServer: mockMetaServer,
+				rpm: mockRPM,
 			}
 			result, err := optimizer.getResourcePackageAllocatable("test-package")
 			convey.So(result, convey.ShouldBeNil)
@@ -340,26 +333,31 @@ func TestResourcePackageHintOptimizer_getResourcePackageAllocatable(t *testing.T
 		})
 
 		convey.Convey("success case", func() {
-			mockMetaServer := &metaserver.MetaServer{}
-
-			optimizer := &resourcePackageHintOptimizer{
-				metaServer: mockMetaServer,
-				resourcePackageMap: map[int][]nodev1alpha1.ResourcePackage{
+			mockRPM := &resourcePackageManagerStub{
+				nodeResourcePackagesMap: pkgutil.NUMAResourcePackageItems{
 					0: {
-						{
-							PackageName: "test-package",
-							Allocatable: &v1.ResourceList{
-								"cpu": resource.MustParse("2"),
+						"test-package": {
+							ResourcePackage: nodev1alpha1.ResourcePackage{
+								PackageName: "test-package",
+								Allocatable: &v1.ResourceList{
+									"cpu": resource.MustParse("2"),
+								},
 							},
 						},
-						{
-							PackageName: "test-package-1",
-							Allocatable: &v1.ResourceList{
-								"cpu": resource.MustParse("2"),
+						"test-package-1": {
+							ResourcePackage: nodev1alpha1.ResourcePackage{
+								PackageName: "test-package-1",
+								Allocatable: &v1.ResourceList{
+									"cpu": resource.MustParse("2"),
+								},
 							},
 						},
 					},
 				},
+			}
+
+			optimizer := &resourcePackageHintOptimizer{
+				rpm: mockRPM,
 			}
 			result, err := optimizer.getResourcePackageAllocatable("test-package")
 			convey.So(err, convey.ShouldBeNil)
@@ -368,26 +366,31 @@ func TestResourcePackageHintOptimizer_getResourcePackageAllocatable(t *testing.T
 		})
 
 		convey.Convey("when allocatable or cpu is nil", func() {
-			mockMetaServer := &metaserver.MetaServer{}
-
-			optimizer := &resourcePackageHintOptimizer{
-				metaServer: mockMetaServer,
-				resourcePackageMap: map[int][]nodev1alpha1.ResourcePackage{
+			mockRPM := &resourcePackageManagerStub{
+				nodeResourcePackagesMap: pkgutil.NUMAResourcePackageItems{
 					0: {
-						{
-							PackageName: "test-package",
-							Allocatable: nil,
+						"test-package": {
+							ResourcePackage: nodev1alpha1.ResourcePackage{
+								PackageName: "test-package",
+								Allocatable: nil,
+							},
 						},
 					},
 					1: {
-						{
-							PackageName: "test-package",
-							Allocatable: &v1.ResourceList{
-								"memory": resource.MustParse("1Gi"),
+						"test-package": {
+							ResourcePackage: nodev1alpha1.ResourcePackage{
+								PackageName: "test-package",
+								Allocatable: &v1.ResourceList{
+									"memory": resource.MustParse("1Gi"),
+								},
 							},
 						},
 					},
 				},
+			}
+
+			optimizer := &resourcePackageHintOptimizer{
+				rpm: mockRPM,
 			}
 			result, err := optimizer.getResourcePackageAllocatable("test-package")
 			convey.So(err, convey.ShouldBeNil)
@@ -455,8 +458,8 @@ func TestResourcePackageHintOptimizer_getResourcePackageAllocated(t *testing.T) 
 			}
 
 			optimizer := &resourcePackageHintOptimizer{
-				state:      mockState,
-				metaServer: &metaserver.MetaServer{},
+				state: mockState,
+				rpm:   &resourcePackageManagerStub{},
 			}
 			result, err := optimizer.getResourcePackageAllocated("test-package")
 			convey.So(err, convey.ShouldBeNil)
@@ -480,8 +483,8 @@ func TestResourcePackageHintOptimizer_getResourcePackageAllocated(t *testing.T) 
 			}
 
 			optimizer := &resourcePackageHintOptimizer{
-				state:      mockState,
-				metaServer: &metaserver.MetaServer{},
+				state: mockState,
+				rpm:   &resourcePackageManagerStub{},
 			}
 			result, err := optimizer.getResourcePackageAllocated("test-package")
 			convey.So(err, convey.ShouldBeNil)
@@ -520,8 +523,8 @@ func TestResourcePackageHintOptimizer_getResourcePackageAllocated(t *testing.T) 
 			}
 
 			optimizer := &resourcePackageHintOptimizer{
-				state:      mockState,
-				metaServer: &metaserver.MetaServer{},
+				state: mockState,
+				rpm:   &resourcePackageManagerStub{},
 			}
 			result, err := optimizer.getResourcePackageAllocated("test-package")
 			convey.So(err, convey.ShouldBeNil)
