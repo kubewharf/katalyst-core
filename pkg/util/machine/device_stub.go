@@ -61,17 +61,26 @@ func (d *deviceAffinityProviderStub) SetDeviceAffinity(topology *DeviceTopology)
 	d.setCalled = true
 }
 
-func (d *deviceAffinityProviderStub) WatchTopologyChanged(stopCh <-chan struct{},
-	topologyChangedCh chan<- string, id string,
-) {
-	for {
-		select {
-		case <-stopCh:
-			return
-		case <-d.changeCh:
-			topologyChangedCh <- id
+func (d *deviceAffinityProviderStub) WatchTopologyChanged(stopCh <-chan struct{}) chan struct{} {
+	changeCh := make(chan struct{}, 1)
+
+	go func() {
+		defer close(changeCh)
+		for {
+			select {
+			case <-stopCh:
+				return
+			case <-d.changeCh:
+				// Non-blocking send to avoid goroutine leak if nobody is reading
+				select {
+				case changeCh <- struct{}{}:
+				default:
+				}
+			}
 		}
-	}
+	}()
+
+	return changeCh
 }
 
 func (d *deviceAffinityProviderStub) TriggerChange() {

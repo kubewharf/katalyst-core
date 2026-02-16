@@ -20,11 +20,16 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/strings/slices"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+)
+
+const (
+	resyncInterval = 30 * time.Second
 )
 
 // DeviceTopologyRegistry is a registry of all topology providers that knows how to provide topology information of machine devices
@@ -49,31 +54,38 @@ func NewDeviceTopologyRegistry() *DeviceTopologyRegistry {
 	}
 }
 
-func (r *DeviceTopologyRegistry) Run(stopCh <-chan struct{}, initializedCh <-chan struct{}) {
-	r.runAffinityProviders(stopCh, initializedCh)
+func (r *DeviceTopologyRegistry) Run(stopCh <-chan struct{}) {
+	r.runAffinityProviders(stopCh)
 }
 
-// runAffinityProviders monitors all registered device affinity providers and applies topology updates when changes occur.
-// It first waits until all the affinity providers are initialized.
-// Then, it launches a goroutine per provider to watch for changes. When a provider reports a change, the corresponding
-// DeviceTopology is updated via SetDeviceAffinity. The function blocks until stopCh is closed.
-func (r *DeviceTopologyRegistry) runAffinityProviders(stopCh <-chan struct{}, initializedCh <-chan struct{}) {
-	// wait until all affinity providers are initialized
-	general.Infof("waiting for initializedCh...")
-	select {
-	case <-initializedCh:
-		// proceed
-	case <-stopCh:
-		return
-	}
+// runAffinityProviders launches a watcher goroutine for each device affinity provider.
+// Each watcher listens for topology changes and updates the corresponding DeviceTopology.
+// The function blocks until stopCh is closed, and gracefully handles providers that never emit events.
+func (r *DeviceTopologyRegistry) runAffinityProviders(stopCh <-chan struct{}) {
+	topologyChangedCh := make(chan string, len(r.deviceTopologyAffinityProviders))
 
-	general.Infof("initialization done, starting watchers...")
-
-	topologyChangedCh := make(chan string, len(r.deviceTopologyProviders))
+	// For every affinity provider, start a goroutine to listen to topology changes
 	for deviceName, affinityProvider := range r.deviceTopologyAffinityProviders {
-		general.Infof("watching topology change for %s", deviceName)
-		go affinityProvider.WatchTopologyChanged(stopCh, topologyChangedCh, deviceName)
+		go func(name string, p DeviceAffinityProvider) {
+			general.Infof("watching topology change for %s", name)
+			ch := p.WatchTopologyChanged(stopCh)
+			for {
+				select {
+				case <-stopCh:
+					return
+				case <-ch:
+					select { // non-blocking send
+					case topologyChangedCh <- name:
+					default:
+						general.Infof("topology change dropped for device %s", name)
+					}
+				}
+			}
+		}(deviceName, affinityProvider)
 	}
+
+	ticker := time.NewTicker(resyncInterval)
+	defer ticker.Stop()
 
 	for {
 		select {
@@ -81,19 +93,42 @@ func (r *DeviceTopologyRegistry) runAffinityProviders(stopCh <-chan struct{}, in
 			return
 		case name := <-topologyChangedCh:
 			general.Infof("topology change is detected for device %s", name)
-
-			// Get the recent device topology and update it
-			lastDeviceTopology, ok := r.lastDeviceTopologies[name]
-			if !ok {
-				general.Errorf("no last device topology for device %q when running affinity providers", name)
-				continue
-			}
-
-			if err := r.SetDeviceTopology(name, lastDeviceTopology); err != nil {
-				general.Errorf("failed to set new device topology for device %q: %v", name, err)
+			r.updateTopology(name)
+		case <-ticker.C:
+			// Periodically resync all devices in case change events were dropped
+			for name := range r.deviceTopologyAffinityProviders {
+				r.updateTopology(name)
 			}
 		}
 	}
+}
+
+func (r *DeviceTopologyRegistry) getLastTopology(deviceName string) (*DeviceTopology, error) {
+	r.mux.RLock()
+	defer r.mux.RUnlock()
+
+	lastDeviceTopology, ok := r.lastDeviceTopologies[deviceName]
+	if !ok {
+		return nil, fmt.Errorf("no last device topology for device %q", deviceName)
+	}
+
+	return lastDeviceTopology, nil
+}
+
+// updateTopology retrieves current cached topology for the device and updates the topology
+func (r *DeviceTopologyRegistry) updateTopology(deviceName string) {
+	// Get the recent device topology and update it
+	lastDeviceTopology, err := r.getLastTopology(deviceName)
+	if err != nil {
+		general.Errorf("no last device topology for device %q when updating topology", deviceName)
+		return
+	}
+
+	if err = r.SetDeviceTopology(deviceName, lastDeviceTopology); err != nil {
+		general.Errorf("failed to set new device topology for device %q: %v", deviceName, err)
+	}
+
+	general.Infof("successfully updated device topology for device %q", deviceName)
 }
 
 // RegisterDeviceTopologyProvider registers a device topology provider for the specified device name.

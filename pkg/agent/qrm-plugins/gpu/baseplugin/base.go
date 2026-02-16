@@ -61,8 +61,6 @@ type BasePlugin struct {
 
 	// Map of specific device name to device type
 	deviceNameToTypeMap map[string]string
-
-	initializedCh chan struct{}
 }
 
 func NewBasePlugin(
@@ -90,19 +88,13 @@ func NewBasePlugin(
 		DefaultResourceStateGeneratorRegistry: state.NewDefaultResourceStateGeneratorRegistry(),
 
 		deviceNameToTypeMap: make(map[string]string),
-		initializedCh:       make(chan struct{}),
 	}, nil
 }
 
 // Run starts the asynchronous tasks of the plugin
 func (p *BasePlugin) Run(stopCh <-chan struct{}) {
 	go p.reporter.Run(stopCh)
-	go p.DeviceTopologyRegistry.Run(stopCh, p.initializedCh)
-}
-
-// SetInitialized sends a signal through initializedCh when we have finished initializing all dependencies.
-func (p *BasePlugin) SetInitialized() {
-	close(p.initializedCh)
+	go p.DeviceTopologyRegistry.Run(stopCh)
 }
 
 // GetState may return a nil state because the state is only initialized when InitState is called.
@@ -254,6 +246,17 @@ func (p *BasePlugin) GetResourceTypeFromDeviceName(deviceName string) (string, e
 		return "", fmt.Errorf("no device type found for device name %s", deviceName)
 	}
 	return deviceType, nil
+}
+
+// ResolveResourceType takes in a resourceName and tries to find a mapping of resource type from deviceNameToTypeMap.
+// If no mapping is found, resourceName is returned as a fallback instead.
+func (p *BasePlugin) ResolveResourceType(resourceName string) string {
+	resourceType, ok := p.deviceNameToTypeMap[resourceName]
+	if !ok {
+		general.Infof("no device type found for resource %s", resourceName)
+		return resourceName
+	}
+	return resourceType
 }
 
 // RegisterTopologyAffinityProvider is a hook to set device affinity for a certain device type

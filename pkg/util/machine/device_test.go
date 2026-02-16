@@ -708,7 +708,6 @@ func TestDeviceTopologyRegistry_runAffinityProviders(t *testing.T) {
 	t.Parallel()
 
 	stopCh := make(chan struct{})
-	initializedCh := make(chan struct{})
 
 	// Set up the device topology registry and register the affinity provider stub
 	registry := NewDeviceTopologyRegistry()
@@ -717,9 +716,7 @@ func TestDeviceTopologyRegistry_runAffinityProviders(t *testing.T) {
 	registry.RegisterTopologyAffinityProvider("test", affinityProvider)
 	registry.lastDeviceTopologies["test"] = &DeviceTopology{}
 
-	go registry.runAffinityProviders(stopCh, initializedCh)
-
-	close(initializedCh)
+	go registry.runAffinityProviders(stopCh)
 
 	time.Sleep(50 * time.Millisecond) // small delay to ensure watcher is ready
 

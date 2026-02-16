@@ -149,9 +149,6 @@ func (p *StaticPolicy) Start() (err error) {
 		periodicalhandler.ReadyToStartHandlersByGroup(appqrm.QRMGPUPluginPeriodicalHandlerGroupName)
 	}, 5*time.Second, p.stopCh)
 
-	// Run the asynchronous tasks of the base plugin
-	go p.Run(p.stopCh)
-
 	return nil
 }
 
@@ -198,6 +195,7 @@ func (p *StaticPolicy) ensureState(resourceName string) error {
 		return nil
 	}
 
+	resourceName = p.ResolveResourceType(resourceName)
 	// Check if resource exists in state
 	machineState := p.GetState().GetMachineState()
 	if _, ok := machineState[v1.ResourceName(resourceName)]; !ok {
