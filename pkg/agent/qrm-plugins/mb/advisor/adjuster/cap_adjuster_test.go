@@ -39,8 +39,8 @@ func Test_capAdjuster_AdjustOutgoingTargets(t *testing.T) {
 	mInner.On("AdjustOutgoingTargets", []int{10_000, 10_000}, []int{20_000, 5_000}).Return([]int{5_000, 20_000})
 
 	type fields struct {
-		percentProportionLimit int
-		inner                  Adjuster
+		minPercentProportion int
+		inner                Adjuster
 	}
 	type args struct {
 		targets  []int
@@ -53,16 +53,16 @@ func Test_capAdjuster_AdjustOutgoingTargets(t *testing.T) {
 		want   []int
 	}{
 		{
-			name: "happy path",
+			name: "happy path of min 100% target",
 			fields: fields{
-				percentProportionLimit: 100,
-				inner:                  mInner,
+				minPercentProportion: 100,
+				inner:                mInner,
 			},
 			args: args{
 				targets:  []int{10_000, 10_000},
 				currents: []int{20_000, 5_000},
 			},
-			want: []int{5_000, 10_000},
+			want: []int{10_000, 20_000},
 		},
 	}
 	for _, tt := range tests {
@@ -70,8 +70,8 @@ func Test_capAdjuster_AdjustOutgoingTargets(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			c := &capAdjuster{
-				percentProportionLimit: tt.fields.percentProportionLimit,
-				inner:                  tt.fields.inner,
+				minPercentProportion: tt.fields.minPercentProportion,
+				inner:                tt.fields.inner,
 			}
 			if got := c.AdjustOutgoingTargets(tt.args.targets, tt.args.currents); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("AdjustOutgoingTargets() = %v, want %v", got, tt.want)

@@ -16,17 +16,17 @@ limitations under the License.
 
 package adjuster
 
-// capAdjuster ensures the resultant settings never exceed the targets by specific portion
+// capAdjuster ensures the resultant settings at least certain portion of the targets
 type capAdjuster struct {
-	percentProportionLimit int
-	inner                  Adjuster
+	minPercentProportion int
+	inner                Adjuster
 }
 
 func (p *capAdjuster) AdjustOutgoingTargets(targets []int, currents []int) []int {
 	results := p.inner.AdjustOutgoingTargets(targets, currents)
 	for i := range results {
-		if results[i] > targets[i]*p.percentProportionLimit/100 {
-			results[i] = targets[i] * p.percentProportionLimit / 100
+		if minValue := targets[i] * p.minPercentProportion / 100; results[i] < minValue {
+			results[i] = minValue
 		}
 	}
 	return results

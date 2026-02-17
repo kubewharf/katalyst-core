@@ -30,7 +30,7 @@ func New(capPercent int) Adjuster {
 	}
 
 	return &capAdjuster{
-		percentProportionLimit: capPercent,
-		inner:                  &feedbackAdjuster{},
+		minPercentProportion: capPercent,
+		inner:                &feedbackAdjuster{},
 	}
 }
