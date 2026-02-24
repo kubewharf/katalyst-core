@@ -188,7 +188,7 @@ func (p *gpuReporterPlugin) GetReportContent(_ context.Context, _ *v1alpha1.Empt
 	}
 
 	generatedTopologyZones := topologyZoneGenerator.GenerateTopologyZoneStatus(nil, nil,
-		zoneAttributes, nil, nil)
+		zoneAttributes, nil, nil, nil)
 
 	propertyValues, err := json.Marshal(&resourceProperty)
 	if err != nil {
