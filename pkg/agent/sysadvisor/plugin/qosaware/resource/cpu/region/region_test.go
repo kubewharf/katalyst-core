@@ -174,14 +174,14 @@ func TestIsNumaBinding(t *testing.T) {
 		QoSLevel:    consts.PodAnnotationQoSLevelSharedCores,
 		RegionNames: sets.NewString("share-NUMA1"),
 	}
-	share := NewQoSRegionShare(&ci, conf, nil, 1, metaCache, metaServer, metrics.DummyMetrics{}, nil)
+	share := NewQoSRegionShare(&ci, conf, nil, 1, metaCache, metaServer, metrics.DummyMetrics{})
 	require.True(t, share.IsNumaBinding(), "test IsNumaBinding failed")
 
 	ci2 := types.ContainerInfo{
 		QoSLevel:    consts.PodAnnotationQoSLevelSharedCores,
 		RegionNames: sets.NewString("share"),
 	}
-	share2 := NewQoSRegionShare(&ci2, conf, nil, commonstate.FakedNUMAID, metaCache, metaServer, metrics.DummyMetrics{}, nil)
+	share2 := NewQoSRegionShare(&ci2, conf, nil, commonstate.FakedNUMAID, metaCache, metaServer, metrics.DummyMetrics{})
 	require.False(t, share2.IsNumaBinding(), "test IsNumaBinding failed")
 
 	ci3 := types.ContainerInfo{
@@ -189,7 +189,7 @@ func TestIsNumaBinding(t *testing.T) {
 		RegionNames: sets.NewString("isolation-NUMA1-1"),
 		Isolated:    true,
 	}
-	isolation1 := NewQoSRegionIsolation(&ci3, "isolation-1", conf, nil, 1, metaCache, metaServer, metrics.DummyMetrics{}, nil)
+	isolation1 := NewQoSRegionIsolation(&ci3, "isolation-1", conf, nil, 1, metaCache, metaServer, metrics.DummyMetrics{})
 	require.True(t, isolation1.IsNumaBinding(), "test IsNumaBinding failed")
 
 	ci4 := types.ContainerInfo{
@@ -197,7 +197,7 @@ func TestIsNumaBinding(t *testing.T) {
 		RegionNames: sets.NewString("isolation-1"),
 		Isolated:    true,
 	}
-	isolation2 := NewQoSRegionIsolation(&ci4, "isolation-1", conf, nil, commonstate.FakedNUMAID, metaCache, metaServer, metrics.DummyMetrics{}, nil)
+	isolation2 := NewQoSRegionIsolation(&ci4, "isolation-1", conf, nil, commonstate.FakedNUMAID, metaCache, metaServer, metrics.DummyMetrics{})
 	require.False(t, isolation2.IsNumaBinding(), "test IsNumaBinding failed")
 }
 
@@ -253,7 +253,7 @@ func TestRestrictProvisionControlKnob(t *testing.T) {
 				QoSLevel:    consts.PodAnnotationQoSLevelSharedCores,
 				RegionNames: sets.NewString("share"),
 			}
-			share := NewQoSRegionShare(&ci, conf, nil, commonstate.FakedNUMAID, metaCache, metaServer, metrics.DummyMetrics{}, nil)
+			share := NewQoSRegionShare(&ci, conf, nil, commonstate.FakedNUMAID, metaCache, metaServer, metrics.DummyMetrics{})
 			restrictedControlKnobs := share.(*QoSRegionShare).restrictProvisionControlKnob(tt.originControlKnob)
 			assert.Equal(t, tt.wantControlKnob, restrictedControlKnobs)
 		})

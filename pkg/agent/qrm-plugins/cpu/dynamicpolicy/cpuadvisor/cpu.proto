@@ -110,9 +110,32 @@ message ContainerAllocationInfoEntries {
   map<string, ContainerAllocationInfo> entries = 1; // keyed by pool name or podUID
 }
 
+// ResourcePackageItemConfig describes per-resource-package configuration on a specific NUMA node.
+// Currently it carries pinned cpuset for the package. It is designed to be extensible.
+message ResourcePackageItemConfig {
+  // pinned_cpuset is the pinned CPUSet string for the resource package on the specific NUMA node.
+  // The format follows existing cpuset string convention used in this proto (e.g. "0-3,8-11").
+  string pinned_cpuset = 1;
+}
+
+// NumaResourcePackageConfig describes resource package configuration for one NUMA node.
+message NumaResourcePackageConfig {
+  // packages is keyed by resource package name.
+  map<string, ResourcePackageItemConfig> packages = 1;
+}
+
+// ResourcePackageConfig describes node-level resource package configurations organized by NUMA node.
+message ResourcePackageConfig {
+  // numa_resource_packages is keyed by NUMA id.
+  map<uint64, NumaResourcePackageConfig> numa_resource_packages = 1;
+}
+
 message GetAdviceRequest {
   map<string, ContainerAllocationInfoEntries> entries = 1; // keyed by pool name or podUID
   map<string, advisorsvc.FeatureGate> wanted_feature_gates = 2; // keyed by feature gate name
+  // resource_package_config carries resource package related configurations (e.g. pinned cpuset)
+  // from cpu plugin to sysadvisor.
+  ResourcePackageConfig resource_package_config = 3;
 }
 
 

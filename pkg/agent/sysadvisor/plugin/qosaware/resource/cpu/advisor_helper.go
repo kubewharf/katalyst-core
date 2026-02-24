@@ -227,7 +227,11 @@ func (cra *cpuResourceAdvisor) getNumasReservedForAllocate(numas machine.CPUSet)
 	return float64(reserved.Value()*int64(numas.Size())) / float64(cra.metaServer.NumNUMANodes)
 }
 
-func (cra *cpuResourceAdvisor) getRegionMaxRequirement(r region.QoSRegion, allPinnedCPUSets map[int]int) float64 {
+func (cra *cpuResourceAdvisor) getRegionMaxRequirement(
+	r region.QoSRegion,
+	pinnedCPUSizeByNuma map[int]int,
+	pinnedCPUSizeByPackageByNuma map[string]map[int]int,
+) float64 {
 	res := 0.0
 	switch r.Type() {
 	case configapi.QoSRegionTypeIsolation:
@@ -256,16 +260,21 @@ func (cra *cpuResourceAdvisor) getRegionMaxRequirement(r region.QoSRegion, allPi
 			res = general.MaxFloat64(1, res)
 		}
 	default:
-		pinnedCPUSetInfo := r.GetPinnedCPUSetInfo()
+		pkgName := r.GetResourcePackageName()
 		for _, numaID := range r.GetBindingNumas().ToSliceInt() {
-			if pinnedCPUSetInfo != nil {
-				res += float64(pinnedCPUSetInfo.NUMASize[numaID] - cra.reservedForReclaim[numaID])
-			} else {
-				if pinnedCPUSet, ok := allPinnedCPUSets[numaID]; ok {
-					res += float64(cra.numaAvailable[numaID] - pinnedCPUSet - cra.reservedForReclaim[numaID])
-				} else {
-					res += float64(cra.numaAvailable[numaID] - cra.reservedForReclaim[numaID])
+			if pkgName != "" {
+				if byNuma, ok := pinnedCPUSizeByPackageByNuma[pkgName]; ok {
+					if pinnedCPUSize, ok := byNuma[numaID]; ok {
+						res += float64(pinnedCPUSize)
+						continue
+					}
 				}
+			}
+
+			if pinnedCPUSize, ok := pinnedCPUSizeByNuma[numaID]; ok {
+				res += float64(cra.numaAvailable[numaID] - pinnedCPUSize - cra.reservedForReclaim[numaID])
+			} else {
+				res += float64(cra.numaAvailable[numaID] - cra.reservedForReclaim[numaID])
 			}
 		}
 	}

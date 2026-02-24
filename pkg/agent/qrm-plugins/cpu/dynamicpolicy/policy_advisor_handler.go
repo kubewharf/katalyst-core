@@ -323,9 +323,30 @@ func (p *DynamicPolicy) createGetAdviceRequest() (*advisorapi.GetAdviceRequest, 
 
 	general.InfofV(6, "CPU plugin desire negotiation feature gates: %#v", wantedFeatureGates)
 
+	machineState := p.state.GetMachineState()
+	numaResourcePackagePinnedCPUSet := machineState.GetNUMAResourcePackagePinnedCPUSet()
+	var resourcePackageConfig *advisorapi.ResourcePackageConfig
+	if len(numaResourcePackagePinnedCPUSet) > 0 {
+		resourcePackageConfig = &advisorapi.ResourcePackageConfig{
+			NumaResourcePackages: make(map[uint64]*advisorapi.NumaResourcePackageConfig),
+		}
+		for numaID, pkgPinnedCPUSet := range numaResourcePackagePinnedCPUSet {
+			numaConfig := &advisorapi.NumaResourcePackageConfig{
+				Packages: make(map[string]*advisorapi.ResourcePackageItemConfig),
+			}
+			for pkgName, pinnedCPUSet := range pkgPinnedCPUSet {
+				numaConfig.Packages[pkgName] = &advisorapi.ResourcePackageItemConfig{
+					PinnedCpuset: pinnedCPUSet.String(),
+				}
+			}
+			resourcePackageConfig.NumaResourcePackages[uint64(numaID)] = numaConfig
+		}
+	}
+
 	return &advisorapi.GetAdviceRequest{
-		Entries:            chkEntries,
-		WantedFeatureGates: wantedFeatureGates,
+		Entries:               chkEntries,
+		WantedFeatureGates:    wantedFeatureGates,
+		ResourcePackageConfig: resourcePackageConfig,
 	}, nil
 }
 

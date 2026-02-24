@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -30,6 +31,7 @@ import (
 	borweinutils "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/inference/models/borwein/utils"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 func TestMetaCacheImp_GetFilteredInferenceResult(t *testing.T) {
@@ -296,4 +298,58 @@ func TestRangeAndDeleteContainerWithSafeTime(t *testing.T) {
 	}, time.Now().UnixNano()), "failed to skip range and delete container with safe time")
 	require.Equal(t, 0, len(mc.podEntries), "failed to delete container before safe time")
 	require.Equal(t, 0, len(mc.containerCreateTimestamp), "failed to delete container create timestamp before safe time")
+}
+
+func TestMetaCacheImp_ResourcePackageConfig_GetSetClone(t *testing.T) {
+	t.Parallel()
+
+	mc := &MetaCacheImp{
+		resourcePackageConfig: make(types.ResourcePackageConfig),
+	}
+
+	original := types.ResourcePackageConfig{
+		0: map[string]machine.CPUSet{
+			"pkgA": machine.NewCPUSet(0, 1, 2),
+		},
+	}
+
+	require.NoError(t, mc.SetResourcePackageConfig(original))
+
+	original[0]["pkgA"] = machine.NewCPUSet(99)
+	stored := mc.GetResourcePackageConfig()
+	require.Equal(t, 3, stored[0]["pkgA"].Size())
+
+	stored[0]["pkgA"] = machine.NewCPUSet(100)
+	stored2 := mc.GetResourcePackageConfig()
+	require.Equal(t, 3, stored2[0]["pkgA"].Size())
+}
+
+func TestMetaCacheImp_ResourcePackageConfig_ConcurrentAccess(t *testing.T) {
+	t.Parallel()
+
+	mc := &MetaCacheImp{
+		resourcePackageConfig: make(types.ResourcePackageConfig),
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			cfg := types.ResourcePackageConfig{
+				i % 2: map[string]machine.CPUSet{
+					"pkgA": machine.NewCPUSet(i, i+1),
+				},
+			}
+			_ = mc.SetResourcePackageConfig(cfg)
+		}(i)
+	}
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = mc.GetResourcePackageConfig()
+		}()
+	}
+	wg.Wait()
 }

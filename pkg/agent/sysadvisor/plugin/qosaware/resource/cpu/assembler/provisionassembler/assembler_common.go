@@ -201,19 +201,29 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 	result *types.InternalCPUCalculationResult,
 ) error {
 	shareRegions := regionHelper.GetRegions(numaID, configapi.QoSRegionTypeShare)
-	unpinnedShareRegionInfo, pinnedShareRegionInfos, err := extractShareRegionInfo(shareRegions)
+	var numaSet machine.CPUSet
+	if numaID == commonstate.FakedNUMAID {
+		numaSet = *pa.nonBindingNumas
+	} else {
+		numaSet = machine.NewCPUSet(numaID)
+	}
+
+	pinnedCPUSizeByPkg := pa.getPinnedCPUSizeByPackage(numaSet)
+	totalPinnedCPUSize := general.SumUpMapValues(pinnedCPUSizeByPkg)
+
+	unpinnedShareRegionInfo, pinnedShareRegionInfos, err := extractShareRegionInfo(shareRegions, pinnedCPUSizeByPkg)
 	if err != nil {
 		return err
 	}
 
 	isolationRegions := regionHelper.GetRegions(numaID, configapi.QoSRegionTypeIsolation)
-	unpinnedIsolationInfo, pinnedIsolationInfo, err := extractIsolationRegionInfo(isolationRegions)
+	unpinnedIsolationInfo, pinnedIsolationInfo, err := extractIsolationRegionInfo(isolationRegions, pinnedCPUSizeByPkg)
 	if err != nil {
 		return err
 	}
 
 	dedicatedRegions := regionHelper.GetRegions(numaID, configapi.QoSRegionTypeDedicated)
-	unpinnedDedicatedInfo, pinnedDedicatedInfo, err := extractDedicatedRegionInfo(dedicatedRegions)
+	unpinnedDedicatedInfo, pinnedDedicatedInfo, err := extractDedicatedRegionInfo(dedicatedRegions, pinnedCPUSizeByPkg)
 	if err != nil {
 		return err
 	}
@@ -224,13 +234,6 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 	}
 
 	nodeEnableReclaim := pa.conf.GetDynamicConfiguration().EnableReclaim
-
-	var numaSet machine.CPUSet
-	if numaID == commonstate.FakedNUMAID {
-		numaSet = *pa.nonBindingNumas
-	} else {
-		numaSet = machine.NewCPUSet(numaID)
-	}
 
 	reservedForReclaim := getNUMAsResource(*pa.reservedForReclaim, numaSet)
 	shareAndIsolatedDedicatedPoolAvailable := getNUMAsResource(*pa.numaAvailable, numaSet)
@@ -274,12 +277,13 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 	isolationInfo := initIsolationRegionInfo()
 	dedicatedInfo := initRegionInfo()
 	shareAndIsolateDedicatedPoolSizes := make(map[string]int)
-	unpinnedShareAndIsolatedDedicatedPoolAvailable := shareAndIsolatedDedicatedPoolAvailable
+	unpinnedShareAndIsolatedDedicatedPoolAvailable := general.Max(0, shareAndIsolatedDedicatedPoolAvailable-totalPinnedCPUSize)
 	pinnedCPUSetAllInfo := getPinnedCPUSetAllRegionInfo(pinnedShareRegionInfos, pinnedIsolationInfo, pinnedDedicatedInfo)
 
 	// first calculate share and isolate dedicated pool sizes for each pinned region
 	for pkgName, allInfo := range pinnedCPUSetAllInfo {
-		poolSizes := getShareAndIsolateDedicatedPoolSizesFunc(allInfo.pinnedCPUSize, allInfo.shareRegionInfo, allInfo.dedicatedRegionInfos, allInfo.isolationRegionInfo)
+		pinnedCPUSize := pinnedCPUSizeByPkg[pkgName]
+		poolSizes := getShareAndIsolateDedicatedPoolSizesFunc(pinnedCPUSize, allInfo.shareRegionInfo, allInfo.dedicatedRegionInfos, allInfo.isolationRegionInfo)
 		for poolName, size := range poolSizes {
 			shareAndIsolateDedicatedPoolSizes[poolName] = size
 		}
@@ -287,7 +291,6 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 		shareInfo.merge(allInfo.shareRegionInfo)
 		isolationInfo.merge(allInfo.isolationRegionInfo)
 		dedicatedInfo.merge(allInfo.dedicatedRegionInfos)
-		unpinnedShareAndIsolatedDedicatedPoolAvailable -= allInfo.pinnedCPUSize
 
 		general.InfoS("pinned pool info",
 			"numaID", numaID,
@@ -295,7 +298,7 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 			"shareRegionInfo", allInfo.shareRegionInfo,
 			"isolationRegionInfo", allInfo.isolationRegionInfo,
 			"dedicatedRegionInfos", allInfo.dedicatedRegionInfos,
-			"pinnedCPUSize", allInfo.pinnedCPUSize,
+			"pinnedCPUSize", pinnedCPUSize,
 			"poolSizes", poolSizes)
 	}
 
@@ -359,192 +362,24 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 		}
 	}
 
-	// assemble reclaim pool
-	var reclaimedCoresSize, overlapReclaimedCoresSize int
-	reclaimedCoresQuota := float64(-1)
-	if *pa.allowSharedCoresOverlapReclaimedCores {
-		isolated := 0
-		poolSizes := make(map[string]int)
-		sharePoolSizes := make(map[string]int)
-		reclaimablePoolSizes := make(map[string]int)
-		nonReclaimableSharePoolSizes := make(map[string]int)
-		reclaimableShareRequirements := make(map[string]int)
-		reclaimableRequirements := make(map[string]int)
-		for poolName, size := range shareAndIsolateDedicatedPoolSizes {
-			_, ok := shareInfo.requirements[poolName]
-			if ok {
-				if shareInfo.reclaimEnable[poolName] {
-					reclaimablePoolSizes[poolName] = size
-					reclaimableShareRequirements[poolName] = shareInfo.requirements[poolName]
-					reclaimableRequirements[poolName] = shareInfo.requirements[poolName]
-				} else {
-					nonReclaimableSharePoolSizes[poolName] = size
-				}
-				poolSizes[poolName] = size
-				sharePoolSizes[poolName] = size
-			}
-
-			_, ok = isolationInfo.isolationUpperSizes[poolName]
-			if ok {
-				isolated += size
-			}
-
-			_, ok = dedicatedInfo.requests[poolName]
-			if ok {
-				if dedicatedInfo.reclaimEnable[poolName] {
-					reclaimablePoolSizes[poolName] = size
-					reclaimableRequirements[poolName] = dedicatedInfo.requirements[poolName]
-				}
-				poolSizes[poolName] = size
-			}
-		}
-
-		overlapReclaimSize := make(map[string]int)
-		// shareReclaimCoresSize is the size of cores that can be reclaimed from share pools
-		shareReclaimCoresSize := shareAndIsolatedDedicatedPoolAvailable - isolated -
-			general.SumUpMapValues(nonReclaimableSharePoolSizes) - general.SumUpMapValues(reclaimableShareRequirements) -
-			general.SumUpMapValues(dedicatedPoolSizes)
-		if nodeEnableReclaim {
-			reclaimedCoresSize = shareReclaimCoresSize + dedicatedReclaimCoresSize
-			if reclaimedCoresSize < reservedForReclaim {
-				reclaimedCoresSize = reservedForReclaim
-				regulatedOverlapReclaimPoolSize, err := regulateOverlapReclaimPoolSize(poolSizes, reclaimedCoresSize)
-				if err != nil {
-					return fmt.Errorf("failed to regulateOverlapReclaimPoolSize for NUMAs reserved for reclaim: %w", err)
-				}
-				overlapReclaimSize = regulatedOverlapReclaimPoolSize
-			} else {
-				for poolName, size := range reclaimablePoolSizes {
-					requirement, ok := reclaimableRequirements[poolName]
-					if !ok {
-						continue
-					}
-
-					// calculate the reclaim size for each share pool by subtracting the share requirement from the share pool size
-					reclaimSize := size - requirement
-					if reclaimSize > 0 {
-						overlapReclaimSize[poolName] = reclaimSize
-					} else {
-						overlapReclaimSize[poolName] = 1
-					}
-				}
-			}
-		} else {
-			reclaimedCoresSize = reservedForReclaim
-			if len(poolSizes) > 0 && reclaimedCoresSize > shareReclaimCoresSize {
-				// only if reclaimedCoresSize > shareReclaimCoresSize, overlap reclaim pool with both share pool and dedicated pool
-				reclaimedCoresSize = general.Min(reclaimedCoresSize, general.SumUpMapValues(poolSizes))
-				var overlapSharePoolSizes map[string]int
-				if reclaimedCoresSize <= general.SumUpMapValues(reclaimablePoolSizes) {
-					overlapSharePoolSizes = reclaimablePoolSizes
-				} else {
-					overlapSharePoolSizes = poolSizes
-				}
-
-				reclaimSizes, err := regulateOverlapReclaimPoolSize(overlapSharePoolSizes, reclaimedCoresSize)
-				if err != nil {
-					return fmt.Errorf("failed to regulateOverlapReclaimPoolSize: %w", err)
-				}
-				overlapReclaimSize = reclaimSizes
-			} else if len(sharePoolSizes) > 0 && reclaimedCoresSize <= general.SumUpMapValues(sharePoolSizes) {
-				// if exit share pool, and reclaimedCoresSize <= sum of share pool size, overlap reclaim pool with share pool
-				reclaimSizes, err := regulateOverlapReclaimPoolSize(sharePoolSizes, reclaimedCoresSize)
-				if err != nil {
-					return fmt.Errorf("failed to regulateOverlapReclaimPoolSize: %w", err)
-				}
-				overlapReclaimSize = reclaimSizes
-			}
-		}
-
-		quotaCtrlKnobEnabled, err := metacache.IsQuotaCtrlKnobEnabled(pa.metaReader)
-		if err != nil {
-			return err
-		}
-
-		if quotaCtrlKnobEnabled && numaID != commonstate.FakedNUMAID && len(poolSizes) > 0 {
-			reclaimedCoresQuota = float64(general.Max(reservedForReclaim, reclaimedCoresSize))
-			if shareInfo.minReclaimedCoresCPUQuota != -1 || dedicatedInfo.minReclaimedCoresCPUQuota != -1 {
-				if shareInfo.minReclaimedCoresCPUQuota != -1 {
-					reclaimedCoresQuota = shareInfo.minReclaimedCoresCPUQuota
-				}
-
-				if dedicatedInfo.minReclaimedCoresCPUQuota != -1 {
-					reclaimedCoresQuota = general.MinFloat64(reclaimedCoresQuota, dedicatedInfo.minReclaimedCoresCPUQuota)
-				}
-
-				reclaimedCoresQuota = general.MaxFloat64(reclaimedCoresQuota, float64(reservedForReclaim))
-			}
-
-			// if cpu quota enabled, set all reclaimable share pool size to reclaimablePoolSizes
-			for poolName := range overlapReclaimSize {
-				overlapReclaimSize[poolName] = general.Max(overlapReclaimSize[poolName], reclaimablePoolSizes[poolName])
-			}
-		}
-
-		for overlapPoolName, reclaimSize := range overlapReclaimSize {
-			if _, ok := shareInfo.requests[overlapPoolName]; ok {
-				general.InfoS("set pool overlap info",
-					"poolName", commonstate.PoolNameReclaim,
-					"numaID", numaID,
-					"poolName", overlapPoolName,
-					"reclaimSize", reclaimSize)
-				result.SetPoolOverlapInfo(commonstate.PoolNameReclaim, numaID, overlapPoolName, reclaimSize)
-				overlapReclaimedCoresSize += reclaimSize
-				continue
-			}
-
-			if podSet, ok := dedicatedInfo.podSet[overlapPoolName]; ok {
-				// set pool overlap info for dedicated pool
-				for podUID, containerSet := range podSet {
-					for containerName := range containerSet {
-						general.InfoS("set pool overlap pod container info",
-							"poolName", commonstate.PoolNameReclaim,
-							"numaID", numaID,
-							"podUID", podUID,
-							"containerName", containerName,
-							"reclaimSize", reclaimSize)
-						result.SetPoolOverlapPodContainerInfo(commonstate.PoolNameReclaim, numaID, podUID, containerName, reclaimSize)
-					}
-				}
-				overlapReclaimedCoresSize += reclaimSize
-				continue
-			}
-		}
-	} else {
-		if nodeEnableReclaim {
-			for poolName, size := range dedicatedInfo.requests {
-				if dedicatedInfo.reclaimEnable[poolName] {
-					reclaimSize := size - dedicatedInfo.requirements[poolName]
-					if reclaimSize <= 0 {
-						continue
-					}
-					if podSet, ok := dedicatedInfo.podSet[poolName]; ok {
-						// set pool overlap info for dedicated pool
-						for podUID, containerSet := range podSet {
-							for containerName := range containerSet {
-								general.InfoS("set pool overlap pod container info",
-									"poolName", commonstate.PoolNameReclaim,
-									"numaID", numaID,
-									"podUID", podUID,
-									"containerName", containerName,
-									"reclaimSize", reclaimSize)
-								result.SetPoolOverlapPodContainerInfo(commonstate.PoolNameReclaim, numaID, podUID, containerName, reclaimSize)
-							}
-						}
-						overlapReclaimedCoresSize += reclaimSize
-						continue
-					}
-				}
-			}
-
-			shareReclaimedCoresSize := shareAndIsolatedDedicatedPoolAvailable - general.SumUpMapValues(shareAndIsolateDedicatedPoolSizes)
-			reclaimedCoresSize = shareReclaimedCoresSize + dedicatedReclaimCoresSize + reservedForReclaim
-		} else {
-			reclaimedCoresSize = reservedForReclaim
-		}
+	reclaimPoolData := &reclaimPoolCalculationData{
+		shareInfo:                              shareInfo,
+		isolationInfo:                          isolationInfo,
+		dedicatedInfo:                          dedicatedInfo,
+		shareAndIsolateDedicatedPoolSizes:      shareAndIsolateDedicatedPoolSizes,
+		dedicatedPoolSizes:                     dedicatedPoolSizes,
+		dedicatedReclaimCoresSize:              dedicatedReclaimCoresSize,
+		shareAndIsolatedDedicatedPoolAvailable: shareAndIsolatedDedicatedPoolAvailable,
+		reservedForReclaim:                     reservedForReclaim,
+		nodeEnableReclaim:                      nodeEnableReclaim,
+		numaID:                                 numaID,
 	}
 
-	// nonOverlapReclaimedCoresSize should be non-negative
+	reclaimedCoresSize, overlapReclaimedCoresSize, reclaimedCoresQuota, err := pa.calculateReclaimPool(reclaimPoolData, result)
+	if err != nil {
+		return err
+	}
+
 	nonOverlapReclaimedCoresSize := general.Max(reclaimedCoresSize-overlapReclaimedCoresSize, 0)
 	result.SetPoolEntry(commonstate.PoolNameReclaim, numaID, nonOverlapReclaimedCoresSize, reclaimedCoresQuota)
 
@@ -557,6 +392,225 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 		"reclaimedCoresQuota", reclaimedCoresQuota)
 
 	return nil
+}
+
+type reclaimPoolCalculationData struct {
+	shareInfo                              regionInfo
+	isolationInfo                          isolationRegionInfo
+	dedicatedInfo                          regionInfo
+	shareAndIsolateDedicatedPoolSizes      map[string]int
+	dedicatedPoolSizes                     map[string]int
+	dedicatedReclaimCoresSize              int
+	shareAndIsolatedDedicatedPoolAvailable int
+	reservedForReclaim                     int
+	nodeEnableReclaim                      bool
+	numaID                                 int
+}
+
+func (pa *ProvisionAssemblerCommon) calculateReclaimPool(
+	data *reclaimPoolCalculationData,
+	result *types.InternalCPUCalculationResult,
+) (int, int, float64, error) {
+	if *pa.allowSharedCoresOverlapReclaimedCores {
+		return pa.calculateOverlapReclaimPool(data, result)
+	}
+	return pa.calculateNonOverlapReclaimPool(data, result)
+}
+
+func (pa *ProvisionAssemblerCommon) calculateOverlapReclaimPool(
+	data *reclaimPoolCalculationData,
+	result *types.InternalCPUCalculationResult,
+) (int, int, float64, error) {
+	var reclaimedCoresSize, overlapReclaimedCoresSize int
+	reclaimedCoresQuota := float64(-1)
+
+	isolated := 0
+	poolSizes := make(map[string]int)
+	sharePoolSizes := make(map[string]int)
+	reclaimablePoolSizes := make(map[string]int)
+	nonReclaimableSharePoolSizes := make(map[string]int)
+	reclaimableShareRequirements := make(map[string]int)
+	reclaimableRequirements := make(map[string]int)
+
+	for poolName, size := range data.shareAndIsolateDedicatedPoolSizes {
+		_, ok := data.shareInfo.requirements[poolName]
+		if ok {
+			if data.shareInfo.reclaimEnable[poolName] {
+				reclaimablePoolSizes[poolName] = size
+				reclaimableShareRequirements[poolName] = data.shareInfo.requirements[poolName]
+				reclaimableRequirements[poolName] = data.shareInfo.requirements[poolName]
+			} else {
+				nonReclaimableSharePoolSizes[poolName] = size
+			}
+			poolSizes[poolName] = size
+			sharePoolSizes[poolName] = size
+		}
+
+		_, ok = data.isolationInfo.isolationUpperSizes[poolName]
+		if ok {
+			isolated += size
+		}
+
+		_, ok = data.dedicatedInfo.requests[poolName]
+		if ok {
+			if data.dedicatedInfo.reclaimEnable[poolName] {
+				reclaimablePoolSizes[poolName] = size
+				reclaimableRequirements[poolName] = data.dedicatedInfo.requirements[poolName]
+			}
+			poolSizes[poolName] = size
+		}
+	}
+
+	overlapReclaimSize := make(map[string]int)
+	shareReclaimCoresSize := data.shareAndIsolatedDedicatedPoolAvailable - isolated -
+		general.SumUpMapValues(nonReclaimableSharePoolSizes) - general.SumUpMapValues(reclaimableShareRequirements) -
+		general.SumUpMapValues(data.dedicatedPoolSizes)
+
+	if data.nodeEnableReclaim {
+		reclaimedCoresSize = shareReclaimCoresSize + data.dedicatedReclaimCoresSize
+		if reclaimedCoresSize < data.reservedForReclaim {
+			reclaimedCoresSize = data.reservedForReclaim
+			regulatedOverlapReclaimPoolSize, err := regulateOverlapReclaimPoolSize(poolSizes, reclaimedCoresSize)
+			if err != nil {
+				return 0, 0, 0, fmt.Errorf("failed to regulateOverlapReclaimPoolSize for NUMAs reserved for reclaim: %w", err)
+			}
+			overlapReclaimSize = regulatedOverlapReclaimPoolSize
+		} else {
+			for poolName, size := range reclaimablePoolSizes {
+				requirement, ok := reclaimableRequirements[poolName]
+				if !ok {
+					continue
+				}
+				reclaimSize := size - requirement
+				if reclaimSize > 0 {
+					overlapReclaimSize[poolName] = reclaimSize
+				} else {
+					overlapReclaimSize[poolName] = 1
+				}
+			}
+		}
+	} else {
+		reclaimedCoresSize = data.reservedForReclaim
+		if len(poolSizes) > 0 && reclaimedCoresSize > shareReclaimCoresSize {
+			reclaimedCoresSize = general.Min(reclaimedCoresSize, general.SumUpMapValues(poolSizes))
+			var overlapSharePoolSizes map[string]int
+			if reclaimedCoresSize <= general.SumUpMapValues(reclaimablePoolSizes) {
+				overlapSharePoolSizes = reclaimablePoolSizes
+			} else {
+				overlapSharePoolSizes = poolSizes
+			}
+
+			reclaimSizes, err := regulateOverlapReclaimPoolSize(overlapSharePoolSizes, reclaimedCoresSize)
+			if err != nil {
+				return 0, 0, 0, fmt.Errorf("failed to regulateOverlapReclaimPoolSize: %w", err)
+			}
+			overlapReclaimSize = reclaimSizes
+		} else if len(sharePoolSizes) > 0 && reclaimedCoresSize <= general.SumUpMapValues(sharePoolSizes) {
+			reclaimSizes, err := regulateOverlapReclaimPoolSize(sharePoolSizes, reclaimedCoresSize)
+			if err != nil {
+				return 0, 0, 0, fmt.Errorf("failed to regulateOverlapReclaimPoolSize: %w", err)
+			}
+			overlapReclaimSize = reclaimSizes
+		}
+	}
+
+	quotaCtrlKnobEnabled, err := metacache.IsQuotaCtrlKnobEnabled(pa.metaReader)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	if quotaCtrlKnobEnabled && data.numaID != commonstate.FakedNUMAID && len(poolSizes) > 0 {
+		reclaimedCoresQuota = float64(general.Max(data.reservedForReclaim, reclaimedCoresSize))
+		if data.shareInfo.minReclaimedCoresCPUQuota != -1 || data.dedicatedInfo.minReclaimedCoresCPUQuota != -1 {
+			if data.shareInfo.minReclaimedCoresCPUQuota != -1 {
+				reclaimedCoresQuota = data.shareInfo.minReclaimedCoresCPUQuota
+			}
+
+			if data.dedicatedInfo.minReclaimedCoresCPUQuota != -1 {
+				reclaimedCoresQuota = general.MinFloat64(reclaimedCoresQuota, data.dedicatedInfo.minReclaimedCoresCPUQuota)
+			}
+
+			reclaimedCoresQuota = general.MaxFloat64(reclaimedCoresQuota, float64(data.reservedForReclaim))
+		}
+
+		// if cpu quota enabled, set all reclaimable share pool size to reclaimablePoolSizes
+		for poolName := range overlapReclaimSize {
+			overlapReclaimSize[poolName] = general.Max(overlapReclaimSize[poolName], reclaimablePoolSizes[poolName])
+		}
+	}
+
+	for overlapPoolName, reclaimSize := range overlapReclaimSize {
+		if _, ok := data.shareInfo.requests[overlapPoolName]; ok {
+			general.InfoS("set pool overlap info",
+				"poolName", commonstate.PoolNameReclaim,
+				"numaID", data.numaID,
+				"poolName", overlapPoolName,
+				"reclaimSize", reclaimSize)
+			result.SetPoolOverlapInfo(commonstate.PoolNameReclaim, data.numaID, overlapPoolName, reclaimSize)
+			overlapReclaimedCoresSize += reclaimSize
+			continue
+		}
+
+		if podSet, ok := data.dedicatedInfo.podSet[overlapPoolName]; ok {
+			// set pool overlap info for dedicated pool
+			for podUID, containerSet := range podSet {
+				for containerName := range containerSet {
+					general.InfoS("set pool overlap pod container info",
+						"poolName", commonstate.PoolNameReclaim,
+						"numaID", data.numaID,
+						"podUID", podUID,
+						"containerName", containerName,
+						"reclaimSize", reclaimSize)
+					result.SetPoolOverlapPodContainerInfo(commonstate.PoolNameReclaim, data.numaID, podUID, containerName, reclaimSize)
+				}
+			}
+			overlapReclaimedCoresSize += reclaimSize
+			continue
+		}
+	}
+
+	return reclaimedCoresSize, overlapReclaimedCoresSize, reclaimedCoresQuota, nil
+}
+
+func (pa *ProvisionAssemblerCommon) calculateNonOverlapReclaimPool(
+	data *reclaimPoolCalculationData,
+	result *types.InternalCPUCalculationResult,
+) (int, int, float64, error) {
+	var reclaimedCoresSize, overlapReclaimedCoresSize int
+	reclaimedCoresQuota := float64(-1)
+
+	if data.nodeEnableReclaim {
+		for poolName, size := range data.dedicatedInfo.requests {
+			if data.dedicatedInfo.reclaimEnable[poolName] {
+				reclaimSize := size - data.dedicatedInfo.requirements[poolName]
+				if reclaimSize <= 0 {
+					continue
+				}
+				if podSet, ok := data.dedicatedInfo.podSet[poolName]; ok {
+					for podUID, containerSet := range podSet {
+						for containerName := range containerSet {
+							general.InfoS("set pool overlap pod container info",
+								"poolName", commonstate.PoolNameReclaim,
+								"numaID", data.numaID,
+								"podUID", podUID,
+								"containerName", containerName,
+								"reclaimSize", reclaimSize)
+							result.SetPoolOverlapPodContainerInfo(commonstate.PoolNameReclaim, data.numaID, podUID, containerName, reclaimSize)
+						}
+					}
+					overlapReclaimedCoresSize += reclaimSize
+					continue
+				}
+			}
+		}
+
+		shareReclaimedCoresSize := data.shareAndIsolatedDedicatedPoolAvailable - general.SumUpMapValues(data.shareAndIsolateDedicatedPoolSizes)
+		reclaimedCoresSize = shareReclaimedCoresSize + data.dedicatedReclaimCoresSize + data.reservedForReclaim
+	} else {
+		reclaimedCoresSize = data.reservedForReclaim
+	}
+
+	return reclaimedCoresSize, overlapReclaimedCoresSize, reclaimedCoresQuota, nil
 }
 
 // regionInfo is a struct that contains region information
@@ -608,14 +662,32 @@ func initRegionInfo() regionInfo {
 	}
 }
 
-type pinnedCPUSetRegionInfo struct {
-	regionInfo
-	pinnedCPUSize int
+func (pa *ProvisionAssemblerCommon) getPinnedCPUSizeByPackage(numaSet machine.CPUSet) map[string]int {
+	pinnedCPUSizeByPkg := make(map[string]int)
+
+	cfg := pa.metaReader.GetResourcePackageConfig()
+	if len(cfg) > 0 {
+		for _, numaID := range numaSet.ToSliceInt() {
+			pkgMap, ok := cfg[numaID]
+			if !ok {
+				continue
+			}
+			for pkgName, pinnedCPUSet := range pkgMap {
+				size := pinnedCPUSet.Size()
+				if size <= 0 {
+					continue
+				}
+				pinnedCPUSizeByPkg[pkgName] += size
+			}
+		}
+		return pinnedCPUSizeByPkg
+	}
+	return pinnedCPUSizeByPkg
 }
 
-func extractShareRegionInfo(shareRegions []region.QoSRegion) (regionInfo, map[string]*pinnedCPUSetRegionInfo, error) {
+func extractShareRegionInfo(shareRegions []region.QoSRegion, pinnedCPUSizeByPkg map[string]int) (regionInfo, map[string]*regionInfo, error) {
 	unpinnedRegionInfo := initRegionInfo()
-	pinnedRegionInfos := make(map[string]*pinnedCPUSetRegionInfo)
+	pinnedRegionInfos := make(map[string]*regionInfo)
 
 	for _, r := range shareRegions {
 		controlKnob, err := r.GetProvision()
@@ -624,19 +696,15 @@ func extractShareRegionInfo(shareRegions []region.QoSRegion) (regionInfo, map[st
 		}
 
 		ri := &unpinnedRegionInfo
-		if pinnedCPUSetInfo := r.GetPinnedCPUSetInfo(); pinnedCPUSetInfo != nil {
-			pinnedCPUSize := 0
-			for _, size := range pinnedCPUSetInfo.NUMASize {
-				pinnedCPUSize += size
-			}
-
-			if _, ok := pinnedRegionInfos[pinnedCPUSetInfo.PackageName]; !ok {
-				pinnedRegionInfos[pinnedCPUSetInfo.PackageName] = &pinnedCPUSetRegionInfo{
-					regionInfo:    initRegionInfo(),
-					pinnedCPUSize: pinnedCPUSize,
+		pkgName := r.GetResourcePackageName()
+		if pkgName != "" {
+			if _, ok := pinnedCPUSizeByPkg[pkgName]; ok {
+				if _, exists := pinnedRegionInfos[pkgName]; !exists {
+					info := initRegionInfo()
+					pinnedRegionInfos[pkgName] = &info
 				}
+				ri = pinnedRegionInfos[pkgName]
 			}
-			ri = &pinnedRegionInfos[pinnedCPUSetInfo.PackageName].regionInfo
 		}
 
 		ri.requirements[r.OwnerPoolName()] = general.Max(1, int(controlKnob[configapi.ControlKnobNonReclaimedCPURequirement].Value))
@@ -687,14 +755,9 @@ func initIsolationRegionInfo() isolationRegionInfo {
 	}
 }
 
-type pinnedCPUSetIsolationRegionInfo struct {
-	isolationRegionInfo
-	pinnedCPUSize int
-}
-
-func extractIsolationRegionInfo(isolationRegions []region.QoSRegion) (isolationRegionInfo, map[string]*pinnedCPUSetIsolationRegionInfo, error) {
+func extractIsolationRegionInfo(isolationRegions []region.QoSRegion, pinnedCPUSizeByPkg map[string]int) (isolationRegionInfo, map[string]*isolationRegionInfo, error) {
 	unpinnedRegionInfo := initIsolationRegionInfo()
-	pinnedRegionInfos := make(map[string]*pinnedCPUSetIsolationRegionInfo)
+	pinnedRegionInfos := make(map[string]*isolationRegionInfo)
 
 	for _, r := range isolationRegions {
 		controlKnob, err := r.GetProvision()
@@ -703,22 +766,17 @@ func extractIsolationRegionInfo(isolationRegions []region.QoSRegion) (isolationR
 		}
 
 		ri := &unpinnedRegionInfo
-		if pinnedCPUSetInfo := r.GetPinnedCPUSetInfo(); pinnedCPUSetInfo != nil {
-			pinnedCPUSize := 0
-			for _, size := range pinnedCPUSetInfo.NUMASize {
-				pinnedCPUSize += size
-			}
-
-			if _, ok := pinnedRegionInfos[pinnedCPUSetInfo.PackageName]; !ok {
-				pinnedRegionInfos[pinnedCPUSetInfo.PackageName] = &pinnedCPUSetIsolationRegionInfo{
-					isolationRegionInfo: initIsolationRegionInfo(),
-					pinnedCPUSize:       pinnedCPUSize,
+		pkgName := r.GetResourcePackageName()
+		if pkgName != "" {
+			if _, ok := pinnedCPUSizeByPkg[pkgName]; ok {
+				if _, exists := pinnedRegionInfos[pkgName]; !exists {
+					info := initIsolationRegionInfo()
+					pinnedRegionInfos[pkgName] = &info
 				}
+				ri = pinnedRegionInfos[pkgName]
 			}
-			ri = &pinnedRegionInfos[pinnedCPUSetInfo.PackageName].isolationRegionInfo
 		}
 
-		// save limits and requests for isolated region
 		ri.isolationUpperSizes[r.Name()] = int(controlKnob[configapi.ControlKnobNonIsolatedUpperCPUSize].Value)
 		ri.isolationLowerSizes[r.Name()] = int(controlKnob[configapi.ControlKnobNonIsolatedLowerCPUSize].Value)
 	}
@@ -726,9 +784,9 @@ func extractIsolationRegionInfo(isolationRegions []region.QoSRegion) (isolationR
 	return unpinnedRegionInfo, pinnedRegionInfos, nil
 }
 
-func extractDedicatedRegionInfo(regions []region.QoSRegion) (regionInfo, map[string]*pinnedCPUSetRegionInfo, error) {
+func extractDedicatedRegionInfo(regions []region.QoSRegion, pinnedCPUSizeByPkg map[string]int) (regionInfo, map[string]*regionInfo, error) {
 	unpinnedRegionInfo := initRegionInfo()
-	pinnedRegionInfos := make(map[string]*pinnedCPUSetRegionInfo)
+	pinnedRegionInfos := make(map[string]*regionInfo)
 
 	for _, r := range regions {
 		if r.IsNumaExclusive() {
@@ -741,19 +799,15 @@ func extractDedicatedRegionInfo(regions []region.QoSRegion) (regionInfo, map[str
 		}
 
 		ri := &unpinnedRegionInfo
-		if pinnedCPUSetInfo := r.GetPinnedCPUSetInfo(); pinnedCPUSetInfo != nil {
-			pinnedCPUSize := 0
-			for _, size := range pinnedCPUSetInfo.NUMASize {
-				pinnedCPUSize += size
-			}
-
-			if _, ok := pinnedRegionInfos[pinnedCPUSetInfo.PackageName]; !ok {
-				pinnedRegionInfos[pinnedCPUSetInfo.PackageName] = &pinnedCPUSetRegionInfo{
-					regionInfo:    initRegionInfo(),
-					pinnedCPUSize: pinnedCPUSize,
+		pkgName := r.GetResourcePackageName()
+		if pkgName != "" {
+			if _, ok := pinnedCPUSizeByPkg[pkgName]; ok {
+				if _, exists := pinnedRegionInfos[pkgName]; !exists {
+					info := initRegionInfo()
+					pinnedRegionInfos[pkgName] = &info
 				}
+				ri = pinnedRegionInfos[pkgName]
 			}
-			ri = &pinnedRegionInfos[pinnedCPUSetInfo.PackageName].regionInfo
 		}
 
 		regionName := r.Name()
@@ -784,7 +838,6 @@ type pinnedCPUSetAllRegionInfo struct {
 	shareRegionInfo      regionInfo
 	isolationRegionInfo  isolationRegionInfo
 	dedicatedRegionInfos regionInfo
-	pinnedCPUSize        int
 }
 
 func initPinnedCPUSetAllRegionInfo() *pinnedCPUSetAllRegionInfo {
@@ -796,9 +849,9 @@ func initPinnedCPUSetAllRegionInfo() *pinnedCPUSetAllRegionInfo {
 }
 
 func getPinnedCPUSetAllRegionInfo(
-	shareRegionInfo map[string]*pinnedCPUSetRegionInfo,
-	isolationRegionInfo map[string]*pinnedCPUSetIsolationRegionInfo,
-	dedicatedRegionInfos map[string]*pinnedCPUSetRegionInfo,
+	shareRegionInfo map[string]*regionInfo,
+	isolationRegionInfo map[string]*isolationRegionInfo,
+	dedicatedRegionInfos map[string]*regionInfo,
 ) map[string]*pinnedCPUSetAllRegionInfo {
 	res := make(map[string]*pinnedCPUSetAllRegionInfo)
 	for pkgName, info := range shareRegionInfo {
@@ -806,8 +859,7 @@ func getPinnedCPUSetAllRegionInfo(
 		if !ok {
 			res[pkgName] = initPinnedCPUSetAllRegionInfo()
 		}
-		res[pkgName].shareRegionInfo = info.regionInfo
-		res[pkgName].pinnedCPUSize = general.Max(res[pkgName].pinnedCPUSize, info.pinnedCPUSize)
+		res[pkgName].shareRegionInfo = *info
 	}
 
 	for regionName, info := range isolationRegionInfo {
@@ -815,8 +867,7 @@ func getPinnedCPUSetAllRegionInfo(
 		if !ok {
 			res[regionName] = initPinnedCPUSetAllRegionInfo()
 		}
-		res[regionName].isolationRegionInfo = info.isolationRegionInfo
-		res[regionName].pinnedCPUSize = general.Max(res[regionName].pinnedCPUSize, info.pinnedCPUSize)
+		res[regionName].isolationRegionInfo = *info
 	}
 
 	for regionName, info := range dedicatedRegionInfos {
@@ -824,8 +875,7 @@ func getPinnedCPUSetAllRegionInfo(
 		if !ok {
 			res[regionName] = initPinnedCPUSetAllRegionInfo()
 		}
-		res[regionName].dedicatedRegionInfos = info.regionInfo
-		res[regionName].pinnedCPUSize = general.Max(res[regionName].pinnedCPUSize, info.pinnedCPUSize)
+		res[regionName].dedicatedRegionInfos = *info
 	}
 
 	return res

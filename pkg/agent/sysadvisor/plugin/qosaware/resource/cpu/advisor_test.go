@@ -1602,21 +1602,21 @@ func TestGetIsolatedContainerRegions(t *testing.T) {
 	conf, _ := options.NewOptions().Config()
 
 	r1 := &region.QoSRegionShare{
-		QoSRegionBase: region.NewQoSRegionBase("r1", "", configapi.QoSRegionTypeIsolation,
-			conf, struct{}{}, false, false, nil, nil, nil, nil),
+		QoSRegionBase: region.NewQoSRegionBase("r1", "", "", configapi.QoSRegionTypeIsolation,
+			conf, struct{}{}, false, false, nil, nil, nil),
 	}
 	_ = r1.AddContainer(c1_1)
 	_ = r1.AddContainer(c1_2)
 
 	r2 := &region.QoSRegionShare{
-		QoSRegionBase: region.NewQoSRegionBase("r2", "", configapi.QoSRegionTypeShare,
-			conf, struct{}{}, false, false, nil, nil, nil, nil),
+		QoSRegionBase: region.NewQoSRegionBase("r2", "", "", configapi.QoSRegionTypeShare,
+			conf, struct{}{}, false, false, nil, nil, nil),
 	}
 	_ = r2.AddContainer(c2)
 
 	r3 := &region.QoSRegionShare{
-		QoSRegionBase: region.NewQoSRegionBase("r3", "", configapi.QoSRegionTypeDedicated,
-			conf, struct{}{}, false, true, nil, nil, nil, nil),
+		QoSRegionBase: region.NewQoSRegionBase("r3", "", "", configapi.QoSRegionTypeDedicated,
+			conf, struct{}{}, false, true, nil, nil, nil),
 	}
 	_ = r3.AddContainer(c3_1)
 	_ = r3.AddContainer(c3_2)
