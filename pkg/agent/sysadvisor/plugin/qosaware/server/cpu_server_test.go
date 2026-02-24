@@ -700,6 +700,15 @@ func TestCPUServerUpdateMetaCacheInput(t *testing.T) {
 				},
 			},
 		},
+		ResourcePackageConfig: &cpuadvisor.ResourcePackageConfig{
+			NumaResourcePackages: map[uint64]*cpuadvisor.NumaResourcePackageConfig{
+				0: {
+					Packages: map[string]*cpuadvisor.ResourcePackageItemConfig{
+						"pkgA": {PinnedCpuset: "2-3"},
+					},
+				},
+			},
+		},
 	}
 	pods := []*v1.Pod{}
 	for podUID, entries := range request.Entries {
@@ -776,6 +785,13 @@ func TestCPUServerUpdateMetaCacheInput(t *testing.T) {
 
 	err := cs.updateMetaCacheInput(context.Background(), request)
 	require.NoError(t, err)
+
+	expectedResourcePackageConfig := types.ResourcePackageConfig{
+		0: map[string]machine.CPUSet{
+			"pkgA": machine.MustParse("2-3"),
+		},
+	}
+	require.Equal(t, expectedResourcePackageConfig, cs.metaCache.GetResourcePackageConfig())
 
 	expectedContainerInfo := []*types.ContainerInfo{
 		{
@@ -870,4 +886,26 @@ func TestCPUServerUpdateMetaCacheInput(t *testing.T) {
 		require.Equal(t, shouldExist, exists)
 		require.Equal(t, expectedPoolInfo, actualPoolInfo)
 	}
+}
+
+func TestCPUServerUpdateMetaCacheInput_InvalidResourcePackageCPUSet(t *testing.T) {
+	t.Parallel()
+
+	cs := newTestCPUServer(t, nil, nil)
+	request := &cpuadvisor.GetAdviceRequest{
+		Entries: map[string]*cpuadvisor.ContainerAllocationInfoEntries{},
+		ResourcePackageConfig: &cpuadvisor.ResourcePackageConfig{
+			NumaResourcePackages: map[uint64]*cpuadvisor.NumaResourcePackageConfig{
+				0: {
+					Packages: map[string]*cpuadvisor.ResourcePackageItemConfig{
+						"pkgA": {PinnedCpuset: "bad"},
+					},
+				},
+			},
+		},
+	}
+
+	err := cs.updateMetaCacheInput(context.Background(), request)
+	require.Error(t, err)
+	require.Equal(t, types.ResourcePackageConfig{}, cs.metaCache.GetResourcePackageConfig())
 }

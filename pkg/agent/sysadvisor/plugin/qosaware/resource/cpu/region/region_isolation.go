@@ -40,7 +40,7 @@ type QoSRegionIsolation struct {
 
 // NewQoSRegionIsolation returns a region instance for isolated pods
 func NewQoSRegionIsolation(ci *types.ContainerInfo, customRegionName string, conf *config.Configuration, extraConf interface{}, numaID int,
-	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter, pinnedCPUSetInfo *PinnedCPUSetInfo,
+	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) QoSRegion {
 	regionName := customRegionName
 	if regionName == "" {
@@ -56,7 +56,7 @@ func NewQoSRegionIsolation(ci *types.ContainerInfo, customRegionName string, con
 		ownerPoolName = isolationRegionNUMAOwnerPoolName
 	}
 	r := &QoSRegionIsolation{
-		QoSRegionBase: NewQoSRegionBase(regionName, ownerPoolName, configapi.QoSRegionTypeIsolation, conf, extraConf, isNumaBinding, false, metaReader, metaServer, emitter, pinnedCPUSetInfo),
+		QoSRegionBase: NewQoSRegionBase(regionName, ownerPoolName, GetResourcePackageName(ci), configapi.QoSRegionTypeIsolation, conf, extraConf, isNumaBinding, false, metaReader, metaServer, emitter),
 	}
 	if isNumaBinding {
 		r.bindingNumas = machine.NewCPUSet(numaID)

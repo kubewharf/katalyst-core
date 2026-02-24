@@ -428,6 +428,36 @@ func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, req *cpuadvisor.G
 	var errs []error
 	livingPoolNameSet := sets.NewString()
 
+	if req.GetResourcePackageConfig() == nil {
+		_ = cs.metaCache.SetResourcePackageConfig(nil)
+	} else {
+		cfg := make(types.ResourcePackageConfig)
+		for numaID, numaConfig := range req.ResourcePackageConfig.NumaResourcePackages {
+			if numaConfig == nil {
+				continue
+			}
+			if _, ok := cfg[int(numaID)]; !ok {
+				cfg[int(numaID)] = make(map[string]machine.CPUSet)
+			}
+			for pkgName, pkgConfig := range numaConfig.Packages {
+				if pkgConfig == nil {
+					continue
+				}
+				pinnedCpusetStr := pkgConfig.PinnedCpuset
+				if pinnedCpusetStr == "" {
+					cfg[int(numaID)][pkgName] = machine.NewCPUSet()
+					continue
+				}
+				pinnedCpuset, err := machine.Parse(pinnedCpusetStr)
+				if err != nil {
+					return fmt.Errorf("failed to parse pinned cpuset: %v, numaID %d pkgName %s cpuset %q", err, numaID, pkgName, pinnedCpusetStr)
+				}
+				cfg[int(numaID)][pkgName] = pinnedCpuset
+			}
+		}
+		_ = cs.metaCache.SetResourcePackageConfig(cfg)
+	}
+
 	// update pool entries first, which are needed for updating container entries
 	for entryName, entry := range req.Entries {
 		poolInfo, ok := entry.Entries[commonstate.FakedContainerName]
