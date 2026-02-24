@@ -38,6 +38,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	resourcepackage "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
 
 type FakeRegion struct {
@@ -81,6 +82,11 @@ func (fake *FakeRegion) GetMetaInfo() string {
 
 func (fake *FakeRegion) OwnerPoolName() string {
 	return fake.ownerPoolName
+}
+
+func (fake *FakeRegion) GetResourcePackageName() string {
+	_, pkgName := resourcepackage.UnwrapOwnerPoolName(fake.ownerPoolName)
+	return pkgName
 }
 
 func (fake *FakeRegion) IsEmpty() bool {
@@ -173,10 +179,6 @@ func (fake *FakeRegion) SetControlEssentials(controlEssentials types.ControlEsse
 
 func (fake *FakeRegion) GetControlEssentials() types.ControlEssentials {
 	return fake.controlEssentials
-}
-
-func (fake *FakeRegion) GetPinnedCPUSetInfo() *region.PinnedCPUSetInfo {
-	return nil
 }
 
 type testCasePoolConfig struct {
@@ -1023,6 +1025,7 @@ func TestAssembleProvision(t *testing.T) {
 
 			metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
 			require.NoError(t, err)
+			require.NoError(t, metaCache.SetResourcePackageConfig(types.ResourcePackageConfig{0: map[string]machine.CPUSet{}}))
 
 			nonBindingNumas := machine.NewCPUSet()
 			for numaID := range numaAvailable {

@@ -24,11 +24,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-type PinnedCPUSetInfo struct {
-	PackageName string
-	NUMASize    map[int]int
-}
-
 // QoSRegion is internal abstraction, managing a group of containers with similar QoS sensitivity
 // and updating their resource provision and headroom by preset policies
 type QoSRegion interface {
@@ -38,6 +33,10 @@ type QoSRegion interface {
 	Type() configapi.QoSRegionType
 	// OwnerPoolName returns region's owner pool name
 	OwnerPoolName() string
+	// GetResourcePackageName returns the resource package name of this region.
+	// It is derived from region ownerPoolName and is used to associate regions with
+	// resource package pinned cpuset information in sysadvisor.
+	GetResourcePackageName() string
 
 	// IsEmpty returns true if no container remains in region
 	IsEmpty() bool
@@ -48,8 +47,6 @@ type QoSRegion interface {
 	GetBindingNumas() machine.CPUSet
 	// GetPods return the latest pod set of this region
 	GetPods() types.PodSet
-	// GetPinnedCPUSetInfo returns the pinned cpu set info of this region
-	GetPinnedCPUSetInfo() *PinnedCPUSetInfo
 
 	// GetPodsRequest returns the total CPU requests of this region
 	GetPodsRequest() float64

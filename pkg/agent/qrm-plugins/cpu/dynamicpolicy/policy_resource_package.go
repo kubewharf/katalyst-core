@@ -75,7 +75,7 @@ func (p *DynamicPolicy) syncResourcePackagePinnedCPUSet() {
 			continue
 		}
 
-		newPinnedMap, changed, err := p.syncNumaResourcePackage(numaID, numaState, pinnedCPUSetSize, interruptAllocationInfo, podEntries)
+		newPinnedMap, changed, err := p.syncNumaResourcePackage(numaID, numaState, pinnedCPUSetSize, interruptAllocationInfo)
 		if err != nil {
 			general.Errorf("failed to sync resource package for numa %d: %v", numaID, err)
 			_ = p.emitter.StoreInt64(util.MetricNameSyncResourcePackagePinnedCPUSetFailed, 1, metrics.MetricTypeNameRaw,
@@ -121,7 +121,6 @@ func (p *DynamicPolicy) syncNumaResourcePackage(
 	numaState *state.NUMANodeState,
 	pinnedCPUSetSize map[int]map[string]int,
 	interruptAllocationInfo *state.AllocationInfo,
-	podEntries state.PodEntries,
 ) (map[string]machine.CPUSet, bool, error) {
 	mandatoryCPUsMap := make(map[string]machine.CPUSet)
 	sharedRequestsMap := make(map[string]float64)

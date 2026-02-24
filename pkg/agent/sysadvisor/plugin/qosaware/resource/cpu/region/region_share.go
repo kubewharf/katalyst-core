@@ -46,7 +46,6 @@ type QoSRegionShare struct {
 // NewQoSRegionShare returns a region instance for shared pool
 func NewQoSRegionShare(ci *types.ContainerInfo, conf *config.Configuration, extraConf interface{}, numaID int,
 	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
-	pinnedCPUSetInfo *PinnedCPUSetInfo,
 ) QoSRegion {
 	regionName := getRegionNameFromMetaCache(ci, numaID, metaReader)
 	if regionName == "" {
@@ -60,7 +59,7 @@ func NewQoSRegionShare(ci *types.ContainerInfo, conf *config.Configuration, extr
 	//	When put isolation pods back to share pool, advisor should create a new share region with OriginOwnerPoolName (OriginOwnerPoolName != OwnerPoolName).
 	isNumaBinding := numaID != commonstate.FakedNUMAID
 	r := &QoSRegionShare{
-		QoSRegionBase:    NewQoSRegionBase(regionName, ci.OriginOwnerPoolName, configapi.QoSRegionTypeShare, conf, extraConf, isNumaBinding, false, metaReader, metaServer, emitter, pinnedCPUSetInfo),
+		QoSRegionBase:    NewQoSRegionBase(regionName, ci.OriginOwnerPoolName, GetResourcePackageName(ci), configapi.QoSRegionTypeShare, conf, extraConf, isNumaBinding, false, metaReader, metaServer, emitter),
 		configTranslator: commonstate.OwnerPoolNameTranslator,
 	}
 
