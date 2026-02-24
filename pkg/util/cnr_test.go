@@ -583,6 +583,70 @@ func TestMergeAllocations(t *testing.T) {
 	}
 }
 
+func TestMergeResourcePools(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		dst  []nodeapis.ResourcePool
+		src  []nodeapis.ResourcePool
+		want []nodeapis.ResourcePool
+	}{
+		{
+			name: "merge resource pool",
+			dst:  []nodeapis.ResourcePool{},
+			src: []nodeapis.ResourcePool{
+				{
+					PoolName: "aa",
+					MaxAllocatable: &v1.ResourceList{
+						v1.ResourceCPU: resource.MustParse("20"),
+					},
+					Attributes: []nodeapis.Attribute{{Name: "partition", Value: "flink"}},
+				},
+				{
+					PoolName: "bb",
+					MaxAllocatable: &v1.ResourceList{
+						v1.ResourceCPU: resource.MustParse("20"),
+					},
+					Attributes: []nodeapis.Attribute{{Name: "partition", Value: "flink"}},
+				},
+				{
+					PoolName: "aa",
+					MaxAllocatable: &v1.ResourceList{
+						v1.ResourceMemory: resource.MustParse("10Gi"),
+					},
+					Attributes: []nodeapis.Attribute{{Name: "partition", Value: "flink"}},
+				},
+			},
+			want: []nodeapis.ResourcePool{
+				{
+					PoolName: "aa",
+					MaxAllocatable: &v1.ResourceList{
+						v1.ResourceCPU:    resource.MustParse("20"),
+						v1.ResourceMemory: resource.MustParse("10Gi"),
+					},
+					Attributes: []nodeapis.Attribute{{Name: "partition", Value: "flink"}},
+				},
+				{
+					PoolName: "bb",
+					MaxAllocatable: &v1.ResourceList{
+						v1.ResourceCPU: resource.MustParse("20"),
+					},
+					Attributes: []nodeapis.Attribute{{Name: "partition", Value: "flink"}},
+				},
+			},
+		},
+	}
+
+	for _, tt := range cases {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equalf(t, tt.want, MergeResourcePools(tt.dst, tt.src), "MergeResourcePools(%v, %v)", tt.dst, tt.src)
+		})
+	}
+}
+
 func TestMergeAttributes(t *testing.T) {
 	t.Parallel()
 
