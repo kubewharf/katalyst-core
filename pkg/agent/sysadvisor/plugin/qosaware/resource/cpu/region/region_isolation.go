@@ -27,6 +27,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	resourcepackage "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
 
 const (
@@ -55,8 +56,10 @@ func NewQoSRegionIsolation(ci *types.ContainerInfo, customRegionName string, con
 	if isNumaBinding {
 		ownerPoolName = isolationRegionNUMAOwnerPoolName
 	}
+
+	_, pkgName := resourcepackage.UnwrapOwnerPoolName(ci.OriginOwnerPoolName)
 	r := &QoSRegionIsolation{
-		QoSRegionBase: NewQoSRegionBase(regionName, ownerPoolName, GetResourcePackageName(ci), configapi.QoSRegionTypeIsolation, conf, extraConf, isNumaBinding, false, metaReader, metaServer, emitter),
+		QoSRegionBase: NewQoSRegionBase(resourcepackage.WrapOwnerPoolName(regionName, pkgName), ownerPoolName, pkgName, configapi.QoSRegionTypeIsolation, conf, extraConf, isNumaBinding, false, metaReader, metaServer, emitter),
 	}
 	if isNumaBinding {
 		r.bindingNumas = machine.NewCPUSet(numaID)
