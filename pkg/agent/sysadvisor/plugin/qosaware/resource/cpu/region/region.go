@@ -22,6 +22,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	resourcepackage "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
 
 // QoSRegion is internal abstraction, managing a group of containers with similar QoS sensitivity
@@ -99,8 +100,11 @@ func GetRegionBasicMetricTags(r QoSRegion) []metrics.MetricTag {
 	provisionPolicyPrior, provisionPolicyInUse := r.GetProvisionPolicy()
 	headroomPolicyPrior, headroomPolicyInUse := r.GetHeadRoomPolicy()
 
+	// regionName is the name of the region, without the resource package suffix for isolation region
+	regionName, _ := resourcepackage.UnwrapOwnerPoolName(r.Name())
 	tags := []metrics.MetricTag{
-		{Key: "region_name", Val: r.Name()},
+		{Key: "region_name", Val: regionName},
+		{Key: "resource_package_name", Val: r.GetResourcePackageName()},
 		{Key: "region_type", Val: string(r.Type())},
 		{Key: "owner_pool_name", Val: r.OwnerPoolName()},
 		{Key: "pool_type", Val: commonstate.GetPoolType(r.OwnerPoolName())},
