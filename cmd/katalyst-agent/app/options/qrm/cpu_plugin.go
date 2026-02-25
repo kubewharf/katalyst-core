@@ -131,6 +131,8 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"the key of numa number annotation, default is katalyst.kubewharf.io/numa_number")
     fs.StringVar(&o.NUMAIDsAnnotationKey, "numa-ids-annotation-key", o.NUMAIDsAnnotationKey,
         "the key of numa ids annotation, default is katalyst.kubewharf.io/numa_ids")
+    fs.StringVar(&o.NUMAIDsAnnotationKey, "numa-ids-annotation-key", o.NUMAIDsAnnotationKey,
+        "the key of numa ids annotation, default is katalyst.kubewharf.io/numa_ids")
 	fs.BoolVar(&o.EnableReserveCPUReversely, "enable-reserve-cpu-reversely",
 		o.EnableReserveCPUReversely, "by default, the reservation of cpu starts from the cpu with lower id,"+
 			"if set to true, it starts from the cpu with higher id")
