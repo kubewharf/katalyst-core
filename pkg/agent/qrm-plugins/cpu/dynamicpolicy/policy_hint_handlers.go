@@ -276,10 +276,10 @@ func (p *DynamicPolicy) calculateHints(
 			numaToAvailableCPUCount[nodeID] = 0
 			general.Warningf("numa_exclusive container skip NUMA: %d allocated: %d",
 				nodeID, machineState[nodeID].AllocatedCPUSet.Size())
-		} else if numaBinding && !availableNUMAs.Contains(nodeID) {
-			numaToAvailableCPUCount[nodeID] = 0
-			general.Warningf("numa_binding container skip NUMA: %d, allocated: %d",
-				nodeID, machineState[nodeID].AllocatedCPUSet.Size())
+        } else if numaBinding && !availableNUMAs.Contains(nodeID) {
+            numaToAvailableCPUCount[nodeID] = 0
+            general.Warningf("numa_binding container skip NUMA: %d, allocated: %d",
+                nodeID, machineState[nodeID].AllocatedCPUSet.Size())
         } else {
             availableCPUs := machineState[nodeID].GetAvailableCPUSet(p.reservedCPUs)
             numaToAvailableCPUCount[nodeID] = availableCPUs.Size()
@@ -300,7 +300,7 @@ func (p *DynamicPolicy) calculateHints(
 	// minAffinitySize is the minimum number of NUMA nodes from the hints
 	minAffinitySize := p.machineInfo.CPUDetails.NUMANodes().Size()
 	machine.IterateBitMasks(numaNodes, numaBound, func(mask machine.BitMask) {
-		maskCount := mask.Count()
+        maskCount := mask.Count()
         if maskCount < minNUMAsCountNeeded {
             return
         } else if numaBinding && !numaExclusive && maskCount > 1 && !distributeEvenlyAcrossNuma && numaNumber <= 1 {
@@ -349,6 +349,15 @@ func (p *DynamicPolicy) calculateHints(
             if !p.canFullPCPUsPairing(int(request), cpusPerCore, availableCPUs) {
                 return
             }
+        }
+
+        // Filter out hints that do not satisfy NUMA IDs and NUMA number
+        if !numaIDs.IsEmpty() {
+            if !numaIDs.IsEqual(mask) {
+                return
+            }
+        } else if numaNumber != 0 && maskCount != numaNumber {
+            return
         }
 
         // Filter out hints that do not satisfy NUMA IDs and NUMA number
