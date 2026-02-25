@@ -996,13 +996,14 @@ func (p *DynamicPolicy) adjustPoolsAndIsolatedEntries(
 		return fmt.Errorf("reclaimOverlapShareRatio failed with error: %v", err)
 	}
 
-	general.Infof("poolsQuantityMap: %#v, availableCPUs: %v, reclaimOverlapShareRatio: %#v", poolsQuantityMap, availableCPUs, reclaimOverlapShareRatio)
+	general.Infof("poolsQuantityMap: %#v, rpPinnedCPUSet: %v, availableCPUs: %v, reclaimOverlapShareRatio: %#v", poolsQuantityMap, rpPinnedCPUSet, availableCPUs, reclaimOverlapShareRatio)
 
-	// Pass rpPinnedCPUSet to generatePoolsAndIsolation to handle pinned resources
-	poolsCPUSet, isolatedCPUSet, err := p.generatePoolsAndIsolation(rpPinnedCPUSet, poolsQuantityMap, isolatedQuantityMap, availableCPUs, reclaimOverlapShareRatio)
+	poolsCPUSet, isolatedCPUSet, err := p.groupAndAllocatePools(poolsQuantityMap, isolatedQuantityMap, availableCPUs, rpPinnedCPUSet, reclaimOverlapShareRatio)
 	if err != nil {
-		return fmt.Errorf("generatePoolsAndIsolation failed with error: %v", err)
+		return fmt.Errorf("groupAndAllocatePools failed with error: %v", err)
 	}
+
+	general.Infof("poolsCPUSet: %v, isolatedCPUSet: %v", poolsCPUSet, isolatedCPUSet)
 
 	err = p.reclaimOverlapNUMABinding(poolsCPUSet, entries)
 	if err != nil {
@@ -1021,6 +1022,77 @@ func (p *DynamicPolicy) adjustPoolsAndIsolatedEntries(
 	}
 
 	return nil
+}
+
+func (p *DynamicPolicy) groupAndAllocatePools(
+	poolsQuantityMap map[string]map[int]int,
+	isolatedQuantityMap map[string]map[string]int,
+	availableCPUs machine.CPUSet,
+	rpPinnedCPUSet map[string]machine.CPUSet,
+	reclaimOverlapShareRatio map[string]float64,
+) (map[string]machine.CPUSet, map[string]map[string]machine.CPUSet, error) {
+	// 1. Separate pools into pinned and common
+	pinnedPoolsQuantityMap := make(map[string]map[int]int)
+	commonPoolsQuantityMap := make(map[string]map[int]int)
+	pinnedCPUSets := machine.NewCPUSet()
+
+	// Accumulate all pinned cpusets from resource packages
+	for _, cset := range rpPinnedCPUSet {
+		pinnedCPUSets = pinnedCPUSets.Union(cset)
+	}
+
+	for poolName, quantityMap := range poolsQuantityMap {
+		_, pkgName := rputil.UnwrapOwnerPoolName(poolName)
+		if pkgName != "" && !rpPinnedCPUSet[pkgName].IsEmpty() {
+			pinnedPoolsQuantityMap[poolName] = quantityMap
+		} else {
+			commonPoolsQuantityMap[poolName] = quantityMap
+		}
+	}
+
+	// 2. Calculate common available CPUs
+	// For pools without pinned cpuset, availableCPUs needs to deduct allocated pinned cpuset
+	commonAvailableCPUs := availableCPUs.Difference(pinnedCPUSets)
+
+	// 3. Process Pinned Pools
+	poolsCPUSet := make(map[string]machine.CPUSet)
+
+	// Group pinned pools by package to call generatePoolsAndIsolation with correct constraints
+	pinnedPoolsByPkg := make(map[string]map[string]map[int]int)
+	for poolName, quantityMap := range pinnedPoolsQuantityMap {
+		_, pkgName := rputil.UnwrapOwnerPoolName(poolName)
+		if pinnedPoolsByPkg[pkgName] == nil {
+			pinnedPoolsByPkg[pkgName] = make(map[string]map[int]int)
+		}
+		pinnedPoolsByPkg[pkgName][poolName] = quantityMap
+	}
+
+	for pkgName, poolsMap := range pinnedPoolsByPkg {
+		pkgAvailableCPUs := availableCPUs.Intersection(rpPinnedCPUSet[pkgName])
+		// Call generatePoolsAndIsolation for this package
+		// Pass nil for isolatedQuantityMap as we assume isolated containers go to common
+		pPools, _, err := p.generatePoolsAndIsolation(poolsMap, nil, pkgAvailableCPUs, reclaimOverlapShareRatio)
+		if err != nil {
+			return nil, nil, fmt.Errorf("generatePoolsAndIsolation for pkg %s failed with error: %v", pkgName, err)
+		}
+		for k, v := range pPools {
+			poolsCPUSet[k] = v
+		}
+	}
+
+	// 4. Process Common Pools
+	// Pass rpPinnedCPUSet to generatePoolsAndIsolation to handle pinned resources (Legacy comment removed)
+	cPools, cIso, err := p.generatePoolsAndIsolation(commonPoolsQuantityMap, isolatedQuantityMap, commonAvailableCPUs, reclaimOverlapShareRatio)
+	if err != nil {
+		return nil, nil, fmt.Errorf("generatePoolsAndIsolation failed with error: %v", err)
+	}
+
+	for k, v := range cPools {
+		poolsCPUSet[k] = v
+	}
+	isolatedCPUSet := cIso
+
+	return poolsCPUSet, isolatedCPUSet, nil
 }
 
 // reclaimOverlapNUMABinding unions calculated reclaim pool in empty NUMAs
@@ -1357,19 +1429,7 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 	return nil
 }
 
-// generateNUMABindingPoolsCPUSetInPlace generates CPU sets for NUMA binding pools.
-// It modifies poolsCPUSet in place and returns the remaining available CPUs.
-// Key Logic:
-//  1. Groups pools by NUMA node based on poolsQuantityMap.
-//  2. For each NUMA node:
-//     a. Identifies available CPUs in that NUMA node.
-//     b. Separates pools into "Pinned" (belonging to a Resource Package with pinned CPUs) and "Unpinned".
-//     c. Allocates CPUs for Pinned pools first, strictly from their pinned CPUSet.
-//     d. Allocates CPUs for Unpinned pools from the remaining CPUs in that NUMA node.
-//     e. Updates the global availableCPUs by replacing the NUMA's CPUs with the leftovers.
-func (p *DynamicPolicy) generateNUMABindingPoolsCPUSetInPlace(
-	rpPinnedCPUSet map[string]machine.CPUSet,
-	poolsCPUSet map[string]machine.CPUSet,
+func (p *DynamicPolicy) generateNUMABindingPoolsCPUSetInPlace(poolsCPUSet map[string]machine.CPUSet,
 	poolsQuantityMap map[string]map[int]int, availableCPUs machine.CPUSet,
 ) (machine.CPUSet, error) {
 	numaToPoolQuantityMap := make(map[int]map[string]int)
@@ -1391,9 +1451,10 @@ func (p *DynamicPolicy) generateNUMABindingPoolsCPUSetInPlace(
 		}
 	}
 
-	// generateNUMABindingPoolsCPUSetFunc is a helper function to allocate CPUs for pools in a specific NUMA node
-	generateNUMABindingPoolsCPUSetFunc := func(numaID int, numaAvailableCPUs machine.CPUSet, numaPoolsToQuantityMap map[string]int) (machine.CPUSet, error) {
+	for numaID, numaPoolsToQuantityMap := range numaToPoolQuantityMap {
 		numaPoolsTotalQuantity := general.SumUpMapValues(numaPoolsToQuantityMap)
+		numaCPUs := p.machineInfo.CPUDetails.CPUsInNUMANodes(numaID).Difference(p.reservedCPUs)
+		numaAvailableCPUs := numaCPUs.Intersection(availableCPUs)
 		availableSize := numaAvailableCPUs.Size()
 
 		general.Infof("numaID: %d, numaPoolsTotalQuantity: %d, availableSize: %d, enableReclaim: %v",
@@ -1418,56 +1479,6 @@ func (p *DynamicPolicy) generateNUMABindingPoolsCPUSetInPlace(
 			}
 		}
 
-		return leftCPUs, nil
-	}
-
-	// getPinnedPoolsToQuantityMapFunc separates pools into pinned and unpinned categories
-	getPinnedPoolsToQuantityMapFunc := func(numaPoolsToQuantityMap map[string]int) (map[string]map[string]int, map[string]int) {
-		pinnedPoolsToQuantityMap := make(map[string]map[string]int)
-		unpinnedPoolsToQuantityMap := make(map[string]int)
-
-		for poolName, quantity := range numaPoolsToQuantityMap {
-			_, pkg := rputil.UnwrapOwnerPoolName(poolName)
-			if pkg != "" && rpPinnedCPUSet[pkg].Size() > 0 {
-				if pinnedPoolsToQuantityMap[pkg] == nil {
-					pinnedPoolsToQuantityMap[pkg] = make(map[string]int)
-				}
-				pinnedPoolsToQuantityMap[pkg][poolName] = quantity
-			} else {
-				unpinnedPoolsToQuantityMap[poolName] = quantity
-			}
-		}
-		return pinnedPoolsToQuantityMap, unpinnedPoolsToQuantityMap
-	}
-
-	var tErr error
-	var leftCPUs machine.CPUSet
-	for numaID, numaPoolsToQuantityMap := range numaToPoolQuantityMap {
-		numaCPUs := p.machineInfo.CPUDetails.CPUsInNUMANodes(numaID).Difference(p.reservedCPUs)
-		numaAvailableCPUs := numaCPUs.Intersection(availableCPUs)
-
-		// generate pinnedPoolsToQuantityMap and unpinnedPoolsToQuantityMap
-		pinnedPoolsToQuantityMap, unpinnedPoolsToQuantityMap := getPinnedPoolsToQuantityMapFunc(numaPoolsToQuantityMap)
-
-		// generate pinned pools cpuset first
-		if len(pinnedPoolsToQuantityMap) > 0 {
-			for pkg, poolsToQuantityMap := range pinnedPoolsToQuantityMap {
-				pinnedNUMAAvailableCPUs := rpPinnedCPUSet[pkg].Intersection(numaAvailableCPUs)
-				_, tErr = generateNUMABindingPoolsCPUSetFunc(numaID, pinnedNUMAAvailableCPUs, poolsToQuantityMap)
-				if tErr != nil {
-					return originalAvailableCPUSet, fmt.Errorf("generateNUMABindingPoolsCPUSetFunc for numa_binding pools in NUMA: %d failed with error: %v",
-						numaID, tErr)
-				}
-				numaAvailableCPUs = numaAvailableCPUs.Difference(rpPinnedCPUSet[pkg])
-			}
-		}
-
-		// generate unpinned pools cpuset second
-		leftCPUs, tErr = generateNUMABindingPoolsCPUSetFunc(numaID, numaAvailableCPUs, unpinnedPoolsToQuantityMap)
-		if tErr != nil {
-			return originalAvailableCPUSet, fmt.Errorf("generateNUMABindingPoolsCPUSetFunc for numa_binding pools in NUMA: %d failed with error: %v",
-				numaID, tErr)
-		}
 		availableCPUs = availableCPUs.Difference(numaCPUs).Union(leftCPUs)
 	}
 
@@ -1479,7 +1490,6 @@ func (p *DynamicPolicy) generateNUMABindingPoolsCPUSetInPlace(
 // 2. use the left cores to allocate among different pools
 // 3. apportion to other pools if reclaimed is disabled
 func (p *DynamicPolicy) generatePoolsAndIsolation(
-	rpPinnedCPUSet map[string]machine.CPUSet,
 	poolsQuantityMap map[string]map[int]int,
 	isolatedQuantityMap map[string]map[string]int, availableCPUs machine.CPUSet,
 	reclaimOverlapShareRatio map[string]float64) (poolsCPUSet map[string]machine.CPUSet,
@@ -1530,7 +1540,7 @@ func (p *DynamicPolicy) generatePoolsAndIsolation(
 
 	poolsCPUSet = make(map[string]machine.CPUSet)
 	var nbpErr error
-	availableCPUs, nbpErr = p.generateNUMABindingPoolsCPUSetInPlace(rpPinnedCPUSet, poolsCPUSet, poolsQuantityMap, availableCPUs)
+	availableCPUs, nbpErr = p.generateNUMABindingPoolsCPUSetInPlace(poolsCPUSet, poolsQuantityMap, availableCPUs)
 	if nbpErr != nil {
 		err = fmt.Errorf("generateNUMABindingPoolsCPUSetInPlace failed with error: %v", nbpErr)
 		return
