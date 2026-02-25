@@ -48,8 +48,8 @@ type CPUDynamicPolicyOptions struct {
 	CPUNUMAHintPreferPolicy             string
 	CPUNUMAHintPreferLowThreshold       float64
 	NUMABindingResultAnnotationKey      string
-	NUMANumberAnnotationKey                   string
-	NUMAIDsAnnotationKey                      string
+	NUMANumberAnnotationKey        string
+	NUMAIDsAnnotationKey           string
 	EnableReserveCPUReversely           bool
 	EnableCPUBurst                      bool
 	EnableDefaultDedicatedCoresCPUBurst bool
@@ -82,8 +82,8 @@ func NewCPUOptions() *CPUOptions {
 				commonstate.PoolNameReserve,
 			},
 			NUMABindingResultAnnotationKey: consts.PodAnnotationNUMABindResultKey,
-			NUMANumberAnnotationKey:                   consts.PodAnnotationCPUEnhancementNumaNumber,
-			NUMAIDsAnnotationKey:                      consts.PodAnnotationCPUEnhancementNumaIDs,
+			NUMANumberAnnotationKey:        consts.PodAnnotationCPUEnhancementNumaNumber,
+			NUMAIDsAnnotationKey:           consts.PodAnnotationCPUEnhancementNumaIDs,
 			HintOptimizerOptions:           hintoptimizer.NewHintOptimizerOptions(),
 			IRQTunerOptions:                irqtuner.NewIRQTunerOptions(),
 		},
@@ -130,7 +130,7 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringVar(&o.NUMANumberAnnotationKey, "numa-number-annotation-key", o.NUMANumberAnnotationKey,
 		"the key of numa number annotation, default is katalyst.kubewharf.io/numa_number")
 	fs.StringVar(&o.NUMAIDsAnnotationKey, "numa-ids-annotation-key", o.NUMAIDsAnnotationKey,
-		"they key of numa ids annotation, default is katalyst.kubewharf.io/numa_ids")
+		"the key of numa ids annotation, default is katalyst.kubewharf.io/numa_ids")
 	fs.BoolVar(&o.EnableReserveCPUReversely, "enable-reserve-cpu-reversely",
 		o.EnableReserveCPUReversely, "by default, the reservation of cpu starts from the cpu with lower id,"+
 			"if set to true, it starts from the cpu with higher id")

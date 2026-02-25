@@ -615,7 +615,7 @@ func TestCalculateHintsForNUMABindingSharedCores1(t *testing.T) {
 				machineInfo: &machine.KatalystMachineInfo{
 					CPUTopology: cpuTopology,
 				},
-				NUMABindingResultAnnotationKey:      "katalyst-test/nume-bind-result",
+				numaBindingResultAnnotationKey:      "katalyst-test/nume-bind-result",
 				sharedCoresNUMABindingHintOptimizer: &hintoptimizer.DummyHintOptimizer{},
 				dynamicConfig:                       dynamic.NewDynamicAgentConfiguration(),
 			}
@@ -717,7 +717,7 @@ func TestPopulateHintsByAlreadyExistedNUMABindingResult(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			p := &DynamicPolicy{
-				NUMABindingResultAnnotationKey: "numa_binding",
+				numaBindingResultAnnotationKey: "numa_binding",
 				emitter:                        &metrics.DummyMetrics{},
 			}
 

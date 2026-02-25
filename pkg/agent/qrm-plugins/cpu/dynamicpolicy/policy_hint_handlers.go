@@ -217,9 +217,9 @@ func (p *DynamicPolicy) calculateHints(
 	numaBinding := qosutil.AnnotationsIndicateNUMABinding(req.Annotations)
 	numaExclusive := qosutil.AnnotationsIndicateNUMAExclusive(req.Annotations)
 
-	alignBySocketAnnotation := qosutil.AnnotationsIndicateAlignBySocket(req.Annotations)
-	distributeEvenlyAcrossNumaAnnotation := qosutil.AnnotationsIndicateDistributeEvenlyAcrossNuma(req.Annotations)
-	fullPCPUsPairingAnnotation := qosutil.AnnotationsIndicateFullPCPUsPairing(req.Annotations)
+	alignBySocket := qosutil.AnnotationsIndicateAlignBySocket(req.Annotations)
+	distributeEvenlyAcrossNuma := qosutil.AnnotationsIndicateDistributeEvenlyAcrossNuma(req.Annotations)
+	fullPCPUsPairing := qosutil.AnnotationsIndicateFullPCPUsPairing(req.Annotations)
 
 	var numaNumber int
 	numaIDs, err := qosutil.AnnotationsGetNUMAIDs(req.Annotations, numaNodes, p.numaIDsAnnotationKey)
@@ -244,15 +244,15 @@ func (p *DynamicPolicy) calculateHints(
 	// because it's hard to control memory allocation accurately,
 	// we only support numa_binding but not exclusive container with request smaller than 1 NUMA
 	// pods with distribute evenly across numa annotation can occupy more than 1 NUMA
-	if numaBinding && !numaExclusive && minNUMAsCountNeeded > 1 && !distributeEvenlyAcrossNumaAnnotation {
+	if numaBinding && !numaExclusive && !distributeEvenlyAcrossNuma && minNUMAsCountNeeded > 1 {
 		return nil, fmt.Errorf("NUMA not exclusive binding container with no distribute_evenly_across_numa has request larger than 1 NUMA")
 	}
 
-	if numaExclusive && distributeEvenlyAcrossNumaAnnotation {
+	if numaExclusive && distributeEvenlyAcrossNuma {
 		return nil, fmt.Errorf("NUMA exclusive and distribute_evenly_across_numa is not supported at the same time")
 	}
 
-	if numaExclusive && fullPCPUsPairingAnnotation {
+	if numaExclusive && fullPCPUsPairing {
 		return nil, fmt.Errorf("NUMA exclusive and full_pcpus_pairing is not supported at the same time")
 	}
 
@@ -283,7 +283,7 @@ func (p *DynamicPolicy) calculateHints(
 		} else {
 			availableCPUs := machineState[nodeID].GetAvailableCPUSet(p.reservedCPUs)
 			numaToAvailableCPUCount[nodeID] = availableCPUs.Size()
-			totalAvailableCPUs.Add(availableCPUs.ToSliceInt()...)
+			totalAvailableCPUs.Add(availableCPUs.ToSliceNoSortInt()...)
 		}
 	}
 
@@ -303,7 +303,7 @@ func (p *DynamicPolicy) calculateHints(
 		maskCount := mask.Count()
 		if maskCount < minNUMAsCountNeeded {
 			return
-		} else if numaBinding && !numaExclusive && maskCount > 1 && !distributeEvenlyAcrossNumaAnnotation {
+		} else if numaBinding && !numaExclusive && !distributeEvenlyAcrossNuma && maskCount > 1 {
 			// because it's hard to control memory allocation accurately,
 			// we only support numa_binding but not exclusive container with request smaller than 1 NUMA
 			// pods with distribute evenly across numa annotation can occupy more than 1 NUMA
@@ -333,17 +333,17 @@ func (p *DynamicPolicy) calculateHints(
 		}
 
 		// Filter out hints that are not aligned by socket
-		if alignBySocketAnnotation && !p.canAlignedBySocket(maskBits, int(request)) {
+		if alignBySocket && !p.canAlignedBySocket(maskBits, int(request)) {
 			return
 		}
 
 		// Filter out hints that cannot be distributed evenly across NUMA
-		if distributeEvenlyAcrossNumaAnnotation {
+		if distributeEvenlyAcrossNuma {
 			if !p.canDistributeEvenlyAcrossNuma(maskBits, int(request),
-				cpusPerCore, totalAvailableCPUs, fullPCPUsPairingAnnotation) {
+				cpusPerCore, totalAvailableCPUs, fullPCPUsPairing) {
 				return
 			}
-		} else if fullPCPUsPairingAnnotation {
+		} else if fullPCPUsPairing {
 			// Filter out hints that cannot allocate to physical cores only
 			availableCPUs := p.machineInfo.CPUDetails.CPUsInNUMANodes(maskBits...).Intersection(totalAvailableCPUs)
 			if !p.canFullPCPUsPairing(int(request), cpusPerCore, availableCPUs) {
@@ -873,7 +873,7 @@ func (p *DynamicPolicy) populateHintsByAlreadyExistedNUMABindingResult(req *plug
 }
 
 func (p *DynamicPolicy) getNUMABindingResultFromAnnotation(req *pluginapi.ResourceRequest) (machine.CPUSet, error) {
-	result, ok := req.Annotations[p.NUMABindingResultAnnotationKey]
+	result, ok := req.Annotations[p.numaBindingResultAnnotationKey]
 	if !ok {
 		return machine.CPUSet{}, nil
 	}
