@@ -48,6 +48,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	resourcepackage "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
 
 const (
@@ -637,11 +638,28 @@ func (cs *cpuServer) setContainerInfoBasedOnContainerAllocationInfo(
 
 	if info.Metadata.QosLevel == consts.PodAnnotationQoSLevelSharedCores &&
 		info.Metadata.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable {
-		originOwnerPoolName, err := commonstate.GetSpecifiedNUMABindingPoolName(info.Metadata.QosLevel, info.Metadata.Annotations)
+		poolName, err := commonstate.GetSpecifiedNUMABindingPoolName(info.Metadata.QosLevel, info.Metadata.Annotations)
 		if err != nil {
 			return fmt.Errorf("get specified numa binding pool name failed: %w", err)
 		}
-		ci.OriginOwnerPoolName = originOwnerPoolName
+
+		targetNUMAID, err := commonstate.GetSpecifiedNUMABindingNUMAID(info.Metadata.Annotations)
+		if err != nil {
+			return fmt.Errorf("get specified numa binding numa id failed: %w", err)
+		}
+
+		pkgName := resourcepackage.GetResourcePackageName(info.Metadata.Annotations)
+		if pkgName != "" && poolName != commonstate.EmptyOwnerPoolName {
+			// get resource package config from meta cache, make sure it has been set already before setting owner pool name
+			cfg := cs.metaCache.GetResourcePackageConfig()
+			if pinnedSets, ok := cfg[targetNUMAID]; ok {
+				if _, exists := pinnedSets[pkgName]; exists {
+					poolName = resourcepackage.WrapOwnerPoolName(poolName, pkgName)
+				}
+			}
+		}
+
+		ci.OriginOwnerPoolName = poolName
 	} else {
 		ci.OriginOwnerPoolName = commonstate.GetSpecifiedPoolName(info.Metadata.QosLevel, info.Metadata.Annotations[consts.PodAnnotationCPUEnhancementCPUSet])
 	}
