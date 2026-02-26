@@ -79,7 +79,7 @@ func (ha *HeadroomAssemblerCommon) getLastReclaimedCPUPerNUMA() (map[int]float64
 	return util.GetReclaimedCPUPerNUMA(cnr.Status.TopologyZone), nil
 }
 
-func (ha *HeadroomAssemblerCommon) getReclaimNUMABindingTopo(reclaimPool *types.PoolInfo) (bindingNUMAs, nonBindingNumas []int, err error) {
+func (ha *HeadroomAssemblerCommon) getReclaimNUMAAffinityTopo(reclaimPool *types.PoolInfo) (cpuAffinityNUMAs, nonCPUAffinityNUMAs []int, err error) {
 	if ha.metaServer == nil {
 		err = fmt.Errorf("invalid metaserver")
 		return
@@ -136,6 +136,7 @@ func (ha *HeadroomAssemblerCommon) getReclaimNUMABindingTopo(reclaimPool *types.
 
 		switch qos {
 		case consts.PodAnnotationQoSLevelReclaimedCores, consts.PodAnnotationQoSLevelSharedCores:
+			// todo: cpu numa affinity result
 			numaRet, ok := pod.Annotations[consts.PodAnnotationNUMABindResultKey]
 			if !ok || numaRet == FakedNUMAID {
 				continue
@@ -143,7 +144,7 @@ func (ha *HeadroomAssemblerCommon) getReclaimNUMABindingTopo(reclaimPool *types.
 
 			numaID, err := strconv.Atoi(numaRet)
 			if err != nil {
-				klog.Errorf("invalid numa binding result: %s, %s, %v", pod.Name, numaRet, err)
+				klog.Errorf("invalid numa allocation result: %s, %s, %v", pod.Name, numaRet, err)
 				continue
 			}
 
@@ -172,9 +173,9 @@ func (ha *HeadroomAssemblerCommon) getReclaimNUMABindingTopo(reclaimPool *types.
 
 	for numaID, bound := range numaMap {
 		if bound {
-			bindingNUMAs = append(bindingNUMAs, numaID)
+			cpuAffinityNUMAs = append(cpuAffinityNUMAs, numaID)
 		} else {
-			nonBindingNumas = append(nonBindingNumas, numaID)
+			nonCPUAffinityNUMAs = append(nonCPUAffinityNUMAs, numaID)
 		}
 	}
 

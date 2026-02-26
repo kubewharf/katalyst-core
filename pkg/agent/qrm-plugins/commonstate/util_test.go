@@ -19,6 +19,8 @@ package commonstate
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -311,4 +313,235 @@ func TestCheckNUMABindingSharedCoresAntiAffinity(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCheckNonCPUAffinityNUMA(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		meta *AllocationMeta
+		want bool
+	}{
+		{
+			name: "nil meta",
+			meta: nil,
+			want: false,
+		},
+		{
+			name: "empty annotations",
+			meta: &AllocationMeta{
+				Annotations: map[string]string{},
+			},
+			want: false,
+		},
+		{
+			name: "only cpu numa affinity",
+			meta: &AllocationMeta{
+				Annotations: map[string]string{
+					consts.PodAnnotationCPUEnhancementNumaAffinity: consts.PodAnnotationCPUEnhancementNumaAffinityEnable,
+				},
+			},
+			want: true,
+		},
+		{
+			name: "only memory numa binding",
+			meta: &AllocationMeta{
+				Annotations: map[string]string{
+					consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+				},
+			},
+			want: true,
+		},
+		{
+			name: "both cpu and memory numa settings",
+			meta: &AllocationMeta{
+				Annotations: map[string]string{
+					consts.PodAnnotationCPUEnhancementNumaAffinity:   consts.PodAnnotationCPUEnhancementNumaAffinityEnable,
+					consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+				},
+			},
+			want: true,
+		},
+		{
+			name: "incorrect cpu numa affinity value",
+			meta: &AllocationMeta{
+				Annotations: map[string]string{
+					consts.PodAnnotationCPUEnhancementNumaAffinity: "false",
+				},
+			},
+			want: false,
+		},
+		{
+			name: "incorrect memory numa binding value",
+			meta: &AllocationMeta{
+				Annotations: map[string]string{
+					consts.PodAnnotationMemoryEnhancementNumaBinding: "false",
+				},
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := CheckNonCPUAffinityNUMA(tt.meta); got != tt.want {
+				t.Errorf("CheckNonCPUAffinityNUMA() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCheckNonBindingCPUAffinityNUMA(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		meta        *AllocationMeta
+		annotations map[string]string
+		want        bool
+	}{
+		{
+			name:        "nil meta",
+			meta:        nil,
+			annotations: nil,
+			want:        false,
+		},
+		{
+			name: "meta has numa not share",
+			meta: &AllocationMeta{
+				Annotations: map[string]string{
+					consts.PodAnnotationCPUEnhancementNUMAShare: consts.PodAnnotationCPUEnhancementNUMAShareDisable,
+				},
+			},
+			annotations: nil,
+			want:        false,
+		},
+		{
+			name: "annotations has numa not share",
+			meta: &AllocationMeta{
+				Annotations: map[string]string{},
+			},
+			annotations: map[string]string{
+				consts.PodAnnotationCPUEnhancementNUMAShare: consts.PodAnnotationCPUEnhancementNUMAShareDisable,
+			},
+			want: false,
+		},
+		{
+			name: "both have numa not share",
+			meta: &AllocationMeta{
+				Annotations: map[string]string{
+					consts.PodAnnotationCPUEnhancementNUMAShare: consts.PodAnnotationCPUEnhancementNUMAShareDisable,
+				},
+			},
+			annotations: map[string]string{
+				consts.PodAnnotationCPUEnhancementNUMAShare: consts.PodAnnotationCPUEnhancementNUMAShareDisable,
+			},
+			want: false,
+		},
+		{
+			name: "only cpu numa affinity",
+			meta: &AllocationMeta{
+				Annotations: map[string]string{
+					consts.PodAnnotationCPUEnhancementNumaAffinity: consts.PodAnnotationCPUEnhancementNumaAffinityEnable,
+				},
+			},
+			annotations: nil,
+			want:        true,
+		},
+		{
+			name: "cpu numa affinity and memory numa binding",
+			meta: &AllocationMeta{
+				Annotations: map[string]string{
+					consts.PodAnnotationCPUEnhancementNumaAffinity:   consts.PodAnnotationCPUEnhancementNumaAffinityEnable,
+					consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+				},
+			},
+			annotations: nil,
+			want:        false,
+		},
+		{
+			name: "no relevant annotations",
+			meta: &AllocationMeta{
+				Annotations: map[string]string{},
+			},
+			annotations: nil,
+			want:        false,
+		},
+		{
+			name: "incorrect annotation values",
+			meta: &AllocationMeta{
+				Annotations: map[string]string{
+					consts.PodAnnotationCPUEnhancementNumaAffinity: "false",
+				},
+			},
+			annotations: nil,
+			want:        false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := CheckNonBindingCPUAffinityNUMA(tt.meta, tt.annotations); got != tt.want {
+				t.Errorf("CheckNonBindingCPUAffinityNUMA() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCheckNUMABindingWithAffinity(t *testing.T) {
+	t.Parallel()
+	// case 1: meta is nil
+	assert.False(t, CheckNUMABindingWithAffinity(nil, map[string]string{}))
+
+	// case 2: annotations is empty
+	meta := &AllocationMeta{}
+	assert.False(t, CheckNUMABindingWithAffinity(meta, map[string]string{}))
+
+	// case 3: QoS level not match
+	meta = &AllocationMeta{}
+	annotations := map[string]string{
+		consts.PodAnnotationQoSLevelKey: "shared_cores",
+	}
+	meta.QoSLevel = "dedicated_cores"
+	assert.False(t, CheckNUMABindingWithAffinity(meta, annotations))
+
+	// case 4: NUMANotShare
+	meta = &AllocationMeta{}
+	meta.QoSLevel = "shared_cores"
+	meta.Annotations = map[string]string{
+		consts.PodAnnotationCPUEnhancementNUMAShare: consts.PodAnnotationCPUEnhancementNUMAShareDisable,
+	}
+	assert.False(t, CheckNUMABindingWithAffinity(meta, annotations))
+
+	// case 5: NonNumaBinding
+	meta = &AllocationMeta{}
+	meta.Annotations = map[string]string{
+		consts.PodAnnotationMemoryEnhancementNumaBinding: "false",
+	}
+	assert.False(t, CheckNUMABindingWithAffinity(meta, annotations))
+
+	// case 6: PoolNameMatch
+	meta = &AllocationMeta{}
+	meta.QoSLevel = "shared_cores"
+	meta.Annotations = map[string]string{
+		consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+		consts.PodAnnotationCPUEnhancementCPUSet:         "pool1",
+	}
+	annotations = map[string]string{
+		consts.PodAnnotationQoSLevelKey:          "shared_cores",
+		consts.PodAnnotationCPUEnhancementCPUSet: "pool1",
+	}
+	assert.True(t, CheckNUMABindingWithAffinity(meta, annotations))
+
+	// case 7: PoolNameNotMatch
+	meta = &AllocationMeta{}
+	annotations = map[string]string{
+		consts.PodAnnotationCPUEnhancementCPUSet: "pool2",
+	}
+	assert.False(t, CheckNUMABindingWithAffinity(meta, annotations))
 }

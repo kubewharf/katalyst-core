@@ -29,21 +29,21 @@ import (
 	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
 )
 
+// IsNumaBinding returns true if current container is for numa binding
+// Notice: NumaBinding is a memory enhancement feature, compared with NumaAffinity,
+// NumaBinding will strictly bind container to a specific numa node, both cpuset and memory.
 func (ci *ContainerInfo) IsNumaBinding() bool {
 	return qosutil.AnnotationsIndicateNUMABinding(ci.Annotations)
 }
 
-func (ci *ContainerInfo) IsNumaExclusive() bool {
-	return qosutil.AnnotationsIndicateNUMAExclusive(ci.Annotations)
-}
-
+// IsSharedNumaBinding returns true if current container is for shared_cores with numa binding
 func (ci *ContainerInfo) IsSharedNumaBinding() bool {
 	return ci.QoSLevel == consts.PodAnnotationQoSLevelSharedCores && ci.IsNumaBinding()
 }
 
-// IsDedicatedNumaBinding returns true if current container is for dedicated_cores with numa binding
+// IsDedicatedNumaBinding returns true if current container is for dedicated_cores with numa affinity
 func (ci *ContainerInfo) IsDedicatedNumaBinding() bool {
-	return ci.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores && ci.IsNumaBinding()
+	return ci.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores && ci.IsNUMAAffinity()
 }
 
 // GetActualNUMABindingResult returns the actual numa binding result of the container.
@@ -53,11 +53,44 @@ func (ci *ContainerInfo) GetActualNUMABindingResult() (int, error) {
 		return 0, fmt.Errorf("containerInfo is nil")
 	}
 
-	return commonstate.GetSpecifiedNUMABindingNUMAID(ci.Annotations)
+	return commonstate.GetSpecifiedNUMAID(ci.Annotations)
 }
 
+// IsNUMAAffinity returns true if current container is for numa affinity
+// Notice: NumaAffinity is a cpu enhancement feature, compared with NumaBinding,
+// NumaAffinity only allows container bind to a specific cpuset.
+func (ci *ContainerInfo) IsNUMAAffinity() bool {
+	return qosutil.AnnotationsIndicateNUMABinding(ci.Annotations) || qosutil.AnnotationsIndicateNUMAAffinity(ci.Annotations)
+}
+
+// IsNUMAExclusive returns true if current container is for numa exclusive
+func (ci *ContainerInfo) IsNUMAExclusive() bool {
+	return qosutil.AnnotationsIndicateNUMAExclusive(ci.Annotations)
+}
+
+// IsSharedNUMAAffinity returns true if current container is for shared_cores with numa affinity
+func (ci *ContainerInfo) IsSharedNUMAAffinity() bool {
+	return ci.QoSLevel == consts.PodAnnotationQoSLevelSharedCores && ci.IsNUMAAffinity()
+}
+
+// IsDedicatedNUMAAffinity returns true if current container is for dedicated_cores with numa affinity
+func (ci *ContainerInfo) IsDedicatedNUMAAffinity() bool {
+	return ci.QoSLevel == consts.PodAnnotationQoSLevelDedicatedCores && ci.IsNUMAAffinity()
+}
+
+// GetActualNUMAAffinityResult returns the actual numa affinity result of the container.
+// If the container is not numa affinity, it will return -1.
+func (ci *ContainerInfo) GetActualNUMAAffinityResult() (int, error) {
+	if ci == nil {
+		return 0, fmt.Errorf("containerInfo is nil")
+	}
+
+	return commonstate.GetSpecifiedNUMAID(ci.Annotations)
+}
+
+// IsDedicatedNumaExclusive returns true if current container is for dedicated_cores with numa exclusive
 func (ci *ContainerInfo) IsDedicatedNumaExclusive() bool {
-	return ci.IsDedicatedNumaBinding() && ci.IsNumaExclusive()
+	return ci.IsDedicatedNUMAAffinity() && ci.IsNUMAExclusive()
 }
 
 func (ci *ContainerInfo) Clone() *ContainerInfo {

@@ -121,7 +121,7 @@ func (o *canonicalHintOptimizer) populateHintsByPreferPolicy(numaNodes []int, pr
 		}
 		availableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(o.reservedCPUs)
 		if !cpuutil.CPUIsSufficient(request, availableCPUQuantity) {
-			general.Warningf("numa_binding shared_cores container skip NUMA: %d available: %.3f request: %.3f",
+			general.Warningf("numa_affinity shared_cores container skip NUMA: %d available: %.3f request: %.3f",
 				nodeID, availableCPUQuantity, request)
 			continue
 		}

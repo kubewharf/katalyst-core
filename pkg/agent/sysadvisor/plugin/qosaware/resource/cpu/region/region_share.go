@@ -57,14 +57,14 @@ func NewQoSRegionShare(ci *types.ContainerInfo, conf *config.Configuration, extr
 	//	When receive a new pod with new share pool from QRM, advisor should create a new share region with OwnerPoolName (OriginOwnerPoolName == OwnerPoolName).
 	// Case 2. create a share pool with OriginOwnerPoolName:
 	//	When put isolation pods back to share pool, advisor should create a new share region with OriginOwnerPoolName (OriginOwnerPoolName != OwnerPoolName).
-	isNumaBinding := numaID != commonstate.FakedNUMAID
+	isNUMAAffinity := numaID != commonstate.FakedNUMAID
 	r := &QoSRegionShare{
-		QoSRegionBase:    NewQoSRegionBase(regionName, ci.OriginOwnerPoolName, configapi.QoSRegionTypeShare, conf, extraConf, isNumaBinding, false, metaReader, metaServer, emitter),
+		QoSRegionBase:    NewQoSRegionBase(regionName, ci.OriginOwnerPoolName, configapi.QoSRegionTypeShare, conf, extraConf, isNUMAAffinity, false, metaReader, metaServer, emitter),
 		configTranslator: general.NewCommonSuffixTranslator(commonstate.NUMAPoolInfix),
 	}
 
-	if isNumaBinding {
-		r.bindingNumas = machine.NewCPUSet(numaID)
+	if isNUMAAffinity {
+		r.cpuAffinityNUMAs = machine.NewCPUSet(numaID)
 	}
 	r.indicatorCurrentGetters = map[string]types.IndicatorCurrentGetter{
 		string(v1alpha1.ServiceSystemIndicatorNameCPUSchedWait):             r.getPoolCPUSchedWait,
@@ -113,7 +113,7 @@ func (r *QoSRegionShare) updateProvisionPolicy() {
 
 		// set essentials for policy and regulator
 		internal.policy.SetPodSet(r.podSet)
-		internal.policy.SetBindingNumas(r.bindingNumas, r.isNumaBinding)
+		internal.policy.SetCPUAffinityNUMAs(r.cpuAffinityNUMAs, r.isNUMAAffinity)
 		internal.policy.SetEssentials(r.ResourceEssentials, r.ControlEssentials)
 
 		// run an episode of policy update
@@ -129,7 +129,7 @@ func (r *QoSRegionShare) getEffectiveControlKnobs() types.ControlKnob {
 	quota, _, err := r.getEffectiveReclaimResource()
 	if err != nil {
 		klog.Errorf("[qosaware-cpu] failed to get effective reclaim resource, ignore it: %v", err)
-	} else if r.isNumaBinding {
+	} else if r.isNUMAAffinity {
 		if quota > 0 {
 			return types.ControlKnob{
 				configapi.ControlKnobReclaimedCoresCPUQuota: {

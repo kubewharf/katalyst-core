@@ -137,7 +137,7 @@ func (cra *cpuResourceAdvisor) initializeProvisionAssembler() error {
 	if !ok {
 		return fmt.Errorf("unsupported provision assembler %v", assemblerName)
 	}
-	cra.provisionAssembler = initializer(cra.conf, cra.extraConf, &cra.regionMap, &cra.reservedForReclaim, &cra.numaAvailable, &cra.nonBindingNumas, &cra.allowSharedCoresOverlapReclaimedCores, cra.metaCache, cra.metaServer, cra.emitter)
+	cra.provisionAssembler = initializer(cra.conf, cra.extraConf, &cra.regionMap, &cra.reservedForReclaim, &cra.numaAvailable, &cra.nonCPUAffinityNUMAs, &cra.allowSharedCoresOverlapReclaimedCores, cra.metaCache, cra.metaServer, cra.emitter)
 
 	return nil
 }
@@ -150,7 +150,7 @@ func (cra *cpuResourceAdvisor) initializeHeadroomAssembler() error {
 	if !ok {
 		return fmt.Errorf("unsupported headroom assembler %v", assemblerName)
 	}
-	cra.headroomAssembler = initializer(cra.conf, cra.extraConf, &cra.regionMap, &cra.reservedForReclaim, &cra.numaAvailable, &cra.nonBindingNumas, cra.metaCache, cra.metaServer, cra.emitter)
+	cra.headroomAssembler = initializer(cra.conf, cra.extraConf, &cra.regionMap, &cra.reservedForReclaim, &cra.numaAvailable, &cra.nonCPUAffinityNUMAs, cra.metaCache, cra.metaServer, cra.emitter)
 
 	return nil
 }
@@ -243,7 +243,7 @@ func (cra *cpuResourceAdvisor) getRegionMaxRequirement(r region.QoSRegion) float
 		res = general.MaxFloat64(1, res)
 	case configapi.QoSRegionTypeDedicated:
 		if r.IsNumaExclusive() {
-			for _, numaID := range r.GetBindingNumas().ToSliceInt() {
+			for _, numaID := range r.GetCPUAffinityNUMAs().ToSliceInt() {
 				res += float64(cra.numaAvailable[numaID] - cra.reservedForReclaim[numaID])
 			}
 		} else {
@@ -256,7 +256,7 @@ func (cra *cpuResourceAdvisor) getRegionMaxRequirement(r region.QoSRegion) float
 			res = general.MaxFloat64(1, res)
 		}
 	default:
-		for _, numaID := range r.GetBindingNumas().ToSliceInt() {
+		for _, numaID := range r.GetCPUAffinityNUMAs().ToSliceInt() {
 			res += float64(cra.numaAvailable[numaID] - cra.reservedForReclaim[numaID])
 		}
 	}
@@ -291,7 +291,7 @@ func (cra *cpuResourceAdvisor) getRegionMinRequirement(r region.QoSRegion) float
 
 func (cra *cpuResourceAdvisor) getRegionReservedForReclaim(r region.QoSRegion) float64 {
 	res := 0.0
-	for _, numaID := range r.GetBindingNumas().ToSliceInt() {
+	for _, numaID := range r.GetCPUAffinityNUMAs().ToSliceInt() {
 		divider := cra.numRegionsPerNuma[numaID]
 		if divider < 1 {
 			divider = 1
@@ -303,7 +303,7 @@ func (cra *cpuResourceAdvisor) getRegionReservedForReclaim(r region.QoSRegion) f
 
 func (cra *cpuResourceAdvisor) getRegionReservedForAllocate(r region.QoSRegion) float64 {
 	res := 0.0
-	for _, numaID := range r.GetBindingNumas().ToSliceInt() {
+	for _, numaID := range r.GetCPUAffinityNUMAs().ToSliceInt() {
 		divider := cra.numRegionsPerNuma[numaID]
 		if divider < 1 {
 			divider = 1
@@ -320,7 +320,7 @@ func (cra *cpuResourceAdvisor) updateRegionEntries() {
 			RegionName:    r.Name(),
 			RegionType:    r.Type(),
 			OwnerPoolName: r.OwnerPoolName(),
-			BindingNumas:  r.GetBindingNumas(),
+			BindingNumas:  r.GetCPUAffinityNUMAs(),
 			Pods:          r.GetPods(),
 		}
 

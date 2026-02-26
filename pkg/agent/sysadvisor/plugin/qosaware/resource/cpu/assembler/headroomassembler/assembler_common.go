@@ -36,12 +36,12 @@ import (
 )
 
 type HeadroomAssemblerCommon struct {
-	conf               *config.Configuration
-	regionMap          *map[string]region.QoSRegion
-	reservedForReclaim *map[int]int
-	numaAvailable      *map[int]int
-	nonBindingNumas    *machine.CPUSet
-	overloadState      map[string]bool
+	conf                *config.Configuration
+	regionMap           *map[string]region.QoSRegion
+	reservedForReclaim  *map[int]int
+	numaAvailable       *map[int]int
+	nonCPUAffinityNUMAs *machine.CPUSet
+	overloadState       map[string]bool
 
 	metaReader metacache.MetaReader
 	metaServer *metaserver.MetaServer
@@ -49,16 +49,16 @@ type HeadroomAssemblerCommon struct {
 }
 
 func NewHeadroomAssemblerCommon(conf *config.Configuration, _ interface{}, regionMap *map[string]region.QoSRegion,
-	reservedForReclaim *map[int]int, numaAvailable *map[int]int, nonBindingNumas *machine.CPUSet, metaReader metacache.MetaReader,
+	reservedForReclaim *map[int]int, numaAvailable *map[int]int, nonCPUAffinityNUMAs *machine.CPUSet, metaReader metacache.MetaReader,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) HeadroomAssembler {
 	return &HeadroomAssemblerCommon{
-		conf:               conf,
-		regionMap:          regionMap,
-		reservedForReclaim: reservedForReclaim,
-		numaAvailable:      numaAvailable,
-		nonBindingNumas:    nonBindingNumas,
-		overloadState:      make(map[string]bool),
+		conf:                conf,
+		regionMap:           regionMap,
+		reservedForReclaim:  reservedForReclaim,
+		numaAvailable:       numaAvailable,
+		nonCPUAffinityNUMAs: nonCPUAffinityNUMAs,
+		overloadState:       make(map[string]bool),
 
 		metaReader: metaReader,
 		metaServer: metaServer,
@@ -87,19 +87,19 @@ func (ha *HeadroomAssemblerCommon) getHeadroomDefault() (resource.Quantity, map[
 		return resource.Quantity{}, nil, fmt.Errorf("get headroom failed: reclaim pool not found")
 	}
 
-	bindingNUMAs, nonBindingNUMAs, err := ha.getReclaimNUMABindingTopo(reclaimPoolInfo)
+	cpuAffinityNUMAs, nonCPUAffinityNUMAs, err := ha.getReclaimNUMAAffinityTopo(reclaimPoolInfo)
 	if err != nil {
-		general.Errorf("getReclaimNUMABindingTop failed: %v", err)
+		general.Errorf("getReclaimNUMAAffinityTopo failed: %v", err)
 		return resource.Quantity{}, nil, err
 	}
 
-	general.Infof("RNB NUMA topo: %v, %v", bindingNUMAs, nonBindingNUMAs)
+	general.Infof("RNB NUMA topo: %v, %v", cpuAffinityNUMAs, nonCPUAffinityNUMAs)
 
 	numaHeadroom := make(map[int]resource.Quantity, ha.metaServer.NumNUMANodes)
 	totalHeadroom := resource.Quantity{}
 
 	// get headroom per NUMA
-	for _, numaID := range bindingNUMAs {
+	for _, numaID := range cpuAffinityNUMAs {
 		cpuSet, ok := reclaimPoolInfo.TopologyAwareAssignments[numaID]
 		if !ok {
 			return resource.Quantity{}, nil, fmt.Errorf("reclaim pool NOT found TopologyAwareAssignments with numaID: %v", numaID)
@@ -117,9 +117,9 @@ func (ha *HeadroomAssemblerCommon) getHeadroomDefault() (resource.Quantity, map[
 	}
 
 	// get global reclaim headroom
-	if len(nonBindingNUMAs) > 0 {
+	if len(nonCPUAffinityNUMAs) > 0 {
 		cpuSets := machine.NewCPUSet()
-		for _, numaID := range nonBindingNUMAs {
+		for _, numaID := range nonCPUAffinityNUMAs {
 			cpuSet, ok := reclaimPoolInfo.TopologyAwareAssignments[numaID]
 			if !ok {
 				return resource.Quantity{}, nil, fmt.Errorf("reclaim pool NOT found TopologyAwareAssignments with numaID: %v", numaID)
@@ -133,8 +133,8 @@ func (ha *HeadroomAssemblerCommon) getHeadroomDefault() (resource.Quantity, map[
 			return resource.Quantity{}, nil, fmt.Errorf("get reclaim Metrics failed: %v", err)
 		}
 
-		headroomPerNUMA := reclaimMetrics.ReclaimedCoresSupply / float64(len(nonBindingNUMAs))
-		for _, numaID := range nonBindingNUMAs {
+		headroomPerNUMA := reclaimMetrics.ReclaimedCoresSupply / float64(len(nonCPUAffinityNUMAs))
+		for _, numaID := range nonCPUAffinityNUMAs {
 			q := *resource.NewQuantity(int64(headroomPerNUMA), resource.DecimalSI)
 			numaHeadroom[numaID] = q
 			totalHeadroom.Add(q)
@@ -163,12 +163,12 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 		return resource.Quantity{}, nil, fmt.Errorf("get headroom by util failed: reclaim pool not found")
 	}
 
-	bindingNUMAs, nonBindingNUMAs, err := ha.getReclaimNUMABindingTopo(reclaimPoolInfo)
+	cpuAffinityNUMAs, nonCPUAffinityNUMAs, err := ha.getReclaimNUMAAffinityTopo(reclaimPoolInfo)
 	if err != nil {
-		general.Errorf("getReclaimNUMABindingTop failed: %v", err)
+		general.Errorf("getReclaimNUMAAffinityTopo failed: %v", err)
 		return resource.Quantity{}, nil, err
 	}
-	general.Infof("RNB NUMA topo: %v, %v", bindingNUMAs, nonBindingNUMAs)
+	general.Infof("RNB NUMA topo: %v, %v", cpuAffinityNUMAs, nonCPUAffinityNUMAs)
 
 	numaHeadroom := make(map[int]resource.Quantity, ha.metaServer.NumNUMANodes)
 	totalHeadroom := resource.Quantity{}
@@ -180,7 +180,7 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 	}
 
 	// get headroom per NUMA
-	for _, numaID := range bindingNUMAs {
+	for _, numaID := range cpuAffinityNUMAs {
 		cpuSet, ok := reclaimPoolInfo.TopologyAwareAssignments[numaID]
 		if !ok {
 			return resource.Quantity{}, nil, fmt.Errorf("reclaim pool NOT found TopologyAwareAssignments with numaID: %v", numaID)
@@ -205,10 +205,10 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 	}
 
 	// get global reclaim headroom
-	if len(nonBindingNUMAs) > 0 {
+	if len(nonCPUAffinityNUMAs) > 0 {
 		cpusets := machine.NewCPUSet()
 		lastReclaimedCPUPerNumaForCalculate := make(map[int]float64)
-		for _, numaID := range nonBindingNUMAs {
+		for _, numaID := range nonCPUAffinityNUMAs {
 			cpuSet, ok := reclaimPoolInfo.TopologyAwareAssignments[numaID]
 			if !ok {
 				return resource.Quantity{}, nil, fmt.Errorf("reclaim pool NOT found TopologyAwareAssignments with numaID: %v", numaID)
@@ -223,7 +223,7 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 			return resource.Quantity{}, nil, fmt.Errorf("get reclaim Metrics failed: %v", err)
 		}
 
-		totalCPUSize := ha.metaServer.NUMAToCPUs.CPUSizeInNUMAs(nonBindingNUMAs...)
+		totalCPUSize := ha.metaServer.NUMAToCPUs.CPUSizeInNUMAs(nonCPUAffinityNUMAs...)
 		if totalCPUSize == 0 {
 			return resource.Quantity{}, nil, fmt.Errorf("totalCPUSize is 0")
 		}
@@ -234,7 +234,7 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 			return resource.Quantity{}, nil, fmt.Errorf("get util-based headroom failed: %v", err)
 		}
 
-		for _, numaID := range nonBindingNUMAs {
+		for _, numaID := range nonCPUAffinityNUMAs {
 			numaCPUSize := ha.metaServer.NUMAToCPUs.CPUSizeInNUMAs(numaID)
 			headroomForNUMA := float64(headroom.Value()) * float64(numaCPUSize) / float64(totalCPUSize)
 			q := *resource.NewQuantity(int64(headroomForNUMA), resource.DecimalSI)

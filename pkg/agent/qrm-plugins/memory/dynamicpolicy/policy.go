@@ -1250,7 +1250,7 @@ func (p *DynamicPolicy) hasLastLevelEnhancementKey(lastLevelEnhancementKey strin
 	return false
 }
 
-func (p *DynamicPolicy) checkNonBindingShareCoresMemoryResource(req *pluginapi.ResourceRequest) (bool, error) {
+func (p *DynamicPolicy) checkNonBindingMemoryResource(req *pluginapi.ResourceRequest) (bool, error) {
 	reqInt, _, err := util.GetPodAggregatedRequestResource(req)
 	if err != nil {
 		return false, fmt.Errorf("GetQuantityFromResourceReq failed with error: %v", err)
@@ -1279,14 +1279,14 @@ func (p *DynamicPolicy) checkNonBindingShareCoresMemoryResource(req *pluginapi.R
 		numaAllocatableWithoutNUMABindingPods += resourceState[numaID].Allocatable
 	}
 
-	general.Infof("[checkNonBindingShareCoresMemoryResource] node memory allocated: %d, allocatable: %d", shareCoresAllocated, numaAllocatableWithoutNUMABindingPods)
+	general.Infof("[checkNonBindingMemoryResource] node memory allocated: %d, allocatable: %d", shareCoresAllocated, numaAllocatableWithoutNUMABindingPods)
 	if shareCoresAllocated > numaAllocatableWithoutNUMABindingPods {
-		general.Warningf("[checkNonBindingShareCoresMemoryResource] no enough memory resource for non-binding share cores pod: %s/%s, container: %s (allocated: %d, allocatable: %d)",
+		general.Warningf("[checkNonBindingMemoryResource] no enough memory resource for non-binding  pod: %s/%s, container: %s (allocated: %d, allocatable: %d)",
 			req.PodNamespace, req.PodName, req.ContainerName, shareCoresAllocated, numaAllocatableWithoutNUMABindingPods)
 		return false, nil
 	}
 
-	general.InfoS("checkNonBindingShareCoresMemoryResource memory successfully",
+	general.InfoS("checkNonBindingMemoryResource memory successfully",
 		"podNamespace", req.PodNamespace,
 		"podName", req.PodName,
 		"containerName", req.ContainerName,

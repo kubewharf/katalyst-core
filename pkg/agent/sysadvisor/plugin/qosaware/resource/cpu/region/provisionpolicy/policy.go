@@ -34,8 +34,10 @@ type ProvisionPolicy interface {
 	SetEssentials(resourceEssentials types.ResourceEssentials, controlEssentials types.ControlEssentials)
 	// SetPodSet overwrites policy's pod/container record
 	SetPodSet(types.PodSet)
-	// SetBindingNumas overwrites the numa ids this policy interested in
-	SetBindingNumas(numas machine.CPUSet, isNUMABinding bool)
+	// SetCPUAffinityNUMAs overwrites the numa ids this policy interested in.
+	// Notice: SetCPUAffinityNUMAs is the same as SetBindingNUMAs, only to keep
+	// compatibility with old code.
+	SetCPUAffinityNUMAs(numas machine.CPUSet, isNUMAAffinity bool)
 
 	// Update triggers an episode of algorithm update
 	Update() error

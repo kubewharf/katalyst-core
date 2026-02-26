@@ -97,10 +97,10 @@ func (p *PolicyNUMADedicated) Update() error {
 		}
 
 		// FIXME: metric server doesn't support to report cpu usage in numa granularity,
-		// so we split cpu usage evenly across the binding numas of container.
-		if p.bindingNumas.Size() > 0 {
+		// so we split cpu usage evenly across the cpu affinity numas of container.
+		if p.cpuAffinityNUMAs.Size() > 0 {
 			cpuSize := 0
-			for _, numaID := range p.bindingNumas.ToSliceInt() {
+			for _, numaID := range p.cpuAffinityNUMAs.ToSliceInt() {
 				cpuSize += ci.TopologyAwareAssignments[numaID].Size()
 			}
 			cpuAssignmentCPUs := machine.CountCPUAssignmentCPUs(ci.TopologyAwareAssignments)

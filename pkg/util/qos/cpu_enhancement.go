@@ -34,6 +34,12 @@ func AnnotationsIndicateNUMANotShare(annotations map[string]string) bool {
 		consts.PodAnnotationCPUEnhancementNUMAShareDisable
 }
 
+// AnnotationsIndicateNUMAAffinity returns true if the pod indicates numa affinity
+func AnnotationsIndicateNUMAAffinity(annotations map[string]string) bool {
+	return annotations[consts.PodAnnotationCPUEnhancementNumaAffinity] ==
+		consts.PodAnnotationCPUEnhancementNumaAffinityEnable
+}
+
 // GetPodCPUSuppressionToleranceRate parses cpu suppression tolerance rate for the given pod,
 // and cpu suppression is only supported for reclaim pods. if the given is not nominated with
 // cpu suppression, return max to indicate that it can be suppressed for any degree.

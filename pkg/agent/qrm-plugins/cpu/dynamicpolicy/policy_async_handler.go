@@ -46,7 +46,7 @@ import (
 )
 
 const (
-	metricsNamePodTotalRequestLargerThanBindingCPUSet = "pod_total_request_larger_than_cpu_set"
+	metricsNamePodTotalRequestLargerThanAllocatedCPUSet = "pod_total_request_larger_than_cpu_set"
 )
 
 // checkCPUSet emit errors if the memory allocation falls into unexpected results
@@ -305,14 +305,14 @@ func (p *DynamicPolicy) emitExceededMetrics(
 			continue
 		}
 
-		// check if the pod exceeds the binding cpuset by more than 1 core
+		// check if the pod exceeds the affinity cpuset by more than 1 core
 		outOfTolerance := int64(cs.cpuset.Size()+1) < (cs.totalMilliCPURequest / 1000)
 
 		general.Errorf("pod: %s/%s, ownerPoolName: %s, qosLevel: %s, cpuset: %s, size %d, exceeds total cpu request: %.3f, exceeded ratio: %.3f, outOfTolerance: %v",
 			pod.Namespace, pod.Name, mainContainerEntry.OwnerPoolName, mainContainerEntry.QoSLevel, cpuset, cs.cpuset.Size(),
 			float64(cs.totalMilliCPURequest)/1000, exceededRatio, outOfTolerance)
 
-		_ = p.emitter.StoreFloat64(metricsNamePodTotalRequestLargerThanBindingCPUSet, exceededRatio, metrics.MetricTypeNameRaw, []metrics.MetricTag{
+		_ = p.emitter.StoreFloat64(metricsNamePodTotalRequestLargerThanAllocatedCPUSet, exceededRatio, metrics.MetricTypeNameRaw, []metrics.MetricTag{
 			{Key: "podNamespace", Val: pod.Namespace},
 			{Key: "podName", Val: pod.Name},
 			{Key: "qosLevel", Val: mainContainerEntry.QoSLevel},

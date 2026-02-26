@@ -50,7 +50,7 @@ func NewPolicyDynamicQuota(regionName string, regionType configapi.QoSRegionType
 }
 
 func (p *PolicyDynamicQuota) isCPUQuotaAsControlKnob() bool {
-	if !p.isNUMABinding {
+	if !p.isNUMAAffinity {
 		return false
 	}
 
@@ -60,20 +60,20 @@ func (p *PolicyDynamicQuota) isCPUQuotaAsControlKnob() bool {
 
 func (p *PolicyDynamicQuota) updateForCPUQuota() error {
 	indicator := p.Indicators[string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio)]
-	reclaimPath := common.GetReclaimRelativeRootCgroupPath(p.conf.ReclaimRelativeRootCgroupPath, p.bindingNumas.ToSliceInt()[0])
+	reclaimPath := common.GetReclaimRelativeRootCgroupPath(p.conf.ReclaimRelativeRootCgroupPath, p.cpuAffinityNUMAs.ToSliceInt()[0])
 	data, err := p.metaServer.GetCgroupMetric(reclaimPath, pkgconsts.MetricCPUUsageCgroup)
 	if err != nil {
 		return err
 	}
 	reclaimCoresCPUUsage := data.Value
 
-	totalNUMACPUSize := p.metaServer.NUMAToCPUs.CPUSizeInNUMAs(p.bindingNumas.ToSliceNoSortInt()...)
+	totalNUMACPUSize := p.metaServer.NUMAToCPUs.CPUSizeInNUMAs(p.cpuAffinityNUMAs.ToSliceNoSortInt()...)
 	if totalNUMACPUSize == 0 {
 		return fmt.Errorf("invalid cpu count per numa: %d, %d", p.metaServer.NumNUMANodes, p.metaServer.NumCPUs)
 	}
 	quota := general.MaxFloat64(float64(totalNUMACPUSize)*(indicator.Target-indicator.Current)+reclaimCoresCPUUsage, p.ReservedForReclaim)
 
-	general.InfoS("metrics", "cpuUsage", reclaimCoresCPUUsage, "totalNUMACPUSize", totalNUMACPUSize, "target", indicator.Target, "current", indicator.Current, "quota", quota, "numas", p.bindingNumas.String())
+	general.InfoS("metrics", "cpuUsage", reclaimCoresCPUUsage, "totalNUMACPUSize", totalNUMACPUSize, "target", indicator.Target, "current", indicator.Current, "quota", quota, "numas", p.cpuAffinityNUMAs.String())
 
 	p.controlKnobAdjusted = types.ControlKnob{
 		configapi.ControlKnobReclaimedCoresCPUQuota: types.ControlKnobItem{

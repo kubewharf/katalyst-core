@@ -36,7 +36,7 @@ func NewPolicyNone(_ string, _ configapi.QoSRegionType, _ string,
 }
 
 func (p *PolicyNone) SetPodSet(types.PodSet)                 {}
-func (p *PolicyNone) SetBindingNumas(machine.CPUSet)         {}
+func (p *PolicyNone) SetCPUAffinityNUMAs(machine.CPUSet)     {}
 func (p *PolicyNone) SetEssentials(types.ResourceEssentials) {}
 func (p *PolicyNone) Update() error                          { return nil }
 func (p *PolicyNone) GetHeadroom() (float64, error)          { return types.InvalidHeadroom, nil }

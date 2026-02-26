@@ -60,6 +60,58 @@ func CheckNUMABindingAntiAffinity(meta *AllocationMeta, annotations map[string]s
 	return false
 }
 
+func CheckNUMABindingWithAffinity(meta *AllocationMeta, annotations map[string]string) bool {
+	if meta == nil {
+		return false
+	} else if len(annotations) == 0 {
+		return false
+	}
+
+	// if qos level is same as candidate, filter out this numa
+	if meta.GetQoSLevel() != annotations[consts.PodAnnotationQoSLevelKey] {
+		return false
+	}
+
+	if meta.CheckNUMANotShare() ||
+		qos.AnnotationsIndicateNUMANotShare(annotations) {
+		return false
+	}
+
+	if meta.CheckNUMABinding() {
+		// considering isolation, use specified pool instead of actual pool name here
+		candidateSpecifiedPoolName := GetSpecifiedPoolName(consts.PodAnnotationQoSLevelSharedCores,
+			annotations[consts.PodAnnotationCPUEnhancementCPUSet])
+		aiSpecifiedPoolName := meta.GetSpecifiedPoolName()
+
+		// shared_cores with numa binding doesn't support two share type pools with same specified name existing at same NUMA
+		return candidateSpecifiedPoolName == aiSpecifiedPoolName
+	}
+	return false
+}
+
+// CheckNonCPUAffinityNUMA returns true, if the AllocationMeta indicates that the meta is numa affinity candidate.
+func CheckNonCPUAffinityNUMA(meta *AllocationMeta) bool {
+	if meta == nil {
+		return false
+	}
+
+	return meta.CheckNUMAAffinity()
+}
+
+// CheckNonBindingCPUAffinityNUMA returns true, if the AllocationMeta indicates that the meta is numa affinity candidate.
+// Now we consume that different numa affinity cpu pool can share the same numa node.
+func CheckNonBindingCPUAffinityNUMA(meta *AllocationMeta, annotations map[string]string) bool {
+	if meta == nil {
+		return false
+	}
+
+	if meta.CheckNUMANotShare() || qos.AnnotationsIndicateNUMANotShare(annotations) {
+		return false
+	}
+
+	return meta.CheckNonBindingNUMAAffinity()
+}
+
 // GenerateGenericContainerAllocationMeta generates a generic container's allocation metadata.
 // This function populates the AllocationMeta struct using data from the resource request and other parameters.
 // Parameters:

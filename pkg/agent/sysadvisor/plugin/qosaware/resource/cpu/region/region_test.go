@@ -175,14 +175,14 @@ func TestIsNumaBinding(t *testing.T) {
 		RegionNames: sets.NewString("share-NUMA1"),
 	}
 	share := NewQoSRegionShare(&ci, conf, nil, 1, metaCache, metaServer, metrics.DummyMetrics{})
-	require.True(t, share.IsNumaBinding(), "test IsNumaBinding failed")
+	require.True(t, share.IsNUMAAffinity(), "test IsNUMAAffinity failed")
 
 	ci2 := types.ContainerInfo{
 		QoSLevel:    consts.PodAnnotationQoSLevelSharedCores,
 		RegionNames: sets.NewString("share"),
 	}
 	share2 := NewQoSRegionShare(&ci2, conf, nil, commonstate.FakedNUMAID, metaCache, metaServer, metrics.DummyMetrics{})
-	require.False(t, share2.IsNumaBinding(), "test IsNumaBinding failed")
+	require.False(t, share2.IsNUMAAffinity(), "test IsNUMAAffinity failed")
 
 	ci3 := types.ContainerInfo{
 		QoSLevel:    consts.PodAnnotationQoSLevelSharedCores,
@@ -190,7 +190,7 @@ func TestIsNumaBinding(t *testing.T) {
 		Isolated:    true,
 	}
 	isolation1 := NewQoSRegionIsolation(&ci3, "isolation-1", conf, nil, 1, metaCache, metaServer, metrics.DummyMetrics{})
-	require.True(t, isolation1.IsNumaBinding(), "test IsNumaBinding failed")
+	require.True(t, isolation1.IsNUMAAffinity(), "test IsNUMAAffinity failed")
 
 	ci4 := types.ContainerInfo{
 		QoSLevel:    consts.PodAnnotationQoSLevelSharedCores,
@@ -198,7 +198,7 @@ func TestIsNumaBinding(t *testing.T) {
 		Isolated:    true,
 	}
 	isolation2 := NewQoSRegionIsolation(&ci4, "isolation-1", conf, nil, commonstate.FakedNUMAID, metaCache, metaServer, metrics.DummyMetrics{})
-	require.False(t, isolation2.IsNumaBinding(), "test IsNumaBinding failed")
+	require.False(t, isolation2.IsNUMAAffinity(), "test IsNUMAAffinity failed")
 }
 
 func TestRestrictProvisionControlKnob(t *testing.T) {

@@ -45,7 +45,7 @@ type FakeRegion struct {
 	ownerPoolName              string
 	regionType                 configapi.QoSRegionType
 	bindingNumas               machine.CPUSet
-	isNumaBinding              bool
+	isNUMAAffinity             bool
 	isNumaExclusive            bool
 	podSets                    types.PodSet
 	controlKnob                types.ControlKnob
@@ -87,7 +87,7 @@ func (fake *FakeRegion) IsEmpty() bool {
 	return false
 }
 func (fake *FakeRegion) Clear() {}
-func (fake *FakeRegion) GetBindingNumas() machine.CPUSet {
+func (fake *FakeRegion) GetCPUAffinityNUMAs() machine.CPUSet {
 	return fake.bindingNumas
 }
 
@@ -103,7 +103,7 @@ func (fake *FakeRegion) GetPodsRequest() float64 {
 	return 0
 }
 
-func (fake *FakeRegion) SetBindingNumas(bindingNumas machine.CPUSet) {
+func (fake *FakeRegion) SetCPUAffinityNUMAs(bindingNumas machine.CPUSet) {
 	fake.bindingNumas = bindingNumas
 }
 
@@ -111,12 +111,12 @@ func (fake *FakeRegion) SetEssentials(essentials types.ResourceEssentials) {
 	fake.essentials = essentials
 }
 
-func (fake *FakeRegion) SetIsNumaBinding(isNumaBinding bool) {
-	fake.isNumaBinding = isNumaBinding
+func (fake *FakeRegion) SetIsNumaBinding(isNUMAAffinity bool) {
+	fake.isNUMAAffinity = isNUMAAffinity
 }
 
-func (fake *FakeRegion) IsNumaBinding() bool {
-	return fake.isNumaBinding
+func (fake *FakeRegion) IsNUMAAffinity() bool {
+	return fake.isNUMAAffinity
 }
 func (fake *FakeRegion) IsNumaExclusive() bool                      { return fake.isNumaExclusive }
 func (fake *FakeRegion) SetThrottled(throttled bool)                { fake.throttled = throttled }
@@ -1031,15 +1031,15 @@ func TestAssembleProvision(t *testing.T) {
 				require.True(t, ok, "pool config doesn't exist")
 				require.NoError(t, metaCache.SetPoolInfo(poolInfo.PoolName, &poolInfo), "failed to set pool info %s", poolInfo.PoolName)
 				region := NewFakeRegion(poolConfig.poolName, poolConfig.poolType, poolConfig.poolName)
-				region.SetBindingNumas(poolConfig.numa)
+				region.SetCPUAffinityNUMAs(poolConfig.numa)
 				region.SetIsNumaBinding(poolConfig.isNumaBinding)
 				region.SetProvision(poolConfig.provision)
 				region.TryUpdateProvision()
-				require.Equal(t, poolConfig.isNumaBinding, region.IsNumaBinding(), "invalid numa binding state")
+				require.Equal(t, poolConfig.isNumaBinding, region.IsNUMAAffinity(), "invalid numa binding state")
 				regionMap[region.name] = region
 
-				if region.IsNumaBinding() {
-					nonBindingNumas = nonBindingNumas.Difference(region.GetBindingNumas())
+				if region.IsNUMAAffinity() {
+					nonBindingNumas = nonBindingNumas.Difference(region.GetCPUAffinityNUMAs())
 				}
 			}
 

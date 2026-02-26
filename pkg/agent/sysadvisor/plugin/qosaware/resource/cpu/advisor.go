@@ -94,11 +94,11 @@ type cpuResourceAdvisor struct {
 
 	advisorUpdated bool
 
-	regionMap          map[string]region.QoSRegion // map[regionName]region
-	reservedForReclaim map[int]int                 // map[numaID]reservedForReclaim
-	numaAvailable      map[int]int                 // map[numaID]availableResource
-	numRegionsPerNuma  map[int]int                 // map[numaID]regionQuantity
-	nonBindingNumas    machine.CPUSet              // numas without numa binding pods
+	regionMap           map[string]region.QoSRegion // map[regionName]region
+	reservedForReclaim  map[int]int                 // map[numaID]reservedForReclaim
+	numaAvailable       map[int]int                 // map[numaID]availableResource
+	numRegionsPerNuma   map[int]int                 // map[numaID]regionQuantity
+	nonCPUAffinityNUMAs machine.CPUSet              // numas without numa binding or cpu affinity pod
 
 	allowSharedCoresOverlapReclaimedCores bool
 
@@ -125,11 +125,11 @@ func NewCPUResourceAdvisor(conf *config.Configuration, extraConf interface{}, me
 
 		advisorUpdated: false,
 
-		regionMap:          make(map[string]region.QoSRegion),
-		reservedForReclaim: make(map[int]int),
-		numaAvailable:      make(map[int]int),
-		numRegionsPerNuma:  make(map[int]int),
-		nonBindingNumas:    machine.NewCPUSet(),
+		regionMap:           make(map[string]region.QoSRegion),
+		reservedForReclaim:  make(map[int]int),
+		numaAvailable:       make(map[int]int),
+		numRegionsPerNuma:   make(map[int]int),
+		nonCPUAffinityNUMAs: machine.NewCPUSet(),
 
 		isolator: isolation.NewLoadIsolator(conf, extraConf, emitter, metaCache, metaServer),
 
@@ -309,7 +309,7 @@ func (cra *cpuResourceAdvisor) setIsolatedContainers(enableIsolated bool) bool {
 func (cra *cpuResourceAdvisor) checkIsolationSafety() bool {
 	shareAndIsolationPoolSize := 0
 	dedicatedNonExclusivePoolSize := 0
-	nonBindingNumas := cra.metaServer.CPUDetails.NUMANodes()
+	nonCPUAffinityNUMAs := cra.metaServer.CPUDetails.NUMANodes()
 	for _, r := range cra.regionMap {
 		if r.Type() == configapi.QoSRegionTypeShare {
 			controlKnob, err := r.GetProvision()
@@ -328,10 +328,10 @@ func (cra *cpuResourceAdvisor) checkIsolationSafety() bool {
 			})
 		} else if r.Type() == configapi.QoSRegionTypeDedicated {
 			if r.IsNumaExclusive() {
-				nonBindingNumas = nonBindingNumas.Difference(r.GetBindingNumas())
-			} else if r.IsNumaBinding() {
-				// dedicated numa-binding non-exclusive region, calculate the pool size based on binding numas
-				dedicatedNonExclusivePoolSize += int(math.Ceil(r.GetPodsRequest() / float64(r.GetBindingNumas().Size())))
+				nonCPUAffinityNUMAs = nonCPUAffinityNUMAs.Difference(r.GetCPUAffinityNUMAs())
+			} else if r.IsNUMAAffinity() {
+				// dedicated numa-binding non-exclusive region, calculate the pool size based on cpu affinity numas
+				dedicatedNonExclusivePoolSize += int(math.Ceil(r.GetPodsRequest() / float64(r.GetCPUAffinityNUMAs().Size())))
 			} else {
 				// dedicated non-numa-binding non-exclusive region, calculate the pool size based on pods request
 				dedicatedNonExclusivePoolSize += int(math.Ceil(r.GetPodsRequest()))
@@ -339,7 +339,7 @@ func (cra *cpuResourceAdvisor) checkIsolationSafety() bool {
 		}
 	}
 
-	nonExclusiveSize := cra.metaServer.NUMAToCPUs.CPUSizeInNUMAs(cra.nonBindingNumas.ToSliceNoSortInt()...)
+	nonExclusiveSize := cra.metaServer.NUMAToCPUs.CPUSizeInNUMAs(cra.nonCPUAffinityNUMAs.ToSliceNoSortInt()...)
 	klog.Infof("[qosaware-cpu] shareAndIsolationPoolSize %v, nonExclusiveSize %v，dedicatedNonExclusivePoolSize %v",
 		shareAndIsolationPoolSize, nonExclusiveSize, dedicatedNonExclusivePoolSize)
 	if shareAndIsolationPoolSize+dedicatedNonExclusivePoolSize > nonExclusiveSize {
@@ -423,7 +423,7 @@ func (cra *cpuResourceAdvisor) assignToRegions(ci *types.ContainerInfo) ([]regio
 
 func (cra *cpuResourceAdvisor) assignShareContainerToRegions(ci *types.ContainerInfo) ([]region.QoSRegion, error) {
 	numaID := commonstate.FakedNUMAID
-	if cra.conf.GenericSysAdvisorConfiguration.EnableShareCoresNumaBinding && ci.IsNumaBinding() {
+	if cra.conf.GenericSysAdvisorConfiguration.EnableShareCoresNumaBinding && ci.IsNUMAAffinity() {
 		if ci.OwnerPoolName == "" {
 			return nil, fmt.Errorf("empty owner pool name, %v/%v", ci.PodUID, ci.ContainerName)
 		}
@@ -538,21 +538,21 @@ func (cra *cpuResourceAdvisor) gcRegionMap() {
 }
 
 // updateAdvisorEssentials updates following essentials after assigning containers to regions:
-// 1. non-binding numas, i.e. numas without numa binding containers
-// 2. binding numas of non numa binding regions
+// 1. non-cpu-affinity numas, i.e. numas without cpu affinity containers
+// 2. cpu-affinity numas of non cpu-affinity regions
 // 3. region quantity of each numa
 func (cra *cpuResourceAdvisor) updateAdvisorEssentials() {
-	cra.nonBindingNumas = cra.metaServer.CPUDetails.NUMANodes()
+	cra.nonCPUAffinityNUMAs = cra.metaServer.CPUDetails.NUMANodes()
 	cra.allowSharedCoresOverlapReclaimedCores = cra.conf.GetDynamicConfiguration().AllowSharedCoresOverlapReclaimedCores
 
-	// update non-binding numas
+	// update non-cpu-affinity numas
 	for _, r := range cra.regionMap {
-		if !r.IsNumaBinding() {
+		if !r.IsNUMAAffinity() {
 			continue
 		}
 		// ignore isolation region
 		if r.Type() == configapi.QoSRegionTypeDedicated || r.Type() == configapi.QoSRegionTypeShare {
-			cra.nonBindingNumas = cra.nonBindingNumas.Difference(r.GetBindingNumas())
+			cra.nonCPUAffinityNUMAs = cra.nonCPUAffinityNUMAs.Difference(r.GetCPUAffinityNUMAs())
 		}
 	}
 
@@ -562,13 +562,13 @@ func (cra *cpuResourceAdvisor) updateAdvisorEssentials() {
 	}
 
 	for _, r := range cra.regionMap {
-		// set binding numas for non numa binding regions
-		if !r.IsNumaBinding() && r.Type() == configapi.QoSRegionTypeShare {
-			r.SetBindingNumas(cra.nonBindingNumas)
+		// set cpu affinity numas for non numa binding regions
+		if !r.IsNUMAAffinity() && r.Type() == configapi.QoSRegionTypeShare {
+			r.SetCPUAffinityNUMAs(cra.nonCPUAffinityNUMAs)
 		}
 
 		// accumulate region quantity for each numa
-		for _, numaID := range r.GetBindingNumas().ToSliceInt() {
+		for _, numaID := range r.GetCPUAffinityNUMAs().ToSliceInt() {
 			cra.numRegionsPerNuma[numaID] += 1
 		}
 	}

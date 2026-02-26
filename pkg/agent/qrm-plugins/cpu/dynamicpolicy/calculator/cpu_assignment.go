@@ -19,6 +19,7 @@ package calculator
 import (
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 
 	"k8s.io/klog/v2"
@@ -401,6 +402,27 @@ func TakeByTopology(info *machine.KatalystMachineInfo, availableCPUs machine.CPU
 
 	// Exhaustive allocation failed - no combination satisfies requirement
 	return machine.NewCPUSet(), fmt.Errorf("topology-aware allocation failed: requested %d CPUs, exhausted all allocation strategies", cpuRequirement)
+}
+
+// TakeByTopologyWithSpreading implements a topology-aware CPU allocation strategy that
+// spreads the allocated CPUs across NUMA nodes.
+func TakeByTopologyWithSpreading(info *machine.KatalystMachineInfo,
+	availableCPUs map[int]machine.CPUSet,
+	cpuRequirement int, alignByL3Caches bool,
+) (machine.CPUSet, error) {
+	alignedAvailableCPUs := machine.CPUSet{}
+	for _, availableCPUsInNuma := range availableCPUs {
+		// allocate cpu for numa affinity pod, prefer to allocate cpus spread across NUMA nodes,
+		// if cpu requirement cannot be divided evenly among numa nodes,
+		// round up to ensure pod request can be satisfied
+		requestCPUsInNuma := math.Ceil(float64(cpuRequirement) / float64(len(availableCPUs)))
+		result, err := TakeByTopology(info, availableCPUsInNuma, int(requestCPUsInNuma), alignByL3Caches)
+		if err != nil {
+			return machine.NewCPUSet(), err
+		}
+		alignedAvailableCPUs.Union(result)
+	}
+	return alignedAvailableCPUs, nil
 }
 
 // TakeByNUMABalance tries to make the allocated cpu spread on different

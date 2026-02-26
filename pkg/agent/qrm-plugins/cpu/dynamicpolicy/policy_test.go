@@ -3585,10 +3585,10 @@ func TestGetTopologyHints(t *testing.T) {
 				}
 			}
 
-			dynamicPolicy.sharedCoresNUMABindingHintOptimizer, err = canonical.NewCanonicalHintOptimizer(dynamicPolicy.generateHintOptimizerFactoryOptions())
+			dynamicPolicy.sharedCoresNUMAAffinityHintOptimizer, err = canonical.NewCanonicalHintOptimizer(dynamicPolicy.generateHintOptimizerFactoryOptions())
 			as.NoError(err)
 
-			dynamicPolicy.dedicatedCoresNUMABindingHintOptimizer = &hintoptimizer.DummyHintOptimizer{}
+			dynamicPolicy.dedicatedCoresNUMAAffinityHintOptimizer = &hintoptimizer.DummyHintOptimizer{}
 
 			resp, err := dynamicPolicy.GetTopologyHints(context.Background(), tc.req)
 			as.Nil(err)
