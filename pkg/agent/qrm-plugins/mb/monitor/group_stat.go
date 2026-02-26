@@ -36,29 +36,40 @@ func getMinActiveMB() int {
 // in line with resctrl FS mon-group mon-data structure
 type GroupMBStats map[string]GroupMB
 
-// NormalizeShare change subgroup names shared-xx to share-xx
-// some resctrl FS may present share subgroup in "shared-xx" form; this conversion replaces with the desired form "share-xx"
-func (gms GroupMBStats) NormalizeShareSubgroups() (stats GroupMBStats, isSharedSubgroup bool) {
+// NormalizeShare changes subgroup names shared-xx to share-xx, and
+// returns indition whether the group names use the old style of "shared-xx" conventions.
+// Some resctrl FS may present share subgroup in "shared-xx" form; this conversion replaces with the desired form "share-xx"
+func (gms GroupMBStats) NormalizeShareSubgroups() (stats GroupMBStats, isSharedSubgroupConvention bool) {
 	for name := range gms {
-		if strings.HasPrefix(name, "shared-") {
-			isSharedSubgroup = true
+		if isObsoleteSharedGroupName(name) {
+			isSharedSubgroupConvention = true
 			break
 		}
 	}
 
-	if !isSharedSubgroup {
+	if !isSharedSubgroupConvention {
 		return gms, false
 	}
 
 	stats = make(GroupMBStats)
 	for name, groupMB := range gms {
-		if strings.HasPrefix(name, "shared-") {
-			name = "share-" + strings.TrimPrefix(name, "shared-")
-		}
+		name = ensureShareGroupName(name)
 		stats[name] = groupMB
 	}
 
 	return stats, true
+}
+
+func isObsoleteSharedGroupName(name string) bool {
+	return strings.HasPrefix(name, "shared-")
+}
+
+// ensureShareGroupName converts shared-xx group name to share-xx
+func ensureShareGroupName(name string) string {
+	if strings.HasPrefix(name, "shared-") {
+		name = "share-" + strings.TrimPrefix(name, "shared-")
+	}
+	return name
 }
 
 // GroupMB keeps one group mb info, each group may have multiple ccds

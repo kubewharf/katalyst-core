@@ -184,8 +184,8 @@ func (m *MBPlugin) run() {
 
 	// some resctrl FS may present share subgroup in "shared-xx" form
 	// need to normalize to the desired form "share-xx"
-	groupMB, isObsoleteSharedSubgroup := mbData.MBBody.NormalizeShareSubgroups()
-	if isObsoleteSharedSubgroup {
+	groupMB, isObsoleteSharedSubgroupConvention := mbData.MBBody.NormalizeShareSubgroups()
+	if isObsoleteSharedSubgroupConvention {
 		mbData.MBBody = groupMB
 	}
 
@@ -216,7 +216,7 @@ func (m *MBPlugin) run() {
 	}
 
 	// ensure shared-xx subgroups kept as is if it is the obsolete shared-xx form
-	if isObsoleteSharedSubgroup {
+	if isObsoleteSharedSubgroupConvention {
 		mbPlan = mbPlan.GetPlanInSharedSubgroupForm()
 	}
 

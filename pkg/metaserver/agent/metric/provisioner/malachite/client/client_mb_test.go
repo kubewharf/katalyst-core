@@ -93,7 +93,7 @@ func TestMalachiteClient_GetMBData(t *testing.T) {
 			respBody:   validSample,
 			statusCode: 200,
 			want: &types.MBData{
-				MBBody: types.MBGroupData{
+				GroupMBM: types.MBGroupData{
 					"root": {
 						{
 							ID:             21,

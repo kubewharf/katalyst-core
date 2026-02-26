@@ -29,7 +29,7 @@ type MBRespData struct {
 type MBData struct {
 	// todo： group x ccd-mb as resctrl groups are the keys for qos
 	// todo: process write victim if applicable
-	MBBody     MBGroupData `json:"group_mbm"`
+	GroupMBM   MBGroupData `json:"group_mbm"`
 	UpdateTime int64       `json:"update_time"`
 }
 

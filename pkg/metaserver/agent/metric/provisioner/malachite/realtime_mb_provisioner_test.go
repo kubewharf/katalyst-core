@@ -41,7 +41,7 @@ func TestMalachiteRealtimeMBMetricsProvisioner_Run(t *testing.T) {
 
 	mockDataGetter := new(mockMBDataGetter)
 	mockDataGetter.On("GetMBData").Return(&malachitetypes.MBData{
-		MBBody:     malachitetypes.MBGroupData{},
+		GroupMBM:   malachitetypes.MBGroupData{},
 		UpdateTime: 111,
 	}, nil)
 

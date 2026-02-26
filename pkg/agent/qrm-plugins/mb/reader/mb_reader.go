@@ -113,7 +113,7 @@ func calcRateData(newCounter, oldCounter *malachitetypes.MBData) (*MBData, error
 	}
 
 	elapsed := newTimeStamp.Sub(oldTimeStamp)
-	stats, err := calcMBRate(newCounter.MBBody, oldCounter.MBBody, elapsed)
+	stats, err := calcMBRate(newCounter.GroupMBM, oldCounter.GroupMBM, elapsed)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to calc rate data")
 	}

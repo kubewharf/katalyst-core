@@ -21,7 +21,7 @@ import "k8s.io/apimachinery/pkg/util/sets"
 type State string
 
 const (
-	ResourceStressful State = "underStress"
+	ResourceStressful State = "stressful"
 	ResourceAbundant  State = "abundant"
 	ResourceFit       State = "fit"
 )

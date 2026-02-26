@@ -80,7 +80,7 @@ func Test_metaServerMBReader_getMBData(t *testing.T) {
 
 	timestamp := time.Date(2025, 7, 18, 9, 10, 11, 0, time.UTC)
 	rawCounter1 := &malachitetypes.MBData{
-		MBBody: malachitetypes.MBGroupData{
+		GroupMBM: malachitetypes.MBGroupData{
 			"root": {
 				{
 					ID:             1,
@@ -99,7 +99,7 @@ func Test_metaServerMBReader_getMBData(t *testing.T) {
 		UpdateTime: timestamp.Add(-1 * time.Second).Unix(),
 	}
 	rawCounter2 := &malachitetypes.MBData{
-		MBBody: malachitetypes.MBGroupData{
+		GroupMBM: malachitetypes.MBGroupData{
 			"root": {
 				{
 					ID:             1,
