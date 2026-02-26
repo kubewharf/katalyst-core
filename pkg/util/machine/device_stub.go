@@ -47,11 +47,15 @@ type deviceAffinityProviderStub struct {
 	setCalled bool
 	// changeCh is a channel that mocks the behavior of detecting
 	changeCh chan struct{}
+
+	// isChanNil is used to determine if the channel returned by WatchTopologyChanged is nil.
+	isChanNil bool
 }
 
-func newAffinityProviderStub() DeviceAffinityProvider {
+func newAffinityProviderStub(isChanNil bool) DeviceAffinityProvider {
 	return &deviceAffinityProviderStub{
-		changeCh: make(chan struct{}, 1),
+		changeCh:  make(chan struct{}, 1),
+		isChanNil: isChanNil,
 	}
 }
 
@@ -61,7 +65,10 @@ func (d *deviceAffinityProviderStub) SetDeviceAffinity(topology *DeviceTopology)
 	d.setCalled = true
 }
 
-func (d *deviceAffinityProviderStub) WatchTopologyChanged(stopCh <-chan struct{}) chan struct{} {
+func (d *deviceAffinityProviderStub) WatchTopologyChanged(stopCh <-chan struct{}) <-chan struct{} {
+	if d.isChanNil {
+		return nil
+	}
 	changeCh := make(chan struct{}, 1)
 
 	go func() {

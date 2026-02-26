@@ -711,16 +711,21 @@ func TestDeviceTopologyRegistry_runAffinityProviders(t *testing.T) {
 
 	// Set up the device topology registry and register the affinity provider stub
 	registry := NewDeviceTopologyRegistry()
-	affinityProvider := newAffinityProviderStub()
+	affinityProviderWithValidChannel := newAffinityProviderStub(false)
 	registry.RegisterDeviceTopologyProvider("test", NewDeviceTopologyProviderStub())
-	registry.RegisterTopologyAffinityProvider("test", affinityProvider)
+	registry.RegisterTopologyAffinityProvider("test", affinityProviderWithValidChannel)
 	registry.lastDeviceTopologies["test"] = &DeviceTopology{}
+
+	affinityProviderWithNilChannel := newAffinityProviderStub(true)
+	registry.RegisterDeviceTopologyProvider("test-nil-chan", NewDeviceTopologyProviderStub())
+	registry.RegisterTopologyAffinityProvider("test-nil-chan", affinityProviderWithNilChannel)
+	registry.lastDeviceTopologies["test-nil-chan"] = &DeviceTopology{}
 
 	go registry.runAffinityProviders(stopCh)
 
 	time.Sleep(50 * time.Millisecond) // small delay to ensure watcher is ready
 
-	providerStub, ok := affinityProvider.(*deviceAffinityProviderStub)
+	providerStub, ok := affinityProviderWithValidChannel.(*deviceAffinityProviderStub)
 	assert.True(t, ok)
 
 	// Trigger change
@@ -729,6 +734,16 @@ func TestDeviceTopologyRegistry_runAffinityProviders(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	assert.True(t, providerStub.WasSetCalled())
+
+	providerStubWithNilChannel, ok := affinityProviderWithNilChannel.(*deviceAffinityProviderStub)
+	assert.True(t, ok)
+
+	providerStubWithNilChannel.TriggerChange()
+
+	time.Sleep(100 * time.Millisecond)
+
+	// nil channel should not have SetDeviceAffinity called
+	assert.False(t, providerStubWithNilChannel.WasSetCalled())
 
 	close(stopCh)
 }

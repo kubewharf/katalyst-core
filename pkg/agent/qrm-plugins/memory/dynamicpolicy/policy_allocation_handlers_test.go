@@ -72,6 +72,7 @@ func TestSharedCoresAllocationHandler(t *testing.T) {
 					apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 					apiconsts.PodAnnotationQoSLevelKey:                  apiconsts.PodAnnotationQoSLevelSharedCores,
 				},
+				ResourceName: string(v1.ResourceMemory),
 				ResourceRequests: map[string]float64{
 					string(v1.ResourceMemory): 1024 * 1024 * 1024, // 1GB
 				},
@@ -98,6 +99,7 @@ func TestSharedCoresAllocationHandler(t *testing.T) {
 				Annotations: map[string]string{
 					apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
 				},
+				ResourceName: string(v1.ResourceMemory),
 				ResourceRequests: map[string]float64{
 					string(v1.ResourceMemory): 1024 * 1024 * 1024, // 1GB
 				},
@@ -174,6 +176,7 @@ func TestSystemCoresAllocationHandler(t *testing.T) {
 					apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 					apiconsts.PodAnnotationQoSLevelKey:                  apiconsts.PodAnnotationQoSLevelSystemCores,
 				},
+				ResourceName: string(v1.ResourceMemory),
 				ResourceRequests: map[string]float64{
 					string(v1.ResourceMemory): 1024 * 1024,
 				},
@@ -190,6 +193,7 @@ func TestSystemCoresAllocationHandler(t *testing.T) {
 				Annotations: map[string]string{
 					apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSystemCores,
 				},
+				ResourceName: string(v1.ResourceMemory),
 				ResourceRequests: map[string]float64{
 					string(v1.ResourceMemory): 1024 * 1024,
 				},
@@ -271,6 +275,7 @@ func TestReclaimedCoresAllocationHandler(t *testing.T) {
 				Annotations: map[string]string{
 					apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelReclaimedCores,
 				},
+				ResourceName: string(v1.ResourceMemory),
 				ResourceRequests: map[string]float64{
 					string(v1.ResourceMemory): 1024 * 1024,
 				},
@@ -351,6 +356,7 @@ func TestDedicatedCoresAllocationHandler(t *testing.T) {
 					apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 					apiconsts.PodAnnotationQoSLevelKey:                  apiconsts.PodAnnotationQoSLevelDedicatedCores,
 				},
+				ResourceName: string(v1.ResourceMemory),
 				ResourceRequests: map[string]float64{
 					string(v1.ResourceMemory): 1024 * 1024 * 1024,
 				},
@@ -430,6 +436,7 @@ func TestNumaBindingAllocationHandler(t *testing.T) {
 			apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 			apiconsts.PodAnnotationQoSLevelKey:                  apiconsts.PodAnnotationQoSLevelSharedCores,
 		},
+		ResourceName: string(v1.ResourceMemory),
 		ResourceRequests: map[string]float64{
 			string(v1.ResourceMemory): 1024 * 1024,
 		},
@@ -472,6 +479,7 @@ func TestNumaBindingAllocationHandler(t *testing.T) {
 				Annotations: map[string]string{
 					apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 				},
+				ResourceName: string(v1.ResourceMemory),
 				ResourceRequests: map[string]float64{
 					string(v1.ResourceMemory): 1024 * 1024,
 				},
@@ -500,6 +508,7 @@ func TestNumaBindingAllocationHandler(t *testing.T) {
 					apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 					apiconsts.PodAnnotationInplaceUpdateResizingKey:     "true",
 				},
+				ResourceName: string(v1.ResourceMemory),
 				ResourceRequests: map[string]float64{
 					string(v1.ResourceMemory): 2048 * 1024,
 				},
@@ -525,6 +534,7 @@ func TestNumaBindingAllocationHandler(t *testing.T) {
 		Annotations: map[string]string{
 			apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
 		},
+		ResourceName: string(v1.ResourceMemory),
 		ResourceRequests: map[string]float64{
 			string(v1.ResourceMemory): 1024 * 1024,
 		},
@@ -545,6 +555,7 @@ func TestNumaBindingAllocationHandler(t *testing.T) {
 			apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 			apiconsts.PodAnnotationInplaceUpdateResizingKey:     "true",
 		},
+		ResourceName: string(v1.ResourceMemory),
 		ResourceRequests: map[string]float64{
 			string(v1.ResourceMemory): 2048 * 1024,
 		},
@@ -617,6 +628,7 @@ func TestAllocateNUMAsWithoutNUMABindingPods(t *testing.T) {
 				Annotations: map[string]string{
 					apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSharedCores,
 				},
+				ResourceName: string(v1.ResourceMemory),
 				ResourceRequests: map[string]float64{
 					string(v1.ResourceMemory): 1024 * 1024,
 				},
@@ -685,6 +697,7 @@ func TestAllocateTargetNUMAs(t *testing.T) {
 				Annotations: map[string]string{
 					apiconsts.PodAnnotationQoSLevelKey: apiconsts.PodAnnotationQoSLevelSystemCores,
 				},
+				ResourceName: string(v1.ResourceMemory),
 				ResourceRequests: map[string]float64{
 					string(v1.ResourceMemory): 1024 * 1024,
 				},

@@ -24,5 +24,5 @@ type DeviceAffinityProvider interface {
 	// WatchTopologyChanged monitors topology and returns a channel.
 	// The channel is notified when the topology has changed.
 	// Stops when stopCh is closed.
-	WatchTopologyChanged(stopCh <-chan struct{}) chan struct{}
+	WatchTopologyChanged(stopCh <-chan struct{}) <-chan struct{}
 }

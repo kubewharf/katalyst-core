@@ -195,7 +195,7 @@ func (p *StaticPolicy) ensureState(resourceName string) error {
 		return nil
 	}
 
-	resourceName = p.ResolveResourceType(resourceName)
+	resourceName = p.ResolveResourceName(resourceName, true)
 	// Check if resource exists in state
 	machineState := p.GetState().GetMachineState()
 	if _, ok := machineState[v1.ResourceName(resourceName)]; !ok {
@@ -691,12 +691,12 @@ func (p *StaticPolicy) AllocateAssociatedDevice(
 				_ = p.removeContainer(req.ResourceRequest.PodUid, req.ResourceRequest.ContainerName, v1.ResourceName(req.AccompanyResourceName))
 			}
 			if isPreAllocateCustomDevicePlugin {
-				preAllocateDeviceType, _ := p.GetResourceTypeFromDeviceName(req.AccompanyResourceName)
+				preAllocateDeviceType := p.ResolveResourceName(req.AccompanyResourceName, false)
 				if preAllocateDeviceType != "" {
 					_ = p.removeContainer(req.ResourceRequest.PodUid, req.ResourceRequest.ContainerName, v1.ResourceName(preAllocateDeviceType))
 				}
 			}
-			deviceType, _ := p.GetResourceTypeFromDeviceName(req.DeviceName)
+			deviceType := p.ResolveResourceName(req.DeviceName, false)
 			if deviceType != "" {
 				_ = p.removeContainer(req.ResourceRequest.PodUid, req.ResourceRequest.ContainerName, v1.ResourceName(deviceType))
 			}
@@ -716,8 +716,6 @@ func (p *StaticPolicy) AllocateAssociatedDevice(
 		return nil, fmt.Errorf("no target device plugin found for target device %s", req.DeviceName)
 	}
 
-	// TODO: Currently AccompanyResourceName refers to the resource name that must be allocated first before this device is allocated.
-	// TODO: Change the name of AccompanyResourceName to PreAllocateResourceName in the future.
 	// Allocate pre-allocate resource first
 	// Check if pre-allocate resource maps to a resource plugin; if it does, allocate it first
 	preAllocateResourcePlugin := p.getResourcePlugin(req.AccompanyResourceName)

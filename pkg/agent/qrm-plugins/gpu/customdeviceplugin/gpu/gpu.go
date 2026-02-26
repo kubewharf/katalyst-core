@@ -38,7 +38,7 @@ import (
 const GPUCustomDevicePluginName = "gpu-custom-device-plugin"
 
 const (
-	defaultAccompanyResourceName = string(consts.ResourceGPUMemory)
+	defaultPreAllocateResourceName = string(consts.ResourceGPUMemory)
 )
 
 type GPUDevicePlugin struct {
@@ -60,7 +60,7 @@ func NewGPUDevicePlugin(base *baseplugin.BasePlugin) customdeviceplugin.CustomDe
 }
 
 func (p *GPUDevicePlugin) DefaultPreAllocateResourceName() string {
-	return defaultAccompanyResourceName
+	return defaultPreAllocateResourceName
 }
 
 func (p *GPUDevicePlugin) DeviceNames() []string {
@@ -122,7 +122,7 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 	}
 
 	var allocatedDevices []string
-	memoryAllocationInfo := p.GetState().GetAllocationInfo(v1.ResourceName(defaultAccompanyResourceName), resReq.PodUid, resReq.ContainerName)
+	memoryAllocationInfo := p.GetState().GetAllocationInfo(v1.ResourceName(defaultPreAllocateResourceName), resReq.PodUid, resReq.ContainerName)
 	// GPU memory should have been allocated at this stage.
 	// We anticipate that gpu devices have also been allocated, so we can directly use the allocated devices from the gpu memory state.
 	if memoryAllocationInfo == nil || memoryAllocationInfo.TopologyAwareAllocations == nil {
@@ -208,7 +208,6 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 	}
 	gpuDeviceAllocationInfo.TopologyAwareAllocations = gpuDeviceTopologyAwareAllocations
 
-	// TODO：State can be updated using the actual resource name
 	p.GetState().SetAllocationInfo(gpuconsts.GPUDeviceType, resReq.PodUid, resReq.ContainerName, gpuDeviceAllocationInfo, false)
 	resourceState, err := p.GenerateResourceStateFromPodEntries(gpuconsts.GPUDeviceType, nil)
 	if err != nil {

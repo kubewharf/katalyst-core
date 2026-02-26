@@ -310,7 +310,7 @@ func TestGPUDevicePlugin_AllocateAssociatedDevice(t *testing.T) {
 			}
 
 			if tt.accompanyResourceAllocationInfo != nil {
-				basePlugin.GetState().SetAllocationInfo(v1.ResourceName(defaultAccompanyResourceName), tt.podUID, tt.containerName, tt.accompanyResourceAllocationInfo, false)
+				basePlugin.GetState().SetAllocationInfo(v1.ResourceName(defaultPreAllocateResourceName), tt.podUID, tt.containerName, tt.accompanyResourceAllocationInfo, false)
 			}
 
 			if tt.deviceTopology != nil {

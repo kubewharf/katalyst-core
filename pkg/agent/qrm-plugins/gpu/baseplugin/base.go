@@ -232,7 +232,7 @@ func (p *BasePlugin) GenerateMachineStateFromPodEntries(
 }
 
 // RegisterDeviceNameToType is used to map device name to device type.
-// For example, we may have multiple device names for a same device type, e.g. "nvidia.com/gpu" and "nvidia.com/be-gpu",
+// For example, we may have multiple device names for a same device type, e.g. "nvidia.com/gpu" and "hw.com/npu",
 // so we map them to the same device type, which allows us to allocate them interchangeably.
 func (p *BasePlugin) RegisterDeviceNameToType(resourceNames []string, deviceType string) {
 	for _, resourceName := range resourceNames {
@@ -240,23 +240,18 @@ func (p *BasePlugin) RegisterDeviceNameToType(resourceNames []string, deviceType
 	}
 }
 
-func (p *BasePlugin) GetResourceTypeFromDeviceName(deviceName string) (string, error) {
-	deviceType, ok := p.deviceNameToTypeMap[deviceName]
-	if !ok {
-		return "", fmt.Errorf("no device type found for device name %s", deviceName)
-	}
-	return deviceType, nil
-}
-
-// ResolveResourceType takes in a resourceName and tries to find a mapping of resource type from deviceNameToTypeMap.
-// If no mapping is found, resourceName is returned as a fallback instead.
-func (p *BasePlugin) ResolveResourceType(resourceName string) string {
+// ResolveResourceName takes in a resourceName and tries to find a mapping of resource type from deviceNameToTypeMap.
+// If no mapping is found, resourceName is returned if fallback is true. If fallback is false, an empty string is returned.
+func (p *BasePlugin) ResolveResourceName(resourceName string, fallback bool) string {
 	resourceType, ok := p.deviceNameToTypeMap[resourceName]
-	if !ok {
-		general.Infof("no device type found for resource %s", resourceName)
+	if ok {
+		return resourceType
+	}
+	general.Infof("no device type found for resource %s", resourceName)
+	if fallback {
 		return resourceName
 	}
-	return resourceType
+	return ""
 }
 
 // RegisterTopologyAffinityProvider is a hook to set device affinity for a certain device type

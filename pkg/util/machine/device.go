@@ -69,6 +69,10 @@ func (r *DeviceTopologyRegistry) runAffinityProviders(stopCh <-chan struct{}) {
 		go func(name string, p DeviceAffinityProvider) {
 			general.Infof("watching topology change for %s", name)
 			ch := p.WatchTopologyChanged(stopCh)
+			if ch == nil {
+				return
+			}
+
 			for {
 				select {
 				case <-stopCh:
