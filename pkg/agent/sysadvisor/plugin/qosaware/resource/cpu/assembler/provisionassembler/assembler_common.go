@@ -710,9 +710,11 @@ func extractShareRegionInfo(shareRegions []region.QoSRegion, pinnedCPUSizeByPkg 
 		ri.requirements[r.OwnerPoolName()] = general.Max(1, int(controlKnob[configapi.ControlKnobNonReclaimedCPURequirement].Value))
 		ri.requests[r.OwnerPoolName()] = general.Max(1, int(math.Ceil(r.GetPodsRequest())))
 		ri.reclaimEnable[r.OwnerPoolName()] = r.EnableReclaim()
-		if quota, ok := controlKnob[configapi.ControlKnobReclaimedCoresCPUQuota]; ok {
-			if ri.minReclaimedCoresCPUQuota == -1 || quota.Value < ri.minReclaimedCoresCPUQuota {
-				ri.minReclaimedCoresCPUQuota = quota.Value
+		if r.EnableReclaim() {
+			if quota, ok := controlKnob[configapi.ControlKnobReclaimedCoresCPUQuota]; ok {
+				if ri.minReclaimedCoresCPUQuota == -1 || quota.Value < ri.minReclaimedCoresCPUQuota {
+					ri.minReclaimedCoresCPUQuota = quota.Value
+				}
 			}
 		}
 		ri.regionMap[r.OwnerPoolName()] = r
@@ -823,9 +825,11 @@ func extractDedicatedRegionInfo(regions []region.QoSRegion, pinnedCPUSizeByPkg m
 		}
 		ri.reclaimEnable[regionName] = r.EnableReclaim()
 		ri.podSet[regionName] = r.GetPods()
-		if quota, ok := controlKnob[configapi.ControlKnobReclaimedCoresCPUQuota]; ok {
-			if ri.minReclaimedCoresCPUQuota == -1 || quota.Value < ri.minReclaimedCoresCPUQuota {
-				ri.minReclaimedCoresCPUQuota = quota.Value
+		if r.EnableReclaim() {
+			if quota, ok := controlKnob[configapi.ControlKnobReclaimedCoresCPUQuota]; ok {
+				if ri.minReclaimedCoresCPUQuota == -1 || quota.Value < ri.minReclaimedCoresCPUQuota {
+					ri.minReclaimedCoresCPUQuota = quota.Value
+				}
 			}
 		}
 		ri.regionMap[regionName] = r
