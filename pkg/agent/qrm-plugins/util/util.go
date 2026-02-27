@@ -26,6 +26,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
@@ -45,14 +46,16 @@ func GetQuantityFromResourceReq(req *pluginapi.ResourceRequest) (int, float64, e
 		return 0, 0, fmt.Errorf("invalid req.ResourceRequests length: %d", len(req.ResourceRequests))
 	}
 
-	return GetQuantityFromResourceRequests(req.ResourceRequests, req.ResourceName, IsQuantityFromQRMDeclaration(req.Annotations))
+	return GetQuantityFromResourceRequests(req.ResourceRequests, req.ResourceName, req.Annotations)
 }
 
-func GetQuantityFromResourceRequests(resourceRequests map[string]float64, resourceName string, isQuantityFromQRMDeclaration bool) (int, float64, error) {
+func GetQuantityFromResourceRequests(resourceRequests map[string]float64, resourceName string, reqAnnotations map[string]string) (int, float64, error) {
 	quantity, ok := resourceRequests[resourceName]
 	if !ok {
 		return 0, 0, errors.NewNotFound(schema.GroupResource{}, resourceName)
 	}
+
+	isQuantityFromQRMDeclaration := IsQuantityFromQRMDeclaration(reqAnnotations)
 
 	switch resourceName {
 	case string(apiconsts.ReclaimedResourceMilliCPU):
@@ -71,6 +74,29 @@ func GetQuantityFromResourceRequests(resourceRequests map[string]float64, resour
 
 func IsQuantityFromQRMDeclaration(podAnnotations map[string]string) bool {
 	return podAnnotations[PodAnnotationQuantityFromQRMDeclarationKey] == PodAnnotationQuantityFromQRMDeclarationTrue
+}
+
+// GetQuantityMapFromResourceReq parses all resources quantity into maps of resources to value,
+// since pods with reclaimed_cores and un-reclaimed_cores have different
+// representations, we may to adapt to both cases.
+func GetQuantityMapFromResourceReq(req *pluginapi.ResourceRequest) (map[v1.ResourceName]int, map[v1.ResourceName]float64, error) {
+	intQuantity := make(map[v1.ResourceName]int)
+	floatQuantity := make(map[v1.ResourceName]float64)
+
+	resourceRequests := req.ResourceRequests
+
+	for key := range resourceRequests {
+		resName := v1.ResourceName(key)
+		resInt, resFloat, err := GetQuantityFromResourceRequests(resourceRequests, key, req.Annotations)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error getting quantity from resource requests for resource %s: %v", key, err)
+		}
+
+		intQuantity[resName] = resInt
+		floatQuantity[resName] = resFloat
+	}
+
+	return intQuantity, floatQuantity, nil
 }
 
 // IsDebugPod returns true if the pod annotations show up any configurable debug key
@@ -276,9 +302,10 @@ func GetNUMANodesCountToFitMemoryReq(memoryReq, bytesPerNUMA uint64, numaCount i
 	},
 }
 */
-func GetHintsFromExtraStateFile(podName, resourceName, extraHintsStateFileAbsPath string,
-	availableNUMAs machine.CPUSet,
+func GetHintsFromExtraStateFile(podName, extraHintsStateFileAbsPath string,
+	availableNUMAs machine.CPUSet, requestedResources map[v1.ResourceName]int,
 ) (map[string]*pluginapi.ListOfTopologyHints, error) {
+	hints := make(map[string]*pluginapi.ListOfTopologyHints)
 	if extraHintsStateFileAbsPath == "" {
 		return nil, nil
 	}
@@ -319,21 +346,23 @@ func GetHintsFromExtraStateFile(podName, resourceName, extraHintsStateFileAbsPat
 	}
 
 	allocatedNumaNodes := numaSet.ToSliceUInt64()
-	klog.InfoS("[GetHintsFromExtraStateFile] get hints from extra state file",
-		"podName", podName,
-		"resourceName", resourceName,
-		"hint", allocatedNumaNodes)
 
-	hints := map[string]*pluginapi.ListOfTopologyHints{
-		resourceName: {
+	for resourceName := range requestedResources {
+		klog.InfoS("[GetHintsFromExtraStateFile] get hints from extra state file",
+			"podName", podName,
+			"resourceName", resourceName,
+			"hint", allocatedNumaNodes)
+
+		hints[string(resourceName)] = &pluginapi.ListOfTopologyHints{
 			Hints: []*pluginapi.TopologyHint{
 				{
 					Nodes:     allocatedNumaNodes,
 					Preferred: true,
 				},
 			},
-		},
+		}
 	}
+
 	return hints, nil
 }
 
@@ -353,6 +382,60 @@ func PodInplaceUpdateResizing(req *pluginapi.ResourceRequest) bool {
 	return req.Annotations != nil && req.Annotations[apiconsts.PodAnnotationInplaceUpdateResizingKey] == "true"
 }
 
+// GetPodAggregatedRequestResourceMap returns both integer and float64 quantities for all resources in the pod request.
+// If the pod has aggregated resource annotations, those values are used; otherwise, it falls back to the original
+// request quantities. Returns an error if any calculation fails.
+func GetPodAggregatedRequestResourceMap(req *pluginapi.ResourceRequest) (map[v1.ResourceName]int, map[v1.ResourceName]float64, error) {
+	annotations := req.Annotations
+	if annotations == nil {
+		return GetQuantityMapFromResourceReq(req)
+	}
+
+	value, ok := annotations[apiconsts.PodAnnotationAggregatedRequestsKey]
+	if !ok {
+		return GetQuantityMapFromResourceReq(req)
+	}
+
+	var resourceList v1.ResourceList
+	if err := json.Unmarshal([]byte(value), &resourceList); err != nil {
+		return GetQuantityMapFromResourceReq(req)
+	}
+
+	intQuantities := make(map[v1.ResourceName]int)
+	floatQuantities := make(map[v1.ResourceName]float64)
+	resourceRequests := req.ResourceRequests
+
+	for key := range resourceRequests {
+		resName := v1.ResourceName(key)
+
+		if _, ok = resourceList[resName]; !ok {
+			// for resources that do not appear in the aggregated resources map, simply calculate quantity from request
+			intQuantity, floatQuantity, err := GetQuantityFromResourceRequests(resourceRequests, key, req.Annotations)
+			if err != nil {
+				return nil, nil, fmt.Errorf("get resource quantity for resource %s failed with error: %v", resName, err)
+			}
+
+			intQuantities[resName] = intQuantity
+			floatQuantities[resName] = floatQuantity
+		} else {
+			// otherwise, calculate the aggregated quantity of the resource
+			intQuantity, floatQuantity, err := calculateAggregatedResource(resName, resourceList)
+			if err != nil {
+				return nil, nil, fmt.Errorf("calculate aggregated resource quantity for resource %s failed with error: %v",
+					resName, err)
+			}
+
+			intQuantities[resName] = intQuantity
+			floatQuantities[resName] = floatQuantity
+		}
+	}
+
+	return intQuantities, floatQuantities, nil
+}
+
+// GetPodAggregatedRequestResource returns both integer and float64 quantities for the main resource in the pod request.
+// If the pod has aggregated resource annotations, those values are used; otherwise, it falls back to the original
+// request quantities. Returns an error if any calculation fails.
 func GetPodAggregatedRequestResource(req *pluginapi.ResourceRequest) (int, float64, error) {
 	annotations := req.Annotations
 	if annotations == nil {
@@ -367,15 +450,19 @@ func GetPodAggregatedRequestResource(req *pluginapi.ResourceRequest) (int, float
 		return GetQuantityFromResourceReq(req)
 	}
 
-	switch req.ResourceName {
-	case string(v1.ResourceCPU):
+	return calculateAggregatedResource(v1.ResourceName(req.ResourceName), resourceList)
+}
+
+func calculateAggregatedResource(resourceName v1.ResourceName, resourceList v1.ResourceList) (int, float64, error) {
+	// TODO: check if resourceName is resourceList, return error if not
+
+	switch resourceName {
+	case v1.ResourceCPU:
 		podAggregatedReqFloat64 := float64(resourceList.Cpu().MilliValue()) / 1000
 		return int(math.Ceil(podAggregatedReqFloat64)), podAggregatedReqFloat64, nil
-	case string(v1.ResourceMemory):
-		podAggregatedReqFloat64 := float64(resourceList.Memory().MilliValue()) / 1000
-		return int(math.Ceil(podAggregatedReqFloat64)), podAggregatedReqFloat64, nil
 	default:
-		return 0, 0, fmt.Errorf("not support resource name: %s", req.ResourceName)
+		podAggregatedReqFloat64 := float64(resourceList.Name(resourceName, resource.BinarySI).Value())
+		return int(math.Ceil(podAggregatedReqFloat64)), podAggregatedReqFloat64, nil
 	}
 }
 

@@ -145,8 +145,8 @@ func (am *AllocationMeta) GetSpecifiedNUMABindingNUMAID() (int, error) {
 	return GetSpecifiedNUMABindingNUMAID(am.Annotations)
 }
 
-// SetSpecifiedNUMABindingNUMAID set the numa id for AllocationInfo
-func (am *AllocationMeta) SetSpecifiedNUMABindingNUMAID(numaID uint64) {
+// SetSpecifiedNUMABindingNUMAID set the numa ids for AllocationInfo
+func (am *AllocationMeta) SetSpecifiedNUMABindingNUMAID(numaIDs []uint64) {
 	if am == nil {
 		return
 	}
@@ -155,7 +155,12 @@ func (am *AllocationMeta) SetSpecifiedNUMABindingNUMAID(numaID uint64) {
 		am.Annotations = make(map[string]string)
 	}
 
-	am.Annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint] = machine.NewCPUSet(int(numaID)).String()
+	intIDs := make([]int, len(numaIDs))
+	for i, id := range numaIDs {
+		intIDs[i] = int(id)
+	}
+
+	am.Annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint] = machine.NewCPUSet(intIDs...).String()
 }
 
 // GetSpecifiedNUMABindingPoolName get numa_binding pool name

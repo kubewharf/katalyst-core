@@ -42,6 +42,7 @@ type MemoryOptions struct {
 	EnableNonBindingShareCoresMemoryResourceCheck bool
 	EnableNUMAAllocationReactor                   bool
 	NUMABindResultResourceAllocationAnnotationKey string
+	ExtraMemoryResources                          []string
 
 	SockMemOptions
 	LogCacheOptions
@@ -150,6 +151,7 @@ func NewMemoryOptions() *MemoryOptions {
 			EnabledQoS:                 []string{apiconsts.PodAnnotationQoSLevelSharedCores},
 			MonGroupEnabledClosIDs:     []string{},
 		},
+		ExtraMemoryResources: []string{},
 	}
 }
 
@@ -224,6 +226,8 @@ func (o *MemoryOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.MonGroupEnabledClosIDs, "enabled-closid mon-groups")
 	fs.Float64Var(&o.MonGroupMaxCountRatio, "resctrl-mon-groups-max-count-ratio",
 		o.MonGroupMaxCountRatio, "ratio of mon_groups max count")
+	fs.StringSliceVar(&o.ExtraMemoryResources, "extra-memory-resources", o.ExtraMemoryResources,
+		"extra memory resources such as hugepages-*")
 }
 
 func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
@@ -260,6 +264,7 @@ func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
 	conf.EnabledQoS = o.EnabledQoS
 	conf.MonGroupEnabledClosIDs = o.MonGroupEnabledClosIDs
 	conf.MonGroupMaxCountRatio = o.MonGroupMaxCountRatio
+	conf.ExtraMemoryResources = o.ExtraMemoryResources
 
 	for _, reservation := range o.ReservedNumaMemory {
 		conf.ReservedNumaMemory[reservation.NumaNode] = reservation.Limits

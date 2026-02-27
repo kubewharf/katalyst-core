@@ -190,6 +190,16 @@ func GenerateDummyMachineInfo(numaNum int, memoryCapacityGB int) (*info.MachineI
 		machineInfo.Topology = append(machineInfo.Topology, info.Node{
 			Id:     i,
 			Memory: uint64(perNumaCapacityQuantity.Value()),
+			HugePages: []info.HugePagesInfo{
+				{
+					PageSize: 2 * 1024, // 2Mi
+					NumPages: 1024,
+				},
+				{
+					PageSize: 1 * 1024 * 1024, // 1Gi
+					NumPages: 8,
+				},
+			},
 		})
 	}
 

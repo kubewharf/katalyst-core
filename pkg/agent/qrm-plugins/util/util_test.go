@@ -17,12 +17,15 @@ limitations under the License.
 package util
 
 import (
+	"encoding/json"
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
@@ -554,6 +557,181 @@ func TestCeilEdgeCases(t *testing.T) {
 			assert.NoError(t, err)
 			assert.Equal(t, tt.expectedNodes, nodes)
 			assert.Equal(t, tt.expectedBytes, bytes)
+		})
+	}
+}
+
+func TestGetPodAggregatedRequestResourceMap(t *testing.T) {
+	tests := []struct {
+		name            string
+		resourceRequest *pluginapi.ResourceRequest
+		expectedInt     map[v1.ResourceName]int
+		expectedFloat   map[v1.ResourceName]float64
+		expectedErr     bool
+	}{
+		{
+			name: "no annotations",
+			resourceRequest: &pluginapi.ResourceRequest{
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU):    1,
+					string(v1.ResourceMemory): 2 * 1024 * 1024 * 1024,
+				},
+				Annotations: nil,
+			},
+			expectedInt: map[v1.ResourceName]int{
+				v1.ResourceCPU:    1,
+				v1.ResourceMemory: 2 * 1024 * 1024 * 1024, // 2Gi
+			},
+			expectedFloat: map[v1.ResourceName]float64{
+				v1.ResourceCPU:    1,
+				v1.ResourceMemory: 2 * 1024 * 1024 * 1024.0,
+			},
+			expectedErr: false,
+		},
+		{
+			name: "annotations without aggregated key",
+			resourceRequest: &pluginapi.ResourceRequest{
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU):    1,
+					string(v1.ResourceMemory): 1 * 1024 * 1024 * 1024,
+				},
+				Annotations: map[string]string{
+					"some-other-annotation": "value",
+				},
+			},
+			expectedInt: map[v1.ResourceName]int{
+				v1.ResourceCPU:    1,
+				v1.ResourceMemory: 1 * 1024 * 1024 * 1024, // 1Gi
+			},
+			expectedFloat: map[v1.ResourceName]float64{
+				v1.ResourceCPU:    1.0,
+				v1.ResourceMemory: 1 * 1024 * 1024 * 1024.0,
+			},
+			expectedErr: false,
+		},
+		{
+			name: "invalid aggregated json",
+			resourceRequest: &pluginapi.ResourceRequest{
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 2,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationAggregatedRequestsKey: "{invalid json",
+				},
+			},
+			expectedInt: map[v1.ResourceName]int{
+				v1.ResourceCPU: 2,
+			},
+			expectedFloat: map[v1.ResourceName]float64{
+				v1.ResourceCPU: 2.0,
+			},
+			expectedErr: false, // Should fall back to GetQuantityMapFromResourceReq
+		},
+		{
+			name: "valid aggregated json - mixed resources",
+			resourceRequest: &pluginapi.ResourceRequest{
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU):    1,                      // Will be aggregated
+					string(v1.ResourceMemory): 2 * 1024 * 1024 * 1024, // Will be from original request
+					"example.com/gpu":         1,                      // Will be aggregated
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationAggregatedRequestsKey: func() string {
+						rl := v1.ResourceList{
+							v1.ResourceCPU:    *resource.NewQuantity(2, resource.DecimalSI),
+							"example.com/gpu": *resource.NewQuantity(2, resource.DecimalSI),
+						}
+						b, _ := json.Marshal(rl)
+						return string(b)
+					}(),
+				},
+			},
+			expectedInt: map[v1.ResourceName]int{
+				v1.ResourceCPU:    2,
+				v1.ResourceMemory: 2 * 1024 * 1024 * 1024,
+				"example.com/gpu": 2,
+			},
+			expectedFloat: map[v1.ResourceName]float64{
+				v1.ResourceCPU:    2.0,
+				v1.ResourceMemory: 2 * 1024 * 1024 * 1024.0,
+				"example.com/gpu": 2.0,
+			},
+			expectedErr: false,
+		},
+		{
+			name: "valid aggregated json - all resources aggregated",
+			resourceRequest: &pluginapi.ResourceRequest{
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU):    1,
+					string(v1.ResourceMemory): 2 * 1024 * 1024 * 1024,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationAggregatedRequestsKey: func() string {
+						rl := v1.ResourceList{
+							v1.ResourceCPU:    *resource.NewQuantity(2, resource.DecimalSI),
+							v1.ResourceMemory: *resource.NewQuantity(3*1024*1024*1024, resource.DecimalSI),
+						}
+						b, _ := json.Marshal(rl)
+						return string(b)
+					}(),
+				},
+			},
+			expectedInt: map[v1.ResourceName]int{
+				v1.ResourceCPU:    2,
+				v1.ResourceMemory: 3 * 1024 * 1024 * 1024,
+			},
+			expectedFloat: map[v1.ResourceName]float64{
+				v1.ResourceCPU:    2.0,
+				v1.ResourceMemory: 3 * 1024 * 1024 * 1024.0,
+			},
+			expectedErr: false,
+		},
+		{
+			name: "valid aggregated json - no resources aggregated (empty aggregated list)",
+			resourceRequest: &pluginapi.ResourceRequest{
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU):    1,
+					string(v1.ResourceMemory): 1 * 1024 * 1024 * 1024,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationAggregatedRequestsKey: func() string {
+						rl := v1.ResourceList{} // Empty aggregated list
+						b, _ := json.Marshal(rl)
+						return string(b)
+					}(),
+				},
+			},
+			expectedInt: map[v1.ResourceName]int{
+				v1.ResourceCPU:    1,
+				v1.ResourceMemory: 1 * 1024 * 1024 * 1024,
+			},
+			expectedFloat: map[v1.ResourceName]float64{
+				v1.ResourceCPU:    1.0,
+				v1.ResourceMemory: 1 * 1024 * 1024 * 1024.0,
+			},
+			expectedErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Note: This test assumes that GetQuantityFromResourceReq, GetQuantityMapFromResourceReq,
+			// and calculateAggregatedResource (unexported functions in the same package)
+			// behave as expected and that GetQuantityFromResourceReq is intended to take
+			// the current resource name as an implicit argument or processes it correctly
+			// within the loop context.
+			gotInt, gotFloat, err := GetPodAggregatedRequestResourceMap(tt.resourceRequest)
+
+			if (err != nil) != tt.expectedErr {
+				t.Errorf("GetPodAggregatedRequestResourceMap() error = %v, expectedErr %v", err, tt.expectedErr)
+				return
+			}
+			if !reflect.DeepEqual(gotInt, tt.expectedInt) {
+				t.Errorf("GetPodAggregatedRequestResourceMap() gotInt = %v, want %v", gotInt, tt.expectedInt)
+			}
+			if !reflect.DeepEqual(gotFloat, tt.expectedFloat) {
+				t.Errorf("GetPodAggregatedRequestResourceMap() gotFloat = %v, want %v", gotFloat, tt.expectedFloat)
+			}
 		})
 	}
 }
