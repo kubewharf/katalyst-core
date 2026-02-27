@@ -23,6 +23,5 @@ import (
 
 // GetResourcePackageName returns resource package name from container info
 func GetResourcePackageName(ci *types.ContainerInfo) string {
-	_, pkgName := resourcepackage.UnwrapOwnerPoolName(ci.OriginOwnerPoolName)
-	return pkgName
+	return resourcepackage.GetResourcePackageName(ci.Annotations)
 }
