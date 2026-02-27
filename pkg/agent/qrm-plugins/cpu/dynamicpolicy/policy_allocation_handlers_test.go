@@ -277,7 +277,7 @@ func TestAllocateSharedNumaBindingCPUs(t *testing.T) {
 				0: machine.NewCPUSet(0, 1),
 			},
 		}
-		originAllocationInfo.SetSpecifiedNUMABindingNUMAID(0)
+		originAllocationInfo.SetSpecifiedNUMABindingNUMAID([]uint64{0})
 
 		policy.state.SetAllocationInfo(podUID, containerName, originAllocationInfo, false)
 

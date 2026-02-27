@@ -79,7 +79,7 @@ func GetGPUCount(req *pluginapi.ResourceRequest, deviceNames []string) (float64,
 	gpuNames := sets.NewString()
 
 	for _, resourceName := range deviceNames {
-		_, request, err := qrmutil.GetQuantityFromResourceRequests(req.ResourceRequests, resourceName, false)
+		_, request, err := qrmutil.GetQuantityFromResourceRequests(req.ResourceRequests, resourceName, nil)
 		if err != nil && !errors.IsNotFound(err) {
 			return 0, nil, err
 		}
