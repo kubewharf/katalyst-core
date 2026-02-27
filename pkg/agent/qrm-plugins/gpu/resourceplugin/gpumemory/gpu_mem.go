@@ -69,7 +69,7 @@ func (p *GPUMemPlugin) GetTopologyHints(ctx context.Context, req *pluginapi.Reso
 		return nil, err
 	}
 
-	_, gpuMemory, err := util.GetQuantityFromResourceRequests(req.ResourceRequests, p.ResourceName(), false)
+	_, gpuMemory, err := util.GetQuantityFromResourceRequests(req.ResourceRequests, p.ResourceName(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
@@ -462,7 +462,7 @@ func (p *GPUMemPlugin) Allocate(
 		return nil, err
 	}
 
-	_, gpuMemory, err := util.GetQuantityFromResourceRequests(resourceReq.ResourceRequests, p.ResourceName(), false)
+	_, gpuMemory, err := util.GetQuantityFromResourceRequests(resourceReq.ResourceRequests, p.ResourceName(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
