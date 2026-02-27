@@ -43,6 +43,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/oom"
 	memoryreactor "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/reactor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/userwatermark"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/handlers/fragmem"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/handlers/logcache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/handlers/sockmem"
@@ -56,6 +57,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/asyncworker"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
@@ -143,6 +145,7 @@ type DynamicPolicy struct {
 	enableSettingMemoryMigrate bool
 	enableSettingSockMem       bool
 	enableSettingFragMem       bool
+	enableUserWatermark        bool
 	enableMemoryAdvisor        bool
 	getAdviceInterval          time.Duration
 	memoryAdvisorSocketAbsPath string
@@ -221,6 +224,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		enableSettingSockMem:        conf.EnableSettingSockMem,
 		enableSettingFragMem:        conf.EnableSettingFragMem,
 		enableMemoryAdvisor:         conf.EnableMemoryAdvisor,
+		enableUserWatermark:         conf.EnableUserWatermark,
 		getAdviceInterval:           conf.GetAdviceInterval,
 		memoryAdvisorSocketAbsPath:  conf.MemoryAdvisorSocketAbsPath,
 		memoryPluginSocketAbsPath:   conf.MemoryPluginSocketAbsPath,
@@ -440,6 +444,12 @@ func (p *DynamicPolicy) Start() (err error) {
 		if err != nil {
 			general.Infof("setFragMem failed, err=%v", err)
 		}
+	}
+	if p.enableUserWatermark && common.CheckCgroup2UnifiedMode() {
+		general.Infof("setUserWatermark enabled")
+
+		userWatermarkReclaimManager := userwatermark.NewUserWatermarkReclaimManager(p.qosConfig, p.dynamicConf, p.emitter, p.metaServer)
+		go userWatermarkReclaimManager.Run(p.stopCh)
 	}
 
 	go wait.Until(func() {
