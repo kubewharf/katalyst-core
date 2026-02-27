@@ -473,7 +473,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 			return nil, fmt.Errorf("numa binding without numa exclusive allocation result numa node size is %d, "+
 				"not equal to 1", len(req.Hint.Nodes))
 		}
-		allocationInfo.SetSpecifiedNUMABindingNUMAID(req.Hint.Nodes[0])
+		allocationInfo.SetSpecifiedNUMABindingNUMAID(req.Hint.Nodes)
 	}
 
 	// update pod entries directly.
@@ -743,7 +743,7 @@ func (p *DynamicPolicy) allocateSharedNumaBindingCPUs(req *pluginapi.ResourceReq
 		InitTimestamp:   time.Now().Format(util.QRMTimeFormat),
 		RequestQuantity: reqFloat64,
 	}
-	allocationInfo.SetSpecifiedNUMABindingNUMAID(hint.Nodes[0])
+	allocationInfo.SetSpecifiedNUMABindingNUMAID(hint.Nodes)
 
 	if util.PodInplaceUpdateResizing(req) {
 		originAllocationInfo := p.state.GetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName)
