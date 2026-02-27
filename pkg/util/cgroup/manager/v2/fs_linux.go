@@ -289,6 +289,50 @@ func (m *manager) GetMemory(absCgroupPath string) (*common.MemoryStats, error) {
 	return memoryStats, nil
 }
 
+func (m *manager) GetMemoryStats(absCgroupPath string) (*common.MemoryStats, error) {
+	fileName := "memory.stat"
+
+	memoryStats, err := m.GetMemory(absCgroupPath)
+	if err != nil {
+		return nil, fmt.Errorf("get memory limit and usage failed with error: %v", err)
+	}
+
+	content, err := libcgroups.ReadFile(absCgroupPath, fileName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s: %w", fileName, err)
+	}
+	lines := strings.Split(content, "\n")
+	for _, line := range lines {
+		cols := strings.Fields(line)
+		if len(cols) != 2 {
+			continue
+		}
+
+		key := cols[0]
+		valueStr := cols[1]
+
+		value, err := strconv.ParseUint(valueStr, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse %s, %v", valueStr, err)
+		}
+
+		switch key {
+		case "file":
+			memoryStats.FileCache = value
+		case "inactive_anon":
+			memoryStats.InactiveAnno = value
+		case "active_anon":
+			memoryStats.ActiveAnno = value
+		case "inactive_file":
+			memoryStats.InactiveFile = value
+		case "active_file":
+			memoryStats.ActiveFile = value
+		}
+	}
+
+	return memoryStats, nil
+}
+
 func (m *manager) GetNumaMemory(absCgroupPath string) (map[int]*common.MemoryNumaMetrics, error) {
 	const fileName = "memory.numa_stat"
 	content, err := libcgroups.ReadFile(absCgroupPath, fileName)

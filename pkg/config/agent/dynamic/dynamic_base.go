@@ -26,6 +26,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/metricthreshold"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/strategygroup"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/tmo"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/userwatermark"
 )
 
 type DynamicAgentConfiguration struct {
@@ -60,6 +61,7 @@ type Configuration struct {
 	*strategygroup.StrategyGroupConfiguration
 	*metricthreshold.MetricThresholdConfiguration
 	*irqtuning.IRQTuningConfiguration
+	*userwatermark.UserWatermarkConfiguration
 }
 
 func NewConfiguration() *Configuration {
@@ -70,6 +72,7 @@ func NewConfiguration() *Configuration {
 		StrategyGroupConfiguration:               strategygroup.NewStrategyGroupConfiguration(),
 		MetricThresholdConfiguration:             metricthreshold.NewMetricThresholdConfiguration(),
 		IRQTuningConfiguration:                   irqtuning.NewIRQTuningConfiguration(),
+		UserWatermarkConfiguration:               userwatermark.NewUserWatermarkConfiguration(),
 	}
 }
 
@@ -80,4 +83,5 @@ func (c *Configuration) ApplyConfiguration(conf *crd.DynamicConfigCRD) {
 	c.StrategyGroupConfiguration.ApplyConfiguration(conf)
 	c.MetricThresholdConfiguration.ApplyConfiguration(conf)
 	c.IRQTuningConfiguration.ApplyConfiguration(conf)
+	c.UserWatermarkConfiguration.ApplyConfiguration(conf)
 }

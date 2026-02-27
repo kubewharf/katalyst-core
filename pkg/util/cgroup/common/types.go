@@ -177,8 +177,13 @@ func (iocmd *IOCostModelData) String() string {
 
 // MemoryStats get cgroup memory data
 type MemoryStats struct {
-	Limit uint64
-	Usage uint64
+	Limit        uint64
+	Usage        uint64
+	FileCache    uint64
+	InactiveAnno uint64
+	ActiveAnno   uint64
+	InactiveFile uint64
+	ActiveFile   uint64
 }
 
 // CPUStats get cgroup cpu data
