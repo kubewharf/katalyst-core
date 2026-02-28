@@ -45,6 +45,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/utils"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric/helper"
 	metaserverpod "github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
@@ -748,7 +749,7 @@ func (p *topologyAdapterImpl) getZoneAttributes(allocatableResources *podresv1.A
 
 			zoneAttributes[cacheGroupZoneNode] = util.ZoneAttributes{
 				nodev1alpha1.Attribute{
-					Name:  "cpu_lists",
+					Name:  consts.ZoneAttributeNameCPULists,
 					Value: machine.NewCPUSet(cpus.List()...).String(),
 				},
 			}
@@ -791,7 +792,7 @@ func (p *topologyAdapterImpl) generateNumaNodeThreadTopologyAttr(node util.ZoneN
 	threadTopology = strings.TrimSuffix(threadTopology, ",")
 
 	attrs = append(attrs, nodev1alpha1.Attribute{
-		Name:  "thread_topology_info",
+		Name:  consts.ZoneAttributeNameThreadTopologyInfo,
 		Value: threadTopology,
 	})
 
@@ -814,7 +815,7 @@ func (p *topologyAdapterImpl) generateNumaNodeResourceReservedAttr(node util.Zon
 	}
 
 	attrs = append(attrs, nodev1alpha1.Attribute{
-		Name:  "reserved_cpu_list",
+		Name:  consts.ZoneAttributeNameReservedCPUList,
 		Value: numaReserved.String(),
 	})
 
@@ -839,7 +840,7 @@ func (p *topologyAdapterImpl) generateNodeDistanceAttr(node util.ZoneNode) []nod
 	}
 
 	attrs = append(attrs, nodev1alpha1.Attribute{
-		Name:  "numa_distance",
+		Name:  consts.ZoneAttributeNameNUMADistance,
 		Value: general.IntSliceToString(distances),
 	})
 

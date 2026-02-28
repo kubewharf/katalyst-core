@@ -65,6 +65,9 @@ type NUMANodeState struct {
 	DefaultCPUSet machine.CPUSet `json:"default_cpuset,omitempty"`
 	// equals to original allocation result of dedicated_cores with NUMA binding
 	AllocatedCPUSet machine.CPUSet `json:"allocated_cpuset,omitempty"`
+	// equals to a map of resource package name to pinned cpuset if the resource package's
+	// config has set `pinnedCPUSet` to `true`.
+	ResourcePackagePinnedCPUSet map[string]machine.CPUSet `json:"resource_package_pinned_cpuset,omitempty"`
 
 	PodEntries PodEntries `json:"pod_entries"`
 	// pre-occupation pod entries which is for pod needs pre-occupation
@@ -333,12 +336,23 @@ func (ns *NUMANodeState) Clone() *NUMANodeState {
 	if ns == nil {
 		return nil
 	}
-	return &NUMANodeState{
+
+	clone := &NUMANodeState{
 		DefaultCPUSet:    ns.DefaultCPUSet.Clone(),
 		AllocatedCPUSet:  ns.AllocatedCPUSet.Clone(),
 		PodEntries:       ns.PodEntries.Clone(),
 		PreOccPodEntries: ns.PreOccPodEntries.Clone(),
 	}
+
+	if ns.ResourcePackagePinnedCPUSet != nil {
+		clone.ResourcePackagePinnedCPUSet = make(map[string]machine.CPUSet)
+
+		for pkgName, cpus := range ns.ResourcePackagePinnedCPUSet {
+			clone.ResourcePackagePinnedCPUSet[pkgName] = cpus.Clone()
+		}
+	}
+
+	return clone
 }
 
 // GetAvailableCPUSet returns available cpuset in this numa
@@ -535,6 +549,33 @@ func (nm NUMANodeMap) GetDefaultCPUSet() machine.CPUSet {
 		res = res.Union(numaNodeState.DefaultCPUSet)
 	}
 	return res
+}
+
+// GetNUMAResourcePackagePinnedCPUSet returns a map of numa id to resource package name to pinned cpuset if the resource package's
+// config has set `pinnedCPUSet` to `true`.
+func (nm NUMANodeMap) GetNUMAResourcePackagePinnedCPUSet() map[int]map[string]machine.CPUSet {
+	numaResourcePackagePinnedCPUSet := make(map[int]map[string]machine.CPUSet)
+	for numaID, numaNodeState := range nm {
+		if _, ok := numaResourcePackagePinnedCPUSet[numaID]; !ok {
+			numaResourcePackagePinnedCPUSet[numaID] = make(map[string]machine.CPUSet)
+		}
+		for resourcePackage, pinnedCPUSet := range numaNodeState.ResourcePackagePinnedCPUSet {
+			numaResourcePackagePinnedCPUSet[numaID][resourcePackage] = numaResourcePackagePinnedCPUSet[numaID][resourcePackage].Union(pinnedCPUSet)
+		}
+	}
+	return numaResourcePackagePinnedCPUSet
+}
+
+// GetResourcePackagePinnedCPUSet returns a map of resource package name to pinned cpuset if the resource package's
+// config has set `pinnedCPUSet` to `true`.
+func (nm NUMANodeMap) GetResourcePackagePinnedCPUSet() map[string]machine.CPUSet {
+	rpPinnedCPUSet := make(map[string]machine.CPUSet)
+	for _, numaNodeState := range nm {
+		for resourcePackage, pinnedCPUSet := range numaNodeState.ResourcePackagePinnedCPUSet {
+			rpPinnedCPUSet[resourcePackage] = rpPinnedCPUSet[resourcePackage].Union(pinnedCPUSet)
+		}
+	}
+	return rpPinnedCPUSet
 }
 
 // GetAvailableCPUSet returns available cpuset in this node
