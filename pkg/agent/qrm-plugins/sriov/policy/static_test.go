@@ -28,11 +28,13 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	"k8s.io/kubernetes/pkg/kubelet/cri/remote"
 
+	. "github.com/bytedance/mockey"
+
 	apinode "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	katalystbase "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/state"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/utils"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
@@ -41,8 +43,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	metricspool "github.com/kubewharf/katalyst-core/pkg/metrics/metrics-pool"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
-
-	. "github.com/bytedance/mockey"
 )
 
 func generateStaticPolicy(t *testing.T, dryRun bool, bondingHostNetwork bool, vfState state.VFState, podEntries state.PodEntries) *StaticPolicy {
@@ -102,41 +102,73 @@ func TestStaticPolicy_GetTopologyHints(t *testing.T) {
 		vfState, podEntries := state.GenerateDummyState(2, 2, nil)
 		policy := generateStaticPolicy(t, false, false, vfState, podEntries)
 
-		Mock(utils.UpdateSriovVFResultAnnotation).Return(nil).Build()
+		Convey("numa-binding", func() {
+			resp, err := policy.GetTopologyHints(rawContext.Background(),
+				&pluginapi.ResourceRequest{
+					PodUid:        "pod",
+					PodName:       "pod",
+					ContainerName: "container",
+					ResourceName:  policy.ResourceName(),
+					ResourceRequests: map[string]float64{
+						ResourceName: 1,
+					},
+					Annotations: map[string]string{
+						apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					},
+				},
+			)
 
-		resp, err := policy.GetTopologyHints(rawContext.Background(),
-			&pluginapi.ResourceRequest{
+			So(err, ShouldBeNil)
+			So(resp, ShouldResemble, &pluginapi.ResourceHintsResponse{
 				PodUid:        "pod",
 				PodName:       "pod",
 				ContainerName: "container",
-				ResourceName:  policy.ResourceName(),
-				ResourceRequests: map[string]float64{
-					ResourceName: 1,
-				},
-			},
-		)
-
-		So(err, ShouldBeNil)
-		So(resp, ShouldResemble, &pluginapi.ResourceHintsResponse{
-			PodUid:        "pod",
-			PodName:       "pod",
-			ContainerName: "container",
-			ResourceName:  ResourceName,
-			ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
-				policy.ResourceName(): {
-					Hints: []*pluginapi.TopologyHint{
-						{
-							Nodes:     []uint64{0, 1},
-							Preferred: true,
-						},
-						{
-							Nodes:     []uint64{2, 3},
-							Preferred: true,
+				ResourceName:  ResourceName,
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					policy.ResourceName(): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{0, 1},
+								Preferred: true,
+							},
+							{
+								Nodes:     []uint64{2, 3},
+								Preferred: true,
+							},
 						},
 					},
 				},
-			},
+				Annotations: map[string]string{
+					apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+				},
+			})
 		})
+
+		Convey("non-numa-binding", func() {
+			resp, err := policy.GetTopologyHints(rawContext.Background(),
+				&pluginapi.ResourceRequest{
+					PodUid:        "pod",
+					PodName:       "pod",
+					ContainerName: "container",
+					ResourceName:  policy.ResourceName(),
+					ResourceRequests: map[string]float64{
+						ResourceName: 1,
+					},
+				},
+			)
+
+			So(err, ShouldBeNil)
+			So(resp, ShouldResemble, &pluginapi.ResourceHintsResponse{
+				PodUid:        "pod",
+				PodName:       "pod",
+				ContainerName: "container",
+				ResourceName:  ResourceName,
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					policy.ResourceName(): nil,
+				},
+			})
+		})
+
 	})
 
 	Convey("only one socket has available VFs", t, func() {
