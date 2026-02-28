@@ -24,6 +24,7 @@ import (
 
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
@@ -238,7 +239,7 @@ func selectOneNIC(nics []machine.InterfaceInfo, policy NICSelectionPoligy) machi
 }
 
 // packAllocationResponse fills pluginapi.ResourceAllocationResponse with information from AllocationInfo and pluginapi.ResourceRequest
-func packAllocationResponse(req *pluginapi.ResourceRequest, allocationInfo *state.AllocationInfo, resourceAllocationAnnotations map[string]string) (*pluginapi.ResourceAllocationResponse, error) {
+func packAllocationResponse(req *pluginapi.ResourceRequest, allocationInfo *state.AllocationInfo, resourceAllocationAnnotations ...map[string]string) (*pluginapi.ResourceAllocationResponse, error) {
 	if allocationInfo == nil {
 		return nil, fmt.Errorf("packAllocationResponse got nil allocationInfo")
 	} else if req == nil {
@@ -262,7 +263,7 @@ func packAllocationResponse(req *pluginapi.ResourceRequest, allocationInfo *stat
 					IsScalarResource:  true, // to avoid re-allocating
 					AllocatedQuantity: float64(allocationInfo.Egress),
 					AllocationResult:  allocationInfo.NumaNodes.String(),
-					Annotations:       resourceAllocationAnnotations,
+					Annotations:       general.MergeAnnotations(resourceAllocationAnnotations...),
 					ResourceHints: &pluginapi.ListOfTopologyHints{
 						Hints: []*pluginapi.TopologyHint{
 							req.Hint,
@@ -274,6 +275,20 @@ func packAllocationResponse(req *pluginapi.ResourceRequest, allocationInfo *stat
 		Labels:      general.DeepCopyMap(req.Labels),
 		Annotations: general.DeepCopyMap(req.Annotations),
 	}, nil
+}
+
+// getNetworkTopologyAllocationsAnnotations gets the network topology allocation and merges it with current annotations.
+func getNetworkTopologyAllocationsAnnotations(allocationInfo *state.AllocationInfo, currentAnnotations map[string]string) map[string]string {
+	if allocationInfo == nil {
+		return currentAnnotations
+	}
+
+	topologyAllocation := make(v1alpha1.TopologyAllocation)
+	topologyAllocation[v1alpha1.TopologyTypeNIC] = make(map[string]v1alpha1.ZoneAllocation)
+	topologyAllocation[v1alpha1.TopologyTypeNIC][allocationInfo.Identifier] = v1alpha1.ZoneAllocation{}
+
+	newAnnotations := qrmutil.GetTopologyAllocationResourceAllocationAnnotations(topologyAllocation)
+	return general.MergeAnnotations(newAnnotations, currentAnnotations)
 }
 
 // getReservedBandwidth is used to spread total reserved bandwidth into per-nic level.

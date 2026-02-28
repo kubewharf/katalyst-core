@@ -970,30 +970,23 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 			"originalAllocationResult", allocationInfo.OriginalAllocationResult.String(),
 			"currentResult", allocationInfo.AllocationResult.String())
 
-		return &pluginapi.ResourceAllocationResponse{
-			PodUid:         req.PodUid,
-			PodNamespace:   req.PodNamespace,
-			PodName:        req.PodName,
-			ContainerName:  req.ContainerName,
-			ContainerType:  req.ContainerType,
-			ContainerIndex: req.ContainerIndex,
-			PodRole:        req.PodRole,
-			PodType:        req.PodType,
-			ResourceName:   string(v1.ResourceCPU),
-			AllocationResult: &pluginapi.ResourceAllocation{
-				ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
-					string(v1.ResourceCPU): {
-						OciPropertyName:   util.OCIPropertyNameCPUSetCPUs,
-						IsNodeResource:    false,
-						IsScalarResource:  true,
-						AllocatedQuantity: float64(allocationInfo.AllocationResult.Size()),
-						AllocationResult:  allocationInfo.AllocationResult.String(),
-					},
-				},
-			},
-			Labels:      general.DeepCopyMap(req.Labels),
-			Annotations: general.DeepCopyMap(req.Annotations),
-		}, nil
+		// Add topologyAllocationAnnotations for numa binding containers
+		var topologyAllocationAnnotations map[string]string
+		if allocationInfo.CheckNUMABinding() {
+			// Pods that are dedicated numa binding or dedicated numa exclusive can cross numa
+			canCrossNuma := allocationInfo.CheckDedicatedNUMABinding() || allocationInfo.CheckDedicatedNUMABindingNUMAExclusive()
+			topologyAllocationAnnotations = cpuutil.GetCPUTopologyAllocationsAnnotations(allocationInfo, canCrossNuma)
+		}
+
+		resp, err = cpuutil.PackAllocationResponse(allocationInfo, string(v1.ResourceCPU), util.OCIPropertyNameCPUSetCPUs,
+			false, true, req, topologyAllocationAnnotations)
+		if err != nil {
+			general.Errorf("pod: %s/%s, container: %s PackResourceAllocationResponseByAllocationInfo failed with error: %v",
+				req.PodNamespace, req.PodName, req.ContainerName, err)
+			return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
+		}
+
+		return resp, nil
 	}
 
 	if p.allocationHandlers[qosLevel] == nil {

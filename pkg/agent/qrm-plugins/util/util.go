@@ -28,6 +28,7 @@ import (
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/util/asyncworker"
@@ -370,4 +371,20 @@ func GetPodAggregatedRequestResource(req *pluginapi.ResourceRequest) (int, float
 	default:
 		return 0, 0, fmt.Errorf("not support resource name: %s", req.ResourceName)
 	}
+}
+
+// GetTopologyAllocationResourceAllocationAnnotations converts the topology allocation to annotations.
+func GetTopologyAllocationResourceAllocationAnnotations(topologyAllocation v1alpha1.TopologyAllocation) map[string]string {
+	annotations := make(map[string]string)
+	if topologyAllocation == nil {
+		return annotations
+	}
+
+	b, err := json.Marshal(topologyAllocation)
+	if err != nil {
+		general.Errorf("Error marshaling topology allocation: %v", err)
+	}
+
+	annotations[apiconsts.PodAnnotationTopologyBindResultKey] = string(b)
+	return annotations
 }

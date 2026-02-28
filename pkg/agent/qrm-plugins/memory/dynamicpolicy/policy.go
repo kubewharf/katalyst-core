@@ -1036,30 +1036,23 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 			"containerName", req.ContainerName,
 			"memoryReq(bytes)", reqInt,
 			"currentResult(bytes)", allocationInfo.AggregatedQuantity)
-		return &pluginapi.ResourceAllocationResponse{
-			PodUid:         req.PodUid,
-			PodNamespace:   req.PodNamespace,
-			PodName:        req.PodName,
-			ContainerName:  req.ContainerName,
-			ContainerType:  req.ContainerType,
-			ContainerIndex: req.ContainerIndex,
-			PodRole:        req.PodRole,
-			PodType:        req.PodType,
-			ResourceName:   string(v1.ResourceMemory),
-			AllocationResult: &pluginapi.ResourceAllocation{
-				ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
-					string(v1.ResourceMemory): {
-						OciPropertyName:   util.OCIPropertyNameCPUSetMems,
-						IsNodeResource:    false,
-						IsScalarResource:  true,
-						AllocatedQuantity: float64(allocationInfo.AggregatedQuantity),
-						AllocationResult:  allocationInfo.NumaAllocationResult.String(),
-					},
-				},
-			},
-			Labels:      general.DeepCopyMap(req.Labels),
-			Annotations: general.DeepCopyMap(req.Annotations),
-		}, nil
+
+		// Get topology allocation annotations if container is numa binding
+		var topologyAllocationAnnotations map[string]string
+		if allocationInfo.CheckNUMABinding() {
+			// Pods that are dedicated numa binding or dedicated numa binding with numa exclusive can cross numa
+			canCrossNuma := allocationInfo.CheckDedicatedNUMABinding() || allocationInfo.CheckDedicatedNUMABindingNUMAExclusive()
+			topologyAllocationAnnotations = getMemoryTopologyAllocationsAnnotations(allocationInfo, canCrossNuma)
+		}
+
+		resp, err = packAllocationResponse(allocationInfo, req, topologyAllocationAnnotations)
+		if err != nil {
+			general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
+				req.PodNamespace, req.PodName, req.ContainerName, err)
+			return nil, fmt.Errorf("packAllocationResponse failed with error: %v", err)
+		}
+
+		return resp, nil
 	}
 
 	if p.allocationHandlers[qosLevel] == nil {
