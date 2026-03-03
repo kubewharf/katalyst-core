@@ -524,6 +524,15 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 						tmo.containerTmoEngines[podContainerName].GetConf().PolicyName)
 				}
 			}
+
+			// disable TMO if the Pod is numa exclusive and is not reclaimable
+			enableReclaim, _ := helper.PodEnableReclaim(context.Background(), tmo.metaServer, containerInfo.PodUID, true)
+			if !enableReclaim {
+				tmo.containerTmoEngines[podContainerName].GetConf().EnableTMO = false
+				tmo.containerTmoEngines[podContainerName].GetConf().EnableSwap = false
+				general.Infof("container with podContainerName: %s is required to disable TMO since it is not reclaimable", podContainerName)
+			}
+
 			// load SPD conf if exists
 			tmoIndicator := &v1alpha1.TransparentMemoryOffloadingIndicators{}
 			isBaseline, err := tmo.metaServer.ServiceProfilingManager.ServiceExtendedIndicator(context.Background(), pod.ObjectMeta, tmoIndicator)
@@ -540,14 +549,6 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 						tmo.containerTmoEngines[podContainerName].GetConf().Interval,
 						tmo.containerTmoEngines[podContainerName].GetConf().PolicyName)
 				}
-			}
-
-			// disable TMO if the Pod is numa exclusive and is not reclaimable
-			enableReclaim, _ := helper.PodEnableReclaim(context.Background(), tmo.metaServer, containerInfo.PodUID, true)
-			if !enableReclaim {
-				tmo.containerTmoEngines[podContainerName].GetConf().EnableTMO = false
-				tmo.containerTmoEngines[podContainerName].GetConf().EnableSwap = false
-				general.Infof("container with podContainerName: %s is required to disable TMO since it is not reclaimable", podContainerName)
 			}
 
 			// disable TMO if the container is in TMO block list
