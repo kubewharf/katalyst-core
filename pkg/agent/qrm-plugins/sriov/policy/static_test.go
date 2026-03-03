@@ -168,7 +168,6 @@ func TestStaticPolicy_GetTopologyHints(t *testing.T) {
 				},
 			})
 		})
-
 	})
 
 	Convey("only one socket has available VFs", t, func() {
