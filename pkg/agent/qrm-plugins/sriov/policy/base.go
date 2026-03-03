@@ -52,6 +52,8 @@ const (
 var ResourceName = string(apiconsts.ResourceSriovNic)
 
 type basePolicy struct {
+	pluginapi.UnimplementedResourcePluginServer
+
 	state                 state.State
 	stateReconciler       *handler.StateReconciler
 	agentCtx              *agent.GenericContext
