@@ -29,6 +29,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/irqtuner"
 	irqutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/irqtuner/utils"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
@@ -137,12 +138,39 @@ func (p *DynamicPolicy) getPodContainerInfos(podUID string, entry state.Containe
 	return cis, nil
 }
 
+// getPinnedResourcePackageIRQForbiddenCPUSet retrieves the set of CPUs that are pinned by resource packages
+// and should be forbidden for IRQ allocation.
+// It queries the resource package manager for node resource packages and filters them using the
+// IRQForbiddenPinnedResourcePackageAttributeSelector defined in the configuration.
+func (p *DynamicPolicy) getPinnedResourcePackageIRQForbiddenCPUSet() (machine.CPUSet, error) {
+	// Fetch all resource packages associated with the node.
+	resourcePackages, err := p.resourcePackageManager.NodeResourcePackages(context.Background())
+	if err != nil {
+		return machine.NewCPUSet(), fmt.Errorf("get node resource packages failed: %v", err)
+	}
+
+	// Aggregate CPUs from resource packages that match the forbidden attribute selector.
+	irqForbiddenCPUSet := cpuutil.GetAggResourcePackagePinnedCPUSet(resourcePackages, p.conf.IRQForbiddenPinnedResourcePackageAttributeSelector, p.state.GetMachineState())
+
+	return irqForbiddenCPUSet, nil
+}
+
 // GetIRQForbiddenCores retrieves the cpu set of cores that are forbidden for irq binding.
+// The forbidden cores include:
+// 1. Reserved CPUs (system reserved).
+// 2. CPUs pinned by specific resource packages (as defined by the configuration).
 func (p *DynamicPolicy) GetIRQForbiddenCores() (machine.CPUSet, error) {
 	forbiddenCores := machine.NewCPUSet()
 
 	// get irq forbidden cores from cpu plugin checkpoint
 	forbiddenCores = forbiddenCores.Union(p.reservedCPUs)
+
+	// get irq forbidden cores from pinned resource package
+	irqForbiddenCPUSet, err := p.getPinnedResourcePackageIRQForbiddenCPUSet()
+	if err != nil {
+		return machine.NewCPUSet(), fmt.Errorf("get irq forbidden cpuset failed: %v", err)
+	}
+	forbiddenCores = forbiddenCores.Union(irqForbiddenCPUSet)
 
 	general.Infof("get the irq forbidden cores %v", forbiddenCores)
 	return forbiddenCores, nil

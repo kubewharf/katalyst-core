@@ -23,6 +23,7 @@ import (
 
 	pkgerrors "github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
@@ -33,11 +34,13 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	utilkubeconfig "github.com/kubewharf/katalyst-core/pkg/util/kubelet/config"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/qos"
+	resourcepackage "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
 
 const (
@@ -49,6 +52,9 @@ var (
 	ErrNoAvailableMemoryBandwidthHints = pkgerrors.New("no available memory bandwidth hints")
 )
 
+// GetCoresReservedForSystem calculates the CPU cores reserved for the system based on the configuration.
+// It prioritizes the kubelet configuration if enabled, otherwise falls back to the static configuration.
+// It returns a CPUSet representing the reserved cores.
 func GetCoresReservedForSystem(conf *config.Configuration, metaServer *metaserver.MetaServer, machineInfo *machine.KatalystMachineInfo, allCPUs machine.CPUSet) (machine.CPUSet, error) {
 	if conf == nil {
 		return machine.NewCPUSet(), fmt.Errorf("nil conf")
@@ -197,6 +203,8 @@ func PackAllocationResponse(allocationInfo *state.AllocationInfo, resourceName, 
 	}, nil
 }
 
+// AdvisorDegradation checks if the advisor is in a degraded state.
+// It returns true if the advisor is unhealthy and reclaim is disabled.
 func AdvisorDegradation(advisorHealth, enableReclaim bool) bool {
 	advisorDegradation := !advisorHealth && !enableReclaim
 
@@ -205,6 +213,8 @@ func AdvisorDegradation(advisorHealth, enableReclaim bool) bool {
 	return advisorDegradation
 }
 
+// CPUIsSufficient checks if the requested CPU is within the available limits,
+// considering a small tolerance for floating point comparison.
 func CPUIsSufficient(request, available float64) bool {
 	// the minimal CPU core is 0.001 (1core = 1000m)
 	return request < available+0.0001
@@ -262,6 +272,7 @@ func GetContainerRequestedCores(metaServer *metaserver.MetaServer, allocationInf
 	return allocationInfo.RequestQuantity
 }
 
+// PopulateHintsByAvailableNUMANodes appends topology hints for the given NUMA nodes to the hints list.
 func PopulateHintsByAvailableNUMANodes(
 	numaNodes []int,
 	hints *pluginapi.ListOfTopologyHints,
@@ -396,6 +407,7 @@ func getDefaultCPUBurstPercent(dynamicConfig *dynamic.DynamicAgentConfiguration)
 	return defaultCPUBurstPercent
 }
 
+// CalculateCPUBurstFromPercent calculates the CPU burst value based on the given percentage and CPU quota.
 func CalculateCPUBurstFromPercent(percent float64, cpuQuota int64) uint64 {
 	return uint64(float64(cpuQuota) * percent / 100)
 }
@@ -428,4 +440,32 @@ func IsSoleSharedCoresPod(conf *config.Configuration, podList []*v1.Pod, dynamic
 	}
 
 	return false
+}
+
+// GetAggResourcePackagePinnedCPUSet aggregates pinned CPUSets from resource packages that match the given attribute selector.
+// It iterates through each NUMA node's resource packages, filters them using the attribute selector,
+// and unions the pinned CPUSets from the corresponding machine state.
+func GetAggResourcePackagePinnedCPUSet(resourcePackageMap resourcepackage.NUMAResourcePackageItems, attributeSelector labels.Selector, machineState state.NUMANodeMap) machine.CPUSet {
+	res := machine.NewCPUSet()
+	// Iterate through each NUMA node and its associated resource packages.
+	for numaID, resourceMap := range resourcePackageMap {
+		for pkgName, pkg := range resourceMap {
+			// Convert package attributes to a string map for selector matching.
+			attrs := util.AttributesToStringMap(pkg.Attributes)
+			// Check if the package attributes match the provided selector.
+			if !attributeSelector.Matches(labels.Set(attrs)) {
+				continue
+			}
+
+			// Retrieve the machine state for the current NUMA node.
+			numaState := machineState[numaID]
+			if numaState == nil {
+				continue
+			}
+
+			// Aggregate the pinned CPUSet for the matching resource package.
+			res = res.Union(numaState.ResourcePackagePinnedCPUSet[pkgName])
+		}
+	}
+	return res
 }
