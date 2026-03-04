@@ -28,6 +28,11 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	coreconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -1054,4 +1059,589 @@ func TestNonBindingShareCoresMemoryVPAWithSidecar(t *testing.T) {
 	resizeMainReq.ResourceRequests[string(v1.ResourceMemory)] = 35433480192
 	_, err = dynamicPolicy.GetTopologyHints(context.Background(), resizeMainReq)
 	as.NotNil(err)
+}
+
+func TestRNBMemoryVPA(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+
+	machineInfo, err := machine.GenerateDummyMachineInfo(4, 32)
+	as.Nil(err)
+
+	testName := "test"
+	podUid := string(uuid.NewUUID())
+	testCases := []struct {
+		name                   string
+		numaHeadroom           map[int]int64
+		PodEntries             state.PodEntries
+		requestQuantity        float64
+		expectedHintErr        bool
+		expectedHintResp       *pluginapi.ResourceHintsResponse
+		expectedAllocationErr  bool
+		expectedAllocationResp *pluginapi.ResourceAllocationResponse
+	}{
+		{
+			name: "non-rnb scale out",
+			numaHeadroom: map[int]int64{
+				0: 3221225472,
+				1: 3221225472,
+				2: 3221225472,
+				3: 3221225472,
+			},
+			PodEntries: state.PodEntries{
+				podUid: state.ContainerEntries{
+					testName: &state.AllocationInfo{
+						AllocationMeta: commonstate.AllocationMeta{
+							PodUid:         podUid,
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							QoSLevel:       consts.PodAnnotationQoSLevelReclaimedCores,
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+							},
+							Labels: map[string]string{
+								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+							},
+						},
+						AggregatedQuantity:   2147483648,
+						NumaAllocationResult: machine.NewCPUSet(0, 1, 2, 3),
+					},
+				},
+			},
+			requestQuantity: 3221225472,
+			expectedHintErr: false,
+			expectedHintResp: &pluginapi.ResourceHintsResponse{
+				PodUid:         podUid,
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceMemory),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(v1.ResourceMemory): nil,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelReclaimedCores,
+					consts.PodAnnotationInplaceUpdateResizingKey: "true",
+				},
+			},
+			expectedAllocationErr: false,
+			expectedAllocationResp: &pluginapi.ResourceAllocationResponse{
+				PodUid:         podUid,
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceMemory),
+				AllocationResult: &pluginapi.ResourceAllocation{
+					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+						string(v1.ResourceMemory): {
+							OciPropertyName:   util.OCIPropertyNameCPUSetMems,
+							IsNodeResource:    false,
+							IsScalarResource:  true,
+							AllocatedQuantity: 3221225472,
+							AllocationResult:  machine.NewCPUSet(0, 1, 2, 3).String(),
+							ResourceHints: &pluginapi.ListOfTopologyHints{
+								Hints: []*pluginapi.TopologyHint{nil},
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelReclaimedCores,
+					consts.PodAnnotationInplaceUpdateResizingKey: "true",
+				},
+			},
+		},
+		{
+			name: "rnb scale in",
+			numaHeadroom: map[int]int64{
+				0: 3221225472,
+				1: 3221225472,
+				2: 3221225472,
+				3: 3221225472,
+			},
+			PodEntries: state.PodEntries{
+				podUid: state.ContainerEntries{
+					testName: &state.AllocationInfo{
+						AllocationMeta: commonstate.AllocationMeta{
+							PodUid:         podUid,
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							QoSLevel:       consts.PodAnnotationQoSLevelReclaimedCores,
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelReclaimedCores,
+								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+								cpuconsts.CPUStateAnnotationKeyNUMAHint:          "0",
+							},
+							Labels: map[string]string{
+								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+							},
+						},
+						AggregatedQuantity:   2147483648,
+						NumaAllocationResult: machine.NewCPUSet(0),
+					},
+				},
+			},
+			requestQuantity: 1073741824,
+			expectedHintErr: false,
+			expectedHintResp: &pluginapi.ResourceHintsResponse{
+				PodUid:         podUid,
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceMemory),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(v1.ResourceMemory): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{0},
+								Preferred: true,
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelReclaimedCores,
+					consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					consts.PodAnnotationInplaceUpdateResizingKey:     "true",
+				},
+			},
+			expectedAllocationErr: false,
+			expectedAllocationResp: &pluginapi.ResourceAllocationResponse{
+				PodUid:         podUid,
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceMemory),
+				AllocationResult: &pluginapi.ResourceAllocation{
+					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+						string(v1.ResourceMemory): {
+							OciPropertyName:   util.OCIPropertyNameCPUSetMems,
+							IsNodeResource:    false,
+							IsScalarResource:  true,
+							AllocatedQuantity: 1073741824,
+							AllocationResult:  machine.NewCPUSet(0).String(),
+							ResourceHints: &pluginapi.ListOfTopologyHints{
+								Hints: []*pluginapi.TopologyHint{
+									{
+										Nodes:     []uint64{0},
+										Preferred: true,
+									},
+								},
+							},
+							Annotations: map[string]string{
+								coreconsts.QRMResourceAnnotationKeyNUMABindResult: "0",
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelReclaimedCores,
+					consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					consts.PodAnnotationInplaceUpdateResizingKey:     "true",
+				},
+			},
+		},
+		{
+			name: "rnb scale out with enough resource",
+			numaHeadroom: map[int]int64{
+				0: 3221225472,
+				1: 3221225472,
+				2: 3221225472,
+				3: 3221225472,
+			},
+			PodEntries: state.PodEntries{
+				podUid: state.ContainerEntries{
+					testName: &state.AllocationInfo{
+						AllocationMeta: commonstate.AllocationMeta{
+							PodUid:         podUid,
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							QoSLevel:       consts.PodAnnotationQoSLevelReclaimedCores,
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelReclaimedCores,
+								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+								cpuconsts.CPUStateAnnotationKeyNUMAHint:          "0",
+							},
+							Labels: map[string]string{
+								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+							},
+						},
+						AggregatedQuantity:   2147483648,
+						NumaAllocationResult: machine.NewCPUSet(0),
+					},
+				},
+			},
+			requestQuantity: 3221225472,
+			expectedHintErr: false,
+			expectedHintResp: &pluginapi.ResourceHintsResponse{
+				PodUid:         podUid,
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceMemory),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(v1.ResourceMemory): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{0},
+								Preferred: true,
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelReclaimedCores,
+					consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					consts.PodAnnotationInplaceUpdateResizingKey:     "true",
+				},
+			},
+			expectedAllocationErr: false,
+			expectedAllocationResp: &pluginapi.ResourceAllocationResponse{
+				PodUid:         podUid,
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceMemory),
+				AllocationResult: &pluginapi.ResourceAllocation{
+					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+						string(v1.ResourceMemory): {
+							OciPropertyName:   util.OCIPropertyNameCPUSetMems,
+							IsNodeResource:    false,
+							IsScalarResource:  true,
+							AllocatedQuantity: 3221225472,
+							AllocationResult:  machine.NewCPUSet(0).String(),
+							ResourceHints: &pluginapi.ListOfTopologyHints{
+								Hints: []*pluginapi.TopologyHint{
+									{
+										Nodes:     []uint64{0},
+										Preferred: true,
+									},
+								},
+							},
+							Annotations: map[string]string{
+								coreconsts.QRMResourceAnnotationKeyNUMABindResult: "0",
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelReclaimedCores,
+					consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					consts.PodAnnotationInplaceUpdateResizingKey:     "true",
+				},
+			},
+		},
+		{
+			name: "rnb scale out with no enough resource",
+			numaHeadroom: map[int]int64{
+				0: 3221225472,
+				1: 3221225472,
+				2: 3221225472,
+				3: 3221225472,
+			},
+			PodEntries: state.PodEntries{
+				podUid: state.ContainerEntries{
+					testName: &state.AllocationInfo{
+						AllocationMeta: commonstate.AllocationMeta{
+							PodUid:         podUid,
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							QoSLevel:       consts.PodAnnotationQoSLevelReclaimedCores,
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelReclaimedCores,
+								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+								cpuconsts.CPUStateAnnotationKeyNUMAHint:          "0",
+							},
+							Labels: map[string]string{
+								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+							},
+						},
+						AggregatedQuantity:   2147483648,
+						NumaAllocationResult: machine.NewCPUSet(0),
+					},
+				},
+			},
+			requestQuantity: 4294967296,
+			expectedHintErr: true,
+		},
+		{
+			name: "rnb non-actual binding scale out with enough resource",
+			numaHeadroom: map[int]int64{
+				0: 3221225472,
+				1: 3221225472,
+				2: 3221225472,
+				3: 3221225472,
+			},
+			PodEntries: state.PodEntries{
+				podUid: state.ContainerEntries{
+					testName: &state.AllocationInfo{
+						AllocationMeta: commonstate.AllocationMeta{
+							PodUid:         podUid,
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							QoSLevel:       consts.PodAnnotationQoSLevelReclaimedCores,
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelReclaimedCores,
+								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+							},
+							Labels: map[string]string{
+								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+							},
+						},
+						AggregatedQuantity:   2147483648,
+						NumaAllocationResult: machine.NewCPUSet(0, 1),
+					},
+				},
+			},
+			requestQuantity: 6442450944,
+			expectedHintErr: false,
+			expectedHintResp: &pluginapi.ResourceHintsResponse{
+				PodUid:         podUid,
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceMemory),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(v1.ResourceMemory): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{0, 1},
+								Preferred: true,
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelReclaimedCores,
+					consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					consts.PodAnnotationInplaceUpdateResizingKey:     "true",
+				},
+			},
+			expectedAllocationErr: false,
+			expectedAllocationResp: &pluginapi.ResourceAllocationResponse{
+				PodUid:         podUid,
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceMemory),
+				AllocationResult: &pluginapi.ResourceAllocation{
+					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+						string(v1.ResourceMemory): {
+							OciPropertyName:   util.OCIPropertyNameCPUSetMems,
+							IsNodeResource:    false,
+							IsScalarResource:  true,
+							AllocatedQuantity: 6442450944,
+							AllocationResult:  machine.NewCPUSet(0, 1).String(),
+							ResourceHints: &pluginapi.ListOfTopologyHints{
+								Hints: []*pluginapi.TopologyHint{
+									{
+										Nodes:     []uint64{0, 1},
+										Preferred: true,
+									},
+								},
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelReclaimedCores,
+					consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					consts.PodAnnotationInplaceUpdateResizingKey:     "true",
+				},
+			},
+		},
+		{
+			name: "rnb non-actual binding scale out with no enough resource",
+			numaHeadroom: map[int]int64{
+				0: 3221225472,
+				1: 3221225472,
+				2: 3221225472,
+				3: 3221225472,
+			},
+			PodEntries: state.PodEntries{
+				podUid: state.ContainerEntries{
+					testName: &state.AllocationInfo{
+						AllocationMeta: commonstate.AllocationMeta{
+							PodUid:         podUid,
+							PodNamespace:   testName,
+							PodName:        testName,
+							ContainerName:  testName,
+							ContainerType:  pluginapi.ContainerType_MAIN.String(),
+							ContainerIndex: 0,
+							QoSLevel:       consts.PodAnnotationQoSLevelReclaimedCores,
+							Annotations: map[string]string{
+								consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelReclaimedCores,
+								consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+								cpuconsts.CPUStateAnnotationKeyNUMAHint:          "0",
+							},
+							Labels: map[string]string{
+								consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+							},
+						},
+						AggregatedQuantity:   2147483648,
+						NumaAllocationResult: machine.NewCPUSet(0, 1),
+					},
+				},
+			},
+			requestQuantity: 8589934592,
+			expectedHintErr: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tmpDir, err := ioutil.TempDir("", "checkpoint-TestGetTopologyHints")
+			as.Nil(err)
+
+			dynamicPolicy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
+			as.Nil(err)
+			dynamicPolicy.podAnnotationKeptKeys = []string{consts.PodAnnotationInplaceUpdateResizingKey}
+
+			if tc.numaHeadroom != nil {
+				dynamicPolicy.state.SetNUMAHeadroom(tc.numaHeadroom, true)
+			}
+
+			if tc.PodEntries != nil {
+				podResourceEntries := map[v1.ResourceName]state.PodEntries{v1.ResourceMemory: tc.PodEntries}
+				machineState, err := state.GenerateMachineStateFromPodEntries(machineInfo, podResourceEntries, nil,
+					dynamicPolicy.state.GetReservedMemory())
+				as.Nil(err)
+
+				dynamicPolicy.state.SetMachineState(machineState, true)
+				dynamicPolicy.state.SetPodResourceEntries(podResourceEntries, true)
+
+			}
+
+			numaBinding := false
+			allocationInfo := dynamicPolicy.state.GetAllocationInfo(v1.ResourceMemory, podUid, testName)
+			as.NotNil(allocationInfo)
+			if allocationInfo.CheckNUMABinding() {
+				numaBinding = true
+			}
+
+			hintReq := &pluginapi.ResourceRequest{
+				PodUid:         podUid,
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceMemory),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceMemory): tc.requestQuantity,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelReclaimedCores,
+					consts.PodAnnotationInplaceUpdateResizingKey: "true",
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+				},
+			}
+
+			if numaBinding {
+				hintReq.Annotations[consts.PodAnnotationMemoryEnhancementKey] = `{"numa_binding": "true"}`
+			}
+
+			hintResp, err := dynamicPolicy.GetTopologyHints(context.Background(), hintReq)
+			as.Equalf(err != nil, tc.expectedHintErr, "expected hint error: %v, got: %v", tc.expectedHintErr, err)
+			as.Equal(tc.expectedHintResp, hintResp, "got unexpected hint response")
+
+			if tc.expectedHintErr {
+				return
+			}
+
+			allocationReq := &pluginapi.ResourceRequest{
+				PodUid:         podUid,
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceMemory),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceMemory): tc.requestQuantity,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:              consts.PodAnnotationQoSLevelReclaimedCores,
+					consts.PodAnnotationInplaceUpdateResizingKey: "true",
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelReclaimedCores,
+				},
+			}
+
+			if numaBinding {
+				as.Equalf(len(hintResp.ResourceHints[string(v1.ResourceMemory)].Hints), 1, "expected 1 hints, got: %v", hintResp.ResourceHints)
+
+				allocationReq.Hint = hintResp.ResourceHints[string(v1.ResourceMemory)].Hints[0]
+				allocationReq.Annotations[consts.PodAnnotationMemoryEnhancementKey] = `{"numa_binding": "true"}`
+			}
+
+			allocationResp, err := dynamicPolicy.Allocate(context.Background(), allocationReq)
+			as.Equalf(err != nil, tc.expectedAllocationErr, "expected allocation error: %v, got: %v", tc.expectedAllocationErr, err)
+			as.Equal(tc.expectedAllocationResp, allocationResp, "got unexpected allocation response")
+		})
+	}
 }
