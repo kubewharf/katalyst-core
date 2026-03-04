@@ -19,6 +19,7 @@ package qrm
 import (
 	"time"
 
+	"k8s.io/apimachinery/pkg/labels"
 	cliflag "k8s.io/component-base/cli/flag"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -39,17 +40,18 @@ type CPUOptions struct {
 }
 
 type CPUDynamicPolicyOptions struct {
-	EnableCPUAdvisor               bool
-	AdvisorGetAdviceInterval       time.Duration
-	EnableCPUPressureEviction      bool
-	LoadPressureEvictionSkipPools  []string
-	EnableSyncingCPUIdle           bool
-	EnableCPUIdle                  bool
-	CPUNUMAHintPreferPolicy        string
-	CPUNUMAHintPreferLowThreshold  float64
-	NUMABindingResultAnnotationKey string
-	EnableReserveCPUReversely      bool
-	EnableCPUBurst                 bool
+	EnableCPUAdvisor                                   bool
+	AdvisorGetAdviceInterval                           time.Duration
+	EnableCPUPressureEviction                          bool
+	LoadPressureEvictionSkipPools                      []string
+	EnableSyncingCPUIdle                               bool
+	EnableCPUIdle                                      bool
+	CPUNUMAHintPreferPolicy                            string
+	CPUNUMAHintPreferLowThreshold                      float64
+	NUMABindingResultAnnotationKey                     string
+	EnableReserveCPUReversely                          bool
+	EnableCPUBurst                                     bool
+	IRQForbiddenPinnedResourcePackageAttributeSelector string
 	*irqtuner.IRQTunerOptions
 	*hintoptimizer.HintOptimizerOptions
 }
@@ -127,6 +129,9 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.BoolVar(&o.EnableCPUBurst, "enable-cpu-burst", o.EnableCPUBurst, "This is a flag that enables the cpu burst handler to sync periodically."+
 		"However, actually setting cpu burst on a pod must be done through 2 enabling methods, via annotations and via kcc. Shared_cores only "+
 		"supports enabling via annotations, while dedicated_cores supports enabling via annotations and kcc.")
+	fs.StringVar(&o.IRQForbiddenPinnedResourcePackageAttributeSelector, "irq-forbidden-pinned-resource-package-attribute-selector",
+		o.IRQForbiddenPinnedResourcePackageAttributeSelector, "The selector to filter pinned resource packages that are"+
+			"forbidden for irq binding.")
 	o.HintOptimizerOptions.AddFlags(fss)
 	o.IRQTunerOptions.AddFlags(fss)
 }
@@ -147,6 +152,11 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 	conf.NUMABindingResultAnnotationKey = o.NUMABindingResultAnnotationKey
 	conf.EnableReserveCPUReversely = o.EnableReserveCPUReversely
 	conf.EnableCPUBurst = o.EnableCPUBurst
+	selector, err := labels.Parse(o.IRQForbiddenPinnedResourcePackageAttributeSelector)
+	if err != nil {
+		return err
+	}
+	conf.IRQForbiddenPinnedResourcePackageAttributeSelector = selector
 	if err := o.HintOptimizerOptions.ApplyTo(conf.HintOptimizerConfiguration); err != nil {
 		return err
 	}

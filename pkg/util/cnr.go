@@ -275,6 +275,17 @@ func MergeAttributes(dst, src []apis.Attribute) []apis.Attribute {
 	return attrs
 }
 
+// AttributesToStringMap converts a slice of CNR attributes to a map[string]string.
+// It iterates over the attributes slice and populates the map with Name as key and Value as value.
+// This helper is useful for efficient attribute lookup and label selection.
+func AttributesToStringMap(attrs []apis.Attribute) map[string]string {
+	res := make(map[string]string, len(attrs))
+	for _, attr := range attrs {
+		res[attr.Name] = attr.Value
+	}
+	return res
+}
+
 // MergeAllocations merges two allocations, returns the merged result.
 // If the same allocation exists in both dst and src, the one in dst
 // will be kept.
