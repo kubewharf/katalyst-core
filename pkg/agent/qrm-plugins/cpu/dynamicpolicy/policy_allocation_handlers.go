@@ -667,6 +667,12 @@ func (p *DynamicPolicy) allocateSharedNumaBindingCPUs(req *pluginapi.ResourceReq
 			return nil, fmt.Errorf("no origion cpu allocation info for inplace update resize")
 		}
 
+		if !originAllocationInfo.CheckSharedNUMABinding() {
+			general.Errorf("pod: %s/%s, container: %s request to cpu inplace update resize allocation, but origin allocation info is not shared numa binding, reject it",
+				req.PodNamespace, req.PodName, req.ContainerName)
+			return nil, fmt.Errorf("cannot change from non-snb to snb during inplace update")
+		}
+
 		general.Infof("pod: %s/%s, container: %s request to cpu inplace update resize allocation (%.02f->%.02f)",
 			req.PodNamespace, req.PodName, req.ContainerName, originAllocationInfo.RequestQuantity, allocationInfo.RequestQuantity)
 		p.state.SetAllocationInfo(allocationInfo.PodUid, allocationInfo.ContainerName, allocationInfo, persistCheckpoint)

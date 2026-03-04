@@ -473,8 +473,10 @@ func Test_updateCPUUsageIndicatorOffset(t *testing.T) {
 				ContainerType: v1alpha1.ContainerType_MAIN,
 			})
 			mc.SetInferenceResult(inferenceResultKey, tt.args.inferenceResults)
+			strategyName, strategy, err := getEnabledBorweinStrategy(tt.args.conf)
+			require.NoError(t, err)
 			got, err := updateCPUUsageIndicatorOffset(tt.args.podSet, tt.args.currentIndicatorOffset,
-				tt.args.borweinParameter, mc, tt.args.conf, metrics.DummyMetrics{}, "test")
+				tt.args.borweinParameter, mc, tt.args.conf, metrics.DummyMetrics{}, "test", strategyName, strategy)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("updateCPUUsageIndicatorOffset() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -651,7 +653,9 @@ func TestBorweinController_updateIndicatorOffsets(t *testing.T) {
 			}
 			inferenceResultKey := borweinutils.GetInferenceResultKey(borweinconsts.ModelNameBorweinLatencyRegression)
 			mc.SetInferenceResult(inferenceResultKey, tt.fields.inferenceResults)
-			bc.updateIndicatorOffsets(tt.args.podSet)
+			strategyName, strategy, err := getEnabledBorweinStrategy(bc.conf)
+			require.NoError(t, err)
+			bc.updateIndicatorOffsets(tt.args.podSet, strategyName, strategy)
 		})
 	}
 }
@@ -903,8 +907,9 @@ func TestBorweinController_getUpdatedIndicators(t *testing.T) {
 				metaReader:              mc,
 				indicatorOffsetUpdaters: tt.fields.indicatorOffsetUpdaters,
 			}
-
-			if got := bc.getUpdatedIndicators(tt.args.indicators); !checkIndicatorEqual(got, tt.want) {
+			strategyName, _, err := getEnabledBorweinStrategy(bc.conf)
+			require.NoError(t, err)
+			if got := bc.getUpdatedIndicators(tt.args.indicators, strategyName); !checkIndicatorEqual(got, tt.want) {
 				t.Errorf("BorweinController.getUpdatedIndicators() = %v, want %v", got, tt.want)
 			}
 		})

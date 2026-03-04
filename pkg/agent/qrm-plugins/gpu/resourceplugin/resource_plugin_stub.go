@@ -46,7 +46,7 @@ func (r ResourcePluginStub) GetTopologyHints(context.Context, *pluginapi.Resourc
 
 func (r ResourcePluginStub) GetTopologyAwareResources(_ context.Context, podUID, containerName string) (*pluginapi.GetTopologyAwareResourcesResponse, error) {
 	// Simply returns a fixed response if the podUID and containerName is found in the state, otherwise return an error
-	allocationInfo := r.State.GetAllocationInfo(v1.ResourceName(r.ResourceName()), podUID, containerName)
+	allocationInfo := r.GetState().GetAllocationInfo(v1.ResourceName(r.ResourceName()), podUID, containerName)
 	if allocationInfo == nil {
 		return nil, fmt.Errorf("allocationInfo is nil")
 	}
@@ -71,11 +71,11 @@ func (r ResourcePluginStub) GetTopologyAwareAllocatableResources(context.Context
 func (r ResourcePluginStub) Allocate(_ context.Context, resourceReq *pluginapi.ResourceRequest, deviceReq *pluginapi.DeviceRequest) (*pluginapi.ResourceAllocationResponse, error) {
 	// Simply save resource request and device request in state
 	if resourceReq.ResourceName == r.ResourceName() {
-		r.State.SetAllocationInfo(v1.ResourceName(r.ResourceName()), resourceReq.PodUid, resourceReq.ContainerName, &state.AllocationInfo{}, false)
+		r.GetState().SetAllocationInfo(v1.ResourceName(r.ResourceName()), resourceReq.PodUid, resourceReq.ContainerName, &state.AllocationInfo{}, false)
 	}
 
 	if deviceReq != nil {
-		r.State.SetAllocationInfo(v1.ResourceName(deviceReq.DeviceName), resourceReq.PodUid, resourceReq.ContainerName, &state.AllocationInfo{}, false)
+		r.GetState().SetAllocationInfo(v1.ResourceName(deviceReq.DeviceName), resourceReq.PodUid, resourceReq.ContainerName, &state.AllocationInfo{}, false)
 	}
 
 	return &pluginapi.ResourceAllocationResponse{}, nil

@@ -56,7 +56,7 @@ func NewRDMADevicePlugin(base *baseplugin.BasePlugin) customdeviceplugin.CustomD
 	}
 }
 
-func (p *RDMADevicePlugin) DefaultAccompanyResourceName() string {
+func (p *RDMADevicePlugin) DefaultPreAllocateResourceName() string {
 	return ""
 }
 
@@ -100,7 +100,7 @@ func (p *RDMADevicePlugin) AllocateAssociatedDevice(
 	)
 
 	// Check if there is state for the device name
-	rdmaAllocationInfo := p.State.GetAllocationInfo(gpuconsts.RDMADeviceType, resReq.PodUid, resReq.ContainerName)
+	rdmaAllocationInfo := p.GetState().GetAllocationInfo(gpuconsts.RDMADeviceType, resReq.PodUid, resReq.ContainerName)
 	if rdmaAllocationInfo != nil && rdmaAllocationInfo.TopologyAwareAllocations != nil {
 		allocatedDevices := make([]string, 0, len(rdmaAllocationInfo.TopologyAwareAllocations))
 		for rdmaID := range rdmaAllocationInfo.TopologyAwareAllocations {
@@ -165,13 +165,13 @@ func (p *RDMADevicePlugin) AllocateAssociatedDevice(
 	}
 
 	allocationInfo.TopologyAwareAllocations = topologyAwareAllocations
-	p.State.SetAllocationInfo(gpuconsts.RDMADeviceType, resReq.PodUid, resReq.ContainerName, allocationInfo, false)
+	p.GetState().SetAllocationInfo(gpuconsts.RDMADeviceType, resReq.PodUid, resReq.ContainerName, allocationInfo, false)
 	resourceState, err := p.GenerateResourceStateFromPodEntries(gpuconsts.RDMADeviceType, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate rdma device state from pod entries: %v", err)
 	}
 
-	p.State.SetResourceState(gpuconsts.RDMADeviceType, resourceState, true)
+	p.GetState().SetResourceState(gpuconsts.RDMADeviceType, resourceState, true)
 
 	general.InfoS("allocated rdma devices",
 		"podNamespace", resReq.PodNamespace,
@@ -194,7 +194,7 @@ func (p *RDMADevicePlugin) allocateWithNoAccompanyResource(
 ) ([]string, error) {
 	reqQuantity := deviceReq.GetDeviceRequest()
 
-	machineState, ok := p.State.GetMachineState()[gpuconsts.RDMADeviceType]
+	machineState, ok := p.GetState().GetMachineState()[gpuconsts.RDMADeviceType]
 	if !ok {
 		return nil, fmt.Errorf("no machine state for resource %s", gpuconsts.RDMADeviceType)
 	}
@@ -245,19 +245,19 @@ func (p *RDMADevicePlugin) allocateWithAccompanyResource(
 	var err error
 
 	// Find out the accompany devices that are allocated to the container and allocate RDMA devices that correspond to the numa nodes of accompany device
-	accompanyDeviceType, err := p.GetResourceTypeFromDeviceName(accompanyResourceName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get device type for accompany resource %s: %v", accompanyResourceName, err)
+	accompanyDeviceType := p.ResolveResourceName(accompanyResourceName, false)
+	if accompanyDeviceType == "" {
+		return nil, fmt.Errorf("failed to get device type for accompany resource: %s", accompanyResourceName)
 	}
 
 	// Allocate all the reusable devices first
 	allocatedDevices := sets.NewString(deviceReq.ReusableDevices...)
 
 	// Get ratio of accompany resource to target device
-	accompanyResourceToTargetDeviceRatio := p.State.GetMachineState().GetRatioOfAccompanyResourceToTargetResource(accompanyDeviceType, gpuconsts.RDMADeviceType)
+	accompanyResourceToTargetDeviceRatio := p.GetState().GetMachineState().GetRatioOfAccompanyResourceToTargetResource(accompanyDeviceType, gpuconsts.RDMADeviceType)
 
 	// Allocate target device according to ratio of accompany resource to target device
-	podResourceEntries := p.State.GetPodResourceEntries()
+	podResourceEntries := p.GetState().GetPodResourceEntries()
 	totalAllocated, accompanyResourceIds := podResourceEntries.GetTotalAllocatedResourceOfContainer(v1.ResourceName(accompanyDeviceType), resReq.PodUid, resReq.ContainerName)
 
 	rdmaToBeAllocated := int(math.Ceil(float64(totalAllocated) * accompanyResourceToTargetDeviceRatio))
@@ -270,7 +270,7 @@ func (p *RDMADevicePlugin) allocateWithAccompanyResource(
 		return nil, err
 	}
 
-	machineState := p.State.GetMachineState()[v1.ResourceName(gpuconsts.RDMADeviceType)]
+	machineState := p.GetState().GetMachineState()[v1.ResourceName(gpuconsts.RDMADeviceType)]
 
 	allocateDevices := func(devices ...string) bool {
 		for _, device := range devices {

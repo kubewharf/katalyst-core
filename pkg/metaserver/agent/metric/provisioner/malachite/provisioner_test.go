@@ -69,7 +69,7 @@ func Test_noneExistMetricsProvisioner(t *testing.T) {
 			{},
 		},
 	}
-	fakeSystemIO := &malachitetypes.SystemDiskIoData{
+	fakeSystemIO := &malachitetypes.SystemIoData{
 		DiskIo: []malachitetypes.DiskIo{
 			{
 				PrimaryDeviceID:   8,
@@ -98,6 +98,14 @@ func Test_noneExistMetricsProvisioner(t *testing.T) {
 				DeviceName:        "vdf",
 				DiskType:          "VIRTIO",
 				WBTValue:          75234,
+			},
+		},
+		ZramStat: []malachitetypes.ZramStat{
+			{
+				Name:          "zram0",
+				ComprDataSize: 1073741824,
+				OrigDataSize:  2147483648,
+				MemUsedTotal:  1077936128,
 			},
 		},
 	}

@@ -23,6 +23,8 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
+
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 )
@@ -52,4 +54,46 @@ func GetPodCPUSuppressionToleranceRate(qosConf *generic.QoSConfiguration, pod *v
 	}
 
 	return math.MaxFloat64, nil
+}
+
+// GetPodCPUBurstPolicyFromCPUEnhancement gets the cpu burst policy for the given pod by parsing the cpu enhancement keys.
+// All reclaimed cores pods should not have cpu burst enabled.
+func GetPodCPUBurstPolicyFromCPUEnhancement(qosConf *generic.QoSConfiguration, pod *v1.Pod) string {
+	qosLevel, _ := qosConf.GetQoSLevel(pod, map[string]string{})
+	cpuEnhancement := qosConf.GetQoSEnhancementKVs(pod, map[string]string{}, consts.PodAnnotationCPUEnhancementKey)
+	cpuBurstPolicy, ok := cpuEnhancement[consts.PodAnnotationCPUEnhancementCPUBurstPolicy]
+
+	// Do not enable cpu burst for reclaimed cores pods even when the annotation is set
+	if qosLevel == consts.PodAnnotationQoSLevelReclaimedCores && ok && cpuBurstPolicy != consts.PodAnnotationCPUEnhancementCPUBurstPolicyClosed {
+		general.Warningf("Reclaimed cores should not have cpu burst enabled")
+		return consts.PodAnnotationCPUEnhancementCPUBurstPolicyClosed
+	}
+
+	if !ok {
+		return consts.PodAnnotationCPUEnhancementCPUBurstPolicyDefault
+	}
+
+	return cpuBurstPolicy
+}
+
+// GetPodCPUBurstPercentFromCPUEnhancement parses cpu burst percent for the given pod by parsing the cpu enhancement keys.
+func GetPodCPUBurstPercentFromCPUEnhancement(qosConf *generic.QoSConfiguration, pod *v1.Pod) (float64, bool, error) {
+	cpuEnhancement := qosConf.GetQoSEnhancementKVs(pod, map[string]string{}, consts.PodAnnotationCPUEnhancementKey)
+	cpuBurstPercentStr, ok := cpuEnhancement[consts.PodAnnotationCPUEnhancementCPUBurstPercent]
+
+	if !ok {
+		return 0, false, nil
+	}
+
+	cpuBurstPercent, err := strconv.ParseFloat(cpuBurstPercentStr, 64)
+	if err != nil {
+		return 0, false, fmt.Errorf("failed to parse cpuBurstPercent: %v", err)
+	}
+
+	// cpu burst percent should be in range [0, 100]
+	if cpuBurstPercent > 100 {
+		return 100, true, nil
+	}
+
+	return cpuBurstPercent, true, nil
 }

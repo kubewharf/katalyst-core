@@ -326,6 +326,15 @@ func (p *DynamicPolicy) calculateHints(
 		return nil, err
 	}
 
+	// populate hints by already existed numa binding result for non-exclusive container
+	if !numaExclusive && p.dynamicConfig.GetDynamicConfiguration().PreferUseExistNUMAHintResult {
+		err = p.populateHintsByAlreadyExistedNUMABindingResult(req, hints)
+		if err != nil {
+			general.Warningf("populateHintsByAlreadyExistedNUMABindingResult failed with error: %v", err)
+			return nil, err
+		}
+	}
+
 	return map[string]*pluginapi.ListOfTopologyHints{
 		string(v1.ResourceCPU): hints,
 	}, nil
@@ -370,7 +379,7 @@ func (p *DynamicPolicy) reclaimedCoresWithNUMABindingHintHandler(_ context.Conte
 
 	if hints == nil {
 		var calculateErr error
-		hints, calculateErr = p.calculateHintsForNUMABindingReclaimedCores(request, podEntries, machineState, numaHeadroomState)
+		hints, calculateErr = p.calculateHintsForNUMABindingReclaimedCores(req, request, podEntries, machineState, numaHeadroomState)
 		if calculateErr != nil {
 			return nil, fmt.Errorf("calculateHintsForNUMABindingReclaimedCores failed with error: %v", calculateErr)
 		}
@@ -382,7 +391,7 @@ func (p *DynamicPolicy) reclaimedCoresWithNUMABindingHintHandler(_ context.Conte
 	return util.PackResourceHintsResponse(req, string(v1.ResourceCPU), hints)
 }
 
-func (p *DynamicPolicy) calculateHintsForNUMABindingReclaimedCores(reqFloat float64, podEntries state.PodEntries,
+func (p *DynamicPolicy) calculateHintsForNUMABindingReclaimedCores(req *pluginapi.ResourceRequest, reqFloat float64, podEntries state.PodEntries,
 	machineState state.NUMANodeMap,
 	numaHeadroomState map[int]float64,
 ) (map[string]*pluginapi.ListOfTopologyHints, error) {
@@ -411,6 +420,15 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingReclaimedCores(reqFloat floa
 	// If no valid hints are generated and this is not a single-NUMA scenario, return an error
 	if len(hints.Hints) == 0 && !(p.metaServer.NumNUMANodes == 1 && nonActualBindingNUMAs.Size() > 0) {
 		return nil, cpuutil.ErrNoAvailableCPUHints
+	}
+
+	// populate hints by already existed numa binding result
+	if p.dynamicConfig.GetDynamicConfiguration().PreferUseExistNUMAHintResult {
+		err := p.populateHintsByAlreadyExistedNUMABindingResult(req, hints)
+		if err != nil {
+			general.Warningf("populateHintsByAlreadyExistedNUMABindingResult failed with error: %v", err)
+			return nil, err
+		}
 	}
 
 	general.InfoS("calculate numa hints for reclaimed cores success",
@@ -474,10 +492,11 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingHintHandler(_ context.Context,
 			}
 			nodeID := numaSet.ToSliceInt()[0]
 			availableCPUQuantity := machineState[nodeID].GetAvailableCPUQuantity(p.reservedCPUs)
+			originRequest, _ := allocationInfo.GetPodAggregatedRequest()
 
-			general.Infof("pod: %s/%s, container: %s request cpu inplace update resize on numa %d (available: %.3f, request: %.3f)",
-				req.PodNamespace, req.PodName, req.ContainerName, nodeID, availableCPUQuantity, request)
-			if !cpuutil.CPUIsSufficient(request, availableCPUQuantity) { // no left resource to scale out
+			general.Infof("pod: %s/%s, container: %s request cpu inplace update resize on numa %d (available: %.3f, request:%.3f->%.3f)",
+				req.PodNamespace, req.PodName, req.ContainerName, nodeID, availableCPUQuantity, originRequest, request)
+			if !cpuutil.CPUIsSufficient(request, availableCPUQuantity) && request > originRequest { // scaling up and no left resource to scale out
 				general.Infof("pod: %s/%s, container: %s request cpu inplace update resize, but no enough resource for it in current NUMA, checking migratable",
 					req.PodNamespace, req.PodName, req.ContainerName)
 				// TODO move this var to config
@@ -625,10 +644,12 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(request float64,
 	}
 
 	// populate hints by already existed numa binding result
-	err = p.populateHintsByAlreadyExistedNUMABindingResult(req, hints)
-	if err != nil {
-		general.Warningf("populateHintsByAlreadyExistedNUMABindingResult failed with error: %v", err)
-		return nil, err
+	if p.dynamicConfig.GetDynamicConfiguration().PreferUseExistNUMAHintResult {
+		err = p.populateHintsByAlreadyExistedNUMABindingResult(req, hints)
+		if err != nil {
+			general.Warningf("populateHintsByAlreadyExistedNUMABindingResult failed with error: %v", err)
+			return nil, err
+		}
 	}
 
 	return map[string]*pluginapi.ListOfTopologyHints{
@@ -637,7 +658,7 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(request float64,
 }
 
 func (p *DynamicPolicy) populateHintsByAlreadyExistedNUMABindingResult(req *pluginapi.ResourceRequest, hints *pluginapi.ListOfTopologyHints) error {
-	result, err := p.getSharedCoresNUMABindingResultFromAnnotation(req)
+	result, err := p.getNUMABindingResultFromAnnotation(req)
 	if err != nil {
 		return err
 	}
@@ -663,11 +684,21 @@ func (p *DynamicPolicy) populateHintsByAlreadyExistedNUMABindingResult(req *plug
 	if index == -1 {
 		general.Warningf("failed to find already existed numa binding result %s from hints %v for pod: %s/%s, container: %s",
 			result, hints.Hints, req.PodNamespace, req.PodName, req.ContainerName)
+		_ = p.emitter.StoreInt64(util.MetricNameHintAnnotationInconsistent, 1, metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
+			"podNamespace": req.PodNamespace,
+			"podName":      req.PodName,
+		})...)
 	} else {
 		general.Infof("found already existed numa binding result %s from hints %v for pod: %s/%s, container: %s",
 			result, hints.Hints, req.PodNamespace, req.PodName, req.ContainerName)
 		for i, hint := range hints.Hints {
 			if i == index {
+				if !hint.Preferred {
+					_ = p.emitter.StoreInt64(util.MetricNameHintAnnotationMismatch, 1, metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
+						"podNamespace": req.PodNamespace,
+						"podName":      req.PodName,
+					})...)
+				}
 				hint.Preferred = true
 			} else {
 				hint.Preferred = false
@@ -678,8 +709,8 @@ func (p *DynamicPolicy) populateHintsByAlreadyExistedNUMABindingResult(req *plug
 	return nil
 }
 
-func (p *DynamicPolicy) getSharedCoresNUMABindingResultFromAnnotation(req *pluginapi.ResourceRequest) (machine.CPUSet, error) {
-	result, ok := req.Annotations[p.sharedCoresNUMABindingResultAnnotationKey]
+func (p *DynamicPolicy) getNUMABindingResultFromAnnotation(req *pluginapi.ResourceRequest) (machine.CPUSet, error) {
+	result, ok := req.Annotations[p.NUMABindingResultAnnotationKey]
 	if !ok {
 		return machine.CPUSet{}, nil
 	}

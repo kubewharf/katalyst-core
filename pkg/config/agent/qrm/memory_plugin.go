@@ -56,6 +56,8 @@ type MemoryQRMPluginConfig struct {
 	LogCacheQRMPluginConfig
 	// FragMemOptions: the configuration for memory compaction related features
 	FragMemOptions
+	// HostWatermarkQRMPluginConfig: the configuration for vm watermark related sysctls
+	HostWatermarkQRMPluginConfig
 	// ResctrlConfig: the configuration for resctrl FS related hints
 	ResctrlConfig
 }
@@ -91,6 +93,19 @@ type FragMemOptions struct {
 	// SetMemFragScoreAsync sets the threashold of frag score for async memory compaction.
 	// The async compaction behavior will be triggered while exceeding this score.
 	SetMemFragScoreAsync int
+}
+
+type HostWatermarkQRMPluginConfig struct {
+	// EnableSettingHostWatermark is used to tune vm.* watermark sysctls on host.
+	EnableSettingHostWatermark bool
+	// SetVMWatermarkScaleFactor sets /proc/sys/vm/watermark_scale_factor.
+	// The unit is per ten thousand (i.e. 10000 means 100%). 0 means do not change.
+	SetVMWatermarkScaleFactor int
+	// ReservedKswapdWatermarkGB is used to calculate watermark_scale_factor automatically.
+	// It means we want to reserve this amount of memory on a single NUMA node
+	// for kswapd asynchronous reclaim (e.g. 10GB on a 100GB NUMA -> 1000).
+	// It only takes effect when SetVMWatermarkScaleFactor is 0.
+	ReservedKswapdWatermarkGB uint64
 }
 
 type ResctrlConfig struct {

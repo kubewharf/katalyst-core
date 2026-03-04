@@ -108,7 +108,7 @@ func makeTestBasePlugin(t *testing.T) *baseplugin.BasePlugin {
 	stateImpl, err := state.NewCheckpointState(conf.StateDirectoryConfiguration, conf.QRMPluginsConfiguration, "test", "test-policy", state.NewDefaultResourceStateGeneratorRegistry(), true, metrics.DummyMetrics{})
 	assert.NoError(t, err)
 
-	basePlugin.State = stateImpl
+	basePlugin.SetState(stateImpl)
 
 	// Register gpu device type and gpu device topology provider as it is an accompany resource for rdma
 	basePlugin.RegisterDeviceNameToType([]string{"test-gpu"}, gpuconsts.GPUDeviceType)
@@ -526,13 +526,13 @@ func TestRDMADevicePlugin_AllocateAssociatedDevices(t *testing.T) {
 			devicePlugin := NewRDMADevicePlugin(basePlugin)
 
 			if tt.allocationInfo != nil {
-				basePlugin.State.SetAllocationInfo(gpuconsts.RDMADeviceType, tt.podUID, tt.containerName, tt.allocationInfo, false)
+				basePlugin.GetState().SetAllocationInfo(gpuconsts.RDMADeviceType, tt.podUID, tt.containerName, tt.allocationInfo, false)
 			}
 
 			if tt.accompanyResourceAllocationInfo != nil && tt.accompanyResourceName != "" {
-				accompanyResourceType, err := basePlugin.GetResourceTypeFromDeviceName(tt.accompanyResourceName)
-				assert.NoError(t, err)
-				basePlugin.State.SetAllocationInfo(v1.ResourceName(accompanyResourceType), tt.podUID, tt.containerName, tt.accompanyResourceAllocationInfo, false)
+				accompanyResourceType := basePlugin.ResolveResourceName(tt.accompanyResourceName, false)
+				assert.NotEmpty(t, accompanyResourceType)
+				basePlugin.GetState().SetAllocationInfo(v1.ResourceName(accompanyResourceType), tt.podUID, tt.containerName, tt.accompanyResourceAllocationInfo, false)
 			}
 
 			if tt.deviceTopology != nil {
@@ -541,14 +541,14 @@ func TestRDMADevicePlugin_AllocateAssociatedDevices(t *testing.T) {
 			}
 
 			if tt.accompanyResourceName != "" && tt.accompanyDeviceTopology != nil {
-				accompanyResourceType, err := basePlugin.GetResourceTypeFromDeviceName(tt.accompanyResourceName)
-				assert.NoError(t, err)
-				err = basePlugin.DeviceTopologyRegistry.SetDeviceTopology(accompanyResourceType, tt.accompanyDeviceTopology)
+				accompanyResourceType := basePlugin.ResolveResourceName(tt.accompanyResourceName, false)
+				assert.NotEmpty(t, accompanyResourceType)
+				err := basePlugin.DeviceTopologyRegistry.SetDeviceTopology(accompanyResourceType, tt.accompanyDeviceTopology)
 				assert.NoError(t, err)
 			}
 
 			if tt.machineState != nil {
-				basePlugin.State.SetMachineState(tt.machineState, false)
+				basePlugin.GetState().SetMachineState(tt.machineState, false)
 			}
 
 			resourceReq := &pluginapi.ResourceRequest{
@@ -564,7 +564,7 @@ func TestRDMADevicePlugin_AllocateAssociatedDevices(t *testing.T) {
 				evaluateAllocatedDevicesResult(t, tt.expectedResp, resp)
 
 				// Verify state is updated
-				allocationInfo := basePlugin.State.GetAllocationInfo(gpuconsts.RDMADeviceType, tt.podUID, tt.containerName)
+				allocationInfo := basePlugin.GetState().GetAllocationInfo(gpuconsts.RDMADeviceType, tt.podUID, tt.containerName)
 				assert.NotNil(t, allocationInfo)
 			}
 		})

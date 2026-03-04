@@ -161,3 +161,9 @@ func GetTaskSchedWait(pids []int) (map[int]uint64, error) {
 func ApplyProcInterrupts(irqNumber int, cpuset string) error {
 	return GetProcFSManager().ApplyProcInterrupts(irqNumber, cpuset)
 }
+
+// ApplyVMWatermarkScaleFactorAtPath writes vm.watermark_scale_factor to the given sysctl file path.
+// The write is best-effort idempotent: it only writes when the content changes.
+func ApplyVMWatermarkScaleFactorAtPath(path string, scaleFactor int64) error {
+	return GetProcFSManager().ApplyVMWatermarkScaleFactorAtPath(path, scaleFactor)
+}

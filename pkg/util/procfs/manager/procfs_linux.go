@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -35,6 +36,9 @@ import (
 const (
 	IrqRootPath    = "/proc/irq"
 	InterruptsFile = "/proc/interrupts"
+
+	// VMWatermarkScaleFactorPath is a procfs sysctl to configure kswapd watermark scale factor.
+	VMWatermarkScaleFactorPath = "/proc/sys/vm/watermark_scale_factor"
 )
 
 type manager struct {
@@ -194,6 +198,26 @@ func (m *manager) ApplyProcInterrupts(irqNumber int, cpuset string) error {
 		return err
 	} else if applied {
 		general.Infof("[Procfs] apply proc interrupts successfully, irq number: %v, data: %v, old data: %v\n", irqNumber, cpuset, oldData)
+	}
+
+	return nil
+}
+
+// ApplyVMWatermarkScaleFactorAtPath writes vm.watermark_scale_factor to the given sysctl file path.
+// It uses the same audit + idempotent write pattern as ApplyProcInterrupts.
+func (m *manager) ApplyVMWatermarkScaleFactorAtPath(path string, scaleFactor int64) error {
+	if path == "" {
+		return fmt.Errorf("invalid watermark_scale_factor path")
+	}
+
+	dir := filepath.Dir(path)
+	file := filepath.Base(path)
+	data := fmt.Sprintf("%d\n", scaleFactor)
+
+	if err, applied, oldData := common.InstrumentedWriteFileIfChange(dir, file, data); err != nil {
+		return err
+	} else if applied {
+		general.Infof("[Procfs] apply vm.watermark_scale_factor successfully, data: %v, old data: %v\n", strings.TrimSpace(data), oldData)
 	}
 
 	return nil

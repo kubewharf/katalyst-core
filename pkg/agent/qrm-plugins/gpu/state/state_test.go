@@ -207,7 +207,7 @@ func TestPodResourceEntries_GetTotalAllocatedResourceOfContainer(t *testing.T) {
 	}
 }
 
-func TestNewGPUPLuginCheckpoint(t *testing.T) {
+func TestNewGPUPluginCheckpoint(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

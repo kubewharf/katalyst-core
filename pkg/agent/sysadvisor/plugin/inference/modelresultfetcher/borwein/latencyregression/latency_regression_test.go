@@ -100,7 +100,7 @@ func TestGetLatencyRegressionPredictValue(t *testing.T) {
 		curTT := tt
 		t.Run(curTT.name, func(t *testing.T) {
 			t.Parallel()
-			got, _, err := GetLatencyRegressionPredictResult(curTT.args.metaReader, false, nil)
+			got, _, err := GetLatencyRegressionPredictResult(curTT.args.metaReader, borweinconsts.ModelNameBorweinLatencyRegression, false, nil)
 			if (err != nil) != curTT.wantErr {
 				t.Errorf("GetLatencyRegressionPredictResult() error = %v, wantErr %v", err, curTT.wantErr)
 				return

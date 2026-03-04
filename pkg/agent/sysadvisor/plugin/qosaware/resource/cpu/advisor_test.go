@@ -222,7 +222,7 @@ func TestAdvisorUpdate(t *testing.T) {
 				},
 			},
 			headroomPolicies: map[configapi.QoSRegionType][]types.CPUHeadroomPolicyName{
-				configapi.QoSRegionTypeDedicatedNumaExclusive: {types.CPUHeadroomPolicyNone},
+				configapi.QoSRegionTypeDedicated: {types.CPUHeadroomPolicyNone},
 			},
 			wantHeadroom:    resource.Quantity{},
 			wantHeadroomErr: false,
@@ -463,7 +463,10 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			containers: []*types.ContainerInfo{
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelDedicatedCores, commonstate.PoolNameDedicated,
-					map[string]string{consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable},
+					map[string]string{
+						consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+					},
 					map[int]machine.CPUSet{
 						0: machine.MustParse("1-23,48-71"),
 					}, 36),
@@ -482,7 +485,16 @@ func TestAdvisorUpdate(t *testing.T) {
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]types.CPUResource{
 					commonstate.PoolNameReserve: {-1: {Size: 2, Quota: -1}},
-					commonstate.PoolNameReclaim: {0: {Size: 4, Quota: -1}, -1: {Size: 47, Quota: -1}},
+					commonstate.PoolNameReclaim: {0: {Size: 0, Quota: -1}, -1: {Size: 47, Quota: -1}},
+				},
+				PoolOverlapPodContainerInfo: map[string]map[int]map[string]map[string]int{
+					commonstate.PoolNameReclaim: {
+						0: {
+							"uid1": {
+								"c1": 4,
+							},
+						},
+					},
 				},
 			},
 			wantHeadroom: *resource.NewQuantity(4, resource.DecimalSI),
@@ -561,7 +573,10 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			containers: []*types.ContainerInfo{
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelDedicatedCores, commonstate.PoolNameDedicated,
-					map[string]string{consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable},
+					map[string]string{
+						consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+					},
 					map[int]machine.CPUSet{
 						0: machine.MustParse("1-23,48-71"),
 					}, 36),
@@ -578,12 +593,21 @@ func TestAdvisorUpdate(t *testing.T) {
 			nodeEnableReclaim: true,
 			headroomAssembler: types.CPUHeadroomAssemblerDedicated,
 			headroomPolicies: map[configapi.QoSRegionType][]types.CPUHeadroomPolicyName{
-				configapi.QoSRegionTypeDedicatedNumaExclusive: {types.CPUHeadroomPolicyNonReclaim},
+				configapi.QoSRegionTypeDedicated: {types.CPUHeadroomPolicyNonReclaim},
 			},
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]types.CPUResource{
 					commonstate.PoolNameReserve: {-1: {Size: 2, Quota: -1}},
-					commonstate.PoolNameReclaim: {0: {Size: 4, Quota: -1}, -1: {Size: 47, Quota: -1}},
+					commonstate.PoolNameReclaim: {0: {Size: 0, Quota: -1}, -1: {Size: 47, Quota: -1}},
+				},
+				PoolOverlapPodContainerInfo: map[string]map[int]map[string]map[string]int{
+					commonstate.PoolNameReclaim: {
+						0: {
+							"uid1": {
+								"c1": 4,
+							},
+						},
+					},
 				},
 			},
 			wantHeadroomErr: false,
@@ -663,7 +687,10 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			containers: []*types.ContainerInfo{
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelDedicatedCores, commonstate.PoolNameDedicated,
-					map[string]string{consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable},
+					map[string]string{
+						consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+					},
 					map[int]machine.CPUSet{
 						0: machine.MustParse("1-23,48-71"),
 					}, 36),
@@ -681,13 +708,22 @@ func TestAdvisorUpdate(t *testing.T) {
 			podProfiles:       map[k8stypes.UID]spd.DummyPodServiceProfile{"uid1": {PerformanceLevel: spd.PerformanceLevelPoor, Score: 0}},
 			headroomAssembler: types.CPUHeadroomAssemblerDedicated,
 			headroomPolicies: map[configapi.QoSRegionType][]types.CPUHeadroomPolicyName{
-				configapi.QoSRegionTypeShare:                  {types.CPUHeadroomPolicyCanonical},
-				configapi.QoSRegionTypeDedicatedNumaExclusive: {types.CPUHeadroomPolicyNUMAExclusive},
+				configapi.QoSRegionTypeShare:     {types.CPUHeadroomPolicyCanonical},
+				configapi.QoSRegionTypeDedicated: {types.CPUHeadroomPolicyNUMADedicated},
 			},
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]types.CPUResource{
 					commonstate.PoolNameReserve: {-1: {Size: 2, Quota: -1}},
-					commonstate.PoolNameReclaim: {0: {Size: 2, Quota: -1}, -1: {Size: 47, Quota: -1}},
+					commonstate.PoolNameReclaim: {0: {Size: 0, Quota: -1}, -1: {Size: 47, Quota: -1}},
+				},
+				PoolOverlapPodContainerInfo: map[string]map[int]map[string]map[string]int{
+					commonstate.PoolNameReclaim: {
+						0: {
+							"uid1": {
+								"c1": 2,
+							},
+						},
+					},
 				},
 			},
 			wantHeadroom: *resource.NewQuantity(4, resource.DecimalSI),
@@ -751,7 +787,10 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			containers: []*types.ContainerInfo{
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelDedicatedCores, commonstate.PoolNameDedicated,
-					map[string]string{consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable},
+					map[string]string{
+						consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+					},
 					map[int]machine.CPUSet{
 						0: machine.MustParse("1-23,48-71"),
 					}, 36),
@@ -769,8 +808,8 @@ func TestAdvisorUpdate(t *testing.T) {
 			podProfiles:       map[k8stypes.UID]spd.DummyPodServiceProfile{"uid1": {PerformanceLevel: spd.PerformanceLevelPerfect, Score: 50}},
 			headroomAssembler: types.CPUHeadroomAssemblerDedicated,
 			headroomPolicies: map[configapi.QoSRegionType][]types.CPUHeadroomPolicyName{
-				configapi.QoSRegionTypeShare:                  {types.CPUHeadroomPolicyCanonical},
-				configapi.QoSRegionTypeDedicatedNumaExclusive: {types.CPUHeadroomPolicyNUMAExclusive},
+				configapi.QoSRegionTypeShare:     {types.CPUHeadroomPolicyCanonical},
+				configapi.QoSRegionTypeDedicated: {types.CPUHeadroomPolicyNUMADedicated},
 			},
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]types.CPUResource{
@@ -778,8 +817,17 @@ func TestAdvisorUpdate(t *testing.T) {
 						-1: {Size: 2, Quota: -1},
 					},
 					commonstate.PoolNameReclaim: {
-						0:  {Size: 4, Quota: -1},
+						0:  {Size: 0, Quota: -1},
 						-1: {Size: 47, Quota: -1},
+					},
+				},
+				PoolOverlapPodContainerInfo: map[string]map[int]map[string]map[string]int{
+					commonstate.PoolNameReclaim: {
+						0: {
+							"uid1": {
+								"c1": 4,
+							},
+						},
 					},
 				},
 			},
@@ -850,7 +898,10 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			containers: []*types.ContainerInfo{
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelDedicatedCores, commonstate.PoolNameDedicated,
-					map[string]string{consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable},
+					map[string]string{
+						consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+					},
 					map[int]machine.CPUSet{
 						0: machine.MustParse("1-18,48-65"),
 					}, 36),
@@ -885,8 +936,17 @@ func TestAdvisorUpdate(t *testing.T) {
 						-1: {Size: 6, Quota: -1},
 					},
 					commonstate.PoolNameReclaim: {
-						0:  {Size: 4, Quota: -1},
+						0:  {Size: 0, Quota: -1},
 						-1: {Size: 41, Quota: -1},
+					},
+				},
+				PoolOverlapPodContainerInfo: map[string]map[int]map[string]map[string]int{
+					commonstate.PoolNameReclaim: {
+						0: {
+							"uid1": {
+								"c1": 4,
+							},
+						},
 					},
 				},
 			},
@@ -957,7 +1017,10 @@ func TestAdvisorUpdate(t *testing.T) {
 			},
 			containers: []*types.ContainerInfo{
 				makeContainerInfo("uid1", "default", "pod1", "c1", consts.PodAnnotationQoSLevelDedicatedCores, commonstate.PoolNameDedicated,
-					map[string]string{consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable},
+					map[string]string{
+						consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+						consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+					},
 					map[int]machine.CPUSet{
 						0: machine.MustParse("1-23,48-71"),
 					}, 36),
@@ -992,8 +1055,17 @@ func TestAdvisorUpdate(t *testing.T) {
 						-1: {Size: 45, Quota: -1},
 					},
 					commonstate.PoolNameReclaim: {
-						0:  {Size: 2, Quota: -1},
+						0:  {Size: 0, Quota: -1},
 						-1: {Size: 2, Quota: -1},
+					},
+				},
+				PoolOverlapPodContainerInfo: map[string]map[int]map[string]map[string]int{
+					commonstate.PoolNameReclaim: {
+						0: {
+							"uid1": {
+								"c1": 2,
+							},
+						},
 					},
 				},
 			},
@@ -1400,7 +1472,7 @@ func TestAdvisorUpdate(t *testing.T) {
 						Target: 400,
 					},
 				},
-				configapi.QoSRegionTypeDedicatedNumaExclusive: {
+				configapi.QoSRegionTypeDedicated: {
 					{
 						Name:   workloadapis.ServiceSystemIndicatorNameCPI,
 						Target: 1.4,
@@ -1515,20 +1587,20 @@ func TestGetIsolatedContainerRegions(t *testing.T) {
 
 	r1 := &region.QoSRegionShare{
 		QoSRegionBase: region.NewQoSRegionBase("r1", "", configapi.QoSRegionTypeIsolation,
-			conf, struct{}{}, false, nil, nil, nil),
+			conf, struct{}{}, false, false, nil, nil, nil),
 	}
 	_ = r1.AddContainer(c1_1)
 	_ = r1.AddContainer(c1_2)
 
 	r2 := &region.QoSRegionShare{
 		QoSRegionBase: region.NewQoSRegionBase("r2", "", configapi.QoSRegionTypeShare,
-			conf, struct{}{}, false, nil, nil, nil),
+			conf, struct{}{}, false, false, nil, nil, nil),
 	}
 	_ = r2.AddContainer(c2)
 
 	r3 := &region.QoSRegionShare{
-		QoSRegionBase: region.NewQoSRegionBase("r3", "", configapi.QoSRegionTypeDedicatedNumaExclusive,
-			conf, struct{}{}, false, nil, nil, nil),
+		QoSRegionBase: region.NewQoSRegionBase("r3", "", configapi.QoSRegionTypeDedicated,
+			conf, struct{}{}, false, true, nil, nil, nil),
 	}
 	_ = r3.AddContainer(c3_1)
 	_ = r3.AddContainer(c3_2)

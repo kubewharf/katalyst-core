@@ -22,7 +22,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
+	"k8s.io/utils/ptr"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
@@ -30,7 +32,11 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/finegrainedresource"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -349,6 +355,261 @@ func TestPackAllocationResponse(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("PackAllocationResponse() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetPodCPUBurstPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		pod            *v1.Pod
+		qosConfig      *generic.QoSConfiguration
+		adminQoSConfig *adminqos.AdminQoSConfiguration
+		wantPolicy     string
+		wantErr        bool
+	}{
+		{
+			name:      "test GetPodCPUBurstPolicy with nil pod",
+			pod:       nil,
+			qosConfig: generic.NewQoSConfiguration(),
+			adminQoSConfig: &adminqos.AdminQoSConfiguration{
+				FineGrainedResourceConfiguration: &finegrainedresource.FineGrainedResourceConfiguration{
+					CPUBurstConfiguration: &finegrainedresource.CPUBurstConfiguration{
+						EnableDedicatedCoresDefaultCPUBurst: ptr.To(false),
+						DefaultCPUBurstPercent:              100,
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "test GetPodCPUBurstPolicy with nil qosConfig",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test",
+					Namespace: "test",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+					},
+				},
+			},
+			qosConfig: nil,
+			adminQoSConfig: &adminqos.AdminQoSConfiguration{
+				FineGrainedResourceConfiguration: &finegrainedresource.FineGrainedResourceConfiguration{
+					CPUBurstConfiguration: &finegrainedresource.CPUBurstConfiguration{
+						EnableDedicatedCoresDefaultCPUBurst: ptr.To(false),
+						DefaultCPUBurstPercent:              100,
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "test GetPodCPUBurstPolicy for shared pod with static policy",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test",
+					Namespace: "test",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey:       consts.PodAnnotationQoSLevelSharedCores,
+						consts.PodAnnotationCPUEnhancementKey: `{"cpu_burst_policy":"static"}`,
+					},
+				},
+			},
+			qosConfig:  generic.NewQoSConfiguration(),
+			wantPolicy: consts.PodAnnotationCPUEnhancementCPUBurstPolicyStatic,
+		},
+		{
+			name: "test GetPodCPUBurstPolicy for shared pod with closed policy",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test",
+					Namespace: "test",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey:       consts.PodAnnotationQoSLevelSharedCores,
+						consts.PodAnnotationCPUEnhancementKey: `{"cpu_burst_policy":"closed"}`,
+					},
+				},
+			},
+			qosConfig:  generic.NewQoSConfiguration(),
+			wantPolicy: consts.PodAnnotationCPUEnhancementCPUBurstPolicyClosed,
+		},
+		{
+			name: "test GetPodCPUBurstPolicy for shared pod with no policy",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test",
+					Namespace: "test",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
+				},
+			},
+			qosConfig:  generic.NewQoSConfiguration(),
+			wantPolicy: consts.PodAnnotationCPUEnhancementCPUBurstPolicyDefault,
+		},
+		{
+			name: "test GetPodCPUBurstPolicy for dedicated pod with no policy but aqc enabled returns static",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test",
+					Namespace: "test",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+					},
+				},
+			},
+			qosConfig: generic.NewQoSConfiguration(),
+			adminQoSConfig: &adminqos.AdminQoSConfiguration{
+				FineGrainedResourceConfiguration: &finegrainedresource.FineGrainedResourceConfiguration{
+					CPUBurstConfiguration: &finegrainedresource.CPUBurstConfiguration{
+						EnableDedicatedCoresDefaultCPUBurst: ptr.To(true),
+						DefaultCPUBurstPercent:              100,
+					},
+				},
+			},
+			wantPolicy: consts.PodAnnotationCPUEnhancementCPUBurstPolicyStatic,
+		},
+		{
+			name: "test GetPodCPUBurstPolicy for dedicated pod with no policy but aqc disabled returns closed",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test",
+					Namespace: "test",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+					},
+				},
+			},
+			qosConfig: generic.NewQoSConfiguration(),
+			adminQoSConfig: &adminqos.AdminQoSConfiguration{
+				FineGrainedResourceConfiguration: &finegrainedresource.FineGrainedResourceConfiguration{
+					CPUBurstConfiguration: &finegrainedresource.CPUBurstConfiguration{
+						EnableDedicatedCoresDefaultCPUBurst: ptr.To(false),
+						DefaultCPUBurstPercent:              100,
+					},
+				},
+			},
+			wantPolicy: consts.PodAnnotationCPUEnhancementCPUBurstPolicyClosed,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dynamicConfig := dynamic.NewDynamicAgentConfiguration()
+			if tt.adminQoSConfig != nil {
+				dynamicConfig.SetDynamicConfiguration(&dynamic.Configuration{
+					AdminQoSConfiguration: tt.adminQoSConfig,
+				})
+			}
+
+			gotPolicy, err := GetPodCPUBurstPolicy(tt.qosConfig, tt.pod, dynamicConfig)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.wantPolicy, gotPolicy)
+			}
+		})
+	}
+}
+
+func TestGetPodCPUBurstPercent(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		pod            *v1.Pod
+		qosConfig      *generic.QoSConfiguration
+		adminQoSConfig *adminqos.AdminQoSConfiguration
+		wantPercent    float64
+		wantErr        bool
+	}{
+		{
+			name: "test GetPodCPUBurstPercent with nil qosConfig",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test",
+					Namespace: "test",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
+				},
+			},
+			qosConfig: nil,
+			wantErr:   true,
+		},
+		{
+			name:      "test GetPodCPUBurstPercent with nil pod",
+			pod:       nil,
+			qosConfig: generic.NewQoSConfiguration(),
+			wantErr:   true,
+		},
+		{
+			name: "test GetPodCPUBurstPercent for pod from cpu enhancement",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test",
+					Namespace: "test",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey:       consts.PodAnnotationQoSLevelSharedCores,
+						consts.PodAnnotationCPUEnhancementKey: `{"cpu_burst_percent":"100""}`,
+					},
+				},
+			},
+			qosConfig:   generic.NewQoSConfiguration(),
+			wantPercent: 100,
+		},
+		{
+			name: "test GetPodCPUBurstPercent for pod from dynamic config",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test",
+					Namespace: "test",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
+				},
+			},
+			qosConfig: generic.NewQoSConfiguration(),
+			adminQoSConfig: &adminqos.AdminQoSConfiguration{
+				FineGrainedResourceConfiguration: &finegrainedresource.FineGrainedResourceConfiguration{
+					CPUBurstConfiguration: &finegrainedresource.CPUBurstConfiguration{
+						EnableDedicatedCoresDefaultCPUBurst: ptr.To(false),
+						DefaultCPUBurstPercent:              80,
+					},
+				},
+			},
+			wantPercent: 80,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dynamicConfig := dynamic.NewDynamicAgentConfiguration()
+			if tt.adminQoSConfig != nil {
+				dynamicConfig.SetDynamicConfiguration(&dynamic.Configuration{
+					AdminQoSConfiguration: tt.adminQoSConfig,
+				})
+			}
+
+			gotPercent, err := GetPodCPUBurstPercent(tt.qosConfig, tt.pod, dynamicConfig)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.wantPercent, gotPercent)
 			}
 		})
 	}

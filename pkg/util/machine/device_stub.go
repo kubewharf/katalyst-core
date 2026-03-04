@@ -41,3 +41,61 @@ func (d *deviceTopologyProviderStub) GetDeviceTopology() (*DeviceTopology, bool,
 
 	return d.deviceTopology, true, nil
 }
+
+type deviceAffinityProviderStub struct {
+	mutex     sync.Mutex
+	setCalled bool
+	// changeCh is a channel that mocks the behavior of detecting
+	changeCh chan struct{}
+
+	// isChanNil is used to determine if the channel returned by WatchTopologyChanged is nil.
+	isChanNil bool
+}
+
+func newAffinityProviderStub(isChanNil bool) DeviceAffinityProvider {
+	return &deviceAffinityProviderStub{
+		changeCh:  make(chan struct{}, 1),
+		isChanNil: isChanNil,
+	}
+}
+
+func (d *deviceAffinityProviderStub) SetDeviceAffinity(topology *DeviceTopology) {
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+	d.setCalled = true
+}
+
+func (d *deviceAffinityProviderStub) WatchTopologyChanged(stopCh <-chan struct{}) <-chan struct{} {
+	if d.isChanNil {
+		return nil
+	}
+	changeCh := make(chan struct{}, 1)
+
+	go func() {
+		defer close(changeCh)
+		for {
+			select {
+			case <-stopCh:
+				return
+			case <-d.changeCh:
+				// Non-blocking send to avoid goroutine leak if nobody is reading
+				select {
+				case changeCh <- struct{}{}:
+				default:
+				}
+			}
+		}
+	}()
+
+	return changeCh
+}
+
+func (d *deviceAffinityProviderStub) TriggerChange() {
+	d.changeCh <- struct{}{}
+}
+
+func (d *deviceAffinityProviderStub) WasSetCalled() bool {
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+	return d.setCalled
+}

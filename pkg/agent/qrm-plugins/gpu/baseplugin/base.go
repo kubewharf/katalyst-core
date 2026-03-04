@@ -21,10 +21,8 @@ import (
 	"sync"
 
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
-	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/baseplugin/reporter"
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
@@ -43,9 +41,9 @@ const (
 
 // BasePlugin is a shared plugin that provides common functionalities and fields for GPU resource plugins and custom device plugins.
 type BasePlugin struct {
-	skeleton.GenericPlugin
-	mu   sync.RWMutex
-	Conf *config.Configuration
+	reporter reporter.GPUReporter
+	mu       sync.RWMutex
+	Conf     *config.Configuration
 
 	Emitter    metrics.MetricEmitter
 	MetaServer *metaserver.MetaServer
@@ -54,8 +52,7 @@ type BasePlugin struct {
 	PodAnnotationKeptKeys []string
 	PodLabelKeptKeys      []string
 
-	// Map of checkpoints for each sub-plugin
-	State state.State
+	state state.State
 	// Registry of device topology providers
 	DeviceTopologyRegistry *machine.DeviceTopologyRegistry
 
@@ -71,14 +68,14 @@ func NewBasePlugin(
 ) (*BasePlugin, error) {
 	deviceTopologyRegistry := machine.NewDeviceTopologyRegistry()
 
-	gpuReporter, _, err := reporter.NewGPUReporterPlugin(wrappedEmitter, agentCtx.MetaServer, conf, deviceTopologyRegistry)
+	gpuReporter, err := reporter.NewGPUReporter(wrappedEmitter, agentCtx.MetaServer, conf, deviceTopologyRegistry)
 	if err != nil {
-		return nil, fmt.Errorf("NewGPUReporterPlugin failed with error: %v", err)
+		return nil, fmt.Errorf("newGPUReporterPlugin failed with error: %v", err)
 	}
 
 	return &BasePlugin{
-		Conf:          conf,
-		GenericPlugin: gpuReporter,
+		Conf:     conf,
+		reporter: gpuReporter,
 
 		Emitter:    wrappedEmitter,
 		MetaServer: agentCtx.MetaServer,
@@ -94,21 +91,25 @@ func NewBasePlugin(
 	}, nil
 }
 
-// Run starts the gpu reporter plugin.
+// Run starts the asynchronous tasks of the plugin
 func (p *BasePlugin) Run(stopCh <-chan struct{}) {
-	if err := p.Start(); err != nil {
-		klog.Errorf("[gpu-reporter] failed to start with error: %v", err)
-		return
-	}
-	klog.Infof("[gpu-reporter] plugin wrapper %s started", p.Name())
+	go p.reporter.Run(stopCh)
+	go p.DeviceTopologyRegistry.Run(stopCh)
+}
 
-	defer func() {
-		if err := p.Stop(); err != nil {
-			klog.Errorf("[gpu-reporter] stop %v failed with error: %v", p.Name(), err)
-		}
-	}()
+// GetState may return a nil state because the state is only initialized when InitState is called.
+func (p *BasePlugin) GetState() state.State {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 
-	<-stopCh
+	return p.state
+}
+
+// SetState sets the state only for unit testing purposes.
+func (p *BasePlugin) SetState(s state.State) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.state = s
 }
 
 // InitState initializes the state of the plugin.
@@ -119,7 +120,9 @@ func (p *BasePlugin) InitState() error {
 		return fmt.Errorf("NewCheckpointState failed with error: %v", err)
 	}
 
-	p.State = stateImpl
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.state = stateImpl
 	return nil
 }
 
@@ -211,7 +214,7 @@ func (p *BasePlugin) GenerateResourceStateFromPodEntries(
 	podEntries state.PodEntries,
 ) (state.AllocationMap, error) {
 	if podEntries == nil {
-		podEntries = p.State.GetPodEntries(v1.ResourceName(resourceName))
+		podEntries = p.state.GetPodEntries(v1.ResourceName(resourceName))
 	}
 
 	generator, ok := p.DefaultResourceStateGeneratorRegistry.GetGenerator(resourceName)
@@ -229,7 +232,7 @@ func (p *BasePlugin) GenerateMachineStateFromPodEntries(
 }
 
 // RegisterDeviceNameToType is used to map device name to device type.
-// For example, we may have multiple device names for a same device type, e.g. "nvidia.com/gpu" and "nvidia.com/be-gpu",
+// For example, we may have multiple device names for a same device type, e.g. "nvidia.com/gpu" and "hw.com/npu",
 // so we map them to the same device type, which allows us to allocate them interchangeably.
 func (p *BasePlugin) RegisterDeviceNameToType(resourceNames []string, deviceType string) {
 	for _, resourceName := range resourceNames {
@@ -237,15 +240,23 @@ func (p *BasePlugin) RegisterDeviceNameToType(resourceNames []string, deviceType
 	}
 }
 
-func (p *BasePlugin) GetResourceTypeFromDeviceName(deviceName string) (string, error) {
-	deviceType, ok := p.deviceNameToTypeMap[deviceName]
-	if !ok {
-		return "", fmt.Errorf("no device type found for device name %s", deviceName)
+// ResolveResourceName takes in a resourceName and tries to find a mapping of resource type from deviceNameToTypeMap.
+// If no mapping is found, resourceName is returned if fallback is true. If fallback is false, an empty string is returned.
+func (p *BasePlugin) ResolveResourceName(resourceName string, fallback bool) string {
+	resourceType, ok := p.deviceNameToTypeMap[resourceName]
+	if ok {
+		return resourceType
 	}
-	return deviceType, nil
+	general.Infof("no device type found for resource %s", resourceName)
+	if fallback {
+		return resourceName
+	}
+	return ""
 }
 
 // RegisterTopologyAffinityProvider is a hook to set device affinity for a certain device type
-func (p *BasePlugin) RegisterTopologyAffinityProvider(deviceType string, deviceAffinityProvider machine.DeviceAffinityProvider) {
+func (p *BasePlugin) RegisterTopologyAffinityProvider(
+	deviceType string, deviceAffinityProvider machine.DeviceAffinityProvider,
+) {
 	p.DeviceTopologyRegistry.RegisterTopologyAffinityProvider(deviceType, deviceAffinityProvider)
 }

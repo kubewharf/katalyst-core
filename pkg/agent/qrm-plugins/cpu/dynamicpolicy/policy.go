@@ -72,10 +72,11 @@ const (
 
 	reservedReclaimedCPUsSize = 4
 
-	cpusetCheckPeriod = 10 * time.Second
-	stateCheckPeriod  = 30 * time.Second
-	maxResidualTime   = 5 * time.Minute
-	syncCPUIdlePeriod = 30 * time.Second
+	cpusetCheckPeriod  = 10 * time.Second
+	stateCheckPeriod   = 30 * time.Second
+	maxResidualTime    = 5 * time.Minute
+	syncCPUIdlePeriod  = 30 * time.Second
+	syncCPUBurstPeriod = 10 * time.Second
 
 	healthCheckTolerationTimes = 3
 )
@@ -124,6 +125,7 @@ type DynamicPolicy struct {
 	enableSNBHighNumaPreference               bool
 	enableCPUIdle                             bool
 	enableSyncingCPUIdle                      bool
+	enableCPUBurst                            bool
 	reclaimRelativeRootCgroupPath             string
 	numaBindingReclaimRelativeRootCgroupPaths map[int]string
 	qosConfig                                 *generic.QoSConfiguration
@@ -132,7 +134,7 @@ type DynamicPolicy struct {
 	podDebugAnnoKeys                          []string
 	podAnnotationKeptKeys                     []string
 	podLabelKeptKeys                          []string
-	sharedCoresNUMABindingResultAnnotationKey string
+	NUMABindingResultAnnotationKey            string
 	transitionPeriod                          time.Duration
 
 	reservedReclaimedCPUsSize                 int
@@ -210,17 +212,18 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		getAdviceInterval:             conf.CPUQRMPluginConfig.GetAdviceInterval,
 		reservedCPUs:                  reservedCPUs,
 		extraStateFileAbsPath:         conf.ExtraStateFileAbsPath,
+		enableCPUBurst:                conf.CPUQRMPluginConfig.EnableCPUBurst,
 		enableSyncingCPUIdle:          conf.CPUQRMPluginConfig.EnableSyncingCPUIdle,
 		enableCPUIdle:                 conf.CPUQRMPluginConfig.EnableCPUIdle,
 		reclaimRelativeRootCgroupPath: conf.ReclaimRelativeRootCgroupPath,
 		numaBindingReclaimRelativeRootCgroupPaths: common.GetNUMABindingReclaimRelativeRootCgroupPaths(conf.ReclaimRelativeRootCgroupPath,
 			agentCtx.CPUDetails.NUMANodes().ToSliceNoSortInt()),
-		podDebugAnnoKeys:                          conf.PodDebugAnnoKeys,
-		podAnnotationKeptKeys:                     conf.PodAnnotationKeptKeys,
-		podLabelKeptKeys:                          conf.PodLabelKeptKeys,
-		sharedCoresNUMABindingResultAnnotationKey: conf.SharedCoresNUMABindingResultAnnotationKey,
-		transitionPeriod:                          30 * time.Second,
-		reservedReclaimedCPUsSize:                 general.Max(reservedReclaimedCPUsSize, agentCtx.KatalystMachineInfo.NumNUMANodes),
+		podDebugAnnoKeys:               conf.PodDebugAnnoKeys,
+		podAnnotationKeptKeys:          conf.PodAnnotationKeptKeys,
+		podLabelKeptKeys:               conf.PodLabelKeptKeys,
+		NUMABindingResultAnnotationKey: conf.NUMABindingResultAnnotationKey,
+		transitionPeriod:               30 * time.Second,
+		reservedReclaimedCPUsSize:      general.Max(reservedReclaimedCPUsSize, agentCtx.KatalystMachineInfo.NumNUMANodes),
 	}
 
 	// initialize hint optimizer
@@ -359,6 +362,17 @@ func (p *DynamicPolicy) Start() (err error) {
 			qrm.QRMCPUPluginPeriodicalHandlerGroupName, p.syncCPUIdle, syncCPUIdlePeriod, healthCheckTolerationTimes)
 		if err != nil {
 			general.Errorf("start %v failed,err:%v", cpuconsts.SyncCPUIdle, err)
+		}
+	}
+
+	// start cpu burst sync if needed
+	if p.enableCPUBurst {
+		general.Infof("cpu burst is enabled")
+
+		err = periodicalhandler.RegisterPeriodicalHandlerWithHealthz(cpuconsts.SyncCPUBurst, general.HealthzCheckStateNotReady,
+			qrm.QRMCPUPluginPeriodicalHandlerGroupName, p.syncCPUBurst, syncCPUBurstPeriod, healthCheckTolerationTimes)
+		if err != nil {
+			general.Errorf("start %v failed,err:%v", cpuconsts.SyncCPUBurst, err)
 		}
 	}
 

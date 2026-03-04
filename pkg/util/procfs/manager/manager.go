@@ -52,6 +52,7 @@ type ProcFSManager interface {
 	GetSchedStat() (*procfs.Schedstat, error)
 
 	ApplyProcInterrupts(irqNumber int, cpuset string) error
+	ApplyVMWatermarkScaleFactorAtPath(path string, scaleFactor int64) error
 }
 
 // GetProcFSManager returns the singleton ProcFSManager.
