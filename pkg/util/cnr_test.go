@@ -1722,3 +1722,68 @@ func TestMergeTopologyZone(t *testing.T) {
 		})
 	}
 }
+
+func TestAttributesToStringMap(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		attrs []nodeapis.Attribute
+	}
+	tests := []struct {
+		name string
+		args args
+		want map[string]string
+	}{
+		{
+			name: "nil input",
+			args: args{
+				attrs: nil,
+			},
+			want: map[string]string{},
+		},
+		{
+			name: "empty input",
+			args: args{
+				attrs: []nodeapis.Attribute{},
+			},
+			want: map[string]string{},
+		},
+		{
+			name: "single attribute",
+			args: args{
+				attrs: []nodeapis.Attribute{
+					{Name: "key1", Value: "val1"},
+				},
+			},
+			want: map[string]string{"key1": "val1"},
+		},
+		{
+			name: "multiple attributes",
+			args: args{
+				attrs: []nodeapis.Attribute{
+					{Name: "key1", Value: "val1"},
+					{Name: "key2", Value: "val2"},
+				},
+			},
+			want: map[string]string{"key1": "val1", "key2": "val2"},
+		},
+		{
+			name: "duplicate attributes (last one wins)",
+			args: args{
+				attrs: []nodeapis.Attribute{
+					{Name: "key1", Value: "val1"},
+					{Name: "key1", Value: "val2"},
+				},
+			},
+			want: map[string]string{"key1": "val2"},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := AttributesToStringMap(tt.args.attrs)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
