@@ -671,6 +671,24 @@ func (m *MalachiteMetricsProvisioner) processSystemExtFragData(systemMemoryData 
 	for _, numa := range systemMemoryData.ExtFrag {
 		m.metricStore.SetNumaMetric(numa.ID, consts.MetricMemFragScoreNuma,
 			utilmetric.MetricData{Value: float64(numa.MemFragScore), Time: &updateTime})
+
+		// Derive high-order extfrag score (order 9~10) for THP tuning.
+		// Only set this metric when all required orders are present.
+		var score9, score10 *uint64
+		for _, s := range numa.MemOrderScores {
+			switch s.Order {
+			case 9:
+				v := s.Score
+				score9 = &v
+			case 10:
+				v := s.Score
+				score10 = &v
+			}
+		}
+		if score9 != nil && score10 != nil {
+			m.metricStore.SetNumaMetric(numa.ID, consts.MetricMemFragHighOrderScoreNuma,
+				utilmetric.MetricData{Value: (float64(*score9) + float64(*score10)) / 2.0, Time: &updateTime})
+		}
 	}
 }
 

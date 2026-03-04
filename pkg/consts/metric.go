@@ -184,6 +184,9 @@ const (
 	MetricMemLatencyWriteNuma     = "mem.latency.write.numa"
 	MetricMemAMDL3MissLatencyNuma = "mem.latency.amd.l3.miss"
 	MetricMemFragScoreNuma        = "mem.frag.score.numa"
+	// MetricMemFragHighOrderScoreNuma is a derived metric from Malachite system/memory extfrag.mem_order_scores.
+	// It represents the average score of high orders (currently fixed to order 9~10).
+	MetricMemFragHighOrderScoreNuma = "mem.frag.high_order_score.numa"
 
 	MetricCPUUsageNuma          = "cpu.usage.numa"
 	MetricCPUUsageNumaAvg       = "cpu.usage.numa.avg"

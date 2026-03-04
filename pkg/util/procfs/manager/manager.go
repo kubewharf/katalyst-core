@@ -53,6 +53,7 @@ type ProcFSManager interface {
 
 	ApplyProcInterrupts(irqNumber int, cpuset string) error
 	ApplyVMWatermarkScaleFactorAtPath(path string, scaleFactor int64) error
+	ApplyTransparentHugepageEnabledAtPath(path, mode string) error
 }
 
 // GetProcFSManager returns the singleton ProcFSManager.

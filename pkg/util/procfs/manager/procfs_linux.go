@@ -39,6 +39,9 @@ const (
 
 	// VMWatermarkScaleFactorPath is a procfs sysctl to configure kswapd watermark scale factor.
 	VMWatermarkScaleFactorPath = "/proc/sys/vm/watermark_scale_factor"
+
+	// TransparentHugepageEnabledPath is a kernel sysfs interface to configure THP behavior.
+	TransparentHugepageEnabledPath = "/sys/kernel/mm/transparent_hugepage/enabled"
 )
 
 type manager struct {
@@ -218,6 +221,28 @@ func (m *manager) ApplyVMWatermarkScaleFactorAtPath(path string, scaleFactor int
 		return err
 	} else if applied {
 		general.Infof("[Procfs] apply vm.watermark_scale_factor successfully, data: %v, old data: %v\n", strings.TrimSpace(data), oldData)
+	}
+
+	return nil
+}
+
+// ApplyTransparentHugepageEnabledAtPath writes THP mode to the given sysfs path.
+// The kernel interface expects a simple string like "madvise", "always" or "never".
+func (m *manager) ApplyTransparentHugepageEnabledAtPath(path, mode string) error {
+	mode = strings.TrimSpace(mode)
+	if mode == "" {
+		return fmt.Errorf("empty THP mode")
+	}
+	if strings.TrimSpace(path) == "" {
+		return fmt.Errorf("empty THP enabled path")
+	}
+
+	dir := filepath.Dir(path)
+	file := filepath.Base(path)
+	if err, applied, oldData := common.InstrumentedWriteFileIfChange(dir, file, mode+"\n"); err != nil {
+		return err
+	} else if applied {
+		general.Infof("[Procfs] apply THP enabled successfully, path: %s, data: %v, old data: %v\n", path, mode, oldData)
 	}
 
 	return nil
