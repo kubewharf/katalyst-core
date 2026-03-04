@@ -281,7 +281,9 @@ func PopulateHintsByAvailableNUMANodes(
 }
 
 // GetPodCPUBurstPolicy gets the cpu burst policy of a given pod.
-func GetPodCPUBurstPolicy(qosConf *generic.QoSConfiguration, pod *v1.Pod, dynamicConfig *dynamic.DynamicAgentConfiguration) (string, error) {
+func GetPodCPUBurstPolicy(qosConf *generic.QoSConfiguration, pod *v1.Pod, dynamicConfig *dynamic.DynamicAgentConfiguration,
+	isSoleSharedCoresPod bool,
+) (string, error) {
 	if pod == nil {
 		return "", fmt.Errorf("got nil pod")
 	}
@@ -295,15 +297,17 @@ func GetPodCPUBurstPolicy(qosConf *generic.QoSConfiguration, pod *v1.Pod, dynami
 	// We may override cpu burst policy of dedicated cores pods with default values in dynamic config.
 	qosLevel, _ := qosConf.GetQoSLevel(pod, map[string]string{})
 	if qosLevel == consts.PodAnnotationQoSLevelDedicatedCores {
-		cpuBurstPolicy = getOverriddenPodBurstPolicy(dynamicConfig, cpuBurstPolicy)
+		cpuBurstPolicy = getOverriddenDedicatedCoresPodBurstPolicy(dynamicConfig, cpuBurstPolicy)
+	} else if qosLevel == consts.PodAnnotationQoSLevelSharedCores {
+		cpuBurstPolicy = getOverriddenSharedCoresPodBurstPolicy(dynamicConfig, cpuBurstPolicy, isSoleSharedCoresPod)
 	}
 
 	return cpuBurstPolicy, nil
 }
 
-// getOverriddenPodBurstPolicy returns the cpu burst policy for a given pod by checking with dynamic config.
-// Only pods with cpu burst policy none from their annotations will be overridden.
-func getOverriddenPodBurstPolicy(dynamicConfig *dynamic.DynamicAgentConfiguration, originalBurstPolicy string) string {
+// getOverriddenDedicatedCoresPodBurstPolicy returns the cpu burst policy for a given dedicated cores pod by checking with
+// dynamic config. Only pods with cpu burst policy default from their annotations will be overridden.
+func getOverriddenDedicatedCoresPodBurstPolicy(dynamicConfig *dynamic.DynamicAgentConfiguration, originalBurstPolicy string) string {
 	// return original burst policy if it is not default
 	if originalBurstPolicy != consts.PodAnnotationCPUEnhancementCPUBurstPolicyDefault {
 		return originalBurstPolicy
@@ -314,6 +318,30 @@ func getOverriddenPodBurstPolicy(dynamicConfig *dynamic.DynamicAgentConfiguratio
 			return consts.PodAnnotationCPUEnhancementCPUBurstPolicyStatic
 		} else {
 			// If EnableDedicatedCoresDefaultCPUBurst is explicitly false, we will close the cpu burst policy.
+			return consts.PodAnnotationCPUEnhancementCPUBurstPolicyClosed
+		}
+	}
+
+	return consts.PodAnnotationCPUEnhancementCPUBurstPolicyDefault
+}
+
+// getOverriddenSharedCoresPodBurstPolicy returns the cpu burst policy for a given shared cores pod by checking with
+// dynamic config. Pods will have overridden annotations if
+// 1. It is the only shared cores pod in the node.
+// 2. It has cpu burst policy default from their annotations.
+func getOverriddenSharedCoresPodBurstPolicy(dynamicConfig *dynamic.DynamicAgentConfiguration, originalBurstPolicy string,
+	isSoleSharedCoresPod bool,
+) string {
+	// return original burst policy if it is not default
+	if originalBurstPolicy != consts.PodAnnotationCPUEnhancementCPUBurstPolicyDefault {
+		return originalBurstPolicy
+	}
+
+	if dynamicConfig != nil && dynamicConfig.GetDynamicConfiguration().EnableSharedCoresDefaultCPUBurst != nil {
+		if *dynamicConfig.GetDynamicConfiguration().EnableSharedCoresDefaultCPUBurst && isSoleSharedCoresPod {
+			return consts.PodAnnotationCPUEnhancementCPUBurstPolicyStatic
+		} else {
+			// If EnableSharedCoresDefaultCPUBurst is explicitly false, we will close the cpu burst policy.
 			return consts.PodAnnotationCPUEnhancementCPUBurstPolicyClosed
 		}
 	}
@@ -353,4 +381,23 @@ func getDefaultCPUBurstPercent(dynamicConfig *dynamic.DynamicAgentConfiguration)
 
 func CalculateCPUBurstFromPercent(percent float64, cpuQuota int64) uint64 {
 	return uint64(float64(cpuQuota) * percent / 100)
+}
+
+// IsSoleSharedCoresPod returns true if there is only one shared cores pod in the node.
+func IsSoleSharedCoresPod(qosConfig *generic.QoSConfiguration, podList []*v1.Pod, dynamicConfig *dynamic.DynamicAgentConfiguration) bool {
+	if dynamicConfig != nil && dynamicConfig.GetDynamicConfiguration().EnableSharedCoresDefaultCPUBurst != nil {
+		if *dynamicConfig.GetDynamicConfiguration().EnableSharedCoresDefaultCPUBurst {
+			// only calculate number of shared cores pods if EnableSharedCoresDefaultCPUBurst is explicitly enabled.
+			numSharedCoresPods := 0
+			for _, pod := range podList {
+				qosLevel, _ := qosConfig.GetQoSLevel(pod, map[string]string{})
+				if qosLevel == consts.PodAnnotationQoSLevelSharedCores {
+					numSharedCoresPods++
+				}
+			}
+			return numSharedCoresPods == 1
+		}
+	}
+
+	return false
 }
