@@ -19,6 +19,8 @@ package qrm
 import (
 	"time"
 
+	"k8s.io/apimachinery/pkg/labels"
+
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/hintoptimizer"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/irqtuner"
 )
@@ -69,6 +71,9 @@ type CPUDynamicPolicyConfig struct {
 	EnableDefaultDedicatedCoresCPUBurst bool
 	// EnableDefaultSharedCoresCPUBurst indicates whether to enable cpu burst for shared cores by default
 	EnableDefaultSharedCoresCPUBurst bool
+	// IRQForbiddenPinnedResourcePackageAttributeSelector is the selector to filter pinned resource packages that are
+	// forbidden for irq binding.
+	IRQForbiddenPinnedResourcePackageAttributeSelector labels.Selector
 
 	*hintoptimizer.HintOptimizerConfiguration
 	*irqtuner.IRQTunerConfiguration
