@@ -211,16 +211,14 @@ func GenerateUtilBasedCapacityOptions(dynamicConfig *dynamic.Configuration, capa
 // EstimateUtilBasedCapacity capacity by taking into account the difference between the current
 // and target resource utilization of the workload pool
 func EstimateUtilBasedCapacity(options UtilBasedCapacityOptions, reclaimMetrics *metaserverHelper.ReclaimMetrics,
-	lastCapacityResult float64, lastOverload bool,
-) (float64, bool, error) {
+	lastCapacityResult float64,
+) (float64, error) {
 	if reclaimMetrics == nil {
-		return 0, false, fmt.Errorf("reclaimMetrics is nil")
+		return 0, fmt.Errorf("reclaimMetrics is nil")
 	}
 	var oversold, result float64
-	overload := false
 
 	currentReclaimUtilization := reclaimMetrics.CgroupCPUUsage / reclaimMetrics.ReclaimedCoresSupply
-	currentNonReclaimUtilization := (reclaimMetrics.PoolCPUUsage - reclaimMetrics.CgroupCPUUsage) / float64(reclaimMetrics.Size)
 
 	defer func() {
 		general.InfoS("[EstimateUtilBasedCapacity]", "reclaimMetrics", reclaimMetrics, "options", options,
@@ -244,14 +242,6 @@ func EstimateUtilBasedCapacity(options UtilBasedCapacityOptions, reclaimMetrics 
 	if options.MaxCapacity > 0 {
 		result = math.Min(result, options.MaxCapacity)
 	}
-	if currentNonReclaimUtilization > options.NonReclaimUtilizationHigh && !lastOverload ||
-		currentNonReclaimUtilization > options.NonReclaimUtilizationLow && lastOverload {
-		general.InfoS("overload", "currentNonReclaimUtilization", currentNonReclaimUtilization,
-			"NonReclaimUtilizationHigh", options.NonReclaimUtilizationHigh, "NonReclaimUtilizationLow", options.NonReclaimUtilizationLow,
-			"lastOverload", lastOverload)
-		result = 0
-		overload = true
-	}
 
-	return result, overload, nil
+	return result, nil
 }
