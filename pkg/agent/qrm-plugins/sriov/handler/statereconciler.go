@@ -185,7 +185,7 @@ func (r *StateReconciler) syncMachineState(allocatedVFSet sets.String) (bool, er
 		needStore = true
 	}
 	if needStore {
-		r.state.SetMachineState(machineState, true)
+		r.state.SetMachineState(machineState, false)
 	}
 
 	return needStore, errors.NewAggregate(errList)
