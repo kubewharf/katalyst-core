@@ -21,6 +21,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/qrm/statedirectory"
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 )
 
 type GenericQRMPluginOptions struct {
@@ -30,6 +31,7 @@ type GenericQRMPluginOptions struct {
 	UseKubeletReservedConfig    bool
 	PodAnnotationKeptKeys       []string
 	PodLabelKeptKeys            []string
+	MainContainerAnnotationKey  string
 	EnableReclaimNUMABinding    bool
 	EnableSNBHighNumaPreference bool
 	*statedirectory.StateDirectoryOptions
@@ -37,11 +39,12 @@ type GenericQRMPluginOptions struct {
 
 func NewGenericQRMPluginOptions() *GenericQRMPluginOptions {
 	return &GenericQRMPluginOptions{
-		QRMPluginSocketDirs:   []string{"/var/lib/kubelet/plugins_registry"},
-		PodDebugAnnoKeys:      []string{},
-		PodAnnotationKeptKeys: []string{},
-		PodLabelKeptKeys:      []string{},
-		StateDirectoryOptions: statedirectory.NewStateDirectoryOptions(),
+		QRMPluginSocketDirs:        []string{"/var/lib/kubelet/plugins_registry"},
+		PodDebugAnnoKeys:           []string{},
+		PodAnnotationKeptKeys:      []string{},
+		PodLabelKeptKeys:           []string{},
+		MainContainerAnnotationKey: consts.MainContainerNameAnnotationKey,
+		StateDirectoryOptions:      statedirectory.NewStateDirectoryOptions(),
 	}
 }
 
@@ -59,6 +62,8 @@ func (o *GenericQRMPluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.PodAnnotationKeptKeys, "pod annotation keys will be kept in qrm state")
 	fs.StringSliceVar(&o.PodLabelKeptKeys, "pod-label-kept-keys",
 		o.PodLabelKeptKeys, "pod label keys will be kept in qrm state")
+	fs.StringVar(&o.MainContainerAnnotationKey, "main-container-annotation-key",
+		o.MainContainerAnnotationKey, "annotation key indicates the name of main container")
 	fs.BoolVar(&o.EnableReclaimNUMABinding, "enable-reclaim-numa-binding",
 		o.EnableReclaimNUMABinding, "if set true, reclaim pod will be allocated on a specific NUMA node best-effort, otherwise, reclaim pod will be allocated on multi NUMA nodes")
 	fs.BoolVar(&o.EnableSNBHighNumaPreference, "enable-snb-high-numa-preference",
@@ -73,6 +78,7 @@ func (o *GenericQRMPluginOptions) ApplyTo(conf *qrmconfig.GenericQRMPluginConfig
 	conf.UseKubeletReservedConfig = o.UseKubeletReservedConfig
 	conf.PodAnnotationKeptKeys = append(conf.PodAnnotationKeptKeys, o.PodAnnotationKeptKeys...)
 	conf.PodLabelKeptKeys = append(conf.PodLabelKeptKeys, o.PodLabelKeptKeys...)
+	conf.MainContainerAnnotationKey = o.MainContainerAnnotationKey
 	conf.EnableReclaimNUMABinding = o.EnableReclaimNUMABinding
 	conf.EnableSNBHighNumaPreference = o.EnableSNBHighNumaPreference
 
@@ -89,6 +95,7 @@ type QRMPluginsOptions struct {
 	NetworkOptions *NetworkOptions
 	IOOptions      *IOOptions
 	GPUOptions     *GPUOptions
+	SriovOptions   *SriovOptions
 }
 
 func NewQRMPluginsOptions() *QRMPluginsOptions {
@@ -98,6 +105,7 @@ func NewQRMPluginsOptions() *QRMPluginsOptions {
 		NetworkOptions: NewNetworkOptions(),
 		IOOptions:      NewIOOptions(),
 		GPUOptions:     NewGPUOptions(),
+		SriovOptions:   NewSriovOptions(),
 	}
 }
 
@@ -107,6 +115,7 @@ func (o *QRMPluginsOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	o.NetworkOptions.AddFlags(fss)
 	o.IOOptions.AddFlags(fss)
 	o.GPUOptions.AddFlags(fss)
+	o.SriovOptions.AddFlags(fss)
 }
 
 func (o *QRMPluginsOptions) ApplyTo(conf *qrmconfig.QRMPluginsConfiguration) error {
@@ -123,6 +132,9 @@ func (o *QRMPluginsOptions) ApplyTo(conf *qrmconfig.QRMPluginsConfiguration) err
 		return err
 	}
 	if err := o.GPUOptions.ApplyTo(conf.GPUQRMPluginConfig); err != nil {
+		return err
+	}
+	if err := o.SriovOptions.ApplyTo(conf.SriovQRMPluginConfig); err != nil {
 		return err
 	}
 	return nil

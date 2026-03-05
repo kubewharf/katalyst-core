@@ -23,20 +23,14 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 )
 
-// GetExtraNetworkInfo get network info from /sys/class/net and system function net.Interfaces.
-// if multiple network namespace is enabled, we should exec into all namespaces and parse nics for them.
-func GetExtraNetworkInfo(_ *global.MachineInfoConfiguration) (*ExtraNetworkInfo, error) {
-	return &ExtraNetworkInfo{}, nil
+func GetSriovVFList(conf *global.MachineInfoConfiguration, allNics []InterfaceInfo) (SriovVFList, error) {
+	return nil, nil
 }
 
-func DoNetNS(nsName, netNSDirAbsPath string, cb func(sysFsDir string) error) error {
-	return cb("")
+func GetVfIBDevices(sysFsDir string, vfName string) (ibDevices []string, err error) {
+	return nil, nil
 }
 
-func GetInterfaceChannelsCombinedCount(name string) (int, error) {
-	return 0, nil
-}
-
-func IsHostNetworkBonding() (bool, error) {
-	return false, nil
+func GetVFName(sysFsDir string, vfPciAddress string) (string, error) {
+	return "", nil
 }
