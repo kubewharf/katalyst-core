@@ -37,32 +37,37 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/utils"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 type StateReconciler struct {
-	state           state.State
-	netnsDirAbsPath string
-	pciAnnotation   string
-	resourceName    string
-	kubeClient      kubernetes.Interface
-	runtimeClient   cri.RuntimeService
-	residualHitMap  map[string]int64
+	state                      state.State
+	netnsDirAbsPath            string
+	pciAnnotation              string
+	resourceName               string
+	kubeClient                 kubernetes.Interface
+	runtimeClient              cri.RuntimeService
+	residualHitMap             map[string]int64
+	qosConfig                  *generic.QoSConfiguration
+	mainContainerAnnotationKey string
 }
 
 func NewStateReconciler(state state.State, conf *config.Configuration, resourceName string,
 	kubeClient kubernetes.Interface, runtimeClient cri.RuntimeService,
 ) *StateReconciler {
 	return &StateReconciler{
-		state:           state,
-		netnsDirAbsPath: conf.NetNSDirAbsPath,
-		pciAnnotation:   conf.PCIAnnotationKey,
-		resourceName:    resourceName,
-		kubeClient:      kubeClient,
-		runtimeClient:   runtimeClient,
-		residualHitMap:  make(map[string]int64),
+		state:                      state,
+		netnsDirAbsPath:            conf.NetNSDirAbsPath,
+		pciAnnotation:              conf.PCIAnnotationKey,
+		resourceName:               resourceName,
+		kubeClient:                 kubeClient,
+		runtimeClient:              runtimeClient,
+		residualHitMap:             make(map[string]int64),
+		qosConfig:                  conf.QoSConfiguration,
+		mainContainerAnnotationKey: conf.MainContainerAnnotationKey,
 	}
 }
 
@@ -244,11 +249,17 @@ func (r *StateReconciler) addMissingAllocationInfo(
 			continue
 		}
 
-		containerName := r.getContainerWithSriovRequestOrFirst(pod)
+		containerName := r.getContainerWithSriovRequest(pod)
 
 		vfState := machineState.Filter(state.FilterByPCIAddr(pciDevice.Address))
 		if len(vfState) != 1 {
 			errList = append(errList, fmt.Errorf("failed to get vf by PCI address %T for pod %s", vfState, podUID))
+			continue
+		}
+
+		qos, err := r.qosConfig.GetQoSLevel(pod, nil)
+		if err != nil {
+			errList = append(errList, fmt.Errorf("failed to get qos level for pod %s: %w", podUID, err))
 			continue
 		}
 
@@ -258,6 +269,9 @@ func (r *StateReconciler) addMissingAllocationInfo(
 				PodNamespace:  pod.Namespace,
 				PodName:       pod.Name,
 				ContainerName: containerName,
+				Labels:        pod.Labels,
+				Annotations:   pod.Annotations,
+				QoSLevel:      qos,
 			},
 			VFInfo: vfState[0],
 		}
@@ -269,16 +283,32 @@ func (r *StateReconciler) addMissingAllocationInfo(
 	return needStore, errors.NewAggregate(errList)
 }
 
-func (r *StateReconciler) getContainerWithSriovRequestOrFirst(pod *corev1.Pod) string {
-	var firstMainContainerName string
+// getContainerWithSriovRequest returns the container name which allocates sriov vf in follow order:
+// 1. the container with sriov vf request
+// 2. the main container
+// 3. the first container in pod spec
+func (r *StateReconciler) getContainerWithSriovRequest(pod *corev1.Pod) string {
+	var (
+		firstMainContainerName string
+		mainContainerName      string
+	)
+
 	for _, container := range pod.Spec.Containers {
 		if _, ok := container.Resources.Requests[corev1.ResourceName(r.resourceName)]; ok {
 			return container.Name
 		}
 
+		if mainContainer, ok := pod.Annotations[r.mainContainerAnnotationKey]; ok && mainContainer == container.Name {
+			mainContainerName = container.Name
+		}
+
 		if firstMainContainerName == "" {
 			firstMainContainerName = container.Name
 		}
+	}
+
+	if mainContainerName != "" {
+		return mainContainerName
 	}
 
 	return firstMainContainerName
@@ -303,7 +333,7 @@ func (r *StateReconciler) updatePodSriovVFResultAnnotation(metaServer *metaserve
 				errList = append(errList, fmt.Errorf("failed to update sriov vf result annotation of %s/%s: %w", podUID, pod.Name, err))
 				continue
 			}
-			general.Infof("updated sriov vf result annotation of %s/%s", podUID, pod.Name)
+			general.Infof("update sriov vf result annotation of %s/%s", podUID, pod.Name)
 			// only need to update once for each pod
 			break
 		}

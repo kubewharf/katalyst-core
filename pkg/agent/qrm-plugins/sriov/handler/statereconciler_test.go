@@ -30,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/client-go/kubernetes/fake"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
@@ -37,6 +38,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/types"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
+	"github.com/kubewharf/katalyst-core/pkg/config/generic"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
@@ -63,12 +66,14 @@ func generateStateReconciler(t *testing.T, vfState state.VFState, podEntries sta
 	require.NoError(t, err)
 
 	return &StateReconciler{
-		state:           stateImpl,
-		netnsDirAbsPath: "/sys",
-		pciAnnotation:   pciAnnotationKey,
-		resourceName:    string(apiconsts.ResourceSriovNic),
-		kubeClient:      fake.NewSimpleClientset(),
-		residualHitMap:  make(map[string]int64),
+		state:                      stateImpl,
+		netnsDirAbsPath:            "/sys",
+		pciAnnotation:              pciAnnotationKey,
+		resourceName:               string(apiconsts.ResourceSriovNic),
+		kubeClient:                 fake.NewSimpleClientset(),
+		residualHitMap:             make(map[string]int64),
+		qosConfig:                  generic.NewQoSConfiguration(),
+		mainContainerAnnotationKey: consts.MainContainerNameAnnotationKey,
 	}
 }
 
@@ -148,6 +153,7 @@ func TestStateReconciler_addMissingAllocationInfo(t *testing.T) {
 
 		So(allocationInfo, ShouldNotBeNil)
 		So(allocationInfo.VFInfo, ShouldResemble, targetVF)
+		So(allocationInfo.AllocationMeta.QoSLevel, ShouldEqual, "shared_cores")
 	})
 }
 
@@ -205,4 +211,94 @@ func TestStateReconciler_updatePodSriovVFResultAnnotation(t *testing.T) {
 		So(err, ShouldBeNil)
 		So(updatedPod.Annotations[apiconsts.PodAnnotationSriovVFResultKey], ShouldEqual, "eth0_0")
 	})
+}
+
+func TestStateReconciler_getContainerWithSriovRequest(t *testing.T) {
+	t.Parallel()
+
+	vfState, podEntries := state.GenerateDummyState(2, 2, map[int]sets.Int{
+		0: sets.NewInt(0),
+	})
+	reconciler := generateStateReconciler(t, vfState, podEntries)
+
+	as := require.New(t)
+
+	tests := []struct {
+		name                  string
+		pod                   *corev1.Pod
+		expectedContainerName string
+	}{
+		{
+			name: "container with sriov request",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					UID: uuid.NewUUID(),
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: "container1",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceName(reconciler.resourceName): resource.MustParse("1"),
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedContainerName: "container1",
+		},
+		{
+			name: "main container",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					UID: uuid.NewUUID(),
+					Annotations: map[string]string{
+						consts.MainContainerNameAnnotationKey: "container2",
+					},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: "container1",
+						},
+						{
+							Name: "container2",
+						},
+					},
+				},
+			},
+			expectedContainerName: "container2",
+		},
+		{
+			name: "first container",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					UID: uuid.NewUUID(),
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: "container1",
+						},
+						{
+							Name: "container2",
+						},
+					},
+				},
+			},
+			expectedContainerName: "container1",
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.expectedContainerName, func(t *testing.T) {
+			t.Parallel()
+
+			containerName := reconciler.getContainerWithSriovRequest(tc.pod)
+			as.Equal(containerName, tc.expectedContainerName)
+		})
+	}
 }
