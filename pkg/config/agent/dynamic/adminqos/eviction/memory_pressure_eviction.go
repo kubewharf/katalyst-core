@@ -19,7 +19,6 @@ package eviction
 import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
-	"github.com/kubewharf/katalyst-core/pkg/util"
 )
 
 // Fake metrics are not fetched from meta-server
@@ -136,11 +135,11 @@ func (c *MemoryPressureEvictionConfiguration) ApplyConfiguration(conf *crd.Dynam
 		}
 
 		if len(config.NumaEvictionRankingMetrics) > 0 {
-			c.NumaEvictionRankingMetrics = util.ConvertNumaEvictionRankingMetricsToStringList(config.NumaEvictionRankingMetrics)
+			c.NumaEvictionRankingMetrics = ConvertNumaEvictionRankingMetricsToStringList(config.NumaEvictionRankingMetrics)
 		}
 
 		if len(config.SystemEvictionRankingMetrics) > 0 {
-			c.SystemEvictionRankingMetrics = util.ConvertSystemEvictionRankingMetricsToStringList(config.SystemEvictionRankingMetrics)
+			c.SystemEvictionRankingMetrics = ConvertSystemEvictionRankingMetricsToStringList(config.SystemEvictionRankingMetrics)
 		}
 
 		if config.GracePeriod != nil {
