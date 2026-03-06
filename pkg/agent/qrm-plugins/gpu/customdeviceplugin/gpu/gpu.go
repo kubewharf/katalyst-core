@@ -154,6 +154,7 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 			p.MetaServer,
 			p.GetState().GetMachineState(),
 			qosLevel,
+			"",
 		)
 		if err != nil {
 			return nil, fmt.Errorf("GPU allocation using strategy failed: %v", err)
