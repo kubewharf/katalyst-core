@@ -167,9 +167,6 @@ func (p *gpuReporterPlugin) GetReportContent(_ context.Context, _ *v1alpha1.Empt
 	}
 
 	resourceProperty := p.getGPUResourceProperty(deviceTopology)
-	if resourceProperty == nil {
-		return nil, fmt.Errorf("no resource property found for device topology")
-	}
 
 	// generate the zones for numa and socket in machine
 	topologyZoneGenerator, err := util.NewNumaSocketTopologyZoneGenerator(p.numaSocketZoneNodeMap)
@@ -223,8 +220,8 @@ func (p *gpuReporterPlugin) GetReportContent(_ context.Context, _ *v1alpha1.Empt
 
 // getGPUResourceProperty returns the different dimensions to differentiate affinity priority of gpu devices.
 func (p *gpuReporterPlugin) getGPUResourceProperty(deviceTopology *machine.DeviceTopology) []*nodev1alpha1.Property {
-	if deviceTopology == nil || deviceTopology.PriorityDimensions == nil {
-		return nil
+	if deviceTopology == nil || len(deviceTopology.PriorityDimensions) == 0 {
+		return []*nodev1alpha1.Property{}
 	}
 
 	return []*nodev1alpha1.Property{

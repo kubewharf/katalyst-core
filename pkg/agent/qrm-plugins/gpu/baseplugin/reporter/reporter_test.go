@@ -632,7 +632,7 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 			},
 		},
 		{
-			name: "Error reporting CNR when PriorityDimensions are nil",
+			name: "No error reporting CNR when PriorityDimensions are nil",
 			deviceTopology: &machine.DeviceTopology{
 				PriorityDimensions: nil,
 				Devices: map[string]machine.DeviceInfo{
@@ -810,7 +810,145 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 					},
 				},
 			},
-			expectedErr: true,
+			expectedSpec: []*nodev1alpha1.Property{},
+			expectedStatus: []*nodev1alpha1.TopologyZone{
+				{
+					Type: nodev1alpha1.TopologyTypeSocket,
+					Name: "0",
+					Children: []*nodev1alpha1.TopologyZone{
+						{
+							Type: nodev1alpha1.TopologyTypeNuma,
+							Name: "0",
+							Children: []*nodev1alpha1.TopologyZone{
+								{
+									Type: nodev1alpha1.TopologyTypeGPU,
+									Name: "gpu-0",
+									Attributes: []nodev1alpha1.Attribute{
+										{
+											Name:  "numa",
+											Value: "0",
+										},
+										{
+											Name:  "pcie",
+											Value: "0",
+										},
+									},
+								},
+								{
+									Type: nodev1alpha1.TopologyTypeGPU,
+									Name: "gpu-1",
+									Attributes: []nodev1alpha1.Attribute{
+										{
+											Name:  "numa",
+											Value: "0",
+										},
+										{
+											Name:  "pcie",
+											Value: "0",
+										},
+									},
+								},
+								{
+									Type: nodev1alpha1.TopologyTypeGPU,
+									Name: "gpu-2",
+									Attributes: []nodev1alpha1.Attribute{
+										{
+											Name:  "numa",
+											Value: "0",
+										},
+										{
+											Name:  "pcie",
+											Value: "1",
+										},
+									},
+								},
+								{
+									Type: nodev1alpha1.TopologyTypeGPU,
+									Name: "gpu-3",
+									Attributes: []nodev1alpha1.Attribute{
+										{
+											Name:  "numa",
+											Value: "0",
+										},
+										{
+											Name:  "pcie",
+											Value: "1",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+				{
+					Type: nodev1alpha1.TopologyTypeSocket,
+					Name: "1",
+					Children: []*nodev1alpha1.TopologyZone{
+						{
+							Type: nodev1alpha1.TopologyTypeNuma,
+							Name: "1",
+							Children: []*nodev1alpha1.TopologyZone{
+								{
+									Type: nodev1alpha1.TopologyTypeGPU,
+									Name: "gpu-4",
+									Attributes: []nodev1alpha1.Attribute{
+										{
+											Name:  "numa",
+											Value: "1",
+										},
+										{
+											Name:  "pcie",
+											Value: "2",
+										},
+									},
+								},
+								{
+									Type: nodev1alpha1.TopologyTypeGPU,
+									Name: "gpu-5",
+									Attributes: []nodev1alpha1.Attribute{
+										{
+											Name:  "numa",
+											Value: "1",
+										},
+										{
+											Name:  "pcie",
+											Value: "2",
+										},
+									},
+								},
+								{
+									Type: nodev1alpha1.TopologyTypeGPU,
+									Name: "gpu-6",
+									Attributes: []nodev1alpha1.Attribute{
+										{
+											Name:  "numa",
+											Value: "1",
+										},
+										{
+											Name:  "pcie",
+											Value: "3",
+										},
+									},
+								},
+								{
+									Type: nodev1alpha1.TopologyTypeGPU,
+									Name: "gpu-7",
+									Attributes: []nodev1alpha1.Attribute{
+										{
+											Name:  "numa",
+											Value: "1",
+										},
+										{
+											Name:  "pcie",
+											Value: "3",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
 		},
 		{
 			name: "Error reporting CNR when device affinity dimensions are empty",
