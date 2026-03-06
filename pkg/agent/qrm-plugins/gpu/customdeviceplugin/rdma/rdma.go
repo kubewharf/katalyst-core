@@ -30,7 +30,6 @@ import (
 	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/customdeviceplugin"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
-	gpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -113,12 +112,9 @@ func (p *RDMADevicePlugin) AllocateAssociatedDevice(
 		}, nil
 	}
 
-	rdmaTopology, numaTopologyReady, err := p.DeviceTopologyRegistry.GetDeviceTopology(gpuconsts.RDMADeviceType)
+	rdmaTopology, _, err := p.DeviceTopologyRegistry.GetDeviceTopology(gpuconsts.RDMADeviceType)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get gpu device topology: %v", err)
-	}
-	if !numaTopologyReady {
-		return nil, fmt.Errorf("gpu device topology is not ready")
 	}
 
 	hintNodes, err := machine.NewCPUSetUint64(deviceReq.GetHint().GetNodes()...)
@@ -131,7 +127,7 @@ func (p *RDMADevicePlugin) AllocateAssociatedDevice(
 
 	// No accompany resource name
 	if accompanyResourceName == "" {
-		allocatedRdmaDevices, err = p.allocateWithNoAccompanyResource(deviceReq, rdmaTopology, hintNodes)
+		allocatedRdmaDevices, err = p.allocateWithNoAccompanyResource(deviceReq)
 		if err != nil {
 			return nil, fmt.Errorf("failed to allocate with no accompany resource: %v", err)
 		}
@@ -159,7 +155,7 @@ func (p *RDMADevicePlugin) AllocateAssociatedDevice(
 	allocationInfo := &state.AllocationInfo{
 		AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(resReq, commonstate.EmptyOwnerPoolName, qosLevel),
 		AllocatedAllocation: state.Allocation{
-			Quantity:  1,
+			Quantity:  float64(len(allocatedRdmaDevices)),
 			NUMANodes: hintNodes.ToSliceInt(),
 		},
 	}
@@ -189,9 +185,7 @@ func (p *RDMADevicePlugin) AllocateAssociatedDevice(
 
 // allocateWithNoAccompanyResource allocates the rdma devices by best effort basis on the by making sure that
 // it fits the hint nodes.
-func (p *RDMADevicePlugin) allocateWithNoAccompanyResource(
-	deviceReq *pluginapi.DeviceRequest, rdmaTopology *machine.DeviceTopology, hintNodes machine.CPUSet,
-) ([]string, error) {
+func (p *RDMADevicePlugin) allocateWithNoAccompanyResource(deviceReq *pluginapi.DeviceRequest) ([]string, error) {
 	reqQuantity := deviceReq.GetDeviceRequest()
 
 	machineState, ok := p.GetState().GetMachineState()[gpuconsts.RDMADeviceType]
@@ -220,10 +214,6 @@ func (p *RDMADevicePlugin) allocateWithNoAccompanyResource(
 	}
 
 	for _, device := range availableDevices {
-		if !gpuutil.IsNUMAAffinityDevice(device, rdmaTopology, hintNodes) {
-			continue
-		}
-
 		if !machineState.IsRequestSatisfied(device, 1, 1) {
 			general.Infof("available numa affinity rdma %s is already allocated", device)
 			continue
@@ -242,8 +232,6 @@ func (p *RDMADevicePlugin) allocateWithNoAccompanyResource(
 func (p *RDMADevicePlugin) allocateWithAccompanyResource(
 	deviceReq *pluginapi.DeviceRequest, resReq *pluginapi.ResourceRequest, accompanyResourceName string,
 ) ([]string, error) {
-	var err error
-
 	// Find out the accompany devices that are allocated to the container and allocate RDMA devices that correspond to the numa nodes of accompany device
 	accompanyDeviceType := p.ResolveResourceName(accompanyResourceName, false)
 	if accompanyDeviceType == "" {
@@ -258,17 +246,9 @@ func (p *RDMADevicePlugin) allocateWithAccompanyResource(
 
 	// Allocate target device according to ratio of accompany resource to target device
 	podResourceEntries := p.GetState().GetPodResourceEntries()
-	totalAllocated, accompanyResourceIds := podResourceEntries.GetTotalAllocatedResourceOfContainer(v1.ResourceName(accompanyDeviceType), resReq.PodUid, resReq.ContainerName)
+	totalAllocated := podResourceEntries.GetTotalAllocatedResourceOfContainer(v1.ResourceName(accompanyDeviceType), resReq.PodUid, resReq.ContainerName)
 
-	rdmaToBeAllocated := int(math.Ceil(float64(totalAllocated) * accompanyResourceToTargetDeviceRatio))
-
-	// For every gpu that is allocated to the container, find out the rdma devices that have affinity to the same
-	// numa nodes as the gpu and allocate them
-	accompanyResourceToRdmaAffinityMap, err := p.DeviceTopologyRegistry.GetDeviceNUMAAffinity(accompanyDeviceType, gpuconsts.RDMADeviceType)
-	if err != nil {
-		general.Warningf("failed to get gpu to rdma affinity map: %v", err)
-		return nil, err
-	}
+	rdmaToBeAllocated := int(math.Ceil(float64(totalAllocated) / accompanyResourceToTargetDeviceRatio))
 
 	machineState := p.GetState().GetMachineState()[v1.ResourceName(gpuconsts.RDMADeviceType)]
 
@@ -285,22 +265,15 @@ func (p *RDMADevicePlugin) allocateWithAccompanyResource(
 		return false
 	}
 
-	for accompanyResourceId := range accompanyResourceIds {
-		rdmaDevices, ok := accompanyResourceToRdmaAffinityMap[accompanyResourceId]
-		if !ok {
-			general.Warningf("failed to get rdma device with accompany device id: %s", accompanyResourceId)
+	// Allocate the rest of the available rdma devices in best-effort manner
+	for _, deviceId := range deviceReq.AvailableDevices {
+		// Skip rdma devices that are already allocated to other containers
+		if !machineState.IsRequestSatisfied(deviceId, 1, 1) {
 			continue
 		}
 
-		// Iterate through the rdma devices and check if they are already allocated
-		for _, rdmaDevice := range rdmaDevices {
-			if !machineState.IsRequestSatisfied(rdmaDevice, 1, 1) {
-				continue
-			}
-
-			if allocateDevices(rdmaDevice) {
-				return allocatedDevices.UnsortedList(), nil
-			}
+		if allocateDevices(deviceId) {
+			return allocatedDevices.UnsortedList(), nil
 		}
 	}
 
