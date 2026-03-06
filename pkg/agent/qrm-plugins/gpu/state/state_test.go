@@ -25,7 +25,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager/errors"
 
@@ -155,7 +154,6 @@ func TestPodResourceEntries_GetTotalAllocatedResourceOfContainer(t *testing.T) {
 		containerName               string
 		pre                         PodResourceEntries
 		wantTotalAllocationQuantity int
-		wantAllocationIDs           sets.String
 	}{
 		{
 			name:          "normal case",
@@ -197,7 +195,6 @@ func TestPodResourceEntries_GetTotalAllocatedResourceOfContainer(t *testing.T) {
 				},
 			},
 			wantTotalAllocationQuantity: 2,
-			wantAllocationIDs:           sets.NewString("test-3", "test-4"),
 		},
 		{
 			name:          "no allocation",
@@ -224,7 +221,6 @@ func TestPodResourceEntries_GetTotalAllocatedResourceOfContainer(t *testing.T) {
 				},
 			},
 			wantTotalAllocationQuantity: 0,
-			wantAllocationIDs:           sets.NewString(),
 		},
 	}
 
@@ -232,10 +228,8 @@ func TestPodResourceEntries_GetTotalAllocatedResourceOfContainer(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			gotTotalAllocationQuantity, gotAllocationIDs := tt.pre.GetTotalAllocatedResourceOfContainer(tt.resourceName, tt.podUID, tt.containerName)
+			gotTotalAllocationQuantity := tt.pre.GetTotalAllocatedResourceOfContainer(tt.resourceName, tt.podUID, tt.containerName)
 			assert.Equal(t, tt.wantTotalAllocationQuantity, gotTotalAllocationQuantity)
-
-			assert.ElementsMatch(t, tt.wantAllocationIDs.UnsortedList(), gotAllocationIDs.UnsortedList())
 		})
 	}
 }

@@ -194,6 +194,9 @@ func TestRDMADevicePlugin_AllocateAssociatedDevices(t *testing.T) {
 		machineState                    state.AllocationResourcesMap
 		expectedErr                     bool
 		expectedResp                    *pluginapi.AssociatedDeviceAllocationResponse
+		// isRandomAllocation is true if there is more than one possible allocation
+		isRandomAllocation   bool
+		expectedNumAllocated int
 	}{
 		{
 			name: "Allocation already exists",
@@ -304,11 +307,8 @@ func TestRDMADevicePlugin_AllocateAssociatedDevices(t *testing.T) {
 					Nodes: []uint64{0},
 				},
 			},
-			expectedResp: &pluginapi.AssociatedDeviceAllocationResponse{
-				AllocationResult: &pluginapi.AssociatedDeviceAllocation{
-					AllocatedDevices: []string{"test-rdma-0", "test-rdma-2"},
-				},
-			},
+			isRandomAllocation:   true,
+			expectedNumAllocated: 2,
 		},
 		{
 			name:          "No accompany resource allocates by best effort, no reusable devices, skip devices that are already allocated",
@@ -509,11 +509,162 @@ func TestRDMADevicePlugin_AllocateAssociatedDevices(t *testing.T) {
 					Nodes: []uint64{0, 1},
 				},
 			},
-			expectedResp: &pluginapi.AssociatedDeviceAllocationResponse{
-				AllocationResult: &pluginapi.AssociatedDeviceAllocation{
-					AllocatedDevices: []string{"test-rdma-0", "test-rdma-2"},
+			isRandomAllocation:   true,
+			expectedNumAllocated: 2,
+		},
+		{
+			name:          "Accompany resource allocated, no NUMA info for rdma, still able to allocate",
+			podUID:        "test-pod",
+			containerName: "containerName",
+			deviceTopology: &machine.DeviceTopology{
+				Devices: map[string]machine.DeviceInfo{
+					"test-rdma-0": {},
+					"test-rdma-1": {},
+					"test-rdma-2": {},
+					"test-rdma-3": {},
 				},
 			},
+			// Ratio of 1 rdma device per 2 gpu devices
+			accompanyDeviceTopology: &machine.DeviceTopology{
+				Devices: map[string]machine.DeviceInfo{
+					"test-gpu-0": {
+						NumaNodes: []int{0},
+					},
+					"test-gpu-1": {
+						NumaNodes: []int{1},
+					},
+					"test-gpu-2": {
+						NumaNodes: []int{0},
+					},
+					"test-gpu-3": {
+						NumaNodes: []int{1},
+					},
+					"test-gpu-4": {
+						NumaNodes: []int{0},
+					},
+					"test-gpu-5": {
+						NumaNodes: []int{1},
+					},
+					"test-gpu-6": {
+						NumaNodes: []int{0},
+					},
+					"test-gpu-7": {
+						NumaNodes: []int{1},
+					},
+				},
+			},
+			accompanyResourceName: "test-gpu",
+			accompanyResourceAllocationInfo: &state.AllocationInfo{
+				AllocatedAllocation: state.Allocation{
+					Quantity: 6,
+				},
+				TopologyAwareAllocations: map[string]state.Allocation{
+					"test-gpu-0": {
+						Quantity: 1,
+					},
+					"test-gpu-1": {
+						Quantity: 1,
+					},
+					"test-gpu-2": {
+						Quantity: 1,
+					},
+					"test-gpu-4": {
+						Quantity: 1,
+					},
+					"test-gpu-5": {
+						Quantity: 1,
+					},
+					"test-gpu-6": {
+						Quantity: 1,
+					},
+				},
+			},
+			machineState: state.AllocationResourcesMap{
+				gpuconsts.RDMADeviceType: {
+					"test-rdma-0": {},
+					"test-rdma-1": {},
+					"test-rdma-2": {},
+					"test-rdma-3": {},
+				},
+				gpuconsts.GPUDeviceType: {
+					"test-gpu-0": {
+						PodEntries: map[string]state.ContainerEntries{
+							"test-pod": {
+								"test-container": {
+									AllocatedAllocation: state.Allocation{
+										Quantity: 1,
+									},
+								},
+							},
+						},
+					},
+					"test-gpu-1": {
+						PodEntries: map[string]state.ContainerEntries{
+							"test-pod": {
+								"test-container": {
+									AllocatedAllocation: state.Allocation{
+										Quantity: 1,
+									},
+								},
+							},
+						},
+					},
+					"test-gpu-2": {
+						PodEntries: map[string]state.ContainerEntries{
+							"test-pod": {
+								"test-container": {
+									AllocatedAllocation: state.Allocation{
+										Quantity: 1,
+									},
+								},
+							},
+						},
+					},
+					"test-gpu-3": {},
+					"test-gpu-4": {
+						PodEntries: map[string]state.ContainerEntries{
+							"test-pod": {
+								"test-container": {
+									AllocatedAllocation: state.Allocation{
+										Quantity: 1,
+									},
+								},
+							},
+						},
+					},
+					"test-gpu-5": {
+						PodEntries: map[string]state.ContainerEntries{
+							"test-pod": {
+								"test-container": {
+									AllocatedAllocation: state.Allocation{
+										Quantity: 1,
+									},
+								},
+							},
+						},
+					},
+					"test-gpu-6": {
+						PodEntries: map[string]state.ContainerEntries{
+							"test-pod": {
+								"test-container": {
+									AllocatedAllocation: state.Allocation{
+										Quantity: 1,
+									},
+								},
+							},
+						},
+					},
+					"test-gpu-7": {},
+				},
+			},
+			deviceReq: &pluginapi.DeviceRequest{
+				DeviceName:       "test-rdma",
+				ReusableDevices:  nil,
+				AvailableDevices: []string{"test-rdma-0", "test-rdma-1", "test-rdma-2", "test-rdma-3"},
+				DeviceRequest:    0,
+			},
+			isRandomAllocation:   true,
+			expectedNumAllocated: 3,
 		},
 	}
 
@@ -561,11 +712,16 @@ func TestRDMADevicePlugin_AllocateAssociatedDevices(t *testing.T) {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
-				evaluateAllocatedDevicesResult(t, tt.expectedResp, resp)
+				if tt.isRandomAllocation {
+					assert.Equal(t, tt.expectedNumAllocated, len(resp.AllocationResult.AllocatedDevices))
+				} else {
+					evaluateAllocatedDevicesResult(t, tt.expectedResp, resp)
+				}
 
 				// Verify state is updated
 				allocationInfo := basePlugin.GetState().GetAllocationInfo(gpuconsts.RDMADeviceType, tt.podUID, tt.containerName)
 				assert.NotNil(t, allocationInfo)
+				assert.Equal(t, float64(len(resp.AllocationResult.AllocatedDevices)), allocationInfo.AllocatedAllocation.Quantity)
 			}
 		})
 	}
