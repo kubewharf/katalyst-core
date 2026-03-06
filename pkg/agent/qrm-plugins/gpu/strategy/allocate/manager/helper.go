@@ -38,7 +38,7 @@ func AllocateGPUUsingStrategy(
 	emitter metrics.MetricEmitter,
 	metaServer *metaserver.MetaServer,
 	machineState state.AllocationResourcesMap,
-	qosLevel string,
+	qosLevel, accompanyResourceName string,
 ) (*allocate.AllocationResult, error) {
 	// Get hint nodes
 	hintNodes, err := machine.NewCPUSetUint64(deviceReq.GetHint().GetNodes()...)
@@ -51,15 +51,16 @@ func AllocateGPUUsingStrategy(
 
 	// Create allocation context
 	ctx := &allocate.AllocationContext{
-		ResourceReq:        resourceReq,
-		DeviceReq:          deviceReq,
-		DeviceTopology:     gpuTopology,
-		GPUQRMPluginConfig: gpuConfig,
-		Emitter:            emitter,
-		MetaServer:         metaServer,
-		MachineState:       machineState,
-		QoSLevel:           qosLevel,
-		HintNodes:          hintNodes,
+		ResourceReq:           resourceReq,
+		DeviceReq:             deviceReq,
+		DeviceTopology:        gpuTopology,
+		GPUQRMPluginConfig:    gpuConfig,
+		Emitter:               emitter,
+		MetaServer:            metaServer,
+		MachineState:          machineState,
+		QoSLevel:              qosLevel,
+		HintNodes:             hintNodes,
+		AccompanyResourceName: accompanyResourceName,
 	}
 
 	// Get the global strategy manager and perform allocation
