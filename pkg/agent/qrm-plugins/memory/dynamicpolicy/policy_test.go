@@ -76,6 +76,7 @@ import (
 	metaserveragent "github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/external"
+	kcc "github.com/kubewharf/katalyst-core/pkg/metaserver/kcc"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/asyncworker"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -3226,7 +3227,8 @@ func makeMetaServer() *metaserver.MetaServer {
 			},
 			PodFetcher: &pod.PodFetcherStub{},
 		},
-		ExternalManager: external.InitExternalManager(&pod.PodFetcherStub{}),
+		ConfigurationManager: &kcc.DummyConfigurationManager{},
+		ExternalManager:      external.InitExternalManager(&pod.PodFetcherStub{}),
 	}
 }
 
