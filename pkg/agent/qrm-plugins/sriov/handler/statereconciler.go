@@ -28,6 +28,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	cri "k8s.io/cri-api/pkg/apis"
 	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1"
+	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
@@ -35,6 +36,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/types"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov/utils"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
@@ -249,7 +251,11 @@ func (r *StateReconciler) addMissingAllocationInfo(
 			continue
 		}
 
-		containerName := r.getContainerWithSriovRequest(pod)
+		containerName, isMainContainer := r.getContainerWithSriovRequest(pod)
+		var containerType pluginapi.ContainerType
+		if isMainContainer {
+			containerType = pluginapi.ContainerType_MAIN
+		}
 
 		vfState := machineState.Filter(state.FilterByPCIAddr(pciDevice.Address))
 		if len(vfState) != 1 {
@@ -269,6 +275,7 @@ func (r *StateReconciler) addMissingAllocationInfo(
 				PodNamespace:  pod.Namespace,
 				PodName:       pod.Name,
 				ContainerName: containerName,
+				ContainerType: containerType.String(),
 				Labels:        pod.Labels,
 				Annotations:   pod.Annotations,
 				QoSLevel:      qos,
@@ -283,35 +290,19 @@ func (r *StateReconciler) addMissingAllocationInfo(
 	return needStore, errors.NewAggregate(errList)
 }
 
-// getContainerWithSriovRequest returns the container name which allocates sriov vf in follow order:
+// getContainerWithSriovRequest returns the container which allocates sriov vf in follow order:
 // 1. the container with sriov vf request
 // 2. the main container
 // 3. the first container in pod spec
-func (r *StateReconciler) getContainerWithSriovRequest(pod *corev1.Pod) string {
-	var (
-		firstMainContainerName string
-		mainContainerName      string
-	)
-
+func (r *StateReconciler) getContainerWithSriovRequest(pod *corev1.Pod) (containerName string, isMainContainer bool) {
+	mainContainerName := util.GetMainContainer(pod, r.mainContainerAnnotationKey)
 	for _, container := range pod.Spec.Containers {
 		if _, ok := container.Resources.Requests[corev1.ResourceName(r.resourceName)]; ok {
-			return container.Name
-		}
-
-		if mainContainer, ok := pod.Annotations[r.mainContainerAnnotationKey]; ok && mainContainer == container.Name {
-			mainContainerName = container.Name
-		}
-
-		if firstMainContainerName == "" {
-			firstMainContainerName = container.Name
+			return container.Name, container.Name == mainContainerName
 		}
 	}
 
-	if mainContainerName != "" {
-		return mainContainerName
-	}
-
-	return firstMainContainerName
+	return mainContainerName, true
 }
 
 func (r *StateReconciler) updatePodSriovVFResultAnnotation(metaServer *metaserver.MetaServer) error {
