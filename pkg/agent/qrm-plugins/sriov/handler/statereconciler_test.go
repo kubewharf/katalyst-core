@@ -224,9 +224,10 @@ func TestStateReconciler_getContainerWithSriovRequest(t *testing.T) {
 	as := require.New(t)
 
 	tests := []struct {
-		name                  string
-		pod                   *corev1.Pod
-		expectedContainerName string
+		name                    string
+		pod                     *corev1.Pod
+		expectedContainerName   string
+		expectedIsMainContainer bool
 	}{
 		{
 			name: "container with sriov request",
@@ -247,7 +248,8 @@ func TestStateReconciler_getContainerWithSriovRequest(t *testing.T) {
 					},
 				},
 			},
-			expectedContainerName: "container1",
+			expectedContainerName:   "container1",
+			expectedIsMainContainer: true,
 		},
 		{
 			name: "main container",
@@ -269,7 +271,8 @@ func TestStateReconciler_getContainerWithSriovRequest(t *testing.T) {
 					},
 				},
 			},
-			expectedContainerName: "container2",
+			expectedContainerName:   "container2",
+			expectedIsMainContainer: true,
 		},
 		{
 			name: "first container",
@@ -288,7 +291,8 @@ func TestStateReconciler_getContainerWithSriovRequest(t *testing.T) {
 					},
 				},
 			},
-			expectedContainerName: "container1",
+			expectedContainerName:   "container1",
+			expectedIsMainContainer: true,
 		},
 	}
 
@@ -297,8 +301,9 @@ func TestStateReconciler_getContainerWithSriovRequest(t *testing.T) {
 		t.Run(tc.expectedContainerName, func(t *testing.T) {
 			t.Parallel()
 
-			containerName := reconciler.getContainerWithSriovRequest(tc.pod)
+			containerName, isMainContainer := reconciler.getContainerWithSriovRequest(tc.pod)
 			as.Equal(containerName, tc.expectedContainerName)
+			as.Equal(isMainContainer, tc.expectedIsMainContainer)
 		})
 	}
 }

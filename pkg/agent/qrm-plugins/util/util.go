@@ -395,3 +395,17 @@ func CreateEmptyAllocationResponse(resourceReq *pluginapi.ResourceRequest, resou
 		Annotations:    general.DeepCopyMap(resourceReq.Annotations),
 	}
 }
+
+// GetMainContainer returns the name of main container
+func GetMainContainer(pod *v1.Pod, mainContainerAnnotationKey string) string {
+	var mainContainerName string
+	if mainContainer, ok := pod.Annotations[mainContainerAnnotationKey]; ok {
+		mainContainerName = mainContainer
+	}
+
+	if mainContainerName == "" && len(pod.Spec.Containers) > 0 {
+		return pod.Spec.Containers[0].Name
+	}
+
+	return mainContainerName
+}
