@@ -31,6 +31,7 @@ import (
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/baseplugin"
+	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/customdeviceplugin"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/resourceplugin"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
@@ -152,6 +153,19 @@ func makeTestStaticPolicy(t *testing.T) *StaticPolicy {
 	assert.NoError(t, err)
 
 	err = staticPolicy.registerDefaultCustomDevicePlugins()
+	assert.NoError(t, err)
+
+	testDeviceTopology := &machine.DeviceTopology{
+		Devices: map[string]machine.DeviceInfo{
+			"gpu-0": {
+				NumaNodes: []int{0},
+			},
+			"gpu-1": {
+				NumaNodes: []int{1},
+			},
+		},
+	}
+	err = staticPolicy.DeviceTopologyRegistry.SetDeviceTopology(gpuconsts.GPUDeviceType, testDeviceTopology)
 	assert.NoError(t, err)
 
 	return staticPolicy
