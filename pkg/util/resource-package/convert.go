@@ -103,15 +103,24 @@ func ConvertResourcePackagesToNPDMetrics(resourcePackageMetrics []ResourcePackag
 			}
 			var metrics []nodev1alpha1.MetricValue
 			for r, q := range *pkg.Allocatable {
+				labels := map[string]string{
+					metricLabelPackageName: pkg.PackageName,
+					metricLabelNumaID:      pkgMetric.NumaID,
+				}
+				// add attributes to labels of cpu metric only
+				if r.String() == string(v1.ResourceCPU) {
+					for _, attr := range pkg.Attributes {
+						if _, ok := labels[attr.Name]; !ok {
+							labels[attr.Name] = attr.Value
+						}
+					}
+				}
 				metrics = append(metrics, nodev1alpha1.MetricValue{
-					MetricName: r.String(),
-					Value:      q.DeepCopy(),
-					Aggregator: &minAggregator,
-					Timestamp:  timestamp,
-					MetricLabels: map[string]string{
-						metricLabelPackageName: pkg.PackageName,
-						metricLabelNumaID:      pkgMetric.NumaID,
-					},
+					MetricName:   r.String(),
+					Value:        q.DeepCopy(),
+					Aggregator:   &minAggregator,
+					Timestamp:    timestamp,
+					MetricLabels: labels,
 				})
 			}
 			m.Metrics = append(m.Metrics, metrics...)
