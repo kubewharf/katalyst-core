@@ -20,6 +20,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/baseplugin"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/customdeviceplugin"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/customdeviceplugin/gpu"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/customdeviceplugin/rdma"
 )
 
 type initFunc func(plugin *baseplugin.BasePlugin) customdeviceplugin.CustomDevicePlugin
@@ -36,4 +37,5 @@ func GetRegisteredCustomDevicePlugin() map[string]initFunc {
 
 func init() {
 	RegisterCustomDevicePlugin(gpu.GPUCustomDevicePluginName, gpu.NewGPUDevicePlugin)
+	RegisterCustomDevicePlugin(rdma.RDMACustomDevicePluginName, rdma.NewRDMADevicePlugin)
 }

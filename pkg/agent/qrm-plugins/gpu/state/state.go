@@ -21,7 +21,6 @@ import (
 	"sync"
 
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
@@ -187,22 +186,17 @@ func (pre PodResourceEntries) RemovePod(podUID string) {
 	}
 }
 
-// GetTotalAllocatedResourceOfContainer returns the total allocated resource quantity of a container together with
-// the specific resource IDs that are allocated.
+// GetTotalAllocatedResourceOfContainer returns the total allocated resource quantity of a container.
 func (pre PodResourceEntries) GetTotalAllocatedResourceOfContainer(
 	resourceName v1.ResourceName, podUID, containerName string,
-) (int, sets.String) {
+) int {
 	if podEntries, ok := pre[resourceName]; ok {
 		if allocationInfo := podEntries.GetAllocationInfo(podUID, containerName); allocationInfo != nil {
 			totalAllocationQuantity := int(allocationInfo.AllocatedAllocation.Quantity)
-			allocationIDs := sets.NewString()
-			for id := range allocationInfo.TopologyAwareAllocations {
-				allocationIDs.Insert(id)
-			}
-			return totalAllocationQuantity, allocationIDs
+			return totalAllocationQuantity
 		}
 	}
-	return 0, nil
+	return 0
 }
 
 func (as *AllocationState) String() string {
