@@ -230,7 +230,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		enableEvictingLogCache:      conf.EnableEvictingLogCache,
 		enableReclaimNUMABinding:    conf.EnableReclaimNUMABinding,
 		enableSNBHighNumaPreference: conf.EnableSNBHighNumaPreference,
-		resctrlHinter:               newResctrlHinter(&conf.ResctrlConfig, wrappedEmitter),
+		resctrlHinter:               newResctrlHinter(&conf.ResctrlConfig, wrappedEmitter, stateImpl),
 		enableNonBindingShareCoresMemoryResourceCheck: conf.EnableNonBindingShareCoresMemoryResourceCheck,
 		numaBindResultResourceAllocationAnnotationKey: conf.NUMABindResultResourceAllocationAnnotationKey,
 	}

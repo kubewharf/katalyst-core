@@ -96,6 +96,8 @@ type FragMemOptions struct {
 type ResctrlConfig struct {
 	// EnableResctrlHint is the flag that enable/disable resctrl option related pod admission
 	EnableResctrlHint bool
+	// EnableResctrlGroupLifecycleManagement is the flag that enable/disable resctrl group lifecycle management
+	EnableResctrlGroupLifecycleManagement bool
 
 	// CPUSetPoolToSharedSubgroup specifies, if present, the subgroup id for shared-core QoS pod
 	// based on its cpu set pool annotation
