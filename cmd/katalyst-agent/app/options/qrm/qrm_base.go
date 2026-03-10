@@ -126,8 +126,8 @@ func (o *QRMPluginsOptions) ApplyTo(conf *qrmconfig.QRMPluginsConfiguration) err
 		return err
 	}
 	if err := o.MBOptions.ApplyTo(conf.MBQRMPluginConfig); err != nil {
-    return err
-  }
+		return err
+	}
 	if err := o.GPUOptions.ApplyTo(conf.GPUQRMPluginConfig); err != nil {
 		return err
 	}
