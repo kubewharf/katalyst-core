@@ -30,6 +30,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/preoccupation"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	rputil "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
 
 type GetContainerRequestedCoresFunc func(allocationInfo *AllocationInfo) float64
@@ -144,7 +145,12 @@ func GetIsolatedQuantityMapFromPodEntries(podEntries PodEntries, ignoreAllocatio
 
 // GetSharedQuantityMapFromPodEntries returns a map to indicates quantity info for each shared pool,
 // and the map is formatted as pool -> quantity
-func GetSharedQuantityMapFromPodEntries(podEntries PodEntries, ignoreAllocationInfos []*AllocationInfo, getContainerRequestedCores GetContainerRequestedCoresFunc) (map[string]map[int]int, error) {
+func GetSharedQuantityMapFromPodEntries(
+	numaResourcePackagePinnedCPUSet map[int]map[string]machine.CPUSet,
+	podEntries PodEntries,
+	ignoreAllocationInfos []*AllocationInfo,
+	getContainerRequestedCores GetContainerRequestedCoresFunc,
+) (map[string]map[int]int, error) {
 	poolsQuantityMap := make(map[string]map[int]int)
 	allocationInfosToCount := make([]*AllocationInfo, 0, len(podEntries))
 	for _, entries := range podEntries {
@@ -172,7 +178,7 @@ func GetSharedQuantityMapFromPodEntries(podEntries PodEntries, ignoreAllocationI
 		}
 	}
 
-	err := CountAllocationInfosToPoolsQuantityMap(allocationInfosToCount, poolsQuantityMap, getContainerRequestedCores)
+	err := CountAllocationInfosToPoolsQuantityMap(numaResourcePackagePinnedCPUSet, allocationInfosToCount, poolsQuantityMap, getContainerRequestedCores)
 	if err != nil {
 		return nil, fmt.Errorf("CountAllocationInfosToPoolsQuantityMap faild with error: %v", err)
 	}
@@ -252,8 +258,24 @@ func GenerateMachineStateFromPodEntries(topology *machine.CPUTopology, podEntrie
 		return nil, err
 	}
 
+	updateResourcePackagePinnedCPUSet(currentMachineState, originMachineState)
 	updateMachineStatePreOccPodEntries(currentMachineState, originMachineState)
 	return currentMachineState, nil
+}
+
+func updateResourcePackagePinnedCPUSet(currentMachineState, originMachineState NUMANodeMap) {
+	for numaID, originState := range originMachineState {
+		if originState == nil {
+			continue
+		}
+
+		if currentState, ok := currentMachineState[numaID]; ok && currentState != nil && originState.ResourcePackagePinnedCPUSet != nil {
+			currentState.ResourcePackagePinnedCPUSet = make(map[string]machine.CPUSet, len(originState.ResourcePackagePinnedCPUSet))
+			for pkgName, cpus := range originState.ResourcePackagePinnedCPUSet {
+				currentState.ResourcePackagePinnedCPUSet[pkgName] = cpus.Clone()
+			}
+		}
+	}
 }
 
 // updateMachineStatePreOccPodEntries update the pre-occupation pod from pod entries and origin machine state
@@ -340,7 +362,9 @@ func GetSharedBindingNUMAsFromQuantityMap(poolsQuantityMap map[string]map[int]in
 	return res
 }
 
-func CountAllocationInfosToPoolsQuantityMap(allocationInfos []*AllocationInfo,
+func CountAllocationInfosToPoolsQuantityMap(
+	numaResourcePackagePinnedCPUSet map[int]map[string]machine.CPUSet,
+	allocationInfos []*AllocationInfo,
 	poolsQuantityMap map[string]map[int]int,
 	getContainerRequestedCores GetContainerRequestedCoresFunc,
 ) error {
@@ -399,9 +423,20 @@ func CountAllocationInfosToPoolsQuantityMap(allocationInfos []*AllocationInfo,
 				return fmt.Errorf("numaHintStr: %s indicates invalid numaSet numa_binding shared_cores",
 					allocationInfo.Annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint])
 			}
+
+			pkgName := allocationInfo.GetResourcePackageName()
+			if pkgName != "" && poolName != commonstate.EmptyOwnerPoolName {
+				if pinnedSets, ok := numaResourcePackagePinnedCPUSet[targetNUMAID]; ok {
+					if _, exists := pinnedSets[pkgName]; exists {
+						poolName = rputil.WrapOwnerPoolName(poolName, pkgName)
+					}
+				}
+			}
 		} else {
 			targetNUMAID = commonstate.FakedNUMAID
 			poolName = allocationInfo.GetPoolName()
+
+			// only numa binding allocation support resource package
 		}
 
 		if poolName == commonstate.EmptyOwnerPoolName {

@@ -171,8 +171,10 @@ type QoSRegionBase struct {
 
 	name          string
 	ownerPoolName string
-	regionType    v1alpha1.QoSRegionType
-	regionStatus  types.RegionStatus
+	// resourcePackageName is derived from ownerPoolName by resourcepackage.UnwrapOwnerPoolName.
+	resourcePackageName string
+	regionType          v1alpha1.QoSRegionType
+	regionStatus        types.RegionStatus
 
 	types.ResourceEssentials
 	types.ControlEssentials
@@ -228,15 +230,16 @@ type QoSRegionBase struct {
 }
 
 // NewQoSRegionBase returns a base qos region instance with common region methods
-func NewQoSRegionBase(name string, ownerPoolName string, regionType v1alpha1.QoSRegionType,
+func NewQoSRegionBase(name string, ownerPoolName string, resourcePackageName string, regionType v1alpha1.QoSRegionType,
 	conf *config.Configuration, extraConf interface{}, isNumaBinding bool, isNumaExclusive bool,
 	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) *QoSRegionBase {
 	r := &QoSRegionBase{
-		conf:          conf,
-		name:          name,
-		ownerPoolName: ownerPoolName,
-		regionType:    regionType,
+		conf:                conf,
+		name:                name,
+		ownerPoolName:       ownerPoolName,
+		resourcePackageName: resourcePackageName,
+		regionType:          regionType,
 
 		bindingNumas:                     machine.NewCPUSet(),
 		podSet:                           make(types.PodSet),
@@ -309,6 +312,12 @@ func (r *QoSRegionBase) Type() v1alpha1.QoSRegionType {
 
 func (r *QoSRegionBase) OwnerPoolName() string {
 	return r.ownerPoolName
+}
+
+func (r *QoSRegionBase) GetResourcePackageName() string {
+	r.Lock()
+	defer r.Unlock()
+	return r.resourcePackageName
 }
 
 func (r *QoSRegionBase) IsEmpty() bool {

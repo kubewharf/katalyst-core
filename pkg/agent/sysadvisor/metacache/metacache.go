@@ -88,6 +88,10 @@ type MetaReader interface {
 	// GetSupportedWantedFeatureGates gets supported and wanted FeatureGates
 	GetSupportedWantedFeatureGates() (map[string]*advisorsvc.FeatureGate, error)
 
+	// GetResourcePackageConfig returns a deep-copied snapshot of resource package configurations
+	// organized by NUMA node.
+	GetResourcePackageConfig() types.ResourcePackageConfig
+
 	metrictypes.MetricsReader
 }
 
@@ -135,6 +139,9 @@ type MetaWriter interface {
 
 	// SetSupportedWantedFeatureGates sets supported and wanted FeatureGates
 	SetSupportedWantedFeatureGates(featureGates map[string]*advisorsvc.FeatureGate) error
+	// SetResourcePackageConfig overwrites resource package configurations organized by NUMA node.
+	// The input will be deep-copied before being stored.
+	SetResourcePackageConfig(config types.ResourcePackageConfig) error
 	sync.Locker
 }
 
@@ -180,6 +187,11 @@ type MetaCacheImp struct {
 	featureGates      map[string]*advisorsvc.FeatureGate
 	featureGatesMutex sync.RWMutex
 
+	// resourcePackageConfig stores resource package configurations organized by NUMA node,
+	// and is updated by sysadvisor servers based on qrm-plugin inputs.
+	resourcePackageConfig      types.ResourcePackageConfig
+	resourcePackageConfigMutex sync.RWMutex
+
 	containerCreateTimestamp map[string]int64
 
 	// Lock for the entire MetaCache. Useful when you want to make multiple writes atomically.
@@ -216,6 +228,7 @@ func NewMetaCacheImp(conf *config.Configuration, emitterPool metricspool.Metrics
 		modelToResult:            make(map[string]interface{}),
 		modelInput:               make(map[string]map[string]interface{}),
 		featureGates:             make(map[string]*advisorsvc.FeatureGate),
+		resourcePackageConfig:    make(types.ResourcePackageConfig),
 		containerCreateTimestamp: make(map[string]int64),
 	}
 
@@ -616,6 +629,23 @@ func (mc *MetaCacheImp) SetSupportedWantedFeatureGates(featureGates map[string]*
 	defer mc.featureGatesMutex.Unlock()
 
 	mc.featureGates = featureGates
+	return nil
+}
+
+// GetResourcePackageConfig returns a deep-copied snapshot of resource package configurations.
+func (mc *MetaCacheImp) GetResourcePackageConfig() types.ResourcePackageConfig {
+	mc.resourcePackageConfigMutex.RLock()
+	defer mc.resourcePackageConfigMutex.RUnlock()
+
+	return mc.resourcePackageConfig.Clone()
+}
+
+// SetResourcePackageConfig overwrites resource package configurations with deep copy.
+func (mc *MetaCacheImp) SetResourcePackageConfig(config types.ResourcePackageConfig) error {
+	mc.resourcePackageConfigMutex.Lock()
+	defer mc.resourcePackageConfigMutex.Unlock()
+
+	mc.resourcePackageConfig = config.Clone()
 	return nil
 }
 

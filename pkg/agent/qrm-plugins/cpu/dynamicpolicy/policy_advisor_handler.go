@@ -56,6 +56,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/process"
+	resourcepackage "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
 
 const (
@@ -323,9 +324,30 @@ func (p *DynamicPolicy) createGetAdviceRequest() (*advisorapi.GetAdviceRequest, 
 
 	general.InfofV(6, "CPU plugin desire negotiation feature gates: %#v", wantedFeatureGates)
 
+	machineState := p.state.GetMachineState()
+	numaResourcePackagePinnedCPUSet := machineState.GetNUMAResourcePackagePinnedCPUSet()
+	var resourcePackageConfig *advisorapi.ResourcePackageConfig
+	if len(numaResourcePackagePinnedCPUSet) > 0 {
+		resourcePackageConfig = &advisorapi.ResourcePackageConfig{
+			NumaResourcePackages: make(map[uint64]*advisorapi.NumaResourcePackageConfig),
+		}
+		for numaID, pkgPinnedCPUSet := range numaResourcePackagePinnedCPUSet {
+			numaConfig := &advisorapi.NumaResourcePackageConfig{
+				Packages: make(map[string]*advisorapi.ResourcePackageItemConfig),
+			}
+			for pkgName, pinnedCPUSet := range pkgPinnedCPUSet {
+				numaConfig.Packages[pkgName] = &advisorapi.ResourcePackageItemConfig{
+					PinnedCpuset: pinnedCPUSet.String(),
+				}
+			}
+			resourcePackageConfig.NumaResourcePackages[uint64(numaID)] = numaConfig
+		}
+	}
+
 	return &advisorapi.GetAdviceRequest{
-		Entries:            chkEntries,
-		WantedFeatureGates: wantedFeatureGates,
+		Entries:               chkEntries,
+		WantedFeatureGates:    wantedFeatureGates,
+		ResourcePackageConfig: resourcePackageConfig,
 	}, nil
 }
 
@@ -836,6 +858,13 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 	machineInfo := p.machineInfo
 	topology := machineInfo.CPUTopology
 	availableCPUs := topology.CPUDetails.CPUs()
+	rpPinnedCPUSet := p.state.GetMachineState().GetResourcePackagePinnedCPUSet()
+	allPinnedCPUSets := machine.NewCPUSet()
+
+	// Accumulate all pinned cpusets from resource packages
+	for _, cset := range rpPinnedCPUSet {
+		allPinnedCPUSets = allPinnedCPUSets.Union(cset)
+	}
 
 	// Walk through static pools to construct blockCPUSet (for static pool),
 	// and calculate availableCPUs after deducting static pools.
@@ -915,19 +944,33 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 				continue
 			}
 
+			pinnedCPUSets := machine.NewCPUSet()
+			pkg := allocationInfo.GetResourcePackageName()
+			if pkg != "" && !rpPinnedCPUSet[pkg].IsEmpty() {
+				// only keep the pinned CPUs that are available on this NUMA node
+				pinnedCPUSets = rpPinnedCPUSet[pkg].Intersection(numaAvailableCPUs)
+			}
+
+			currentAvailableCPUs := numaAvailableCPUs
+			if !pinnedCPUSets.IsEmpty() {
+				currentAvailableCPUs = currentAvailableCPUs.Intersection(pinnedCPUSets)
+			} else {
+				currentAvailableCPUs = currentAvailableCPUs.Difference(allPinnedCPUSets)
+			}
+
 			var cpuset machine.CPUSet
-			alreadyAllocatedCPUs = alreadyAllocatedCPUs.Intersection(numaAvailableCPUs)
+			alreadyAllocatedCPUs = alreadyAllocatedCPUs.Intersection(currentAvailableCPUs)
 			if alreadyAllocatedCPUs.Size() >= blockResult {
 				cpuset, err = calculator.TakeByTopology(machineInfo, alreadyAllocatedCPUs, blockResult, true)
 				if err != nil {
-					return nil, fmt.Errorf("allocate cpuset for NUMA Aware block: %s in NUMA: %d failed with error: %v, numaAvailableCPUs: %d(%s), blockResult: %d",
-						blockID, numaID, err, numaAvailableCPUs.Size(), numaAvailableCPUs.String(), blockResult)
+					return nil, fmt.Errorf("allocate cpuset for NUMA Aware block: %s in NUMA: %d failed with error: %v, numaAvailableCPUs: %d(%s), currentAvailableCPUs: %d(%s), blockResult: %d",
+						blockID, numaID, err, numaAvailableCPUs.Size(), numaAvailableCPUs.String(), currentAvailableCPUs.Size(), currentAvailableCPUs.String(), blockResult)
 				}
 			} else {
-				cpuset, err = calculator.TakeByTopology(machineInfo, numaAvailableCPUs.Difference(alreadyAllocatedCPUs), blockResult-alreadyAllocatedCPUs.Size(), true)
+				cpuset, err = calculator.TakeByTopology(machineInfo, currentAvailableCPUs.Difference(alreadyAllocatedCPUs), blockResult-alreadyAllocatedCPUs.Size(), true)
 				if err != nil {
-					return nil, fmt.Errorf("allocate cpuset for NUMA Aware block: %s in NUMA: %d failed with error: %v, numaAvailableCPUs: %d(%s), blockResult: %d",
-						blockID, numaID, err, numaAvailableCPUs.Size(), numaAvailableCPUs.String(), blockResult)
+					return nil, fmt.Errorf("allocate cpuset for NUMA Aware block: %s in NUMA: %d failed with error: %v, numaAvailableCPUs: %d(%s), currentAvailableCPUs: %d(%s), blockResult: %d",
+						blockID, numaID, err, numaAvailableCPUs.Size(), numaAvailableCPUs.String(), currentAvailableCPUs.Size(), currentAvailableCPUs.String(), blockResult)
 				}
 				cpuset = cpuset.Union(alreadyAllocatedCPUs)
 			}
@@ -951,6 +994,19 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 				continue
 			}
 
+			pinnedCPUSets := machine.NewCPUSet()
+			for poolName := range block.OwnerPoolEntryMap {
+				if commonstate.IsIsolationPool(poolName) || commonstate.IsShareNUMABindingPool(poolName) {
+					_, pkg := resourcepackage.UnwrapOwnerPoolName(poolName)
+					if pkg != "" && !rpPinnedCPUSet[pkg].IsEmpty() {
+						// only keep the pinned CPUs that are available on this NUMA node
+						pinnedCPUSets = rpPinnedCPUSet[pkg].Intersection(numaAvailableCPUs)
+					}
+					withNUMABindingShareOrDedicatedPod = true
+					break
+				}
+			}
+
 			blockID := block.BlockId
 			if _, found := blockCPUSet[blockID]; found {
 				general.Warningf("block: %v already allocated", blockID)
@@ -963,22 +1019,22 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 					blockID, err)
 			}
 
-			cpuset, err := calculator.TakeByTopology(machineInfo, numaAvailableCPUs, blockResult, false)
+			currentAvailableCPUs := numaAvailableCPUs
+			if !pinnedCPUSets.IsEmpty() {
+				currentAvailableCPUs = currentAvailableCPUs.Intersection(pinnedCPUSets)
+			} else {
+				currentAvailableCPUs = currentAvailableCPUs.Difference(allPinnedCPUSets)
+			}
+
+			cpuset, err := calculator.TakeByTopology(machineInfo, currentAvailableCPUs, blockResult, false)
 			if err != nil {
-				return nil, fmt.Errorf("allocate cpuset for NUMA Aware block: %s in NUMA: %d failed with error: %v, numaAvailableCPUs: %d(%s), blockResult: %d",
-					blockID, numaID, err, numaAvailableCPUs.Size(), numaAvailableCPUs.String(), blockResult)
+				return nil, fmt.Errorf("allocate cpuset for NUMA Aware block: %s in NUMA: %d failed with error: %v, numaAvailableCPUs: %d(%s), currentAvailableCPUs: %d(%s), blockResult: %d",
+					blockID, numaID, err, numaAvailableCPUs.Size(), numaAvailableCPUs.String(), currentAvailableCPUs.Size(), currentAvailableCPUs.String(), blockResult)
 			}
 
 			blockCPUSet[blockID] = cpuset
 			numaAvailableCPUs = numaAvailableCPUs.Difference(cpuset)
 			availableCPUs = availableCPUs.Difference(cpuset)
-
-			for poolName := range block.OwnerPoolEntryMap {
-				if commonstate.IsIsolationPool(poolName) || commonstate.IsShareNUMABindingPool(poolName) {
-					withNUMABindingShareOrDedicatedPod = true
-					break
-				}
-			}
 		}
 
 		// Finally, if there are NUMA-bound containers on this NUMA node,

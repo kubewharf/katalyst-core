@@ -90,7 +90,7 @@ type CPUPressureLoadEviction struct {
 	poolMetricCollectHandlers map[string]util.PoolMetricCollectHandler
 
 	systemReservedCPUs machine.CPUSet
-	configTranslator   *general.CommonSuffixTranslator
+	configTranslator   general.SuffixTranslator
 }
 
 func NewCPUPressureLoadEviction(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
@@ -105,7 +105,7 @@ func NewCPUPressureLoadEviction(emitter metrics.MetricEmitter, metaServer *metas
 		dynamicConf:      conf.DynamicAgentConfiguration,
 		skipPools:        sets.NewString(conf.LoadPressureEvictionSkipPools...),
 		syncPeriod:       conf.LoadEvictionSyncPeriod,
-		configTranslator: general.NewCommonSuffixTranslator(commonstate.NUMAPoolInfix),
+		configTranslator: commonstate.OwnerPoolNameTranslator,
 	}
 
 	systemReservedCores, reserveErr := cpuutil.GetCoresReservedForSystem(conf, metaServer, metaServer.KatalystMachineInfo, metaServer.CPUDetails.CPUs().Clone())
