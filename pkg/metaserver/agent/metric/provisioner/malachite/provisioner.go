@@ -382,7 +382,7 @@ func (m *MalachiteMetricsProvisioner) processSystemMemoryData(systemMemoryData *
 		utilmetric.MetricData{Value: float64(mem.MemSockUdpLimit), Time: &updateTime})
 }
 
-func (m *MalachiteMetricsProvisioner) processSystemIOData(systemIOData *malachitetypes.SystemDiskIoData) {
+func (m *MalachiteMetricsProvisioner) processSystemIOData(systemIOData *malachitetypes.SystemIoData) {
 	if systemIOData == nil {
 		return
 	}
@@ -443,6 +443,17 @@ func (m *MalachiteMetricsProvisioner) processSystemIOData(systemIOData *malachit
 		m.metricStore.SetDeviceMetric(device.DeviceName, consts.MetricIODiskWBTValue,
 			utilmetric.MetricData{Value: float64(device.WBTValue), Time: &updateTime})
 	}
+
+	var zramOrigin, zramUsedTotal, zramCompr uint64
+	for _, stat := range systemIOData.ZramStat {
+		zramOrigin += stat.OrigDataSize
+		zramUsedTotal += stat.MemUsedTotal
+		zramCompr += stat.ComprDataSize
+	}
+
+	m.metricStore.SetNodeMetric(consts.MetricZramOriginDataSize, utilmetric.MetricData{Value: float64(zramOrigin), Time: &updateTime})
+	m.metricStore.SetNodeMetric(consts.MetricZramUsedTotal, utilmetric.MetricData{Value: float64(zramUsedTotal), Time: &updateTime})
+	m.metricStore.SetNodeMetric(consts.MetricZramComprDataSize, utilmetric.MetricData{Value: float64(zramCompr), Time: &updateTime})
 }
 
 func (m *MalachiteMetricsProvisioner) processSystemNetData(systemNetData *malachitetypes.SystemNetworkData) {
@@ -660,6 +671,24 @@ func (m *MalachiteMetricsProvisioner) processSystemExtFragData(systemMemoryData 
 	for _, numa := range systemMemoryData.ExtFrag {
 		m.metricStore.SetNumaMetric(numa.ID, consts.MetricMemFragScoreNuma,
 			utilmetric.MetricData{Value: float64(numa.MemFragScore), Time: &updateTime})
+
+		// Derive high-order extfrag score (order 9~10) for THP tuning.
+		// Only set this metric when all required orders are present.
+		var score9, score10 *uint64
+		for _, s := range numa.MemOrderScores {
+			switch s.Order {
+			case 9:
+				v := s.Score
+				score9 = &v
+			case 10:
+				v := s.Score
+				score10 = &v
+			}
+		}
+		if score9 != nil && score10 != nil {
+			m.metricStore.SetNumaMetric(numa.ID, consts.MetricMemFragHighOrderScoreNuma,
+				utilmetric.MetricData{Value: (float64(*score9) + float64(*score10)) / 2.0, Time: &updateTime})
+		}
 	}
 }
 
@@ -1026,7 +1055,6 @@ func (m *MalachiteMetricsProvisioner) processContainerCPUData(podUID, containerN
 		cyclesOld, _            = m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricCPUCyclesContainer)
 		instructionsOld, _      = m.metricStore.GetContainerMetric(podUID, containerName, consts.MetricCPUInstructionsContainer)
 	)
-
 	m.processContainerMemBandwidth(podUID, containerName, cgStats, metricLastUpdateTime.Value)
 	m.processContainerCPURelevantRate(podUID, containerName, cgStats, metricLastUpdateTime.Value)
 
@@ -1135,7 +1163,6 @@ func (m *MalachiteMetricsProvisioner) processContainerCPUData(podUID, containerN
 	} else if cgStats.CgroupType == "V2" && cgStats.V2 != nil {
 		cpu := cgStats.V2.Cpu
 		updateTime := time.Unix(cgStats.V2.Cpu.UpdateTime, 0)
-
 		// todo it's kind of confusing but the `cpu-usage-ratio` in `cgroup-level` actually represents `actual cores`,
 		//  we will always rename metric in local store to eliminate `ratio` to avoid ambiguity.
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUUsageContainer,
@@ -1160,12 +1187,6 @@ func (m *MalachiteMetricsProvisioner) processContainerCPUData(podUID, containerN
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUPeriodContainer,
 			utilmetric.MetricData{Value: float64(cpu.MaxPeriod), Time: &updateTime})
 
-		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrRunnableContainer,
-			utilmetric.MetricData{Value: float64(cpu.TaskNrRunning), Time: &updateTime})
-		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrUninterruptibleContainer,
-			utilmetric.MetricData{Value: float64(cpu.TaskNrUninterruptible), Time: &updateTime})
-		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrIOWaitContainer,
-			utilmetric.MetricData{Value: float64(cpu.TaskNrIoWait), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUThrottledTimeContainer,
 			utilmetric.MetricData{Value: float64(cpu.CPUStats.ThrottledUsec), Time: &updateTime})
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrThrottledContainer,
@@ -1173,12 +1194,23 @@ func (m *MalachiteMetricsProvisioner) processContainerCPUData(podUID, containerN
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrPeriodContainer,
 			utilmetric.MetricData{Value: float64(cpu.CPUStats.NrPeriods), Time: &updateTime})
 
-		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricLoad1MinContainer,
-			utilmetric.MetricData{Value: cpu.Load.One, Time: &updateTime})
-		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricLoad5MinContainer,
-			utilmetric.MetricData{Value: cpu.Load.Five, Time: &updateTime})
-		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricLoad15MinContainer,
-			utilmetric.MetricData{Value: cpu.Load.Fifteen, Time: &updateTime})
+		// todo: Currently, in cgroup v2, we cannot get cgroup-level runnable tasks directly from Malachite.
+		//  This is because Malachite only provides container-level runnable tasks, which do not include the tasks in sub-cgroups.
+		//  So we now only enable reporting cgroup-level runnable tasks metrics in cgroup v2 when all containers have no sub-cgroups.
+		if !m.baseConf.DisableCGroupV2TaskLoadMetrics {
+			m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrRunnableContainer,
+				utilmetric.MetricData{Value: float64(cpu.TaskNrRunning), Time: &updateTime})
+			m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrUninterruptibleContainer,
+				utilmetric.MetricData{Value: float64(cpu.TaskNrUninterruptible), Time: &updateTime})
+			m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricCPUNrIOWaitContainer,
+				utilmetric.MetricData{Value: float64(cpu.TaskNrIoWait), Time: &updateTime})
+			m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricLoad1MinContainer,
+				utilmetric.MetricData{Value: cpu.Load.One, Time: &updateTime})
+			m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricLoad5MinContainer,
+				utilmetric.MetricData{Value: cpu.Load.Five, Time: &updateTime})
+			m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricLoad15MinContainer,
+				utilmetric.MetricData{Value: cpu.Load.Fifteen, Time: &updateTime})
+		}
 
 		m.metricStore.SetContainerMetric(podUID, containerName, consts.MetricOCRReadDRAMsContainer,
 			utilmetric.MetricData{Value: float64(cpu.OcrReadDrams), Time: &updateTime})
@@ -1234,7 +1266,6 @@ func (m *MalachiteMetricsProvisioner) processContainerCPUData(podUID, containerN
 				rate := (float64(usage) - numaCPUUsageOld.Value) / updateTime.Sub(*numaCPUUsageOld.Time).Seconds() / 1000000000
 				m.metricStore.SetContainerNumaMetric(podUID, containerName, numaID, consts.MetricsCPUUsageNUMAContainer, utilmetric.MetricData{Value: rate, Time: &updateTime})
 			}
-
 			m.metricStore.SetContainerNumaMetric(podUID, containerName, numaID, consts.MetricsCPUUsageCountNUMAContainer,
 				utilmetric.MetricData{Value: float64(usage), Time: &updateTime})
 		}

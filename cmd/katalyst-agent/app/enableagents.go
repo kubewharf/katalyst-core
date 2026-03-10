@@ -24,6 +24,7 @@ import (
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent/qrm"
 	_ "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu"
+	_ "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu"
 	_ "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/io"
 	_ "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb"
 	_ "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory"
@@ -59,6 +60,7 @@ func init() {
 	agentInitializers.Store(qrm.QRMPluginNameNetwork, AgentStarter{Init: qrm.InitQRMNetworkPlugins})
 	agentInitializers.Store(qrm.QRMPluginNameIO, AgentStarter{Init: qrm.InitQRMIOPlugins})
 	agentInitializers.Store(qrm.QRMPluginNameMB, AgentStarter{Init: qrm.InitQRMMBPlugins})
+	agentInitializers.Store(qrm.QRMPluginNameGPU, AgentStarter{Init: qrm.InitQRMGPUPlugins})
 }
 
 // RegisterAgentInitializer is used to register user-defined agents

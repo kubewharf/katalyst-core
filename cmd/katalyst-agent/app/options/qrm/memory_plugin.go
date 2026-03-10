@@ -21,13 +21,17 @@ import (
 
 	cliflag "k8s.io/component-base/cli/flag"
 
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/consts"
+	utilflag "github.com/kubewharf/katalyst-core/pkg/util/flags"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 type MemoryOptions struct {
 	PolicyName                                    string
 	ReservedMemoryGB                              uint64
+	ReservedNumaMemory                            []native.MemoryReservation
 	SkipMemoryStateCorruption                     bool
 	EnableSettingMemoryMigrate                    bool
 	EnableMemoryAdvisor                           bool
@@ -42,6 +46,7 @@ type MemoryOptions struct {
 	SockMemOptions
 	LogCacheOptions
 	FragMemOptions
+	HostWatermarkOptions
 	ResctrlOptions
 }
 
@@ -75,6 +80,22 @@ type FragMemOptions struct {
 	// SetMemFragScoreAsync sets the threashold of frag score for async memory compaction.
 	// The async compaction behavior will be triggered while exceeding this score.
 	SetMemFragScoreAsync int
+	// THPDefaultConfig is the default host THP config we try to recover to.
+	// Valid values: "madvise", "always", "never".
+	THPDefaultConfig string
+	// THPHighOrderScoreThreshold sets the threshold of highOrderScore for THP tuning.
+	THPHighOrderScoreThreshold int
+}
+
+type HostWatermarkOptions struct {
+	// EnableSettingHostWatermark is used to tune vm.* watermark sysctls on host.
+	EnableSettingHostWatermark bool
+	// SetVMWatermarkScaleFactor sets /proc/sys/vm/watermark_scale_factor.
+	// The unit is per ten thousand (i.e. 10000 means 100%). 0 means do not change.
+	SetVMWatermarkScaleFactor int
+	// ReservedKswapdWatermarkGB is used to calculate watermark_scale_factor automatically.
+	// It only takes effect when SetVMWatermarkScaleFactor is 0.
+	ReservedKswapdWatermarkGB uint64
 }
 
 type ResctrlOptions struct {
@@ -83,6 +104,7 @@ type ResctrlOptions struct {
 	// based on its cpu set pool annotation
 	CPUSetPoolToSharedSubgroup map[string]int
 	DefaultSharedSubgroup      int
+	EnabledQoS                 []string
 
 	// MonGroupEnabledClosIDs specifies mon_groups layout policy of kubelet
 	// by default no special mon_groups layout, which allows kubelet to decide by itself, suitable for scenarios
@@ -119,12 +141,20 @@ func NewMemoryOptions() *MemoryOptions {
 			FileFilters:            []string{".*\\.log.*"},
 		},
 		FragMemOptions: FragMemOptions{
-			EnableSettingFragMem: false,
-			SetMemFragScoreAsync: 80,
+			EnableSettingFragMem:       false,
+			SetMemFragScoreAsync:       80,
+			THPDefaultConfig:           "madvise",
+			THPHighOrderScoreThreshold: 85,
+		},
+		HostWatermarkOptions: HostWatermarkOptions{
+			EnableSettingHostWatermark: false,
+			SetVMWatermarkScaleFactor:  0,
+			ReservedKswapdWatermarkGB:  0,
 		},
 		ResctrlOptions: ResctrlOptions{
 			CPUSetPoolToSharedSubgroup: make(map[string]int),
 			DefaultSharedSubgroup:      -1,
+			EnabledQoS:                 []string{apiconsts.PodAnnotationQoSLevelSharedCores},
 			MonGroupEnabledClosIDs:     []string{},
 		},
 	}
@@ -137,6 +167,8 @@ func (o *MemoryOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.PolicyName, "The policy memory resource plugin should use")
 	fs.Uint64Var(&o.ReservedMemoryGB, "memory-resource-plugin-reserved",
 		o.ReservedMemoryGB, "reserved memory(GB) for system agents")
+	fs.Var(&utilflag.ReservedMemoryVar{Value: &o.ReservedNumaMemory}, "memory-resource-plugin-numa-reserved",
+		"reserved numa memory for system agents. (e.g. --reserved-memory 0:memory=1Gi,hugepages-1M=2Gi/1:memory=2Gi). ")
 	fs.BoolVar(&o.SkipMemoryStateCorruption, "skip-memory-state-corruption",
 		o.SkipMemoryStateCorruption, "if set true, we will skip memory state corruption")
 	fs.BoolVar(&o.EnableSettingMemoryMigrate, "enable-setting-memory-migrate",
@@ -181,12 +213,24 @@ func (o *MemoryOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.EnableSettingFragMem, "if set true, we will enable memory compaction related features")
 	fs.IntVar(&o.SetMemFragScoreAsync, "qrm-memory-frag-score-async",
 		o.SetMemFragScoreAsync, "set the threshold of frag score for async memory compaction")
+	fs.StringVar(&o.THPDefaultConfig, "qrm-memory-thp-default-config",
+		o.THPDefaultConfig, "default host THP config to recover to (madvise/always/never)")
+	fs.IntVar(&o.THPHighOrderScoreThreshold, "qrm-memory-thp-high-order-score-threshold",
+		o.THPHighOrderScoreThreshold, "disable THP when max highOrderScore > threshold")
+	fs.BoolVar(&o.EnableSettingHostWatermark, "enable-setting-host-watermark",
+		o.EnableSettingHostWatermark, "if set true, we will tune host vm.* watermark sysctls")
+	fs.IntVar(&o.SetVMWatermarkScaleFactor, "qrm-memory-vm-watermark-scale-factor",
+		o.SetVMWatermarkScaleFactor, "set /proc/sys/vm/watermark_scale_factor (per 10000, 0 means do not change)")
+	fs.Uint64Var(&o.ReservedKswapdWatermarkGB, "qrm-memory-kswapd-watermark-reserved-gb",
+		o.ReservedKswapdWatermarkGB, "auto-calculate vm.watermark_scale_factor by reserving this many GB on a single NUMA (only when qrm-memory-vm-watermark-scale-factor=0)")
 	fs.BoolVar(&o.EnableResctrlHint, "pod-admit-resctrl-layout-hint",
 		o.EnableResctrlHint, "if set true, we will enable resctrl hint on pod admission")
 	fs.StringToIntVar(&o.CPUSetPoolToSharedSubgroup, "resctrl-cpuset-pool-to-shared-subgroup",
 		o.CPUSetPoolToSharedSubgroup, "customize shared-xx subgroup if present")
 	fs.IntVar(&o.DefaultSharedSubgroup, "resctrl-default-shared-subgroup",
 		o.DefaultSharedSubgroup, "default subgroup for shared qos")
+	fs.StringSliceVar(&o.EnabledQoS, "resctrl-enabled-qos",
+		o.EnabledQoS, "enabled qos levels to create resctrl closID")
 	fs.StringSliceVar(&o.MonGroupEnabledClosIDs, "resctrl-mon-groups-enabled-closids",
 		o.MonGroupEnabledClosIDs, "enabled-closid mon-groups")
 	fs.Float64Var(&o.MonGroupMaxCountRatio, "resctrl-mon-groups-max-count-ratio",
@@ -218,11 +262,21 @@ func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
 	conf.FileFilters = o.FileFilters
 	conf.EnableSettingFragMem = o.EnableSettingFragMem
 	conf.SetMemFragScoreAsync = o.SetMemFragScoreAsync
+	conf.EnableSettingHostWatermark = o.EnableSettingHostWatermark
+	conf.SetVMWatermarkScaleFactor = o.SetVMWatermarkScaleFactor
+	conf.ReservedKswapdWatermarkGB = o.ReservedKswapdWatermarkGB
+	conf.THPDefaultConfig = o.THPDefaultConfig
+	conf.THPHighOrderScoreThreshold = o.THPHighOrderScoreThreshold
 	conf.EnableResctrlHint = o.EnableResctrlHint
 	conf.CPUSetPoolToSharedSubgroup = o.CPUSetPoolToSharedSubgroup
 	conf.DefaultSharedSubgroup = o.DefaultSharedSubgroup
+	conf.EnabledQoS = o.EnabledQoS
 	conf.MonGroupEnabledClosIDs = o.MonGroupEnabledClosIDs
 	conf.MonGroupMaxCountRatio = o.MonGroupMaxCountRatio
+
+	for _, reservation := range o.ReservedNumaMemory {
+		conf.ReservedNumaMemory[reservation.NumaNode] = reservation.Limits
+	}
 
 	return nil
 }

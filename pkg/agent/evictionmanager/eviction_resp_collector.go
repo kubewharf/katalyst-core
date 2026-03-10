@@ -169,6 +169,42 @@ func (e *evictionRespCollector) collectMetThreshold(dryRunPlugins []string, plug
 	}
 }
 
+func (e *evictionRespCollector) collectTopSoftEvictionPods(dryRunPlugins []string, pluginName string,
+	threshold *pluginapi.ThresholdMetResponse, resp *pluginapi.GetTopEvictionPodsResponse,
+) {
+	dryRun := e.isDryRun(dryRunPlugins, pluginName)
+
+	targetPods := make([]*v1.Pod, 0, len(resp.TargetPods))
+	for i, pod := range resp.TargetPods {
+		if pod == nil {
+			continue
+		}
+
+		general.Infof("%v plugin %v request to notify topN pod %v/%v, reason: met threshold in scope [%v]",
+			e.getLogPrefix(dryRun), pluginName, pod.Namespace, pod.Name, threshold.EvictionScope)
+		if dryRun {
+			metricsPodToEvict(e.emitter, e.conf.GenericConfiguration.QoSConfiguration, pluginName, pod, dryRun, e.conf.GenericEvictionConfiguration.PodMetricLabels)
+		} else {
+			targetPods = append(targetPods, resp.TargetPods[i])
+		}
+	}
+
+	for _, pod := range targetPods {
+		reason := fmt.Sprintf("plugin %s met threshold in scope %s, target %v, observed %v",
+			pluginName, threshold.EvictionScope, threshold.ThresholdValue, threshold.ObservedValue)
+
+		e.getSoftEvictPods()[string(pod.UID)] = &rule.RuledEvictPod{
+			EvictPod: &pluginapi.EvictPod{
+				Pod:                pod.DeepCopy(),
+				Reason:             reason,
+				ForceEvict:         false,
+				EvictionPluginName: pluginName,
+			},
+			Scope: threshold.EvictionScope,
+		}
+	}
+}
+
 func (e *evictionRespCollector) collectTopEvictionPods(dryRunPlugins []string, pluginName string,
 	threshold *pluginapi.ThresholdMetResponse, resp *pluginapi.GetTopEvictionPodsResponse,
 ) {
@@ -191,15 +227,15 @@ func (e *evictionRespCollector) collectTopEvictionPods(dryRunPlugins []string, p
 
 	for _, pod := range targetPods {
 		deletionOptions := resp.DeletionOptions
-		if deletionOptions == nil {
-			deletionOptions = &pluginapi.DeletionOptions{}
-		}
 		reason := fmt.Sprintf("plugin %s met threshold in scope %s, target %v, observed %v",
 			pluginName, threshold.EvictionScope, threshold.ThresholdValue, threshold.ObservedValue)
 
 		forceEvictPod := e.getForceEvictPods()[string(pod.UID)]
 		if forceEvictPod != nil && forceEvictPod.EvictPod != nil {
 			if forceEvictPod.EvictPod.DeletionOptions != nil {
+				if deletionOptions == nil {
+					deletionOptions = &pluginapi.DeletionOptions{}
+				}
 				deletionOptions.GracePeriodSeconds = general.MaxInt64(deletionOptions.GracePeriodSeconds,
 					forceEvictPod.EvictPod.DeletionOptions.GracePeriodSeconds)
 			}

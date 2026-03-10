@@ -25,37 +25,43 @@ import (
 
 // MemoryPressureEvictionOptions is the options of MemoryPressureEviction
 type MemoryPressureEvictionOptions struct {
-	EnableNumaLevelEviction                 bool
-	EnableSystemLevelEviction               bool
-	NumaVictimMinimumUtilizationThreshold   float64
-	NumaFreeBelowWatermarkTimesThreshold    int
-	SystemFreeMemoryThresholdMinimum        string
-	SystemKswapdRateThreshold               int
-	SystemKswapdRateExceedDurationThreshold int
-	NumaEvictionRankingMetrics              []string
-	SystemEvictionRankingMetrics            []string
-	GracePeriod                             int64
-	ReclaimedGracePeriod                    int64
-	EnableRSSOveruseEviction                bool
-	RSSOveruseRateThreshold                 float64
+	EnableNumaLevelEviction                       bool
+	EnableSystemLevelEviction                     bool
+	NumaVictimMinimumUtilizationThreshold         float64
+	NumaFreeBelowWatermarkTimesThreshold          int
+	NumaFreeBelowWatermarkTimesReclaimedThreshold int
+	NumaFreeConstraintFastEvictionWaitCycle       int
+	SystemFreeMemoryThresholdMinimum              string
+	SystemKswapdRateThreshold                     int
+	SystemKswapdRateExceedDurationThreshold       int
+	NumaEvictionRankingMetrics                    []string
+	SystemEvictionRankingMetrics                  []string
+	GracePeriod                                   int64
+	ReclaimedGracePeriod                          int64
+	EnableRSSOveruseEviction                      bool
+	RSSOveruseRateThreshold                       float64
+	EvictNonReclaimedAnnotationSelector           string
+	EvictNonReclaimedLabelSelector                string
 }
 
 // NewMemoryPressureEvictionOptions returns a new MemoryPressureEvictionOptions
 func NewMemoryPressureEvictionOptions() *MemoryPressureEvictionOptions {
 	return &MemoryPressureEvictionOptions{
-		EnableNumaLevelEviction:                 eviction.DefaultEnableNumaLevelEviction,
-		EnableSystemLevelEviction:               eviction.DefaultEnableSystemLevelEviction,
-		NumaVictimMinimumUtilizationThreshold:   eviction.DefaultNumaVictimMinimumUtilizationThreshold,
-		NumaFreeBelowWatermarkTimesThreshold:    eviction.DefaultNumaFreeBelowWatermarkTimesThreshold,
-		SystemFreeMemoryThresholdMinimum:        eviction.DefaultSystemFreeMemoryThresholdMinimum,
-		SystemKswapdRateThreshold:               eviction.DefaultSystemKswapdRateThreshold,
-		SystemKswapdRateExceedDurationThreshold: eviction.DefaultSystemKswapdRateExceedDurationThreshold,
-		NumaEvictionRankingMetrics:              eviction.DefaultNumaEvictionRankingMetrics,
-		SystemEvictionRankingMetrics:            eviction.DefaultSystemEvictionRankingMetrics,
-		GracePeriod:                             eviction.DefaultGracePeriod,
-		ReclaimedGracePeriod:                    eviction.DefaultReclaimedGracePeriod,
-		EnableRSSOveruseEviction:                eviction.DefaultEnableRssOveruseDetection,
-		RSSOveruseRateThreshold:                 eviction.DefaultRSSOveruseRateThreshold,
+		EnableNumaLevelEviction:                       eviction.DefaultEnableNumaLevelEviction,
+		EnableSystemLevelEviction:                     eviction.DefaultEnableSystemLevelEviction,
+		NumaVictimMinimumUtilizationThreshold:         eviction.DefaultNumaVictimMinimumUtilizationThreshold,
+		NumaFreeBelowWatermarkTimesThreshold:          eviction.DefaultNumaFreeBelowWatermarkTimesThreshold,
+		NumaFreeBelowWatermarkTimesReclaimedThreshold: eviction.DefaultNumaFreeBelowWatermarkTimesReclaimedThreshold,
+		NumaFreeConstraintFastEvictionWaitCycle:       eviction.DefaultNumaFreeConstraintFastEvictionWaitCycle,
+		SystemFreeMemoryThresholdMinimum:              eviction.DefaultSystemFreeMemoryThresholdMinimum,
+		SystemKswapdRateThreshold:                     eviction.DefaultSystemKswapdRateThreshold,
+		SystemKswapdRateExceedDurationThreshold:       eviction.DefaultSystemKswapdRateExceedDurationThreshold,
+		NumaEvictionRankingMetrics:                    eviction.DefaultNumaEvictionRankingMetrics,
+		SystemEvictionRankingMetrics:                  eviction.DefaultSystemEvictionRankingMetrics,
+		GracePeriod:                                   eviction.DefaultGracePeriod,
+		ReclaimedGracePeriod:                          eviction.DefaultReclaimedGracePeriod,
+		EnableRSSOveruseEviction:                      eviction.DefaultEnableRssOveruseDetection,
+		RSSOveruseRateThreshold:                       eviction.DefaultRSSOveruseRateThreshold,
 	}
 }
 
@@ -71,6 +77,10 @@ func (o *MemoryPressureEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"the threshold for the victim's minimum memory utilization on a NUMA node")
 	fs.IntVar(&o.NumaFreeBelowWatermarkTimesThreshold, "eviction-numa-free-below-watermark-times-threshold", o.NumaFreeBelowWatermarkTimesThreshold,
 		"the threshold for the number of times NUMA's free memory falls below the watermark")
+	fs.IntVar(&o.NumaFreeBelowWatermarkTimesReclaimedThreshold, "eviction-numa-free-below-watermark-times-reclaimed-threshold", o.NumaFreeBelowWatermarkTimesReclaimedThreshold,
+		"the threshold for the number of times NUMA's free memory of the reclaimed instance falls below the watermark.")
+	fs.IntVar(&o.NumaFreeConstraintFastEvictionWaitCycle, "eviction-numa-free-constrained-fast-eviction-wait-cycle", o.NumaFreeConstraintFastEvictionWaitCycle,
+		"the waiting cycle when memory is tight and fast eviction is needed.")
 	fs.StringVar(&o.SystemFreeMemoryThresholdMinimum, "eviction-system-free-memory-threshold-minimum", o.SystemFreeMemoryThresholdMinimum,
 		"the minimum of free memory threshold,it should be a string can be parsed to a quantity, e.g. 10Gi,20Ki")
 	fs.IntVar(&o.SystemKswapdRateThreshold, "eviction-system-kswapd-rate-threshold", o.SystemKswapdRateThreshold,
@@ -89,6 +99,10 @@ func (o *MemoryPressureEvictionOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"whether to enable pod-level rss overuse eviction")
 	fs.Float64Var(&o.RSSOveruseRateThreshold, "eviction-rss-overuse-rate-threshold", o.RSSOveruseRateThreshold,
 		"the threshold for the rate of rss overuse threshold")
+	fs.StringVar(&o.EvictNonReclaimedAnnotationSelector, "eviction-memory-non-reclaimed-annotation-selector", o.EvictNonReclaimedAnnotationSelector,
+		"the annotation selector used to filter non-reclaimed pods for eviction")
+	fs.StringVar(&o.EvictNonReclaimedLabelSelector, "eviction-memory-non-reclaimed-label-selector", o.EvictNonReclaimedLabelSelector,
+		"the label selector used to filter non-reclaimed pods for eviction")
 }
 
 // ApplyTo applies MemoryPressureEvictionOptions to MemoryPressureEvictionConfiguration
@@ -97,6 +111,8 @@ func (o *MemoryPressureEvictionOptions) ApplyTo(c *eviction.MemoryPressureEvicti
 	c.EnableSystemLevelEviction = o.EnableSystemLevelEviction
 	c.NumaVictimMinimumUtilizationThreshold = o.NumaVictimMinimumUtilizationThreshold
 	c.NumaFreeBelowWatermarkTimesThreshold = o.NumaFreeBelowWatermarkTimesThreshold
+	c.NumaFreeBelowWatermarkTimesReclaimedThreshold = o.NumaFreeBelowWatermarkTimesReclaimedThreshold
+	c.NumaFreeConstraintFastEvictionWaitCycle = o.NumaFreeConstraintFastEvictionWaitCycle
 	quantity, err := resource.ParseQuantity(o.SystemFreeMemoryThresholdMinimum)
 	if err != nil {
 		return err
@@ -110,6 +126,8 @@ func (o *MemoryPressureEvictionOptions) ApplyTo(c *eviction.MemoryPressureEvicti
 	c.ReclaimedGracePeriod = o.ReclaimedGracePeriod
 	c.EnableRSSOveruseEviction = o.EnableRSSOveruseEviction
 	c.RSSOveruseRateThreshold = o.RSSOveruseRateThreshold
+	c.EvictNonReclaimedAnnotationSelector = o.EvictNonReclaimedAnnotationSelector
+	c.EvictNonReclaimedLabelSelector = o.EvictNonReclaimedLabelSelector
 
 	return nil
 }

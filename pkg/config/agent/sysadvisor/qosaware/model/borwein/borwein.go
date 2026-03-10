@@ -29,6 +29,8 @@ type BorweinConfiguration struct {
 	TargetIndicators                   []string
 	DryRun                             bool
 	EnableBorweinV2                    bool
+	EnableBorweinV3                    bool
+	RestrictIndicator                  bool
 }
 
 func NewBorweinConfiguration() *BorweinConfiguration {
@@ -47,5 +49,7 @@ func NewBorweinConfiguration() *BorweinConfiguration {
 		TargetIndicators:      []string{},
 		DryRun:                false,
 		EnableBorweinV2:       false,
+		EnableBorweinV3:       false,
+		RestrictIndicator:     false,
 	}
 }

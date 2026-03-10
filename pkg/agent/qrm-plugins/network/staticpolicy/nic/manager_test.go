@@ -198,6 +198,7 @@ func TestCheckNICs(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Len(t, result.HealthyNICs, 2)
 		assert.Empty(t, result.UnhealthyNICs)
+		assert.Empty(t, result.UnhealthyReasons)
 	})
 
 	t.Run("Some NICs unhealthy", func(t *testing.T) {
@@ -223,5 +224,7 @@ func TestCheckNICs(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Len(t, result.HealthyNICs, 1)
 		assert.Len(t, result.UnhealthyNICs, 1)
+		assert.Len(t, result.UnhealthyReasons, 1)
+		assert.Equal(t, result.UnhealthyReasons[0], "health check mockChecker failed for nic eth0")
 	})
 }

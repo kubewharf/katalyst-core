@@ -30,6 +30,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuburst"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	coreconfig "github.com/kubewharf/katalyst-core/pkg/config"
@@ -469,4 +470,23 @@ func (p *DynamicPolicy) syncCPUIdle(_ *coreconfig.Configuration,
 				cgroupPath, p.enableCPUIdle, err)
 		}
 	}
+}
+
+// syncCPUBurst is used to periodically set the cpu burst for every pod
+func (p *DynamicPolicy) syncCPUBurst(_ *coreconfig.Configuration,
+	_ interface{},
+	_ *dynamicconfig.DynamicAgentConfiguration,
+	_ metrics.MetricEmitter,
+	_ *metaserver.MetaServer,
+) {
+	general.Infof("exec syncCPUBurst")
+
+	var err error
+
+	defer func() {
+		_ = general.UpdateHealthzStateByError(cpuconsts.SyncCPUBurst, err)
+	}()
+
+	cpuBurstManager := cpuburst.GetManager(p.metaServer)
+	err = cpuBurstManager.UpdateCPUBurst(p.qosConfig, p.dynamicConfig)
 }

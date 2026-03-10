@@ -74,7 +74,7 @@ func init() {
 
 	headroompolicy.RegisterInitializer(types.CPUHeadroomPolicyNone, headroompolicy.NewPolicyNone)
 	headroompolicy.RegisterInitializer(types.CPUHeadroomPolicyCanonical, headroompolicy.NewPolicyCanonical)
-	headroompolicy.RegisterInitializer(types.CPUHeadroomPolicyNUMAExclusive, headroompolicy.NewPolicyNUMAExclusive)
+	headroompolicy.RegisterInitializer(types.CPUHeadroomPolicyNUMADedicated, headroompolicy.NewPolicyNUMADedicated)
 
 	provisionassembler.RegisterInitializer(types.CPUProvisionAssemblerCommon, provisionassembler.NewProvisionAssemblerCommon)
 
@@ -308,6 +308,7 @@ func (cra *cpuResourceAdvisor) setIsolatedContainers(enableIsolated bool) bool {
 // todo: this logic contains a lot of assumptions and should be refined in the future
 func (cra *cpuResourceAdvisor) checkIsolationSafety() bool {
 	shareAndIsolationPoolSize := 0
+	dedicatedNonExclusivePoolSize := 0
 	nonBindingNumas := cra.metaServer.CPUDetails.NUMANodes()
 	for _, r := range cra.regionMap {
 		if r.Type() == configapi.QoSRegionTypeShare {
@@ -325,14 +326,23 @@ func (cra *cpuResourceAdvisor) checkIsolationSafety() bool {
 				}
 				return true
 			})
-		} else if r.Type() == configapi.QoSRegionTypeDedicatedNumaExclusive {
-			nonBindingNumas = nonBindingNumas.Difference(r.GetBindingNumas())
+		} else if r.Type() == configapi.QoSRegionTypeDedicated {
+			if r.IsNumaExclusive() {
+				nonBindingNumas = nonBindingNumas.Difference(r.GetBindingNumas())
+			} else if r.IsNumaBinding() {
+				// dedicated numa-binding non-exclusive region, calculate the pool size based on binding numas
+				dedicatedNonExclusivePoolSize += int(math.Ceil(r.GetPodsRequest() / float64(r.GetBindingNumas().Size())))
+			} else {
+				// dedicated non-numa-binding non-exclusive region, calculate the pool size based on pods request
+				dedicatedNonExclusivePoolSize += int(math.Ceil(r.GetPodsRequest()))
+			}
 		}
 	}
 
-	nonBindingSize := cra.metaServer.NUMAToCPUs.CPUSizeInNUMAs(cra.nonBindingNumas.ToSliceNoSortInt()...)
-	klog.Infof("[qosaware-cpu] shareAndIsolationPoolSize %v, nonBindingSize %v", shareAndIsolationPoolSize, nonBindingSize)
-	if shareAndIsolationPoolSize > nonBindingSize {
+	nonExclusiveSize := cra.metaServer.NUMAToCPUs.CPUSizeInNUMAs(cra.nonBindingNumas.ToSliceNoSortInt()...)
+	klog.Infof("[qosaware-cpu] shareAndIsolationPoolSize %v, nonExclusiveSize %v，dedicatedNonExclusivePoolSize %v",
+		shareAndIsolationPoolSize, nonExclusiveSize, dedicatedNonExclusivePoolSize)
+	if shareAndIsolationPoolSize+dedicatedNonExclusivePoolSize > nonExclusiveSize {
 		return false
 	}
 	return true
@@ -497,16 +507,21 @@ func (cra *cpuResourceAdvisor) assignShareContainerToRegions(ci *types.Container
 
 func (cra *cpuResourceAdvisor) assignDedicatedContainerToRegions(ci *types.ContainerInfo) ([]region.QoSRegion, error) {
 	// assign dedicated cores numa exclusive containers. focus on container.
-	regions, err := cra.getContainerRegions(ci, configapi.QoSRegionTypeDedicatedNumaExclusive)
+	regions, err := cra.getContainerRegions(ci, configapi.QoSRegionTypeDedicated)
 	if err != nil {
 		return nil, err
 	} else if len(regions) > 0 {
 		return regions, nil
 	}
 
-	// create regions by numa node
-	for numaID := range ci.TopologyAwareAssignments {
-		r := region.NewQoSRegionDedicatedNumaExclusive(ci, cra.conf, numaID, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter)
+	if ci.IsNumaBinding() {
+		// create regions by numa node
+		for numaID := range ci.TopologyAwareAssignments {
+			r := region.NewQoSRegionDedicated(ci, cra.conf, numaID, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter)
+			regions = append(regions, r)
+		}
+	} else {
+		r := region.NewQoSRegionDedicated(ci, cra.conf, commonstate.FakedNUMAID, cra.extraConf, cra.metaCache, cra.metaServer, cra.emitter)
 		regions = append(regions, r)
 	}
 	return regions, nil
@@ -536,7 +551,7 @@ func (cra *cpuResourceAdvisor) updateAdvisorEssentials() {
 			continue
 		}
 		// ignore isolation region
-		if r.Type() == configapi.QoSRegionTypeDedicatedNumaExclusive || r.Type() == configapi.QoSRegionTypeShare {
+		if r.Type() == configapi.QoSRegionTypeDedicated || r.Type() == configapi.QoSRegionTypeShare {
 			cra.nonBindingNumas = cra.nonBindingNumas.Difference(r.GetBindingNumas())
 		}
 	}
@@ -591,11 +606,40 @@ func (cra *cpuResourceAdvisor) emitMetrics(calculationResult types.InternalCPUCa
 			_ = cra.emitter.StoreInt64(metricCPUAdvisorPoolSize, int64(cpuResource.Size), metrics.MetricTypeNameRaw,
 				metrics.MetricTag{Key: "name", Val: poolName},
 				metrics.MetricTag{Key: "numa_id", Val: strconv.Itoa(numaID)},
-				metrics.MetricTag{Key: "pool_type", Val: commonstate.GetPoolType(poolName)})
+				metrics.MetricTag{Key: "pool_type", Val: commonstate.GetPoolType(poolName)},
+				metrics.MetricTag{Key: "overlap", Val: "none"})
 			_ = cra.emitter.StoreFloat64(metricCPUAdvisorPoolQuota, cpuResource.Quota, metrics.MetricTypeNameRaw,
 				metrics.MetricTag{Key: "name", Val: poolName},
 				metrics.MetricTag{Key: "numa_id", Val: strconv.Itoa(numaID)},
 				metrics.MetricTag{Key: "pool_type", Val: commonstate.GetPoolType(poolName)})
+		}
+	}
+
+	for poolName, overlapInfo := range calculationResult.PoolOverlapInfo {
+		for numaID, poolOverlapInfo := range overlapInfo {
+			for target, overlap := range poolOverlapInfo {
+				_ = cra.emitter.StoreInt64(metricCPUAdvisorPoolSize, int64(overlap), metrics.MetricTypeNameRaw,
+					metrics.MetricTag{Key: "name", Val: poolName},
+					metrics.MetricTag{Key: "numa_id", Val: strconv.Itoa(numaID)},
+					metrics.MetricTag{Key: "pool_type", Val: commonstate.GetPoolType(poolName)},
+					metrics.MetricTag{Key: "overlap", Val: target})
+			}
+		}
+	}
+
+	for poolName, overlapInfo := range calculationResult.PoolOverlapPodContainerInfo {
+		for numaID, poolOverlapInfo := range overlapInfo {
+			for podUID, overlapContainer := range poolOverlapInfo {
+				// todo: current only emit first container overlap, because other containers' overlap is same now
+				for _, overlap := range overlapContainer {
+					_ = cra.emitter.StoreInt64(metricCPUAdvisorPoolSize, int64(overlap), metrics.MetricTypeNameRaw,
+						metrics.MetricTag{Key: "name", Val: poolName},
+						metrics.MetricTag{Key: "numa_id", Val: strconv.Itoa(numaID)},
+						metrics.MetricTag{Key: "pool_type", Val: commonstate.GetPoolType(poolName)},
+						metrics.MetricTag{Key: "overlap", Val: podUID})
+					break
+				}
+			}
 		}
 	}
 }

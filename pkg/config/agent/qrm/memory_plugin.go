@@ -18,6 +18,8 @@ package qrm
 
 import (
 	"time"
+
+	v1 "k8s.io/api/core/v1"
 )
 
 type MemoryQRMPluginConfig struct {
@@ -25,6 +27,8 @@ type MemoryQRMPluginConfig struct {
 	PolicyName string
 	// ReservedMemoryGB: the total reserved memories in GB
 	ReservedMemoryGB uint64
+	// ReservedNumaMemory describes the memory reservation status of numa nodes
+	ReservedNumaMemory map[int32]v1.ResourceList
 	// SkipMemoryStateCorruption is ued to skip memory state corruption and it will be used after updating state properties
 	SkipMemoryStateCorruption bool
 	// EnableSettingMemoryMigrate is used to enable cpuset.memory_migrate for containers not numa_binding
@@ -52,6 +56,8 @@ type MemoryQRMPluginConfig struct {
 	LogCacheQRMPluginConfig
 	// FragMemOptions: the configuration for memory compaction related features
 	FragMemOptions
+	// HostWatermarkQRMPluginConfig: the configuration for vm watermark related sysctls
+	HostWatermarkQRMPluginConfig
 	// ResctrlConfig: the configuration for resctrl FS related hints
 	ResctrlConfig
 }
@@ -87,6 +93,31 @@ type FragMemOptions struct {
 	// SetMemFragScoreAsync sets the threashold of frag score for async memory compaction.
 	// The async compaction behavior will be triggered while exceeding this score.
 	SetMemFragScoreAsync int
+	// THPDefaultConfig is the default host THP config we try to recover to when
+	// fragmentation is not severe. Valid values: "madvise", "always", "never".
+	//
+	// Default: "madvise".
+	THPDefaultConfig string
+	// THPHighOrderScoreThreshold sets the threshold of highOrderScore for THP tuning.
+	// - If max(highOrderScore) > threshold, then disable THP (set to "never").
+	// - If max(highOrderScore) < threshold*0.9, then recover THP to THPDefaultConfig.
+	//   (Using 0.9 hysteresis to avoid THP toggling when score fluctuates around the threshold.)
+	//
+	// Default: 85.
+	THPHighOrderScoreThreshold int
+}
+
+type HostWatermarkQRMPluginConfig struct {
+	// EnableSettingHostWatermark is used to tune vm.* watermark sysctls on host.
+	EnableSettingHostWatermark bool
+	// SetVMWatermarkScaleFactor sets /proc/sys/vm/watermark_scale_factor.
+	// The unit is per ten thousand (i.e. 10000 means 100%). 0 means do not change.
+	SetVMWatermarkScaleFactor int
+	// ReservedKswapdWatermarkGB is used to calculate watermark_scale_factor automatically.
+	// It means we want to reserve this amount of memory on a single NUMA node
+	// for kswapd asynchronous reclaim (e.g. 10GB on a 100GB NUMA -> 1000).
+	// It only takes effect when SetVMWatermarkScaleFactor is 0.
+	ReservedKswapdWatermarkGB uint64
 }
 
 type ResctrlConfig struct {
@@ -97,6 +128,7 @@ type ResctrlConfig struct {
 	// based on its cpu set pool annotation
 	CPUSetPoolToSharedSubgroup map[string]int
 	DefaultSharedSubgroup      int
+	EnabledQoS                 []string
 
 	// MonGroupEnabledClosIDs is about mon_group layout hint policy
 	MonGroupEnabledClosIDs []string
@@ -105,5 +137,5 @@ type ResctrlConfig struct {
 }
 
 func NewMemoryQRMPluginConfig() *MemoryQRMPluginConfig {
-	return &MemoryQRMPluginConfig{}
+	return &MemoryQRMPluginConfig{ReservedNumaMemory: map[int32]v1.ResourceList{}}
 }

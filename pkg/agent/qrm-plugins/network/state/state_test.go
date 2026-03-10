@@ -32,31 +32,28 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
-	"github.com/kubewharf/katalyst-core/pkg/util/qrmcheckpointmanager"
 )
 
-func TestTryMigrateState(t *testing.T) {
+func TestNewNetworkPluginCheckpoint(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
-		expectEqual     bool
-		corruptFile     bool
-		expectOldExists bool
+		name        string
+		expectEqual bool
+		corruptFile bool
 	}{
 		{
-			name:            "successful migration with pre-stop",
-			expectEqual:     true,
-			expectOldExists: false,
-			corruptFile:     false,
+			name:        "successful migration with pre-stop",
+			expectEqual: true,
+			corruptFile: false,
 		},
 		{
-			name:            "corrupted checkpoint",
-			expectEqual:     false,
-			corruptFile:     true,
-			expectOldExists: true,
+			name:        "corrupted checkpoint",
+			expectEqual: false,
+			corruptFile: true,
 		},
 	}
 
@@ -83,9 +80,6 @@ func TestTryMigrateState(t *testing.T) {
 			machineInfo := &info.MachineInfo{}
 			nics := make([]machine.InterfaceInfo, 0)
 			reservedBandwidth := make(map[string]uint32)
-
-			defaultCache, err := NewNetworkPluginState(qrmConfig, machineInfo, nics, reservedBandwidth)
-			assert.NoError(t, err)
 
 			policyName := "test-policy"
 			checkpointName := "test-checkpoint"
@@ -133,21 +127,14 @@ func TestTryMigrateState(t *testing.T) {
 				assert.NoError(t, err)
 			}
 
-			// create a new checkpoint with a new checkpoint manager
-			sc := &stateCheckpoint{
-				policyName:          policyName,
-				checkpointName:      checkpointName,
-				cache:               defaultCache,
-				skipStateCorruption: false,
-				emitter:             metrics.DummyMetrics{},
+			stateDirectoryConfig := &statedirectory.StateDirectoryConfiguration{
+				StateFileDirectory:         stateDir,
+				InMemoryStateFileDirectory: inMemoryTmpDir,
+				EnableInMemoryState:        true,
 			}
 
-			// current checkpoint is pointing to the in memory directory
-			sc.qrmCheckpointManager, err = qrmcheckpointmanager.NewQRMCheckpointManager(inMemoryTmpDir, stateDir, checkpointName, "network_plugin")
-			assert.NoError(t, err)
-
-			newCheckpoint := NewNetworkPluginCheckpoint()
-			err = sc.tryMigrateState(qrmConfig, nics, reservedBandwidth, newCheckpoint)
+			state, err := NewCheckpointState(qrmConfig, stateDirectoryConfig, checkpointName, policyName, machineInfo, nics, reservedBandwidth,
+				false, metrics.DummyMetrics{})
 
 			if tt.corruptFile {
 				assert.Error(t, err)
@@ -155,20 +142,21 @@ func TestTryMigrateState(t *testing.T) {
 			}
 			assert.NoError(t, err)
 
+			sc, ok := state.(*stateCheckpoint)
+			assert.True(t, ok)
+
+			newCheckpoint := NewNetworkPluginCheckpoint()
+
 			// check if new checkpoint is created and verify equality
-			err = sc.qrmCheckpointManager.GetCurrentCheckpoint(sc.checkpointName, newCheckpoint, false)
+			err = sc.checkpointManager.GetCheckpoint(sc.checkpointName, newCheckpoint)
 			assert.NoError(t, err)
 
 			// verify old checkpoint file existence
 			checkpoint := NewNetworkPluginCheckpoint()
 			err = oldCheckpointManager.GetCheckpoint(checkpointName, checkpoint)
 
-			if tt.expectOldExists {
-				assert.NoError(t, err)
-			} else {
-				assert.Error(t, err)
-				assert.Equal(t, errors.ErrCheckpointNotFound, err)
-			}
+			assert.Error(t, err)
+			assert.Equal(t, err, errors.ErrCheckpointNotFound)
 
 			if tt.expectEqual {
 				assert.Equal(t, newCheckpoint, oldCheckpoint)

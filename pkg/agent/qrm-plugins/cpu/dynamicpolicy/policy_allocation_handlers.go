@@ -379,17 +379,23 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 		}
 	}
 
+	podAggregatedRequest, _, err := util.GetPodAggregatedRequestResource(req)
+	if err != nil {
+		return nil, fmt.Errorf("GetPodAggregatedRequestResource failed with error: %v", err)
+	}
+
 	reqInt, reqFloat64, err := util.GetQuantityFromResourceReq(req)
 	if err != nil {
 		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
 	}
 
-	result, err := p.allocateNumaBindingCPUs(reqInt, req.Hint, machineState, req.Annotations)
+	result, err := p.allocateNumaBindingCPUs(podAggregatedRequest, req.Hint, machineState, req.Annotations)
 	if err != nil {
 		general.ErrorS(err, "unable to allocate CPUs",
 			"podNamespace", req.PodNamespace,
 			"podName", req.PodName,
 			"containerName", req.ContainerName,
+			"podAggregatedRequest", podAggregatedRequest,
 			"numCPUsInt", reqInt,
 			"numCPUsFloat64", reqFloat64)
 		return nil, err
@@ -406,6 +412,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 		"podNamespace", req.PodNamespace,
 		"podName", req.PodName,
 		"containerName", req.ContainerName,
+		"podAggregatedRequest", podAggregatedRequest,
 		"numCPUsInt", reqInt,
 		"numCPUsFloat64", reqFloat64,
 		"result", result.String())
@@ -416,6 +423,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 			"podNamespace", req.PodNamespace,
 			"podName", req.PodName,
 			"containerName", req.ContainerName,
+			"podAggregatedRequest", podAggregatedRequest,
 			"numCPUsInt", reqInt,
 			"numCPUsFloat64", reqFloat64,
 			"result cpuset", result.String())
@@ -657,6 +665,12 @@ func (p *DynamicPolicy) allocateSharedNumaBindingCPUs(req *pluginapi.ResourceReq
 			general.Errorf("pod: %s/%s, container: %s request to cpu inplace update resize alloation, but no origin allocation info, reject it",
 				req.PodNamespace, req.PodName, req.ContainerName)
 			return nil, fmt.Errorf("no origion cpu allocation info for inplace update resize")
+		}
+
+		if !originAllocationInfo.CheckSharedNUMABinding() {
+			general.Errorf("pod: %s/%s, container: %s request to cpu inplace update resize allocation, but origin allocation info is not shared numa binding, reject it",
+				req.PodNamespace, req.PodName, req.ContainerName)
+			return nil, fmt.Errorf("cannot change from non-snb to snb during inplace update")
 		}
 
 		general.Infof("pod: %s/%s, container: %s request to cpu inplace update resize allocation (%.02f->%.02f)",

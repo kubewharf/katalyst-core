@@ -22,23 +22,49 @@ package fragmem
 import (
 	"io/ioutil"
 	"os"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 
+	memconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/consts"
 	coreconfig "github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent"
 	configagent "github.com/kubewharf/katalyst-core/pkg/config/agent"
 	dynamicconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
+	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	metaagent "github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	utilmetric "github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
+
+var setMemTHPTestMu sync.Mutex
+
+func makeTHPConf(defaultConfig string, threshold int) *coreconfig.Configuration {
+	return &coreconfig.Configuration{
+		AgentConfiguration: &agent.AgentConfiguration{
+			StaticAgentConfiguration: &configagent.StaticAgentConfiguration{
+				QRMPluginsConfiguration: &qrm.QRMPluginsConfiguration{
+					MemoryQRMPluginConfig: &qrm.MemoryQRMPluginConfig{
+						FragMemOptions: qrm.FragMemOptions{
+							EnableSettingFragMem:       true,
+							THPDefaultConfig:           defaultConfig,
+							THPHighOrderScoreThreshold: threshold,
+						},
+					},
+				},
+			},
+		},
+	}
+}
 
 func makeMetaServer() (*metaserver.MetaServer, error) {
 	server := &metaserver.MetaServer{
@@ -146,6 +172,266 @@ func TestSetMemCompact(t *testing.T) {
 			},
 		},
 	}, metrics.DummyMetrics{}, &dynamicconfig.DynamicAgentConfiguration{}, metrics.DummyMetrics{}, metaServer)
+}
+
+func TestSetMemTHP(t *testing.T) {
+	t.Parallel()
+
+	// This test mutates package-level vars (thpEnabledPath), so serialize it.
+	setMemTHPTestMu.Lock()
+	defer setMemTHPTestMu.Unlock()
+
+	general.RegisterReportCheck(memconsts.SetMemTHP, 0, general.HealthzCheckStateNotReady)
+
+	SetMemTHP(&coreconfig.Configuration{
+		AgentConfiguration: &agent.AgentConfiguration{
+			StaticAgentConfiguration: &configagent.StaticAgentConfiguration{
+				QRMPluginsConfiguration: &qrm.QRMPluginsConfiguration{
+					MemoryQRMPluginConfig: &qrm.MemoryQRMPluginConfig{
+						FragMemOptions: qrm.FragMemOptions{
+							EnableSettingFragMem: false,
+						},
+					},
+				},
+			},
+		},
+	}, nil, &dynamicconfig.DynamicAgentConfiguration{}, nil, nil)
+
+	// THPDefaultConfig empty: skip THP tuning entirely.
+	SetMemTHP(&coreconfig.Configuration{
+		AgentConfiguration: &agent.AgentConfiguration{
+			StaticAgentConfiguration: &configagent.StaticAgentConfiguration{
+				QRMPluginsConfiguration: &qrm.QRMPluginsConfiguration{
+					MemoryQRMPluginConfig: &qrm.MemoryQRMPluginConfig{
+						FragMemOptions: qrm.FragMemOptions{
+							EnableSettingFragMem: true,
+							THPDefaultConfig:     "",
+						},
+					},
+				},
+			},
+		},
+	}, nil, &dynamicconfig.DynamicAgentConfiguration{}, nil, nil)
+
+	// THPDefaultConfig=never: fast-path to disable THP directly.
+	oldPath := thpEnabledPath
+	f := createTempFile(t, "always [madvise] never\n")
+	defer os.Remove(f)
+	defer func() { thpEnabledPath = oldPath }()
+	thpEnabledPath = f
+
+	SetMemTHP(&coreconfig.Configuration{
+		AgentConfiguration: &agent.AgentConfiguration{
+			StaticAgentConfiguration: &configagent.StaticAgentConfiguration{
+				QRMPluginsConfiguration: &qrm.QRMPluginsConfiguration{
+					MemoryQRMPluginConfig: &qrm.MemoryQRMPluginConfig{
+						FragMemOptions: qrm.FragMemOptions{
+							EnableSettingFragMem: true,
+							THPDefaultConfig:     "never",
+						},
+					},
+				},
+			},
+		},
+	}, nil, &dynamicconfig.DynamicAgentConfiguration{}, nil, nil)
+
+	b, rerr := os.ReadFile(f)
+	assert.NoError(t, rerr)
+	assert.Equal(t, "never\n", string(b))
+
+	res := general.GetRegisterReadinessCheckResult()
+	check, ok := res[general.HealthzCheckName(memconsts.SetMemTHP)]
+	assert.True(t, ok)
+	assert.True(t, check.Ready)
+}
+
+func TestSetMemTHPNilConf(t *testing.T) {
+	t.Parallel()
+
+	setMemTHPTestMu.Lock()
+	defer setMemTHPTestMu.Unlock()
+
+	general.RegisterReportCheck(memconsts.SetMemTHP, 0, general.HealthzCheckStateNotReady)
+	SetMemTHP(nil, nil, &dynamicconfig.DynamicAgentConfiguration{}, nil, nil)
+}
+
+func TestSetMemTHPNilEmitter(t *testing.T) {
+	t.Parallel()
+
+	setMemTHPTestMu.Lock()
+	defer setMemTHPTestMu.Unlock()
+
+	general.RegisterReportCheck(memconsts.SetMemTHP, 0, general.HealthzCheckStateNotReady)
+	conf := makeTHPConf("madvise", 85)
+	SetMemTHP(conf, nil, &dynamicconfig.DynamicAgentConfiguration{}, nil, &metaserver.MetaServer{})
+}
+
+func TestSetMemTHPNilMetaServer(t *testing.T) {
+	t.Parallel()
+
+	setMemTHPTestMu.Lock()
+	defer setMemTHPTestMu.Unlock()
+
+	general.RegisterReportCheck(memconsts.SetMemTHP, 0, general.HealthzCheckStateNotReady)
+	conf := makeTHPConf("madvise", 85)
+	SetMemTHP(conf, nil, &dynamicconfig.DynamicAgentConfiguration{}, metrics.DummyMetrics{}, nil)
+}
+
+func TestDoMemTHPDisable(t *testing.T) {
+	t.Parallel()
+
+	setMemTHPTestMu.Lock()
+	defer setMemTHPTestMu.Unlock()
+
+	oldPath := thpEnabledPath
+	defer func() { thpEnabledPath = oldPath }()
+
+	thpFile := createTempFile(t, "always [madvise] never\n")
+	defer os.Remove(thpFile)
+	thpEnabledPath = thpFile
+
+	metaServer, err := makeMetaServer()
+	assert.NoError(t, err)
+	mf := metaServer.MetricsFetcher.(*metric.FakeMetricsFetcher)
+	now := time.Now()
+	mf.SetNumaMetric(0, consts.MetricMemFragHighOrderScoreNuma, utilmetric.MetricData{Value: 90, Time: &now})
+	mf.SetNumaMetric(1, consts.MetricMemFragHighOrderScoreNuma, utilmetric.MetricData{Value: 10, Time: &now})
+
+	err = doMemTHP(makeTHPConf("madvise", 85), metaServer, metrics.DummyMetrics{})
+	assert.NoError(t, err)
+
+	b, rerr := os.ReadFile(thpFile)
+	assert.NoError(t, rerr)
+	assert.Equal(t, "never\n", string(b))
+}
+
+func TestDoMemTHPEnable(t *testing.T) {
+	t.Parallel()
+
+	setMemTHPTestMu.Lock()
+	defer setMemTHPTestMu.Unlock()
+
+	oldPath := thpEnabledPath
+	defer func() { thpEnabledPath = oldPath }()
+
+	thpFile := createTempFile(t, "always madvise [never]\n")
+	defer os.Remove(thpFile)
+	thpEnabledPath = thpFile
+
+	metaServer, err := makeMetaServer()
+	assert.NoError(t, err)
+	mf := metaServer.MetricsFetcher.(*metric.FakeMetricsFetcher)
+	now := time.Now()
+	mf.SetNumaMetric(0, consts.MetricMemFragHighOrderScoreNuma, utilmetric.MetricData{Value: 10, Time: &now})
+	mf.SetNumaMetric(1, consts.MetricMemFragHighOrderScoreNuma, utilmetric.MetricData{Value: 10, Time: &now})
+
+	err = doMemTHP(makeTHPConf("madvise", 85), metaServer, metrics.DummyMetrics{})
+	assert.NoError(t, err)
+
+	b, rerr := os.ReadFile(thpFile)
+	assert.NoError(t, rerr)
+	assert.Equal(t, "madvise\n", string(b))
+}
+
+func TestDoMemTHPEnableSkippedDueToMissingOrders(t *testing.T) {
+	t.Parallel()
+
+	setMemTHPTestMu.Lock()
+	defer setMemTHPTestMu.Unlock()
+
+	oldPath := thpEnabledPath
+	defer func() { thpEnabledPath = oldPath }()
+
+	thpFile := createTempFile(t, "never\n")
+	defer os.Remove(thpFile)
+	thpEnabledPath = thpFile
+
+	metaServer, err := makeMetaServer()
+	assert.NoError(t, err)
+	mf := metaServer.MetricsFetcher.(*metric.FakeMetricsFetcher)
+	now := time.Now()
+	// Only set metric for NUMA 0. NUMA 1 is missing, so enable should be skipped.
+	mf.SetNumaMetric(0, consts.MetricMemFragHighOrderScoreNuma, utilmetric.MetricData{Value: 10, Time: &now})
+
+	err = doMemTHP(makeTHPConf("madvise", 85), metaServer, metrics.DummyMetrics{})
+	assert.NoError(t, err)
+
+	b, rerr := os.ReadFile(thpFile)
+	assert.NoError(t, rerr)
+	assert.Equal(t, "never\n", string(b))
+}
+
+func TestGetHighOrderThreshold(t *testing.T) {
+	t.Parallel()
+
+	assert.InDelta(t, 85.0, getHighOrderThreshold(nil), 1e-6)
+	assert.InDelta(t, 85.0, getHighOrderThreshold(makeTHPConf("madvise", 0)), 1e-6)
+	assert.InDelta(t, 100.0, getHighOrderThreshold(makeTHPConf("madvise", 150)), 1e-6)
+	assert.InDelta(t, 1.0, getHighOrderThreshold(makeTHPConf("madvise", 1)), 1e-6)
+}
+
+func TestDisableTHPAtPath(t *testing.T) {
+	t.Parallel()
+
+	// already disabled
+	f1 := createTempFile(t, "always madvise [never]\n")
+	defer os.Remove(f1)
+	err := setTHPModeAtPath(f1, "never")
+	assert.NoError(t, err)
+	b, rerr := os.ReadFile(f1)
+	assert.NoError(t, rerr)
+	assert.Equal(t, "always madvise [never]\n", string(b))
+
+	// should disable
+	f2 := createTempFile(t, "always [madvise] never\n")
+	defer os.Remove(f2)
+	err = setTHPModeAtPath(f2, "never")
+	assert.NoError(t, err)
+	b, rerr = os.ReadFile(f2)
+	assert.NoError(t, rerr)
+	assert.Equal(t, "never\n", string(b))
+}
+
+func TestEnableTHPMadviseAtPath(t *testing.T) {
+	t.Parallel()
+
+	// already madvise
+	f1 := createTempFile(t, "always [madvise] never\n")
+	defer os.Remove(f1)
+	err := setTHPModeAtPath(f1, "madvise")
+	assert.NoError(t, err)
+	b, rerr := os.ReadFile(f1)
+	assert.NoError(t, rerr)
+	assert.Equal(t, "always [madvise] never\n", string(b))
+
+	// should set madvise
+	f2 := createTempFile(t, "always madvise [never]\n")
+	defer os.Remove(f2)
+	err = setTHPModeAtPath(f2, "madvise")
+	assert.NoError(t, err)
+	b, rerr = os.ReadFile(f2)
+	assert.NoError(t, rerr)
+	assert.Equal(t, "madvise\n", string(b))
+}
+
+func TestSetTHPModeAtPathInvalid(t *testing.T) {
+	t.Parallel()
+
+	f := createTempFile(t, "always [madvise] never\n")
+	defer os.Remove(f)
+	err := setTHPModeAtPath(f, "invalid")
+	assert.Error(t, err)
+}
+
+func TestDecideTHPDecision(t *testing.T) {
+	t.Parallel()
+
+	threshold := 100.0
+	assert.Equal(t, thpDecisionDisable, decideTHPDecision(100.1, threshold))
+	assert.Equal(t, thpDecisionNone, decideTHPDecision(100.0, threshold))
+	assert.Equal(t, thpDecisionNone, decideTHPDecision(95.0, threshold))
+	assert.Equal(t, thpDecisionEnable, decideTHPDecision(89.9, threshold)) // < 100*0.9
+	assert.Equal(t, thpDecisionNone, decideTHPDecision(90.0, threshold))   // == 100*0.9
 }
 
 // Helper function to create a temporary file with given content

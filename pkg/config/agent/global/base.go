@@ -88,6 +88,9 @@ type MalachiteConfiguration struct {
 	// specify additional k8s cgroup paths for katalyst-agent.
 	CgroupType               string
 	AdditionalK8sCgroupPaths []string
+
+	// DisableCGroupV2TaskLoadMetrics indicates whether to disable cgroup v2 task load related metrics
+	DisableCGroupV2TaskLoadMetrics bool
 }
 
 func NewBaseConfiguration() *BaseConfiguration {

@@ -38,7 +38,12 @@ const (
 	DefaultNumaVictimMinimumUtilizationThreshold = 0.001
 	// DefaultNumaFreeBelowWatermarkTimesThreshold is the default threshold for the number of times
 	// that NUMA's free memory falls below the watermark
-	DefaultNumaFreeBelowWatermarkTimesThreshold = 4
+	DefaultNumaFreeBelowWatermarkTimesThreshold = 12
+	// DefaultNumaFreeBelowWatermarkTimesReclaimedThreshold is the default threshold for the number of times
+	// that NUMA's free memory of the reclaimed instance falls below the watermark.
+	DefaultNumaFreeBelowWatermarkTimesReclaimedThreshold = 6
+	// DefaultNumaFreeConstraintFastEvictionWaitCycle is the waiting cycle when memory is tight and fast eviction is needed.
+	DefaultNumaFreeConstraintFastEvictionWaitCycle = 1
 	// DefaultSystemFreeMemoryThresholdMinimum is the minimum of free memory threshold.
 	DefaultSystemFreeMemoryThresholdMinimum = "0Gi"
 	// DefaultSystemKswapdRateThreshold is the default threshold for the rate of kswapd reclaiming rate
@@ -66,19 +71,23 @@ var (
 )
 
 type MemoryPressureEvictionConfiguration struct {
-	EnableNumaLevelEviction                 bool
-	EnableSystemLevelEviction               bool
-	NumaVictimMinimumUtilizationThreshold   float64
-	NumaFreeBelowWatermarkTimesThreshold    int
-	SystemFreeMemoryThresholdMinimum        int64
-	SystemKswapdRateThreshold               int
-	SystemKswapdRateExceedDurationThreshold int
-	NumaEvictionRankingMetrics              []string
-	SystemEvictionRankingMetrics            []string
-	EnableRSSOveruseEviction                bool
-	RSSOveruseRateThreshold                 float64
-	GracePeriod                             int64
-	ReclaimedGracePeriod                    int64
+	EnableNumaLevelEviction                       bool
+	EnableSystemLevelEviction                     bool
+	NumaVictimMinimumUtilizationThreshold         float64
+	NumaFreeBelowWatermarkTimesThreshold          int
+	NumaFreeBelowWatermarkTimesReclaimedThreshold int
+	NumaFreeConstraintFastEvictionWaitCycle       int
+	SystemFreeMemoryThresholdMinimum              int64
+	SystemKswapdRateThreshold                     int
+	SystemKswapdRateExceedDurationThreshold       int
+	NumaEvictionRankingMetrics                    []string
+	SystemEvictionRankingMetrics                  []string
+	EnableRSSOveruseEviction                      bool
+	RSSOveruseRateThreshold                       float64
+	GracePeriod                                   int64
+	ReclaimedGracePeriod                          int64
+	EvictNonReclaimedAnnotationSelector           string
+	EvictNonReclaimedLabelSelector                string
 }
 
 func NewMemoryPressureEvictionPluginConfiguration() *MemoryPressureEvictionConfiguration {
@@ -104,6 +113,14 @@ func (c *MemoryPressureEvictionConfiguration) ApplyConfiguration(conf *crd.Dynam
 
 		if config.NumaFreeBelowWatermarkTimesThreshold != nil {
 			c.NumaFreeBelowWatermarkTimesThreshold = *(config.NumaFreeBelowWatermarkTimesThreshold)
+		}
+
+		if config.NumaFreeBelowWatermarkTimesReclaimedThreshold != nil {
+			c.NumaFreeBelowWatermarkTimesReclaimedThreshold = *(config.NumaFreeBelowWatermarkTimesReclaimedThreshold)
+		}
+
+		if config.NumaFreeConstraintFastEvictionWaitCycle != nil {
+			c.NumaFreeConstraintFastEvictionWaitCycle = *(config.NumaFreeConstraintFastEvictionWaitCycle)
 		}
 
 		if config.SystemFreeMemoryThresholdMinimum != nil {
@@ -140,6 +157,14 @@ func (c *MemoryPressureEvictionConfiguration) ApplyConfiguration(conf *crd.Dynam
 
 		if config.RSSOveruseRateThreshold != nil {
 			c.RSSOveruseRateThreshold = *(config.RSSOveruseRateThreshold)
+		}
+
+		if len(config.EvictNonReclaimedAnnotationSelector) > 0 {
+			c.EvictNonReclaimedAnnotationSelector = config.EvictNonReclaimedAnnotationSelector
+		}
+
+		if len(config.EvictNonReclaimedLabelSelector) > 0 {
+			c.EvictNonReclaimedLabelSelector = config.EvictNonReclaimedLabelSelector
 		}
 	}
 }

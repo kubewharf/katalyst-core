@@ -19,6 +19,7 @@ package borwein
 import (
 	"context"
 	"io/ioutil"
+	"math"
 	"os"
 	"reflect"
 	"testing"
@@ -472,8 +473,10 @@ func Test_updateCPUUsageIndicatorOffset(t *testing.T) {
 				ContainerType: v1alpha1.ContainerType_MAIN,
 			})
 			mc.SetInferenceResult(inferenceResultKey, tt.args.inferenceResults)
+			strategyName, strategy, err := getEnabledBorweinStrategy(tt.args.conf)
+			require.NoError(t, err)
 			got, err := updateCPUUsageIndicatorOffset(tt.args.podSet, tt.args.currentIndicatorOffset,
-				tt.args.borweinParameter, mc, tt.args.conf, metrics.DummyMetrics{}, "test")
+				tt.args.borweinParameter, mc, tt.args.conf, metrics.DummyMetrics{}, "test", strategyName, strategy)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("updateCPUUsageIndicatorOffset() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -650,7 +653,9 @@ func TestBorweinController_updateIndicatorOffsets(t *testing.T) {
 			}
 			inferenceResultKey := borweinutils.GetInferenceResultKey(borweinconsts.ModelNameBorweinLatencyRegression)
 			mc.SetInferenceResult(inferenceResultKey, tt.fields.inferenceResults)
-			bc.updateIndicatorOffsets(tt.args.podSet)
+			strategyName, strategy, err := getEnabledBorweinStrategy(bc.conf)
+			require.NoError(t, err)
+			bc.updateIndicatorOffsets(tt.args.podSet, strategyName, strategy)
 		})
 	}
 }
@@ -675,8 +680,6 @@ func TestBorweinController_getUpdatedIndicators(t *testing.T) {
 	stateFileDir, err := ioutil.TempDir("", "statefile-updateCPUUsageIndicatorOffset")
 	require.NoError(t, err)
 	defer func() { _ = os.RemoveAll(stateFileDir) }()
-
-	conf := initConf(t, checkpointDir, stateFileDir)
 
 	clientSet := generateTestGenericClientSet([]runtime.Object{&v1.Node{
 		ObjectMeta: metav1.ObjectMeta{
@@ -722,20 +725,6 @@ func TestBorweinController_getUpdatedIndicators(t *testing.T) {
 			},
 		},
 	}}
-	mc, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metaServer.MetricsFetcher)
-	require.NoError(t, err)
-	mc.AddContainer(podUID1, containerName, &types.ContainerInfo{
-		PodUID:        podUID1,
-		PodName:       podName1,
-		ContainerName: containerName,
-		ContainerType: v1alpha1.ContainerType_MAIN,
-	})
-	mc.AddContainer(podUID2, containerName, &types.ContainerInfo{
-		PodUID:        podUID2,
-		PodName:       podName2,
-		ContainerName: containerName,
-		ContainerType: v1alpha1.ContainerType_MAIN,
-	})
 
 	type fields struct {
 		regionName              string
@@ -747,8 +736,9 @@ func TestBorweinController_getUpdatedIndicators(t *testing.T) {
 		indicatorOffsetUpdaters map[string]IndicatorOffsetUpdater
 	}
 	type args struct {
-		indicators       types.Indicator
-		inferenceResults *borweintypes.BorweinInferenceResults
+		indicators        types.Indicator
+		inferenceResults  *borweintypes.BorweinInferenceResults
+		restrictIndicator bool
 	}
 	tests := []struct {
 		name   string
@@ -759,14 +749,11 @@ func TestBorweinController_getUpdatedIndicators(t *testing.T) {
 		{
 			name: "test get updated indicators normally",
 			fields: fields{
-				regionName:        regionName,
-				regionType:        regionType,
-				conf:              conf,
-				borweinParameters: conf.BorweinConfiguration.BorweinParameters,
+				regionName: regionName,
+				regionType: regionType,
 				indicatorOffsets: map[string]float64{
 					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): -0.08,
 				},
-				metaReader: mc,
 				indicatorOffsetUpdaters: map[string]IndicatorOffsetUpdater{
 					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): updateCPUUsageIndicatorOffset,
 				},
@@ -801,23 +788,128 @@ func TestBorweinController_getUpdatedIndicators(t *testing.T) {
 				string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): types.IndicatorValue{Current: 0.45, Target: 0.62},
 			},
 		},
+		{
+			name: "test restrict indicator",
+			fields: fields{
+				regionName: regionName,
+				regionType: regionType,
+				indicatorOffsets: map[string]float64{
+					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): -0.4,
+				},
+				indicatorOffsetUpdaters: map[string]IndicatorOffsetUpdater{
+					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): updateCPUUsageIndicatorOffset,
+				},
+			},
+			args: args{
+				indicators: types.Indicator{
+					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): types.IndicatorValue{Current: 0.45, Target: 0.7},
+				},
+				inferenceResults: &borweintypes.BorweinInferenceResults{
+					Timestamp: 0,
+					Results: map[string]map[string][]*borweininfsvc.InferenceResult{
+						podUID1: {
+							containerName: {
+								{
+									InferenceType: borweininfsvc.InferenceType_Other,
+									GenericOutput: "{\"predict_value\": -1}",
+								},
+							},
+						},
+						podUID2: {
+							containerName: {
+								{
+									InferenceType: borweininfsvc.InferenceType_Other,
+									GenericOutput: "{\"predict_value\": -1.5}",
+								},
+							},
+						},
+					},
+				},
+				restrictIndicator: true,
+			},
+			want: types.Indicator{
+				string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): types.IndicatorValue{Current: 0.45, Target: 0.55},
+			},
+		},
+		{
+			name: "test restrict indicator false",
+			fields: fields{
+				regionName: regionName,
+				regionType: regionType,
+				indicatorOffsets: map[string]float64{
+					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): -0.3,
+				},
+				indicatorOffsetUpdaters: map[string]IndicatorOffsetUpdater{
+					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): updateCPUUsageIndicatorOffset,
+				},
+			},
+			args: args{
+				indicators: types.Indicator{
+					string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): types.IndicatorValue{Current: 0.45, Target: 0.7},
+				},
+				inferenceResults: &borweintypes.BorweinInferenceResults{
+					Timestamp: 0,
+					Results: map[string]map[string][]*borweininfsvc.InferenceResult{
+						podUID1: {
+							containerName: {
+								{
+									InferenceType: borweininfsvc.InferenceType_Other,
+									GenericOutput: "{\"predict_value\": -1}",
+								},
+							},
+						},
+						podUID2: {
+							containerName: {
+								{
+									InferenceType: borweininfsvc.InferenceType_Other,
+									GenericOutput: "{\"predict_value\": -1.5}",
+								},
+							},
+						},
+					},
+				},
+				restrictIndicator: false,
+			},
+			want: types.Indicator{
+				string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio): types.IndicatorValue{Current: 0.45, Target: 0.4},
+			},
+		},
 	}
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			conf := initConf(t, checkpointDir, stateFileDir)
+			conf.RestrictIndicator = tt.args.restrictIndicator
+			mc, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metaServer.MetricsFetcher)
+			require.NoError(t, err)
+			mc.AddContainer(podUID1, containerName, &types.ContainerInfo{
+				PodUID:        podUID1,
+				PodName:       podName1,
+				ContainerName: containerName,
+				ContainerType: v1alpha1.ContainerType_MAIN,
+			})
+			mc.AddContainer(podUID2, containerName, &types.ContainerInfo{
+				PodUID:        podUID2,
+				PodName:       podName2,
+				ContainerName: containerName,
+				ContainerType: v1alpha1.ContainerType_MAIN,
+			})
+
 			mc.SetInferenceResult(borweinconsts.ModelNameBorweinLatencyRegression, tt.args.inferenceResults)
 			bc := &BorweinController{
 				regionName:              tt.fields.regionName,
 				regionType:              tt.fields.regionType,
-				conf:                    tt.fields.conf,
-				borweinParameters:       tt.fields.borweinParameters,
+				conf:                    conf,
+				borweinParameters:       conf.BorweinConfiguration.BorweinParameters,
 				indicatorOffsets:        tt.fields.indicatorOffsets,
-				metaReader:              tt.fields.metaReader,
+				metaReader:              mc,
 				indicatorOffsetUpdaters: tt.fields.indicatorOffsetUpdaters,
 			}
-			if got := bc.getUpdatedIndicators(tt.args.indicators); !reflect.DeepEqual(got, tt.want) {
+			strategyName, _, err := getEnabledBorweinStrategy(bc.conf)
+			require.NoError(t, err)
+			if got := bc.getUpdatedIndicators(tt.args.indicators, strategyName); !checkIndicatorEqual(got, tt.want) {
 				t.Errorf("BorweinController.getUpdatedIndicators() = %v, want %v", got, tt.want)
 			}
 		})
@@ -1036,4 +1128,25 @@ func TestBorweinController_ResetIndicatorOffsets(t *testing.T) {
 			require.True(t, reflect.DeepEqual(bc.indicatorOffsets, tt.results))
 		})
 	}
+}
+
+func checkIndicatorEqual(got, want types.Indicator) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	const epsilon = 1e-9
+	for key := range want {
+		gotVal, ok := got[key]
+		if !ok {
+			return false
+		}
+		wantVal := want[key]
+		if math.Abs(gotVal.Current-wantVal.Current) > epsilon {
+			return false
+		}
+		if math.Abs(gotVal.Target-wantVal.Target) > epsilon {
+			return false
+		}
+	}
+	return true
 }

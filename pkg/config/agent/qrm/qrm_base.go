@@ -22,12 +22,10 @@ import (
 )
 
 type GenericQRMPluginConfiguration struct {
-	StateFileDirectory         string
-	InMemoryStateFileDirectory string
-	QRMPluginSocketDirs        []string
-	ExtraStateFileAbsPath      string
-	PodDebugAnnoKeys           []string
-	UseKubeletReservedConfig   bool
+	QRMPluginSocketDirs      []string
+	ExtraStateFileAbsPath    string
+	PodDebugAnnoKeys         []string
+	UseKubeletReservedConfig bool
 	// PodAnnotationKeptKeys indicates pod annotation keys will be kept in qrm state
 	PodAnnotationKeptKeys []string
 	// PodLabelKeptKeys indicates pod label keys will be kept in qrm state
@@ -51,6 +49,7 @@ type QRMPluginsConfiguration struct {
 	*NetworkQRMPluginConfig
 	*IOQRMPluginConfig
 	*MBQRMPluginConfig
+	*GPUQRMPluginConfig
 }
 
 func NewGenericQRMPluginConfiguration() *GenericQRMPluginConfiguration {
@@ -71,5 +70,6 @@ func NewQRMPluginsConfiguration() *QRMPluginsConfiguration {
 		NetworkQRMPluginConfig: NewNetworkQRMPluginConfig(),
 		IOQRMPluginConfig:      NewIOQRMPluginConfig(),
 		MBQRMPluginConfig:      NewMBQRMPluginConfig(),
+		GPUQRMPluginConfig:     NewGPUQRMPluginConfig(),
 	}
 }

@@ -189,6 +189,9 @@ const (
 	MetricMemLatencyWriteNuma     = "mem.latency.write.numa"
 	MetricMemAMDL3MissLatencyNuma = "mem.latency.amd.l3.miss"
 	MetricMemFragScoreNuma        = "mem.frag.score.numa"
+	// MetricMemFragHighOrderScoreNuma is a derived metric from Malachite system/memory extfrag.mem_order_scores.
+	// It represents the average score of high orders (currently fixed to order 9~10).
+	MetricMemFragHighOrderScoreNuma = "mem.frag.high_order_score.numa"
 
 	MetricCPUUsageNuma          = "cpu.usage.numa"
 	MetricCPUUsageNumaAvg       = "cpu.usage.numa.avg"
@@ -223,6 +226,13 @@ const (
 	MetricCPUIOWaitRatio   = "cpu.iowait.ratio.cpu"
 	// MetricCPUCodeName is not normal metric, only used to store cpu code name into metric store
 	MetricCPUCodeName = "cpu.code.name"
+)
+
+// System zram metrics
+const (
+	MetricZramUsedTotal      = "zram.used.total.system"
+	MetricZramComprDataSize  = "zram.compr.usage.system"
+	MetricZramOriginDataSize = "zram.origin.usage.system"
 )
 
 // container cpu metrics

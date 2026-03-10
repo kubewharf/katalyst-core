@@ -197,7 +197,7 @@ func updateStatus(ihpa *v1alpha2.IntelligentHorizontalPodAutoscaler, hpa *v2.Hor
 			continue
 		}
 
-		var currentMetric *v1beta1.PodMetrics
+		var currentMetric *apiworkload.PodMetrics
 		now := time.Now()
 		for _, item := range aggMetrics.Items {
 			if now.After(item.Timestamp.Time) {

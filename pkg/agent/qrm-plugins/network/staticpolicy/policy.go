@@ -78,6 +78,7 @@ const (
 // StaticPolicy is the static network policy
 type StaticPolicy struct {
 	sync.Mutex
+	pluginapi.UnimplementedResourcePluginServer
 
 	name           string
 	stopCh         chan struct{}
@@ -745,7 +746,8 @@ func (p *StaticPolicy) Allocate(ctx context.Context,
 	// check allocationInfo is nil or not
 	podEntries := p.state.GetPodEntries()
 	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
-	nics := getAllNICs(p.nicManager)
+	nicState := p.nicManager.GetNICs()
+	nics := append(nicState.HealthyNICs, nicState.UnhealthyNICs...)
 
 	// if allocationInfo is not nil, assume that this container has already been allocated,
 	// and check whether the current allocation meets the requirement, if not, clear the record and re-allocate,
@@ -811,7 +813,8 @@ func (p *StaticPolicy) Allocate(ctx context.Context,
 			"containerName", req.ContainerName,
 			"netBandwidthReq(Mbps)", reqInt,
 			"nicState", p.state.GetMachineState().String())
-		return nil, fmt.Errorf("failed to meet the bandwidth requirement of %d Mbps", reqInt)
+		return nil, fmt.Errorf("no healthy NICs to meet the bandwidth requirement of %d Mbps, unhealthy reason: %s",
+			reqInt, strings.Join(nicState.UnhealthyReasons, ", "))
 	}
 
 	// we only support one policy and hard code it for now
@@ -1033,13 +1036,23 @@ func (p *StaticPolicy) calculateHints(req *pluginapi.ResourceRequest) (map[strin
 		},
 	}
 
+	reqInt, _, err := util.GetQuantityFromResourceReq(req)
+	if err != nil {
+		return nil, fmt.Errorf("getReqQuantityFromResourceReq failed with error: %v", err)
+	}
+
 	nics := p.nicManager.GetNICs()
 	// return empty hints immediately if no healthy nics on this node
-	if len(nics.HealthyNICs) == 0 {
+	if len(nics.HealthyNICs) == 0 && reqInt > 0 {
 		return hints, nil
 	}
 
-	candidateNICs, err := p.selectNICsByReq(nics.HealthyNICs, req)
+	candidateNICs := nics.HealthyNICs
+	if reqInt <= 0 {
+		candidateNICs = append(candidateNICs, nics.UnhealthyNICs...)
+	}
+
+	candidateNICs, err = p.selectNICsByReq(candidateNICs, req)
 	if err != nil {
 		return hints, fmt.Errorf("failed to select available NICs: %v", err)
 	}

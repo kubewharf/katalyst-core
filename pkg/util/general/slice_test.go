@@ -565,6 +565,50 @@ func TestConvertIntSliceToBitmapString(t *testing.T) {
 	}
 }
 
+func TestSliceReverse(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		a []int
+	}
+	tests := []struct {
+		name string
+		args args
+		want []int
+	}{
+		{
+			name: "empty slice",
+			args: args{
+				a: []int{},
+			},
+			want: []int{},
+		}, {
+			name: "positive numbers",
+			args: args{
+				a: []int{1, 2, 3},
+			},
+			want: []int{3, 2, 1},
+		}, {
+			name: "negative numbers",
+			args: args{
+				a: []int{-1, -2, -3},
+			},
+			want: []int{-3, -2, -1},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			SliceReverse(tt.args.a)
+			if !equalIntSlices(tt.args.a, tt.want) {
+				t.Errorf("SliceReverse() = %v, want %v", tt.args.a, tt.want)
+			}
+		})
+	}
+}
+
 // Helper functions for comparing slices
 func equalInt64Slices(a, b []int64) bool {
 	if len(a) != len(b) {

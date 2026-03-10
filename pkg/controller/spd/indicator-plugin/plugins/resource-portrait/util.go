@@ -32,7 +32,7 @@ import (
 )
 
 // generatePodMetrics will add new portraits based on old portraits and remove expired data.
-func generatePodMetrics(algoConf *apiconfig.ResourcePortraitConfig, metrics []apimetrics.PodMetrics, timeSeriesData map[string][]timeSeriesItem, groupData map[string]float64) []apimetrics.PodMetrics {
+func generatePodMetrics(algoConf *apiconfig.ResourcePortraitConfig, metrics []apiworkload.PodMetrics, timeSeriesData map[string][]timeSeriesItem, groupData map[string]float64) []apiworkload.PodMetrics {
 	if algoConf == nil {
 		return nil
 	}
@@ -45,20 +45,20 @@ func generatePodMetrics(algoConf *apiconfig.ResourcePortraitConfig, metrics []ap
 }
 
 // convertPodMetricsSliceToMap converts slices of metrics into maps, with timestamps as keys.
-func convertPodMetricsSliceToMap(metrics []apimetrics.PodMetrics) map[int64]apimetrics.PodMetrics {
-	return lo.SliceToMap(metrics, func(item apimetrics.PodMetrics) (int64, apimetrics.PodMetrics) {
+func convertPodMetricsSliceToMap(metrics []apiworkload.PodMetrics) map[int64]apiworkload.PodMetrics {
+	return lo.SliceToMap(metrics, func(item apiworkload.PodMetrics) (int64, apiworkload.PodMetrics) {
 		return item.Timestamp.Time.Unix(), item
 	})
 }
 
 // convertTimeseriesToPodMetricsMap converts time series data into metric maps.
-func convertTimeseriesToPodMetricsMap(source, method string, timeSeriesData map[string][]timeSeriesItem, groupData map[string]float64) map[int64]apimetrics.PodMetrics {
+func convertTimeseriesToPodMetricsMap(source, method string, timeSeriesData map[string][]timeSeriesItem, groupData map[string]float64) map[int64]apiworkload.PodMetrics {
 	fakeContainerName := GenerateFakeContainerName(source, method)
-	podMetricsMap := map[int64]apimetrics.PodMetrics{}
+	podMetricsMap := map[int64]apiworkload.PodMetrics{}
 	for resourceName, timeSeries := range timeSeriesData {
 		for _, item := range timeSeries {
 			if _, ok := podMetricsMap[item.Timestamp]; !ok {
-				podMetricsMap[item.Timestamp] = apimetrics.PodMetrics{
+				podMetricsMap[item.Timestamp] = apiworkload.PodMetrics{
 					Timestamp: metav1.Time{Time: time.Unix(item.Timestamp, 0)},
 					Containers: []apimetrics.ContainerMetrics{
 						{
@@ -78,7 +78,7 @@ func convertTimeseriesToPodMetricsMap(source, method string, timeSeriesData map[
 }
 
 // mergePodMetricMap merges two metric maps.
-func mergePodMetricMap(a map[int64]apimetrics.PodMetrics, b map[int64]apimetrics.PodMetrics) map[int64]apimetrics.PodMetrics {
+func mergePodMetricMap(a map[int64]apiworkload.PodMetrics, b map[int64]apiworkload.PodMetrics) map[int64]apiworkload.PodMetrics {
 	for k, va := range a {
 		vb, ok := b[k]
 		if !ok || len(va.Containers) == 0 || len(vb.Containers) == 0 {
@@ -93,8 +93,8 @@ func mergePodMetricMap(a map[int64]apimetrics.PodMetrics, b map[int64]apimetrics
 }
 
 // convertPodMetricsMapToSortedSlice reconverts the metric map into slices and sorts them based on timestamp.
-func convertPodMetricsMapToSortedSlice(podMetricsMap map[int64]apimetrics.PodMetrics) []apimetrics.PodMetrics {
-	podMetrics := lo.MapToSlice(podMetricsMap, func(key int64, value apimetrics.PodMetrics) apimetrics.PodMetrics {
+func convertPodMetricsMapToSortedSlice(podMetricsMap map[int64]apiworkload.PodMetrics) []apiworkload.PodMetrics {
+	podMetrics := lo.MapToSlice(podMetricsMap, func(key int64, value apiworkload.PodMetrics) apiworkload.PodMetrics {
 		return value
 	})
 	sort.Slice(podMetrics, func(i, j int) bool {
@@ -104,9 +104,9 @@ func convertPodMetricsMapToSortedSlice(podMetricsMap map[int64]apimetrics.PodMet
 }
 
 // filterExpiredPodMetrics is used to filter out metrics before the current time from the metric slice.
-func filterExpiredPodMetrics(metrics []apimetrics.PodMetrics) []apimetrics.PodMetrics {
+func filterExpiredPodMetrics(metrics []apiworkload.PodMetrics) []apiworkload.PodMetrics {
 	now := time.Now()
-	return lo.Filter(metrics, func(item apimetrics.PodMetrics, _ int) bool {
+	return lo.Filter(metrics, func(item apiworkload.PodMetrics, _ int) bool {
 		return now.Before(item.Timestamp.Time)
 	})
 }
@@ -213,7 +213,10 @@ func filterResourcePortraitIndicators(rpIndicator *apiconfig.ResourcePortraitInd
 }
 
 func convertAlgorithmResultToAggMetrics(aggMetrics *apiworkload.AggPodMetrics, algoConf *apiconfig.ResourcePortraitConfig, timeseries map[string][]timeSeriesItem, groupData map[string]float64) *apiworkload.AggPodMetrics {
-	return &apiworkload.AggPodMetrics{Aggregator: apiworkload.Aggregator(algoConf.AlgorithmConfig.TimeWindow.Aggregator), Items: generatePodMetrics(algoConf, aggMetrics.Items, timeseries, groupData)}
+	return &apiworkload.AggPodMetrics{
+		Aggregator: apiworkload.Aggregator(algoConf.AlgorithmConfig.TimeWindow.Aggregator),
+		Items:      generatePodMetrics(algoConf, aggMetrics.Items, timeseries, groupData),
+	}
 }
 
 // GenerateFakeContainerName generates fake container name for resource portrait

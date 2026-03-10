@@ -51,7 +51,7 @@ func TestGetRecommendedPodResources(t *testing.T) {
 					AggMetrics: []workload.AggPodMetrics{
 						{
 							Aggregator: "avg",
-							Items: []metrics.PodMetrics{
+							Items: []workload.PodMetrics{
 								{
 									Timestamp: metav1.NewTime(time.Date(2022, 1, 1, 1, 0, 0, 0, time.UTC)),
 									Window:    metav1.Duration{Duration: time.Hour},
@@ -68,7 +68,7 @@ func TestGetRecommendedPodResources(t *testing.T) {
 						},
 						{
 							Aggregator: "avg",
-							Items: []metrics.PodMetrics{
+							Items: []workload.PodMetrics{
 								{
 									Timestamp: metav1.NewTime(time.Date(2022, 1, 1, 2, 0, 0, 0, time.UTC)),
 									Window:    metav1.Duration{Duration: time.Hour},

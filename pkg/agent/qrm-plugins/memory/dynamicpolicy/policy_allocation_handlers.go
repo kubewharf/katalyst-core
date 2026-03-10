@@ -151,6 +151,12 @@ func (p *DynamicPolicy) numaBindingAllocationHandler(ctx context.Context,
 			"memoryReq(bytes)", podAggregatedRequest,
 			"currentResult(bytes)", allocationInfo.AggregatedQuantity)
 
+		if !allocationInfo.CheckNUMABinding() {
+			general.Errorf("pod: %s/%s, container: %s request to memory inplace update resize allocation, but origin allocation info is not numa_binding, reject it",
+				req.PodNamespace, req.PodName, req.ContainerName)
+			return nil, fmt.Errorf("cannot change from non-numa_binding to numa_binding during inplace update")
+		}
+
 		// remove the main container of this pod (the main container involve the whole pod requests), and the
 		// sidecar container request in state is zero.
 		containerEntries := podEntries[req.PodUid]
@@ -189,8 +195,7 @@ func (p *DynamicPolicy) numaBindingAllocationHandler(ctx context.Context,
 	result := machine.NewCPUSet()
 	var aggregatedQuantity uint64 = 0
 	for numaNode, numaNodeState := range memoryState {
-		if numaNodeState.PodEntries[req.PodUid][req.ContainerName] != nil &&
-			numaNodeState.PodEntries[req.PodUid][req.ContainerName].AggregatedQuantity > 0 {
+		if numaNodeState.PodEntries[req.PodUid][req.ContainerName] != nil {
 			result = result.Union(machine.NewCPUSet(numaNode))
 			aggregatedQuantity += numaNodeState.PodEntries[req.PodUid][req.ContainerName].AggregatedQuantity
 			topologyAwareAllocations[numaNode] = numaNodeState.PodEntries[req.PodUid][req.ContainerName].AggregatedQuantity
@@ -677,28 +682,22 @@ func calculateMemoryInNumaNodes(req *pluginapi.ResourceRequest,
 	reqQuantity uint64, qosLevel string,
 ) (leftQuantity uint64, err error) {
 	for _, numaNode := range numaNodes {
-		var curNumaNodeAllocated uint64 = 0
+		var curNumaNodeAllocated uint64
 
 		numaNodeState := machineState[numaNode]
 		if numaNodeState == nil {
 			return reqQuantity, fmt.Errorf("NUMA: %d has nil state", numaNode)
 		}
 
-		if numaNodeState.Free > 0 {
-			if reqQuantity < numaNodeState.Free {
-				curNumaNodeAllocated = reqQuantity
-				reqQuantity = 0
-			} else {
-				curNumaNodeAllocated = numaNodeState.Free
-				reqQuantity -= numaNodeState.Free
-			}
-			numaNodeState.Free -= curNumaNodeAllocated
-			numaNodeState.Allocated += curNumaNodeAllocated
+		if reqQuantity < numaNodeState.Free {
+			curNumaNodeAllocated = reqQuantity
+			reqQuantity = 0
+		} else {
+			curNumaNodeAllocated = numaNodeState.Free
+			reqQuantity -= numaNodeState.Free
 		}
-
-		if curNumaNodeAllocated == 0 {
-			continue
-		}
+		numaNodeState.Free -= curNumaNodeAllocated
+		numaNodeState.Allocated += curNumaNodeAllocated
 
 		if numaNodeState.PodEntries == nil {
 			numaNodeState.PodEntries = make(state.PodEntries)

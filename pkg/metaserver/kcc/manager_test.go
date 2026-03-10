@@ -45,30 +45,36 @@ import (
 )
 
 var (
-	defaultEnableNumaLevelDetection                = true
-	defaultEnableSystemLevelDetection              = true
-	defaultNumaFreeBelowWatermarkTimesThreshold    = 4
-	defaultSystemKswapdRateThreshold               = 2000
-	defaultSystemKswapdRateExceedDurationThreshold = 120
+	defaultEnableNumaLevelDetection                      = true
+	defaultEnableSystemLevelDetection                    = true
+	defaultNumaFreeBelowWatermarkTimesThreshold          = 4
+	defaultNumaFreeBelowWatermarkTimesReclaimedThreshold = 2
+	defaultNumaFreeConstraintFastEvictionWaitCycle       = 1
+	defaultSystemKswapdRateThreshold                     = 2000
+	defaultSystemKswapdRateExceedDurationThreshold       = 120
 
-	nonDefaultEnableNumaLevelEviction                       = false
-	nonDefaultEnableSystemLevelEviction                     = false
-	nonDefaultNumaFreeBelowWatermarkTimesThreshold          = 5
-	nonDefaultSystemKswapdRateThreshold                     = 3000
-	nonDefaultSystemKswapdRateExceedDurationThreshold       = 130
-	nonDefaultNumaEvictionRankingMetrics                    = []string{"metric1", "metric2"}
-	nonDefaultSystemEvictionRankingMetrics                  = []string{"metric3"}
-	nonDefaultGracePeriod                             int64 = 30
+	nonDefaultEnableNumaLevelEviction                             = false
+	nonDefaultEnableSystemLevelEviction                           = false
+	nonDefaultNumaFreeBelowWatermarkTimesThreshold                = 5
+	nonDefaultNumaFreeBelowWatermarkTimesReclaimedThreshold       = 3
+	nonDefaultNumaFreeConstraintFastEvictionWaitCycle             = 0
+	nonDefaultSystemKswapdRateThreshold                           = 3000
+	nonDefaultSystemKswapdRateExceedDurationThreshold             = 130
+	nonDefaultNumaEvictionRankingMetrics                          = []string{"metric1", "metric2"}
+	nonDefaultSystemEvictionRankingMetrics                        = []string{"metric3"}
+	nonDefaultGracePeriod                                   int64 = 30
 
 	nonDefaultMemoryEvictionPluginConfig = v1alpha1.MemoryPressureEvictionConfig{
-		EnableNumaLevelEviction:                 &nonDefaultEnableNumaLevelEviction,
-		EnableSystemLevelEviction:               &nonDefaultEnableSystemLevelEviction,
-		NumaFreeBelowWatermarkTimesThreshold:    &nonDefaultNumaFreeBelowWatermarkTimesThreshold,
-		SystemKswapdRateThreshold:               &nonDefaultSystemKswapdRateThreshold,
-		SystemKswapdRateExceedDurationThreshold: &nonDefaultSystemKswapdRateExceedDurationThreshold,
-		NumaEvictionRankingMetrics:              util.ConvertStringListToNumaEvictionRankingMetrics(nonDefaultNumaEvictionRankingMetrics),
-		SystemEvictionRankingMetrics:            util.ConvertStringListToSystemEvictionRankingMetrics(nonDefaultSystemEvictionRankingMetrics),
-		GracePeriod:                             &nonDefaultGracePeriod,
+		EnableNumaLevelEviction:                       &nonDefaultEnableNumaLevelEviction,
+		EnableSystemLevelEviction:                     &nonDefaultEnableSystemLevelEviction,
+		NumaFreeBelowWatermarkTimesThreshold:          &nonDefaultNumaFreeBelowWatermarkTimesThreshold,
+		NumaFreeBelowWatermarkTimesReclaimedThreshold: &nonDefaultNumaFreeBelowWatermarkTimesReclaimedThreshold,
+		NumaFreeConstraintFastEvictionWaitCycle:       &nonDefaultNumaFreeConstraintFastEvictionWaitCycle,
+		SystemKswapdRateThreshold:                     &nonDefaultSystemKswapdRateThreshold,
+		SystemKswapdRateExceedDurationThreshold:       &nonDefaultSystemKswapdRateExceedDurationThreshold,
+		NumaEvictionRankingMetrics:                    util.ConvertStringListToNumaEvictionRankingMetrics(nonDefaultNumaEvictionRankingMetrics),
+		SystemEvictionRankingMetrics:                  util.ConvertStringListToSystemEvictionRankingMetrics(nonDefaultSystemEvictionRankingMetrics),
+		GracePeriod:                                   &nonDefaultGracePeriod,
 	}
 )
 
@@ -351,6 +357,8 @@ func Test_applyDynamicConfig(t *testing.T) {
 					d.EnableNumaLevelEviction = defaultEnableNumaLevelDetection
 					d.EnableSystemLevelEviction = defaultEnableSystemLevelDetection
 					d.NumaFreeBelowWatermarkTimesThreshold = defaultNumaFreeBelowWatermarkTimesThreshold
+					d.NumaFreeBelowWatermarkTimesReclaimedThreshold = defaultNumaFreeBelowWatermarkTimesReclaimedThreshold
+					d.NumaFreeConstraintFastEvictionWaitCycle = defaultNumaFreeConstraintFastEvictionWaitCycle
 					d.SystemKswapdRateThreshold = defaultSystemKswapdRateThreshold
 					d.SystemKswapdRateExceedDurationThreshold = defaultSystemKswapdRateExceedDurationThreshold
 					d.NumaEvictionRankingMetrics = evictionconfig.DefaultNumaEvictionRankingMetrics
@@ -380,6 +388,8 @@ func Test_applyDynamicConfig(t *testing.T) {
 					got.EnableNumaLevelEviction == nonDefaultEnableNumaLevelEviction &&
 					got.EnableSystemLevelEviction == nonDefaultEnableSystemLevelEviction &&
 					got.NumaFreeBelowWatermarkTimesThreshold == nonDefaultNumaFreeBelowWatermarkTimesThreshold &&
+					got.NumaFreeBelowWatermarkTimesReclaimedThreshold == nonDefaultNumaFreeBelowWatermarkTimesReclaimedThreshold &&
+					got.NumaFreeConstraintFastEvictionWaitCycle == nonDefaultNumaFreeConstraintFastEvictionWaitCycle &&
 					got.SystemKswapdRateThreshold == nonDefaultSystemKswapdRateThreshold &&
 					got.SystemKswapdRateExceedDurationThreshold == nonDefaultSystemKswapdRateExceedDurationThreshold &&
 					reflect.DeepEqual(got.NumaEvictionRankingMetrics, nonDefaultNumaEvictionRankingMetrics) &&
@@ -399,6 +409,8 @@ func Test_applyDynamicConfig(t *testing.T) {
 					d.EnableNumaLevelEviction = nonDefaultEnableNumaLevelEviction
 					d.EnableSystemLevelEviction = nonDefaultEnableSystemLevelEviction
 					d.NumaFreeBelowWatermarkTimesThreshold = nonDefaultNumaFreeBelowWatermarkTimesThreshold
+					d.NumaFreeBelowWatermarkTimesReclaimedThreshold = nonDefaultNumaFreeBelowWatermarkTimesReclaimedThreshold
+					d.NumaFreeConstraintFastEvictionWaitCycle = nonDefaultNumaFreeConstraintFastEvictionWaitCycle
 					d.SystemKswapdRateThreshold = nonDefaultSystemKswapdRateThreshold
 					d.SystemKswapdRateExceedDurationThreshold = nonDefaultSystemKswapdRateExceedDurationThreshold
 					d.NumaEvictionRankingMetrics = nonDefaultNumaEvictionRankingMetrics
@@ -428,6 +440,8 @@ func Test_applyDynamicConfig(t *testing.T) {
 					got.EnableNumaLevelEviction == nonDefaultEnableNumaLevelEviction &&
 					got.EnableSystemLevelEviction == nonDefaultEnableSystemLevelEviction &&
 					got.NumaFreeBelowWatermarkTimesThreshold == nonDefaultNumaFreeBelowWatermarkTimesThreshold &&
+					got.NumaFreeBelowWatermarkTimesReclaimedThreshold == nonDefaultNumaFreeBelowWatermarkTimesReclaimedThreshold &&
+					got.NumaFreeConstraintFastEvictionWaitCycle == nonDefaultNumaFreeConstraintFastEvictionWaitCycle &&
 					got.SystemKswapdRateThreshold == nonDefaultSystemKswapdRateThreshold &&
 					got.SystemKswapdRateExceedDurationThreshold == nonDefaultSystemKswapdRateExceedDurationThreshold &&
 					reflect.DeepEqual(got.NumaEvictionRankingMetrics, nonDefaultNumaEvictionRankingMetrics) &&

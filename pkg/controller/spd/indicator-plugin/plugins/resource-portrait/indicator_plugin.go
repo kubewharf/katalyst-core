@@ -35,7 +35,6 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
-	metrics "k8s.io/metrics/pkg/apis/metrics/v1beta1"
 
 	apiconfig "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	apiworkload "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
@@ -184,7 +183,7 @@ func (p *ResourcePortraitIndicatorPlugin) emitMetrics() {
 				continue
 			}
 
-			var currentMetric *metrics.PodMetrics
+			var currentMetric *apiworkload.PodMetrics
 			now := time.Now()
 			for _, item := range aggMetrics.Items {
 				if now.After(item.Timestamp.Time) {

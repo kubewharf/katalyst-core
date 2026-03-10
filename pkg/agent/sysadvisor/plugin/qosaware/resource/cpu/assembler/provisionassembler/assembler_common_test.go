@@ -46,6 +46,7 @@ type FakeRegion struct {
 	regionType                 configapi.QoSRegionType
 	bindingNumas               machine.CPUSet
 	isNumaBinding              bool
+	isNumaExclusive            bool
 	podSets                    types.PodSet
 	controlKnob                types.ControlKnob
 	headroom                   float64
@@ -117,6 +118,7 @@ func (fake *FakeRegion) SetIsNumaBinding(isNumaBinding bool) {
 func (fake *FakeRegion) IsNumaBinding() bool {
 	return fake.isNumaBinding
 }
+func (fake *FakeRegion) IsNumaExclusive() bool                      { return fake.isNumaExclusive }
 func (fake *FakeRegion) SetThrottled(throttled bool)                { fake.throttled = throttled }
 func (fake *FakeRegion) EnableReclaim() bool                        { return true }
 func (fake *FakeRegion) AddContainer(ci *types.ContainerInfo) error { return nil }
@@ -811,8 +813,8 @@ func TestAssembleProvision(t *testing.T) {
 					-1: types.CPUResource{Size: 0, Quota: -1},
 				},
 				"reclaim": {
-					-1: types.CPUResource{Size: 18, Quota: -1},
-					1:  types.CPUResource{Size: 4, Quota: -1},
+					-1: types.CPUResource{Size: 0, Quota: -1},
+					1:  types.CPUResource{Size: 0, Quota: -1},
 				},
 			},
 			expectPoolOverlapInfo: map[string]map[int]map[string]int{
@@ -894,8 +896,8 @@ func TestAssembleProvision(t *testing.T) {
 					-1: types.CPUResource{Size: 0, Quota: -1},
 				},
 				"reclaim": {
-					-1: types.CPUResource{Size: 4, Quota: -1},
-					1:  types.CPUResource{Size: 4, Quota: -1},
+					-1: types.CPUResource{Size: 0, Quota: -1},
+					1:  types.CPUResource{Size: 0, Quota: -1},
 				},
 			},
 			expectPoolOverlapInfo: map[string]map[int]map[string]int{
@@ -979,7 +981,7 @@ func TestAssembleProvision(t *testing.T) {
 					-1: types.CPUResource{Size: 0, Quota: -1},
 				},
 				"reclaim": {
-					-1: types.CPUResource{Size: 34, Quota: -1},
+					-1: types.CPUResource{Size: 0, Quota: -1},
 				},
 			},
 			expectPoolOverlapInfo: map[string]map[int]map[string]int{
