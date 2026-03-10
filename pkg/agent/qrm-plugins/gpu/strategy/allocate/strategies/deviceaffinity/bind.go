@@ -25,8 +25,14 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+)
+
+const (
+	// metricNameNoDeviceTopologyAffinity is the metric name to record the number of instances when devices have no topology affinity
+	metricNameNoDeviceTopologyAffinity = "no_device_topology_affinity"
 )
 
 // affinityGroup is a group of devices that have affinity to each other.
@@ -59,6 +65,19 @@ func (s *DeviceAffinityStrategy) Bind(
 
 	// Get a map of affinity groups that is grouped by priority
 	affinityMap := ctx.DeviceTopology.GroupDeviceAffinity()
+
+	// If there is no topology affinity, fallback to generic canonical strategy
+	if len(affinityMap) == 0 {
+		general.Warningf("no topology affinity found, fallback to canonical strategy")
+		tags := metrics.ConvertMapToTags(map[string]string{
+			"podNamespace":  ctx.ResourceReq.PodNamespace,
+			"podName":       ctx.ResourceReq.PodName,
+			"containerName": ctx.ResourceReq.ContainerName,
+		})
+
+		_ = ctx.Emitter.StoreInt64(metricNameNoDeviceTopologyAffinity, 1, metrics.MetricTypeNameRaw, tags...)
+		return s.CanonicalStrategy.Bind(ctx, sortedDevices)
+	}
 
 	// Get affinity groups organized by priority level
 	affinityGroupsMap := s.getAffinityGroupsByPriority(affinityMap, unallocatedDevicesSet)
