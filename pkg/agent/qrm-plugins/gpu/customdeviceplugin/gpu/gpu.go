@@ -47,7 +47,7 @@ type GPUDevicePlugin struct {
 }
 
 func NewGPUDevicePlugin(base *baseplugin.BasePlugin) customdeviceplugin.CustomDevicePlugin {
-	gpuTopologyProvider := machine.NewDeviceTopologyProvider(base.Conf.GPUDeviceNames)
+	gpuTopologyProvider := machine.NewDeviceTopologyProvider()
 	base.DeviceTopologyRegistry.RegisterDeviceTopologyProvider(gpuconsts.GPUDeviceType, gpuTopologyProvider)
 	base.DefaultResourceStateGeneratorRegistry.RegisterResourceStateGenerator(gpuconsts.GPUDeviceType,
 		state.NewGenericDefaultResourceStateGenerator(gpuconsts.GPUDeviceType, base.DeviceTopologyRegistry))
@@ -133,15 +133,10 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 			"containerName", resReq.ContainerName)
 
 		// Get GPU topology
-		gpuTopology, numaTopologyReady, err := p.DeviceTopologyRegistry.GetDeviceTopology(gpuconsts.GPUDeviceType)
+		gpuTopology, err := p.DeviceTopologyRegistry.GetDeviceTopology(gpuconsts.GPUDeviceType)
 		if err != nil {
 			general.Warningf("failed to get gpu topology: %v", err)
 			return nil, fmt.Errorf("failed to get gpu topology: %w", err)
-		}
-
-		if !numaTopologyReady {
-			general.Warningf("numa topology is not ready")
-			return nil, fmt.Errorf("numa topology is not ready")
 		}
 
 		// Use the strategy framework to allocate GPU devices
@@ -171,15 +166,10 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 		}
 	}
 
-	gpuTopology, numaTopologyReady, err := p.DeviceTopologyRegistry.GetDeviceTopology(gpuconsts.GPUDeviceType)
+	gpuTopology, err := p.DeviceTopologyRegistry.GetDeviceTopology(gpuconsts.GPUDeviceType)
 	if err != nil {
 		general.Warningf("failed to get gpu topology: %v", err)
 		return nil, fmt.Errorf("failed to get gpu topology: %w", err)
-	}
-
-	if !numaTopologyReady {
-		general.Warningf("numa topology is not ready")
-		return nil, fmt.Errorf("numa topology is not ready")
 	}
 
 	// Save gpu device allocations in state

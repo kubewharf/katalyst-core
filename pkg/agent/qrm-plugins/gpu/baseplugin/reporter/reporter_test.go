@@ -954,7 +954,7 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 			t.Parallel()
 
 			topologyRegistry := machine.NewDeviceTopologyRegistry()
-			topologyProvider := machine.NewDeviceTopologyProvider([]string{"test_gpu"})
+			topologyProvider := machine.NewDeviceTopologyProvider()
 			topologyRegistry.RegisterDeviceTopologyProvider(gpuconsts.GPUDeviceType, topologyProvider)
 			if tt.deviceTopology != nil {
 				err := topologyRegistry.SetDeviceTopology(gpuconsts.GPUDeviceType, tt.deviceTopology)
