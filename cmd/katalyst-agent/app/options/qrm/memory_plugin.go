@@ -99,7 +99,8 @@ type HostWatermarkOptions struct {
 }
 
 type ResctrlOptions struct {
-	EnableResctrlHint bool
+	EnableResctrlHint                     bool
+	EnableResctrlGroupLifecycleManagement bool
 	// CPUSetPoolToSharedSubgroup specifies, if present, the subgroup id for shared-core QoS pod
 	// based on its cpu set pool annotation
 	CPUSetPoolToSharedSubgroup map[string]int
@@ -152,10 +153,12 @@ func NewMemoryOptions() *MemoryOptions {
 			ReservedKswapdWatermarkGB:  0,
 		},
 		ResctrlOptions: ResctrlOptions{
-			CPUSetPoolToSharedSubgroup: make(map[string]int),
-			DefaultSharedSubgroup:      -1,
-			EnabledQoS:                 []string{apiconsts.PodAnnotationQoSLevelSharedCores},
-			MonGroupEnabledClosIDs:     []string{},
+			EnableResctrlHint:                     false,
+			EnableResctrlGroupLifecycleManagement: false,
+			CPUSetPoolToSharedSubgroup:            make(map[string]int),
+			DefaultSharedSubgroup:                 -1,
+			EnabledQoS:                            []string{apiconsts.PodAnnotationQoSLevelSharedCores},
+			MonGroupEnabledClosIDs:                []string{},
 		},
 	}
 }
@@ -225,6 +228,8 @@ func (o *MemoryOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.ReservedKswapdWatermarkGB, "auto-calculate vm.watermark_scale_factor by reserving this many GB on a single NUMA (only when qrm-memory-vm-watermark-scale-factor=0)")
 	fs.BoolVar(&o.EnableResctrlHint, "pod-admit-resctrl-layout-hint",
 		o.EnableResctrlHint, "if set true, we will enable resctrl hint on pod admission")
+	fs.BoolVar(&o.EnableResctrlGroupLifecycleManagement, "enable-resctrl-group-lifecycle-management",
+		o.EnableResctrlGroupLifecycleManagement, "if set true, we will enable resctrl group lifecycle management")
 	fs.StringToIntVar(&o.CPUSetPoolToSharedSubgroup, "resctrl-cpuset-pool-to-shared-subgroup",
 		o.CPUSetPoolToSharedSubgroup, "customize shared-xx subgroup if present")
 	fs.IntVar(&o.DefaultSharedSubgroup, "resctrl-default-shared-subgroup",
@@ -268,6 +273,7 @@ func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
 	conf.THPDefaultConfig = o.THPDefaultConfig
 	conf.THPHighOrderScoreThreshold = o.THPHighOrderScoreThreshold
 	conf.EnableResctrlHint = o.EnableResctrlHint
+	conf.EnableResctrlGroupLifecycleManagement = o.EnableResctrlGroupLifecycleManagement
 	conf.CPUSetPoolToSharedSubgroup = o.CPUSetPoolToSharedSubgroup
 	conf.DefaultSharedSubgroup = o.DefaultSharedSubgroup
 	conf.EnabledQoS = o.EnabledQoS
