@@ -120,9 +120,10 @@ func (z *TopologyZoneGenerator) GenerateTopologyZoneStatus(
 	resourcesMap map[ZoneNode]nodev1alpha1.Resources,
 	attributesMap map[ZoneNode]ZoneAttributes,
 	siblingsMap map[ZoneNode]ZoneSiblings,
+	resourcePoolMap map[ZoneNode][]nodev1alpha1.ResourcePool,
 	resourcePkgsMap map[ZoneNode][]nodev1alpha1.ResourcePackage,
 ) []*nodev1alpha1.TopologyZone {
-	return generateTopologyZoneStatus(z.rootZoneTopology, allocationsMap, resourcesMap, attributesMap, siblingsMap, resourcePkgsMap)
+	return generateTopologyZoneStatus(z.rootZoneTopology, allocationsMap, resourcesMap, attributesMap, siblingsMap, resourcePoolMap, resourcePkgsMap)
 }
 
 // generateTopologyZoneStatus generates topology zone status
@@ -132,6 +133,7 @@ func generateTopologyZoneStatus(
 	resourcesMap map[ZoneNode]nodev1alpha1.Resources,
 	attributesMap map[ZoneNode]ZoneAttributes,
 	siblingsMap map[ZoneNode]ZoneSiblings,
+	resourcePoolMap map[ZoneNode][]nodev1alpha1.ResourcePool,
 	resourcePkgsMap map[ZoneNode][]nodev1alpha1.ResourcePackage,
 ) []*nodev1alpha1.TopologyZone {
 	if zoneTopology == nil {
@@ -163,12 +165,16 @@ func generateTopologyZoneStatus(
 			topologyZone.Siblings = MergeSiblings(topologyZone.Siblings, siblings)
 		}
 
+		if resourcePools, ok := resourcePoolMap[zone]; ok {
+			topologyZone.Resources.ResourcePools = MergeResourcePools(topologyZone.Resources.ResourcePools, resourcePools)
+		}
+
 		if resourcePkg, ok := resourcePkgsMap[zone]; ok {
 			topologyZone.Resources.ResourcePackages = MergeResourcePackages(topologyZone.Resources.ResourcePackages, resourcePkg)
 		}
 
 		if topology != nil {
-			zoneChildren := generateTopologyZoneStatus(topology, allocationsMap, resourcesMap, attributesMap, siblingsMap, resourcePkgsMap)
+			zoneChildren := generateTopologyZoneStatus(topology, allocationsMap, resourcesMap, attributesMap, siblingsMap, resourcePoolMap, resourcePkgsMap)
 			if len(zoneChildren) > 0 {
 				topologyZone.Children = zoneChildren
 			}
