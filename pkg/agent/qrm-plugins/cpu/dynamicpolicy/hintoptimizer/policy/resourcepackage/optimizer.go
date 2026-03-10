@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
-	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer/policy"
 	hintoptimizerutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer/util"
@@ -55,7 +54,7 @@ type resourcePackageHintOptimizer struct {
 	state      state.State
 
 	mux                sync.RWMutex
-	resourcePackageMap map[int][]nodev1alpha1.ResourcePackage
+	resourcePackageMap map[int][]resourcepackage.ResourcePackageItem
 }
 
 // NewResourcePackageHintOptimizer creates a new resourcePackageHintOptimizer.
@@ -210,7 +209,7 @@ func (o *resourcePackageHintOptimizer) getResourcePackageAllocated(resourcePacka
 	return allocated, nil
 }
 
-func (o *resourcePackageHintOptimizer) getResourcePackageMap() map[int][]nodev1alpha1.ResourcePackage {
+func (o *resourcePackageHintOptimizer) getResourcePackageMap() map[int][]resourcepackage.ResourcePackageItem {
 	o.mux.RLock()
 	defer o.mux.RUnlock()
 	return o.resourcePackageMap
