@@ -218,6 +218,14 @@ func TestAnnotationsGetNUMAIDs(t *testing.T) {
 			wantResult: []int{0, 2, 3},
 		},
 		{
+			name: "mixture of valid annotations and numa IDs are subset of machine",
+			annotations: map[string]string{
+				consts.PodAnnotationCPUEnhancementNumaIDs: "0,2-3",
+			},
+			numaNodes:  []int{0, 1, 2, 3},
+			wantResult: []int{0, 2, 3},
+		},
+		{
 			name: "valid annotations in another format and numa IDs are subset of machine",
 			annotations: map[string]string{
 				consts.PodAnnotationCPUEnhancementNumaIDs: "1-3",
