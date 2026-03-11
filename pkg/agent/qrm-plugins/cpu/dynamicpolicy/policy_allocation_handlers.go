@@ -460,8 +460,12 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 		RequestQuantity:                  reqFloat64,
 	}
 
-	// Cross NUMA allocation is only possible in the case of exclusive NUMA and non-exclusive NUMA with distribute evenly across numa configuration
-	if !qosutil.AnnotationsIndicateNUMAExclusive(req.Annotations) && !qosutil.AnnotationsIndicateDistributeEvenlyAcrossNuma(req.Annotations) {
+	numaNumber, err := qosutil.AnnotationsGetNUMANumber(req.Annotations, len(machineState), p.numaNumberAnnotationKey)
+	if err != nil {
+		return nil, fmt.Errorf("get numa number failed with error: %v", err)
+	}
+	// Cross NUMA allocation is only possible in the case of exclusive NUMA and non-exclusive NUMA with numa number more than 1
+	if !qosutil.AnnotationsIndicateNUMAExclusive(req.Annotations) && numaNumber <= 1 {
 		if len(req.Hint.Nodes) != 1 {
 			return nil, fmt.Errorf("numa binding without numa exclusive allocation result numa node size is %d, "+
 				"not equal to 1", len(req.Hint.Nodes))
@@ -606,6 +610,10 @@ func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.Top
 	distributeEvenlyAcrossNuma := qosutil.AnnotationsIndicateDistributeEvenlyAcrossNuma(reqAnnotations)
 	fullPCPUsPairing := qosutil.AnnotationsIndicateFullPCPUsPairing(reqAnnotations)
 	numaExclusive := qosutil.AnnotationsIndicateNUMAExclusive(reqAnnotations)
+	numaNumber, err := qosutil.AnnotationsGetNUMANumber(reqAnnotations, len(machineState), p.numaNumberAnnotationKey)
+	if err != nil {
+		return machine.NewCPUSet(), fmt.Errorf("get numa number failed with error: %v", err)
+	}
 
 	if hint == nil {
 		return machine.NewCPUSet(), fmt.Errorf("hint is nil")
@@ -613,7 +621,7 @@ func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.Top
 		return machine.NewCPUSet(), fmt.Errorf("hint is empty")
 	} else if !qosutil.AnnotationsIndicateNUMABinding(reqAnnotations) {
 		return machine.NewCPUSet(), fmt.Errorf("request is not NUMA binding, which is unexpected")
-	} else if !numaExclusive && !distributeEvenlyAcrossNuma && len(hint.Nodes) > 1 {
+	} else if !numaExclusive && numaNumber <= 1 && len(hint.Nodes) > 1 {
 		return machine.NewCPUSet(), fmt.Errorf("NUMA not exclusive binding container has request larger than 1 NUMA")
 	} else if numaExclusive && fullPCPUsPairing {
 		return machine.NewCPUSet(), fmt.Errorf("NUMA exclusive and full pcpus pairing not supported at the same time")

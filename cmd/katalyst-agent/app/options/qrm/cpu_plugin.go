@@ -48,8 +48,8 @@ type CPUDynamicPolicyOptions struct {
 	CPUNUMAHintPreferPolicy             string
 	CPUNUMAHintPreferLowThreshold       float64
 	NUMABindingResultAnnotationKey      string
-	NUMANumberAnnotationKey        string
-	NUMAIDsAnnotationKey           string
+	NUMANumberAnnotationKey             string
+	NUMAIDsAnnotationKey                string
 	EnableReserveCPUReversely           bool
 	EnableCPUBurst                      bool
 	EnableDefaultDedicatedCoresCPUBurst bool

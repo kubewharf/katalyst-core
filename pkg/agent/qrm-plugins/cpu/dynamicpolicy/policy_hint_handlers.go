@@ -243,8 +243,8 @@ func (p *DynamicPolicy) calculateHints(
 
 	// because it's hard to control memory allocation accurately,
 	// we only support numa_binding but not exclusive container with request smaller than 1 NUMA
-	// pods with distribute evenly across numa annotation can occupy more than 1 NUMA
-	if numaBinding && !numaExclusive && !distributeEvenlyAcrossNuma && minNUMAsCountNeeded > 1 {
+	// pods with numa number more than 1 can occupy more than 1 numa
+	if numaBinding && !numaExclusive && numaNumber <= 1 && minNUMAsCountNeeded > 1 {
 		return nil, fmt.Errorf("NUMA not exclusive binding container with no distribute_evenly_across_numa has request larger than 1 NUMA")
 	}
 
@@ -264,7 +264,7 @@ func (p *DynamicPolicy) calculateHints(
 	totalAvailableCPUs := machine.NewCPUSet()
 	numaToAvailableCPUCount := make(map[int]int, len(numaNodes))
 
-	availableNUMAs := p.filterNUMANodesByNonBinding(request, podEntries, machineState, req)
+	availableNUMAs := p.filterNUMANodesByNonBinding(request, podEntries, machineState, req, numaNumber)
 	for _, nodeID := range numaNodes {
 		if machineState[nodeID] == nil {
 			general.Warningf("NUMA: %d has nil state", nodeID)
@@ -303,7 +303,7 @@ func (p *DynamicPolicy) calculateHints(
 		maskCount := mask.Count()
 		if maskCount < minNUMAsCountNeeded {
 			return
-		} else if numaBinding && !numaExclusive && !distributeEvenlyAcrossNuma && maskCount > 1 {
+		} else if numaBinding && !numaExclusive && numaNumber <= 1 && maskCount > 1 {
 			// because it's hard to control memory allocation accurately,
 			// we only support numa_binding but not exclusive container with request smaller than 1 NUMA
 			// pods with distribute evenly across numa annotation can occupy more than 1 NUMA
@@ -477,13 +477,13 @@ func (p *DynamicPolicy) canFullPCPUsPairing(request, cpusPerCore int, availableC
 	// Get the number of requested physical cores through floor division
 	coresRequest := request / cpusPerCore
 	if availableCores.Size() < coresRequest {
-		general.Infof("Available cores %v size is smaller than core request per numa %v", availableCores, request)
+		general.Infof("Available cores %v size is smaller than core request per numa %v", availableCores.Size(), coresRequest)
 		return false
 	}
 
 	// Check if the available CPUs satisfy the CPU request
 	if availableCPUs.Size() < request {
-		general.Infof("Available cpus %v size is smaller than cpu request per numa %v", availableCPUs, request)
+		general.Infof("Available cpus %v size is smaller than cpu request per numa %v", availableCPUs.Size(), request)
 		return false
 	}
 
@@ -715,6 +715,7 @@ func (p *DynamicPolicy) filterNUMANodesByNonBinding(
 	request float64, podEntries state.PodEntries,
 	machineState state.NUMANodeMap,
 	req *pluginapi.ResourceRequest,
+	numaNumber int,
 ) machine.CPUSet {
 	if req == nil {
 		return machine.NewCPUSet()
@@ -727,14 +728,15 @@ func (p *DynamicPolicy) filterNUMANodesByNonBinding(
 
 	return p.filterNUMANodesByNonBindingSharedRequestedQuantity(
 		request, nonBindingSharedRequestedQuantity, nonBindingNUMAsCPUQuantity, nonBindingNUMAs, machineState,
-		machineState.GetFilteredNUMASetWithAnnotations(state.WrapAllocationMetaFilterWithAnnotations(commonstate.CheckNUMABindingAntiAffinity), req.Annotations).ToSliceInt())
+		machineState.GetFilteredNUMASetWithAnnotations(state.WrapAllocationMetaFilterWithAnnotations(commonstate.CheckNUMABindingAntiAffinity), req.Annotations).ToSliceInt(),
+		numaNumber)
 }
 
 func (p *DynamicPolicy) filterNUMANodesByNonBindingSharedRequestedQuantity(
 	request float64,
 	nonBindingSharedRequestedQuantity, nonBindingNUMAsCPUQuantity int,
 	nonBindingNUMAs machine.CPUSet,
-	machineState state.NUMANodeMap, numaNodes []int,
+	machineState state.NUMANodeMap, numaNodes []int, numaNumber int,
 ) machine.CPUSet {
 	filteredNUMANodes := make([]int, 0, len(numaNodes))
 
@@ -750,7 +752,7 @@ func (p *DynamicPolicy) filterNUMANodesByNonBindingSharedRequestedQuantity(
 					" nonBindingNUMAsCPUQuantity: %d, targetNUMAAllocatableCPUQuantity: %f, nonBindingSharedRequestedQuantity: %d, request: %f",
 					nodeID, nonBindingNUMAsCPUQuantity, allocatableCPUQuantity, nonBindingSharedRequestedQuantity, request)
 			}
-		} else if cpuutil.CPUIsSufficient(request, allocatableCPUQuantity) {
+		} else if cpuutil.CPUIsSufficient(request, allocatableCPUQuantity) || numaNumber > 1 {
 			filteredNUMANodes = append(filteredNUMANodes, nodeID)
 		}
 	}
@@ -762,7 +764,7 @@ func (p *DynamicPolicy) calculateHintsForNUMABindingSharedCores(request float64,
 	machineState state.NUMANodeMap,
 	req *pluginapi.ResourceRequest,
 ) (map[string]*pluginapi.ListOfTopologyHints, error) {
-	numaNodes := p.filterNUMANodesByNonBinding(request, podEntries, machineState, req).ToSliceInt()
+	numaNodes := p.filterNUMANodesByNonBinding(request, podEntries, machineState, req, 0).ToSliceInt()
 
 	hints := &pluginapi.ListOfTopologyHints{}
 
