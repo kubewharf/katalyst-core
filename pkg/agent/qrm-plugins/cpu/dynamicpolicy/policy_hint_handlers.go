@@ -488,7 +488,7 @@ func (p *DynamicPolicy) canFullPCPUsPairing(request, cpusPerCore int, availableC
         return false
     }
 
-	// Check if the available CPUs satisfy the CPU request
+    // Check if the available CPUs satisfy the CPU request
     if availableCPUs.Size() < request {
         general.Infof("Available cpus %v size is smaller than cpu request per numa %v", availableCPUs.Size(), request)
         return false
