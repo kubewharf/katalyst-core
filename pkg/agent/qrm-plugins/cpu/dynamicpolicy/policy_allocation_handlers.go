@@ -468,6 +468,7 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 	if !qosutil.AnnotationsIndicateNUMAExclusive(req.Annotations) &&
 		!qosutil.AnnotationsIndicateDistributeEvenlyAcrossNuma(req.Annotations) &&
 		numaNumber <= 1 {
+
 		if len(req.Hint.Nodes) != 1 {
 			return nil, fmt.Errorf("numa binding without numa exclusive allocation result numa node size is %d, "+
 				"not equal to 1", len(req.Hint.Nodes))
