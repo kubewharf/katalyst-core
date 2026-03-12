@@ -34,7 +34,7 @@ func (s *GPUMemoryStrategy) Filter(ctx *allocate.AllocationContext, allAvailable
 		return nil, fmt.Errorf("GPU topology is nil")
 	}
 
-	_, gpuMemory, err := util.GetQuantityFromResourceRequests(ctx.ResourceReq.ResourceRequests, string(consts.ResourceGPUMemory), false)
+	_, gpuMemory, err := util.GetQuantityFromResourceRequests(ctx.ResourceReq.ResourceRequests, string(consts.ResourceGPUMemory), nil)
 	if err != nil {
 		general.Warningf("getReqQuantityFromResourceReq failed with error: %v, use default available devices", err)
 		return allAvailableDevices, nil

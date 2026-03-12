@@ -34,7 +34,7 @@ func (s *GPUMemoryStrategy) Sort(ctx *allocate.AllocationContext, filteredDevice
 		return nil, fmt.Errorf("GPU topology is nil")
 	}
 
-	_, gpuMemory, err := qrmutil.GetQuantityFromResourceRequests(ctx.ResourceReq.ResourceRequests, string(consts.ResourceGPUMemory), false)
+	_, gpuMemory, err := qrmutil.GetQuantityFromResourceRequests(ctx.ResourceReq.ResourceRequests, string(consts.ResourceGPUMemory), nil)
 	if err != nil {
 		general.Warningf("getReqQuantityFromResourceReq failed with error: %v, use default filtered devices", err)
 		return filteredDevices, nil

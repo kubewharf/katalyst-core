@@ -14,22 +14,22 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package util
+package eviction
 
 import "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 
-func ConvertStringListToNumaEvictionRankingMetrics(metrics []string) []v1alpha1.NumaEvictionRankingMetric {
-	res := make([]v1alpha1.NumaEvictionRankingMetric, 0, len(metrics))
+func ConvertNumaEvictionRankingMetricsToStringList(metrics []v1alpha1.NumaEvictionRankingMetric) []string {
+	res := make([]string, 0, len(metrics))
 	for _, metric := range metrics {
-		res = append(res, v1alpha1.NumaEvictionRankingMetric(metric))
+		res = append(res, string(metric))
 	}
 	return res
 }
 
-func ConvertStringListToSystemEvictionRankingMetrics(metrics []string) []v1alpha1.SystemEvictionRankingMetric {
-	res := make([]v1alpha1.SystemEvictionRankingMetric, 0, len(metrics))
+func ConvertSystemEvictionRankingMetricsToStringList(metrics []v1alpha1.SystemEvictionRankingMetric) []string {
+	res := make([]string, 0, len(metrics))
 	for _, metric := range metrics {
-		res = append(res, v1alpha1.SystemEvictionRankingMetric(metric))
+		res = append(res, string(metric))
 	}
 	return res
 }
