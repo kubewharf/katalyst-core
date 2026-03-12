@@ -47,6 +47,8 @@ type MemoryQRMPluginConfig struct {
 	EnableNonBindingShareCoresMemoryResourceCheck bool
 	// EnableNUMAAllocationReactor: enable the numa allocation reactor for actual numa binding pods
 	EnableNUMAAllocationReactor bool
+	// EnableMemorySocketBinding: enable memory socket binding for dedicated_cores and shared_cores pods
+	EnableMemorySocketBinding bool
 	// NUMABindResultResourceAllocationAnnotationKey: the annotation key for numa bind result resource allocation
 	// it will be used to set cgroup path for numa bind result resource allocation
 	NUMABindResultResourceAllocationAnnotationKey string

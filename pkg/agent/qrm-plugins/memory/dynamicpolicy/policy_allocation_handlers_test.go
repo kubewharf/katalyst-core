@@ -29,6 +29,7 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -818,4 +819,101 @@ func TestCalculateMemoryAllocation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPackAllocationResponseWithSocketBinding(t *testing.T) {
+	t.Parallel()
+
+	as := require.New(t)
+
+	// Create a topology with 2 sockets, 2 NUMA nodes per socket (total 4 NUMA nodes)
+	// Socket 0: NUMA 0, 1
+	// Socket 1: NUMA 2, 3
+	cpuTopology, err := machine.GenerateDummyCPUTopology(16, 2, 4)
+	as.Nil(err)
+	machineInfo := &info.MachineInfo{
+		Topology: []info.Node{
+			{Memory: 100 * 1024 * 1024 * 1024, Id: 0},
+			{Memory: 100 * 1024 * 1024 * 1024, Id: 1},
+			{Memory: 100 * 1024 * 1024 * 1024, Id: 2},
+			{Memory: 100 * 1024 * 1024 * 1024, Id: 3},
+		},
+	}
+
+	tmpDir, err := ioutil.TempDir("", "checkpoint-TestPackAllocationResponseWithSocketBinding")
+	as.Nil(err)
+	defer os.RemoveAll(tmpDir)
+
+	policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
+	as.Nil(err)
+
+	// Case 1: Feature disabled
+	policy.enableMemorySocketBinding = false
+	req := &pluginapi.ResourceRequest{
+		PodUid:        "pod-1",
+		ContainerName: "container-1",
+		PodNamespace:  "default",
+		PodName:       "pod-1",
+	}
+	allocationInfo := &state.AllocationInfo{
+		AllocationMeta: commonstate.AllocationMeta{
+			QoSLevel: apiconsts.PodAnnotationQoSLevelSharedCores,
+		},
+		NumaAllocationResult: machine.NewCPUSet(0), // Allocate NUMA 0
+		AggregatedQuantity:   1024,
+	}
+
+	resp, err := policy.packAllocationResponse(allocationInfo, req, nil)
+	as.Nil(err)
+	as.Equal("0", resp.AllocationResult.ResourceAllocation[string(v1.ResourceMemory)].AllocationResult)
+
+	// Case 2: Feature enabled, Shared Cores
+	policy.enableMemorySocketBinding = true
+	allocationInfo.QoSLevel = apiconsts.PodAnnotationQoSLevelSharedCores
+
+	resp, err = policy.packAllocationResponse(allocationInfo, req, nil)
+	as.Nil(err)
+	// Expect NUMA 0 -> Socket 0 -> NUMA 0, 1
+	as.Equal("0-1", resp.AllocationResult.ResourceAllocation[string(v1.ResourceMemory)].AllocationResult)
+
+	// Case 3: Feature enabled, Dedicated Cores
+	allocationInfo.QoSLevel = apiconsts.PodAnnotationQoSLevelDedicatedCores
+	resp, err = policy.packAllocationResponse(allocationInfo, req, nil)
+	as.Nil(err)
+	as.Equal("0-1", resp.AllocationResult.ResourceAllocation[string(v1.ResourceMemory)].AllocationResult)
+
+	// Case 4: Feature enabled, Reclaimed Cores (Should not bind to socket)
+	allocationInfo.QoSLevel = apiconsts.PodAnnotationQoSLevelReclaimedCores
+	resp, err = policy.packAllocationResponse(allocationInfo, req, nil)
+	as.Nil(err)
+	as.Equal("0", resp.AllocationResult.ResourceAllocation[string(v1.ResourceMemory)].AllocationResult)
+
+	// Case 5: Feature enabled, Socket 1 allocation
+	allocationInfo.QoSLevel = apiconsts.PodAnnotationQoSLevelSharedCores
+	allocationInfo.NumaAllocationResult = machine.NewCPUSet(2) // NUMA 2 -> Socket 1 -> NUMA 2, 3
+	resp, err = policy.packAllocationResponse(allocationInfo, req, nil)
+	as.Nil(err)
+	as.Equal("2-3", resp.AllocationResult.ResourceAllocation[string(v1.ResourceMemory)].AllocationResult)
+
+	// Case 6: Feature enabled, Dedicated Cores with NUMA Exclusive
+	// Should NOT expand to socket
+	allocationInfo.QoSLevel = apiconsts.PodAnnotationQoSLevelDedicatedCores
+	allocationInfo.NumaAllocationResult = machine.NewCPUSet(0) // Reset to NUMA 0
+	allocationInfo.Annotations = map[string]string{
+		apiconsts.PodAnnotationMemoryEnhancementNumaExclusive: apiconsts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+	}
+	resp, err = policy.packAllocationResponse(allocationInfo, req, nil)
+	as.Nil(err)
+	as.Equal("0", resp.AllocationResult.ResourceAllocation[string(v1.ResourceMemory)].AllocationResult)
+
+	// Case 7: Feature enabled, Shared Cores with NUMA Exclusive
+	// Should NOT expand to socket
+	allocationInfo.QoSLevel = apiconsts.PodAnnotationQoSLevelSharedCores
+	allocationInfo.NumaAllocationResult = machine.NewCPUSet(0)
+	allocationInfo.Annotations = map[string]string{
+		apiconsts.PodAnnotationMemoryEnhancementNumaExclusive: apiconsts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+	}
+	resp, err = policy.packAllocationResponse(allocationInfo, req, nil)
+	as.Nil(err)
+	as.Equal("0", resp.AllocationResult.ResourceAllocation[string(v1.ResourceMemory)].AllocationResult)
 }
