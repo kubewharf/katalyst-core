@@ -894,4 +894,26 @@ func TestPackAllocationResponseWithSocketBinding(t *testing.T) {
 	resp, err = policy.packAllocationResponse(allocationInfo, req, nil)
 	as.Nil(err)
 	as.Equal("2-3", resp.AllocationResult.ResourceAllocation[string(v1.ResourceMemory)].AllocationResult)
+
+	// Case 6: Feature enabled, Dedicated Cores with NUMA Exclusive
+	// Should NOT expand to socket
+	allocationInfo.QoSLevel = apiconsts.PodAnnotationQoSLevelDedicatedCores
+	allocationInfo.NumaAllocationResult = machine.NewCPUSet(0) // Reset to NUMA 0
+	allocationInfo.Annotations = map[string]string{
+		apiconsts.PodAnnotationMemoryEnhancementNumaExclusive: apiconsts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+	}
+	resp, err = policy.packAllocationResponse(allocationInfo, req, nil)
+	as.Nil(err)
+	as.Equal("0", resp.AllocationResult.ResourceAllocation[string(v1.ResourceMemory)].AllocationResult)
+
+	// Case 7: Feature enabled, Shared Cores with NUMA Exclusive
+	// Should NOT expand to socket
+	allocationInfo.QoSLevel = apiconsts.PodAnnotationQoSLevelSharedCores
+	allocationInfo.NumaAllocationResult = machine.NewCPUSet(0)
+	allocationInfo.Annotations = map[string]string{
+		apiconsts.PodAnnotationMemoryEnhancementNumaExclusive: apiconsts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+	}
+	resp, err = policy.packAllocationResponse(allocationInfo, req, nil)
+	as.Nil(err)
+	as.Equal("0", resp.AllocationResult.ResourceAllocation[string(v1.ResourceMemory)].AllocationResult)
 }

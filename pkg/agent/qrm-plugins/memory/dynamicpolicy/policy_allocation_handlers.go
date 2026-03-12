@@ -732,8 +732,10 @@ func (p *DynamicPolicy) packAllocationResponse(allocationInfo *state.AllocationI
 
 	// if enableMemorySocketBinding is true, we will expand the memory allocation result to the whole socket
 	// for dedicated_cores and shared_cores pods
+	// but if the pod is numa_exclusive, we should not expand it
 	if p.enableMemorySocketBinding &&
-		(allocationInfo.CheckDedicated() || allocationInfo.CheckShared()) {
+		(allocationInfo.CheckDedicated() || allocationInfo.CheckShared()) &&
+		!allocationInfo.CheckNumaExclusive() {
 		allocatedNUMAs := allocationInfo.NumaAllocationResult.ToSliceInt()
 		socketIDs := p.topology.CPUDetails.SocketsInNUMANodes(allocatedNUMAs...).ToSliceInt()
 		socketNUMAs := p.topology.CPUDetails.NUMANodesInSockets(socketIDs...)
