@@ -442,7 +442,12 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 		RequestQuantity:                  reqFloat64,
 	}
 
-	if !qosutil.AnnotationsIndicateNUMAExclusive(req.Annotations) {
+	numaNumber, err := qosutil.AnnotationsGetNUMANumber(req.Annotations, len(machineState), p.numaNumberAnnotationKey)
+	if err != nil {
+		return nil, fmt.Errorf("get numa number failed with error: %v", err)
+	}
+	// Cross NUMA allocation is only possible in the case of exclusive NUMA and non-exclusive NUMA with numa number more than 1
+	if !qosutil.AnnotationsIndicateNUMAExclusive(req.Annotations) && numaNumber <= 1 {
 		if len(req.Hint.Nodes) != 1 {
 			return nil, fmt.Errorf("numa binding without numa exclusive allocation result numa node size is %d, "+
 				"not equal to 1", len(req.Hint.Nodes))
@@ -574,43 +579,68 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingAllocationHandler(ctx context.
 func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.TopologyHint,
 	machineState state.NUMANodeMap, reqAnnotations map[string]string,
 ) (machine.CPUSet, error) {
+	distributeEvenlyAcrossNuma := qosutil.AnnotationsIndicateDistributeEvenlyAcrossNuma(reqAnnotations)
+	fullPCPUsPairing := qosutil.AnnotationsIndicateFullPCPUsPairing(reqAnnotations)
+	numaExclusive := qosutil.AnnotationsIndicateNUMAExclusive(reqAnnotations)
+	numaNumber, err := qosutil.AnnotationsGetNUMANumber(reqAnnotations, len(machineState), p.numaNumberAnnotationKey)
+	if err != nil {
+		return machine.NewCPUSet(), fmt.Errorf("get numa number failed with error: %v", err)
+	}
+
 	if hint == nil {
 		return machine.NewCPUSet(), fmt.Errorf("hint is nil")
 	} else if len(hint.Nodes) == 0 {
 		return machine.NewCPUSet(), fmt.Errorf("hint is empty")
-	} else if qosutil.AnnotationsIndicateNUMABinding(reqAnnotations) &&
-		!qosutil.AnnotationsIndicateNUMAExclusive(reqAnnotations) &&
-		len(hint.Nodes) > 1 {
+	} else if !qosutil.AnnotationsIndicateNUMABinding(reqAnnotations) {
+		return machine.NewCPUSet(), fmt.Errorf("request is not NUMA binding, which is unexpected")
+	} else if !numaExclusive && numaNumber <= 1 && len(hint.Nodes) > 1 {
 		return machine.NewCPUSet(), fmt.Errorf("NUMA not exclusive binding container has request larger than 1 NUMA")
+	} else if numaExclusive && fullPCPUsPairing {
+		return machine.NewCPUSet(), fmt.Errorf("NUMA exclusive and full pcpus pairing not supported at the same time")
+	} else if numaExclusive && distributeEvenlyAcrossNuma {
+		return machine.NewCPUSet(), fmt.Errorf("NUMA exclusive and distribute evenly across numa not supported at the same time")
 	}
 
 	result := machine.NewCPUSet()
 	alignedAvailableCPUs := machine.CPUSet{}
-	for _, numaNode := range hint.Nodes {
-		alignedAvailableCPUs = alignedAvailableCPUs.Union(machineState[int(numaNode)].GetAvailableCPUSet(p.reservedCPUs))
+	availableCPUsPerNUMA := make(map[uint64]machine.CPUSet)
+	hintNodes := hint.Nodes
+	for _, numaNode := range hintNodes {
+		availableCPUs := machineState[int(numaNode)].GetAvailableCPUSet(p.reservedCPUs)
+		availableCPUsPerNUMA[numaNode] = availableCPUs
+		alignedAvailableCPUs = alignedAvailableCPUs.Union(availableCPUs)
 	}
 
 	var alignedCPUs machine.CPUSet
 
-	if qosutil.AnnotationsIndicateNUMAExclusive(reqAnnotations) {
+	if numaExclusive {
 		// todo: currently we hack dedicated_cores with NUMA binding take up whole NUMA,
 		//  and we will modify strategy here if assumption above breaks.
 		alignedCPUs = alignedAvailableCPUs.Clone()
 	} else {
 		var err error
-		alignedCPUs, err = calculator.TakeByTopology(p.machineInfo, alignedAvailableCPUs, numCPUs, true)
-		if err != nil {
-			general.ErrorS(err, "take cpu for NUMA not exclusive binding container failed",
-				"hints", hint.Nodes,
-				"alignedAvailableCPUs", alignedAvailableCPUs.String())
 
-			return machine.NewCPUSet(),
-				fmt.Errorf("take cpu for NUMA not exclusive binding container failed with err: %v", err)
+		// Evenly allocate cpus for distribute_evenly_across_numa
+		if distributeEvenlyAcrossNuma {
+			alignedCPUs, err = p.allocateEvenlyAcrossNUMAs(numCPUs, hintNodes, availableCPUsPerNUMA)
+			if err != nil {
+				return machine.NewCPUSet(), fmt.Errorf("allocateEvenlyAcrossNUMA failed with error: %v", err)
+			}
+		} else {
+			alignedCPUs, err = calculator.TakeByTopology(p.machineInfo, alignedAvailableCPUs, numCPUs, true)
+			if err != nil {
+				general.ErrorS(err, "take cpu for NUMA not exclusive binding container failed",
+					"hints", hintNodes,
+					"alignedAvailableCPUs", alignedAvailableCPUs.String())
+
+				return machine.NewCPUSet(),
+					fmt.Errorf("take cpu for NUMA not exclusive binding container failed with err: %v", err)
+			}
 		}
 	}
 
 	general.InfoS("allocate by hints",
-		"hints", hint.Nodes,
+		"hints", hintNodes,
 		"alignedAvailableCPUs", alignedAvailableCPUs.String(),
 		"alignedAllocatedCPUs", alignedCPUs)
 
@@ -620,11 +650,37 @@ func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.Top
 	leftNumCPUs := numCPUs - result.Size()
 	if leftNumCPUs > 0 {
 		general.Errorf("result cpus: %s in hint NUMA nodes: %d with size: %d can't meet cpus request: %d",
-			result.String(), hint.Nodes, result.Size(), numCPUs)
+			result.String(), hintNodes, result.Size(), numCPUs)
 
 		return machine.NewCPUSet(), fmt.Errorf("results can't meet cpus request")
 	}
 	return result, nil
+}
+
+// allocateEvenlyAcrossNUMAs distributes the cpu request evenly across NUMA nodes.
+func (p *DynamicPolicy) allocateEvenlyAcrossNUMAs(numCPUs int, hintNodes []uint64,
+	availableCPUsPerNUMA map[uint64]machine.CPUSet,
+) (machine.CPUSet, error) {
+	// First check if it is possible to evenly distribute cpus across NUMA nodes
+	if numCPUs%len(hintNodes) != 0 {
+		return machine.NewCPUSet(), fmt.Errorf("unable to evenly distribute cpus across numa nodes, request: %d, numa nodes: %d",
+			numCPUs, len(hintNodes))
+	}
+	allocated := machine.NewCPUSet()
+
+	cpusReqPerNuma := numCPUs / len(hintNodes)
+	for _, numaNode := range hintNodes {
+		availableCPUs := availableCPUsPerNUMA[numaNode]
+
+		// Allocate the CPUs in current numa
+		allocatedCPUsInNUMA, err := calculator.TakeByTopology(p.machineInfo, availableCPUs, cpusReqPerNuma, true)
+		if err != nil {
+			return machine.NewCPUSet(), fmt.Errorf("take cpu for distribute_evenly_across_numa container failed with err: %v", err)
+		}
+		allocated = allocated.Union(allocatedCPUsInNUMA)
+	}
+
+	return allocated, nil
 }
 
 func (p *DynamicPolicy) allocateSharedNumaBindingCPUs(req *pluginapi.ResourceRequest,
