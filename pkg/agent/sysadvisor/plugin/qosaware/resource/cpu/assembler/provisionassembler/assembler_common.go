@@ -19,6 +19,8 @@ package provisionassembler
 import (
 	"fmt"
 	"math"
+	"sort"
+	"strings"
 	"time"
 
 	"k8s.io/klog/v2"
@@ -256,7 +258,15 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 		regulateSharePoolSizes = sharePoolSizeRequirements
 	}
 	unexpandableRequirements := general.MergeMapInt(isolationPoolSizes, dedicatedInfo.requests)
-	shareAndIsolateDedicatedPoolSizes, poolThrottled := regulatePoolSizes(regulateSharePoolSizes, unexpandableRequirements, shareAndIsolatedDedicatedPoolAvailable, allowExpand)
+
+	// Pre-calculate pool keys for sorting to improve performance.
+	// We use Pod UIDs to generate a deterministic key for dedicated pools, ensuring consistent sorting
+	// regardless of map iteration order. For other pools, we'll fall back to pool names.
+	dedicatedPoolKeys := getDedicatedPoolKeys(dedicatedInfo.podSet)
+
+	poolSorter := getPoolSorter(dedicatedPoolKeys)
+
+	shareAndIsolateDedicatedPoolSizes, poolThrottled := regulatePoolSizes(regulateSharePoolSizes, unexpandableRequirements, shareAndIsolatedDedicatedPoolAvailable, allowExpand, poolSorter)
 	for _, r := range shareRegions {
 		r.SetThrottled(poolThrottled)
 	}
@@ -542,6 +552,53 @@ func extractShareRegionInfo(shareRegions []region.QoSRegion) (regionInfo, error)
 		reclaimEnable:             shareReclaimEnable,
 		minReclaimedCoresCPUQuota: minReclaimedCoresCPUQuota,
 	}, nil
+}
+
+// getDedicatedPoolKeys calculates pool keys for sorting to improve performance.
+// We use Pod UIDs to generate a deterministic key for dedicated pools, ensuring consistent sorting
+// regardless of map iteration order. For other pools, we'll fall back to pool names.
+func getDedicatedPoolKeys(podSets map[string]types.PodSet) map[string]string {
+	dedicatedPoolKeys := make(map[string]string, len(podSets))
+	for poolName, podSet := range podSets {
+		dedicatedPoolKeys[poolName] = getPoolUIDKey(podSet)
+	}
+	return dedicatedPoolKeys
+}
+
+// getPoolSorter returns a function that compares two pools.
+// If both pools have keys (dedicated pools), it compares the keys.
+// If only one has a key, the one with the key comes first.
+// If neither has a key, it compares the pool names.
+func getPoolSorter(dedicatedPoolKeys map[string]string) func(p1, p2 string) bool {
+	return func(p1, p2 string) bool {
+		key1, ok1 := dedicatedPoolKeys[p1]
+		key2, ok2 := dedicatedPoolKeys[p2]
+
+		if ok1 && ok2 {
+			if key1 != key2 {
+				return key1 < key2
+			}
+		} else if ok1 {
+			return true
+		} else if ok2 {
+			return false
+		}
+		return p1 < p2
+	}
+}
+
+// getPoolUIDKey generates a unique key for a pod set by sorting and joining pod UIDs.
+// This key is used to deterministically sort pools.
+func getPoolUIDKey(podSet types.PodSet) string {
+	if len(podSet) == 0 {
+		return ""
+	}
+	uids := make([]string, 0, len(podSet))
+	for uid := range podSet {
+		uids = append(uids, uid)
+	}
+	sort.Strings(uids)
+	return strings.Join(uids, ",")
 }
 
 func getPoolSizeRequirements(info regionInfo) map[string]int {
