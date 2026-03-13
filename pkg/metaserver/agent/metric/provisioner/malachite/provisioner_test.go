@@ -310,6 +310,7 @@ func Test_setContainerMbmTotalMetric(t *testing.T) {
 	mb2 := uint64(200)
 	mb3 := uint64(4001 * consts.BytesPerGB)
 	mbLocal1 := uint64(50)
+	mbLocal2 := uint64(100)
 
 	testCases := []struct {
 		name            string
@@ -317,6 +318,7 @@ func Test_setContainerMbmTotalMetric(t *testing.T) {
 		prevResctrlData *malachitetypes.MbmbandData
 		prevMetric      *utilmetric.MetricData
 		wantData        utilmetric.MetricData
+		wantLocalData   *utilmetric.MetricData // optional: expected local MBM metric
 		expectSet       bool
 	}{
 		{
@@ -412,6 +414,59 @@ func Test_setContainerMbmTotalMetric(t *testing.T) {
 			wantData:  utilmetric.MetricData{Value: 0, Time: &now},
 			expectSet: true,
 		},
+		{
+			name: "handles Zen4, data adjustments for local MBM",
+			args: args{
+				podUID:        "pod6",
+				containerName: "container6",
+				mbmData: malachitetypes.MbmbandData{
+					Mbm: []malachitetypes.MBMItem{
+						{ID: 0, MBMLocalBytes: mbLocal2, MBMTotalBytes: mb2},
+					},
+				},
+				updateTime:  &now,
+				cpuCodeName: consts.AMDGenoaArch,
+			},
+			prevResctrlData: &malachitetypes.MbmbandData{
+				Mbm: []malachitetypes.MBMItem{
+					{ID: 0, MBMLocalBytes: mbLocal1, MBMTotalBytes: mb1},
+				},
+			},
+			prevMetric: &utilmetric.MetricData{
+				Value: float64(mb1),
+				Time:  ptrTime(now.Add(-10 * time.Second)),
+			},
+			wantData: utilmetric.MetricData{Value: float64(mb2-mb1) / 10, Time: &now},
+			// Local MBM with Genoa adjustment: localRate + localRate*2/3 = localRate*5/3
+			wantLocalData: &utilmetric.MetricData{Value: float64(mbLocal2-mbLocal1) / 10 * 5 / 3, Time: &now},
+			expectSet:     true,
+		},
+		{
+			name: "no data adjustments for local MBM",
+			args: args{
+				podUID:        "pod7",
+				containerName: "container7",
+				mbmData: malachitetypes.MbmbandData{
+					Mbm: []malachitetypes.MBMItem{
+						{ID: 0, MBMLocalBytes: mbLocal2, MBMTotalBytes: mb2},
+					},
+				},
+				updateTime:  &now,
+				cpuCodeName: "",
+			},
+			prevResctrlData: &malachitetypes.MbmbandData{
+				Mbm: []malachitetypes.MBMItem{
+					{ID: 0, MBMLocalBytes: mbLocal1, MBMTotalBytes: mb1},
+				},
+			},
+			prevMetric: &utilmetric.MetricData{
+				Value: float64(mb1),
+				Time:  ptrTime(now.Add(-10 * time.Second)),
+			},
+			wantData:      utilmetric.MetricData{Value: float64(mb2-mb1) / 10, Time: &now},
+			wantLocalData: &utilmetric.MetricData{Value: float64(mbLocal2-mbLocal1) / 10, Time: &now},
+			expectSet:     true,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -443,6 +498,13 @@ func Test_setContainerMbmTotalMetric(t *testing.T) {
 				assert.Equal(t, *tc.wantData.Time, *dataPerSec.Time)
 			} else {
 				assert.Error(t, errPerSec)
+			}
+			// Check local MBM if expected
+			if tc.wantLocalData != nil {
+				localDataPerSec, errLocalPerSec := store.GetContainerMetric(tc.args.podUID, tc.args.containerName, consts.MetricMbmlocalPsContainer)
+				assert.NoError(t, errLocalPerSec)
+				assert.InDelta(t, tc.wantLocalData.Value, localDataPerSec.Value, 1e-6)
+				assert.Equal(t, *tc.wantLocalData.Time, *localDataPerSec.Time)
 			}
 		})
 	}
@@ -767,7 +829,7 @@ func Test_aggregateNUMABytesPS(t *testing.T) {
 			"AMD Genoa aggregation",
 			l3BytesPS,
 			consts.AMDGenoaArch,
-			map[int]float64{0: 30 + 5 + 10, 1: 30 + 15},
+			map[int]float64{0: 30 + 5/3*2 + 10/3*2, 1: 30 + 15/3*2},
 		},
 	}
 	for _, tc := range tests {
