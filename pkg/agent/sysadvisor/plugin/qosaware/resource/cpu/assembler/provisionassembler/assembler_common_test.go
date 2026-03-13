@@ -1074,3 +1074,146 @@ func generateTestConf(t *testing.T, enableReclaim bool) *config.Configuration {
 	conf.GetDynamicConfiguration().EnableReclaim = enableReclaim
 	return conf
 }
+
+func TestGetDedicatedPoolKeys(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		podSets map[string]types.PodSet
+		want    map[string]string
+	}{
+		{
+			name: "single pool with multiple pods",
+			podSets: map[string]types.PodSet{
+				"pool1": {
+					"pod1": nil,
+					"pod2": nil,
+				},
+			},
+			want: map[string]string{
+				"pool1": "pod1,pod2",
+			},
+		},
+		{
+			name: "multiple pools",
+			podSets: map[string]types.PodSet{
+				"pool1": {
+					"podA": nil,
+				},
+				"pool2": {
+					"podB": nil,
+				},
+			},
+			want: map[string]string{
+				"pool1": "podA",
+				"pool2": "podB",
+			},
+		},
+		{
+			name:    "empty pod sets",
+			podSets: map[string]types.PodSet{},
+			want:    map[string]string{},
+		},
+		{
+			name: "pool with no pods",
+			podSets: map[string]types.PodSet{
+				"pool1": {},
+			},
+			want: map[string]string{
+				"pool1": "",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := getDedicatedPoolKeys(tt.podSets)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestGetPoolSorter(t *testing.T) {
+	t.Parallel()
+	dedicatedPoolKeys := map[string]string{
+		"pool1": "key1",
+		"pool2": "key2",
+		"pool3": "key3",
+	}
+
+	sorter := getPoolSorter(dedicatedPoolKeys)
+
+	tests := []struct {
+		name string
+		p1   string
+		p2   string
+		want bool
+	}{
+		{
+			name: "both pools exist, key1 < key2",
+			p1:   "pool1",
+			p2:   "pool2",
+			want: true, // "key1" < "key2"
+		},
+		{
+			name: "both pools exist, key2 > key1",
+			p1:   "pool2",
+			p2:   "pool1",
+			want: false, // "key2" > "key1"
+		},
+		{
+			name: "both pools exist, keys equal (should not happen in this logic strictly if names diff but keys same, let's test logic)",
+			p1:   "pool1",
+			p2:   "pool1", // Same pool
+			want: false,   // p1 < p2 is false ("pool1" < "pool1")
+		},
+		{
+			name: "p1 exists, p2 does not",
+			p1:   "pool1",
+			p2:   "other",
+			want: true,
+		},
+		{
+			name: "p1 does not exist, p2 does",
+			p1:   "other",
+			p2:   "pool1",
+			want: false,
+		},
+		{
+			name: "neither exists, p1 < p2",
+			p1:   "apple",
+			p2:   "banana",
+			want: true,
+		},
+		{
+			name: "neither exists, p1 > p2",
+			p1:   "banana",
+			p2:   "apple",
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			res := sorter(tt.p1, tt.p2)
+			require.Equal(t, tt.want, res)
+		})
+	}
+
+	// Additional test case for same keys
+	t.Run("both pools exist, different pools same key", func(t *testing.T) {
+		t.Parallel()
+		dedicatedPoolKeysSame := map[string]string{
+			"poolA": "keySame",
+			"poolB": "keySame",
+		}
+		sorterSame := getPoolSorter(dedicatedPoolKeysSame)
+		// Fallback to pool name comparison: "poolA" < "poolB"
+		require.True(t, sorterSame("poolA", "poolB"))
+		require.False(t, sorterSame("poolB", "poolA"))
+	})
+}

@@ -19,6 +19,7 @@ package provisionassembler
 import (
 	"fmt"
 	"math"
+	"sort"
 
 	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
@@ -69,14 +70,16 @@ func regulateOverlapReclaimPoolSize(sharePoolSizes map[string]int, overlapReclai
 // regulatePoolSizes modifies pool size map to legal values, taking total available
 // resource and config such as enable reclaim into account. should be compatible with
 // any case and not return error. return true if reach resource upper bound.
-func regulatePoolSizes(expandableRequirements, unexpandableRequirements map[string]int, available int, allowExpand bool) (map[string]int, bool) {
+//
+// poolSorter is used to sort candidates in selectPoolHelper to ensure deterministic results.
+func regulatePoolSizes(expandableRequirements, unexpandableRequirements map[string]int, available int, allowExpand bool, poolSorter func(string, string) bool) (map[string]int, bool) {
 	expandableRequirementsSum := general.SumUpMapValues(expandableRequirements)
 	unexpandableRequirementsSum := general.SumUpMapValues(unexpandableRequirements)
 
 	requirementSum := expandableRequirementsSum + unexpandableRequirementsSum
 	if requirementSum > available {
 		requirements := general.MergeMapInt(expandableRequirements, unexpandableRequirements)
-		poolSizes, err := normalizePoolSizes(requirements, available)
+		poolSizes, err := normalizePoolSizes(requirements, available, poolSorter)
 		if err != nil {
 			// all pools share available resource as fallback if normalization failed
 			for k := range requirements {
@@ -88,7 +91,7 @@ func regulatePoolSizes(expandableRequirements, unexpandableRequirements map[stri
 		expandableRequirementsSum = available - unexpandableRequirementsSum
 	}
 
-	poolSizes, err := normalizePoolSizes(expandableRequirements, expandableRequirementsSum)
+	poolSizes, err := normalizePoolSizes(expandableRequirements, expandableRequirementsSum, poolSorter)
 	if err != nil {
 		for k := range expandableRequirements {
 			poolSizes[k] = available
@@ -101,7 +104,11 @@ func regulatePoolSizes(expandableRequirements, unexpandableRequirements map[stri
 	return poolSizes, false
 }
 
-func normalizePoolSizes(poolSizes map[string]int, targetSum int) (map[string]int, error) {
+// normalizePoolSizes scales the pool sizes to match the target sum.
+// It uses Largest Remainder Method (approx.) by first ceiling the values and then reducing them one by one.
+//
+// poolSorter is passed down to selectPoolHelper to ensure deterministic reduction.
+func normalizePoolSizes(poolSizes map[string]int, targetSum int, poolSorter func(string, string) bool) (map[string]int, error) {
 	sum := general.SumUpMapValues(poolSizes)
 	if sum == targetSum {
 		return general.DeepCopyIntMap(poolSizes), nil
@@ -120,7 +127,7 @@ func normalizePoolSizes(poolSizes map[string]int, targetSum int) (map[string]int
 		if normalizedSum <= targetSum {
 			break
 		}
-		poolName := selectPoolHelper(poolSizes, poolSizesNormalized)
+		poolName := selectPoolHelper(poolSizes, poolSizesNormalized, poolSorter)
 		if poolName == "" {
 			return poolSizesNormalized, fmt.Errorf("no enough resource")
 		}
@@ -130,7 +137,10 @@ func normalizePoolSizes(poolSizes map[string]int, targetSum int) (map[string]int
 	return poolSizesNormalized, nil
 }
 
-func selectPoolHelper(poolSizesOriginal, poolSizesNormalized map[string]int) string {
+// selectPoolHelper selects a pool to reduce its size.
+// It prioritizes pools with the largest expansion ratio (current size / original size).
+// If multiple pools have the same max ratio, poolSorter is used to break ties deterministically.
+func selectPoolHelper(poolSizesOriginal, poolSizesNormalized map[string]int, poolSorter func(string, string) bool) string {
 	candidates := []string{}
 	rMax := 0.0
 	for k, v := range poolSizesNormalized {
@@ -150,6 +160,13 @@ func selectPoolHelper(poolSizesOriginal, poolSizesNormalized map[string]int) str
 		return ""
 	} else if len(candidates) == 1 {
 		return candidates[0]
+	}
+
+	// sort candidates to avoid random selection
+	if poolSorter != nil {
+		sort.Slice(candidates, func(i, j int) bool {
+			return poolSorter(candidates[i], candidates[j])
+		})
 	}
 
 	selected := ""
