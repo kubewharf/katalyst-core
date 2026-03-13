@@ -76,8 +76,10 @@ func (m *managerImpl) UpdateCPUBurst(qosConf *generic.QoSConfiguration, dynamicC
 
 	var errList []error
 
+	isSoleSharedCoresPod := util.IsSoleSharedCoresPod(qosConf, podList, dynamicConfig)
+
 	for _, pod := range podList {
-		cpuBurstPolicy, err := util.GetPodCPUBurstPolicy(qosConf, pod, dynamicConfig)
+		cpuBurstPolicy, err := util.GetPodCPUBurstPolicy(qosConf, pod, dynamicConfig, isSoleSharedCoresPod)
 		if err != nil {
 			errList = append(errList, fmt.Errorf("error getting cpu burst policy for pod %s: %v", pod.Name, err))
 			continue
