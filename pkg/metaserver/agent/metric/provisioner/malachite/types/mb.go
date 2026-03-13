@@ -23,7 +23,7 @@ type MalachiteMBResponse struct {
 }
 
 type MBRespData struct {
-	MBData MBData `json:"resctrl"`
+	Resctrl MBData `json:"resctrl"`
 }
 
 type MBData struct {

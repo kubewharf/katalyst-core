@@ -40,7 +40,7 @@ func (c *MalachiteClient) GetMBData() (*types.MBData, error) {
 		return nil, fmt.Errorf("malachite realtime_mb is not ok, status code %d", rsp.Status)
 	}
 
-	c.checkSystemStatsOutOfDate("realtime_mb", RealtimeUpdateTimeout, rsp.Data.MBData.UpdateTime)
+	c.checkSystemStatsOutOfDate("realtime_mb", RealtimeUpdateTimeout, rsp.Data.Resctrl.UpdateTime)
 
-	return &rsp.Data.MBData, nil
+	return &rsp.Data.Resctrl, nil
 }
