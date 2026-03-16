@@ -21,6 +21,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -33,19 +34,15 @@ func TestCanonicalStrategy_Filter(t *testing.T) {
 		ctx                     *allocate.AllocationContext
 		availableDevices        []string
 		expectedFilteredDevices []string
+		topology                *machine.DeviceTopology
 	}{
 		{
 			name: "empty hint nodes does not filter",
-			ctx: &allocate.AllocationContext{
-				DeviceTopology: &machine.DeviceTopology{
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							NumaNodes: []int{0, 1},
-						},
-						"gpu-2": {
-							NumaNodes: []int{2, 3},
-						},
-					},
+			ctx:  &allocate.AllocationContext{},
+			topology: &machine.DeviceTopology{
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {NumaNodes: []int{0, 1}},
+					"gpu-2": {NumaNodes: []int{2, 3}},
 				},
 			},
 			availableDevices:        []string{"gpu-1", "gpu-2"},
@@ -53,18 +50,12 @@ func TestCanonicalStrategy_Filter(t *testing.T) {
 		},
 		{
 			name: "filtered devices by hint nodes",
-			ctx: &allocate.AllocationContext{
-				DeviceTopology: &machine.DeviceTopology{
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							NumaNodes: []int{0, 1},
-						},
-						"gpu-2": {
-							NumaNodes: []int{2, 3},
-						},
-					},
+			ctx:  &allocate.AllocationContext{HintNodes: machine.NewCPUSet(0, 1, 2)},
+			topology: &machine.DeviceTopology{
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {NumaNodes: []int{0, 1}},
+					"gpu-2": {NumaNodes: []int{2, 3}},
 				},
-				HintNodes: machine.NewCPUSet(0, 1, 2),
 			},
 			availableDevices:        []string{"gpu-1", "gpu-2"},
 			expectedFilteredDevices: []string{"gpu-1"},
@@ -76,6 +67,13 @@ func TestCanonicalStrategy_Filter(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			if tt.topology != nil {
+				reg := machine.NewDeviceTopologyRegistry()
+				reg.RegisterDeviceTopologyProvider(consts.GPUDeviceType, machine.NewDeviceTopologyProvider([]string{"gpu"}))
+				_ = reg.SetDeviceTopology(consts.GPUDeviceType, tt.topology)
+				tt.ctx.DeviceTopologyRegistry = reg
+				tt.ctx.ResourceName = consts.GPUDeviceType
+			}
 			canonicalStrategy := NewCanonicalStrategy()
 			actualFilteredDevices, err := canonicalStrategy.Filter(tt.ctx, tt.availableDevices)
 			assert.NoError(t, err)

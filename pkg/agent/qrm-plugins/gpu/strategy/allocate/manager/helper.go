@@ -21,6 +21,7 @@ import (
 
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
@@ -29,16 +30,16 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-// AllocateGPUUsingStrategy performs GPU allocation using the strategy framework
-func AllocateGPUUsingStrategy(
+// AllocateDevicesUsingStrategy performs device allocation using the strategy framework
+func AllocateDevicesUsingStrategy(
 	resourceReq *pluginapi.ResourceRequest,
 	deviceReq *pluginapi.DeviceRequest,
-	gpuTopology *machine.DeviceTopology,
+	deviceTopologyRegistry *machine.DeviceTopologyRegistry,
 	gpuConfig *qrm.GPUQRMPluginConfig,
 	emitter metrics.MetricEmitter,
 	metaServer *metaserver.MetaServer,
 	machineState state.AllocationResourcesMap,
-	qosLevel, accompanyResourceName string,
+	qosLevel, resourceName, accompanyResourceName string,
 ) (*allocate.AllocationResult, error) {
 	// Get hint nodes
 	hintNodes, err := machine.NewCPUSetUint64(deviceReq.GetHint().GetNodes()...)
@@ -49,18 +50,23 @@ func AllocateGPUUsingStrategy(
 		}, err
 	}
 
+	if resourceName == "" {
+		resourceName = consts.GPUDeviceType
+	}
+
 	// Create allocation context
 	ctx := &allocate.AllocationContext{
-		ResourceReq:           resourceReq,
-		DeviceReq:             deviceReq,
-		DeviceTopology:        gpuTopology,
-		GPUQRMPluginConfig:    gpuConfig,
-		Emitter:               emitter,
-		MetaServer:            metaServer,
-		MachineState:          machineState,
-		QoSLevel:              qosLevel,
-		HintNodes:             hintNodes,
-		AccompanyResourceName: accompanyResourceName,
+		ResourceReq:            resourceReq,
+		DeviceReq:              deviceReq,
+		DeviceTopologyRegistry: deviceTopologyRegistry,
+		GPUQRMPluginConfig:     gpuConfig,
+		Emitter:                emitter,
+		MetaServer:             metaServer,
+		MachineState:           machineState,
+		QoSLevel:               qosLevel,
+		HintNodes:              hintNodes,
+		ResourceName:           resourceName,
+		AccompanyResourceName:  accompanyResourceName,
 	}
 
 	// Get the global strategy manager and perform allocation
