@@ -1011,13 +1011,19 @@ func (p *DynamicPolicy) handleAdvisorDyingMemcgReclaim(_ *config.Configuration,
 		return nil
 	}
 
+	_, mems, err := cgroupmgr.GetEffectiveCPUSetWithAbsolutePath(absCGPath)
+	if err != nil {
+		return fmt.Errorf("GetEffectiveCPUSetWithAbsolutePath failed with error: %v", err)
+	}
+	general.Infof("dyingMemcgReclaimWithAbsolutePath mems: %v", mems)
+
 	// start an asynchronous work to execute dying memcg reclaim
-	err := p.defaultAsyncLimitedWorkers.AddWork(
+	err = p.defaultAsyncLimitedWorkers.AddWork(
 		&asyncworker.Work{
 			Name:        dyingMemcgReclaimWorkName,
 			UID:         uuid.NewUUID(),
 			Fn:          cgroupmgr.DyingMemcgReclaimWithAbsolutePath,
-			Params:      []interface{}{absCGPath, emitter, entryName, subEntryName},
+			Params:      []interface{}{absCGPath, emitter, entryName, subEntryName, mems},
 			DeliveredAt: time.Now(),
 		}, asyncworker.DuplicateWorkPolicyOverride,
 	)

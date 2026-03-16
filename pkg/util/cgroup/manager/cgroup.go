@@ -26,7 +26,6 @@ import (
 	"path"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
@@ -554,51 +553,12 @@ func MemoryOffloadingWithAbsolutePath(ctx context.Context, absCgroupPath string,
 	return err
 }
 
-func invokeMemoryReclaim(reclaimFile string, memSize string) error {
-	// write memSize to reclaimFile
-	err := os.WriteFile(reclaimFile, []byte(memSize), 0o644)
-	if err != nil {
-		return fmt.Errorf("write %s failed with error: %v", reclaimFile, err)
-	}
-	return nil
-}
-
-func readNrDyingDescendants(statFile string) (int, error) {
-	// read nr_dying_descendants from statFile
-	statContent, err := os.ReadFile(statFile)
-	var nrDyingDescendants int
-	if err != nil {
-		general.Warningf("read cgroup.stat file failed: %v", err)
-		return 0, err
-	}
-	statLines := strings.Split(string(statContent), "\n")
-	for _, line := range statLines {
-		if strings.HasPrefix(line, "nr_dying_descendants") {
-			nrDyingDescendants, err = strconv.Atoi(strings.Split(line, " ")[1])
-			if err != nil {
-				general.Warningf("parse nr_dying_descendants failed: %v", err)
-				return 0, err
-			}
-			general.Infof("nr_dying_descendants: %d", nrDyingDescendants)
-		}
-	}
-	return nrDyingDescendants, nil
-}
-
-func DyingMemcgReclaimWithAbsolutePath(ctx context.Context, absCGPath string, emitter metrics.MetricEmitter, entryName string, subEntryName string) error {
+func DyingMemcgReclaimWithAbsolutePath(ctx context.Context, absCGPath string, emitter metrics.MetricEmitter, entryName string, subEntryName string, mems machine.CPUSet) error {
 	// perform dying memcg reclaim for burstable cgroup
 	general.Infof("Enable dying memcg reclaim for global Cgroup: %s", absCGPath)
 	// absCGPath is like "/sys/fs/cgroup/kubepods/burstable/pod-1234-5678"
 
 	startTime := time.Now()
-
-	statFile := path.Join(absCGPath, "cgroup.stat")
-	// check whether file exists
-	if _, err := os.Stat(statFile); os.IsNotExist(err) {
-		general.Warningf("cgroup.stat file not exist: %s", statFile)
-		return nil
-	}
-
 	reclaimFile := path.Join(absCGPath, "memory.reclaim")
 
 	// check whether file exists
@@ -607,7 +567,7 @@ func DyingMemcgReclaimWithAbsolutePath(ctx context.Context, absCGPath string, em
 		return nil
 	}
 
-	initialDyingDescendants, err := readNrDyingDescendants(statFile)
+	initialDyingDescendants, err := GetManager().GetCgroupNrDyingDescendants(absCGPath)
 	if err != nil {
 		general.Warningf("read nr_dying_descendants failed: %v", err)
 		return nil
@@ -622,8 +582,8 @@ func DyingMemcgReclaimWithAbsolutePath(ctx context.Context, absCGPath string, em
 
 		general.Infof("nr_dying_descendants: %d > %d, reclaim memory", nrDyingDescendants, DyingMemcgThreshold)
 
-		// invoke memory reclaim
-		err = invokeMemoryReclaim(reclaimFile, "30m")
+		// reclaim 30m, to trigger dying memory cgroup reclaim
+		err = MemoryOffloadingWithAbsolutePath(ctx, absCGPath, int64(30*1024*1024), mems)
 		if err != nil {
 			general.Warningf("invoke memory reclaim failed: %v", err)
 			return nil
@@ -632,7 +592,7 @@ func DyingMemcgReclaimWithAbsolutePath(ctx context.Context, absCGPath string, em
 		// sleep 5s
 		time.Sleep(5 * time.Second)
 
-		nrDyingDescendants, err = readNrDyingDescendants(statFile)
+		nrDyingDescendants, err = GetManager().GetCgroupNrDyingDescendants(absCGPath)
 		if err != nil {
 			general.Warningf("read nr_dying_descendants failed: %v", err)
 			return nil

@@ -99,3 +99,7 @@ func (f *FakeCgroupManager) GetPids(absCgroupPath string) ([]string, error) {
 func (f *FakeCgroupManager) GetTasks(absCgroupPath string) ([]string, error) {
 	return nil, nil
 }
+
+func (f *FakeCgroupManager) GetCgroupNrDyingDescendants(absCgroupPath string) (int, error) {
+	return 0, nil
+}

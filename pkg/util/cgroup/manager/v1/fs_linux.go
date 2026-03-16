@@ -437,6 +437,10 @@ func (m *manager) GetTasks(absCgroupPath string) ([]string, error) {
 	return tasks, nil
 }
 
+func (m *manager) GetCgroupNrDyingDescendants(absCgroupPath string) (int, error) {
+	return 0, errors.New("cgroups v1 does not support nr_dying_descendants")
+}
+
 func newHierarchy(enabled map[cgroups.Name]struct{}) cgroups.Hierarchy {
 	return func() ([]cgroups.Subsystem, error) {
 		ss, err := cgroups.V1()
