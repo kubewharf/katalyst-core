@@ -524,15 +524,16 @@ func (p *GPUMemPlugin) Allocate(
 	}
 
 	// Use the strategy framework to allocate GPU memory
-	result, err := manager.AllocateGPUUsingStrategy(
+	result, err := manager.AllocateDevicesUsingStrategy(
 		resourceReq,
 		deviceReq,
-		gpuTopology,
+		p.DeviceTopologyRegistry,
 		p.Conf.GPUQRMPluginConfig,
 		p.Emitter,
 		p.MetaServer,
 		p.GetState().GetMachineState(),
 		qosLevel,
+		"",
 		"",
 	)
 	if err != nil {

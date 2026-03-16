@@ -19,10 +19,7 @@ package rdma
 import (
 	"context"
 	"fmt"
-	"math"
 
-	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/util/sets"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
@@ -30,6 +27,7 @@ import (
 	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/customdeviceplugin"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/manager"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
@@ -123,20 +121,30 @@ func (p *RDMADevicePlugin) AllocateAssociatedDevice(
 		return nil, err
 	}
 
-	var allocatedRdmaDevices []string
+	accompanyResourceName = p.ResolveResourceName(accompanyResourceName, false)
 
-	// No accompany resource name
-	if accompanyResourceName == "" {
-		allocatedRdmaDevices, err = p.allocateWithNoAccompanyResource(deviceReq)
-		if err != nil {
-			return nil, fmt.Errorf("failed to allocate with no accompany resource: %v", err)
-		}
-	} else {
-		allocatedRdmaDevices, err = p.allocateWithAccompanyResource(deviceReq, resReq, accompanyResourceName)
-		if err != nil {
-			return nil, fmt.Errorf("failed to allocate with accompany resource: %v", err)
-		}
+	// Use strategy framework to allocate RDMA devices
+	result, err := manager.AllocateDevicesUsingStrategy(
+		resReq,
+		deviceReq,
+		p.DeviceTopologyRegistry,
+		p.Conf.GPUQRMPluginConfig,
+		p.Emitter,
+		p.MetaServer,
+		p.GetState().GetMachineState(),
+		qosLevel,
+		gpuconsts.RDMADeviceType,
+		accompanyResourceName,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("RDMA allocation using strategy failed: %v", err)
 	}
+
+	if !result.Success {
+		return nil, fmt.Errorf("RDMA allocation failed: %v", result.ErrorMessage)
+	}
+
+	allocatedRdmaDevices := result.AllocatedDevices
 
 	// Modify rdma state
 	topologyAwareAllocations := make(map[string]state.Allocation)
@@ -181,102 +189,4 @@ func (p *RDMADevicePlugin) AllocateAssociatedDevice(
 			AllocatedDevices: allocatedRdmaDevices,
 		},
 	}, nil
-}
-
-// allocateWithNoAccompanyResource allocates the rdma devices by best effort basis on the by making sure that
-// it fits the hint nodes.
-func (p *RDMADevicePlugin) allocateWithNoAccompanyResource(deviceReq *pluginapi.DeviceRequest) ([]string, error) {
-	reqQuantity := deviceReq.GetDeviceRequest()
-
-	machineState, ok := p.GetState().GetMachineState()[gpuconsts.RDMADeviceType]
-	if !ok {
-		return nil, fmt.Errorf("no machine state for resource %s", gpuconsts.RDMADeviceType)
-	}
-
-	allocatedDevices := sets.NewString()
-	allocateDevices := func(devices ...string) bool {
-		for _, device := range devices {
-			allocatedDevices.Insert(device)
-			if allocatedDevices.Len() >= int(reqQuantity) {
-				return true
-			}
-		}
-		return false
-	}
-
-	availableDevices := deviceReq.GetAvailableDevices()
-	reusableDevices := deviceReq.GetReusableDevices()
-
-	// allocate reusable devices first
-	allocated := allocateDevices(reusableDevices...)
-	if allocated {
-		return allocatedDevices.UnsortedList(), nil
-	}
-
-	for _, device := range availableDevices {
-		if !machineState.IsRequestSatisfied(device, 1, 1) {
-			general.Infof("available numa affinity rdma %s is already allocated", device)
-			continue
-		}
-
-		if allocateDevices(device) {
-			return allocatedDevices.UnsortedList(), nil
-		}
-	}
-
-	return nil, fmt.Errorf("not enough available RDMAs found in rdmaTopology, number of needed RDMAs: %d, availableDevices len: %d, allocatedDevices len: %d", reqQuantity, len(availableDevices), len(allocatedDevices))
-}
-
-// allocateWithAccompanyResource allocates the rdma devices by first allocating the reusable devices, then allocating the
-// available devices proportionally by ensuring NUMA affinity with the accompany resource
-func (p *RDMADevicePlugin) allocateWithAccompanyResource(
-	deviceReq *pluginapi.DeviceRequest, resReq *pluginapi.ResourceRequest, accompanyResourceName string,
-) ([]string, error) {
-	// Find out the accompany devices that are allocated to the container and allocate RDMA devices that correspond to the numa nodes of accompany device
-	accompanyDeviceType := p.ResolveResourceName(accompanyResourceName, false)
-	if accompanyDeviceType == "" {
-		return nil, fmt.Errorf("failed to get device type for accompany resource: %s", accompanyResourceName)
-	}
-
-	// Allocate all the reusable devices first
-	allocatedDevices := sets.NewString(deviceReq.ReusableDevices...)
-
-	// Get ratio of accompany resource to target device
-	accompanyResourceToTargetDeviceRatio := p.GetState().GetMachineState().GetRatioOfAccompanyResourceToTargetResource(accompanyDeviceType, gpuconsts.RDMADeviceType)
-
-	// Allocate target device according to ratio of accompany resource to target device
-	podResourceEntries := p.GetState().GetPodResourceEntries()
-	totalAllocated := podResourceEntries.GetTotalAllocatedResourceOfContainer(v1.ResourceName(accompanyDeviceType), resReq.PodUid, resReq.ContainerName)
-
-	rdmaToBeAllocated := int(math.Ceil(float64(totalAllocated) / accompanyResourceToTargetDeviceRatio))
-
-	machineState := p.GetState().GetMachineState()[v1.ResourceName(gpuconsts.RDMADeviceType)]
-
-	allocateDevices := func(devices ...string) bool {
-		for _, device := range devices {
-			if allocatedDevices.Len() >= rdmaToBeAllocated {
-				return true
-			}
-			allocatedDevices.Insert(device)
-		}
-		if allocatedDevices.Len() >= rdmaToBeAllocated {
-			return true
-		}
-		return false
-	}
-
-	// Allocate the rest of the available rdma devices in best-effort manner
-	for _, deviceId := range deviceReq.AvailableDevices {
-		// Skip rdma devices that are already allocated to other containers
-		if !machineState.IsRequestSatisfied(deviceId, 1, 1) {
-			continue
-		}
-
-		if allocateDevices(deviceId) {
-			return allocatedDevices.UnsortedList(), nil
-		}
-	}
-
-	// Did not find enough available rdma devices to allocate, return the devices that are already allocated
-	return allocatedDevices.UnsortedList(), nil
 }

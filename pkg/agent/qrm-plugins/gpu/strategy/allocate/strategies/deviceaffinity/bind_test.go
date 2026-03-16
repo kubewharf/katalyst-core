@@ -25,6 +25,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate"
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
@@ -62,6 +63,7 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 		expectedErr        bool
 		isRandom           bool
 		expectedResultSize int
+		topology           *machine.DeviceTopology
 	}{
 		{
 			name: "able to allocate 1 device in affinity group of size 2",
@@ -599,18 +601,6 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 						"gpu-8": {Dimensions: dimLevel(0, "g78")},
 					},
 				},
-				MachineState: map[v1.ResourceName]state.AllocationMap{
-					"gpu": {
-						"gpu-1": {},
-						"gpu-2": {},
-						"gpu-3": {},
-						"gpu-4": {},
-						"gpu-5": {},
-						"gpu-6": {},
-						"gpu-7": {},
-						"gpu-8": {},
-					},
-				},
 			},
 			// gpu-1 and gpu-5 are already allocated as they are reusable
 			// gpu-2 and gpu-6 should be allocated as they have affinity to the already allocated gpu-1 and gpu-5
@@ -763,18 +753,6 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 						"gpu-10": {Dimensions: dims(dimLevel(0, "g9-10"), dimLevel(1, "g9-12"))},
 						"gpu-11": {Dimensions: dims(dimLevel(0, "g11-12"), dimLevel(1, "g9-12"))},
 						"gpu-12": {Dimensions: dims(dimLevel(0, "g11-12"), dimLevel(1, "g9-12"))},
-					},
-				},
-				MachineState: map[v1.ResourceName]state.AllocationMap{
-					"gpu": {
-						"gpu-1": {},
-						"gpu-2": {},
-						"gpu-3": {},
-						"gpu-4": {},
-						"gpu-5": {},
-						"gpu-6": {},
-						"gpu-7": {},
-						"gpu-8": {},
 					},
 				},
 			},
@@ -1060,18 +1038,6 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 						"gpu-8": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
 					},
 				},
-				MachineState: map[v1.ResourceName]state.AllocationMap{
-					"gpu": {
-						"gpu-1": {},
-						"gpu-2": {},
-						"gpu-3": {},
-						"gpu-4": {},
-						"gpu-5": {},
-						"gpu-6": {},
-						"gpu-7": {},
-						"gpu-8": {},
-					},
-				},
 			},
 			sortedDevices: []string{"gpu-1", "gpu-5", "gpu-6", "gpu-7"},
 			expectedResult: &allocate.AllocationResult{
@@ -1333,6 +1299,16 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+			// Setup topology registry when a topology is provided
+			if tt.topology != nil {
+				reg := machine.NewDeviceTopologyRegistry()
+				reg.RegisterDeviceTopologyProvider(consts.GPUDeviceType, machine.NewDeviceTopologyProvider([]string{"gpu"}))
+				_ = reg.SetDeviceTopology(consts.GPUDeviceType, tt.topology)
+				if tt.ctx == nil {
+					tt.ctx = &allocate.AllocationContext{}
+				}
+				tt.ctx.DeviceTopologyRegistry = reg
+			}
 			deviceBindingStrategy := NewDeviceAffinityStrategy()
 			if tt.ctx.GPUQRMPluginConfig == nil {
 				tt.ctx.GPUQRMPluginConfig = qrmconfig.NewGPUQRMPluginConfig()
@@ -1358,6 +1334,7 @@ func TestBind_Dimensions(t *testing.T) {
 		sortedDevices                 []string
 		expectedErr                   bool
 		expectedAffinityPriorityLevel int
+		topology                      *machine.DeviceTopology
 	}{
 		{
 			name: "1 level of device affinity, 2 devices in a group",
@@ -1612,6 +1589,15 @@ func TestBind_Dimensions(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+			if tt.topology != nil {
+				reg := machine.NewDeviceTopologyRegistry()
+				reg.RegisterDeviceTopologyProvider(consts.GPUDeviceType, machine.NewDeviceTopologyProvider([]string{"gpu"}))
+				_ = reg.SetDeviceTopology(consts.GPUDeviceType, tt.topology)
+				if tt.ctx == nil {
+					tt.ctx = &allocate.AllocationContext{}
+				}
+				tt.ctx.DeviceTopologyRegistry = reg
+			}
 			deviceBindingStrategy := NewDeviceAffinityStrategy()
 			if tt.ctx.GPUQRMPluginConfig == nil {
 				tt.ctx.GPUQRMPluginConfig = qrmconfig.NewGPUQRMPluginConfig()
@@ -1624,7 +1610,7 @@ func TestBind_Dimensions(t *testing.T) {
 				t.Errorf("Bind() error = %v, expectedErr %v", err, tt.expectedErr)
 			}
 
-			verifyResultIsAffinity(t, result, tt.ctx.DeviceTopology, tt.expectedAffinityPriorityLevel)
+			verifyResultIsAffinity(t, result, tt.topology, tt.expectedAffinityPriorityLevel)
 		})
 	}
 }
