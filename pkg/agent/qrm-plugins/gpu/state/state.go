@@ -189,19 +189,6 @@ func (pre PodResourceEntries) RemovePod(podUID string) {
 	}
 }
 
-// GetTotalAllocatedResourceOfContainer returns the total allocated resource quantity of a container.
-func (pre PodResourceEntries) GetTotalAllocatedResourceOfContainer(
-	resourceName v1.ResourceName, podUID, containerName string,
-) int {
-	if podEntries, ok := pre[resourceName]; ok {
-		if allocationInfo := podEntries.GetAllocationInfo(podUID, containerName); allocationInfo != nil {
-			totalAllocationQuantity := int(allocationInfo.AllocatedAllocation.Quantity)
-			return totalAllocationQuantity
-		}
-	}
-	return 0
-}
-
 func (as *AllocationState) String() string {
 	if as == nil {
 		return ""
@@ -288,15 +275,41 @@ func (arm AllocationResourcesMap) Clone() AllocationResourcesMap {
 	return clone
 }
 
+// GetAllocatedDeviceIDs returns the deviceIDs that are allocated to the specific container.
+func (arm AllocationResourcesMap) GetAllocatedDeviceIDs(resourceName v1.ResourceName, podUID, containerName string) []string {
+	result := make([]string, 0)
+	allocationMap, ok := arm[resourceName]
+	if !ok {
+		return result
+	}
+
+	for deviceID, allocationState := range allocationMap {
+		if allocationState == nil || allocationState.PodEntries == nil {
+			continue
+		}
+
+		containerEntries, ok := allocationState.PodEntries[podUID]
+		if !ok {
+			continue
+		}
+
+		if allocationInfo, ok := containerEntries[containerName]; ok && allocationInfo != nil {
+			result = append(result, deviceID)
+		}
+	}
+
+	return result
+}
+
 // GetRatioOfAccompanyResourceToTargetResource returns the ratio of total accompany resource to total target resource.
 // For example, if the total number of accompany resource is 4 and the total number of target resource is 2,
 // the ratio is 2.
-func (arm AllocationResourcesMap) GetRatioOfAccompanyResourceToTargetResource(accompanyResourceName, targetResourceName string) float64 {
-	// Find the ratio of the total number of accompany resource to the total number of target resource
+func (arm AllocationResourcesMap) GetRatioOfAccompanyResourceToTargetResource(accompanyResourceName, resourceName string) float64 {
+	// Find the ratio of the total number of pre-allocated resource to the total number of target resource
 	accompanyResourceMap := arm[v1.ResourceName(accompanyResourceName)].Clone()
 	accompanyResourceNumber := accompanyResourceMap.getNumberDevices()
 
-	targetResourceMap := arm[v1.ResourceName(targetResourceName)].Clone()
+	targetResourceMap := arm[v1.ResourceName(resourceName)].Clone()
 	targetResourceNumber := targetResourceMap.getNumberDevices()
 
 	if targetResourceNumber == 0 {

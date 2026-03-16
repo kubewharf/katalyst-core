@@ -17,6 +17,8 @@ limitations under the License.
 package canonical
 
 import (
+	"fmt"
+
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate"
@@ -29,9 +31,18 @@ import (
 func (s *CanonicalStrategy) Filter(
 	ctx *allocate.AllocationContext, allAvailableDevices []string,
 ) ([]string, error) {
+	if ctx.DeviceTopologyRegistry == nil {
+		return nil, fmt.Errorf("device topology registry is nil")
+	}
+
 	filteredDevices := sets.NewString()
+	gpuTopo, _, err := ctx.DeviceTopologyRegistry.GetDeviceTopology(ctx.ResourceName)
+	if err != nil {
+		return nil, fmt.Errorf("canonical strategy failed to get gpu topology: %w", err)
+	}
+
 	for _, device := range allAvailableDevices {
-		if !ctx.HintNodes.IsEmpty() && !gpuutil.IsNUMAAffinityDevice(device, ctx.DeviceTopology, ctx.HintNodes) {
+		if !ctx.HintNodes.IsEmpty() && !gpuutil.IsNUMAAffinityDevice(device, gpuTopo, ctx.HintNodes) {
 			continue
 		}
 

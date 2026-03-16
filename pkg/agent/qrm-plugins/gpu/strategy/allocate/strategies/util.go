@@ -24,8 +24,8 @@ import (
 
 // IsBindingContextValid checks if the context given for binding is valid
 func IsBindingContextValid(ctx *allocate.AllocationContext, sortedDevices []string) (bool, string) {
-	if ctx.DeviceTopology == nil {
-		return false, "GPU topology is nil"
+	if ctx.DeviceTopologyRegistry == nil {
+		return false, "GPU topology registry is nil"
 	}
 
 	// Determine how many devices to allocate

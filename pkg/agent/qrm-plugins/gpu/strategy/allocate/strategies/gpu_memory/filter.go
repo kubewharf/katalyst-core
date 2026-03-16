@@ -17,8 +17,6 @@ limitations under the License.
 package gpu_memory
 
 import (
-	"fmt"
-
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -30,10 +28,6 @@ import (
 // Filter filters the available GPU devices based on available GPU memory
 // It returns devices that have enough available memory for the request
 func (s *GPUMemoryStrategy) Filter(ctx *allocate.AllocationContext, allAvailableDevices []string) ([]string, error) {
-	if ctx.DeviceTopology == nil {
-		return nil, fmt.Errorf("GPU topology is nil")
-	}
-
 	_, gpuMemory, err := util.GetQuantityFromResourceRequests(ctx.ResourceReq.ResourceRequests, string(consts.ResourceGPUMemory), false)
 	if err != nil {
 		general.Warningf("getReqQuantityFromResourceReq failed with error: %v, use default available devices", err)
