@@ -529,8 +529,6 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 				}
 			}
 
-			// PoolName Override QosLevel Config
-
 			// load SPD conf if exists
 			tmoIndicator := &v1alpha1.TransparentMemoryOffloadingIndicators{}
 			isBaseline, err := tmo.metaServer.ServiceProfilingManager.ServiceExtendedIndicator(context.Background(), pod.ObjectMeta, tmoIndicator)

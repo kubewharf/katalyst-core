@@ -53,6 +53,7 @@ type Manager interface {
 	GetDeviceIOWeight(absCgroupPath string, devID string) (uint64, bool, error)
 	GetIOStat(absCgroupPath string) (map[string]map[string]string, error)
 	GetMetrics(relCgroupPath string, subsystems map[string]struct{}) (*common.CgroupMetrics, error)
+	GetCgroupNrDyingDescendants(absCgroupPath string) (int, error)
 
 	GetPids(absCgroupPath string) ([]string, error)
 	GetTasks(absCgroupPath string) ([]string, error)
