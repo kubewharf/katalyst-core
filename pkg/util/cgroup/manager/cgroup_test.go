@@ -34,6 +34,7 @@ import (
 	"github.com/opencontainers/runc/libcontainer/cgroups"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	v1 "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager/v1"
 	v2 "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager/v2"
@@ -234,6 +235,60 @@ func testMemoryOffloadingWithAbsolutePath(t *testing.T) {
 	s, err := ioutil.ReadFile(reclaimFile)
 	assert.NoError(t, err)
 	assert.Equal(t, fmt.Sprintf("%v\n", 100), string(s))
+}
+
+func TestDyingMemcgReclaimWithAbsolutePath(t *testing.T) {
+	t.Parallel()
+	mu.Lock()
+	defer mu.Unlock()
+
+	t.Run("missing reclaim file", func(t *testing.T) {
+		t.Parallel()
+		mu.Lock()
+		defer mu.Unlock()
+		tmpDir, err := os.MkdirTemp("", "dying-memcg")
+		assert.NoError(t, err)
+		defer os.RemoveAll(tmpDir)
+
+		err = DyingMemcgReclaimWithAbsolutePath(context.TODO(), tmpDir, metrics.DummyMetrics{}, "entry", "container", machine.NewCPUSet(0))
+		assert.NoError(t, err)
+	})
+
+	t.Run("reclaim with threshold", func(t *testing.T) {
+		t.Parallel()
+		mu.Lock()
+		defer mu.Unlock()
+		defer mockey.UnPatchAll()
+
+		tmpDir, err := os.MkdirTemp("", "dying-memcg")
+		assert.NoError(t, err)
+		defer os.RemoveAll(tmpDir)
+
+		reclaimFile := filepath.Join(tmpDir, "memory.reclaim")
+		err = os.WriteFile(reclaimFile, []byte(""), 0o600)
+		assert.NoError(t, err)
+
+		fakeManager := &FakeCgroupManager{}
+		callCount := 0
+		offloadCount := 0
+
+		mockey.Mock(GetManager).IncludeCurrentGoRoutine().Return(fakeManager).Build()
+		mockey.Mock((*FakeCgroupManager).GetCgroupNrDyingDescendants).IncludeCurrentGoRoutine().To(func(_ *FakeCgroupManager, _ string) (int, error) {
+			callCount++
+			if callCount == 1 {
+				return DyingMemcgThreshold + 10, nil
+			}
+			return DyingMemcgThreshold - 10, nil
+		}).Build()
+		mockey.Mock(MemoryOffloadingWithAbsolutePath).IncludeCurrentGoRoutine().To(func(_ context.Context, _ string, _ int64, _ machine.CPUSet) error {
+			offloadCount++
+			return nil
+		}).Build()
+		err = DyingMemcgReclaimWithAbsolutePath(context.TODO(), tmpDir, metrics.DummyMetrics{}, "entry", "container", machine.NewCPUSet(0))
+		assert.NoError(t, err)
+		assert.Equal(t, 2, callCount)
+		assert.Equal(t, 1, offloadCount)
+	})
 }
 
 func TestGetEffectiveCPUSetWithAbsolutePathV1(t *testing.T) {

@@ -973,7 +973,6 @@ func (p *DynamicPolicy) handleAdvisorMemoryOffloading(_ *config.Configuration,
 }
 
 // handleAdvisorDyingMemcgReclaim handles dying memcg reclaim from memory-advisor
-// translates from tce/tmo: https://code.byted.org/tce/tmo/commit/58506d1d168f75deedb543c442053b8fbbda3c8e
 func (p *DynamicPolicy) handleAdvisorDyingMemcgReclaim(_ *config.Configuration,
 	_ interface{},
 	_ *dynamicconfig.DynamicAgentConfiguration,
@@ -987,7 +986,7 @@ func (p *DynamicPolicy) handleAdvisorDyingMemcgReclaim(_ *config.Configuration,
 
 	if calculationInfo.CgroupPath != "" {
 		dyingMemcgReclaimWorkName = util.GetCgroupAsyncWorkName(calculationInfo.CgroupPath, memoryPluginAsyncWorkTopicDyingMemcgReclaim)
-		absCGPath = common.GetAbsCgroupPath(common.CgroupSubsysMemory, calculationInfo.CgroupPath)
+		absCGPath = calculationInfo.CgroupPath
 	} else {
 		return fmt.Errorf("cgroup path is empty")
 	}

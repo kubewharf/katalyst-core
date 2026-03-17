@@ -713,15 +713,8 @@ func (tmo *transparentMemoryOffloading) GetAdvices() types.InternalMemoryCalcula
 		tmo.lastDyingCGReclaimTime = currentTime
 		// Note: trigger qrm-plugin
 		for _, cgroupPath := range cgroupPaths {
-			// cgroupPath here uses absolute path
-			relativeCgroupPath, err := filepath.Rel(common.CgroupFSMountPoint, cgroupPath)
-			if err != nil {
-				continue
-			}
-			relativeCgroupPath = "/" + relativeCgroupPath
-
 			entry := types.ExtraMemoryAdvices{
-				CgroupPath: relativeCgroupPath,
+				CgroupPath: cgroupPath,
 				Values: map[string]string{
 					string(memoryadvisor.ControlKnowKeyDyingMemcgReclaim): consts.ControlKnobON,
 				},
