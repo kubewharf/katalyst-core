@@ -28,6 +28,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -2227,6 +2228,60 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 				Success:          true,
 			},
 		},
+		{
+			name: "fallback to canonical strategy when no affinity is available",
+			ctx: &allocate.AllocationContext{
+				ResourceReq: &pluginapi.ResourceRequest{
+					PodUid:        "pod-1",
+					ContainerName: "container-1",
+				},
+				DeviceReq: &pluginapi.DeviceRequest{
+					DeviceName:      "gpu",
+					ReusableDevices: nil,
+					DeviceRequest:   2,
+				},
+				DeviceTopology: &machine.DeviceTopology{
+					Devices: map[string]machine.DeviceInfo{
+						"gpu-1": {},
+						"gpu-2": {},
+						"gpu-3": {},
+						"gpu-4": {},
+					},
+				},
+			},
+			sortedDevices: []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4"},
+			expectedResult: &allocate.AllocationResult{
+				AllocatedDevices: []string{"gpu-1", "gpu-2"},
+				Success:          true,
+			},
+		},
+		{
+			name: "fallback to canonical strategy and allocate all reusable devices",
+			ctx: &allocate.AllocationContext{
+				ResourceReq: &pluginapi.ResourceRequest{
+					PodUid:        "pod-1",
+					ContainerName: "container-1",
+				},
+				DeviceReq: &pluginapi.DeviceRequest{
+					DeviceName:      "gpu",
+					ReusableDevices: []string{"gpu-1", "gpu-2"},
+					DeviceRequest:   2,
+				},
+				DeviceTopology: &machine.DeviceTopology{
+					Devices: map[string]machine.DeviceInfo{
+						"gpu-1": {},
+						"gpu-2": {},
+						"gpu-3": {},
+						"gpu-4": {},
+					},
+				},
+			},
+			sortedDevices: []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4"},
+			expectedResult: &allocate.AllocationResult{
+				AllocatedDevices: []string{"gpu-1", "gpu-2"},
+				Success:          true,
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -2234,6 +2289,7 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			deviceBindingStrategy := NewDeviceAffinityStrategy()
+			tt.ctx.Emitter = metrics.DummyMetrics{}
 			result, err := deviceBindingStrategy.Bind(tt.ctx, tt.sortedDevices)
 			if (err != nil) != tt.expectedErr {
 				t.Errorf("Bind() error = %v, expectedErr %v", err, tt.expectedErr)
@@ -2620,6 +2676,7 @@ func TestBind_DeviceAffinity(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			deviceBindingStrategy := NewDeviceAffinityStrategy()
+			tt.ctx.Emitter = metrics.DummyMetrics{}
 			result, err := deviceBindingStrategy.Bind(tt.ctx, tt.sortedDevices)
 			if (err != nil) != tt.expectedErr {
 				t.Errorf("Bind() error = %v, expectedErr %v", err, tt.expectedErr)

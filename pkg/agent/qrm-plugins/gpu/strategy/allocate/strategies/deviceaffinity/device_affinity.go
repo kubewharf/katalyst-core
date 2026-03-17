@@ -18,6 +18,7 @@ package deviceaffinity
 
 import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/canonical"
 )
 
 const (
@@ -25,7 +26,9 @@ const (
 )
 
 // DeviceAffinityStrategy knows how to bind devices that have affinity to each other
-type DeviceAffinityStrategy struct{}
+type DeviceAffinityStrategy struct {
+	canonical.CanonicalStrategy
+}
 
 // NewDeviceAffinityStrategy creates a new device affinity strategy with the given canonical strategy
 func NewDeviceAffinityStrategy() *DeviceAffinityStrategy {
