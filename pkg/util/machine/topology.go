@@ -122,6 +122,10 @@ func (d MemoryDetails) FillNUMANodesWithZero(allNUMAs CPUSet) MemoryDetails {
 type MemoryTopology struct {
 	MemoryDetails MemoryDetails
 	PageSize      int
+	// NormalMemoryCapacity is the total memory capacity in bytes, excluding static hugepages
+	NormalMemoryCapacity uint64
+	// NormalMemoryDetails is the memory capacity details by NUMA node, excluding static hugepages
+	NormalMemoryDetails MemoryDetails
 }
 
 // AlignToPageSize returns the page numbers from mem numbers.
@@ -259,9 +263,15 @@ func GenerateDummyCPUTopology(cpuNum, socketNum, numaNum int) (*CPUTopology, err
 }
 
 func GenerateDummyMemoryTopology(numaNum int, memoryCapacity uint64) (*MemoryTopology, error) {
-	memoryTopology := &MemoryTopology{map[int]uint64{}, 4096}
+	memoryTopology := &MemoryTopology{
+		MemoryDetails:        map[int]uint64{},
+		PageSize:             4096,
+		NormalMemoryDetails:  map[int]uint64{},
+		NormalMemoryCapacity: memoryCapacity,
+	}
 	for i := 0; i < numaNum; i++ {
 		memoryTopology.MemoryDetails[i] = memoryCapacity / uint64(numaNum)
+		memoryTopology.NormalMemoryDetails[i] = memoryCapacity / uint64(numaNum)
 	}
 	return memoryTopology, nil
 }
@@ -482,6 +492,39 @@ func (d CPUDetails) CPUsInCores(ids ...int) CPUSet {
 	return b
 }
 
+// DiscoverMemoryTopology returns MemoryTopology based on cadvisor node info
+func DiscoverMemoryTopology(machineInfo *info.MachineInfo) (*MemoryTopology, error) {
+	if machineInfo == nil {
+		return nil, fmt.Errorf("machineInfo is nil")
+	}
+
+	memoryTopology := MemoryTopology{
+		MemoryDetails:       map[int]uint64{},
+		PageSize:            unix.Getpagesize(),
+		NormalMemoryDetails: map[int]uint64{},
+	}
+
+	for _, node := range machineInfo.Topology {
+		memoryTopology.MemoryDetails[node.Id] = node.Memory
+
+		staticHugePagesSize := uint64(0)
+		for _, page := range node.HugePages {
+			staticHugePagesSize += page.NumPages * page.PageSize
+		}
+
+		normalMemory := node.Memory
+		if normalMemory > staticHugePagesSize {
+			normalMemory -= staticHugePagesSize
+		} else {
+			normalMemory = 0
+		}
+		memoryTopology.NormalMemoryDetails[node.Id] = normalMemory
+		memoryTopology.NormalMemoryCapacity += normalMemory
+	}
+
+	return &memoryTopology, nil
+}
+
 // Discover returns CPUTopology based on cadvisor node info
 func Discover(machineInfo *info.MachineInfo) (*CPUTopology, *MemoryTopology, error) {
 	if machineInfo.NumCores == 0 {
@@ -492,14 +535,12 @@ func Discover(machineInfo *info.MachineInfo) (*CPUTopology, *MemoryTopology, err
 	numaNodeIDToSocketID := make(map[int]int, len(machineInfo.Topology))
 	numPhysicalCores := 0
 
-	memoryTopology := MemoryTopology{
-		MemoryDetails: map[int]uint64{},
-		PageSize:      unix.Getpagesize(),
+	memoryTopology, err := DiscoverMemoryTopology(machineInfo)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	for _, node := range machineInfo.Topology {
-		memoryTopology.MemoryDetails[node.Id] = node.Memory
-
 		numPhysicalCores += len(node.Cores)
 		for _, core := range node.Cores {
 			l3CacheID := getUniqueL3CacheID(core)
@@ -542,7 +583,7 @@ func Discover(machineInfo *info.MachineInfo) (*CPUTopology, *MemoryTopology, err
 		NUMAToCPUs:           numaToCPUs,
 		CPUDetails:           cpuDetails,
 		CPUInfo:              cpuInfo,
-	}, &memoryTopology, nil
+	}, memoryTopology, nil
 }
 
 // getUniqueL3CacheID returns the unique L3 cache ID for the given core.
