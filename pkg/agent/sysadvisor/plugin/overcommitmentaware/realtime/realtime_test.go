@@ -44,6 +44,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	metric2 "github.com/kubewharf/katalyst-core/pkg/util/metric"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
@@ -441,6 +442,9 @@ func generateTestMetaServer(t *testing.T, conf *config.Configuration, podList []
 	meta.MachineInfo = &info.MachineInfo{
 		NumCores:       16,
 		MemoryCapacity: 32 * 1024 * 1024 * 1024,
+	}
+	meta.KatalystMachineInfo.MemoryTopology = &machine.MemoryTopology{
+		NormalMemoryCapacity: 32 * 1024 * 1024 * 1024,
 	}
 	return meta
 }
