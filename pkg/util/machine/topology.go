@@ -126,6 +126,10 @@ type MemoryTopology struct {
 	NormalMemoryCapacity uint64
 	// NormalMemoryDetails is the memory capacity details by NUMA node, excluding static hugepages
 	NormalMemoryDetails MemoryDetails
+	// StaticHugePagesCapacity is the total static hugepages capacity in bytes
+	StaticHugePagesCapacity uint64
+	// StaticHugePagesDetails is the static hugepages capacity details by NUMA node
+	StaticHugePagesDetails MemoryDetails
 }
 
 // AlignToPageSize returns the page numbers from mem numbers.
@@ -254,14 +258,17 @@ func GenerateDummyCPUTopology(cpuNum, socketNum, numaNum int) (*CPUTopology, err
 
 func GenerateDummyMemoryTopology(numaNum int, memoryCapacity uint64) (*MemoryTopology, error) {
 	memoryTopology := &MemoryTopology{
-		MemoryDetails:        map[int]uint64{},
-		PageSize:             4096,
-		NormalMemoryDetails:  map[int]uint64{},
-		NormalMemoryCapacity: memoryCapacity,
+		MemoryDetails:           map[int]uint64{},
+		PageSize:                4096,
+		NormalMemoryDetails:     map[int]uint64{},
+		NormalMemoryCapacity:    memoryCapacity,
+		StaticHugePagesDetails:  map[int]uint64{},
+		StaticHugePagesCapacity: 0,
 	}
 	for i := 0; i < numaNum; i++ {
 		memoryTopology.MemoryDetails[i] = memoryCapacity / uint64(numaNum)
 		memoryTopology.NormalMemoryDetails[i] = memoryCapacity / uint64(numaNum)
+		memoryTopology.StaticHugePagesDetails[i] = 0
 	}
 	return memoryTopology, nil
 }
@@ -489,22 +496,27 @@ func DiscoverMemoryTopology(machineInfo *info.MachineInfo) (*MemoryTopology, err
 	}
 
 	memoryTopology := MemoryTopology{
-		MemoryDetails:       map[int]uint64{},
-		PageSize:            unix.Getpagesize(),
-		NormalMemoryDetails: map[int]uint64{},
+		MemoryDetails:           map[int]uint64{},
+		PageSize:                unix.Getpagesize(),
+		NormalMemoryDetails:     map[int]uint64{},
+		StaticHugePagesDetails:  map[int]uint64{},
+		StaticHugePagesCapacity: 0,
 	}
 
 	for _, node := range machineInfo.Topology {
 		memoryTopology.MemoryDetails[node.Id] = node.Memory
 
-		staticHugePagesSize := uint64(0)
+		staticHugePagesInBytes := uint64(0)
 		for _, page := range node.HugePages {
-			staticHugePagesSize += page.NumPages * page.PageSize
+			staticHugePagesInBytes += page.NumPages * page.PageSize * 1024
 		}
 
+		memoryTopology.StaticHugePagesDetails[node.Id] = staticHugePagesInBytes
+		memoryTopology.StaticHugePagesCapacity += staticHugePagesInBytes
+
 		normalMemory := node.Memory
-		if normalMemory > staticHugePagesSize {
-			normalMemory -= staticHugePagesSize
+		if normalMemory > staticHugePagesInBytes {
+			normalMemory -= staticHugePagesInBytes
 		} else {
 			normalMemory = 0
 		}
