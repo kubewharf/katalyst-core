@@ -204,7 +204,8 @@ type transparentMemoryOffloading struct {
 	containerTmoEngines map[katalystcoreconsts.PodContainerName]TmoEngine
 	cgpathTmoEngines    map[string]TmoEngine
 
-	lastDyingCGReclaimTime time.Time
+	lastDyingCGReclaimTime  time.Time
+	enableDyingMemcgReclaim bool
 }
 
 type TmoEngine interface {
@@ -474,6 +475,8 @@ func NewTransparentMemoryOffloading(conf *config.Configuration, extraConfig inte
 		emitter:             emitter,
 		containerTmoEngines: make(map[consts.PodContainerName]TmoEngine),
 		cgpathTmoEngines:    make(map[string]TmoEngine),
+		// enableDyingMemcgReclaim: getEnvBool(DyingMemcgReclaimEnv, true),
+		enableDyingMemcgReclaim: conf.QoSAwarePluginConfiguration.EnableDyingMemcgReclaim,
 	}
 }
 
@@ -661,6 +664,10 @@ func (tmo *transparentMemoryOffloading) GetAdvices() types.InternalMemoryCalcula
 			},
 		}
 		result.ExtraEntries = append(result.ExtraEntries, entry)
+	}
+
+	if !tmo.enableDyingMemcgReclaim {
+		return result
 	}
 
 	cgroupPaths := make([]string, 0)
