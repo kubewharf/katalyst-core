@@ -102,9 +102,11 @@ func TestDiscoverMemoryTopology(t *testing.T) {
 				},
 			},
 			wantMemoryTopology: &MemoryTopology{
-				MemoryDetails:        map[int]uint64{0: 1024 * 1024 * 1024},
-				NormalMemoryDetails:  map[int]uint64{0: 1024 * 1024 * 1024},
-				NormalMemoryCapacity: 1024 * 1024 * 1024,
+				MemoryDetails:           map[int]uint64{0: 1024 * 1024 * 1024},
+				NormalMemoryDetails:     map[int]uint64{0: 1024 * 1024 * 1024},
+				NormalMemoryCapacity:    1024 * 1024 * 1024,
+				StaticHugePagesDetails:  map[int]uint64{0: 0},
+				StaticHugePagesCapacity: 0,
 			},
 		},
 		{
@@ -116,7 +118,7 @@ func TestDiscoverMemoryTopology(t *testing.T) {
 						Memory: 2 * 1024 * 1024 * 1024, // 2GB
 						HugePages: []info.HugePagesInfo{
 							{
-								PageSize: 1024 * 1024 * 1024, // 1GB
+								PageSize: 1024 * 1024, // 1GB
 								NumPages: 1,
 							},
 						},
@@ -124,9 +126,11 @@ func TestDiscoverMemoryTopology(t *testing.T) {
 				},
 			},
 			wantMemoryTopology: &MemoryTopology{
-				MemoryDetails:        map[int]uint64{0: 2 * 1024 * 1024 * 1024},
-				NormalMemoryDetails:  map[int]uint64{0: 1 * 1024 * 1024 * 1024},
-				NormalMemoryCapacity: 1 * 1024 * 1024 * 1024,
+				MemoryDetails:           map[int]uint64{0: 2 * 1024 * 1024 * 1024},
+				NormalMemoryDetails:     map[int]uint64{0: 1 * 1024 * 1024 * 1024},
+				NormalMemoryCapacity:    1 * 1024 * 1024 * 1024,
+				StaticHugePagesDetails:  map[int]uint64{0: 1 * 1024 * 1024 * 1024},
+				StaticHugePagesCapacity: 1 * 1024 * 1024 * 1024,
 			},
 		},
 		{
@@ -138,7 +142,7 @@ func TestDiscoverMemoryTopology(t *testing.T) {
 						Memory: 4 * 1024 * 1024 * 1024, // 4GB
 						HugePages: []info.HugePagesInfo{
 							{
-								PageSize: 1 * 1024 * 1024 * 1024, // 1GB
+								PageSize: 1 * 1024 * 1024, // 1GB
 								NumPages: 2,
 							},
 						},
@@ -148,8 +152,8 @@ func TestDiscoverMemoryTopology(t *testing.T) {
 						Memory: 4 * 1024 * 1024 * 1024, // 4GB
 						HugePages: []info.HugePagesInfo{
 							{
-								PageSize: 2 * 1024 * 1024, // 2MB
-								NumPages: 512,             // 1GB
+								PageSize: 2 * 1024, // 2MB
+								NumPages: 512,      // 1GB
 							},
 						},
 					},
@@ -165,6 +169,11 @@ func TestDiscoverMemoryTopology(t *testing.T) {
 					1: 3 * 1024 * 1024 * 1024,
 				},
 				NormalMemoryCapacity: 5 * 1024 * 1024 * 1024,
+				StaticHugePagesDetails: map[int]uint64{
+					0: 2 * 1024 * 1024 * 1024,
+					1: 1 * 1024 * 1024 * 1024,
+				},
+				StaticHugePagesCapacity: 3 * 1024 * 1024 * 1024,
 			},
 		},
 	}
