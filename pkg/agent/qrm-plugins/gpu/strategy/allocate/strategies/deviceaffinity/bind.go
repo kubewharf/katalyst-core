@@ -198,10 +198,18 @@ func (s *DeviceAffinityStrategy) allocateCandidateDevices(
 		return allocatedDevices, nil
 	}
 
-	// Process affinity groups from highest to lowest priority
-	for priority := 0; priority < len(affinityGroupsMap); priority++ {
-		affinityGroups, exists := affinityGroupsMap[priority]
-		if !exists || len(affinityGroups) == 0 {
+	// Process affinity groups from highest to lowest priority.
+	// Do not assume priorities are consecutive (e.g., keys can be 0,2,3,5).
+	priorityLevels := make([]int, 0, len(affinityGroupsMap))
+	for p := range affinityGroupsMap {
+		priorityLevels = append(priorityLevels, p)
+	}
+	// Sort priorities ascending so stronger affinity (lower number) is processed first
+	sort.Ints(priorityLevels)
+
+	for idx, priority := range priorityLevels {
+		affinityGroups := affinityGroupsMap[priority]
+		if len(affinityGroups) == 0 {
 			continue
 		}
 
@@ -221,8 +229,8 @@ func (s *DeviceAffinityStrategy) allocateCandidateDevices(
 			return result, nil
 		}
 
-		// For the lowest priority, use more flexible allocation strategies
-		if priority == len(affinityGroupsMap)-1 {
+		// For the lowest priority (last in the sorted list), use more flexible allocation strategies
+		if idx == len(priorityLevels)-1 {
 			return s.handleLowestPriorityAllocation(
 				groupInfos, affinityGroupsMap, candidateDevicesSet,
 				devicesToAllocate, allocatedDevices, remainingDevicesToAllocate,
