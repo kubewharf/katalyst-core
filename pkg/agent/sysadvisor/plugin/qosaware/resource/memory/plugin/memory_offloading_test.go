@@ -48,7 +48,9 @@ func TestTransparentMemoryOffloading_GetAdvices_DyingMemcgReclaim(t *testing.T) 
 	defer transparentMemoryOffloadingTestMutex.Unlock()
 	defer mockey.UnPatchAll()
 
-	tmo := &transparentMemoryOffloading{}
+	tmo := &transparentMemoryOffloading{
+		enableDyingMemcgReclaim: true,
+	}
 
 	mockey.Mock(os.ReadDir).IncludeCurrentGoRoutine().Return([]os.DirEntry{
 		mockDirEntry{name: "offline-besteffort-0", isDir: true},
@@ -81,7 +83,8 @@ func TestTransparentMemoryOffloading_GetAdvices_DyingMemcgReclaimInterval(t *tes
 	defer mockey.UnPatchAll()
 
 	tmo := &transparentMemoryOffloading{
-		lastDyingCGReclaimTime: time.Now(),
+		lastDyingCGReclaimTime:  time.Now(),
+		enableDyingMemcgReclaim: true,
 	}
 
 	mockey.Mock(os.ReadDir).IncludeCurrentGoRoutine().Return([]os.DirEntry{
@@ -98,7 +101,9 @@ func TestTransparentMemoryOffloading_GetAdvices_DyingMemcgReclaimReadDirError(t 
 	defer transparentMemoryOffloadingTestMutex.Unlock()
 	defer mockey.UnPatchAll()
 
-	tmo := &transparentMemoryOffloading{}
+	tmo := &transparentMemoryOffloading{
+		enableDyingMemcgReclaim: true,
+	}
 
 	mockey.Mock(os.ReadDir).IncludeCurrentGoRoutine().Return(nil, errors.New("read failed")).Build()
 

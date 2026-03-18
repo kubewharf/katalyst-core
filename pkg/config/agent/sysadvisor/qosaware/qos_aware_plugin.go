@@ -27,7 +27,8 @@ import (
 
 // QoSAwarePluginConfiguration stores configurations of qos aware plugin
 type QoSAwarePluginConfiguration struct {
-	SyncPeriod time.Duration
+	SyncPeriod              time.Duration
+	EnableDyingMemcgReclaim bool
 
 	*resource.ResourceAdvisorConfiguration
 	*server.QRMServerConfiguration

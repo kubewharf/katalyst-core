@@ -30,12 +30,14 @@ import (
 )
 
 const (
-	defaultQoSAwareSyncPeriod = 5 * time.Second
+	defaultQoSAwareSyncPeriod      = 5 * time.Second
+	defaultEnableDyingMemcgReclaim = false
 )
 
 // QoSAwarePluginOptions holds the configurations for qos aware plugin.
 type QoSAwarePluginOptions struct {
-	SyncPeriod time.Duration
+	SyncPeriod              time.Duration
+	EnableDyingMemcgReclaim bool
 
 	*resource.ResourceAdvisorOptions
 	*server.QRMServerOptions
@@ -46,11 +48,12 @@ type QoSAwarePluginOptions struct {
 // NewQoSAwarePluginOptions creates a new Options with a default config.
 func NewQoSAwarePluginOptions() *QoSAwarePluginOptions {
 	return &QoSAwarePluginOptions{
-		SyncPeriod:             defaultQoSAwareSyncPeriod,
-		ResourceAdvisorOptions: resource.NewResourceAdvisorOptions(),
-		QRMServerOptions:       server.NewQRMServerOptions(),
-		ReporterOptions:        reporter.NewReporterOptions(),
-		ModelOptions:           model.NewModelOptions(),
+		SyncPeriod:              defaultQoSAwareSyncPeriod,
+		EnableDyingMemcgReclaim: defaultEnableDyingMemcgReclaim,
+		ResourceAdvisorOptions:  resource.NewResourceAdvisorOptions(),
+		QRMServerOptions:        server.NewQRMServerOptions(),
+		ReporterOptions:         reporter.NewReporterOptions(),
+		ModelOptions:            model.NewModelOptions(),
 	}
 }
 
@@ -59,6 +62,7 @@ func (o *QoSAwarePluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs := fss.FlagSet("qos_aware_plugin")
 
 	fs.DurationVar(&o.SyncPeriod, "qos-aware-sync-period", o.SyncPeriod, "Period for QoS aware plugin to sync")
+	fs.BoolVar(&o.EnableDyingMemcgReclaim, "qos-aware-enable-dying-memcg-reclaim", o.EnableDyingMemcgReclaim, "Enable to reclaim dying memcg")
 
 	o.ResourceAdvisorOptions.AddFlags(fs)
 	o.QRMServerOptions.AddFlags(fs)
@@ -69,6 +73,7 @@ func (o *QoSAwarePluginOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 // ApplyTo fills up config with options
 func (o *QoSAwarePluginOptions) ApplyTo(c *qosaware.QoSAwarePluginConfiguration) error {
 	c.SyncPeriod = o.SyncPeriod
+	c.EnableDyingMemcgReclaim = o.EnableDyingMemcgReclaim
 
 	var errList []error
 	errList = append(errList, o.ResourceAdvisorOptions.ApplyTo(c.ResourceAdvisorConfiguration))
