@@ -51,8 +51,9 @@ func GenerateMemoryContainerAllocationMeta(req *pluginapi.ResourceRequest, qosLe
 }
 
 // GenerateMachineState returns NUMANodeResourcesMap based on
-// machine info and reserved resources
-func GenerateMachineState(machineInfo *info.MachineInfo, reserved map[v1.ResourceName]map[int]uint64,
+// machine info, memory topology (to get precise capacities like NormalMemoryDetails),
+// and reserved resources.
+func GenerateMachineState(machineInfo *info.MachineInfo, memoryTopology *machine.MemoryTopology, reserved map[v1.ResourceName]map[int]uint64,
 	extraResourceNames []string,
 ) (NUMANodeResourcesMap, error) {
 	if machineInfo == nil {
@@ -62,7 +63,7 @@ func GenerateMachineState(machineInfo *info.MachineInfo, reserved map[v1.Resourc
 	resources := append(extraResourceNames, string(v1.ResourceMemory))
 	defaultResourcesMachineState := make(NUMANodeResourcesMap)
 	for _, resourceName := range resources {
-		machineState, err := GenerateResourceState(machineInfo, reserved, v1.ResourceName(resourceName))
+		machineState, err := GenerateResourceState(machineInfo, memoryTopology, reserved, v1.ResourceName(resourceName))
 		if err != nil {
 			return nil, fmt.Errorf("GenerateResourceState for resource: %s failed with error: %v", resourceName, err)
 		}
@@ -96,14 +97,21 @@ func GetReclaimedNUMAHeadroom(numaHeadroom map[int]int64, numaSet machine.CPUSet
 }
 
 // GenerateResourceState returns NUMANodeMap for given resource based on
-// machine info and reserved resources
-func GenerateResourceState(machineInfo *info.MachineInfo, reserved map[v1.ResourceName]map[int]uint64, resourceName v1.ResourceName) (NUMANodeMap, error) {
+// machine info, memory topology (to extract normal memory capacities), and reserved resources
+func GenerateResourceState(machineInfo *info.MachineInfo, memoryTopology *machine.MemoryTopology, reserved map[v1.ResourceName]map[int]uint64, resourceName v1.ResourceName) (NUMANodeMap, error) {
 	defaultMachineState := make(NUMANodeMap)
 
 	switch {
 	case resourceName == v1.ResourceMemory:
 		for _, node := range machineInfo.Topology {
-			totalMemSizeQuantity := node.Memory
+			var totalMemSizeQuantity uint64
+			// Use NormalMemoryDetails to exclude hugepages when calculating allocatable memory
+			if memoryTopology != nil {
+				totalMemSizeQuantity = memoryTopology.NormalMemoryDetails[node.Id]
+			} else {
+				// Fallback for tests or environments where memory topology isn't fully initialized
+				totalMemSizeQuantity = node.Memory
+			}
 			numaReservedMemQuantity := reserved[resourceName][node.Id]
 
 			if totalMemSizeQuantity < numaReservedMemQuantity {
@@ -165,8 +173,8 @@ func generateHugePagesResourceState(machineInfo *info.MachineInfo, reserved map[
 }
 
 // GenerateMachineStateFromPodEntries returns NUMANodeResourcesMap based on
-// machine info and reserved resources (along with existed pod entries)
-func GenerateMachineStateFromPodEntries(machineInfo *info.MachineInfo,
+// machine info, memory topology (for exact capacity logic), and reserved resources (along with existed pod entries)
+func GenerateMachineStateFromPodEntries(machineInfo *info.MachineInfo, memoryTopology *machine.MemoryTopology,
 	podResourceEntries PodResourceEntries, originResourcesMachineState NUMANodeResourcesMap,
 	reserved map[v1.ResourceName]map[int]uint64, extraResourceNames []string,
 ) (NUMANodeResourcesMap, error) {
@@ -181,7 +189,7 @@ func GenerateMachineStateFromPodEntries(machineInfo *info.MachineInfo,
 	resources := append(extraResourceNames, string(v1.ResourceMemory))
 	currentResourcesMachineState := make(NUMANodeResourcesMap)
 	for _, resourceName := range resources {
-		machineState, err := GenerateResourceStateFromPodEntries(machineInfo, podResourceEntries[v1.ResourceName(resourceName)],
+		machineState, err := GenerateResourceStateFromPodEntries(machineInfo, memoryTopology, podResourceEntries[v1.ResourceName(resourceName)],
 			originResourcesMachineState[v1.ResourceName(resourceName)], reserved, v1.ResourceName(resourceName))
 		if err != nil {
 			return nil, fmt.Errorf("GenerateResourceState for resource: %s failed with error: %v", resourceName, err)
@@ -254,13 +262,13 @@ func updateMachineStatePreOccPodEntries(currentMachineState, originMachineState 
 }
 
 // GenerateResourceStateFromPodEntries returns NUMANodeMap for given resource based on
-// machine info and reserved resources along with existed pod entries
-func GenerateResourceStateFromPodEntries(machineInfo *info.MachineInfo,
+// machine info, memory topology, and reserved resources along with existed pod entries
+func GenerateResourceStateFromPodEntries(machineInfo *info.MachineInfo, memoryTopology *machine.MemoryTopology,
 	podEntries PodEntries, originMachineState NUMANodeMap, reserved map[v1.ResourceName]map[int]uint64, resourceName v1.ResourceName,
 ) (NUMANodeMap, error) {
 	switch {
 	case resourceName == v1.ResourceMemory:
-		currentMachineState, err := GenerateMemoryStateFromPodEntries(machineInfo, podEntries, reserved, resourceName)
+		currentMachineState, err := GenerateMemoryStateFromPodEntries(machineInfo, memoryTopology, podEntries, reserved, resourceName)
 		if err != nil {
 			return nil, err
 		}
@@ -275,11 +283,11 @@ func GenerateResourceStateFromPodEntries(machineInfo *info.MachineInfo,
 }
 
 // GenerateMemoryStateFromPodEntries returns NUMANodeMap for memory based on
-// machine info and reserved resources along with existed pod entries
-func GenerateMemoryStateFromPodEntries(machineInfo *info.MachineInfo,
+// machine info, memory topology, and reserved resources along with existed pod entries
+func GenerateMemoryStateFromPodEntries(machineInfo *info.MachineInfo, memoryTopology *machine.MemoryTopology,
 	podEntries PodEntries, reserved map[v1.ResourceName]map[int]uint64, resourceName v1.ResourceName,
 ) (NUMANodeMap, error) {
-	machineState, err := GenerateResourceState(machineInfo, reserved, resourceName)
+	machineState, err := GenerateResourceState(machineInfo, memoryTopology, reserved, resourceName)
 	if err != nil {
 		return nil, fmt.Errorf("GenerateResourceState failed with error: %v", err)
 	}

@@ -184,7 +184,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	})
 
 	stateImpl, err := state.NewCheckpointState(conf.StateDirectoryConfiguration, memoryPluginStateFileName,
-		memconsts.MemoryResourcePluginPolicyNameDynamic, agentCtx.CPUTopology, agentCtx.MachineInfo, resourcesReservedMemory, conf.SkipMemoryStateCorruption,
+		memconsts.MemoryResourcePluginPolicyNameDynamic, agentCtx.CPUTopology, agentCtx.MachineInfo, agentCtx.MemoryTopology, resourcesReservedMemory, conf.SkipMemoryStateCorruption,
 		wrappedEmitter, conf.ExtraMemoryResources,
 	)
 	if err != nil {
@@ -783,7 +783,7 @@ func (p *DynamicPolicy) GetResourcesAllocation(_ context.Context,
 	if needUpdateMachineState {
 		general.Infof("GetResourcesAllocation update machine state")
 		podResourceEntries = p.state.GetPodResourceEntries()
-		resourcesState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries,
+		resourcesState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), p.state.GetMemoryTopology(), podResourceEntries,
 			p.state.GetMachineState(), p.state.GetReservedMemory(), p.extraResourceNames)
 		if err != nil {
 			general.Infof("GetResourcesAllocation GenerateMachineStateFromPodEntries failed with error: %v", err)
@@ -1135,7 +1135,7 @@ func (p *DynamicPolicy) removePod(podUID string, persistCheckpoint bool) error {
 		delete(podEntries, podUID)
 	}
 
-	resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries,
+	resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), p.state.GetMemoryTopology(), podResourceEntries,
 		p.state.GetMachineState(), p.state.GetReservedMemory(), p.extraResourceNames)
 	if err != nil {
 		general.Errorf("pod: %s, GenerateMachineStateFromPodEntries failed with error: %v", podUID, err)
@@ -1166,7 +1166,7 @@ func (p *DynamicPolicy) removeContainer(podUID, containerName string, persistChe
 		return nil
 	}
 
-	resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries,
+	resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), p.state.GetMemoryTopology(), podResourceEntries,
 		p.state.GetMachineState(), p.state.GetReservedMemory(), p.extraResourceNames)
 	if err != nil {
 		general.Errorf("pod: %s, container: %s GenerateMachineStateFromPodEntries failed with error: %v", podUID, containerName, err)
