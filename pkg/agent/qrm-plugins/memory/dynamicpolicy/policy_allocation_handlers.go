@@ -248,7 +248,7 @@ func (p *DynamicPolicy) numaBindingAllocationHandler(ctx context.Context,
 	}
 
 	podResourceEntries = p.state.GetPodResourceEntries()
-	machineState, err = state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries,
+	machineState, err = state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), p.state.GetMemoryTopology(), podResourceEntries,
 		p.state.GetMachineState(), p.state.GetReservedMemory(), p.extraResourceNames)
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s, GenerateMachineStateFromPodEntries failed with error: %v",
