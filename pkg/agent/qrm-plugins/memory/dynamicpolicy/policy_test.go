@@ -153,7 +153,7 @@ func getTestDynamicPolicyWithInitialization(
 		StateFileDirectory: stateFileDirectory,
 	}
 	stateImpl, err := state.NewCheckpointState(stateDirectoryConfig, memoryPluginStateFileName,
-		memconsts.MemoryResourcePluginPolicyNameDynamic, topology, machineInfo, resourcesReservedMemory, false,
+		memconsts.MemoryResourcePluginPolicyNameDynamic, topology, machineInfo, nil, resourcesReservedMemory, false,
 		metrics.DummyMetrics{}, fakeConf.ExtraMemoryResources)
 	if err != nil {
 		return nil, fmt.Errorf("NewCheckpointState failed with error: %v", err)
