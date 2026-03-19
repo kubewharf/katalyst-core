@@ -215,9 +215,14 @@ func (p *DynamicPolicy) numaBindingHintHandler(_ context.Context,
 			totalAvailableNUMAs = totalAvailableNUMAs.Intersection(availableNUMA)
 		}
 
+		requestedResourcesList := make([]v1.ResourceName, 0, len(requestedResources))
+		for resName := range requestedResources {
+			requestedResourcesList = append(requestedResourcesList, resName)
+		}
+
 		var extraErr error
 		hints, extraErr = util.GetHintsFromExtraStateFile(req.PodName, p.extraStateFileAbsPath,
-			totalAvailableNUMAs, requestedResources)
+			totalAvailableNUMAs, requestedResourcesList)
 		if extraErr != nil {
 			general.Infof("pod: %s/%s, container: %s GetHintsFromExtraStateFile failed with error: %v",
 				req.PodNamespace, req.PodName, req.ContainerName, extraErr)

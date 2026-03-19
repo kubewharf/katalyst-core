@@ -303,7 +303,7 @@ func GetNUMANodesCountToFitMemoryReq(memoryReq, bytesPerNUMA uint64, numaCount i
 }
 */
 func GetHintsFromExtraStateFile(podName, extraHintsStateFileAbsPath string,
-	availableNUMAs machine.CPUSet, requestedResources map[v1.ResourceName]int,
+	availableNUMAs machine.CPUSet, requestedResources []v1.ResourceName,
 ) (map[string]*pluginapi.ListOfTopologyHints, error) {
 	hints := make(map[string]*pluginapi.ListOfTopologyHints)
 	if extraHintsStateFileAbsPath == "" {
@@ -347,7 +347,7 @@ func GetHintsFromExtraStateFile(podName, extraHintsStateFileAbsPath string,
 
 	allocatedNumaNodes := numaSet.ToSliceUInt64()
 
-	for resourceName := range requestedResources {
+	for _, resourceName := range requestedResources {
 		klog.InfoS("[GetHintsFromExtraStateFile] get hints from extra state file",
 			"podName", podName,
 			"resourceName", resourceName,

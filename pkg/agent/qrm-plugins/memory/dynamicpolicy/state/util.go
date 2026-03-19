@@ -276,7 +276,7 @@ func GenerateResourceStateFromPodEntries(machineInfo *info.MachineInfo, memoryTo
 		updateMachineStatePreOccPodEntries(currentMachineState, originMachineState)
 		return currentMachineState, nil
 	case strings.HasPrefix(string(resourceName), v1.ResourceHugePagesPrefix):
-		return GenerateMemoryStateFromPodEntries(machineInfo, podEntries, reserved, resourceName)
+		return GenerateMemoryStateFromPodEntries(machineInfo, memoryTopology, podEntries, reserved, resourceName)
 	default:
 		return nil, fmt.Errorf("unsupported resource name: %s", resourceName)
 	}
