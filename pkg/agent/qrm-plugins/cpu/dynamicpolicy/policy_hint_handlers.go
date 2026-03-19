@@ -161,8 +161,8 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Conte
 			(*commonstate.AllocationMeta).CheckDedicatedNUMABindingNUMAExclusive))
 
 		var extraErr error
-		hints, extraErr = util.GetHintsFromExtraStateFile(req.PodName, p.extraStateFileAbsPath, availableNUMAs, map[v1.ResourceName]int{
-			v1.ResourceCPU: 0,
+		hints, extraErr = util.GetHintsFromExtraStateFile(req.PodName, p.extraStateFileAbsPath, availableNUMAs, []v1.ResourceName{
+			v1.ResourceCPU,
 		})
 		if extraErr != nil {
 			general.Infof("pod: %s/%s, container: %s GetHintsFromExtraStateFile failed with error: %v",

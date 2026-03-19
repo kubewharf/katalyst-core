@@ -59,9 +59,9 @@ type stateCheckpoint struct {
 	emitter             metrics.MetricEmitter
 	machineInfo         *info.MachineInfo
 	// memoryTopology contains detailed memory capacities (e.g. NormalMemoryDetails excluding hugepages)
-	memoryTopology *machine.MemoryTopology
-	reservedMemory map[v1.ResourceName]map[int]uint64
-	extraResourceNames  []string
+	memoryTopology     *machine.MemoryTopology
+	reservedMemory     map[v1.ResourceName]map[int]uint64
+	extraResourceNames []string
 }
 
 func NewCheckpointState(
