@@ -34,6 +34,11 @@ func GetCPUInfo() ([]procfs.CPUInfo, error) {
 	return GetProcFSManager().GetCPUInfo()
 }
 
+// GetMemInfo return the MemInfo of the host.
+func GetMemInfo() (procfs.Meminfo, error) {
+	return GetProcFSManager().GetMemInfo()
+}
+
 // GetProcStat returns the Stat of the host.
 func GetProcStat() (procfs.Stat, error) {
 	return GetProcFSManager().GetProcStat()

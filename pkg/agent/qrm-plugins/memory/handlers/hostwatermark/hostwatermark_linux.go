@@ -147,7 +147,29 @@ func determineTargetWatermarkScaleFactor(conf *coreconfig.Configuration, emitter
 		scale = 1
 	}
 
+	// Adjust the watermark appropriately based on the size of the node's huge pages to avoid ineffective memory reclamation.
+	scale = adjustWatermarkForHugePages(scale)
+
 	general.Infof("auto-calc vm.watermark_scale_factor: numaID=%d total=%s reserved=%dGB scale=%d",
 		numaID, general.FormatMemoryQuantity(float64(totalBytes)), conf.ReservedKswapdWatermarkGB, scale)
 	return int64(scale), nil
+}
+
+// adjustWatermarkForHugePages adjust the watermark appropriately based on the size of the huge page.
+func adjustWatermarkForHugePages(originalWatermark uint64) uint64 {
+	newWatermark := originalWatermark
+
+	memInfo, err := procfsm.GetMemInfo()
+	if err != nil {
+		general.Warningf("get mem info failed: %v", err)
+		return newWatermark
+	}
+
+	if memInfo.MemTotal != nil && memInfo.HugePagesTotal != nil && memInfo.Hugepagesize != nil {
+		total := *memInfo.MemTotal
+		hugePages := (*memInfo.HugePagesTotal) * (*memInfo.Hugepagesize)
+		newWatermark = (total - hugePages) * originalWatermark / total
+	}
+
+	return newWatermark
 }

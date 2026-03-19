@@ -32,6 +32,7 @@ var (
 
 type ProcFSManager interface {
 	GetCPUInfo() ([]procfs.CPUInfo, error)
+	GetMemInfo() (procfs.Meminfo, error)
 	GetProcStat() (procfs.Stat, error)
 	GetPidComm(pid int) (string, error)
 	GetPidCmdline(pid int) ([]string, error)

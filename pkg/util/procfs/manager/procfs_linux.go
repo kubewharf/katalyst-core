@@ -60,6 +60,11 @@ func (m *manager) GetCPUInfo() ([]procfs.CPUInfo, error) {
 	return m.procfs.CPUInfo()
 }
 
+// GetMemInfo return the MemInfo of the host.
+func (m *manager) GetMemInfo() (procfs.Meminfo, error) {
+	return m.procfs.Meminfo()
+}
+
 // GetProcStat returns the Stat of the host.
 func (m *manager) GetProcStat() (procfs.Stat, error) {
 	return m.procfs.Stat()

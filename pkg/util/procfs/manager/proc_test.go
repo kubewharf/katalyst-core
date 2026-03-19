@@ -38,6 +38,16 @@ func TestGetCPUInfo(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestGetMemInfo(t *testing.T) {
+	t.Parallel()
+	mu.Lock()
+	defer mu.Unlock()
+
+	mi, err := GetMemInfo()
+	t.Logf("GetMemInfo:%+v", mi)
+	assert.NoError(t, err)
+}
+
 func TestGetProcStat(t *testing.T) {
 	t.Parallel()
 	mu.Lock()
