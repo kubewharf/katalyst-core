@@ -554,6 +554,8 @@ type ReadonlyState interface {
 	reader
 
 	GetMachineInfo() *info.MachineInfo
+	// GetMemoryTopology returns the memory topology info (including NormalMemoryDetails etc.)
+	GetMemoryTopology() *machine.MemoryTopology
 	GetReservedMemory() map[v1.ResourceName]map[int]uint64
 }
 
