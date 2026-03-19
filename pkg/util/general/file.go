@@ -153,8 +153,8 @@ func IsPathExists(path string) bool {
 }
 
 // IsRegularFileExists is to check whether a regular file specified by the path exists.
-// If there is an entry that is not a regular file, remove the entry if delete equals true
-func IsRegularFileExists(path string, delete bool) (bool, error) {
+// If there is an entry that is not a regular file, make the entry hidden if makeHidden equals true
+func IsRegularFileExists(path string, makeHidden bool) (bool, error) {
 	pathExists := IsPathExists(path)
 	if pathExists {
 		// Path exists, check if the file is a regular file
@@ -164,8 +164,8 @@ func IsRegularFileExists(path string, delete bool) (bool, error) {
 		}
 
 		isRegular := fileInfo.Mode().IsRegular()
-		if !isRegular && delete {
-			err = os.RemoveAll(path)
+		if !isRegular && makeHidden {
+			err = makeEntryHidden(path)
 			if err != nil {
 				return false, fmt.Errorf("failed to remove directory %s: %w", path, err)
 			}
@@ -175,6 +175,20 @@ func IsRegularFileExists(path string, delete bool) (bool, error) {
 	}
 
 	return false, nil
+}
+
+// makeEntryHidden makes a file entry hidden by adding a prefix dot
+func makeEntryHidden(path string) error {
+	dir := filepath.Dir(path)
+	base := filepath.Base(path)
+
+	// premature return if the entry is already hidden
+	if len(base) > 0 && base[0] == '.' {
+		return nil
+	}
+
+	hiddenPath := filepath.Join(dir, "."+base)
+	return os.Rename(path, hiddenPath)
 }
 
 // ReadFileIntoLines read contents from the given file, and parse them into string slice;
