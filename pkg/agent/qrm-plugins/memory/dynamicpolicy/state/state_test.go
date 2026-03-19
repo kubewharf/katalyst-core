@@ -140,7 +140,7 @@ func TestNewMemoryPluginCheckpoint(t *testing.T) {
 					},
 				}
 				oldCheckpoint.PodResourceEntries = podResourceEntries
-				machineState, err := GenerateMachineStateFromPodEntries(machineInfo, podResourceEntries, nil, reservedMemory)
+				machineState, err := GenerateMachineStateFromPodEntries(machineInfo, nil, podResourceEntries, nil, reservedMemory)
 				assert.NoError(t, err)
 				oldCheckpoint.MachineState = machineState
 				err = oldCheckpointManager.CreateCheckpoint(checkpointName, oldCheckpoint)
@@ -153,7 +153,7 @@ func TestNewMemoryPluginCheckpoint(t *testing.T) {
 				EnableInMemoryState:        true,
 			}
 
-			state, err := NewCheckpointState(stateDirectoryConfig, checkpointName, policyName, cpuTopology, machineInfo,
+			state, err := NewCheckpointState(stateDirectoryConfig, checkpointName, policyName, cpuTopology, machineInfo, nil,
 				reservedMemory, false, metrics.DummyMetrics{})
 
 			if tt.corruptFile {

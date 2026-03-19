@@ -319,7 +319,7 @@ func (p *DynamicPolicy) clearContainerAndRegenerateMachineState(req *pluginapi.R
 	}
 
 	var err error
-	resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetMachineState(), p.state.GetReservedMemory())
+	resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), p.state.GetMemoryTopology(), podResourceEntries, p.state.GetMachineState(), p.state.GetReservedMemory())
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)

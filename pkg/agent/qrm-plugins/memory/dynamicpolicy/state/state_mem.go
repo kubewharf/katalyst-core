@@ -36,6 +36,8 @@ type memoryPluginState struct {
 
 	socketTopology map[int]string
 	machineInfo    *info.MachineInfo
+	// memoryTopology contains detailed memory capacities (e.g. NormalMemoryDetails excluding hugepages)
+	memoryTopology *machine.MemoryTopology
 	reservedMemory map[v1.ResourceName]map[int]uint64
 
 	machineState       NUMANodeResourcesMap
@@ -43,7 +45,7 @@ type memoryPluginState struct {
 	podResourceEntries PodResourceEntries
 }
 
-func NewMemoryPluginState(topology *machine.CPUTopology, machineInfo *info.MachineInfo, reservedMemory map[v1.ResourceName]map[int]uint64) (*memoryPluginState, error) {
+func NewMemoryPluginState(topology *machine.CPUTopology, machineInfo *info.MachineInfo, memoryTopology *machine.MemoryTopology, reservedMemory map[v1.ResourceName]map[int]uint64) (*memoryPluginState, error) {
 	klog.InfoS("[memory_plugin] initializing new memory plugin in-memory state store")
 
 	socketTopology := make(map[int]string)
@@ -51,7 +53,7 @@ func NewMemoryPluginState(topology *machine.CPUTopology, machineInfo *info.Machi
 		socketTopology[socketID] = topology.CPUDetails.NUMANodesInSockets(socketID).String()
 	}
 
-	defaultMachineState, err := GenerateMachineState(machineInfo, reservedMemory)
+	defaultMachineState, err := GenerateMachineState(machineInfo, memoryTopology, reservedMemory)
 	if err != nil {
 		return nil, fmt.Errorf("GenerateMachineState failed with error: %v", err)
 	}
@@ -62,6 +64,7 @@ func NewMemoryPluginState(topology *machine.CPUTopology, machineInfo *info.Machi
 		numaHeadroom:       make(map[int]int64),
 		socketTopology:     socketTopology,
 		machineInfo:        machineInfo.Clone(),
+		memoryTopology:     memoryTopology,
 		reservedMemory:     reservedMemory,
 	}, nil
 }
@@ -101,6 +104,13 @@ func (s *memoryPluginState) GetMachineInfo() *info.MachineInfo {
 	defer s.RUnlock()
 
 	return s.machineInfo.Clone()
+}
+
+func (s *memoryPluginState) GetMemoryTopology() *machine.MemoryTopology {
+	s.RLock()
+	defer s.RUnlock()
+
+	return s.memoryTopology
 }
 
 func (s *memoryPluginState) GetAllocationInfo(resourceName v1.ResourceName, podUID, containerName string) *AllocationInfo {
@@ -193,8 +203,9 @@ func (s *memoryPluginState) ClearState() {
 	s.Lock()
 	defer s.Unlock()
 
-	s.machineState, _ = GenerateMachineState(s.machineInfo, s.reservedMemory)
+	s.machineState, _ = GenerateMachineState(s.machineInfo, s.memoryTopology, s.reservedMemory)
 	s.podResourceEntries = make(PodResourceEntries)
+	s.numaHeadroom = make(map[int]int64)
 	s.socketTopology = make(map[int]string)
 
 	klog.V(2).InfoS("[memory_plugin] cleared state")

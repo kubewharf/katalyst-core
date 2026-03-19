@@ -163,7 +163,7 @@ func (p *DynamicPolicy) numaBindingAllocationHandler(ctx context.Context,
 		delete(containerEntries, req.ContainerName)
 
 		var stateErr error
-		memoryState, stateErr = state.GenerateMemoryStateFromPodEntries(p.state.GetMachineInfo(), podEntries, p.state.GetReservedMemory())
+		memoryState, stateErr = state.GenerateMemoryStateFromPodEntries(p.state.GetMachineInfo(), p.state.GetMemoryTopology(), podEntries, p.state.GetReservedMemory())
 		if stateErr != nil {
 			general.ErrorS(stateErr, "generateMemoryMachineStateByPodEntries failed",
 				"podNamespace", req.PodNamespace,
@@ -227,7 +227,7 @@ func (p *DynamicPolicy) numaBindingAllocationHandler(ctx context.Context,
 	p.state.SetAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName, allocationInfo, persistCheckpoint)
 
 	podResourceEntries = p.state.GetPodResourceEntries()
-	machineState, err = state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetMachineState(), p.state.GetReservedMemory())
+	machineState, err = state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), p.state.GetMemoryTopology(), podResourceEntries, p.state.GetMachineState(), p.state.GetReservedMemory())
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -303,7 +303,7 @@ func (p *DynamicPolicy) reclaimedCoresBestEffortNUMABindingAllocationHandler(ctx
 		delete(containerEntries, req.ContainerName)
 
 		var stateErr error
-		memoryState, stateErr = state.GenerateMemoryStateFromPodEntries(p.state.GetMachineInfo(), podEntries, p.state.GetReservedMemory())
+		memoryState, stateErr = state.GenerateMemoryStateFromPodEntries(p.state.GetMachineInfo(), p.state.GetMemoryTopology(), podEntries, p.state.GetReservedMemory())
 		if stateErr != nil {
 			general.ErrorS(stateErr, "generateMemoryMachineStateByPodEntries failed",
 				"podNamespace", req.PodNamespace,
@@ -341,7 +341,7 @@ func (p *DynamicPolicy) reclaimedCoresBestEffortNUMABindingAllocationHandler(ctx
 
 	p.state.SetAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName, allocationInfo, persistCheckpoint)
 
-	machineState, err = state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), p.state.GetPodResourceEntries(), p.state.GetMachineState(), p.state.GetReservedMemory())
+	machineState, err = state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), p.state.GetMemoryTopology(), p.state.GetPodResourceEntries(), p.state.GetMachineState(), p.state.GetReservedMemory())
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -422,7 +422,7 @@ func (p *DynamicPolicy) numaBindingAllocationSidecarHandler(_ context.Context,
 	// we will delete current allocationInfo from podEntries in defer function of allocation function.
 	p.state.SetAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName, allocationInfo, persistCheckpoint)
 	podResourceEntries = p.state.GetPodResourceEntries()
-	resourcesState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetMachineState(), p.state.GetReservedMemory())
+	resourcesState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), p.state.GetMemoryTopology(), podResourceEntries, p.state.GetMachineState(), p.state.GetReservedMemory())
 	if err != nil {
 		general.Infof("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -473,7 +473,7 @@ func (p *DynamicPolicy) allocateNUMAsWithoutNUMABindingPods(_ context.Context,
 	p.state.SetAllocationInfo(v1.ResourceMemory, allocationInfo.PodUid, allocationInfo.ContainerName, allocationInfo, persistCheckpoint)
 	podResourceEntries := p.state.GetPodResourceEntries()
 
-	machineState, err = state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, machineState, p.state.GetReservedMemory())
+	machineState, err = state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), p.state.GetMemoryTopology(), podResourceEntries, machineState, p.state.GetReservedMemory())
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -514,7 +514,7 @@ func (p *DynamicPolicy) allocateTargetNUMAs(req *pluginapi.ResourceRequest,
 	p.state.SetAllocationInfo(v1.ResourceMemory, allocationInfo.PodUid, allocationInfo.ContainerName, allocationInfo, persistCheckpoint)
 	podResourceEntries := p.state.GetPodResourceEntries()
 
-	machineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetMachineState(), p.state.GetReservedMemory())
+	machineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), p.state.GetMemoryTopology(), podResourceEntries, p.state.GetMachineState(), p.state.GetReservedMemory())
 	if err != nil {
 		general.Errorf("pod: %s/%s, container: %s GenerateMachineStateFromPodEntries failed with error: %v",
 			req.PodNamespace, req.PodName, req.ContainerName, err)
@@ -556,7 +556,7 @@ func (p *DynamicPolicy) adjustAllocationEntries(persistCheckpoint bool) error {
 	p.adjustAllocationEntriesForSystemCores(numaSetChangedContainers, podEntries, machineState)
 	p.adjustAllocationEntriesForReclaimedCores(numaSetChangedContainers, podEntries, machineState)
 
-	resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetMachineState(), p.state.GetReservedMemory())
+	resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), p.state.GetMemoryTopology(), podResourceEntries, p.state.GetMachineState(), p.state.GetReservedMemory())
 	if err != nil {
 		return fmt.Errorf("calculate machineState by updated pod entries failed with error: %v", err)
 	}
