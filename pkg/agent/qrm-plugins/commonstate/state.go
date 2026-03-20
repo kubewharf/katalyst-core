@@ -321,3 +321,14 @@ func (am *AllocationMeta) CheckDedicatedPool() bool {
 	}
 	return am.OwnerPoolName == PoolNameDedicated
 }
+
+// CheckDistributeEvenlyAcrossNuma returns true if the AllocationInfo is for pod with distribute evenly across numa
+// annotation enabled.
+func (am *AllocationMeta) CheckDistributeEvenlyAcrossNuma() bool {
+	if am == nil {
+		return false
+	}
+
+	return am.Annotations[consts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNuma] ==
+		consts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNumaEnable
+}
