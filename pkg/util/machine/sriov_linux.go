@@ -30,7 +30,6 @@ import (
 
 	"github.com/safchain/ethtool"
 	"github.com/vishvananda/netlink"
-	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -153,6 +152,9 @@ func isSriovPf(sysFsDir string, ifName string) bool {
 	return true
 }
 
+// detectSriovPFDriver returns the sriov supported driver name of PF.
+// We use ethtool as the standard way to get the driver name, other than reading file or link under /sys because
+// it might have different behaves between nic vendors.
 func detectSriovPFDriver(ifName string) (NicDriver, error) {
 	driverName, err := ethtool.DriverName(ifName)
 	if err != nil {
@@ -172,12 +174,9 @@ func detectSriovPFDriver(ifName string) (NicDriver, error) {
 
 // getAllocatableNsNicMap returns a map of allocatable net ns name to interface list
 func getAllocatableNsNicMap(netAllocatableNS []string, allNics []InterfaceInfo) map[string][]InterfaceInfo {
-	allocatableNS := sets.NewString(netAllocatableNS...)
-	allocatableNS.Insert(DefaultNICNamespace)
-
 	nicMap := map[string][]InterfaceInfo{}
 	for _, nic := range allNics {
-		if !allocatableNS.Has(nic.NetNSInfo.NSName) {
+		if nic.NSName != DefaultNICNamespace && !general.IsNameEnabled(nic.NSName, nil, netAllocatableNS) {
 			continue
 		}
 		nicMap[nic.NetNSInfo.NSName] = append(nicMap[nic.NetNSInfo.NSName], nic)
