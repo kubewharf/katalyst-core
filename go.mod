@@ -20,7 +20,7 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/h2non/gock v1.2.0
 	github.com/klauspost/cpuid/v2 v2.2.6
-	github.com/kubewharf/katalyst-api v0.5.11-0.20260324091059-cae1d07d9882
+github.com/kubewharf/katalyst-api v0.5.10-0.20260226035725-8ed0eb330aa0
 	github.com/moby/sys/mountinfo v0.6.2
 	github.com/montanaflynn/stats v0.7.1
 	github.com/opencontainers/runc v1.1.6

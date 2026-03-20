@@ -138,7 +138,7 @@ func getReservedMemory(conf *config.Configuration, metaServer *metaserver.MetaSe
 func getReservedHugePagesMemory(conf *config.Configuration, metaServer *metaserver.MetaServer, machineInfo *info.MachineInfo,
 	resourceName v1.ResourceName,
 ) (map[int]uint64, error) {
-	numaNodes := []int{}
+	numaNodes := make([]int, 0, len(machineInfo.Topology))
 	for _, node := range machineInfo.Topology {
 		numaNodes = append(numaNodes, node.Id)
 	}
