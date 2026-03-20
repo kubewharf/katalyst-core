@@ -24,6 +24,17 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
+type StateMemory interface {
+	SetMachineState(state VFState)
+	SetPodEntries(podEntries PodEntries)
+	SetAllocationInfo(podUID, containerName string, allocationInfo *AllocationInfo)
+	Delete(podUID string)
+	ClearState()
+	GetMachineState() VFState
+	GetPodEntries() PodEntries
+	GetAllocationInfo(podUID, containerName string) *AllocationInfo
+}
+
 type stateMemory struct {
 	sync.RWMutex
 
@@ -31,7 +42,7 @@ type stateMemory struct {
 	podEntries   PodEntries
 }
 
-func NewStateMemory(conf *global.MachineInfoConfiguration, allNics []machine.InterfaceInfo) (*stateMemory, error) {
+func NewStateMemory(conf *global.MachineInfoConfiguration, allNics []machine.InterfaceInfo) (StateMemory, error) {
 	vfList, err := machine.GetSriovVFList(conf, allNics)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get network vf list: %v", err)

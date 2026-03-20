@@ -90,7 +90,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	return true, dynamicPolicy, nil
 }
 
-func (d *DynamicPolicy) ResourceName() string {
+func (p *DynamicPolicy) ResourceName() string {
 	return ResourceName
 }
 

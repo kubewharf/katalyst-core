@@ -46,7 +46,7 @@ var (
 
 type stateCheckpoint struct {
 	sync.RWMutex
-	cache               *stateMemory
+	cache               StateMemory
 	policyName          string
 	checkpointManager   checkpointmanager.CheckpointManager
 	checkpointName      string
