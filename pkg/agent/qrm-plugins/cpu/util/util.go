@@ -34,13 +34,11 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
-	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	utilkubeconfig "github.com/kubewharf/katalyst-core/pkg/util/kubelet/config"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	"github.com/kubewharf/katalyst-core/pkg/util/qos"
-	resourcepackage "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
 
 const (
@@ -445,26 +443,18 @@ func IsSoleSharedCoresPod(conf *config.Configuration, podList []*v1.Pod, dynamic
 // GetAggResourcePackagePinnedCPUSet aggregates pinned CPUSets from resource packages that match the given attribute selector.
 // It iterates through each NUMA node's resource packages, filters them using the attribute selector,
 // and unions the pinned CPUSets from the corresponding machine state.
-func GetAggResourcePackagePinnedCPUSet(resourcePackageMap resourcepackage.NUMAResourcePackageItems, attributeSelector labels.Selector, machineState state.NUMANodeMap) machine.CPUSet {
+func GetAggResourcePackagePinnedCPUSet(attributeSelector labels.Selector, machineState state.NUMANodeMap) machine.CPUSet {
 	res := machine.NewCPUSet()
-	// Iterate through each NUMA node and its associated resource packages.
-	for numaID, resourceMap := range resourcePackageMap {
-		for pkgName, pkg := range resourceMap {
-			// Convert package attributes to a string map for selector matching.
-			attrs := util.AttributesToStringMap(pkg.Attributes)
-			// Check if the package attributes match the provided selector.
-			if !attributeSelector.Matches(labels.Set(attrs)) {
+	numaStates := machineState.GetNUMAResourcePackageStates()
+	for _, pkgStates := range numaStates {
+		for _, rpState := range pkgStates {
+			if rpState == nil {
 				continue
 			}
-
-			// Retrieve the machine state for the current NUMA node.
-			numaState := machineState[numaID]
-			if numaState == nil {
+			if !attributeSelector.Matches(labels.Set(rpState.Attributes)) {
 				continue
 			}
-
-			// Aggregate the pinned CPUSet for the matching resource package.
-			res = res.Union(numaState.ResourcePackagePinnedCPUSet[pkgName])
+			res = res.Union(rpState.PinnedCPUSet)
 		}
 	}
 	return res

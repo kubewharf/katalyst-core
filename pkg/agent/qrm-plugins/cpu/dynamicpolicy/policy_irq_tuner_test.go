@@ -330,11 +330,17 @@ func TestDynamicPolicy_GetIRQForbiddenCores(t *testing.T) {
 	// Assuming NUMA 0 has pkg1 pinned to CPUs 2, 3
 	// Assuming NUMA 1 has pkg2 pinned to CPUs 4, 5
 	machineState := policy.state.GetMachineState()
-	machineState[0].ResourcePackagePinnedCPUSet = map[string]machine.CPUSet{
-		"pkg1": machine.NewCPUSet(2, 3),
+	machineState[0].ResourcePackageStates = map[string]*state.ResourcePackageState{
+		"pkg1": {
+			PinnedCPUSet: machine.NewCPUSet(2, 3),
+			Attributes:   map[string]string{"type": "forbidden"},
+		},
 	}
-	machineState[1].ResourcePackagePinnedCPUSet = map[string]machine.CPUSet{
-		"pkg2": machine.NewCPUSet(4, 5),
+	machineState[1].ResourcePackageStates = map[string]*state.ResourcePackageState{
+		"pkg2": {
+			PinnedCPUSet: machine.NewCPUSet(4, 5),
+			Attributes:   map[string]string{"type": "other"},
+		},
 	}
 	policy.state.SetMachineState(machineState, false)
 

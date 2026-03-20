@@ -74,7 +74,7 @@ func (m *mockResourcePackageManager) NodeResourcePackages(ctx context.Context) (
 	return m.items, m.err
 }
 
-func TestSyncResourcePackagePinnedCPUSet(t *testing.T) {
+func TestSyncResourcePackageStates(t *testing.T) {
 	t.Parallel()
 
 	tmpDir, err := ioutil.TempDir("", "checkpoint-test")
@@ -122,17 +122,17 @@ func TestSyncResourcePackagePinnedCPUSet(t *testing.T) {
 			initialState: func(dp *DynamicPolicy) {
 				// Initial: NUMA 0 has pkg-a pinned to [2,3] (size 2)
 				ms := dp.state.GetMachineState()
-				if ms[0].ResourcePackagePinnedCPUSet == nil {
-					ms[0].ResourcePackagePinnedCPUSet = make(map[string]machine.CPUSet)
+				if ms[0].ResourcePackageStates == nil {
+					ms[0].ResourcePackageStates = make(map[string]*state.ResourcePackageState)
 				}
-				ms[0].ResourcePackagePinnedCPUSet["pkg-a"] = machine.NewCPUSet(2, 3)
+				ms[0].ResourcePackageStates["pkg-a"] = &state.ResourcePackageState{PinnedCPUSet: machine.NewCPUSet(2, 3)}
 				dp.state.SetMachineState(ms, false)
 			},
 			resourcePackages: createPkgItems(map[int]map[string]int{
 				0: {"pkg-a": 4}, // Request expansion to 4
 			}),
 			verify: func(t *testing.T, ms state.NUMANodeMap, pe state.PodEntries) {
-				pinned := ms[0].ResourcePackagePinnedCPUSet["pkg-a"]
+				pinned := ms[0].ResourcePackageStates["pkg-a"].PinnedCPUSet
 				assert.Equal(t, 4, pinned.Size())
 				assert.True(t, machine.NewCPUSet(2, 3).IsSubsetOf(pinned), "Should keep original CPUs")
 			},
@@ -186,17 +186,17 @@ func TestSyncResourcePackagePinnedCPUSet(t *testing.T) {
 				require.NoError(t, err)
 
 				// Initial: pkg-b pinned to pkgBCPUSet (size 4)
-				if ms[0].ResourcePackagePinnedCPUSet == nil {
-					ms[0].ResourcePackagePinnedCPUSet = make(map[string]machine.CPUSet)
+				if ms[0].ResourcePackageStates == nil {
+					ms[0].ResourcePackageStates = make(map[string]*state.ResourcePackageState)
 				}
-				ms[0].ResourcePackagePinnedCPUSet["pkg-b"] = pkgBCPUSet.Clone()
+				ms[0].ResourcePackageStates["pkg-b"] = &state.ResourcePackageState{PinnedCPUSet: pkgBCPUSet.Clone()}
 				dp.state.SetMachineState(ms, false)
 			},
 			resourcePackages: createPkgItems(map[int]map[string]int{
 				0: {"pkg-b": 2}, // Request shrink to 2
 			}),
 			verify: func(t *testing.T, ms state.NUMANodeMap, pe state.PodEntries) {
-				pinned := ms[0].ResourcePackagePinnedCPUSet["pkg-b"]
+				pinned := ms[0].ResourcePackageStates["pkg-b"].PinnedCPUSet
 				assert.Equal(t, 2, pinned.Size(), "Should be limited by shared request (1*2=2)")
 
 				// Verify pod allocation updated
@@ -238,17 +238,17 @@ func TestSyncResourcePackagePinnedCPUSet(t *testing.T) {
 				require.NoError(t, err)
 
 				// Initial: pkg-c pinned to [2,3,4,5] (size 4)
-				if ms[0].ResourcePackagePinnedCPUSet == nil {
-					ms[0].ResourcePackagePinnedCPUSet = make(map[string]machine.CPUSet)
+				if ms[0].ResourcePackageStates == nil {
+					ms[0].ResourcePackageStates = make(map[string]*state.ResourcePackageState)
 				}
-				ms[0].ResourcePackagePinnedCPUSet["pkg-c"] = machine.NewCPUSet(2, 3, 4, 5)
+				ms[0].ResourcePackageStates["pkg-c"] = &state.ResourcePackageState{PinnedCPUSet: machine.NewCPUSet(2, 3, 4, 5)}
 				dp.state.SetMachineState(ms, false)
 			},
 			resourcePackages: createPkgItems(map[int]map[string]int{
 				0: {"pkg-c": 3}, // Request shrink to 3
 			}),
 			verify: func(t *testing.T, ms state.NUMANodeMap, pe state.PodEntries) {
-				pinned := ms[0].ResourcePackagePinnedCPUSet["pkg-c"]
+				pinned := ms[0].ResourcePackageStates["pkg-c"].PinnedCPUSet
 				assert.Equal(t, 3, pinned.Size())
 				assert.True(t, machine.NewCPUSet(2, 3).IsSubsetOf(pinned), "Must contain dedicated cores")
 			},
@@ -258,17 +258,17 @@ func TestSyncResourcePackagePinnedCPUSet(t *testing.T) {
 			initialState: func(dp *DynamicPolicy) {
 				// Initial: pkg-d pinned
 				ms := dp.state.GetMachineState()
-				if ms[0].ResourcePackagePinnedCPUSet == nil {
-					ms[0].ResourcePackagePinnedCPUSet = make(map[string]machine.CPUSet)
+				if ms[0].ResourcePackageStates == nil {
+					ms[0].ResourcePackageStates = make(map[string]*state.ResourcePackageState)
 				}
-				ms[0].ResourcePackagePinnedCPUSet["pkg-d"] = machine.NewCPUSet(6, 7)
+				ms[0].ResourcePackageStates["pkg-d"] = &state.ResourcePackageState{PinnedCPUSet: machine.NewCPUSet(6, 7)}
 				dp.state.SetMachineState(ms, false)
 			},
 			resourcePackages: createPkgItems(map[int]map[string]int{
 				0: {}, // Empty config
 			}),
 			verify: func(t *testing.T, ms state.NUMANodeMap, pe state.PodEntries) {
-				_, exists := ms[0].ResourcePackagePinnedCPUSet["pkg-d"]
+				_, exists := ms[0].ResourcePackageStates["pkg-d"]
 				assert.False(t, exists, "Should be removed")
 			},
 		},
@@ -301,17 +301,17 @@ func TestSyncResourcePackagePinnedCPUSet(t *testing.T) {
 				require.NoError(t, err)
 
 				// Initial: pkg-e pinned
-				if ms[0].ResourcePackagePinnedCPUSet == nil {
-					ms[0].ResourcePackagePinnedCPUSet = make(map[string]machine.CPUSet)
+				if ms[0].ResourcePackageStates == nil {
+					ms[0].ResourcePackageStates = make(map[string]*state.ResourcePackageState)
 				}
-				ms[0].ResourcePackagePinnedCPUSet["pkg-e"] = machine.NewCPUSet(6, 7)
+				ms[0].ResourcePackageStates["pkg-e"] = &state.ResourcePackageState{PinnedCPUSet: machine.NewCPUSet(6, 7)}
 				dp.state.SetMachineState(ms, false)
 			},
 			resourcePackages: createPkgItems(map[int]map[string]int{
 				0: {}, // Empty config
 			}),
 			verify: func(t *testing.T, ms state.NUMANodeMap, pe state.PodEntries) {
-				_, exists := ms[0].ResourcePackagePinnedCPUSet["pkg-e"]
+				_, exists := ms[0].ResourcePackageStates["pkg-e"]
 				assert.True(t, exists, "Should keep package because pods exist")
 			},
 		},
@@ -320,10 +320,10 @@ func TestSyncResourcePackagePinnedCPUSet(t *testing.T) {
 			initialState: func(dp *DynamicPolicy) {
 				// Initial: pkg-f pinned on NUMA 0
 				ms := dp.state.GetMachineState()
-				if ms[0].ResourcePackagePinnedCPUSet == nil {
-					ms[0].ResourcePackagePinnedCPUSet = make(map[string]machine.CPUSet)
+				if ms[0].ResourcePackageStates == nil {
+					ms[0].ResourcePackageStates = make(map[string]*state.ResourcePackageState)
 				}
-				ms[0].ResourcePackagePinnedCPUSet["pkg-f"] = machine.NewCPUSet(0, 1)
+				ms[0].ResourcePackageStates["pkg-f"] = &state.ResourcePackageState{PinnedCPUSet: machine.NewCPUSet(0, 1)}
 				dp.state.SetMachineState(ms, false)
 			},
 			resourcePackages: func() utilresourcepackage.NUMAResourcePackageItems {
@@ -337,7 +337,7 @@ func TestSyncResourcePackagePinnedCPUSet(t *testing.T) {
 			}(),
 			verify: func(t *testing.T, ms state.NUMANodeMap, pe state.PodEntries) {
 				// Should remove pkg-f from NUMA 0 because it's not in config (and no active pods)
-				_, exists := ms[0].ResourcePackagePinnedCPUSet["pkg-f"]
+				_, exists := ms[0].ResourcePackageStates["pkg-f"]
 				assert.False(t, exists, "Should be removed safely without panic")
 			},
 		},
@@ -346,10 +346,10 @@ func TestSyncResourcePackagePinnedCPUSet(t *testing.T) {
 			initialState: func(dp *DynamicPolicy) {
 				// Initial: pkg-fail pinned to [0,1]
 				ms := dp.state.GetMachineState()
-				if ms[0].ResourcePackagePinnedCPUSet == nil {
-					ms[0].ResourcePackagePinnedCPUSet = make(map[string]machine.CPUSet)
+				if ms[0].ResourcePackageStates == nil {
+					ms[0].ResourcePackageStates = make(map[string]*state.ResourcePackageState)
 				}
-				ms[0].ResourcePackagePinnedCPUSet["pkg-fail"] = machine.NewCPUSet(0, 1)
+				ms[0].ResourcePackageStates["pkg-fail"] = &state.ResourcePackageState{PinnedCPUSet: machine.NewCPUSet(0, 1)}
 
 				// Occupy all other CPUs to force allocation failure
 				// We must use actual NUMA 0 CPUs from machineInfo because GenerateDummyCPUTopology might be interleaved.
@@ -365,7 +365,7 @@ func TestSyncResourcePackagePinnedCPUSet(t *testing.T) {
 				0: {"pkg-fail": 4}, // Want to expand to 4, but 0 available
 			}),
 			verify: func(t *testing.T, ms state.NUMANodeMap, pe state.PodEntries) {
-				pinned := ms[0].ResourcePackagePinnedCPUSet["pkg-fail"]
+				pinned := ms[0].ResourcePackageStates["pkg-fail"].PinnedCPUSet
 				assert.Equal(t, 2, pinned.Size(), "Should stay at original size due to allocation failure")
 			},
 			checkMetrics: func(t *testing.T, emitter *MockMetricsEmitter) {
@@ -387,7 +387,7 @@ func TestSyncResourcePackagePinnedCPUSet(t *testing.T) {
 				// syncNumaResourcePackage returns error if failure?
 				// The code swallows calculator error and returns newPinned = currentPinned.
 				// So syncNumaResourcePackage returns nil error.
-				// Thus MetricNameSyncResourcePackagePinnedCPUSetFailed is NOT emitted.
+				// Thus MetricNameSyncResourcePackageStatesFailed is NOT emitted.
 				// This is correct behavior based on my implementation (error is logged and metric emitted, but function continues).
 			},
 		},
@@ -425,17 +425,17 @@ func TestSyncResourcePackagePinnedCPUSet(t *testing.T) {
 				ms, err := state.GenerateMachineStateFromPodEntries(dp.machineInfo.CPUTopology, podEntries, dp.state.GetMachineState())
 				require.NoError(t, err)
 
-				if ms[0].ResourcePackagePinnedCPUSet == nil {
-					ms[0].ResourcePackagePinnedCPUSet = make(map[string]machine.CPUSet)
+				if ms[0].ResourcePackageStates == nil {
+					ms[0].ResourcePackageStates = make(map[string]*state.ResourcePackageState)
 				}
-				ms[0].ResourcePackagePinnedCPUSet["pkg-h"] = machine.NewCPUSet(0, 2)
+				ms[0].ResourcePackageStates["pkg-h"] = &state.ResourcePackageState{PinnedCPUSet: machine.NewCPUSet(0, 2)}
 				dp.state.SetMachineState(ms, false)
 			},
 			resourcePackages: createPkgItems(map[int]map[string]int{
 				0: {"pkg-h": 2}, // Keep size 2
 			}),
 			verify: func(t *testing.T, ms state.NUMANodeMap, pe state.PodEntries) {
-				pinned := ms[0].ResourcePackagePinnedCPUSet["pkg-h"]
+				pinned := ms[0].ResourcePackageStates["pkg-h"].PinnedCPUSet
 				assert.Equal(t, 2, pinned.Size())
 			},
 		},
@@ -473,17 +473,17 @@ func TestSyncResourcePackagePinnedCPUSet(t *testing.T) {
 				ms, err := state.GenerateMachineStateFromPodEntries(dp.machineInfo.CPUTopology, podEntries, dp.state.GetMachineState())
 				require.NoError(t, err)
 
-				if ms[0].ResourcePackagePinnedCPUSet == nil {
-					ms[0].ResourcePackagePinnedCPUSet = make(map[string]machine.CPUSet)
+				if ms[0].ResourcePackageStates == nil {
+					ms[0].ResourcePackageStates = make(map[string]*state.ResourcePackageState)
 				}
-				ms[0].ResourcePackagePinnedCPUSet["pkg-i"] = machine.NewCPUSet(0, 2)
+				ms[0].ResourcePackageStates["pkg-i"] = &state.ResourcePackageState{PinnedCPUSet: machine.NewCPUSet(0, 2)}
 				dp.state.SetMachineState(ms, false)
 			},
 			resourcePackages: createPkgItems(map[int]map[string]int{
 				0: {"pkg-i": 4}, // Request expansion to 4
 			}),
 			verify: func(t *testing.T, ms state.NUMANodeMap, pe state.PodEntries) {
-				pinned := ms[0].ResourcePackagePinnedCPUSet["pkg-i"]
+				pinned := ms[0].ResourcePackageStates["pkg-i"].PinnedCPUSet
 				assert.Equal(t, 2, pinned.Size(), "Should stay at original size due to validation failure")
 			},
 		},
@@ -521,17 +521,17 @@ func TestSyncResourcePackagePinnedCPUSet(t *testing.T) {
 				ms, err := state.GenerateMachineStateFromPodEntries(dp.machineInfo.CPUTopology, podEntries, dp.state.GetMachineState())
 				require.NoError(t, err)
 
-				if ms[0].ResourcePackagePinnedCPUSet == nil {
-					ms[0].ResourcePackagePinnedCPUSet = make(map[string]machine.CPUSet)
+				if ms[0].ResourcePackageStates == nil {
+					ms[0].ResourcePackageStates = make(map[string]*state.ResourcePackageState)
 				}
-				ms[0].ResourcePackagePinnedCPUSet["pkg-j"] = machine.NewCPUSet(0, 2)
+				ms[0].ResourcePackageStates["pkg-j"] = &state.ResourcePackageState{PinnedCPUSet: machine.NewCPUSet(0, 2)}
 				dp.state.SetMachineState(ms, false)
 			},
 			resourcePackages: createPkgItems(map[int]map[string]int{
 				0: {"pkg-j": 6}, // Request expansion to 6
 			}),
 			verify: func(t *testing.T, ms state.NUMANodeMap, pe state.PodEntries) {
-				pinned := ms[0].ResourcePackagePinnedCPUSet["pkg-j"]
+				pinned := ms[0].ResourcePackageStates["pkg-j"].PinnedCPUSet
 				assert.Equal(t, 2, pinned.Size(), "Should stay at original size due to validation failure")
 			},
 		},
