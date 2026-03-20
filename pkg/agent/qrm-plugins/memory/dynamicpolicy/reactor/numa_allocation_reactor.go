@@ -53,8 +53,9 @@ func (p numaPodAllocationWrapper) UpdateAllocation(pod *v1.Pod) error {
 }
 
 func (p numaPodAllocationWrapper) getNUMABindResult() (string, error) {
-	if p.CheckDedicatedNUMABindingNUMAExclusive() {
-		// numa binding is exclusive, we can directly use numa allocation result as numa bind result
+	if p.CheckDedicatedNUMABindingNUMAExclusive() || p.CheckDistributeEvenlyAcrossNuma() {
+		// numa binding is exclusive or distribute evenly across numa annotation enabled,
+		// we can directly use numa allocation result as numa bind result
 		// which is more than one numa
 		numaList := p.AllocationInfo.NumaAllocationResult.ToSliceInt()
 		if len(numaList) == 0 {
