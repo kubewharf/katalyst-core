@@ -258,21 +258,21 @@ func GenerateMachineStateFromPodEntries(topology *machine.CPUTopology, podEntrie
 		return nil, err
 	}
 
-	updateResourcePackagePinnedCPUSet(currentMachineState, originMachineState)
+	updateResourcePackageStates(currentMachineState, originMachineState)
 	updateMachineStatePreOccPodEntries(currentMachineState, originMachineState)
 	return currentMachineState, nil
 }
 
-func updateResourcePackagePinnedCPUSet(currentMachineState, originMachineState NUMANodeMap) {
+func updateResourcePackageStates(currentMachineState, originMachineState NUMANodeMap) {
 	for numaID, originState := range originMachineState {
 		if originState == nil {
 			continue
 		}
 
-		if currentState, ok := currentMachineState[numaID]; ok && currentState != nil && originState.ResourcePackagePinnedCPUSet != nil {
-			currentState.ResourcePackagePinnedCPUSet = make(map[string]machine.CPUSet, len(originState.ResourcePackagePinnedCPUSet))
-			for pkgName, cpus := range originState.ResourcePackagePinnedCPUSet {
-				currentState.ResourcePackagePinnedCPUSet[pkgName] = cpus.Clone()
+		if currentState, ok := currentMachineState[numaID]; ok && currentState != nil && originState.ResourcePackageStates != nil {
+			currentState.ResourcePackageStates = make(map[string]*ResourcePackageState, len(originState.ResourcePackageStates))
+			for pkgName, state := range originState.ResourcePackageStates {
+				currentState.ResourcePackageStates[pkgName] = state.Clone()
 			}
 		}
 	}

@@ -116,6 +116,7 @@ message ResourcePackageItemConfig {
   // pinned_cpuset is the pinned CPUSet string for the resource package on the specific NUMA node.
   // The format follows existing cpuset string convention used in this proto (e.g. "0-3,8-11").
   string pinned_cpuset = 1;
+  map<string, string> attributes = 2;
 }
 
 // NumaResourcePackageConfig describes resource package configuration for one NUMA node.

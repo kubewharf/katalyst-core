@@ -33,6 +33,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
+	utilresourcepackage "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
 
 func (p *DynamicPolicy) syncResourcePackagePinnedCPUSet() {
@@ -66,7 +67,7 @@ func (p *DynamicPolicy) syncResourcePackagePinnedCPUSet() {
 	machineState := p.state.GetMachineState()
 	podEntries := p.state.GetPodEntries()
 
-	newResourcePackagePinnedCPUSetMap := make(map[int]map[string]machine.CPUSet)
+	newResourcePackageStateMap := make(map[int]map[string]*state.ResourcePackageState)
 	stateChanged := false
 
 	for _, numaID := range p.machineInfo.CPUDetails.NUMANodes().ToSliceInt() {
@@ -75,7 +76,7 @@ func (p *DynamicPolicy) syncResourcePackagePinnedCPUSet() {
 			continue
 		}
 
-		newPinnedMap, changed, err := p.syncNumaResourcePackage(numaID, numaState, pinnedCPUSetSize, interruptAllocationInfo)
+		newPinnedMap, changed, err := p.syncNumaResourcePackage(numaID, numaState, pinnedCPUSetSize, interruptAllocationInfo, resourcePackages)
 		if err != nil {
 			general.Errorf("failed to sync resource package for numa %d: %v", numaID, err)
 			_ = p.emitter.StoreInt64(util.MetricNameSyncResourcePackagePinnedCPUSetFailed, 1, metrics.MetricTypeNameRaw,
@@ -85,7 +86,7 @@ func (p *DynamicPolicy) syncResourcePackagePinnedCPUSet() {
 		}
 
 		if newPinnedMap != nil {
-			newResourcePackagePinnedCPUSetMap[numaID] = newPinnedMap
+			newResourcePackageStateMap[numaID] = newPinnedMap
 		}
 
 		if changed {
@@ -94,9 +95,9 @@ func (p *DynamicPolicy) syncResourcePackagePinnedCPUSet() {
 	}
 
 	if stateChanged {
-		for numaID, pkgs := range newResourcePackagePinnedCPUSetMap {
+		for numaID, pkgs := range newResourcePackageStateMap {
 			if machineState[numaID] != nil {
-				machineState[numaID].ResourcePackagePinnedCPUSet = pkgs
+				machineState[numaID].ResourcePackageStates = pkgs
 			}
 		}
 
@@ -107,11 +108,13 @@ func (p *DynamicPolicy) syncResourcePackagePinnedCPUSet() {
 		}
 	}
 
-	for numaID, pkgs := range newResourcePackagePinnedCPUSetMap {
-		for pkgName, cset := range pkgs {
-			_ = p.emitter.StoreInt64(util.MetricNameResourcePackagePinnedCPUSetSize, int64(cset.Size()), metrics.MetricTypeNameRaw,
-				metrics.MetricTag{Key: "numa_id", Val: strconv.Itoa(numaID)},
-				metrics.MetricTag{Key: "package_name", Val: pkgName})
+	for numaID, pkgs := range newResourcePackageStateMap {
+		for pkgName, rpState := range pkgs {
+			if rpState != nil {
+				_ = p.emitter.StoreInt64(util.MetricNameResourcePackagePinnedCPUSetSize, int64(rpState.PinnedCPUSet.Size()), metrics.MetricTypeNameRaw,
+					metrics.MetricTag{Key: "numa_id", Val: strconv.Itoa(numaID)},
+					metrics.MetricTag{Key: "package_name", Val: pkgName})
+			}
 		}
 	}
 }
@@ -121,13 +124,14 @@ func (p *DynamicPolicy) syncNumaResourcePackage(
 	numaState *state.NUMANodeState,
 	pinnedCPUSetSize map[int]map[string]int,
 	interruptAllocationInfo *state.AllocationInfo,
-) (map[string]machine.CPUSet, bool, error) {
+	resourcePackages utilresourcepackage.NUMAResourcePackageItems,
+) (map[string]*state.ResourcePackageState, bool, error) {
 	mandatoryCPUsMap := make(map[string]machine.CPUSet)
 	sharedRequestsMap := make(map[string]float64)
 	activePackages := sets.NewString()
 	sharedPodsMap := make(map[string][]*state.AllocationInfo)
 	stateChanged := false
-	newResourcePackagePinnedCPUSet := make(map[string]machine.CPUSet)
+	newResourcePackageState := make(map[string]*state.ResourcePackageState)
 
 	for _, containerEntries := range numaState.PodEntries {
 		if containerEntries.IsPoolEntry() {
@@ -195,11 +199,17 @@ func (p *DynamicPolicy) syncNumaResourcePackage(
 				targetSize = minSize
 			}
 
-			currentPinned := numaState.ResourcePackagePinnedCPUSet[pkgName]
+			var currentState *state.ResourcePackageState
+			var currentPinned machine.CPUSet
+			if rpState, ok := numaState.ResourcePackageStates[pkgName]; ok && rpState != nil {
+				currentState = rpState
+				currentPinned = rpState.PinnedCPUSet
+			}
+
 			otherPinned := machine.NewCPUSet()
-			for otherPkg, cset := range numaState.ResourcePackagePinnedCPUSet {
-				if otherPkg != pkgName {
-					otherPinned = otherPinned.Union(cset)
+			for otherPkg, rpState := range numaState.ResourcePackageStates {
+				if otherPkg != pkgName && rpState != nil {
+					otherPinned = otherPinned.Union(rpState.PinnedCPUSet)
 				}
 			}
 
@@ -246,20 +256,27 @@ func (p *DynamicPolicy) syncNumaResourcePackage(
 				newPinned = currentPinned
 			}
 
-			newResourcePackagePinnedCPUSet[pkgName] = newPinned
+			newState := &state.ResourcePackageState{
+				PinnedCPUSet: newPinned,
+				Attributes:   resourcePackages.GetAttributesMap(numaID, pkgName),
+			}
+			newResourcePackageState[pkgName] = newState
 
-			if !newPinned.Equals(currentPinned) {
+			if !newState.Equals(currentState) {
 				stateChanged = true
 			}
 		}
 	}
 
-	for pkgName, currentPinned := range numaState.ResourcePackagePinnedCPUSet {
+	for pkgName, rpState := range numaState.ResourcePackageStates {
+		if rpState == nil {
+			continue
+		}
 		// Check if pinnedCPUSetSize[numaID] exists before accessing inner map
 		if pkgs, ok := pinnedCPUSetSize[numaID]; !ok || pkgs == nil {
 			// If NUMA ID is not in config, check if package is active
 			if activePackages.Has(pkgName) {
-				newResourcePackagePinnedCPUSet[pkgName] = currentPinned
+				newResourcePackageState[pkgName] = rpState.Clone()
 				general.Errorf("resource package %s removed from config (NUMA %d missing) but still has pods", pkgName, numaID)
 			} else {
 				stateChanged = true
@@ -269,7 +286,7 @@ func (p *DynamicPolicy) syncNumaResourcePackage(
 			// If NUMA ID exists, check if package is in config
 			if _, ok := pkgs[pkgName]; !ok {
 				if activePackages.Has(pkgName) {
-					newResourcePackagePinnedCPUSet[pkgName] = currentPinned
+					newResourcePackageState[pkgName] = rpState.Clone()
 					general.Errorf("resource package %s removed from config but still has pods on numa %d", pkgName, numaID)
 				} else {
 					stateChanged = true
@@ -282,8 +299,10 @@ func (p *DynamicPolicy) syncNumaResourcePackage(
 	if stateChanged {
 		// Validate resource availability for non-pinned shared cores
 		totalPinnedCPUSet := machine.NewCPUSet()
-		for _, cset := range newResourcePackagePinnedCPUSet {
-			totalPinnedCPUSet = totalPinnedCPUSet.Union(cset)
+		for _, rpState := range newResourcePackageState {
+			if rpState != nil {
+				totalPinnedCPUSet = totalPinnedCPUSet.Union(rpState.PinnedCPUSet)
+			}
 		}
 
 		availableForNonPinned := availableCPUs.Difference(totalPinnedCPUSet).Difference(numaState.AllocatedCPUSet)
@@ -307,10 +326,10 @@ func (p *DynamicPolicy) syncNumaResourcePackage(
 				pkgName := allocationInfo.GetResourcePackageName()
 				// Check if pod is non-pinned:
 				// 1. No package name
-				// 2. Package name exists but not in newResourcePackagePinnedCPUSet
+				// 2. Package name exists but not in newResourcePackageState
 				isPinned := false
 				if pkgName != "" {
-					if _, ok := newResourcePackagePinnedCPUSet[pkgName]; ok {
+					if _, ok := newResourcePackageState[pkgName]; ok {
 						isPinned = true
 					}
 				} else {
@@ -334,5 +353,5 @@ func (p *DynamicPolicy) syncNumaResourcePackage(
 		}
 	}
 
-	return newResourcePackagePinnedCPUSet, stateChanged, nil
+	return newResourcePackageState, stateChanged, nil
 }
