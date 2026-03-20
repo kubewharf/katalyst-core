@@ -185,6 +185,31 @@ func (r NUMAResourcePackageItems) ListAllPinnedCPUSetSize() (map[int]map[string]
 	return pinnedCPUSets, nil
 }
 
+// GetAttributesMap retrieves the attributes map for a specific resource package on a NUMA node.
+// It returns a map of string to string, or nil if no attributes are found.
+func (r NUMAResourcePackageItems) GetAttributesMap(numaID int, pkgName string) map[string]string {
+	if r == nil {
+		return nil
+	}
+
+	pkgs, ok := r[numaID]
+	if !ok {
+		return nil
+	}
+
+	pkgItem, ok := pkgs[pkgName]
+	if !ok || len(pkgItem.Attributes) == 0 {
+		return nil
+	}
+
+	attributes := make(map[string]string, len(pkgItem.Attributes))
+	for _, attr := range pkgItem.Attributes {
+		attributes[attr.Name] = attr.Value
+	}
+
+	return attributes
+}
+
 // GetAllPinnedCPUSetSizeSum calculates the total size of pinned CPU sets for each NUMA node.
 // It sums up the CPU values of all pinned packages per NUMA node.
 func (r NUMAResourcePackageItems) GetAllPinnedCPUSetSizeSum() (map[int]int, error) {

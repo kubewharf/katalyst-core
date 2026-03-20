@@ -393,8 +393,10 @@ func TestDynamicPolicy_allocateNumaBindingCPUs(t *testing.T) {
 				machineState: state.NUMANodeMap{
 					0: &state.NUMANodeState{
 						DefaultCPUSet: machine.NewCPUSet(0, 1, 2, 3),
-						ResourcePackagePinnedCPUSet: map[string]machine.CPUSet{
-							"pkg1": machine.NewCPUSet(2, 3),
+						ResourcePackageStates: map[string]*state.ResourcePackageState{
+							"pkg1": {
+								PinnedCPUSet: machine.NewCPUSet(2, 3),
+							},
 						},
 					},
 				},
@@ -416,8 +418,10 @@ func TestDynamicPolicy_allocateNumaBindingCPUs(t *testing.T) {
 				machineState: state.NUMANodeMap{
 					0: &state.NUMANodeState{
 						DefaultCPUSet: machine.NewCPUSet(0, 1, 2, 3),
-						ResourcePackagePinnedCPUSet: map[string]machine.CPUSet{
-							"pkg1": machine.NewCPUSet(2, 3),
+						ResourcePackageStates: map[string]*state.ResourcePackageState{
+							"pkg1": {
+								PinnedCPUSet: machine.NewCPUSet(2, 3),
+							},
 						},
 					},
 				},
@@ -613,11 +617,11 @@ func TestDynamicPolicy_adjustPoolsAndIsolatedEntries_Pinned(t *testing.T) {
 	machineState := p.state.GetMachineState()
 	for numaID, numaState := range machineState {
 		if numaID == 0 {
-			if numaState.ResourcePackagePinnedCPUSet == nil {
-				numaState.ResourcePackagePinnedCPUSet = make(map[string]machine.CPUSet)
+			if numaState.ResourcePackageStates == nil {
+				numaState.ResourcePackageStates = make(map[string]*state.ResourcePackageState)
 			}
-			numaState.ResourcePackagePinnedCPUSet["pkg1"] = machine.NewCPUSet(0, 1)
-			numaState.ResourcePackagePinnedCPUSet["pkg2"] = machine.NewCPUSet(2, 3)
+			numaState.ResourcePackageStates["pkg1"] = &state.ResourcePackageState{PinnedCPUSet: machine.NewCPUSet(0, 1)}
+			numaState.ResourcePackageStates["pkg2"] = &state.ResourcePackageState{PinnedCPUSet: machine.NewCPUSet(2, 3)}
 		}
 	}
 	p.state.SetMachineState(machineState, false)

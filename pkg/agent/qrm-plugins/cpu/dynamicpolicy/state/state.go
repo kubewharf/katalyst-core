@@ -60,14 +60,57 @@ type (
 	PodEntries       map[string]ContainerEntries // Keyed by podUID.
 )
 
+type ResourcePackageState struct {
+	Attributes   map[string]string `json:"attributes,omitempty"`
+	PinnedCPUSet machine.CPUSet    `json:"pinned_cpuset,omitempty"`
+}
+
+func (r *ResourcePackageState) Clone() *ResourcePackageState {
+	if r == nil {
+		return nil
+	}
+	clone := &ResourcePackageState{
+		PinnedCPUSet: r.PinnedCPUSet.Clone(),
+	}
+	if r.Attributes != nil {
+		clone.Attributes = make(map[string]string, len(r.Attributes))
+		for k, v := range r.Attributes {
+			clone.Attributes[k] = v
+		}
+	}
+	return clone
+}
+
+// Equals checks if two ResourcePackageState are equal.
+func (r *ResourcePackageState) Equals(other *ResourcePackageState) bool {
+	if r == other {
+		return true
+	}
+	if r == nil || other == nil {
+		return false
+	}
+	if !r.PinnedCPUSet.Equals(other.PinnedCPUSet) {
+		return false
+	}
+	if len(r.Attributes) != len(other.Attributes) {
+		return false
+	}
+	for k, v := range r.Attributes {
+		if otherV, ok := other.Attributes[k]; !ok || v != otherV {
+			return false
+		}
+	}
+	return true
+}
+
 type NUMANodeState struct {
 	// equals to allocatable cpuset subtracting original allocation result of dedicated_cores with NUMA binding
 	DefaultCPUSet machine.CPUSet `json:"default_cpuset,omitempty"`
 	// equals to original allocation result of dedicated_cores with NUMA binding
 	AllocatedCPUSet machine.CPUSet `json:"allocated_cpuset,omitempty"`
-	// equals to a map of resource package name to pinned cpuset if the resource package's
+	// equals to a map of resource package name to resource package state if the resource package's
 	// config has set `pinnedCPUSet` to `true`.
-	ResourcePackagePinnedCPUSet map[string]machine.CPUSet `json:"resource_package_pinned_cpuset,omitempty"`
+	ResourcePackageStates map[string]*ResourcePackageState `json:"resource_package_states,omitempty"`
 
 	PodEntries PodEntries `json:"pod_entries"`
 	// pre-occupation pod entries which is for pod needs pre-occupation
@@ -344,11 +387,11 @@ func (ns *NUMANodeState) Clone() *NUMANodeState {
 		PreOccPodEntries: ns.PreOccPodEntries.Clone(),
 	}
 
-	if ns.ResourcePackagePinnedCPUSet != nil {
-		clone.ResourcePackagePinnedCPUSet = make(map[string]machine.CPUSet)
+	if ns.ResourcePackageStates != nil {
+		clone.ResourcePackageStates = make(map[string]*ResourcePackageState)
 
-		for pkgName, cpus := range ns.ResourcePackagePinnedCPUSet {
-			clone.ResourcePackagePinnedCPUSet[pkgName] = cpus.Clone()
+		for pkgName, state := range ns.ResourcePackageStates {
+			clone.ResourcePackageStates[pkgName] = state.Clone()
 		}
 	}
 
@@ -559,8 +602,10 @@ func (nm NUMANodeMap) GetNUMAResourcePackagePinnedCPUSet() map[int]map[string]ma
 		if _, ok := numaResourcePackagePinnedCPUSet[numaID]; !ok {
 			numaResourcePackagePinnedCPUSet[numaID] = make(map[string]machine.CPUSet)
 		}
-		for resourcePackage, pinnedCPUSet := range numaNodeState.ResourcePackagePinnedCPUSet {
-			numaResourcePackagePinnedCPUSet[numaID][resourcePackage] = numaResourcePackagePinnedCPUSet[numaID][resourcePackage].Union(pinnedCPUSet)
+		for resourcePackage, rpState := range numaNodeState.ResourcePackageStates {
+			if rpState != nil && !rpState.PinnedCPUSet.IsEmpty() {
+				numaResourcePackagePinnedCPUSet[numaID][resourcePackage] = numaResourcePackagePinnedCPUSet[numaID][resourcePackage].Union(rpState.PinnedCPUSet)
+			}
 		}
 	}
 	return numaResourcePackagePinnedCPUSet
@@ -571,11 +616,27 @@ func (nm NUMANodeMap) GetNUMAResourcePackagePinnedCPUSet() map[int]map[string]ma
 func (nm NUMANodeMap) GetResourcePackagePinnedCPUSet() map[string]machine.CPUSet {
 	rpPinnedCPUSet := make(map[string]machine.CPUSet)
 	for _, numaNodeState := range nm {
-		for resourcePackage, pinnedCPUSet := range numaNodeState.ResourcePackagePinnedCPUSet {
-			rpPinnedCPUSet[resourcePackage] = rpPinnedCPUSet[resourcePackage].Union(pinnedCPUSet)
+		for resourcePackage, rpState := range numaNodeState.ResourcePackageStates {
+			if rpState != nil && !rpState.PinnedCPUSet.IsEmpty() {
+				rpPinnedCPUSet[resourcePackage] = rpPinnedCPUSet[resourcePackage].Union(rpState.PinnedCPUSet)
+			}
 		}
 	}
 	return rpPinnedCPUSet
+}
+
+// GetNUMAResourcePackageStates returns a map of numa id to resource package name to resource package state
+func (nm NUMANodeMap) GetNUMAResourcePackageStates() map[int]map[string]*ResourcePackageState {
+	numaResourcePackageStates := make(map[int]map[string]*ResourcePackageState)
+	for numaID, numaNodeState := range nm {
+		if _, ok := numaResourcePackageStates[numaID]; !ok {
+			numaResourcePackageStates[numaID] = make(map[string]*ResourcePackageState)
+		}
+		for resourcePackage, rpState := range numaNodeState.ResourcePackageStates {
+			numaResourcePackageStates[numaID][resourcePackage] = rpState.Clone()
+		}
+	}
+	return numaResourcePackageStates
 }
 
 // GetAvailableCPUSet returns available cpuset in this node
