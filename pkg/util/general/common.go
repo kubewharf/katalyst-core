@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
@@ -515,4 +516,13 @@ func ConvertLinuxListToString(numbers []int64) string {
 		result.WriteString(",")
 	}
 	return strings.TrimRight(result.String(), ",")
+}
+
+// ParseSelector returns a labels.Selector from the given string.
+// If the string is empty, it returns labels.Nothing() and nil error.
+func ParseSelector(selectorStr string) (labels.Selector, error) {
+	if selectorStr == "" {
+		return labels.Nothing(), nil
+	}
+	return labels.Parse(selectorStr)
 }
