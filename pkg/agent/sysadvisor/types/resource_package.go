@@ -18,6 +18,29 @@ package types
 
 import "github.com/kubewharf/katalyst-core/pkg/util/machine"
 
+// ResourcePackageState stores the state of a resource package on a specific NUMA node.
+type ResourcePackageState struct {
+	PinnedCPUSet machine.CPUSet
+	Attributes   map[string]string
+}
+
+// Clone returns a deep copy of ResourcePackageState.
+func (s *ResourcePackageState) Clone() *ResourcePackageState {
+	if s == nil {
+		return nil
+	}
+	clone := &ResourcePackageState{
+		PinnedCPUSet: s.PinnedCPUSet.Clone(),
+	}
+	if s.Attributes != nil {
+		clone.Attributes = make(map[string]string, len(s.Attributes))
+		for k, v := range s.Attributes {
+			clone.Attributes[k] = v
+		}
+	}
+	return clone
+}
+
 // ResourcePackageConfig stores resource package related configurations organized by NUMA node.
 // It is used as an in-memory snapshot in sysadvisor metacache, and is expected to be deep-copied
 // when being read/written across module boundaries.
@@ -25,8 +48,8 @@ import "github.com/kubewharf/katalyst-core/pkg/util/machine"
 // Key format:
 // - first key: NUMA id
 // - second key: resource package name
-// - value: pinned CPUSet for the resource package on that NUMA node
-type ResourcePackageConfig map[int]map[string]machine.CPUSet
+// - value: state for the resource package on that NUMA node
+type ResourcePackageConfig map[int]map[string]*ResourcePackageState
 
 // Clone returns a deep copy of ResourcePackageConfig.
 func (c ResourcePackageConfig) Clone() ResourcePackageConfig {
@@ -41,9 +64,9 @@ func (c ResourcePackageConfig) Clone() ResourcePackageConfig {
 			continue
 		}
 
-		outPkgMap := make(map[string]machine.CPUSet, len(pkgMap))
-		for pkgName, cpuset := range pkgMap {
-			outPkgMap[pkgName] = cpuset.Clone()
+		outPkgMap := make(map[string]*ResourcePackageState, len(pkgMap))
+		for pkgName, state := range pkgMap {
+			outPkgMap[pkgName] = state.Clone()
 		}
 		out[numaID] = outPkgMap
 	}
