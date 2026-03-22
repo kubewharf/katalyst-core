@@ -137,6 +137,7 @@ func (p *DynamicPolicy) syncNumaResourcePackage(
 	sharedPodsMap := make(map[string][]*state.AllocationInfo)
 	stateChanged := false
 	newResourcePackageState := make(map[string]*state.ResourcePackageState)
+	pinnedPackages := sets.NewString()
 
 	for _, containerEntries := range numaState.PodEntries {
 		if containerEntries.IsPoolEntry() {
@@ -193,15 +194,15 @@ func (p *DynamicPolicy) syncNumaResourcePackage(
 	}
 	allocatedDedicatedNonPinned := numaState.AllocatedCPUSet.Difference(allMandatoryPinned)
 
-	if pkgs, ok := pinnedCPUSetSize[numaID]; ok {
-		for pkgName, neededSize := range pkgs {
-			mandatoryCPUs := mandatoryCPUsMap[pkgName]
-			sharedReq := sharedRequestsMap[pkgName]
-
-			minSize := mandatoryCPUs.Size() + int(math.Ceil(sharedReq))
-			targetSize := neededSize
-			if minSize > targetSize {
-				targetSize = minSize
+	if pkgs, ok := resourcePackages[numaID]; ok {
+		for pkgName := range pkgs {
+			var targetSize int
+			isPinned := false
+			if sizeMap, ok := pinnedCPUSetSize[numaID]; ok {
+				if size, ok := sizeMap[pkgName]; ok {
+					targetSize = size
+					isPinned = true
+				}
 			}
 
 			var currentState *state.ResourcePackageState
@@ -211,54 +212,67 @@ func (p *DynamicPolicy) syncNumaResourcePackage(
 				currentPinned = rpState.PinnedCPUSet
 			}
 
-			otherPinned := machine.NewCPUSet()
-			for otherPkg, rpState := range numaState.ResourcePackageStates {
-				if otherPkg != pkgName && rpState != nil {
-					otherPinned = otherPinned.Union(rpState.PinnedCPUSet)
-				}
-			}
-
-			availableForPkg := availableCPUs.Difference(allocatedDedicatedNonPinned).Difference(otherPinned)
-
 			var newPinned machine.CPUSet
 
-			if currentPinned.Size() < targetSize {
-				delta := targetSize - currentPinned.Size()
-				candidates := availableForPkg.Difference(currentPinned)
-				newCPUs, err := calculator.TakeByTopology(p.machineInfo, candidates, delta, true)
-				if err != nil {
-					general.Errorf("failed to expand pinned cpuset for pkg %s: %v", pkgName, err)
-					_ = p.emitter.StoreInt64(util.MetricNameSyncNumaResourcePackageFailed, 1, metrics.MetricTypeNameRaw,
-						metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)},
-						metrics.MetricTag{Key: "numa_id", Val: strconv.Itoa(numaID)},
-						metrics.MetricTag{Key: "package_name", Val: pkgName},
-						metrics.MetricTag{Key: "reason", Val: "expand_failed"})
-					newPinned = currentPinned
-				} else {
-					newPinned = currentPinned.Union(newCPUs)
-				}
-			} else if currentPinned.Size() > targetSize {
-				candidates := currentPinned.Difference(mandatoryCPUs)
-				keepSize := targetSize - mandatoryCPUs.Size()
+			if isPinned {
+				pinnedPackages.Insert(pkgName)
+				mandatoryCPUs := mandatoryCPUsMap[pkgName]
+				sharedReq := sharedRequestsMap[pkgName]
 
-				if keepSize > 0 {
-					kept, err := calculator.TakeByTopology(p.machineInfo, candidates, keepSize, true)
+				minSize := mandatoryCPUs.Size() + int(math.Ceil(sharedReq))
+				if minSize > targetSize {
+					targetSize = minSize
+				}
+
+				otherPinned := machine.NewCPUSet()
+				for otherPkg, rpState := range numaState.ResourcePackageStates {
+					if otherPkg != pkgName && rpState != nil {
+						otherPinned = otherPinned.Union(rpState.PinnedCPUSet)
+					}
+				}
+
+				availableForPkg := availableCPUs.Difference(allocatedDedicatedNonPinned).Difference(otherPinned)
+
+				if currentPinned.Size() < targetSize {
+					delta := targetSize - currentPinned.Size()
+					candidates := availableForPkg.Difference(currentPinned)
+					newCPUs, err := calculator.TakeByTopology(p.machineInfo, candidates, delta, true)
 					if err != nil {
-						general.Errorf("failed to shrink (select kept) for pkg %s: %v", pkgName, err)
+						general.Errorf("failed to expand pinned cpuset for pkg %s: %v", pkgName, err)
 						_ = p.emitter.StoreInt64(util.MetricNameSyncNumaResourcePackageFailed, 1, metrics.MetricTypeNameRaw,
 							metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)},
 							metrics.MetricTag{Key: "numa_id", Val: strconv.Itoa(numaID)},
 							metrics.MetricTag{Key: "package_name", Val: pkgName},
-							metrics.MetricTag{Key: "reason", Val: "shrink_failed"})
+							metrics.MetricTag{Key: "reason", Val: "expand_failed"})
 						newPinned = currentPinned
 					} else {
-						newPinned = mandatoryCPUs.Union(kept)
+						newPinned = currentPinned.Union(newCPUs)
+					}
+				} else if currentPinned.Size() > targetSize {
+					candidates := currentPinned.Difference(mandatoryCPUs)
+					keepSize := targetSize - mandatoryCPUs.Size()
+
+					if keepSize > 0 {
+						kept, err := calculator.TakeByTopology(p.machineInfo, candidates, keepSize, true)
+						if err != nil {
+							general.Errorf("failed to shrink (select kept) for pkg %s: %v", pkgName, err)
+							_ = p.emitter.StoreInt64(util.MetricNameSyncNumaResourcePackageFailed, 1, metrics.MetricTypeNameRaw,
+								metrics.MetricTag{Key: "error_message", Val: metric.MetricTagValueFormat(err)},
+								metrics.MetricTag{Key: "numa_id", Val: strconv.Itoa(numaID)},
+								metrics.MetricTag{Key: "package_name", Val: pkgName},
+								metrics.MetricTag{Key: "reason", Val: "shrink_failed"})
+							newPinned = currentPinned
+						} else {
+							newPinned = mandatoryCPUs.Union(kept)
+						}
+					} else {
+						newPinned = mandatoryCPUs
 					}
 				} else {
-					newPinned = mandatoryCPUs
+					newPinned = currentPinned
 				}
 			} else {
-				newPinned = currentPinned
+				newPinned = machine.NewCPUSet()
 			}
 
 			newState := &state.ResourcePackageState{
@@ -287,11 +301,14 @@ func (p *DynamicPolicy) syncNumaResourcePackage(
 		if rpState == nil {
 			continue
 		}
-		// Check if pinnedCPUSetSize[numaID] exists before accessing inner map
-		if pkgs, ok := pinnedCPUSetSize[numaID]; !ok || pkgs == nil {
+		// Check if resourcePackages[numaID] exists before accessing inner map
+		if pkgs, ok := resourcePackages[numaID]; !ok || pkgs == nil {
 			// If NUMA ID is not in config, check if package is active
 			if activePackages.Has(pkgName) {
 				newResourcePackageState[pkgName] = rpState.Clone()
+				if rpState.PinnedCPUSet.Size() > 0 {
+					pinnedPackages.Insert(pkgName)
+				}
 				general.Errorf("resource package %s removed from config (NUMA %d missing) but still has pods", pkgName, numaID)
 			} else {
 				stateChanged = true
@@ -302,6 +319,9 @@ func (p *DynamicPolicy) syncNumaResourcePackage(
 			if _, ok := pkgs[pkgName]; !ok {
 				if activePackages.Has(pkgName) {
 					newResourcePackageState[pkgName] = rpState.Clone()
+					if rpState.PinnedCPUSet.Size() > 0 {
+						pinnedPackages.Insert(pkgName)
+					}
 					general.Errorf("resource package %s removed from config but still has pods on numa %d", pkgName, numaID)
 				} else {
 					stateChanged = true
@@ -341,10 +361,10 @@ func (p *DynamicPolicy) syncNumaResourcePackage(
 				pkgName := allocationInfo.GetResourcePackageName()
 				// Check if pod is non-pinned:
 				// 1. No package name
-				// 2. Package name exists but not in newResourcePackageState
+				// 2. Package name exists but not in pinnedPackages
 				isPinned := false
 				if pkgName != "" {
-					if _, ok := newResourcePackageState[pkgName]; ok {
+					if pinnedPackages.Has(pkgName) {
 						isPinned = true
 					}
 				} else {

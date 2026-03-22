@@ -535,6 +535,133 @@ func TestSyncResourcePackageStates(t *testing.T) {
 				assert.Equal(t, 2, pinned.Size(), "Should stay at original size due to validation failure")
 			},
 		},
+		{
+			name: "Non-Pinned Package stores Attributes",
+			initialState: func(dp *DynamicPolicy) {
+				// Initial: empty
+			},
+			resourcePackages: func() utilresourcepackage.NUMAResourcePackageItems {
+				items := make(utilresourcepackage.NUMAResourcePackageItems)
+				items[0] = make(map[string]utilresourcepackage.ResourcePackageItem)
+				pinned := false
+				items[0]["pkg-unpinned"] = utilresourcepackage.ResourcePackageItem{
+					ResourcePackage: nodev1alpha1.ResourcePackage{
+						PackageName: "pkg-unpinned",
+						Allocatable: &v1.ResourceList{
+							v1.ResourceCPU: *resource.NewQuantity(int64(4), resource.DecimalSI),
+						},
+						Attributes: []nodev1alpha1.Attribute{
+							{Name: "test-attr", Value: "test-val"},
+						},
+					},
+					Config: &utilresourcepackage.ResourcePackageConfig{
+						PinnedCPUSet: &pinned,
+					},
+				}
+				return items
+			}(),
+			verify: func(t *testing.T, ms state.NUMANodeMap, pe state.PodEntries) {
+				pkgState, exists := ms[0].ResourcePackageStates["pkg-unpinned"]
+				assert.True(t, exists, "Package state should be stored")
+				assert.True(t, pkgState.PinnedCPUSet.IsEmpty(), "PinnedCPUSet should be empty")
+				assert.Equal(t, "test-val", pkgState.Attributes["test-attr"], "Attributes should be stored")
+			},
+		},
+		{
+			name: "Mixed Pinned and Non-Pinned Packages",
+			initialState: func(dp *DynamicPolicy) {
+				// Initial: pkg-pinned-1 has some allocated CPUSet, and some pods are running
+				ms := dp.state.GetMachineState()
+				if ms[0].ResourcePackageStates == nil {
+					ms[0].ResourcePackageStates = make(map[string]*state.ResourcePackageState)
+				}
+				ms[0].ResourcePackageStates["pkg-pinned-1"] = &state.ResourcePackageState{
+					PinnedCPUSet: machine.NewCPUSet(0, 1),
+					Attributes: map[string]string{
+						"type": "pinned",
+					},
+				}
+				// Previous unpinned state should be updated
+				ms[0].ResourcePackageStates["pkg-unpinned-1"] = &state.ResourcePackageState{
+					PinnedCPUSet: machine.NewCPUSet(),
+					Attributes: map[string]string{
+						"old-attr": "old-val",
+					},
+				}
+				dp.state.SetMachineState(ms, false)
+			},
+			resourcePackages: func() utilresourcepackage.NUMAResourcePackageItems {
+				items := make(utilresourcepackage.NUMAResourcePackageItems)
+				items[0] = make(map[string]utilresourcepackage.ResourcePackageItem)
+
+				pinnedTrue := true
+				items[0]["pkg-pinned-1"] = utilresourcepackage.ResourcePackageItem{
+					ResourcePackage: nodev1alpha1.ResourcePackage{
+						PackageName: "pkg-pinned-1",
+						Allocatable: &v1.ResourceList{
+							v1.ResourceCPU: *resource.NewQuantity(int64(4), resource.DecimalSI), // Request expansion to 4
+						},
+						Attributes: []nodev1alpha1.Attribute{
+							{Name: "type", Value: "pinned-expanded"},
+						},
+					},
+					Config: &utilresourcepackage.ResourcePackageConfig{
+						PinnedCPUSet: &pinnedTrue,
+					},
+				}
+
+				pinnedFalse := false
+				items[0]["pkg-unpinned-1"] = utilresourcepackage.ResourcePackageItem{
+					ResourcePackage: nodev1alpha1.ResourcePackage{
+						PackageName: "pkg-unpinned-1",
+						Allocatable: &v1.ResourceList{
+							v1.ResourceCPU: *resource.NewQuantity(int64(2), resource.DecimalSI),
+						},
+						Attributes: []nodev1alpha1.Attribute{
+							{Name: "new-attr", Value: "new-val"}, // Update attributes
+						},
+					},
+					Config: &utilresourcepackage.ResourcePackageConfig{
+						PinnedCPUSet: &pinnedFalse,
+					},
+				}
+
+				// Add a new package without PinnedCPUSet config (implicitly non-pinned)
+				items[0]["pkg-unpinned-implicit"] = utilresourcepackage.ResourcePackageItem{
+					ResourcePackage: nodev1alpha1.ResourcePackage{
+						PackageName: "pkg-unpinned-implicit",
+						Allocatable: &v1.ResourceList{
+							v1.ResourceCPU: *resource.NewQuantity(int64(2), resource.DecimalSI),
+						},
+						Attributes: []nodev1alpha1.Attribute{
+							{Name: "implicit", Value: "true"},
+						},
+					},
+				}
+
+				return items
+			}(),
+			verify: func(t *testing.T, ms state.NUMANodeMap, pe state.PodEntries) {
+				// Verify pkg-pinned-1 expanded
+				pkgPinned1, exists := ms[0].ResourcePackageStates["pkg-pinned-1"]
+				assert.True(t, exists)
+				assert.Equal(t, 4, pkgPinned1.PinnedCPUSet.Size(), "PinnedCPUSet should be expanded to 4")
+				assert.Equal(t, "pinned-expanded", pkgPinned1.Attributes["type"], "Attributes should be updated")
+
+				// Verify pkg-unpinned-1 attributes updated and cpuset is empty
+				pkgUnpinned1, exists := ms[0].ResourcePackageStates["pkg-unpinned-1"]
+				assert.True(t, exists)
+				assert.True(t, pkgUnpinned1.PinnedCPUSet.IsEmpty(), "PinnedCPUSet should be empty")
+				assert.Equal(t, "new-val", pkgUnpinned1.Attributes["new-attr"], "Attributes should be updated")
+				assert.NotContains(t, pkgUnpinned1.Attributes, "old-attr", "Old attributes should be removed if not present")
+
+				// Verify pkg-unpinned-implicit stored attributes and cpuset is empty
+				pkgImplicit, exists := ms[0].ResourcePackageStates["pkg-unpinned-implicit"]
+				assert.True(t, exists)
+				assert.True(t, pkgImplicit.PinnedCPUSet.IsEmpty(), "PinnedCPUSet should be empty")
+				assert.Equal(t, "true", pkgImplicit.Attributes["implicit"])
+			},
+		},
 	}
 
 	for _, tt := range tests {
