@@ -65,6 +65,20 @@ type ResourcePackageState struct {
 	PinnedCPUSet machine.CPUSet    `json:"pinned_cpuset,omitempty"`
 }
 
+func (r *ResourcePackageState) GetAttributes() map[string]string {
+	if r == nil {
+		return nil
+	}
+	return r.Attributes
+}
+
+func (r *ResourcePackageState) GetPinnedCPUSet() machine.CPUSet {
+	if r == nil {
+		return machine.NewCPUSet()
+	}
+	return r.PinnedCPUSet
+}
+
 func (r *ResourcePackageState) Clone() *ResourcePackageState {
 	if r == nil {
 		return nil

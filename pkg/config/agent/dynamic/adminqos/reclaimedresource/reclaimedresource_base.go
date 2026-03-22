@@ -18,6 +18,7 @@ package reclaimedresource
 
 import (
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/reclaimedresource/cpuheadroom"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/reclaimedresource/memoryheadroom"
@@ -25,15 +26,16 @@ import (
 )
 
 type ReclaimedResourceConfiguration struct {
-	EnableReclaim                            bool
-	DisableReclaimSharePools                 []string
-	ReservedResourceForReport                v1.ResourceList
-	MinReclaimedResourceForReport            v1.ResourceList
-	MinIgnoredReclaimedResourceForReport     v1.ResourceList
-	ReservedResourceForAllocate              v1.ResourceList
-	MinReclaimedResourceForAllocate          v1.ResourceList
-	NumaMinReclaimedResourceRatioForAllocate v1.ResourceList
-	NumaMinReclaimedResourceForAllocate      v1.ResourceList
+	EnableReclaim                                     bool
+	DisableReclaimSharePools                          []string
+	DisableReclaimPinnedCPUSetResourcePackageSelector labels.Selector
+	ReservedResourceForReport                         v1.ResourceList
+	MinReclaimedResourceForReport                     v1.ResourceList
+	MinIgnoredReclaimedResourceForReport              v1.ResourceList
+	ReservedResourceForAllocate                       v1.ResourceList
+	MinReclaimedResourceForAllocate                   v1.ResourceList
+	NumaMinReclaimedResourceRatioForAllocate          v1.ResourceList
+	NumaMinReclaimedResourceForAllocate               v1.ResourceList
 
 	*cpuheadroom.CPUHeadroomConfiguration
 	*memoryheadroom.MemoryHeadroomConfiguration
