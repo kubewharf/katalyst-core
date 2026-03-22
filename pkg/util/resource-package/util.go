@@ -20,13 +20,65 @@ import (
 	"fmt"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/sets"
+
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 const (
 	OwnerPoolNameSeparator = "/"
 )
+
+// ResourcePackageState is an interface that provides methods to get the attributes and pinned CPUSet of a resource package.
+// It is implemented by both qrm state.ResourcePackageState and sysadvisor types.ResourcePackageState,
+// allowing generic utilities to work with both representations.
+type ResourcePackageState interface {
+	GetAttributes() map[string]string
+	GetPinnedCPUSet() machine.CPUSet
+}
+
+// GetMatchedPinnedCPUSet returns the union of PinnedCPUSets from resource packages that match the given selector.
+func GetMatchedPinnedCPUSet[T ResourcePackageState](states map[string]T, selector labels.Selector) machine.CPUSet {
+	res := machine.NewCPUSet()
+	if selector == nil || selector.Empty() {
+		return res
+	}
+	for _, state := range states {
+		if selector.Matches(labels.Set(state.GetAttributes())) {
+			res = res.Union(state.GetPinnedCPUSet())
+		}
+	}
+	return res
+}
+
+// GetNUMAMatchedPinnedCPUSet returns a map of NUMA ID to the union of PinnedCPUSets from resource packages that match the selector.
+func GetNUMAMatchedPinnedCPUSet[T ResourcePackageState](numaStates map[int]map[string]T, selector labels.Selector) map[int]machine.CPUSet {
+	res := make(map[int]machine.CPUSet)
+	if selector == nil || selector.Empty() {
+		return res
+	}
+	for numaID, pkgStates := range numaStates {
+		res[numaID] = GetMatchedPinnedCPUSet(pkgStates, selector)
+	}
+	return res
+}
+
+// GetMatchedPackages returns a set of package names that match the given selector.
+func GetMatchedPackages[T ResourcePackageState](states map[string]T, selector labels.Selector) sets.String {
+	res := sets.NewString()
+	if selector == nil || selector.Empty() {
+		return res
+	}
+	for pkgName, state := range states {
+		if selector.Matches(labels.Set(state.GetAttributes())) {
+			res.Insert(pkgName)
+		}
+	}
+	return res
+}
 
 // GetResourcePackageName retrieves the resource package name from pod annotations.
 // It looks for the key "katalyst.kubewharf.io/resource_package" in the annotations map.

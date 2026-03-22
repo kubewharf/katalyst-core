@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -273,10 +274,151 @@ func TestAssembleProvision(t *testing.T) {
 		name                                  string
 		enableReclaimed                       bool
 		allowSharedCoresOverlapReclaimedCores bool
+		disableReclaimSelector                string
+		resourcePackageConfig                 types.ResourcePackageConfig
 		poolInfos                             []testCasePoolConfig
 		expectPoolEntries                     map[string]map[int]types.CPUResource
 		expectPoolOverlapInfo                 map[string]map[int]map[string]int
 	}{
+		{
+			name:                                  "test-disable-reclaim-pkg-complex",
+			enableReclaimed:                       true,
+			disableReclaimSelector:                "disable-reclaim=true",
+			allowSharedCoresOverlapReclaimedCores: true,
+			resourcePackageConfig: types.ResourcePackageConfig{
+				0: map[string]*types.ResourcePackageState{
+					"pkg1": {
+						Attributes:   map[string]string{"disable-reclaim": "true"},
+						PinnedCPUSet: machine.NewCPUSet(1, 2, 3), // size 3
+					},
+					"pkg2": {
+						Attributes:   map[string]string{"disable-reclaim": "false"},
+						PinnedCPUSet: machine.NewCPUSet(4, 5), // size 2
+					},
+				},
+				1: map[string]*types.ResourcePackageState{
+					"pkg1": {
+						Attributes:   map[string]string{"disable-reclaim": "true"},
+						PinnedCPUSet: machine.NewCPUSet(1, 2, 3, 4, 5), // size 5
+					},
+				},
+			},
+			poolInfos: []testCasePoolConfig{
+				{
+					poolName:      "share", // ownerPoolName is share, pkg is empty
+					poolType:      configapi.QoSRegionTypeShare,
+					numa:          machine.NewCPUSet(0),
+					isNumaBinding: false,
+					provision: types.ControlKnob{
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 6},
+					},
+				},
+				{
+					poolName:      "share-NUMA1", // ownerPoolName is share-NUMA1, pkg is NUMA1
+					poolType:      configapi.QoSRegionTypeShare,
+					numa:          machine.NewCPUSet(1),
+					isNumaBinding: true,
+					provision: types.ControlKnob{
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 8},
+					},
+				},
+				{
+					poolName:      "isolation-NUMA1",
+					poolType:      configapi.QoSRegionTypeIsolation,
+					numa:          machine.NewCPUSet(1),
+					isNumaBinding: true,
+					provision: types.ControlKnob{
+						configapi.ControlKnobNonIsolatedUpperCPUSize: {Value: 8},
+						configapi.ControlKnobNonIsolatedLowerCPUSize: {Value: 4},
+					},
+				},
+			},
+			expectPoolEntries: map[string]map[int]types.CPUResource{
+				"share": {
+					-1: types.CPUResource{Size: 19, Quota: -1}, // allow expand to full size
+				},
+				"share-NUMA1": {
+					1: types.CPUResource{Size: 11, Quota: -1}, // NUMA1 total 24, isolation 8, share req 8. allow expand but max is 24-8=16?
+				},
+				"isolation-NUMA1": {
+					1: types.CPUResource{Size: 8, Quota: -1},
+				},
+				"reserve": {
+					-1: types.CPUResource{Size: 0, Quota: -1},
+				},
+				"reclaim": {
+					// NUMA 0: available 24, isolated 0, unused non-reclaimable: pkg1(size 3) - allocated 0 = 3
+					// overlapReclaim pool calculation: shareReclaimCoresSize = 24 - 0 - 0 - 6 - 0 - 3 = 15
+					// reclaimedCoresSize = 15 + 0 = 15
+					// overlapSharePoolSizes = 24, overlapReclaimSize = 15
+					-1: types.CPUResource{Size: 2, Quota: -1},
+					// NUMA 1: available 24, isolated 8, unused non-reclaimable: pkg1(size 5) - allocated 0 = 5
+					// shareReclaimCoresSize = 24 - 8 - 0 - 8 - 0 - 5 = 3
+					// reclaimedCoresSize = 3 (but reservedForReclaim is 4, so it should be regulated to 4)
+					// if regulated to 4, then overlapReclaimSize is 4
+					// nonOverlap is 4-4=0
+					1: types.CPUResource{Size: 0, Quota: -1},
+				},
+			},
+			expectPoolOverlapInfo: map[string]map[int]map[string]int{
+				"reclaim": {
+					-1: map[string]int{"share": 13}, // total unused non-reclaimable is 3. share size is 24, req is 6, max reclaim is 15. overlap is 15.
+					1:  map[string]int{"share-NUMA1": 4},
+				},
+			},
+		},
+		{
+			name:                   "test-disable-reclaim-pkg",
+			enableReclaimed:        true,
+			disableReclaimSelector: "disable-reclaim=true",
+			resourcePackageConfig: types.ResourcePackageConfig{
+				0: map[string]*types.ResourcePackageState{
+					"pkg1": {
+						Attributes:   map[string]string{"disable-reclaim": "true"},
+						PinnedCPUSet: machine.NewCPUSet(1, 2, 3), // size 3
+					},
+					"pkg2": {
+						Attributes:   map[string]string{"disable-reclaim": "false"},
+						PinnedCPUSet: machine.NewCPUSet(4, 5), // size 2
+					},
+				},
+			},
+			poolInfos: []testCasePoolConfig{
+				{
+					poolName:      "share",
+					poolType:      configapi.QoSRegionTypeShare,
+					numa:          machine.NewCPUSet(0),
+					isNumaBinding: false,
+					provision: types.ControlKnob{
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 6},
+					},
+				},
+				{
+					poolName:      "share-NUMA1",
+					poolType:      configapi.QoSRegionTypeShare,
+					numa:          machine.NewCPUSet(1),
+					isNumaBinding: true,
+					provision: types.ControlKnob{
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 8},
+					},
+				},
+			},
+			expectPoolEntries: map[string]map[int]types.CPUResource{
+				"share": {
+					-1: types.CPUResource{Size: 6, Quota: -1},
+				},
+				"share-NUMA1": {
+					1: types.CPUResource{Size: 8, Quota: -1},
+				},
+				"reserve": {
+					-1: types.CPUResource{Size: 0, Quota: -1},
+				},
+				"reclaim": {
+					-1: types.CPUResource{Size: 15, Quota: -1}, // Originally 18, but we deducted 3 unused non-reclaimable
+					1:  types.CPUResource{Size: 16, Quota: -1},
+				},
+			},
+		},
 		{
 			name:            "test1",
 			enableReclaimed: true,
@@ -1011,7 +1153,7 @@ func TestAssembleProvision(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			conf := generateTestConf(t, tt.enableReclaimed)
+			conf := generateTestConf(t, tt.enableReclaimed, tt.disableReclaimSelector)
 
 			genericCtx, err := katalyst_base.GenerateFakeGenericContext([]runtime.Object{})
 			require.NoError(t, err)
@@ -1025,7 +1167,11 @@ func TestAssembleProvision(t *testing.T) {
 
 			metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
 			require.NoError(t, err)
-			require.NoError(t, metaCache.SetResourcePackageConfig(types.ResourcePackageConfig{0: map[string]*types.ResourcePackageState{}}))
+			if tt.resourcePackageConfig != nil {
+				require.NoError(t, metaCache.SetResourcePackageConfig(tt.resourcePackageConfig))
+			} else {
+				require.NoError(t, metaCache.SetResourcePackageConfig(types.ResourcePackageConfig{0: map[string]*types.ResourcePackageState{}}))
+			}
 
 			nonBindingNumas := machine.NewCPUSet()
 			for numaID := range numaAvailable {
@@ -1063,7 +1209,7 @@ func TestAssembleProvision(t *testing.T) {
 	}
 }
 
-func generateTestConf(t *testing.T, enableReclaim bool) *config.Configuration {
+func generateTestConf(t *testing.T, enableReclaim bool, disableReclaimSelector string) *config.Configuration {
 	conf, err := options.NewOptions().Config()
 	require.NoError(t, err)
 	require.NotNil(t, conf)
@@ -1079,5 +1225,9 @@ func generateTestConf(t *testing.T, enableReclaim bool) *config.Configuration {
 		configapi.QoSRegionTypeShare: {types.CPUProvisionPolicyCanonical},
 	}
 	conf.GetDynamicConfiguration().EnableReclaim = enableReclaim
+	if disableReclaimSelector != "" {
+		s, _ := labels.Parse(disableReclaimSelector)
+		conf.GetDynamicConfiguration().DisableReclaimPinnedCPUSetResourcePackageSelector = s
+	}
 	return conf
 }

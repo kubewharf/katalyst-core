@@ -29,14 +29,21 @@ import (
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	resource2 "k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/labels"
 
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	advisorapi "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/cpuadvisor"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	cgroupmgr "github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
@@ -572,4 +579,300 @@ func TestDynamicPolicy_checkAndApplySubCgroupPath(t *testing.T) {
 		err3 := p.checkAndApplySubCgroupPath("path3", d3, nil)
 		convey.So(err3, convey.ShouldBeNil)
 	})
+}
+
+// TestDynamicPolicy_generateBlockCPUSet verifies the block CPUSet generation logic.
+// It uses a table-driven approach to test various scenarios including:
+// - Two-phase allocation: Dedicated/Share blocks first, Reclaim blocks second.
+// - Non-reclaimable CPU deduction: Ensuring reclaim blocks do not overlap with pinned CPUSets from resource packages marked as disable-reclaim.
+// - Parallel execution: Ensuring no race conditions exist in the policy's read-only operations.
+func TestDynamicPolicy_generateBlockCPUSet(t *testing.T) {
+	t.Parallel()
+
+	type testCase struct {
+		name                   string
+		disableReclaimSelector string
+		// setupMachineState prepares the mock machine state, e.g., resource packages, existing pod allocations.
+		setupMachineState func(state state.State, topo *machine.CPUTopology)
+		// advisorResponse simulates the response from the CPU advisor containing blocks to be allocated.
+		advisorResponse *advisorapi.ListAndWatchResponse
+		expectedError   bool
+		// validateResult contains custom assertions for the resulting BlockCPUSet.
+		validateResult func(t *testing.T, blockCPUSet advisorapi.BlockCPUSet, topo *machine.CPUTopology)
+	}
+
+	testCases := []testCase{
+		{
+			// Scenario: A single reclaim block without a specific NUMA ID (FakedNUMAID).
+			// It should be allocated from the global available pool minus any global non-reclaimable CPUs.
+			name:                   "basic reclaim block with faked NUMA ID",
+			disableReclaimSelector: "disable-reclaim=true",
+			setupMachineState: func(st state.State, topo *machine.CPUTopology) {
+				machineState := st.GetMachineState()
+				// NUMA 0 has a non-reclaimable package using CPUs 0,1,2,3
+				machineState[0].ResourcePackageStates = map[string]*state.ResourcePackageState{
+					"pkg1": {
+						Attributes:   map[string]string{"disable-reclaim": "true"},
+						PinnedCPUSet: machine.NewCPUSet(0, 1, 2, 3),
+					},
+				}
+				// NUMA 1 has a reclaimable package using CPUs 8,9
+				machineState[1].ResourcePackageStates = map[string]*state.ResourcePackageState{
+					"pkg2": {
+						Attributes:   map[string]string{"disable-reclaim": "false"},
+						PinnedCPUSet: machine.NewCPUSet(8, 9),
+					},
+				}
+				st.SetMachineState(machineState, false)
+			},
+			advisorResponse: &advisorapi.ListAndWatchResponse{
+				Entries: map[string]*advisorapi.CalculationEntries{
+					"reclaim": {
+						Entries: map[string]*advisorapi.CalculationInfo{
+							"reclaim-entry": {
+								OwnerPoolName: "reclaim",
+								CalculationResultsByNumas: map[int64]*advisorapi.NumaCalculationResult{
+									-1: { // FakedNUMAID
+										Blocks: []*advisorapi.Block{
+											{BlockId: "block-reclaim-1", Result: 4},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedError: false,
+			validateResult: func(t *testing.T, blockCPUSet advisorapi.BlockCPUSet, topo *machine.CPUTopology) {
+				as := assert.New(t)
+				res := blockCPUSet["block-reclaim-1"]
+				as.Equal(4, res.Size())
+				as.True(res.Intersection(machine.NewCPUSet(0, 1, 2, 3)).IsEmpty(), "reclaim block should not use non-reclaimable pinned CPUs")
+			},
+		},
+		{
+			// Scenario: Multiple NUMA-aware reclaim blocks.
+			// Reclaim blocks tied to specific NUMA nodes must avoid the non-reclaimable CPUs on their respective nodes.
+			name:                   "NUMA-aware reclaim block allocation",
+			disableReclaimSelector: "disable-reclaim=true",
+			setupMachineState: func(st state.State, topo *machine.CPUTopology) {
+				machineState := st.GetMachineState()
+				machineState[0].ResourcePackageStates = map[string]*state.ResourcePackageState{
+					"pkg1": {
+						Attributes:   map[string]string{"disable-reclaim": "true"},
+						PinnedCPUSet: machine.NewCPUSet(0, 1, 2, 3), // NUMA 0
+					},
+				}
+				machineState[1].ResourcePackageStates = map[string]*state.ResourcePackageState{
+					"pkg2": {
+						Attributes:   map[string]string{"disable-reclaim": "true"},
+						PinnedCPUSet: machine.NewCPUSet(4, 5), // NUMA 1 (CPUs 4,5,6,7,12,13,14,15)
+					},
+				}
+				st.SetMachineState(machineState, false)
+			},
+			advisorResponse: &advisorapi.ListAndWatchResponse{
+				Entries: map[string]*advisorapi.CalculationEntries{
+					"reclaim": {
+						Entries: map[string]*advisorapi.CalculationInfo{
+							"reclaim-entry": {
+								OwnerPoolName: "reclaim",
+								CalculationResultsByNumas: map[int64]*advisorapi.NumaCalculationResult{
+									0: {
+										Blocks: []*advisorapi.Block{{BlockId: "block-reclaim-numa0", Result: 2}},
+									},
+									1: {
+										Blocks: []*advisorapi.Block{{BlockId: "block-reclaim-numa1", Result: 4}},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedError: false,
+			validateResult: func(t *testing.T, blockCPUSet advisorapi.BlockCPUSet, topo *machine.CPUTopology) {
+				as := assert.New(t)
+				res0 := blockCPUSet["block-reclaim-numa0"]
+				as.Equal(2, res0.Size())
+				as.True(res0.Intersection(machine.NewCPUSet(0, 1, 2, 3)).IsEmpty())
+				as.True(res0.IsSubsetOf(topo.CPUDetails.CPUsInNUMANodes(0)))
+
+				res1 := blockCPUSet["block-reclaim-numa1"]
+				as.Equal(4, res1.Size())
+				as.True(res1.Intersection(machine.NewCPUSet(4, 5)).IsEmpty())
+				as.True(res1.IsSubsetOf(topo.CPUDetails.CPUsInNUMANodes(1)))
+			},
+		},
+		{
+			// Scenario: Verifying two-phase allocation logic.
+			// Dedicated and Share blocks should be allocated first. Then, Reclaim blocks should be allocated
+			// from the remaining CPUs, while also avoiding the non-reclaimable CPUs.
+			name:                   "mixed dedicated, share, and reclaim blocks",
+			disableReclaimSelector: "disable-reclaim=true",
+			setupMachineState: func(st state.State, topo *machine.CPUTopology) {
+				// Set up a pre-allocated dedicated pod on NUMA 0
+				podEntries := state.PodEntries{
+					"pod-dedicated": state.ContainerEntries{
+						"container-1": &state.AllocationInfo{
+							AllocationResult:         machine.NewCPUSet(8, 9), // NUMA 0
+							OriginalAllocationResult: machine.NewCPUSet(8, 9),
+							TopologyAwareAssignments: map[int]machine.CPUSet{
+								0: machine.NewCPUSet(8, 9),
+							},
+							AllocationMeta: commonstate.AllocationMeta{
+								QoSLevel: apiconsts.PodAnnotationQoSLevelDedicatedCores,
+							},
+						},
+					},
+				}
+				st.SetPodEntries(podEntries, false)
+
+				machineState, _ := state.GenerateMachineStateFromPodEntries(topo, podEntries, nil)
+				// Add non-reclaimable package on NUMA 0 (CPUs 0, 1)
+				machineState[0].ResourcePackageStates = map[string]*state.ResourcePackageState{
+					"pkg1": {
+						Attributes:   map[string]string{"disable-reclaim": "true"},
+						PinnedCPUSet: machine.NewCPUSet(0, 1),
+					},
+				}
+				st.SetMachineState(machineState, false)
+			},
+			advisorResponse: &advisorapi.ListAndWatchResponse{
+				Entries: map[string]*advisorapi.CalculationEntries{
+					"pod-dedicated": {
+						Entries: map[string]*advisorapi.CalculationInfo{
+							"container-1": {
+								OwnerPoolName: "dedicated",
+								CalculationResultsByNumas: map[int64]*advisorapi.NumaCalculationResult{
+									0: {Blocks: []*advisorapi.Block{{BlockId: "container-1", Result: 2}}},
+								},
+							},
+						},
+					},
+					"share": {
+						Entries: map[string]*advisorapi.CalculationInfo{
+							"share-entry": {
+								OwnerPoolName: "share",
+								CalculationResultsByNumas: map[int64]*advisorapi.NumaCalculationResult{
+									-1: {Blocks: []*advisorapi.Block{{BlockId: "block-share-1", Result: 2}}},
+								},
+							},
+						},
+					},
+					"reclaim": {
+						Entries: map[string]*advisorapi.CalculationInfo{
+							"reclaim-entry": {
+								OwnerPoolName: "reclaim",
+								CalculationResultsByNumas: map[int64]*advisorapi.NumaCalculationResult{
+									0: {Blocks: []*advisorapi.Block{{BlockId: "block-reclaim-1", Result: 2}}},
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedError: false,
+			validateResult: func(t *testing.T, blockCPUSet advisorapi.BlockCPUSet, topo *machine.CPUTopology) {
+				as := assert.New(t)
+				ded := blockCPUSet["container-1"]
+				as.True(ded.Equals(machine.NewCPUSet(8, 9)), "dedicated block should reuse existing allocation")
+
+				share := blockCPUSet["block-share-1"]
+				as.Equal(2, share.Size())
+
+				rec := blockCPUSet["block-reclaim-1"]
+				as.Equal(2, rec.Size())
+				as.True(rec.Intersection(machine.NewCPUSet(0, 1)).IsEmpty(), "reclaim block must avoid non-reclaimable pkg CPUs")
+				as.True(rec.Intersection(machine.NewCPUSet(8, 9)).IsEmpty(), "reclaim block must avoid dedicated CPUs")
+				as.True(rec.Intersection(share).IsEmpty(), "reclaim block must avoid share CPUs")
+			},
+		},
+		{
+			// Scenario: Exhaustion of CPUs for reclaim.
+			// After deducting dedicated, share, and non-reclaimable CPUs, if there are not enough
+			// CPUs left for a reclaim block, an error should be returned.
+			name:                   "not enough CPUs for reclaim block after deducting non-reclaimable",
+			disableReclaimSelector: "disable-reclaim=true",
+			setupMachineState: func(st state.State, topo *machine.CPUTopology) {
+				machineState := st.GetMachineState()
+				// NUMA 0 has 8 CPUs (0,1,2,3, 8,9,10,11). We pin 7 of them as non-reclaimable.
+				machineState[0].ResourcePackageStates = map[string]*state.ResourcePackageState{
+					"pkg1": {
+						Attributes:   map[string]string{"disable-reclaim": "true"},
+						PinnedCPUSet: machine.NewCPUSet(0, 1, 2, 3, 8, 9, 10), // only CPU 11 is available
+					},
+				}
+				st.SetMachineState(machineState, false)
+			},
+			advisorResponse: &advisorapi.ListAndWatchResponse{
+				Entries: map[string]*advisorapi.CalculationEntries{
+					"reclaim": {
+						Entries: map[string]*advisorapi.CalculationInfo{
+							"reclaim-entry": {
+								OwnerPoolName: "reclaim",
+								CalculationResultsByNumas: map[int64]*advisorapi.NumaCalculationResult{
+									0: {Blocks: []*advisorapi.Block{{BlockId: "block-reclaim-1", Result: 2}}}, // Requests 2, but only 1 available
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedError: true,
+			validateResult: func(t *testing.T, blockCPUSet advisorapi.BlockCPUSet, topo *machine.CPUTopology) {
+				// No validation needed if error is expected
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc // capture range variable for parallel execution
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			as := assert.New(t)
+
+			// Initialize a clean topology for each parallel test (16 CPUs, 2 Sockets, 2 NUMA nodes)
+			// NUMA 0: 0, 1, 2, 3, 8, 9, 10, 11
+			// NUMA 1: 4, 5, 6, 7, 12, 13, 14, 15
+			topo, err := machine.GenerateDummyCPUTopology(16, 2, 2)
+			as.NoError(err)
+
+			conf := generateTestConfiguration(t, "", "")
+			if tc.disableReclaimSelector != "" {
+				selector, _ := labels.Parse(tc.disableReclaimSelector)
+				conf.GetDynamicConfiguration().DisableReclaimPinnedCPUSetResourcePackageSelector = selector
+			}
+
+			// Strict isolation using a fresh temp directory
+			st, _ := state.NewCheckpointState(&statedirectory.StateDirectoryConfiguration{StateFileDirectory: t.TempDir()}, "test", "test", topo, false, state.GenerateMachineStateFromPodEntries, metrics.DummyMetrics{})
+
+			// Prepare initial machine state (e.g. static pools)
+			machineState, _ := state.GenerateMachineStateFromPodEntries(topo, nil, nil)
+			st.SetMachineState(machineState, false)
+
+			if tc.setupMachineState != nil {
+				tc.setupMachineState(st, topo)
+			}
+
+			policy := &DynamicPolicy{
+				machineInfo: &machine.KatalystMachineInfo{
+					CPUTopology: topo,
+				},
+				state: st,
+				conf:  conf,
+			}
+
+			blockCPUSet, err := policy.generateBlockCPUSet(tc.advisorResponse)
+			if tc.expectedError {
+				as.Error(err)
+			} else {
+				as.NoError(err)
+				if tc.validateResult != nil {
+					tc.validateResult(t, blockCPUSet, topo)
+				}
+			}
+		})
+	}
 }

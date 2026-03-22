@@ -19,6 +19,7 @@ package reclaimedresource
 import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/errors"
 	cliflag "k8s.io/component-base/cli/flag"
 
@@ -29,15 +30,16 @@ import (
 )
 
 type ReclaimedResourceOptions struct {
-	EnableReclaim                           bool
-	DisableReclaimSharePools                []string
-	ReservedResourceForReport               general.ResourceList
-	MinReclaimedResourceForReport           general.ResourceList
-	MinIgnoredReclaimedResourceForReport    general.ResourceList
-	ReservedResourceForAllocate             general.ResourceList
-	ReservedResourceForReclaimedCores       general.ResourceList
-	NumaMinReservedResourceRatioForAllocate general.ResourceList
-	NumaMinReservedResourceForAllocate      general.ResourceList
+	EnableReclaim                                     bool
+	DisableReclaimSharePools                          []string
+	DisableReclaimPinnedCPUSetResourcePackageSelector string
+	ReservedResourceForReport                         general.ResourceList
+	MinReclaimedResourceForReport                     general.ResourceList
+	MinIgnoredReclaimedResourceForReport              general.ResourceList
+	ReservedResourceForAllocate                       general.ResourceList
+	ReservedResourceForReclaimedCores                 general.ResourceList
+	NumaMinReservedResourceRatioForAllocate           general.ResourceList
+	NumaMinReservedResourceForAllocate                general.ResourceList
 	*cpuheadroom.CPUHeadroomOptions
 	*memoryheadroom.MemoryHeadroomOptions
 }
@@ -86,6 +88,8 @@ func (o *ReclaimedResourceOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"show whether enable reclaim resource from shared and agent resource")
 	fs.StringSliceVar(&o.DisableReclaimSharePools, "disable-reclaim-share-pools", o.DisableReclaimSharePools,
 		"disable reclaim resource from shared pools")
+	fs.StringVar(&o.DisableReclaimPinnedCPUSetResourcePackageSelector, "disable-reclaim-pinned-cpuset-resource-package-selector", o.DisableReclaimPinnedCPUSetResourcePackageSelector,
+		"disable reclaim pinned cpuset resource package selector")
 	fs.Var(&o.ReservedResourceForReport, "reserved-resource-for-report",
 		"reserved reclaimed resource report to cnr")
 	fs.Var(&o.MinReclaimedResourceForReport, "min-reclaimed-resource-for-report",
@@ -110,6 +114,18 @@ func (o *ReclaimedResourceOptions) ApplyTo(c *reclaimedresource.ReclaimedResourc
 	var errList []error
 	c.EnableReclaim = o.EnableReclaim
 	c.DisableReclaimSharePools = o.DisableReclaimSharePools
+
+	if o.DisableReclaimPinnedCPUSetResourcePackageSelector != "" {
+		selector, err := labels.Parse(o.DisableReclaimPinnedCPUSetResourcePackageSelector)
+		if err != nil {
+			errList = append(errList, err)
+		} else {
+			c.DisableReclaimPinnedCPUSetResourcePackageSelector = selector
+		}
+	} else {
+		c.DisableReclaimPinnedCPUSetResourcePackageSelector = labels.Nothing()
+	}
+
 	c.ReservedResourceForReport = v1.ResourceList(o.ReservedResourceForReport)
 	c.MinReclaimedResourceForReport = v1.ResourceList(o.MinReclaimedResourceForReport)
 	c.MinIgnoredReclaimedResourceForReport = v1.ResourceList(o.MinIgnoredReclaimedResourceForReport)
