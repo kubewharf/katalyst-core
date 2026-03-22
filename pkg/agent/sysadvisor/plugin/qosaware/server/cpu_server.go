@@ -438,22 +438,36 @@ func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, req *cpuadvisor.G
 				continue
 			}
 			if _, ok := cfg[int(numaID)]; !ok {
-				cfg[int(numaID)] = make(map[string]machine.CPUSet)
+				cfg[int(numaID)] = make(map[string]*types.ResourcePackageState)
 			}
 			for pkgName, pkgConfig := range numaConfig.Packages {
 				if pkgConfig == nil {
 					continue
 				}
 				pinnedCpusetStr := pkgConfig.PinnedCpuset
+				var pinnedCpuset machine.CPUSet
 				if pinnedCpusetStr == "" {
-					cfg[int(numaID)][pkgName] = machine.NewCPUSet()
-					continue
+					pinnedCpuset = machine.NewCPUSet()
+				} else {
+					var err error
+					pinnedCpuset, err = machine.Parse(pinnedCpusetStr)
+					if err != nil {
+						return fmt.Errorf("failed to parse pinned cpuset: %v, numaID %d pkgName %s cpuset %q", err, numaID, pkgName, pinnedCpusetStr)
+					}
 				}
-				pinnedCpuset, err := machine.Parse(pinnedCpusetStr)
-				if err != nil {
-					return fmt.Errorf("failed to parse pinned cpuset: %v, numaID %d pkgName %s cpuset %q", err, numaID, pkgName, pinnedCpusetStr)
+
+				var attributes map[string]string
+				if len(pkgConfig.Attributes) > 0 {
+					attributes = make(map[string]string, len(pkgConfig.Attributes))
+					for k, v := range pkgConfig.Attributes {
+						attributes[k] = v
+					}
 				}
-				cfg[int(numaID)][pkgName] = pinnedCpuset
+
+				cfg[int(numaID)][pkgName] = &types.ResourcePackageState{
+					PinnedCPUSet: pinnedCpuset,
+					Attributes:   attributes,
+				}
 			}
 		}
 		_ = cs.metaCache.SetResourcePackageConfig(cfg)

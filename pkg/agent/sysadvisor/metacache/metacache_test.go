@@ -308,20 +308,22 @@ func TestMetaCacheImp_ResourcePackageConfig_GetSetClone(t *testing.T) {
 	}
 
 	original := types.ResourcePackageConfig{
-		0: map[string]machine.CPUSet{
-			"pkgA": machine.NewCPUSet(0, 1, 2),
+		0: map[string]*types.ResourcePackageState{
+			"pkgA": {
+				PinnedCPUSet: machine.NewCPUSet(0, 1, 2),
+			},
 		},
 	}
 
 	require.NoError(t, mc.SetResourcePackageConfig(original))
 
-	original[0]["pkgA"] = machine.NewCPUSet(99)
+	original[0]["pkgA"].PinnedCPUSet = machine.NewCPUSet(99)
 	stored := mc.GetResourcePackageConfig()
-	require.Equal(t, 3, stored[0]["pkgA"].Size())
+	require.Equal(t, 3, stored[0]["pkgA"].PinnedCPUSet.Size())
 
-	stored[0]["pkgA"] = machine.NewCPUSet(100)
+	stored[0]["pkgA"].PinnedCPUSet = machine.NewCPUSet(100)
 	stored2 := mc.GetResourcePackageConfig()
-	require.Equal(t, 3, stored2[0]["pkgA"].Size())
+	require.Equal(t, 3, stored2[0]["pkgA"].PinnedCPUSet.Size())
 }
 
 func TestMetaCacheImp_ResourcePackageConfig_ConcurrentAccess(t *testing.T) {
@@ -337,8 +339,10 @@ func TestMetaCacheImp_ResourcePackageConfig_ConcurrentAccess(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			cfg := types.ResourcePackageConfig{
-				i % 2: map[string]machine.CPUSet{
-					"pkgA": machine.NewCPUSet(i, i+1),
+				i % 2: map[string]*types.ResourcePackageState{
+					"pkgA": {
+						PinnedCPUSet: machine.NewCPUSet(i, i+1),
+					},
 				},
 			}
 			_ = mc.SetResourcePackageConfig(cfg)

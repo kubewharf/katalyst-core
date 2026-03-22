@@ -672,8 +672,11 @@ func (pa *ProvisionAssemblerCommon) getPinnedCPUSizeByPackage(numaSet machine.CP
 			if !ok {
 				continue
 			}
-			for pkgName, pinnedCPUSet := range pkgMap {
-				size := pinnedCPUSet.Size()
+			for pkgName, state := range pkgMap {
+				if state == nil {
+					continue
+				}
+				size := state.PinnedCPUSet.Size()
 				if size <= 0 {
 					continue
 				}

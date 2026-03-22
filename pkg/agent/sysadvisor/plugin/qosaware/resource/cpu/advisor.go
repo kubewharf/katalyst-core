@@ -295,8 +295,11 @@ func (cra *cpuResourceAdvisor) getPinnedCPUSizes() (map[int]int, map[string]map[
 	pinnedCPUSizeByNuma := make(map[int]int)
 	pinnedCPUSizeByPackageByNuma := make(map[string]map[int]int)
 	for numaID, pkgMap := range cfg {
-		for pkgName, pinnedCPUSet := range pkgMap {
-			size := pinnedCPUSet.Size()
+		for pkgName, state := range pkgMap {
+			if state == nil {
+				continue
+			}
+			size := state.PinnedCPUSet.Size()
 			if size <= 0 {
 				continue
 			}
