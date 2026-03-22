@@ -787,8 +787,10 @@ func TestCPUServerUpdateMetaCacheInput(t *testing.T) {
 	require.NoError(t, err)
 
 	expectedResourcePackageConfig := types.ResourcePackageConfig{
-		0: map[string]machine.CPUSet{
-			"pkgA": machine.MustParse("2-3"),
+		0: map[string]*types.ResourcePackageState{
+			"pkgA": {
+				PinnedCPUSet: machine.MustParse("2-3"),
+			},
 		},
 	}
 	require.Equal(t, expectedResourcePackageConfig, cs.metaCache.GetResourcePackageConfig())

@@ -1025,7 +1025,7 @@ func TestAssembleProvision(t *testing.T) {
 
 			metaCache, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metric.NewFakeMetricsFetcher(metrics.DummyMetrics{}))
 			require.NoError(t, err)
-			require.NoError(t, metaCache.SetResourcePackageConfig(types.ResourcePackageConfig{0: map[string]machine.CPUSet{}}))
+			require.NoError(t, metaCache.SetResourcePackageConfig(types.ResourcePackageConfig{0: map[string]*types.ResourcePackageState{}}))
 
 			nonBindingNumas := machine.NewCPUSet()
 			for numaID := range numaAvailable {
