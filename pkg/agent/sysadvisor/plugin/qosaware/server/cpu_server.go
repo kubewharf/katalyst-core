@@ -430,6 +430,7 @@ func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, req *cpuadvisor.G
 	livingPoolNameSet := sets.NewString()
 
 	if req.GetResourcePackageConfig() == nil {
+		general.InfoS("resource package config is nil, skip updating meta cache")
 		_ = cs.metaCache.SetResourcePackageConfig(nil)
 	} else {
 		cfg := make(types.ResourcePackageConfig)
@@ -470,6 +471,7 @@ func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, req *cpuadvisor.G
 				}
 			}
 		}
+		general.InfoS("updated resource package config", "cfg", cfg)
 		_ = cs.metaCache.SetResourcePackageConfig(cfg)
 	}
 

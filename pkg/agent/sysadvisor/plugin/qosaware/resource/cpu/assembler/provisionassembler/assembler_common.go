@@ -276,7 +276,19 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 			regulateSharePoolSizes = sharePoolSizeRequirements
 		}
 		unexpandableRequirements := general.MergeMapInt(isolationPoolSizes, dedicatedRegionInfo.requests)
+
+		general.InfoS("getShareAndIsolateDedicatedPoolSizesFunc pre regulatePoolSizes",
+			"shareAndIsolatedDedicatedPoolAvailable", shareAndIsolatedDedicatedPoolAvailable,
+			"allowExpand", allowExpand,
+			"regulateSharePoolSizes", regulateSharePoolSizes,
+			"unexpandableRequirements", unexpandableRequirements)
+
 		shareAndIsolateDedicatedPoolSizes, poolThrottled := regulatePoolSizes(regulateSharePoolSizes, unexpandableRequirements, shareAndIsolatedDedicatedPoolAvailable, allowExpand)
+
+		general.InfoS("getShareAndIsolateDedicatedPoolSizesFunc post regulatePoolSizes",
+			"shareAndIsolateDedicatedPoolSizes", shareAndIsolateDedicatedPoolSizes,
+			"poolThrottled", poolThrottled)
+
 		for _, r := range shareRegionInfo.regionMap {
 			r.SetThrottled(poolThrottled)
 		}
@@ -291,6 +303,14 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 	unpinnedShareAndIsolatedDedicatedPoolAvailable := general.Max(0, shareAndIsolatedDedicatedPoolAvailable-totalPinnedCPUSize)
 	pinnedCPUSetAllInfo := getPinnedCPUSetAllRegionInfo(pinnedShareRegionInfos, pinnedIsolationInfo, pinnedDedicatedInfo)
 	totalUnusedNonReclaimablePinnedCPUSize := 0
+
+	general.InfoS("pool info start",
+		"numaID", numaID,
+		"shareAndIsolatedDedicatedPoolAvailable", shareAndIsolatedDedicatedPoolAvailable,
+		"totalPinnedCPUSize", totalPinnedCPUSize,
+		"unpinnedShareAndIsolatedDedicatedPoolAvailable", unpinnedShareAndIsolatedDedicatedPoolAvailable,
+		"nonReclaimablePackages", nonReclaimablePackages,
+		"disableReclaimSelector", disableReclaimSelector)
 
 	// first calculate share and isolate dedicated pool sizes for each pinned region
 	for pkgName, pinnedCPUSize := range pinnedCPUSizeByPkg {
@@ -374,7 +394,9 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 		"isolationUpperSizes", isolationInfo.isolationUpperSizes,
 		"isolationLowerSizes", isolationInfo.isolationLowerSizes,
 		"shareAndIsolateDedicatedPoolSizes", shareAndIsolateDedicatedPoolSizes,
-		"shareAndIsolatedDedicatedPoolAvailable", shareAndIsolatedDedicatedPoolAvailable)
+		"shareAndIsolatedDedicatedPoolAvailable", shareAndIsolatedDedicatedPoolAvailable,
+		"totalUnusedNonReclaimablePinnedCPUSize", totalUnusedNonReclaimablePinnedCPUSize,
+		"unpinnedShareAndIsolatedDedicatedPoolAvailable", unpinnedShareAndIsolatedDedicatedPoolAvailable)
 
 	// fill in regulated share-and-isolated pool entries
 	for poolName, poolSize := range shareAndIsolateDedicatedPoolSizes {
