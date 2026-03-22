@@ -95,6 +95,7 @@ func (p *DynamicPolicy) syncResourcePackagePinnedCPUSet() {
 	}
 
 	if stateChanged {
+		general.InfoS("resource package pinned cpuset changed, updating state", "newResourcePackageStateMap", newResourcePackageStateMap)
 		for numaID, pkgs := range newResourcePackageStateMap {
 			if machineState[numaID] != nil {
 				machineState[numaID].ResourcePackageStates = pkgs
@@ -106,6 +107,10 @@ func (p *DynamicPolicy) syncResourcePackagePinnedCPUSet() {
 			general.Errorf("adjustAllocationEntries failed: %v", err)
 			return
 		}
+
+		general.InfoS("syncResourcePackagePinnedCPUSet finished with state changed")
+	} else {
+		general.InfoS("syncResourcePackagePinnedCPUSet finished without state changed")
 	}
 
 	for numaID, pkgs := range newResourcePackageStateMap {
@@ -263,7 +268,17 @@ func (p *DynamicPolicy) syncNumaResourcePackage(
 			newResourcePackageState[pkgName] = newState
 
 			if !newState.Equals(currentState) {
+				general.InfoS("resource package state changed",
+					"numaID", numaID,
+					"pkgName", pkgName,
+					"oldState", currentState,
+					"newState", newState)
 				stateChanged = true
+			} else {
+				general.InfoS("resource package state not changed",
+					"numaID", numaID,
+					"pkgName", pkgName,
+					"state", currentState)
 			}
 		}
 	}
