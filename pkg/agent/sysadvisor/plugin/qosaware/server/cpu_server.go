@@ -669,7 +669,7 @@ func (cs *cpuServer) setContainerInfoBasedOnContainerAllocationInfo(
 			// get resource package config from meta cache, make sure it has been set already before setting owner pool name
 			cfg := cs.metaCache.GetResourcePackageConfig()
 			if pinnedSets, ok := cfg[targetNUMAID]; ok {
-				if _, exists := pinnedSets[pkgName]; exists {
+				if state, exists := pinnedSets[pkgName]; exists && state.GetPinnedCPUSet().Size() > 0 {
 					poolName = resourcepackage.WrapOwnerPoolName(poolName, pkgName)
 				}
 			}

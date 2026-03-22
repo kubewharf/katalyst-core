@@ -1433,7 +1433,7 @@ func (p *DynamicPolicy) applyPoolsAndIsolatedInfo(poolsCPUSet map[string]machine
 							if numaSet.Size() == 1 {
 								targetNUMAID := numaSet.ToSliceNoSortInt()[0]
 								if pinnedSets, ok := machineState.GetNUMAResourcePackagePinnedCPUSet()[targetNUMAID]; ok {
-									if _, exists := pinnedSets[pkgName]; exists {
+									if cpuSet, exists := pinnedSets[pkgName]; exists && cpuSet.Size() > 0 {
 										ownerPoolName = rputil.WrapOwnerPoolName(ownerPoolName, pkgName)
 									}
 								}

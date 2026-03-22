@@ -427,7 +427,7 @@ func CountAllocationInfosToPoolsQuantityMap(
 			pkgName := allocationInfo.GetResourcePackageName()
 			if pkgName != "" && poolName != commonstate.EmptyOwnerPoolName {
 				if pinnedSets, ok := numaResourcePackagePinnedCPUSet[targetNUMAID]; ok {
-					if _, exists := pinnedSets[pkgName]; exists {
+					if cpuSet, exists := pinnedSets[pkgName]; exists && cpuSet.Size() > 0 {
 						poolName = rputil.WrapOwnerPoolName(poolName, pkgName)
 					}
 				}
