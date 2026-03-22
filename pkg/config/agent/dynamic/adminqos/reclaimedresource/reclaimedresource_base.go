@@ -18,7 +18,6 @@ package reclaimedresource
 
 import (
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/labels"
 
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/reclaimedresource/cpuheadroom"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/reclaimedresource/memoryheadroom"
@@ -28,7 +27,7 @@ import (
 type ReclaimedResourceConfiguration struct {
 	EnableReclaim                                     bool
 	DisableReclaimSharePools                          []string
-	DisableReclaimPinnedCPUSetResourcePackageSelector labels.Selector
+	DisableReclaimPinnedCPUSetResourcePackageSelector string
 	ReservedResourceForReport                         v1.ResourceList
 	MinReclaimedResourceForReport                     v1.ResourceList
 	MinIgnoredReclaimedResourceForReport              v1.ResourceList
