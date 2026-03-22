@@ -1072,6 +1072,15 @@ func (p *DynamicPolicy) generateReclaimBlockCPUSet(
 
 			// Deduct the non-reclaimable CPUSet for this NUMA node
 			currentAvailableCPUs := numaAvailableCPUs.Difference(globalNonReclaimableCPUSet)
+
+			general.InfoS("generateReclaimBlockCPUSet allocating NUMA Aware block",
+				"blockID", blockID,
+				"numaID", numaID,
+				"blockResult", blockResult,
+				"numaAvailableCPUs", numaAvailableCPUs.String(),
+				"globalNonReclaimableCPUSet", globalNonReclaimableCPUSet.String(),
+				"currentAvailableCPUs", currentAvailableCPUs.String())
+
 			cpuset, err := calculator.TakeByTopology(machineInfo, currentAvailableCPUs, blockResult, false)
 			if err != nil {
 				return fmt.Errorf("allocate cpuset for NUMA Aware reclaim block: %s in NUMA: %d failed with error: %v", blockID, numaID, err)
@@ -1081,6 +1090,13 @@ func (p *DynamicPolicy) generateReclaimBlockCPUSet(
 			numaAvailableCPUs = numaAvailableCPUs.Difference(cpuset)
 			nodeRemainingCPUs = nodeRemainingCPUs.Difference(cpuset)
 			availableCPUs = availableCPUs.Difference(cpuset)
+
+			general.InfoS("generateReclaimBlockCPUSet allocated NUMA Aware block",
+				"blockID", blockID,
+				"numaID", numaID,
+				"allocatedCPUSet", cpuset.String(),
+				"nodeRemainingCPUs", nodeRemainingCPUs.String(),
+				"availableCPUs", availableCPUs.String())
 		}
 	}
 
@@ -1102,6 +1118,14 @@ func (p *DynamicPolicy) generateReclaimBlockCPUSet(
 
 			// Deduct the global non-reclaimable CPUSet
 			currentAvailableCPUs := availableCPUs.Difference(globalNonReclaimableCPUSet)
+
+			general.InfoS("generateReclaimBlockCPUSet allocating non-NUMA Aware block",
+				"blockID", blockID,
+				"blockResult", blockResult,
+				"availableCPUs", availableCPUs.String(),
+				"globalNonReclaimableCPUSet", globalNonReclaimableCPUSet.String(),
+				"currentAvailableCPUs", currentAvailableCPUs.String())
+
 			cpuset, _, err := calculator.TakeByNUMABalance(machineInfo, currentAvailableCPUs, blockResult)
 			if err != nil {
 				return fmt.Errorf("allocate cpuset for non NUMA Aware reclaim block: %s failed with error: %v", blockID, err)
@@ -1110,6 +1134,12 @@ func (p *DynamicPolicy) generateReclaimBlockCPUSet(
 			blockCPUSet[blockID] = cpuset
 			nodeRemainingCPUs = nodeRemainingCPUs.Difference(cpuset)
 			availableCPUs = availableCPUs.Difference(cpuset)
+
+			general.InfoS("generateReclaimBlockCPUSet allocated non-NUMA Aware block",
+				"blockID", blockID,
+				"allocatedCPUSet", cpuset.String(),
+				"nodeRemainingCPUs", nodeRemainingCPUs.String(),
+				"availableCPUs", availableCPUs.String())
 		}
 	}
 
@@ -1153,6 +1183,12 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 	machineState := p.state.GetMachineState()
 	globalNonReclaimableCPUSet := cpuutil.GetAggResourcePackagePinnedCPUSet(disableReclaimSelector, machineState)
 
+	general.InfoS("generateBlockCPUSet variables after allocateStaticAndForbiddenPools",
+		"allPinnedCPUSets", allPinnedCPUSets.String(),
+		"nodeRemainingCPUs", nodeRemainingCPUs.String(),
+		"globalNonReclaimableCPUSet", globalNonReclaimableCPUSet.String(),
+		"disableReclaimSelector", disableReclaimSelector.String())
+
 	reclaimBlocksMap := make(map[int][]*advisorapi.BlockInfo)
 
 	// Phase 1: Allocate Dedicated and Share blocks
@@ -1189,6 +1225,13 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 		if withNUMABindingShareOrDedicatedPod {
 			availableCPUs = availableCPUs.Difference(numaAvailableCPUs)
 		}
+
+		general.InfoS("generateBlockCPUSet variables after allocateShareBlocks",
+			"numaID", numaID,
+			"withNUMABindingShareOrDedicatedPod", withNUMABindingShareOrDedicatedPod,
+			"numaAvailableCPUs", numaAvailableCPUs.String(),
+			"nodeRemainingCPUs", nodeRemainingCPUs.String(),
+			"availableCPUs", availableCPUs.String())
 	}
 
 	// Phase 1 for FakedNUMAID
@@ -1208,6 +1251,10 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 		if err != nil {
 			return nil, err
 		}
+
+		general.InfoS("generateBlockCPUSet variables after allocateShareBlocks for FakedNUMAID",
+			"nodeRemainingCPUs", nodeRemainingCPUs.String(),
+			"availableCPUs", availableCPUs.String())
 	}
 
 	// Phase 2: Allocate Reclaim blocks
