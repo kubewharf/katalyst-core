@@ -24,6 +24,20 @@ type ResourcePackageState struct {
 	Attributes   map[string]string
 }
 
+func (s *ResourcePackageState) GetAttributes() map[string]string {
+	if s == nil {
+		return nil
+	}
+	return s.Attributes
+}
+
+func (s *ResourcePackageState) GetPinnedCPUSet() machine.CPUSet {
+	if s == nil {
+		return machine.NewCPUSet()
+	}
+	return s.PinnedCPUSet
+}
+
 // Clone returns a deep copy of ResourcePackageState.
 func (s *ResourcePackageState) Clone() *ResourcePackageState {
 	if s == nil {
