@@ -19,7 +19,6 @@ package reclaimedresource
 import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/errors"
 	cliflag "k8s.io/component-base/cli/flag"
 
@@ -115,17 +114,7 @@ func (o *ReclaimedResourceOptions) ApplyTo(c *reclaimedresource.ReclaimedResourc
 	c.EnableReclaim = o.EnableReclaim
 	c.DisableReclaimSharePools = o.DisableReclaimSharePools
 
-	if o.DisableReclaimPinnedCPUSetResourcePackageSelector != "" {
-		selector, err := labels.Parse(o.DisableReclaimPinnedCPUSetResourcePackageSelector)
-		if err != nil {
-			errList = append(errList, err)
-		} else {
-			c.DisableReclaimPinnedCPUSetResourcePackageSelector = selector
-		}
-	} else {
-		c.DisableReclaimPinnedCPUSetResourcePackageSelector = labels.Nothing()
-	}
-
+	c.DisableReclaimPinnedCPUSetResourcePackageSelector = o.DisableReclaimPinnedCPUSetResourcePackageSelector
 	c.ReservedResourceForReport = v1.ResourceList(o.ReservedResourceForReport)
 	c.MinReclaimedResourceForReport = v1.ResourceList(o.MinReclaimedResourceForReport)
 	c.MinIgnoredReclaimedResourceForReport = v1.ResourceList(o.MinIgnoredReclaimedResourceForReport)

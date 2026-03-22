@@ -29,7 +29,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	resource2 "k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/apimachinery/pkg/labels"
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/advisorsvc"
@@ -825,6 +824,11 @@ func TestDynamicPolicy_generateBlockCPUSet(t *testing.T) {
 				// No validation needed if error is expected
 			},
 		},
+		{
+			name:                   "test invalid disable reclaim selector",
+			disableReclaimSelector: "disable-reclaim=true,,invalid",
+			expectedError:          true,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -841,8 +845,7 @@ func TestDynamicPolicy_generateBlockCPUSet(t *testing.T) {
 
 			conf := generateTestConfiguration(t, "", "")
 			if tc.disableReclaimSelector != "" {
-				selector, _ := labels.Parse(tc.disableReclaimSelector)
-				conf.GetDynamicConfiguration().DisableReclaimPinnedCPUSetResourcePackageSelector = selector
+				conf.GetDynamicConfiguration().DisableReclaimPinnedCPUSetResourcePackageSelector = tc.disableReclaimSelector
 			}
 
 			// Strict isolation using a fresh temp directory
@@ -867,11 +870,11 @@ func TestDynamicPolicy_generateBlockCPUSet(t *testing.T) {
 			blockCPUSet, err := policy.generateBlockCPUSet(tc.advisorResponse)
 			if tc.expectedError {
 				as.Error(err)
-			} else {
-				as.NoError(err)
-				if tc.validateResult != nil {
-					tc.validateResult(t, blockCPUSet, topo)
-				}
+				return
+			}
+			as.NoError(err)
+			if tc.validateResult != nil {
+				tc.validateResult(t, blockCPUSet, topo)
 			}
 		})
 	}

@@ -1179,7 +1179,11 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 	nodeRemainingCPUs := availableCPUs.Clone()
 
 	// Get non-reclaimable pinned CPUSets
-	disableReclaimSelector := p.conf.GetDynamicConfiguration().DisableReclaimPinnedCPUSetResourcePackageSelector
+	disableReclaimSelectorStr := p.conf.GetDynamicConfiguration().DisableReclaimPinnedCPUSetResourcePackageSelector
+	disableReclaimSelector, err := general.ParseSelector(disableReclaimSelectorStr)
+	if err != nil {
+		return nil, err
+	}
 	machineState := p.state.GetMachineState()
 	globalNonReclaimableCPUSet := cpuutil.GetAggResourcePackagePinnedCPUSet(disableReclaimSelector, machineState)
 

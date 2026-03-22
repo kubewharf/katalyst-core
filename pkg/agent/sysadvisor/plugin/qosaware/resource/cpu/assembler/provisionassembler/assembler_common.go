@@ -214,7 +214,11 @@ func (pa *ProvisionAssemblerCommon) assembleWithoutNUMAExclusivePool(
 	pinnedCPUSizeByPkg := pa.getPinnedCPUSizeByPackage(numaSet, cfg)
 	totalPinnedCPUSize := general.SumUpMapValues(pinnedCPUSizeByPkg)
 
-	disableReclaimSelector := pa.conf.GetDynamicConfiguration().DisableReclaimPinnedCPUSetResourcePackageSelector
+	disableReclaimSelectorStr := pa.conf.GetDynamicConfiguration().DisableReclaimPinnedCPUSetResourcePackageSelector
+	disableReclaimSelector, err := general.ParseSelector(disableReclaimSelectorStr)
+	if err != nil {
+		return err
+	}
 	nonReclaimablePackages := sets.NewString()
 	for _, numaID := range numaSet.ToSliceInt() {
 		if pkgMap, ok := cfg[numaID]; ok {

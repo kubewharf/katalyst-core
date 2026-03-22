@@ -21,7 +21,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -277,6 +276,7 @@ func TestAssembleProvision(t *testing.T) {
 		disableReclaimSelector                string
 		resourcePackageConfig                 types.ResourcePackageConfig
 		poolInfos                             []testCasePoolConfig
+		wantErr                               bool
 		expectPoolEntries                     map[string]map[int]types.CPUResource
 		expectPoolOverlapInfo                 map[string]map[int]map[string]int
 	}{
@@ -1136,6 +1136,11 @@ func TestAssembleProvision(t *testing.T) {
 				"reclaim": {-1: map[string]int{"share-a": 18, "share-b": 16}},
 			},
 		},
+		{
+			name:                   "test with invalid disable-reclaim selector",
+			disableReclaimSelector: "disable-reclaim=true,,invalid",
+			wantErr:                true,
+		},
 	}
 
 	reservedForReclaim := map[int]int{
@@ -1198,6 +1203,10 @@ func TestAssembleProvision(t *testing.T) {
 
 			common := NewProvisionAssemblerCommon(conf, nil, &regionMap, &reservedForReclaim, &numaAvailable, &nonBindingNumas, &tt.allowSharedCoresOverlapReclaimedCores, metaCache, metaServer, metrics.DummyMetrics{})
 			result, err := common.AssembleProvision()
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
 			require.NoErrorf(t, err, "failed to AssembleProvision: %s", err)
 			require.NotNil(t, result, "invalid assembler result")
 			t.Logf("%v", result)
@@ -1226,8 +1235,7 @@ func generateTestConf(t *testing.T, enableReclaim bool, disableReclaimSelector s
 	}
 	conf.GetDynamicConfiguration().EnableReclaim = enableReclaim
 	if disableReclaimSelector != "" {
-		s, _ := labels.Parse(disableReclaimSelector)
-		conf.GetDynamicConfiguration().DisableReclaimPinnedCPUSetResourcePackageSelector = s
+		conf.GetDynamicConfiguration().DisableReclaimPinnedCPUSetResourcePackageSelector = disableReclaimSelector
 	}
 	return conf
 }
