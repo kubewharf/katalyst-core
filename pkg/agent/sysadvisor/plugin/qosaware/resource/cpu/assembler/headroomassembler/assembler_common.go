@@ -41,7 +41,6 @@ type HeadroomAssemblerCommon struct {
 	reservedForReclaim *map[int]int
 	numaAvailable      *map[int]int
 	nonBindingNumas    *machine.CPUSet
-	overloadState      map[string]bool
 
 	metaReader metacache.MetaReader
 	metaServer *metaserver.MetaServer
@@ -58,7 +57,6 @@ func NewHeadroomAssemblerCommon(conf *config.Configuration, _ interface{}, regio
 		reservedForReclaim: reservedForReclaim,
 		numaAvailable:      numaAvailable,
 		nonBindingNumas:    nonBindingNumas,
-		overloadState:      make(map[string]bool),
 
 		metaReader: metaReader,
 		metaServer: metaServer,
