@@ -95,6 +95,9 @@ const (
 	MetricNameIrqTuningNicExclusiveIrqCoresCpuUtilMin = "irq_tuning_nic_exclusive_irq_cores_cpu_util_Min"
 	MetricNameIrqTuningNicExclusiveIrqCoresCpuUsage   = "irq_tuning_nic_exclusive_irq_cores_cpu_usage"
 	MetricNameIrqTuningErr                            = "irq_tuning_err"
+
+	// metrics for pod annotation validator
+	MetricNamePodAnnotationVerificationFailed = "pod_annotation_verification_failed"
 )
 
 const (
