@@ -247,7 +247,9 @@ func (r *DeviceTopologyRegistry) GetDeviceNUMAAffinity(deviceA, deviceB string) 
 }
 
 type DeviceTopology struct {
-	Devices map[string]DeviceInfo
+	// DeviceName is the name of the device, e.g. "nvidia.com/gpu"
+	DeviceName string
+	Devices    map[string]DeviceInfo
 	// PriorityDimensions distinguishes the different dimensions of device affinity and their priority level.
 	// The priority level is determined by the order of the dimensions in the slice.
 	// For example, if devices have affinity based on the NUMA and SOCKET, and NUMA has higher priority than SOCKET,

@@ -173,6 +173,7 @@ func (p *BasePlugin) UpdateAllocatableAssociatedDevices(
 	request *pluginapi.UpdateAllocatableAssociatedDevicesRequest,
 ) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error) {
 	deviceTopology := &machine.DeviceTopology{
+		DeviceName: request.DeviceName,
 		Devices:    make(map[string]machine.DeviceInfo, len(request.Devices)),
 		UpdateTime: time.Now().UnixNano(),
 	}
