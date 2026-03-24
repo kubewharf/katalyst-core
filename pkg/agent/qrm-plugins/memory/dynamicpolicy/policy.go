@@ -162,6 +162,7 @@ type DynamicPolicy struct {
 	enableReclaimNUMABinding                      bool
 	enableSNBHighNumaPreference                   bool
 	enableNonBindingShareCoresMemoryResourceCheck bool
+	enableMemorySocketBinding                     bool
 
 	numaAllocationReactor                         reactor.AllocationReactor
 	numaBindResultResourceAllocationAnnotationKey string
@@ -236,6 +237,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		enableSNBHighNumaPreference: conf.EnableSNBHighNumaPreference,
 		resctrlHinter:               newResctrlHinter(&conf.ResctrlConfig, wrappedEmitter),
 		enableNonBindingShareCoresMemoryResourceCheck: conf.EnableNonBindingShareCoresMemoryResourceCheck,
+		enableMemorySocketBinding:                     conf.EnableMemorySocketBinding,
 		numaBindResultResourceAllocationAnnotationKey: conf.NUMABindResultResourceAllocationAnnotationKey,
 	}
 

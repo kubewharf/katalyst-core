@@ -41,6 +41,7 @@ type MemoryOptions struct {
 	OOMPriorityPinnedMapAbsPath                   string
 	EnableNonBindingShareCoresMemoryResourceCheck bool
 	EnableNUMAAllocationReactor                   bool
+	EnableMemorySocketBinding                     bool
 	NUMABindResultResourceAllocationAnnotationKey string
 
 	SockMemOptions
@@ -125,6 +126,7 @@ func NewMemoryOptions() *MemoryOptions {
 		EnableOOMPriority:                             false,
 		EnableNonBindingShareCoresMemoryResourceCheck: true,
 		EnableNUMAAllocationReactor:                   false,
+		EnableMemorySocketBinding:                     false,
 		NUMABindResultResourceAllocationAnnotationKey: consts.QRMResourceAnnotationKeyNUMABindResult,
 		SockMemOptions: SockMemOptions{
 			EnableSettingSockMem: false,
@@ -185,6 +187,8 @@ func (o *MemoryOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.EnableNonBindingShareCoresMemoryResourceCheck, "enable the topology check for non-binding shares cores pods")
 	fs.BoolVar(&o.EnableNUMAAllocationReactor, "enable-numa-allocation-reactor",
 		o.EnableNUMAAllocationReactor, "enable numa allocation reactor for numa binding pods to patch pod numa binding result annotation")
+	fs.BoolVar(&o.EnableMemorySocketBinding, "enable-memory-socket-binding",
+		o.EnableMemorySocketBinding, "enable memory socket binding for dedicated_cores and shared_cores pods")
 	fs.StringVar(&o.NUMABindResultResourceAllocationAnnotationKey, "numa-bind-result-resource-allocation-annotation-key",
 		o.NUMABindResultResourceAllocationAnnotationKey, "the key of numa bind result resource allocation annotation")
 	fs.StringVar(&o.OOMPriorityPinnedMapAbsPath, "oom-priority-pinned-bpf-map-path",
@@ -248,6 +252,7 @@ func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
 	conf.EnableOOMPriority = o.EnableOOMPriority
 	conf.EnableNonBindingShareCoresMemoryResourceCheck = o.EnableNonBindingShareCoresMemoryResourceCheck
 	conf.EnableNUMAAllocationReactor = o.EnableNUMAAllocationReactor
+	conf.EnableMemorySocketBinding = o.EnableMemorySocketBinding
 	conf.NUMABindResultResourceAllocationAnnotationKey = o.NUMABindResultResourceAllocationAnnotationKey
 	conf.OOMPriorityPinnedMapAbsPath = o.OOMPriorityPinnedMapAbsPath
 	conf.EnableSettingSockMem = o.EnableSettingSockMem
