@@ -221,6 +221,7 @@ func MatchCNRTaint(taintToMatch apis.Taint, taint *apis.Taint) bool {
 func MergeResources(dst, src apis.Resources) apis.Resources {
 	dst.Capacity = native.MergeResources(dst.Capacity, src.Capacity)
 	dst.Allocatable = native.MergeResources(dst.Allocatable, src.Allocatable)
+	dst.ResourcePools = MergeResourcePools(dst.ResourcePools, src.ResourcePools)
 	dst.ResourcePackages = MergeResourcePackages(dst.ResourcePackages, src.ResourcePackages)
 	return dst
 }
@@ -239,6 +240,26 @@ func MergeResourcePackages(dst, src []apis.ResourcePackage) []apis.ResourcePacka
 		} else {
 			dst = append(dst, srcPkg)
 			dstPkgIdx[srcPkg.PackageName] = len(dst) - 1
+		}
+	}
+	return dst
+}
+
+// MergeResourcePools merge two resource pools, returns the merged result.
+func MergeResourcePools(dst, src []apis.ResourcePool) []apis.ResourcePool {
+	dstIdx := make(map[string]int, len(dst))
+	for i, pool := range dst {
+		dstIdx[pool.PoolName] = i
+	}
+
+	for _, pool := range src {
+		if idx, ok := dstIdx[pool.PoolName]; ok {
+			dst[idx].MaxAllocatable = native.MergeResources(dst[idx].MaxAllocatable, pool.MaxAllocatable)
+			dst[idx].MinAllocatable = native.MergeResources(dst[idx].MinAllocatable, pool.MinAllocatable)
+			dst[idx].Attributes = MergeAttributes(dst[idx].Attributes, pool.Attributes)
+		} else {
+			dst = append(dst, pool)
+			dstIdx[pool.PoolName] = len(dst) - 1
 		}
 	}
 	return dst
