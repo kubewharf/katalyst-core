@@ -284,7 +284,7 @@ func (p *DynamicPolicy) reclaimedCoresAllocationHandler(ctx context.Context,
 			// set reclaimed numa_binding NUMA ID to allocationInfo
 			if req.Hint != nil && len(req.Hint.Nodes) == 1 && (reclaimActualBindingNUMAs.Contains(int(req.Hint.Nodes[0])) ||
 				!nonReclaimActualBindingNUMAs.Equals(machine.NewCPUSet(int(req.Hint.Nodes[0])))) {
-				allocationInfo.SetSpecifiedNUMABindingNUMAID(req.Hint.Nodes[0])
+				allocationInfo.SetSpecifiedNUMABindingNUMAID(req.Hint.Nodes)
 			}
 		}
 
@@ -460,15 +460,12 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 		RequestQuantity:                  reqFloat64,
 	}
 
-	// handle NUMA binding cross-NUMA constraints for dedicated cores
 	numaNumber, err := qosutil.AnnotationsGetNUMANumber(req.Annotations, len(machineState), p.numaNumberAnnotationKey)
 	if err != nil {
 		return nil, fmt.Errorf("get numa number failed with error: %v", err)
 	}
-	if !qosutil.AnnotationsIndicateNUMAExclusive(req.Annotations) &&
-		!qosutil.AnnotationsIndicateDistributeEvenlyAcrossNuma(req.Annotations) &&
-		numaNumber <= 1 {
-
+	// Cross NUMA allocation is only possible in the case of exclusive NUMA and non-exclusive NUMA with numa number more than 1
+	if !qosutil.AnnotationsIndicateNUMAExclusive(req.Annotations) && numaNumber <= 1 {
 		if len(req.Hint.Nodes) != 1 {
 			return nil, fmt.Errorf("numa binding without numa exclusive allocation result numa node size is %d, "+
 				"not equal to 1", len(req.Hint.Nodes))
@@ -608,28 +605,29 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingAllocationHandler(ctx context.
 }
 
 func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.TopologyHint,
-    machineState state.NUMANodeMap, reqAnnotations map[string]string,
+	machineState state.NUMANodeMap, reqAnnotations map[string]string,
 ) (machine.CPUSet, error) {
-    distributeEvenlyAcrossNuma := qosutil.AnnotationsIndicateDistributeEvenlyAcrossNuma(reqAnnotations)
-    fullPCPUsPairing := qosutil.AnnotationsIndicateFullPCPUsPairing(reqAnnotations)
-    numaExclusive := qosutil.AnnotationsIndicateNUMAExclusive(reqAnnotations)
-
+	distributeEvenlyAcrossNuma := qosutil.AnnotationsIndicateDistributeEvenlyAcrossNuma(reqAnnotations)
+	fullPCPUsPairing := qosutil.AnnotationsIndicateFullPCPUsPairing(reqAnnotations)
+	numaExclusive := qosutil.AnnotationsIndicateNUMAExclusive(reqAnnotations)
 	numaNumber, err := qosutil.AnnotationsGetNUMANumber(reqAnnotations, len(machineState), p.numaNumberAnnotationKey)
 	if err != nil {
 		return machine.NewCPUSet(), fmt.Errorf("get numa number failed with error: %v", err)
 	}
+
 	if hint == nil {
 		return machine.NewCPUSet(), fmt.Errorf("hint is nil")
 	} else if len(hint.Nodes) == 0 {
 		return machine.NewCPUSet(), fmt.Errorf("hint is empty")
-	} else if qosutil.AnnotationsIndicateNUMABinding(reqAnnotations) &&
-		!numaExclusive && !distributeEvenlyAcrossNuma && numaNumber <= 1 && len(hint.Nodes) > 1 {
+	} else if !qosutil.AnnotationsIndicateNUMABinding(reqAnnotations) {
+		return machine.NewCPUSet(), fmt.Errorf("request is not NUMA binding, which is unexpected")
+	} else if !numaExclusive && numaNumber <= 1 && len(hint.Nodes) > 1 {
 		return machine.NewCPUSet(), fmt.Errorf("NUMA not exclusive binding container has request larger than 1 NUMA")
-    } else if numaExclusive && fullPCPUsPairing {
-        return machine.NewCPUSet(), fmt.Errorf("NUMA exclusive and full pcpus pairing not supported at the same time")
-    } else if numaExclusive && distributeEvenlyAcrossNuma {
-        return machine.NewCPUSet(), fmt.Errorf("NUMA exclusive and distribute evenly across numa not supported at the same time")
-    }
+	} else if numaExclusive && fullPCPUsPairing {
+		return machine.NewCPUSet(), fmt.Errorf("NUMA exclusive and full pcpus pairing not supported at the same time")
+	} else if numaExclusive && distributeEvenlyAcrossNuma {
+		return machine.NewCPUSet(), fmt.Errorf("NUMA exclusive and distribute evenly across numa not supported at the same time")
+	}
 
 	result := machine.NewCPUSet()
 	alignedAvailableCPUs := machine.CPUSet{}
