@@ -17,27 +17,27 @@ limitations under the License.
 package dynamicpolicy
 
 import (
-    	"context"
-    	"fmt"
-    	"sort"
-    	"time"
+	"context"
+	"fmt"
+	"sort"
+	"time"
 
-    	v1 "k8s.io/api/core/v1"
-    	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
+	v1 "k8s.io/api/core/v1"
+	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
-    	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
-    	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
-    	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
-    	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer"
-    	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
-    	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
-    	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
-    	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/preoccupation"
-    	"github.com/kubewharf/katalyst-core/pkg/metrics"
-    	"github.com/kubewharf/katalyst-core/pkg/util/general"
-    	"github.com/kubewharf/katalyst-core/pkg/util/machine"
-    	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
-    )
+	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util/preoccupation"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
+	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
+)
 
 func (p *DynamicPolicy) sharedCoresHintHandler(ctx context.Context,
 	req *pluginapi.ResourceRequest,
@@ -216,18 +216,18 @@ func (p *DynamicPolicy) calculateHints(
 		return nil, fmt.Errorf("GetNUMANodesCountToFitCPUReq failed with error: %v", err)
 	}
 
-    numaBinding := qosutil.AnnotationsIndicateNUMABinding(req.Annotations)
-    numaExclusive := qosutil.AnnotationsIndicateNUMAExclusive(req.Annotations)
+	numaBinding := qosutil.AnnotationsIndicateNUMABinding(req.Annotations)
+	numaExclusive := qosutil.AnnotationsIndicateNUMAExclusive(req.Annotations)
 
-    alignBySocket := qosutil.AnnotationsIndicateAlignBySocket(req.Annotations)
-    distributeEvenlyAcrossNuma := qosutil.AnnotationsIndicateDistributeEvenlyAcrossNuma(req.Annotations)
-    fullPCPUsPairing := qosutil.AnnotationsIndicateFullPCPUsPairing(req.Annotations)
+	alignBySocket := qosutil.AnnotationsIndicateAlignBySocket(req.Annotations)
+	distributeEvenlyAcrossNuma := qosutil.AnnotationsIndicateDistributeEvenlyAcrossNuma(req.Annotations)
+	fullPCPUsPairing := qosutil.AnnotationsIndicateFullPCPUsPairing(req.Annotations)
 
-    var numaNumber int
-    numaIDs, err := qosutil.AnnotationsGetNUMAIDs(req.Annotations, numaNodes, p.numaIDsAnnotationKey)
-    if err != nil {
-        return nil, fmt.Errorf("get NUMA IDs from annotations failed with error: %v", err)
-    }
+	var numaNumber int
+	numaIDs, err := qosutil.AnnotationsGetNUMAIDs(req.Annotations, numaNodes, p.numaIDsAnnotationKey)
+	if err != nil {
+		return nil, fmt.Errorf("get NUMA IDs from annotations failed with error: %v", err)
+	}
 
 	if !numaIDs.IsEmpty() {
 		numaNumber = numaIDs.Count()
@@ -243,20 +243,20 @@ func (p *DynamicPolicy) calculateHints(
 		return nil, fmt.Errorf("0 cpus per core, which is unexpected")
 	}
 
-    // because it's hard to control memory allocation accurately,
-    // we only support numa_binding but not exclusive container with request smaller than 1 NUMA
-    // pods with distribute evenly across numa annotation or with numa number > 1 can occupy more than 1 NUMA
-    if numaBinding && !numaExclusive && minNUMAsCountNeeded > 1 && !distributeEvenlyAcrossNuma && numaNumber <= 1 {
-        return nil, fmt.Errorf("NUMA not exclusive binding container with no distribute_evenly_across_numa has request larger than 1 NUMA")
-    }
+	// because it's hard to control memory allocation accurately,
+	// we only support numa_binding but not exclusive container with request smaller than 1 NUMA
+	// pods with numa number more than 1 can occupy more than 1 numa
+	if numaBinding && !numaExclusive && numaNumber <= 1 && minNUMAsCountNeeded > 1 {
+		return nil, fmt.Errorf("NUMA not exclusive binding container with no distribute_evenly_across_numa has request larger than 1 NUMA")
+	}
 
-    if numaExclusive && distributeEvenlyAcrossNuma {
-        return nil, fmt.Errorf("NUMA exclusive and distribute_evenly_across_numa is not supported at the same time")
-    }
+	if numaExclusive && distributeEvenlyAcrossNuma {
+		return nil, fmt.Errorf("NUMA exclusive and distribute_evenly_across_numa is not supported at the same time")
+	}
 
-    if numaExclusive && fullPCPUsPairing {
-        return nil, fmt.Errorf("NUMA exclusive and full_pcpus_pairing is not supported at the same time")
-    }
+	if numaExclusive && fullPCPUsPairing {
+		return nil, fmt.Errorf("NUMA exclusive and full_pcpus_pairing is not supported at the same time")
+	}
 
 	numasPerSocket, err := p.machineInfo.NUMAsPerSocket()
 	if err != nil {
@@ -278,15 +278,15 @@ func (p *DynamicPolicy) calculateHints(
 			numaToAvailableCPUCount[nodeID] = 0
 			general.Warningf("numa_exclusive container skip NUMA: %d allocated: %d",
 				nodeID, machineState[nodeID].AllocatedCPUSet.Size())
-        } else if numaBinding && !availableNUMAs.Contains(nodeID) {
-            numaToAvailableCPUCount[nodeID] = 0
-            general.Warningf("numa_binding container skip NUMA: %d, allocated: %d",
-                nodeID, machineState[nodeID].AllocatedCPUSet.Size())
-        } else {
-            availableCPUs := machineState[nodeID].GetAvailableCPUSet(p.reservedCPUs)
-            numaToAvailableCPUCount[nodeID] = availableCPUs.Size()
-            totalAvailableCPUs.Add(availableCPUs.ToSliceInt()...)
-        }
+		} else if numaBinding && !availableNUMAs.Contains(nodeID) {
+			numaToAvailableCPUCount[nodeID] = 0
+			general.Warningf("numa_binding container skip NUMA: %d, allocated: %d",
+				nodeID, machineState[nodeID].AllocatedCPUSet.Size())
+		} else {
+			availableCPUs := machineState[nodeID].GetAvailableCPUSet(p.reservedCPUs)
+			numaToAvailableCPUCount[nodeID] = availableCPUs.Size()
+			totalAvailableCPUs.Add(availableCPUs.ToSliceNoSortInt()...)
+		}
 	}
 
 	general.Infof("calculate hints with req: %.3f, numaToAvailableCPUCount: %+v",
@@ -302,15 +302,15 @@ func (p *DynamicPolicy) calculateHints(
 	// minAffinitySize is the minimum number of NUMA nodes from the hints
 	minAffinitySize := p.machineInfo.CPUDetails.NUMANodes().Size()
 	machine.IterateBitMasks(numaNodes, numaBound, func(mask machine.BitMask) {
-        maskCount := mask.Count()
-        if maskCount < minNUMAsCountNeeded {
-            return
-        } else if numaBinding && !numaExclusive && maskCount > 1 && !distributeEvenlyAcrossNuma && numaNumber <= 1 {
-            // because it's hard to control memory allocation accurately,
-            // we only support numa_binding but not exclusive container with request smaller than 1 NUMA
-            // pods with distribute evenly across numa annotation can occupy more than 1 NUMA
-            return
-        }
+		maskCount := mask.Count()
+		if maskCount < minNUMAsCountNeeded {
+			return
+		} else if numaBinding && !numaExclusive && maskCount > 1 && numaNumber <= 1 {
+			// because it's hard to control memory allocation accurately,
+			// we only support numa_binding but not exclusive container with request smaller than 1 NUMA
+			// pods with numa number more than 1 can occupy more than 1 NUMA
+			return
+		}
 
 		maskBits := mask.GetBits()
 
@@ -323,9 +323,9 @@ func (p *DynamicPolicy) calculateHints(
 			return
 		}
 
-        if maskCount < minAffinitySize {
-            minAffinitySize = maskCount
-        }
+		if maskCount < minAffinitySize {
+			minAffinitySize = maskCount
+		}
 
 		crossSockets, err := machine.CheckNUMACrossSockets(maskBits, p.machineInfo.CPUTopology)
 		if err != nil {
@@ -334,42 +334,34 @@ func (p *DynamicPolicy) calculateHints(
 			return
 		}
 
-        // Filter out hints that are not aligned by socket
-        if alignBySocket && !p.canAlignedBySocket(maskBits, int(request)) {
-            return
-        }
+		// Filter out hints that are not aligned by socket
+		if alignBySocket && !p.canAlignedBySocket(maskBits, int(request)) {
+			return
+		}
 
-        // Filter out hints that cannot be distributed evenly across NUMA
-        if distributeEvenlyAcrossNuma {
-            if !p.canDistributeEvenlyAcrossNuma(maskBits, int(request),
-                cpusPerCore, totalAvailableCPUs, fullPCPUsPairing) {
-                return
-            }
-        } else if fullPCPUsPairing {
-            // Filter out hints that cannot allocate to physical cores only
-            availableCPUs := p.machineInfo.CPUDetails.CPUsInNUMANodes(maskBits...).Intersection(totalAvailableCPUs)
-            if !p.canFullPCPUsPairing(int(request), cpusPerCore, availableCPUs) {
-                return
-            }
-        }
+		// Filter out hints that cannot be distributed evenly across NUMA
+		if distributeEvenlyAcrossNuma {
+			if !p.canDistributeEvenlyAcrossNuma(maskBits, int(request),
+				cpusPerCore, totalAvailableCPUs, fullPCPUsPairing) {
+				return
+			}
+		} else if fullPCPUsPairing {
+			// Filter out hints that cannot allocate to physical cores only
+			availableCPUs := p.machineInfo.CPUDetails.CPUsInNUMANodes(maskBits...).Intersection(totalAvailableCPUs)
+			if !p.canFullPCPUsPairing(int(request), cpusPerCore, availableCPUs) {
+				return
+			}
+		}
 
-        // Filter out hints that do not satisfy NUMA IDs and NUMA number
-        if !numaIDs.IsEmpty() {
-            if !numaIDs.IsEqual(mask) {
-                return
-            }
-        } else if numaNumber != 0 && maskCount != numaNumber {
-            return
-        }
+		// Filter out hints that do not satisfy NUMA IDs and NUMA number
+		if !numaIDs.IsEmpty() {
+			if !numaIDs.IsEqual(mask) {
+				return
+			}
+		} else if numaNumber != 0 && maskCount != numaNumber {
+			return
+		}
 
-        // Filter out hints that do not satisfy NUMA IDs and NUMA number
-        if !numaIDs.IsEmpty() {
-            if !numaIDs.IsEqual(mask) {
-                return
-            }
-        } else if numaNumber != 0 && maskCount != numaNumber {
-            return
-        }
 		// For first pass, set all the preferred fields to "false". We will update the preferred fields on the second pass.
 		availableNumaHints = append(availableNumaHints, &pluginapi.TopologyHint{
 			Nodes:     machine.MaskToUInt64Array(mask),
@@ -377,10 +369,10 @@ func (p *DynamicPolicy) calculateHints(
 		})
 	})
 
-    // Override minAffinitySize to be numa number if non-zero
-    if numaNumber != 0 {
-        minAffinitySize = numaNumber
-    }
+	// Override minAffinitySize to be numa number if non-zero
+	if numaNumber != 0 {
+		minAffinitySize = numaNumber
+	}
 	// Update hint to be preferred if they have minimum number of NUMA nodes
 	for _, hint := range availableNumaHints {
 		if len(hint.Nodes) == minAffinitySize {
@@ -485,16 +477,16 @@ func (p *DynamicPolicy) canFullPCPUsPairing(request, cpusPerCore int, availableC
 
 	// Get the number of requested physical cores through floor division
 	coresRequest := request / cpusPerCore
-    if availableCores.Size() < coresRequest {
-        general.Infof("Available cores %v size is smaller than core request per numa %v", availableCores.Size(), coresRequest)
-        return false
-    }
+	if availableCores.Size() < coresRequest {
+		general.Infof("Available cores %v size is smaller than core request per numa %v", availableCores.Size(), coresRequest)
+		return false
+	}
 
-    // Check if the available CPUs satisfy the CPU request
-    if availableCPUs.Size() < request {
-        general.Infof("Available cpus %v size is smaller than cpu request per numa %v", availableCPUs.Size(), request)
-        return false
-    }
+	// Check if the available CPUs satisfy the CPU request
+	if availableCPUs.Size() < request {
+		general.Infof("Available cpus %v size is smaller than cpu request per numa %v", availableCPUs.Size(), request)
+		return false
+	}
 
 	return true
 }
