@@ -22,8 +22,11 @@ import (
 	"fmt"
 	"sync"
 
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/klog/v2"
+	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/registration"
@@ -40,6 +43,11 @@ import (
 const (
 	gpuReporterPluginName   = "gpu-reporter-plugin"
 	propertyNameGPUTopology = "gpu_topology_attribute_key"
+)
+
+var (
+	zeroQuantity = *resource.NewQuantity(0, resource.DecimalSI)
+	oneQuantity  = *resource.NewQuantity(1, resource.DecimalSI)
 )
 
 // GPUReporter reports gpu information to CNR
@@ -187,7 +195,12 @@ func (p *gpuReporterPlugin) GetReportContent(_ context.Context, _ *v1alpha1.Empt
 		return nil, fmt.Errorf("no zone attributes found for device topology")
 	}
 
-	generatedTopologyZones := topologyZoneGenerator.GenerateTopologyZoneStatus(nil, nil,
+	zoneResources := p.getZoneResources(deviceTopology)
+	if zoneResources == nil {
+		return nil, fmt.Errorf("no zone resources found for device topology")
+	}
+
+	generatedTopologyZones := topologyZoneGenerator.GenerateTopologyZoneStatus(nil, zoneResources,
 		zoneAttributes, nil, nil)
 
 	propertyValues, err := json.Marshal(&resourceProperty)
@@ -266,6 +279,40 @@ func (p *gpuReporterPlugin) getGPUZoneAttributes(deviceTopology *machine.DeviceT
 	}
 
 	return zoneAttributes
+}
+
+// getZoneResources returns the map of gpu zone nodes to their resources
+func (p *gpuReporterPlugin) getZoneResources(deviceTopology *machine.DeviceTopology) map[util.ZoneNode]nodev1alpha1.Resources {
+	if deviceTopology == nil {
+		return nil
+	}
+
+	deviceName := deviceTopology.DeviceName
+	zoneResources := make(map[util.ZoneNode]nodev1alpha1.Resources)
+	for id, deviceInfo := range deviceTopology.Devices {
+		var quantity resource.Quantity
+		// 1 is reported when device is healthy, 0 is reported when device is unhealthy
+		if deviceInfo.Health != pluginapi.Healthy {
+			quantity = zeroQuantity
+		} else {
+			quantity = oneQuantity
+		}
+
+		zoneNode := util.GenerateDeviceZoneNode(id, string(nodev1alpha1.TopologyTypeGPU))
+
+		resources := nodev1alpha1.Resources{
+			Allocatable: &v1.ResourceList{
+				v1.ResourceName(deviceName): quantity,
+			},
+			Capacity: &v1.ResourceList{
+				v1.ResourceName(deviceName): quantity,
+			},
+		}
+
+		zoneResources[zoneNode] = resources
+	}
+
+	return zoneResources
 }
 
 // addGPUZoneNodes adds the gpu zone nodes to the topology zone generator

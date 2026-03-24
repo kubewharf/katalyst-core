@@ -172,7 +172,8 @@ func (p *BasePlugin) UpdateAllocatableAssociatedDevicesByDeviceType(
 	request *pluginapi.UpdateAllocatableAssociatedDevicesRequest, deviceType string,
 ) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error) {
 	deviceTopology := &machine.DeviceTopology{
-		Devices: make(map[string]machine.DeviceInfo, len(request.Devices)),
+		DeviceName: request.DeviceName,
+		Devices:    make(map[string]machine.DeviceInfo, len(request.Devices)),
 	}
 
 	for _, device := range request.Devices {
