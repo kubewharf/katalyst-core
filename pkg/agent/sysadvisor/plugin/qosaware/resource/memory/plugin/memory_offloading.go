@@ -500,15 +500,8 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 		}
 
 		cpuEnhancement := tmo.conf.QoSConfiguration.GetQoSEnhancementKVs(pod, map[string]string{}, katalystapiconsts.PodAnnotationCPUEnhancementKey)
-		poolName := ""
-		cpuSetPool, ok := cpuEnhancement[katalystapiconsts.PodAnnotationCPUEnhancementCPUSet]
-
-		if !ok {
-			general.Infof("CPU set is empty for pod %s, skip load pool name config", pod.UID)
-		} else {
-			poolName = commonstate.GetSpecifiedPoolName(qos, cpuSetPool)
-			general.Infof("Get pool name %s for pod uid: %s", poolName, pod.UID)
-		}
+		poolName := commonstate.GetSpecifiedPoolName(qos, cpuEnhancement[katalystapiconsts.PodAnnotationCPUEnhancementCPUSet])
+		general.Infof("Get pool name %s for pod uid: %s", poolName, pod.UID)
 
 		for _, containerStatus := range pod.Status.ContainerStatuses {
 			containerInfo := &types.ContainerInfo{
@@ -540,7 +533,7 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 			}
 
 			// PoolName Override QosLevel Config
-			if poolName != "" {
+			if poolName != commonstate.EmptyOwnerPoolName {
 				if tmoConfigDetail, exist := tmo.conf.GetDynamicConfiguration().PoolNameConfigs[poolName]; exist {
 					tmo.containerTmoEngines[podContainerName].LoadConf(tmoConfigDetail)
 					general.Infof("Load Pool %s TMO config for podContainerName %s, enableTMO: %v, enableSwap: %v, interval: %v, policy: %v",
