@@ -187,13 +187,13 @@ func (r *DeviceTopologyRegistry) GetAllDeviceTopologyProviders() map[string]Devi
 }
 
 // GetDeviceTopology gets the device topology for the specified device name.
-func (r *DeviceTopologyRegistry) GetDeviceTopology(deviceName string) (*DeviceTopology, bool, error) {
+func (r *DeviceTopologyRegistry) GetDeviceTopology(deviceName string) (*DeviceTopology, error) {
 	r.mux.RLock()
 	defer r.mux.RUnlock()
 
 	provider, ok := r.deviceTopologyProviders[deviceName]
 	if !ok {
-		return nil, false, fmt.Errorf("no device topology provider found for device %s", deviceName)
+		return nil, fmt.Errorf("no device topology provider found for device %s", deviceName)
 	}
 	return provider.GetDeviceTopology()
 }
@@ -201,20 +201,14 @@ func (r *DeviceTopologyRegistry) GetDeviceTopology(deviceName string) (*DeviceTo
 // GetDeviceNUMAAffinity retrieves a map of a certain device A to the list of devices in device B that it has an affinity with.
 // A device is considered to have an affinity with another device if they are on the exact same NUMA node(s)
 func (r *DeviceTopologyRegistry) GetDeviceNUMAAffinity(deviceA, deviceB string) (map[string][]string, error) {
-	deviceTopologyKey, numaReady, err := r.GetDeviceTopology(deviceA)
+	deviceTopologyKey, err := r.GetDeviceTopology(deviceA)
 	if err != nil {
 		return nil, fmt.Errorf("error getting device topology for device %s: %v", deviceA, err)
 	}
-	if !numaReady {
-		return nil, fmt.Errorf("device topology for device %s is not ready", deviceA)
-	}
 
-	deviceTopologyValue, numaReady, err := r.GetDeviceTopology(deviceB)
+	deviceTopologyValue, err := r.GetDeviceTopology(deviceB)
 	if err != nil {
 		return nil, fmt.Errorf("error getting device topology for device %s: %v", deviceB, err)
-	}
-	if !numaReady {
-		return nil, fmt.Errorf("device topology for device %s is not ready", deviceB)
 	}
 
 	deviceAffinity := make(map[string][]string)
@@ -352,29 +346,20 @@ func (i DeviceInfo) GetNUMANodes() []int {
 }
 
 type DeviceTopologyProvider interface {
-	GetDeviceTopology() (*DeviceTopology, bool, error)
+	GetDeviceTopology() (*DeviceTopology, error)
 	SetDeviceTopology(*DeviceTopology) error
 }
 
 type deviceTopologyProviderImpl struct {
-	mutex         sync.RWMutex
-	resourceNames []string
+	mutex sync.RWMutex
 
-	deviceTopology    *DeviceTopology
-	numaTopologyReady bool
+	deviceTopology *DeviceTopology
 }
 
 var _ DeviceTopologyProvider = (*deviceTopologyProviderImpl)(nil)
 
-func NewDeviceTopologyProvider(resourceNames []string) DeviceTopologyProvider {
-	deviceTopology := &DeviceTopology{
-		Devices: make(map[string]DeviceInfo),
-	}
-
-	return &deviceTopologyProviderImpl{
-		deviceTopology: deviceTopology,
-		resourceNames:  resourceNames,
-	}
+func NewDeviceTopologyProvider() DeviceTopologyProvider {
+	return &deviceTopologyProviderImpl{}
 }
 
 func (p *deviceTopologyProviderImpl) SetDeviceTopology(deviceTopology *DeviceTopology) error {
@@ -385,30 +370,16 @@ func (p *deviceTopologyProviderImpl) SetDeviceTopology(deviceTopology *DeviceTop
 	}
 
 	p.deviceTopology = deviceTopology
-	p.numaTopologyReady = checkDeviceNUMATopologyReady(deviceTopology)
 	return nil
 }
 
-func (p *deviceTopologyProviderImpl) GetDeviceTopology() (*DeviceTopology, bool, error) {
+func (p *deviceTopologyProviderImpl) GetDeviceTopology() (*DeviceTopology, error) {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
 
 	if p.deviceTopology == nil {
-		return nil, false, fmt.Errorf("deviceTopology is nil when getting device topology")
+		return nil, fmt.Errorf("deviceTopology is not initialized by SetDeviceTopology")
 	}
 
-	return p.deviceTopology, p.numaTopologyReady, nil
-}
-
-func checkDeviceNUMATopologyReady(topology *DeviceTopology) bool {
-	if topology == nil {
-		return false
-	}
-
-	for _, device := range topology.Devices {
-		if device.NumaNodes == nil {
-			return false
-		}
-	}
-	return true
+	return p.deviceTopology, nil
 }

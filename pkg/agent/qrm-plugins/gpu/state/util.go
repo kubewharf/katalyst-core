@@ -124,7 +124,7 @@ func (g *genericDefaultResourceStateGenerator) GenerateDefaultResourceState() (A
 		return nil, fmt.Errorf("topology provider registry must not be nil")
 	}
 
-	topology, _, err := g.topologyRegistry.GetDeviceTopology(g.resourceName)
+	topology, err := g.topologyRegistry.GetDeviceTopology(g.resourceName)
 	if err != nil {
 		return nil, fmt.Errorf("topology provider registry failed with error: %v", err)
 	}

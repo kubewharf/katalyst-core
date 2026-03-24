@@ -35,11 +35,11 @@ func (d *deviceTopologyProviderStub) SetDeviceTopology(deviceTopology *DeviceTop
 	return nil
 }
 
-func (d *deviceTopologyProviderStub) GetDeviceTopology() (*DeviceTopology, bool, error) {
+func (d *deviceTopologyProviderStub) GetDeviceTopology() (*DeviceTopology, error) {
 	d.mutex.RLock()
 	defer d.mutex.RUnlock()
 
-	return d.deviceTopology, true, nil
+	return d.deviceTopology, nil
 }
 
 type deviceAffinityProviderStub struct {
