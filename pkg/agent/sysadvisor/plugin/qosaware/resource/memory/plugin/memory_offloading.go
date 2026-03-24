@@ -30,6 +30,7 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	katalystapiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/memoryadvisor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
@@ -497,6 +498,11 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 				general.Infof("DaemonSet pod %s is considered as system_cores qos level", pod.UID)
 			}
 		}
+
+		cpuEnhancement := tmo.conf.QoSConfiguration.GetQoSEnhancementKVs(pod, map[string]string{}, katalystapiconsts.PodAnnotationCPUEnhancementKey)
+		poolName := commonstate.GetSpecifiedPoolName(qos, cpuEnhancement[katalystapiconsts.PodAnnotationCPUEnhancementCPUSet])
+		general.Infof("Get pool name %s for pod uid: %s", poolName, pod.UID)
+
 		for _, containerStatus := range pod.Status.ContainerStatuses {
 			containerInfo := &types.ContainerInfo{
 				PodUID:        string(pod.UID),
@@ -512,6 +518,7 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 			if !exist {
 				tmo.containerTmoEngines[podContainerName] = NewTmoEngineInstance(containerInfo, tmo.metaServer, tmo.emitter, tmo.conf.GetDynamicConfiguration().TransparentMemoryOffloadingConfiguration)
 			}
+
 			// load QoSLevelConfig
 			if helper.IsValidQosLevel(containerInfo.QoSLevel) {
 				if tmoConfigDetail, exist := tmo.conf.GetDynamicConfiguration().QoSLevelConfigs[katalystapiconsts.QoSLevel(containerInfo.QoSLevel)]; exist {
@@ -523,6 +530,21 @@ func (tmo *transparentMemoryOffloading) Reconcile(status *types.MemoryPressureSt
 						tmo.containerTmoEngines[podContainerName].GetConf().Interval,
 						tmo.containerTmoEngines[podContainerName].GetConf().PolicyName)
 				}
+			}
+
+			// PoolName Override QosLevel Config
+			if poolName != commonstate.EmptyOwnerPoolName {
+				if tmoConfigDetail, exist := tmo.conf.GetDynamicConfiguration().PoolNameConfigs[poolName]; exist {
+					tmo.containerTmoEngines[podContainerName].LoadConf(tmoConfigDetail)
+					general.Infof("Load Pool %s TMO config for podContainerName %s, enableTMO: %v, enableSwap: %v, interval: %v, policy: %v",
+						poolName, podContainerName,
+						tmo.containerTmoEngines[podContainerName].GetConf().EnableTMO,
+						tmo.containerTmoEngines[podContainerName].GetConf().EnableSwap,
+						tmo.containerTmoEngines[podContainerName].GetConf().Interval,
+						tmo.containerTmoEngines[podContainerName].GetConf().PolicyName)
+				}
+			} else {
+				general.Infof("Pool name is empty for pod %s, skip load pool name config", pod.Name)
 			}
 
 			// disable TMO if the Pod is numa exclusive and is not reclaimable
