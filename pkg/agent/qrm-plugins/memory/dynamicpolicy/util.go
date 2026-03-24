@@ -187,10 +187,6 @@ func getReservedHugePagesMemory(conf *config.Configuration, metaServer *metaserv
 			general.Infof("get numa reserved %v:%v bytes from ReservedNumaMemory configuration", resourceName, reservedMemory)
 			return reservedMemory, nil
 		}
-
-		reservedQuantity := resource.MustParse(fmt.Sprintf("%dGi", conf.ReservedMemoryGB))
-		reservedBytes = reservedQuantity.Value()
-		general.Infof("get reserved %v:%d bytes from ReservedMemoryGB configuration", resourceName, reservedBytes)
 	}
 
 	integerPart := uint64(reservedBytes / nodeNumber)

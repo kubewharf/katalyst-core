@@ -150,7 +150,6 @@ func (p *DynamicPolicy) numaBindingHintHandler(_ context.Context,
 	resourceAllocationInfo := p.state.GetResourceAllocationInfo(req.PodUid, req.ContainerName)
 	if len(resourceAllocationInfo) != 0 {
 		// Check if there is scale up for hugepages
-		// Scale up for hugepages is not supported
 		for resName, allocationInfo := range resourceAllocationInfo {
 			if allocationInfo == nil {
 				continue
@@ -183,30 +182,6 @@ func (p *DynamicPolicy) numaBindingHintHandler(_ context.Context,
 				return nil, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 			}
 		}
-        if allocationInfo.NumaAllocationResult.Size() != 1 {
-            general.Errorf("pod: %s/%s, container: %s is snb, but its numa size is %d",
-                req.PodNamespace, req.PodName, req.ContainerName, allocationInfo.NumaAllocationResult.Size())
-            return nil, fmt.Errorf("invalid hints for inplace update pod")
-        }
-
-        machineMemoryState := resourcesMachineState[v1.ResourceMemory]
-        nodeID := allocationInfo.NumaAllocationResult.ToSliceInt()[0]
-        nodeMemoryState := machineMemoryState[nodeID]
-
-        // the main container aggregated quantity involve all container requests of the pod in memory admit.
-        originPodAggregatedRequest := allocationInfo.AggregatedQuantity
-        general.Infof("pod: %s/%s, main container: %s request to memory inplace update resize (%d->%d)",
-            req.PodNamespace, req.PodName, req.ContainerName, originPodAggregatedRequest, podAggregatedRequest)
-
-        if uint64(podAggregatedRequest) > nodeMemoryState.Free && uint64(podAggregatedRequest) > originPodAggregatedRequest { // scaling up and no left resource to scale out
-            general.Infof("pod: %s/%s, container: %s request to memory inplace update resize (%d->%d, diff: %d), but no enough memory(%d)",
-                req.PodNamespace, req.PodName, req.ContainerName, originPodAggregatedRequest, podAggregatedRequest, uint64(podAggregatedRequest)-originPodAggregatedRequest, nodeMemoryState.Free)
-            return nil, fmt.Errorf("memory inplace update resize scale out failed with no enough resource")
-        }
-
-        general.Infof("pod: %s/%s, container: %s request inplace update resize, there is enough resource for it in current NUMA",
-            req.PodNamespace, req.PodName, req.ContainerName)
-        hints = regenerateHints(allocationInfo, false)
 	} else {
 		// if hints exists in extra state-file, prefer to use them
 		totalAvailableNUMAs := p.topology.CPUDetails.NUMANodes()
@@ -270,9 +245,9 @@ func (p *DynamicPolicy) reclaimedCoresWithNUMABindingHintHandler(_ context.Conte
 
 	var hints map[string]*pluginapi.ListOfTopologyHints
 
-    allocationInfo := p.state.GetAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName)
-    if allocationInfo != nil {
-        hints = regenerateSingleResourceHints(allocationInfo, util.PodInplaceUpdateResizing(req), v1.ResourceMemory)
+	allocationInfo := p.state.GetAllocationInfo(v1.ResourceMemory, req.PodUid, req.ContainerName)
+	if allocationInfo != nil {
+		hints = regenerateSingleResourceHints(allocationInfo, util.PodInplaceUpdateResizing(req), v1.ResourceMemory)
 		if hints == nil {
 			if uint64(podAggregatedRequest) > allocationInfo.AggregatedQuantity {
 				resourcesMachineState, err = p.clearContainerAndRegenerateMachineState(req)
@@ -301,7 +276,7 @@ func (p *DynamicPolicy) reclaimedCoresWithNUMABindingHintHandler(_ context.Conte
 
 			general.Infof("pod: %s/%s, container: %s request memory inplace update resize, there is enough resource for it in current NUMA",
 				req.PodNamespace, req.PodName, req.ContainerName)
-			hints = regenerateHints(allocationInfo, false)
+			hints = regenerateSingleResourceHints(allocationInfo, false, v1.ResourceMemory)
 		}
 	}
 
