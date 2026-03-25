@@ -35,8 +35,12 @@ import (
 )
 
 const (
-	metricBorweinIndicatorOffset       = "borwein_indicator_offset"
-	metricBorweinInferenceResultRegion = "borwein_inference_result_region"
+	metricBorweinIndicatorOffset           = "borwein_indicator_offset"
+	metricBorweinIndicatorOffsetLowerBound = "borwein_indicator_offset_lower_bound"
+	metricBorweinIndicatorOffsetUpperBound = "borwein_indicator_offset_upper_bound"
+	metricBorweinIndicatorTargetLowerBound = "borwein_indicator_target_lower_bound"
+	metricBorweinIndicatorTargetUpperBound = "borwein_indicator_target_upper_bound"
+	metricBorweinInferenceResultRegion     = "borwein_inference_result_region"
 )
 
 type IndicatorOffsetUpdater func(podSet types.PodSet, currentIndicatorOffset float64,
@@ -134,10 +138,26 @@ func updateCPUUsageIndicatorOffset(podSet types.PodSet, _ float64, borweinParame
 		},
 	)
 
+	if borweinParameter.IndicatorMin != 0 && borweinParameter.IndicatorMax != 0 {
+		_ = emitter.StoreFloat64(metricBorweinIndicatorTargetLowerBound, borweinParameter.IndicatorMin, metrics.MetricTypeNameRaw, metrics.MetricTag{
+			Key: fmt.Sprintf("%s", "strategy_name"),
+			Val: strategyName,
+		})
+		_ = emitter.StoreFloat64(metricBorweinIndicatorTargetUpperBound, borweinParameter.IndicatorMax, metrics.MetricTypeNameRaw, metrics.MetricTag{
+			Key: fmt.Sprintf("%s", "strategy_name"),
+			Val: strategyName,
+		})
+	}
+
 	if strategyName == consts.StrategyNameBorweinV3 {
 		if specialAction, match := latencyregression.MatchSpecialTimes(strategy.StrategySpecialTime,
 			string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio)); match {
 			actionAvg = general.MinFloat64(actionAvg, specialAction)
+
+			_ = emitter.StoreFloat64(metricBorweinIndicatorOffsetUpperBound, specialAction, metrics.MetricTypeNameRaw, metrics.MetricTag{
+				Key: fmt.Sprintf("%s", "strategy_name"),
+				Val: strategyName,
+			})
 		}
 		general.InfoS("offset update by borwein",
 			"indicator", string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio),
@@ -156,6 +176,15 @@ func updateCPUUsageIndicatorOffset(podSet types.PodSet, _ float64, borweinParame
 	}
 
 	targetOffset = general.Clamp(targetOffset, borweinParameter.OffsetMin, borweinParameter.OffsetMax)
+
+	_ = emitter.StoreFloat64(metricBorweinIndicatorOffsetLowerBound, borweinParameter.OffsetMin, metrics.MetricTypeNameRaw, metrics.MetricTag{
+		Key: fmt.Sprintf("%s", "strategy_name"),
+		Val: strategyName,
+	})
+	_ = emitter.StoreFloat64(metricBorweinIndicatorOffsetUpperBound, borweinParameter.OffsetMax, metrics.MetricTypeNameRaw, metrics.MetricTag{
+		Key: fmt.Sprintf("%s", "strategy_name"),
+		Val: strategyName,
+	})
 	general.InfoS("offset update by borwein",
 		"indicator", string(v1alpha1.ServiceSystemIndicatorNameCPUUsageRatio),
 		"predictedAvg", predictAvg,
