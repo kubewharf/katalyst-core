@@ -366,16 +366,20 @@ func TestGetPodCPUBurstPolicy(t *testing.T) {
 	tests := []struct {
 		name                 string
 		pod                  *v1.Pod
-		qosConfig            *generic.QoSConfiguration
+		conf                 *config.Configuration
 		adminQoSConfig       *adminqos.AdminQoSConfiguration
 		isSoleSharedCoresPod bool
 		wantPolicy           string
 		wantErr              bool
 	}{
 		{
-			name:      "test GetPodCPUBurstPolicy with nil pod",
-			pod:       nil,
-			qosConfig: generic.NewQoSConfiguration(),
+			name: "test GetPodCPUBurstPolicy with nil pod",
+			pod:  nil,
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
 			adminQoSConfig: &adminqos.AdminQoSConfiguration{
 				FineGrainedResourceConfiguration: &finegrainedresource.FineGrainedResourceConfiguration{
 					CPUBurstConfiguration: &finegrainedresource.CPUBurstConfiguration{
@@ -387,7 +391,7 @@ func TestGetPodCPUBurstPolicy(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "test GetPodCPUBurstPolicy with nil qosConfig",
+			name: "test GetPodCPUBurstPolicy with nil QoSConfiguration",
 			pod: &v1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test",
@@ -397,7 +401,7 @@ func TestGetPodCPUBurstPolicy(t *testing.T) {
 					},
 				},
 			},
-			qosConfig: nil,
+			conf: func() *config.Configuration { c := config.NewConfiguration(); c.QoSConfiguration = nil; return c }(),
 			adminQoSConfig: &adminqos.AdminQoSConfiguration{
 				FineGrainedResourceConfiguration: &finegrainedresource.FineGrainedResourceConfiguration{
 					CPUBurstConfiguration: &finegrainedresource.CPUBurstConfiguration{
@@ -420,7 +424,11 @@ func TestGetPodCPUBurstPolicy(t *testing.T) {
 					},
 				},
 			},
-			qosConfig:  generic.NewQoSConfiguration(),
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
 			wantPolicy: consts.PodAnnotationCPUEnhancementCPUBurstPolicyStatic,
 		},
 		{
@@ -435,7 +443,11 @@ func TestGetPodCPUBurstPolicy(t *testing.T) {
 					},
 				},
 			},
-			qosConfig:  generic.NewQoSConfiguration(),
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
 			wantPolicy: consts.PodAnnotationCPUEnhancementCPUBurstPolicyClosed,
 		},
 		{
@@ -449,7 +461,11 @@ func TestGetPodCPUBurstPolicy(t *testing.T) {
 					},
 				},
 			},
-			qosConfig:  generic.NewQoSConfiguration(),
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
 			wantPolicy: consts.PodAnnotationCPUEnhancementCPUBurstPolicyDefault,
 		},
 		{
@@ -463,7 +479,11 @@ func TestGetPodCPUBurstPolicy(t *testing.T) {
 					},
 				},
 			},
-			qosConfig: generic.NewQoSConfiguration(),
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
 			adminQoSConfig: &adminqos.AdminQoSConfiguration{
 				FineGrainedResourceConfiguration: &finegrainedresource.FineGrainedResourceConfiguration{
 					CPUBurstConfiguration: &finegrainedresource.CPUBurstConfiguration{
@@ -485,7 +505,11 @@ func TestGetPodCPUBurstPolicy(t *testing.T) {
 					},
 				},
 			},
-			qosConfig: generic.NewQoSConfiguration(),
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
 			adminQoSConfig: &adminqos.AdminQoSConfiguration{
 				FineGrainedResourceConfiguration: &finegrainedresource.FineGrainedResourceConfiguration{
 					CPUBurstConfiguration: &finegrainedresource.CPUBurstConfiguration{
@@ -507,7 +531,11 @@ func TestGetPodCPUBurstPolicy(t *testing.T) {
 					},
 				},
 			},
-			qosConfig: generic.NewQoSConfiguration(),
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
 			adminQoSConfig: &adminqos.AdminQoSConfiguration{
 				FineGrainedResourceConfiguration: &finegrainedresource.FineGrainedResourceConfiguration{
 					CPUBurstConfiguration: &finegrainedresource.CPUBurstConfiguration{
@@ -530,7 +558,11 @@ func TestGetPodCPUBurstPolicy(t *testing.T) {
 					},
 				},
 			},
-			qosConfig: generic.NewQoSConfiguration(),
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
 			adminQoSConfig: &adminqos.AdminQoSConfiguration{
 				FineGrainedResourceConfiguration: &finegrainedresource.FineGrainedResourceConfiguration{
 					CPUBurstConfiguration: &finegrainedresource.CPUBurstConfiguration{
@@ -553,7 +585,11 @@ func TestGetPodCPUBurstPolicy(t *testing.T) {
 					},
 				},
 			},
-			qosConfig: generic.NewQoSConfiguration(),
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
 			adminQoSConfig: &adminqos.AdminQoSConfiguration{
 				FineGrainedResourceConfiguration: &finegrainedresource.FineGrainedResourceConfiguration{
 					CPUBurstConfiguration: &finegrainedresource.CPUBurstConfiguration{
@@ -577,7 +613,11 @@ func TestGetPodCPUBurstPolicy(t *testing.T) {
 					},
 				},
 			},
-			qosConfig: generic.NewQoSConfiguration(),
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
 			adminQoSConfig: &adminqos.AdminQoSConfiguration{
 				FineGrainedResourceConfiguration: &finegrainedresource.FineGrainedResourceConfiguration{
 					CPUBurstConfiguration: &finegrainedresource.CPUBurstConfiguration{
@@ -588,6 +628,65 @@ func TestGetPodCPUBurstPolicy(t *testing.T) {
 			},
 			isSoleSharedCoresPod: true,
 			wantPolicy:           consts.PodAnnotationCPUEnhancementCPUBurstPolicyStatic,
+		},
+		{
+			name: "test GetPodCPUBurstPolicy for dedicated pod with no policy overridden by core conf to static",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test",
+					Namespace: "test",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+					},
+				},
+			},
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				c.EnableDefaultDedicatedCoresCPUBurst = true
+				return c
+			}(),
+			wantPolicy: consts.PodAnnotationCPUEnhancementCPUBurstPolicyStatic,
+		},
+		{
+			name: "test GetPodCPUBurstPolicy for shared pod overridden by core conf requires sole=true to static",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test",
+					Namespace: "test",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
+				},
+			},
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				c.EnableDefaultSharedCoresCPUBurst = true
+				return c
+			}(),
+			isSoleSharedCoresPod: true,
+			wantPolicy:           consts.PodAnnotationCPUEnhancementCPUBurstPolicyStatic,
+		},
+		{
+			name: "test GetPodCPUBurstPolicy for shared pod overridden by core conf but sole=false returns closed",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test",
+					Namespace: "test",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
+				},
+			},
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				c.EnableDefaultSharedCoresCPUBurst = true
+				return c
+			}(),
+			isSoleSharedCoresPod: false,
+			wantPolicy:           consts.PodAnnotationCPUEnhancementCPUBurstPolicyClosed,
 		},
 	}
 
@@ -603,7 +702,7 @@ func TestGetPodCPUBurstPolicy(t *testing.T) {
 				})
 			}
 
-			gotPolicy, err := GetPodCPUBurstPolicy(tt.qosConfig, tt.pod, dynamicConfig, tt.isSoleSharedCoresPod)
+			gotPolicy, err := GetPodCPUBurstPolicy(tt.conf, tt.pod, dynamicConfig, tt.isSoleSharedCoresPod)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -726,22 +825,30 @@ func TestIsSoleSharedCoresPod(t *testing.T) {
 
 	tests := []struct {
 		name           string
-		qosConfig      *generic.QoSConfiguration
+		conf           *config.Configuration
 		podList        []*v1.Pod
 		adminQoSConfig *adminqos.AdminQoSConfiguration
 		expected       bool
 	}{
 		{
-			name:      "EnableSharedCoresDefaultCPUBurst is nil",
-			qosConfig: generic.NewQoSConfiguration(),
+			name: "EnableSharedCoresDefaultCPUBurst is nil",
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
 			podList: []*v1.Pod{
 				generatePod("pod-1", consts.PodAnnotationQoSLevelSharedCores),
 			},
 			expected: false,
 		},
 		{
-			name:      "EnableSharedCoresDefaultCPUBurst is false",
-			qosConfig: generic.NewQoSConfiguration(),
+			name: "EnableSharedCoresDefaultCPUBurst is false",
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
 			podList: []*v1.Pod{
 				generatePod("pod-1", consts.PodAnnotationQoSLevelSharedCores),
 			},
@@ -756,9 +863,13 @@ func TestIsSoleSharedCoresPod(t *testing.T) {
 			expected: false,
 		},
 		{
-			name:      "Empty pod list",
-			qosConfig: generic.NewQoSConfiguration(),
-			podList:   []*v1.Pod{},
+			name: "Empty pod list",
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
+			podList: []*v1.Pod{},
 			adminQoSConfig: &adminqos.AdminQoSConfiguration{
 				FineGrainedResourceConfiguration: &finegrainedresource.FineGrainedResourceConfiguration{
 					CPUBurstConfiguration: &finegrainedresource.CPUBurstConfiguration{
@@ -770,8 +881,12 @@ func TestIsSoleSharedCoresPod(t *testing.T) {
 			expected: false,
 		},
 		{
-			name:      "No shared cores pods",
-			qosConfig: generic.NewQoSConfiguration(),
+			name: "No shared cores pods",
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
 			podList: []*v1.Pod{
 				generatePod("pod-1", consts.PodAnnotationQoSLevelDedicatedCores),
 				generatePod("pod-2", consts.PodAnnotationQoSLevelDedicatedCores),
@@ -787,8 +902,12 @@ func TestIsSoleSharedCoresPod(t *testing.T) {
 			expected: false,
 		},
 		{
-			name:      "One shared cores pod",
-			qosConfig: generic.NewQoSConfiguration(),
+			name: "One shared cores pod",
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
 			podList: []*v1.Pod{
 				generatePod("pod-1", consts.PodAnnotationQoSLevelSharedCores),
 			},
@@ -803,8 +922,12 @@ func TestIsSoleSharedCoresPod(t *testing.T) {
 			expected: true,
 		},
 		{
-			name:      "Multiple shared cores pods",
-			qosConfig: generic.NewQoSConfiguration(),
+			name: "Multiple shared cores pods",
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
 			podList: []*v1.Pod{
 				generatePod("pod-1", consts.PodAnnotationQoSLevelSharedCores),
 				generatePod("pod-2", consts.PodAnnotationQoSLevelSharedCores),
@@ -820,8 +943,12 @@ func TestIsSoleSharedCoresPod(t *testing.T) {
 			expected: false,
 		},
 		{
-			name:      "Mixed QoS levels, one shared cores pod",
-			qosConfig: generic.NewQoSConfiguration(),
+			name: "Mixed QoS levels, one shared cores pod",
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
 			podList: []*v1.Pod{
 				generatePod("pod-1", consts.PodAnnotationQoSLevelDedicatedCores),
 				generatePod("pod-2", consts.PodAnnotationQoSLevelSharedCores),
@@ -838,8 +965,12 @@ func TestIsSoleSharedCoresPod(t *testing.T) {
 			expected: true,
 		},
 		{
-			name:      "Mixed QoS levels, multiple shared cores pods",
-			qosConfig: generic.NewQoSConfiguration(),
+			name: "Mixed QoS levels, multiple shared cores pods",
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
 			podList: []*v1.Pod{
 				generatePod("pod-1", consts.PodAnnotationQoSLevelDedicatedCores),
 				generatePod("pod-2", consts.PodAnnotationQoSLevelSharedCores),
@@ -852,6 +983,34 @@ func TestIsSoleSharedCoresPod(t *testing.T) {
 						DefaultCPUBurstPercent:           100,
 					},
 				},
+			},
+			expected: false,
+		},
+		// Core conf gating: calculate when conf.EnableDefaultSharedCoresCPUBurst is true
+		{
+			name: "Core conf true: one shared cores pod",
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				c.EnableDefaultSharedCoresCPUBurst = true
+				return c
+			}(),
+			podList: []*v1.Pod{
+				generatePod("pod-1", consts.PodAnnotationQoSLevelSharedCores),
+			},
+			expected: true,
+		},
+		{
+			name: "Core conf true: multiple shared cores pods",
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				c.EnableDefaultSharedCoresCPUBurst = true
+				return c
+			}(),
+			podList: []*v1.Pod{
+				generatePod("pod-1", consts.PodAnnotationQoSLevelSharedCores),
+				generatePod("pod-2", consts.PodAnnotationQoSLevelSharedCores),
 			},
 			expected: false,
 		},
@@ -869,7 +1028,7 @@ func TestIsSoleSharedCoresPod(t *testing.T) {
 				})
 			}
 
-			actual := IsSoleSharedCoresPod(tt.qosConfig, tt.podList, dynamicConfig)
+			actual := IsSoleSharedCoresPod(tt.conf, tt.podList, dynamicConfig)
 			assert.Equal(t, tt.expected, actual)
 		})
 	}

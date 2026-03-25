@@ -27,6 +27,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/finegrainedresource"
@@ -53,7 +54,8 @@ func generateTestMetaServer(pods []*v1.Pod) *metaserver.MetaServer {
 func TestManagerImpl_UpdateCPUBurst(t *testing.T) {
 	t.Parallel()
 
-	qosConfig := generic.NewQoSConfiguration()
+	conf := config.NewConfiguration()
+	conf.QoSConfiguration = generic.NewQoSConfiguration()
 	type resultState map[string]uint64
 
 	tests := []struct {
@@ -647,7 +649,7 @@ func TestManagerImpl_UpdateCPUBurst(t *testing.T) {
 				})
 			}
 
-			err := cpuBurstManager.UpdateCPUBurst(qosConfig, dynamicConfig)
+			err := cpuBurstManager.UpdateCPUBurst(conf, dynamicConfig)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("UpdateCPUBurst() error = %v, wantErr %v", err, tt.wantErr)
 				return

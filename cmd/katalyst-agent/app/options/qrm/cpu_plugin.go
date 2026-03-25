@@ -39,17 +39,19 @@ type CPUOptions struct {
 }
 
 type CPUDynamicPolicyOptions struct {
-	EnableCPUAdvisor               bool
-	AdvisorGetAdviceInterval       time.Duration
-	EnableCPUPressureEviction      bool
-	LoadPressureEvictionSkipPools  []string
-	EnableSyncingCPUIdle           bool
-	EnableCPUIdle                  bool
-	CPUNUMAHintPreferPolicy        string
-	CPUNUMAHintPreferLowThreshold  float64
-	NUMABindingResultAnnotationKey string
-	EnableReserveCPUReversely      bool
-	EnableCPUBurst                 bool
+	EnableCPUAdvisor                    bool
+	AdvisorGetAdviceInterval            time.Duration
+	EnableCPUPressureEviction           bool
+	LoadPressureEvictionSkipPools       []string
+	EnableSyncingCPUIdle                bool
+	EnableCPUIdle                       bool
+	CPUNUMAHintPreferPolicy             string
+	CPUNUMAHintPreferLowThreshold       float64
+	NUMABindingResultAnnotationKey      string
+	EnableReserveCPUReversely           bool
+	EnableCPUBurst                      bool
+	EnableDefaultDedicatedCoresCPUBurst bool
+	EnableDefaultSharedCoresCPUBurst    bool
 	*irqtuner.IRQTunerOptions
 	*hintoptimizer.HintOptimizerOptions
 }
@@ -125,8 +127,11 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.EnableReserveCPUReversely, "by default, the reservation of cpu starts from the cpu with lower id,"+
 			"if set to true, it starts from the cpu with higher id")
 	fs.BoolVar(&o.EnableCPUBurst, "enable-cpu-burst", o.EnableCPUBurst, "This is a flag that enables the cpu burst handler to sync periodically."+
-		"However, actually setting cpu burst on a pod must be done through 2 enabling methods, via annotations and via kcc. Shared_cores only "+
-		"supports enabling via annotations, while dedicated_cores supports enabling via annotations and kcc.")
+		"However, actually setting cpu burst on a pod must be done through 2 enabling methods, via annotations and via kcc.")
+	fs.BoolVar(&o.EnableDefaultSharedCoresCPUBurst, "enable-default-shared-cores-cpu-burst",
+		o.EnableDefaultSharedCoresCPUBurst, "if set true, it will enable cpu burst for shared cores by default")
+	fs.BoolVar(&o.EnableDefaultDedicatedCoresCPUBurst, "enable-default-dedicated-cores-cpu-burst",
+		o.EnableDefaultDedicatedCoresCPUBurst, "if set true, it will enable cpu burst for dedicated cores by default")
 	o.HintOptimizerOptions.AddFlags(fss)
 	o.IRQTunerOptions.AddFlags(fss)
 }
@@ -147,6 +152,8 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 	conf.NUMABindingResultAnnotationKey = o.NUMABindingResultAnnotationKey
 	conf.EnableReserveCPUReversely = o.EnableReserveCPUReversely
 	conf.EnableCPUBurst = o.EnableCPUBurst
+	conf.EnableDefaultDedicatedCoresCPUBurst = o.EnableDefaultDedicatedCoresCPUBurst
+	conf.EnableDefaultSharedCoresCPUBurst = o.EnableDefaultSharedCoresCPUBurst
 	if err := o.HintOptimizerOptions.ApplyTo(conf.HintOptimizerConfiguration); err != nil {
 		return err
 	}
