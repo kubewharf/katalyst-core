@@ -194,26 +194,37 @@ func (r *DeviceTopologyRegistry) GetDeviceTopology(deviceName string) (*DeviceTo
 	return r.getDeviceTopology(deviceName)
 }
 
-// GetLatestDeviceTopology gets device topologies for the given device names and picks the latest one.
-func (r *DeviceTopologyRegistry) GetLatestDeviceTopology(deviceNames []string) (*DeviceTopology, error) {
+// GetDeviceTopologies gets device topologies for the given device names.
+// It returns a map of device name to their respective device topology.
+func (r *DeviceTopologyRegistry) GetDeviceTopologies(deviceNames []string) (map[string]*DeviceTopology, error) {
 	r.mux.RLock()
 	defer r.mux.RUnlock()
 
-	var topologies []*DeviceTopology
+	topologies := make(map[string]*DeviceTopology)
 	for _, deviceName := range deviceNames {
 		topology, err := r.getDeviceTopology(deviceName)
 		if err != nil {
 			general.Warningf("failed to get topology for device %s: %v", deviceName, err)
 			continue
 		}
-		topologies = append(topologies, topology)
+		topologies[deviceName] = topology
 	}
 
 	if len(topologies) == 0 {
 		return nil, fmt.Errorf("failed to get any device topology")
 	}
 
-	return pickLatestDeviceTopology(topologies...), nil
+	return topologies, nil
+}
+
+// GetLatestDeviceTopology gets device topologies for the given device names and picks the latest one.
+func (r *DeviceTopologyRegistry) GetLatestDeviceTopology(deviceNames []string) (*DeviceTopology, error) {
+	topologiesMap, err := r.GetDeviceTopologies(deviceNames)
+	if err != nil {
+		return nil, err
+	}
+
+	return PickLatestDeviceTopology(topologiesMap), nil
 }
 
 // GetDeviceNUMAAffinity retrieves a map of a certain device A to the list of devices in device B that it has an affinity with.
@@ -247,9 +258,7 @@ func (r *DeviceTopologyRegistry) GetDeviceNUMAAffinity(deviceA, deviceB string) 
 }
 
 type DeviceTopology struct {
-	// DeviceName is the name of the device, e.g. "nvidia.com/gpu"
-	DeviceName string
-	Devices    map[string]DeviceInfo
+	Devices map[string]DeviceInfo
 	// PriorityDimensions distinguishes the different dimensions of device affinity and their priority level.
 	// The priority level is determined by the order of the dimensions in the slice.
 	// For example, if devices have affinity based on the NUMA and SOCKET, and NUMA has higher priority than SOCKET,
@@ -316,6 +325,10 @@ type DeviceInfo struct {
 func (i DeviceInfo) GetDimensions() []Dimension {
 	dimensions := make([]Dimension, 0)
 	for priority := range i.DeviceAffinity {
+		// filter out invalid dimensions because some invalid/empty configurations may be passed
+		if priority.Dimension.Name == "" || priority.Dimension.Value == "" {
+			continue
+		}
 		dimensions = append(dimensions, priority.Dimension)
 	}
 
@@ -406,8 +419,8 @@ func (p *deviceTopologyProviderImpl) GetDeviceTopology() (*DeviceTopology, error
 	return p.deviceTopology, nil
 }
 
-// pickLatestDeviceTopology selects the latest device topology from the given list based on UpdateTime.
-func pickLatestDeviceTopology(topologies ...*DeviceTopology) *DeviceTopology {
+// PickLatestDeviceTopology selects the latest device topology from the given map based on UpdateTime.
+func PickLatestDeviceTopology(topologies map[string]*DeviceTopology) *DeviceTopology {
 	var latest *DeviceTopology
 	for _, t := range topologies {
 		if t == nil {

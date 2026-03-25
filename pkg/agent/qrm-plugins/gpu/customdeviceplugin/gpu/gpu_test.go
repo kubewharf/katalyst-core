@@ -157,7 +157,6 @@ func TestGPUDevicePlugin_UpdateAllocatableAssociatedDevices(t *testing.T) {
 	assert.NotNil(t, deviceTopology)
 
 	expectedDeviceTopology := &machine.DeviceTopology{
-		DeviceName: "test-gpu",
 		Devices: map[string]machine.DeviceInfo{
 			"test-gpu-0": {
 				NumaNodes:      []int{0},
@@ -169,6 +168,7 @@ func TestGPUDevicePlugin_UpdateAllocatableAssociatedDevices(t *testing.T) {
 			},
 		},
 	}
+	expectedDeviceTopology.UpdateTime = deviceTopology.UpdateTime
 
 	assert.Equal(t, expectedDeviceTopology, deviceTopology)
 }

@@ -62,6 +62,9 @@ type BasePlugin struct {
 
 	// Map of specific device name to device type
 	deviceNameToTypeMap map[string]string
+
+	stateInitializedCh   chan struct{}
+	stateInitializedOnce sync.Once
 }
 
 func NewBasePlugin(
@@ -89,12 +92,22 @@ func NewBasePlugin(
 		DefaultResourceStateGeneratorRegistry: state.NewDefaultResourceStateGeneratorRegistry(),
 
 		deviceNameToTypeMap: make(map[string]string),
+		stateInitializedCh:  make(chan struct{}),
 	}, nil
 }
 
 // Run starts the asynchronous tasks of the plugin
 func (p *BasePlugin) Run(stopCh <-chan struct{}) {
-	go p.reporter.Run(stopCh)
+	go func() {
+		select {
+		case <-p.stateInitializedCh:
+			general.Infof("state initialized, starting reporter")
+			p.reporter.Run(stopCh)
+		case <-stopCh:
+			general.Infof("stop channel closed before state initialization, skipping reporter run")
+			return
+		}
+	}()
 	go p.DeviceTopologyRegistry.Run(stopCh)
 }
 
@@ -122,8 +135,14 @@ func (p *BasePlugin) InitState() error {
 	}
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	p.state = stateImpl
+	p.mu.Unlock()
+
+	p.stateInitializedOnce.Do(func() {
+		close(p.stateInitializedCh)
+		general.Infof("state initialized channel closed")
+	})
+
 	return nil
 }
 
@@ -173,7 +192,6 @@ func (p *BasePlugin) UpdateAllocatableAssociatedDevices(
 	request *pluginapi.UpdateAllocatableAssociatedDevicesRequest,
 ) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error) {
 	deviceTopology := &machine.DeviceTopology{
-		DeviceName: request.DeviceName,
 		Devices:    make(map[string]machine.DeviceInfo, len(request.Devices)),
 		UpdateTime: time.Now().UnixNano(),
 	}
