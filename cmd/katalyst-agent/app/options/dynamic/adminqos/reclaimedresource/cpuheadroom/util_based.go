@@ -28,8 +28,6 @@ const (
 	defaultMaxReclaimedCoreUtilization    = 0
 	defaultMaxOversoldRate                = 1.2
 	defaultMaxHeadroomCapacityRate        = 1.
-	defaultNonReclaimUtilizationHigh      = 0.7
-	defaultNonReclaimUtilizationLow       = 0.6
 )
 
 type CPUHeadroomUtilBasedOptions struct {
@@ -38,8 +36,6 @@ type CPUHeadroomUtilBasedOptions struct {
 	MaxReclaimedCoreUtilization    float64
 	MaxOversoldRate                float64
 	MaxHeadroomCapacityRate        float64
-	NonReclaimUtilizationHigh      float64
-	NonReclaimUtilizationLow       float64
 }
 
 func NewCPUHeadroomUtilBasedOptions() *CPUHeadroomUtilBasedOptions {
@@ -49,8 +45,6 @@ func NewCPUHeadroomUtilBasedOptions() *CPUHeadroomUtilBasedOptions {
 		MaxReclaimedCoreUtilization:    defaultMaxReclaimedCoreUtilization,
 		MaxOversoldRate:                defaultMaxOversoldRate,
 		MaxHeadroomCapacityRate:        defaultMaxHeadroomCapacityRate,
-		NonReclaimUtilizationHigh:      defaultNonReclaimUtilizationHigh,
-		NonReclaimUtilizationLow:       defaultNonReclaimUtilizationLow,
 	}
 }
 
@@ -65,10 +59,6 @@ func (o *CPUHeadroomUtilBasedOptions) AddFlags(fs *pflag.FlagSet) {
 		"the max oversold rate of cpu headroom to the actual size of reclaimed_cores pool")
 	fs.Float64Var(&o.MaxHeadroomCapacityRate, "cpu-headroom-max-capacity-rate", o.MaxHeadroomCapacityRate,
 		"the max headroom capacity rate of cpu headroom to the total cpu capacity of node")
-	fs.Float64Var(&o.NonReclaimUtilizationHigh, "cpu-headroom-non-reclaim-utilization-high", o.NonReclaimUtilizationHigh,
-		"the high cpu utilization threshold")
-	fs.Float64Var(&o.NonReclaimUtilizationLow, "cpu-headroom-non-reclaim-utilization-low", o.NonReclaimUtilizationLow,
-		"the low cpu utilization threshold")
 }
 
 func (o *CPUHeadroomUtilBasedOptions) ApplyTo(c *cpuheadroom.CPUUtilBasedConfiguration) error {
@@ -77,7 +67,5 @@ func (o *CPUHeadroomUtilBasedOptions) ApplyTo(c *cpuheadroom.CPUUtilBasedConfigu
 	c.MaxReclaimedCoreUtilization = o.MaxReclaimedCoreUtilization
 	c.MaxOversoldRate = o.MaxOversoldRate
 	c.MaxHeadroomCapacityRate = o.MaxHeadroomCapacityRate
-	c.NonReclaimUtilizationHigh = o.NonReclaimUtilizationHigh
-	c.NonReclaimUtilizationLow = o.NonReclaimUtilizationLow
 	return nil
 }

@@ -546,10 +546,6 @@ func (p *StaticPolicy) clearResidualState(
 	_ metrics.MetricEmitter,
 	_ *metaserver.MetaServer,
 ) {
-	if p.GetState() == nil {
-		return
-	}
-
 	general.Infof("exec")
 	var (
 		err     error
@@ -563,6 +559,10 @@ func (p *StaticPolicy) clearResidualState(
 
 	if p.MetaServer == nil {
 		general.Errorf("nil metaServer")
+		return
+	}
+
+	if p.GetState() == nil {
 		return
 	}
 

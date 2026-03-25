@@ -158,12 +158,9 @@ func (p *gpuReporterPlugin) Stop() error {
 // GetReportContent implements ReporterPluginServer to report the gpu device topology information to CNR.
 func (p *gpuReporterPlugin) GetReportContent(_ context.Context, _ *v1alpha1.Empty) (*v1alpha1.GetReportContentResponse, error) {
 	// device topology is not updated yet, report the topology next time
-	deviceTopology, ready, err := p.deviceTopologyRegistry.GetDeviceTopology(gpuconsts.GPUDeviceType)
+	deviceTopology, err := p.deviceTopologyRegistry.GetDeviceTopology(gpuconsts.GPUDeviceType)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get device topology: %w", err)
-	}
-	if !ready {
-		return nil, fmt.Errorf("device topology is not ready yet")
 	}
 
 	resourceProperty := p.getGPUResourceProperty(deviceTopology)
@@ -188,7 +185,7 @@ func (p *gpuReporterPlugin) GetReportContent(_ context.Context, _ *v1alpha1.Empt
 	}
 
 	generatedTopologyZones := topologyZoneGenerator.GenerateTopologyZoneStatus(nil, nil,
-		zoneAttributes, nil, nil)
+		zoneAttributes, nil, nil, nil)
 
 	propertyValues, err := json.Marshal(&resourceProperty)
 	if err != nil {
