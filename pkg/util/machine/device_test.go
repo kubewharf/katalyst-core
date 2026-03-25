@@ -747,3 +747,73 @@ func TestDeviceTopologyRegistry_runAffinityProviders(t *testing.T) {
 
 	close(stopCh)
 }
+
+func TestDeviceTopologyRegistry_GetLatestDeviceTopology(t *testing.T) {
+	t.Parallel()
+
+	registry := NewDeviceTopologyRegistry()
+	gpu1Provider := NewDeviceTopologyProviderStub()
+	gpu2Provider := NewDeviceTopologyProviderStub()
+	registry.RegisterDeviceTopologyProvider("gpu-1", gpu1Provider)
+	registry.RegisterDeviceTopologyProvider("gpu-2", gpu2Provider)
+
+	topo1 := &DeviceTopology{
+		Devices: map[string]DeviceInfo{
+			"d1": {Health: "Unhealthy", NumaNodes: []int{0}},
+			"d2": {Health: "Healthy", NumaNodes: []int{1}},
+		},
+		PriorityDimensions: []string{"NUMA"},
+		UpdateTime:         100,
+	}
+	topo2 := &DeviceTopology{
+		Devices: map[string]DeviceInfo{
+			"d1": {Health: "Healthy", NumaNodes: []int{0}},
+			"d3": {Health: "Healthy", NumaNodes: []int{2}},
+		},
+		UpdateTime: 200,
+	}
+
+	_ = registry.SetDeviceTopology("gpu-1", topo1)
+	_ = registry.SetDeviceTopology("gpu-2", topo2)
+
+	tests := []struct {
+		name        string
+		deviceNames []string
+		expectedLen int
+		expectErr   bool
+		checkHealth map[string]string
+	}{
+		{
+			name:        "pick latest from two existing devices",
+			deviceNames: []string{"gpu-1", "gpu-2"},
+			expectedLen: 2, // Only topo2.Devices (d1, d3)
+			checkHealth: map[string]string{"d1": "Healthy", "d3": "Healthy"},
+		},
+		{
+			name:        "one device missing, pick existing one",
+			deviceNames: []string{"gpu-1", "non-existent"},
+			expectedLen: 2, // Only topo1.Devices (d1, d2)
+			checkHealth: map[string]string{"d1": "Unhealthy", "d2": "Healthy"},
+		},
+		{
+			name:        "all devices missing",
+			deviceNames: []string{"invalid-1", "invalid-2"},
+			expectErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			latest, err := registry.GetLatestDeviceTopology(tt.deviceNames)
+			if tt.expectErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Len(t, latest.Devices, tt.expectedLen)
+				for id, health := range tt.checkHealth {
+					assert.Equal(t, health, latest.Devices[id].Health)
+				}
+			}
+		})
+	}
+}

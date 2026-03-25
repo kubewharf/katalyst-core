@@ -19,6 +19,7 @@ package baseplugin
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
@@ -166,13 +167,14 @@ func (p *BasePlugin) PackAllocationResponse(
 	}, nil
 }
 
-// UpdateAllocatableAssociatedDevicesByDeviceType updates the topology provider with topology information of the
-// given device type.
-func (p *BasePlugin) UpdateAllocatableAssociatedDevicesByDeviceType(
-	request *pluginapi.UpdateAllocatableAssociatedDevicesRequest, deviceType string,
+// UpdateAllocatableAssociatedDevices updates the topology provider with topology information of the
+// given device request.
+func (p *BasePlugin) UpdateAllocatableAssociatedDevices(
+	request *pluginapi.UpdateAllocatableAssociatedDevicesRequest,
 ) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error) {
 	deviceTopology := &machine.DeviceTopology{
-		Devices: make(map[string]machine.DeviceInfo, len(request.Devices)),
+		Devices:    make(map[string]machine.DeviceInfo, len(request.Devices)),
+		UpdateTime: time.Now().UnixNano(),
 	}
 
 	for _, device := range request.Devices {
@@ -195,7 +197,8 @@ func (p *BasePlugin) UpdateAllocatableAssociatedDevicesByDeviceType(
 		}
 	}
 
-	err := p.DeviceTopologyRegistry.SetDeviceTopology(deviceType, deviceTopology)
+	// Store the device topology using the actual resource name from the request
+	err := p.DeviceTopologyRegistry.SetDeviceTopology(request.DeviceName, deviceTopology)
 	if err != nil {
 		general.Errorf("set device topology failed with error: %v", err)
 		return nil, fmt.Errorf("set device topology failed with error: %v", err)
@@ -254,9 +257,11 @@ func (p *BasePlugin) ResolveResourceName(resourceName string, fallback bool) str
 	return ""
 }
 
-// RegisterTopologyAffinityProvider is a hook to set device affinity for a certain device type
+// RegisterTopologyAffinityProvider is a hook to set device affinity for given device names
 func (p *BasePlugin) RegisterTopologyAffinityProvider(
-	deviceType string, deviceAffinityProvider machine.DeviceAffinityProvider,
+	deviceNames []string, deviceAffinityProvider machine.DeviceAffinityProvider,
 ) {
-	p.DeviceTopologyRegistry.RegisterTopologyAffinityProvider(deviceType, deviceAffinityProvider)
+	for _, deviceName := range deviceNames {
+		p.DeviceTopologyRegistry.RegisterTopologyAffinityProvider(deviceName, deviceAffinityProvider)
+	}
 }

@@ -27,10 +27,10 @@ import (
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-api/pkg/protocol/reporterplugin/v1alpha1"
-	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/global"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	metaagent "github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -955,9 +955,9 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 
 			topologyRegistry := machine.NewDeviceTopologyRegistry()
 			topologyProvider := machine.NewDeviceTopologyProvider()
-			topologyRegistry.RegisterDeviceTopologyProvider(gpuconsts.GPUDeviceType, topologyProvider)
+			topologyRegistry.RegisterDeviceTopologyProvider("test-gpu", topologyProvider)
 			if tt.deviceTopology != nil {
-				err := topologyRegistry.SetDeviceTopology(gpuconsts.GPUDeviceType, tt.deviceTopology)
+				err := topologyRegistry.SetDeviceTopology("test-gpu", tt.deviceTopology)
 				assert.NoError(t, err)
 			}
 
@@ -966,6 +966,13 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 					GenericAgentConfiguration: &agent.GenericAgentConfiguration{
 						PluginManagerConfiguration: &global.PluginManagerConfiguration{
 							PluginRegistrationDir: "test",
+						},
+					},
+					StaticAgentConfiguration: &agent.StaticAgentConfiguration{
+						QRMPluginsConfiguration: &qrm.QRMPluginsConfiguration{
+							GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{
+								GPUDeviceNames: []string{"test-gpu"},
+							},
 						},
 					},
 				},

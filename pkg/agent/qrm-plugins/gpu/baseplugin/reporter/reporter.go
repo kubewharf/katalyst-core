@@ -29,7 +29,6 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/plugins/registration"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-api/pkg/protocol/reporterplugin/v1alpha1"
-	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -82,12 +81,12 @@ func (r *gpuReporterImpl) Run(stopCh <-chan struct{}) {
 // gpuReporterPlugin is the plugin that reports gpu device topology information
 type gpuReporterPlugin struct {
 	sync.Mutex
-
 	started bool
 	ctx     context.Context
 	cancel  context.CancelFunc
 	emitter metrics.MetricEmitter
 
+	gpuDeviceNames         []string
 	numaSocketZoneNodeMap  map[util.ZoneNode]util.ZoneNode
 	deviceTopologyRegistry *machine.DeviceTopologyRegistry
 }
@@ -101,6 +100,7 @@ func newGPUReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.
 	conf *config.Configuration, topologyRegistry *machine.DeviceTopologyRegistry,
 ) (skeleton.GenericPlugin, error) {
 	reporter := &gpuReporterPlugin{
+		gpuDeviceNames:         conf.GPUDeviceNames,
 		numaSocketZoneNodeMap:  util.GenerateNumaSocketZone(metaServer.MachineInfo.Topology),
 		emitter:                emitter,
 		deviceTopologyRegistry: topologyRegistry,
@@ -157,10 +157,10 @@ func (p *gpuReporterPlugin) Stop() error {
 
 // GetReportContent implements ReporterPluginServer to report the gpu device topology information to CNR.
 func (p *gpuReporterPlugin) GetReportContent(_ context.Context, _ *v1alpha1.Empty) (*v1alpha1.GetReportContentResponse, error) {
-	// device topology is not updated yet, report the topology next time
-	deviceTopology, err := p.deviceTopologyRegistry.GetDeviceTopology(gpuconsts.GPUDeviceType)
+	// The reporter picks the latest topology from all configured GPU devices to report to CNR.
+	deviceTopology, err := p.deviceTopologyRegistry.GetLatestDeviceTopology(p.gpuDeviceNames)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get device topology: %w", err)
+		return nil, err
 	}
 
 	resourceProperty := p.getGPUResourceProperty(deviceTopology)

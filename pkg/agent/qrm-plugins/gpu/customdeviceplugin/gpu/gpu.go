@@ -47,10 +47,15 @@ type GPUDevicePlugin struct {
 }
 
 func NewGPUDevicePlugin(base *baseplugin.BasePlugin) customdeviceplugin.CustomDevicePlugin {
-	gpuTopologyProvider := machine.NewDeviceTopologyProvider()
-	base.DeviceTopologyRegistry.RegisterDeviceTopologyProvider(gpuconsts.GPUDeviceType, gpuTopologyProvider)
+	for _, deviceName := range base.Conf.GPUDeviceNames {
+		gpuTopologyProvider := machine.NewDeviceTopologyProvider()
+		base.DeviceTopologyRegistry.RegisterDeviceTopologyProvider(deviceName, gpuTopologyProvider)
+	}
+
+	// GPUDeviceType is the key used for state management in the QRM framework,
+	// while GPUDeviceNames are the actual resource names used to fetch the device topologies.
 	base.DefaultResourceStateGeneratorRegistry.RegisterResourceStateGenerator(gpuconsts.GPUDeviceType,
-		state.NewGenericDefaultResourceStateGenerator(gpuconsts.GPUDeviceType, base.DeviceTopologyRegistry))
+		state.NewGenericDefaultResourceStateGenerator(base.Conf.GPUDeviceNames, base.DeviceTopologyRegistry))
 	base.RegisterDeviceNameToType(base.Conf.GPUDeviceNames, gpuconsts.GPUDeviceType)
 
 	return &GPUDevicePlugin{
@@ -70,7 +75,7 @@ func (p *GPUDevicePlugin) DeviceNames() []string {
 func (p *GPUDevicePlugin) UpdateAllocatableAssociatedDevices(
 	ctx context.Context, request *pluginapi.UpdateAllocatableAssociatedDevicesRequest,
 ) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error) {
-	return p.UpdateAllocatableAssociatedDevicesByDeviceType(request, gpuconsts.GPUDeviceType)
+	return p.BasePlugin.UpdateAllocatableAssociatedDevices(request)
 }
 
 func (p *GPUDevicePlugin) GetAssociatedDeviceTopologyHints(
@@ -132,8 +137,8 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 			"podName", resReq.PodName,
 			"containerName", resReq.ContainerName)
 
-		// Get GPU topology
-		gpuTopology, err := p.DeviceTopologyRegistry.GetDeviceTopology(gpuconsts.GPUDeviceType)
+		// Get GPU topology using the specific device resource name
+		gpuTopology, err := p.DeviceTopologyRegistry.GetDeviceTopology(deviceReq.DeviceName)
 		if err != nil {
 			general.Warningf("failed to get gpu topology: %v", err)
 			return nil, fmt.Errorf("failed to get gpu topology: %w", err)
@@ -166,7 +171,7 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 		}
 	}
 
-	gpuTopology, err := p.DeviceTopologyRegistry.GetDeviceTopology(gpuconsts.GPUDeviceType)
+	gpuTopology, err := p.DeviceTopologyRegistry.GetDeviceTopology(deviceReq.DeviceName)
 	if err != nil {
 		general.Warningf("failed to get gpu topology: %v", err)
 		return nil, fmt.Errorf("failed to get gpu topology: %w", err)

@@ -31,7 +31,6 @@ import (
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/baseplugin"
-	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/customdeviceplugin"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/resourceplugin"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
@@ -53,6 +52,7 @@ func generateTestConfiguration(t *testing.T) *config.Configuration {
 	tmpDir := t.TempDir()
 	conf.QRMPluginSocketDirs = []string{tmpDir}
 	conf.CheckpointManagerDir = tmpDir
+	conf.GPUDeviceNames = []string{testResourcePluginName} // Add default device name for tests
 
 	return conf
 }
@@ -127,18 +127,8 @@ func makeTestStaticPolicy(t *testing.T) *StaticPolicy {
 	stateImpl, err := state.NewCheckpointState(conf.StateDirectoryConfiguration, conf.QRMPluginsConfiguration, "test", "test-policy", state.NewDefaultResourceStateGeneratorRegistry(), true, metrics.DummyMetrics{})
 	assert.NoError(t, err)
 
-	deviceTopologyRegistry := machine.NewDeviceTopologyRegistry()
-
-	basePlugin := &baseplugin.BasePlugin{
-		Conf:                                  conf,
-		Emitter:                               metrics.DummyMetrics{},
-		MetaServer:                            agentCtx.MetaServer,
-		AgentCtx:                              agentCtx,
-		PodAnnotationKeptKeys:                 []string{},
-		PodLabelKeptKeys:                      []string{},
-		DeviceTopologyRegistry:                deviceTopologyRegistry,
-		DefaultResourceStateGeneratorRegistry: state.NewDefaultResourceStateGeneratorRegistry(),
-	}
+	basePlugin, err := baseplugin.NewBasePlugin(agentCtx, conf, metrics.DummyMetrics{})
+	assert.NoError(t, err)
 
 	basePlugin.SetState(stateImpl)
 
@@ -165,7 +155,7 @@ func makeTestStaticPolicy(t *testing.T) *StaticPolicy {
 			},
 		},
 	}
-	err = staticPolicy.DeviceTopologyRegistry.SetDeviceTopology(gpuconsts.GPUDeviceType, testDeviceTopology)
+	err = staticPolicy.DeviceTopologyRegistry.SetDeviceTopology(testResourcePluginName, testDeviceTopology)
 	assert.NoError(t, err)
 
 	return staticPolicy
@@ -266,9 +256,8 @@ func TestStaticPolicy_RemovePod(t *testing.T) {
 	assert.NoError(t, err)
 
 	policy.DeviceTopologyRegistry.RegisterDeviceTopologyProvider(testResourcePluginName, deviceTopologyProviderStub)
-
 	policy.DefaultResourceStateGeneratorRegistry.RegisterResourceStateGenerator(testResourcePluginName,
-		state.NewGenericDefaultResourceStateGenerator(testResourcePluginName, policy.DeviceTopologyRegistry))
+		state.NewGenericDefaultResourceStateGenerator([]string{testResourcePluginName}, policy.DeviceTopologyRegistry))
 
 	testName := "test"
 	podUID := string(uuid.NewUUID())
@@ -832,7 +821,6 @@ func registerGeneratorWithTopology(t *testing.T, policy *StaticPolicy, resourceN
 	assert.NoError(t, err)
 
 	policy.DeviceTopologyRegistry.RegisterDeviceTopologyProvider(resourceName, deviceTopologyProviderStub)
-
 	policy.DefaultResourceStateGeneratorRegistry.RegisterResourceStateGenerator(resourceName,
-		state.NewGenericDefaultResourceStateGenerator(resourceName, policy.DeviceTopologyRegistry))
+		state.NewGenericDefaultResourceStateGenerator([]string{resourceName}, policy.DeviceTopologyRegistry))
 }

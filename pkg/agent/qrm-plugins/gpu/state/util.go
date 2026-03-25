@@ -103,15 +103,15 @@ func GenerateResourceStateFromPodEntries(
 }
 
 type genericDefaultResourceStateGenerator struct {
-	resourceName     string
+	deviceNames      []string
 	topologyRegistry *machine.DeviceTopologyRegistry
 }
 
 func NewGenericDefaultResourceStateGenerator(
-	resourceName string,
+	deviceNames []string,
 	topologyRegistry *machine.DeviceTopologyRegistry,
 ) DefaultResourceStateGenerator {
-	return &genericDefaultResourceStateGenerator{resourceName: resourceName, topologyRegistry: topologyRegistry}
+	return &genericDefaultResourceStateGenerator{deviceNames: deviceNames, topologyRegistry: topologyRegistry}
 }
 
 // GenerateDefaultResourceState return a default resource state by topology
@@ -124,13 +124,14 @@ func (g *genericDefaultResourceStateGenerator) GenerateDefaultResourceState() (A
 		return nil, fmt.Errorf("topology provider registry must not be nil")
 	}
 
-	topology, err := g.topologyRegistry.GetDeviceTopology(g.resourceName)
+	// We pick the latest topology from multiple device names to generate a single unified state
+	latestTopology, err := g.topologyRegistry.GetLatestDeviceTopology(g.deviceNames)
 	if err != nil {
-		return nil, fmt.Errorf("topology provider registry failed with error: %v", err)
+		return nil, fmt.Errorf("topology provider registry failed to get latest topology: %v", err)
 	}
 
 	resourceState := make(AllocationMap)
-	for deviceID := range topology.Devices {
+	for deviceID := range latestTopology.Devices {
 		resourceState[deviceID] = &AllocationState{
 			PodEntries: make(PodEntries),
 		}

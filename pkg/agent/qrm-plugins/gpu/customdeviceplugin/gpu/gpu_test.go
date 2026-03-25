@@ -152,7 +152,7 @@ func TestGPUDevicePlugin_UpdateAllocatableAssociatedDevices(t *testing.T) {
 
 	// Verify device topology is updated
 	gpuDevicePlugin := devicePlugin.(*GPUDevicePlugin)
-	deviceTopology, err := gpuDevicePlugin.DeviceTopologyRegistry.GetDeviceTopology(gpuconsts.GPUDeviceType)
+	deviceTopology, err := gpuDevicePlugin.DeviceTopologyRegistry.GetDeviceTopology("test-gpu")
 	assert.NoError(t, err)
 	assert.NotNil(t, deviceTopology)
 
@@ -313,7 +313,7 @@ func TestGPUDevicePlugin_AllocateAssociatedDevice(t *testing.T) {
 			}
 
 			if tt.deviceTopology != nil {
-				err := basePlugin.DeviceTopologyRegistry.SetDeviceTopology(gpuconsts.GPUDeviceType, tt.deviceTopology)
+				err := basePlugin.DeviceTopologyRegistry.SetDeviceTopology("test-gpu", tt.deviceTopology)
 				assert.NoError(t, err)
 			}
 
