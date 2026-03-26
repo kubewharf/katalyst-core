@@ -26,6 +26,7 @@ import (
 	_ "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu"
 	_ "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu"
 	_ "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/io"
+	_ "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb"
 	_ "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory"
 	_ "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/network"
 	_ "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/sriov"
@@ -59,6 +60,7 @@ func init() {
 	agentInitializers.Store(qrm.QRMPluginNameMemory, AgentStarter{Init: qrm.InitQRMMemoryPlugins})
 	agentInitializers.Store(qrm.QRMPluginNameNetwork, AgentStarter{Init: qrm.InitQRMNetworkPlugins})
 	agentInitializers.Store(qrm.QRMPluginNameIO, AgentStarter{Init: qrm.InitQRMIOPlugins})
+	agentInitializers.Store(qrm.QRMPluginNameMB, AgentStarter{Init: qrm.InitQRMMBPlugins})
 	agentInitializers.Store(qrm.QRMPluginNameGPU, AgentStarter{Init: qrm.InitQRMGPUPlugins})
 	agentInitializers.Store(qrm.QRMPluginNameSriov, AgentStarter{Init: qrm.InitQRMSriovPlugins})
 }
