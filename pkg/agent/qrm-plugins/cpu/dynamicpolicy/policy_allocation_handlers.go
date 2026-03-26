@@ -494,6 +494,11 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingAllocationHandler(ctx conte
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
 	}
+
+	if err := AccompanyResourceRegistry.AllocateAccompanyResource(req, resp); err != nil {
+		return nil, fmt.Errorf("accompany resource AugmentAllocationResult failed with error: %v", err)
+	}
+
 	return resp, nil
 }
 
@@ -586,6 +591,11 @@ func (p *DynamicPolicy) sharedCoresWithNUMABindingAllocationHandler(ctx context.
 			req.PodNamespace, req.PodName, req.ContainerName, err)
 		return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
 	}
+
+	if err := AccompanyResourceRegistry.AllocateAccompanyResource(req, resp); err != nil {
+		return nil, fmt.Errorf("accompany resource AugmentAllocationResult failed with error: %v", err)
+	}
+
 	return resp, nil
 }
 
