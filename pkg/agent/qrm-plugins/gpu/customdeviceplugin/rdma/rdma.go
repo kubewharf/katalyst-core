@@ -41,10 +41,15 @@ type RDMADevicePlugin struct {
 }
 
 func NewRDMADevicePlugin(base *baseplugin.BasePlugin) customdeviceplugin.CustomDevicePlugin {
-	rdmaTopologyProvider := machine.NewDeviceTopologyProvider(base.Conf.RDMADeviceNames)
-	base.DeviceTopologyRegistry.RegisterDeviceTopologyProvider(gpuconsts.RDMADeviceType, rdmaTopologyProvider)
+	for _, deviceName := range base.Conf.RDMADeviceNames {
+		rdmaTopologyProvider := machine.NewDeviceTopologyProvider()
+		base.DeviceTopologyRegistry.RegisterDeviceTopologyProvider(deviceName, rdmaTopologyProvider)
+	}
+
+	// RDMADeviceType is the key used for RDMA state management in the QRM framework,
+	// while RDMADeviceNames are the actual resource names used to fetch the RDMA device topologies
 	base.DefaultResourceStateGeneratorRegistry.RegisterResourceStateGenerator(gpuconsts.RDMADeviceType,
-		state.NewGenericDefaultResourceStateGenerator(gpuconsts.RDMADeviceType, base.DeviceTopologyRegistry))
+		state.NewGenericDefaultResourceStateGenerator(base.Conf.RDMADeviceNames, base.DeviceTopologyRegistry))
 	base.RegisterDeviceNameToType(base.Conf.RDMADeviceNames, gpuconsts.RDMADeviceType)
 
 	return &RDMADevicePlugin{
@@ -62,7 +67,7 @@ func (p *RDMADevicePlugin) DeviceNames() []string {
 }
 
 func (p *RDMADevicePlugin) UpdateAllocatableAssociatedDevices(ctx context.Context, request *pluginapi.UpdateAllocatableAssociatedDevicesRequest) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error) {
-	return p.UpdateAllocatableAssociatedDevicesByDeviceType(request, gpuconsts.RDMADeviceType)
+	return p.BasePlugin.UpdateAllocatableAssociatedDevices(request)
 }
 
 func (p *RDMADevicePlugin) GetAssociatedDeviceTopologyHints(context.Context, *pluginapi.AssociatedDeviceRequest) (*pluginapi.AssociatedDeviceHintsResponse, error) {
@@ -110,7 +115,8 @@ func (p *RDMADevicePlugin) AllocateAssociatedDevice(
 		}, nil
 	}
 
-	rdmaTopology, _, err := p.DeviceTopologyRegistry.GetDeviceTopology(gpuconsts.RDMADeviceType)
+	rdmaDeviceName := deviceReq.DeviceName
+	rdmaTopology, err := p.DeviceTopologyRegistry.GetDeviceTopology(rdmaDeviceName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get gpu device topology: %v", err)
 	}
@@ -120,8 +126,6 @@ func (p *RDMADevicePlugin) AllocateAssociatedDevice(
 		general.Warningf("failed to get hint nodes: %v", err)
 		return nil, err
 	}
-
-	accompanyResourceName = p.ResolveResourceName(accompanyResourceName, false)
 
 	// Use strategy framework to allocate RDMA devices
 	result, err := manager.AllocateDevicesUsingStrategy(
@@ -133,7 +137,7 @@ func (p *RDMADevicePlugin) AllocateAssociatedDevice(
 		p.MetaServer,
 		p.GetState().GetMachineState(),
 		qosLevel,
-		gpuconsts.RDMADeviceType,
+		rdmaDeviceName,
 		accompanyResourceName,
 	)
 	if err != nil {

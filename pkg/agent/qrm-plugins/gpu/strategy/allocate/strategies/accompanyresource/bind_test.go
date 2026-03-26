@@ -574,8 +574,8 @@ func buildSimpleAffinityRegistry(rdmaToGPU map[string][]string) *machine.DeviceT
 	reg := machine.NewDeviceTopologyRegistry()
 
 	// Register topology providers for both devices
-	reg.RegisterDeviceTopologyProvider("rdma", machine.NewDeviceTopologyProvider([]string{"rdma"}))
-	reg.RegisterDeviceTopologyProvider("gpu", machine.NewDeviceTopologyProvider([]string{"gpu"}))
+	reg.RegisterDeviceTopologyProvider("rdma", machine.NewDeviceTopologyProvider())
+	reg.RegisterDeviceTopologyProvider("gpu", machine.NewDeviceTopologyProvider())
 
 	// Construct RDMA topology
 	rdmaTopo := &machine.DeviceTopology{Devices: map[string]machine.DeviceInfo{}}
@@ -614,8 +614,8 @@ func buildSimpleAffinityRegistry(rdmaToGPU map[string][]string) *machine.DeviceT
 func buildMultiPriorityAffinityRegistry(cfg map[string]map[int][]string) *machine.DeviceTopologyRegistry {
 	reg := machine.NewDeviceTopologyRegistry()
 
-	reg.RegisterDeviceTopologyProvider("rdma", machine.NewDeviceTopologyProvider([]string{"rdma"}))
-	reg.RegisterDeviceTopologyProvider("gpu", machine.NewDeviceTopologyProvider([]string{"gpu"}))
+	reg.RegisterDeviceTopologyProvider("rdma", machine.NewDeviceTopologyProvider())
+	reg.RegisterDeviceTopologyProvider("gpu", machine.NewDeviceTopologyProvider())
 
 	rdmaTopo := &machine.DeviceTopology{Devices: map[string]machine.DeviceInfo{}}
 	for rdmaID, prios := range cfg {
@@ -652,8 +652,8 @@ func buildMultiPriorityAffinityRegistry(cfg map[string]map[int][]string) *machin
 func buildNoAffinityRegistry() *machine.DeviceTopologyRegistry {
 	reg := machine.NewDeviceTopologyRegistry()
 
-	reg.RegisterDeviceTopologyProvider("rdma", machine.NewDeviceTopologyProvider([]string{"rdma"}))
-	reg.RegisterDeviceTopologyProvider("gpu", machine.NewDeviceTopologyProvider([]string{"gpu"}))
+	reg.RegisterDeviceTopologyProvider("rdma", machine.NewDeviceTopologyProvider())
+	reg.RegisterDeviceTopologyProvider("gpu", machine.NewDeviceTopologyProvider())
 
 	// RDMA devices use dimension "rdma_link"
 	rdmaTopo := &machine.DeviceTopology{Devices: map[string]machine.DeviceInfo{}}

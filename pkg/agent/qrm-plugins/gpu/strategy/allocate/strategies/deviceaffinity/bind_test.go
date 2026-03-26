@@ -2318,13 +2318,13 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					ReusableDevices: nil,
 					DeviceRequest:   2,
 				},
-				DeviceTopology: &machine.DeviceTopology{
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {},
-						"gpu-2": {},
-						"gpu-3": {},
-						"gpu-4": {},
-					},
+			},
+			topology: &machine.DeviceTopology{
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {},
+					"gpu-2": {},
+					"gpu-3": {},
+					"gpu-4": {},
 				},
 			},
 			sortedDevices: []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4"},
@@ -2345,13 +2345,13 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					ReusableDevices: []string{"gpu-1", "gpu-2"},
 					DeviceRequest:   2,
 				},
-				DeviceTopology: &machine.DeviceTopology{
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {},
-						"gpu-2": {},
-						"gpu-3": {},
-						"gpu-4": {},
-					},
+			},
+			topology: &machine.DeviceTopology{
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {},
+					"gpu-2": {},
+					"gpu-3": {},
+					"gpu-4": {},
 				},
 			},
 			sortedDevices: []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4"},
@@ -2369,12 +2369,14 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 			// Setup topology registry when a topology is provided
 			if tt.topology != nil {
 				reg := machine.NewDeviceTopologyRegistry()
-				reg.RegisterDeviceTopologyProvider(consts.GPUDeviceType, machine.NewDeviceTopologyProvider([]string{"gpu"}))
+				reg.RegisterDeviceTopologyProvider(consts.GPUDeviceType, machine.NewDeviceTopologyProvider())
 				_ = reg.SetDeviceTopology(consts.GPUDeviceType, tt.topology)
 				if tt.ctx == nil {
 					tt.ctx = &allocate.AllocationContext{}
 				}
 				tt.ctx.DeviceTopologyRegistry = reg
+				// Ensure ResourceName matches the registered provider device type
+				tt.ctx.ResourceName = consts.GPUDeviceType
 			}
 			deviceBindingStrategy := NewDeviceAffinityStrategy()
 			tt.ctx.Emitter = metrics.DummyMetrics{}
@@ -2834,12 +2836,14 @@ func TestBind_DeviceAffinity(t *testing.T) {
 			t.Parallel()
 			if tt.topology != nil {
 				reg := machine.NewDeviceTopologyRegistry()
-				reg.RegisterDeviceTopologyProvider(consts.GPUDeviceType, machine.NewDeviceTopologyProvider([]string{"gpu"}))
+				reg.RegisterDeviceTopologyProvider(consts.GPUDeviceType, machine.NewDeviceTopologyProvider())
 				_ = reg.SetDeviceTopology(consts.GPUDeviceType, tt.topology)
 				if tt.ctx == nil {
 					tt.ctx = &allocate.AllocationContext{}
 				}
 				tt.ctx.DeviceTopologyRegistry = reg
+				// Ensure ResourceName matches the registered provider device type
+				tt.ctx.ResourceName = consts.GPUDeviceType
 			}
 			deviceBindingStrategy := NewDeviceAffinityStrategy()
 			tt.ctx.Emitter = metrics.DummyMetrics{}
