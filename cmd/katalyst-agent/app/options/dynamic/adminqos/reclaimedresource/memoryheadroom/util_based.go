@@ -27,6 +27,7 @@ const (
 	defaultFreeBasedRatio      = 0.6
 	defaultStaticBasedCapacity = 20 << 30 // 20GB
 	defaultCacheBasedRatio     = 0
+	defaultRequestBasedRatio   = 0.1
 	defaultMaxOversoldRate     = 2.0
 )
 
@@ -35,6 +36,7 @@ type UtilBasedOptions struct {
 	FreeBasedRatio      float64
 	StaticBasedCapacity float64
 	CacheBasedRatio     float64
+	RequestBasedRatio   float64
 	MaxOversoldRate     float64
 }
 
@@ -44,6 +46,7 @@ func NewUtilBasedOptions() *UtilBasedOptions {
 		FreeBasedRatio:      defaultFreeBasedRatio,
 		StaticBasedCapacity: defaultStaticBasedCapacity,
 		CacheBasedRatio:     defaultCacheBasedRatio,
+		RequestBasedRatio:   defaultRequestBasedRatio,
 		MaxOversoldRate:     defaultMaxOversoldRate,
 	}
 }
@@ -57,6 +60,8 @@ func (o *UtilBasedOptions) AddFlags(fs *pflag.FlagSet) {
 		"the static oversold memory size by bytes")
 	fs.Float64Var(&o.CacheBasedRatio, "memory-headroom-cache-based-ratio", o.CacheBasedRatio,
 		"the rate of cache oversold, 0 means disable cache oversold")
+	fs.Float64Var(&o.RequestBasedRatio, "memory-headroom-request-based-ratio", o.RequestBasedRatio,
+		"the rate of reserved memory for request, 0 means disable reserved memory")
 	fs.Float64Var(&o.MaxOversoldRate, "memory-headroom-max-oversold-rate", o.MaxOversoldRate,
 		"the max oversold rate of memory headroom to the memory limit of reclaimed_cores cgroup")
 }
@@ -66,6 +71,7 @@ func (o *UtilBasedOptions) ApplyTo(c *memoryheadroom.MemoryUtilBasedConfiguratio
 	c.FreeBasedRatio = o.FreeBasedRatio
 	c.StaticBasedCapacity = o.StaticBasedCapacity
 	c.CacheBasedRatio = o.CacheBasedRatio
+	c.RequestBasedRatio = o.RequestBasedRatio
 	c.MaxOversoldRate = o.MaxOversoldRate
 	return nil
 }

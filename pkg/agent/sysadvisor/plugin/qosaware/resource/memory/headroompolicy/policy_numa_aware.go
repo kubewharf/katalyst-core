@@ -92,6 +92,12 @@ func (p *PolicyNUMAAware) Update() (err error) {
 		return err
 	}
 
+	nonReclaimedCoresContainers, err := helper.GetNonReclaimedCoresContainers(p.metaReader, p.metaServer)
+	if err != nil {
+		general.Errorf("GetNonReclaimedCoresContainers failed: %v", err)
+		return err
+	}
+
 	numaReclaimableMemory = make(map[int]float64)
 	for _, numaID := range availNUMAs.ToSliceInt() {
 		data, err = p.metaServer.GetNumaMetric(numaID, consts.MetricMemFreeNuma)
@@ -129,16 +135,6 @@ func (p *PolicyNUMAAware) Update() (err error) {
 		numaReclaimableMemory[numaID] = numaReclaimable
 	}
 
-	for _, container := range reclaimedCoresContainers {
-		if container.MemoryRequest > 0 && len(container.TopologyAwareAssignments) > 0 {
-			reclaimableMemory += container.MemoryRequest
-			reclaimableMemoryPerNuma := container.MemoryRequest / float64(len(container.TopologyAwareAssignments))
-			for numaID := range container.TopologyAwareAssignments {
-				numaReclaimableMemory[numaID] += reclaimableMemoryPerNuma
-			}
-		}
-	}
-
 	watermarkScaleFactor, err := p.metaServer.GetNodeMetric(consts.MetricMemScaleFactorSystem)
 	if err != nil {
 		general.Infof("Can not get system watermark scale factor: %v", err)
@@ -148,18 +144,72 @@ func (p *PolicyNUMAAware) Update() (err error) {
 	// reserve memory for watermark_scale_factor to make kswapd less happened
 	systemWatermarkReserved := availNUMATotal * watermarkScaleFactor.Value / 10000
 
-	memoryHeadroom := math.Max(reclaimableMemory-systemWatermarkReserved-reservedForAllocate, 0)
-	reduceRatio := 0.0
-	if reclaimableMemory > 0 {
-		reduceRatio = memoryHeadroom / reclaimableMemory
+	totalReclaimMemoryRequest := 0.0
+	totalReclaimMemoryUsage := 0.0
+	for _, container := range reclaimedCoresContainers {
+		if container.MemoryRequest > 0 && len(container.TopologyAwareAssignments) > 0 {
+			// Get container memory usage
+			memUsage, errMem := p.metaServer.GetContainerMetric(container.PodUID, container.ContainerName, consts.MetricMemUsageContainer)
+			if errMem != nil {
+				general.Infof("Can not get container memory usage, podUID: %v, containerName: %v, %v", container.PodUID, container.ContainerName, errMem)
+				// If get memory usage failed, use MemoryRequest
+				memUsage.Value = container.MemoryRequest
+			}
+			totalReclaimMemoryRequest += container.MemoryRequest
+			totalReclaimMemoryUsage += memUsage.Value
+		}
+	}
+	requestRatio := 1.0
+	if totalReclaimMemoryUsage > 0 {
+		requestRatio = totalReclaimMemoryRequest / totalReclaimMemoryUsage
 	}
 
+	totalNonReclaimMemoryRequest := 0.0
+	totalNonReclaimMemoryUsage := 0.0
+	for _, container := range nonReclaimedCoresContainers {
+		if container.MemoryRequest > 0 {
+			memUsage, errMem := p.metaServer.GetContainerMetric(container.PodUID, container.ContainerName, consts.MetricMemUsageContainer)
+			if errMem != nil {
+				general.Infof("Can not get container memory usage, podUID: %v, containerName: %v, %v", container.PodUID, container.ContainerName, errMem)
+				memUsage.Value = container.MemoryRequest
+			}
+			totalNonReclaimMemoryRequest += container.MemoryRequest
+			totalNonReclaimMemoryUsage += memUsage.Value
+		}
+	}
+	nonReclaimedReservedRatio := 0.0
+	if totalReclaimMemoryUsage+totalNonReclaimMemoryUsage > 0 {
+		nonReclaimedReservedRaw := math.Min(totalNonReclaimMemoryRequest-totalNonReclaimMemoryUsage, totalNonReclaimMemoryRequest*dynamicConfig.RequestBasedRatio)
+		nonReclaimedReservedRatio = math.Max(nonReclaimedReservedRaw/(totalReclaimMemoryUsage+totalNonReclaimMemoryUsage), 0)
+	}
+	nonReclaimedReserved := math.Max((availNUMATotal-reclaimableMemory)*nonReclaimedReservedRatio, 0)
+
+	availMemory := math.Max(reclaimableMemory-systemWatermarkReserved-reservedForAllocate-nonReclaimedReserved, 0)
+	reclaimableToAvailRatio := 0.0
+	if reclaimableMemory > 0 {
+		reclaimableToAvailRatio = availMemory / reclaimableMemory
+	}
+
+	// convert reclaimable memory to memory headroom
 	allNUMAs := p.metaServer.CPUDetails.NUMANodes().ToSliceInt()
 	numaHeadroom := make(map[int]float64, len(allNUMAs))
 	totalNUMAHeadroom := 0.0
 	for numaID := range numaReclaimableMemory {
-		numaHeadroom[numaID] = numaReclaimableMemory[numaID] * reduceRatio
+		numaHeadroom[numaID] = numaReclaimableMemory[numaID] * reclaimableToAvailRatio * requestRatio
 		totalNUMAHeadroom += numaHeadroom[numaID]
+	}
+
+	for _, container := range reclaimedCoresContainers {
+		if container.MemoryRequest > 0 && len(container.TopologyAwareAssignments) > 0 {
+			totalNUMAHeadroom += container.MemoryRequest
+			headroomPerNuma := container.MemoryRequest / float64(len(container.TopologyAwareAssignments))
+			for numaID := range container.TopologyAwareAssignments {
+				numaHeadroom[numaID] += headroomPerNuma
+			}
+		}
+	}
+
+	for numaID := range numaHeadroom {
 		general.InfoS("numa memory headroom", "NUMA-ID", numaID, "headroom", general.FormatMemoryQuantity(numaHeadroom[numaID]))
 	}
 
@@ -185,12 +235,17 @@ func (p *PolicyNUMAAware) Update() (err error) {
 
 	general.InfoS("total memory reclaimable",
 		"reclaimableMemory", general.FormatMemoryQuantity(reclaimableMemory),
-		"memoryHeadroom", general.FormatMemoryQuantity(memoryHeadroom),
+		"availMemory", general.FormatMemoryQuantity(availMemory),
 		"ResourceUpperBound", general.FormatMemoryQuantity(p.essentials.ResourceUpperBound),
 		"systemWatermarkReserved", general.FormatMemoryQuantity(systemWatermarkReserved),
 		"reservedForAllocate", general.FormatMemoryQuantity(reservedForAllocate),
 		"totalNUMAHeadroom", general.FormatMemoryQuantity(totalNUMAHeadroom),
 		"numaHeadroom", numaHeadroom,
+		"totalReclaimMemoryRequest", general.FormatMemoryQuantity(totalReclaimMemoryRequest),
+		"totalReclaimMemoryUsage", general.FormatMemoryQuantity(totalReclaimMemoryUsage),
+		"totalNonReclaimMemoryRequest", general.FormatMemoryQuantity(totalNonReclaimMemoryRequest),
+		"totalNonReclaimMemoryUsage", general.FormatMemoryQuantity(totalNonReclaimMemoryUsage),
+		"requestRatio", requestRatio,
 	)
 	return nil
 }

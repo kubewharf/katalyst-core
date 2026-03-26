@@ -18,6 +18,7 @@ package helper
 
 import (
 	"reflect"
+	"sort"
 	"testing"
 
 	info "github.com/google/cadvisor/info/v1"
@@ -696,6 +697,457 @@ func TestGetActualNUMABindingNUMAsForReclaimedCores(t *testing.T) {
 
 			if !reflect.DeepEqual(gotNUMAs, tt.wantNUMAs) {
 				t.Errorf("GetActualNUMABindingNUMAsForReclaimedCores() = %v, want %v", gotNUMAs, tt.wantNUMAs)
+			}
+		})
+	}
+}
+
+func TestGetNonReclaimedCoresContainers(t *testing.T) {
+	t.Parallel()
+
+	containerInfoDedicatedCores := makeContainerInfo("pod0", "default",
+		"pod0", "container0",
+		consts.PodAnnotationQoSLevelDedicatedCores, map[string]string{
+			consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+			consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+		},
+		types.TopologyAwareAssignment{
+			0: machine.NewCPUSet(0),
+		}, 30<<30)
+
+	containerInfoSharedCores := makeContainerInfo("pod1", "default",
+		"pod1", "container1",
+		consts.PodAnnotationQoSLevelSharedCores, nil,
+		nil, 20<<30)
+
+	containerInfoReclaimedCores := makeContainerInfo("pod2", "default",
+		"pod2", "container2",
+		consts.PodAnnotationQoSLevelReclaimedCores, nil,
+		nil, 20<<30)
+
+	containerInfoSystemCores := makeContainerInfo("pod3", "default",
+		"pod3", "container3",
+		consts.PodAnnotationQoSLevelSystemCores, nil,
+		nil, 10<<30)
+
+	containerInfoDedicatedCores2 := makeContainerInfo("pod4", "default",
+		"pod4", "container4",
+		consts.PodAnnotationQoSLevelDedicatedCores, map[string]string{
+			consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+			consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+		},
+		types.TopologyAwareAssignment{
+			1: machine.NewCPUSet(24),
+		}, 30<<30)
+
+	tests := []struct {
+		name           string
+		podList        []*v1.Pod
+		containerInfos []*types.ContainerInfo
+		wantContainers []*types.ContainerInfo
+		wantErr        bool
+	}{
+		{
+			name:           "No containers",
+			podList:        nil,
+			containerInfos: nil,
+			wantContainers: []*types.ContainerInfo{},
+			wantErr:        false,
+		},
+		{
+			name: "Only reclaimed cores containers",
+			podList: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod2",
+						Namespace: "default",
+						UID:       "pod2",
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{Name: "container2"},
+						},
+					},
+					Status: v1.PodStatus{
+						Phase: v1.PodRunning,
+						ContainerStatuses: []v1.ContainerStatus{
+							{Name: "container2", ContainerID: "container2"},
+						},
+					},
+				},
+			},
+			containerInfos: []*types.ContainerInfo{containerInfoReclaimedCores},
+			wantContainers: []*types.ContainerInfo{},
+			wantErr:        false,
+		},
+		{
+			name: "One dedicated cores container with active pod",
+			podList: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod0",
+						Namespace: "default",
+						UID:       "pod0",
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{Name: "container0"},
+						},
+					},
+					Status: v1.PodStatus{
+						Phase: v1.PodRunning,
+						ContainerStatuses: []v1.ContainerStatus{
+							{Name: "container0", ContainerID: "container0"},
+						},
+					},
+				},
+			},
+			containerInfos: []*types.ContainerInfo{containerInfoDedicatedCores},
+			wantContainers: []*types.ContainerInfo{containerInfoDedicatedCores},
+			wantErr:        false,
+		},
+		{
+			name: "One shared cores container with active pod",
+			podList: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod1",
+						Namespace: "default",
+						UID:       "pod1",
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{Name: "container1"},
+						},
+					},
+					Status: v1.PodStatus{
+						Phase: v1.PodRunning,
+						ContainerStatuses: []v1.ContainerStatus{
+							{Name: "container1", ContainerID: "container1"},
+						},
+					},
+				},
+			},
+			containerInfos: []*types.ContainerInfo{containerInfoSharedCores},
+			wantContainers: []*types.ContainerInfo{containerInfoSharedCores},
+			wantErr:        false,
+		},
+		{
+			name: "One system cores container with active pod",
+			podList: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod3",
+						Namespace: "default",
+						UID:       "pod3",
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{Name: "container3"},
+						},
+					},
+					Status: v1.PodStatus{
+						Phase: v1.PodRunning,
+						ContainerStatuses: []v1.ContainerStatus{
+							{Name: "container3", ContainerID: "container3"},
+						},
+					},
+				},
+			},
+			containerInfos: []*types.ContainerInfo{containerInfoSystemCores},
+			wantContainers: []*types.ContainerInfo{containerInfoSystemCores},
+			wantErr:        false,
+		},
+		{
+			name: "Non-reclaimed container with failed pod",
+			podList: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod0",
+						Namespace: "default",
+						UID:       "pod0",
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{Name: "container0"},
+						},
+					},
+					Status: v1.PodStatus{
+						Phase: v1.PodFailed,
+						ContainerStatuses: []v1.ContainerStatus{
+							{Name: "container0", ContainerID: "container0"},
+						},
+					},
+				},
+			},
+			containerInfos: []*types.ContainerInfo{containerInfoDedicatedCores},
+			wantContainers: []*types.ContainerInfo{},
+			wantErr:        false,
+		},
+		{
+			name: "Non-reclaimed container with succeeded pod",
+			podList: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod0",
+						Namespace: "default",
+						UID:       "pod0",
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{Name: "container0"},
+						},
+					},
+					Status: v1.PodStatus{
+						Phase: v1.PodSucceeded,
+						ContainerStatuses: []v1.ContainerStatus{
+							{Name: "container0", ContainerID: "container0"},
+						},
+					},
+				},
+			},
+			containerInfos: []*types.ContainerInfo{containerInfoDedicatedCores},
+			wantContainers: []*types.ContainerInfo{},
+			wantErr:        false,
+		},
+		{
+			name: "Mixed containers with active pods",
+			podList: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod0",
+						Namespace: "default",
+						UID:       "pod0",
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{Name: "container0"},
+						},
+					},
+					Status: v1.PodStatus{
+						Phase: v1.PodRunning,
+						ContainerStatuses: []v1.ContainerStatus{
+							{Name: "container0", ContainerID: "container0"},
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod1",
+						Namespace: "default",
+						UID:       "pod1",
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{Name: "container1"},
+						},
+					},
+					Status: v1.PodStatus{
+						Phase: v1.PodRunning,
+						ContainerStatuses: []v1.ContainerStatus{
+							{Name: "container1", ContainerID: "container1"},
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod2",
+						Namespace: "default",
+						UID:       "pod2",
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{Name: "container2"},
+						},
+					},
+					Status: v1.PodStatus{
+						Phase: v1.PodRunning,
+						ContainerStatuses: []v1.ContainerStatus{
+							{Name: "container2", ContainerID: "container2"},
+						},
+					},
+				},
+			},
+			containerInfos: []*types.ContainerInfo{
+				containerInfoDedicatedCores,
+				containerInfoSharedCores,
+				containerInfoReclaimedCores,
+			},
+			wantContainers: []*types.ContainerInfo{
+				containerInfoDedicatedCores,
+				containerInfoSharedCores,
+			},
+			wantErr: false,
+		},
+		{
+			name: "Multiple non-reclaimed containers with active pods",
+			podList: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod0",
+						Namespace: "default",
+						UID:       "pod0",
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{Name: "container0"},
+						},
+					},
+					Status: v1.PodStatus{
+						Phase: v1.PodRunning,
+						ContainerStatuses: []v1.ContainerStatus{
+							{Name: "container0", ContainerID: "container0"},
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod4",
+						Namespace: "default",
+						UID:       "pod4",
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{Name: "container4"},
+						},
+					},
+					Status: v1.PodStatus{
+						Phase: v1.PodRunning,
+						ContainerStatuses: []v1.ContainerStatus{
+							{Name: "container4", ContainerID: "container4"},
+						},
+					},
+				},
+			},
+			containerInfos: []*types.ContainerInfo{
+				containerInfoDedicatedCores,
+				containerInfoDedicatedCores2,
+			},
+			wantContainers: []*types.ContainerInfo{
+				containerInfoDedicatedCores,
+				containerInfoDedicatedCores2,
+			},
+			wantErr: false,
+		},
+		{
+			name:           "Non-reclaimed container with pod not found",
+			podList:        []*v1.Pod{},
+			containerInfos: []*types.ContainerInfo{containerInfoDedicatedCores},
+			wantContainers: nil,
+			wantErr:        true,
+		},
+		{
+			name: "Mixed containers with some inactive pods",
+			podList: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod0",
+						Namespace: "default",
+						UID:       "pod0",
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{Name: "container0"},
+						},
+					},
+					Status: v1.PodStatus{
+						Phase: v1.PodRunning,
+						ContainerStatuses: []v1.ContainerStatus{
+							{Name: "container0", ContainerID: "container0"},
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "pod1",
+						Namespace: "default",
+						UID:       "pod1",
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{Name: "container1"},
+						},
+					},
+					Status: v1.PodStatus{
+						Phase: v1.PodFailed,
+						ContainerStatuses: []v1.ContainerStatus{
+							{Name: "container1", ContainerID: "container1"},
+						},
+					},
+				},
+			},
+			containerInfos: []*types.ContainerInfo{
+				containerInfoDedicatedCores,
+				containerInfoSharedCores,
+			},
+			wantContainers: []*types.ContainerInfo{containerInfoDedicatedCores},
+			wantErr:        false,
+		},
+		{
+			name: "Non-reclaimed container with deleted pod",
+			podList: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:              "pod0",
+						Namespace:         "default",
+						UID:               "pod0",
+						DeletionTimestamp: &metav1.Time{},
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{Name: "container0"},
+						},
+					},
+					Status: v1.PodStatus{
+						Phase: v1.PodRunning,
+						ContainerStatuses: []v1.ContainerStatus{
+							{Name: "container0", ContainerID: "container0", State: v1.ContainerState{
+								Terminated: &v1.ContainerStateTerminated{},
+							}},
+						},
+					},
+				},
+			},
+			containerInfos: []*types.ContainerInfo{containerInfoDedicatedCores},
+			wantContainers: []*types.ContainerInfo{},
+			wantErr:        false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			conf := generateTestConfiguration(t, "/tmp/checkpoint", "/tmp/statefile")
+			metricsFetcher := metric.NewFakeMetricsFetcher(metrics.DummyMetrics{})
+			metaServer := generateTestMetaServer(t, tt.podList, metricsFetcher)
+			metaReader, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metricsFetcher)
+			require.NoError(t, err)
+			err = metaReader.ClearContainers()
+			require.NoError(t, err)
+
+			for _, info := range tt.containerInfos {
+				err := metaReader.SetContainerInfo(info.PodUID, info.ContainerName, info)
+				assert.NoError(t, err)
+			}
+
+			gotContainers, err := GetNonReclaimedCoresContainers(metaReader, metaServer)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetNonReclaimedCoresContainers() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			sortSlice := func(cs []*types.ContainerInfo) {
+				sort.Slice(cs, func(i, j int) bool {
+					return cs[i].PodUID < cs[j].PodUID
+				})
+			}
+			sortSlice(gotContainers)
+			sortSlice(tt.wantContainers)
+
+			if !apiequality.Semantic.DeepEqual(gotContainers, tt.wantContainers) {
+				t.Errorf("GetNonReclaimedCoresContainers() = %v, want %v", gotContainers, tt.wantContainers)
 			}
 		})
 	}

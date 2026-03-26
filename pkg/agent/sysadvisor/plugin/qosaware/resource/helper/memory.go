@@ -148,6 +148,39 @@ func reclaimedContainersFilter(ci *types.ContainerInfo) bool {
 	return ci != nil && ci.QoSLevel == apiconsts.PodAnnotationQoSLevelReclaimedCores
 }
 
+func nonReclaimedCoresContainersFilter(ci *types.ContainerInfo) bool {
+	return ci != nil && ci.QoSLevel != apiconsts.PodAnnotationQoSLevelReclaimedCores
+}
+
+func GetNonReclaimedCoresContainers(metaReader metacache.MetaReader, metaServer *metaserver.MetaServer) ([]*types.ContainerInfo, error) {
+	var errList []error
+
+	nonReclaimedCoresContainers := make([]*types.ContainerInfo, 0)
+
+	metaReader.RangeContainer(func(podUID string, containerName string, containerInfo *types.ContainerInfo) bool {
+		if nonReclaimedCoresContainersFilter(containerInfo) {
+			ctx := context.Background()
+			pod, err := metaServer.GetPod(ctx, podUID)
+			if err != nil {
+				errList = append(errList, err)
+				return true
+			}
+
+			if native.PodIsActive(pod) {
+				nonReclaimedCoresContainers = append(nonReclaimedCoresContainers, containerInfo)
+			}
+		}
+		return true
+	})
+
+	err := errors.NewAggregate(errList)
+	if err != nil {
+		return nil, err
+	}
+
+	return nonReclaimedCoresContainers, nil
+}
+
 // GetActualNUMABindingNUMAsForReclaimedCores gets the actual numa binding numas according to the pod annotation
 // if numa with numa binding result is not -1, it will be added to numa binding numas
 func GetActualNUMABindingNUMAsForReclaimedCores(metaReader metacache.MetaReader) (machine.CPUSet, error) {

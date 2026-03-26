@@ -23,6 +23,7 @@ type MemoryUtilBasedConfiguration struct {
 	FreeBasedRatio      float64
 	StaticBasedCapacity float64
 	CacheBasedRatio     float64
+	RequestBasedRatio   float64
 	MaxOversoldRate     float64
 }
 

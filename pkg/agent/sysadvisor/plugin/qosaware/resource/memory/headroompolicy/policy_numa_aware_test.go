@@ -109,7 +109,8 @@ func TestPolicyNUMAAware(t *testing.T) {
 				},
 				memoryHeadroomConfiguration: &memoryheadroom.MemoryHeadroomConfiguration{
 					MemoryUtilBasedConfiguration: &memoryheadroom.MemoryUtilBasedConfiguration{
-						CacheBasedRatio: 0.5,
+						CacheBasedRatio:   0.5,
+						RequestBasedRatio: 0.1,
 					},
 				},
 				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
@@ -168,7 +169,8 @@ func TestPolicyNUMAAware(t *testing.T) {
 				},
 				memoryHeadroomConfiguration: &memoryheadroom.MemoryHeadroomConfiguration{
 					MemoryUtilBasedConfiguration: &memoryheadroom.MemoryUtilBasedConfiguration{
-						CacheBasedRatio: 0.5,
+						CacheBasedRatio:   0.5,
+						RequestBasedRatio: 0.1,
 					},
 				},
 				essentials: types.ResourceEssentials{
@@ -263,7 +265,8 @@ func TestPolicyNUMAAware(t *testing.T) {
 				},
 				memoryHeadroomConfiguration: &memoryheadroom.MemoryHeadroomConfiguration{
 					MemoryUtilBasedConfiguration: &memoryheadroom.MemoryUtilBasedConfiguration{
-						CacheBasedRatio: 0.5,
+						CacheBasedRatio:   0.5,
+						RequestBasedRatio: 0.1,
 					},
 				},
 				essentials: types.ResourceEssentials{
@@ -300,8 +303,9 @@ func TestPolicyNUMAAware(t *testing.T) {
 				},
 				memoryHeadroomConfiguration: &memoryheadroom.MemoryHeadroomConfiguration{
 					MemoryUtilBasedConfiguration: &memoryheadroom.MemoryUtilBasedConfiguration{
-						CacheBasedRatio: 0.5,
-						MaxOversoldRate: 1.5,
+						CacheBasedRatio:   0.5,
+						RequestBasedRatio: 0.1,
+						MaxOversoldRate:   1.5,
 					},
 				},
 				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
@@ -334,8 +338,9 @@ func TestPolicyNUMAAware(t *testing.T) {
 				},
 				memoryHeadroomConfiguration: &memoryheadroom.MemoryHeadroomConfiguration{
 					MemoryUtilBasedConfiguration: &memoryheadroom.MemoryUtilBasedConfiguration{
-						CacheBasedRatio: 0.5,
-						MaxOversoldRate: 0,
+						CacheBasedRatio:   0.5,
+						RequestBasedRatio: 0.1,
+						MaxOversoldRate:   0,
 					},
 				},
 				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
@@ -397,8 +402,9 @@ func TestPolicyNUMAAware(t *testing.T) {
 				},
 				memoryHeadroomConfiguration: &memoryheadroom.MemoryHeadroomConfiguration{
 					MemoryUtilBasedConfiguration: &memoryheadroom.MemoryUtilBasedConfiguration{
-						CacheBasedRatio: 0,
-						MaxOversoldRate: 2,
+						CacheBasedRatio:   0,
+						RequestBasedRatio: 0.1,
+						MaxOversoldRate:   2,
 					},
 				},
 				setFakeMetric: func(store *metric.FakeMetricsFetcher) {
@@ -415,10 +421,10 @@ func TestPolicyNUMAAware(t *testing.T) {
 				},
 			},
 			wantErr: false,
-			want:    resource.MustParse("180Gi"),
+			want:    resource.MustParse("175Gi"),
 			wantNUMA: map[int]resource.Quantity{
 				0: resource.MustParse("100Gi"),
-				1: resource.MustParse("80Gi"),
+				1: resource.MustParse("75Gi"),
 			},
 		},
 	}
