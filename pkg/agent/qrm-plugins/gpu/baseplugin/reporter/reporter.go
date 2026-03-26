@@ -311,7 +311,7 @@ func (p *gpuReporterPlugin) getResourcePropertyReportField(latestDeviceTopology 
 // getGPUResourceProperty returns the different dimensions to differentiate affinity priority of gpu devices.
 func (p *gpuReporterPlugin) getGPUResourceProperty(deviceTopology *machine.DeviceTopology) []*nodev1alpha1.Property {
 	if deviceTopology == nil || len(deviceTopology.PriorityDimensions) == 0 {
-		return []*nodev1alpha1.Property{}
+		return nil
 	}
 
 	return []*nodev1alpha1.Property{
