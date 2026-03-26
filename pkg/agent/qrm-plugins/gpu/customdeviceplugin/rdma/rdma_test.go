@@ -112,8 +112,10 @@ func makeTestBasePlugin(t *testing.T) *baseplugin.BasePlugin {
 
 	// Register gpu device type and gpu device topology provider as it is an accompany resource for rdma
 	basePlugin.RegisterDeviceNameToType([]string{"test-gpu"}, gpuconsts.GPUDeviceType)
-	gpuTopologyProvider := machine.NewDeviceTopologyProvider([]string{"test-gpu"})
+	gpuTopologyProvider := machine.NewDeviceTopologyProvider()
 	basePlugin.DeviceTopologyRegistry.RegisterDeviceTopologyProvider(gpuconsts.GPUDeviceType, gpuTopologyProvider)
+	// Also register a provider for rdma device type to align with plugin lookup by type
+	basePlugin.DeviceTopologyRegistry.RegisterDeviceTopologyProvider(gpuconsts.RDMADeviceType, machine.NewDeviceTopologyProvider())
 
 	return basePlugin
 }
@@ -157,9 +159,8 @@ func TestRDMADevicePlugin_UpdateAllocatableAssociatedDevices(t *testing.T) {
 
 	// Verify device topology is updated
 	gpuDevicePlugin := devicePlugin.(*RDMADevicePlugin)
-	deviceTopology, numaTopologyReady, err := gpuDevicePlugin.DeviceTopologyRegistry.GetDeviceTopology(gpuconsts.RDMADeviceType)
+	deviceTopology, err := gpuDevicePlugin.DeviceTopologyRegistry.GetDeviceTopology(basePlugin.Conf.RDMADeviceNames[0])
 	assert.NoError(t, err)
-	assert.True(t, numaTopologyReady)
 	assert.NotNil(t, deviceTopology)
 
 	expectedDeviceTopology := &machine.DeviceTopology{
@@ -175,7 +176,8 @@ func TestRDMADevicePlugin_UpdateAllocatableAssociatedDevices(t *testing.T) {
 		},
 	}
 
-	assert.Equal(t, expectedDeviceTopology, deviceTopology)
+	// Compare device contents; ignore dynamic UpdateTime field
+	assert.Equal(t, expectedDeviceTopology.Devices, deviceTopology.Devices)
 }
 
 func TestRDMADevicePlugin_AllocateAssociatedDevices(t *testing.T) {
@@ -470,7 +472,10 @@ func TestRDMADevicePlugin_AllocateAssociatedDevices(t *testing.T) {
 			}
 
 			if tt.deviceTopology != nil {
+				// Set topology under both type and specific device name to satisfy plugin + generator lookups
 				err := basePlugin.DeviceTopologyRegistry.SetDeviceTopology(gpuconsts.RDMADeviceType, tt.deviceTopology)
+				assert.NoError(t, err)
+				err = basePlugin.DeviceTopologyRegistry.SetDeviceTopology(basePlugin.Conf.RDMADeviceNames[0], tt.deviceTopology)
 				assert.NoError(t, err)
 			}
 

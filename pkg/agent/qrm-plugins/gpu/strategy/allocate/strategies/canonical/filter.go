@@ -36,7 +36,7 @@ func (s *CanonicalStrategy) Filter(
 	}
 
 	filteredDevices := sets.NewString()
-	gpuTopo, _, err := ctx.DeviceTopologyRegistry.GetDeviceTopology(ctx.ResourceName)
+	gpuTopo, err := ctx.DeviceTopologyRegistry.GetDeviceTopology(ctx.ResourceName)
 	if err != nil {
 		return nil, fmt.Errorf("canonical strategy failed to get gpu topology: %w", err)
 	}

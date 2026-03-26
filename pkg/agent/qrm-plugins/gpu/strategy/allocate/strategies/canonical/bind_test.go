@@ -135,7 +135,7 @@ func TestCanonicalStrategy_Bind(t *testing.T) {
 			// Prepare topology registry if provided
 			if tt.topology != nil {
 				reg := machine.NewDeviceTopologyRegistry()
-				reg.RegisterDeviceTopologyProvider(consts.GPUDeviceType, machine.NewDeviceTopologyProvider([]string{"gpu"}))
+				reg.RegisterDeviceTopologyProvider(consts.GPUDeviceType, machine.NewDeviceTopologyProvider())
 				_ = reg.SetDeviceTopology(consts.GPUDeviceType, tt.topology)
 				tt.ctx.DeviceTopologyRegistry = reg
 			}

@@ -273,12 +273,12 @@ func (r *DeviceTopologyRegistry) GetLatestDeviceTopology(deviceNames []string) (
 //
 // If no affinities exist for a deviceAId, that id is omitted from the result.
 func (r *DeviceTopologyRegistry) GetAffinityDevices(deviceA, deviceB string) (map[string]DeviceAffinity, error) {
-	deviceTopologyA, _, err := r.GetDeviceTopology(deviceA)
+	deviceTopologyA, err := r.GetDeviceTopology(deviceA)
 	if err != nil {
 		return nil, fmt.Errorf("error getting device topology for device %s: %v", deviceA, err)
 	}
 
-	deviceTopologyB, _, err := r.GetDeviceTopology(deviceB)
+	deviceTopologyB, err := r.GetDeviceTopology(deviceB)
 	if err != nil {
 		return nil, fmt.Errorf("error getting device topology for device %s: %v", deviceB, err)
 	}

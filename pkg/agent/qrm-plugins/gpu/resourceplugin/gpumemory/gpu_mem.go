@@ -533,7 +533,7 @@ func (p *GPUMemPlugin) Allocate(
 		p.MetaServer,
 		p.GetState().GetMachineState(),
 		qosLevel,
-		"",
+		deviceReq.DeviceName,
 		"",
 	)
 	if err != nil {

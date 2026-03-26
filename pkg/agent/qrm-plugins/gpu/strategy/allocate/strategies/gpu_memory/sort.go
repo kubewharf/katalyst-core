@@ -57,7 +57,7 @@ func (s *GPUMemoryStrategy) Sort(ctx *allocate.AllocationContext, filteredDevice
 
 	devices := make([]deviceInfo, 0, len(filteredDevices))
 
-	topology, _, err := ctx.DeviceTopologyRegistry.GetDeviceTopology(ctx.ResourceName)
+	topology, err := ctx.DeviceTopologyRegistry.GetDeviceTopology(ctx.ResourceName)
 	if err != nil {
 		return nil, fmt.Errorf("GPU memory strategy failed to get gpu topology: %w", err)
 	}

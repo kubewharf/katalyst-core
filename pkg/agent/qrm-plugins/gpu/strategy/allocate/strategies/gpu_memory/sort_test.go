@@ -141,7 +141,7 @@ func TestGPUMemoryStrategy_Sort(t *testing.T) {
 			t.Parallel()
 			if tt.topology != nil {
 				reg := machine.NewDeviceTopologyRegistry()
-				reg.RegisterDeviceTopologyProvider(gpuconsts.GPUDeviceType, machine.NewDeviceTopologyProvider([]string{"gpu"}))
+				reg.RegisterDeviceTopologyProvider(gpuconsts.GPUDeviceType, machine.NewDeviceTopologyProvider())
 				_ = reg.SetDeviceTopology(gpuconsts.GPUDeviceType, tt.topology)
 				tt.ctx.DeviceTopologyRegistry = reg
 				tt.ctx.ResourceName = gpuconsts.GPUDeviceType

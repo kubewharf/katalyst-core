@@ -21,7 +21,6 @@ import (
 
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
@@ -48,10 +47,6 @@ func AllocateDevicesUsingStrategy(
 			Success:      false,
 			ErrorMessage: fmt.Sprintf("failed to get hint nodes: %v", err),
 		}, err
-	}
-
-	if resourceName == "" {
-		resourceName = consts.GPUDeviceType
 	}
 
 	// Create allocation context

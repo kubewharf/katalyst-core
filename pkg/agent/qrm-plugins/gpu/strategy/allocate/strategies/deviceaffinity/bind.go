@@ -24,7 +24,6 @@ import (
 	"github.com/google/uuid"
 	"k8s.io/apimachinery/pkg/util/sets"
 
-	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -69,7 +68,7 @@ func (s *DeviceAffinityStrategy) Bind(
 	unallocatedDevicesSet := sets.NewString(sortedDevices...)
 
 	// Get GPU topology
-	gpuTopology, _, err := ctx.DeviceTopologyRegistry.GetDeviceTopology(gpuconsts.GPUDeviceType)
+	gpuTopology, err := ctx.DeviceTopologyRegistry.GetDeviceTopology(ctx.ResourceName)
 	if err != nil {
 		general.Warningf("failed to get gpu topology: %v", err)
 		return nil, fmt.Errorf("failed to get gpu topology: %w", err)
