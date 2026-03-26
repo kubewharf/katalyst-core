@@ -300,6 +300,28 @@ func TestStaticPolicy_RemovePod(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestStaticPolicy_RemovePod_EnsureStateFails(t *testing.T) {
+	t.Parallel()
+	policy := makeTestStaticPolicy(t)
+
+	// Register stubbed resource plugin
+	policy.RegisterResourcePlugin(resourceplugin.NewResourcePluginStub(policy.BasePlugin))
+
+	deviceTopologyProviderStub := machine.NewDeviceTopologyProviderStub()
+	// DO NOT set device topology, so GetDeviceTopology will fail, which causes ensureState to fail
+	policy.DeviceTopologyRegistry.RegisterDeviceTopologyProvider(testResourcePluginName, deviceTopologyProviderStub)
+	policy.DefaultResourceStateGeneratorRegistry.RegisterResourceStateGenerator(testResourcePluginName,
+		state.NewGenericDefaultResourceStateGenerator([]string{testResourcePluginName}, policy.DeviceTopologyRegistry))
+
+	policy.SetState(nil)
+
+	resp, err := policy.RemovePod(context.Background(), &pluginapi.RemovePodRequest{
+		PodUid: "test",
+	})
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
+}
+
 func TestStaticPolicy_GetTopologyHints(t *testing.T) {
 	t.Parallel()
 
@@ -622,10 +644,30 @@ func TestStaticPolicy_GetTopologyAwareAllocatableResources(t *testing.T) {
 
 	// Get topology aware allocatable resources when state is nil should succeed (lazy init)
 	policy.SetState(nil)
-
 	resp, err = policy.GetTopologyAwareAllocatableResources(context.Background(), getTopologyAwareAllocatableResourcesReq)
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
+}
+
+func TestStaticPolicy_GetTopologyAwareAllocatableResources_EnsureStateFails(t *testing.T) {
+	t.Parallel()
+	policy := makeTestStaticPolicy(t)
+
+	policy.RegisterResourcePlugin(resourceplugin.NewResourcePluginStub(policy.BasePlugin))
+
+	deviceTopologyProviderStub := machine.NewDeviceTopologyProviderStub()
+	// DO NOT set device topology, so GetDeviceTopology will fail, which causes ensureState to fail
+	policy.DeviceTopologyRegistry.RegisterDeviceTopologyProvider(testResourcePluginName, deviceTopologyProviderStub)
+	policy.DefaultResourceStateGeneratorRegistry.RegisterResourceStateGenerator(testResourcePluginName,
+		state.NewGenericDefaultResourceStateGenerator([]string{testResourcePluginName}, policy.DeviceTopologyRegistry))
+
+	policy.SetState(nil)
+
+	getTopologyAwareAllocatableResourcesReq := &pluginapi.GetTopologyAwareAllocatableResourcesRequest{}
+	resp, err := policy.GetTopologyAwareAllocatableResources(context.Background(), getTopologyAwareAllocatableResourcesReq)
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
+	assert.Nil(t, resp.AllocatableResources)
 }
 
 func TestStaticPolicy_UpdateAllocatableAssociatedDevices(t *testing.T) {

@@ -224,7 +224,12 @@ func (r *DeviceTopologyRegistry) GetLatestDeviceTopology(deviceNames []string) (
 		return nil, err
 	}
 
-	return PickLatestDeviceTopology(topologiesMap), nil
+	latestTopology := PickLatestDeviceTopology(topologiesMap)
+	if latestTopology == nil {
+		return nil, fmt.Errorf("no latest device topology")
+	}
+
+	return latestTopology, nil
 }
 
 // GetDeviceNUMAAffinity retrieves a map of a certain device A to the list of devices in device B that it has an affinity with.
