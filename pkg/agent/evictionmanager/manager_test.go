@@ -30,6 +30,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/events"
 
+	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	pluginapi "github.com/kubewharf/katalyst-api/pkg/protocol/evictionplugin/v1alpha1"
 	endpointpkg "github.com/kubewharf/katalyst-core/pkg/agent/evictionmanager/endpoint"
@@ -44,10 +45,12 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	metaserveragent "github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/cnr"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/credential"
 	"github.com/kubewharf/katalyst-core/pkg/util/credential/authorization"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 var (
@@ -702,4 +705,34 @@ func TestEvictionManager_getEvictionRecords(t *testing.T) {
 		assert.NotNil(t, result)
 		assert.Len(t, result, 0)
 	})
+}
+
+type mockNodeFetcher struct{}
+
+func (m *mockNodeFetcher) Run(ctx context.Context) {}
+
+func (m *mockNodeFetcher) GetNode(ctx context.Context) (*v1.Node, error) {
+	return &v1.Node{}, nil
+}
+
+func TestEvictionManager_Run(t *testing.T) {
+	t.Parallel()
+
+	mgr := makeEvictionManager(t)
+	mgr.metaGetter.NodeFetcher = &mockNodeFetcher{}
+	mgr.metaGetter.CNRFetcher = &cnr.CNRFetcherStub{
+		CNR: &v1alpha1.CustomNodeResource{},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go mgr.Run(ctx)
+
+	time.Sleep(1 * time.Second)
+	cancel()
+
+	res := general.GetRegisterReadinessCheckResult()
+
+	assert.Contains(t, res, general.HealthzCheckName(reportCNRTaintHealthCheckName))
+	assert.Contains(t, res, general.HealthzCheckName(reportTaintHealthCheckName))
+	assert.Contains(t, res, general.HealthzCheckName(evictionManagerHealthCheckName))
 }

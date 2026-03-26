@@ -326,6 +326,8 @@ func (m *EvictionManger) Run(ctx context.Context) {
 		general.HealthzCheckStateNotReady, syncTolerationTurns*m.conf.EvictionManagerSyncPeriod)
 	general.RegisterHeartbeatCheck(reportTaintHealthCheckName, reportTaintToleration,
 		general.HealthzCheckStateNotReady, reportTaintToleration)
+	general.RegisterHeartbeatCheck(reportCNRTaintHealthCheckName, reportTaintToleration,
+		general.HealthzCheckStateNotReady, reportTaintToleration)
 	m.podKiller.Start(ctx)
 	m.podNotifier.Start(ctx)
 	for _, endpoint := range m.endpoints {
