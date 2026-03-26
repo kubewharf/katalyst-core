@@ -632,3 +632,10 @@ func takeFreeCoresByNumaBalanceReversely(acc *cpuAccumulator) bool {
 	}
 	return false
 }
+
+// GetFreeCores returns all free physical cores given a CPU topology and the available CPUs
+func GetFreeCores(topology *machine.KatalystMachineInfo, availableCPUs machine.CPUSet) machine.CPUSet {
+	acc := newCPUAccumulator(topology, availableCPUs, 0)
+
+	return machine.NewCPUSet(acc.freeCores()...)
+}
