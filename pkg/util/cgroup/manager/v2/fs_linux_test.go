@@ -187,6 +187,42 @@ func Test_manager_ApplyCPUSet(t *testing.T) {
 	}
 }
 
+func Test_manager_ApplyCPUSetPartition(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		absCgroupPath string
+		partitionFlag common.CPUSetPartitionFlag
+	}
+	tests := []struct {
+		name    string
+		m       *manager
+		args    args
+		wantErr bool
+	}{
+		{
+			name: "test apply cpuset partition",
+			m:    NewManager(),
+			args: args{
+				absCgroupPath: "test-fake-path",
+				partitionFlag: common.CPUSetPartitionFlagRoot,
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			m := &manager{}
+			if err := m.ApplyCPUSetPartition(tt.args.absCgroupPath, tt.args.partitionFlag); (err != nil) != tt.wantErr {
+				t.Errorf("manager.ApplyCPUSetPartition() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func Test_manager_ApplyNetCls(t *testing.T) {
 	t.Parallel()
 
