@@ -178,12 +178,12 @@ func (r *DeviceTopologyRegistry) SetDeviceTopology(deviceName string, deviceTopo
 	return topologyProvider.SetDeviceTopology(deviceTopology)
 }
 
-// GetAllDeviceTopologyProviders returns all registered device topology providers.
-func (r *DeviceTopologyRegistry) GetAllDeviceTopologyProviders() map[string]DeviceTopologyProvider {
-	r.mux.RLock()
-	defer r.mux.RUnlock()
-
-	return r.deviceTopologyProviders
+func (r *DeviceTopologyRegistry) getDeviceTopology(deviceName string) (*DeviceTopology, error) {
+	provider, ok := r.deviceTopologyProviders[deviceName]
+	if !ok {
+		return nil, fmt.Errorf("no device topology provider found for device %s", deviceName)
+	}
+	return provider.GetDeviceTopology()
 }
 
 // GetDeviceTopology gets the device topology for the specified device name.
@@ -191,11 +191,40 @@ func (r *DeviceTopologyRegistry) GetDeviceTopology(deviceName string) (*DeviceTo
 	r.mux.RLock()
 	defer r.mux.RUnlock()
 
-	provider, ok := r.deviceTopologyProviders[deviceName]
-	if !ok {
-		return nil, fmt.Errorf("no device topology provider found for device %s", deviceName)
+	return r.getDeviceTopology(deviceName)
+}
+
+// GetDeviceTopologies gets device topologies for the given device names.
+// It returns a map of device name to their respective device topology.
+func (r *DeviceTopologyRegistry) GetDeviceTopologies(deviceNames []string) (map[string]*DeviceTopology, error) {
+	r.mux.RLock()
+	defer r.mux.RUnlock()
+
+	topologies := make(map[string]*DeviceTopology)
+	for _, deviceName := range deviceNames {
+		topology, err := r.getDeviceTopology(deviceName)
+		if err != nil {
+			general.Warningf("failed to get topology for device %s: %v", deviceName, err)
+			continue
+		}
+		topologies[deviceName] = topology
 	}
-	return provider.GetDeviceTopology()
+
+	if len(topologies) == 0 {
+		return nil, fmt.Errorf("failed to get any device topology")
+	}
+
+	return topologies, nil
+}
+
+// GetLatestDeviceTopology gets device topologies for the given device names and picks the latest one.
+func (r *DeviceTopologyRegistry) GetLatestDeviceTopology(deviceNames []string) (*DeviceTopology, error) {
+	topologiesMap, err := r.GetDeviceTopologies(deviceNames)
+	if err != nil {
+		return nil, err
+	}
+
+	return PickLatestDeviceTopology(topologiesMap), nil
 }
 
 // GetDeviceNUMAAffinity retrieves a map of a certain device A to the list of devices in device B that it has an affinity with.
@@ -235,6 +264,8 @@ type DeviceTopology struct {
 	// For example, if devices have affinity based on the NUMA and SOCKET, and NUMA has higher priority than SOCKET,
 	// the priority dimensions are ["NUMA", "SOCKET"].
 	PriorityDimensions []string
+	// UpdateTime is the timestamp when the topology was last updated.
+	UpdateTime int64
 }
 
 // GroupDeviceAffinity forms a topology graph such that all devices within a DeviceIDs group have an affinity with each other.
@@ -294,6 +325,10 @@ type DeviceInfo struct {
 func (i DeviceInfo) GetDimensions() []Dimension {
 	dimensions := make([]Dimension, 0)
 	for priority := range i.DeviceAffinity {
+		// filter out invalid dimensions because some invalid/empty configurations may be passed
+		if priority.Dimension.Name == "" || priority.Dimension.Value == "" {
+			continue
+		}
 		dimensions = append(dimensions, priority.Dimension)
 	}
 
@@ -382,4 +417,20 @@ func (p *deviceTopologyProviderImpl) GetDeviceTopology() (*DeviceTopology, error
 	}
 
 	return p.deviceTopology, nil
+}
+
+// PickLatestDeviceTopology selects the latest device topology from the given map based on UpdateTime.
+func PickLatestDeviceTopology(topologies map[string]*DeviceTopology) *DeviceTopology {
+	var latest *DeviceTopology
+	for _, t := range topologies {
+		if t == nil {
+			continue
+		}
+
+		if latest == nil || t.UpdateTime > latest.UpdateTime {
+			latest = t
+		}
+	}
+
+	return latest
 }

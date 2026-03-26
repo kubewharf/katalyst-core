@@ -425,6 +425,21 @@ func TestGPUMemPlugin_GetTopologyHints(t *testing.T) {
 			},
 			expectedErr: true,
 		},
+		{
+			name:          "multiple gpu resource names requested",
+			podUID:        "test-pod-4",
+			containerName: "test-container-4",
+			req: &pluginapi.ResourceRequest{
+				PodUid:        "test-pod-4",
+				ContainerName: "test-container-4",
+				ResourceRequests: map[string]float64{
+					string(consts.ResourceGPUMemory): 4,
+					"test-gpu-1":                     1,
+					"test-gpu-2":                     1,
+				},
+			},
+			expectedErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -447,7 +462,7 @@ func TestGPUMemPlugin_GetTopologyHints(t *testing.T) {
 			}
 
 			if tt.deviceTopology != nil {
-				err := basePlugin.DeviceTopologyRegistry.SetDeviceTopology(gpuconsts.GPUDeviceType, tt.deviceTopology)
+				err := basePlugin.DeviceTopologyRegistry.SetDeviceTopology("test-gpu", tt.deviceTopology)
 				assert.NoError(t, err)
 			}
 
@@ -860,7 +875,7 @@ func TestGPUMemPlugin_GetTopologyAwareAllocatableResources(t *testing.T) {
 			assert.True(t, ok)
 
 			if tt.deviceTopology != nil {
-				err := basePlugin.DeviceTopologyRegistry.SetDeviceTopology(gpuconsts.GPUDeviceType, tt.deviceTopology)
+				err := basePlugin.DeviceTopologyRegistry.SetDeviceTopology("test-gpu", tt.deviceTopology)
 				assert.NoError(t, err)
 			}
 

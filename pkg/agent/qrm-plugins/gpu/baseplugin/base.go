@@ -19,6 +19,7 @@ package baseplugin
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
@@ -61,6 +62,9 @@ type BasePlugin struct {
 
 	// Map of specific device name to device type
 	deviceNameToTypeMap map[string]string
+
+	stateInitializedCh   chan struct{}
+	stateInitializedOnce sync.Once
 }
 
 func NewBasePlugin(
@@ -88,12 +92,22 @@ func NewBasePlugin(
 		DefaultResourceStateGeneratorRegistry: state.NewDefaultResourceStateGeneratorRegistry(),
 
 		deviceNameToTypeMap: make(map[string]string),
+		stateInitializedCh:  make(chan struct{}),
 	}, nil
 }
 
 // Run starts the asynchronous tasks of the plugin
 func (p *BasePlugin) Run(stopCh <-chan struct{}) {
-	go p.reporter.Run(stopCh)
+	go func() {
+		select {
+		case <-p.stateInitializedCh:
+			general.Infof("state initialized, starting reporter")
+			p.reporter.Run(stopCh)
+		case <-stopCh:
+			general.Infof("stop channel closed before state initialization, skipping reporter run")
+			return
+		}
+	}()
 	go p.DeviceTopologyRegistry.Run(stopCh)
 }
 
@@ -121,8 +135,14 @@ func (p *BasePlugin) InitState() error {
 	}
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	p.state = stateImpl
+	p.mu.Unlock()
+
+	p.stateInitializedOnce.Do(func() {
+		close(p.stateInitializedCh)
+		general.Infof("state initialized channel closed")
+	})
+
 	return nil
 }
 
@@ -166,13 +186,14 @@ func (p *BasePlugin) PackAllocationResponse(
 	}, nil
 }
 
-// UpdateAllocatableAssociatedDevicesByDeviceType updates the topology provider with topology information of the
-// given device type.
-func (p *BasePlugin) UpdateAllocatableAssociatedDevicesByDeviceType(
-	request *pluginapi.UpdateAllocatableAssociatedDevicesRequest, deviceType string,
+// UpdateAllocatableAssociatedDevices updates the topology provider with topology information of the
+// given device request.
+func (p *BasePlugin) UpdateAllocatableAssociatedDevices(
+	request *pluginapi.UpdateAllocatableAssociatedDevicesRequest,
 ) (*pluginapi.UpdateAllocatableAssociatedDevicesResponse, error) {
 	deviceTopology := &machine.DeviceTopology{
-		Devices: make(map[string]machine.DeviceInfo, len(request.Devices)),
+		Devices:    make(map[string]machine.DeviceInfo, len(request.Devices)),
+		UpdateTime: time.Now().UnixNano(),
 	}
 
 	for _, device := range request.Devices {
@@ -195,7 +216,8 @@ func (p *BasePlugin) UpdateAllocatableAssociatedDevicesByDeviceType(
 		}
 	}
 
-	err := p.DeviceTopologyRegistry.SetDeviceTopology(deviceType, deviceTopology)
+	// Store the device topology using the actual resource name from the request
+	err := p.DeviceTopologyRegistry.SetDeviceTopology(request.DeviceName, deviceTopology)
 	if err != nil {
 		general.Errorf("set device topology failed with error: %v", err)
 		return nil, fmt.Errorf("set device topology failed with error: %v", err)
@@ -254,9 +276,11 @@ func (p *BasePlugin) ResolveResourceName(resourceName string, fallback bool) str
 	return ""
 }
 
-// RegisterTopologyAffinityProvider is a hook to set device affinity for a certain device type
+// RegisterTopologyAffinityProvider is a hook to set device affinity for given device names
 func (p *BasePlugin) RegisterTopologyAffinityProvider(
-	deviceType string, deviceAffinityProvider machine.DeviceAffinityProvider,
+	deviceNames []string, deviceAffinityProvider machine.DeviceAffinityProvider,
 ) {
-	p.DeviceTopologyRegistry.RegisterTopologyAffinityProvider(deviceType, deviceAffinityProvider)
+	for _, deviceName := range deviceNames {
+		p.DeviceTopologyRegistry.RegisterTopologyAffinityProvider(deviceName, deviceAffinityProvider)
+	}
 }

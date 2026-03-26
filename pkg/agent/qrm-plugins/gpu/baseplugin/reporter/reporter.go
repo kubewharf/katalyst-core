@@ -22,24 +22,32 @@ import (
 	"fmt"
 	"sync"
 
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/klog/v2"
+	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/registration"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-api/pkg/protocol/reporterplugin/v1alpha1"
-	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 const (
 	gpuReporterPluginName   = "gpu-reporter-plugin"
 	propertyNameGPUTopology = "gpu_topology_attribute_key"
+)
+
+var (
+	zeroQuantity = *resource.NewQuantity(0, resource.DecimalSI)
+	oneQuantity  = *resource.NewQuantity(1, resource.DecimalSI)
 )
 
 // GPUReporter reports gpu information to CNR
@@ -82,12 +90,12 @@ func (r *gpuReporterImpl) Run(stopCh <-chan struct{}) {
 // gpuReporterPlugin is the plugin that reports gpu device topology information
 type gpuReporterPlugin struct {
 	sync.Mutex
-
 	started bool
 	ctx     context.Context
 	cancel  context.CancelFunc
 	emitter metrics.MetricEmitter
 
+	gpuDeviceNames         []string
 	numaSocketZoneNodeMap  map[util.ZoneNode]util.ZoneNode
 	deviceTopologyRegistry *machine.DeviceTopologyRegistry
 }
@@ -101,6 +109,7 @@ func newGPUReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.
 	conf *config.Configuration, topologyRegistry *machine.DeviceTopologyRegistry,
 ) (skeleton.GenericPlugin, error) {
 	reporter := &gpuReporterPlugin{
+		gpuDeviceNames:         conf.GPUDeviceNames,
 		numaSocketZoneNodeMap:  util.GenerateNumaSocketZone(metaServer.MachineInfo.Topology),
 		emitter:                emitter,
 		deviceTopologyRegistry: topologyRegistry,
@@ -157,16 +166,12 @@ func (p *gpuReporterPlugin) Stop() error {
 
 // GetReportContent implements ReporterPluginServer to report the gpu device topology information to CNR.
 func (p *gpuReporterPlugin) GetReportContent(_ context.Context, _ *v1alpha1.Empty) (*v1alpha1.GetReportContentResponse, error) {
-	// device topology is not updated yet, report the topology next time
-	deviceTopology, err := p.deviceTopologyRegistry.GetDeviceTopology(gpuconsts.GPUDeviceType)
+	// The reporter picks the latest topology from all configured GPU devices to report to CNR.
+	topologiesMap, err := p.deviceTopologyRegistry.GetDeviceTopologies(p.gpuDeviceNames)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get device topology: %w", err)
+		return nil, err
 	}
-
-	resourceProperty := p.getGPUResourceProperty(deviceTopology)
-	if resourceProperty == nil {
-		return nil, fmt.Errorf("no resource property found for device topology")
-	}
+	latestDeviceTopology := machine.PickLatestDeviceTopology(topologiesMap)
 
 	// generate the zones for numa and socket in machine
 	topologyZoneGenerator, err := util.NewNumaSocketTopologyZoneGenerator(p.numaSocketZoneNodeMap)
@@ -175,44 +180,58 @@ func (p *gpuReporterPlugin) GetReportContent(_ context.Context, _ *v1alpha1.Empt
 	}
 
 	// add the GPU zone nodes in and generate their topology zones by merging their resources and attributes
-	if err = p.addGPUZoneNodes(deviceTopology, topologyZoneGenerator); err != nil {
+	if err = p.addGPUZoneNodes(latestDeviceTopology, topologyZoneGenerator); err != nil {
 		return nil, err
 	}
 
-	zoneAttributes := p.getGPUZoneAttributes(deviceTopology)
+	zoneAttributes := p.getGPUZoneAttributes(latestDeviceTopology)
 	if zoneAttributes == nil {
 		return nil, fmt.Errorf("no zone attributes found for device topology")
 	}
 
-	generatedTopologyZones := topologyZoneGenerator.GenerateTopologyZoneStatus(nil, nil,
-		zoneAttributes, nil, nil, nil)
-
-	propertyValues, err := json.Marshal(&resourceProperty)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal resource property values: %w", err)
+	zoneResources := p.getZoneResources(topologiesMap)
+	if zoneResources == nil {
+		return nil, fmt.Errorf("no zone resources found for device topology")
 	}
+
+	generatedTopologyZones := topologyZoneGenerator.GenerateTopologyZoneStatus(nil, zoneResources,
+		zoneAttributes, nil, nil, nil)
 
 	zoneValues, err := json.Marshal(&generatedTopologyZones)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal topology zone values: %w", err)
 	}
 
+	reportFields := []*v1alpha1.ReportField{
+		{
+			FieldType: v1alpha1.FieldType_Status,
+			FieldName: util.CNRFieldNameTopologyZone,
+			Value:     zoneValues,
+		},
+	}
+
+	resourceProperty := p.getGPUResourceProperty(latestDeviceTopology)
+	if resourceProperty != nil {
+		propertyValues, err := json.Marshal(&resourceProperty)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal resource property values: %w", err)
+		}
+
+		reportFields = append(reportFields, &v1alpha1.ReportField{
+			FieldType: v1alpha1.FieldType_Spec,
+			FieldName: util.CNRFieldNameNodeResourceProperties,
+			Value:     propertyValues,
+		})
+	} else {
+		// when resourceProperty is nil, we choose not to report NodeResourceProperties instead of returning error
+		general.Warningf("no resource property found for device topology, skip reporting %s", util.CNRFieldNameNodeResourceProperties)
+	}
+
 	return &v1alpha1.GetReportContentResponse{
 		Content: []*v1alpha1.ReportContent{
 			{
 				GroupVersionKind: &util.CNRGroupVersionKind,
-				Field: []*v1alpha1.ReportField{
-					{
-						FieldType: v1alpha1.FieldType_Spec,
-						FieldName: util.CNRFieldNameNodeResourceProperties,
-						Value:     propertyValues,
-					},
-					{
-						FieldType: v1alpha1.FieldType_Status,
-						FieldName: util.CNRFieldNameTopologyZone,
-						Value:     zoneValues,
-					},
-				},
+				Field:            reportFields,
 			},
 		},
 	}, nil
@@ -246,16 +265,9 @@ func (p *gpuReporterPlugin) getGPUZoneAttributes(deviceTopology *machine.DeviceT
 
 		var attributes []nodev1alpha1.Attribute
 		for _, dimension := range dimensions {
-			// If dimension name or value is empty, there is no need to report topology so we return nil
-			dimensionName := dimension.GetName()
-			dimensionValue := dimension.GetValue()
-			if dimensionName == "" || dimensionValue == "" {
-				return nil
-			}
-
 			attributes = append(attributes, nodev1alpha1.Attribute{
-				Name:  dimensionName,
-				Value: dimensionValue,
+				Name:  dimension.GetName(),
+				Value: dimension.GetValue(),
 			})
 		}
 
@@ -263,6 +275,56 @@ func (p *gpuReporterPlugin) getGPUZoneAttributes(deviceTopology *machine.DeviceT
 	}
 
 	return zoneAttributes
+}
+
+// getZoneResources returns the map of gpu zone nodes to their resources
+// it merges resources from different device names (e.g. nvidia.com/gpu) for the same physical device ID
+func (p *gpuReporterPlugin) getZoneResources(topologiesMap map[string]*machine.DeviceTopology) map[util.ZoneNode]nodev1alpha1.Resources {
+	if len(topologiesMap) == 0 {
+		return nil
+	}
+
+	// 1. first construct temporary map from device ID to resources to merge resources for the same device
+	idToResources := make(map[string]nodev1alpha1.Resources)
+	for deviceName, deviceTopology := range topologiesMap {
+		if deviceTopology == nil {
+			continue
+		}
+
+		for id, deviceInfo := range deviceTopology.Devices {
+			var allocatableQuantity resource.Quantity
+			// Allocatable: 1 is reported when device is healthy, 0 is reported when device is unhealthy
+			if deviceInfo.Health != pluginapi.Healthy {
+				allocatableQuantity = zeroQuantity
+			} else {
+				allocatableQuantity = oneQuantity
+			}
+
+			// Capacity: always 1 regardless of health status
+			capacityQuantity := oneQuantity
+
+			resources, ok := idToResources[id]
+			if !ok {
+				resources = nodev1alpha1.Resources{
+					Allocatable: &v1.ResourceList{},
+					Capacity:    &v1.ResourceList{},
+				}
+			}
+
+			(*resources.Allocatable)[v1.ResourceName(deviceName)] = allocatableQuantity
+			(*resources.Capacity)[v1.ResourceName(deviceName)] = capacityQuantity
+			idToResources[id] = resources
+		}
+	}
+
+	// 2. then construct final zoneResources map from ZoneNode to Resources
+	zoneResources := make(map[util.ZoneNode]nodev1alpha1.Resources)
+	for id, resources := range idToResources {
+		zoneNode := util.GenerateDeviceZoneNode(id, string(nodev1alpha1.TopologyTypeGPU))
+		zoneResources[zoneNode] = resources
+	}
+
+	return zoneResources
 }
 
 // addGPUZoneNodes adds the gpu zone nodes to the topology zone generator
