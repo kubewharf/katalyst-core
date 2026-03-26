@@ -20,6 +20,8 @@ limitations under the License.
 package v2
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -729,6 +731,71 @@ func Test_manager_GetMetrics(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("manager.GetMetrics() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_manager_GetCgroupNrDyingDescendants(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		content    string
+		want       int
+		wantErr    bool
+		createFile bool
+	}{
+		{
+			name:       "valid content",
+			content:    "nr_dying_descendants 123\nnr_descendants 456\n",
+			want:       123,
+			createFile: true,
+		},
+		{
+			name:       "invalid format",
+			content:    "nr_dying_descendants\n",
+			wantErr:    true,
+			createFile: true,
+		},
+		{
+			name:       "invalid number",
+			content:    "nr_dying_descendants abc\n",
+			wantErr:    true,
+			createFile: true,
+		},
+		{
+			name:    "missing file",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tmpDir, err := os.MkdirTemp("", "cgroup-stat")
+			if err != nil {
+				t.Fatalf("MkdirTemp failed: %v", err)
+			}
+			defer os.RemoveAll(tmpDir)
+
+			if tt.createFile {
+				statFile := filepath.Join(tmpDir, "cgroup.stat")
+				if err := os.WriteFile(statFile, []byte(tt.content), 0o600); err != nil {
+					t.Fatalf("WriteFile failed: %v", err)
+				}
+			}
+
+			m := &manager{}
+			got, err := m.GetCgroupNrDyingDescendants(tmpDir)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("manager.GetCgroupNrDyingDescendants() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && got != tt.want {
+				t.Errorf("manager.GetCgroupNrDyingDescendants() = %v, want %v", got, tt.want)
 			}
 		})
 	}

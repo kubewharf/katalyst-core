@@ -177,6 +177,9 @@ func TestDynamicPolicy_getPodContainerInfos(t *testing.T) {
 		"c3": nil,
 	}
 
+	advisorTestMutex.Lock()
+	defer advisorTestMutex.Unlock()
+
 	cis, err := policyImpl.getPodContainerInfos(podUID, entry)
 	as.NoError(err)
 	as.Len(cis, 1)

@@ -709,6 +709,41 @@ func (m *manager) GetTasks(absCgroupPath string) ([]string, error) {
 	return tasks, err
 }
 
+func (m *manager) GetCgroupNrDyingDescendants(absCgroupPath string) (int, error) {
+	statFile := path.Join(absCgroupPath, "cgroup.stat")
+	// check whether file exists
+	if _, err := os.Stat(statFile); os.IsNotExist(err) {
+		general.Warningf("cgroup.stat file not exist: %s", statFile)
+		return 0, err
+	}
+
+	// read nr_dying_descendants from statFile
+	statContent, err := os.ReadFile(statFile)
+	var nrDyingDescendants int
+	if err != nil {
+		general.Warningf("read cgroup.stat file failed: %v", err)
+		return 0, err
+	}
+	statLines := strings.Split(string(statContent), "\n")
+	for _, line := range statLines {
+		if strings.HasPrefix(line, "nr_dying_descendants") {
+			fields := strings.Split(line, " ")
+			if len(fields) < 2 {
+				general.Warningf("invalid nr_dying_descendants line: %s", line)
+				return 0, fmt.Errorf("invalid nr_dying_descendants line: %s", line)
+			}
+
+			nrDyingDescendants, err = strconv.Atoi(fields[1])
+			if err != nil {
+				general.Warningf("parse nr_dying_descendants failed: %v", err)
+				return 0, err
+			}
+			general.Infof("nr_dying_descendants: %d", nrDyingDescendants)
+		}
+	}
+	return nrDyingDescendants, nil
+}
+
 func numToStr(value int64) (ret string) {
 	switch {
 	case value == 0:
