@@ -189,6 +189,10 @@ func (m *manager) ApplyCPUSet(absCgroupPath string, data *common.CPUSetData) err
 	return nil
 }
 
+func (m *manager) ApplyCPUSetPartition(_ string, _ common.CPUSetPartitionFlag) error {
+	return fmt.Errorf("cgroupv1 does not support cpuset partition feature")
+}
+
 func (m *manager) ApplyNetCls(absCgroupPath string, data *common.NetClsData) error {
 	if data.ClassID != 0 {
 		classID := fmt.Sprintf("%d", data.ClassID)
