@@ -364,17 +364,22 @@ func TestGetPodCPUBurstPolicy(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		pod            *v1.Pod
-		qosConfig      *generic.QoSConfiguration
-		adminQoSConfig *adminqos.AdminQoSConfiguration
-		wantPolicy     string
-		wantErr        bool
+		name                 string
+		pod                  *v1.Pod
+		conf                 *config.Configuration
+		adminQoSConfig       *adminqos.AdminQoSConfiguration
+		isSoleSharedCoresPod bool
+		wantPolicy           string
+		wantErr              bool
 	}{
 		{
-			name:      "test GetPodCPUBurstPolicy with nil pod",
-			pod:       nil,
-			qosConfig: generic.NewQoSConfiguration(),
+			name: "test GetPodCPUBurstPolicy with nil pod",
+			pod:  nil,
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
 			adminQoSConfig: &adminqos.AdminQoSConfiguration{
 				FineGrainedResourceConfiguration: &finegrainedresource.FineGrainedResourceConfiguration{
 					CPUBurstConfiguration: &finegrainedresource.CPUBurstConfiguration{
@@ -386,7 +391,7 @@ func TestGetPodCPUBurstPolicy(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "test GetPodCPUBurstPolicy with nil qosConfig",
+			name: "test GetPodCPUBurstPolicy with nil QoSConfiguration",
 			pod: &v1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test",
@@ -396,7 +401,7 @@ func TestGetPodCPUBurstPolicy(t *testing.T) {
 					},
 				},
 			},
-			qosConfig: nil,
+			conf: func() *config.Configuration { c := config.NewConfiguration(); c.QoSConfiguration = nil; return c }(),
 			adminQoSConfig: &adminqos.AdminQoSConfiguration{
 				FineGrainedResourceConfiguration: &finegrainedresource.FineGrainedResourceConfiguration{
 					CPUBurstConfiguration: &finegrainedresource.CPUBurstConfiguration{
@@ -419,7 +424,11 @@ func TestGetPodCPUBurstPolicy(t *testing.T) {
 					},
 				},
 			},
-			qosConfig:  generic.NewQoSConfiguration(),
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
 			wantPolicy: consts.PodAnnotationCPUEnhancementCPUBurstPolicyStatic,
 		},
 		{
@@ -434,7 +443,11 @@ func TestGetPodCPUBurstPolicy(t *testing.T) {
 					},
 				},
 			},
-			qosConfig:  generic.NewQoSConfiguration(),
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
 			wantPolicy: consts.PodAnnotationCPUEnhancementCPUBurstPolicyClosed,
 		},
 		{
@@ -448,7 +461,11 @@ func TestGetPodCPUBurstPolicy(t *testing.T) {
 					},
 				},
 			},
-			qosConfig:  generic.NewQoSConfiguration(),
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
 			wantPolicy: consts.PodAnnotationCPUEnhancementCPUBurstPolicyDefault,
 		},
 		{
@@ -462,7 +479,11 @@ func TestGetPodCPUBurstPolicy(t *testing.T) {
 					},
 				},
 			},
-			qosConfig: generic.NewQoSConfiguration(),
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
 			adminQoSConfig: &adminqos.AdminQoSConfiguration{
 				FineGrainedResourceConfiguration: &finegrainedresource.FineGrainedResourceConfiguration{
 					CPUBurstConfiguration: &finegrainedresource.CPUBurstConfiguration{
@@ -484,7 +505,11 @@ func TestGetPodCPUBurstPolicy(t *testing.T) {
 					},
 				},
 			},
-			qosConfig: generic.NewQoSConfiguration(),
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
 			adminQoSConfig: &adminqos.AdminQoSConfiguration{
 				FineGrainedResourceConfiguration: &finegrainedresource.FineGrainedResourceConfiguration{
 					CPUBurstConfiguration: &finegrainedresource.CPUBurstConfiguration{
@@ -494,6 +519,174 @@ func TestGetPodCPUBurstPolicy(t *testing.T) {
 				},
 			},
 			wantPolicy: consts.PodAnnotationCPUEnhancementCPUBurstPolicyClosed,
+		},
+		{
+			name: "test GetPodCPUBurstPolicy for shared cores with no policy with aqc enabled and pod is the sole shared cores pod in node",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test",
+					Namespace: "test",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
+				},
+			},
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
+			adminQoSConfig: &adminqos.AdminQoSConfiguration{
+				FineGrainedResourceConfiguration: &finegrainedresource.FineGrainedResourceConfiguration{
+					CPUBurstConfiguration: &finegrainedresource.CPUBurstConfiguration{
+						EnableSharedCoresDefaultCPUBurst: ptr.To(true),
+						DefaultCPUBurstPercent:           100,
+					},
+				},
+			},
+			isSoleSharedCoresPod: true,
+			wantPolicy:           consts.PodAnnotationCPUEnhancementCPUBurstPolicyStatic,
+		},
+		{
+			name: "test GetPodCPUBurstPolicy for shared cores with no policy with aqc enabled but pod is not the sole shared cores pod in node",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test",
+					Namespace: "test",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
+				},
+			},
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
+			adminQoSConfig: &adminqos.AdminQoSConfiguration{
+				FineGrainedResourceConfiguration: &finegrainedresource.FineGrainedResourceConfiguration{
+					CPUBurstConfiguration: &finegrainedresource.CPUBurstConfiguration{
+						EnableSharedCoresDefaultCPUBurst: ptr.To(true),
+						DefaultCPUBurstPercent:           100,
+					},
+				},
+			},
+			isSoleSharedCoresPod: false,
+			wantPolicy:           consts.PodAnnotationCPUEnhancementCPUBurstPolicyClosed,
+		},
+		{
+			name: "test GetPodCPUBurstPolicy for shared cores with aqc disabled",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test",
+					Namespace: "test",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
+				},
+			},
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
+			adminQoSConfig: &adminqos.AdminQoSConfiguration{
+				FineGrainedResourceConfiguration: &finegrainedresource.FineGrainedResourceConfiguration{
+					CPUBurstConfiguration: &finegrainedresource.CPUBurstConfiguration{
+						EnableSharedCoresDefaultCPUBurst: ptr.To(false),
+						DefaultCPUBurstPercent:           100,
+					},
+				},
+			},
+			isSoleSharedCoresPod: true,
+			wantPolicy:           consts.PodAnnotationCPUEnhancementCPUBurstPolicyClosed,
+		},
+		{
+			name: "test GetPodCPUBurstPolicy for shared cores with aqc enabled and pod already has static policy from annotation",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test",
+					Namespace: "test",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey:       consts.PodAnnotationQoSLevelSharedCores,
+						consts.PodAnnotationCPUEnhancementKey: `{"cpu_burst_policy":"static"}`,
+					},
+				},
+			},
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
+			adminQoSConfig: &adminqos.AdminQoSConfiguration{
+				FineGrainedResourceConfiguration: &finegrainedresource.FineGrainedResourceConfiguration{
+					CPUBurstConfiguration: &finegrainedresource.CPUBurstConfiguration{
+						EnableSharedCoresDefaultCPUBurst: ptr.To(false),
+						DefaultCPUBurstPercent:           100,
+					},
+				},
+			},
+			isSoleSharedCoresPod: true,
+			wantPolicy:           consts.PodAnnotationCPUEnhancementCPUBurstPolicyStatic,
+		},
+		{
+			name: "test GetPodCPUBurstPolicy for dedicated pod with no policy overridden by core conf to static",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test",
+					Namespace: "test",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+					},
+				},
+			},
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				c.EnableDefaultDedicatedCoresCPUBurst = true
+				return c
+			}(),
+			wantPolicy: consts.PodAnnotationCPUEnhancementCPUBurstPolicyStatic,
+		},
+		{
+			name: "test GetPodCPUBurstPolicy for shared pod overridden by core conf requires sole=true to static",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test",
+					Namespace: "test",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
+				},
+			},
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				c.EnableDefaultSharedCoresCPUBurst = true
+				return c
+			}(),
+			isSoleSharedCoresPod: true,
+			wantPolicy:           consts.PodAnnotationCPUEnhancementCPUBurstPolicyStatic,
+		},
+		{
+			name: "test GetPodCPUBurstPolicy for shared pod overridden by core conf but sole=false returns closed",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test",
+					Namespace: "test",
+					Annotations: map[string]string{
+						consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores,
+					},
+				},
+			},
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				c.EnableDefaultSharedCoresCPUBurst = true
+				return c
+			}(),
+			isSoleSharedCoresPod: false,
+			wantPolicy:           consts.PodAnnotationCPUEnhancementCPUBurstPolicyClosed,
 		},
 	}
 
@@ -509,7 +702,7 @@ func TestGetPodCPUBurstPolicy(t *testing.T) {
 				})
 			}
 
-			gotPolicy, err := GetPodCPUBurstPolicy(tt.qosConfig, tt.pod, dynamicConfig)
+			gotPolicy, err := GetPodCPUBurstPolicy(tt.conf, tt.pod, dynamicConfig, tt.isSoleSharedCoresPod)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -611,6 +804,232 @@ func TestGetPodCPUBurstPercent(t *testing.T) {
 				assert.NoError(t, err)
 				assert.Equal(t, tt.wantPercent, gotPercent)
 			}
+		})
+	}
+}
+
+// generatePod returns a pod with the given name and QoS level annotation.
+func generatePod(name, qosLevel string) *v1.Pod {
+	return &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+			Annotations: map[string]string{
+				consts.PodAnnotationQoSLevelKey: qosLevel,
+			},
+		},
+	}
+}
+
+func TestIsSoleSharedCoresPod(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		conf           *config.Configuration
+		podList        []*v1.Pod
+		adminQoSConfig *adminqos.AdminQoSConfiguration
+		expected       bool
+	}{
+		{
+			name: "EnableSharedCoresDefaultCPUBurst is nil",
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
+			podList: []*v1.Pod{
+				generatePod("pod-1", consts.PodAnnotationQoSLevelSharedCores),
+			},
+			expected: false,
+		},
+		{
+			name: "EnableSharedCoresDefaultCPUBurst is false",
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
+			podList: []*v1.Pod{
+				generatePod("pod-1", consts.PodAnnotationQoSLevelSharedCores),
+			},
+			adminQoSConfig: &adminqos.AdminQoSConfiguration{
+				FineGrainedResourceConfiguration: &finegrainedresource.FineGrainedResourceConfiguration{
+					CPUBurstConfiguration: &finegrainedresource.CPUBurstConfiguration{
+						EnableSharedCoresDefaultCPUBurst: ptr.To(false),
+						DefaultCPUBurstPercent:           100,
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "Empty pod list",
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
+			podList: []*v1.Pod{},
+			adminQoSConfig: &adminqos.AdminQoSConfiguration{
+				FineGrainedResourceConfiguration: &finegrainedresource.FineGrainedResourceConfiguration{
+					CPUBurstConfiguration: &finegrainedresource.CPUBurstConfiguration{
+						EnableSharedCoresDefaultCPUBurst: ptr.To(true),
+						DefaultCPUBurstPercent:           100,
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "No shared cores pods",
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
+			podList: []*v1.Pod{
+				generatePod("pod-1", consts.PodAnnotationQoSLevelDedicatedCores),
+				generatePod("pod-2", consts.PodAnnotationQoSLevelDedicatedCores),
+			},
+			adminQoSConfig: &adminqos.AdminQoSConfiguration{
+				FineGrainedResourceConfiguration: &finegrainedresource.FineGrainedResourceConfiguration{
+					CPUBurstConfiguration: &finegrainedresource.CPUBurstConfiguration{
+						EnableSharedCoresDefaultCPUBurst: ptr.To(true),
+						DefaultCPUBurstPercent:           100,
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "One shared cores pod",
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
+			podList: []*v1.Pod{
+				generatePod("pod-1", consts.PodAnnotationQoSLevelSharedCores),
+			},
+			adminQoSConfig: &adminqos.AdminQoSConfiguration{
+				FineGrainedResourceConfiguration: &finegrainedresource.FineGrainedResourceConfiguration{
+					CPUBurstConfiguration: &finegrainedresource.CPUBurstConfiguration{
+						EnableSharedCoresDefaultCPUBurst: ptr.To(true),
+						DefaultCPUBurstPercent:           100,
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "Multiple shared cores pods",
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
+			podList: []*v1.Pod{
+				generatePod("pod-1", consts.PodAnnotationQoSLevelSharedCores),
+				generatePod("pod-2", consts.PodAnnotationQoSLevelSharedCores),
+			},
+			adminQoSConfig: &adminqos.AdminQoSConfiguration{
+				FineGrainedResourceConfiguration: &finegrainedresource.FineGrainedResourceConfiguration{
+					CPUBurstConfiguration: &finegrainedresource.CPUBurstConfiguration{
+						EnableSharedCoresDefaultCPUBurst: ptr.To(true),
+						DefaultCPUBurstPercent:           100,
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "Mixed QoS levels, one shared cores pod",
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
+			podList: []*v1.Pod{
+				generatePod("pod-1", consts.PodAnnotationQoSLevelDedicatedCores),
+				generatePod("pod-2", consts.PodAnnotationQoSLevelSharedCores),
+				generatePod("pod-3", consts.PodAnnotationQoSLevelSystemCores),
+			},
+			adminQoSConfig: &adminqos.AdminQoSConfiguration{
+				FineGrainedResourceConfiguration: &finegrainedresource.FineGrainedResourceConfiguration{
+					CPUBurstConfiguration: &finegrainedresource.CPUBurstConfiguration{
+						EnableSharedCoresDefaultCPUBurst: ptr.To(true),
+						DefaultCPUBurstPercent:           100,
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "Mixed QoS levels, multiple shared cores pods",
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				return c
+			}(),
+			podList: []*v1.Pod{
+				generatePod("pod-1", consts.PodAnnotationQoSLevelDedicatedCores),
+				generatePod("pod-2", consts.PodAnnotationQoSLevelSharedCores),
+				generatePod("pod-3", consts.PodAnnotationQoSLevelSharedCores),
+			},
+			adminQoSConfig: &adminqos.AdminQoSConfiguration{
+				FineGrainedResourceConfiguration: &finegrainedresource.FineGrainedResourceConfiguration{
+					CPUBurstConfiguration: &finegrainedresource.CPUBurstConfiguration{
+						EnableSharedCoresDefaultCPUBurst: ptr.To(true),
+						DefaultCPUBurstPercent:           100,
+					},
+				},
+			},
+			expected: false,
+		},
+		// Core conf gating: calculate when conf.EnableDefaultSharedCoresCPUBurst is true
+		{
+			name: "Core conf true: one shared cores pod",
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				c.EnableDefaultSharedCoresCPUBurst = true
+				return c
+			}(),
+			podList: []*v1.Pod{
+				generatePod("pod-1", consts.PodAnnotationQoSLevelSharedCores),
+			},
+			expected: true,
+		},
+		{
+			name: "Core conf true: multiple shared cores pods",
+			conf: func() *config.Configuration {
+				c := config.NewConfiguration()
+				c.QoSConfiguration = generic.NewQoSConfiguration()
+				c.EnableDefaultSharedCoresCPUBurst = true
+				return c
+			}(),
+			podList: []*v1.Pod{
+				generatePod("pod-1", consts.PodAnnotationQoSLevelSharedCores),
+				generatePod("pod-2", consts.PodAnnotationQoSLevelSharedCores),
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dynamicConfig := dynamic.NewDynamicAgentConfiguration()
+			if tt.adminQoSConfig != nil {
+				dynamicConfig.SetDynamicConfiguration(&dynamic.Configuration{
+					AdminQoSConfiguration: tt.adminQoSConfig,
+				})
+			}
+
+			actual := IsSoleSharedCoresPod(tt.conf, tt.podList, dynamicConfig)
+			assert.Equal(t, tt.expected, actual)
 		})
 	}
 }

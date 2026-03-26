@@ -488,5 +488,5 @@ func (p *DynamicPolicy) syncCPUBurst(_ *coreconfig.Configuration,
 	}()
 
 	cpuBurstManager := cpuburst.GetManager(p.metaServer)
-	err = cpuBurstManager.UpdateCPUBurst(p.qosConfig, p.dynamicConfig)
+	err = cpuBurstManager.UpdateCPUBurst(p.conf, p.dynamicConfig)
 }

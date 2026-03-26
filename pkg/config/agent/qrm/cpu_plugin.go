@@ -59,6 +59,10 @@ type CPUDynamicPolicyConfig struct {
 	EnableReserveCPUReversely bool
 	// EnableCPUBurst indicates whether cpu burst is enabled
 	EnableCPUBurst bool
+	// EnableDefaultDedicatedCoresCPUBurst indicates whether to enable cpu burst for dedicated cores by default
+	EnableDefaultDedicatedCoresCPUBurst bool
+	// EnableDefaultSharedCoresCPUBurst indicates whether to enable cpu burst for shared cores by default
+	EnableDefaultSharedCoresCPUBurst bool
 
 	*hintoptimizer.HintOptimizerConfiguration
 	*irqtuner.IRQTunerConfiguration

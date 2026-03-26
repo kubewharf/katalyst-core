@@ -26,8 +26,8 @@ import (
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
+	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
-	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/manager"
@@ -36,7 +36,7 @@ import (
 )
 
 type Manager interface {
-	UpdateCPUBurst(qosConf *generic.QoSConfiguration, dynamicConfig *dynamic.DynamicAgentConfiguration) error
+	UpdateCPUBurst(conf *config.Configuration, dynamicConfig *dynamic.DynamicAgentConfiguration) error
 }
 
 type managerImpl struct {
@@ -63,7 +63,7 @@ func newManager(metaServer *metaserver.MetaServer) *managerImpl {
 }
 
 // UpdateCPUBurst calculates the value of cpu burst and sets it to the cgroup.
-func (m *managerImpl) UpdateCPUBurst(qosConf *generic.QoSConfiguration, dynamicConfig *dynamic.DynamicAgentConfiguration) error {
+func (m *managerImpl) UpdateCPUBurst(conf *config.Configuration, dynamicConfig *dynamic.DynamicAgentConfiguration) error {
 	if m.metaServer == nil {
 		return fmt.Errorf("nil metaServer")
 	}
@@ -74,10 +74,17 @@ func (m *managerImpl) UpdateCPUBurst(qosConf *generic.QoSConfiguration, dynamicC
 		return fmt.Errorf("error getting pod list: %v", err)
 	}
 
+	qosConf := conf.QoSConfiguration
+	if qosConf == nil {
+		return fmt.Errorf("QoS configuration is nil")
+	}
+
 	var errList []error
 
+	isSoleSharedCoresPod := util.IsSoleSharedCoresPod(conf, podList, dynamicConfig)
+
 	for _, pod := range podList {
-		cpuBurstPolicy, err := util.GetPodCPUBurstPolicy(qosConf, pod, dynamicConfig)
+		cpuBurstPolicy, err := util.GetPodCPUBurstPolicy(conf, pod, dynamicConfig, isSoleSharedCoresPod)
 		if err != nil {
 			errList = append(errList, fmt.Errorf("error getting cpu burst policy for pod %s: %v", pod.Name, err))
 			continue
