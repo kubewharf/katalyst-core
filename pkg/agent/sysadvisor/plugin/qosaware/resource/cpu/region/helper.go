@@ -14,27 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package general
+package region
 
-import "strings"
+import (
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
+	resourcepackage "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
+)
 
-type SuffixTranslator interface {
-	Translate(s string) string
-}
-
-type commonSuffixTranslator struct {
-	suffix string
-}
-
-func NewCommonSuffixTranslator(suffix string) SuffixTranslator {
-	return &commonSuffixTranslator{
-		suffix: suffix,
-	}
-}
-
-func (cs *commonSuffixTranslator) Translate(s string) string {
-	if strings.Contains(s, cs.suffix) {
-		return strings.SplitN(s, cs.suffix, 2)[0] + cs.suffix
-	}
-	return s
+// GetResourcePackageName returns resource package name from container info
+func GetResourcePackageName(ci *types.ContainerInfo) string {
+	return resourcepackage.GetResourcePackageName(ci.Annotations)
 }

@@ -185,7 +185,7 @@ func (cra *cpuResourceAdvisor) GetHeadroom() (resource.Quantity, map[int]resourc
 	return headroom, numaHeadroom, err
 }
 
-func (cra *cpuResourceAdvisor) UpdateAndGetAdvice() (interface{}, error) {
+func (cra *cpuResourceAdvisor) UpdateAndGetAdvice(_ context.Context) (interface{}, error) {
 	startTime := time.Now()
 	result, err := cra.update()
 	_ = general.UpdateHealthzStateByError(cpuAdvisorHealthCheckName, err)
@@ -249,11 +249,17 @@ func (cra *cpuResourceAdvisor) updateWithIsolationGuardian(tryIsolation bool) (
 		return nil, errIsolationSafetyCheckFailed
 	}
 
+	pinnedCPUSizeByNuma, pinnedCPUSizeByPackageByNuma, err := cra.getPinnedCPUSizes()
+	if err != nil {
+		klog.Errorf("[qosaware-cpu] failed to get pinned cpu sizes: %v", err)
+		return nil, err
+	}
+
 	// run an episode of provision and headroom policy update for each region
 	for _, r := range cra.regionMap {
 		r.SetEssentials(types.ResourceEssentials{
 			EnableReclaim:       cra.conf.GetDynamicConfiguration().EnableReclaim,
-			ResourceUpperBound:  cra.getRegionMaxRequirement(r),
+			ResourceUpperBound:  cra.getRegionMaxRequirement(r, pinnedCPUSizeByNuma, pinnedCPUSizeByPackageByNuma),
 			ResourceLowerBound:  cra.getRegionMinRequirement(r),
 			ReservedForReclaim:  cra.getRegionReservedForReclaim(r),
 			ReservedForAllocate: cra.getRegionReservedForAllocate(r),
@@ -282,6 +288,26 @@ func (cra *cpuResourceAdvisor) updateWithIsolationGuardian(tryIsolation bool) (
 	cra.emitMetrics(calculationResult)
 
 	return &calculationResult, nil
+}
+
+func (cra *cpuResourceAdvisor) getPinnedCPUSizes() (map[int]int, map[string]map[int]int, error) {
+	cfg := cra.metaCache.GetResourcePackageConfig()
+	pinnedCPUSizeByNuma := make(map[int]int)
+	pinnedCPUSizeByPackageByNuma := make(map[string]map[int]int)
+	for numaID, pkgMap := range cfg {
+		for pkgName, pinnedCPUSet := range pkgMap {
+			size := pinnedCPUSet.Size()
+			if size <= 0 {
+				continue
+			}
+			pinnedCPUSizeByNuma[numaID] += size
+			if _, ok := pinnedCPUSizeByPackageByNuma[pkgName]; !ok {
+				pinnedCPUSizeByPackageByNuma[pkgName] = make(map[int]int)
+			}
+			pinnedCPUSizeByPackageByNuma[pkgName][numaID] = size
+		}
+	}
+	return pinnedCPUSizeByNuma, pinnedCPUSizeByPackageByNuma, nil
 }
 
 // setIsolatedContainers get isolation status from isolator and update into containers
@@ -513,7 +539,6 @@ func (cra *cpuResourceAdvisor) assignDedicatedContainerToRegions(ci *types.Conta
 	} else if len(regions) > 0 {
 		return regions, nil
 	}
-
 	if ci.IsNumaBinding() {
 		// create regions by numa node
 		for numaID := range ci.TopologyAwareAssignments {
