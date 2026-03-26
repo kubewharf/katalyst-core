@@ -149,6 +149,8 @@ func (p *StaticPolicy) Start() (err error) {
 		periodicalhandler.ReadyToStartHandlersByGroup(appqrm.QRMGPUPluginPeriodicalHandlerGroupName)
 	}, 5*time.Second, p.stopCh)
 
+	p.BasePlugin.Run(p.stopCh)
+
 	return nil
 }
 
