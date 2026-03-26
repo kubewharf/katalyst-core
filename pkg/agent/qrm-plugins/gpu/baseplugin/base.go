@@ -107,6 +107,7 @@ func NewBasePlugin(
 
 // Run starts the asynchronous tasks of the plugin
 func (p *BasePlugin) Run(stopCh <-chan struct{}) {
+	go p.DeviceTopologyRegistry.Run(stopCh)
 	go func() {
 		select {
 		case <-p.stateInitializedCh:
@@ -117,7 +118,6 @@ func (p *BasePlugin) Run(stopCh <-chan struct{}) {
 			return
 		}
 	}()
-	go p.DeviceTopologyRegistry.Run(stopCh)
 }
 
 // GetState may return a nil state because the state is only initialized when InitState is called.
