@@ -30,6 +30,9 @@ type GenericReporterConfiguration struct {
 	// first item for a particular name wins
 	InnerPlugins []string
 
+	// AgentReporters is the list of agent reporters to enable or disable
+	AgentReporters []string
+
 	RefreshLatestCNRPeriod time.Duration
 
 	// DefaultCNRLabels is the labels for CNR created by reporter
