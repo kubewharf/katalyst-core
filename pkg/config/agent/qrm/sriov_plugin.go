@@ -41,6 +41,7 @@ type SriovStaticPolicyConfig struct {
 }
 
 type SriovDynamicPolicyConfig struct {
+	PodRequiredAnnotations      map[string]string
 	LargeSizeVFQueueCount       int
 	LargeSizeVFCPUThreshold     int
 	LargeSizeVFFailOnExhaustion bool
