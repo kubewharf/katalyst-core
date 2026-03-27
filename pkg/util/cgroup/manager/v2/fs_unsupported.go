@@ -104,6 +104,10 @@ func (m *unsupportedManager) GetIOStat(absCgroupPath string) (map[string]map[str
 	return nil, fmt.Errorf("unsupported manager v2")
 }
 
+func (m *unsupportedManager) GetCgroupNrDyingDescendants(_ string) (int, error) {
+	return 0, fmt.Errorf("unsupported manager v2")
+}
+
 func (m *unsupportedManager) GetPids(_ string) ([]string, error) {
 	return nil, fmt.Errorf("unsupported manager v2")
 }
