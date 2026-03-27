@@ -104,6 +104,10 @@ func (m *unsupportedManager) GetMetrics(_ string, _ map[string]struct{}) (*commo
 	return nil, fmt.Errorf("unsupported manager v1")
 }
 
+func (m *unsupportedManager) GetCgroupNrDyingDescendants(_ string) (int, error) {
+	return 0, fmt.Errorf("unsupported manager v1")
+}
+
 func (m *unsupportedManager) GetPids(_ string) ([]string, error) {
 	return nil, fmt.Errorf("unsupported manager v1")
 }
