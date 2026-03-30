@@ -32,7 +32,9 @@ type AllocationInfo struct {
 
 	AllocatedAllocation      Allocation            `json:"allocated_allocation"`
 	TopologyAwareAllocations map[string]Allocation `json:"topology_aware_allocations"`
-	DeviceName               string                `json:"device_name"`
+	// DeviceName will be empty if it is a resource allocation (e.g. gpu memory), but it will be non-empty if
+	// it is a device allocation (e.g. gpu, rdma)
+	DeviceName string `json:"device_name"`
 }
 
 type Allocation struct {

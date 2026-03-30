@@ -38,6 +38,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/resourceplugin"
 	resourcepluginregistry "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/resourceplugin/registry"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
+	gpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/utilcomponent/periodicalhandler"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -195,7 +196,7 @@ func (p *StaticPolicy) ensureState(resourceName string) error {
 		return nil
 	}
 
-	resourceName = p.ResolveResourceName(resourceName, true)
+	resourceName = gpuutil.ResolveResourceName(p.GetDeviceNameToTypeMap(), resourceName, true)
 	// Check if resource exists in state
 	machineState := p.GetState().GetMachineState()
 	if _, ok := machineState[v1.ResourceName(resourceName)]; !ok {
@@ -699,12 +700,12 @@ func (p *StaticPolicy) AllocateAssociatedDevice(
 				_ = p.removeContainer(req.ResourceRequest.PodUid, req.ResourceRequest.ContainerName, v1.ResourceName(req.AccompanyResourceName))
 			}
 			if isPreAllocateCustomDevicePlugin {
-				preAllocateDeviceType := p.ResolveResourceName(req.AccompanyResourceName, false)
+				preAllocateDeviceType := gpuutil.ResolveResourceName(p.GetDeviceNameToTypeMap(), req.AccompanyResourceName, false)
 				if preAllocateDeviceType != "" {
 					_ = p.removeContainer(req.ResourceRequest.PodUid, req.ResourceRequest.ContainerName, v1.ResourceName(preAllocateDeviceType))
 				}
 			}
-			deviceType := p.ResolveResourceName(req.DeviceName, false)
+			deviceType := gpuutil.ResolveResourceName(p.GetDeviceNameToTypeMap(), req.DeviceName, false)
 			if deviceType != "" {
 				_ = p.removeContainer(req.ResourceRequest.PodUid, req.ResourceRequest.ContainerName, v1.ResourceName(deviceType))
 			}

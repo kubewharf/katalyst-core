@@ -297,6 +297,7 @@ func NewCheckpointState(
 
 	defaultCache, err := NewGPUPluginState(conf, defaultResourceStateGenerators)
 	if err != nil {
+		generalLog.ErrorS(err, "NewGPUPluginState failed with error")
 		return nil, fmt.Errorf("NewGPUPluginState failed with error: %v", err)
 	}
 

@@ -271,7 +271,7 @@ func TestStaticPolicy_RemovePod(t *testing.T) {
 
 	policy.DeviceTopologyRegistry.RegisterDeviceTopologyProvider(testResourcePluginName, deviceTopologyProviderStub)
 	policy.DefaultResourceStateGeneratorRegistry.RegisterResourceStateGenerator(testResourcePluginName,
-		state.NewGenericDefaultResourceStateGenerator([]string{testResourcePluginName}, policy.DeviceTopologyRegistry, 1))
+		state.NewGenericDefaultResourceStateGenerator([]string{testResourcePluginName}, policy.DeviceTopologyRegistry, 1, true))
 
 	testName := "test"
 	podUID := string(uuid.NewUUID())
@@ -325,7 +325,7 @@ func TestStaticPolicy_RemovePod_EnsureStateFails(t *testing.T) {
 	// DO NOT set device topology, so GetDeviceTopology will fail, which causes ensureState to fail
 	policy.DeviceTopologyRegistry.RegisterDeviceTopologyProvider(testResourcePluginName, deviceTopologyProviderStub)
 	policy.DefaultResourceStateGeneratorRegistry.RegisterResourceStateGenerator(testResourcePluginName,
-		state.NewGenericDefaultResourceStateGenerator([]string{testResourcePluginName}, policy.DeviceTopologyRegistry, 1))
+		state.NewGenericDefaultResourceStateGenerator([]string{testResourcePluginName}, policy.DeviceTopologyRegistry, 1, true))
 
 	policy.SetState(nil)
 
@@ -673,7 +673,7 @@ func TestStaticPolicy_GetTopologyAwareAllocatableResources_EnsureStateFails(t *t
 	// DO NOT set device topology, so GetDeviceTopology will fail, which causes ensureState to fail
 	policy.DeviceTopologyRegistry.RegisterDeviceTopologyProvider(testResourcePluginName, deviceTopologyProviderStub)
 	policy.DefaultResourceStateGeneratorRegistry.RegisterResourceStateGenerator(testResourcePluginName,
-		state.NewGenericDefaultResourceStateGenerator([]string{testResourcePluginName}, policy.DeviceTopologyRegistry, 1))
+		state.NewGenericDefaultResourceStateGenerator([]string{testResourcePluginName}, policy.DeviceTopologyRegistry, 1, true))
 
 	policy.SetState(nil)
 
@@ -878,5 +878,5 @@ func registerGeneratorWithTopology(t *testing.T, policy *StaticPolicy, resourceN
 
 	policy.DeviceTopologyRegistry.RegisterDeviceTopologyProvider(resourceName, deviceTopologyProviderStub)
 	policy.DefaultResourceStateGeneratorRegistry.RegisterResourceStateGenerator(resourceName,
-		state.NewGenericDefaultResourceStateGenerator([]string{resourceName}, policy.DeviceTopologyRegistry, 1))
+		state.NewGenericDefaultResourceStateGenerator([]string{resourceName}, policy.DeviceTopologyRegistry, 1, true))
 }

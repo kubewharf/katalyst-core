@@ -22,11 +22,9 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	v1 "k8s.io/api/core/v1"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate"
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -77,33 +75,33 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					ReusableDevices: nil,
 					DeviceRequest:   1,
 				},
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							Dimensions: dimLevel(0, "g12"),
-						},
-						"gpu-2": {
-							Dimensions: dimLevel(0, "g12"),
-						},
-						"gpu-3": {
-							Dimensions: dimLevel(0, "g34"),
-						},
-						"gpu-4": {
-							Dimensions: dimLevel(0, "g34"),
-						},
-						"gpu-5": {
-							Dimensions: dimLevel(0, "g56"),
-						},
-						"gpu-6": {
-							Dimensions: dimLevel(0, "g56"),
-						},
-						"gpu-7": {
-							Dimensions: dimLevel(0, "g78"),
-						},
-						"gpu-8": {
-							Dimensions: dimLevel(0, "g78"),
-						},
+			},
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {
+						Dimensions: dimLevel(0, "g12"),
+					},
+					"gpu-2": {
+						Dimensions: dimLevel(0, "g12"),
+					},
+					"gpu-3": {
+						Dimensions: dimLevel(0, "g34"),
+					},
+					"gpu-4": {
+						Dimensions: dimLevel(0, "g34"),
+					},
+					"gpu-5": {
+						Dimensions: dimLevel(0, "g56"),
+					},
+					"gpu-6": {
+						Dimensions: dimLevel(0, "g56"),
+					},
+					"gpu-7": {
+						Dimensions: dimLevel(0, "g78"),
+					},
+					"gpu-8": {
+						Dimensions: dimLevel(0, "g78"),
 					},
 				},
 			},
@@ -123,33 +121,33 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					ReusableDevices: nil,
 					DeviceRequest:   2,
 				},
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							Dimensions: dimLevel(0, "g12"),
-						},
-						"gpu-2": {
-							Dimensions: dimLevel(0, "g12"),
-						},
-						"gpu-3": {
-							Dimensions: dimLevel(0, "g34"),
-						},
-						"gpu-4": {
-							Dimensions: dimLevel(0, "g34"),
-						},
-						"gpu-5": {
-							Dimensions: dimLevel(0, "g56"),
-						},
-						"gpu-6": {
-							Dimensions: dimLevel(0, "g56"),
-						},
-						"gpu-7": {
-							Dimensions: dimLevel(0, "g78"),
-						},
-						"gpu-8": {
-							Dimensions: dimLevel(0, "g78"),
-						},
+			},
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {
+						Dimensions: dimLevel(0, "g12"),
+					},
+					"gpu-2": {
+						Dimensions: dimLevel(0, "g12"),
+					},
+					"gpu-3": {
+						Dimensions: dimLevel(0, "g34"),
+					},
+					"gpu-4": {
+						Dimensions: dimLevel(0, "g34"),
+					},
+					"gpu-5": {
+						Dimensions: dimLevel(0, "g56"),
+					},
+					"gpu-6": {
+						Dimensions: dimLevel(0, "g56"),
+					},
+					"gpu-7": {
+						Dimensions: dimLevel(0, "g78"),
+					},
+					"gpu-8": {
+						Dimensions: dimLevel(0, "g78"),
 					},
 				},
 			},
@@ -169,21 +167,21 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					ReusableDevices: nil,
 					DeviceRequest:   3,
 				},
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							Dimensions: dimLevel(0, "g12"),
-						},
-						"gpu-2": {
-							Dimensions: dimLevel(0, "g12"),
-						},
-						"gpu-3": {
-							Dimensions: dimLevel(0, "g34"),
-						},
-						"gpu-4": {
-							Dimensions: dimLevel(0, "g34"),
-						},
+			},
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {
+						Dimensions: dimLevel(0, "g12"),
+					},
+					"gpu-2": {
+						Dimensions: dimLevel(0, "g12"),
+					},
+					"gpu-3": {
+						Dimensions: dimLevel(0, "g34"),
+					},
+					"gpu-4": {
+						Dimensions: dimLevel(0, "g34"),
 					},
 				},
 			},
@@ -203,21 +201,21 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					ReusableDevices: nil,
 					DeviceRequest:   4,
 				},
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							Dimensions: dimLevel(0, "g12"),
-						},
-						"gpu-2": {
-							Dimensions: dimLevel(0, "g12"),
-						},
-						"gpu-3": {
-							Dimensions: dimLevel(0, "g34"),
-						},
-						"gpu-4": {
-							Dimensions: dimLevel(0, "g34"),
-						},
+			},
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {
+						Dimensions: dimLevel(0, "g12"),
+					},
+					"gpu-2": {
+						Dimensions: dimLevel(0, "g12"),
+					},
+					"gpu-3": {
+						Dimensions: dimLevel(0, "g34"),
+					},
+					"gpu-4": {
+						Dimensions: dimLevel(0, "g34"),
 					},
 				},
 			},
@@ -239,21 +237,21 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					ReusableDevices: nil,
 					DeviceRequest:   2,
 				},
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							Dimensions: dimLevel(0, "g1234"),
-						},
-						"gpu-2": {
-							Dimensions: dimLevel(0, "g1234"),
-						},
-						"gpu-3": {
-							Dimensions: dimLevel(0, "g1234"),
-						},
-						"gpu-4": {
-							Dimensions: dimLevel(0, "g1234"),
-						},
+			},
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {
+						Dimensions: dimLevel(0, "g1234"),
+					},
+					"gpu-2": {
+						Dimensions: dimLevel(0, "g1234"),
+					},
+					"gpu-3": {
+						Dimensions: dimLevel(0, "g1234"),
+					},
+					"gpu-4": {
+						Dimensions: dimLevel(0, "g1234"),
 					},
 				},
 			},
@@ -273,21 +271,21 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					ReusableDevices: []string{"gpu-1", "gpu-2"},
 					DeviceRequest:   2,
 				},
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							Dimensions: dimLevel(0, "g12"),
-						},
-						"gpu-2": {
-							Dimensions: dimLevel(0, "g12"),
-						},
-						"gpu-3": {
-							Dimensions: dimLevel(0, "g34"),
-						},
-						"gpu-4": {
-							Dimensions: dimLevel(0, "g34"),
-						},
+			},
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {
+						Dimensions: dimLevel(0, "g12"),
+					},
+					"gpu-2": {
+						Dimensions: dimLevel(0, "g12"),
+					},
+					"gpu-3": {
+						Dimensions: dimLevel(0, "g34"),
+					},
+					"gpu-4": {
+						Dimensions: dimLevel(0, "g34"),
 					},
 				},
 			},
@@ -309,21 +307,21 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					ReusableDevices: []string{"gpu-1", "gpu-3", "gpu-4"},
 					DeviceRequest:   2, // should allocate gpu-3 and gpu-4
 				},
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							Dimensions: dimLevel(0, "g12"),
-						},
-						"gpu-2": {
-							Dimensions: dimLevel(0, "g12"),
-						},
-						"gpu-3": {
-							Dimensions: dimLevel(0, "g34"),
-						},
-						"gpu-4": {
-							Dimensions: dimLevel(0, "g34"),
-						},
+			},
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {
+						Dimensions: dimLevel(0, "g12"),
+					},
+					"gpu-2": {
+						Dimensions: dimLevel(0, "g12"),
+					},
+					"gpu-3": {
+						Dimensions: dimLevel(0, "g34"),
+					},
+					"gpu-4": {
+						Dimensions: dimLevel(0, "g34"),
 					},
 				},
 			},
@@ -345,15 +343,15 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					ReusableDevices: []string{"gpu-1", "gpu-3"}, // gpu-4 is already allocated, so we should allocate gpu-3 to support bin-packing
 					DeviceRequest:   1,
 				},
-				// Level 0: [gpu-1, gpu-2], [gpu-3, gpu-4]
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {Dimensions: dimLevel(0, "g12")},
-						"gpu-2": {Dimensions: dimLevel(0, "g12")},
-						"gpu-3": {Dimensions: dimLevel(0, "g34")},
-						"gpu-4": {Dimensions: dimLevel(0, "g34")},
-					},
+			},
+			// Level 0: [gpu-1, gpu-2], [gpu-3, gpu-4]
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {Dimensions: dimLevel(0, "g12")},
+					"gpu-2": {Dimensions: dimLevel(0, "g12")},
+					"gpu-3": {Dimensions: dimLevel(0, "g34")},
+					"gpu-4": {Dimensions: dimLevel(0, "g34")},
 				},
 			},
 			sortedDevices: []string{"gpu-1", "gpu-2", "gpu-3"},
@@ -375,19 +373,19 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					ReusableDevices: nil,
 					DeviceRequest:   1,
 				},
-				// Level 0: [gpu-1, gpu-2], [gpu-3, gpu-4]
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {Dimensions: dimLevel(0, "g12")},
-						"gpu-2": {Dimensions: dimLevel(0, "g12")},
-						"gpu-3": {Dimensions: dimLevel(0, "g34")},
-						"gpu-4": {Dimensions: dimLevel(0, "g34")},
-						"gpu-5": {Dimensions: dimLevel(0, "g56")},
-						"gpu-6": {Dimensions: dimLevel(0, "g56")},
-						"gpu-7": {Dimensions: dimLevel(0, "g78")},
-						"gpu-8": {Dimensions: dimLevel(0, "g78")},
-					},
+			},
+			// Level 0: [gpu-1, gpu-2], [gpu-3, gpu-4]
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {Dimensions: dimLevel(0, "g12")},
+					"gpu-2": {Dimensions: dimLevel(0, "g12")},
+					"gpu-3": {Dimensions: dimLevel(0, "g34")},
+					"gpu-4": {Dimensions: dimLevel(0, "g34")},
+					"gpu-5": {Dimensions: dimLevel(0, "g56")},
+					"gpu-6": {Dimensions: dimLevel(0, "g56")},
+					"gpu-7": {Dimensions: dimLevel(0, "g78")},
+					"gpu-8": {Dimensions: dimLevel(0, "g78")},
 				},
 			},
 			sortedDevices: []string{"gpu1", "gpu2", "gpu-3", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
@@ -408,19 +406,19 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					ReusableDevices: []string{"gpu-1", "gpu-3", "gpu-5", "gpu-6"}, // gpu-5 and gou-6 should be allocated because gpu-7 is already allocated and this supports bin-packing
 					DeviceRequest:   2,
 				},
-				// Level 0: [gpu-1, gpu-2, gpu-3, gpu-4], [gpu-5, gpu-6, gpu-7, gpu-8]
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {Dimensions: dimLevel(0, "g1234")},
-						"gpu-2": {Dimensions: dimLevel(0, "g1234")},
-						"gpu-3": {Dimensions: dimLevel(0, "g1234")},
-						"gpu-4": {Dimensions: dimLevel(0, "g1234")},
-						"gpu-5": {Dimensions: dimLevel(0, "g5678")},
-						"gpu-6": {Dimensions: dimLevel(0, "g5678")},
-						"gpu-7": {Dimensions: dimLevel(0, "g5678")},
-						"gpu-8": {Dimensions: dimLevel(0, "g5678")},
-					},
+			},
+			// Level 0: [gpu-1, gpu-2, gpu-3, gpu-4], [gpu-5, gpu-6, gpu-7, gpu-8]
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {Dimensions: dimLevel(0, "g1234")},
+					"gpu-2": {Dimensions: dimLevel(0, "g1234")},
+					"gpu-3": {Dimensions: dimLevel(0, "g1234")},
+					"gpu-4": {Dimensions: dimLevel(0, "g1234")},
+					"gpu-5": {Dimensions: dimLevel(0, "g5678")},
+					"gpu-6": {Dimensions: dimLevel(0, "g5678")},
+					"gpu-7": {Dimensions: dimLevel(0, "g5678")},
+					"gpu-8": {Dimensions: dimLevel(0, "g5678")},
 				},
 			},
 			sortedDevices: []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-8"},
@@ -441,23 +439,23 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					ReusableDevices: []string{"gpu-2", "gpu-3", "gpu-6", "gpu-7", "gpu-9", "gpu-10"},
 					DeviceRequest:   4,
 				},
-				// Level 0: [gpu-1, gpu-2, gpu-3, gpu-4], [gpu-5, gpu-6, gpu-7, gpu-8], [gpu-9, gpu-10, gpu-11, gpu-12]
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1":  {Dimensions: dimLevel(0, "g1234")},
-						"gpu-2":  {Dimensions: dimLevel(0, "g1234")},
-						"gpu-3":  {Dimensions: dimLevel(0, "g1234")},
-						"gpu-4":  {Dimensions: dimLevel(0, "g1234")},
-						"gpu-5":  {Dimensions: dimLevel(0, "g5678")},
-						"gpu-6":  {Dimensions: dimLevel(0, "g5678")},
-						"gpu-7":  {Dimensions: dimLevel(0, "g5678")},
-						"gpu-8":  {Dimensions: dimLevel(0, "g5678")},
-						"gpu-9":  {Dimensions: dimLevel(0, "g9-12")},
-						"gpu-10": {Dimensions: dimLevel(0, "g9-12")},
-						"gpu-11": {Dimensions: dimLevel(0, "g9-12")},
-						"gpu-12": {Dimensions: dimLevel(0, "g9-12")},
-					},
+			},
+			// Level 0: [gpu-1, gpu-2, gpu-3, gpu-4], [gpu-5, gpu-6, gpu-7, gpu-8], [gpu-9, gpu-10, gpu-11, gpu-12]
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1":  {Dimensions: dimLevel(0, "g1234")},
+					"gpu-2":  {Dimensions: dimLevel(0, "g1234")},
+					"gpu-3":  {Dimensions: dimLevel(0, "g1234")},
+					"gpu-4":  {Dimensions: dimLevel(0, "g1234")},
+					"gpu-5":  {Dimensions: dimLevel(0, "g5678")},
+					"gpu-6":  {Dimensions: dimLevel(0, "g5678")},
+					"gpu-7":  {Dimensions: dimLevel(0, "g5678")},
+					"gpu-8":  {Dimensions: dimLevel(0, "g5678")},
+					"gpu-9":  {Dimensions: dimLevel(0, "g9-12")},
+					"gpu-10": {Dimensions: dimLevel(0, "g9-12")},
+					"gpu-11": {Dimensions: dimLevel(0, "g9-12")},
+					"gpu-12": {Dimensions: dimLevel(0, "g9-12")},
 				},
 			},
 			sortedDevices: []string{"gpu-2", "gpu-3", "gpu-6", "gpu-7", "gpu-8", "gpu-9", "gpu-10", "gpu-11", "gpu-12"},
@@ -480,23 +478,23 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					ReusableDevices: []string{"gpu-2", "gpu-3", "gpu-6", "gpu-7", "gpu-9", "gpu-10"},
 					DeviceRequest:   4,
 				},
-				// Level 0: [gpu-1, gpu-2, gpu-3, gpu-4], [gpu-5, gpu-6, gpu-7, gpu-8], [gpu-9, gpu-10, gpu-11, gpu-12]
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"numa"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1":  {Dimensions: dimName("numa", "numa-0")},
-						"gpu-2":  {Dimensions: dimName("numa", "numa-0")},
-						"gpu-3":  {Dimensions: dimName("numa", "numa-0")},
-						"gpu-4":  {Dimensions: dimName("numa", "numa-0")},
-						"gpu-5":  {Dimensions: dimName("numa", "numa-1")},
-						"gpu-6":  {Dimensions: dimName("numa", "numa-1")},
-						"gpu-7":  {Dimensions: dimName("numa", "numa-1")},
-						"gpu-8":  {Dimensions: dimName("numa", "numa-1")},
-						"gpu-9":  {Dimensions: dimName("numa", "numa-2")},
-						"gpu-10": {Dimensions: dimName("numa", "numa-2")},
-						"gpu-11": {Dimensions: dimName("numa", "numa-2")},
-						"gpu-12": {Dimensions: dimName("numa", "numa-2")},
-					},
+			},
+			// Level 0: [gpu-1, gpu-2, gpu-3, gpu-4], [gpu-5, gpu-6, gpu-7, gpu-8], [gpu-9, gpu-10, gpu-11, gpu-12]
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"numa"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1":  {Dimensions: dimName("numa", "numa-0")},
+					"gpu-2":  {Dimensions: dimName("numa", "numa-0")},
+					"gpu-3":  {Dimensions: dimName("numa", "numa-0")},
+					"gpu-4":  {Dimensions: dimName("numa", "numa-0")},
+					"gpu-5":  {Dimensions: dimName("numa", "numa-1")},
+					"gpu-6":  {Dimensions: dimName("numa", "numa-1")},
+					"gpu-7":  {Dimensions: dimName("numa", "numa-1")},
+					"gpu-8":  {Dimensions: dimName("numa", "numa-1")},
+					"gpu-9":  {Dimensions: dimName("numa", "numa-2")},
+					"gpu-10": {Dimensions: dimName("numa", "numa-2")},
+					"gpu-11": {Dimensions: dimName("numa", "numa-2")},
+					"gpu-12": {Dimensions: dimName("numa", "numa-2")},
 				},
 			},
 			sortedDevices: []string{"gpu-2", "gpu-3", "gpu-6", "gpu-7", "gpu-8", "gpu-9", "gpu-10", "gpu-11", "gpu-12"},
@@ -517,20 +515,20 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					ReusableDevices: []string{"gpu-1", "gpu-2", "gpu-3", "gpu-5", "gpu-7"}, // gpu-1 and gpu-2 have affinity in 1st level, gpu-5 and gpu-7 have affinity in 2nd level
 					DeviceRequest:   4,
 				},
-				// Level 0: [gpu-1, gpu-2], [gpu-3, gpu-4], [gpu-5, gpu-6], [gpu-7, gpu-8]
-				// Level 1: [gpu-1, gpu-2, gpu-3, gpu-4], [gpu-5, gpu-6, gpu-7, gpu-8]
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
-						"gpu-2": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
-						"gpu-3": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
-						"gpu-4": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
-						"gpu-5": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
-						"gpu-6": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
-						"gpu-7": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
-						"gpu-8": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
-					},
+			},
+			// Level 0: [gpu-1, gpu-2], [gpu-3, gpu-4], [gpu-5, gpu-6], [gpu-7, gpu-8]
+			// Level 1: [gpu-1, gpu-2, gpu-3, gpu-4], [gpu-5, gpu-6, gpu-7, gpu-8]
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+					"gpu-2": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+					"gpu-3": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
+					"gpu-4": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
+					"gpu-5": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
+					"gpu-6": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
+					"gpu-7": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
+					"gpu-8": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
 				},
 			},
 			// Allocate gpu-1, gpu-2 in first level, then allocate gpu-3 as it has affinity with gpu-1 and gpu-2
@@ -553,19 +551,19 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					ReusableDevices: []string{"gpu-1", "gpu-2", "gpu-3", "gpu-5", "gpu-7"}, // gpu-1 and gpu-2 have affinity in 1st level, gpu-5 and gpu-7 have affinity in 2nd level
 					DeviceRequest:   4,
 				},
-				// Level 0: [gpu-1, gpu-2], [gpu-3, gpu-4], [gpu-5, gpu-6], [gpu-7, gpu-8]
-				// Level 2: [gpu-1, gpu-2, gpu-3, gpu-4], [gpu-5, gpu-6, gpu-7, gpu-8]
-				DeviceTopology: &machine.DeviceTopology{
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(2, "g1234"))},
-						"gpu-2": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(2, "g1234"))},
-						"gpu-3": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(2, "g1234"))},
-						"gpu-4": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(2, "g1234"))},
-						"gpu-5": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(2, "g5678"))},
-						"gpu-6": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(2, "g5678"))},
-						"gpu-7": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(2, "g5678"))},
-						"gpu-8": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(2, "g5678"))},
-					},
+			},
+			// Level 0: [gpu-1, gpu-2], [gpu-3, gpu-4], [gpu-5, gpu-6], [gpu-7, gpu-8]
+			// Level 2: [gpu-1, gpu-2, gpu-3, gpu-4], [gpu-5, gpu-6, gpu-7, gpu-8]
+			topology: &machine.DeviceTopology{
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(2, "g1234"))},
+					"gpu-2": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(2, "g1234"))},
+					"gpu-3": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(2, "g1234"))},
+					"gpu-4": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(2, "g1234"))},
+					"gpu-5": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(2, "g5678"))},
+					"gpu-6": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(2, "g5678"))},
+					"gpu-7": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(2, "g5678"))},
+					"gpu-8": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(2, "g5678"))},
 				},
 			},
 			// Allocate gpu-1, gpu-2 in first level, then allocate gpu-3 as it has affinity with gpu-1 and gpu-2
@@ -588,18 +586,18 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					ReusableDevices: []string{"gpu-1", "gpu-5"},
 					DeviceRequest:   4,
 				},
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {Dimensions: dimLevel(0, "g12")},
-						"gpu-2": {Dimensions: dimLevel(0, "g12")},
-						"gpu-3": {Dimensions: dimLevel(0, "g34")},
-						"gpu-4": {Dimensions: dimLevel(0, "g34")},
-						"gpu-5": {Dimensions: dimLevel(0, "g56")},
-						"gpu-6": {Dimensions: dimLevel(0, "g56")},
-						"gpu-7": {Dimensions: dimLevel(0, "g78")},
-						"gpu-8": {Dimensions: dimLevel(0, "g78")},
-					},
+			},
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {Dimensions: dimLevel(0, "g12")},
+					"gpu-2": {Dimensions: dimLevel(0, "g12")},
+					"gpu-3": {Dimensions: dimLevel(0, "g34")},
+					"gpu-4": {Dimensions: dimLevel(0, "g34")},
+					"gpu-5": {Dimensions: dimLevel(0, "g56")},
+					"gpu-6": {Dimensions: dimLevel(0, "g56")},
+					"gpu-7": {Dimensions: dimLevel(0, "g78")},
+					"gpu-8": {Dimensions: dimLevel(0, "g78")},
 				},
 			},
 			// gpu-1 and gpu-5 are already allocated as they are reusable
@@ -622,18 +620,18 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					ReusableDevices: []string{"gpu-1", "gpu-5"},
 					DeviceRequest:   6,
 				},
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {Dimensions: dimLevel(0, "g12")},
-						"gpu-2": {Dimensions: dimLevel(0, "g12")},
-						"gpu-3": {Dimensions: dimLevel(0, "g34")},
-						"gpu-4": {Dimensions: dimLevel(0, "g34")},
-						"gpu-5": {Dimensions: dimLevel(0, "g56")},
-						"gpu-6": {Dimensions: dimLevel(0, "g56")},
-						"gpu-7": {Dimensions: dimLevel(0, "g78")},
-						"gpu-8": {Dimensions: dimLevel(0, "g78")},
-					},
+			},
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {Dimensions: dimLevel(0, "g12")},
+					"gpu-2": {Dimensions: dimLevel(0, "g12")},
+					"gpu-3": {Dimensions: dimLevel(0, "g34")},
+					"gpu-4": {Dimensions: dimLevel(0, "g34")},
+					"gpu-5": {Dimensions: dimLevel(0, "g56")},
+					"gpu-6": {Dimensions: dimLevel(0, "g56")},
+					"gpu-7": {Dimensions: dimLevel(0, "g78")},
+					"gpu-8": {Dimensions: dimLevel(0, "g78")},
 				},
 			},
 			sortedDevices: []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7"},
@@ -657,23 +655,23 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					ReusableDevices: []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-9"},
 					DeviceRequest:   6,
 				},
-				// 1 level: [gpu-1, gpu-2, gpu-3, gpu-4], [gpu-5, gpu-6, gpu-7, gpu-8], [gpu-9, gpu-10, gpu-11, gpu-12]
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1":  {Dimensions: dimLevel(0, "g1234")},
-						"gpu-2":  {Dimensions: dimLevel(0, "g1234")},
-						"gpu-3":  {Dimensions: dimLevel(0, "g1234")},
-						"gpu-4":  {Dimensions: dimLevel(0, "g1234")},
-						"gpu-5":  {Dimensions: dimLevel(0, "g5678")},
-						"gpu-6":  {Dimensions: dimLevel(0, "g5678")},
-						"gpu-7":  {Dimensions: dimLevel(0, "g5678")},
-						"gpu-8":  {Dimensions: dimLevel(0, "g5678")},
-						"gpu-9":  {Dimensions: dimLevel(0, "g9-12")},
-						"gpu-10": {Dimensions: dimLevel(0, "g9-12")},
-						"gpu-11": {Dimensions: dimLevel(0, "g9-12")},
-						"gpu-12": {Dimensions: dimLevel(0, "g9-12")},
-					},
+			},
+			// 1 level: [gpu-1, gpu-2, gpu-3, gpu-4], [gpu-5, gpu-6, gpu-7, gpu-8], [gpu-9, gpu-10, gpu-11, gpu-12]
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1":  {Dimensions: dimLevel(0, "g1234")},
+					"gpu-2":  {Dimensions: dimLevel(0, "g1234")},
+					"gpu-3":  {Dimensions: dimLevel(0, "g1234")},
+					"gpu-4":  {Dimensions: dimLevel(0, "g1234")},
+					"gpu-5":  {Dimensions: dimLevel(0, "g5678")},
+					"gpu-6":  {Dimensions: dimLevel(0, "g5678")},
+					"gpu-7":  {Dimensions: dimLevel(0, "g5678")},
+					"gpu-8":  {Dimensions: dimLevel(0, "g5678")},
+					"gpu-9":  {Dimensions: dimLevel(0, "g9-12")},
+					"gpu-10": {Dimensions: dimLevel(0, "g9-12")},
+					"gpu-11": {Dimensions: dimLevel(0, "g9-12")},
+					"gpu-12": {Dimensions: dimLevel(0, "g9-12")},
 				},
 			},
 			sortedDevices: []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-9"},
@@ -696,22 +694,22 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					ReusableDevices: []string{"gpu-1", "gpu-5", "gpu-9", "gpu-10"},
 					DeviceRequest:   8,
 				},
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1":  {Dimensions: dimLevel(0, "g1234")},
-						"gpu-2":  {Dimensions: dimLevel(0, "g1234")},
-						"gpu-3":  {Dimensions: dimLevel(0, "g1234")},
-						"gpu-4":  {Dimensions: dimLevel(0, "g1234")},
-						"gpu-5":  {Dimensions: dimLevel(0, "g5678")},
-						"gpu-6":  {Dimensions: dimLevel(0, "g5678")},
-						"gpu-7":  {Dimensions: dimLevel(0, "g5678")},
-						"gpu-8":  {Dimensions: dimLevel(0, "g5678")},
-						"gpu-9":  {Dimensions: dimLevel(0, "g9-12")},
-						"gpu-10": {Dimensions: dimLevel(0, "g9-12")},
-						"gpu-11": {Dimensions: dimLevel(0, "g9-12")},
-						"gpu-12": {Dimensions: dimLevel(0, "g9-12")},
-					},
+			},
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1":  {Dimensions: dimLevel(0, "g1234")},
+					"gpu-2":  {Dimensions: dimLevel(0, "g1234")},
+					"gpu-3":  {Dimensions: dimLevel(0, "g1234")},
+					"gpu-4":  {Dimensions: dimLevel(0, "g1234")},
+					"gpu-5":  {Dimensions: dimLevel(0, "g5678")},
+					"gpu-6":  {Dimensions: dimLevel(0, "g5678")},
+					"gpu-7":  {Dimensions: dimLevel(0, "g5678")},
+					"gpu-8":  {Dimensions: dimLevel(0, "g5678")},
+					"gpu-9":  {Dimensions: dimLevel(0, "g9-12")},
+					"gpu-10": {Dimensions: dimLevel(0, "g9-12")},
+					"gpu-11": {Dimensions: dimLevel(0, "g9-12")},
+					"gpu-12": {Dimensions: dimLevel(0, "g9-12")},
 				},
 			},
 			sortedDevices: []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-7", "gpu-8", "gpu-9", "gpu-10", "gpu-11"},
@@ -736,24 +734,24 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					ReusableDevices: []string{"gpu-1", "gpu-5"},
 					DeviceRequest:   6,
 				},
-				// Level 0: [gpu-1, gpu-2], [gpu-3, gpu-4], [gpu-5, gpu-6], [gpu-7, gpu-8], [gpu-9, gpu-10], [gpu-11, gpu-12]
-				// Level 1: [gpu-1, gpu-2, gpu-3, gpu-4], [gpu-5, gpu-6, gpu-7, gpu-8], [gpu-9, gpu-10, gpu-11, gpu-12]
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1":  {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
-						"gpu-2":  {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
-						"gpu-3":  {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
-						"gpu-4":  {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
-						"gpu-5":  {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
-						"gpu-6":  {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
-						"gpu-7":  {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
-						"gpu-8":  {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
-						"gpu-9":  {Dimensions: dims(dimLevel(0, "g9-10"), dimLevel(1, "g9-12"))},
-						"gpu-10": {Dimensions: dims(dimLevel(0, "g9-10"), dimLevel(1, "g9-12"))},
-						"gpu-11": {Dimensions: dims(dimLevel(0, "g11-12"), dimLevel(1, "g9-12"))},
-						"gpu-12": {Dimensions: dims(dimLevel(0, "g11-12"), dimLevel(1, "g9-12"))},
-					},
+			},
+			// Level 0: [gpu-1, gpu-2], [gpu-3, gpu-4], [gpu-5, gpu-6], [gpu-7, gpu-8], [gpu-9, gpu-10], [gpu-11, gpu-12]
+			// Level 1: [gpu-1, gpu-2, gpu-3, gpu-4], [gpu-5, gpu-6, gpu-7, gpu-8], [gpu-9, gpu-10, gpu-11, gpu-12]
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1":  {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+					"gpu-2":  {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+					"gpu-3":  {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
+					"gpu-4":  {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
+					"gpu-5":  {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
+					"gpu-6":  {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
+					"gpu-7":  {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
+					"gpu-8":  {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
+					"gpu-9":  {Dimensions: dims(dimLevel(0, "g9-10"), dimLevel(1, "g9-12"))},
+					"gpu-10": {Dimensions: dims(dimLevel(0, "g9-10"), dimLevel(1, "g9-12"))},
+					"gpu-11": {Dimensions: dims(dimLevel(0, "g11-12"), dimLevel(1, "g9-12"))},
+					"gpu-12": {Dimensions: dims(dimLevel(0, "g11-12"), dimLevel(1, "g9-12"))},
 				},
 			},
 			sortedDevices: []string{"gpu-1", "gpu-2", "gpu-3", "gpu-5", "gpu-6", "gpu-7", "gpu-8", "gpu-9", "gpu-10", "gpu-11", "gpu-12"},
@@ -777,20 +775,20 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					ReusableDevices: []string{"gpu-1", "gpu-3", "gpu-5"},
 					DeviceRequest:   5,
 				},
-				// Level 0: [gpu-1, gpu-2], [gpu-3, gpu-4], [gpu-5, gpu-6], [gpu-7, gpu-8]
-				// Level 1: [gpu-1, gpu-2, gpu-3, gpu-4], [gpu-5, gpu-6, gpu-7, gpu-8]
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
-						"gpu-2": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
-						"gpu-3": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
-						"gpu-4": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
-						"gpu-5": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
-						"gpu-6": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
-						"gpu-7": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
-						"gpu-8": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
-					},
+			},
+			// Level 0: [gpu-1, gpu-2], [gpu-3, gpu-4], [gpu-5, gpu-6], [gpu-7, gpu-8]
+			// Level 1: [gpu-1, gpu-2, gpu-3, gpu-4], [gpu-5, gpu-6, gpu-7, gpu-8]
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+					"gpu-2": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+					"gpu-3": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
+					"gpu-4": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
+					"gpu-5": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
+					"gpu-6": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
+					"gpu-7": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
+					"gpu-8": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
 				},
 			},
 			sortedDevices: []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-7", "gpu-8"},
@@ -813,14 +811,14 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					ReusableDevices: []string{},
 					DeviceRequest:   2,
 				},
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
-						"gpu-2": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
-						"gpu-3": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
-						"gpu-4": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
-					},
+			},
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+					"gpu-2": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+					"gpu-3": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
+					"gpu-4": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
 				},
 			},
 			sortedDevices: []string{"gpu-1", "gpu-3", "gpu-4"},
@@ -843,20 +841,20 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					ReusableDevices: []string{"gpu-1", "gpu-2", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
 					DeviceRequest:   4,
 				},
-				// Level 0: [gpu-1, gpu-2], [gpu-3, gpu-4], [gpu-5, gpu-6], [gpu-7, gpu-8]
-				// Level 1: [gpu-1, gpu-2, gpu-3, gpu-4], [gpu-5, gpu-6, gpu-7, gpu-8]
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
-						"gpu-2": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
-						"gpu-3": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
-						"gpu-4": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
-						"gpu-5": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
-						"gpu-6": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
-						"gpu-7": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
-						"gpu-8": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
-					},
+			},
+			// Level 0: [gpu-1, gpu-2], [gpu-3, gpu-4], [gpu-5, gpu-6], [gpu-7, gpu-8]
+			// Level 1: [gpu-1, gpu-2, gpu-3, gpu-4], [gpu-5, gpu-6, gpu-7, gpu-8]
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+					"gpu-2": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+					"gpu-3": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
+					"gpu-4": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
+					"gpu-5": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
+					"gpu-6": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
+					"gpu-7": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
+					"gpu-8": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
 				},
 			},
 			sortedDevices: []string{"gpu-1", "gpu-2", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
@@ -882,58 +880,58 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					ReusableDevices: []string{"gpu-1", "gpu-2", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
 					DeviceRequest:   4,
 				},
-				// Level 0: [gpu-1, gpu-2], [gpu-3, gpu-4], [gpu-5, gpu-6], [gpu-7, gpu-8]
-				// Level 1: [gpu-1, gpu-2, gpu-3, gpu-4], [gpu-5, gpu-6, gpu-7, gpu-8]
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"numa", "socket"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							Dimensions: map[string]string{
-								"numa":   "numa-0",
-								"socket": "socket-0",
-							},
+			},
+			// Level 0: [gpu-1, gpu-2], [gpu-3, gpu-4], [gpu-5, gpu-6], [gpu-7, gpu-8]
+			// Level 1: [gpu-1, gpu-2, gpu-3, gpu-4], [gpu-5, gpu-6, gpu-7, gpu-8]
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"numa", "socket"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {
+						Dimensions: map[string]string{
+							"numa":   "numa-0",
+							"socket": "socket-0",
 						},
-						"gpu-2": {
-							Dimensions: map[string]string{
-								"numa":   "numa-0",
-								"socket": "socket-0",
-							},
+					},
+					"gpu-2": {
+						Dimensions: map[string]string{
+							"numa":   "numa-0",
+							"socket": "socket-0",
 						},
-						"gpu-3": {
-							Dimensions: map[string]string{
-								"numa":   "numa-1",
-								"socket": "socket-0",
-							},
+					},
+					"gpu-3": {
+						Dimensions: map[string]string{
+							"numa":   "numa-1",
+							"socket": "socket-0",
 						},
-						"gpu-4": {
-							Dimensions: map[string]string{
-								"numa":   "numa-1",
-								"socket": "socket-0",
-							},
+					},
+					"gpu-4": {
+						Dimensions: map[string]string{
+							"numa":   "numa-1",
+							"socket": "socket-0",
 						},
-						"gpu-5": {
-							Dimensions: map[string]string{
-								"numa":   "numa-2",
-								"socket": "socket-1",
-							},
+					},
+					"gpu-5": {
+						Dimensions: map[string]string{
+							"numa":   "numa-2",
+							"socket": "socket-1",
 						},
-						"gpu-6": {
-							Dimensions: map[string]string{
-								"numa":   "numa-2",
-								"socket": "socket-1",
-							},
+					},
+					"gpu-6": {
+						Dimensions: map[string]string{
+							"numa":   "numa-2",
+							"socket": "socket-1",
 						},
-						"gpu-7": {
-							Dimensions: map[string]string{
-								"numa":   "numa-3",
-								"socket": "socket-1",
-							},
+					},
+					"gpu-7": {
+						Dimensions: map[string]string{
+							"numa":   "numa-3",
+							"socket": "socket-1",
 						},
-						"gpu-8": {
-							Dimensions: map[string]string{
-								"numa":   "numa-3",
-								"socket": "socket-1",
-							},
+					},
+					"gpu-8": {
+						Dimensions: map[string]string{
+							"numa":   "numa-3",
+							"socket": "socket-1",
 						},
 					},
 				},
@@ -956,19 +954,19 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					ReusableDevices: []string{"gpu-1", "gpu-4"},
 					DeviceRequest:   4,
 				},
-				// Level 0: [gpu-1, gpu-2], [gpu-3, gpu-4], [gpu-5, gpu-6], [gpu-7, gpu-8]
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {Dimensions: dimLevel(0, "g12")},
-						"gpu-2": {Dimensions: dimLevel(0, "g12")},
-						"gpu-3": {Dimensions: dimLevel(0, "g34")},
-						"gpu-4": {Dimensions: dimLevel(0, "g34")},
-						"gpu-5": {Dimensions: dimLevel(0, "g56")},
-						"gpu-6": {Dimensions: dimLevel(0, "g56")},
-						"gpu-7": {Dimensions: dimLevel(0, "g78")},
-						"gpu-8": {Dimensions: dimLevel(0, "g78")},
-					},
+			},
+			// Level 0: [gpu-1, gpu-2], [gpu-3, gpu-4], [gpu-5, gpu-6], [gpu-7, gpu-8]
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {Dimensions: dimLevel(0, "g12")},
+					"gpu-2": {Dimensions: dimLevel(0, "g12")},
+					"gpu-3": {Dimensions: dimLevel(0, "g34")},
+					"gpu-4": {Dimensions: dimLevel(0, "g34")},
+					"gpu-5": {Dimensions: dimLevel(0, "g56")},
+					"gpu-6": {Dimensions: dimLevel(0, "g56")},
+					"gpu-7": {Dimensions: dimLevel(0, "g78")},
+					"gpu-8": {Dimensions: dimLevel(0, "g78")},
 				},
 			},
 			sortedDevices: []string{"gpu-1", "gpu-4", "gpu-5", "gpu-7", "gpu-8"},
@@ -992,14 +990,14 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					ReusableDevices: []string{"gpu-1", "gpu-2"},
 					DeviceRequest:   4,
 				},
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {Dimensions: dimLevel(0, "g12")},
-						"gpu-2": {Dimensions: dimLevel(0, "g12")},
-						"gpu-3": {Dimensions: dimLevel(0, "g34")},
-						"gpu-4": {Dimensions: dimLevel(0, "g34")},
-					},
+			},
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {Dimensions: dimLevel(0, "g12")},
+					"gpu-2": {Dimensions: dimLevel(0, "g12")},
+					"gpu-3": {Dimensions: dimLevel(0, "g34")},
+					"gpu-4": {Dimensions: dimLevel(0, "g34")},
 				},
 			},
 			sortedDevices: []string{"gpu-1", "gpu-2"},
@@ -1022,21 +1020,21 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					ReusableDevices: []string{"gpu-1", "gpu-5", "gpu-6", "gpu-7"},
 					DeviceRequest:   3,
 				},
-				// Level 0: [gpu-1, gpu-2], [gpu-3, gpu-4], [gpu-5, gpu-6], [gpu-7, gpu-8]
-				// Level 1: [gpu-1, gpu-2, gpu-3, gpu-4], [gpu-5, gpu-6, gpu-7, gpu-8]
-				DeviceTopology: &machine.DeviceTopology{
-					// Two affinity levels: pairs at level 0, quads at level 1.
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
-						"gpu-2": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
-						"gpu-3": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
-						"gpu-4": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
-						"gpu-5": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
-						"gpu-6": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
-						"gpu-7": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
-						"gpu-8": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
-					},
+			},
+			// Level 0: [gpu-1, gpu-2], [gpu-3, gpu-4], [gpu-5, gpu-6], [gpu-7, gpu-8]
+			// Level 1: [gpu-1, gpu-2, gpu-3, gpu-4], [gpu-5, gpu-6, gpu-7, gpu-8]
+			topology: &machine.DeviceTopology{
+				// Two affinity levels: pairs at level 0, quads at level 1.
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+					"gpu-2": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+					"gpu-3": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
+					"gpu-4": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
+					"gpu-5": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
+					"gpu-6": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
+					"gpu-7": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
+					"gpu-8": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
 				},
 			},
 			sortedDevices: []string{"gpu-1", "gpu-5", "gpu-6", "gpu-7"},
@@ -1057,57 +1055,57 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					ReusableDevices: nil,
 					DeviceRequest:   2,
 				},
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						"0": {
-							Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
-						},
-						"gpu-2": {
-							Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
-						},
-						"gpu-3": {
-							Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
-						},
-						"gpu-4": {
-							Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
-						},
-						"gpu-5": {
-							Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
-						},
-						"gpu-6": {
-							Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
-						},
-						"gpu-7": {
-							Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
-						},
-						"gpu-8": {
-							Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
-						},
-						"gpu-9": {
-							Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
-						},
-						"gpu-10": {
-							Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
-						},
-						"gpu-11": {
-							Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
-						},
-						"gpu-12": {
-							Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
-						},
-						"gpu-13": {
-							Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
-						},
-						"gpu-14": {
-							Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
-						},
-						"gpu-15": {
-							Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
-						},
-						"gpu-16": {
-							Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
-						},
+			},
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					"0": {
+						Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
+					},
+					"gpu-2": {
+						Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
+					},
+					"gpu-3": {
+						Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
+					},
+					"gpu-4": {
+						Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
+					},
+					"gpu-5": {
+						Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
+					},
+					"gpu-6": {
+						Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
+					},
+					"gpu-7": {
+						Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
+					},
+					"gpu-8": {
+						Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
+					},
+					"gpu-9": {
+						Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
+					},
+					"gpu-10": {
+						Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
+					},
+					"gpu-11": {
+						Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
+					},
+					"gpu-12": {
+						Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
+					},
+					"gpu-13": {
+						Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
+					},
+					"gpu-14": {
+						Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
+					},
+					"gpu-15": {
+						Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
+					},
+					"gpu-16": {
+						Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
 					},
 				},
 			},
@@ -1127,35 +1125,35 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					ReusableDevices: []string{"gpu-0"},
 					DeviceRequest:   3,
 				},
-				// Level 0: [gpu-0, gpu-1], [gpu-4, gpu-5], [gpu-2, gpu-3], [gpu-6, gpu-7]
-				// Level 1: [gpu-0, gpu-1, gpu-4, gpu-5], [gpu-2, gpu-3, gpu-6, gpu-7]
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-0": {
-							Dimensions: dims(dimLevel(0, "g01"), dimLevel(1, "g0145")),
-						},
-						"gpu-1": {
-							Dimensions: dims(dimLevel(0, "g01"), dimLevel(1, "g0145")),
-						},
-						"gpu-2": {
-							Dimensions: dims(dimLevel(0, "g23"), dimLevel(1, "g2367")),
-						},
-						"gpu-3": {
-							Dimensions: dims(dimLevel(0, "g23"), dimLevel(1, "g2367")),
-						},
-						"gpu-4": {
-							Dimensions: dims(dimLevel(0, "g45"), dimLevel(1, "g0145")),
-						},
-						"gpu-5": {
-							Dimensions: dims(dimLevel(0, "g45"), dimLevel(1, "g0145")),
-						},
-						"gpu-6": {
-							Dimensions: dims(dimLevel(0, "g67"), dimLevel(1, "g2367")),
-						},
-						"gpu-7": {
-							Dimensions: dims(dimLevel(0, "g67"), dimLevel(1, "g2367")),
-						},
+			},
+			// Level 0: [gpu-0, gpu-1], [gpu-4, gpu-5], [gpu-2, gpu-3], [gpu-6, gpu-7]
+			// Level 1: [gpu-0, gpu-1, gpu-4, gpu-5], [gpu-2, gpu-3, gpu-6, gpu-7]
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-0": {
+						Dimensions: dims(dimLevel(0, "g01"), dimLevel(1, "g0145")),
+					},
+					"gpu-1": {
+						Dimensions: dims(dimLevel(0, "g01"), dimLevel(1, "g0145")),
+					},
+					"gpu-2": {
+						Dimensions: dims(dimLevel(0, "g23"), dimLevel(1, "g2367")),
+					},
+					"gpu-3": {
+						Dimensions: dims(dimLevel(0, "g23"), dimLevel(1, "g2367")),
+					},
+					"gpu-4": {
+						Dimensions: dims(dimLevel(0, "g45"), dimLevel(1, "g0145")),
+					},
+					"gpu-5": {
+						Dimensions: dims(dimLevel(0, "g45"), dimLevel(1, "g0145")),
+					},
+					"gpu-6": {
+						Dimensions: dims(dimLevel(0, "g67"), dimLevel(1, "g2367")),
+					},
+					"gpu-7": {
+						Dimensions: dims(dimLevel(0, "g67"), dimLevel(1, "g2367")),
 					},
 				},
 			},
@@ -1177,58 +1175,58 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					ReusableDevices: []string{"gpu-0"},
 					DeviceRequest:   3,
 				},
-				// Level 0: [gpu-0, gpu-1], [gpu-4, gpu-5], [gpu-2, gpu-3], [gpu-6, gpu-7]
-				// Level 1: [gpu-0, gpu-1, gpu-4, gpu-5], [gpu-2, gpu-3, gpu-6, gpu-7]
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"numa", "socket"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-0": {
-							Dimensions: map[string]string{
-								"numa":   "numa-0",
-								"socket": "socket-0",
-							},
+			},
+			// Level 0: [gpu-0, gpu-1], [gpu-4, gpu-5], [gpu-2, gpu-3], [gpu-6, gpu-7]
+			// Level 1: [gpu-0, gpu-1, gpu-4, gpu-5], [gpu-2, gpu-3, gpu-6, gpu-7]
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"numa", "socket"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-0": {
+						Dimensions: map[string]string{
+							"numa":   "numa-0",
+							"socket": "socket-0",
 						},
-						"gpu-1": {
-							Dimensions: map[string]string{
-								"numa":   "numa-0",
-								"socket": "socket-0",
-							},
+					},
+					"gpu-1": {
+						Dimensions: map[string]string{
+							"numa":   "numa-0",
+							"socket": "socket-0",
 						},
-						"gpu-2": {
-							Dimensions: map[string]string{
-								"numa":   "numa-2",
-								"socket": "socket-1",
-							},
+					},
+					"gpu-2": {
+						Dimensions: map[string]string{
+							"numa":   "numa-2",
+							"socket": "socket-1",
 						},
-						"gpu-3": {
-							Dimensions: map[string]string{
-								"numa":   "numa-2",
-								"socket": "socket-1",
-							},
+					},
+					"gpu-3": {
+						Dimensions: map[string]string{
+							"numa":   "numa-2",
+							"socket": "socket-1",
 						},
-						"gpu-4": {
-							Dimensions: map[string]string{
-								"numa":   "numa-1",
-								"socket": "socket-0",
-							},
+					},
+					"gpu-4": {
+						Dimensions: map[string]string{
+							"numa":   "numa-1",
+							"socket": "socket-0",
 						},
-						"gpu-5": {
-							Dimensions: map[string]string{
-								"numa":   "numa-1",
-								"socket": "socket-0",
-							},
+					},
+					"gpu-5": {
+						Dimensions: map[string]string{
+							"numa":   "numa-1",
+							"socket": "socket-0",
 						},
-						"gpu-6": {
-							Dimensions: map[string]string{
-								"numa":   "numa-3",
-								"socket": "socket-1",
-							},
+					},
+					"gpu-6": {
+						Dimensions: map[string]string{
+							"numa":   "numa-3",
+							"socket": "socket-1",
 						},
-						"gpu-7": {
-							Dimensions: map[string]string{
-								"numa":   "numa-3",
-								"socket": "socket-1",
-							},
+					},
+					"gpu-7": {
+						Dimensions: map[string]string{
+							"numa":   "numa-3",
+							"socket": "socket-1",
 						},
 					},
 				},
@@ -1350,19 +1348,19 @@ func TestBind_Dimensions(t *testing.T) {
 					ReusableDevices: nil,
 					DeviceRequest:   2,
 				},
-				DeviceTopology: &machine.DeviceTopology{
-					// Single priority dimension; each pair of devices forms an affinity group.
-					PriorityDimensions: []string{"0"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {Dimensions: dimLevel(0, "g12")},
-						"gpu-2": {Dimensions: dimLevel(0, "g12")},
-						"gpu-3": {Dimensions: dimLevel(0, "g34")},
-						"gpu-4": {Dimensions: dimLevel(0, "g34")},
-						"gpu-5": {Dimensions: dimLevel(0, "g56")},
-						"gpu-6": {Dimensions: dimLevel(0, "g56")},
-						"gpu-7": {Dimensions: dimLevel(0, "g78")},
-						"gpu-8": {Dimensions: dimLevel(0, "g78")},
-					},
+			},
+			topology: &machine.DeviceTopology{
+				// Single priority dimension; each pair of devices forms an affinity group.
+				PriorityDimensions: []string{"0"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {Dimensions: dimLevel(0, "g12")},
+					"gpu-2": {Dimensions: dimLevel(0, "g12")},
+					"gpu-3": {Dimensions: dimLevel(0, "g34")},
+					"gpu-4": {Dimensions: dimLevel(0, "g34")},
+					"gpu-5": {Dimensions: dimLevel(0, "g56")},
+					"gpu-6": {Dimensions: dimLevel(0, "g56")},
+					"gpu-7": {Dimensions: dimLevel(0, "g78")},
+					"gpu-8": {Dimensions: dimLevel(0, "g78")},
 				},
 			},
 			sortedDevices:                 []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
@@ -1380,21 +1378,21 @@ func TestBind_Dimensions(t *testing.T) {
 					ReusableDevices: nil,
 					DeviceRequest:   4,
 				},
-				DeviceTopology: &machine.DeviceTopology{
-					// Two affinity levels: pairs at level 0, quads at level 1.
-					// Level 0: [gpu-1, gpu-2], [gpu-3, gpu-4], [gpu-5, gpu-6], [gpu-7, gpu-8]
-					// Level 1: [gpu-1, gpu-2, gpu-3, gpu-4], [gpu-5, gpu-6, gpu-7, gpu-8]
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
-						"gpu-2": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
-						"gpu-3": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
-						"gpu-4": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
-						"gpu-5": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
-						"gpu-6": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
-						"gpu-7": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
-						"gpu-8": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
-					},
+			},
+			topology: &machine.DeviceTopology{
+				// Two affinity levels: pairs at level 0, quads at level 1.
+				// Level 0: [gpu-1, gpu-2], [gpu-3, gpu-4], [gpu-5, gpu-6], [gpu-7, gpu-8]
+				// Level 1: [gpu-1, gpu-2, gpu-3, gpu-4], [gpu-5, gpu-6, gpu-7, gpu-8]
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+					"gpu-2": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+					"gpu-3": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
+					"gpu-4": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
+					"gpu-5": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
+					"gpu-6": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
+					"gpu-7": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
+					"gpu-8": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
 				},
 			},
 			sortedDevices:                 []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
@@ -1412,33 +1410,33 @@ func TestBind_Dimensions(t *testing.T) {
 					ReusableDevices: nil,
 					DeviceRequest:   4,
 				},
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "2"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							Dimensions: dims(dimLevel(0, "g12"), dimLevel(2, "g1234")),
-						},
-						"gpu-2": {
-							Dimensions: dims(dimLevel(0, "g12"), dimLevel(2, "g1234")),
-						},
-						"gpu-3": {
-							Dimensions: dims(dimLevel(0, "g34"), dimLevel(2, "g1234")),
-						},
-						"gpu-4": {
-							Dimensions: dims(dimLevel(0, "g34"), dimLevel(2, "g1234")),
-						},
-						"gpu-5": {
-							Dimensions: dims(dimLevel(0, "g56"), dimLevel(2, "g5678")),
-						},
-						"gpu-6": {
-							Dimensions: dims(dimLevel(0, "g56"), dimLevel(2, "g5678")),
-						},
-						"gpu-7": {
-							Dimensions: dims(dimLevel(0, "g78"), dimLevel(2, "g5678")),
-						},
-						"gpu-8": {
-							Dimensions: dims(dimLevel(0, "g78"), dimLevel(2, "g5678")),
-						},
+			},
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "2"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {
+						Dimensions: dims(dimLevel(0, "g12"), dimLevel(2, "g1234")),
+					},
+					"gpu-2": {
+						Dimensions: dims(dimLevel(0, "g12"), dimLevel(2, "g1234")),
+					},
+					"gpu-3": {
+						Dimensions: dims(dimLevel(0, "g34"), dimLevel(2, "g1234")),
+					},
+					"gpu-4": {
+						Dimensions: dims(dimLevel(0, "g34"), dimLevel(2, "g1234")),
+					},
+					"gpu-5": {
+						Dimensions: dims(dimLevel(0, "g56"), dimLevel(2, "g5678")),
+					},
+					"gpu-6": {
+						Dimensions: dims(dimLevel(0, "g56"), dimLevel(2, "g5678")),
+					},
+					"gpu-7": {
+						Dimensions: dims(dimLevel(0, "g78"), dimLevel(2, "g5678")),
+					},
+					"gpu-8": {
+						Dimensions: dims(dimLevel(0, "g78"), dimLevel(2, "g5678")),
 					},
 				},
 			},
@@ -1459,57 +1457,57 @@ func TestBind_Dimensions(t *testing.T) {
 					ReusableDevices: []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8", "gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
 					DeviceRequest:   4,
 				},
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						"0": {
-							Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
-						},
-						"gpu-2": {
-							Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
-						},
-						"gpu-3": {
-							Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
-						},
-						"gpu-4": {
-							Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
-						},
-						"gpu-5": {
-							Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
-						},
-						"gpu-6": {
-							Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
-						},
-						"gpu-7": {
-							Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
-						},
-						"gpu-8": {
-							Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
-						},
-						"gpu-9": {
-							Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
-						},
-						"gpu-10": {
-							Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
-						},
-						"gpu-11": {
-							Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
-						},
-						"gpu-12": {
-							Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
-						},
-						"gpu-13": {
-							Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
-						},
-						"gpu-14": {
-							Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
-						},
-						"gpu-15": {
-							Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
-						},
-						"gpu-16": {
-							Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
-						},
+			},
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					"0": {
+						Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
+					},
+					"gpu-2": {
+						Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
+					},
+					"gpu-3": {
+						Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
+					},
+					"gpu-4": {
+						Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
+					},
+					"gpu-5": {
+						Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
+					},
+					"gpu-6": {
+						Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
+					},
+					"gpu-7": {
+						Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
+					},
+					"gpu-8": {
+						Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
+					},
+					"gpu-9": {
+						Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
+					},
+					"gpu-10": {
+						Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
+					},
+					"gpu-11": {
+						Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
+					},
+					"gpu-12": {
+						Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
+					},
+					"gpu-13": {
+						Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
+					},
+					"gpu-14": {
+						Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
+					},
+					"gpu-15": {
+						Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
+					},
+					"gpu-16": {
+						Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
 					},
 				},
 			},
@@ -1528,57 +1526,57 @@ func TestBind_Dimensions(t *testing.T) {
 					ReusableDevices: []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8", "gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
 					DeviceRequest:   8,
 				},
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						"0": {
-							Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
-						},
-						"gpu-2": {
-							Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
-						},
-						"gpu-3": {
-							Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
-						},
-						"gpu-4": {
-							Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
-						},
-						"gpu-5": {
-							Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
-						},
-						"gpu-6": {
-							Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
-						},
-						"gpu-7": {
-							Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
-						},
-						"gpu-8": {
-							Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
-						},
-						"gpu-9": {
-							Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
-						},
-						"gpu-10": {
-							Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
-						},
-						"gpu-11": {
-							Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
-						},
-						"gpu-12": {
-							Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
-						},
-						"gpu-13": {
-							Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
-						},
-						"gpu-14": {
-							Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
-						},
-						"gpu-15": {
-							Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
-						},
-						"gpu-16": {
-							Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
-						},
+			},
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					"0": {
+						Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
+					},
+					"gpu-2": {
+						Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
+					},
+					"gpu-3": {
+						Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
+					},
+					"gpu-4": {
+						Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
+					},
+					"gpu-5": {
+						Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
+					},
+					"gpu-6": {
+						Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
+					},
+					"gpu-7": {
+						Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
+					},
+					"gpu-8": {
+						Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
+					},
+					"gpu-9": {
+						Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
+					},
+					"gpu-10": {
+						Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
+					},
+					"gpu-11": {
+						Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
+					},
+					"gpu-12": {
+						Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
+					},
+					"gpu-13": {
+						Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
+					},
+					"gpu-14": {
+						Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
+					},
+					"gpu-15": {
+						Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
+					},
+					"gpu-16": {
+						Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
 					},
 				},
 			},
@@ -1625,6 +1623,7 @@ func TestBind_Dimensions_RequiredStrict(t *testing.T) {
 	tests := []struct {
 		name               string
 		ctx                *allocate.AllocationContext
+		topology           *machine.DeviceTopology
 		sortedDevices      []string
 		expectedErr        bool
 		expectedResultSize int
@@ -1643,21 +1642,21 @@ func TestBind_Dimensions_RequiredStrict(t *testing.T) {
 					DeviceRequest:   4,
 				},
 				GPUQRMPluginConfig: &qrmconfig.GPUQRMPluginConfig{RequiredDeviceAffinity: true},
-				DeviceTopology: &machine.DeviceTopology{
-					// Single priority dimension; four affinity groups with 2 devices each.
-					PriorityDimensions: []string{"0"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {Dimensions: dimLevel(0, "g12")},
-						"gpu-2": {Dimensions: dimLevel(0, "g12")},
-						"gpu-3": {Dimensions: dimLevel(0, "g34")},
-						"gpu-4": {Dimensions: dimLevel(0, "g34")},
-						"gpu-5": {Dimensions: dimLevel(0, "g56")},
-						"gpu-6": {Dimensions: dimLevel(0, "g56")},
-						"gpu-7": {Dimensions: dimLevel(0, "g78")},
-						"gpu-8": {Dimensions: dimLevel(0, "g78")},
-					},
+				Emitter:            metrics.DummyMetrics{},
+			},
+			topology: &machine.DeviceTopology{
+				// Single priority dimension; four affinity groups with 2 devices each.
+				PriorityDimensions: []string{"0"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {Dimensions: dimLevel(0, "g12")},
+					"gpu-2": {Dimensions: dimLevel(0, "g12")},
+					"gpu-3": {Dimensions: dimLevel(0, "g34")},
+					"gpu-4": {Dimensions: dimLevel(0, "g34")},
+					"gpu-5": {Dimensions: dimLevel(0, "g56")},
+					"gpu-6": {Dimensions: dimLevel(0, "g56")},
+					"gpu-7": {Dimensions: dimLevel(0, "g78")},
+					"gpu-8": {Dimensions: dimLevel(0, "g78")},
 				},
-				Emitter: metrics.DummyMetrics{},
 			},
 			sortedDevices:      []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
 			expectedResultSize: 4,
@@ -1677,22 +1676,22 @@ func TestBind_Dimensions_RequiredStrict(t *testing.T) {
 					DeviceRequest:   5,
 				},
 				GPUQRMPluginConfig: &qrmconfig.GPUQRMPluginConfig{RequiredDeviceAffinity: true},
-				DeviceTopology: &machine.DeviceTopology{
-					// Same four size-2 groups as previous tests, but we only expose
-					// devices from three groups through sortedDevices below.
-					PriorityDimensions: []string{"0"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {Dimensions: dimLevel(0, "g12")},
-						"gpu-2": {Dimensions: dimLevel(0, "g12")},
-						"gpu-3": {Dimensions: dimLevel(0, "g34")},
-						"gpu-4": {Dimensions: dimLevel(0, "g34")},
-						"gpu-5": {Dimensions: dimLevel(0, "g56")},
-						"gpu-6": {Dimensions: dimLevel(0, "g56")},
-						"gpu-7": {Dimensions: dimLevel(0, "g78")},
-						"gpu-8": {Dimensions: dimLevel(0, "g78")},
-					},
+				Emitter:            metrics.DummyMetrics{},
+			},
+			topology: &machine.DeviceTopology{
+				// Same four size-2 groups as previous tests, but we only expose
+				// devices from three groups through sortedDevices below.
+				PriorityDimensions: []string{"0"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {Dimensions: dimLevel(0, "g12")},
+					"gpu-2": {Dimensions: dimLevel(0, "g12")},
+					"gpu-3": {Dimensions: dimLevel(0, "g34")},
+					"gpu-4": {Dimensions: dimLevel(0, "g34")},
+					"gpu-5": {Dimensions: dimLevel(0, "g56")},
+					"gpu-6": {Dimensions: dimLevel(0, "g56")},
+					"gpu-7": {Dimensions: dimLevel(0, "g78")},
+					"gpu-8": {Dimensions: dimLevel(0, "g78")},
 				},
-				Emitter: metrics.DummyMetrics{},
 			},
 			// Only expose three of the four groups as candidates; the strict rule
 			// ceil(5/2)=3 requires using exactly three groups at the last priority.
@@ -1715,20 +1714,20 @@ func TestBind_Dimensions_RequiredStrict(t *testing.T) {
 					DeviceRequest:   4,
 				},
 				GPUQRMPluginConfig: &qrmconfig.GPUQRMPluginConfig{RequiredDeviceAffinity: true},
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						// One affinity group of size 4 at priority 1.
-						"gpu-1": {Dimensions: dimLevel(0, "g1234")},
-						"gpu-2": {Dimensions: dimLevel(0, "g1234")},
-						"gpu-3": {Dimensions: dimLevel(0, "g1234")},
-						"gpu-4": {Dimensions: dimLevel(0, "g1234")},
-						// Extra devices that should not be needed.
-						"gpu-5": {},
-						"gpu-6": {},
-					},
+				Emitter:            metrics.DummyMetrics{},
+			},
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					// One affinity group of size 4 at priority 1.
+					"gpu-1": {Dimensions: dimLevel(0, "g1234")},
+					"gpu-2": {Dimensions: dimLevel(0, "g1234")},
+					"gpu-3": {Dimensions: dimLevel(0, "g1234")},
+					"gpu-4": {Dimensions: dimLevel(0, "g1234")},
+					// Extra devices that should not be needed.
+					"gpu-5": {},
+					"gpu-6": {},
 				},
-				Emitter: metrics.DummyMetrics{},
 			},
 			sortedDevices:      []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6"},
 			expectedResultSize: 4,
@@ -1747,18 +1746,18 @@ func TestBind_Dimensions_RequiredStrict(t *testing.T) {
 					DeviceRequest:   2,
 				},
 				GPUQRMPluginConfig: &qrmconfig.GPUQRMPluginConfig{RequiredDeviceAffinity: true},
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						// Priority 0: affinity group size 2 (gpu-1,gpu-2).
-						// Priority 1: affinity group size 4 (gpu-1,gpu-2,gpu-3,gpu-4) which supersets priority 0.
-						"gpu-1": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
-						"gpu-2": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
-						"gpu-3": {Dimensions: dimLevel(1, "g1234")},
-						"gpu-4": {Dimensions: dimLevel(1, "g1234")},
-					},
+				Emitter:            metrics.DummyMetrics{},
+			},
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					// Priority 0: affinity group size 2 (gpu-1,gpu-2).
+					// Priority 1: affinity group size 4 (gpu-1,gpu-2,gpu-3,gpu-4) which supersets priority 0.
+					"gpu-1": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+					"gpu-2": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+					"gpu-3": {Dimensions: dimLevel(1, "g1234")},
+					"gpu-4": {Dimensions: dimLevel(1, "g1234")},
 				},
-				Emitter: metrics.DummyMetrics{},
 			},
 			sortedDevices:      []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4"},
 			expectedResultSize: 2,
@@ -1777,17 +1776,17 @@ func TestBind_Dimensions_RequiredStrict(t *testing.T) {
 					DeviceRequest:   2,
 				},
 				GPUQRMPluginConfig: &qrmconfig.GPUQRMPluginConfig{RequiredDeviceAffinity: true},
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0"},
-					Devices: map[string]machine.DeviceInfo{
-						// No devices declare any Dimensions.
-						"gpu-1": {},
-						"gpu-2": {},
-						"gpu-3": {},
-						"gpu-4": {},
-					},
+				Emitter:            metrics.DummyMetrics{},
+			},
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0"},
+				Devices: map[string]machine.DeviceInfo{
+					// No devices declare any Dimensions.
+					"gpu-1": {},
+					"gpu-2": {},
+					"gpu-3": {},
+					"gpu-4": {},
 				},
-				Emitter: metrics.DummyMetrics{},
 			},
 			sortedDevices: []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4"},
 			expectedErr:   true,
@@ -1805,18 +1804,18 @@ func TestBind_Dimensions_RequiredStrict(t *testing.T) {
 					DeviceRequest:   2,
 				},
 				GPUQRMPluginConfig: &qrmconfig.GPUQRMPluginConfig{RequiredDeviceAffinity: true},
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						// Priority 0 has two disjoint affinity groups of size 2: {1,2} and {3,4}.
-						// Priority 1 has a size-4 affinity group {1,2,3,4} that supersets both size-2 groups.
-						"gpu-1": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
-						"gpu-2": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
-						"gpu-3": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
-						"gpu-4": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
-					},
+				Emitter:            metrics.DummyMetrics{},
+			},
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					// Priority 0 has two disjoint affinity groups of size 2: {1,2} and {3,4}.
+					// Priority 1 has a size-4 affinity group {1,2,3,4} that supersets both size-2 groups.
+					"gpu-1": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+					"gpu-2": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+					"gpu-3": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
+					"gpu-4": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
 				},
-				Emitter: metrics.DummyMetrics{},
 			},
 			// Only two devices are available, and they are from different priority-0 groups.
 			sortedDevices: []string{"gpu-1", "gpu-3"},
@@ -1835,22 +1834,22 @@ func TestBind_Dimensions_RequiredStrict(t *testing.T) {
 					DeviceRequest:   4,
 				},
 				GPUQRMPluginConfig: &qrmconfig.GPUQRMPluginConfig{RequiredDeviceAffinity: true},
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						// Priority 0: two disjoint size-4 groups {1,2,3,4} and {5,6,7,8}.
-						// Priority 1: one size-8 group {1..8} that supersets both size-4 groups.
-						"gpu-1": {Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678"))},
-						"gpu-2": {Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678"))},
-						"gpu-3": {Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678"))},
-						"gpu-4": {Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678"))},
-						"gpu-5": {Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678"))},
-						"gpu-6": {Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678"))},
-						"gpu-7": {Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678"))},
-						"gpu-8": {Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678"))},
-					},
+				Emitter:            metrics.DummyMetrics{},
+			},
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					// Priority 0: two disjoint size-4 groups {1,2,3,4} and {5,6,7,8}.
+					// Priority 1: one size-8 group {1..8} that supersets both size-4 groups.
+					"gpu-1": {Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678"))},
+					"gpu-2": {Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678"))},
+					"gpu-3": {Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678"))},
+					"gpu-4": {Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678"))},
+					"gpu-5": {Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678"))},
+					"gpu-6": {Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678"))},
+					"gpu-7": {Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678"))},
+					"gpu-8": {Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678"))},
 				},
-				Emitter: metrics.DummyMetrics{},
 			},
 			// Four available devices, but split across the two size-4 groups at priority 0.
 			sortedDevices: []string{"gpu-1", "gpu-2", "gpu-5", "gpu-6"},
@@ -1869,24 +1868,24 @@ func TestBind_Dimensions_RequiredStrict(t *testing.T) {
 					DeviceRequest:   5,
 				},
 				GPUQRMPluginConfig: &qrmconfig.GPUQRMPluginConfig{RequiredDeviceAffinity: true},
-				DeviceTopology: &machine.DeviceTopology{
-					// Four logical size-2 groups, but only two groups worth of
-					// devices are actually available in sortedDevices below. The
-					// strict rule requires ceil(5/2)=3 groups at the last priority,
-					// which is impossible given only two groups with any candidates.
-					PriorityDimensions: []string{"0"},
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {Dimensions: dimLevel(0, "g12")},
-						"gpu-2": {Dimensions: dimLevel(0, "g12")},
-						"gpu-3": {Dimensions: dimLevel(0, "g34")},
-						"gpu-4": {Dimensions: dimLevel(0, "g34")},
-						"gpu-5": {Dimensions: dimLevel(0, "g56")},
-						"gpu-6": {Dimensions: dimLevel(0, "g56")},
-						"gpu-7": {Dimensions: dimLevel(0, "g78")},
-						"gpu-8": {Dimensions: dimLevel(0, "g78")},
-					},
+				Emitter:            metrics.DummyMetrics{},
+			},
+			topology: &machine.DeviceTopology{
+				// Four logical size-2 groups, but only two groups worth of
+				// devices are actually available in sortedDevices below. The
+				// strict rule requires ceil(5/2)=3 groups at the last priority,
+				// which is impossible given only two groups with any candidates.
+				PriorityDimensions: []string{"0"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {Dimensions: dimLevel(0, "g12")},
+					"gpu-2": {Dimensions: dimLevel(0, "g12")},
+					"gpu-3": {Dimensions: dimLevel(0, "g34")},
+					"gpu-4": {Dimensions: dimLevel(0, "g34")},
+					"gpu-5": {Dimensions: dimLevel(0, "g56")},
+					"gpu-6": {Dimensions: dimLevel(0, "g56")},
+					"gpu-7": {Dimensions: dimLevel(0, "g78")},
+					"gpu-8": {Dimensions: dimLevel(0, "g78")},
 				},
-				Emitter: metrics.DummyMetrics{},
 			},
 			// Only two full groups worth of devices are available. Regardless of
 			// how the allocator behaves internally, strict affinity semantics
@@ -1907,18 +1906,18 @@ func TestBind_Dimensions_RequiredStrict(t *testing.T) {
 					DeviceRequest:   4,
 				},
 				GPUQRMPluginConfig: &qrmconfig.GPUQRMPluginConfig{RequiredDeviceAffinity: true},
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						// Priority 0: size-2 groups {1,2} and {3,4}.
-						// Priority 1: size-4 group {1,2,3,4} (superset of both size-2 groups).
-						"gpu-1": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
-						"gpu-2": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
-						"gpu-3": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
-						"gpu-4": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
-					},
+				Emitter:            metrics.DummyMetrics{},
+			},
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					// Priority 0: size-2 groups {1,2} and {3,4}.
+					// Priority 1: size-4 group {1,2,3,4} (superset of both size-2 groups).
+					"gpu-1": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+					"gpu-2": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+					"gpu-3": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
+					"gpu-4": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
 				},
-				Emitter: metrics.DummyMetrics{},
 			},
 			sortedDevices:      []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4"},
 			expectedResultSize: 4,
@@ -1937,22 +1936,22 @@ func TestBind_Dimensions_RequiredStrict(t *testing.T) {
 					DeviceRequest:   6,
 				},
 				GPUQRMPluginConfig: &qrmconfig.GPUQRMPluginConfig{RequiredDeviceAffinity: true},
-				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
-					Devices: map[string]machine.DeviceInfo{
-						// Priority 0: two size-4 groups {1,2,3,4} and {5,6,7,8}.
-						// Priority 1: one size-8 group {1,2,3,4,5,6,7,8} that supersets both size-4 groups.
-						"gpu-1": {Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678"))},
-						"gpu-2": {Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678"))},
-						"gpu-3": {Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678"))},
-						"gpu-4": {Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678"))},
-						"gpu-5": {Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678"))},
-						"gpu-6": {Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678"))},
-						"gpu-7": {Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678"))},
-						"gpu-8": {Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678"))},
-					},
+				Emitter:            metrics.DummyMetrics{},
+			},
+			topology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"0", "1"},
+				Devices: map[string]machine.DeviceInfo{
+					// Priority 0: two size-4 groups {1,2,3,4} and {5,6,7,8}.
+					// Priority 1: one size-8 group {1,2,3,4,5,6,7,8} that supersets both size-4 groups.
+					"gpu-1": {Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678"))},
+					"gpu-2": {Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678"))},
+					"gpu-3": {Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678"))},
+					"gpu-4": {Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678"))},
+					"gpu-5": {Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678"))},
+					"gpu-6": {Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678"))},
+					"gpu-7": {Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678"))},
+					"gpu-8": {Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678"))},
 				},
-				Emitter: metrics.DummyMetrics{},
 			},
 			sortedDevices:      []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
 			expectedResultSize: 6,
@@ -1964,6 +1963,17 @@ func TestBind_Dimensions_RequiredStrict(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+			if tt.topology != nil {
+				reg := machine.NewDeviceTopologyRegistry()
+				reg.RegisterDeviceTopologyProvider(consts.GPUDeviceType, machine.NewDeviceTopologyProvider())
+				_ = reg.SetDeviceTopology(consts.GPUDeviceType, tt.topology)
+				if tt.ctx == nil {
+					tt.ctx = &allocate.AllocationContext{}
+				}
+				tt.ctx.DeviceTopologyRegistry = reg
+				// Ensure ResourceName matches the registered provider device type
+				tt.ctx.ResourceName = consts.GPUDeviceType
+			}
 			deviceBindingStrategy := NewDeviceAffinityStrategy()
 			result, err := deviceBindingStrategy.Bind(tt.ctx, tt.sortedDevices)
 			if (err != nil) != tt.expectedErr {
@@ -1981,7 +1991,7 @@ func TestBind_Dimensions_RequiredStrict(t *testing.T) {
 			if len(result.AllocatedDevices) != tt.expectedResultSize {
 				t.Fatalf("allocated size = %d, want %d", len(result.AllocatedDevices), tt.expectedResultSize)
 			}
-			verifyResultIsStrictAffinity(t, result, tt.ctx.DeviceTopology, tt.expectedPriority)
+			verifyResultIsStrictAffinity(t, result, tt.topology, tt.expectedPriority)
 		})
 	}
 }

@@ -39,6 +39,7 @@ func AllocateDevicesUsingStrategy(
 	metaServer *metaserver.MetaServer,
 	machineState state.AllocationResourcesMap,
 	qosLevel, resourceName, accompanyResourceName string,
+	deviceNameToTypeMap map[string]string,
 ) (*allocate.AllocationResult, error) {
 	// Get hint nodes
 	hintNodes, err := machine.NewCPUSetUint64(deviceReq.GetHint().GetNodes()...)
@@ -62,9 +63,10 @@ func AllocateDevicesUsingStrategy(
 		HintNodes:              hintNodes,
 		ResourceName:           resourceName,
 		AccompanyResourceName:  accompanyResourceName,
+		DeviceNameToTypeMap:    deviceNameToTypeMap,
 	}
 
 	// Get the global strategy manager and perform allocation
-	manager := GetGlobalStrategyManager()
+	manager := GetGlobalStrategyManager(gpuConfig)
 	return manager.AllocateUsingStrategy(ctx)
 }

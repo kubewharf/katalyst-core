@@ -32,6 +32,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/baseplugin"
 	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
+	gpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -100,6 +101,9 @@ func makeTestBasePlugin(t *testing.T) *baseplugin.BasePlugin {
 	conf.StateDirectoryConfiguration = &statedirectory.StateDirectoryConfiguration{
 		StateFileDirectory: tmpDir,
 	}
+	// Ensure both GPU and RDMA device names are configured so that
+	// gpuutil.ResolveResourceName can resolve logical types in tests
+	conf.GPUDeviceNames = []string{"test-gpu"}
 	conf.RDMADeviceNames = []string{"test-rdma"}
 
 	basePlugin, err := baseplugin.NewBasePlugin(agentCtx, conf, metrics.DummyMetrics{})
@@ -110,12 +114,13 @@ func makeTestBasePlugin(t *testing.T) *baseplugin.BasePlugin {
 
 	basePlugin.SetState(stateImpl)
 
-	// Register gpu device type and gpu device topology provider as it is an accompany resource for rdma
-	basePlugin.RegisterDeviceNameToType([]string{"test-gpu"}, gpuconsts.GPUDeviceType)
 	gpuTopologyProvider := machine.NewDeviceTopologyProvider()
 	basePlugin.DeviceTopologyRegistry.RegisterDeviceTopologyProvider(gpuconsts.GPUDeviceType, gpuTopologyProvider)
 	// Also register a provider for rdma device type to align with plugin lookup by type
 	basePlugin.DeviceTopologyRegistry.RegisterDeviceTopologyProvider(gpuconsts.RDMADeviceType, machine.NewDeviceTopologyProvider())
+
+	// Register GPU device names for resource name resolution in tests.
+	basePlugin.RegisterDeviceNames(conf.GPUDeviceNames, gpuconsts.GPUDeviceType)
 
 	return basePlugin
 }
@@ -166,12 +171,12 @@ func TestRDMADevicePlugin_UpdateAllocatableAssociatedDevices(t *testing.T) {
 	expectedDeviceTopology := &machine.DeviceTopology{
 		Devices: map[string]machine.DeviceInfo{
 			"test-rdma-0": {
-				NumaNodes:      []int{0},
-				DeviceAffinity: make(map[machine.AffinityPriority]machine.DeviceIDs),
+				NumaNodes:  []int{0},
+				Dimensions: make(map[string]string),
 			},
 			"test-rdma-1": {
-				NumaNodes:      []int{1},
-				DeviceAffinity: make(map[machine.AffinityPriority]machine.DeviceIDs),
+				NumaNodes:  []int{1},
+				Dimensions: make(map[string]string),
 			},
 		},
 	}
@@ -466,7 +471,7 @@ func TestRDMADevicePlugin_AllocateAssociatedDevices(t *testing.T) {
 			}
 
 			if tt.accompanyResourceAllocationInfo != nil && tt.accompanyResourceName != "" {
-				accompanyResourceType := basePlugin.ResolveResourceName(tt.accompanyResourceName, false)
+				accompanyResourceType := gpuutil.ResolveResourceName(basePlugin.GetDeviceNameToTypeMap(), tt.accompanyResourceName, false)
 				assert.NotEmpty(t, accompanyResourceType)
 				basePlugin.GetState().SetAllocationInfo(v1.ResourceName(accompanyResourceType), tt.podUID, tt.containerName, tt.accompanyResourceAllocationInfo, false)
 			}
@@ -480,7 +485,7 @@ func TestRDMADevicePlugin_AllocateAssociatedDevices(t *testing.T) {
 			}
 
 			if tt.accompanyResourceName != "" && tt.accompanyDeviceTopology != nil {
-				accompanyResourceType := basePlugin.ResolveResourceName(tt.accompanyResourceName, false)
+				accompanyResourceType := gpuutil.ResolveResourceName(basePlugin.GetDeviceNameToTypeMap(), tt.accompanyResourceName, false)
 				assert.NotEmpty(t, accompanyResourceType)
 				err := basePlugin.DeviceTopologyRegistry.SetDeviceTopology(accompanyResourceType, tt.accompanyDeviceTopology)
 				assert.NoError(t, err)

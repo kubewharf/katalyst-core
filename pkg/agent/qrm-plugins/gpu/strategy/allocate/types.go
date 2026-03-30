@@ -39,6 +39,7 @@ type AllocationContext struct {
 	HintNodes              machine.CPUSet
 	ResourceName           string
 	AccompanyResourceName  string
+	DeviceNameToTypeMap    map[string]string
 }
 
 // AllocationResult contains the result of GPU allocation

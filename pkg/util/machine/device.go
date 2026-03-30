@@ -19,6 +19,7 @@ package machine
 import (
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -228,8 +229,9 @@ func (r *DeviceTopologyRegistry) GetDeviceTopology(deviceName string) (*DeviceTo
 }
 
 // GetDeviceTopologies gets device topologies for the given device names.
-// It returns a map of device name to their respective device topology.
-func (r *DeviceTopologyRegistry) GetDeviceTopologies(deviceNames []string) (map[string]*DeviceTopology, error) {
+// It returns a map of device name to their respective device topology,
+// along with a boolean indicating whether any topology is found.
+func (r *DeviceTopologyRegistry) GetDeviceTopologies(deviceNames []string) (map[string]*DeviceTopology, bool) {
 	r.mux.RLock()
 	defer r.mux.RUnlock()
 
@@ -244,17 +246,17 @@ func (r *DeviceTopologyRegistry) GetDeviceTopologies(deviceNames []string) (map[
 	}
 
 	if len(topologies) == 0 {
-		return nil, fmt.Errorf("failed to get any device topology")
+		return nil, false
 	}
 
-	return topologies, nil
+	return topologies, true
 }
 
 // GetLatestDeviceTopology gets device topologies for the given device names and picks the latest one.
 func (r *DeviceTopologyRegistry) GetLatestDeviceTopology(deviceNames []string) (*DeviceTopology, error) {
-	topologiesMap, err := r.GetDeviceTopologies(deviceNames)
-	if err != nil {
-		return nil, err
+	topologiesMap, ok := r.GetDeviceTopologies(deviceNames)
+	if !ok {
+		return nil, fmt.Errorf("failed to get any device topology")
 	}
 
 	latestTopology := PickLatestDeviceTopology(topologiesMap)
@@ -266,13 +268,13 @@ func (r *DeviceTopologyRegistry) GetLatestDeviceTopology(deviceNames []string) (
 }
 
 // GetAffinityDevices returns, for each device id in deviceA, the set of deviceB ids
-// grouped by affinity priority (and dimension) that share the same AffinityPriority key.
+// grouped by dimension key, such that the dimension value of deviceA is the same as deviceB.
 // The returned structure is:
 //
-//	map[deviceAId]DeviceAffinity, where DeviceAffinity is map[AffinityPriority]DeviceIDs.
+//	map[deviceAId]map[dimensionKey]DeviceIDs.
 //
 // If no affinities exist for a deviceAId, that id is omitted from the result.
-func (r *DeviceTopologyRegistry) GetAffinityDevices(deviceA, deviceB string) (map[string]DeviceAffinity, error) {
+func (r *DeviceTopologyRegistry) GetAffinityDevices(deviceA, deviceB string) (map[string]map[string]DeviceIDs, error) {
 	deviceTopologyA, err := r.GetDeviceTopology(deviceA)
 	if err != nil {
 		return nil, fmt.Errorf("error getting device topology for device %s: %v", deviceA, err)
@@ -283,28 +285,40 @@ func (r *DeviceTopologyRegistry) GetAffinityDevices(deviceA, deviceB string) (ma
 		return nil, fmt.Errorf("error getting device topology for device %s: %v", deviceB, err)
 	}
 
-	result := make(map[string]DeviceAffinity)
+	result := make(map[string]map[string]DeviceIDs)
 	for deviceNameA, deviceInfoA := range deviceTopologyA.Devices {
-		// Build DeviceAffinity grouped by concrete AffinityPriority (priority level + dimension)
-		grouped := make(map[AffinityPriority]sets.String)
-		for apA := range deviceInfoA.DeviceAffinity {
+		// Group deviceB by dimension key
+		grouped := make(map[string]sets.String)
+		// Iterate over each dimension of deviceA
+		for dimName, dimValueA := range deviceInfoA.Dimensions {
+			dimName = strings.ToLower(strings.TrimSpace(dimName))
+			dimValueA = strings.TrimSpace(dimValueA)
+			if dimName == "" || dimValueA == "" {
+				continue
+			}
+			// Find all deviceB with the same dimension value
 			for deviceNameB, deviceInfoB := range deviceTopologyB.Devices {
-				if _, ok := deviceInfoB.DeviceAffinity[apA]; ok {
-					if _, exists := grouped[apA]; !exists {
-						grouped[apA] = sets.NewString()
-					}
-					grouped[apA].Insert(deviceNameB)
+				dimValueB, ok := deviceInfoB.Dimensions[dimName]
+				if !ok {
+					continue
 				}
+				dimValueB = strings.TrimSpace(dimValueB)
+				if dimValueB != dimValueA {
+					continue
+				}
+				if _, exists := grouped[dimName]; !exists {
+					grouped[dimName] = sets.NewString()
+				}
+				grouped[dimName].Insert(deviceNameB)
 			}
 		}
 
 		if len(grouped) > 0 {
-			da := make(DeviceAffinity)
-			for pri, setIDs := range grouped {
-				// Materialize as a plain slice (unordered) to avoid biasing consumers
-				da[pri] = setIDs.UnsortedList()
+			dimensionGroups := make(map[string]DeviceIDs)
+			for dimName, setIDs := range grouped {
+				dimensionGroups[dimName] = setIDs.UnsortedList()
 			}
-			result[deviceNameA] = da
+			result[deviceNameA] = dimensionGroups
 		}
 	}
 
@@ -390,28 +404,6 @@ func (t *DeviceTopology) GroupDeviceAffinity() [][]DeviceIDs {
 // Example: {"numa": "0", "socket": "1"}.
 // The key of the DeviceDimensions should be mapped to one of the PriorityDimensions
 type DeviceDimensions map[string]string
-
-// GetDeviceIDsByPriorityLevel returns the deviceIDs grouped by priority level (integer).
-func (d DeviceAffinity) GetDeviceIDsByPriorityLevel() map[int]DeviceIDs {
-	// Deduplicate device IDs per priority level since multiple AffinityPriority
-	// entries can share the same PriorityLevel with overlapping device sets.
-	byLevel := make(map[int]sets.String)
-	for ap, ids := range d {
-		lvl := ap.GetPriorityLevel()
-		if byLevel[lvl] == nil {
-			byLevel[lvl] = sets.NewString()
-		}
-		// Insert all IDs into the set to ensure uniqueness
-		byLevel[lvl].Insert(ids...)
-	}
-
-	// Materialize into plain slices (order not guaranteed).
-	res := make(map[int]DeviceIDs, len(byLevel))
-	for lvl, setIDs := range byLevel {
-		res[lvl] = setIDs.UnsortedList()
-	}
-	return res
-}
 
 type DeviceInfo struct {
 	Health     string

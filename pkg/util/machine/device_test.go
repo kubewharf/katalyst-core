@@ -73,112 +73,113 @@ func TestDeviceTopologyRegistry_GetAffinityDevices(t *testing.T) {
 	t.Parallel()
 
 	npuTopology := &DeviceTopology{
+		PriorityDimensions: []string{"socket", "numa"},
 		Devices: map[string]DeviceInfo{
 			"npu-0": {
-				DeviceAffinity: map[AffinityPriority]DeviceIDs{
-					{PriorityLevel: 0, Dimension: Dimension{Name: "socket", Value: "0"}}: {},
+				Dimensions: map[string]string{
+					"socket": "0",
 				},
 			},
 			"npu-1": {
-				DeviceAffinity: map[AffinityPriority]DeviceIDs{
-					{PriorityLevel: 0, Dimension: Dimension{Name: "socket", Value: "1"}}: {},
-					{PriorityLevel: 1, Dimension: Dimension{Name: "numa", Value: "0"}}:   {},
+				Dimensions: map[string]string{
+					"socket": "1",
+					"numa":   "0",
 				},
 			},
 			"npu-2": {
-				DeviceAffinity: map[AffinityPriority]DeviceIDs{
-					{PriorityLevel: 0, Dimension: Dimension{Name: "socket", Value: "0"}}: {},
-					{PriorityLevel: 0, Dimension: Dimension{Name: "socket", Value: "1"}}: {},
+				Dimensions: map[string]string{
+					"socket": "0",
 				},
 			},
 		},
 	}
 
 	gpuTopology := &DeviceTopology{
+		PriorityDimensions: []string{"socket", "numa"},
 		Devices: map[string]DeviceInfo{
 			"gpu-0": {
-				DeviceAffinity: map[AffinityPriority]DeviceIDs{
-					{PriorityLevel: 0, Dimension: Dimension{Name: "socket", Value: "0"}}: {},
-					{PriorityLevel: 1, Dimension: Dimension{Name: "numa", Value: "0"}}:   {},
+				Dimensions: map[string]string{
+					"socket": "0",
+					"numa":   "0",
 				},
 			},
 			"gpu-1": {
-				DeviceAffinity: map[AffinityPriority]DeviceIDs{
-					{PriorityLevel: 0, Dimension: Dimension{Name: "socket", Value: "1"}}: {},
-					{PriorityLevel: 1, Dimension: Dimension{Name: "numa", Value: "0"}}:   {},
+				Dimensions: map[string]string{
+					"socket": "1",
+					"numa":   "0",
 				},
 			},
 			"gpu-2": {
-				DeviceAffinity: map[AffinityPriority]DeviceIDs{
-					{PriorityLevel: 0, Dimension: Dimension{Name: "socket", Value: "2"}}: {},
-					{PriorityLevel: 1, Dimension: Dimension{Name: "numa", Value: "1"}}:   {},
+				Dimensions: map[string]string{
+					"socket": "2",
+					"numa":   "1",
 				},
 			},
 		},
 	}
 
 	xpuTopology := &DeviceTopology{
+		PriorityDimensions: []string{"socket"},
 		Devices: map[string]DeviceInfo{
 			"xpu-0": {
-				DeviceAffinity: map[AffinityPriority]DeviceIDs{
-					{PriorityLevel: 0, Dimension: Dimension{Name: "socket", Value: "0"}}: {},
+				Dimensions: map[string]string{
+					"socket": "0",
 				},
 			},
 			"xpu-1": {
-				DeviceAffinity: map[AffinityPriority]DeviceIDs{
-					{PriorityLevel: 0, Dimension: Dimension{Name: "socket", Value: "1"}}: {},
+				Dimensions: map[string]string{
+					"socket": "1",
 				},
 			},
-			"xpu-2": {
-				DeviceAffinity: nil,
-			},
+			"xpu-2": {},
 		},
 	}
 
 	dpuTopology := &DeviceTopology{
+		PriorityDimensions: []string{"socket"},
 		Devices: map[string]DeviceInfo{
 			"dpu-0": {
-				DeviceAffinity: map[AffinityPriority]DeviceIDs{
-					{PriorityLevel: 0, Dimension: Dimension{Name: "socket", Value: "1"}}: {},
+				Dimensions: map[string]string{
+					"socket": "1",
 				},
 			},
 			"dpu-1": {
-				DeviceAffinity: map[AffinityPriority]DeviceIDs{
-					{PriorityLevel: 0, Dimension: Dimension{Name: "socket", Value: "0"}}: {},
+				Dimensions: map[string]string{
+					"socket": "0",
 				},
 			},
-			"dpu-2": {
-				DeviceAffinity: map[AffinityPriority]DeviceIDs{},
-			},
+			"dpu-2": {},
 		},
 	}
 
 	// Topologies with disjoint affinity dimensions to ensure no cross-device affinity
 	apuTopology := &DeviceTopology{
+		PriorityDimensions: []string{"pcie"},
 		Devices: map[string]DeviceInfo{
 			"apu-0": {
-				DeviceAffinity: map[AffinityPriority]DeviceIDs{
-					{PriorityLevel: 0, Dimension: Dimension{Name: "pcie", Value: "0"}}: {},
+				Dimensions: map[string]string{
+					"pcie": "0",
 				},
 			},
 			"apu-1": {
-				DeviceAffinity: map[AffinityPriority]DeviceIDs{
-					{PriorityLevel: 0, Dimension: Dimension{Name: "pcie", Value: "1"}}: {},
+				Dimensions: map[string]string{
+					"pcie": "1",
 				},
 			},
 		},
 	}
 
 	bpuTopology := &DeviceTopology{
+		PriorityDimensions: []string{"fabric"},
 		Devices: map[string]DeviceInfo{
 			"bpu-0": {
-				DeviceAffinity: map[AffinityPriority]DeviceIDs{
-					{PriorityLevel: 0, Dimension: Dimension{Name: "fabric", Value: "0"}}: {},
+				Dimensions: map[string]string{
+					"fabric": "0",
 				},
 			},
 			"bpu-1": {
-				DeviceAffinity: map[AffinityPriority]DeviceIDs{
-					{PriorityLevel: 0, Dimension: Dimension{Name: "fabric", Value: "1"}}: {},
+				Dimensions: map[string]string{
+					"fabric": "1",
 				},
 			},
 		},
@@ -209,17 +210,17 @@ func TestDeviceTopologyRegistry_GetAffinityDevices(t *testing.T) {
 		name        string
 		deviceA     string
 		deviceB     string
-		expected    map[string]map[int][]string
+		expected    map[string]map[string][]string
 		expectedErr bool
 	}{
 		{
 			name:    "npu to gpu affinity",
 			deviceA: "npu",
 			deviceB: "gpu",
-			expected: map[string]map[int][]string{
-				"npu-0": {0: {"gpu-0"}},
-				"npu-1": {0: {"gpu-1"}, 1: {"gpu-0", "gpu-1"}},
-				"npu-2": {0: {"gpu-0", "gpu-1"}},
+			expected: map[string]map[string][]string{
+				"npu-0": {"socket": {"gpu-0"}},
+				"npu-1": {"socket": {"gpu-1"}, "numa": {"gpu-0", "gpu-1"}},
+				"npu-2": {"socket": {"gpu-0"}},
 			},
 		},
 		{
@@ -238,16 +239,16 @@ func TestDeviceTopologyRegistry_GetAffinityDevices(t *testing.T) {
 			name:    "devices with empty affinity are not considered to have affinity with each other",
 			deviceA: "xpu",
 			deviceB: "dpu",
-			expected: map[string]map[int][]string{
-				"xpu-0": {0: {"dpu-1"}},
-				"xpu-1": {0: {"dpu-0"}},
+			expected: map[string]map[string][]string{
+				"xpu-0": {"socket": {"dpu-1"}},
+				"xpu-1": {"socket": {"dpu-0"}},
 			},
 		},
 		{
 			name:     "no matching affinity returns empty map",
 			deviceA:  "apu",
 			deviceB:  "bpu",
-			expected: map[string]map[int][]string{},
+			expected: map[string]map[string][]string{},
 		},
 	}
 
@@ -263,6 +264,30 @@ func TestDeviceTopologyRegistry_GetAffinityDevices(t *testing.T) {
 				evaluateDeviceAffinityMap(t, tt.expected, actual)
 			}
 		})
+	}
+}
+
+func evaluateDeviceAffinityMap(t *testing.T, expected map[string]map[string][]string, actual map[string]map[string]DeviceIDs) {
+	if len(actual) != len(expected) {
+		t.Errorf("deviceAffinity lengths don't match, expected %d, got %d", len(expected), len(actual))
+		return
+	}
+
+	for device, expectedAffinity := range expected {
+		affinityByDim, ok := actual[device]
+		if !ok {
+			t.Errorf("expected device affinity for device %v, but it is not found", device)
+			return
+		}
+
+		for dimName, expectedDevices := range expectedAffinity {
+			actualDevices, ok := affinityByDim[dimName]
+			if !ok {
+				t.Errorf("expected affinity for dimension %s for device %s, but it is not found", dimName, device)
+				return
+			}
+			assert.ElementsMatch(t, expectedDevices, actualDevices, "device affinity devices are not equal for device %s dimension %s", device, dimName)
+		}
 	}
 }
 
@@ -406,37 +431,6 @@ func TestDeviceTopology_GroupDeviceAffinity(t *testing.T) {
 	}
 }
 
-func evaluateDeviceAffinityMap(t *testing.T, expected map[string]map[int][]string, actual map[string]DeviceAffinity) {
-	if len(actual) != len(expected) {
-		t.Errorf("deviceAffinity lengths don't match, expected %d, got %d", len(expected), len(actual))
-		return
-	}
-
-	for device, expectedAffinity := range expected {
-		affinityByPriority, ok := actual[device]
-		if !ok {
-			t.Errorf("expected device affinity for device %v, but it is not found", device)
-			return
-		}
-
-		// Flatten actual DeviceAffinity (grouped by AffinityPriority) into priority->deviceIDs map
-		flattened := make(map[int][]string)
-		for ap, ids := range affinityByPriority {
-			p := ap.GetPriorityLevel()
-			flattened[p] = append(flattened[p], ids...)
-		}
-
-		for priority, expectedDevices := range expectedAffinity {
-			actualDevices, ok := flattened[priority]
-			if !ok {
-				t.Errorf("expected affinity for priority %d for device %s, but it is not found", priority, device)
-				return
-			}
-			assert.ElementsMatch(t, expectedDevices, actualDevices, "device affinity devices are not equal for device %s priority %d", device, priority)
-		}
-	}
-}
-
 func evaluateDeviceAffinity(t *testing.T, expectedDeviceAffinity, actualDeviceAffinity [][]DeviceIDs) {
 	if len(actualDeviceAffinity) != len(expectedDeviceAffinity) {
 		t.Errorf("expected %d affinities, got %d", len(expectedDeviceAffinity), len(actualDeviceAffinity))
@@ -557,33 +551,33 @@ func TestDeviceTopologyRegistry_GetDeviceTopologies(t *testing.T) {
 		name        string
 		deviceNames []string
 		expectedLen int
-		expectErr   bool
+		expectOk    bool
 		checkHealth map[string]string
 	}{
 		{
 			name:        "get topologies from two existing devices",
 			deviceNames: []string{"gpu-1", "gpu-2"},
 			expectedLen: 2, // both topo1 and topo2
+			expectOk:    true,
 		},
 		{
 			name:        "one device missing, pick existing one",
 			deviceNames: []string{"gpu-1", "non-existent"},
 			expectedLen: 1, // only topo1
+			expectOk:    true,
 		},
 		{
 			name:        "all devices missing",
 			deviceNames: []string{"invalid-1", "invalid-2"},
-			expectErr:   true,
+			expectOk:    false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			topologies, err := registry.GetDeviceTopologies(tt.deviceNames)
-			if tt.expectErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
+			topologies, ok := registry.GetDeviceTopologies(tt.deviceNames)
+			assert.Equal(t, tt.expectOk, ok)
+			if tt.expectOk {
 				assert.Len(t, topologies, tt.expectedLen)
 			}
 		})
@@ -673,90 +667,6 @@ func TestDeviceTopologyRegistry_GetLatestDeviceTopology(t *testing.T) {
 				for id, health := range tt.checkHealth {
 					assert.Equal(t, health, latest.Devices[id].Health)
 				}
-			}
-		})
-	}
-}
-
-func TestDeviceAffinity_GetDeviceIDsByPriorityLevel(t *testing.T) {
-	t.Parallel()
-
-	ap := func(level int, name, value string) AffinityPriority {
-		return AffinityPriority{PriorityLevel: level, Dimension: Dimension{Name: name, Value: value}}
-	}
-
-	tests := []struct {
-		name     string
-		affinity DeviceAffinity
-		expected map[int][]string
-	}{
-		{
-			name:     "empty map returns empty result",
-			affinity: DeviceAffinity{},
-			expected: map[int][]string{},
-		},
-		{
-			name:     "nil map returns empty result",
-			affinity: nil,
-			expected: map[int][]string{},
-		},
-		{
-			name: "single level simple",
-			affinity: DeviceAffinity{
-				ap(0, "socket", "0"): {"gpu-1", "gpu-2"},
-			},
-			expected: map[int][]string{
-				0: {"gpu-1", "gpu-2"},
-			},
-		},
-		{
-			name: "same level merges and deduplicates",
-			affinity: DeviceAffinity{
-				ap(0, "socket", "0"): {"dev-a", "dev-b"},
-				ap(0, "numa", "0"):   {"dev-b", "dev-c"},
-			},
-			expected: map[int][]string{
-				0: {"dev-a", "dev-b", "dev-c"},
-			},
-		},
-		{
-			name: "multiple levels with overlaps",
-			affinity: DeviceAffinity{
-				ap(0, "socket", "1"): {"d0"},
-				ap(1, "numa", "0"):   {"d1", "d2"},
-				ap(1, "fabric", "x"): {"d2", "d3"},
-			},
-			expected: map[int][]string{
-				0: {"d0"},
-				1: {"d1", "d2", "d3"},
-			},
-		},
-		{
-			name: "input lists contain duplicates",
-			affinity: DeviceAffinity{
-				ap(2, "group", "g"):  {"x", "x", "y"},
-				ap(2, "group", "g2"): {"y", "z", "z"},
-			},
-			expected: map[int][]string{
-				2: {"x", "y", "z"},
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got := tt.affinity.GetDeviceIDsByPriorityLevel()
-
-			// Compare keys
-			assert.Equal(t, len(tt.expected), len(got))
-			for lvl, expIDs := range tt.expected {
-				actIDs, ok := got[lvl]
-				if !ok {
-					t.Fatalf("missing level %d in result", lvl)
-				}
-				assert.ElementsMatch(t, expIDs, []string(actIDs))
 			}
 		})
 	}
