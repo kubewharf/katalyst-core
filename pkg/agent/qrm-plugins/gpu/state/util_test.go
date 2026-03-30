@@ -47,7 +47,7 @@ func TestGenerateDefaultResourceState_MultiDevices(t *testing.T) {
 	_ = registry.SetDeviceTopology("gpu-1", topo1)
 	_ = registry.SetDeviceTopology("gpu-2", topo2)
 
-	generator := NewGenericDefaultResourceStateGenerator([]string{"gpu-1", "gpu-2"}, registry, 1)
+	generator := NewGenericDefaultResourceStateGenerator([]string{"gpu-1", "gpu-2"}, registry, 1, true)
 	state, err := generator.GenerateDefaultResourceState()
 
 	assert.NoError(t, err)
@@ -71,7 +71,7 @@ func TestGenerateDefaultResourceState_PartialMissing(t *testing.T) {
 	_ = registry.SetDeviceTopology("gpu-1", topo1)
 
 	// One device missing, pick the existing one (d1)
-	generator := NewGenericDefaultResourceStateGenerator([]string{"gpu-1", "non-existent"}, registry, 1)
+	generator := NewGenericDefaultResourceStateGenerator([]string{"gpu-1", "non-existent"}, registry, 1, true)
 	state, err := generator.GenerateDefaultResourceState()
 
 	assert.NoError(t, err)

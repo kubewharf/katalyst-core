@@ -49,6 +49,9 @@ type writer interface {
 // DefaultResourceStateGenerator interface is used to generate default resource state for each resource
 type DefaultResourceStateGenerator interface {
 	GenerateDefaultResourceState() (AllocationMap, error)
+
+	// MustInitDefaultResourceState indicates whether the default resource state of a resource should be initialized at the start
+	MustInitDefaultResourceState() bool
 }
 
 // ReadonlyState interface only provides methods for tracking pod assignments

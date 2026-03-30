@@ -23,12 +23,13 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/canonical"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/gpu_memory"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 )
 
 func TestStrategyManager(t *testing.T) {
 	t.Parallel()
 
-	manager := NewStrategyManager()
+	manager := NewStrategyManager(&qrm.GPUQRMPluginConfig{})
 
 	registerDefaultStrategies(manager)
 

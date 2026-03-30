@@ -2217,6 +2217,61 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 			},
 		},
 		{
+			name: "Allocations are skipped when allocation DeviceName is not a GPU device",
+			deviceTopology: &machine.DeviceTopology{
+				PriorityDimensions: []string{"numa"},
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-0": {
+						Health:         pluginapi.Healthy,
+						NumaNodes:      []int{0},
+						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{{PriorityLevel: 0, Dimension: machine.Dimension{Name: "numa", Value: "0"}}: {}},
+					},
+				},
+			},
+			machineTopology: []cadvisorapi.Node{{Id: 0, Cores: []cadvisorapi.Core{{SocketID: 0, Id: 0, Threads: []int{0, 4}}}}},
+			machineState: state.AllocationResourcesMap{
+				v1.ResourceName("test-gpu-resource"): state.AllocationMap{
+					"gpu-0": {
+						Allocatable: 1,
+						PodEntries: state.PodEntries{
+							"pod-uid-0": state.ContainerEntries{
+								"c0": &state.AllocationInfo{
+									AllocationMeta:      commonstate.AllocationMeta{PodUid: "pod-uid-0", PodNamespace: "default", PodName: "p0", ContainerName: "c0"},
+									DeviceName:          "not-a-gpu-device",
+									AllocatedAllocation: state.Allocation{Quantity: 1, NUMANodes: []int{0}},
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedSpec: []*nodev1alpha1.Property{{PropertyName: propertyNameGPUTopology, PropertyValues: []string{"numa"}}},
+			expectedStatus: []*nodev1alpha1.TopologyZone{
+				{
+					Type: nodev1alpha1.TopologyTypeSocket,
+					Name: "0",
+					Children: []*nodev1alpha1.TopologyZone{
+						{
+							Type: nodev1alpha1.TopologyTypeNuma,
+							Name: "0",
+							Children: []*nodev1alpha1.TopologyZone{
+								{
+									Type:       nodev1alpha1.TopologyTypeGPU,
+									Name:       "gpu-0",
+									Attributes: []nodev1alpha1.Attribute{{Name: "numa", Value: "0"}},
+									Resources: nodev1alpha1.Resources{
+										Allocatable: &v1.ResourceList{"test-gpu": resource.MustParse("1")},
+										Capacity:    &v1.ResourceList{"test-gpu": resource.MustParse("1")},
+									},
+									Allocations: []*nodev1alpha1.Allocation{},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
 			name:           "Merge resources across multiple device names for same device type",
 			gpuDeviceNames: []string{"test-gpu-a", "test-gpu-b"},
 			deviceTopologies: map[string]*machine.DeviceTopology{
