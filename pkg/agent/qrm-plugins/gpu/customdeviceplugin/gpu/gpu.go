@@ -149,6 +149,7 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 			qosLevel,
 			deviceReq.DeviceName,
 			"",
+			p.GetDeviceNameToTypeMap(),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("GPU allocation using strategy failed: %v", err)

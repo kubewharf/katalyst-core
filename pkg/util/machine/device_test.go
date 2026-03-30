@@ -929,33 +929,33 @@ func TestDeviceTopologyRegistry_GetDeviceTopologies(t *testing.T) {
 		name        string
 		deviceNames []string
 		expectedLen int
-		expectErr   bool
+		expectOk    bool
 		checkHealth map[string]string
 	}{
 		{
 			name:        "get topologies from two existing devices",
 			deviceNames: []string{"gpu-1", "gpu-2"},
 			expectedLen: 2, // both topo1 and topo2
+			expectOk:    true,
 		},
 		{
 			name:        "one device missing, pick existing one",
 			deviceNames: []string{"gpu-1", "non-existent"},
 			expectedLen: 1, // only topo1
+			expectOk:    true,
 		},
 		{
 			name:        "all devices missing",
 			deviceNames: []string{"invalid-1", "invalid-2"},
-			expectErr:   true,
+			expectOk:    false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			topologies, err := registry.GetDeviceTopologies(tt.deviceNames)
-			if tt.expectErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
+			topologies, ok := registry.GetDeviceTopologies(tt.deviceNames)
+			assert.Equal(t, tt.expectOk, ok)
+			if tt.expectOk {
 				assert.Len(t, topologies, tt.expectedLen)
 			}
 		})

@@ -21,6 +21,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/canonical"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/deviceaffinity"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/gpu_memory"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/noop"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
@@ -39,6 +40,10 @@ func registerDefaultFilterStrategies(manager *StrategyManager) {
 func registerDefaultSortingStrategies(manager *StrategyManager) {
 	if err := manager.RegisterSortingStrategy(gpu_memory.NewGPUMemoryStrategy()); err != nil {
 		general.Errorf("Failed to register sorting strategy gpu-memory: %v", err)
+	}
+
+	if err := manager.RegisterSortingStrategy(noop.NewNoopSortingStrategy()); err != nil {
+		general.Errorf("Failed to register sorting strategy noop: %v", err)
 	}
 }
 
@@ -63,6 +68,26 @@ func registerDefaultAllocationStrategies(manager *StrategyManager) {
 		[]string{canonical.StrategyNameCanonical, gpu_memory.StrategyNameGPUMemory},
 		gpu_memory.StrategyNameGPUMemory, canonical.StrategyNameCanonical); err != nil {
 		general.Errorf("Failed to register gpu-memory-default strategy: %v", err)
+	}
+
+	if err := manager.RegisterGenericAllocationStrategy(allocationStrategyNameRdma,
+		[]string{canonical.StrategyNameCanonical}, noop.StrategyNameNoop, canonical.StrategyNameCanonical); err != nil {
+		general.Errorf("Failed to register rdma-default allocation strategy: %v", err)
+	}
+
+	// Register default strategy for gpu and rdma devices
+	if manager.Cfg != nil {
+		for _, rdmaDeviceName := range manager.Cfg.RDMADeviceNames {
+			if err := manager.RegisterStrategyForResource(rdmaDeviceName, allocationStrategyNameRdma); err != nil {
+				general.Errorf("Failed to register strategy for resource %s: %v", rdmaDeviceName, err)
+			}
+		}
+
+		for _, gpuDeviceName := range manager.Cfg.GPUDeviceNames {
+			if err := manager.RegisterStrategyForResource(gpuDeviceName, allocationStrategyNameDefault); err != nil {
+				general.Errorf("Failed to register strategy for resource %s: %v", gpuDeviceName, err)
+			}
+		}
 	}
 }
 

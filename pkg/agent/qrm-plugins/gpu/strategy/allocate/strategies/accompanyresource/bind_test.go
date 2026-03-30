@@ -23,9 +23,11 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/canonical"
+	qrm "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -50,6 +52,66 @@ func TestBind(t *testing.T) {
 		preAllocatedResourceToTargetDeviceRatio float64
 	}{
 		{
+			name: "ratio 2/1 with affinity: allocate one for two accompany",
+			ctx: &allocate.AllocationContext{
+				AccompanyResourceName: "rdma",
+				ResourceName:          "gpu",
+				ResourceReq:           &v1alpha1.ResourceRequest{PodUid: "p", ContainerName: "c"},
+				MachineState: func() state.AllocationResourcesMap {
+					// 2 rdma, 1 gpu -> ratio = 2 -> floor(2/2) = 1 allocation
+					return state.AllocationResourcesMap{
+						gpuconsts.RDMADeviceType: {
+							"r0": preallocState("p", "c"),
+							"r1": preallocState("p", "c"),
+						},
+						gpuconsts.GPUDeviceType: {
+							"g0": nil,
+						},
+					}
+				}(),
+				DeviceTopologyRegistry: buildMultiPriorityAffinityRegistry(map[string]map[int][]string{
+					"r0": {0: {"g0"}},
+					"r1": {0: {"g0"}},
+				}),
+				DeviceReq:          &v1alpha1.DeviceRequest{},
+				GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{GPUDeviceNames: []string{"gpu"}, RDMADeviceNames: []string{"rdma"}},
+			},
+			sortedDevices: []string{"g0"},
+			expectedResult: &allocate.AllocationResult{
+				AllocatedDevices: sets.NewString("g0").UnsortedList(),
+				Success:          true,
+			},
+		},
+		{
+			name: "ratio 1/1 with affinity: allocate equal to accompany count",
+			ctx: &allocate.AllocationContext{
+				AccompanyResourceName: "rdma",
+				ResourceName:          "gpu",
+				ResourceReq:           &v1alpha1.ResourceRequest{PodUid: "p", ContainerName: "c"},
+				MachineState: func() state.AllocationResourcesMap {
+					// 1 rdma, 1 gpu -> ratio = 1 -> need 1 allocation
+					return state.AllocationResourcesMap{
+						gpuconsts.RDMADeviceType: {
+							"r0": preallocState("p", "c"),
+						},
+						gpuconsts.GPUDeviceType: {
+							"g0": nil,
+						},
+					}
+				}(),
+				DeviceTopologyRegistry: buildSimpleAffinityRegistry(map[string][]string{
+					"r0": {"g0"},
+				}),
+				DeviceReq:          &v1alpha1.DeviceRequest{},
+				GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{GPUDeviceNames: []string{"gpu"}, RDMADeviceNames: []string{"rdma"}},
+			},
+			sortedDevices: []string{"g0", "g1"},
+			expectedResult: &allocate.AllocationResult{
+				AllocatedDevices: sets.NewString("g0").UnsortedList(),
+				Success:          true,
+			},
+		},
+		{
 			name: "multi-priority: fallback to lower priority for single rdma",
 			ctx: &allocate.AllocationContext{
 				AccompanyResourceName: "rdma",
@@ -58,11 +120,11 @@ func TestBind(t *testing.T) {
 				MachineState: func() state.AllocationResourcesMap {
 					// 1 rdma device, 1 gpu device in state -> ratio = 1; need 1 allocation
 					return state.AllocationResourcesMap{
-						"rdma": {
+						gpuconsts.RDMADeviceType: {
 							"0": preallocState("p", "c"),
 						},
 						// Keep only one GPU in machine state to ensure ratio=1.
-						"gpu": {
+						gpuconsts.GPUDeviceType: {
 							"1": nil,
 						},
 					}
@@ -73,7 +135,8 @@ func TestBind(t *testing.T) {
 						1: {"1"}, // fallback
 					},
 				}),
-				DeviceReq: &v1alpha1.DeviceRequest{},
+				DeviceReq:          &v1alpha1.DeviceRequest{},
+				GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{GPUDeviceNames: []string{"gpu"}, RDMADeviceNames: []string{"rdma"}},
 			},
 			sortedDevices: []string{"1", "2"}, // exclude "0" to force fallback
 			expectedResult: &allocate.AllocationResult{
@@ -90,12 +153,12 @@ func TestBind(t *testing.T) {
 				MachineState: func() state.AllocationResourcesMap {
 					// 2 rdma devices, 2 gpu devices in state -> ratio = 1; need 2 allocations
 					return state.AllocationResourcesMap{
-						"rdma": {
+						gpuconsts.RDMADeviceType: {
 							"0": preallocState("p", "c"),
 							"1": preallocState("p", "c"),
 						},
 						// Only two GPUs in machine state to keep ratio = 1
-						"gpu": {
+						gpuconsts.GPUDeviceType: {
 							"1": nil,
 							"2": nil,
 						},
@@ -111,7 +174,8 @@ func TestBind(t *testing.T) {
 						1: {"1"},
 					},
 				}),
-				DeviceReq: &v1alpha1.DeviceRequest{},
+				DeviceReq:          &v1alpha1.DeviceRequest{},
+				GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{GPUDeviceNames: []string{"gpu"}, RDMADeviceNames: []string{"rdma"}},
 			},
 			sortedDevices: []string{"1", "2"}, // exclude "0" to force r0 to pick priority-1 device
 			expectedResult: &allocate.AllocationResult{
@@ -128,11 +192,11 @@ func TestBind(t *testing.T) {
 				MachineState: func() state.AllocationResourcesMap {
 					// 2 rdma devices, need 2 gpu devices
 					return state.AllocationResourcesMap{
-						"rdma": {
+						gpuconsts.RDMADeviceType: {
 							"r0": preallocState("p", "c"),
 							"r1": preallocState("p", "c"),
 						},
-						"gpu": {
+						gpuconsts.GPUDeviceType: {
 							"g0": nil,
 							"g1": nil,
 							"g2": nil,
@@ -141,6 +205,7 @@ func TestBind(t *testing.T) {
 				}(),
 				DeviceTopologyRegistry: buildNoAffinityRegistry(),
 				DeviceReq:              &v1alpha1.DeviceRequest{},
+				GPUQRMPluginConfig:     &qrm.GPUQRMPluginConfig{GPUDeviceNames: []string{"gpu"}, RDMADeviceNames: []string{"rdma"}},
 			},
 			sortedDevices: []string{"g0", "g1", "g2"},
 			expectedResult: &allocate.AllocationResult{
@@ -158,11 +223,11 @@ func TestBind(t *testing.T) {
 				MachineState: func() state.AllocationResourcesMap {
 					// 2 rdma devices -> need 2 gpu devices, with one reusable
 					return state.AllocationResourcesMap{
-						"rdma": {
+						gpuconsts.RDMADeviceType: {
 							"r0": preallocState("p", "c"),
 							"r1": preallocState("p", "c"),
 						},
-						"gpu": {
+						gpuconsts.GPUDeviceType: {
 							"g0": nil,
 							"g1": nil,
 							"g2": nil,
@@ -173,6 +238,7 @@ func TestBind(t *testing.T) {
 				DeviceReq: &v1alpha1.DeviceRequest{
 					ReusableDevices: []string{"g0"},
 				},
+				GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{GPUDeviceNames: []string{"gpu"}, RDMADeviceNames: []string{"rdma"}},
 			},
 			sortedDevices: []string{"g0", "g1", "g2"},
 			expectedResult: &allocate.AllocationResult{
@@ -189,11 +255,11 @@ func TestBind(t *testing.T) {
 				ResourceReq:           &v1alpha1.ResourceRequest{PodUid: "p", ContainerName: "c"},
 				MachineState: func() state.AllocationResourcesMap {
 					return state.AllocationResourcesMap{
-						"rdma": {
+						gpuconsts.RDMADeviceType: {
 							"r0": preallocState("p", "c"),
 							"r1": preallocState("p", "c"),
 						},
-						"gpu": {
+						gpuconsts.GPUDeviceType: {
 							"g0": nil,
 							"g1": nil,
 						},
@@ -204,7 +270,8 @@ func TestBind(t *testing.T) {
 					"r0": {0: {"g0"}},
 					// r1 intentionally omitted
 				}),
-				DeviceReq: &v1alpha1.DeviceRequest{},
+				DeviceReq:          &v1alpha1.DeviceRequest{},
+				GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{GPUDeviceNames: []string{"gpu"}, RDMADeviceNames: []string{"rdma"}},
 			},
 			sortedDevices: []string{"g0", "g1"},
 			expectedErr:   true,
@@ -218,13 +285,13 @@ func TestBind(t *testing.T) {
 				MachineState: func() state.AllocationResourcesMap {
 					// 4 rdma, 2 gpu -> ratio 2, need 2 allocations total
 					return state.AllocationResourcesMap{
-						"rdma": {
+						gpuconsts.RDMADeviceType: {
 							"r0": preallocState("p", "c"),
 							"r1": preallocState("p", "c"),
 							"r2": preallocState("p", "c"),
 							"r3": preallocState("p", "c"),
 						},
-						"gpu": {
+						gpuconsts.GPUDeviceType: {
 							"g0": nil,
 							"g1": nil,
 						},
@@ -236,7 +303,8 @@ func TestBind(t *testing.T) {
 					"r2": {0: {"g3"}},
 					"r3": {0: {"g4"}},
 				}),
-				DeviceReq: &v1alpha1.DeviceRequest{},
+				DeviceReq:          &v1alpha1.DeviceRequest{},
+				GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{GPUDeviceNames: []string{"gpu"}, RDMADeviceNames: []string{"rdma"}},
 			},
 			sortedDevices: []string{"g0", "g1"},
 			expectedResult: &allocate.AllocationResult{
@@ -253,11 +321,11 @@ func TestBind(t *testing.T) {
 				MachineState: func() state.AllocationResourcesMap {
 					// Need 2 allocations (2 rdma, 2 gpu -> ratio 1), but only one device is available in sorted list
 					return state.AllocationResourcesMap{
-						"rdma": {
+						gpuconsts.RDMADeviceType: {
 							"r0": preallocState("p", "c"),
 							"r1": preallocState("p", "c"),
 						},
-						"gpu": {
+						gpuconsts.GPUDeviceType: {
 							// Two GPUs in machine state so ratio computes to 1
 							"g0": nil,
 							"g1": nil,
@@ -266,6 +334,7 @@ func TestBind(t *testing.T) {
 				}(),
 				DeviceTopologyRegistry: buildNoAffinityRegistry(),
 				DeviceReq:              &v1alpha1.DeviceRequest{},
+				GPUQRMPluginConfig:     &qrm.GPUQRMPluginConfig{GPUDeviceNames: []string{"gpu"}, RDMADeviceNames: []string{"rdma"}},
 			},
 			// Only g0 available; g1 unavailable -> not enough
 			sortedDevices: []string{"g0"},
@@ -309,11 +378,11 @@ func TestBind(t *testing.T) {
 				MachineState: func() state.AllocationResourcesMap {
 					// 2 rdma devices, 2 gpu devices -> ratio 1
 					return state.AllocationResourcesMap{
-						"rdma": {
+						gpuconsts.RDMADeviceType: {
 							"0": preallocState("p", "c"),
 							"1": preallocState("p", "c"),
 						},
-						"gpu": {
+						gpuconsts.GPUDeviceType: {
 							"0": nil,
 							"1": nil,
 						},
@@ -323,8 +392,9 @@ func TestBind(t *testing.T) {
 					"0": {"0"},
 					"1": {"1"},
 				}),
-				DeviceReq:   &v1alpha1.DeviceRequest{},
-				ResourceReq: &v1alpha1.ResourceRequest{},
+				DeviceReq:          &v1alpha1.DeviceRequest{},
+				ResourceReq:        &v1alpha1.ResourceRequest{},
+				GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{GPUDeviceNames: []string{"gpu"}, RDMADeviceNames: []string{"rdma"}},
 			},
 			preAllocatedResourceToTargetDeviceRatio: 1,
 			sortedDevices:                           []string{"0"},
@@ -338,11 +408,11 @@ func TestBind(t *testing.T) {
 				MachineState: func() state.AllocationResourcesMap {
 					// 2 rdma devices, 2 gpu devices -> ratio 1
 					return state.AllocationResourcesMap{
-						"rdma": {
+						gpuconsts.RDMADeviceType: {
 							"0": preallocState("p", "c"),
 							"1": preallocState("p", "c"),
 						},
-						"gpu": {
+						gpuconsts.GPUDeviceType: {
 							"0": nil,
 							"1": nil,
 						},
@@ -355,7 +425,8 @@ func TestBind(t *testing.T) {
 				DeviceReq: &v1alpha1.DeviceRequest{
 					ReusableDevices: []string{},
 				},
-				ResourceReq: &v1alpha1.ResourceRequest{PodUid: "p", ContainerName: "c"},
+				ResourceReq:        &v1alpha1.ResourceRequest{PodUid: "p", ContainerName: "c"},
+				GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{GPUDeviceNames: []string{"gpu"}, RDMADeviceNames: []string{"rdma"}},
 			},
 			preAllocatedResourceToTargetDeviceRatio: 1,
 			sortedDevices:                           []string{"0", "1", "2", "3"},
@@ -372,11 +443,11 @@ func TestBind(t *testing.T) {
 				MachineState: func() state.AllocationResourcesMap {
 					// 2 rdma devices, 2 gpu devices -> ratio 1
 					return state.AllocationResourcesMap{
-						"rdma": {
+						gpuconsts.RDMADeviceType: {
 							"0": preallocState("p", "c"),
 							"1": preallocState("p", "c"),
 						},
-						"gpu": {
+						gpuconsts.GPUDeviceType: {
 							"0": nil,
 							"1": nil,
 						},
@@ -389,7 +460,8 @@ func TestBind(t *testing.T) {
 				DeviceReq: &v1alpha1.DeviceRequest{
 					ReusableDevices: []string{},
 				},
-				ResourceReq: &v1alpha1.ResourceRequest{PodUid: "p", ContainerName: "c"},
+				ResourceReq:        &v1alpha1.ResourceRequest{PodUid: "p", ContainerName: "c"},
+				GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{GPUDeviceNames: []string{"gpu"}, RDMADeviceNames: []string{"rdma"}},
 			},
 			preAllocatedResourceToTargetDeviceRatio: 0.5,
 			sortedDevices:                           []string{"0", "1", "2", "3"},
@@ -407,10 +479,10 @@ func TestBind(t *testing.T) {
 				MachineState: func() state.AllocationResourcesMap {
 					// 1 rdma, 2 gpu -> ratio = 1/2 -> need 2 allocations; per-device limit = int(1/(1/2)) = 2
 					return state.AllocationResourcesMap{
-						"rdma": {
+						gpuconsts.RDMADeviceType: {
 							"r0": preallocState("p", "c"),
 						},
-						"gpu": {
+						gpuconsts.GPUDeviceType: {
 							"g0": nil,
 							"g1": nil,
 						},
@@ -419,7 +491,8 @@ func TestBind(t *testing.T) {
 				DeviceTopologyRegistry: buildMultiPriorityAffinityRegistry(map[string]map[int][]string{
 					"r0": {0: {"g0", "g1"}},
 				}),
-				DeviceReq: &v1alpha1.DeviceRequest{},
+				DeviceReq:          &v1alpha1.DeviceRequest{},
+				GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{GPUDeviceNames: []string{"gpu"}, RDMADeviceNames: []string{"rdma"}},
 			},
 			sortedDevices: []string{"g0", "g1"},
 			expectedResult: &allocate.AllocationResult{
@@ -436,11 +509,11 @@ func TestBind(t *testing.T) {
 				MachineState: func() state.AllocationResourcesMap {
 					// 2 rdma, 3 gpu -> ratio = 2/3 (~0.666) -> need floor(2/0.666)=3
 					return state.AllocationResourcesMap{
-						"rdma": {
+						gpuconsts.RDMADeviceType: {
 							"r0": preallocState("p", "c"),
 							"r1": preallocState("p", "c"),
 						},
-						"gpu": {
+						gpuconsts.GPUDeviceType: {
 							"g0": nil,
 							"g1": nil,
 							"g2": nil,
@@ -451,7 +524,8 @@ func TestBind(t *testing.T) {
 					"r0": {0: {"g0", "g1", "g2"}},
 					"r1": {0: {"g0", "g1", "g2"}},
 				}),
-				DeviceReq: &v1alpha1.DeviceRequest{},
+				DeviceReq:          &v1alpha1.DeviceRequest{},
+				GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{GPUDeviceNames: []string{"gpu"}, RDMADeviceNames: []string{"rdma"}},
 			},
 			sortedDevices: []string{"g0", "g1", "g2"},
 			expectedErr:   true,
@@ -465,11 +539,11 @@ func TestBind(t *testing.T) {
 				MachineState: func() state.AllocationResourcesMap {
 					// 2 rdma, 5 gpu -> ratio = 2/5 = 0.4 -> need floor(2/0.4)=5
 					return state.AllocationResourcesMap{
-						"rdma": {
+						gpuconsts.RDMADeviceType: {
 							"r0": preallocState("p", "c"),
 							"r1": preallocState("p", "c"),
 						},
-						"gpu": {
+						gpuconsts.GPUDeviceType: {
 							"g0": nil,
 							"g1": nil,
 							"g2": nil,
@@ -482,7 +556,8 @@ func TestBind(t *testing.T) {
 					"r0": {0: {"g0", "g1", "g2"}},
 					"r1": {0: {"g3", "g4"}},
 				}),
-				DeviceReq: &v1alpha1.DeviceRequest{},
+				DeviceReq:          &v1alpha1.DeviceRequest{},
+				GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{GPUDeviceNames: []string{"gpu"}, RDMADeviceNames: []string{"rdma"}},
 			},
 			sortedDevices: []string{"g0", "g1", "g2", "g3", "g4"},
 			expectedErr:   true,
@@ -496,10 +571,10 @@ func TestBind(t *testing.T) {
 				MachineState: func() state.AllocationResourcesMap {
 					// 1 rdma device, 3 gpu devices -> ratio = 1/3 -> need 3 allocations
 					return state.AllocationResourcesMap{
-						"rdma": {
+						gpuconsts.RDMADeviceType: {
 							"r0": preallocState("p", "c"),
 						},
-						"gpu": {
+						gpuconsts.GPUDeviceType: {
 							"g0": nil,
 							"g1": nil,
 							"g2": nil,
@@ -508,6 +583,7 @@ func TestBind(t *testing.T) {
 				}(),
 				DeviceTopologyRegistry: buildNoAffinityRegistry(),
 				DeviceReq:              &v1alpha1.DeviceRequest{},
+				GPUQRMPluginConfig:     &qrm.GPUQRMPluginConfig{GPUDeviceNames: []string{"gpu"}, RDMADeviceNames: []string{"rdma"}},
 			},
 			sortedDevices: []string{"g0", "g1", "g2"},
 			expectedResult: &allocate.AllocationResult{
@@ -524,10 +600,10 @@ func TestBind(t *testing.T) {
 				MachineState: func() state.AllocationResourcesMap {
 					// 1 rdma device, 3 gpu devices -> ratio = 1/3 -> need 3 allocations
 					return state.AllocationResourcesMap{
-						"rdma": {
+						gpuconsts.RDMADeviceType: {
 							"r0": preallocState("p", "c"),
 						},
-						"gpu": {
+						gpuconsts.GPUDeviceType: {
 							"g0": nil,
 							"g1": nil,
 							"g2": nil,
@@ -537,7 +613,8 @@ func TestBind(t *testing.T) {
 				DeviceTopologyRegistry: buildMultiPriorityAffinityRegistry(map[string]map[int][]string{
 					"r0": {0: {"g0", "g1", "g2"}},
 				}),
-				DeviceReq: &v1alpha1.DeviceRequest{},
+				DeviceReq:          &v1alpha1.DeviceRequest{},
+				GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{GPUDeviceNames: []string{"gpu"}, RDMADeviceNames: []string{"rdma"}},
 			},
 			sortedDevices: []string{"g0", "g1", "g2"},
 			expectedResult: &allocate.AllocationResult{
@@ -551,6 +628,22 @@ func TestBind(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+
+			// Bind requires a mapping from resource name to device type in order to
+			// find the corresponding resource name used in machine state.
+			// In production this map is populated by the plugin; in unit tests we
+			// construct it from the configured device names.
+			if tc.ctx.DeviceNameToTypeMap == nil {
+				tc.ctx.DeviceNameToTypeMap = make(map[string]string)
+				if tc.ctx.GPUQRMPluginConfig != nil {
+					for _, n := range tc.ctx.GPUQRMPluginConfig.GPUDeviceNames {
+						tc.ctx.DeviceNameToTypeMap[n] = gpuconsts.GPUDeviceType
+					}
+					for _, n := range tc.ctx.GPUQRMPluginConfig.RDMADeviceNames {
+						tc.ctx.DeviceNameToTypeMap[n] = gpuconsts.RDMADeviceType
+					}
+				}
+			}
 
 			s := NewAccompanyResourceStrategy()
 			s.CanonicalStrategy = *canonical.NewCanonicalStrategy()

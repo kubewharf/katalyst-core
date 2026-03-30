@@ -49,8 +49,8 @@ func NewRDMADevicePlugin(base *baseplugin.BasePlugin) customdeviceplugin.CustomD
 	// RDMADeviceType is the key used for RDMA state management in the QRM framework,
 	// while RDMADeviceNames are the actual resource names used to fetch the RDMA device topologies
 	base.DefaultResourceStateGeneratorRegistry.RegisterResourceStateGenerator(gpuconsts.RDMADeviceType,
-		state.NewGenericDefaultResourceStateGenerator(base.Conf.RDMADeviceNames, base.DeviceTopologyRegistry))
-	base.RegisterDeviceNameToType(base.Conf.RDMADeviceNames, gpuconsts.RDMADeviceType)
+		state.NewGenericDefaultResourceStateGenerator(base.Conf.RDMADeviceNames, base.DeviceTopologyRegistry, 1))
+	base.RegisterDeviceNames(base.Conf.RDMADeviceNames, gpuconsts.RDMADeviceType)
 
 	return &RDMADevicePlugin{
 		BasePlugin:  base,
@@ -139,6 +139,7 @@ func (p *RDMADevicePlugin) AllocateAssociatedDevice(
 		qosLevel,
 		rdmaDeviceName,
 		accompanyResourceName,
+		p.GetDeviceNameToTypeMap(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("RDMA allocation using strategy failed: %v", err)
@@ -170,6 +171,7 @@ func (p *RDMADevicePlugin) AllocateAssociatedDevice(
 			Quantity:  float64(len(allocatedRdmaDevices)),
 			NUMANodes: hintNodes.ToSliceInt(),
 		},
+		DeviceName: deviceReq.DeviceName,
 	}
 
 	allocationInfo.TopologyAwareAllocations = topologyAwareAllocations

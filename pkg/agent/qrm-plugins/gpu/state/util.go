@@ -74,6 +74,11 @@ func GenerateMachineStateFromPodEntries(
 			continue
 		}
 
+		// Skip generating the default resource state if the device topology is not initialized
+		if !generator.HasDeviceTopology() {
+			continue
+		}
+
 		allocationMap, err := generator.GenerateDefaultResourceState()
 		if err != nil {
 			return nil, fmt.Errorf("GenerateDefaultResourceState for resource %s failed with error: %v", resourceName, err)
@@ -127,6 +132,15 @@ func NewGenericDefaultResourceStateGenerator(
 	allocatable float64,
 ) DefaultResourceStateGenerator {
 	return &genericDefaultResourceStateGenerator{deviceNames: deviceNames, topologyRegistry: topologyRegistry, allocatable: allocatable}
+}
+
+// HasDeviceTopology returns true if we can find a device topology for at least one of the device names.
+func (g *genericDefaultResourceStateGenerator) HasDeviceTopology() bool {
+	if g == nil || g.topologyRegistry == nil {
+		return false
+	}
+	_, ok := g.topologyRegistry.GetDeviceTopologies(g.deviceNames)
+	return ok
 }
 
 // GenerateDefaultResourceState return a default resource state by topology

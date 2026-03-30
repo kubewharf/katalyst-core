@@ -230,8 +230,9 @@ func (r *DeviceTopologyRegistry) GetDeviceTopology(deviceName string) (*DeviceTo
 }
 
 // GetDeviceTopologies gets device topologies for the given device names.
-// It returns a map of device name to their respective device topology.
-func (r *DeviceTopologyRegistry) GetDeviceTopologies(deviceNames []string) (map[string]*DeviceTopology, error) {
+// It returns a map of device name to their respective device topology,
+// along with a boolean indicating whether any topology is found.
+func (r *DeviceTopologyRegistry) GetDeviceTopologies(deviceNames []string) (map[string]*DeviceTopology, bool) {
 	r.mux.RLock()
 	defer r.mux.RUnlock()
 
@@ -246,17 +247,17 @@ func (r *DeviceTopologyRegistry) GetDeviceTopologies(deviceNames []string) (map[
 	}
 
 	if len(topologies) == 0 {
-		return nil, fmt.Errorf("failed to get any device topology")
+		return nil, false
 	}
 
-	return topologies, nil
+	return topologies, true
 }
 
 // GetLatestDeviceTopology gets device topologies for the given device names and picks the latest one.
 func (r *DeviceTopologyRegistry) GetLatestDeviceTopology(deviceNames []string) (*DeviceTopology, error) {
-	topologiesMap, err := r.GetDeviceTopologies(deviceNames)
-	if err != nil {
-		return nil, err
+	topologiesMap, ok := r.GetDeviceTopologies(deviceNames)
+	if !ok {
+		return nil, fmt.Errorf("failed to get any device topology")
 	}
 
 	latestTopology := PickLatestDeviceTopology(topologiesMap)

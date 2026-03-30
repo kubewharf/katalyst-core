@@ -26,6 +26,7 @@ import (
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -51,23 +52,41 @@ func (s *AccompanyResourceStrategy) Bind(ctx *allocate.AllocationContext, sorted
 		return s.CanonicalStrategy.Bind(ctx, sortedDevices)
 	}
 
-	targetResourceName := ctx.ResourceName
+	// resourceName is the name of the target resource to be allocated
+	resourceName := ctx.ResourceName
 
 	// Allocate all the reusable devices first
 	allocatedDevices := sets.NewString(ctx.DeviceReq.ReusableDevices...)
 	machineState := ctx.MachineState
 
-	// Get the allocated accompany resource devices from machine state
-	accompanyAllocatedDeviceIDs := machineState.GetAllocatedDeviceIDs(v1.ResourceName(accompanyResourceName), ctx.ResourceReq.PodUid, ctx.ResourceReq.ContainerName)
+	// Find the name of accompany resource in state
+	accompanyResourceNameInState := util.ResolveResourceName(ctx.DeviceNameToTypeMap, accompanyResourceName, false)
+	if accompanyResourceNameInState == "" {
+		return &allocate.AllocationResult{
+			Success:      false,
+			ErrorMessage: fmt.Sprintf("invalid accompany resource %s in state", accompanyResourceName),
+		}, fmt.Errorf("invalid accompany resource %s in state", accompanyResourceName)
+	}
 
+	// Get the allocated accompany resource devices from machine state
+	accompanyAllocatedDeviceIDs := machineState.GetAllocatedDeviceIDs(v1.ResourceName(accompanyResourceNameInState), ctx.ResourceReq.PodUid, ctx.ResourceReq.ContainerName)
 	if len(accompanyAllocatedDeviceIDs) == 0 {
 		general.Infof("No accompany resource device found for pod %s, container %s, resource %s, falling back to canonical strategy",
-			ctx.ResourceReq.PodUid, ctx.ResourceReq.ContainerName, accompanyResourceName)
+			ctx.ResourceReq.PodUid, ctx.ResourceReq.ContainerName, accompanyResourceNameInState)
 		return s.CanonicalStrategy.Bind(ctx, sortedDevices)
 	}
 
+	// Find the name of resource in state
+	resourceNameInState := util.ResolveResourceName(ctx.DeviceNameToTypeMap, resourceName, false)
+	if resourceNameInState == "" {
+		return &allocate.AllocationResult{
+			Success:      false,
+			ErrorMessage: fmt.Sprintf("invalid resource %s in state", resourceName),
+		}, fmt.Errorf("invalid resource %s in state", resourceName)
+	}
+
 	// Get ratio of accompany resource to target device
-	accompanyResourceToDeviceRatio := machineState.GetRatioOfAccompanyResourceToTargetResource(accompanyResourceName, targetResourceName)
+	accompanyResourceToDeviceRatio := machineState.GetRatioOfAccompanyResourceToTargetResource(accompanyResourceNameInState, resourceNameInState)
 
 	// Find out the number of target devices to be allocated proportionally to the accompany resource devices
 	ratio := accompanyResourceToDeviceRatio
@@ -77,6 +96,7 @@ func (s *AccompanyResourceStrategy) Bind(ctx *allocate.AllocationContext, sorted
 
 	devicesNeededFloat := float64(len(accompanyAllocatedDeviceIDs)) / ratio
 	devicesToBeAllocated := int(math.Floor(devicesNeededFloat))
+	// Should have a minimum of 1 device to be allocated at all times
 	if devicesToBeAllocated < 1 {
 		devicesToBeAllocated = 1
 	}
@@ -89,11 +109,13 @@ func (s *AccompanyResourceStrategy) Bind(ctx *allocate.AllocationContext, sorted
 	}
 
 	// Obtain the target devices that have affinity with the accompany resource devices
-	affinityDevices, err := ctx.DeviceTopologyRegistry.GetAffinityDevices(accompanyResourceName, targetResourceName)
+	affinityDevices, err := ctx.DeviceTopologyRegistry.GetAffinityDevices(accompanyResourceName, resourceName)
 	if err != nil {
-		general.Warningf("failed to get affinity devices between %s and %s: %v", accompanyResourceName, targetResourceName, err)
-		return nil, fmt.Errorf("failed to get affinity devices between %s and %s: %w", accompanyResourceName, targetResourceName, err)
+		general.Warningf("failed to get affinity devices between %s and %s: %v", accompanyResourceName, resourceName, err)
+		return nil, fmt.Errorf("failed to get affinity devices between %s and %s: %w", accompanyResourceName, resourceName, err)
 	}
+
+	general.Infof("Get affinity devices from allocated devices: %v", affinityDevices)
 
 	availableDevices := sets.NewString(sortedDevices...)
 
