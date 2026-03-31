@@ -197,6 +197,61 @@ func TestHealthz(t *testing.T) {
 	_ = p.Stop()
 }
 
+func TestInnerPluginCheckpointing(t *testing.T) {
+	t.Parallel()
+
+	socketDir, err := tmpSocketDir()
+	require.NoError(t, err)
+	defer os.RemoveAll(socketDir)
+
+	testReporter := reporter.NewReporterManagerStub()
+	m, err := NewReporterPluginManager(testReporter, metrics.DummyMetrics{}, nil, generateTestConfiguration(socketDir))
+	require.NoError(t, err)
+
+	// Mock a response for an inner plugin
+	mockContent := []*v1alpha1.ReportContent{
+		{
+			GroupVersionKind: &testGroupVersionKind,
+			Field: []*v1alpha1.ReportField{
+				{
+					FieldType: v1alpha1.FieldType_Spec,
+					FieldName: "inner_plugin_field",
+					Value:     []byte("inner_plugin_value"),
+				},
+			},
+		},
+	}
+	mockResponse := &v1alpha1.GetReportContentResponse{Content: mockContent}
+
+	// Manually add it to the manager's endpoints to simulate a successful report
+	m.mutex.Lock()
+	m.innerEndpoints.Insert("system-reporter-plugin")
+	m.endpoints["system-reporter-plugin"] = plugin.NewStoppedRemoteEndpoint("system-reporter-plugin", mockResponse)
+	m.mutex.Unlock()
+
+	// Write checkpoint
+	err = m.writeCheckpoint(map[string]*v1alpha1.GetReportContentResponse{
+		"system-reporter-plugin": mockResponse,
+	})
+	require.NoError(t, err)
+
+	// Create a new manager to verify checkpoint reading
+	m2, err := NewReporterPluginManager(testReporter, metrics.DummyMetrics{}, nil, generateTestConfiguration(socketDir))
+	require.NoError(t, err)
+
+	// Verify that the inner plugin's endpoint was restored from the checkpoint
+	m2.mutex.Lock()
+	restoredEndpoint, ok := m2.endpoints["system-reporter-plugin"]
+	m2.mutex.Unlock()
+
+	require.True(t, ok)
+	require.NotNil(t, restoredEndpoint)
+
+	restoredCache := restoredEndpoint.GetCache()
+	require.NotNil(t, restoredCache)
+	reporterContentsEqual(t, mockContent, restoredCache.Content)
+}
+
 func setup(t *testing.T, ctx context.Context, content []*v1alpha1.ReportContent, callback plugin.ListAndWatchCallback, socketDir string, pluginSocketName string, reporter reporter.Manager) (registration.AgentPluginHandler, <-chan interface{}, skeleton.GenericPlugin) {
 	m, updateChan := setupReporterManager(t, ctx, content, socketDir, callback, reporter)
 	p := setupReporterPlugin(t, content, socketDir, pluginSocketName)

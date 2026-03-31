@@ -70,13 +70,14 @@ type systemPlugin struct {
 }
 
 func NewSystemReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
-	conf *config.Configuration, _ plugin.ListAndWatchCallback,
+	conf *config.Configuration, _ plugin.ListAndWatchCallback, cache *v1alpha1.GetReportContentResponse,
 ) (plugin.ReporterPlugin, error) {
 	p := &systemPlugin{
-		conf:        conf,
-		emitter:     emitter,
-		metaServer:  metaServer,
-		StopControl: process.NewStopControl(time.Time{}),
+		conf:                        conf,
+		emitter:                     emitter,
+		metaServer:                  metaServer,
+		latestReportContentResponse: cache, // initialize with the historical cache restored from checkpoint
+		StopControl:                 process.NewStopControl(time.Time{}),
 	}
 
 	return p, nil
