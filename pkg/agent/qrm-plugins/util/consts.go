@@ -51,6 +51,7 @@ const (
 	MetricNameMemoryHandleAdvisorContainerEntryFailed = "memory_handle_advisor_container_entry_failed"
 	MetricNameMemoryHandleAdvisorExtraEntryFailed     = "memory_handle_advisor_extra_entry_failed"
 	MetricNameMemoryHandleAdvisorMemoryLimit          = "memory_handle_advisor_memory_limit"
+	MetricNameMemoryHandleAdvisorMemoryHigh           = "memory_handle_advisor_memory_high"
 	MetricNameMemoryHandleAdvisorDropCache            = "memory_handle_advisor_drop_cache"
 	MetricNameMemoryHandleAdvisorCPUSetMems           = "memory_handle_advisor_cpuset_mems"
 	MetricNameMemoryHandlerAdvisorMemoryOffload       = "memory_handler_advisor_memory_offloading"
