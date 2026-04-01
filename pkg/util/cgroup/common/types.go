@@ -73,7 +73,9 @@ type MemoryData struct {
 	// MinInBytes for memory.min
 	// cgroup memory that can never be reclaimed by kswapd.
 	MinInBytes int64
-	WmarkRatio int32
+	// HighInBytes for memory.high
+	HighInBytes int64
+	WmarkRatio  int32
 	// SwapMaxInBytes < 0 means disable cgroup-level swap
 	SwapMaxInBytes int64
 }
