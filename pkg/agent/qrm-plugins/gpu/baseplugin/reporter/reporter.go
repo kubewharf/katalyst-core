@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/gogo/protobuf/proto"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
@@ -52,10 +53,12 @@ var zeroQuantity = *resource.NewQuantity(0, resource.DecimalSI)
 // GPUReporter reports gpu information to CNR
 type GPUReporter interface {
 	Run(stopCh <-chan struct{})
+	Trigger()
 }
 
 type gpuReporterImpl struct {
 	skeleton.GenericPlugin
+	plugin *gpuReporterPlugin
 }
 
 var _ GPUReporter = (*gpuReporterImpl)(nil)
@@ -63,12 +66,16 @@ var _ GPUReporter = (*gpuReporterImpl)(nil)
 func NewGPUReporter(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
 	conf *config.Configuration, topologyRegistry *machine.DeviceTopologyRegistry, stateGetter func() state.State, deviceTypeToNames map[string]sets.String,
 ) (GPUReporter, error) {
-	plugin, err := newGPUReporterPlugin(emitter, metaServer, conf, topologyRegistry, stateGetter, deviceTypeToNames)
+	plugin, reporter, err := newGPUReporterPlugin(emitter, metaServer, conf, topologyRegistry, stateGetter, deviceTypeToNames)
 	if err != nil {
 		return nil, fmt.Errorf("[gpu-reporter] create reporter failed: %v", err)
 	}
 
-	return &gpuReporterImpl{plugin}, nil
+	return &gpuReporterImpl{GenericPlugin: plugin, plugin: reporter}, nil
+}
+
+func (r *gpuReporterImpl) Trigger() {
+	r.plugin.Trigger()
 }
 
 func (r *gpuReporterImpl) Run(stopCh <-chan struct{}) {
@@ -88,7 +95,7 @@ func (r *gpuReporterImpl) Run(stopCh <-chan struct{}) {
 
 // gpuReporterPlugin is the plugin that reports gpu device topology information
 type gpuReporterPlugin struct {
-	sync.Mutex
+	sync.RWMutex
 	started bool
 	ctx     context.Context
 	cancel  context.CancelFunc
@@ -99,6 +106,9 @@ type gpuReporterPlugin struct {
 	deviceTopologyRegistry *machine.DeviceTopologyRegistry
 	stateGetter            func() state.State
 	deviceTypeToNames      map[string]sets.String
+
+	reportNotifyCh    chan struct{}
+	lastReportContent *v1alpha1.GetReportContentResponse
 }
 
 var (
@@ -108,7 +118,7 @@ var (
 
 func newGPUReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
 	conf *config.Configuration, topologyRegistry *machine.DeviceTopologyRegistry, stateGetter func() state.State, deviceTypeToNames map[string]sets.String,
-) (skeleton.GenericPlugin, error) {
+) (skeleton.GenericPlugin, *gpuReporterPlugin, error) {
 	reporter := &gpuReporterPlugin{
 		gpuDeviceNames:         conf.GPUDeviceNames,
 		numaSocketZoneNodeMap:  util.GenerateNumaSocketZone(metaServer.MachineInfo.Topology),
@@ -116,6 +126,7 @@ func newGPUReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.
 		deviceTopologyRegistry: topologyRegistry,
 		stateGetter:            stateGetter,
 		deviceTypeToNames:      deviceTypeToNames,
+		reportNotifyCh:         make(chan struct{}, 1),
 	}
 	pluginWrapper, err := skeleton.NewRegistrationPluginWrapper(reporter, []string{conf.PluginRegistrationDir},
 		func(key string, value int64) {
@@ -125,10 +136,10 @@ func newGPUReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.
 			})...)
 		})
 	if err != nil {
-		return nil, fmt.Errorf("failed to register %s plugin: %w", gpuReporterPluginName, err)
+		return nil, nil, fmt.Errorf("failed to register %s plugin: %w", gpuReporterPluginName, err)
 	}
 
-	return pluginWrapper, nil
+	return pluginWrapper, reporter, nil
 }
 
 func (p *gpuReporterPlugin) Name() string {
@@ -168,7 +179,32 @@ func (p *gpuReporterPlugin) Stop() error {
 }
 
 // GetReportContent implements ReporterPluginServer to report the gpu device topology information to CNR.
-func (p *gpuReporterPlugin) GetReportContent(_ context.Context, _ *v1alpha1.Empty) (*v1alpha1.GetReportContentResponse, error) {
+func (p *gpuReporterPlugin) GetReportContent(ctx context.Context, _ *v1alpha1.Empty) (*v1alpha1.GetReportContentResponse, error) {
+	p.RLock()
+	if p.lastReportContent != nil {
+		resp := p.lastReportContent
+		p.RUnlock()
+		return resp, nil
+	}
+	p.RUnlock()
+
+	resp, err := p.buildReportResponse()
+	if err != nil {
+		return nil, err
+	}
+
+	p.Lock()
+	if p.lastReportContent != nil {
+		resp = p.lastReportContent
+	} else {
+		p.lastReportContent = resp
+	}
+	p.Unlock()
+
+	return resp, nil
+}
+
+func (p *gpuReporterPlugin) buildReportResponse() (*v1alpha1.GetReportContentResponse, error) {
 	// The reporter picks the latest topology from all configured GPU devices to report to CNR.
 	topologiesMap, err := p.deviceTopologyRegistry.GetDeviceTopologies(p.gpuDeviceNames)
 	if err != nil {
@@ -176,6 +212,46 @@ func (p *gpuReporterPlugin) GetReportContent(_ context.Context, _ *v1alpha1.Empt
 	}
 	latestDeviceTopology := machine.PickLatestDeviceTopology(topologiesMap)
 
+	stateImpl := p.stateGetter()
+	if stateImpl == nil {
+		return nil, fmt.Errorf("state is nil")
+	}
+
+	machineState := stateImpl.GetMachineState()
+	if machineState == nil {
+		return nil, fmt.Errorf("machine state is nil")
+	}
+
+	var reportFields []*v1alpha1.ReportField
+
+	zoneField, err := p.getTopologyZoneReportField(topologiesMap, latestDeviceTopology, machineState)
+	if err != nil {
+		return nil, err
+	}
+	reportFields = append(reportFields, zoneField)
+
+	propertyField, err := p.getResourcePropertyReportField(latestDeviceTopology)
+	if err != nil {
+		return nil, err
+	}
+	if propertyField != nil {
+		reportFields = append(reportFields, propertyField)
+	} else {
+		// when resourceProperty is nil, we choose not to report NodeResourceProperties instead of returning error
+		general.Warningf("no resource property found for device topology, skip reporting %s", util.CNRFieldNameNodeResourceProperties)
+	}
+
+	return &v1alpha1.GetReportContentResponse{
+		Content: []*v1alpha1.ReportContent{
+			{
+				GroupVersionKind: &util.CNRGroupVersionKind,
+				Field:            reportFields,
+			},
+		},
+	}, nil
+}
+
+func (p *gpuReporterPlugin) getTopologyZoneReportField(topologiesMap map[string]*machine.DeviceTopology, latestDeviceTopology *machine.DeviceTopology, machineState state.AllocationResourcesMap) (*v1alpha1.ReportField, error) {
 	// generate the zones for numa and socket in machine
 	topologyZoneGenerator, err := util.NewNumaSocketTopologyZoneGenerator(p.numaSocketZoneNodeMap)
 	if err != nil {
@@ -190,16 +266,6 @@ func (p *gpuReporterPlugin) GetReportContent(_ context.Context, _ *v1alpha1.Empt
 	zoneAttributes := p.getGPUZoneAttributes(latestDeviceTopology)
 	if zoneAttributes == nil {
 		return nil, fmt.Errorf("no zone attributes found for device topology")
-	}
-
-	stateImpl := p.stateGetter()
-	if stateImpl == nil {
-		return nil, fmt.Errorf("state is nil")
-	}
-
-	machineState := stateImpl.GetMachineState()
-	if machineState == nil {
-		return nil, fmt.Errorf("machine state is nil")
 	}
 
 	zoneResources := p.getZoneResources(topologiesMap, machineState)
@@ -217,38 +283,28 @@ func (p *gpuReporterPlugin) GetReportContent(_ context.Context, _ *v1alpha1.Empt
 		return nil, fmt.Errorf("failed to marshal topology zone values: %w", err)
 	}
 
-	reportFields := []*v1alpha1.ReportField{
-		{
-			FieldType: v1alpha1.FieldType_Status,
-			FieldName: util.CNRFieldNameTopologyZone,
-			Value:     zoneValues,
-		},
-	}
+	return &v1alpha1.ReportField{
+		FieldType: v1alpha1.FieldType_Status,
+		FieldName: util.CNRFieldNameTopologyZone,
+		Value:     zoneValues,
+	}, nil
+}
 
+func (p *gpuReporterPlugin) getResourcePropertyReportField(latestDeviceTopology *machine.DeviceTopology) (*v1alpha1.ReportField, error) {
 	resourceProperty := p.getGPUResourceProperty(latestDeviceTopology)
-	if resourceProperty != nil {
-		propertyValues, err := json.Marshal(&resourceProperty)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal resource property values: %w", err)
-		}
-
-		reportFields = append(reportFields, &v1alpha1.ReportField{
-			FieldType: v1alpha1.FieldType_Spec,
-			FieldName: util.CNRFieldNameNodeResourceProperties,
-			Value:     propertyValues,
-		})
-	} else {
-		// when resourceProperty is nil, we choose not to report NodeResourceProperties instead of returning error
-		general.Warningf("no resource property found for device topology, skip reporting %s", util.CNRFieldNameNodeResourceProperties)
+	if resourceProperty == nil {
+		return nil, nil
 	}
 
-	return &v1alpha1.GetReportContentResponse{
-		Content: []*v1alpha1.ReportContent{
-			{
-				GroupVersionKind: &util.CNRGroupVersionKind,
-				Field:            reportFields,
-			},
-		},
+	propertyValues, err := json.Marshal(&resourceProperty)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal resource property values: %w", err)
+	}
+
+	return &v1alpha1.ReportField{
+		FieldType: v1alpha1.FieldType_Spec,
+		FieldName: util.CNRFieldNameNodeResourceProperties,
+		Value:     propertyValues,
 	}, nil
 }
 
@@ -438,12 +494,57 @@ func (p *gpuReporterPlugin) addGPUZoneNodes(deviceTopology *machine.DeviceTopolo
 
 // ListAndWatchReportContent implements ReporterPluginServer to list and watch report content.
 func (p *gpuReporterPlugin) ListAndWatchReportContent(_ *v1alpha1.Empty, server v1alpha1.ReporterPlugin_ListAndWatchReportContentServer) error {
+	isFirst := true
+	var lastSentContent *v1alpha1.GetReportContentResponse
+
 	for {
+		resp, err := p.buildReportResponse()
+		if err != nil {
+			general.Errorf("failed to build report response: %v", err)
+			return err
+		}
+
+		p.Lock()
+		p.lastReportContent = resp
+		p.Unlock()
+
+		// Send report only when it's the first time or the content has changed
+		if isFirst || !proto.Equal(lastSentContent, resp) {
+			if err := server.Send(resp); err != nil {
+				general.Errorf("failed to send report content: %v", err)
+				return err
+			}
+			general.Infof("successfully sent report content to reporter manager, content: %v", resp)
+			lastSentContent = resp
+			isFirst = false
+		} else {
+			general.Infof("report content unchanged, skip sending")
+		}
+
 		select {
 		case <-p.ctx.Done():
+			general.Infof("reporter plugin context done, stop watching report content")
 			return nil
 		case <-server.Context().Done():
+			general.Infof("reporter server context done, stop watching report content")
 			return nil
+		case <-p.reportNotifyCh:
+			general.Infof("received report notify trigger, start to rebuild and send report")
 		}
+	}
+}
+
+// Trigger invalidates the cached report content and triggers a new report to be built and sent
+func (p *gpuReporterPlugin) Trigger() {
+	p.Lock()
+	p.lastReportContent = nil
+	p.Unlock()
+
+	// Use non-blocking channel send to avoid blocking the caller (e.g. state/topology updates)
+	select {
+	case p.reportNotifyCh <- struct{}{}:
+		general.Infof("triggered report content update")
+	default:
+		// If the channel is full, a trigger is already pending, so we don't need to block or send another one.
 	}
 }

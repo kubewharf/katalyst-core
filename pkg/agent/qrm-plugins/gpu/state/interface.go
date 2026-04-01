@@ -41,6 +41,9 @@ type writer interface {
 	Delete(resourceName v1.ResourceName, podUID, containerName string, persist bool)
 	ClearState()
 	StoreState() error
+
+	// AddMachineStateSyncNotifier registers a callback that will be invoked whenever the machine state is updated
+	AddMachineStateSyncNotifier(notifier func())
 }
 
 // DefaultResourceStateGenerator interface is used to generate default resource state for each resource

@@ -135,6 +135,30 @@ func (p *BasePlugin) SetState(s state.State) {
 	p.state = s
 }
 
+// TriggerReporter safely triggers the reporter to generate and send a new report.
+func (p *BasePlugin) TriggerReporter() {
+	if p.reporter != nil {
+		p.reporter.Trigger()
+	}
+}
+
+// registerNotifiers registers the necessary callbacks to trigger the reporter
+// when device topology or machine state changes.
+func (p *BasePlugin) registerNotifiers(state state.State) {
+	if p.DeviceTopologyRegistry != nil {
+		p.DeviceTopologyRegistry.RegisterTopologyChangeNotifier(func() {
+			general.Infof("triggering reporter due to topology change")
+			p.TriggerReporter()
+		})
+	}
+	if state != nil {
+		state.AddMachineStateSyncNotifier(func() {
+			general.Infof("triggering reporter due to machine state change")
+			p.TriggerReporter()
+		})
+	}
+}
+
 // InitState initializes the state of the plugin.
 func (p *BasePlugin) InitState() error {
 	stateImpl, err := state.NewCheckpointState(p.Conf.StateDirectoryConfiguration, p.Conf.QRMPluginsConfiguration, GPUPluginStateFileName,
@@ -148,6 +172,7 @@ func (p *BasePlugin) InitState() error {
 	p.mu.Unlock()
 
 	p.stateInitializedOnce.Do(func() {
+		p.registerNotifiers(stateImpl)
 		close(p.stateInitializedCh)
 		general.Infof("state initialized channel closed")
 	})

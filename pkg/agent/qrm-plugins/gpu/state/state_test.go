@@ -33,6 +33,39 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
+func TestStateMemMachineStateSyncNotifiers(t *testing.T) {
+	t.Parallel()
+
+	s := &gpuPluginState{
+		machineState: make(AllocationResourcesMap),
+	}
+
+	callCount := 0
+	s.AddMachineStateSyncNotifier(func() {
+		callCount++
+	})
+
+	// Test SetMachineState
+	newMachineState := AllocationResourcesMap{
+		"testResource": {
+			"device1": &AllocationState{Allocatable: 1},
+		},
+	}
+	s.SetMachineState(newMachineState, false)
+	assert.Equal(t, 1, callCount)
+
+	s.SetMachineState(newMachineState, false)
+	assert.Equal(t, 2, callCount) // Unconditional trigger
+
+	// Test SetResourceState
+	s.SetResourceState("testResource2", AllocationMap{"device2": &AllocationState{Allocatable: 2}}, false)
+	assert.Equal(t, 3, callCount)
+
+	// Test ClearState
+	s.ClearState()
+	assert.Equal(t, 4, callCount)
+}
+
 func TestAllocationResourcesMap_GetRatioOfAccompanyResourceToTargetResource(t *testing.T) {
 	t.Parallel()
 

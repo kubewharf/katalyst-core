@@ -21,9 +21,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 
+	"github.com/gogo/protobuf/proto"
 	cadvisorapi "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/grpc/metadata"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -104,7 +107,11 @@ func (s *testGPUState) Delete(_ v1.ResourceName, _, _ string, _ bool) {}
 
 func (s *testGPUState) ClearState() {}
 
-func (s *testGPUState) StoreState() error { return nil }
+func (s *testGPUState) AddMachineStateSyncNotifier(notifier func()) {}
+
+func (s *testGPUState) StoreState() error {
+	return nil
+}
 
 func (s *testGPUState) GetMachineState() state.AllocationResourcesMap {
 	return cloneMachineState(s.machineState)
@@ -2331,4 +2338,139 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 			assertReportContentMatches(t, tt.expectedSpec, tt.expectedStatus, reportContent)
 		})
 	}
+}
+
+type mockReporterPluginServer struct {
+	ctx      context.Context
+	sendCh   chan *v1alpha1.GetReportContentResponse
+	recvFunc func(*v1alpha1.GetReportContentResponse) error
+}
+
+func (m *mockReporterPluginServer) Send(resp *v1alpha1.GetReportContentResponse) error {
+	if m.recvFunc != nil {
+		return m.recvFunc(resp)
+	}
+	m.sendCh <- resp
+	return nil
+}
+
+func (m *mockReporterPluginServer) Context() context.Context {
+	return m.ctx
+}
+
+func (m *mockReporterPluginServer) Recv() (*v1alpha1.Empty, error) { return nil, nil }
+func (m *mockReporterPluginServer) SetHeader(metadata.MD) error    { return nil }
+func (m *mockReporterPluginServer) SendHeader(metadata.MD) error   { return nil }
+func (m *mockReporterPluginServer) SetTrailer(metadata.MD)         {}
+func (m *mockReporterPluginServer) SendMsg(m_ interface{}) error   { return nil }
+func (m *mockReporterPluginServer) RecvMsg(m_ interface{}) error   { return nil }
+
+func TestListAndWatchReportContent(t *testing.T) {
+	t.Parallel()
+
+	// 1. Setup minimal environment
+	testConfig := config.NewConfiguration()
+	testConfig.GPUDeviceNames = []string{"test-gpu"}
+	deviceTypeToNames := map[string]sets.String{"test-gpu": sets.NewString("test-gpu")}
+
+	topologyRegistry := machine.NewDeviceTopologyRegistry()
+	mockProvider := machine.NewDeviceTopologyProviderStub()
+	topologyRegistry.RegisterDeviceTopologyProvider("test-gpu", mockProvider)
+
+	topology := &machine.DeviceTopology{
+		Devices: map[string]machine.DeviceInfo{
+			"gpu-0": {NumaNodes: []int{0}},
+		},
+	}
+	_ = topologyRegistry.SetDeviceTopology("test-gpu", topology)
+
+	mockState := &testGPUState{
+		machineState: state.AllocationResourcesMap{
+			"test-gpu": state.AllocationMap{
+				"gpu-0": &state.AllocationState{Allocatable: 1},
+			},
+		},
+	}
+	stateGetter := func() state.State { return mockState }
+
+	metaServer := generateTestMetaServer([]cadvisorapi.Node{
+		{
+			Id: 0,
+			Cores: []cadvisorapi.Core{
+				{SocketID: 0, Id: 0, Threads: []int{0, 4}},
+			},
+		},
+	})
+
+	reporter, err := NewGPUReporter(metrics.DummyMetrics{}, metaServer, testConfig, topologyRegistry, stateGetter, deviceTypeToNames)
+	assert.NoError(t, err)
+	reporterImpl := reporter.(*gpuReporterImpl)
+	pluginWrapper := reporterImpl.GenericPlugin.(*skeleton.PluginRegistrationWrapper)
+	reporterPlugin := pluginWrapper.GenericPlugin.(*gpuReporterPlugin)
+
+	_ = reporterPlugin.Start()
+	defer reporterPlugin.Stop()
+
+	// 2. Setup server mock
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sendCh := make(chan *v1alpha1.GetReportContentResponse, 10)
+	mockServer := &mockReporterPluginServer{
+		ctx:    ctx,
+		sendCh: sendCh,
+	}
+
+	// 3. Start ListAndWatch
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- reporterPlugin.ListAndWatchReportContent(nil, mockServer)
+	}()
+
+	// 4. Verify initial report is sent
+	var initialResp *v1alpha1.GetReportContentResponse
+	select {
+	case initialResp = <-sendCh:
+		assert.NotNil(t, initialResp)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for initial report")
+	}
+
+	// 5. Trigger without change should NOT send anything
+	reporter.Trigger()
+	select {
+	case <-sendCh:
+		t.Fatal("should not send identical report")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// 6. Change topology and trigger
+	topology2 := &machine.DeviceTopology{
+		Devices: map[string]machine.DeviceInfo{
+			"gpu-0": {NumaNodes: []int{0}},
+			"gpu-1": {NumaNodes: []int{0}}, // new device
+		},
+	}
+	_ = topologyRegistry.SetDeviceTopology("test-gpu", topology2)
+	mockState.machineState["test-gpu"]["gpu-1"] = &state.AllocationState{Allocatable: 1}
+
+	reporter.Trigger()
+
+	select {
+	case resp := <-sendCh:
+		assert.NotNil(t, resp)
+		assert.False(t, proto.Equal(initialResp, resp))
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for updated report")
+	}
+
+	// 7. Test GetReportContent directly
+	unaryResp, err := reporterPlugin.GetReportContent(context.Background(), nil)
+	assert.NoError(t, err)
+	assert.NotNil(t, unaryResp)
+
+	// Close watch
+	cancel()
+	err = <-errCh
+	assert.NoError(t, err)
 }

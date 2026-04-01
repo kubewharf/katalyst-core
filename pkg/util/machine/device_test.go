@@ -25,6 +25,50 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestDeviceTopologyRegistry_TopologyChangeNotifiers(t *testing.T) {
+	t.Parallel()
+
+	registry := NewDeviceTopologyRegistry()
+	registry.RegisterDeviceTopologyProvider("gpu", NewDeviceTopologyProviderStub())
+
+	callCount := 0
+	registry.RegisterTopologyChangeNotifier(func() {
+		callCount++
+	})
+
+	gpuTopology1 := &DeviceTopology{
+		Devices: map[string]DeviceInfo{
+			"gpu-0": {NumaNodes: []int{0}},
+		},
+	}
+
+	// First set should trigger the notifier
+	err := registry.SetDeviceTopology("gpu", gpuTopology1)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, callCount)
+
+	// Setting identical topology should not trigger the notifier
+	gpuTopology1Clone := &DeviceTopology{
+		Devices: map[string]DeviceInfo{
+			"gpu-0": {NumaNodes: []int{0}},
+		},
+	}
+	err = registry.SetDeviceTopology("gpu", gpuTopology1Clone)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, callCount)
+
+	// Setting different topology should trigger the notifier
+	gpuTopology2 := &DeviceTopology{
+		Devices: map[string]DeviceInfo{
+			"gpu-0": {NumaNodes: []int{0}},
+			"gpu-1": {NumaNodes: []int{1}},
+		},
+	}
+	err = registry.SetDeviceTopology("gpu", gpuTopology2)
+	assert.NoError(t, err)
+	assert.Equal(t, 2, callCount)
+}
+
 func TestDeviceTopologyRegistry_GetDeviceNUMAAffinity(t *testing.T) {
 	t.Parallel()
 
