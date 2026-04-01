@@ -105,13 +105,15 @@ func GenerateResourceStateFromPodEntries(
 type genericDefaultResourceStateGenerator struct {
 	deviceNames      []string
 	topologyRegistry *machine.DeviceTopologyRegistry
+	allocatable      float64
 }
 
 func NewGenericDefaultResourceStateGenerator(
 	deviceNames []string,
 	topologyRegistry *machine.DeviceTopologyRegistry,
+	allocatable float64,
 ) DefaultResourceStateGenerator {
-	return &genericDefaultResourceStateGenerator{deviceNames: deviceNames, topologyRegistry: topologyRegistry}
+	return &genericDefaultResourceStateGenerator{deviceNames: deviceNames, topologyRegistry: topologyRegistry, allocatable: allocatable}
 }
 
 // GenerateDefaultResourceState return a default resource state by topology
@@ -133,7 +135,8 @@ func (g *genericDefaultResourceStateGenerator) GenerateDefaultResourceState() (A
 	resourceState := make(AllocationMap)
 	for deviceID := range latestTopology.Devices {
 		resourceState[deviceID] = &AllocationState{
-			PodEntries: make(PodEntries),
+			PodEntries:  make(PodEntries),
+			Allocatable: g.allocatable,
 		}
 	}
 

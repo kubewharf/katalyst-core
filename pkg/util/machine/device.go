@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/sets"
+	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	"k8s.io/utils/strings/slices"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -271,6 +272,14 @@ type DeviceTopology struct {
 	PriorityDimensions []string
 	// UpdateTime is the timestamp when the topology was last updated.
 	UpdateTime int64
+}
+
+func (t *DeviceTopology) IsDeviceHealthy(id string) (bool, bool) {
+	deviceInfo, ok := t.Devices[id]
+	if !ok {
+		return false, false
+	}
+	return deviceInfo.Health == pluginapi.Healthy, true
 }
 
 // GroupDeviceAffinity forms a topology graph such that all devices within a DeviceIDs group have an affinity with each other.

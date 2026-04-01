@@ -41,7 +41,7 @@ var (
 
 // GenerateUniqObjectUIDKey generate a uniq key (including UID) for the given object.
 func GenerateUniqObjectUIDKey(obj metav1.Object) string {
-	return fmt.Sprintf("%s/%s/%s", obj.GetNamespace(), obj.GetName(), obj.GetUID())
+	return GenerateNamespaceNameUIDKey(obj.GetNamespace(), obj.GetName(), string(obj.GetUID()))
 }
 
 // ParseUniqObjectUIDKey parse the given key into namespace, name and uid
@@ -62,6 +62,11 @@ func GenerateUniqObjectNameKey(obj metav1.Object) string {
 // GenerateNamespaceNameKey generate uniq key by concatenating namespace and name.
 func GenerateNamespaceNameKey(namespace, name string) string {
 	return fmt.Sprintf("%s/%s", namespace, name)
+}
+
+// GenerateNamespaceNameUIDKey generates a uniq key by concatenating namespace, name and UID.
+func GenerateNamespaceNameUIDKey(namespace, name, uid string) string {
+	return fmt.Sprintf("%s/%s/%s", namespace, name, uid)
 }
 
 // GenerateUniqGVRNameKey generate a uniq key (without UID) for the GVR and its corresponding object.

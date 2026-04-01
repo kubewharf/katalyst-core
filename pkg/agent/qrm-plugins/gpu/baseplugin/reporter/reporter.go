@@ -25,19 +25,21 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
-	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	nodev1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/registration"
 	"github.com/kubewharf/katalyst-api/pkg/plugins/skeleton"
 	"github.com/kubewharf/katalyst-api/pkg/protocol/reporterplugin/v1alpha1"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
 
 const (
@@ -45,10 +47,7 @@ const (
 	propertyNameGPUTopology = "gpu_topology_attribute_key"
 )
 
-var (
-	zeroQuantity = *resource.NewQuantity(0, resource.DecimalSI)
-	oneQuantity  = *resource.NewQuantity(1, resource.DecimalSI)
-)
+var zeroQuantity = *resource.NewQuantity(0, resource.DecimalSI)
 
 // GPUReporter reports gpu information to CNR
 type GPUReporter interface {
@@ -62,9 +61,9 @@ type gpuReporterImpl struct {
 var _ GPUReporter = (*gpuReporterImpl)(nil)
 
 func NewGPUReporter(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
-	conf *config.Configuration, topologyRegistry *machine.DeviceTopologyRegistry,
+	conf *config.Configuration, topologyRegistry *machine.DeviceTopologyRegistry, stateGetter func() state.State, deviceTypeToNames map[string]sets.String,
 ) (GPUReporter, error) {
-	plugin, err := newGPUReporterPlugin(emitter, metaServer, conf, topologyRegistry)
+	plugin, err := newGPUReporterPlugin(emitter, metaServer, conf, topologyRegistry, stateGetter, deviceTypeToNames)
 	if err != nil {
 		return nil, fmt.Errorf("[gpu-reporter] create reporter failed: %v", err)
 	}
@@ -98,6 +97,8 @@ type gpuReporterPlugin struct {
 	gpuDeviceNames         []string
 	numaSocketZoneNodeMap  map[util.ZoneNode]util.ZoneNode
 	deviceTopologyRegistry *machine.DeviceTopologyRegistry
+	stateGetter            func() state.State
+	deviceTypeToNames      map[string]sets.String
 }
 
 var (
@@ -106,13 +107,15 @@ var (
 )
 
 func newGPUReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
-	conf *config.Configuration, topologyRegistry *machine.DeviceTopologyRegistry,
+	conf *config.Configuration, topologyRegistry *machine.DeviceTopologyRegistry, stateGetter func() state.State, deviceTypeToNames map[string]sets.String,
 ) (skeleton.GenericPlugin, error) {
 	reporter := &gpuReporterPlugin{
 		gpuDeviceNames:         conf.GPUDeviceNames,
 		numaSocketZoneNodeMap:  util.GenerateNumaSocketZone(metaServer.MachineInfo.Topology),
 		emitter:                emitter,
 		deviceTopologyRegistry: topologyRegistry,
+		stateGetter:            stateGetter,
+		deviceTypeToNames:      deviceTypeToNames,
 	}
 	pluginWrapper, err := skeleton.NewRegistrationPluginWrapper(reporter, []string{conf.PluginRegistrationDir},
 		func(key string, value int64) {
@@ -189,12 +192,24 @@ func (p *gpuReporterPlugin) GetReportContent(_ context.Context, _ *v1alpha1.Empt
 		return nil, fmt.Errorf("no zone attributes found for device topology")
 	}
 
-	zoneResources := p.getZoneResources(topologiesMap)
+	stateImpl := p.stateGetter()
+	if stateImpl == nil {
+		return nil, fmt.Errorf("state is nil")
+	}
+
+	machineState := stateImpl.GetMachineState()
+	if machineState == nil {
+		return nil, fmt.Errorf("machine state is nil")
+	}
+
+	zoneResources := p.getZoneResources(topologiesMap, machineState)
 	if zoneResources == nil {
 		return nil, fmt.Errorf("no zone resources found for device topology")
 	}
 
-	generatedTopologyZones := topologyZoneGenerator.GenerateTopologyZoneStatus(nil, zoneResources,
+	zoneAllocations := p.getZoneAllocations(machineState)
+
+	generatedTopologyZones := topologyZoneGenerator.GenerateTopologyZoneStatus(zoneAllocations, zoneResources,
 		zoneAttributes, nil, nil, nil)
 
 	zoneValues, err := json.Marshal(&generatedTopologyZones)
@@ -279,41 +294,66 @@ func (p *gpuReporterPlugin) getGPUZoneAttributes(deviceTopology *machine.DeviceT
 
 // getZoneResources returns the map of gpu zone nodes to their resources
 // it merges resources from different device names (e.g. nvidia.com/gpu) for the same physical device ID
-func (p *gpuReporterPlugin) getZoneResources(topologiesMap map[string]*machine.DeviceTopology) map[util.ZoneNode]nodev1alpha1.Resources {
+func (p *gpuReporterPlugin) getZoneResources(topologiesMap map[string]*machine.DeviceTopology, machineState state.AllocationResourcesMap) map[util.ZoneNode]nodev1alpha1.Resources {
 	if len(topologiesMap) == 0 {
 		return nil
 	}
 
 	// 1. first construct temporary map from device ID to resources to merge resources for the same device
 	idToResources := make(map[string]nodev1alpha1.Resources)
-	for deviceName, deviceTopology := range topologiesMap {
-		if deviceTopology == nil {
-			continue
-		}
-
-		for id, deviceInfo := range deviceTopology.Devices {
+	for resourceName, allocMap := range machineState {
+		for id, allocState := range allocMap {
 			var allocatableQuantity resource.Quantity
-			// Allocatable: 1 is reported when device is healthy, 0 is reported when device is unhealthy
-			if deviceInfo.Health != pluginapi.Healthy {
-				allocatableQuantity = zeroQuantity
-			} else {
-				allocatableQuantity = oneQuantity
-			}
+			var capacityQuantity resource.Quantity
 
-			// Capacity: always 1 regardless of health status
-			capacityQuantity := oneQuantity
+			if deviceNames, ok := p.deviceTypeToNames[string(resourceName)]; ok {
+				for deviceName := range deviceNames {
+					topology, ok := topologiesMap[deviceName]
+					if !ok {
+						continue
+					}
 
-			resources, ok := idToResources[id]
-			if !ok {
-				resources = nodev1alpha1.Resources{
-					Allocatable: &v1.ResourceList{},
-					Capacity:    &v1.ResourceList{},
+					healthy, deviceOk := topology.IsDeviceHealthy(id)
+					if !deviceOk {
+						continue
+					}
+					// Allocatable: 1 is reported when device is healthy, 0 is reported when device is unhealthy
+					if !healthy {
+						allocatableQuantity = zeroQuantity
+					} else {
+						allocatableQuantity = *resource.NewQuantity(int64(allocState.Allocatable), resource.DecimalSI)
+					}
+
+					capacityQuantity = *resource.NewQuantity(int64(allocState.Allocatable), resource.DecimalSI)
+
+					resources, ok := idToResources[id]
+					if !ok {
+						resources = nodev1alpha1.Resources{
+							Allocatable: &v1.ResourceList{},
+							Capacity:    &v1.ResourceList{},
+						}
+					}
+
+					(*resources.Allocatable)[v1.ResourceName(deviceName)] = allocatableQuantity
+					(*resources.Capacity)[v1.ResourceName(deviceName)] = capacityQuantity
+					idToResources[id] = resources
 				}
-			}
+			} else {
+				allocatableQuantity = *resource.NewQuantity(int64(allocState.Allocatable), resource.DecimalSI)
+				capacityQuantity = *resource.NewQuantity(int64(allocState.Allocatable), resource.DecimalSI)
 
-			(*resources.Allocatable)[v1.ResourceName(deviceName)] = allocatableQuantity
-			(*resources.Capacity)[v1.ResourceName(deviceName)] = capacityQuantity
-			idToResources[id] = resources
+				resources, ok := idToResources[id]
+				if !ok {
+					resources = nodev1alpha1.Resources{
+						Allocatable: &v1.ResourceList{},
+						Capacity:    &v1.ResourceList{},
+					}
+				}
+
+				(*resources.Allocatable)[resourceName] = allocatableQuantity
+				(*resources.Capacity)[resourceName] = capacityQuantity
+				idToResources[id] = resources
+			}
 		}
 	}
 
@@ -325,6 +365,53 @@ func (p *gpuReporterPlugin) getZoneResources(topologiesMap map[string]*machine.D
 	}
 
 	return zoneResources
+}
+
+// getZoneAllocations returns the map of gpu zone nodes to their pod allocations
+func (p *gpuReporterPlugin) getZoneAllocations(machineState state.AllocationResourcesMap) map[util.ZoneNode]util.ZoneAllocations {
+	// First construct map of device id to allocations
+	idToAllocations := make(map[string]util.ZoneAllocations)
+
+	for resourceName, allocMap := range machineState {
+		for id, allocState := range allocMap {
+			if _, ok := idToAllocations[id]; !ok {
+				idToAllocations[id] = make(util.ZoneAllocations, 0)
+			}
+
+			podEntries := allocState.PodEntries
+
+			for podUID, containerEntries := range podEntries {
+				// Get any pod namespace and pod name from allocationMeta
+				for _, allocInfo := range containerEntries {
+					podNamespace := allocInfo.PodNamespace
+					podName := allocInfo.PodName
+
+					// Override the resource name if there is a specified device name
+					if allocInfo.DeviceName != "" {
+						resourceName = v1.ResourceName(allocInfo.DeviceName)
+					}
+
+					allocated := allocInfo.AllocatedAllocation
+					gpuResourceList := make(v1.ResourceList)
+					gpuResourceList[resourceName] = *resource.NewQuantity(int64(allocated.Quantity), resource.DecimalSI)
+
+					idToAllocations[id] = append(idToAllocations[id], &nodev1alpha1.Allocation{
+						Consumer: native.GenerateNamespaceNameUIDKey(podNamespace, podName, podUID),
+						Requests: &gpuResourceList,
+					})
+				}
+			}
+		}
+	}
+
+	// Then construct the final zone allocations from the map of device id to allocations
+	zoneAllocations := make(map[util.ZoneNode]util.ZoneAllocations)
+	for id, allocations := range idToAllocations {
+		zoneNode := util.GenerateDeviceZoneNode(id, string(nodev1alpha1.TopologyTypeGPU))
+		zoneAllocations[zoneNode] = allocations
+	}
+
+	return zoneAllocations
 }
 
 // addGPUZoneNodes adds the gpu zone nodes to the topology zone generator
