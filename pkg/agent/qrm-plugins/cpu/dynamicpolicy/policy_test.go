@@ -539,6 +539,9 @@ func TestAllocate(t *testing.T) {
 									},
 								},
 							},
+							Annotations: map[string]string{
+								consts.PodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"3"},"attributes":{"CpusetCpus":"1,8-9"}}}}`,
+							},
 						},
 					},
 				},
@@ -601,6 +604,9 @@ func TestAllocate(t *testing.T) {
 									},
 								},
 							},
+							Annotations: map[string]string{
+								consts.PodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"2"},"attributes":{"CpusetCpus":"1,9"}}}}`,
+							},
 						},
 					},
 				},
@@ -662,6 +668,9 @@ func TestAllocate(t *testing.T) {
 										Preferred: true,
 									},
 								},
+							},
+							Annotations: map[string]string{
+								consts.PodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"3"},"attributes":{"CpusetCpus":"1,8-9"}}}}`,
 							},
 						},
 					},
@@ -728,6 +737,9 @@ func TestAllocate(t *testing.T) {
 									},
 								},
 							},
+							Annotations: map[string]string{
+								consts.PodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"2"},"attributes":{"CpusetCpus":"1,9"}}}}`,
+							},
 						},
 					},
 				},
@@ -788,6 +800,9 @@ func TestAllocate(t *testing.T) {
 										Preferred: true,
 									},
 								},
+							},
+							Annotations: map[string]string{
+								consts.PodAnnotationTopologyAllocationKey: `{"Numa":{"0":{}}}`,
 							},
 						},
 					},
@@ -850,6 +865,9 @@ func TestAllocate(t *testing.T) {
 										Preferred: true,
 									},
 								},
+							},
+							Annotations: map[string]string{
+								consts.PodAnnotationTopologyAllocationKey: `{"Numa":{"0":{}}}`,
 							},
 						},
 					},
@@ -940,6 +958,9 @@ func TestAllocate(t *testing.T) {
 										Preferred: true,
 									},
 								},
+							},
+							Annotations: map[string]string{
+								consts.PodAnnotationTopologyAllocationKey: `{"Numa":{"0":{}}}`,
 							},
 						},
 					},
@@ -1104,6 +1125,9 @@ func TestAllocate(t *testing.T) {
 										Preferred: true,
 									},
 								},
+							},
+							Annotations: map[string]string{
+								consts.PodAnnotationTopologyAllocationKey: `{"Numa":{"0":{}}}`,
 							},
 						},
 					},
