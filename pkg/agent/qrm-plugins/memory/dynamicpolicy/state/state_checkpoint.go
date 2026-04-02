@@ -58,18 +58,21 @@ type stateCheckpoint struct {
 	skipStateCorruption bool
 	emitter             metrics.MetricEmitter
 	machineInfo         *info.MachineInfo
-	reservedMemory      map[v1.ResourceName]map[int]uint64
+	// memoryTopology contains detailed memory capacities (e.g. NormalMemoryDetails excluding hugepages)
+	memoryTopology     *machine.MemoryTopology
+	reservedMemory     map[v1.ResourceName]map[int]uint64
+	extraResourceNames []string
 }
 
 func NewCheckpointState(
 	stateDirectoryConfig *statedirectory.StateDirectoryConfiguration, checkpointName, policyName string,
-	topology *machine.CPUTopology, machineInfo *info.MachineInfo,
+	topology *machine.CPUTopology, machineInfo *info.MachineInfo, memoryTopology *machine.MemoryTopology,
 	reservedMemory map[v1.ResourceName]map[int]uint64, skipStateCorruption bool,
-	emitter metrics.MetricEmitter,
+	emitter metrics.MetricEmitter, extraResourceNames []string,
 ) (State, error) {
 	currentStateDir, otherStateDir := stateDirectoryConfig.GetCurrentAndPreviousStateFileDirectory()
 
-	defaultCache, err := NewMemoryPluginState(topology, machineInfo, reservedMemory)
+	defaultCache, err := NewMemoryPluginState(topology, machineInfo, memoryTopology, reservedMemory, extraResourceNames)
 	if err != nil {
 		return nil, fmt.Errorf("NewMemoryPluginState failed with error: %v", err)
 	}
@@ -81,7 +84,9 @@ func NewCheckpointState(
 		skipStateCorruption: skipStateCorruption,
 		emitter:             emitter,
 		machineInfo:         machineInfo,
+		memoryTopology:      memoryTopology,
 		reservedMemory:      reservedMemory,
+		extraResourceNames:  extraResourceNames,
 	}
 
 	cm, err := customcheckpointmanager.NewCustomCheckpointManager(currentStateDir, otherStateDir, checkpointName,
@@ -106,7 +111,8 @@ func (sc *stateCheckpoint) RestoreState(cp checkpointmanager.Checkpoint) (bool, 
 		return false, fmt.Errorf("[memory_plugin] configured policy %q differs from state checkpoint policy %q", sc.policyName, checkpoint.PolicyName)
 	}
 
-	generatedResourcesMachineState, err := GenerateMachineStateFromPodEntries(sc.machineInfo, checkpoint.PodResourceEntries, checkpoint.MachineState, sc.reservedMemory)
+	generatedResourcesMachineState, err := GenerateMachineStateFromPodEntries(sc.machineInfo, sc.memoryTopology, checkpoint.PodResourceEntries,
+		checkpoint.MachineState, sc.reservedMemory, sc.extraResourceNames)
 	if err != nil {
 		return false, fmt.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 	}
@@ -177,6 +183,13 @@ func (sc *stateCheckpoint) GetMachineInfo() *info.MachineInfo {
 	return sc.cache.GetMachineInfo()
 }
 
+func (sc *stateCheckpoint) GetMemoryTopology() *machine.MemoryTopology {
+	sc.RLock()
+	defer sc.RUnlock()
+
+	return sc.cache.GetMemoryTopology()
+}
+
 func (sc *stateCheckpoint) GetMachineState() NUMANodeResourcesMap {
 	sc.RLock()
 	defer sc.RUnlock()
@@ -198,6 +211,13 @@ func (sc *stateCheckpoint) GetAllocationInfo(
 	defer sc.RUnlock()
 
 	return sc.cache.GetAllocationInfo(resourceName, podUID, containerName)
+}
+
+func (sc *stateCheckpoint) GetResourceAllocationInfo(podUID, containerName string) map[v1.ResourceName]*AllocationInfo {
+	sc.RLock()
+	defer sc.RUnlock()
+
+	return sc.cache.GetResourceAllocationInfo(podUID, containerName)
 }
 
 func (sc *stateCheckpoint) GetPodResourceEntries() PodResourceEntries {
