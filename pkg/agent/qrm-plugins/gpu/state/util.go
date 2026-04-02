@@ -68,6 +68,19 @@ func GenerateMachineStateFromPodEntries(
 		machineState[resourceName] = allocationMap
 	}
 
+	// fill in the rest of the resources with default state
+	for resourceName, generator := range defaultMachineStateGenerators.GetGenerators() {
+		if _, ok := machineState[v1.ResourceName(resourceName)]; ok {
+			continue
+		}
+
+		allocationMap, err := generator.GenerateDefaultResourceState()
+		if err != nil {
+			return nil, fmt.Errorf("GenerateDefaultResourceState for resource %s failed with error: %v", resourceName, err)
+		}
+		machineState[v1.ResourceName(resourceName)] = allocationMap
+	}
+
 	return machineState, nil
 }
 
