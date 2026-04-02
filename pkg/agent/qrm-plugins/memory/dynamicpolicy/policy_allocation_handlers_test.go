@@ -18,6 +18,7 @@ package dynamicpolicy
 
 import (
 	"context"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -122,7 +123,7 @@ func TestSharedCoresAllocationHandler(t *testing.T) {
 			as.Nil(err)
 			defer os.RemoveAll(tmpDir)
 
-			policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
+			policy, err := getTestDynamicPolicyWithExtraResourcesWithInitialization(cpuTopology, machineInfo, tmpDir)
 			as.Nil(err)
 			as.NotNil(policy)
 
@@ -416,11 +417,17 @@ func TestNumaBindingAllocationHandler(t *testing.T) {
 		Topology: []info.Node{
 			{
 				Memory: 100 * 1024 * 1024 * 1024,
+				HugePages: []info.HugePagesInfo{
+					{
+						PageSize: 2 * 1024,
+						NumPages: 1024,
+					},
+				},
 			},
 		},
 	}
 
-	policy, err := getTestDynamicPolicyWithInitialization(cpuTopology, machineInfo, tmpDir)
+	policy, err := getTestDynamicPolicyWithExtraResourcesWithInitialization(cpuTopology, machineInfo, tmpDir)
 	as.Nil(err)
 
 	// Pre-populate state for some tests
@@ -515,6 +522,29 @@ func TestNumaBindingAllocationHandler(t *testing.T) {
 			},
 			qosLevel:  apiconsts.PodAnnotationQoSLevelSharedCores,
 			expectErr: true, // Should fail because no origin allocation info (simulated by not allocating first)
+		},
+		{
+			name: "allocate memory and hugepages resources",
+			req: &pluginapi.ResourceRequest{
+				PodUid:        "pod-new-hugepages",
+				PodNamespace:  "default",
+				PodName:       "pod-new-hugepages",
+				ContainerName: "container-1",
+				ContainerType: pluginapi.ContainerType_MAIN,
+				Annotations: map[string]string{
+					apiconsts.PodAnnotationMemoryEnhancementNumaBinding: apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+				},
+				ResourceName: string(v1.ResourceMemory),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceMemory): 1024 * 1024,
+					"hugepages-2Mi":           2 * 1024,
+				},
+				Hint: &pluginapi.TopologyHint{
+					Nodes: []uint64{0},
+				},
+			},
+			qosLevel:  apiconsts.PodAnnotationQoSLevelSharedCores,
+			expectErr: false,
 		},
 	}
 
@@ -815,6 +845,480 @@ func TestCalculateMemoryAllocation(t *testing.T) {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestCalculateMemoryInNumaNodes(t *testing.T) {
+	t.Parallel()
+
+	type args struct {
+		req                        *pluginapi.ResourceRequest
+		machineState               state.NUMANodeMap
+		numaNodes                  []int
+		reqQuantity                uint64
+		qosLevel                   string
+		distributeEvenlyAcrossNuma bool
+	}
+	tests := []struct {
+		name        string
+		args        args
+		want        uint64
+		wantErr     bool
+		wantMachine state.NUMANodeMap
+	}{
+		{
+			name: "distributeEvenlyAcrossNuma=true, empty numaNodes",
+			args: args{
+				req: &pluginapi.ResourceRequest{
+					PodUid:        "pod-1",
+					ContainerName: "container-1",
+				},
+				machineState:               state.NUMANodeMap{},
+				numaNodes:                  []int{},
+				reqQuantity:                100,
+				qosLevel:                   apiconsts.PodAnnotationQoSLevelSharedCores,
+				distributeEvenlyAcrossNuma: true,
+			},
+			want:        100,
+			wantErr:     true,
+			wantMachine: state.NUMANodeMap{},
+		},
+		{
+			name: "distributeEvenlyAcrossNuma=true, reqQuantity not divisible",
+			args: args{
+				req: &pluginapi.ResourceRequest{
+					PodUid:        "pod-1",
+					ContainerName: "container-1",
+				},
+				machineState: state.NUMANodeMap{
+					0: &state.NUMANodeState{Free: 200, Allocated: 0},
+					1: &state.NUMANodeState{Free: 200, Allocated: 0},
+				},
+				numaNodes:                  []int{0, 1},
+				reqQuantity:                101,
+				qosLevel:                   apiconsts.PodAnnotationQoSLevelSharedCores,
+				distributeEvenlyAcrossNuma: true,
+			},
+			want:        101,
+			wantErr:     true,
+			wantMachine: state.NUMANodeMap{0: {Free: 200, Allocated: 0}, 1: {Free: 200, Allocated: 0}},
+		},
+		{
+			name: "distributeEvenlyAcrossNuma=true, numaNodeState nil",
+			args: args{
+				req: &pluginapi.ResourceRequest{
+					PodUid:        "pod-1",
+					ContainerName: "container-1",
+				},
+				machineState:               state.NUMANodeMap{},
+				numaNodes:                  []int{0},
+				reqQuantity:                100,
+				qosLevel:                   apiconsts.PodAnnotationQoSLevelSharedCores,
+				distributeEvenlyAcrossNuma: true,
+			},
+			want:        100,
+			wantErr:     true,
+			wantMachine: state.NUMANodeMap{},
+		},
+		{
+			name: "distributeEvenlyAcrossNuma=true, insufficient free memory",
+			args: args{
+				req: &pluginapi.ResourceRequest{
+					PodUid:        "pod-1",
+					ContainerName: "container-1",
+				},
+				machineState: state.NUMANodeMap{
+					0: &state.NUMANodeState{Free: 40, Allocated: 0},
+					1: &state.NUMANodeState{Free: 200, Allocated: 0},
+				},
+				numaNodes:                  []int{0, 1},
+				reqQuantity:                100, // 50 per numa
+				qosLevel:                   apiconsts.PodAnnotationQoSLevelSharedCores,
+				distributeEvenlyAcrossNuma: true,
+			},
+			want:        100,
+			wantErr:     true,
+			wantMachine: state.NUMANodeMap{0: {Free: 40, Allocated: 0}, 1: {Free: 200, Allocated: 0}},
+		},
+		{
+			name: "distributeEvenlyAcrossNuma=true, success",
+			args: args{
+				req: &pluginapi.ResourceRequest{
+					PodUid:        "pod-1",
+					ContainerName: "container-1",
+					PodNamespace:  "default",
+					PodName:       "test-pod",
+					ContainerType: pluginapi.ContainerType_MAIN,
+					ResourceName:  string(v1.ResourceMemory),
+				},
+				machineState: state.NUMANodeMap{
+					0: &state.NUMANodeState{Free: 200, Allocated: 0},
+					1: &state.NUMANodeState{Free: 200, Allocated: 0},
+				},
+				numaNodes:                  []int{0, 1},
+				reqQuantity:                100, // 50 per numa
+				qosLevel:                   apiconsts.PodAnnotationQoSLevelSharedCores,
+				distributeEvenlyAcrossNuma: true,
+			},
+			want:    0,
+			wantErr: false,
+			wantMachine: state.NUMANodeMap{
+				0: {
+					Free:      150,
+					Allocated: 50,
+					PodEntries: state.PodEntries{
+						"pod-1": state.ContainerEntries{
+							"container-1": &state.AllocationInfo{
+								AllocationMeta: state.GenerateMemoryContainerAllocationMeta(&pluginapi.ResourceRequest{
+									PodUid:        "pod-1",
+									ContainerName: "container-1",
+									PodNamespace:  "default",
+									PodName:       "test-pod",
+									ContainerType: pluginapi.ContainerType_MAIN,
+									ResourceName:  string(v1.ResourceMemory),
+								}, apiconsts.PodAnnotationQoSLevelSharedCores),
+								AggregatedQuantity:   50,
+								NumaAllocationResult: machine.NewCPUSet(0),
+								TopologyAwareAllocations: map[int]uint64{
+									0: 50,
+								},
+							},
+						},
+					},
+				},
+				1: {
+					Free:      150,
+					Allocated: 50,
+					PodEntries: state.PodEntries{
+						"pod-1": state.ContainerEntries{
+							"container-1": &state.AllocationInfo{
+								AllocationMeta: state.GenerateMemoryContainerAllocationMeta(&pluginapi.ResourceRequest{
+									PodUid:        "pod-1",
+									ContainerName: "container-1",
+									PodNamespace:  "default",
+									PodName:       "test-pod",
+									ContainerType: pluginapi.ContainerType_MAIN,
+									ResourceName:  string(v1.ResourceMemory),
+								}, apiconsts.PodAnnotationQoSLevelSharedCores),
+								AggregatedQuantity:   50,
+								NumaAllocationResult: machine.NewCPUSet(1),
+								TopologyAwareAllocations: map[int]uint64{
+									1: 50,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "distributeEvenlyAcrossNuma=false, numaNodeState nil",
+			args: args{
+				req: &pluginapi.ResourceRequest{
+					PodUid:        "pod-1",
+					ContainerName: "container-1",
+				},
+				machineState:               state.NUMANodeMap{},
+				numaNodes:                  []int{0},
+				reqQuantity:                100,
+				qosLevel:                   apiconsts.PodAnnotationQoSLevelSharedCores,
+				distributeEvenlyAcrossNuma: false,
+			},
+			want:        100,
+			wantErr:     true,
+			wantMachine: state.NUMANodeMap{},
+		},
+		{
+			name: "distributeEvenlyAcrossNuma=false, reqQuantity fully satisfied by first NUMA",
+			args: args{
+				req: &pluginapi.ResourceRequest{
+					PodUid:        "pod-1",
+					ContainerName: "container-1",
+					PodNamespace:  "default",
+					PodName:       "test-pod",
+					ContainerType: pluginapi.ContainerType_MAIN,
+					ResourceName:  string(v1.ResourceMemory),
+				},
+				machineState: state.NUMANodeMap{
+					0: &state.NUMANodeState{Free: 200, Allocated: 0},
+					1: &state.NUMANodeState{Free: 200, Allocated: 0},
+				},
+				numaNodes:                  []int{0, 1},
+				reqQuantity:                100,
+				qosLevel:                   apiconsts.PodAnnotationQoSLevelSharedCores,
+				distributeEvenlyAcrossNuma: false,
+			},
+			want:    0,
+			wantErr: false,
+			wantMachine: state.NUMANodeMap{
+				0: {
+					Free:      100,
+					Allocated: 100,
+					PodEntries: state.PodEntries{
+						"pod-1": state.ContainerEntries{
+							"container-1": &state.AllocationInfo{
+								AllocationMeta: state.GenerateMemoryContainerAllocationMeta(&pluginapi.ResourceRequest{
+									PodUid:        "pod-1",
+									ContainerName: "container-1",
+									PodNamespace:  "default",
+									PodName:       "test-pod",
+									ContainerType: pluginapi.ContainerType_MAIN,
+									ResourceName:  string(v1.ResourceMemory),
+								}, apiconsts.PodAnnotationQoSLevelSharedCores),
+								AggregatedQuantity:   100,
+								NumaAllocationResult: machine.NewCPUSet(0),
+								TopologyAwareAllocations: map[int]uint64{
+									0: 100,
+								},
+							},
+						},
+					},
+				},
+				1: {Free: 200, Allocated: 0},
+			},
+		},
+		{
+			name: "distributeEvenlyAcrossNuma=false, reqQuantity partially satisfied",
+			args: args{
+				req: &pluginapi.ResourceRequest{
+					PodUid:        "pod-1",
+					ContainerName: "container-1",
+					PodNamespace:  "default",
+					PodName:       "test-pod",
+					ContainerType: pluginapi.ContainerType_MAIN,
+					ResourceName:  string(v1.ResourceMemory),
+				},
+				machineState: state.NUMANodeMap{
+					0: &state.NUMANodeState{Free: 100, Allocated: 0},
+					1: &state.NUMANodeState{Free: 150, Allocated: 0},
+				},
+				numaNodes:                  []int{0, 1},
+				reqQuantity:                300,
+				qosLevel:                   apiconsts.PodAnnotationQoSLevelSharedCores,
+				distributeEvenlyAcrossNuma: false,
+			},
+			want:    50, // 300 - 100 - 150 = 50
+			wantErr: false,
+			wantMachine: state.NUMANodeMap{
+				0: {
+					Free:      0,
+					Allocated: 100,
+					PodEntries: state.PodEntries{
+						"pod-1": state.ContainerEntries{
+							"container-1": &state.AllocationInfo{
+								AllocationMeta: state.GenerateMemoryContainerAllocationMeta(&pluginapi.ResourceRequest{
+									PodUid:        "pod-1",
+									ContainerName: "container-1",
+									PodNamespace:  "default",
+									PodName:       "test-pod",
+									ContainerType: pluginapi.ContainerType_MAIN,
+									ResourceName:  string(v1.ResourceMemory),
+								}, apiconsts.PodAnnotationQoSLevelSharedCores),
+								AggregatedQuantity:   100,
+								NumaAllocationResult: machine.NewCPUSet(0),
+								TopologyAwareAllocations: map[int]uint64{
+									0: 100,
+								},
+							},
+						},
+					},
+				},
+				1: {
+					Free:      0,
+					Allocated: 150,
+					PodEntries: state.PodEntries{
+						"pod-1": state.ContainerEntries{
+							"container-1": &state.AllocationInfo{
+								AllocationMeta: state.GenerateMemoryContainerAllocationMeta(&pluginapi.ResourceRequest{
+									PodUid:        "pod-1",
+									ContainerName: "container-1",
+									PodNamespace:  "default",
+									PodName:       "test-pod",
+									ContainerType: pluginapi.ContainerType_MAIN,
+									ResourceName:  string(v1.ResourceMemory),
+								}, apiconsts.PodAnnotationQoSLevelSharedCores),
+								AggregatedQuantity:   150,
+								NumaAllocationResult: machine.NewCPUSet(1),
+								TopologyAwareAllocations: map[int]uint64{
+									1: 150,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "distributeEvenlyAcrossNuma=false, reqQuantity exactly satisfied",
+			args: args{
+				req: &pluginapi.ResourceRequest{
+					PodUid:        "pod-1",
+					ContainerName: "container-1",
+					PodNamespace:  "default",
+					PodName:       "test-pod",
+					ContainerType: pluginapi.ContainerType_MAIN,
+					ResourceName:  string(v1.ResourceMemory),
+				},
+				machineState: state.NUMANodeMap{
+					0: &state.NUMANodeState{Free: 100, Allocated: 0},
+					1: &state.NUMANodeState{Free: 150, Allocated: 0},
+				},
+				numaNodes:                  []int{0, 1},
+				reqQuantity:                250,
+				qosLevel:                   apiconsts.PodAnnotationQoSLevelSharedCores,
+				distributeEvenlyAcrossNuma: false,
+			},
+			want:    0,
+			wantErr: false,
+			wantMachine: state.NUMANodeMap{
+				0: {
+					Free:      0,
+					Allocated: 100,
+					PodEntries: state.PodEntries{
+						"pod-1": state.ContainerEntries{
+							"container-1": &state.AllocationInfo{
+								AllocationMeta: state.GenerateMemoryContainerAllocationMeta(&pluginapi.ResourceRequest{
+									PodUid:        "pod-1",
+									ContainerName: "container-1",
+									PodNamespace:  "default",
+									PodName:       "test-pod",
+									ContainerType: pluginapi.ContainerType_MAIN,
+									ResourceName:  string(v1.ResourceMemory),
+								}, apiconsts.PodAnnotationQoSLevelSharedCores),
+								AggregatedQuantity:   100,
+								NumaAllocationResult: machine.NewCPUSet(0),
+								TopologyAwareAllocations: map[int]uint64{
+									0: 100,
+								},
+							},
+						},
+					},
+				},
+				1: {
+					Free:      0,
+					Allocated: 150,
+					PodEntries: state.PodEntries{
+						"pod-1": state.ContainerEntries{
+							"container-1": &state.AllocationInfo{
+								AllocationMeta: state.GenerateMemoryContainerAllocationMeta(&pluginapi.ResourceRequest{
+									PodUid:        "pod-1",
+									ContainerName: "container-1",
+									PodNamespace:  "default",
+									PodName:       "test-pod",
+									ContainerType: pluginapi.ContainerType_MAIN,
+									ResourceName:  string(v1.ResourceMemory),
+								}, apiconsts.PodAnnotationQoSLevelSharedCores),
+								AggregatedQuantity:   150,
+								NumaAllocationResult: machine.NewCPUSet(1),
+								TopologyAwareAllocations: map[int]uint64{
+									1: 150,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "distributeEvenlyAcrossNuma=false, existing pod entries",
+			args: args{
+				req: &pluginapi.ResourceRequest{
+					PodUid:        "pod-1",
+					ContainerName: "container-2",
+					PodNamespace:  "default",
+					PodName:       "test-pod",
+					ContainerType: pluginapi.ContainerType_MAIN,
+					ResourceName:  string(v1.ResourceMemory),
+				},
+				machineState: state.NUMANodeMap{
+					0: {
+						Free:      100,
+						Allocated: 100,
+						PodEntries: state.PodEntries{
+							"pod-1": state.ContainerEntries{
+								"container-1": &state.AllocationInfo{
+									AggregatedQuantity: 100,
+								},
+							},
+						},
+					},
+				},
+				numaNodes:                  []int{0},
+				reqQuantity:                50,
+				qosLevel:                   apiconsts.PodAnnotationQoSLevelSharedCores,
+				distributeEvenlyAcrossNuma: false,
+			},
+			want:    0,
+			wantErr: false,
+			wantMachine: state.NUMANodeMap{
+				0: {
+					Free:      50,
+					Allocated: 150,
+					PodEntries: state.PodEntries{
+						"pod-1": state.ContainerEntries{
+							"container-1": &state.AllocationInfo{
+								AggregatedQuantity: 100,
+							},
+							"container-2": &state.AllocationInfo{
+								AllocationMeta: state.GenerateMemoryContainerAllocationMeta(&pluginapi.ResourceRequest{
+									PodUid:        "pod-1",
+									ContainerName: "container-2",
+									PodNamespace:  "default",
+									PodName:       "test-pod",
+									ContainerType: pluginapi.ContainerType_MAIN,
+									ResourceName:  string(v1.ResourceMemory),
+								}, apiconsts.PodAnnotationQoSLevelSharedCores),
+								AggregatedQuantity:   50,
+								NumaAllocationResult: machine.NewCPUSet(0),
+								TopologyAwareAllocations: map[int]uint64{
+									0: 50,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := calculateMemoryInNumaNodes(tt.args.req, tt.args.machineState, tt.args.numaNodes, tt.args.reqQuantity, tt.args.qosLevel, tt.args.distributeEvenlyAcrossNuma)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("calculateMemoryInNumaNodes() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			assert.Equal(t, tt.want, got)
+
+			// Deep compare machineState, ignoring NumaAllocationResult and TopologyAwareAllocations in AllocationInfo
+			// because machine.NewCPUSet(numaNode) creates a new object each time, which will fail deep equality.
+			// Instead, we compare the string representation of NumaAllocationResult and the content of TopologyAwareAllocations.
+			if !tt.wantErr {
+				for numaID, wantNumaState := range tt.wantMachine {
+					gotNumaState := tt.args.machineState[numaID]
+					assert.NotNil(t, gotNumaState, fmt.Sprintf("NUMA %d state is nil in actual machine state", numaID))
+					assert.Equal(t, wantNumaState.Free, gotNumaState.Free, fmt.Sprintf("NUMA %d Free mismatch", numaID))
+					assert.Equal(t, wantNumaState.Allocated, gotNumaState.Allocated, fmt.Sprintf("NUMA %d Allocated mismatch", numaID))
+
+					for podUID, wantContainerEntries := range wantNumaState.PodEntries {
+						gotContainerEntries, ok := gotNumaState.PodEntries[podUID]
+						assert.True(t, ok, fmt.Sprintf("Pod %s not found in NUMA %d", podUID, numaID))
+
+						for containerName, wantAllocInfo := range wantContainerEntries {
+							gotAllocInfo, ok := gotContainerEntries[containerName]
+							assert.True(t, ok, fmt.Sprintf("Container %s not found for Pod %s in NUMA %d", containerName, podUID, numaID))
+
+							assert.Equal(t, wantAllocInfo.AggregatedQuantity, gotAllocInfo.AggregatedQuantity, fmt.Sprintf("AggregatedQuantity mismatch for %s/%s in NUMA %d", podUID, containerName, numaID))
+							assert.Equal(t, wantAllocInfo.NumaAllocationResult.String(), gotAllocInfo.NumaAllocationResult.String(), fmt.Sprintf("NumaAllocationResult mismatch for %s/%s in NUMA %d", podUID, containerName, numaID))
+							assert.Equal(t, wantAllocInfo.TopologyAwareAllocations, gotAllocInfo.TopologyAwareAllocations, fmt.Sprintf("TopologyAwareAllocations mismatch for %s/%s in NUMA %d", podUID, containerName, numaID))
+							assert.Equal(t, wantAllocInfo.AllocationMeta, gotAllocInfo.AllocationMeta, fmt.Sprintf("AllocationMeta mismatch for %s/%s in NUMA %d", podUID, containerName, numaID))
+						}
+					}
+				}
 			}
 		})
 	}
