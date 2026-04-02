@@ -189,7 +189,7 @@ func SetSockMemLimit(conf *coreconfig.Configuration,
 
 	podList, err := metaServer.GetPodList(context.Background(), native.PodIsActive)
 	if err != nil {
-		errList = append(errList, err)
+		errList = general.AppendErrorIfSeen(errList, memconsts.SetSockMem, err)
 		general.Errorf("get pod list failed, err: %v", err)
 		return
 	}
@@ -216,7 +216,7 @@ func SetSockMemLimit(conf *coreconfig.Configuration,
 
 			err = setCg1TCPMem(emitter, podUID, containerID, int64(memLimit), int64(memTCPLimit), &sockMemConfig)
 			if err != nil {
-				errList = append(errList, err)
+				errList = general.AppendErrorIfSeen(errList, memconsts.SetSockMem, err)
 			}
 		}
 	}

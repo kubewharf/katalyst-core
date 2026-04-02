@@ -25,6 +25,7 @@ import (
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
+	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
@@ -94,7 +95,7 @@ func (m *managerImpl) UpdateCPUBurst(conf *config.Configuration, dynamicConfig *
 		case consts.PodAnnotationCPUEnhancementCPUBurstPolicyClosed:
 			// For closed policy, we just set the cpu burst value to be 0.
 			if err = m.updateCPUBurstByPercent(0, pod); err != nil {
-				errList = append(errList, fmt.Errorf("error setting cpu burst for policy %s for pod %s: %v",
+				errList = general.AppendErrorIfSeen(errList, cpuconsts.SyncCPUBurst, fmt.Errorf("error setting cpu burst for policy %s for pod %s: %v",
 					consts.PodAnnotationCPUEnhancementCPUBurstPolicyClosed, pod.Name, err))
 			}
 		case consts.PodAnnotationCPUEnhancementCPUBurstPolicyDefault:
@@ -103,18 +104,19 @@ func (m *managerImpl) UpdateCPUBurst(conf *config.Configuration, dynamicConfig *
 			// For static policy, calculate the cpu burst value that we need to set.
 			cpuBurstPercent, err := util.GetPodCPUBurstPercent(qosConf, pod, dynamicConfig)
 			if err != nil {
-				errList = append(errList, fmt.Errorf("error getting cpu burst percent for pod %s: %v", pod.Name, err))
+				errList = general.AppendErrorIfSeen(errList, cpuconsts.SyncCPUBurst,
+					fmt.Errorf("error getting cpu burst percent for pod %s: %v", pod.Name, err))
 				continue
 			}
 
 			if err = m.updateCPUBurstByPercent(cpuBurstPercent, pod); err != nil {
-				errList = append(errList, fmt.Errorf("error setting cpu burst for policy %s for pod %s: %v",
+				errList = general.AppendErrorIfSeen(errList, cpuconsts.SyncCPUBurst, fmt.Errorf("error setting cpu burst for policy %s for pod %s: %v",
 					consts.PodAnnotationCPUEnhancementCPUBurstPolicyStatic, pod.Name, err))
 			}
 		case consts.PodAnnotationCPUEnhancementCPUBurstPolicyDynamic:
-			errList = append(errList, fmt.Errorf("dynamic cpu burst policy is not supported yet"))
+			errList = general.AppendErrorIfSeen(errList, cpuconsts.SyncCPUBurst, fmt.Errorf("dynamic cpu burst policy is not supported yet"))
 		default:
-			errList = append(errList, fmt.Errorf("cpu burst policy %s is not supported", cpuBurstPolicy))
+			errList = general.AppendErrorIfSeen(errList, cpuconsts.SyncCPUBurst, fmt.Errorf("cpu burst policy %s is not supported", cpuBurstPolicy))
 		}
 	}
 
@@ -148,21 +150,21 @@ func (m *managerImpl) updateCPUBurstByPercent(percent float64, pod *v1.Pod) erro
 		containerAbsoluteCgroupPath, err := common.GetContainerAbsCgroupPath(common.CgroupSubsysCPU, podUID, containerID)
 		if err != nil {
 			general.Errorf("get container absolute cgroup path failed, pod: %s, podName: %s, container: %s(%s), err: %v", podUID, podName, containerName, containerID, err)
-			errList = append(errList, err)
+			errList = general.AppendErrorIfSeen(errList, cpuconsts.SyncCPUBurst, err)
 			continue
 		}
 
 		cpuStats, err := manager.GetCPUWithAbsolutePath(containerAbsoluteCgroupPath)
 		if err != nil {
 			general.Errorf("get container cpu stats failed, pod: %s, podName: %s, container: %s(%s), err: %v", podUID, podName, containerName, containerID, err)
-			errList = append(errList, err)
+			errList = general.AppendErrorIfSeen(errList, cpuconsts.SyncCPUBurst, err)
 			continue
 		}
 
 		cpuBurstValue := util.CalculateCPUBurstFromPercent(percent, cpuStats.CpuQuota)
 		if err = manager.ApplyCPUWithAbsolutePath(containerAbsoluteCgroupPath, &common.CPUData{CpuBurst: &cpuBurstValue}); err != nil {
 			general.Errorf("apply container cpu burst failed, pod: %s, podName: %s, container: %s(%s), err: %v", podUID, podName, containerName, containerID, err)
-			errList = append(errList, err)
+			errList = general.AppendErrorIfSeen(errList, cpuconsts.SyncCPUBurst, err)
 			continue
 		}
 
