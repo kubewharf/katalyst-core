@@ -33,7 +33,7 @@ const (
 	fakePluginName = "fake-reporter-plugin"
 )
 
-type InitFunc func(emitter metrics.MetricEmitter, _ *metaserver.MetaServer, conf *config.Configuration, callback ListAndWatchCallback) (ReporterPlugin, error)
+type InitFunc func(emitter metrics.MetricEmitter, _ *metaserver.MetaServer, conf *config.Configuration, callback ListAndWatchCallback, cache *v1alpha1.GetReportContentResponse) (ReporterPlugin, error)
 
 // ReporterPlugin performs report actions based on system or kubelet information.
 type ReporterPlugin interface {
