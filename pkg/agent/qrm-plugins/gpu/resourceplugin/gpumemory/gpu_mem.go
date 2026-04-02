@@ -52,7 +52,7 @@ func NewGPUMemPlugin(base *baseplugin.BasePlugin) resourceplugin.ResourcePlugin 
 	// string(consts.ResourceGPUMemory) is the key used for state management in the QRM framework,
 	// while GPUDeviceNames are the actual resource names used to fetch the device topologies.
 	base.DefaultResourceStateGeneratorRegistry.RegisterResourceStateGenerator(string(consts.ResourceGPUMemory),
-		state.NewGenericDefaultResourceStateGenerator(base.Conf.GPUDeviceNames, base.DeviceTopologyRegistry))
+		state.NewGenericDefaultResourceStateGenerator(base.Conf.GPUDeviceNames, base.DeviceTopologyRegistry, float64(base.Conf.GPUMemoryAllocatablePerGPU.Value())))
 	return &GPUMemPlugin{
 		BasePlugin: base,
 	}

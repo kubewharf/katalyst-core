@@ -36,6 +36,8 @@ type gpuPluginState struct {
 
 	machineState       AllocationResourcesMap
 	podResourceEntries PodResourceEntries
+
+	machineStateSyncNotifiers []func()
 }
 
 func NewGPUPluginState(
@@ -57,21 +59,43 @@ func NewGPUPluginState(
 	}, nil
 }
 
-func (s *gpuPluginState) SetMachineState(allocationResourcesMap AllocationResourcesMap, _ bool) {
+func (s *gpuPluginState) AddMachineStateSyncNotifier(notifier func()) {
 	s.Lock()
 	defer s.Unlock()
+	s.machineStateSyncNotifiers = append(s.machineStateSyncNotifiers, notifier)
+}
+
+func (s *gpuPluginState) SetMachineState(allocationResourcesMap AllocationResourcesMap, _ bool) {
+	s.Lock()
 	s.machineState = allocationResourcesMap.Clone()
 	generalLog.InfoS("updated gpu plugin machine state",
 		"GPUMap", allocationResourcesMap.String())
+
+	var notifiers []func()
+	notifiers = append(notifiers, s.machineStateSyncNotifiers...)
+	s.Unlock()
+
+	// Invoke notifiers outside the lock to avoid potential deadlocks
+	for _, notifier := range notifiers {
+		notifier()
+	}
 }
 
 func (s *gpuPluginState) SetResourceState(resourceName v1.ResourceName, allocationMap AllocationMap, _ bool) {
 	s.Lock()
-	defer s.Unlock()
 	s.machineState[resourceName] = allocationMap.Clone()
 	generalLog.InfoS("updated gpu plugin resource state",
 		"resourceName", resourceName,
 		"allocationMap", allocationMap.String())
+
+	var notifiers []func()
+	notifiers = append(notifiers, s.machineStateSyncNotifiers...)
+	s.Unlock()
+
+	// Invoke notifiers outside the lock to avoid potential deadlocks
+	for _, notifier := range notifiers {
+		notifier()
+	}
 }
 
 func (s *gpuPluginState) SetPodResourceEntries(podResourceEntries PodResourceEntries, _ bool) {
@@ -123,7 +147,6 @@ func (s *gpuPluginState) Delete(resourceName v1.ResourceName, podUID, containerN
 
 func (s *gpuPluginState) ClearState() {
 	s.Lock()
-	defer s.Unlock()
 
 	machineState, err := GenerateMachineState(s.defaultResourceStateGenerators)
 	if err != nil {
@@ -133,6 +156,15 @@ func (s *gpuPluginState) ClearState() {
 	s.podResourceEntries = make(PodResourceEntries)
 
 	generalLog.InfoS("cleared state")
+
+	var notifiers []func()
+	notifiers = append(notifiers, s.machineStateSyncNotifiers...)
+	s.Unlock()
+
+	// Invoke notifiers outside the lock to avoid potential deadlocks
+	for _, notifier := range notifiers {
+		notifier()
+	}
 }
 
 func (s *gpuPluginState) StoreState() error {

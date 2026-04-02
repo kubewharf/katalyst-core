@@ -162,6 +162,13 @@ func (s *stateCheckpoint) ClearState() {
 	}
 }
 
+// AddMachineStateSyncNotifier registers a callback that will be invoked whenever the machine state is updated
+func (s *stateCheckpoint) AddMachineStateSyncNotifier(notifier func()) {
+	s.Lock()
+	defer s.Unlock()
+	s.cache.AddMachineStateSyncNotifier(notifier)
+}
+
 func (s *stateCheckpoint) StoreState() error {
 	if s == nil {
 		return nil

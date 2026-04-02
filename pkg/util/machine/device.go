@@ -18,11 +18,13 @@ package machine
 
 import (
 	"fmt"
+	"reflect"
 	"sort"
 	"sync"
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/sets"
+	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	"k8s.io/utils/strings/slices"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -44,6 +46,9 @@ type DeviceTopologyRegistry struct {
 
 	// lastDeviceTopologies is a mapping of device name to their respective last device topology
 	lastDeviceTopologies map[string]*DeviceTopology
+
+	// topologyChangeNotifiers is a list of callbacks to invoke when topology changes
+	topologyChangeNotifiers []func()
 }
 
 func NewDeviceTopologyRegistry() *DeviceTopologyRegistry {
@@ -154,13 +159,20 @@ func (r *DeviceTopologyRegistry) RegisterTopologyAffinityProvider(
 	r.deviceTopologyAffinityProviders[deviceName] = deviceAffinityProvider
 }
 
+// RegisterTopologyChangeNotifier registers a callback that will be invoked whenever any device topology actually changes.
+func (r *DeviceTopologyRegistry) RegisterTopologyChangeNotifier(notifier func()) {
+	r.mux.Lock()
+	defer r.mux.Unlock()
+	r.topologyChangeNotifiers = append(r.topologyChangeNotifiers, notifier)
+}
+
 // SetDeviceTopology sets the device topology for the specified device name.
 func (r *DeviceTopologyRegistry) SetDeviceTopology(deviceName string, deviceTopology *DeviceTopology) error {
 	r.mux.Lock()
-	defer r.mux.Unlock()
 
 	topologyProvider, ok := r.deviceTopologyProviders[deviceName]
 	if !ok {
+		r.mux.Unlock()
 		return fmt.Errorf("no device topology provider found for device %s", deviceName)
 	}
 
@@ -172,10 +184,33 @@ func (r *DeviceTopologyRegistry) SetDeviceTopology(deviceName string, deviceTopo
 		general.Infof("no device affinity provider found for device %s", deviceName)
 	}
 
-	// Cache the device topology
-	r.lastDeviceTopologies[deviceName] = deviceTopology
+	// Capture notifiers to invoke outside the lock to avoid deadlocks
+	var notifiers []func()
+	err := topologyProvider.SetDeviceTopology(deviceTopology)
+	if err != nil {
+		general.Errorf("failed to set device topology for device %s, err: %v, skip triggering notifiers", deviceName, err)
+	} else {
+		// Check if topology has actually changed (DeviceTopology is small, so reflect.DeepEqual is fast)
+		changed := !reflect.DeepEqual(r.lastDeviceTopologies[deviceName], deviceTopology)
 
-	return topologyProvider.SetDeviceTopology(deviceTopology)
+		// Cache the device topology only when SetDeviceTopology succeeds
+		r.lastDeviceTopologies[deviceName] = deviceTopology
+
+		if changed {
+			general.Infof("device topology changed for device %s, triggering %d notifiers", deviceName, len(r.topologyChangeNotifiers))
+			notifiers = append(notifiers, r.topologyChangeNotifiers...)
+		} else {
+			general.Infof("device topology unchanged for device %s, skip triggering notifiers", deviceName)
+		}
+	}
+	r.mux.Unlock()
+
+	// Invoke notifiers outside the lock
+	for _, notifier := range notifiers {
+		notifier()
+	}
+
+	return err
 }
 
 func (r *DeviceTopologyRegistry) getDeviceTopology(deviceName string) (*DeviceTopology, error) {
@@ -271,6 +306,14 @@ type DeviceTopology struct {
 	PriorityDimensions []string
 	// UpdateTime is the timestamp when the topology was last updated.
 	UpdateTime int64
+}
+
+func (t *DeviceTopology) IsDeviceHealthy(id string) (bool, bool) {
+	deviceInfo, ok := t.Devices[id]
+	if !ok {
+		return false, false
+	}
+	return deviceInfo.Health == pluginapi.Healthy, true
 }
 
 // GroupDeviceAffinity forms a topology graph such that all devices within a DeviceIDs group have an affinity with each other.

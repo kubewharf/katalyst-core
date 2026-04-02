@@ -55,8 +55,8 @@ func NewGPUDevicePlugin(base *baseplugin.BasePlugin) customdeviceplugin.CustomDe
 	// GPUDeviceType is the key used for state management in the QRM framework,
 	// while GPUDeviceNames are the actual resource names used to fetch the device topologies.
 	base.DefaultResourceStateGeneratorRegistry.RegisterResourceStateGenerator(gpuconsts.GPUDeviceType,
-		state.NewGenericDefaultResourceStateGenerator(base.Conf.GPUDeviceNames, base.DeviceTopologyRegistry))
-	base.RegisterDeviceNameToType(base.Conf.GPUDeviceNames, gpuconsts.GPUDeviceType)
+		state.NewGenericDefaultResourceStateGenerator(base.Conf.GPUDeviceNames, base.DeviceTopologyRegistry, 1))
+	base.RegisterDeviceNames(base.Conf.GPUDeviceNames, gpuconsts.GPUDeviceType)
 
 	return &GPUDevicePlugin{
 		BasePlugin:  base,

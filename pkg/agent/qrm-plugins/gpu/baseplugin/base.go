@@ -22,11 +22,11 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
-	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/baseplugin/reporter"
-
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/baseplugin/reporter"
 	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -63,6 +63,9 @@ type BasePlugin struct {
 	// Map of specific device name to device type
 	deviceNameToTypeMap map[string]string
 
+	// Map of device type to specific device names
+	deviceTypeToNames map[string]sets.String
+
 	stateInitializedCh   chan struct{}
 	stateInitializedOnce sync.Once
 }
@@ -72,14 +75,8 @@ func NewBasePlugin(
 ) (*BasePlugin, error) {
 	deviceTopologyRegistry := machine.NewDeviceTopologyRegistry()
 
-	gpuReporter, err := reporter.NewGPUReporter(wrappedEmitter, agentCtx.MetaServer, conf, deviceTopologyRegistry)
-	if err != nil {
-		return nil, fmt.Errorf("newGPUReporterPlugin failed with error: %v", err)
-	}
-
-	return &BasePlugin{
-		Conf:     conf,
-		reporter: gpuReporter,
+	basePlugin := &BasePlugin{
+		Conf: conf,
 
 		Emitter:    wrappedEmitter,
 		MetaServer: agentCtx.MetaServer,
@@ -92,8 +89,20 @@ func NewBasePlugin(
 		DefaultResourceStateGeneratorRegistry: state.NewDefaultResourceStateGeneratorRegistry(),
 
 		deviceNameToTypeMap: make(map[string]string),
-		stateInitializedCh:  make(chan struct{}),
-	}, nil
+		deviceTypeToNames:   make(map[string]sets.String),
+
+		stateInitializedCh: make(chan struct{}),
+	}
+
+	gpuReporter, err := reporter.NewGPUReporter(wrappedEmitter, agentCtx.MetaServer, conf, deviceTopologyRegistry, basePlugin.GetState,
+		basePlugin.deviceTypeToNames)
+	if err != nil {
+		return nil, fmt.Errorf("newGPUReporterPlugin failed with error: %v", err)
+	}
+
+	basePlugin.reporter = gpuReporter
+
+	return basePlugin, nil
 }
 
 // Run starts the asynchronous tasks of the plugin
@@ -126,6 +135,30 @@ func (p *BasePlugin) SetState(s state.State) {
 	p.state = s
 }
 
+// TriggerReporter safely triggers the reporter to generate and send a new report.
+func (p *BasePlugin) TriggerReporter() {
+	if p.reporter != nil {
+		p.reporter.Trigger()
+	}
+}
+
+// registerNotifiers registers the necessary callbacks to trigger the reporter
+// when device topology or machine state changes.
+func (p *BasePlugin) registerNotifiers(state state.State) {
+	if p.DeviceTopologyRegistry != nil {
+		p.DeviceTopologyRegistry.RegisterTopologyChangeNotifier(func() {
+			general.Infof("triggering reporter due to topology change")
+			p.TriggerReporter()
+		})
+	}
+	if state != nil {
+		state.AddMachineStateSyncNotifier(func() {
+			general.Infof("triggering reporter due to machine state change")
+			p.TriggerReporter()
+		})
+	}
+}
+
 // InitState initializes the state of the plugin.
 func (p *BasePlugin) InitState() error {
 	stateImpl, err := state.NewCheckpointState(p.Conf.StateDirectoryConfiguration, p.Conf.QRMPluginsConfiguration, GPUPluginStateFileName,
@@ -139,6 +172,7 @@ func (p *BasePlugin) InitState() error {
 	p.mu.Unlock()
 
 	p.stateInitializedOnce.Do(func() {
+		p.registerNotifiers(stateImpl)
 		close(p.stateInitializedCh)
 		general.Infof("state initialized channel closed")
 	})
@@ -253,12 +287,16 @@ func (p *BasePlugin) GenerateMachineStateFromPodEntries(
 	return state.GenerateMachineStateFromPodEntries(podResourceEntries, p.DefaultResourceStateGeneratorRegistry)
 }
 
-// RegisterDeviceNameToType is used to map device name to device type.
+// RegisterDeviceNames is used to map device name to device type, and map
 // For example, we may have multiple device names for a same device type, e.g. "nvidia.com/gpu" and "hw.com/npu",
 // so we map them to the same device type, which allows us to allocate them interchangeably.
-func (p *BasePlugin) RegisterDeviceNameToType(resourceNames []string, deviceType string) {
-	for _, resourceName := range resourceNames {
-		p.deviceNameToTypeMap[resourceName] = deviceType
+func (p *BasePlugin) RegisterDeviceNames(deviceNames []string, deviceType string) {
+	for _, deviceeName := range deviceNames {
+		p.deviceNameToTypeMap[deviceeName] = deviceType
+		if _, ok := p.deviceTypeToNames[deviceType]; !ok {
+			p.deviceTypeToNames[deviceType] = sets.NewString()
+		}
+		p.deviceTypeToNames[deviceType].Insert(deviceeName)
 	}
 }
 
