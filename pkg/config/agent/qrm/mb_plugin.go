@@ -38,6 +38,8 @@ type MBQRMPluginConfig struct {
 	ResetResctrlOnly bool
 
 	LocalIsVictimAndTotalIsAllRead bool
+	GroupPriorityUnique            bool
+	ExtraGroupPriorities           map[string]int
 }
 
 func NewMBQRMPluginConfig() *MBQRMPluginConfig {

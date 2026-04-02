@@ -16,7 +16,11 @@ limitations under the License.
 
 package distributor
 
-import "math"
+import (
+	"math"
+
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
+)
 
 type Distributor interface {
 	// Distribute distributes total mb into ccds by their relative weights
@@ -24,6 +28,7 @@ type Distributor interface {
 }
 
 func New(min, max int) Distributor {
+	general.Infof("mbm: ccd distributor is composite of logarithmic and linear, with min %v, max %v", min, max)
 	return &logarithmicBoundedDistributor{
 		inner: &linearBoundedDistributor{
 			min: min,

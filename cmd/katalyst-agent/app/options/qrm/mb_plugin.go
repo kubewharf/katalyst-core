@@ -52,6 +52,8 @@ type MBOptions struct {
 	CrossDomainGroups              []string
 	ResetResctrlOnly               bool
 	LocalIsVictimAndTotalIsAllRead bool
+	GroupPriorityUnique            bool
+	ExtraGroupPriorities           map[string]int
 }
 
 func NewMBOptions() *MBOptions {
@@ -89,6 +91,10 @@ func (o *MBOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.ResetResctrlOnly, "not to run mb plugin really, and only reset to ensure resctrl FS in default status")
 	fs.BoolVar(&o.LocalIsVictimAndTotalIsAllRead, "mb-local-is-victim",
 		o.LocalIsVictimAndTotalIsAllRead, "turn resctrl local as victim")
+	fs.BoolVar(&o.GroupPriorityUnique, "mb-group-priority-unique",
+		o.GroupPriorityUnique, "use equality groups enhanced mb advisor")
+	fs.StringToIntVar(&o.ExtraGroupPriorities, "mb-extra-group-priorities",
+		o.ExtraGroupPriorities, "extra resctrl groups with priorities")
 }
 
 func (o *MBOptions) ApplyTo(conf *qrm.MBQRMPluginConfig) error {
@@ -103,5 +109,7 @@ func (o *MBOptions) ApplyTo(conf *qrm.MBQRMPluginConfig) error {
 	conf.DomainGroupAwareCapacityPCT = o.DomainGroupAwareCapacityPCT
 	conf.ResetResctrlOnly = o.ResetResctrlOnly
 	conf.LocalIsVictimAndTotalIsAllRead = o.LocalIsVictimAndTotalIsAllRead
+	conf.GroupPriorityUnique = o.GroupPriorityUnique
+	conf.ExtraGroupPriorities = o.ExtraGroupPriorities
 	return nil
 }
