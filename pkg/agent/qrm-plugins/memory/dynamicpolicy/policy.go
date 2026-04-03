@@ -24,6 +24,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
+
 	"github.com/cilium/ebpf"
 	"google.golang.org/grpc"
 	v1 "k8s.io/api/core/v1"
@@ -43,6 +45,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/oom"
 	memoryreactor "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/reactor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/userwatermark"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/handlers/fragmem"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/handlers/hostwatermark"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/handlers/logcache"
@@ -57,6 +60,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/asyncworker"
+	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
@@ -147,6 +151,7 @@ type DynamicPolicy struct {
 	enableSettingSockMem       bool
 	enableSettingFragMem       bool
 	enableSettingHostWatermark bool
+	enableUserWatermark        bool
 	enableMemoryAdvisor        bool
 	getAdviceInterval          time.Duration
 	memoryAdvisorSocketAbsPath string
@@ -226,6 +231,7 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		enableSettingFragMem:        conf.EnableSettingFragMem,
 		enableSettingHostWatermark:  conf.EnableSettingHostWatermark,
 		enableMemoryAdvisor:         conf.EnableMemoryAdvisor,
+		enableUserWatermark:         conf.EnableUserWatermark,
 		getAdviceInterval:           conf.GetAdviceInterval,
 		memoryAdvisorSocketAbsPath:  conf.MemoryAdvisorSocketAbsPath,
 		memoryPluginSocketAbsPath:   conf.MemoryPluginSocketAbsPath,
@@ -261,6 +267,11 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 	if policyImplement.enableOOMPriority {
 		policyImplement.enhancementHandlers.Register(apiconsts.QRMPhaseRemovePod,
 			apiconsts.PodAnnotationMemoryEnhancementOOMPriority, policyImplement.clearOOMPriority)
+	}
+
+	err = agentCtx.ConfigurationManager.AddConfigWatcher(crd.UserWatermarkConfigurationGVR)
+	if err != nil {
+		return false, nil, err
 	}
 
 	pluginWrapper, err := skeleton.NewRegistrationPluginWrapper(policyImplement, conf.QRMPluginSocketDirs,
@@ -465,6 +476,13 @@ func (p *DynamicPolicy) Start() (err error) {
 		if err != nil {
 			general.Errorf("setHostWatermark failed, err=%v", err)
 		}
+	}
+
+	if p.enableUserWatermark && common.CheckCgroup2UnifiedMode() {
+		general.Infof("setUserWatermark enabled")
+
+		userWatermarkReclaimManager := userwatermark.NewUserWatermarkReclaimManager(p.qosConfig, p.dynamicConf, p.emitter, p.metaServer)
+		go userWatermarkReclaimManager.Run(p.stopCh)
 	}
 
 	go wait.Until(func() {

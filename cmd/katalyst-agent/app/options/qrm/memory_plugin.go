@@ -35,6 +35,7 @@ type MemoryOptions struct {
 	SkipMemoryStateCorruption                     bool
 	EnableSettingMemoryMigrate                    bool
 	EnableMemoryAdvisor                           bool
+	EnableUserWatermark                           bool
 	AdvisorGetAdviceInterval                      time.Duration
 	ExtraControlKnobConfigFile                    string
 	EnableOOMPriority                             bool
@@ -121,6 +122,7 @@ func NewMemoryOptions() *MemoryOptions {
 		SkipMemoryStateCorruption:                     false,
 		EnableSettingMemoryMigrate:                    false,
 		EnableMemoryAdvisor:                           false,
+		EnableUserWatermark:                           false,
 		AdvisorGetAdviceInterval:                      5 * time.Second,
 		EnableOOMPriority:                             false,
 		EnableNonBindingShareCoresMemoryResourceCheck: true,
@@ -175,6 +177,8 @@ func (o *MemoryOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.EnableSettingMemoryMigrate, "if set true, we will enable cpuset.memory_migrate for containers not numa_binding")
 	fs.BoolVar(&o.EnableMemoryAdvisor, "memory-resource-plugin-advisor",
 		o.EnableMemoryAdvisor, "Whether memory resource plugin should enable sys-advisor")
+	fs.BoolVar(&o.EnableUserWatermark, "enable-user-watermark",
+		o.EnableUserWatermark, "if set true, we will enable user memory watermark")
 	fs.DurationVar(&o.AdvisorGetAdviceInterval, "memory-resource-plugin-advisor-interval",
 		o.AdvisorGetAdviceInterval, "If memory advisor is enabled, this is the interval at which we get advice from sys-advisor")
 	fs.StringVar(&o.ExtraControlKnobConfigFile, "memory-extra-control-knob-config-file",
@@ -243,6 +247,7 @@ func (o *MemoryOptions) ApplyTo(conf *qrmconfig.MemoryQRMPluginConfig) error {
 	conf.SkipMemoryStateCorruption = o.SkipMemoryStateCorruption
 	conf.EnableSettingMemoryMigrate = o.EnableSettingMemoryMigrate
 	conf.EnableMemoryAdvisor = o.EnableMemoryAdvisor
+	conf.EnableUserWatermark = o.EnableUserWatermark
 	conf.GetAdviceInterval = o.AdvisorGetAdviceInterval
 	conf.ExtraControlKnobConfigFile = o.ExtraControlKnobConfigFile
 	conf.EnableOOMPriority = o.EnableOOMPriority

@@ -44,6 +44,7 @@ type Manager interface {
 	ApplyUnifiedData(absCgroupPath, cgroupFileName, data string) error
 
 	GetMemory(absCgroupPath string) (*common.MemoryStats, error)
+	GetMemoryStats(absCgroupPath string) (*common.MemoryStats, error)
 	GetNumaMemory(absCgroupPath string) (map[int]*common.MemoryNumaMetrics, error)
 	GetMemoryPressure(absCgroupPath string, t common.PressureType) (*common.MemoryPressure, error)
 	GetCPU(absCgroupPath string) (*common.CPUStats, error)

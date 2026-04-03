@@ -204,6 +204,15 @@ func GetMemoryWithAbsolutePath(absCgroupPath string) (*common.MemoryStats, error
 	return GetManager().GetMemory(absCgroupPath)
 }
 
+func GetMemoryStatsWithRelativePath(relCgroupPath string) (*common.MemoryStats, error) {
+	absCgroupPath := common.GetAbsCgroupPath("memory", relCgroupPath)
+	return GetManager().GetMemoryStats(absCgroupPath)
+}
+
+func GetMemoryStatsWithAbsolutePath(absCgroupPath string) (*common.MemoryStats, error) {
+	return GetManager().GetMemoryStats(absCgroupPath)
+}
+
 func GetMemoryPressureWithAbsolutePath(absCgroupPath string, t common.PressureType) (*common.MemoryPressure, error) {
 	return GetManager().GetMemoryPressure(absCgroupPath, t)
 }
