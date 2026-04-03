@@ -291,13 +291,17 @@ func (p *BasePlugin) GenerateMachineStateFromPodEntries(
 // For example, we may have multiple device names for a same device type, e.g. "nvidia.com/gpu" and "hw.com/npu",
 // so we map them to the same device type, which allows us to allocate them interchangeably.
 func (p *BasePlugin) RegisterDeviceNames(deviceNames []string, deviceType string) {
-	for _, deviceeName := range deviceNames {
-		p.deviceNameToTypeMap[deviceeName] = deviceType
+	for _, deviceName := range deviceNames {
+		p.deviceNameToTypeMap[deviceName] = deviceType
 		if _, ok := p.deviceTypeToNames[deviceType]; !ok {
 			p.deviceTypeToNames[deviceType] = sets.NewString()
 		}
-		p.deviceTypeToNames[deviceType].Insert(deviceeName)
+		p.deviceTypeToNames[deviceType].Insert(deviceName)
 	}
+}
+
+func (p *BasePlugin) GetDeviceNameToTypeMap() map[string]string {
+	return p.deviceNameToTypeMap
 }
 
 // ResolveResourceName takes in a resourceName and tries to find a mapping of resource type from deviceNameToTypeMap.

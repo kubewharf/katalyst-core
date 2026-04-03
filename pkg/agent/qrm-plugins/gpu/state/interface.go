@@ -49,6 +49,10 @@ type writer interface {
 // DefaultResourceStateGenerator interface is used to generate default resource state for each resource
 type DefaultResourceStateGenerator interface {
 	GenerateDefaultResourceState() (AllocationMap, error)
+
+	// HasDeviceTopology indicates whether the underlying topology registry has at least one
+	// topology for the generator's device names.
+	HasDeviceTopology() bool
 }
 
 // ReadonlyState interface only provides methods for tracking pod assignments

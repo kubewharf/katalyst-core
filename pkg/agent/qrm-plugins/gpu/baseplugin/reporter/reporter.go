@@ -206,9 +206,9 @@ func (p *gpuReporterPlugin) GetReportContent(ctx context.Context, _ *v1alpha1.Em
 
 func (p *gpuReporterPlugin) buildReportResponse() (*v1alpha1.GetReportContentResponse, error) {
 	// The reporter picks the latest topology from all configured GPU devices to report to CNR.
-	topologiesMap, err := p.deviceTopologyRegistry.GetDeviceTopologies(p.gpuDeviceNames)
-	if err != nil {
-		return nil, err
+	topologiesMap, ok := p.deviceTopologyRegistry.GetDeviceTopologies(p.gpuDeviceNames)
+	if !ok {
+		return nil, fmt.Errorf("failed to get any device topology")
 	}
 	latestDeviceTopology := machine.PickLatestDeviceTopology(topologiesMap)
 
@@ -273,7 +273,7 @@ func (p *gpuReporterPlugin) getTopologyZoneReportField(topologiesMap map[string]
 		return nil, fmt.Errorf("no zone resources found for device topology")
 	}
 
-	zoneAllocations := p.getZoneAllocations(machineState)
+	zoneAllocations := p.getZoneAllocations(topologiesMap, machineState)
 
 	generatedTopologyZones := topologyZoneGenerator.GenerateTopologyZoneStatus(zoneAllocations, zoneResources,
 		zoneAttributes, nil, nil, nil)
@@ -310,7 +310,7 @@ func (p *gpuReporterPlugin) getResourcePropertyReportField(latestDeviceTopology 
 
 // getGPUResourceProperty returns the different dimensions to differentiate affinity priority of gpu devices.
 func (p *gpuReporterPlugin) getGPUResourceProperty(deviceTopology *machine.DeviceTopology) []*nodev1alpha1.Property {
-	if deviceTopology == nil || deviceTopology.PriorityDimensions == nil {
+	if deviceTopology == nil || len(deviceTopology.PriorityDimensions) == 0 {
 		return nil
 	}
 
@@ -424,7 +424,7 @@ func (p *gpuReporterPlugin) getZoneResources(topologiesMap map[string]*machine.D
 }
 
 // getZoneAllocations returns the map of gpu zone nodes to their pod allocations
-func (p *gpuReporterPlugin) getZoneAllocations(machineState state.AllocationResourcesMap) map[util.ZoneNode]util.ZoneAllocations {
+func (p *gpuReporterPlugin) getZoneAllocations(topologiesMap map[string]*machine.DeviceTopology, machineState state.AllocationResourcesMap) map[util.ZoneNode]util.ZoneAllocations {
 	// First construct map of device id to allocations
 	idToAllocations := make(map[string]util.ZoneAllocations)
 
@@ -444,6 +444,11 @@ func (p *gpuReporterPlugin) getZoneAllocations(machineState state.AllocationReso
 
 					// Override the resource name if there is a specified device name
 					if allocInfo.DeviceName != "" {
+						// Skip reporting  if it is not a GPU device
+						if _, ok := topologiesMap[allocInfo.DeviceName]; !ok {
+							continue
+						}
+
 						resourceName = v1.ResourceName(allocInfo.DeviceName)
 					}
 

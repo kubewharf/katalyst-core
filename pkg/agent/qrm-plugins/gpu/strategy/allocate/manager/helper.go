@@ -29,16 +29,17 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-// AllocateGPUUsingStrategy performs GPU allocation using the strategy framework
-func AllocateGPUUsingStrategy(
+// AllocateDevicesUsingStrategy performs device allocation using the strategy framework
+func AllocateDevicesUsingStrategy(
 	resourceReq *pluginapi.ResourceRequest,
 	deviceReq *pluginapi.DeviceRequest,
-	gpuTopology *machine.DeviceTopology,
+	deviceTopologyRegistry *machine.DeviceTopologyRegistry,
 	gpuConfig *qrm.GPUQRMPluginConfig,
 	emitter metrics.MetricEmitter,
 	metaServer *metaserver.MetaServer,
 	machineState state.AllocationResourcesMap,
-	qosLevel string,
+	qosLevel, resourceName, accompanyResourceName string,
+	deviceNameToTypeMap map[string]string,
 ) (*allocate.AllocationResult, error) {
 	// Get hint nodes
 	hintNodes, err := machine.NewCPUSetUint64(deviceReq.GetHint().GetNodes()...)
@@ -51,18 +52,21 @@ func AllocateGPUUsingStrategy(
 
 	// Create allocation context
 	ctx := &allocate.AllocationContext{
-		ResourceReq:        resourceReq,
-		DeviceReq:          deviceReq,
-		DeviceTopology:     gpuTopology,
-		GPUQRMPluginConfig: gpuConfig,
-		Emitter:            emitter,
-		MetaServer:         metaServer,
-		MachineState:       machineState,
-		QoSLevel:           qosLevel,
-		HintNodes:          hintNodes,
+		ResourceReq:            resourceReq,
+		DeviceReq:              deviceReq,
+		DeviceTopologyRegistry: deviceTopologyRegistry,
+		GPUQRMPluginConfig:     gpuConfig,
+		Emitter:                emitter,
+		MetaServer:             metaServer,
+		MachineState:           machineState,
+		QoSLevel:               qosLevel,
+		HintNodes:              hintNodes,
+		ResourceName:           resourceName,
+		AccompanyResourceName:  accompanyResourceName,
+		DeviceNameToTypeMap:    deviceNameToTypeMap,
 	}
 
 	// Get the global strategy manager and perform allocation
-	manager := GetGlobalStrategyManager()
+	manager := GetGlobalStrategyManager(gpuConfig)
 	return manager.AllocateUsingStrategy(ctx)
 }
