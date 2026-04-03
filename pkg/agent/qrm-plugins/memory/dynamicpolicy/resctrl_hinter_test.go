@@ -23,12 +23,22 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/atomic"
+	"k8s.io/apimachinery/pkg/util/sets"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
+
+type mockResctrlManager struct {
+	count int64
+}
+
+func (m *mockResctrlManager) Run(stopCh <-chan struct{})                              {}
+func (m *mockResctrlManager) Create(podUID, closID string, createMonGroup bool) error { return nil }
+func (m *mockResctrlManager) Cleanup(activePodUIDs sets.String) error                 { return nil }
+func (m *mockResctrlManager) GetMonGroupsCount() (int64, error)                       { return m.count, nil }
 
 func TestResctrlProcessor_HintResp(t *testing.T) {
 	t.Parallel()
@@ -277,7 +287,7 @@ func TestResctrlProcessor_HintResp(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			r := newResctrlHinter(tt.fields.config, metrics.DummyMetrics{})
+			r := newResctrlHinter(tt.fields.config, metrics.DummyMetrics{}, nil)
 
 			if tt.fields.resctrl != nil {
 				root := t.TempDir()
@@ -286,13 +296,20 @@ func TestResctrlProcessor_HintResp(t *testing.T) {
 					err := os.WriteFile(path.Join(root, "info/L3_MON/num_rmids"), []byte(tt.fields.resctrl.numRmids), 0o644)
 					assert.NoError(t, err)
 				}
+
+				monGroupsCount := int64(0)
 				for _, dir := range tt.fields.resctrl.dirs {
-					err := os.MkdirAll(path.Join(root, dir), 0o755)
-					assert.NoError(t, err)
+					// Count mon_groups
+					// dirs example: "shared-50/mon_groups/pod1"
+					if path.Base(path.Dir(dir)) == "mon_groups" {
+						monGroupsCount++
+					}
 				}
+
 				hinter := r.(*resctrlHinter)
 				hinter.root = root
 				hinter.monGroupsMaxCount = atomic.NewInt64(hinter.getMonGroupsMaxCount())
+				hinter.manager = &mockResctrlManager{count: monGroupsCount}
 			}
 
 			meta := state.GenerateMemoryContainerAllocationMeta(tt.args.req, tt.args.qosLevel)

@@ -23,6 +23,7 @@ import (
 
 	info "github.com/google/cadvisor/info/v1"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
@@ -201,6 +202,16 @@ func (pre PodResourceEntries) Clone() PodResourceEntries {
 		clone[resourceName] = podEntries.Clone()
 	}
 	return clone
+}
+
+func (pre PodResourceEntries) GetAllPodUIDs() sets.String {
+	res := sets.NewString()
+	for _, podEntries := range pre {
+		for podUID := range podEntries {
+			res.Insert(podUID)
+		}
+	}
+	return res
 }
 
 func (ns *NUMANodeState) String() string {
