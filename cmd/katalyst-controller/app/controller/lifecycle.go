@@ -41,18 +41,20 @@ func StartLifeCycleController(ctx context.Context, controlCtx *katalystbase.Gene
 		err          error
 	)
 
-	cnrLifecycle, err = lifecycle.NewCNRLifecycle(ctx,
-		conf.GenericConfiguration,
-		conf.GenericControllerConfiguration,
-		conf.ControllersConfiguration.CNRLifecycleConfig,
-		controlCtx.Client,
-		controlCtx.KubeInformerFactory.Core().V1().Nodes(),
-		controlCtx.InternalInformerFactory.Node().V1alpha1().CustomNodeResources(),
-		controlCtx.EmitterPool.GetDefaultMetricsEmitter(),
-	)
-	if err != nil {
-		klog.Errorf("failed to new CNR lifecycle controller")
-		return false, err
+	if conf.LifeCycleConfig.EnableCNRLifecycle {
+		cnrLifecycle, err = lifecycle.NewCNRLifecycle(ctx,
+			conf.GenericConfiguration,
+			conf.GenericControllerConfiguration,
+			conf.ControllersConfiguration.CNRLifecycleConfig,
+			controlCtx.Client,
+			controlCtx.KubeInformerFactory.Core().V1().Nodes(),
+			controlCtx.InternalInformerFactory.Node().V1alpha1().CustomNodeResources(),
+			controlCtx.EmitterPool.GetDefaultMetricsEmitter(),
+		)
+		if err != nil {
+			klog.Errorf("failed to new CNR lifecycle controller")
+			return false, err
+		}
 	}
 
 	if conf.LifeCycleConfig.EnableCNCLifecycle {
