@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package advisor
+package priority
 
 import (
 	"reflect"
@@ -63,7 +63,7 @@ func Test_getSortedGroups(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := sortGroups(tt.args.groups); !reflect.DeepEqual(got, tt.want) {
+			if got := GetInstance().SortGroups(tt.args.groups); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("sortGroups() = %v, want %v", got, tt.want)
 			}
 		})

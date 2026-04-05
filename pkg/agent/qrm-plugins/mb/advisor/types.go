@@ -19,10 +19,17 @@ package advisor
 import (
 	"context"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/domain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
 type Advisor interface {
 	GetPlan(ctx context.Context, domainsMon *monitor.DomainStats) (*plan.MBPlan, error)
 }
+
+type Builder func(emitter metrics.MetricEmitter, domains domain.Domains, ccdMinMB, ccdMaxMB int, defaultDomainCapacity int,
+	capPercent int, XDomGroups []string, groupNeverThrottles []string,
+	groupCapacity map[string]int,
+) Advisor
