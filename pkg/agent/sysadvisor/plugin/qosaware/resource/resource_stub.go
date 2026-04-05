@@ -33,6 +33,10 @@ type ResourceAdvisorStub struct {
 	subAdvisor map[types.QoSResourceName]*SubResourceAdvisorStub
 }
 
+func (r *ResourceAdvisorStub) Init() error {
+	return nil
+}
+
 var _ ResourceAdvisor = NewResourceAdvisorStub()
 
 func NewResourceAdvisorStub() *ResourceAdvisorStub {
@@ -74,6 +78,10 @@ func (r *ResourceAdvisorStub) SetHeadroom(resourceName v1.ResourceName, quantity
 type SubResourceAdvisorStub struct {
 	sync.Mutex
 	quantity resource.Quantity
+}
+
+func (s *SubResourceAdvisorStub) Init() error {
+	return nil
 }
 
 var _ SubResourceAdvisor = NewSubResourceAdvisorStub()
