@@ -273,6 +273,8 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 
 	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyMemoryLimitInBytes,
 		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorMemoryLimitInBytes))
+	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyMemoryHigh,
+		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorMemoryHigh))
 	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyCPUSetMems,
 		memoryadvisor.ControlKnobHandlerWithChecker(policyImplement.handleAdvisorCPUSetMems))
 	memoryadvisor.RegisterControlKnobHandler(memoryadvisor.ControlKnobKeyDropCache,
