@@ -33,6 +33,9 @@ type GPUQRMPluginConfig struct {
 	GPUMemoryAllocatablePerGPU resource.Quantity
 	// SkipGPUStateCorruption skip gpu state corruption, and it will be used after updating state properties
 	SkipGPUStateCorruption bool
+	// RequiredDeviceAffinity specifies whether it is required for pods to follow device affinity strictly.
+	// If true, pods will fail to admit if they are not able to satisfy device affinity constraints. Set to true by default.
+	RequiredDeviceAffinity bool
 
 	*gpustrategy.GPUStrategyConfig
 }

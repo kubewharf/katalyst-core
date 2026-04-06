@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -328,9 +329,30 @@ func (t *DeviceTopology) IsDeviceHealthy(id string) (bool, bool) {
 // means that gpu-0 and gpu-1 have an affinity with each other, gpu-2 and gpu-3 have an affinity with each other in affinity priority 0.
 // and gpu-0, gpu-1, gpu-2, and gpu-3 have an affinity with each other in affinity priority 1.
 func (t *DeviceTopology) GroupDeviceAffinity() map[int][]DeviceIDs {
+	if t == nil || len(t.Devices) == 0 || len(t.PriorityDimensions) == 0 {
+		return nil
+	}
+
+	// Build dimension name -> priority index mapping.
+	//
+	// Use DeviceTopology.PriorityDimensions as the single source of truth.
+	dimensionNameToPriority := make(map[string]int)
+	for i, name := range t.PriorityDimensions {
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name == "" {
+			continue
+		}
+		dimensionNameToPriority[name] = i
+	}
+
 	deviceAffinityGroup := make(map[int][]DeviceIDs)
 	for deviceId, deviceInfo := range t.Devices {
-		for priority, affinityDeviceIDs := range deviceInfo.DeviceAffinity {
+		for dimension, affinityDeviceIDs := range deviceInfo.DeviceAffinity {
+			// filter out invalid dimensions because some invalid/empty configurations may be passed
+			if strings.TrimSpace(dimension.Name) == "" || strings.TrimSpace(dimension.Value) == "" {
+				continue
+			}
+
 			// Add itself in the group if it is not already included
 			if !slices.Contains(affinityDeviceIDs, deviceId) {
 				affinityDeviceIDs = append(affinityDeviceIDs, deviceId)
@@ -338,7 +360,11 @@ func (t *DeviceTopology) GroupDeviceAffinity() map[int][]DeviceIDs {
 			// Sort the strings for easier deduplication
 			sort.Strings(affinityDeviceIDs)
 
-			priorityLevel := priority.GetPriorityLevel()
+			priorityLevel, ok := dimensionNameToPriority[strings.ToLower(strings.TrimSpace(dimension.Name))]
+			if !ok {
+				// Unknown dimension; ignore it to avoid inconsistent priority semantics.
+				continue
+			}
 			if _, ok := deviceAffinityGroup[priorityLevel]; !ok {
 				deviceAffinityGroup[priorityLevel] = make([]DeviceIDs, 0)
 			}
@@ -361,8 +387,9 @@ func containsGroup(groups []DeviceIDs, candidate DeviceIDs) bool {
 	return false
 }
 
-// DeviceAffinity is the map of priority level to the other deviceIds that a particular deviceId has an affinity with
-type DeviceAffinity map[AffinityPriority]DeviceIDs
+// DeviceAffinity maps an affinity dimension to the other device IDs that a particular device has an affinity with.
+// Priority ordering across different dimensions is determined by DeviceTopology.PriorityDimensions.
+type DeviceAffinity map[Dimension]DeviceIDs
 
 type DeviceInfo struct {
 	Health         string
@@ -372,12 +399,12 @@ type DeviceInfo struct {
 
 func (i DeviceInfo) GetDimensions() []Dimension {
 	dimensions := make([]Dimension, 0)
-	for priority := range i.DeviceAffinity {
+	for dimension := range i.DeviceAffinity {
 		// filter out invalid dimensions because some invalid/empty configurations may be passed
-		if priority.Dimension.Name == "" || priority.Dimension.Value == "" {
+		if dimension.Name == "" || dimension.Value == "" {
 			continue
 		}
-		dimensions = append(dimensions, priority.Dimension)
+		dimensions = append(dimensions, dimension)
 	}
 
 	sort.Slice(dimensions, func(i, j int) bool {
@@ -385,22 +412,6 @@ func (i DeviceInfo) GetDimensions() []Dimension {
 	})
 
 	return dimensions
-}
-
-// AffinityPriority represents the level of affinity that a deviceID has with another deviceID.
-// It contains the actual priority level and the dimension of the affinity.
-// The priority level is the value of the priority. The lower the value, the higher the priority.
-type AffinityPriority struct {
-	PriorityLevel int
-	Dimension     Dimension
-}
-
-func (a *AffinityPriority) GetPriorityLevel() int {
-	return a.PriorityLevel
-}
-
-func (a *AffinityPriority) GetDimension() Dimension {
-	return a.Dimension
 }
 
 // Dimension represents the dimension of the affinity.

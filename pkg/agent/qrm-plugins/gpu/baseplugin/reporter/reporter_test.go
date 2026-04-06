@@ -335,104 +335,80 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 					"gpu-0": {
 						Health:    pluginapi.Healthy,
 						NumaNodes: []int{0},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
+								Name:  "numa",
+								Value: "0",
 							}: {"gpu-1", "gpu-2", "gpu-3"},
 						},
 					},
 					"gpu-1": {
 						Health:    pluginapi.Healthy,
 						NumaNodes: []int{0},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
+								Name:  "numa",
+								Value: "0",
 							}: {"gpu-0", "gpu-2", "gpu-3"},
 						},
 					},
 					"gpu-2": {
 						Health:    pluginapi.Healthy,
 						NumaNodes: []int{0},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
+								Name:  "numa",
+								Value: "0",
 							}: {"gpu-0", "gpu-1", "gpu-3"},
 						},
 					},
 					"gpu-3": {
 						Health:    pluginapi.Healthy,
 						NumaNodes: []int{0},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
+								Name:  "numa",
+								Value: "0",
 							}: {"gpu-0", "gpu-1", "gpu-2"},
 						},
 					},
 					"gpu-4": {
 						Health:    pluginapi.Healthy,
 						NumaNodes: []int{1},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "1",
-								},
+								Name:  "numa",
+								Value: "1",
 							}: {"gpu-5", "gpu-6", "gpu-7"},
 						},
 					},
 					"gpu-5": {
 						Health:    pluginapi.Healthy,
 						NumaNodes: []int{1},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "1",
-								},
+								Name:  "numa",
+								Value: "1",
 							}: {"gpu-4", "gpu-6", "gpu-7"},
 						},
 					},
 					"gpu-6": {
 						Health:    pluginapi.Healthy,
 						NumaNodes: []int{1},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "1",
-								},
+								Name:  "numa",
+								Value: "1",
 							}: {"gpu-4", "gpu-5", "gpu-7"},
 						},
 					},
 					"gpu-7": {
 						Health:    pluginapi.Healthy,
 						NumaNodes: []int{1},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "1",
-								},
+								Name:  "numa",
+								Value: "1",
 							}: {"gpu-4", "gpu-5", "gpu-6"},
 						},
 					},
@@ -650,160 +626,112 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 					"gpu-0": {
 						Health:    pluginapi.Healthy,
 						NumaNodes: []int{0},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "pcie",
-									Value: "0",
-								},
+								Name:  "pcie",
+								Value: "0",
 							}: {"gpu-1"},
 							{
-								PriorityLevel: 1,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
+								Name:  "numa",
+								Value: "0",
 							}: {"gpu-1", "gpu-2", "gpu-3"},
 						},
 					},
 					"gpu-1": {
 						Health:    pluginapi.Healthy,
 						NumaNodes: []int{0},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "pcie",
-									Value: "0",
-								},
+								Name:  "pcie",
+								Value: "0",
 							}: {"gpu-0"},
 							{
-								PriorityLevel: 1,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
+								Name:  "numa",
+								Value: "0",
 							}: {"gpu-0", "gpu-2", "gpu-3"},
 						},
 					},
 					"gpu-2": {
 						Health:    pluginapi.Healthy,
 						NumaNodes: []int{0},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "pcie",
-									Value: "1",
-								},
+								Name:  "pcie",
+								Value: "1",
 							}: {"gpu-3"},
 							{
-								PriorityLevel: 1,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
+								Name:  "numa",
+								Value: "0",
 							}: {"gpu-0", "gpu-1", "gpu-3"},
 						},
 					},
 					"gpu-3": {
 						Health:    pluginapi.Healthy,
 						NumaNodes: []int{0},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "pcie",
-									Value: "1",
-								},
+								Name:  "pcie",
+								Value: "1",
 							}: {"gpu-2"},
 							{
-								PriorityLevel: 1,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
+								Name:  "numa",
+								Value: "0",
 							}: {"gpu-0", "gpu-1", "gpu-2"},
 						},
 					},
 					"gpu-4": {
 						Health:    pluginapi.Healthy,
 						NumaNodes: []int{1},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "pcie",
-									Value: "2",
-								},
+								Name:  "pcie",
+								Value: "2",
 							}: {"gpu-5"},
 							{
-								PriorityLevel: 1,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "1",
-								},
+								Name:  "numa",
+								Value: "1",
 							}: {"gpu-5", "gpu-6", "gpu-7"},
 						},
 					},
 					"gpu-5": {
 						Health:    pluginapi.Healthy,
 						NumaNodes: []int{1},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "pcie",
-									Value: "2",
-								},
+								Name:  "pcie",
+								Value: "2",
 							}: {"gpu-4"},
 							{
-								PriorityLevel: 1,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "1",
-								},
+								Name:  "numa",
+								Value: "1",
 							}: {"gpu-4", "gpu-6", "gpu-7"},
 						},
 					},
 					"gpu-6": {
 						Health:    pluginapi.Healthy,
 						NumaNodes: []int{1},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "pcie",
-									Value: "3",
-								},
+								Name:  "pcie",
+								Value: "3",
 							}: {"gpu-7"},
 							{
-								PriorityLevel: 1,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "1",
-								},
+								Name:  "numa",
+								Value: "1",
 							}: {"gpu-4", "gpu-5", "gpu-7"},
 						},
 					},
 					"gpu-7": {
 						Health:    pluginapi.Healthy,
 						NumaNodes: []int{1},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "pcie",
-									Value: "3",
-								},
+								Name:  "pcie",
+								Value: "3",
 							}: {"gpu-6"},
 							{
-								PriorityLevel: 1,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "1",
-								},
+								Name:  "numa",
+								Value: "1",
 							}: {"gpu-4", "gpu-5", "gpu-6"},
 						},
 					},
@@ -1046,104 +974,80 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 					"gpu-0": {
 						Health:    pluginapi.Unhealthy,
 						NumaNodes: []int{0},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
+								Name:  "numa",
+								Value: "0",
 							}: {"gpu-1", "gpu-2", "gpu-3"},
 						},
 					},
 					"gpu-1": {
 						Health:    pluginapi.Unhealthy,
 						NumaNodes: []int{0},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
+								Name:  "numa",
+								Value: "0",
 							}: {"gpu-0", "gpu-2", "gpu-3"},
 						},
 					},
 					"gpu-2": {
 						Health:    pluginapi.Unhealthy,
 						NumaNodes: []int{0},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
+								Name:  "numa",
+								Value: "0",
 							}: {"gpu-0", "gpu-1", "gpu-3"},
 						},
 					},
 					"gpu-3": {
 						Health:    pluginapi.Unhealthy,
 						NumaNodes: []int{0},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
+								Name:  "numa",
+								Value: "0",
 							}: {"gpu-0", "gpu-1", "gpu-2"},
 						},
 					},
 					"gpu-4": {
 						Health:    pluginapi.Unhealthy,
 						NumaNodes: []int{1},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "1",
-								},
+								Name:  "numa",
+								Value: "1",
 							}: {"gpu-5", "gpu-6", "gpu-7"},
 						},
 					},
 					"gpu-5": {
 						Health:    pluginapi.Unhealthy,
 						NumaNodes: []int{1},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "1",
-								},
+								Name:  "numa",
+								Value: "1",
 							}: {"gpu-4", "gpu-6", "gpu-7"},
 						},
 					},
 					"gpu-6": {
 						Health:    pluginapi.Unhealthy,
 						NumaNodes: []int{1},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "1",
-								},
+								Name:  "numa",
+								Value: "1",
 							}: {"gpu-4", "gpu-5", "gpu-7"},
 						},
 					},
 					"gpu-7": {
 						Health:    pluginapi.Unhealthy,
 						NumaNodes: []int{1},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "1",
-								},
+								Name:  "numa",
+								Value: "1",
 							}: {"gpu-4", "gpu-5", "gpu-6"},
 						},
 					},
@@ -1353,153 +1257,105 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 				Devices: map[string]machine.DeviceInfo{
 					"gpu-0": {
 						NumaNodes: []int{0},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "pcie",
-									Value: "0",
-								},
+								Name:  "pcie",
+								Value: "0",
 							}: {"gpu-1"},
 							{
-								PriorityLevel: 1,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
+								Name:  "numa",
+								Value: "0",
 							}: {"gpu-1", "gpu-2", "gpu-3"},
 						},
 					},
 					"gpu-1": {
 						NumaNodes: []int{0},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "pcie",
-									Value: "0",
-								},
+								Name:  "pcie",
+								Value: "0",
 							}: {"gpu-0"},
 							{
-								PriorityLevel: 1,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
+								Name:  "numa",
+								Value: "0",
 							}: {"gpu-0", "gpu-2", "gpu-3"},
 						},
 					},
 					"gpu-2": {
 						NumaNodes: []int{0},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "pcie",
-									Value: "1",
-								},
+								Name:  "pcie",
+								Value: "1",
 							}: {"gpu-3"},
 							{
-								PriorityLevel: 1,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
+								Name:  "numa",
+								Value: "0",
 							}: {"gpu-0", "gpu-1", "gpu-3"},
 						},
 					},
 					"gpu-3": {
 						NumaNodes: []int{0},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "pcie",
-									Value: "1",
-								},
+								Name:  "pcie",
+								Value: "1",
 							}: {"gpu-2"},
 							{
-								PriorityLevel: 1,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
+								Name:  "numa",
+								Value: "0",
 							}: {"gpu-0", "gpu-1", "gpu-2"},
 						},
 					},
 					"gpu-4": {
 						NumaNodes: []int{1},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "pcie",
-									Value: "2",
-								},
+								Name:  "pcie",
+								Value: "2",
 							}: {"gpu-5"},
 							{
-								PriorityLevel: 1,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "1",
-								},
+								Name:  "numa",
+								Value: "1",
 							}: {"gpu-5", "gpu-6", "gpu-7"},
 						},
 					},
 					"gpu-5": {
 						NumaNodes: []int{1},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "pcie",
-									Value: "2",
-								},
+								Name:  "pcie",
+								Value: "2",
 							}: {"gpu-4"},
 							{
-								PriorityLevel: 1,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "1",
-								},
+								Name:  "numa",
+								Value: "1",
 							}: {"gpu-4", "gpu-6", "gpu-7"},
 						},
 					},
 					"gpu-6": {
 						NumaNodes: []int{1},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "pcie",
-									Value: "3",
-								},
+								Name:  "pcie",
+								Value: "3",
 							}: {"gpu-7"},
 							{
-								PriorityLevel: 1,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "1",
-								},
+								Name:  "numa",
+								Value: "1",
 							}: {"gpu-4", "gpu-5", "gpu-7"},
 						},
 					},
 					"gpu-7": {
 						NumaNodes: []int{1},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "pcie",
-									Value: "3",
-								},
+								Name:  "pcie",
+								Value: "3",
 							}: {"gpu-6"},
 							{
-								PriorityLevel: 1,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "1",
-								},
+								Name:  "numa",
+								Value: "1",
 							}: {"gpu-4", "gpu-5", "gpu-6"},
 						},
 					},
@@ -1737,106 +1593,58 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 				Devices: map[string]machine.DeviceInfo{
 					"gpu-0": {
 						NumaNodes: []int{0},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension:     machine.Dimension{},
-							}: {"gpu-1"},
-							{
-								PriorityLevel: 1,
-								Dimension:     machine.Dimension{},
-							}: {"gpu-1", "gpu-2", "gpu-3"},
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
+							{}: {"gpu-1"},
+							{}: {"gpu-1", "gpu-2", "gpu-3"},
 						},
 					},
 					"gpu-1": {
 						NumaNodes: []int{0},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension:     machine.Dimension{},
-							}: {"gpu-0"},
-							{
-								PriorityLevel: 1,
-								Dimension:     machine.Dimension{},
-							}: {"gpu-0", "gpu-2", "gpu-3"},
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
+							{}: {"gpu-0"},
+							{}: {"gpu-0", "gpu-2", "gpu-3"},
 						},
 					},
 					"gpu-2": {
 						NumaNodes: []int{0},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension:     machine.Dimension{},
-							}: {"gpu-3"},
-							{
-								PriorityLevel: 1,
-								Dimension:     machine.Dimension{},
-							}: {"gpu-0", "gpu-1", "gpu-3"},
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
+							{}: {"gpu-3"},
+							{}: {"gpu-0", "gpu-1", "gpu-3"},
 						},
 					},
 					"gpu-3": {
 						NumaNodes: []int{0},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension:     machine.Dimension{},
-							}: {"gpu-2"},
-							{
-								PriorityLevel: 1,
-								Dimension:     machine.Dimension{},
-							}: {"gpu-0", "gpu-1", "gpu-2"},
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
+							{}: {"gpu-2"},
+							{}: {"gpu-0", "gpu-1", "gpu-2"},
 						},
 					},
 					"gpu-4": {
 						NumaNodes: []int{1},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension:     machine.Dimension{},
-							}: {"gpu-5"},
-							{
-								PriorityLevel: 1,
-								Dimension:     machine.Dimension{},
-							}: {"gpu-5", "gpu-6", "gpu-7"},
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
+							{}: {"gpu-5"},
+							{}: {"gpu-5", "gpu-6", "gpu-7"},
 						},
 					},
 					"gpu-5": {
 						NumaNodes: []int{1},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension:     machine.Dimension{},
-							}: {"gpu-4"},
-							{
-								PriorityLevel: 1,
-								Dimension:     machine.Dimension{},
-							}: {"gpu-4", "gpu-6", "gpu-7"},
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
+							{}: {"gpu-4"},
+							{}: {"gpu-4", "gpu-6", "gpu-7"},
 						},
 					},
 					"gpu-6": {
 						NumaNodes: []int{1},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension:     machine.Dimension{},
-							}: {"gpu-7"},
-							{
-								PriorityLevel: 1,
-								Dimension:     machine.Dimension{},
-							}: {"gpu-4", "gpu-5", "gpu-7"},
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
+							{}: {"gpu-7"},
+							{}: {"gpu-4", "gpu-5", "gpu-7"},
 						},
 					},
 					"gpu-7": {
 						NumaNodes: []int{1},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension:     machine.Dimension{},
-							}: {"gpu-6"},
-							{
-								PriorityLevel: 1,
-								Dimension:     machine.Dimension{},
-							}: {"gpu-4", "gpu-5", "gpu-6"},
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
+							{}: {"gpu-6"},
+							{}: {"gpu-4", "gpu-5", "gpu-6"},
 						},
 					},
 				},
@@ -1999,13 +1807,10 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 					"gpu-0": {
 						Health:    pluginapi.Healthy,
 						NumaNodes: []int{0},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension: machine.Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
+								Name:  "numa",
+								Value: "0",
 							}: {},
 						},
 					},
@@ -2089,20 +1894,18 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 					"gpu-0": {
 						Health:    pluginapi.Healthy,
 						NumaNodes: []int{0},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension:     machine.Dimension{Name: "numa", Value: "0"},
+								Name: "numa", Value: "0",
 							}: {},
 						},
 					},
 					"gpu-1": {
 						Health:    pluginapi.Healthy,
 						NumaNodes: []int{1},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
 							{
-								PriorityLevel: 0,
-								Dimension:     machine.Dimension{Name: "numa", Value: "1"},
+								Name: "numa", Value: "1",
 							}: {},
 						},
 					},
@@ -2167,7 +1970,7 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 					"gpu-0": {
 						Health:         pluginapi.Healthy,
 						NumaNodes:      []int{0},
-						DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{{PriorityLevel: 0, Dimension: machine.Dimension{Name: "numa", Value: "0"}}: {}},
+						DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{{Name: "numa", Value: "0"}: {}},
 					},
 				},
 			},
@@ -2224,14 +2027,14 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 					PriorityDimensions: []string{"numa"},
 					UpdateTime:         100,
 					Devices: map[string]machine.DeviceInfo{
-						"gpu-0": {Health: pluginapi.Healthy, NumaNodes: []int{0}, DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{{PriorityLevel: 0, Dimension: machine.Dimension{Name: "numa", Value: "0"}}: {}}},
+						"gpu-0": {Health: pluginapi.Healthy, NumaNodes: []int{0}, DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{{Name: "numa", Value: "0"}: {}}},
 					},
 				},
 				"test-gpu-b": {
 					PriorityDimensions: []string{"numa"},
 					UpdateTime:         200,
 					Devices: map[string]machine.DeviceInfo{
-						"gpu-0": {Health: pluginapi.Unhealthy, NumaNodes: []int{0}, DeviceAffinity: map[machine.AffinityPriority]machine.DeviceIDs{{PriorityLevel: 0, Dimension: machine.Dimension{Name: "numa", Value: "0"}}: {}}},
+						"gpu-0": {Health: pluginapi.Unhealthy, NumaNodes: []int{0}, DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{{Name: "numa", Value: "0"}: {}}},
 					},
 				},
 			},
