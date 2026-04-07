@@ -47,6 +47,7 @@ type HealthzOptions struct {
 type LifeCycleOptions struct {
 	EnableHealthz      bool
 	EnableCNCLifecycle bool
+	EnableCNRLifecycle bool
 
 	*HealthzOptions
 }
@@ -56,6 +57,7 @@ func NewLifeCycleOptions() *LifeCycleOptions {
 	return &LifeCycleOptions{
 		EnableHealthz:      false,
 		EnableCNCLifecycle: true,
+		EnableCNRLifecycle: true,
 		HealthzOptions: &HealthzOptions{
 			DryRun:        false,
 			NodeSelector:  "",
@@ -83,6 +85,8 @@ func (o *LifeCycleOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"whether to enable the healthz controller")
 	fs.BoolVar(&o.EnableCNCLifecycle, "cnc-lifecycle-enabled", o.EnableCNCLifecycle,
 		"whether to enable the cnc lifecycle controller")
+	fs.BoolVar(&o.EnableCNRLifecycle, "cnr-lifecycle-enabled", o.EnableCNRLifecycle,
+		"whether to enable the cnr lifecycle controller")
 
 	fs.BoolVar(&o.DryRun, "healthz-dry-run", o.DryRun,
 		"a bool to enable and disable dry-run logic of healthz controller.")
@@ -117,6 +121,7 @@ func (o *LifeCycleOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 func (o *LifeCycleOptions) ApplyTo(c *controller.LifeCycleConfig) error {
 	c.EnableHealthz = o.EnableHealthz
 	c.EnableCNCLifecycle = o.EnableCNCLifecycle
+	c.EnableCNRLifecycle = o.EnableCNRLifecycle
 
 	c.DryRun = o.DryRun
 

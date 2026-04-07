@@ -50,6 +50,7 @@ type HealthzConfig struct {
 type LifeCycleConfig struct {
 	EnableHealthz      bool
 	EnableCNCLifecycle bool
+	EnableCNRLifecycle bool
 
 	*CNRLifecycleConfig
 	*CNCLifecycleConfig
@@ -60,6 +61,7 @@ func NewLifeCycleConfig() *LifeCycleConfig {
 	return &LifeCycleConfig{
 		EnableHealthz:      false,
 		EnableCNCLifecycle: true,
+		EnableCNRLifecycle: true,
 		CNRLifecycleConfig: &CNRLifecycleConfig{},
 		CNCLifecycleConfig: &CNCLifecycleConfig{},
 		HealthzConfig:      &HealthzConfig{},
