@@ -193,7 +193,7 @@ func Test_priorityGroupDecorator_combinedDomainStats(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			d := &priorityGroupDecorator{}
+			d := &priorityAdvisor{}
 			gotStats, gotGroupInfo, err := d.combinedDomainStats(tt.domainsMon)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("combinedDomainStats() error = %v, wantErr %v", err, tt.wantErr)
@@ -267,7 +267,7 @@ func Test_priorityGroupDecorator_splitPlan(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			d := &priorityGroupDecorator{}
+			d := &priorityAdvisor{}
 			got := d.splitPlan(tt.mbPlan, tt.groupInfos)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("splitPlan() = %v, want %v", got, tt.want)

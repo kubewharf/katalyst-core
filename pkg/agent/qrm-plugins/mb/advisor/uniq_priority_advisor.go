@@ -36,7 +36,9 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
-type domainAdvisor struct {
+// uniqPriorityAdvisor is an priorityAdvisor which can only work with resctrl groups of distinct priorities;
+// due to this limitation, it should not be used directly.
+type uniqPriorityAdvisor struct {
 	emitter metrics.MetricEmitter
 
 	domains domain.Domains
@@ -59,123 +61,123 @@ type domainAdvisor struct {
 	ccdDistribute distributor.Distributor
 }
 
-func (d *domainAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.DomainStats) (*plan.MBPlan, error) {
-	d.emitStatsMtrics(domainsMon)
+func (a *uniqPriorityAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.DomainStats) (*plan.MBPlan, error) {
+	a.emitStatsMtrics(domainsMon)
 
 	// identify mb incoming usage etc since the capacity applies to incoming traffic
-	domIncomingInfo, err := d.calcIncomingDomainStats(ctx, domainsMon)
+	domIncomingInfo, err := a.calcIncomingDomainStats(ctx, domainsMon)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get plan")
 	}
 	if klog.V(6).Enabled() {
 		domTotalMBs := getDomainTotalMBs(domIncomingInfo)
-		general.InfofV(6, "[mbm] [advisor] domains incoming total: %v", domTotalMBs)
+		general.InfofV(6, "[mbm] [priorityAdvisor] domains incoming total: %v", domTotalMBs)
 	}
-	d.emitDomIncomingStatSummaryMetrics(domIncomingInfo)
+	a.emitDomIncomingStatSummaryMetrics(domIncomingInfo)
 
 	// based on mb incoming usage info, decide incoming quotas (i.e. targets)
-	domIncomingQuotas := d.getIncomingDomainQuotas(ctx, domIncomingInfo)
+	domIncomingQuotas := a.getIncomingDomainQuotas(ctx, domIncomingInfo)
 	groupedDomIncomingTargets := domIncomingQuotas.GetGroupedDomainSetting()
 	if klog.V(6).Enabled() {
-		general.InfofV(6, "[mbm] [advisor] group-domain incoming targets: %s",
+		general.InfofV(6, "[mbm] [priorityAdvisor] group-domain incoming targets: %s",
 			stringify(groupedDomIncomingTargets))
 	}
-	d.emitIncomingTargets(groupedDomIncomingTargets)
+	a.emitIncomingTargets(groupedDomIncomingTargets)
 
 	// for each group, based on incoming targets, decide what the outgoing targets are
 	var groupedDomOutgoingTargets map[string][]int
-	groupedDomOutgoingTargets, err = d.deriveOutgoingTargets(ctx, domainsMon.OutgoingGroupSumStat, groupedDomIncomingTargets)
+	groupedDomOutgoingTargets, err = a.deriveOutgoingTargets(ctx, domainsMon.OutgoingGroupSumStat, groupedDomIncomingTargets)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get plan")
 	}
 	if klog.V(6).Enabled() {
-		general.InfofV(6, "[mbm] [advisor] group-domain outgoing targets: %s",
+		general.InfofV(6, "[mbm] [priorityAdvisor] group-domain outgoing targets: %s",
 			stringify(groupedDomOutgoingTargets))
 	}
-	d.emitOutgoingTargets(groupedDomOutgoingTargets)
+	a.emitOutgoingTargets(groupedDomOutgoingTargets)
 
 	// leverage the current observed outgoing stats (and implicit previous outgoing mb)
 	// to adjust th outgoing mb hopeful to reach the desired target
 	groupedDomOutgoings := domainsMon.OutgoingGroupSumStat
-	groupedDomainOutgoingQuotas := d.adjust(ctx, groupedDomOutgoingTargets, groupedDomOutgoings, d.capPercent)
+	groupedDomainOutgoingQuotas := a.adjust(ctx, groupedDomOutgoingTargets, groupedDomOutgoings, a.capPercent)
 	if klog.V(6).Enabled() {
-		general.InfofV(6, "[mbm] [advisor] group-domain outgoing quotas adjusted: %s",
+		general.InfofV(6, "[mbm] [priorityAdvisor] group-domain outgoing quotas adjusted: %s",
 			stringify(groupedDomainOutgoingQuotas))
 	}
-	d.emitAdjustedOutgoingTargets(groupedDomainOutgoingQuotas)
+	a.emitAdjustedOutgoingTargets(groupedDomainOutgoingQuotas)
 
 	// split outgoing mb to ccd level
-	groupedCCDOutgoingQuotas := d.distributeToCCDs(ctx, groupedDomainOutgoingQuotas, domainsMon.Outgoings)
+	groupedCCDOutgoingQuotas := a.distributeToCCDs(ctx, groupedDomainOutgoingQuotas, domainsMon.Outgoings)
 	if klog.V(6).Enabled() {
-		general.InfofV(6, "[mbm] [advisor] group-ccd outgoing quotas: %v", groupedCCDOutgoingQuotas)
+		general.InfofV(6, "[mbm] [priorityAdvisor] group-ccd outgoing quotas: %v", groupedCCDOutgoingQuotas)
 	}
 	rawPlan := convertToPlan(groupedCCDOutgoingQuotas)
 	if klog.V(6).Enabled() {
-		general.InfofV(6, "[mbm] [advisor] raw plan: %s", rawPlan)
+		general.InfofV(6, "[mbm] [priorityAdvisor] raw plan: %s", rawPlan)
 	}
-	d.emitRawPlan(rawPlan)
+	a.emitRawPlan(rawPlan)
 
 	// finalize plan with never-throttle groups and ccb mb checks
-	checkedPlan := applyPlanCCDBoundsChecks(rawPlan, d.ccdMinMB, d.ccdMaxMB)
-	updatePlan := maskPlanWithNoThrottles(checkedPlan, d.groupNeverThrottles, d.getNoThrottleMB())
+	checkedPlan := applyPlanCCDBoundsChecks(rawPlan, a.ccdMinMB, a.ccdMaxMB)
+	updatePlan := maskPlanWithNoThrottles(checkedPlan, a.groupNeverThrottles, a.getNoThrottleMB())
 	if klog.V(6).Enabled() {
-		general.InfofV(6, "[mbm] [advisor] mb plan update: %s", updatePlan)
+		general.InfofV(6, "[mbm] [priorityAdvisor] mb plan update: %s", updatePlan)
 	}
-	d.emitUpdatePlan(updatePlan)
+	a.emitUpdatePlan(updatePlan)
 
 	return updatePlan, nil
 }
 
-func (d *domainAdvisor) getNoThrottleMB() int {
-	if d.ccdMaxMB > 0 {
-		return d.ccdMaxMB
+func (a *uniqPriorityAdvisor) getNoThrottleMB() int {
+	if a.ccdMaxMB > 0 {
+		return a.ccdMaxMB
 	}
 
-	return d.defaultDomainCapacity
+	return a.defaultDomainCapacity
 }
 
-func (d *domainAdvisor) adjust(_ context.Context,
+func (a *uniqPriorityAdvisor) adjust(_ context.Context,
 	groupedSettings map[string][]int, observed map[string][]monitor.MBInfo, capPercent int,
 ) map[string][]int {
 	result := map[string][]int{}
 	activeGroups := sets.String{}
 	for group, values := range groupedSettings {
 		currents := getGroupOutgoingTotals(group, observed)
-		if _, ok := d.adjusters[group]; !ok {
-			d.adjusters[group] = adjuster.New(capPercent)
+		if _, ok := a.adjusters[group]; !ok {
+			a.adjusters[group] = adjuster.New(capPercent)
 		}
-		result[group] = d.adjusters[group].AdjustOutgoingTargets(values, currents)
+		result[group] = a.adjusters[group].AdjustOutgoingTargets(values, currents)
 		activeGroups.Insert(group)
 	}
 
 	// clean up to avoid memory leak
 	if len(groupedSettings) > 0 {
-		for group := range d.adjusters {
+		for group := range a.adjusters {
 			if activeGroups.Has(group) {
 				continue
 			}
-			delete(d.adjusters, group)
+			delete(a.adjusters, group)
 		}
 	}
 
 	return result
 }
 
-func (d *domainAdvisor) getIncomingDomainQuotas(_ context.Context, domIncomingInfo map[int]*resource.MBGroupIncomingStat,
+func (a *uniqPriorityAdvisor) getIncomingDomainQuotas(_ context.Context, domIncomingInfo map[int]*resource.MBGroupIncomingStat,
 ) resource.DomQuotas {
 	domQuotas := map[int]resource.GroupSettings{}
 	for dom, incomingInfo := range domIncomingInfo {
-		domQuotas[dom] = d.quotaStrategy.GetGroupQuotas(incomingInfo)
+		domQuotas[dom] = a.quotaStrategy.GetGroupQuotas(incomingInfo)
 	}
 	return domQuotas
 }
 
-func (d *domainAdvisor) calcIncomingDomainStats(ctx context.Context, mon *monitor.DomainStats,
+func (a *uniqPriorityAdvisor) calcIncomingDomainStats(ctx context.Context, mon *monitor.DomainStats,
 ) (map[int]*resource.MBGroupIncomingStat, error) {
 	incomingInfoOfDomains := make(map[int]*resource.MBGroupIncomingStat)
 	var err error
 	for domID, incomingStats := range mon.Incomings {
-		incomingInfoOfDomains[domID], err = d.calcIncomingStat(domID, incomingStats)
+		incomingInfoOfDomains[domID], err = a.calcIncomingStat(domID, incomingStats)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to calc domain quotas")
 		}
@@ -183,8 +185,8 @@ func (d *domainAdvisor) calcIncomingDomainStats(ctx context.Context, mon *monito
 	return incomingInfoOfDomains, nil
 }
 
-func (d *domainAdvisor) calcIncomingStat(domID int, incomingStats monitor.GroupMBStats) (*resource.MBGroupIncomingStat, error) {
-	capacity, err := d.getEffectiveCapacity(domID, incomingStats)
+func (a *uniqPriorityAdvisor) calcIncomingStat(domID int, incomingStats monitor.GroupMBStats) (*resource.MBGroupIncomingStat, error) {
+	capacity, err := a.getEffectiveCapacity(domID, incomingStats)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to calc domain capacity")
 	}
@@ -194,15 +196,15 @@ func (d *domainAdvisor) calcIncomingStat(domID int, incomingStats monitor.GroupM
 }
 
 // getEffectiveCapacity gets the effective memory bandwidth capacity of specified domain, with its given resource usage
-func (d *domainAdvisor) getEffectiveCapacity(domID int, domIncomingStats monitor.GroupMBStats) (int, error) {
-	if _, ok := d.domains[domID]; !ok {
+func (a *uniqPriorityAdvisor) getEffectiveCapacity(domID int, domIncomingStats monitor.GroupMBStats) (int, error) {
+	if _, ok := a.domains[domID]; !ok {
 		return 0, fmt.Errorf("unknown domain %d", domID)
 	}
 
-	return getMinEffectiveCapacity(d.defaultDomainCapacity, d.groupCapacityInMB, domIncomingStats), nil
+	return getMinEffectiveCapacity(a.defaultDomainCapacity, a.groupCapacityInMB, domIncomingStats), nil
 }
 
-func (d *domainAdvisor) deriveOutgoingTargets(_ context.Context,
+func (a *uniqPriorityAdvisor) deriveOutgoingTargets(_ context.Context,
 	outgoingGroupSumStat map[string][]monitor.MBInfo, incomingTargets map[string][]int,
 ) (map[string][]int, error) {
 	// for each group: based on incoming targets, decide what the outgoing targets are
@@ -215,17 +217,17 @@ func (d *domainAdvisor) deriveOutgoingTargets(_ context.Context,
 			continue
 		}
 
-		if d.xDomGroups.Has(group) {
+		if a.xDomGroups.Has(group) {
 			localRatio := make([]float64, len(domSums))
 			for i, domSum := range domSums {
 				// limit the excessive remote traffic if applicable
-				remoteTarget := d.domains[i].GetAlienMBLimit()
+				remoteTarget := a.domains[i].GetAlienMBLimit()
 				if remoteTarget > domSum.RemoteMB {
 					remoteTarget = domSum.RemoteMB
 				}
 				localRatio[i] = float64(domSum.LocalMB) / float64(domSum.LocalMB+remoteTarget)
 			}
-			outgoingTargets, err := d.flower.InvertFlow(localRatio, groupIncomingTargets)
+			outgoingTargets, err := a.flower.InvertFlow(localRatio, groupIncomingTargets)
 			if err != nil {
 				return nil, errors.Wrap(err, "failed to get sourcing outgoing out of desired incoming targets")
 			}
@@ -239,14 +241,14 @@ func (d *domainAdvisor) deriveOutgoingTargets(_ context.Context,
 	return result, nil
 }
 
-func (d *domainAdvisor) distributeToCCDs(_ context.Context,
+func (a *uniqPriorityAdvisor) distributeToCCDs(_ context.Context,
 	quotas map[string][]int, outgoingStat map[int]monitor.GroupMBStats,
 ) map[string]map[int]int {
 	result := map[string]map[int]int{}
 	for group, domQuota := range quotas {
 		// each domain is treated independently
 		for domID, domTotal := range domQuota {
-			ccdDistributions := d.domainDistributeGroup(domID, group, domTotal, outgoingStat)
+			ccdDistributions := a.domainDistributeGroup(domID, group, domTotal, outgoingStat)
 			if len(ccdDistributions) == 0 {
 				continue
 			}
@@ -262,7 +264,7 @@ func (d *domainAdvisor) distributeToCCDs(_ context.Context,
 	return result
 }
 
-func (d *domainAdvisor) domainDistributeGroup(domID int, group string,
+func (a *uniqPriorityAdvisor) domainDistributeGroup(domID int, group string,
 	domTotal int, outgoingStat map[int]monitor.GroupMBStats,
 ) map[int]int {
 	weights := map[int]int{}
@@ -270,9 +272,9 @@ func (d *domainAdvisor) domainDistributeGroup(domID int, group string,
 	for ccd, stat := range groupStat {
 		weights[ccd] = stat.TotalMB
 	}
-	domCCDQuotas := d.ccdDistribute.Distribute(domTotal, weights)
+	domCCDQuotas := a.ccdDistribute.Distribute(domTotal, weights)
 	if klog.V(6).Enabled() {
-		general.InfofV(6, "[mbm] [advisor] domain %d, group %s, total %v, weights %v, distribute to ccd quotas: %v",
+		general.InfofV(6, "[mbm] [priorityAdvisor] domain %d, group %s, total %v, weights %v, distribute to ccd quotas: %v",
 			domID, group, domTotal, weights, domCCDQuotas)
 	}
 	result := map[int]int{}
@@ -282,15 +284,15 @@ func (d *domainAdvisor) domainDistributeGroup(domID int, group string,
 	return result
 }
 
-func NewDomainAdvisor(emitter metrics.MetricEmitter, domains domain.Domains, ccdMinMB, ccdMaxMB int, defaultDomainCapacity int,
+func newUniqPriorityAdvisor(emitter metrics.MetricEmitter, domains domain.Domains, ccdMinMB, ccdMaxMB int, defaultDomainCapacity int,
 	capPercent int, XDomGroups []string, groupNeverThrottles []string,
 	groupCapacity map[string]int,
-) Advisor {
+) *uniqPriorityAdvisor {
 	// do not throttle built-in "/" anytime
 	notThrottles := sets.NewString("/")
 	notThrottles.Insert(groupNeverThrottles...)
 
-	return &domainAdvisor{
+	return &uniqPriorityAdvisor{
 		emitter:               emitter,
 		domains:               domains,
 		xDomGroups:            sets.NewString(XDomGroups...),

@@ -160,7 +160,7 @@ func preProcessGroupInfo(stats monitor.GroupMBStats) (monitor.GroupMBStats, doma
 			continue
 		}
 
-		newKey := fmt.Sprintf("combined-%d", weight)
+		newKey := getCombinedGroupKey(weight)
 		groupInfo := combinedGroupMapping{}
 		combined := make(monitor.GroupMB)
 		maxMap := make(map[int]int)
@@ -228,8 +228,7 @@ func preProcessGroupSumStat(sumStats map[string][]monitor.MBInfo) map[string][]m
 }
 
 func getCombinedGroupKey(weight int) string {
-	newKey := fmt.Sprintf("%s%d", combinedGroupPrefix, weight)
-	return newKey
+	return fmt.Sprintf("%s%d", combinedGroupPrefix, weight)
 }
 
 func isCombinedGroup(groupName string) bool {

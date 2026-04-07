@@ -21,15 +21,19 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/domain"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
+	"github.com/kubewharf/katalyst-core/pkg/metrics"
 )
 
-// priorityGroupDecorator adapts with resctrl groups of identical priority as if a logical group.
+// priorityAdvisor is able to work with resctrl groups with priority;
+// one groups' priority can be the same as that of others'.
+// It leverages uniqPriorityAdvisor working with groups of distinct priorities only.
 // It targets the scenarios where the groups of same priority don't share ccd.
 // todo: enhance to handle multiple groups of same priority sharing ccd
-type priorityGroupDecorator struct {
-	inner Advisor
+type priorityAdvisor struct {
+	uniqPriorityAdvisor *uniqPriorityAdvisor
 }
 
 // groupInfo stores the mapping of groups and their CCDs for each domain
@@ -46,19 +50,19 @@ type combinedGroupMapping map[string]ccdSet
 // ccdSet represents a set of CCD IDs
 type ccdSet = sets.Int
 
-func (d *priorityGroupDecorator) GetPlan(ctx context.Context, domainsMon *monitor.DomainStats) (*plan.MBPlan, error) {
-	domainStats, groupInfos, err := d.combinedDomainStats(domainsMon)
+func (a *priorityAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.DomainStats) (*plan.MBPlan, error) {
+	domainStats, groupInfos, err := a.combinedDomainStats(domainsMon)
 	if err != nil {
 		return nil, err
 	}
-	mbPlan, err := d.inner.GetPlan(ctx, domainStats)
+	mbPlan, err := a.uniqPriorityAdvisor.GetPlan(ctx, domainStats)
 	if err != nil {
 		return nil, err
 	}
-	return d.splitPlan(mbPlan, groupInfos), nil
+	return a.splitPlan(mbPlan, groupInfos), nil
 }
 
-func (d *priorityGroupDecorator) combinedDomainStats(domainsMon *monitor.DomainStats) (*monitor.DomainStats, *groupInfo, error) {
+func (a *priorityAdvisor) combinedDomainStats(domainsMon *monitor.DomainStats) (*monitor.DomainStats, *groupInfo, error) {
 	domainStats := &monitor.DomainStats{
 		Incomings:            make(map[int]monitor.DomainMonStat),
 		Outgoings:            make(map[int]monitor.DomainMonStat),
@@ -84,7 +88,7 @@ func (d *priorityGroupDecorator) combinedDomainStats(domainsMon *monitor.DomainS
 	return domainStats, groupInfos, nil
 }
 
-func (d *priorityGroupDecorator) splitPlan(mbPlan *plan.MBPlan, groupInfos *groupInfo) *plan.MBPlan {
+func (a *priorityAdvisor) splitPlan(mbPlan *plan.MBPlan, groupInfos *groupInfo) *plan.MBPlan {
 	for groupKey, ccdPlan := range mbPlan.MBGroups {
 		if !isCombinedGroup(groupKey) {
 			continue
@@ -106,8 +110,15 @@ func (d *priorityGroupDecorator) splitPlan(mbPlan *plan.MBPlan, groupInfos *grou
 	return mbPlan
 }
 
-func DecorateByPriorityGroup(advisor Advisor) Advisor {
-	return &priorityGroupDecorator{
-		inner: advisor,
+func New(emitter metrics.MetricEmitter, domains domain.Domains, ccdMinMB, ccdMaxMB int, defaultDomainCapacity int,
+	capPercent int, XDomGroups []string, groupNeverThrottles []string,
+	groupCapacity map[string]int,
+) Advisor {
+	return &priorityAdvisor{
+		uniqPriorityAdvisor: newUniqPriorityAdvisor(emitter,
+			domains, ccdMinMB, ccdMaxMB, defaultDomainCapacity, capPercent,
+			XDomGroups, groupNeverThrottles,
+			groupCapacity,
+		),
 	}
 }

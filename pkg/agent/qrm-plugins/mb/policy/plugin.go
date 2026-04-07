@@ -127,16 +127,12 @@ func (m *MBPlugin) Start() (err error) {
 	}
 
 	// initializing advisor field is deferred as qos group mb capacities is known now
-	general.Infof("mbm: create traditional advior")
-	m.advisor = advisor.NewDomainAdvisor(m.emitter, m.domains,
+	general.Infof("mbm: create advior able to treat multiple resctrl groups with identical priority")
+	m.advisor = advisor.New(m.emitter, m.domains,
 		m.conf.MinCCDMB, m.conf.MaxCCDMB,
 		defaultMBDomainCapacity, m.conf.MBCapLimitPercent,
 		m.conf.CrossDomainGroups, m.conf.MBQRMPluginConfig.NoThrottleGroups,
 		groupCapacities)
-	if !m.conf.GroupPriorityUnique {
-		general.Infof("mbm: use enhanced advior able to treat multiple resctrl groups with identical priority")
-		m.advisor = advisor.DecorateByPriorityGroup(m.advisor)
-	}
 
 	go func() {
 		wait.Until(m.run, interval, m.chStop)
