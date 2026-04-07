@@ -97,7 +97,8 @@ func (r *managerImpl) PushContents(ctx context.Context, responses map[string]*v1
 	for gvk, fields := range reportFieldsByGVK {
 		u, ok := r.reporters[gvk]
 		if !ok || u == nil {
-			return fmt.Errorf("reporter of gvk %s not found", gvk)
+			klog.Warningf("reporter of gvk %s not found", gvk)
+			continue
 		}
 
 		sort.SliceStable(fields, func(i, j int) bool {

@@ -201,6 +201,33 @@ func Test_managerImpl_PushContents(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name: "test-2",
+			fields: fields{
+				conf:      generateTestConfiguration(t),
+				reporters: map[v1.GroupVersionKind]Reporter{},
+			},
+			args: args{
+				ctx: context.TODO(),
+				responses: map[string]*v1alpha1.GetReportContentResponse{
+					"agent-2": {
+						Content: []*v1alpha1.ReportContent{
+							{
+								GroupVersionKind: &testGroupVersionKindFirst,
+								Field: []*v1alpha1.ReportField{
+									{
+										FieldType: v1alpha1.FieldType_Spec,
+										FieldName: "fieldName_b",
+										Value:     []byte("Value_b"),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
 	}
 	for _, tt := range tests {
 		tt := tt
