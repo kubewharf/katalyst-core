@@ -18,7 +18,6 @@ package advisor
 
 import (
 	"context"
-	"strings"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 
@@ -87,7 +86,7 @@ func (d *priorityGroupDecorator) combinedDomainStats(domainsMon *monitor.DomainS
 
 func (d *priorityGroupDecorator) splitPlan(mbPlan *plan.MBPlan, groupInfos *groupInfo) *plan.MBPlan {
 	for groupKey, ccdPlan := range mbPlan.MBGroups {
-		if !strings.Contains(groupKey, "combined-") {
+		if !isCombinedGroup(groupKey) {
 			continue
 		}
 		for _, domainGroupInfos := range groupInfos.DomainGroups {

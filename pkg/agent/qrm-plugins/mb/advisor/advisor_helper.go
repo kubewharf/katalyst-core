@@ -30,6 +30,8 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
 )
 
+const combinedGroupPrefix = "combined-"
+
 // getMinEffectiveCapacity identifies the min dynamic capacity required by pre-defined groups,
 // if the specific groups have active MB traffics
 func getMinEffectiveCapacity(base int, groupCaps map[string]int, incomingStats monitor.GroupMBStats) int {
@@ -206,8 +208,11 @@ func preProcessGroupSumStat(sumStats map[string][]monitor.MBInfo) map[string][]m
 			continue
 		}
 
-		newKey := fmt.Sprintf("combined-%d", weight)
-		sumList := make([]monitor.MBInfo, len(sumStats[equivGroups[0]]))
+		newKey := getCombinedGroupKey(weight)
+		// sumStats holds outgoing summary of each domain for each group, in other words,
+		// each slot of sumStats has uniform shape: slice with length of domain number
+		numDomains := len(sumStats[equivGroups[0]])
+		sumList := make([]monitor.MBInfo, numDomains)
 
 		for _, group := range equivGroups {
 			for id, stat := range sumStats[group] {
@@ -220,6 +225,15 @@ func preProcessGroupSumStat(sumStats map[string][]monitor.MBInfo) map[string][]m
 	}
 
 	return result
+}
+
+func getCombinedGroupKey(weight int) string {
+	newKey := fmt.Sprintf("%s%d", combinedGroupPrefix, weight)
+	return newKey
+}
+
+func isCombinedGroup(groupName string) bool {
+	return strings.Contains(groupName, combinedGroupPrefix)
 }
 
 func getLimitsByGroupSorted(capacity int, groupSorting []sets.String, groupUsages map[string]int) (int, map[string]int) {
