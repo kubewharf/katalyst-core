@@ -23,12 +23,14 @@ import (
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/protocol/reporterplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 // Manager indicates the way that resources are updated, and it
@@ -123,6 +125,13 @@ func (r *managerImpl) getReporter(genericClient *client.GenericClientSet, metaSe
 ) error {
 	var errList []error
 	for gvk, f := range initializers {
+		if conf != nil && conf.GenericReporterConfiguration != nil {
+			if !general.IsNameEnabled(gvk.Kind, nil, conf.GenericReporterConfiguration.AgentReporters) {
+				klog.Infof("reporter %q is disabled", gvk.Kind)
+				continue
+			}
+		}
+
 		reporter, err := f(genericClient, metaServer, emitter, conf)
 		if err != nil {
 			errList = append(errList, err)
