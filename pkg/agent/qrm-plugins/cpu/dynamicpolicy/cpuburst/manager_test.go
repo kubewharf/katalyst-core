@@ -53,9 +53,6 @@ func generateTestMetaServer(pods []*v1.Pod) *metaserver.MetaServer {
 
 func TestManagerImpl_UpdateCPUBurst(t *testing.T) {
 	t.Parallel()
-
-	conf := config.NewConfiguration()
-	conf.QoSConfiguration = generic.NewQoSConfiguration()
 	type resultState map[string]uint64
 
 	tests := []struct {
@@ -65,6 +62,8 @@ func TestManagerImpl_UpdateCPUBurst(t *testing.T) {
 		wantErr        bool
 		adminQoSConfig *adminqos.AdminQoSConfiguration
 		wantResults    resultState
+		enableMainOnly bool
+		mainAnnoKey    string
 	}{
 		{
 			name: "dedicated cores pods with no cpu burst policy means there is no change in cpu burst value",
@@ -518,6 +517,93 @@ func TestManagerImpl_UpdateCPUBurst(t *testing.T) {
 			},
 		},
 		{
+			name: "cpu burst main container only updates only the specified main container",
+			pods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						UID: "test-pod",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey:       consts.PodAnnotationQoSLevelDedicatedCores,
+							consts.PodAnnotationCPUEnhancementKey: `{"cpu_burst_policy":"static", "cpu_burst_percent":"50"}`,
+							"test.main.container":                 "test-container-2",
+						},
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{Name: "test-container-1"},
+							{Name: "test-container-2"},
+						},
+					},
+					Status: v1.PodStatus{
+						ContainerStatuses: []v1.ContainerStatus{
+							{Name: "test-container-1", ContainerID: "test-container-1-id"},
+							{Name: "test-container-2", ContainerID: "test-container-2-id"},
+						},
+					},
+				},
+			},
+			mocks: func(s resultState) {
+				mockey.Mock(common.IsContainerCgroupExist).Return(true, nil).Build()
+				mockey.Mock(common.GetContainerAbsCgroupPath).To(func(_, podUID, containerID string) (string, error) {
+					return "/sys/fs/cgroup/cpu/" + podUID + "/" + containerID, nil
+				}).Build()
+				mockey.Mock(manager.GetCPUWithAbsolutePath).Return(&common.CPUStats{CpuQuota: 200}, nil).Build()
+				mockey.Mock(manager.ApplyCPUWithAbsolutePath).
+					To(func(absPath string, cpuData *common.CPUData) error {
+						s[absPath] = *cpuData.CpuBurst
+						return nil
+					}).Build()
+			},
+			enableMainOnly: true,
+			mainAnnoKey:    "test.main.container",
+			wantResults: resultState{
+				"/sys/fs/cgroup/cpu/test-pod/test-container-2-id": 100,
+			},
+		},
+		{
+			name: "cpu burst main container only falls back to the first container when main container annotation is missing",
+			pods: []*v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						UID: "test-pod",
+						Annotations: map[string]string{
+							consts.PodAnnotationQoSLevelKey:       consts.PodAnnotationQoSLevelDedicatedCores,
+							consts.PodAnnotationCPUEnhancementKey: `{"cpu_burst_policy":"static", "cpu_burst_percent":"50"}`,
+						},
+					},
+					Spec: v1.PodSpec{
+						Containers: []v1.Container{
+							{Name: "test-container-1"},
+							{Name: "test-container-2"},
+						},
+					},
+					Status: v1.PodStatus{
+						ContainerStatuses: []v1.ContainerStatus{
+							{Name: "test-container-1", ContainerID: "test-container-1-id"},
+							{Name: "test-container-2", ContainerID: "test-container-2-id"},
+						},
+					},
+				},
+			},
+			mocks: func(s resultState) {
+				mockey.Mock(common.IsContainerCgroupExist).Return(true, nil).Build()
+				mockey.Mock(common.GetContainerAbsCgroupPath).To(func(_, podUID, containerID string) (string, error) {
+					return "/sys/fs/cgroup/cpu/" + podUID + "/" + containerID, nil
+				}).Build()
+				mockey.Mock(manager.GetCPUWithAbsolutePath).Return(&common.CPUStats{CpuQuota: 200}, nil).Build()
+				mockey.Mock(manager.ApplyCPUWithAbsolutePath).
+					To(func(absPath string, cpuData *common.CPUData) error {
+						s[absPath] = *cpuData.CpuBurst
+						return nil
+					}).Build()
+			},
+			enableMainOnly: true,
+			mainAnnoKey:    "test.main.container",
+			wantResults: resultState{
+				"/sys/fs/cgroup/cpu/test-pod/test-container-1-id": 100,
+			},
+		},
+		{
 			name: "get container ID fails does not return error",
 			pods: []*v1.Pod{
 				{
@@ -638,6 +724,13 @@ func TestManagerImpl_UpdateCPUBurst(t *testing.T) {
 			results := make(resultState)
 			if tt.mocks != nil {
 				tt.mocks(results)
+			}
+
+			conf := config.NewConfiguration()
+			conf.QoSConfiguration = generic.NewQoSConfiguration()
+			conf.EnableCPUBurstForMainContainerOnly = tt.enableMainOnly
+			if tt.mainAnnoKey != "" {
+				conf.MainContainerAnnotationKey = tt.mainAnnoKey
 			}
 
 			cpuBurstManager := newManager(generateTestMetaServer(tt.pods))

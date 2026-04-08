@@ -54,6 +54,7 @@ type CPUDynamicPolicyOptions struct {
 	EnableCPUBurst                      bool
 	EnableDefaultDedicatedCoresCPUBurst bool
 	EnableDefaultSharedCoresCPUBurst    bool
+	EnableCPUBurstForMainContainerOnly  bool
 	*irqtuner.IRQTunerOptions
 	*hintoptimizer.HintOptimizerOptions
 }
@@ -140,6 +141,8 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.EnableDefaultSharedCoresCPUBurst, "if set true, it will enable cpu burst for shared cores by default")
 	fs.BoolVar(&o.EnableDefaultDedicatedCoresCPUBurst, "enable-default-dedicated-cores-cpu-burst",
 		o.EnableDefaultDedicatedCoresCPUBurst, "if set true, it will enable cpu burst for dedicated cores by default")
+	fs.BoolVar(&o.EnableCPUBurstForMainContainerOnly, "enable-cpu-burst-for-main-container-only",
+		o.EnableCPUBurstForMainContainerOnly, "if set true, it will enable cpu burst for main container only")
 	o.HintOptimizerOptions.AddFlags(fss)
 	o.IRQTunerOptions.AddFlags(fss)
 }
@@ -164,6 +167,7 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 	conf.EnableCPUBurst = o.EnableCPUBurst
 	conf.EnableDefaultDedicatedCoresCPUBurst = o.EnableDefaultDedicatedCoresCPUBurst
 	conf.EnableDefaultSharedCoresCPUBurst = o.EnableDefaultSharedCoresCPUBurst
+	conf.EnableCPUBurstForMainContainerOnly = o.EnableCPUBurstForMainContainerOnly
 	if err := o.HintOptimizerOptions.ApplyTo(conf.HintOptimizerConfiguration); err != nil {
 		return err
 	}
