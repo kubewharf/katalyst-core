@@ -834,31 +834,33 @@ func TestGetCPUTopologyAllocationsAnnotations(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name                   string
-		ai                     *state.AllocationInfo
-		req                    *pluginapi.ResourceRequest
-		isReclaimedOrSharedQoS bool
-		wantNilAnno            bool
-		wantErr                bool
-		wantTopology           v1alpha1.TopologyAllocation
+		name         string
+		ai           *state.AllocationInfo
+		req          *pluginapi.ResourceRequest
+		wantNilAnno  bool
+		wantErr      bool
+		wantTopology v1alpha1.TopologyAllocation
 	}{
 		{
-			name:                   "nil allocation info returns nil",
-			ai:                     nil,
-			req:                    nil,
-			isReclaimedOrSharedQoS: false,
-			wantNilAnno:            true,
+			name:        "nil allocation info returns nil",
+			ai:          nil,
+			req:         nil,
+			wantNilAnno: true,
 		},
 		{
 			name: "empty assignments produce empty NUMA map",
-			ai:   &state.AllocationInfo{TopologyAwareAssignments: map[int]machine.CPUSet{}},
+			ai: &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					ContainerType: pluginapi.ContainerType_MAIN.String(),
+				},
+				TopologyAwareAssignments: map[int]machine.CPUSet{},
+			},
 			req: &pluginapi.ResourceRequest{
 				ResourceName: string(v1.ResourceCPU),
 				ResourceRequests: map[string]float64{
 					string(v1.ResourceCPU): 2,
 				},
 			},
-			isReclaimedOrSharedQoS: false,
 			wantTopology: v1alpha1.TopologyAllocation{
 				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{},
 			},
@@ -866,6 +868,9 @@ func TestGetCPUTopologyAllocationsAnnotations(t *testing.T) {
 		{
 			name: "non-empty assignments add quantities and attributes",
 			ai: &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					ContainerType: pluginapi.ContainerType_MAIN.String(),
+				},
 				TopologyAwareAssignments: map[int]machine.CPUSet{
 					0: machine.NewCPUSet(0, 1),
 					2: machine.NewCPUSet(4),
@@ -877,7 +882,6 @@ func TestGetCPUTopologyAllocationsAnnotations(t *testing.T) {
 					string(v1.ResourceCPU): 2,
 				},
 			},
-			isReclaimedOrSharedQoS: false,
 			wantTopology: v1alpha1.TopologyAllocation{
 				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
 					"0": {
@@ -902,6 +906,9 @@ func TestGetCPUTopologyAllocationsAnnotations(t *testing.T) {
 		{
 			name: "non-empty assignments add quantities and attributes (multiple zones)",
 			ai: &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					ContainerType: pluginapi.ContainerType_MAIN.String(),
+				},
 				TopologyAwareAssignments: map[int]machine.CPUSet{
 					0: machine.NewCPUSet(0, 1),       // size 2 => "2"
 					1: machine.NewCPUSet(3, 5, 6, 7), // size 4 => "4"
@@ -913,7 +920,6 @@ func TestGetCPUTopologyAllocationsAnnotations(t *testing.T) {
 					string(v1.ResourceCPU): 4,
 				},
 			},
-			isReclaimedOrSharedQoS: false,
 			wantTopology: v1alpha1.TopologyAllocation{
 				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
 					"0": {
@@ -936,8 +942,15 @@ func TestGetCPUTopologyAllocationsAnnotations(t *testing.T) {
 			},
 		},
 		{
-			name: "shared/reclaimed uses requested quantity (single NUMA)",
+			name: "shared/reclaimed with single NUMA and request quantity",
 			ai: &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					ContainerType: pluginapi.ContainerType_MAIN.String(),
+					QoSLevel:      consts.PodAnnotationQoSLevelSharedCores,
+					Annotations: map[string]string{
+						consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					},
+				},
 				TopologyAwareAssignments: map[int]machine.CPUSet{
 					0: machine.NewCPUSet(0, 1, 2),
 				},
@@ -948,7 +961,124 @@ func TestGetCPUTopologyAllocationsAnnotations(t *testing.T) {
 					string(v1.ResourceCPU): 2,
 				},
 			},
-			isReclaimedOrSharedQoS: true,
+			wantTopology: v1alpha1.TopologyAllocation{
+				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
+					"0": {
+						Allocated: map[v1.ResourceName]resource.Quantity{
+							v1.ResourceCPU: resource.MustParse("2"),
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "shared/reclaimed with single NUMA and decimal request quantity",
+			ai: &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					ContainerType: pluginapi.ContainerType_MAIN.String(),
+					QoSLevel:      consts.PodAnnotationQoSLevelSharedCores,
+					Annotations: map[string]string{
+						consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					},
+				},
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(0, 1, 2),
+				},
+			},
+			req: &pluginapi.ResourceRequest{
+				ResourceName: string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 0.5,
+				},
+			},
+			wantTopology: v1alpha1.TopologyAllocation{
+				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
+					"0": {
+						Allocated: map[v1.ResourceName]resource.Quantity{
+							v1.ResourceCPU: resource.MustParse("500m"),
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "shared/reclaimed with single NUMA and decimal request quantity (high precision)",
+			ai: &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					ContainerType: pluginapi.ContainerType_MAIN.String(),
+					QoSLevel:      consts.PodAnnotationQoSLevelSharedCores,
+					Annotations: map[string]string{
+						consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					},
+				},
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(0, 1, 2),
+				},
+			},
+			req: &pluginapi.ResourceRequest{
+				ResourceName: string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 0.125,
+				},
+			},
+			wantTopology: v1alpha1.TopologyAllocation{
+				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
+					"0": {
+						Allocated: map[v1.ResourceName]resource.Quantity{
+							v1.ResourceCPU: resource.MustParse("125m"),
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "reclaimed with single NUMA and decimal request quantity",
+			ai: &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					ContainerType: pluginapi.ContainerType_MAIN.String(),
+					QoSLevel:      consts.PodAnnotationQoSLevelReclaimedCores,
+					Annotations: map[string]string{
+						consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					},
+				},
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					1: machine.NewCPUSet(4, 5),
+				},
+			},
+			req: &pluginapi.ResourceRequest{
+				ResourceName: string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 1.75,
+				},
+			},
+			wantTopology: v1alpha1.TopologyAllocation{
+				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
+					"1": {
+						Allocated: map[v1.ResourceName]resource.Quantity{
+							v1.ResourceCPU: resource.MustParse("1750m"),
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "dedicated cores with multiple NUMAs (uses assignment size)",
+			ai: &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					ContainerType: pluginapi.ContainerType_MAIN.String(),
+					QoSLevel:      consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(0, 1),
+					1: machine.NewCPUSet(8, 9, 10),
+				},
+			},
+			req: &pluginapi.ResourceRequest{
+				ResourceName: string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 5,
+				},
+			},
 			wantTopology: v1alpha1.TopologyAllocation{
 				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
 					"0": {
@@ -956,7 +1086,15 @@ func TestGetCPUTopologyAllocationsAnnotations(t *testing.T) {
 							v1.ResourceCPU: resource.MustParse("2"),
 						},
 						Attributes: map[string]string{
-							"CpusetCpus": "0-2",
+							"CpusetCpus": "0-1",
+						},
+					},
+					"1": {
+						Allocated: map[v1.ResourceName]resource.Quantity{
+							v1.ResourceCPU: resource.MustParse("3"),
+						},
+						Attributes: map[string]string{
+							"CpusetCpus": "8-10",
 						},
 					},
 				},
@@ -965,6 +1103,13 @@ func TestGetCPUTopologyAllocationsAnnotations(t *testing.T) {
 		{
 			name: "shared/reclaimed with multiple NUMAs returns error",
 			ai: &state.AllocationInfo{
+				AllocationMeta: commonstate.AllocationMeta{
+					ContainerType: pluginapi.ContainerType_MAIN.String(),
+					QoSLevel:      consts.PodAnnotationQoSLevelSharedCores,
+					Annotations: map[string]string{
+						consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					},
+				},
 				TopologyAwareAssignments: map[int]machine.CPUSet{
 					0: machine.NewCPUSet(0),
 					1: machine.NewCPUSet(1),
@@ -976,8 +1121,7 @@ func TestGetCPUTopologyAllocationsAnnotations(t *testing.T) {
 					string(v1.ResourceCPU): 2,
 				},
 			},
-			isReclaimedOrSharedQoS: true,
-			wantErr:                true,
+			wantErr: true,
 		},
 	}
 
@@ -985,7 +1129,7 @@ func TestGetCPUTopologyAllocationsAnnotations(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := GetCPUTopologyAllocationsAnnotations(tt.ai, coreconsts.QRMPodAnnotationTopologyAllocationKey, tt.req, tt.isReclaimedOrSharedQoS)
+			got, err := GetCPUTopologyAllocationsAnnotations(tt.ai, coreconsts.QRMPodAnnotationTopologyAllocationKey, tt.req)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("expected error, got nil")

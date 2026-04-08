@@ -207,61 +207,85 @@ func PackAllocationResponse(allocationInfo *state.AllocationInfo, resourceName, 
 	}, nil
 }
 
-// GetCPUTopologyAllocationsAnnotations gets the cpu topology allocation in the form of annotations.
+// GetCPUTopologyAllocationsAnnotations returns the topology-aware CPU allocation annotations for a given container.
+// It handles different QoS levels:
+// - For DedicatedCores: uses the actual assigned CPUSet size on each NUMA node.
+// - For SharedCores/ReclaimedCores with NUMA binding: uses the pod's aggregated request quantity.
+// This function only processes main containers and returns nil for sidecars or invalid allocation info.
 func GetCPUTopologyAllocationsAnnotations(allocationInfo *state.AllocationInfo,
-	topologyAllocationAnnotationKey string, req *pluginapi.ResourceRequest, isReclaimedOrSharedQoS bool,
+	topologyAllocationAnnotationKey string, req *pluginapi.ResourceRequest,
 ) (map[string]string, error) {
-	if allocationInfo == nil {
+	// Skip processing if allocation info is invalid or it's not the main container.
+	if allocationInfo == nil || !allocationInfo.CheckMainContainer() {
 		return nil, nil
 	}
 
 	assignments := allocationInfo.TopologyAwareAssignments
+	// Determine if this is a shared or reclaimed QoS level with NUMA binding enabled.
+	// This affects whether we use the request quantity or the physical assignment size.
+	isSharedOrReclaimedNUMABinding := allocationInfo.CheckSharedNUMABinding() || allocationInfo.CheckReclaimedNUMABinding()
 
-	// Validate shared/reclaimed case
-	var reqQty int64
-	if isReclaimedOrSharedQoS {
+	// For shared or reclaimed cores with NUMA binding, they must be restricted to a single NUMA node.
+	var reqQty float64
+	if isSharedOrReclaimedNUMABinding {
 		if len(assignments) != 1 {
-			return nil, fmt.Errorf("allocations should not be in more than 1 numa for shared or reclaimed cores")
+			return nil, fmt.Errorf("shared/reclaimed cores with NUMA binding should be pinned to exactly 1 NUMA node, got %d", len(assignments))
 		}
 
-		_, reqFloat64, err := util.GetQuantityFromResourceReq(req)
+		// Use the aggregated pod request quantity for shared/reclaimed cores to represent the logical allocation.
+		_, reqFloat64, err := util.GetPodAggregatedRequestResource(req)
 		if err != nil {
-			return nil, fmt.Errorf("getReqQuantityFromResourceReq failed: %w", err)
+			return nil, fmt.Errorf("failed to get aggregated request resource: %v", err)
 		}
-		reqQty = int64(reqFloat64)
+		reqQty = reqFloat64
 	}
 
-	// Build topology allocation
+	// Initialize the internal TopologyAllocation structure.
 	topologyAllocation := v1alpha1.TopologyAllocation{
 		v1alpha1.TopologyTypeNuma: make(map[string]v1alpha1.ZoneAllocation),
 	}
 
 	for numaNode, assignment := range assignments {
-		var cpuQty int64
-		if isReclaimedOrSharedQoS {
+		var cpuQty float64
+		var assignmentToReport machine.CPUSet
+		if isSharedOrReclaimedNUMABinding {
 			cpuQty = reqQty
+			// For shared/reclaimed cores, we don't report the CPUSet attribute in the annotation.
+			assignmentToReport = machine.NewCPUSet()
 		} else {
-			cpuQty = int64(assignment.Size())
+			// For dedicated cores, the quantity is the physical count of CPUs assigned on this NUMA node.
+			cpuQty = float64(assignment.Size())
+			assignmentToReport = assignment
 		}
 
-		topologyAllocation[v1alpha1.TopologyTypeNuma][strconv.Itoa(numaNode)] = buildZoneAllocation(cpuQty, assignment)
+		topologyAllocation[v1alpha1.TopologyTypeNuma][strconv.Itoa(numaNode)] = buildZoneAllocation(cpuQty, assignmentToReport)
 	}
 
+	// Generate the final resource allocation annotations from the topology structure.
 	return util.MakeTopologyAllocationResourceAllocationAnnotations(
 		topologyAllocation,
 		topologyAllocationAnnotationKey,
 	), nil
 }
 
-func buildZoneAllocation(cpuQty int64, assignment machine.CPUSet) v1alpha1.ZoneAllocation {
-	return v1alpha1.ZoneAllocation{
+// buildZoneAllocation creates a ZoneAllocation for a specific NUMA node.
+// It uses NewMilliQuantity to accurately represent decimal CPU quantities (up to 0.001 core precision).
+func buildZoneAllocation(cpuQty float64, assignment machine.CPUSet) v1alpha1.ZoneAllocation {
+	za := v1alpha1.ZoneAllocation{
 		Allocated: map[v1.ResourceName]resource.Quantity{
-			v1.ResourceCPU: *resource.NewQuantity(cpuQty, resource.DecimalSI),
-		},
-		Attributes: map[string]string{
-			util.OCIPropertyNameCPUSetCPUs: assignment.String(),
+			// Convert cores to milli-cores and round to the nearest integer.
+			v1.ResourceCPU: *resource.NewMilliQuantity(int64(math.Round(cpuQty*1000)), resource.DecimalSI),
 		},
 	}
+
+	// Only report the CPUSet attribute if the assignment is non-empty.
+	if !assignment.IsEmpty() {
+		za.Attributes = map[string]string{
+			util.OCIPropertyNameCPUSetCPUs: assignment.String(),
+		}
+	}
+
+	return za
 }
 
 // AdvisorDegradation checks if the advisor is in a degraded state.

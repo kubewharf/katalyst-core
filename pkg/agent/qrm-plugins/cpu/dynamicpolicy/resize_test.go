@@ -1286,7 +1286,7 @@ func TestReclaimedCoresVPA(t *testing.T) {
 								},
 							},
 							Annotations: map[string]string{
-								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"1"},"attributes":{"CpusetCpus":"0-2"}}}}`,
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"1"}}}}`,
 							},
 						},
 					},
@@ -1411,7 +1411,7 @@ func TestReclaimedCoresVPA(t *testing.T) {
 								},
 							},
 							Annotations: map[string]string{
-								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"3"},"attributes":{"CpusetCpus":"0-2"}}}}`,
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"3"}}}}`,
 							},
 						},
 					},
