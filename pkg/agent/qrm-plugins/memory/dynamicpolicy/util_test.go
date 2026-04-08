@@ -110,12 +110,13 @@ func TestGetMemoryTopologyAllocationsAnnotations(t *testing.T) {
 	t.Parallel()
 
 	giB := func(n int) uint64 { return uint64(n) << 30 }
+	hugepages2Mi := v1.ResourceName("hugepages-2Mi")
 
 	tests := []struct {
 		name         string
-		ai           *state.AllocationInfo
+		ai           map[v1.ResourceName]*state.AllocationInfo
 		wantNilAnno  bool
-		wantTopology v1alpha1.TopologyAllocation
+		wantTopology map[v1.ResourceName]v1alpha1.TopologyAllocation
 	}{
 		{
 			name:        "nil allocation info returns nil",
@@ -123,40 +124,50 @@ func TestGetMemoryTopologyAllocationsAnnotations(t *testing.T) {
 			wantNilAnno: true,
 		},
 		{
-			name:        "no topology allocations and empty NUMA result returns nil",
-			ai:          &state.AllocationInfo{},
+			name: "no topology allocations and empty NUMA result returns nil",
+			ai: map[v1.ResourceName]*state.AllocationInfo{
+				v1.ResourceMemory: {},
+			},
 			wantNilAnno: true,
 		},
 		{
 			name: "no topology allocations but with NUMA result lists zones only",
-			ai: &state.AllocationInfo{
-				NumaAllocationResult: machine.NewCPUSet(0, 1),
+			ai: map[v1.ResourceName]*state.AllocationInfo{
+				v1.ResourceMemory: {
+					NumaAllocationResult: machine.NewCPUSet(0, 1),
+				},
 			},
-			wantTopology: v1alpha1.TopologyAllocation{
-				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
-					"0": {},
-					"1": {},
+			wantTopology: map[v1.ResourceName]v1alpha1.TopologyAllocation{
+				v1.ResourceMemory: {
+					v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
+						"0": {},
+						"1": {},
+					},
 				},
 			},
 		},
 		{
 			name: "with topology allocations includes allocated quantities",
-			ai: &state.AllocationInfo{
-				TopologyAwareAllocations: map[int]uint64{
-					0: giB(1),
-					1: giB(2),
+			ai: map[v1.ResourceName]*state.AllocationInfo{
+				v1.ResourceMemory: {
+					TopologyAwareAllocations: map[int]uint64{
+						0: giB(1),
+						1: giB(2),
+					},
 				},
 			},
-			wantTopology: v1alpha1.TopologyAllocation{
-				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
-					"0": {
-						Allocated: map[v1.ResourceName]resource.Quantity{
-							v1.ResourceMemory: resource.MustParse("1Gi"),
+			wantTopology: map[v1.ResourceName]v1alpha1.TopologyAllocation{
+				v1.ResourceMemory: {
+					v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
+						"0": {
+							Allocated: map[v1.ResourceName]resource.Quantity{
+								v1.ResourceMemory: resource.MustParse("1Gi"),
+							},
 						},
-					},
-					"1": {
-						Allocated: map[v1.ResourceName]resource.Quantity{
-							v1.ResourceMemory: resource.MustParse("2Gi"),
+						"1": {
+							Allocated: map[v1.ResourceName]resource.Quantity{
+								v1.ResourceMemory: resource.MustParse("2Gi"),
+							},
 						},
 					},
 				},
@@ -164,23 +175,91 @@ func TestGetMemoryTopologyAllocationsAnnotations(t *testing.T) {
 		},
 		{
 			name: "with topology allocations includes allocated quantities (including zero)",
-			ai: &state.AllocationInfo{
-				TopologyAwareAllocations: map[int]uint64{
-					0: giB(3),
-					2: 0,
+			ai: map[v1.ResourceName]*state.AllocationInfo{
+				v1.ResourceMemory: {
+					TopologyAwareAllocations: map[int]uint64{
+						0: giB(3),
+						2: 0,
+					},
 				},
 			},
-			wantTopology: v1alpha1.TopologyAllocation{
-				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
-					"0": {
-						Allocated: map[v1.ResourceName]resource.Quantity{
-							v1.ResourceMemory: resource.MustParse("3Gi"),
+			wantTopology: map[v1.ResourceName]v1alpha1.TopologyAllocation{
+				v1.ResourceMemory: {
+					v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
+						"0": {
+							Allocated: map[v1.ResourceName]resource.Quantity{
+								v1.ResourceMemory: resource.MustParse("3Gi"),
+							},
+						},
+						"2": {
+							Allocated: map[v1.ResourceName]resource.Quantity{
+								v1.ResourceMemory: resource.MustParse("0"),
+							},
 						},
 					},
-					"2": {
-						Allocated: map[v1.ResourceName]resource.Quantity{
-							v1.ResourceMemory: resource.MustParse("0"),
+				},
+			},
+		},
+		{
+			name: "multiple resources include hugepages-2Mi allocations",
+			ai: map[v1.ResourceName]*state.AllocationInfo{
+				v1.ResourceMemory: {
+					TopologyAwareAllocations: map[int]uint64{
+						0: giB(1),
+					},
+				},
+				hugepages2Mi: {
+					TopologyAwareAllocations: map[int]uint64{
+						1: giB(2),
+					},
+				},
+			},
+			wantTopology: map[v1.ResourceName]v1alpha1.TopologyAllocation{
+				v1.ResourceMemory: {
+					v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
+						"0": {
+							Allocated: map[v1.ResourceName]resource.Quantity{
+								v1.ResourceMemory: resource.MustParse("1Gi"),
+							},
 						},
+					},
+				},
+				hugepages2Mi: {
+					v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
+						"1": {
+							Allocated: map[v1.ResourceName]resource.Quantity{
+								hugepages2Mi: resource.MustParse("2Gi"),
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "mixed resources with and without topology allocations",
+			ai: map[v1.ResourceName]*state.AllocationInfo{
+				v1.ResourceMemory: {
+					TopologyAwareAllocations: map[int]uint64{
+						0: giB(1),
+					},
+				},
+				hugepages2Mi: {
+					NumaAllocationResult: machine.NewCPUSet(1),
+				},
+			},
+			wantTopology: map[v1.ResourceName]v1alpha1.TopologyAllocation{
+				v1.ResourceMemory: {
+					v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
+						"0": {
+							Allocated: map[v1.ResourceName]resource.Quantity{
+								v1.ResourceMemory: resource.MustParse("1Gi"),
+							},
+						},
+					},
+				},
+				hugepages2Mi: {
+					v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
+						"1": {},
 					},
 				},
 			},
@@ -200,9 +279,11 @@ func TestGetMemoryTopologyAllocationsAnnotations(t *testing.T) {
 				return
 			}
 
-			ta := parseTopologyAllocationFromAnno(t, got)
-			if !reflect.DeepEqual(ta, tt.wantTopology) {
-				t.Fatalf("unexpected topology allocation. got=%v, want=%v", ta, tt.wantTopology)
+			for resourceName, want := range tt.wantTopology {
+				ta := parseTopologyAllocationFromAnno(t, got[resourceName])
+				if !reflect.DeepEqual(ta, want) {
+					t.Fatalf("unexpected topology allocation for resource %q. got=%v, want=%v", resourceName, ta, want)
+				}
 			}
 		})
 	}

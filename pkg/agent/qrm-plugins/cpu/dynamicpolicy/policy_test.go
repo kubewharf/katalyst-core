@@ -803,7 +803,7 @@ func TestAllocate(t *testing.T) {
 								},
 							},
 							Annotations: map[string]string{
-								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"3"},"attributes":{"CpusetCpus":"1,8-9"}}}}`,
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"2"},"attributes":{"CpusetCpus":"1,8-9"}}}}`,
 							},
 						},
 					},
@@ -868,7 +868,7 @@ func TestAllocate(t *testing.T) {
 								},
 							},
 							Annotations: map[string]string{
-								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"1"},"attributes":{"CpusetCpus":"1"}}}}`,
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"0"},"attributes":{"CpusetCpus":"1"}}}}`,
 							},
 						},
 					},
@@ -961,7 +961,7 @@ func TestAllocate(t *testing.T) {
 								},
 							},
 							Annotations: map[string]string{
-								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"3"},"attributes":{"CpusetCpus":"1,8-9"}}}}`,
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"1"},"attributes":{"CpusetCpus":"1,8-9"}}}}`,
 							},
 						},
 					},
@@ -1128,7 +1128,7 @@ func TestAllocate(t *testing.T) {
 								},
 							},
 							Annotations: map[string]string{
-								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"1"},"attributes":{"CpusetCpus":"1"}}}}`,
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"0"},"attributes":{"CpusetCpus":"1"}}}}`,
 							},
 						},
 					},

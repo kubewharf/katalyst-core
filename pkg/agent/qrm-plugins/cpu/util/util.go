@@ -204,28 +204,59 @@ func PackAllocationResponse(allocationInfo *state.AllocationInfo, resourceName, 
 
 // GetCPUTopologyAllocationsAnnotations gets the cpu topology allocation in the form of annotations.
 func GetCPUTopologyAllocationsAnnotations(allocationInfo *state.AllocationInfo,
-	topologyAllocationAnnotationKey string,
-) map[string]string {
+	topologyAllocationAnnotationKey string, req *pluginapi.ResourceRequest, isReclaimedOrSharedQoS bool,
+) (map[string]string, error) {
 	if allocationInfo == nil {
-		return nil
+		return nil, nil
 	}
 
-	topologyAllocation := make(v1alpha1.TopologyAllocation)
-	topologyAllocation[v1alpha1.TopologyTypeNuma] = make(map[string]v1alpha1.ZoneAllocation)
+	assignments := allocationInfo.TopologyAwareAssignments
 
-	for numaNode, assignment := range allocationInfo.TopologyAwareAssignments {
-		cpusetsSize := assignment.Size()
-		topologyAllocation[v1alpha1.TopologyTypeNuma][strconv.Itoa(numaNode)] = v1alpha1.ZoneAllocation{
-			Allocated: map[v1.ResourceName]resource.Quantity{
-				v1.ResourceCPU: *resource.NewQuantity(int64(cpusetsSize), resource.DecimalSI),
-			},
-			Attributes: map[string]string{
-				util.OCIPropertyNameCPUSetCPUs: assignment.String(),
-			},
+	// Validate shared/reclaimed case
+	var reqQty int64
+	if isReclaimedOrSharedQoS {
+		if len(assignments) != 1 {
+			return nil, fmt.Errorf("allocations should not be in more than 1 numa for shared or reclaimed cores")
 		}
+
+		_, reqFloat64, err := util.GetQuantityFromResourceReq(req)
+		if err != nil {
+			return nil, fmt.Errorf("getReqQuantityFromResourceReq failed: %w", err)
+		}
+		reqQty = int64(reqFloat64)
 	}
 
-	return util.MakeTopologyAllocationResourceAllocationAnnotations(topologyAllocation, topologyAllocationAnnotationKey)
+	// Build topology allocation
+	topologyAllocation := v1alpha1.TopologyAllocation{
+		v1alpha1.TopologyTypeNuma: make(map[string]v1alpha1.ZoneAllocation),
+	}
+
+	for numaNode, assignment := range assignments {
+		var cpuQty int64
+		if isReclaimedOrSharedQoS {
+			cpuQty = reqQty
+		} else {
+			cpuQty = int64(assignment.Size())
+		}
+
+		topologyAllocation[v1alpha1.TopologyTypeNuma][strconv.Itoa(numaNode)] = buildZoneAllocation(cpuQty, assignment)
+	}
+
+	return util.MakeTopologyAllocationResourceAllocationAnnotations(
+		topologyAllocation,
+		topologyAllocationAnnotationKey,
+	), nil
+}
+
+func buildZoneAllocation(cpuQty int64, assignment machine.CPUSet) v1alpha1.ZoneAllocation {
+	return v1alpha1.ZoneAllocation{
+		Allocated: map[v1.ResourceName]resource.Quantity{
+			v1.ResourceCPU: *resource.NewQuantity(cpuQty, resource.DecimalSI),
+		},
+		Attributes: map[string]string{
+			util.OCIPropertyNameCPUSetCPUs: assignment.String(),
+		},
+	}
 }
 
 func AdvisorDegradation(advisorHealth, enableReclaim bool) bool {
