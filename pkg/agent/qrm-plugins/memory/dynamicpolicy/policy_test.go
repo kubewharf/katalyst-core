@@ -244,6 +244,7 @@ func getTestDynamicPolicyWithExtraResourcesWithInitialization(
 		podDebugAnnoKeys:         []string{podDebugAnnoKey},
 		enableReclaimNUMABinding: true,
 		enableNonBindingShareCoresMemoryResourceCheck: true,
+		topologyAllocationAnnotationKey:               coreconsts.QRMPodAnnotationTopologyAllocationKey,
 		numaBindResultResourceAllocationAnnotationKey: coreconsts.QRMResourceAnnotationKeyNUMABindResult,
 		extraResourceNames:                            fakeConfWithExtraResources.ExtraMemoryResources,
 	}
@@ -829,6 +830,9 @@ func TestAllocate(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: 2147483648,
 							AllocationResult:  machine.NewCPUSet(0).String(),
+							Annotations: map[string]string{
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"memory":"2Gi"}}}}`,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -836,9 +840,6 @@ func TestAllocate(t *testing.T) {
 										Preferred: true,
 									},
 								},
-							},
-							Annotations: map[string]string{
-								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"memory":"2Gi"}}}}`,
 							},
 						},
 					},
@@ -1263,6 +1264,9 @@ func TestAllocate(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: 2147483648,
 							AllocationResult:  machine.NewCPUSet(0).String(),
+							Annotations: map[string]string{
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"memory":"2Gi"}}}}`,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -1278,6 +1282,9 @@ func TestAllocate(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: 2147483648,
 							AllocationResult:  machine.NewCPUSet(0).String(),
+							Annotations: map[string]string{
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"hugepages-2Mi":"2Gi"}}}}`,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -1339,6 +1346,9 @@ func TestAllocate(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: 2147483648,
 							AllocationResult:  machine.NewCPUSet(0, 1).String(),
+							Annotations: map[string]string{
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"memory":"1Gi"}},"1":{"allocated":{"memory":"1Gi"}}}}`,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -1354,6 +1364,9 @@ func TestAllocate(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: 2147483648,
 							AllocationResult:  machine.NewCPUSet(0, 1).String(),
+							Annotations: map[string]string{
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"hugepages-2Mi":"1Gi"}},"1":{"allocated":{"hugepages-2Mi":"1Gi"}}}}`,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -1434,6 +1447,9 @@ func TestAllocate(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: 2147483648,
 							AllocationResult:  machine.NewCPUSet(0).String(),
+							Annotations: map[string]string{
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"hugepages-2Mi":"2Gi"}}}}`,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{

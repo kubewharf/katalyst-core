@@ -829,23 +829,35 @@ func parseCPUTopologyAllocationFromAnno(t *testing.T, annos map[string]string) v
 	return ta
 }
 
-func TestGetCPUTopologyAllocationsAnnotations_Table(t *testing.T) {
+func TestGetCPUTopologyAllocationsAnnotations(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		ai           *state.AllocationInfo
-		wantNilAnno  bool
-		wantTopology v1alpha1.TopologyAllocation
+		name                   string
+		ai                     *state.AllocationInfo
+		req                    *pluginapi.ResourceRequest
+		isReclaimedOrSharedQoS bool
+		wantNilAnno            bool
+		wantErr                bool
+		wantTopology           v1alpha1.TopologyAllocation
 	}{
 		{
-			name:        "nil allocation info returns nil",
-			ai:          nil,
-			wantNilAnno: true,
+			name:                   "nil allocation info returns nil",
+			ai:                     nil,
+			req:                    nil,
+			isReclaimedOrSharedQoS: false,
+			wantNilAnno:            true,
 		},
 		{
 			name: "empty assignments produce empty NUMA map",
 			ai:   &state.AllocationInfo{TopologyAwareAssignments: map[int]machine.CPUSet{}},
+			req: &pluginapi.ResourceRequest{
+				ResourceName: string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 2,
+				},
+			},
+			isReclaimedOrSharedQoS: false,
 			wantTopology: v1alpha1.TopologyAllocation{
 				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{},
 			},
@@ -858,6 +870,13 @@ func TestGetCPUTopologyAllocationsAnnotations_Table(t *testing.T) {
 					2: machine.NewCPUSet(4),
 				},
 			},
+			req: &pluginapi.ResourceRequest{
+				ResourceName: string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 2,
+				},
+			},
+			isReclaimedOrSharedQoS: false,
 			wantTopology: v1alpha1.TopologyAllocation{
 				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
 					"0": {
@@ -887,6 +906,13 @@ func TestGetCPUTopologyAllocationsAnnotations_Table(t *testing.T) {
 					1: machine.NewCPUSet(3, 5, 6, 7), // size 4 => "4"
 				},
 			},
+			req: &pluginapi.ResourceRequest{
+				ResourceName: string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 4,
+				},
+			},
+			isReclaimedOrSharedQoS: false,
 			wantTopology: v1alpha1.TopologyAllocation{
 				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
 					"0": {
@@ -908,13 +934,66 @@ func TestGetCPUTopologyAllocationsAnnotations_Table(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "shared/reclaimed uses requested quantity (single NUMA)",
+			ai: &state.AllocationInfo{
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(0, 1, 2),
+				},
+			},
+			req: &pluginapi.ResourceRequest{
+				ResourceName: string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 2,
+				},
+			},
+			isReclaimedOrSharedQoS: true,
+			wantTopology: v1alpha1.TopologyAllocation{
+				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
+					"0": {
+						Allocated: map[v1.ResourceName]resource.Quantity{
+							v1.ResourceCPU: resource.MustParse("2"),
+						},
+						Attributes: map[string]string{
+							"CpusetCpus": "0-2",
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "shared/reclaimed with multiple NUMAs returns error",
+			ai: &state.AllocationInfo{
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(0),
+					1: machine.NewCPUSet(1),
+				},
+			},
+			req: &pluginapi.ResourceRequest{
+				ResourceName: string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 2,
+				},
+			},
+			isReclaimedOrSharedQoS: true,
+			wantErr:                true,
+		},
 	}
 
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := GetCPUTopologyAllocationsAnnotations(tt.ai, coreconsts.QRMPodAnnotationTopologyAllocationKey)
+			got, err := GetCPUTopologyAllocationsAnnotations(tt.ai, coreconsts.QRMPodAnnotationTopologyAllocationKey, tt.req, tt.isReclaimedOrSharedQoS)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 			if tt.wantNilAnno {
 				if got != nil {
 					t.Fatalf("expected nil annotations, got: %#v", got)

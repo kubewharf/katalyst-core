@@ -984,7 +984,12 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 		// Add topologyAllocationAnnotations for numa binding containers
 		var topologyAllocationAnnotations map[string]string
 		if allocationInfo.CheckNUMABinding() {
-			topologyAllocationAnnotations = cpuutil.GetCPUTopologyAllocationsAnnotations(allocationInfo, p.topologyAllocationAnnotationKey)
+			isReclaimedOrSharedQoS := allocationInfo.CheckReclaimed() || allocationInfo.CheckShared()
+			topologyAllocationAnnotations, err = cpuutil.GetCPUTopologyAllocationsAnnotations(allocationInfo, p.topologyAllocationAnnotationKey,
+				req, isReclaimedOrSharedQoS)
+			if err != nil {
+				return nil, fmt.Errorf("GetCPUTopologyAllocationsAnnotations failed with error: %v", err)
+			}
 		}
 
 		resp, err = cpuutil.PackAllocationResponse(allocationInfo, string(v1.ResourceCPU), util.OCIPropertyNameCPUSetCPUs,

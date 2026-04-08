@@ -21,8 +21,8 @@ import (
 	"fmt"
 	"math"
 	"sort"
-	"strings"
 	"strconv"
+	"strings"
 
 	info "github.com/google/cadvisor/info/v1"
 	v1 "k8s.io/api/core/v1"
@@ -221,35 +221,47 @@ func applySidecarAllocationInfoFromMainContainer(sidecarAllocationInfo, mainAllo
 }
 
 // getMemoryTopologyAllocationsAnnotations gets the memory topology allocation in the form of annotations.
-func getMemoryTopologyAllocationsAnnotations(allocationInfo *state.AllocationInfo,
+func getMemoryTopologyAllocationsAnnotations(allocationInfos map[v1.ResourceName]*state.AllocationInfo,
 	topologyAllocationAnnotationKey string,
-) map[string]string {
-	if allocationInfo == nil {
+) map[v1.ResourceName]map[string]string {
+	if allocationInfos == nil {
 		return nil
 	}
 
-	topologyAllocation := make(v1alpha1.TopologyAllocation)
-	topologyAllocation[v1alpha1.TopologyTypeNuma] = make(map[string]v1alpha1.ZoneAllocation)
-
-	// In the case where there are no topology aware allocations, we just report the numa nodes.
-	if allocationInfo.TopologyAwareAllocations == nil {
-		if allocationInfo.NumaAllocationResult.IsEmpty() {
-			return nil
+	resourceAnnos := make(map[v1.ResourceName]map[string]string)
+	for resourceName, ai := range allocationInfos {
+		if ai == nil {
+			continue
 		}
 
-		numaNodes := allocationInfo.NumaAllocationResult.ToSliceNoSortInt()
-		for _, numaNode := range numaNodes {
-			topologyAllocation[v1alpha1.TopologyTypeNuma][strconv.Itoa(numaNode)] = v1alpha1.ZoneAllocation{}
+		topologyAllocation := make(v1alpha1.TopologyAllocation)
+		topologyAllocation[v1alpha1.TopologyTypeNuma] = make(map[string]v1alpha1.ZoneAllocation)
+
+		// In the case where there are no topology aware allocations, we just report the numa nodes.
+		if ai.TopologyAwareAllocations == nil {
+			if ai.NumaAllocationResult.IsEmpty() {
+				continue
+			}
+
+			numaNodes := ai.NumaAllocationResult.ToSliceNoSortInt()
+			for _, numaNode := range numaNodes {
+				topologyAllocation[v1alpha1.TopologyTypeNuma][strconv.Itoa(numaNode)] = v1alpha1.ZoneAllocation{}
+			}
+		} else {
+			for numaNode, allocated := range ai.TopologyAwareAllocations {
+				topologyAllocation[v1alpha1.TopologyTypeNuma][strconv.Itoa(numaNode)] = v1alpha1.ZoneAllocation{
+					Allocated: map[v1.ResourceName]resource.Quantity{
+						resourceName: *resource.NewQuantity(int64(allocated), resource.BinarySI),
+					},
+				}
+			}
 		}
+
+		resourceAnnos[resourceName] = util.MakeTopologyAllocationResourceAllocationAnnotations(topologyAllocation, topologyAllocationAnnotationKey)
 	}
 
-	for numaNode, allocated := range allocationInfo.TopologyAwareAllocations {
-		topologyAllocation[v1alpha1.TopologyTypeNuma][strconv.Itoa(numaNode)] = v1alpha1.ZoneAllocation{
-			Allocated: map[v1.ResourceName]resource.Quantity{
-				v1.ResourceMemory: *resource.NewQuantity(int64(allocated), resource.BinarySI),
-			},
-		}
+	if len(resourceAnnos) == 0 {
+		return nil
 	}
-
-	return util.MakeTopologyAllocationResourceAllocationAnnotations(topologyAllocation, topologyAllocationAnnotationKey)
+	return resourceAnnos
 }
