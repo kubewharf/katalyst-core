@@ -1257,6 +1257,7 @@ func TestRNBMemoryVPA(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								coreconsts.QRMResourceAnnotationKeyNUMABindResult: "0",
+								coreconsts.QRMPodAnnotationTopologyAllocationKey:  `{"Numa":{"0":{}}}`,
 							},
 						},
 					},
@@ -1360,6 +1361,7 @@ func TestRNBMemoryVPA(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								coreconsts.QRMResourceAnnotationKeyNUMABindResult: "0",
+								coreconsts.QRMPodAnnotationTopologyAllocationKey:  `{"Numa":{"0":{}}}`,
 							},
 						},
 					},
@@ -1495,6 +1497,9 @@ func TestRNBMemoryVPA(t *testing.T) {
 										Preferred: true,
 									},
 								},
+							},
+							Annotations: map[string]string{
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{},"1":{}}}`,
 							},
 						},
 					},
