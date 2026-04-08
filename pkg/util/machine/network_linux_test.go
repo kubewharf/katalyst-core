@@ -1495,6 +1495,97 @@ func TestGetNicTxQueuesXpsConf(t *testing.T) {
 	})
 }
 
+func Test_getGVENicQueue2Irq(t *testing.T) {
+	nicInfo := &NicBasicInfo{
+		InterfaceInfo: InterfaceInfo{
+			Name:    "eth0",
+			IfIndex: 1,
+			PCIAddr: "0000:01:00.0",
+		},
+		Irqs:     []int{100, 101, 102, 103, 104, 105, 106},
+		QueueNum: 3,
+	}
+
+	PatchConvey("Test getGVENicQueue2Irq", t, func() {
+		PatchConvey("Scenario 1: NIC total irqs count of less than 2 * queueNum", func() {
+			nicInfo.QueueNum = 4
+			rxQueue2Irq, txQueue2Irq, err := getGVENicQueue2Irq(nicInfo)
+
+			So(rxQueue2Irq, ShouldBeNil)
+			So(txQueue2Irq, ShouldBeNil)
+			So(err, ShouldNotBeNil)
+			expectedErrMsg := fmt.Sprintf("%s total irqs count(%d) of all irqs %+v less than 2 * queueNum(%d)",
+				nicInfo, len(nicInfo.Irqs), nicInfo.Irqs, nicInfo.QueueNum)
+			So(err.Error(), ShouldEqual, expectedErrMsg)
+		})
+
+		PatchConvey("Scenario 2: Failed to read the interrupts file", func() {
+			nicInfo.QueueNum = 3
+			mockErr := errors.New("read file error")
+			Mock(os.ReadFile).Return(nil, mockErr).Build()
+
+			rxQueue2Irq, txQueue2Irq, err := getGVENicQueue2Irq(nicInfo)
+
+			So(rxQueue2Irq, ShouldBeNil)
+			So(txQueue2Irq, ShouldBeNil)
+			So(err, ShouldNotBeNil)
+			So(err.Error(), ShouldEqual, fmt.Sprintf("failed to ReadFile(%s), err %s", InterruptsFile, mockErr))
+		})
+
+		PatchConvey("Scenario 3: GVE NIC queue and IRQ mapping are successfully obtained", func() {
+			nicInfo.QueueNum = 3
+			interruptsContent := `
+			           CPU0       CPU1
+			100:        100        200   IR-PCI-MSI-edge   gve-ntfy-blk0@pci:0000:01:00.0
+			101:        100        200   IR-PCI-MSI-edge   gve-ntfy-blk1@pci:0000:01:00.0
+			102:        100        200   IR-PCI-MSI-edge   gve-ntfy-blk2@pci:0000:01:00.0
+			103:        100        200   IR-PCI-MSI-edge   gve-ntfy-blk3@pci:0000:01:00.0
+			104:        100        200   IR-PCI-MSI-edge   gve-ntfy-blk4@pci:0000:01:00.0
+			105:        100        200   IR-PCI-MSI-edge   gve-ntfy-blk5@pci:0000:01:00.0
+			106:        10         30    IR-PCI-MSI-edge   gve-mgmnt@pci:0000:01:00.0
+			107:        100        200   IR-PCI-MSI-edge   gve-ntfy-blk@
+			108:        100        200   IR-PCI-MSI-edge   gve-ntfy-blkkkk@pci:0000:01:00.0
+			109:        500        600   IR-PCI-MSI-edge   other-device
+			`
+			Mock(os.ReadFile).Return([]byte(interruptsContent), nil).Build()
+
+			rxQueue2Irq, txQueue2Irq, err := getGVENicQueue2Irq(nicInfo)
+
+			So(err, ShouldBeNil)
+			So(rxQueue2Irq, ShouldNotBeNil)
+			So(txQueue2Irq, ShouldNotBeNil)
+			expectedRxQueue2Irq := map[int]int{0: 103, 1: 104, 2: 105}
+			So(rxQueue2Irq, ShouldResemble, expectedRxQueue2Irq)
+			expectedTxQueue2Irq := map[int]int{0: 100, 1: 101, 2: 102}
+			So(txQueue2Irq, ShouldResemble, expectedTxQueue2Irq)
+		})
+
+		PatchConvey("Scenario 4: NIC total count of tx/rx irq is not equal to 2 * queueNum", func() {
+			nicInfo.QueueNum = 3
+			interruptsContent := `
+			           CPU0       CPU1
+			100:        100        200   IR-PCI-MSI-edge   gve-ntfy-blk0@pci:0000:01:00.0
+			101:        100        200   IR-PCI-MSI-edge   gve-ntfy-blk1@pci:0000:01:00.0
+			102:        100        200   IR-PCI-MSI-edge   gve-ntfy-blk2@pci:0000:01:00.0
+			103:        100        200   IR-PCI-MSI-edge   gve-ntfy-blk3@pci:0000:01:00.0
+			104:        10         30    IR-PCI-MSI-edge   gve-mgmnt@pci:0000:01:00.0
+			105:        500        600   IR-PCI-MSI-edge   other-device
+			`
+			Mock(os.ReadFile).Return([]byte(interruptsContent), nil).Build()
+
+			rxQueue2Irq, txQueue2Irq, err := getGVENicQueue2Irq(nicInfo)
+
+			So(rxQueue2Irq, ShouldBeNil)
+			So(txQueue2Irq, ShouldBeNil)
+			So(err, ShouldNotBeNil)
+			queue2Irq := map[int]int{0: 100, 1: 101, 2: 102, 3: 103}
+			expectedErrMsg := fmt.Sprintf("%s total count (%d) of tx/rx irqs %+v is not equal to 2 * queueNum(%d)",
+				nicInfo, len(queue2Irq), queue2Irq, nicInfo.QueueNum)
+			So(err.Error(), ShouldEqual, expectedErrMsg)
+		})
+	})
+}
+
 func Test_GetNicQueue2IrqWithQueueFilter(t *testing.T) {
 	nicInfo := &NicBasicInfo{
 		InterfaceInfo: InterfaceInfo{
@@ -1625,7 +1716,32 @@ func Test_GetNicQueue2IrqWithQueueFilter(t *testing.T) {
 
 func Test_GetNicQueue2Irq(t *testing.T) {
 	PatchConvey("Test GetNicQueue2Irq", t, func() {
-		PatchConvey("Scenario 1: Virtio network card", func() {
+		PatchConvey("Scenario 1: GVE NIC", func() {
+			nicInfo := &NicBasicInfo{
+				InterfaceInfo: InterfaceInfo{
+					IfIndex: 1,
+					Name:    "eth0",
+				},
+				QueueNum: 2,
+				Driver:   NicDriverGVE,
+			}
+
+			PatchConvey("Successfully get GVE NIC rx/tx queue2irq mapping", func() {
+				mockTxQueue2Irq := map[int]int{0: 100, 1: 101}
+				mockRxQueue2Irq := map[int]int{0: 102, 1: 103}
+				Mock(getGVENicQueue2Irq).To(func(_ *NicBasicInfo) (map[int]int, map[int]int, error) {
+					return mockRxQueue2Irq, mockTxQueue2Irq, nil
+				}).Build()
+
+				rxQueue2Irq, txQueue2Irq, err := GetNicQueue2Irq(nicInfo)
+
+				So(err, ShouldBeNil)
+				So(rxQueue2Irq, ShouldResemble, mockRxQueue2Irq)
+				So(txQueue2Irq, ShouldResemble, mockTxQueue2Irq)
+			})
+		})
+
+		PatchConvey("Scenario 2: Virtio network card", func() {
 			nicInfo := &NicBasicInfo{
 				IsVirtioNetDev: true,
 				VirtioNetName:  "virtio-net-p0",
@@ -1705,7 +1821,7 @@ func Test_GetNicQueue2Irq(t *testing.T) {
 			})
 		})
 
-		PatchConvey("Scenario 2: Non-Virtio NICs", func() {
+		PatchConvey("Scenario 3: Other NICs", func() {
 			nicInfo := &NicBasicInfo{
 				IsVirtioNetDev: false,
 				InterfaceInfo: InterfaceInfo{

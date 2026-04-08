@@ -45,6 +45,7 @@ const (
 	NicDriverVirtioNet = "virtio_net"
 	NicDriverI40E      = "i40e"
 	NicDriverIXGBE     = "ixgbe"
+	NicDriverGVE       = "gve"
 	NicDriverUnknown   = "unknownNicDriver"
 )
 

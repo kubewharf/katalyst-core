@@ -94,6 +94,11 @@ var unsupportedQueue2IrqDrivers = []string{
 	"xsc",
 }
 
+const (
+	gveNicQueueFilter    = "gve-ntfy-blk"
+	gveNicQueueDelimeter = "@"
+)
+
 var ErrUnsupportedNicIrq2Queue = errors.New("unsupported nic irq to queue mapping")
 
 var netnsMutex sync.Mutex
@@ -555,6 +560,84 @@ func GetNicTxQueuesXpsConf(nic *NicBasicInfo) (map[int]string, error) {
 	return txQueuesXpsConf, nil
 }
 
+func getGVENicQueue2Irq(nicInfo *NicBasicInfo) (map[int]int, map[int]int, error) {
+	if len(nicInfo.Irqs) < nicInfo.QueueNum*2 {
+		return nil, nil, fmt.Errorf("%s total irqs count(%d) of all irqs %+v less than 2 * queueNum(%d)",
+			nicInfo, len(nicInfo.Irqs), nicInfo.Irqs, nicInfo.QueueNum)
+	}
+	nicAllIrqs := sets.NewInt(nicInfo.Irqs...)
+
+	b, err := os.ReadFile(InterruptsFile)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to ReadFile(%s), err %s", InterruptsFile, err)
+	}
+
+	lines := strings.Split(string(b), "\n")
+	queue2Irq := make(map[int]int)
+
+	for _, line := range lines {
+		if len(line) == 0 {
+			continue
+		}
+
+		cols := strings.Fields(line)
+		if len(cols) == 0 {
+			continue
+		}
+
+		irq, err := strconv.Atoi(strings.TrimSuffix(cols[0], ":"))
+		if err != nil {
+			klog.Warningf("failed to parse irq number, err %s", err)
+			continue
+		}
+
+		if !nicAllIrqs.Has(irq) {
+			continue
+		}
+
+		queueStr := cols[len(cols)-1]
+		if !strings.Contains(queueStr, gveNicQueueFilter) {
+			continue
+		}
+
+		queueCols := strings.Split(queueStr, gveNicQueueDelimeter)
+		if len(queueCols) < 2 {
+			continue
+		}
+
+		queue, err := strconv.Atoi(strings.TrimPrefix(queueCols[0], gveNicQueueFilter))
+		if err != nil {
+			continue
+		}
+
+		queue2Irq[queue] = irq
+	}
+
+	if len(queue2Irq) < nicInfo.QueueNum*2 {
+		return nil, nil, fmt.Errorf("%s total count (%d) of tx/rx irqs %+v is not equal to 2 * queueNum(%d)",
+			nicInfo, len(queue2Irq), queue2Irq, nicInfo.QueueNum)
+	}
+
+	txQueue2Irq := make(map[int]int)
+	rxQueue2Irq := make(map[int]int)
+	firstRxQueueIndex := len(queue2Irq) / 2
+
+	for queue, irq := range queue2Irq {
+		// low half are tx queues, high half are rx queues,
+		// refer to gve_tx_idx_to_ntfy, gve_rx_idx_to_ntfy, gve_tx_add_to_block, gve_rx_add_to_block, gve_napi_poll functions
+		// from https://code.byted.org/data-system-ste/compute-virtual-ethernet-linux/tree/master/usr/src/gve-1.4.9+byted1
+		// and gve nic shrunk queues's irqs still exist in /proc/interrupts, e.g., when nic's queue number changed from 32 to 16,
+		// nic's original 32 queues's irqs still exist in /proc/interrupts
+		if queue < nicInfo.QueueNum {
+			txQueue2Irq[queue] = irq
+		} else if queue >= firstRxQueueIndex && queue < firstRxQueueIndex+nicInfo.QueueNum {
+			rxQueue2Irq[queue-firstRxQueueIndex] = irq
+		}
+	}
+
+	return rxQueue2Irq, txQueue2Irq, nil
+}
+
 func isUnsupportedNicQueue2Irq(nic *NicBasicInfo) bool {
 	if nic == nil {
 		return false
@@ -712,6 +795,10 @@ func GetNicQueue2IrqWithQueueFilter(nicInfo *NicBasicInfo, queueFilters []string
 
 // GetNicQueue2Irq get nic queue naming in /proc/interrrupts
 func GetNicQueue2Irq(nicInfo *NicBasicInfo) (map[int]int, map[int]int, error) {
+	if strings.HasPrefix(nicInfo.Driver, NicDriverGVE) {
+		return getGVENicQueue2Irq(nicInfo)
+	}
+
 	if nicInfo.IsVirtioNetDev {
 		queueFilter := fmt.Sprintf("%s-input", nicInfo.VirtioNetName)
 		queueDelimeter := "."
@@ -910,6 +997,9 @@ func GetNicQueuesCount(nicName string) (int, error) {
 		return -1, fmt.Errorf("ioctl SIOCETHTOOL failed: %v", errno)
 	}
 
+	if ec.CombinedCount == 0 {
+		return int(ec.RxCount), nil
+	}
 	return int(ec.CombinedCount), nil
 }
 
