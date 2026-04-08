@@ -77,7 +77,8 @@ func (p *PolicyCanonical) Update() error {
 		}
 
 		memoryProvisions[numaID] += uint64(memFreeNuma.Value)
-		memoryTotals[numaID] += uint64(memTotalNuma.Value)
+		// static huge pages should be excluded from total memory
+		memoryTotals[numaID] += uint64(memTotalNuma.Value - float64(p.metaServer.StaticHugePagesDetails[numaID]))
 		availNUMATotal += memTotalNuma.Value
 		general.InfoS("numa memory free",
 			"numaID", numaID,
