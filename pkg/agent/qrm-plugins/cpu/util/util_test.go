@@ -17,16 +17,19 @@ limitations under the License.
 package util
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 	"k8s.io/utils/ptr"
 
+	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
@@ -38,6 +41,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/adminqos/finegrainedresource"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
+	coreconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -804,6 +808,202 @@ func TestGetPodCPUBurstPercent(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				assert.Equal(t, tt.wantPercent, gotPercent)
+			}
+		})
+	}
+}
+
+// helper to extract topology allocation from annotations JSON
+func parseCPUTopologyAllocationFromAnno(t *testing.T, annos map[string]string) v1alpha1.TopologyAllocation {
+	t.Helper()
+	if annos == nil {
+		return nil
+	}
+	raw, ok := annos[coreconsts.QRMPodAnnotationTopologyAllocationKey]
+	if !ok {
+		return nil
+	}
+	var ta v1alpha1.TopologyAllocation
+	if err := json.Unmarshal([]byte(raw), &ta); err != nil {
+		t.Fatalf("failed to unmarshal topology allocation: %v", err)
+	}
+	return ta
+}
+
+func TestGetCPUTopologyAllocationsAnnotations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                   string
+		ai                     *state.AllocationInfo
+		req                    *pluginapi.ResourceRequest
+		isReclaimedOrSharedQoS bool
+		wantNilAnno            bool
+		wantErr                bool
+		wantTopology           v1alpha1.TopologyAllocation
+	}{
+		{
+			name:                   "nil allocation info returns nil",
+			ai:                     nil,
+			req:                    nil,
+			isReclaimedOrSharedQoS: false,
+			wantNilAnno:            true,
+		},
+		{
+			name: "empty assignments produce empty NUMA map",
+			ai:   &state.AllocationInfo{TopologyAwareAssignments: map[int]machine.CPUSet{}},
+			req: &pluginapi.ResourceRequest{
+				ResourceName: string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 2,
+				},
+			},
+			isReclaimedOrSharedQoS: false,
+			wantTopology: v1alpha1.TopologyAllocation{
+				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{},
+			},
+		},
+		{
+			name: "non-empty assignments add quantities and attributes",
+			ai: &state.AllocationInfo{
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(0, 1),
+					2: machine.NewCPUSet(4),
+				},
+			},
+			req: &pluginapi.ResourceRequest{
+				ResourceName: string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 2,
+				},
+			},
+			isReclaimedOrSharedQoS: false,
+			wantTopology: v1alpha1.TopologyAllocation{
+				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
+					"0": {
+						Allocated: map[v1.ResourceName]resource.Quantity{
+							v1.ResourceCPU: resource.MustParse("2"),
+						},
+						Attributes: map[string]string{
+							"CpusetCpus": "0-1",
+						},
+					},
+					"2": {
+						Allocated: map[v1.ResourceName]resource.Quantity{
+							v1.ResourceCPU: resource.MustParse("1"),
+						},
+						Attributes: map[string]string{
+							"CpusetCpus": "4",
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "non-empty assignments add quantities and attributes (multiple zones)",
+			ai: &state.AllocationInfo{
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(0, 1),       // size 2 => "2"
+					1: machine.NewCPUSet(3, 5, 6, 7), // size 4 => "4"
+				},
+			},
+			req: &pluginapi.ResourceRequest{
+				ResourceName: string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 4,
+				},
+			},
+			isReclaimedOrSharedQoS: false,
+			wantTopology: v1alpha1.TopologyAllocation{
+				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
+					"0": {
+						Allocated: map[v1.ResourceName]resource.Quantity{
+							v1.ResourceCPU: resource.MustParse("2"),
+						},
+						Attributes: map[string]string{
+							"CpusetCpus": "0-1",
+						},
+					},
+					"1": {
+						Allocated: map[v1.ResourceName]resource.Quantity{
+							v1.ResourceCPU: resource.MustParse("4"),
+						},
+						Attributes: map[string]string{
+							"CpusetCpus": "3,5-7",
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "shared/reclaimed uses requested quantity (single NUMA)",
+			ai: &state.AllocationInfo{
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(0, 1, 2),
+				},
+			},
+			req: &pluginapi.ResourceRequest{
+				ResourceName: string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 2,
+				},
+			},
+			isReclaimedOrSharedQoS: true,
+			wantTopology: v1alpha1.TopologyAllocation{
+				v1alpha1.TopologyTypeNuma: map[string]v1alpha1.ZoneAllocation{
+					"0": {
+						Allocated: map[v1.ResourceName]resource.Quantity{
+							v1.ResourceCPU: resource.MustParse("2"),
+						},
+						Attributes: map[string]string{
+							"CpusetCpus": "0-2",
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "shared/reclaimed with multiple NUMAs returns error",
+			ai: &state.AllocationInfo{
+				TopologyAwareAssignments: map[int]machine.CPUSet{
+					0: machine.NewCPUSet(0),
+					1: machine.NewCPUSet(1),
+				},
+			},
+			req: &pluginapi.ResourceRequest{
+				ResourceName: string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 2,
+				},
+			},
+			isReclaimedOrSharedQoS: true,
+			wantErr:                true,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := GetCPUTopologyAllocationsAnnotations(tt.ai, coreconsts.QRMPodAnnotationTopologyAllocationKey, tt.req, tt.isReclaimedOrSharedQoS)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tt.wantNilAnno {
+				if got != nil {
+					t.Fatalf("expected nil annotations, got: %#v", got)
+				}
+				return
+			}
+			ta := parseCPUTopologyAllocationFromAnno(t, got)
+			if !reflect.DeepEqual(ta, tt.wantTopology) {
+				t.Fatalf("unexpected topology allocation. got=%v, want=%v", ta, tt.wantTopology)
 			}
 		})
 	}
