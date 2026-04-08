@@ -46,6 +46,7 @@ type SriovStaticPolicyOptions struct {
 }
 
 type SriovDynamicPolicyOptions struct {
+	PodRequiredAnnotations      map[string]string
 	LargeSizeVFQueueCount       int
 	LargeSizeVFCPUThreshold     int
 	LargeSizeVFFailOnExhaustion bool
@@ -69,6 +70,7 @@ func NewSriovOptions() *SriovOptions {
 			MaxBondingVFQueueCount: math.MaxInt32,
 		},
 		SriovDynamicPolicyOptions: SriovDynamicPolicyOptions{
+			PodRequiredAnnotations:      map[string]string{},
 			LargeSizeVFQueueCount:       32,
 			LargeSizeVFCPUThreshold:     24,
 			LargeSizeVFFailOnExhaustion: true,
@@ -90,6 +92,7 @@ func (o *SriovOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.StringToStringVar(&o.ExtraAnnotations, "sriov-vf-extra-annotations", o.ExtraAnnotations, "Extra annotations for sriov vf")
 	fs.IntVar(&o.MinBondingVFQueueCount, "static-min-bonding-vf-queue-count", o.MinBondingVFQueueCount, "Min queue count of bonding VF can be allocated in static policy")
 	fs.IntVar(&o.MaxBondingVFQueueCount, "static-max-bonding-vf-queue-count", o.MaxBondingVFQueueCount, "Max queue count of bonding VF can be allocated in static policy")
+	fs.StringToStringVar(&o.PodRequiredAnnotations, "dynamic-pod-required-annotations", o.PodRequiredAnnotations, "Required annotations for pod to dynamic allocate VF")
 	fs.IntVar(&o.LargeSizeVFQueueCount, "dynamic-large-size-vf-queue-count", o.LargeSizeVFQueueCount, "Queue count for VF to be identified as large size VF in dynamic policy")
 	fs.IntVar(&o.LargeSizeVFCPUThreshold, "dynamic-large-size-vf-cpu-threshold", o.LargeSizeVFCPUThreshold, "Threshold of cpu quantity to allocate large size VF in dynamic policy")
 	fs.BoolVar(&o.LargeSizeVFFailOnExhaustion, "dynamic-large-size-vf-fail-on-exhaustion", o.LargeSizeVFFailOnExhaustion, "Should fail or not when large size VF is exhausted in dynamic policy")
@@ -109,6 +112,7 @@ func (s *SriovOptions) ApplyTo(config *qrmconfig.SriovQRMPluginConfig) error {
 	}
 	config.MinBondingVFQueueCount = s.MinBondingVFQueueCount
 	config.MaxBondingVFQueueCount = s.MaxBondingVFQueueCount
+	config.PodRequiredAnnotations = s.PodRequiredAnnotations
 	config.LargeSizeVFQueueCount = s.LargeSizeVFQueueCount
 	config.LargeSizeVFCPUThreshold = s.LargeSizeVFCPUThreshold
 	config.LargeSizeVFFailOnExhaustion = s.LargeSizeVFFailOnExhaustion

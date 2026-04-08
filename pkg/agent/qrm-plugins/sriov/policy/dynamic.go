@@ -44,13 +44,28 @@ import (
 	cpudynamicpolicy "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy"
 )
 
+type podFilter func(req *pluginapi.ResourceRequest) bool
+
+func requiredAnnotationFilter(required map[string]string) podFilter {
+	return func(req *pluginapi.ResourceRequest) bool {
+		for requiredK, requiredV := range required {
+			if gotV, exists := req.Annotations[requiredK]; !exists || gotV != requiredV {
+				return false
+			}
+		}
+
+		return true
+	}
+}
+
 type DynamicPolicy struct {
 	sync.RWMutex
 	*basePolicy
 
-	name    string
-	started bool
-	emitter metrics.MetricEmitter
+	name       string
+	started    bool
+	emitter    metrics.MetricEmitter
+	podFilters []podFilter
 
 	policyConfig qrmconfig.SriovDynamicPolicyConfig
 }
@@ -76,10 +91,16 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		return false, agent.ComponentStub{}, nil
 	}
 
+	var podFilters []podFilter
+	if conf.SriovDynamicPolicyConfig.PodRequiredAnnotations != nil {
+		podFilters = append(podFilters, requiredAnnotationFilter(conf.SriovDynamicPolicyConfig.PodRequiredAnnotations))
+	}
+
 	dynamicPolicy := &DynamicPolicy{
 		name:         fmt.Sprintf("%s_%s", agentName, consts.SriovResourcePluginPolicyNameDynamic),
 		emitter:      wrappedEmitter,
 		basePolicy:   basePolicy,
+		podFilters:   podFilters,
 		policyConfig: conf.SriovDynamicPolicyConfig,
 	}
 
@@ -112,8 +133,6 @@ func (p *DynamicPolicy) Run(ctx context.Context) {
 
 	<-ctx.Done()
 	general.Infof("stopped")
-
-	return
 }
 
 // GetAccompanyResourceTopologyHints get topology hints of accompany resources
@@ -146,6 +165,11 @@ func (p *DynamicPolicy) GetAccompanyResourceTopologyHints(req *pluginapi.Resourc
 	// reuse allocation info allocated by same pod and container
 	_, exists := podEntries[req.PodUid]
 	if exists {
+		return nil
+	}
+
+	if !p.shouldDynamicAllocateForPod(req) {
+		general.Infof("pod %s/%s filtered out, skip get accompany resource topology hints", req.PodNamespace, req.PodName)
 		return nil
 	}
 
@@ -234,14 +258,6 @@ func (p *DynamicPolicy) AllocateAccompanyResource(req *pluginapi.ResourceRequest
 		}
 	}()
 
-	qosLevel, err := qrmutil.GetKatalystQoSLevelFromResourceReq(p.qosConfig, req, p.podAnnotationKeptKeys, p.podLabelKeptKeys)
-	if err != nil {
-		err = fmt.Errorf("GetKatalystQoSLevelFromResourceReq for pod: %s/%s, container: %s failed with error: %v",
-			req.PodNamespace, req.PodName, req.ContainerName, err)
-		general.Errorf("%s", err.Error())
-		return err
-	}
-
 	// reuse allocation info allocated by same pod and container
 	allocationInfo := p.state.GetAllocationInfo(req.PodUid, req.ContainerName)
 	if allocationInfo != nil {
@@ -254,6 +270,20 @@ func (p *DynamicPolicy) AllocateAccompanyResource(req *pluginapi.ResourceRequest
 	if req.Hint == nil || len(req.Hint.Nodes) == 0 {
 		general.Warningf("request %s/%s/%s has no hint, skip allocate accompany resource", req.PodNamespace, req.PodName, req.ContainerName)
 		return nil
+	}
+
+	// qrmutil.GetKatalystQoSLevelFromResourceReq would overwrite req.Annotations, so we should run before it
+	if !p.shouldDynamicAllocateForPod(req) {
+		general.Infof("pod %s/%s filtered out, skip allocate accompany resource", req.PodNamespace, req.PodName)
+		return nil
+	}
+
+	qosLevel, err := qrmutil.GetKatalystQoSLevelFromResourceReq(p.qosConfig, req, p.podAnnotationKeptKeys, p.podLabelKeptKeys)
+	if err != nil {
+		err = fmt.Errorf("GetKatalystQoSLevelFromResourceReq for pod: %s/%s, container: %s failed with error: %v",
+			req.PodNamespace, req.PodName, req.ContainerName, err)
+		general.Errorf("%s", err.Error())
+		return err
 	}
 
 	// get request quantity of main resource: cpu
@@ -344,6 +374,16 @@ func (p *DynamicPolicy) ReleaseAccompanyResource(req *pluginapi.RemovePodRequest
 	p.state.Delete(req.PodUid, true)
 
 	return nil
+}
+
+func (p *DynamicPolicy) shouldDynamicAllocateForPod(req *pluginapi.ResourceRequest) bool {
+	for _, filter := range p.podFilters {
+		if !filter(req) {
+			return false
+		}
+	}
+
+	return true
 }
 
 func (p *DynamicPolicy) addAllocationInfoToResponse(allocationInfo *state.AllocationInfo, resp *pluginapi.ResourceAllocationResponse) error {
