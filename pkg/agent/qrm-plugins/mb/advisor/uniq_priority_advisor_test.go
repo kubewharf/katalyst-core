@@ -92,7 +92,7 @@ func Test_domainAdvisor_getEffectiveCapacity(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			d := &domainAdvisor{
+			d := &uniqPriorityAdvisor{
 				domains:               tt.fields.domains,
 				xDomGroups:            tt.fields.xDomGroups,
 				groupCapacityInMB:     tt.fields.groupCapacityInMB,
@@ -226,7 +226,7 @@ func Test_domainAdvisor_calcIncomingQuotas(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			d := &domainAdvisor{
+			d := &uniqPriorityAdvisor{
 				domains:               tt.fields.domains,
 				xDomGroups:            tt.fields.XDomGroups,
 				groupCapacityInMB:     tt.fields.GroupCapacityInMB,
@@ -515,7 +515,7 @@ func Test_domainAdvisor_GetPlan(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			d := &domainAdvisor{
+			d := &uniqPriorityAdvisor{
 				domains:               tt.fields.domains,
 				defaultDomainCapacity: tt.fields.defaultDomainCapacity,
 				capPercent:            100,
