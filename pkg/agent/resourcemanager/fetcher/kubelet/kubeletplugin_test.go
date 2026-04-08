@@ -48,6 +48,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/pod"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 )
@@ -300,7 +301,7 @@ func TestNewKubeletReporterPlugin(t *testing.T) {
 		klog.Infof("Callback called with name: %s, resp: %#v", name, resp)
 	}
 
-	plugin, err := NewKubeletReporterPlugin(metrics.DummyMetrics{}, meta, conf, callback)
+	plugin, err := NewKubeletReporterPlugin(metrics.DummyMetrics{}, meta, conf, callback, nil)
 	assert.NoError(t, err)
 
 	success := make(chan bool)
@@ -336,7 +337,7 @@ func TestGetTopologyPolicyReportContent(t *testing.T) {
 		klog.Infof("Callback called with name: %s, resp: %#v", name, resp)
 	}
 
-	plugin, err := NewKubeletReporterPlugin(metrics.DummyMetrics{}, meta, conf, callback)
+	plugin, err := NewKubeletReporterPlugin(metrics.DummyMetrics{}, meta, conf, callback, nil)
 	assert.NoError(t, err)
 	kubePlugin := plugin.(*kubeletPlugin)
 
@@ -360,11 +361,36 @@ func TestGetTopologyStatusContent(t *testing.T) {
 		klog.Infof("Callback called with name: %s, resp: %#v", name, resp)
 	}
 
-	plugin, err := NewKubeletReporterPlugin(metrics.DummyMetrics{}, meta, conf, callback)
+	plugin, err := NewKubeletReporterPlugin(metrics.DummyMetrics{}, meta, conf, callback, nil)
 	assert.NoError(t, err)
 	kubePlugin := plugin.(*kubeletPlugin)
 
 	kubePlugin.topologyStatusAdapter = topology.DummyAdapter{}
 	_, err = kubePlugin.getReportContent(context.TODO())
 	assert.NoError(t, err)
+}
+
+func Test_kubeletPlugin_WithCache(t *testing.T) {
+	t.Parallel()
+
+	conf := generateTestConfiguration(t, "")
+	meta := generateTestMetaServer()
+
+	// mock a cache response
+	mockCache := &v1alpha1.GetReportContentResponse{
+		Content: []*v1alpha1.ReportContent{
+			{
+				GroupVersionKind: &util.CNRGroupVersionKind,
+			},
+		},
+	}
+
+	plugin, err := NewKubeletReporterPlugin(metrics.DummyMetrics{}, meta, conf, nil, mockCache)
+	assert.NoError(t, err)
+	assert.NotNil(t, plugin)
+
+	// Verify that the cache is properly set during initialization
+	cachedResponse := plugin.GetCache()
+	assert.NotNil(t, cachedResponse)
+	assert.Equal(t, mockCache, cachedResponse)
 }

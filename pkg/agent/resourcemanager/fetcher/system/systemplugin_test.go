@@ -30,6 +30,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 
 	internalfake "github.com/kubewharf/katalyst-api/pkg/client/clientset/versioned/fake"
+	"github.com/kubewharf/katalyst-api/pkg/protocol/reporterplugin/v1alpha1"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options"
 	"github.com/kubewharf/katalyst-core/pkg/client"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -37,6 +38,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
+	"github.com/kubewharf/katalyst-core/pkg/util"
 )
 
 func generateTestConfiguration(t *testing.T) *config.Configuration {
@@ -64,10 +66,41 @@ func Test_systemPlugin_GetReportContent(t *testing.T) {
 	metricsFetcher.SetByStringIndex(consts.MetricCPUCodeName, "Intel_SkyLake")
 	metricsFetcher.SetByStringIndex(consts.MetricInfoIsVM, false)
 
-	plugin, err := NewSystemReporterPlugin(metrics.DummyMetrics{}, meta, conf, nil)
+	plugin, err := NewSystemReporterPlugin(metrics.DummyMetrics{}, meta, conf, nil, nil)
 	assert.NoError(t, err)
 
 	content, err := plugin.GetReportContent(context.Background())
 	assert.NoError(t, err)
 	assert.NotNil(t, content)
+}
+
+func Test_systemPlugin_WithCache(t *testing.T) {
+	t.Parallel()
+
+	genericClient := &client.GenericClientSet{
+		KubeClient:     fake.NewSimpleClientset(),
+		InternalClient: internalfake.NewSimpleClientset(),
+		DynamicClient:  dynamicfake.NewSimpleDynamicClient(runtime.NewScheme()),
+	}
+	conf := generateTestConfiguration(t)
+	meta, err := metaserver.NewMetaServer(genericClient, metrics.DummyMetrics{}, conf)
+	assert.NoError(t, err)
+
+	// mock a cache response
+	mockCache := &v1alpha1.GetReportContentResponse{
+		Content: []*v1alpha1.ReportContent{
+			{
+				GroupVersionKind: &util.CNRGroupVersionKind,
+			},
+		},
+	}
+
+	plugin, err := NewSystemReporterPlugin(metrics.DummyMetrics{}, meta, conf, nil, mockCache)
+	assert.NoError(t, err)
+	assert.NotNil(t, plugin)
+
+	// Verify that the cache is properly set during initialization
+	cachedResponse := plugin.GetCache()
+	assert.NotNil(t, cachedResponse)
+	assert.Equal(t, mockCache, cachedResponse)
 }
