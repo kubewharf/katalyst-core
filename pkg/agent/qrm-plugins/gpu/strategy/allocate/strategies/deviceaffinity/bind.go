@@ -63,8 +63,15 @@ func (s *DeviceAffinityStrategy) Bind(
 	// All devices that are passed into the strategy are unallocated devices
 	unallocatedDevicesSet := sets.NewString(sortedDevices...)
 
+	// Get GPU topology
+	gpuTopology, err := ctx.DeviceTopologyRegistry.GetDeviceTopology(ctx.ResourceName)
+	if err != nil {
+		general.Warningf("failed to get gpu topology: %v", err)
+		return nil, fmt.Errorf("failed to get gpu topology: %w", err)
+	}
+
 	// Get a map of affinity groups that is grouped by priority
-	affinityMap := ctx.DeviceTopology.GroupDeviceAffinity()
+	affinityMap := gpuTopology.GroupDeviceAffinity()
 
 	// If there is no topology affinity, fallback to generic canonical strategy
 	if len(affinityMap) == 0 {

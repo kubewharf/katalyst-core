@@ -45,6 +45,8 @@ const (
 	testResourcePluginName      = "resource-plugin-stub"
 	testCustomDevicePluginName  = "custom-device-plugin-stub"
 	testCustomDevicePluginName2 = "custom-device-plugin-stub-2"
+	// RDMA device name used for tests so that RDMA default state generation succeeds
+	testRDMADeviceName = "rdma-stub"
 )
 
 func generateTestConfiguration(t *testing.T) *config.Configuration {
@@ -52,7 +54,10 @@ func generateTestConfiguration(t *testing.T) *config.Configuration {
 	tmpDir := t.TempDir()
 	conf.QRMPluginSocketDirs = []string{tmpDir}
 	conf.CheckpointManagerDir = tmpDir
-	conf.GPUDeviceNames = []string{testResourcePluginName} // Add default device name for tests
+	// Add default device names for tests
+	conf.GPUDeviceNames = []string{testResourcePluginName}
+	// Ensure RDMA generator has a device name to reference during InitState
+	conf.RDMADeviceNames = []string{testRDMADeviceName}
 
 	return conf
 }
@@ -158,6 +163,15 @@ func makeTestStaticPolicy(t *testing.T) *StaticPolicy {
 	err = staticPolicy.DeviceTopologyRegistry.SetDeviceTopology(testResourcePluginName, testDeviceTopology)
 	assert.NoError(t, err)
 
+	// Also set a minimal RDMA device topology to satisfy RDMA default state generation during InitState
+	rdmaDeviceTopology := &machine.DeviceTopology{
+		Devices: map[string]machine.DeviceInfo{
+			"rdma-1": {},
+		},
+	}
+	err = staticPolicy.DeviceTopologyRegistry.SetDeviceTopology(testRDMADeviceName, rdmaDeviceTopology)
+	assert.NoError(t, err)
+
 	return staticPolicy
 }
 
@@ -257,7 +271,7 @@ func TestStaticPolicy_RemovePod(t *testing.T) {
 
 	policy.DeviceTopologyRegistry.RegisterDeviceTopologyProvider(testResourcePluginName, deviceTopologyProviderStub)
 	policy.DefaultResourceStateGeneratorRegistry.RegisterResourceStateGenerator(testResourcePluginName,
-		state.NewGenericDefaultResourceStateGenerator([]string{testResourcePluginName}, policy.DeviceTopologyRegistry, 1))
+		state.NewGenericDefaultResourceStateGenerator([]string{testResourcePluginName}, policy.DeviceTopologyRegistry, 1, true))
 
 	testName := "test"
 	podUID := string(uuid.NewUUID())
@@ -311,7 +325,7 @@ func TestStaticPolicy_RemovePod_EnsureStateFails(t *testing.T) {
 	// DO NOT set device topology, so GetDeviceTopology will fail, which causes ensureState to fail
 	policy.DeviceTopologyRegistry.RegisterDeviceTopologyProvider(testResourcePluginName, deviceTopologyProviderStub)
 	policy.DefaultResourceStateGeneratorRegistry.RegisterResourceStateGenerator(testResourcePluginName,
-		state.NewGenericDefaultResourceStateGenerator([]string{testResourcePluginName}, policy.DeviceTopologyRegistry, 1))
+		state.NewGenericDefaultResourceStateGenerator([]string{testResourcePluginName}, policy.DeviceTopologyRegistry, 1, true))
 
 	policy.SetState(nil)
 
@@ -659,7 +673,7 @@ func TestStaticPolicy_GetTopologyAwareAllocatableResources_EnsureStateFails(t *t
 	// DO NOT set device topology, so GetDeviceTopology will fail, which causes ensureState to fail
 	policy.DeviceTopologyRegistry.RegisterDeviceTopologyProvider(testResourcePluginName, deviceTopologyProviderStub)
 	policy.DefaultResourceStateGeneratorRegistry.RegisterResourceStateGenerator(testResourcePluginName,
-		state.NewGenericDefaultResourceStateGenerator([]string{testResourcePluginName}, policy.DeviceTopologyRegistry, 1))
+		state.NewGenericDefaultResourceStateGenerator([]string{testResourcePluginName}, policy.DeviceTopologyRegistry, 1, true))
 
 	policy.SetState(nil)
 
@@ -864,5 +878,5 @@ func registerGeneratorWithTopology(t *testing.T, policy *StaticPolicy, resourceN
 
 	policy.DeviceTopologyRegistry.RegisterDeviceTopologyProvider(resourceName, deviceTopologyProviderStub)
 	policy.DefaultResourceStateGeneratorRegistry.RegisterResourceStateGenerator(resourceName,
-		state.NewGenericDefaultResourceStateGenerator([]string{resourceName}, policy.DeviceTopologyRegistry, 1))
+		state.NewGenericDefaultResourceStateGenerator([]string{resourceName}, policy.DeviceTopologyRegistry, 1, true))
 }

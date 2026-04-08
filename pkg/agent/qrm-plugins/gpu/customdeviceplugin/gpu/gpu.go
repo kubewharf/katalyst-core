@@ -52,10 +52,10 @@ func NewGPUDevicePlugin(base *baseplugin.BasePlugin) customdeviceplugin.CustomDe
 		base.DeviceTopologyRegistry.RegisterDeviceTopologyProvider(deviceName, gpuTopologyProvider)
 	}
 
-	// GPUDeviceType is the key used for state management in the QRM framework,
-	// while GPUDeviceNames are the actual resource names used to fetch the device topologies.
+	// GPUDeviceType is the key used for GPU state management in the QRM framework,
+	// while GPUDeviceNames are the actual resource names used to fetch the GPU device topologies.
 	base.DefaultResourceStateGeneratorRegistry.RegisterResourceStateGenerator(gpuconsts.GPUDeviceType,
-		state.NewGenericDefaultResourceStateGenerator(base.Conf.GPUDeviceNames, base.DeviceTopologyRegistry, 1))
+		state.NewGenericDefaultResourceStateGenerator(base.Conf.GPUDeviceNames, base.DeviceTopologyRegistry, 1, true))
 	base.RegisterDeviceNames(base.Conf.GPUDeviceNames, gpuconsts.GPUDeviceType)
 
 	return &GPUDevicePlugin{
@@ -137,23 +137,19 @@ func (p *GPUDevicePlugin) AllocateAssociatedDevice(
 			"podName", resReq.PodName,
 			"containerName", resReq.ContainerName)
 
-		// Get GPU topology using the specific device resource name
-		gpuTopology, err := p.DeviceTopologyRegistry.GetDeviceTopology(deviceReq.DeviceName)
-		if err != nil {
-			general.Warningf("failed to get gpu topology: %v", err)
-			return nil, fmt.Errorf("failed to get gpu topology: %w", err)
-		}
-
 		// Use the strategy framework to allocate GPU devices
-		result, err := manager.AllocateGPUUsingStrategy(
+		result, err := manager.AllocateDevicesUsingStrategy(
 			resReq,
 			deviceReq,
-			gpuTopology,
+			p.DeviceTopologyRegistry,
 			p.Conf.GPUQRMPluginConfig,
 			p.Emitter,
 			p.MetaServer,
 			p.GetState().GetMachineState(),
 			qosLevel,
+			deviceReq.DeviceName,
+			"",
+			p.GetDeviceNameToTypeMap(),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("GPU allocation using strategy failed: %v", err)

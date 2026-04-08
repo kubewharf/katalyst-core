@@ -23,11 +23,13 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/registry"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate/strategies/allocation"
+	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
 
 const (
 	allocationStrategyNameDefault = "default"
+	allocationStrategyNameRdma    = "rdma"
 )
 
 // StrategyManager manages the selection of allocation strategies based on resource names
@@ -40,16 +42,20 @@ type StrategyManager struct {
 	// Default strategy to use when no specific strategy is configured
 	defaultStrategy string
 
+	// GPU plugin config for registering resource to strategy
+	Cfg *qrm.GPUQRMPluginConfig
+
 	// Mutex for thread-safe access
 	mutex sync.RWMutex
 }
 
 // NewStrategyManager creates a new strategy manager
-func NewStrategyManager() *StrategyManager {
+func NewStrategyManager(cfg *qrm.GPUQRMPluginConfig) *StrategyManager {
 	return &StrategyManager{
 		StrategyRegistry:   registry.NewStrategyRegistry(),
 		resourceToStrategy: make(map[string]string),
 		defaultStrategy:    allocationStrategyNameDefault,
+		Cfg:                cfg,
 	}
 }
 
@@ -182,9 +188,9 @@ var (
 )
 
 // GetGlobalStrategyManager returns the global strategy manager instance
-func GetGlobalStrategyManager() *StrategyManager {
+func GetGlobalStrategyManager(cfg *qrm.GPUQRMPluginConfig) *StrategyManager {
 	once.Do(func() {
-		globalStrategyManager = NewStrategyManager()
+		globalStrategyManager = NewStrategyManager(cfg)
 
 		// Register default strategies
 		registerDefaultStrategies(globalStrategyManager)
