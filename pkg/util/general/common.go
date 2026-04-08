@@ -526,3 +526,28 @@ func ParseSelector(selectorStr string) (labels.Selector, error) {
 	}
 	return labels.Parse(selectorStr)
 }
+
+func MergeAnnotations(annotations ...map[string]string) map[string]string {
+	// For compatibility, no annotations returns nil map
+	if len(annotations) == 0 {
+		return nil
+	}
+
+	var mergedAnnotations map[string]string
+	for _, annotation := range annotations {
+		if len(annotation) == 0 {
+			continue
+		}
+
+		// Only allocate when there is a non-empty allocation
+		if mergedAnnotations == nil {
+			mergedAnnotations = make(map[string]string)
+		}
+
+		for k, v := range annotation {
+			mergedAnnotations[k] = v
+		}
+	}
+
+	return mergedAnnotations
+}
