@@ -432,6 +432,107 @@ func TestDynamicPolicy_allocateNumaBindingCPUs(t *testing.T) {
 			want:    machine.NewCPUSet(0, 1),
 			wantErr: false,
 		},
+		{
+			name: "distribute evenly with pinned resource package",
+			args: args{
+				numCPUs: 2,
+				hint: &pluginapi.TopologyHint{
+					Nodes: []uint64{0, 1},
+				},
+				machineState: state.NUMANodeMap{
+					0: &state.NUMANodeState{
+						DefaultCPUSet: machine.NewCPUSet(0, 1, 2, 3),
+						ResourcePackageStates: map[string]*state.ResourcePackageState{
+							"pkg1": {
+								PinnedCPUSet: machine.NewCPUSet(2, 3),
+							},
+						},
+					},
+					1: &state.NUMANodeState{
+						DefaultCPUSet: machine.NewCPUSet(4, 5, 6, 7),
+						ResourcePackageStates: map[string]*state.ResourcePackageState{
+							"pkg1": {
+								PinnedCPUSet: machine.NewCPUSet(6, 7),
+							},
+						},
+					},
+				},
+				reqAnnotations: map[string]string{
+					apiconsts.PodAnnotationResourcePackageKey:                       "pkg1",
+					apiconsts.PodAnnotationMemoryEnhancementNumaBinding:             apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					apiconsts.PodAnnotationCPUEnhancementNumaNumber:                 "2",
+					apiconsts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNuma: apiconsts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNumaEnable,
+				},
+			},
+			want:    machine.NewCPUSet(2, 6),
+			wantErr: false,
+		},
+		{
+			name: "distribute evenly without pinned resource package but with other pinned packages",
+			args: args{
+				numCPUs: 2,
+				hint: &pluginapi.TopologyHint{
+					Nodes: []uint64{0, 1},
+				},
+				machineState: state.NUMANodeMap{
+					0: &state.NUMANodeState{
+						DefaultCPUSet: machine.NewCPUSet(0, 1, 2, 3),
+						ResourcePackageStates: map[string]*state.ResourcePackageState{
+							"pkg1": {
+								PinnedCPUSet: machine.NewCPUSet(2, 3),
+							},
+						},
+					},
+					1: &state.NUMANodeState{
+						DefaultCPUSet: machine.NewCPUSet(4, 5, 6, 7),
+						ResourcePackageStates: map[string]*state.ResourcePackageState{
+							"pkg1": {
+								PinnedCPUSet: machine.NewCPUSet(6, 7),
+							},
+						},
+					},
+				},
+				reqAnnotations: map[string]string{
+					apiconsts.PodAnnotationMemoryEnhancementNumaBinding:             apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					apiconsts.PodAnnotationCPUEnhancementNumaNumber:                 "2",
+					apiconsts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNuma: apiconsts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNumaEnable,
+				},
+			},
+			want:    machine.NewCPUSet(0, 4),
+			wantErr: false,
+		},
+		{
+			name: "distribute evenly with pinned resource package on some NUMAs but not others",
+			args: args{
+				numCPUs: 2,
+				hint: &pluginapi.TopologyHint{
+					Nodes: []uint64{0, 1},
+				},
+				machineState: state.NUMANodeMap{
+					0: &state.NUMANodeState{
+						DefaultCPUSet: machine.NewCPUSet(0, 1, 2, 3),
+						ResourcePackageStates: map[string]*state.ResourcePackageState{
+							"pkg1": {
+								PinnedCPUSet: machine.NewCPUSet(2, 3),
+							},
+						},
+					},
+					1: &state.NUMANodeState{
+						DefaultCPUSet: machine.NewCPUSet(4, 5, 6, 7),
+						// pkg1 is not pinned on NUMA 1
+						ResourcePackageStates: map[string]*state.ResourcePackageState{},
+					},
+				},
+				reqAnnotations: map[string]string{
+					apiconsts.PodAnnotationResourcePackageKey:                       "pkg1",
+					apiconsts.PodAnnotationMemoryEnhancementNumaBinding:             apiconsts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					apiconsts.PodAnnotationCPUEnhancementNumaNumber:                 "2",
+					apiconsts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNuma: apiconsts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNumaEnable,
+				},
+			},
+			want:    machine.NewCPUSet(2, 4),
+			wantErr: false,
+		},
 	}
 	for _, tt := range tests {
 		tt := tt
