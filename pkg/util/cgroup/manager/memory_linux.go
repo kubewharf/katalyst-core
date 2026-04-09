@@ -81,7 +81,7 @@ func doReclaimMemory(cmd string, mems machine.CPUSet) error {
 	newMask := bitmask.NewEmptyBitMask()
 	newMask.Add(mems.ToSliceInt()...)
 
-	if err := SetMemPolicy(MPOL_BIND, newMask); err != nil {
+	if err := SetMemPolicy(MPOL_PREFERRED, newMask); err != nil {
 		return err
 	}
 
