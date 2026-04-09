@@ -2752,7 +2752,7 @@ func TestBind_DeviceAffinity_RequiredStrict(t *testing.T) {
 			},
 			sortedDevices:      []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6"},
 			expectedResultSize: 4,
-			expectedPriority:   1,
+			expectedPriority:   0,
 		},
 		{
 			name: "required affinity: restrict allocation to smallest satisfiable affinity level",
@@ -3079,8 +3079,16 @@ func verifyResultIsAffinity(
 	t *testing.T, result *allocate.AllocationResult, topology *machine.DeviceTopology,
 	expectedAffinityPriorityLevel int,
 ) {
-	affinityMap := topology.GroupDeviceAffinity()
-	priorityLevelDevices := affinityMap[expectedAffinityPriorityLevel]
+	affinityLevels := topology.GroupDeviceAffinity()
+	if len(affinityLevels) == 0 {
+		t.Errorf("expected affinity groups but found none")
+		return
+	}
+	if expectedAffinityPriorityLevel >= len(affinityLevels) {
+		t.Errorf("expected affinity priority level %d, got only %d affinity levels", expectedAffinityPriorityLevel, len(affinityLevels))
+		return
+	}
+	priorityLevelDevices := affinityLevels[expectedAffinityPriorityLevel]
 	if result == nil {
 		t.Errorf("result is nil")
 		return

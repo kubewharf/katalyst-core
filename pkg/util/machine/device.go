@@ -318,17 +318,17 @@ func (t *DeviceTopology) IsDeviceHealthy(id string) (bool, bool) {
 }
 
 // GroupDeviceAffinity forms a topology graph such that all devices within a DeviceIDs group have an affinity with each other.
-// They are differentiated by their affinity priority value.
+// The outer slice is ordered from the highest priority to the lowest priority.
 // E.g. Output:
 //
-//	{
-//		0: {{"gpu-0", "gpu-1"}, {"gpu-2", "gpu-3"}},
-//		1: {{"gpu-0", "gpu-1", "gpu-2", "gpu-3"}}
-//	}
+//	[
+//		{{"gpu-0", "gpu-1"}, {"gpu-2", "gpu-3"}},
+//		{{"gpu-0", "gpu-1", "gpu-2", "gpu-3"}},
+//	]
 //
-// means that gpu-0 and gpu-1 have an affinity with each other, gpu-2 and gpu-3 have an affinity with each other in affinity priority 0.
-// and gpu-0, gpu-1, gpu-2, and gpu-3 have an affinity with each other in affinity priority 1.
-func (t *DeviceTopology) GroupDeviceAffinity() map[int][]DeviceIDs {
+// means that gpu-0 and gpu-1 have an affinity with each other, gpu-2 and gpu-3 have an affinity with each other in the highest affinity priority.
+// and gpu-0, gpu-1, gpu-2, and gpu-3 have an affinity with each other in the next lower affinity priority.
+func (t *DeviceTopology) GroupDeviceAffinity() [][]DeviceIDs {
 	if t == nil || len(t.Devices) == 0 || len(t.PriorityDimensions) == 0 {
 		return nil
 	}
@@ -345,7 +345,7 @@ func (t *DeviceTopology) GroupDeviceAffinity() map[int][]DeviceIDs {
 		dimensionNameToPriority[name] = i
 	}
 
-	deviceAffinityGroup := make(map[int][]DeviceIDs)
+	deviceAffinityGroup := make([][]DeviceIDs, len(t.PriorityDimensions))
 	for deviceId, deviceInfo := range t.Devices {
 		for dimension, affinityDeviceIDs := range deviceInfo.DeviceAffinity {
 			// filter out invalid dimensions because some invalid/empty configurations may be passed
@@ -365,9 +365,6 @@ func (t *DeviceTopology) GroupDeviceAffinity() map[int][]DeviceIDs {
 				// Unknown dimension; ignore it to avoid inconsistent priority semantics.
 				continue
 			}
-			if _, ok := deviceAffinityGroup[priorityLevel]; !ok {
-				deviceAffinityGroup[priorityLevel] = make([]DeviceIDs, 0)
-			}
 
 			// Add the affinityDeviceIDs to the priority level if it is not already there
 			if !containsGroup(deviceAffinityGroup[priorityLevel], affinityDeviceIDs) {
@@ -375,7 +372,16 @@ func (t *DeviceTopology) GroupDeviceAffinity() map[int][]DeviceIDs {
 			}
 		}
 	}
-	return deviceAffinityGroup
+
+	groupedByPriority := make([][]DeviceIDs, 0, len(deviceAffinityGroup))
+	for _, groups := range deviceAffinityGroup {
+		if len(groups) == 0 {
+			continue
+		}
+		groupedByPriority = append(groupedByPriority, groups)
+	}
+
+	return groupedByPriority
 }
 
 func containsGroup(groups []DeviceIDs, candidate DeviceIDs) bool {
