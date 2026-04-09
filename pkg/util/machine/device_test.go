@@ -181,7 +181,7 @@ func TestDeviceTopology_GroupDeviceAffinity(t *testing.T) {
 	tests := []struct {
 		name                   string
 		deviceTopology         *DeviceTopology
-		expectedDeviceAffinity map[int][]DeviceIDs
+		expectedDeviceAffinity [][]DeviceIDs
 		expectedNil            bool
 	}{
 		{
@@ -230,10 +230,8 @@ func TestDeviceTopology_GroupDeviceAffinity(t *testing.T) {
 					},
 				},
 			},
-			expectedDeviceAffinity: map[int][]DeviceIDs{
-				0: {
-					{"npu-0", "npu-1"}, {"npu-2", "npu-3"},
-				},
+			expectedDeviceAffinity: [][]DeviceIDs{
+				{{"npu-0", "npu-1"}, {"npu-2", "npu-3"}},
 			},
 		},
 		{
@@ -307,10 +305,8 @@ func TestDeviceTopology_GroupDeviceAffinity(t *testing.T) {
 					},
 				},
 			},
-			expectedDeviceAffinity: map[int][]DeviceIDs{
-				0: {
-					{"npu-0", "npu-1", "npu-2", "npu-3"}, {"npu-4", "npu-5", "npu-6", "npu-7"},
-				},
+			expectedDeviceAffinity: [][]DeviceIDs{
+				{{"npu-0", "npu-1", "npu-2", "npu-3"}, {"npu-4", "npu-5", "npu-6", "npu-7"}},
 			},
 		},
 		{
@@ -352,10 +348,8 @@ func TestDeviceTopology_GroupDeviceAffinity(t *testing.T) {
 					},
 				},
 			},
-			expectedDeviceAffinity: map[int][]DeviceIDs{
-				0: {
-					{"npu-0", "npu-1"}, {"npu-2", "npu-3"},
-				},
+			expectedDeviceAffinity: [][]DeviceIDs{
+				{{"npu-0", "npu-1"}, {"npu-2", "npu-3"}},
 			},
 		},
 		{
@@ -413,13 +407,9 @@ func TestDeviceTopology_GroupDeviceAffinity(t *testing.T) {
 					},
 				},
 			},
-			expectedDeviceAffinity: map[int][]DeviceIDs{
-				0: {
-					{"npu-0", "npu-1"}, {"npu-2", "npu-3"},
-				},
-				1: {
-					{"npu-0", "npu-1", "npu-2", "npu-3"},
-				},
+			expectedDeviceAffinity: [][]DeviceIDs{
+				{{"npu-0", "npu-1"}, {"npu-2", "npu-3"}},
+				{{"npu-0", "npu-1", "npu-2", "npu-3"}},
 			},
 		},
 		{
@@ -477,13 +467,9 @@ func TestDeviceTopology_GroupDeviceAffinity(t *testing.T) {
 					},
 				},
 			},
-			expectedDeviceAffinity: map[int][]DeviceIDs{
-				0: {
-					{"npu-0", "npu-1"}, {"npu-2", "npu-3"},
-				},
-				1: {
-					{"npu-0", "npu-1", "npu-2", "npu-3"},
-				},
+			expectedDeviceAffinity: [][]DeviceIDs{
+				{{"npu-0", "npu-1"}, {"npu-2", "npu-3"}},
+				{{"npu-0", "npu-1", "npu-2", "npu-3"}},
 			},
 		},
 		{
@@ -557,10 +543,8 @@ func TestDeviceTopology_GroupDeviceAffinity(t *testing.T) {
 					},
 				},
 			},
-			expectedDeviceAffinity: map[int][]DeviceIDs{
-				0: {
-					{"npu-0", "npu-1", "npu-2", "npu-3"}, {"npu-4", "npu-5", "npu-6", "npu-7"},
-				},
+			expectedDeviceAffinity: [][]DeviceIDs{
+				{{"npu-0", "npu-1", "npu-2", "npu-3"}, {"npu-4", "npu-5", "npu-6", "npu-7"}},
 			},
 		},
 	}
@@ -596,20 +580,14 @@ func evaluateDeviceNUMAAffinity(t *testing.T, expectedDeviceNUMAAffinity, actual
 	}
 }
 
-func evaluateDeviceAffinity(t *testing.T, expectedDeviceAffinity, actualDeviceAffinity map[int][]DeviceIDs) {
+func evaluateDeviceAffinity(t *testing.T, expectedDeviceAffinity, actualDeviceAffinity [][]DeviceIDs) {
 	if len(actualDeviceAffinity) != len(expectedDeviceAffinity) {
 		t.Errorf("expected %d affinities, got %d", len(expectedDeviceAffinity), len(actualDeviceAffinity))
 		return
 	}
 
-	for priority, expected := range expectedDeviceAffinity {
-		actual, ok := actualDeviceAffinity[priority]
-		if !ok {
-			t.Errorf("expected affinities for priority %v, but it is not found", priority)
-			return
-		}
-
-		if !equalDeviceIDsGroupsIgnoreOrder(t, expected, actual) {
+	for priority := range expectedDeviceAffinity {
+		if !equalDeviceIDsGroupsIgnoreOrder(t, expectedDeviceAffinity[priority], actualDeviceAffinity[priority]) {
 			return
 		}
 	}
