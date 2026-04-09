@@ -541,7 +541,24 @@ func (p *DynamicPolicy) calculateHints(
 
 	for resourceName := range requestedResources {
 		// update hints preferred according to whether the minimal amount of NUMA nodes are used.
-		hints := availableNumaHints[string(resourceName)].Hints
+		topologyHintsList, ok := availableNumaHints[string(resourceName)]
+		if !ok {
+			general.Warningf("calculateHints got no available memory hints for resource: %s, pod: %s/%s, container: %s",
+				resourceName, req.PodNamespace, req.PodName, req.ContainerName)
+			return nil, errNoAvailableMemoryHints
+		}
+
+		hints := topologyHintsList.Hints
+
+		// NOTE: because grpc is inability to distinguish between an empty array and nil,
+		//       we return an error instead of an empty array.
+		//	     we should resolve this issue if we need manage multi resource in one plugin.
+		if len(hints) == 0 {
+			general.Warningf("calculateHints got no available memory hints for resource: %s, pod: %s/%s, container: %s",
+				resourceName, req.PodNamespace, req.PodName, req.ContainerName)
+			return nil, errNoAvailableMemoryHints
+		}
+
 		for _, hint := range hints {
 			hint.Preferred = p.isHintPreferred(hint.Nodes, minAffinitySize)
 		}
@@ -554,15 +571,6 @@ func (p *DynamicPolicy) calculateHints(
 			if err != nil {
 				return nil, fmt.Errorf("preferAvailableNumaHintsByPreOccupation failed with error: %v", err)
 			}
-		}
-
-		// NOTE: because grpc is inability to distinguish between an empty array and nil,
-		//       we return an error instead of an empty array.
-		//	     we should resolve this issue if we need manage multi resource in one plugin.
-		if len(hints) == 0 {
-			general.Warningf("calculateHints got no available memory hints for resource: %s, pod: %s/%s, container: %s",
-				resourceName, req.PodNamespace, req.PodName, req.ContainerName)
-			return nil, errNoAvailableMemoryHints
 		}
 	}
 
