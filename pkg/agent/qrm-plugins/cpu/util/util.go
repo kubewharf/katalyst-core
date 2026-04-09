@@ -20,15 +20,19 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strconv"
 
 	pkgerrors "github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	"github.com/kubewharf/katalyst-api/pkg/apis/node/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/calculator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
@@ -157,7 +161,7 @@ func RegenerateHints(allocationInfo *state.AllocationInfo, regenerate bool) map[
 
 // PackAllocationResponse fills pluginapi.ResourceAllocationResponse with information from AllocationInfo and pluginapi.ResourceRequest
 func PackAllocationResponse(allocationInfo *state.AllocationInfo, resourceName, ociPropertyName string,
-	isNodeResource, isScalarResource bool, req *pluginapi.ResourceRequest,
+	isNodeResource, isScalarResource bool, req *pluginapi.ResourceRequest, resourceAllocationAnnotations ...map[string]string,
 ) (*pluginapi.ResourceAllocationResponse, error) {
 	if allocationInfo == nil {
 		return nil, fmt.Errorf("packAllocationResponse got nil allocationInfo")
@@ -188,6 +192,7 @@ func PackAllocationResponse(allocationInfo *state.AllocationInfo, resourceName, 
 							req.Hint,
 						},
 					},
+					Annotations: general.MergeAnnotations(resourceAllocationAnnotations...),
 				},
 			},
 		},
@@ -195,6 +200,63 @@ func PackAllocationResponse(allocationInfo *state.AllocationInfo, resourceName, 
 		Annotations:    general.DeepCopyMap(req.Annotations),
 		NativeQosClass: req.NativeQosClass,
 	}, nil
+}
+
+// GetCPUTopologyAllocationsAnnotations gets the cpu topology allocation in the form of annotations.
+func GetCPUTopologyAllocationsAnnotations(allocationInfo *state.AllocationInfo,
+	topologyAllocationAnnotationKey string, req *pluginapi.ResourceRequest, isReclaimedOrSharedQoS bool,
+) (map[string]string, error) {
+	if allocationInfo == nil {
+		return nil, nil
+	}
+
+	assignments := allocationInfo.TopologyAwareAssignments
+
+	// Validate shared/reclaimed case
+	var reqQty int64
+	if isReclaimedOrSharedQoS {
+		if len(assignments) != 1 {
+			return nil, fmt.Errorf("allocations should not be in more than 1 numa for shared or reclaimed cores")
+		}
+
+		_, reqFloat64, err := util.GetQuantityFromResourceReq(req)
+		if err != nil {
+			return nil, fmt.Errorf("getReqQuantityFromResourceReq failed: %w", err)
+		}
+		reqQty = int64(reqFloat64)
+	}
+
+	// Build topology allocation
+	topologyAllocation := v1alpha1.TopologyAllocation{
+		v1alpha1.TopologyTypeNuma: make(map[string]v1alpha1.ZoneAllocation),
+	}
+
+	for numaNode, assignment := range assignments {
+		var cpuQty int64
+		if isReclaimedOrSharedQoS {
+			cpuQty = reqQty
+		} else {
+			cpuQty = int64(assignment.Size())
+		}
+
+		topologyAllocation[v1alpha1.TopologyTypeNuma][strconv.Itoa(numaNode)] = buildZoneAllocation(cpuQty, assignment)
+	}
+
+	return util.MakeTopologyAllocationResourceAllocationAnnotations(
+		topologyAllocation,
+		topologyAllocationAnnotationKey,
+	), nil
+}
+
+func buildZoneAllocation(cpuQty int64, assignment machine.CPUSet) v1alpha1.ZoneAllocation {
+	return v1alpha1.ZoneAllocation{
+		Allocated: map[v1.ResourceName]resource.Quantity{
+			v1.ResourceCPU: *resource.NewQuantity(cpuQty, resource.DecimalSI),
+		},
+		Attributes: map[string]string{
+			util.OCIPropertyNameCPUSetCPUs: assignment.String(),
+		},
+	}
 }
 
 func AdvisorDegradation(advisorHealth, enableReclaim bool) bool {

@@ -59,6 +59,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm/statedirectory"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
+	coreconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver/agent/metric"
@@ -539,6 +540,9 @@ func TestAllocate(t *testing.T) {
 									},
 								},
 							},
+							Annotations: map[string]string{
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"3"},"attributes":{"CpusetCpus":"1,8-9"}}}}`,
+							},
 						},
 					},
 				},
@@ -601,6 +605,9 @@ func TestAllocate(t *testing.T) {
 									},
 								},
 							},
+							Annotations: map[string]string{
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"2"},"attributes":{"CpusetCpus":"1,9"}}}}`,
+							},
 						},
 					},
 				},
@@ -662,6 +669,9 @@ func TestAllocate(t *testing.T) {
 										Preferred: true,
 									},
 								},
+							},
+							Annotations: map[string]string{
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"3"},"attributes":{"CpusetCpus":"1,8-9"}}}}`,
 							},
 						},
 					},
@@ -728,6 +738,9 @@ func TestAllocate(t *testing.T) {
 									},
 								},
 							},
+							Annotations: map[string]string{
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"2"},"attributes":{"CpusetCpus":"1,9"}}}}`,
+							},
 						},
 					},
 				},
@@ -788,6 +801,9 @@ func TestAllocate(t *testing.T) {
 										Preferred: true,
 									},
 								},
+							},
+							Annotations: map[string]string{
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"2"},"attributes":{"CpusetCpus":"1,8-9"}}}}`,
 							},
 						},
 					},
@@ -850,6 +866,9 @@ func TestAllocate(t *testing.T) {
 										Preferred: true,
 									},
 								},
+							},
+							Annotations: map[string]string{
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"0"},"attributes":{"CpusetCpus":"1"}}}}`,
 							},
 						},
 					},
@@ -940,6 +959,9 @@ func TestAllocate(t *testing.T) {
 										Preferred: true,
 									},
 								},
+							},
+							Annotations: map[string]string{
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"1"},"attributes":{"CpusetCpus":"1,8-9"}}}}`,
 							},
 						},
 					},
@@ -1105,6 +1127,9 @@ func TestAllocate(t *testing.T) {
 									},
 								},
 							},
+							Annotations: map[string]string{
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"0"},"attributes":{"CpusetCpus":"1"}}}}`,
+							},
 						},
 					},
 				},
@@ -1230,6 +1255,9 @@ func TestAllocate(t *testing.T) {
 									},
 								},
 							},
+							Annotations: map[string]string{
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"2":{"allocated":{"cpu":"2"},"attributes":{"CpusetCpus":"4,12"}},"3":{"allocated":{"cpu":"2"},"attributes":{"CpusetCpus":"6,14"}}}}`,
+							},
 						},
 					},
 				},
@@ -1294,6 +1322,9 @@ func TestAllocate(t *testing.T) {
 										Preferred: true,
 									},
 								},
+							},
+							Annotations: map[string]string{
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"2":{"allocated":{"cpu":"2"},"attributes":{"CpusetCpus":"4,12"}}}}`,
 							},
 						},
 					},
@@ -1388,6 +1419,9 @@ func TestAllocate(t *testing.T) {
 									},
 								},
 							},
+							Annotations: map[string]string{
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"2":{"allocated":{"cpu":"3"},"attributes":{"CpusetCpus":"4-5,12"}},"3":{"allocated":{"cpu":"3"},"attributes":{"CpusetCpus":"6-7,14"}}}}`,
+							},
 						},
 					},
 				},
@@ -1453,6 +1487,9 @@ func TestAllocate(t *testing.T) {
 										Preferred: true,
 									},
 								},
+							},
+							Annotations: map[string]string{
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"2":{"allocated":{"cpu":"4"},"attributes":{"CpusetCpus":"4-5,12-13"}},"3":{"allocated":{"cpu":"2"},"attributes":{"CpusetCpus":"6,14"}}}}`,
 							},
 						},
 					},
@@ -4639,6 +4676,269 @@ func TestGetTopologyHints(t *testing.T) {
 					consts.PodAnnotationQoSLevelKey:                  consts.PodAnnotationQoSLevelDedicatedCores,
 					consts.PodAnnotationMemoryEnhancementNumaBinding: consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
 					consts.PodAnnotationCPUEnhancementNumaNumber:     "4",
+				},
+			},
+			cpuTopology: cpuTopology,
+		},
+		{
+			name: "req with numa number makes sure that the hints only belong to those numa nodes",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 2,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true", "numa_exclusive": "true"}`,
+					consts.PodAnnotationCPUEnhancementKey:    `{"katalyst.kubewharf.io/numa_number": "2"}`,
+				},
+			},
+			expectedResp: &pluginapi.ResourceHintsResponse{
+				PodName:        testName,
+				PodNamespace:   testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(v1.ResourceCPU): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{0, 1},
+								Preferred: true,
+							},
+							{
+								Nodes:     []uint64{2, 3},
+								Preferred: true,
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+					consts.PodAnnotationCPUEnhancementNumaNumber:       "2",
+				},
+			},
+			cpuTopology: cpuTopology,
+		},
+		{
+			name: "req with numa ID for one numa node only",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 1,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true", "numa_exclusive": "true"}`,
+					consts.PodAnnotationCPUEnhancementKey:    `{"katalyst.kubewharf.io/numa_ids": "1"}`,
+				},
+			},
+			expectedResp: &pluginapi.ResourceHintsResponse{
+				PodName:        testName,
+				PodNamespace:   testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(v1.ResourceCPU): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{1},
+								Preferred: true,
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+					consts.PodAnnotationCPUEnhancementNumaIDs:          "1",
+				},
+			},
+			cpuTopology: cpuTopology,
+		},
+		{
+			name: "req with numa ID for multiple numa nodes",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 4,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true", "numa_exclusive": "true"}`,
+					consts.PodAnnotationCPUEnhancementKey:    `{"katalyst.kubewharf.io/numa_ids": "1-3"}`,
+				},
+			},
+			expectedResp: &pluginapi.ResourceHintsResponse{
+				PodName:        testName,
+				PodNamespace:   testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(v1.ResourceCPU): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{1, 2, 3},
+								Preferred: true,
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+					consts.PodAnnotationCPUEnhancementNumaIDs:          "1-3",
+				},
+			},
+			cpuTopology: cpuTopology,
+		},
+		{
+			name: "numa IDs will override numa number",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 4,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true", "numa_exclusive": "true"}`,
+					consts.PodAnnotationCPUEnhancementKey:    `{"katalyst.kubewharf.io/numa_number": "2", "katalyst.kubewharf.io/numa_ids": "0-2"}`,
+				},
+			},
+			expectedResp: &pluginapi.ResourceHintsResponse{
+				PodName:        testName,
+				PodNamespace:   testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(v1.ResourceCPU): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{0, 1, 2},
+								Preferred: true,
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+					consts.PodAnnotationCPUEnhancementNumaIDs:          "0-2",
+					consts.PodAnnotationCPUEnhancementNumaNumber:       "2",
+				},
+			},
+			cpuTopology: cpuTopology,
+		},
+		{
+			name:                    "custom numa number and numa ids annotation are supported",
+			numaNumberAnnotationKey: "custom_numa_number_annotation",
+			numaIDsAnnotationKey:    "custom_numa_ids_annotation",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         string(uuid.NewUUID()),
+				PodNamespace:   testName,
+				PodName:        testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceRequests: map[string]float64{
+					string(v1.ResourceCPU): 4,
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:          consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementKey: `{"numa_binding": "true", "numa_exclusive": "true"}`,
+					consts.PodAnnotationCPUEnhancementKey:    `{"custom_numa_number_annotation": "2", "custom_numa_ids_annotation": "0-2"}`,
+				},
+			},
+			expectedResp: &pluginapi.ResourceHintsResponse{
+				PodName:        testName,
+				PodNamespace:   testName,
+				ContainerName:  testName,
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   string(v1.ResourceCPU),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(v1.ResourceCPU): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{0, 1, 2},
+								Preferred: true,
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelDedicatedCores,
+				},
+				Annotations: map[string]string{
+					consts.PodAnnotationQoSLevelKey:                    consts.PodAnnotationQoSLevelDedicatedCores,
+					consts.PodAnnotationMemoryEnhancementNumaBinding:   consts.PodAnnotationMemoryEnhancementNumaBindingEnable,
+					consts.PodAnnotationMemoryEnhancementNumaExclusive: consts.PodAnnotationMemoryEnhancementNumaExclusiveEnable,
+					"custom_numa_number_annotation":                    "2",
+					"custom_numa_ids_annotation":                       "0-2",
 				},
 			},
 			cpuTopology: cpuTopology,
