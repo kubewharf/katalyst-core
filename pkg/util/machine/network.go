@@ -39,15 +39,14 @@ const (
 	ContainerNetNSPrefix = "cni-"
 )
 
-type NicDriver string
-
 const (
-	NicDriverMLX       NicDriver = "mlx"
-	NicDriverBNX       NicDriver = "bnxt"
-	NicDriverVirtioNet NicDriver = "virtio_net"
-	NicDriverI40E      NicDriver = "i40e"
-	NicDriverIXGBE     NicDriver = "ixgbe"
-	NicDriverUnknown   NicDriver = "unknown"
+	NicDriverMLX       = "mlx"
+	NicDriverBNX       = "bnxt"
+	NicDriverVirtioNet = "virtio_net"
+	NicDriverI40E      = "i40e"
+	NicDriverIXGBE     = "ixgbe"
+	NicDriverGVE       = "gve"
+	NicDriverUnknown   = "unknownNicDriver"
 )
 
 // ioctl constants from <linux/sockios.h>, <linux/ethtool.h>
@@ -146,7 +145,7 @@ type IfaceAddr struct {
 
 type NicBasicInfo struct {
 	InterfaceInfo
-	Driver         NicDriver // used to filter queue stats of ethtool stats, different driver has different format
+	Driver         string // used to filter queue stats of ethtool stats, different driver has different format
 	IsVirtioNetDev bool
 	VirtioNetName  string // used to filter virtio nic's irqs in /proc/interrupts
 	Irqs           []int  // store nic's all irqs including rx irqs, Irqs is used to resolve conflicts when there 2 active nics with the same name in /proc/interrupts

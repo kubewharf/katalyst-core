@@ -20,6 +20,7 @@ limitations under the License.
 package machine
 
 import (
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -86,6 +87,19 @@ const (
 	SoftnetStatFile    = "/proc/net/softnet_stat"
 	SoftIrqsFile       = "/proc/softirqs"
 )
+
+var unsupportedQueue2IrqDrivers = []string{
+	"mlx5_core.sf",
+	"bytenic",
+	"xsc",
+}
+
+const (
+	gveNicQueueFilter    = "gve-ntfy-blk"
+	gveNicQueueDelimeter = "@"
+)
+
+var ErrUnsupportedNicIrq2Queue = errors.New("unsupported nic irq to queue mapping")
 
 var netnsMutex sync.Mutex
 
@@ -546,6 +560,97 @@ func GetNicTxQueuesXpsConf(nic *NicBasicInfo) (map[int]string, error) {
 	return txQueuesXpsConf, nil
 }
 
+func getGVENicQueue2Irq(nicInfo *NicBasicInfo) (map[int]int, map[int]int, error) {
+	if len(nicInfo.Irqs) < nicInfo.QueueNum*2 {
+		return nil, nil, fmt.Errorf("%s total irqs count(%d) of all irqs %+v less than 2 * queueNum(%d)",
+			nicInfo, len(nicInfo.Irqs), nicInfo.Irqs, nicInfo.QueueNum)
+	}
+	nicAllIrqs := sets.NewInt(nicInfo.Irqs...)
+
+	b, err := os.ReadFile(InterruptsFile)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to ReadFile(%s), err %s", InterruptsFile, err)
+	}
+
+	lines := strings.Split(string(b), "\n")
+	queue2Irq := make(map[int]int)
+
+	for _, line := range lines {
+		if len(line) == 0 {
+			continue
+		}
+
+		cols := strings.Fields(line)
+		if len(cols) == 0 {
+			continue
+		}
+
+		irq, err := strconv.Atoi(strings.TrimSuffix(cols[0], ":"))
+		if err != nil {
+			klog.Warningf("failed to parse irq number, err %s", err)
+			continue
+		}
+
+		if !nicAllIrqs.Has(irq) {
+			continue
+		}
+
+		queueStr := cols[len(cols)-1]
+		if !strings.Contains(queueStr, gveNicQueueFilter) {
+			continue
+		}
+
+		queueCols := strings.Split(queueStr, gveNicQueueDelimeter)
+		if len(queueCols) < 2 {
+			continue
+		}
+
+		queue, err := strconv.Atoi(strings.TrimPrefix(queueCols[0], gveNicQueueFilter))
+		if err != nil {
+			continue
+		}
+
+		queue2Irq[queue] = irq
+	}
+
+	if len(queue2Irq) < nicInfo.QueueNum*2 {
+		return nil, nil, fmt.Errorf("%s total count (%d) of tx/rx irqs %+v is not equal to 2 * queueNum(%d)",
+			nicInfo, len(queue2Irq), queue2Irq, nicInfo.QueueNum)
+	}
+
+	txQueue2Irq := make(map[int]int)
+	rxQueue2Irq := make(map[int]int)
+	firstRxQueueIndex := len(queue2Irq) / 2
+
+	for queue, irq := range queue2Irq {
+		// low half are tx queues, high half are rx queues,
+		// refer to gve_tx_idx_to_ntfy, gve_rx_idx_to_ntfy, gve_tx_add_to_block, gve_rx_add_to_block, gve_napi_poll functions
+		// from https://code.byted.org/data-system-ste/compute-virtual-ethernet-linux/tree/master/usr/src/gve-1.4.9+byted1
+		// and gve nic shrunk queues's irqs still exist in /proc/interrupts, e.g., when nic's queue number changed from 32 to 16,
+		// nic's original 32 queues's irqs still exist in /proc/interrupts
+		if queue < nicInfo.QueueNum {
+			txQueue2Irq[queue] = irq
+		} else if queue >= firstRxQueueIndex && queue < firstRxQueueIndex+nicInfo.QueueNum {
+			rxQueue2Irq[queue-firstRxQueueIndex] = irq
+		}
+	}
+
+	return rxQueue2Irq, txQueue2Irq, nil
+}
+
+func isUnsupportedNicQueue2Irq(nic *NicBasicInfo) bool {
+	if nic == nil {
+		return false
+	}
+
+	for _, drv := range unsupportedQueue2IrqDrivers {
+		if strings.HasPrefix(nic.Driver, drv) {
+			return true
+		}
+	}
+	return false
+}
+
 // GetNicQueue2IrqWithQueueFilter get the queue to irq map with queue filter
 // the "same" queue may match multiple irqs, e.g., nics with the same name from different netns and sriov vfs
 // queueFilters can not be empty.
@@ -690,6 +795,10 @@ func GetNicQueue2IrqWithQueueFilter(nicInfo *NicBasicInfo, queueFilters []string
 
 // GetNicQueue2Irq get nic queue naming in /proc/interrrupts
 func GetNicQueue2Irq(nicInfo *NicBasicInfo) (map[int]int, map[int]int, error) {
+	if strings.HasPrefix(nicInfo.Driver, NicDriverGVE) {
+		return getGVENicQueue2Irq(nicInfo)
+	}
+
 	if nicInfo.IsVirtioNetDev {
 		queueFilter := fmt.Sprintf("%s-input", nicInfo.VirtioNetName)
 		queueDelimeter := "."
@@ -761,6 +870,10 @@ func GetNicQueue2Irq(nicInfo *NicBasicInfo) (map[int]int, map[int]int, error) {
 		}
 	}
 
+	if isUnsupportedNicQueue2Irq(nicInfo) {
+		return nil, nil, ErrUnsupportedNicIrq2Queue
+	}
+
 	return nil, nil, fmt.Errorf("failed to find matched queue in %s for %d: %s", InterruptsFile, nicInfo.IfIndex, nicInfo.Name)
 }
 
@@ -826,32 +939,15 @@ func TidyUpNicIrqsAffinityCPUs(irq2CPUs map[int][]int64) (map[int]int64, error) 
 	return irq2CPU, nil
 }
 
-func getNicDriver(nicSysPath string) (NicDriver, error) {
+func getNicDriver(nicSysPath string) (string, error) {
 	linkPath := filepath.Join(nicSysPath, "device/driver")
 
 	target, err := os.Readlink(linkPath)
 	if err != nil {
-		return NicDriverUnknown, fmt.Errorf("failed to read symlink for %s: err %v", linkPath, err)
+		return "", fmt.Errorf("failed to read symlink for %s: err %v", linkPath, err)
 	}
 
-	driverName := filepath.Base(target)
-
-	var driver NicDriver
-	if strings.HasPrefix(driverName, string(NicDriverMLX)) {
-		driver = NicDriverMLX
-	} else if strings.HasPrefix(driverName, string(NicDriverBNX)) {
-		driver = NicDriverBNX
-	} else if strings.HasPrefix(driverName, string(NicDriverVirtioNet)) {
-		driver = NicDriverVirtioNet
-	} else if strings.HasPrefix(driverName, string(NicDriverI40E)) {
-		driver = NicDriverI40E
-	} else if strings.HasPrefix(driverName, string(NicDriverIXGBE)) {
-		driver = NicDriverIXGBE
-	} else {
-		driver = NicDriverUnknown
-	}
-
-	return driver, nil
+	return filepath.Base(target), nil
 }
 
 // GetNicIrqs get nic's all irqs, including rx-tx irqs, and some irqs used for control
@@ -901,6 +997,9 @@ func GetNicQueuesCount(nicName string) (int, error) {
 		return -1, fmt.Errorf("ioctl SIOCETHTOOL failed: %v", errno)
 	}
 
+	if ec.CombinedCount == 0 {
+		return int(ec.RxCount), nil
+	}
 	return int(ec.CombinedCount), nil
 }
 
@@ -1480,7 +1579,12 @@ func ListActiveUplinkNics(netNSDir string, ignoredNetNSNamePrefixes []string) ([
 		for _, n := range netnsNics {
 			queue2Irq, txQueue2Irq, err := GetNicQueue2Irq(n)
 			if err != nil {
-				return nil, fmt.Errorf("failed to GetNicQueue2Irq for %d: %s, err %v", n.IfIndex, n.Name, err)
+				if err != ErrUnsupportedNicIrq2Queue {
+					return nil, fmt.Errorf("failed to GetNicQueue2Irq for %d: %s, err %v", n.IfIndex, n.Name, err)
+				}
+
+				queue2Irq = make(map[int]int)
+				txQueue2Irq = make(map[int]int)
 			}
 
 			irq2Queue := make(map[int]int)
@@ -1537,9 +1641,13 @@ func GetNetDevRxPackets(nic *NicBasicInfo) (uint64, error) {
 
 func GetNicRxQueuePackets(nic *NicBasicInfo) (map[int]uint64, error) {
 	driver := nic.Driver
-	if driver != NicDriverMLX && driver != NicDriverBNX && driver != NicDriverVirtioNet &&
-		driver != NicDriverI40E && driver != NicDriverIXGBE {
-		return nil, fmt.Errorf("unknow driver: %s", driver)
+
+	if !strings.HasPrefix(driver, NicDriverMLX) &&
+		!strings.HasPrefix(driver, NicDriverBNX) &&
+		!strings.HasPrefix(driver, NicDriverVirtioNet) &&
+		!strings.HasPrefix(driver, NicDriverI40E) &&
+		!strings.HasPrefix(driver, NicDriverIXGBE) {
+		return nil, fmt.Errorf("unsupported driver: %s", driver)
 	}
 
 	nsc, err := netnsEnter(nic.NetNSInfo)
@@ -1567,7 +1675,7 @@ func GetNicRxQueuePackets(nic *NicBasicInfo) (map[int]uint64, error) {
 		var queueStr string
 		key = strings.TrimSpace(key)
 
-		if driver == NicDriverMLX {
+		if strings.HasPrefix(driver, NicDriverMLX) {
 			// mlx nic rx queue packets key:val format
 			// key: rx60_packets
 			// val: 89462756888
@@ -1580,7 +1688,7 @@ func GetNicRxQueuePackets(nic *NicBasicInfo) (map[int]uint64, error) {
 			}
 
 			queueStr = strings.TrimSuffix(strings.TrimPrefix(key, "rx"), "_packets")
-		} else if driver == NicDriverBNX {
+		} else if strings.HasPrefix(driver, NicDriverBNX) {
 			// bnxt nic rx queue packets key:val format
 			// key: [6]: rx_ucast_packets
 			// val: 8304
@@ -1594,7 +1702,7 @@ func GetNicRxQueuePackets(nic *NicBasicInfo) (map[int]uint64, error) {
 			}
 
 			queueStr = strings.TrimSuffix(strings.TrimPrefix(cols[0], "["), "]:")
-		} else if driver == NicDriverVirtioNet {
+		} else if strings.HasPrefix(driver, NicDriverVirtioNet) {
 			// virtio_net nic rx queue packets key:val format
 			// key: rx_queue_6_packets
 			// val: 51991567584
@@ -1607,7 +1715,7 @@ func GetNicRxQueuePackets(nic *NicBasicInfo) (map[int]uint64, error) {
 			}
 
 			queueStr = strings.TrimSuffix(strings.TrimPrefix(key, "rx_queue_"), "_packets")
-		} else if driver == NicDriverI40E {
+		} else if strings.HasPrefix(driver, NicDriverI40E) {
 			// i40e nic rx queue packets key:val format
 			// key: rx-39.packets
 			// val: 2769830722
@@ -1620,7 +1728,7 @@ func GetNicRxQueuePackets(nic *NicBasicInfo) (map[int]uint64, error) {
 			}
 
 			queueStr = strings.TrimSuffix(strings.TrimPrefix(key, "rx-"), ".packets")
-		} else if driver == NicDriverIXGBE {
+		} else if strings.HasPrefix(driver, NicDriverIXGBE) {
 			// ixgbe nic rx queue packets key:val format
 			// key: rx_queue_19_packets
 			// val: 3994706599
