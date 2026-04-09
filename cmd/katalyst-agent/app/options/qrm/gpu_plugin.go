@@ -30,6 +30,7 @@ type GPUOptions struct {
 	GPUMemoryAllocatablePerGPU string
 	SkipGPUStateCorruption     bool
 	RDMADeviceNames            []string
+	RequiredDeviceAffinity     bool
 
 	GPUStrategyOptions *gpustrategy.GPUStrategyOptions
 }
@@ -41,6 +42,7 @@ func NewGPUOptions() *GPUOptions {
 		GPUMemoryAllocatablePerGPU: "100",
 		RDMADeviceNames:            []string{},
 		GPUStrategyOptions:         gpustrategy.NewGPUStrategyOptions(),
+		RequiredDeviceAffinity:     true,
 	}
 }
 
@@ -55,6 +57,8 @@ func (o *GPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.BoolVar(&o.SkipGPUStateCorruption, "skip-gpu-state-corruption",
 		o.SkipGPUStateCorruption, "skip gpu state corruption, and it will be used after updating state properties")
 	fs.StringSliceVar(&o.RDMADeviceNames, "rdma-resource-names", o.RDMADeviceNames, "The name of the RDMA resource")
+	fs.BoolVar(&o.RequiredDeviceAffinity, "gpu-required-device-affinity", o.RequiredDeviceAffinity,
+		"required device affinity, and when true it will cause pods to admit fail if unable to meet device affinity")
 	o.GPUStrategyOptions.AddFlags(fss)
 }
 
@@ -71,5 +75,6 @@ func (o *GPUOptions) ApplyTo(conf *qrmconfig.GPUQRMPluginConfig) error {
 	if err := o.GPUStrategyOptions.ApplyTo(conf.GPUStrategyConfig); err != nil {
 		return err
 	}
+	conf.RequiredDeviceAffinity = o.RequiredDeviceAffinity
 	return nil
 }

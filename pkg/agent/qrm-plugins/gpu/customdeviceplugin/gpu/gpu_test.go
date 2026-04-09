@@ -160,11 +160,11 @@ func TestGPUDevicePlugin_UpdateAllocatableAssociatedDevices(t *testing.T) {
 		Devices: map[string]machine.DeviceInfo{
 			"test-gpu-0": {
 				NumaNodes:      []int{0},
-				DeviceAffinity: make(map[machine.AffinityPriority]machine.DeviceIDs),
+				DeviceAffinity: make(map[machine.Dimension]machine.DeviceIDs),
 			},
 			"test-gpu-1": {
 				NumaNodes:      []int{1},
-				DeviceAffinity: make(map[machine.AffinityPriority]machine.DeviceIDs),
+				DeviceAffinity: make(map[machine.Dimension]machine.DeviceIDs),
 			},
 		},
 	}
