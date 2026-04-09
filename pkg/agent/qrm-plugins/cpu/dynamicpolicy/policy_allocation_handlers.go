@@ -662,29 +662,32 @@ func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.Top
 
 	result := machine.NewCPUSet()
 	alignedAvailableCPUs := machine.CPUSet{}
-	availableCPUsPerNUMA := make(map[uint64]machine.CPUSet)
+	alignedAvailableCPUsPerNUMA := make(map[uint64]machine.CPUSet)
 	hintNodes := hint.Nodes
+	pkgName := rputil.GetResourcePackageName(reqAnnotations)
+	numaRPPinnedCPUSet := machineState.GetNUMAResourcePackagePinnedCPUSet()
+
 	for _, numaNode := range hintNodes {
 		availableCPUs := machineState[int(numaNode)].GetAvailableCPUSet(p.reservedCPUs)
-		availableCPUsPerNUMA[numaNode] = availableCPUs
-		alignedAvailableCPUs = alignedAvailableCPUs.Union(availableCPUs)
-	}
 
-	// if the resource package is specified and the resource package is pinned,
-	// then only the pinned CPUs are available for allocation
-	// pkgName represents the name of the resource package requested by the container
-	pkgName := rputil.GetResourcePackageName(reqAnnotations)
-	if pkgName != "" {
-		rpPinnedCPUSet := machineState.GetResourcePackagePinnedCPUSet()
-		if !rpPinnedCPUSet[pkgName].IsEmpty() {
-			// If the package has pinned CPUs, restrict allocation to those CPUs
-			alignedAvailableCPUs = alignedAvailableCPUs.Intersection(rpPinnedCPUSet[pkgName])
-		} else if len(rpPinnedCPUSet) > 0 {
-			// If the package is not pinned but other packages are, exclude pinned CPUs of other packages
-			for _, pinnedCPUs := range rpPinnedCPUSet {
-				alignedAvailableCPUs = alignedAvailableCPUs.Difference(pinnedCPUs)
+		// if the resource package is specified and the resource package is pinned,
+		// then only the pinned CPUs are available for allocation.
+		// if the package is not pinned but other packages are, exclude pinned CPUs of other packages.
+		if pkgName != "" {
+			pinnedCPUSetsInNUMA := numaRPPinnedCPUSet[int(numaNode)]
+			if !pinnedCPUSetsInNUMA[pkgName].IsEmpty() {
+				// If the package has pinned CPUs, restrict allocation to those CPUs
+				availableCPUs = availableCPUs.Intersection(pinnedCPUSetsInNUMA[pkgName])
+			} else if len(pinnedCPUSetsInNUMA) > 0 {
+				// If the package is not pinned but other packages are, exclude pinned CPUs of other packages
+				for _, pinnedCPUs := range pinnedCPUSetsInNUMA {
+					availableCPUs = availableCPUs.Difference(pinnedCPUs)
+				}
 			}
 		}
+
+		alignedAvailableCPUsPerNUMA[numaNode] = availableCPUs
+		alignedAvailableCPUs = alignedAvailableCPUs.Union(availableCPUs)
 	}
 
 	var alignedCPUs machine.CPUSet
@@ -698,7 +701,7 @@ func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.Top
 
 		// Evenly allocate cpus for distribute_evenly_across_numa
 		if distributeEvenlyAcrossNuma {
-			alignedCPUs, err = p.allocateEvenlyAcrossNUMAs(numCPUs, hintNodes, availableCPUsPerNUMA)
+			alignedCPUs, err = p.allocateEvenlyAcrossNUMAs(numCPUs, hintNodes, alignedAvailableCPUsPerNUMA)
 			if err != nil {
 				return machine.NewCPUSet(), fmt.Errorf("allocateEvenlyAcrossNUMA failed with error: %v", err)
 			}
