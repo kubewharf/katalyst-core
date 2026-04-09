@@ -144,6 +144,8 @@ func (mg *memoryGuard) calculateReclaimedMemoryLimitFor(numaID int, reclaimedCgr
 		return 0, err
 	}
 
+	dynamicConfig := mg.conf.GetDynamicConfiguration()
+
 	reclaimedCoresUsed, err := mg.metaServer.GetCgroupNumaMetric(reclaimedCgroupPath, numaID, consts.MetricsMemTotalPerNumaCgroup)
 	if err != nil {
 		return 0, err
@@ -161,6 +163,14 @@ func (mg *memoryGuard) calculateReclaimedMemoryLimitFor(numaID int, reclaimedCgr
 	}
 	numaFree := tmp.Value
 
+	tmp, err = mg.metaServer.GetNumaMetric(numaID, consts.MetricMemInactiveFileNuma)
+	if err != nil {
+		return 0, err
+	}
+	numaInactiveFile := tmp.Value
+
+	numaReclaimable := numaFree + numaInactiveFile*dynamicConfig.CacheBasedRatio
+
 	criticalWatermark := numaTotal * watermarkScaleFactor.Value / float64(10000)
 
 	var zoneInfo machine.NormalZoneInfo
@@ -174,20 +184,24 @@ func (mg *memoryGuard) calculateReclaimedMemoryLimitFor(numaID int, reclaimedCgr
 	}
 	if found {
 		numaFree = float64(zoneInfo.Free) * float64(mg.metaServer.KatalystMachineInfo.PageSize)
+		numaInactiveFile = float64(zoneInfo.FileInactive) * float64(mg.metaServer.KatalystMachineInfo.PageSize)
+		numaReclaimable = numaFree + numaInactiveFile*dynamicConfig.CacheBasedRatio
 		criticalWatermark = float64(zoneInfo.Low) * float64(mg.metaServer.KatalystMachineInfo.PageSize)
 	}
 
 	criticalWatermarkScaleFactor := mg.conf.GetDynamicConfiguration().CriticalWatermarkScaleFactor
 	criticalWatermark *= criticalWatermarkScaleFactor
 
-	criticalWatermark = math.Max(float64(mg.minCriticalWatermark), criticalWatermark)
+	//criticalWatermark = math.Max(float64(mg.minCriticalWatermark), criticalWatermark)
 	reclaimMemoryLimit := reclaimedCoresUsed.Value +
-		math.Max(numaFree-criticalWatermark, 0)
+		math.Max(numaReclaimable-criticalWatermark, 0)
 
 	general.InfoS("NUMA memory info", "numaID", numaID,
 		"criticalWatermark", general.FormatMemoryQuantity(criticalWatermark),
 		"reclaimedCoresUsed", general.FormatMemoryQuantity(reclaimedCoresUsed.Value),
 		"numaFree", general.FormatMemoryQuantity(numaFree),
+		"numaInactiveFile", general.FormatMemoryQuantity(numaInactiveFile),
+		"CacheBasedRatio", general.FormatMemoryQuantity(dynamicConfig.CacheBasedRatio),
 		"criticalWatermarkScaleFactor", criticalWatermarkScaleFactor,
 		"reclaimMemoryLimit", general.FormatMemoryQuantity(reclaimMemoryLimit),
 		"zoneInfo", zoneInfo, "found", found)
