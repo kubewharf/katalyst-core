@@ -28,6 +28,7 @@ const (
 	ControlKnowKeyMemoryOffloading   MemoryControlKnobName = "memory_offloading"
 	ControlKnowKeyDyingMemcgReclaim  MemoryControlKnobName = "dying_memcg_reclaim"
 	ControlKnobKeyMemoryNUMAHeadroom MemoryControlKnobName = "memory_numa_headroom"
+	ControlKnobKeyMemoryHigh         MemoryControlKnobName = "memory_high"
 )
 
 const (

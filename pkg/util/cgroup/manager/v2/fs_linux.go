@@ -73,6 +73,18 @@ func (m *manager) ApplyMemory(absCgroupPath string, data *common.MemoryData) err
 		}
 	}
 
+	if data.HighInBytes != 0 {
+		memoryHighValue := "max"
+		if data.HighInBytes > 0 {
+			memoryHighValue = numToStr(data.HighInBytes)
+		}
+		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "memory.high", memoryHighValue); err != nil {
+			return err
+		} else if applied {
+			klog.Infof("[CgroupV2] apply memory high successfully, cgroupPath: %s, data: %v, old data: %v\n", absCgroupPath, memoryHighValue, oldData)
+		}
+	}
+
 	if data.WmarkRatio != 0 {
 		newRatio := fmt.Sprintf("%d", data.WmarkRatio)
 		if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "memory.wmark_ratio", newRatio); err != nil {
