@@ -594,8 +594,9 @@ func TestDynamicPolicy_generateBlockCPUSet(t *testing.T) {
 		// setupMachineState prepares the mock machine state, e.g., resource packages, existing pod allocations.
 		setupMachineState func(state state.State, topo *machine.CPUTopology)
 		// advisorResponse simulates the response from the CPU advisor containing blocks to be allocated.
-		advisorResponse *advisorapi.ListAndWatchResponse
-		expectedError   bool
+		advisorResponse  *advisorapi.ListAndWatchResponse
+		expectedError    bool
+		expectedErrorStr string
 		// validateResult contains custom assertions for the resulting BlockCPUSet.
 		validateResult func(t *testing.T, blockCPUSet advisorapi.BlockCPUSet, topo *machine.CPUTopology)
 	}
@@ -725,6 +726,18 @@ func TestDynamicPolicy_generateBlockCPUSet(t *testing.T) {
 							},
 						},
 					},
+					"pod-shared": state.ContainerEntries{
+						"container-1": &state.AllocationInfo{
+							AllocationResult:         machine.NewCPUSet(2, 3, 10, 11), // NUMA 0
+							OriginalAllocationResult: machine.NewCPUSet(2, 3, 10, 11),
+							TopologyAwareAssignments: map[int]machine.CPUSet{
+								0: machine.NewCPUSet(2, 3, 10, 11),
+							},
+							AllocationMeta: commonstate.AllocationMeta{
+								QoSLevel: apiconsts.PodAnnotationQoSLevelSharedCores,
+							},
+						},
+					},
 				}
 				st.SetPodEntries(podEntries, false)
 
@@ -736,6 +749,12 @@ func TestDynamicPolicy_generateBlockCPUSet(t *testing.T) {
 						PinnedCPUSet: machine.NewCPUSet(0, 1),
 					},
 				}
+				machineState[1].ResourcePackageStates = map[string]*state.ResourcePackageState{
+					"pkg2": {
+						Attributes:   map[string]string{"disable-reclaim": "false"},
+						PinnedCPUSet: machine.NewCPUSet(4, 5, 6, 7, 12, 13, 14, 15), // NUMA 1 (CPUs 4,5,6,7,12,13,14,15)
+					},
+				}
 				st.SetMachineState(machineState, false)
 			},
 			advisorResponse: &advisorapi.ListAndWatchResponse{
@@ -745,7 +764,84 @@ func TestDynamicPolicy_generateBlockCPUSet(t *testing.T) {
 							"container-1": {
 								OwnerPoolName: "dedicated",
 								CalculationResultsByNumas: map[int64]*advisorapi.NumaCalculationResult{
-									0: {Blocks: []*advisorapi.Block{{BlockId: "container-1", Result: 2}}},
+									0: {Blocks: []*advisorapi.Block{{BlockId: "block-dedicated-1", Result: 2}}},
+								},
+							},
+						},
+					},
+					"share": {
+						Entries: map[string]*advisorapi.CalculationInfo{
+							"share-entry": {
+								OwnerPoolName: "share",
+								CalculationResultsByNumas: map[int64]*advisorapi.NumaCalculationResult{
+									-1: {Blocks: []*advisorapi.Block{{BlockId: "block-share-1", Result: 4}}},
+								},
+							},
+						},
+					},
+					"reclaim": {
+						Entries: map[string]*advisorapi.CalculationInfo{
+							"reclaim-entry": {
+								OwnerPoolName: "reclaim",
+								CalculationResultsByNumas: map[int64]*advisorapi.NumaCalculationResult{
+									// NUMA 0 is excluded from global availableCPUs by the dedicated pod,
+									// so global Reclaim (FakedNUMAID) must be allocated on NUMA 1 to succeed.
+									-1: {
+										Blocks: []*advisorapi.Block{
+											{BlockId: "block-reclaim-1", Result: 4},
+										},
+									},
+									// However, NUMA-aware Reclaim on NUMA 0 can still use the remaining
+									// reclaimable CPUs on NUMA 0 (i.e. CPUs occupied by shared pods).
+									0: {
+										Blocks: []*advisorapi.Block{
+											{BlockId: "block-reclaim-2", Result: 4},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedError: false,
+			validateResult: func(t *testing.T, blockCPUSet advisorapi.BlockCPUSet, topo *machine.CPUTopology) {
+				as := assert.New(t)
+				ded := blockCPUSet["block-dedicated-1"]
+				as.True(ded.Equals(machine.NewCPUSet(8, 9)), "dedicated block should reuse existing allocation")
+
+				share := blockCPUSet["block-share-1"]
+				as.Equal(4, share.Size())
+				as.True(share.IsSubsetOf(topo.CPUDetails.CPUsInNUMANodes(1)), "share block must be on NUMA 1 because NUMA 0 is excluded")
+
+				rec := blockCPUSet["block-reclaim-1"]
+				as.Equal(4, rec.Size())
+				as.True(rec.IsSubsetOf(topo.CPUDetails.CPUsInNUMANodes(1)), "reclaim block must be on NUMA 1")
+				as.True(rec.Intersection(share).IsEmpty(), "reclaim block must avoid share CPUs")
+
+				rec2 := blockCPUSet["block-reclaim-2"]
+				as.Equal(4, rec2.Size())
+				as.True(rec2.IsSubsetOf(topo.CPUDetails.CPUsInNUMANodes(0)), "reclaim block must be on NUMA 0")
+				as.True(rec2.Intersection(ded).IsEmpty(), "reclaim block must avoid dedicated CPUs")
+				as.True(rec2.Intersection(machine.NewCPUSet(0, 1)).IsEmpty(), "reclaim block must avoid non-reclaimable pkg CPUs on NUMA 0")
+			},
+		},
+		{
+			// Scenario: Verifying priority of isolation pool over normal share pool.
+			// Isolation pools (starts with "isolation") should be in Phase 1,
+			// while normal share pools should be in Phase 2.
+			name: "isolation pool priority over normal share pool",
+			setupMachineState: func(st state.State, topo *machine.CPUTopology) {
+				// No special machine state needed
+			},
+			advisorResponse: &advisorapi.ListAndWatchResponse{
+				Entries: map[string]*advisorapi.CalculationEntries{
+					"isolation": {
+						Entries: map[string]*advisorapi.CalculationInfo{
+							"isolation-entry": {
+								OwnerPoolName: "isolation-1",
+								CalculationResultsByNumas: map[int64]*advisorapi.NumaCalculationResult{
+									0: {Blocks: []*advisorapi.Block{{BlockId: "block-isolation-1", Result: 8}}},
 								},
 							},
 						},
@@ -760,12 +856,48 @@ func TestDynamicPolicy_generateBlockCPUSet(t *testing.T) {
 							},
 						},
 					},
-					"reclaim": {
+				},
+			},
+			expectedError: false,
+			validateResult: func(t *testing.T, blockCPUSet advisorapi.BlockCPUSet, topo *machine.CPUTopology) {
+				as := assert.New(t)
+				// NUMA 0 has 8 CPUs (0,1,2,3, 8,9,10,11)
+				iso := blockCPUSet["block-isolation-1"]
+				as.Equal(8, iso.Size())
+				as.True(iso.IsSubsetOf(topo.CPUDetails.CPUsInNUMANodes(0)))
+
+				// share block should be allocated from remaining CPUs on the node or globally.
+				// Since NUMA 0 is exhausted by isolation, it must be allocated from NUMA 1.
+				share := blockCPUSet["block-share-1"]
+				as.Equal(2, share.Size())
+				as.True(share.Intersection(iso).IsEmpty())
+				as.True(share.IsSubsetOf(topo.CPUDetails.CPUsInNUMANodes(1)))
+			},
+		},
+		{
+			// Scenario: Verifying that share block (normal) now avoids only globalNonReclaimableCPUSet.
+			// Previously it avoided allPinnedCPUSets.
+			name:                   "share block can use reclaimable pinned CPUs",
+			disableReclaimSelector: "disable-reclaim=true",
+			setupMachineState: func(st state.State, topo *machine.CPUTopology) {
+				machineState := st.GetMachineState()
+				// pkg1 is reclaimable (disable-reclaim=false)
+				machineState[0].ResourcePackageStates = map[string]*state.ResourcePackageState{
+					"pkg1": {
+						Attributes:   map[string]string{"disable-reclaim": "false"},
+						PinnedCPUSet: machine.NewCPUSet(0, 1, 2, 3),
+					},
+				}
+				st.SetMachineState(machineState, false)
+			},
+			advisorResponse: &advisorapi.ListAndWatchResponse{
+				Entries: map[string]*advisorapi.CalculationEntries{
+					"share": {
 						Entries: map[string]*advisorapi.CalculationInfo{
-							"reclaim-entry": {
-								OwnerPoolName: "reclaim",
+							"share-entry": {
+								OwnerPoolName: "share",
 								CalculationResultsByNumas: map[int64]*advisorapi.NumaCalculationResult{
-									0: {Blocks: []*advisorapi.Block{{BlockId: "block-reclaim-1", Result: 2}}},
+									-1: {Blocks: []*advisorapi.Block{{BlockId: "block-share-1", Result: 2}}},
 								},
 							},
 						},
@@ -775,18 +907,174 @@ func TestDynamicPolicy_generateBlockCPUSet(t *testing.T) {
 			expectedError: false,
 			validateResult: func(t *testing.T, blockCPUSet advisorapi.BlockCPUSet, topo *machine.CPUTopology) {
 				as := assert.New(t)
-				ded := blockCPUSet["container-1"]
-				as.True(ded.Equals(machine.NewCPUSet(8, 9)), "dedicated block should reuse existing allocation")
-
 				share := blockCPUSet["block-share-1"]
 				as.Equal(2, share.Size())
-
-				rec := blockCPUSet["block-reclaim-1"]
-				as.Equal(2, rec.Size())
-				as.True(rec.Intersection(machine.NewCPUSet(0, 1)).IsEmpty(), "reclaim block must avoid non-reclaimable pkg CPUs")
-				as.True(rec.Intersection(machine.NewCPUSet(8, 9)).IsEmpty(), "reclaim block must avoid dedicated CPUs")
-				as.True(rec.Intersection(share).IsEmpty(), "reclaim block must avoid share CPUs")
+				// Since pkg1 is reclaimable, and share is now in Phase 2 (treated like reclaim),
+				// it is NOT excluded from the available pool. The CPU allocator picks CPUs
+				// in numerical order, so it will allocate CPUs 0 and 1, which overlap with pkg1.
+				as.True(share.Intersection(machine.NewCPUSet(0, 1, 2, 3)).Size() > 0, "share block should be able to use reclaimable pinned CPUs")
 			},
+		},
+		{
+			// Scenario: Verifying NUMA-binding share pool priority.
+			name: "NUMA-binding share pool priority",
+			setupMachineState: func(st state.State, topo *machine.CPUTopology) {
+				// No special machine state needed
+			},
+			advisorResponse: &advisorapi.ListAndWatchResponse{
+				Entries: map[string]*advisorapi.CalculationEntries{
+					"share-NUMA": {
+						Entries: map[string]*advisorapi.CalculationInfo{
+							"share-entry": {
+								OwnerPoolName: "share-NUMA0",
+								CalculationResultsByNumas: map[int64]*advisorapi.NumaCalculationResult{
+									0: {Blocks: []*advisorapi.Block{{BlockId: "block-share-numa-1", Result: 8}}},
+								},
+							},
+						},
+					},
+					"share-normal": {
+						Entries: map[string]*advisorapi.CalculationInfo{
+							"share-entry": {
+								OwnerPoolName: "share",
+								CalculationResultsByNumas: map[int64]*advisorapi.NumaCalculationResult{
+									-1: {Blocks: []*advisorapi.Block{{BlockId: "block-share-normal-1", Result: 2}}},
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedError: false,
+			validateResult: func(t *testing.T, blockCPUSet advisorapi.BlockCPUSet, topo *machine.CPUTopology) {
+				as := assert.New(t)
+				// NUMA 0 has 8 CPUs.
+				shareNuma := blockCPUSet["block-share-numa-1"]
+				as.Equal(8, shareNuma.Size())
+				as.True(shareNuma.IsSubsetOf(topo.CPUDetails.CPUsInNUMANodes(0)))
+
+				// normal share should be pushed to Phase 2 and find CPUs elsewhere.
+				shareNormal := blockCPUSet["block-share-normal-1"]
+				as.Equal(2, shareNormal.Size())
+				as.True(shareNormal.Intersection(shareNuma).IsEmpty())
+				as.True(shareNormal.IsSubsetOf(topo.CPUDetails.CPUsInNUMANodes(1)))
+			},
+		},
+		{
+			// Scenario: Verifying that NUMA-binding pod excludes the whole NUMA node from global available pool.
+			name: "NUMA-binding pod excludes NUMA node from global pool",
+			setupMachineState: func(st state.State, topo *machine.CPUTopology) {
+				// Dedicated pod must be present in state for allocateDedicatedBlocks to work
+				podEntries := state.PodEntries{
+					"dedicated": state.ContainerEntries{
+						"dedicated-entry": &state.AllocationInfo{
+							AllocationResult:         machine.NewCPUSet(0, 1, 2, 3),
+							OriginalAllocationResult: machine.NewCPUSet(0, 1, 2, 3),
+							TopologyAwareAssignments: map[int]machine.CPUSet{
+								0: machine.NewCPUSet(0, 1, 2, 3),
+							},
+							AllocationMeta: commonstate.AllocationMeta{
+								QoSLevel: apiconsts.PodAnnotationQoSLevelDedicatedCores,
+							},
+						},
+					},
+				}
+				st.SetPodEntries(podEntries, false)
+			},
+			advisorResponse: &advisorapi.ListAndWatchResponse{
+				Entries: map[string]*advisorapi.CalculationEntries{
+					"dedicated": {
+						Entries: map[string]*advisorapi.CalculationInfo{
+							"dedicated-entry": {
+								OwnerPoolName: "dedicated",
+								CalculationResultsByNumas: map[int64]*advisorapi.NumaCalculationResult{
+									0: {Blocks: []*advisorapi.Block{{BlockId: "block-dedicated-1", Result: 4}}},
+								},
+							},
+						},
+					},
+					"share": {
+						Entries: map[string]*advisorapi.CalculationInfo{
+							"share-entry": {
+								OwnerPoolName: "share",
+								CalculationResultsByNumas: map[int64]*advisorapi.NumaCalculationResult{
+									-1: {Blocks: []*advisorapi.Block{{BlockId: "block-share-1", Result: 6}}},
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedError: false,
+			validateResult: func(t *testing.T, blockCPUSet advisorapi.BlockCPUSet, topo *machine.CPUTopology) {
+				as := assert.New(t)
+				// NUMA 0 has 8 CPUs. Dedicated takes 4.
+				ded := blockCPUSet["block-dedicated-1"]
+				as.Equal(4, ded.Size())
+				as.True(ded.IsSubsetOf(topo.CPUDetails.CPUsInNUMANodes(0)))
+
+				// The remaining 4 CPUs on NUMA 0 should be excluded from global available pool
+				// because NUMA 0 now has a NUMA-binding pod.
+				// share block (non-NUMA aware) needs 6 CPUs.
+				// If it could use the remaining 4 on NUMA 0, it might take 4 from NUMA 0 and 2 from NUMA 1.
+				// But since NUMA 0 is excluded, it MUST take all 6 from NUMA 1.
+				share := blockCPUSet["block-share-1"]
+				as.Equal(6, share.Size())
+				as.True(share.IsSubsetOf(topo.CPUDetails.CPUsInNUMANodes(1)), "share block should be entirely on NUMA 1")
+			},
+		},
+		{
+			// Scenario: Verifying that dedicated pod returns error if its size is same but some CPUs are unavailable.
+			name: "dedicated pod size same but CPUs unavailable returns error",
+			setupMachineState: func(st state.State, topo *machine.CPUTopology) {
+				// Dedicated pod on CPUs 0,1,2,3
+				podEntries := state.PodEntries{
+					"dedicated": state.ContainerEntries{
+						"dedicated-entry": &state.AllocationInfo{
+							AllocationResult:         machine.NewCPUSet(0, 1, 2, 3),
+							OriginalAllocationResult: machine.NewCPUSet(0, 1, 2, 3),
+							TopologyAwareAssignments: map[int]machine.CPUSet{
+								0: machine.NewCPUSet(0, 1, 2, 3),
+							},
+							AllocationMeta: commonstate.AllocationMeta{
+								QoSLevel: apiconsts.PodAnnotationQoSLevelDedicatedCores,
+							},
+						},
+					},
+					"reserve": state.ContainerEntries{
+						"": &state.AllocationInfo{
+							AllocationResult: machine.NewCPUSet(0),
+						},
+					},
+				}
+				st.SetPodEntries(podEntries, false)
+			},
+			advisorResponse: &advisorapi.ListAndWatchResponse{
+				Entries: map[string]*advisorapi.CalculationEntries{
+					"dedicated": {
+						Entries: map[string]*advisorapi.CalculationInfo{
+							"dedicated-entry": {
+								OwnerPoolName: "dedicated",
+								CalculationResultsByNumas: map[int64]*advisorapi.NumaCalculationResult{
+									0: {Blocks: []*advisorapi.Block{{BlockId: "block-dedicated-1", Result: 4}}},
+								},
+							},
+						},
+					},
+					"reserve": {
+						Entries: map[string]*advisorapi.CalculationInfo{
+							"": {
+								OwnerPoolName: "reserve",
+								CalculationResultsByNumas: map[int64]*advisorapi.NumaCalculationResult{
+									-1: {Blocks: []*advisorapi.Block{{BlockId: "block-reserve", Result: 1}}},
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedError:    true,
+			expectedErrorStr: "size not changed, but some CPUs are not available",
 		},
 		{
 			// Scenario: Exhaustion of CPUs for reclaim.
@@ -819,7 +1107,8 @@ func TestDynamicPolicy_generateBlockCPUSet(t *testing.T) {
 					},
 				},
 			},
-			expectedError: true,
+			expectedError:    true,
+			expectedErrorStr: "allocate cpuset for NUMA Aware reclaim block: block-reclaim-1 in NUMA: 0 failed",
 			validateResult: func(t *testing.T, blockCPUSet advisorapi.BlockCPUSet, topo *machine.CPUTopology) {
 				// No validation needed if error is expected
 			},
@@ -870,6 +1159,9 @@ func TestDynamicPolicy_generateBlockCPUSet(t *testing.T) {
 			blockCPUSet, err := policy.generateBlockCPUSet(tc.advisorResponse)
 			if tc.expectedError {
 				as.Error(err)
+				if tc.expectedErrorStr != "" {
+					as.Contains(err.Error(), tc.expectedErrorStr)
+				}
 				return
 			}
 			as.NoError(err)
