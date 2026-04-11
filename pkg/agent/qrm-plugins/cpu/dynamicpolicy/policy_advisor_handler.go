@@ -871,9 +871,9 @@ func isDedicatedBlock(block *advisorapi.BlockInfo) bool {
 	return ok
 }
 
-func isReclaimBlock(block *advisorapi.BlockInfo) bool {
+func isSharedBlock(block *advisorapi.BlockInfo) bool {
 	for poolName := range block.OwnerPoolEntryMap {
-		if poolName == commonstate.PoolNameReclaim {
+		if commonstate.IsIsolationPool(poolName) || commonstate.IsShareNUMABindingPool(poolName) {
 			return true
 		}
 	}
@@ -888,11 +888,12 @@ func (p *DynamicPolicy) allocateDedicatedBlocks(
 	numaID int,
 	blocks []*advisorapi.BlockInfo,
 	blockCPUSet advisorapi.BlockCPUSet,
-	numaAvailableCPUs *machine.CPUSet,
+	numaAvailableCPUs machine.CPUSet,
 	nodeRemainingCPUs *machine.CPUSet,
 	availableCPUs *machine.CPUSet,
 	rpPinnedCPUSet map[string]machine.CPUSet,
 	allPinnedCPUSets machine.CPUSet,
+	withNUMABinding *bool,
 ) error {
 	machineInfo := p.machineInfo
 	for _, block := range blocks {
@@ -926,10 +927,13 @@ func (p *DynamicPolicy) allocateDedicatedBlocks(
 		pinnedCPUSets := machine.NewCPUSet()
 		pkg := allocationInfo.GetResourcePackageName()
 		if pkg != "" && !rpPinnedCPUSet[pkg].IsEmpty() {
-			pinnedCPUSets = rpPinnedCPUSet[pkg].Intersection(*numaAvailableCPUs)
+			pinnedCPUSets = rpPinnedCPUSet[pkg].Intersection(numaAvailableCPUs)
 		}
 
-		currentAvailableCPUs := *numaAvailableCPUs
+		// Calculate current available CPUs on this NUMA node by intersecting the globally updated
+		// availableCPUs with the static numaAvailableCPUs. This correctly computes the latest available CPUs
+		// dynamically without needing a separate NUMA-level tracking variable.
+		currentAvailableCPUs := availableCPUs.Intersection(numaAvailableCPUs)
 		if !pinnedCPUSets.IsEmpty() {
 			currentAvailableCPUs = currentAvailableCPUs.Intersection(pinnedCPUSets)
 		} else {
@@ -937,24 +941,38 @@ func (p *DynamicPolicy) allocateDedicatedBlocks(
 		}
 
 		var cpuset machine.CPUSet
-		alreadyAllocatedCPUs = alreadyAllocatedCPUs.Intersection(currentAvailableCPUs)
-		if alreadyAllocatedCPUs.Size() >= blockResult {
-			cpuset, err = calculator.TakeByTopology(machineInfo, alreadyAllocatedCPUs, blockResult, true)
+		// Get the CPUs that are both already allocated to this block and still available in the current context
+		availableAlreadyAllocatedCPUs := alreadyAllocatedCPUs.Intersection(currentAvailableCPUs)
+
+		if alreadyAllocatedCPUs.Size() == blockResult {
+			// If the requested block size hasn't changed, we should ideally reuse the exact same allocation.
+			// However, we must first verify that all previously allocated CPUs are still available.
+			if availableAlreadyAllocatedCPUs.Size() != blockResult {
+				return fmt.Errorf("NUMA Aware block: %s in NUMA: %d size not changed, but some CPUs are not available", blockID, numaID)
+			}
+			cpuset = alreadyAllocatedCPUs
+		} else if availableAlreadyAllocatedCPUs.Size() >= blockResult {
+			// If the block size decreased, we can fulfill the new size entirely from the previously allocated (and still available) CPUs.
+			cpuset, err = calculator.TakeByTopology(machineInfo, availableAlreadyAllocatedCPUs, blockResult, true)
 			if err != nil {
 				return fmt.Errorf("allocate cpuset for NUMA Aware block: %s in NUMA: %d failed with error: %v", blockID, numaID, err)
 			}
 		} else {
-			cpuset, err = calculator.TakeByTopology(machineInfo, currentAvailableCPUs.Difference(alreadyAllocatedCPUs), blockResult-alreadyAllocatedCPUs.Size(), true)
+			// If the block size increased, we keep whatever previously allocated CPUs are still available,
+			// and allocate the remaining required CPUs from the pool of current available CPUs.
+			cpuset, err = calculator.TakeByTopology(machineInfo, currentAvailableCPUs.Difference(availableAlreadyAllocatedCPUs), blockResult-availableAlreadyAllocatedCPUs.Size(), true)
 			if err != nil {
 				return fmt.Errorf("allocate cpuset for NUMA Aware block: %s in NUMA: %d failed with error: %v", blockID, numaID, err)
 			}
-			cpuset = cpuset.Union(alreadyAllocatedCPUs)
+			cpuset = cpuset.Union(availableAlreadyAllocatedCPUs)
 		}
 
 		blockCPUSet[blockID] = cpuset
-		*numaAvailableCPUs = numaAvailableCPUs.Difference(cpuset)
 		*nodeRemainingCPUs = nodeRemainingCPUs.Difference(cpuset)
 		*availableCPUs = availableCPUs.Difference(cpuset)
+		if withNUMABinding != nil {
+			*withNUMABinding = true
+		}
 	}
 	return nil
 }
@@ -967,7 +985,7 @@ func (p *DynamicPolicy) allocateShareBlocks(
 	numaID int,
 	blocks []*advisorapi.BlockInfo,
 	blockCPUSet advisorapi.BlockCPUSet,
-	numaAvailableCPUs *machine.CPUSet,
+	numaAvailableCPUs machine.CPUSet,
 	nodeRemainingCPUs *machine.CPUSet,
 	availableCPUs *machine.CPUSet,
 	rpPinnedCPUSet map[string]machine.CPUSet,
@@ -985,10 +1003,7 @@ func (p *DynamicPolicy) allocateShareBlocks(
 			if commonstate.IsIsolationPool(poolName) || commonstate.IsShareNUMABindingPool(poolName) {
 				_, pkg := resourcepackage.UnwrapOwnerPoolName(poolName)
 				if pkg != "" && !rpPinnedCPUSet[pkg].IsEmpty() {
-					pinnedCPUSets = rpPinnedCPUSet[pkg].Intersection(*numaAvailableCPUs)
-				}
-				if withNUMABinding != nil {
-					*withNUMABinding = true
+					pinnedCPUSets = rpPinnedCPUSet[pkg].Intersection(numaAvailableCPUs)
 				}
 				break
 			}
@@ -1004,7 +1019,9 @@ func (p *DynamicPolicy) allocateShareBlocks(
 			return fmt.Errorf("parse block: %s result failed with error: %v", blockID, err)
 		}
 
-		currentAvailableCPUs := *numaAvailableCPUs
+		// Same as in allocateDedicatedBlocks, intersect the globally updated availableCPUs with
+		// the static numaAvailableCPUs to get the latest available CPUs dynamically.
+		currentAvailableCPUs := availableCPUs.Intersection(numaAvailableCPUs)
 		if numaID == commonstate.FakedNUMAID {
 			currentAvailableCPUs = *availableCPUs
 		}
@@ -1026,11 +1043,11 @@ func (p *DynamicPolicy) allocateShareBlocks(
 		}
 
 		blockCPUSet[blockID] = cpuset
-		if numaID != commonstate.FakedNUMAID {
-			*numaAvailableCPUs = numaAvailableCPUs.Difference(cpuset)
-		}
 		*nodeRemainingCPUs = nodeRemainingCPUs.Difference(cpuset)
 		*availableCPUs = availableCPUs.Difference(cpuset)
+		if withNUMABinding != nil {
+			*withNUMABinding = true
+		}
 	}
 	return nil
 }
@@ -1056,6 +1073,9 @@ func (p *DynamicPolicy) generateReclaimBlockCPUSet(
 		}
 		numaAvailableCPUs := nodeRemainingCPUs.Intersection(topology.CPUDetails.CPUsInNUMANodes(numaID))
 
+		// Deduct the non-reclaimable CPUSet for this NUMA node
+		currentAvailableCPUs := numaAvailableCPUs.Difference(globalNonReclaimableCPUSet)
+
 		for _, block := range blocks {
 			if block == nil {
 				continue
@@ -1069,9 +1089,6 @@ func (p *DynamicPolicy) generateReclaimBlockCPUSet(
 			if err != nil {
 				return fmt.Errorf("parse block: %s result failed with error: %v", blockID, err)
 			}
-
-			// Deduct the non-reclaimable CPUSet for this NUMA node
-			currentAvailableCPUs := numaAvailableCPUs.Difference(globalNonReclaimableCPUSet)
 
 			general.InfoS("generateReclaimBlockCPUSet allocating NUMA Aware block",
 				"blockID", blockID,
@@ -1087,21 +1104,24 @@ func (p *DynamicPolicy) generateReclaimBlockCPUSet(
 			}
 
 			blockCPUSet[blockID] = cpuset
-			numaAvailableCPUs = numaAvailableCPUs.Difference(cpuset)
-			nodeRemainingCPUs = nodeRemainingCPUs.Difference(cpuset)
+			currentAvailableCPUs = currentAvailableCPUs.Difference(cpuset)
 			availableCPUs = availableCPUs.Difference(cpuset)
 
 			general.InfoS("generateReclaimBlockCPUSet allocated NUMA Aware block",
 				"blockID", blockID,
 				"numaID", numaID,
 				"allocatedCPUSet", cpuset.String(),
-				"nodeRemainingCPUs", nodeRemainingCPUs.String(),
+				"currentAvailableCPUs", currentAvailableCPUs.String(),
 				"availableCPUs", availableCPUs.String())
 		}
 	}
 
 	// 2. Process non-NUMA-aware reclaim blocks
 	if blocks, ok := reclaimBlocksMap[commonstate.FakedNUMAID]; ok && len(blocks) > 0 {
+		// Deduct the global non-reclaimable CPUSet to ensure non-NUMA-aware
+		// reclaim/share blocks do not overlap with non-reclaimable pinned CPUs.
+		currentAvailableCPUs := availableCPUs.Difference(globalNonReclaimableCPUSet)
+
 		for _, block := range blocks {
 			if block == nil {
 				continue
@@ -1116,9 +1136,6 @@ func (p *DynamicPolicy) generateReclaimBlockCPUSet(
 				return fmt.Errorf("parse block: %s result failed with error: %v", blockID, err)
 			}
 
-			// Deduct the global non-reclaimable CPUSet
-			currentAvailableCPUs := availableCPUs.Difference(globalNonReclaimableCPUSet)
-
 			general.InfoS("generateReclaimBlockCPUSet allocating non-NUMA Aware block",
 				"blockID", blockID,
 				"blockResult", blockResult,
@@ -1132,13 +1149,13 @@ func (p *DynamicPolicy) generateReclaimBlockCPUSet(
 			}
 
 			blockCPUSet[blockID] = cpuset
-			nodeRemainingCPUs = nodeRemainingCPUs.Difference(cpuset)
+			currentAvailableCPUs = currentAvailableCPUs.Difference(cpuset)
 			availableCPUs = availableCPUs.Difference(cpuset)
 
 			general.InfoS("generateReclaimBlockCPUSet allocated non-NUMA Aware block",
 				"blockID", blockID,
 				"allocatedCPUSet", cpuset.String(),
-				"nodeRemainingCPUs", nodeRemainingCPUs.String(),
+				"currentAvailableCPUs", currentAvailableCPUs.String(),
 				"availableCPUs", availableCPUs.String())
 		}
 	}
@@ -1205,10 +1222,10 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 		for _, block := range blocks {
 			if isDedicatedBlock(block) {
 				dedicatedBlocks = append(dedicatedBlocks, block)
-			} else if isReclaimBlock(block) {
-				reclaimBlocks = append(reclaimBlocks, block)
-			} else {
+			} else if isSharedBlock(block) {
 				shareBlocks = append(shareBlocks, block)
+			} else {
+				reclaimBlocks = append(reclaimBlocks, block)
 			}
 		}
 		reclaimBlocksMap[numaID] = reclaimBlocks
@@ -1216,17 +1233,27 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 		numaAvailableCPUs := availableCPUs.Intersection(topology.CPUDetails.CPUsInNUMANodes(numaID))
 		withNUMABindingShareOrDedicatedPod := false
 
-		err = p.allocateDedicatedBlocks(numaID, dedicatedBlocks, blockCPUSet, &numaAvailableCPUs, &nodeRemainingCPUs, &availableCPUs, rpPinnedCPUSet, allPinnedCPUSets)
+		err = p.allocateDedicatedBlocks(numaID, dedicatedBlocks, blockCPUSet, numaAvailableCPUs, &nodeRemainingCPUs, &availableCPUs, rpPinnedCPUSet, allPinnedCPUSets, &withNUMABindingShareOrDedicatedPod)
 		if err != nil {
 			return nil, err
 		}
 
-		err = p.allocateShareBlocks(numaID, shareBlocks, blockCPUSet, &numaAvailableCPUs, &nodeRemainingCPUs, &availableCPUs, rpPinnedCPUSet, allPinnedCPUSets, &withNUMABindingShareOrDedicatedPod)
+		general.InfoS("generateBlockCPUSet variables after allocateDedicatedBlocks",
+			"numaID", numaID,
+			"withNUMABindingShareOrDedicatedPod", withNUMABindingShareOrDedicatedPod,
+			"numaAvailableCPUs", numaAvailableCPUs.String(),
+			"nodeRemainingCPUs", nodeRemainingCPUs.String(),
+			"availableCPUs", availableCPUs.String())
+
+		err = p.allocateShareBlocks(numaID, shareBlocks, blockCPUSet, numaAvailableCPUs, &nodeRemainingCPUs, &availableCPUs, rpPinnedCPUSet, allPinnedCPUSets, &withNUMABindingShareOrDedicatedPod)
 		if err != nil {
 			return nil, err
 		}
 
 		if withNUMABindingShareOrDedicatedPod {
+			// If there is any NUMA-binding share or dedicated pod on this NUMA node,
+			// the entire NUMA node is excluded from the global pool (availableCPUs)
+			// to avoid cross-NUMA interference from non-NUMA-aware workloads.
 			availableCPUs = availableCPUs.Difference(numaAvailableCPUs)
 		}
 
@@ -1238,20 +1265,23 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 			"availableCPUs", availableCPUs.String())
 	}
 
-	// Phase 1 for FakedNUMAID
+	// Phase 2 for FakedNUMAID
+	// Note: Normal share blocks are not considered "shared" by isSharedBlock
+	// (which only matches isolation or NUMA-binding share pools), so they will
+	// be pushed to reclaimBlocks and processed in Phase 3 alongside reclaim blocks.
 	if blocks, ok := numaToBlocks[commonstate.FakedNUMAID]; ok {
 		var shareBlocks, reclaimBlocks []*advisorapi.BlockInfo
 		for _, block := range blocks {
-			if isReclaimBlock(block) {
-				reclaimBlocks = append(reclaimBlocks, block)
-			} else {
+			if isSharedBlock(block) {
 				shareBlocks = append(shareBlocks, block)
+			} else {
+				reclaimBlocks = append(reclaimBlocks, block)
 			}
 		}
 		reclaimBlocksMap[commonstate.FakedNUMAID] = reclaimBlocks
 
 		emptyNUMA := machine.NewCPUSet()
-		err = p.allocateShareBlocks(commonstate.FakedNUMAID, shareBlocks, blockCPUSet, &emptyNUMA, &nodeRemainingCPUs, &availableCPUs, rpPinnedCPUSet, allPinnedCPUSets, nil)
+		err = p.allocateShareBlocks(commonstate.FakedNUMAID, shareBlocks, blockCPUSet, emptyNUMA, &nodeRemainingCPUs, &availableCPUs, rpPinnedCPUSet, allPinnedCPUSets, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -1261,7 +1291,7 @@ func (p *DynamicPolicy) generateBlockCPUSet(resp *advisorapi.ListAndWatchRespons
 			"availableCPUs", availableCPUs.String())
 	}
 
-	// Phase 2: Allocate Reclaim blocks
+	// Phase 3: Allocate Reclaim blocks
 	err = p.generateReclaimBlockCPUSet(reclaimBlocksMap, nodeRemainingCPUs, availableCPUs, globalNonReclaimableCPUSet, blockCPUSet)
 	if err != nil {
 		return nil, err
