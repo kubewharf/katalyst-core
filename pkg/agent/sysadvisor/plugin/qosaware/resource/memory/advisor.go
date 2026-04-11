@@ -157,7 +157,7 @@ func (ra *memoryResourceAdvisor) GetHeadroom() (resource.Quantity, map[int]resou
 	return resource.Quantity{}, nil, fmt.Errorf("failed to get valid headroom")
 }
 
-func (ra *memoryResourceAdvisor) UpdateAndGetAdvice() (interface{}, error) {
+func (ra *memoryResourceAdvisor) UpdateAndGetAdvice(ctx context.Context) (interface{}, error) {
 	startTime := time.Now()
 	defer func() {
 		general.InfoS("finished", "duration", time.Since(startTime))
@@ -194,8 +194,9 @@ func (ra *memoryResourceAdvisor) update() (*types.InternalMemoryCalculationResul
 	for _, headroomPolicy := range ra.headroomPolices {
 		// capacity and reserved can both be adjusted dynamically during running process
 		headroomPolicy.SetEssentials(types.ResourceEssentials{
-			EnableReclaim:       ra.conf.GetDynamicConfiguration().EnableReclaim,
-			ResourceUpperBound:  float64(ra.metaServer.MemoryCapacity),
+			EnableReclaim: ra.conf.GetDynamicConfiguration().EnableReclaim,
+			// Use NormalMemoryCapacity which excludes static hugepages for accurate upper bound calculation
+			ResourceUpperBound:  float64(ra.metaServer.MemoryTopology.NormalMemoryCapacity),
 			ReservedForAllocate: reservedForAllocate.AsApproximateFloat64(),
 		})
 

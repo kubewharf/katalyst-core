@@ -25,6 +25,7 @@ import (
 	cpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	resourcepackage "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
 
 type AllocationMeta struct {
@@ -127,6 +128,14 @@ func (am *AllocationMeta) GetOwnerPoolName() string {
 	return am.OwnerPoolName
 }
 
+func (am *AllocationMeta) GetResourcePackageName() string {
+	if am == nil {
+		return ""
+	}
+
+	return resourcepackage.GetResourcePackageName(am.Annotations)
+}
+
 // GetSpecifiedPoolName parses the owner pool name for AllocationInfo from qos-level
 func (am *AllocationMeta) GetSpecifiedPoolName() string {
 	if am == nil {
@@ -145,8 +154,8 @@ func (am *AllocationMeta) GetSpecifiedNUMABindingNUMAID() (int, error) {
 	return GetSpecifiedNUMABindingNUMAID(am.Annotations)
 }
 
-// SetSpecifiedNUMABindingNUMAID set the numa id for AllocationInfo
-func (am *AllocationMeta) SetSpecifiedNUMABindingNUMAID(numaID uint64) {
+// SetSpecifiedNUMABindingNUMAID set the numa ids for AllocationInfo
+func (am *AllocationMeta) SetSpecifiedNUMABindingNUMAID(numaIDs []uint64) {
 	if am == nil {
 		return
 	}
@@ -155,7 +164,12 @@ func (am *AllocationMeta) SetSpecifiedNUMABindingNUMAID(numaID uint64) {
 		am.Annotations = make(map[string]string)
 	}
 
-	am.Annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint] = machine.NewCPUSet(int(numaID)).String()
+	intIDs := make([]int, len(numaIDs))
+	for i, id := range numaIDs {
+		intIDs[i] = int(id)
+	}
+
+	am.Annotations[cpuconsts.CPUStateAnnotationKeyNUMAHint] = machine.NewCPUSet(intIDs...).String()
 }
 
 // GetSpecifiedNUMABindingPoolName get numa_binding pool name
@@ -315,4 +329,15 @@ func (am *AllocationMeta) CheckDedicatedPool() bool {
 		return false
 	}
 	return am.OwnerPoolName == PoolNameDedicated
+}
+
+// CheckDistributeEvenlyAcrossNuma returns true if the AllocationInfo is for pod with distribute evenly across numa
+// annotation enabled.
+func (am *AllocationMeta) CheckDistributeEvenlyAcrossNuma() bool {
+	if am == nil {
+		return false
+	}
+
+	return am.Annotations[consts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNuma] ==
+		consts.PodAnnotationCPUEnhancementDistributeEvenlyAcrossNumaEnable
 }

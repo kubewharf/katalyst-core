@@ -20,11 +20,8 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 
-	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/wait"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer"
@@ -32,29 +29,25 @@ import (
 	hintoptimizerutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/hintoptimizer/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/config"
-	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/resourcepackage"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/native"
 	qosutil "github.com/kubewharf/katalyst-core/pkg/util/qos"
-	resourcepackage "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
+	rputil "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
 
 const HintOptimizerNameResourcePackage = "resource_package"
 
-const (
-	syncResourcePackageUpdatePeriod = 30 * time.Second
-)
-
 // resourcePackageHintOptimizer implements the HintOptimizer interface based on resource package information.
 type resourcePackageHintOptimizer struct {
-	conf       *config.Configuration
-	metaServer *metaserver.MetaServer
-	emitter    metrics.MetricEmitter
-	state      state.State
+	conf    *config.Configuration
+	rpm     resourcepackage.ResourcePackageManager
+	emitter metrics.MetricEmitter
+	state   state.State
 
 	mux                sync.RWMutex
-	resourcePackageMap map[int][]resourcepackage.ResourcePackageItem
+	resourcePackageMap rputil.NUMAResourcePackageItems
 }
 
 // NewResourcePackageHintOptimizer creates a new resourcePackageHintOptimizer.
@@ -62,12 +55,11 @@ func NewResourcePackageHintOptimizer(
 	options policy.HintOptimizerFactoryOptions,
 ) (hintoptimizer.HintOptimizer, error) {
 	o := &resourcePackageHintOptimizer{
-		conf:       options.Conf,
-		metaServer: options.MetaServer,
-		emitter:    options.Emitter,
-		state:      options.State,
+		conf:    options.Conf,
+		rpm:     options.ResourcePackageManager,
+		emitter: options.Emitter,
+		state:   options.State,
 	}
-	o.updateResourcePackageMap()
 	return o, nil
 }
 
@@ -88,7 +80,7 @@ func (o *resourcePackageHintOptimizer) OptimizeHints(
 		return hintoptimizerutil.ErrHintOptimizerSkip
 	}
 
-	resourcePackage := resourcepackage.GetResourcePackageName(request.ResourceRequest.Annotations)
+	resourcePackage := rputil.GetResourcePackageName(request.ResourceRequest.Annotations)
 	if resourcePackage == "" {
 		general.Errorf("skip resourcePackageHintOptimizer for pod resource package not found in annotation")
 		return hintoptimizerutil.ErrHintOptimizerSkip
@@ -127,8 +119,7 @@ func (o *resourcePackageHintOptimizer) OptimizeHints(
 }
 
 // Run starts the resource package hint optimizer.
-func (o *resourcePackageHintOptimizer) Run(stopCh <-chan struct{}) error {
-	go wait.Until(o.updateResourcePackageMap, syncResourcePackageUpdatePeriod, stopCh)
+func (o *resourcePackageHintOptimizer) Run(_ <-chan struct{}) error {
 	return nil
 }
 
@@ -162,27 +153,29 @@ func (o *resourcePackageHintOptimizer) populateHintsByResourcePackage(
 }
 
 func (o *resourcePackageHintOptimizer) getResourcePackageAllocatable(resourcePackage string) (map[int]float64, error) {
-	resourcePackageMap := o.getResourcePackageMap()
+	resourcePackageMap, err := o.rpm.NodeResourcePackages(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("NodeResourcePackages failed with error: %v", err)
+	}
+
 	if resourcePackageMap == nil {
 		return nil, fmt.Errorf("resourcePackageMap is nil")
 	}
 
 	allocatable := make(map[int]float64)
 	for nodeID, packages := range resourcePackageMap {
-		for _, pkg := range packages {
-			if pkg.PackageName == resourcePackage {
-				if pkg.Allocatable == nil {
-					continue
-				}
-
-				// Use the native package to get CPU quantity safely
-				cpuQuantity := native.CPUQuantityGetter()(*pkg.Allocatable)
-				if cpuQuantity.IsZero() {
-					continue
-				}
-
-				allocatable[nodeID] = float64(cpuQuantity.MilliValue()) / 1000
+		if pkg, ok := packages[resourcePackage]; ok {
+			if pkg.Allocatable == nil {
+				continue
 			}
+
+			// Use the native package to get CPU quantity safely
+			cpuQuantity := native.CPUQuantityGetter()(*pkg.Allocatable)
+			if cpuQuantity.IsZero() {
+				continue
+			}
+
+			allocatable[nodeID] = float64(cpuQuantity.MilliValue()) / 1000
 		}
 	}
 	return allocatable, nil
@@ -198,7 +191,7 @@ func (o *resourcePackageHintOptimizer) getResourcePackageAllocated(resourcePacka
 
 		for _, entries := range nodeState.PodEntries {
 			for _, entry := range entries {
-				if entry == nil || resourcepackage.GetResourcePackageName(entry.Annotations) != resourcePackage {
+				if entry == nil || rputil.GetResourcePackageName(entry.Annotations) != resourcePackage {
 					continue
 				}
 
@@ -207,27 +200,4 @@ func (o *resourcePackageHintOptimizer) getResourcePackageAllocated(resourcePacka
 		}
 	}
 	return allocated, nil
-}
-
-func (o *resourcePackageHintOptimizer) getResourcePackageMap() map[int][]resourcepackage.ResourcePackageItem {
-	o.mux.RLock()
-	defer o.mux.RUnlock()
-	return o.resourcePackageMap
-}
-
-func (o *resourcePackageHintOptimizer) updateResourcePackageMap() {
-	// Get resource package information from meta server
-	resourcePackageMap, err := o.metaServer.NodeResourcePackages(context.Background())
-	if err != nil {
-		general.Errorf("NodeResourcePackages failed with error: %v", err)
-		return
-	}
-
-	o.mux.Lock()
-	defer o.mux.Unlock()
-	if apiequality.Semantic.DeepEqual(resourcePackageMap, o.resourcePackageMap) {
-		return
-	}
-	general.Infof("update resource package map from %+v to %+v", o.resourcePackageMap, resourcePackageMap)
-	o.resourcePackageMap = resourcePackageMap
 }

@@ -161,7 +161,8 @@ func (p *DynamicPolicy) setExtraControlKnobByConfigs(_ *coreconfig.Configuration
 	}
 
 	var resourcesMachineState state.NUMANodeResourcesMap
-	resourcesMachineState, err = state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetMachineState(), p.state.GetReservedMemory())
+	resourcesMachineState, err = state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), p.state.GetMemoryTopology(), podResourceEntries,
+		p.state.GetMachineState(), p.state.GetReservedMemory(), p.extraResourceNames)
 	if err != nil {
 		general.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 		return
@@ -492,7 +493,8 @@ func (p *DynamicPolicy) clearResidualState(_ *coreconfig.Configuration,
 			}
 		}
 
-		resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetMachineState(), p.state.GetReservedMemory())
+		resourcesMachineState, err := state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), p.state.GetMemoryTopology(), podResourceEntries,
+			p.state.GetMachineState(), p.state.GetReservedMemory(), p.extraResourceNames)
 		if err != nil {
 			general.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 			return
@@ -817,7 +819,8 @@ func (p *DynamicPolicy) syncOOMPriority(conf *coreconfig.Configuration,
 	}
 
 	var resourcesMachineState state.NUMANodeResourcesMap
-	resourcesMachineState, err = state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), podResourceEntries, p.state.GetMachineState(), p.state.GetReservedMemory())
+	resourcesMachineState, err = state.GenerateMachineStateFromPodEntries(p.state.GetMachineInfo(), p.state.GetMemoryTopology(), podResourceEntries,
+		p.state.GetMachineState(), p.state.GetReservedMemory(), p.extraResourceNames)
 	if err != nil {
 		general.Errorf("GenerateMachineStateFromPodEntries failed with error: %v", err)
 		return

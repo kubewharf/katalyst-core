@@ -103,6 +103,7 @@ type StaticPolicy struct {
 	netInterfaceNameResourceAllocationAnnotationKey string
 	netClassIDResourceAllocationAnnotationKey       string
 	netBandwidthResourceAllocationAnnotationKey     string
+	topologyAllocationAnnotationKey                 string
 
 	podAnnotationKeptKeys []string
 	podLabelKeptKeys      []string
@@ -146,20 +147,21 @@ func NewStaticPolicy(agentCtx *agent.GenericContext, conf *config.Configuration,
 	}
 
 	policyImplement := &StaticPolicy{
-		nicManager:            nicManager,
-		qosConfig:             conf.QoSConfiguration,
-		qrmConfig:             conf.QRMPluginsConfiguration,
-		emitter:               wrappedEmitter,
-		metaServer:            agentCtx.MetaServer,
-		agentCtx:              agentCtx,
-		state:                 stateImpl,
-		residualHitMap:        make(map[string]int64),
-		stopCh:                make(chan struct{}),
-		name:                  fmt.Sprintf("%s_%s", agentName, NetworkResourcePluginPolicyNameStatic),
-		qosLevelToNetClassMap: make(map[string]uint32),
-		podAnnotationKeptKeys: conf.PodAnnotationKeptKeys,
-		podLabelKeptKeys:      conf.PodLabelKeptKeys,
-		aliveCgroupID:         make(map[uint64]time.Time),
+		nicManager:                      nicManager,
+		qosConfig:                       conf.QoSConfiguration,
+		qrmConfig:                       conf.QRMPluginsConfiguration,
+		emitter:                         wrappedEmitter,
+		metaServer:                      agentCtx.MetaServer,
+		agentCtx:                        agentCtx,
+		state:                           stateImpl,
+		residualHitMap:                  make(map[string]int64),
+		stopCh:                          make(chan struct{}),
+		name:                            fmt.Sprintf("%s_%s", agentName, NetworkResourcePluginPolicyNameStatic),
+		qosLevelToNetClassMap:           make(map[string]uint32),
+		topologyAllocationAnnotationKey: conf.TopologyAllocationAnnotationKey,
+		podAnnotationKeptKeys:           conf.PodAnnotationKeptKeys,
+		podLabelKeptKeys:                conf.PodLabelKeptKeys,
+		aliveCgroupID:                   make(map[uint64]time.Time),
 	}
 
 	if common.CheckCgroup2UnifiedMode() {
@@ -1179,7 +1181,7 @@ func (p *StaticPolicy) getResourceAllocationAnnotations(
 		resourceAllocationAnnotations[p.netNSPathResourceAllocationAnnotationKey] = selectedNIC.NetNSInfo.GetNetNSAbsPath()
 	}
 
-	return resourceAllocationAnnotations, nil
+	return getNetworkTopologyAllocationsAnnotations(allocation, resourceAllocationAnnotations, p.topologyAllocationAnnotationKey), nil
 }
 
 func (p *StaticPolicy) removePod(podUID string) error {

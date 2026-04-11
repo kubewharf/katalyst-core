@@ -129,6 +129,14 @@ const (
 	IOCostModelLinear  IOCostModel    = "linear"
 )
 
+type CPUSetPartitionFlag string
+
+const (
+	CPUSetPartitionFlagRoot     CPUSetPartitionFlag = "root"
+	CPUSetPartitionFlagMember   CPUSetPartitionFlag = "member"
+	CPUSetPartitionFlagIsolated CPUSetPartitionFlag = "isolated"
+)
+
 // IOCostQoSData is the io.cost.qos data supported in cgroupv2
 type IOCostQoSData struct {
 	Enable              uint32         `json:"enable"`                // Weight-based control enable

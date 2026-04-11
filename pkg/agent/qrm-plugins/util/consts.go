@@ -32,6 +32,9 @@ const (
 	MetricNameGetAccompanyResourceTopologyHintsFailed = "get_accompany_resource_topology_hints_failed"
 	MetricNameAllocateAccompanyResourceFailed         = "allocate_accompany_resource_failed"
 	MetricNameReleaseAccompanyResourceFailed          = "release_accompany_resource_failed"
+	MetricNameSyncResourcePackagePinnedCPUSetFailed   = "sync_resource_package_pinned_cpuset_failed"
+	MetricNameResourcePackagePinnedCPUSetSize         = "resource_package_pinned_cpuset_size"
+	MetricNameSyncNumaResourcePackageFailed           = "sync_numa_resource_package_failed"
 
 	// metrics for cpu plugin
 	MetricNamePoolSize                    = "pool_size"

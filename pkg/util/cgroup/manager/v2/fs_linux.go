@@ -193,6 +193,16 @@ func (m *manager) ApplyCPUSet(absCgroupPath string, data *common.CPUSetData) err
 	return nil
 }
 
+func (m *manager) ApplyCPUSetPartition(absCgroupPath string, partitionFlag common.CPUSetPartitionFlag) error {
+	if err, applied, oldData := common.InstrumentedWriteFileIfChange(absCgroupPath, "cpuset.cpus.partition", string(partitionFlag)); err != nil {
+		return err
+	} else if applied {
+		klog.Infof("[CgroupV2] apply cpuset.cpus.partition successfully, cgroupPath: %s, data: %v, old data: %v\n", absCgroupPath, partitionFlag, oldData)
+	}
+
+	return nil
+}
+
 func (m *manager) ApplyNetCls(_ string, _ *common.NetClsData) error {
 	return errors.New("cgroups v2 does not support net_cls cgroup, please use eBPF via external manager")
 }

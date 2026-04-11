@@ -50,6 +50,8 @@ type MemoryQRMPluginConfig struct {
 	// NUMABindResultResourceAllocationAnnotationKey: the annotation key for numa bind result resource allocation
 	// it will be used to set cgroup path for numa bind result resource allocation
 	NUMABindResultResourceAllocationAnnotationKey string
+	// ExtraMemoryResources: the slice of extra memory resources such as hugepages-*
+	ExtraMemoryResources []string
 	// SockMemQRMPluginConfig: the configuration for sockmem limitation in cgroup and host level
 	SockMemQRMPluginConfig
 	// LogCacheQRMPluginConfig: the configuration for logcache evicting

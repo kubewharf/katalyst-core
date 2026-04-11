@@ -19,6 +19,7 @@ package qrm
 import (
 	"time"
 
+	"k8s.io/apimachinery/pkg/labels"
 	cliflag "k8s.io/component-base/cli/flag"
 
 	"github.com/kubewharf/katalyst-api/pkg/consts"
@@ -39,21 +40,22 @@ type CPUOptions struct {
 }
 
 type CPUDynamicPolicyOptions struct {
-	EnableCPUAdvisor                    bool
-	AdvisorGetAdviceInterval            time.Duration
-	EnableCPUPressureEviction           bool
-	LoadPressureEvictionSkipPools       []string
-	EnableSyncingCPUIdle                bool
-	EnableCPUIdle                       bool
-	CPUNUMAHintPreferPolicy             string
-	CPUNUMAHintPreferLowThreshold       float64
-	NUMABindingResultAnnotationKey      string
-	NUMANumberAnnotationKey             string
-	NUMAIDsAnnotationKey                string
-	EnableReserveCPUReversely           bool
-	EnableCPUBurst                      bool
-	EnableDefaultDedicatedCoresCPUBurst bool
-	EnableDefaultSharedCoresCPUBurst    bool
+	EnableCPUAdvisor                                   bool
+	AdvisorGetAdviceInterval                           time.Duration
+	EnableCPUPressureEviction                          bool
+	LoadPressureEvictionSkipPools                      []string
+	EnableSyncingCPUIdle                               bool
+	EnableCPUIdle                                      bool
+	CPUNUMAHintPreferPolicy                            string
+	CPUNUMAHintPreferLowThreshold                      float64
+	NUMABindingResultAnnotationKey                     string
+	NUMANumberAnnotationKey                            string
+	NUMAIDsAnnotationKey                               string
+	EnableReserveCPUReversely                          bool
+	EnableCPUBurst                                     bool
+	EnableDefaultDedicatedCoresCPUBurst                bool
+	EnableDefaultSharedCoresCPUBurst                   bool
+	IRQForbiddenPinnedResourcePackageAttributeSelector string
 	*irqtuner.IRQTunerOptions
 	*hintoptimizer.HintOptimizerOptions
 }
@@ -140,6 +142,9 @@ func (o *CPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.EnableDefaultSharedCoresCPUBurst, "if set true, it will enable cpu burst for shared cores by default")
 	fs.BoolVar(&o.EnableDefaultDedicatedCoresCPUBurst, "enable-default-dedicated-cores-cpu-burst",
 		o.EnableDefaultDedicatedCoresCPUBurst, "if set true, it will enable cpu burst for dedicated cores by default")
+	fs.StringVar(&o.IRQForbiddenPinnedResourcePackageAttributeSelector, "irq-forbidden-pinned-resource-package-attribute-selector",
+		o.IRQForbiddenPinnedResourcePackageAttributeSelector, "The selector to filter pinned resource packages that are"+
+			"forbidden for irq binding.")
 	o.HintOptimizerOptions.AddFlags(fss)
 	o.IRQTunerOptions.AddFlags(fss)
 }
@@ -164,6 +169,11 @@ func (o *CPUOptions) ApplyTo(conf *qrmconfig.CPUQRMPluginConfig) error {
 	conf.EnableCPUBurst = o.EnableCPUBurst
 	conf.EnableDefaultDedicatedCoresCPUBurst = o.EnableDefaultDedicatedCoresCPUBurst
 	conf.EnableDefaultSharedCoresCPUBurst = o.EnableDefaultSharedCoresCPUBurst
+	selector, err := labels.Parse(o.IRQForbiddenPinnedResourcePackageAttributeSelector)
+	if err != nil {
+		return err
+	}
+	conf.IRQForbiddenPinnedResourcePackageAttributeSelector = selector
 	if err := o.HintOptimizerOptions.ApplyTo(conf.HintOptimizerConfiguration); err != nil {
 		return err
 	}
