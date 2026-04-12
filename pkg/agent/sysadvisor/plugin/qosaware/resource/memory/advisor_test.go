@@ -1264,7 +1264,10 @@ func TestUpdate(t *testing.T) {
 				ExtraEntries: []types.ExtraMemoryAdvices{
 					{
 						CgroupPath: "/kubepods/besteffort",
-						Values:     map[string]string{string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): strconv.Itoa(240 << 30)},
+						Values: map[string]string{
+							string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): strconv.Itoa(240 << 30),
+							string(memoryadvisor.ControlKnobKeyMemoryHigh):         strconv.FormatInt(int64(0.95*float64(240<<30)), 10),
+						},
 					},
 				},
 			},
@@ -1318,7 +1321,10 @@ func TestUpdate(t *testing.T) {
 				ExtraEntries: []types.ExtraMemoryAdvices{
 					{
 						CgroupPath: "/kubepods/besteffort",
-						Values:     map[string]string{string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): strconv.Itoa(184 << 30)},
+						Values: map[string]string{
+							string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): strconv.Itoa(184 << 30),
+							string(memoryadvisor.ControlKnobKeyMemoryHigh):         strconv.FormatInt(187690070835, 10),
+						},
 					},
 				},
 			},
