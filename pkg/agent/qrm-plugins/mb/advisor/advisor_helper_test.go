@@ -22,9 +22,15 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/priority"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/resource"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
 )
+
+func init() {
+	priority.GetInstance().AddWeight("machine", 9_000)
+}
 
 func Test_maskPlanWithNoThrottles(t *testing.T) {
 	t.Parallel()
@@ -175,6 +181,141 @@ func Test_getDomainTotalMBs(t *testing.T) {
 			t.Parallel()
 			if got := getDomainTotalMBs(tt.args.domStats); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("getDomainTotalMBs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_preProcessGroupInfo(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name           string
+		stats          monitor.GroupMBStats
+		wantResult     monitor.GroupMBStats
+		wantGroupInfos domainGroupMapping
+		wantErr        bool
+	}{
+		{
+			name: "two groups with different weights - no combination",
+			stats: monitor.GroupMBStats{
+				"dedicated": {
+					0: {LocalMB: 5_000, RemoteMB: 3_000, TotalMB: 8_000},
+				},
+				"share-50": {
+					1: {LocalMB: 4_000, RemoteMB: 2_000, TotalMB: 6_000},
+				},
+			},
+			wantResult: monitor.GroupMBStats{
+				"dedicated": {
+					0: {LocalMB: 5_000, RemoteMB: 3_000, TotalMB: 8_000},
+				},
+				"share-50": {
+					1: {LocalMB: 4_000, RemoteMB: 2_000, TotalMB: 6_000},
+				},
+			},
+			wantGroupInfos: domainGroupMapping{},
+			wantErr:        false,
+		},
+		{
+			name: "two groups with same weight - combine into one",
+			stats: monitor.GroupMBStats{
+				"dedicated": {
+					0: {LocalMB: 10_000, RemoteMB: 5_000, TotalMB: 15_000},
+				},
+				"machine": {
+					1: {LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
+				},
+			},
+			wantResult: monitor.GroupMBStats{
+				"combined-9000": {
+					0: {LocalMB: 10_000, RemoteMB: 5_000, TotalMB: 15_000},
+					1: {LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
+				},
+			},
+			wantGroupInfos: domainGroupMapping{
+				"combined-9000": {
+					"dedicated": {0: struct{}{}},
+					"machine":   {1: struct{}{}},
+				},
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			gotResult, gotGroupInfos, err := preProcessGroupInfo(tt.stats)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("preProcessGroupInfo() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(gotResult, tt.wantResult) {
+				t.Errorf("preProcessGroupInfo() gotResult = %v, want %v", gotResult, tt.wantResult)
+			}
+			if !reflect.DeepEqual(gotGroupInfos, tt.wantGroupInfos) {
+				t.Errorf("preProcessGroupInfo() gotGroupInfos = %v, want %v", gotGroupInfos, tt.wantGroupInfos)
+			}
+		})
+	}
+}
+
+func Test_preProcessGroupSumStat(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		sumStats map[string][]monitor.MBInfo
+		want     map[string][]monitor.MBInfo
+	}{
+		{
+			name: "two groups with different weights - no combination",
+			sumStats: map[string][]monitor.MBInfo{
+				"dedicated": {
+					{LocalMB: 5_000, RemoteMB: 3_000, TotalMB: 8_000},
+					{LocalMB: 4_000, RemoteMB: 2_000, TotalMB: 6_000},
+				},
+				"share-50": {
+					{LocalMB: 3_000, RemoteMB: 1_000, TotalMB: 4_000},
+					{LocalMB: 2_000, RemoteMB: 1_000, TotalMB: 3_000},
+				},
+			},
+			want: map[string][]monitor.MBInfo{
+				"dedicated": {
+					{LocalMB: 5_000, RemoteMB: 3_000, TotalMB: 8_000},
+					{LocalMB: 4_000, RemoteMB: 2_000, TotalMB: 6_000},
+				},
+				"share-50": {
+					{LocalMB: 3_000, RemoteMB: 1_000, TotalMB: 4_000},
+					{LocalMB: 2_000, RemoteMB: 1_000, TotalMB: 3_000},
+				},
+			},
+		},
+		{
+			name: "two groups with same weight - combine and sum",
+			sumStats: map[string][]monitor.MBInfo{
+				"dedicated": {
+					{LocalMB: 5_000, RemoteMB: 3_000, TotalMB: 8_000},
+					{LocalMB: 4_000, RemoteMB: 2_000, TotalMB: 6_000},
+				},
+				"machine": {
+					{LocalMB: 3_000, RemoteMB: 1_000, TotalMB: 4_000},
+					{LocalMB: 2_000, RemoteMB: 1_000, TotalMB: 3_000},
+				},
+			},
+			want: map[string][]monitor.MBInfo{
+				"combined-9000": {
+					{LocalMB: 8_000, RemoteMB: 4_000, TotalMB: 12_000},
+					{LocalMB: 6_000, RemoteMB: 3_000, TotalMB: 9_000},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := preProcessGroupSumStat(tt.sumStats); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("preProcessGroupSumStat() = %v, want %v", got, tt.want)
 			}
 		})
 	}

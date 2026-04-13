@@ -17,16 +17,20 @@ limitations under the License.
 package advisor
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
 	"golang.org/x/exp/maps"
 	"k8s.io/apimachinery/pkg/util/sets"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/priority"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/advisor/resource"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
 )
+
+const combinedGroupPrefix = "combined-"
 
 // getMinEffectiveCapacity identifies the min dynamic capacity required by pre-defined groups,
 // if the specific groups have active MB traffics
@@ -126,11 +130,109 @@ func getGroupIncomingInfo(capacity int, incomingStats monitor.GroupMBStats) *res
 		CapacityInMB: capacity,
 	}
 
-	result.GroupSorted = sortGroups(maps.Keys(incomingStats))
+	result.GroupSorted = priority.GetInstance().SortGroups(maps.Keys(incomingStats))
 	result.GroupTotalUses = getUsedTotalByGroup(incomingStats)
 	result.FreeInMB, result.GroupLimits = getLimitsByGroupSorted(capacity, result.GroupSorted, result.GroupTotalUses)
 	result.ResourceState = resource.GetResourceState(capacity, result.FreeInMB)
 	return result
+}
+
+// groupByWeight extracts the common logic of grouping by weight
+func groupByWeight[T any](stats map[string]T) map[int][]string {
+	groups := make(map[int][]string, len(stats))
+	for group := range stats {
+		weight := priority.GetInstance().GetWeight(group)
+		groups[weight] = append(groups[weight], group)
+	}
+	return groups
+}
+
+// preProcessGroupInfo combines groups with same priority together
+func preProcessGroupInfo(stats monitor.GroupMBStats) (monitor.GroupMBStats, domainGroupMapping, error) {
+	groups := groupByWeight(stats)
+
+	result := make(monitor.GroupMBStats)
+	groupInfos := domainGroupMapping{}
+
+	for weight, equivGroups := range groups {
+		if len(equivGroups) == 1 {
+			result[equivGroups[0]] = stats[equivGroups[0]]
+			continue
+		}
+
+		newKey := getCombinedGroupKey(weight)
+		groupInfo := combinedGroupMapping{}
+		combined := make(monitor.GroupMB)
+		maxMap := make(map[int]int)
+
+		// First pass: find max TotalMB for each CCD and build combined stats
+		for _, group := range equivGroups {
+			for id, stat := range stats[group] {
+				if stat.TotalMB > combined[id].TotalMB {
+					combined[id] = stat
+					maxMap[id] = stat.TotalMB
+				}
+			}
+		}
+
+		// Second pass: validate and build CCD sets for each group (only within equivGroups)
+		for _, group := range equivGroups {
+			ccdSet := ccdSet{}
+			for id, mbStat := range stats[group] {
+				// skip shared ccd with similar incoming data
+				if mbStat.TotalMB > maxMap[id]/2 && mbStat.TotalMB < maxMap[id] {
+					return nil, nil, errors.New("invalid incoming inputs")
+				}
+				if mbStat.TotalMB == maxMap[id] {
+					ccdSet[id] = struct{}{}
+				}
+			}
+			groupInfo[group] = ccdSet
+		}
+
+		result[newKey] = combined
+		groupInfos[newKey] = groupInfo
+	}
+
+	return result, groupInfos, nil
+}
+
+func preProcessGroupSumStat(sumStats map[string][]monitor.MBInfo) map[string][]monitor.MBInfo {
+	groups := groupByWeight(sumStats)
+
+	result := make(map[string][]monitor.MBInfo)
+
+	for weight, equivGroups := range groups {
+		if len(equivGroups) == 1 {
+			result[equivGroups[0]] = sumStats[equivGroups[0]]
+			continue
+		}
+
+		newKey := getCombinedGroupKey(weight)
+		// sumStats holds outgoing summary of each domain for each group, in other words,
+		// each slot of sumStats has uniform shape: slice with length of domain number
+		numDomains := len(sumStats[equivGroups[0]])
+		sumList := make([]monitor.MBInfo, numDomains)
+
+		for _, group := range equivGroups {
+			for id, stat := range sumStats[group] {
+				sumList[id].LocalMB += stat.LocalMB
+				sumList[id].RemoteMB += stat.RemoteMB
+				sumList[id].TotalMB += stat.TotalMB
+			}
+		}
+		result[newKey] = sumList
+	}
+
+	return result
+}
+
+func getCombinedGroupKey(weight int) string {
+	return fmt.Sprintf("%s%d", combinedGroupPrefix, weight)
+}
+
+func isCombinedGroup(groupName string) bool {
+	return strings.Contains(groupName, combinedGroupPrefix)
 }
 
 func getLimitsByGroupSorted(capacity int, groupSorting []sets.String, groupUsages map[string]int) (int, map[string]int) {

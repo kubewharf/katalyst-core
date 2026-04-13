@@ -37,31 +37,31 @@ const (
 	namePlanUpdate                = "mbm_plan_update"
 )
 
-func (d *domainAdvisor) emitDomIncomingStatSummaryMetrics(domLimits map[int]*resource.MBGroupIncomingStat) {
+func (a *uniqPriorityAdvisor) emitDomIncomingStatSummaryMetrics(domLimits map[int]*resource.MBGroupIncomingStat) {
 	for domID, limit := range domLimits {
 		tags := map[string]string{
 			"domain": fmt.Sprintf("%d", domID),
 			"state":  string(limit.ResourceState),
 		}
-		emitKV(d.emitter, nameMBMCapacity, limit.CapacityInMB, tags)
-		emitKV(d.emitter, nameMBMFree, limit.FreeInMB, tags)
+		emitKV(a.emitter, nameMBMCapacity, limit.CapacityInMB, tags)
+		emitKV(a.emitter, nameMBMFree, limit.FreeInMB, tags)
 	}
 }
 
-func (d *domainAdvisor) emitStatsMtrics(domainsMon *monitor.DomainStats) {
-	d.emitOutgoingStats(domainsMon.Outgoings)
-	d.emitIncomingStats(domainsMon.Incomings)
+func (a *uniqPriorityAdvisor) emitStatsMtrics(domainsMon *monitor.DomainStats) {
+	a.emitOutgoingStats(domainsMon.Outgoings)
+	a.emitIncomingStats(domainsMon.Incomings)
 }
 
-func (d *domainAdvisor) emitIncomingStats(incomings map[int]monitor.DomainMonStat) {
-	d.emitStat(incomings, nameMBMIncomingStat)
+func (a *uniqPriorityAdvisor) emitIncomingStats(incomings map[int]monitor.DomainMonStat) {
+	a.emitStat(incomings, nameMBMIncomingStat)
 }
 
-func (d *domainAdvisor) emitOutgoingStats(outgoings map[int]monitor.DomainMonStat) {
-	d.emitStat(outgoings, nameMBMOutgoingStat)
+func (a *uniqPriorityAdvisor) emitOutgoingStats(outgoings map[int]monitor.DomainMonStat) {
+	a.emitStat(outgoings, nameMBMOutgoingStat)
 }
 
-func (d *domainAdvisor) emitStat(stats map[int]monitor.DomainMonStat, metricName string) {
+func (a *uniqPriorityAdvisor) emitStat(stats map[int]monitor.DomainMonStat, metricName string) {
 	for domId, monStat := range stats {
 		for group, ccdMBs := range monStat {
 			dom := fmt.Sprintf("%d", domId)
@@ -71,33 +71,33 @@ func (d *domainAdvisor) emitStat(stats map[int]monitor.DomainMonStat, metricName
 					"group":  group,
 					"ccd":    fmt.Sprintf("%d", ccd),
 				}
-				emitKV(d.emitter, metricName, v.TotalMB, tags)
+				emitKV(a.emitter, metricName, v.TotalMB, tags)
 			}
 		}
 	}
 }
 
-func (d *domainAdvisor) emitIncomingTargets(groupedDomIncomingTargets map[string][]int) {
-	emitNamedGroupTargets(d.emitter, nameMBMIncomingTarget, groupedDomIncomingTargets)
+func (a *uniqPriorityAdvisor) emitIncomingTargets(groupedDomIncomingTargets map[string][]int) {
+	emitNamedGroupTargets(a.emitter, nameMBMIncomingTarget, groupedDomIncomingTargets)
 }
 
-func (d *domainAdvisor) emitOutgoingTargets(groupedDomOutgoingTargets map[string][]int) {
-	emitNamedGroupTargets(d.emitter, nameMBMOutgoingTarget, groupedDomOutgoingTargets)
+func (a *uniqPriorityAdvisor) emitOutgoingTargets(groupedDomOutgoingTargets map[string][]int) {
+	emitNamedGroupTargets(a.emitter, nameMBMOutgoingTarget, groupedDomOutgoingTargets)
 }
 
-func (d *domainAdvisor) emitAdjustedOutgoingTargets(groupedDomOutgoingTargets map[string][]int) {
-	emitNamedGroupTargets(d.emitter, nameMBMAdjustedOutgoingTarget, groupedDomOutgoingTargets)
+func (a *uniqPriorityAdvisor) emitAdjustedOutgoingTargets(groupedDomOutgoingTargets map[string][]int) {
+	emitNamedGroupTargets(a.emitter, nameMBMAdjustedOutgoingTarget, groupedDomOutgoingTargets)
 }
 
-func (d *domainAdvisor) emitRawPlan(plan *plan.MBPlan) {
-	d.emitPlanWithMetricName(plan, namePlanRaw)
+func (a *uniqPriorityAdvisor) emitRawPlan(plan *plan.MBPlan) {
+	a.emitPlanWithMetricName(plan, namePlanRaw)
 }
 
-func (d *domainAdvisor) emitUpdatePlan(plan *plan.MBPlan) {
-	d.emitPlanWithMetricName(plan, namePlanUpdate)
+func (a *uniqPriorityAdvisor) emitUpdatePlan(plan *plan.MBPlan) {
+	a.emitPlanWithMetricName(plan, namePlanUpdate)
 }
 
-func (d *domainAdvisor) emitPlanWithMetricName(plan *plan.MBPlan, metricName string) {
+func (a *uniqPriorityAdvisor) emitPlanWithMetricName(plan *plan.MBPlan, metricName string) {
 	if plan == nil || len(plan.MBGroups) == 0 {
 		return
 	}
@@ -108,7 +108,7 @@ func (d *domainAdvisor) emitPlanWithMetricName(plan *plan.MBPlan, metricName str
 				"group": group,
 				"ccd":   fmt.Sprintf("%d", ccd),
 			}
-			emitKV(d.emitter, metricName, v, tags)
+			emitKV(a.emitter, metricName, v, tags)
 		}
 	}
 }
