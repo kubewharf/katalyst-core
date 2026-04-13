@@ -44,6 +44,9 @@ const (
 	reclaimMemoryUnlimited = -1
 
 	defaultProcZoneInfoFile = "/proc/zoneinfo"
+
+	// Factor for calculating memory.high based on memory.max, available for cgroup v2 only
+	memoryHighScaleFactor = 0.95
 )
 
 type memoryGuard struct {
@@ -110,11 +113,19 @@ func (mg *memoryGuard) GetAdvices() types.InternalMemoryCalculationResult {
 		general.Errorf("failed to get last reconcile result")
 		return types.InternalMemoryCalculationResult{}
 	}
+	memoryMax := mg.reclaimMemoryLimit.Load()
+	memoryHigh := int64(float64(memoryMax) * memoryHighScaleFactor)
+	if memoryMax == reclaimMemoryUnlimited {
+		memoryHigh = reclaimMemoryUnlimited
+	}
 	result := types.InternalMemoryCalculationResult{
 		ExtraEntries: []types.ExtraMemoryAdvices{
 			{
 				CgroupPath: mg.reclaimRelativeRootCgroupPath,
-				Values:     map[string]string{string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): strconv.FormatInt(mg.reclaimMemoryLimit.Load(), 10)},
+				Values: map[string]string{
+					string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): strconv.FormatInt(memoryMax, 10),
+					string(memoryadvisor.ControlKnobKeyMemoryHigh):         strconv.FormatInt(memoryHigh, 10),
+				},
 			},
 		},
 	}
@@ -127,9 +138,17 @@ func (mg *memoryGuard) GetAdvices() types.InternalMemoryCalculationResult {
 				continue
 			}
 
+			numaMemoryMax := numaBindingReclaimMemoryLimit[numaID]
+			numaMemoryHigh := int64(float64(numaMemoryMax) * memoryHighScaleFactor)
+			if numaMemoryMax == reclaimMemoryUnlimited {
+				numaMemoryHigh = reclaimMemoryUnlimited
+			}
 			result.ExtraEntries = append(result.ExtraEntries, types.ExtraMemoryAdvices{
 				CgroupPath: cgroupPath,
-				Values:     map[string]string{string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): strconv.FormatInt(numaBindingReclaimMemoryLimit[numaID], 10)},
+				Values: map[string]string{
+					string(memoryadvisor.ControlKnobKeyMemoryLimitInBytes): strconv.FormatInt(numaMemoryMax, 10),
+					string(memoryadvisor.ControlKnobKeyMemoryHigh):         strconv.FormatInt(numaMemoryHigh, 10),
+				},
 			})
 		}
 	}
