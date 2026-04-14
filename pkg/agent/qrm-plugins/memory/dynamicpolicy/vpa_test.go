@@ -1148,11 +1148,12 @@ func TestRNBMemoryVPA(t *testing.T) {
 				AllocationResult: &pluginapi.ResourceAllocation{
 					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
 						string(v1.ResourceMemory): {
-							OciPropertyName:   util.OCIPropertyNameCPUSetMems,
-							IsNodeResource:    false,
-							IsScalarResource:  true,
-							AllocatedQuantity: 3221225472,
-							AllocationResult:  machine.NewCPUSet(0, 1, 2, 3).String(),
+							OciPropertyName:     util.OCIPropertyNameCPUSetMems,
+							IsNodeResource:      false,
+							IsScalarResource:    true,
+							AllocatedQuantity:   3221225472,
+							AllocationResult:    machine.NewCPUSet(0, 1, 2, 3).String(),
+							TopologyAssignments: map[uint64]uint64{},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{nil},
 							},
@@ -1242,11 +1243,12 @@ func TestRNBMemoryVPA(t *testing.T) {
 				AllocationResult: &pluginapi.ResourceAllocation{
 					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
 						string(v1.ResourceMemory): {
-							OciPropertyName:   util.OCIPropertyNameCPUSetMems,
-							IsNodeResource:    false,
-							IsScalarResource:  true,
-							AllocatedQuantity: 1073741824,
-							AllocationResult:  machine.NewCPUSet(0).String(),
+							OciPropertyName:     util.OCIPropertyNameCPUSetMems,
+							IsNodeResource:      false,
+							IsScalarResource:    true,
+							AllocatedQuantity:   1073741824,
+							AllocationResult:    machine.NewCPUSet(0).String(),
+							TopologyAssignments: map[uint64]uint64{},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -1346,11 +1348,12 @@ func TestRNBMemoryVPA(t *testing.T) {
 				AllocationResult: &pluginapi.ResourceAllocation{
 					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
 						string(v1.ResourceMemory): {
-							OciPropertyName:   util.OCIPropertyNameCPUSetMems,
-							IsNodeResource:    false,
-							IsScalarResource:  true,
-							AllocatedQuantity: 3221225472,
-							AllocationResult:  machine.NewCPUSet(0).String(),
+							OciPropertyName:     util.OCIPropertyNameCPUSetMems,
+							IsNodeResource:      false,
+							IsScalarResource:    true,
+							AllocatedQuantity:   3221225472,
+							AllocationResult:    machine.NewCPUSet(0).String(),
+							TopologyAssignments: map[uint64]uint64{},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -1485,11 +1488,12 @@ func TestRNBMemoryVPA(t *testing.T) {
 				AllocationResult: &pluginapi.ResourceAllocation{
 					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
 						string(v1.ResourceMemory): {
-							OciPropertyName:   util.OCIPropertyNameCPUSetMems,
-							IsNodeResource:    false,
-							IsScalarResource:  true,
-							AllocatedQuantity: 6442450944,
-							AllocationResult:  machine.NewCPUSet(0, 1).String(),
+							OciPropertyName:     util.OCIPropertyNameCPUSetMems,
+							IsNodeResource:      false,
+							IsScalarResource:    true,
+							AllocatedQuantity:   6442450944,
+							AllocationResult:    machine.NewCPUSet(0, 1).String(),
+							TopologyAssignments: map[uint64]uint64{},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
