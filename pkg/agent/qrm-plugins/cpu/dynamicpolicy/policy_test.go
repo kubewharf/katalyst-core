@@ -429,8 +429,14 @@ func TestAllocate(t *testing.T) {
 							OciPropertyName:   util.OCIPropertyNameCPUSetCPUs,
 							IsNodeResource:    false,
 							IsScalarResource:  true,
-							AllocatedQuantity: 14, // ramp up
-							AllocationResult:  machine.NewCPUSet(1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15).String(),
+							AllocatedQuantity: 14,
+							AllocationResult:  "1,3-15",
+							TopologyAssignments: map[uint64]uint64{
+								0: 3,
+								1: 3,
+								2: 4,
+								3: 4,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{nil},
 							},
@@ -481,6 +487,12 @@ func TestAllocate(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: 4,
 							AllocationResult:  machine.NewCPUSet(1, 3, 4, 6).String(),
+							TopologyAssignments: map[uint64]uint64{
+								0: 1,
+								1: 1,
+								2: 1,
+								3: 1,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{nil},
 							},
@@ -536,6 +548,9 @@ func TestAllocate(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: 3,
 							AllocationResult:  machine.NewCPUSet(1, 8, 9).String(),
+							TopologyAssignments: map[uint64]uint64{
+								0: 3,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -601,6 +616,9 @@ func TestAllocate(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: 2,
 							AllocationResult:  machine.NewCPUSet(1, 9).String(),
+							TopologyAssignments: map[uint64]uint64{
+								0: 2,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -666,6 +684,9 @@ func TestAllocate(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: 3,
 							AllocationResult:  machine.NewCPUSet(1, 8, 9).String(),
+							TopologyAssignments: map[uint64]uint64{
+								0: 3,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -734,6 +755,9 @@ func TestAllocate(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: 2,
 							AllocationResult:  machine.NewCPUSet(1, 9).String(),
+							TopologyAssignments: map[uint64]uint64{
+								0: 2,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -798,6 +822,9 @@ func TestAllocate(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: 3,
 							AllocationResult:  machine.NewCPUSet(1, 8, 9).String(),
+							TopologyAssignments: map[uint64]uint64{
+								0: 3,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -863,6 +890,9 @@ func TestAllocate(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: 1,
 							AllocationResult:  machine.NewCPUSet(1).String(),
+							TopologyAssignments: map[uint64]uint64{
+								0: 1,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -956,6 +986,9 @@ func TestAllocate(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: 3,
 							AllocationResult:  machine.NewCPUSet(1, 8, 9).String(),
+							TopologyAssignments: map[uint64]uint64{
+								0: 3,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -1016,6 +1049,10 @@ func TestAllocate(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: 2, // reserve pool
 							AllocationResult:  machine.NewCPUSet(0, 2).String(),
+							TopologyAssignments: map[uint64]uint64{
+								0: 1,
+								1: 1,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{nil},
 							},
@@ -1067,6 +1104,12 @@ func TestAllocate(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: float64(cpuTopology.CPUDetails.CPUs().Size()), // default for all cpuset
 							AllocationResult:  cpuTopology.CPUDetails.CPUs().String(),
+							TopologyAssignments: map[uint64]uint64{
+								0: 4,
+								1: 4,
+								2: 4,
+								3: 4,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{nil},
 							},
@@ -1123,6 +1166,9 @@ func TestAllocate(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: 1,
 							AllocationResult:  machine.NewCPUSet(1).String(),
+							TopologyAssignments: map[uint64]uint64{
+								0: 1,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -1188,6 +1234,12 @@ func TestAllocate(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: 4,
 							AllocationResult:  machine.NewCPUSet(1, 3, 4, 6).String(),
+							TopologyAssignments: map[uint64]uint64{
+								0: 1,
+								1: 1,
+								2: 1,
+								3: 1,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -1251,6 +1303,10 @@ func TestAllocate(t *testing.T) {
 							AllocatedQuantity: 4,
 							// CPUs 4 and 12 are from NUMA 2 and CPUs 6 and 14 are from NUMA 3
 							AllocationResult: machine.NewCPUSet(4, 6, 12, 14).String(),
+							TopologyAssignments: map[uint64]uint64{
+								2: 2,
+								3: 2,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -1319,6 +1375,9 @@ func TestAllocate(t *testing.T) {
 							AllocatedQuantity: 2,
 							// Allocate full physical core of CPUs 4 and 12
 							AllocationResult: machine.NewCPUSet(4, 12).String(),
+							TopologyAssignments: map[uint64]uint64{
+								2: 2,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -1415,6 +1474,10 @@ func TestAllocate(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: 6,
 							AllocationResult:  machine.NewCPUSet(4, 5, 6, 7, 12, 14).String(),
+							TopologyAssignments: map[uint64]uint64{
+								2: 3,
+								3: 3,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -1484,6 +1547,10 @@ func TestAllocate(t *testing.T) {
 							AllocatedQuantity: 6,
 							// Will allocate 4, 5, 12, 13 from numa 2 first and then 6, 14 from numa 3
 							AllocationResult: machine.NewCPUSet(4, 5, 6, 12, 13, 14).String(),
+							TopologyAssignments: map[uint64]uint64{
+								2: 4,
+								3: 2,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
