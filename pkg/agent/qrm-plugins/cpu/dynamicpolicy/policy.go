@@ -140,6 +140,7 @@ type DynamicPolicy struct {
 	numaBindingResultAnnotationKey            string
 	numaNumberAnnotationKey                   string
 	numaIDsAnnotationKey                      string
+	topologyAllocationAnnotationKey           string
 	transitionPeriod                          time.Duration
 
 	reservedReclaimedCPUsSize                 int
@@ -223,14 +224,15 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		reclaimRelativeRootCgroupPath: conf.ReclaimRelativeRootCgroupPath,
 		numaBindingReclaimRelativeRootCgroupPaths: common.GetNUMABindingReclaimRelativeRootCgroupPaths(conf.ReclaimRelativeRootCgroupPath,
 			agentCtx.CPUDetails.NUMANodes().ToSliceNoSortInt()),
-		podDebugAnnoKeys:               conf.PodDebugAnnoKeys,
-		podAnnotationKeptKeys:          conf.PodAnnotationKeptKeys,
-		podLabelKeptKeys:               conf.PodLabelKeptKeys,
-		numaBindingResultAnnotationKey: conf.NUMABindingResultAnnotationKey,
-		numaNumberAnnotationKey:        conf.NUMANumberAnnotationKey,
-		numaIDsAnnotationKey:           conf.NUMAIDsAnnotationKey,
-		transitionPeriod:               30 * time.Second,
-		reservedReclaimedCPUsSize:      general.Max(reservedReclaimedCPUsSize, agentCtx.KatalystMachineInfo.NumNUMANodes),
+		podDebugAnnoKeys:                conf.PodDebugAnnoKeys,
+		podAnnotationKeptKeys:           conf.PodAnnotationKeptKeys,
+		podLabelKeptKeys:                conf.PodLabelKeptKeys,
+		numaBindingResultAnnotationKey:  conf.NUMABindingResultAnnotationKey,
+		numaNumberAnnotationKey:         conf.NUMANumberAnnotationKey,
+		numaIDsAnnotationKey:            conf.NUMAIDsAnnotationKey,
+		topologyAllocationAnnotationKey: conf.TopologyAllocationAnnotationKey,
+		transitionPeriod:                30 * time.Second,
+		reservedReclaimedCPUsSize:       general.Max(reservedReclaimedCPUsSize, agentCtx.KatalystMachineInfo.NumNUMANodes),
 	}
 
 	// initialize hint optimizer
@@ -979,30 +981,26 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 			"originalAllocationResult", allocationInfo.OriginalAllocationResult.String(),
 			"currentResult", allocationInfo.AllocationResult.String())
 
-		return &pluginapi.ResourceAllocationResponse{
-			PodUid:         req.PodUid,
-			PodNamespace:   req.PodNamespace,
-			PodName:        req.PodName,
-			ContainerName:  req.ContainerName,
-			ContainerType:  req.ContainerType,
-			ContainerIndex: req.ContainerIndex,
-			PodRole:        req.PodRole,
-			PodType:        req.PodType,
-			ResourceName:   string(v1.ResourceCPU),
-			AllocationResult: &pluginapi.ResourceAllocation{
-				ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
-					string(v1.ResourceCPU): {
-						OciPropertyName:   util.OCIPropertyNameCPUSetCPUs,
-						IsNodeResource:    false,
-						IsScalarResource:  true,
-						AllocatedQuantity: float64(allocationInfo.AllocationResult.Size()),
-						AllocationResult:  allocationInfo.AllocationResult.String(),
-					},
-				},
-			},
-			Labels:      general.DeepCopyMap(req.Labels),
-			Annotations: general.DeepCopyMap(req.Annotations),
-		}, nil
+		// Add topologyAllocationAnnotations for numa binding containers
+		var topologyAllocationAnnotations map[string]string
+		if allocationInfo.CheckNUMABinding() {
+			isReclaimedOrSharedQoS := allocationInfo.CheckReclaimed() || allocationInfo.CheckShared()
+			topologyAllocationAnnotations, err = cpuutil.GetCPUTopologyAllocationsAnnotations(allocationInfo, p.topologyAllocationAnnotationKey,
+				req, isReclaimedOrSharedQoS)
+			if err != nil {
+				return nil, fmt.Errorf("GetCPUTopologyAllocationsAnnotations failed with error: %v", err)
+			}
+		}
+
+		resp, err = cpuutil.PackAllocationResponse(allocationInfo, string(v1.ResourceCPU), util.OCIPropertyNameCPUSetCPUs,
+			false, true, req, topologyAllocationAnnotations)
+		if err != nil {
+			general.Errorf("pod: %s/%s, container: %s PackResourceAllocationResponseByAllocationInfo failed with error: %v",
+				req.PodNamespace, req.PodName, req.ContainerName, err)
+			return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
+		}
+
+		return resp, nil
 	}
 
 	if p.allocationHandlers[qosLevel] == nil {

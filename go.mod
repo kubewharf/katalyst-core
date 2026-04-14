@@ -20,7 +20,7 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/h2non/gock v1.2.0
 	github.com/klauspost/cpuid/v2 v2.2.6
-	github.com/kubewharf/katalyst-api v0.5.11-0.20260324091059-cae1d07d9882
+	github.com/kubewharf/katalyst-api v0.5.11-0.20260407100730-9a71452c00b1
 	github.com/moby/sys/mountinfo v0.6.2
 	github.com/montanaflynn/stats v0.7.1
 	github.com/opencontainers/runc v1.1.6
@@ -197,7 +197,7 @@ replace (
 	k8s.io/kube-proxy => k8s.io/kube-proxy v0.24.6
 	k8s.io/kube-scheduler => k8s.io/kube-scheduler v0.24.6
 	k8s.io/kubectl => k8s.io/kubectl v0.24.6
-	k8s.io/kubelet => github.com/kubewharf/kubelet v1.24.6-kubewharf-pre.2
+	k8s.io/kubelet => github.com/luomingmeng/kubelet v0.0.0-20260306101749-66566cd8838b
 	k8s.io/kubernetes => k8s.io/kubernetes v1.24.6
 	k8s.io/legacy-cloud-providers => k8s.io/legacy-cloud-providers v0.24.6
 	k8s.io/metrics => k8s.io/metrics v0.24.6

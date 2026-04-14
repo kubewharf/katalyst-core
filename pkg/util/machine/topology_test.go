@@ -21,6 +21,7 @@ import (
 	"sync"
 	"testing"
 
+	info "github.com/google/cadvisor/info/v1"
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/util/sets"
 
@@ -71,6 +72,128 @@ func TestMemoryDetailsEqual(t *testing.T) {
 
 			if got := tt.detail.Equal(tt.want); got != tt.equal {
 				t.Errorf("MemoryDetails.Equal() = %v, want %v", got, tt.equal)
+			}
+		})
+	}
+}
+
+func TestDiscoverMemoryTopology(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name               string
+		machineInfo        *info.MachineInfo
+		wantMemoryTopology *MemoryTopology
+		wantErr            bool
+	}{
+		{
+			name:        "Nil MachineInfo",
+			machineInfo: nil,
+			wantErr:     true,
+		},
+		{
+			name: "Single NUMA Node, No HugePages",
+			machineInfo: &info.MachineInfo{
+				Topology: []info.Node{
+					{
+						Id:     0,
+						Memory: 1024 * 1024 * 1024, // 1GB
+					},
+				},
+			},
+			wantMemoryTopology: &MemoryTopology{
+				MemoryDetails:           map[int]uint64{0: 1024 * 1024 * 1024},
+				NormalMemoryDetails:     map[int]uint64{0: 1024 * 1024 * 1024},
+				NormalMemoryCapacity:    1024 * 1024 * 1024,
+				StaticHugePagesDetails:  map[int]uint64{0: 0},
+				StaticHugePagesCapacity: 0,
+			},
+		},
+		{
+			name: "Single NUMA Node, With HugePages",
+			machineInfo: &info.MachineInfo{
+				Topology: []info.Node{
+					{
+						Id:     0,
+						Memory: 2 * 1024 * 1024 * 1024, // 2GB
+						HugePages: []info.HugePagesInfo{
+							{
+								PageSize: 1024 * 1024, // 1GB
+								NumPages: 1,
+							},
+						},
+					},
+				},
+			},
+			wantMemoryTopology: &MemoryTopology{
+				MemoryDetails:           map[int]uint64{0: 2 * 1024 * 1024 * 1024},
+				NormalMemoryDetails:     map[int]uint64{0: 1 * 1024 * 1024 * 1024},
+				NormalMemoryCapacity:    1 * 1024 * 1024 * 1024,
+				StaticHugePagesDetails:  map[int]uint64{0: 1 * 1024 * 1024 * 1024},
+				StaticHugePagesCapacity: 1 * 1024 * 1024 * 1024,
+			},
+		},
+		{
+			name: "Multiple NUMA Nodes, Mixed HugePages",
+			machineInfo: &info.MachineInfo{
+				Topology: []info.Node{
+					{
+						Id:     0,
+						Memory: 4 * 1024 * 1024 * 1024, // 4GB
+						HugePages: []info.HugePagesInfo{
+							{
+								PageSize: 1 * 1024 * 1024, // 1GB
+								NumPages: 2,
+							},
+						},
+					},
+					{
+						Id:     1,
+						Memory: 4 * 1024 * 1024 * 1024, // 4GB
+						HugePages: []info.HugePagesInfo{
+							{
+								PageSize: 2 * 1024, // 2MB
+								NumPages: 512,      // 1GB
+							},
+						},
+					},
+				},
+			},
+			wantMemoryTopology: &MemoryTopology{
+				MemoryDetails: map[int]uint64{
+					0: 4 * 1024 * 1024 * 1024,
+					1: 4 * 1024 * 1024 * 1024,
+				},
+				NormalMemoryDetails: map[int]uint64{
+					0: 2 * 1024 * 1024 * 1024,
+					1: 3 * 1024 * 1024 * 1024,
+				},
+				NormalMemoryCapacity: 5 * 1024 * 1024 * 1024,
+				StaticHugePagesDetails: map[int]uint64{
+					0: 2 * 1024 * 1024 * 1024,
+					1: 1 * 1024 * 1024 * 1024,
+				},
+				StaticHugePagesCapacity: 3 * 1024 * 1024 * 1024,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := DiscoverMemoryTopology(tt.machineInfo)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("DiscoverMemoryTopology() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr {
+				// Ignore PageSize for comparison as it depends on system
+				got.PageSize = 0
+				tt.wantMemoryTopology.PageSize = 0
+
+				assert.Equal(t, tt.wantMemoryTopology, got)
 			}
 		})
 	}

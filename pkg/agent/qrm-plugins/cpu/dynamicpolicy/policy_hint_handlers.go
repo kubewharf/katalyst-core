@@ -161,7 +161,9 @@ func (p *DynamicPolicy) dedicatedCoresWithNUMABindingHintHandler(_ context.Conte
 			(*commonstate.AllocationMeta).CheckDedicatedNUMABindingNUMAExclusive))
 
 		var extraErr error
-		hints, extraErr = util.GetHintsFromExtraStateFile(req.PodName, string(v1.ResourceCPU), p.extraStateFileAbsPath, availableNUMAs)
+		hints, extraErr = util.GetHintsFromExtraStateFile(req.PodName, p.extraStateFileAbsPath, availableNUMAs, []v1.ResourceName{
+			v1.ResourceCPU,
+		})
 		if extraErr != nil {
 			general.Infof("pod: %s/%s, container: %s GetHintsFromExtraStateFile failed with error: %v",
 				req.PodNamespace, req.PodName, req.ContainerName, extraErr)
@@ -303,10 +305,10 @@ func (p *DynamicPolicy) calculateHints(
 		maskCount := mask.Count()
 		if maskCount < minNUMAsCountNeeded {
 			return
-		} else if numaBinding && !numaExclusive && numaNumber <= 1 && maskCount > 1 {
+		} else if numaBinding && !numaExclusive && maskCount > 1 && numaNumber <= 1 {
 			// because it's hard to control memory allocation accurately,
 			// we only support numa_binding but not exclusive container with request smaller than 1 NUMA
-			// pods with distribute evenly across numa annotation can occupy more than 1 NUMA
+			// pods with numa number more than 1 can occupy more than 1 NUMA
 			return
 		}
 
@@ -371,7 +373,6 @@ func (p *DynamicPolicy) calculateHints(
 	if numaNumber != 0 {
 		minAffinitySize = numaNumber
 	}
-
 	// Update hint to be preferred if they have minimum number of NUMA nodes
 	for _, hint := range availableNumaHints {
 		if len(hint.Nodes) == minAffinitySize {
