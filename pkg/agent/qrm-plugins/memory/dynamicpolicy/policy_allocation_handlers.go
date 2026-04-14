@@ -852,13 +852,19 @@ func packAllocationResponse(resourceAllocationInfo map[v1.ResourceName]*state.Al
 			}
 		}
 
+		topologyAssignments := make(map[uint64]uint64)
+		for numaID, quantity := range allocationInfo.TopologyAwareAllocations {
+			topologyAssignments[uint64(numaID)] = quantity
+		}
+
 		resp.AllocationResult.ResourceAllocation[string(resourceName)] = &pluginapi.ResourceAllocationInfo{
-			OciPropertyName:   util.OCIPropertyNameCPUSetMems,
-			IsNodeResource:    false,
-			IsScalarResource:  true,
-			Annotations:       general.MergeAnnotations(mergedResourceAnnotations...),
-			AllocatedQuantity: float64(allocationInfo.AggregatedQuantity),
-			AllocationResult:  allocationInfo.NumaAllocationResult.String(),
+			OciPropertyName:     util.OCIPropertyNameCPUSetMems,
+			IsNodeResource:      false,
+			IsScalarResource:    true,
+			Annotations:         general.MergeAnnotations(mergedResourceAnnotations...),
+			AllocatedQuantity:   float64(allocationInfo.AggregatedQuantity),
+			AllocationResult:    allocationInfo.NumaAllocationResult.String(),
+			TopologyAssignments: topologyAssignments,
 			ResourceHints: &pluginapi.ListOfTopologyHints{
 				Hints: []*pluginapi.TopologyHint{
 					req.Hint,
