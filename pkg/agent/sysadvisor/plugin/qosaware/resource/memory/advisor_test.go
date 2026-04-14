@@ -123,6 +123,7 @@ func newTestMemoryAdvisor(t *testing.T, pods []*v1.Pod, checkpointDir, stateFile
 	require.NoError(t, err)
 	memoryTopology, err := machine.GenerateDummyMemoryTopology(4, 500<<30)
 	require.NoError(t, err)
+	memoryTopology.NormalMemoryCapacity = 1000 << 30
 
 	extraTopology, err := machine.GenerateDummyExtraTopology(4)
 	require.NoError(t, err)

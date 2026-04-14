@@ -48,6 +48,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
+	resourcepackage "github.com/kubewharf/katalyst-core/pkg/util/resource-package"
 )
 
 const (
@@ -130,7 +131,7 @@ func (cs *cpuServer) GetAdvice(ctx context.Context, request *cpuadvisor.GetAdvic
 	}
 
 	general.InfofV(6, "QRM CPU Plugin wanted feature gates: %v, among them sysadvisor supported feature gates: %v", lo.Keys(request.WantedFeatureGates), lo.Keys(supportedWantedFeatureGates))
-	result, err := cs.updateAdvisor(supportedWantedFeatureGates)
+	result, err := cs.updateAdvisor(ctx, supportedWantedFeatureGates)
 	if err != nil {
 		general.Errorf("update advisor failed: %v", err)
 		return nil, fmt.Errorf("update advisor failed: %w", err)
@@ -251,7 +252,7 @@ func (cs *cpuServer) getAndPushAdvice(client cpuadvisor.CPUPluginClient, server 
 
 	// old asynchronous communication interface does not support feature gate negotiation. If necessary, upgrade to the synchronization interface.
 	emptyMap := map[string]*advisorsvc.FeatureGate{}
-	result, err := cs.updateAdvisor(emptyMap)
+	result, err := cs.updateAdvisor(server.Context(), emptyMap)
 	if err != nil {
 		return err
 	}
@@ -273,7 +274,7 @@ func (cs *cpuServer) getAndPushAdvice(client cpuadvisor.CPUPluginClient, server 
 	return nil
 }
 
-func (cs *cpuServer) updateAdvisor(featureGates map[string]*advisorsvc.FeatureGate) (*cpuInternalResult, error) {
+func (cs *cpuServer) updateAdvisor(ctx context.Context, featureGates map[string]*advisorsvc.FeatureGate) (*cpuInternalResult, error) {
 	// update feature gates in meta cache
 	err := cs.metaCache.SetSupportedWantedFeatureGates(featureGates)
 	if err != nil {
@@ -282,7 +283,7 @@ func (cs *cpuServer) updateAdvisor(featureGates map[string]*advisorsvc.FeatureGa
 	}
 
 	// trigger advisor update and get latest advice
-	advisorRespRaw, err := cs.resourceAdvisor.UpdateAndGetAdvice()
+	advisorRespRaw, err := cs.resourceAdvisor.UpdateAndGetAdvice(ctx)
 	if err != nil {
 		_ = cs.emitter.StoreInt64(cs.genMetricsName(metricServerAdvisorUpdateFailed), int64(cs.period.Seconds()), metrics.MetricTypeNameCount)
 		return nil, fmt.Errorf("get advice failed: %w", err)
@@ -427,6 +428,52 @@ func (cs *cpuServer) updateMetaCacheInput(ctx context.Context, req *cpuadvisor.G
 
 	var errs []error
 	livingPoolNameSet := sets.NewString()
+
+	if req.GetResourcePackageConfig() == nil {
+		general.InfoS("resource package config is nil, skip updating meta cache")
+		_ = cs.metaCache.SetResourcePackageConfig(nil)
+	} else {
+		cfg := make(types.ResourcePackageConfig)
+		for numaID, numaConfig := range req.ResourcePackageConfig.NumaResourcePackages {
+			if numaConfig == nil {
+				continue
+			}
+			if _, ok := cfg[int(numaID)]; !ok {
+				cfg[int(numaID)] = make(map[string]*types.ResourcePackageState)
+			}
+			for pkgName, pkgConfig := range numaConfig.Packages {
+				if pkgConfig == nil {
+					continue
+				}
+				pinnedCpusetStr := pkgConfig.PinnedCpuset
+				var pinnedCpuset machine.CPUSet
+				if pinnedCpusetStr == "" {
+					pinnedCpuset = machine.NewCPUSet()
+				} else {
+					var err error
+					pinnedCpuset, err = machine.Parse(pinnedCpusetStr)
+					if err != nil {
+						return fmt.Errorf("failed to parse pinned cpuset: %v, numaID %d pkgName %s cpuset %q", err, numaID, pkgName, pinnedCpusetStr)
+					}
+				}
+
+				var attributes map[string]string
+				if len(pkgConfig.Attributes) > 0 {
+					attributes = make(map[string]string, len(pkgConfig.Attributes))
+					for k, v := range pkgConfig.Attributes {
+						attributes[k] = v
+					}
+				}
+
+				cfg[int(numaID)][pkgName] = &types.ResourcePackageState{
+					PinnedCPUSet: pinnedCpuset,
+					Attributes:   attributes,
+				}
+			}
+		}
+		general.InfoS("updated resource package config", "cfg", cfg)
+		_ = cs.metaCache.SetResourcePackageConfig(cfg)
+	}
 
 	// update pool entries first, which are needed for updating container entries
 	for entryName, entry := range req.Entries {
@@ -607,11 +654,28 @@ func (cs *cpuServer) setContainerInfoBasedOnContainerAllocationInfo(
 
 	if info.Metadata.QosLevel == consts.PodAnnotationQoSLevelSharedCores &&
 		info.Metadata.Annotations[consts.PodAnnotationMemoryEnhancementNumaBinding] == consts.PodAnnotationMemoryEnhancementNumaBindingEnable {
-		originOwnerPoolName, err := commonstate.GetSpecifiedNUMABindingPoolName(info.Metadata.QosLevel, info.Metadata.Annotations)
+		poolName, err := commonstate.GetSpecifiedNUMABindingPoolName(info.Metadata.QosLevel, info.Metadata.Annotations)
 		if err != nil {
 			return fmt.Errorf("get specified numa binding pool name failed: %w", err)
 		}
-		ci.OriginOwnerPoolName = originOwnerPoolName
+
+		targetNUMAID, err := commonstate.GetSpecifiedNUMABindingNUMAID(info.Metadata.Annotations)
+		if err != nil {
+			return fmt.Errorf("get specified numa binding numa id failed: %w", err)
+		}
+
+		pkgName := resourcepackage.GetResourcePackageName(info.Metadata.Annotations)
+		if pkgName != "" && poolName != commonstate.EmptyOwnerPoolName {
+			// get resource package config from meta cache, make sure it has been set already before setting owner pool name
+			cfg := cs.metaCache.GetResourcePackageConfig()
+			if pinnedSets, ok := cfg[targetNUMAID]; ok {
+				if state, exists := pinnedSets[pkgName]; exists && state.GetPinnedCPUSet().Size() > 0 {
+					poolName = resourcepackage.WrapOwnerPoolName(poolName, pkgName)
+				}
+			}
+		}
+
+		ci.OriginOwnerPoolName = poolName
 	} else {
 		ci.OriginOwnerPoolName = commonstate.GetSpecifiedPoolName(info.Metadata.QosLevel, info.Metadata.Annotations[consts.PodAnnotationCPUEnhancementCPUSet])
 	}

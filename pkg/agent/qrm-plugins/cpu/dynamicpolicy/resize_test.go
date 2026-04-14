@@ -34,6 +34,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
 	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
+	coreconsts "github.com/kubewharf/katalyst-core/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
@@ -1160,6 +1161,10 @@ func TestReclaimedCoresVPA(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: 6,
 							AllocationResult:  machine.NewCPUSet(0, 1, 2, 4, 5, 6).String(),
+							TopologyAssignments: map[uint64]uint64{
+								0: 3,
+								1: 3,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{nil},
 							},
@@ -1276,6 +1281,9 @@ func TestReclaimedCoresVPA(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: 3,
 							AllocationResult:  machine.NewCPUSet(0, 1, 2).String(),
+							TopologyAssignments: map[uint64]uint64{
+								0: 3,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -1283,6 +1291,9 @@ func TestReclaimedCoresVPA(t *testing.T) {
 										Preferred: true,
 									},
 								},
+							},
+							Annotations: map[string]string{
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"1"}}}}`,
 							},
 						},
 					},
@@ -1398,6 +1409,9 @@ func TestReclaimedCoresVPA(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: 3,
 							AllocationResult:  machine.NewCPUSet(0, 1, 2).String(),
+							TopologyAssignments: map[uint64]uint64{
+								0: 3,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -1405,6 +1419,9 @@ func TestReclaimedCoresVPA(t *testing.T) {
 										Preferred: true,
 									},
 								},
+							},
+							Annotations: map[string]string{
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{"allocated":{"cpu":"3"}}}}`,
 							},
 						},
 					},
@@ -1580,6 +1597,10 @@ func TestReclaimedCoresVPA(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: 6,
 							AllocationResult:  machine.NewCPUSet(0, 1, 2, 4, 5, 6).String(),
+							TopologyAssignments: map[uint64]uint64{
+								0: 3,
+								1: 3,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{

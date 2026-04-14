@@ -29,6 +29,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/irqtuner"
 	irqutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/irqtuner/utils"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/dynamicpolicy/state"
+	cpuutil "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/cpu/util"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
@@ -137,12 +138,32 @@ func (p *DynamicPolicy) getPodContainerInfos(podUID string, entry state.Containe
 	return cis, nil
 }
 
+// getPinnedResourcePackageIRQForbiddenCPUSet gets the irq forbidden cpuset from the pinned resource package
+func (p *DynamicPolicy) getPinnedResourcePackageIRQForbiddenCPUSet() machine.CPUSet {
+	if p.conf.IRQForbiddenPinnedResourcePackageAttributeSelector == nil {
+		return machine.NewCPUSet()
+	}
+
+	irqForbiddenCPUSet := cpuutil.GetAggResourcePackagePinnedCPUSet(p.conf.IRQForbiddenPinnedResourcePackageAttributeSelector, p.state.GetMachineState())
+	if !irqForbiddenCPUSet.IsEmpty() {
+		general.InfofV(4, "irq forbidden cpuset from pinned resource package is %v", irqForbiddenCPUSet.String())
+	}
+	return irqForbiddenCPUSet
+}
+
 // GetIRQForbiddenCores retrieves the cpu set of cores that are forbidden for irq binding.
+// The forbidden cores include:
+// 1. Reserved CPUs (system reserved).
+// 2. CPUs pinned by specific resource packages (as defined by the configuration).
 func (p *DynamicPolicy) GetIRQForbiddenCores() (machine.CPUSet, error) {
 	forbiddenCores := machine.NewCPUSet()
 
 	// get irq forbidden cores from cpu plugin checkpoint
 	forbiddenCores = forbiddenCores.Union(p.reservedCPUs)
+
+	// get irq forbidden cores from pinned resource package
+	irqForbiddenCPUSet := p.getPinnedResourcePackageIRQForbiddenCPUSet()
+	forbiddenCores = forbiddenCores.Union(irqForbiddenCPUSet)
 
 	general.Infof("get the irq forbidden cores %v", forbiddenCores)
 	return forbiddenCores, nil
