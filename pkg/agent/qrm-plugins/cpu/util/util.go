@@ -174,6 +174,11 @@ func PackAllocationResponse(allocationInfo *state.AllocationInfo, resourceName, 
 		return nil, fmt.Errorf("packAllocationResponse got nil request")
 	}
 
+	topologyAssignments := make(map[uint64]uint64)
+	for numaID, cset := range allocationInfo.TopologyAwareAssignments {
+		topologyAssignments[uint64(numaID)] = uint64(cset.Size())
+	}
+
 	return &pluginapi.ResourceAllocationResponse{
 		PodUid:         req.PodUid,
 		PodNamespace:   req.PodNamespace,
@@ -187,11 +192,12 @@ func PackAllocationResponse(allocationInfo *state.AllocationInfo, resourceName, 
 		AllocationResult: &pluginapi.ResourceAllocation{
 			ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
 				resourceName: {
-					OciPropertyName:   ociPropertyName,
-					IsNodeResource:    isNodeResource,
-					IsScalarResource:  isScalarResource,
-					AllocatedQuantity: float64(allocationInfo.AllocationResult.Size()),
-					AllocationResult:  allocationInfo.AllocationResult.String(),
+					OciPropertyName:     ociPropertyName,
+					IsNodeResource:      isNodeResource,
+					IsScalarResource:    isScalarResource,
+					AllocatedQuantity:   float64(allocationInfo.AllocationResult.Size()),
+					AllocationResult:    allocationInfo.AllocationResult.String(),
+					TopologyAssignments: topologyAssignments,
 					ResourceHints: &pluginapi.ListOfTopologyHints{
 						Hints: []*pluginapi.TopologyHint{
 							req.Hint,

@@ -336,6 +336,10 @@ func TestPackAllocationResponse(t *testing.T) {
 							IsScalarResource:  true,
 							AllocatedQuantity: float64(6),
 							AllocationResult:  machine.NewCPUSet(1, 3, 8, 9, 10, 11).String(),
+							TopologyAssignments: map[uint64]uint64{
+								0: 3,
+								1: 3,
+							},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									nil,
