@@ -26,7 +26,6 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/sets"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-	"k8s.io/utils/strings/slices"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -333,90 +332,96 @@ func (t *DeviceTopology) GroupDeviceAffinity() [][]DeviceIDs {
 		return nil
 	}
 
-	// Build dimension name -> priority index mapping.
-	//
-	// Use DeviceTopology.PriorityDimensions as the single source of truth.
-	dimensionNameToPriority := make(map[string]int)
-	for i, name := range t.PriorityDimensions {
+	priorityDims := make([]string, 0, len(t.PriorityDimensions))
+	for _, name := range t.PriorityDimensions {
 		name = strings.ToLower(strings.TrimSpace(name))
 		if name == "" {
 			continue
 		}
-		dimensionNameToPriority[name] = i
+		priorityDims = append(priorityDims, name)
+	}
+	if len(priorityDims) == 0 {
+		return nil
 	}
 
-	deviceAffinityGroup := make([][]DeviceIDs, len(t.PriorityDimensions))
-	for deviceId, deviceInfo := range t.Devices {
-		for dimension, affinityDeviceIDs := range deviceInfo.DeviceAffinity {
-			// filter out invalid dimensions because some invalid/empty configurations may be passed
-			if strings.TrimSpace(dimension.Name) == "" || strings.TrimSpace(dimension.Value) == "" {
+	// Deterministic iteration over devices.
+	deviceIDs := make([]string, 0, len(t.Devices))
+	for id := range t.Devices {
+		deviceIDs = append(deviceIDs, id)
+	}
+	sort.Strings(deviceIDs)
+
+	out := make([][]DeviceIDs, 0, len(priorityDims))
+	for _, dimName := range priorityDims {
+		valueToDevices := make(map[string][]string)
+		for _, id := range deviceIDs {
+			info := t.Devices[id]
+			if info.Dimensions == nil {
 				continue
 			}
-
-			// Add itself in the group if it is not already included
-			if !slices.Contains(affinityDeviceIDs, deviceId) {
-				affinityDeviceIDs = append(affinityDeviceIDs, deviceId)
-			}
-			// Sort the strings for easier deduplication
-			sort.Strings(affinityDeviceIDs)
-
-			priorityLevel, ok := dimensionNameToPriority[strings.ToLower(strings.TrimSpace(dimension.Name))]
-			if !ok {
-				// Unknown dimension; ignore it to avoid inconsistent priority semantics.
+			value := strings.TrimSpace(info.Dimensions[dimName])
+			if value == "" {
 				continue
 			}
-
-			// Add the affinityDeviceIDs to the priority level if it is not already there
-			if !containsGroup(deviceAffinityGroup[priorityLevel], affinityDeviceIDs) {
-				deviceAffinityGroup[priorityLevel] = append(deviceAffinityGroup[priorityLevel], affinityDeviceIDs)
-			}
+			valueToDevices[value] = append(valueToDevices[value], id)
 		}
-	}
 
-	groupedByPriority := make([][]DeviceIDs, 0, len(deviceAffinityGroup))
-	for _, groups := range deviceAffinityGroup {
-		if len(groups) == 0 {
+		if len(valueToDevices) == 0 {
 			continue
 		}
-		groupedByPriority = append(groupedByPriority, groups)
-	}
 
-	return groupedByPriority
-}
-
-func containsGroup(groups []DeviceIDs, candidate DeviceIDs) bool {
-	for _, g := range groups {
-		if slices.Equal(g, candidate) {
-			return true
+		values := make([]string, 0, len(valueToDevices))
+		for v := range valueToDevices {
+			values = append(values, v)
 		}
+
+		level := make([]DeviceIDs, 0, len(values))
+		for _, v := range values {
+			ids := valueToDevices[v]
+			level = append(level, ids)
+		}
+		if len(level) == 0 {
+			continue
+		}
+		out = append(out, level)
 	}
-	return false
+
+	return out
 }
 
-// DeviceAffinity maps an affinity dimension to the other device IDs that a particular device has an affinity with.
-// Priority ordering across different dimensions is determined by DeviceTopology.PriorityDimensions.
-type DeviceAffinity map[Dimension]DeviceIDs
+// DeviceDimensions stores per-device dimension attributes, keyed by canonicalized dimension name.
+// Example: {"numa": "0", "socket": "1"}.
+type DeviceDimensions map[string]string
 
 type DeviceInfo struct {
-	Health         string
-	NumaNodes      []int
-	DeviceAffinity DeviceAffinity
+	Health     string
+	NumaNodes  []int
+	Dimensions DeviceDimensions
 }
 
 func (i DeviceInfo) GetDimensions() []Dimension {
-	dimensions := make([]Dimension, 0)
-	for dimension := range i.DeviceAffinity {
-		// filter out invalid dimensions because some invalid/empty configurations may be passed
-		if dimension.Name == "" || dimension.Value == "" {
-			continue
-		}
-		dimensions = append(dimensions, dimension)
+	if len(i.Dimensions) == 0 {
+		return nil
 	}
 
-	sort.Slice(dimensions, func(i, j int) bool {
-		return dimensions[i].Name < dimensions[j].Name
-	})
+	names := make([]string, 0, len(i.Dimensions))
+	for name := range i.Dimensions {
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name == "" {
+			continue
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
 
+	dimensions := make([]Dimension, 0, len(names))
+	for _, name := range names {
+		value := strings.TrimSpace(i.Dimensions[name])
+		if value == "" {
+			continue
+		}
+		dimensions = append(dimensions, Dimension{Name: name, Value: value})
+	}
 	return dimensions
 }
 
@@ -429,11 +434,23 @@ type Dimension struct {
 	Value string
 }
 
-func (d *Dimension) GetName() string {
+func (d Dimension) CanonicalName() string {
+	return strings.ToLower(strings.TrimSpace(d.Name))
+}
+
+func (d Dimension) CanonicalValue() string {
+	return strings.TrimSpace(d.Value)
+}
+
+func (d Dimension) IsValid() bool {
+	return d.CanonicalName() != "" && d.CanonicalValue() != ""
+}
+
+func (d Dimension) GetName() string {
 	return d.Name
 }
 
-func (d *Dimension) GetValue() string {
+func (d Dimension) GetValue() string {
 	return d.Value
 }
 

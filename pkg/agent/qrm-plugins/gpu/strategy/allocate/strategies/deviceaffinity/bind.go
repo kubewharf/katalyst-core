@@ -138,10 +138,10 @@ func (s *DeviceAffinityStrategy) Bind(
 // getAffinityGroupsSortedByPriority forms affinity groups sorted from the highest priority to the lowest priority.
 // When device affinity is required, it only keeps levels up to the first one that can satisfy the request.
 func (s *DeviceAffinityStrategy) getAffinityGroupsSortedByPriority(
-	affinityMap [][]machine.DeviceIDs, unallocatedDevicesSet sets.String, deviceReq int, requiredDeviceAffinity bool,
+	affinityLevels [][]machine.DeviceIDs, unallocatedDevicesSet sets.String, deviceReq int, requiredDeviceAffinity bool,
 ) [][]affinityGroup {
-	affinityGroupsSortedByPriority := make([][]affinityGroup, 0, len(affinityMap))
-	for _, affinityDevices := range affinityMap {
+	affinityGroupsSortedByPriority := make([][]affinityGroup, 0, len(affinityLevels))
+	for _, affinityDevices := range affinityLevels {
 		affinityGroups := s.getAffinityGroups(affinityDevices, unallocatedDevicesSet)
 		affinityGroupsSortedByPriority = append(affinityGroupsSortedByPriority, affinityGroups)
 
@@ -190,7 +190,7 @@ func (s *DeviceAffinityStrategy) getAffinityGroups(
 // 3. Balances between fulfilling exact requirements and maintaining optimal groupings
 //
 // Parameters:
-//   - affinityGroupsByPriority: Device groups ordered from highest priority to lowest priority
+//   - affinityGroupsByPriority: Device groups ordered from the highest priority to the lowest priority
 //   - candidateDevicesSet: Set of available devices that can be allocated
 //   - devicesToAllocate: Total number of devices that need to be allocated
 //   - allocatedDevices: Set of devices that have already been allocated in previous iterations

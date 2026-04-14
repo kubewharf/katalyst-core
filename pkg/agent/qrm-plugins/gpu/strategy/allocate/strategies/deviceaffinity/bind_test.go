@@ -32,14 +32,23 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-func convertIntToAffinityDimension(priorityLevel int) machine.Dimension {
-	// Bind tests only use priority levels 0 and 1.
-	// Convert them into stable synthetic dimensions; ordering is derived from
-	// DeviceTopology.PriorityDimensions.
-	return machine.Dimension{
-		Name:  strconv.Itoa(priorityLevel),
-		Value: strconv.Itoa(priorityLevel),
+func dimName(name, value string) map[string]string {
+	return map[string]string{name: value}
+}
+
+func dimLevel(priorityLevel int, group string) map[string]string {
+	// Bind tests use numeric priority dimensions (e.g. "0", "1", "2").
+	return dimName(strconv.Itoa(priorityLevel), group)
+}
+
+func dims(parts ...map[string]string) map[string]string {
+	out := make(map[string]string)
+	for _, p := range parts {
+		for k, v := range p {
+			out[k] = v
+		}
 	}
+	return out
 }
 
 func TestBind_NumberOfDevicesAllocated(t *testing.T) {
@@ -70,44 +79,28 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					PriorityDimensions: []string{"0", "1"},
 					Devices: map[string]machine.DeviceInfo{
 						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-2"},
-							},
+							Dimensions: dimLevel(0, "g12"),
 						},
 						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1"},
-							},
+							Dimensions: dimLevel(0, "g12"),
 						},
 						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-4"},
-							},
+							Dimensions: dimLevel(0, "g34"),
 						},
 						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-3"},
-							},
+							Dimensions: dimLevel(0, "g34"),
 						},
 						"gpu-5": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-6"},
-							},
+							Dimensions: dimLevel(0, "g56"),
 						},
 						"gpu-6": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5"},
-							},
+							Dimensions: dimLevel(0, "g56"),
 						},
 						"gpu-7": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-8"},
-							},
+							Dimensions: dimLevel(0, "g78"),
 						},
 						"gpu-8": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-7"},
-							},
+							Dimensions: dimLevel(0, "g78"),
 						},
 					},
 				},
@@ -132,44 +125,28 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					PriorityDimensions: []string{"0", "1"},
 					Devices: map[string]machine.DeviceInfo{
 						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-2"},
-							},
+							Dimensions: dimLevel(0, "g12"),
 						},
 						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1"},
-							},
+							Dimensions: dimLevel(0, "g12"),
 						},
 						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-4"},
-							},
+							Dimensions: dimLevel(0, "g34"),
 						},
 						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-3"},
-							},
+							Dimensions: dimLevel(0, "g34"),
 						},
 						"gpu-5": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-6"},
-							},
+							Dimensions: dimLevel(0, "g56"),
 						},
 						"gpu-6": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5"},
-							},
+							Dimensions: dimLevel(0, "g56"),
 						},
 						"gpu-7": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-8"},
-							},
+							Dimensions: dimLevel(0, "g78"),
 						},
 						"gpu-8": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-7"},
-							},
+							Dimensions: dimLevel(0, "g78"),
 						},
 					},
 				},
@@ -194,24 +171,16 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					PriorityDimensions: []string{"0", "1"},
 					Devices: map[string]machine.DeviceInfo{
 						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-2"},
-							},
+							Dimensions: dimLevel(0, "g12"),
 						},
 						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1"},
-							},
+							Dimensions: dimLevel(0, "g12"),
 						},
 						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-4"},
-							},
+							Dimensions: dimLevel(0, "g34"),
 						},
 						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-3"},
-							},
+							Dimensions: dimLevel(0, "g34"),
 						},
 					},
 				},
@@ -236,24 +205,16 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					PriorityDimensions: []string{"0", "1"},
 					Devices: map[string]machine.DeviceInfo{
 						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-2"},
-							},
+							Dimensions: dimLevel(0, "g12"),
 						},
 						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1"},
-							},
+							Dimensions: dimLevel(0, "g12"),
 						},
 						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-4"},
-							},
+							Dimensions: dimLevel(0, "g34"),
 						},
 						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-3"},
-							},
+							Dimensions: dimLevel(0, "g34"),
 						},
 					},
 				},
@@ -280,24 +241,16 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					PriorityDimensions: []string{"0", "1"},
 					Devices: map[string]machine.DeviceInfo{
 						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-2", "gpu-3", "gpu-4"},
-							},
+							Dimensions: dimLevel(0, "g1234"),
 						},
 						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1", "gpu-3", "gpu-4"},
-							},
+							Dimensions: dimLevel(0, "g1234"),
 						},
 						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1", "gpu-2", "gpu-4"},
-							},
+							Dimensions: dimLevel(0, "g1234"),
 						},
 						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1", "gpu-2", "gpu-3"},
-							},
+							Dimensions: dimLevel(0, "g1234"),
 						},
 					},
 				},
@@ -322,24 +275,16 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					PriorityDimensions: []string{"0", "1"},
 					Devices: map[string]machine.DeviceInfo{
 						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-2"},
-							},
+							Dimensions: dimLevel(0, "g12"),
 						},
 						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1"},
-							},
+							Dimensions: dimLevel(0, "g12"),
 						},
 						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-4"},
-							},
+							Dimensions: dimLevel(0, "g34"),
 						},
 						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-3"},
-							},
+							Dimensions: dimLevel(0, "g34"),
 						},
 					},
 				},
@@ -366,24 +311,16 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					PriorityDimensions: []string{"0", "1"},
 					Devices: map[string]machine.DeviceInfo{
 						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-2"},
-							},
+							Dimensions: dimLevel(0, "g12"),
 						},
 						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1"},
-							},
+							Dimensions: dimLevel(0, "g12"),
 						},
 						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-4"},
-							},
+							Dimensions: dimLevel(0, "g34"),
 						},
 						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-3"},
-							},
+							Dimensions: dimLevel(0, "g34"),
 						},
 					},
 				},
@@ -410,26 +347,10 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 				DeviceTopology: &machine.DeviceTopology{
 					PriorityDimensions: []string{"0", "1"},
 					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-2"},
-							},
-						},
-						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1"},
-							},
-						},
-						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-4"},
-							},
-						},
-						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-3"},
-							},
-						},
+						"gpu-1": {Dimensions: dimLevel(0, "g12")},
+						"gpu-2": {Dimensions: dimLevel(0, "g12")},
+						"gpu-3": {Dimensions: dimLevel(0, "g34")},
+						"gpu-4": {Dimensions: dimLevel(0, "g34")},
 					},
 				},
 			},
@@ -456,46 +377,14 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 				DeviceTopology: &machine.DeviceTopology{
 					PriorityDimensions: []string{"0", "1"},
 					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-2"},
-							},
-						},
-						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1"},
-							},
-						},
-						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-4"},
-							},
-						},
-						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-3"},
-							},
-						},
-						"gpu-5": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-6"},
-							},
-						},
-						"gpu-6": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5"},
-							},
-						},
-						"gpu-7": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-8"},
-							},
-						},
-						"gpu-8": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-7"},
-							},
-						},
+						"gpu-1": {Dimensions: dimLevel(0, "g12")},
+						"gpu-2": {Dimensions: dimLevel(0, "g12")},
+						"gpu-3": {Dimensions: dimLevel(0, "g34")},
+						"gpu-4": {Dimensions: dimLevel(0, "g34")},
+						"gpu-5": {Dimensions: dimLevel(0, "g56")},
+						"gpu-6": {Dimensions: dimLevel(0, "g56")},
+						"gpu-7": {Dimensions: dimLevel(0, "g78")},
+						"gpu-8": {Dimensions: dimLevel(0, "g78")},
 					},
 				},
 			},
@@ -521,46 +410,14 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 				DeviceTopology: &machine.DeviceTopology{
 					PriorityDimensions: []string{"0", "1"},
 					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-2", "gpu-3", "gpu-4"},
-							},
-						},
-						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1", "gpu-3", "gpu-4"},
-							},
-						},
-						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1", "gpu-2", "gpu-4"},
-							},
-						},
-						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1", "gpu-2", "gpu-3"},
-							},
-						},
-						"gpu-5": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-6", "gpu-7", "gpu-8"},
-							},
-						},
-						"gpu-6": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5", "gpu-7", "gpu-8"},
-							},
-						},
-						"gpu-7": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5", "gpu-6", "gpu-8"},
-							},
-						},
-						"gpu-8": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5", "gpu-6", "gpu-7"},
-							},
-						},
+						"gpu-1": {Dimensions: dimLevel(0, "g1234")},
+						"gpu-2": {Dimensions: dimLevel(0, "g1234")},
+						"gpu-3": {Dimensions: dimLevel(0, "g1234")},
+						"gpu-4": {Dimensions: dimLevel(0, "g1234")},
+						"gpu-5": {Dimensions: dimLevel(0, "g5678")},
+						"gpu-6": {Dimensions: dimLevel(0, "g5678")},
+						"gpu-7": {Dimensions: dimLevel(0, "g5678")},
+						"gpu-8": {Dimensions: dimLevel(0, "g5678")},
 					},
 				},
 			},
@@ -586,66 +443,18 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 				DeviceTopology: &machine.DeviceTopology{
 					PriorityDimensions: []string{"0", "1"},
 					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-2", "gpu-3", "gpu-4"},
-							},
-						},
-						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1", "gpu-3", "gpu-4"},
-							},
-						},
-						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1", "gpu-2", "gpu-4"},
-							},
-						},
-						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1", "gpu-2", "gpu-3"},
-							},
-						},
-						"gpu-5": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-6", "gpu-7", "gpu-8"},
-							},
-						},
-						"gpu-6": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5", "gpu-7", "gpu-8"},
-							},
-						},
-						"gpu-7": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5", "gpu-6", "gpu-8"},
-							},
-						},
-						"gpu-8": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5", "gpu-6", "gpu-7"},
-							},
-						},
-						"gpu-9": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-10", "gpu-11", "gpu-12"},
-							},
-						},
-						"gpu-10": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-9", "gpu-11", "gpu-12"},
-							},
-						},
-						"gpu-11": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-9", "gpu-10", "gpu-12"},
-							},
-						},
-						"gpu-12": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-9", "gpu-10", "gpu-11"},
-							},
-						},
+						"gpu-1":  {Dimensions: dimLevel(0, "g1234")},
+						"gpu-2":  {Dimensions: dimLevel(0, "g1234")},
+						"gpu-3":  {Dimensions: dimLevel(0, "g1234")},
+						"gpu-4":  {Dimensions: dimLevel(0, "g1234")},
+						"gpu-5":  {Dimensions: dimLevel(0, "g5678")},
+						"gpu-6":  {Dimensions: dimLevel(0, "g5678")},
+						"gpu-7":  {Dimensions: dimLevel(0, "g5678")},
+						"gpu-8":  {Dimensions: dimLevel(0, "g5678")},
+						"gpu-9":  {Dimensions: dimLevel(0, "g9-12")},
+						"gpu-10": {Dimensions: dimLevel(0, "g9-12")},
+						"gpu-11": {Dimensions: dimLevel(0, "g9-12")},
+						"gpu-12": {Dimensions: dimLevel(0, "g9-12")},
 					},
 				},
 			},
@@ -673,66 +482,18 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 				DeviceTopology: &machine.DeviceTopology{
 					PriorityDimensions: []string{"numa"},
 					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								{Name: "numa", Value: "numa-0"}: {"gpu-2", "gpu-3", "gpu-4"},
-							},
-						},
-						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								{Name: "numa", Value: "numa-0"}: {"gpu-1", "gpu-3", "gpu-4"},
-							},
-						},
-						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								{Name: "numa", Value: "numa-0"}: {"gpu-1", "gpu-2", "gpu-4"},
-							},
-						},
-						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								{Name: "numa", Value: "numa-0"}: {"gpu-1", "gpu-2", "gpu-3"},
-							},
-						},
-						"gpu-5": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								{Name: "numa", Value: "numa-1"}: {"gpu-6", "gpu-7", "gpu-8"},
-							},
-						},
-						"gpu-6": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								{Name: "numa", Value: "numa-1"}: {"gpu-5", "gpu-7", "gpu-8"},
-							},
-						},
-						"gpu-7": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								{Name: "numa", Value: "numa-1"}: {"gpu-5", "gpu-6", "gpu-8"},
-							},
-						},
-						"gpu-8": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								{Name: "numa", Value: "numa-1"}: {"gpu-5", "gpu-6", "gpu-7"},
-							},
-						},
-						"gpu-9": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								{Name: "numa", Value: "numa-2"}: {"gpu-10", "gpu-11", "gpu-12"},
-							},
-						},
-						"gpu-10": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								{Name: "numa", Value: "numa-2"}: {"gpu-9", "gpu-11", "gpu-12"},
-							},
-						},
-						"gpu-11": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								{Name: "numa", Value: "numa-2"}: {"gpu-9", "gpu-10", "gpu-12"},
-							},
-						},
-						"gpu-12": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								{Name: "numa", Value: "numa-2"}: {"gpu-9", "gpu-10", "gpu-11"},
-							},
-						},
+						"gpu-1":  {Dimensions: dimName("numa", "numa-0")},
+						"gpu-2":  {Dimensions: dimName("numa", "numa-0")},
+						"gpu-3":  {Dimensions: dimName("numa", "numa-0")},
+						"gpu-4":  {Dimensions: dimName("numa", "numa-0")},
+						"gpu-5":  {Dimensions: dimName("numa", "numa-1")},
+						"gpu-6":  {Dimensions: dimName("numa", "numa-1")},
+						"gpu-7":  {Dimensions: dimName("numa", "numa-1")},
+						"gpu-8":  {Dimensions: dimName("numa", "numa-1")},
+						"gpu-9":  {Dimensions: dimName("numa", "numa-2")},
+						"gpu-10": {Dimensions: dimName("numa", "numa-2")},
+						"gpu-11": {Dimensions: dimName("numa", "numa-2")},
+						"gpu-12": {Dimensions: dimName("numa", "numa-2")},
 					},
 				},
 			},
@@ -759,54 +520,14 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 				DeviceTopology: &machine.DeviceTopology{
 					PriorityDimensions: []string{"0", "1"},
 					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-2"},
-								convertIntToAffinityDimension(1): {"gpu-2", "gpu-3", "gpu-4"},
-							},
-						},
-						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-3", "gpu-4"},
-							},
-						},
-						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-4"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-4"},
-							},
-						},
-						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-3"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3"},
-							},
-						},
-						"gpu-5": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-6"},
-								convertIntToAffinityDimension(1): {"gpu-6", "gpu-7", "gpu-8"},
-							},
-						},
-						"gpu-6": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5"},
-								convertIntToAffinityDimension(1): {"gpu-5", "gpu-7", "gpu-8"},
-							},
-						},
-						"gpu-7": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-8"},
-								convertIntToAffinityDimension(1): {"gpu-5", "gpu-6", "gpu-8"},
-							},
-						},
-						"gpu-8": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-7"},
-								convertIntToAffinityDimension(1): {"gpu-5", "gpu-6", "gpu-7"},
-							},
-						},
+						"gpu-1": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+						"gpu-2": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+						"gpu-3": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
+						"gpu-4": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
+						"gpu-5": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
+						"gpu-6": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
+						"gpu-7": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
+						"gpu-8": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
 					},
 				},
 			},
@@ -834,54 +555,14 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 				// Level 2: [gpu-1, gpu-2, gpu-3, gpu-4], [gpu-5, gpu-6, gpu-7, gpu-8]
 				DeviceTopology: &machine.DeviceTopology{
 					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-2"},
-								convertIntToAffinityDimension(2): {"gpu-2", "gpu-3", "gpu-4"},
-							},
-						},
-						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1"},
-								convertIntToAffinityDimension(2): {"gpu-1", "gpu-3", "gpu-4"},
-							},
-						},
-						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-4"},
-								convertIntToAffinityDimension(2): {"gpu-1", "gpu-2", "gpu-4"},
-							},
-						},
-						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-3"},
-								convertIntToAffinityDimension(2): {"gpu-1", "gpu-2", "gpu-3"},
-							},
-						},
-						"gpu-5": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-6"},
-								convertIntToAffinityDimension(2): {"gpu-6", "gpu-7", "gpu-8"},
-							},
-						},
-						"gpu-6": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5"},
-								convertIntToAffinityDimension(2): {"gpu-5", "gpu-7", "gpu-8"},
-							},
-						},
-						"gpu-7": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-8"},
-								convertIntToAffinityDimension(2): {"gpu-5", "gpu-6", "gpu-8"},
-							},
-						},
-						"gpu-8": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-7"},
-								convertIntToAffinityDimension(2): {"gpu-5", "gpu-6", "gpu-7"},
-							},
-						},
+						"gpu-1": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(2, "g1234"))},
+						"gpu-2": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(2, "g1234"))},
+						"gpu-3": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(2, "g1234"))},
+						"gpu-4": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(2, "g1234"))},
+						"gpu-5": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(2, "g5678"))},
+						"gpu-6": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(2, "g5678"))},
+						"gpu-7": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(2, "g5678"))},
+						"gpu-8": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(2, "g5678"))},
 					},
 				},
 			},
@@ -908,46 +589,14 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 				DeviceTopology: &machine.DeviceTopology{
 					PriorityDimensions: []string{"0", "1"},
 					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-2"},
-							},
-						},
-						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1"},
-							},
-						},
-						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-4"},
-							},
-						},
-						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-3"},
-							},
-						},
-						"gpu-5": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-6"},
-							},
-						},
-						"gpu-6": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5"},
-							},
-						},
-						"gpu-7": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-8"},
-							},
-						},
-						"gpu-8": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-7"},
-							},
-						},
+						"gpu-1": {Dimensions: dimLevel(0, "g12")},
+						"gpu-2": {Dimensions: dimLevel(0, "g12")},
+						"gpu-3": {Dimensions: dimLevel(0, "g34")},
+						"gpu-4": {Dimensions: dimLevel(0, "g34")},
+						"gpu-5": {Dimensions: dimLevel(0, "g56")},
+						"gpu-6": {Dimensions: dimLevel(0, "g56")},
+						"gpu-7": {Dimensions: dimLevel(0, "g78")},
+						"gpu-8": {Dimensions: dimLevel(0, "g78")},
 					},
 				},
 				MachineState: map[v1.ResourceName]state.AllocationMap{
@@ -986,46 +635,14 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 				DeviceTopology: &machine.DeviceTopology{
 					PriorityDimensions: []string{"0", "1"},
 					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-2"},
-							},
-						},
-						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1"},
-							},
-						},
-						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-4"},
-							},
-						},
-						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-3"},
-							},
-						},
-						"gpu-5": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-6"},
-							},
-						},
-						"gpu-6": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5"},
-							},
-						},
-						"gpu-7": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-8"},
-							},
-						},
-						"gpu-8": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-7"},
-							},
-						},
+						"gpu-1": {Dimensions: dimLevel(0, "g12")},
+						"gpu-2": {Dimensions: dimLevel(0, "g12")},
+						"gpu-3": {Dimensions: dimLevel(0, "g34")},
+						"gpu-4": {Dimensions: dimLevel(0, "g34")},
+						"gpu-5": {Dimensions: dimLevel(0, "g56")},
+						"gpu-6": {Dimensions: dimLevel(0, "g56")},
+						"gpu-7": {Dimensions: dimLevel(0, "g78")},
+						"gpu-8": {Dimensions: dimLevel(0, "g78")},
 					},
 				},
 			},
@@ -1054,66 +671,18 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 				DeviceTopology: &machine.DeviceTopology{
 					PriorityDimensions: []string{"0", "1"},
 					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-2", "gpu-3", "gpu-4"},
-							},
-						},
-						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1", "gpu-3", "gpu-4"},
-							},
-						},
-						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1", "gpu-2", "gpu-4"},
-							},
-						},
-						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1", "gpu-2", "gpu-3"},
-							},
-						},
-						"gpu-5": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-6", "gpu-7", "gpu-8"},
-							},
-						},
-						"gpu-6": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5", "gpu-7", "gpu-8"},
-							},
-						},
-						"gpu-7": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5", "gpu-6", "gpu-8"},
-							},
-						},
-						"gpu-8": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5", "gpu-6", "gpu-7"},
-							},
-						},
-						"gpu-9": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-10", "gpu-11", "gpu-12"},
-							},
-						},
-						"gpu-10": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-9", "gpu-11", "gpu-12"},
-							},
-						},
-						"gpu-11": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-9", "gpu-10", "gpu-12"},
-							},
-						},
-						"gpu-12": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-9", "gpu-10", "gpu-11"},
-							},
-						},
+						"gpu-1":  {Dimensions: dimLevel(0, "g1234")},
+						"gpu-2":  {Dimensions: dimLevel(0, "g1234")},
+						"gpu-3":  {Dimensions: dimLevel(0, "g1234")},
+						"gpu-4":  {Dimensions: dimLevel(0, "g1234")},
+						"gpu-5":  {Dimensions: dimLevel(0, "g5678")},
+						"gpu-6":  {Dimensions: dimLevel(0, "g5678")},
+						"gpu-7":  {Dimensions: dimLevel(0, "g5678")},
+						"gpu-8":  {Dimensions: dimLevel(0, "g5678")},
+						"gpu-9":  {Dimensions: dimLevel(0, "g9-12")},
+						"gpu-10": {Dimensions: dimLevel(0, "g9-12")},
+						"gpu-11": {Dimensions: dimLevel(0, "g9-12")},
+						"gpu-12": {Dimensions: dimLevel(0, "g9-12")},
 					},
 				},
 			},
@@ -1140,66 +709,18 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 				DeviceTopology: &machine.DeviceTopology{
 					PriorityDimensions: []string{"0", "1"},
 					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-2", "gpu-3", "gpu-4"},
-							},
-						},
-						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1", "gpu-3", "gpu-4"},
-							},
-						},
-						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1", "gpu-2", "gpu-4"},
-							},
-						},
-						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1", "gpu-2", "gpu-3"},
-							},
-						},
-						"gpu-5": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-6", "gpu-7", "gpu-8"},
-							},
-						},
-						"gpu-6": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5", "gpu-7", "gpu-8"},
-							},
-						},
-						"gpu-7": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5", "gpu-6", "gpu-8"},
-							},
-						},
-						"gpu-8": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5", "gpu-6", "gpu-7"},
-							},
-						},
-						"gpu-9": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-10", "gpu-11", "gpu-12"},
-							},
-						},
-						"gpu-10": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-9", "gpu-11", "gpu-12"},
-							},
-						},
-						"gpu-11": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-9", "gpu-10", "gpu-12"},
-							},
-						},
-						"gpu-12": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-9", "gpu-10", "gpu-11"},
-							},
-						},
+						"gpu-1":  {Dimensions: dimLevel(0, "g1234")},
+						"gpu-2":  {Dimensions: dimLevel(0, "g1234")},
+						"gpu-3":  {Dimensions: dimLevel(0, "g1234")},
+						"gpu-4":  {Dimensions: dimLevel(0, "g1234")},
+						"gpu-5":  {Dimensions: dimLevel(0, "g5678")},
+						"gpu-6":  {Dimensions: dimLevel(0, "g5678")},
+						"gpu-7":  {Dimensions: dimLevel(0, "g5678")},
+						"gpu-8":  {Dimensions: dimLevel(0, "g5678")},
+						"gpu-9":  {Dimensions: dimLevel(0, "g9-12")},
+						"gpu-10": {Dimensions: dimLevel(0, "g9-12")},
+						"gpu-11": {Dimensions: dimLevel(0, "g9-12")},
+						"gpu-12": {Dimensions: dimLevel(0, "g9-12")},
 					},
 				},
 			},
@@ -1230,78 +751,18 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 				DeviceTopology: &machine.DeviceTopology{
 					PriorityDimensions: []string{"0", "1"},
 					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-2"},
-								convertIntToAffinityDimension(1): {"gpu-2", "gpu-3", "gpu-4"},
-							},
-						},
-						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-3", "gpu-4"},
-							},
-						},
-						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-4"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-4"},
-							},
-						},
-						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-3"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3"},
-							},
-						},
-						"gpu-5": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-6"},
-								convertIntToAffinityDimension(1): {"gpu-6", "gpu-7", "gpu-8"},
-							},
-						},
-						"gpu-6": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5"},
-								convertIntToAffinityDimension(1): {"gpu-5", "gpu-7", "gpu-8"},
-							},
-						},
-						"gpu-7": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-8"},
-								convertIntToAffinityDimension(1): {"gpu-5", "gpu-6", "gpu-8"},
-							},
-						},
-						"gpu-8": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-7"},
-								convertIntToAffinityDimension(1): {"gpu-5", "gpu-6", "gpu-7"},
-							},
-						},
-						"gpu-9": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-10"},
-								convertIntToAffinityDimension(1): {"gpu-10", "gpu-11", "gpu-12"},
-							},
-						},
-						"gpu-10": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-9"},
-								convertIntToAffinityDimension(1): {"gpu-9", "gpu-11", "gpu-12"},
-							},
-						},
-						"gpu-11": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-12"},
-								convertIntToAffinityDimension(1): {"gpu-9", "gpu-10", "gpu-12"},
-							},
-						},
-						"gpu-12": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-11"},
-								convertIntToAffinityDimension(1): {"gpu-9", "gpu-10", "gpu-11"},
-							},
-						},
+						"gpu-1":  {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+						"gpu-2":  {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+						"gpu-3":  {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
+						"gpu-4":  {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
+						"gpu-5":  {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
+						"gpu-6":  {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
+						"gpu-7":  {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
+						"gpu-8":  {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
+						"gpu-9":  {Dimensions: dims(dimLevel(0, "g9-10"), dimLevel(1, "g9-12"))},
+						"gpu-10": {Dimensions: dims(dimLevel(0, "g9-10"), dimLevel(1, "g9-12"))},
+						"gpu-11": {Dimensions: dims(dimLevel(0, "g11-12"), dimLevel(1, "g9-12"))},
+						"gpu-12": {Dimensions: dims(dimLevel(0, "g11-12"), dimLevel(1, "g9-12"))},
 					},
 				},
 				MachineState: map[v1.ResourceName]state.AllocationMap{
@@ -1343,54 +804,14 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 				DeviceTopology: &machine.DeviceTopology{
 					PriorityDimensions: []string{"0", "1"},
 					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-2"},
-								convertIntToAffinityDimension(1): {"gpu-2", "gpu-3", "gpu-4"},
-							},
-						},
-						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-3", "gpu-4"},
-							},
-						},
-						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-4"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-4"},
-							},
-						},
-						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-3"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3"},
-							},
-						},
-						"gpu-5": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-6"},
-								convertIntToAffinityDimension(1): {"gpu-6", "gpu-7", "gpu-8"},
-							},
-						},
-						"gpu-6": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5"},
-								convertIntToAffinityDimension(1): {"gpu-5", "gpu-7", "gpu-8"},
-							},
-						},
-						"gpu-7": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-8"},
-								convertIntToAffinityDimension(1): {"gpu-5", "gpu-6", "gpu-8"},
-							},
-						},
-						"gpu-8": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-7"},
-								convertIntToAffinityDimension(1): {"gpu-5", "gpu-6", "gpu-7"},
-							},
-						},
+						"gpu-1": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+						"gpu-2": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+						"gpu-3": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
+						"gpu-4": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
+						"gpu-5": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
+						"gpu-6": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
+						"gpu-7": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
+						"gpu-8": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
 					},
 				},
 			},
@@ -1417,30 +838,10 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 				DeviceTopology: &machine.DeviceTopology{
 					PriorityDimensions: []string{"0", "1"},
 					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-2"},
-								convertIntToAffinityDimension(1): {"gpu-2", "gpu-3", "gpu-4"},
-							},
-						},
-						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-3", "gpu-4"},
-							},
-						},
-						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-4"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-4"},
-							},
-						},
-						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-3"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3"},
-							},
-						},
+						"gpu-1": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+						"gpu-2": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+						"gpu-3": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
+						"gpu-4": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
 					},
 				},
 			},
@@ -1469,54 +870,14 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 				DeviceTopology: &machine.DeviceTopology{
 					PriorityDimensions: []string{"0", "1"},
 					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-2"},
-								convertIntToAffinityDimension(1): {"gpu-2", "gpu-3", "gpu-4"},
-							},
-						},
-						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-3", "gpu-4"},
-							},
-						},
-						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-4"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-4"},
-							},
-						},
-						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-3"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3"},
-							},
-						},
-						"gpu-5": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-6"},
-								convertIntToAffinityDimension(1): {"gpu-6", "gpu-7", "gpu-8"},
-							},
-						},
-						"gpu-6": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5"},
-								convertIntToAffinityDimension(1): {"gpu-5", "gpu-7", "gpu-8"},
-							},
-						},
-						"gpu-7": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-8"},
-								convertIntToAffinityDimension(1): {"gpu-5", "gpu-6", "gpu-8"},
-							},
-						},
-						"gpu-8": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-7"},
-								convertIntToAffinityDimension(1): {"gpu-5", "gpu-6", "gpu-7"},
-							},
-						},
+						"gpu-1": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+						"gpu-2": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+						"gpu-3": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
+						"gpu-4": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
+						"gpu-5": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
+						"gpu-6": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
+						"gpu-7": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
+						"gpu-8": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
 					},
 				},
 			},
@@ -1549,99 +910,51 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					PriorityDimensions: []string{"numa", "socket"},
 					Devices: map[string]machine.DeviceInfo{
 						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								{
-									Name:  "numa",
-									Value: "numa-0",
-								}: {"gpu-2"},
-								{
-									Name:  "socket",
-									Value: "socket-0",
-								}: {"gpu-2", "gpu-3", "gpu-4"},
+							Dimensions: map[string]string{
+								"numa":   "numa-0",
+								"socket": "socket-0",
 							},
 						},
 						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								{
-									Name:  "numa",
-									Value: "numa-0",
-								}: {"gpu-1"},
-								{
-									Name:  "socket",
-									Value: "socket-0",
-								}: {"gpu-1", "gpu-3", "gpu-4"},
+							Dimensions: map[string]string{
+								"numa":   "numa-0",
+								"socket": "socket-0",
 							},
 						},
 						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								{
-									Name:  "numa",
-									Value: "numa-1",
-								}: {"gpu-4"},
-								{
-									Name:  "socket",
-									Value: "socket-0",
-								}: {"gpu-1", "gpu-2", "gpu-4"},
+							Dimensions: map[string]string{
+								"numa":   "numa-1",
+								"socket": "socket-0",
 							},
 						},
 						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								{
-									Name:  "numa",
-									Value: "numa-1",
-								}: {"gpu-3"},
-								{
-									Name:  "socket",
-									Value: "socket-0",
-								}: {"gpu-1", "gpu-2", "gpu-3"},
+							Dimensions: map[string]string{
+								"numa":   "numa-1",
+								"socket": "socket-0",
 							},
 						},
 						"gpu-5": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								{
-									Name:  "numa",
-									Value: "numa-2",
-								}: {"gpu-6"},
-								{
-									Name:  "socket",
-									Value: "socket-1",
-								}: {"gpu-6", "gpu-7", "gpu-8"},
+							Dimensions: map[string]string{
+								"numa":   "numa-2",
+								"socket": "socket-1",
 							},
 						},
 						"gpu-6": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								{
-									Name:  "numa",
-									Value: "numa-2",
-								}: {"gpu-5"},
-								{
-									Name:  "socket",
-									Value: "socket-1",
-								}: {"gpu-5", "gpu-7", "gpu-8"},
+							Dimensions: map[string]string{
+								"numa":   "numa-2",
+								"socket": "socket-1",
 							},
 						},
 						"gpu-7": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								{
-									Name:  "numa",
-									Value: "numa-3",
-								}: {"gpu-8"},
-								{
-									Name:  "socket",
-									Value: "socket-1",
-								}: {"gpu-5", "gpu-6", "gpu-8"},
+							Dimensions: map[string]string{
+								"numa":   "numa-3",
+								"socket": "socket-1",
 							},
 						},
 						"gpu-8": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								{
-									Name:  "numa",
-									Value: "numa-3",
-								}: {"gpu-7"},
-								{
-									Name:  "socket",
-									Value: "socket-1",
-								}: {"gpu-5", "gpu-6", "gpu-7"},
+							Dimensions: map[string]string{
+								"numa":   "numa-3",
+								"socket": "socket-1",
 							},
 						},
 					},
@@ -1669,46 +982,14 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 				DeviceTopology: &machine.DeviceTopology{
 					PriorityDimensions: []string{"0", "1"},
 					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-2"},
-							},
-						},
-						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1"},
-							},
-						},
-						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-4"},
-							},
-						},
-						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-3"},
-							},
-						},
-						"gpu-5": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-6"},
-							},
-						},
-						"gpu-6": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5"},
-							},
-						},
-						"gpu-7": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-8"},
-							},
-						},
-						"gpu-8": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-7"},
-							},
-						},
+						"gpu-1": {Dimensions: dimLevel(0, "g12")},
+						"gpu-2": {Dimensions: dimLevel(0, "g12")},
+						"gpu-3": {Dimensions: dimLevel(0, "g34")},
+						"gpu-4": {Dimensions: dimLevel(0, "g34")},
+						"gpu-5": {Dimensions: dimLevel(0, "g56")},
+						"gpu-6": {Dimensions: dimLevel(0, "g56")},
+						"gpu-7": {Dimensions: dimLevel(0, "g78")},
+						"gpu-8": {Dimensions: dimLevel(0, "g78")},
 					},
 				},
 			},
@@ -1736,26 +1017,10 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 				DeviceTopology: &machine.DeviceTopology{
 					PriorityDimensions: []string{"0", "1"},
 					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-2"},
-							},
-						},
-						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1"},
-							},
-						},
-						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-4"},
-							},
-						},
-						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-3"},
-							},
-						},
+						"gpu-1": {Dimensions: dimLevel(0, "g12")},
+						"gpu-2": {Dimensions: dimLevel(0, "g12")},
+						"gpu-3": {Dimensions: dimLevel(0, "g34")},
+						"gpu-4": {Dimensions: dimLevel(0, "g34")},
 					},
 				},
 			},
@@ -1782,56 +1047,17 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 				// Level 0: [gpu-1, gpu-2], [gpu-3, gpu-4], [gpu-5, gpu-6], [gpu-7, gpu-8]
 				// Level 1: [gpu-1, gpu-2, gpu-3, gpu-4], [gpu-5, gpu-6, gpu-7, gpu-8]
 				DeviceTopology: &machine.DeviceTopology{
+					// Two affinity levels: pairs at level 0, quads at level 1.
 					PriorityDimensions: []string{"0", "1"},
 					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-2"},
-								convertIntToAffinityDimension(1): {"gpu-2", "gpu-3", "gpu-4"},
-							},
-						},
-						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-3", "gpu-4"},
-							},
-						},
-						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-4"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-4"},
-							},
-						},
-						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-3"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3"},
-							},
-						},
-						"gpu-5": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-6"},
-								convertIntToAffinityDimension(1): {"gpu-6", "gpu-7", "gpu-8"},
-							},
-						},
-						"gpu-6": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5"},
-								convertIntToAffinityDimension(1): {"gpu-5", "gpu-7", "gpu-8"},
-							},
-						},
-						"gpu-7": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-8"},
-								convertIntToAffinityDimension(1): {"gpu-5", "gpu-6", "gpu-8"},
-							},
-						},
-						"gpu-8": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-7"},
-								convertIntToAffinityDimension(1): {"gpu-5", "gpu-6", "gpu-7"},
-							},
-						},
+						"gpu-1": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+						"gpu-2": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+						"gpu-3": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
+						"gpu-4": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
+						"gpu-5": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
+						"gpu-6": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
+						"gpu-7": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
+						"gpu-8": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
 					},
 				},
 				MachineState: map[v1.ResourceName]state.AllocationMap{
@@ -1869,100 +1095,52 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					PriorityDimensions: []string{"0", "1"},
 					Devices: map[string]machine.DeviceInfo{
 						"0": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1", "gpu-2", "gpu-3", "gpu-4"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
-							},
+							Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
 						},
 						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1", "gpu-2", "gpu-3", "gpu-4"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
-							},
+							Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
 						},
 						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1", "gpu-2", "gpu-3", "gpu-4"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
-							},
+							Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
 						},
 						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1", "gpu-2", "gpu-3", "gpu-4"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
-							},
+							Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
 						},
 						"gpu-5": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5", "gpu-6", "gpu-7", "gpu-8"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
-							},
+							Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
 						},
 						"gpu-6": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5", "gpu-6", "gpu-7", "gpu-8"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
-							},
+							Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
 						},
 						"gpu-7": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5", "gpu-6", "gpu-7", "gpu-8"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
-							},
+							Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
 						},
 						"gpu-8": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5", "gpu-6", "gpu-7", "gpu-8"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
-							},
+							Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
 						},
 						"gpu-9": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-9", "gpu-10", "gpu-11", "gpu-12"},
-								convertIntToAffinityDimension(1): {"gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
-							},
+							Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
 						},
 						"gpu-10": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-9", "gpu-10", "gpu-11", "gpu-12"},
-								convertIntToAffinityDimension(1): {"gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
-							},
+							Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
 						},
 						"gpu-11": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-9", "gpu-10", "gpu-11", "gpu-12"},
-								convertIntToAffinityDimension(1): {"gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
-							},
+							Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
 						},
 						"gpu-12": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-9", "gpu-10", "gpu-11", "gpu-12"},
-								convertIntToAffinityDimension(1): {"gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
-							},
+							Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
 						},
 						"gpu-13": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-13", "gpu-14", "gpu-15", "gpu-16"},
-								convertIntToAffinityDimension(1): {"gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
-							},
+							Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
 						},
 						"gpu-14": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-13", "gpu-14", "gpu-15", "gpu-16"},
-								convertIntToAffinityDimension(1): {"gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
-							},
+							Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
 						},
 						"gpu-15": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-13", "gpu-14", "gpu-15", "gpu-16"},
-								convertIntToAffinityDimension(1): {"gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
-							},
+							Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
 						},
 						"gpu-16": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-13", "gpu-14", "gpu-15", "gpu-16"},
-								convertIntToAffinityDimension(1): {"gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
-							},
+							Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
 						},
 					},
 				},
@@ -1989,52 +1167,28 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					PriorityDimensions: []string{"0", "1"},
 					Devices: map[string]machine.DeviceInfo{
 						"gpu-0": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-4", "gpu-5"},
-							},
+							Dimensions: dims(dimLevel(0, "g01"), dimLevel(1, "g0145")),
 						},
 						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-0"},
-								convertIntToAffinityDimension(1): {"gpu-0", "gpu-4", "gpu-5"},
-							},
+							Dimensions: dims(dimLevel(0, "g01"), dimLevel(1, "g0145")),
 						},
 						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-3"},
-								convertIntToAffinityDimension(1): {"gpu-3", "gpu-6", "gpu-7"},
-							},
+							Dimensions: dims(dimLevel(0, "g23"), dimLevel(1, "g2367")),
 						},
 						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-2"},
-								convertIntToAffinityDimension(1): {"gpu-2", "gpu-6", "gpu-7"},
-							},
+							Dimensions: dims(dimLevel(0, "g23"), dimLevel(1, "g2367")),
 						},
 						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5"},
-								convertIntToAffinityDimension(1): {"gpu-0", "gpu-1", "gpu-5"},
-							},
+							Dimensions: dims(dimLevel(0, "g45"), dimLevel(1, "g0145")),
 						},
 						"gpu-5": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-4"},
-								convertIntToAffinityDimension(1): {"gpu-0", "gpu-1", "gpu-4"},
-							},
+							Dimensions: dims(dimLevel(0, "g45"), dimLevel(1, "g0145")),
 						},
 						"gpu-6": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-7"},
-								convertIntToAffinityDimension(1): {"gpu-2", "gpu-3", "gpu-7"},
-							},
+							Dimensions: dims(dimLevel(0, "g67"), dimLevel(1, "g2367")),
 						},
 						"gpu-7": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-6"},
-								convertIntToAffinityDimension(1): {"gpu-2", "gpu-3", "gpu-6"},
-							},
+							Dimensions: dims(dimLevel(0, "g67"), dimLevel(1, "g2367")),
 						},
 					},
 				},
@@ -2063,99 +1217,51 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 					PriorityDimensions: []string{"numa", "socket"},
 					Devices: map[string]machine.DeviceInfo{
 						"gpu-0": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								{
-									Name:  "numa",
-									Value: "numa-0",
-								}: {"gpu-1"},
-								{
-									Name:  "socket",
-									Value: "socket-0",
-								}: {"gpu-1", "gpu-4", "gpu-5"},
+							Dimensions: map[string]string{
+								"numa":   "numa-0",
+								"socket": "socket-0",
 							},
 						},
 						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								{
-									Name:  "numa",
-									Value: "numa-0",
-								}: {"gpu-0"},
-								{
-									Name:  "socket",
-									Value: "socket-0",
-								}: {"gpu-0", "gpu-4", "gpu-5"},
+							Dimensions: map[string]string{
+								"numa":   "numa-0",
+								"socket": "socket-0",
 							},
 						},
 						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								{
-									Name:  "numa",
-									Value: "numa-2",
-								}: {"gpu-3"},
-								{
-									Name:  "socket",
-									Value: "socket-1",
-								}: {"gpu-3", "gpu-6", "gpu-7"},
+							Dimensions: map[string]string{
+								"numa":   "numa-2",
+								"socket": "socket-1",
 							},
 						},
 						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								{
-									Name:  "numa",
-									Value: "numa-2",
-								}: {"gpu-2"},
-								{
-									Name:  "socket",
-									Value: "socket-1",
-								}: {"gpu-2", "gpu-6", "gpu-7"},
+							Dimensions: map[string]string{
+								"numa":   "numa-2",
+								"socket": "socket-1",
 							},
 						},
 						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								{
-									Name:  "numa",
-									Value: "numa-1",
-								}: {"gpu-5"},
-								{
-									Name:  "socket",
-									Value: "socket-0",
-								}: {"gpu-0", "gpu-1", "gpu-5"},
+							Dimensions: map[string]string{
+								"numa":   "numa-1",
+								"socket": "socket-0",
 							},
 						},
 						"gpu-5": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								{
-									Name:  "numa",
-									Value: "numa-1",
-								}: {"gpu-4"},
-								{
-									Name:  "socket",
-									Value: "socket-0",
-								}: {"gpu-0", "gpu-1", "gpu-4"},
+							Dimensions: map[string]string{
+								"numa":   "numa-1",
+								"socket": "socket-0",
 							},
 						},
 						"gpu-6": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								{
-									Name:  "numa",
-									Value: "numa-3",
-								}: {"gpu-7"},
-								{
-									Name:  "socket",
-									Value: "socket-1",
-								}: {"gpu-2", "gpu-3", "gpu-7"},
+							Dimensions: map[string]string{
+								"numa":   "numa-3",
+								"socket": "socket-1",
 							},
 						},
 						"gpu-7": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								{
-									Name:  "numa",
-									Value: "numa-3",
-								}: {"gpu-6"},
-								{
-									Name:  "socket",
-									Value: "socket-1",
-								}: {"gpu-2", "gpu-3", "gpu-6"},
+							Dimensions: map[string]string{
+								"numa":   "numa-3",
+								"socket": "socket-1",
 							},
 						},
 					},
@@ -2243,7 +1349,7 @@ func TestBind_NumberOfDevicesAllocated(t *testing.T) {
 	}
 }
 
-func TestBind_DeviceAffinity(t *testing.T) {
+func TestBind_Dimensions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -2266,48 +1372,17 @@ func TestBind_DeviceAffinity(t *testing.T) {
 					DeviceRequest:   2,
 				},
 				DeviceTopology: &machine.DeviceTopology{
-					PriorityDimensions: []string{"0", "1"},
+					// Single priority dimension; each pair of devices forms an affinity group.
+					PriorityDimensions: []string{"0"},
 					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-2"},
-							},
-						},
-						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1"},
-							},
-						},
-						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-4"},
-							},
-						},
-						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-3"},
-							},
-						},
-						"gpu-5": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-6"},
-							},
-						},
-						"gpu-6": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5"},
-							},
-						},
-						"gpu-7": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-8"},
-							},
-						},
-						"gpu-8": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-7"},
-							},
-						},
+						"gpu-1": {Dimensions: dimLevel(0, "g12")},
+						"gpu-2": {Dimensions: dimLevel(0, "g12")},
+						"gpu-3": {Dimensions: dimLevel(0, "g34")},
+						"gpu-4": {Dimensions: dimLevel(0, "g34")},
+						"gpu-5": {Dimensions: dimLevel(0, "g56")},
+						"gpu-6": {Dimensions: dimLevel(0, "g56")},
+						"gpu-7": {Dimensions: dimLevel(0, "g78")},
+						"gpu-8": {Dimensions: dimLevel(0, "g78")},
 					},
 				},
 			},
@@ -2327,56 +1402,19 @@ func TestBind_DeviceAffinity(t *testing.T) {
 					DeviceRequest:   4,
 				},
 				DeviceTopology: &machine.DeviceTopology{
+					// Two affinity levels: pairs at level 0, quads at level 1.
+					// Level 0: [gpu-1, gpu-2], [gpu-3, gpu-4], [gpu-5, gpu-6], [gpu-7, gpu-8]
+					// Level 1: [gpu-1, gpu-2, gpu-3, gpu-4], [gpu-5, gpu-6, gpu-7, gpu-8]
 					PriorityDimensions: []string{"0", "1"},
 					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-2"},
-								convertIntToAffinityDimension(1): {"gpu-2", "gpu-3", "gpu-4"},
-							},
-						},
-						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-3", "gpu-4"},
-							},
-						},
-						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-4"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-4"},
-							},
-						},
-						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-3"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3"},
-							},
-						},
-						"gpu-5": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-6"},
-								convertIntToAffinityDimension(1): {"gpu-6", "gpu-7", "gpu-8"},
-							},
-						},
-						"gpu-6": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5"},
-								convertIntToAffinityDimension(1): {"gpu-5", "gpu-7", "gpu-8"},
-							},
-						},
-						"gpu-7": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-8"},
-								convertIntToAffinityDimension(1): {"gpu-5", "gpu-6", "gpu-8"},
-							},
-						},
-						"gpu-8": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-7"},
-								convertIntToAffinityDimension(1): {"gpu-5", "gpu-6", "gpu-7"},
-							},
-						},
+						"gpu-1": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+						"gpu-2": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+						"gpu-3": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
+						"gpu-4": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
+						"gpu-5": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
+						"gpu-6": {Dimensions: dims(dimLevel(0, "g56"), dimLevel(1, "g5678"))},
+						"gpu-7": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
+						"gpu-8": {Dimensions: dims(dimLevel(0, "g78"), dimLevel(1, "g5678"))},
 					},
 				},
 			},
@@ -2399,52 +1437,28 @@ func TestBind_DeviceAffinity(t *testing.T) {
 					PriorityDimensions: []string{"0", "2"},
 					Devices: map[string]machine.DeviceInfo{
 						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-2"},
-								convertIntToAffinityDimension(2): {"gpu-2", "gpu-3", "gpu-4"},
-							},
+							Dimensions: dims(dimLevel(0, "g12"), dimLevel(2, "g1234")),
 						},
 						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1"},
-								convertIntToAffinityDimension(2): {"gpu-1", "gpu-3", "gpu-4"},
-							},
+							Dimensions: dims(dimLevel(0, "g12"), dimLevel(2, "g1234")),
 						},
 						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-4"},
-								convertIntToAffinityDimension(2): {"gpu-1", "gpu-2", "gpu-4"},
-							},
+							Dimensions: dims(dimLevel(0, "g34"), dimLevel(2, "g1234")),
 						},
 						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-3"},
-								convertIntToAffinityDimension(2): {"gpu-1", "gpu-2", "gpu-3"},
-							},
+							Dimensions: dims(dimLevel(0, "g34"), dimLevel(2, "g1234")),
 						},
 						"gpu-5": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-6"},
-								convertIntToAffinityDimension(2): {"gpu-6", "gpu-7", "gpu-8"},
-							},
+							Dimensions: dims(dimLevel(0, "g56"), dimLevel(2, "g5678")),
 						},
 						"gpu-6": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5"},
-								convertIntToAffinityDimension(2): {"gpu-5", "gpu-7", "gpu-8"},
-							},
+							Dimensions: dims(dimLevel(0, "g56"), dimLevel(2, "g5678")),
 						},
 						"gpu-7": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-8"},
-								convertIntToAffinityDimension(2): {"gpu-5", "gpu-6", "gpu-8"},
-							},
+							Dimensions: dims(dimLevel(0, "g78"), dimLevel(2, "g5678")),
 						},
 						"gpu-8": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-7"},
-								convertIntToAffinityDimension(2): {"gpu-5", "gpu-6", "gpu-7"},
-							},
+							Dimensions: dims(dimLevel(0, "g78"), dimLevel(2, "g5678")),
 						},
 					},
 				},
@@ -2469,101 +1483,53 @@ func TestBind_DeviceAffinity(t *testing.T) {
 				DeviceTopology: &machine.DeviceTopology{
 					PriorityDimensions: []string{"0", "1"},
 					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-2", "gpu-3", "gpu-4"},
-								convertIntToAffinityDimension(1): {"gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
-							},
+						"0": {
+							Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
 						},
 						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1", "gpu-3", "gpu-4"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
-							},
+							Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
 						},
 						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1", "gpu-2", "gpu-4"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
-							},
+							Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
 						},
 						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1", "gpu-2", "gpu-3"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
-							},
+							Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
 						},
 						"gpu-5": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-6", "gpu-7", "gpu-8"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-6", "gpu-7", "gpu-8"},
-							},
+							Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
 						},
 						"gpu-6": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5", "gpu-7", "gpu-8"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-7", "gpu-8"},
-							},
+							Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
 						},
 						"gpu-7": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5", "gpu-6", "gpu-8"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-8"},
-							},
+							Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
 						},
 						"gpu-8": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5", "gpu-6", "gpu-7"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7"},
-							},
+							Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
 						},
 						"gpu-9": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-10", "gpu-11", "gpu-12"},
-								convertIntToAffinityDimension(1): {"gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
-							},
+							Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
 						},
 						"gpu-10": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-9", "gpu-11", "gpu-12"},
-								convertIntToAffinityDimension(1): {"gpu-9", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
-							},
+							Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
 						},
 						"gpu-11": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-9", "gpu-10", "gpu-12"},
-								convertIntToAffinityDimension(1): {"gpu-9", "gpu-10", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
-							},
+							Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
 						},
 						"gpu-12": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-9", "gpu-10", "gpu-11"},
-								convertIntToAffinityDimension(1): {"gpu-9", "gpu-10", "gpu-11", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
-							},
+							Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
 						},
 						"gpu-13": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-14", "gpu-15", "gpu-16"},
-								convertIntToAffinityDimension(1): {"gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-14", "gpu-15", "gpu-16"},
-							},
+							Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
 						},
 						"gpu-14": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-13", "gpu-15", "gpu-16"},
-								convertIntToAffinityDimension(1): {"gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-15", "gpu-16"},
-							},
+							Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
 						},
 						"gpu-15": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-13", "gpu-14", "gpu-16"},
-								convertIntToAffinityDimension(1): {"gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-16"},
-							},
+							Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
 						},
 						"gpu-16": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-13", "gpu-14", "gpu-15"},
-								convertIntToAffinityDimension(1): {"gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15"},
-							},
+							Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
 						},
 					},
 				},
@@ -2586,101 +1552,53 @@ func TestBind_DeviceAffinity(t *testing.T) {
 				DeviceTopology: &machine.DeviceTopology{
 					PriorityDimensions: []string{"0", "1"},
 					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-2", "gpu-3", "gpu-4"},
-								convertIntToAffinityDimension(1): {"gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
-							},
+						"0": {
+							Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
 						},
 						"gpu-2": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1", "gpu-3", "gpu-4"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
-							},
+							Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
 						},
 						"gpu-3": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1", "gpu-2", "gpu-4"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
-							},
+							Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
 						},
 						"gpu-4": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-1", "gpu-2", "gpu-3"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
-							},
+							Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678")),
 						},
 						"gpu-5": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-6", "gpu-7", "gpu-8"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-6", "gpu-7", "gpu-8"},
-							},
+							Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
 						},
 						"gpu-6": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5", "gpu-7", "gpu-8"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-7", "gpu-8"},
-							},
+							Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
 						},
 						"gpu-7": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5", "gpu-6", "gpu-8"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-8"},
-							},
+							Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
 						},
 						"gpu-8": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-5", "gpu-6", "gpu-7"},
-								convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7"},
-							},
+							Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678")),
 						},
 						"gpu-9": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-10", "gpu-11", "gpu-12"},
-								convertIntToAffinityDimension(1): {"gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
-							},
+							Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
 						},
 						"gpu-10": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-9", "gpu-11", "gpu-12"},
-								convertIntToAffinityDimension(1): {"gpu-9", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
-							},
+							Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
 						},
 						"gpu-11": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-9", "gpu-10", "gpu-12"},
-								convertIntToAffinityDimension(1): {"gpu-9", "gpu-10", "gpu-12", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
-							},
+							Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
 						},
 						"gpu-12": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-9", "gpu-10", "gpu-11"},
-								convertIntToAffinityDimension(1): {"gpu-9", "gpu-10", "gpu-11", "gpu-13", "gpu-14", "gpu-15", "gpu-16"},
-							},
+							Dimensions: dims(dimLevel(0, "g9-12"), dimLevel(1, "g9-16")),
 						},
 						"gpu-13": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-14", "gpu-15", "gpu-16"},
-								convertIntToAffinityDimension(1): {"gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-14", "gpu-15", "gpu-16"},
-							},
+							Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
 						},
 						"gpu-14": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-13", "gpu-15", "gpu-16"},
-								convertIntToAffinityDimension(1): {"gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-15", "gpu-16"},
-							},
+							Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
 						},
 						"gpu-15": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-13", "gpu-14", "gpu-16"},
-								convertIntToAffinityDimension(1): {"gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-16"},
-							},
+							Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
 						},
 						"gpu-16": {
-							DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-								convertIntToAffinityDimension(0): {"gpu-13", "gpu-14", "gpu-15"},
-								convertIntToAffinityDimension(1): {"gpu-9", "gpu-10", "gpu-11", "gpu-12", "gpu-13", "gpu-14", "gpu-15"},
-							},
+							Dimensions: dims(dimLevel(0, "g13-16"), dimLevel(1, "g9-16")),
 						},
 					},
 				},
@@ -2711,7 +1629,7 @@ func TestBind_DeviceAffinity(t *testing.T) {
 	}
 }
 
-func TestBind_DeviceAffinity_RequiredStrict(t *testing.T) {
+func TestBind_Dimensions_RequiredStrict(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -2739,10 +1657,10 @@ func TestBind_DeviceAffinity_RequiredStrict(t *testing.T) {
 					PriorityDimensions: []string{"0", "1"},
 					Devices: map[string]machine.DeviceInfo{
 						// One affinity group of size 4 at priority 1.
-						"gpu-1": {DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{convertIntToAffinityDimension(1): {"gpu-2", "gpu-3", "gpu-4"}}},
-						"gpu-2": {DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{convertIntToAffinityDimension(1): {"gpu-1", "gpu-3", "gpu-4"}}},
-						"gpu-3": {DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-4"}}},
-						"gpu-4": {DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3"}}},
+						"gpu-1": {Dimensions: dimLevel(0, "g1234")},
+						"gpu-2": {Dimensions: dimLevel(0, "g1234")},
+						"gpu-3": {Dimensions: dimLevel(0, "g1234")},
+						"gpu-4": {Dimensions: dimLevel(0, "g1234")},
 						// Extra devices that should not be needed.
 						"gpu-5": {},
 						"gpu-6": {},
@@ -2772,16 +1690,10 @@ func TestBind_DeviceAffinity_RequiredStrict(t *testing.T) {
 					Devices: map[string]machine.DeviceInfo{
 						// Priority 0: affinity group size 2 (gpu-1,gpu-2).
 						// Priority 1: affinity group size 4 (gpu-1,gpu-2,gpu-3,gpu-4) which supersets priority 0.
-						"gpu-1": {DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-							convertIntToAffinityDimension(0): {"gpu-2"},
-							convertIntToAffinityDimension(1): {"gpu-2", "gpu-3", "gpu-4"},
-						}},
-						"gpu-2": {DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-							convertIntToAffinityDimension(0): {"gpu-1"},
-							convertIntToAffinityDimension(1): {"gpu-1", "gpu-3", "gpu-4"},
-						}},
-						"gpu-3": {DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-4"}}},
-						"gpu-4": {DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3"}}},
+						"gpu-1": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+						"gpu-2": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+						"gpu-3": {Dimensions: dimLevel(1, "g1234")},
+						"gpu-4": {Dimensions: dimLevel(1, "g1234")},
 					},
 				},
 				Emitter: metrics.DummyMetrics{},
@@ -2806,7 +1718,7 @@ func TestBind_DeviceAffinity_RequiredStrict(t *testing.T) {
 				DeviceTopology: &machine.DeviceTopology{
 					PriorityDimensions: []string{"0"},
 					Devices: map[string]machine.DeviceInfo{
-						// No devices declare any DeviceAffinity.
+						// No devices declare any Dimensions.
 						"gpu-1": {},
 						"gpu-2": {},
 						"gpu-3": {},
@@ -2836,22 +1748,10 @@ func TestBind_DeviceAffinity_RequiredStrict(t *testing.T) {
 					Devices: map[string]machine.DeviceInfo{
 						// Priority 0 has two disjoint affinity groups of size 2: {1,2} and {3,4}.
 						// Priority 1 has a size-4 affinity group {1,2,3,4} that supersets both size-2 groups.
-						"gpu-1": {DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-							convertIntToAffinityDimension(0): {"gpu-2"},
-							convertIntToAffinityDimension(1): {"gpu-2", "gpu-3", "gpu-4"},
-						}},
-						"gpu-2": {DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-							convertIntToAffinityDimension(0): {"gpu-1"},
-							convertIntToAffinityDimension(1): {"gpu-1", "gpu-3", "gpu-4"},
-						}},
-						"gpu-3": {DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-							convertIntToAffinityDimension(0): {"gpu-4"},
-							convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-4"},
-						}},
-						"gpu-4": {DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-							convertIntToAffinityDimension(0): {"gpu-3"},
-							convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3"},
-						}},
+						"gpu-1": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+						"gpu-2": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+						"gpu-3": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
+						"gpu-4": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
 					},
 				},
 				Emitter: metrics.DummyMetrics{},
@@ -2878,38 +1778,14 @@ func TestBind_DeviceAffinity_RequiredStrict(t *testing.T) {
 					Devices: map[string]machine.DeviceInfo{
 						// Priority 0: two disjoint size-4 groups {1,2,3,4} and {5,6,7,8}.
 						// Priority 1: one size-8 group {1..8} that supersets both size-4 groups.
-						"gpu-1": {DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-							convertIntToAffinityDimension(0): {"gpu-2", "gpu-3", "gpu-4"},
-							convertIntToAffinityDimension(1): {"gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
-						}},
-						"gpu-2": {DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-							convertIntToAffinityDimension(0): {"gpu-1", "gpu-3", "gpu-4"},
-							convertIntToAffinityDimension(1): {"gpu-1", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
-						}},
-						"gpu-3": {DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-							convertIntToAffinityDimension(0): {"gpu-1", "gpu-2", "gpu-4"},
-							convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
-						}},
-						"gpu-4": {DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-							convertIntToAffinityDimension(0): {"gpu-1", "gpu-2", "gpu-3"},
-							convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
-						}},
-						"gpu-5": {DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-							convertIntToAffinityDimension(0): {"gpu-6", "gpu-7", "gpu-8"},
-							convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-6", "gpu-7", "gpu-8"},
-						}},
-						"gpu-6": {DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-							convertIntToAffinityDimension(0): {"gpu-5", "gpu-7", "gpu-8"},
-							convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-7", "gpu-8"},
-						}},
-						"gpu-7": {DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-							convertIntToAffinityDimension(0): {"gpu-5", "gpu-6", "gpu-8"},
-							convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-8"},
-						}},
-						"gpu-8": {DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-							convertIntToAffinityDimension(0): {"gpu-5", "gpu-6", "gpu-7"},
-							convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7"},
-						}},
+						"gpu-1": {Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678"))},
+						"gpu-2": {Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678"))},
+						"gpu-3": {Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678"))},
+						"gpu-4": {Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678"))},
+						"gpu-5": {Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678"))},
+						"gpu-6": {Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678"))},
+						"gpu-7": {Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678"))},
+						"gpu-8": {Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678"))},
 					},
 				},
 				Emitter: metrics.DummyMetrics{},
@@ -2936,22 +1812,10 @@ func TestBind_DeviceAffinity_RequiredStrict(t *testing.T) {
 					Devices: map[string]machine.DeviceInfo{
 						// Priority 0: size-2 groups {1,2} and {3,4}.
 						// Priority 1: size-4 group {1,2,3,4} (superset of both size-2 groups).
-						"gpu-1": {DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-							convertIntToAffinityDimension(0): {"gpu-2"},
-							convertIntToAffinityDimension(1): {"gpu-2", "gpu-3", "gpu-4"},
-						}},
-						"gpu-2": {DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-							convertIntToAffinityDimension(0): {"gpu-1"},
-							convertIntToAffinityDimension(1): {"gpu-1", "gpu-3", "gpu-4"},
-						}},
-						"gpu-3": {DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-							convertIntToAffinityDimension(0): {"gpu-4"},
-							convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-4"},
-						}},
-						"gpu-4": {DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-							convertIntToAffinityDimension(0): {"gpu-3"},
-							convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3"},
-						}},
+						"gpu-1": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+						"gpu-2": {Dimensions: dims(dimLevel(0, "g12"), dimLevel(1, "g1234"))},
+						"gpu-3": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
+						"gpu-4": {Dimensions: dims(dimLevel(0, "g34"), dimLevel(1, "g1234"))},
 					},
 				},
 				Emitter: metrics.DummyMetrics{},
@@ -2978,38 +1842,14 @@ func TestBind_DeviceAffinity_RequiredStrict(t *testing.T) {
 					Devices: map[string]machine.DeviceInfo{
 						// Priority 0: two size-4 groups {1,2,3,4} and {5,6,7,8}.
 						// Priority 1: one size-8 group {1,2,3,4,5,6,7,8} that supersets both size-4 groups.
-						"gpu-1": {DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-							convertIntToAffinityDimension(0): {"gpu-2", "gpu-3", "gpu-4"},
-							convertIntToAffinityDimension(1): {"gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
-						}},
-						"gpu-2": {DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-							convertIntToAffinityDimension(0): {"gpu-1", "gpu-3", "gpu-4"},
-							convertIntToAffinityDimension(1): {"gpu-1", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
-						}},
-						"gpu-3": {DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-							convertIntToAffinityDimension(0): {"gpu-1", "gpu-2", "gpu-4"},
-							convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
-						}},
-						"gpu-4": {DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-							convertIntToAffinityDimension(0): {"gpu-1", "gpu-2", "gpu-3"},
-							convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
-						}},
-						"gpu-5": {DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-							convertIntToAffinityDimension(0): {"gpu-6", "gpu-7", "gpu-8"},
-							convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-6", "gpu-7", "gpu-8"},
-						}},
-						"gpu-6": {DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-							convertIntToAffinityDimension(0): {"gpu-5", "gpu-7", "gpu-8"},
-							convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-7", "gpu-8"},
-						}},
-						"gpu-7": {DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-							convertIntToAffinityDimension(0): {"gpu-5", "gpu-6", "gpu-8"},
-							convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-8"},
-						}},
-						"gpu-8": {DeviceAffinity: map[machine.Dimension]machine.DeviceIDs{
-							convertIntToAffinityDimension(0): {"gpu-5", "gpu-6", "gpu-7"},
-							convertIntToAffinityDimension(1): {"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7"},
-						}},
+						"gpu-1": {Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678"))},
+						"gpu-2": {Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678"))},
+						"gpu-3": {Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678"))},
+						"gpu-4": {Dimensions: dims(dimLevel(0, "g1234"), dimLevel(1, "g12345678"))},
+						"gpu-5": {Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678"))},
+						"gpu-6": {Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678"))},
+						"gpu-7": {Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678"))},
+						"gpu-8": {Dimensions: dims(dimLevel(0, "g5678"), dimLevel(1, "g12345678"))},
 					},
 				},
 				Emitter: metrics.DummyMetrics{},
