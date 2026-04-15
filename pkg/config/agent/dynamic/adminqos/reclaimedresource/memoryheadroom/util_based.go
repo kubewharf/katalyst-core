@@ -53,6 +53,10 @@ func (c *MemoryUtilBasedConfiguration) ApplyConfiguration(conf *crd.DynamicConfi
 			c.CacheBasedRatio = *config.CacheBasedRatio
 		}
 
+		if config.RequestBasedRatio != nil {
+			c.RequestBasedRatio = *config.RequestBasedRatio
+		}
+
 		if config.MaxOversoldRate != nil {
 			c.MaxOversoldRate = *config.MaxOversoldRate
 		}
