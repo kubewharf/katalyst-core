@@ -334,11 +334,17 @@ func (p *gpuReporterPlugin) getGPUZoneAttributes(deviceTopology *machine.DeviceT
 		dimensions := device.GetDimensions()
 		zoneNode := util.GenerateDeviceZoneNode(id, string(nodev1alpha1.TopologyTypeGPU))
 
-		var attributes []nodev1alpha1.Attribute
-		for _, dimension := range dimensions {
+		attributes := make([]nodev1alpha1.Attribute, 0, len(deviceTopology.PriorityDimensions))
+		for _, dimName := range deviceTopology.PriorityDimensions {
+			dimValue, ok := dimensions[dimName]
+			if !ok {
+				general.Warningf("failed to find dimension %s for device %s", dimName, id)
+				continue
+			}
+
 			attributes = append(attributes, nodev1alpha1.Attribute{
-				Name:  dimension.GetName(),
-				Value: dimension.GetValue(),
+				Name:  dimName,
+				Value: dimValue,
 			})
 		}
 

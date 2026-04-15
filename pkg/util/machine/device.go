@@ -19,8 +19,6 @@ package machine
 import (
 	"fmt"
 	"reflect"
-	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -332,65 +330,49 @@ func (t *DeviceTopology) GroupDeviceAffinity() [][]DeviceIDs {
 		return nil
 	}
 
-	priorityDims := make([]string, 0, len(t.PriorityDimensions))
+	priorityDimensionGroups := make([][]DeviceIDs, 0, len(t.PriorityDimensions))
 	for _, name := range t.PriorityDimensions {
-		name = strings.ToLower(strings.TrimSpace(name))
-		if name == "" {
-			continue
-		}
-		priorityDims = append(priorityDims, name)
-	}
-	if len(priorityDims) == 0 {
-		return nil
-	}
+		// devicesGroup is a mapping of dimension value to the device IDs
+		devicesGroup := make(map[string]sets.String)
 
-	// Deterministic iteration over devices.
-	deviceIDs := make([]string, 0, len(t.Devices))
-	for id := range t.Devices {
-		deviceIDs = append(deviceIDs, id)
-	}
-	sort.Strings(deviceIDs)
-
-	out := make([][]DeviceIDs, 0, len(priorityDims))
-	for _, dimName := range priorityDims {
-		valueToDevices := make(map[string][]string)
-		for _, id := range deviceIDs {
-			info := t.Devices[id]
-			if info.Dimensions == nil {
+		// Get all the devices of the same dimension value
+		for id, info := range t.Devices {
+			if len(info.Dimensions) == 0 {
 				continue
 			}
-			value := strings.TrimSpace(info.Dimensions[dimName])
-			if value == "" {
+
+			value, ok := info.Dimensions[name]
+			if !ok {
 				continue
 			}
-			valueToDevices[value] = append(valueToDevices[value], id)
+
+			if _, ok = devicesGroup[value]; !ok {
+				devicesGroup[value] = sets.NewString()
+			}
+
+			devicesGroup[value] = devicesGroup[value].Insert(id)
 		}
 
-		if len(valueToDevices) == 0 {
+		// If there are no devices in a certain group, do not add them in the priorityDimensionGroups
+		if len(devicesGroup) == 0 {
 			continue
 		}
 
-		values := make([]string, 0, len(valueToDevices))
-		for v := range valueToDevices {
-			values = append(values, v)
+		priorityDevicesGroup := make([]DeviceIDs, 0, len(devicesGroup))
+		// Iterate through all the devices and group them based on their value
+		for _, ids := range devicesGroup {
+			priorityDevicesGroup = append(priorityDevicesGroup, ids.UnsortedList())
 		}
 
-		level := make([]DeviceIDs, 0, len(values))
-		for _, v := range values {
-			ids := valueToDevices[v]
-			level = append(level, ids)
-		}
-		if len(level) == 0 {
-			continue
-		}
-		out = append(out, level)
+		priorityDimensionGroups = append(priorityDimensionGroups, priorityDevicesGroup)
 	}
 
-	return out
+	return priorityDimensionGroups
 }
 
 // DeviceDimensions stores per-device dimension attributes, keyed by canonicalized dimension name.
 // Example: {"numa": "0", "socket": "1"}.
+// The key of the DeviceDimensions should be mapped to one of the PriorityDimensions
 type DeviceDimensions map[string]string
 
 type DeviceInfo struct {
@@ -399,59 +381,8 @@ type DeviceInfo struct {
 	Dimensions DeviceDimensions
 }
 
-func (i DeviceInfo) GetDimensions() []Dimension {
-	if len(i.Dimensions) == 0 {
-		return nil
-	}
-
-	names := make([]string, 0, len(i.Dimensions))
-	for name := range i.Dimensions {
-		name = strings.ToLower(strings.TrimSpace(name))
-		if name == "" {
-			continue
-		}
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	dimensions := make([]Dimension, 0, len(names))
-	for _, name := range names {
-		value := strings.TrimSpace(i.Dimensions[name])
-		if value == "" {
-			continue
-		}
-		dimensions = append(dimensions, Dimension{Name: name, Value: value})
-	}
-	return dimensions
-}
-
-// Dimension represents the dimension of the affinity.
-// Name is the name of the dimension. E.g. NUMA, SOCKET, etc.
-// Value is the id of the dimension. E.g. numa-0, numa-1, socket-0, socket-1, etc.
-// The name of the dimension is mapped to one of the PriorityDimensions.
-type Dimension struct {
-	Name  string
-	Value string
-}
-
-func (d Dimension) CanonicalName() string {
-	return strings.ToLower(strings.TrimSpace(d.Name))
-}
-
-func (d Dimension) CanonicalValue() string {
-	return strings.TrimSpace(d.Value)
-}
-
-func (d Dimension) IsValid() bool {
-	return d.CanonicalName() != "" && d.CanonicalValue() != ""
-}
-
-func (d Dimension) GetName() string {
-	return d.Name
-}
-
-func (d Dimension) GetValue() string {
-	return d.Value
+func (i DeviceInfo) GetDimensions() DeviceDimensions {
+	return i.Dimensions
 }
 
 type DeviceIDs []string

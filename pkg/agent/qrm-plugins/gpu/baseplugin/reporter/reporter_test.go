@@ -1234,16 +1234,6 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 								{
 									Type: nodev1alpha1.TopologyTypeGPU,
 									Name: "gpu-0",
-									Attributes: []nodev1alpha1.Attribute{
-										{
-											Name:  "numa",
-											Value: "0",
-										},
-										{
-											Name:  "pcie",
-											Value: "0",
-										},
-									},
 									Resources: nodev1alpha1.Resources{
 										Allocatable: &v1.ResourceList{
 											"test-gpu": resource.MustParse("0"),
@@ -1256,16 +1246,6 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 								{
 									Type: nodev1alpha1.TopologyTypeGPU,
 									Name: "gpu-1",
-									Attributes: []nodev1alpha1.Attribute{
-										{
-											Name:  "numa",
-											Value: "0",
-										},
-										{
-											Name:  "pcie",
-											Value: "0",
-										},
-									},
 									Resources: nodev1alpha1.Resources{
 										Allocatable: &v1.ResourceList{
 											"test-gpu": resource.MustParse("0"),
@@ -1278,16 +1258,6 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 								{
 									Type: nodev1alpha1.TopologyTypeGPU,
 									Name: "gpu-2",
-									Attributes: []nodev1alpha1.Attribute{
-										{
-											Name:  "numa",
-											Value: "0",
-										},
-										{
-											Name:  "pcie",
-											Value: "1",
-										},
-									},
 									Resources: nodev1alpha1.Resources{
 										Allocatable: &v1.ResourceList{
 											"test-gpu": resource.MustParse("0"),
@@ -1300,16 +1270,6 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 								{
 									Type: nodev1alpha1.TopologyTypeGPU,
 									Name: "gpu-3",
-									Attributes: []nodev1alpha1.Attribute{
-										{
-											Name:  "numa",
-											Value: "0",
-										},
-										{
-											Name:  "pcie",
-											Value: "1",
-										},
-									},
 									Resources: nodev1alpha1.Resources{
 										Allocatable: &v1.ResourceList{
 											"test-gpu": resource.MustParse("0"),
@@ -1334,16 +1294,6 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 								{
 									Type: nodev1alpha1.TopologyTypeGPU,
 									Name: "gpu-4",
-									Attributes: []nodev1alpha1.Attribute{
-										{
-											Name:  "numa",
-											Value: "1",
-										},
-										{
-											Name:  "pcie",
-											Value: "2",
-										},
-									},
 									Resources: nodev1alpha1.Resources{
 										Allocatable: &v1.ResourceList{
 											"test-gpu": resource.MustParse("0"),
@@ -1356,16 +1306,6 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 								{
 									Type: nodev1alpha1.TopologyTypeGPU,
 									Name: "gpu-5",
-									Attributes: []nodev1alpha1.Attribute{
-										{
-											Name:  "numa",
-											Value: "1",
-										},
-										{
-											Name:  "pcie",
-											Value: "2",
-										},
-									},
 									Resources: nodev1alpha1.Resources{
 										Allocatable: &v1.ResourceList{
 											"test-gpu": resource.MustParse("0"),
@@ -1378,16 +1318,6 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 								{
 									Type: nodev1alpha1.TopologyTypeGPU,
 									Name: "gpu-6",
-									Attributes: []nodev1alpha1.Attribute{
-										{
-											Name:  "numa",
-											Value: "1",
-										},
-										{
-											Name:  "pcie",
-											Value: "3",
-										},
-									},
 									Resources: nodev1alpha1.Resources{
 										Allocatable: &v1.ResourceList{
 											"test-gpu": resource.MustParse("0"),
@@ -1400,16 +1330,6 @@ func TestGpuReporterPlugin_GetReportContent(t *testing.T) {
 								{
 									Type: nodev1alpha1.TopologyTypeGPU,
 									Name: "gpu-7",
-									Attributes: []nodev1alpha1.Attribute{
-										{
-											Name:  "numa",
-											Value: "1",
-										},
-										{
-											Name:  "pcie",
-											Value: "3",
-										},
-									},
 									Resources: nodev1alpha1.Resources{
 										Allocatable: &v1.ResourceList{
 											"test-gpu": resource.MustParse("0"),

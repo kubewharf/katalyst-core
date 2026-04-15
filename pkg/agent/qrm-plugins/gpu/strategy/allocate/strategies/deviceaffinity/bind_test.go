@@ -1919,16 +1919,16 @@ func verifyResultIsAffinity(
 	t *testing.T, result *allocate.AllocationResult, topology *machine.DeviceTopology,
 	expectedAffinityPriorityLevel int,
 ) {
-	affinityLevels := topology.GroupDeviceAffinity()
-	if len(affinityLevels) == 0 {
+	deviceGroups := topology.GroupDeviceAffinity()
+	if len(deviceGroups) == 0 {
 		t.Errorf("expected affinity groups but found none")
 		return
 	}
-	if expectedAffinityPriorityLevel >= len(affinityLevels) {
-		t.Errorf("expected affinity priority level %d, got only %d affinity levels", expectedAffinityPriorityLevel, len(affinityLevels))
+	if expectedAffinityPriorityLevel >= len(deviceGroups) {
+		t.Errorf("expected affinity priority level %d, got only %d affinity levels", expectedAffinityPriorityLevel, len(deviceGroups))
 		return
 	}
-	priorityLevelDevices := affinityLevels[expectedAffinityPriorityLevel]
+	priorityLevelDevices := deviceGroups[expectedAffinityPriorityLevel]
 	if result == nil {
 		t.Errorf("result is nil")
 		return
