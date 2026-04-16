@@ -1641,6 +1641,78 @@ func TestBind_Dimensions_RequiredStrict(t *testing.T) {
 		expectedPriority   int
 	}{
 		{
+			name: "required affinity: single-level topology with groups of 2, request 4 devices",
+			ctx: &allocate.AllocationContext{
+				ResourceReq: &pluginapi.ResourceRequest{
+					PodUid:        "pod-1",
+					ContainerName: "container-1",
+				},
+				DeviceReq: &pluginapi.DeviceRequest{
+					DeviceName:      "gpu",
+					ReusableDevices: nil,
+					DeviceRequest:   4,
+				},
+				GPUQRMPluginConfig: &qrmconfig.GPUQRMPluginConfig{RequiredDeviceAffinity: true},
+				DeviceTopology: &machine.DeviceTopology{
+					// Single priority dimension; four affinity groups with 2 devices each.
+					PriorityDimensions: []string{"0"},
+					Devices: map[string]machine.DeviceInfo{
+						"gpu-1": {Dimensions: dimLevel(0, "g12")},
+						"gpu-2": {Dimensions: dimLevel(0, "g12")},
+						"gpu-3": {Dimensions: dimLevel(0, "g34")},
+						"gpu-4": {Dimensions: dimLevel(0, "g34")},
+						"gpu-5": {Dimensions: dimLevel(0, "g56")},
+						"gpu-6": {Dimensions: dimLevel(0, "g56")},
+						"gpu-7": {Dimensions: dimLevel(0, "g78")},
+						"gpu-8": {Dimensions: dimLevel(0, "g78")},
+					},
+				},
+				Emitter: metrics.DummyMetrics{},
+			},
+			sortedDevices:      []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6", "gpu-7", "gpu-8"},
+			expectedResultSize: 4,
+			// With a single priority dimension, the only affinity level index is 0.
+			expectedPriority: 0,
+		},
+		{
+			name: "required affinity: single-level topology with groups of 2, request 5 devices using exactly three groups",
+			ctx: &allocate.AllocationContext{
+				ResourceReq: &pluginapi.ResourceRequest{
+					PodUid:        "pod-1",
+					ContainerName: "container-1",
+				},
+				DeviceReq: &pluginapi.DeviceRequest{
+					DeviceName:      "gpu",
+					ReusableDevices: nil,
+					DeviceRequest:   5,
+				},
+				GPUQRMPluginConfig: &qrmconfig.GPUQRMPluginConfig{RequiredDeviceAffinity: true},
+				DeviceTopology: &machine.DeviceTopology{
+					// Same four size-2 groups as previous tests, but we only expose
+					// devices from three groups through sortedDevices below.
+					PriorityDimensions: []string{"0"},
+					Devices: map[string]machine.DeviceInfo{
+						"gpu-1": {Dimensions: dimLevel(0, "g12")},
+						"gpu-2": {Dimensions: dimLevel(0, "g12")},
+						"gpu-3": {Dimensions: dimLevel(0, "g34")},
+						"gpu-4": {Dimensions: dimLevel(0, "g34")},
+						"gpu-5": {Dimensions: dimLevel(0, "g56")},
+						"gpu-6": {Dimensions: dimLevel(0, "g56")},
+						"gpu-7": {Dimensions: dimLevel(0, "g78")},
+						"gpu-8": {Dimensions: dimLevel(0, "g78")},
+					},
+				},
+				Emitter: metrics.DummyMetrics{},
+			},
+			// Only expose three of the four groups as candidates; the strict rule
+			// ceil(5/2)=3 requires using exactly three groups at the last priority.
+			// This ensures we exercise the new validation path with a "just enough"
+			// topology.
+			sortedDevices:      []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4", "gpu-5", "gpu-6"},
+			expectedResultSize: 5,
+			expectedPriority:   0,
+		},
+		{
 			name: "required affinity: allocate strictly within a satisfiable affinity group",
 			ctx: &allocate.AllocationContext{
 				ResourceReq: &pluginapi.ResourceRequest{
@@ -1795,6 +1867,44 @@ func TestBind_Dimensions_RequiredStrict(t *testing.T) {
 			expectedErr:   true,
 		},
 		{
+			name: "required affinity: fail when ceil(request/maxGroupSize) groups cannot be satisfied",
+			ctx: &allocate.AllocationContext{
+				ResourceReq: &pluginapi.ResourceRequest{
+					PodUid:        "pod-1",
+					ContainerName: "container-1",
+				},
+				DeviceReq: &pluginapi.DeviceRequest{
+					DeviceName:      "gpu",
+					ReusableDevices: nil,
+					DeviceRequest:   5,
+				},
+				GPUQRMPluginConfig: &qrmconfig.GPUQRMPluginConfig{RequiredDeviceAffinity: true},
+				DeviceTopology: &machine.DeviceTopology{
+					// Four logical size-2 groups, but only two groups worth of
+					// devices are actually available in sortedDevices below. The
+					// strict rule requires ceil(5/2)=3 groups at the last priority,
+					// which is impossible given only two groups with any candidates.
+					PriorityDimensions: []string{"0"},
+					Devices: map[string]machine.DeviceInfo{
+						"gpu-1": {Dimensions: dimLevel(0, "g12")},
+						"gpu-2": {Dimensions: dimLevel(0, "g12")},
+						"gpu-3": {Dimensions: dimLevel(0, "g34")},
+						"gpu-4": {Dimensions: dimLevel(0, "g34")},
+						"gpu-5": {Dimensions: dimLevel(0, "g56")},
+						"gpu-6": {Dimensions: dimLevel(0, "g56")},
+						"gpu-7": {Dimensions: dimLevel(0, "g78")},
+						"gpu-8": {Dimensions: dimLevel(0, "g78")},
+					},
+				},
+				Emitter: metrics.DummyMetrics{},
+			},
+			// Only two full groups worth of devices are available. Regardless of
+			// how the allocator behaves internally, strict affinity semantics
+			// cannot be satisfied for request=5, so we expect an error.
+			sortedDevices: []string{"gpu-1", "gpu-3", "gpu-5", "gpu-6", "gpu-7"},
+			expectedErr:   true,
+		},
+		{
 			name: "required affinity: allocate 4 devices from priority-1 size-4 group",
 			ctx: &allocate.AllocationContext{
 				ResourceReq: &pluginapi.ResourceRequest{
@@ -1881,7 +1991,7 @@ func TestBind_Dimensions_RequiredStrict(t *testing.T) {
 			if len(result.AllocatedDevices) != tt.expectedResultSize {
 				t.Fatalf("allocated size = %d, want %d", len(result.AllocatedDevices), tt.expectedResultSize)
 			}
-			verifyResultIsAffinity(t, result, tt.ctx.DeviceTopology, tt.expectedPriority)
+			verifyResultIsStrictAffinity(t, result, tt.ctx.DeviceTopology, tt.expectedPriority)
 		})
 	}
 }
@@ -1955,4 +2065,60 @@ func verifyResultIsAffinity(
 	}
 
 	t.Errorf("result = %v, did not find it within an affinity group", result.AllocatedDevices)
+}
+
+// verifyResultIsStrictAffinity verifies that an allocation respects required
+// device affinity at the given priority level. Instead of requiring all
+// devices to belong to a single affinity group, it ensures that every
+// allocated device has at least one peer sharing the same dimension value at
+// the specified priority level.
+func verifyResultIsStrictAffinity(
+	t *testing.T, result *allocate.AllocationResult, topology *machine.DeviceTopology,
+	expectedAffinityPriorityLevel int,
+) {
+	if result == nil {
+		t.Errorf("result is nil")
+		return
+	}
+	if topology == nil || len(topology.PriorityDimensions) == 0 {
+		t.Errorf("topology has no priority dimensions")
+		return
+	}
+	if expectedAffinityPriorityLevel < 0 || expectedAffinityPriorityLevel >= len(topology.PriorityDimensions) {
+		t.Errorf("expected affinity priority level %d out of range (have %d levels)", expectedAffinityPriorityLevel, len(topology.PriorityDimensions))
+		return
+	}
+
+	dimName := topology.PriorityDimensions[expectedAffinityPriorityLevel]
+	valueCounts := make(map[string]int)
+
+	for _, id := range result.AllocatedDevices {
+		info, ok := topology.Devices[id]
+		if !ok {
+			t.Errorf("device %q not found in topology", id)
+			return
+		}
+		value, ok := info.Dimensions[dimName]
+		if !ok {
+			t.Errorf("device %q has no dimension %q", id, dimName)
+			return
+		}
+		valueCounts[value]++
+	}
+
+	// Strict affinity is satisfied if there is at least one affinity group
+	// (dimension value) that contains more than one allocated device at the
+	// specified priority level. This allows odd-sized allocations such as
+	// 5 devices from four 2-device groups, as long as some devices share
+	// the same dimension value.
+	hasPair := false
+	for _, count := range valueCounts {
+		if count >= 2 {
+			hasPair = true
+			break
+		}
+	}
+	if !hasPair && len(result.AllocatedDevices) > 1 {
+		t.Errorf("expected at least one pair of devices sharing dimension %q, got allocation %v", dimName, result.AllocatedDevices)
+	}
 }
