@@ -664,10 +664,29 @@ func (p *StaticPolicy) UpdateAllocatableAssociatedDevices(
 	return resp, nil
 }
 
-func (*StaticPolicy) GetAssociatedDeviceTopologyHints(
-	_ context.Context, _ *pluginapi.AssociatedDeviceRequest,
+func (p *StaticPolicy) GetAssociatedDeviceTopologyHints(
+	ctx context.Context, req *pluginapi.AssociatedDeviceRequest,
 ) (*pluginapi.AssociatedDeviceHintsResponse, error) {
-	return &pluginapi.AssociatedDeviceHintsResponse{}, nil
+	general.InfofV(4, "called")
+	if req == nil {
+		return nil, fmt.Errorf("request is nil")
+	}
+
+	if err := p.ensureState(req.DeviceName); err != nil {
+		return nil, fmt.Errorf("ensure state failed: %v", err)
+	}
+
+	customDevicePlugin := p.getCustomDevicePlugin(req.DeviceName)
+	if customDevicePlugin == nil {
+		return nil, fmt.Errorf("no custom device plugin found for device %s", req.DeviceName)
+	}
+
+	resp, err := customDevicePlugin.GetAssociatedDeviceTopologyHints(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("custom device plugin GetAssociatedDeviceTopologyHints failed with error: %v", err)
+	}
+
+	return resp, nil
 }
 
 // AllocateAssociatedDevice allocates a device in this sequence:
