@@ -69,6 +69,8 @@ type CPUDynamicPolicyConfig struct {
 	EnableDefaultDedicatedCoresCPUBurst bool
 	// EnableDefaultSharedCoresCPUBurst indicates whether to enable cpu burst for shared cores by default
 	EnableDefaultSharedCoresCPUBurst bool
+	// EnableCPUBurstForMainContainerOnly indicates whether cpu burst is only enabled for the main container
+	EnableCPUBurstForMainContainerOnly bool
 
 	*hintoptimizer.HintOptimizerConfiguration
 	*irqtuner.IRQTunerConfiguration
