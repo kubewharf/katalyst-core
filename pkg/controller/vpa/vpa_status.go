@@ -325,7 +325,14 @@ func (vs *vpaStatusController) syncVPA(key string) error {
 // are updated to the expected resources in their annotations
 func (vs *vpaStatusController) setRecommendationAppliedCondition(vpa *apis.KatalystVerticalPodAutoscaler, pods []*v1.Pod) error {
 	failedCount := 0
+	activePodCount := 0
 	for _, pod := range pods {
+		if !native.PodIsActive(pod) {
+			klog.V(6).Infof("[vpa-status] pod %s is not active, skip", native.GenerateUniqObjectNameKey(pod))
+			continue
+		}
+
+		activePodCount += 1
 		if !katalystutil.CheckPodSpecUpdated(pod) {
 			failedCount += 1
 		}
@@ -337,7 +344,7 @@ func (vs *vpaStatusController) setRecommendationAppliedCondition(vpa *apis.Katal
 			return err
 		}
 	} else {
-		msg := fmt.Sprintf("failed to update %d pods, total %d pods", failedCount, len(pods))
+		msg := fmt.Sprintf("failed to update %d pods, active %d pods, total %d pods", failedCount, activePodCount, len(pods))
 		err := util.SetVPAConditions(vpa, apis.RecommendationApplied, v1.ConditionFalse, util.VPAConditionReasonPodSpecNoUpdate, msg)
 		if err != nil {
 			return err
