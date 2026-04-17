@@ -19,6 +19,7 @@ package deviceaffinity
 import (
 	"fmt"
 	"sort"
+	"strconv"
 
 	"github.com/google/uuid"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -71,22 +72,26 @@ func (s *DeviceAffinityStrategy) Bind(
 
 	// If there is no topology affinity, fallback to generic canonical strategy
 	if len(priorityDeviceGroups) == 0 {
+		tags := metrics.ConvertMapToTags(map[string]string{
+			"podNamespace":           ctx.ResourceReq.PodNamespace,
+			"podName":                ctx.ResourceReq.PodName,
+			"containerName":          ctx.ResourceReq.ContainerName,
+			"requiredDeviceAffinity": strconv.FormatBool(requiredDeviceAffinity),
+		})
+		_ = ctx.Emitter.StoreInt64(metricNameNoDeviceTopologyAffinity, 1, metrics.MetricTypeNameRaw, tags...)
+
 		// return error if device affinity is required but no topology affinity is found
 		if requiredDeviceAffinity {
+			general.Errorf("no topology affinity found but device affinity is required, pod: %s/%s, container: %s",
+				ctx.ResourceReq.PodNamespace, ctx.ResourceReq.PodName, ctx.ResourceReq.ContainerName)
 			return &allocate.AllocationResult{
 				Success:      false,
-				ErrorMessage: fmt.Sprintf("no topology affinity found but device affinity is required"),
+				ErrorMessage: "no topology affinity found but device affinity is required",
 			}, fmt.Errorf("no topology affinity found but device affinity is required")
 		}
 
-		general.Warningf("no topology affinity found, fallback to canonical strategy")
-		tags := metrics.ConvertMapToTags(map[string]string{
-			"podNamespace":  ctx.ResourceReq.PodNamespace,
-			"podName":       ctx.ResourceReq.PodName,
-			"containerName": ctx.ResourceReq.ContainerName,
-		})
-
-		_ = ctx.Emitter.StoreInt64(metricNameNoDeviceTopologyAffinity, 1, metrics.MetricTypeNameRaw, tags...)
+		general.Warningf("no topology affinity found, fallback to canonical strategy, pod: %s/%s, container: %s",
+			ctx.ResourceReq.PodNamespace, ctx.ResourceReq.PodName, ctx.ResourceReq.ContainerName)
 		return s.CanonicalStrategy.Bind(ctx, sortedDevices)
 	}
 
