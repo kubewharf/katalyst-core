@@ -27,6 +27,8 @@ const (
 	defaultMinCCDMB = 4_000  // 4GB
 	defaultMaxCCDMB = 40_000 // 40GB
 
+	defaultCCDLimitKp = 0.5
+
 	// defaultMaxIncomingRemoteMB is that each mb domain is allowed to have traffic from other domains by default;
 	// 15GB is the heuristic value based on prior experiences
 	defaultMaxIncomingRemoteMB = 15_000 // 15GB
@@ -47,6 +49,8 @@ type MBOptions struct {
 	MaxIncomingRemoteMB            int
 	MBCapLimitPercent              int
 	ActiveTrafficMBThreshold       int
+	CCDLimitMB                     int
+	CCDLimitKp                     float64
 	DomainGroupAwareCapacityPCT    map[string]int
 	NoThrottleGroups               []string
 	CrossDomainGroups              []string
@@ -59,6 +63,7 @@ func NewMBOptions() *MBOptions {
 		PolicyName:               consts.MBPluginPolicyNameGeneric, // only generic policy is supported right now
 		MinCCDMB:                 defaultMinCCDMB,
 		MaxCCDMB:                 defaultMaxCCDMB,
+		CCDLimitKp:               defaultCCDLimitKp,
 		MBCapLimitPercent:        defaultMBCapLimitPercent,
 		ActiveTrafficMBThreshold: defaultMinActiveMB,
 		MaxIncomingRemoteMB:      defaultMaxIncomingRemoteMB,
@@ -72,7 +77,11 @@ func (o *MBOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 	fs.IntVar(&o.MinCCDMB, "mb-ccd-min",
 		o.MinCCDMB, "min mb per ccd")
 	fs.IntVar(&o.MaxCCDMB, "mb-ccd-max",
-		o.MaxCCDMB, "max mb per ccd")
+		o.MaxCCDMB, "max mb per ccd; saturation point of mb resource control")
+	fs.IntVar(&o.CCDLimitMB, "mb-ccd-limit",
+		o.CCDLimitMB, "target actual mb limit per ccd; 0 means no targeted limit for ccd")
+	fs.Float64Var(&o.CCDLimitKp, "mb-ccd-limit-kp",
+		o.CCDLimitKp, "proportional gain for actual ccd limit governance; only effective when ccd-limit > 0")
 	fs.IntVar(&o.MaxIncomingRemoteMB, "mb-remote-limit",
 		o.MaxIncomingRemoteMB, "max mb allowed from remote domains")
 	fs.IntVar(&o.MBCapLimitPercent, "mb-cap-limit-percent",
@@ -95,6 +104,8 @@ func (o *MBOptions) ApplyTo(conf *qrm.MBQRMPluginConfig) error {
 	conf.PolicyName = o.PolicyName
 	conf.MinCCDMB = o.MinCCDMB
 	conf.MaxCCDMB = o.MaxCCDMB
+	conf.CCDLimitMB = o.CCDLimitMB
+	conf.CCDLimitKp = o.CCDLimitKp
 	conf.MaxIncomingRemoteMB = o.MaxIncomingRemoteMB
 	conf.MBCapLimitPercent = o.MBCapLimitPercent
 	conf.ActiveTrafficMBThreshold = o.ActiveTrafficMBThreshold

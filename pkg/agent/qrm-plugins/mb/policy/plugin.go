@@ -119,13 +119,24 @@ func (m *MBPlugin) Start() (err error) {
 		return nil
 	}
 
-	// initializing advisor field is deferred as qos group mb capacities is known now
+	// initializing advisor field is deferred as qos gßroup mb capacities is known now
 	m.advisor = advisor.New(m.emitter, m.domains,
 		m.conf.MinCCDMB, m.conf.MaxCCDMB,
 		defaultMBDomainCapacity, m.conf.MBCapLimitPercent,
 		m.conf.CrossDomainGroups, m.conf.MBQRMPluginConfig.NoThrottleGroups,
 		groupCapacities,
 	)
+
+	if m.conf.CCDLimitMB > 0 {
+		m.advisor = advisor.NewPControllerAdvisor(
+			m.conf.CCDLimitKp,
+			m.conf.CCDLimitMB,
+			m.conf.MinCCDMB,
+			m.conf.MaxCCDMB,
+			m.advisor,
+		)
+		general.Infof("[mbm] P-Controller advisor enabled with ccdLimitMB=%d, Kp=%.2f", m.conf.CCDLimitMB, m.conf.CCDLimitKp)
+	}
 
 	go func() {
 		wait.Until(m.run, interval, m.chStop)
