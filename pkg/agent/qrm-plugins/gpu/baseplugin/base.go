@@ -244,9 +244,9 @@ func (p *BasePlugin) UpdateAllocatableAssociatedDevices(
 		}
 
 		deviceTopology.Devices[device.ID] = machine.DeviceInfo{
-			Health:         device.Health,
-			NumaNodes:      numaNode,
-			DeviceAffinity: make(map[machine.AffinityPriority]machine.DeviceIDs),
+			Health:     device.Health,
+			NumaNodes:  numaNode,
+			Dimensions: make(map[string]string),
 		}
 	}
 

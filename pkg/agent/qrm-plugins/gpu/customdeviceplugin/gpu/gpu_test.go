@@ -159,12 +159,12 @@ func TestGPUDevicePlugin_UpdateAllocatableAssociatedDevices(t *testing.T) {
 	expectedDeviceTopology := &machine.DeviceTopology{
 		Devices: map[string]machine.DeviceInfo{
 			"test-gpu-0": {
-				NumaNodes:      []int{0},
-				DeviceAffinity: make(map[machine.AffinityPriority]machine.DeviceIDs),
+				NumaNodes:  []int{0},
+				Dimensions: make(map[string]string),
 			},
 			"test-gpu-1": {
-				NumaNodes:      []int{1},
-				DeviceAffinity: make(map[machine.AffinityPriority]machine.DeviceIDs),
+				NumaNodes:  []int{1},
+				Dimensions: make(map[string]string),
 			},
 		},
 	}

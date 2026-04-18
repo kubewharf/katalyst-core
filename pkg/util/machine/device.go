@@ -19,13 +19,11 @@ package machine
 import (
 	"fmt"
 	"reflect"
-	"sort"
 	"sync"
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
-	"k8s.io/utils/strings/slices"
 
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
 )
@@ -317,106 +315,74 @@ func (t *DeviceTopology) IsDeviceHealthy(id string) (bool, bool) {
 }
 
 // GroupDeviceAffinity forms a topology graph such that all devices within a DeviceIDs group have an affinity with each other.
-// They are differentiated by their affinity priority value.
+// The outer slice is ordered from the highest priority to the lowest priority.
 // E.g. Output:
 //
-//	{
-//		0: {{"gpu-0", "gpu-1"}, {"gpu-2", "gpu-3"}},
-//		1: {{"gpu-0", "gpu-1", "gpu-2", "gpu-3"}}
-//	}
+//	[
+//		{{"gpu-0", "gpu-1"}, {"gpu-2", "gpu-3"}},
+//		{{"gpu-0", "gpu-1", "gpu-2", "gpu-3"}},
+//	]
 //
-// means that gpu-0 and gpu-1 have an affinity with each other, gpu-2 and gpu-3 have an affinity with each other in affinity priority 0.
-// and gpu-0, gpu-1, gpu-2, and gpu-3 have an affinity with each other in affinity priority 1.
-func (t *DeviceTopology) GroupDeviceAffinity() map[int][]DeviceIDs {
-	deviceAffinityGroup := make(map[int][]DeviceIDs)
-	for deviceId, deviceInfo := range t.Devices {
-		for priority, affinityDeviceIDs := range deviceInfo.DeviceAffinity {
-			// Add itself in the group if it is not already included
-			if !slices.Contains(affinityDeviceIDs, deviceId) {
-				affinityDeviceIDs = append(affinityDeviceIDs, deviceId)
-			}
-			// Sort the strings for easier deduplication
-			sort.Strings(affinityDeviceIDs)
-
-			priorityLevel := priority.GetPriorityLevel()
-			if _, ok := deviceAffinityGroup[priorityLevel]; !ok {
-				deviceAffinityGroup[priorityLevel] = make([]DeviceIDs, 0)
-			}
-
-			// Add the affinityDeviceIDs to the priority level if it is not already there
-			if !containsGroup(deviceAffinityGroup[priorityLevel], affinityDeviceIDs) {
-				deviceAffinityGroup[priorityLevel] = append(deviceAffinityGroup[priorityLevel], affinityDeviceIDs)
-			}
-		}
+// means that gpu-0 and gpu-1 have an affinity with each other, gpu-2 and gpu-3 have an affinity with each other in the highest affinity priority.
+// and gpu-0, gpu-1, gpu-2, and gpu-3 have an affinity with each other in the next lower affinity priority.
+func (t *DeviceTopology) GroupDeviceAffinity() [][]DeviceIDs {
+	if t == nil || len(t.Devices) == 0 || len(t.PriorityDimensions) == 0 {
+		return nil
 	}
-	return deviceAffinityGroup
-}
 
-func containsGroup(groups []DeviceIDs, candidate DeviceIDs) bool {
-	for _, g := range groups {
-		if slices.Equal(g, candidate) {
-			return true
+	priorityDimensionGroups := make([][]DeviceIDs, 0, len(t.PriorityDimensions))
+	for _, name := range t.PriorityDimensions {
+		// devicesGroup is a mapping of dimension value to the device IDs
+		devicesGroup := make(map[string]sets.String)
+
+		// Get all the devices of the same dimension value
+		for id, info := range t.Devices {
+			if len(info.Dimensions) == 0 {
+				continue
+			}
+
+			value, ok := info.Dimensions[name]
+			if !ok {
+				continue
+			}
+
+			if _, ok = devicesGroup[value]; !ok {
+				devicesGroup[value] = sets.NewString()
+			}
+
+			devicesGroup[value] = devicesGroup[value].Insert(id)
 		}
-	}
-	return false
-}
 
-// DeviceAffinity is the map of priority level to the other deviceIds that a particular deviceId has an affinity with
-type DeviceAffinity map[AffinityPriority]DeviceIDs
-
-type DeviceInfo struct {
-	Health         string
-	NumaNodes      []int
-	DeviceAffinity DeviceAffinity
-}
-
-func (i DeviceInfo) GetDimensions() []Dimension {
-	dimensions := make([]Dimension, 0)
-	for priority := range i.DeviceAffinity {
-		// filter out invalid dimensions because some invalid/empty configurations may be passed
-		if priority.Dimension.Name == "" || priority.Dimension.Value == "" {
+		// If there are no devices in a certain group, do not add them in the priorityDimensionGroups
+		if len(devicesGroup) == 0 {
 			continue
 		}
-		dimensions = append(dimensions, priority.Dimension)
+
+		priorityDevicesGroup := make([]DeviceIDs, 0, len(devicesGroup))
+		// Iterate through all the devices and group them based on their value
+		for _, ids := range devicesGroup {
+			priorityDevicesGroup = append(priorityDevicesGroup, ids.UnsortedList())
+		}
+
+		priorityDimensionGroups = append(priorityDimensionGroups, priorityDevicesGroup)
 	}
 
-	sort.Slice(dimensions, func(i, j int) bool {
-		return dimensions[i].Name < dimensions[j].Name
-	})
-
-	return dimensions
+	return priorityDimensionGroups
 }
 
-// AffinityPriority represents the level of affinity that a deviceID has with another deviceID.
-// It contains the actual priority level and the dimension of the affinity.
-// The priority level is the value of the priority. The lower the value, the higher the priority.
-type AffinityPriority struct {
-	PriorityLevel int
-	Dimension     Dimension
+// DeviceDimensions stores per-device dimension attributes, keyed by canonicalized dimension name.
+// Example: {"numa": "0", "socket": "1"}.
+// The key of the DeviceDimensions should be mapped to one of the PriorityDimensions
+type DeviceDimensions map[string]string
+
+type DeviceInfo struct {
+	Health     string
+	NumaNodes  []int
+	Dimensions DeviceDimensions
 }
 
-func (a *AffinityPriority) GetPriorityLevel() int {
-	return a.PriorityLevel
-}
-
-func (a *AffinityPriority) GetDimension() Dimension {
-	return a.Dimension
-}
-
-// Dimension represents the dimension of the affinity.
-// Name is the name of the dimension. E.g. NUMA, SOCKET, etc.
-// Value is the id of the dimension. E.g. numa-0, numa-1, socket-0, socket-1, etc.
-type Dimension struct {
-	Name  string
-	Value string
-}
-
-func (d *Dimension) GetName() string {
-	return d.Name
-}
-
-func (d *Dimension) GetValue() string {
-	return d.Value
+func (i DeviceInfo) GetDimensions() DeviceDimensions {
+	return i.Dimensions
 }
 
 type DeviceIDs []string

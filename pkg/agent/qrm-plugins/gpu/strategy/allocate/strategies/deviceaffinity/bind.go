@@ -19,6 +19,7 @@ package deviceaffinity
 import (
 	"fmt"
 	"sort"
+	"strconv"
 
 	"github.com/google/uuid"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -40,6 +41,7 @@ const (
 type affinityGroup struct {
 	id                 string
 	unallocatedDevices sets.String
+	totalDevicesNum    int
 }
 
 // Bind binds the sorted devices to the allocation context by searching for the devices that have affinity to each other.
@@ -60,31 +62,45 @@ func (s *DeviceAffinityStrategy) Bind(
 	devicesToAllocate := int(ctx.DeviceReq.DeviceRequest)
 	reusableDevicesSet := sets.NewString(ctx.DeviceReq.ReusableDevices...)
 
+	requiredDeviceAffinity := ctx.GPUQRMPluginConfig.RequiredDeviceAffinity
+
 	// All devices that are passed into the strategy are unallocated devices
 	unallocatedDevicesSet := sets.NewString(sortedDevices...)
 
-	// Get a map of affinity groups that is grouped by priority
-	affinityMap := ctx.DeviceTopology.GroupDeviceAffinity()
+	// Get device groups ordered from the highest priority to the lowest priority.
+	priorityDeviceGroups := ctx.DeviceTopology.GroupDeviceAffinity()
 
 	// If there is no topology affinity, fallback to generic canonical strategy
-	if len(affinityMap) == 0 {
-		general.Warningf("no topology affinity found, fallback to canonical strategy")
+	if len(priorityDeviceGroups) == 0 {
 		tags := metrics.ConvertMapToTags(map[string]string{
-			"podNamespace":  ctx.ResourceReq.PodNamespace,
-			"podName":       ctx.ResourceReq.PodName,
-			"containerName": ctx.ResourceReq.ContainerName,
+			"podNamespace":           ctx.ResourceReq.PodNamespace,
+			"podName":                ctx.ResourceReq.PodName,
+			"containerName":          ctx.ResourceReq.ContainerName,
+			"requiredDeviceAffinity": strconv.FormatBool(requiredDeviceAffinity),
 		})
-
 		_ = ctx.Emitter.StoreInt64(metricNameNoDeviceTopologyAffinity, 1, metrics.MetricTypeNameRaw, tags...)
+
+		// return error if device affinity is required but no topology affinity is found
+		if requiredDeviceAffinity {
+			general.Errorf("no topology affinity found but device affinity is required, pod: %s/%s, container: %s",
+				ctx.ResourceReq.PodNamespace, ctx.ResourceReq.PodName, ctx.ResourceReq.ContainerName)
+			return &allocate.AllocationResult{
+				Success:      false,
+				ErrorMessage: "no topology affinity found but device affinity is required",
+			}, fmt.Errorf("no topology affinity found but device affinity is required")
+		}
+
+		general.Warningf("no topology affinity found, fallback to canonical strategy, pod: %s/%s, container: %s",
+			ctx.ResourceReq.PodNamespace, ctx.ResourceReq.PodName, ctx.ResourceReq.ContainerName)
 		return s.CanonicalStrategy.Bind(ctx, sortedDevices)
 	}
 
-	// Get affinity groups organized by priority level
-	affinityGroupsMap := s.getAffinityGroupsByPriority(affinityMap, unallocatedDevicesSet)
+	// Get affinity groups organized by priority and trimmed to the lowest priority we need to consider.
+	affinityGroupsByPriority := s.getAffinityGroupsSortedByPriority(priorityDeviceGroups, unallocatedDevicesSet, devicesToAllocate, requiredDeviceAffinity)
 
 	// Allocate reusable devices first
-	allocatedDevices, err := s.allocateCandidateDevices(affinityGroupsMap,
-		reusableDevicesSet.Intersection(unallocatedDevicesSet), devicesToAllocate, sets.NewString())
+	allocatedDevices, err := s.allocateCandidateDevices(affinityGroupsByPriority,
+		reusableDevicesSet.Intersection(unallocatedDevicesSet), sets.NewString(), devicesToAllocate)
 	if err != nil {
 		return &allocate.AllocationResult{
 			Success:      false,
@@ -101,8 +117,8 @@ func (s *DeviceAffinityStrategy) Bind(
 
 	// Next, allocate left available devices
 	availableDevices := unallocatedDevicesSet.Difference(allocatedDevices)
-	allocatedDevices, err = s.allocateCandidateDevices(affinityGroupsMap,
-		availableDevices, devicesToAllocate, allocatedDevices)
+	allocatedDevices, err = s.allocateCandidateDevices(affinityGroupsByPriority,
+		availableDevices, allocatedDevices, devicesToAllocate)
 	if err != nil {
 		return &allocate.AllocationResult{
 			Success:      false,
@@ -112,6 +128,26 @@ func (s *DeviceAffinityStrategy) Bind(
 
 	// Return result once we have allocated all the devices
 	if len(allocatedDevices) == devicesToAllocate {
+		// Ensure the final allocation satisfies required device affinity at the lowest priority level,
+		// preventing unnecessary fragmentation across multiple lowest-priority groups.
+		if requiredDeviceAffinity && len(affinityGroupsByPriority) > 0 {
+			// affinityGroupsByPriority is built from priorityDeviceGroups, with each index
+			// corresponding to the same priority level. When requiredDeviceAffinity is true,
+			// getAffinityGroupsSortedByPriority returns early once it finds a priority level
+			// that can satisfy the request. Thus, len(affinityGroupsByPriority)-1 gives the
+			// index of the lowest priority level considered during allocation.
+			if err = s.validateRequiredDeviceAffinity(
+				priorityDeviceGroups[len(affinityGroupsByPriority)-1],
+				allocatedDevices,
+				devicesToAllocate,
+			); err != nil {
+				return &allocate.AllocationResult{
+					Success:      false,
+					ErrorMessage: err.Error(),
+				}, err
+			}
+		}
+
 		return &allocate.AllocationResult{
 			Success:          true,
 			AllocatedDevices: allocatedDevices.UnsortedList(),
@@ -124,20 +160,28 @@ func (s *DeviceAffinityStrategy) Bind(
 	}, fmt.Errorf("not enough devices to allocate: need %d, have %d", devicesToAllocate, len(allocatedDevices))
 }
 
-// getAffinityGroupsByPriority forms a map of affinityGroup by priority level.
-func (s *DeviceAffinityStrategy) getAffinityGroupsByPriority(
-	affinityMap map[int][]machine.DeviceIDs, unallocatedDevicesSet sets.String,
-) map[int][]affinityGroup {
-	affinityGroupsMap := make(map[int][]affinityGroup)
-	for priority, affinityDevices := range affinityMap {
-		if affinityGroupsMap[priority] == nil {
-			affinityGroupsMap[priority] = make([]affinityGroup, 0)
+// getAffinityGroupsSortedByPriority forms affinity groups sorted from the highest priority to the lowest priority.
+// When device affinity is required, it only keeps affinity groups up to the first one that can satisfy the request.
+func (s *DeviceAffinityStrategy) getAffinityGroupsSortedByPriority(
+	priorityDeviceGroups [][]machine.DeviceIDs, unallocatedDevicesSet sets.String, deviceReq int, requiredDeviceAffinity bool,
+) [][]affinityGroup {
+	affinityGroupsSortedByPriority := make([][]affinityGroup, 0, len(priorityDeviceGroups))
+	for _, affinityDevices := range priorityDeviceGroups {
+		affinityGroups := s.getAffinityGroups(affinityDevices, unallocatedDevicesSet)
+		affinityGroupsSortedByPriority = append(affinityGroupsSortedByPriority, affinityGroups)
+
+		if !requiredDeviceAffinity {
+			continue
 		}
-		affinityGroupsMap[priority] = append(affinityGroupsMap[priority],
-			s.getAffinityGroups(affinityDevices, unallocatedDevicesSet)...)
+
+		for _, group := range affinityGroups {
+			if deviceReq <= group.totalDevicesNum {
+				return affinityGroupsSortedByPriority
+			}
+		}
 	}
 
-	return affinityGroupsMap
+	return affinityGroupsSortedByPriority
 }
 
 // getAffinityGroups forms a list of affinityGroup with unallocated devices.
@@ -157,6 +201,7 @@ func (s *DeviceAffinityStrategy) getAffinityGroups(
 		affinityGroups = append(affinityGroups, affinityGroup{
 			unallocatedDevices: unallocatedDevices,
 			id:                 uuid.NewString(),
+			totalDevicesNum:    len(devices),
 		})
 	}
 
@@ -165,24 +210,23 @@ func (s *DeviceAffinityStrategy) getAffinityGroups(
 
 // allocateCandidateDevices optimally allocates GPU devices based on affinity priorities.
 // This method implements a sophisticated allocation strategy that:
-// 1. Prioritizes device groups with higher affinity levels
+// 1. Prioritizes device groups with higher affinity priority
 // 2. Minimizes fragmentation by selecting devices with strong mutual affinity
 // 3. Balances between fulfilling exact requirements and maintaining optimal groupings
 //
 // Parameters:
-//   - affinityGroupsMap: Mapping of affinity priorities to device groups with those priorities
+//   - affinityGroupsByPriority: Device groups ordered from the highest priority to the lowest priority
 //   - candidateDevicesSet: Set of available devices that can be allocated
-//   - devicesToAllocate: Total number of devices that need to be allocated
 //   - allocatedDevices: Set of devices that have already been allocated in previous iterations
+//   - devicesToAllocate: Total number of devices that need to be allocated
 //
 // Returns:
 //   - sets.String: The complete set of allocated devices after this allocation round
 //   - error: Any error encountered during the allocation process
 func (s *DeviceAffinityStrategy) allocateCandidateDevices(
-	affinityGroupsMap map[int][]affinityGroup,
-	candidateDevicesSet sets.String,
+	affinityGroupsByPriority [][]affinityGroup,
+	candidateDevicesSet, allocatedDevices sets.String,
 	devicesToAllocate int,
-	allocatedDevices sets.String,
 ) (sets.String, error) {
 	// Early termination conditions
 	if len(allocatedDevices) == devicesToAllocate || len(candidateDevicesSet) == 0 {
@@ -192,23 +236,14 @@ func (s *DeviceAffinityStrategy) allocateCandidateDevices(
 	// Calculate remaining devices needed
 	remainingDevicesToAllocate := devicesToAllocate - len(allocatedDevices)
 
-	// Fast path: If we need all remaining candidates, allocate them all
+	// Fast path: If we need all remaining candidates, allocate them all.
 	if remainingDevicesToAllocate >= len(candidateDevicesSet) {
 		allocatedDevices = allocatedDevices.Union(candidateDevicesSet)
 		return allocatedDevices, nil
 	}
 
-	// Process affinity groups from highest to lowest priority.
-	// Do not assume priorities are consecutive (e.g., keys can be 0,2,3,5).
-	priorityLevels := make([]int, 0, len(affinityGroupsMap))
-	for p := range affinityGroupsMap {
-		priorityLevels = append(priorityLevels, p)
-	}
-	// Sort priorities ascending so stronger affinity (lower number) is processed first
-	sort.Ints(priorityLevels)
-
-	for idx, priority := range priorityLevels {
-		affinityGroups := affinityGroupsMap[priority]
+	// Process affinity groups from highest to lowest priority
+	for priority, affinityGroups := range affinityGroupsByPriority {
 		if len(affinityGroups) == 0 {
 			continue
 		}
@@ -229,12 +264,17 @@ func (s *DeviceAffinityStrategy) allocateCandidateDevices(
 			return result, nil
 		}
 
-		// For the lowest priority (last in the sorted list), use more flexible allocation strategies
-		if idx == len(priorityLevels)-1 {
-			return s.handleLowestPriorityAllocation(
-				groupInfos, affinityGroupsMap, candidateDevicesSet,
+		// For the lowest considered priority, use more flexible allocation strategies.
+		if priority == len(affinityGroupsByPriority)-1 {
+			var err error
+			allocatedDevices, err = s.handleLowestPriorityAllocation(
+				groupInfos, affinityGroupsByPriority, candidateDevicesSet,
 				devicesToAllocate, allocatedDevices, remainingDevicesToAllocate,
 			)
+
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -311,16 +351,16 @@ func (s *DeviceAffinityStrategy) sortGroupsByPriority(
 }
 
 // tryAllocateFromGroups attempts to allocate devices from the prioritized groups.
-// It first tries to find an exact match, then falls back to partial allocations.
+// It tries to find a single group that can fully satisfy the remaining requirement.
 func (s *DeviceAffinityStrategy) tryAllocateFromGroups(
 	groupInfos []groupInfo,
 	remainingDevicesToAllocate int,
 	allocatedDevices sets.String,
 	devicesToAllocate int,
 ) (sets.String, bool) {
-	// Try to find groups that can exactly satisfy the remaining requirement
+	// Try to find groups that can fully satisfy the remaining requirement
 	for _, group := range groupInfos {
-		// Check if this group can satisfy the exact remaining requirement and
+		// Check if this group can satisfy the remaining requirement and
 		// ensure affinity allocation if there are already allocated devices
 		if remainingDevicesToAllocate <= group.candidates.Len() &&
 			!(allocatedDevices.Len() > 0 && group.allocated.Len() <= 0) {
@@ -343,7 +383,7 @@ func (s *DeviceAffinityStrategy) tryAllocateFromGroups(
 // This method is more permissive in its allocation strategy to ensure device requirements are met.
 func (s *DeviceAffinityStrategy) handleLowestPriorityAllocation(
 	groupInfos []groupInfo,
-	affinityGroupsMap map[int][]affinityGroup,
+	affinityGroupsByPriority [][]affinityGroup,
 	candidateDevicesSet sets.String,
 	devicesToAllocate int,
 	allocatedDevices sets.String,
@@ -360,15 +400,16 @@ func (s *DeviceAffinityStrategy) handleLowestPriorityAllocation(
 
 			// Recursively allocate the remaining devices
 			return s.allocateCandidateDevices(
-				affinityGroupsMap,
+				affinityGroupsByPriority,
 				candidateDevicesSet.Difference(group.candidates),
-				devicesToAllocate,
 				allocatedDevices,
+				devicesToAllocate,
 			)
 		}
 	}
 
-	// If no exact matches, try partial allocations from larger groups
+	// If no groups that maintain affinity fit entirely, fallback to allocating any group
+	// that fits entirely, or if none fit, take a partial allocation from a larger group.
 	for _, group := range groupInfos {
 		// Check if this group can contribute to the remaining requirement
 		if remainingDevicesToAllocate >= group.candidates.Len() {
@@ -376,18 +417,18 @@ func (s *DeviceAffinityStrategy) handleLowestPriorityAllocation(
 			allocatedDevices = allocatedDevices.Union(group.candidates)
 
 			return s.allocateCandidateDevices(
-				affinityGroupsMap,
+				affinityGroupsByPriority,
 				candidateDevicesSet.Difference(group.candidates),
-				devicesToAllocate,
 				allocatedDevices,
+				devicesToAllocate,
 			)
 		} else {
 			// Recursively allocate a subset of devices from this group
 			devices, err := s.allocateCandidateDevices(
-				affinityGroupsMap,
+				affinityGroupsByPriority,
 				group.candidates,
-				remainingDevicesToAllocate,
 				group.allocated,
+				remainingDevicesToAllocate,
 			)
 			if err != nil {
 				return nil, err
@@ -398,6 +439,54 @@ func (s *DeviceAffinityStrategy) handleLowestPriorityAllocation(
 	}
 
 	return allocatedDevices, nil
+}
+
+// validateRequiredDeviceAffinity checks that the allocation satisfies the
+// "required" device affinity requirement, i.e. we only touch the minimum
+// number of groups implied by the request size.
+func (s *DeviceAffinityStrategy) validateRequiredDeviceAffinity(
+	deviceGroups []machine.DeviceIDs,
+	allocatedDevices sets.String,
+	devicesToAllocate int,
+) error {
+	maxGroupSize := s.getMaxGroupSize(deviceGroups)
+	if maxGroupSize <= 0 {
+		return nil
+	}
+
+	// To maximize device affinity, the number of groups to allocate from
+	// should be equal to the ceiling division of devicesToAllocate and
+	// the group size.
+	expectedGroups := (devicesToAllocate + maxGroupSize - 1) / maxGroupSize
+	allocatedGroups := 0
+	for _, group := range deviceGroups {
+		// Check if any device in this group is in the allocated devices set
+		for _, device := range group {
+			if allocatedDevices.Has(device) {
+				allocatedGroups++
+				break
+			}
+		}
+	}
+
+	if allocatedGroups != expectedGroups {
+		return fmt.Errorf(
+			"required device affinity cannot be satisfied: request=%d, maxGroupSize=%d, expectedGroups=%d, allocatedGroups=%d",
+			devicesToAllocate, maxGroupSize, expectedGroups, allocatedGroups,
+		)
+	}
+
+	return nil
+}
+
+func (s *DeviceAffinityStrategy) getMaxGroupSize(deviceGroups []machine.DeviceIDs) int {
+	maxGroupSize := 0
+	for _, group := range deviceGroups {
+		if len(group) > maxGroupSize {
+			maxGroupSize = len(group)
+		}
+	}
+	return maxGroupSize
 }
 
 // abs returns the absolute value of an integer.
