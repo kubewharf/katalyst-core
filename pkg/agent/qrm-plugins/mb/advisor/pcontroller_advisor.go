@@ -27,18 +27,18 @@ import (
 )
 
 const (
-	defaultCCDLimitKp = 0.5
+	defaultCCDCapKp = 0.5
 )
 
 type pControllerAdvisor struct {
-	pCtrl              pController
 	ccdMinMB, ccdMaxMB int
+	inner              *domainAdvisor
 
-	inner *domainAdvisor
+	groupStates map[string]*groupPCtrlState
+}
 
-	// ccdMaxTargetMB is the targeted max of mb usages of all resctrl groups in any of their ccds
-	ccdMaxTargetMB int
-	// ccdCapMB is the effective cap ensuring the max of ccd usages around ccdMaxTargetMB
+type groupPCtrlState struct {
+	pCtrl    pController
 	ccdCapMB int
 }
 
@@ -48,45 +48,66 @@ func (p *pControllerAdvisor) GetPlan(ctx context.Context, domainsMon *monitor.Do
 		return nil, err
 	}
 
-	// recalibrate ccd cap
-	// we may need defer cap adjustment a bit for resctrl to stabilize itself
-	p.ccdCapMB = p.getCapUpdate(domainsMon)
-	// apply new cap to ccd mb plan
-	result = applyPlanCCDBoundsChecks(result, p.ccdMinMB, p.ccdCapMB)
+	for group, state := range p.groupStates {
+		maxObservedMB := p.maxObservedCCDMBForGroup(domainsMon.Outgoings, group)
+		state.ccdCapMB = p.getGroupCapUpdate(state, maxObservedMB)
+
+		ccdMBs, ok := result.MBGroups[group]
+		if !ok {
+			continue
+		}
+		applyGroupCCDBoundsChecks(ccdMBs, p.ccdMinMB, state.ccdCapMB)
+
+		if klog.V(6).Enabled() {
+			general.InfofV(6, "[mbm] [pctrl] group=%s maxObserved=%d target=%d cap=%d",
+				group, maxObservedMB, state.pCtrl.target, state.ccdCapMB)
+		}
+	}
 
 	return result, nil
 }
 
-func (p *pControllerAdvisor) getCapUpdate(mon *monitor.DomainStats) int {
-	maxObservedMB := p.maxObservedCCDMB(mon.Outgoings)
+func (p *pControllerAdvisor) getGroupCapUpdate(state *groupPCtrlState, maxObservedMB int) int {
 	if maxObservedMB == 0 {
-		return p.ccdCapMB
+		return state.ccdCapMB
 	}
 
-	delta := p.pCtrl.update(maxObservedMB)
-	proposedCCDUpdate := p.ccdCapMB + delta
-	proposedCCDUpdate = clampMB(proposedCCDUpdate, p.ccdMinMB, p.ccdMaxMB)
-
-	if klog.V(6).Enabled() {
-		general.InfofV(6, "[mbm] [pctrl] maxObserved=%d, cap delta=%d, capMB: %d -> %d",
-			maxObservedMB, delta, p.ccdCapMB, proposedCCDUpdate)
-	}
-
-	return proposedCCDUpdate
+	delta := state.pCtrl.update(maxObservedMB)
+	newCap := state.ccdCapMB + delta
+	return clampMB(newCap, p.ccdMinMB, p.ccdMaxMB)
 }
 
-func (p *pControllerAdvisor) maxObservedCCDMB(outgoings map[int]monitor.GroupMBStats) int {
+func (p *pControllerAdvisor) maxObservedCCDMBForGroup(outgoings map[int]monitor.GroupMBStats, group string) int {
 	max := 0
-	for _, groupMBStats := range outgoings {
-		for _, groupMB := range groupMBStats {
-			for _, mb := range groupMB {
-				if max < mb.TotalMB {
-					max = mb.TotalMB
-				}
+	for _, groupStats := range outgoings {
+		ccdStats, ok := groupStats[group]
+		if !ok {
+			continue
+		}
+		for _, mbInfo := range ccdStats {
+			if mbInfo.TotalMB > max {
+				max = mbInfo.TotalMB
 			}
 		}
 	}
 	return max
+}
+
+func applyGroupCCDBoundsChecks(ccdMBs plan.GroupCCDPlan, minMB, maxMB int) {
+	if minMB > 0 {
+		for ccd, mb := range ccdMBs {
+			if mb < minMB {
+				ccdMBs[ccd] = minMB
+			}
+		}
+	}
+	if maxMB > 0 {
+		for ccd, mb := range ccdMBs {
+			if mb > maxMB {
+				ccdMBs[ccd] = maxMB
+			}
+		}
+	}
 }
 
 func clampMB(value, min, max int) int {
@@ -100,23 +121,35 @@ func clampMB(value, min, max int) int {
 }
 
 func NewPControllerAdvisor(Kp float64,
-	target, minValue, maxValue int,
+	minValue, maxValue int,
+	groupTargets map[string]int,
 	inner Advisor,
 ) Advisor {
 	if Kp <= 0 {
-		Kp = defaultCCDLimitKp
+		Kp = defaultCCDCapKp
+	}
+
+	domAdvisor, ok := inner.(*domainAdvisor)
+	if !ok {
+		return inner
+	}
+
+	groupStates := make(map[string]*groupPCtrlState, len(groupTargets))
+	for group, target := range groupTargets {
+		groupStates[group] = &groupPCtrlState{
+			pCtrl: pController{
+				kp:     Kp,
+				target: target,
+			},
+			ccdCapMB: maxValue,
+		}
 	}
 
 	return &pControllerAdvisor{
-		pCtrl: pController{
-			kp:     Kp,
-			target: target,
-		},
-		inner:          inner.(*domainAdvisor),
-		ccdMinMB:       minValue,
-		ccdMaxMB:       maxValue,
-		ccdMaxTargetMB: target,
-		ccdCapMB:       maxValue, // initial cap is the upper bound, in line with inner advisor
+		ccdMinMB:    minValue,
+		ccdMaxMB:    maxValue,
+		inner:       domAdvisor,
+		groupStates: groupStates,
 	}
 }
 

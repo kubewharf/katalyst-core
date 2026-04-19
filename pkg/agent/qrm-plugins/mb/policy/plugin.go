@@ -127,15 +127,15 @@ func (m *MBPlugin) Start() (err error) {
 		groupCapacities,
 	)
 
-	if m.conf.CCDLimitMB > 0 {
+	if len(m.conf.CCDCapGroups) > 0 {
 		m.advisor = advisor.NewPControllerAdvisor(
-			m.conf.CCDLimitKp,
-			m.conf.CCDLimitMB,
+			m.conf.CCDCapKp,
 			m.conf.MinCCDMB,
 			m.conf.MaxCCDMB,
+			m.conf.CCDCapGroups,
 			m.advisor,
 		)
-		general.Infof("[mbm] P-Controller advisor enabled with ccdLimitMB=%d, Kp=%.2f", m.conf.CCDLimitMB, m.conf.CCDLimitKp)
+		general.Infof("[mbm] P-Controller advisor enabled with groups=%v, Kp=%.2f", m.conf.CCDCapGroups, m.conf.CCDCapKp)
 	}
 
 	go func() {

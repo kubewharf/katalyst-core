@@ -17,517 +17,391 @@ limitations under the License.
 package advisor
 
 import (
+	"context"
 	"testing"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/monitor"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/mb/plan"
 )
 
-func TestGetPlan_CapAppliedToPlan(t *testing.T) {
+func TestGetPlan_PerGroupCapApplied(t *testing.T) {
 	t.Parallel()
 
 	p := &pControllerAdvisor{
-		pCtrl: pController{
-			kp:     0.5,
-			target: 24000,
+		ccdMinMB: 4000,
+		ccdMaxMB: 40000,
+		inner:    &domainAdvisor{},
+		groupStates: map[string]*groupPCtrlState{
+			"dedicated": {
+				pCtrl:    pController{kp: 0.5, target: 20000},
+				ccdCapMB: 40000,
+			},
+			"shared-50": {
+				pCtrl:    pController{kp: 0.5, target: 24000},
+				ccdCapMB: 40000,
+			},
 		},
-		ccdMinMB:       4000,
-		ccdMaxMB:       40000,
-		inner:          &domainAdvisor{},
-		ccdMaxTargetMB: 24000,
-		ccdCapMB:       40000,
 	}
 
 	mon := &monitor.DomainStats{
 		Outgoings: map[int]monitor.GroupMBStats{
 			0: {
-				"shared-50": {
+				"dedicated": {
 					0: monitor.MBInfo{TotalMB: 35000},
 					1: monitor.MBInfo{TotalMB: 30000},
 				},
-			},
-		},
-	}
-
-	newCap := p.getCapUpdate(mon)
-
-	innerPlan := &plan.MBPlan{
-		MBGroups: map[string]plan.GroupCCDPlan{
-			"shared-50": {0: 40000, 1: 40000},
-		},
-	}
-
-	result := applyPlanCCDBoundsChecks(innerPlan, p.ccdMinMB, newCap)
-
-	for group, ccdMBs := range result.MBGroups {
-		for ccd, mb := range ccdMBs {
-			if mb > newCap {
-				t.Errorf("group=%s ccd=%d mb=%d exceeds newCap=%d", group, ccd, mb, newCap)
-			}
-		}
-	}
-
-	if newCap >= p.ccdMaxMB {
-		t.Errorf("newCap should be lowered when observed exceeds target, got %d", newCap)
-	}
-}
-
-func TestGetPlan_CapDoesNotGoBelowMin(t *testing.T) {
-	t.Parallel()
-
-	p := &pControllerAdvisor{
-		pCtrl: pController{
-			kp:     0.5,
-			target: 24000,
-		},
-		ccdMinMB:       4000,
-		ccdMaxMB:       40000,
-		inner:          &domainAdvisor{},
-		ccdMaxTargetMB: 24000,
-		ccdCapMB:       40000,
-	}
-
-	mon := &monitor.DomainStats{
-		Outgoings: map[int]monitor.GroupMBStats{
-			0: {
 				"shared-50": {
-					0: monitor.MBInfo{TotalMB: 100000},
+					0: monitor.MBInfo{TotalMB: 30000},
+					1: monitor.MBInfo{TotalMB: 25000},
 				},
 			},
 		},
 	}
 
-	newCap := p.getCapUpdate(mon)
-
-	innerPlan := &plan.MBPlan{
+	result := &plan.MBPlan{
 		MBGroups: map[string]plan.GroupCCDPlan{
-			"shared-50": {0: 40000},
+			"dedicated": {0: 40000, 1: 40000},
+			"shared-50": {0: 40000, 1: 40000},
+			"shared-70": {0: 40000, 1: 40000},
 		},
 	}
+	for group, state := range p.groupStates {
+		maxObservedMB := p.maxObservedCCDMBForGroup(mon.Outgoings, group)
+		state.ccdCapMB = p.getGroupCapUpdate(state, maxObservedMB)
+		ccdMBs, ok := result.MBGroups[group]
+		if !ok {
+			continue
+		}
+		applyGroupCCDBoundsChecks(ccdMBs, p.ccdMinMB, state.ccdCapMB)
+	}
 
-	result := applyPlanCCDBoundsChecks(innerPlan, p.ccdMinMB, newCap)
+	dedicatedCap := p.groupStates["dedicated"].ccdCapMB
+	for ccd, mb := range result.MBGroups["dedicated"] {
+		if mb > dedicatedCap {
+			t.Errorf("dedicated ccd=%d mb=%d exceeds cap %d", ccd, mb, dedicatedCap)
+		}
+	}
 
-	if result.MBGroups["shared-50"][0] < p.ccdMinMB {
-		t.Errorf("CCD MB should not go below ccdMinMB=%d, got %d", p.ccdMinMB, result.MBGroups["shared-50"][0])
+	shared50Cap := p.groupStates["shared-50"].ccdCapMB
+	for ccd, mb := range result.MBGroups["shared-50"] {
+		if mb > shared50Cap {
+			t.Errorf("shared-50 ccd=%d mb=%d exceeds cap %d", ccd, mb, shared50Cap)
+		}
+	}
+
+	if result.MBGroups["shared-70"][0] != 40000 {
+		t.Errorf("shared-70 (not in groupStates) should be unchanged, got %d", result.MBGroups["shared-70"][0])
 	}
 }
 
-func TestGetPlan_CapRaisesWhenObservedBelowTarget(t *testing.T) {
+func TestGetPlan_PerGroupIndependentConvergence(t *testing.T) {
 	t.Parallel()
 
 	p := &pControllerAdvisor{
-		pCtrl: pController{
-			kp:     0.5,
-			target: 24000,
+		ccdMinMB: 4000,
+		ccdMaxMB: 40000,
+		inner:    &domainAdvisor{},
+		groupStates: map[string]*groupPCtrlState{
+			"dedicated": {
+				pCtrl:    pController{kp: 0.5, target: 20000},
+				ccdCapMB: 40000,
+			},
+			"shared": {
+				pCtrl:    pController{kp: 0.5, target: 24000},
+				ccdCapMB: 40000,
+			},
 		},
-		ccdMinMB:       4000,
-		ccdMaxMB:       40000,
-		inner:          &domainAdvisor{},
-		ccdMaxTargetMB: 24000,
-		ccdCapMB:       16000,
 	}
 
 	mon := &monitor.DomainStats{
 		Outgoings: map[int]monitor.GroupMBStats{
 			0: {
-				"shared-50": {
+				"dedicated": {
+					0: monitor.MBInfo{TotalMB: 35000},
+				},
+				"shared": {
+					0: monitor.MBInfo{TotalMB: 25000},
+				},
+			},
+		},
+	}
+
+	prevDedicatedCap := p.groupStates["dedicated"].ccdCapMB
+	prevSharedCap := p.groupStates["shared"].ccdCapMB
+
+	for i := 0; i < 5; i++ {
+		for group, state := range p.groupStates {
+			maxObservedMB := p.maxObservedCCDMBForGroup(mon.Outgoings, group)
+			state.ccdCapMB = p.getGroupCapUpdate(state, maxObservedMB)
+		}
+	}
+
+	if p.groupStates["dedicated"].ccdCapMB >= prevDedicatedCap {
+		t.Errorf("dedicated cap should decrease (observed=35000 > target=20000), got %d", p.groupStates["dedicated"].ccdCapMB)
+	}
+	if p.groupStates["shared"].ccdCapMB >= prevSharedCap {
+		t.Errorf("shared cap should decrease (observed=25000 > target=24000), got %d", p.groupStates["shared"].ccdCapMB)
+	}
+}
+
+func TestGetPlan_PerGroupCapRaisesWhenBelowTarget(t *testing.T) {
+	t.Parallel()
+
+	p := &pControllerAdvisor{
+		ccdMinMB: 4000,
+		ccdMaxMB: 40000,
+		inner:    &domainAdvisor{},
+		groupStates: map[string]*groupPCtrlState{
+			"dedicated": {
+				pCtrl:    pController{kp: 0.5, target: 20000},
+				ccdCapMB: 16000,
+			},
+		},
+	}
+
+	mon := &monitor.DomainStats{
+		Outgoings: map[int]monitor.GroupMBStats{
+			0: {
+				"dedicated": {
 					0: monitor.MBInfo{TotalMB: 15000},
 				},
 			},
 		},
 	}
 
-	newCap := p.getCapUpdate(mon)
+	state := p.groupStates["dedicated"]
+	maxObservedMB := p.maxObservedCCDMBForGroup(mon.Outgoings, "dedicated")
+	newCap := p.getGroupCapUpdate(state, maxObservedMB)
 
 	if newCap <= 16000 {
-		t.Errorf("newCap should increase when observed < target, got %d", newCap)
+		t.Errorf("cap should increase when observed(15000) < target(20000), got %d", newCap)
 	}
 }
 
-func TestGetPlan_NoObservationKeepsCap(t *testing.T) {
+func TestGetPlan_PerGroupNoObservationKeepsCap(t *testing.T) {
 	t.Parallel()
 
 	p := &pControllerAdvisor{
-		pCtrl: pController{
-			kp:     0.5,
-			target: 24000,
+		ccdMinMB: 4000,
+		ccdMaxMB: 40000,
+		inner:    &domainAdvisor{},
+		groupStates: map[string]*groupPCtrlState{
+			"dedicated": {
+				pCtrl:    pController{kp: 0.5, target: 20000},
+				ccdCapMB: 30000,
+			},
 		},
-		ccdMinMB:       4000,
-		ccdMaxMB:       40000,
-		inner:          &domainAdvisor{},
-		ccdMaxTargetMB: 24000,
-		ccdCapMB:       30000,
 	}
 
 	mon := &monitor.DomainStats{
 		Outgoings: map[int]monitor.GroupMBStats{},
 	}
 
-	newCap := p.getCapUpdate(mon)
+	state := p.groupStates["dedicated"]
+	newCap := p.getGroupCapUpdate(state, p.maxObservedCCDMBForGroup(mon.Outgoings, "dedicated"))
 
 	if newCap != 30000 {
-		t.Errorf("newCap should stay unchanged when no observation, got %d", newCap)
+		t.Errorf("cap should stay unchanged when no observation, got %d", newCap)
 	}
 }
 
-func TestGetPlan_MultipleGroupsAllCapped(t *testing.T) {
+func TestGetPlan_PerGroupClampToLowerBound(t *testing.T) {
 	t.Parallel()
 
 	p := &pControllerAdvisor{
-		pCtrl: pController{
-			kp:     0.5,
-			target: 24000,
-		},
-		ccdMinMB:       4000,
-		ccdMaxMB:       40000,
-		inner:          &domainAdvisor{},
-		ccdMaxTargetMB: 24000,
-		ccdCapMB:       40000,
-	}
-
-	mon := &monitor.DomainStats{
-		Outgoings: map[int]monitor.GroupMBStats{
-			0: {
-				"shared-50": {
-					0: monitor.MBInfo{TotalMB: 35000},
-				},
-				"shared-70": {
-					0: monitor.MBInfo{TotalMB: 30000},
-				},
-			},
-		},
-	}
-
-	newCap := p.getCapUpdate(mon)
-
-	innerPlan := &plan.MBPlan{
-		MBGroups: map[string]plan.GroupCCDPlan{
-			"shared-50": {0: 40000, 1: 40000},
-			"shared-70": {0: 40000, 1: 40000},
-		},
-	}
-
-	result := applyPlanCCDBoundsChecks(innerPlan, p.ccdMinMB, newCap)
-
-	for group, ccdMBs := range result.MBGroups {
-		for ccd, mb := range ccdMBs {
-			if mb > newCap {
-				t.Errorf("group=%s ccd=%d mb=%d exceeds newCap=%d", group, ccd, mb, newCap)
-			}
-		}
-	}
-}
-
-func TestGetPlan_CapLowersAcrossMultipleRounds(t *testing.T) {
-	t.Parallel()
-
-	p := &pControllerAdvisor{
-		pCtrl: pController{
-			kp:     0.5,
-			target: 24000,
-		},
-		ccdMinMB:       4000,
-		ccdMaxMB:       40000,
-		inner:          &domainAdvisor{},
-		ccdMaxTargetMB: 24000,
-		ccdCapMB:       40000,
-	}
-
-	mon := &monitor.DomainStats{
-		Outgoings: map[int]monitor.GroupMBStats{
-			0: {
-				"shared-50": {
-					0: monitor.MBInfo{TotalMB: 35000},
-				},
-			},
-		},
-	}
-
-	prevCap := p.ccdCapMB
-	for i := 0; i < 5; i++ {
-		p.ccdCapMB = p.getCapUpdate(mon)
-		if p.ccdCapMB > prevCap {
-			t.Errorf("round %d: cap should decrease when observed > target, got %d > %d", i, p.ccdCapMB, prevCap)
-		}
-		prevCap = p.ccdCapMB
-	}
-
-	if p.ccdCapMB >= 40000 {
-		t.Errorf("cap should have decreased from initial value after 5 rounds, got %d", p.ccdCapMB)
-	}
-}
-
-func TestGetPlan_ObservedEqualsTargetCapStays(t *testing.T) {
-	t.Parallel()
-
-	p := &pControllerAdvisor{
-		pCtrl: pController{
-			kp:     0.5,
-			target: 24000,
-		},
-		ccdMinMB:       4000,
-		ccdMaxMB:       40000,
-		inner:          &domainAdvisor{},
-		ccdMaxTargetMB: 24000,
-		ccdCapMB:       40000,
-	}
-
-	mon := &monitor.DomainStats{
-		Outgoings: map[int]monitor.GroupMBStats{
-			0: {
-				"shared-50": {
-					0: monitor.MBInfo{TotalMB: 24000},
-				},
-			},
-		},
-	}
-
-	newCap := p.getCapUpdate(mon)
-
-	if newCap != 40000 {
-		t.Errorf("when observed == target, cap should stay at ccdMaxMB, got %d", newCap)
-	}
-}
-
-func TestPController_LowersCapWhenObservedExceedsTarget(t *testing.T) {
-	t.Parallel()
-
-	p := &pControllerAdvisor{
-		pCtrl: pController{
-			kp:     0.5,
-			target: 24000,
-		},
 		ccdMinMB: 4000,
 		ccdMaxMB: 40000,
 		inner:    &domainAdvisor{},
-		ccdCapMB: 40000,
-	}
-
-	mon := &monitor.DomainStats{
-		Outgoings: map[int]monitor.GroupMBStats{
-			0: {
-				"shared-50": {
-					0: monitor.MBInfo{TotalMB: 35000},
-					1: monitor.MBInfo{TotalMB: 30000},
-				},
+		groupStates: map[string]*groupPCtrlState{
+			"dedicated": {
+				pCtrl:    pController{kp: 0.5, target: 20000},
+				ccdCapMB: 40000,
 			},
 		},
 	}
 
-	newValue := p.getCapUpdate(mon)
-
-	ctrlErr := 24000 - 35000
-	delta := int(0.5 * float64(ctrlErr))
-	expected := 40000 + delta
-
-	if newValue != expected {
-		t.Errorf("newValue = %d, want %d (err=%d, delta=%d)", newValue, expected, ctrlErr, delta)
-	}
-
-	if newValue >= p.ccdMaxMB {
-		t.Errorf("newValue should be lowered when observed exceeds target, got %d", newValue)
-	}
-}
-
-func TestPController_RaisesCapWhenObservedBelowTarget(t *testing.T) {
-	t.Parallel()
-
-	p := &pControllerAdvisor{
-		pCtrl: pController{
-			kp:     0.5,
-			target: 24000,
-		},
-		ccdMinMB: 4000,
-		ccdMaxMB: 40000,
-		inner:    &domainAdvisor{},
-		ccdCapMB: 20000,
-	}
-
 	mon := &monitor.DomainStats{
 		Outgoings: map[int]monitor.GroupMBStats{
 			0: {
-				"shared-50": {
-					0: monitor.MBInfo{TotalMB: 18000},
-					1: monitor.MBInfo{TotalMB: 15000},
-				},
-			},
-		},
-	}
-
-	newValue := p.getCapUpdate(mon)
-
-	ctrlErr := 24000 - 18000
-	delta := int(0.5 * float64(ctrlErr))
-	expected := 20000 + delta
-
-	if newValue != expected {
-		t.Errorf("newValue = %d, want %d", newValue, expected)
-	}
-
-	if newValue <= 20000 {
-		t.Errorf("newValue should be raised when observed is below target, got %d", newValue)
-	}
-}
-
-func TestPController_ClampsToLowerBound(t *testing.T) {
-	t.Parallel()
-
-	p := &pControllerAdvisor{
-		pCtrl: pController{
-			kp:     0.5,
-			target: 24000,
-		},
-		ccdMinMB: 4000,
-		ccdMaxMB: 40000,
-		inner:    &domainAdvisor{},
-		ccdCapMB: 40000,
-	}
-
-	mon := &monitor.DomainStats{
-		Outgoings: map[int]monitor.GroupMBStats{
-			0: {
-				"shared-50": {
+				"dedicated": {
 					0: monitor.MBInfo{TotalMB: 100000},
 				},
 			},
 		},
 	}
 
-	newValue := p.getCapUpdate(mon)
+	state := p.groupStates["dedicated"]
+	maxObservedMB := p.maxObservedCCDMBForGroup(mon.Outgoings, "dedicated")
+	newCap := p.getGroupCapUpdate(state, maxObservedMB)
 
-	if newValue < p.ccdMinMB {
-		t.Errorf("newValue should not go below ccdMinMB=%d, got %d", p.ccdMinMB, newValue)
+	if newCap < p.ccdMinMB {
+		t.Errorf("cap should not go below ccdMinMB=%d, got %d", p.ccdMinMB, newCap)
 	}
 }
 
-func TestPController_ClampsToUpperBound(t *testing.T) {
+func TestMaxObservedCCDMBForGroup(t *testing.T) {
 	t.Parallel()
 
-	p := &pControllerAdvisor{
-		pCtrl: pController{
-			kp:     0.5,
-			target: 24000,
-		},
-		ccdMinMB: 4000,
-		ccdMaxMB: 40000,
-		inner:    &domainAdvisor{},
-		ccdCapMB: 40000,
-	}
+	p := &pControllerAdvisor{}
 
-	mon := &monitor.DomainStats{
-		Outgoings: map[int]monitor.GroupMBStats{
-			0: {
-				"shared-50": {
-					0: monitor.MBInfo{TotalMB: 0},
-				},
+	outgoings := map[int]monitor.GroupMBStats{
+		0: {
+			"/": {
+				0: monitor.MBInfo{TotalMB: 10000},
+				1: monitor.MBInfo{TotalMB: 12000},
+			},
+			"dedicated": {
+				0: monitor.MBInfo{TotalMB: 35000},
+				1: monitor.MBInfo{TotalMB: 8000},
+			},
+			"shared-50": {
+				0: monitor.MBInfo{TotalMB: 5000},
+				1: monitor.MBInfo{TotalMB: 6000},
 			},
 		},
 	}
 
-	newValue := p.getCapUpdate(mon)
+	tests := []struct {
+		group string
+		want  int
+	}{
+		{"dedicated", 35000},
+		{"shared-50", 6000},
+		{"/", 12000},
+		{"nonexistent", 0},
+	}
 
-	if newValue > p.ccdMaxMB {
-		t.Errorf("newValue should not exceed ccdMaxMB=%d, got %d", p.ccdMaxMB, newValue)
+	for _, tt := range tests {
+		got := p.maxObservedCCDMBForGroup(outgoings, tt.group)
+		if got != tt.want {
+			t.Errorf("maxObservedCCDMBForGroup(%q) = %d, want %d", tt.group, got, tt.want)
+		}
 	}
 }
 
-func TestPController_NoUpdateWhenNoObservation(t *testing.T) {
+func TestApplyGroupCCDBoundsChecks(t *testing.T) {
 	t.Parallel()
 
-	p := &pControllerAdvisor{
-		pCtrl: pController{
-			kp:     0.5,
-			target: 24000,
+	tests := []struct {
+		name     string
+		input    plan.GroupCCDPlan
+		minMB    int
+		maxMB    int
+		expected plan.GroupCCDPlan
+	}{
+		{
+			"within range",
+			map[int]int{0: 15000, 1: 20000},
+			1000, 30000,
+			map[int]int{0: 15000, 1: 20000},
 		},
-		ccdMinMB: 4000,
-		ccdMaxMB: 40000,
-		inner:    &domainAdvisor{},
-		ccdCapMB: 40000,
+		{
+			"below min",
+			map[int]int{0: 500, 1: 20000},
+			1000, 30000,
+			map[int]int{0: 1000, 1: 20000},
+		},
+		{
+			"above max",
+			map[int]int{0: 15000, 1: 40000},
+			1000, 30000,
+			map[int]int{0: 15000, 1: 30000},
+		},
+		{
+			"both bounds",
+			map[int]int{0: 500, 1: 40000},
+			1000, 30000,
+			map[int]int{0: 1000, 1: 30000},
+		},
+		{
+			"min is 0",
+			map[int]int{0: 500, 1: 40000},
+			0, 30000,
+			map[int]int{0: 500, 1: 30000},
+		},
+		{
+			"max is 0",
+			map[int]int{0: 500, 1: 40000},
+			1000, 0,
+			map[int]int{0: 1000, 1: 40000},
+		},
 	}
 
-	mon := &monitor.DomainStats{
-		Outgoings: map[int]monitor.GroupMBStats{},
-	}
-
-	newValue := p.getCapUpdate(mon)
-
-	if newValue != 40000 {
-		t.Errorf("newValue should stay unchanged when no observation, got %d", newValue)
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			inputCopy := make(map[int]int, len(tt.input))
+			for k, v := range tt.input {
+				inputCopy[k] = v
+			}
+			applyGroupCCDBoundsChecks(inputCopy, tt.minMB, tt.maxMB)
+			for k, v := range inputCopy {
+				if v != tt.expected[k] {
+					t.Errorf("ccd %d = %d, want %d", k, v, tt.expected[k])
+				}
+			}
+		})
 	}
 }
 
-func TestPController_MaxObservedPicksMaxAcrossCCDs(t *testing.T) {
-	t.Parallel()
-
-	p := &pControllerAdvisor{
-		inner: &domainAdvisor{},
-	}
-
-	mon := &monitor.DomainStats{
-		Outgoings: map[int]monitor.GroupMBStats{
-			0: {
-				"shared-50": {
-					0: monitor.MBInfo{TotalMB: 35000},
-					1: monitor.MBInfo{TotalMB: 10000},
-					2: monitor.MBInfo{TotalMB: 5000},
-				},
-			},
-		},
-	}
-
-	maxObs := p.maxObservedCCDMB(mon.Outgoings)
-	if maxObs != 35000 {
-		t.Errorf("maxObservedCCDMB = %d, want 35000 (max across CCDs)", maxObs)
-	}
-}
-
-func TestPController_DefaultKp(t *testing.T) {
+func TestNewPControllerAdvisor_PerGroup(t *testing.T) {
 	t.Parallel()
 
 	inner := &domainAdvisor{}
-	p := NewPControllerAdvisor(0, 24000, 4000, 40000, inner)
+	groupTargets := map[string]int{
+		"dedicated": 20000,
+		"shared-50": 24000,
+	}
+
+	p := NewPControllerAdvisor(0.3, 4000, 40000, groupTargets, inner)
 	pctrl := p.(*pControllerAdvisor)
 
-	if pctrl.pCtrl.kp != 0.5 {
-		t.Errorf("default Kp should be 0.5 when 0 is provided, got %f", pctrl.pCtrl.kp)
+	if len(pctrl.groupStates) != 2 {
+		t.Fatalf("expected 2 group states, got %d", len(pctrl.groupStates))
+	}
+
+	if pctrl.groupStates["dedicated"].pCtrl.target != 20000 {
+		t.Errorf("dedicated target = %d, want 20000", pctrl.groupStates["dedicated"].pCtrl.target)
+	}
+	if pctrl.groupStates["shared-50"].pCtrl.target != 24000 {
+		t.Errorf("shared-50 target = %d, want 24000", pctrl.groupStates["shared-50"].pCtrl.target)
+	}
+	if pctrl.groupStates["dedicated"].pCtrl.kp != 0.3 {
+		t.Errorf("Kp = %f, want 0.3", pctrl.groupStates["dedicated"].pCtrl.kp)
+	}
+	if pctrl.groupStates["dedicated"].ccdCapMB != 40000 {
+		t.Errorf("initial cap should be maxValue, got %d", pctrl.groupStates["dedicated"].ccdCapMB)
 	}
 }
 
-func TestPController_Convergence(t *testing.T) {
+func TestNewPControllerAdvisor_DefaultKp(t *testing.T) {
 	t.Parallel()
 
-	p := &pControllerAdvisor{
-		pCtrl: pController{
-			kp:     0.5,
-			target: 24000,
-		},
-		ccdMinMB: 4000,
-		ccdMaxMB: 40000,
-		inner:    &domainAdvisor{},
-		ccdCapMB: 40000,
-	}
+	inner := &domainAdvisor{}
+	p := NewPControllerAdvisor(0, 4000, 40000, map[string]int{"g": 24000}, inner)
+	pctrl := p.(*pControllerAdvisor)
 
-	mon := &monitor.DomainStats{
-		Outgoings: map[int]monitor.GroupMBStats{
-			0: {
-				"shared-50": {
-					0: monitor.MBInfo{TotalMB: 35000},
-				},
-			},
-		},
+	if pctrl.groupStates["g"].pCtrl.kp != 0.5 {
+		t.Errorf("default Kp should be 0.5, got %f", pctrl.groupStates["g"].pCtrl.kp)
 	}
+}
 
-	for i := 0; i < 10; i++ {
-		p.ccdCapMB = p.getCapUpdate(mon)
-	}
+func TestNewPControllerAdvisor_ReturnsInnerWhenNotDomainAdvisor(t *testing.T) {
+	t.Parallel()
 
-	if p.ccdCapMB > p.ccdMinMB && p.ccdCapMB < 40000 {
-		t.Logf("after 10 rounds, ccdCapMB=%d (converging toward target)", p.ccdCapMB)
-	}
+	inner := &stubAdvisor{}
+	result := NewPControllerAdvisor(0.5, 4000, 40000, nil, inner)
 
-	if p.ccdCapMB < p.ccdMinMB {
-		t.Errorf("ccdCapMB should not go below ccdMinMB, got %d", p.ccdCapMB)
+	if result != inner {
+		t.Error("should return inner when it's not a domainAdvisor")
 	}
+}
+
+type stubAdvisor struct{}
+
+func (s *stubAdvisor) GetPlan(_ context.Context, _ *monitor.DomainStats) (*plan.MBPlan, error) {
+	return nil, nil
 }
 
 func TestPController_Update(t *testing.T) {
@@ -540,9 +414,9 @@ func TestPController_Update(t *testing.T) {
 		measurement int
 		want        int
 	}{
-		{"negative error (observed > target)", 0.5, 24000, 35000, -5500},
-		{"positive error (observed < target)", 0.5, 24000, 18000, 3000},
-		{"zero error (observed == target)", 0.5, 24000, 24000, 0},
+		{"negative error", 0.5, 24000, 35000, -5500},
+		{"positive error", 0.5, 24000, 18000, 3000},
+		{"zero error", 0.5, 24000, 24000, 0},
 		{"Kp=1.0", 1.0, 24000, 35000, -11000},
 	}
 
