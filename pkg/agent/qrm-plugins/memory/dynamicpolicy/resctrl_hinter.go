@@ -32,6 +32,8 @@ import (
 
 	apiconsts "github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/resctrl"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/memory/dynamicpolicy/state"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/util"
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
@@ -42,7 +44,6 @@ const (
 	templateSharedSubgroup = "shared-%02d"
 	sharedGroup            = "share"
 	resctrlRoot            = "/sys/fs/resctrl"
-	monGroups              = "mon_groups"
 
 	metricNameResctrlMonGroupsNum       = "resctrl_mon_groups_num"
 	metricNameResctrlMonGroupsOverlimit = "resctrl_mon_groups_over_limit"
@@ -61,6 +62,10 @@ type resctrlHinter struct {
 	enabledQoS           sets.String
 	monGroupsMaxCount    *atomic.Int64
 	root                 string
+	// manager handles resctrl filesystem operations (creation/cleanup),
+	// logic migrated from kubelet resctrlmanager.
+	manager resctrl.Manager
+	state   state.State
 }
 
 func getSharedSubgroup(val int) string {
@@ -140,6 +145,14 @@ func (r *resctrlHinter) hintResourceAllocation(podMeta commonstate.AllocationMet
 			podMeta.PodNamespace, podMeta.PodName, r.monGroupsMaxCount.Load())
 		needMonGroups = false
 	}
+
+	if isAllocate {
+		if err := r.manager.Create(podMeta.PodUid, resctrlGroup, needMonGroups); err != nil {
+			general.Errorf("mbm: failed to create resctrl group for pod %s/%s: %v", podMeta.PodNamespace, podMeta.PodName, err)
+			return
+		}
+	}
+
 	if !needMonGroups {
 		injectRespAnnotation(resourceAllocation, util.AnnotationRdtNeedPodMonGroups, strconv.FormatBool(needMonGroups))
 	}
@@ -171,29 +184,18 @@ func (r *resctrlHinter) getMonGroupsMaxCount() int64 {
 func (r *resctrlHinter) isMonGroupsOverLimit() bool {
 	var (
 		monGroupsMaxCount int64 = r.monGroupsMaxCount.Load()
-		monGroupsCount    int64 = 0
+		monGroupsCount    int64
+		err               error
 	)
 
 	if monGroupsMaxCount == 0 {
 		return false
 	}
 
-	subdirs, err := os.ReadDir(r.root)
+	monGroupsCount, err = r.manager.GetMonGroupsCount()
 	if err != nil {
-		general.Errorf("mbm: check mon_groups: read root %s error: %v", r.root, err)
+		general.Errorf("mbm: check mon_groups: get mon groups count error: %v", err)
 		return false
-	}
-	for _, subdir := range subdirs {
-		if !subdir.IsDir() || subdir.Name() == "info" || subdir.Name() == "mon_data" || subdir.Name() == monGroups {
-			continue
-		}
-		monGroupPath := filepath.Join(r.root, subdir.Name(), monGroups)
-		monGroupsDirs, err := os.ReadDir(monGroupPath)
-		if err != nil && !os.IsNotExist(err) {
-			general.Errorf("mbm: check mon_groups: read mon_groups dir %s error: %v", monGroupPath, err)
-			continue
-		}
-		monGroupsCount += int64(len(monGroupsDirs))
 	}
 
 	_ = r.emitter.StoreInt64(metricNameResctrlMonGroupsNum, monGroupsCount, metrics.MetricTypeNameRaw)
@@ -213,6 +215,15 @@ func (r *resctrlHinter) Allocate(podMeta commonstate.AllocationMeta, resourceAll
 }
 
 func (r *resctrlHinter) Run(stopCh <-chan struct{}) {
+	go r.manager.Run(stopCh)
+	go wait.Until(func() {
+		entries := r.state.GetPodResourceEntries()
+		uids := entries.GetAllPodUIDs()
+		if err := r.manager.Cleanup(uids); err != nil {
+			general.Errorf("resctrl: cleanup failed: %v", err)
+		}
+	}, time.Minute, stopCh)
+
 	wait.Until(func() {
 		if count := r.getMonGroupsMaxCount(); count != r.monGroupsMaxCount.Load() {
 			r.monGroupsMaxCount.Store(count)
@@ -220,11 +231,13 @@ func (r *resctrlHinter) Run(stopCh <-chan struct{}) {
 	}, 10*time.Minute, stopCh)
 }
 
-func newResctrlHinter(config *qrm.ResctrlConfig, emitter metrics.MetricEmitter) ResctrlHinter {
+func newResctrlHinter(config *qrm.ResctrlConfig, emitter metrics.MetricEmitter, state state.State) ResctrlHinter {
 	r := &resctrlHinter{
 		emitter: emitter,
 		config:  config,
 		root:    resctrlRoot,
+		manager: resctrl.NewManager(config),
+		state:   state,
 	}
 
 	if config != nil {
