@@ -190,9 +190,13 @@ func (p *GPUDevicePlugin) generateDeviceTopologyHints(
 		return nil
 	}
 
-	// Gather all NUMA nodes that have GPUs
+	// Gather all NUMA nodes that have healthy GPUs
 	numaNodesSet := sets.NewInt()
 	for _, dev := range gpuTopology.Devices {
+		if dev.Health != pluginapi.Healthy {
+			continue
+		}
+
 		numaNodesSet.Insert(dev.NumaNodes...)
 	}
 	numaNodes := numaNodesSet.List()

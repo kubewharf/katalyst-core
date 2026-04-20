@@ -257,16 +257,16 @@ func TestGPUDevicePlugin_AllocateAssociatedDevice(t *testing.T) {
 			deviceTopology: &machine.DeviceTopology{
 				Devices: map[string]machine.DeviceInfo{
 					"test-gpu-0": {
-						NumaNodes: []int{0},
+						NumaNodes: []int{0}, Health: pluginapi.Healthy,
 					},
 					"test-gpu-1": {
-						NumaNodes: []int{1},
+						NumaNodes: []int{1}, Health: pluginapi.Healthy,
 					},
 					"test-gpu-2": {
-						NumaNodes: []int{0},
+						NumaNodes: []int{0}, Health: pluginapi.Healthy,
 					},
 					"test-gpu-3": {
-						NumaNodes: []int{1},
+						NumaNodes: []int{1}, Health: pluginapi.Healthy,
 					},
 				},
 			},
@@ -487,7 +487,7 @@ func TestGPUDevicePlugin_GetAssociatedDeviceTopologyHints(t *testing.T) {
 			containerName: "test-container",
 			deviceTopology: &machine.DeviceTopology{
 				Devices: map[string]machine.DeviceInfo{
-					"test-gpu-0": {NumaNodes: []int{0}},
+					"test-gpu-0": {NumaNodes: []int{0}, Health: pluginapi.Healthy},
 				},
 			},
 			deviceReq: &pluginapi.AssociatedDeviceRequest{
@@ -514,8 +514,8 @@ func TestGPUDevicePlugin_GetAssociatedDeviceTopologyHints(t *testing.T) {
 			containerName: "test-container",
 			deviceTopology: &machine.DeviceTopology{
 				Devices: map[string]machine.DeviceInfo{
-					"test-gpu-0": {NumaNodes: []int{0}},
-					"test-gpu-1": {NumaNodes: []int{1}},
+					"test-gpu-0": {NumaNodes: []int{0}, Health: pluginapi.Healthy},
+					"test-gpu-1": {NumaNodes: []int{1}, Health: pluginapi.Healthy},
 				},
 			},
 			deviceReq: &pluginapi.AssociatedDeviceRequest{
@@ -556,10 +556,10 @@ func TestGPUDevicePlugin_GetAssociatedDeviceTopologyHints(t *testing.T) {
 			deviceTopology: &machine.DeviceTopology{
 				PriorityDimensions: []string{"NVLINK"},
 				Devices: map[string]machine.DeviceInfo{
-					"test-gpu-0": {NumaNodes: []int{0}, Dimensions: map[string]string{"NVLINK": "group-1"}},
-					"test-gpu-1": {NumaNodes: []int{1}, Dimensions: map[string]string{"NVLINK": "group-1"}},
-					"test-gpu-2": {NumaNodes: []int{0}, Dimensions: map[string]string{"NVLINK": "group-2"}},
-					"test-gpu-3": {NumaNodes: []int{1}, Dimensions: map[string]string{"NVLINK": "group-2"}},
+					"test-gpu-0": {NumaNodes: []int{0}, Health: pluginapi.Healthy, Dimensions: map[string]string{"NVLINK": "group-1"}},
+					"test-gpu-1": {NumaNodes: []int{1}, Health: pluginapi.Healthy, Dimensions: map[string]string{"NVLINK": "group-1"}},
+					"test-gpu-2": {NumaNodes: []int{0}, Health: pluginapi.Healthy, Dimensions: map[string]string{"NVLINK": "group-2"}},
+					"test-gpu-3": {NumaNodes: []int{1}, Health: pluginapi.Healthy, Dimensions: map[string]string{"NVLINK": "group-2"}},
 				},
 			},
 			requiredDeviceAffinity: true,
@@ -601,14 +601,14 @@ func TestGPUDevicePlugin_GetAssociatedDeviceTopologyHints(t *testing.T) {
 			deviceTopology: &machine.DeviceTopology{
 				PriorityDimensions: []string{"0"},
 				Devices: map[string]machine.DeviceInfo{
-					"test-gpu-1": {NumaNodes: []int{0}, Dimensions: map[string]string{"0": "g12"}},
-					"test-gpu-2": {NumaNodes: []int{0}, Dimensions: map[string]string{"0": "g12"}},
-					"test-gpu-3": {NumaNodes: []int{0}, Dimensions: map[string]string{"0": "g34"}},
-					"test-gpu-4": {NumaNodes: []int{0}, Dimensions: map[string]string{"0": "g34"}},
-					"test-gpu-5": {NumaNodes: []int{1}, Dimensions: map[string]string{"0": "g56"}},
-					"test-gpu-6": {NumaNodes: []int{1}, Dimensions: map[string]string{"0": "g56"}},
-					"test-gpu-7": {NumaNodes: []int{1}, Dimensions: map[string]string{"0": "g78"}},
-					"test-gpu-8": {NumaNodes: []int{1}, Dimensions: map[string]string{"0": "g78"}},
+					"test-gpu-1": {NumaNodes: []int{0}, Health: pluginapi.Healthy, Dimensions: map[string]string{"0": "g12"}},
+					"test-gpu-2": {NumaNodes: []int{0}, Health: pluginapi.Healthy, Dimensions: map[string]string{"0": "g12"}},
+					"test-gpu-3": {NumaNodes: []int{0}, Health: pluginapi.Healthy, Dimensions: map[string]string{"0": "g34"}},
+					"test-gpu-4": {NumaNodes: []int{0}, Health: pluginapi.Healthy, Dimensions: map[string]string{"0": "g34"}},
+					"test-gpu-5": {NumaNodes: []int{1}, Health: pluginapi.Healthy, Dimensions: map[string]string{"0": "g56"}},
+					"test-gpu-6": {NumaNodes: []int{1}, Health: pluginapi.Healthy, Dimensions: map[string]string{"0": "g56"}},
+					"test-gpu-7": {NumaNodes: []int{1}, Health: pluginapi.Healthy, Dimensions: map[string]string{"0": "g78"}},
+					"test-gpu-8": {NumaNodes: []int{1}, Health: pluginapi.Healthy, Dimensions: map[string]string{"0": "g78"}},
 				},
 			},
 			requiredDeviceAffinity: true,
@@ -652,14 +652,14 @@ func TestGPUDevicePlugin_GetAssociatedDeviceTopologyHints(t *testing.T) {
 			deviceTopology: &machine.DeviceTopology{
 				PriorityDimensions: []string{"0"},
 				Devices: map[string]machine.DeviceInfo{
-					"test-gpu-1": {NumaNodes: []int{0}, Dimensions: map[string]string{"0": "g12"}},
-					"test-gpu-2": {NumaNodes: []int{0}, Dimensions: map[string]string{"0": "g12"}},
-					"test-gpu-3": {NumaNodes: []int{0}, Dimensions: map[string]string{"0": "g34"}},
-					"test-gpu-4": {NumaNodes: []int{0}, Dimensions: map[string]string{"0": "g34"}},
-					"test-gpu-5": {NumaNodes: []int{1}, Dimensions: map[string]string{"0": "g56"}},
-					"test-gpu-6": {NumaNodes: []int{1}, Dimensions: map[string]string{"0": "g56"}},
-					"test-gpu-7": {NumaNodes: []int{1}, Dimensions: map[string]string{"0": "g78"}},
-					"test-gpu-8": {NumaNodes: []int{1}, Dimensions: map[string]string{"0": "g78"}},
+					"test-gpu-1": {NumaNodes: []int{0}, Health: pluginapi.Healthy, Dimensions: map[string]string{"0": "g12"}},
+					"test-gpu-2": {NumaNodes: []int{0}, Health: pluginapi.Healthy, Dimensions: map[string]string{"0": "g12"}},
+					"test-gpu-3": {NumaNodes: []int{0}, Health: pluginapi.Healthy, Dimensions: map[string]string{"0": "g34"}},
+					"test-gpu-4": {NumaNodes: []int{0}, Health: pluginapi.Healthy, Dimensions: map[string]string{"0": "g34"}},
+					"test-gpu-5": {NumaNodes: []int{1}, Health: pluginapi.Healthy, Dimensions: map[string]string{"0": "g56"}},
+					"test-gpu-6": {NumaNodes: []int{1}, Health: pluginapi.Healthy, Dimensions: map[string]string{"0": "g56"}},
+					"test-gpu-7": {NumaNodes: []int{1}, Health: pluginapi.Healthy, Dimensions: map[string]string{"0": "g78"}},
+					"test-gpu-8": {NumaNodes: []int{1}, Health: pluginapi.Healthy, Dimensions: map[string]string{"0": "g78"}},
 				},
 			},
 			requiredDeviceAffinity: true,
@@ -703,14 +703,14 @@ func TestGPUDevicePlugin_GetAssociatedDeviceTopologyHints(t *testing.T) {
 			deviceTopology: &machine.DeviceTopology{
 				PriorityDimensions: []string{"NVLINK", "SOCKET"},
 				Devices: map[string]machine.DeviceInfo{
-					"test-gpu-1": {NumaNodes: []int{0}, Dimensions: map[string]string{"NVLINK": "g1", "SOCKET": "s1"}},
-					"test-gpu-2": {NumaNodes: []int{0}, Dimensions: map[string]string{"NVLINK": "g1", "SOCKET": "s1"}},
-					"test-gpu-3": {NumaNodes: []int{0}, Dimensions: map[string]string{"NVLINK": "g2", "SOCKET": "s1"}},
-					"test-gpu-4": {NumaNodes: []int{0}, Dimensions: map[string]string{"NVLINK": "g2", "SOCKET": "s1"}},
-					"test-gpu-5": {NumaNodes: []int{1}, Dimensions: map[string]string{"NVLINK": "g3", "SOCKET": "s2"}},
-					"test-gpu-6": {NumaNodes: []int{1}, Dimensions: map[string]string{"NVLINK": "g3", "SOCKET": "s2"}},
-					"test-gpu-7": {NumaNodes: []int{1}, Dimensions: map[string]string{"NVLINK": "g4", "SOCKET": "s2"}},
-					"test-gpu-8": {NumaNodes: []int{1}, Dimensions: map[string]string{"NVLINK": "g4", "SOCKET": "s2"}},
+					"test-gpu-1": {NumaNodes: []int{0}, Health: pluginapi.Healthy, Dimensions: map[string]string{"NVLINK": "g1", "SOCKET": "s1"}},
+					"test-gpu-2": {NumaNodes: []int{0}, Health: pluginapi.Healthy, Dimensions: map[string]string{"NVLINK": "g1", "SOCKET": "s1"}},
+					"test-gpu-3": {NumaNodes: []int{0}, Health: pluginapi.Healthy, Dimensions: map[string]string{"NVLINK": "g2", "SOCKET": "s1"}},
+					"test-gpu-4": {NumaNodes: []int{0}, Health: pluginapi.Healthy, Dimensions: map[string]string{"NVLINK": "g2", "SOCKET": "s1"}},
+					"test-gpu-5": {NumaNodes: []int{1}, Health: pluginapi.Healthy, Dimensions: map[string]string{"NVLINK": "g3", "SOCKET": "s2"}},
+					"test-gpu-6": {NumaNodes: []int{1}, Health: pluginapi.Healthy, Dimensions: map[string]string{"NVLINK": "g3", "SOCKET": "s2"}},
+					"test-gpu-7": {NumaNodes: []int{1}, Health: pluginapi.Healthy, Dimensions: map[string]string{"NVLINK": "g4", "SOCKET": "s2"}},
+					"test-gpu-8": {NumaNodes: []int{1}, Health: pluginapi.Healthy, Dimensions: map[string]string{"NVLINK": "g4", "SOCKET": "s2"}},
 				},
 			},
 			requiredDeviceAffinity: true,
@@ -752,10 +752,10 @@ func TestGPUDevicePlugin_GetAssociatedDeviceTopologyHints(t *testing.T) {
 			containerName: "test-container",
 			deviceTopology: &machine.DeviceTopology{
 				Devices: map[string]machine.DeviceInfo{
-					"test-gpu-0": {NumaNodes: []int{0}},
-					"test-gpu-1": {NumaNodes: []int{0}},
-					"test-gpu-2": {NumaNodes: []int{1}},
-					"test-gpu-3": {NumaNodes: []int{1}},
+					"test-gpu-0": {NumaNodes: []int{0}, Health: pluginapi.Healthy},
+					"test-gpu-1": {NumaNodes: []int{0}, Health: pluginapi.Healthy},
+					"test-gpu-2": {NumaNodes: []int{1}, Health: pluginapi.Healthy},
+					"test-gpu-3": {NumaNodes: []int{1}, Health: pluginapi.Healthy},
 				},
 			},
 			deviceReq: &pluginapi.AssociatedDeviceRequest{
@@ -800,10 +800,10 @@ func TestGPUDevicePlugin_GetAssociatedDeviceTopologyHints(t *testing.T) {
 			containerName: "test-container",
 			deviceTopology: &machine.DeviceTopology{
 				Devices: map[string]machine.DeviceInfo{
-					"test-gpu-0": {NumaNodes: []int{0}},
-					"test-gpu-1": {NumaNodes: []int{0}},
-					"test-gpu-2": {NumaNodes: []int{1}},
-					"test-gpu-3": {NumaNodes: []int{1}},
+					"test-gpu-0": {NumaNodes: []int{0}, Health: pluginapi.Healthy},
+					"test-gpu-1": {NumaNodes: []int{0}, Health: pluginapi.Healthy},
+					"test-gpu-2": {NumaNodes: []int{1}, Health: pluginapi.Healthy},
+					"test-gpu-3": {NumaNodes: []int{1}, Health: pluginapi.Healthy},
 				},
 			},
 			deviceReq: &pluginapi.AssociatedDeviceRequest{
@@ -834,6 +834,46 @@ func TestGPUDevicePlugin_GetAssociatedDeviceTopologyHints(t *testing.T) {
 						// {1} has 2 devices, does not satisfy request 3.
 						// {0, 1} has 4 devices, satisfies request 3. Size 2 -> Preferred: true (because it's the minimum size)
 						{Nodes: []uint64{0, 1}, Preferred: true},
+					},
+				},
+			},
+		},
+		{
+			name:          "generate from available devices with unhealthy GPUs filtered out",
+			podUID:        "test-uid",
+			containerName: "test-container",
+			deviceTopology: &machine.DeviceTopology{
+				Devices: map[string]machine.DeviceInfo{
+					"test-gpu-0": {NumaNodes: []int{0}, Health: pluginapi.Unhealthy},
+					"test-gpu-1": {NumaNodes: []int{1}, Health: pluginapi.Healthy},
+				},
+			},
+			deviceReq: &pluginapi.AssociatedDeviceRequest{
+				ResourceRequest: &pluginapi.ResourceRequest{
+					PodUid:        "test-uid",
+					ContainerName: "test-container",
+					Annotations:   map[string]string{consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores},
+					Labels:        map[string]string{consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores},
+				},
+				DeviceName: "test-gpu",
+				DeviceRequest: []*pluginapi.DeviceRequest{
+					{
+						DeviceName:       "test-gpu",
+						AvailableDevices: []string{"test-gpu-0", "test-gpu-1"},
+						DeviceRequest:    1,
+					},
+				},
+			},
+			expectedResp: &pluginapi.AssociatedDeviceHintsResponse{
+				PodUid:        "test-uid",
+				ContainerName: "test-container",
+				DeviceName:    "test-gpu",
+				Annotations:   map[string]string{consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores},
+				Labels:        map[string]string{consts.PodAnnotationQoSLevelKey: consts.PodAnnotationQoSLevelSharedCores},
+				DeviceHints: &pluginapi.ListOfTopologyHints{
+					Hints: []*pluginapi.TopologyHint{
+						// Only NUMA node 1 has healthy GPUs, so only 1 should be generated.
+						{Nodes: []uint64{1}, Preferred: true},
 					},
 				},
 			},
