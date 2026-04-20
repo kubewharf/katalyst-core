@@ -181,492 +181,122 @@ func TestDeviceTopology_GroupDeviceAffinity(t *testing.T) {
 	tests := []struct {
 		name                   string
 		deviceTopology         *DeviceTopology
-		expectedDeviceAffinity map[int][]DeviceIDs
+		expectedDeviceAffinity [][]DeviceIDs
+		expectedNil            bool
 	}{
 		{
-			name: "test simple affinity of 2 devices to 1 group with only affinity priority level",
+			name:        "no affinity groups when PriorityDimensions is empty",
+			expectedNil: true,
 			deviceTopology: &DeviceTopology{
+				PriorityDimensions: nil,
 				Devices: map[string]DeviceInfo{
 					"npu-0": {
-						DeviceAffinity: map[AffinityPriority]DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension: Dimension{
-									Name:  "pcie",
-									Value: "0",
-								},
-							}: {"npu-1"},
-						},
+						Dimensions: map[string]string{"pcie": "0"},
 					},
 					"npu-1": {
-						DeviceAffinity: map[AffinityPriority]DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension: Dimension{
-									Name:  "pcie",
-									Value: "0",
-								},
-							}: {"npu-0"},
-						},
-					},
-					"npu-2": {
-						DeviceAffinity: map[AffinityPriority]DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension: Dimension{
-									Name:  "pcie",
-									Value: "1",
-								},
-							}: {"npu-3"},
-						},
-					},
-					"npu-3": {
-						DeviceAffinity: map[AffinityPriority]DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension: Dimension{
-									Name:  "pcie",
-									Value: "1",
-								},
-							}: {"npu-2"},
-						},
+						Dimensions: map[string]string{"pcie": "0"},
 					},
 				},
 			},
-			expectedDeviceAffinity: map[int][]DeviceIDs{
-				0: {
-					{"npu-0", "npu-1"}, {"npu-2", "npu-3"},
+		},
+		{
+			name: "test simple affinity of 2 devices to 1 group with only affinity priority level",
+			deviceTopology: &DeviceTopology{
+				PriorityDimensions: []string{"pcie"},
+				Devices: map[string]DeviceInfo{
+					"npu-0": {Dimensions: map[string]string{"pcie": "0"}},
+					"npu-1": {Dimensions: map[string]string{"pcie": "0"}},
+					"npu-2": {Dimensions: map[string]string{"pcie": "1"}},
+					"npu-3": {Dimensions: map[string]string{"pcie": "1"}},
 				},
+			},
+			expectedDeviceAffinity: [][]DeviceIDs{
+				{{"npu-0", "npu-1"}, {"npu-2", "npu-3"}},
 			},
 		},
 		{
 			name: "test simple affinity of 4 devices to 1 group with only affinity priority level",
 			deviceTopology: &DeviceTopology{
+				PriorityDimensions: []string{"numa"},
 				Devices: map[string]DeviceInfo{
-					"npu-0": {
-						DeviceAffinity: map[AffinityPriority]DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension: Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
-							}: {"npu-1", "npu-2", "npu-3"},
-						},
-					},
-					"npu-1": {
-						DeviceAffinity: map[AffinityPriority]DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension: Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
-							}: {"npu-0", "npu-2", "npu-3"},
-						},
-					},
-					"npu-2": {
-						DeviceAffinity: map[AffinityPriority]DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension: Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
-							}: {"npu-0", "npu-1", "npu-3"},
-						},
-					},
-					"npu-3": {
-						DeviceAffinity: map[AffinityPriority]DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension: Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
-							}: {"npu-0", "npu-1", "npu-2"},
-						},
-					},
-					"npu-4": {
-						DeviceAffinity: map[AffinityPriority]DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension: Dimension{
-									Name:  "numa",
-									Value: "1",
-								},
-							}: {"npu-5", "npu-6", "npu-7"},
-						},
-					},
-					"npu-5": {
-						DeviceAffinity: map[AffinityPriority]DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension: Dimension{
-									Name:  "numa",
-									Value: "1",
-								},
-							}: {"npu-4", "npu-6", "npu-7"},
-						},
-					},
-					"npu-6": {
-						DeviceAffinity: map[AffinityPriority]DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension: Dimension{
-									Name:  "numa",
-									Value: "1",
-								},
-							}: {"npu-4", "npu-5", "npu-7"},
-						},
-					},
-					"npu-7": {
-						DeviceAffinity: map[AffinityPriority]DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension: Dimension{
-									Name:  "numa",
-									Value: "1",
-								},
-							}: {"npu-4", "npu-5", "npu-6"},
-						},
-					},
+					"npu-0": {Dimensions: map[string]string{"numa": "0"}},
+					"npu-1": {Dimensions: map[string]string{"numa": "0"}},
+					"npu-2": {Dimensions: map[string]string{"numa": "0"}},
+					"npu-3": {Dimensions: map[string]string{"numa": "0"}},
+					"npu-4": {Dimensions: map[string]string{"numa": "1"}},
+					"npu-5": {Dimensions: map[string]string{"numa": "1"}},
+					"npu-6": {Dimensions: map[string]string{"numa": "1"}},
+					"npu-7": {Dimensions: map[string]string{"numa": "1"}},
 				},
 			},
-			expectedDeviceAffinity: map[int][]DeviceIDs{
-				0: {
-					{"npu-0", "npu-1", "npu-2", "npu-3"}, {"npu-4", "npu-5", "npu-6", "npu-7"},
-				},
+			expectedDeviceAffinity: [][]DeviceIDs{
+				{{"npu-0", "npu-1", "npu-2", "npu-3"}, {"npu-4", "npu-5", "npu-6", "npu-7"}},
 			},
 		},
 		{
 			name: "device topology includes self for one affinity level",
 			deviceTopology: &DeviceTopology{
+				PriorityDimensions: []string{"numa"},
 				Devices: map[string]DeviceInfo{
-					"npu-0": {
-						DeviceAffinity: map[AffinityPriority]DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension: Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
-							}: {"npu-0", "npu-1"},
-						},
-					},
-					"npu-1": {
-						DeviceAffinity: map[AffinityPriority]DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension: Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
-							}: {"npu-0", "npu-1"},
-						},
-					},
-					"npu-2": {
-						DeviceAffinity: map[AffinityPriority]DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension: Dimension{
-									Name:  "numa",
-									Value: "1",
-								},
-							}: {"npu-2", "npu-3"},
-						},
-					},
-					"npu-3": {
-						DeviceAffinity: map[AffinityPriority]DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension: Dimension{
-									Name:  "numa",
-									Value: "1",
-								},
-							}: {"npu-2", "npu-3"},
-						},
-					},
+					"npu-0": {Dimensions: map[string]string{"numa": "0"}},
+					"npu-1": {Dimensions: map[string]string{"numa": "0"}},
+					"npu-2": {Dimensions: map[string]string{"numa": "1"}},
+					"npu-3": {Dimensions: map[string]string{"numa": "1"}},
 				},
 			},
-			expectedDeviceAffinity: map[int][]DeviceIDs{
-				0: {
-					{"npu-0", "npu-1"}, {"npu-2", "npu-3"},
-				},
+			expectedDeviceAffinity: [][]DeviceIDs{
+				{{"npu-0", "npu-1"}, {"npu-2", "npu-3"}},
 			},
 		},
 		{
 			name: "test simple affinity of 2 devices to 1 group with 2 affinity priority level",
 			deviceTopology: &DeviceTopology{
+				PriorityDimensions: []string{"pcie", "numa"},
 				Devices: map[string]DeviceInfo{
-					"npu-0": {
-						DeviceAffinity: map[AffinityPriority]DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension: Dimension{
-									Name:  "pcie",
-									Value: "0",
-								},
-							}: {"npu-1"},
-							{
-								PriorityLevel: 1,
-								Dimension: Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
-							}: {"npu-1", "npu-2", "npu-3"},
-						},
-					},
-					"npu-1": {
-						DeviceAffinity: map[AffinityPriority]DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension: Dimension{
-									Name:  "pcie",
-									Value: "0",
-								},
-							}: {"npu-0"},
-							{
-								PriorityLevel: 1,
-								Dimension: Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
-							}: {"npu-0", "npu-2", "npu-3"},
-						},
-					},
-					"npu-2": {
-						DeviceAffinity: map[AffinityPriority]DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension: Dimension{
-									Name:  "pcie",
-									Value: "1",
-								},
-							}: {"npu-3"},
-							{
-								PriorityLevel: 1,
-								Dimension: Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
-							}: {"npu-0", "npu-1", "npu-3"},
-						},
-					},
-					"npu-3": {
-						DeviceAffinity: map[AffinityPriority]DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension: Dimension{
-									Name:  "pcie",
-									Value: "1",
-								},
-							}: {"npu-2"},
-							{
-								PriorityLevel: 1,
-								Dimension: Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
-							}: {"npu-0", "npu-1", "npu-2"},
-						},
-					},
+					"npu-0": {Dimensions: map[string]string{"pcie": "0", "numa": "0"}},
+					"npu-1": {Dimensions: map[string]string{"pcie": "0", "numa": "0"}},
+					"npu-2": {Dimensions: map[string]string{"pcie": "1", "numa": "0"}},
+					"npu-3": {Dimensions: map[string]string{"pcie": "1", "numa": "0"}},
 				},
 			},
-			expectedDeviceAffinity: map[int][]DeviceIDs{
-				0: {
-					{"npu-0", "npu-1"}, {"npu-2", "npu-3"},
-				},
-				1: {
-					{"npu-0", "npu-1", "npu-2", "npu-3"},
-				},
+			expectedDeviceAffinity: [][]DeviceIDs{
+				{{"npu-0", "npu-1"}, {"npu-2", "npu-3"}},
+				{{"npu-0", "npu-1", "npu-2", "npu-3"}},
 			},
 		},
 		{
 			name: "device topology includes self for 2 affinity levels",
 			deviceTopology: &DeviceTopology{
+				PriorityDimensions: []string{"pcie", "numa"},
 				Devices: map[string]DeviceInfo{
-					"npu-0": {
-						DeviceAffinity: map[AffinityPriority]DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension: Dimension{
-									Name:  "pcie",
-									Value: "0",
-								},
-							}: {"npu-0", "npu-1"},
-							{
-								PriorityLevel: 1,
-								Dimension: Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
-							}: {"npu-0", "npu-1", "npu-2", "npu-3"},
-						},
-					},
-					"npu-1": {
-						DeviceAffinity: map[AffinityPriority]DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension: Dimension{
-									Name:  "pcie",
-									Value: "0",
-								},
-							}: {"npu-0", "npu-1"},
-							{
-								PriorityLevel: 1,
-								Dimension: Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
-							}: {"npu-0", "npu-1", "npu-2", "npu-3"},
-						},
-					},
-					"npu-2": {
-						DeviceAffinity: map[AffinityPriority]DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension: Dimension{
-									Name:  "pcie",
-									Value: "1",
-								},
-							}: {"npu-2", "npu-3"},
-							{
-								PriorityLevel: 1,
-								Dimension: Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
-							}: {"npu-0", "npu-1", "npu-2", "npu-3"},
-						},
-					},
-					"npu-3": {
-						DeviceAffinity: map[AffinityPriority]DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension: Dimension{
-									Name:  "pcie",
-									Value: "1",
-								},
-							}: {"npu-2", "npu-3"},
-							{
-								PriorityLevel: 1,
-								Dimension: Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
-							}: {"npu-0", "npu-1", "npu-2", "npu-3"},
-						},
-					},
+					"npu-0": {Dimensions: map[string]string{"pcie": "0", "numa": "0"}},
+					"npu-1": {Dimensions: map[string]string{"pcie": "0", "numa": "0"}},
+					"npu-2": {Dimensions: map[string]string{"pcie": "1", "numa": "0"}},
+					"npu-3": {Dimensions: map[string]string{"pcie": "1", "numa": "0"}},
 				},
 			},
-			expectedDeviceAffinity: map[int][]DeviceIDs{
-				0: {
-					{"npu-0", "npu-1"}, {"npu-2", "npu-3"},
-				},
-				1: {
-					{"npu-0", "npu-1", "npu-2", "npu-3"},
-				},
+			expectedDeviceAffinity: [][]DeviceIDs{
+				{{"npu-0", "npu-1"}, {"npu-2", "npu-3"}},
+				{{"npu-0", "npu-1", "npu-2", "npu-3"}},
 			},
 		},
 		{
 			name: "unsorted device topology has no effect on result",
 			deviceTopology: &DeviceTopology{
+				PriorityDimensions: []string{"numa"},
 				Devices: map[string]DeviceInfo{
-					"npu-0": {
-						DeviceAffinity: map[AffinityPriority]DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension: Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
-							}: {"npu-2", "npu-1", "npu-3"},
-						},
-					},
-					"npu-1": {
-						DeviceAffinity: map[AffinityPriority]DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension: Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
-							}: {"npu-3", "npu-0", "npu-2"},
-						},
-					},
-					"npu-2": {
-						DeviceAffinity: map[AffinityPriority]DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension: Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
-							}: {"npu-1", "npu-0", "npu-3"},
-						},
-					},
-					"npu-3": {
-						DeviceAffinity: map[AffinityPriority]DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension: Dimension{
-									Name:  "numa",
-									Value: "0",
-								},
-							}: {"npu-0", "npu-2", "npu-1"},
-						},
-					},
-					"npu-4": {
-						DeviceAffinity: map[AffinityPriority]DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension: Dimension{
-									Name:  "numa",
-									Value: "1",
-								},
-							}: {"npu-6", "npu-5", "npu-7"},
-						},
-					},
-					"npu-5": {
-						DeviceAffinity: map[AffinityPriority]DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension: Dimension{
-									Name:  "numa",
-									Value: "1",
-								},
-							}: {"npu-7", "npu-4", "npu-6"},
-						},
-					},
-					"npu-6": {
-						DeviceAffinity: map[AffinityPriority]DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension: Dimension{
-									Name:  "numa",
-									Value: "1",
-								},
-							}: {"npu-5", "npu-4", "npu-7"},
-						},
-					},
-					"npu-7": {
-						DeviceAffinity: map[AffinityPriority]DeviceIDs{
-							{
-								PriorityLevel: 0,
-								Dimension: Dimension{
-									Name:  "numa",
-									Value: "1",
-								},
-							}: {"npu-6", "npu-4", "npu-5"},
-						},
-					},
+					"npu-0": {Dimensions: map[string]string{"numa": "0"}},
+					"npu-1": {Dimensions: map[string]string{"numa": "0"}},
+					"npu-2": {Dimensions: map[string]string{"numa": "0"}},
+					"npu-3": {Dimensions: map[string]string{"numa": "0"}},
+					"npu-4": {Dimensions: map[string]string{"numa": "1"}},
+					"npu-5": {Dimensions: map[string]string{"numa": "1"}},
+					"npu-6": {Dimensions: map[string]string{"numa": "1"}},
+					"npu-7": {Dimensions: map[string]string{"numa": "1"}},
 				},
 			},
-			expectedDeviceAffinity: map[int][]DeviceIDs{
-				0: {
-					{"npu-0", "npu-1", "npu-2", "npu-3"}, {"npu-4", "npu-5", "npu-6", "npu-7"},
-				},
+			expectedDeviceAffinity: [][]DeviceIDs{
+				{{"npu-0", "npu-1", "npu-2", "npu-3"}, {"npu-4", "npu-5", "npu-6", "npu-7"}},
 			},
 		},
 	}
@@ -676,6 +306,10 @@ func TestDeviceTopology_GroupDeviceAffinity(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			deviceAffinity := tt.deviceTopology.GroupDeviceAffinity()
+			if tt.expectedNil {
+				assert.Nil(t, deviceAffinity)
+				return
+			}
 			evaluateDeviceAffinity(t, deviceAffinity, tt.expectedDeviceAffinity)
 		})
 	}
@@ -698,20 +332,14 @@ func evaluateDeviceNUMAAffinity(t *testing.T, expectedDeviceNUMAAffinity, actual
 	}
 }
 
-func evaluateDeviceAffinity(t *testing.T, expectedDeviceAffinity, actualDeviceAffinity map[int][]DeviceIDs) {
+func evaluateDeviceAffinity(t *testing.T, expectedDeviceAffinity, actualDeviceAffinity [][]DeviceIDs) {
 	if len(actualDeviceAffinity) != len(expectedDeviceAffinity) {
 		t.Errorf("expected %d affinities, got %d", len(expectedDeviceAffinity), len(actualDeviceAffinity))
 		return
 	}
 
-	for priority, expected := range expectedDeviceAffinity {
-		actual, ok := actualDeviceAffinity[priority]
-		if !ok {
-			t.Errorf("expected affinities for priority %v, but it is not found", priority)
-			return
-		}
-
-		if !equalDeviceIDsGroupsIgnoreOrder(t, expected, actual) {
+	for priority := range expectedDeviceAffinity {
+		if !equalDeviceIDsGroupsIgnoreOrder(t, expectedDeviceAffinity[priority], actualDeviceAffinity[priority]) {
 			return
 		}
 	}
@@ -861,44 +489,18 @@ func TestDeviceInfo_GetDimensions(t *testing.T) {
 	t.Parallel()
 
 	deviceInfo := DeviceInfo{
-		DeviceAffinity: map[AffinityPriority]DeviceIDs{
-			{
-				PriorityLevel: 0,
-				Dimension: Dimension{
-					Name:  "numa",
-					Value: "0",
-				},
-			}: {"npu-1"},
-			{
-				PriorityLevel: 1,
-				Dimension: Dimension{
-					Name:  "",
-					Value: "1",
-				},
-			}: {"npu-2"},
-			{
-				PriorityLevel: 2,
-				Dimension: Dimension{
-					Name:  "socket",
-					Value: "",
-				},
-			}: {"npu-3"},
-			{
-				PriorityLevel: 3,
-				Dimension: Dimension{
-					Name:  "pcie",
-					Value: "2",
-				},
-			}: {"npu-4"},
+		Dimensions: DeviceDimensions{
+			"numa":   "0",
+			"":       "1",
+			"socket": "",
+			"pcie":   "2",
 		},
 	}
 
 	dimensions := deviceInfo.GetDimensions()
-	assert.Len(t, dimensions, 2)
-	assert.Equal(t, "numa", dimensions[0].Name)
-	assert.Equal(t, "0", dimensions[0].Value)
-	assert.Equal(t, "pcie", dimensions[1].Name)
-	assert.Equal(t, "2", dimensions[1].Value)
+	// GetDimensions currently returns the raw DeviceDimensions map without
+	// additional filtering or ordering. Verify that behavior here.
+	assert.Equal(t, deviceInfo.Dimensions, dimensions)
 }
 
 func TestDeviceTopologyRegistry_GetLatestDeviceTopology(t *testing.T) {

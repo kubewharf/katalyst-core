@@ -70,7 +70,10 @@ type AllocationState struct {
 
 type AllocationMap map[string]*AllocationState // AllocationMap keyed by device id i.e. GPU-fef8089b-4820-abfc-e83e-94318197576e
 
-type AllocationResourcesMap map[v1.ResourceName]AllocationMap // AllocationResourcesMap keyed by resource name i.e. v1.ResourceName("nvidia.com/gpu")
+// AllocationResourcesMap keyed by resource name.
+// For devices, they are keyed by device type (e.g. rdma_device, gpu_device).
+// For resources, they are keyed by the resource name (e.g. resource.katalyst.kubewharf.io/gpu_memory).
+type AllocationResourcesMap map[v1.ResourceName]AllocationMap
 
 func (i *AllocationInfo) String() string {
 	if i == nil {
