@@ -670,19 +670,15 @@ func (p *DynamicPolicy) allocateNumaBindingCPUs(numCPUs int, hint *pluginapi.Top
 	for _, numaNode := range hintNodes {
 		availableCPUs := machineState[int(numaNode)].GetAvailableCPUSet(p.reservedCPUs)
 
-		// if the resource package is specified and the resource package is pinned,
-		// then only the pinned CPUs are available for allocation.
-		// if the package is not pinned but other packages are, exclude pinned CPUs of other packages.
-		if pkgName != "" {
-			pinnedCPUSetsInNUMA := numaRPPinnedCPUSet[int(numaNode)]
-			if !pinnedCPUSetsInNUMA[pkgName].IsEmpty() {
-				// If the package has pinned CPUs, restrict allocation to those CPUs
-				availableCPUs = availableCPUs.Intersection(pinnedCPUSetsInNUMA[pkgName])
-			} else if len(pinnedCPUSetsInNUMA) > 0 {
-				// If the package is not pinned but other packages are, exclude pinned CPUs of other packages
-				for _, pinnedCPUs := range pinnedCPUSetsInNUMA {
-					availableCPUs = availableCPUs.Difference(pinnedCPUs)
-				}
+		// Filter available CPUs based on Resource Package (RP) pinning rules:
+		// 1. If the current RP has pinned CPUs, restrict allocation strictly to those CPUs.
+		// 2. Otherwise (no RP specified or RP has no pinned CPUs), exclude all CPUs pinned by other RPs.
+		pinnedCPUSetsInNUMA := numaRPPinnedCPUSet[int(numaNode)]
+		if pkgName != "" && !pinnedCPUSetsInNUMA[pkgName].IsEmpty() {
+			availableCPUs = availableCPUs.Intersection(pinnedCPUSetsInNUMA[pkgName])
+		} else if len(pinnedCPUSetsInNUMA) > 0 {
+			for _, pinnedCPUs := range pinnedCPUSetsInNUMA {
+				availableCPUs = availableCPUs.Difference(pinnedCPUs)
 			}
 		}
 
