@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package provisionpolicy
+package provision
 
 import (
 	"fmt"
@@ -68,19 +68,24 @@ type PolicyRama struct {
 func NewPolicyRama(regionName string, regionType configapi.QoSRegionType, ownerPoolName string,
 	conf *config.Configuration, _ interface{}, metaReader metacache.MetaReader,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
-) ProvisionPolicy {
+) Policy {
 	p := &PolicyRama{
 		conf:        conf,
-		PolicyBase:  NewPolicyBase(regionName, regionType, ownerPoolName, metaReader, metaServer, emitter),
+		PolicyBase:  NewPolicyBase(types.CPUProvisionPolicyRama, regionName, regionType, ownerPoolName, metaReader, metaServer, emitter),
 		controllers: make(map[string]*helper.PIDController),
 	}
 
 	return p
 }
 
-func (p *PolicyRama) Update() error {
+func (p *PolicyRama) Update(ctx PolicyContext) (err error) {
+	defer func() {
+		if err != nil {
+			p.controlKnobAdjusted = nil
+		}
+	}()
 	// sanity check
-	if err := p.sanityCheck(); err != nil {
+	if err = p.sanityCheck(ctx); err != nil {
 		return err
 	}
 
@@ -88,11 +93,11 @@ func (p *PolicyRama) Update() error {
 	knobValue := 0.0
 	cpuAdjustedRaw := math.Inf(-1)
 
-	if value, ok := p.ControlKnobs[configapi.ControlKnobReclaimedCoresCPUQuota]; ok {
+	if value, ok := ctx.ControlKnobs[configapi.ControlKnobReclaimedCoresCPUQuota]; ok {
 		knobName = configapi.ControlKnobReclaimedCoresCPUQuota
 		knobValue = value.Value
 		cpuAdjustedRaw = math.Inf(1)
-	} else if value, ok = p.ControlKnobs[configapi.ControlKnobNonReclaimedCPURequirement]; ok {
+	} else if value, ok = ctx.ControlKnobs[configapi.ControlKnobNonReclaimedCPURequirement]; ok {
 		knobName = configapi.ControlKnobNonReclaimedCPURequirement
 		knobValue = value.Value
 	}
@@ -100,7 +105,7 @@ func (p *PolicyRama) Update() error {
 	dominantIndicator := "unknown"
 
 	// run pid control for each indicator
-	for metricName, indicator := range p.Indicators {
+	for metricName, indicator := range ctx.Indicators {
 		params, ok := p.conf.PolicyRama.PIDParameters[metricName]
 		if !ok {
 			klog.Warningf("[qosaware-cpu-rama] pid parameter not found for indicator %v", metricName)
@@ -120,7 +125,7 @@ func (p *PolicyRama) Update() error {
 			}
 		}
 
-		controller.SetEssentials(p.ResourceEssentials)
+		controller.SetEssentials(ctx.ResourceEssentials)
 		cpuAdjusted := controller.Adjust(knobValue, indicator.Target, indicator.Current, direction == controlActingDirect)
 
 		general.InfoS("[qosaware-cpu-rama] pid adjust result", "meta", p.GetMetaInfo(), "metricName", metricName, "cpuAdjusted", cpuAdjusted, "last knobValue", knobValue, "knobName", knobName, "direction", direction, "target", indicator.Target, "current", indicator.Current, "params", params)
@@ -160,7 +165,7 @@ func (p *PolicyRama) Update() error {
 	return nil
 }
 
-func (p *PolicyRama) sanityCheck() error {
+func (p *PolicyRama) sanityCheck(ctx PolicyContext) error {
 	var (
 		isLegal bool
 		errList []error
@@ -174,17 +179,17 @@ func (p *PolicyRama) sanityCheck() error {
 	}
 
 	// 2. check margin. skip update when margin is non zero
-	if p.ResourceEssentials.ReservedForAllocate != 0 {
+	if ctx.ResourceEssentials.ReservedForAllocate != 0 {
 		errList = append(errList, fmt.Errorf("margin exists"))
 	}
 
 	// 3. check control knob legality
 	isLegal = true
-	if p.ControlKnobs == nil || len(p.ControlKnobs) <= 0 {
+	if ctx.ControlKnobs == nil || len(ctx.ControlKnobs) <= 0 {
 		isLegal = false
 	} else {
-		v1, ok1 := p.ControlKnobs[configapi.ControlKnobNonReclaimedCPURequirement]
-		v2, ok2 := p.ControlKnobs[configapi.ControlKnobReclaimedCoresCPUQuota]
+		v1, ok1 := ctx.ControlKnobs[configapi.ControlKnobNonReclaimedCPURequirement]
+		v2, ok2 := ctx.ControlKnobs[configapi.ControlKnobReclaimedCoresCPUQuota]
 
 		if !ok1 && !ok2 {
 			isLegal = false
@@ -195,11 +200,11 @@ func (p *PolicyRama) sanityCheck() error {
 		}
 	}
 	if !isLegal {
-		errList = append(errList, fmt.Errorf("illegal control knob %v", p.ControlKnobs))
+		errList = append(errList, fmt.Errorf("illegal control knob %v", ctx.ControlKnobs))
 	}
 
 	// 4. check indicators legality
-	if p.Indicators == nil {
+	if ctx.Indicators == nil {
 		errList = append(errList, fmt.Errorf("illegal indicators"))
 	}
 

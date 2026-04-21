@@ -186,6 +186,7 @@ func TestAdvisorUpdate(t *testing.T) {
 		nodeEnableReclaim             bool
 		headroomAssembler             types.CPUHeadroomAssemblerName
 		headroomPolicies              map[configapi.QoSRegionType][]types.CPUHeadroomPolicyName
+		extraRegionIndicatorTargetCfg map[configapi.QoSRegionType][]configv1alpha1.IndicatorTargetConfiguration
 		podProfiles                   map[k8stypes.UID]spd.DummyPodServiceProfile
 		wantInternalCalculationResult types.InternalCPUCalculationResult
 		wantErr                       bool
@@ -265,8 +266,8 @@ func TestAdvisorUpdate(t *testing.T) {
 			wantInternalCalculationResult: types.InternalCPUCalculationResult{
 				PoolEntries: map[string]map[int]types.CPUResource{
 					commonstate.PoolNameReserve: {-1: {Size: 2, Quota: -1}},
-					commonstate.PoolNameShare:   {-1: {Size: 8, Quota: -1}},
-					commonstate.PoolNameReclaim: {-1: {Size: 86, Quota: -1}},
+					commonstate.PoolNameShare:   {-1: {Size: 6, Quota: -1}},
+					commonstate.PoolNameReclaim: {-1: {Size: 88, Quota: -1}},
 				},
 			},
 			wantHeadroom: resource.Quantity{},
@@ -933,11 +934,11 @@ func TestAdvisorUpdate(t *testing.T) {
 						-1: {Size: 2, Quota: -1},
 					},
 					commonstate.PoolNameShare: {
-						-1: {Size: 6, Quota: -1},
+						-1: {Size: 5, Quota: -1},
 					},
 					commonstate.PoolNameReclaim: {
 						0:  {Size: 0, Quota: -1},
-						-1: {Size: 41, Quota: -1},
+						-1: {Size: 42, Quota: -1},
 					},
 				},
 				PoolOverlapPodContainerInfo: map[string]map[int]map[string]map[string]int{
@@ -1420,6 +1421,73 @@ func TestAdvisorUpdate(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "dummy_region",
+			pools: map[string]*types.PoolInfo{
+				commonstate.PoolNameReserve: {
+					PoolName: commonstate.PoolNameReserve,
+					TopologyAwareAssignments: map[int]machine.CPUSet{
+						0: machine.MustParse("0"),
+						1: machine.MustParse("24"),
+					},
+				},
+			},
+			nodeEnableReclaim: true,
+			extraRegionIndicatorTargetCfg: map[configapi.QoSRegionType][]configv1alpha1.IndicatorTargetConfiguration{
+				"dummy": {
+					{
+						Name:   workloadapis.ServiceSystemIndicatorNameCPUUsageRatio,
+						Target: 0.8,
+					},
+				},
+			},
+			// Make dummy region (NUMA reclaim cgroup) have non-zero usage so the indicator is valid.
+			cgroupMetricItems: []cgroupMetricItem{
+				{
+					cgroupPath: "/kubepods/besteffort-0",
+					name:       pkgconsts.MetricCPUUsageCgroup,
+					value:      2,
+				},
+				{
+					cgroupPath: "/kubepods/besteffort-1",
+					name:       pkgconsts.MetricCPUUsageCgroup,
+					value:      2,
+				},
+			},
+			cpuMetricItems: []cpuMetricItem{
+				{
+					cpuID: 70,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 71,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 94,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+				{
+					cpuID: 95,
+					name:  pkgconsts.MetricCPUUsageRatio,
+					value: 0.3,
+				},
+			},
+			wantInternalCalculationResult: types.InternalCPUCalculationResult{
+				PoolEntries: map[string]map[int]types.CPUResource{
+					commonstate.PoolNameReserve: {-1: {Size: 2, Quota: -1}},
+					commonstate.PoolNameReclaim: {
+						-1: {Size: 94, Quota: -1},
+						0:  {Size: 47, Quota: 26},
+						1:  {Size: 47, Quota: 26},
+					},
+				},
+			},
+			wantHeadroom: resource.Quantity{},
+		},
 	}
 
 	for _, tt := range tests {
@@ -1449,7 +1517,7 @@ func TestAdvisorUpdate(t *testing.T) {
 			conf.IsolatedMaxResourceRatio = 0.3
 			conf.IsolationLockInThreshold = 1
 			conf.IsolationLockOutPeriodSecs = 30
-			conf.GetDynamicConfiguration().RegionIndicatorTargetConfiguration = map[configapi.QoSRegionType][]configv1alpha1.IndicatorTargetConfiguration{
+			regionIndicatorTargetConfig := map[configapi.QoSRegionType][]configv1alpha1.IndicatorTargetConfiguration{
 				configapi.QoSRegionTypeShare: {
 					{
 						Name:   workloadapis.ServiceSystemIndicatorNameCPUSchedWait,
@@ -1483,6 +1551,10 @@ func TestAdvisorUpdate(t *testing.T) {
 					},
 				},
 			}
+			for regionType, cfg := range tt.extraRegionIndicatorTargetCfg {
+				regionIndicatorTargetConfig[regionType] = cfg
+			}
+			conf.GetDynamicConfiguration().RegionIndicatorTargetConfiguration = regionIndicatorTargetConfig
 
 			advisor, metaCache := newTestCPUResourceAdvisor(t, tt.pods, conf, mf, tt.podProfiles)
 			advisor.conf.GetDynamicConfiguration().EnableReclaim = tt.nodeEnableReclaim
@@ -1523,11 +1595,11 @@ func TestAdvisorUpdate(t *testing.T) {
 
 			// if preUpdate is enabled, trigger an empty update firstly
 			if tt.preUpdate {
-				_, err := advisor.UpdateAndGetAdvice()
+				_, preErr := advisor.UpdateAndGetAdvice()
 				if tt.wantErr {
-					assert.Error(t, err)
+					assert.Error(t, preErr)
 				} else {
-					require.NoError(t, err)
+					require.NoError(t, preErr)
 				}
 			}
 

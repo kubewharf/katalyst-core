@@ -51,6 +51,7 @@ func (ha *HeadroomAssemblerCommon) getUtilBasedHeadroom(options helper.UtilBased
 		return *resource.NewQuantity(0, resource.DecimalSI), nil
 	}
 
+	// FIXME: per NUMA?
 	lastReclaimedCPU := 0.0
 	for _, cpu := range lastReclaimedCPUPerNumaForCalculate {
 		lastReclaimedCPU += cpu

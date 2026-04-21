@@ -14,12 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package provisionpolicy
+package provision
 
 import (
 	"fmt"
-
-	"k8s.io/apimachinery/pkg/util/errors"
 
 	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	workloadv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
@@ -43,26 +41,26 @@ type PolicyDynamicQuota struct {
 func NewPolicyDynamicQuota(regionName string, regionType configapi.QoSRegionType, ownerPoolName string,
 	conf *config.Configuration, _ interface{}, metaReader metacache.MetaReader,
 	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
-) ProvisionPolicy {
+) Policy {
 	p := &PolicyDynamicQuota{
-		PolicyBase: NewPolicyBase(regionName, regionType, ownerPoolName, metaReader, metaServer, emitter),
+		PolicyBase: NewPolicyBase(types.CPUProvisionPolicyDynamicQuota, regionName, regionType, ownerPoolName, metaReader, metaServer, emitter),
 		conf:       conf,
 	}
 	return p
 }
 
-func (p *PolicyDynamicQuota) isCPUQuotaAsControlKnob() bool {
-	if !p.isNUMABinding {
+func (p *PolicyDynamicQuota) isCPUQuotaAsControlKnob(ctx PolicyContext) bool {
+	if !ctx.IsNUMABinding {
 		return false
 	}
 
-	_, ok := p.Indicators[string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio)]
+	_, ok := ctx.Indicators[string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio)]
 	return ok
 }
 
-func (p *PolicyDynamicQuota) updateForCPUQuota() error {
-	indicator := p.Indicators[string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio)]
-	reclaimPath := common.GetReclaimRelativeRootCgroupPath(p.conf.ReclaimRelativeRootCgroupPath, p.bindingNumas.ToSliceInt()[0])
+func (p *PolicyDynamicQuota) updateForCPUQuota(ctx PolicyContext) error {
+	indicator := ctx.Indicators[string(workloadv1alpha1.ServiceSystemIndicatorNameCPUUsageRatio)]
+	reclaimPath := common.GetReclaimRelativeRootCgroupPath(p.conf.ReclaimRelativeRootCgroupPath, ctx.CpusetMems.ToSliceInt()[0])
 	data, err := p.metaServer.GetCgroupMetric(reclaimPath, pkgconsts.MetricCPUUsageCgroup)
 	if err != nil {
 		return err
@@ -75,7 +73,7 @@ func (p *PolicyDynamicQuota) updateForCPUQuota() error {
 	if reclaimPoolExist && reclaimPoolInfo != nil {
 		reclaimCPUSet := machine.NewCPUSet()
 		for numaID, numaCPUSet := range reclaimPoolInfo.TopologyAwareAssignments {
-			if !p.bindingNumas.Contains(numaID) {
+			if !ctx.CpusetMems.Contains(numaID) {
 				continue
 			}
 			reclaimCPUSet = reclaimCPUSet.Union(numaCPUSet)
@@ -83,15 +81,24 @@ func (p *PolicyDynamicQuota) updateForCPUQuota() error {
 		reclaimNUMACPUSize = reclaimCPUSet.Size()
 	} else {
 		// fallback to numa cpuset size if reclaim pool not exist
-		reclaimNUMACPUSize = p.metaServer.NUMAToCPUs.CPUSizeInNUMAs(p.bindingNumas.ToSliceNoSortInt()...)
+		reclaimNUMACPUSize = p.metaServer.NUMAToCPUs.CPUSizeInNUMAs(ctx.CpusetMems.ToSliceNoSortInt()...)
 		if reclaimNUMACPUSize == 0 {
 			return fmt.Errorf("invalid cpu count per numa: %d, %d", p.metaServer.NumNUMANodes, p.metaServer.NumCPUs)
 		}
 	}
 
-	quota := general.MaxFloat64(float64(reclaimNUMACPUSize)*(indicator.Target-indicator.Current)+reclaimCoresCPUUsage, p.ReservedForReclaim)
+	quota := general.MaxFloat64(float64(reclaimNUMACPUSize)*(indicator.Target-indicator.Current)+reclaimCoresCPUUsage, ctx.ReservedForReclaim)
+	if p.conf.GetDynamicConfiguration().EnableReclaim == false {
+		quota = ctx.ReservedForReclaim
+	}
 
-	general.InfoS("metrics", "cpuUsage", reclaimCoresCPUUsage, "reclaimNUMACPUSize", reclaimNUMACPUSize, "target", indicator.Target, "current", indicator.Current, "quota", quota, "numas", p.bindingNumas.String())
+	general.InfoS("metrics",
+		"reclaimCoresCPUUsage", reclaimCoresCPUUsage,
+		"reclaimNUMACPUSize", reclaimNUMACPUSize,
+		"target", indicator.Target,
+		"current", indicator.Current,
+		"cfs_quota", quota,
+		"NUMAs", ctx.CpusetMems.String())
 
 	p.controlKnobAdjusted = types.ControlKnob{
 		configapi.ControlKnobReclaimedCoresCPUQuota: types.ControlKnobItem{
@@ -102,25 +109,16 @@ func (p *PolicyDynamicQuota) updateForCPUQuota() error {
 	return nil
 }
 
-func (p *PolicyDynamicQuota) Update() error {
-	// sanity check
-	if err := p.sanityCheck(); err != nil {
-		return err
-	}
+func (p *PolicyDynamicQuota) Update(ctx PolicyContext) (err error) {
+	defer func() {
+		if err != nil {
+			p.controlKnobAdjusted = nil
+		}
+	}()
 
-	if p.isCPUQuotaAsControlKnob() {
-		return p.updateForCPUQuota()
+	if p.isCPUQuotaAsControlKnob(ctx) {
+		return p.updateForCPUQuota(ctx)
 	}
 
 	return nil
-}
-
-func (p *PolicyDynamicQuota) sanityCheck() error {
-	var errList []error
-
-	if !p.conf.GetDynamicConfiguration().EnableReclaim {
-		errList = append(errList, fmt.Errorf("reclaim disabled"))
-	}
-
-	return errors.NewAggregate(errList)
 }
