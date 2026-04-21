@@ -92,9 +92,5 @@ func GetGPUCount(req *pluginapi.ResourceRequest, deviceNames []string) (float64,
 		gpuNames.Insert(resourceName)
 	}
 
-	if gpuCount == 0 {
-		return 0, gpuNames, fmt.Errorf("no available GPU count")
-	}
-
 	return gpuCount, gpuNames, nil
 }

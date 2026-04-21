@@ -24,6 +24,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/stretchr/testify/assert"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
 	deviceplugin "k8s.io/kubelet/pkg/apis/deviceplugin/v1alpha"
@@ -33,8 +34,8 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	katalyst_base "github.com/kubewharf/katalyst-core/cmd/base"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/agent"
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/baseplugin"
-	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/customdeviceplugin/gpu"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -122,6 +123,7 @@ func makeTestBasePlugin(t *testing.T) *baseplugin.BasePlugin {
 	}
 	conf.GPUDeviceNames = []string{"test-gpu"}
 	conf.GPUMemoryAllocatablePerGPU = *resource.NewQuantity(4, resource.DecimalSI)
+	conf.MilliGPUAllocatablePerGPU = *resource.NewQuantity(1000, resource.DecimalSI)
 
 	basePlugin, err := baseplugin.NewBasePlugin(agentCtx, conf, metrics.DummyMetrics{})
 	assert.NoError(t, err)
@@ -140,15 +142,17 @@ func TestGPUMemPlugin_GetTopologyHints(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name                   string
-		podUID                 string
-		containerName          string
-		req                    *pluginapi.ResourceRequest
-		allocationInfo         *state.AllocationInfo
-		allocationResourcesMap *state.AllocationResourcesMap
-		deviceTopology         *machine.DeviceTopology
-		expectedErr            bool
-		expectedResp           *pluginapi.ResourceHintsResponse
+		name                          string
+		podUID                        string
+		containerName                 string
+		req                           *pluginapi.ResourceRequest
+		allocationInfo                *state.AllocationInfo
+		allocationInfoMap             map[v1.ResourceName]*state.AllocationInfo // add allocationInfoMap for multiple resources
+		allocationResourcesMap        *state.AllocationResourcesMap
+		deviceTopology                *machine.DeviceTopology
+		fractionalGPUPrefersSpreading bool // new field to set the config
+		expectedErr                   bool
+		expectedResp                  *pluginapi.ResourceHintsResponse
 	}{
 		{
 			name:          "cannot allocate to the same device name",
@@ -440,6 +444,517 @@ func TestGPUMemPlugin_GetTopologyHints(t *testing.T) {
 			},
 			expectedErr: true,
 		},
+		{
+			name:          "packing mode - all resources agree on same numa",
+			podUID:        "test-pod-pack",
+			containerName: "test-container-pack",
+			req: &pluginapi.ResourceRequest{
+				PodUid:        "test-pod-pack",
+				ContainerName: "test-container-pack",
+				ResourceRequests: map[string]float64{
+					string(consts.ResourceGPUMemory): 4,
+					string(consts.ResourceMilliGPU):  500,
+				},
+			},
+			allocationResourcesMap: &state.AllocationResourcesMap{
+				"gpu_device": {
+					"gpu-0": {
+						PodEntries: map[string]state.ContainerEntries{
+							"pod-1": {
+								"container-1": {
+									DeviceName: "test-gpu",
+									AllocatedAllocation: state.Allocation{
+										Quantity: 1,
+									},
+								},
+							},
+						},
+					},
+				},
+				consts.ResourceGPUMemory: {
+					"gpu-0": {
+						PodEntries: map[string]state.ContainerEntries{
+							"pod-1": {
+								"container-1": {
+									AllocatedAllocation: state.Allocation{
+										Quantity:  2,
+										NUMANodes: []int{0},
+									},
+								},
+							},
+						},
+					},
+					"gpu-1": {
+						PodEntries: map[string]state.ContainerEntries{},
+					},
+					"gpu-2": {
+						PodEntries: map[string]state.ContainerEntries{},
+					},
+					"gpu-3": {
+						PodEntries: map[string]state.ContainerEntries{},
+					},
+				},
+				consts.ResourceMilliGPU: {
+					"gpu-0": {
+						PodEntries: map[string]state.ContainerEntries{
+							"pod-1": {
+								"container-1": {
+									AllocatedAllocation: state.Allocation{
+										Quantity:  500,
+										NUMANodes: []int{0},
+									},
+								},
+							},
+						},
+					},
+					"gpu-1": {
+						PodEntries: map[string]state.ContainerEntries{},
+					},
+					"gpu-2": {
+						PodEntries: map[string]state.ContainerEntries{},
+					},
+					"gpu-3": {
+						PodEntries: map[string]state.ContainerEntries{},
+					},
+				},
+			},
+			deviceTopology: &machine.DeviceTopology{
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-0": {
+						NumaNodes: []int{0},
+						Health:    deviceplugin.Healthy,
+					},
+					"gpu-1": {
+						NumaNodes: []int{1},
+						Health:    deviceplugin.Healthy,
+					},
+					"gpu-2": {
+						NumaNodes: []int{0},
+						Health:    deviceplugin.Healthy,
+					},
+					"gpu-3": {
+						NumaNodes: []int{1},
+						Health:    deviceplugin.Healthy,
+					},
+				},
+			},
+			expectedResp: &pluginapi.ResourceHintsResponse{
+				PodUid:        "test-pod-pack",
+				ContainerName: "test-container-pack",
+				ResourceName:  string(consts.ResourceGPUMemory),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(consts.ResourceGPUMemory): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{0},
+								Preferred: true,
+							},
+							{
+								Nodes:     []uint64{1},
+								Preferred: false,
+							},
+						},
+					},
+					string(consts.ResourceMilliGPU): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{0},
+								Preferred: true,
+							},
+							{
+								Nodes:     []uint64{1},
+								Preferred: false,
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					"katalyst.kubewharf.io/qos_level": "shared_cores",
+				},
+				Annotations: map[string]string{
+					"katalyst.kubewharf.io/qos_level": "shared_cores",
+				},
+			},
+		},
+		{
+			name:          "spreading mode - all resources agree on same numa",
+			podUID:        "test-pod-spread",
+			containerName: "test-container-spread",
+			req: &pluginapi.ResourceRequest{
+				PodUid:        "test-pod-spread",
+				ContainerName: "test-container-spread",
+				ResourceRequests: map[string]float64{
+					string(consts.ResourceGPUMemory): 4,
+					string(consts.ResourceMilliGPU):  500,
+				},
+			},
+			allocationResourcesMap: &state.AllocationResourcesMap{
+				"gpu_device": {
+					"gpu-0": {
+						PodEntries: map[string]state.ContainerEntries{
+							"pod-1": {
+								"container-1": {
+									DeviceName: "test-gpu",
+									AllocatedAllocation: state.Allocation{
+										Quantity: 1,
+									},
+								},
+							},
+						},
+					},
+				},
+				consts.ResourceGPUMemory: {
+					"gpu-0": {
+						PodEntries: map[string]state.ContainerEntries{
+							"pod-1": {
+								"container-1": {
+									AllocatedAllocation: state.Allocation{
+										Quantity:  2,
+										NUMANodes: []int{0},
+									},
+								},
+							},
+						},
+					},
+					"gpu-1": {
+						PodEntries: map[string]state.ContainerEntries{},
+					},
+					"gpu-2": {
+						PodEntries: map[string]state.ContainerEntries{},
+					},
+					"gpu-3": {
+						PodEntries: map[string]state.ContainerEntries{},
+					},
+				},
+				consts.ResourceMilliGPU: {
+					"gpu-0": {
+						PodEntries: map[string]state.ContainerEntries{
+							"pod-1": {
+								"container-1": {
+									AllocatedAllocation: state.Allocation{
+										Quantity:  500,
+										NUMANodes: []int{0},
+									},
+								},
+							},
+						},
+					},
+					"gpu-1": {
+						PodEntries: map[string]state.ContainerEntries{},
+					},
+					"gpu-2": {
+						PodEntries: map[string]state.ContainerEntries{},
+					},
+					"gpu-3": {
+						PodEntries: map[string]state.ContainerEntries{},
+					},
+				},
+			},
+			deviceTopology: &machine.DeviceTopology{
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-0": {
+						NumaNodes: []int{0},
+						Health:    deviceplugin.Healthy,
+					},
+					"gpu-1": {
+						NumaNodes: []int{1},
+						Health:    deviceplugin.Healthy,
+					},
+					"gpu-2": {
+						NumaNodes: []int{0},
+						Health:    deviceplugin.Healthy,
+					},
+					"gpu-3": {
+						NumaNodes: []int{1},
+						Health:    deviceplugin.Healthy,
+					},
+				},
+			},
+			fractionalGPUPrefersSpreading: true,
+			expectedResp: &pluginapi.ResourceHintsResponse{
+				PodUid:        "test-pod-spread",
+				ContainerName: "test-container-spread",
+				ResourceName:  string(consts.ResourceGPUMemory),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(consts.ResourceGPUMemory): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{0},
+								Preferred: false,
+							},
+							{
+								Nodes:     []uint64{1},
+								Preferred: true,
+							},
+						},
+					},
+					string(consts.ResourceMilliGPU): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{0},
+								Preferred: false,
+							},
+							{
+								Nodes:     []uint64{1},
+								Preferred: true,
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					"katalyst.kubewharf.io/qos_level": "shared_cores",
+				},
+				Annotations: map[string]string{
+					"katalyst.kubewharf.io/qos_level": "shared_cores",
+				},
+			},
+		},
+		{
+			name:          "allocation info length mismatch (6a)",
+			podUID:        "test-pod-mismatch",
+			containerName: "test-container-mismatch",
+			req: &pluginapi.ResourceRequest{
+				PodUid:        "test-pod-mismatch",
+				ContainerName: "test-container-mismatch",
+				ResourceRequests: map[string]float64{
+					string(consts.ResourceGPUMemory): 4,
+					string(consts.ResourceMilliGPU):  500,
+				},
+			},
+			allocationInfoMap: map[v1.ResourceName]*state.AllocationInfo{
+				consts.ResourceGPUMemory: {
+					AllocatedAllocation: state.Allocation{
+						Quantity:  4,
+						NUMANodes: []int{0},
+					},
+				}, // no ResourceMilliGPU allocation info!
+			},
+			expectedErr: true,
+		},
+		{
+			name:          "all requested resources have allocation info (6c)",
+			podUID:        "test-pod-all-ai",
+			containerName: "test-container-all-ai",
+			req: &pluginapi.ResourceRequest{
+				PodUid:        "test-pod-all-ai",
+				ContainerName: "test-container-all-ai",
+				ResourceRequests: map[string]float64{
+					string(consts.ResourceGPUMemory): 4,
+					string(consts.ResourceMilliGPU):  500,
+				},
+			},
+			allocationInfoMap: map[v1.ResourceName]*state.AllocationInfo{
+				consts.ResourceGPUMemory: {
+					AllocatedAllocation: state.Allocation{
+						Quantity:  4,
+						NUMANodes: []int{0},
+					},
+				},
+				consts.ResourceMilliGPU: {
+					AllocatedAllocation: state.Allocation{
+						Quantity:  500,
+						NUMANodes: []int{0},
+					},
+				},
+			},
+			expectedResp: &pluginapi.ResourceHintsResponse{
+				PodUid:        "test-pod-all-ai",
+				ContainerName: "test-container-all-ai",
+				ResourceName:  string(consts.ResourceGPUMemory),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(consts.ResourceGPUMemory): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{0},
+								Preferred: true,
+							},
+						},
+					},
+					string(consts.ResourceMilliGPU): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{0},
+								Preferred: true,
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					"katalyst.kubewharf.io/qos_level": "shared_cores",
+				},
+				Annotations: map[string]string{
+					"katalyst.kubewharf.io/qos_level": "shared_cores",
+				},
+			},
+		},
+		{
+			name:          "no clear cut best numa across different resources",
+			podUID:        "test-pod-no-clear-best",
+			containerName: "test-container-no-clear-best",
+			req: &pluginapi.ResourceRequest{
+				PodUid:        "test-pod-no-clear-best",
+				ContainerName: "test-container-no-clear-best",
+				ResourceRequests: map[string]float64{
+					string(consts.ResourceGPUMemory): 4,
+					string(consts.ResourceMilliGPU):  500,
+				},
+			},
+			allocationResourcesMap: &state.AllocationResourcesMap{
+				"gpu_device": {},
+				consts.ResourceGPUMemory: {
+					"gpu-0": {
+						PodEntries: map[string]state.ContainerEntries{
+							"pod-1": {
+								"container-1": {
+									AllocatedAllocation: state.Allocation{
+										Quantity:  2,
+										NUMANodes: []int{0},
+									},
+								},
+							},
+						},
+					},
+					"gpu-1": {
+						PodEntries: map[string]state.ContainerEntries{},
+					},
+					"gpu-2": {
+						PodEntries: map[string]state.ContainerEntries{},
+					},
+					"gpu-3": {
+						PodEntries: map[string]state.ContainerEntries{},
+					},
+				},
+				consts.ResourceMilliGPU: {
+					"gpu-0": {
+						PodEntries: map[string]state.ContainerEntries{},
+					},
+					"gpu-1": {
+						PodEntries: map[string]state.ContainerEntries{
+							"pod-1": {
+								"container-1": {
+									AllocatedAllocation: state.Allocation{
+										Quantity:  500,
+										NUMANodes: []int{1},
+									},
+								},
+							},
+						},
+					},
+					"gpu-2": {
+						PodEntries: map[string]state.ContainerEntries{},
+					},
+					"gpu-3": {
+						PodEntries: map[string]state.ContainerEntries{},
+					},
+				},
+			},
+			deviceTopology: &machine.DeviceTopology{
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-0": {
+						NumaNodes: []int{0},
+						Health:    deviceplugin.Healthy,
+					},
+					"gpu-1": {
+						NumaNodes: []int{1},
+						Health:    deviceplugin.Healthy,
+					},
+					"gpu-2": {
+						NumaNodes: []int{0},
+						Health:    deviceplugin.Healthy,
+					},
+					"gpu-3": {
+						NumaNodes: []int{1},
+						Health:    deviceplugin.Healthy,
+					},
+				},
+			},
+			expectedResp: &pluginapi.ResourceHintsResponse{
+				PodUid:        "test-pod-no-clear-best",
+				ContainerName: "test-container-no-clear-best",
+				ResourceName:  string(consts.ResourceGPUMemory),
+				ResourceHints: map[string]*pluginapi.ListOfTopologyHints{
+					string(consts.ResourceGPUMemory): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{0},
+								Preferred: true,
+							},
+							{
+								Nodes:     []uint64{1},
+								Preferred: true,
+							},
+						},
+					},
+					string(consts.ResourceMilliGPU): {
+						Hints: []*pluginapi.TopologyHint{
+							{
+								Nodes:     []uint64{0},
+								Preferred: true,
+							},
+							{
+								Nodes:     []uint64{1},
+								Preferred: true,
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					"katalyst.kubewharf.io/qos_level": "shared_cores",
+				},
+				Annotations: map[string]string{
+					"katalyst.kubewharf.io/qos_level": "shared_cores",
+				},
+			},
+		},
+		{
+			name:          "milligpu requested with physical gpu (error)",
+			podUID:        "test-pod-milligpu-with-gpu",
+			containerName: "test-container-milligpu-with-gpu",
+			req: &pluginapi.ResourceRequest{
+				PodUid:        "test-pod-milligpu-with-gpu",
+				ContainerName: "test-container-milligpu-with-gpu",
+				ResourceRequests: map[string]float64{
+					"test-gpu":                       1,
+					string(consts.ResourceGPUMemory): 4,
+					string(consts.ResourceMilliGPU):  500,
+				},
+			},
+			deviceTopology: &machine.DeviceTopology{
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-0": {
+						NumaNodes: []int{0},
+						Health:    deviceplugin.Healthy,
+					},
+					"gpu-1": {
+						NumaNodes: []int{1},
+						Health:    deviceplugin.Healthy,
+					},
+				},
+			},
+			expectedErr: true,
+		},
+		{
+			name:          "per GPU requested quantity exceeds allocatable (error)",
+			podUID:        "test-pod-too-much",
+			containerName: "test-container-too-much",
+			req: &pluginapi.ResourceRequest{
+				PodUid:        "test-pod-too-much",
+				ContainerName: "test-container-too-much",
+				ResourceRequests: map[string]float64{
+					"test-gpu":                       1,
+					string(consts.ResourceGPUMemory): 20, // allocatable per GPU is 8
+				},
+			},
+			deviceTopology: &machine.DeviceTopology{
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-0": {
+						NumaNodes: []int{0},
+						Health:    deviceplugin.Healthy,
+					},
+				},
+			},
+			expectedErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -453,8 +968,19 @@ func TestGPUMemPlugin_GetTopologyHints(t *testing.T) {
 			gpuMemPlugin, ok := resourcePlugin.(*GPUMemPlugin)
 			assert.True(t, ok)
 
+			// Set the spreading config option
+			gpuMemPlugin.Conf.FractionalGPUPrefersSpreading = tt.fractionalGPUPrefersSpreading
+
+			err := gpuMemPlugin.RegisterExtraResourceStateGenerator(string(consts.ResourceMilliGPU))
+			assert.NoError(t, err)
+
 			if tt.allocationInfo != nil {
 				basePlugin.GetState().SetAllocationInfo(consts.ResourceGPUMemory, tt.podUID, tt.containerName, tt.allocationInfo, false)
+			}
+			if tt.allocationInfoMap != nil {
+				for resName, ai := range tt.allocationInfoMap {
+					basePlugin.GetState().SetAllocationInfo(resName, tt.podUID, tt.containerName, ai, false)
+				}
 			}
 
 			if tt.allocationResourcesMap != nil {
@@ -481,12 +1007,16 @@ func TestGPUMemPlugin_Allocate(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		resourceReq    *pluginapi.ResourceRequest
-		deviceReq      *pluginapi.DeviceRequest
-		allocationInfo *state.AllocationInfo
-		expectedResp   *pluginapi.ResourceAllocationResponse
-		expectedErr    bool
+		name                          string
+		resourceReq                   *pluginapi.ResourceRequest
+		deviceReq                     *pluginapi.DeviceRequest
+		allocationInfo                *state.AllocationInfo
+		allocationResourcesMap        *state.AllocationResourcesMap
+		deviceTopology                *machine.DeviceTopology
+		fractionalGPUPrefersSpreading bool
+		expectedResp                  *pluginapi.ResourceAllocationResponse
+		expectedErr                   bool
+		expectedSelectedGPUID         string
 	}{
 		{
 			name: "nil device request returns empty response",
@@ -575,6 +1105,330 @@ func TestGPUMemPlugin_Allocate(t *testing.T) {
 			},
 			expectedErr: true,
 		},
+		{
+			name: "allocate with both gpu memory and milligpu request - spreading mode",
+			resourceReq: &pluginapi.ResourceRequest{
+				PodUid:        "test-pod-milligpu-spread",
+				ContainerName: "test-container-milligpu-spread",
+				ResourceRequests: map[string]float64{
+					string(consts.ResourceGPUMemory): 2,
+					string(consts.ResourceMilliGPU):  500,
+				},
+				ContainerType: pluginapi.ContainerType_MAIN,
+			},
+			deviceReq: nil,
+			allocationResourcesMap: &state.AllocationResourcesMap{
+				"gpu_device": {},
+				consts.ResourceGPUMemory: {
+					"gpu-0": {
+						Allocatable: 4,
+						PodEntries: map[string]state.ContainerEntries{
+							"existing-pod": {
+								"existing-container": &state.AllocationInfo{
+									AllocationMeta: commonstate.AllocationMeta{
+										PodUid:        "existing-pod",
+										ContainerName: "existing-container",
+									},
+									AllocatedAllocation: state.Allocation{
+										Quantity: 1,
+									},
+								},
+							},
+						},
+					},
+					"gpu-1": {
+						Allocatable: 4,
+						PodEntries:  map[string]state.ContainerEntries{},
+					},
+				},
+				consts.ResourceMilliGPU: {
+					"gpu-0": {
+						Allocatable: 1000,
+						PodEntries: map[string]state.ContainerEntries{
+							"existing-pod": {
+								"existing-container": &state.AllocationInfo{
+									AllocationMeta: commonstate.AllocationMeta{
+										PodUid:        "existing-pod",
+										ContainerName: "existing-container",
+									},
+									AllocatedAllocation: state.Allocation{
+										Quantity: 300,
+									},
+								},
+							},
+						},
+					},
+					"gpu-1": {
+						Allocatable: 1000,
+						PodEntries:  map[string]state.ContainerEntries{},
+					},
+				},
+			},
+			deviceTopology: &machine.DeviceTopology{
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-0": {
+						NumaNodes: []int{0},
+						Health:    deviceplugin.Healthy,
+					},
+					"gpu-1": {
+						NumaNodes: []int{1},
+						Health:    deviceplugin.Healthy,
+					},
+				},
+			},
+			fractionalGPUPrefersSpreading: true,
+			expectedResp: &pluginapi.ResourceAllocationResponse{
+				PodUid:        "test-pod-milligpu-spread",
+				PodNamespace:  "",
+				PodName:       "",
+				ContainerName: "test-container-milligpu-spread",
+				ContainerType: pluginapi.ContainerType_MAIN,
+				ResourceName:  string(consts.ResourceGPUMemory),
+				AllocationResult: &pluginapi.ResourceAllocation{
+					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+						string(consts.ResourceGPUMemory): {
+							IsNodeResource:    true,
+							IsScalarResource:  true,
+							AllocatedQuantity: 2,
+							ResourceHints: &pluginapi.ListOfTopologyHints{
+								Hints: []*pluginapi.TopologyHint{nil},
+							},
+						},
+						string(consts.ResourceMilliGPU): {
+							IsNodeResource:    true,
+							IsScalarResource:  true,
+							AllocatedQuantity: 500,
+							ResourceHints: &pluginapi.ListOfTopologyHints{
+								Hints: []*pluginapi.TopologyHint{nil},
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					"katalyst.kubewharf.io/qos_level": "shared_cores",
+				},
+				Annotations: map[string]string{
+					"katalyst.kubewharf.io/qos_level": "shared_cores",
+				},
+			},
+			expectedSelectedGPUID: "gpu-1",
+		},
+		{
+			name: "allocate with both gpu memory and milligpu request - packing mode",
+			resourceReq: &pluginapi.ResourceRequest{
+				PodUid:        "test-pod-milligpu-pack",
+				ContainerName: "test-container-milligpu-pack",
+				ResourceRequests: map[string]float64{
+					string(consts.ResourceGPUMemory): 2,
+					string(consts.ResourceMilliGPU):  500,
+				},
+				ContainerType: pluginapi.ContainerType_MAIN,
+			},
+			deviceReq: nil,
+			allocationResourcesMap: &state.AllocationResourcesMap{
+				"gpu_device": {},
+				consts.ResourceGPUMemory: {
+					"gpu-0": {
+						Allocatable: 4,
+						PodEntries: map[string]state.ContainerEntries{
+							"existing-pod": {
+								"existing-container": &state.AllocationInfo{
+									AllocationMeta: commonstate.AllocationMeta{
+										PodUid:        "existing-pod",
+										ContainerName: "existing-container",
+									},
+									AllocatedAllocation: state.Allocation{
+										Quantity: 1,
+									},
+								},
+							},
+						},
+					},
+					"gpu-1": {
+						Allocatable: 4,
+						PodEntries:  map[string]state.ContainerEntries{},
+					},
+				},
+				consts.ResourceMilliGPU: {
+					"gpu-0": {
+						Allocatable: 1000,
+						PodEntries: map[string]state.ContainerEntries{
+							"existing-pod": {
+								"existing-container": &state.AllocationInfo{
+									AllocationMeta: commonstate.AllocationMeta{
+										PodUid:        "existing-pod",
+										ContainerName: "existing-container",
+									},
+									AllocatedAllocation: state.Allocation{
+										Quantity: 300,
+									},
+								},
+							},
+						},
+					},
+					"gpu-1": {
+						Allocatable: 1000,
+						PodEntries:  map[string]state.ContainerEntries{},
+					},
+				},
+			},
+			deviceTopology: &machine.DeviceTopology{
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-0": {
+						NumaNodes: []int{0},
+						Health:    deviceplugin.Healthy,
+					},
+					"gpu-1": {
+						NumaNodes: []int{1},
+						Health:    deviceplugin.Healthy,
+					},
+				},
+			},
+			fractionalGPUPrefersSpreading: false,
+			expectedResp: &pluginapi.ResourceAllocationResponse{
+				PodUid:        "test-pod-milligpu-pack",
+				PodNamespace:  "",
+				PodName:       "",
+				ContainerName: "test-container-milligpu-pack",
+				ContainerType: pluginapi.ContainerType_MAIN,
+				ResourceName:  string(consts.ResourceGPUMemory),
+				AllocationResult: &pluginapi.ResourceAllocation{
+					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+						string(consts.ResourceGPUMemory): {
+							IsNodeResource:    true,
+							IsScalarResource:  true,
+							AllocatedQuantity: 2,
+							ResourceHints: &pluginapi.ListOfTopologyHints{
+								Hints: []*pluginapi.TopologyHint{nil},
+							},
+						},
+						string(consts.ResourceMilliGPU): {
+							IsNodeResource:    true,
+							IsScalarResource:  true,
+							AllocatedQuantity: 500,
+							ResourceHints: &pluginapi.ListOfTopologyHints{
+								Hints: []*pluginapi.TopologyHint{nil},
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					"katalyst.kubewharf.io/qos_level": "shared_cores",
+				},
+				Annotations: map[string]string{
+					"katalyst.kubewharf.io/qos_level": "shared_cores",
+				},
+			},
+			expectedSelectedGPUID: "gpu-0",
+		},
+		{
+			name: "allocate with no clear-cut GPU - no common GPU",
+			resourceReq: &pluginapi.ResourceRequest{
+				PodUid:        "test-pod-no-common",
+				ContainerName: "test-container-no-common",
+				ResourceRequests: map[string]float64{
+					string(consts.ResourceGPUMemory): 1,
+					string(consts.ResourceMilliGPU):  300,
+				},
+				ContainerType: pluginapi.ContainerType_MAIN,
+			},
+			deviceReq: nil,
+			allocationResourcesMap: &state.AllocationResourcesMap{
+				"gpu_device": {},
+				consts.ResourceGPUMemory: {
+					"gpu-0": {
+						Allocatable: 4,
+						PodEntries:  map[string]state.ContainerEntries{}, // most unallocated for GPU memory here
+					},
+					"gpu-1": {
+						Allocatable: 4,
+						PodEntries: map[string]state.ContainerEntries{
+							"existing-pod": {
+								"existing-container": &state.AllocationInfo{
+									AllocationMeta: commonstate.AllocationMeta{
+										PodUid:        "existing-pod",
+										ContainerName: "existing-container",
+									},
+									AllocatedAllocation: state.Allocation{
+										Quantity: 3,
+									},
+								},
+							},
+						},
+					},
+				},
+				consts.ResourceMilliGPU: {
+					"gpu-0": {
+						Allocatable: 1000,
+						PodEntries: map[string]state.ContainerEntries{
+							"existing-pod": {
+								"existing-container": &state.AllocationInfo{
+									AllocationMeta: commonstate.AllocationMeta{
+										PodUid:        "existing-pod",
+										ContainerName: "existing-container",
+									},
+									AllocatedAllocation: state.Allocation{
+										Quantity: 700,
+									},
+								},
+							},
+						},
+					},
+					"gpu-1": {
+						Allocatable: 1000,
+						PodEntries:  map[string]state.ContainerEntries{}, // most unallocated for milligpu here
+					},
+				},
+			},
+			deviceTopology: &machine.DeviceTopology{
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-0": {
+						NumaNodes: []int{0},
+						Health:    deviceplugin.Healthy,
+					},
+					"gpu-1": {
+						NumaNodes: []int{1},
+						Health:    deviceplugin.Healthy,
+					},
+				},
+			},
+			fractionalGPUPrefersSpreading: true,
+			expectedResp: &pluginapi.ResourceAllocationResponse{
+				PodUid:        "test-pod-no-common",
+				PodNamespace:  "",
+				PodName:       "",
+				ContainerName: "test-container-no-common",
+				ContainerType: pluginapi.ContainerType_MAIN,
+				ResourceName:  string(consts.ResourceGPUMemory),
+				AllocationResult: &pluginapi.ResourceAllocation{
+					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+						string(consts.ResourceGPUMemory): {
+							IsNodeResource:    true,
+							IsScalarResource:  true,
+							AllocatedQuantity: 1,
+							ResourceHints: &pluginapi.ListOfTopologyHints{
+								Hints: []*pluginapi.TopologyHint{nil},
+							},
+						},
+						string(consts.ResourceMilliGPU): {
+							IsNodeResource:    true,
+							IsScalarResource:  true,
+							AllocatedQuantity: 300,
+							ResourceHints: &pluginapi.ListOfTopologyHints{
+								Hints: []*pluginapi.TopologyHint{nil},
+							},
+						},
+					},
+				},
+				Labels: map[string]string{
+					"katalyst.kubewharf.io/qos_level": "shared_cores",
+				},
+				Annotations: map[string]string{
+					"katalyst.kubewharf.io/qos_level": "shared_cores",
+				},
+			},
+			expectedSelectedGPUID: "gpu-0", // should pick first from first resource's list!
+		},
 	}
 
 	for _, tt := range tests {
@@ -583,6 +1437,16 @@ func TestGPUMemPlugin_Allocate(t *testing.T) {
 			t.Parallel()
 
 			basePlugin := makeTestBasePlugin(t)
+			basePlugin.Conf.FractionalGPUPrefersSpreading = tt.fractionalGPUPrefersSpreading
+
+			if tt.deviceTopology != nil {
+				basePlugin.DeviceTopologyRegistry.SetDeviceTopology("test-gpu", tt.deviceTopology)
+			}
+
+			if tt.allocationResourcesMap != nil {
+				basePlugin.GetState().SetMachineState(*tt.allocationResourcesMap, true)
+			}
+
 			resourcePlugin := NewGPUMemPlugin(basePlugin)
 
 			gpuMemPlugin, ok := resourcePlugin.(*GPUMemPlugin)
@@ -597,7 +1461,29 @@ func TestGPUMemPlugin_Allocate(t *testing.T) {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
-				assert.Equal(t, tt.expectedResp, resp)
+				// For allocateWithoutGPUDevices test case with expectedResp, check the response
+				if tt.expectedResp != nil {
+					assert.Equal(t, tt.expectedResp, resp)
+				} else if _, ok := tt.resourceReq.ResourceRequests[string(consts.ResourceMilliGPU)]; ok && tt.deviceReq == nil {
+					// For other allocateWithoutGPUDevices test cases, check allocation info in state
+					allocationInfoGPU := basePlugin.GetState().GetAllocationInfo(consts.ResourceGPUMemory, tt.resourceReq.PodUid, tt.resourceReq.ContainerName)
+					allocationInfoMilliGPU := basePlugin.GetState().GetAllocationInfo(consts.ResourceMilliGPU, tt.resourceReq.PodUid, tt.resourceReq.ContainerName)
+					assert.NotNil(t, allocationInfoGPU)
+					assert.NotNil(t, allocationInfoMilliGPU)
+				} else {
+					// For regular test cases, check expected response
+					assert.Equal(t, tt.expectedResp, resp)
+				}
+
+				// Check expected selected GPU ID if specified
+				if tt.expectedSelectedGPUID != "" {
+					allocationInfoGPU := basePlugin.GetState().GetAllocationInfo(consts.ResourceGPUMemory, tt.resourceReq.PodUid, tt.resourceReq.ContainerName)
+					assert.NotNil(t, allocationInfoGPU)
+					assert.Equal(t, 1, len(allocationInfoGPU.TopologyAwareAllocations))
+					for gpuID := range allocationInfoGPU.TopologyAwareAllocations {
+						assert.Equal(t, tt.expectedSelectedGPUID, gpuID)
+					}
+				}
 			}
 		})
 	}
@@ -611,7 +1497,7 @@ func TestGPUMemPlugin_GetTopologyAwareResources(t *testing.T) {
 		podUID         string
 		containerName  string
 		allocationInfo *state.AllocationInfo
-		expectedResp   *pluginapi.GetTopologyAwareResourcesResponse
+		expectedResp   map[string]*pluginapi.GetTopologyAwareResourcesResponse
 	}{
 		{
 			name:          "no existing allocation info",
@@ -639,54 +1525,110 @@ func TestGPUMemPlugin_GetTopologyAwareResources(t *testing.T) {
 					},
 				},
 			},
-			expectedResp: &pluginapi.GetTopologyAwareResourcesResponse{
-				PodUid: "test-pod1",
-				ContainerTopologyAwareResources: &pluginapi.ContainerTopologyAwareResources{
-					ContainerName: "test-container1",
-					AllocatedResources: map[string]*pluginapi.TopologyAwareResource{
-						string(consts.ResourceGPUMemory): {
-							IsNodeResource:             true,
-							IsScalarResource:           true,
-							AggregatedQuantity:         16,
-							OriginalAggregatedQuantity: 16,
-							TopologyAwareQuantityList: []*pluginapi.TopologyAwareQuantity{
-								{
-									ResourceValue: 4,
-									Name:          "gpu-0",
-									Type:          string(v1alpha1.TopologyTypeGPU),
-									Annotations: map[string]string{
-										consts.ResourceAnnotationKeyResourceIdentifier: "",
+			expectedResp: map[string]*pluginapi.GetTopologyAwareResourcesResponse{
+				string(consts.ResourceGPUMemory): {
+					PodUid: "test-pod1",
+					ContainerTopologyAwareResources: &pluginapi.ContainerTopologyAwareResources{
+						ContainerName: "test-container1",
+						AllocatedResources: map[string]*pluginapi.TopologyAwareResource{
+							string(consts.ResourceGPUMemory): {
+								IsNodeResource:             true,
+								IsScalarResource:           true,
+								AggregatedQuantity:         16,
+								OriginalAggregatedQuantity: 16,
+								TopologyAwareQuantityList: []*pluginapi.TopologyAwareQuantity{
+									{
+										ResourceValue: 4,
+										Name:          "gpu-0",
+										Type:          string(v1alpha1.TopologyTypeGPU),
+										Annotations: map[string]string{
+											consts.ResourceAnnotationKeyResourceIdentifier: "",
+										},
+										Node: 0,
 									},
-									Node: 0,
+									{
+										ResourceValue: 8,
+										Name:          "gpu-1",
+										Type:          string(v1alpha1.TopologyTypeGPU),
+										Annotations: map[string]string{
+											consts.ResourceAnnotationKeyResourceIdentifier: "",
+										},
+										Node: 1,
+									},
 								},
-								{
-									ResourceValue: 8,
-									Name:          "gpu-1",
-									Type:          string(v1alpha1.TopologyTypeGPU),
-									Annotations: map[string]string{
-										consts.ResourceAnnotationKeyResourceIdentifier: "",
+								OriginalTopologyAwareQuantityList: []*pluginapi.TopologyAwareQuantity{
+									{
+										ResourceValue: 4,
+										Name:          "gpu-0",
+										Type:          string(v1alpha1.TopologyTypeGPU),
+										Annotations: map[string]string{
+											consts.ResourceAnnotationKeyResourceIdentifier: "",
+										},
+										Node: 0,
 									},
-									Node: 1,
+									{
+										ResourceValue: 8,
+										Name:          "gpu-1",
+										Type:          string(v1alpha1.TopologyTypeGPU),
+										Annotations: map[string]string{
+											consts.ResourceAnnotationKeyResourceIdentifier: "",
+										},
+										Node: 1,
+									},
 								},
 							},
-							OriginalTopologyAwareQuantityList: []*pluginapi.TopologyAwareQuantity{
-								{
-									ResourceValue: 4,
-									Name:          "gpu-0",
-									Type:          string(v1alpha1.TopologyTypeGPU),
-									Annotations: map[string]string{
-										consts.ResourceAnnotationKeyResourceIdentifier: "",
+						},
+					},
+				},
+				string(consts.ResourceMilliGPU): {
+					PodUid: "test-pod1",
+					ContainerTopologyAwareResources: &pluginapi.ContainerTopologyAwareResources{
+						ContainerName: "test-container1",
+						AllocatedResources: map[string]*pluginapi.TopologyAwareResource{
+							string(consts.ResourceMilliGPU): {
+								IsNodeResource:             true,
+								IsScalarResource:           true,
+								AggregatedQuantity:         16,
+								OriginalAggregatedQuantity: 16,
+								TopologyAwareQuantityList: []*pluginapi.TopologyAwareQuantity{
+									{
+										ResourceValue: 4,
+										Name:          "gpu-0",
+										Type:          string(v1alpha1.TopologyTypeGPU),
+										Annotations: map[string]string{
+											consts.ResourceAnnotationKeyResourceIdentifier: "",
+										},
+										Node: 0,
 									},
-									Node: 0,
+									{
+										ResourceValue: 8,
+										Name:          "gpu-1",
+										Type:          string(v1alpha1.TopologyTypeGPU),
+										Annotations: map[string]string{
+											consts.ResourceAnnotationKeyResourceIdentifier: "",
+										},
+										Node: 1,
+									},
 								},
-								{
-									ResourceValue: 8,
-									Name:          "gpu-1",
-									Type:          string(v1alpha1.TopologyTypeGPU),
-									Annotations: map[string]string{
-										consts.ResourceAnnotationKeyResourceIdentifier: "",
+								OriginalTopologyAwareQuantityList: []*pluginapi.TopologyAwareQuantity{
+									{
+										ResourceValue: 4,
+										Name:          "gpu-0",
+										Type:          string(v1alpha1.TopologyTypeGPU),
+										Annotations: map[string]string{
+											consts.ResourceAnnotationKeyResourceIdentifier: "",
+										},
+										Node: 0,
 									},
-									Node: 1,
+									{
+										ResourceValue: 8,
+										Name:          "gpu-1",
+										Type:          string(v1alpha1.TopologyTypeGPU),
+										Annotations: map[string]string{
+											consts.ResourceAnnotationKeyResourceIdentifier: "",
+										},
+										Node: 1,
+									},
 								},
 							},
 						},
@@ -709,6 +1651,7 @@ func TestGPUMemPlugin_GetTopologyAwareResources(t *testing.T) {
 
 			if tt.allocationInfo != nil {
 				basePlugin.GetState().SetAllocationInfo(consts.ResourceGPUMemory, tt.podUID, tt.containerName, tt.allocationInfo, false)
+				basePlugin.GetState().SetAllocationInfo(consts.ResourceMilliGPU, tt.podUID, tt.containerName, tt.allocationInfo, false)
 			}
 
 			resp, err := gpuMemPlugin.GetTopologyAwareResources(context.Background(), tt.podUID, tt.containerName)
@@ -730,7 +1673,7 @@ func TestGPUMemPlugin_GetTopologyAwareAllocatableResources(t *testing.T) {
 	tests := []struct {
 		name           string
 		deviceTopology *machine.DeviceTopology
-		expectedResp   *gpuconsts.AllocatableResource
+		expectedResp   map[string]*pluginapi.AllocatableTopologyAwareResource
 		expectedErr    bool
 	}{
 		{
@@ -751,9 +1694,8 @@ func TestGPUMemPlugin_GetTopologyAwareAllocatableResources(t *testing.T) {
 					},
 				},
 			},
-			expectedResp: &gpuconsts.AllocatableResource{
-				ResourceName: string(consts.ResourceGPUMemory),
-				AllocatableTopologyAwareResource: &pluginapi.AllocatableTopologyAwareResource{
+			expectedResp: map[string]*pluginapi.AllocatableTopologyAwareResource{
+				string(consts.ResourceGPUMemory): {
 					IsNodeResource:                true,
 					IsScalarResource:              true,
 					AggregatedAllocatableQuantity: 8,
@@ -790,6 +1732,52 @@ func TestGPUMemPlugin_GetTopologyAwareAllocatableResources(t *testing.T) {
 						},
 						{
 							ResourceValue: 4,
+							Name:          "gpu-1",
+							Type:          string(v1alpha1.TopologyTypeGPU),
+							Node:          1,
+							Annotations: map[string]string{
+								consts.ResourceAnnotationKeyResourceIdentifier: "",
+							},
+						},
+					},
+				},
+				string(consts.ResourceMilliGPU): {
+					IsNodeResource:                true,
+					IsScalarResource:              true,
+					AggregatedAllocatableQuantity: 2000, // 2 GPUs × 1000 milliGPU each
+					TopologyAwareAllocatableQuantityList: []*pluginapi.TopologyAwareQuantity{
+						{
+							ResourceValue: 1000,
+							Name:          "gpu-0",
+							Type:          string(v1alpha1.TopologyTypeGPU),
+							Node:          0,
+							Annotations: map[string]string{
+								consts.ResourceAnnotationKeyResourceIdentifier: "",
+							},
+						},
+						{
+							ResourceValue: 1000,
+							Name:          "gpu-1",
+							Type:          string(v1alpha1.TopologyTypeGPU),
+							Node:          1,
+							Annotations: map[string]string{
+								consts.ResourceAnnotationKeyResourceIdentifier: "",
+							},
+						},
+					},
+					AggregatedCapacityQuantity: 2000,
+					TopologyAwareCapacityQuantityList: []*pluginapi.TopologyAwareQuantity{
+						{
+							ResourceValue: 1000,
+							Name:          "gpu-0",
+							Type:          string(v1alpha1.TopologyTypeGPU),
+							Node:          0,
+							Annotations: map[string]string{
+								consts.ResourceAnnotationKeyResourceIdentifier: "",
+							},
+						},
+						{
+							ResourceValue: 1000,
 							Name:          "gpu-1",
 							Type:          string(v1alpha1.TopologyTypeGPU),
 							Node:          1,
@@ -815,9 +1803,8 @@ func TestGPUMemPlugin_GetTopologyAwareAllocatableResources(t *testing.T) {
 					},
 				},
 			},
-			expectedResp: &gpuconsts.AllocatableResource{
-				ResourceName: string(consts.ResourceGPUMemory),
-				AllocatableTopologyAwareResource: &pluginapi.AllocatableTopologyAwareResource{
+			expectedResp: map[string]*pluginapi.AllocatableTopologyAwareResource{
+				string(consts.ResourceGPUMemory): {
 					IsNodeResource:                true,
 					IsScalarResource:              true,
 					AggregatedAllocatableQuantity: 8,
@@ -851,6 +1838,48 @@ func TestGPUMemPlugin_GetTopologyAwareAllocatableResources(t *testing.T) {
 						},
 						{
 							ResourceValue: 4,
+							Name:          "gpu-1",
+							Type:          string(v1alpha1.TopologyTypeGPU),
+							Annotations: map[string]string{
+								consts.ResourceAnnotationKeyResourceIdentifier: "",
+							},
+						},
+					},
+				},
+				string(consts.ResourceMilliGPU): {
+					IsNodeResource:                true,
+					IsScalarResource:              true,
+					AggregatedAllocatableQuantity: 2000, // 2 GPUs × 1000 milliGPU each
+					TopologyAwareAllocatableQuantityList: []*pluginapi.TopologyAwareQuantity{
+						{
+							ResourceValue: 1000,
+							Name:          "gpu-0",
+							Type:          string(v1alpha1.TopologyTypeGPU),
+							Annotations: map[string]string{
+								consts.ResourceAnnotationKeyResourceIdentifier: "",
+							},
+						},
+						{
+							ResourceValue: 1000,
+							Name:          "gpu-1",
+							Type:          string(v1alpha1.TopologyTypeGPU),
+							Annotations: map[string]string{
+								consts.ResourceAnnotationKeyResourceIdentifier: "",
+							},
+						},
+					},
+					AggregatedCapacityQuantity: 2000,
+					TopologyAwareCapacityQuantityList: []*pluginapi.TopologyAwareQuantity{
+						{
+							ResourceValue: 1000,
+							Name:          "gpu-0",
+							Type:          string(v1alpha1.TopologyTypeGPU),
+							Annotations: map[string]string{
+								consts.ResourceAnnotationKeyResourceIdentifier: "",
+							},
+						},
+						{
+							ResourceValue: 1000,
 							Name:          "gpu-1",
 							Type:          string(v1alpha1.TopologyTypeGPU),
 							Annotations: map[string]string{
