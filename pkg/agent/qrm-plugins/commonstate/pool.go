@@ -47,9 +47,10 @@ const (
 // FakedNUMAID represents a placeholder since pools like shared/reclaimed will not contain a specific numa
 const (
 	FakedContainerName = ""
-	FakedNUMAID        = -1
-	NameSeparator      = "#"
-	NUMAPoolInfix      = "-NUMA"
+	// FakedNUMAID means no numa binding is specified, pods will be allocated on one or multi NUMA nodes
+	FakedNUMAID   = -1
+	NameSeparator = "#"
+	NUMAPoolInfix = "-NUMA"
 )
 
 const (

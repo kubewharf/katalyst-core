@@ -25,14 +25,16 @@ import (
 )
 
 type CPURegionOptions struct {
-	CPUShare          *CPUShareOptions
-	RestrictRefPolicy map[string]string
+	CPUShare              *CPUShareOptions
+	RestrictRefPolicy     map[string]string
+	EnableEmptyNUMARegion bool
 }
 
 func NewCPURegionOptions() *CPURegionOptions {
 	return &CPURegionOptions{
-		CPUShare:          NewCPUShareOptions(),
-		RestrictRefPolicy: map[string]string{string(types.CPUProvisionPolicyRama): string(types.CPUProvisionPolicyDynamicQuota)},
+		CPUShare:              NewCPUShareOptions(),
+		RestrictRefPolicy:     map[string]string{string(types.CPUProvisionPolicyRama): string(types.CPUProvisionPolicyDynamicQuota)},
+		EnableEmptyNUMARegion: false,
 	}
 }
 
@@ -46,6 +48,7 @@ func (o *CPURegionOptions) ApplyTo(c *region.CPURegionConfiguration) error {
 		restrictRefPolicy[types.CPUProvisionPolicyName(k)] = types.CPUProvisionPolicyName(v)
 	}
 	c.RestrictRefPolicy = restrictRefPolicy
+	c.EnableEmptyNUMARegion = o.EnableEmptyNUMARegion
 	return errors.NewAggregate(errList)
 }
 
@@ -56,4 +59,6 @@ func (o *CPURegionOptions) AddFlags(fs *pflag.FlagSet) {
 	// AddFlags adds flags to the specified FlagSet.
 	fs.StringToStringVar(&o.RestrictRefPolicy, "region-restrict-ref-policy", o.RestrictRefPolicy,
 		"the provision policy map is used to restrict the control knob of base policy by the one of reference for CPU region")
+	fs.BoolVar(&o.EnableEmptyNUMARegion, "enable-empty-numa-region", false,
+		"whether to enable empty NUMA region")
 }

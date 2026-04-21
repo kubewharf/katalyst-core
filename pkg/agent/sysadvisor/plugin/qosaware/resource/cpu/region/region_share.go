@@ -27,6 +27,7 @@ import (
 	"github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/provision"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	pkgconsts "github.com/kubewharf/katalyst-core/pkg/consts"
@@ -64,7 +65,7 @@ func NewQoSRegionShare(ci *types.ContainerInfo, conf *config.Configuration, extr
 	}
 
 	if isNumaBinding {
-		r.bindingNumas = machine.NewCPUSet(numaID)
+		r.cpusetMems = machine.NewCPUSet(numaID)
 	}
 	r.indicatorCurrentGetters = map[string]types.IndicatorCurrentGetter{
 		string(v1alpha1.ServiceSystemIndicatorNameCPUSchedWait):             r.getPoolCPUSchedWait,
@@ -82,15 +83,6 @@ func (r *QoSRegionShare) TryUpdateProvision() {
 
 	// update each provision policy
 	r.updateProvisionPolicy()
-
-	// get raw provision control knob
-	rawControlKnobs := r.getProvisionControlKnob()
-
-	// restrict control knobs by reference policy
-	restrictedControlKnobs := r.restrictProvisionControlKnob(rawControlKnobs)
-
-	// regulate control knobs
-	r.regulateProvisionControlKnob(restrictedControlKnobs, r.getEffectiveControlKnobs())
 }
 
 func (r *QoSRegionShare) updateProvisionPolicy() {
@@ -107,21 +99,17 @@ func (r *QoSRegionShare) updateProvisionPolicy() {
 		general.Infof("indicators %v for region %v", indicators, r.name)
 	}
 
-	// update internal policy
-	for _, internal := range r.provisionPolicies {
-		internal.updateStatus = types.PolicyUpdateFailed
+	ctx := provision.PolicyContext{
+		ResourceEssentials: r.ResourceEssentials,
+		ControlEssentials:  r.ControlEssentials,
+		PodSet:             r.podSet,
+		CpusetMems:         r.cpusetMems,
+		IsNUMABinding:      r.isNumaBinding,
+		RegulatorOptions:   r.cpuRegulatorOptions,
+	}
 
-		// set essentials for policy and regulator
-		internal.policy.SetPodSet(r.podSet)
-		internal.policy.SetBindingNumas(r.bindingNumas, r.isNumaBinding)
-		internal.policy.SetEssentials(r.ResourceEssentials, r.ControlEssentials)
-
-		// run an episode of policy update
-		if err := internal.policy.Update(); err != nil {
-			klog.Errorf("[qosaware-cpu] update policy %v failed: %v", internal.name, err)
-			continue
-		}
-		internal.updateStatus = types.PolicyUpdateSucceeded
+	if err = r.pm.Update(ctx); err != nil {
+		general.ErrorS(err, " failed to update policy", "regionName", r.name)
 	}
 }
 

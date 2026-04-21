@@ -40,20 +40,19 @@ type CPUProvisionOptions struct {
 
 func NewCPUProvisionOptions() *CPUProvisionOptions {
 	return &CPUProvisionOptions{
-		AllowSharedCoresOverlapReclaimedCores:       false,
-		RegionIndicatorTargetOptions:                map[string]string{},
+		AllowSharedCoresOverlapReclaimedCores: false,
+		// FIXME: 0.5 -> 1
+		RegionIndicatorTargetOptions:                map[string]string{string(v1alpha1.QoSRegionEmptyNUMA): "cpu_usage_ratio=0.5"},
 		IndicatorTargetGetters:                      map[string]string{},
 		IndicatorTargetDefaultGetter:                string(consts.IndicatorTargetGetterSPDMin),
 		IndicatorTargetMetricThresholdExpandFactors: map[string]string{},
 	}
 }
 
-// ApplyTo fills up config with options
-func (o *CPUProvisionOptions) ApplyTo(c *advisor.CPUProvisionConfiguration) error {
+func (o *CPUProvisionOptions) parseRegionIndicatorTargetOptions(regionIndicatorTargetOptions map[string]string) (map[v1alpha1.QoSRegionType][]v1alpha1.IndicatorTargetConfiguration, error) {
 	var errList []error
-	c.AllowSharedCoresOverlapReclaimedCores = o.AllowSharedCoresOverlapReclaimedCores
-
-	for regionType, targets := range o.RegionIndicatorTargetOptions {
+	regionIndicatorTargetConfiguration := map[v1alpha1.QoSRegionType][]v1alpha1.IndicatorTargetConfiguration{}
+	for regionType, targets := range regionIndicatorTargetOptions {
 		regionIndicatorTarget := make([]v1alpha1.IndicatorTargetConfiguration, 0)
 		indicatorTargets := strings.Split(targets, "/")
 		for _, indicatorTarget := range indicatorTargets {
@@ -69,8 +68,22 @@ func (o *CPUProvisionOptions) ApplyTo(c *advisor.CPUProvisionConfiguration) erro
 			}
 			regionIndicatorTarget = append(regionIndicatorTarget, v1alpha1.IndicatorTargetConfiguration{Name: workloadapi.ServiceSystemIndicatorName(tmp[0]), Target: target})
 		}
-		c.RegionIndicatorTargetConfiguration[v1alpha1.QoSRegionType(regionType)] = regionIndicatorTarget
+		regionIndicatorTargetConfiguration[v1alpha1.QoSRegionType(regionType)] = regionIndicatorTarget
 	}
+	return regionIndicatorTargetConfiguration, errors.NewAggregate(errList)
+}
+
+// ApplyTo fills up config with options
+func (o *CPUProvisionOptions) ApplyTo(c *advisor.CPUProvisionConfiguration) error {
+	var errList []error
+	c.AllowSharedCoresOverlapReclaimedCores = o.AllowSharedCoresOverlapReclaimedCores
+
+	regionIndicatorTargetConfiguration, err := o.parseRegionIndicatorTargetOptions(o.RegionIndicatorTargetOptions)
+	if err != nil {
+		errList = append(errList, err)
+	}
+	c.RegionIndicatorTargetConfiguration = regionIndicatorTargetConfiguration
+
 	if o.IndicatorTargetGetters != nil && len(o.IndicatorTargetGetters) > 0 {
 		c.IndicatorTargetGetters = o.IndicatorTargetGetters
 	}

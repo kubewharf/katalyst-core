@@ -14,13 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package provisionpolicy
+package provision
 
 import (
 	"sync"
 
 	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/regulator"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
@@ -28,26 +29,30 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
-// ProvisionPolicy generates resource provision result based on configured algorithm
-type ProvisionPolicy interface {
-	// SetEssentials set essentials for policy update
-	SetEssentials(resourceEssentials types.ResourceEssentials, controlEssentials types.ControlEssentials)
-	// SetPodSet overwrites policy's pod/container record
-	SetPodSet(types.PodSet)
-	// SetBindingNumas overwrites the numa ids this policy interested in
-	SetBindingNumas(numas machine.CPUSet, isNUMABinding bool)
+type PolicyContext struct {
+	types.ResourceEssentials
+	types.ControlEssentials
+	PodSet        types.PodSet
+	CpusetMems    machine.CPUSet
+	IsNUMABinding bool
+	regulator.RegulatorOptions
+}
 
+// Policy generates resource provision result based on configured algorithm
+type Policy interface {
 	// Update triggers an episode of algorithm update
-	Update() error
+	Update(ctx PolicyContext) error
 	// GetControlKnobAdjusted returns the latest legal control knob value
 	GetControlKnobAdjusted() (types.ControlKnob, error)
+
+	Name() types.CPUProvisionPolicyName
 
 	GetMetaInfo() string
 }
 
 type InitFunc func(regionName string, regionType configapi.QoSRegionType, ownerPoolName string,
 	conf *config.Configuration, extraConfig interface{}, metaReader metacache.MetaReader,
-	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) ProvisionPolicy
+	metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter) Policy
 
 var initializers sync.Map
 

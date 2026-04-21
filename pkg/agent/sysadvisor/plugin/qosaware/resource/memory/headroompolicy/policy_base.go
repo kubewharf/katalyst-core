@@ -28,6 +28,8 @@ type PolicyBase struct {
 
 	metaReader metacache.MetaReader
 	metaServer *metaserver.MetaServer
+
+	status types.PolicyUpdateStatus
 }
 
 func NewPolicyBase(metaReader metacache.MetaReader, metaServer *metaserver.MetaServer) *PolicyBase {
@@ -36,6 +38,7 @@ func NewPolicyBase(metaReader metacache.MetaReader, metaServer *metaserver.MetaS
 
 		metaReader: metaReader,
 		metaServer: metaServer,
+		status:     types.PolicyUpdateFailed,
 	}
 	return cp
 }
@@ -46,4 +49,16 @@ func (p *PolicyBase) SetPodSet(podSet types.PodSet) {
 
 func (p *PolicyBase) SetEssentials(essentials types.ResourceEssentials) {
 	p.essentials = essentials
+}
+
+func (p *PolicyBase) UpdateStatus(err error) {
+	if err != nil {
+		p.status = types.PolicyUpdateFailed
+	} else {
+		p.status = types.PolicyUpdateSucceeded
+	}
+}
+
+func (p *PolicyBase) IsStatusSucceeded() bool {
+	return p.status == types.PolicyUpdateSucceeded
 }

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package provisionpolicy
+package provision
 
 import (
 	"fmt"
@@ -24,19 +24,13 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
-	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
 
 type PolicyBase struct {
-	types.ResourceEssentials
-	types.ControlEssentials
-
+	name                types.CPUProvisionPolicyName
 	regionName          string
 	regionType          configapi.QoSRegionType
 	ownerPoolName       string
-	podSet              types.PodSet
-	bindingNumas        machine.CPUSet
-	isNUMABinding       bool
 	controlKnobAdjusted types.ControlKnob
 
 	metaReader metacache.MetaReader
@@ -44,10 +38,11 @@ type PolicyBase struct {
 	emitter    metrics.MetricEmitter
 }
 
-func NewPolicyBase(regionName string, regionType configapi.QoSRegionType, ownerPoolName string,
+func NewPolicyBase(name types.CPUProvisionPolicyName, regionName string, regionType configapi.QoSRegionType, ownerPoolName string,
 	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) *PolicyBase {
 	cp := &PolicyBase{
+		name:          name,
 		regionName:    regionName,
 		regionType:    regionType,
 		ownerPoolName: ownerPoolName,
@@ -58,42 +53,19 @@ func NewPolicyBase(regionName string, regionType configapi.QoSRegionType, ownerP
 	return cp
 }
 
-func (p *PolicyBase) SetEssentials(resourceEssentials types.ResourceEssentials, controlEssentials types.ControlEssentials) {
-	p.ResourceEssentials = resourceEssentials
-	p.ControlEssentials = controlEssentials
-}
-
-func (p *PolicyBase) SetPodSet(podSet types.PodSet) {
-	p.podSet = podSet.Clone()
-}
-
-func (p *PolicyBase) SetBindingNumas(numas machine.CPUSet, isNUMABinding bool) {
-	p.bindingNumas = numas
-	p.isNUMABinding = isNUMABinding
+func (p *PolicyBase) Name() types.CPUProvisionPolicyName {
+	return p.name
 }
 
 func (p *PolicyBase) GetControlKnobAdjusted() (types.ControlKnob, error) {
 	switch p.regionType {
-	case configapi.QoSRegionTypeShare, configapi.QoSRegionTypeDedicated:
+	case configapi.QoSRegionTypeShare, configapi.QoSRegionTypeDedicated, configapi.QoSRegionTypeIsolation, configapi.QoSRegionEmptyNUMA:
 		return p.controlKnobAdjusted.Clone(), nil
-
-	case configapi.QoSRegionTypeIsolation:
-		return map[configapi.ControlKnobName]types.ControlKnobItem{
-			configapi.ControlKnobNonIsolatedUpperCPUSize: {
-				Value:  p.ResourceUpperBound,
-				Action: types.ControlKnobActionNone,
-			},
-			configapi.ControlKnobNonIsolatedLowerCPUSize: {
-				Value:  p.ResourceLowerBound,
-				Action: types.ControlKnobActionNone,
-			},
-		}, nil
-
 	default:
 		return nil, fmt.Errorf("unsupported region type %v", p.regionType)
 	}
 }
 
 func (p *PolicyBase) GetMetaInfo() string {
-	return fmt.Sprintf("[regionName: %s, regionType: %s, ownerPoolName: %s, NUMAs: %v]", p.regionName, p.regionType, p.ownerPoolName, p.bindingNumas.String())
+	return fmt.Sprintf("[regionName: %s, regionType: %s, ownerPoolName: %s]", p.regionName, p.regionType, p.ownerPoolName)
 }

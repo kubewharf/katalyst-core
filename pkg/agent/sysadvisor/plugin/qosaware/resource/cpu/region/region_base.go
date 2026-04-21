@@ -28,13 +28,12 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
-	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	workloadv1alpha1 "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/headroompolicy"
-	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/provisionpolicy"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/provision"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/regulator"
 	borweinctrl "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper/modelctrl/borwein"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
@@ -54,19 +53,14 @@ import (
 )
 
 const (
-	metricCPUGetHeadroomFailed             = "get_cpu_headroom_failed"
-	metricCPUGetProvisionFailed            = "get_cpu_provision_failed"
-	metricRegionHeadroom                   = "region_headroom"
-	metricCPUProvisionControlKnobRaw       = "cpu_provision_control_knob_raw"
-	metricCPUProvisionControlKnobRegulated = "cpu_provision_control_knob_regulated"
-	metricRegionIndicatorTargetRaw         = "region_indicator_target_raw"
+	metricCPUGetHeadroomFailed     = "get_cpu_headroom_failed"
+	metricRegionHeadroom           = "region_headroom"
+	metricRegionIndicatorTargetRaw = "region_indicator_target_raw"
 
-	metricTagKeyPolicyName        = "policy_name"
-	metricTagKeyRegionType        = "region_type"
-	metricTagKeyRegionName        = "region_name"
-	metricTagKeyRegionNUMAs       = "region_numas"
-	metricTagKeyControlKnobName   = "control_knob_name"
-	metricTagKeyControlKnobAction = "control_knob_action"
+	metricTagKeyPolicyName  = "policy_name"
+	metricTagKeyRegionType  = "region_type"
+	metricTagKeyRegionName  = "region_name"
+	metricTagKeyRegionNUMAs = "region_numas"
 )
 
 var IndicatorToMetricThreshold = map[string]string{
@@ -75,13 +69,6 @@ var IndicatorToMetricThreshold = map[string]string{
 
 type internalPolicyState struct {
 	updateStatus types.PolicyUpdateStatus
-	initDoOnce   sync.Once
-}
-
-type internalProvisionPolicy struct {
-	name   types.CPUProvisionPolicyName
-	policy provisionpolicy.ProvisionPolicy
-	internalPolicyState
 }
 
 type internalHeadroomPolicy struct {
@@ -90,113 +77,43 @@ type internalHeadroomPolicy struct {
 	internalPolicyState
 }
 
-type provisionPolicyResult struct {
-	msg                        string
-	essentials                 types.ResourceEssentials
-	regulatorOptions           regulator.RegulatorOptions
-	controlKnobValueRegulators map[v1alpha1.ControlKnobName]regulator.Regulator
-}
-
-func newProvisionPolicyResult(essentials types.ResourceEssentials, regulatorOptions regulator.RegulatorOptions, msg string) *provisionPolicyResult {
-	return &provisionPolicyResult{
-		msg:                        msg,
-		essentials:                 essentials,
-		regulatorOptions:           regulatorOptions,
-		controlKnobValueRegulators: make(map[v1alpha1.ControlKnobName]regulator.Regulator),
-	}
-}
-
-// setEssentials is to set essentials for each control knob
-func (r *provisionPolicyResult) setEssentials(essentials types.ResourceEssentials) {
-	r.essentials = essentials
-	for _, reg := range r.controlKnobValueRegulators {
-		reg.SetEssentials(essentials)
-	}
-}
-
-// regulateControlKnob is to regulate control knob with current and last one
-// todo: current only regulate control knob value, it will also regulate action in the future
-func (r *provisionPolicyResult) regulateControlKnob(currentControlKnob, effectiveControlKnob types.ControlKnob) {
-	klog.InfoS("[provisionPolicyResult]", "region", r.msg,
-		"currentControlKnob", currentControlKnob, "effectiveControlKnob", effectiveControlKnob)
-	for name, knob := range currentControlKnob {
-		reg, ok := r.controlKnobValueRegulators[name]
-		if !ok || reg == nil {
-			reg = r.newRegulator(name)
-		}
-		effectiveKnobItem, ok := effectiveControlKnob[name]
-		if ok {
-			reg.Regulate(knob, &effectiveKnobItem)
-		} else {
-			reg.Regulate(knob, nil)
-		}
-		r.controlKnobValueRegulators[name] = reg
-	}
-	// cleanup control knob regulators
-	for name := range r.controlKnobValueRegulators {
-		if _, ok := currentControlKnob[name]; !ok {
-			delete(r.controlKnobValueRegulators, name)
-		}
-	}
-}
-
-// newRegulator new regulator according to the control knob name
-func (r *provisionPolicyResult) newRegulator(name v1alpha1.ControlKnobName) regulator.Regulator {
-	switch name {
-	// only non-reclaimed cpu size need regulate now
-	case v1alpha1.ControlKnobNonReclaimedCPURequirement:
-		return regulator.NewCPURegulator(r.essentials, r.regulatorOptions)
-	default:
-		return regulator.NewDummyRegulator()
-	}
-}
-
-// getControlKnob is to get final control knob from regulators
-func (r *provisionPolicyResult) getControlKnob() types.ControlKnob {
-	controlKnob := make(types.ControlKnob)
-	for name, regulator := range r.controlKnobValueRegulators {
-		controlKnob[name] = types.ControlKnobItem{
-			Value:  float64(regulator.GetRequirement()),
-			Action: types.ControlKnobActionNone,
-		}
-	}
-	return controlKnob
-}
-
-type indicatorTargetGetter func(workloadv1alpha1.ServiceSystemIndicatorName, float64) float64
-
-type QoSRegionBase struct {
-	sync.Mutex
-	conf *config.Configuration
-
+type RegionMeta struct {
 	name          string
 	ownerPoolName string
 	regionType    v1alpha1.QoSRegionType
-	regionStatus  types.RegionStatus
+}
+
+type QoSRegionBase struct {
+	sync.Mutex
+
+	*RegionMeta
+	// Deprecated
+	regionStatus types.RegionStatus
 
 	types.ResourceEssentials
 	types.ControlEssentials
 
-	// bindingNumas records numas assigned to this region
-	bindingNumas machine.CPUSet
+	// cpusetMems records numas assigned to this region, same as cpuset.mems of cgroup file
+	cpusetMems machine.CPUSet
 	// podSet records current pod and containers in region keyed by pod uid and container name
 	podSet types.PodSet
 	// containerTopologyAwareAssignment changes dynamically by adding container
 	containerTopologyAwareAssignment types.TopologyAwareAssignment
+
 	// indicatorCurrentGetters stores metrics getters for indicators interested in
 	indicatorCurrentGetters map[string]types.IndicatorCurrentGetter
-	// indicatorCurrentGetters stores getters for indicators target interested in
-	indicatorTargetGetters map[string]indicatorTargetGetter
+	// indicatorTargetGetters stores getters for indicators target interested in
+	indicatorTargetGetters map[string]types.IndicatorTargetGetter
+
+	pm *provision.Manager
 
 	// provisionPolicies for comparing and merging different provision policy results,
 	// the former has higher priority; provisionPolicyNameInUse indicates the provision
 	// policy in-use currently
-	provisionPolicies        []*internalProvisionPolicy
+	// provisionPolicies        []*internalProvisionPolicy
 	provisionPolicyNameInUse types.CPUProvisionPolicyName
-	provisionPolicyResults   map[types.CPUProvisionPolicyName]*provisionPolicyResult
-
-	// ctrl knob need policy restrict
-	ctrlKnobsNeedPolicyRestrict map[v1alpha1.ControlKnobName]bool
+	// provisionPolicyResults   map[types.CPUProvisionPolicyName]*provisionPolicyResult
+	// restrictedCtrlKnobs      sets.String
 
 	// cpuRegulatorOptions is the regulator options for cpu regulator
 	cpuRegulatorOptions regulator.RegulatorOptions
@@ -207,9 +124,11 @@ type QoSRegionBase struct {
 	headroomPolicies        []*internalHeadroomPolicy
 	headroomPolicyNameInUse types.CPUHeadroomPolicyName
 
+	// global variables, will change to singleton mode
 	metaReader metacache.MetaReader
 	metaServer *metaserver.MetaServer
 	emitter    metrics.MetricEmitter
+	conf       *config.Configuration
 
 	// borweinController will take effect only when using rama provision policy.
 	borweinController *borweinctrl.BorweinController
@@ -232,23 +151,24 @@ func NewQoSRegionBase(name string, ownerPoolName string, regionType v1alpha1.QoS
 	conf *config.Configuration, extraConf interface{}, isNumaBinding bool, isNumaExclusive bool,
 	metaReader metacache.MetaReader, metaServer *metaserver.MetaServer, emitter metrics.MetricEmitter,
 ) *QoSRegionBase {
-	r := &QoSRegionBase{
-		conf:          conf,
+	regionMeta := &RegionMeta{
 		name:          name,
 		ownerPoolName: ownerPoolName,
 		regionType:    regionType,
-
-		bindingNumas:                     machine.NewCPUSet(),
+	}
+	r := &QoSRegionBase{
+		conf:                             conf,
+		RegionMeta:                       regionMeta,
+		cpusetMems:                       machine.NewCPUSet(),
 		podSet:                           make(types.PodSet),
 		containerTopologyAwareAssignment: make(types.TopologyAwareAssignment),
 
-		provisionPolicies: make([]*internalProvisionPolicy, 0),
-		headroomPolicies:  make([]*internalHeadroomPolicy, 0),
+		pm: provision.NewManager(name, conf, emitter),
 
-		provisionPolicyNameInUse: types.CPUProvisionPolicyNone,
-		headroomPolicyNameInUse:  types.CPUHeadroomPolicyNone,
+		headroomPolicies: make([]*internalHeadroomPolicy, 0),
 
-		provisionPolicyResults: make(map[types.CPUProvisionPolicyName]*provisionPolicyResult),
+		headroomPolicyNameInUse: types.CPUHeadroomPolicyNone,
+
 		cpuRegulatorOptions: regulator.RegulatorOptions{
 			MaxRampUpStep:     conf.MaxRampUpStep,
 			MaxRampDownStep:   conf.MaxRampDownStep,
@@ -259,8 +179,6 @@ func NewQoSRegionBase(name string, ownerPoolName string, regionType v1alpha1.QoS
 					regionType == v1alpha1.QoSRegionTypeShare
 			},
 		},
-
-		ctrlKnobsNeedPolicyRestrict: map[v1alpha1.ControlKnobName]bool{configapi.ControlKnobReclaimedCoresCPUQuota: true},
 
 		metaReader: metaReader,
 		metaServer: metaServer,
@@ -285,7 +203,7 @@ func NewQoSRegionBase(name string, ownerPoolName string, regionType v1alpha1.QoS
 	}
 	r.enableReclaim = r.EnableReclaimFunc
 
-	r.indicatorTargetGetters = map[string]indicatorTargetGetter{
+	r.indicatorTargetGetters = map[string]types.IndicatorTargetGetter{
 		string(pkgconsts.IndicatorTargetGetterMetricThreshold): r.getMetricThreshold,
 		string(pkgconsts.IndicatorTargetGetterSPDMin):          r.getMinSPDTarget,
 		string(pkgconsts.IndicatorTargetGetterSPDAvg):          r.getAvgSPDTarget,
@@ -333,14 +251,14 @@ func (r *QoSRegionBase) GetMetaInfo() string {
 }
 
 func (r *QoSRegionBase) getMetaInfo() string {
-	return fmt.Sprintf("[regionName: %s, regionType: %s, ownerPoolName: %s, NUMAs: %v]", r.name, r.regionType, r.ownerPoolName, r.bindingNumas.String())
+	return fmt.Sprintf("[regionName: %s, regionType: %s, ownerPoolName: %s, NUMAs: %v]", r.name, r.regionType, r.ownerPoolName, r.cpusetMems.String())
 }
 
 func (r *QoSRegionBase) GetBindingNumas() machine.CPUSet {
 	r.Lock()
 	defer r.Unlock()
 
-	return r.bindingNumas.Clone()
+	return r.cpusetMems.Clone()
 }
 
 func (r *QoSRegionBase) GetPods() types.PodSet {
@@ -376,7 +294,7 @@ func (r *QoSRegionBase) SetBindingNumas(numas machine.CPUSet) {
 	r.Lock()
 	defer r.Unlock()
 
-	r.bindingNumas = numas
+	r.cpusetMems = numas
 }
 
 func (r *QoSRegionBase) SetEssentials(essentials types.ResourceEssentials) {
@@ -430,7 +348,7 @@ func (r *QoSRegionBase) TryUpdateHeadroom() {
 
 		// set essentials for policy
 		internal.policy.SetPodSet(r.podSet)
-		internal.policy.SetBindingNumas(r.bindingNumas)
+		internal.policy.SetBindingNumas(r.cpusetMems)
 		internal.policy.SetEssentials(r.ResourceEssentials)
 
 		// run an episode of policy and calculator update
@@ -446,35 +364,15 @@ func (r *QoSRegionBase) GetProvision() (types.ControlKnob, error) {
 	r.Lock()
 	defer r.Unlock()
 
-	oldProvisionPolicyNameInUse := r.provisionPolicyNameInUse
-	r.provisionPolicyNameInUse = types.CPUProvisionPolicyNone
-
-	for _, internal := range r.provisionPolicies {
-		if internal.updateStatus != types.PolicyUpdateSucceeded {
-			_ = r.emitter.StoreInt64(metricCPUGetProvisionFailed, 1, metrics.MetricTypeNameRaw,
-				metrics.MetricTag{Key: metricTagKeyPolicyName, Val: string(internal.name)})
-			continue
-		}
-
-		result, ok := r.provisionPolicyResults[internal.name]
-		if !ok {
-			klog.Errorf("[qosaware-cpu] get control knob by policy %v failed", internal.name)
-			continue
-		}
-		r.provisionPolicyNameInUse = internal.name
-
-		if r.provisionPolicyNameInUse != oldProvisionPolicyNameInUse {
-			klog.Infof("[qosaware-cpu] region: %v provision policy switch from %v to %v",
-				r.Name(), oldProvisionPolicyNameInUse, r.provisionPolicyNameInUse)
-			if r.conf.PolicyRama.EnableBorwein {
-				r.borweinController.ResetIndicatorOffsets()
-			}
-		}
-		// TODO: return ctrl knobs of all policies
-		return result.getControlKnob(), nil
+	policyInuse, ctrlKnob, err := r.pm.GetCtrlKnob()
+	if err != nil {
+		return nil, err
 	}
-
-	return nil, fmt.Errorf("failed to get legal provision")
+	if policyInuse != r.provisionPolicyNameInUse && r.conf.PolicyRama.EnableBorwein {
+		r.borweinController.ResetIndicatorOffsets()
+	}
+	r.provisionPolicyNameInUse = policyInuse
+	return ctrlKnob, nil
 }
 
 func (r *QoSRegionBase) GetHeadroom() (float64, error) {
@@ -498,7 +396,7 @@ func (r *QoSRegionBase) GetHeadroom() (float64, error) {
 			metrics.ConvertMapToTags(map[string]string{
 				metricTagKeyRegionType: string(r.regionType),
 				metricTagKeyRegionName: r.name, metricTagKeyPolicyName: string(internal.name),
-				metricTagKeyRegionNUMAs: r.bindingNumas.String(),
+				metricTagKeyRegionNUMAs: r.cpusetMems.String(),
 			})...)
 		r.headroomPolicyNameInUse = internal.name
 		return headroom, nil
@@ -512,8 +410,9 @@ func (r *QoSRegionBase) GetProvisionPolicy() (policyTopPriority types.CPUProvisi
 	defer r.Unlock()
 
 	policyTopPriority = types.CPUProvisionPolicyNone
-	if len(r.provisionPolicies) > 0 {
-		policyTopPriority = r.provisionPolicies[0].name
+	policyNames := r.pm.GetPolicies()
+	if len(policyNames) > 0 {
+		policyTopPriority = policyNames[0]
 	}
 
 	if !r.enableReclaim() {
@@ -620,16 +519,12 @@ func (r *QoSRegionBase) initProvisionPolicy(conf *config.Configuration, extraCon
 
 	// try new policies
 	// todo move to separate functions
-	initializers := provisionpolicy.GetRegisteredInitializers()
+	initializers := provision.GetRegisteredInitializers()
 	for _, policyName := range configuredProvisionPolicy {
 		if initializer, ok := initializers[policyName]; ok {
 			policy := initializer(r.name, r.regionType, r.ownerPoolName, conf, extraConf, metaReader, metaServer, emitter)
-			policy.SetBindingNumas(r.bindingNumas, false)
-			r.provisionPolicies = append(r.provisionPolicies, &internalProvisionPolicy{
-				name:                policyName,
-				policy:              policy,
-				internalPolicyState: internalPolicyState{updateStatus: types.PolicyUpdateFailed},
-			})
+			// policy.SetBindingNumas(r.cpusetMems, false)
+			r.pm.Add(policy)
 		} else {
 			general.ErrorS(fmt.Errorf("failed to find region policy"), "policyName", policyName, "region", r.regionType)
 		}
@@ -658,96 +553,6 @@ func (r *QoSRegionBase) initHeadroomPolicy(conf *config.Configuration, extraConf
 			})
 		} else {
 			general.ErrorS(fmt.Errorf("failed to find headroom policy"), "policyName", policyName, "region", r.regionType)
-		}
-	}
-}
-
-// getProvisionControlKnob get current adjusted control knobs for each policy
-func (r *QoSRegionBase) getProvisionControlKnob() map[types.CPUProvisionPolicyName]types.ControlKnob {
-	provisionControlKnob := make(map[types.CPUProvisionPolicyName]types.ControlKnob)
-	for _, internal := range r.provisionPolicies {
-		if internal.updateStatus != types.PolicyUpdateSucceeded {
-			continue
-		}
-
-		controlKnob, err := internal.policy.GetControlKnobAdjusted()
-		if err != nil {
-			klog.Errorf("[qosaware-cpu] get control knob by policy %v failed: %v", internal.name, err)
-			continue
-		}
-
-		provisionControlKnob[internal.name] = controlKnob
-
-		for name, value := range controlKnob {
-			_ = r.emitter.StoreFloat64(metricCPUProvisionControlKnobRaw, value.Value, metrics.MetricTypeNameRaw, []metrics.MetricTag{
-				{Key: metricTagKeyRegionType, Val: string(r.regionType)},
-				{Key: metricTagKeyRegionName, Val: r.name},
-				{Key: metricTagKeyPolicyName, Val: string(internal.name)},
-				{Key: metricTagKeyControlKnobName, Val: string(name)},
-				{Key: metricTagKeyControlKnobAction, Val: string(value.Action)},
-			}...)
-
-			klog.InfoS("[qosaware-cpu] get raw control knob", "meta", r.getMetaInfo(), "policy", internal.name,
-				"knob", name, "action", value.Action, "value", value.Value)
-		}
-	}
-
-	return provisionControlKnob
-}
-
-// regulateProvisionControlKnob regulate provision control knob for each provision policy
-func (r *QoSRegionBase) regulateProvisionControlKnob(originControlKnob map[types.CPUProvisionPolicyName]types.ControlKnob,
-	effectiveControlKnob types.ControlKnob,
-) {
-	provisionPolicyResults := make(map[types.CPUProvisionPolicyName]*provisionPolicyResult)
-	firstValidPolicy := types.CPUProvisionPolicyNone
-	for _, internal := range r.provisionPolicies {
-		if internal.updateStatus != types.PolicyUpdateSucceeded {
-			continue
-		}
-
-		if originControlKnob == nil {
-			continue
-		}
-
-		controlKnob, ok := originControlKnob[internal.name]
-		if !ok {
-			continue
-		}
-
-		if firstValidPolicy == types.CPUProvisionPolicyNone {
-			firstValidPolicy = internal.name
-		}
-
-		policyResult, ok := r.provisionPolicyResults[internal.name]
-		if !ok || policyResult == nil {
-			policyResult = newProvisionPolicyResult(r.ResourceEssentials, r.cpuRegulatorOptions, r.getMetaInfo())
-			policyResult.regulateControlKnob(controlKnob, effectiveControlKnob)
-		} else {
-			policyResult.setEssentials(r.ResourceEssentials)
-			// only set regulator last cpu requirement for first valid policy
-			if internal.name == firstValidPolicy {
-				policyResult.regulateControlKnob(controlKnob, effectiveControlKnob)
-			} else {
-				policyResult.regulateControlKnob(controlKnob, nil)
-			}
-		}
-
-		provisionPolicyResults[internal.name] = policyResult
-	}
-
-	r.provisionPolicyResults = provisionPolicyResults
-	for policy, result := range r.provisionPolicyResults {
-		for knob, value := range result.getControlKnob() {
-			_ = r.emitter.StoreFloat64(metricCPUProvisionControlKnobRegulated, value.Value, metrics.MetricTypeNameRaw, []metrics.MetricTag{
-				{Key: metricTagKeyRegionType, Val: string(r.regionType)},
-				{Key: metricTagKeyRegionName, Val: r.name},
-				{Key: metricTagKeyPolicyName, Val: string(policy)},
-				{Key: metricTagKeyControlKnobName, Val: string(knob)},
-				{Key: metricTagKeyControlKnobAction, Val: string(value.Action)},
-			}...)
-			klog.InfoS("[qosaware-cpu] get regulated control knob", "region", r.name, "bindingNumas", r.bindingNumas.String(),
-				"policy", policy, "knob", knob, "action", value.Action, "value", value.Value)
 		}
 	}
 }
@@ -792,10 +597,11 @@ func (r *QoSRegionBase) getIndicators() (types.Indicator, error) {
 		_ = r.emitter.StoreFloat64(metricRegionIndicatorTargetRaw, target,
 			metrics.MetricTypeNameRaw, metrics.ConvertMapToTags(map[string]string{
 				"indicator_name": string(indicatorName),
-				"binding_numas":  r.bindingNumas.String(),
+				"binding_numas":  r.cpusetMems.String(),
 			})...)
 	}
-	if r.conf.PolicyRama.EnableBorwein && r.provisionPolicyNameInUse == types.CPUProvisionPolicyRama {
+	policyInused, _, _ := r.pm.GetCtrlKnob()
+	if r.conf.PolicyRama.EnableBorwein && policyInused == types.CPUProvisionPolicyRama {
 		general.Infof("try to update indicators by borwein model")
 		return r.borweinController.GetUpdatedIndicators(indicators, r.podSet), nil
 	} else {
@@ -912,7 +718,7 @@ func (r *QoSRegionBase) IsIdle() bool {
 // available for Intel
 func (r *QoSRegionBase) getMemoryAccessWriteLatency() (float64, error) {
 	latency := 0.0
-	for _, numaID := range r.bindingNumas.ToSliceInt() {
+	for _, numaID := range r.cpusetMems.ToSliceInt() {
 		data, err := r.metaReader.GetNumaMetric(numaID, pkgconsts.MetricMemLatencyWriteNuma)
 		if err != nil {
 			return 0, err
@@ -926,7 +732,7 @@ func (r *QoSRegionBase) getMemoryAccessWriteLatency() (float64, error) {
 // available for Intel
 func (r *QoSRegionBase) getMemoryAccessReadLatency() (float64, error) {
 	latency := 0.0
-	for _, numaID := range r.bindingNumas.ToSliceInt() {
+	for _, numaID := range r.cpusetMems.ToSliceInt() {
 		data, err := r.metaReader.GetNumaMetric(numaID, pkgconsts.MetricMemLatencyReadNuma)
 		if err != nil {
 			return 0, err
@@ -940,7 +746,7 @@ func (r *QoSRegionBase) getMemoryAccessReadLatency() (float64, error) {
 // available for AMD
 func (r *QoSRegionBase) getMemoryL3MissLatency() (float64, error) {
 	latency := 0.0
-	for _, numaID := range r.bindingNumas.ToSliceInt() {
+	for _, numaID := range r.cpusetMems.ToSliceInt() {
 		data, err := r.metaReader.GetNumaMetric(numaID, pkgconsts.MetricMemAMDL3MissLatencyNuma)
 		if err != nil {
 			return 0, err
@@ -954,7 +760,7 @@ func (r *QoSRegionBase) getMemoryL3MissLatency() (float64, error) {
 func (r *QoSRegionBase) getEffectiveReclaimResource() (quota float64, cpusetSize int, err error) {
 	numaID := commonstate.FakedNUMAID
 	if r.isNumaBinding {
-		numaID = r.bindingNumas.ToSliceInt()[0]
+		numaID = r.cpusetMems.ToSliceInt()[0]
 	}
 
 	quotaCtrlKnobEnabled, err := metacache.IsQuotaCtrlKnobEnabled(r.metaReader)
@@ -973,51 +779,12 @@ func (r *QoSRegionBase) getEffectiveReclaimResource() (quota float64, cpusetSize
 		quota = float64(cpuStats.CpuQuota) / float64(cpuStats.CpuPeriod)
 	}
 
-	for _, numaID := range r.bindingNumas.ToSliceInt() {
+	for _, numaID := range r.cpusetMems.ToSliceInt() {
 		if reclaimedInfo, ok := r.metaReader.GetPoolInfo(commonstate.PoolNameReclaim); ok {
 			cpusetSize += reclaimedInfo.TopologyAwareAssignments[numaID].Size()
 		}
 	}
 	return
-}
-
-// restrictProvisionControlKnob is used to restrict provision control knob by reference policy
-func (r *QoSRegionBase) restrictProvisionControlKnob(originControlKnob map[types.CPUProvisionPolicyName]types.ControlKnob) map[types.CPUProvisionPolicyName]types.ControlKnob {
-	restrictedControlKnob := make(map[types.CPUProvisionPolicyName]types.ControlKnob)
-	for policyName, controlKnob := range originControlKnob {
-		restrictedControlKnob[policyName] = controlKnob.Clone()
-		refPolicyName, ok := r.conf.RestrictRefPolicy[policyName]
-		if !ok {
-			continue
-		}
-		refControlKnob, ok := originControlKnob[refPolicyName]
-		if !ok {
-			klog.Errorf("get control knob from reference policy %v for policy %v failed", refPolicyName, policyName)
-			continue
-		}
-
-		for controlKnobName, rawKnobValue := range controlKnob {
-			needed, ok := r.ctrlKnobsNeedPolicyRestrict[controlKnobName]
-			if !ok || !needed {
-				continue
-			}
-
-			refKnobValue, ok := refControlKnob[controlKnobName]
-			if !ok {
-				continue
-			}
-			restrictedKnobValue := rawKnobValue
-			if rawKnobValue.Value > refKnobValue.Value {
-				restrictedKnobValue = refKnobValue
-
-				klog.Infof("[qosaware-cpu] restrict control knob %v for policy %v by policy %v from %.2f to %.2f, refKnobValue: %v",
-					controlKnobName, policyName, refPolicyName, rawKnobValue.Value, restrictedKnobValue.Value, refKnobValue.Value)
-			}
-
-			restrictedControlKnob[policyName][controlKnobName] = restrictedKnobValue
-		}
-	}
-	return restrictedControlKnob
 }
 
 func (r *QoSRegionBase) expandTarget(target float64, indicatorName workloadv1alpha1.ServiceSystemIndicatorName) float64 {
@@ -1036,7 +803,7 @@ func (r *QoSRegionBase) getIndicatorTarget(indicatorName workloadv1alpha1.Servic
 	return target
 }
 
-func (r *QoSRegionBase) fetchGetter(indicatorName workloadv1alpha1.ServiceSystemIndicatorName) (indicatorTargetGetter, string) {
+func (r *QoSRegionBase) fetchGetter(indicatorName workloadv1alpha1.ServiceSystemIndicatorName) (types.IndicatorTargetGetter, string) {
 	defaultGetterName := r.conf.GetDynamicConfiguration().IndicatorTargetDefaultGetter
 	getterName, ok := r.conf.GetDynamicConfiguration().IndicatorTargetGetters[string(indicatorName)]
 	// if not specified, use default

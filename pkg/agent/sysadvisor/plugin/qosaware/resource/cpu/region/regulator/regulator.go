@@ -36,8 +36,8 @@ type Regulator interface {
 	// as the latest requirement value
 	Regulate(controlKnob types.ControlKnobItem, effectiveControlKnob *types.ControlKnobItem)
 
-	// GetRequirement returns the latest regulated requirement
-	GetRequirement() int
+	// GetValue returns the latest regulated requirement
+	GetValue() int
 }
 
 // DummyRegulator always get requirement without regulate
@@ -58,7 +58,7 @@ func (d *DummyRegulator) Regulate(controlKnob types.ControlKnobItem, effectiveCo
 	d.latestControlKnobValue = controlKnob
 }
 
-func (d *DummyRegulator) GetRequirement() int {
+func (d *DummyRegulator) GetValue() int {
 	return int(d.latestControlKnobValue.Value)
 }
 
@@ -131,7 +131,7 @@ func (c *CPURegulator) updateControlKnob(value float64) {
 }
 
 // GetRequirement returns the latest regulated cpu requirement
-func (c *CPURegulator) GetRequirement() int {
+func (c *CPURegulator) GetValue() int {
 	return int(c.latestControlKnobItem.Value)
 }
 
