@@ -132,6 +132,12 @@ func TestVPAControllerSyncVPA(t *testing.T) {
 					Status: v1.ConditionTrue,
 					Reason: util.VPAConditionReasonUpdated,
 				},
+				{
+					Type:    apis.NoPodsMatched,
+					Status:  v1.ConditionFalse,
+					Reason:  util.VPAConditionReasonPodsMatched,
+					Message: "Pods match this VPA object",
+				},
 			},
 		},
 	}
@@ -186,6 +192,12 @@ func TestVPAControllerSyncVPA(t *testing.T) {
 					Status: v1.ConditionTrue,
 					Reason: util.VPAConditionReasonUpdated,
 				},
+				{
+					Type:    apis.NoPodsMatched,
+					Status:  v1.ConditionFalse,
+					Reason:  util.VPAConditionReasonPodsMatched,
+					Message: "Pods match this VPA object",
+				},
 			},
 		},
 	}
@@ -230,11 +242,50 @@ func TestVPAControllerSyncVPA(t *testing.T) {
 					Status: v1.ConditionTrue,
 					Reason: util.VPAConditionReasonUpdated,
 				},
+				{
+					Type:    apis.NoPodsMatched,
+					Status:  v1.ConditionFalse,
+					Reason:  util.VPAConditionReasonPodsMatched,
+					Message: "Pods match this VPA object",
+				},
 			},
 		},
 	}
 
 	newPod3 := pod1.DeepCopy()
+
+	vpa4 := vpa3.DeepCopy()
+	vpaNew4 := vpaNew3.DeepCopy()
+	vpaNew4.Status.Conditions = []apis.VerticalPodAutoscalerCondition{
+		{
+			Type:   apis.RecommendationUpdated,
+			Status: v1.ConditionTrue,
+			Reason: util.VPAConditionReasonUpdated,
+		},
+		{
+			Type:    apis.NoPodsMatched,
+			Status:  v1.ConditionTrue,
+			Reason:  util.VPAConditionReasonNoPodsMatched,
+			Message: "No pods match this VPA object, label selector: workload=sts1",
+		},
+	}
+
+	vpa5 := vpa3.DeepCopy()
+	vpa5.Spec.TargetRef.Name = "sts2"
+	vpaNew5 := vpa5.DeepCopy()
+	vpaNew5.Status.Conditions = []apis.VerticalPodAutoscalerCondition{
+		{
+			Type:   apis.RecommendationUpdated,
+			Status: v1.ConditionTrue,
+			Reason: util.VPAConditionReasonUpdated,
+		},
+		{
+			Type:    apis.NoPodsMatched,
+			Status:  v1.ConditionTrue,
+			Reason:  util.VPAConditionReasonNoPodsMatched,
+			Message: "TargetRef workload not found: StatefulSet sts2",
+		},
+	}
 
 	for _, tc := range []struct {
 		name    string
@@ -243,6 +294,7 @@ func TestVPAControllerSyncVPA(t *testing.T) {
 		newPods []*v1.Pod
 		vpa     *apis.KatalystVerticalPodAutoscaler
 		vpaNew  *apis.KatalystVerticalPodAutoscaler
+		wantErr bool
 	}{
 		{
 			name:   "delete owner reference",
@@ -337,6 +389,61 @@ func TestVPAControllerSyncVPA(t *testing.T) {
 				newPod3,
 			},
 		},
+		{
+			name:   "no pods matched with valid selector",
+			vpa:    vpa4,
+			vpaNew: vpaNew4,
+			object: &appsv1.StatefulSet{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "StatefulSet",
+					APIVersion: "apps/v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "sts1",
+					Namespace: "default",
+					Annotations: map[string]string{
+						apiconsts.WorkloadAnnotationVPAEnabledKey: apiconsts.WorkloadAnnotationVPAEnabled,
+					},
+				},
+				Spec: appsv1.StatefulSetSpec{
+					Selector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"workload": "sts1",
+						},
+					},
+				},
+			},
+			pods:    []*v1.Pod{},
+			newPods: []*v1.Pod{},
+		},
+		{
+			name:    "target ref workload not found",
+			vpa:     vpa5,
+			vpaNew:  vpaNew5,
+			wantErr: true,
+			object: &appsv1.StatefulSet{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "StatefulSet",
+					APIVersion: "apps/v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "sts1",
+					Namespace: "default",
+					Annotations: map[string]string{
+						apiconsts.WorkloadAnnotationVPAEnabledKey: apiconsts.WorkloadAnnotationVPAEnabled,
+					},
+				},
+				Spec: appsv1.StatefulSetSpec{
+					Selector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"workload": "sts1",
+						},
+					},
+				},
+			},
+			pods:    []*v1.Pod{},
+			newPods: []*v1.Pod{},
+		},
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
@@ -380,7 +487,11 @@ func TestVPAControllerSyncVPA(t *testing.T) {
 			assert.True(t, synced)
 
 			err = vpaController.syncVPA(key)
-			assert.NoError(t, err)
+			if tc.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
 
 			for _, pod := range tc.newPods {
 				p, err := controlCtx.Client.KubeClient.CoreV1().Pods(pod.Namespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
@@ -392,6 +503,19 @@ func TestVPAControllerSyncVPA(t *testing.T) {
 				Get(context.TODO(), tc.vpaNew.Name, metav1.GetOptions{})
 			assert.NoError(t, err)
 			assert.Equal(t, tc.vpaNew.GetObjectMeta(), vpa.GetObjectMeta())
+
+			for _, expectedCond := range tc.vpaNew.Status.Conditions {
+				found := false
+				for _, actCond := range vpa.Status.Conditions {
+					if actCond.Type == expectedCond.Type {
+						found = true
+						assert.Equal(t, expectedCond.Status, actCond.Status)
+						assert.Equal(t, expectedCond.Reason, actCond.Reason)
+						assert.Equal(t, expectedCond.Message, actCond.Message)
+					}
+				}
+				assert.True(t, found, "condition %s not found", expectedCond.Type)
+			}
 		})
 	}
 }

@@ -371,12 +371,18 @@ func (vc *VPAController) syncVPA(key string) error {
 	workloadLister, ok := vc.workloadLister[gvk]
 	if !ok {
 		klog.Errorf("[vpa] vpa %s/%s without workload lister %v", namespace, name, gvk)
+		// Set NoPodsMatched to True when the targetRef kind is unsupported
+		_ = util.UpdateVPAConditions(vc.ctx, vc.vpaUpdater, vpa, apis.NoPodsMatched, core.ConditionTrue, util.VPAConditionReasonNoPodsMatched, fmt.Sprintf("Unsupported targetRef kind: %v", gvk))
 		return nil
 	}
 
 	workloadObj, err := katalystutil.GetWorkloadForVPA(vpa, workloadLister)
 	if err != nil {
 		klog.Errorf("[vpa] vpa %s/%s get workload error: %v", namespace, name, err)
+		if errors.IsNotFound(err) {
+			// Set NoPodsMatched to True when the workload object cannot be found
+			_ = util.UpdateVPAConditions(vc.ctx, vc.vpaUpdater, vpa, apis.NoPodsMatched, core.ConditionTrue, util.VPAConditionReasonNoPodsMatched, fmt.Sprintf("TargetRef workload not found: %s %s", gvk.Kind, vpa.Spec.TargetRef.Name))
+		}
 		return err
 	}
 
@@ -408,8 +414,25 @@ func (vc *VPAController) syncVPA(key string) error {
 	if err != nil {
 		klog.Errorf("[vpa] failed to get pods by vpa %s, err %v", vpa.Name, err)
 		_ = util.UpdateVPAConditions(vc.ctx, vc.vpaUpdater, vpa, apis.RecommendationUpdated, core.ConditionFalse, util.VPAConditionReasonCalculatedIllegal, "failed to find pods")
+		if errors.IsNotFound(err) {
+			// Set NoPodsMatched to True when the workload object cannot be found during pod list retrieval
+			_ = util.UpdateVPAConditions(vc.ctx, vc.vpaUpdater, vpa, apis.NoPodsMatched, core.ConditionTrue, util.VPAConditionReasonNoPodsMatched, fmt.Sprintf("TargetRef workload not found: %s %s", gvk.Kind, vpa.Spec.TargetRef.Name))
+		}
 		return err
 	}
+
+	if len(pods) == 0 {
+		message := "No pods match this VPA object"
+		if selector, err := native.GetUnstructuredSelector(workload); err == nil && selector != nil {
+			message = fmt.Sprintf("No pods match this VPA object, label selector: %s", selector.String())
+		}
+		// Set NoPodsMatched to True when no pods match the targetRef workload
+		_ = util.UpdateVPAConditions(vc.ctx, vc.vpaUpdater, vpa, apis.NoPodsMatched, core.ConditionTrue, util.VPAConditionReasonNoPodsMatched, message)
+	} else {
+		// Set NoPodsMatched to False when there are pods matching the targetRef workload
+		_ = util.UpdateVPAConditions(vc.ctx, vc.vpaUpdater, vpa, apis.NoPodsMatched, core.ConditionFalse, util.VPAConditionReasonPodsMatched, "Pods match this VPA object")
+	}
+
 	klog.V(4).Infof("[vpa] syncing vpa %s with %d pods", name, len(pods))
 	_ = vc.metricsEmitter.StoreInt64(metricNameVAPControlVPAPodCount, int64(len(pods)), metrics.MetricTypeNameRaw, tags...)
 

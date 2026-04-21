@@ -42,6 +42,8 @@ const (
 	VPAConditionReasonCalculatedIllegal = "Illegal"
 	VPAConditionReasonPodSpecUpdated    = "PodSpecUpdated"
 	VPAConditionReasonPodSpecNoUpdate   = "PodSpecNoUpdate"
+	VPAConditionReasonNoPodsMatched     = "NoPodsMatched"
+	VPAConditionReasonPodsMatched       = "PodsMatched"
 )
 
 // SetVPAConditions is used to set conditions for vpa in local vpa
