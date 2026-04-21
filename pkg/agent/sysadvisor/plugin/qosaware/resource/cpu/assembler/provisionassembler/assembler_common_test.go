@@ -988,6 +988,112 @@ func TestAssembleProvision(t *testing.T) {
 				"reclaim": {-1: map[string]int{"share-a": 18, "share-b": 16}},
 			},
 		},
+		{
+			name:            "empty NUMA region with cfs quota on empty NUMA",
+			enableReclaimed: true,
+			poolInfos: []testCasePoolConfig{
+				{
+					poolName:      "share",
+					poolType:      configapi.QoSRegionTypeShare,
+					numa:          machine.NewCPUSet(0),
+					isNumaBinding: false,
+					provision: types.ControlKnob{
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 6},
+					},
+				},
+				{
+					poolName:      "empty-numa-1",
+					poolType:      configapi.QoSRegionEmptyNUMA,
+					numa:          machine.NewCPUSet(1),
+					isNumaBinding: true,
+					provision: types.ControlKnob{
+						configapi.ControlKnobReclaimedCoresCPUQuota: {Value: 10.5},
+					},
+				},
+			},
+			expectPoolEntries: map[string]map[int]types.CPUResource{
+				"share": {
+					-1: types.CPUResource{Size: 6, Quota: -1},
+				},
+				"reserve": {
+					-1: types.CPUResource{Size: 0, Quota: -1},
+				},
+				"reclaim": {
+					-1: types.CPUResource{Size: 18, Quota: -1},
+					1:  types.CPUResource{Size: 24, Quota: 10.5},
+				},
+			},
+		},
+		{
+			name:            "empty NUMA region without quota knob on empty NUMA",
+			enableReclaimed: true,
+			poolInfos: []testCasePoolConfig{
+				{
+					poolName:      "share",
+					poolType:      configapi.QoSRegionTypeShare,
+					numa:          machine.NewCPUSet(0),
+					isNumaBinding: false,
+					provision: types.ControlKnob{
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 6},
+					},
+				},
+				{
+					poolName:      "empty-numa-1",
+					poolType:      configapi.QoSRegionEmptyNUMA,
+					numa:          machine.NewCPUSet(1),
+					isNumaBinding: true,
+					provision:     types.ControlKnob{},
+				},
+			},
+			expectPoolEntries: map[string]map[int]types.CPUResource{
+				"share": {
+					-1: types.CPUResource{Size: 6, Quota: -1},
+				},
+				"reserve": {
+					-1: types.CPUResource{Size: 0, Quota: -1},
+				},
+				"reclaim": {
+					-1: types.CPUResource{Size: 18, Quota: -1},
+					1:  types.CPUResource{Size: 24, Quota: -1},
+				},
+			},
+		},
+		{
+			name:            "empty NUMA region with quota lower than reservedForReclaim",
+			enableReclaimed: true,
+			poolInfos: []testCasePoolConfig{
+				{
+					poolName:      "share",
+					poolType:      configapi.QoSRegionTypeShare,
+					numa:          machine.NewCPUSet(0),
+					isNumaBinding: false,
+					provision: types.ControlKnob{
+						configapi.ControlKnobNonReclaimedCPURequirement: {Value: 6},
+					},
+				},
+				{
+					poolName:      "empty-numa-1",
+					poolType:      configapi.QoSRegionEmptyNUMA,
+					numa:          machine.NewCPUSet(1),
+					isNumaBinding: true,
+					provision: types.ControlKnob{
+						configapi.ControlKnobReclaimedCoresCPUQuota: {Value: 2.0},
+					},
+				},
+			},
+			expectPoolEntries: map[string]map[int]types.CPUResource{
+				"share": {
+					-1: types.CPUResource{Size: 6, Quota: -1},
+				},
+				"reserve": {
+					-1: types.CPUResource{Size: 0, Quota: -1},
+				},
+				"reclaim": {
+					-1: types.CPUResource{Size: 18, Quota: -1},
+					1:  types.CPUResource{Size: 24, Quota: 4},
+				},
+			},
+		},
 	}
 
 	reservedForReclaim := map[int]int{
@@ -1027,9 +1133,9 @@ func TestAssembleProvision(t *testing.T) {
 
 			regionMap := map[string]region.QoSRegion{}
 			for _, poolConfig := range tt.poolInfos {
-				poolInfo, ok := poolInfos[poolConfig.poolName]
-				require.True(t, ok, "pool config doesn't exist")
-				require.NoError(t, metaCache.SetPoolInfo(poolInfo.PoolName, &poolInfo), "failed to set pool info %s", poolInfo.PoolName)
+				if poolInfo, ok := poolInfos[poolConfig.poolName]; ok {
+					require.NoError(t, metaCache.SetPoolInfo(poolInfo.PoolName, &poolInfo), "failed to set pool info %s", poolInfo.PoolName)
+				}
 				region := NewFakeRegion(poolConfig.poolName, poolConfig.poolType, poolConfig.poolName)
 				region.SetBindingNumas(poolConfig.numa)
 				region.SetIsNumaBinding(poolConfig.isNumaBinding)

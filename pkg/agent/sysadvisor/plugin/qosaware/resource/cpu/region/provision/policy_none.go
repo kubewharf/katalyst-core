@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package provisionpolicy
+package provision
 
 import (
 	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
@@ -31,14 +31,14 @@ type PolicyNone struct{}
 func NewPolicyNone(_ string, _ configapi.QoSRegionType, _ string,
 	_ *config.Configuration, _ interface{}, _ metacache.MetaReader,
 	_ *metaserver.MetaServer, _ metrics.MetricEmitter,
-) ProvisionPolicy {
+) Policy {
 	return &PolicyNone{}
 }
-
+func (p *PolicyNone) Name() types.CPUProvisionPolicyName                              { return types.CPUProvisionPolicyNone }
 func (p *PolicyNone) SetEssentials(types.ResourceEssentials, types.ControlEssentials) {}
 func (p *PolicyNone) SetPodSet(types.PodSet)                                          {}
 func (p *PolicyNone) SetBindingNumas(machine.CPUSet, bool)                            {}
-func (p *PolicyNone) Update() error                                                   { return nil }
+func (p *PolicyNone) Update(PolicyContext) error                                      { return nil }
 func (p *PolicyNone) GetControlKnobAdjusted() (types.ControlKnob, error) {
 	return types.InvalidControlKnob, nil
 }

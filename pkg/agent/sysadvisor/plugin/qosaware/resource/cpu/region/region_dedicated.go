@@ -29,6 +29,7 @@ import (
 	workloadapis "github.com/kubewharf/katalyst-api/pkg/apis/workload/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region/provision"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -69,11 +70,11 @@ func NewQoSRegionDedicated(ci *types.ContainerInfo, conf *config.Configuration, 
 	}
 
 	if isNumaBinding {
-		r.bindingNumas = machine.NewCPUSet(numaID)
+		r.cpusetMems = machine.NewCPUSet(numaID)
 	} else {
-		r.bindingNumas = machine.NewCPUSet()
+		r.cpusetMems = machine.NewCPUSet()
 		for numaID := range ci.TopologyAwareAssignments {
-			r.bindingNumas.Add(numaID)
+			r.cpusetMems.Add(numaID)
 		}
 	}
 
@@ -119,15 +120,6 @@ func (r *QoSRegionDedicated) TryUpdateProvision() {
 
 	// update each provision policy
 	r.updateProvisionPolicy()
-
-	// get raw provision control knob
-	rawControlKnobs := r.getProvisionControlKnob()
-
-	// restrict control knobs by reference policy
-	restrictedControlKnobs := r.restrictProvisionControlKnob(rawControlKnobs)
-
-	// regulate control knobs
-	r.regulateProvisionControlKnob(restrictedControlKnobs, r.getEffectiveControlKnobs())
 }
 
 func (r *QoSRegionDedicated) updateProvisionPolicy() {
@@ -143,20 +135,17 @@ func (r *QoSRegionDedicated) updateProvisionPolicy() {
 		r.ControlEssentials.Indicators = indicators
 	}
 
-	for _, internal := range r.provisionPolicies {
-		internal.updateStatus = types.PolicyUpdateFailed
+	ctx := provision.PolicyContext{
+		ResourceEssentials: r.ResourceEssentials,
+		ControlEssentials:  r.ControlEssentials,
+		PodSet:             r.podSet,
+		CpusetMems:         r.cpusetMems,
+		IsNUMABinding:      r.isNumaBinding,
+		RegulatorOptions:   r.cpuRegulatorOptions,
+	}
 
-		// set essentials for policy and regulator
-		internal.policy.SetPodSet(r.podSet)
-		internal.policy.SetBindingNumas(r.bindingNumas, r.isNumaBinding)
-		internal.policy.SetEssentials(r.ResourceEssentials, r.ControlEssentials)
-
-		// run an episode of policy update
-		if err := internal.policy.Update(); err != nil {
-			klog.Errorf("[qosaware-cpu] update policy %v failed: %v", internal.name, err)
-			continue
-		}
-		internal.updateStatus = types.PolicyUpdateSucceeded
+	if err = r.pm.Update(ctx); err != nil {
+		general.ErrorS(err, " failed to update policy context", "regionName", r.name)
 	}
 }
 
@@ -208,7 +197,7 @@ func (r *QoSRegionDedicated) getEffectiveControlKnobs() types.ControlKnob {
 	if r.isNumaExclusive {
 		reclaimedCPUSize := 0
 		if reclaimedInfo, ok := r.metaReader.GetPoolInfo(commonstate.PoolNameReclaim); ok {
-			for _, numaID := range r.bindingNumas.ToSliceInt() {
+			for _, numaID := range r.cpusetMems.ToSliceInt() {
 				reclaimedCPUSize += reclaimedInfo.TopologyAwareAssignments[numaID].Size()
 			}
 		}
@@ -222,7 +211,7 @@ func (r *QoSRegionDedicated) getEffectiveControlKnobs() types.ControlKnob {
 			}
 
 			if !apiequality.Semantic.DeepEqual(regionInfo.Pods, r.podSet) ||
-				!r.bindingNumas.Equals(regionInfo.BindingNumas) {
+				!r.cpusetMems.Equals(regionInfo.BindingNumas) {
 				return true
 			}
 
@@ -285,7 +274,7 @@ func (r *QoSRegionDedicated) getCPUUsageRatio() (float64, error) {
 			}
 
 			for numaID := range ci.TopologyAwareAssignments {
-				if r.bindingNumas.Contains(numaID) {
+				if r.cpusetMems.Contains(numaID) {
 					cpuSet = cpuSet.Union(ci.TopologyAwareAssignments[numaID])
 				}
 			}

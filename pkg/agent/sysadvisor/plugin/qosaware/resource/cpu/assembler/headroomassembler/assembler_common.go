@@ -22,8 +22,10 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/resource"
 
+	configapi "github.com/kubewharf/katalyst-api/pkg/apis/config/v1alpha1"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/metacache"
+	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/assembler/provisionassembler"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/cpu/region"
 	"github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/plugin/qosaware/resource/helper"
 	"github.com/kubewharf/katalyst-core/pkg/config"
@@ -232,9 +234,28 @@ func (ha *HeadroomAssemblerCommon) getHeadroomByUtil() (resource.Quantity, map[i
 			return resource.Quantity{}, nil, fmt.Errorf("get util-based headroom failed: %v", err)
 		}
 
+		regionMapHelper := provisionassembler.NewRegionMapHelper(*ha.regionMap)
+
 		for _, numaID := range nonBindingNUMAs {
 			numaCPUSize := ha.metaServer.NUMAToCPUs.CPUSizeInNUMAs(numaID)
 			headroomForNUMA := float64(headroom.Value()) * float64(numaCPUSize) / float64(totalCPUSize)
+
+			emptyNUMARegions := regionMapHelper.GetRegionsByNUMA(numaID, configapi.QoSRegionEmptyNUMA)
+			if len(emptyNUMARegions) > 0 {
+				reclaimMetrics, err = metricHelper.GetReclaimMetrics(cpusets, common.GetReclaimRelativeRootCgroupPath(ha.conf.ReclaimRelativeRootCgroupPath, numaID), ha.metaServer.MetricsFetcher)
+				if err != nil {
+					return resource.Quantity{}, nil, fmt.Errorf("get reclaim Metrics failed: %v", err)
+				}
+				numaOptions := helper.GenerateUtilBasedCapacityOptions(dynamicConfig, float64(numaCPUSize))
+				nh, err := ha.getUtilBasedHeadroom(numaOptions, reclaimMetrics, lastReclaimedCPUPerNumaForCalculate)
+				if err != nil {
+					return resource.Quantity{}, nil, fmt.Errorf("get util-based headroom failed: %v", err)
+				}
+				if headroomForNUMA > nh.AsApproximateFloat64() {
+					headroomForNUMA = nh.AsApproximateFloat64()
+				}
+			}
+
 			q := *resource.NewQuantity(int64(headroomForNUMA), resource.DecimalSI)
 			numaHeadroom[numaID] = q
 			totalHeadroom.Add(q)

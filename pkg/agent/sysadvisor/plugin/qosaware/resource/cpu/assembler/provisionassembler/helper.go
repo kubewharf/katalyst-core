@@ -177,13 +177,21 @@ func NewRegionMapHelper(regions map[string]region.QoSRegion) *RegionMapHelper {
 	return helper
 }
 
-func (rm *RegionMapHelper) GetRegions(numaID int, regionType configapi.QoSRegionType) []region.QoSRegion {
+func (rm *RegionMapHelper) GetRegionsByNUMA(numaID int, regionType configapi.QoSRegionType) []region.QoSRegion {
 	numaRecords, ok := rm.regions[numaID]
 	if !ok {
 		return nil
 	}
 
 	return numaRecords[regionType]
+}
+
+func (rm *RegionMapHelper) GetRegionsByType(regionType configapi.QoSRegionType) []region.QoSRegion {
+	var regions []region.QoSRegion
+	for _, numaRecords := range rm.regions {
+		regions = append(regions, numaRecords[regionType]...)
+	}
+	return regions
 }
 
 func (rm *RegionMapHelper) preProcessRegions(regions map[string]region.QoSRegion) {

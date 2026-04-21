@@ -21,13 +21,15 @@ import "github.com/kubewharf/katalyst-core/pkg/agent/sysadvisor/types"
 type CPURegionConfiguration struct {
 	*CPUShareConfiguration
 
-	RestrictRefPolicy map[types.CPUProvisionPolicyName]types.CPUProvisionPolicyName
+	RestrictRefPolicy     map[types.CPUProvisionPolicyName]types.CPUProvisionPolicyName
+	EnableEmptyNUMARegion bool
 }
 
 func NewCPURegionConfiguration() *CPURegionConfiguration {
 	return &CPURegionConfiguration{
 		CPUShareConfiguration: NewCPUShareConfiguration(),
 
-		RestrictRefPolicy: make(map[types.CPUProvisionPolicyName]types.CPUProvisionPolicyName),
+		RestrictRefPolicy:     make(map[types.CPUProvisionPolicyName]types.CPUProvisionPolicyName),
+		EnableEmptyNUMARegion: false,
 	}
 }

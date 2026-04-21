@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package provisionpolicy
+package provision
 
 import (
 	"os"
@@ -69,7 +69,7 @@ func generateDynamicQuotaTestConfiguration(t *testing.T, checkpointDir, stateFil
 
 func newTestPolicyDynamicQuota(t *testing.T, checkpointDir string, stateFileDir string,
 	checkpointManagerDir string, regionInfo types.RegionInfo, metricFetcher metrictypes.MetricsFetcher,
-) ProvisionPolicy {
+) Policy {
 	conf := generateDynamicQuotaTestConfiguration(t, checkpointDir, stateFileDir, checkpointManagerDir)
 
 	metaCacheTmp, err := metacache.NewMetaCacheImp(conf, metricspool.DummyMetricsEmitterPool{}, metricFetcher)
@@ -88,8 +88,6 @@ func newTestPolicyDynamicQuota(t *testing.T, checkpointDir string, stateFileDir 
 		conf, nil, metaCacheTmp, metaServerTmp, metrics.DummyMetrics{})
 	err = metaCacheTmp.SetRegionInfo(regionInfo.RegionName, &regionInfo)
 	assert.NoError(t, err)
-
-	p.SetBindingNumas(regionInfo.BindingNumas, true)
 
 	return p
 }
@@ -342,14 +340,16 @@ func TestPolicyDynamicQuota_updateForCPUQuota(t *testing.T) {
 				policy.metaReader.(*metacache.MetaCacheImp).SetPoolInfo(commonstate.PoolNameReclaim, reclaimPoolInfo)
 			}
 
-			policy.SetEssentials(types.ResourceEssentials{}, tt.controlEssentials)
-			policy.ReservedForReclaim = tt.reservedForReclaim
-
-			if tt.notNUMABinding {
-				policy.SetBindingNumas(tt.regionInfo.BindingNumas, false)
+			ctx := PolicyContext{
+				ResourceEssentials: types.ResourceEssentials{
+					ReservedForReclaim: tt.reservedForReclaim,
+				},
+				ControlEssentials: tt.controlEssentials,
+				CpusetMems:        tt.regionInfo.BindingNumas,
+				IsNUMABinding:     !tt.notNUMABinding,
 			}
 
-			err = policy.Update()
+			err = policy.Update(ctx)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -402,15 +402,17 @@ func TestPolicyDynamicQuota_isCPUQuotaAsControlKnob(t *testing.T) {
 
 			// Minimal setup
 			p := &PolicyDynamicQuota{
-				PolicyBase: &PolicyBase{
-					isNUMABinding: tt.isNUMABinding,
-					ControlEssentials: types.ControlEssentials{
-						Indicators: tt.indicators,
-					},
+				PolicyBase: &PolicyBase{},
+			}
+
+			ctx := PolicyContext{
+				IsNUMABinding: tt.isNUMABinding,
+				ControlEssentials: types.ControlEssentials{
+					Indicators: tt.indicators,
 				},
 			}
 
-			got := p.isCPUQuotaAsControlKnob()
+			got := p.isCPUQuotaAsControlKnob(ctx)
 			assert.Equal(t, tt.want, got)
 		})
 	}
@@ -437,12 +439,12 @@ func TestPolicyDynamicQuota_sanityCheck(t *testing.T) {
 		checkpointManagerDir, types.RegionInfo{}, metricFetcher).(*PolicyDynamicQuota)
 
 	// Default EnableReclaim is true from helper
-	err = p.sanityCheck()
+	err = p.sanityCheck(PolicyContext{})
 	assert.NoError(t, err)
 
 	// Disable Reclaim
 	p.conf.GetDynamicConfiguration().EnableReclaim = false
-	err = p.sanityCheck()
+	err = p.sanityCheck(PolicyContext{})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "reclaim disabled")
 }

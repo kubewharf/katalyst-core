@@ -59,33 +59,23 @@ func NewQoSRegionIsolation(ci *types.ContainerInfo, customRegionName string, con
 		QoSRegionBase: NewQoSRegionBase(regionName, ownerPoolName, configapi.QoSRegionTypeIsolation, conf, extraConf, isNumaBinding, false, metaReader, metaServer, emitter),
 	}
 	if isNumaBinding {
-		r.bindingNumas = machine.NewCPUSet(numaID)
+		r.cpusetMems = machine.NewCPUSet(numaID)
 	}
 	return r
 }
 
-func (r *QoSRegionIsolation) TryUpdateProvision() {
+func (r *QoSRegionIsolation) GetProvision() (types.ControlKnob, error) {
 	r.Lock()
 	defer r.Unlock()
 
-	// update each provision policy
-	r.updateProvisionPolicy()
-
-	// get raw provision control knob
-	rawControlKnobs := r.getProvisionControlKnob()
-
-	// regulate control knobs without last control knob
-	r.regulateProvisionControlKnob(rawControlKnobs, nil)
-}
-
-func (r *QoSRegionIsolation) updateProvisionPolicy() {
-	// no need to update provision for isolation region
-	// todo should we run regulator processes for isolation region?
-	for _, internal := range r.provisionPolicies {
-		internal.updateStatus = types.PolicyUpdateSucceeded
-
-		// set essentials for policy
-		internal.policy.SetPodSet(r.podSet)
-		internal.policy.SetEssentials(r.ResourceEssentials, types.ControlEssentials{})
-	}
+	return map[configapi.ControlKnobName]types.ControlKnobItem{
+		configapi.ControlKnobNonIsolatedUpperCPUSize: {
+			Value:  r.ResourceUpperBound,
+			Action: types.ControlKnobActionNone,
+		},
+		configapi.ControlKnobNonIsolatedLowerCPUSize: {
+			Value:  r.ResourceLowerBound,
+			Action: types.ControlKnobActionNone,
+		},
+	}, nil
 }
