@@ -91,16 +91,16 @@ func TestBasePlugin_PackAllocationResponse(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		req            *pluginapi.ResourceRequest
-		allocationInfo *state.AllocationInfo
-		annotations    map[string]string
-		resourceName   string
-		expectedResp   *pluginapi.ResourceAllocationResponse
-		expectedErr    bool
+		name                          string
+		req                           *pluginapi.ResourceRequest
+		allocationInfoMap             map[string]*state.AllocationInfo
+		resourceAllocationAnnotations map[string]string
+		primaryResourceName           string
+		expectedResp                  *pluginapi.ResourceAllocationResponse
+		expectedErr                   bool
 	}{
 		{
-			name: "nil allocation info",
+			name: "empty allocationInfoMap",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         string(uuid.NewUUID()),
 				PodNamespace:   "test",
@@ -109,22 +109,24 @@ func TestBasePlugin_PackAllocationResponse(t *testing.T) {
 				ContainerType:  pluginapi.ContainerType_MAIN,
 				ContainerIndex: 0,
 			},
-			resourceName: "test-resource",
-			expectedErr:  true,
+			primaryResourceName: "test-resource",
+			expectedErr:         true,
 		},
 		{
 			name: "nil request",
-			allocationInfo: &state.AllocationInfo{
-				AllocatedAllocation: state.Allocation{
-					Quantity:  4,
-					NUMANodes: []int{0, 1},
+			allocationInfoMap: map[string]*state.AllocationInfo{
+				"test-resource": {
+					AllocatedAllocation: state.Allocation{
+						Quantity:  4,
+						NUMANodes: []int{0, 1},
+					},
 				},
 			},
-			resourceName: "test-resource",
-			expectedErr:  true,
+			primaryResourceName: "test-resource",
+			expectedErr:         true,
 		},
 		{
-			name: "basic case",
+			name: "basic case - single resource",
 			req: &pluginapi.ResourceRequest{
 				PodUid:         "test-uid",
 				PodNamespace:   "test",
@@ -137,16 +139,18 @@ func TestBasePlugin_PackAllocationResponse(t *testing.T) {
 				},
 				ResourceName: "test-resource",
 			},
-			allocationInfo: &state.AllocationInfo{
-				AllocatedAllocation: state.Allocation{
-					Quantity:  4,
-					NUMANodes: []int{0, 1},
+			allocationInfoMap: map[string]*state.AllocationInfo{
+				"test-resource": {
+					AllocatedAllocation: state.Allocation{
+						Quantity:  4,
+						NUMANodes: []int{0, 1},
+					},
 				},
 			},
-			annotations: map[string]string{
+			resourceAllocationAnnotations: map[string]string{
 				"test-key": "test-value",
 			},
-			resourceName: "test-resource",
+			primaryResourceName: "test-resource",
 			expectedResp: &pluginapi.ResourceAllocationResponse{
 				PodUid:         "test-uid",
 				PodNamespace:   "test",
@@ -176,6 +180,82 @@ func TestBasePlugin_PackAllocationResponse(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "multiple resources case",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         "test-uid-multiple",
+				PodNamespace:   "test",
+				PodName:        "test",
+				ContainerName:  "test",
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				Hint: &pluginapi.TopologyHint{
+					Nodes: []uint64{0},
+				},
+				ResourceName: "test-resource-1",
+			},
+			allocationInfoMap: map[string]*state.AllocationInfo{
+				"test-resource-1": {
+					AllocatedAllocation: state.Allocation{
+						Quantity:  4,
+						NUMANodes: []int{0},
+					},
+				},
+				"test-resource-2": {
+					AllocatedAllocation: state.Allocation{
+						Quantity:  500,
+						NUMANodes: []int{0},
+					},
+				},
+			},
+			resourceAllocationAnnotations: map[string]string{
+				"test-key-2": "test-value-2",
+			},
+			primaryResourceName: "test-resource-1",
+			expectedResp: &pluginapi.ResourceAllocationResponse{
+				PodUid:         "test-uid-multiple",
+				PodNamespace:   "test",
+				PodName:        "test",
+				ContainerName:  "test",
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   "test-resource-1",
+				AllocationResult: &pluginapi.ResourceAllocation{
+					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+						"test-resource-1": {
+							IsNodeResource:    true,
+							IsScalarResource:  true,
+							AllocatedQuantity: 4,
+							Annotations: map[string]string{
+								"test-key-2": "test-value-2",
+							},
+							ResourceHints: &pluginapi.ListOfTopologyHints{
+								Hints: []*pluginapi.TopologyHint{
+									{
+										Nodes: []uint64{0},
+									},
+								},
+							},
+						},
+						"test-resource-2": {
+							IsNodeResource:    true,
+							IsScalarResource:  true,
+							AllocatedQuantity: 500,
+							Annotations: map[string]string{
+								"test-key-2": "test-value-2",
+							},
+							ResourceHints: &pluginapi.ListOfTopologyHints{
+								Hints: []*pluginapi.TopologyHint{
+									{
+										Nodes: []uint64{0},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -188,7 +268,7 @@ func TestBasePlugin_PackAllocationResponse(t *testing.T) {
 			basePlugin, err := NewBasePlugin(agentCtx, conf, metrics.DummyMetrics{})
 			assert.NoError(t, err)
 
-			resp, err := basePlugin.PackAllocationResponse(tt.req, tt.allocationInfo, tt.annotations, tt.resourceName)
+			resp, err := basePlugin.PackAllocationResponse(tt.req, tt.allocationInfoMap, tt.resourceAllocationAnnotations, tt.primaryResourceName)
 			if tt.expectedErr {
 				assert.Error(t, err)
 			} else {

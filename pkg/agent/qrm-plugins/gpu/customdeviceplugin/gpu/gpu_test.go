@@ -183,6 +183,7 @@ func TestGPUDevicePlugin_AllocateAssociatedDevice(t *testing.T) {
 		containerName                   string
 		allocationInfo                  *state.AllocationInfo
 		accompanyResourceAllocationInfo *state.AllocationInfo
+		otherResourceAllocationMap      map[v1.ResourceName]state.AllocationMap
 		deviceReq                       *pluginapi.DeviceRequest
 		deviceTopology                  *machine.DeviceTopology
 		expectedErr                     bool
@@ -296,6 +297,99 @@ func TestGPUDevicePlugin_AllocateAssociatedDevice(t *testing.T) {
 			},
 			expectedErr: true,
 		},
+		{
+			name: "non-gpu_device resource has devices occupied",
+			otherResourceAllocationMap: map[v1.ResourceName]state.AllocationMap{
+				"test-other-resource": {
+					"test-gpu-0": &state.AllocationState{
+						PodEntries: state.PodEntries{
+							"existing-pod": state.ContainerEntries{
+								"existing-container": &state.AllocationInfo{},
+							},
+						},
+					},
+					"test-gpu-2": &state.AllocationState{
+						PodEntries: state.PodEntries{
+							"existing-pod": state.ContainerEntries{
+								"existing-container": &state.AllocationInfo{},
+							},
+						},
+					},
+				},
+			},
+			podUID:        string(uuid.NewUUID()),
+			containerName: "test-container",
+			deviceReq: &pluginapi.DeviceRequest{
+				DeviceName:       "test-gpu",
+				AvailableDevices: []string{"test-gpu-0", "test-gpu-1", "test-gpu-2", "test-gpu-3"},
+				ReusableDevices:  []string{"test-gpu-0", "test-gpu-1", "test-gpu-2", "test-gpu-3"},
+				DeviceRequest:    2,
+			},
+			deviceTopology: &machine.DeviceTopology{
+				Devices: map[string]machine.DeviceInfo{
+					"test-gpu-0": {
+						NumaNodes: []int{0},
+					},
+					"test-gpu-1": {
+						NumaNodes: []int{1},
+					},
+					"test-gpu-2": {
+						NumaNodes: []int{0},
+					},
+					"test-gpu-3": {
+						NumaNodes: []int{1},
+					},
+				},
+			},
+			expectedResp: &pluginapi.AssociatedDeviceAllocationResponse{
+				AllocationResult: &pluginapi.AssociatedDeviceAllocation{
+					AllocatedDevices: []string{"test-gpu-1", "test-gpu-3"},
+				},
+			},
+		},
+		{
+			name: "gpu_device resource has allocations (not filtered)",
+			otherResourceAllocationMap: map[v1.ResourceName]state.AllocationMap{
+				v1.ResourceName(gpuconsts.GPUDeviceType): {
+					"test-gpu-0": &state.AllocationState{
+						PodEntries: state.PodEntries{
+							"existing-pod": state.ContainerEntries{
+								"existing-container": &state.AllocationInfo{},
+							},
+						},
+					},
+				},
+			},
+			podUID:        string(uuid.NewUUID()),
+			containerName: "test-container",
+			deviceReq: &pluginapi.DeviceRequest{
+				DeviceName:       "test-gpu",
+				AvailableDevices: []string{"test-gpu-0", "test-gpu-1"},
+				ReusableDevices:  []string{"test-gpu-0", "test-gpu-1"},
+				DeviceRequest:    2,
+			},
+			deviceTopology: &machine.DeviceTopology{
+				Devices: map[string]machine.DeviceInfo{
+					"test-gpu-0": {
+						NumaNodes: []int{0},
+					},
+					"test-gpu-1": {
+						NumaNodes: []int{1},
+					},
+					"test-gpu-2": {
+						NumaNodes: []int{0},
+					},
+					"test-gpu-3": {
+						NumaNodes: []int{1},
+					},
+				},
+			},
+			expectedResp: &pluginapi.AssociatedDeviceAllocationResponse{
+				AllocationResult: &pluginapi.AssociatedDeviceAllocation{
+					AllocatedDevices: []string{"test-gpu-0", "test-gpu-1"},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -312,6 +406,15 @@ func TestGPUDevicePlugin_AllocateAssociatedDevice(t *testing.T) {
 
 			if tt.accompanyResourceAllocationInfo != nil {
 				basePlugin.GetState().SetAllocationInfo(v1.ResourceName(defaultPreAllocateResourceName), tt.podUID, tt.containerName, tt.accompanyResourceAllocationInfo, false)
+			}
+
+			// Set up other resources in machine state
+			if len(tt.otherResourceAllocationMap) > 0 {
+				machineState := basePlugin.GetState().GetMachineState()
+				for resName, allocMap := range tt.otherResourceAllocationMap {
+					machineState[resName] = allocMap
+				}
+				basePlugin.GetState().SetMachineState(machineState, false)
 			}
 
 			if tt.deviceTopology != nil {
@@ -355,4 +458,106 @@ func evaluateAllocatedDevicesResult(t *testing.T, expectedResp, actualResp *plug
 	}
 
 	assert.ElementsMatch(t, expectedResp.AllocationResult.AllocatedDevices, actualResp.AllocationResult.AllocatedDevices)
+}
+
+func TestFilterOccupiedDevicesFromRequest(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                     string
+		allocationResourcesMap   state.AllocationResourcesMap
+		availableDevices         []string
+		reusableDevices          []string
+		expectedAvailableDevices []string
+		expectedReusableDevices  []string
+	}{
+		{
+			name: "no allocations, all devices remain",
+			allocationResourcesMap: state.AllocationResourcesMap{
+				"test-resource": state.AllocationMap{},
+			},
+			availableDevices:         []string{"dev-0", "dev-1"},
+			reusableDevices:          []string{"dev-2", "dev-3"},
+			expectedAvailableDevices: []string{"dev-0", "dev-1"},
+			expectedReusableDevices:  []string{"dev-2", "dev-3"},
+		},
+		{
+			name: "gpu_device resource has allocations (not filtered out)",
+			allocationResourcesMap: state.AllocationResourcesMap{
+				v1.ResourceName(gpuconsts.GPUDeviceType): state.AllocationMap{
+					"dev-0": &state.AllocationState{
+						PodEntries: state.PodEntries{
+							"test-pod": state.ContainerEntries{
+								"test-container": &state.AllocationInfo{},
+							},
+						},
+					},
+				},
+			},
+			availableDevices:         []string{"dev-0", "dev-1"},
+			reusableDevices:          []string{"dev-0", "dev-1"},
+			expectedAvailableDevices: []string{"dev-0", "dev-1"},
+			expectedReusableDevices:  []string{"dev-0", "dev-1"},
+		},
+		{
+			name: "non-gpu_device resource has allocations (filtered out)",
+			allocationResourcesMap: state.AllocationResourcesMap{
+				"test-resource": state.AllocationMap{
+					"dev-0": &state.AllocationState{
+						PodEntries: state.PodEntries{
+							"test-pod": state.ContainerEntries{
+								"test-container": &state.AllocationInfo{},
+							},
+						},
+					},
+				},
+			},
+			availableDevices:         []string{"dev-0", "dev-1"},
+			reusableDevices:          []string{"dev-0", "dev-1"},
+			expectedAvailableDevices: []string{"dev-1"},
+			expectedReusableDevices:  []string{"dev-1"},
+		},
+		{
+			name: "both gpu_device and non-gpu_device have allocations (non-gpu_device triggers filtering)",
+			allocationResourcesMap: state.AllocationResourcesMap{
+				v1.ResourceName(gpuconsts.GPUDeviceType): state.AllocationMap{
+					"dev-1": &state.AllocationState{
+						PodEntries: state.PodEntries{
+							"test-pod-2": state.ContainerEntries{
+								"test-container-2": &state.AllocationInfo{},
+							},
+						},
+					},
+				},
+				"test-resource": state.AllocationMap{
+					"dev-0": &state.AllocationState{
+						PodEntries: state.PodEntries{
+							"test-pod": state.ContainerEntries{
+								"test-container": &state.AllocationInfo{},
+							},
+						},
+					},
+				},
+			},
+			availableDevices:         []string{"dev-0", "dev-1"},
+			reusableDevices:          []string{"dev-0", "dev-1"},
+			expectedAvailableDevices: []string{"dev-1"},
+			expectedReusableDevices:  []string{"dev-1"},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := &pluginapi.DeviceRequest{
+				AvailableDevices: tt.availableDevices,
+				ReusableDevices:  tt.reusableDevices,
+			}
+			filterOccupiedDevicesFromRequest(req, tt.allocationResourcesMap)
+			assert.Equal(t, tt.expectedAvailableDevices, req.AvailableDevices)
+			assert.Equal(t, tt.expectedReusableDevices, req.ReusableDevices)
+		})
+	}
 }

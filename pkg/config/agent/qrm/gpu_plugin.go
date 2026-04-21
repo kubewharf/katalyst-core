@@ -31,11 +31,17 @@ type GPUQRMPluginConfig struct {
 	RDMADeviceNames []string
 	// GPUMemoryAllocatablePerGPU is the total memory allocatable for each GPU
 	GPUMemoryAllocatablePerGPU resource.Quantity
+	// MilliGPUAllocatablePerGPU is the total milliGPU allocatable for each GPU
+	MilliGPUAllocatablePerGPU resource.Quantity
 	// SkipGPUStateCorruption skip gpu state corruption, and it will be used after updating state properties
 	SkipGPUStateCorruption bool
 	// RequiredDeviceAffinity specifies whether it is required for pods to follow device affinity strictly.
 	// If true, pods will fail to admit if they are not able to satisfy device affinity constraints. Set to true by default.
 	RequiredDeviceAffinity bool
+	// ExtraResources is the list of extra resource names
+	ExtraResources []string
+	// FractionalGPUPrefersSpreading whether fractional GPU (such as gpu memory) prefers spreading across devices
+	FractionalGPUPrefersSpreading bool
 	// EnableKubeletCheckpointFallback specifies whether to fallback to kubelet device plugin checkpoint for allocation.
 	EnableKubeletCheckpointFallback bool
 

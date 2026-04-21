@@ -271,7 +271,6 @@ func (s *DeviceAffinityStrategy) allocateCandidateDevices(
 				groupInfos, affinityGroupsByPriority, candidateDevicesSet,
 				devicesToAllocate, allocatedDevices, remainingDevicesToAllocate,
 			)
-
 			if err != nil {
 				return nil, err
 			}

@@ -24,7 +24,6 @@ import (
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/baseplugin"
-	gpuconsts "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/state"
 )
 
@@ -44,27 +43,29 @@ func (r ResourcePluginStub) GetTopologyHints(context.Context, *pluginapi.Resourc
 	return &pluginapi.ResourceHintsResponse{}, nil
 }
 
-func (r ResourcePluginStub) GetTopologyAwareResources(_ context.Context, podUID, containerName string) (*pluginapi.GetTopologyAwareResourcesResponse, error) {
+func (r ResourcePluginStub) GetTopologyAwareResources(_ context.Context, podUID, containerName string) (map[string]*pluginapi.GetTopologyAwareResourcesResponse, error) {
 	// Simply returns a fixed response if the podUID and containerName is found in the state, otherwise return an error
 	allocationInfo := r.GetState().GetAllocationInfo(v1.ResourceName(r.ResourceName()), podUID, containerName)
 	if allocationInfo == nil {
 		return nil, fmt.Errorf("allocationInfo is nil")
 	}
 
-	// Simply returns a fixed response
-	return &pluginapi.GetTopologyAwareResourcesResponse{
-		ContainerTopologyAwareResources: &pluginapi.ContainerTopologyAwareResources{
-			AllocatedResources: map[string]*pluginapi.TopologyAwareResource{
-				r.ResourceName(): {},
+	// Simply returns a fixed response map
+	return map[string]*pluginapi.GetTopologyAwareResourcesResponse{
+		r.ResourceName(): {
+			ContainerTopologyAwareResources: &pluginapi.ContainerTopologyAwareResources{
+				AllocatedResources: map[string]*pluginapi.TopologyAwareResource{
+					r.ResourceName(): {},
+				},
 			},
 		},
 	}, nil
 }
 
-func (r ResourcePluginStub) GetTopologyAwareAllocatableResources(context.Context) (*gpuconsts.AllocatableResource, error) {
-	// Simply return a fixed response
-	return &gpuconsts.AllocatableResource{
-		ResourceName: r.ResourceName(),
+func (r ResourcePluginStub) GetTopologyAwareAllocatableResources(context.Context) (map[string]*pluginapi.AllocatableTopologyAwareResource, error) {
+	// Simply return a fixed response for the main resource
+	return map[string]*pluginapi.AllocatableTopologyAwareResource{
+		r.ResourceName(): {},
 	}, nil
 }
 
@@ -79,4 +80,13 @@ func (r ResourcePluginStub) Allocate(_ context.Context, resourceReq *pluginapi.R
 	}
 
 	return &pluginapi.ResourceAllocationResponse{}, nil
+}
+
+func (r ResourcePluginStub) GetExtraResources() []string {
+	return []string{}
+}
+
+func (r ResourcePluginStub) RegisterExtraResourceStateGenerator(extraResource string) error {
+	// Stub implementation
+	return nil
 }
