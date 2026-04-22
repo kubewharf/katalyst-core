@@ -121,44 +121,25 @@ func (s *AccompanyResourceStrategy) Bind(ctx *allocate.AllocationContext, sorted
 		priorityDimensions = accompanyTopology.PriorityDimensions
 	}
 
+	// If no priority dimensions are specified from accompany device, use NUMA as the default priority dimension.
+	if len(priorityDimensions) == 0 {
+		priorityDimensions = []string{machine.DimensionNuma}
+	}
+
 	general.Infof("Get affinity devices from allocated devices: %v", affinityDevices)
 
 	availableDevices := sets.NewString(sortedDevices...)
 
 	// Choose allocation path based on presence of affinity info
-	// If there are no affinity devices, simply allocate available devices in best-effort manner.
+	// If there are no affinity devices, return an error.
 	if len(affinityDevices) == 0 {
-		general.Infof("No affinity devices found, allocating devices using best effort manner")
-		return s.allocateWithoutAffinity(ctx, sortedDevices, allocatedDevices, devicesToBeAllocated)
+		return nil, fmt.Errorf("no affinity devices between accompany resource %s and main resource %s", accompanyResourceName, resourceName)
 	}
 
 	// maxAllocationPerDevice is the maximum number of target devices that can be allocated to each accompany resource device.
 	// This is to uniformly distribute the target devices to each accompany resource device.
 	maxAllocationPerDevice := int(math.Max(1/accompanyResourceToDeviceRatio, 1))
 	return s.allocateWithAffinity(ctx, accompanyAllocatedDeviceIDs, affinityDevices, priorityDimensions, availableDevices, allocatedDevices, devicesToBeAllocated, maxAllocationPerDevice, accompanyResourceName)
-}
-
-// allocateWithoutAffinity simply allocates available devices in order until the target count is satisfied.
-func (s *AccompanyResourceStrategy) allocateWithoutAffinity(ctx *allocate.AllocationContext, sortedDevices []string,
-	allocatedDevices sets.String, targetDeviceToBeAllocated int,
-) (*allocate.AllocationResult, error) {
-	for _, device := range sortedDevices {
-		allocatedDevices.Insert(device)
-		if allocatedDevices.Len() >= targetDeviceToBeAllocated {
-			general.InfoS("Successfully bound devices",
-				"podNamespace", ctx.ResourceReq.PodNamespace,
-				"podName", ctx.ResourceReq.PodName,
-				"containerName", ctx.ResourceReq.ContainerName,
-				"allocatedDevices", allocatedDevices.List())
-
-			return &allocate.AllocationResult{AllocatedDevices: allocatedDevices.UnsortedList(), Success: true}, nil
-		}
-	}
-
-	return &allocate.AllocationResult{
-		Success:      false,
-		ErrorMessage: fmt.Sprintf("not enough devices to allocate (no affinity): need %d, have %d", targetDeviceToBeAllocated, len(allocatedDevices)),
-	}, fmt.Errorf("not enough devices to allocate (no affinity): need %d, have %d", targetDeviceToBeAllocated, len(allocatedDevices))
 }
 
 // allocateWithAffinity tries to allocate devices that have affinity with the allocated accompany devices.

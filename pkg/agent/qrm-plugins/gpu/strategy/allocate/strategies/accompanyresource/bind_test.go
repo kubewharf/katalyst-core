@@ -185,13 +185,12 @@ func TestBind(t *testing.T) {
 			},
 		},
 		{
-			name: "empty affinity: allocate available devices until satisfied",
+			name: "empty affinity: returns error when no affinity devices",
 			ctx: &allocate.AllocationContext{
 				AccompanyResourceName: "rdma",
 				ResourceName:          "gpu",
 				ResourceReq:           &v1alpha1.ResourceRequest{PodUid: "p", ContainerName: "c"},
 				MachineState: func() state.AllocationResourcesMap {
-					// 2 rdma devices, need 2 gpu devices
 					return state.AllocationResourcesMap{
 						gpuconsts.RDMADeviceType: {
 							"r0": preallocState("p", "c"),
@@ -209,20 +208,15 @@ func TestBind(t *testing.T) {
 				GPUQRMPluginConfig:     &qrm.GPUQRMPluginConfig{GPUDeviceNames: []string{"gpu"}, RDMADeviceNames: []string{"rdma"}},
 			},
 			sortedDevices: []string{"g0", "g1", "g2"},
-			expectedResult: &allocate.AllocationResult{
-				// ratio = 2/3 -> need 3 devices
-				AllocatedDevices: sets.NewString("g0", "g1", "g2").UnsortedList(),
-				Success:          true,
-			},
+			expectedErr:   true,
 		},
 		{
-			name: "empty affinity: reusable devices count toward target",
+			name: "empty affinity with reusable devices returns error",
 			ctx: &allocate.AllocationContext{
 				AccompanyResourceName: "rdma",
 				ResourceName:          "gpu",
 				ResourceReq:           &v1alpha1.ResourceRequest{PodUid: "p", ContainerName: "c"},
 				MachineState: func() state.AllocationResourcesMap {
-					// 2 rdma devices -> need 2 gpu devices, with one reusable
 					return state.AllocationResourcesMap{
 						gpuconsts.RDMADeviceType: {
 							"r0": preallocState("p", "c"),
@@ -242,11 +236,7 @@ func TestBind(t *testing.T) {
 				GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{GPUDeviceNames: []string{"gpu"}, RDMADeviceNames: []string{"rdma"}},
 			},
 			sortedDevices: []string{"g0", "g1", "g2"},
-			expectedResult: &allocate.AllocationResult{
-				// ratio = 2/3 -> need 3 devices; one reusable + two selected
-				AllocatedDevices: sets.NewString("g0", "g1", "g2").UnsortedList(),
-				Success:          true,
-			},
+			expectedErr:   true,
 		},
 		{
 			name: "affinity missing for a preallocated device returns error",
@@ -564,13 +554,12 @@ func TestBind(t *testing.T) {
 			expectedErr:   true,
 		},
 		{
-			name: "ratio 1/3 without affinity: allocate three devices",
+			name: "ratio 1/3 without affinity returns error",
 			ctx: &allocate.AllocationContext{
 				AccompanyResourceName: "rdma",
 				ResourceName:          "gpu",
 				ResourceReq:           &v1alpha1.ResourceRequest{PodUid: "p", ContainerName: "c"},
 				MachineState: func() state.AllocationResourcesMap {
-					// 1 rdma device, 3 gpu devices -> ratio = 1/3 -> need 3 allocations
 					return state.AllocationResourcesMap{
 						gpuconsts.RDMADeviceType: {
 							"r0": preallocState("p", "c"),
@@ -587,10 +576,7 @@ func TestBind(t *testing.T) {
 				GPUQRMPluginConfig:     &qrm.GPUQRMPluginConfig{GPUDeviceNames: []string{"gpu"}, RDMADeviceNames: []string{"rdma"}},
 			},
 			sortedDevices: []string{"g0", "g1", "g2"},
-			expectedResult: &allocate.AllocationResult{
-				AllocatedDevices: sets.NewString("g0", "g1", "g2").UnsortedList(),
-				Success:          true,
-			},
+			expectedErr:   true,
 		},
 		{
 			name: "ratio 1/3 with affinity: allocate all from one accompany device",
@@ -620,6 +606,67 @@ func TestBind(t *testing.T) {
 			sortedDevices: []string{"g0", "g1", "g2"},
 			expectedResult: &allocate.AllocationResult{
 				AllocatedDevices: sets.NewString("g0", "g1", "g2").UnsortedList(),
+				Success:          true,
+			},
+		},
+		{
+			name: "numa affinity, ratio 1:1",
+			ctx: &allocate.AllocationContext{
+				AccompanyResourceName: "rdma",
+				ResourceName:          "gpu",
+				ResourceReq:           &v1alpha1.ResourceRequest{PodUid: "p", ContainerName: "c"},
+				MachineState: func() state.AllocationResourcesMap {
+					return state.AllocationResourcesMap{
+						gpuconsts.RDMADeviceType: {
+							"r0": preallocState("p", "c"),
+							"r1": preallocState("p", "c"),
+						},
+						gpuconsts.GPUDeviceType: {
+							"g0": nil,
+							"g1": nil,
+						},
+					}
+				}(),
+				DeviceTopologyRegistry: buildNumaAffinityRegistry(
+					map[string][]int{"r0": {0}, "r1": {1}},
+					map[string][]int{"g0": {0}, "g1": {1}},
+				),
+				DeviceReq:          &v1alpha1.DeviceRequest{},
+				GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{GPUDeviceNames: []string{"gpu"}, RDMADeviceNames: []string{"rdma"}},
+			},
+			sortedDevices: []string{"g0", "g1"},
+			expectedResult: &allocate.AllocationResult{
+				AllocatedDevices: sets.NewString("g0", "g1").UnsortedList(),
+				Success:          true,
+			},
+		},
+		{
+			name: "numa affinity, ratio 2:1 (one gpu per two rdma)",
+			ctx: &allocate.AllocationContext{
+				AccompanyResourceName: "rdma",
+				ResourceName:          "gpu",
+				ResourceReq:           &v1alpha1.ResourceRequest{PodUid: "p", ContainerName: "c"},
+				MachineState: func() state.AllocationResourcesMap {
+					return state.AllocationResourcesMap{
+						gpuconsts.RDMADeviceType: {
+							"r0": preallocState("p", "c"),
+							"r1": preallocState("p", "c"),
+						},
+						gpuconsts.GPUDeviceType: {
+							"g0": nil,
+						},
+					}
+				}(),
+				DeviceTopologyRegistry: buildNumaAffinityRegistry(
+					map[string][]int{"r0": {0}, "r1": {0}},
+					map[string][]int{"g0": {0}},
+				),
+				DeviceReq:          &v1alpha1.DeviceRequest{},
+				GPUQRMPluginConfig: &qrm.GPUQRMPluginConfig{GPUDeviceNames: []string{"gpu"}, RDMADeviceNames: []string{"rdma"}},
+			},
+			sortedDevices: []string{"g0"},
+			expectedResult: &allocate.AllocationResult{
+				AllocatedDevices: sets.NewString("g0").UnsortedList(),
 				Success:          true,
 			},
 		},
@@ -681,11 +728,9 @@ func buildSimpleAffinityRegistry(rdmaToGPU map[string][]string) *machine.DeviceT
 	// Construct GPU topology with matching affinity keys
 	gpuTopo := &machine.DeviceTopology{PriorityDimensions: []string{"link"}, Devices: map[string]machine.DeviceInfo{}}
 	// Include at least devices referenced in tests
-	for _, gpus := range rdmaToGPU {
+	for rdmaID, gpus := range rdmaToGPU {
 		for _, gid := range gpus {
-			if _, ok := gpuTopo.Devices[gid]; !ok {
-				gpuTopo.Devices[gid] = machine.DeviceInfo{NumaNodes: []int{}, Dimensions: map[string]string{"link": gid}}
-			}
+			gpuTopo.Devices[gid] = machine.DeviceInfo{NumaNodes: []int{}, Dimensions: map[string]string{"link": rdmaID}}
 		}
 	}
 	// Add a couple of extra GPUs to match sortedDevices lists when needed
@@ -787,6 +832,30 @@ func buildNoAffinityRegistry() *machine.DeviceTopologyRegistry {
 	gpuTopo := &machine.DeviceTopology{PriorityDimensions: []string{"gpu_bus"}, Devices: map[string]machine.DeviceInfo{}}
 	for _, id := range []string{"g0", "g1", "g2"} {
 		gpuTopo.Devices[id] = machine.DeviceInfo{NumaNodes: []int{}, Dimensions: map[string]string{"gpu_bus": id}}
+	}
+	_ = reg.SetDeviceTopology("gpu", gpuTopo)
+
+	return reg
+}
+
+// buildNumaAffinityRegistry builds a registry where RDMA and GPU devices have affinity based on NUMA nodes
+func buildNumaAffinityRegistry(rdmaToNuma map[string][]int, gpuToNuma map[string][]int) *machine.DeviceTopologyRegistry {
+	reg := machine.NewDeviceTopologyRegistry()
+
+	reg.RegisterDeviceTopologyProvider("rdma", machine.NewDeviceTopologyProvider())
+	reg.RegisterDeviceTopologyProvider("gpu", machine.NewDeviceTopologyProvider())
+
+	// RDMA topology (no dimensions, only NUMA nodes and empty PriorityDimensions to trigger default "numa" priority)
+	rdmaTopo := &machine.DeviceTopology{PriorityDimensions: []string{}, Devices: map[string]machine.DeviceInfo{}}
+	for rdmaID, numaNodes := range rdmaToNuma {
+		rdmaTopo.Devices[rdmaID] = machine.DeviceInfo{NumaNodes: numaNodes, Dimensions: map[string]string{}}
+	}
+	_ = reg.SetDeviceTopology("rdma", rdmaTopo)
+
+	// GPU topology (no dimensions, only NUMA nodes)
+	gpuTopo := &machine.DeviceTopology{PriorityDimensions: []string{}, Devices: map[string]machine.DeviceInfo{}}
+	for gpuID, numaNodes := range gpuToNuma {
+		gpuTopo.Devices[gpuID] = machine.DeviceInfo{NumaNodes: numaNodes, Dimensions: map[string]string{}}
 	}
 	_ = reg.SetDeviceTopology("gpu", gpuTopo)
 

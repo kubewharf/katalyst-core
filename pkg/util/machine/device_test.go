@@ -185,6 +185,36 @@ func TestDeviceTopologyRegistry_GetAffinityDevices(t *testing.T) {
 		},
 	}
 
+	// Topologies with only NUMA nodes (no dimensions) for fallback test
+	numaTopoA := &DeviceTopology{
+		PriorityDimensions: []string{},
+		Devices: map[string]DeviceInfo{
+			"devA-0": {NumaNodes: []int{0, 1}},
+			"devA-1": {NumaNodes: []int{2}},
+			"devA-2": {NumaNodes: []int{1, 3}},
+		},
+	}
+	numaTopoB := &DeviceTopology{
+		PriorityDimensions: []string{},
+		Devices: map[string]DeviceInfo{
+			"devB-0": {NumaNodes: []int{0}},
+			"devB-1": {NumaNodes: []int{1, 2}},
+			"devB-2": {NumaNodes: []int{3}},
+			"devB-3": {NumaNodes: []int{4}},
+		},
+	}
+	// Topology where neither dimensions nor numa nodes match
+	emptyMatchTopoA := &DeviceTopology{
+		Devices: map[string]DeviceInfo{
+			"matchA-0": {NumaNodes: []int{99}},
+		},
+	}
+	emptyMatchTopoB := &DeviceTopology{
+		Devices: map[string]DeviceInfo{
+			"matchB-0": {NumaNodes: []int{100}},
+		},
+	}
+
 	// Register device topology providers
 	registry := NewDeviceTopologyRegistry()
 	registry.RegisterDeviceTopologyProvider("npu", NewDeviceTopologyProviderStub())
@@ -193,6 +223,10 @@ func TestDeviceTopologyRegistry_GetAffinityDevices(t *testing.T) {
 	registry.RegisterDeviceTopologyProvider("dpu", NewDeviceTopologyProviderStub())
 	registry.RegisterDeviceTopologyProvider("apu", NewDeviceTopologyProviderStub())
 	registry.RegisterDeviceTopologyProvider("bpu", NewDeviceTopologyProviderStub())
+	registry.RegisterDeviceTopologyProvider("numaA", NewDeviceTopologyProviderStub())
+	registry.RegisterDeviceTopologyProvider("numaB", NewDeviceTopologyProviderStub())
+	registry.RegisterDeviceTopologyProvider("emptyMatchA", NewDeviceTopologyProviderStub())
+	registry.RegisterDeviceTopologyProvider("emptyMatchB", NewDeviceTopologyProviderStub())
 	err := registry.SetDeviceTopology("npu", npuTopology)
 	assert.NoError(t, err)
 	err = registry.SetDeviceTopology("gpu", gpuTopology)
@@ -204,6 +238,14 @@ func TestDeviceTopologyRegistry_GetAffinityDevices(t *testing.T) {
 	err = registry.SetDeviceTopology("apu", apuTopology)
 	assert.NoError(t, err)
 	err = registry.SetDeviceTopology("bpu", bpuTopology)
+	assert.NoError(t, err)
+	err = registry.SetDeviceTopology("numaA", numaTopoA)
+	assert.NoError(t, err)
+	err = registry.SetDeviceTopology("numaB", numaTopoB)
+	assert.NoError(t, err)
+	err = registry.SetDeviceTopology("emptyMatchA", emptyMatchTopoA)
+	assert.NoError(t, err)
+	err = registry.SetDeviceTopology("emptyMatchB", emptyMatchTopoB)
 	assert.NoError(t, err)
 
 	tests := []struct {
@@ -248,6 +290,22 @@ func TestDeviceTopologyRegistry_GetAffinityDevices(t *testing.T) {
 			name:     "no matching affinity returns empty map",
 			deviceA:  "apu",
 			deviceB:  "bpu",
+			expected: map[string]map[string][]string{},
+		},
+		{
+			name:    "numa fallback when no dimensions match",
+			deviceA: "numaA",
+			deviceB: "numaB",
+			expected: map[string]map[string][]string{
+				"devA-0": {"numa": {"devB-0", "devB-1"}},
+				"devA-1": {"numa": {"devB-1"}},
+				"devA-2": {"numa": {"devB-1", "devB-2"}},
+			},
+		},
+		{
+			name:     "no matching numa nodes returns empty",
+			deviceA:  "emptyMatchA",
+			deviceB:  "emptyMatchB",
 			expected: map[string]map[string][]string{},
 		},
 	}
