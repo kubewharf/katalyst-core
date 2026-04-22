@@ -141,7 +141,17 @@ func (m *ReporterPluginManager) registerInnerReporterPlugins(emitter metrics.Met
 			continue
 		}
 
-		curPlugin, err := initFn(emitter, metaServer, conf, callback)
+		var cache *v1alpha1.GetReportContentResponse
+		m.mutex.Lock()
+		// Try to get the cache from the stopped remote endpoint which was restored from the checkpoint.
+		// This prevents data omission during the initial reporting cycles if the agent restarts
+		// and the data hasn't fully ready yet.
+		if old, ok := m.endpoints[pluginName]; ok {
+			cache = old.GetCache()
+		}
+		m.mutex.Unlock()
+
+		curPlugin, err := initFn(emitter, metaServer, conf, callback, cache)
 		if err != nil {
 			errList = append(errList, err)
 			continue
@@ -411,15 +421,10 @@ func (m *ReporterPluginManager) getReportContent(cacheFirst bool) (map[string]*v
 }
 
 func (m *ReporterPluginManager) writeCheckpoint(reportResponses map[string]*v1alpha1.GetReportContentResponse) error {
-	remoteResponses := make(map[string]*v1alpha1.GetReportContentResponse, 0)
-	// only write remote endpoint response to checkpoint
-	for name, response := range reportResponses {
-		if m.innerEndpoints.Has(name) {
-			continue
-		}
-		remoteResponses[name] = response
-	}
-	data := checkpoint.New(remoteResponses)
+	// Write all endpoint responses to the checkpoint to persist their states.
+	// This enables both remote and inner plugins to restore their cached responses upon agent restart,
+	// preventing potential data omission during the initial reporting cycles before data is fully ready.
+	data := checkpoint.New(reportResponses)
 	err := m.checkpointManager.CreateCheckpoint(reporterManagerCheckpoint, data)
 	if err != nil {
 		_ = m.emitter.StoreInt64("reporter_plugin_checkpoint_write_failed", 1, metrics.MetricTypeNameCount)

@@ -77,7 +77,7 @@ type kubeletPlugin struct {
 
 // NewKubeletReporterPlugin creates a kubelet reporter plugin
 func NewKubeletReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.MetaServer,
-	conf *config.Configuration, callback plugin.ListAndWatchCallback,
+	conf *config.Configuration, callback plugin.ListAndWatchCallback, cache *v1alpha1.GetReportContentResponse,
 ) (plugin.ReporterPlugin, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &kubeletPlugin{
@@ -89,6 +89,10 @@ func NewKubeletReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaser
 		cancel:      cancel,
 		cb:          callback,
 		StopControl: process.NewStopControl(time.Time{}),
+	}
+	if cache != nil {
+		// initialize with the historical cache restored from checkpoint
+		p.latestReportContentResponse.Store(cache)
 	}
 
 	var podResourcesFilter topology.PodResourcesFilter
