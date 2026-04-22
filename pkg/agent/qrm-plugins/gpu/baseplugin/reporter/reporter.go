@@ -96,10 +96,11 @@ func (r *gpuReporterImpl) Run(stopCh <-chan struct{}) {
 // gpuReporterPlugin is the plugin that reports gpu device topology information
 type gpuReporterPlugin struct {
 	sync.RWMutex
-	started bool
-	ctx     context.Context
-	cancel  context.CancelFunc
-	emitter metrics.MetricEmitter
+	started    bool
+	ctx        context.Context
+	cancel     context.CancelFunc
+	emitter    metrics.MetricEmitter
+	metaServer *metaserver.MetaServer
 
 	gpuDeviceNames         []string
 	numaSocketZoneNodeMap  map[util.ZoneNode]util.ZoneNode
@@ -127,6 +128,7 @@ func newGPUReporterPlugin(emitter metrics.MetricEmitter, metaServer *metaserver.
 		stateGetter:            stateGetter,
 		deviceTypeToNames:      deviceTypeToNames,
 		reportNotifyCh:         make(chan struct{}, 1),
+		metaServer:             metaServer,
 	}
 	pluginWrapper, err := skeleton.NewRegistrationPluginWrapper(reporter, []string{conf.PluginRegistrationDir},
 		func(key string, value int64) {
@@ -273,7 +275,10 @@ func (p *gpuReporterPlugin) getTopologyZoneReportField(topologiesMap map[string]
 		return nil, fmt.Errorf("no zone resources found for device topology")
 	}
 
-	zoneAllocations := p.getZoneAllocations(machineState)
+	zoneAllocations, err := p.getZoneAllocations(machineState)
+	if err != nil {
+		return nil, err
+	}
 
 	generatedTopologyZones := topologyZoneGenerator.GenerateTopologyZoneStatus(zoneAllocations, zoneResources,
 		zoneAttributes, nil, nil, nil)
@@ -430,10 +435,30 @@ func (p *gpuReporterPlugin) getZoneResources(topologiesMap map[string]*machine.D
 }
 
 // getZoneAllocations returns the map of gpu zone nodes to their pod allocations
-func (p *gpuReporterPlugin) getZoneAllocations(machineState state.AllocationResourcesMap) map[util.ZoneNode]util.ZoneAllocations {
+func (p *gpuReporterPlugin) getZoneAllocations(machineState state.AllocationResourcesMap) (map[util.ZoneNode]util.ZoneAllocations, error) {
 	// First construct map of device id to allocations
 	idToAllocations := make(map[string]util.ZoneAllocations)
 
+	// Add allocations from machine state
+	p.addStateAllocations(idToAllocations, machineState)
+
+	// Add allocations from kubelet device manager checkpoint
+	if err := p.addKubeletCheckpointAllocations(idToAllocations); err != nil {
+		return nil, err
+	}
+
+	// Then construct the final zone allocations from the map of device id to allocations
+	zoneAllocations := make(map[util.ZoneNode]util.ZoneAllocations)
+	for id, allocations := range idToAllocations {
+		zoneNode := util.GenerateDeviceZoneNode(id, string(nodev1alpha1.TopologyTypeGPU))
+		zoneAllocations[zoneNode] = allocations
+	}
+
+	return zoneAllocations, nil
+}
+
+// addStateAllocations adds allocations from machine state to idToAllocations
+func (p *gpuReporterPlugin) addStateAllocations(idToAllocations map[string]util.ZoneAllocations, machineState state.AllocationResourcesMap) {
 	for resourceName, allocMap := range machineState {
 		for id, allocState := range allocMap {
 			if _, ok := idToAllocations[id]; !ok {
@@ -465,15 +490,60 @@ func (p *gpuReporterPlugin) getZoneAllocations(machineState state.AllocationReso
 			}
 		}
 	}
+}
 
-	// Then construct the final zone allocations from the map of device id to allocations
-	zoneAllocations := make(map[util.ZoneNode]util.ZoneAllocations)
-	for id, allocations := range idToAllocations {
-		zoneNode := util.GenerateDeviceZoneNode(id, string(nodev1alpha1.TopologyTypeGPU))
-		zoneAllocations[zoneNode] = allocations
+// addKubeletCheckpointAllocations adds allocations from kubelet device manager checkpoint to idToAllocations.
+// We add this check in case some devices are already allocated to pods, but these pods are not in state.
+func (p *gpuReporterPlugin) addKubeletCheckpointAllocations(idToAllocations map[string]util.ZoneAllocations) error {
+	checkpointData, err := native.GetKubeletCheckpoint()
+	if err != nil {
+		general.Warningf("failed to get kubelet checkpoint: %v", err)
+		return nil
 	}
 
-	return zoneAllocations
+	podDeviceEntries, _ := checkpointData.GetDataInLatestFormat()
+
+	for _, entry := range podDeviceEntries {
+		resourceName := v1.ResourceName(entry.ResourceName)
+
+		// Iterate through all devices per NUMA node
+		for numaNode, deviceIDs := range entry.DeviceIDs {
+			for _, deviceID := range deviceIDs {
+				if _, ok := idToAllocations[deviceID]; !ok {
+					idToAllocations[deviceID] = make(util.ZoneAllocations, 0)
+				}
+
+				// Check if there's already an allocation for this pod UID
+				if hasExistingPodAllocation(idToAllocations[deviceID], entry.PodUID) {
+					continue
+				}
+
+				// Create resource list - quantity is 1 since each device entry represents one device
+				gpuResourceList := make(v1.ResourceList)
+				gpuResourceList[resourceName] = *resource.NewQuantity(1, resource.DecimalSI)
+
+				// Find the pod from the metaserver to get its namespace and name
+				pod, err := p.metaServer.GetPod(p.ctx, entry.PodUID)
+				if err != nil {
+					general.Errorf("failed to get pod %s/%s: %v", entry.PodUID, entry.PodUID, err)
+					return fmt.Errorf("failed to get pod %s/%s: %w", entry.PodUID, entry.PodUID, err)
+				}
+
+				// Generate consumer key using namespace, name and podUID
+				consumer := native.GenerateNamespaceNameUIDKey(pod.Namespace, pod.Name, entry.PodUID)
+
+				idToAllocations[deviceID] = append(idToAllocations[deviceID], &nodev1alpha1.Allocation{
+					Consumer: consumer,
+					Requests: &gpuResourceList,
+				})
+
+				general.Infof("added allocation from checkpoint: pod=%s, container=%s, device=%s, numa=%d",
+					entry.PodUID, entry.ContainerName, deviceID, numaNode)
+			}
+		}
+	}
+
+	return nil
 }
 
 // addGPUZoneNodes adds the gpu zone nodes to the topology zone generator
@@ -496,6 +566,17 @@ func (p *gpuReporterPlugin) addGPUZoneNodes(deviceTopology *machine.DeviceTopolo
 	}
 
 	return utilerrors.NewAggregate(errList)
+}
+
+// hasExistingPodAllocation checks if there's already an allocation for the given pod UID
+func hasExistingPodAllocation(allocations util.ZoneAllocations, podUID string) bool {
+	for _, existingAlloc := range allocations {
+		_, _, existingUID, err := native.ParseNamespaceNameUIDKey(existingAlloc.Consumer)
+		if err == nil && existingUID == podUID {
+			return true
+		}
+	}
+	return false
 }
 
 // ListAndWatchReportContent implements ReporterPluginServer to list and watch report content.
