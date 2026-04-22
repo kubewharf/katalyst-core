@@ -74,6 +74,11 @@ func (o *GenericOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 
 	local := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	klog.InitFlags(local)
+	// Opt into the new klog behavior so that -stderrthreshold is honored even
+	// when -logtostderr=true (the default).
+	// Ref: kubernetes/klog#212, kubernetes/klog#432
+	_ = local.Set("legacy_stderr_threshold_behavior", "false")
+	_ = local.Set("stderrthreshold", "INFO")
 	local.VisitAll(func(fl *flag.Flag) {
 		fs.AddGoFlag(fl)
 	})
