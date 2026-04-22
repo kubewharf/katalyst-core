@@ -40,6 +40,13 @@ func (s *CanonicalStrategy) Bind(
 	}
 
 	devicesToAllocate := int(ctx.DeviceReq.DeviceRequest)
+	if devicesToAllocate == 0 {
+		return &allocate.AllocationResult{
+			Success:      false,
+			ErrorMessage: fmt.Sprintf("0 devices requested for device %s", ctx.DeviceReq.DeviceName),
+		}, fmt.Errorf("0 devices requested for device %s", ctx.DeviceReq.DeviceName)
+	}
+
 	allocatedDevices := sets.NewString()
 	allocateDevices := func(devices ...string) bool {
 		for _, device := range devices {

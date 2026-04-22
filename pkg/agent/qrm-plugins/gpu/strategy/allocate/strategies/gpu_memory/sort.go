@@ -30,8 +30,8 @@ import (
 // Sort sorts the filtered GPU devices based on available GPU memory
 // It prioritizes devices with less available memory and considers NUMA affinity
 func (s *GPUMemoryStrategy) Sort(ctx *allocate.AllocationContext, filteredDevices []string) ([]string, error) {
-	if ctx.DeviceTopology == nil {
-		return nil, fmt.Errorf("GPU topology is nil")
+	if ctx.DeviceTopologyRegistry == nil {
+		return nil, fmt.Errorf("GPU topology registry is nil")
 	}
 
 	_, gpuMemory, err := qrmutil.GetQuantityFromResourceRequests(ctx.ResourceReq.ResourceRequests, string(consts.ResourceGPUMemory), false)
@@ -57,12 +57,17 @@ func (s *GPUMemoryStrategy) Sort(ctx *allocate.AllocationContext, filteredDevice
 
 	devices := make([]deviceInfo, 0, len(filteredDevices))
 
+	topology, err := ctx.DeviceTopologyRegistry.GetDeviceTopology(ctx.ResourceName)
+	if err != nil {
+		return nil, fmt.Errorf("GPU memory strategy failed to get gpu topology: %w", err)
+	}
+
 	for _, deviceID := range filteredDevices {
 		availableMemory := gpuMemoryAllocatablePerGPU - machineState.GetQuantityAllocated(deviceID)
 		devices = append(devices, deviceInfo{
 			ID:              deviceID,
 			AvailableMemory: availableMemory,
-			NUMAAffinity:    util.IsNUMAAffinityDevice(deviceID, ctx.DeviceTopology, ctx.HintNodes),
+			NUMAAffinity:    util.IsNUMAAffinityDevice(deviceID, topology, ctx.HintNodes),
 		})
 	}
 

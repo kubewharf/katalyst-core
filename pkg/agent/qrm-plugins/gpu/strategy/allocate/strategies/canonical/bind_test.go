@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
+	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/consts"
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate"
 	"github.com/kubewharf/katalyst-core/pkg/util/machine"
 )
@@ -35,6 +36,7 @@ func TestCanonicalStrategy_Bind(t *testing.T) {
 		sortedDevices  []string
 		expectedResult *allocate.AllocationResult
 		expectedErr    bool
+		topology       *machine.DeviceTopology
 	}{
 		{
 			name: "device topology is nil",
@@ -62,11 +64,11 @@ func TestCanonicalStrategy_Bind(t *testing.T) {
 				DeviceReq: &v1alpha1.DeviceRequest{
 					DeviceRequest: 4,
 				},
-				DeviceTopology: &machine.DeviceTopology{
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {},
-						"gpu-2": {},
-					},
+			},
+			topology: &machine.DeviceTopology{
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {},
+					"gpu-2": {},
 				},
 			},
 			sortedDevices: []string{"gpu-1", "gpu-2"},
@@ -84,13 +86,13 @@ func TestCanonicalStrategy_Bind(t *testing.T) {
 					DeviceRequest:   2,
 					ReusableDevices: []string{"gpu-1", "gpu-2"},
 				},
-				DeviceTopology: &machine.DeviceTopology{
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {},
-						"gpu-2": {},
-						"gpu-3": {},
-						"gpu-4": {},
-					},
+			},
+			topology: &machine.DeviceTopology{
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {},
+					"gpu-2": {},
+					"gpu-3": {},
+					"gpu-4": {},
 				},
 			},
 			sortedDevices: []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4"},
@@ -110,13 +112,13 @@ func TestCanonicalStrategy_Bind(t *testing.T) {
 					DeviceRequest:   4,
 					ReusableDevices: []string{"gpu-1", "gpu-2"},
 				},
-				DeviceTopology: &machine.DeviceTopology{
-					Devices: map[string]machine.DeviceInfo{
-						"gpu-1": {},
-						"gpu-2": {},
-						"gpu-3": {},
-						"gpu-4": {},
-					},
+			},
+			topology: &machine.DeviceTopology{
+				Devices: map[string]machine.DeviceInfo{
+					"gpu-1": {},
+					"gpu-2": {},
+					"gpu-3": {},
+					"gpu-4": {},
 				},
 			},
 			sortedDevices: []string{"gpu-1", "gpu-2", "gpu-3", "gpu-4"},
@@ -130,6 +132,14 @@ func TestCanonicalStrategy_Bind(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+			// Prepare topology registry if provided
+			if tt.topology != nil {
+				reg := machine.NewDeviceTopologyRegistry()
+				reg.RegisterDeviceTopologyProvider(consts.GPUDeviceType, machine.NewDeviceTopologyProvider())
+				_ = reg.SetDeviceTopology(consts.GPUDeviceType, tt.topology)
+				tt.ctx.DeviceTopologyRegistry = reg
+			}
+
 			canonicalStrategy := NewCanonicalStrategy()
 			result, err := canonicalStrategy.Bind(tt.ctx, tt.sortedDevices)
 			if tt.expectedErr {

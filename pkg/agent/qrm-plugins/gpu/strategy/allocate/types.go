@@ -28,15 +28,18 @@ import (
 
 // AllocationContext contains all the information needed for GPU allocation
 type AllocationContext struct {
-	ResourceReq        *pluginapi.ResourceRequest
-	DeviceReq          *pluginapi.DeviceRequest
-	DeviceTopology     *machine.DeviceTopology
-	GPUQRMPluginConfig *qrm.GPUQRMPluginConfig
-	Emitter            metrics.MetricEmitter
-	MetaServer         *metaserver.MetaServer
-	MachineState       state.AllocationResourcesMap
-	QoSLevel           string
-	HintNodes          machine.CPUSet
+	ResourceReq            *pluginapi.ResourceRequest
+	DeviceReq              *pluginapi.DeviceRequest
+	DeviceTopologyRegistry *machine.DeviceTopologyRegistry
+	GPUQRMPluginConfig     *qrm.GPUQRMPluginConfig
+	Emitter                metrics.MetricEmitter
+	MetaServer             *metaserver.MetaServer
+	MachineState           state.AllocationResourcesMap
+	QoSLevel               string
+	HintNodes              machine.CPUSet
+	ResourceName           string
+	AccompanyResourceName  string
+	DeviceNameToTypeMap    map[string]string
 }
 
 // AllocationResult contains the result of GPU allocation

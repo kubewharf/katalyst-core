@@ -69,38 +69,149 @@ func TestDeviceTopologyRegistry_TopologyChangeNotifiers(t *testing.T) {
 	assert.Equal(t, 2, callCount)
 }
 
-func TestDeviceTopologyRegistry_GetDeviceNUMAAffinity(t *testing.T) {
+func TestDeviceTopologyRegistry_GetAffinityDevices(t *testing.T) {
 	t.Parallel()
 
 	npuTopology := &DeviceTopology{
+		PriorityDimensions: []string{"socket", "numa"},
 		Devices: map[string]DeviceInfo{
-			"npu-0": {NumaNodes: []int{0}},
-			"npu-1": {NumaNodes: []int{1}},
-			"npu-2": {NumaNodes: []int{0, 1}},
+			"npu-0": {
+				Dimensions: map[string]string{
+					"socket": "0",
+				},
+			},
+			"npu-1": {
+				Dimensions: map[string]string{
+					"socket": "1",
+					"numa":   "0",
+				},
+			},
+			"npu-2": {
+				Dimensions: map[string]string{
+					"socket": "0",
+				},
+			},
 		},
 	}
 
 	gpuTopology := &DeviceTopology{
+		PriorityDimensions: []string{"socket", "numa"},
 		Devices: map[string]DeviceInfo{
-			"gpu-0": {NumaNodes: []int{0}},
-			"gpu-1": {NumaNodes: []int{1}},
-			"gpu-2": {NumaNodes: []int{2}},
+			"gpu-0": {
+				Dimensions: map[string]string{
+					"socket": "0",
+					"numa":   "0",
+				},
+			},
+			"gpu-1": {
+				Dimensions: map[string]string{
+					"socket": "1",
+					"numa":   "0",
+				},
+			},
+			"gpu-2": {
+				Dimensions: map[string]string{
+					"socket": "2",
+					"numa":   "1",
+				},
+			},
 		},
 	}
 
 	xpuTopology := &DeviceTopology{
+		PriorityDimensions: []string{"socket"},
 		Devices: map[string]DeviceInfo{
-			"xpu-0": {NumaNodes: []int{0}},
-			"xpu-1": {NumaNodes: []int{1}},
-			"xpu-2": {NumaNodes: nil},
+			"xpu-0": {
+				Dimensions: map[string]string{
+					"socket": "0",
+				},
+			},
+			"xpu-1": {
+				Dimensions: map[string]string{
+					"socket": "1",
+				},
+			},
+			"xpu-2": {},
 		},
 	}
 
 	dpuTopology := &DeviceTopology{
+		PriorityDimensions: []string{"socket"},
 		Devices: map[string]DeviceInfo{
-			"dpu-0": {NumaNodes: []int{1}},
-			"dpu-1": {NumaNodes: []int{0}},
-			"dpu-2": {NumaNodes: []int{}},
+			"dpu-0": {
+				Dimensions: map[string]string{
+					"socket": "1",
+				},
+			},
+			"dpu-1": {
+				Dimensions: map[string]string{
+					"socket": "0",
+				},
+			},
+			"dpu-2": {},
+		},
+	}
+
+	// Topologies with disjoint affinity dimensions to ensure no cross-device affinity
+	apuTopology := &DeviceTopology{
+		PriorityDimensions: []string{"pcie"},
+		Devices: map[string]DeviceInfo{
+			"apu-0": {
+				Dimensions: map[string]string{
+					"pcie": "0",
+				},
+			},
+			"apu-1": {
+				Dimensions: map[string]string{
+					"pcie": "1",
+				},
+			},
+		},
+	}
+
+	bpuTopology := &DeviceTopology{
+		PriorityDimensions: []string{"fabric"},
+		Devices: map[string]DeviceInfo{
+			"bpu-0": {
+				Dimensions: map[string]string{
+					"fabric": "0",
+				},
+			},
+			"bpu-1": {
+				Dimensions: map[string]string{
+					"fabric": "1",
+				},
+			},
+		},
+	}
+
+	// Topologies with only NUMA nodes (no dimensions) for fallback test
+	numaTopoA := &DeviceTopology{
+		PriorityDimensions: []string{},
+		Devices: map[string]DeviceInfo{
+			"devA-0": {NumaNodes: []int{0, 1}},
+			"devA-1": {NumaNodes: []int{2}},
+			"devA-2": {NumaNodes: []int{1, 3}},
+		},
+	}
+	numaTopoB := &DeviceTopology{
+		PriorityDimensions: []string{},
+		Devices: map[string]DeviceInfo{
+			"devB-0": {NumaNodes: []int{0}},
+			"devB-1": {NumaNodes: []int{1, 2}},
+			"devB-2": {NumaNodes: []int{3}},
+			"devB-3": {NumaNodes: []int{4}},
+		},
+	}
+	// Topology where neither dimensions nor numa nodes match
+	emptyMatchTopoA := &DeviceTopology{
+		Devices: map[string]DeviceInfo{
+			"matchA-0": {NumaNodes: []int{99}},
+		},
+	}
+	emptyMatchTopoB := &DeviceTopology{
+		Devices: map[string]DeviceInfo{
+			"matchB-0": {NumaNodes: []int{100}},
 		},
 	}
 
@@ -110,6 +221,12 @@ func TestDeviceTopologyRegistry_GetDeviceNUMAAffinity(t *testing.T) {
 	registry.RegisterDeviceTopologyProvider("gpu", NewDeviceTopologyProviderStub())
 	registry.RegisterDeviceTopologyProvider("xpu", NewDeviceTopologyProviderStub())
 	registry.RegisterDeviceTopologyProvider("dpu", NewDeviceTopologyProviderStub())
+	registry.RegisterDeviceTopologyProvider("apu", NewDeviceTopologyProviderStub())
+	registry.RegisterDeviceTopologyProvider("bpu", NewDeviceTopologyProviderStub())
+	registry.RegisterDeviceTopologyProvider("numaA", NewDeviceTopologyProviderStub())
+	registry.RegisterDeviceTopologyProvider("numaB", NewDeviceTopologyProviderStub())
+	registry.RegisterDeviceTopologyProvider("emptyMatchA", NewDeviceTopologyProviderStub())
+	registry.RegisterDeviceTopologyProvider("emptyMatchB", NewDeviceTopologyProviderStub())
 	err := registry.SetDeviceTopology("npu", npuTopology)
 	assert.NoError(t, err)
 	err = registry.SetDeviceTopology("gpu", gpuTopology)
@@ -118,22 +235,34 @@ func TestDeviceTopologyRegistry_GetDeviceNUMAAffinity(t *testing.T) {
 	assert.NoError(t, err)
 	err = registry.SetDeviceTopology("dpu", dpuTopology)
 	assert.NoError(t, err)
+	err = registry.SetDeviceTopology("apu", apuTopology)
+	assert.NoError(t, err)
+	err = registry.SetDeviceTopology("bpu", bpuTopology)
+	assert.NoError(t, err)
+	err = registry.SetDeviceTopology("numaA", numaTopoA)
+	assert.NoError(t, err)
+	err = registry.SetDeviceTopology("numaB", numaTopoB)
+	assert.NoError(t, err)
+	err = registry.SetDeviceTopology("emptyMatchA", emptyMatchTopoA)
+	assert.NoError(t, err)
+	err = registry.SetDeviceTopology("emptyMatchB", emptyMatchTopoB)
+	assert.NoError(t, err)
 
 	tests := []struct {
 		name        string
 		deviceA     string
 		deviceB     string
-		expected    map[string][]string
+		expected    map[string]map[string][]string
 		expectedErr bool
 	}{
 		{
 			name:    "npu to gpu affinity",
 			deviceA: "npu",
 			deviceB: "gpu",
-			expected: map[string][]string{
-				"npu-0": {"gpu-0"},
-				"npu-1": {"gpu-1"},
-				"npu-2": {},
+			expected: map[string]map[string][]string{
+				"npu-0": {"socket": {"gpu-0"}},
+				"npu-1": {"socket": {"gpu-1"}, "numa": {"gpu-0", "gpu-1"}},
+				"npu-2": {"socket": {"gpu-0"}},
 			},
 		},
 		{
@@ -149,14 +278,35 @@ func TestDeviceTopologyRegistry_GetDeviceNUMAAffinity(t *testing.T) {
 			expectedErr: true,
 		},
 		{
-			name:    "devices with empty numa nodes are not considered to have affinity with each other",
+			name:    "devices with empty affinity are not considered to have affinity with each other",
 			deviceA: "xpu",
 			deviceB: "dpu",
-			expected: map[string][]string{
-				"xpu-0": {"dpu-1"},
-				"xpu-1": {"dpu-0"},
-				"xpu-2": {},
+			expected: map[string]map[string][]string{
+				"xpu-0": {"socket": {"dpu-1"}},
+				"xpu-1": {"socket": {"dpu-0"}},
 			},
+		},
+		{
+			name:     "no matching affinity returns empty map",
+			deviceA:  "apu",
+			deviceB:  "bpu",
+			expected: map[string]map[string][]string{},
+		},
+		{
+			name:    "numa fallback when no dimensions match",
+			deviceA: "numaA",
+			deviceB: "numaB",
+			expected: map[string]map[string][]string{
+				"devA-0": {"numa": {"devB-0", "devB-1"}},
+				"devA-1": {"numa": {"devB-1"}},
+				"devA-2": {"numa": {"devB-1", "devB-2"}},
+			},
+		},
+		{
+			name:     "no matching numa nodes returns empty",
+			deviceA:  "emptyMatchA",
+			deviceB:  "emptyMatchB",
+			expected: map[string]map[string][]string{},
 		},
 	}
 
@@ -164,14 +314,38 @@ func TestDeviceTopologyRegistry_GetDeviceNUMAAffinity(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			actual, err := registry.GetDeviceNUMAAffinity(tt.deviceA, tt.deviceB)
+			actual, err := registry.GetAffinityDevices(tt.deviceA, tt.deviceB)
 			if tt.expectedErr {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
-				evaluateDeviceNUMAAffinity(t, actual, tt.expected)
+				evaluateDeviceAffinityMap(t, tt.expected, actual)
 			}
 		})
+	}
+}
+
+func evaluateDeviceAffinityMap(t *testing.T, expected map[string]map[string][]string, actual map[string]map[string]DeviceIDs) {
+	if len(actual) != len(expected) {
+		t.Errorf("deviceAffinity lengths don't match, expected %d, got %d", len(expected), len(actual))
+		return
+	}
+
+	for device, expectedAffinity := range expected {
+		affinityByDim, ok := actual[device]
+		if !ok {
+			t.Errorf("expected device affinity for device %v, but it is not found", device)
+			return
+		}
+
+		for dimName, expectedDevices := range expectedAffinity {
+			actualDevices, ok := affinityByDim[dimName]
+			if !ok {
+				t.Errorf("expected affinity for dimension %s for device %s, but it is not found", dimName, device)
+				return
+			}
+			assert.ElementsMatch(t, expectedDevices, actualDevices, "device affinity devices are not equal for device %s dimension %s", device, dimName)
+		}
 	}
 }
 
@@ -315,23 +489,6 @@ func TestDeviceTopology_GroupDeviceAffinity(t *testing.T) {
 	}
 }
 
-func evaluateDeviceNUMAAffinity(t *testing.T, expectedDeviceNUMAAffinity, actualDeviceNUMAAffinity map[string][]string) {
-	if len(actualDeviceNUMAAffinity) != len(expectedDeviceNUMAAffinity) {
-		t.Errorf("deviceNUMAAffinity lengths don't match, expected %d, got %d", len(expectedDeviceNUMAAffinity), len(actualDeviceNUMAAffinity))
-		return
-	}
-
-	for device, expected := range expectedDeviceNUMAAffinity {
-		actual, ok := actualDeviceNUMAAffinity[device]
-		if !ok {
-			t.Errorf("expected device numa affinity for device %v, but it is not found", device)
-			return
-		}
-
-		assert.ElementsMatch(t, expected, actual, "device numa affinity are not equal")
-	}
-}
-
 func evaluateDeviceAffinity(t *testing.T, expectedDeviceAffinity, actualDeviceAffinity [][]DeviceIDs) {
 	if len(actualDeviceAffinity) != len(expectedDeviceAffinity) {
 		t.Errorf("expected %d affinities, got %d", len(expectedDeviceAffinity), len(actualDeviceAffinity))
@@ -452,33 +609,33 @@ func TestDeviceTopologyRegistry_GetDeviceTopologies(t *testing.T) {
 		name        string
 		deviceNames []string
 		expectedLen int
-		expectErr   bool
+		expectOk    bool
 		checkHealth map[string]string
 	}{
 		{
 			name:        "get topologies from two existing devices",
 			deviceNames: []string{"gpu-1", "gpu-2"},
 			expectedLen: 2, // both topo1 and topo2
+			expectOk:    true,
 		},
 		{
 			name:        "one device missing, pick existing one",
 			deviceNames: []string{"gpu-1", "non-existent"},
 			expectedLen: 1, // only topo1
+			expectOk:    true,
 		},
 		{
 			name:        "all devices missing",
 			deviceNames: []string{"invalid-1", "invalid-2"},
-			expectErr:   true,
+			expectOk:    false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			topologies, err := registry.GetDeviceTopologies(tt.deviceNames)
-			if tt.expectErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
+			topologies, ok := registry.GetDeviceTopologies(tt.deviceNames)
+			assert.Equal(t, tt.expectOk, ok)
+			if tt.expectOk {
 				assert.Len(t, topologies, tt.expectedLen)
 			}
 		})

@@ -24,6 +24,10 @@ func NewDefaultResourceStateGeneratorStub() DefaultResourceStateGenerator {
 	return &defaultResourceStateGeneratorStub{}
 }
 
+func (d *defaultResourceStateGeneratorStub) MustInitDefaultResourceState() bool {
+	return true
+}
+
 func (d *defaultResourceStateGeneratorStub) GenerateDefaultResourceState() (AllocationMap, error) {
 	return map[string]*AllocationState{
 		"gpu-0": {

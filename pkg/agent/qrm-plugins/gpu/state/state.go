@@ -21,7 +21,6 @@ import (
 	"sync"
 
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/commonstate"
@@ -33,7 +32,9 @@ type AllocationInfo struct {
 
 	AllocatedAllocation      Allocation            `json:"allocated_allocation"`
 	TopologyAwareAllocations map[string]Allocation `json:"topology_aware_allocations"`
-	DeviceName               string                `json:"device_name"`
+	// DeviceName will be empty if it is a resource allocation (e.g. gpu memory), but it will be non-empty if
+	// it is a device allocation (e.g. gpu, rdma)
+	DeviceName string `json:"device_name"`
 }
 
 type Allocation struct {
@@ -193,24 +194,6 @@ func (pre PodResourceEntries) RemovePod(podUID string) {
 	}
 }
 
-// GetTotalAllocatedResourceOfContainer returns the total allocated resource quantity of a container together with
-// the specific resource IDs that are allocated.
-func (pre PodResourceEntries) GetTotalAllocatedResourceOfContainer(
-	resourceName v1.ResourceName, podUID, containerName string,
-) (int, sets.String) {
-	if podEntries, ok := pre[resourceName]; ok {
-		if allocationInfo := podEntries.GetAllocationInfo(podUID, containerName); allocationInfo != nil {
-			totalAllocationQuantity := int(allocationInfo.AllocatedAllocation.Quantity)
-			allocationIDs := sets.NewString()
-			for id := range allocationInfo.TopologyAwareAllocations {
-				allocationIDs.Insert(id)
-			}
-			return totalAllocationQuantity, allocationIDs
-		}
-	}
-	return 0, nil
-}
-
 func (as *AllocationState) String() string {
 	if as == nil {
 		return ""
@@ -297,15 +280,41 @@ func (arm AllocationResourcesMap) Clone() AllocationResourcesMap {
 	return clone
 }
 
+// GetAllocatedDeviceIDs returns the deviceIDs that are allocated to the specific container.
+func (arm AllocationResourcesMap) GetAllocatedDeviceIDs(resourceName v1.ResourceName, podUID, containerName string) []string {
+	result := make([]string, 0)
+	allocationMap, ok := arm[resourceName]
+	if !ok {
+		return result
+	}
+
+	for deviceID, allocationState := range allocationMap {
+		if allocationState == nil || allocationState.PodEntries == nil {
+			continue
+		}
+
+		containerEntries, ok := allocationState.PodEntries[podUID]
+		if !ok {
+			continue
+		}
+
+		if allocationInfo, ok := containerEntries[containerName]; ok && allocationInfo != nil {
+			result = append(result, deviceID)
+		}
+	}
+
+	return result
+}
+
 // GetRatioOfAccompanyResourceToTargetResource returns the ratio of total accompany resource to total target resource.
 // For example, if the total number of accompany resource is 4 and the total number of target resource is 2,
 // the ratio is 2.
-func (arm AllocationResourcesMap) GetRatioOfAccompanyResourceToTargetResource(accompanyResourceName, targetResourceName string) float64 {
-	// Find the ratio of the total number of accompany resource to the total number of target resource
+func (arm AllocationResourcesMap) GetRatioOfAccompanyResourceToTargetResource(accompanyResourceName, resourceName string) float64 {
+	// Find the ratio of the total number of pre-allocated resource to the total number of target resource
 	accompanyResourceMap := arm[v1.ResourceName(accompanyResourceName)].Clone()
 	accompanyResourceNumber := accompanyResourceMap.getNumberDevices()
 
-	targetResourceMap := arm[v1.ResourceName(targetResourceName)].Clone()
+	targetResourceMap := arm[v1.ResourceName(resourceName)].Clone()
 	targetResourceNumber := targetResourceMap.getNumberDevices()
 
 	if targetResourceNumber == 0 {

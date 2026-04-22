@@ -14,25 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package strategies
+package noop
 
 import (
-	"fmt"
-
 	"github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate"
 )
 
-// IsBindingContextValid checks if the context given for binding is valid
-func IsBindingContextValid(ctx *allocate.AllocationContext, sortedDevices []string) (bool, string) {
-	if ctx.DeviceTopologyRegistry == nil {
-		return false, "GPU topology registry is nil"
-	}
-
-	// Determine how many devices to allocate
-	devicesToAllocate := int(ctx.DeviceReq.DeviceRequest)
-	if devicesToAllocate > len(sortedDevices) {
-		return false, fmt.Sprintf("not enough devices: need %d, have %d", devicesToAllocate, len(sortedDevices))
-	}
-
-	return true, ""
+// Sort returns the filteredDevices unchanged.
+func (s *SortingStrategy) Sort(_ *allocate.AllocationContext, filteredDevices []string) ([]string, error) {
+	return filteredDevices, nil
 }
