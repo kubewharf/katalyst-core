@@ -222,7 +222,7 @@ func TestGPUDevicePlugin_AllocateAssociatedDevice(t *testing.T) {
 			},
 		},
 		{
-			name: "gpu memory allocation exists",
+			name: "gpu compute allocation exists",
 			accompanyResourceAllocationInfo: &state.AllocationInfo{
 				AllocatedAllocation: state.Allocation{
 					Quantity:  4,

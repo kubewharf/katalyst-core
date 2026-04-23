@@ -53,10 +53,9 @@ type StaticPolicy struct {
 	pluginapi.UnimplementedResourcePluginServer
 	*baseplugin.BasePlugin
 
-	name           string
-	stopCh         chan struct{}
-	started        bool
-	extraResources []string
+	name    string
+	stopCh  chan struct{}
+	started bool
 
 	emitter metrics.MetricEmitter
 
@@ -91,7 +90,6 @@ func NewStaticPolicy(
 		resourcePlugins:       make(map[string]resourceplugin.ResourcePlugin),
 		associatedDeviceNames: sets.NewString(),
 		customDevicePlugins:   make(map[string]customdeviceplugin.CustomDevicePlugin),
-		extraResources:        conf.GPUQRMPluginConfig.ExtraResources,
 	}
 
 	if err = policyImplement.registerDefaultResourcePlugins(); err != nil {
@@ -437,23 +435,11 @@ func (p *StaticPolicy) GetResourcePluginOptions(
 	p.Lock()
 	defer p.Unlock()
 
-	// Create a set for quick lookup of configured extra resources
-	extraResourceSet := sets.NewString(p.extraResources...)
-
-	// Collect matching extra resources from all resource plugins
+	// Collect all extra resources from all resource plugins
 	collectedExtraResources := sets.NewString()
 	for _, rp := range p.resourcePlugins {
 		for _, er := range rp.GetExtraResources() {
-			if extraResourceSet.Has(er) {
-				collectedExtraResources.Insert(er)
-
-				// Register the extra resource state generator
-				err := rp.RegisterExtraResourceStateGenerator(er)
-				if err != nil {
-					return nil, err
-				}
-				general.Infof("Registered extra resource state generator for %s", er)
-			}
+			collectedExtraResources.Insert(er)
 		}
 	}
 

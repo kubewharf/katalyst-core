@@ -14,28 +14,28 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package gpu_memory
+package gpu_compute
 
 import "github.com/kubewharf/katalyst-core/pkg/agent/qrm-plugins/gpu/strategy/allocate"
 
 const (
-	StrategyNameGPUMemory = "gpu-memory"
+	StrategyNameGPUCompute = "gpu-compute"
 )
 
-// GPUMemoryStrategy filters GPU devices based on available GPU memory
-type GPUMemoryStrategy struct{}
+// GPUComputeStrategy filters GPU devices based on available GPU compute
+type GPUComputeStrategy struct{}
 
 var (
-	_ allocate.FilteringStrategy = &GPUMemoryStrategy{}
-	_ allocate.SortingStrategy   = &GPUMemoryStrategy{}
+	_ allocate.FilteringStrategy = &GPUComputeStrategy{}
+	_ allocate.SortingStrategy   = &GPUComputeStrategy{}
 )
 
-// NewGPUMemoryStrategy creates a new GPU memory filtering strategy
-func NewGPUMemoryStrategy() *GPUMemoryStrategy {
-	return &GPUMemoryStrategy{}
+// NewGPUComputeStrategy creates a new GPU compute filtering strategy
+func NewGPUComputeStrategy() *GPUComputeStrategy {
+	return &GPUComputeStrategy{}
 }
 
 // Name returns the name of the filtering strategy
-func (s *GPUMemoryStrategy) Name() string {
-	return StrategyNameGPUMemory
+func (s *GPUComputeStrategy) Name() string {
+	return StrategyNameGPUCompute
 }

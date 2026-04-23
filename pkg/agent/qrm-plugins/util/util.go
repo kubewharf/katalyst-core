@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
@@ -79,7 +80,7 @@ func IsQuantityFromQRMDeclaration(podAnnotations map[string]string) bool {
 // GetQuantityMapFromResourceReq parses all resources quantity into maps of resources to value,
 // since pods with reclaimed_cores and un-reclaimed_cores have different
 // representations, we may to adapt to both cases.
-func GetQuantityMapFromResourceReq(req *pluginapi.ResourceRequest) (map[v1.ResourceName]int, map[v1.ResourceName]float64, error) {
+func GetQuantityMapFromResourceReq(req *pluginapi.ResourceRequest, allowedResources sets.String) (map[v1.ResourceName]int, map[v1.ResourceName]float64, error) {
 	intQuantity := make(map[v1.ResourceName]int)
 	floatQuantity := make(map[v1.ResourceName]float64)
 
@@ -87,6 +88,9 @@ func GetQuantityMapFromResourceReq(req *pluginapi.ResourceRequest) (map[v1.Resou
 
 	for key := range resourceRequests {
 		resName := v1.ResourceName(key)
+		if allowedResources.Len() > 0 && !allowedResources.Has(string(resName)) {
+			continue
+		}
 		resInt, resFloat, err := GetQuantityFromResourceRequests(resourceRequests, key, req.Annotations)
 		if err != nil {
 			return nil, nil, fmt.Errorf("error getting quantity from resource requests for resource %s: %v", key, err)
@@ -385,20 +389,20 @@ func PodInplaceUpdateResizing(req *pluginapi.ResourceRequest) bool {
 // GetPodAggregatedRequestResourceMap returns both integer and float64 quantities for all resources in the pod request.
 // If the pod has aggregated resource annotations, those values are used; otherwise, it falls back to the original
 // request quantities. Returns an error if any calculation fails.
-func GetPodAggregatedRequestResourceMap(req *pluginapi.ResourceRequest) (map[v1.ResourceName]int, map[v1.ResourceName]float64, error) {
+func GetPodAggregatedRequestResourceMap(req *pluginapi.ResourceRequest, allowedResources sets.String) (map[v1.ResourceName]int, map[v1.ResourceName]float64, error) {
 	annotations := req.Annotations
 	if annotations == nil {
-		return GetQuantityMapFromResourceReq(req)
+		return GetQuantityMapFromResourceReq(req, allowedResources)
 	}
 
 	value, ok := annotations[apiconsts.PodAnnotationAggregatedRequestsKey]
 	if !ok {
-		return GetQuantityMapFromResourceReq(req)
+		return GetQuantityMapFromResourceReq(req, allowedResources)
 	}
 
 	var resourceList v1.ResourceList
 	if err := json.Unmarshal([]byte(value), &resourceList); err != nil {
-		return GetQuantityMapFromResourceReq(req)
+		return GetQuantityMapFromResourceReq(req, allowedResources)
 	}
 
 	intQuantities := make(map[v1.ResourceName]int)
@@ -407,6 +411,9 @@ func GetPodAggregatedRequestResourceMap(req *pluginapi.ResourceRequest) (map[v1.
 
 	for key := range resourceRequests {
 		resName := v1.ResourceName(key)
+		if allowedResources.Len() > 0 && !allowedResources.Has(string(resName)) {
+			continue
+		}
 
 		if _, ok = resourceList[resName]; !ok {
 			// for resources that do not appear in the aggregated resources map, simply calculate quantity from request

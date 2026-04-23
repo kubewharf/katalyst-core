@@ -22,6 +22,7 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	pluginapi "k8s.io/kubelet/pkg/apis/resourceplugin/v1alpha1"
 
@@ -108,7 +109,9 @@ func (p *DynamicPolicy) numaBindingAllocationHandler(ctx context.Context,
 		return p.numaBindingAllocationSidecarHandler(ctx, req, qosLevel, persistCheckpoint)
 	}
 
-	podAggregatedResourceRequests, _, err := util.GetPodAggregatedRequestResourceMap(req)
+	allowedResources := sets.NewString(p.ResourceName())
+	allowedResources.Insert(p.extraResourceNames...)
+	podAggregatedResourceRequests, _, err := util.GetPodAggregatedRequestResourceMap(req, allowedResources)
 	if err != nil {
 		return nil, fmt.Errorf("GetPodAggregatedRequestResourceMao failed with error: %v", err)
 	}
