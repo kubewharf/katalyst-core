@@ -183,6 +183,7 @@ func (p *BasePlugin) InitState() error {
 func (p *BasePlugin) PackAllocationResponse(
 	req *pluginapi.ResourceRequest, allocationInfoMap map[string]*state.AllocationInfo,
 	resourceAllocationAnnotations map[string]string, primaryResourceName string,
+	resourceAllocationEnvs map[string]map[string]string,
 ) (*pluginapi.ResourceAllocationResponse, error) {
 	if len(allocationInfoMap) == 0 {
 		return nil, fmt.Errorf("packAllocationResponse got empty allocationInfoMap")
@@ -197,6 +198,7 @@ func (p *BasePlugin) PackAllocationResponse(
 			IsScalarResource:  true, // to avoid re-allocating
 			AllocatedQuantity: allocationInfo.AllocatedAllocation.Quantity,
 			Annotations:       resourceAllocationAnnotations,
+			Envs:              resourceAllocationEnvs[resourceName],
 			ResourceHints: &pluginapi.ListOfTopologyHints{
 				Hints: []*pluginapi.TopologyHint{
 					req.Hint,

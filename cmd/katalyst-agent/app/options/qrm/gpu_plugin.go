@@ -20,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	cliflag "k8s.io/component-base/cli/flag"
 
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/qrm/gpustrategy"
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 )
@@ -33,6 +34,8 @@ type GPUOptions struct {
 	RDMADeviceNames               []string
 	RequiredDeviceAffinity        bool
 	FractionalGPUPrefersSpreading bool
+	GPUMemoryWeightEnvKey         string
+	MilliGPUWeightEnvKey          string
 
 	GPUStrategyOptions *gpustrategy.GPUStrategyOptions
 }
@@ -47,6 +50,8 @@ func NewGPUOptions() *GPUOptions {
 		GPUStrategyOptions:            gpustrategy.NewGPUStrategyOptions(),
 		RequiredDeviceAffinity:        true,
 		FractionalGPUPrefersSpreading: false,
+		GPUMemoryWeightEnvKey:         consts.ResourceGPUMemoryWeightEnvKey,
+		MilliGPUWeightEnvKey:          consts.ResourceMilliGPUWeightEnvKey,
 	}
 }
 
@@ -67,6 +72,10 @@ func (o *GPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		"required device affinity, and when true it will cause pods to admit fail if unable to meet device affinity")
 	fs.BoolVar(&o.FractionalGPUPrefersSpreading, "fractional-gpu-prefers-spreading",
 		o.FractionalGPUPrefersSpreading, "whether fractional GPU prefers spreading across devices")
+	fs.StringVar(&o.GPUMemoryWeightEnvKey, "gpu-memory-weight-env-key",
+		o.GPUMemoryWeightEnvKey, "The environment variable key for GPU memory weight")
+	fs.StringVar(&o.MilliGPUWeightEnvKey, "gpu-milligpu-weight-env-key",
+		o.MilliGPUWeightEnvKey, "The environment variable key for MilliGPU weight")
 	o.GPUStrategyOptions.AddFlags(fss)
 }
 
@@ -87,6 +96,8 @@ func (o *GPUOptions) ApplyTo(conf *qrmconfig.GPUQRMPluginConfig) error {
 	conf.RDMADeviceNames = o.RDMADeviceNames
 	conf.RequiredDeviceAffinity = o.RequiredDeviceAffinity
 	conf.FractionalGPUPrefersSpreading = o.FractionalGPUPrefersSpreading
+	conf.GPUMemoryWeightEnvKey = o.GPUMemoryWeightEnvKey
+	conf.MilliGPUWeightEnvKey = o.MilliGPUWeightEnvKey
 	if err := o.GPUStrategyOptions.ApplyTo(conf.GPUStrategyConfig); err != nil {
 		return err
 	}
