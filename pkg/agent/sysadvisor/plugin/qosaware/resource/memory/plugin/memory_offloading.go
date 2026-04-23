@@ -432,8 +432,8 @@ func (tmoEngine *tmoEngineInstance) CalculateOffloadingTargetSize() {
 
 	// ReservedInactiveFile should be checked in file-reclaiming-only mode
 	if !tmoEngine.conf.EnableSwap && tmoEngine.conf.ReservedInactiveFile > 0 {
-		inactiveFile := uint64(currStats.memInactiveFile)
-		reservedInactiveFile := uint64(currStats.mapped) + uint64(tmoEngine.conf.ReservedInactiveFile)
+		inactiveFile := currStats.memInactiveFile
+		reservedInactiveFile := uint64(currStats.mapped) + tmoEngine.conf.ReservedInactiveFile
 		if inactiveFile < reservedInactiveFile {
 			tmoEngine.offloadingTargetSize = 0
 			return
@@ -472,7 +472,7 @@ func (tmoEngine *tmoEngineInstance) CalculateOffloadingTargetSize() {
 
 			// ReservedInactiveFile should be checked in file-reclaiming-only mode
 			if !tmoEngine.conf.EnableSwap && tmoEngine.conf.ReservedInactiveFile > 0 {
-				inactiveFile := uint64(currStats.memInactiveFile)
+				inactiveFile := currStats.memInactiveFile
 				maxRecalimable := float64(inactiveFile - tmoEngine.conf.ReservedInactiveFile)
 
 				if targetSize > maxRecalimable {
