@@ -302,6 +302,78 @@ func TestDynamicPolicy_GetAccompanyResourceTopologyHints(t *testing.T) {
 		So(err, ShouldNotBeNil)
 		So(err.Error(), ShouldEqual, "no available VFs")
 	})
+
+	Convey("pod without required annotations", t, func() {
+		vfState, podEntries := state.GenerateDummyState(2, 2, nil)
+		policy := generateDynamicPolicy(t, false, true, vfState, podEntries)
+		policy.podFilters = []podFilter{requiredAnnotationFilter(map[string]string{"foo": "bar"})}
+
+		req := &pluginapi.ResourceRequest{
+			PodUid:        "pod",
+			PodName:       "pod",
+			ContainerName: "container",
+			ResourceName:  string(v1.ResourceCPU),
+			ResourceRequests: map[string]float64{
+				string(v1.ResourceCPU): 32,
+			},
+		}
+
+		hints := &pluginapi.ListOfTopologyHints{
+			Hints: []*pluginapi.TopologyHint{
+				{
+					Nodes:     []uint64{0, 1},
+					Preferred: true,
+				},
+			},
+		}
+
+		err := policy.GetAccompanyResourceTopologyHints(req, hints)
+		So(err, ShouldBeNil)
+		So(hints, ShouldResemble, &pluginapi.ListOfTopologyHints{
+			Hints: []*pluginapi.TopologyHint{
+				{
+					Nodes:     []uint64{0, 1},
+					Preferred: true,
+				},
+			},
+		})
+	})
+
+	Convey("pod with reqired annotations but no available VFs with large size", t, func() {
+		vfState, podEntries := state.GenerateDummyState(2, 2, map[int]sets.Int{
+			0: sets.NewInt(0, 1),
+			1: sets.NewInt(0, 1),
+		})
+		policy := generateDynamicPolicy(t, false, true, vfState, podEntries)
+		policy.podFilters = []podFilter{requiredAnnotationFilter(map[string]string{"foo": "bar"})}
+
+		req := &pluginapi.ResourceRequest{
+			PodUid:        "pod",
+			PodName:       "pod",
+			ContainerName: "container",
+			Annotations: map[string]string{
+				"foo": "bar",
+			},
+			ResourceName: string(v1.ResourceCPU),
+			ResourceRequests: map[string]float64{
+				string(v1.ResourceCPU): 32,
+			},
+		}
+
+		hints := &pluginapi.ListOfTopologyHints{
+			Hints: []*pluginapi.TopologyHint{
+				{
+					Nodes:     []uint64{0, 1},
+					Preferred: true,
+				},
+			},
+		}
+
+		err := policy.GetAccompanyResourceTopologyHints(req, hints)
+
+		So(err, ShouldNotBeNil)
+		So(err.Error(), ShouldEqual, "no available VFs")
+	})
 }
 
 func TestDynamicPolicy_AllocateAccompanyResource(t *testing.T) {
@@ -309,7 +381,7 @@ func TestDynamicPolicy_AllocateAccompanyResource(t *testing.T) {
 
 	Convey("dryRun", t, func() {
 		vfState, podEntries := state.GenerateDummyState(2, 2, nil)
-		policy := generateDynamicPolicy(t, false, true, vfState, podEntries)
+		policy := generateDynamicPolicy(t, true, true, vfState, podEntries)
 
 		req := &pluginapi.ResourceRequest{
 			PodUid:        "pod",
@@ -342,32 +414,6 @@ func TestDynamicPolicy_AllocateAccompanyResource(t *testing.T) {
 				string(v1.ResourceCPU): {
 					AllocatedQuantity: 32,
 					AllocationResult:  "1-32",
-				},
-				policy.ResourceName(): {
-					IsNodeResource:    true,
-					IsScalarResource:  true,
-					AllocatedQuantity: 1,
-					Annotations: map[string]string{
-						netNsAnnotationKey: "/var/run/netns/ns2",
-						pciAnnotationKey:   `[{"address":"0000:40:00.1","repName":"eth0_1","vfName":"eth0_1"}]`,
-					},
-					Devices: []*pluginapi.DeviceSpec{
-						{
-							HostPath:      filepath.Join(rdmaDevicePrefix, "umad1"),
-							ContainerPath: filepath.Join(rdmaDevicePrefix, "umad1"),
-							Permissions:   "rwm",
-						},
-						{
-							HostPath:      filepath.Join(rdmaDevicePrefix, "uverbs1"),
-							ContainerPath: filepath.Join(rdmaDevicePrefix, "uverbs1"),
-							Permissions:   "rwm",
-						},
-						{
-							HostPath:      rdmaCmPath,
-							ContainerPath: rdmaCmPath,
-							Permissions:   "rw",
-						},
-					},
 				},
 			},
 		})
@@ -560,6 +606,88 @@ func TestDynamicPolicy_AllocateAccompanyResource(t *testing.T) {
 			PodName:       "pod",
 			ContainerName: "container",
 			ResourceName:  string(v1.ResourceCPU),
+			Hint: &pluginapi.TopologyHint{
+				Nodes: []uint64{0, 1},
+			},
+			ResourceRequests: map[string]float64{
+				string(v1.ResourceCPU): 32,
+			},
+		}
+
+		resp := &pluginapi.ResourceAllocationResponse{
+			AllocationResult: &pluginapi.ResourceAllocation{
+				ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+					string(v1.ResourceCPU): {
+						AllocatedQuantity: 32,
+						AllocationResult:  "1-32",
+					},
+				},
+			},
+		}
+
+		err := policy.AllocateAccompanyResource(req, resp)
+
+		So(err, ShouldNotBeNil)
+		So(err.Error(), ShouldContainSubstring, "no available VFs")
+	})
+
+	Convey("pod without required annotations", t, func() {
+		vfState, podEntries := state.GenerateDummyState(2, 2, nil)
+		policy := generateDynamicPolicy(t, false, true, vfState, podEntries)
+		policy.podFilters = []podFilter{requiredAnnotationFilter(map[string]string{"foo": "bar"})}
+
+		req := &pluginapi.ResourceRequest{
+			PodUid:        "pod",
+			PodName:       "pod",
+			ContainerName: "container",
+			ResourceName:  string(v1.ResourceCPU),
+			Hint: &pluginapi.TopologyHint{
+				Nodes: []uint64{0, 1},
+			},
+			ResourceRequests: map[string]float64{
+				string(v1.ResourceCPU): 32,
+			},
+		}
+
+		resp := &pluginapi.ResourceAllocationResponse{
+			AllocationResult: &pluginapi.ResourceAllocation{
+				ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+					string(v1.ResourceCPU): {
+						AllocatedQuantity: 32,
+						AllocationResult:  "1-32",
+					},
+				},
+			},
+		}
+
+		err := policy.AllocateAccompanyResource(req, resp)
+		So(err, ShouldBeNil)
+		So(resp.AllocationResult, ShouldResemble, &pluginapi.ResourceAllocation{
+			ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+				string(v1.ResourceCPU): {
+					AllocatedQuantity: 32,
+					AllocationResult:  "1-32",
+				},
+			},
+		})
+	})
+
+	Convey("pod with required annotations but no available VFs with large size", t, func() {
+		vfState, podEntries := state.GenerateDummyState(2, 2, map[int]sets.Int{
+			0: sets.NewInt(0, 1),
+			1: sets.NewInt(0, 1),
+		})
+		policy := generateDynamicPolicy(t, false, true, vfState, podEntries)
+		policy.podFilters = []podFilter{requiredAnnotationFilter(map[string]string{"foo": "bar"})}
+
+		req := &pluginapi.ResourceRequest{
+			PodUid:        "pod",
+			PodName:       "pod",
+			ContainerName: "container",
+			Annotations: map[string]string{
+				"foo": "bar",
+			},
+			ResourceName: string(v1.ResourceCPU),
 			Hint: &pluginapi.TopologyHint{
 				Nodes: []uint64{0, 1},
 			},
