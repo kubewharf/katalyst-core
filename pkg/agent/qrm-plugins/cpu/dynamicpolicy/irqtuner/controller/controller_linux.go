@@ -984,12 +984,24 @@ func (n *NicInfo) syncIrqAffinityFromKernel() error {
 func listHostActiveUplinkNics(netNSDir string) ([]*machine.NicBasicInfo, error) {
 	// names of container network namespaces (including those of SRIOV containers) are prefixed with "cni-",
 	// additionally, the NICs of SRIOV containers will be required during the periodic ListContainers process.
-	nics, err := machine.ListActiveUplinkNics(netNSDir, []string{machine.ContainerNetNSPrefix})
+	tmpNics, err := machine.ListActiveUplinkNics(netNSDir, []string{machine.ContainerNetNSPrefix})
 	if err != nil {
 		return nil, err
 	}
 
+	var nics []*machine.NicBasicInfo
+	for _, nic := range tmpNics {
+		if len(nic.Queue2Irq) == 0 {
+			general.Warningf("%s nic %s with driver %s has empty Queue2Irq", IrqTuningLogPrefix, nic, nic.Driver)
+			continue
+		}
+		nics = append(nics, nic)
+	}
+
 	if len(nics) == 0 {
+		if len(tmpNics) > 0 {
+			return nil, machine.ErrUnsupportedNicIrq2Queue
+		}
 		return nil, fmt.Errorf("no active uplink nics, it's impossible")
 	}
 
@@ -2260,6 +2272,9 @@ func (ic *IrqTuningController) syncNics() ([]*machine.NicBasicInfo, bool, error)
 
 	nics, err := listHostActiveUplinkNics(ic.agentConf.MachineInfoConfiguration.NetNSDirAbsPath)
 	if err != nil {
+		if err != machine.ErrUnsupportedNicIrq2Queue {
+			ic.emitErrMetric(irqtuner.ListHostActiveUplinkNicsFailed, irqtuner.IrqTuningFatal)
+		}
 		return nil, false, err
 	}
 	ic.LastNicSyncTime = time.Now()
@@ -5890,7 +5905,6 @@ func (ic *IrqTuningController) periodicTuning(oldConf *config.IrqTuningConfig) {
 		nics, nicsChanged, err = ic.syncNics()
 		if err != nil {
 			general.Errorf("%s failed to syncNics, err %v", IrqTuningLogPrefix, err)
-			ic.emitErrMetric(irqtuner.SyncNicFailed, irqtuner.IrqTuningFatal)
 			return
 		}
 	}
