@@ -1100,7 +1100,8 @@ func (p *DynamicPolicy) adjustPoolsAndIsolatedEntries(
 		return fmt.Errorf("reclaimOverlapShareRatio failed with error: %v", err)
 	}
 
-	general.Infof("poolsQuantityMap: %#v, rpPinnedCPUSet: %v, availableCPUs: %v, reclaimOverlapShareRatio: %#v", poolsQuantityMap, rpPinnedCPUSet, availableCPUs, reclaimOverlapShareRatio)
+	general.Infof("poolsQuantityMap: %#v, isolatedQuantityMap: %#v, rpPinnedCPUSet: %v, availableCPUs: %v, reclaimOverlapShareRatio: %#v",
+		poolsQuantityMap, isolatedQuantityMap, rpPinnedCPUSet, availableCPUs, reclaimOverlapShareRatio)
 
 	poolsCPUSet, isolatedCPUSet, err := p.groupAndAllocatePools(poolsQuantityMap, isolatedQuantityMap, availableCPUs, rpPinnedCPUSet, reclaimOverlapShareRatio)
 	if err != nil {
@@ -1173,6 +1174,8 @@ func (p *DynamicPolicy) groupAndAllocatePools(
 
 	for pkgName, poolsMap := range pinnedPoolsByPkg {
 		pkgAvailableCPUs := availableCPUs.Intersection(rpPinnedCPUSet[pkgName])
+
+		general.Infof("pkgName: %s, poolsMap: %#v, pkgAvailableCPUs: %v", pkgName, poolsMap, pkgAvailableCPUs)
 		// Call generatePoolsAndIsolation for this package
 		// Pass nil for isolatedQuantityMap as we assume isolated containers go to common
 		pPools, _, err := p.generatePoolsAndIsolation(poolsMap, nil, pkgAvailableCPUs, reclaimOverlapShareRatio)
@@ -1185,7 +1188,8 @@ func (p *DynamicPolicy) groupAndAllocatePools(
 	}
 
 	// 4. Process Common Pools
-	// Pass rpPinnedCPUSet to generatePoolsAndIsolation to handle pinned resources (Legacy comment removed)
+	// Pass rpPinnedCPUSet to generatePoolsAndIsolation to handle pinned resources
+	general.Infof("commonPoolsQuantityMap: %#v, commonAvailableCPUs: %v", commonPoolsQuantityMap, commonAvailableCPUs)
 	cPools, cIso, err := p.generatePoolsAndIsolation(commonPoolsQuantityMap, isolatedQuantityMap, commonAvailableCPUs, reclaimOverlapShareRatio)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generatePoolsAndIsolation failed with error: %v", err)
