@@ -98,6 +98,7 @@ func TestBasePlugin_PackAllocationResponse(t *testing.T) {
 		primaryResourceName           string
 		expectedResp                  *pluginapi.ResourceAllocationResponse
 		expectedErr                   bool
+		resourceAllocationEnvs        map[string]map[string]string
 	}{
 		{
 			name: "empty allocationInfoMap",
@@ -256,6 +257,96 @@ func TestBasePlugin_PackAllocationResponse(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "multiple resources with env case",
+			req: &pluginapi.ResourceRequest{
+				PodUid:         "test-uid-multiple-env",
+				PodNamespace:   "test",
+				PodName:        "test",
+				ContainerName:  "test",
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				Hint: &pluginapi.TopologyHint{
+					Nodes: []uint64{0},
+				},
+				ResourceName: "test-resource-1",
+			},
+			allocationInfoMap: map[string]*state.AllocationInfo{
+				"test-resource-1": {
+					AllocatedAllocation: state.Allocation{
+						Quantity:  4,
+						NUMANodes: []int{0},
+					},
+				},
+				"test-resource-2": {
+					AllocatedAllocation: state.Allocation{
+						Quantity:  500,
+						NUMANodes: []int{0},
+					},
+				},
+			},
+			resourceAllocationAnnotations: map[string]string{
+				"test-key-2": "test-value-2",
+			},
+			resourceAllocationEnvs: map[string]map[string]string{
+				"test-resource-1": {
+					"NVIDIA_VISIBLE_DEVICES": "0,1,2,3",
+				},
+				"test-resource-2": {
+					"GPU_FRACTION": "50",
+				},
+			},
+			primaryResourceName: "test-resource-1",
+			expectedResp: &pluginapi.ResourceAllocationResponse{
+				PodUid:         "test-uid-multiple-env",
+				PodNamespace:   "test",
+				PodName:        "test",
+				ContainerName:  "test",
+				ContainerType:  pluginapi.ContainerType_MAIN,
+				ContainerIndex: 0,
+				ResourceName:   "test-resource-1",
+				AllocationResult: &pluginapi.ResourceAllocation{
+					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
+						"test-resource-1": {
+							IsNodeResource:    true,
+							IsScalarResource:  true,
+							AllocatedQuantity: 4,
+							Annotations: map[string]string{
+								"test-key-2": "test-value-2",
+							},
+							Envs: map[string]string{
+								"NVIDIA_VISIBLE_DEVICES": "0,1,2,3",
+							},
+							ResourceHints: &pluginapi.ListOfTopologyHints{
+								Hints: []*pluginapi.TopologyHint{
+									{
+										Nodes: []uint64{0},
+									},
+								},
+							},
+						},
+						"test-resource-2": {
+							IsNodeResource:    true,
+							IsScalarResource:  true,
+							AllocatedQuantity: 500,
+							Annotations: map[string]string{
+								"test-key-2": "test-value-2",
+							},
+							Envs: map[string]string{
+								"GPU_FRACTION": "50",
+							},
+							ResourceHints: &pluginapi.ListOfTopologyHints{
+								Hints: []*pluginapi.TopologyHint{
+									{
+										Nodes: []uint64{0},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -268,7 +359,7 @@ func TestBasePlugin_PackAllocationResponse(t *testing.T) {
 			basePlugin, err := NewBasePlugin(agentCtx, conf, metrics.DummyMetrics{})
 			assert.NoError(t, err)
 
-			resp, err := basePlugin.PackAllocationResponse(tt.req, tt.allocationInfoMap, tt.resourceAllocationAnnotations, tt.primaryResourceName)
+			resp, err := basePlugin.PackAllocationResponse(tt.req, tt.allocationInfoMap, tt.resourceAllocationAnnotations, tt.primaryResourceName, tt.resourceAllocationEnvs)
 			if tt.expectedErr {
 				assert.Error(t, err)
 			} else {

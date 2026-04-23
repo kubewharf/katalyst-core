@@ -38,10 +38,14 @@ type GPUQRMPluginConfig struct {
 	// RequiredDeviceAffinity specifies whether it is required for pods to follow device affinity strictly.
 	// If true, pods will fail to admit if they are not able to satisfy device affinity constraints. Set to true by default.
 	RequiredDeviceAffinity bool
-	// FractionalGPUPrefersSpreading whether fractional GPU (such as gpu memory) prefers spreading across devices
-	FractionalGPUPrefersSpreading bool
 	// EnableKubeletCheckpointFallback specifies whether to fallback to kubelet device plugin checkpoint for allocation.
 	EnableKubeletCheckpointFallback bool
+	// FractionalGPUPrefersSpreading whether fractional GPU (such as gpu memory) prefers spreading across devices
+	FractionalGPUPrefersSpreading bool
+	// GPUMemoryWeightEnvKey is the environment variable key for GPU memory weight
+	GPUMemoryWeightEnvKey string
+	// MilliGPUWeightEnvKey is the environment variable key for MilliGPU weight
+	MilliGPUWeightEnvKey string
 
 	*gpustrategy.GPUStrategyConfig
 }

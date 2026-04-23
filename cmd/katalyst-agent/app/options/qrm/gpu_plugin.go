@@ -20,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	cliflag "k8s.io/component-base/cli/flag"
 
+	"github.com/kubewharf/katalyst-api/pkg/consts"
 	"github.com/kubewharf/katalyst-core/cmd/katalyst-agent/app/options/qrm/gpustrategy"
 	qrmconfig "github.com/kubewharf/katalyst-core/pkg/config/agent/qrm"
 )
@@ -32,8 +33,10 @@ type GPUOptions struct {
 	SkipGPUStateCorruption        bool
 	RDMADeviceNames               []string
 	RequiredDeviceAffinity        bool
-	FractionalGPUPrefersSpreading bool
 	EnableKubeletCheckpointFallback bool
+	FractionalGPUPrefersSpreading bool
+	GPUMemoryWeightEnvKey         string
+	MilliGPUWeightEnvKey          string
 
 	GPUStrategyOptions *gpustrategy.GPUStrategyOptions
 }
@@ -47,8 +50,10 @@ func NewGPUOptions() *GPUOptions {
 		RDMADeviceNames:               []string{},
 		GPUStrategyOptions:            gpustrategy.NewGPUStrategyOptions(),
 		RequiredDeviceAffinity:        true,
-		FractionalGPUPrefersSpreading: false,
 		EnableKubeletCheckpointFallback: true,
+		FractionalGPUPrefersSpreading: false,
+		GPUMemoryWeightEnvKey:         consts.ResourceGPUMemoryWeightEnvKey,
+		MilliGPUWeightEnvKey:          consts.ResourceMilliGPUWeightEnvKey,
 	}
 }
 
@@ -71,6 +76,10 @@ func (o *GPUOptions) AddFlags(fss *cliflag.NamedFlagSets) {
 		o.FractionalGPUPrefersSpreading, "whether fractional GPU prefers spreading across devices")
 	fs.BoolVar(&o.EnableKubeletCheckpointFallback, "enable-kubelet-checkpoint-fallback", o.EnableKubeletCheckpointFallback,
 		"enable fallback to kubelet device plugin checkpoint for device allocation.")
+	fs.StringVar(&o.GPUMemoryWeightEnvKey, "gpu-memory-weight-env-key",
+		o.GPUMemoryWeightEnvKey, "The environment variable key for GPU memory weight")
+	fs.StringVar(&o.MilliGPUWeightEnvKey, "gpu-milligpu-weight-env-key",
+		o.MilliGPUWeightEnvKey, "The environment variable key for MilliGPU weight")
 	o.GPUStrategyOptions.AddFlags(fss)
 }
 
@@ -92,6 +101,8 @@ func (o *GPUOptions) ApplyTo(conf *qrmconfig.GPUQRMPluginConfig) error {
 	conf.RequiredDeviceAffinity = o.RequiredDeviceAffinity
 	conf.EnableKubeletCheckpointFallback = o.EnableKubeletCheckpointFallback
 	conf.FractionalGPUPrefersSpreading = o.FractionalGPUPrefersSpreading
+	conf.GPUMemoryWeightEnvKey = o.GPUMemoryWeightEnvKey
+	conf.MilliGPUWeightEnvKey = o.MilliGPUWeightEnvKey
 	if err := o.GPUStrategyOptions.ApplyTo(conf.GPUStrategyConfig); err != nil {
 		return err
 	}

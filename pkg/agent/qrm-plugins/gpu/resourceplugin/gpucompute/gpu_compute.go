@@ -44,7 +44,6 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/util/metric"
 )
 
-// TODO: change name
 type GPUComputePlugin struct {
 	sync.Mutex
 	*baseplugin.BasePlugin
@@ -668,7 +667,7 @@ func (p *GPUComputePlugin) Allocate(
 		allocationInfoMap := map[string]*state.AllocationInfo{
 			p.ResourceName(): {},
 		}
-		return p.PackAllocationResponse(resourceReq, allocationInfoMap, nil, p.ResourceName())
+		return p.PackAllocationResponse(resourceReq, allocationInfoMap, nil, p.ResourceName(), nil)
 	}
 
 	allocationInfo := p.GetState().GetAllocationInfo(consts.ResourceGPUMemory, resourceReq.PodUid, resourceReq.ContainerName)
@@ -676,7 +675,7 @@ func (p *GPUComputePlugin) Allocate(
 		allocationInfoMap := map[string]*state.AllocationInfo{
 			p.ResourceName(): allocationInfo,
 		}
-		resp, packErr := p.PackAllocationResponse(resourceReq, allocationInfoMap, nil, p.ResourceName())
+		resp, packErr := p.PackAllocationResponse(resourceReq, allocationInfoMap, nil, p.ResourceName(), nil)
 		if packErr != nil {
 			general.Errorf("pod: %s/%s, container: %s packAllocationResponse failed with error: %v",
 				resourceReq.PodNamespace, resourceReq.PodName, resourceReq.ContainerName, packErr)
@@ -762,6 +761,9 @@ func (p *GPUComputePlugin) allocate(
 
 	allocationInfoMap := make(map[string]*state.AllocationInfo)
 
+	// Map of resource name to environment variables
+	resourceAllocationEnvs := make(map[string]map[string]string)
+
 	for resName, quantity := range resourceQuantities {
 		newAllocation := &state.AllocationInfo{
 			AllocationMeta: commonstate.GenerateGenericContainerAllocationMeta(resourceReq, commonstate.EmptyOwnerPoolName, qosLevel),
@@ -801,9 +803,38 @@ func (p *GPUComputePlugin) allocate(
 		// update state cache
 		p.GetState().SetResourceState(resName, machineState, true)
 		allocationInfoMap[string(resName)] = newAllocation
+
+		// Calculate the environment variables
+		envs := p.calculateEnvVariables(resName, result.AllocatedDevices, resQuantityPerGPU)
+		if len(envs) > 0 {
+			resourceAllocationEnvs[string(resName)] = envs
+		}
 	}
 
-	return p.PackAllocationResponse(resourceReq, allocationInfoMap, nil, p.ResourceName())
+	return p.PackAllocationResponse(resourceReq, allocationInfoMap, nil, p.ResourceName(), resourceAllocationEnvs)
+}
+
+// calculateEnvVariables computes the environment variable map for a given GPU resource.
+// It calculates the allocated fraction percentage and formats it as "<deviceID>:<fraction>"
+// when exactly one device is allocated.
+func (p *GPUComputePlugin) calculateEnvVariables(resName v1.ResourceName, allocatedDevices []string, resQuantityPerGPU float64) map[string]string {
+	envKey := ""
+	if string(resName) == string(consts.ResourceGPUMemory) {
+		envKey = p.Conf.GPUMemoryWeightEnvKey
+	} else if string(resName) == string(consts.ResourceMilliGPU) {
+		envKey = p.Conf.MilliGPUWeightEnvKey
+	}
+
+	if envKey != "" && len(allocatedDevices) == 1 {
+		allocatableQuantity := p.getResourceAllocatableQuantity(string(resName))
+		if !allocatableQuantity.IsZero() {
+			fraction := (resQuantityPerGPU / float64(allocatableQuantity.Value())) * 100
+			return map[string]string{
+				envKey: fmt.Sprintf("%s:%.0f", allocatedDevices[0], fraction),
+			}
+		}
+	}
+	return nil
 }
 
 func (p *GPUComputePlugin) generateDeviceRequestForMilliGPU(resourceReq *pluginapi.ResourceRequest) (*pluginapi.DeviceRequest, error) {
