@@ -59,6 +59,7 @@ import (
 	"github.com/kubewharf/katalyst-core/pkg/config/agent/dynamic/crd"
 	"github.com/kubewharf/katalyst-core/pkg/config/generic"
 	"github.com/kubewharf/katalyst-core/pkg/metaserver"
+	"github.com/kubewharf/katalyst-core/pkg/metaserver/resourcepackage"
 	"github.com/kubewharf/katalyst-core/pkg/metrics"
 	"github.com/kubewharf/katalyst-core/pkg/util/cgroup/common"
 	"github.com/kubewharf/katalyst-core/pkg/util/general"
@@ -114,6 +115,8 @@ type DynamicPolicy struct {
 	cpuPressureEviction       agent.Component
 	cpuPressureEvictionCancel context.CancelFunc
 
+	resourcePackageManager *resourcepackage.CachedResourcePackageManager
+
 	irqTuner irqtuner.Tuner
 
 	// those are parsed from configurations
@@ -140,6 +143,7 @@ type DynamicPolicy struct {
 	numaBindingResultAnnotationKey            string
 	numaNumberAnnotationKey                   string
 	numaIDsAnnotationKey                      string
+	topologyAllocationAnnotationKey           string
 	transitionPeriod                          time.Duration
 
 	reservedReclaimedCPUsSize                 int
@@ -198,6 +202,8 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		emitter:     wrappedEmitter,
 		metaServer:  agentCtx.MetaServer,
 
+		resourcePackageManager: resourcepackage.NewCachedResourcePackageManager(agentCtx.MetaServer.ResourcePackageManager),
+
 		state:          stateImpl,
 		residualHitMap: make(map[string]int64),
 
@@ -223,14 +229,15 @@ func NewDynamicPolicy(agentCtx *agent.GenericContext, conf *config.Configuration
 		reclaimRelativeRootCgroupPath: conf.ReclaimRelativeRootCgroupPath,
 		numaBindingReclaimRelativeRootCgroupPaths: common.GetNUMABindingReclaimRelativeRootCgroupPaths(conf.ReclaimRelativeRootCgroupPath,
 			agentCtx.CPUDetails.NUMANodes().ToSliceNoSortInt()),
-		podDebugAnnoKeys:               conf.PodDebugAnnoKeys,
-		podAnnotationKeptKeys:          conf.PodAnnotationKeptKeys,
-		podLabelKeptKeys:               conf.PodLabelKeptKeys,
-		numaBindingResultAnnotationKey: conf.NUMABindingResultAnnotationKey,
-		numaNumberAnnotationKey:        conf.NUMANumberAnnotationKey,
-		numaIDsAnnotationKey:           conf.NUMAIDsAnnotationKey,
-		transitionPeriod:               30 * time.Second,
-		reservedReclaimedCPUsSize:      general.Max(reservedReclaimedCPUsSize, agentCtx.KatalystMachineInfo.NumNUMANodes),
+		podDebugAnnoKeys:                conf.PodDebugAnnoKeys,
+		podAnnotationKeptKeys:           conf.PodAnnotationKeptKeys,
+		podLabelKeptKeys:                conf.PodLabelKeptKeys,
+		numaBindingResultAnnotationKey:  conf.NUMABindingResultAnnotationKey,
+		numaNumberAnnotationKey:         conf.NUMANumberAnnotationKey,
+		numaIDsAnnotationKey:            conf.NUMAIDsAnnotationKey,
+		topologyAllocationAnnotationKey: conf.TopologyAllocationAnnotationKey,
+		transitionPeriod:                30 * time.Second,
+		reservedReclaimedCPUsSize:       general.Max(reservedReclaimedCPUsSize, agentCtx.KatalystMachineInfo.NumNUMANodes),
 	}
 
 	// initialize hint optimizer
@@ -319,23 +326,25 @@ func (p *DynamicPolicy) Start() (err error) {
 	general.Infof("called")
 
 	p.Lock()
-	defer func() {
-		if !p.started {
-			if err == nil {
-				p.started = true
-			} else {
-				close(p.stopCh)
-			}
-		}
-		p.Unlock()
-	}()
-
 	if p.started {
 		general.Infof("is already started")
+		p.Unlock()
 		return nil
 	}
-
+	p.started = true
 	p.stopCh = make(chan struct{})
+	p.Unlock()
+
+	defer func() {
+		if err != nil {
+			p.Lock()
+			if p.started {
+				p.started = false
+				close(p.stopCh)
+			}
+			p.Unlock()
+		}
+	}()
 
 	if p.irqTuner != nil {
 		go p.irqTuner.Run(p.stopCh)
@@ -385,9 +394,13 @@ func (p *DynamicPolicy) Start() (err error) {
 
 	// start cpu-pressure eviction plugin if needed
 	if p.cpuPressureEviction != nil {
-		var ctx context.Context
-		ctx, p.cpuPressureEvictionCancel = context.WithCancel(context.Background())
-		go p.cpuPressureEviction.Run(ctx)
+		p.Lock()
+		if p.started {
+			var ctx context.Context
+			ctx, p.cpuPressureEvictionCancel = context.WithCancel(context.Background())
+			go p.cpuPressureEviction.Run(ctx)
+		}
+		p.Unlock()
 	}
 
 	go wait.Until(func() {
@@ -460,6 +473,14 @@ func (p *DynamicPolicy) Start() (err error) {
 
 	go wait.BackoffUntil(communicateWithCPUAdvisorServer, wait.NewExponentialBackoffManager(800*time.Millisecond,
 		30*time.Second, 2*time.Minute, 2.0, 0, &clock.RealClock{}), true, p.stopCh)
+
+	err = p.resourcePackageManager.Run(p.stopCh)
+	if err != nil {
+		return fmt.Errorf("resourcePackageManager.Run failed with error: %v", err)
+	}
+
+	p.syncResourcePackagePinnedCPUSet()
+	go wait.Until(p.syncResourcePackagePinnedCPUSet, 30*time.Second, p.stopCh)
 
 	err = p.sharedCoresNUMABindingHintOptimizer.Run(p.stopCh)
 	if err != nil {
@@ -979,30 +1000,24 @@ func (p *DynamicPolicy) Allocate(ctx context.Context,
 			"originalAllocationResult", allocationInfo.OriginalAllocationResult.String(),
 			"currentResult", allocationInfo.AllocationResult.String())
 
-		return &pluginapi.ResourceAllocationResponse{
-			PodUid:         req.PodUid,
-			PodNamespace:   req.PodNamespace,
-			PodName:        req.PodName,
-			ContainerName:  req.ContainerName,
-			ContainerType:  req.ContainerType,
-			ContainerIndex: req.ContainerIndex,
-			PodRole:        req.PodRole,
-			PodType:        req.PodType,
-			ResourceName:   string(v1.ResourceCPU),
-			AllocationResult: &pluginapi.ResourceAllocation{
-				ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
-					string(v1.ResourceCPU): {
-						OciPropertyName:   util.OCIPropertyNameCPUSetCPUs,
-						IsNodeResource:    false,
-						IsScalarResource:  true,
-						AllocatedQuantity: float64(allocationInfo.AllocationResult.Size()),
-						AllocationResult:  allocationInfo.AllocationResult.String(),
-					},
-				},
-			},
-			Labels:      general.DeepCopyMap(req.Labels),
-			Annotations: general.DeepCopyMap(req.Annotations),
-		}, nil
+		// Add topologyAllocationAnnotations for numa binding containers
+		var topologyAllocationAnnotations map[string]string
+		if allocationInfo.CheckNUMABinding() {
+			topologyAllocationAnnotations, err = cpuutil.GetCPUTopologyAllocationsAnnotations(allocationInfo, p.topologyAllocationAnnotationKey, req)
+			if err != nil {
+				return nil, fmt.Errorf("GetCPUTopologyAllocationsAnnotations failed with error: %v", err)
+			}
+		}
+
+		resp, err = cpuutil.PackAllocationResponse(allocationInfo, string(v1.ResourceCPU), util.OCIPropertyNameCPUSetCPUs,
+			false, true, req, topologyAllocationAnnotations)
+		if err != nil {
+			general.Errorf("pod: %s/%s, container: %s PackResourceAllocationResponseByAllocationInfo failed with error: %v",
+				req.PodNamespace, req.PodName, req.ContainerName, err)
+			return nil, fmt.Errorf("PackResourceAllocationResponseByAllocationInfo failed with error: %v", err)
+		}
+
+		return resp, nil
 	}
 
 	if p.allocationHandlers[qosLevel] == nil {
@@ -1075,7 +1090,7 @@ func (p *DynamicPolicy) RemovePod(ctx context.Context,
 		return nil, fmt.Errorf("failed to release accompany resource %v", err)
 	}
 
-	aErr := p.adjustAllocationEntries(false)
+	aErr := p.adjustAllocationEntries(podEntries, p.state.GetMachineState(), false)
 	if aErr != nil {
 		general.ErrorS(aErr, "adjustAllocationEntries failed", "podUID", req.PodUid)
 	}
@@ -1170,11 +1185,12 @@ func (p *DynamicPolicy) initHintOptimizers() error {
 
 func (p *DynamicPolicy) generateHintOptimizerFactoryOptions() policy.HintOptimizerFactoryOptions {
 	return policy.HintOptimizerFactoryOptions{
-		Conf:         p.conf,
-		Emitter:      p.emitter,
-		MetaServer:   p.metaServer,
-		State:        p.state,
-		ReservedCPUs: p.reservedCPUs,
+		Conf:                   p.conf,
+		Emitter:                p.emitter,
+		MetaServer:             p.metaServer,
+		ResourcePackageManager: p.resourcePackageManager,
+		State:                  p.state,
+		ReservedCPUs:           p.reservedCPUs,
 	}
 }
 

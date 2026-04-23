@@ -37,6 +37,7 @@ type Manager interface {
 	ApplyMemory(absCgroupPath string, data *common.MemoryData) error
 	ApplyCPU(absCgroupPath string, data *common.CPUData) error
 	ApplyCPUSet(absCgroupPath string, data *common.CPUSetData) error
+	ApplyCPUSetPartition(absCgroupPath string, partitionFlag common.CPUSetPartitionFlag) error
 	ApplyNetCls(absCgroupPath string, data *common.NetClsData) error
 	ApplyIOCostQoS(absCgroupPath string, devID string, data *common.IOCostQoSData) error
 	ApplyIOCostModel(absCgroupPath string, devID string, data *common.IOCostModelData) error

@@ -1148,11 +1148,12 @@ func TestRNBMemoryVPA(t *testing.T) {
 				AllocationResult: &pluginapi.ResourceAllocation{
 					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
 						string(v1.ResourceMemory): {
-							OciPropertyName:   util.OCIPropertyNameCPUSetMems,
-							IsNodeResource:    false,
-							IsScalarResource:  true,
-							AllocatedQuantity: 3221225472,
-							AllocationResult:  machine.NewCPUSet(0, 1, 2, 3).String(),
+							OciPropertyName:     util.OCIPropertyNameCPUSetMems,
+							IsNodeResource:      false,
+							IsScalarResource:    true,
+							AllocatedQuantity:   3221225472,
+							AllocationResult:    machine.NewCPUSet(0, 1, 2, 3).String(),
+							TopologyAssignments: map[uint64]uint64{},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{nil},
 							},
@@ -1242,11 +1243,12 @@ func TestRNBMemoryVPA(t *testing.T) {
 				AllocationResult: &pluginapi.ResourceAllocation{
 					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
 						string(v1.ResourceMemory): {
-							OciPropertyName:   util.OCIPropertyNameCPUSetMems,
-							IsNodeResource:    false,
-							IsScalarResource:  true,
-							AllocatedQuantity: 1073741824,
-							AllocationResult:  machine.NewCPUSet(0).String(),
+							OciPropertyName:     util.OCIPropertyNameCPUSetMems,
+							IsNodeResource:      false,
+							IsScalarResource:    true,
+							AllocatedQuantity:   1073741824,
+							AllocationResult:    machine.NewCPUSet(0).String(),
+							TopologyAssignments: map[uint64]uint64{},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -1257,6 +1259,7 @@ func TestRNBMemoryVPA(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								coreconsts.QRMResourceAnnotationKeyNUMABindResult: "0",
+								coreconsts.QRMPodAnnotationTopologyAllocationKey:  `{"Numa":{"0":{}}}`,
 							},
 						},
 					},
@@ -1345,11 +1348,12 @@ func TestRNBMemoryVPA(t *testing.T) {
 				AllocationResult: &pluginapi.ResourceAllocation{
 					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
 						string(v1.ResourceMemory): {
-							OciPropertyName:   util.OCIPropertyNameCPUSetMems,
-							IsNodeResource:    false,
-							IsScalarResource:  true,
-							AllocatedQuantity: 3221225472,
-							AllocationResult:  machine.NewCPUSet(0).String(),
+							OciPropertyName:     util.OCIPropertyNameCPUSetMems,
+							IsNodeResource:      false,
+							IsScalarResource:    true,
+							AllocatedQuantity:   3221225472,
+							AllocationResult:    machine.NewCPUSet(0).String(),
+							TopologyAssignments: map[uint64]uint64{},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -1360,6 +1364,7 @@ func TestRNBMemoryVPA(t *testing.T) {
 							},
 							Annotations: map[string]string{
 								coreconsts.QRMResourceAnnotationKeyNUMABindResult: "0",
+								coreconsts.QRMPodAnnotationTopologyAllocationKey:  `{"Numa":{"0":{}}}`,
 							},
 						},
 					},
@@ -1483,11 +1488,12 @@ func TestRNBMemoryVPA(t *testing.T) {
 				AllocationResult: &pluginapi.ResourceAllocation{
 					ResourceAllocation: map[string]*pluginapi.ResourceAllocationInfo{
 						string(v1.ResourceMemory): {
-							OciPropertyName:   util.OCIPropertyNameCPUSetMems,
-							IsNodeResource:    false,
-							IsScalarResource:  true,
-							AllocatedQuantity: 6442450944,
-							AllocationResult:  machine.NewCPUSet(0, 1).String(),
+							OciPropertyName:     util.OCIPropertyNameCPUSetMems,
+							IsNodeResource:      false,
+							IsScalarResource:    true,
+							AllocatedQuantity:   6442450944,
+							AllocationResult:    machine.NewCPUSet(0, 1).String(),
+							TopologyAssignments: map[uint64]uint64{},
 							ResourceHints: &pluginapi.ListOfTopologyHints{
 								Hints: []*pluginapi.TopologyHint{
 									{
@@ -1495,6 +1501,9 @@ func TestRNBMemoryVPA(t *testing.T) {
 										Preferred: true,
 									},
 								},
+							},
+							Annotations: map[string]string{
+								coreconsts.QRMPodAnnotationTopologyAllocationKey: `{"Numa":{"0":{},"1":{}}}`,
 							},
 						},
 					},
@@ -1564,8 +1573,8 @@ func TestRNBMemoryVPA(t *testing.T) {
 
 			if tc.PodEntries != nil {
 				podResourceEntries := map[v1.ResourceName]state.PodEntries{v1.ResourceMemory: tc.PodEntries}
-				machineState, err := state.GenerateMachineStateFromPodEntries(machineInfo, podResourceEntries, nil,
-					dynamicPolicy.state.GetReservedMemory())
+				machineState, err := state.GenerateMachineStateFromPodEntries(machineInfo, nil, podResourceEntries, nil,
+					dynamicPolicy.state.GetReservedMemory(), nil)
 				as.Nil(err)
 
 				dynamicPolicy.state.SetMachineState(machineState, true)
